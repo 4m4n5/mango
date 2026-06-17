@@ -17,6 +17,7 @@ Helper scripts: `scripts/phase0/`
 
 - [x] Receiver in Pi USB port (`lsusb` → `1a86:fe18 FastPad-KEY`)
 - [x] **FastPad (keyboard-mode):** `bash scripts/phase0/map-gamepad-ssh.sh` → preset `mango-tv`, autoload on
+- [x] **Stay connected:** `bash scripts/phase0/fix-gamepad-stay-awake.sh` (USB power + remap on reconnect)
 - [ ] Gamepad navigates desktop apps (file manager, menus) — verify before sign-off
 - [ ] _(N/A)_ Joystick pad path: `jstest` + antimicrox
 

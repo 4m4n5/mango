@@ -33,7 +33,24 @@ Follow prompts: press each D-pad direction, A, and B once. Reboot-safe autoload 
 
 Remapped to ↑ ↓ ← → Return Esc via preset `mango-tv` in `~/.config/input-remapper-2/`.
 
-GUI (optional, needs mouse or working keyboard): `install-gamepad-remap.sh` then Input Remapper from the app menu.
+## Disconnects / goes idle
+
+**Pi (dongle USB sleep):**
+
+```bash
+bash scripts/phase0/fix-gamepad-stay-awake.sh
+```
+
+Disables USB autosuspend for the FastPad receiver and re-applies `mango-tv` after reconnect.
+
+**Controller (pad ↔ dongle wireless):** the Pi cannot keep the pad awake. If it drops after a few minutes idle:
+
+- Replace or charge batteries
+- Press any button to wake
+- Hold **pair/sync** on the pad until linked to the dongle
+- Keep dongle in a **direct** Pi USB port
+
+After a drop, wait 2s and press a button — remap should return automatically if `fix-gamepad-stay-awake.sh` ran.
 
 **See what keys it sends:**
 
