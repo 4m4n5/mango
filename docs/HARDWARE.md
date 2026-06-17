@@ -30,7 +30,7 @@ bash scripts/phase0/launch-kodi.sh      # Kodi
 bash scripts/phase0/launch-stremio.sh   # Stremio
 ```
 
-Both apps use `map-pro-controller.sh` — D-pad → arrows, A → Return, B → Escape.
+Both apps use `map-pro-controller.sh` — D-pad → arrows, **B → Return**, **A → Escape** (Micro default).
 
 If A/B reversed: `bash scripts/phase0/map-pro-controller.sh --swap-ab`
 

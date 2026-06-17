@@ -14,9 +14,10 @@ killall kodi kodi.bin 2>/dev/null || true
 sleep 1
 
 bash "$SCRIPT_DIR/map-pro-controller.sh"
+bash "$SCRIPT_DIR/kodi-keyboard-only.sh" 2>/dev/null || true
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
-echo "Starting Kodi — D-pad = move, A = select, B = back"
+echo "Starting Kodi — D-pad = move, B = select, A = back"
 kodi &

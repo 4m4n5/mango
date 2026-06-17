@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # 8BitDo Micro (Switch BT → "Pro Controller") → keyboard for Kodi/Stremio.
 #
-# The Micro has D-pad + XYAB only — no stick. In Switch mode Linux reports the
-# D-pad as ABS_X/ABS_Y (codes 0/1), not hat axes — evtest will show ABS_X when
-# you press D-pad directions. We map both axis styles so other modes still work.
+# D-pad shows as ABS_X/ABS_Y (codes 0/1) in Switch mode — not hat axes.
+# input-remapper rejects analog_threshold ±100 (max is ±99) — use ±80.
 #
 # Run on the Pi: bash scripts/phase0/map-pro-controller.sh
 
@@ -18,28 +17,33 @@ PRESET_FILE="${PRESET_DIR}/${PRESET_NAME}.json"
 SWAP_AB=false
 [[ "${1:-}" == "--swap-ab" ]] && SWAP_AB=true
 
+# Micro reports BTN_EAST (305) as the confirm button in Kodi — default swapped.
 if $SWAP_AB; then
-  A_CODE=305
-  B_CODE=304
+  CONFIRM_CODE=304   # BTN_SOUTH
+  BACK_CODE=305      # BTN_EAST
 else
-  A_CODE=304   # BTN_SOUTH (A)
-  B_CODE=305   # BTN_EAST (B)
+  CONFIRM_CODE=305   # BTN_EAST → Return (select)
+  BACK_CODE=304      # BTN_SOUTH → Esc (back)
 fi
 
 mkdir -p "$PRESET_DIR"
 
 cat >"$PRESET_FILE" <<EOF
 [
-  {"input_combination": [{"type": 3, "code": 0, "analog_threshold": -100}], "target_uinput": "keyboard", "output_symbol": "Left", "release_combination_keys": true},
-  {"input_combination": [{"type": 3, "code": 0, "analog_threshold": 100}], "target_uinput": "keyboard", "output_symbol": "Right", "release_combination_keys": true},
-  {"input_combination": [{"type": 3, "code": 1, "analog_threshold": -100}], "target_uinput": "keyboard", "output_symbol": "Up", "release_combination_keys": true},
-  {"input_combination": [{"type": 3, "code": 1, "analog_threshold": 100}], "target_uinput": "keyboard", "output_symbol": "Down", "release_combination_keys": true},
-  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": -100}], "target_uinput": "keyboard", "output_symbol": "Left", "release_combination_keys": true},
-  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": 100}], "target_uinput": "keyboard", "output_symbol": "Right", "release_combination_keys": true},
-  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": -100}], "target_uinput": "keyboard", "output_symbol": "Up", "release_combination_keys": true},
-  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": 100}], "target_uinput": "keyboard", "output_symbol": "Down", "release_combination_keys": true},
-  {"input_combination": [{"type": 1, "code": ${A_CODE}}], "target_uinput": "keyboard", "output_symbol": "Return"},
-  {"input_combination": [{"type": 1, "code": ${B_CODE}}], "target_uinput": "keyboard", "output_symbol": "Esc"}
+  {"input_combination": [{"type": 3, "code": 0, "analog_threshold": -80}], "target_uinput": "keyboard", "output_symbol": "Left", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 0, "analog_threshold": 80}], "target_uinput": "keyboard", "output_symbol": "Right", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 1, "analog_threshold": -80}], "target_uinput": "keyboard", "output_symbol": "Up", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 1, "analog_threshold": 80}], "target_uinput": "keyboard", "output_symbol": "Down", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": -80}], "target_uinput": "keyboard", "output_symbol": "Left", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": 80}], "target_uinput": "keyboard", "output_symbol": "Right", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": -80}], "target_uinput": "keyboard", "output_symbol": "Up", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": 80}], "target_uinput": "keyboard", "output_symbol": "Down", "release_combination_keys": true},
+  {"input_combination": [{"type": 1, "code": 544}], "target_uinput": "keyboard", "output_symbol": "Up"},
+  {"input_combination": [{"type": 1, "code": 545}], "target_uinput": "keyboard", "output_symbol": "Down"},
+  {"input_combination": [{"type": 1, "code": 546}], "target_uinput": "keyboard", "output_symbol": "Left"},
+  {"input_combination": [{"type": 1, "code": 547}], "target_uinput": "keyboard", "output_symbol": "Right"},
+  {"input_combination": [{"type": 1, "code": ${CONFIRM_CODE}}], "target_uinput": "keyboard", "output_symbol": "Return"},
+  {"input_combination": [{"type": 1, "code": ${BACK_CODE}}], "target_uinput": "keyboard", "output_symbol": "Esc"}
 ]
 EOF
 
@@ -61,10 +65,12 @@ PY
 sudo systemctl start input-remapper 2>/dev/null || true
 sudo input-remapper-control --command start-reader-service -d 2>/dev/null || true
 input-remapper-control --command stop --device "$DEVICE_NAME" 2>/dev/null || true
+input-remapper-control --command stop --device "Pro Controller (IMU)" 2>/dev/null || true
+sleep 1
 input-remapper-control --command start --device "$DEVICE_NAME" --preset "$PRESET_NAME"
 
 echo "=== mango-tv map applied (8BitDo Micro) ==="
 echo "  D-pad → arrows"
-echo "  A     → Return (select)"
-echo "  B     → Escape (back)"
+echo "  B (east)  → Return (select) — default for Micro"
+echo "  A (south) → Escape (back)"
 echo "Try --swap-ab if A/B feel reversed."
