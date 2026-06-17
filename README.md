@@ -4,7 +4,7 @@ AI + streaming TV box for **Raspberry Pi 5** — Stremio, YouTube (Kodi), and vo
 
 ## Status
 
-**Phase 0 in progress** — Pi booted, X11 OK, FastPad mapped. **Next:** `bootstrap.sh` (deps, Kodi, Stremio). See [`docs/phase0-checklist.md`](docs/phase0-checklist.md).
+**Phase 0 in progress** — Kodi + YouTube addon + 8BitDo Micro gamepad working. **Next:** JSON-RPC, Stremio + gamepad, sign-off. See [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
 
 ## Docs
 
@@ -23,7 +23,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 
 - Pi 5 8GB · Pi OS Desktop · X11 + Openbox
 - Stremio (fragarray ARM64 `.deb`) + Kodi YouTube
-- Phone = mic + remote (HTTPS) · USB gamepad = TV navigation
+- Phone = mic + remote (HTTPS) · 8BitDo Micro = TV navigation
 - Hybrid cloud LLM · local Whisper + Piper on Pi
 
 ## Repository layout
@@ -37,4 +37,4 @@ src/              application code (Phase 1+)
 
 ## Hardware
 
-Pi 5 8GB CanaKit · 128GB SD · USB gamepad · phone · TV (HDMI). Details in [`docs/HARDWARE.md`](docs/HARDWARE.md).
+- Pi 5 8GB · 128GB SD · **8BitDo Micro** (Bluetooth) · phone · TV (HDMI). Details in [`docs/HARDWARE.md`](docs/HARDWARE.md).

@@ -8,10 +8,11 @@ Read before implementing. **Phase 0 on real Pi must pass before `src/` work** (s
 
 | Done | Pending |
 |------|---------|
-| Pi OS Desktop, X11/Openbox, SSH | `bootstrap.sh` — deps, Kodi, Stremio |
-| `verify-system.sh` passes | Kodi YouTube + JSON-RPC |
-| FastPad → `map-gamepad-ssh.sh` (`mango-tv`) | Stremio login + addons |
-| | Phase 0 sign-off → Phase 1 `src/` |
+| Pi OS Desktop, X11/Openbox, SSH | Kodi JSON-RPC + `test-kodi-rpc.sh` |
+| Kodi + Stremio installed | Stremio login + addons + gamepad |
+| 8BitDo Micro — D-pad / B / Y in Kodi | YouTube playback sign-off |
+| YouTube addon + InputStream Adaptive | 30 min stability sign-off |
+| `map-pro-controller.sh` preset `mango-tv` | Phase 1 launcher (`src/`) |
 
 Pi: `aman@mango.local` · `10.0.0.174`
 
@@ -19,18 +20,19 @@ Pi: `aman@mango.local` · `10.0.0.174`
 
 | Doc | Use |
 |-----|-----|
-| [`docs/PLAN.md`](docs/PLAN.md) | Implementation phases — **start here** |
-| [`docs/DESIGN.md`](docs/DESIGN.md) | V1 scope, architecture, success criteria |
-| [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked choices (LLM, Stremio .deb, mkcert, Vite, X11) |
-| [`docs/phase0-checklist.md`](docs/phase0-checklist.md) | On-Pi bring-up before coding |
-| [`docs/HARDWARE.md`](docs/HARDWARE.md) | Gamepad + phone setup |
+| [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) | **Current next steps** |
+| [`docs/phase0-checklist.md`](docs/phase0-checklist.md) | On-Pi bring-up checklist |
+| [`docs/kodi-youtube-setup.md`](docs/kodi-youtube-setup.md) | YouTube addon + InputStream |
+| [`docs/HARDWARE.md`](docs/HARDWARE.md) | 8BitDo Micro layout |
+| [`docs/PLAN.md`](docs/PLAN.md) | Implementation phases |
+| [`docs/DESIGN.md`](docs/DESIGN.md) | V1 scope, architecture |
 
 ## Stack
 
 - Pi 5 8GB · Pi OS Desktop · **X11 + Openbox** (not Wayland)
-- Stremio: fragarray ARM64 `.deb` · YouTube: Kodi + addon
+- Stremio: fragarray ARM64 `.deb` · YouTube: Kodi + `plugin.video.youtube`
 - Python orchestrator · Node stremio-service · Vite + vanilla TS (launcher, overlay, companion)
-- Phone PTT over **HTTPS** (mkcert) · gamepad = TV nav
+- Phone PTT over **HTTPS** (mkcert) · 8BitDo Micro = TV nav (input-remapper)
 
 ## Rules
 

@@ -1,6 +1,6 @@
 # Phase 0 — Software checklist
 
-**Hardware first:** [`GETTING-STARTED.md`](GETTING-STARTED.md) · [`HARDWARE.md`](HARDWARE.md)
+**Hardware:** [`GETTING-STARTED.md`](GETTING-STARTED.md) · [`HARDWARE.md`](HARDWARE.md) · [`kodi-youtube-setup.md`](kodi-youtube-setup.md)
 
 Helper scripts: `scripts/phase0/`
 
@@ -8,7 +8,7 @@ Helper scripts: `scripts/phase0/`
 
 - [x] Flash Pi OS Desktop 64-bit (hostname `mango`)
 - [x] Boot desktop, network up
-- [ ] `sudo apt update && sudo apt full-upgrade -y` (optional; run if not done)
+- [ ] `sudo apt update && sudo apt full-upgrade -y` (optional)
 - [x] `bash scripts/phase0/switch-to-x11.sh` → reboot
 - [x] `bash scripts/phase0/verify-system.sh` — all green
 - [x] X11 confirmed (`openbox` running)
@@ -23,7 +23,9 @@ Helper scripts: `scripts/phase0/`
 ## Kodi + YouTube
 
 - [x] Kodi installed
-- [ ] YouTube addon installed; play a video with gamepad
+- [x] InputStream Adaptive (`install-kodi-inputstream.sh`)
+- [x] YouTube addon installed (zip v7.4.3 + setup wizard)
+- [ ] Play a video with gamepad
 - [ ] JSON-RPC enabled (port 8080, user/pass set)
 - [ ] `bash scripts/phase0/test-kodi-rpc.sh <user> <pass>`
 
@@ -41,7 +43,7 @@ Helper scripts: `scripts/phase0/`
 
 ## Sign-off
 
-- [ ] All items above checked
+- [ ] All unchecked items above done
 - [ ] Ready for Phase 1 (launcher code)
 
 **Pi IP:** `10.0.0.174` · **SSH:** `aman@mango.local`  
