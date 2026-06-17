@@ -78,16 +78,19 @@ done
 echo "Event: $EVENT_DEV"
 
 # --- 4. Map ---
-echo
-echo "Press D-pad UP once (5s)..."
-SAMPLE=$(timeout 5 sudo evtest "$EVENT_DEV" 2>&1 | grep -m1 -E 'EV_ABS.*code 17|EV_KEY' || true)
+if [[ "$DEVICE_NAME" == "Pro Controller" ]]; then
+  echo "Pro Controller → fixed hat D-pad preset (no SSH capture)."
+  bash "$SCRIPT_DIR/map-pro-controller.sh"
+else
+  echo "Press D-pad UP once (5s)..."
+  SAMPLE=$(timeout 5 sudo evtest "$EVENT_DEV" 2>&1 | grep -m1 -E 'EV_ABS.*code 17|EV_KEY' || true)
 
-if echo "$SAMPLE" | grep -q 'EV_ABS'; then
-  echo "Using hat-axis D-pad (normal for 8BitDo Switch/BT)."
-  CONFIG_ROOT="${HOME}/.config/input-remapper-2"
-  PRESET="${CONFIG_ROOT}/presets/${DEVICE_NAME}/mango-tv.json"
-  mkdir -p "$(dirname "$PRESET")"
-  cat >"$PRESET" <<'EOF'
+  if echo "$SAMPLE" | grep -q 'EV_ABS'; then
+    echo "Using hat-axis D-pad."
+    CONFIG_ROOT="${HOME}/.config/input-remapper-2"
+    PRESET="${CONFIG_ROOT}/presets/${DEVICE_NAME}/mango-tv.json"
+    mkdir -p "$(dirname "$PRESET")"
+    cat >"$PRESET" <<'EOF'
 [
   {"input_combination": [{"type": 3, "code": 17, "analog_threshold": -50}], "target_uinput": "keyboard", "output_symbol": "Up"},
   {"input_combination": [{"type": 3, "code": 17, "analog_threshold": 50}], "target_uinput": "keyboard", "output_symbol": "Down"},
@@ -95,11 +98,12 @@ if echo "$SAMPLE" | grep -q 'EV_ABS'; then
   {"input_combination": [{"type": 3, "code": 16, "analog_threshold": 50}], "target_uinput": "keyboard", "output_symbol": "Right"}
 ]
 EOF
-  echo ">>> Press A (confirm), then B (back):"
-  bash "$SCRIPT_DIR/map-gamepad-ssh.sh" --device "$EVENT_DEV" --name "$DEVICE_NAME" --buttons-only
-else
-  echo "Using button D-pad — capture all six buttons:"
-  bash "$SCRIPT_DIR/map-gamepad-ssh.sh" --device "$EVENT_DEV" --name "$DEVICE_NAME"
+    echo ">>> Press A (confirm), then B (back):"
+    bash "$SCRIPT_DIR/map-gamepad-ssh.sh" --device "$EVENT_DEV" --name "$DEVICE_NAME" --buttons-only
+  else
+    echo "Using button capture for all six inputs:"
+    bash "$SCRIPT_DIR/map-gamepad-ssh.sh" --device "$EVENT_DEV" --name "$DEVICE_NAME"
+  fi
 fi
 
 sudo systemctl enable bluetooth input-remapper 2>/dev/null || true

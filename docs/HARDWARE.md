@@ -16,8 +16,7 @@ cd ~/mango && git pull
 bash scripts/phase0/setup-8bitdo-bt.sh
 ```
 
-3. Pair in **Switch mode**: hold **START + Y** ~3s until LEDs flash, then `bluetoothctl` → `pair` / `trust` / `connect`.
-4. Linux often shows it as **`Pro Controller`** (not "8BitDo") — that's correct.
+3. Pair in **Switch mode**: hold **START + Y** ~3s until LEDs flash, then `bluetoothctl` → `pair` / `trust` / `connect`. Linux lists it as **`Pro Controller`** — that's your 8BitDo.
 4. Script maps **D-pad → arrows**, **A → Return**, **B → Escape** (preset `mango-tv`).
 
 **Reconnect after sleep:**
@@ -36,7 +35,11 @@ DISPLAY=:0 stremio &
 
 **Pad controls:** D-pad = move focus · A = select · B = back
 
-To remove old FastPad config only: `bash scripts/phase0/remove-fastpad.sh`
+**Wrong map after SSH capture?** Pro Controller D-pad is hat axes — run:
+
+```bash
+bash scripts/phase0/map-pro-controller.sh
+```
 
 ---
 
