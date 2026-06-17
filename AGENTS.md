@@ -4,15 +4,15 @@
 
 Read before implementing. **Phase 0 on real Pi must pass before `src/` work** (see checklist).
 
-## Progress (2026-06-17)
+## Progress (2026-06-15)
 
-| Done | Pending |
-|------|---------|
-| Pi OS Desktop, X11/Openbox, SSH | Stremio login + addons + gamepad |
-| Kodi + YouTube addon + InputStream | Kodi YouTube playback sign-off |
-| 8BitDo Micro — D-pad / B / Y in Kodi | 30 min stability sign-off |
-| Kodi JSON-RPC (`mango` @ :8080) | Phase 1 launcher (`src/`) |
-| `map-pro-controller.sh` preset `mango-tv` | |
+| Done | Pending / blocked |
+|------|-------------------|
+| Pi OS Desktop, X11/Openbox, SSH | Stremio login + addons (mouse pending) |
+| Kodi + YouTube addon + InputStream | Kodi YouTube playback sign-off ← **next** |
+| 8BitDo Micro — D-pad / B / Y in Kodi ✓ | Stremio gamepad (bridge unverified) |
+| Kodi JSON-RPC (`mango` @ :8080) | 30 min stability sign-off |
+| Stremio installed + launch/reset scripts | Phase 1 launcher (`src/`) |
 
 Pi: `aman@mango.local` · `10.0.0.174`
 
@@ -32,7 +32,7 @@ Pi: `aman@mango.local` · `10.0.0.174`
 - Pi 5 8GB · Pi OS Desktop · **X11 + Openbox** (not Wayland)
 - Stremio: fragarray ARM64 `.deb` · YouTube: Kodi + `plugin.video.youtube`
 - Python orchestrator · Node stremio-service · Vite + vanilla TS (launcher, overlay, companion)
-- Phone PTT over **HTTPS** (mkcert) · 8BitDo Micro = TV nav (input-remapper)
+- Phone PTT over **HTTPS** (mkcert) · 8BitDo Micro = TV nav (input-remapper; Stremio uses xdotool bridge)
 
 ## Rules
 

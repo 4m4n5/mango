@@ -1,6 +1,7 @@
 # Hardware — mango
 
-**Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone · TV
+**Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone · TV  
+**Incoming:** USB mouse (for Stremio first-time login until pad bridge is verified)
 
 - **SD card:** flash on Mac via Imager, then insert in Pi underside slot
 - **Gamepad:** 8BitDo Micro — D-pad + XYAB only (no stick)
@@ -46,7 +47,7 @@ bash scripts/phase0/launch-stremio.sh   # Stremio
 Both launchers apply gamepad mapping automatically.
 
 - **Kodi** — `input-remapper` preset `mango-tv`
-- **Stremio** — `stremio-pad-bridge` (xdotool; Qt ignores remapper)
+- **Stremio** — `stremio-pad-bridge` (xdotool; Qt ignores remapper) — *unverified on device; use mouse for Stremio setup for now*
 
 ### First-time pair
 
