@@ -1,71 +1,46 @@
 # Hardware — mango
 
-**Have:** Pi 5 8GB CanaKit · 128GB SD · USB gamepad · phone · TV
+**Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Bluetooth controller** · phone · TV
 
 - **SD card:** flash on Mac via Imager, then insert in Pi underside slot
-- **Gamepad:** USB receiver in Pi — primary TV remote
+- **Gamepad:** 8BitDo over **Bluetooth** (primary TV remote)
 - **Phone:** mic + companion app (later, over WiFi)
 
-## FastPad (keyboard-mode dongle)
+## 8BitDo Bluetooth (recommended)
 
-The FastPad dongle (`1a86:fe18`, `FastPad-KEY`) registers as a **USB keyboard**, not `/dev/input/js*`. Wrong letters on D-pad/buttons are normal — remap them.
-
-**Try first:** mode / home button on the pad (some firmwares have a second layout).
-
-**Fix (recommended):** input-remapper — **no mouse needed**, map over SSH:
+1. **Unplug** the old FastPad USB dongle.
+2. Run on the Pi:
 
 ```bash
-bash scripts/phase0/map-gamepad-ssh.sh
+cd ~/mango && git pull
+bash scripts/phase0/setup-8bitdo-bt.sh
 ```
 
-Follow prompts: press each D-pad direction, A, and B once. Reboot-safe autoload is configured automatically.
+3. Pair in **Switch mode**: hold **START + Y** ~3s until LEDs flash, then `bluetoothctl` → `pair` / `trust` / `connect`.
+4. Script maps **D-pad → arrows**, **A → Return**, **B → Escape** (preset `mango-tv`).
 
-**Captured raw map (this unit):**
-
-| Pad | Raw key | Code |
-|-----|---------|------|
-| D-pad up | `A` | 30 |
-| D-pad down | `D` | 32 |
-| D-pad left | `S` | 31 |
-| D-pad right | `W` | 17 |
-| A | `T` | 20 |
-| B | `Y` | 21 |
-
-Remapped to ↑ ↓ ← → Return Esc via preset `mango-tv` in `~/.config/input-remapper-2/`.
-
-## Disconnects / goes idle
-
-**If connect/disconnect loop after `fix-gamepad-stay-awake.sh`:**
+**Reconnect after sleep:**
 
 ```bash
-bash scripts/phase0/undo-gamepad-stay-awake.sh
+bluetoothctl connect AA:BB:CC:DD:EE:FF   # your controller MAC
+input-remapper-control --command autoload
 ```
 
-Then re-run the safe USB-only fix:
+**Launch apps from SSH (until Phase 1 launcher):**
 
 ```bash
-bash scripts/phase0/fix-gamepad-stay-awake.sh
+DISPLAY=:0 kodi &
+DISPLAY=:0 stremio &
 ```
 
-**Pi (dongle USB sleep)** — disables autosuspend only (no udev autoload hooks):
+**Pad controls:** D-pad = move focus · A = select · B = back
 
-```bash
-bash scripts/phase0/fix-gamepad-stay-awake.sh
-```
+To remove old FastPad config only: `bash scripts/phase0/remove-fastpad.sh`
 
-**Controller (pad ↔ dongle wireless):** the Pi cannot keep the pad awake. If it drops after idle:
+---
 
-- Replace or charge batteries
-- Press any button to wake
-- Hold **pair/sync** on the pad until linked to the dongle
-- Keep dongle in a **direct** Pi USB port
+## FastPad (retired)
 
-After a drop, wait 2s and press a button — remap should return automatically if `fix-gamepad-stay-awake.sh` ran.
+Unstable 2.4G dongle — replaced by 8BitDo. If needed: `map-gamepad-ssh.sh` for keyboard-mode pads.
 
-**See what keys it sends:**
-
-```bash
-bash scripts/phase0/capture-gamepad-keys.sh
-```
-
-Details: [`GETTING-STARTED.md`](GETTING-STARTED.md) · checklist: [`phase0-checklist.md`](phase0-checklist.md)
+Details: [`GETTING-STARTED.md`](GETTING-STARTED.md) · [`phase0-checklist.md`](phase0-checklist.md)

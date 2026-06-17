@@ -1,20 +1,44 @@
 #!/usr/bin/env bash
-# Map a keyboard-mode gamepad entirely over SSH (no mouse / GUI).
-# Run on the Pi: bash scripts/phase0/map-gamepad-ssh.sh
+# Map gamepad → TV keys over SSH (no GUI). Works with 8BitDo (BT) or keyboard-mode pads.
+# Run on the Pi:
+#   bash scripts/phase0/map-gamepad-ssh.sh
+#   bash scripts/phase0/map-gamepad-ssh.sh --device /dev/input/event6 --name "8BitDo Pro 2"
+#   bash scripts/phase0/map-gamepad-ssh.sh --buttons-only   # A/B only, keep existing D-pad preset
 
 set -euo pipefail
 
 CONFIG_ROOT="${HOME}/.config/input-remapper-2"
 PRESET_NAME="mango-tv"
+BUTTONS_ONLY=false
+EVENT_DEV=""
 DEVICE_NAME=""
 CAPTURE_RESULT=""
 
-find_fastpad_event() {
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --device) EVENT_DEV="$2"; shift 2 ;;
+    --name) DEVICE_NAME="$2"; shift 2 ;;
+    --buttons-only) BUTTONS_ONLY=true; shift ;;
+    *) echo "Unknown arg: $1"; exit 1 ;;
+  esac
+done
+
+find_gamepad_event() {
   local path name
   for path in /dev/input/event*; do
     [[ -e "$path" ]] || continue
     name=$(cat "/sys/class/input/$(basename "$path")/device/name" 2>/dev/null || true)
-    if [[ "$name" == *FastPad* ]] || [[ "$name" == *fastpad* ]]; then
+    [[ "$name" == *FastPad* || "$name" == *fastpad* ]] && continue
+    if echo "$name" | grep -qiE '8bitdo|8bit|pro 2|gamepad|controller'; then
+      echo "$path"
+      return 0
+    fi
+  done
+  for path in /dev/input/event*; do
+    [[ -e "$path" ]] || continue
+    name=$(cat "/sys/class/input/$(basename "$path")/device/name" 2>/dev/null || true)
+    [[ "$name" == *FastPad* ]] && continue
+    if grep -qE 'js|gamepad|controller|8bit' <<<"$name" 2>/dev/null; then
       echo "$path"
       return 0
     fi
@@ -24,9 +48,7 @@ find_fastpad_event() {
 
 parse_ev_key_code() {
   local line=$1
-  if [[ "$line" != *"EV_KEY"* || "$line" != *"value 1"* ]]; then
-    return 1
-  fi
+  [[ "$line" == *"EV_KEY"* && "$line" == *"value 1"* ]] || return 1
   sed -n 's/.*code \([0-9][0-9]*\) (.*/\1/p' <<<"$line"
 }
 
@@ -47,13 +69,10 @@ capture_key_code() {
 }
 
 write_preset() {
-  local device_name=$1
-  local up=$2 down=$3 left=$4 right=$5 confirm=$6 back=$7
+  local device_name=$1 up=$2 down=$3 left=$4 right=$5 confirm=$6 back=$7
   local preset_dir="${CONFIG_ROOT}/presets/${device_name}"
   local preset_file="${preset_dir}/${PRESET_NAME}.json"
-
   mkdir -p "$preset_dir"
-
   cat >"$preset_file" <<EOF
 [
   {"input_combination": [{"type": 1, "code": ${up}}], "target_uinput": "keyboard", "output_symbol": "Up"},
@@ -65,6 +84,43 @@ write_preset() {
 ]
 EOF
   echo "Wrote $preset_file"
+}
+
+append_buttons() {
+  local device_name=$1 confirm=$2 back=$3
+  local preset_file="${CONFIG_ROOT}/presets/${device_name}/${PRESET_NAME}.json"
+  python3 - "$preset_file" "$confirm" "$back" <<'PY'
+import json, sys
+path, confirm, back = sys.argv[1:4]
+with open(path) as f:
+    mappings = json.load(f)
+mappings.extend([
+    {"input_combination": [{"type": 1, "code": int(confirm)}], "target_uinput": "keyboard", "output_symbol": "Return"},
+    {"input_combination": [{"type": 1, "code": int(back)}], "target_uinput": "keyboard", "output_symbol": "Esc"},
+])
+with open(path, "w") as f:
+    json.dump(mappings, f, indent=2)
+    f.write("\n")
+print(f"Appended A/B to {path}")
+PY
+}
+
+write_hat_preset() {
+  local device_name=$1 confirm=$2 back=$3
+  local preset_dir="${CONFIG_ROOT}/presets/${device_name}"
+  local preset_file="${preset_dir}/${PRESET_NAME}.json"
+  mkdir -p "$preset_dir"
+  cat >"$preset_file" <<EOF
+[
+  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": -50}], "target_uinput": "keyboard", "output_symbol": "Up"},
+  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": 50}], "target_uinput": "keyboard", "output_symbol": "Down"},
+  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": -50}], "target_uinput": "keyboard", "output_symbol": "Left"},
+  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": 50}], "target_uinput": "keyboard", "output_symbol": "Right"},
+  {"input_combination": [{"type": 1, "code": ${confirm}}], "target_uinput": "keyboard", "output_symbol": "Return"},
+  {"input_combination": [{"type": 1, "code": ${back}}], "target_uinput": "keyboard", "output_symbol": "Esc"}
+]
+EOF
+  echo "Wrote hat + buttons preset: $preset_file"
 }
 
 write_autoload() {
@@ -104,28 +160,38 @@ fi
 echo "sudo required for evtest — enter password if prompted:"
 sudo -v
 
-EVENT_DEV=$(find_fastpad_event) || {
-  echo "FastPad not found. Plug dongle and retry."
-  exit 1
-}
+if [[ -z "$EVENT_DEV" ]]; then
+  EVENT_DEV=$(find_gamepad_event) || {
+    echo "No gamepad found. Pair 8BitDo: bash scripts/phase0/setup-8bitdo-bt.sh"
+    exit 1
+  }
+fi
 echo "Device: $EVENT_DEV"
 
-DEVICE_NAME=$(sudo input-remapper-control --list-devices 2>/dev/null | grep -i fastpad | head -1 | tr -d '"') || true
+if [[ -z "$DEVICE_NAME" ]]; then
+  DEVICE_NAME=$(sudo input-remapper-control --list-devices 2>/dev/null | tr -d '"' | grep -vi fastpad | grep -iE '8bitdo|8bit|pro|gamepad|controller' | head -1 || true)
+fi
 if [[ -z "$DEVICE_NAME" ]]; then
   DEVICE_NAME=$(cat "/sys/class/input/$(basename "$EVENT_DEV")/device/name")
 fi
 echo "input-remapper name: $DEVICE_NAME"
 echo
-echo "Press six buttons when prompted (one at a time). Ctrl+C to restart."
 
-capture_key_code "$EVENT_DEV" "D-pad UP"; UP="$CAPTURE_RESULT"
-capture_key_code "$EVENT_DEV" "D-pad DOWN"; DOWN="$CAPTURE_RESULT"
-capture_key_code "$EVENT_DEV" "D-pad LEFT"; LEFT="$CAPTURE_RESULT"
-capture_key_code "$EVENT_DEV" "D-pad RIGHT"; RIGHT="$CAPTURE_RESULT"
-capture_key_code "$EVENT_DEV" "A / confirm"; CONFIRM="$CAPTURE_RESULT"
-capture_key_code "$EVENT_DEV" "B / back"; BACK="$CAPTURE_RESULT"
+if $BUTTONS_ONLY; then
+  capture_key_code "$EVENT_DEV" "A / confirm"; CONFIRM="$CAPTURE_RESULT"
+  capture_key_code "$EVENT_DEV" "B / back"; BACK="$CAPTURE_RESULT"
+  append_buttons "$DEVICE_NAME" "$CONFIRM" "$BACK"
+else
+  echo "Press six buttons when prompted (one at a time). Ctrl+C to restart."
+  capture_key_code "$EVENT_DEV" "D-pad UP"; UP="$CAPTURE_RESULT"
+  capture_key_code "$EVENT_DEV" "D-pad DOWN"; DOWN="$CAPTURE_RESULT"
+  capture_key_code "$EVENT_DEV" "D-pad LEFT"; LEFT="$CAPTURE_RESULT"
+  capture_key_code "$EVENT_DEV" "D-pad RIGHT"; RIGHT="$CAPTURE_RESULT"
+  capture_key_code "$EVENT_DEV" "A / confirm"; CONFIRM="$CAPTURE_RESULT"
+  capture_key_code "$EVENT_DEV" "B / back"; BACK="$CAPTURE_RESULT"
+  write_preset "$DEVICE_NAME" "$UP" "$DOWN" "$LEFT" "$RIGHT" "$CONFIRM" "$BACK"
+fi
 
-write_preset "$DEVICE_NAME" "$UP" "$DOWN" "$LEFT" "$RIGHT" "$CONFIRM" "$BACK"
 write_autoload "$DEVICE_NAME"
 apply_preset "$DEVICE_NAME"
 
