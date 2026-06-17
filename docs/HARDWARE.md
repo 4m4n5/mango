@@ -35,15 +35,25 @@ Remapped to ↑ ↓ ← → Return Esc via preset `mango-tv` in `~/.config/input
 
 ## Disconnects / goes idle
 
-**Pi (dongle USB sleep):**
+**If connect/disconnect loop after `fix-gamepad-stay-awake.sh`:**
+
+```bash
+bash scripts/phase0/undo-gamepad-stay-awake.sh
+```
+
+Then re-run the safe USB-only fix:
 
 ```bash
 bash scripts/phase0/fix-gamepad-stay-awake.sh
 ```
 
-Disables USB autosuspend for the FastPad receiver and re-applies `mango-tv` after reconnect.
+**Pi (dongle USB sleep)** — disables autosuspend only (no udev autoload hooks):
 
-**Controller (pad ↔ dongle wireless):** the Pi cannot keep the pad awake. If it drops after a few minutes idle:
+```bash
+bash scripts/phase0/fix-gamepad-stay-awake.sh
+```
+
+**Controller (pad ↔ dongle wireless):** the Pi cannot keep the pad awake. If it drops after idle:
 
 - Replace or charge batteries
 - Press any button to wake
