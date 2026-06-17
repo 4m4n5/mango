@@ -53,7 +53,7 @@ sudo systemctl start bluetooth input-remapper 2>/dev/null || true
 sudo input-remapper-control --command start-reader-service -d 2>/dev/null || true
 sleep 2
 
-mapfile -t DEVICES < <(sudo input-remapper-control --list-devices 2>/dev/null | tr -d '"' | grep -iE '8bitdo|8bit|pro 2' | grep -vi fastpad || true)
+mapfile -t DEVICES < <(sudo input-remapper-control --list-devices 2>/dev/null | tr -d '"' | grep -iE 'pro controller|8bitdo|8bit|pro 2' | grep -viE 'fastpad|keyboard|hdmi|pwr_' || true)
 
 if [[ ${#DEVICES[@]} -eq 0 ]]; then
   echo "8BitDo not listed. All devices:"
@@ -69,12 +69,12 @@ EVENT_DEV=""
 for path in /dev/input/event*; do
   [[ -e "$path" ]] || continue
   name=$(cat "/sys/class/input/$(basename "$path")/device/name" 2>/dev/null || true)
-  if echo "$name" | grep -qiE '8bitdo|8bit|pro 2'; then
+  if echo "$name" | grep -qiE 'pro controller|8bitdo|8bit|pro 2'; then
     EVENT_DEV="$path"
     break
   fi
 done
-[[ -n "$EVENT_DEV" ]] || EVENT_DEV="/dev/input/$(grep -l -iE '8bitdo|8bit' /sys/class/input/event*/device/name 2>/dev/null | head -1 | xargs basename 2>/dev/null || true)"
+[[ -n "$EVENT_DEV" ]] || EVENT_DEV="/dev/input/$(grep -l -iE 'pro controller|8bitdo|8bit' /sys/class/input/event*/device/name 2>/dev/null | head -1 | xargs basename 2>/dev/null || true)"
 echo "Event: $EVENT_DEV"
 
 # --- 4. Map ---

@@ -29,7 +29,7 @@ find_gamepad_event() {
     [[ -e "$path" ]] || continue
     name=$(cat "/sys/class/input/$(basename "$path")/device/name" 2>/dev/null || true)
     [[ "$name" == *FastPad* || "$name" == *fastpad* ]] && continue
-    if echo "$name" | grep -qiE '8bitdo|8bit|pro 2|gamepad|controller'; then
+    if echo "$name" | grep -qiE 'pro controller|8bitdo|8bit|pro 2'; then
       echo "$path"
       return 0
     fi
@@ -169,7 +169,7 @@ fi
 echo "Device: $EVENT_DEV"
 
 if [[ -z "$DEVICE_NAME" ]]; then
-  DEVICE_NAME=$(sudo input-remapper-control --list-devices 2>/dev/null | tr -d '"' | grep -vi fastpad | grep -iE '8bitdo|8bit|pro|gamepad|controller' | head -1 || true)
+  DEVICE_NAME=$(sudo input-remapper-control --list-devices 2>/dev/null | tr -d '"' | grep -iE 'pro controller|8bitdo|8bit|pro 2' | grep -viE 'fastpad|keyboard|hdmi|pwr_' | head -1 || true)
 fi
 if [[ -z "$DEVICE_NAME" ]]; then
   DEVICE_NAME=$(cat "/sys/class/input/$(basename "$EVENT_DEV")/device/name")

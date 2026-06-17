@@ -17,6 +17,7 @@ bash scripts/phase0/setup-8bitdo-bt.sh
 ```
 
 3. Pair in **Switch mode**: hold **START + Y** ~3s until LEDs flash, then `bluetoothctl` → `pair` / `trust` / `connect`.
+4. Linux often shows it as **`Pro Controller`** (not "8BitDo") — that's correct.
 4. Script maps **D-pad → arrows**, **A → Return**, **B → Escape** (preset `mango-tv`).
 
 **Reconnect after sleep:**
