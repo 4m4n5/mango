@@ -7,6 +7,7 @@ set -euo pipefail
 CONFIG_ROOT="${HOME}/.config/input-remapper-2"
 PRESET_NAME="mango-tv"
 DEVICE_NAME=""
+CAPTURE_RESULT=""
 
 find_fastpad_event() {
   local path name
@@ -21,18 +22,25 @@ find_fastpad_event() {
   return 1
 }
 
+parse_ev_key_code() {
+  local line=$1
+  if [[ "$line" != *"EV_KEY"* || "$line" != *"value 1"* ]]; then
+    return 1
+  fi
+  sed -n 's/.*code \([0-9][0-9]*\) (.*/\1/p' <<<"$line"
+}
+
 capture_key_code() {
   local device=$1 label=$2
   local line code
-  local re='type 1 \(EV_KEY\), code ([0-9]+) \(KEY_[^)]+\), value 1'
 
-  echo
-  echo ">>> Press: $label (once), then release"
+  echo >&2
+  echo ">>> Press: $label (once), then release" >&2
   while read -r line; do
-    if [[ "$line" =~ $re ]]; then
-      code="${BASH_REMATCH[1]}"
-      echo "    captured code $code"
-      echo "$code"
+    code=$(parse_ev_key_code "$line" || true)
+    if [[ -n "$code" ]]; then
+      echo "    captured code $code" >&2
+      CAPTURE_RESULT="$code"
       return 0
     fi
   done < <(sudo evtest "$device" 2>&1)
@@ -93,6 +101,9 @@ if ! command -v evtest &>/dev/null; then
   sudo apt install -y evtest python3
 fi
 
+echo "sudo required for evtest — enter password if prompted:"
+sudo -v
+
 EVENT_DEV=$(find_fastpad_event) || {
   echo "FastPad not found. Plug dongle and retry."
   exit 1
@@ -105,14 +116,14 @@ if [[ -z "$DEVICE_NAME" ]]; then
 fi
 echo "input-remapper name: $DEVICE_NAME"
 echo
-echo "You will press six buttons once each. Wrong press? Ctrl+C and restart."
+echo "Press six buttons when prompted (one at a time). Ctrl+C to restart."
 
-UP=$(capture_key_code "$EVENT_DEV" "D-pad UP")
-DOWN=$(capture_key_code "$EVENT_DEV" "D-pad DOWN")
-LEFT=$(capture_key_code "$EVENT_DEV" "D-pad LEFT")
-RIGHT=$(capture_key_code "$EVENT_DEV" "D-pad RIGHT")
-CONFIRM=$(capture_key_code "$EVENT_DEV" "A / confirm")
-BACK=$(capture_key_code "$EVENT_DEV" "B / back")
+capture_key_code "$EVENT_DEV" "D-pad UP"; UP="$CAPTURE_RESULT"
+capture_key_code "$EVENT_DEV" "D-pad DOWN"; DOWN="$CAPTURE_RESULT"
+capture_key_code "$EVENT_DEV" "D-pad LEFT"; LEFT="$CAPTURE_RESULT"
+capture_key_code "$EVENT_DEV" "D-pad RIGHT"; RIGHT="$CAPTURE_RESULT"
+capture_key_code "$EVENT_DEV" "A / confirm"; CONFIRM="$CAPTURE_RESULT"
+capture_key_code "$EVENT_DEV" "B / back"; BACK="$CAPTURE_RESULT"
 
 write_preset "$DEVICE_NAME" "$UP" "$DOWN" "$LEFT" "$RIGHT" "$CONFIRM" "$BACK"
 write_autoload "$DEVICE_NAME"
