@@ -62,19 +62,45 @@ Re-run `reset-kodi-youtube.sh` if missing.
 1. Kodi **home** → **Add-ons** → **B**
 2. **Video add-ons** → **YouTube** → **B** (open)
 3. When prompted, run **Setup wizard** → **B** → **Yes**
-4. Complete the wizard (defaults are fine for a first test)
-5. If it asks you to **Sign in**, follow on-screen steps (phone/PC may be needed for Google login)
+4. Complete the wizard — then **you must add personal API keys** (wizard defaults no longer load lists)
 
-### If videos won't play (API keys)
+### All lists erroring? → Personal API keys (required)
 
-YouTube often requires **personal API keys**. Short version:
+Symptom: **Subscriptions**, **Trending**, **Search**, etc. all show errors. The addon is installed correctly; Google blocks anonymous API access.
 
-1. In the YouTube addon: **Settings** → **API**
-2. Create keys at [Google Cloud Console](https://console.cloud.google.com/) — enable **YouTube Data API v3**, create an **API key** and **OAuth client** (TV/Desktop type)
-3. Enter **API Key**, **API Id** (client ID), **API Secret** in the addon
-4. Sign in again from the addon
+**Diagnose on the Pi:**
 
-Details: [plugin.video.youtube wiki — Personal API Keys](https://github.com/anxdpanic/plugin.video.youtube/wiki/Personal-API-Keys)
+```bash
+bash scripts/phase0/diagnose-kodi-youtube.sh
+```
+
+If `API key` / `API id` / `API secret` show **EMPTY**, follow the steps below.
+
+#### A — Create credentials (Mac browser)
+
+Official 2026 walkthrough: [GitHub issue #1376](https://github.com/anxdpanic/plugin.video.youtube/issues/1376)
+
+Summary:
+
+1. [Google Cloud Console](https://console.cloud.google.com/) → **Create project**
+2. **APIs & Services** → **Enable APIs** → enable **YouTube Data API v3**
+3. **Create credentials** → **API key** → copy the key
+4. **OAuth consent screen** → External app → add yourself as a **Test user**
+5. **Create OAuth client** → type **TV and Limited Input devices** (not Desktop) → copy **Client ID** + **Client secret**
+
+You need all three: **API key**, **Client ID**, **Client secret**.
+
+#### B — Enter keys on the Pi (no USB keyboard needed)
+
+1. In Kodi: **YouTube** → **Settings** → **API** → enable **API configuration page**
+2. On your Mac, open: `http://10.0.0.174:50152/youtube/api` (replace with Pi IP if different)
+3. Paste API key, Client ID, Client secret → Save
+4. In Kodi: **YouTube** → **Sign in** → follow the device-code flow (use Mac/phone browser when prompted)
+5. **Quit and reopen Kodi**, then try a list again
+
+Wiki: [Personal API Keys](https://github.com/anxdpanic/plugin.video.youtube/wiki/Personal-API-Keys)
+
+**Common mistakes:** OAuth client type **Desktop** instead of **TV and Limited Input**; forgot **Test user** on consent screen; keys entered in `api_keys.json` but old values still in Kodi GUI (clear GUI fields or re-enter both).
 
 ### Test playback
 
@@ -128,9 +154,12 @@ Use this only if the repository loads; if it errors or hangs, use **Part 3 (zip)
 
 | Problem | Fix |
 |---------|-----|
+| **All lists error / empty** | Personal API keys required — Part 4 above; `diagnose-kodi-youtube.sh` |
 | **inputstream.adaptive 19.0.0 cannot be satisfied** | `bash scripts/phase0/install-kodi-inputstream.sh` → restart Kodi → install zip again |
 | Can't find zip in browser | Path is `/home/aman/mango/downloads/` — use **Home folder → mango → downloads** |
 | "Dependencies not met" | Run reset script again; install zip before opening YouTube |
 | Addon installed but won't open | **YouTube** → **Settings** → **Maintenance** → **Delete settings.xml** → run Setup wizard again |
+| Login **Invalid client type** | Recreate OAuth client as **TV and Limited Input devices** |
 | D-pad dead in Kodi | `bash scripts/phase0/map-pro-controller.sh` then relaunch Kodi |
 | Repo install fails | Ignore repo; use zip method (Part 3) |
+| Python threading errors in SSH after launch | Harmless input-remapper noise on exit — ignore |

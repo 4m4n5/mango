@@ -28,6 +28,8 @@ bash scripts/phase0/launch-kodi.sh
 
 Open **YouTube** addon → play one full video with **gamepad only** (D-pad / B / Y).
 
+If **all lists error**, you need personal Google API keys first — see [`kodi-youtube-setup.md`](kodi-youtube-setup.md) Part 4 (`diagnose-kodi-youtube.sh` on the Pi).
+
 ### 2. Stremio setup (when mouse arrives)
 
 ```bash
