@@ -75,11 +75,18 @@ else
   warn "Disk free: ${DISK_AVAIL}GB — may be tight after models"
 fi
 
-# Gamepad
+# Gamepad — js* (true joystick) or keyboard-emulating pads (FastPad, many 2.4G dongles)
 if ls /dev/input/js* &>/dev/null; then
-  pass "Gamepad device: $(ls /dev/input/js* | tr '\n' ' ')"
+  pass "Gamepad (joystick): $(ls /dev/input/js* | tr '\n' ' ')"
+elif grep -qiE 'fastpad|gamepad|xbox|playstation|8bitdo|controller|joystick' /proc/bus/input/devices 2>/dev/null; then
+  PAD_NAME=$(grep -iE 'fastpad|gamepad|xbox|playstation|8bitdo|controller|joystick' /proc/bus/input/devices | head -1 | sed 's/^N: Name="//;s/"$//')
+  if grep -qi fastpad /proc/bus/input/devices 2>/dev/null; then
+    pass "Gamepad (keyboard mode): ${PAD_NAME:-FastPad} — no js* needed; test D-pad on desktop"
+  else
+    warn "Gamepad on event* but no js* — try: sudo modprobe joydev"
+  fi
 else
-  warn "No /dev/input/js* — plug in USB gamepad receiver"
+  warn "No gamepad detected — plug dongle, pair controller, then: bash scripts/phase0/diagnose-gamepad.sh"
 fi
 
 # SSH (informational)

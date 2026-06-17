@@ -14,10 +14,10 @@ Helper scripts: `scripts/phase0/`
 
 ## Gamepad
 
-- [ ] Receiver in Pi USB port; `ls /dev/input/js0` exists
-- [ ] `jstest /dev/input/js0` — all buttons respond
-- [ ] antimicrox: D-pad → arrows, A → Return, B → Escape
-- [ ] Gamepad navigates desktop apps
+- [ ] Receiver in Pi USB port (`lsusb` shows FastPad-KEY or `js0` for joystick pads)
+- [ ] **Joystick pad:** `jstest /dev/input/js0` + antimicrox
+- [ ] **Keyboard-mode pad (FastPad):** `bash scripts/phase0/map-gamepad-ssh.sh` (SSH, no mouse) — or GUI via `install-gamepad-remap.sh`
+- [ ] Gamepad navigates desktop apps (file manager, menus)
 
 ## Kodi + YouTube
 

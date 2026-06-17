@@ -39,7 +39,7 @@ echo
 echo "=== Automated steps done ==="
 echo
 echo "Manual steps remaining (see docs/phase0-checklist.md):"
-echo "  [ ] Map gamepad in antimicrox (D-pad→arrows, A→Return, B→Escape)"
+echo "  [ ] Remap gamepad: bash scripts/phase0/install-gamepad-remap.sh (FastPad) or antimicrox (js0)"
 echo "  [ ] Kodi: install YouTube addon + enable JSON-RPC + play a video"
 echo "  [ ] Stremio: login + addons + play content"
 echo "  [ ] Test: bash scripts/phase0/test-kodi-rpc.sh <user> <pass>"

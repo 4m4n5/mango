@@ -6,4 +6,35 @@
 - **Gamepad:** USB receiver in Pi — primary TV remote
 - **Phone:** mic + companion app (later, over WiFi)
 
-Details: [`GETTING-STARTED.md`](GETTING-STARTED.md)
+## FastPad (keyboard-mode dongle)
+
+The FastPad dongle (`1a86:fe18`, `FastPad-KEY`) registers as a **USB keyboard**, not `/dev/input/js*`. Wrong letters on D-pad/buttons are normal — remap them.
+
+**Try first:** mode / home button on the pad (some firmwares have a second layout).
+
+**Fix (recommended):** input-remapper — **no mouse needed**, map over SSH:
+
+```bash
+bash scripts/phase0/map-gamepad-ssh.sh
+```
+
+Follow prompts: press each D-pad direction, A, and B once. Reboot-safe autoload is configured automatically.
+
+GUI (optional, needs mouse or working keyboard): `install-gamepad-remap.sh` then Input Remapper from the app menu.
+
+| Pad control | Map to |
+|-------------|--------|
+| D-pad | Up / Down / Left / Right |
+| A (confirm) | Return |
+| B (back) | Escape |
+| Play (optional) | space |
+
+Create preset `mango-tv` → **Apply** → enable **autoload** so it survives reboot.
+
+**See what keys it sends:**
+
+```bash
+bash scripts/phase0/capture-gamepad-keys.sh
+```
+
+Details: [`GETTING-STARTED.md`](GETTING-STARTED.md) · checklist: [`phase0-checklist.md`](phase0-checklist.md)
