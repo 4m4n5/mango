@@ -1,30 +1,31 @@
 # Hardware — ai-tv-box V1
 
-See [DESIGN.md](DESIGN.md) for platform constraints. Shopping list:
+## On hand
 
-## Have (CanaKit)
+| Item | Notes |
+|------|-------|
+| Raspberry Pi 5 8GB | CanaKit case + active cooling |
+| 128GB microSD | Pi OS Desktop 64-bit |
+| USB gamepad + receiver | **Primary TV navigation** — map D-pad to arrow keys |
+| Phone/tablet | Mic + companion remote (`https://<pi-ip>:3001` after mkcert) |
+| TV | HDMI from Pi |
 
-Pi 5 8GB · case + fan · 45W PSU · microSD · HDMI cables
+## Not in kit (optional)
 
-## Buy
+| Item | When |
+|------|------|
+| Ethernet cable | Prefer over WiFi for 4K streaming |
+| FLIRC + IR remote | V2 optional — gamepad covers V1 |
 
-| Item | ~$ | Notes |
-|------|-----|-------|
-| FLIRC USB v2 | 25 | Map IR remote → arrow keys / enter / esc |
-| USB gamepad (D-pad) | 15 | Optional backup navigation |
+## Gamepad setup (Phase 0)
 
-## Use (no purchase)
+1. Verify: `ls /dev/input/js*` · `jstest /dev/input/js0`
+2. Map buttons: `sudo apt install antimicrox` (or joystick + xbindkeys)
+3. Target mapping: D-pad → arrows · A → Enter · B → Escape · Start → Home (optional)
 
-- **Phone/tablet** — mic + companion remote (`http://<pi-ip>:3001`)
-- **Spare IR remote** — with FLIRC
+## Phone setup (Phase 2)
 
-## Optional
+1. Install mkcert CA on phone after Pi generates cert (one-time)
+2. Add companion PWA to home screen
 
-| Item | ~$ |
-|------|-----|
-| NVMe + M.2 HAT | 40–60 |
-| Ethernet cable | 5 |
-
-## V2 only
-
-USB mic array · IR blaster · HDMI-CEC tooling
+See [PLAN.md](PLAN.md) Phase 0 checklist.

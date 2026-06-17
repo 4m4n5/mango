@@ -16,5 +16,8 @@ node_modules/
 # OS
 .DS_Store
 
-# Local config (use config.example.yaml)
-/etc/
+# Build output
+dist/
+
+# Editor
+.vscode/

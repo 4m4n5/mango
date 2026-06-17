@@ -26,7 +26,7 @@ Voice uses the **phone mic** (WebSocket to Pi). FLIRC/gamepad are navigation onl
 | TV           | HDMI from Pi                                                |
 | Network      | Ethernet recommended                                        |
 | Phone/tablet | Same WiFi — mic + companion remote PWA                      |
-| Couch input  | **FLIRC + IR remote** and/or **USB gamepad** (one required) |
+| Couch input  | **USB gamepad** (primary); phone web remote (backup)            |
 
 
 
