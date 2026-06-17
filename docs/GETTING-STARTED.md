@@ -28,6 +28,14 @@ On the TV:
 3. Search a title → play something
 4. Confirm **D-pad / B / Y** work like Kodi
 
+If the controller does nothing, Stremio may not have focus (common when launching from SSH):
+
+```bash
+bash scripts/phase0/focus-stremio.sh
+```
+
+Or click the Stremio window once on the TV, then try the controller again.
+
 ### 2. Kodi YouTube playback
 
 ```bash

@@ -34,7 +34,7 @@ cat >"$PRESET_FILE" <<'EOF'
   {"input_combination": [{"type": 1, "code": 546}], "target_uinput": "keyboard", "output_symbol": "Left"},
   {"input_combination": [{"type": 1, "code": 547}], "target_uinput": "keyboard", "output_symbol": "Right"},
   {"input_combination": [{"type": 1, "code": 305}], "target_uinput": "keyboard", "output_symbol": "Return"},
-  {"input_combination": [{"type": 1, "code": 308}], "target_uinput": "keyboard", "output_symbol": "BackSpace"}
+  {"input_combination": [{"type": 1, "code": 308}], "target_uinput": "keyboard", "output_symbol": "key(BackSpace).key(Escape)"}
 ]
 EOF
 
