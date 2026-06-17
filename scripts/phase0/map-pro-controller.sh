@@ -17,13 +17,13 @@ PRESET_FILE="${PRESET_DIR}/${PRESET_NAME}.json"
 SWAP_AB=false
 [[ "${1:-}" == "--swap-ab" ]] && SWAP_AB=true
 
-# Micro reports BTN_EAST (305) as the confirm button in Kodi — default swapped.
+# Switch layout: A=south (304), B=east (305). Kodi often ignores Esc — use BackSpace for back.
 if $SWAP_AB; then
-  CONFIRM_CODE=304   # BTN_SOUTH
-  BACK_CODE=305      # BTN_EAST
+  CONFIRM_CODE=305
+  BACK_CODE=304
 else
-  CONFIRM_CODE=305   # BTN_EAST → Return (select)
-  BACK_CODE=304      # BTN_SOUTH → Esc (back)
+  CONFIRM_CODE=304   # BTN_SOUTH (A) → Return
+  BACK_CODE=305      # BTN_EAST (B) → back
 fi
 
 mkdir -p "$PRESET_DIR"
@@ -43,7 +43,8 @@ cat >"$PRESET_FILE" <<EOF
   {"input_combination": [{"type": 1, "code": 546}], "target_uinput": "keyboard", "output_symbol": "Left"},
   {"input_combination": [{"type": 1, "code": 547}], "target_uinput": "keyboard", "output_symbol": "Right"},
   {"input_combination": [{"type": 1, "code": ${CONFIRM_CODE}}], "target_uinput": "keyboard", "output_symbol": "Return"},
-  {"input_combination": [{"type": 1, "code": ${BACK_CODE}}], "target_uinput": "keyboard", "output_symbol": "Esc"}
+  {"input_combination": [{"type": 1, "code": ${BACK_CODE}}], "target_uinput": "keyboard", "output_symbol": "BackSpace"},
+  {"input_combination": [{"type": 1, "code": 308}], "target_uinput": "keyboard", "output_symbol": "BackSpace"}
 ]
 EOF
 
@@ -71,6 +72,6 @@ input-remapper-control --command start --device "$DEVICE_NAME" --preset "$PRESET
 
 echo "=== mango-tv map applied (8BitDo Micro) ==="
 echo "  D-pad → arrows"
-echo "  B (east)  → Return (select) — default for Micro"
-echo "  A (south) → Escape (back)"
+echo "  A (south) → Return (select)"
+echo "  B (east)  → BackSpace (back) — Y also back"
 echo "Try --swap-ab if A/B feel reversed."
