@@ -15,7 +15,9 @@ pkill -f 'DualSubtitles' 2>/dev/null || true
 pkill -f 'stremio/server' 2>/dev/null || true
 pkill -f 'node.*stremio' 2>/dev/null || true
 pkill -f 'stremio-pad-bridge.py' 2>/dev/null || true
-rm -f /tmp/mango-stremio-pad-bridge.pid
+sudo pkill -f 'stremio-pad-bridge.py' 2>/dev/null || true
+sudo rm -f /tmp/mango-stremio-pad-bridge.pid 2>/dev/null || true
+rm -f "${HOME}/.cache/mango/stremio-pad-bridge.pid" 2>/dev/null || true
 
 sleep 2
 

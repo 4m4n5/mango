@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Focus Stremio and click the webview so keyboard/gamepad input lands.
+# Focus the main Stremio window and click the webview.
 # Run on the Pi: bash scripts/phase0/focus-stremio.sh
 
 set -euo pipefail
@@ -7,38 +7,73 @@ set -euo pipefail
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
+is_main_stremio_window() {
+  local name=$1
+  [[ -z "$name" ]] && return 1
+  [[ "$name" == *"Selection Owner"* ]] && return 1
+  [[ "$name" == *"tooltip"* ]] && return 1
+  [[ "$name" =~ ^[Ss]tremio$ ]] && return 0
+  [[ "$name" == *"Stremio"* ]] && return 0
+  return 1
+}
+
 find_stremio_wid() {
-  local wid
+  local wid name width height area best_wid="" best_area=0
+
   if ! command -v xdotool &>/dev/null; then
     return 1
   fi
-  wid=$(xdotool search --name Stremio 2>/dev/null | head -1 || true)
-  [[ -n "$wid" ]] && echo "$wid" && return 0
-  wid=$(xdotool search --class stremio 2>/dev/null | head -1 || true)
-  [[ -n "$wid" ]] && echo "$wid" && return 0
+
+  # Prefer exact title "Stremio"
+  for wid in $(xdotool search --name Stremio 2>/dev/null); do
+    name=$(xdotool getwindowname "$wid" 2>/dev/null || true)
+    if [[ "$name" == "Stremio" ]]; then
+      echo "$wid"
+      return 0
+    fi
+  done
+
+  # Largest Stremio-related window (skip Qt helper windows)
+  for wid in $(xdotool search --name Stremio 2>/dev/null); do
+    name=$(xdotool getwindowname "$wid" 2>/dev/null || true)
+    is_main_stremio_window "$name" || continue
+    eval "$(xdotool getwindowgeometry --shell "$wid" 2>/dev/null)" || continue
+    area=$((WIDTH * HEIGHT))
+    if (( area > best_area )); then
+      best_area=$area
+      best_wid=$wid
+    fi
+  done
+
+  if [[ -n "$best_wid" ]]; then
+    echo "$best_wid"
+    return 0
+  fi
+
+  for wid in $(xdotool search --class stremio 2>/dev/null); do
+    name=$(xdotool getwindowname "$wid" 2>/dev/null || true)
+    is_main_stremio_window "$name" || continue
+    echo "$wid"
+    return 0
+  done
+
   return 1
 }
 
 WID=$(find_stremio_wid) || WID=""
 
 if [[ -z "$WID" ]]; then
-  if command -v wmctrl &>/dev/null && wmctrl -l 2>/dev/null | grep -qi stremio; then
-    wmctrl -a Stremio 2>/dev/null || true
-    sleep 0.5
-    WID=$(find_stremio_wid) || WID=""
-  fi
-fi
-
-if [[ -z "$WID" ]]; then
-  echo "! Stremio window not found"
-  wmctrl -l 2>/dev/null || true
+  echo "! Stremio main window not found"
+  echo "Open windows:"
+  wmctrl -l 2>/dev/null || xdotool search --name Stremio 2>/dev/null | while read -r w; do
+    echo "  $w $(xdotool getwindowname "$w" 2>/dev/null)"
+  done
   exit 1
 fi
 
 xdotool windowactivate --sync "$WID"
 sleep 0.3
 
-# Click centre — Qt WebEngine often ignores keys until the webview is clicked
 eval "$(xdotool getwindowgeometry --shell "$WID")"
 CX=$((WIDTH / 2))
 CY=$((HEIGHT / 2))

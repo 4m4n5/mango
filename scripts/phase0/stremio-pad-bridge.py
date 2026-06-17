@@ -38,7 +38,10 @@ def stremio_active() -> bool:
             stderr=subprocess.DEVNULL,
             text=True,
         ).strip()
-        return "stremio" in name.lower()
+        low = name.lower()
+        if "selection owner" in low or "tooltip" in low:
+            return False
+        return "stremio" in low
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 

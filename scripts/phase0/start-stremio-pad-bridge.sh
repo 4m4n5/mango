@@ -5,36 +5,34 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PIDFILE="/tmp/mango-stremio-pad-bridge.pid"
+CACHE_DIR="${HOME}/.cache/mango"
+PIDFILE="${CACHE_DIR}/stremio-pad-bridge.pid"
 LOG="/tmp/mango-stremio-pad-bridge.log"
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+
+mkdir -p "$CACHE_DIR"
 
 if ! python3 -c "import evdev" 2>/dev/null; then
   echo "Installing python3-evdev..."
   sudo apt install -y python3-evdev
 fi
 
-# Remapper grabs the pad — stop it so the bridge can read events
 sudo systemctl stop input-remapper 2>/dev/null || true
 input-remapper-control --command stop --device "Pro Controller" 2>/dev/null || true
 input-remapper-control --command stop --device "Pro Controller (IMU)" 2>/dev/null || true
 
-if [[ -f "$PIDFILE" ]]; then
-  old=$(cat "$PIDFILE")
-  kill "$old" 2>/dev/null || true
-  rm -f "$PIDFILE"
-fi
+bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
 
 echo "Starting stremio-pad-bridge (needs sudo to read /dev/input)..."
 sudo -E DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" HOME="$HOME" \
   python3 "$SCRIPT_DIR/stremio-pad-bridge.py" >>"$LOG" 2>&1 &
-echo $! | sudo tee "$PIDFILE" >/dev/null
+echo $! >"$PIDFILE"
 sleep 1
 
-if sudo kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-  echo "✓ Pad bridge running (pid $(cat "$PIDFILE")) — log: $LOG"
+if kill -0 "$(cat "$PIDFILE")" 2>/dev/null || pgrep -f stremio-pad-bridge.py >/dev/null 2>&1; then
+  echo "✓ Pad bridge running — log: $LOG"
 else
   echo "! Bridge failed to start:"
   tail -10 "$LOG" 2>/dev/null || true
