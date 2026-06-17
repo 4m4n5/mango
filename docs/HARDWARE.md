@@ -26,11 +26,14 @@ A and X are unmapped. Remapping is via `input-remapper` preset `mango-tv` (D-pad
 
 ### After reboot
 
+Bluetooth may show **Connected** before Linux registers the pad. **Press any button** on the Micro, then:
+
 ```bash
 cd ~/mango && git pull
 bash scripts/phase0/gamepad-fresh-start.sh
-bash scripts/phase0/launch-kodi.sh
 ```
+
+If input still missing: `bluetoothctl disconnect E4:17:D8:EB:00:44` → press a pad button → `bluetoothctl connect E4:17:D8:EB:00:44`
 
 ### Daily use
 

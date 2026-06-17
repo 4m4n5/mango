@@ -12,11 +12,27 @@ find_pro_controller_event() {
   for f in /sys/class/input/event*/device/name; do
     [[ -f "$f" ]] || continue
     name=$(tr -d '\n' <"$f")
-    # Main gamepad only — not "Pro Controller (IMU)"
     [[ "$name" == "Pro Controller" ]] || continue
     ev=$(basename "$(dirname "$(dirname "$f")")")
     echo "/dev/input/${ev}"
     return 0
+  done
+  return 1
+}
+
+bt_connect() {
+  bluetoothctl <<EOF
+power on
+connect ${BT_MAC}
+EOF
+}
+
+wait_for_input_device() {
+  local secs=$1 ev
+  echo "Waiting up to ${secs}s for input device (press any button on the pad)..."
+  for _ in $(seq 1 "$secs"); do
+    ev=$(find_pro_controller_event) && { echo "$ev"; return 0; }
+    sleep 1
   done
   return 1
 }
@@ -33,35 +49,50 @@ fi
 
 echo "=== Bluetooth: connect Pro Controller ==="
 sudo systemctl start bluetooth 2>/dev/null || true
-bluetoothctl <<EOF
-power on
-connect ${BT_MAC}
-EOF
-sleep 3
+sudo modprobe joydev 2>/dev/null || true
+sudo modprobe hid_nintendo 2>/dev/null || true
 
-if bluetoothctl info "$BT_MAC" 2>/dev/null | grep -q "Connected: yes"; then
-  echo "✓ Bluetooth connected"
-else
-  echo "! Not connected — on pad hold START+Y ~3s, then run:"
+bt_connect
+sleep 2
+
+if ! bluetoothctl info "$BT_MAC" 2>/dev/null | grep -q "Connected: yes"; then
+  echo "! Not connected — on pad hold START+Y ~3s, then:"
   echo "  bluetoothctl connect ${BT_MAC}"
   exit 1
 fi
+echo "✓ Bluetooth connected"
 
 echo
 echo "=== Input devices ==="
-sudo modprobe joydev 2>/dev/null || true
-grep -i 'pro controller' /proc/bus/input/devices || echo "! Pro Controller not in /proc/bus/input/devices"
-ls -la /dev/input/js* 2>/dev/null || echo "(no js* yet — OK if joydev just loaded)"
 
-EVENT_DEV=$(find_pro_controller_event) || EVENT_DEV=""
+EVENT_DEV=$(wait_for_input_device 20) || EVENT_DEV=""
+
 if [[ -z "$EVENT_DEV" ]]; then
-  echo "! Could not find /dev/input/event* for Pro Controller (non-IMU)"
+  echo "! Input not registered yet — reconnecting..."
+  bluetoothctl disconnect "$BT_MAC" 2>/dev/null || true
+  sleep 2
+  bt_connect
+  sleep 2
+  EVENT_DEV=$(wait_for_input_device 25) || EVENT_DEV=""
+fi
+
+if [[ -z "$EVENT_DEV" ]]; then
+  grep -i 'pro controller' /proc/bus/input/devices || echo "! Pro Controller not in /proc/bus/input/devices"
+  echo
+  echo "! No /dev/input/event* yet. On the Micro:"
+  echo "  1. Press any button to wake it"
+  echo "  2. bluetoothctl connect ${BT_MAC}"
+  echo "  3. Re-run: bash scripts/phase0/gamepad-fresh-start.sh"
+  echo
+  echo "  Check: bluetoothctl info ${BT_MAC}"
   exit 1
 fi
+
+grep -i 'pro controller' /proc/bus/input/devices || true
 echo "Gamepad event device: $EVENT_DEV (not IMU)"
 
 echo
-read -r -p "Press ENTER, then press D-pad and A on the controller (15s test)..."
+read -r -p "Press ENTER, then press D-pad and B on the controller (15s test)..."
 
 echo "Listening..."
 set +e
@@ -76,7 +107,6 @@ else
   echo "! No input detected on $EVENT_DEV"
   echo "  - Press any button to wake the pad"
   echo "  - Run: bluetoothctl connect ${BT_MAC}"
-  echo "  - Manual test: sudo evtest $EVENT_DEV"
   if echo "$EVTEST_OUT" | grep -qi 'grabbed by another process'; then
     echo "  - Device is grabbed — run: sudo systemctl stop input-remapper"
   fi
@@ -84,6 +114,5 @@ fi
 
 echo
 echo "=== Remapper: OFF (evtest only) ==="
-echo "Next: bash scripts/phase0/launch-kodi.sh   (or launch-stremio.sh)"
-echo "Use the D-pad to navigate in Kodi/Stremio."
+echo "Next: bash scripts/phase0/launch-kodi.sh   (or reset-stremio.sh)"
 echo "Reconnect: bluetoothctl connect ${BT_MAC}"
