@@ -1,9 +1,9 @@
-# Copy to /etc/ai-tv-box/config.yaml on the Pi
+# Copy to /etc/mango/config.yaml on the Pi
 
 llm:
   provider: anthropic  # anthropic | openai
   model: claude-sonnet-4-20250514  # or gpt-4o, etc.
-  api_key_file: /etc/ai-tv-box/llm.key
+  api_key_file: /etc/mango/llm.key
 
 audio:
   input_mode: phone_websocket  # phone streams mic over LAN; no USB mic required
@@ -31,16 +31,16 @@ remote:
 stremio:
   service_url: http://127.0.0.1:11470
   desktop_app: /usr/bin/stremio  # path after install
-  credentials_file: /etc/ai-tv-box/stremio.json
+  credentials_file: /etc/mango/stremio.json
 
 kodi:
   host: 127.0.0.1
   port: 8080
   user: kodi
-  password_file: /etc/ai-tv-box/kodi.key
+  password_file: /etc/mango/kodi.key
 
 tmdb:
-  api_key_file: /etc/ai-tv-box/tmdb.key
+  api_key_file: /etc/mango/tmdb.key
 
 orchestrator:
   host: 127.0.0.1

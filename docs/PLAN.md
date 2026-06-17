@@ -1,4 +1,4 @@
-# ai-tv-box — Implementation Plan
+# mango — Implementation Plan
 
 **Hardware on hand:** Pi 5 8GB (CanaKit) · 128GB SD · USB gamepad (D-pad + receiver) · phone · TV  
 **No FLIRC** — gamepad is primary TV navigation; phone is mic + backup remote  
@@ -42,7 +42,7 @@ Estimated calendar: **6–8 weeks part-time** (Phase 0–3 ≈ 4–5 weeks).
 ### 0.1 Flash & base OS
 
 1. Flash **Raspberry Pi OS Desktop 64-bit** (Bookworm or newer) to 128GB SD via Raspberry Pi Imager.
-2. First boot: set hostname `ai-tv-box`, enable SSH, set user password, connect WiFi or Ethernet.
+2. First boot: set hostname `mango`, enable SSH, set user password, connect WiFi or Ethernet.
 3. Full update: `sudo apt update && sudo apt full-upgrade -y`
 4. **Switch to X11** (required for xdotool overlay + key injection):
    ```bash
@@ -56,7 +56,7 @@ Estimated calendar: **6–8 weeks part-time** (Phase 0–3 ≈ 4–5 weeks).
 1. Plug USB receiver; verify: `ls /dev/input/js*` and `jstest /dev/input/js0`
 2. Install mapping tool: `sudo apt install joystick antimicrox` (or `xboxdrv` if needed)
 3. Map D-pad → arrow keys, A → Return, B → Escape, Start → Super (optional)
-4. Document button map in `/etc/ai-tv-box/gamepad.md` (local only)
+4. Document button map in `/etc/mango/gamepad.md` (local only)
 5. **Exit criteria:** gamepad navigates `lxterminal` and file manager
 
 ### 0.3 Kodi + YouTube
@@ -138,7 +138,7 @@ launch-launcher.sh  → focus chromium kiosk window
 
 ### 1.5 systemd (initial)
 
-- `ai-tv-launcher.service` — X11 session autostart Openbox + chromium kiosk + overlay
+- `mango-launcher.service` — X11 session autostart Openbox + chromium kiosk + overlay
 - Kodi/Stremio **not** systemd — on-demand from launcher
 
 **Exit criteria:** Design doc success criteria #1, #2, #10 (gamepad only, no voice).
@@ -162,7 +162,7 @@ orchestrator/
     provider.py     # Anthropic/OpenAI adapter
     tools.py        # schema only in Phase 2
   session.py        # conversation history
-  config.py         # load /etc/ai-tv-box/config.yaml
+  config.py         # load /etc/mango/config.yaml
 ```
 
 ### 2.2 Phone companion HTTPS (critical)
@@ -212,7 +212,7 @@ Phone mic → WebSocket (binary PCM 16kHz mono)
 
 - Wrap `@stremio/stremio-core-web` or HTTP bridge to stremio-core
 - Endpoints: `/search`, `/play` (returns deep link), `/library`, `/recommend` (catalog + LLM pre-rank in orchestrator)
-- Auth: read token from `/etc/ai-tv-box/stremio.json` (export from desktop login — document manual step)
+- Auth: read token from `/etc/mango/stremio.json` (export from desktop login — document manual step)
 
 ### 3.2 `src/adapters/`
 

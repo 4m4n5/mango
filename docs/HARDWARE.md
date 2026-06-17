@@ -1,4 +1,4 @@
-# Hardware — ai-tv-box V1
+# Hardware — mango V1
 
 ## On hand
 

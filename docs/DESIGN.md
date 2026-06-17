@@ -1,4 +1,4 @@
-# ai-tv-box — V1 Build Spec
+# mango — V1 Build Spec
 
 **Platform:** Raspberry Pi 5 (8GB) · Raspberry Pi OS 64-bit desktop · **X11 + Openbox**  
 **Estimate:** 6–8 weeks part-time · Ship when **V1 Core** criteria pass
@@ -56,7 +56,7 @@ Shopping details: `[HARDWARE.md](HARDWARE.md)`
 | Kodi controls (voice)    | JSON-RPC                                                              |
 | Playback context         | Kodi: accurate; Stremio: library sync (~90s lag)                      |
 | Addons                   | Manual setup in Stremio desktop app                                   |
-| Secrets                  | `/etc/ai-tv-box/` — mode `600`, never in repo                         |
+| Secrets                  | `/etc/mango/` — mode `600`, never in repo                         |
 
 
 ---
@@ -123,10 +123,10 @@ TV:  [ Launcher | Stremio app | Kodi/YouTube ]  +  AI overlay (badge + toasts)
 ### systemd
 
 ```
-ai-tv-orchestrator.service
-ai-tv-launcher.service
-ai-tv-companion.service
-ai-tv-stremio-service.service
+mango-orchestrator.service
+mango-launcher.service
+mango-companion.service
+mango-stremio-service.service
 kodi.service
 ```
 
@@ -231,7 +231,7 @@ Free API key for recap / watch-and-ask metadata.
 
 ## Configuration
 
-Copy `[config/config.example.yaml](../config/config.example.yaml)` to `/etc/ai-tv-box/config.yaml`.
+Copy `[config/config.example.yaml](../config/config.example.yaml)` to `/etc/mango/config.yaml`.
 
 Required keys: LLM provider + API key, Kodi credentials, Stremio credentials (after login), TMDB key (Stretch).
 
@@ -293,7 +293,7 @@ Required keys: LLM provider + API key, Kodi credentials, Stremio credentials (af
 
 ## Security
 
-- API keys, Kodi/Stremio creds: `/etc/ai-tv-box/`, not in git.
+- API keys, Kodi/Stremio creds: `/etc/mango/`, not in git.
 - Tools validate IDs; no arbitrary URL execution from LLM.
 - Kodi JSON-RPC bound to localhost.
 

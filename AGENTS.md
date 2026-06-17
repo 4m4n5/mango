@@ -1,4 +1,4 @@
-# ai-tv-box — agent entry point
+# mango — agent entry point
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md)
 
@@ -23,6 +23,6 @@ Read before implementing. **Phase 0 on real Pi must pass before `src/` work** (s
 
 ## Rules
 
-- Never commit secrets (`/etc/ai-tv-box/`, `*.key`, `.env`)
+- Never commit secrets (`/etc/mango/`, `*.key`, `.env`)
 - Voice Stremio play → `stremio://` deep link, not orphan MPV
 - Stretch features only after V1 Core success criteria pass

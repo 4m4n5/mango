@@ -1,19 +1,20 @@
-# ai-tv-box
+# mango
 
 AI + streaming TV box for **Raspberry Pi 5** — Stremio, YouTube (Kodi), and voice control from your phone.
 
 ## Status
 
-**Planning complete · Phase 0 next** — flash Pi, install Kodi + Stremio, map gamepad. No application code yet.
+**Planning complete · Phase 0 next** — start with [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) (flash SD, boot Pi).
 
 ## Docs
 
 | Doc | Purpose |
 |-----|---------|
-| [`docs/PLAN.md`](docs/PLAN.md) | Implementation phases (**start here**) |
+| [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) | **Hardware setup** — SD card, Pi assembly, first boot |
+| [`docs/phase0-checklist.md`](docs/phase0-checklist.md) | Software checklist after Pi boots |
+| [`docs/PLAN.md`](docs/PLAN.md) | Implementation phases |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | V1 scope & architecture |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked implementation choices |
-| [`docs/phase0-checklist.md`](docs/phase0-checklist.md) | On-Pi bring-up checklist |
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | Hardware & gamepad setup |
 
 Agents: see [`AGENTS.md`](AGENTS.md).
@@ -28,7 +29,7 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 ## Repository layout
 
 ```
-config/           example config (copy to /etc/ai-tv-box/ on Pi)
+config/           example config (copy to /etc/mango/ on Pi)
 docs/             design, plan, checklist
 scripts/          install & launch scripts (planned)
 src/              application code (planned)
