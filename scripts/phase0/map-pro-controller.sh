@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Fixed TV map for 8BitDo / Switch "Pro Controller" on Linux (hat D-pad + A/B).
+# Fixed TV map for 8BitDo / Switch "Pro Controller" — desktop/Stremio (not Kodi).
+# Kodi: use launch-kodi.sh instead (native gamepad).
 # Run on the Pi: bash scripts/phase0/map-pro-controller.sh
 
 set -euo pipefail
@@ -10,24 +11,33 @@ PRESET_NAME="mango-tv"
 PRESET_DIR="${CONFIG_ROOT}/presets/${DEVICE_NAME}"
 PRESET_FILE="${PRESET_DIR}/${PRESET_NAME}.json"
 
-echo "=== mango: Pro Controller preset (hat D-pad + A/B) ==="
-echo
-echo "Linux D-pad is hat axes, not keys — SSH capture maps face buttons by mistake."
-echo "This writes the correct preset for Switch-mode 8BitDo."
+SWAP_AB=false
+[[ "${1:-}" == "--swap-ab" ]] && SWAP_AB=true
+
+echo "=== mango: Pro Controller desktop preset ==="
+echo "(For Kodi use: bash scripts/phase0/launch-kodi.sh — native pad, no remapper)"
 echo
 
 mkdir -p "$PRESET_DIR"
 
-# ABS_HAT0X=16, ABS_HAT0Y=17 — D-pad
-# BTN_SOUTH=304 (A), BTN_EAST=305 (B) — standard Switch layout on Pi
-cat >"$PRESET_FILE" <<'EOF'
+if $SWAP_AB; then
+  A_CODE=305
+  B_CODE=304
+  echo "A/B swapped (305=confirm, 304=back)"
+else
+  A_CODE=304
+  B_CODE=305
+fi
+
+# Hat at ±100%; hold/release via release_combination_keys
+cat >"$PRESET_FILE" <<EOF
 [
-  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": -50}], "target_uinput": "keyboard", "output_symbol": "Up"},
-  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": 50}], "target_uinput": "keyboard", "output_symbol": "Down"},
-  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": -50}], "target_uinput": "keyboard", "output_symbol": "Left"},
-  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": 50}], "target_uinput": "keyboard", "output_symbol": "Right"},
-  {"input_combination": [{"type": 1, "code": 304}], "target_uinput": "keyboard", "output_symbol": "Return"},
-  {"input_combination": [{"type": 1, "code": 305}], "target_uinput": "keyboard", "output_symbol": "Esc"}
+  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": -100}], "target_uinput": "keyboard", "output_symbol": "Up", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 17, "analog_threshold": 100}], "target_uinput": "keyboard", "output_symbol": "Down", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": -100}], "target_uinput": "keyboard", "output_symbol": "Left", "release_combination_keys": true},
+  {"input_combination": [{"type": 3, "code": 16, "analog_threshold": 100}], "target_uinput": "keyboard", "output_symbol": "Right", "release_combination_keys": true},
+  {"input_combination": [{"type": 1, "code": ${A_CODE}}], "target_uinput": "keyboard", "output_symbol": "Return"},
+  {"input_combination": [{"type": 1, "code": ${B_CODE}}], "target_uinput": "keyboard", "output_symbol": "Esc"}
 ]
 EOF
 
@@ -51,10 +61,6 @@ input-remapper-control --command stop --device "$DEVICE_NAME" 2>/dev/null || tru
 input-remapper-control --command start --device "$DEVICE_NAME" --preset "$PRESET_NAME"
 
 echo
-echo "Applied. On TV:"
-echo "  D-pad     → move"
-echo "  A (south) → Return"
-echo "  B (east)  → Escape"
-echo
-echo "Test: DISPLAY=:0 kodi &"
-echo "If A/B are swapped, say so — we can flip 304/305."
+echo "Desktop/Stremio map active."
+echo "  D-pad → arrows   A → Return   B → Escape"
+echo "Try --swap-ab if A/B feel reversed in Stremio."

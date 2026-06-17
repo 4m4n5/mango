@@ -26,19 +26,20 @@ bluetoothctl connect AA:BB:CC:DD:EE:FF   # your controller MAC
 input-remapper-control --command autoload
 ```
 
-**Launch apps from SSH (until Phase 1 launcher):**
+**Launch apps (important — Kodi vs Stremio differ):**
 
 ```bash
-DISPLAY=:0 kodi &
-DISPLAY=:0 stremio &
+bash scripts/phase0/launch-kodi.sh      # native gamepad — A=select, B=back
+bash scripts/phase0/launch-stremio.sh # keyboard remap for Qt UI
 ```
 
-**Pad controls:** D-pad = move focus · A = select · B = back
+Do **not** use input-remapper for Kodi — it breaks the D-pad. `launch-kodi.sh` turns remapper off first.
 
-**Wrong map after SSH capture?** Pro Controller D-pad is hat axes — run:
+**Desktop/Stremio remap only:**
 
 ```bash
 bash scripts/phase0/map-pro-controller.sh
+bash scripts/phase0/map-pro-controller.sh --swap-ab   # if A/B reversed
 ```
 
 ---
