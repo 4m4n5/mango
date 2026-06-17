@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # 8BitDo Micro (Switch BT → "Pro Controller") → keyboard for Kodi/Stremio.
 #
+# Verified on mango (Jun 2026):
+#   D-pad → arrows   B → select (Return)   Y → back (BackSpace)
+#
 # D-pad shows as ABS_X/ABS_Y (codes 0/1) in Switch mode — not hat axes.
 # input-remapper rejects analog_threshold ±100 (max is ±99) — use ±80.
 #
@@ -14,21 +17,9 @@ PRESET_NAME="mango-tv"
 PRESET_DIR="${CONFIG_ROOT}/presets/${DEVICE_NAME}"
 PRESET_FILE="${PRESET_DIR}/${PRESET_NAME}.json"
 
-SWAP_AB=false
-[[ "${1:-}" == "--swap-ab" ]] && SWAP_AB=true
-
-# Switch layout: A=south (304), B=east (305). Kodi often ignores Esc — use BackSpace for back.
-if $SWAP_AB; then
-  CONFIRM_CODE=305
-  BACK_CODE=304
-else
-  CONFIRM_CODE=304   # BTN_SOUTH (A) → Return
-  BACK_CODE=305      # BTN_EAST (B) → back
-fi
-
 mkdir -p "$PRESET_DIR"
 
-cat >"$PRESET_FILE" <<EOF
+cat >"$PRESET_FILE" <<'EOF'
 [
   {"input_combination": [{"type": 3, "code": 0, "analog_threshold": -80}], "target_uinput": "keyboard", "output_symbol": "Left", "release_combination_keys": true},
   {"input_combination": [{"type": 3, "code": 0, "analog_threshold": 80}], "target_uinput": "keyboard", "output_symbol": "Right", "release_combination_keys": true},
@@ -42,8 +33,7 @@ cat >"$PRESET_FILE" <<EOF
   {"input_combination": [{"type": 1, "code": 545}], "target_uinput": "keyboard", "output_symbol": "Down"},
   {"input_combination": [{"type": 1, "code": 546}], "target_uinput": "keyboard", "output_symbol": "Left"},
   {"input_combination": [{"type": 1, "code": 547}], "target_uinput": "keyboard", "output_symbol": "Right"},
-  {"input_combination": [{"type": 1, "code": ${CONFIRM_CODE}}], "target_uinput": "keyboard", "output_symbol": "Return"},
-  {"input_combination": [{"type": 1, "code": ${BACK_CODE}}], "target_uinput": "keyboard", "output_symbol": "BackSpace"},
+  {"input_combination": [{"type": 1, "code": 305}], "target_uinput": "keyboard", "output_symbol": "Return"},
   {"input_combination": [{"type": 1, "code": 308}], "target_uinput": "keyboard", "output_symbol": "BackSpace"}
 ]
 EOF
@@ -71,7 +61,6 @@ sleep 1
 input-remapper-control --command start --device "$DEVICE_NAME" --preset "$PRESET_NAME"
 
 echo "=== mango-tv map applied (8BitDo Micro) ==="
-echo "  D-pad → arrows"
-echo "  A (south) → Return (select)"
-echo "  B (east)  → BackSpace (back) — Y also back"
-echo "Try --swap-ab if A/B feel reversed."
+echo "  D-pad → move"
+echo "  B     → select"
+echo "  Y     → back"

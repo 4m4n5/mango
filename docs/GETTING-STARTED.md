@@ -1,32 +1,62 @@
 # Getting started
 
-Phase 0 on Pi 5 CanaKit. Full checklist: [`phase0-checklist.md`](phase0-checklist.md).
+Phase 0 on Pi 5 CanaKit. Full checklist: [`phase0-checklist.md`](phase0-checklist.md). Gamepad details: [`HARDWARE.md`](HARDWARE.md).
 
 ## Done so far
 
-- Pi OS Desktop 64-bit flashed (hostname `mango`, user `aman`, SSH on)
-- X11 + Openbox (`switch-to-x11.sh`, rebooted)
-- Repo cloned at `~/mango` on the Pi
-- FastPad gamepad remapped via `map-gamepad-ssh.sh` (preset `mango-tv`, autoload)
+- Pi OS Desktop 64-bit (hostname `mango`, user `aman`, SSH on)
+- X11 + Openbox (`switch-to-x11.sh`)
+- Kodi + Stremio installed (`bootstrap.sh`)
+- **8BitDo Micro** paired over Bluetooth — **Kodi navigation works**
+  - D-pad = move · **B** = select · **Y** = back
+  - Launch: `bash scripts/phase0/launch-kodi.sh`
 
-## Next: bootstrap (Kodi + Stremio)
+## Next steps (finish Phase 0)
 
-On the Pi (SSH):
+### 1. Stremio + gamepad
+
+On the Pi:
 
 ```bash
-cd ~/mango
-git pull
-bash scripts/phase0/bootstrap.sh
+cd ~/mango && git pull
+bash scripts/phase0/launch-stremio.sh
 ```
 
-Answer **Y** to base deps, Kodi, and Stremio. Then on the **TV screen** (gamepad):
+On the TV: log in, install addons, play something. Confirm **D-pad / B / Y** work the same as Kodi.
 
-1. **Kodi** — install YouTube addon, enable JSON-RPC (port 8080, user/pass)
-2. **Stremio** — login, install addons, play something
-3. Back in SSH: `bash scripts/phase0/test-kodi-rpc.sh <user> <pass>`
+### 2. Kodi YouTube + JSON-RPC
+
+In Kodi (gamepad):
+
+1. Add-ons → install **YouTube** → play a video with the controller
+2. Settings → Services → Control → enable **Allow remote control via HTTP**
+   - Port **8080**, set username + password
+
+Back in SSH:
+
+```bash
+bash scripts/phase0/test-kodi-rpc.sh <username> <password>
+```
+
+### 3. Sign-off
+
+- [ ] Stremio: login, addons, playback with gamepad
+- [ ] Kodi YouTube plays with gamepad
+- [ ] `test-kodi-rpc.sh` passes
+- [ ] Kodi + Stremio stable 30+ minutes
+
+When those pass, Phase 0 is done → Phase 1 (launcher / app picker).
+
+## Daily commands
+
+```bash
+bluetoothctl connect E4:17:D8:EB:00:44
+bash scripts/phase0/launch-kodi.sh
+bash scripts/phase0/launch-stremio.sh
+```
 
 ## First-time flash (reference)
 
 1. Imager → Pi 5 → Pi OS Desktop 64-bit → hostname `mango`, SSH on.
-2. SD in Pi underside slot, HDMI, gamepad dongle, power.
+2. SD in Pi underside slot, HDMI, power.
 3. Mac: `ssh aman@mango.local` · `git clone https://github.com/4m4n5/mango.git`

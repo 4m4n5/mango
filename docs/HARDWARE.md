@@ -12,9 +12,19 @@ Pair in **Switch mode** (hold START+Y). Linux names it **Pro Controller**.
 
 **MAC:** `E4:17:D8:EB:00:44`
 
-> **Quirk:** The Micro has no analog stick, but in Switch BT mode Linux reports the **D-pad as ABS_X/ABS_Y** axis events (not hat D-pad). `evtest` will show `ABS_X` when you press left/right on the D-pad — that is normal.
+### Controller layout (verified in Kodi)
 
-### After reboot (start here)
+| Button | Action |
+|--------|--------|
+| **D-pad** | Navigate (up / down / left / right) |
+| **B** (right) | Select |
+| **Y** (left) | Back |
+
+A and X are unmapped. Remapping is via `input-remapper` preset `mango-tv` (D-pad → arrow keys, B → Return, Y → BackSpace).
+
+> **Quirk:** The Micro has no analog stick, but in Switch BT mode Linux reports the **D-pad as ABS_X/ABS_Y** axis events (not hat D-pad). `evtest` will show `ABS_X` when you press left/right — that is normal.
+
+### After reboot
 
 ```bash
 cd ~/mango && git pull
@@ -30,9 +40,7 @@ bash scripts/phase0/launch-kodi.sh      # Kodi
 bash scripts/phase0/launch-stremio.sh   # Stremio
 ```
 
-Both apps use `map-pro-controller.sh` — D-pad → arrows, **A → select**, **B → back** (BackSpace).
-
-If A/B reversed: `bash scripts/phase0/map-pro-controller.sh --swap-ab`
+Both launchers apply `map-pro-controller.sh` automatically.
 
 ### First-time pair
 
@@ -44,6 +52,6 @@ If A/B reversed: `bash scripts/phase0/map-pro-controller.sh --swap-ab`
 
 ## FastPad (retired)
 
-Unstable 2.4G dongle — replaced by 8BitDo Micro. If needed: `map-gamepad-ssh.sh` for keyboard-mode pads.
+Unstable 2.4G dongle — replaced by 8BitDo Micro.
 
 Details: [`GETTING-STARTED.md`](GETTING-STARTED.md) · [`phase0-checklist.md`](phase0-checklist.md)

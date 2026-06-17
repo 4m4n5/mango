@@ -20,5 +20,5 @@ bash "$SCRIPT_DIR/map-pro-controller.sh"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
-echo "Starting Stremio — D-pad = move, A = select, B = back"
+echo "Starting Stremio — D-pad = move, B = select, Y = back"
 stremio &
