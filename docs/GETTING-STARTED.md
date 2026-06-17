@@ -17,24 +17,24 @@ Phase 0 on Pi 5 CanaKit. Full checklist: [`phase0-checklist.md`](phase0-checklis
 
 ```bash
 cd ~/mango && git pull
-killall kodi 2>/dev/null || true
-bash scripts/phase0/launch-stremio.sh
+bash scripts/phase0/reset-stremio.sh
 ```
+
+This kills zombie Stremio/node processes (ports 11470 / 7000), remaps the controller, launches Stremio, and focuses the window.
 
 On the TV:
 
 1. Log in (or create account)
-2. **Addons** → install e.g. **Torrentio** (follow in-app prompts)
-3. Search a title → play something
-4. Confirm **D-pad / B / Y** work like Kodi
+2. **Addons** → install e.g. **Torrentio**
+3. Play something — **D-pad / B / Y** like Kodi
 
-If the controller does nothing, Stremio may not have focus (common when launching from SSH):
+If the controller does nothing after focus:
 
 ```bash
-bash scripts/phase0/focus-stremio.sh
+bash scripts/phase0/test-stremio-input.sh
 ```
 
-Or click the Stremio window once on the TV, then try the controller again.
+If Stremio acts broken (port errors in SSH), run `reset-stremio.sh` again or `sudo reboot`.
 
 ### 2. Kodi YouTube playback
 
