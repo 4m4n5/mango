@@ -22,17 +22,15 @@ find_arm64_deb_url() {
   local page=1 json url
   while (( page <= 5 )); do
     json=$(curl -sf "https://api.github.com/repos/${REPO}/releases?per_page=30&page=${page}") || return 1
-    url=$(python3 - <<'PY' "$json"
+    url=$(python3 -c '
 import json, sys
-data = json.loads(sys.argv[1])
-for release in data:
+for release in json.loads(sys.argv[1]):
     for asset in release.get("assets", []):
         name = asset.get("name", "").lower()
         if "arm64" in name and name.endswith(".deb"):
             print(asset["browser_download_url"])
             raise SystemExit(0)
-PY
-) || true
+' "$json") || true
     if [[ -n "${url:-}" ]]; then
       echo "$url"
       return 0
