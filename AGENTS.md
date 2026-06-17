@@ -4,6 +4,17 @@
 
 Read before implementing. **Phase 0 on real Pi must pass before `src/` work** (see checklist).
 
+## Progress (2026-06-17)
+
+| Done | Pending |
+|------|---------|
+| Pi OS Desktop, X11/Openbox, SSH | `bootstrap.sh` — deps, Kodi, Stremio |
+| `verify-system.sh` passes | Kodi YouTube + JSON-RPC |
+| FastPad → `map-gamepad-ssh.sh` (`mango-tv`) | Stremio login + addons |
+| | Phase 0 sign-off → Phase 1 `src/` |
+
+Pi: `aman@mango.local` · `10.0.0.174`
+
 ## Docs
 
 | Doc | Use |

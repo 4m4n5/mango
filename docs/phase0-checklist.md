@@ -6,18 +6,19 @@ Helper scripts: `scripts/phase0/`
 
 ## OS & display
 
-- [ ] Flash Pi OS Desktop 64-bit (hostname `mango`) — see GETTING-STARTED
-- [ ] Boot desktop, network up, `sudo apt update && sudo apt full-upgrade -y`
-- [ ] `bash scripts/phase0/switch-to-x11.sh` → `sudo reboot`
-- [ ] `bash scripts/phase0/verify-system.sh` — all green
-- [ ] `echo $XDG_SESSION_TYPE` prints `x11`
+- [x] Flash Pi OS Desktop 64-bit (hostname `mango`) — see GETTING-STARTED
+- [x] Boot desktop, network up
+- [ ] `sudo apt update && sudo apt full-upgrade -y` (run during bootstrap if not done)
+- [x] `bash scripts/phase0/switch-to-x11.sh` → `sudo reboot`
+- [x] `bash scripts/phase0/verify-system.sh` — all green
+- [x] X11 confirmed (`openbox` running; `verify-system.sh` passes over SSH)
 
 ## Gamepad
 
-- [ ] Receiver in Pi USB port (`lsusb` shows FastPad-KEY or `js0` for joystick pads)
-- [ ] **Joystick pad:** `jstest /dev/input/js0` + antimicrox
-- [ ] **Keyboard-mode pad (FastPad):** `bash scripts/phase0/map-gamepad-ssh.sh` (SSH, no mouse) — or GUI via `install-gamepad-remap.sh`
-- [ ] Gamepad navigates desktop apps (file manager, menus)
+- [x] Receiver in Pi USB port (`lsusb` → `1a86:fe18 FastPad-KEY`)
+- [x] **FastPad (keyboard-mode):** `bash scripts/phase0/map-gamepad-ssh.sh` → preset `mango-tv`, autoload on
+- [ ] Gamepad navigates desktop apps (file manager, menus) — verify before sign-off
+- [ ] _(N/A)_ Joystick pad path: `jstest` + antimicrox
 
 ## Kodi + YouTube
 
@@ -34,9 +35,9 @@ Helper scripts: `scripts/phase0/`
 
 ## Network & phone
 
-- [ ] Pi IP noted: `hostname -I`
+- [x] Pi IP noted: `10.0.0.174` (SSH: `aman@mango.local`)
 - [ ] Phone reaches Pi on LAN
-- [ ] SSH from Mac works
+- [x] SSH from Mac works
 
 ## Sign-off
 
@@ -44,7 +45,8 @@ Helper scripts: `scripts/phase0/`
 - [ ] Gamepad-only couch navigation OK
 - [ ] Ready for Phase 1 (launcher code)
 
-**Pi IP:** _______________  
+**Pi IP:** `10.0.0.174` · **SSH:** `aman@mango.local`  
+**Gamepad:** FastPad-KEY · input-remapper preset `mango-tv`  
 **Kodi user:** _______________  
 **Stremio version:** _______________  
 **Date completed:** _______________

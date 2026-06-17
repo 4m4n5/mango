@@ -20,16 +20,20 @@ bash scripts/phase0/map-gamepad-ssh.sh
 
 Follow prompts: press each D-pad direction, A, and B once. Reboot-safe autoload is configured automatically.
 
+**Captured raw map (this unit):**
+
+| Pad | Raw key | Code |
+|-----|---------|------|
+| D-pad up | `A` | 30 |
+| D-pad down | `D` | 32 |
+| D-pad left | `S` | 31 |
+| D-pad right | `W` | 17 |
+| A | `T` | 20 |
+| B | `Y` | 21 |
+
+Remapped to ↑ ↓ ← → Return Esc via preset `mango-tv` in `~/.config/input-remapper-2/`.
+
 GUI (optional, needs mouse or working keyboard): `install-gamepad-remap.sh` then Input Remapper from the app menu.
-
-| Pad control | Map to |
-|-------------|--------|
-| D-pad | Up / Down / Left / Right |
-| A (confirm) | Return |
-| B (back) | Escape |
-| Play (optional) | space |
-
-Create preset `mango-tv` → **Apply** → enable **autoload** so it survives reboot.
 
 **See what keys it sends:**
 

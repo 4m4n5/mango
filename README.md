@@ -4,7 +4,7 @@ AI + streaming TV box for **Raspberry Pi 5** — Stremio, YouTube (Kodi), and vo
 
 ## Status
 
-**Planning complete · Phase 0 next** — start with [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) (flash SD, boot Pi).
+**Phase 0 in progress** — Pi booted, X11 OK, FastPad mapped. **Next:** `bootstrap.sh` (deps, Kodi, Stremio). See [`docs/phase0-checklist.md`](docs/phase0-checklist.md).
 
 ## Docs
 
@@ -31,8 +31,8 @@ Agents: see [`AGENTS.md`](AGENTS.md).
 ```
 config/           example config (copy to /etc/mango/ on Pi)
 docs/             design, plan, checklist
-scripts/          install & launch scripts (planned)
-src/              application code (planned)
+scripts/          phase0 install & verify scripts
+src/              application code (Phase 1+)
 ```
 
 ## Hardware
