@@ -22,11 +22,17 @@ In Kodi: **Settings → Input → Peripherals → joysticks → ON**
 
 ### Daily use
 
+Use the **left stick** to navigate (this pad sends stick axes, not hat D-pad).
+
 ```bash
-bash scripts/phase0/launch-kodi.sh      # Kodi — native pad, remapper OFF
-bash scripts/phase0/launch-stremio.sh   # Stremio — keyboard remap ON
 bluetoothctl connect E4:17:D8:EB:00:44
+bash scripts/phase0/launch-kodi.sh      # Kodi
+bash scripts/phase0/launch-stremio.sh   # Stremio
 ```
+
+Both use `map-pro-controller-sticks.sh` (stick → arrows, A/B → Return/Escape).
+
+If A/B reversed: `bash scripts/phase0/map-pro-controller-sticks.sh --swap-ab`
 
 ### First-time pair
 
