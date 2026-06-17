@@ -8,39 +8,31 @@
 
 ## 8BitDo Bluetooth (recommended)
 
-1. **Unplug** the old FastPad USB dongle.
-2. Run on the Pi:
+**MAC:** `E4:17:D8:EB:00:44` · Linux name: **Pro Controller**
+
+### After reboot (start here)
 
 ```bash
 cd ~/mango && git pull
-bash scripts/phase0/setup-8bitdo-bt.sh
+bash scripts/phase0/gamepad-fresh-start.sh
+bash scripts/phase0/launch-kodi.sh
 ```
 
-3. Pair in **Switch mode**: hold **START + Y** ~3s until LEDs flash, then `bluetoothctl` → `pair` / `trust` / `connect`. Linux lists it as **`Pro Controller`** — that's your 8BitDo.
-4. Script maps **D-pad → arrows**, **A → Return**, **B → Escape** (preset `mango-tv`).
+In Kodi: **Settings → Input → Peripherals → joysticks → ON**
 
-**Reconnect after sleep:**
+### Daily use
 
 ```bash
-bluetoothctl connect AA:BB:CC:DD:EE:FF   # your controller MAC
-input-remapper-control --command autoload
+bash scripts/phase0/launch-kodi.sh      # Kodi — native pad, remapper OFF
+bash scripts/phase0/launch-stremio.sh   # Stremio — keyboard remap ON
+bluetoothctl connect E4:17:D8:EB:00:44
 ```
 
-**Launch apps (important — Kodi vs Stremio differ):**
+### First-time pair
 
-```bash
-bash scripts/phase0/launch-kodi.sh      # native gamepad — A=select, B=back
-bash scripts/phase0/launch-stremio.sh # keyboard remap for Qt UI
-```
-
-Do **not** use input-remapper for Kodi — it breaks the D-pad. `launch-kodi.sh` turns remapper off first.
-
-**Desktop/Stremio remap only:**
-
-```bash
-bash scripts/phase0/map-pro-controller.sh
-bash scripts/phase0/map-pro-controller.sh --swap-ab   # if A/B reversed
-```
+1. **Unplug** the old FastPad USB dongle.
+2. Run: `bash scripts/phase0/setup-8bitdo-bt.sh`  
+   Or pair manually: pad **START+Y** → `bluetoothctl pair/trust/connect E4:17:D8:EB:00:44`
 
 ---
 
