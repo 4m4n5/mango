@@ -8,11 +8,11 @@ Read before implementing. **Phase 0 on real Pi must pass before `src/` work** (s
 
 | Done | Pending |
 |------|---------|
-| Pi OS Desktop, X11/Openbox, SSH | Kodi JSON-RPC + `test-kodi-rpc.sh` |
-| Kodi + Stremio installed | Stremio login + addons + gamepad |
-| 8BitDo Micro — D-pad / B / Y in Kodi | YouTube playback sign-off |
-| YouTube addon + InputStream Adaptive | 30 min stability sign-off |
-| `map-pro-controller.sh` preset `mango-tv` | Phase 1 launcher (`src/`) |
+| Pi OS Desktop, X11/Openbox, SSH | Stremio login + addons + gamepad |
+| Kodi + YouTube addon + InputStream | Kodi YouTube playback sign-off |
+| 8BitDo Micro — D-pad / B / Y in Kodi | 30 min stability sign-off |
+| Kodi JSON-RPC (`mango` @ :8080) | Phase 1 launcher (`src/`) |
+| `map-pro-controller.sh` preset `mango-tv` | |
 
 Pi: `aman@mango.local` · `10.0.0.174`
 
@@ -36,6 +36,6 @@ Pi: `aman@mango.local` · `10.0.0.174`
 
 ## Rules
 
-- Never commit secrets (`/etc/mango/`, `*.key`, `.env`)
+- Never commit secrets (`/etc/mango/`, `*.key`, `.env`, Kodi RPC password)
 - Voice Stremio play → `stremio://` deep link, not orphan MPV
 - Stretch features only after V1 Core success criteria pass

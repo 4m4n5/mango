@@ -26,8 +26,8 @@ Helper scripts: `scripts/phase0/`
 - [x] InputStream Adaptive (`install-kodi-inputstream.sh`)
 - [x] YouTube addon installed (zip v7.4.3 + setup wizard)
 - [ ] Play a video with gamepad
-- [ ] JSON-RPC enabled (port 8080, user/pass set)
-- [ ] `bash scripts/phase0/test-kodi-rpc.sh <user> <pass>`
+- [x] JSON-RPC enabled (port 8080, user `mango`)
+- [x] `test-kodi-rpc.sh` passes
 
 ## Stremio
 
@@ -48,6 +48,6 @@ Helper scripts: `scripts/phase0/`
 
 **Pi IP:** `10.0.0.174` · **SSH:** `aman@mango.local`  
 **Gamepad:** 8BitDo Micro · D-pad / B / Y · preset `mango-tv`  
-**Kodi RPC user:** _______________  
+**Kodi RPC user:** `mango` (password on Pi only)  
 **Stremio version:** _______________  
 **Date completed:** _______________

@@ -4,7 +4,7 @@ AI + streaming TV box for **Raspberry Pi 5** — Stremio, YouTube (Kodi), and vo
 
 ## Status
 
-**Phase 0 in progress** — Kodi + YouTube addon + 8BitDo Micro gamepad working. **Next:** JSON-RPC, Stremio + gamepad, sign-off. See [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
+**Phase 0 in progress** — Kodi + YouTube + JSON-RPC + gamepad done. **Next:** Stremio + gamepad, sign-off. See [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
 
 ## Docs
 
