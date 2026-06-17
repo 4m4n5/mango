@@ -26,13 +26,17 @@ On the TV: log in, install addons, play something. Confirm **D-pad / B / Y** wor
 
 ### 2. Kodi YouTube + JSON-RPC
 
-In Kodi (gamepad):
+**Full walkthrough:** [`docs/kodi-youtube-setup.md`](kodi-youtube-setup.md)
 
-1. Add-ons → install **YouTube** → play a video with the controller
-2. Settings → Services → Control → enable **Allow remote control via HTTP**
-   - Port **8080**, set username + password
+Quick start on the Pi:
 
-Back in SSH:
+```bash
+cd ~/mango && git pull
+bash scripts/phase0/reset-kodi-youtube.sh   # clean + download addon zip
+bash scripts/phase0/launch-kodi.sh
+```
+
+Then on the TV: enable **Unknown sources** → **Install from zip** → `~/mango/downloads/plugin.video.youtube-7.4.3.zip` → run YouTube setup wizard → enable JSON-RPC (port 8080).
 
 ```bash
 bash scripts/phase0/test-kodi-rpc.sh <username> <password>
