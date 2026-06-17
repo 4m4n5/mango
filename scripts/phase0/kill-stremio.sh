@@ -27,23 +27,37 @@ done
 
 sleep 1
 
+list_stremio_procs() {
+  pgrep -af '/opt/stremio|DualSubtitles' 2>/dev/null || true
+  pgrep -x stremio 2>/dev/null | while read -r pid; do
+    ps -p "$pid" -o args= 2>/dev/null || true
+  done
+}
+
 echo
 echo "Remaining stremio/node (should be empty):"
-pgrep -af 'stremio|DualSubtitles|/opt/stremio' 2>/dev/null || echo "  (none)"
+REMAINING=$(list_stremio_procs)
+if [[ -z "$REMAINING" ]]; then
+  echo "  (none)"
+else
+  echo "$REMAINING"
+fi
 
 echo
 echo "Ports:"
+ports_busy=false
 for port in "${PORTS[@]}"; do
   if ss -tln 2>/dev/null | grep -q ":${port} "; then
     echo "  ! ${port} STILL IN USE"
+    ports_busy=true
   else
     echo "  ✓ ${port} free"
   fi
 done
 
-if pgrep -af 'stremio|DualSubtitles|/opt/stremio' >/dev/null 2>&1; then
+if [[ -n "$REMAINING" ]] || $ports_busy; then
   echo
-  echo "! Some processes remain — try: sudo reboot"
+  echo "! Stremio still running or ports busy — try: sudo reboot"
   exit 1
 fi
 
