@@ -26,12 +26,16 @@ else
 fi
 
 # Session type (must be X11 for xdotool / overlay)
-SESSION="${XDG_SESSION_TYPE:-unknown}"
-if [[ "$SESSION" == "x11" ]]; then
+# SSH shells have no XDG_SESSION_TYPE — check the desktop instead.
+if [[ "${XDG_SESSION_TYPE:-}" == "x11" ]]; then
   pass "Display session: x11"
+elif pgrep -x openbox >/dev/null 2>&1; then
+  pass "Display session: x11 (openbox running)"
+elif pgrep -x labwc >/dev/null 2>&1 || pgrep -x wayfire >/dev/null 2>&1; then
+  fail "Display session: Wayland — switch to X11 Openbox:"
+  echo "    bash scripts/phase0/switch-to-x11.sh && sudo reboot"
 else
-  fail "Display session is '$SESSION' — switch to X11 Openbox:"
-  echo "    sudo raspi-config  →  Advanced  →  Wayland  →  X11 Openbox  →  reboot"
+  warn "Display session: unknown (desktop may be idle) — check monitor after reboot"
 fi
 
 # Temperature
