@@ -17,7 +17,6 @@ pkill -f 'node.*stremio' 2>/dev/null || true
 
 sleep 2
 
-# Force-free ports if zombies remain (needs sudo on Pi OS)
 for port in "${PORTS[@]}"; do
   if ss -tln 2>/dev/null | grep -q ":${port} "; then
     echo "Port ${port} still in use — killing holder..."
@@ -29,14 +28,15 @@ sleep 1
 
 list_stremio_procs() {
   pgrep -af '/opt/stremio|DualSubtitles' 2>/dev/null || true
-  pgrep -x stremio 2>/dev/null | while read -r pid; do
+  local pid
+  for pid in $(pgrep -x stremio 2>/dev/null || true); do
     ps -p "$pid" -o args= 2>/dev/null || true
   done
 }
 
 echo
 echo "Remaining stremio/node (should be empty):"
-REMAINING=$(list_stremio_procs)
+REMAINING=$(list_stremio_procs | sed '/^$/d' || true)
 if [[ -z "$REMAINING" ]]; then
   echo "  (none)"
 else

@@ -6,6 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-bash "$SCRIPT_DIR/kill-stremio.sh"
+bash "$SCRIPT_DIR/kill-stremio.sh" || {
+  echo "! kill-stremio had warnings — continuing launch anyway"
+}
+
 echo
 bash "$SCRIPT_DIR/launch-stremio.sh"
