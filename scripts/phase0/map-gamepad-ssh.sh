@@ -24,11 +24,12 @@ find_fastpad_event() {
 capture_key_code() {
   local device=$1 label=$2
   local line code
+  local re='type 1 \(EV_KEY\), code ([0-9]+) \(KEY_[^)]+\), value 1'
 
   echo
   echo ">>> Press: $label (once), then release"
   while read -r line; do
-    if [[ "$line" =~ type\ 1\ \(EV_KEY\),\ code\ ([0-9]+)\ \(KEY_[^)]+\),\ value\ 1 ]]; then
+    if [[ "$line" =~ $re ]]; then
       code="${BASH_REMATCH[1]}"
       echo "    captured code $code"
       echo "$code"
