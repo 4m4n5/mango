@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch Kodi with stick→keyboard remapping (works for Kodi + Stremio UIs).
+# Launch Kodi with D-pad → keyboard remapping (8BitDo Micro).
 # Run on the Pi: bash scripts/phase0/launch-kodi.sh
 
 set -euo pipefail
@@ -13,10 +13,10 @@ sleep 2
 killall kodi kodi.bin 2>/dev/null || true
 sleep 1
 
-bash "$SCRIPT_DIR/map-pro-controller-sticks.sh"
+bash "$SCRIPT_DIR/map-pro-controller.sh"
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
-echo "Starting Kodi — use LEFT STICK to move, A=select, B=back"
+echo "Starting Kodi — D-pad = move, A = select, B = back"
 kodi &

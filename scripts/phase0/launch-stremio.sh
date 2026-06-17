@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch Stremio with stick→keyboard remapping.
+# Launch Stremio with D-pad → keyboard remapping (8BitDo Micro).
 # Run on the Pi: bash scripts/phase0/launch-stremio.sh
 
 set -euo pipefail
@@ -15,10 +15,10 @@ pkill -f 'stremio-server|/opt/stremio/server' 2>/dev/null || true
 killall stremio 2>/dev/null || true
 sleep 2
 
-bash "$SCRIPT_DIR/map-pro-controller-sticks.sh"
+bash "$SCRIPT_DIR/map-pro-controller.sh"
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
-echo "Starting Stremio — use LEFT STICK to move, A=select, B=back"
+echo "Starting Stremio — D-pad = move, A = select, B = back"
 stremio &

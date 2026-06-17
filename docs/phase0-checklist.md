@@ -45,7 +45,7 @@ Helper scripts: `scripts/phase0/`
 - [ ] Ready for Phase 1 (launcher code)
 
 **Pi IP:** `10.0.0.174` · **SSH:** `aman@mango.local`  
-**Gamepad:** Pro Controller BT `E4:17:D8:EB:00:44` · preset `mango-tv`  
+**Gamepad:** 8BitDo Micro BT `E4:17:D8:EB:00:44` · preset `mango-tv`  
 **Kodi user:** _______________  
 **Stremio version:** _______________  
 **Date completed:** _______________

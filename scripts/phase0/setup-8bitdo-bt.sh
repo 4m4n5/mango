@@ -79,7 +79,7 @@ echo "Event: $EVENT_DEV"
 
 # --- 4. Map ---
 if [[ "$DEVICE_NAME" == "Pro Controller" ]]; then
-  echo "Pro Controller → fixed hat D-pad preset (no SSH capture)."
+  echo "Pro Controller (8BitDo Micro) → mango-tv preset (D-pad as ABS_X/Y + hat fallback)."
   bash "$SCRIPT_DIR/map-pro-controller.sh"
 else
   echo "Press D-pad UP once (5s)..."

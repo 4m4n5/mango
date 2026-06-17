@@ -83,7 +83,7 @@ else
 fi
 
 echo
-echo "=== Remapper: OFF (native pad for Kodi) ==="
-echo "Next: bash scripts/phase0/launch-kodi.sh"
-echo "Kodi TV: Settings → Input → Peripherals → joysticks → ON"
+echo "=== Remapper: OFF (evtest only) ==="
+echo "Next: bash scripts/phase0/launch-kodi.sh   (or launch-stremio.sh)"
+echo "Use the D-pad to navigate in Kodi/Stremio."
 echo "Reconnect: bluetoothctl connect ${BT_MAC}"
