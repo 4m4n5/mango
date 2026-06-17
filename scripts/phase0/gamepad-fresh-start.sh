@@ -29,7 +29,7 @@ EOF
 
 wait_for_input_device() {
   local secs=$1 ev
-  echo "Waiting up to ${secs}s for input device (press any button on the pad)..."
+  echo "Waiting up to ${secs}s for input device (press any button on the pad)..." >&2
   for _ in $(seq 1 "$secs"); do
     ev=$(find_pro_controller_event) && { echo "$ev"; return 0; }
     sleep 1
