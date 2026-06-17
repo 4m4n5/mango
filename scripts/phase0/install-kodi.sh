@@ -6,6 +6,7 @@ set -euo pipefail
 echo "=== Installing Kodi ==="
 sudo apt update
 sudo apt install -y kodi
+bash "$(dirname "$0")/install-kodi-inputstream.sh"
 
 echo
 echo "=== Kodi installed ==="

@@ -13,6 +13,10 @@ ZIP_URL="https://github.com/anxdpanic/plugin.video.youtube/releases/download/v7.
 echo "=== mango: reset Kodi YouTube addon ==="
 echo
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+bash "$SCRIPT_DIR/install-kodi-inputstream.sh"
+echo
+
 killall kodi kodi.bin 2>/dev/null || true
 sleep 1
 

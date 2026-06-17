@@ -2,10 +2,22 @@
 
 8BitDo Micro in Kodi: **D-pad** move · **B** select · **Y** back.
 
-## Part 1 — Clean slate (SSH)
+## Part 0 — InputStream Adaptive (fixes “19.0.0 cannot be satisfied”)
+
+YouTube requires **InputStream Adaptive**. On Raspberry Pi OS it is **not** in Kodi’s add-on browser — install via **apt** first:
 
 ```bash
 cd ~/mango && git pull
+bash scripts/phase0/install-kodi-inputstream.sh
+```
+
+If you see *“dependency on inputstream.adaptive version 19.0.0 cannot be satisfied”*, this step was skipped. After install, **quit and reopen Kodi**, then retry the YouTube zip.
+
+---
+
+## Part 1 — Clean slate (SSH)
+
+```bash
 bash scripts/phase0/reset-kodi-youtube.sh
 bash scripts/phase0/launch-kodi.sh
 ```
@@ -106,6 +118,7 @@ Use this only if the repository loads; if it errors or hangs, use **Part 3 (zip)
 
 | Problem | Fix |
 |---------|-----|
+| **inputstream.adaptive 19.0.0 cannot be satisfied** | `bash scripts/phase0/install-kodi-inputstream.sh` → restart Kodi → install zip again |
 | Can't find zip in browser | Path is `/home/aman/mango/downloads/` — use **Home folder → mango → downloads** |
 | "Dependencies not met" | Run reset script again; install zip before opening YouTube |
 | Addon installed but won't open | **YouTube** → **Settings** → **Maintenance** → **Delete settings.xml** → run Setup wizard again |
