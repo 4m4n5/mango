@@ -16,12 +16,13 @@ Phase 0 on Pi 5 CanaKit. Full checklist: [`phase0-checklist.md`](phase0-checklis
 
 ### 1. Kodi JSON-RPC
 
-Enables voice control later. In Kodi (Expert settings):
-
-**Settings → Services → Control** → **Allow remote control via HTTP** ON · port **8080** · set username + password
+Kodi won't save HTTP remote until **username and password are both set** (password cannot be blank).
 
 ```bash
-bash scripts/phase0/test-kodi-rpc.sh <username> <password>
+killall kodi 2>/dev/null || true
+bash scripts/phase0/kodi-enable-rpc.sh mango yourpassword
+bash scripts/phase0/launch-kodi.sh
+bash scripts/phase0/test-kodi-rpc.sh mango yourpassword
 ```
 
 Expect: `✓ Kodi JSON-RPC OK`

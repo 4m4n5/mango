@@ -86,18 +86,28 @@ Details: [plugin.video.youtube wiki — Personal API Keys](https://github.com/an
 
 ## Part 5 — JSON-RPC (for later voice control)
 
-Still in Kodi **Settings** (Expert mode):
+Kodi requires a **non-empty password** when HTTP auth is on — the UI error *"if web server auth is enabled, password must be entered"* means the password field is blank.
 
-1. **Services** → **Control** → **B**
-2. **Allow remote control via HTTP** → **ON**
-3. **Web server port:** `8080`
-4. Set **Username** and **Password** (pick something you'll remember)
-5. **Y** back to home
-
-On SSH:
+### Option A — SSH (easiest)
 
 ```bash
-bash scripts/phase0/test-kodi-rpc.sh <username> <password>
+killall kodi 2>/dev/null || true
+bash scripts/phase0/kodi-enable-rpc.sh mango yourpassword
+bash scripts/phase0/launch-kodi.sh
+bash scripts/phase0/test-kodi-rpc.sh mango yourpassword
+```
+
+### Option B — Kodi UI (needs a keyboard to type the password)
+
+1. **Settings** → **Services** → **Control** → **B**
+2. **Allow remote control via HTTP** → **ON**
+3. **Port:** `8080`
+4. **Username:** e.g. `mango`
+5. **Password:** type something (cannot be empty) — use a **USB keyboard** or on-screen keyboard
+6. **Y** back to home
+
+```bash
+bash scripts/phase0/test-kodi-rpc.sh mango yourpassword
 ```
 
 Expect: `✓ Kodi JSON-RPC OK`
