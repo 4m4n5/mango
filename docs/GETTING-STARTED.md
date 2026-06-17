@@ -20,21 +20,17 @@ cd ~/mango && git pull
 bash scripts/phase0/reset-stremio.sh
 ```
 
-This kills zombie Stremio/node processes (ports 11470 / 7000), remaps the controller, launches Stremio, and focuses the window.
+This kills zombie processes, starts Stremio, starts the **pad bridge**, and focuses the window.
 
-On the TV:
+On the TV: log in, install addons, play something — **D-pad / B / Y** (Stremio must be the focused window).
 
-1. Log in (or create account)
-2. **Addons** → install e.g. **Torrentio**
-3. Play something — **D-pad / B / Y** like Kodi
-
-If the controller does nothing after focus:
+If the controller does nothing:
 
 ```bash
-bash scripts/phase0/test-stremio-input.sh
+bash scripts/phase0/focus-stremio.sh
 ```
 
-If Stremio acts broken (port errors in SSH), run `reset-stremio.sh` again or `sudo reboot`.
+Kodi still uses input-remapper — run `bash scripts/phase0/launch-kodi.sh` (stops the Stremio bridge).
 
 ### 2. Kodi YouTube playback
 

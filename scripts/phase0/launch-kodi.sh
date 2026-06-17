@@ -13,6 +13,7 @@ sleep 2
 killall kodi kodi.bin 2>/dev/null || true
 sleep 1
 
+bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
 bash "$SCRIPT_DIR/map-pro-controller.sh"
 bash "$SCRIPT_DIR/kodi-keyboard-only.sh" 2>/dev/null || true
 

@@ -43,7 +43,10 @@ bash scripts/phase0/launch-kodi.sh      # Kodi
 bash scripts/phase0/launch-stremio.sh   # Stremio
 ```
 
-Both launchers apply `map-pro-controller.sh` automatically.
+Both launchers apply gamepad mapping automatically.
+
+- **Kodi** — `input-remapper` preset `mango-tv`
+- **Stremio** — `stremio-pad-bridge` (xdotool; Qt ignores remapper)
 
 ### First-time pair
 

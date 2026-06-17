@@ -14,6 +14,8 @@ pkill -f 'stremio-server' 2>/dev/null || true
 pkill -f 'DualSubtitles' 2>/dev/null || true
 pkill -f 'stremio/server' 2>/dev/null || true
 pkill -f 'node.*stremio' 2>/dev/null || true
+pkill -f 'stremio-pad-bridge.py' 2>/dev/null || true
+rm -f /tmp/mango-stremio-pad-bridge.pid
 
 sleep 2
 
