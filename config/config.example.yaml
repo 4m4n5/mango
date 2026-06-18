@@ -2,19 +2,24 @@
 
 llm:
   provider: anthropic  # anthropic | openai
-  model: claude-sonnet-4-6  # or gpt-4o, etc.
+  model: claude-haiku-4-5-20251001  # haiku = fast; sonnet-4-6 = smarter/slower
+  max_tokens: 96
+  history_turns: 3  # user+assistant pairs kept for context
   api_key_file: /etc/mango/llm.key
 
 audio:
   input_mode: phone_websocket  # phone streams mic over LAN; no USB mic required
   max_utterance_seconds: 30
-  whisper_model: small  # multilingual (base = faster, small = better Hinglish/Hindi on Pi)
+  whisper_model: base  # multilingual; small = better Hindi, slower on Pi
   whisper_language: auto  # auto | hi | en — auto is best for Hinglish code-switching
+  whisper_vad_filter: false  # off for short phone PTT clips (saves latency)
+  whisper_num_workers: 2
   whisper_device: cpu
   whisper_compute_type: int8
   piper_voice: en_US-lessac-medium
   piper_data_dir: /home/aman/.local/share/piper
   tts_player: auto  # auto | paplay | aplay
+  tts_async: true  # show phone reply immediately; TV audio in background
   duck_volume_while_listening: true
   duck_volume_percent: 40
 

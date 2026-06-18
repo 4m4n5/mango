@@ -26,6 +26,20 @@ def speak_reply(text: str, settings: OrchestratorSettings) -> None:
         subprocess.run(_player_command(wav_path, settings), check=True, timeout=60)
 
 
+def warmup_piper(settings: OrchestratorSettings) -> None:
+    if os.environ.get("MANGO_TTS_DISABLED") == "1":
+        return
+    with tempfile.TemporaryDirectory(prefix="mango-tts-warm-") as tmp:
+        wav_path = Path(tmp) / "warm.wav"
+        subprocess.run(
+            _piper_command("ready", wav_path, settings),
+            check=True,
+            timeout=30,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+
 def first_sentence(text: str) -> str:
     cleaned = " ".join(text.split())
     match = _FIRST_SENTENCE_RE.search(cleaned)

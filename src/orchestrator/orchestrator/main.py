@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import json
+import logging
+import time
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -17,8 +21,20 @@ from orchestrator.audio.whisper_stt import transcribe
 from orchestrator.config import load_settings
 from orchestrator.llm.provider import generate_reply
 from orchestrator.session import ChatMessage, SessionState
+from orchestrator.timing import voice_stage
+from orchestrator.warmup import warmup_voice_stack
 
-app = FastAPI(title="mango-orchestrator", version="0.1.0")
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    settings = load_settings()
+    await asyncio.to_thread(warmup_voice_stack, settings)
+    yield
+
+
+app = FastAPI(title="mango-orchestrator", version="0.1.0", lifespan=lifespan)
 session = SessionState()
 clients: set[WebSocket] = set()
 voice_lock = asyncio.Lock()
@@ -31,8 +47,11 @@ async def broadcast_status() -> None:
     await broadcast({"type": "status", "state": session.overlay_state, "text": session.overlay_text})
 
 
-async def broadcast_chat(message: ChatMessage) -> None:
-    await broadcast({"type": "chat", "role": message.role, "text": message.text})
+async def broadcast_chat(message: ChatMessage, *, partial: bool = False) -> None:
+    payload: dict[str, Any] = {"type": "chat", "role": message.role, "text": message.text}
+    if partial:
+        payload["partial"] = True
+    await broadcast(payload)
 
 
 async def broadcast_error(message: str) -> None:
@@ -130,19 +149,43 @@ async def handle_client_message(websocket: WebSocket, raw: str) -> None:
 async def run_voice_pipeline(pcm_b64: str) -> None:
     settings = load_settings()
     epoch = voice_epoch
+    partial_state = {"text": "", "sent_at": 0.0}
+
+    def on_llm_delta(text: str) -> None:
+        partial_state["text"] = text
+
+    async def pump_llm_partials() -> None:
+        while True:
+            await asyncio.sleep(0.12)
+            if epoch != voice_epoch:
+                return
+            text = partial_state["text"].strip()
+            if not text:
+                continue
+            now = time.monotonic()
+            if now - partial_state["sent_at"] < 0.12:
+                continue
+            partial_state["sent_at"] = now
+            session.set_overlay("thinking", text)
+            await broadcast_status()
+            await broadcast_chat(ChatMessage(role="assistant", text=text), partial=True)
+
     async with voice_lock:
+        pump_task: asyncio.Task[None] | None = None
         try:
             if epoch != voice_epoch:
                 return
             session.set_overlay("thinking", "transcribing…")
             await broadcast_status()
             await asyncio.to_thread(restore_audio)
-            audio = await asyncio.to_thread(
-                decode_pcm_b64, pcm_b64, settings.max_utterance_seconds
-            )
+            with voice_stage("decode_pcm"):
+                audio = await asyncio.to_thread(
+                    decode_pcm_b64, pcm_b64, settings.max_utterance_seconds
+                )
             if epoch != voice_epoch:
                 return
-            transcript = await asyncio.to_thread(transcribe, audio.samples, settings)
+            with voice_stage("stt"):
+                transcript = await asyncio.to_thread(transcribe, audio.samples, settings)
             user_message = session.add_message("user", transcript)
             await broadcast_chat(user_message)
 
@@ -150,18 +193,37 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
                 return
             session.set_overlay("thinking", "thinking…")
             await broadcast_status()
-            reply = await asyncio.to_thread(
-                generate_reply, session.provider_messages(), settings
-            )
+            pump_task = asyncio.create_task(pump_llm_partials())
+            with voice_stage("llm"):
+                reply = await asyncio.to_thread(
+                    generate_reply,
+                    session.provider_messages(max_turns=settings.llm_history_turns),
+                    settings,
+                    on_delta=on_llm_delta,
+                )
+            if pump_task is not None:
+                pump_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pump_task
             assistant_message = session.add_message("assistant", reply)
             await broadcast_chat(assistant_message)
 
             if epoch != voice_epoch:
                 return
-            session.set_overlay("speaking", reply)
+            session.set_overlay("idle", "idle")
             await broadcast_status()
-            await asyncio.to_thread(speak_reply, reply, settings)
+            if settings.tts_async:
+                asyncio.create_task(_speak_async(reply, settings))
+            else:
+                session.set_overlay("speaking", reply)
+                await broadcast_status()
+                with voice_stage("tts"):
+                    await asyncio.to_thread(speak_reply, reply, settings)
         except Exception as exc:
+            if pump_task is not None:
+                pump_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await pump_task
             if epoch == voice_epoch:
                 await broadcast_error(str(exc))
         finally:
@@ -169,6 +231,29 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
             if epoch == voice_epoch:
                 session.set_overlay("idle", "idle")
                 await broadcast_status()
+
+
+async def _speak_async(reply: str, settings: object) -> None:
+    from orchestrator.config import OrchestratorSettings
+
+    assert isinstance(settings, OrchestratorSettings)
+    try:
+        session.set_overlay("speaking", first_sentence(reply))
+        await broadcast_status()
+        with voice_stage("tts"):
+            await asyncio.to_thread(speak_reply, reply, settings)
+    except Exception as exc:
+        logger.warning("background tts failed: %s", exc)
+    finally:
+        if session.overlay_state == "speaking":
+            session.set_overlay("idle", "idle")
+            await broadcast_status()
+
+
+def first_sentence(text: str) -> str:
+    from orchestrator.audio.piper_tts import first_sentence as piper_first_sentence
+
+    return piper_first_sentence(text)
 
 
 def start_listening_timeout(owner: WebSocket, seconds: int) -> None:

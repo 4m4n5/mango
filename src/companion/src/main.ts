@@ -3,7 +3,7 @@ import "./style.css";
 type ChatRole = "user" | "assistant";
 type ServerMessage =
   | { type: "status"; state?: string; text?: string }
-  | { type: "chat"; role?: ChatRole; text?: string }
+  | { type: "chat"; role?: ChatRole; text?: string; partial?: boolean }
   | { type: "error"; message?: string };
 
 const TARGET_SAMPLE_RATE = 16_000;
@@ -67,6 +67,10 @@ function handleServerMessage(raw: string): void {
       return;
     }
     if (msg.type === "chat" && msg.role !== undefined && msg.text !== undefined) {
+      if (msg.partial === true && msg.role === "assistant") {
+        upsertAssistantPartial(msg.text);
+        return;
+      }
       appendChat(msg.role, msg.text);
       return;
     }
@@ -95,8 +99,14 @@ function appendChat(role: ChatRole, text: string): void {
   if (chatEl === null) {
     return;
   }
+  if (role === "assistant") {
+    chatEl.querySelector('article.message.assistant[data-partial="true"]')?.remove();
+  }
   const item = document.createElement("article");
   item.className = `message ${role}`;
+  if (role === "assistant") {
+    item.dataset.partial = "false";
+  }
   const roleEl = document.createElement("span");
   roleEl.className = "role";
   roleEl.textContent = role === "user" ? "you" : "mango";
@@ -104,6 +114,30 @@ function appendChat(role: ChatRole, text: string): void {
   textEl.textContent = text;
   item.append(roleEl, textEl);
   chatEl.append(item);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function upsertAssistantPartial(text: string): void {
+  if (chatEl === null) {
+    return;
+  }
+  let item = chatEl.querySelector<HTMLElement>('article.message.assistant[data-partial="true"]');
+  if (item === null) {
+    item = document.createElement("article");
+    item.className = "message assistant";
+    item.dataset.partial = "true";
+    const roleEl = document.createElement("span");
+    roleEl.className = "role";
+    roleEl.textContent = "mango";
+    const textEl = document.createElement("p");
+    item.append(roleEl, textEl);
+    chatEl.append(item);
+  }
+  const textEl = item.querySelector("p");
+  if (textEl !== null) {
+    textEl.textContent = text;
+  }
+  item.dataset.partial = "true";
   chatEl.scrollTop = chatEl.scrollHeight;
 }
 

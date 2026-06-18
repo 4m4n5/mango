@@ -28,6 +28,10 @@ class SessionState:
         self.messages.append(message)
         return message
 
-    def provider_messages(self) -> list[dict[str, str]]:
+    def provider_messages(self, *, max_turns: int | None = None) -> list[dict[str, str]]:
         """LLM API shape — Anthropic/OpenAI expect ``content``, not ``text``."""
-        return [{"role": message.role, "content": message.text} for message in self.messages]
+        messages = self.messages
+        if max_turns is not None and max_turns > 0:
+            keep = max_turns * 2
+            messages = messages[-keep:]
+        return [{"role": message.role, "content": message.text} for message in messages]
