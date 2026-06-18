@@ -26,7 +26,8 @@ ir_stop_service() {
   irctl_quick --command stop --device "Pro Controller" 2>/dev/null || true
   irctl_quick --command stop --device "Pro Controller (IMU)" 2>/dev/null || true
   sudo -n systemctl stop input-remapper 2>/dev/null || true
-  sleep 0.8
+  ir_kill_readers
+  sleep 0.5
 }
 
 irctl_quick() {
@@ -34,28 +35,34 @@ irctl_quick() {
   input-remapper-control "$@" 2>/dev/null || true
 }
 
-# After Stremio pad bridge — service was stopped; wake remapper without systemctl restart.
+# Orphan reader daemons keep evdev busy and can inherit launch-launcher.lock (fd leak).
+ir_kill_readers() {
+  pkill -f input-remapper-reader-service 2>/dev/null || true
+  sudo -n pkill -f input-remapper-reader-service 2>/dev/null || true
+  sleep 0.2
+}
+
+# After Stremio pad bridge — wake remapper without spawning orphan reader daemons.
 ir_resume_after_bridge() {
   local device=${1:-"Pro Controller"}
   local preset=${2:-mango-tv}
 
-  if systemctl is-active --quiet input-remapper 2>/dev/null; then
-    irctl_quick --command start --device "$device" --preset "$preset"
-    return 0
+  ir_kill_readers
+
+  if ! systemctl is-active --quiet input-remapper 2>/dev/null; then
+    sudo -n systemctl start input-remapper 2>/dev/null || true
+    sleep 0.3
   fi
 
-  sudo -n systemctl start input-remapper 2>/dev/null || true
-  sleep 0.15
-  irctl_quick --command start-reader-service -d
   irctl_quick --command start --device "$device" --preset "$preset"
 }
 
 ir_start_with_autoload() {
   local device=$1 preset=$2
+  ir_kill_readers
   if ! systemctl is-active --quiet input-remapper 2>/dev/null; then
     sudo -n systemctl start input-remapper 2>/dev/null || true
-    sleep 0.8
-    irctl_sudo --command start-reader-service -d
+    sleep 0.5
   fi
   irctl --command stop --device "$device"
   irctl --command stop --device "Pro Controller (IMU)"

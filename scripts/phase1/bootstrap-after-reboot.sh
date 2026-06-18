@@ -17,6 +17,9 @@ cd "$REPO_DIR"
 
 echo "=== gamepad (press a button on the Micro if connect is slow) ==="
 bash scripts/phase0/gamepad-fresh-start.sh || true
+# shellcheck source=phase0/lib/irctl.sh
+source "$REPO_DIR/scripts/phase0/lib/irctl.sh"
+ir_kill_readers || true
 
 echo "=== openbox + remapper ==="
 bash scripts/phase0/install-openbox-stremio-tv.sh

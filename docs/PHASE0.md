@@ -148,7 +148,8 @@ curl -s http://127.0.0.1:3000/api/health | python3 -m json.tool
 |---------|-----|
 | Blank / stuck UI | `restart-mango-ui.sh` |
 | Launcher tiny / behind app | `scripts/lib/present-launcher.sh` |
-| ⌂ slow / D-pad dead | Pad bridge must spawn `launch-launcher.sh` as desktop user (not root); remapper resumes async |
+| ⌂ hang / busy | Orphan `input-remapper-reader-service` held `launch-launcher.lock` — `ir_kill_readers` + pull latest |
+| Pad bridge EBUSY | Kill orphan readers before bridge start (`ir_stop_service`) |
 | Y goes home in Stremio | Remove global Openbox Escape→launcher (`install-openbox-stremio-tv.sh`) |
 | ⌂ dead in Kodi | Home must be Control+Alt+m not F12/Super+h — rerun `map-pro-controller.sh` |
 | YouTube → Kodi home | `kodi-rpc.sh` quoted JSON; poll window 10025 |
