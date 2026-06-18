@@ -10,13 +10,14 @@ export DISPLAY=":0"
 export XAUTHORITY="/home/aman/.Xauthority"
 export HOME="/home/aman"
 
+bash "$REPO_DIR/scripts/lib/mango-window.sh" show
+
 bash "$REPO_DIR/scripts/phase0/stop-stremio-pad-bridge.sh" 2>/dev/null || true
 bash "$REPO_DIR/scripts/phase0/map-pro-controller.sh"
 
 if command -v wmctrl >/dev/null 2>&1; then
   wmctrl -r Stremio -b add,hidden 2>/dev/null || true
   wmctrl -r Kodi -b add,hidden 2>/dev/null || true
-  wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
 fi
 
 if command -v xdotool >/dev/null 2>&1; then

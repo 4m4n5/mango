@@ -10,4 +10,6 @@ export DISPLAY=":0"
 export XAUTHORITY="/home/aman/.Xauthority"
 export HOME="/home/aman"
 
+bash "$REPO_DIR/scripts/lib/mango-window.sh" hide
+
 exec bash "$REPO_DIR/scripts/phase0/launch-kodi.sh"

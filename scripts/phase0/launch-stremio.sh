@@ -14,8 +14,12 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 bash "$SCRIPT_DIR/connect-gamepad.sh"
 
 killall kodi kodi.bin 2>/dev/null || true
-bash "$SCRIPT_DIR/kill-stremio.sh" || true
-bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
+
+if pgrep -x stremio >/dev/null 2>&1 || pgrep -f '/opt/stremio' >/dev/null 2>&1; then
+  bash "$SCRIPT_DIR/kill-stremio.sh" || true
+else
+  bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
+fi
 
 if ! command -v stremio &>/dev/null; then
   echo "! stremio not in PATH — bash scripts/phase0/install-stremio.sh"
@@ -27,23 +31,34 @@ echo "Using xdotool pad bridge (Stremio ignores input-remapper)"
 nohup stremio >"$LOG" 2>&1 &
 STREMIO_PID=$!
 echo "Stremio pid: $STREMIO_PID"
-sleep 6
 
-if ! kill -0 "$STREMIO_PID" 2>/dev/null; then
-  echo "! Stremio exited. Log:"
-  tail -20 "$LOG" 2>/dev/null || true
-  exit 1
+ready=false
+for _ in $(seq 1 40); do
+  if ! kill -0 "$STREMIO_PID" 2>/dev/null; then
+    echo "! Stremio exited. Log:"
+    tail -20 "$LOG" 2>/dev/null || true
+    exit 1
+  fi
+  if command -v xdotool &>/dev/null && xdotool search --name '^Stremio$' 2>/dev/null | grep -q .; then
+    ready=true
+    break
+  fi
+  sleep 0.5
+done
+
+if ! $ready; then
+  echo "! Stremio window not detected yet — continuing focus loop"
 fi
 
 bash "$SCRIPT_DIR/start-stremio-pad-bridge.sh"
 
 focused=false
-for _ in $(seq 1 30); do
+for _ in $(seq 1 24); do
   if bash "$SCRIPT_DIR/focus-stremio.sh" 2>/dev/null; then
     focused=true
     break
   fi
-  sleep 1
+  sleep 0.5
 done
 
 if $focused; then

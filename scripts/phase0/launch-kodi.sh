@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 bash "$SCRIPT_DIR/connect-gamepad.sh"
 
 killall kodi kodi.bin 2>/dev/null || true
-sleep 1
+sleep 0.5
 
 bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
 bash "$SCRIPT_DIR/map-pro-controller.sh"

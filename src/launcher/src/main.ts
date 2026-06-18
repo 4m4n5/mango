@@ -85,13 +85,13 @@ function activateTile(tile: HTMLButtonElement): void {
 
 async function launch(action: LaunchAction): Promise<void> {
   const label = action === "kodi" ? "YouTube" : "Stremio";
-  setStatus(`Opening ${label}...`);
+  setStatus(`Opening ${label}…`);
   try {
     const response = await fetch(`/api/launch/${action}`, { method: "POST" });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    setStatus(`${label} launch requested. Press Y or Escape to return home.`);
+    setStatus(`${label} is starting. Escape returns home.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     setStatus(`Could not launch ${label}: ${message}`);

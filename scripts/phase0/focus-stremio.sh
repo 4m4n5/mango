@@ -60,6 +60,24 @@ find_stremio_wid() {
   return 1
 }
 
+present_stremio_window() {
+  local wid=$1
+  local screen_w=1920 screen_h=1080
+
+  if command -v xdotool &>/dev/null; then
+    read -r screen_w screen_h < <(xdotool getdisplaygeometry 2>/dev/null || echo "1920 1080")
+    wmctrl -i -r "$wid" -e "0,0,0,${screen_w},${screen_h}" 2>/dev/null || true
+  fi
+
+  if command -v wmctrl &>/dev/null; then
+    wmctrl -i -r "$wid" -b add,maximized_vert,maximized_horz,fullscreen 2>/dev/null \
+      || wmctrl -r Stremio -b add,maximized_vert,maximized_horz,fullscreen 2>/dev/null \
+      || true
+  fi
+
+  xdotool windowactivate --sync "$wid" 2>/dev/null || true
+}
+
 WID=$(find_stremio_wid) || WID=""
 
 if [[ -z "$WID" ]]; then
@@ -72,14 +90,16 @@ if [[ -z "$WID" ]]; then
 fi
 
 xdotool windowactivate --sync "$WID"
-sleep 0.3
+sleep 0.2
 
 eval "$(xdotool getwindowgeometry --shell "$WID")"
 CX=$((WIDTH / 2))
 CY=$((HEIGHT / 2))
 xdotool mousemove --window "$WID" "$CX" "$CY"
 xdotool click 1
-sleep 0.2
+sleep 0.1
+
+present_stremio_window "$WID"
 
 NAME=$(xdotool getwindowname "$WID" 2>/dev/null || echo "?")
-echo "✓ Stremio focused (wid=$WID name=$NAME) — clicked centre"
+echo "✓ Stremio focused (wid=$WID name=$NAME) — TV presentation applied"

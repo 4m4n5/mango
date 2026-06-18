@@ -5,5 +5,9 @@ set -euo pipefail
 
 BT_MAC="E4:17:D8:EB:00:44"
 
+if bluetoothctl info "$BT_MAC" 2>/dev/null | grep -q "Connected: yes"; then
+  exit 0
+fi
+
 bluetoothctl connect "$BT_MAC" 2>/dev/null || true
-sleep 2
+sleep 1
