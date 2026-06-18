@@ -1,3 +1,5 @@
+"""Optional on-device STT fallback — requires: pip install faster-whisper"""
+
 from __future__ import annotations
 
 import os
@@ -9,42 +11,26 @@ from orchestrator.config import OrchestratorSettings
 
 _model_lock = Lock()
 _model: object | None = None
-_model_key: tuple[str, str, str, str, str] | None = None
+_model_key: tuple[str, str, str] | None = None
 
 
 def _whisper_language(settings: OrchestratorSettings) -> str | None:
-    lang = settings.whisper_language.strip().lower()
-    if lang in ("", "auto", "null", "none"):
+    lang = settings.stt_language.strip().lower()
+    if lang in ("", "auto", "null", "none", "multi"):
         return None
     return lang
 
 
-def _whisper_initial_prompt(settings: OrchestratorSettings) -> str | None:
-    prompt = settings.whisper_initial_prompt.strip()
-    return prompt or None
-
-
-def _transcribe_kwargs(settings: OrchestratorSettings) -> dict[str, object]:
-    kwargs: dict[str, object] = {
-        "beam_size": settings.whisper_beam_size,
-        "best_of": 1,
-        "temperature": 0.0,
-        "language": _whisper_language(settings),
-        "vad_filter": settings.whisper_vad_filter,
-        "without_timestamps": True,
-        "condition_on_previous_text": False,
-    }
-    prompt = _whisper_initial_prompt(settings)
-    if prompt is not None:
-        kwargs["initial_prompt"] = prompt
-    return kwargs
-
-
 def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
-    if os.environ.get("MANGO_STT_MOCK") == "1":
-        return "mock transcript for dev"
     model = _load_model(settings)
-    segments, _info = model.transcribe(samples, **_transcribe_kwargs(settings))
+    segments, _info = model.transcribe(
+        samples,
+        beam_size=1,
+        language=_whisper_language(settings),
+        vad_filter=True,
+        without_timestamps=True,
+        condition_on_previous_text=False,
+    )
     text = " ".join(segment.text.strip() for segment in segments).strip()
     if not text:
         raise RuntimeError("no speech detected")
@@ -52,34 +38,37 @@ def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
 
 
 def warmup_whisper(settings: OrchestratorSettings) -> None:
-    if os.environ.get("MANGO_STT_MOCK") == "1":
-        return
     model = _load_model(settings)
     silence = np.zeros(int(16_000 * 0.25), dtype=np.float32)
-    kwargs = _transcribe_kwargs(settings)
-    kwargs["vad_filter"] = False
-    list(model.transcribe(silence, **kwargs)[0])
+    list(
+        model.transcribe(
+            silence,
+            beam_size=1,
+            language=_whisper_language(settings),
+            vad_filter=False,
+            without_timestamps=True,
+            condition_on_previous_text=False,
+        )[0]
+    )
 
 
 def _load_model(settings: OrchestratorSettings) -> object:
     global _model, _model_key
-    key = (
-        settings.whisper_model,
-        settings.whisper_language,
-        settings.whisper_device,
-        settings.whisper_compute_type,
-        str(settings.whisper_num_workers),
-    )
+    key = (settings.stt_local_model, settings.stt_device, settings.stt_compute_type)
     with _model_lock:
         if _model is not None and _model_key == key:
             return _model
-        from faster_whisper import WhisperModel
+        try:
+            from faster_whisper import WhisperModel
+        except ImportError as exc:
+            raise RuntimeError(
+                "local STT requires faster-whisper — pip install faster-whisper"
+            ) from exc
 
         _model = WhisperModel(
-            settings.whisper_model,
-            device=settings.whisper_device,
-            compute_type=settings.whisper_compute_type,
-            num_workers=settings.whisper_num_workers,
+            settings.stt_local_model,
+            device=settings.stt_device,
+            compute_type=settings.stt_compute_type,
         )
         _model_key = key
         return _model

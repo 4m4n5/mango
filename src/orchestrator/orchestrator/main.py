@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from orchestrator.audio.duck import duck_audio, restore_audio
 from orchestrator.audio.ingest import decode_pcm_b64
 from orchestrator.audio.piper_tts import speak_reply
-from orchestrator.audio.whisper_stt import transcribe
+from orchestrator.audio.stt import transcribe
 from orchestrator.config import load_settings
 from orchestrator.llm.provider import generate_reply
 from orchestrator.session import ChatMessage, SessionState

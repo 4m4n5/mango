@@ -14,7 +14,7 @@ Phone PTT → transcript → LLM reply → TTS on TV. Overlay shows idle / liste
 Phone https://<pi>:3001             Pi
 ┌──────────────────────┐            ┌────────────────────────────────┐
 │ companion PWA        │──wss──────▶│ orchestrator :8765             │
-│ getUserMedia         │            │  PCM → faster-whisper → LLM    │
+│ getUserMedia         │            │  PCM → Deepgram STT → LLM      │
 │ 16 kHz mono PCM b64  │            │  Piper → paplay/aplay over HDMI│
 └──────────────────────┘            └──────────────┬─────────────────┘
                                                     │ ws/wss status
@@ -70,6 +70,7 @@ Secrets stay outside git:
 | Secret | Path |
 |--------|------|
 | LLM API key | `/etc/mango/llm.key`, mode `600` |
+| Deepgram STT key | `/etc/mango/stt.key`, mode `600` |
 | Kodi/Stremio/TMDB | Existing `/etc/mango/*.key` or JSON files |
 
 Useful dev toggles:
@@ -77,7 +78,7 @@ Useful dev toggles:
 | Env | Use |
 |-----|-----|
 | `MANGO_LLM_MOCK=1` | Echo mock reply without Anthropic/OpenAI |
-| `MANGO_STT_MOCK=1` | Skip faster-whisper; return a fixed transcript (dev smoke) |
+| `MANGO_STT_MOCK=1` | Skip cloud STT; return a fixed transcript (dev smoke) |
 | `MANGO_TTS_DISABLED=1` | Skip Piper playback on non-audio dev machines |
 | `MANGO_ORCH_TLS=1` | Start orchestrator with mkcert TLS |
 | `MANGO_VOICE=1` | Opt Pi launcher startup into overlay Chromium |
@@ -91,19 +92,45 @@ chmod 600 ~/.config/mango/voice.env
 
 `start-mango-ui.sh` and `launch-launcher.sh` source this file automatically.
 
-STT defaults (see `config.example.yaml`):
+STT uses **Deepgram Listen** (pre-recorded) with `nova-2` by default — not on-device Whisper. Phone PCM is sent Pi → Deepgram API → transcript → Haiku LLM.
 
 | Setting | Default | Notes |
 |---------|---------|--------|
-| `whisper_model` | `small` | `base` only if CPU-bound (worse Hinglish) |
-| `whisper_language` | `hi` | Locks language ID; `auto` mis-detects on short clips |
-| `whisper_initial_prompt` | Hinglish Roman examples | Biases transcript script/mix |
-| `whisper_beam_size` | `3` | `1` faster, `5` more accurate |
+| `stt.provider` | `deepgram` | `local` = optional faster-whisper fallback |
+| `stt.model` | `nova-2` | Per user request; see Hinglish note below |
+| `stt.language` | `hi` | `en-IN` for Indian English; `nova-3` + `multi` for best codeswitch |
 | `llm.model` | `claude-haiku-4-5-20251001` | Fast path; `claude-sonnet-4-6` for quality |
 | `llm.max_tokens` | `96` | Short spoken replies |
 | `audio.tts_async` | `true` | Phone shows reply before TV audio finishes |
 
-Orchestrator **warms** Whisper + Piper on startup. Set `MANGO_VOICE_TIMING=1` to log stage timings.
+Orchestrator **warms Piper** on startup (no Whisper load). Set `MANGO_VOICE_TIMING=1` to log stage timings.
+
+### Deepgram API key (one-time)
+
+1. Open [console.deepgram.com](https://console.deepgram.com/) → sign up / log in.
+2. **Project** → **API Keys** → **Create a new API key**.
+3. Name: `mango-pi-stt`. Scopes: **Member** (or minimum that includes pre-recorded transcription).
+4. Copy the key once (shown only at creation).
+5. On Pi:
+
+```bash
+sudo install -d -m 700 -o aman -g aman /etc/mango
+sudo install -m 600 /dev/null /etc/mango/stt.key
+sudo nano /etc/mango/stt.key   # paste key, single line, no quotes
+sudo chown aman:aman /etc/mango/stt.key
+```
+
+Or from Mac (paste when prompted):
+
+```bash
+ssh mango 'install -d -m 700 ~/.config/mango 2>/dev/null; cat > /tmp/stt.key'
+# paste key, Ctrl+D, then:
+ssh mango 'sudo install -d -m 700 -o aman -g aman /etc/mango && sudo mv /tmp/stt.key /etc/mango/stt.key && sudo chown aman:aman /etc/mango/stt.key && sudo chmod 600 /etc/mango/stt.key'
+```
+
+**Cost:** Nova-2 pre-recorded ≈ **$0.0043/min** ([Deepgram pricing](https://deepgram.com/pricing)) — ~$0.0004 per 5s PTT.
+
+**Hinglish note:** Nova-2 `language=multi` is English↔Spanish only. For Hindi+English codeswitch, Deepgram recommends **Nova-3** + `language=multi`. Mango defaults to `nova-2` + `hi` per request; upgrade `stt.model` / `stt.language` in config if needed.
 
 ## Pi setup
 
@@ -118,7 +145,8 @@ bash scripts/phase2/download-piper-voice.sh
 sudo install -d -m 700 -o aman -g aman /etc/mango
 sudo cp config/config.example.yaml /etc/mango/config.yaml
 sudo install -m 600 /dev/null /etc/mango/llm.key
-# Put the Anthropic or OpenAI API key into /etc/mango/llm.key on the Pi.
+sudo install -m 600 /dev/null /etc/mango/stt.key
+# Put Anthropic key in llm.key, Deepgram key in stt.key (see above).
 
 bash scripts/phase2/start-voice-stack.sh
 cp config/voice.env.example ~/.config/mango/voice.env
@@ -175,6 +203,6 @@ For phone dev, use mkcert and `bash scripts/phase2/serve-companion-https.sh` ins
 
 - V1 uses mkcert certs trusted on household phones; no reverse proxy yet.
 - `piper-tts` Python CLI is acceptable for Phase 2; a persistent Piper server can replace it if load time is too slow.
-- faster-whisper uses multilingual `small`, CPU, `int8`, `whisper_language: auto` for Hinglish; first use downloads the model.
+- STT is **Deepgram cloud** (`nova-2` default); optional `stt.provider: local` needs `requirements-local-stt.txt`.
 - Voice overlay uses a separate Chromium profile + `present-overlay.sh` so the HUD stays 360×120 and does not steal pad focus.
 - Volume ducking is best-effort through `pactl`; if PulseAudio/PipeWire is absent, voice still works without ducking.
