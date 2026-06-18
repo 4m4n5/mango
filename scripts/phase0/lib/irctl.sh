@@ -42,9 +42,7 @@ ir_resume_after_bridge() {
     return 0
   fi
 
-  sudo -n systemctl start input-remapper 2>/dev/null \
-    || sudo systemctl start input-remapper 2>/dev/null \
-    || true
+  sudo -n systemctl start input-remapper 2>/dev/null || true
   sleep 0.15
   irctl_quick --command start-reader-service -d
   irctl_quick --command start --device "$device" --preset "$preset"

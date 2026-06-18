@@ -148,7 +148,7 @@ curl -s http://127.0.0.1:3000/api/health | python3 -m json.tool
 |---------|-----|
 | Blank / stuck UI | `restart-mango-ui.sh` |
 | Launcher tiny / behind app | `scripts/lib/present-launcher.sh` |
-| ⌂ slow / D-pad dead | No `xdotool --sync` in repo; `launch-launcher.sh` |
+| ⌂ slow / D-pad dead | Pad bridge must spawn `launch-launcher.sh` as desktop user (not root); remapper resumes async |
 | YouTube → Kodi home | `kodi-rpc.sh` quoted JSON; poll window 10025 |
 | Stremio pad dead | `reset-stremio.sh` |
 | Y-back white hang in Stremio | Bridge sends Escape + `present-stremio.sh` |

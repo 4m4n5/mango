@@ -7,6 +7,11 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 hide_cursor() {
+  command -v xsetroot >/dev/null 2>&1 && xsetroot -cursor_name none 2>/dev/null || true
+  if pgrep -f 'unclutter-xfixes -idle 0 -root' >/dev/null 2>&1 \
+    || pgrep -f 'unclutter -idle 0 -root' >/dev/null 2>&1; then
+    return 0
+  fi
   if command -v unclutter-xfixes >/dev/null 2>&1; then
     pkill -f unclutter-xfixes 2>/dev/null || true
     unclutter-xfixes -idle 0 -root -noevents >/dev/null 2>&1 &

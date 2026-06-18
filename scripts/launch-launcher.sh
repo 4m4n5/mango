@@ -39,12 +39,7 @@ fi
 export MANGO_SKIP_JS_RESTORE=1
 bash "$REPO_DIR/scripts/phase0/stop-stremio-pad-bridge.sh" 2>/dev/null || true
 
-# D-pad first — user feels this delay most.
-if $need_remapper; then
-  ir_resume_after_bridge "Pro Controller" "mango-tv"
-fi
-
-# Visual switch — hide media apps while showing launcher.
+# Visual switch first — never block home on remapper/systemd.
 if command -v wmctrl >/dev/null 2>&1; then
   wmctrl -r Stremio -b add,hidden 2>/dev/null || true
   wmctrl -r Kodi -b add,hidden 2>/dev/null || true
@@ -65,6 +60,13 @@ else
 fi
 
 bash "$REPO_DIR/scripts/lib/mango-cursor.sh" hide 2>/dev/null || true
+
+# D-pad on launcher — resume remapper after UI is visible (async; no sudo password hang).
+if $need_remapper; then
+  (
+    ir_resume_after_bridge "Pro Controller" "mango-tv"
+  ) &
+fi
 
 echo "Launcher focus requested"
 mango_log launch_launcher status=ok

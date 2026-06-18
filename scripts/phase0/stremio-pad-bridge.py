@@ -37,6 +37,24 @@ BTN_Y = 308      # west — left — in-app back
 HOME_BUTTONS = {316, 311}  # MODE (primary) or TR (fallback) — right below −/+
 
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": os.environ.get("HOME", "/home/aman")}
+_TV_USER = os.environ.get("SUDO_USER") or os.environ.get("USER") or "aman"
+
+
+def as_tv_user(argv: list[str]) -> list[str]:
+    """Pad bridge runs under sudo; launcher/wmctrl must run as the desktop user."""
+    if os.geteuid() == 0 and _TV_USER not in ("", "root"):
+        return ["sudo", "-u", _TV_USER, "-E", *argv]
+    return argv
+
+
+def popen_tv_user(argv: list[str]) -> subprocess.Popen[bytes]:
+    return subprocess.Popen(
+        as_tv_user(argv),
+        env=_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
 
 def find_pro_controller() -> evdev.InputDevice:
@@ -105,13 +123,7 @@ def go_home(device: evdev.InputDevice) -> None:
         device.ungrab()
     except OSError:
         pass
-    subprocess.Popen(
-        ["bash", str(LAUNCHER_SH)],
-        env=_env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
+    popen_tv_user(["bash", str(LAUNCHER_SH)])
     raise SystemExit(0)
 
 
@@ -135,13 +147,7 @@ def main() -> None:
 
     def back() -> None:
         send_key_to_stremio("Escape")
-        subprocess.Popen(
-            ["bash", str(PRESENT_STREMIO_SH)],
-            env=_env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        popen_tv_user(["bash", str(PRESENT_STREMIO_SH)])
 
     for event in dev.read_loop():
         if event.type == ecodes.EV_ABS:

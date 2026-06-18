@@ -65,5 +65,6 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   WID=$(find_main_stremio_wid) || exit 1
   present_stremio_tv "$WID"
   bash "$SCRIPT_DIR/../lib/mango-desktop.sh" hide 2>/dev/null || true
+  bash "$SCRIPT_DIR/../lib/mango-cursor.sh" hide 2>/dev/null || true
   xdotool getwindowgeometry "$WID"
 fi
