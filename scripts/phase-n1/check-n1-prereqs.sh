@@ -42,7 +42,9 @@ if not isinstance(data.get("addons"), list) or len(data["addons"]) < 1:
 print(f"  addons: {len(data['addons'])} entries")
 PY
 else
-  fail "missing /etc/mango/stremio-export.json — see setup-stremio-export.sh"
+  fail "missing /etc/mango/stremio-export.json"
+  echo "  fix: bash scripts/phase-n1/setup-stremio-export.sh --from-local" >&2
+  echo "    or: Stremio Settings → Export → setup-stremio-export.sh <file>" >&2
 fi
 
 echo "--- N0 regression (quick) ---"

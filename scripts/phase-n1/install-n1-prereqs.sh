@@ -31,8 +31,9 @@ fi
 
 echo
 echo "=== next steps ==="
-echo "1. Stremio export → /etc/mango/stremio-export.json"
-echo "     bash scripts/phase-n1/setup-stremio-export.sh --help"
+echo "1. Stremio addons → /etc/mango/stremio-export.json"
+echo "     bash scripts/phase-n1/setup-stremio-export.sh --from-local"
+echo "     # or manual export: setup-stremio-export.sh /path/to/export.json"
 echo "2. bash scripts/phase-n1/spike-mpv-http.sh"
 echo "3. bash scripts/phase-n1/check-n1-prereqs.sh"
 echo

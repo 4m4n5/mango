@@ -5,8 +5,8 @@
 # Then on Pi:
 #   bash scripts/phase-n1/setup-stremio-export.sh ~/Downloads/stremio-export.json
 #
-# Or validate only:
-#   bash scripts/phase-n1/setup-stremio-export.sh --check
+# Or auto-import from logged-in Stremio on this Pi:
+#   bash scripts/phase-n1/setup-stremio-export.sh --from-local
 
 set -euo pipefail
 
@@ -17,10 +17,14 @@ usage() {
   cat <<EOF
 usage:
   $0 <path-to-export.json>   # copy to $DEST
+  $0 --from-local             # read addons from logged-in Stremio on this Pi
   $0 --check                 # validate existing $DEST
   $0 --help
 
-Get export from Stremio desktop (Pi or Mac):
+Auto-import (Pi, Stremio already logged in):
+  bash $0 --from-local
+
+Manual export from Stremio desktop:
   1. Open Stremio → ⚙ Settings → Export
   2. Save the JSON file
   3. Copy to Pi: scp export.json mango:/tmp/stremio-export.json
@@ -53,6 +57,12 @@ PY
 
 case "${1:-}" in
   --help|-h) usage; exit 0 ;;
+  --from-local)
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    python3 "${SCRIPT_DIR}/import-stremio-local.py" -o "$DEST"
+    validate_json "$DEST"
+    exit 0
+    ;;
   --check)
     [[ -f "$DEST" ]] || { echo "FAIL: $DEST not found" >&2; exit 1; }
     validate_json "$DEST"
