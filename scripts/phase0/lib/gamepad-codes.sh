@@ -5,7 +5,10 @@
 export MANGO_BTN_SELECT_FACE=304   # B — bottom — confirm
 export MANGO_BTN_BACK_FACE=308       # Y — left — in-app back only
 
-# Center pair: minus (left), plus (right)
-export MANGO_BTN_SELECT_CENTER=314   # BTN_SELECT — minus (−), center-left / under +
-export MANGO_BTN_PLUS=315            # BTN_START — plus (+) — unused
-export MANGO_BTN_HOME=314            # − button → mango launcher
+# Center grid (typical Switch layout on Micro):
+#   [− 314]  [+ 315]
+#   [left ]  [right]  ← home = right bottom (316 MODE, fallback 311 TR)
+export MANGO_BTN_MINUS=314           # BTN_SELECT
+export MANGO_BTN_PLUS=315            # BTN_START
+export MANGO_BTN_HOME=316            # BTN_MODE — center-bottom-right (primary)
+export MANGO_BTN_HOME_ALT=311        # BTN_TR — fallback if MODE not wired

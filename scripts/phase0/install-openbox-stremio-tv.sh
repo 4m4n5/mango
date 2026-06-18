@@ -27,7 +27,7 @@ SNIPPET="$MARKER_BEGIN
 $MARKER_END"
 
 HOME_SNIPPET="$HOME_MARKER
-    <keybind key=\"C-A-m\">
+    <keybind key=\"W-h\">
       <action name=\"Execute\">
         <command>bash ~/mango/scripts/launch-launcher.sh</command>
       </action>
@@ -92,5 +92,5 @@ if marker not in text:
 path.write_text(text)
 PY
 
-echo "Installed Stremio/Kodi TV rules + C-A-m home keybind."
+echo "Installed Stremio/Kodi TV rules + Super+h home keybind."
 echo "Run: openbox --reconfigure   (or reboot)"

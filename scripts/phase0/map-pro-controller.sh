@@ -3,7 +3,7 @@
 #
 # Verified on mango (Jun 2026) — face layout clockwise from left: Y · X · A · B
 #   D-pad → arrows   B (bottom, evdev 304) → select   Y (left, evdev 308) → in-app back
-#   + center-right (evdev 315) unused   − center-left (evdev 314) → home
+#   −/+ center row unused for home; right button below them (316, alt 311) → home
 #
 # D-pad shows as ABS_X/ABS_Y (codes 0/1) in Switch mode — not hat axes.
 # input-remapper rejects analog_threshold ±100 (max is ±99) — use ±80.
@@ -40,7 +40,8 @@ cat >"$PRESET_FILE" <<'EOF'
   {"input_combination": [{"type": 1, "code": 547}], "target_uinput": "keyboard", "output_symbol": "Right"},
   {"input_combination": [{"type": 1, "code": 304}], "target_uinput": "keyboard", "output_symbol": "Return"},
   {"input_combination": [{"type": 1, "code": 308}], "target_uinput": "keyboard", "output_symbol": "BackSpace"},
-  {"input_combination": [{"type": 1, "code": 314}], "target_uinput": "keyboard", "output_symbol": "key(Control+Alt+m)"}
+  {"input_combination": [{"type": 1, "code": 316}], "target_uinput": "keyboard", "output_symbol": "key(Super_L+h)"},
+  {"input_combination": [{"type": 1, "code": 311}], "target_uinput": "keyboard", "output_symbol": "key(Super_L+h)"}
 ]
 EOF
 
@@ -65,4 +66,4 @@ echo "=== mango-tv map applied (8BitDo Micro) ==="
 echo "  D-pad → move"
 echo "  B     → select"
 echo "  Y     → back (in app)"
-echo "  −     → home (launcher)"
+echo "  ⌂     → home (center-right below −/+ )"
