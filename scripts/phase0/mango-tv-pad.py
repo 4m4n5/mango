@@ -127,10 +127,30 @@ def is_launcher_focused() -> bool:
     return wid in _launcher_window_ids()
 
 
+def is_mpv_focused() -> bool:
+    wid = _xdotool("getactivewindow").stdout.strip()
+    if not wid or wid == "0":
+        return False
+    name = _xdotool("getwindowname", wid).stdout.strip().lower()
+    if "mpv" in name:
+        return True
+    klass = _xdotool("getwindowclassname", wid).stdout.strip().lower()
+    if "mpv" in klass:
+        return True
+    return wid in _mpv_window_ids()
+
+
+def _mpv_window_ids() -> list[str]:
+    result = _xdotool("search", "--class", "mpv")
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+    return result.stdout.split()
+
+
 def foreground_app() -> str:
     name, klass = active_window_meta()
     blob = f"{name} {klass}"
-    if "mpv" in blob:
+    if is_mpv_focused() or "mpv" in blob:
         return "mpv"
     if "stremio" in blob and "selection owner" not in blob:
         return "stremio"

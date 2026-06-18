@@ -29,7 +29,7 @@ Kodi/YouTube is a legacy fallback only via `MANGO_LEGACY_YOUTUBE=1` until N6.
 | Foreground | D-pad | B (`304`) | Y (`308`) | Home (`316`/`311`) |
 |------------|-------|-----------|-----------|--------------------|
 | `launcher` | launcher focus grid | select focused card | settings back / no-op on home | no-op / present launcher |
-| `mpv` | mpv IPC (N1+) | play/pause or select OSD (N1+) | back/OSD close (N1+) | stop/pause mpv → launcher |
+| `mpv` | mpv IPC seek/OSD nav | play/pause (SPACE) | stop mpv → launcher | stop mpv → launcher |
 | `fallback_stremio` | Stremio key routing | select | Escape | launcher |
 
 Gamepad evdev codes are locked in `HARDWARE.md`.

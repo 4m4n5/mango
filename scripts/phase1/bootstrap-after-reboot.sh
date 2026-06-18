@@ -26,6 +26,14 @@ bash scripts/phase0/install-openbox-stremio-tv.sh
 openbox --reconfigure 2>/dev/null || true
 
 echo "=== mango stack ==="
+if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${HOME}/.config/mango/voice.env"
+fi
+if [[ "${MANGO_CATALOG:-0}" == "1" && ! -f "$REPO_DIR/src/catalog-service/dist/index.js" ]]; then
+  echo "=== catalog-service build (first run) ==="
+  (cd "$REPO_DIR/src/catalog-service" && npm ci && npm run build)
+fi
 bash scripts/mango-stack.sh restart
 
 echo "=== TV pad router ==="
@@ -36,4 +44,4 @@ curl -s -o /dev/null -w "launcher HTTP: %{http_code}\n" http://127.0.0.1:3000/ |
 systemctl is-active input-remapper 2>/dev/null || echo "input-remapper: inactive"
 pgrep -af 'mango-ui-server|mango-launcher' | head -3 || true
 
-echo "✓ mango ready — launcher + voice (if MANGO_VOICE=1). D-pad on home."
+echo "✓ mango ready — launcher + voice (if MANGO_VOICE=1) + catalog (if MANGO_CATALOG=1). D-pad on home."

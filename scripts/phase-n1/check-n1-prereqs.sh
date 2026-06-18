@@ -6,6 +6,11 @@ set -euo pipefail
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 cd "$REPO_DIR"
 
+if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${HOME}/.config/mango/voice.env"
+fi
+
 ERRORS=0
 pass() { echo "PASS: $*"; }
 fail() { echo "FAIL: $*" >&2; ERRORS=$((ERRORS + 1)); }
@@ -45,6 +50,19 @@ else
   fail "missing /etc/mango/stremio-export.json"
   echo "  fix: bash scripts/phase-n1/setup-stremio-export.sh --from-local" >&2
   echo "    or: Stremio Settings → Export → setup-stremio-export.sh <file>" >&2
+fi
+
+if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
+  if [[ -f src/catalog-service/dist/index.js ]]; then
+    pass "catalog-service dist built"
+  else
+    fail "catalog-service dist missing — cd src/catalog-service && npm ci && npm run build"
+  fi
+  if curl -sf --max-time 3 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+    pass "catalog-service :3020 health"
+  else
+    warn "catalog-service not reachable — MANGO_CATALOG=1 bash scripts/mango-stack.sh restart"
+  fi
 fi
 
 echo "--- N0 regression (quick) ---"

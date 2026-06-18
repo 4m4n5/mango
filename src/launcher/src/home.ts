@@ -92,11 +92,12 @@ function createCatalogEmptyState(): HTMLElement {
 
   const title = document.createElement("p");
   title.className = "empty-state-title";
-  title.textContent = "catalog connects in N1";
+  title.textContent = "browse rails ship in N2";
 
   const body = document.createElement("p");
   body.className = "empty-state-body";
-  body.textContent = "No fake posters. Voice and settings stay available.";
+  body.textContent =
+    "Catalog service is live on the Pi — play works via API until browse UI lands. Voice and settings stay available.";
 
   panel.append(title, body);
   section.append(heading, panel);
