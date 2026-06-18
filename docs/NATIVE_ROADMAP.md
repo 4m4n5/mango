@@ -159,7 +159,14 @@ Inventory → strip → consolidate → document → measure on Pi.
 
 ## N7 — 4K + ship
 
-- mpv: `hwdec`, 4K HDMI mode verification, audio sync  
+**Pi probe (2026-06-18, Shawshank `tt0111161`):** N1 `POST /play` picks first stream (4K REMUX / HEVC 10-bit / DV). mpv audio plays; video blank (blue) — `Mapping hardware decoded surface failed` with `--hwdec=auto-safe` on X11. HDMI output was **1080p@60** (not 4K mode). **1080p RD HDTV** plays with `--hwdec=v4l2m2m-copy`.
+
+N7 deliverables:
+
+- **HDMI:** `raspi-config` → 4K mode; verify `kmsprint` / TV EDID  
+- **mpv profile:** `v4l2m2m-copy`, `--gpu-context=x11egl`; avoid `auto-safe` drmprime on X11  
+- **Stream rank:** prefer 1080p/4K WEB-DL; deprioritize REMUX, DV, 10-bit HDR until proven  
+- **Gate:** 4K smoke title + picture-visible assert (not just TTFF)  
 - Stremio desktop fallback on stream exhaustion  
 - systemd units for full stack  
 - Merge criteria to `main`  

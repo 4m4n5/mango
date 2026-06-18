@@ -102,3 +102,21 @@ roadmap, foreground contract, N0 inventory, Pi ops, and pad router.
 - [x] ⌂/home path → mango home (`foreground_after launcher`, 232 ms)
 - [x] Voice stack regression passed (`gate-n0.sh` + `verify-voice-ready.sh`; phone PTT not physically pressed in this run)
 - [x] No Stremio window during test (`pgrep stremio` idle checks passed)
+
+---
+
+## Deferred to N7 — 4K (not a TV fault)
+
+Couch test 2026-06-18: API returned `ok` + ~5 s TTFF but TV showed **blank blue** while audio played.
+
+| Finding | Detail |
+|---------|--------|
+| **Cause** | Pi mpv + stream format, not TV blocking signal |
+| **Stream** | First result = 4K Blu-ray REMUX, HEVC 10-bit, Dolby Vision (AIOStreams/RD) |
+| **mpv log** | `Mapping hardware decoded surface failed` / `drmprime` dmabuf fail with `--hwdec=auto-safe` |
+| **HDMI today** | Pi outputs **1920×1080@60** — 4K display mode not enabled yet |
+| **Works now** | 1080p RD stream + `--hwdec=v4l2m2m-copy` shows picture on same Pi/TV |
+
+**N1 couch play:** use a **1080p** stream until N7 (stream picker + Pi mpv profile). `POST /play` by title ID alone still auto-picks 4K REMUX.
+
+**N7 unlocks:** 4K HDMI mode, Pi mpv hwdec profile, stream ranking (no REMUX/DV first), visible-picture gate.

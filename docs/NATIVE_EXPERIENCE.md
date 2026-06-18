@@ -49,6 +49,7 @@
 | On stream fail | **Auto-try next** option → then **hidden Stremio desktop** fallback |
 | Subtitles | Nice to have V1 — not a hard blocker |
 | RD in mpv | **Not yet tested on Pi** — early validation required |
+| **4K on Pi (N1 probe)** | REMUX/DV/10-bit HEVC: audio OK, video blank on X11 + `auto-safe`; 1080p + `v4l2m2m-copy` OK — **N7** |
 
 ### Library & progress
 
