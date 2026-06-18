@@ -76,6 +76,10 @@ if command -v wmctrl >/dev/null 2>&1; then
     eval "$(xdotool getwindowgeometry --shell "$OVERLAY_WID" 2>/dev/null)" || true
     echo "  INFO: overlay ${WIDTH:-?}x${HEIGHT:-?} @ ${X:-?},${Y:-?} wid=$OVERLAY_WID"
     [[ "${WIDTH:-0}" -ge 600 ]] && ok overlay-window-width || wrn overlay-window-narrow
+    [[ "${HEIGHT:-0}" -ge 200 ]] && ok overlay-window-height || bad overlay-window-collapsed
+    if [[ "${Y:-0}" -gt 840 ]]; then
+      wrn "overlay-y=${Y:-?} may clip on 1080p — run present-overlay.sh"
+    fi
   fi
 else
   wrn wmctrl-missing
@@ -123,9 +127,11 @@ fi
 
 echo "--- deepgram auth smoke ---"
 if [[ -d src/orchestrator/.venv ]]; then
-  # shellcheck disable=SC1091
-  source src/orchestrator/.venv/bin/activate
-  python3 <<'PY'
+  (
+    cd src/orchestrator
+    # shellcheck disable=SC1091
+    source .venv/bin/activate
+    python3 <<'PY'
 import numpy as np
 from orchestrator.config import load_settings
 from orchestrator.audio.deepgram_stt import transcribe
@@ -140,7 +146,7 @@ except RuntimeError as exc:
         print("  FAIL: deepgram " + str(exc))
         raise SystemExit(1)
 PY
-  ok deepgram-smoke-ran
+  ) && ok deepgram-reachable || bad deepgram-smoke
 else
   wrn orchestrator-venv-missing
 fi

@@ -7,7 +7,7 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 OVERLAY_X="${MANGO_OVERLAY_X:-560}"
-OVERLAY_Y="${MANGO_OVERLAY_Y:-820}"
+OVERLAY_Y="${MANGO_OVERLAY_Y:-812}"
 OVERLAY_W="${MANGO_OVERLAY_W:-700}"
 OVERLAY_H="${MANGO_OVERLAY_H:-240}"
 
@@ -45,6 +45,13 @@ refocus_launcher() {
   fi
 }
 
+raise_overlay_above_launcher() {
+  local wid=$1
+  if command -v wmctrl >/dev/null 2>&1; then
+    wmctrl -i -r "$wid" -b add,sticky,above,skip_taskbar,skip_pager 2>/dev/null || true
+  fi
+}
+
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   WID=$(find_overlay_wid) || {
     echo "! mango overlay window not found" >&2
@@ -53,6 +60,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
   present_overlay_hud "$WID"
   refocus_launcher
+  raise_overlay_above_launcher "$WID"
 
   if command -v xdotool >/dev/null 2>&1; then
     eval "$(xdotool getwindowgeometry --shell "$WID" 2>/dev/null)" || true

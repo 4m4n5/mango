@@ -55,7 +55,7 @@ mkdir -p "$OVERLAY_PROFILE"
   --class=mango-overlay \
   --app="http://127.0.0.1:${PORT}/overlay/" \
   --window-size=700,240 \
-  --window-position=560,820 \
+    --window-position=560,812 \
   >"$LOG_DIR/mango-overlay-chromium.log" 2>&1 &
 sleep 0.6
 
