@@ -2,8 +2,10 @@
 .env
 .env.*
 *.key
+keys/
 **/stremio.json
 **/youtube-api.json
+**/client_secret*.json
 
 # Python
 __pycache__/

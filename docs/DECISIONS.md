@@ -1,25 +1,29 @@
 # Implementation decisions
 
-Locked during pre-code QA (2026-06-15). Do not revisit without updating this file.
+Locked choices. Update this file when changing them.
 
 | Decision | Choice |
 |----------|--------|
-| LLM provider | **Configurable** — Anthropic + OpenAI adapters in `config.yaml` |
-| Stremio install | **fragarray/stremio-rpi5** `.deb` first; stremio-web fallback |
-| Companion HTTPS | **mkcert** self-signed cert on Pi; trust once on phone |
-| Launcher / overlay / companion UI | **Vite + vanilla TypeScript** |
-| Stretch features | **After Core** passes all 10 success criteria |
-| Network | **WiFi + Ethernet**; prefer Ethernet when plugged |
-| TV navigation | **USB gamepad only** (no FLIRC) |
-| Display stack | **X11 + Openbox** (`raspi-config` — not Wayland) |
-| Phone role | Mic (PTT) + backup remote |
-| Build order | Phase 0 manual bring-up → launcher → voice → media tools |
-| Stremio couch input | **xdotool evdev bridge** (`stremio-pad-bridge.py`) — input-remapper does not reach Qt WebEngine |
-| 8BitDo Micro face layout | Clockwise from left: **Y · X · A · B** — **B** (bottom, evdev `304`) = select, **Y** (left, evdev `308`) = back; A/X unmapped. Same in Kodi + Stremio. See [`docs/HARDWARE.md`](docs/HARDWARE.md) |
+| LLM provider | Configurable — Anthropic + OpenAI in `config.yaml` |
+| Stremio install | fragarray/stremio-rpi5 `.deb` |
+| Display | X11 + Openbox (not Wayland) |
+| TV navigation | 8BitDo Micro Bluetooth (no FLIRC) |
+| Companion HTTPS | mkcert on Pi |
+| UI stack | Vite + vanilla TypeScript |
+| Build order | Phase 0 → launcher → voice → media tools |
+
+## Gamepad (8BitDo Micro)
+
+| Topic | Choice |
+|-------|--------|
+| Face layout | Clockwise from left: **Y · X · A · B** (see [`HARDWARE.md`](HARDWARE.md)) |
+| Select / back | **B** = evdev `304` · **Y** = evdev `308` · A/X unmapped |
+| Kodi | `input-remapper` preset `mango-tv` |
+| Stremio | `stremio-pad-bridge.py` + hide `/dev/input/js*` — remapper does not work in Qt |
+| D-pad quirk | Switch BT reports D-pad as ABS_X/ABS_Y, not hat axes |
 
 ## Implications
 
-- **Phase 0** must complete on real Pi before `src/` work.
-- **Phase 2** includes mkcert setup in `scripts/` before companion mic works on phone.
-- **orchestrator/llm/** implements `provider: anthropic | openai` switch.
-- **Stretch** (TMDB, recap, Kodi subtitles) starts only after Core checklist green.
+- Phase 0 sign-off before `src/` ([`phase0-checklist.md`](phase0-checklist.md))
+- Daily launch: `scripts/phase0/tv.sh`
+- Never commit `keys/`, `youtube-api.json`, Kodi RPC password

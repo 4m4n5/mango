@@ -1,6 +1,6 @@
-# Kodi + YouTube — setup from scratch
+# Kodi + YouTube — setup
 
-8BitDo Micro in Kodi: **D-pad** move · **B** select · **Y** back.
+Context: [`PHASE0.md`](PHASE0.md) · Gamepad: **D-pad** move · **B** (`304`) select · **Y** (`308`) back.
 
 ## Part 0 — InputStream Adaptive (fixes “19.0.0 cannot be satisfied”)
 

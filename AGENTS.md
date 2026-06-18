@@ -2,39 +2,46 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md)
 
-Read before implementing. **Phase 0 on real Pi must pass before `src/` work** (see checklist).
+**Read [`docs/PHASE0.md`](docs/PHASE0.md) before any Pi or gamepad work.** Phase 0 is complete on device; do not redo bring-up unless user asks.
 
-## Progress (2026-06-17)
+## Live Pi
 
-| Done | Pending |
-|------|---------|
-| Pi OS Desktop, X11/Openbox, SSH | Stremio login + addons + playback |
-| Kodi + YouTube + gamepad ✓ | Stremio gamepad (pad bridge) |
-| Kodi JSON-RPC (`mango` @ :8080) | 30 min stability sign-off |
-| Stremio installed + launch scripts | Phase 1 launcher (`src/`) |
+`aman@mango.local` · `10.0.0.174` · repo `~/mango`
 
-Pi: `aman@mango.local` · `10.0.0.174`
+## Daily commands
 
-## Docs
+```bash
+bash scripts/phase0/tv.sh kodi
+bash scripts/phase0/tv.sh stremio
+```
+
+## Gamepad (locked — do not change without user)
+
+8BitDo Micro · clockwise from left: **Y · X · A · B** · **B** (`304`) = select · **Y** (`308`) = back.
+
+| App | Stack |
+|-----|--------|
+| Kodi | `input-remapper` → `map-pro-controller.sh` |
+| Stremio | `stremio-pad-bridge.py` + hide `js*` — **not** remapper |
+
+Details: [`docs/HARDWARE.md`](docs/HARDWARE.md) · [`docs/DECISIONS.md`](docs/DECISIONS.md)
+
+## Docs map
 
 | Doc | Use |
 |-----|-----|
-| [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md) | **Current next steps** |
-| [`docs/phase0-checklist.md`](docs/phase0-checklist.md) | On-Pi bring-up checklist |
-| [`docs/kodi-youtube-setup.md`](docs/kodi-youtube-setup.md) | YouTube addon + InputStream |
-| [`docs/HARDWARE.md`](docs/HARDWARE.md) | 8BitDo Micro layout |
-| [`docs/PLAN.md`](docs/PLAN.md) | Implementation phases |
-| [`docs/DESIGN.md`](docs/DESIGN.md) | V1 scope, architecture |
-
-## Stack
-
-- Pi 5 8GB · Pi OS Desktop · **X11 + Openbox** (not Wayland)
-- Stremio: fragarray ARM64 `.deb` · YouTube: Kodi + `plugin.video.youtube`
-- Python orchestrator · Node stremio-service · Vite + vanilla TS (launcher, overlay, companion)
-- Phone PTT over **HTTPS** (mkcert) · 8BitDo Micro — see [`docs/HARDWARE.md`](docs/HARDWARE.md) for face layout (B=select, Y=back)
+| [`docs/PHASE0.md`](docs/PHASE0.md) | **Runbook** |
+| [`scripts/phase0/README.md`](scripts/phase0/README.md) | Script index |
+| [`docs/kodi-youtube-setup.md`](docs/kodi-youtube-setup.md) | YouTube API keys |
+| [`docs/PLAN.md`](docs/PLAN.md) | Phase 1+ |
 
 ## Rules
 
-- Never commit secrets (`/etc/mango/`, `*.key`, `.env`, Kodi RPC password)
-- Voice Stremio play → `stremio://` deep link, not orphan MPV
-- Stretch features only after V1 Core success criteria pass
+- No `src/` until Phase 0 sign-off ([`phase0-checklist.md`](docs/phase0-checklist.md))
+- Never commit secrets (`keys/`, `youtube-api.json`, Kodi RPC password)
+- Never bare `stremio &` — use `reset-stremio.sh`
+- Stremio voice → `stremio://` deep links
+
+## Next work
+
+Phase 0: 30 min stability soak → **Phase 1** boot launcher per [`PLAN.md`](docs/PLAN.md).

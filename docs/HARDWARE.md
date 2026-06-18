@@ -56,10 +56,12 @@ If input still missing: `bluetoothctl disconnect E4:17:D8:EB:00:44` → press a 
 ### Daily use
 
 ```bash
-bluetoothctl connect E4:17:D8:EB:00:44
-bash scripts/phase0/launch-kodi.sh      # Kodi
-bash scripts/phase0/reset-stremio.sh    # Stremio
+cd ~/mango && git pull
+bash scripts/phase0/tv.sh kodi
+bash scripts/phase0/tv.sh stremio
 ```
+
+See [`PHASE0.md`](PHASE0.md) for full runbook.
 
 ### First-time pair
 

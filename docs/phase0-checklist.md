@@ -1,56 +1,38 @@
-# Phase 0 — Software checklist
+# Phase 0 — Checklist
 
-**Hardware:** [`GETTING-STARTED.md`](GETTING-STARTED.md) · [`HARDWARE.md`](HARDWARE.md) · [`kodi-youtube-setup.md`](kodi-youtube-setup.md)
-
-Helper scripts: `scripts/phase0/`
+Runbook: [`PHASE0.md`](PHASE0.md) · Scripts: [`../scripts/phase0/README.md`](../scripts/phase0/README.md)
 
 ## OS & display
 
-- [x] Flash Pi OS Desktop 64-bit (hostname `mango`)
-- [x] Boot desktop, network up
-- [ ] `sudo apt update && sudo apt full-upgrade -y` (optional)
-- [x] `bash scripts/phase0/switch-to-x11.sh` → reboot
-- [x] `bash scripts/phase0/verify-system.sh` — all green
-- [x] X11 confirmed (`openbox` running)
+- [x] Pi OS Desktop 64-bit · hostname `mango`
+- [x] X11 + Openbox (`switch-to-x11.sh`)
+- [x] `verify-system.sh` green
+- [ ] `sudo apt update && apt full-upgrade` (optional)
 
 ## Gamepad (8BitDo Micro)
 
-- [x] Bluetooth paired — MAC `E4:17:D8:EB:00:44`, preset `mango-tv`
-- [x] **Kodi:** D-pad navigate · **B** select · **Y** back
-- [ ] **Stremio:** same layout confirmed ← **next**
-- [ ] Couch navigation stable 30+ min across both apps
+- [x] Paired · MAC `E4:17:D8:EB:00:44` · preset `mango-tv`
+- [x] **Kodi:** D-pad · **B** select · **Y** back
+- [x] **Stremio:** same layout (pad bridge + js hide)
 
 ## Kodi + YouTube
 
-- [x] Kodi installed
-- [x] InputStream Adaptive (`install-kodi-inputstream.sh`)
-- [x] YouTube addon installed (zip v7.4.3 + personal API keys)
-- [x] Play a video with gamepad
-- [x] JSON-RPC enabled (port 8080, user `mango`)
-- [x] `test-kodi-rpc.sh` passes
+- [x] Kodi + InputStream + YouTube addon (personal API keys)
+- [x] Playback with gamepad
+- [x] JSON-RPC `:8080` user `mango` · `test-kodi-rpc.sh` passes
 
 ## Stremio
 
-- [x] Stremio installed
-- [x] Launch/reset scripts + pad bridge in repo
-- [ ] Login + addons ← **next**
-- [ ] Playback (mouse OK for first setup)
-- [ ] Gamepad navigation (pad bridge)
-- [ ] `xdg-open 'stremio:///detail/...'` opens title (optional)
+- [x] Installed (fragarray arm64 deb)
+- [x] Login + addons + playback
+- [x] Gamepad (pad bridge)
+- [ ] `xdg-open 'stremio:///detail/...'` (optional)
 
-## Network & phone
+## Sign-off → Phase 1
 
-- [x] Pi IP: `10.0.0.174` · SSH: `aman@mango.local`
-- [ ] Phone reaches Pi on LAN
-- [x] SSH from Mac works
+- [ ] **30+ min** couch test (switch Kodi ↔ Stremio, no crashes/throttle)
+- [ ] Phone reaches Pi on LAN (optional)
+- [ ] Ready for launcher (`src/`)
 
-## Sign-off
-
-- [ ] All unchecked items above done
-- [ ] Ready for Phase 1 (launcher code)
-
-**Pi IP:** `10.0.0.174` · **SSH:** `aman@mango.local`  
-**Gamepad:** 8BitDo Micro · D-pad / B / Y · preset `mango-tv`  
-**Kodi RPC user:** `mango` (password on Pi only)  
-**Stremio version:** _______________  
-**Date completed:** _______________
+**Pi:** `10.0.0.174` · `aman@mango.local`  
+**RPC password / API keys:** on Pi only — never commit

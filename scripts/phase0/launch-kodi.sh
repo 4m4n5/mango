@@ -5,10 +5,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BT_MAC="E4:17:D8:EB:00:44"
-
-bluetoothctl connect "$BT_MAC" 2>/dev/null || true
-sleep 2
+bash "$SCRIPT_DIR/connect-gamepad.sh"
 
 killall kodi kodi.bin 2>/dev/null || true
 sleep 1

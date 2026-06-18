@@ -2,9 +2,11 @@
 
 | File | Description |
 |------|-------------|
-| [GETTING-STARTED.md](GETTING-STARTED.md) | **Start here** — SD card, Pi assembly, first boot |
-| [phase0-checklist.md](phase0-checklist.md) | Software checklist after desktop boots |
-| [PLAN.md](PLAN.md) | Phased implementation plan |
-| [DESIGN.md](DESIGN.md) | V1 build spec |
-| [DECISIONS.md](DECISIONS.md) | Locked decisions |
-| [HARDWARE.md](HARDWARE.md) | Gamepad + phone |
+| [**PHASE0.md**](PHASE0.md) | **Pi runbook** — start here for bring-up and daily ops |
+| [HARDWARE.md](HARDWARE.md) | 8BitDo Micro layout + evdev codes |
+| [phase0-checklist.md](phase0-checklist.md) | Sign-off checklist |
+| [kodi-youtube-setup.md](kodi-youtube-setup.md) | YouTube addon + Google API keys |
+| [GETTING-STARTED.md](GETTING-STARTED.md) | Short index → PHASE0 |
+| [PLAN.md](PLAN.md) | Implementation phases |
+| [DESIGN.md](DESIGN.md) | V1 spec |
+| [DECISIONS.md](DECISIONS.md) | Locked choices |

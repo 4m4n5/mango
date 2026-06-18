@@ -1,9 +1,9 @@
 # Scripts
 
-Planned:
+| Path | Purpose |
+|------|---------|
+| [**phase0/**](phase0/README.md) | Pi bring-up — **`tv.sh`** is the daily entry |
+| `install.sh` | Planned bootstrap (Phase 5) |
+| `systemd/` | Planned unit files |
 
-- `install.sh` — Pi bootstrap (Phase 5)
-- `launch-stremio.sh`, `launch-kodi.sh`, `launch-launcher.sh` — app switching (Phase 1)
-- `systemd/` — unit files
-
-See [PLAN.md](../docs/PLAN.md).
+Phase 1+ launchers: see [`docs/PLAN.md`](../docs/PLAN.md).
