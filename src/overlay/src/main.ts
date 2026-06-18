@@ -100,7 +100,7 @@ function setState(state: string, label: string): void {
   }
   if (state === "listening") {
     showUser("");
-    showReply("");
+    showReply("", false);
   }
 }
 
