@@ -87,8 +87,8 @@ stop_catalog_service() {
 
 start_stack() {
   stop_idle_media
-  bash scripts/phase1/start-mango-ui.sh
   start_catalog_service
+  bash scripts/phase1/start-mango-ui.sh
   if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
     bash scripts/phase2/start-voice-stack.sh
   fi

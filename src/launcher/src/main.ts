@@ -24,6 +24,7 @@ let inSettings = false;
 let launchInFlight = false;
 let homeOptions: HomeOptions = { fallbackStremio: false, legacyYoutube: false };
 let catalogState: CatalogState = { status: "loading" };
+let catalogRetryTimer: number | undefined;
 
 const focusGrid = new FocusGrid((element) => {
   element.classList.add("focused");
@@ -205,6 +206,10 @@ function restoreHomeFromDetail(): void {
 }
 
 async function loadCatalog(): Promise<void> {
+  if (catalogRetryTimer !== undefined) {
+    window.clearTimeout(catalogRetryTimer);
+    catalogRetryTimer = undefined;
+  }
   catalogState = { status: "loading" };
   renderHome();
   try {
@@ -219,7 +224,10 @@ async function loadCatalog(): Promise<void> {
       message: error instanceof Error ? error.message : "catalog unavailable",
     };
     renderHome();
-    setStatus("catalog unavailable. settings still work.");
+    setStatus("catalog unavailable. retrying…");
+    catalogRetryTimer = window.setTimeout(() => {
+      void loadCatalog();
+    }, 5000);
   }
 }
 
