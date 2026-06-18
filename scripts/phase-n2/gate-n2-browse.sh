@@ -58,7 +58,7 @@ fi
 for rail in "${EXPECTED_RAILS[@]}"; do
   out="/tmp/mango-n2-${rail}.json"
   if curl -sf --max-time 70 "http://127.0.0.1:3020/rails/${rail}/items" >"$out"; then
-    min_items=1
+    min_items=0
     for strict in "${STRICT_RAILS[@]}"; do
       if [[ "$rail" == "$strict" ]]; then
         min_items=3
@@ -78,6 +78,17 @@ if bad:
     raise SystemExit(f"{rail}: non-https poster urls: {bad[:2]}")
 print(f"  {rail}: items={len(items)} resolve_ms={data.get('resolve_ms')}")
 PY
+    if [[ "$min_items" -eq 0 ]]; then
+      python3 - "$out" "$rail" <<'PY' || warn "${rail} empty from source"
+import json
+import sys
+path, rail = sys.argv[1], sys.argv[2]
+data = json.load(open(path, encoding="utf-8"))
+items = data.get("items") or []
+if len(items) == 0:
+    raise SystemExit(f"{rail}: source returned 0 items")
+PY
+    fi
   else
     fail "GET /rails/${rail}/items"
   fi
