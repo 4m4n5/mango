@@ -1,0 +1,18 @@
+[Unit]
+Description=mango TV pad router (8BitDo Micro)
+After=bluetooth.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/aman/.Xauthority
+Environment=HOME=/home/aman
+Environment=USER=aman
+Environment=SUDO_USER=aman
+ExecStart=/usr/bin/sudo -n /home/aman/mango/scripts/phase0/run-mango-tv-pad.sh
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

@@ -11,8 +11,11 @@ PID_DIR="${HOME}/.cache/mango"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
-# Phase 1 on Pi: overlay Chromium causes intermittent white-screen focus bugs.
-if [[ -z "${MANGO_SKIP_OVERLAY+x}" ]] && { [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; }; then
+# Phase 1 on Pi: overlay Chromium caused intermittent white-screen focus bugs.
+# Phase 2 voice opts in explicitly after the orchestrator is running.
+if [[ -z "${MANGO_SKIP_OVERLAY+x}" && "${MANGO_VOICE:-0}" == "1" ]]; then
+  MANGO_SKIP_OVERLAY=0
+elif [[ -z "${MANGO_SKIP_OVERLAY+x}" ]] && { [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; }; then
   MANGO_SKIP_OVERLAY=1
 fi
 export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-0}"
@@ -137,10 +140,6 @@ fi
 
 bash scripts/lib/present-launcher.sh --quick 2>/dev/null || bash scripts/lib/present-launcher.sh 2>/dev/null || true
 
-if pgrep -f mango-tv-pad.py >/dev/null 2>&1; then
-  MANGO_SKIP_REMAPPER=1 bash scripts/launch-launcher.sh
-else
-  bash scripts/launch-launcher.sh
-fi
+bash scripts/phase0/start-mango-tv-pad.sh 2>/dev/null || true
 
 echo "mango UI running at http://127.0.0.1:${PORT}/"

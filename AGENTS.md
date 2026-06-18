@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md)
 
-Phase 0 + 1 + **1.5 complete on device**. **Phase 2 voice** in progress — do not redo bring-up unless asked.
+Phase 0 + 1 + **1.5 complete on device**. **Phase 2 voice slices 2.2-2.5** are implemented in repo; Pi audio/couch verification still required. Do not redo bring-up unless asked.
 
 ## Read first
 
@@ -21,6 +21,12 @@ Phase 0 + 1 + **1.5 complete on device**. **Phase 2 voice** in progress — do n
 
 `aman@10.0.0.174` · SSH `mango` · `~/mango`
 
+**Deploy invariant:** before any runbook step `git pull && bash scripts/...` on the Pi, **commit and push from Mac** if the script was added or changed in-session. Verify:
+
+```bash
+bash scripts/lib/pi-sync-check.sh scripts/phase0/some-new-script.sh
+```
+
 ```bash
 bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/phase1/restart-mango-ui.sh'
 ```
@@ -36,4 +42,4 @@ bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/phase1/restart-m
 
 ## Next (Phase 2)
 
-Orchestrator `:8765` · companion HTTPS `:3001` · overlay re-enable when voice ships. See [`docs/PHASE2.md`](docs/PHASE2.md). Do not change pad/input stacks without user approval.
+Orchestrator `:8765` with `MANGO_ORCH_TLS=1` · companion HTTPS `:3001` · overlay opt-in with `MANGO_VOICE=1`. See [`docs/PHASE2.md`](docs/PHASE2.md). Do not change pad/input stacks without user approval.

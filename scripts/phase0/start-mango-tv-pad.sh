@@ -20,6 +20,21 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 mkdir -p "$CACHE_DIR"
 
+pad_running() {
+  if pgrep -f '[m]ango-tv-pad\.py' >/dev/null 2>&1; then
+    return 0
+  fi
+  if [[ -f "$PIDFILE" ]]; then
+    local pid
+    pid=$(cat "$PIDFILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+    rm -f "$PIDFILE"
+  fi
+  return 1
+}
+
 pro_controller_present() {
   python3 - <<'PY'
 import evdev
@@ -45,14 +60,15 @@ ensure_sudo() {
   return 1
 }
 
-if pgrep -f mango-tv-pad.py >/dev/null 2>&1; then
+if pad_running; then
   if [[ "${MANGO_PAD_DEBUG:-}" != "1" ]]; then
     echo "✓ mango TV pad already running"
     exit 0
   fi
   echo "Restarting pad for debug session..."
-  pkill -f mango-tv-pad.py 2>/dev/null || true
-  sudo -n pkill -f mango-tv-pad.py 2>/dev/null || sudo pkill -f mango-tv-pad.py 2>/dev/null || true
+  pkill -f '[m]ango-tv-pad\.py' 2>/dev/null || true
+  sudo -n pkill -f '[m]ango-tv-pad\.py' 2>/dev/null || sudo pkill -f '[m]ango-tv-pad\.py' 2>/dev/null || true
+  rm -f "$PIDFILE"
   sleep 0.3
 fi
 
@@ -72,12 +88,15 @@ if ! $BT_ALREADY; then
 fi
 
 if ! pro_controller_present; then
-  echo "! Pro Controller not found — wake the pad and connect Bluetooth first:"
-  echo "  bash ~/mango/scripts/phase0/gamepad-fresh-start.sh"
-  echo ""
-  echo "  Quick: hold START+Y on the Micro (Switch mode), press any button,"
-  echo "  then: bluetoothctl connect E4:17:D8:EB:00:44"
-  exit 1
+  if [[ "${MANGO_PAD_WAIT_BT:-1}" != "1" ]]; then
+    echo "! Pro Controller not found — wake the pad and connect Bluetooth first:"
+    echo "  bash ~/mango/scripts/phase0/gamepad-fresh-start.sh"
+    echo ""
+    echo "  Quick: press any button on the Micro, then:"
+    echo "  bluetoothctl connect E4:17:D8:EB:00:44"
+    exit 1
+  fi
+  echo "! Pro Controller not visible yet — starting pad router (press any button to wake)"
 fi
 
 ensure_sudo || exit 1
@@ -104,7 +123,7 @@ for attempt in 1 2 3; do
   sudo -n "$PAD_RUN" >>"$LOG" 2>&1 &
   echo $! >"$PIDFILE"
   sleep 0.5
-  if pgrep -f mango-tv-pad.py >/dev/null 2>&1 && tail -1 "$LOG" 2>/dev/null | grep -q '^mango-tv-pad:'; then
+  if pgrep -f '[m]ango-tv-pad\.py' >/dev/null 2>&1 && tail -3 "$LOG" 2>/dev/null | grep -q '^mango-tv-pad:'; then
     BRIDGE_OK=true
     break
   fi
@@ -112,8 +131,8 @@ for attempt in 1 2 3; do
     echo "! Pro Controller disappeared — reconnect Bluetooth"
     sleep 1
   fi
-  pkill -f mango-tv-pad.py 2>/dev/null || true
-  sudo -n pkill -f mango-tv-pad.py 2>/dev/null || true
+  pkill -f '[m]ango-tv-pad\.py' 2>/dev/null || true
+  sudo -n pkill -f '[m]ango-tv-pad\.py' 2>/dev/null || true
   ir_kill_readers || true
   sleep 0.5
 done

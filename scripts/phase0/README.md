@@ -22,6 +22,8 @@ Run on the Pi from `~/mango`. Full context: [`docs/PHASE0.md`](../../docs/PHASE0
 | Script | Purpose |
 |--------|---------|
 | `start-mango-tv-pad.sh` | Idempotent pad start (do not restart on every home) |
+| **`install-pad-autoreconnect.sh`** | **Once** — BT trust + udev + systemd pad recovery |
+| `install-pad-sudoers.sh` | Passwordless sudo for pad grab |
 | `map-pro-controller.sh` | Write/apply `mango-tv` preset (fallback remapper) |
 | `stremio-pad-bridge.py` | **Legacy** — prefer unified `mango-tv-pad.py` |
 | `lib/irctl.sh` | Quiet input-remapper-control (Py3.13 noise) |

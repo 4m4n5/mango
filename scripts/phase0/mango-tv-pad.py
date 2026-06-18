@@ -38,6 +38,13 @@ PRESENT_STREMIO_SH = REPO / "scripts/phase0/present-stremio.sh"
 BTN_B = 304
 BTN_Y = 308
 HOME_BUTTONS = {316, 311}
+BT_MAC = "E4:17:D8:EB:00:44"
+RECONNECT_SLEEP_SEC = 0.75
+DEVICE_WAIT_SEC = 45.0
+
+
+class DeviceNotFoundError(Exception):
+    pass
 
 DIAG_SESSION = os.environ.get("MANGO_DIAG_SESSION", "")
 PAD_DEBUG = os.environ.get("MANGO_PAD_DEBUG") == "1"
@@ -222,14 +229,48 @@ def find_pro_controller() -> evdev.InputDevice:
         dev = evdev.InputDevice(path)
         if dev.name == "Pro Controller":
             return dev
-    raise SystemExit("Pro Controller not found — bluetoothctl connect E4:17:D8:EB:00:44")
+    raise DeviceNotFoundError(
+        "Pro Controller not found — press any button on the Micro to wake Bluetooth"
+    )
 
 
-def main() -> None:
-    dev = find_pro_controller()
-    print(f"mango-tv-pad: {dev.path} ({dev.name})", flush=True)
+def try_bluetooth_connect() -> None:
+    subprocess.run(
+        ["bluetoothctl", "connect", BT_MAC],
+        env=_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        timeout=8,
+    )
+
+
+def wait_for_device() -> evdev.InputDevice:
+    deadline = time.monotonic() + DEVICE_WAIT_SEC
+    while time.monotonic() < deadline:
+        try:
+            return find_pro_controller()
+        except DeviceNotFoundError:
+            try_bluetooth_connect()
+            time.sleep(RECONNECT_SLEEP_SEC)
+    raise DeviceNotFoundError("timed out waiting for Pro Controller")
+
+
+def release_device(dev: evdev.InputDevice | None) -> None:
+    if dev is None:
+        return
+    try:
+        dev.ungrab()
+    except OSError:
+        pass
+    try:
+        dev.close()
+    except OSError:
+        pass
+
+
+def run_pad_session(dev: evdev.InputDevice) -> None:
     dev.grab()
-
     last: dict[str, float] = {}
 
     def debounced(action: str, fn) -> None:
@@ -239,31 +280,57 @@ def main() -> None:
         last[action] = now
         fn()
 
-    for event in dev.read_loop():
-        app = foreground_app()
-        if event.type == ecodes.EV_ABS:
-            if event.code == ecodes.ABS_X:
-                if event.value <= -THRESH:
-                    debounced(f"{app}-left", lambda: route_dpad(app, "left"))
-                elif event.value >= THRESH:
-                    debounced(f"{app}-right", lambda: route_dpad(app, "right"))
-            elif event.code == ecodes.ABS_Y:
-                if event.value <= -THRESH:
-                    debounced(f"{app}-up", lambda: route_dpad(app, "up"))
-                elif event.value >= THRESH:
-                    debounced(f"{app}-down", lambda: route_dpad(app, "down"))
-        elif event.type == ecodes.EV_KEY and event.value == 1:
-            diag_event(
-                "ev_key",
-                code=str(event.code),
-                foreground=app,
-            )
-            if event.code == BTN_B:
-                debounced(f"{app}-select", lambda: route_face(app, "select"))
-            elif event.code == BTN_Y:
-                debounced(f"{app}-back", lambda: route_face(app, "back"))
-            elif event.code in HOME_BUTTONS:
-                debounced("home", go_home)
+    try:
+        for event in dev.read_loop():
+            app = foreground_app()
+            if event.type == ecodes.EV_ABS:
+                if event.code == ecodes.ABS_X:
+                    if event.value <= -THRESH:
+                        debounced(f"{app}-left", lambda: route_dpad(app, "left"))
+                    elif event.value >= THRESH:
+                        debounced(f"{app}-right", lambda: route_dpad(app, "right"))
+                elif event.code == ecodes.ABS_Y:
+                    if event.value <= -THRESH:
+                        debounced(f"{app}-up", lambda: route_dpad(app, "up"))
+                    elif event.value >= THRESH:
+                        debounced(f"{app}-down", lambda: route_dpad(app, "down"))
+            elif event.type == ecodes.EV_KEY and event.value == 1:
+                diag_event(
+                    "ev_key",
+                    code=str(event.code),
+                    foreground=app,
+                )
+                if event.code == BTN_B:
+                    debounced(f"{app}-select", lambda: route_face(app, "select"))
+                elif event.code == BTN_Y:
+                    debounced(f"{app}-back", lambda: route_face(app, "back"))
+                elif event.code in HOME_BUTTONS:
+                    debounced("home", go_home)
+    except OSError as exc:
+        if exc.errno == 19:  # ENODEV — Bluetooth dropped
+            print("mango-tv-pad: device disconnected, will reconnect", flush=True)
+            return
+        raise
+
+
+def main() -> None:
+    print("mango-tv-pad: router ready (wake pad with any button)", flush=True)
+    while True:
+        dev: evdev.InputDevice | None = None
+        try:
+            dev = wait_for_device()
+            print(f"mango-tv-pad: {dev.path} ({dev.name})", flush=True)
+            run_pad_session(dev)
+        except KeyboardInterrupt:
+            release_device(dev)
+            break
+        except DeviceNotFoundError as exc:
+            print(f"mango-tv-pad: {exc}", flush=True)
+        except Exception as exc:  # noqa: BLE001 — keep router alive for TV
+            print(f"mango-tv-pad: error: {exc}", flush=True)
+        finally:
+            release_device(dev)
+        time.sleep(RECONNECT_SLEEP_SEC)
 
 
 if __name__ == "__main__":

@@ -117,5 +117,9 @@ fi
 
 echo
 echo "=== Remapper: OFF (evtest only) ==="
+if [[ "${MANGO_AUTO_PAD:-1}" == "1" ]]; then
+  echo "Starting mango TV pad router..."
+  bash "$SCRIPT_DIR/start-mango-tv-pad.sh" || true
+fi
 echo "Next: bash scripts/phase0/launch-kodi.sh   (or reset-stremio.sh)"
-echo "Reconnect: bluetoothctl connect ${BT_MAC}"
+echo "Reconnect: press any button on the Micro (trusted BT auto-connect)"

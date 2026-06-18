@@ -55,13 +55,23 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | **Kodi** | `input-remapper` preset `mango-tv` (`map-pro-controller.sh`) |
 | **Stremio** | `stremio-pad-bridge.py` + hide `/dev/input/js*` (native gamepad would use A=confirm) |
 
-### After reboot
+### After reboot or pad drop
 
-Bluetooth may show **Connected** before Linux registers the pad. **Press any button** on the Micro, then:
+Bluetooth may show **Connected** before Linux registers the pad. **Press any button** on the Micro.
+
+**One-time setup** (auto-recover after this):
 
 ```bash
 cd ~/mango && git pull
-bash scripts/phase0/gamepad-fresh-start.sh
+sudo bash scripts/phase0/install-pad-autoreconnect.sh
+```
+
+Then a single button press wakes BT, reconnects, and restarts the pad router — no SSH.
+
+**Manual fallback:**
+
+```bash
+bash scripts/phase0/start-mango-tv-pad.sh
 ```
 
 If input still missing: `bluetoothctl disconnect E4:17:D8:EB:00:44` → press a pad button → `bluetoothctl connect E4:17:D8:EB:00:44`

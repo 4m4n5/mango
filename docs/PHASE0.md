@@ -126,6 +126,8 @@ Log: `/tmp/mango-tv-pad.log`
 
 | Path | Purpose |
 |------|---------|
+| `phase0/start-mango-tv-pad.sh` | Pad router (launcher + Stremio + Kodi) |
+| `phase0/install-pad-autoreconnect.sh` | **Once** — BT trust + udev + systemd pad recovery |
 | `phase1/restart-mango-ui.sh` | **Bring-up** after crash |
 | `phase1/bootstrap-after-reboot.sh` | **Bring-up** after reboot |
 | `launch-launcher.sh` | Home |
