@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0 + 1 + **1.5 complete on device**. **Phase 2 voice** is on Pi (orchestrator, companion, overlay); couch sign-off still open. Do not redo bring-up unless asked.
+Phase 0–**2 shipped on device**. Couch sign-off partial — [`docs/PHASE2.md`](docs/PHASE2.md). **Active product work:** branch `feat/native-experience` ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)).
 
 ## Read first
 
@@ -10,12 +10,20 @@ Phase 0 + 1 + **1.5 complete on device**. **Phase 2 voice** is on Pi (orchestrat
 |-----|-----|
 | [**`docs/PHASE0.md`**](docs/PHASE0.md) | **Pi ops** — bring-up, architecture, gamepad, troubleshooting |
 | [`docs/PHASE1.md`](docs/PHASE1.md) | Launcher dev + API |
-| [**`docs/PHASE2.md`**](docs/PHASE2.md) | **Voice pipeline** (current) |
+| [`docs/PHASE2.md`](docs/PHASE2.md) | Voice pipeline |
+| [`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md) | Native TV UX overhaul (branch) |
 | [`docs/PLAN.md`](docs/PLAN.md) | Full roadmap |
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | Pad diagram |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked choices |
 
 **TV box systems:** `$mango-tv-box-expert` · **Launcher visuals:** `$ux-design-expert`
+
+## Branches
+
+| Branch | Use |
+|--------|-----|
+| `main` | Stable couch stack · voice + launcher · bugfixes |
+| `feat/native-experience` | TV-first browse/rails · AI-integrated shell · stremio-service |
 
 ## Pi deploy (mandatory — no rsync)
 
@@ -32,12 +40,11 @@ bash scripts/lib/pi-sync-check.sh <changed-path>   # Mac, before push
 bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/phase1/restart-mango-ui.sh'
 ```
 
-Full Pi refresh after a pull:
+Voice stack after pull:
 
 ```bash
-cd ~/mango && git pull
-bash scripts/phase1/restart-mango-ui.sh
-systemctl --user restart mango-tv-pad.service   # if pad autoreconnect installed
+bash scripts/phase2/start-voice-stack.sh
+bash scripts/phase2/verify-voice-ready.sh
 ```
 
 **Pre-couch gate (agent runs before user tests):** SSH to Pi and run automated
@@ -49,9 +56,6 @@ bash scripts/pi-exec-gate.sh          # Mac: pull + gate on Pi
 bash scripts/pi-pre-couch-gate.sh
 ```
 
-Gate covers: git sync, `verify-tv.sh`, pad service, BT, launcher window, pad
-log. Couch flows **C1–C4** in that script are still manual on TV.
-
 ## Gamepad (locked)
 
 8BitDo Micro · **B**=`304` select · **Y**=`308` back · **⌂**=`316` home
@@ -61,6 +65,4 @@ log. Couch flows **C1–C4** in that script are still manual on TV.
 | Launcher, Stremio, Kodi | **`mango-tv-pad.py`** |
 | Fallback only | `input-remapper` `mango-tv` if pad fails |
 
-## Next (Phase 2)
-
-Voice stack: `bash scripts/phase2/start-voice-stack.sh` (tmux) · companion `https://<pi>:3001` · overlay via `~/.config/mango/voice.env`. See [`docs/PHASE2.md`](docs/PHASE2.md). Do not change pad/input stacks without user approval.
+Do not change pad/input stacks without user approval.

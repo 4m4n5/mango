@@ -1,215 +1,143 @@
 # Phase 2 — Voice pipeline
 
-**Status:** Slices 2.2-2.5 implemented in repo; Pi/audio verification pending.
-**Prerequisite:** Phase 1.5 couch acceptance ✓ — see [`phase0-checklist.md`](phase0-checklist.md).  
-**Spec:** [`tasks/phase2-voice-pipeline.md`](tasks/phase2-voice-pipeline.md) · [`DESIGN.md`](DESIGN.md) voice/overlay.
+**Status:** ✓ Shipped on Pi · partial couch sign-off (2026-06-18)  
+**Prerequisite:** Phase 1.5 ✓ — [`phase0-checklist.md`](phase0-checklist.md)  
+**Next:** Native TV UX — [`NATIVE_EXPERIENCE.md`](NATIVE_EXPERIENCE.md) on `feat/native-experience`  
+**Spec:** [`tasks/phase2-voice-pipeline.md`](tasks/phase2-voice-pipeline.md) · [`DESIGN.md`](DESIGN.md)
 
 ## Goal
 
-Phone PTT → transcript → LLM reply → **TV HUD** (launcher-embedded + optional overlay Chromium). Card appears only during a turn; after reply dwell (~10 s) it fades out and clears — full history stays on the phone.
+Phone PTT → transcript → LLM reply → **TV HUD**. Reply dwells ~10 s on TV, then dismisses; full history on phone. Chat only — no media tools (those move to native UX).
 
 ## Architecture
 
 ```
-Phone https://<pi>:3001             Pi
-┌──────────────────────┐            ┌────────────────────────────────┐
-│ companion PWA        │──wss──────▶│ orchestrator :8765             │
-│ getUserMedia         │            │  PCM → Deepgram STT → LLM      │
-│ 16 kHz mono PCM b64  │            │  Piper → paplay/aplay over HDMI│
-└──────────────────────┘            └──────────────┬─────────────────┘
-                                                    │ ws/wss status
-                                      ┌─────────────▼────────────────┐
-                                      │ overlay Chromium, opt-in Pi   │
-                                      └──────────────────────────────┘
+Phone :3001 HTTPS              Pi
+┌─────────────────┐           ┌─────────────────────────────────────┐
+│ companion PWA   │──WSS:8765▶│ orchestrator — Deepgram STT → Haiku  │
+│ PTT + chat      │           │ optional Piper TTS                     │
+└─────────────────┘           │ loopback WS :8766 (plain, TV clients)  │
+Launcher :3000                │   launcher voice-hud.ts (+ opt. overlay)│
+│ voice-hud.ts    │──WS:8766─▶│                                      │
+└─────────────────┘           └─────────────────────────────────────┘
 ```
 
-Launcher (`serve.py :3000`) and pad stack are unchanged. Phase 2 is chat only; media tools and LLM tool calling start in Phase 3.
-
-## TLS choice
-
-Chosen approach: **A. TLS on orchestrator + HTTPS companion**.
-
-Reason: phone browsers require `getUserMedia()` in a secure context, and an HTTPS page should use WSS for real app WebSocket traffic. Two TLS services keep Phase 1 launcher and app-switching untouched and avoid adding Caddy/nginx before the voice path is stable.
+**Two WS ports:** phone uses WSS `:8765` (mkcert). TV HUD uses plain `ws://127.0.0.1:8766` — overlay Chromium cannot trust mkcert.
 
 | Service | Port | Protocol |
 |---------|------|----------|
-| Launcher | 3000 | HTTP on Pi localhost/kiosk |
-| Companion | 3001 | HTTPS via mkcert |
-| Orchestrator | 8765 | WSS via same mkcert cert when `MANGO_ORCH_TLS=1` |
-| Overlay | via launcher `/overlay/` | tries local `ws://127.0.0.1:8765/ws`, then `wss://127.0.0.1:8765/ws` |
+| Launcher | 3000 | HTTP (kiosk) |
+| Companion | 3001 | HTTPS (mkcert) |
+| Orchestrator | 8765 | WSS (phone) |
+| Orchestrator | 8766 | WS loopback (TV HUD) |
 
-Sources: MDN `getUserMedia()` secure-context requirement and MDN WebSocket guidance for HTTPS pages using `wss`.
+Launcher and pad stack unchanged from Phase 1.
+
+## What shipped
+
+| Component | Path / port | Notes |
+|-----------|-------------|-------|
+| Companion | `src/companion` · `:3001` | PTT · 16 kHz PCM · streaming LLM on phone |
+| Orchestrator | `src/orchestrator` · `:8765`/`:8766` | Multi-turn PTT · session history |
+| TV HUD | `src/launcher/src/voice-hud.ts` | Primary — visible on kiosk |
+| Overlay (optional) | `src/overlay` | Secondary HUD Chromium |
+| STT | Deepgram `nova-3` + `multi` + keyterms | Local Whisper: `stt.provider: local` |
+| LLM | Haiku `claude-haiku-4-5-20251001` | Streaming deltas |
+| TTS | Piper | **Off on Pi** — `audio.tts_enabled: false` |
+
+**Ops:** `scripts/phase2/start-voice-stack.sh` · `verify-voice-ready.sh` · `setup-mkcert.sh`  
+**Secrets:** `/etc/mango/llm.key` · `stt.key` · `config.yaml` · `~/.config/mango/voice.env`
 
 ## Protocol
 
-Client → server:
+Client → server: `ptt_start` · `ptt_end` + `pcm_b64` (16 kHz mono int16 LE) · `ptt_cancel` · `ping`
 
-```json
-{ "type": "ptt_start" }
-{ "type": "ptt_end", "pcm_b64": "<16kHz mono int16 LE PCM base64>" }
-{ "type": "ptt_cancel" }
-{ "type": "ping" }
-```
+Server → client: `status` (idle/listening/thinking/speaking) · `chat` (user/assistant) · `error`
 
-Server → client:
-
-```json
-{ "type": "status", "state": "idle|listening|thinking|speaking", "text": "..." }
-{ "type": "chat", "role": "user|assistant", "text": "..." }
-{ "type": "error", "message": "..." }
-```
-
-The orchestrator owns state. Any STT, LLM, TTS, audio, or payload error broadcasts `error`, restores ducked audio, and returns overlay state to `idle`.
+Orchestrator owns state. Errors broadcast `error`, restore audio duck, return to `idle`. Multi-turn PTT works while reply is on screen (blocked only when `ptt_owner` or voice lock held).
 
 ## Config
 
-Copy [`config/config.example.yaml`](../config/config.example.yaml) to `/etc/mango/config.yaml` on Pi.
+Copy [`config/config.example.yaml`](../config/config.example.yaml) → `/etc/mango/config.yaml`.
 
-Secrets stay outside git:
-
-| Secret | Path |
-|--------|------|
-| LLM API key | `/etc/mango/llm.key`, mode `600` |
-| Deepgram STT key | `/etc/mango/stt.key`, mode `600` |
-| Kodi/Stremio/TMDB | Existing `/etc/mango/*.key` or JSON files |
-
-Useful dev toggles:
+| Setting | Pi default | Notes |
+|---------|------------|-------|
+| `stt.provider` | `deepgram` | `local` = faster-whisper fallback |
+| `stt.model` | `nova-3` | `nova-2` in example yaml |
+| `stt.language` | `multi` | Hinglish codeswitch; use keyterms |
+| `llm.model` | `claude-haiku-4-5-20251001` | |
+| `audio.tts_enabled` | `false` | `true` when HDMI speaker ready |
+| `audio.overlay_reply_seconds` | `10` | TV dwell before HUD dismiss |
+| `orchestrator.local_ws_port` | `8766` | Plain WS for TV clients |
 
 | Env | Use |
 |-----|-----|
-| `MANGO_LLM_MOCK=1` | Echo mock reply without Anthropic/OpenAI |
-| `MANGO_STT_MOCK=1` | Skip cloud STT; return a fixed transcript (dev smoke) |
-| `MANGO_TTS_DISABLED=1` | Skip Piper — replies on TV overlay only |
-| `MANGO_ORCH_TLS=1` | Start orchestrator with mkcert TLS |
-| `MANGO_VOICE=1` | Opt Pi launcher startup into overlay Chromium |
+| `MANGO_VOICE=1` | Enable voice stack on launcher start |
+| `MANGO_TTS_DISABLED=1` | Skip Piper — UI-only replies |
+| `MANGO_ORCH_TLS=1` | WSS on `:8765` |
+| `MANGO_LLM_MOCK=1` / `MANGO_STT_MOCK=1` | Dev smoke without API keys |
 
-Persist voice on Pi with `~/.config/mango/voice.env`:
-
-```bash
-echo 'export MANGO_VOICE=1' > ~/.config/mango/voice.env
-chmod 600 ~/.config/mango/voice.env
-```
-
-`start-mango-ui.sh` and `launch-launcher.sh` source this file automatically.
-
-STT uses **Deepgram Listen** (pre-recorded) with `nova-2` by default — not on-device Whisper. Phone PCM is sent Pi → Deepgram API → transcript → Haiku LLM.
-
-| Setting | Default | Notes |
-|---------|---------|--------|
-| `stt.provider` | `deepgram` | `local` = optional faster-whisper fallback |
-| `stt.model` | `nova-2` | Per user request; see Hinglish note below |
-| `stt.language` | `hi` | `en-IN` for Indian English; `nova-3` + `multi` for best codeswitch |
-| `llm.model` | `claude-haiku-4-5-20251001` | Fast path; `claude-sonnet-4-6` for quality |
-| `llm.max_tokens` | `96` | Short spoken replies |
-| `audio.tts_enabled` | `false` | Set `true` when HDMI speaker is ready |
-| `audio.overlay_reply_seconds` | `10` | Reply dwell on TV before dismiss (phone keeps history) |
-| `orchestrator.local_ws_port` | `8766` | Plain WS for overlay (mkcert not trusted in overlay Chromium) |
-
-Orchestrator **warms Piper** on startup (no Whisper load). Set `MANGO_VOICE_TIMING=1` to log stage timings.
-
-### Deepgram API key (one-time)
-
-1. Open [console.deepgram.com](https://console.deepgram.com/) → sign up / log in.
-2. **Project** → **API Keys** → **Create a new API key**.
-3. Name: `mango-pi-stt`. Scopes: **Member** (or minimum that includes pre-recorded transcription).
-4. Copy the key once (shown only at creation).
-5. On Pi:
-
-```bash
-sudo install -d -m 700 -o aman -g aman /etc/mango
-sudo install -m 600 /dev/null /etc/mango/stt.key
-sudo nano /etc/mango/stt.key   # paste key, single line, no quotes
-sudo chown aman:aman /etc/mango/stt.key
-```
-
-Or from Mac (paste when prompted):
-
-```bash
-ssh mango 'install -d -m 700 ~/.config/mango 2>/dev/null; cat > /tmp/stt.key'
-# paste key, Ctrl+D, then:
-ssh mango 'sudo install -d -m 700 -o aman -g aman /etc/mango && sudo mv /tmp/stt.key /etc/mango/stt.key && sudo chown aman:aman /etc/mango/stt.key && sudo chmod 600 /etc/mango/stt.key'
-```
-
-**Cost:** Nova-2 pre-recorded ≈ **$0.0043/min** ([Deepgram pricing](https://deepgram.com/pricing)) — ~$0.0004 per 5s PTT.
-
-**Hinglish note:** Nova-2 `language=multi` is English↔Spanish only. For Hindi+English codeswitch, use **Nova-3** + `language=multi`. Mango defaults to `nova-3` + `multi`.
-
-**Accuracy tweaks (no extra latency):**
-- `stt.keyterms` — Nova-3 [keyterm prompting](https://developers.deepgram.com/docs/keyterm) for app names and common Hinglish phrases (up to 100 terms).
-- `stt.prepare_audio: true` — trims TV bleed at utterance edges and boosts quiet phone mics before the API call (local only).
-- Companion requests `autoGainControl` + `sampleRate: 16000` where the browser supports it.
+**Deepgram key:** [console.deepgram.com](https://console.deepgram.com/) → API Keys → paste in `/etc/mango/stt.key` (mode `600`). Nova-3 + `multi` for Hinglish; `stt.keyterms` and `stt.prepare_audio: true` improve accuracy.
 
 ## Pi setup
 
 ```bash
 cd ~/mango && git pull
-
 bash scripts/phase2/setup-mkcert.sh
 bash scripts/phase2/install-voice-deps.sh
 bash scripts/phase2/install-orchestrator-deps.sh
-bash scripts/phase2/download-piper-voice.sh
-
-sudo install -d -m 700 -o aman -g aman /etc/mango
-sudo cp config/config.example.yaml /etc/mango/config.yaml
-sudo install -m 600 /dev/null /etc/mango/llm.key
-sudo install -m 600 /dev/null /etc/mango/stt.key
-# Put Anthropic key in llm.key, Deepgram key in stt.key (see above).
-
-bash scripts/phase2/start-voice-stack.sh
+# llm.key + stt.key + config.yaml in /etc/mango/
 cp config/voice.env.example ~/.config/mango/voice.env
-bash scripts/phase1/restart-mango-ui.sh
+bash scripts/phase2/start-voice-stack.sh
+bash scripts/phase1/restart-mango-ui.sh   # rebuild launcher if needed
 ```
 
-Open on phone: `https://10.0.0.174:3001`.
+Phone: `https://<pi-ip>:3001` · verify: `bash scripts/phase2/verify-voice-ready.sh`
 
-## Phone CA trust
+### Phone CA trust
 
-Run `bash scripts/phase2/setup-mkcert.sh` on the Pi and note the printed `rootCA.pem`.
-
-iPhone/iPad:
-
-1. Move `rootCA.pem` to the phone through a trusted local route.
-2. Open it and install the profile.
-3. Enable it in Settings → General → About → Certificate Trust Settings.
-4. Visit `https://10.0.0.174:3001`; no certificate warning should appear.
-
-Android:
-
-1. Move `rootCA.pem` to the phone.
-2. Settings → Security & privacy → More security settings → Encryption & credentials.
-3. Install a CA certificate, then select `rootCA.pem`.
-4. Visit `https://10.0.0.174:3001`; no certificate warning should appear.
-
-If the mic prompt does not appear, the page is not a trusted secure context.
+Run `setup-mkcert.sh` · install printed `rootCA.pem` on phone (iOS: Settings → Certificate Trust Settings; Android: Install CA certificate). Mic requires trusted HTTPS.
 
 ## Dev
 
 ```bash
-bash scripts/phase2/install-orchestrator-deps.sh
 MANGO_LLM_MOCK=1 MANGO_STT_MOCK=1 MANGO_TTS_DISABLED=1 bash scripts/phase2/start-orchestrator.sh
-
-cd src/companion
-npm install
-npm run dev
+cd src/companion && npm install && npm run dev
 ```
 
-For phone dev, use mkcert and `bash scripts/phase2/serve-companion-https.sh` instead of Vite dev.
+Phone dev: `bash scripts/phase2/serve-companion-https.sh` (not plain Vite).
+
+## Sign-off (2026-06-18)
+
+| Test | Result |
+|------|--------|
+| PTT → transcript → reply on phone | ✓ |
+| Launcher HUD shows you / mango | ✓ |
+| Second PTT while reply on TV | ✓ |
+| Hinglish STT accuracy | ✓ |
+| C2 app-switch regression with voice | Not re-run |
+| Piper on HDMI | Deferred (`tts_enabled: false`) |
+| TV black after turn 1 | Reported · not root-caused |
+
+## Known issues
+
+| Issue | Notes |
+|-------|-------|
+| Dual uvicorn on one FastAPI app (`:8765` + `:8766`) | WS race errors in logs — fix on native UX branch |
+| HDMI black screen after PTT | May correlate with `pactl` duck / infoframe WARN — unconfirmed |
+| Separate overlay Chromium | Redundant vs launcher HUD — candidate for removal |
+| Desktop Stremio/Kodi browse | Product gap — drives native UX branch |
 
 ## Exit criteria
 
-- [ ] Phone PTT gets mic permission on `https://10.0.0.174:3001`
-- [ ] `ptt_end.pcm_b64` arrives as 16 kHz mono int16 LE PCM
-- [ ] Transcript appears as `chat.user`
-- [ ] LLM reply appears as `chat.assistant`
-- [ ] Piper speaks the first sentence on TV HDMI
-- [ ] Overlay cycles idle → listening → thinking → speaking → idle
-- [ ] Playback is ducked to ~40% while listening and restored before speaking
-- [ ] C2 regression still passes: Stremio → home → YouTube → home → Stremio
+- [x] Phone PTT + mic on HTTPS companion
+- [x] PCM → Deepgram → transcript on phone
+- [x] LLM reply on phone + TV HUD
+- [x] HUD states: idle → listening → thinking → speaking → idle → dismiss
+- [x] Multi-turn PTT while reply visible
+- [ ] Piper on TV HDMI (deferred — no speaker)
+- [ ] C2 regression with voice stack enabled
 
-## Assumptions
+## Out of scope (Phase 2)
 
-- V1 uses mkcert certs trusted on household phones; no reverse proxy yet.
-- `piper-tts` Python CLI is acceptable for Phase 2; a persistent Piper server can replace it if load time is too slow.
-- STT is **Deepgram cloud** (`nova-2` default); optional `stt.provider: local` needs `requirements-local-stt.txt`.
-- Voice overlay uses a separate Chromium profile + `present-overlay.sh` so the HUD stays 360×120 and does not steal pad focus.
-- Volume ducking is best-effort through `pactl`; if PulseAudio/PipeWire is absent, voice still works without ducking.
+LLM tool calling · `stremio-service` · systemd voice units · wake word · room mic · CEC.

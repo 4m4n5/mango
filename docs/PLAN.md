@@ -1,7 +1,7 @@
 # mango — Implementation Plan
 
 **Hardware:** Pi 5 8GB · 128GB SD · 8BitDo Micro · phone · TV  
-**Status:** **Phase 0 + 1 + 1.5 complete on device** (`mango`, 2026-06). **Phase 2 — voice pipeline** in progress.  
+**Status:** **Phase 0–2 shipped on device** (`mango`, 2026-06). **Native TV experience** — branch `feat/native-experience`.  
 **Canonical ops:** [`PHASE0.md`](PHASE0.md) · [`PHASE1.md`](PHASE1.md) · [`PHASE2.md`](PHASE2.md) · **V1 spec:** [`DESIGN.md`](DESIGN.md)
 
 ---
@@ -10,9 +10,11 @@
 
 ```
 Pi 5 · Pi OS Desktop · X11 + Openbox
-├── serve.py :3000          launcher static + POST /api/launch/*
+├── serve.py :3000          launcher static + POST /api/launch/* + voice HUD embed
 ├── Chromium kiosk          class mango-launcher
 ├── mango-tv-pad.py         single pad owner (launcher + Stremio + Kodi)
+├── orchestrator :8765/8766 WSS phone + plain WS TV HUD · Deepgram STT · Haiku LLM
+├── companion :3001         HTTPS PWA · PTT + chat
 ├── Stremio desktop         hidden/shown via hide-media + present-stremio
 ├── Kodi + YouTube addon    JSON-RPC · window 10025 = Videos
 └── scripts/diag/           couch-test harness (alpha-test.sh)
@@ -23,18 +25,19 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 | Launcher tiles + API | ✓ | Settings API keys UI |
 | App switch + ⌂ home | ✓ | — |
 | Pad routing (B/Y/⌂/D-pad) | ✓ | — |
-| Overlay Chromium | off on Pi (`MANGO_SKIP_OVERLAY=1`) | Phase 2 — re-enable |
-| Orchestrator / voice | scaffold | Phase 2 |
-| Companion PWA | scaffold | Phase 2 |
-| stremio-service | — | Phase 3 |
+| Voice pipeline (PTT → STT → LLM) | ✓ | Piper TTS on HDMI (optional) |
+| TV voice HUD (launcher embed) | ✓ | Retire redundant overlay Chromium |
+| Companion PWA | ✓ | D-pad remote wire-up |
+| Native browse/rails UI | — | **`feat/native-experience`** |
+| stremio-service + LLM tools | — | Native UX N1 + ex-Phase 3 |
 
 **Repo layout (today):**
 
 ```
-src/launcher/          Vite + TS tile UI
-src/overlay/           badge UI (WS → orchestrator :8765)
+src/launcher/          Vite + TS tile UI + voice-hud.ts
+src/overlay/           optional HUD Chromium (loopback :8766)
 src/companion/         phone PWA (HTTPS :3001)
-src/orchestrator/      FastAPI voice hub (:8765)
+src/orchestrator/      FastAPI voice hub (:8765 TLS + :8766 loopback)
 src/mango-ui-server/   serve.py
 scripts/launch-*.sh    API wrappers (refocus + cold launch)
 scripts/phase0/        Kodi, Stremio, pad, present-*
@@ -51,13 +54,14 @@ scripts/lib/           present-*, hide-media, mango-window
 Phase 0   Pi OS + X11 + gamepad + Kodi + Stremio          ✓ complete
 Phase 1   Launcher + app switching + pad router           ✓ complete
 Phase 1.5 Launch polish — couch acceptance                ✓ complete (2026-06-18)
-Phase 2   Phone companion + voice pipeline (PTT → LLM → TTS)   ← NOW
-Phase 3   Media tools (stremio-service, Kodi RPC, focus routing)
+Phase 2   Phone companion + voice pipeline              ✓ shipped (partial couch sign-off)
+Native UX TV-first shell + rails + AI integration       ← `feat/native-experience`
+Phase 3   Media tools (stremio-service, Kodi RPC)       folded into Native UX N1
 Phase 4   Stretch (TMDB, recap, Kodi subtitles)
 Phase 5   install.sh + first-boot wizard + long-tail polish
 ```
 
-**Phase 1.5 signed off** — session `20260618-013528`, C2 confirmed. Phase 2 started.
+**Native experience:** [`NATIVE_EXPERIENCE.md`](NATIVE_EXPERIENCE.md) on `feat/native-experience`.
 
 ---
 
@@ -82,67 +86,25 @@ Orchestration rules remain locked in [`DECISIONS.md`](DECISIONS.md) and [`PHASE0
 
 ---
 
-## Phase 2 — Voice pipeline (~1 week)
+## Phase 2 — Voice pipeline ✓ (2026-06)
 
-**Goal:** Phone PTT → transcript → LLM reply → TTS on TV.
+Phone PTT → Deepgram STT → Haiku LLM → TV HUD. Partial couch sign-off.
 
-### 2.1 `src/orchestrator/` (Python + FastAPI)
-
-```
-orchestrator/
-  main.py           # FastAPI app, WebSocket hub
-  audio/
-    ingest.py       # receive PCM from phone
-    whisper_stt.py  # faster-whisper
-    piper_tts.py    # subprocess piper → aplay
-  llm/
-    provider.py     # Anthropic/OpenAI adapter
-    tools.py        # schema only in Phase 2
-  session.py        # conversation history
-  config.py         # load /etc/mango/config.yaml
-```
-
-### 2.2 Phone companion HTTPS (critical)
-
-Mobile browsers require **secure context** for microphone on non-localhost URLs.
-
-| Option | Effort | Recommendation |
-|--------|--------|----------------|
-| mkcert + self-signed cert on Pi | Low | **V1 approach** — trust cert once on phone |
-| Tailscale HTTPS | Medium | Good if already using Tailscale |
-| HTTP localhost only | N/A | Doesn't work from phone to Pi |
-
-Companion served at `https://<pi-ip>:3001` after cert setup.
-
-### 2.3 `src/companion/`
-
-- PWA: hold-to-talk button (touchstart/touchend)
-- Stream audio chunks over WebSocket to orchestrator
-- D-pad sends key events (wire in 2.4)
-- Show transcript + connection status
-
-### 2.4 Audio flow
-
-```
-Phone mic → WebSocket (binary PCM 16kHz mono)
-  → buffer while PTT held
-  → on release: faster-whisper base.en
-  → LLM chat (no tools yet)
-  → Piper stream first sentence to HDMI sink
-  → duck PulseAudio/PipeWire sink by 40% during PTT
-```
-
-### 2.5 Overlay integration
-
-- States: idle → listening → thinking → speaking
-- Toast last assistant reply (8s)
-- Re-enable overlay on Pi when voice ships (`MANGO_SKIP_OVERLAY=0`)
-
-**Exit criteria:** General chat works from couch; overlay reflects state; TTS on TV speakers.
+**Canonical doc:** [`PHASE2.md`](PHASE2.md) — architecture, setup, sign-off, known issues.
 
 ---
 
-## Phase 3 — Media tools (~2 weeks)
+## Native experience — `feat/native-experience`
+
+**Goal:** Mango-owned TV-first UX — browse rails, search, continue watching, AI woven in; Stremio/Kodi as playback engines only.
+
+See [`NATIVE_EXPERIENCE.md`](NATIVE_EXPERIENCE.md). Phases N0–N4: focus system → rails → LLM tools → player chrome → polish.
+
+**Why fork:** Phase 2 proved voice on the couch stack; the product gap is integrated browse/play, not more launcher tiles around desktop apps.
+
+---
+
+## Phase 3 — Media tools (~2 weeks) — merged into Native UX N1
 
 **Goal:** Voice controls Stremio and YouTube; session memory; diagnostics.
 
@@ -224,7 +186,7 @@ Phone mic → WebSocket (binary PCM 16kHz mono)
                       overlay (WS)
 ```
 
-**Today:** only launcher + Stremio + Kodi + pad + `serve.py` are wired.
+**Today:** launcher + voice stack + Stremio + Kodi + pad + `serve.py`. Native rails not started.
 
 ---
 

@@ -10,10 +10,11 @@
 | Phase 0 — X11, pad, Kodi, Stremio | ✓ Shipped on `mango` |
 | Phase 1 — Launcher + API + app switch | ✓ Shipped |
 | Phase 1.5 — Couch polish | ✓ Signed off 2026-06-18 |
-| Phase 2 — Orchestrator, companion, voice | **In progress** |
-| Phase 3 — Media tools, LLM tool calling | Not started |
+| Phase 2 — Orchestrator, companion, voice HUD | ✓ Shipped (partial couch sign-off) |
+| Native UX — TV-first browse + AI shell | **In progress** — `feat/native-experience` |
+| Media tools, LLM tool calling | Not started — Native UX N1 |
 
-**Today on device:** Chromium launcher · `serve.py` · `mango-tv-pad.py` · hide-not-kill app switching. No orchestrator, overlay off, no phone companion yet.
+**Today on device:** Chromium launcher with embedded voice HUD · `serve.py` · `mango-tv-pad.py` · hide-not-kill app switching · orchestrator + companion on Pi · Deepgram STT · UI-only replies (no TTS). Desktop Stremio/Kodi still primary browse surfaces — native overhaul is the next product bet.
 
 ---
 
@@ -57,8 +58,8 @@ Shopping details: `[HARDWARE.md](HARDWARE.md)`
 | Decision                 | Choice                                                                |
 | ------------------------ | --------------------------------------------------------------------- |
 | Display stack            | **X11 + Openbox** (xdotool, overlay, key injection)                   |
-| Voice input              | Phone browser → WebSocket → faster-whisper `base.en` on Pi            |
-| Voice output             | Piper → TV speakers; duck playback 30–50% while listening             |
+| Voice input              | Phone browser → WSS → **Deepgram** `nova-3` + `multi` (local Whisper optional) |
+| Voice output             | TV HUD default; Piper → TV speakers when `tts_enabled: true` |
 | LLM                      | Hybrid cloud API + local tool execution                               |
 | Stremio UI               | Official desktop app (fallback: stremio-web in Chromium)              |
 | Stremio voice            | stremio-service (stremio-core) → `stremio://` deep link → desktop app |
