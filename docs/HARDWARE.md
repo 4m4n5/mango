@@ -1,12 +1,65 @@
 # Hardware — mango
 
-**Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone · TV
+**Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone
 
 > **Native branch:** pad routes to **launcher**, **mpv** (N1+), and **fallback** Stremio/Kodi only. See [FOREGROUND.md](FOREGROUND.md).
 
-- **SD card:** flash on Mac via Imager, then insert in Pi underside slot
-- **Gamepad:** 8BitDo Micro — D-pad + XYAB only (no stick)
-- **Phone:** mic + companion app over WiFi (HTTPS `:3001`)
+---
+
+## Product target vs dev lab (2026-06)
+
+| | **Target (N7 ship)** | **Dev lab today (N1–N6)** |
+|--|----------------------|---------------------------|
+| **Vision** | World-class **4K AI-first TV box** — native browse, voice, mpv playback | Same software path; validate on desk before living room |
+| **Display** | **4K TV** · HDMI 2.0/2.1 · tuned mode + EDID | **1080p monitor** · 1920×1080@60 |
+| **Audio** | **Soundbar** (HDMI eARC/ARC or optical) · Piper TTS on TV | **No soundbar yet** — headphones for couch/dev audio |
+| **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | `max_quality: 1080p` in `/etc/mango/catalog-filters.json` |
+| **mpv** | 4K HEVC profile · visible-picture gate | `v4l2m2m-copy` · 1080p smoke passed |
+
+**North star unchanged:** Pi 5 8GB is the V1 platform. N7 proves 4K on your TV; if hardware limits block SOTA (DV/REMUX, HDMI bandwidth), we document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
+
+### Optional hardware (when optimizing for SOTA)
+
+| Item | Why |
+|------|-----|
+| **NVMe HAT + SSD** | Faster boot, model cache, smoother OS under load |
+| **Active cooler** | Sustained 4K decode + voice (you have CanaKit cooling) |
+| **4K TV + soundbar (eARC)** | Real living-room target; ARC returns DD/Atmos to bar |
+| **USB DAC** (desk) | Pi 5 has **no 3.5 mm jack** — clean headphone monitoring while on 1080p monitor |
+| **Bluetooth headphones** | Built-in BT; pair for wireless desk/couch tests |
+
+---
+
+## Audio routing (Pi 5)
+
+Pi 5 outputs audio **only via HDMI** (two ports) unless you add **USB DAC** or **Bluetooth**.
+
+| Your headphones | How to connect |
+|-----------------|----------------|
+| **Plugged into monitor** | HDMI carries audio to monitor → use monitor’s 3.5 mm out (easiest on desk) |
+| **USB wired** | Plug USB DAC or USB headset → set default sink |
+| **Bluetooth** | Pair once → set BT sink default |
+
+```bash
+cd ~/mango
+bash scripts/audio/list-sinks.sh                    # see HDMI / USB / BT sinks
+bash scripts/audio/scan-bt-devices.sh 60            # find headphone MAC (pairing mode!)
+bash scripts/audio/pair-bt-headphones.sh <MAC>      # pair by MAC
+bash scripts/audio/set-default-sink.sh <sink-name>  # mpv + system audio follow
+```
+
+Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`). Stack reapplies on restart.
+
+**TTS (Piper):** stays off until soundbar/TV audio path is validated (`audio.tts_enabled: false`). Voice replies on launcher HUD + phone until then.
+
+---
+
+## Display (current)
+
+- **Connected:** 1080p monitor on HDMI (lab)
+- **Later (N7):** 4K TV + soundbar — `raspi-config` / `kmsprint` / mpv profile in [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) §N7
+
+---
 
 ## 8BitDo Micro (Bluetooth)
 

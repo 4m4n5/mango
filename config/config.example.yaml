@@ -35,7 +35,8 @@ stt:
 audio:
   input_mode: phone_websocket  # phone streams mic over LAN; no USB mic required
   max_utterance_seconds: 30
-  tts_enabled: false  # true when TV/HDMI speaker is wired; false = replies on TV HUD only
+  tts_enabled: false  # N7: enable when 4K TV + soundbar validated; N1–N6: headphones for mpv audio
+  # Dev lab: Pi 5 has no 3.5 mm jack — monitor HDMI out, USB DAC, or BT (scripts/audio/)
   overlay_reply_seconds: 10  # TV reply dwell before dismiss (phone keeps history)
   piper_voice: en_US-lessac-medium
   piper_data_dir: /home/aman/.local/share/piper
@@ -73,6 +74,16 @@ kodi:
 
 tmdb:
   api_key_file: /etc/mango/tmdb.key
+
+catalog:
+  # Optional JSON mirror — copy config/catalog-filters.example.json to
+  # /etc/mango/catalog-filters.json (catalog-service reads this file directly).
+  filters_file: /etc/mango/catalog-filters.json
+  # exclude_uncached_debrid: true   # skip RD/TB not cached on debrid (default)
+  # strict_unknown_cache: false     # also drop debrid when cache unknown
+  # max_quality: 1080p              # Pi-friendly cap until N7 4K
+  # exclude_remux: true             # skip Blu-ray REMUX picks
+  # Runtime override: GET /stream/...?include_uncached=1 or POST /play body
 
 orchestrator:
   # Use 0.0.0.0 + TLS on Pi so the HTTPS phone companion can connect via WSS.

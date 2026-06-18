@@ -1,16 +1,31 @@
 import http from 'node:http';
 import { CatalogCore, CatalogError } from './core.js';
 import { playUrl } from './mpv.js';
+import {
+  parseFilterOverridesFromQuery,
+  type StreamFilterOverrides,
+} from './stream-filters.js';
 
 const HOST = process.env.MANGO_CATALOG_HOST || '127.0.0.1';
 const PORT = Number(process.env.MANGO_CATALOG_PORT || 3020);
 const BODY_LIMIT = 64 * 1024;
 
-type PlayBody = {
+type PlayBody = StreamFilterOverrides & {
   type?: string;
   id?: string;
   url?: string;
 };
+
+function filterOverridesFromBody(body: PlayBody): StreamFilterOverrides {
+  const overrides: StreamFilterOverrides = {};
+  if (body.include_uncached === true) overrides.include_uncached = true;
+  if (typeof body.strict_unknown_cache === 'boolean') {
+    overrides.strict_unknown_cache = body.strict_unknown_cache;
+  }
+  if (body.max_quality !== undefined) overrides.max_quality = body.max_quality;
+  if (typeof body.exclude_remux === 'boolean') overrides.exclude_remux = body.exclude_remux;
+  return overrides;
+}
 
 function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -49,24 +64,33 @@ async function readBody(req: http.IncomingMessage): Promise<PlayBody> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as PlayBody;
 }
 
-async function handlePlay(core: CatalogCore, body: PlayBody): Promise<Record<string, unknown>> {
+async function handlePlay(
+  core: CatalogCore,
+  body: PlayBody,
+  queryOverrides: StreamFilterOverrides = {},
+): Promise<Record<string, unknown>> {
   let playUrlValue = body.url;
   let streamInfo: Record<string, unknown> | undefined;
+  let filterMeta: Record<string, unknown> | undefined;
 
   if (!playUrlValue) {
     if (!body.type || !body.id) {
       throw new CatalogError(400, 'POST /play requires {url} or {type,id}');
     }
-    const result = await core.streams(body.type, body.id);
+    const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
+    const result = await core.streams(body.type, body.id, overrides);
     const stream = result.streams[0];
     if (!stream) {
       throw new CatalogError(502, `no playable stream for ${body.type}/${body.id}`);
     }
     playUrlValue = stream.url;
+    filterMeta = result.filters;
     streamInfo = {
       source: stream.source,
       title: stream.title,
       quality: stream.quality,
+      cache_status: stream.cache_status,
+      debrid_service: stream.debrid_service,
       resolve_ms: result.resolve_ms,
     };
   }
@@ -76,7 +100,7 @@ async function handlePlay(core: CatalogCore, body: PlayBody): Promise<Record<str
   }
 
   const playback = await playUrl(playUrlValue);
-  return { ...playback, stream: streamInfo };
+  return { ...playback, stream: streamInfo, filters: filterMeta };
 }
 
 async function main(): Promise<void> {
@@ -97,12 +121,15 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'stream') {
-        sendJson(res, 200, await core.streams(parts[1], parts[2]));
+        const overrides = parseFilterOverridesFromQuery(url.searchParams);
+        sendJson(res, 200, await core.streams(parts[1], parts[2], overrides));
         return;
       }
 
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play') {
-        sendJson(res, 200, await handlePlay(core, await readBody(req)));
+        const body = await readBody(req);
+        const overrides = parseFilterOverridesFromQuery(url.searchParams);
+        sendJson(res, 200, await handlePlay(core, body, overrides));
         return;
       }
 

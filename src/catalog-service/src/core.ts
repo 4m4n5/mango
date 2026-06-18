@@ -1,5 +1,12 @@
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
+import {
+  filterAndRankStreams,
+  loadFilterConfig,
+  mergeFilterConfig,
+  type StreamFilterMeta,
+  type StreamFilterOverrides,
+} from './stream-filters.js';
 
 type AddonExport = {
   name?: string;
@@ -197,6 +204,7 @@ export class CatalogCore {
   private constructor(
     private readonly coreStatus: CoreStatus,
     private readonly addons: Addon[],
+    private readonly filterConfig: Awaited<ReturnType<typeof loadFilterConfig>>,
   ) {}
 
   static async create(exportPath = process.env.MANGO_STREMIO_EXPORT || DEFAULT_EXPORT_PATH): Promise<CatalogCore> {
@@ -218,7 +226,8 @@ export class CatalogCore {
         manifest,
       });
     }
-    return new CatalogCore(coreStatus, addons);
+    const filterConfig = await loadFilterConfig();
+    return new CatalogCore(coreStatus, addons, filterConfig);
   }
 
   health(): Record<string, unknown> {
@@ -248,7 +257,11 @@ export class CatalogCore {
     throw new CatalogError(502, `meta not resolved for ${type}/${id}${errors.length ? ` (${errors.join('; ')})` : ''}`);
   }
 
-  async streams(type: string, id: string): Promise<{ streams: Stream[]; resolve_ms: number }> {
+  async streams(
+    type: string,
+    id: string,
+    overrides: StreamFilterOverrides = {},
+  ): Promise<{ streams: Stream[]; resolve_ms: number; filters: StreamFilterMeta }> {
     const started = Date.now();
     const errors: string[] = [];
     const streams: Stream[] = [];
@@ -270,6 +283,22 @@ export class CatalogCore {
       throw new CatalogError(502, `no HTTP streams for ${type}/${id}${errors.length ? ` (${errors.join('; ')})` : ''}`);
     }
 
-    return { streams, resolve_ms: Date.now() - started };
+    const config = mergeFilterConfig(this.filterConfig, overrides);
+    const filtered = filterAndRankStreams(streams, config);
+    if (filtered.streams.length === 0) {
+      const hint = config.exclude_uncached_debrid
+        ? ' try ?include_uncached=1 or set include_uncached in POST /play'
+        : '';
+      throw new CatalogError(
+        502,
+        `no streams left after filters for ${type}/${id} (${filtered.meta.excluded.uncached_debrid} uncached debrid excluded)${hint}`,
+      );
+    }
+
+    return {
+      streams: filtered.streams,
+      resolve_ms: Date.now() - started,
+      filters: filtered.meta,
+    };
   }
 }

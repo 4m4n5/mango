@@ -17,6 +17,11 @@ if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
   # shellcheck disable=SC1091
   source "${HOME}/.config/mango/voice.env"
 fi
+
+if [[ -x scripts/audio/apply-saved-sink.sh ]]; then
+  bash scripts/audio/apply-saved-sink.sh 2>/dev/null || true
+fi
+
 export MANGO_SKIP_OVERLAY=1
 
 usage() {

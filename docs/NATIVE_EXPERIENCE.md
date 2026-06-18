@@ -10,6 +10,10 @@
 
 > **Ask or browse in mango. Watch in mpv. Never wonder which app you’re in.**
 
+**Product:** A **world-class, state-of-the-art 4K AI-first TV box** — legit catalogs, conversational control, instant play in mpv. Pi 5 is the V1 platform; hardware and profiles are tuned in **N7** for your 4K TV + soundbar.
+
+**Dev lab (N1–N6):** Pi on a **1080p monitor** (no soundbar). Audio via **headphones** (monitor out, USB DAC, or Bluetooth). Stream filters cap at **1080p** until 4K is proven on target hardware.
+
 | Principle | Meaning |
 |-----------|---------|
 | **Legit metadata** | Posters and titles from Cinemeta / TMDB — no mock rails in production |
@@ -44,12 +48,13 @@
 | Player | **mpv** for movies, shows, and YouTube (**yt-dlp** for YouTube V1) |
 | Stream picker | **Simple** — 2–5 options (quality / language), then play |
 | Stream sort | **aiostreams addon behavior** + configurable **audio language** filter in mango |
-| Quality | **4K streams enabled** for playback; UI may stay 1080p-scaled in V1 |
+| Quality | **4K** on target TV (N7); **1080p cap** in dev lab via `catalog-filters.json` |
 | Time to play | **~5 s** target from B to first frame (progress UI while resolving) |
 | On stream fail | **Auto-try next** option → then **hidden Stremio desktop** fallback |
 | Subtitles | Nice to have V1 — not a hard blocker |
-| RD in mpv | **Not yet tested on Pi** — early validation required |
-| **4K on Pi (N1 probe)** | REMUX/DV/10-bit HEVC: audio OK, video blank on X11 + `auto-safe`; 1080p + `v4l2m2m-copy` OK — **N7** |
+| RD in mpv | **Validated** on Pi (1080p cached RD, N1) |
+| **4K on Pi (N1 probe)** | REMUX/DV/10-bit HEVC: audio OK, video blank on X11 + `auto-safe` on **1080p monitor** — full **4K TV + mpv profile** in **N7** |
+| **Audio (lab)** | HDMI → monitor or headphones; **no soundbar** until N7 · TTS off |
 
 ### Library & progress
 
@@ -197,7 +202,7 @@ Full roadmap: **[`NATIVE_ROADMAP.md`](NATIVE_ROADMAP.md)**.
 | **N4** | Continue + Stremio export |
 | **N5** | AI catalogs + voice tools |
 | **N6** | YouTube (yt-dlp) |
-| **N7** | 4K polish + Stremio fallback |
+| **N7** | 4K TV + soundbar ship · Stremio fallback | World-class living-room target |
 
 **Pause feature work** until N0 gate passes. Mock launcher rails are removed in N0.
 

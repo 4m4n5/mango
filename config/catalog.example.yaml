@@ -1,0 +1,29 @@
+# mango catalog rails — copy to /etc/mango/catalog.yaml on the Pi
+# Edit list IDs on Mac → git pull → sudo cp on Pi (or edit in place on Pi).
+# TMDB API key: /etc/mango/tmdb.key (see config/config.example.yaml)
+
+version: 1
+
+rails:
+  # Cinemeta popular movies — uses addon name from stremio-export.json
+  - id: trending
+    label: trending
+    type: addon_catalog
+    addon: Cinemeta
+    catalog: top
+    content_type: movie
+    limit: 20
+
+  # Replace list_id with your household Bollywood TMDB list
+  - id: bollywood
+    label: bollywood
+    type: tmdb_list
+    list_id: "28"  # example: TMDB genre list — change to your curated list
+    content_type: movie
+    limit: 20
+
+  # Placeholder until N4 — gate may waive if disabled
+  - id: continue
+    label: continue watching
+    type: stremio_library
+    enabled: false

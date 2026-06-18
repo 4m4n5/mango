@@ -54,11 +54,11 @@ scripts/phase2/         voice stack
 Phase 0–2    Pi foundation + launcher + voice           ✓ shipped
 Phase 1.5    Couch launch polish                        ✓ 2026-06-18
 N0           Foundation reset (lean stack, HUD, gates)  ✓
-N1           catalog-service + one title → mpv          ← now
-N2           Browse rails (catalog.yaml)
+N1           catalog-service + one title → mpv          ✓
+N2           Browse rails (catalog.yaml)               ← now
 N3           Stream picker + progress
 N4           Library + Continue watching
-N5–N7        AI catalogs · YouTube · 4K ship
+N5–N7        AI catalogs · YouTube · 4K TV + soundbar ship
 Phase 5      install.sh + first-boot wizard (ongoing)
 ```
 
@@ -88,32 +88,40 @@ One Chromium · overlay removed · `mango-stack.sh` · `gate-n0.sh`. [N0-INVENTO
 
 ---
 
-## Native N1 ← now
+## Native N1 ✓
 
-**Goal:** Prove addon graph → resolved stream → mpv fullscreen from couch.
+**Goal:** Prove addon graph → resolved stream → mpv fullscreen.
 
-| Spike | Proves |
-|-------|--------|
-| S0 | mpv HTTP IPC |
-| S1 | stremio-core-web boots with export addons |
-| S2–S6 | catalog-service · stack · pad · gate |
+**Spec:** [tasks/phase-n1-catalog-play-spike.md](tasks/phase-n1-catalog-play-spike.md) · **Gate:** `bash scripts/phase-n1/gate-n1-smoke.sh`
 
-**Spec:** [tasks/phase-n1-catalog-play-spike.md](tasks/phase-n1-catalog-play-spike.md) · **Inventory:** [N1-INVENTORY.md](N1-INVENTORY.md)
-
-**Gate:** `bash scripts/phase-n1/gate-n1-smoke.sh`
+Post-N1: stream filters, audio scripts, lab vs N7 docs.
 
 ---
 
-## N2–N7 (planned)
+## Native N2 ← now
+
+**Goal:** Real browse rails + title detail + play from launcher UI.
+
+| Deliverable | Proves |
+|-------------|--------|
+| `catalog.yaml` | YAML-driven rails |
+| `/rails` API | Cinemeta + TMDB posters |
+| Launcher UI | Home → detail → mpv |
+| Gate | `gate-n2-browse.sh` |
+
+**Spec:** [tasks/phase-n2-browse-ui.md](tasks/phase-n2-browse-ui.md) · **Codex:** [tasks/CODEX-phase-n2-prompt.md](tasks/CODEX-phase-n2-prompt.md) · **Inventory:** [N2-INVENTORY.md](N2-INVENTORY.md)
+
+---
+
+## N3–N7 (planned)
 
 | Phase | Outcome |
 |-------|---------|
-| N2 | Real browse rails from `catalog.yaml` |
 | N3 | Stream picker · watch progress |
 | N4 | Library sync · Continue watching |
 | N5 | LLM tool calling against catalog |
 | N6 | YouTube path (Kodi or native) |
-| N7 | 4K · polish · ship |
+| N7 | 4K TV + soundbar · world-class ship |
 
 ---
 

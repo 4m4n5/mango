@@ -67,7 +67,8 @@ Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.
 | Audio payload | `ptt_end.pcm_b64` = 16 kHz mono int16 LE PCM, max 30s |
 | Phase 2 scope | Chat only — media tools in Native UX N1 |
 | STT | **Deepgram** `nova-3` + `multi` + keyterms; `stt.key` in `/etc/mango/` |
-| TTS on Pi | **Off** — `audio.tts_enabled: false` · `MANGO_TTS_DISABLED=1` until HDMI speaker |
+| TTS on Pi | **Off** — `audio.tts_enabled: false` until **N7 soundbar/TV** path validated |
+| Dev lab audio | Headphones via **monitor HDMI out**, **USB DAC**, or **Bluetooth** — Pi 5 has no 3.5 mm jack ([`HARDWARE.md`](HARDWARE.md)) |
 | TV HUD | **Launcher-embedded** `voice-hud.ts` — only default TV voice surface |
 | Loopback WS | `127.0.0.1:8766` plain WS for launcher TV HUD (single process, not overlay Chromium) |
 | Overlay Chromium | Deprecated in N0; `/overlay/` returns 410 and start scripts kill stale overlay windows |

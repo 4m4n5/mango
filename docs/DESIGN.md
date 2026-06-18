@@ -41,7 +41,7 @@ Voice uses the **phone mic** (WebSocket to Pi). FLIRC/gamepad are navigation onl
 | ------------ | ----------------------------------------------------------- |
 | Pi 5         | 8GB RAM, active cooling                                     |
 | Storage      | 64GB+ SD; 128GB+ or NVMe preferred                          |
-| TV           | HDMI from Pi                                                |
+| TV           | HDMI — **1080p monitor (lab)** → **4K TV + soundbar (N7)** |
 | Network      | Ethernet recommended                                        |
 | Phone/tablet | Same WiFi — mic + companion remote PWA                      |
 | Couch input  | **USB gamepad** (primary); phone web remote (backup)            |
@@ -64,7 +64,7 @@ Shopping details: `[HARDWARE.md](HARDWARE.md)`
 | ------------------------ | --------------------------------------------------------------------- |
 | Display stack            | **X11 + Openbox** (xdotool, overlay, key injection)                   |
 | Voice input              | Phone browser → WSS → **Deepgram** `nova-3` + `multi` (local Whisper optional) |
-| Voice output             | TV HUD default; Piper → TV speakers when `tts_enabled: true` |
+| Voice output             | TV HUD default; Piper → **soundbar/TV** at N7; **headphones** in dev lab |
 | LLM                      | Hybrid cloud API + local tool execution                               |
 | Stremio UI               | Official desktop app (fallback: stremio-web in Chromium)              |
 | Stremio voice            | stremio-service (stremio-core) → `stremio://` deep link → desktop app |

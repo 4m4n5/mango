@@ -38,6 +38,15 @@ Decisions from Phase 0–2 and the native UX workshop are **merged** below. Wher
 
 **Principle:** Chromium is **UI only** — never decode 4K in the browser ([Pi 5 Chromium HEVC limitations](https://gist.github.com/schickling/089f4faf412b5267508f758408f0645f); [mpv kiosk pattern](https://git.sr.ht/~jmaibaum/raspberry-mpv-kiosk)).
 
+**Hardware phases**
+
+| Phase | Display / audio | Notes |
+|-------|-----------------|-------|
+| **N1–N6 (lab)** | 1080p monitor · headphones (no soundbar) | Desk/couch validation; `max_quality: 1080p` filters |
+| **N7 (ship)** | 4K TV · soundbar (eARC) | HDMI mode, mpv 4K profile, Piper TTS on TV when ready |
+
+See [`HARDWARE.md`](HARDWARE.md) for audio routing (Pi 5 has no 3.5 mm jack) and optional SOTA upgrades (NVMe, USB DAC).
+
 | At idle (post-N0) | Target |
 |-------------------|--------|
 | Chromium processes | **1** (`mango-launcher` only) |
@@ -117,10 +126,14 @@ Inventory → strip → consolidate → document → measure on Pi.
 
 ## N2 — Real browse UI
 
-- `config/catalog.example.yaml` + user `catalog.yaml`  
-- Rails: Continue (placeholder), Bollywood (TMDB list), addon catalogs  
-- Launcher: fetch `/rails` from catalog-service; remove mocks  
-- Title detail screen (minimal)  
+**Spec:** [`tasks/phase-n2-browse-ui.md`](tasks/phase-n2-browse-ui.md) · **Codex:** [`tasks/CODEX-phase-n2-prompt.md`](tasks/CODEX-phase-n2-prompt.md) · **Inventory:** [`N2-INVENTORY.md`](N2-INVENTORY.md)
+
+- `config/catalog.example.yaml` + `/etc/mango/catalog.yaml` on Pi  
+- `GET /rails`, `GET /rails/:id/items` on catalog-service  
+- `serve.py` proxy `/api/catalog/*` → `:3020`  
+- Launcher poster rails + minimal detail + **Play** → existing `POST /play`  
+- **Gate:** `bash scripts/phase-n2/gate-n2-browse.sh` + N1/N0 regression  
+- **Lab:** 1080p monitor + headphones; stream filters unchanged  
 
 ---
 
@@ -157,16 +170,21 @@ Inventory → strip → consolidate → document → measure on Pi.
 
 ---
 
-## N7 — 4K + ship
+## N7 — 4K TV + soundbar + ship
 
-**Pi probe (2026-06-18, Shawshank `tt0111161`):** N1 `POST /play` picks first stream (4K REMUX / HEVC 10-bit / DV). mpv audio plays; video blank (blue) — `Mapping hardware decoded surface failed` with `--hwdec=auto-safe` on X11. HDMI output was **1080p@60** (not 4K mode). **1080p RD HDTV** plays with `--hwdec=v4l2m2m-copy`.
+**Intent:** Move from **1080p dev lab** (monitor + headphones) to **4K living room** (TV + soundbar) with world-class playback quality — not just TTFF, but **visible 4K picture** and reliable audio.
+
+**Pi probe (2026-06-18, Shawshank `tt0111161`, 1080p monitor):** Uncapped pick = 4K REMUX / HEVC 10-bit / DV → audio OK, video blank with `--hwdec=auto-safe`. **1080p cached RD** plays with `--hwdec=v4l2m2m-copy`. N1 filters + lab cap avoid this until N7.
 
 N7 deliverables:
 
-- **HDMI:** `raspi-config` → 4K mode; verify `kmsprint` / TV EDID  
+- **Physical:** Pi on **4K TV** + **soundbar** (HDMI eARC preferred)  
+- **HDMI:** 4K mode; verify `kmsprint` / TV EDID  
+- **Audio:** default sink = TV/bar; enable `audio.tts_enabled` + Piper smoke  
 - **mpv profile:** `v4l2m2m-copy`, `--gpu-context=x11egl`; avoid `auto-safe` drmprime on X11  
-- **Stream rank:** prefer 1080p/4K WEB-DL; deprioritize REMUX, DV, 10-bit HDR until proven  
-- **Gate:** 4K smoke title + picture-visible assert (not just TTFF)  
+- **Stream rank:** prefer cached 4K WEB-DL; deprioritize REMUX, DV, 10-bit HDR until proven  
+- **Gate:** 4K smoke title + **picture-visible** assert (not just TTFF)  
+- **Hardware eval:** document if NVMe / USB DAC / alternate SoC needed for SOTA edge cases  
 - Stremio desktop fallback on stream exhaustion  
 - systemd units for full stack  
 - Merge criteria to `main`  

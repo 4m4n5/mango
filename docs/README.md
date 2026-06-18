@@ -11,7 +11,7 @@
 | You want to… | Read |
 |--------------|------|
 | Understand the vision | [**NATIVE_EXPERIENCE.md**](NATIVE_EXPERIENCE.md) |
-| See what phase we're in | [**NATIVE_ROADMAP.md**](NATIVE_ROADMAP.md) · [`N1-INVENTORY.md`](N1-INVENTORY.md) |
+| See what phase we're in | [**NATIVE_ROADMAP.md**](NATIVE_ROADMAP.md) · [`N2-INVENTORY.md`](N2-INVENTORY.md) |
 | Operate the Pi day-to-day | [**PHASE0.md**](PHASE0.md) |
 | Fix gamepad / home / wallpaper | [PHASE0.md § Troubleshooting](PHASE0.md) · [HARDWARE.md](HARDWARE.md) |
 | Voice / phone PTT / HUD | [**PHASE2.md**](PHASE2.md) |
@@ -25,8 +25,8 @@
 | Phase | Outcome | Spec |
 |-------|---------|------|
 | **N0** ✓ | Lean base stack, voice HUD, gates | [tasks/phase-n0-foundation-reset.md](tasks/phase-n0-foundation-reset.md) |
-| **N1** ← now | catalog-service + one title → mpv | [tasks/phase-n1-catalog-play-spike.md](tasks/phase-n1-catalog-play-spike.md) |
-| N2 | Real browse rails (`catalog.yaml`) | roadmap |
+| **N1** ✓ | catalog-service + play + stream filters | [tasks/phase-n1-catalog-play-spike.md](tasks/phase-n1-catalog-play-spike.md) |
+| **N2** ← now | Real browse rails (`catalog.yaml`) | [tasks/phase-n2-browse-ui.md](tasks/phase-n2-browse-ui.md) |
 | N3 | Stream picker + progress | roadmap |
 | N4 | Library + Continue | roadmap |
 | N5–N7 | AI catalogs, YouTube, 4K ship | roadmap |
@@ -35,10 +35,11 @@
 
 ```bash
 bash scripts/phase-n0/gate-n0.sh
-bash scripts/phase-n1/gate-n1-smoke.sh    # after N1 ships
+bash scripts/phase-n1/gate-n1-smoke.sh
+bash scripts/phase-n2/gate-n2-browse.sh    # after N2 ships
 ```
 
-**Inventories:** [N0-INVENTORY.md](N0-INVENTORY.md) · [N1-INVENTORY.md](N1-INVENTORY.md)
+**Inventories:** [N0-INVENTORY.md](N0-INVENTORY.md) · [N1-INVENTORY.md](N1-INVENTORY.md) · [N2-INVENTORY.md](N2-INVENTORY.md)
 
 ---
 

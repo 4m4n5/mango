@@ -68,7 +68,7 @@ Copy [`config/config.example.yaml`](../config/config.example.yaml) → `/etc/man
 | `stt.model` | `nova-3` | `nova-2` in example yaml |
 | `stt.language` | `multi` | Hinglish codeswitch; use keyterms |
 | `llm.model` | `claude-haiku-4-5-20251001` | |
-| `audio.tts_enabled` | `false` | `true` when HDMI speaker ready |
+| `audio.tts_enabled` | `false` | `true` at **N7** when 4K TV + soundbar path validated |
 | `audio.overlay_reply_seconds` | `10` | TV dwell before HUD dismiss |
 | `orchestrator.local_ws_port` | removed | N0 single listener |
 
@@ -118,7 +118,7 @@ Phone dev: `bash scripts/phase2/serve-companion-https.sh` (not plain Vite).
 | Second PTT while reply on TV | ✓ |
 | Hinglish STT accuracy | ✓ |
 | C2 app-switch regression with voice | Not re-run |
-| Piper on HDMI | Deferred (`tts_enabled: false`) |
+| Piper on HDMI / soundbar | Deferred (`tts_enabled: false`) — dev lab uses headphones |
 | TV black after turn 1 | Reported · not root-caused |
 
 ## Known issues
@@ -137,7 +137,7 @@ Phone dev: `bash scripts/phase2/serve-companion-https.sh` (not plain Vite).
 - [x] LLM reply on phone + TV HUD
 - [x] HUD states: idle → listening → thinking → speaking → idle → dismiss
 - [x] Multi-turn PTT while reply visible
-- [ ] Piper on TV HDMI (deferred — no speaker)
+- [ ] Piper on TV soundbar (deferred — N7; lab: headphones only)
 - [ ] C2 regression with voice stack enabled
 
 ## Out of scope (Phase 2)

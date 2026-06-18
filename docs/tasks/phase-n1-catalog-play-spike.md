@@ -1,6 +1,6 @@
 # Phase N1 — Catalog + play spike
 
-**Status:** Not started  
+**Status:** ✓ Shipped (couch sign-off 2026-06-19)  
 **Branch:** `feat/native-experience`  
 **Roadmap:** [`NATIVE_ROADMAP.md`](../NATIVE_ROADMAP.md)  
 **Codex prompt:** [`CODEX-phase-n1-prompt.md`](CODEX-phase-n1-prompt.md)  
