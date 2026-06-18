@@ -18,6 +18,7 @@ class OrchestratorSettings:
     port: int
     ssl_certfile: str | None
     ssl_keyfile: str | None
+    local_ws_port: int | None
     max_utterance_seconds: int
     stt_provider: str
     stt_model: str
@@ -32,7 +33,9 @@ class OrchestratorSettings:
     piper_voice: str
     piper_data_dir: str | None
     tts_player: str
+    tts_enabled: bool
     tts_async: bool
+    overlay_reply_seconds: int
     duck_volume_while_listening: bool
     duck_volume_percent: int
     llm_provider: str
@@ -66,6 +69,7 @@ def load_settings() -> OrchestratorSettings:
             os.environ.get("MANGO_SSL_CERTFILE", orch.get("ssl_certfile"))
         ),
         ssl_keyfile=_optional_str(os.environ.get("MANGO_SSL_KEYFILE", orch.get("ssl_keyfile"))),
+        local_ws_port=_optional_int(orch.get("local_ws_port", 8766)),
         max_utterance_seconds=max(1, int(
             os.environ.get(
                 "MANGO_MAX_UTTERANCE_SECONDS", audio.get("max_utterance_seconds", 30)
@@ -84,7 +88,9 @@ def load_settings() -> OrchestratorSettings:
         piper_voice=str(audio.get("piper_voice", "en_US-lessac-medium")),
         piper_data_dir=_optional_str(audio.get("piper_data_dir")),
         tts_player=str(audio.get("tts_player", "auto")),
+        tts_enabled=_tts_enabled(audio),
         tts_async=bool(audio.get("tts_async", True)),
+        overlay_reply_seconds=max(5, int(audio.get("overlay_reply_seconds", 45))),
         duck_volume_while_listening=bool(audio.get("duck_volume_while_listening", True)),
         duck_volume_percent=int(audio.get("duck_volume_percent", 40)),
         llm_provider=str(llm.get("provider", "anthropic")),
@@ -111,3 +117,21 @@ def _load_keyterms(value: object) -> tuple[str, ...]:
         if text:
             terms.append(text)
     return tuple(terms)
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _tts_enabled(audio: dict[str, Any]) -> bool:
+    if os.environ.get("MANGO_TTS_DISABLED") == "1":
+        return False
+    if "tts_enabled" in audio:
+        return bool(audio.get("tts_enabled"))
+    return True

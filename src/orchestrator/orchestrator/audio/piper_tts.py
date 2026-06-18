@@ -14,10 +14,10 @@ _FIRST_SENTENCE_RE = re.compile(r"^(.+?[.!?])(?:\s|$)", re.DOTALL)
 
 
 def speak_reply(text: str, settings: OrchestratorSettings) -> None:
+    if os.environ.get("MANGO_TTS_DISABLED") == "1" or not settings.tts_enabled:
+        return
     spoken = first_sentence(text)
     if not spoken:
-        return
-    if os.environ.get("MANGO_TTS_DISABLED") == "1":
         return
 
     with tempfile.TemporaryDirectory(prefix="mango-tts-") as tmp:
@@ -27,7 +27,7 @@ def speak_reply(text: str, settings: OrchestratorSettings) -> None:
 
 
 def warmup_piper(settings: OrchestratorSettings) -> None:
-    if os.environ.get("MANGO_TTS_DISABLED") == "1":
+    if os.environ.get("MANGO_TTS_DISABLED") == "1" or not settings.tts_enabled:
         return
     with tempfile.TemporaryDirectory(prefix="mango-tts-warm-") as tmp:
         wav_path = Path(tmp) / "warm.wav"

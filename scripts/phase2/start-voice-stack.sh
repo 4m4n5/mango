@@ -22,6 +22,7 @@ tmux new-session -d -s mango-companion \
 for _ in $(seq 1 30); do
   if curl -skf --max-time 1 https://127.0.0.1:8765/health >/dev/null 2>&1 \
     && curl -skf --max-time 1 https://127.0.0.1:3001/ >/dev/null 2>&1; then
+    bash scripts/phase2/ensure-tv-overlay.sh
     echo "✓ voice stack up (tmux: mango-orch, mango-companion)"
     echo "  phone: https://${MANGO_PI_IP:-10.0.0.174}:3001"
     exit 0

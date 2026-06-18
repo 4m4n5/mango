@@ -127,8 +127,8 @@ if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]] \
     --user-data-dir="$OVERLAY_PROFILE" \
     --class=mango-overlay \
     --app="http://127.0.0.1:${PORT}/overlay/" \
-    --window-size=360,120 \
-    --window-position=900,560 \
+    --window-size=700,240 \
+    --window-position=560,820 \
     >"$LOG_DIR/mango-overlay-chromium.log" 2>&1 &
   sleep 0.5
 fi

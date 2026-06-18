@@ -172,6 +172,7 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
 
     async with voice_lock:
         pump_task: asyncio.Task[None] | None = None
+        showing_reply = False
         try:
             if epoch != voice_epoch:
                 return
@@ -210,15 +211,19 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
 
             if epoch != voice_epoch:
                 return
-            session.set_overlay("idle", "idle")
-            await broadcast_status()
-            if settings.tts_async:
-                asyncio.create_task(_speak_async(reply, settings))
+            if settings.tts_enabled:
+                if settings.tts_async:
+                    asyncio.create_task(_speak_async(reply, settings))
+                else:
+                    session.set_overlay("speaking", reply)
+                    await broadcast_status()
+                    with voice_stage("tts"):
+                        await asyncio.to_thread(speak_reply, reply, settings)
             else:
                 session.set_overlay("speaking", reply)
                 await broadcast_status()
-                with voice_stage("tts"):
-                    await asyncio.to_thread(speak_reply, reply, settings)
+                showing_reply = True
+                asyncio.create_task(_hold_reply_then_idle(settings.overlay_reply_seconds, epoch))
         except Exception as exc:
             if pump_task is not None:
                 pump_task.cancel()
@@ -228,9 +233,17 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
                 await broadcast_error(str(exc))
         finally:
             await asyncio.to_thread(restore_audio)
-            if epoch == voice_epoch:
+            if epoch == voice_epoch and not showing_reply:
                 session.set_overlay("idle", "idle")
                 await broadcast_status()
+
+
+async def _hold_reply_then_idle(seconds: int, epoch: int) -> None:
+    await asyncio.sleep(seconds)
+    if epoch != voice_epoch:
+        return
+    session.set_overlay("idle", "idle")
+    await broadcast_status()
 
 
 async def _speak_async(reply: str, settings: object) -> None:
@@ -288,6 +301,8 @@ async def fail_to_idle(message: str) -> None:
 
 
 def main() -> None:
+    import threading
+
     import uvicorn
 
     settings = load_settings()
@@ -297,13 +312,30 @@ def main() -> None:
     parser.add_argument("--ssl-certfile", default=settings.ssl_certfile)
     parser.add_argument("--ssl-keyfile", default=settings.ssl_keyfile)
     args = parser.parse_args()
+
+    use_tls = bool(args.ssl_certfile and args.ssl_keyfile)
+    local_port = settings.local_ws_port
+    if use_tls and local_port and local_port != args.port:
+        thread = threading.Thread(
+            target=lambda: uvicorn.run(
+                app,
+                host="127.0.0.1",
+                port=local_port,
+                log_level="warning",
+            ),
+            daemon=True,
+            name="mango-orch-local-ws",
+        )
+        thread.start()
+        logger.info("local overlay websocket on ws://127.0.0.1:%s/ws", local_port)
+
     uvicorn.run(
         app,
         host=args.host,
         port=args.port,
         log_level="info",
-        ssl_certfile=args.ssl_certfile,
-        ssl_keyfile=args.ssl_keyfile,
+        ssl_certfile=args.ssl_certfile if use_tls else None,
+        ssl_keyfile=args.ssl_keyfile if use_tls else None,
     )
 
 

@@ -6,7 +6,7 @@
 
 ## Goal
 
-Phone PTT → transcript → LLM reply → TTS on TV. Overlay shows idle / listening / thinking / speaking.
+Phone PTT → transcript → LLM reply → **TV overlay** (default) or Piper TTS when a speaker is attached. Overlay shows idle / listening / thinking / reply with **you** and **mango** lines.
 
 ## Architecture
 
@@ -79,7 +79,7 @@ Useful dev toggles:
 |-----|-----|
 | `MANGO_LLM_MOCK=1` | Echo mock reply without Anthropic/OpenAI |
 | `MANGO_STT_MOCK=1` | Skip cloud STT; return a fixed transcript (dev smoke) |
-| `MANGO_TTS_DISABLED=1` | Skip Piper playback on non-audio dev machines |
+| `MANGO_TTS_DISABLED=1` | Skip Piper — replies on TV overlay only |
 | `MANGO_ORCH_TLS=1` | Start orchestrator with mkcert TLS |
 | `MANGO_VOICE=1` | Opt Pi launcher startup into overlay Chromium |
 
@@ -101,7 +101,9 @@ STT uses **Deepgram Listen** (pre-recorded) with `nova-2` by default — not on-
 | `stt.language` | `hi` | `en-IN` for Indian English; `nova-3` + `multi` for best codeswitch |
 | `llm.model` | `claude-haiku-4-5-20251001` | Fast path; `claude-sonnet-4-6` for quality |
 | `llm.max_tokens` | `96` | Short spoken replies |
-| `audio.tts_async` | `true` | Phone shows reply before TV audio finishes |
+| `audio.tts_enabled` | `false` | Set `true` when HDMI speaker is ready |
+| `audio.overlay_reply_seconds` | `45` | How long the reply stays on TV |
+| `orchestrator.local_ws_port` | `8766` | Plain WS for overlay (mkcert not trusted in overlay Chromium) |
 
 Orchestrator **warms Piper** on startup (no Whisper load). Set `MANGO_VOICE_TIMING=1` to log stage timings.
 
