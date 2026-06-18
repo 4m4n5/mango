@@ -90,13 +90,40 @@ Summary:
 
 You need all three: **API key**, **Client ID**, **Client secret**.
 
-#### B — Enter keys on the Pi (no USB keyboard needed)
+#### B — Enter keys on the Pi
 
-1. In Kodi: **YouTube** → **Settings** → **API** → enable **API configuration page**
-2. On your Mac, open: `http://10.0.0.174:50152/youtube/api` (replace with Pi IP if different)
-3. Paste API key, Client ID, Client secret → Save
-4. In Kodi: **YouTube** → **Sign in** → follow the device-code flow (use Mac/phone browser when prompted)
-5. **Quit and reopen Kodi**, then try a list again
+**Recommended: SSH file** (web page often binds to localhost only):
+
+```bash
+killall kodi 2>/dev/null || true
+mkdir -p ~/.config/mango
+nano ~/.config/mango/youtube-api.json
+```
+
+```json
+{
+  "api_key": "AIza...",
+  "client_id": "123....apps.googleusercontent.com",
+  "client_secret": "GOCSPX-..."
+}
+```
+
+```bash
+cd ~/mango && git pull
+bash scripts/phase0/set-youtube-api-keys.sh
+bash scripts/phase0/launch-kodi.sh
+```
+
+Then **YouTube → Sign in** (device code on Mac). **Do not paste keys in chat or commit them.**
+
+**Optional: web form** — only works if the addon HTTP server is reachable from your Mac:
+
+1. YouTube **Configure** → **API** → enable **API configuration page**
+2. **Advanced** → **HTTP Server** → **Select listen IP** → set to Pi IP (`10.0.0.174`), not `127.0.0.1`
+3. On Pi: `bash scripts/phase0/test-youtube-api-page.sh` — localhost and LAN should both return HTTP 200
+4. Mac: `http://10.0.0.174:50152/youtube/api` (path must include `/youtube/`)
+
+If the URL still fails, use the SSH method above — it is the same outcome.
 
 Wiki: [Personal API Keys](https://github.com/anxdpanic/plugin.video.youtube/wiki/Personal-API-Keys)
 
@@ -154,7 +181,7 @@ Use this only if the repository loads; if it errors or hangs, use **Part 3 (zip)
 
 | Problem | Fix |
 |---------|-----|
-| **All lists error / empty** | Personal API keys required — Part 4 above; `diagnose-kodi-youtube.sh` |
+| **API page URL not reachable** | Server often listens on `127.0.0.1` only — use `set-youtube-api-keys.sh` instead; or fix **Advanced → HTTP Server → Select listen IP** + `test-youtube-api-page.sh` |
 | **inputstream.adaptive 19.0.0 cannot be satisfied** | `bash scripts/phase0/install-kodi-inputstream.sh` → restart Kodi → install zip again |
 | Can't find zip in browser | Path is `/home/aman/mango/downloads/` — use **Home folder → mango → downloads** |
 | "Dependencies not met" | Run reset script again; install zip before opening YouTube |
