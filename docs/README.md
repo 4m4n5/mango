@@ -5,7 +5,8 @@
 | [**PHASE0.md**](PHASE0.md) | **Pi ops** — bring-up, daily use, architecture, troubleshooting |
 | [PHASE1.md](PHASE1.md) | Launcher UI + API |
 | [**PHASE2.md**](PHASE2.md) | Voice pipeline — setup, sign-off, known issues |
-| [**NATIVE_EXPERIENCE.md**](NATIVE_EXPERIENCE.md) | **Native TV UX** — vision (`feat/native-experience`) |
+| [**NATIVE_EXPERIENCE.md**](NATIVE_EXPERIENCE.md) | Native TV UX — architecture decisions |
+| [**NATIVE_ROADMAP.md**](NATIVE_ROADMAP.md) | **Implementation phases N0–N7** |
 | [**PLAN.md**](PLAN.md) | Full roadmap |
 | [phase0-checklist.md](phase0-checklist.md) | Sign-off gates |
 | [HARDWARE.md](HARDWARE.md) | 8BitDo Micro layout |

@@ -1,150 +1,251 @@
-# Native mango experience — vision & ideation
+# Native mango experience
 
 **Branch:** `feat/native-experience`  
-**Status:** Ideation · active on `feat/native-experience`  
-**Intent:** TV-first, AI-driven box where **mango owns the UX**; Stremio/Kodi become playback engines, not the primary interface.
+**Status:** Architecture locked · implementation not started  
+**Intent:** TV-first mango UX with **legit catalogs and streams** via the Stremio addon ecosystem; **mpv** plays everything; Stremio desktop stays hidden as fallback.
 
 ---
 
-## Problem statement
+## North star
 
-Today mango is a **polished shell** around **desktop apps**:
-
-- Launcher is 10ft-native ✓
-- Voice + chat work ✓
-- Stremio and Kodi YouTube are **not** designed for couch · D-pad fakes a keyboard
-
-Users feel the fracture: mango on the home screen, then “some other app” for browse and play. That blocks the “AI TV box of the future” vibe.
-
----
-
-## Product north star
-
-> **Ask or browse in mango. Watch in a player. Never wonder which app you’re in.**
+> **Ask or browse in mango. Watch in mpv. Never wonder which app you’re in.**
 
 | Principle | Meaning |
 |-----------|---------|
-| **Content forward** | Posters, rails, and “play” — not window chrome |
-| **AI is ambient** | Voice and suggestions are woven in, not a separate mode |
-| **One focus model** | D-pad always does the obvious thing |
-| **Players are invisible** | Stremio/Kodi open fullscreen playback; mango owns everything before “play” |
-| **Phone is optional** | Mic + rich chat on phone; TV must stand alone for browse |
+| **Legit metadata** | Posters and titles from Cinemeta / TMDB — no mock rails in production |
+| **Stremio-compatible catalogs** | Rails and AI catalogs resolve through the same addon graph as Stremio |
+| **mpv is the player** | Addon streams and YouTube (yt-dlp) play in mpv — not Stremio/Kodi chrome |
+| **AI catalogs are real** | Named, persistent catalogs (max 3 on home) — not ephemeral suggestion toasts |
+| **Stremio desktop is insurance** | Installed, hidden; opens only when mango stream/play fails |
 
 ---
 
-## Experience map (target)
+## Locked decisions (2026-06)
+
+### Catalog & addons
+
+| Topic | Decision |
+|-------|----------|
+| Catalog source | **Hybrid** — Stremio library/discover + mango-configured rails + AI catalogs |
+| Addon runtime | **`stremio-core`** in `catalog-service` — load manifests like Stremio |
+| Stream/meta stack | **Cinemeta + Torrentio** minimum; **custom addon URLs** in config |
+| **aiostreams** | Run as a **normal addon** inside stremio-core (stream/language/RD prefs live there) |
+| Debrid | **Real Debrid + TorBox** — user picks in Settings |
+| Stremio import | **Export file** pasted into mango Settings (not auto-scrape of Stremio profile DB) |
+| Rail config V1 | **`config/catalog.yaml`** on Pi (edit on Mac → git pull); 10ft Settings UI later |
+| Regional V1 | **Must-have** India/Bollywood rails — **TMDB lists + addon catalogs** |
+| YouTube browse | **Separate rail** on home — not mixed into movie search |
+| Search | **Cinemeta + TMDB fallback** (Hinglish / Indian title coverage) |
+
+### Playback
+
+| Topic | Decision |
+|-------|----------|
+| Player | **mpv** for movies, shows, and YouTube (**yt-dlp** for YouTube V1) |
+| Stream picker | **Simple** — 2–5 options (quality / language), then play |
+| Stream sort | **aiostreams addon behavior** + configurable **audio language** filter in mango |
+| Quality | **4K streams enabled** for playback; UI may stay 1080p-scaled in V1 |
+| Time to play | **~5 s** target from B to first frame (progress UI while resolving) |
+| On stream fail | **Auto-try next** option → then **hidden Stremio desktop** fallback |
+| Subtitles | Nice to have V1 — not a hard blocker |
+| RD in mpv | **Not yet tested on Pi** — early validation required |
+
+### Library & progress
+
+| Topic | Decision |
+|-------|----------|
+| Continue rail order | **Stremio library first**, then **mango-stored mpv resume** |
+| Resume source of truth | **mango progress DB** on Pi (mpv reports position) |
+| Finished watching | **Write back** to Stremio library when possible |
+| Progress backup | **mango backs up** progress on Pi (survive Kodi/mpv DB loss) |
+| Stremio desktop | **Hidden** — fallback only |
+
+### AI catalogs
+
+| Topic | Decision |
+|-------|----------|
+| Persistence | **Full named catalogs** — create, list, persist |
+| Refresh | **Per-catalog user choice** — frozen title IDs vs live re-query |
+| Home limit | **3** AI catalogs on home |
+| Edit V1 | **Voice + phone** only |
+| Bad meta IDs | Drop titles that don’t resolve in Cinemeta (silent skip) |
+
+### Household
+
+| Topic | Decision |
+|-------|----------|
+| Profiles | **Single household V1** — multi-profile later |
+
+---
+
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  mango home                                                    │
-│  ┌─────────────┐  ┌──────────────────────────────────────────┐ │
-│  │ voice chip  │  │ Continue · Because you watched · New      │ │
-│  │ (listening) │  │ Search · Library · Apps (advanced)        │ │
-│  └─────────────┘  └──────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
-         │ voice: "sci-fi under 2 hours"
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  mango results (10ft grid)                                     │
-│  [poster] [poster] [poster] …                                  │
-│  B = play · Y = back · metadata + AI blurb optional            │
-└─────────────────────────────────────────────────────────────┘
-         │ play
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Stremio or Kodi — fullscreen player ONLY                      │
-│  ⌂ = mango home · minimal now-playing bar (future)             │
-└─────────────────────────────────────────────────────────────┘
+                    ┌─────────────────────────────────────┐
+                    │  mango launcher (TV UI)              │
+                    │  rails · search · detail · picker    │
+                    └──────────────┬──────────────────────┘
+                                   │ HTTP
+                    ┌──────────────▼──────────────────────┐
+                    │  catalog-service (Node + stremio-core)│
+                    │  · YAML rails → catalog queries       │
+                    │  · AI catalog store                   │
+                    │  · meta / streams / search            │
+                    │  · addons: Cinemeta, Torrentio,       │
+                    │    aiostreams, custom URLs            │
+                    └──────────────┬──────────────────────┘
+           ┌───────────────────────┼───────────────────────┐
+           ▼                       ▼                       ▼
+    Stremio cloud library    TMDB (search fallback)   mango progress DB
+           │                       │
+           └───────────┬───────────┘
+                       ▼
+              ┌────────────────┐
+              │  mpv (fullscreen)│◄── yt-dlp for YouTube
+              └────────┬───────┘
+                       │ all streams fail
+                       ▼
+              ┌────────────────┐
+              │ Stremio desktop │  hidden fallback
+              └────────────────┘
+```
+
+### Stremio addon graph (unchanged)
+
+```
+Catalog addons  →  title IDs in rails / lists
+Meta (Cinemeta) →  poster, plot, seasons
+Stream (Torrentio + RD/TorBox via aiostreams) →  playable URLs
+```
+
+mango does **not** reindex torrents. It runs the same protocol Stremio uses.
+
+### Continue watching (merged)
+
+1. Items from **Stremio library** with in-progress / up-next semantics  
+2. Then items with **mango mpv resume** not yet reflected in Stremio  
+3. On finish → update Stremio library + mango DB  
+
+---
+
+## Config (V1)
+
+| File | Purpose |
+|------|---------|
+| `config/catalog.yaml` | Home rails — addon catalog refs, TMDB list IDs, order, filters |
+| `config/catalog.example.yaml` | Documented template in repo |
+| `/etc/mango/stremio-export.json` | Pasted Stremio export (addons, auth hints) |
+| `/etc/mango/progress.db` | mpv resume + backup |
+| `/etc/mango/ai-catalogs/` | Persisted AI-named catalogs |
+| `config/config.yaml` | RD/TorBox keys, debrid provider choice, language filter |
+
+**Example rail (conceptual):**
+
+```yaml
+rails:
+  - id: continue
+    type: stremio_library
+    label: Continue watching
+  - id: bollywood
+    type: tmdb_list
+    list_id: …
+    label: Bollywood
+  - id: trending
+    type: addon_catalog
+    addon: …
+    catalog: …
 ```
 
 ---
 
-## Technical strategy (layers)
+## UX flows
 
-| Layer | Owner | Stack |
-|-------|-------|-------|
-| **Shell UI** | mango | Vite + TS in launcher (expand) or `src/tv/` SPA in kiosk |
-| **Voice + session** | mango | Existing orchestrator — extend with tools |
-| **Catalog / library** | adapters | `stremio-service` (stremio-core) · Kodi JSON-RPC · TMDB metadata |
-| **Playback** | engines | `stremio://` deep links · Kodi YouTube plugin · hide-not-kill unchanged |
-| **Input** | mango | `mango-tv-pad.py` — focus in mango UI vs player modes |
+### Browse → play (movies/shows)
 
-**Non-goal (V1 native):** Rebuild video decoders, DRM, or subtitle pipelines.
+1. Home rail or search → title detail  
+2. B → **resolve streams** (aiostreams + Torrentio; show spinner, target 5 s)  
+3. **Simple picker** — top 2–5 by cache/quality/language  
+4. B → **mpv fullscreen**  
+5. ⌂ → mango home (< 300 ms; C2 regression)  
 
----
+### YouTube (separate rail)
 
-## Phased delivery (proposal)
+1. YouTube rail or voice `play_youtube`  
+2. Resolve via **yt-dlp** → mpv  
+3. Same ⌂ behavior  
 
-### N0 — Foundation (this branch first)
+### AI catalog
 
-- [x] `docs/NATIVE_EXPERIENCE.md` + IA in repo
-- [x] Focus system — roving 2D grid (`src/launcher/src/focus.ts`)
-- [x] Home shell — horizontal rails + poster cards (`home.ts`, `mock-catalog.ts`)
-- [ ] Orchestrator refactor: single WS server · thread-safe hub
-- [ ] Remove redundant overlay Chromium if launcher HUD suffices
-
-### N1 — Browse rails (MVP native feel)
-
-- [ ] Home: **Continue watching** rail (Stremio library via service)
-- [ ] Home: **Search** overlay (10ft keyboard or voice-only v1)
-- [ ] Play hands off to Stremio/Kodi · return to mango home on ⌂
-- [ ] LLM tool: `search_stremio` · `play_stremio` · `search_youtube` · `play_youtube`
-
-### N2 — AI integration
-
-- [ ] “Ask mango” rail — curated picks from LLM + catalog tools
-- [ ] Unified results screen (movies + YouTube in one grid with badges)
-- [ ] TV shows reply + structured cards (not paragraph-only)
-
-### N3 — Player chrome
-
-- [ ] Now-playing bar (title, pause, seek) in mango overlay during playback
-- [ ] Optional: migrate YouTube to mango-owned player path if Kodi UX blocks
-
-### N4 — Polish
-
-- [ ] Onboarding · settings in 10ft UI
-- [ ] systemd · reboot persistence
-- [ ] TTS when speaker attached
+1. Voice/phone: “make a catalog of sci-fi under 2 hours”  
+2. LLM tool → search Cinemeta/TMDB → save named catalog  
+3. User chooses **frozen** or **live refresh**  
+4. Appears on home (max 3 slots)  
 
 ---
 
-## Open design questions
+## Implementation phases
 
-1. **Single SPA vs launcher-only** — expand `src/launcher` or new `src/tv` routed inside same Chromium?
-2. **Stremio browse** — never show desktop app except playback, or “Advanced → open Stremio” tile?
-3. **YouTube** — stay Kodi-backed or explore TV web / Invidious (ToS risk)?
-4. **Hinglish** — UI copy language · STT already multi · LLM reply language default?
-5. **Phone role** — remote-only vs required for best experience?
+Full roadmap: **[`NATIVE_ROADMAP.md`](NATIVE_ROADMAP.md)**.
+
+| Phase | Name |
+|-------|------|
+| **N0** | Foundation reset — strip cruft, compute headroom, gates → [`tasks/phase-n0-foundation-reset.md`](tasks/phase-n0-foundation-reset.md) |
+| **N1** | `catalog-service` + one title → mpv |
+| **N2** | Real `catalog.yaml` rails + launcher |
+| **N3** | Stream picker + progress DB |
+| **N4** | Continue + Stremio export |
+| **N5** | AI catalogs + voice tools |
+| **N6** | YouTube (yt-dlp) |
+| **N7** | 4K polish + Stremio fallback |
+
+**Pause feature work** until N0 gate passes. Mock launcher rails are removed in N0.
+
+### Prototype on branch (status)
+
+- [x] Focus grid + rail layout — **keep scaffolding**
+- [ ] N0 removes `mock-catalog.ts` from production path
+- [ ] N2 wires launcher to `catalog-service`
 
 ---
 
-## Success metrics (couch)
+## Risks & validation spikes
+
+| Risk | Mitigation |
+|------|------------|
+| RD HTTP streams untested in **mpv** on Pi | **C0 spike** — resolve one title, play in mpv before UI |
+| **5 s** TTFF vs stream resolve latency | Pre-resolve on focus; cache stream lists; show progress |
+| Stremio library **write-back** | Spike API; degrade to mango-only progress if blocked |
+| **yt-dlp** breakage / ToS | Pin version; Kodi YouTube as emergency fallback only |
+| **stremio-core** on Pi 5 ARM | Prove catalog-service boots with your addon set early |
+| **aiostreams** as addon only | Document required manifest URL; test stream shape matches picker |
+
+---
+
+## Open (minor)
+
+- UI language copy (Hinglish vs English)  
+- Binge mode — auto-play next episode?  
+- Phone role beyond voice — remote transport during mpv?  
+- Expand launcher vs `src/tv/` SPA (default: **expand launcher**)  
+
+---
+
+## Success metrics
 
 | Test | Pass |
 |------|------|
-| Find and play a movie **without opening Stremio browse UI** | Voice or rails only |
-| Continue watching from cold start in **< 3 pad presses** | From mango home |
-| ⌂ from player returns to **mango home** in **< 300 ms** | C2 regression |
-| User describes device as **“mango”** not “Pi with Stremio” | Subjective |
-
----
-
-## Relationship to `main`
-
-| `main` | `feat/native-experience` |
-|--------|--------------------------|
-| Phase 0–2 shipped · stable couch shell | Product UX overhaul |
-| Bugfixes · Pi ops | IA · new screens · stremio-service |
-| Merge back when rails + tools are couch-signed | |
-
-Keep `main` deployable for daily TV use while the branch prototypes.
+| Home rails show **real** posters from Cinemeta/TMDB | No mocks |
+| Play Bollywood title from configured rail | mpv, no Stremio UI |
+| Continue rail shows Stremio library + local resume | Correct order |
+| Stream fail → auto-retry → Stremio fallback | Hidden handoff |
+| ⌂ from mpv → mango home | C2 regression |
+| Voice creates 3rd AI catalog | Persists across reboot |
 
 ---
 
 ## References
 
-- [`DESIGN.md`](DESIGN.md) — original V1 spec (LLM tools §)
-- [`PHASE2.md`](PHASE2.md) — voice pipeline (shipped)
-- [`PLAN.md`](PLAN.md) — roadmap with native fork
-- [`DECISIONS.md`](DECISIONS.md) — locked choices per branch
+- [`DESIGN.md`](DESIGN.md) — V1 spec (update playback row when C0 ships)
+- [`PHASE2.md`](PHASE2.md) — voice pipeline on `main`
+- [`PLAN.md`](PLAN.md) — roadmap
+- [`DECISIONS.md`](DECISIONS.md) — locked choices
