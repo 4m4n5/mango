@@ -136,12 +136,8 @@ Never commit: `keys/`, `youtube-api.json`, Kodi RPC password.
 ## Verification
 
 ```bash
-curl -s http://127.0.0.1:3000/api/info
-export DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority
-xdotool getwindowname "$(xdotool getactivewindow)"   # "mango launcher"
-systemctl is-active input-remapper
-source ~/mango/scripts/phase0/lib/kodi-rpc.sh
-kodi_rpc GUI.GetProperties '{"properties":["currentwindow"]}'   # 10025 = YouTube UI
+bash scripts/verify-tv.sh
+curl -s http://127.0.0.1:3000/api/health | python3 -m json.tool
 ```
 
 ---

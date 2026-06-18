@@ -1,0 +1,10 @@
+[Unit]
+Description=mango TV health check timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

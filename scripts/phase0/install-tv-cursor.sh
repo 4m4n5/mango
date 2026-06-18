@@ -55,6 +55,10 @@ if marker not in text:
 path.write_text(text)
 PY
 
-bash "$SCRIPT_DIR/../lib/mango-cursor.sh" hide 2>/dev/null || true
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
-echo "✓ Cursor hidden (Openbox + unclutter). Run: openbox --reconfigure"
+bash "$SCRIPT_DIR/../lib/mango-cursor.sh" hide 2>/dev/null || true
+openbox --reconfigure 2>/dev/null || echo "! openbox --reconfigure skipped (no DISPLAY — run on TV session or set DISPLAY=:0)"
+
+echo "✓ Cursor hidden (Openbox + unclutter)"

@@ -23,12 +23,66 @@ REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 LAUNCHER_DIST: Final = REPO_ROOT / "src" / "launcher" / "dist"
 OVERLAY_DIST: Final = REPO_ROOT / "src" / "overlay" / "dist"
 LOG_DIR: Final = Path.home() / ".cache" / "mango"
+LOG_SCRIPT: Final = REPO_ROOT / "scripts" / "lib" / "mango-log.sh"
 
 LAUNCH_SCRIPTS: Final = {
     "/api/launch/stremio": REPO_ROOT / "scripts" / "launch-stremio.sh",
     "/api/launch/kodi": REPO_ROOT / "scripts" / "launch-kodi.sh",
     "/api/launch/launcher": REPO_ROOT / "scripts" / "launch-launcher.sh",
 }
+
+
+def run_check(cmd: list[str]) -> bool:
+    try:
+        return subprocess.run(cmd, capture_output=True, check=False).returncode == 0
+    except OSError:
+        return False
+
+
+def mango_log(event: str, **fields: str) -> None:
+    if not LOG_SCRIPT.is_file():
+        return
+    args = [str(LOG_SCRIPT), event]
+    args.extend(f"{key}={value}" for key, value in fields.items())
+    subprocess.run(args, check=False, capture_output=True)
+
+
+def collect_health(port: int) -> dict[str, object]:
+    launcher_ok = (LAUNCHER_DIST / "index.html").is_file()
+    chromium_ok = run_check(
+        ["pgrep", "-f", f"chromium.*mango-launcher.*127.0.0.1:{port}/"]
+    )
+    remapper = "unknown"
+    if run_check(["systemctl", "is-active", "--quiet", "input-remapper"]):
+        remapper = "active"
+    elif run_check(["systemctl", "is-active", "input-remapper"]):
+        remapper = "inactive"
+    openbox = "active" if run_check(["pgrep", "-x", "openbox"]) else "inactive"
+    kodi = "down"
+    kodi_ping = REPO_ROOT / "scripts" / "phase0" / "lib" / "kodi-rpc.sh"
+    if kodi_ping.is_file():
+        try:
+            result = subprocess.run(
+                ["bash", "-c", f'source "{kodi_ping}" && kodi_rpc JSONRPC.Ping'],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+            )
+            if result.returncode == 0 and '"result"' in result.stdout:
+                kodi = "up"
+        except (OSError, subprocess.TimeoutExpired):
+            kodi = "down"
+
+    checks = {
+        "launcher_dist": launcher_ok,
+        "chromium": chromium_ok,
+        "input_remapper": remapper,
+        "openbox": openbox,
+        "kodi_rpc": kodi,
+    }
+    ok = launcher_ok and chromium_ok and remapper == "active" and openbox == "active"
+    return {"ok": ok, "checks": checks}
 
 
 class MangoUiHandler(BaseHTTPRequestHandler):
@@ -45,6 +99,9 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                     "companion_port": 3001,
                 }
             )
+            return
+        if path == "/api/health":
+            self._write_json(collect_health(self.server.server_port))
             return
         if path.startswith("/overlay/"):
             self._serve_static(OVERLAY_DIST, path.removeprefix("/overlay/"), "index.html")
@@ -64,13 +121,15 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         log_path = LOG_DIR / "mango-ui-launch.log"
         env = os.environ.copy()
+        home = str(Path.home())
         env.update(
             {
-                "DISPLAY": ":0",
-                "XAUTHORITY": "/home/aman/.Xauthority",
-                "HOME": "/home/aman",
+                "DISPLAY": env.get("DISPLAY", ":0"),
+                "XAUTHORITY": env.get("XAUTHORITY", f"{home}/.Xauthority"),
+                "HOME": home,
             }
         )
+        mango_log("api_launch", path=path.removeprefix("/api/launch/"), status="queued")
         with log_path.open("ab") as log_file:
             subprocess.Popen(
                 ["bash", str(script)],
@@ -137,6 +196,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    mango_log("server_start", host=args.host, port=str(args.port))
     server = ThreadingHTTPServer((args.host, args.port), MangoUiHandler)
     print(f"mango UI server listening on http://{args.host}:{args.port}")
     try:

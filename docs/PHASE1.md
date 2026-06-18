@@ -17,9 +17,14 @@
 | Method | Path | Script |
 |--------|------|--------|
 | `GET` | `/api/info` | — |
+| `GET` | `/api/health` | launcher, chromium, remapper, openbox |
 | `POST` | `/api/launch/stremio` | `launch-stremio.sh` |
 | `POST` | `/api/launch/kodi` | `launch-kodi.sh` |
 | `POST` | `/api/launch/launcher` | `launch-launcher.sh` |
+
+**Verify:** `bash scripts/verify-tv.sh` · logs: `~/.cache/mango/mango.log`
+
+**systemd (optional):** `bash scripts/phase1/install-systemd-units.sh` — `mango-ui-server` + 3‑min watchdog timer
 
 Env: `DISPLAY=:0`, `XAUTHORITY=/home/aman/.Xauthority`, `HOME=/home/aman`.
 

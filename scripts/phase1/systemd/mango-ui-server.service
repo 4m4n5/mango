@@ -1,0 +1,19 @@
+[Unit]
+Description=mango UI server (serve.py)
+After=network-online.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/mango
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+Environment=HOME=%h
+Environment=MANGO_SKIP_OVERLAY=1
+ExecStartPre=/bin/mkdir -p %h/.cache/mango
+ExecStart=/usr/bin/python3 %h/mango/src/mango-ui-server/serve.py --host 127.0.0.1 --port 3000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

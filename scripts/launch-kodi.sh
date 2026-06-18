@@ -13,6 +13,10 @@ export XAUTHORITY="/home/aman/.Xauthority"
 export HOME="/home/aman"
 export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-1}"
 
+# shellcheck source=lib/mango-log.sh
+source "$REPO_DIR/scripts/lib/mango-log.sh"
+mango_log launch_kodi status=start
+
 # shellcheck source=phase0/lib/kodi-rpc.sh
 source "$PHASE0/lib/kodi-rpc.sh"
 
@@ -57,6 +61,7 @@ if kodi_window_visible && kodi_rpc_ready; then
   bash "$PHASE0/launch-kodi.sh"
   focus_and_hide_kodi
   trap - ERR
+  mango_log launch_kodi status=ok mode=warm
   exit 0
 fi
 
@@ -70,6 +75,7 @@ if ! wait_for_kodi_ready; then
     focus_and_hide_kodi
   else
     echo "! Kodi did not start"
+    mango_log launch_kodi status=fail reason=no_window
     exit 1
   fi
 else
@@ -77,3 +83,4 @@ else
 fi
 
 trap - ERR
+mango_log launch_kodi status=ok

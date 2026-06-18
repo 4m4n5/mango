@@ -14,6 +14,10 @@ export HOME="/home/aman"
 export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-1}"
 export MANGO_FAST_UI="${MANGO_FAST_UI:-1}"
 
+# shellcheck source=lib/mango-log.sh
+source "$REPO_DIR/scripts/lib/mango-log.sh"
+mango_log launch_launcher status=start
+
 LOCK_DIR="${HOME}/.cache/mango"
 LOCK_FILE="${LOCK_DIR}/launch-launcher.lock"
 mkdir -p "$LOCK_DIR"
@@ -63,3 +67,4 @@ fi
 bash "$REPO_DIR/scripts/lib/mango-cursor.sh" hide 2>/dev/null || true
 
 echo "Launcher focus requested"
+mango_log launch_launcher status=ok

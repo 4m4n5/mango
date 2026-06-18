@@ -1,0 +1,10 @@
+[Unit]
+Description=mango TV health watchdog
+
+[Service]
+Type=oneshot
+Environment=HOME=%h
+Environment=MANGO_REPO_DIR=%h/mango
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+ExecStart=%h/mango/scripts/verify-tv.sh --quiet --repair-server

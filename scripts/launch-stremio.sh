@@ -13,6 +13,10 @@ export XAUTHORITY="/home/aman/.Xauthority"
 export HOME="/home/aman"
 export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-1}"
 
+# shellcheck source=lib/mango-log.sh
+source "$REPO_DIR/scripts/lib/mango-log.sh"
+mango_log launch_stremio status=start
+
 # shellcheck source=phase0/lib/stremio-ports.sh
 source "$PHASE0/lib/stremio-ports.sh"
 
@@ -61,6 +65,7 @@ wait_for_stremio_window() {
 if stremio_window_visible; then
   focus_and_hide_stremio
   trap - ERR
+  mango_log launch_stremio status=ok mode=refocus
   exit 0
 fi
 
@@ -78,6 +83,7 @@ if ! wait_for_stremio_window; then
     focus_and_hide_stremio
   else
     echo "! Stremio window not detected"
+    mango_log launch_stremio status=fail reason=no_window
     exit 1
   fi
 else
@@ -85,3 +91,4 @@ else
 fi
 
 trap - ERR
+mango_log launch_stremio status=ok

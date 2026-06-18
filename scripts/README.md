@@ -35,4 +35,4 @@ No `xdotool windowactivate --sync`.
 
 ## Phase 1
 
-`start-mango-ui.sh` · `stop-mango-ui.sh` · `install-openbox-autostart.sh`
+`start-mango-ui.sh` · `stop-mango-ui.sh` · `install-openbox-autostart.sh` · `install-systemd-units.sh` · `../verify-tv.sh`

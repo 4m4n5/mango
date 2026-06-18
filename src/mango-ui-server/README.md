@@ -11,3 +11,4 @@ It serves:
 - launcher at `/`
 - overlay at `/overlay/`
 - fixed launch API at `/api/launch/{stremio,kodi,launcher}`
+- health at `/api/health`

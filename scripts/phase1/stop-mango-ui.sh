@@ -9,6 +9,10 @@ PORT="${MANGO_LAUNCHER_PORT:-3000}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
+if systemctl --user is-enabled mango-ui-server.service &>/dev/null; then
+  systemctl --user stop mango-ui-server.service 2>/dev/null || true
+fi
+
 if [[ -f "$PID_DIR/mango-ui-server.pid" ]]; then
   pid=$(cat "$PID_DIR/mango-ui-server.pid")
   if kill -0 "$pid" 2>/dev/null; then

@@ -51,13 +51,21 @@ if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]]; then
   build_ui_if_missing "src/overlay"
 fi
 
-if [[ -f "$PID_DIR/mango-ui-server.pid" ]] && kill -0 "$(cat "$PID_DIR/mango-ui-server.pid")" 2>/dev/null; then
-  echo "mango UI server already running"
-else
+start_ui_server() {
+  if systemctl --user is-enabled mango-ui-server.service &>/dev/null; then
+    systemctl --user start mango-ui-server.service
+    return
+  fi
+  if [[ -f "$PID_DIR/mango-ui-server.pid" ]] && kill -0 "$(cat "$PID_DIR/mango-ui-server.pid")" 2>/dev/null; then
+    echo "mango UI server already running"
+    return
+  fi
   python3 src/mango-ui-server/serve.py --host 127.0.0.1 --port "$PORT" \
     >"$LOG_DIR/mango-ui-server.log" 2>&1 &
   echo "$!" >"$PID_DIR/mango-ui-server.pid"
-fi
+}
+
+start_ui_server
 
 sleep 1
 
