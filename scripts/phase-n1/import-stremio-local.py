@@ -42,40 +42,50 @@ def load_leveldb_blob(leveldb: Path) -> bytes:
 
 
 def extract_addons_array(blob: bytes) -> list[dict]:
-    markers = [b"\x00addons\x00[{", b"addons\n[{", b'[{"transportUrl"']
-    start = -1
-    for marker in markers:
-        idx = blob.find(marker)
+    """Find the full Stremio addons JSON array (may be nested in leveldb values)."""
+    needle = b'[{"transportUrl"'
+    candidates: list[int] = []
+    pos = 0
+    while True:
+        idx = blob.find(needle, pos)
         if idx < 0:
-            continue
-        if marker == b'[{"transportUrl"':
-            start = idx
-        else:
-            start = idx + len(marker) - 2  # point at [
-        break
-    if start < 0:
+            break
+        candidates.append(idx)
+        pos = idx + 1
+
+    if not candidates:
         raise RuntimeError("addons array not found in Stremio local storage")
 
-    depth = 0
-    end = start
-    limit = min(start + 800_000, len(blob))
-    for i in range(start, limit):
-        ch = blob[i]
-        if ch == ord("["):
-            depth += 1
-        elif ch == ord("]"):
-            depth -= 1
-            if depth == 0:
-                end = i + 1
-                break
-    else:
-        raise RuntimeError("could not parse addons JSON array boundary")
+    last_error: Exception | None = None
+    for start in candidates:
+        depth = 0
+        end = start
+        limit = min(start + 800_000, len(blob))
+        for i in range(start, limit):
+            ch = blob[i]
+            if ch == ord("["):
+                depth += 1
+            elif ch == ord("]"):
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    break
+        else:
+            continue
 
-    raw = blob[start:end].decode("utf-8", errors="replace")
-    data = json.loads(raw)
-    if not isinstance(data, list):
-        raise RuntimeError("addons payload is not a list")
-    return data
+        raw = blob[start:end].decode("utf-8", errors="strict")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if isinstance(data, list) and data and isinstance(data[0], dict) and data[0].get("transportUrl"):
+            return data
+
+    raise RuntimeError(
+        "could not parse addons JSON from Stremio local storage"
+        + (f": {last_error}" if last_error else "")
+    )
 
 
 def to_export(addons: list[dict]) -> dict:
