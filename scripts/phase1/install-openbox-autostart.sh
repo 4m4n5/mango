@@ -3,6 +3,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../lib/openbox-rc.sh
+source "$SCRIPT_DIR/../lib/openbox-rc.sh"
+
 OPENBOX_DIR="${HOME}/.config/openbox"
 AUTOSTART_FILE="$OPENBOX_DIR/autostart"
 RC_FILE="$OPENBOX_DIR/rc.xml"
@@ -11,6 +15,8 @@ MARKER_BEGIN="# mango phase1 begin"
 MARKER_END="# mango phase1 end"
 
 mkdir -p "$OPENBOX_DIR"
+
+ensure_user_openbox_rc || true
 
 if [[ -f "$AUTOSTART_FILE" ]]; then
   cp "$AUTOSTART_FILE" "${AUTOSTART_FILE}.bak.$(date +%Y%m%d%H%M%S)"

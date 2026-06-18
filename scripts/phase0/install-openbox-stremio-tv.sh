@@ -3,6 +3,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../lib/openbox-rc.sh
+source "$SCRIPT_DIR/../lib/openbox-rc.sh"
+
 OPENBOX_DIR="${HOME}/.config/openbox"
 RC_FILE="$OPENBOX_DIR/rc.xml"
 MARKER_BEGIN="<!-- mango stremio tv begin -->"
@@ -17,12 +21,7 @@ SNIPPET="$MARKER_BEGIN
   </application>
 $MARKER_END"
 
-mkdir -p "$OPENBOX_DIR"
-
-if [[ ! -f "$RC_FILE" ]]; then
-  echo "! Missing $RC_FILE — log into the Pi desktop once, then rerun." >&2
-  exit 1
-fi
+ensure_user_openbox_rc
 
 if grep -Fq "$MARKER_BEGIN" "$RC_FILE"; then
   echo "Stremio TV Openbox rules already installed."
