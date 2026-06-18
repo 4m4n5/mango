@@ -2,7 +2,7 @@
 
 **Branch:** `feat/native-experience`  
 **Vision:** [`NATIVE_EXPERIENCE.md`](NATIVE_EXPERIENCE.md)  
-**First execution phase:** [`tasks/phase-n0-foundation-reset.md`](tasks/phase-n0-foundation-reset.md) · Codex: [`tasks/CODEX-phase-n0-prompt.md`](tasks/CODEX-phase-n0-prompt.md)
+**Execution phases:** N0 [`tasks/phase-n0-foundation-reset.md`](tasks/phase-n0-foundation-reset.md) · N1 [`tasks/phase-n1-catalog-play-spike.md`](tasks/phase-n1-catalog-play-spike.md) · Codex: [`CODEX-phase-n0-prompt.md`](tasks/CODEX-phase-n0-prompt.md) · [`CODEX-phase-n1-prompt.md`](tasks/CODEX-phase-n1-prompt.md)
 
 ---
 
@@ -104,10 +104,14 @@ Inventory → strip → consolidate → document → measure on Pi.
 
 ## N1 — Catalog + play spike
 
-- `src/catalog-service/` — Node + `@stremio/stremio-core-web` (or HTTP bridge)  
-- Load addons from exported config: Cinemeta, Torrentio, **aiostreams**  
+**Spec:** [`tasks/phase-n1-catalog-play-spike.md`](tasks/phase-n1-catalog-play-spike.md) · **Codex:** [`tasks/CODEX-phase-n1-prompt.md`](tasks/CODEX-phase-n1-prompt.md) · **Inventory:** [`N1-INVENTORY.md`](N1-INVENTORY.md)
+
+- Spikes S0→S6 on Pi **before** feature integration (mpv HTTP → stremio-core → play)  
+- `src/catalog-service/` — Node + `@stremio/stremio-core-web` on `:3020`  
+- Load addons from `/etc/mango/stremio-export.json`: Cinemeta, Torrentio, **aiostreams**  
 - Endpoints: `GET /health`, `GET /meta/:type/:id`, `GET /stream/:type/:id`, `POST /play` → mpv IPC  
-- **Validation:** resolve one known title; play RD HTTP stream in mpv on Pi; log TTFF  
+- Pad: `mpv` foreground + ⌂ → launcher &lt;300 ms  
+- **Gate:** `bash scripts/phase-n1/gate-n1-smoke.sh` + `gate-n0.sh` regression  
 
 ---
 

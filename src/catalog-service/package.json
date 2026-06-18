@@ -1,0 +1,19 @@
+{
+  "name": "mango-catalog-service",
+  "version": "0.0.0",
+  "private": true,
+  "description": "mango catalog-service — stremio-core bridge (N1 spike)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "echo 'N1: implement tsc build' && exit 1",
+    "start": "echo 'N1: implement node dist/index.js' && exit 1",
+    "dev": "echo 'N1: implement dev server' && exit 1"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

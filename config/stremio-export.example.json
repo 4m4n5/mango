@@ -1,0 +1,18 @@
+{
+  "_comment": "Paste from Stremio: Settings → Export. Copy to /etc/mango/stremio-export.json on Pi. Never commit real export.",
+  "addons": [
+    {
+      "name": "Cinemeta",
+      "manifestUrl": "https://v3-cinemeta.strem.io/manifest.json"
+    },
+    {
+      "name": "Torrentio",
+      "manifestUrl": "https://torrentio.strem.fun/manifest.json"
+    },
+    {
+      "name": "AIOStreams",
+      "manifestUrl": "https://YOUR_AIOSTREAMS_HOST/manifest.json"
+    }
+  ],
+  "auth": {}
+}

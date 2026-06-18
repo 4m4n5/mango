@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 adds the base stack gate ([`docs/N0-INVENTORY.md`](docs/N0-INVENTORY.md), [`docs/FOREGROUND.md`](docs/FOREGROUND.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 base stack gate ([`docs/N0-INVENTORY.md`](docs/N0-INVENTORY.md)). **N1 in progress:** catalog + mpv spike ([`docs/tasks/phase-n1-catalog-play-spike.md`](docs/tasks/phase-n1-catalog-play-spike.md), [`docs/N1-INVENTORY.md`](docs/N1-INVENTORY.md)).
 
 ## Read first
 
@@ -56,6 +56,16 @@ bash scripts/pi-exec-gate.sh          # Mac: pull + gate on Pi
 bash scripts/pi-pre-couch-gate.sh
 # native branch direct:
 bash scripts/phase-n0/gate-n0.sh
+bash scripts/phase-n1/gate-n1-smoke.sh   # after N1 implementation
+```
+
+**N1 deploy:** requires `/etc/mango/stremio-export.json` on Pi (Stremio export). Then:
+
+```bash
+cd ~/mango && git pull
+cd src/catalog-service && npm ci && npm run build
+MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+bash scripts/phase-n1/gate-n1-smoke.sh
 ```
 
 ## Gamepad (locked)
