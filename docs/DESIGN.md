@@ -3,6 +3,18 @@
 **Platform:** Raspberry Pi 5 (8GB) · Raspberry Pi OS 64-bit desktop · **X11 + Openbox**  
 **Estimate:** 6–8 weeks part-time · Ship when **V1 Core** criteria pass
 
+### Implementation status (2026-06)
+
+| Area | Status |
+|------|--------|
+| Phase 0 — X11, pad, Kodi, Stremio | ✓ Shipped on `mango` |
+| Phase 1 — Launcher + API + app switch | ✓ Shipped |
+| Phase 1.5 — Couch polish | ✓ Signed off 2026-06-18 |
+| Phase 2 — Orchestrator, companion, voice | **In progress** |
+| Phase 3 — Media tools, LLM tool calling | Not started |
+
+**Today on device:** Chromium launcher · `serve.py` · `mango-tv-pad.py` · hide-not-kill app switching. No orchestrator, overlay off, no phone companion yet.
+
 ---
 
 ## Product

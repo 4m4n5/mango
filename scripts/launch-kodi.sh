@@ -17,6 +17,22 @@ export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-1}"
 source "$REPO_DIR/scripts/lib/mango-log.sh"
 mango_log launch_kodi status=start
 
+LOCK_DIR="${HOME}/.cache/mango"
+LOCK_FILE="${LOCK_DIR}/launch-kodi.lock"
+mkdir -p "$LOCK_DIR"
+
+release_launch_lock() {
+  flock -u 9 2>/dev/null || true
+  exec 9>&- 2>/dev/null || true
+}
+
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  mango_log launch_kodi status=busy
+  release_launch_lock
+  exit 0
+fi
+
 # shellcheck source=phase0/lib/kodi-rpc.sh
 source "$PHASE0/lib/kodi-rpc.sh"
 
@@ -31,26 +47,23 @@ kodi_window_visible() {
 }
 
 focus_and_hide_kodi() {
+  export MANGO_KODI_OPEN_YOUTUBE=1
   bash "$PHASE0/focus-kodi.sh" >/dev/null 2>&1 || true
+  unset MANGO_KODI_OPEN_YOUTUBE
   bash "$WINDOW_SH" hide
-  (
-    for _ in $(seq 1 20); do
-      bash "$PHASE0/focus-kodi.sh" >/dev/null 2>&1 && exit 0
-      sleep 0.15
-    done
-  ) &
 }
 
 ensure_kodi_youtube_ui() {
-  local attempt
-  for attempt in $(seq 1 30); do
+  local attempt opened=0
+  for attempt in $(seq 1 40); do
     if kodi_youtube_ui_visible; then
       return 0
     fi
-    if kodi_window_visible && kodi_rpc_ready; then
+    if [[ $opened -eq 0 ]] && kodi_window_visible && kodi_rpc_ready; then
+      opened=1
       bash "$PHASE0/open-kodi-youtube.sh" >/dev/null 2>&1 || true
     fi
-    sleep 0.25
+    sleep 0.15
   done
   echo "! Kodi YouTube UI (window 10025) not reached" >&2
   return 1
@@ -68,9 +81,13 @@ finish_kodi_launch() {
 }
 
 if kodi_window_visible && kodi_rpc_ready; then
+  release_launch_lock
   bash "$PHASE0/launch-kodi.sh"
   finish_kodi_launch warm
+  exit 0
 fi
+
+release_launch_lock
 
 bash "$PHASE0/launch-kodi.sh" &
 LAUNCH_PID=$!
@@ -79,6 +96,7 @@ for _ in $(seq 1 90); do
   if kodi_window_visible && kodi_rpc_ready; then
     wait "$LAUNCH_PID" 2>/dev/null || true
     finish_kodi_launch cold
+    exit 0
   fi
   sleep 0.2
 done
@@ -86,6 +104,7 @@ done
 wait "$LAUNCH_PID" 2>/dev/null || true
 if kodi_window_visible && kodi_rpc_ready; then
   finish_kodi_launch cold
+  exit 0
 fi
 
 echo "! Kodi did not start"

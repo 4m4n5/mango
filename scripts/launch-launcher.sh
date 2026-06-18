@@ -16,13 +16,26 @@ export MANGO_FAST_UI="${MANGO_FAST_UI:-1}"
 
 # shellcheck source=lib/mango-log.sh
 source "$REPO_DIR/scripts/lib/mango-log.sh"
+if [[ -f "$REPO_DIR/scripts/diag/lib/diag-log.sh" ]]; then
+  # shellcheck source=diag/lib/diag-log.sh
+  source "$REPO_DIR/scripts/diag/lib/diag-log.sh"
+fi
 
 START_TS=$(date +%s%3N 2>/dev/null || date +%s)
 mango_log launch_launcher status=start
+if declare -F diag_log >/dev/null 2>&1; then
+  diag_log launch_launcher status=start skip_pad="${MANGO_SKIP_PAD_STOP:-0}" skip_remapper="${MANGO_SKIP_REMAPPER:-0}"
+fi
 
 LOCK_DIR="${HOME}/.cache/mango"
 LOCK_FILE="${LOCK_DIR}/launch-launcher.lock"
 mkdir -p "$LOCK_DIR"
+
+# Stop orphaned media focus loops (they steal focus back to Kodi/Stremio after ⌂).
+pkill -f 'bash.*focus-kodi.sh' 2>/dev/null || true
+pkill -f 'bash.*focus-stremio.sh' 2>/dev/null || true
+pkill -f 'bash.*launch-kodi.sh' 2>/dev/null || true
+pkill -f 'bash.*launch-stremio.sh' 2>/dev/null || true
 
 # Drop duplicate home while a switch is in flight.
 exec 9>"$LOCK_FILE"
@@ -32,20 +45,29 @@ if ! flock -n 9; then
   exit 1
 fi
 
-need_remapper=false
-if pgrep -f stremio-pad-bridge.py >/dev/null 2>&1; then
-  need_remapper=true
-fi
-if ! systemctl is-active --quiet input-remapper 2>/dev/null; then
-  need_remapper=true
-fi
+launcher_already_focused() {
+  command -v xdotool >/dev/null 2>&1 || return 1
+  local name
+  name=$(xdotool getactivewindow getwindowname 2>/dev/null || true)
+  [[ "$name" == *"mango launcher"* ]] || [[ "$name" == *"mango-launcher"* ]]
+}
 
-export MANGO_SKIP_JS_RESTORE=1
-bash "$REPO_DIR/scripts/phase0/stop-stremio-pad-bridge.sh" 2>/dev/null || true
+if launcher_already_focused; then
+  bash "$REPO_DIR/scripts/lib/present-launcher.sh" --quick 2>/dev/null || true
+  flock -u 9
+  exec 9>&-
+  END_TS=$(date +%s%3N 2>/dev/null || date +%s)
+  DURATION_MS=$((END_TS - START_TS))
+  mango_log launch_launcher status=ok mode=noop "duration_ms=$DURATION_MS"
+  if declare -F diag_log >/dev/null 2>&1; then
+    diag_log launch_launcher status=ok mode=noop "duration_ms=$DURATION_MS"
+  fi
+  echo "Launcher already focused (${DURATION_MS}ms)"
+  exit 0
+fi
 
 if command -v wmctrl >/dev/null 2>&1; then
-  wmctrl -r Stremio -b add,hidden 2>/dev/null || true
-  wmctrl -r Kodi -b add,hidden 2>/dev/null || true
+  bash "$REPO_DIR/scripts/lib/hide-media.sh" all 2>/dev/null || true
   wmctrl -x -r mango-launcher -b remove,hidden 2>/dev/null || true
   wmctrl -r "mango launcher" -b remove,hidden 2>/dev/null || true
   wmctrl -xa mango-launcher 2>/dev/null || true
@@ -64,15 +86,20 @@ fi
 
 bash "$REPO_DIR/scripts/lib/mango-cursor.sh" hide 2>/dev/null || true
 
-# Release flock before remapper resume — never let reader-service inherit fd 9.
+# Release flock before any subprocess — never let reader-service inherit fd 9.
 flock -u 9
 exec 9>&-
 
-if $need_remapper; then
-  ir_resume_after_bridge "Pro Controller" "mango-tv"
+# One pad owner: ensure router after home (no sync input-remapper handoff).
+if [[ "${MANGO_SKIP_REMAPPER:-}" != "1" ]]; then
+  bash "$REPO_DIR/scripts/phase0/start-mango-tv-pad.sh" 2>/dev/null || \
+    ir_resume_after_bridge "Pro Controller" "mango-tv"
 fi
 
 END_TS=$(date +%s%3N 2>/dev/null || date +%s)
 DURATION_MS=$((END_TS - START_TS))
 mango_log launch_launcher status=ok "duration_ms=$DURATION_MS"
+if declare -F diag_log >/dev/null 2>&1; then
+  diag_log launch_launcher status=ok "duration_ms=$DURATION_MS"
+fi
 echo "Launcher focus requested (${DURATION_MS}ms)"

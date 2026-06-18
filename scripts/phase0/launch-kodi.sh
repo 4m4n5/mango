@@ -15,13 +15,18 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 export MANGO_SKIP_JS_RESTORE=1
 
-bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
-killall stremio 2>/dev/null || true
+# Keep Stremio alive in background — killing it breaks relaunch after YouTube.
+bash "$SCRIPT_DIR/../lib/hide-media.sh" stremio 2>/dev/null || true
 
-if systemctl is-active --quiet input-remapper 2>/dev/null; then
-  ir_resume_after_bridge "Pro Controller" "mango-tv"
-else
-  bash "$SCRIPT_DIR/map-pro-controller.sh"
+# Keep pad grabbed — stopping then restarting often hits EBUSY and falls back to
+# input-remapper (⌂ = Control+Alt+m, which Kodi swallows).
+if ! bash "$SCRIPT_DIR/start-mango-tv-pad.sh"; then
+  echo "! mango TV pad failed — retry once" >&2
+  sleep 0.5
+  bash "$SCRIPT_DIR/start-mango-tv-pad.sh" || {
+    echo "! Pad unavailable; ⌂ home will not work in Kodi" >&2
+    bash "$SCRIPT_DIR/map-pro-controller.sh"
+  }
 fi
 bash "$SCRIPT_DIR/kodi-keyboard-only.sh" 2>/dev/null || true
 

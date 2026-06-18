@@ -18,6 +18,7 @@ const backButton = mustGet<HTMLButtonElement>("back-button");
 
 let selectedIndex = 0;
 let inSettings = false;
+let launchInFlight = false;
 
 init();
 
@@ -84,6 +85,10 @@ function activateTile(tile: HTMLButtonElement): void {
 }
 
 async function launch(action: LaunchAction): Promise<void> {
+  if (launchInFlight) {
+    return;
+  }
+  launchInFlight = true;
   const label = action === "kodi" ? "YouTube" : "Stremio";
   setStatus(`Opening ${label}…`);
   try {
@@ -95,6 +100,8 @@ async function launch(action: LaunchAction): Promise<void> {
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     setStatus(`Could not launch ${label}: ${message}`);
+  } finally {
+    launchInFlight = false;
   }
 }
 

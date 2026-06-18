@@ -1,147 +1,84 @@
 # mango — Implementation Plan
 
-**Hardware on hand:** Pi 5 8GB (CanaKit) · 128GB SD · USB gamepad (D-pad + receiver) · phone · TV  
-**No FLIRC** — gamepad is primary TV navigation; phone is mic + backup remote  
-**Code status:** Spec only — no `src/` yet  
-**Target:** V1 Core per [DESIGN.md](DESIGN.md), then Stretch
+**Hardware:** Pi 5 8GB · 128GB SD · 8BitDo Micro · phone · TV  
+**Status:** **Phase 0 + 1 + 1.5 complete on device** (`mango`, 2026-06). **Phase 2 — voice pipeline** in progress.  
+**Canonical ops:** [`PHASE0.md`](PHASE0.md) · [`PHASE1.md`](PHASE1.md) · [`PHASE2.md`](PHASE2.md) · **V1 spec:** [`DESIGN.md`](DESIGN.md)
 
 ---
 
-## Executive summary
-
-Build order: **prove the Pi as a streaming box first**, then **layer AI on top**. Do not start with the orchestrator — start with apps, input, and display stack on real hardware.
+## Current implementation (accurate)
 
 ```
-Phase 0  Pi OS + X11 + gamepad + Kodi + Stremio     (manual, on device)
-Phase 1  Launcher + app switching + overlay shell
-Phase 2  Phone companion + voice pipeline (PTT → LLM → TTS)
-Phase 3  Media tools (stremio-service, Kodi RPC, focus routing)
-Phase 4  Stretch (TMDB, recap, Kodi subtitles)
-Phase 5  install.sh + first-boot wizard + polish
+Pi 5 · Pi OS Desktop · X11 + Openbox
+├── serve.py :3000          launcher static + POST /api/launch/*
+├── Chromium kiosk          class mango-launcher
+├── mango-tv-pad.py         single pad owner (launcher + Stremio + Kodi)
+├── Stremio desktop         hidden/shown via hide-media + present-stremio
+├── Kodi + YouTube addon    JSON-RPC · window 10025 = Videos
+└── scripts/diag/           couch-test harness (alpha-test.sh)
 ```
 
-Estimated calendar: **6–8 weeks part-time** (Phase 0–3 ≈ 4–5 weeks).
+| Layer | Shipped | Not yet |
+|-------|---------|---------|
+| Launcher tiles + API | ✓ | Settings API keys UI |
+| App switch + ⌂ home | ✓ | — |
+| Pad routing (B/Y/⌂/D-pad) | ✓ | — |
+| Overlay Chromium | off on Pi (`MANGO_SKIP_OVERLAY=1`) | Phase 2 — re-enable |
+| Orchestrator / voice | scaffold | Phase 2 |
+| Companion PWA | scaffold | Phase 2 |
+| stremio-service | — | Phase 3 |
+
+**Repo layout (today):**
+
+```
+src/launcher/          Vite + TS tile UI
+src/overlay/           badge UI (WS → orchestrator :8765)
+src/companion/         phone PWA (HTTPS :3001)
+src/orchestrator/      FastAPI voice hub (:8765)
+src/mango-ui-server/   serve.py
+scripts/launch-*.sh    API wrappers (refocus + cold launch)
+scripts/phase0/        Kodi, Stremio, pad, present-*
+scripts/phase1/        UI bring-up, systemd units
+scripts/diag/          alpha session logging
+scripts/lib/           present-*, hide-media, mango-window
+```
 
 ---
 
-## Your hardware → plan adjustments
+## Build order (revised)
 
-| Design doc | Your setup | Adjustment |
-|------------|------------|------------|
-| FLIRC or gamepad | Gamepad only | Gamepad = primary couch remote; map via `jstest` / `evdev` → X11 keys |
-| 64GB+ SD | 128GB | Plenty for OS + Whisper/Piper models + Kodi cache; no NVMe needed for V1 |
-| Ethernet recommended | TBD | WiFi OK; note in diagnostics if streaming buffers |
-| Phone mic | Assumed | **Must solve HTTPS** for `getUserMedia` on LAN (see § Phone companion) |
+```
+Phase 0   Pi OS + X11 + gamepad + Kodi + Stremio          ✓ complete
+Phase 1   Launcher + app switching + pad router           ✓ complete
+Phase 1.5 Launch polish — couch acceptance                ✓ complete (2026-06-18)
+Phase 2   Phone companion + voice pipeline (PTT → LLM → TTS)   ← NOW
+Phase 3   Media tools (stremio-service, Kodi RPC, focus routing)
+Phase 4   Stretch (TMDB, recap, Kodi subtitles)
+Phase 5   install.sh + first-boot wizard + long-tail polish
+```
+
+**Phase 1.5 signed off** — session `20260618-013528`, C2 confirmed. Phase 2 started.
 
 ---
 
-## Phase 0 — Device bring-up (on Pi, ~3–4 days)
+## Phase 1.5 — Launch polish ✓ (archive)
 
-**Goal:** Pi boots to desktop, gamepad navigates Kodi YouTube and Stremio, no custom code.
+**Goal:** World-class couch UX — no wallpaper, predictable switching, sub-300 ms home.
 
-### 0.1 Flash & base OS
+**Sign-off:** [`phase0-checklist.md`](phase0-checklist.md) · diag `20260618-013528`
 
-1. Flash **Raspberry Pi OS Desktop 64-bit** (Bookworm or newer) to 128GB SD via Raspberry Pi Imager.
-2. First boot: set hostname `mango`, enable SSH, set user password, connect WiFi or Ethernet.
-3. Full update: `sudo apt update && sudo apt full-upgrade -y`
-4. **Switch to X11** (required for xdotool overlay + key injection):
-   ```bash
-   sudo raspi-config
-   # Advanced Options → Wayland → X11 Openbox → reboot
-   echo $XDG_SESSION_TYPE   # must print x11
-   ```
+### Couch acceptance matrix
 
-### 0.2 Gamepad
+| # | Flow | Pass |
+|---|------|------|
+| C1 | Launcher → Stremio → ⌂ → Stremio (refocus) | ✓ |
+| C2 | Launcher → Stremio → ⌂ → YouTube → ⌂ → Stremio | ✓ |
+| C3 | Y-back single press inside Stremio title | ✓ (subjective) |
+| C4 | Y on Stremio home — no window-mode jitter | ✓ |
+| C5 | 30 min idle — no `verify_tv repair_server` | deferred |
+| C6 | Double-tap Stremio tile — always opens | ✓ (subjective) |
 
-1. Plug USB receiver; verify: `ls /dev/input/js*` and `jstest /dev/input/js0`
-2. Install mapping tool: `sudo apt install joystick antimicrox` (or `xboxdrv` if needed)
-3. Map D-pad → arrow keys, A → Return, B → Escape, Start → Super (optional)
-4. Document button map in `/etc/mango/gamepad.md` (local only)
-5. **Exit criteria:** gamepad navigates `lxterminal` and file manager
-
-### 0.3 Kodi + YouTube
-
-1. `sudo apt install kodi`
-2. Install `plugin.video.youtube` from official Kodi repo (pin version when one works)
-3. Settings → Services → Control → enable **Web server** + **Allow remote control via HTTP**
-4. Set HTTP port `8080`, username/password → save to local secrets file
-5. **Exit criteria:** gamepad browses YouTube, plays a video, JSON-RPC responds:
-   ```bash
-   curl -u user:pass 'http://127.0.0.1:8080/jsonrpc' \
-     -d '{"jsonrpc":"2.0","id":1,"method":"JSONRPC.Ping"}'
-   ```
-
-### 0.4 Stremio (ARM64 native)
-
-**Primary path:** [fragarray/stremio-rpi5](https://github.com/fragarray/stremio-rpi5) `.deb` (Pi 5 tested, HW decode).
-
-1. Download latest `stremio_*_arm64.deb` from Releases
-2. `sudo apt install ./stremio_*.deb`
-3. Launch `stremio`, log in, install addons manually (e.g. Torrentio — user choice)
-4. Test `stremio://` deep link from terminal:
-   ```bash
-   xdg-open 'stremio:///detail/movie/tt15239678'   # example; adjust ID
-   ```
-5. **Fallback if .deb fails:** stremio-web in Chromium fullscreen (document breakage)
-
-**Exit criteria:** gamepad navigates Stremio, plays content, deep link opens correct title.
-
-### 0.5 Phone → Pi smoke tests (no custom code)
-
-1. Note Pi IP: `hostname -I`
-2. Install deps for later: `sudo apt install python3-pip python3-venv ffmpeg`
-3. Optional: test Whisper CLI with a WAV file from phone recording
-4. **Exit criteria:** Pi IP reachable from phone browser; Stremio + Kodi work for 30+ min without throttle (`vcgencmd measure_temp`)
-
-### Phase 0 deliverable
-
-Checklist file `docs/phase0-checklist.md` (create when starting) — all items green before writing app code.
-
----
-
-## Phase 1 — UI shell (~1 week)
-
-**Goal:** Boot to our launcher; launch Stremio/Kodi; Back returns home; overlay visible.
-
-### 1.1 Tech choices (see QA decisions)
-
-| Piece | Recommendation | Rationale |
-|-------|----------------|-----------|
-| Launcher | **Vite + vanilla TS** or small React | Fast 10-foot UI; tile focus with keyboard events |
-| App control | **shell scripts + wmctrl/xdotool** | Launch/kill/focus Stremio & Kodi |
-| Overlay | **Second Chromium** `--app=http://localhost:3002` `--always-on-top` | Simplest on X11 Openbox |
-| Static server | **Python `http.server` or FastAPI** | Serve launcher + overlay + companion from one process later |
-
-### 1.2 `src/launcher/`
-
-- Fullscreen kiosk: `chromium --kiosk http://127.0.0.1:3000`
-- Tiles: Stremio · YouTube · Settings
-- Keyboard: arrows move focus, Enter activates
-- Settings page: show Pi IP, companion URL, placeholder for API keys
-
-### 1.3 App launcher scripts (`scripts/launch-*.sh`)
-
-```
-launch-stremio.sh   → wmctrl -F Stremio || stremio &
-launch-kodi.sh      → kodi --standalone &
-launch-launcher.sh  → focus chromium kiosk window
-```
-
-- **Back (Escape):** global Openbox keybind → `launch-launcher.sh`
-- Hide launcher window when app opens (minimize, don't kill)
-
-### 1.4 `src/overlay/`
-
-- Minimal page: state badge (idle only for now)
-- WebSocket client → orchestrator (stub in Phase 1)
-- Position: bottom-right, transparent background, no window decorations
-
-### 1.5 systemd (initial)
-
-- `mango-launcher.service` — X11 session autostart Openbox + chromium kiosk + overlay
-- Kodi/Stremio **not** systemd — on-demand from launcher
-
-**Exit criteria:** Design doc success criteria #1, #2, #10 (gamepad only, no voice).
+Orchestration rules remain locked in [`DECISIONS.md`](DECISIONS.md) and [`PHASE0.md`](PHASE0.md).
 
 ---
 
@@ -181,7 +118,7 @@ Companion served at `https://<pi-ip>:3001` after cert setup.
 
 - PWA: hold-to-talk button (touchstart/touchend)
 - Stream audio chunks over WebSocket to orchestrator
-- D-pad sends key events (Phase 1 can stub; wire in 2.4)
+- D-pad sends key events (wire in 2.4)
 - Show transcript + connection status
 
 ### 2.4 Audio flow
@@ -199,6 +136,7 @@ Phone mic → WebSocket (binary PCM 16kHz mono)
 
 - States: idle → listening → thinking → speaking
 - Toast last assistant reply (8s)
+- Re-enable overlay on Pi when voice ships (`MANGO_SKIP_OVERLAY=0`)
 
 **Exit criteria:** General chat works from couch; overlay reflects state; TTS on TV speakers.
 
@@ -211,7 +149,7 @@ Phone mic → WebSocket (binary PCM 16kHz mono)
 ### 3.1 `src/stremio-service/` (Node + Express)
 
 - Wrap `@stremio/stremio-core-web` or HTTP bridge to stremio-core
-- Endpoints: `/search`, `/play` (returns deep link), `/library`, `/recommend` (catalog + LLM pre-rank in orchestrator)
+- Endpoints: `/search`, `/play` (returns deep link), `/library`, `/recommend`
 - Auth: read token from `/etc/mango/stremio.json` (export from desktop login — document manual step)
 
 ### 3.2 `src/adapters/`
@@ -240,7 +178,7 @@ Phone mic → WebSocket (binary PCM 16kHz mono)
 
 - `vcgencmd measure_temp`, `df`, `curl` Kodi ping, stremio-service health, companion WS test
 
-**Exit criteria:** Design doc Core #3–#9.
+**Exit criteria:** DESIGN.md Core #3–#9.
 
 ---
 
@@ -251,7 +189,7 @@ Phone mic → WebSocket (binary PCM 16kHz mono)
 - Stremio context via library sync (approximate)
 - Voice watch-later verification in desktop app
 
-**Exit criteria:** Design doc Stretch #11–#14.
+**Exit criteria:** DESIGN.md Stretch #11–#14.
 
 ---
 
@@ -261,10 +199,11 @@ Phone mic → WebSocket (binary PCM 16kHz mono)
 - First-boot wizard in Settings (LLM key, Kodi pass, companion QR)
 - Pin Kodi YouTube addon version in docs
 - stremio-web fallback script if .deb breaks on OS update
+- HDMI-CEC one-touch play (V2 per DESIGN.md)
 
 ---
 
-## Module dependency graph
+## Module dependency graph (target)
 
 ```
                     ┌─────────────┐
@@ -285,54 +224,31 @@ Phone mic → WebSocket (binary PCM 16kHz mono)
                       overlay (WS)
 ```
 
----
-
-## QA decisions (resolve before Phase 1 code)
-
-See interactive prompts in chat — summary recorded in `docs/DECISIONS.md` after answers.
-
-| # | Question | Default if no answer |
-|---|----------|----------------------|
-| 1 | LLM provider | Anthropic (configurable) |
-| 2 | Stremio install | fragarray .deb first |
-| 3 | Companion HTTPS | mkcert on Pi |
-| 4 | Launcher framework | Vite + vanilla TS |
-| 5 | Stretch timing | After Core passes |
-| 6 | Network | WiFi OK for V1 |
-| 7 | Gamepad mapping | antimicrox profiles |
+**Today:** only launcher + Stremio + Kodi + pad + `serve.py` are wired.
 
 ---
 
-## Risk register (pre-code)
+## Risk register (updated)
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
 | Phone mic blocked on HTTP | **High** | HTTPS via mkcert in Phase 2 |
 | Stremio .deb breaks on apt upgrade | Medium | Hold package; document version |
-| Gamepad not recognized | Medium | `jstest`, try different USB port, antimicrox |
-| Wayland left on by default | High | Phase 0 step 0.1 — verify x11 |
-| 8GB RAM with Chromium + Stremio + Kodi | Medium | One app foreground; kill Kodi when in Stremio |
+| **App switch kills sibling** | **High** | **hide-not-kill** — never `killall` on tile switch |
+| Refocus fail → wallpaper | **High** | Restore launcher on fail; orphan window cleanup |
+| Wayland left on by default | High | Phase 0 — verify `x11` |
+| RAM: Chromium + Stremio + Kodi warm | Medium | Hide background apps; one foreground |
 | stremio:// deep links don't work | Medium | xdotool keyboard search fallback |
 | YouTube addon API change | Medium | Pin version; diagnostics |
-
----
-
-## What we build first (sprint 1)
-
-**No orchestrator yet.** Week 1 sprint:
-
-1. Phase 0 checklist on real Pi (you + agent guiding commands)
-2. `scripts/launch-{stremio,kodi,launcher}.sh`
-3. Minimal launcher static page + chromium kiosk autostart
-4. Openbox keybind: Escape → launcher, gamepad verified
-
-**First PR:** `phase-0-checklist.md` + launcher skeleton + launch scripts.
+| False watchdog restart | Medium | `tv_pad` health; no repair on input mismatch |
 
 ---
 
 ## References
 
-- [DESIGN.md](DESIGN.md) — scope & success criteria
-- [HARDWARE.md](HARDWARE.md) — update after Phase 0 (gamepad-only)
-- [fragarray/stremio-rpi5](https://github.com/fragarray/stremio-rpi5) — Stremio for Pi 5
-- [config.example.yaml](../config/config.example.yaml)
+- [PHASE0.md](PHASE0.md) — ops, architecture, troubleshooting
+- [PHASE1.md](PHASE1.md) — launcher API
+- [DESIGN.md](DESIGN.md) — V1 scope & success criteria
+- [DECISIONS.md](DECISIONS.md) — locked choices
+- [HARDWARE.md](HARDWARE.md) — 8BitDo layout
+- `$mango-tv-box-expert` — launch polish KB

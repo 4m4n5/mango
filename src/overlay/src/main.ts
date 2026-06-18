@@ -6,10 +6,11 @@ connectStatusSocket();
 
 function connectStatusSocket(): void {
   try {
-    const socket = new WebSocket("ws://127.0.0.1:8765");
+    const socket = new WebSocket("ws://127.0.0.1:8765/ws");
     socket.addEventListener("message", (event: MessageEvent<string>) => {
-      if (label !== null && event.data.trim().length > 0) {
-        label.textContent = event.data.trim();
+      const text = parseOverlayText(event.data);
+      if (label !== null && text.length > 0) {
+        label.textContent = text;
       }
     });
     socket.addEventListener("close", () => {
@@ -25,4 +26,16 @@ function connectStatusSocket(): void {
       label.textContent = "idle";
     }
   }
+}
+
+function parseOverlayText(raw: string): string {
+  try {
+    const msg = JSON.parse(raw) as { type?: string; text?: string; state?: string };
+    if (msg.type === "status") {
+      return (msg.text ?? msg.state ?? "idle").trim();
+    }
+  } catch {
+    return raw.trim();
+  }
+  return "idle";
 }

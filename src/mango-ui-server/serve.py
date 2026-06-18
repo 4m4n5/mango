@@ -13,6 +13,7 @@ import os
 import socket
 import subprocess
 import sys
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -30,6 +31,8 @@ LAUNCH_SCRIPTS: Final = {
     "/api/launch/kodi": REPO_ROOT / "scripts" / "launch-kodi.sh",
     "/api/launch/launcher": REPO_ROOT / "scripts" / "launch-launcher.sh",
 }
+LAUNCH_DEBOUNCE_SEC: Final = 2.0
+_last_launch_at: dict[str, float] = {}
 
 
 def run_check(cmd: list[str]) -> bool:
@@ -52,8 +55,11 @@ def collect_health(port: int) -> dict[str, object]:
     chromium_ok = run_check(
         ["pgrep", "-f", f"chromium.*mango-launcher.*127.0.0.1:{port}/"]
     )
+    tv_pad = run_check(["pgrep", "-f", "mango-tv-pad.py"])
     remapper = "unknown"
-    if run_check(["systemctl", "is-active", "--quiet", "input-remapper"]):
+    if tv_pad:
+        remapper = "tv_pad"
+    elif run_check(["systemctl", "is-active", "--quiet", "input-remapper"]):
         remapper = "active"
     elif run_check(["systemctl", "is-active", "input-remapper"]):
         remapper = "inactive"
@@ -74,14 +80,16 @@ def collect_health(port: int) -> dict[str, object]:
         except (OSError, subprocess.TimeoutExpired):
             kodi = "down"
 
+    input_ok = remapper in ("active", "tv_pad")
     checks = {
         "launcher_dist": launcher_ok,
         "chromium": chromium_ok,
         "input_remapper": remapper,
+        "tv_pad": tv_pad,
         "openbox": openbox,
         "kodi_rpc": kodi,
     }
-    ok = launcher_ok and chromium_ok and remapper == "active" and openbox == "active"
+    ok = launcher_ok and chromium_ok and input_ok and openbox == "active"
     return {"ok": ok, "checks": checks}
 
 
@@ -117,6 +125,16 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         if not script.is_file():
             self._write_json({"ok": False, "error": f"missing script: {script}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
             return
+
+        action = path.removeprefix("/api/launch/")
+        now = time.monotonic()
+        last = _last_launch_at.get(action, 0.0)
+        # Media apps may already be running — always allow refocus from the launcher.
+        if action not in ("stremio", "kodi") and now - last < LAUNCH_DEBOUNCE_SEC:
+            mango_log("api_launch", path=action, status="debounced")
+            self._write_json({"ok": True, "debounced": True})
+            return
+        _last_launch_at[action] = now
 
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         log_path = LOG_DIR / "mango-ui-launch.log"

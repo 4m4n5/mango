@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch Stremio with xdotool gamepad bridge (not input-remapper).
+# Cold-launch Stremio — hide Kodi, start pad (`mango-tv-pad.py`), present window.
 # Run on the Pi: bash scripts/phase0/launch-stremio.sh
 # Clean restart: bash scripts/phase0/reset-stremio.sh
 
@@ -16,7 +16,8 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 bash "$SCRIPT_DIR/connect-gamepad.sh"
 
-killall kodi kodi.bin 2>/dev/null || true
+# Keep Kodi alive in background when switching back from YouTube.
+bash "$SCRIPT_DIR/../lib/hide-media.sh" kodi 2>/dev/null || true
 
 if stremio_process_running; then
   bash "$SCRIPT_DIR/kill-stremio.sh" || true
@@ -27,15 +28,13 @@ stremio_ports_free || {
   exit 1
 }
 
-bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
-
 if ! command -v stremio &>/dev/null; then
   echo "! stremio not in PATH — bash scripts/phase0/install-stremio.sh"
   exit 1
 fi
 
 echo "Starting Stremio — D-pad = move, B = select, Y = back"
-echo "Using xdotool pad bridge (Stremio ignores input-remapper)"
+echo "Pad: mango-tv-pad.py (evdev → xdotool)"
 nohup stremio >"$LOG" 2>&1 &
 STREMIO_PID=$!
 echo "Stremio pid: $STREMIO_PID"
@@ -64,7 +63,7 @@ if ! $ready; then
 fi
 
 bash "$SCRIPT_DIR/start-stremio-pad-bridge.sh" || {
-  echo "! Pad bridge failed — Stremio may still open; check /tmp/mango-stremio-pad-bridge.log"
+  echo "! Pad start failed — check /tmp/mango-tv-pad.log"
 }
 
 focused=false

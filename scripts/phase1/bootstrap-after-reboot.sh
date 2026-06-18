@@ -28,6 +28,9 @@ openbox --reconfigure 2>/dev/null || true
 echo "=== mango UI ==="
 bash scripts/phase1/restart-mango-ui.sh
 
+echo "=== TV pad router ==="
+bash scripts/phase0/start-mango-tv-pad.sh || true
+
 echo "=== status ==="
 curl -s -o /dev/null -w "launcher HTTP: %{http_code}\n" http://127.0.0.1:3000/ || true
 systemctl is-active input-remapper 2>/dev/null || echo "input-remapper: inactive"

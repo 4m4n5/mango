@@ -20,7 +20,8 @@ WID=$(find_main_kodi_wid) || {
 present_kodi_tv "$WID" || true
 xdotool windowactivate "$WID" 2>/dev/null || true
 
-if ! kodi_youtube_ui_visible; then
+# Only open YouTube when explicitly launching Kodi, not on incidental focus.
+if [[ "${MANGO_KODI_OPEN_YOUTUBE:-}" == "1" ]] && ! kodi_youtube_ui_visible; then
   kodi_youtube_open || true
 fi
 

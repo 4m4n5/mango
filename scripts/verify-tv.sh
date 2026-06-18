@@ -71,7 +71,7 @@ for key in launcher_dist chromium input_remapper openbox; do
   var="CHK_${key^^}"
   val="${!var:-}"
   case "$val" in
-    true | active) pass "$key: $val" ;;
+    true | active | tv_pad) pass "$key: $val" ;;
     false | inactive | "") fail "$key: ${val:-missing}"; bump_fail ;;
     down | unknown) warn "$key: $val (non-fatal)" ;;
     *) warn "$key: $val" ;;

@@ -67,7 +67,10 @@ start_ui_server() {
 
 start_ui_server
 
-sleep 1
+for _ in $(seq 1 15); do
+  curl -sf --max-time 0.5 "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1 && break
+  sleep 0.1
+done
 
 if command -v chromium >/dev/null 2>&1; then
   CHROMIUM_BIN="chromium"
@@ -99,7 +102,7 @@ if ! pgrep -f "chromium.*--class=mango-launcher.*127.0.0.1:${PORT}/" >/dev/null 
     --kiosk \
     --app="http://127.0.0.1:${PORT}/" \
     >"$LOG_DIR/mango-launcher-chromium.log" 2>&1 &
-  sleep 1
+  sleep 0.25
 fi
 
 if [[ "${MANGO_SKIP_OVERLAY}" == "1" ]]; then
@@ -118,7 +121,7 @@ if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]] \
     >"$LOG_DIR/mango-overlay-chromium.log" 2>&1 &
 fi
 
-sleep 1
+sleep 0.25
 if command -v wmctrl >/dev/null 2>&1; then
   wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
   if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]]; then
@@ -134,6 +137,10 @@ fi
 
 bash scripts/lib/present-launcher.sh --quick 2>/dev/null || bash scripts/lib/present-launcher.sh 2>/dev/null || true
 
-bash scripts/launch-launcher.sh
+if pgrep -f mango-tv-pad.py >/dev/null 2>&1; then
+  MANGO_SKIP_REMAPPER=1 bash scripts/launch-launcher.sh
+else
+  bash scripts/launch-launcher.sh
+fi
 
 echo "mango UI running at http://127.0.0.1:${PORT}/"

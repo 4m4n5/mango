@@ -114,7 +114,8 @@ def send_key_to_stremio(symbol: str) -> None:
     wid = find_stremio_wid()
     if not wid:
         return
-    focus_stremio(wid)
+    if symbol != "Escape":
+        focus_stremio(wid)
     _xdotool("key", "--clearmodifiers", "--window", wid, symbol)
 
 
@@ -147,7 +148,7 @@ def main() -> None:
 
     def back() -> None:
         send_key_to_stremio("Escape")
-        popen_tv_user(["bash", str(PRESENT_STREMIO_SH)])
+        popen_tv_user(["bash", str(PRESENT_STREMIO_SH), "--after-back"])
 
     for event in dev.read_loop():
         if event.type == ecodes.EV_ABS:

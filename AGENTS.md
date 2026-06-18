@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md)
 
-Phase 0 + 1 **complete on device** — do not redo bring-up unless asked.
+Phase 0 + 1 + **1.5 complete on device**. **Phase 2 voice** in progress — do not redo bring-up unless asked.
 
 ## Read first
 
@@ -10,8 +10,12 @@ Phase 0 + 1 **complete on device** — do not redo bring-up unless asked.
 |-----|-----|
 | [**`docs/PHASE0.md`**](docs/PHASE0.md) | **Pi ops** — bring-up, architecture, gamepad, troubleshooting |
 | [`docs/PHASE1.md`](docs/PHASE1.md) | Launcher dev + API |
+| [**`docs/PHASE2.md`**](docs/PHASE2.md) | **Voice pipeline** (current) |
+| [`docs/PLAN.md`](docs/PLAN.md) | Full roadmap |
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | Pad diagram |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked choices |
+
+**TV box systems:** `$mango-tv-box-expert` · **Launcher visuals:** `$ux-design-expert`
 
 ## Pi
 
@@ -21,17 +25,15 @@ Phase 0 + 1 **complete on device** — do not redo bring-up unless asked.
 bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/phase1/restart-mango-ui.sh'
 ```
 
-One-time: `bash scripts/setup-mac-pi-ssh.sh` on Mac.
-
 ## Gamepad (locked)
 
 8BitDo Micro · **B**=`304` select · **Y**=`308` back · **⌂**=`316` home
 
-| App | Stack |
-|-----|--------|
-| Launcher, Kodi | `input-remapper` `mango-tv` |
-| Stremio | `stremio-pad-bridge.py` (Y → Escape) |
+| Surface | Input |
+|---------|--------|
+| Launcher, Stremio, Kodi | **`mango-tv-pad.py`** |
+| Fallback only | `input-remapper` `mango-tv` if pad fails |
 
-## Next
+## Next (Phase 2)
 
-Phase 2 per [`docs/PLAN.md`](docs/PLAN.md). Do not change gamepad/input stacks without user approval.
+Orchestrator `:8765` · companion HTTPS `:3001` · overlay re-enable when voice ships. See [`docs/PHASE2.md`](docs/PHASE2.md). Do not change pad/input stacks without user approval.
