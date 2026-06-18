@@ -20,6 +20,10 @@ if command -v npm >/dev/null 2>&1; then
   npm --prefix src/overlay run build
 fi
 
+# Always restart overlay Chromium so it loads fresh dist + WS URL.
+pkill -f "chromium.*mango-overlay.*127.0.0.1:${PORT}/overlay/" 2>/dev/null || true
+sleep 0.4
+
 if ! curl -sf --max-time 0.5 "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
   bash scripts/phase1/start-mango-ui.sh
   exit 0
@@ -37,25 +41,23 @@ fi
 LOG_DIR="${HOME}/.cache/mango"
 mkdir -p "$LOG_DIR"
 
-if ! pgrep -f "mango-overlay.*127.0.0.1:${PORT}/overlay/" >/dev/null 2>&1; then
-  OVERLAY_PROFILE="${HOME}/.cache/mango/chromium-overlay"
-  mkdir -p "$OVERLAY_PROFILE"
-  "$CHROMIUM_BIN" \
-    --no-first-run \
-    --no-default-browser-check \
-    --disable-infobars \
-    --disable-translate \
-    --noerrdialogs \
-    --disable-gpu \
-    --disable-gpu-compositing \
-    --user-data-dir="$OVERLAY_PROFILE" \
-    --class=mango-overlay \
-    --app="http://127.0.0.1:${PORT}/overlay/" \
-    --window-size=700,240 \
-    --window-position=560,820 \
-    >"$LOG_DIR/mango-overlay-chromium.log" 2>&1 &
-  sleep 0.6
-fi
+OVERLAY_PROFILE="${HOME}/.cache/mango/chromium-overlay"
+mkdir -p "$OVERLAY_PROFILE"
+"$CHROMIUM_BIN" \
+  --no-first-run \
+  --no-default-browser-check \
+  --disable-infobars \
+  --disable-translate \
+  --noerrdialogs \
+  --disable-gpu \
+  --disable-gpu-compositing \
+  --user-data-dir="$OVERLAY_PROFILE" \
+  --class=mango-overlay \
+  --app="http://127.0.0.1:${PORT}/overlay/" \
+  --window-size=700,240 \
+  --window-position=560,820 \
+  >"$LOG_DIR/mango-overlay-chromium.log" 2>&1 &
+sleep 0.6
 
 bash "$REPO_DIR/scripts/lib/present-overlay.sh" 2>/dev/null || true
 wmctrl -xa mango-launcher 2>/dev/null || true
