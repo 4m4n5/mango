@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1 Stremio — fast launch when idle; hide launcher only when TV-sized.
+# Phase 1 Stremio — hide launcher as soon as Stremio opens; present TV size in background.
 
 set -euo pipefail
 
@@ -11,6 +11,7 @@ WINDOW_SH="$REPO_DIR/scripts/lib/mango-window.sh"
 export DISPLAY=":0"
 export XAUTHORITY="/home/aman/.Xauthority"
 export HOME="/home/aman"
+export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-1}"
 
 # shellcheck source=phase0/lib/stremio-ports.sh
 source "$PHASE0/lib/stremio-ports.sh"
@@ -32,18 +33,33 @@ stremio_window_visible() {
   return 1
 }
 
-hide_if_tv_sized() {
-  if bash "$PHASE0/focus-stremio.sh" >/dev/null 2>&1; then
-    bash "$WINDOW_SH" hide
-    return 0
-  fi
-  echo "! Launcher stays visible — Stremio not TV-sized yet"
+focus_and_hide_stremio() {
+  bash "$PHASE0/start-stremio-pad-bridge.sh" || true
+  bash "$PHASE0/focus-stremio.sh" >/dev/null 2>&1 || true
+  bash "$WINDOW_SH" hide
+  # Keep resizing until TV-sized without blocking the UI thread.
+  (
+    for _ in $(seq 1 24); do
+      bash "$PHASE0/focus-stremio.sh" >/dev/null 2>&1 && exit 0
+      sleep 0.15
+    done
+  ) &
+}
+
+wait_for_stremio_window() {
+  local i
+  for i in $(seq 1 50); do
+    if stremio_window_visible; then
+      focus_and_hide_stremio
+      return 0
+    fi
+    sleep 0.15
+  done
   return 1
 }
 
 if stremio_window_visible; then
-  bash "$PHASE0/start-stremio-pad-bridge.sh" || true
-  hide_if_tv_sized || true
+  focus_and_hide_stremio
   trap - ERR
   exit 0
 fi
@@ -53,6 +69,19 @@ if stremio_process_running || stremio_port_busy; then
   stremio_ports_free || true
 fi
 
-bash "$PHASE0/launch-stremio.sh"
-hide_if_tv_sized || true
+bash "$PHASE0/launch-stremio.sh" &
+LAUNCH_PID=$!
+
+if ! wait_for_stremio_window; then
+  wait "$LAUNCH_PID" 2>/dev/null || true
+  if stremio_window_visible; then
+    focus_and_hide_stremio
+  else
+    echo "! Stremio window not detected"
+    exit 1
+  fi
+else
+  wait "$LAUNCH_PID" 2>/dev/null || true
+fi
+
 trap - ERR

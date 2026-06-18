@@ -15,7 +15,7 @@ WID=$(find_main_stremio_wid) || {
 
 present_stremio_tv "$WID" || true
 
-xdotool windowactivate --sync "$WID" 2>/dev/null || true
+xdotool windowactivate "$WID" 2>/dev/null || true
 eval "$(xdotool getwindowgeometry --shell "$WID" 2>/dev/null)" || WIDTH=800 HEIGHT=600
 CX=$((WIDTH / 2))
 CY=$((HEIGHT / 2))

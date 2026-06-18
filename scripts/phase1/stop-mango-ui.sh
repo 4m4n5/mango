@@ -21,5 +21,6 @@ fi
 
 pkill -f "chromium.*mango-launcher.*127.0.0.1:${PORT}/" 2>/dev/null || true
 pkill -f "chromium.*mango-overlay.*127.0.0.1:${PORT}/overlay/" 2>/dev/null || true
+sleep 0.5
 
 echo "mango UI stopped"

@@ -7,11 +7,17 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../lib/openbox-rc.sh
 source "$SCRIPT_DIR/../lib/openbox-rc.sh"
 
-MARKER_BEGIN="<!-- mango media tv v2 begin -->"
-MARKER_END="<!-- mango media tv v2 end -->"
-HOME_MARKER="<!-- mango home key v2 begin -->"
+MARKER_BEGIN="<!-- mango media tv v3 begin -->"
+MARKER_END="<!-- mango media tv v3 end -->"
+HOME_MARKER="<!-- mango home key v3 begin -->"
 
 SNIPPET="$MARKER_BEGIN
+  <application class=\"mango-launcher\">
+    <decor>no</decor>
+    <maximized>true</maximized>
+    <fullscreen>yes</fullscreen>
+    <focus>yes</focus>
+  </application>
   <application class=\"Stremio\">
     <decor>no</decor>
     <maximized>true</maximized>
@@ -27,12 +33,12 @@ SNIPPET="$MARKER_BEGIN
 $MARKER_END"
 
 HOME_SNIPPET="$HOME_MARKER
-    <keybind key=\"W-h\">
+    <keybind key=\"F12\">
       <action name=\"Execute\">
         <command>bash ~/mango/scripts/launch-launcher.sh</command>
       </action>
     </keybind>
-    <!-- mango home key v2 end -->"
+    <!-- mango home key v3 end -->"
 
 RC_FILE=$(ensure_mango_openbox_rc)
 echo "Using Openbox config: $RC_FILE"
@@ -51,6 +57,7 @@ end = sys.argv[4]
 text = path.read_text()
 
 for old_begin in (
+    "<!-- mango media tv v3 begin -->",
     "<!-- mango media tv v2 begin -->",
     "<!-- mango media tv begin -->",
     "<!-- mango stremio tv begin -->",
@@ -78,6 +85,7 @@ marker = sys.argv[3]
 text = path.read_text()
 
 for old in (
+    "<!-- mango home key v3 begin -->",
     "<!-- mango home key v2 begin -->",
     "<!-- mango home key begin -->",
 ):
@@ -92,5 +100,5 @@ if marker not in text:
 path.write_text(text)
 PY
 
-echo "Installed Stremio/Kodi TV rules + Super+h home keybind."
+echo "Installed Stremio/Kodi TV rules + F12 home keybind."
 echo "Run: openbox --reconfigure   (or reboot)"

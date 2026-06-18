@@ -40,8 +40,8 @@ cat >"$PRESET_FILE" <<'EOF'
   {"input_combination": [{"type": 1, "code": 547}], "target_uinput": "keyboard", "output_symbol": "Right"},
   {"input_combination": [{"type": 1, "code": 304}], "target_uinput": "keyboard", "output_symbol": "Return"},
   {"input_combination": [{"type": 1, "code": 308}], "target_uinput": "keyboard", "output_symbol": "BackSpace"},
-  {"input_combination": [{"type": 1, "code": 316}], "target_uinput": "keyboard", "output_symbol": "key(Super_L+h)"},
-  {"input_combination": [{"type": 1, "code": 311}], "target_uinput": "keyboard", "output_symbol": "key(Super_L+h)"}
+  {"input_combination": [{"type": 1, "code": 316}], "target_uinput": "keyboard", "output_symbol": "F12"},
+  {"input_combination": [{"type": 1, "code": 311}], "target_uinput": "keyboard", "output_symbol": "F12"}
 ]
 EOF
 
@@ -61,8 +61,6 @@ print(f"Autoload: {device} -> {preset}")
 PY
 
 ir_start_with_autoload "$DEVICE_NAME" "$PRESET_NAME"
-
-echo "=== mango-tv map applied (8BitDo Micro) ==="
 echo "  D-pad → move"
 echo "  B     → select"
 echo "  Y     → back (in app)"

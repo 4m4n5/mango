@@ -11,8 +11,21 @@ PID_DIR="${HOME}/.cache/mango"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
+# Phase 1 on Pi: overlay Chromium causes intermittent white-screen focus bugs.
+if [[ -z "${MANGO_SKIP_OVERLAY+x}" ]] && { [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; }; then
+  MANGO_SKIP_OVERLAY=1
+fi
+export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-0}"
+
 cd "$REPO_DIR"
 mkdir -p "$LOG_DIR" "$PID_DIR"
+
+bash scripts/lib/mango-desktop.sh hide 2>/dev/null || true
+bash scripts/lib/mango-cursor.sh hide 2>/dev/null || true
+if [[ ! -f "${HOME}/.config/mango/tv-cursor.ok" ]]; then
+  mkdir -p "${HOME}/.config/mango"
+  bash scripts/phase0/install-tv-cursor.sh 2>/dev/null && touch "${HOME}/.config/mango/tv-cursor.ok" || true
+fi
 
 build_ui_if_missing() {
   local app_dir="$1"
@@ -34,7 +47,9 @@ if [[ "${MANGO_REBUILD_UI:-}" == "1" ]]; then
 fi
 
 build_ui_if_missing "src/launcher"
-build_ui_if_missing "src/overlay"
+if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]]; then
+  build_ui_if_missing "src/overlay"
+fi
 
 if [[ -f "$PID_DIR/mango-ui-server.pid" ]] && kill -0 "$(cat "$PID_DIR/mango-ui-server.pid")" 2>/dev/null; then
   echo "mango UI server already running"
@@ -68,7 +83,7 @@ if [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; then
   chromium_pi_flags+=(--disable-gpu --disable-gpu-compositing)
 fi
 
-if ! pgrep -f "mango-launcher.*http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
+if ! pgrep -f "chromium.*--class=mango-launcher.*127.0.0.1:${PORT}/" >/dev/null 2>&1; then
   "$CHROMIUM_BIN" \
     "${chromium_common_flags[@]}" \
     "${chromium_pi_flags[@]}" \
@@ -76,9 +91,14 @@ if ! pgrep -f "mango-launcher.*http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
     --kiosk \
     --app="http://127.0.0.1:${PORT}/" \
     >"$LOG_DIR/mango-launcher-chromium.log" 2>&1 &
+  sleep 1
 fi
 
-if [[ "${MANGO_SKIP_OVERLAY:-}" != "1" ]] \
+if [[ "${MANGO_SKIP_OVERLAY}" == "1" ]]; then
+  pkill -f "chromium.*mango-overlay.*127.0.0.1:${PORT}/overlay/" 2>/dev/null || true
+fi
+
+if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]] \
   && ! pgrep -f "mango-overlay.*http://127.0.0.1:${PORT}/overlay/" >/dev/null 2>&1; then
   "$CHROMIUM_BIN" \
     "${chromium_common_flags[@]}" \
@@ -90,10 +110,10 @@ if [[ "${MANGO_SKIP_OVERLAY:-}" != "1" ]] \
     >"$LOG_DIR/mango-overlay-chromium.log" 2>&1 &
 fi
 
-sleep 2
+sleep 1
 if command -v wmctrl >/dev/null 2>&1; then
   wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
-  if [[ "${MANGO_SKIP_OVERLAY:-}" != "1" ]]; then
+  if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]]; then
     wmctrl -x -r mango-overlay -e 0,900,560,360,120 2>/dev/null \
       || wmctrl -r "mango overlay" -e 0,900,560,360,120 2>/dev/null \
       || true
@@ -103,6 +123,8 @@ if command -v wmctrl >/dev/null 2>&1; then
   fi
   wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
 fi
+
+bash scripts/lib/present-launcher.sh --quick 2>/dev/null || bash scripts/lib/present-launcher.sh 2>/dev/null || true
 
 bash scripts/launch-launcher.sh
 

@@ -1,102 +1,147 @@
-# Phase 0 — Pi TV box runbook
+# Phase 0 — Pi TV box
 
-**Status (2026-06):** Bring-up **complete** on device `mango` — Kodi + YouTube + Stremio, 8BitDo Micro in both apps. Remaining: optional stability soak, phone-on-LAN check, then **Phase 1** launcher.
+**Status:** Complete on `mango`. Phase 1 launcher is the daily UI — see [`PHASE1.md`](PHASE1.md) for launcher dev/API.
 
 | | |
 |--|--|
-| **Pi** | `aman@mango.local` · `10.0.0.174` · user `aman` |
-| **Repo on Pi** | `~/mango` (`git clone https://github.com/4m4n5/mango.git`) |
-| **Display** | X11 + Openbox (not Wayland) |
-| **Gamepad** | 8BitDo Micro · BT MAC `E4:17:D8:EB:00:44` · Switch mode → Linux name **Pro Controller** |
+| **Pi** | `aman@10.0.0.174` · SSH `mango` · `~/mango` |
+| **Display** | X11 + Openbox · `DISPLAY=:0` · `XAUTHORITY=/home/aman/.Xauthority` |
+| **Launcher** | `http://127.0.0.1:3000/` · Chromium class `mango-launcher` |
+| **Gamepad** | 8BitDo Micro · **Pro Controller** · MAC `E4:17:D8:EB:00:44` |
 
-Checklist: [`phase0-checklist.md`](phase0-checklist.md) · Scripts: [`../scripts/phase0/README.md`](../scripts/phase0/README.md)
+Checklist: [`phase0-checklist.md`](phase0-checklist.md) · Scripts: [`../scripts/README.md`](../scripts/README.md)
 
 ---
 
-## Daily use (one command)
+## Bring-up (Pi)
+
+After crash or unknown state:
 
 ```bash
 cd ~/mango && git pull
-bash scripts/phase0/tv.sh kodi      # YouTube via Kodi
-bash scripts/phase0/tv.sh stremio   # Stremio
+bash scripts/phase1/restart-mango-ui.sh
 ```
 
-`tv.sh` connects the pad, then launches the app with the correct gamepad stack.
+After **reboot** (press a pad button if BT is slow):
+
+```bash
+cd ~/mango && git pull
+bash scripts/phase1/bootstrap-after-reboot.sh
+```
+
+**From Mac (agent):** `bash scripts/setup-mac-pi-ssh.sh` once, then:
+
+```bash
+bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/phase1/restart-mango-ui.sh'
+```
 
 ---
 
-## Gamepad layout (canonical)
+## Daily use
 
-Face buttons on the **right cluster**, clockwise from **left**: **Y · X · A · B**
+1. Launcher tiles: **Stremio** · **YouTube**
+2. **B** (bottom) = select · **⌂** = home (~instant)
+3. In apps: D-pad · **B** select · **Y** back · **⌂** home
 
-```
-      X
-    Y   A
-      B
-```
+| Tile | Lands in |
+|------|----------|
+| Stremio | Stremio fullscreen + pad bridge |
+| YouTube | Kodi **Videos** window (YouTube addon), not Kodi home |
 
-| Button | Position | evdev | Action |
-|--------|----------|-------|--------|
-| D-pad | left side | ABS_X/Y | Navigate |
-| **Y** | left | `308` | **Back** |
-| **B** | bottom | `304` | **Select** |
-| X, A | top, right | `307`, `305` | unmapped |
-
-**Do not** assume Xbox naming (A=bottom confirm). On this pad **B is bottom** = select.
+CLI bypass: `bash scripts/phase0/tv.sh stremio` · `bash scripts/phase0/tv.sh kodi`
 
 ---
 
-## Two gamepad paths (do not mix)
+## Architecture
 
-| App | Mechanism | Why |
-|-----|-----------|-----|
-| **Kodi** | `input-remapper` preset `mango-tv` | Kodi accepts uinput keyboard |
-| **Stremio** | `stremio-pad-bridge.py` → xdotool | Qt WebEngine ignores remapper |
+```
+Chromium launcher ← input-remapper     serve.py :3000
+        │ POST /api/launch/*
+        ├─ launch-stremio.sh → phase0 + stremio-pad-bridge.py → Stremio
+        └─ launch-kodi.sh    → phase0 + Kodi JSON-RPC          → YouTube addon
+Home ⌂ → launch-launcher.sh (F12 via Openbox; bridge ungrab in Stremio)
+```
 
-**Stremio extras:** bridge runs as `sudo` (evdev grab), hides `/dev/input/js*` so Stremio cannot use native gamepad (which would map A=select). See `lib/gamepad-js.sh`.
+| Surface | Input |
+|---------|--------|
+| Launcher, Kodi | `input-remapper` preset `mango-tv` |
+| Stremio | `stremio-pad-bridge.py` → xdotool (Qt ignores remapper) |
 
-**Switching apps:** always use `tv.sh` / `launch-kodi.sh` / `reset-stremio.sh` — never bare `stremio &` twice (zombie ports).
+**TV window helpers** (`scripts/lib/`): `present-*.sh`, `mango-window.sh` (Chromium ignores `wmctrl hidden` — use z-order `below`), `mango-desktop.sh` (lxpanel), `mango-cursor.sh`.
+
+**Pi:** `MANGO_SKIP_OVERLAY=1` — overlay Chromium caused white-screen bugs.
+
+**YouTube:** RPC `ExecuteAddon` → poll Kodi window id **10025** (Videos). Warm start skips `killall kodi` when RPC is up. Client: `phase0/lib/kodi-rpc.sh` (Python JSON; bash params must be quoted).
+
+**Never** use `xdotool windowactivate --sync` on Openbox (~15s hang).
+
+---
+
+## Gamepad (locked)
+
+Face cluster, clockwise from **left**: **Y · X · A · B** — diagram in [`HARDWARE.md`](HARDWARE.md).
+
+| Button | evdev | Launcher / Kodi | Stremio |
+|--------|-------|-----------------|---------|
+| **B** bottom | `304` | Select | Select |
+| **Y** left | `308` | BackSpace | **Escape** |
+| **⌂** | `316` / `311` | F12 → launcher | `launch-launcher.sh` |
+
+Do **not** use Xbox “A = bottom confirm”. Never bare `stremio &` twice (zombie ports).
 
 ---
 
 ## YouTube (Kodi)
 
-Requires **personal Google API keys** (lists fail without them).
+Keys on Pi only: `~/.config/mango/youtube-api.json` → `set-youtube-api-keys.sh`
 
-```bash
-# Keys live on Pi only — never commit
-nano ~/.config/mango/youtube-api.json   # api_key, client_id, client_secret
-bash scripts/phase0/set-youtube-api-keys.sh
-bash scripts/phase0/tv.sh kodi
-# YouTube addon → Sign in (device code on Mac)
-```
-
-Full install/repair: [`kodi-youtube-setup.md`](kodi-youtube-setup.md)
-
-**Kodi JSON-RPC:** user `mango`, port `8080`, password on Pi only (`kodi-enable-rpc.sh`, `test-kodi-rpc.sh`).
+Install/repair: [`kodi-youtube-setup.md`](kodi-youtube-setup.md) · RPC: user `mango`, port `8080` (`kodi-enable-rpc.sh`)
 
 ---
 
 ## Stremio
 
-```bash
-bash scripts/phase0/tv.sh stremio
-```
+`bash scripts/phase0/reset-stremio.sh` · `focus-stremio.sh` if pad dead · `kill-stremio.sh` for zombies
 
-Log in / addons with mouse if needed. Gamepad: D-pad · **B** select · **Y** back (Stremio window must be focused).
-
-If pad dead: `bash scripts/phase0/focus-stremio.sh` · log: `/tmp/mango-stremio-pad-bridge.log`
-
-Clean restart: `bash scripts/phase0/reset-stremio.sh` (kills zombies on ports 11470/12470/11471/7000).
+Log: `/tmp/mango-stremio-pad-bridge.log`
 
 ---
 
-## After reboot
+## Scripts (index)
+
+| Path | Purpose |
+|------|---------|
+| `phase1/restart-mango-ui.sh` | **Bring-up** after crash |
+| `phase1/bootstrap-after-reboot.sh` | **Bring-up** after reboot |
+| `launch-launcher.sh` | Home |
+| `launch-stremio.sh` / `launch-kodi.sh` | API wrappers |
+| `phase0/tv.sh` | CLI launch |
+| `pi-exec.sh` | Mac → Pi |
+
+Phase 0 detail: [`../scripts/phase0/README.md`](../scripts/phase0/README.md)
+
+---
+
+## Deploy (Mac → Pi)
 
 ```bash
-# Press any button on the pad, then:
-bash scripts/phase0/connect-gamepad.sh
-bash scripts/phase0/gamepad-fresh-start.sh   # if /dev/input/event* missing
+bash scripts/pi-exec.sh 'cd ~/mango && git pull'    # after commit
+rsync -avR scripts/ aman@mango:~/mango/             # fast iterate
+```
+
+Never commit: `keys/`, `youtube-api.json`, Kodi RPC password.
+
+---
+
+## Verification
+
+```bash
+curl -s http://127.0.0.1:3000/api/info
+export DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority
+xdotool getwindowname "$(xdotool getactivewindow)"   # "mango launcher"
+systemctl is-active input-remapper
+source ~/mango/scripts/phase0/lib/kodi-rpc.sh
+kodi_rpc GUI.GetProperties '{"properties":["currentwindow"]}'   # 10025 = YouTube UI
 ```
 
 ---
@@ -105,28 +150,27 @@ bash scripts/phase0/gamepad-fresh-start.sh   # if /dev/input/event* missing
 
 | Symptom | Fix |
 |---------|-----|
-| D-pad dead in Kodi | `bash scripts/phase0/map-pro-controller.sh` → `tv.sh kodi` |
-| Stremio pad dead | `reset-stremio.sh` → `focus-stremio.sh` |
-| Wrong face buttons | Re-read layout above; `git pull` (B=`304`, Y=`308`) |
-| Stremio A selects not B | Native js not hidden — `reset-stremio.sh` |
-| YouTube lists error | API keys — `diagnose-kodi-youtube.sh`, `kodi-youtube-setup.md` |
-| YouTube sign-in loops | `reset-youtube-login.sh` |
-| Stremio won't start / ports busy | `kill-stremio.sh` then `reset-stremio.sh` |
-| SSH threading tracebacks | Harmless Py3.13 + input-remapper; suppressed via `lib/irctl.sh` |
+| Blank / stuck UI | `restart-mango-ui.sh` |
+| Launcher tiny / behind app | `scripts/lib/present-launcher.sh` |
+| ⌂ slow / D-pad dead | No `xdotool --sync` in repo; `launch-launcher.sh` |
+| YouTube → Kodi home | `kodi-rpc.sh` quoted JSON; poll window 10025 |
+| Stremio pad dead | `reset-stremio.sh` |
+| Y-back white hang in Stremio | Bridge sends Escape + `present-stremio.sh` |
+| lxpanel flash | `mango-desktop.sh hide` |
+| Kodi pad dead | `map-pro-controller.sh` |
+| Cursor visible | `sudo apt install -y unclutter-xfixes` · `install-tv-cursor.sh` |
+| SSH threading traceback | Harmless Py3.13 + input-remapper (`lib/irctl.sh`) |
+
+**Implementer pitfalls:** (1) bash `params="${2-}"` not `params=${2:-{}}` for JSON-RPC. (2) Chromium: stack media `above`, launcher `below`. (3) Pad bridge needs passwordless sudo for evdev.
 
 ---
 
-## First-time Pi (reference)
+## First-time Pi
 
-1. Raspberry Pi Imager → Pi 5 → **Pi OS Desktop 64-bit** → hostname `mango`, SSH on.
-2. `ssh aman@mango.local` · `git clone https://github.com/4m4n5/mango.git`
+1. Imager → Pi 5 → Pi OS Desktop 64-bit → hostname `mango`, SSH on.
+2. `git clone https://github.com/4m4n5/mango.git`
 3. `bash scripts/phase0/bootstrap.sh` · `switch-to-x11.sh` · reboot
 4. `setup-8bitdo-bt.sh` · pair Micro (START+Y)
-5. Follow [`kodi-youtube-setup.md`](kodi-youtube-setup.md) · `install-stremio.sh`
-6. Verify with `tv.sh kodi` and `tv.sh stremio`
-
----
-
-## Phase 1 gate
-
-Phase 0 sign-off when checklist green → boot launcher in `src/`. See [`PLAN.md`](PLAN.md) § Phase 1.
+5. [`kodi-youtube-setup.md`](kodi-youtube-setup.md) · `install-stremio.sh`
+6. `bash scripts/phase1/install-openbox-autostart.sh`
+7. `bash scripts/phase1/bootstrap-after-reboot.sh`

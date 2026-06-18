@@ -24,9 +24,10 @@ hide_pro_controller_js() {
 
 restore_hidden_js() {
   [[ -f "$HIDDEN_JS_LIST" ]] || return 0
+  sudo -n true 2>/dev/null || return 0
   local js
   while read -r js; do
-    [[ -n "$js" && -e "$js" ]] && sudo chmod 660 "$js" 2>/dev/null || true
+    [[ -n "$js" && -e "$js" ]] && sudo -n chmod 660 "$js" 2>/dev/null || true
   done <"$HIDDEN_JS_LIST"
   rm -f "$HIDDEN_JS_LIST"
 }

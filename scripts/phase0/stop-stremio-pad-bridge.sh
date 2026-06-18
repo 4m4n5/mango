@@ -16,11 +16,13 @@ if [[ -f "$PIDFILE" ]]; then
 fi
 
 pkill -f stremio-pad-bridge.py 2>/dev/null || true
-sudo pkill -f stremio-pad-bridge.py 2>/dev/null || true
+sudo -n pkill -f stremio-pad-bridge.py 2>/dev/null || true
 
-# Legacy root-owned pid from older scripts
-sudo rm -f /tmp/mango-stremio-pad-bridge.pid 2>/dev/null || true
+sudo -n rm -f /tmp/mango-stremio-pad-bridge.pid 2>/dev/null || true
 
-restore_hidden_js
+# Restoring js* needs sudo; skip on ⌂ home — remapper uses evdev, not js.
+if [[ "${MANGO_SKIP_JS_RESTORE:-}" != "1" ]]; then
+  restore_hidden_js &
+fi
 
 echo "✓ Pad bridge stopped"

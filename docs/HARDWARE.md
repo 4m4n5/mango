@@ -24,7 +24,7 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 | Label | Position | Linux evdev | Action (Kodi + Stremio) |
 |-------|----------|-------------|---------------------------|
-| **Y** | left | `308` (BTN_WEST) | **In-app back** |
+| **Y** | left | `308` (BTN_WEST) | **In-app back** (Stremio: Escape; Kodi: BackSpace) |
 | **X** | top | `307` (BTN_NORTH) | — |
 | **A** | right | `305` (BTN_EAST) | — |
 | **B** | bottom | `304` (BTN_SOUTH) | **Select** |
@@ -88,4 +88,4 @@ See [`PHASE0.md`](PHASE0.md) for full runbook.
 
 Unstable 2.4G dongle — replaced by 8BitDo Micro.
 
-Details: [`GETTING-STARTED.md`](GETTING-STARTED.md) · [`phase0-checklist.md`](phase0-checklist.md)
+Details: [`PHASE0.md`](PHASE0.md) · [`phase0-checklist.md`](phase0-checklist.md)

@@ -56,7 +56,7 @@ for _ in $(seq 1 30); do
       fi
     done
   fi
-  sleep 0.4
+  sleep 0.2
 done
 
 if ! $ready; then
@@ -68,12 +68,12 @@ bash "$SCRIPT_DIR/start-stremio-pad-bridge.sh" || {
 }
 
 focused=false
-for _ in $(seq 1 16); do
+for _ in $(seq 1 20); do
   if bash "$SCRIPT_DIR/focus-stremio.sh" 2>/dev/null; then
     focused=true
     break
   fi
-  sleep 0.4
+  sleep 0.15
 done
 
 if $focused; then

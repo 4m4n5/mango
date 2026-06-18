@@ -8,7 +8,10 @@ Run on the Pi from `~/mango`. Full context: [`docs/PHASE0.md`](../../docs/PHASE0
 |--------|---------|
 | **`tv.sh`** `kodi\|stremio` | Connect pad + launch app (use this) |
 | `connect-gamepad.sh` | BT connect 8BitDo Micro |
-| `launch-kodi.sh` | Kodi + input-remapper |
+| `launch-kodi.sh` | Kodi + remapper + YouTube RPC |
+| `open-kodi-youtube.sh` | Open YouTube addon (window 10025) |
+| `focus-kodi.sh` / `present-kodi.sh` | TV focus + fullscreen |
+| `lib/kodi-rpc.sh` | JSON-RPC client |
 | `reset-stremio.sh` | Kill zombies + Stremio + pad bridge + focus |
 | `launch-stremio.sh` | Stremio only (prefer `reset-stremio.sh`) |
 
