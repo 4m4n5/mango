@@ -33,7 +33,8 @@ fi
 mkdir -p "$(dirname "$SOCKET")"
 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
 
-echo "mpv-play: $URL"
+URL_LABEL="$(python3 -c 'from urllib.parse import urlparse; import sys; u=urlparse(sys.argv[1]); print(f"{u.scheme}://{u.netloc}/<redacted>")' "$URL" 2>/dev/null || echo "http(s)://<redacted>")"
+echo "mpv-play: $URL_LABEL"
 START_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
 
 mpv --fs --idle=no --keep-open=no \
