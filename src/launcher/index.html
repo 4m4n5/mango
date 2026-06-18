@@ -3,30 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>mango launcher</title>
+    <title>mango</title>
   </head>
   <body style="margin:0;background:#050608">
-    <main id="app" class="shell" aria-label="mango launcher">
-      <section id="home-view" class="view">
-        <header class="masthead">
+    <main id="app" class="shell" aria-label="mango">
+      <section id="home-view" class="view home">
+        <header class="masthead masthead--compact">
           <p class="eyebrow">mango</p>
           <h1>What do you want to watch?</h1>
         </header>
-        <section id="tiles" class="tiles" aria-label="Apps">
-          <button class="tile" type="button" data-action="stremio">
-            <span class="tile-kicker">Movies and shows</span>
-            <span class="tile-title">Stremio</span>
-          </button>
-          <button class="tile" type="button" data-action="kodi">
-            <span class="tile-kicker">Kodi add-on</span>
-            <span class="tile-title">YouTube</span>
-          </button>
-          <button class="tile" type="button" data-action="settings">
-            <span class="tile-kicker">System</span>
-            <span class="tile-title">Settings</span>
-          </button>
-        </section>
-        <p id="status" class="status" role="status">D-pad to move. B to select. ⌂ for home.</p>
+        <div id="rails" class="rails" aria-label="Browse"></div>
+        <p id="status" class="status" role="status">D-pad to browse. B to select. ⌂ for home.</p>
       </section>
 
       <aside id="voice-hud" class="voice-hud" data-state="idle" data-visible="false" aria-label="mango voice" aria-hidden="true">
@@ -65,11 +52,11 @@
             <dd id="launcher-url">http://10.0.0.174:3000</dd>
           </div>
           <div>
-            <dt>Companion placeholder</dt>
+            <dt>Companion</dt>
             <dd id="companion-url">https://10.0.0.174:3001</dd>
           </div>
         </dl>
-        <p class="settings-note">API keys arrive in Phase 2.</p>
+        <p class="settings-note">Voice keys live in /etc/mango on the Pi.</p>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>

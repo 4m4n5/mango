@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on device**. Couch sign-off partial — [`docs/PHASE2.md`](docs/PHASE2.md). **Active product work:** branch `feat/native-experience` ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)).
 
 ## Read first
 

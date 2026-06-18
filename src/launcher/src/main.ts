@@ -1,36 +1,42 @@
 import "./style.css";
+import { FocusGrid } from "./focus";
+import { buildHomeRails } from "./home";
 import { startVoiceHud } from "./voice-hud";
+import type { ApiInfo, AppCard, ContentCard, LaunchAction } from "./types";
 
-type LaunchAction = "stremio" | "kodi";
-type TileAction = LaunchAction | "settings";
-
-interface ApiInfo {
-  hostname: string;
-  ip: string;
-  launcher_port: number;
-  companion_port: number;
-}
-
-const tiles = Array.from(document.querySelectorAll<HTMLButtonElement>(".tile"));
 const homeView = mustGet<HTMLElement>("home-view");
+const railsEl = mustGet<HTMLElement>("rails");
 const settingsView = mustGet<HTMLElement>("settings-view");
 const statusEl = mustGet<HTMLElement>("status");
 const backButton = mustGet<HTMLButtonElement>("back-button");
 
-let selectedIndex = 0;
 let inSettings = false;
 let launchInFlight = false;
+
+const focusGrid = new FocusGrid((element) => {
+  element.classList.add("focused");
+  for (const row of focusGridRows) {
+    for (const item of row) {
+      if (item !== element) {
+        item.classList.remove("focused");
+      }
+    }
+  }
+});
+
+let focusGridRows: HTMLElement[][] = [];
 
 init();
 
 function init(): void {
-  tiles.forEach((tile, index) => {
-    tile.addEventListener("click", () => activateTile(tile));
-    tile.addEventListener("focus", () => setSelectedIndex(index));
+  focusGridRows = buildHomeRails(railsEl, {
+    onContentSelect: handleContentSelect,
+    onAppSelect: handleAppSelect,
   });
+  focusGrid.setRows(focusGridRows);
+
   backButton.addEventListener("click", showHome);
   document.addEventListener("keydown", handleKeydown);
-  setSelectedIndex(0);
   void loadInfo();
   startVoiceHud();
 }
@@ -44,46 +50,50 @@ function handleKeydown(event: KeyboardEvent): void {
     return;
   }
 
-  if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+  if (event.key === "ArrowRight") {
     event.preventDefault();
-    moveSelection(1);
+    focusGrid.moveCol(1);
     return;
   }
-  if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+  if (event.key === "ArrowLeft") {
     event.preventDefault();
-    moveSelection(-1);
+    focusGrid.moveCol(-1);
+    return;
+  }
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    focusGrid.moveRow(1);
+    return;
+  }
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    focusGrid.moveRow(-1);
     return;
   }
   if (event.key === "Enter" || event.key === " ") {
     event.preventDefault();
-    activateTile(tiles[selectedIndex]);
+    activateFocused();
   }
 }
 
-function moveSelection(delta: number): void {
-  const nextIndex = (selectedIndex + delta + tiles.length) % tiles.length;
-  setSelectedIndex(nextIndex);
+function activateFocused(): void {
+  const focused = focusGrid.focused;
+  if (focused === null) {
+    return;
+  }
+  focused.click();
 }
 
-function setSelectedIndex(index: number): void {
-  selectedIndex = index;
-  tiles.forEach((tile, tileIndex) => {
-    const selected = tileIndex === selectedIndex;
-    tile.classList.toggle("selected", selected);
-    tile.setAttribute("aria-selected", String(selected));
-  });
-  tiles[selectedIndex].focus({ preventScroll: true });
+function handleContentSelect(card: ContentCard, _railLabel: string): void {
+  setStatus(`${card.title} — catalog play ships next. Use Apps or voice for now.`);
 }
 
-function activateTile(tile: HTMLButtonElement): void {
-  const action = tile.dataset.action as TileAction | undefined;
-  if (action === "settings") {
+function handleAppSelect(app: AppCard): void {
+  if (app.action === "settings") {
     showSettings();
     return;
   }
-  if (action === "stremio" || action === "kodi") {
-    void launch(action);
-  }
+  void launch(app.action);
 }
 
 async function launch(action: LaunchAction): Promise<void> {
@@ -118,8 +128,8 @@ function showHome(): void {
   inSettings = false;
   settingsView.classList.add("hidden");
   homeView.classList.remove("hidden");
-  setSelectedIndex(selectedIndex);
-  setStatus("D-pad to move. B to select. ⌂ for home.");
+  focusGrid.restoreFocus();
+  setStatus("D-pad to browse. B to select. ⌂ for home.");
 }
 
 async function loadInfo(): Promise<void> {
