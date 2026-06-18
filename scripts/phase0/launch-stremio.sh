@@ -77,7 +77,7 @@ for _ in $(seq 1 16); do
 done
 
 if $focused; then
-  echo "✓ Stremio ready — try D-pad / B / Y (only while Stremio is focused)"
+  echo "✓ Stremio ready — D-pad / B select / Y back / + home"
 else
   echo "! Click Stremio on the TV, then: bash scripts/phase0/focus-stremio.sh"
 fi

@@ -17,5 +17,7 @@ bash "$SCRIPT_DIR/kodi-keyboard-only.sh" 2>/dev/null || true
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
-echo "Starting Kodi — D-pad = move, B = select, Y = back"
+echo "Starting Kodi — D-pad = move, B = select, Y = back, + = home"
 kodi &
+
+bash "$SCRIPT_DIR/open-kodi-youtube.sh"

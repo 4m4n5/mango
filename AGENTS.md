@@ -6,7 +6,23 @@
 
 ## Live Pi
 
-`aman@mango.local` · `10.0.0.174` · repo `~/mango`
+`aman@10.0.0.174` · `mango.local` (mDNS often flaky) · repo `~/mango`
+
+### Agent remote exec (Mac → Pi)
+
+Interactive SSH works for the user; agents need **passwordless** auth.
+
+1. **Once on Mac:** `bash scripts/setup-mac-pi-ssh.sh`
+2. **Once on Pi** (user’s open SSH session): paste the `authorized_keys` line the script prints
+3. **Verify:** `bash scripts/pi-exec.sh 'hostname && cd ~/mango && git rev-parse --short HEAD'`
+
+Then run Pi commands via:
+
+```bash
+bash scripts/pi-exec.sh 'bash ~/mango/scripts/phase0/verify-system.sh'
+```
+
+`ControlMaster` reuses an existing user SSH session when open. Host alias: `mango`.
 
 ## Daily commands
 

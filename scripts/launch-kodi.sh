@@ -17,6 +17,5 @@ restore_shell() {
 trap restore_shell ERR
 
 bash "$REPO_DIR/scripts/phase0/launch-kodi.sh"
-sleep 2
 bash "$WINDOW_SH" hide
 trap - ERR

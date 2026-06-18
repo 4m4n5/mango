@@ -25,10 +25,11 @@ if ! grep -qF "$MARKER" "$SSH_CONFIG" 2>/dev/null; then
 
 $MARKER
 Host mango mango-pi pi
-    HostName mango.local
+    HostName 10.0.0.174
     User aman
-    IdentityFile $KEY
+    IdentityFile ${HOME}/.ssh/id_ed25519_mango
     IdentitiesOnly yes
+    ConnectTimeout 10
     ControlMaster auto
     ControlPath ${HOME}/.ssh/control-%r@%h:%p
     ControlPersist 8h
@@ -37,7 +38,7 @@ Host mango mango-pi pi
 EOF
   echo "Appended mango host block to $SSH_CONFIG"
 else
-  echo "SSH config already has mango block"
+  echo "SSH config already has mango block (edit HostName to 10.0.0.174 if mango.local hangs)"
 fi
 
 PUB=$(cat "${KEY}.pub")
@@ -45,16 +46,19 @@ PUB=$(cat "${KEY}.pub")
 echo
 echo "=== Authorize this Mac on the Pi (one time) ==="
 echo
-echo "In your OPEN ssh session to the Pi, paste:"
+echo "SSH to the Pi (use IP if mango.local hangs):"
+echo "  ssh aman@10.0.0.174"
+echo
+echo "Then paste on the Pi:"
 echo
 echo "  mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$PUB' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo OK"
 echo
-echo "Then back on the Mac, test:"
+echo "Test from Mac:"
 echo "  bash scripts/pi-exec.sh 'hostname && pwd'"
 echo
 
 if ssh -o BatchMode=yes -o ConnectTimeout=8 mango 'echo authorized' 2>/dev/null; then
   echo "Already authorized — agent SSH works."
 else
-  echo "Waiting for you to paste the authorize line on the Pi..."
+  echo "Not authorized yet — paste the line above on the Pi."
 fi

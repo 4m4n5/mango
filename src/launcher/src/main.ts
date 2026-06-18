@@ -91,7 +91,7 @@ async function launch(action: LaunchAction): Promise<void> {
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
-    setStatus(`${label} is starting. Escape returns home.`);
+    setStatus(`${label} is starting. + button returns home.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
     setStatus(`Could not launch ${label}: ${message}`);
@@ -110,7 +110,7 @@ function showHome(): void {
   settingsView.classList.add("hidden");
   homeView.classList.remove("hidden");
   setSelectedIndex(selectedIndex);
-  setStatus("D-pad to move. B to select. Y to go back.");
+  setStatus("D-pad to move. B to select. + for home.");
 }
 
 async function loadInfo(): Promise<void> {

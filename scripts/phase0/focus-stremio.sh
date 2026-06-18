@@ -66,17 +66,18 @@ present_stremio_window() {
 
   if command -v xdotool &>/dev/null; then
     read -r screen_w screen_h < <(xdotool getdisplaygeometry 2>/dev/null || echo "1920 1080")
+    xdotool windowactivate --sync "$wid" 2>/dev/null || true
+    xdotool windowmove --sync "$wid" 0 0 2>/dev/null || true
+    xdotool windowsize --sync "$wid" "$screen_w" "$screen_h" 2>/dev/null || true
   fi
 
   if command -v wmctrl &>/dev/null; then
     wmctrl -i -r "$wid" -e "0,0,0,${screen_w},${screen_h}" 2>/dev/null || true
     wmctrl -i -r "$wid" -b add,maximized_vert,maximized_horz 2>/dev/null \
-      || wmctrl -r Stremio -b add,maximized_vert,maximized_horz 2>/dev/null \
+      || wmctrl -r "Stremio" -b add,maximized_vert,maximized_horz 2>/dev/null \
       || true
   fi
 
-  # Openbox maximize toggle; safe even if already maximized on TV.
-  xdotool key --window "$wid" alt+F10 2>/dev/null || true
   xdotool windowactivate --sync "$wid" 2>/dev/null || true
 }
 
