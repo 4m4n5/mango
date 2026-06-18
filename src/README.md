@@ -1,28 +1,37 @@
 # Source
 
-Phase 1 source is intentionally small and local-first.
+Native TV stack on `feat/native-experience`. Local-first; Pi deploy via git pull.
 
 | Path | Status | Purpose |
 |------|--------|---------|
-| `launcher/` | Phase 1 | Vite + vanilla TypeScript TV launcher |
-| `overlay/` | Removed in N0 | Historical Chromium overlay app deleted from runtime/build path |
-| `mango-ui-server/` | Phase 1 | Stdlib-only Python static server and launch API |
-| `orchestrator/` | Phase 2 / N0 | Voice, LLM, single WebSocket listener |
-| `companion/` | Phase 2 | Phone PWA |
-| `stremio-service/` | Deferred | Stremio catalog/library API |
-| `adapters/` | Deferred | Kodi RPC, Stremio deep links, window focus, TMDB |
+| `launcher/` | Shipped | TV UI shell + embedded voice HUD |
+| `mango-ui-server/` | Shipped | `serve.py` — static server + launch API |
+| `orchestrator/` | Shipped | Voice hub — WSS `:8765` + loopback `:8766` |
+| `companion/` | Shipped | Phone PWA (HTTPS `:3001`) |
+| **`catalog-service/`** | **N1** | stremio-core bridge → mpv (`:3020`) |
+| `overlay/` | Removed (N0) | Historical — not in build path |
+| `stremio-service/` | Superseded | Replaced by `catalog-service` |
+| `adapters/` | N3+ | Kodi RPC, window focus, LLM tools |
 
-Build launcher:
+## Build launcher
 
 ```bash
 cd src/launcher && npm install && npm run build
 ```
 
-Run the native base stack from the repo root:
+## Run stack (Pi)
 
 ```bash
 bash scripts/mango-stack.sh restart
+# N1 when ready:
+MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 ```
 
-See [PHASE1.md](../docs/PHASE1.md), [PHASE2.md](../docs/PHASE2.md), and
-[FOREGROUND.md](../docs/FOREGROUND.md) for the runbooks.
+## Docs
+
+| Topic | Doc |
+|-------|-----|
+| Launcher API | [PHASE1.md](../docs/PHASE1.md) |
+| Voice | [PHASE2.md](../docs/PHASE2.md) |
+| Foreground states | [FOREGROUND.md](../docs/FOREGROUND.md) |
+| catalog-service | [catalog-service/README.md](catalog-service/README.md) |

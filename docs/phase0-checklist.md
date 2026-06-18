@@ -1,6 +1,9 @@
 # Phase 0 — Checklist
 
-Runbook: [`PHASE0.md`](PHASE0.md)
+> **Archive:** Sign-off for **Phase 0–1.5 on `main`** (Stremio/Kodi tile flow).  
+> **Native branch:** use [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) gates (`gate-n0.sh`, `gate-n1-smoke.sh`) instead.
+
+Runbook: [PHASE0.md](PHASE0.md)
 
 ## OS & display
 
@@ -14,13 +17,13 @@ Runbook: [`PHASE0.md`](PHASE0.md)
 - [x] **`mango-tv-pad.py`** — launcher + Stremio + Kodi
 - [x] D-pad · **B** select · **Y** back · **⌂** home
 
-## Kodi + YouTube
+## Kodi + YouTube (legacy)
 
 - [x] Kodi + InputStream + YouTube addon (personal API keys)
 - [x] JSON-RPC `:8080` user `mango`
 - [x] YouTube tile opens addon (Videos window), not Kodi home
 
-## Stremio
+## Stremio (legacy fallback)
 
 - [x] Installed · login · pad via `mango-tv-pad.py`
 

@@ -1,36 +1,83 @@
 # mango
 
-AI + streaming TV box for **Raspberry Pi 5** — Stremio, YouTube (Kodi), voice from your phone.
+**TV box for Raspberry Pi 5** — browse and play in **mango**; watch in **mpv**; voice from your phone.
 
-## Status
+> **Active development:** [`feat/native-experience`](docs/NATIVE_EXPERIENCE.md) — TV-first home, Stremio addon graph, mpv playback.  
+> **Stable baseline:** Phase 0–2 on `main` (launcher + voice + hidden Stremio/Kodi fallback).
 
-**Phase 0 complete on Pi** — Kodi + YouTube + Stremio + 8BitDo gamepad verified. Next: stability sign-off → Phase 1 launcher.
+---
 
-**Runbook:** [`docs/PHASE0.md`](docs/PHASE0.md) · **Agents:** [`AGENTS.md`](AGENTS.md)
+## What mango is becoming
 
-## Daily (on Pi)
+| Layer | Native direction |
+|-------|------------------|
+| **TV UI** | Chromium launcher — browse rails, search, detail (N2+) |
+| **Catalog / streams** | `catalog-service` + Stremio addons (Cinemeta, Torrentio, AIOStreams) |
+| **Player** | **mpv** fullscreen — not Stremio/Kodi chrome |
+| **Voice** | Phone PTT → orchestrator → HUD on launcher (shipped) |
+| **Fallback** | Stremio desktop / Kodi YouTube — hidden, opt-in only |
+
+North star: *ask or browse in mango · watch in mpv · never wonder which app you're in.*
+
+---
+
+## Quick start (Pi)
 
 ```bash
 cd ~/mango && git pull
-bash scripts/phase0/tv.sh kodi
-bash scripts/phase0/tv.sh stremio
+bash scripts/mango-stack.sh restart          # launcher + voice (if MANGO_VOICE=1)
+bash scripts/phase-n0/gate-n0.sh             # base stack gate
 ```
 
-## Docs
+After reboot: `bash scripts/phase1/bootstrap-after-reboot.sh`
 
-| Doc | Purpose |
-|-----|---------|
-| [`docs/PHASE0.md`](docs/PHASE0.md) | **Pi runbook** — gamepad, apps, troubleshooting |
-| [`docs/HARDWARE.md`](docs/HARDWARE.md) | 8BitDo layout |
-| [`scripts/phase0/README.md`](scripts/phase0/README.md) | Script index |
-| [`docs/PLAN.md`](docs/PLAN.md) | Phases 1–5 |
-| [`docs/DESIGN.md`](docs/DESIGN.md) | V1 architecture |
+**SSH:** `mango` → `aman@10.0.0.174` · **Branch:** `feat/native-experience`
 
-## Layout
+---
+
+## Docs (humans)
+
+| Start here | |
+|------------|--|
+| [**docs/README.md**](docs/README.md) | **Doc index** — what to read when |
+| [NATIVE_EXPERIENCE.md](docs/NATIVE_EXPERIENCE.md) | Product vision + locked decisions |
+| [NATIVE_ROADMAP.md](docs/NATIVE_ROADMAP.md) | Implementation phases **N0–N7** |
+| [PHASE0.md](docs/PHASE0.md) | Pi ops, gamepad, troubleshooting |
+| [FOREGROUND.md](docs/FOREGROUND.md) | What’s visible: launcher \| mpv \| fallback |
+
+| Ops | |
+|-----|--|
+| [HARDWARE.md](docs/HARDWARE.md) | 8BitDo Micro layout |
+| [PHASE2.md](docs/PHASE2.md) | Voice pipeline setup |
+| [DECISIONS.md](docs/DECISIONS.md) | Locked choices |
+
+**Agents / automation:** [AGENTS.md](AGENTS.md)
+
+---
+
+## Repo layout
 
 ```
-docs/             PHASE0.md, HARDWARE, plan, design
-scripts/phase0/   tv.sh, launch-*, gamepad, YouTube, Stremio
-src/              Phase 1+ application code
-config/           example config → /etc/mango/ on Pi
+docs/                 human docs + native roadmap
+scripts/
+  mango-stack.sh      daily start/stop (native base stack)
+  phase-n1/             catalog + mpv spikes (N1)
+  phase0/               gamepad, Kodi, Stremio fallback
+src/
+  launcher/             TV UI shell
+  catalog-service/      Stremio-core bridge (N1+)
+  orchestrator/         voice hub
+  companion/            phone PWA
+config/                 examples → /etc/mango/ on Pi
 ```
+
+---
+
+## Branches
+
+| Branch | Use |
+|--------|-----|
+| `feat/native-experience` | **Active** — native UX, mpv, catalog-service |
+| `main` | Phase 0–2 couch stack; bugfixes |
+
+Deploy: **git only** — commit + push from Mac, `git pull` on Pi. Never commit secrets (`keys/`, `/etc/mango/`).

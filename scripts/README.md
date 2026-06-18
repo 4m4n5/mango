@@ -1,53 +1,83 @@
 # Scripts
 
-Ops: [`docs/PHASE0.md`](../docs/PHASE0.md).
+**Ops runbook:** [docs/PHASE0.md](../docs/PHASE0.md) · **Native roadmap:** [docs/NATIVE_ROADMAP.md](../docs/NATIVE_ROADMAP.md)
 
-## Pi bring-up
+---
+
+## Daily stack (native)
 
 | Script | When |
 |--------|------|
-| **`phase1/restart-mango-ui.sh`** | Crash / unknown state |
+| **`mango-stack.sh`** `start\|stop\|status\|restart` | Primary — launcher + voice + catalog (N1: `MANGO_CATALOG=1`) |
 | **`phase1/bootstrap-after-reboot.sh`** | After Pi reboot |
+| **`phase1/restart-mango-ui.sh`** | UI-only restart |
 
-## Mac → Pi
+**Gates:**
 
-`pi-exec.sh` · `setup-mac-pi-ssh.sh`
+```bash
+bash scripts/phase-n0/gate-n0.sh
+bash scripts/phase-n1/check-n1-prereqs.sh
+bash scripts/phase-n1/gate-n1-smoke.sh    # after N1 ships
+```
+
+---
+
+## Native N1 (catalog + mpv)
+
+| Script | Role |
+|--------|------|
+| `phase-n1/install-n1-prereqs.sh` | mpv, socat, node 20 |
+| `phase-n1/check-n1-prereqs.sh` | Prereq gate |
+| `phase-n1/setup-stremio-export.sh` | Normalize `/etc/mango/stremio-export.json` |
+| `phase-n1/import-stremio-local.py` | Import addons from desktop Stremio leveldb |
+| `phase-n1/spike-mpv-http.sh` | S0 — mpv IPC |
+| `phase-n1/spike-stremio-core.sh` | S1 — stremio-core boot |
+| `phase-n1/mpv-play.sh` / `mpv-stop.sh` / `mpv-ipc.sh` | mpv helpers |
+
+---
 
 ## Launch API (`serve.py`)
 
 | Script | Notes |
 |--------|-------|
-| `launch-launcher.sh` | Home · warm noop · debounced 2 s in API |
-| `launch-stremio.sh` | Refocus or cold · hide Kodi · flock |
-| `launch-kodi.sh` | Hide Stremio (`hide-media`) · present Kodi |
+| `launch-launcher.sh` | Home · debounced 2 s in API |
+| `launch-stremio.sh` | **Fallback** — `MANGO_FALLBACK_STREMIO=1` |
+| `launch-kodi.sh` | **Legacy** — `MANGO_LEGACY_YOUTUBE=1` |
 
 ## `lib/` — TV windows
 
 | Script | Role |
 |--------|------|
-| `hide-media.sh` | Stack Stremio/Kodi below without kill |
+| `hide-media.sh` | Stack apps below without kill |
 | `present-launcher.sh` | Launcher 1920×1080 |
 | `present-stremio.sh` | Fullscreen; `--after-back` = no F11 |
-| `present-kodi.sh` | Media fullscreen, hide lxpanel |
-| `mango-window.sh` | hide/show launcher (z-order; Chromium ignores `wmctrl hidden`) |
+| `present-kodi.sh` | Media fullscreen |
+| `mango-window.sh` | hide/show launcher z-order |
 | `mango-desktop.sh` | lxpanel |
 | `mango-cursor.sh` | Hide cursor |
 
-No `xdotool windowactivate --sync`.
+## Gamepad
+
+| Path | Role |
+|------|------|
+| `phase0/mango-tv-pad.py` | **Pad owner** — launcher · mpv · fallback |
+| `phase0/start-mango-tv-pad.sh` | Manual pad start |
+| `phase0/tv.sh` | CLI: stremio / kodi (legacy) |
+
+Details: [phase0/README.md](phase0/README.md)
+
+## Voice (Phase 2)
+
+`phase2/start-voice-stack.sh` · `setup-mkcert.sh` · `verify-voice-ready.sh` — [phase2/README.md](phase2/README.md)
 
 ## Diagnostics
 
 | Script | Role |
 |--------|------|
-| `diag/alpha-test.sh` | Couch test + session log on Pi |
+| `diag/alpha-test.sh` | Couch session log on Pi |
 | `diag/fetch-session.sh` | Pull session tarball to Mac |
-| `diag/print-runbook.sh` | Step list |
-| `verify-tv.sh` | Health gate (`tv_pad` OK) |
+| `verify-tv.sh` | Health gate |
 
-## Phase 0
+## Mac → Pi
 
-`phase0/tv.sh` · [`phase0/README.md`](phase0/README.md)
-
-## Phase 1
-
-`start-mango-ui.sh` · `stop-mango-ui.sh` · `install-openbox-autostart.sh` · `install-systemd-units.sh`
+`pi-exec.sh` · `setup-mac-pi-ssh.sh`

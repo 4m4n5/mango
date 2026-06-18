@@ -2,9 +2,11 @@
 
 **Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone · TV
 
+> **Native branch:** pad routes to **launcher**, **mpv** (N1+), and **fallback** Stremio/Kodi only. See [FOREGROUND.md](FOREGROUND.md).
+
 - **SD card:** flash on Mac via Imager, then insert in Pi underside slot
 - **Gamepad:** 8BitDo Micro — D-pad + XYAB only (no stick)
-- **Phone:** mic + companion app (later, over WiFi)
+- **Phone:** mic + companion app over WiFi (HTTPS `:3001`)
 
 ## 8BitDo Micro (Bluetooth)
 
@@ -22,9 +24,9 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
       B
 ```
 
-| Label | Position | Linux evdev | Action (Kodi + Stremio) |
-|-------|----------|-------------|---------------------------|
-| **Y** | left | `308` (BTN_WEST) | **In-app back** (Stremio: Escape; Kodi: BackSpace) |
+| Label | Position | Linux evdev | Action |
+|-------|----------|-------------|--------|
+| **Y** | left | `308` (BTN_WEST) | **Back** (in-app / mpv quit → launcher) |
 | **X** | top | `307` (BTN_NORTH) | — |
 | **A** | right | `305` (BTN_EAST) | — |
 | **B** | bottom | `304` (BTN_SOUTH) | **Select** |
@@ -50,10 +52,11 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 ### Remapping
 
-| App | Method |
-|-----|--------|
-| **Kodi** | `input-remapper` preset `mango-tv` (`map-pro-controller.sh`) |
-| **Stremio** | `stremio-pad-bridge.py` + hide `/dev/input/js*` (native gamepad would use A=confirm) |
+| Surface | Method |
+|---------|--------|
+| **Launcher + mpv + fallback apps** | **`mango-tv-pad.py`** — single pad owner |
+| **Legacy Kodi** | `input-remapper` preset `mango-tv` if pad fails to grab |
+| **Legacy Stremio** | `stremio-pad-bridge.py` when using fallback desktop app |
 
 ### After reboot or pad drop
 
@@ -80,11 +83,13 @@ If input still missing: `bluetoothctl disconnect E4:17:D8:EB:00:44` → press a 
 
 ```bash
 cd ~/mango && git pull
-bash scripts/phase0/tv.sh kodi
+bash scripts/mango-stack.sh restart    # native default
+# legacy fallback only:
 bash scripts/phase0/tv.sh stremio
+bash scripts/phase0/tv.sh kodi
 ```
 
-See [`PHASE0.md`](PHASE0.md) for full runbook.
+See [PHASE0.md](PHASE0.md) for full runbook.
 
 ### First-time pair
 

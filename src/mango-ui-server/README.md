@@ -1,14 +1,18 @@
 # mango UI server
 
-Phase 1 stdlib Python server.
+Stdlib Python static server + launch API. Part of the native base stack.
 
 ```bash
 python3 src/mango-ui-server/serve.py --host 127.0.0.1 --port 3000
 ```
 
-It serves:
+| Route | Notes |
+|-------|-------|
+| `/` | Launcher (Vite build) + embedded voice HUD |
+| `/api/health` | Stack health |
+| `/api/launch/{launcher,stremio,kodi}` | Home + **fallback** app launch |
+| `/overlay/` | 410 — overlay removed in N0 |
 
-- launcher at `/`
-- `/overlay/` returns 410 after N0; launcher HUD is the only default TV voice surface
-- fixed launch API at `/api/launch/{stremio,kodi,launcher}`
-- health at `/api/health`
+**Pi:** started by `mango-stack.sh` / `phase1/start-mango-ui.sh`
+
+Docs: [PHASE1.md](../../docs/PHASE1.md) · [FOREGROUND.md](../../docs/FOREGROUND.md)

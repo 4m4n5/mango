@@ -19,7 +19,7 @@
 | Native UX — TV-first browse + AI shell | **In progress** — `feat/native-experience` |
 | Media tools, LLM tool calling | Not started — Native UX N1 |
 
-**Today on device:** Chromium launcher with embedded voice HUD · `serve.py` · `mango-tv-pad.py` · hide-not-kill app switching · orchestrator + companion on Pi · Deepgram STT · UI-only replies (no TTS). Desktop Stremio/Kodi still primary browse surfaces — native overhaul is the next product bet.
+**Today on device (native branch):** Chromium launcher + embedded voice HUD · `mango-stack.sh` · `mango-tv-pad.py` · orchestrator + companion · **no** idle Stremio/Kodi/overlay · catalog + mpv in N1.
 
 ---
 

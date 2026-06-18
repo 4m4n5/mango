@@ -17,7 +17,7 @@ Locked choices. Update when changing behavior.
 | Layout | **Y · X · A · B** clockwise from left ([`HARDWARE.md`](HARDWARE.md)) |
 | Select / back | **B**=`304` · **Y**=`308` |
 | Home | `316`/`311` → `launch-launcher.sh` directly (`mango-tv-pad.py`) |
-| Pad owner | **`mango-tv-pad.py`** — single owner for launcher + Stremio + Kodi; never stop on app switch |
+| Pad owner | **`mango-tv-pad.py`** — launcher + mpv (N1) + fallback Stremio/Kodi |
 | Fallback | `input-remapper` `mango-tv` only if pad fails to grab |
 | Stremio Y-back | Escape to focused window — **no** `windowactivate` before key |
 
@@ -49,6 +49,8 @@ Locked choices. Update when changing behavior.
 | Foreground states | `launcher | mpv | fallback_stremio` ([`FOREGROUND.md`](FOREGROUND.md)) |
 | Chromium budget | One launcher kiosk only at idle; overlay Chromium removed from default runtime |
 | Fallback apps | Stremio via `MANGO_FALLBACK_STREMIO=1`; Kodi/YouTube via `MANGO_LEGACY_YOUTUBE=1` |
+| Player (N1+) | **mpv** fullscreen — not Stremio/Kodi chrome |
+| Catalog | `catalog-service` `:3020` · `@stremio/stremio-core-web` · addons from `/etc/mango/stremio-export.json` |
 
 Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.
 
@@ -60,7 +62,7 @@ Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.
 | Companion | Vite PWA · port **3001** · **HTTPS required** for phone mic |
 | TLS | **Approach A** — mkcert HTTPS companion + WSS orchestrator; trust root CA on phone once |
 | Orchestrator bind | `0.0.0.0:8765` on Pi for phone WSS; use `MANGO_ORCH_TLS=1` |
-| Voice WS | Phone and launcher HUD use the single orchestrator listener: `wss://<pi-or-loopback>:8765/ws` |
+| Voice WS | Phone: `wss://<pi>:8765/ws` · Launcher HUD: loopback `ws://127.0.0.1:8766/ws` (same process) |
 | Voice state | Orchestrator owns idle/listening/thinking/speaking; errors restore idle |
 | Audio payload | `ptt_end.pcm_b64` = 16 kHz mono int16 LE PCM, max 30s |
 | Phase 2 scope | Chat only — media tools in Native UX N1 |

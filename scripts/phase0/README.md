@@ -1,13 +1,21 @@
 # Phase 0 scripts
 
-Run on the Pi from `~/mango`. Full context: [`docs/PHASE0.md`](../../docs/PHASE0.md).
+Run on the Pi from `~/mango`. Full context: [docs/PHASE0.md](../../docs/PHASE0.md).
 
-## Daily
+> **Native branch:** daily stack is `mango-stack.sh`. Scripts here support **fallback** Stremio/Kodi and pad maintenance.
+
+## Daily (native)
 
 | Script | Purpose |
 |--------|---------|
-| **`tv.sh`** `kodi\|stremio` | Connect pad + launch app (use this) |
-| **`mango-tv-pad.py`** | **Primary pad** — launcher + Stremio + Kodi (via `start-mango-tv-pad.sh`) |
+| **`mango-tv-pad.py`** | **Pad owner** — launcher · mpv · fallback (via `start-mango-tv-pad.sh`) |
+| `start-mango-tv-pad.sh` | Idempotent pad start |
+
+## Legacy app launch
+
+| Script | Purpose |
+|--------|---------|
+| **`tv.sh`** `kodi\|stremio` | CLI launch (fallback env vars) |
 | `connect-gamepad.sh` | BT connect 8BitDo Micro |
 | `launch-kodi.sh` | Kodi + YouTube RPC · hides Stremio (`hide-media`) |
 | `open-kodi-youtube.sh` | Open YouTube addon (window 10025) |

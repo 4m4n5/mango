@@ -1,6 +1,8 @@
 # Kodi + YouTube — setup
 
-Context: [`PHASE0.md`](PHASE0.md) · Gamepad: **D-pad** move · **B** (`304`) select · **Y** (`308`) back.
+> **Legacy path:** Enable with `MANGO_LEGACY_YOUTUBE=1`. Native direction uses mpv + catalog-service — not Kodi tiles for daily use. See [NATIVE_EXPERIENCE.md](NATIVE_EXPERIENCE.md).
+
+Context: [PHASE0.md](PHASE0.md) · Gamepad: **D-pad** move · **B** (`304`) select · **Y** (`308`) back.
 
 ## Part 0 — InputStream Adaptive (fixes “19.0.0 cannot be satisfied”)
 
