@@ -24,6 +24,9 @@ echo
 
 SMOKE_ID="${MANGO_SMOKE_TITLE_ID:-tt0111161}"
 
+echo "--- prereqs ---"
+bash scripts/phase-n1/check-n1-prereqs.sh && pass "check-n1-prereqs" || fail "check-n1-prereqs"
+
 echo "--- S0 mpv HTTP ---"
 if [[ -x scripts/phase-n1/spike-mpv-http.sh ]]; then
   bash scripts/phase-n1/spike-mpv-http.sh && pass "spike-mpv-http" || fail "spike-mpv-http"
@@ -63,6 +66,8 @@ MPV_COUNT="$(pgrep -c -x mpv 2>/dev/null || echo 0)"
 if [[ -x scripts/phase-n1/mpv-stop.sh ]]; then
   bash scripts/phase-n1/mpv-stop.sh && pass "mpv-stop" || fail "mpv-stop"
 fi
+MPV_AFTER_STOP="$(pgrep -c -x mpv 2>/dev/null || echo 0)"
+[[ "${MPV_AFTER_STOP}" -eq 0 ]] && pass "mpv stopped" || fail "mpv still running after stop (${MPV_AFTER_STOP})"
 
 echo "--- N0 regression ---"
 bash scripts/phase-n0/gate-n0.sh && pass "gate-n0" || fail "gate-n0 regression"

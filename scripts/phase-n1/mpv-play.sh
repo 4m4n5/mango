@@ -44,7 +44,8 @@ echo $! >"${HOME}/.cache/mango/mpv.pid"
 
 for _ in $(seq 1 75); do
   if [[ -S "$SOCKET" ]]; then
-    PT="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property playback-time 2>/dev/null || echo 0)"
+    REPLY="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property playback-time 2>/dev/null || true)"
+    PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
       END_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
       echo "PASS: ttff_ms=$((END_MS - START_MS))"

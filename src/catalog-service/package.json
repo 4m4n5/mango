@@ -8,15 +8,16 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "echo 'N1: implement tsc build' && exit 1",
-    "start": "echo 'N1: implement node dist/index.js' && exit 1",
-    "dev": "echo 'N1: implement dev server' && exit 1",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "npm run build && node --watch dist/index.js",
     "spike:core": "node scripts/spike-core-boot.mjs"
   },
   "dependencies": {
     "@stremio/stremio-core-web": "0.59.0"
   },
   "devDependencies": {
+    "@types/node": "^20.14.0",
     "typescript": "^5.8.0"
   }
 }

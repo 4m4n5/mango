@@ -34,6 +34,8 @@ DEBOUNCE_SEC = 0.12
 REPO = _HOME / "mango"
 LAUNCHER_SH = REPO / "scripts/launch-launcher.sh"
 PRESENT_STREMIO_SH = REPO / "scripts/phase0/present-stremio.sh"
+MPV_IPC_SH = REPO / "scripts/phase-n1/mpv-ipc.sh"
+MPV_STOP_SH = REPO / "scripts/phase-n1/mpv-stop.sh"
 
 BTN_B = 304
 BTN_Y = 308
@@ -128,6 +130,8 @@ def is_launcher_focused() -> bool:
 def foreground_app() -> str:
     name, klass = active_window_meta()
     blob = f"{name} {klass}"
+    if "mpv" in blob:
+        return "mpv"
     if "stremio" in blob and "selection owner" not in blob:
         return "stremio"
     if "kodi" in blob:
@@ -197,6 +201,20 @@ def send_key_launcher(symbol: str) -> None:
     send_key_to_wid(wid, symbol, activate=False)
 
 
+def send_mpv_ipc(command: str, arg: str = "") -> None:
+    argv = ["bash", str(MPV_IPC_SH), command]
+    if arg:
+        argv.append(arg)
+    popen_tv_user(argv)
+
+
+def stop_mpv_home() -> None:
+    popen_tv_user(
+        ["bash", str(MPV_STOP_SH)],
+        extra_env={"MANGO_MPV_STOP_HOME": "1", "MANGO_SKIP_REMAPPER": "1"},
+    )
+
+
 def go_home() -> None:
     name, klass = active_window_meta()
     app = foreground_app()
@@ -210,6 +228,10 @@ def go_home() -> None:
         )
         return
     diag_event("home_press", foreground=app, active_name=name, active_class=klass)
+    if app == "mpv":
+        print("mango-tv-pad: home -> mpv-stop.sh + launcher", flush=True)
+        stop_mpv_home()
+        return
     print("mango-tv-pad: home -> launch-launcher.sh", flush=True)
     popen_tv_user(
         ["bash", str(LAUNCHER_SH)],
@@ -223,6 +245,8 @@ def route_dpad(app: str, direction: str) -> None:
         send_key_stremio(symbol)
     elif app == "kodi":
         send_key_kodi(symbol)
+    elif app == "mpv":
+        send_mpv_ipc("keypress", symbol.upper())
     elif app == "launcher":
         send_key_launcher(symbol)
 
@@ -234,6 +258,8 @@ def route_face(app: str, action: str) -> None:
             send_key_stremio(symbol)
         elif app == "kodi":
             send_key_kodi(symbol)
+        elif app == "mpv":
+            send_mpv_ipc("keypress", "SPACE")
         elif app == "launcher":
             send_key_launcher(symbol)
     elif action == "back":
@@ -242,6 +268,8 @@ def route_face(app: str, action: str) -> None:
             popen_tv_user(["bash", str(PRESENT_STREMIO_SH), "--after-back"])
         elif app == "kodi":
             send_key_kodi("BackSpace")
+        elif app == "mpv":
+            stop_mpv_home()
         elif app == "launcher":
             send_key_launcher("BackSpace")
 
