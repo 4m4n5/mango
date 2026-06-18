@@ -8,7 +8,17 @@ REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ORCH_DIR="$REPO_DIR/src/orchestrator"
 VENV="$ORCH_DIR/.venv"
 
-export MANGO_CONFIG="${MANGO_CONFIG:-/etc/mango/config.yaml}"
+if [[ -z "${MANGO_CONFIG:-}" ]]; then
+  if [[ -f /etc/mango/config.yaml ]]; then
+    export MANGO_CONFIG=/etc/mango/config.yaml
+  elif [[ -f "${HOME}/.config/mango/config.yaml" ]]; then
+    export MANGO_CONFIG="${HOME}/.config/mango/config.yaml"
+  else
+    export MANGO_CONFIG=/etc/mango/config.yaml
+  fi
+else
+  export MANGO_CONFIG
+fi
 
 cd "$ORCH_DIR"
 

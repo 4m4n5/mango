@@ -1,8 +1,8 @@
 # mango — agent entry point
 
-> Workspace: [`../AGENTS.md`](../AGENTS.md)
+> Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0 + 1 + **1.5 complete on device**. **Phase 2 voice slices 2.2-2.5** are implemented in repo; Pi audio/couch verification still required. Do not redo bring-up unless asked.
+Phase 0 + 1 + **1.5 complete on device**. **Phase 2 voice** is on Pi (orchestrator, companion, overlay); couch sign-off still open. Do not redo bring-up unless asked.
 
 ## Read first
 
@@ -63,4 +63,4 @@ log. Couch flows **C1–C4** in that script are still manual on TV.
 
 ## Next (Phase 2)
 
-Orchestrator `:8765` with `MANGO_ORCH_TLS=1` · companion HTTPS `:3001` · overlay opt-in with `MANGO_VOICE=1`. See [`docs/PHASE2.md`](docs/PHASE2.md). Do not change pad/input stacks without user approval.
+Voice stack: `bash scripts/phase2/start-voice-stack.sh` (tmux) · companion `https://<pi>:3001` · overlay via `~/.config/mango/voice.env`. See [`docs/PHASE2.md`](docs/PHASE2.md). Do not change pad/input stacks without user approval.

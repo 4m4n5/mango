@@ -84,8 +84,8 @@ show_mango_shell() {
     wmctrl -x -r mango-overlay -b remove,hidden 2>/dev/null || true
     wmctrl -r "mango overlay" -b remove,hidden 2>/dev/null || true
     if [[ -n "$owid" ]]; then
-      wmctrl -i -r "$owid" -e 0,900,560,360,120 2>/dev/null || true
-      wmctrl -i -r "$owid" -b add,sticky,above 2>/dev/null || true
+      bash "$script_dir/present-overlay.sh" 2>/dev/null || \
+        wmctrl -i -r "$owid" -e 0,900,560,360,120 2>/dev/null || true
     fi
   fi
 }

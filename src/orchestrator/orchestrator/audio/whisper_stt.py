@@ -9,7 +9,14 @@ from orchestrator.config import OrchestratorSettings
 
 _model_lock = Lock()
 _model: object | None = None
-_model_key: tuple[str, str, str] | None = None
+_model_key: tuple[str, str, str, str] | None = None
+
+
+def _whisper_language(settings: OrchestratorSettings) -> str | None:
+    lang = settings.whisper_language.strip().lower()
+    if lang in ("", "auto", "null", "none"):
+        return None
+    return lang
 
 
 def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
@@ -19,7 +26,7 @@ def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
     segments, _info = model.transcribe(
         samples,
         beam_size=1,
-        language="en",
+        language=_whisper_language(settings),
         vad_filter=True,
         condition_on_previous_text=False,
     )
@@ -31,7 +38,12 @@ def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
 
 def _load_model(settings: OrchestratorSettings) -> object:
     global _model, _model_key
-    key = (settings.whisper_model, settings.whisper_device, settings.whisper_compute_type)
+    key = (
+        settings.whisper_model,
+        settings.whisper_language,
+        settings.whisper_device,
+        settings.whisper_compute_type,
+    )
     with _model_lock:
         if _model is not None and _model_key == key:
             return _model

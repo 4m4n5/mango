@@ -114,6 +114,8 @@ def foreground_app() -> str:
         return "stremio"
     if "kodi" in blob:
         return "kodi"
+    if "mango-overlay" in klass or "mango overlay" in name:
+        return "launcher"
     if "mango-launcher" in blob or "mango launcher" in name:
         return "launcher"
     return "other"
@@ -170,9 +172,9 @@ def send_key_kodi(symbol: str) -> None:
 def send_key_launcher(symbol: str) -> None:
     wid = find_best_wid("mango-launcher", "mango")
     if not wid:
-        wid = _xdotool("getactivewindow").stdout.strip()
-    if wid and wid != "0":
-        send_key_to_wid(wid, symbol)
+        return
+    # Route keys without raising Chromium — overlay HUD must stay visible but not eat input.
+    send_key_to_wid(wid, symbol, activate=False)
 
 
 def go_home() -> None:

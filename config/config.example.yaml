@@ -2,13 +2,14 @@
 
 llm:
   provider: anthropic  # anthropic | openai
-  model: claude-sonnet-4-20250514  # or gpt-4o, etc.
+  model: claude-sonnet-4-6  # or gpt-4o, etc.
   api_key_file: /etc/mango/llm.key
 
 audio:
   input_mode: phone_websocket  # phone streams mic over LAN; no USB mic required
   max_utterance_seconds: 30
-  whisper_model: base.en
+  whisper_model: small  # multilingual (base = faster, small = better Hinglish/Hindi on Pi)
+  whisper_language: auto  # auto | hi | en — auto is best for Hinglish code-switching
   whisper_device: cpu
   whisper_compute_type: int8
   piper_voice: en_US-lessac-medium

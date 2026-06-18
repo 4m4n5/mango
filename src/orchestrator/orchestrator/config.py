@@ -20,6 +20,7 @@ class OrchestratorSettings:
     ssl_keyfile: str | None
     max_utterance_seconds: int
     whisper_model: str
+    whisper_language: str
     whisper_device: str
     whisper_compute_type: str
     piper_voice: str
@@ -60,7 +61,8 @@ def load_settings() -> OrchestratorSettings:
                 "MANGO_MAX_UTTERANCE_SECONDS", audio.get("max_utterance_seconds", 30)
             )
         )),
-        whisper_model=str(audio.get("whisper_model", "base.en")),
+        whisper_model=str(audio.get("whisper_model", "small")),
+        whisper_language=str(audio.get("whisper_language", "auto")),
         whisper_device=str(audio.get("whisper_device", "cpu")),
         whisper_compute_type=str(audio.get("whisper_compute_type", "int8")),
         piper_voice=str(audio.get("piper_voice", "en_US-lessac-medium")),

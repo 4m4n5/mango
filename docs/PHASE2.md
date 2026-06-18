@@ -82,6 +82,24 @@ Useful dev toggles:
 | `MANGO_ORCH_TLS=1` | Start orchestrator with mkcert TLS |
 | `MANGO_VOICE=1` | Opt Pi launcher startup into overlay Chromium |
 
+Persist voice on Pi with `~/.config/mango/voice.env`:
+
+```bash
+echo 'export MANGO_VOICE=1' > ~/.config/mango/voice.env
+chmod 600 ~/.config/mango/voice.env
+```
+
+`start-mango-ui.sh` and `launch-launcher.sh` source this file automatically.
+
+STT defaults (see `config.example.yaml`):
+
+| Setting | Default | Notes |
+|---------|---------|--------|
+| `whisper_model` | `small` | Multilingual; use `base` if CPU-bound |
+| `whisper_language` | `auto` | Best for Hinglish; use `hi` for mostly Hindi |
+
+LLM system prompt mirrors the user's language mix (English, Hindi, Hinglish).
+
 ## Pi setup
 
 ```bash
@@ -92,14 +110,14 @@ bash scripts/phase2/install-voice-deps.sh
 bash scripts/phase2/install-orchestrator-deps.sh
 bash scripts/phase2/download-piper-voice.sh
 
-sudo install -d -m 700 /etc/mango
+sudo install -d -m 700 -o aman -g aman /etc/mango
 sudo cp config/config.example.yaml /etc/mango/config.yaml
 sudo install -m 600 /dev/null /etc/mango/llm.key
 # Put the Anthropic or OpenAI API key into /etc/mango/llm.key on the Pi.
 
-MANGO_ORCH_TLS=1 bash scripts/phase2/start-orchestrator.sh
-bash scripts/phase2/serve-companion-https.sh
-MANGO_VOICE=1 bash scripts/phase1/restart-mango-ui.sh
+bash scripts/phase2/start-voice-stack.sh
+cp config/voice.env.example ~/.config/mango/voice.env
+bash scripts/phase1/restart-mango-ui.sh
 ```
 
 Open on phone: `https://10.0.0.174:3001`.
@@ -152,5 +170,6 @@ For phone dev, use mkcert and `bash scripts/phase2/serve-companion-https.sh` ins
 
 - V1 uses mkcert certs trusted on household phones; no reverse proxy yet.
 - `piper-tts` Python CLI is acceptable for Phase 2; a persistent Piper server can replace it if load time is too slow.
-- faster-whisper uses `base.en`, CPU, `int8`; first use may download/load the model.
+- faster-whisper uses multilingual `small`, CPU, `int8`, `whisper_language: auto` for Hinglish; first use downloads the model.
+- Voice overlay uses a separate Chromium profile + `present-overlay.sh` so the HUD stays 360×120 and does not steal pad focus.
 - Volume ducking is best-effort through `pactl`; if PulseAudio/PipeWire is absent, voice still works without ducking.

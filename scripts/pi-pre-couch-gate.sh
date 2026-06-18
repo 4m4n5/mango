@@ -117,10 +117,21 @@ fi
 # --- 7. Phase 2 (optional) ---
 echo "--- phase 2 (optional) ---"
 if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
+  orch_ok=0
   if curl -sf --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
+    orch_ok=1
+  elif curl -skf --max-time 2 https://127.0.0.1:8765/health >/dev/null 2>&1; then
+    orch_ok=1
+  fi
+  if (( orch_ok )); then
     pass "orchestrator /health"
   else
-    fail "MANGO_VOICE=1 but orchestrator down"
+    fail "MANGO_VOICE=1 but orchestrator down — bash scripts/phase2/start-voice-stack.sh"
+  fi
+  if curl -skf --max-time 2 https://127.0.0.1:3001/ >/dev/null 2>&1; then
+    pass "companion HTTPS :3001"
+  else
+    fail "companion HTTPS down — bash scripts/phase2/start-voice-stack.sh"
   fi
 else
   pass "voice stack not enabled (MANGO_VOICE≠1) — overlay skipped by design"

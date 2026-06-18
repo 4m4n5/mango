@@ -11,6 +11,11 @@ PID_DIR="${HOME}/.cache/mango"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
+if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${HOME}/.config/mango/voice.env"
+fi
+
 # Phase 1 on Pi: overlay Chromium caused intermittent white-screen focus bugs.
 # Phase 2 voice opts in explicitly after the orchestrator is running.
 if [[ -z "${MANGO_SKIP_OVERLAY+x}" && "${MANGO_VOICE:-0}" == "1" ]]; then
@@ -113,27 +118,26 @@ if [[ "${MANGO_SKIP_OVERLAY}" == "1" ]]; then
 fi
 
 if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]] \
-  && ! pgrep -f "mango-overlay.*http://127.0.0.1:${PORT}/overlay/" >/dev/null 2>&1; then
+  && ! pgrep -f "mango-overlay.*127.0.0.1:${PORT}/overlay/" >/dev/null 2>&1; then
+  OVERLAY_PROFILE="${HOME}/.cache/mango/chromium-overlay"
+  mkdir -p "$OVERLAY_PROFILE"
   "$CHROMIUM_BIN" \
     "${chromium_common_flags[@]}" \
     "${chromium_pi_flags[@]}" \
+    --user-data-dir="$OVERLAY_PROFILE" \
     --class=mango-overlay \
     --app="http://127.0.0.1:${PORT}/overlay/" \
     --window-size=360,120 \
     --window-position=900,560 \
     >"$LOG_DIR/mango-overlay-chromium.log" 2>&1 &
+  sleep 0.5
 fi
 
 sleep 0.25
 if command -v wmctrl >/dev/null 2>&1; then
   wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
   if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]]; then
-    wmctrl -x -r mango-overlay -e 0,900,560,360,120 2>/dev/null \
-      || wmctrl -r "mango overlay" -e 0,900,560,360,120 2>/dev/null \
-      || true
-    wmctrl -x -r mango-overlay -b add,sticky,above 2>/dev/null \
-      || wmctrl -r "mango overlay" -b add,sticky,above 2>/dev/null \
-      || true
+    bash "$REPO_DIR/scripts/lib/present-overlay.sh" 2>/dev/null || true
   fi
   wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
 fi
