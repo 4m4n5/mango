@@ -72,8 +72,8 @@ def main() -> None:
             send_key(symbol)
 
     btn_map = {
-        305: "Return",      # B
-        308: "BackSpace",   # Y
+        305: "Return",      # B (right) — select, same as Kodi
+        308: "BackSpace",   # left face (code 308) — back, same as Kodi
     }
 
     for event in dev.read_loop():

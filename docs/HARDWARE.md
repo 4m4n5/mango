@@ -19,7 +19,7 @@ Pair in **Switch mode** (hold START+Y). Linux names it **Pro Controller**.
 |--------|--------|
 | **D-pad** | Navigate (up / down / left / right) |
 | **B** (right) | Select |
-| **Y** (left) | Back |
+| **Left face** (code 308; doc often says Y) | Back |
 
 A and X are unmapped. Remapping is via `input-remapper` preset `mango-tv` (D-pad → arrow keys, B → Return, Y → BackSpace).
 
@@ -47,7 +47,7 @@ bash scripts/phase0/launch-stremio.sh   # Stremio
 Both launchers apply gamepad mapping automatically.
 
 - **Kodi** — `input-remapper` preset `mango-tv`
-- **Stremio** — `stremio-pad-bridge` (xdotool; Qt ignores remapper) — *verify after Stremio login*
+- **Stremio** — `stremio-pad-bridge` (xdotool; native `/dev/input/js*` hidden so layout matches Kodi: **B** select, **left face** back)
 
 ### First-time pair
 

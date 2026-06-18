@@ -4,6 +4,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/gamepad-js.sh
+source "$SCRIPT_DIR/lib/gamepad-js.sh"
+
 PIDFILE="${HOME}/.cache/mango/stremio-pad-bridge.pid"
 
 if [[ -f "$PIDFILE" ]]; then
@@ -16,5 +20,7 @@ sudo pkill -f stremio-pad-bridge.py 2>/dev/null || true
 
 # Legacy root-owned pid from older scripts
 sudo rm -f /tmp/mango-stremio-pad-bridge.pid 2>/dev/null || true
+
+restore_hidden_js
 
 echo "✓ Pad bridge stopped"

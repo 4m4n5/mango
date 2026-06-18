@@ -7,6 +7,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/irctl.sh
 source "$SCRIPT_DIR/lib/irctl.sh"
+# shellcheck source=lib/gamepad-js.sh
+source "$SCRIPT_DIR/lib/gamepad-js.sh"
 
 CACHE_DIR="${HOME}/.cache/mango"
 PIDFILE="${CACHE_DIR}/stremio-pad-bridge.pid"
@@ -23,6 +25,7 @@ if ! python3 -c "import evdev" 2>/dev/null; then
 fi
 
 ir_stop_service
+hide_pro_controller_js
 
 bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
 
