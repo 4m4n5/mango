@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-URL="${MANGO_SPIKE_MP4_URL:-http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_30fps_normal.mp4}"
+URL="${MANGO_SPIKE_MP4_URL:-https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4}"
 DURATION="${MANGO_SPIKE_SECONDS:-10}"
 SOCKET="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv-spike.sock}"
 

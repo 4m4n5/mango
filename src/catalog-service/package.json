@@ -10,9 +10,12 @@
   "scripts": {
     "build": "echo 'N1: implement tsc build' && exit 1",
     "start": "echo 'N1: implement node dist/index.js' && exit 1",
-    "dev": "echo 'N1: implement dev server' && exit 1"
+    "dev": "echo 'N1: implement dev server' && exit 1",
+    "spike:core": "node scripts/spike-core-boot.mjs"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@stremio/stremio-core-web": "0.59.0"
+  },
   "devDependencies": {
     "typescript": "^5.8.0"
   }
