@@ -66,12 +66,13 @@ present_stremio_window() {
 
   if command -v xdotool &>/dev/null; then
     read -r screen_w screen_h < <(xdotool getdisplaygeometry 2>/dev/null || echo "1920 1080")
-    wmctrl -i -r "$wid" -e "0,0,0,${screen_w},${screen_h}" 2>/dev/null || true
   fi
 
+  # Size for TV. Avoid wmctrl fullscreen — it can crash Qt Stremio on Pi.
   if command -v wmctrl &>/dev/null; then
-    wmctrl -i -r "$wid" -b add,maximized_vert,maximized_horz,fullscreen 2>/dev/null \
-      || wmctrl -r Stremio -b add,maximized_vert,maximized_horz,fullscreen 2>/dev/null \
+    wmctrl -i -r "$wid" -e "0,0,0,${screen_w},${screen_h}" 2>/dev/null || true
+    wmctrl -i -r "$wid" -b add,maximized_vert,maximized_horz 2>/dev/null \
+      || wmctrl -r Stremio -b add,maximized_vert,maximized_horz 2>/dev/null \
       || true
   fi
 
@@ -89,14 +90,14 @@ if [[ -z "$WID" ]]; then
   exit 1
 fi
 
-xdotool windowactivate --sync "$WID"
+xdotool windowactivate --sync "$WID" 2>/dev/null || true
 sleep 0.2
 
-eval "$(xdotool getwindowgeometry --shell "$WID")"
+eval "$(xdotool getwindowgeometry --shell "$WID" 2>/dev/null)" || WIDTH=800 HEIGHT=600
 CX=$((WIDTH / 2))
 CY=$((HEIGHT / 2))
-xdotool mousemove --window "$WID" "$CX" "$CY"
-xdotool click 1
+xdotool mousemove --window "$WID" "$CX" "$CY" 2>/dev/null || true
+xdotool click 1 2>/dev/null || true
 sleep 0.1
 
 present_stremio_window "$WID"

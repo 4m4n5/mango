@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Hide or show the Phase 1 Chromium launcher + overlay on the TV.
 
-set -euo pipefail
+set -u
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"

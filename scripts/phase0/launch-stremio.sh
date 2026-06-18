@@ -39,9 +39,14 @@ for _ in $(seq 1 40); do
     tail -20 "$LOG" 2>/dev/null || true
     exit 1
   fi
-  if command -v xdotool &>/dev/null && xdotool search --name '^Stremio$' 2>/dev/null | grep -q .; then
-    ready=true
-    break
+  if command -v xdotool &>/dev/null; then
+    for wid in $(xdotool search --name Stremio 2>/dev/null); do
+      name=$(xdotool getwindowname "$wid" 2>/dev/null || true)
+      if [[ "$name" == "Stremio" ]]; then
+        ready=true
+        break 2
+      fi
+    done
   fi
   sleep 0.5
 done
@@ -50,7 +55,9 @@ if ! $ready; then
   echo "! Stremio window not detected yet — continuing focus loop"
 fi
 
-bash "$SCRIPT_DIR/start-stremio-pad-bridge.sh"
+bash "$SCRIPT_DIR/start-stremio-pad-bridge.sh" || {
+  echo "! Pad bridge failed — Stremio may still open; check /tmp/mango-stremio-pad-bridge.log"
+}
 
 focused=false
 for _ in $(seq 1 24); do
