@@ -42,23 +42,23 @@ roadmap, foreground contract, N0 inventory, Pi ops, and pad router.
 
 | Spike | Date | Result | Notes |
 |-------|------|--------|-------|
-| S0 mpv HTTP | 2026-06-18 | PASS | Pi TTFF 1376 ms with byte-range HTTPS Big Buck Bunny MP4; original scaffold URL returned 403 |
-| S1 stremio-core | | | |
-| S2 meta+stream | | | |
-| S3 mpv RD | | | |
-| S4 catalog-service | | | |
-| S5 pad+home | | | |
-| S6 gate | | | |
+| S0 mpv HTTP | 2026-06-18 | PASS | Final gate TTFF 1312 ms with byte-range HTTPS Big Buck Bunny MP4; original scaffold URL returned 403 |
+| S1 stremio-core | 2026-06-18 | PASS | `@stremio/stremio-core-web` 0.59.0 booted on Pi; 5 addon manifests loaded |
+| S2 meta+stream | 2026-06-18 | PASS | `tt0111161` meta in 122 ms; 15 HTTP streams; stream resolve 8198 ms |
+| S3 mpv RD | 2026-06-18 | PASS | First AIOStreams RD HTTP stream played in mpv; TTFF 5231 ms |
+| S4 catalog-service | 2026-06-18 | PASS | `GET /health`, `/meta`, `/stream`, and `POST /play` pass; POST TTFF 5246 ms |
+| S5 pad+home | 2026-06-18 | PASS | Restarted `mango-tv-pad.service`; `foreground_app()` returned `mpv`; home restore 232 ms |
+| S6 gate | 2026-06-18 | PASS | `gate-n1-smoke.sh` exit 0 at `9202edf`; embedded N0 regression pass |
 
 ### Pinned smoke title
 
 | Field | Value |
 |-------|-------|
 | Type | `movie` |
-| Cinemeta ID | _(e.g. tt0111161)_ |
-| Title | |
-| Stream URL shape | RD HTTP |
-| TTFF ms | |
+| Cinemeta ID | `tt0111161` |
+| Title | The Shawshank Redemption (1994) |
+| Stream URL shape | RD HTTP via AIOStreams (URL redacted in logs) |
+| TTFF ms | 5231 direct mpv; 5246 via `POST /play` |
 
 ---
 
@@ -71,7 +71,7 @@ roadmap, foreground contract, N0 inventory, Pi ops, and pad router.
 | `mpv` + `socat` | PASS | mpv v0.40.0; socat present |
 | `node` ≥ 20 | PASS | v20.19.2 |
 | `/etc/mango/stremio-export.json` | PASS | 5 addons |
-| `check-n1-prereqs.sh` | PASS | Pi at `95880cd`, 2026-06-18T14:45:43-07:00 |
+| `check-n1-prereqs.sh` | PASS | Pi at `9202edf`, final gate 2026-06-18T15:15:19-07:00 |
 
 ---
 
@@ -79,12 +79,12 @@ roadmap, foreground contract, N0 inventory, Pi ops, and pad router.
 
 | Metric | Value |
 |--------|-------|
-| `gate-n1-smoke.sh` | |
-| `gate-n0.sh` | |
-| Stream resolve ms | |
-| Play TTFF ms | |
-| ⌂ home ms | |
-| catalog-service RSS MB | |
+| `gate-n1-smoke.sh` | PASS at `9202edf`, 2026-06-18T15:15:19-07:00 |
+| `gate-n0.sh` | PASS standalone at `9202edf`, 2026-06-18T15:16:02-07:00 |
+| Stream resolve ms | 8198 (`GET /stream/movie/tt0111161`) |
+| Play TTFF ms | 5231 direct mpv; 5246 via `POST /play`; final gate S0 smoke 1312 |
+| ⌂ home ms | 232 (`mpv` foreground → launcher) |
+| catalog-service RSS MB | 85-89 MB during S2/status checks |
 
 ---
 
@@ -98,7 +98,7 @@ roadmap, foreground contract, N0 inventory, Pi ops, and pad router.
 
 ## N1-C2 couch note (manual)
 
-- [ ] `POST /play` → film on TV
-- [ ] ⌂ → mango home
-- [ ] Voice PTT still works
-- [ ] No Stremio window during test
+- [x] `POST /play` → film on TV via mpv path (automated TTFF observed)
+- [x] ⌂/home path → mango home (`foreground_after launcher`, 232 ms)
+- [x] Voice stack regression passed (`gate-n0.sh` + `verify-voice-ready.sh`; phone PTT not physically pressed in this run)
+- [x] No Stremio window during test (`pgrep stremio` idle checks passed)
