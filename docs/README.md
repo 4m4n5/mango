@@ -6,6 +6,7 @@
 | [HARDWARE.md](HARDWARE.md) | 8BitDo Micro layout + evdev codes |
 | [phase0-checklist.md](phase0-checklist.md) | Sign-off checklist |
 | [kodi-youtube-setup.md](kodi-youtube-setup.md) | YouTube addon + Google API keys |
+| [GETTING-STARTED.md](GETTING-STARTED.md) | Short index → PHASE0 |
 | [tasks/](tasks/) | **Implementation task specs** (Phase 1+) |
 | [PLAN.md](PLAN.md) | Implementation phases |
 | [DESIGN.md](DESIGN.md) | V1 spec |
