@@ -14,7 +14,8 @@
     "spike:core": "node scripts/spike-core-boot.mjs"
   },
   "dependencies": {
-    "@stremio/stremio-core-web": "0.59.0"
+    "@stremio/stremio-core-web": "0.59.0",
+    "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

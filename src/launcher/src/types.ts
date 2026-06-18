@@ -12,8 +12,13 @@ export type TileAction = LaunchAction | "settings";
 
 export interface ContentCard {
   id: string;
+  type: string;
   title: string;
   subtitle: string;
+  posterUrl?: string;
+  year?: number | string;
+  description?: string;
+  source?: string;
 }
 
 export interface ContentRail {

@@ -7,9 +7,10 @@ Agent/Codex implementation specs. Human overview: [../README.md](../README.md) �
 | Phase | Spec | Codex prompt | Status |
 |-------|------|--------------|--------|
 | **N0** — Foundation reset | [phase-n0-foundation-reset.md](phase-n0-foundation-reset.md) | [CODEX-phase-n0-prompt.md](CODEX-phase-n0-prompt.md) | ✓ |
-| **N1** — Catalog + mpv spike | [phase-n1-catalog-play-spike.md](phase-n1-catalog-play-spike.md) | [CODEX-phase-n1-prompt.md](CODEX-phase-n1-prompt.md) | ← now |
+| **N1** — Catalog + mpv spike | [phase-n1-catalog-play-spike.md](phase-n1-catalog-play-spike.md) | [CODEX-phase-n1-prompt.md](CODEX-phase-n1-prompt.md) | ✓ |
+| **N2** — Real browse UI | [phase-n2-browse-ui.md](phase-n2-browse-ui.md) | [CODEX-phase-n2-prompt.md](CODEX-phase-n2-prompt.md) | ← now |
 
-**Inventories:** [../N0-INVENTORY.md](../N0-INVENTORY.md) · [../N1-INVENTORY.md](../N1-INVENTORY.md)
+**Inventories:** [../N0-INVENTORY.md](../N0-INVENTORY.md) · [../N1-INVENTORY.md](../N1-INVENTORY.md) · [../N2-INVENTORY.md](../N2-INVENTORY.md)
 
 ## Shipped foundation (archive)
 

@@ -1,4 +1,4 @@
-import type { AppCard, ContentCard } from "./types";
+import type { AppCard, ContentCard, ContentRail } from "./types";
 
 export interface HomeCallbacks {
   onContentSelect: (card: ContentCard, railLabel: string) => void;
@@ -10,6 +10,11 @@ export interface HomeOptions {
   legacyYoutube: boolean;
 }
 
+export type CatalogState =
+  | { status: "loading" }
+  | { status: "ready"; rails: ContentRail[] }
+  | { status: "error"; message: string };
+
 const DEFAULT_APP_CARDS: AppCard[] = [
   { id: "settings", action: "settings", kicker: "System", title: "Settings" },
 ];
@@ -18,12 +23,13 @@ export function buildHomeRails(
   container: HTMLElement,
   callbacks: HomeCallbacks,
   options: HomeOptions = { fallbackStremio: false, legacyYoutube: false },
+  catalogState: CatalogState = { status: "loading" },
 ): HTMLElement[][] {
   container.replaceChildren();
 
   const rows: HTMLElement[][] = [];
 
-  container.appendChild(createCatalogEmptyState());
+  rows.push(...appendCatalogSections(container, callbacks, catalogState));
 
   const appsSection = document.createElement("section");
   appsSection.className = "rail rail--apps";
@@ -78,30 +84,125 @@ export function buildHomeRails(
   return rows;
 }
 
-function createCatalogEmptyState(): HTMLElement {
+function appendCatalogSections(
+  container: HTMLElement,
+  callbacks: HomeCallbacks,
+  catalogState: CatalogState,
+): HTMLElement[][] {
+  if (catalogState.status === "loading") {
+    container.appendChild(createCatalogMessage("catalog", "loading", "loading catalog…", "posters will appear here when the Pi responds."));
+    return [];
+  }
+
+  if (catalogState.status === "error") {
+    container.appendChild(createCatalogMessage("catalog", "catalog offline", catalogState.message, "check catalog-service and N2 prereqs."));
+    return [];
+  }
+
+  const rows: HTMLElement[][] = [];
+  for (const rail of catalogState.rails) {
+    const section = document.createElement("section");
+    section.className = "rail rail--catalog";
+    section.dataset.railId = rail.id;
+
+    const heading = document.createElement("h2");
+    heading.className = "rail-title";
+    heading.textContent = rail.label;
+    section.appendChild(heading);
+
+    if (rail.cards.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "rail-empty";
+      empty.textContent = "nothing resolved yet";
+      section.appendChild(empty);
+      container.appendChild(section);
+      continue;
+    }
+
+    const track = document.createElement("div");
+    track.className = "rail-track rail-track--posters";
+    track.setAttribute("role", "list");
+
+    const items: HTMLElement[] = [];
+    for (const card of rail.cards) {
+      const button = createPosterCard(card, rail.label, callbacks);
+      track.appendChild(button);
+      items.push(button);
+    }
+    section.appendChild(track);
+    container.appendChild(section);
+    rows.push(items);
+  }
+  return rows;
+}
+
+function createCatalogMessage(
+  railId: string,
+  headingText: string,
+  titleText: string,
+  bodyText: string,
+): HTMLElement {
   const section = document.createElement("section");
   section.className = "rail rail--empty";
-  section.dataset.railId = "catalog";
+  section.dataset.railId = railId;
 
   const heading = document.createElement("h2");
   heading.className = "rail-title";
-  heading.textContent = "Catalog";
+  heading.textContent = headingText;
 
   const panel = document.createElement("div");
   panel.className = "empty-state";
 
   const title = document.createElement("p");
   title.className = "empty-state-title";
-  title.textContent = "browse rails ship in N2";
+  title.textContent = titleText;
 
   const body = document.createElement("p");
   body.className = "empty-state-body";
-  body.textContent =
-    "Catalog service is live on the Pi — play works via API until browse UI lands. Voice and settings stay available.";
+  body.textContent = bodyText;
 
   panel.append(title, body);
   section.append(heading, panel);
   return section;
+}
+
+function createPosterCard(
+  card: ContentCard,
+  railLabel: string,
+  callbacks: HomeCallbacks,
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "card card--poster";
+  button.setAttribute("role", "listitem");
+  button.setAttribute("aria-label", `${card.title}, ${card.subtitle}`);
+
+  const poster = document.createElement("img");
+  poster.className = "poster-image";
+  poster.alt = "";
+  poster.loading = "lazy";
+  poster.decoding = "async";
+  poster.src = card.posterUrl || "";
+
+  const shade = document.createElement("span");
+  shade.className = "poster-shade";
+  shade.setAttribute("aria-hidden", "true");
+
+  const content = document.createElement("span");
+  content.className = "poster-content";
+
+  const title = document.createElement("span");
+  title.className = "card-title";
+  title.textContent = card.title;
+
+  const subtitle = document.createElement("span");
+  subtitle.className = "card-subtitle";
+  subtitle.textContent = card.subtitle;
+
+  content.append(title, subtitle);
+  button.append(poster, shade, content);
+  button.addEventListener("click", () => callbacks.onContentSelect(card, railLabel));
+  return button;
 }
 
 function createAppCard(app: AppCard, callbacks: HomeCallbacks): HTMLButtonElement {

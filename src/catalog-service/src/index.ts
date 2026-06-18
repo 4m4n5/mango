@@ -115,6 +115,16 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (req.method === 'GET' && parts.length === 1 && parts[0] === 'rails') {
+        sendJson(res, 200, core.rails());
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'rails' && parts[2] === 'items') {
+        sendJson(res, 200, await core.railItems(parts[1]));
+        return;
+      }
+
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'meta') {
         sendJson(res, 200, await core.meta(parts[1], parts[2]));
         return;

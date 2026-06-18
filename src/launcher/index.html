@@ -13,7 +13,22 @@
           <h1>What do you want to watch?</h1>
         </header>
         <div id="rails" class="rails" aria-label="Browse"></div>
-        <p id="status" class="status" role="status">D-pad to browse. B to select. ⌂ for home.</p>
+      </section>
+
+      <section id="detail-view" class="view detail hidden" aria-label="Title detail">
+        <div class="detail-poster-wrap">
+          <img id="detail-poster" class="detail-poster" alt="" />
+        </div>
+        <div class="detail-copy">
+          <p id="detail-eyebrow" class="eyebrow">catalog</p>
+          <h1 id="detail-title">title</h1>
+          <p id="detail-meta" class="detail-meta">movie</p>
+          <p id="detail-description" class="detail-description">loading details…</p>
+          <div class="detail-actions">
+            <button id="detail-play" class="detail-button detail-button--primary" type="button">play</button>
+            <button id="detail-back" class="detail-button" type="button">back</button>
+          </div>
+        </div>
       </section>
 
       <aside id="voice-hud" class="voice-hud" data-state="idle" data-visible="false" aria-label="mango voice" aria-hidden="true">
@@ -58,6 +73,8 @@
         </dl>
         <p class="settings-note">Voice keys live in /etc/mango on the Pi.</p>
       </section>
+
+      <p id="status" class="status shell-status" role="status">D-pad to browse. B to select. ⌂ for home.</p>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

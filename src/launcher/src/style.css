@@ -51,7 +51,7 @@ button {
 }
 
 .masthead--compact h1 {
-  font-size: clamp(2.2rem, 4.5vw, 4.2rem);
+  font-size: 3.6rem;
   line-height: 1.05;
 }
 
@@ -61,7 +61,13 @@ button {
   flex-direction: column;
   gap: 2.8vh;
   min-height: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.rails::-webkit-scrollbar {
+  display: none;
 }
 
 .rail {
@@ -74,7 +80,7 @@ button {
 .rail-title {
   margin: 0;
   color: rgba(255, 249, 196, 0.72);
-  font-size: clamp(1rem, 1.5vw, 1.35rem);
+  font-size: 1.1rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -106,7 +112,7 @@ button {
 .empty-state-title {
   margin: 0;
   color: #fff9c4;
-  font-size: clamp(1.7rem, 2.6vw, 3rem);
+  font-size: 2.2rem;
   font-weight: 900;
   line-height: 1.1;
 }
@@ -114,8 +120,20 @@ button {
 .empty-state-body {
   margin: 0.6rem 0 0;
   color: rgba(216, 228, 236, 0.82);
-  font-size: clamp(1rem, 1.4vw, 1.35rem);
+  font-size: 1.2rem;
   font-weight: 700;
+}
+
+.rail-empty {
+  min-height: 4rem;
+  margin: 0;
+  padding: 1.2rem 1.4rem;
+  color: rgba(216, 228, 236, 0.76);
+  background: rgba(20, 24, 28, 0.74);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  font-size: 1.1rem;
+  font-weight: 800;
 }
 
 .card {
@@ -136,16 +154,12 @@ button {
 }
 
 .card--poster {
-  width: clamp(9rem, 13vw, 14rem);
+  position: relative;
+  width: 10.4rem;
   aspect-ratio: 2 / 3;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 0.35rem;
-  padding: 1rem 1.1rem 1.2rem;
+  overflow: hidden;
   background:
-    linear-gradient(180deg, transparent 35%, rgba(5, 8, 10, 0.92) 78%),
-    linear-gradient(145deg, color-mix(in srgb, var(--card-accent) 88%, #050608), #0a1014);
+    linear-gradient(145deg, rgba(33, 42, 44, 0.92), #0a1014);
 }
 
 .card--app {
@@ -168,9 +182,41 @@ button {
   transform: translateY(-4px) scale(1.02);
 }
 
+.poster-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #101417;
+}
+
+.poster-shade {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, transparent 42%, rgba(5, 8, 10, 0.92) 82%),
+    linear-gradient(0deg, rgba(0, 0, 0, 0.18), transparent 45%);
+}
+
+.poster-content {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1rem 1rem 1.1rem;
+}
+
 .card-title {
   display: block;
-  font-size: clamp(1.1rem, 1.6vw, 1.45rem);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 1.15rem;
   font-weight: 900;
   line-height: 1.15;
 }
@@ -179,12 +225,12 @@ button {
 .card-kicker {
   display: block;
   color: rgba(216, 228, 236, 0.82);
-  font-size: clamp(0.85rem, 1.1vw, 1rem);
+  font-size: 0.95rem;
   font-weight: 700;
 }
 
 .card--app .card-title {
-  font-size: clamp(1.6rem, 2.4vw, 2.2rem);
+  font-size: 1.9rem;
 }
 
 .status {
@@ -202,7 +248,7 @@ button {
 .eyebrow {
   margin: 0 0 0.5rem;
   color: #ffb300;
-  font-size: clamp(1.2rem, 2vw, 2rem);
+  font-size: 1.45rem;
   font-weight: 800;
   text-transform: uppercase;
 }
@@ -210,7 +256,7 @@ button {
 h1 {
   max-width: 1100px;
   margin: 0;
-  font-size: clamp(3rem, 7vw, 6.8rem);
+  font-size: 5.4rem;
   line-height: 0.98;
   letter-spacing: 0;
 }
@@ -220,7 +266,107 @@ h1 {
   min-height: 2rem;
   margin: 0;
   color: #d1e5f0;
-  font-size: clamp(1.1rem, 1.6vw, 1.7rem);
+  font-size: 1.35rem;
+}
+
+.shell-status {
+  position: fixed;
+  left: 5vw;
+  right: 5vw;
+  bottom: 3vh;
+  z-index: 30;
+  min-height: 2.2rem;
+  padding-right: 44vw;
+  pointer-events: none;
+}
+
+.detail {
+  position: fixed;
+  inset: 0;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: minmax(16rem, 24rem) minmax(0, 1fr);
+  gap: 4rem;
+  align-items: center;
+  padding: 6vh 7vw 10vh;
+  background:
+    linear-gradient(90deg, rgba(5, 6, 8, 0.96), rgba(5, 6, 8, 0.88)),
+    #050608;
+}
+
+.detail.hidden {
+  display: none;
+}
+
+.detail-poster-wrap {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border: 3px solid rgba(255, 249, 196, 0.22);
+  border-radius: 18px;
+  background: #101417;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.5);
+}
+
+.detail-poster {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.detail-copy {
+  max-width: 58rem;
+}
+
+.detail-meta {
+  margin: 1rem 0 0;
+  color: rgba(255, 249, 196, 0.78);
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.detail-description {
+  max-width: 54rem;
+  margin: 1.6rem 0 0;
+  color: rgba(216, 228, 236, 0.86);
+  font-size: 1.45rem;
+  font-weight: 700;
+  line-height: 1.42;
+}
+
+.detail-actions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 2.2rem;
+}
+
+.detail-button {
+  min-width: 9rem;
+  min-height: 4rem;
+  padding: 1rem 1.5rem;
+  color: #f9f7f0;
+  background: rgba(20, 24, 28, 0.92);
+  border: 3px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  font-size: 1.3rem;
+  font-weight: 900;
+  text-transform: lowercase;
+}
+
+.detail-button--primary {
+  color: #050608;
+  background: #fff9c4;
+}
+
+.detail-button.focused,
+.detail-button:focus-visible {
+  outline: none;
+  border-color: #fff9c4;
+  box-shadow: 0 0 0 6px rgba(255, 179, 0, 0.34);
+}
+
+.detail-button:disabled {
+  opacity: 0.62;
 }
 
 .settings {
@@ -268,7 +414,7 @@ h1 {
 .info-list dd {
   margin: 0.8rem 0 0;
   overflow-wrap: anywhere;
-  font-size: clamp(1.8rem, 2.6vw, 3rem);
+  font-size: 2.2rem;
   font-weight: 900;
 }
 
@@ -352,11 +498,27 @@ h1 {
 }
 
 .voice-text {
-  font-size: clamp(1.45rem, 2.2vw, 1.9rem);
+  font-size: 1.65rem;
   font-weight: 800;
   line-height: 1.28;
   color: #fffef2;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .masthead--compact h1,
+  h1 {
+    font-size: 3.1rem;
+  }
+
+  .detail {
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 2rem;
+  }
+
+  .shell-status {
+    padding-right: 0;
+  }
 }
 
 .voice-line.user .voice-text {

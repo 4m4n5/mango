@@ -2,7 +2,8 @@
 
 HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
 
-**Status:** N1 scaffold — implementation per [`docs/tasks/phase-n1-catalog-play-spike.md`](../../docs/tasks/phase-n1-catalog-play-spike.md).
+**Status:** N1 shipped; N2 extends the service with YAML-driven browse rails
+per [`docs/tasks/phase-n2-browse-ui.md`](../../docs/tasks/phase-n2-browse-ui.md).
 
 ## Spike order (do not skip)
 
@@ -16,20 +17,27 @@ HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
 | Path | Purpose |
 |------|---------|
 | `/etc/mango/stremio-export.json` | Addon manifests (from Stremio export) |
+| `/etc/mango/catalog.yaml` | N2 home rails (copy from `config/catalog.example.yaml`) |
 | `/etc/mango/catalog-filters.json` | Stream filters (uncached debrid, max quality) |
 | `/etc/mango/config.yaml` | Debrid / household keys |
 
 Template: [`config/stremio-export.example.json`](../../config/stremio-export.example.json)  
+Rails: [`config/catalog.example.yaml`](../../config/catalog.example.yaml)
 Filters: [`config/catalog-filters.example.json`](../../config/catalog-filters.example.json)
 
-## API (N1)
+## API
 
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /health` | Service + core readiness |
+| `GET /rails` | N2 rail summaries from `catalog.yaml` |
+| `GET /rails/:id/items` | N2 resolved poster items for one rail |
 | `GET /meta/:type/:id` | Cinemeta meta |
 | `GET /stream/:type/:id` | Resolved streams (filtered + ranked) |
 | `POST /play` | Resolve (if needed) + mpv fullscreen |
+
+N2 currently supports enabled `addon_catalog` rails only. `tmdb_list`,
+Stremio library/Continue, and full catalog management are post-N2.
 
 ### Stream filters (uncached debrid)
 

@@ -26,8 +26,8 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 | Lean base stack (N0) | ✓ | — |
 | Voice pipeline (Phase 2) | ✓ | Piper TTS on HDMI (optional) |
 | Pad routing (B/Y/⌂/D-pad) | ✓ | mpv + ⌂ home (N1) |
-| **catalog-service + mpv** | — | **N1** ← now |
-| Browse rails (N2) | — | catalog.yaml |
+| **catalog-service + mpv** | ✓ | — |
+| Browse rails (N2) | — | catalog.yaml ← now |
 | LLM media tools (N3+) | — | after rails |
 
 **Repo layout:**

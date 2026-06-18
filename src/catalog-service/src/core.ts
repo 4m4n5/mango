@@ -7,6 +7,12 @@ import {
   type StreamFilterMeta,
   type StreamFilterOverrides,
 } from './stream-filters.js';
+import {
+  enabledAddonRails,
+  loadRailConfig,
+  type AddonCatalogRail,
+  type RailConfig,
+} from './rails.js';
 
 type AddonExport = {
   name?: string;
@@ -22,6 +28,7 @@ type Manifest = {
   name?: string;
   version?: string;
   resources?: ManifestResource[];
+  catalogs?: Array<{ id?: string; type?: string; name?: string }>;
   types?: string[];
 };
 
@@ -42,6 +49,26 @@ export type Stream = {
   [key: string]: unknown;
 };
 
+export type RailSummary = {
+  id: string;
+  label: string;
+  type: AddonCatalogRail['type'];
+  addon: string;
+  catalog: string;
+  content_type: string;
+};
+
+export type RailItem = {
+  id: string;
+  type: string;
+  title: string;
+  subtitle: string;
+  poster: string;
+  year?: number | string;
+  description?: string;
+  source: string;
+};
+
 type Addon = {
   name: string;
   manifestUrl: string;
@@ -56,6 +83,7 @@ type CoreStatus = {
 const require = createRequire(import.meta.url);
 const DEFAULT_EXPORT_PATH = '/etc/mango/stremio-export.json';
 const REQUEST_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_REQUEST_TIMEOUT_MS || 20000);
+const META_CACHE_TTL_MS = Number(process.env.MANGO_META_CACHE_TTL_MS || 10 * 60 * 1000);
 
 export class CatalogError extends Error {
   status: number;
@@ -125,6 +153,42 @@ function resourceUrl(addon: Addon, resource: string, type: string, id: string): 
   url.pathname = `${root}/${resource}/${encodedType}/${encodedId}.json`;
   url.hash = '';
   return url.toString();
+}
+
+function normalizeAddonName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s*\|\s*/g, '|')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function metaYear(meta: Meta): number | string | undefined {
+  if (meta.year !== undefined) return meta.year;
+  const released = typeof meta.released === 'string' ? meta.released : '';
+  const releaseInfo = typeof meta.releaseInfo === 'string' ? meta.releaseInfo : '';
+  const match = `${released} ${releaseInfo}`.match(/\b(19|20)\d{2}\b/);
+  return match?.[0];
+}
+
+function normalizePosterUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  if (/^https:\/\//i.test(trimmed)) return trimmed;
+  return null;
+}
+
+function previewId(preview: unknown): string | null {
+  if (typeof preview !== 'object' || preview === null) return null;
+  const id = (preview as { id?: unknown }).id;
+  return typeof id === 'string' && id.trim() !== '' ? id.trim() : null;
+}
+
+function previewType(preview: unknown, fallbackType: string): string {
+  if (typeof preview !== 'object' || preview === null) return fallbackType;
+  const type = (preview as { type?: unknown }).type;
+  return typeof type === 'string' && type.trim() !== '' ? type.trim() : fallbackType;
 }
 
 function installCoreNodeShims(): void {
@@ -201,10 +265,14 @@ function normalizeStream(stream: unknown, source: string): Stream | null {
 }
 
 export class CatalogCore {
+  private readonly metaCache = new Map<string, { meta: Meta; expiresAt: number }>();
+
   private constructor(
     private readonly coreStatus: CoreStatus,
     private readonly addons: Addon[],
     private readonly filterConfig: Awaited<ReturnType<typeof loadFilterConfig>>,
+    private readonly railConfig: RailConfig | null,
+    private readonly railConfigError: Error | null,
   ) {}
 
   static async create(exportPath = process.env.MANGO_STREMIO_EXPORT || DEFAULT_EXPORT_PATH): Promise<CatalogCore> {
@@ -226,8 +294,22 @@ export class CatalogCore {
         manifest,
       });
     }
-    const filterConfig = await loadFilterConfig();
-    return new CatalogCore(coreStatus, addons, filterConfig);
+    const [filterConfig, railConfigResult] = await Promise.all([
+      loadFilterConfig(),
+      loadRailConfig()
+        .then((config) => ({ config, error: null }))
+        .catch((error: unknown) => ({
+          config: null,
+          error: error instanceof Error ? error : new Error(String(error)),
+        })),
+    ]);
+    return new CatalogCore(
+      coreStatus,
+      addons,
+      filterConfig,
+      railConfigResult.config,
+      railConfigResult.error,
+    );
   }
 
   health(): Record<string, unknown> {
@@ -237,13 +319,62 @@ export class CatalogCore {
       core_version: this.coreStatus.version,
       addons: this.addons.length,
       addon_names: this.addons.map((addon) => addon.name),
+      rails: this.railConfig ? enabledAddonRails(this.railConfig).length : 0,
+      rails_ready: this.railConfigError === null,
       rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
+    };
+  }
+
+  rails(): { rails: RailSummary[] } {
+    const rails = enabledAddonRails(this.requireRailConfig());
+    return {
+      rails: rails.map((rail) => ({
+        id: rail.id,
+        label: rail.label,
+        type: rail.type,
+        addon: rail.addon,
+        catalog: rail.catalog,
+        content_type: rail.content_type,
+      })),
+    };
+  }
+
+  async railItems(railId: string): Promise<{
+    rail_id: string;
+    label: string;
+    items: RailItem[];
+    resolve_ms: number;
+    skipped: number;
+  }> {
+    const started = Date.now();
+    const rail = enabledAddonRails(this.requireRailConfig()).find((candidate) => candidate.id === railId);
+    if (!rail) {
+      throw new CatalogError(404, `unknown rail: ${railId}`);
+    }
+
+    const addon = this.findAddonByName(rail.addon);
+    if (!supportsResource(addon.manifest, 'catalog', rail.content_type)) {
+      throw new CatalogError(502, `${addon.name} does not expose catalog/${rail.content_type}`);
+    }
+
+    const result = await fetchJson(resourceUrl(addon, 'catalog', rail.content_type, rail.catalog)) as {
+      metas?: unknown[];
+    };
+    const previews = (result.metas || []).slice(0, rail.limit);
+    const resolved = await Promise.all(previews.map((preview) => this.resolveRailItem(rail, addon, preview)));
+    const items = resolved.filter((item): item is RailItem => item !== null);
+    return {
+      rail_id: rail.id,
+      label: rail.label,
+      items,
+      resolve_ms: Date.now() - started,
+      skipped: previews.length - items.length,
     };
   }
 
   async meta(type: string, id: string): Promise<Meta> {
     const errors: string[] = [];
-    for (const addon of this.addons) {
+    for (const addon of this.metaAddonsInOrder()) {
       if (!supportsResource(addon.manifest, 'meta', type)) continue;
       try {
         const result = await fetchJson(resourceUrl(addon, 'meta', type, id)) as { meta?: Meta };
@@ -300,5 +431,83 @@ export class CatalogCore {
       resolve_ms: Date.now() - started,
       filters: filtered.meta,
     };
+  }
+
+  private requireRailConfig(): RailConfig {
+    if (this.railConfig) {
+      return this.railConfig;
+    }
+    const reason = this.railConfigError?.message || 'catalog yaml not loaded';
+    throw new CatalogError(503, `catalog rails unavailable: ${reason}`);
+  }
+
+  private findAddonByName(name: string): Addon {
+    const exact = this.addons.find((addon) => addon.name === name);
+    if (exact) {
+      return exact;
+    }
+    const normalized = normalizeAddonName(name);
+    const fuzzy = this.addons.find((addon) => normalizeAddonName(addon.name) === normalized);
+    if (fuzzy) {
+      return fuzzy;
+    }
+    throw new CatalogError(
+      502,
+      `addon not found: ${name}; available: ${this.addons.map((addon) => addon.name).join(', ')}`,
+    );
+  }
+
+  private metaAddonsInOrder(): Addon[] {
+    return [...this.addons].sort((left, right) => {
+      const leftCinemeta = normalizeAddonName(left.name) === 'cinemeta';
+      const rightCinemeta = normalizeAddonName(right.name) === 'cinemeta';
+      if (leftCinemeta === rightCinemeta) return 0;
+      return leftCinemeta ? -1 : 1;
+    });
+  }
+
+  private async metaCached(type: string, id: string): Promise<Meta> {
+    const key = `${type}:${id}`;
+    const cached = this.metaCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.meta;
+    }
+    const meta = await this.meta(type, id);
+    this.metaCache.set(key, { meta, expiresAt: Date.now() + META_CACHE_TTL_MS });
+    return meta;
+  }
+
+  private async resolveRailItem(
+    rail: AddonCatalogRail,
+    addon: Addon,
+    preview: unknown,
+  ): Promise<RailItem | null> {
+    const id = previewId(preview);
+    if (!id) return null;
+    const type = previewType(preview, rail.content_type);
+
+    try {
+      const meta = await this.metaCached(type, id);
+      const poster = normalizePosterUrl(meta.poster) || normalizePosterUrl((preview as { poster?: unknown })?.poster);
+      if (!poster) {
+        return null;
+      }
+      const year = metaYear(meta);
+      return {
+        id: meta.id || id,
+        type: meta.type || type,
+        title: meta.name || String((preview as { name?: unknown })?.name || id),
+        subtitle: year ? String(year) : type,
+        poster,
+        year,
+        description: typeof meta.description === 'string' ? meta.description : undefined,
+        source: addon.name,
+      };
+    } catch (error) {
+      console.warn(
+        `rail item skipped rail=${rail.id} id=${id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
+    }
   }
 }

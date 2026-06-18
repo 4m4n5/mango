@@ -19,11 +19,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Final
 from urllib.parse import unquote, urlparse
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 LAUNCHER_DIST: Final = REPO_ROOT / "src" / "launcher" / "dist"
 LOG_DIR: Final = Path.home() / ".cache" / "mango"
 LOG_SCRIPT: Final = REPO_ROOT / "scripts" / "lib" / "mango-log.sh"
+CATALOG_UPSTREAM: Final = os.environ.get("MANGO_CATALOG_UPSTREAM", "http://127.0.0.1:3020")
+CATALOG_PROXY_TIMEOUT_SEC: Final = 60
 
 LAUNCH_SCRIPTS: Final = {
     "/api/launch/stremio": REPO_ROOT / "scripts" / "launch-stremio.sh",
@@ -97,6 +101,9 @@ class MangoUiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
+        if path.startswith("/api/catalog/"):
+            self._proxy_catalog("GET")
+            return
         if path == "/api/info":
             self._write_json(
                 {
@@ -122,6 +129,10 @@ class MangoUiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/catalog/play":
+            self._proxy_catalog("POST")
+            return
+
         script = LAUNCH_SCRIPTS.get(path)
         if script is None:
             self._write_json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
@@ -193,6 +204,50 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _proxy_catalog(self, method: str) -> None:
+        parsed = urlparse(self.path)
+        upstream_path = parsed.path.removeprefix("/api/catalog")
+        if not upstream_path.startswith("/"):
+            upstream_path = f"/{upstream_path}"
+        upstream_url = f"{CATALOG_UPSTREAM.rstrip('/')}{upstream_path}"
+        if parsed.query:
+            upstream_url = f"{upstream_url}?{parsed.query}"
+
+        body = None
+        headers = {"accept": "application/json"}
+        if method == "POST":
+            length = int(self.headers.get("content-length") or "0")
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            headers["content-type"] = self.headers.get("content-type", "application/json")
+
+        request = Request(upstream_url, data=body, method=method, headers=headers)
+        try:
+            with urlopen(request, timeout=CATALOG_PROXY_TIMEOUT_SEC) as response:
+                data = response.read()
+                status = response.status
+        except HTTPError as error:
+            data = error.read() or json.dumps({"error": str(error)}).encode("utf-8")
+            status = error.code
+        except URLError as error:
+            self._write_json(
+                {"ok": False, "error": f"catalog-service unavailable: {error.reason}"},
+                HTTPStatus.BAD_GATEWAY,
+            )
+            return
+        except TimeoutError:
+            self._write_json(
+                {"ok": False, "error": "catalog-service timeout"},
+                HTTPStatus.GATEWAY_TIMEOUT,
+            )
+            return
+
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
 

@@ -1,7 +1,7 @@
 # Native mango experience
 
 **Branch:** `feat/native-experience`  
-**Status:** Architecture locked · N0 shipped · **N1 in progress**  
+**Status:** Architecture locked · N0/N1 shipped · **N2 in progress**
 **Intent:** TV-first mango UX with **legit catalogs and streams** via the Stremio addon ecosystem; **mpv** plays everything; Stremio desktop stays hidden as fallback.
 
 ---
