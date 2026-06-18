@@ -46,6 +46,9 @@ Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.
 |-------|--------|
 | Orchestrator | FastAPI + uvicorn · WS `/ws` · HTTP `/health` · port **8765** |
 | Companion | Vite PWA · port **3001** · **HTTPS required** for phone mic |
-| TLS | mkcert on Pi — trust root CA on phone once |
-| Overlay WS | `ws://127.0.0.1:8765/ws` · JSON `{type,state,text}` |
+| TLS | **Approach A** — mkcert HTTPS companion + WSS orchestrator; trust root CA on phone once |
+| Orchestrator bind | `0.0.0.0:8765` on Pi for phone WSS; use `MANGO_ORCH_TLS=1` |
+| Overlay WS | local `ws://127.0.0.1:8765/ws` with `wss://127.0.0.1:8765/ws` fallback |
+| Voice state | Orchestrator owns idle/listening/thinking/speaking; errors restore idle |
+| Audio payload | `ptt_end.pcm_b64` = 16 kHz mono int16 LE PCM, max 30s |
 | Phase 2 scope | Chat only — media tools deferred to Phase 3 |

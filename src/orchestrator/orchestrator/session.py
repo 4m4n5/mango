@@ -4,11 +4,12 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 OverlayState = Literal["idle", "listening", "thinking", "speaking"]
+ChatRole = Literal["user", "assistant"]
 
 
 @dataclass
 class ChatMessage:
-    role: Literal["user", "assistant"]
+    role: ChatRole
     text: str
 
 
@@ -21,3 +22,12 @@ class SessionState:
     def set_overlay(self, state: OverlayState, text: str | None = None) -> None:
         self.overlay_state = state
         self.overlay_text = text if text is not None else state
+
+    def add_message(self, role: ChatRole, text: str) -> ChatMessage:
+        message = ChatMessage(role=role, text=text.strip())
+        self.messages.append(message)
+        return message
+
+    def provider_messages(self) -> list[dict[str, str]]:
+        """LLM API shape — Anthropic/OpenAI expect ``content``, not ``text``."""
+        return [{"role": message.role, "content": message.text} for message in self.messages]

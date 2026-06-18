@@ -24,5 +24,12 @@ mkcert -cert-file mango-companion.pem -key-file mango-companion-key.pem \
   localhost 127.0.0.1 "$PI_IP" mango.local 2>/dev/null || \
   mkcert -cert-file mango-companion.pem -key-file mango-companion-key.pem localhost 127.0.0.1
 
+CAROOT="$(mkcert -CAROOT 2>/dev/null || true)"
 echo "✓ certs in $CERT_DIR"
-echo "  companion: npm run preview -- --https --cert $CERT_DIR/mango-companion.pem --key $CERT_DIR/mango-companion-key.pem"
+echo "  cert: $CERT_DIR/mango-companion.pem"
+echo "  key:  $CERT_DIR/mango-companion-key.pem"
+if [[ -n "$CAROOT" ]]; then
+  echo "  root CA: $CAROOT/rootCA.pem"
+fi
+echo "  orchestrator TLS: MANGO_ORCH_TLS=1 bash scripts/phase2/start-orchestrator.sh"
+echo "  companion HTTPS:  bash scripts/phase2/serve-companion-https.sh"

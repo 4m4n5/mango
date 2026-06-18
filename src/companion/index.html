@@ -7,10 +7,16 @@
     <title>mango companion</title>
   </head>
   <body>
-    <h1>mango</h1>
-    <p id="status">connecting…</p>
-    <button id="ptt" type="button">hold to talk</button>
-    <p class="hint">Requires HTTPS on phone — see docs/PHASE2.md</p>
+    <main class="app-shell">
+      <header>
+        <h1>mango</h1>
+        <p id="status">connecting…</p>
+      </header>
+      <section id="chat" class="chat-log" aria-live="polite" aria-label="chat"></section>
+      <p id="error" class="error" hidden></p>
+      <button id="ptt" type="button" aria-label="hold to talk">hold</button>
+      <p class="hint">HTTPS required for phone mic</p>
+    </main>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

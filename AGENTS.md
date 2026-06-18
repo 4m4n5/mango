@@ -17,18 +17,27 @@ Phase 0 + 1 + **1.5 complete on device**. **Phase 2 voice slices 2.2-2.5** are i
 
 **TV box systems:** `$mango-tv-box-expert` · **Launcher visuals:** `$ux-design-expert`
 
-## Pi
+## Pi deploy (mandatory — no rsync)
 
 `aman@10.0.0.174` · SSH `mango` · `~/mango`
 
-**Deploy invariant:** before any runbook step `git pull && bash scripts/...` on the Pi, **commit and push from Mac** if the script was added or changed in-session. Verify:
+**Never `rsync` or hand-copy repo files to the Pi.** Mac is source of truth via git.
+
+1. **Verify** — changes are simple and principled; builds pass locally if touching `src/`.
+2. **Commit + push** from Mac (`github.com/4m4n5/mango`).
+3. **Pull + test** on Pi:
 
 ```bash
-bash scripts/lib/pi-sync-check.sh scripts/phase0/some-new-script.sh
+bash scripts/lib/pi-sync-check.sh <changed-path>   # Mac, before push
+bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/phase1/restart-mango-ui.sh'
 ```
 
+Full Pi refresh after a pull:
+
 ```bash
-bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/phase1/restart-mango-ui.sh'
+cd ~/mango && git pull
+bash scripts/phase1/restart-mango-ui.sh
+systemctl --user restart mango-tv-pad.service   # if pad autoreconnect installed
 ```
 
 ## Gamepad (locked)

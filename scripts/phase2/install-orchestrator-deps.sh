@@ -14,4 +14,5 @@ python3 -m venv "$VENV"
 source "$VENV/bin/activate"
 pip install --upgrade pip
 pip install -r requirements.txt
+echo "→ System audio deps: bash scripts/phase2/install-voice-deps.sh"
 echo "✓ orchestrator venv ready — bash scripts/phase2/start-orchestrator.sh"

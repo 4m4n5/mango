@@ -1,3 +1,8 @@
-fastapi>=0.115.0
-uvicorn[standard]>=0.32.0
-pyyaml>=6.0.2
+anthropic>=0.52.0,<1
+fastapi>=0.115.0,<1
+faster-whisper>=1.1.0,<2
+numpy>=1.26.0,<3
+openai>=1.84.0,<2
+piper-tts>=1.2.0,<2
+pyyaml>=6.0.2,<7
+uvicorn[standard]>=0.32.0,<1

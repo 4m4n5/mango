@@ -26,7 +26,8 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  min-width: 112px;
+  width: 360px;
+  max-width: 360px;
   padding: 12px 18px;
   background: rgba(5, 6, 8, 0.72);
   border: 2px solid rgba(255, 249, 196, 0.42);
@@ -37,10 +38,32 @@ body {
   letter-spacing: 0;
 }
 
+#label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .dot {
+  flex: 0 0 auto;
   width: 13px;
   height: 13px;
   background: #00b0ff;
   border-radius: 999px;
   box-shadow: 0 0 18px rgba(0, 176, 255, 0.9);
+}
+
+.dot[data-state="listening"] {
+  background: #ffb703;
+  box-shadow: 0 0 18px rgba(255, 183, 3, 0.92);
+}
+
+.dot[data-state="thinking"] {
+  background: #8ecae6;
+  box-shadow: 0 0 18px rgba(142, 202, 230, 0.92);
+}
+
+.dot[data-state="speaking"] {
+  background: #80ed99;
+  box-shadow: 0 0 18px rgba(128, 237, 153, 0.92);
 }

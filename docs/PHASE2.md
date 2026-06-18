@@ -1,8 +1,8 @@
 # Phase 2 — Voice pipeline
 
-**Status:** In progress (scaffold landed 2026-06-18).  
+**Status:** Slices 2.2-2.5 implemented in repo; Pi/audio verification pending.
 **Prerequisite:** Phase 1.5 couch acceptance ✓ — see [`phase0-checklist.md`](phase0-checklist.md).  
-**Spec:** [`PLAN.md`](PLAN.md) § Phase 2 · [`DESIGN.md`](DESIGN.md) voice/overlay.
+**Spec:** [`tasks/phase2-voice-pipeline.md`](tasks/phase2-voice-pipeline.md) · [`DESIGN.md`](DESIGN.md) voice/overlay.
 
 ## Goal
 
@@ -11,90 +11,146 @@ Phone PTT → transcript → LLM reply → TTS on TV. Overlay shows idle / liste
 ## Architecture
 
 ```
-Phone (HTTPS :3001)          Pi
-┌─────────────────┐         ┌──────────────────────────────────┐
-│ companion PWA   │──WS────▶│ orchestrator :8765               │
-│ hold-to-talk    │         │  ├─ ingest PCM                   │
-└─────────────────┘         │  ├─ faster-whisper               │
-                            │  ├─ LLM (Anthropic/OpenAI)       │
-                            │  └─ Piper → aplay (HDMI)         │
-                            └───────────┬──────────────────────┘
-                                        │ WS status
-                            ┌───────────▼──────────────────────┐
-                            │ overlay Chromium (re-enable Pi)  │
-                            └──────────────────────────────────┘
+Phone https://<pi>:3001             Pi
+┌──────────────────────┐            ┌────────────────────────────────┐
+│ companion PWA        │──wss──────▶│ orchestrator :8765             │
+│ getUserMedia         │            │  PCM → faster-whisper → LLM    │
+│ 16 kHz mono PCM b64  │            │  Piper → paplay/aplay over HDMI│
+└──────────────────────┘            └──────────────┬─────────────────┘
+                                                    │ ws/wss status
+                                      ┌─────────────▼────────────────┐
+                                      │ overlay Chromium, opt-in Pi   │
+                                      └──────────────────────────────┘
 ```
 
-Launcher (`serve.py :3000`) and pad stack are unchanged — orchestrator is additive.
+Launcher (`serve.py :3000`) and pad stack are unchanged. Phase 2 is chat only; media tools and LLM tool calling start in Phase 3.
 
-## HTTPS (required for phone mic)
+## TLS choice
 
-Mobile browsers expose `navigator.mediaDevices` only in a [secure context](https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia) (HTTPS, localhost, or `file://`). Plain `http://10.0.0.174:3001` will not get mic access.
+Chosen approach: **A. TLS on orchestrator + HTTPS companion**.
 
-**V1:** mkcert on Pi — trust root CA once on phone. See `scripts/phase2/setup-mkcert.sh`.
+Reason: phone browsers require `getUserMedia()` in a secure context, and an HTTPS page should use WSS for real app WebSocket traffic. Two TLS services keep Phase 1 launcher and app-switching untouched and avoid adding Caddy/nginx before the voice path is stable.
 
 | Service | Port | Protocol |
 |---------|------|----------|
-| Launcher | 3000 | HTTP (Pi localhost + kiosk) |
-| Companion | 3001 | **HTTPS** |
-| Orchestrator | 8765 | WS (+ HTTP health) |
+| Launcher | 3000 | HTTP on Pi localhost/kiosk |
+| Companion | 3001 | HTTPS via mkcert |
+| Orchestrator | 8765 | WSS via same mkcert cert when `MANGO_ORCH_TLS=1` |
+| Overlay | via launcher `/overlay/` | tries local `ws://127.0.0.1:8765/ws`, then `wss://127.0.0.1:8765/ws` |
+
+Sources: MDN `getUserMedia()` secure-context requirement and MDN WebSocket guidance for HTTPS pages using `wss`.
+
+## Protocol
+
+Client → server:
+
+```json
+{ "type": "ptt_start" }
+{ "type": "ptt_end", "pcm_b64": "<16kHz mono int16 LE PCM base64>" }
+{ "type": "ptt_cancel" }
+{ "type": "ping" }
+```
+
+Server → client:
+
+```json
+{ "type": "status", "state": "idle|listening|thinking|speaking", "text": "..." }
+{ "type": "chat", "role": "user|assistant", "text": "..." }
+{ "type": "error", "message": "..." }
+```
+
+The orchestrator owns state. Any STT, LLM, TTS, audio, or payload error broadcasts `error`, restores ducked audio, and returns overlay state to `idle`.
 
 ## Config
 
-Copy [`config/config.example.yaml`](../config/config.example.yaml) → `/etc/mango/config.yaml` on Pi. Secrets in `/etc/mango/*.key` (never commit).
+Copy [`config/config.example.yaml`](../config/config.example.yaml) to `/etc/mango/config.yaml` on Pi.
 
-## Repo layout
+Secrets stay outside git:
 
-```
-src/orchestrator/     FastAPI + WebSocket hub
-src/companion/        PWA — PTT + connection status
-scripts/phase2/       start orchestrator, mkcert, companion HTTPS
-```
+| Secret | Path |
+|--------|------|
+| LLM API key | `/etc/mango/llm.key`, mode `600` |
+| Kodi/Stremio/TMDB | Existing `/etc/mango/*.key` or JSON files |
 
-## Dev (Mac)
+Useful dev toggles:
 
-```bash
-cd src/orchestrator && python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python -m orchestrator.main --host 127.0.0.1 --port 8765
+| Env | Use |
+|-----|-----|
+| `MANGO_LLM_MOCK=1` | Echo mock reply without Anthropic/OpenAI |
+| `MANGO_STT_MOCK=1` | Skip faster-whisper; return a fixed transcript (dev smoke) |
+| `MANGO_TTS_DISABLED=1` | Skip Piper playback on non-audio dev machines |
+| `MANGO_ORCH_TLS=1` | Start orchestrator with mkcert TLS |
+| `MANGO_VOICE=1` | Opt Pi launcher startup into overlay Chromium |
 
-# overlay already connects to ws://127.0.0.1:8765
-cd src/companion && npm install && npm run dev   # after HTTPS proxy for phone test
-```
-
-## Pi (when wired)
+## Pi setup
 
 ```bash
 cd ~/mango && git pull
-bash scripts/phase2/install-orchestrator-deps.sh   # once
-bash scripts/phase2/start-orchestrator.sh
+
+bash scripts/phase2/setup-mkcert.sh
+bash scripts/phase2/install-voice-deps.sh
+bash scripts/phase2/install-orchestrator-deps.sh
+bash scripts/phase2/download-piper-voice.sh
+
+sudo install -d -m 700 /etc/mango
+sudo cp config/config.example.yaml /etc/mango/config.yaml
+sudo install -m 600 /dev/null /etc/mango/llm.key
+# Put the Anthropic or OpenAI API key into /etc/mango/llm.key on the Pi.
+
+MANGO_ORCH_TLS=1 bash scripts/phase2/start-orchestrator.sh
+bash scripts/phase2/serve-companion-https.sh
+MANGO_VOICE=1 bash scripts/phase1/restart-mango-ui.sh
 ```
 
-Overlay: set `MANGO_SKIP_OVERLAY=0` in `start-mango-ui.sh` when voice is ready on device.
+Open on phone: `https://10.0.0.174:3001`.
 
-## WebSocket protocol (v1)
+## Phone CA trust
 
-| Message | Direction | Payload |
-|---------|-----------|---------|
-| `status` | server → overlay + companion | `{ "state": "idle"\|"listening"\|"thinking"\|"speaking", "text"?: string }` |
-| `ptt_start` | companion → server | `{}` |
-| `ptt_end` | companion → server | `{ "pcm_b64": "..." }` (16 kHz mono int16, Phase 2.2) |
-| `chat` | server → companion | `{ "role": "user"\|"assistant", "text": string }` |
+Run `bash scripts/phase2/setup-mkcert.sh` on the Pi and note the printed `rootCA.pem`.
 
-Phase 2.1 scaffold: health + status broadcast only. Audio/LLM/TTS wired in 2.2–2.4.
+iPhone/iPad:
+
+1. Move `rootCA.pem` to the phone through a trusted local route.
+2. Open it and install the profile.
+3. Enable it in Settings → General → About → Certificate Trust Settings.
+4. Visit `https://10.0.0.174:3001`; no certificate warning should appear.
+
+Android:
+
+1. Move `rootCA.pem` to the phone.
+2. Settings → Security & privacy → More security settings → Encryption & credentials.
+3. Install a CA certificate, then select `rootCA.pem`.
+4. Visit `https://10.0.0.174:3001`; no certificate warning should appear.
+
+If the mic prompt does not appear, the page is not a trusted secure context.
+
+## Dev
+
+```bash
+bash scripts/phase2/install-orchestrator-deps.sh
+MANGO_LLM_MOCK=1 MANGO_STT_MOCK=1 MANGO_TTS_DISABLED=1 bash scripts/phase2/start-orchestrator.sh
+
+cd src/companion
+npm install
+npm run dev
+```
+
+For phone dev, use mkcert and `bash scripts/phase2/serve-companion-https.sh` instead of Vite dev.
 
 ## Exit criteria
 
-- [ ] Phone PTT → transcript visible on companion
-- [ ] LLM reply spoken on TV speakers (Piper)
-- [ ] Overlay reflects state; toast last reply ~8 s
-- [ ] Duck playback ~40% while listening
-- [ ] General chat from couch (no media tools yet — Phase 3)
+- [ ] Phone PTT gets mic permission on `https://10.0.0.174:3001`
+- [ ] `ptt_end.pcm_b64` arrives as 16 kHz mono int16 LE PCM
+- [ ] Transcript appears as `chat.user`
+- [ ] LLM reply appears as `chat.assistant`
+- [ ] Piper speaks the first sentence on TV HDMI
+- [ ] Overlay cycles idle → listening → thinking → speaking → idle
+- [ ] Playback is ducked to ~40% while listening and restored before speaking
+- [ ] C2 regression still passes: Stremio → home → YouTube → home → Stremio
 
-## Next implementation slices
+## Assumptions
 
-1. **2.1** — orchestrator health + status WS (this scaffold)
-2. **2.2** — companion HTTPS + PTT capture → PCM stream
-3. **2.3** — faster-whisper + LLM provider
-4. **2.4** — Piper TTS + PulseAudio ducking
-5. **2.5** — overlay states + re-enable on Pi
+- V1 uses mkcert certs trusted on household phones; no reverse proxy yet.
+- `piper-tts` Python CLI is acceptable for Phase 2; a persistent Piper server can replace it if load time is too slow.
+- faster-whisper uses `base.en`, CPU, `int8`; first use may download/load the model.
+- Volume ducking is best-effort through `pactl`; if PulseAudio/PipeWire is absent, voice still works without ducking.
