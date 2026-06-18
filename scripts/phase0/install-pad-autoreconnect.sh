@@ -21,6 +21,15 @@ UDEV_RULE="/etc/udev/rules.d/99-mango-pro-controller.rules"
 HOOK="${REPO_DIR}/scripts/phase0/on-pro-controller-connect.sh"
 UNIT_SRC="${REPO_DIR}/scripts/phase1/systemd/mango-tv-pad.service"
 UNIT_DST="${HOME_DIR}/.config/systemd/user/mango-tv-pad.service"
+USER_UID="$(id -u "$USER_NAME")"
+USER_RUNTIME="/run/user/${USER_UID}"
+
+run_user_systemctl() {
+  sudo -u "$USER_NAME" \
+    XDG_RUNTIME_DIR="$USER_RUNTIME" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=${USER_RUNTIME}/bus" \
+    systemctl --user "$@"
+}
 
 echo "=== mango: pad auto-reconnect ==="
 
@@ -49,9 +58,9 @@ bluetoothctl connect "$BT_MAC" 2>/dev/null || true
 mkdir -p "${HOME_DIR}/.config/systemd/user"
 install -m 0644 -o "$USER_NAME" -g "$USER_NAME" "$UNIT_SRC" "$UNIT_DST"
 
-sudo -u "$USER_NAME" systemctl --user daemon-reload
-sudo -u "$USER_NAME" systemctl --user enable mango-tv-pad.service
-sudo -u "$USER_NAME" systemctl --user start mango-tv-pad.service || true
+run_user_systemctl daemon-reload
+run_user_systemctl enable mango-tv-pad.service
+run_user_systemctl start mango-tv-pad.service || true
 
 if ! loginctl show-user "$USER_NAME" -p Linger 2>/dev/null | grep -q yes; then
   loginctl enable-linger "$USER_NAME"

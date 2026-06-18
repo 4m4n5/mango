@@ -25,5 +25,8 @@ dist/
 # Local diag pulls
 .cache/
 
+# Pi-local downloads (e.g. Kodi addons)
+downloads/
+
 # Editor
 .vscode/
