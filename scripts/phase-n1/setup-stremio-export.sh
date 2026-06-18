@@ -41,6 +41,8 @@ import json, sys
 path = sys.argv[1]
 data = json.loads(open(path, encoding="utf-8").read())
 addons = data.get("addons")
+if isinstance(addons, dict) and isinstance(addons.get("addons"), list):
+    addons = addons["addons"]
 if not isinstance(addons, list) or not addons:
     raise SystemExit("FAIL: addons[] missing or empty")
 names = []
@@ -50,8 +52,47 @@ for i, a in enumerate(addons):
     url = a.get("manifestUrl") or a.get("transportUrl") or a.get("url")
     if not url:
         raise SystemExit(f"FAIL: addons[{i}] missing manifestUrl")
-    names.append(a.get("name") or a.get("manifestUrl", "")[:40])
-print("OK:", len(addons), "addons —", ", ".join(names[:5]))
+    manifest = a.get("manifest") if isinstance(a.get("manifest"), dict) else {}
+    names.append(a.get("name") or manifest.get("name") or url[:40])
+print("OK:", len(addons), "addons —", ", ".join(names[:8]))
+PY
+}
+
+install_export() {
+  local src="$1"
+  python3 - "$src" "$DEST" <<'PY'
+import json, sys
+src, dest = sys.argv[1], sys.argv[2]
+data = json.loads(open(src, encoding="utf-8").read())
+addons = data.get("addons")
+if isinstance(addons, dict) and isinstance(addons.get("addons"), list):
+    addons = addons["addons"]
+if not isinstance(addons, list) or not addons:
+    raise SystemExit("FAIL: addons[] missing or empty")
+out = []
+for a in addons:
+    if not isinstance(a, dict):
+        continue
+    url = a.get("manifestUrl") or a.get("transportUrl") or a.get("url")
+    if not url:
+        continue
+    manifest = a.get("manifest") if isinstance(a.get("manifest"), dict) else {}
+    name = a.get("name") or manifest.get("name") or url.split("/")[2]
+    out.append({"name": str(name), "manifestUrl": str(url)})
+if not out:
+    raise SystemExit("FAIL: no addons with manifest URLs")
+export = {
+    "addons": out,
+    "auth": data.get("auth") if isinstance(data.get("auth"), dict) else {},
+    "source": "stremio-settings-export",
+}
+open(dest, "w", encoding="utf-8").write(json.dumps(export, indent=2) + "\n")
+import os
+os.chmod(dest, 0o600)
+print(f"✓ Normalized {len(out)} addons → {dest}")
+for item in out:
+    print(f"  - {item['name']}")
+print("  (slim catalog export — library not copied; use full export for N4)")
 PY
 }
 
@@ -77,9 +118,6 @@ esac
 SRC="$1"
 [[ -f "$SRC" ]] || { echo "FAIL: not a file: $SRC" >&2; exit 1; }
 validate_json "$SRC"
-
 mkdir -p /etc/mango
-cp "$SRC" "$DEST"
-chmod 600 "$DEST"
-echo "✓ Installed $DEST"
+install_export "$SRC"
 validate_json "$DEST"
