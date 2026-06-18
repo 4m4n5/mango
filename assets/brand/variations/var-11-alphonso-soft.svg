@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- var-11 alphonso soft: ovate-oblique, ventral swell, rounded shoulder -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="42"/>
+    </filter>
+    <filter id="inner" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B12"/>
+  <path d="M 498 892
+       C 318 884, 198 768, 192 612
+       C 186 468, 238 358, 328 298
+       C 378 268, 432 242, 488 222
+       C 538 204, 588 194, 632 192
+       C 662 190, 676 204, 668 228
+       C 656 262, 682 332, 702 428
+       C 722 568, 698 748, 558 862
+       C 528 882, 510 892, 498 892
+       Z"
+    fill="#FFD080" filter="url(#outer)" opacity="0.7"/>
+  <path d="M 498 892
+       C 318 884, 198 768, 192 612
+       C 186 468, 238 358, 328 298
+       C 378 268, 432 242, 488 222
+       C 538 204, 588 194, 632 192
+       C 662 190, 676 204, 668 228
+       C 656 262, 682 332, 702 428
+       C 722 568, 698 748, 558 862
+       C 528 882, 510 892, 498 892
+       Z"
+    fill="#FFB300" filter="url(#inner)"/>
+  <path d="M 498 892
+       C 318 884, 198 768, 192 612
+       C 186 468, 238 358, 328 298
+       C 378 268, 432 242, 488 222
+       C 538 204, 588 194, 632 192
+       C 662 190, 676 204, 668 228
+       C 656 262, 682 332, 702 428
+       C 722 568, 698 748, 558 862
+       C 528 882, 510 892, 498 892
+       Z"
+    fill="#FFB300"/>
+</svg>

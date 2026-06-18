@@ -325,6 +325,13 @@ def main() -> None:
     args = parser.parse_args()
 
     use_tls = bool(args.ssl_certfile and args.ssl_keyfile)
+    local_port = settings.local_ws_port
+    run_loopback = use_tls and local_port and local_port != args.port
+
+    if run_loopback:
+        asyncio.run(_run_servers(args, local_port, use_tls))
+        return
+
     uvicorn.run(
         app,
         host=args.host,
@@ -333,6 +340,35 @@ def main() -> None:
         ssl_certfile=args.ssl_certfile if use_tls else None,
         ssl_keyfile=args.ssl_keyfile if use_tls else None,
     )
+
+
+async def _run_servers(args: argparse.Namespace, local_port: int, use_tls: bool) -> None:
+    import uvicorn
+
+    servers = [
+        uvicorn.Server(
+            uvicorn.Config(
+                app,
+                host=args.host,
+                port=args.port,
+                log_level="info",
+                ssl_certfile=args.ssl_certfile if use_tls else None,
+                ssl_keyfile=args.ssl_keyfile if use_tls else None,
+            )
+        )
+    ]
+    servers.append(
+        uvicorn.Server(
+            uvicorn.Config(
+                app,
+                host="127.0.0.1",
+                port=local_port,
+                log_level="warning",
+            )
+        )
+    )
+    logger.info("loopback TV websocket on ws://127.0.0.1:%s/ws", local_port)
+    await asyncio.gather(*(server.serve() for server in servers))
 
 
 if __name__ == "__main__":

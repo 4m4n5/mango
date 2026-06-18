@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hum app icon - master 1024x1024 (locked 2026-05-12).
+
+  Composition: "candlelight resonance"
+    - Single-period sine wave traced in saturated rose stroke
+    - Two-tone halo (wide warm-coral outer corona + tight rose inner
+      core) mimics actual candle/firelight physics: bright cooler
+      core, soft warmer falloff
+    - Reads as a quiet, intimate hum on a warm-near-black canvas
+
+  Studio system (aaam.dev):
+    - Canvas: warm-near-black #0B0B12
+    - Single-app accent: rose #FF8E9B (corona shifts to coral
+      #FFB392 only inside the halo - the stroke itself stays a
+      single color, satisfying the studio "single accent" rule on the
+      mark itself)
+
+  Verified against
+    - Apple HIG App Icons / Icon Composer (iOS 26)
+    - WWDC25 "Say hello to the new look of app icons" (lit-from-
+      within material approach - this composition pre-bakes a
+      warm halo for marketing/Android; iOS Icon Composer can apply
+      Liquid Glass on top of the flat single-stroke layer)
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="42"/>
+    </filter>
+    <filter id="inner" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B12"/>
+  <path d="M 232 512 C 296 320, 424 320, 488 512 C 552 704, 680 704, 744 512"
+        stroke="#FFB392" stroke-width="40" stroke-linecap="round" fill="none"
+        filter="url(#outer)" opacity="0.7"/>
+  <path d="M 232 512 C 296 320, 424 320, 488 512 C 552 704, 680 704, 744 512"
+        stroke="#FF8E9B" stroke-width="40" stroke-linecap="round" fill="none"
+        filter="url(#inner)"/>
+  <path d="M 232 512 C 296 320, 424 320, 488 512 C 552 704, 680 704, 744 512"
+        stroke="#FF8E9B" stroke-width="40" stroke-linecap="round" fill="none"/>
+</svg>

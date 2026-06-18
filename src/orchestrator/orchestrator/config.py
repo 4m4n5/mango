@@ -16,6 +16,7 @@ SYSTEM_CONFIG = Path("/etc/mango/config.yaml")
 class OrchestratorSettings:
     host: str
     port: int
+    local_ws_port: int | None
     ssl_certfile: str | None
     ssl_keyfile: str | None
     max_utterance_seconds: int
@@ -64,6 +65,7 @@ def load_settings() -> OrchestratorSettings:
     return OrchestratorSettings(
         host=str(os.environ.get("MANGO_ORCH_HOST", orch.get("host", "127.0.0.1"))),
         port=int(os.environ.get("MANGO_ORCH_PORT", orch.get("port", 8765))),
+        local_ws_port=_optional_int(orch.get("local_ws_port", 8766)),
         ssl_certfile=_optional_str(
             os.environ.get("MANGO_SSL_CERTFILE", orch.get("ssl_certfile"))
         ),
@@ -104,6 +106,16 @@ def _optional_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        return None
+    return port if port > 0 else None
 
 
 def _load_keyterms(value: object) -> tuple[str, ...]:

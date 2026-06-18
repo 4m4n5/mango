@@ -37,9 +37,9 @@ echo "--- config & secrets ---"
 [[ -f /etc/mango/config.yaml ]] && ok config-yaml || bad config-yaml-missing
 grep -q "tts_enabled: false" /etc/mango/config.yaml 2>/dev/null && ok tts-disabled-config || wrn tts-not-disabled-in-config
 if grep -q "local_ws_port" /etc/mango/config.yaml 2>/dev/null; then
-  wrn "local_ws_port remains in /etc/mango/config.yaml but is ignored on N0"
+  ok local-ws-port-config
 else
-  ok no-local-ws-port-config
+  wrn local-ws-port-missing-in-config
 fi
 [[ -s /etc/mango/stt.key ]] && ok stt-key || bad stt-key-empty
 [[ -s /etc/mango/llm.key ]] && ok llm-key || bad llm-key-empty
@@ -55,10 +55,10 @@ echo "--- HTTP health ---"
 curl -sf http://127.0.0.1:3000/api/health >/tmp/mango-launcher-health.json && ok launcher-health || bad launcher-health
 curl -sf http://127.0.0.1:3000/ | grep -q voice-hud && ok launcher-voice-hud || bad launcher-voice-hud-missing
 curl -skf https://127.0.0.1:8765/health >/tmp/mango-orch.json && ok orch-wss-health || bad orch-wss-health
-if ss -tlnp 2>/dev/null | grep -q ':8766'; then
-  bad legacy-8766-listener
+if ss -tlnp 2>/dev/null | grep -q '127.0.0.1:8766'; then
+  ok loopback-8766-listener
 else
-  ok no-legacy-8766-listener
+  bad loopback-8766-missing
 fi
 COMP_CODE=$(curl -skf -o /dev/null -w "%{http_code}" https://127.0.0.1:3001/ 2>/dev/null || echo 000)
 [[ "$COMP_CODE" == "200" ]] && ok companion-https || bad "companion-https code=$COMP_CODE"

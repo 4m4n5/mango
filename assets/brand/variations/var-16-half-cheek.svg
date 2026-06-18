@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- var-16 half mango: cheek silhouette with seed bite (fruit graphic) -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="42"/>
+    </filter>
+    <filter id="inner" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B12"/>
+  <path fill-rule="evenodd"
+    d="M 268 748
+       C 208 580, 248 380, 398 258
+       C 498 178, 638 168, 758 228
+       C 848 278, 898 388, 898 508
+       C 898 648, 798 768, 648 818
+       C 548 852, 418 848, 328 798
+       C 292 778, 272 762, 268 748
+       Z
+       M 598 468
+       C 548 468, 508 428, 508 378
+       C 508 328, 548 288, 598 288
+       C 648 288, 688 328, 688 378
+       C 688 428, 648 468, 598 468
+       Z"
+    fill="#FFD080" filter="url(#outer)" opacity="0.7"/>
+  <path fill-rule="evenodd"
+    d="M 268 748
+       C 208 580, 248 380, 398 258
+       C 498 178, 638 168, 758 228
+       C 848 278, 898 388, 898 508
+       C 898 648, 798 768, 648 818
+       C 548 852, 418 848, 328 798
+       C 292 778, 272 762, 268 748
+       Z
+       M 598 468
+       C 548 468, 508 428, 508 378
+       C 508 328, 548 288, 598 288
+       C 648 288, 688 328, 688 378
+       C 688 428, 648 468, 598 468
+       Z"
+    fill="#FFB300" filter="url(#inner)"/>
+  <path fill-rule="evenodd"
+    d="M 268 748
+       C 208 580, 248 380, 398 258
+       C 498 178, 638 168, 758 228
+       C 848 278, 898 388, 898 508
+       C 898 648, 798 768, 648 818
+       C 548 852, 418 848, 328 798
+       C 292 778, 272 762, 268 748
+       Z
+       M 598 468
+       C 548 468, 508 428, 508 378
+       C 508 328, 548 288, 598 288
+       C 648 288, 688 328, 688 378
+       C 688 428, 648 468, 598 468
+       Z"
+    fill="#FFB300"/>
+</svg>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- var-13 kesar round: plump oval, softer waist (Gujarat round mangoes) -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="42"/>
+    </filter>
+    <filter id="inner" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B12"/>
+  <path d="M 495 888
+       C 280 878, 168 738, 172 558
+       C 176 398, 278 262, 438 218
+       C 505 200, 578 208, 645 238
+       C 762 292, 842 425, 838 578
+       C 834 748, 695 886, 495 888
+       Z"
+    fill="#FFD080" filter="url(#outer)" opacity="0.7"/>
+  <path d="M 495 888
+       C 280 878, 168 738, 172 558
+       C 176 398, 278 262, 438 218
+       C 505 200, 578 208, 645 238
+       C 762 292, 842 425, 838 578
+       C 834 748, 695 886, 495 888
+       Z"
+    fill="#FFB300" filter="url(#inner)"/>
+  <path d="M 495 888
+       C 280 878, 168 738, 172 558
+       C 176 398, 278 262, 438 218
+       C 505 200, 578 208, 645 238
+       C 762 292, 842 425, 838 578
+       C 834 748, 695 886, 495 888
+       Z"
+    fill="#FFB300"/>
+</svg>

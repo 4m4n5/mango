@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- var-03 couch ember: TV screen frame + off-center warm dot -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="42"/>
+    </filter>
+    <filter id="inner" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B12"/>
+  <g opacity="0.7" filter="url(#outer)">
+    <rect x="212" y="262" width="600" height="500" rx="56" ry="56"
+          stroke="#FFD080" stroke-width="52" fill="none"/>
+    <circle cx="628" cy="398" r="88" fill="#FFD080"/>
+  </g>
+  <g filter="url(#inner)">
+    <rect x="212" y="262" width="600" height="500" rx="56" ry="56"
+          stroke="#FFB300" stroke-width="40" fill="none"/>
+    <circle cx="628" cy="398" r="78" fill="#FFB300"/>
+  </g>
+  <rect x="212" y="262" width="600" height="500" rx="56" ry="56"
+        stroke="#FFB300" stroke-width="40" fill="none"/>
+  <circle cx="628" cy="398" r="78" fill="#FFB300"/>
+</svg>

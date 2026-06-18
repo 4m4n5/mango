@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- var-08 ventral arc: single open S-contour (botanical edge, not filled fruit) -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="42"/>
+    </filter>
+    <filter id="inner" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B12"/>
+  <path d="M 268 768
+       C 248 600, 308 448, 412 352
+       C 468 302, 532 268, 598 248
+       C 648 232, 688 244, 712 278
+       C 736 312, 728 372, 688 428"
+    stroke="#FFD080" stroke-width="56" stroke-linecap="round" fill="none"
+    filter="url(#outer)" opacity="0.7"/>
+  <path d="M 268 768
+       C 248 600, 308 448, 412 352
+       C 468 302, 532 268, 598 248
+       C 648 232, 688 244, 712 278
+       C 736 312, 728 372, 688 428"
+    stroke="#FFB300" stroke-width="40" stroke-linecap="round" fill="none"
+    filter="url(#inner)"/>
+  <path d="M 268 768
+       C 248 600, 308 448, 412 352
+       C 468 302, 532 268, 598 248
+       C 648 232, 688 244, 712 278
+       C 736 312, 728 372, 688 428"
+    stroke="#FFB300" stroke-width="40" stroke-linecap="round" fill="none"/>
+</svg>

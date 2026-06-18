@@ -67,7 +67,7 @@ Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.
 | STT | **Deepgram** `nova-3` + `multi` + keyterms; `stt.key` in `/etc/mango/` |
 | TTS on Pi | **Off** — `audio.tts_enabled: false` · `MANGO_TTS_DISABLED=1` until HDMI speaker |
 | TV HUD | **Launcher-embedded** `voice-hud.ts` — only default TV voice surface |
-| Loopback WS | Removed in N0; no `:8766` listener |
+| Loopback WS | `127.0.0.1:8766` plain WS for launcher TV HUD (single process, not overlay Chromium) |
 | Overlay Chromium | Deprecated in N0; `/overlay/` returns 410 and start scripts kill stale overlay windows |
 | Multi-turn PTT | Allowed while reply visible; block only when `ptt_owner` or voice lock held |
 | Reply dwell | `overlay_reply_seconds: 10` — HUD dismisses; phone keeps full history |

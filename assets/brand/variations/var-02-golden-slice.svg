@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- var-02 golden slice: cheek wedge + seed hole -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="42"/>
+    </filter>
+    <filter id="inner" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B12"/>
+  <path fill-rule="evenodd"
+    d="M 512 520
+       L 228 368
+       A 340 340 0 0 1 828 412
+       Z
+       M 598 478
+       C 548 478, 508 438, 508 388
+       C 508 338, 548 298, 598 298
+       C 648 298, 688 338, 688 388
+       C 688 438, 648 478, 598 478
+       Z"
+    fill="#FFD080" filter="url(#outer)" opacity="0.7"/>
+  <path fill-rule="evenodd"
+    d="M 512 520
+       L 228 368
+       A 340 340 0 0 1 828 412
+       Z
+       M 598 478
+       C 548 478, 508 438, 508 388
+       C 508 338, 548 298, 598 298
+       C 648 298, 688 338, 688 388
+       C 688 438, 648 478, 598 478
+       Z"
+    fill="#FFB300" filter="url(#inner)"/>
+  <path fill-rule="evenodd"
+    d="M 512 520
+       L 228 368
+       A 340 340 0 0 1 828 412
+       Z
+       M 598 478
+       C 548 478, 508 438, 508 388
+       C 508 338, 548 298, 598 298
+       C 648 298, 688 338, 688 388
+       C 688 438, 648 478, 598 478
+       Z"
+    fill="#FFB300"/>
+</svg>

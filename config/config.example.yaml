@@ -80,3 +80,4 @@ orchestrator:
   port: 8765
   ssl_certfile: null  # or /home/aman/.config/mango/certs/mango-companion.pem
   ssl_keyfile: null   # or /home/aman/.config/mango/certs/mango-companion-key.pem
+  local_ws_port: 8766  # plain WS on loopback for launcher TV HUD (mkcert not trusted in kiosk)

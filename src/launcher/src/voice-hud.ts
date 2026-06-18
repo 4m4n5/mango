@@ -1,6 +1,6 @@
 /**
- * Launcher-owned TV voice card. N0 removes the second overlay Chromium, so the
- * kiosk HUD connects directly to the single orchestrator listener on :8765.
+ * Launcher-owned TV voice card. N0 removes overlay Chromium; the kiosk HUD uses
+ * loopback plain WS on :8766 because mkcert is not trusted in the launcher profile.
  */
 
 type VoiceMessage =
@@ -46,11 +46,10 @@ function resolveVoiceWsUrls(): string[] {
     }
   }
   const host = window.location.hostname || "127.0.0.1";
-  const wss = `wss://${host}:8765/ws`;
   if (window.location.protocol === "https:") {
-    return [wss];
+    return [`wss://${host}:8765/ws`];
   }
-  return [wss, `ws://${host}:8765/ws`];
+  return [`ws://127.0.0.1:8766/ws`, `ws://${host}:8766/ws`];
 }
 
 function connectVoiceHud(wsUrls: string[], els: VoiceHudElements): void {

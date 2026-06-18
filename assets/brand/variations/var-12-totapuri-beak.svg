@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- var-12 totapuri beak: elongated + parrot-beak hook (stem end) -->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="42"/>
+    </filter>
+    <filter id="inner" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B12"/>
+  <path d="M 472 908
+       C 298 896, 188 772, 182 608
+       C 176 468, 228 358, 322 298
+       C 372 268, 428 242, 478 222
+       C 518 206, 552 188, 578 168
+       C 602 150, 628 128, 658 108
+       C 682 92, 698 104, 690 132
+       C 678 168, 648 198, 624 222
+       C 688 298, 732 418, 738 568
+       C 744 738, 638 882, 472 908
+       Z"
+    fill="#FFD080" filter="url(#outer)" opacity="0.7"/>
+  <path d="M 472 908
+       C 298 896, 188 772, 182 608
+       C 176 468, 228 358, 322 298
+       C 372 268, 428 242, 478 222
+       C 518 206, 552 188, 578 168
+       C 602 150, 628 128, 658 108
+       C 682 92, 698 104, 690 132
+       C 678 168, 648 198, 624 222
+       C 688 298, 732 418, 738 568
+       C 744 738, 638 882, 472 908
+       Z"
+    fill="#FFB300" filter="url(#inner)"/>
+  <path d="M 472 908
+       C 298 896, 188 772, 182 608
+       C 176 468, 228 358, 322 298
+       C 372 268, 428 242, 478 222
+       C 518 206, 552 188, 578 168
+       C 602 150, 628 128, 658 108
+       C 682 92, 698 104, 690 132
+       C 678 168, 648 198, 624 222
+       C 688 298, 732 418, 738 568
+       C 744 738, 638 882, 472 908
+       Z"
+    fill="#FFB300"/>
+</svg>

@@ -54,10 +54,15 @@ else
 fi
 
 echo "--- listeners ---"
-if ss -tlnp 2>/dev/null | grep -q ':8766'; then
-  fail "legacy :8766 listener still active"
+if ss -tlnp 2>/dev/null | grep -q '127.0.0.1:8766'; then
+  pass "loopback :8766 for TV HUD"
+elif [[ "${MANGO_VOICE:-0}" == "1" ]]; then
+  fail "loopback :8766 missing with voice enabled"
 else
-  pass "no legacy :8766 listener"
+  pass "voice disabled; :8766 not required"
+fi
+if ss -tlnp 2>/dev/null | grep -E ':8766' | grep -qv '127.0.0.1'; then
+  fail ":8766 bound outside loopback"
 fi
 
 echo "--- launcher ---"

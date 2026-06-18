@@ -16,23 +16,22 @@ Phone :3001 HTTPS              Pi
 ┌─────────────────┐           ┌─────────────────────────────────────┐
 │ companion PWA   │──WSS:8765▶│ orchestrator — Deepgram STT → Haiku  │
 │ PTT + chat      │           │ optional Piper TTS                     │
-└─────────────────┘           │ single WSS listener :8765              │
-Launcher :3000                │   launcher voice-hud.ts                  │
-│ voice-hud.ts    │──WSS:8765▶│                                      │
+└─────────────────┘           │ one process: WSS :8765 + WS :8766 loopback │
+Launcher :3000                │   launcher voice-hud.ts → :8766        │
+│ voice-hud.ts    │──WS:8766─▶│                                      │
 └─────────────────┘           └─────────────────────────────────────┘
 ```
 
-**N0 update:** the redundant overlay Chromium and loopback `:8766` listener are
-deprecated. Phone companion and launcher HUD both use the single orchestrator
-listener on `:8765`; the launcher HUD tries `wss://...:8765/ws` first and keeps
-a dev fallback for non-TLS local runs.
+**N0:** overlay Chromium removed. Phone uses WSS `:8765`; launcher HUD uses
+loopback `ws://127.0.0.1:8766/ws` in the **same orchestrator process** (asyncio dual
+bind — not a second thread).
 
 | Service | Port | Protocol |
 |---------|------|----------|
 | Launcher | 3000 | HTTP (kiosk) |
 | Companion | 3001 | HTTPS (mkcert) |
 | Orchestrator | 8765 | WSS (phone) |
-| Orchestrator | 8766 | Removed in N0 |
+| Orchestrator | 8766 | WS loopback (TV HUD only) |
 
 Launcher and pad stack unchanged from Phase 1.
 
@@ -126,7 +125,7 @@ Phone dev: `bash scripts/phase2/serve-companion-https.sh` (not plain Vite).
 
 | Issue | Notes |
 |-------|-------|
-| Dual uvicorn on one FastAPI app (`:8765` + `:8766`) | Fixed in N0 — single `:8765` listener |
+| Dual uvicorn threads on one FastAPI app | Fixed in N0 — asyncio dual bind, one process |
 | HDMI black screen after PTT | May correlate with `pactl` duck / infoframe WARN — unconfirmed |
 | Separate overlay Chromium | Deprecated in N0; launcher HUD is canonical |
 | Desktop Stremio/Kodi browse | Product gap — drives native UX branch |

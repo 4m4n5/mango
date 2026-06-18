@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  tir app icon - master 1024x1024 (locked 2026-05-25, round 6 final).
+
+  Composition: "off-center NE" (the player inside the target)
+    - A single centered cyan ring + a single filled cyan dot
+      positioned inside the ring at the upper-right, ~50% of ring
+      radius from the canvas center
+    - The asymmetric dot placement is the entire personality of the
+      mark: the bullseye reads as "the target word"; the dot reads
+      as "you, here, inside the target zone, on the way to the
+      center"
+    - One ring + one dot = the most compressed possible target
+      iconography; the asymmetry-as-character (aaam.dev rule) lives
+      entirely in the dot's position
+
+  Studio system (aaam.dev):
+    - Canvas: warm-near-black #0B0B12 (shared with Hum)
+    - Single-app accent: electric cyan #00E5FF; the corona shifts
+      to lighter cyan #66F0FF only inside the halo - the stroke
+      itself stays a single color, satisfying the studio
+      "single accent" rule on the mark itself
+    - Single-element-plus-dual-halo composition (here: ring + dot,
+      both drawn three times with progressively narrower filter
+      passes plus a sharp pass on top) = same structural recipe
+      as Hum's "candlelight resonance" sine wave
+
+  Geometry (1024x1024):
+    - Ring: cx=512 cy=512 r=320, stroke-width 40
+    - Dot:  cx=620 cy=400 r=84
+      * Dot center sits at distance ~156 from canvas center (49%
+        of ring radius), at ~46 deg above horizontal (NE quadrant)
+      * Dot far edge sits ~240 from center, well inside the ring's
+        inner edge (~300), so the dot reads as distinctly "inside
+        the ring" not "touching the ring"
+    - All content sits within ~15% safe inset (Apple HIG squircle
+      headroom) and well inside the Android adaptive icon safe
+      zone for the dot; the ring touches the soft-clip area on
+      circle-mask launchers but the dot (the focal element) is
+      guaranteed-visible
+
+  Verified against
+    - Apple HIG App Icons (single focal point - the off-center dot)
+    - WWDC25 "Say hello to the new look of app icons" + iOS 26
+      Liquid Glass docs: this composition pre-bakes a luminous
+      halo for marketing / Android adaptive. For iOS 26 Icon
+      Composer the flat single-color version (icon-flat.svg) sits
+      as foreground; the system applies Liquid Glass material on
+      top
+    - Dutchicon 2026 / Whixframe 2026 / Tubikstudio: filled dot
+      survives small sizes better than thin strokes; the ring is
+      stroked but at 4% of canvas width (40/1024 = 3.9%) which
+      survives the 60px / 29px threshold per their guidance
+    - aaam.dev: same canvas + halo recipe as Hum, asymmetry lives
+      in the dot position not in a curve
+
+  Source of truth. Icon Composer / iOS asset catalogs / Android
+  adaptive icon all render from this. To regenerate:
+
+    cd tir
+    python3 scripts/brand/generate-brand.py
+-->
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="outer" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="42"/>
+    </filter>
+    <filter id="inner" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="14"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" fill="#0B0B12"/>
+
+  <g opacity="0.7" filter="url(#outer)">
+    <circle cx="512" cy="512" r="320" stroke="#66F0FF" stroke-width="52" fill="none"/>
+    <circle cx="620" cy="400" r="92" fill="#66F0FF"/>
+  </g>
+
+  <g filter="url(#inner)">
+    <circle cx="512" cy="512" r="320" stroke="#00E5FF" stroke-width="40" fill="none"/>
+    <circle cx="620" cy="400" r="84" fill="#00E5FF"/>
+  </g>
+
+  <circle cx="512" cy="512" r="320" stroke="#00E5FF" stroke-width="40" fill="none"/>
+  <circle cx="620" cy="400" r="84" fill="#00E5FF"/>
+</svg>
