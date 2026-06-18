@@ -32,6 +32,15 @@ body {
   border: 2px solid rgba(255, 249, 196, 0.38);
   border-radius: 22px;
   box-shadow: 0 18px 56px rgba(0, 0, 0, 0.5);
+  opacity: 1;
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease;
+}
+
+.card[data-visible="false"] {
+  opacity: 0;
+  transform: translateY(14px);
 }
 
 .card-head {
@@ -107,14 +116,5 @@ body {
 }
 
 .hint {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 600;
-  color: rgba(255, 249, 196, 0.45);
-}
-
-.card[data-state="listening"] .hint,
-.card[data-state="thinking"] .hint,
-.card[data-state="speaking"] .hint {
   display: none;
 }

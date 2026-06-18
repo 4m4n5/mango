@@ -36,7 +36,7 @@ audio:
   input_mode: phone_websocket  # phone streams mic over LAN; no USB mic required
   max_utterance_seconds: 30
   tts_enabled: false  # true when TV/HDMI speaker is wired; false = replies on overlay only
-  overlay_reply_seconds: 45  # how long mango reply stays on TV before idle
+  overlay_reply_seconds: 10  # TV reply dwell before dismiss (phone keeps history)
   piper_voice: en_US-lessac-medium
   piper_data_dir: /home/aman/.local/share/piper
   tts_player: auto  # auto | paplay | aplay

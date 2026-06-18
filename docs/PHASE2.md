@@ -6,7 +6,7 @@
 
 ## Goal
 
-Phone PTT → transcript → LLM reply → **TV overlay** (default) or Piper TTS when a speaker is attached. Overlay shows idle / listening / thinking / reply with **you** and **mango** lines.
+Phone PTT → transcript → LLM reply → **TV HUD** (launcher-embedded + optional overlay Chromium). Card appears only during a turn; after reply dwell (~10 s) it fades out and clears — full history stays on the phone.
 
 ## Architecture
 
@@ -102,7 +102,7 @@ STT uses **Deepgram Listen** (pre-recorded) with `nova-2` by default — not on-
 | `llm.model` | `claude-haiku-4-5-20251001` | Fast path; `claude-sonnet-4-6` for quality |
 | `llm.max_tokens` | `96` | Short spoken replies |
 | `audio.tts_enabled` | `false` | Set `true` when HDMI speaker is ready |
-| `audio.overlay_reply_seconds` | `45` | How long the reply stays on TV |
+| `audio.overlay_reply_seconds` | `10` | Reply dwell on TV before dismiss (phone keeps history) |
 | `orchestrator.local_ws_port` | `8766` | Plain WS for overlay (mkcert not trusted in overlay Chromium) |
 
 Orchestrator **warms Piper** on startup (no Whisper load). Set `MANGO_VOICE_TIMING=1` to log stage timings.

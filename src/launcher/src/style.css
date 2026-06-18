@@ -177,7 +177,7 @@ h1 {
   position: fixed;
   left: 50%;
   bottom: 4vh;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateY(0);
   width: min(700px, 86vw);
   padding: 16px 20px 18px;
   background: rgba(5, 8, 10, 0.9);
@@ -185,6 +185,16 @@ h1 {
   border-radius: 22px;
   box-shadow: 0 18px 56px rgba(0, 0, 0, 0.5);
   z-index: 20;
+  opacity: 1;
+  pointer-events: none;
+  transition:
+    opacity 0.28s ease,
+    transform 0.28s ease;
+}
+
+.voice-hud[data-visible="false"] {
+  opacity: 0;
+  transform: translateX(-50%) translateY(14px);
 }
 
 .voice-hud-head {
@@ -259,14 +269,5 @@ h1 {
 }
 
 .voice-hint {
-  margin: 0;
-  font-size: 0.95rem;
-  font-weight: 600;
-  color: rgba(255, 249, 196, 0.45);
-}
-
-.voice-hud[data-state="listening"] .voice-hint,
-.voice-hud[data-state="thinking"] .voice-hint,
-.voice-hud[data-state="speaking"] .voice-hint {
   display: none;
 }

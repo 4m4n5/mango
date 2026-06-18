@@ -90,7 +90,7 @@ def load_settings() -> OrchestratorSettings:
         tts_player=str(audio.get("tts_player", "auto")),
         tts_enabled=_tts_enabled(audio),
         tts_async=bool(audio.get("tts_async", True)),
-        overlay_reply_seconds=max(5, int(audio.get("overlay_reply_seconds", 45))),
+        overlay_reply_seconds=max(5, int(audio.get("overlay_reply_seconds", 10))),
         duck_volume_while_listening=bool(audio.get("duck_volume_while_listening", True)),
         duck_volume_percent=int(audio.get("duck_volume_percent", 40)),
         llm_provider=str(llm.get("provider", "anthropic")),
