@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # 8BitDo Micro (Switch BT → "Pro Controller") → keyboard for Kodi/Stremio.
 #
-# Verified on mango (Jun 2026):
-#   D-pad → arrows   B → select (Return)   Y → back (BackSpace)
+# Verified on mango (Jun 2026) — face layout clockwise from left: Y · X · A · B
+#   D-pad → arrows   B (bottom, evdev 304) → select   Y (left, evdev 308) → back
 #
 # D-pad shows as ABS_X/ABS_Y (codes 0/1) in Switch mode — not hat axes.
 # input-remapper rejects analog_threshold ±100 (max is ±99) — use ±80.
@@ -37,7 +37,7 @@ cat >"$PRESET_FILE" <<'EOF'
   {"input_combination": [{"type": 1, "code": 545}], "target_uinput": "keyboard", "output_symbol": "Down"},
   {"input_combination": [{"type": 1, "code": 546}], "target_uinput": "keyboard", "output_symbol": "Left"},
   {"input_combination": [{"type": 1, "code": 547}], "target_uinput": "keyboard", "output_symbol": "Right"},
-  {"input_combination": [{"type": 1, "code": 305}], "target_uinput": "keyboard", "output_symbol": "Return"},
+  {"input_combination": [{"type": 1, "code": 304}], "target_uinput": "keyboard", "output_symbol": "Return"},
   {"input_combination": [{"type": 1, "code": 308}], "target_uinput": "keyboard", "output_symbol": "key(BackSpace).key(Escape)"}
 ]
 EOF

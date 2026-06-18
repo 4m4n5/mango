@@ -31,7 +31,7 @@ Pi: `aman@mango.local` · `10.0.0.174`
 - Pi 5 8GB · Pi OS Desktop · **X11 + Openbox** (not Wayland)
 - Stremio: fragarray ARM64 `.deb` · YouTube: Kodi + `plugin.video.youtube`
 - Python orchestrator · Node stremio-service · Vite + vanilla TS (launcher, overlay, companion)
-- Phone PTT over **HTTPS** (mkcert) · 8BitDo Micro = TV nav (input-remapper; Stremio uses xdotool bridge)
+- Phone PTT over **HTTPS** (mkcert) · 8BitDo Micro — see [`docs/HARDWARE.md`](docs/HARDWARE.md) for face layout (B=select, Y=back)
 
 ## Rules
 

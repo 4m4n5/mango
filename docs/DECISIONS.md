@@ -14,8 +14,8 @@ Locked during pre-code QA (2026-06-15). Do not revisit without updating this fil
 | Display stack | **X11 + Openbox** (`raspi-config` — not Wayland) |
 | Phone role | Mic (PTT) + backup remote |
 | Build order | Phase 0 manual bring-up → launcher → voice → media tools |
-| Stremio couch input | **xdotool evdev bridge** (`stremio-pad-bridge.py`) — input-remapper does not reach Qt WebEngine; *unverified on Pi as of 2026-06-15* |
-| Stremio first-time setup | **USB mouse** until pad bridge confirmed — gamepad-only for Kodi in the meantime |
+| Stremio couch input | **xdotool evdev bridge** (`stremio-pad-bridge.py`) — input-remapper does not reach Qt WebEngine |
+| 8BitDo Micro face layout | Clockwise from left: **Y · X · A · B** — **B** (bottom, evdev `304`) = select, **Y** (left, evdev `308`) = back; A/X unmapped. Same in Kodi + Stremio. See [`docs/HARDWARE.md`](docs/HARDWARE.md) |
 
 ## Implications
 

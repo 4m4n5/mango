@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""8BitDo Micro -> xdotool keys for Stremio (Qt ignores input-remapper uinput)."""
+"""8BitDo Micro -> xdotool keys for Stremio (Qt ignores input-remapper uinput).
+
+Face buttons (right cluster, clockwise from left): Y · X · A · B
+  Y = back (evdev 308)   B = select (evdev 304)   A/X unmapped
+See docs/HARDWARE.md
+"""
 
 from __future__ import annotations
 
@@ -18,6 +23,10 @@ DISPLAY = os.environ.get("DISPLAY", ":0")
 XAUTHORITY = os.environ.get("XAUTHORITY", os.path.expanduser("~/.Xauthority"))
 THRESH = int(32767 * 0.8)
 DEBOUNCE_SEC = 0.12
+
+# Linux evdev BTN_* for 8BitDo Micro (Switch BT → "Pro Controller")
+BTN_B = 304  # south — bottom — select
+BTN_Y = 308  # west — left — back
 
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": os.environ.get("HOME", "/home/aman")}
 
@@ -63,35 +72,38 @@ def main() -> None:
 
     last: dict[str, float] = {}
 
-    def debounced(action: str, symbol: str) -> None:
+    def debounced(action: str, fn) -> None:
         now = time.monotonic()
         if now - last.get(action, 0) < DEBOUNCE_SEC:
             return
         last[action] = now
         if stremio_active():
-            send_key(symbol)
+            fn()
 
-    btn_map = {
-        305: "Return",      # B (right) — select, same as Kodi
-        308: "BackSpace",   # left face (code 308) — back, same as Kodi
-    }
+    def select() -> None:
+        send_key("Return")
+
+    def back() -> None:
+        send_key("BackSpace")
+        send_key("Escape")
 
     for event in dev.read_loop():
         if event.type == ecodes.EV_ABS:
             if event.code == ecodes.ABS_X:
                 if event.value <= -THRESH:
-                    debounced("left", "Left")
+                    debounced("left", lambda: send_key("Left"))
                 elif event.value >= THRESH:
-                    debounced("right", "Right")
+                    debounced("right", lambda: send_key("Right"))
             elif event.code == ecodes.ABS_Y:
                 if event.value <= -THRESH:
-                    debounced("up", "Up")
+                    debounced("up", lambda: send_key("Up"))
                 elif event.value >= THRESH:
-                    debounced("down", "Down")
+                    debounced("down", lambda: send_key("Down"))
         elif event.type == ecodes.EV_KEY and event.value == 1:
-            sym = btn_map.get(event.code)
-            if sym:
-                debounced(f"btn{event.code}", sym)
+            if event.code == BTN_B:
+                debounced("select", select)
+            elif event.code == BTN_Y:
+                debounced("back", back)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 # Hardware — mango
 
-**Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone · TV  
-**Incoming:** USB mouse (for Stremio setup; gamepad for Kodi ✓)
+**Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone · TV
 
 - **SD card:** flash on Mac via Imager, then insert in Pi underside slot
 - **Gamepad:** 8BitDo Micro — D-pad + XYAB only (no stick)
@@ -13,17 +12,35 @@ Pair in **Switch mode** (hold START+Y). Linux names it **Pro Controller**.
 
 **MAC:** `E4:17:D8:EB:00:44`
 
-### Controller layout (verified in Kodi)
+### Face buttons (right cluster)
 
-| Button | Action |
-|--------|--------|
-| **D-pad** | Navigate (up / down / left / right) |
-| **B** (right) | Select |
-| **Left face** (code 308; doc often says Y) | Back |
+Clockwise from the **leftmost** button: **Y → X → A → B**
 
-A and X are unmapped. Remapping is via `input-remapper` preset `mango-tv` (D-pad → arrow keys, B → Return, Y → BackSpace).
+```
+      X
+    Y   A
+      B
+```
 
-> **Quirk:** The Micro has no analog stick, but in Switch BT mode Linux reports the **D-pad as ABS_X/ABS_Y** axis events (not hat D-pad). `evtest` will show `ABS_X` when you press left/right — that is normal.
+| Label | Position | Linux evdev | Action (Kodi + Stremio) |
+|-------|----------|-------------|---------------------------|
+| **Y** | left | `308` (BTN_WEST) | **Back** |
+| **X** | top | `307` (BTN_NORTH) | — |
+| **A** | right | `305` (BTN_EAST) | — |
+| **B** | bottom | `304` (BTN_SOUTH) | **Select** |
+
+**D-pad** → navigate (arrow keys).
+
+> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. A and X are intentionally unmapped.
+
+> **Quirk:** In Switch BT mode Linux reports the **D-pad as ABS_X/ABS_Y** (not hat axes). `evtest` shows `ABS_X` on left/right — normal.
+
+### Remapping
+
+| App | Method |
+|-----|--------|
+| **Kodi** | `input-remapper` preset `mango-tv` (`map-pro-controller.sh`) |
+| **Stremio** | `stremio-pad-bridge.py` + hide `/dev/input/js*` (native gamepad would use A=confirm) |
 
 ### After reboot
 
@@ -41,13 +58,8 @@ If input still missing: `bluetoothctl disconnect E4:17:D8:EB:00:44` → press a 
 ```bash
 bluetoothctl connect E4:17:D8:EB:00:44
 bash scripts/phase0/launch-kodi.sh      # Kodi
-bash scripts/phase0/launch-stremio.sh   # Stremio
+bash scripts/phase0/reset-stremio.sh    # Stremio
 ```
-
-Both launchers apply gamepad mapping automatically.
-
-- **Kodi** — `input-remapper` preset `mango-tv`
-- **Stremio** — `stremio-pad-bridge` (xdotool; native `/dev/input/js*` hidden so layout matches Kodi: **B** select, **left face** back)
 
 ### First-time pair
 
