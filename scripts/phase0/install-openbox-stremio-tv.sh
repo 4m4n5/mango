@@ -7,8 +7,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../lib/openbox-rc.sh
 source "$SCRIPT_DIR/../lib/openbox-rc.sh"
 
-OPENBOX_DIR="${HOME}/.config/openbox"
-RC_FILE="$OPENBOX_DIR/rc.xml"
 MARKER_BEGIN="<!-- mango stremio tv begin -->"
 MARKER_END="<!-- mango stremio tv end -->"
 
@@ -21,7 +19,8 @@ SNIPPET="$MARKER_BEGIN
   </application>
 $MARKER_END"
 
-ensure_user_openbox_rc
+RC_FILE=$(ensure_mango_openbox_rc)
+echo "Using Openbox config: $RC_FILE"
 
 if grep -Fq "$MARKER_BEGIN" "$RC_FILE"; then
   echo "Stremio TV Openbox rules already installed."

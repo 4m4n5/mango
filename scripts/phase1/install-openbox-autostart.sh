@@ -9,14 +9,15 @@ source "$SCRIPT_DIR/../lib/openbox-rc.sh"
 
 OPENBOX_DIR="${HOME}/.config/openbox"
 AUTOSTART_FILE="$OPENBOX_DIR/autostart"
-RC_FILE="$OPENBOX_DIR/rc.xml"
 START_LINE='bash ~/mango/scripts/phase1/start-mango-ui.sh &'
 MARKER_BEGIN="# mango phase1 begin"
 MARKER_END="# mango phase1 end"
+KEYBIND_MARKER="<!-- mango phase1 begin -->"
 
 mkdir -p "$OPENBOX_DIR"
 
-ensure_user_openbox_rc || true
+RC_FILE=$(ensure_mango_openbox_rc)
+echo "Using Openbox config: $RC_FILE"
 
 if [[ -f "$AUTOSTART_FILE" ]]; then
   cp "$AUTOSTART_FILE" "${AUTOSTART_FILE}.bak.$(date +%Y%m%d%H%M%S)"
@@ -35,7 +36,7 @@ if ! grep -Fq "$MARKER_BEGIN" "$AUTOSTART_FILE"; then
   } >>"$AUTOSTART_FILE"
 fi
 
-if [[ -f "$RC_FILE" ]] && ! grep -Fq "mango/scripts/launch-launcher.sh" "$RC_FILE"; then
+if ! grep -Fq "$KEYBIND_MARKER" "$RC_FILE"; then
   cp "$RC_FILE" "${RC_FILE}.bak.$(date +%Y%m%d%H%M%S)"
   python3 - "$RC_FILE" <<'PY'
 from pathlib import Path
@@ -55,16 +56,8 @@ if "</keyboard>" not in text:
     raise SystemExit("No </keyboard> tag found in rc.xml")
 path.write_text(text.replace("</keyboard>", snippet + "  </keyboard>", 1))
 PY
-elif [[ ! -f "$RC_FILE" ]]; then
-  cat >"$OPENBOX_DIR/mango-rc-keybind.xml" <<'EOF'
-<!-- Add inside <keyboard> in ~/.config/openbox/rc.xml -->
-<keybind key="Escape">
-  <action name="Execute">
-    <command>bash ~/mango/scripts/launch-launcher.sh</command>
-  </action>
-</keybind>
-EOF
-  echo "No rc.xml found; wrote manual snippet to $OPENBOX_DIR/mango-rc-keybind.xml"
+else
+  echo "Escape-to-launcher keybind already installed."
 fi
 
 echo "Openbox autostart installed. Restart Openbox or reboot the Pi."
