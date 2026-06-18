@@ -56,6 +56,7 @@ def extract_addons_array(blob: bytes) -> list[dict]:
     if not candidates:
         raise RuntimeError("addons array not found in Stremio local storage")
 
+    best: list[dict] | None = None
     last_error: Exception | None = None
     for start in candidates:
         depth = 0
@@ -73,14 +74,18 @@ def extract_addons_array(blob: bytes) -> list[dict]:
         else:
             continue
 
-        raw = blob[start:end].decode("utf-8", errors="strict")
         try:
+            raw = blob[start:end].decode("utf-8", errors="strict")
             data = json.loads(raw)
-        except json.JSONDecodeError as exc:
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             last_error = exc
             continue
         if isinstance(data, list) and data and isinstance(data[0], dict) and data[0].get("transportUrl"):
-            return data
+            if best is None or len(data) > len(best):
+                best = data
+
+    if best is not None:
+        return best
 
     raise RuntimeError(
         "could not parse addons JSON from Stremio local storage"
