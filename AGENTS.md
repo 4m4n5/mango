@@ -11,6 +11,7 @@
 ## Daily commands
 
 ```bash
+bash scripts/phase1/start-mango-ui.sh
 bash scripts/phase0/tv.sh kodi
 bash scripts/phase0/tv.sh stremio
 ```
@@ -31,6 +32,7 @@ Details: [`docs/HARDWARE.md`](docs/HARDWARE.md) · [`docs/DECISIONS.md`](docs/DE
 | Doc | Use |
 |-----|-----|
 | [`docs/PHASE0.md`](docs/PHASE0.md) | Pi runbook (Phase 0) |
+| [`docs/PHASE1.md`](docs/PHASE1.md) | Launcher shell, UI server, Pi autostart |
 | [**`docs/tasks/phase1-ui-shell.md`**](docs/tasks/phase1-ui-shell.md) | **Phase 1 implementation spec** |
 | [`docs/tasks/CODEX-phase1-prompt.md`](docs/tasks/CODEX-phase1-prompt.md) | Copy-paste prompt for Codex |
 | [`scripts/phase0/README.md`](scripts/phase0/README.md) | Phase 0 scripts |
@@ -38,4 +40,4 @@ Details: [`docs/HARDWARE.md`](docs/HARDWARE.md) · [`docs/DECISIONS.md`](docs/DE
 
 ## Next work
 
-**Phase 1 in progress** — implement per [`docs/tasks/phase1-ui-shell.md`](docs/tasks/phase1-ui-shell.md).
+Use [`docs/PHASE1.md`](docs/PHASE1.md) for the launcher shell runbook, verification checklist, and Pi autostart flow before starting Phase 2 work.
