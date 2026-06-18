@@ -181,6 +181,7 @@ Use this only if the repository loads; if it errors or hangs, use **Part 3 (zip)
 
 | Problem | Fix |
 |---------|-----|
+| **All lists error / empty** | Personal API keys required — Part 4; `diagnose-kodi-youtube.sh` |
 | **API page URL not reachable** | Server often listens on `127.0.0.1` only — use `set-youtube-api-keys.sh` instead; or fix **Advanced → HTTP Server → Select listen IP** + `test-youtube-api-page.sh` |
 | **inputstream.adaptive 19.0.0 cannot be satisfied** | `bash scripts/phase0/install-kodi-inputstream.sh` → restart Kodi → install zip again |
 | Can't find zip in browser | Path is `/home/aman/mango/downloads/` — use **Home folder → mango → downloads** |
