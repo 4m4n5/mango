@@ -208,8 +208,10 @@ async function startCapture(): Promise<void> {
   mediaStream = await navigator.mediaDevices.getUserMedia({
     audio: {
       channelCount: { ideal: 1 },
+      sampleRate: { ideal: TARGET_SAMPLE_RATE },
       echoCancellation: true,
       noiseSuppression: true,
+      autoGainControl: true,
     },
   });
   const AudioContextCtor =

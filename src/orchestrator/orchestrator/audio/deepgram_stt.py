@@ -6,24 +6,41 @@ from pathlib import Path
 import httpx
 import numpy as np
 
+from orchestrator.audio.pcm_prep import prepare_for_stt
 from orchestrator.config import OrchestratorSettings
 
 DEEPGRAM_LISTEN_URL = "https://api.deepgram.com/v1/listen"
 SAMPLE_RATE = 16_000
 
+# Boost terms mango users say often; overridden by stt.keyterms in config.
+DEFAULT_KEYTERMS = (
+    "Stremio",
+    "Kodi",
+    "YouTube",
+    "mango",
+    "movie",
+    "series",
+    "episode",
+    "season",
+    "aaj kya",
+    "dekhein",
+    "dekhte hain",
+    "kya chal raha hai",
+    "lagao",
+    "band karo",
+    "volume",
+    "play",
+    "pause",
+    "recommend",
+    "suggest",
+)
+
 
 def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
     api_key = _read_api_key(settings)
-    pcm = _samples_to_pcm16le(samples)
-    params = {
-        "model": settings.stt_model,
-        "language": settings.stt_language,
-        "smart_format": "true",
-        "punctuate": "true",
-        "encoding": "linear16",
-        "sample_rate": str(SAMPLE_RATE),
-        "channels": "1",
-    }
+    prepared = prepare_for_stt(samples, SAMPLE_RATE) if settings.stt_prepare_audio else samples
+    pcm = _samples_to_pcm16le(prepared)
+    params = _listen_params(settings)
     headers = {
         "Authorization": f"Token {api_key}",
         "Content-Type": "audio/raw",
@@ -45,6 +62,24 @@ def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
     if not text:
         raise RuntimeError("no speech detected")
     return text
+
+
+def _listen_params(settings: OrchestratorSettings) -> list[tuple[str, str]]:
+    params: list[tuple[str, str]] = [
+        ("model", settings.stt_model),
+        ("language", settings.stt_language),
+        ("smart_format", "true"),
+        ("punctuate", "true"),
+        ("numerals", "true"),
+        ("filler_words", "false"),
+        ("encoding", "linear16"),
+        ("sample_rate", str(SAMPLE_RATE)),
+        ("channels", "1"),
+    ]
+    keyterms = settings.stt_keyterms or DEFAULT_KEYTERMS
+    for term in keyterms[:100]:
+        params.append(("keyterm", term))
+    return params
 
 
 def _read_api_key(settings: OrchestratorSettings) -> str:

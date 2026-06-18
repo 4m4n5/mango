@@ -9,10 +9,24 @@ llm:
 
 stt:
   provider: deepgram  # deepgram | local (on-device faster-whisper fallback)
-  model: nova-2
-  language: hi  # nova-2: hi | en-IN | en — for best Hinglish codeswitch see PHASE2 (nova-3 multi)
+  model: nova-3
+  language: multi  # best Hinglish codeswitch; nova-2 + hi also works
   api_key_file: /etc/mango/stt.key
   timeout_seconds: 30
+  prepare_audio: true  # trim edge silence + boost quiet phone mics (local, no API latency)
+  keyterms:  # nova-3 keyterm prompting — edit for your household vocabulary
+    - Stremio
+    - Kodi
+    - YouTube
+    - mango
+    - movie
+    - series
+    - aaj kya
+    - dekhein
+    - dekhte hain
+    - kya chal raha hai
+    - lagao
+    - band karo
   # local fallback only (provider: local):
   local_model: small
   device: cpu

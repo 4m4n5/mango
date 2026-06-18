@@ -24,6 +24,8 @@ class OrchestratorSettings:
     stt_language: str
     stt_api_key_file: str | None
     stt_timeout_seconds: float
+    stt_keyterms: tuple[str, ...]
+    stt_prepare_audio: bool
     stt_local_model: str
     stt_device: str
     stt_compute_type: str
@@ -74,6 +76,8 @@ def load_settings() -> OrchestratorSettings:
         stt_language=str(stt.get("language", "hi")),
         stt_api_key_file=_optional_str(stt.get("api_key_file")),
         stt_timeout_seconds=max(5.0, float(stt.get("timeout_seconds", 30))),
+        stt_keyterms=_load_keyterms(stt.get("keyterms")),
+        stt_prepare_audio=bool(stt.get("prepare_audio", True)),
         stt_local_model=str(stt.get("local_model", "small")),
         stt_device=str(stt.get("device", "cpu")),
         stt_compute_type=str(stt.get("compute_type", "int8")),
@@ -96,3 +100,14 @@ def _optional_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _load_keyterms(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    terms: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text:
+            terms.append(text)
+    return tuple(terms)

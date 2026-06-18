@@ -130,7 +130,12 @@ ssh mango 'sudo install -d -m 700 -o aman -g aman /etc/mango && sudo mv /tmp/stt
 
 **Cost:** Nova-2 pre-recorded ≈ **$0.0043/min** ([Deepgram pricing](https://deepgram.com/pricing)) — ~$0.0004 per 5s PTT.
 
-**Hinglish note:** Nova-2 `language=multi` is English↔Spanish only. For Hindi+English codeswitch, Deepgram recommends **Nova-3** + `language=multi`. Mango defaults to `nova-2` + `hi` per request; upgrade `stt.model` / `stt.language` in config if needed.
+**Hinglish note:** Nova-2 `language=multi` is English↔Spanish only. For Hindi+English codeswitch, use **Nova-3** + `language=multi`. Mango defaults to `nova-3` + `multi`.
+
+**Accuracy tweaks (no extra latency):**
+- `stt.keyterms` — Nova-3 [keyterm prompting](https://developers.deepgram.com/docs/keyterm) for app names and common Hinglish phrases (up to 100 terms).
+- `stt.prepare_audio: true` — trims TV bleed at utterance edges and boosts quiet phone mics before the API call (local only).
+- Companion requests `autoGainControl` + `sampleRate: 16000` where the browser supports it.
 
 ## Pi setup
 
