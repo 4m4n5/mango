@@ -17,15 +17,15 @@ Helper scripts: `scripts/phase0/`
 
 - [x] Bluetooth paired — MAC `E4:17:D8:EB:00:44`, preset `mango-tv`
 - [x] **Kodi:** D-pad navigate · **B** select · **Y** back
-- [ ] **Stremio:** same layout confirmed — *blocked: pad bridge unverified; USB mouse pending for initial setup*
+- [ ] **Stremio:** same layout confirmed ← **next**
 - [ ] Couch navigation stable 30+ min across both apps
 
 ## Kodi + YouTube
 
 - [x] Kodi installed
 - [x] InputStream Adaptive (`install-kodi-inputstream.sh`)
-- [x] YouTube addon installed (zip v7.4.3 + setup wizard)
-- [ ] Play a video with gamepad ← **next**
+- [x] YouTube addon installed (zip v7.4.3 + personal API keys)
+- [x] Play a video with gamepad
 - [x] JSON-RPC enabled (port 8080, user `mango`)
 - [x] `test-kodi-rpc.sh` passes
 
@@ -33,8 +33,9 @@ Helper scripts: `scripts/phase0/`
 
 - [x] Stremio installed
 - [x] Launch/reset scripts + pad bridge in repo
-- [ ] Login + addons — *use USB mouse when it arrives*
-- [ ] Playback with gamepad — *revisit after mouse setup*
+- [ ] Login + addons ← **next**
+- [ ] Playback (mouse OK for first setup)
+- [ ] Gamepad navigation (pad bridge)
 - [ ] `xdg-open 'stremio:///detail/...'` opens title (optional)
 
 ## Network & phone

@@ -4,15 +4,14 @@
 
 Read before implementing. **Phase 0 on real Pi must pass before `src/` work** (see checklist).
 
-## Progress (2026-06-15)
+## Progress (2026-06-17)
 
-| Done | Pending / blocked |
-|------|-------------------|
-| Pi OS Desktop, X11/Openbox, SSH | Stremio login + addons (mouse pending) |
-| Kodi + YouTube addon + InputStream | Kodi YouTube playback sign-off ← **next** |
-| 8BitDo Micro — D-pad / B / Y in Kodi ✓ | Stremio gamepad (bridge unverified) |
+| Done | Pending |
+|------|---------|
+| Pi OS Desktop, X11/Openbox, SSH | Stremio login + addons + playback |
+| Kodi + YouTube + gamepad ✓ | Stremio gamepad (pad bridge) |
 | Kodi JSON-RPC (`mango` @ :8080) | 30 min stability sign-off |
-| Stremio installed + launch/reset scripts | Phase 1 launcher (`src/`) |
+| Stremio installed + launch scripts | Phase 1 launcher (`src/`) |
 
 Pi: `aman@mango.local` · `10.0.0.174`
 

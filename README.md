@@ -4,7 +4,7 @@ AI + streaming TV box for **Raspberry Pi 5** — Stremio, YouTube (Kodi), and vo
 
 ## Status
 
-**Phase 0 in progress** — Kodi gamepad + JSON-RPC done. **Next:** Kodi YouTube playback sign-off. Stremio login deferred until USB mouse arrives (pad bridge unverified). See [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
+**Phase 0 in progress** — Kodi + YouTube + gamepad done. **Next:** Stremio login, addons, playback, gamepad. See [`docs/GETTING-STARTED.md`](docs/GETTING-STARTED.md).
 
 ## Docs
 
