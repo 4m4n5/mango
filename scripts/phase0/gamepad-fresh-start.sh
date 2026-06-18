@@ -4,6 +4,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/irctl.sh
+source "$SCRIPT_DIR/lib/irctl.sh"
+
 BT_MAC="E4:17:D8:EB:00:44"
 DEVICE_NAME="Pro Controller"
 
@@ -40,8 +44,7 @@ wait_for_input_device() {
 echo "=== mango: gamepad fresh start ==="
 echo
 
-sudo systemctl stop input-remapper 2>/dev/null || true
-input-remapper-control --command stop --device "$DEVICE_NAME" 2>/dev/null || true
+ir_stop_service
 
 if lsusb 2>/dev/null | grep -qiE 'fastpad|1a86:fe18'; then
   echo "! Unplug the FastPad USB dongle — it conflicts with 8BitDo."

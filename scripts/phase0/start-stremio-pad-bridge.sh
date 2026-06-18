@@ -5,6 +5,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/irctl.sh
+source "$SCRIPT_DIR/lib/irctl.sh"
+
 CACHE_DIR="${HOME}/.cache/mango"
 PIDFILE="${CACHE_DIR}/stremio-pad-bridge.pid"
 LOG="/tmp/mango-stremio-pad-bridge.log"
@@ -19,9 +22,7 @@ if ! python3 -c "import evdev" 2>/dev/null; then
   sudo apt install -y python3-evdev
 fi
 
-sudo systemctl stop input-remapper 2>/dev/null || true
-input-remapper-control --command stop --device "Pro Controller" 2>/dev/null || true
-input-remapper-control --command stop --device "Pro Controller (IMU)" 2>/dev/null || true
+ir_stop_service
 
 bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
 

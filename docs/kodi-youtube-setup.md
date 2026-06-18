@@ -190,4 +190,4 @@ Use this only if the repository loads; if it errors or hangs, use **Part 3 (zip)
 | Sign in refreshes / nothing happens | GUI keys override file — `bash scripts/phase0/reset-youtube-login.sh`; expect device-code popup; sign in **twice** at [google.com/device](https://google.com/device) |
 | D-pad dead in Kodi | `bash scripts/phase0/map-pro-controller.sh` then relaunch Kodi |
 | Repo install fails | Ignore repo; use zip method (Part 3) |
-| Python threading errors in SSH after launch | Harmless input-remapper noise on exit — ignore |
+| Python threading errors in SSH after launch | Harmless Py3.13 + input-remapper noise — fixed in `lib/irctl.sh`; `git pull` and relaunch |

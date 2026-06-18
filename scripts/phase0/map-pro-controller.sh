@@ -11,6 +11,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/irctl.sh
+source "$SCRIPT_DIR/lib/irctl.sh"
+
 CONFIG_ROOT="${HOME}/.config/input-remapper-2"
 DEVICE_NAME="Pro Controller"
 PRESET_NAME="mango-tv"
@@ -53,12 +57,7 @@ with open(path, "w") as f:
 print(f"Autoload: {device} -> {preset}")
 PY
 
-sudo systemctl start input-remapper 2>/dev/null || true
-sudo input-remapper-control --command start-reader-service -d 2>/dev/null || true
-input-remapper-control --command stop --device "$DEVICE_NAME" 2>/dev/null || true
-input-remapper-control --command stop --device "Pro Controller (IMU)" 2>/dev/null || true
-sleep 1
-input-remapper-control --command start --device "$DEVICE_NAME" --preset "$PRESET_NAME"
+ir_start_with_autoload "$DEVICE_NAME" "$PRESET_NAME"
 
 echo "=== mango-tv map applied (8BitDo Micro) ==="
 echo "  D-pad → move"
