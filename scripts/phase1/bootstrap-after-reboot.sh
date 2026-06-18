@@ -25,8 +25,8 @@ echo "=== openbox + remapper ==="
 bash scripts/phase0/install-openbox-stremio-tv.sh
 openbox --reconfigure 2>/dev/null || true
 
-echo "=== mango UI ==="
-bash scripts/phase1/restart-mango-ui.sh
+echo "=== mango stack ==="
+bash scripts/mango-stack.sh restart
 
 echo "=== TV pad router ==="
 bash scripts/phase0/start-mango-tv-pad.sh || true
@@ -36,4 +36,4 @@ curl -s -o /dev/null -w "launcher HTTP: %{http_code}\n" http://127.0.0.1:3000/ |
 systemctl is-active input-remapper 2>/dev/null || echo "input-remapper: inactive"
 pgrep -af 'mango-ui-server|mango-launcher' | head -3 || true
 
-echo "✓ mango ready — D-pad on launcher, then try Stremio"
+echo "✓ mango ready — launcher + voice (if MANGO_VOICE=1). D-pad on home."
