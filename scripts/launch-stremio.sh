@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1 Stremio — fast launch when idle; targeted cleanup when ports or UI are stuck.
+# Phase 1 Stremio — fast launch when idle; hide launcher only when TV-sized.
 
 set -euo pipefail
 
@@ -23,19 +23,27 @@ trap restore_shell ERR
 stremio_window_visible() {
   local wid name
   command -v xdotool &>/dev/null || return 1
-  for wid in $(xdotool search --name Stremio 2>/dev/null); do
+  for wid in $(xdotool search --class Stremio 2>/dev/null); do
     name=$(xdotool getwindowname "$wid" 2>/dev/null || true)
-    if [[ "$name" == "Stremio" ]]; then
-      return 0
-    fi
+    [[ "$name" == *"Stremio"* ]] || continue
+    [[ "$name" == *"Selection Owner"* ]] && continue
+    return 0
   done
+  return 1
+}
+
+hide_if_tv_sized() {
+  if bash "$PHASE0/focus-stremio.sh" >/dev/null 2>&1; then
+    bash "$WINDOW_SH" hide
+    return 0
+  fi
+  echo "! Launcher stays visible — Stremio not TV-sized yet"
   return 1
 }
 
 if stremio_window_visible; then
   bash "$PHASE0/start-stremio-pad-bridge.sh" || true
-  bash "$PHASE0/focus-stremio.sh"
-  bash "$WINDOW_SH" hide
+  hide_if_tv_sized || true
   trap - ERR
   exit 0
 fi
@@ -46,5 +54,5 @@ if stremio_process_running || stremio_port_busy; then
 fi
 
 bash "$PHASE0/launch-stremio.sh"
-bash "$WINDOW_SH" hide
+hide_if_tv_sized || true
 trap - ERR

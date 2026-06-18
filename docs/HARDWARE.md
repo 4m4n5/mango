@@ -25,11 +25,11 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | Label | Position | Linux evdev | Action (Kodi + Stremio) |
 |-------|----------|-------------|---------------------------|
 | **Y** | left | `308` (BTN_WEST) | **In-app back** |
-| **+** | center-right | `315` (BTN_START) | **Home → launcher** |
+| **−** | center-left (under +) | `314` (BTN_SELECT) | **Home → launcher** |
+| **+** | center-right | `315` (BTN_START) | — |
 | **X** | top | `307` (BTN_NORTH) | — |
 | **A** | right | `305` (BTN_EAST) | — |
 | **B** | bottom | `304` (BTN_SOUTH) | **Select** |
-| **−** | center-left | `314` (BTN_SELECT) | — |
 
 **D-pad** → navigate (arrow keys).
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Openbox rules for TV-sized Stremio/Kodi + Home key (8BitDo + button).
+# Install Openbox rules for TV-sized Stremio/Kodi + Home key (− / Control+Alt+m).
 
 set -euo pipefail
 
@@ -7,12 +7,12 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../lib/openbox-rc.sh
 source "$SCRIPT_DIR/../lib/openbox-rc.sh"
 
-MARKER_BEGIN="<!-- mango media tv begin -->"
-MARKER_END="<!-- mango media tv end -->"
-HOME_MARKER="<!-- mango home key begin -->"
+MARKER_BEGIN="<!-- mango media tv v2 begin -->"
+MARKER_END="<!-- mango media tv v2 end -->"
+HOME_MARKER="<!-- mango home key v2 begin -->"
 
 SNIPPET="$MARKER_BEGIN
-  <application name=\"*Stremio*\">
+  <application class=\"Stremio\">
     <decor>no</decor>
     <maximized>true</maximized>
     <fullscreen>yes</fullscreen>
@@ -27,51 +27,70 @@ SNIPPET="$MARKER_BEGIN
 $MARKER_END"
 
 HOME_SNIPPET="$HOME_MARKER
-    <keybind key=\"XF86Home\">
+    <keybind key=\"C-A-m\">
       <action name=\"Execute\">
         <command>bash ~/mango/scripts/launch-launcher.sh</command>
       </action>
     </keybind>
-    <!-- mango home key end -->"
+    <!-- mango home key v2 end -->"
 
 RC_FILE=$(ensure_mango_openbox_rc)
 echo "Using Openbox config: $RC_FILE"
 
-if ! grep -Fq "$MARKER_BEGIN" "$RC_FILE"; then
-  cp "$RC_FILE" "${RC_FILE}.bak.$(date +%Y%m%d%H%M%S)"
-  python3 - "$RC_FILE" "$SNIPPET" <<'PY'
-from pathlib import Path
+cp "$RC_FILE" "${RC_FILE}.bak.$(date +%Y%m%d%H%M%S)"
+
+python3 - "$RC_FILE" "$SNIPPET" "$MARKER_BEGIN" "$MARKER_END" <<'PY'
+import re
 import sys
+from pathlib import Path
+
 path = Path(sys.argv[1])
 snippet = sys.argv[2]
+begin = sys.argv[3]
+end = sys.argv[4]
 text = path.read_text()
-if "</applications>" in text:
-    text = text.replace("</applications>", snippet + "\n  </applications>", 1)
-else:
-    raise SystemExit("No </applications> in rc.xml")
+
+for old_begin in (
+    "<!-- mango media tv v2 begin -->",
+    "<!-- mango media tv begin -->",
+    "<!-- mango stremio tv begin -->",
+):
+    old_end = old_begin.replace(" begin -->", " end -->")
+    text = re.sub(re.escape(old_begin) + r".*?" + re.escape(old_end), "", text, flags=re.S)
+
+if begin not in text:
+    if "</applications>" in text:
+        text = text.replace("</applications>", snippet + "\n  </applications>", 1)
+    else:
+        raise SystemExit("No </applications> in rc.xml")
+
 path.write_text(text)
 PY
-  echo "Installed Stremio/Kodi TV window rules."
-else
-  echo "Media TV window rules already installed."
-fi
 
-if ! grep -Fq "$HOME_MARKER" "$RC_FILE"; then
-  cp "$RC_FILE" "${RC_FILE}.bak.$(date +%Y%m%d%H%M%S)"
-  python3 - "$RC_FILE" "$HOME_SNIPPET" <<'PY'
-from pathlib import Path
+python3 - "$RC_FILE" "$HOME_SNIPPET" "$HOME_MARKER" <<'PY'
+import re
 import sys
+from pathlib import Path
+
 path = Path(sys.argv[1])
 snippet = sys.argv[2]
+marker = sys.argv[3]
 text = path.read_text()
-if "</keyboard>" not in text:
-    raise SystemExit("No </keyboard> in rc.xml")
-text = text.replace("</keyboard>", snippet + "\n  </keyboard>", 1)
+
+for old in (
+    "<!-- mango home key v2 begin -->",
+    "<!-- mango home key begin -->",
+):
+    old_end = old.replace(" begin -->", " end -->")
+    text = re.sub(re.escape(old) + r".*?" + re.escape(old_end), "", text, flags=re.S)
+
+if marker not in text:
+    if "</keyboard>" not in text:
+        raise SystemExit("No </keyboard> in rc.xml")
+    text = text.replace("</keyboard>", snippet + "\n  </keyboard>", 1)
+
 path.write_text(text)
 PY
-  echo "Installed XF86Home → launcher keybind."
-else
-  echo "Home keybind already installed."
-fi
 
+echo "Installed Stremio/Kodi TV rules + C-A-m home keybind."
 echo "Run: openbox --reconfigure   (or reboot)"

@@ -2,7 +2,7 @@
 """8BitDo Micro -> xdotool keys for Stremio (Qt ignores input-remapper uinput).
 
 Face buttons (right cluster, clockwise from left): Y · X · A · B
-  Y = in-app back (308)   B = select (304)   + center-right = home (315)
+  Y = in-app back (308)   B = select (304)   − center = home (314)
 See docs/HARDWARE.md
 """
 
@@ -29,7 +29,7 @@ LAUNCHER_SH = Path.home() / "mango/scripts/launch-launcher.sh"
 # Linux evdev BTN_* for 8BitDo Micro (Switch BT → "Pro Controller")
 BTN_B = 304      # south — bottom — select
 BTN_Y = 308      # west — left — in-app back
-BTN_HOME = 315   # start — center-right + — mango launcher
+BTN_HOME = 314   # select — center minus (−) — mango launcher
 
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": os.environ.get("HOME", "/home/aman")}
 
@@ -69,10 +69,7 @@ def send_key(symbol: str) -> None:
 
 
 def go_home() -> None:
-    if LAUNCHER_SH.is_file():
-        subprocess.run(["bash", str(LAUNCHER_SH)], env=_env, check=False)
-    else:
-        send_key("XF86Home")
+    subprocess.run(["bash", str(LAUNCHER_SH)], env=_env, check=False)
 
 
 def main() -> None:

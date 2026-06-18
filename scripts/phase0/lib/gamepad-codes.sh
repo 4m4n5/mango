@@ -6,5 +6,6 @@ export MANGO_BTN_SELECT_FACE=304   # B — bottom — confirm
 export MANGO_BTN_BACK_FACE=308       # Y — left — in-app back only
 
 # Center pair: minus (left), plus (right)
-export MANGO_BTN_SELECT_CENTER=314   # BTN_SELECT — minus
-export MANGO_BTN_HOME=315            # BTN_START — plus — return to mango launcher
+export MANGO_BTN_SELECT_CENTER=314   # BTN_SELECT — minus (−), center-left / under +
+export MANGO_BTN_PLUS=315            # BTN_START — plus (+) — unused
+export MANGO_BTN_HOME=314            # − button → mango launcher
