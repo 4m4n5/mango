@@ -29,6 +29,22 @@
         <p id="status" class="status" role="status">D-pad to move. B to select. ⌂ for home.</p>
       </section>
 
+      <aside id="voice-hud" class="voice-hud" data-state="idle" aria-label="mango voice">
+        <header class="voice-hud-head">
+          <span id="voice-dot" class="voice-dot" aria-hidden="true"></span>
+          <span id="voice-state" class="voice-state">mango</span>
+        </header>
+        <p id="voice-user-line" class="voice-line user" hidden>
+          <span class="voice-tag">you</span>
+          <span id="voice-user-text" class="voice-text"></span>
+        </p>
+        <p id="voice-reply-line" class="voice-line reply" hidden>
+          <span class="voice-tag">mango</span>
+          <span id="voice-reply-text" class="voice-text"></span>
+        </p>
+        <p id="voice-hint" class="voice-hint">hold on phone to talk</p>
+      </aside>
+
       <section id="settings-view" class="view settings hidden" aria-label="Settings">
         <button id="back-button" class="back-button" type="button">Back</button>
         <header class="masthead">

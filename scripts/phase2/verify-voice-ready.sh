@@ -45,6 +45,7 @@ fi
 
 echo "--- HTTP health ---"
 curl -sf http://127.0.0.1:3000/api/health >/tmp/mango-launcher-health.json && ok launcher-health || bad launcher-health
+curl -sf http://127.0.0.1:3000/ | grep -q voice-hud && ok launcher-voice-hud || bad launcher-voice-hud-missing
 curl -sf http://127.0.0.1:8766/health >/tmp/mango-orch-local.json && ok orch-local-ws || bad orch-local-ws
 curl -skf https://127.0.0.1:8765/health >/tmp/mango-orch-tls.json && ok orch-tls-wss || bad orch-tls-wss
 COMP_CODE=$(curl -skf -o /dev/null -w "%{http_code}" https://127.0.0.1:3001/ 2>/dev/null || echo 000)

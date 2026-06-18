@@ -1,4 +1,5 @@
 import "./style.css";
+import { startVoiceHud } from "./voice-hud";
 
 type LaunchAction = "stremio" | "kodi";
 type TileAction = LaunchAction | "settings";
@@ -31,6 +32,7 @@ function init(): void {
   document.addEventListener("keydown", handleKeydown);
   setSelectedIndex(0);
   void loadInfo();
+  startVoiceHud();
 }
 
 function handleKeydown(event: KeyboardEvent): void {
