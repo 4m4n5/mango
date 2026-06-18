@@ -17,7 +17,7 @@ irctl() {
 irctl_sudo() {
   command -v input-remapper-control &>/dev/null || return 0
   (
-    sudo input-remapper-control "$@" 2>/dev/null
+    sudo -n input-remapper-control "$@" 2>/dev/null
     sleep 0.35
   ) || true
 }
@@ -53,7 +53,7 @@ ir_resume_after_bridge() {
 ir_start_with_autoload() {
   local device=$1 preset=$2
   if ! systemctl is-active --quiet input-remapper 2>/dev/null; then
-    sudo systemctl start input-remapper 2>/dev/null || true
+    sudo -n systemctl start input-remapper 2>/dev/null || true
     sleep 0.8
     irctl_sudo --command start-reader-service -d
   fi
