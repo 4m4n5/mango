@@ -6,23 +6,10 @@ set -euo pipefail
 
 PORTS=(11470 12470 11471 7000)
 
-stremio_running() {
-  pgrep -x stremio >/dev/null 2>&1 \
-    || pgrep -f '/opt/stremio' >/dev/null 2>&1 \
-    || pgrep -f 'stremio-server' >/dev/null 2>&1
-}
+# shellcheck source=lib/stremio-ports.sh
+source "$(cd "$(dirname "$0")" && pwd)/lib/stremio-ports.sh"
 
-port_busy() {
-  local port
-  for port in "${PORTS[@]}"; do
-    if ss -tln 2>/dev/null | grep -q ":${port} "; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-if ! stremio_running && ! port_busy; then
+if ! stremio_process_running && ! stremio_port_busy; then
   echo "✓ Stremio not running (nothing to kill)"
   exit 0
 fi
@@ -40,7 +27,7 @@ sudo pkill -f 'stremio-pad-bridge.py' 2>/dev/null || true
 sudo rm -f /tmp/mango-stremio-pad-bridge.pid 2>/dev/null || true
 rm -f "${HOME}/.cache/mango/stremio-pad-bridge.pid" 2>/dev/null || true
 
-sleep 1
+sleep 0.5
 
 for port in "${PORTS[@]}"; do
   if ss -tln 2>/dev/null | grep -q ":${port} "; then
@@ -49,7 +36,7 @@ for port in "${PORTS[@]}"; do
   fi
 done
 
-sleep 1
+stremio_ports_free || true
 
 list_stremio_procs() {
   pgrep -af '/opt/stremio|DualSubtitles' 2>/dev/null || true

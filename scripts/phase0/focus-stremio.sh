@@ -68,7 +68,6 @@ present_stremio_window() {
     read -r screen_w screen_h < <(xdotool getdisplaygeometry 2>/dev/null || echo "1920 1080")
   fi
 
-  # Size for TV. Avoid wmctrl fullscreen — it can crash Qt Stremio on Pi.
   if command -v wmctrl &>/dev/null; then
     wmctrl -i -r "$wid" -e "0,0,0,${screen_w},${screen_h}" 2>/dev/null || true
     wmctrl -i -r "$wid" -b add,maximized_vert,maximized_horz 2>/dev/null \
@@ -76,6 +75,8 @@ present_stremio_window() {
       || true
   fi
 
+  # Openbox maximize toggle; safe even if already maximized on TV.
+  xdotool key --window "$wid" alt+F10 2>/dev/null || true
   xdotool windowactivate --sync "$wid" 2>/dev/null || true
 }
 

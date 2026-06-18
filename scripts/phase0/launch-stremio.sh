@@ -8,6 +8,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOG="${TMPDIR:-/tmp}/mango-stremio.log"
 
+# shellcheck source=lib/stremio-ports.sh
+source "$SCRIPT_DIR/lib/stremio-ports.sh"
+
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
@@ -15,11 +18,16 @@ bash "$SCRIPT_DIR/connect-gamepad.sh"
 
 killall kodi kodi.bin 2>/dev/null || true
 
-if pgrep -x stremio >/dev/null 2>&1 || pgrep -f '/opt/stremio' >/dev/null 2>&1; then
+if stremio_process_running; then
   bash "$SCRIPT_DIR/kill-stremio.sh" || true
-else
-  bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
 fi
+
+stremio_ports_free || {
+  echo "! Stremio ports still busy — run: bash scripts/phase0/kill-stremio.sh"
+  exit 1
+}
+
+bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
 
 if ! command -v stremio &>/dev/null; then
   echo "! stremio not in PATH — bash scripts/phase0/install-stremio.sh"
@@ -33,7 +41,7 @@ STREMIO_PID=$!
 echo "Stremio pid: $STREMIO_PID"
 
 ready=false
-for _ in $(seq 1 40); do
+for _ in $(seq 1 30); do
   if ! kill -0 "$STREMIO_PID" 2>/dev/null; then
     echo "! Stremio exited. Log:"
     tail -20 "$LOG" 2>/dev/null || true
@@ -48,7 +56,7 @@ for _ in $(seq 1 40); do
       fi
     done
   fi
-  sleep 0.5
+  sleep 0.4
 done
 
 if ! $ready; then
@@ -60,12 +68,12 @@ bash "$SCRIPT_DIR/start-stremio-pad-bridge.sh" || {
 }
 
 focused=false
-for _ in $(seq 1 24); do
+for _ in $(seq 1 16); do
   if bash "$SCRIPT_DIR/focus-stremio.sh" 2>/dev/null; then
     focused=true
     break
   fi
-  sleep 0.5
+  sleep 0.4
 done
 
 if $focused; then

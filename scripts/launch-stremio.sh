@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# Phase 1 Stremio launch — use the proven Phase 0 reset path; hide launcher only after success.
+# Phase 1 Stremio — fast launch when idle; targeted cleanup when ports or UI are stuck.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PHASE0="$REPO_DIR/scripts/phase0"
 WINDOW_SH="$REPO_DIR/scripts/lib/mango-window.sh"
 
 export DISPLAY=":0"
 export XAUTHORITY="/home/aman/.Xauthority"
 export HOME="/home/aman"
+
+# shellcheck source=phase0/lib/stremio-ports.sh
+source "$PHASE0/lib/stremio-ports.sh"
 
 restore_shell() {
   bash "$WINDOW_SH" show 2>/dev/null || true
@@ -29,14 +33,18 @@ stremio_window_visible() {
 }
 
 if stremio_window_visible; then
-  bash "$REPO_DIR/scripts/phase0/stop-stremio-pad-bridge.sh" 2>/dev/null || true
-  bash "$REPO_DIR/scripts/phase0/start-stremio-pad-bridge.sh" || true
-  bash "$REPO_DIR/scripts/phase0/focus-stremio.sh"
+  bash "$PHASE0/start-stremio-pad-bridge.sh" || true
+  bash "$PHASE0/focus-stremio.sh"
   bash "$WINDOW_SH" hide
   trap - ERR
   exit 0
 fi
 
-bash "$REPO_DIR/scripts/phase0/reset-stremio.sh"
+if stremio_process_running || stremio_port_busy; then
+  bash "$PHASE0/kill-stremio.sh" || true
+  stremio_ports_free || true
+fi
+
+bash "$PHASE0/launch-stremio.sh"
 bash "$WINDOW_SH" hide
 trap - ERR

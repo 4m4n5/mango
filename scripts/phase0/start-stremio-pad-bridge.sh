@@ -19,6 +19,11 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 mkdir -p "$CACHE_DIR"
 
+if pgrep -f stremio-pad-bridge.py >/dev/null 2>&1; then
+  echo "✓ Pad bridge already running"
+  exit 0
+fi
+
 if ! python3 -c "import evdev" 2>/dev/null; then
   echo "Installing python3-evdev..."
   sudo apt install -y python3-evdev
