@@ -63,7 +63,11 @@ function handleServerMessage(raw: string): void {
   try {
     const msg = JSON.parse(raw) as ServerMessage;
     if (msg.type === "status") {
+      const state = (msg.state ?? "").trim();
       setStatus((msg.text ?? msg.state ?? "").trim());
+      if (state === "idle" || state === "listening") {
+        setError("");
+      }
       return;
     }
     if (msg.type === "chat" && msg.role !== undefined && msg.text !== undefined) {

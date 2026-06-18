@@ -77,6 +77,8 @@ async def health() -> JSONResponse:
             "ok": True,
             "service": "mango-orchestrator",
             "overlay_state": session.overlay_state,
+            "voice_busy": voice_lock.locked(),
+            "ptt_active": ptt_owner is not None,
             "clients": len(clients),
         }
     )
@@ -111,9 +113,14 @@ async def handle_client_message(websocket: WebSocket, raw: str) -> None:
         return
     msg_type = msg.get("type")
     if msg_type == "ptt_start":
-        if ptt_owner is not None or session.overlay_state != "idle":
+        if ptt_owner is not None:
             await broadcast_error("voice is busy")
             return
+        if voice_lock.locked():
+            await broadcast_error("voice is already processing")
+            return
+        # Allow a new turn while the TV still shows the last reply (overlay != idle).
+        bump_voice_epoch()
         ptt_owner = websocket
         session.set_overlay("listening", "listening…")
         await broadcast_status()
@@ -289,9 +296,15 @@ async def watch_listening_timeout(owner: WebSocket, seconds: int) -> None:
         await fail_to_idle("listening timed out")
 
 
-async def fail_to_idle(message: str) -> None:
-    global ptt_owner, voice_epoch
+def bump_voice_epoch() -> int:
+    global voice_epoch
     voice_epoch += 1
+    return voice_epoch
+
+
+async def fail_to_idle(message: str) -> None:
+    global ptt_owner
+    bump_voice_epoch()
     ptt_owner = None
     cancel_listening_timeout()
     await asyncio.to_thread(restore_audio)
