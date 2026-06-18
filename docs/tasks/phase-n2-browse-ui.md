@@ -14,12 +14,14 @@ Replace the launcher **“browse rails ship in N2”** empty state with **real c
 
 N2 is the **first product surface** for native browse. Success is couch navigation from home → rail → title → play in mpv — no `curl`, no smoke ID hardcoded in UI.
 
+**N2 catalog scope (locked):** **5 rails** from **2 addon sources** — proves `addon_catalog` resolution across AIOMetadata + Cinemeta. Full **~31 AIOMetadata** catalogs, reorder, and per-rail toggles are **post-N2** (explicit catalog management).
+
 ### Success definition
 
 | Artifact | Requirement |
 |----------|-------------|
-| `config/catalog.example.yaml` | Documented rail types + household template |
-| `/etc/mango/catalog.yaml` on Pi | At least 2 rails (e.g. Trending + Bollywood) |
+| `config/catalog.example.yaml` | **5 rails** — 3× AIOMetadata + 2× Cinemeta (see template) |
+| `/etc/mango/catalog.yaml` on Pi | Copy from example; addon names match `stremio-export.json` |
 | `catalog-service` | `GET /rails`, `GET /rails/:id/items` with resolved meta |
 | `serve.py` | Proxy `/api/catalog/*` → `:3020` (avoid browser CORS) |
 | Launcher | Home rails with **poster images**; detail view; **Play** → mpv |
@@ -46,7 +48,9 @@ Pi is on a **1080p monitor** with **headphones via monitor 3.5 mm** ([`HARDWARE.
 | yt-dlp YouTube rail | N6 |
 | 4K / soundbar / Piper TTS | N7 |
 | Search UI (Cinemeta + TMDB) | N2 stretch — **optional** if time; not gate-blocking |
-| 10ft Settings editor for `catalog.yaml` | Later — edit on Mac → git pull |
+| 10ft Settings editor for `catalog.yaml` | Post-N2 |
+| Auto-import all AIOMetadata catalogs (~31) | Post-N2 — explicit catalog management |
+| `tmdb_list` rails | Post-N2 — N2 uses `addon_catalog` only |
 | In-browser `<video>` playback | Never |
 
 **Do not** pass N2 gate with mock/fake poster URLs in production path.
@@ -75,37 +79,45 @@ Apply **`$mango-tv-box-expert`** and **`$ux-design-expert`**:
 **Repo template:** `config/catalog.example.yaml`  
 **Pi path:** `/etc/mango/catalog.yaml` (copy from example; not committed with secrets)
 
-### Rail types (N2 minimum)
+### Rail types (N2)
 
-| `type` | Purpose | N2 required |
-|--------|---------|-------------|
-| `addon_catalog` | Stremio addon catalog → title IDs → Cinemeta meta | **Yes** — e.g. Cinemeta popular movies |
-| `tmdb_list` | TMDB list ID → resolve IDs → Cinemeta meta | **Yes** — Bollywood / India list |
-| `stremio_library` | Continue watching from Stremio | Placeholder OK (empty or “ships N4”) |
-| `static_ids` | Explicit `type` + `id` list | Optional smoke rail |
+| `type` | Purpose | N2 |
+|--------|---------|-----|
+| `addon_catalog` | Stremio addon catalog → title IDs → Cinemeta meta | **Yes** — only type used in N2 gate |
+| `tmdb_list` | TMDB list ID → resolve IDs → Cinemeta meta | Post-N2 |
+| `stremio_library` | Continue watching from Stremio | Placeholder (`enabled: false`) |
+| `static_ids` | Explicit `type` + `id` list | Optional debug rail |
 
-### Example shape
+### Household template (5 rails · 2 sources)
+
+See **`config/catalog.example.yaml`** — locked for N2:
+
+| Rail ID | Addon | Catalog ID |
+|---------|-------|------------|
+| `trending-india` | AIOMetadata \| ElfHosted | `custom.in_rdata_indiastreams.movie.trendingmovies` |
+| `popular-india` | AIOMetadata \| ElfHosted | `custom.in_rdata_indiastreams.movie.popmov` |
+| `recommended-india` | AIOMetadata \| ElfHosted | `custom.in_rdata_indiastreams.movie.recmov` |
+| `popular-global` | Cinemeta | `top` |
+| `featured-global` | Cinemeta | `imdbRating` |
+
+Discover more catalog IDs (e.g. all 31 from AIOMetadata): post-N2 `list-addon-catalogs.sh`.
+
+### Example shape (abbreviated)
 
 ```yaml
 version: 1
 rails:
-  - id: trending
-    label: Trending
+  - id: trending-india
+    type: addon_catalog
+    addon: "AIOMetadata  | ElfHosted"
+    catalog: custom.in_rdata_indiastreams.movie.trendingmovies
+    content_type: movie
+  - id: popular-global
     type: addon_catalog
     addon: Cinemeta
     catalog: top
     content_type: movie
-
-  - id: bollywood
-    label: Bollywood
-    type: tmdb_list
-    list_id: "…"          # household TMDB list — document in N2-INVENTORY
-    content_type: movie
-
-  - id: continue
-    label: Continue watching
-    type: stremio_library
-    enabled: false        # N4 enables
+  # … three more in config/catalog.example.yaml
 ```
 
 ### Item shape (API)
@@ -140,8 +152,8 @@ Each rail item returned to launcher:
 ### Behavior
 
 - Load `catalog.yaml` from `MANGO_CATALOG_YAML` or `/etc/mango/catalog.yaml`.
-- **`addon_catalog`:** map addon name → manifest from stremio export; fetch catalog page; take first N items (default **20**); resolve each via Cinemeta meta.
-- **`tmdb_list`:** require `TMDB_API_KEY` from `/etc/mango/tmdb.key` or `config.yaml`; map TMDB movie IDs → `tt…` via Cinemeta or TMDB external_ids.
+- **`addon_catalog`:** map addon name → manifest from stremio export; fetch `catalog/{type}/{id}.json`; take first N items (default **20**); enrich each via Cinemeta meta.
+- **`tmdb_list`:** post-N2 (not required for N2 gate).
 - **Cache:** in-memory meta cache per process (TTL optional, 5–15 min OK for N2).
 - **Errors:** missing yaml → `/rails` 503; unknown rail → 404; partial meta failures → skip item silently (log count).
 
@@ -253,8 +265,8 @@ bash scripts/phase-n2/check-n2-prereqs.sh
 
 | Check | Pass |
 |-------|------|
-| `/etc/mango/catalog.yaml` | exists |
-| `/etc/mango/tmdb.key` | exists (if bollywood rail uses TMDB) |
+| `/etc/mango/catalog.yaml` | exists · **5 rails** from example |
+| `/etc/mango/tmdb.key` | not required for N2 (`addon_catalog` only) |
 | `GET :3020/health` | ok |
 | `GET :3020/rails` | ≥2 rails |
 | Launcher `dist/` built | index.html present |
@@ -262,8 +274,9 @@ bash scripts/phase-n2/check-n2-prereqs.sh
 ### Gate N2-B — API
 
 ```bash
-curl -sf http://127.0.0.1:3020/rails
-curl -sf http://127.0.0.1:3020/rails/trending/items | python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['items'])>=3"
+curl -sf http://127.0.0.1:3020/rails | python3 -c "import json,sys; r=json.load(sys.stdin)['rails']; assert len(r)>=5"
+curl -sf http://127.0.0.1:3020/rails/trending-india/items | python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['items'])>=3"
+curl -sf http://127.0.0.1:3020/rails/popular-global/items | python3 -c "import json,sys; d=json.load(sys.stdin); assert len(d['items'])>=3"
 curl -sf http://127.0.0.1:3000/api/catalog/rails
 ```
 
@@ -291,7 +304,7 @@ Document in `N2-INVENTORY.md`:
 | Failure | Symptom | Mitigation |
 |---------|---------|------------|
 | Missing `catalog.yaml` | empty `/rails` | prereq gate fail; copy example |
-| TMDB key missing | bollywood rail empty | gate warns; trending-only waiver |
+| TMDB key missing | bollywood rail empty | N2 uses addon_catalog only — no TMDB key needed |
 | Addon catalog timeout | rail spinner forever | per-rail timeout; show error |
 | CORS if proxy skipped | launcher fetch fails | must use `/api/catalog/*` |
 | Play picks 4K | blue screen | filters unchanged; document in inventory |
@@ -304,7 +317,7 @@ Document in `N2-INVENTORY.md`:
 | # | Test | Pass |
 |---|------|------|
 | 1 | `gate-n2-browse.sh` | exit 0 |
-| 2 | Home shows ≥2 rails with posters | no mocks |
+| 2 | Home shows **5 rails** with posters (3 AIOMetadata + 2 Cinemeta) | no mocks |
 | 3 | Detail → Play | mpv ≤ 15 s TTFF |
 | 4 | ⌂ from mpv | launcher restored |
 | 5 | `gate-n1-smoke.sh` + `gate-n0.sh` | exit 0 |
@@ -336,7 +349,15 @@ Document in `N2-INVENTORY.md`:
 
 ---
 
-## 14. Handoff to N3
+## 14. Handoff to N3 (and post-N2 catalog)
+
+**N3** — stream picker before mpv.
+
+**Post-N2 catalog management** (not N2 gate):
+
+- `list-addon-catalogs.sh` — dump catalogs from export manifests  
+- Auto-import all **~31** AIOMetadata rails or YAML enable/disable per rail  
+- `tmdb_list` + optional search UI  
 
 N3 agent reads:
 

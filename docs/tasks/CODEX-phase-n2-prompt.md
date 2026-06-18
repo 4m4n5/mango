@@ -1,6 +1,6 @@
 # Codex prompt — Phase N2 browse UI
 
-**Last updated:** 2026-06-19 · N1 shipped · branch `feat/native-experience`
+**Last updated:** 2026-06-19 · N1 shipped · **5 rails / 2 sources** locked for N2
 
 Copy everything below into Codex as the task prompt.
 
@@ -28,11 +28,11 @@ You are a **senior TV-box platform engineer** (embedded Linux, Stremio addon pro
 
 Spend the **first 20% of effort** writing **`docs/N2-INVENTORY.md` §Plan** before feature code. Include:
 
-1. Rails chosen (IDs, types, TMDB list ID if used)  
+1. Rails chosen — **5 from 2 sources** (3× AIOMetadata + 2× Cinemeta; see `catalog.example.yaml`)  
 2. Proxy strategy (`serve.py` `/api/catalog/*` → `:3020`)  
 3. Launcher navigation: home → detail → play  
-4. Risks: addon catalog latency, TMDB key, poster load on Pi Chromium  
-5. What stays **out of scope** (picker, Continue real data, search)  
+4. Risks: addon catalog latency, lazy-load if needed, poster load on Pi Chromium  
+5. **Deferred post-N2:** all ~31 AIOMetadata catalogs, `tmdb_list`, catalog management UI  
 
 ### Read first (in order)
 
@@ -52,18 +52,18 @@ Apply **`$mango-tv-box-expert`** + **`$ux-design-expert`**: legit posters, 10ft 
 - Work on **`feat/native-experience`** only.
 - Pi: SSH **`mango`** → `aman@10.0.0.174`, repo **`~/mango`**.
 - **Never rsync.** Commit + push; `git pull` on Pi.
-- Secrets: `/etc/mango/catalog.yaml` (user copy), `tmdb.key` — **never commit**.
+- Secrets: `/etc/mango/catalog.yaml` (user copy from example) — **never commit**.
 
 ### Your mission
 
-**N2 = browse rails + title detail + play from UI.** No stream picker (N3). No mock posters.
+**N2 = 5 browse rails (2 addon sources) + detail + play.** No stream picker (N3). No mock posters. No full 31-catalog import yet.
 
 | Build | Do not build |
 |-------|----------------|
-| `config/catalog.example.yaml` | Stream picker UI (N3) |
-| `GET /rails` + `/rails/:id/items` | `progress.db` (N3) |
-| `serve.py` catalog proxy | AI catalogs (N5) |
-| Launcher poster rails + detail + Play | YouTube / yt-dlp (N6) |
+| `config/catalog.example.yaml` (5 rails) | All ~31 AIOMetadata auto-import (post-N2) |
+| `GET /rails` + `/rails/:id/items` | `tmdb_list` resolver (post-N2) |
+| `serve.py` catalog proxy | Stream picker UI (N3) |
+| Launcher poster rails + detail + Play | `progress.db` (N3) |
 | `gate-n2-browse.sh` | 4K tuning (N7) |
 | N1+N0 regression | Stremio desktop for gate pass |
 
@@ -84,10 +84,17 @@ Apply **`$mango-tv-box-expert`** + **`$ux-design-expert`**: legit posters, 10ft 
 
 Implement spec **§8 Deliverables D1–D6**.
 
-**Minimum rails on Pi:**
+**Locked rails on Pi** (from `config/catalog.example.yaml`):
 
-- **Trending** — `addon_catalog` via Cinemeta (or household addon from export)  
-- **Bollywood** — `tmdb_list` with documented list ID (or `static_ids` waiver if no TMDB key)  
+| ID | Source |
+|----|--------|
+| `trending-india` | AIOMetadata · trending movies in India |
+| `popular-india` | AIOMetadata · popular Indian movies |
+| `recommended-india` | AIOMetadata · recommended Indian movies |
+| `popular-global` | Cinemeta · `top` |
+| `featured-global` | Cinemeta · `imdbRating` |
+
+Gate must hit **at least one AIOMetadata + one Cinemeta** rail with ≥3 posters each.
 
 **Launcher:**
 
@@ -114,8 +121,9 @@ Implement spec **§8 Deliverables D1–D6**.
 | Check | Pass |
 |-------|------|
 | `check-n2-prereqs.sh` | exit 0 |
-| `GET :3020/rails` | ≥2 rails |
-| `GET :3020/rails/<id>/items` | ≥3 items with poster URLs |
+| `GET :3020/rails` | ≥5 rails |
+| `GET :3020/rails/trending-india/items` | ≥3 items with poster URLs |
+| `GET :3020/rails/popular-global/items` | ≥3 items (Cinemeta source) |
 | `GET :3000/api/catalog/rails` | proxies OK |
 | Launcher `dist/` rebuilt | poster rail in built assets |
 | `gate-n1-smoke.sh` | exit 0 |
@@ -155,9 +163,7 @@ bash scripts/phase-n0/gate-n0.sh
 ```
 Execute mango Phase N2 per docs/tasks/phase-n2-browse-ui.md on feat/native-experience.
 
-N1 DONE: catalog-service :3020, stream filters, POST /play → mpv, gates PASS. Launcher still shows empty catalog placeholder.
-
-Think first: write docs/N2-INVENTORY.md §Plan. Add catalog.yaml + GET /rails + /rails/:id/items, serve.py /api/catalog proxy, launcher poster rails + detail + Play. gate-n2-browse.sh + N1/N0 regression must exit 0. No stream picker (N3). SSH mango, git-only deploy.
+N1 DONE. N2: **5 rails** (3 AIOMetadata + 2 Cinemeta), NOT all 31 yet. catalog.yaml + /rails API + serve proxy + launcher UI + gate-n2-browse.sh. Post-N2: full catalog management.
 
 Read docs/tasks/CODEX-phase-n2-prompt.md for full binding spec.
 ```

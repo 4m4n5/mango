@@ -129,10 +129,12 @@ Inventory → strip → consolidate → document → measure on Pi.
 **Spec:** [`tasks/phase-n2-browse-ui.md`](tasks/phase-n2-browse-ui.md) · **Codex:** [`tasks/CODEX-phase-n2-prompt.md`](tasks/CODEX-phase-n2-prompt.md) · **Inventory:** [`N2-INVENTORY.md`](N2-INVENTORY.md)
 
 - `config/catalog.example.yaml` + `/etc/mango/catalog.yaml` on Pi  
+- **5 rails** (3× AIOMetadata + 2× Cinemeta) — proves multi-source `addon_catalog`  
 - `GET /rails`, `GET /rails/:id/items` on catalog-service  
 - `serve.py` proxy `/api/catalog/*` → `:3020`  
 - Launcher poster rails + minimal detail + **Play** → existing `POST /play`  
 - **Gate:** `bash scripts/phase-n2/gate-n2-browse.sh` + N1/N0 regression  
+- **Post-N2:** full AIOMetadata catalog set (~31), reorder, per-rail toggles  
 - **Lab:** 1080p monitor + headphones; stream filters unchanged  
 
 ---

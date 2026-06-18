@@ -8,13 +8,19 @@
 
 ## Plan
 
-*(Agent fills this before feature code.)*
+**Locked scope:** 5 rails · 2 addon sources · `addon_catalog` only.
 
-1. Rails chosen: …
-2. Proxy strategy: …
-3. Launcher flow: …
-4. Risks: …
-5. Out of scope confirmation: …
+| Rail ID | Addon | Catalog |
+|---------|-------|---------|
+| `trending-india` | AIOMetadata \| ElfHosted | `custom.in_rdata_indiastreams.movie.trendingmovies` |
+| `popular-india` | AIOMetadata \| ElfHosted | `custom.in_rdata_indiastreams.movie.popmov` |
+| `recommended-india` | AIOMetadata \| ElfHosted | `custom.in_rdata_indiastreams.movie.recmov` |
+| `popular-global` | Cinemeta | `top` |
+| `featured-global` | Cinemeta | `imdbRating` |
+
+**Post-N2:** auto-import ~31 AIOMetadata catalogs · explicit enable/order UI · `tmdb_list`.
+
+*(Agent extends §Plan with implementation notes before coding.)*
 
 ---
 
