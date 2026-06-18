@@ -60,13 +60,15 @@ fi
 
 echo "--- hygiene ---"
 pgrep -x stremio >/dev/null && fail "stremio running at idle" || pass "stremio idle"
-MPV_COUNT="$(pgrep -c -x mpv 2>/dev/null || echo 0)"
+MPV_COUNT="$(pgrep -c -x mpv 2>/dev/null || true)"
+MPV_COUNT="${MPV_COUNT:-0}"
 [[ "${MPV_COUNT}" -le 1 ]] && pass "mpv count ${MPV_COUNT}" || fail "mpv count ${MPV_COUNT} > 1"
 
 if [[ -x scripts/phase-n1/mpv-stop.sh ]]; then
   bash scripts/phase-n1/mpv-stop.sh && pass "mpv-stop" || fail "mpv-stop"
 fi
-MPV_AFTER_STOP="$(pgrep -c -x mpv 2>/dev/null || echo 0)"
+MPV_AFTER_STOP="$(pgrep -c -x mpv 2>/dev/null || true)"
+MPV_AFTER_STOP="${MPV_AFTER_STOP:-0}"
 [[ "${MPV_AFTER_STOP}" -eq 0 ]] && pass "mpv stopped" || fail "mpv still running after stop (${MPV_AFTER_STOP})"
 
 echo "--- N0 regression ---"
