@@ -314,8 +314,6 @@ async def fail_to_idle(message: str) -> None:
 
 
 def main() -> None:
-    import threading
-
     import uvicorn
 
     settings = load_settings()
@@ -327,21 +325,6 @@ def main() -> None:
     args = parser.parse_args()
 
     use_tls = bool(args.ssl_certfile and args.ssl_keyfile)
-    local_port = settings.local_ws_port
-    if use_tls and local_port and local_port != args.port:
-        thread = threading.Thread(
-            target=lambda: uvicorn.run(
-                app,
-                host="127.0.0.1",
-                port=local_port,
-                log_level="warning",
-            ),
-            daemon=True,
-            name="mango-orch-local-ws",
-        )
-        thread.start()
-        logger.info("local overlay websocket on ws://127.0.0.1:%s/ws", local_port)
-
     uvicorn.run(
         app,
         host=args.host,

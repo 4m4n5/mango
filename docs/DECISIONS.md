@@ -45,6 +45,10 @@ Locked choices. Update when changing behavior.
 | Product direction | **Option 2** — mango-owned TV-first UX; Stremio/Kodi = playback engines |
 | Branch | `feat/native-experience` |
 | Doc | [`NATIVE_EXPERIENCE.md`](NATIVE_EXPERIENCE.md) |
+| N0 base stack | `scripts/mango-stack.sh start|stop|status|restart` |
+| Foreground states | `launcher | mpv | fallback_stremio` ([`FOREGROUND.md`](FOREGROUND.md)) |
+| Chromium budget | One launcher kiosk only at idle; overlay Chromium removed from default runtime |
+| Fallback apps | Stremio via `MANGO_FALLBACK_STREMIO=1`; Kodi/YouTube via `MANGO_LEGACY_YOUTUBE=1` |
 
 Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.
 
@@ -56,14 +60,14 @@ Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.
 | Companion | Vite PWA · port **3001** · **HTTPS required** for phone mic |
 | TLS | **Approach A** — mkcert HTTPS companion + WSS orchestrator; trust root CA on phone once |
 | Orchestrator bind | `0.0.0.0:8765` on Pi for phone WSS; use `MANGO_ORCH_TLS=1` |
-| Overlay WS | Phone: `wss://<pi>:8765/ws` · TV HUD: `ws://127.0.0.1:8766/ws` |
+| Voice WS | Phone and launcher HUD use the single orchestrator listener: `wss://<pi-or-loopback>:8765/ws` |
 | Voice state | Orchestrator owns idle/listening/thinking/speaking; errors restore idle |
 | Audio payload | `ptt_end.pcm_b64` = 16 kHz mono int16 LE PCM, max 30s |
 | Phase 2 scope | Chat only — media tools in Native UX N1 |
 | STT | **Deepgram** `nova-3` + `multi` + keyterms; `stt.key` in `/etc/mango/` |
 | TTS on Pi | **Off** — `audio.tts_enabled: false` · `MANGO_TTS_DISABLED=1` until HDMI speaker |
-| TV HUD | **Launcher-embedded** `voice-hud.ts` — primary surface on kiosk |
-| Loopback WS | Port **8766** plain WS for TV clients (mkcert WSS fails in overlay Chromium) |
-| Overlay Chromium | Optional secondary HUD — candidate for removal on native UX branch |
+| TV HUD | **Launcher-embedded** `voice-hud.ts` — only default TV voice surface |
+| Loopback WS | Removed in N0; no `:8766` listener |
+| Overlay Chromium | Deprecated in N0; `/overlay/` returns 410 and start scripts kill stale overlay windows |
 | Multi-turn PTT | Allowed while reply visible; block only when `ptt_owner` or voice lock held |
 | Reply dwell | `overlay_reply_seconds: 10` — HUD dismisses; phone keeps full history |

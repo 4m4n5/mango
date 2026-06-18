@@ -25,17 +25,38 @@ echo
 
 # --- 1. Git sync ---
 echo "--- git ---"
-if git fetch origin main 2>/dev/null; then
+BRANCH="$(git branch --show-current 2>/dev/null || echo main)"
+REMOTE_REF="origin/main"
+if [[ "$BRANCH" == "feat/native-experience" ]]; then
+  REMOTE_REF="origin/feat/native-experience"
+fi
+if git fetch origin 2>/dev/null; then
   LOCAL="$(git rev-parse HEAD)"
-  REMOTE="$(git rev-parse origin/main 2>/dev/null || echo "")"
+  REMOTE="$(git rev-parse "$REMOTE_REF" 2>/dev/null || echo "")"
   if [[ -n "$REMOTE" && "$LOCAL" != "$REMOTE" ]]; then
-    fail "behind origin/main — run: git pull"
+    fail "behind $REMOTE_REF — run: git pull"
   else
-    pass "in sync with origin/main"
+    pass "in sync with $REMOTE_REF"
   fi
 fi
 if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
   warn "dirty working tree (local Pi edits — prefer git-only deploy)"
+fi
+
+if [[ "$BRANCH" == "feat/native-experience" && -x scripts/phase-n0/gate-n0.sh ]]; then
+  echo "--- native N0 ---"
+  if bash scripts/phase-n0/gate-n0.sh; then
+    pass "gate-n0.sh"
+  else
+    fail "gate-n0.sh"
+  fi
+  echo
+  if (( ERRORS > 0 )); then
+    echo "GATE FAIL: $ERRORS error(s), $WARNS warning(s)"
+    exit 1
+  fi
+  echo "GATE PASS: native N0 automated checks ok ($WARNS warning(s))"
+  exit 0
 fi
 
 # --- 2. TV health API ---

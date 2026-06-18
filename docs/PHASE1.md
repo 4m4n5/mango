@@ -8,7 +8,7 @@
 | Path | Purpose |
 |------|---------|
 | `src/launcher/` | Tile UI at `:3000` (Vite + vanilla TS) |
-| `src/overlay/` | Badge at `/overlay/` — **off on Pi** (`MANGO_SKIP_OVERLAY=1`) |
+| `src/overlay/` | Historical badge app — removed from native branch runtime in N0 |
 | `src/mango-ui-server/serve.py` | Static server + launch API + health |
 | `scripts/launch-*.sh` | Refocus/cold launch, hide launcher, TV present |
 | `scripts/phase1/start-mango-ui.sh` | Server + Chromium kiosk |

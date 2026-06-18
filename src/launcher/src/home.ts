@@ -1,4 +1,3 @@
-import { MOCK_RAILS } from "./mock-catalog";
 import type { AppCard, ContentCard } from "./types";
 
 export interface HomeCallbacks {
@@ -6,42 +5,25 @@ export interface HomeCallbacks {
   onAppSelect: (card: AppCard) => void;
 }
 
-const APP_CARDS: AppCard[] = [
-  { id: "stremio", action: "stremio", kicker: "Movies and shows", title: "Stremio" },
-  { id: "kodi", action: "kodi", kicker: "Kodi add-on", title: "YouTube" },
+export interface HomeOptions {
+  fallbackStremio: boolean;
+  legacyYoutube: boolean;
+}
+
+const DEFAULT_APP_CARDS: AppCard[] = [
   { id: "settings", action: "settings", kicker: "System", title: "Settings" },
 ];
 
-export function buildHomeRails(container: HTMLElement, callbacks: HomeCallbacks): HTMLElement[][] {
+export function buildHomeRails(
+  container: HTMLElement,
+  callbacks: HomeCallbacks,
+  options: HomeOptions = { fallbackStremio: false, legacyYoutube: false },
+): HTMLElement[][] {
   container.replaceChildren();
 
   const rows: HTMLElement[][] = [];
 
-  for (const rail of MOCK_RAILS) {
-    const section = document.createElement("section");
-    section.className = "rail";
-    section.dataset.railId = rail.id;
-
-    const heading = document.createElement("h2");
-    heading.className = "rail-title";
-    heading.textContent = rail.label;
-    section.appendChild(heading);
-
-    const track = document.createElement("div");
-    track.className = "rail-track";
-    track.setAttribute("role", "list");
-
-    const rowItems: HTMLElement[] = [];
-    for (const card of rail.cards) {
-      const button = createContentCard(card, rail.label, callbacks);
-      track.appendChild(button);
-      rowItems.push(button);
-    }
-
-    section.appendChild(track);
-    container.appendChild(section);
-    rows.push(rowItems);
-  }
+  container.appendChild(createCatalogEmptyState());
 
   const appsSection = document.createElement("section");
   appsSection.className = "rail rail--apps";
@@ -57,7 +39,7 @@ export function buildHomeRails(container: HTMLElement, callbacks: HomeCallbacks)
   appsTrack.setAttribute("role", "list");
 
   const appItems: HTMLElement[] = [];
-  for (const app of APP_CARDS) {
+  for (const app of DEFAULT_APP_CARDS) {
     const button = createAppCard(app, callbacks);
     appsTrack.appendChild(button);
     appItems.push(button);
@@ -67,33 +49,58 @@ export function buildHomeRails(container: HTMLElement, callbacks: HomeCallbacks)
   container.appendChild(appsSection);
   rows.push(appItems);
 
+  const fallbackCards = buildFallbackCards(options);
+  if (fallbackCards.length > 0) {
+    const fallbackSection = document.createElement("section");
+    fallbackSection.className = "rail rail--advanced";
+    fallbackSection.dataset.railId = "advanced";
+
+    const fallbackHeading = document.createElement("h2");
+    fallbackHeading.className = "rail-title";
+    fallbackHeading.textContent = "Advanced fallback";
+    fallbackSection.appendChild(fallbackHeading);
+
+    const fallbackTrack = document.createElement("div");
+    fallbackTrack.className = "rail-track rail-track--apps";
+    fallbackTrack.setAttribute("role", "list");
+
+    const fallbackItems: HTMLElement[] = [];
+    for (const app of fallbackCards) {
+      const button = createAppCard(app, callbacks);
+      fallbackTrack.appendChild(button);
+      fallbackItems.push(button);
+    }
+    fallbackSection.appendChild(fallbackTrack);
+    container.appendChild(fallbackSection);
+    rows.push(fallbackItems);
+  }
+
   return rows;
 }
 
-function createContentCard(
-  card: ContentCard,
-  railLabel: string,
-  callbacks: HomeCallbacks,
-): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "card card--poster";
-  button.dataset.cardId = card.id;
-  button.style.setProperty("--card-accent", card.accent);
-  button.setAttribute("role", "listitem");
-  button.setAttribute("aria-label", `${card.title}. ${card.subtitle}`);
+function createCatalogEmptyState(): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "rail rail--empty";
+  section.dataset.railId = "catalog";
 
-  const title = document.createElement("span");
-  title.className = "card-title";
-  title.textContent = card.title;
+  const heading = document.createElement("h2");
+  heading.className = "rail-title";
+  heading.textContent = "Catalog";
 
-  const subtitle = document.createElement("span");
-  subtitle.className = "card-subtitle";
-  subtitle.textContent = card.subtitle;
+  const panel = document.createElement("div");
+  panel.className = "empty-state";
 
-  button.append(title, subtitle);
-  button.addEventListener("click", () => callbacks.onContentSelect(card, railLabel));
-  return button;
+  const title = document.createElement("p");
+  title.className = "empty-state-title";
+  title.textContent = "catalog connects in N1";
+
+  const body = document.createElement("p");
+  body.className = "empty-state-body";
+  body.textContent = "No fake posters. Voice and settings stay available.";
+
+  panel.append(title, body);
+  section.append(heading, panel);
+  return section;
 }
 
 function createAppCard(app: AppCard, callbacks: HomeCallbacks): HTMLButtonElement {
@@ -115,4 +122,25 @@ function createAppCard(app: AppCard, callbacks: HomeCallbacks): HTMLButtonElemen
   button.append(kicker, title);
   button.addEventListener("click", () => callbacks.onAppSelect(app));
   return button;
+}
+
+function buildFallbackCards(options: HomeOptions): AppCard[] {
+  const cards: AppCard[] = [];
+  if (options.fallbackStremio) {
+    cards.push({
+      id: "fallback-stremio",
+      action: "stremio",
+      kicker: "Fallback only",
+      title: "Stremio",
+    });
+  }
+  if (options.legacyYoutube) {
+    cards.push({
+      id: "legacy-youtube",
+      action: "kodi",
+      kicker: "Legacy only",
+      title: "YouTube",
+    });
+  }
+  return cards;
 }

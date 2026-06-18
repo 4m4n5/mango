@@ -13,7 +13,7 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 ├── serve.py :3000          launcher static + POST /api/launch/* + voice HUD embed
 ├── Chromium kiosk          class mango-launcher
 ├── mango-tv-pad.py         single pad owner (launcher + Stremio + Kodi)
-├── orchestrator :8765/8766 WSS phone + plain WS TV HUD · Deepgram STT · Haiku LLM
+├── orchestrator :8765       single WSS listener · Deepgram STT · Haiku LLM
 ├── companion :3001         HTTPS PWA · PTT + chat
 ├── Stremio desktop         hidden/shown via hide-media + present-stremio
 ├── Kodi + YouTube addon    JSON-RPC · window 10025 = Videos
@@ -26,7 +26,7 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 | App switch + ⌂ home | ✓ | — |
 | Pad routing (B/Y/⌂/D-pad) | ✓ | — |
 | Voice pipeline (PTT → STT → LLM) | ✓ | Piper TTS on HDMI (optional) |
-| TV voice HUD (launcher embed) | ✓ | Retire redundant overlay Chromium |
+| TV voice HUD (launcher embed) | ✓ | Overlay Chromium retired in N0 |
 | Companion PWA | ✓ | D-pad remote wire-up |
 | Native browse/rails UI | — | **`feat/native-experience`** |
 | stremio-service + LLM tools | — | Native UX N1 + ex-Phase 3 |
@@ -35,9 +35,9 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 
 ```
 src/launcher/          Vite + TS tile UI + voice-hud.ts
-src/overlay/           optional HUD Chromium (loopback :8766)
+src/overlay/           removed in N0 (launcher HUD is canonical)
 src/companion/         phone PWA (HTTPS :3001)
-src/orchestrator/      FastAPI voice hub (:8765 TLS + :8766 loopback)
+src/orchestrator/      FastAPI voice hub (:8765 TLS)
 src/mango-ui-server/   serve.py
 scripts/launch-*.sh    API wrappers (refocus + cold launch)
 scripts/phase0/        Kodi, Stremio, pad, present-*

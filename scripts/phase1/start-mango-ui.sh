@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Phase 1 launcher server, Chromium kiosk, and overlay window.
+# Start the mango launcher server and single Chromium kiosk.
 
 set -euo pipefail
 
@@ -16,14 +16,9 @@ if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
   source "${HOME}/.config/mango/voice.env"
 fi
 
-# Phase 1 on Pi: overlay Chromium caused intermittent white-screen focus bugs.
-# Phase 2 voice opts in explicitly after the orchestrator is running.
-if [[ -z "${MANGO_SKIP_OVERLAY+x}" && "${MANGO_VOICE:-0}" == "1" ]]; then
-  MANGO_SKIP_OVERLAY=0
-elif [[ -z "${MANGO_SKIP_OVERLAY+x}" ]] && { [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; }; then
-  MANGO_SKIP_OVERLAY=1
-fi
-export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-0}"
+# N0: launcher-embedded voice HUD is the only TV HUD. The second Chromium
+# overlay remains out of the default runtime even when voice is enabled.
+export MANGO_SKIP_OVERLAY=1
 
 cd "$REPO_DIR"
 mkdir -p "$LOG_DIR" "$PID_DIR"
@@ -51,13 +46,10 @@ build_ui_if_missing() {
 }
 
 if [[ "${MANGO_REBUILD_UI:-}" == "1" ]]; then
-  rm -rf src/launcher/dist src/overlay/dist
+  rm -rf src/launcher/dist
 fi
 
 build_ui_if_missing "src/launcher"
-if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]]; then
-  build_ui_if_missing "src/overlay"
-fi
 
 start_ui_server() {
   if systemctl --user is-enabled mango-ui-server.service &>/dev/null; then
@@ -113,32 +105,11 @@ if ! pgrep -f "chromium.*--class=mango-launcher.*127.0.0.1:${PORT}/" >/dev/null 
   sleep 0.25
 fi
 
-if [[ "${MANGO_SKIP_OVERLAY}" == "1" ]]; then
-  pkill -f "chromium.*mango-overlay.*127.0.0.1:${PORT}/overlay/" 2>/dev/null || true
-fi
-
-if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]] \
-  && ! pgrep -f "mango-overlay.*127.0.0.1:${PORT}/overlay/" >/dev/null 2>&1; then
-  OVERLAY_PROFILE="${HOME}/.cache/mango/chromium-overlay"
-  mkdir -p "$OVERLAY_PROFILE"
-  "$CHROMIUM_BIN" \
-    "${chromium_common_flags[@]}" \
-    "${chromium_pi_flags[@]}" \
-    --user-data-dir="$OVERLAY_PROFILE" \
-    --class=mango-overlay \
-    --app="http://127.0.0.1:${PORT}/overlay/" \
-    --window-size=700,240 \
-    --window-position=560,812 \
-    >"$LOG_DIR/mango-overlay-chromium.log" 2>&1 &
-  sleep 0.5
-fi
+pkill -f "chromium.*mango-overlay.*127.0.0.1:${PORT}/overlay/" 2>/dev/null || true
 
 sleep 0.25
 if command -v wmctrl >/dev/null 2>&1; then
   wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
-  if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]]; then
-    bash "$REPO_DIR/scripts/lib/present-overlay.sh" 2>/dev/null || true
-  fi
   wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
 fi
 

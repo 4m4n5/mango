@@ -15,7 +15,7 @@ if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
   # shellcheck disable=SC1091
   source "${HOME}/.config/mango/voice.env"
 fi
-export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-$([ "${MANGO_VOICE:-0}" == "1" ] && echo 0 || echo 1)}"
+export MANGO_SKIP_OVERLAY=1
 export MANGO_FAST_UI="${MANGO_FAST_UI:-1}"
 
 # shellcheck source=lib/mango-log.sh

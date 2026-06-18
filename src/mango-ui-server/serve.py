@@ -22,7 +22,6 @@ from urllib.parse import unquote, urlparse
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 LAUNCHER_DIST: Final = REPO_ROOT / "src" / "launcher" / "dist"
-OVERLAY_DIST: Final = REPO_ROOT / "src" / "overlay" / "dist"
 LOG_DIR: Final = Path.home() / ".cache" / "mango"
 LOG_SCRIPT: Final = REPO_ROOT / "scripts" / "lib" / "mango-log.sh"
 
@@ -105,6 +104,8 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                     "ip": detect_ip_address(),
                     "launcher_port": self.server.server_port,
                     "companion_port": 3001,
+                    "fallback_stremio": env_enabled("MANGO_FALLBACK_STREMIO"),
+                    "legacy_youtube": env_enabled("MANGO_LEGACY_YOUTUBE"),
                 }
             )
             return
@@ -112,7 +113,10 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             self._write_json(collect_health(self.server.server_port))
             return
         if path.startswith("/overlay/"):
-            self._serve_static(OVERLAY_DIST, path.removeprefix("/overlay/"), "index.html")
+            self._write_json(
+                {"ok": False, "error": "overlay deprecated; use launcher HUD"},
+                HTTPStatus.GONE,
+            )
             return
         self._serve_static(LAUNCHER_DIST, path.removeprefix("/"), "index.html")
 
@@ -203,6 +207,10 @@ def detect_ip_address() -> str:
             return socket.gethostbyname(socket.gethostname())
         except OSError:
             return "127.0.0.1"
+
+
+def env_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def parse_args() -> argparse.Namespace:

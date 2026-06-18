@@ -203,7 +203,7 @@ Full roadmap: **[`NATIVE_ROADMAP.md`](NATIVE_ROADMAP.md)**.
 ### Prototype on branch (status)
 
 - [x] Focus grid + rail layout — **keep scaffolding**
-- [ ] N0 removes `mock-catalog.ts` from production path
+- [x] N0 removes `mock-catalog.ts` from production path
 - [ ] N2 wires launcher to `catalog-service`
 
 ---

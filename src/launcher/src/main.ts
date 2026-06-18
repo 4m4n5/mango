@@ -1,6 +1,6 @@
 import "./style.css";
 import { FocusGrid } from "./focus";
-import { buildHomeRails } from "./home";
+import { buildHomeRails, type HomeOptions } from "./home";
 import { startVoiceHud } from "./voice-hud";
 import type { ApiInfo, AppCard, ContentCard, LaunchAction } from "./types";
 
@@ -12,6 +12,7 @@ const backButton = mustGet<HTMLButtonElement>("back-button");
 
 let inSettings = false;
 let launchInFlight = false;
+let homeOptions: HomeOptions = { fallbackStremio: false, legacyYoutube: false };
 
 const focusGrid = new FocusGrid((element) => {
   element.classList.add("focused");
@@ -29,16 +30,20 @@ let focusGridRows: HTMLElement[][] = [];
 init();
 
 function init(): void {
-  focusGridRows = buildHomeRails(railsEl, {
-    onContentSelect: handleContentSelect,
-    onAppSelect: handleAppSelect,
-  });
-  focusGrid.setRows(focusGridRows);
+  renderHome();
 
   backButton.addEventListener("click", showHome);
   document.addEventListener("keydown", handleKeydown);
   void loadInfo();
   startVoiceHud();
+}
+
+function renderHome(): void {
+  focusGridRows = buildHomeRails(railsEl, {
+    onContentSelect: handleContentSelect,
+    onAppSelect: handleAppSelect,
+  }, homeOptions);
+  focusGrid.setRows(focusGridRows);
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -143,6 +148,17 @@ async function loadInfo(): Promise<void> {
     setText("ip-address", info.ip);
     setText("launcher-url", `http://${info.ip}:${info.launcher_port}`);
     setText("companion-url", `https://${info.ip}:${info.companion_port}`);
+    const nextOptions = {
+      fallbackStremio: Boolean(info.fallback_stremio),
+      legacyYoutube: Boolean(info.legacy_youtube),
+    };
+    if (
+      nextOptions.fallbackStremio !== homeOptions.fallbackStremio ||
+      nextOptions.legacyYoutube !== homeOptions.legacyYoutube
+    ) {
+      homeOptions = nextOptions;
+      renderHome();
+    }
   } catch {
     setText("hostname", "mango");
     setText("ip-address", "10.0.0.174");

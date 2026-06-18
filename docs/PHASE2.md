@@ -16,20 +16,23 @@ Phone :3001 HTTPS              Pi
 ┌─────────────────┐           ┌─────────────────────────────────────┐
 │ companion PWA   │──WSS:8765▶│ orchestrator — Deepgram STT → Haiku  │
 │ PTT + chat      │           │ optional Piper TTS                     │
-└─────────────────┘           │ loopback WS :8766 (plain, TV clients)  │
-Launcher :3000                │   launcher voice-hud.ts (+ opt. overlay)│
-│ voice-hud.ts    │──WS:8766─▶│                                      │
+└─────────────────┘           │ single WSS listener :8765              │
+Launcher :3000                │   launcher voice-hud.ts                  │
+│ voice-hud.ts    │──WSS:8765▶│                                      │
 └─────────────────┘           └─────────────────────────────────────┘
 ```
 
-**Two WS ports:** phone uses WSS `:8765` (mkcert). TV HUD uses plain `ws://127.0.0.1:8766` — overlay Chromium cannot trust mkcert.
+**N0 update:** the redundant overlay Chromium and loopback `:8766` listener are
+deprecated. Phone companion and launcher HUD both use the single orchestrator
+listener on `:8765`; the launcher HUD tries `wss://...:8765/ws` first and keeps
+a dev fallback for non-TLS local runs.
 
 | Service | Port | Protocol |
 |---------|------|----------|
 | Launcher | 3000 | HTTP (kiosk) |
 | Companion | 3001 | HTTPS (mkcert) |
 | Orchestrator | 8765 | WSS (phone) |
-| Orchestrator | 8766 | WS loopback (TV HUD) |
+| Orchestrator | 8766 | Removed in N0 |
 
 Launcher and pad stack unchanged from Phase 1.
 
@@ -38,14 +41,14 @@ Launcher and pad stack unchanged from Phase 1.
 | Component | Path / port | Notes |
 |-----------|-------------|-------|
 | Companion | `src/companion` · `:3001` | PTT · 16 kHz PCM · streaming LLM on phone |
-| Orchestrator | `src/orchestrator` · `:8765`/`:8766` | Multi-turn PTT · session history |
+| Orchestrator | `src/orchestrator` · `:8765` | Multi-turn PTT · session history |
 | TV HUD | `src/launcher/src/voice-hud.ts` | Primary — visible on kiosk |
-| Overlay (optional) | `src/overlay` | Secondary HUD Chromium |
+| Overlay (deprecated) | `src/overlay` | Removed from default build/start path in N0 |
 | STT | Deepgram `nova-3` + `multi` + keyterms | Local Whisper: `stt.provider: local` |
 | LLM | Haiku `claude-haiku-4-5-20251001` | Streaming deltas |
 | TTS | Piper | **Off on Pi** — `audio.tts_enabled: false` |
 
-**Ops:** `scripts/phase2/start-voice-stack.sh` · `verify-voice-ready.sh` · `setup-mkcert.sh`  
+**Ops:** `scripts/mango-stack.sh` · `scripts/phase2/start-voice-stack.sh` · `verify-voice-ready.sh` · `setup-mkcert.sh`
 **Secrets:** `/etc/mango/llm.key` · `stt.key` · `config.yaml` · `~/.config/mango/voice.env`
 
 ## Protocol
@@ -68,13 +71,14 @@ Copy [`config/config.example.yaml`](../config/config.example.yaml) → `/etc/man
 | `llm.model` | `claude-haiku-4-5-20251001` | |
 | `audio.tts_enabled` | `false` | `true` when HDMI speaker ready |
 | `audio.overlay_reply_seconds` | `10` | TV dwell before HUD dismiss |
-| `orchestrator.local_ws_port` | `8766` | Plain WS for TV clients |
+| `orchestrator.local_ws_port` | removed | N0 single listener |
 
 | Env | Use |
 |-----|-----|
 | `MANGO_VOICE=1` | Enable voice stack on launcher start |
 | `MANGO_TTS_DISABLED=1` | Skip Piper — UI-only replies |
 | `MANGO_ORCH_TLS=1` | WSS on `:8765` |
+| `MANGO_SKIP_OVERLAY=1` | N0 default; launcher HUD only |
 | `MANGO_LLM_MOCK=1` / `MANGO_STT_MOCK=1` | Dev smoke without API keys |
 
 **Deepgram key:** [console.deepgram.com](https://console.deepgram.com/) → API Keys → paste in `/etc/mango/stt.key` (mode `600`). Nova-3 + `multi` for Hinglish; `stt.keyterms` and `stt.prepare_audio: true` improve accuracy.
@@ -88,8 +92,7 @@ bash scripts/phase2/install-voice-deps.sh
 bash scripts/phase2/install-orchestrator-deps.sh
 # llm.key + stt.key + config.yaml in /etc/mango/
 cp config/voice.env.example ~/.config/mango/voice.env
-bash scripts/phase2/start-voice-stack.sh
-bash scripts/phase1/restart-mango-ui.sh   # rebuild launcher if needed
+bash scripts/mango-stack.sh restart
 ```
 
 Phone: `https://<pi-ip>:3001` · verify: `bash scripts/phase2/verify-voice-ready.sh`
@@ -123,9 +126,9 @@ Phone dev: `bash scripts/phase2/serve-companion-https.sh` (not plain Vite).
 
 | Issue | Notes |
 |-------|-------|
-| Dual uvicorn on one FastAPI app (`:8765` + `:8766`) | WS race errors in logs — fix on native UX branch |
+| Dual uvicorn on one FastAPI app (`:8765` + `:8766`) | Fixed in N0 — single `:8765` listener |
 | HDMI black screen after PTT | May correlate with `pactl` duck / infoframe WARN — unconfirmed |
-| Separate overlay Chromium | Redundant vs launcher HUD — candidate for removal |
+| Separate overlay Chromium | Deprecated in N0; launcher HUD is canonical |
 | Desktop Stremio/Kodi browse | Product gap — drives native UX branch |
 
 ## Exit criteria

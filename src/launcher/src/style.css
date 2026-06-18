@@ -94,6 +94,30 @@ button {
   display: none;
 }
 
+.empty-state {
+  width: min(860px, 100%);
+  min-height: 8rem;
+  padding: 1.4rem 1.6rem;
+  background: rgba(20, 24, 28, 0.82);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+}
+
+.empty-state-title {
+  margin: 0;
+  color: #fff9c4;
+  font-size: clamp(1.7rem, 2.6vw, 3rem);
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.empty-state-body {
+  margin: 0.6rem 0 0;
+  color: rgba(216, 228, 236, 0.82);
+  font-size: clamp(1rem, 1.4vw, 1.35rem);
+  font-weight: 700;
+}
+
 .card {
   flex: 0 0 auto;
   margin: 0;

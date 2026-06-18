@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 adds the base stack gate ([`docs/N0-INVENTORY.md`](docs/N0-INVENTORY.md), [`docs/FOREGROUND.md`](docs/FOREGROUND.md)).
 
 ## Read first
 
@@ -37,13 +37,13 @@ Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experien
 
 ```bash
 bash scripts/lib/pi-sync-check.sh <changed-path>   # Mac, before push
-bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/phase1/restart-mango-ui.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/mango-stack.sh restart'
 ```
 
 Voice stack after pull:
 
 ```bash
-bash scripts/phase2/start-voice-stack.sh
+bash scripts/mango-stack.sh restart
 bash scripts/phase2/verify-voice-ready.sh
 ```
 
@@ -54,6 +54,8 @@ checks — never hand off after Mac-only verification.
 bash scripts/pi-exec-gate.sh          # Mac: pull + gate on Pi
 # or on Pi:
 bash scripts/pi-pre-couch-gate.sh
+# native branch direct:
+bash scripts/phase-n0/gate-n0.sh
 ```
 
 ## Gamepad (locked)

@@ -1,5 +1,10 @@
 # mango — V1 Build Spec
 
+> **Native branch note:** `feat/native-experience` supersedes the Stremio/Kodi
+> daily-use parts of this V1 spec. Use [`NATIVE_EXPERIENCE.md`](NATIVE_EXPERIENCE.md)
+> and [`NATIVE_ROADMAP.md`](NATIVE_ROADMAP.md) for N0+ work. This document is
+> retained as the Phase 0-2 historical baseline until the N2 design refresh.
+
 **Platform:** Raspberry Pi 5 (8GB) · Raspberry Pi OS 64-bit desktop · **X11 + Openbox**  
 **Estimate:** 6–8 weeks part-time · Ship when **V1 Core** criteria pass
 
@@ -309,4 +314,3 @@ Required keys: LLM provider + API key, Kodi credentials, Stremio credentials (af
 - API keys, Kodi/Stremio creds: `/etc/mango/`, not in git.
 - Tools validate IDs; no arbitrary URL execution from LLM.
 - Kodi JSON-RPC bound to localhost.
-

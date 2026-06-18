@@ -3,6 +3,8 @@ export interface ApiInfo {
   ip: string;
   launcher_port: number;
   companion_port: number;
+  fallback_stremio: boolean;
+  legacy_youtube: boolean;
 }
 
 export type LaunchAction = "stremio" | "kodi";
@@ -12,7 +14,6 @@ export interface ContentCard {
   id: string;
   title: string;
   subtitle: string;
-  accent: string;
 }
 
 export interface ContentRail {

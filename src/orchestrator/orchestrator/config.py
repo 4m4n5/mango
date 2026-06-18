@@ -18,7 +18,6 @@ class OrchestratorSettings:
     port: int
     ssl_certfile: str | None
     ssl_keyfile: str | None
-    local_ws_port: int | None
     max_utterance_seconds: int
     stt_provider: str
     stt_model: str
@@ -69,7 +68,6 @@ def load_settings() -> OrchestratorSettings:
             os.environ.get("MANGO_SSL_CERTFILE", orch.get("ssl_certfile"))
         ),
         ssl_keyfile=_optional_str(os.environ.get("MANGO_SSL_KEYFILE", orch.get("ssl_keyfile"))),
-        local_ws_port=_optional_int(orch.get("local_ws_port", 8766)),
         max_utterance_seconds=max(1, int(
             os.environ.get(
                 "MANGO_MAX_UTTERANCE_SECONDS", audio.get("max_utterance_seconds", 30)
@@ -117,17 +115,6 @@ def _load_keyterms(value: object) -> tuple[str, ...]:
         if text:
             terms.append(text)
     return tuple(terms)
-
-
-def _optional_int(value: object) -> int | None:
-    if value is None:
-        return None
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed > 0 else None
-
 
 def _tts_enabled(audio: dict[str, Any]) -> bool:
     if os.environ.get("MANGO_TTS_DISABLED") == "1":
