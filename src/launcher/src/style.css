@@ -71,6 +71,7 @@ button {
 }
 
 .rail {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 1rem;
@@ -155,7 +156,9 @@ button {
 
 .card--poster {
   position: relative;
+  flex-basis: 10.4rem;
   width: 10.4rem;
+  height: 15.6rem;
   aspect-ratio: 2 / 3;
   overflow: hidden;
   background:
