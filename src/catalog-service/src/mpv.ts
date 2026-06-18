@@ -35,8 +35,8 @@ export async function playUrl(url: string): Promise<PlayResult> {
       maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
       if (error) {
-        const message = `${stderr || stdout || error.message}`.trim();
-        reject(new Error(message || 'mpv-play failed'));
+        const message = `${stderr || stdout}`.trim();
+        reject(new Error(message || `mpv-play failed with exit ${error.code ?? 'unknown'}`));
         return;
       }
       resolvePromise({ stdout, stderr });

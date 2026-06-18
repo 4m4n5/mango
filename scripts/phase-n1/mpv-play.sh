@@ -4,6 +4,7 @@
 set -euo pipefail
 
 SOCKET="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
+MPV_LOG="${MANGO_MPV_LOG:-${HOME}/.cache/mango/mpv-play.log}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
@@ -31,6 +32,7 @@ fi
 [[ -n "$URL" ]] || usage
 
 mkdir -p "$(dirname "$SOCKET")"
+mkdir -p "$(dirname "$MPV_LOG")"
 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
 
 URL_LABEL="$(python3 -c 'from urllib.parse import urlparse; import sys; u=urlparse(sys.argv[1]); print(f"{u.scheme}://{u.netloc}/<redacted>")' "$URL" 2>/dev/null || echo "http(s)://<redacted>")"
@@ -40,7 +42,7 @@ START_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
 mpv --fs --idle=no --keep-open=no \
   --hwdec=auto-safe \
   --input-ipc-server="$SOCKET" \
-  "$URL" &
+  "$URL" >>"$MPV_LOG" 2>&1 &
 echo $! >"${HOME}/.cache/mango/mpv.pid"
 
 for _ in $(seq 1 75); do
