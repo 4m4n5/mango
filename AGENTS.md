@@ -30,18 +30,12 @@ Details: [`docs/HARDWARE.md`](docs/HARDWARE.md) · [`docs/DECISIONS.md`](docs/DE
 
 | Doc | Use |
 |-----|-----|
-| [`docs/PHASE0.md`](docs/PHASE0.md) | **Runbook** |
-| [`scripts/phase0/README.md`](scripts/phase0/README.md) | Script index |
-| [`docs/kodi-youtube-setup.md`](docs/kodi-youtube-setup.md) | YouTube API keys |
-| [`docs/PLAN.md`](docs/PLAN.md) | Phase 1+ |
-
-## Rules
-
-- No `src/` until Phase 0 sign-off ([`phase0-checklist.md`](docs/phase0-checklist.md))
-- Never commit secrets (`keys/`, `youtube-api.json`, Kodi RPC password)
-- Never bare `stremio &` — use `reset-stremio.sh`
-- Stremio voice → `stremio://` deep links
+| [`docs/PHASE0.md`](docs/PHASE0.md) | Pi runbook (Phase 0) |
+| [**`docs/tasks/phase1-ui-shell.md`**](docs/tasks/phase1-ui-shell.md) | **Phase 1 implementation spec** |
+| [`docs/tasks/CODEX-phase1-prompt.md`](docs/tasks/CODEX-phase1-prompt.md) | Copy-paste prompt for Codex |
+| [`scripts/phase0/README.md`](scripts/phase0/README.md) | Phase 0 scripts |
+| [`docs/PLAN.md`](docs/PLAN.md) | Full roadmap |
 
 ## Next work
 
-Phase 0: 30 min stability soak → **Phase 1** boot launcher per [`PLAN.md`](docs/PLAN.md).
+**Phase 1 in progress** — implement per [`docs/tasks/phase1-ui-shell.md`](docs/tasks/phase1-ui-shell.md).
