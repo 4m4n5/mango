@@ -10,8 +10,12 @@ llm:
 audio:
   input_mode: phone_websocket  # phone streams mic over LAN; no USB mic required
   max_utterance_seconds: 30
-  whisper_model: base  # multilingual; small = better Hindi, slower on Pi
-  whisper_language: auto  # auto | hi | en — auto is best for Hinglish code-switching
+  whisper_model: small  # multilingual; base = faster but weak on Hindi/Hinglish
+  whisper_language: hi  # lock Hindi — auto mis-detects Urdu/etc on short Hinglish clips
+  whisper_initial_prompt: >-
+    Hinglish conversation. Hindi and English mixed, Roman Latin script.
+    Examples: theek hai, kya chal raha hai, aaj kya dekhein.
+  whisper_beam_size: 3  # 1 = fastest, 5 = most accurate
   whisper_vad_filter: false  # off for short phone PTT clips (saves latency)
   whisper_num_workers: 2
   whisper_device: cpu

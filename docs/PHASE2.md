@@ -95,9 +95,10 @@ STT defaults (see `config.example.yaml`):
 
 | Setting | Default | Notes |
 |---------|---------|--------|
-| `whisper_model` | `base` | Multilingual; use `small` if Hindi accuracy lags |
-| `whisper_language` | `auto` | Best for Hinglish; use `hi` for mostly Hindi |
-| `whisper_vad_filter` | `false` | Off for short phone PTT (lower latency) |
+| `whisper_model` | `small` | `base` only if CPU-bound (worse Hinglish) |
+| `whisper_language` | `hi` | Locks language ID; `auto` mis-detects on short clips |
+| `whisper_initial_prompt` | Hinglish Roman examples | Biases transcript script/mix |
+| `whisper_beam_size` | `3` | `1` faster, `5` more accurate |
 | `llm.model` | `claude-haiku-4-5-20251001` | Fast path; `claude-sonnet-4-6` for quality |
 | `llm.max_tokens` | `96` | Short spoken replies |
 | `audio.tts_async` | `true` | Phone shows reply before TV audio finishes |

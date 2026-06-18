@@ -11,6 +11,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_CONFIG = REPO_ROOT / "config" / "config.example.yaml"
 SYSTEM_CONFIG = Path("/etc/mango/config.yaml")
 
+_DEFAULT_HINGLISH_PROMPT = (
+    "Hinglish conversation. Hindi and English mixed, Roman Latin script. "
+    "Examples: theek hai, kya chal raha hai, aaj kya dekhein."
+)
+
 
 @dataclass(frozen=True)
 class OrchestratorSettings:
@@ -21,6 +26,8 @@ class OrchestratorSettings:
     max_utterance_seconds: int
     whisper_model: str
     whisper_language: str
+    whisper_initial_prompt: str
+    whisper_beam_size: int
     whisper_device: str
     whisper_compute_type: str
     whisper_vad_filter: bool
@@ -66,8 +73,12 @@ def load_settings() -> OrchestratorSettings:
                 "MANGO_MAX_UTTERANCE_SECONDS", audio.get("max_utterance_seconds", 30)
             )
         )),
-        whisper_model=str(audio.get("whisper_model", "base")),
-        whisper_language=str(audio.get("whisper_language", "auto")),
+        whisper_model=str(audio.get("whisper_model", "small")),
+        whisper_language=str(audio.get("whisper_language", "hi")),
+        whisper_initial_prompt=(
+            str(audio.get("whisper_initial_prompt", "")).strip() or _DEFAULT_HINGLISH_PROMPT
+        ),
+        whisper_beam_size=max(1, int(audio.get("whisper_beam_size", 3))),
         whisper_device=str(audio.get("whisper_device", "cpu")),
         whisper_compute_type=str(audio.get("whisper_compute_type", "int8")),
         whisper_vad_filter=bool(audio.get("whisper_vad_filter", False)),

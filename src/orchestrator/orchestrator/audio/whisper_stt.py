@@ -19,20 +19,32 @@ def _whisper_language(settings: OrchestratorSettings) -> str | None:
     return lang
 
 
+def _whisper_initial_prompt(settings: OrchestratorSettings) -> str | None:
+    prompt = settings.whisper_initial_prompt.strip()
+    return prompt or None
+
+
+def _transcribe_kwargs(settings: OrchestratorSettings) -> dict[str, object]:
+    kwargs: dict[str, object] = {
+        "beam_size": settings.whisper_beam_size,
+        "best_of": 1,
+        "temperature": 0.0,
+        "language": _whisper_language(settings),
+        "vad_filter": settings.whisper_vad_filter,
+        "without_timestamps": True,
+        "condition_on_previous_text": False,
+    }
+    prompt = _whisper_initial_prompt(settings)
+    if prompt is not None:
+        kwargs["initial_prompt"] = prompt
+    return kwargs
+
+
 def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
     if os.environ.get("MANGO_STT_MOCK") == "1":
         return "mock transcript for dev"
     model = _load_model(settings)
-    segments, _info = model.transcribe(
-        samples,
-        beam_size=1,
-        best_of=1,
-        temperature=0.0,
-        language=_whisper_language(settings),
-        vad_filter=settings.whisper_vad_filter,
-        without_timestamps=True,
-        condition_on_previous_text=False,
-    )
+    segments, _info = model.transcribe(samples, **_transcribe_kwargs(settings))
     text = " ".join(segment.text.strip() for segment in segments).strip()
     if not text:
         raise RuntimeError("no speech detected")
@@ -44,14 +56,9 @@ def warmup_whisper(settings: OrchestratorSettings) -> None:
         return
     model = _load_model(settings)
     silence = np.zeros(int(16_000 * 0.25), dtype=np.float32)
-    list(model.transcribe(
-        silence,
-        beam_size=1,
-        language=_whisper_language(settings),
-        vad_filter=False,
-        without_timestamps=True,
-        condition_on_previous_text=False,
-    )[0])
+    kwargs = _transcribe_kwargs(settings)
+    kwargs["vad_filter"] = False
+    list(model.transcribe(silence, **kwargs)[0])
 
 
 def _load_model(settings: OrchestratorSettings) -> object:
