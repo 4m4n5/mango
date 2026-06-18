@@ -29,6 +29,10 @@ build_ui_if_missing() {
   npm --prefix "$app_dir" run build
 }
 
+if [[ "${MANGO_REBUILD_UI:-}" == "1" ]]; then
+  rm -rf src/launcher/dist src/overlay/dist
+fi
+
 build_ui_if_missing "src/launcher"
 build_ui_if_missing "src/overlay"
 
@@ -51,20 +55,52 @@ else
   exit 1
 fi
 
+chromium_common_flags=(
+  --no-first-run
+  --no-default-browser-check
+  --disable-infobars
+  --disable-translate
+  --noerrdialogs
+)
+
+chromium_pi_flags=()
+if [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; then
+  chromium_pi_flags+=(--disable-gpu --disable-gpu-compositing)
+fi
+
 if ! pgrep -f "mango-launcher.*http://127.0.0.1:${PORT}/" >/dev/null 2>&1; then
-  "$CHROMIUM_BIN" --class=mango-launcher --kiosk --app="http://127.0.0.1:${PORT}/" \
+  "$CHROMIUM_BIN" \
+    "${chromium_common_flags[@]}" \
+    "${chromium_pi_flags[@]}" \
+    --class=mango-launcher \
+    --kiosk \
+    --app="http://127.0.0.1:${PORT}/" \
     >"$LOG_DIR/mango-launcher-chromium.log" 2>&1 &
 fi
 
-if ! pgrep -f "mango-overlay.*http://127.0.0.1:${PORT}/overlay/" >/dev/null 2>&1; then
-  "$CHROMIUM_BIN" --class=mango-overlay --app="http://127.0.0.1:${PORT}/overlay/" \
-    --window-size=360,120 --window-position=900,560 --always-on-top \
+if [[ "${MANGO_SKIP_OVERLAY:-}" != "1" ]] \
+  && ! pgrep -f "mango-overlay.*http://127.0.0.1:${PORT}/overlay/" >/dev/null 2>&1; then
+  "$CHROMIUM_BIN" \
+    "${chromium_common_flags[@]}" \
+    "${chromium_pi_flags[@]}" \
+    --class=mango-overlay \
+    --app="http://127.0.0.1:${PORT}/overlay/" \
+    --window-size=360,120 \
+    --window-position=900,560 \
     >"$LOG_DIR/mango-overlay-chromium.log" 2>&1 &
 fi
 
 sleep 2
 if command -v wmctrl >/dev/null 2>&1; then
-  wmctrl -r "mango overlay" -b add,above,sticky 2>/dev/null || true
+  wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
+  if [[ "${MANGO_SKIP_OVERLAY:-}" != "1" ]]; then
+    wmctrl -x -r mango-overlay -e 0,900,560,360,120 2>/dev/null \
+      || wmctrl -r "mango overlay" -e 0,900,560,360,120 2>/dev/null \
+      || true
+    wmctrl -x -r mango-overlay -b add,sticky,above 2>/dev/null \
+      || wmctrl -r "mango overlay" -b add,sticky,above 2>/dev/null \
+      || true
+  fi
   wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
 fi
 
