@@ -42,32 +42,31 @@ about 244 MB RSS in the `ps aux --sort=-%mem | head -30` sample.
 
 ## After — automated metrics
 
-To be filled after git deploy to the Pi:
-
-```bash
-cd ~/mango
-bash scripts/mango-stack.sh restart
-bash scripts/diag/baseline-metrics.sh --label after-n0 --print-json
-bash scripts/phase-n0/gate-n0.sh
-```
+Captured on Pi after `e019688` deploy (`2026-06-18`):
 
 | Metric | After |
 |--------|-------|
-| Baseline JSON | TBD |
-| Chromium app instances | TBD |
-| Overlay Chromium | TBD |
-| Stremio / Kodi / mpv idle count | TBD |
-| Available memory | TBD |
-| N0 gate | TBD |
-| Screenshot path | TBD |
+| Baseline JSON | `~/.cache/mango/diag/baselines/after-n0-latest.json` |
+| Chromium app instances | **1** (launcher only) |
+| Overlay Chromium | **0** |
+| Stremio / Kodi / mpv idle | **0** |
+| Available memory | **7043 MB** (was ~6900 before with overlay) |
+| Orchestrator listeners | `0.0.0.0:8765` WSS + `127.0.0.1:8766` WS (one process) |
+| HUD WS clients | **1** connected |
+| N0 gate | **PASS** (`bash scripts/phase-n0/gate-n0.sh`) |
+| Screenshot | `~/.cache/mango/gate-screenshots/launcher-idle-*.png` |
+
+RSS snapshot: launcher Chromium app **239 MB** (was ~244 MB); no overlay **~227 MB** saved at app level.
 
 ## N0-C2 couch note
 
-Pending after automated gate:
+Manual verification on TV:
 
-1. Cold stack restart.
-2. Launcher visible; no wallpaper.
-3. Home from launcher is a no-op.
-4. Settings → Back → home.
-5. Phone PTT one turn; HUD appears on TV.
-6. Stremio/Kodi do not appear during the flow.
+1. Cold stack restart — `bash scripts/mango-stack.sh restart`
+2. Launcher visible; **catalog connects in N1** empty state; no fake posters
+3. ⌂ on launcher — noop
+4. Settings → Back (Y or Back button) → home
+5. Phone PTT one turn — HUD appears on TV (not overlay window)
+6. Stremio/Kodi do **not** auto-open during 1–5
+
+Optional: `MANGO_FALLBACK_STREMIO=1` / `MANGO_LEGACY_YOUTUBE=1` in environment shows Advanced fallback rail only.
