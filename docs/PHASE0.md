@@ -59,7 +59,7 @@ Chromium launcher ← input-remapper     serve.py :3000
         │ POST /api/launch/*
         ├─ launch-stremio.sh → phase0 + stremio-pad-bridge.py → Stremio
         └─ launch-kodi.sh    → phase0 + Kodi JSON-RPC          → YouTube addon
-Home ⌂ → launch-launcher.sh (Super+h via Openbox; bridge ungrab in Stremio)
+Home ⌂ → launch-launcher.sh (Control+Alt+m via Openbox; bridge ungrab in Stremio)
 ```
 
 | Surface | Input |
@@ -85,7 +85,7 @@ Face cluster, clockwise from **left**: **Y · X · A · B** — diagram in [`HAR
 |--------|-------|-----------------|---------|
 | **B** bottom | `304` | Select | Select |
 | **Y** left | `308` | BackSpace | **Escape** |
-| **⌂** | `316` / `311` | Super+h → launcher | `launch-launcher.sh` |
+| **⌂** | `316` / `311` | Control+Alt+m → launcher | `launch-launcher.sh` |
 
 Do **not** use Xbox “A = bottom confirm”. Never bare `stremio &` twice (zombie ports).
 
@@ -150,7 +150,7 @@ curl -s http://127.0.0.1:3000/api/health | python3 -m json.tool
 | Launcher tiny / behind app | `scripts/lib/present-launcher.sh` |
 | ⌂ slow / D-pad dead | Pad bridge must spawn `launch-launcher.sh` as desktop user (not root); remapper resumes async |
 | Y goes home in Stremio | Remove global Openbox Escape→launcher (`install-openbox-stremio-tv.sh`) |
-| ⌂ dead in Kodi | Home must be Super+h not F12 — rerun `map-pro-controller.sh` |
+| ⌂ dead in Kodi | Home must be Control+Alt+m not F12/Super+h — rerun `map-pro-controller.sh` |
 | YouTube → Kodi home | `kodi-rpc.sh` quoted JSON; poll window 10025 |
 | Stremio pad dead | `reset-stremio.sh` |
 | Y-back white hang in Stremio | Bridge sends Escape + `present-stremio.sh` |

@@ -33,7 +33,7 @@ SNIPPET="$MARKER_BEGIN
 $MARKER_END"
 
 HOME_SNIPPET="$HOME_MARKER
-    <keybind key=\"W-h\">
+    <keybind key=\"C-A-m\">
       <action name=\"Execute\">
         <command>bash ~/mango/scripts/launch-launcher.sh</command>
       </action>
@@ -97,9 +97,16 @@ if marker not in text:
         raise SystemExit("No </keyboard> in rc.xml")
     text = text.replace("</keyboard>", snippet + "\n  </keyboard>", 1)
 
-# Drop legacy F12 home bind — Kodi captures F12; Super+h is the TV home chord.
+# Drop legacy home binds — Kodi captures F12/Super+h; C-A-m is the TV home chord.
 text = re.sub(
     r"\s*<keybind key=\"F12\">\s*<action name=\"Execute\">\s*"
+    r"<command>bash ~/mango/scripts/launch-launcher\.sh</command>\s*</action>\s*</keybind>",
+    "",
+    text,
+    flags=re.S,
+)
+text = re.sub(
+    r"\s*<keybind key=\"W-h\">\s*<action name=\"Execute\">\s*"
     r"<command>bash ~/mango/scripts/launch-launcher\.sh</command>\s*</action>\s*</keybind>",
     "",
     text,
@@ -128,5 +135,8 @@ text = re.sub(
 path.write_text(text)
 PY
 
-echo "Installed Stremio/Kodi TV rules + Super+h home keybind."
-echo "Run: openbox --reconfigure   (or reboot)"
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+openbox --reconfigure 2>/dev/null || echo "! openbox --reconfigure skipped (set DISPLAY=:0)"
+
+echo "Installed Stremio/Kodi TV rules + Control+Alt+m home keybind."

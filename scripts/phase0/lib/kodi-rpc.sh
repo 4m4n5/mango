@@ -140,9 +140,9 @@ kodi_window_is_youtube() {
 
 kodi_youtube_wait_visible() {
   local attempt
-  for attempt in $(seq 1 30); do
+  for attempt in $(seq 1 60); do
     kodi_youtube_ui_visible && return 0
-    sleep 0.2
+    sleep 0.25
   done
   return 1
 }

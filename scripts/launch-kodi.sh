@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 1 YouTube (Kodi) — TV-native launch; hide launcher when Kodi is ready.
+# Phase 1 YouTube (Kodi) — TV-native launch; hide launcher when YouTube UI is ready.
 
 set -euo pipefail
 
@@ -41,46 +41,53 @@ focus_and_hide_kodi() {
   ) &
 }
 
-wait_for_kodi_ready() {
-  local i
-  for i in $(seq 1 80); do
-    if kodi_window_visible && kodi_rpc_ready; then
-      if ! kodi_youtube_ui_visible; then
-        bash "$PHASE0/open-kodi-youtube.sh" >/dev/null 2>&1 || true
-      fi
-      kodi_youtube_ui_visible || continue
-      focus_and_hide_kodi
+ensure_kodi_youtube_ui() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if kodi_youtube_ui_visible; then
       return 0
     fi
-    sleep 0.2
+    if kodi_window_visible && kodi_rpc_ready; then
+      bash "$PHASE0/open-kodi-youtube.sh" >/dev/null 2>&1 || true
+    fi
+    sleep 0.25
   done
+  echo "! Kodi YouTube UI (window 10025) not reached" >&2
   return 1
+}
+
+finish_kodi_launch() {
+  local mode=${1:-cold}
+  if ! ensure_kodi_youtube_ui; then
+    mango_log launch_kodi status=fail reason=youtube_window
+    exit 1
+  fi
+  focus_and_hide_kodi
+  trap - ERR
+  mango_log launch_kodi status=ok mode="$mode"
 }
 
 if kodi_window_visible && kodi_rpc_ready; then
   bash "$PHASE0/launch-kodi.sh"
-  focus_and_hide_kodi
-  trap - ERR
-  mango_log launch_kodi status=ok mode=warm
-  exit 0
+  finish_kodi_launch warm
 fi
 
 bash "$PHASE0/launch-kodi.sh" &
 LAUNCH_PID=$!
 
-if ! wait_for_kodi_ready; then
-  wait "$LAUNCH_PID" 2>/dev/null || true
-  if kodi_window_visible; then
-    bash "$PHASE0/open-kodi-youtube.sh" >/dev/null 2>&1 || true
-    focus_and_hide_kodi
-  else
-    echo "! Kodi did not start"
-    mango_log launch_kodi status=fail reason=no_window
-    exit 1
+for _ in $(seq 1 90); do
+  if kodi_window_visible && kodi_rpc_ready; then
+    wait "$LAUNCH_PID" 2>/dev/null || true
+    finish_kodi_launch cold
   fi
-else
-  wait "$LAUNCH_PID" 2>/dev/null || true
+  sleep 0.2
+done
+
+wait "$LAUNCH_PID" 2>/dev/null || true
+if kodi_window_visible && kodi_rpc_ready; then
+  finish_kodi_launch cold
 fi
 
-trap - ERR
-mango_log launch_kodi status=ok
+echo "! Kodi did not start"
+mango_log launch_kodi status=fail reason=no_window
+exit 1
