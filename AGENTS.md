@@ -40,6 +40,18 @@ bash scripts/phase1/restart-mango-ui.sh
 systemctl --user restart mango-tv-pad.service   # if pad autoreconnect installed
 ```
 
+**Pre-couch gate (agent runs before user tests):** SSH to Pi and run automated
+checks — never hand off after Mac-only verification.
+
+```bash
+bash scripts/pi-exec-gate.sh          # Mac: pull + gate on Pi
+# or on Pi:
+bash scripts/pi-pre-couch-gate.sh
+```
+
+Gate covers: git sync, `verify-tv.sh`, pad service, BT, launcher window, pad
+log. Couch flows **C1–C4** in that script are still manual on TV.
+
 ## Gamepad (locked)
 
 8BitDo Micro · **B**=`304` select · **Y**=`308` back · **⌂**=`316` home

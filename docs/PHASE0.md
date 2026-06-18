@@ -129,6 +129,8 @@ Log: `/tmp/mango-tv-pad.log`
 | `phase0/start-mango-tv-pad.sh` | Pad router (launcher + Stremio + Kodi) |
 | `phase0/install-pad-autoreconnect.sh` | **Once** — BT trust + udev + systemd pad recovery |
 | `phase1/restart-mango-ui.sh` | **Bring-up** after crash |
+| `pi-pre-couch-gate.sh` | **Automated gate** before couch test |
+| `pi-exec-gate.sh` | Mac → SSH pull + gate |
 | `phase1/bootstrap-after-reboot.sh` | **Bring-up** after reboot |
 | `launch-launcher.sh` | Home |
 | `launch-stremio.sh` / `launch-kodi.sh` | API wrappers (refocus + hide-not-kill) |
