@@ -15,6 +15,8 @@ sudo apt install -y \
   python3-venv \
   python3-evdev \
   ffmpeg \
+  mpv \
+  socat \
   xdotool \
   wmctrl \
   chromium-browser

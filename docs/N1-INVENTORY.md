@@ -39,6 +39,19 @@ _(not started)_
 
 ---
 
+## Prereq status (Pi)
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| SSH `mango` | | |
+| `gate-n0.sh` | | |
+| `mpv` + `socat` | | `install-n1-prereqs.sh` |
+| `node` ≥ 20 | | |
+| `/etc/mango/stremio-export.json` | | `setup-stremio-export.sh` |
+| `check-n1-prereqs.sh` | | |
+
+---
+
 ## Metrics (after N1)
 
 | Metric | Value |

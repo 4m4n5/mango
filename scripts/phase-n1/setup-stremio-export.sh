@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Install / validate Stremio export for catalog-service.
+#
+# Stremio desktop: Settings → Export → save JSON file.
+# Then on Pi:
+#   bash scripts/phase-n1/setup-stremio-export.sh ~/Downloads/stremio-export.json
+#
+# Or validate only:
+#   bash scripts/phase-n1/setup-stremio-export.sh --check
+
+set -euo pipefail
+
+DEST="/etc/mango/stremio-export.json"
+EXAMPLE="${MANGO_REPO_DIR:-$HOME/mango}/config/stremio-export.example.json"
+
+usage() {
+  cat <<EOF
+usage:
+  $0 <path-to-export.json>   # copy to $DEST
+  $0 --check                 # validate existing $DEST
+  $0 --help
+
+Get export from Stremio desktop (Pi or Mac):
+  1. Open Stremio → ⚙ Settings → Export
+  2. Save the JSON file
+  3. Copy to Pi: scp export.json mango:/tmp/stremio-export.json
+  4. bash $0 /tmp/stremio-export.json
+
+Never commit the real export. Template: config/stremio-export.example.json
+EOF
+}
+
+validate_json() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import json, sys
+path = sys.argv[1]
+data = json.loads(open(path, encoding="utf-8").read())
+addons = data.get("addons")
+if not isinstance(addons, list) or not addons:
+    raise SystemExit("FAIL: addons[] missing or empty")
+names = []
+for i, a in enumerate(addons):
+    if not isinstance(a, dict):
+        raise SystemExit(f"FAIL: addons[{i}] not an object")
+    url = a.get("manifestUrl") or a.get("transportUrl") or a.get("url")
+    if not url:
+        raise SystemExit(f"FAIL: addons[{i}] missing manifestUrl")
+    names.append(a.get("name") or a.get("manifestUrl", "")[:40])
+print("OK:", len(addons), "addons —", ", ".join(names[:5]))
+PY
+}
+
+case "${1:-}" in
+  --help|-h) usage; exit 0 ;;
+  --check)
+    [[ -f "$DEST" ]] || { echo "FAIL: $DEST not found" >&2; exit 1; }
+    validate_json "$DEST"
+    exit 0
+    ;;
+  "")
+    usage
+    exit 2
+    ;;
+esac
+
+SRC="$1"
+[[ -f "$SRC" ]] || { echo "FAIL: not a file: $SRC" >&2; exit 1; }
+validate_json "$SRC"
+
+mkdir -p /etc/mango
+cp "$SRC" "$DEST"
+chmod 600 "$DEST"
+echo "✓ Installed $DEST"
+validate_json "$DEST"
