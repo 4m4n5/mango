@@ -95,7 +95,11 @@ grep -i 'pro controller' /proc/bus/input/devices || true
 echo "Gamepad event device: $EVENT_DEV (not IMU)"
 
 echo
-read -r -p "Press ENTER, then press D-pad and B on the controller (15s test)..."
+if [[ -t 0 ]]; then
+  read -r -p "Press ENTER, then press D-pad and B on the controller (15s test)..."
+else
+  echo "(non-interactive — skipping ENTER prompt; press D-pad / B now)"
+fi
 
 echo "Listening..."
 set +e

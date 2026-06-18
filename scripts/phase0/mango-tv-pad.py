@@ -107,6 +107,24 @@ def active_window_meta() -> tuple[str, str]:
     return name.lower(), klass.lower()
 
 
+def _launcher_window_ids() -> list[str]:
+    result = _xdotool("search", "--class", "mango-launcher")
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+    return result.stdout.split()
+
+
+def is_launcher_focused() -> bool:
+    """Chromium kiosk reports title 'mango' but xdotool class is often empty."""
+    wid = _xdotool("getactivewindow").stdout.strip()
+    if not wid or wid == "0":
+        return False
+    name = _xdotool("getwindowname", wid).stdout.strip().lower()
+    if name in ("mango", "mango launcher"):
+        return True
+    return wid in _launcher_window_ids()
+
+
 def foreground_app() -> str:
     name, klass = active_window_meta()
     blob = f"{name} {klass}"
@@ -117,6 +135,8 @@ def foreground_app() -> str:
     if "mango-overlay" in klass or "mango overlay" in name:
         return "launcher"
     if "mango-launcher" in blob or "mango launcher" in name:
+        return "launcher"
+    if is_launcher_focused():
         return "launcher"
     return "other"
 
