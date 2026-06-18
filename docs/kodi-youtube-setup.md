@@ -187,7 +187,7 @@ Use this only if the repository loads; if it errors or hangs, use **Part 3 (zip)
 | Can't find zip in browser | Path is `/home/aman/mango/downloads/` — use **Home folder → mango → downloads** |
 | "Dependencies not met" | Run reset script again; install zip before opening YouTube |
 | Addon installed but won't open | **YouTube** → **Settings** → **Maintenance** → **Delete settings.xml** → run Setup wizard again |
-| Login **Invalid client type** | Recreate OAuth client as **TV and Limited Input devices** |
+| Sign in refreshes / nothing happens | GUI keys override file — `bash scripts/phase0/reset-youtube-login.sh`; expect device-code popup; sign in **twice** at [google.com/device](https://google.com/device) |
 | D-pad dead in Kodi | `bash scripts/phase0/map-pro-controller.sh` then relaunch Kodi |
 | Repo install fails | Ignore repo; use zip method (Part 3) |
 | Python threading errors in SSH after launch | Harmless input-remapper noise on exit — ignore |
