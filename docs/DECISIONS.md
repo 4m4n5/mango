@@ -16,7 +16,7 @@ Locked choices. Update when changing behavior.
 |-------|--------|
 | Layout | **Y · X · A · B** clockwise from left ([`HARDWARE.md`](HARDWARE.md)) |
 | Select / back | **B**=`304` · **Y**=`308` |
-| Home | `316`/`311` → F12 → `launch-launcher.sh` |
+| Home | `316`/`311` → Super+h → `launch-launcher.sh` |
 | Kodi | `input-remapper` · Y → BackSpace |
 | Stremio | `stremio-pad-bridge.py` · Y → Escape · hide `js*` |
 

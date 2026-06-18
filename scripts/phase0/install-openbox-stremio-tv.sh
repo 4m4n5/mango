@@ -33,7 +33,7 @@ SNIPPET="$MARKER_BEGIN
 $MARKER_END"
 
 HOME_SNIPPET="$HOME_MARKER
-    <keybind key=\"F12\">
+    <keybind key=\"W-h\">
       <action name=\"Execute\">
         <command>bash ~/mango/scripts/launch-launcher.sh</command>
       </action>
@@ -97,8 +97,36 @@ if marker not in text:
         raise SystemExit("No </keyboard> in rc.xml")
     text = text.replace("</keyboard>", snippet + "\n  </keyboard>", 1)
 
+# Drop legacy F12 home bind — Kodi captures F12; Super+h is the TV home chord.
+text = re.sub(
+    r"\s*<keybind key=\"F12\">\s*<action name=\"Execute\">\s*"
+    r"<command>bash ~/mango/scripts/launch-launcher\.sh</command>\s*</action>\s*</keybind>",
+    "",
+    text,
+    flags=re.S,
+)
+
 path.write_text(text)
 PY
 
-echo "Installed Stremio/Kodi TV rules + F12 home keybind."
+python3 - "$RC_FILE" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text = path.read_text()
+
+# Global Escape → launcher breaks Stremio Y (pad bridge sends Escape for in-app back).
+text = re.sub(
+    r"\s*<!-- mango phase1 begin -->.*?<!-- mango phase1 end -->",
+    "",
+    text,
+    flags=re.S,
+)
+
+path.write_text(text)
+PY
+
+echo "Installed Stremio/Kodi TV rules + Super+h home keybind."
 echo "Run: openbox --reconfigure   (or reboot)"

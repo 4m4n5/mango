@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Phase 1 Openbox autostart and Escape-to-launcher keybind.
+# Install Phase 1 Openbox autostart (no global Escape — breaks Stremio Y-back).
 
 set -euo pipefail
 
@@ -12,7 +12,6 @@ AUTOSTART_FILE="$OPENBOX_DIR/autostart"
 START_LINE='bash ~/mango/scripts/phase1/start-mango-ui.sh &'
 MARKER_BEGIN="# mango phase1 begin"
 MARKER_END="# mango phase1 end"
-KEYBIND_MARKER="<!-- mango phase1 begin -->"
 
 mkdir -p "$OPENBOX_DIR"
 
@@ -36,28 +35,20 @@ if ! grep -Fq "$MARKER_BEGIN" "$AUTOSTART_FILE"; then
   } >>"$AUTOSTART_FILE"
 fi
 
-if ! grep -Fq "$KEYBIND_MARKER" "$RC_FILE"; then
-  cp "$RC_FILE" "${RC_FILE}.bak.$(date +%Y%m%d%H%M%S)"
-  python3 - "$RC_FILE" <<'PY'
-from pathlib import Path
+python3 - "$RC_FILE" <<'PY'
+import re
 import sys
+from pathlib import Path
 
 path = Path(sys.argv[1])
 text = path.read_text()
-snippet = """    <!-- mango phase1 begin -->
-    <keybind key="Escape">
-      <action name="Execute">
-        <command>bash ~/mango/scripts/launch-launcher.sh</command>
-      </action>
-    </keybind>
-    <!-- mango phase1 end -->
-"""
-if "</keyboard>" not in text:
-    raise SystemExit("No </keyboard> tag found in rc.xml")
-path.write_text(text.replace("</keyboard>", snippet + "  </keyboard>", 1))
+text = re.sub(
+    r"\s*<!-- mango phase1 begin -->.*?<!-- mango phase1 end -->",
+    "",
+    text,
+    flags=re.S,
+)
+path.write_text(text)
 PY
-else
-  echo "Escape-to-launcher keybind already installed."
-fi
 
-echo "Openbox autostart installed. Restart Openbox or reboot the Pi."
+echo "Openbox autostart installed (home = Super+h via install-openbox-stremio-tv.sh)."

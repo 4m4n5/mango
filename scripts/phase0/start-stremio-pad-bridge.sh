@@ -33,17 +33,28 @@ ir_stop_service
 hide_pro_controller_js
 
 bash "$SCRIPT_DIR/stop-stremio-pad-bridge.sh" 2>/dev/null || true
+sleep 0.5
 
 echo "Starting stremio-pad-bridge (needs sudo to read /dev/input)..."
-sudo -E DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" HOME="$HOME" \
-  python3 "$SCRIPT_DIR/stremio-pad-bridge.py" >>"$LOG" 2>&1 &
-echo $! >"$PIDFILE"
-sleep 1
+BRIDGE_OK=false
+for attempt in 1 2 3 4 5; do
+  sudo -E DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" HOME="$HOME" SUDO_USER="${USER}" \
+    python3 "$SCRIPT_DIR/stremio-pad-bridge.py" >>"$LOG" 2>&1 &
+  echo $! >"$PIDFILE"
+  sleep 0.8
+  if pgrep -f stremio-pad-bridge.py >/dev/null 2>&1; then
+    BRIDGE_OK=true
+    break
+  fi
+  irctl_quick --command stop --device "Pro Controller" 2>/dev/null || true
+  sleep 0.5
+done
 
-if kill -0 "$(cat "$PIDFILE")" 2>/dev/null || pgrep -f stremio-pad-bridge.py >/dev/null 2>&1; then
+if $BRIDGE_OK; then
   echo "✓ Pad bridge running — log: $LOG"
 else
-  echo "! Bridge failed to start:"
-  tail -10 "$LOG" 2>/dev/null || true
+  echo "! Bridge failed to grab pad — keeping input-remapper for Stremio"
+  tail -8 "$LOG" 2>/dev/null || true
+  ir_start_with_autoload "Pro Controller" "mango-tv"
   exit 1
 fi

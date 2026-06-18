@@ -74,6 +74,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   if $QUICK && launcher_is_tv_sized "$WID"; then
     xdotool windowactivate "$WID" 2>/dev/null || true
     wmctrl -i -r "$WID" -b add,activated 2>/dev/null || true
+    bash "$SCRIPT_DIR/mango-cursor.sh" hide 2>/dev/null || true
     echo "✓ Launcher focused (already TV-sized)"
     exit 0
   fi
@@ -82,6 +83,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
 
   if present_launcher_tv "$WID"; then
     eval "$(xdotool getwindowgeometry --shell "$WID" 2>/dev/null)" || true
+    bash "$SCRIPT_DIR/mango-cursor.sh" hide 2>/dev/null || true
     echo "✓ Launcher TV-sized (wid=$WID ${WIDTH:-?}x${HEIGHT:-?})"
   else
     echo "! Launcher resize incomplete (wid=$WID)" >&2

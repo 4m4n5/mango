@@ -23,8 +23,10 @@ irctl_sudo() {
 }
 
 ir_stop_service() {
-  sudo systemctl stop input-remapper 2>/dev/null || true
-  sleep 0.5
+  irctl_quick --command stop --device "Pro Controller" 2>/dev/null || true
+  irctl_quick --command stop --device "Pro Controller (IMU)" 2>/dev/null || true
+  sudo -n systemctl stop input-remapper 2>/dev/null || true
+  sleep 0.8
 }
 
 irctl_quick() {

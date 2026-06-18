@@ -10,6 +10,14 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+.shell,
+button,
+a {
+  cursor: none;
+}
+
 body {
   min-width: 100vw;
   min-height: 100vh;
