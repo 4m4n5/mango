@@ -13,6 +13,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=lib/aiometadata.sh
+source "$SCRIPT_DIR/lib/aiometadata.sh"
 BASE_URL="${MANGO_AIOMETADATA_URL:-http://127.0.0.1:3036}"
 CREDS="${MANGO_AIOMETADATA_CREDS:-$HOME/.config/mango/aiometadata.credentials}"
 EXPORT_FILE="${MANGO_STREMIO_EXPORT:-/etc/mango/stremio-export.json}"
@@ -29,7 +31,15 @@ load_creds() {
 
 prepare_config() {
   local import_path="$1"
-  local mode="${MANGO_AIOMETADATA_IMPORT_MODE:-exact}"
+  local mode="${MANGO_AIOMETADATA_IMPORT_MODE:-mango}"
+  local mango_py="$SCRIPT_DIR/lib/aiometadata_mango.py"
+  local catalog_yaml="${MANGO_CATALOG_YAML:-$REPO_DIR/config/catalog.example.yaml}"
+
+  if [[ "$mode" == "mango" ]]; then
+    python3 "$mango_py" build "$import_path" "$catalog_yaml" "$REPO_DIR/deploy/aiometadata/.env"
+    return
+  fi
+
   python3 - "$import_path" "$REPO_DIR/deploy/aiometadata/.env" "$mode" <<'PY'
 import json
 import os
@@ -81,6 +91,22 @@ print(json.dumps(config))
 PY
 }
 
+cmd_check() {
+  local import_path="${1:-${MANGO_AIOMETADATA_IMPORT:-}}"
+  [[ -n "$import_path" && -f "$import_path" ]] || die "export file required"
+  local catalog_yaml="${MANGO_CATALOG_YAML:-$REPO_DIR/config/catalog.example.yaml}"
+  local manifest_tmp=""
+  if aiometadata_manifest_ok 2>/dev/null; then
+    manifest_tmp="$(mktemp)"
+    curl -sf --max-time 10 "$(aiometadata_manifest_url)" >"$manifest_tmp"
+    python3 "$SCRIPT_DIR/lib/aiometadata_mango.py" check "$import_path" "$catalog_yaml" "$manifest_tmp"
+    local rc=$?
+    rm -f "$manifest_tmp"
+    return "$rc"
+  fi
+  python3 "$SCRIPT_DIR/lib/aiometadata_mango.py" check "$import_path" "$catalog_yaml"
+}
+
 cmd_import() {
   local import_path="${1:-${MANGO_AIOMETADATA_IMPORT:-}}"
   [[ -n "$import_path" && -f "$import_path" ]] || die "import file required (arg or MANGO_AIOMETADATA_IMPORT)"
@@ -104,7 +130,11 @@ PY
   local config_tmp payload http_code
   config_tmp="$(mktemp)"
   trap 'rm -f "$config_tmp"' RETURN
-  prepare_config "$import_path" >"$config_tmp"
+  prepare_config "$import_path" >"$config_tmp" || {
+    local rc=$?
+    [[ $rc -eq 2 ]] && die "export missing catalogs required by catalog.yaml"
+    exit "$rc"
+  }
   payload="$(AIOMETADATA_PASSWORD="$password" AIOMETADATA_UUID="$existing_uuid" python3 - "$config_tmp" <<'PY'
 import json, os, sys
 config = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -192,18 +222,21 @@ cmd="${1:-}"
 shift || true
 case "$cmd" in
   import) cmd_import "$@" ;;
+  check) cmd_check "$@" ;;
   manifest) cmd_manifest ;;
   wire-export) cmd_wire_export ;;
   *)
     cat <<EOF
-Usage: $(basename "$0") <import|manifest|wire-export> [export.json]
+Usage: $(basename "$0") <import|check|manifest|wire-export> [export.json]
 
-  import       POST export JSON to $BASE_URL/api/config/save (exact copy by default)
+  import       Import configure export → AIOMetadata (mango rail catalogs only)
+  check        Compare export/manifest vs catalog.yaml mdblist rails
   manifest     Print manifest URL from credentials
   wire-export  Replace AIOLists with AIOMetadata in $EXPORT_FILE
 
 Env: MANGO_AIOMETADATA_URL, MANGO_AIOMETADATA_IMPORT, MANGO_AIOMETADATA_PASSWORD
-     MANGO_AIOMETADATA_IMPORT_MODE=exact|minimal  (default: exact)
+     MANGO_AIOMETADATA_IMPORT_MODE=mango|exact|minimal  (default: mango)
+     MANGO_CATALOG_YAML — rail source of truth (default: config/catalog.example.yaml)
 EOF
     exit 1
     ;;

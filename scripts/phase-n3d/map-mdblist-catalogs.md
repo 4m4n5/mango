@@ -34,6 +34,16 @@ curl -sf "${BASE}/catalog/movie/mdblist.88302.json" | jq '.metas | length'
 - Legacy AIOLists ids (`aiolists-88302-L`) are **not** used with AIOMetadata.
 - `movies-india-trending` / `series-india-picks` are mdblist-backed in N3d V1.
 
+## Import from configure export
+
+```bash
+bash scripts/phase-n3d/aiometadata-config.sh check ~/.config/mango/aiometadata-import.json
+bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
+```
+
+`import` uses **mango mode** by default: copies only the mdblist catalogs that
+`catalog.example.yaml` rails reference (11 lists), not the full export.
+
 ## Migration from AIOLists
 
 ```bash
