@@ -55,6 +55,8 @@ export type StreamFilterMeta = {
   torbox_uncached_fallback?: boolean;
   /** Set when RD unknown-cache BluRay/x265 picks were used as last resort. */
   rd_safe_unknown_fallback?: boolean;
+  /** Set when strict title tokens matched nothing but imdb-id / relaxed pass recovered streams. */
+  title_filter_relaxed?: boolean;
   excluded: {
     uncached_debrid: number;
     unknown_cache_debrid: number;
@@ -69,6 +71,8 @@ export type StreamFilterMeta = {
 
 export type StreamFilterContext = {
   metaTitle?: string;
+  /** Stremio/Cinemeta id (e.g. tt0111161) for torrent name matching. */
+  metaId?: string;
   contentType?: string;
 };
 
@@ -117,7 +121,11 @@ function parseQualityCap(value: unknown): QualityCap | null {
 
 const DEFAULT_DEBRID_PREFERENCE = ['torbox', 'realdebrid'];
 const DEFAULT_RD_BLOCKED_TAGS = ['webrip', 'web-dl', 'webdl', 'amzn'];
-const TITLE_STOP_WORDS = new Set(['the', 'and', 'of', 'a', 'an', 'in', 'on', 'to', 'for', 'part']);
+const TITLE_STOP_WORDS = new Set([
+  'the', 'and', 'of', 'a', 'an', 'in', 'on', 'to', 'for', 'part',
+  'files', 'file', 'story', 'love', 'home', 'night', 'dead', 'last',
+  'kill', 'show', 'game', 'world', 'life', 'moon', 'star', 'man', 'men',
+]);
 
 function metaTitleTokens(metaTitle: string): string[] {
   return metaTitle
@@ -129,13 +137,28 @@ function metaTitleTokens(metaTitle: string): string[] {
 }
 
 /** Reject London.Files-style false positives for The Kashmir Files. */
-export function streamMatchesMetaTitle(stream: Stream, metaTitle: string): boolean {
+export function streamMatchesMetaTitle(
+  stream: Stream,
+  metaTitle: string,
+  metaId?: string,
+): boolean {
+  const haystack = streamHaystack(stream);
+  if (metaId) {
+    const normalized = metaId.toLowerCase();
+    if (haystack.includes(normalized)) return true;
+    if (normalized.startsWith('tt') && normalized.length > 4) {
+      const digits = normalized.slice(2);
+      if (haystack.includes(digits)) return true;
+    }
+  }
+
   const tokens = metaTitleTokens(metaTitle);
   if (tokens.length < 2) return true;
-  const haystack = streamHaystack(stream);
   const sorted = [...tokens].sort((left, right) => right.length - left.length);
   const primary = sorted[0];
-  if (primary.length >= 5 && haystack.includes(primary)) return true;
+  if (primary.length >= 5 && !TITLE_STOP_WORDS.has(primary) && haystack.includes(primary)) {
+    return true;
+  }
   const hits = tokens.filter((token) => haystack.includes(token)).length;
   return hits >= 2;
 }
@@ -354,8 +377,8 @@ export function streamPlayScore(
   else if (source.includes('torrentio rd')) score += 70;
   else if (source.includes('aiostreams')) score += 20;
 
-  // Unknown-cache Torrentio rows are usually instant hash-on-debrid; prefer over uncached AIOStreams.
-  if (cache === 'unknown' && source.includes('torrentio')) score += 120;
+  // Unknown-cache Torrentio TB rows are usually instant hash-on-debrid; RD unknown often serves 30s status clips.
+  if (cache === 'unknown' && source.includes('torrentio tb')) score += 120;
 
   const haystack = streamHaystack(stream);
   if (/\b(bluray|blu[\s-]?ray|bdrip)\b/i.test(haystack)) score += 50;
@@ -547,7 +570,7 @@ export function filterAndRankStreams(
     const debrid = isDebridStream(stream);
     const cacheStatus = parseDebridCacheStatus(stream);
 
-    if (context.metaTitle && !streamMatchesMetaTitle(stream, context.metaTitle)) {
+    if (context.metaTitle && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)) {
       meta.excluded.title_mismatch += 1;
       continue;
     }
@@ -581,6 +604,10 @@ export function filterAndRankStreams(
         continue;
       }
     }
+    if (isTorrentioRealDebridStream(stream) && cacheStatus !== 'cached') {
+      meta.excluded.uncached_debrid += 1;
+      continue;
+    }
 
     kept.push({
       ...stream,
@@ -612,7 +639,9 @@ function buildFallbackStreams(
   const kept: Stream[] = [];
   for (const stream of streams) {
     if (!predicate(stream)) continue;
-    if (context.metaTitle && !streamMatchesMetaTitle(stream, context.metaTitle)) continue;
+    if (context.metaTitle && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)) {
+      continue;
+    }
     if (isSeriesPackForMovie(stream, context.contentType)) continue;
     if (config.exclude_error_streams && isErrorStream(stream)) continue;
     if (config.exclude_remux && isRemux(stream)) continue;
@@ -632,6 +661,22 @@ export function filterStreamsForPlay(
   const primary = filterAndRankStreams(streams, config, context);
   if (primary.streams.length > 0 || config.include_uncached) {
     return primary;
+  }
+
+  if (primary.meta.excluded.title_mismatch > 0 && context.metaTitle) {
+    const relaxed = filterAndRankStreams(streams, config, {
+      ...context,
+      metaTitle: undefined,
+    });
+    if (relaxed.streams.length > 0) {
+      return {
+        streams: relaxed.streams,
+        meta: {
+          ...relaxed.meta,
+          title_filter_relaxed: true,
+        },
+      };
+    }
   }
 
   if (config.uncached_torbox_fallback) {
@@ -687,6 +732,12 @@ export function filterStreamsForPlay(
   return primary;
 }
 
+function isTorrentioRealDebridStream(stream: Stream): boolean {
+  const source = normalizeAddonName(stream.source || '');
+  if (source.includes('torrentio rd')) return true;
+  return source.includes('torrentio') && debridServiceId(stream) === 'realdebrid';
+}
+
 function normalizeAddonName(name: string): string {
   return name
     .toLowerCase()
@@ -734,6 +785,13 @@ function autoPlayEligible(
 ): boolean {
   if (config.exclude_error_streams && isErrorStream(stream)) return false;
   if (isRdBlockedRelease(stream, config.exclude_rd_release_tags)) return false;
+  if (
+    isTorrentioRealDebridStream(stream)
+    && streamCacheStatus(stream) !== 'cached'
+    && !isRdSafeUnknownRelease(stream, config.exclude_rd_release_tags)
+  ) {
+    return false;
+  }
   if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') {
     if (options.allow_uncached_torbox && debridServiceId(stream) === 'torbox') {
       return true;

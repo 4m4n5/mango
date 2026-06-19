@@ -427,11 +427,15 @@ export class CatalogCore {
     }
 
     const config = mergeFilterConfig(this.filterConfig, overrides);
-    let filterContext: import('./stream-filters.js').StreamFilterContext = { contentType: type };
+    let filterContext: import('./stream-filters.js').StreamFilterContext = {
+      contentType: type,
+      metaId: id,
+    };
     try {
       const meta = await this.metaCached(type, id);
       filterContext = {
         contentType: type,
+        metaId: id,
         metaTitle: typeof meta.name === 'string'
           ? meta.name
           : typeof meta.title === 'string'
