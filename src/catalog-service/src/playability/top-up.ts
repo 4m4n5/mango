@@ -7,9 +7,14 @@ import {
   upsertRailPoolTitle,
   type PlayabilityRailStatus,
 } from './db.js';
-import { verifyTitle } from './verify.js';
+import {
+  prepareVerifyTitle,
+  verifyPreparedTitle,
+  type PreparedVerifyTitleResult,
+} from './verify.js';
 
 const FAILED_RETRY_MS = Number(process.env.MANGO_PLAYABILITY_FAILED_RETRY_MS || 24 * 60 * 60 * 1000);
+const RESOLVE_CONCURRENCY = Math.max(1, Number(process.env.MANGO_PLAYABILITY_RESOLVE_CONCURRENCY || 3) || 3);
 
 export type TopUpRailResult = {
   rail_id: string;
@@ -34,6 +39,16 @@ export type TopUpRailResult = {
     action: 'linked_existing' | 'verified' | 'failed' | 'skipped_existing' | 'skipped_recent_failed';
     reason?: string;
   }>;
+};
+
+type VerifyQueueItem = {
+  index: number;
+  candidate: CandidateMeta;
+};
+
+type PreparedQueueItem = VerifyQueueItem & {
+  queueId: number;
+  prepared: PreparedVerifyTitleResult;
 };
 
 export type TopUpRailOptions = {
@@ -79,6 +94,18 @@ function uniqueCandidates(candidates: CandidateMeta[]): CandidateMeta[] {
   return unique;
 }
 
+async function prepareQueueItem(
+  queueId: number,
+  item: VerifyQueueItem,
+  core: CatalogCore,
+): Promise<PreparedQueueItem> {
+  return {
+    ...item,
+    queueId,
+    prepared: await prepareVerifyTitle(core, item.candidate.type, item.candidate.id),
+  };
+}
+
 export async function topUpRail(
   core: CatalogCore,
   railId: string,
@@ -113,6 +140,7 @@ export async function topUpRail(
   let verifiedPool = before.verified_pool;
   const candidates = uniqueCandidates(await source.candidates({ offset: 0, limit: candidateLimit }));
   const results: TopUpRailResult['results'] = [];
+  const verifyQueue: VerifyQueueItem[] = [];
   let linkedExisting = 0;
   let verified = 0;
   let failed = 0;
@@ -168,35 +196,63 @@ export async function topUpRail(
       continue;
     }
 
-    const result = await verifyTitle(core, candidate.type, candidate.id, { railId: rail.id });
+    verifyQueue.push({ index, candidate });
+  }
+
+  let nextVerifyIndex = 0;
+  let nextQueueId = 0;
+  const inFlight = new Map<number, Promise<PreparedQueueItem>>();
+  const fillResolveQueue = () => {
+    while (
+      inFlight.size < RESOLVE_CONCURRENCY
+      && nextVerifyIndex < verifyQueue.length
+      && verifiedPool < poolTarget
+    ) {
+      const queueId = nextQueueId;
+      nextQueueId += 1;
+      const item = verifyQueue[nextVerifyIndex];
+      nextVerifyIndex += 1;
+      inFlight.set(queueId, prepareQueueItem(queueId, item, core));
+    }
+  };
+
+  fillResolveQueue();
+  while (inFlight.size > 0 && verifiedPool < poolTarget) {
+    const prepared = await Promise.race(inFlight.values());
+    inFlight.delete(prepared.queueId);
+    fillResolveQueue();
+
+    const result = await verifyPreparedTitle(prepared.prepared, { railId: rail.id });
     if (result.ok) {
       await upsertRailPoolTitle({
         rail_id: rail.id,
-        type: candidate.type,
-        id: candidate.id,
-        score: scoreForCandidate(index, result.stream),
+        type: prepared.candidate.type,
+        id: prepared.candidate.id,
+        score: scoreForCandidate(prepared.index, result.stream),
       });
+      const key = candidateKey(prepared.candidate);
       if (!poolKeys.has(key)) {
         poolKeys.add(key);
         verifiedPool += 1;
       }
       verified += 1;
       results.push({
-        type: candidate.type,
-        id: candidate.id,
-        title: candidate.title,
+        type: prepared.candidate.type,
+        id: prepared.candidate.id,
+        title: prepared.candidate.title,
         action: 'verified',
       });
     } else {
       failed += 1;
       results.push({
-        type: candidate.type,
-        id: candidate.id,
-        title: candidate.title,
+        type: prepared.candidate.type,
+        id: prepared.candidate.id,
+        title: prepared.candidate.title,
         action: 'failed',
         reason: result.reason,
       });
     }
+    fillResolveQueue();
   }
 
   const after = await getRailPlayabilityStatus(rail.id);

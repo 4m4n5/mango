@@ -18,6 +18,8 @@ export type VerifyTitleResult = {
   ok: boolean;
   status: 'verified' | 'failed';
   reason?: string;
+  resolve_ms?: number;
+  prepare_ms?: number;
   probe_ms?: number;
   stream?: Record<string, unknown>;
   filters?: StreamFilterMeta;
@@ -35,6 +37,24 @@ export type VerifyTitleResult = {
 
 export type VerifyTitleOptions = {
   railId?: string | null;
+};
+
+export type PreparedVerifyTitleResult = {
+  type: string;
+  id: string;
+  ok: true;
+  resolve_ms: number;
+  prepare_ms: number;
+  filters: StreamFilterMeta;
+  candidates: Stream[];
+} | {
+  type: string;
+  id: string;
+  ok: false;
+  reason: string;
+  resolve_ms?: number;
+  prepare_ms: number;
+  filters?: StreamFilterMeta;
 };
 
 function urlHash(url: string): string {
@@ -97,48 +117,78 @@ export async function verifyTitle(
   id: string,
   options: VerifyTitleOptions = {},
 ): Promise<VerifyTitleResult> {
-  let streams: Stream[] = [];
-  let filters: StreamFilterMeta | undefined;
+  return verifyPreparedTitle(await prepareVerifyTitle(core, type, id), options);
+}
 
+export async function prepareVerifyTitle(
+  core: CatalogCore,
+  type: string,
+  id: string,
+): Promise<PreparedVerifyTitleResult> {
+  const started = Date.now();
   try {
     const streamResult = await core.streams(type, id);
-    streams = streamResult.streams;
-    filters = streamResult.filters;
+    const candidates = selectAutoPlayCandidates(streamResult.streams, streamResult.filters.applied, {
+      allow_uncached_torbox: streamResult.filters.torbox_uncached_fallback === true,
+    }).slice(0, VERIFY_MAX_CANDIDATES);
+
+    if (candidates.length === 0) {
+      return {
+        type,
+        id,
+        ok: false,
+        reason: 'no_stream',
+        resolve_ms: streamResult.resolve_ms,
+        prepare_ms: Date.now() - started,
+        filters: streamResult.filters,
+      };
+    }
+
+    return {
+      type,
+      id,
+      ok: true,
+      resolve_ms: streamResult.resolve_ms,
+      prepare_ms: Date.now() - started,
+      filters: streamResult.filters,
+      candidates,
+    };
   } catch (error) {
     const reason = error instanceof CatalogError && error.details?.filters
       ? 'no_stream'
       : failReason(error);
-    await recordFailure(type, id, reason, null, options);
     return {
       type,
       id,
       ok: false,
-      status: 'failed',
       reason,
+      prepare_ms: Date.now() - started,
       filters: error instanceof CatalogError ? error.details?.filters as StreamFilterMeta | undefined : undefined,
-      attempts: [],
     };
   }
+}
 
-  const candidates = selectAutoPlayCandidates(streams, filters.applied, {
-    allow_uncached_torbox: filters.torbox_uncached_fallback === true,
-  }).slice(0, VERIFY_MAX_CANDIDATES);
-
-  if (candidates.length === 0) {
-    await recordFailure(type, id, 'no_stream', null, options);
+export async function verifyPreparedTitle(
+  prepared: PreparedVerifyTitleResult,
+  options: VerifyTitleOptions = {},
+): Promise<VerifyTitleResult> {
+  if (!prepared.ok) {
+    await recordFailure(prepared.type, prepared.id, prepared.reason, null, options);
     return {
-      type,
-      id,
+      type: prepared.type,
+      id: prepared.id,
       ok: false,
       status: 'failed',
-      reason: 'no_stream',
-      filters,
+      reason: prepared.reason,
+      resolve_ms: prepared.resolve_ms,
+      prepare_ms: prepared.prepare_ms,
+      filters: prepared.filters,
       attempts: [],
     };
   }
 
   const attempts: VerifyTitleResult['attempts'] = [];
-  for (const [index, stream] of candidates.entries()) {
+  for (const [index, stream] of prepared.candidates.entries()) {
     const started = Date.now();
     try {
       const probe = await probeUrl(stream.url, VERIFY_PROBE_MS, VERIFY_MIN_DURATION_SEC);
@@ -153,8 +203,8 @@ export async function verifyTitle(
         ms: probeMs,
       });
       await recordVerifyResult({
-        type,
-        id,
+        type: prepared.type,
+        id: prepared.id,
         status: 'verified',
         rail_id: options.railId ?? null,
         best_source: stream.source,
@@ -167,13 +217,15 @@ export async function verifyTitle(
         outcome: 'verified',
       });
       return {
-        type,
-        id,
+        type: prepared.type,
+        id: prepared.id,
         ok: true,
         status: 'verified',
+        resolve_ms: prepared.resolve_ms,
+        prepare_ms: prepared.prepare_ms,
         probe_ms: probe.ttff_ms,
         stream: streamMeta(stream),
-        filters,
+        filters: prepared.filters,
         attempts,
       };
     } catch (error) {
@@ -192,19 +244,21 @@ export async function verifyTitle(
 
   const reason = attempts.at(-1)?.error ? failReason(attempts.at(-1)?.error) : 'probe_failed';
   await recordFailure(
-    type,
-    id,
+    prepared.type,
+    prepared.id,
     reason,
     attempts.reduce((total, attempt) => total + attempt.ms, 0),
     options,
   );
   return {
-    type,
-    id,
+    type: prepared.type,
+    id: prepared.id,
     ok: false,
     status: 'failed',
     reason,
-    filters,
+    resolve_ms: prepared.resolve_ms,
+    prepare_ms: prepared.prepare_ms,
+    filters: prepared.filters,
     attempts,
   };
 }
