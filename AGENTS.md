@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 shipped** ([`docs/N1-INVENTORY.md`](docs/N1-INVENTORY.md)). **N2 in progress:** browse rails ([`docs/tasks/phase-n2-browse-ui.md`](docs/tasks/phase-n2-browse-ui.md), [`docs/N2-INVENTORY.md`](docs/N2-INVENTORY.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 shipped**. **N3a in progress:** stream play orchestrator ([`docs/tasks/phase-n3-stream-orchestrator.md`](docs/tasks/phase-n3-stream-orchestrator.md), [`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md)).
 
 ## Read first
 
@@ -62,6 +62,7 @@ bash scripts/pi-pre-couch-gate.sh
 bash scripts/phase-n0/gate-n0.sh
 bash scripts/phase-n1/gate-n1-smoke.sh   # after N1 implementation
 bash scripts/phase-n2/gate-n2-browse.sh  # after N2 implementation
+bash scripts/phase-n3/gate-n3-play.sh    # after N3a implementation
 ```
 
 **N2 deploy:** requires `/etc/mango/catalog.yaml` (from `config/catalog.example.yaml`) + optional `tmdb.key`. Then:

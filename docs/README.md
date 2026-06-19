@@ -26,8 +26,9 @@
 |-------|---------|------|
 | **N0** ✓ | Lean base stack, voice HUD, gates | [tasks/phase-n0-foundation-reset.md](tasks/phase-n0-foundation-reset.md) |
 | **N1** ✓ | catalog-service + play + stream filters | [tasks/phase-n1-catalog-play-spike.md](tasks/phase-n1-catalog-play-spike.md) |
-| **N2** ← now | Real browse rails (`catalog.yaml`) | [tasks/phase-n2-browse-ui.md](tasks/phase-n2-browse-ui.md) |
-| N3 | Stream picker + progress | roadmap |
+| **N2** ✓ | Real browse rails (`catalog.yaml`) | [tasks/phase-n2-browse-ui.md](tasks/phase-n2-browse-ui.md) |
+| **N3a** ← now | Stream play orchestrator | [tasks/phase-n3-stream-orchestrator.md](tasks/phase-n3-stream-orchestrator.md) |
+| N3b | Stream picker + progress | after N3a couch |
 | N4 | Library + Continue | roadmap |
 | N5–N7 | AI catalogs, YouTube, 4K ship | roadmap |
 
@@ -37,6 +38,7 @@
 bash scripts/phase-n0/gate-n0.sh
 bash scripts/phase-n1/gate-n1-smoke.sh
 bash scripts/phase-n2/gate-n2-browse.sh    # after N2 ships
+bash scripts/phase-n3/gate-n3-play.sh      # after N3a ships
 ```
 
 **Inventories:** [N0-INVENTORY.md](N0-INVENTORY.md) · [N1-INVENTORY.md](N1-INVENTORY.md) · [N2-INVENTORY.md](N2-INVENTORY.md)

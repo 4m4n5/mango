@@ -139,11 +139,16 @@ Inventory → strip → consolidate → document → measure on Pi.
 
 ---
 
-## N3 — Stream picker + progress
+## N3 — Stream play (split)
 
-- Simple picker UI (2–5 streams; aiostreams sort + language filter)  
-- `progress.db` + mpv watch-later position  
-- ⌂ returns to launcher &lt; 300 ms with mpv killed or paused per contract  
+**N3a (now):** [`tasks/phase-n3-stream-orchestrator.md`](tasks/phase-n3-stream-orchestrator.md) · [`CODEX-phase-n3-prompt.md`](tasks/CODEX-phase-n3-prompt.md) · [`N3-INVENTORY.md`](N3-INVENTORY.md)
+
+- Play orchestrator — retry loop, 15 s budget, AIOStreams cached tiers  
+- Parallel resolve + pre-resolve on detail  
+- `gate-n3-play.sh` on **browse pick** (not Shawshank-only)  
+- ⌂ returns to launcher &lt; 300 ms (unchanged)  
+
+**N3b (after N3a couch):** stream picker UI (2–5 options) · `progress.db` · language filter  
 
 ---
 

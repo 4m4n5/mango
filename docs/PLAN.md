@@ -28,7 +28,7 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 | Pad routing (B/Y/⌂/D-pad) | ✓ | mpv + ⌂ home (N1) |
 | **catalog-service + mpv** | ✓ | — |
 | Browse rails (N2) | ✓ | — |
-| LLM media tools (N3+) | — | stream picker ← now |
+| LLM media tools (N3+) | — | stream orchestrator ← now |
 
 **Repo layout:**
 
@@ -56,7 +56,8 @@ Phase 1.5    Couch launch polish                        ✓ 2026-06-18
 N0           Foundation reset (lean stack, HUD, gates)  ✓
 N1           catalog-service + one title → mpv          ✓
 N2           Browse rails (catalog.yaml)               ✓
-N3           Stream picker + progress                ← now
+N3a          Stream play orchestrator                  ← now
+N3b          Stream picker + progress
 N4           Library + Continue watching
 N5–N7        AI catalogs · YouTube · 4K TV + soundbar ship
 Phase 5      install.sh + first-boot wizard (ongoing)
@@ -108,11 +109,27 @@ Five `addon_catalog` rails (3× AIOMetadata + 2× Cinemeta). Post-N2: full ~31-c
 
 ---
 
-## Native N3 ← now
+## Native N3a ← now
+
+**Goal:** Reliable Play from browse — ≤15 s, no error copy, auto-retry dead streams.
+
+Gate: `bash scripts/phase-n3/gate-n3-play.sh` · Inventory: [N3-INVENTORY.md](N3-INVENTORY.md)
+
+**Spec:** [tasks/phase-n3-stream-orchestrator.md](tasks/phase-n3-stream-orchestrator.md) · **Codex:** [tasks/CODEX-phase-n3-prompt.md](tasks/CODEX-phase-n3-prompt.md)
+
+---
+
+## Native N3b (planned)
+
+Stream picker UI + `progress.db` after N3a couch sign-off.
+
+---
+
+## N3b–N7 (planned)
 
 | Phase | Outcome |
 |-------|---------|
-| N3 | Stream picker · watch progress |
+| N3b | Stream picker · watch progress |
 | N4 | Library sync · Continue watching |
 | N5 | LLM tool calling against catalog |
 | N6 | YouTube path (Kodi or native) |
