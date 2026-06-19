@@ -35,7 +35,7 @@ required = {
     "strict_unknown_cache": false,
     "max_quality": "1080p",
     "exclude_remux": True,
-    "auto_play_max_attempts": 5,
+    "auto_play_max_attempts": 2,
     "auto_play_wall_ms": 15000,
     "auto_play_probe_ms": 8000,
 }

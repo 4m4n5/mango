@@ -85,7 +85,7 @@ if total <= 0 or total > 15000:
     raise SystemExit(f"{label}: total_ms outside budget: {total}")
 if ttff <= 0:
     raise SystemExit(f"{label}: ttff_ms missing: {ttff}")
-if attempts < 1 or attempts > 5:
+if attempts < 1 or attempts > 2:
     raise SystemExit(f"{label}: attempts outside budget: {attempts}")
 stream = data.get("stream") or {}
 filters = data.get("filters") or {}
