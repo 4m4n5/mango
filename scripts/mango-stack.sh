@@ -38,6 +38,31 @@ stop_idle_media() {
   pkill -f 'chromium.*mango-overlay.*127.0.0.1:3000/overlay/' 2>/dev/null || true
 }
 
+resolve_catalog_yaml() {
+  local etc="/etc/mango/catalog.yaml"
+  local example="$REPO_DIR/config/catalog.example.yaml"
+  if [[ -n "${MANGO_CATALOG_YAML:-}" ]]; then
+    printf '%s\n' "$MANGO_CATALOG_YAML"
+    return 0
+  fi
+  if [[ -f "$example" && -f "$etc" ]] && ! cmp -s "$example" "$etc"; then
+    echo "catalog: /etc/mango/catalog.yaml differs from repo — using config/catalog.example.yaml" >&2
+    echo "catalog: sync with: sudo cp config/catalog.example.yaml /etc/mango/catalog.yaml" >&2
+    printf '%s\n' "$example"
+    return 0
+  fi
+  if [[ -f "$etc" ]]; then
+    printf '%s\n' "$etc"
+    return 0
+  fi
+  if [[ -f "$example" ]]; then
+    printf '%s\n' "$example"
+    return 0
+  fi
+  echo "catalog: no catalog.yaml (expected /etc/mango/catalog.yaml or config/catalog.example.yaml)" >&2
+  return 1
+}
+
 start_catalog_service() {
   [[ "${MANGO_CATALOG:-0}" == "1" ]] || return 0
   mkdir -p "$CACHE_DIR"
@@ -45,6 +70,8 @@ start_catalog_service() {
     echo "catalog-service dist missing; run: cd src/catalog-service && npm ci && npm run build" >&2
     return 1
   fi
+  local catalog_yaml
+  catalog_yaml="$(resolve_catalog_yaml)" || return 1
   if [[ -f "$CATALOG_PID" ]] && kill -0 "$(cat "$CATALOG_PID")" 2>/dev/null; then
     if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
       echo "catalog-service already running"
@@ -54,7 +81,7 @@ start_catalog_service() {
   rm -f "$CATALOG_PID"
   (
     cd src/catalog-service
-    MANGO_REPO_DIR="$REPO_DIR" node dist/index.js
+    MANGO_REPO_DIR="$REPO_DIR" MANGO_CATALOG_YAML="$catalog_yaml" node dist/index.js
   ) >"$CATALOG_LOG" 2>&1 &
   echo $! >"$CATALOG_PID"
 

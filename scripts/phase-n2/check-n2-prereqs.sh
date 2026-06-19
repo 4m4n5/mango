@@ -30,8 +30,12 @@ echo "commit: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo "catalog yaml: ${CATALOG_YAML}"
 echo
 
-if [[ -f "$CATALOG_YAML" ]]; then
-  pass "$CATALOG_YAML exists"
+  if [[ -f "$CATALOG_YAML" ]]; then
+    pass "$CATALOG_YAML exists"
+    local repo_example="$REPO_DIR/config/catalog.example.yaml"
+    if [[ "$CATALOG_YAML" == "/etc/mango/catalog.yaml" && -f "$repo_example" ]] && ! cmp -s "$repo_example" "$CATALOG_YAML"; then
+      warn "/etc/mango/catalog.yaml differs from repo — mango-stack uses repo example until sudo cp"
+    fi
   for rail in "${EXPECTED_RAILS[@]}"; do
     if grep -Eq "^[[:space:]]*-[[:space:]]*id:[[:space:]]*['\"]?${rail}['\"]?[[:space:]]*$" "$CATALOG_YAML"; then
       pass "yaml rail ${rail}"
