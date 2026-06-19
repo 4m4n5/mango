@@ -45,7 +45,9 @@ if curl -sf --max-time 90 -X POST "$CATALOG/play" \
   python3 - "$PLAY_JSON" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1]))
-print(f"  ok={data.get('ok')} ttff_ms={data.get('ttff_ms')} attempts={len(data.get('attempts') or [])}")
+attempts = data.get("attempts")
+attempt_n = attempts if isinstance(attempts, int) else len(attempts or [])
+print(f"  ok={data.get('ok')} ttff_ms={data.get('ttff_ms')} attempts={attempt_n}")
 stream = data.get("stream") or {}
 print(f"  source={stream.get('source')} cache={stream.get('cache_status')} debrid={stream.get('debrid_service')}")
 PY
