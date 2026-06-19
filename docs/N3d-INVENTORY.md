@@ -119,8 +119,48 @@ bash scripts/pi-pre-couch-gate.sh
 Current Pi evidence: pending. Expected first blocker is operator completion of
 the AIOStreams/AIOLists configure UIs plus `/etc/mango/stremio-export.json`.
 
+## Pi Gate Attempt — 2026-06-19
+
+Command from Mac:
+
+```bash
+bash scripts/pi-exec-gate.sh
+```
+
+Result: blocked before N3d gates. SSH succeeded, but `git pull --ff-only` on the
+Pi aborted because `~/mango` has local modified/untracked files that would be
+overwritten by `origin/feat/native-experience`.
+
+Observed blockers included local edits under:
+
+- `config/catalog.example.yaml`
+- `scripts/phase-n2/`
+- `scripts/phase-n3c/`
+- `src/catalog-service/`
+- `src/launcher/`
+- untracked `scripts/diag/poll-maintenance.py`
+- untracked `scripts/phase-n2b/`
+- untracked `src/catalog-service/src/playability/composite-merge.*`
+
+Required user action: review, commit, or intentionally stash the Pi-local changes,
+then rerun:
+
+```bash
+cd ~/mango
+git pull --ff-only
+cd src/catalog-service && npm run build
+cd ../../src/launcher && npm run build
+cd ../..
+MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+bash scripts/phase-n3d/gate-n3d-self-hosted.sh
+bash scripts/pi-pre-couch-gate.sh
+```
+
+Do not use `git reset --hard` unless the Pi-local edits are confirmed disposable.
+
 ## Current Blockers
 
+- Pi `~/mango` worktree is dirty and cannot fast-forward to N3d commits.
 - Pi-local AIOStreams configure UI must be completed with TorBox, Real-Debrid, and Easynews.
 - Pi-local AIOLists configure UI must import the MDBList rows in `scripts/phase-n3d/map-mdblist-catalogs.md`.
 - `/etc/mango/stremio-export.json` must contain local `AIOStreams`, `AIOLists`, and operator-selected `India OTT` manifest URLs.
