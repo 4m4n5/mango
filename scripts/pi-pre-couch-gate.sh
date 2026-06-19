@@ -65,7 +65,9 @@ if [[ "$BRANCH" == "feat/native-experience" && -x scripts/phase-n0/gate-n0.sh ]]
     else
       fail "catalog-service down — set MANGO_CATALOG=1 in voice.env and: bash scripts/mango-stack.sh restart"
     fi
-    if [[ -x scripts/phase-n3/gate-n3-play.sh ]]; then
+    if [[ -x scripts/phase-n3c/gate-n3c-verified-rails.sh ]]; then
+      bash scripts/phase-n3c/gate-n3c-verified-rails.sh && pass "gate-n3c-verified-rails" || fail "gate-n3c-verified-rails"
+    elif [[ -x scripts/phase-n3/gate-n3-play.sh ]]; then
       bash scripts/phase-n3/gate-n3-play.sh && pass "gate-n3-play" || fail "gate-n3-play"
     elif [[ -x scripts/phase-n2/gate-n2-browse.sh ]]; then
       bash scripts/phase-n2/gate-n2-browse.sh && pass "gate-n2-browse" || fail "gate-n2-browse"
