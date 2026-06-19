@@ -17,12 +17,15 @@ cards, but never unverified cards.
 - SQLite schema/status API: `GET /playability/status`
 - Single-title verify: `playability-indexer.ts verify --type movie --id ...`
 - Capped and sequential top-up: `top-up --rail ...`, `top-up --all`
+- Global dedupe refresh: `refresh --all --mode stale|full` (N3c-M Tier 1)
+- Maintenance wrapper: `scripts/phase-n3c/playability-maintenance.sh`
+- Persistent mpv probe pool: `mpv-probe-pool.sh` + `mpv-probe-ipc.sh` (maintenance only)
 - Verified-only rail serve with per-process session rotation
 - `AiCatalogListSource` stub for `/etc/mango/ai-catalogs/*.json`
 - Localhost invalidation: `POST /playability/invalidate`
 - Play-failure invalidation from `POST /play`
 - Opt-in stack warmup: `MANGO_PLAYABILITY_TOPUP_ON_START=1`
-- Timer installer: `scripts/phase-n3c/install-playability-timer.sh`
+- Timer installer: `scripts/phase-n3c/install-playability-timer.sh` (runs maintenance @ 03:00)
 - Gate: `scripts/phase-n3c/gate-n3c-verified-rails.sh` (default: 2 plays/rail; `MANGO_GATE_FULL=1` for all)
 - Status report: `scripts/diag/playability-status.py`
 

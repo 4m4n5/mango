@@ -1,0 +1,131 @@
+import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import Database from 'better-sqlite3';
+import {
+  initPlayabilityDb,
+  type PlayabilityVerifyRecord,
+  type RailPoolEntry,
+} from './db.js';
+
+function dbPath(): string {
+  return process.env.MANGO_PLAYABILITY_DB || '/etc/mango/playability.db';
+}
+
+function openDb(): Database.Database {
+  return new Database(dbPath());
+}
+
+function nowMs(): number {
+  return Date.now();
+}
+
+export class PlayabilityBatchWriter {
+  private verifyRecords: PlayabilityVerifyRecord[] = [];
+  private poolEntries: RailPoolEntry[] = [];
+  private flushed = false;
+
+  queueVerify(record: PlayabilityVerifyRecord): void {
+    this.verifyRecords.push(record);
+  }
+
+  queuePool(entry: RailPoolEntry): void {
+    this.poolEntries.push(entry);
+  }
+
+  async flush(): Promise<{ verify_count: number; pool_count: number }> {
+    if (this.flushed) {
+      throw new Error('PlayabilityBatchWriter already flushed');
+    }
+    this.flushed = true;
+    if (this.verifyRecords.length === 0 && this.poolEntries.length === 0) {
+      return { verify_count: 0, pool_count: 0 };
+    }
+
+    await initPlayabilityDb();
+    const db = openDb();
+    const timestamp = nowMs();
+    try {
+      const transaction = db.transaction(() => {
+        const upsertTitle = db.prepare(`
+INSERT INTO titles (
+  type, id, status, verified_at, expires_at, fail_reason, best_source,
+  cache_status, debrid_service, probe_ms, win_url_hash, updated_at
+) VALUES (
+  @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @updated_at
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  status = excluded.status,
+  verified_at = excluded.verified_at,
+  expires_at = excluded.expires_at,
+  fail_reason = excluded.fail_reason,
+  best_source = excluded.best_source,
+  cache_status = excluded.cache_status,
+  debrid_service = excluded.debrid_service,
+  probe_ms = excluded.probe_ms,
+  win_url_hash = excluded.win_url_hash,
+  updated_at = excluded.updated_at;
+`);
+        const insertLog = db.prepare(`
+INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
+VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
+`);
+        const upsertPool = db.prepare(`
+INSERT INTO rail_pool (rail_id, type, id, score, ingested_at)
+VALUES (@rail_id, @type, @id, @score, @ingested_at)
+ON CONFLICT(rail_id, type, id) DO UPDATE SET
+  score = excluded.score,
+  ingested_at = excluded.ingested_at;
+`);
+
+        for (const record of this.verifyRecords) {
+          const verifiedAt = record.status === 'verified' ? timestamp : null;
+          const expiresAt = record.status === 'verified'
+            ? record.expires_at ?? timestamp + 48 * 60 * 60 * 1000
+            : record.expires_at ?? null;
+          upsertTitle.run({
+            type: record.type,
+            id: record.id,
+            status: record.status,
+            verified_at: verifiedAt,
+            expires_at: expiresAt,
+            fail_reason: record.fail_reason ?? null,
+            best_source: record.best_source ?? null,
+            cache_status: record.cache_status ?? null,
+            debrid_service: record.debrid_service ?? null,
+            probe_ms: record.probe_ms ?? null,
+            win_url_hash: record.win_url_hash ?? null,
+            updated_at: timestamp,
+          });
+          insertLog.run({
+            started_at: timestamp,
+            rail_id: record.rail_id ?? null,
+            type: record.type,
+            id_value: record.id,
+            stage: record.stage ?? 'verify',
+            ms: record.probe_ms ?? 0,
+            outcome: record.outcome ?? record.status,
+          });
+        }
+
+        for (const entry of this.poolEntries) {
+          upsertPool.run({
+            rail_id: entry.rail_id,
+            type: entry.type,
+            id: entry.id,
+            score: entry.score,
+            ingested_at: timestamp,
+          });
+        }
+      });
+      transaction();
+    } finally {
+      db.close();
+    }
+
+    return {
+      verify_count: this.verifyRecords.length,
+      pool_count: this.poolEntries.length,
+    };
+  }
+}

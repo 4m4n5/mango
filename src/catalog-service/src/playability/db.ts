@@ -424,15 +424,98 @@ export async function getTitlePlayability(
   type: string,
   id: string,
 ): Promise<TitlePlayabilityRecord | null> {
+  const map = await getTitlesPlayabilityBulk([{ type, id }]);
+  return map.get(itemKey({ type, id })) ?? null;
+}
+
+export async function getTitlesPlayabilityBulk(
+  keys: Array<{ type: string; id: string }>,
+): Promise<Map<string, TitlePlayabilityRecord>> {
+  const result = new Map<string, TitlePlayabilityRecord>();
+  if (keys.length === 0) {
+    return result;
+  }
+
   await initPlayabilityDb();
   const db = openDb();
   try {
-    const row = db.prepare(`
+    const unique = new Map<string, { type: string; id: string }>();
+    for (const key of keys) {
+      unique.set(itemKey(key), key);
+    }
+    const values = [...unique.values()];
+    const chunkSize = 200;
+    for (let offset = 0; offset < values.length; offset += chunkSize) {
+      const chunk = values.slice(offset, offset + chunkSize);
+      const placeholders = chunk.map((_, index) => `( @type_${index}, @id_${index} )`).join(', ');
+      const params: Record<string, string> = {};
+      chunk.forEach((entry, index) => {
+        params[`type_${index}`] = entry.type;
+        params[`id_${index}`] = entry.id;
+      });
+      const rows = db.prepare(`
 SELECT type, id, status, expires_at, updated_at
 FROM titles
-WHERE type = @type AND id = @id;
-`).get({ type, id }) as TitleRow | undefined;
-    return row ?? null;
+WHERE (type, id) IN ( VALUES ${placeholders} );
+`).all(params) as TitleRow[];
+      for (const row of rows) {
+        result.set(itemKey(row), row);
+      }
+    }
+    return result;
+  } finally {
+    db.close();
+  }
+}
+
+export async function getStaleTitlesInPools(): Promise<Array<{ type: string; id: string }>> {
+  await initPlayabilityDb();
+  const now = nowMs();
+  const db = openDb();
+  try {
+    const rows = db.prepare(`
+SELECT DISTINCT rp.type, rp.id
+FROM rail_pool rp
+JOIN titles t ON t.type = rp.type AND t.id = rp.id
+WHERE t.status = 'stale'
+   OR (t.status = 'verified' AND COALESCE(t.expires_at, 0) <= @now);
+`).all({ now }) as Array<{ type: string; id: string }>;
+    return rows;
+  } finally {
+    db.close();
+  }
+}
+
+export async function getRailPoolTitleKeysBulk(
+  railIds: string[],
+): Promise<Map<string, Set<string>>> {
+  const result = new Map<string, Set<string>>();
+  for (const railId of railIds) {
+    result.set(railId, new Set());
+  }
+  if (railIds.length === 0) {
+    return result;
+  }
+
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const placeholders = railIds.map((_, index) => `@rail_${index}`).join(', ');
+    const params: Record<string, string> = {};
+    railIds.forEach((railId, index) => {
+      params[`rail_${index}`] = railId;
+    });
+    const rows = db.prepare(`
+SELECT rail_id, type, id
+FROM rail_pool
+WHERE rail_id IN (${placeholders});
+`).all(params) as Array<{ rail_id: string; type: string; id: string }>;
+    for (const row of rows) {
+      const keys = result.get(row.rail_id) ?? new Set<string>();
+      keys.add(itemKey(row));
+      result.set(row.rail_id, keys);
+    }
+    return result;
   } finally {
     db.close();
   }

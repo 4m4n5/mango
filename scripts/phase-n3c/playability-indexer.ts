@@ -1,6 +1,7 @@
 #!/usr/bin/env -S npm --prefix src/catalog-service exec tsx --
 
 import { CatalogCore } from '../../src/catalog-service/src/core.js';
+import { refreshAllRails, type RefreshMode } from '../../src/catalog-service/src/playability/refresh.js';
 import { topUpRail } from '../../src/catalog-service/src/playability/top-up.js';
 import { verifyTitle } from '../../src/catalog-service/src/playability/verify.js';
 
@@ -10,6 +11,7 @@ function usage(): never {
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
     '  playability-indexer.ts top-up --rail <rail-id> [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts refresh --all [--mode full|stale] [--pool-target <n>] [--candidate-limit <n>]',
   ].join('\n'));
   process.exit(2);
 }
@@ -29,6 +31,14 @@ function readPositiveIntegerFlag(args: string[], name: string): number | undefin
     usage();
   }
   return parsed;
+}
+
+function readRefreshMode(args: string[]): RefreshMode {
+  const value = readFlag(args, '--mode') ?? 'stale';
+  if (value === 'full' || value === 'stale') {
+    return value;
+  }
+  usage();
 }
 
 async function writeJsonAndExit(value: unknown, exitCode: number): Promise<never> {
@@ -78,6 +88,20 @@ async function main(): Promise<void> {
     }
     const result = await topUpRail(core, railId, { poolTarget, candidateLimit });
     await writeJsonAndExit(result, 0);
+  }
+
+  if (command === 'refresh') {
+    const all = args.includes('--all');
+    if (!all) {
+      usage();
+    }
+    const mode = readRefreshMode(args);
+    const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
+    const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
+
+    const core = await CatalogCore.create();
+    const result = await refreshAllRails(core, { mode, poolTarget, candidateLimit });
+    await writeJsonAndExit(result, result.ok ? 0 : 1);
   }
 
   usage();

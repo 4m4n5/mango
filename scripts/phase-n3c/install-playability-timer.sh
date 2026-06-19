@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install a user systemd timer for daily playability top-up.
+# Install a user systemd timer for daily playability maintenance refresh.
 
 set -euo pipefail
 
@@ -12,14 +12,21 @@ mkdir -p "$UNIT_DIR"
 
 cat >"$SERVICE_PATH" <<EOF
 [Unit]
-Description=mango playability indexer
+Description=mango playability maintenance refresh
 After=default.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=$REPO_DIR
 Environment=MANGO_REPO_DIR=$REPO_DIR
-ExecStart=/usr/bin/env nice -n 10 npm --prefix src/catalog-service exec tsx -- scripts/phase-n3c/playability-indexer.ts top-up --all
+Environment=MANGO_MAINTENANCE_MODE=1
+Environment=MANGO_PLAYABILITY_REFRESH_MODE=stale
+Environment=MANGO_PLAYABILITY_PROBE_POOL=1
+Environment=MANGO_PLAYABILITY_BATCH_DB=1
+Environment=MANGO_PLAYABILITY_RESOLVE_CONCURRENCY=8
+Environment=MANGO_PLAYABILITY_PROBE_CONCURRENCY=3
+Environment=MANGO_PLAYABILITY_PROBE_MS=6000
+ExecStart=/usr/bin/env bash scripts/phase-n3c/playability-maintenance.sh --mode stale
 EOF
 
 cat >"$TIMER_PATH" <<'EOF'

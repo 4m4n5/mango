@@ -5,12 +5,16 @@ import {
   selectAutoPlayCandidates,
   type StreamFilterMeta,
 } from '../stream-filters.js';
+import { PlayabilityBatchWriter } from './batch-writer.js';
+import {
+  playabilityProbeTimeoutMs,
+  playabilityUseProbePool,
+  playabilityVerifyMaxCandidates,
+  playabilityVerifyMinDurationSec,
+  playabilityVerifyTtlMs,
+} from './config.js';
 import { recordVerifyResult } from './db.js';
-
-const VERIFY_PROBE_MS = Number(process.env.MANGO_PLAYABILITY_PROBE_MS || 12000);
-const VERIFY_MIN_DURATION_SEC = Number(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC || 600);
-const VERIFY_MAX_CANDIDATES = Number(process.env.MANGO_PLAYABILITY_MAX_CANDIDATES || 3);
-const VERIFY_TTL_MS = Number(process.env.MANGO_PLAYABILITY_TTL_MS || 48 * 60 * 60 * 1000);
+import { probeUrlViaPool } from './mpv-probe-pool.js';
 
 export type VerifyTitleResult = {
   type: string;
@@ -37,6 +41,11 @@ export type VerifyTitleResult = {
 
 export type VerifyTitleOptions = {
   railId?: string | null;
+};
+
+export type VerifyContext = {
+  batchWriter?: PlayabilityBatchWriter | null;
+  useProbePool?: boolean;
 };
 
 export type PreparedVerifyTitleResult = {
@@ -92,14 +101,39 @@ function streamMeta(stream: Stream): Record<string, unknown> {
   };
 }
 
+async function persistVerifyResult(
+  record: Parameters<typeof recordVerifyResult>[0],
+  context?: VerifyContext,
+): Promise<void> {
+  if (context?.batchWriter) {
+    context.batchWriter.queueVerify(record);
+    return;
+  }
+  await recordVerifyResult(record);
+}
+
+async function probeStreamUrl(
+  url: string,
+  context?: VerifyContext,
+): Promise<{ ttff_ms: number }> {
+  const timeoutMs = playabilityProbeTimeoutMs();
+  const minDurationSec = playabilityVerifyMinDurationSec();
+  const usePool = context?.useProbePool ?? playabilityUseProbePool();
+  if (usePool) {
+    return probeUrlViaPool(url, timeoutMs, minDurationSec);
+  }
+  return probeUrl(url, timeoutMs, minDurationSec);
+}
+
 async function recordFailure(
   type: string,
   id: string,
   reason: string,
   probeMs: number | null,
   options: VerifyTitleOptions,
+  context?: VerifyContext,
 ): Promise<void> {
-  await recordVerifyResult({
+  await persistVerifyResult({
     type,
     id,
     status: 'failed',
@@ -108,7 +142,7 @@ async function recordFailure(
     probe_ms: probeMs,
     stage: 'verify',
     outcome: reason,
-  });
+  }, context);
 }
 
 export async function verifyTitle(
@@ -116,8 +150,9 @@ export async function verifyTitle(
   type: string,
   id: string,
   options: VerifyTitleOptions = {},
+  context?: VerifyContext,
 ): Promise<VerifyTitleResult> {
-  return verifyPreparedTitle(await prepareVerifyTitle(core, type, id), options);
+  return verifyPreparedTitle(await prepareVerifyTitle(core, type, id), options, context);
 }
 
 export async function prepareVerifyTitle(
@@ -130,7 +165,7 @@ export async function prepareVerifyTitle(
     const streamResult = await core.streams(type, id);
     const candidates = selectAutoPlayCandidates(streamResult.streams, streamResult.filters.applied, {
       allow_uncached_torbox: streamResult.filters.torbox_uncached_fallback === true,
-    }).slice(0, VERIFY_MAX_CANDIDATES);
+    }).slice(0, playabilityVerifyMaxCandidates());
 
     if (candidates.length === 0) {
       return {
@@ -171,9 +206,10 @@ export async function prepareVerifyTitle(
 export async function verifyPreparedTitle(
   prepared: PreparedVerifyTitleResult,
   options: VerifyTitleOptions = {},
+  context?: VerifyContext,
 ): Promise<VerifyTitleResult> {
   if (!prepared.ok) {
-    await recordFailure(prepared.type, prepared.id, prepared.reason, null, options);
+    await recordFailure(prepared.type, prepared.id, prepared.reason, null, options, context);
     return {
       type: prepared.type,
       id: prepared.id,
@@ -191,7 +227,7 @@ export async function verifyPreparedTitle(
   for (const [index, stream] of prepared.candidates.entries()) {
     const started = Date.now();
     try {
-      const probe = await probeUrl(stream.url, VERIFY_PROBE_MS, VERIFY_MIN_DURATION_SEC);
+      const probe = await probeStreamUrl(stream.url, context);
       const probeMs = Date.now() - started;
       attempts.push({
         index,
@@ -202,7 +238,7 @@ export async function verifyPreparedTitle(
         ok: true,
         ms: probeMs,
       });
-      await recordVerifyResult({
+      await persistVerifyResult({
         type: prepared.type,
         id: prepared.id,
         status: 'verified',
@@ -212,10 +248,10 @@ export async function verifyPreparedTitle(
         debrid_service: typeof stream.debrid_service === 'string' ? stream.debrid_service : null,
         probe_ms: probe.ttff_ms,
         win_url_hash: urlHash(stream.url),
-        expires_at: Date.now() + VERIFY_TTL_MS,
+        expires_at: Date.now() + playabilityVerifyTtlMs(),
         stage: 'verify',
         outcome: 'verified',
-      });
+      }, context);
       return {
         type: prepared.type,
         id: prepared.id,
@@ -249,6 +285,7 @@ export async function verifyPreparedTitle(
     reason,
     attempts.reduce((total, attempt) => total + attempt.ms, 0),
     options,
+    context,
   );
   return {
     type: prepared.type,
