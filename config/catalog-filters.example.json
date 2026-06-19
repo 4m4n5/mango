@@ -4,17 +4,31 @@
   "max_quality": "1080p",
   "exclude_remux": true,
   "include_uncached": false,
-  "auto_play_max_attempts": 2,
-  "auto_play_wall_ms": 15000,
+  "debrid_preference": ["torbox", "realdebrid"],
+  "exclude_rd_release_tags": ["webrip", "web-dl", "webdl", "amzn"],
+  "exclude_error_streams": true,
+  "auto_play_max_attempts": 3,
+  "auto_play_wall_ms": 20000,
   "auto_play_probe_ms": 8000,
   "auto_play_tiers": [
     {
       "addons": ["AIOStreams | ElfHosted"],
-      "require_cache": "cached"
+      "require_cache": "cached",
+      "debrid_services": ["torbox"]
     },
     {
       "addons": ["AIOStreams | ElfHosted"],
-      "require_cache": "cached_or_unknown"
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"]
+    },
+    {
+      "addons": ["Torrentio TB"],
+      "require_cache": "any"
+    },
+    {
+      "addons": ["Torrentio RD"],
+      "require_cache": "cached",
+      "debrid_services": ["realdebrid"]
     }
   ]
 }

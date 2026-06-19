@@ -87,10 +87,21 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     fi
   fi
   if ! kill -0 "$MPV_PID" 2>/dev/null; then
+    if tail -40 "$MPV_LOG" 2>/dev/null | grep -qiE 'copyright infringement|removed from.*debrid|file was removed'; then
+      echo "FAIL: debrid_copyright_block" >&2
+      bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+      exit 1
+    fi
     break
   fi
   sleep 0.2
 done
+
+if tail -40 "$MPV_LOG" 2>/dev/null | grep -qiE 'copyright infringement|removed from.*debrid|file was removed'; then
+  echo "FAIL: debrid_copyright_block" >&2
+  bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+  exit 1
+fi
 
 echo "FAIL: mpv did not start playback within ${TIMEOUT_MS}ms" >&2
 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true

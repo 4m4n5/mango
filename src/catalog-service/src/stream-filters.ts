@@ -7,6 +7,8 @@ export type AutoPlayCacheRequirement = 'cached' | 'cached_or_unknown' | 'any';
 export type AutoPlayTier = {
   addons: string[];
   require_cache: AutoPlayCacheRequirement;
+  /** When set, only streams from these debrid hosts (e.g. torbox before realdebrid). */
+  debrid_services?: string[];
 };
 
 export type StreamFilterConfig = {
@@ -18,6 +20,12 @@ export type StreamFilterConfig = {
   max_quality: QualityCap | null;
   /** Drop REMUX / Blu-ray remux style releases. */
   exclude_remux: boolean;
+  /** Prefer earlier services when ranking and supplementing auto-play candidates. */
+  debrid_preference: string[];
+  /** Drop Real-Debrid streams whose title/name matches these tags (RD keyword filter). */
+  exclude_rd_release_tags: string[];
+  /** Drop addon error placeholder streams (e.g. AIOStreams `[❌] TorBox Search`). */
+  exclude_error_streams: boolean;
   /** Max candidate URLs to try during automatic Play. */
   auto_play_max_attempts: number;
   /** Hard wall-clock budget for automatic Play. */
@@ -44,6 +52,8 @@ export type StreamFilterMeta = {
     unknown_cache_debrid: number;
     above_max_quality: number;
     remux: number;
+    error_stream: number;
+    rd_blocked_release: number;
   };
 };
 
@@ -90,15 +100,29 @@ function parseQualityCap(value: unknown): QualityCap | null {
   return null;
 }
 
+const DEFAULT_DEBRID_PREFERENCE = ['torbox', 'realdebrid'];
+const DEFAULT_RD_BLOCKED_TAGS = ['webrip', 'web-dl', 'webdl', 'amzn'];
+
 function defaultAutoPlayTiers(): AutoPlayTier[] {
   return [
     {
       addons: ['AIOStreams | ElfHosted'],
       require_cache: 'cached',
+      debrid_services: ['torbox'],
     },
     {
       addons: ['AIOStreams | ElfHosted'],
-      require_cache: 'cached_or_unknown',
+      require_cache: 'cached',
+      debrid_services: ['torbox', 'realdebrid'],
+    },
+    {
+      addons: ['Torrentio TB'],
+      require_cache: 'any',
+    },
+    {
+      addons: ['Torrentio RD'],
+      require_cache: 'cached',
+      debrid_services: ['realdebrid'],
     },
   ];
 }
@@ -123,9 +147,26 @@ function parseAutoPlayTiers(value: unknown): AutoPlayTier[] {
       : [];
     const requireCache = parseAutoPlayRequireCache(record.require_cache);
     if (addons.length === 0 || !requireCache) continue;
-    tiers.push({ addons, require_cache: requireCache });
+    const debridServices = Array.isArray(record.debrid_services)
+      ? record.debrid_services
+          .filter((service): service is string => typeof service === 'string' && service.trim() !== '')
+          .map((service) => service.trim().toLowerCase())
+      : undefined;
+    tiers.push({
+      addons,
+      require_cache: requireCache,
+      ...(debridServices && debridServices.length > 0 ? { debrid_services: debridServices } : {}),
+    });
   }
   return tiers.length > 0 ? tiers : defaultAutoPlayTiers();
+}
+
+function parseStringList(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback;
+  const items = value
+    .filter((item): item is string => typeof item === 'string' && item.trim() !== '')
+    .map((item) => item.trim().toLowerCase());
+  return items.length > 0 ? items : fallback;
 }
 
 function streamHaystack(stream: Stream): string {
@@ -139,7 +180,21 @@ function bingeGroup(stream: Stream): string | undefined {
   return typeof group === 'string' ? group : undefined;
 }
 
+function sourceDebridService(source: string | undefined): string | null {
+  const normalized = (source || '').toLowerCase();
+  if (normalized.includes('torrentio rd') || normalized.includes('realdebrid') || normalized.includes('real-debrid')) {
+    return 'realdebrid';
+  }
+  if (normalized.includes('torrentio tb') || normalized.includes('torbox')) {
+    return 'torbox';
+  }
+  return null;
+}
+
 export function debridServiceId(stream: Stream): string | null {
+  const fromSource = sourceDebridService(stream.source);
+  if (fromSource) return fromSource;
+
   const group = bingeGroup(stream);
   if (group) {
     const parts = group.split('|');
@@ -205,6 +260,23 @@ function isRemux(stream: Stream): boolean {
   return /\bremux\b|\bblu[- ]?ray\b.*\bremux\b/i.test(streamHaystack(stream));
 }
 
+export function isErrorStream(stream: Stream): boolean {
+  const haystack = streamHaystack(stream);
+  return /\[❌\]|\[x\]|search failed|not found|no streams|error:/i.test(haystack);
+}
+
+export function isRdBlockedRelease(stream: Stream, tags: string[]): boolean {
+  if (debridServiceId(stream) !== 'realdebrid' || tags.length === 0) return false;
+  const haystack = streamHaystack(stream);
+  return tags.some((tag) => haystack.includes(tag.toLowerCase()));
+}
+
+function debridPreferenceRank(service: string | null, preference: string[]): number {
+  if (!service) return preference.length + 1;
+  const index = preference.indexOf(service);
+  return index === -1 ? preference.length : index;
+}
+
 function qualityExceedsCap(stream: Stream, cap: QualityCap | null): boolean {
   if (!cap) return false;
   const quality = streamQuality(stream);
@@ -225,6 +297,9 @@ export function defaultFilterConfig(): StreamFilterConfig {
     auto_play_wall_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_WALL_MS, 15000, 1000, 60000),
     auto_play_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_PROBE_MS, 4000, 500, 15000),
     auto_play_tiers: defaultAutoPlayTiers(),
+    debrid_preference: DEFAULT_DEBRID_PREFERENCE,
+    exclude_rd_release_tags: DEFAULT_RD_BLOCKED_TAGS,
+    exclude_error_streams: true,
   };
 }
 
@@ -260,6 +335,15 @@ export async function loadFilterConfig(
     if (raw.auto_play_tiers !== undefined) {
       base.auto_play_tiers = parseAutoPlayTiers(raw.auto_play_tiers);
     }
+    if (raw.debrid_preference !== undefined) {
+      base.debrid_preference = parseStringList(raw.debrid_preference, base.debrid_preference);
+    }
+    if (raw.exclude_rd_release_tags !== undefined) {
+      base.exclude_rd_release_tags = parseStringList(raw.exclude_rd_release_tags, base.exclude_rd_release_tags);
+    }
+    if (typeof raw.exclude_error_streams === 'boolean') {
+      base.exclude_error_streams = raw.exclude_error_streams;
+    }
     if (raw.include_uncached === true) {
       base.exclude_uncached_debrid = false;
     }
@@ -283,6 +367,9 @@ export function mergeFilterConfig(
     auto_play_wall_ms: base.auto_play_wall_ms,
     auto_play_probe_ms: base.auto_play_probe_ms,
     auto_play_tiers: base.auto_play_tiers,
+    debrid_preference: base.debrid_preference,
+    exclude_rd_release_tags: base.exclude_rd_release_tags,
+    exclude_error_streams: base.exclude_error_streams,
     include_uncached: includeUncached,
   };
 }
@@ -333,6 +420,8 @@ export function filterAndRankStreams(
       unknown_cache_debrid: 0,
       above_max_quality: 0,
       remux: 0,
+      error_stream: 0,
+      rd_blocked_release: 0,
     },
   };
 
@@ -341,6 +430,14 @@ export function filterAndRankStreams(
     const debrid = isDebridStream(stream);
     const cacheStatus = parseDebridCacheStatus(stream);
 
+    if (config.exclude_error_streams && isErrorStream(stream)) {
+      meta.excluded.error_stream += 1;
+      continue;
+    }
+    if (isRdBlockedRelease(stream, config.exclude_rd_release_tags)) {
+      meta.excluded.rd_blocked_release += 1;
+      continue;
+    }
     if (config.exclude_remux && isRemux(stream)) {
       meta.excluded.remux += 1;
       continue;
@@ -370,6 +467,10 @@ export function filterAndRankStreams(
   kept.sort((left, right) => {
     const cacheDelta = cacheRank(parseDebridCacheStatus(left)) - cacheRank(parseDebridCacheStatus(right));
     if (cacheDelta !== 0) return cacheDelta;
+    const debridDelta =
+      debridPreferenceRank(debridServiceId(left), config.debrid_preference)
+      - debridPreferenceRank(debridServiceId(right), config.debrid_preference);
+    if (debridDelta !== 0) return debridDelta;
     return qualityRank(left, config.max_quality) - qualityRank(right, config.max_quality);
   });
 
@@ -410,6 +511,23 @@ function cacheAllowed(
   return status === 'unknown' && !strictUnknownCache;
 }
 
+function debridServiceAllowed(stream: Stream, allowed: string[] | undefined): boolean {
+  if (!allowed || allowed.length === 0) return true;
+  const service = debridServiceId(stream);
+  if (!service) return false;
+  return allowed.includes(service);
+}
+
+function autoPlayEligible(
+  stream: Stream,
+  config: StreamFilterConfig & { include_uncached: boolean },
+): boolean {
+  if (config.exclude_error_streams && isErrorStream(stream)) return false;
+  if (isRdBlockedRelease(stream, config.exclude_rd_release_tags)) return false;
+  if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') return false;
+  return true;
+}
+
 export function selectAutoPlayCandidates(
   streams: Stream[],
   config: StreamFilterConfig & { include_uncached: boolean },
@@ -420,7 +538,9 @@ export function selectAutoPlayCandidates(
   for (const tier of config.auto_play_tiers) {
     for (const stream of streams) {
       if (seen.has(stream.url)) continue;
+      if (!autoPlayEligible(stream, config)) continue;
       if (!sourceMatches(stream, tier.addons)) continue;
+      if (!debridServiceAllowed(stream, tier.debrid_services)) continue;
       if (!cacheAllowed(stream, tier.require_cache, config.strict_unknown_cache)) continue;
       seen.add(stream.url);
       candidates.push(stream);
@@ -431,9 +551,19 @@ export function selectAutoPlayCandidates(
   }
 
   if (candidates.length < config.auto_play_max_attempts) {
-    for (const stream of streams) {
-      if (seen.has(stream.url)) continue;
-      if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') continue;
+    const supplement = streams
+      .filter((stream) => !seen.has(stream.url) && autoPlayEligible(stream, config))
+      .sort((left, right) => {
+        const debridDelta =
+          debridPreferenceRank(debridServiceId(left), config.debrid_preference)
+          - debridPreferenceRank(debridServiceId(right), config.debrid_preference);
+        if (debridDelta !== 0) return debridDelta;
+        const cacheDelta = cacheRank(streamCacheStatus(left)) - cacheRank(streamCacheStatus(right));
+        if (cacheDelta !== 0) return cacheDelta;
+        return qualityRank(left, config.max_quality) - qualityRank(right, config.max_quality);
+      });
+
+    for (const stream of supplement) {
       seen.add(stream.url);
       candidates.push(stream);
       if (candidates.length >= config.auto_play_max_attempts) {
