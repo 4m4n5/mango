@@ -55,31 +55,37 @@ if [[ "$BRANCH" == "feat/native-experience" && -x scripts/phase-n0/gate-n0.sh ]]
     source "${HOME}/.config/mango/voice.env"
   fi
   if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
-    echo "--- native N1 (health only) ---"
+    echo "--- native N1+N2 ---"
     bash scripts/phase-n1/check-n1-prereqs.sh && pass "check-n1-prereqs" || fail "check-n1-prereqs"
+    if [[ -x scripts/phase-n2/check-n2-prereqs.sh ]]; then
+      bash scripts/phase-n2/check-n2-prereqs.sh && pass "check-n2-prereqs" || fail "check-n2-prereqs"
+    fi
     if curl -sf --max-time 3 http://127.0.0.1:3020/health >/tmp/mango-precouch-catalog.json; then
       pass "catalog-service /health"
     else
       fail "catalog-service down — set MANGO_CATALOG=1 in voice.env and: bash scripts/mango-stack.sh restart"
     fi
+    if [[ -x scripts/phase-n2/gate-n2-browse.sh ]]; then
+      bash scripts/phase-n2/gate-n2-browse.sh && pass "gate-n2-browse" || fail "gate-n2-browse"
+    fi
   fi
   echo
-  echo "=== couch scenarios (manual — N1) ==="
+  echo "=== couch scenarios (manual — N2) ==="
   cat <<'EOF'
 | # | Flow | Pass |
 |---|------|------|
-| N1-C1 | SSH: curl POST /play Shawshank → film on TV | |
-| N1-C2 | B pauses/resumes during mpv | |
-| N1-C3 | Y or ⌂ → mango home < 1 s | |
-| N1-C4 | Phone PTT → HUD on TV (voice regression) | |
-| N1-C5 | D-pad on launcher home still works after play | |
+| N2-C1 | D-pad home → poster rails (AIOMetadata + Cinemeta) | |
+| N2-C2 | B on title → detail → B Play → mpv | |
+| N2-C3 | Y or ⌂ → home < 1 s | |
+| N2-C4 | Phone PTT → HUD on TV (voice regression) | |
+| N2-C5 | D-pad still works after play | |
 EOF
   echo
   if (( ERRORS > 0 )); then
     echo "GATE FAIL: $ERRORS error(s), $WARNS warning(s)"
     exit 1
   fi
-  echo "GATE PASS: native N0+N1 health ok ($WARNS warning(s))"
+  echo "GATE PASS: native N0+N1+N2 ok ($WARNS warning(s))"
   exit 0
 fi
 

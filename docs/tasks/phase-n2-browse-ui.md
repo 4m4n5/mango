@@ -1,6 +1,6 @@
 # Phase N2 — Real browse UI
 
-**Status:** Not started  
+**Status:** ✓ Shipped (gate `8bbaf4c`, audit tweak `popular-india` catalog)  
 **Branch:** `feat/native-experience`  
 **Roadmap:** [`NATIVE_ROADMAP.md`](../NATIVE_ROADMAP.md)  
 **Codex prompt:** [`CODEX-phase-n2-prompt.md`](CODEX-phase-n2-prompt.md)  

@@ -18,10 +18,10 @@ rails:
     limit: 20
 
   - id: popular-india
-    label: popular indian movies
+    label: trending movies
     type: addon_catalog
     addon: "AIOMetadata  | ElfHosted"
-    catalog: custom.in_rdata_indiastreams.movie.popmov
+    catalog: mdblist.88302
     content_type: movie
     limit: 20
 

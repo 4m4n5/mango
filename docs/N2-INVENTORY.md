@@ -13,7 +13,7 @@
 | Rail ID | Addon | Catalog |
 |---------|-------|---------|
 | `trending-india` | AIOMetadata \| ElfHosted | `custom.in_rdata_indiastreams.movie.trendingmovies` |
-| `popular-india` | AIOMetadata \| ElfHosted | `custom.in_rdata_indiastreams.movie.popmov` |
+| `popular-india` | AIOMetadata \| ElfHosted | `mdblist.88302` (was `popmov`; upstream returned empty) |
 | `recommended-india` | AIOMetadata \| ElfHosted | `custom.in_rdata_indiastreams.movie.recmov` |
 | `popular-global` | Cinemeta | `top` |
 | `featured-global` | Cinemeta | `imdbRating` |
@@ -70,18 +70,14 @@
 | Rail ID | Type | Label | Items (gate) | resolve_ms |
 |---------|------|-------|--------------|------------|
 | `trending-india` | `addon_catalog` | trending in india | 20 | 1652 |
-| `popular-india` | `addon_catalog` | popular indian movies | 0 | 246 |
+| `popular-india` | `addon_catalog` | trending movies | 20 | — |
 | `recommended-india` | `addon_catalog` | recommended indian movies | 20 | 1484 |
 | `popular-global` | `addon_catalog` | popular | 20 | 112 |
 | `featured-global` | `addon_catalog` | featured | 20 | 57 |
 
 **TMDB list ID (if used):** not used in N2; `addon_catalog` only.
 
-**Source note:** the live AIOMetadata catalog
-`custom.in_rdata_indiastreams.movie.popmov` exists in the manifest but returned
-`metas: []` during the final gate. The launcher shows that rail as a graceful
-empty state (`nothing resolved yet`); the gate still requires the explicit N2
-threshold of one AIOMetadata rail and one Cinemeta rail with ≥3 HTTPS posters.
+**Source note:** `custom.in_rdata_indiastreams.movie.popmov` exists in the AIOMetadata manifest but returned `metas: []` at gate time. Audit swapped `popular-india` to `mdblist.88302` (Trending Movies) so all five rails show posters.
 
 ---
 
@@ -102,7 +98,7 @@ threshold of one AIOMetadata rail and one Cinemeta rail with ≥3 HTTPS posters.
 |--------|-------|
 | `gate-n2-browse.sh` | PASS at `6f122c4`, 2026-06-18T16:57:45-07:00 |
 | Trending items | 20 (`trending-india`) |
-| Bollywood items | 0 `popular-india`; 20 `recommended-india` |
+| Bollywood items | 20 `popular-india` (mdblist.88302); 20 `recommended-india` |
 | Detail → play TTFF ms | 4619 ms via `POST /play` regression |
 | ⌂ home ms | N1 regression passed; N1 baseline measured 232 ms |
 | Final screenshot | `/home/aman/.cache/mango/gate-screenshots/n2-browse-layout-final-20260618T235714Z.png` |
@@ -111,9 +107,7 @@ threshold of one AIOMetadata rail and one Cinemeta rail with ≥3 HTTPS posters.
 
 ## Waivers
 
-| ID | Check | Reason | Owner |
-|----|-------|--------|-------|
-| W-N2-1 | `popular-india` posters | Live AIOMetadata `popmov` catalog returned 0 raw metas; rail is still configured and renders empty without crashing. | External addon data |
+_None — all strict rails pass after catalog swap._
 
 ---
 

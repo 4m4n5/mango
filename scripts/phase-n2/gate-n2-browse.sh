@@ -23,6 +23,8 @@ EXPECTED_RAILS=(
 )
 STRICT_RAILS=(
   trending-india
+  popular-india
+  recommended-india
   popular-global
 )
 

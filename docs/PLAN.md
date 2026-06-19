@@ -27,8 +27,8 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 | Voice pipeline (Phase 2) | ✓ | Piper TTS on HDMI (optional) |
 | Pad routing (B/Y/⌂/D-pad) | ✓ | mpv + ⌂ home (N1) |
 | **catalog-service + mpv** | ✓ | — |
-| Browse rails (N2) | — | catalog.yaml ← now |
-| LLM media tools (N3+) | — | after rails |
+| Browse rails (N2) | ✓ | — |
+| LLM media tools (N3+) | — | stream picker ← now |
 
 **Repo layout:**
 
@@ -55,8 +55,8 @@ Phase 0–2    Pi foundation + launcher + voice           ✓ shipped
 Phase 1.5    Couch launch polish                        ✓ 2026-06-18
 N0           Foundation reset (lean stack, HUD, gates)  ✓
 N1           catalog-service + one title → mpv          ✓
-N2           Browse rails (catalog.yaml)               ← now
-N3           Stream picker + progress
+N2           Browse rails (catalog.yaml)               ✓
+N3           Stream picker + progress                ← now
 N4           Library + Continue watching
 N5–N7        AI catalogs · YouTube · 4K TV + soundbar ship
 Phase 5      install.sh + first-boot wizard (ongoing)
@@ -98,22 +98,17 @@ Post-N1: stream filters, audio scripts, lab vs N7 docs.
 
 ---
 
-## Native N2 ← now
+## Native N2 ✓
 
 **Goal:** Real browse rails + title detail + play from launcher UI.
 
-| Deliverable | Proves |
-|-------------|--------|
-| `catalog.yaml` | YAML-driven rails |
-| `/rails` API | Cinemeta + TMDB posters |
-| Launcher UI | Home → detail → mpv |
-| Gate | `gate-n2-browse.sh` |
+Gate: `bash scripts/phase-n2/gate-n2-browse.sh` · Inventory: [N2-INVENTORY.md](N2-INVENTORY.md)
 
-**Spec:** [tasks/phase-n2-browse-ui.md](tasks/phase-n2-browse-ui.md) · **Codex:** [tasks/CODEX-phase-n2-prompt.md](tasks/CODEX-phase-n2-prompt.md) · **Inventory:** [N2-INVENTORY.md](N2-INVENTORY.md)
+Five `addon_catalog` rails (3× AIOMetadata + 2× Cinemeta). Post-N2: full ~31-catalog management.
 
 ---
 
-## N3–N7 (planned)
+## Native N3 ← now
 
 | Phase | Outcome |
 |-------|---------|
