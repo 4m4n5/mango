@@ -10,9 +10,13 @@ import {
   type StreamFilterOverrides,
 } from './stream-filters.js';
 import {
-  enabledAddonRails,
+  enabledBrowsableRails,
+  enabledBrowsableRailsForTab,
   loadRailConfig,
-  type AddonCatalogRail,
+  parseCatalogTab,
+  railSourceSummary,
+  type BrowsableRail,
+  type CatalogTab,
   type RailConfig,
 } from './rails.js';
 import {
@@ -22,7 +26,11 @@ import {
   type RailSessionPoolItem,
   enqueuePlayabilityTrigger,
 } from './playability/db.js';
-import { AddonCatalogListSource, type ListSource } from './playability/list-source.js';
+import {
+  AddonCatalogListSource,
+  CompositeListSource,
+  type ListSource,
+} from './playability/list-source.js';
 import { schedulePlayabilityTopUp } from './playability/top-up-scheduler.js';
 import {
   CatalogError,
@@ -71,10 +79,10 @@ export type Stream = {
 export type RailSummary = {
   id: string;
   label: string;
-  type: AddonCatalogRail['type'];
-  addon: string;
-  catalog: string;
+  tab: CatalogTab;
+  type: BrowsableRail['type'];
   content_type: string;
+  sources: Array<{ addon: string; catalog: string; weight: number }>;
 };
 
 export type RailItem = {
@@ -414,46 +422,68 @@ export class CatalogCore {
       core_version: this.coreStatus.version,
       addons: this.addons.length,
       addon_names: this.addons.map((addon) => addon.name),
-      rails: this.railConfig ? enabledAddonRails(this.railConfig).length : 0,
+      rails: this.railConfig ? enabledBrowsableRails(this.railConfig).length : 0,
       rails_ready: this.railConfigError === null,
       rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
     };
   }
 
-  rails(): { rails: RailSummary[] } {
-    const rails = enabledAddonRails(this.requireRailConfig());
+  rails(tab?: CatalogTab): { rails: RailSummary[]; tab?: CatalogTab } {
+    const rails = enabledBrowsableRailsForTab(this.requireRailConfig(), tab);
     return {
+      ...(tab ? { tab } : {}),
       rails: rails.map((rail) => ({
         id: rail.id,
         label: rail.label,
+        tab: rail.tab,
         type: rail.type,
-        addon: rail.addon,
-        catalog: rail.catalog,
         content_type: rail.content_type,
+        sources: railSourceSummary(rail),
       })),
     };
   }
 
-  addonRails(): AddonCatalogRail[] {
-    return enabledAddonRails(this.requireRailConfig());
+  browsableRails(): BrowsableRail[] {
+    return enabledBrowsableRails(this.requireRailConfig());
   }
 
-  addonRail(railId: string): AddonCatalogRail {
-    const rail = this.addonRails().find((candidate) => candidate.id === railId);
+  /** @deprecated use browsableRails */
+  addonRails(): BrowsableRail[] {
+    return this.browsableRails();
+  }
+
+  browsableRail(railId: string): BrowsableRail {
+    const rail = this.browsableRails().find((candidate) => candidate.id === railId);
     if (!rail) {
       throw new CatalogError(404, `unknown rail: ${railId}`);
     }
     return rail;
   }
 
+  /** @deprecated use browsableRail */
+  addonRail(railId: string): BrowsableRail {
+    return this.browsableRail(railId);
+  }
+
   listSourceForRail(railId: string): ListSource {
-    const rail = this.addonRail(railId);
-    const addon = this.findAddonByName(rail.addon);
-    return new AddonCatalogListSource(rail.id, rail, addon.manifestUrl);
+    const rail = this.browsableRail(railId);
+    if (rail.type === 'addon_catalog') {
+      const addon = this.findAddonByName(rail.addon);
+      return AddonCatalogListSource.fromRail(rail, addon.manifestUrl);
+    }
+    const sources = rail.sources.map((source) => {
+      const addon = this.findAddonByName(source.addon);
+      return {
+        ...source,
+        manifestUrl: addon.manifestUrl,
+        sourceLabel: `${source.addon}/${source.catalog}`,
+      };
+    });
+    return new CompositeListSource(rail.id, rail.content_type, sources);
   }
 
   async playabilityStatus(): Promise<PlayabilityStatus> {
-    const rails = this.railConfig ? enabledAddonRails(this.railConfig).map((rail) => rail.id) : [];
+    const rails = this.railConfig ? enabledBrowsableRails(this.railConfig).map((rail) => rail.id) : [];
     return getPlayabilityStatus(rails);
   }
 
@@ -476,7 +506,7 @@ export class CatalogCore {
     }
 
     const started = Date.now();
-    const rail = this.addonRail(railId);
+    const rail = this.browsableRail(railId);
     const session = await getOrCreateRailSession({
       railId: rail.id,
       sessionId: this.playabilitySessionId,
@@ -734,7 +764,7 @@ export class CatalogCore {
   }
 
   private async resolveRailItem(
-    rail: AddonCatalogRail,
+    rail: BrowsableRail,
     addon: Addon,
     preview: unknown,
   ): Promise<RailItem | null> {

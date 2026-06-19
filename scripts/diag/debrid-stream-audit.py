@@ -64,12 +64,12 @@ def main() -> int:
         ("movie", "tt0111161", "Shawshank"),
     ]
     try:
-        with urllib.request.urlopen(f"{CATALOG}/rails/trending-india/items", timeout=60) as resp:
+        with urllib.request.urlopen(f"{CATALOG}/rails/movies-india-trending/items", timeout=60) as resp:
             items = json.loads(resp.read()).get("items") or []
         for item in items[:3]:
             titles.append((item["type"], item["id"], item.get("title", "?")))
     except Exception as error:  # noqa: BLE001
-        print("trending-india fetch failed:", error)
+        print("movies-india-trending fetch failed:", error)
     for type_, id_, label in titles:
         try:
             analyze(type_, id_, label)

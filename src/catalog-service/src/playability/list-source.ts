@@ -1,8 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AddonCatalogRail } from '../rails.js';
+import type { BrowsableRail, CatalogSourceRef } from '../rails.js';
+import {
+  allocateSourceLimits,
+  mergeCompositeCandidates,
+  type WeightedCandidateBatch,
+} from './composite-merge.js';
 
-export type ListSourceType = 'addon_catalog' | 'ai_catalog' | 'static_ids' | 'tmdb_list';
+export type ListSourceType = 'addon_catalog' | 'composite_list' | 'ai_catalog' | 'static_ids' | 'tmdb_list';
 
 export type CandidateMeta = {
   id: string;
@@ -17,6 +22,11 @@ export interface ListSource {
   readonly sourceType: ListSourceType;
   candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]>;
 }
+
+export type ResolvedCatalogSource = CatalogSourceRef & {
+  manifestUrl: string;
+  sourceLabel: string;
+};
 
 const DEFAULT_AI_CATALOG_DIR = '/etc/mango/ai-catalogs';
 
@@ -41,7 +51,7 @@ function normalizeCandidate(value: unknown, fallbackType: string, sourceId: stri
   };
 }
 
-function resourceUrl(manifestUrl: string, resource: string, type: string, id: string): string {
+export function resourceUrl(manifestUrl: string, resource: string, type: string, id: string): string {
   const encodedType = encodeURIComponent(type);
   const encodedId = encodeURIComponent(id);
   const url = new URL(manifestUrl);
@@ -69,24 +79,29 @@ function previewPoster(preview: unknown): string | undefined {
   return typeof poster === 'string' && poster.trim() !== '' ? poster.trim() : undefined;
 }
 
-export class AddonCatalogListSource implements ListSource {
-  readonly sourceType = 'addon_catalog' as const;
+const CATALOG_FETCH_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS || 20_000);
 
-  constructor(
-    readonly sourceId: string,
-    private readonly rail: AddonCatalogRail,
-    private readonly manifestUrl: string,
-  ) {}
-
-  async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
+export async function fetchAddonCatalogCandidates(
+  manifestUrl: string,
+  contentType: string,
+  catalog: string,
+  sourceLabel: string,
+  options: { offset: number; limit: number },
+): Promise<CandidateMeta[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CATALOG_FETCH_TIMEOUT_MS);
+  try {
     const response = await fetch(resourceUrl(
-      this.manifestUrl,
+      manifestUrl,
       'catalog',
-      this.rail.content_type,
-      this.rail.catalog,
-    ), { headers: { accept: 'application/json' } });
+      contentType,
+      catalog,
+    ), {
+      headers: { accept: 'application/json' },
+      signal: controller.signal,
+    });
     if (!response.ok) {
-      throw new Error(`catalog ${this.sourceId} failed: HTTP ${response.status}`);
+      throw new Error(`catalog ${sourceLabel} failed: HTTP ${response.status}`);
     }
     const data = await response.json() as { metas?: unknown[] };
     return (data.metas || [])
@@ -96,13 +111,100 @@ export class AddonCatalogListSource implements ListSource {
         if (!id) return null;
         return {
           id,
-          type: this.rail.content_type,
+          type: contentType,
           title: previewTitle(preview),
           poster: previewPoster(preview),
-          source: this.sourceId,
+          source: sourceLabel,
         };
       })
       .filter((candidate): candidate is CandidateMeta => candidate !== null);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export class AddonCatalogListSource implements ListSource {
+  readonly sourceType = 'addon_catalog' as const;
+
+  constructor(
+    readonly sourceId: string,
+    private readonly contentType: string,
+    private readonly catalog: string,
+    private readonly manifestUrl: string,
+    private readonly sourceLabel: string,
+  ) {}
+
+  static fromRail(
+    rail: Extract<BrowsableRail, { type: 'addon_catalog' }>,
+    manifestUrl: string,
+  ): AddonCatalogListSource {
+    return new AddonCatalogListSource(
+      rail.id,
+      rail.content_type,
+      rail.catalog,
+      manifestUrl,
+      `${rail.addon}/${rail.catalog}`,
+    );
+  }
+
+  async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
+    return fetchAddonCatalogCandidates(
+      this.manifestUrl,
+      this.contentType,
+      this.catalog,
+      this.sourceLabel,
+      options,
+    );
+  }
+}
+
+export class CompositeListSource implements ListSource {
+  readonly sourceType = 'composite_list' as const;
+
+  constructor(
+    readonly sourceId: string,
+    private readonly contentType: string,
+    private readonly sources: ResolvedCatalogSource[],
+  ) {}
+
+  async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
+    const ingestLimit = options.offset + options.limit;
+    const weights = this.sources.map((source) => source.weight);
+    const perSourceLimits = allocateSourceLimits(ingestLimit, weights);
+    const batches: WeightedCandidateBatch[] = [];
+
+    for (const [index, source] of this.sources.entries()) {
+      const fetchLimit = perSourceLimits[index] ?? 1;
+      try {
+        const candidates = await fetchAddonCatalogCandidates(
+          source.manifestUrl,
+          this.contentType,
+          source.catalog,
+          source.sourceLabel,
+          { offset: 0, limit: fetchLimit },
+        );
+        batches.push({
+          sourceIndex: index,
+          sourceLabel: source.sourceLabel,
+          weight: source.weight,
+          candidates,
+        });
+      } catch (error) {
+        console.warn(
+          `composite source skipped rail=${this.sourceId} source=${source.sourceLabel}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        batches.push({
+          sourceIndex: index,
+          sourceLabel: source.sourceLabel,
+          weight: source.weight,
+          candidates: [],
+        });
+      }
+    }
+
+    return mergeCompositeCandidates(batches, options.limit, options.offset);
   }
 }
 

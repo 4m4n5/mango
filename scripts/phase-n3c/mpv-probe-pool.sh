@@ -2,6 +2,7 @@
 # Persistent headless mpv workers for maintenance playability probes.
 # Usage:
 #   mpv-probe-pool.sh ensure [--workers N]
+#   mpv-probe-pool.sh restart-worker <id>
 #   mpv-probe-pool.sh stop-all
 
 set -euo pipefail
@@ -12,7 +13,7 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 usage() {
-  echo "usage: $0 ensure [--workers N] | stop-all" >&2
+  echo "usage: $0 ensure [--workers N] | restart-worker <id> | stop-all" >&2
   exit 2
 }
 
@@ -119,6 +120,12 @@ case "$cmd" in
     for ((i = 0; i < WORKERS; i++)); do
       ensure_worker "$i"
     done
+    ;;
+  restart-worker)
+    WORKER_ID="${1:-}"
+    [[ -n "$WORKER_ID" && "$WORKER_ID" =~ ^[0-9]+$ ]] || usage
+    stop_worker "$WORKER_ID"
+    ensure_worker "$WORKER_ID"
     ;;
   stop-all)
     for pid_file in "$SOCKET_DIR"/probe-*.pid; do

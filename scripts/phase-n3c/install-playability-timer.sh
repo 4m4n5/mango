@@ -25,7 +25,7 @@ Environment=MANGO_PLAYABILITY_PROBE_POOL=1
 Environment=MANGO_PLAYABILITY_BATCH_DB=1
 Environment=MANGO_PLAYABILITY_RESOLVE_CONCURRENCY=8
 Environment=MANGO_PLAYABILITY_PROBE_CONCURRENCY=3
-Environment=MANGO_PLAYABILITY_PROBE_MS=6000
+Environment=MANGO_PLAYABILITY_PROBE_MS=8000
 ExecStart=/usr/bin/env bash scripts/phase-n3c/playability-maintenance.sh --mode stale
 EOF
 

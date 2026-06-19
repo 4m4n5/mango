@@ -14,7 +14,10 @@ if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
 fi
 
 CATALOG_YAML="${MANGO_CATALOG_YAML:-/etc/mango/catalog.yaml}"
-EXPECTED=(trending-india popular-india recommended-india popular-global featured-global)
+EXPECTED=(
+  movies-global-popular movies-india-trending movies-classics movies-comedy movies-quick-watches movies-documentaries
+  series-global-popular series-india-picks series-classics series-comedy series-miniseries series-documentaries
+)
 ERRORS=0
 fail() { log "FAIL: $*" >&2; ERRORS=$((ERRORS + 1)); }
 

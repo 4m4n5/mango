@@ -3,6 +3,7 @@ import { CatalogCore, CatalogError } from './core.js';
 import { playUrl } from './mpv.js';
 import { playWithFallback } from './play-orchestrator.js';
 import { invalidateTitle, getTitleVerifyProfile } from './playability/db.js';
+import { parseCatalogTab } from './rails.js';
 import {
   parseFilterOverridesFromQuery,
   type StreamFilterOverrides,
@@ -170,7 +171,11 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'GET' && parts.length === 1 && parts[0] === 'rails') {
-        sendJson(res, 200, core.rails());
+        const tab = parseCatalogTab(url.searchParams.get('tab'));
+        if (url.searchParams.has('tab') && !tab) {
+          throw new CatalogError(400, 'tab must be movies or series');
+        }
+        sendJson(res, 200, core.rails(tab));
         return;
       }
 

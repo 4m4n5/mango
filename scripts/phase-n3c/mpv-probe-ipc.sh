@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Probe one debrid URL via a persistent mpv worker (maintenance only).
-# usage: mpv-probe-ipc.sh --worker-id N --url URL [--timeout-ms N] [--min-duration-sec N]
+# usage: mpv-probe-ipc.sh --worker-id N --url URL [--timeout-ms N] [--min-duration-sec N] [--probe]
 
 set -euo pipefail
 
@@ -14,9 +14,10 @@ URL=""
 TIMEOUT_MS=12000
 MIN_DURATION_SEC=600
 MIN_DURATION_SET=false
+PROBE=false
 
 usage() {
-  echo "usage: $0 --worker-id <n> --url <http-url> [--timeout-ms N] [--min-duration-sec N]" >&2
+  echo "usage: $0 --worker-id <n> --url <http-url> [--timeout-ms N] [--min-duration-sec N] [--probe]" >&2
   exit 2
 }
 
@@ -26,6 +27,7 @@ while [[ $# -gt 0 ]]; do
     --url) URL="${2:-}"; shift 2 ;;
     --timeout-ms) TIMEOUT_MS="${2:-}"; shift 2 ;;
     --min-duration-sec) MIN_DURATION_SEC="${2:-}"; MIN_DURATION_SET=true; shift 2 ;;
+    --probe) PROBE=true; shift ;;
     *) usage ;;
   esac
 done
@@ -37,14 +39,24 @@ done
 
 SOCKET="${SOCKET_DIR}/probe-${WORKER_ID}.sock"
 POOL_SCRIPT="${SCRIPT_DIR}/mpv-probe-pool.sh"
+REQUEST_ID=0
 
 now_ms() {
   python3 -c 'import time; print(int(time.time()*1000))'
 }
 
+next_request_id() {
+  REQUEST_ID=$((REQUEST_ID + 1))
+  printf '%s' "$REQUEST_ID"
+}
+
 ipc_command() {
   local payload="$1"
-  echo "$payload" | socat - "$SOCKET"
+  local reply=""
+  if ! reply="$(printf '%s\n' "$payload" | socat -t 2 - "UNIX-CONNECT:${SOCKET}" 2>/dev/null)"; then
+    return 1
+  fi
+  printf '%s' "$reply"
 }
 
 drain_events() {
@@ -54,13 +66,14 @@ drain_events() {
     if [[ $drained -gt 200 ]]; then
       break
     fi
-  done < <(socat -u "UNIX-CONNECT:${SOCKET}" STDOUT 2>/dev/null || true)
+  done < <(socat -u -t 0.2 "UNIX-CONNECT:${SOCKET}" STDOUT 2>/dev/null || true)
 }
 
 mpv_property() {
   local property="$1"
-  local reply
-  reply="$(ipc_command "{\"command\":[\"get_property\",\"${property}\"]}" 2>/dev/null || true)"
+  local request_id reply
+  request_id="$(next_request_id)"
+  reply="$(ipc_command "{\"command\":[\"get_property\",\"${property}\"],\"request_id\":${request_id}}" || true)"
   python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' <<<"$reply" 2>/dev/null || echo 0
 }
 
@@ -68,7 +81,7 @@ playback_is_real() {
   local playback_time="$1"
   local duration
   local min_duration="$MIN_DURATION_SEC"
-  if ! $MIN_DURATION_SET; then
+  if $PROBE && ! $MIN_DURATION_SET; then
     min_duration=5
   fi
   duration="$(mpv_property duration)"
@@ -87,15 +100,22 @@ raise SystemExit(0)
 PY
 }
 
-bash "$POOL_SCRIPT" ensure --workers "$((WORKER_ID + 1))" >/dev/null
-[[ -S "$SOCKET" ]] || { echo "FAIL: probe socket missing: $SOCKET" >&2; exit 1; }
+restart_worker() {
+  bash "$POOL_SCRIPT" restart-worker "$WORKER_ID" >/dev/null 2>&1 || true
+}
 
-# Drain stale IPC events so the worker cannot deadlock (mpv #3422).
+bash "$POOL_SCRIPT" ensure --workers "$((WORKER_ID + 1))" >/dev/null
+[[ -S "$SOCKET" ]] || { echo "FAIL: probe socket missing: $SOCKET" >&2; restart_worker; exit 1; }
+
 drain_events || true
 ipc_command '{"command":["disable_event","all"]}' >/dev/null 2>&1 || true
 
 URL_JSON="$(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$URL")"
-ipc_command "{\"command\":[\"loadfile\",${URL_JSON},\"replace\"]}" >/dev/null 2>&1 || true
+if ! ipc_command "{\"command\":[\"loadfile\",${URL_JSON},\"replace\"]}" >/dev/null 2>&1; then
+  echo "FAIL: mpv loadfile rejected" >&2
+  restart_worker
+  exit 1
+fi
 
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
@@ -107,16 +127,17 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     if playback_is_real "${PT:-0}"; then
       END_MS="$(now_ms)"
       echo "PASS: ttff_ms=$((END_MS - START_MS))"
+      ipc_command '{"command":["stop"]}' >/dev/null 2>&1 || true
       exit 0
     fi
     DUR="$(mpv_property duration)"
     min_duration="$MIN_DURATION_SEC"
-    if ! $MIN_DURATION_SET; then
+    if $PROBE && ! $MIN_DURATION_SET; then
       min_duration=5
     fi
     if python3 -c "import sys; d=float('${DUR:-0}'); sys.exit(0 if d > 0 and d < float('${min_duration}') else 1)" 2>/dev/null; then
       echo "FAIL: debrid_status_clip duration=${DUR}" >&2
-      bash "$POOL_SCRIPT" stop-all >/dev/null 2>&1 || true
+      restart_worker
       exit 1
     fi
   fi
@@ -124,5 +145,5 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
 done
 
 echo "FAIL: mpv did not start playback within ${TIMEOUT_MS}ms" >&2
-bash "$POOL_SCRIPT" stop-all >/dev/null 2>&1 || true
+restart_worker
 exit 1

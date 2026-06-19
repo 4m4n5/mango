@@ -1,4 +1,4 @@
-import type { AppCard, ContentCard, ContentRail } from "./types";
+import type { AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 
 export interface HomeCallbacks {
   onContentSelect: (card: ContentCard, railLabel: string) => void;
@@ -8,6 +8,8 @@ export interface HomeCallbacks {
 export interface HomeOptions {
   fallbackStremio: boolean;
   legacyYoutube: boolean;
+  browseTab?: BrowseTab;
+  onBrowseTabChange?: (tab: BrowseTab) => void;
 }
 
 export type CatalogState =
@@ -18,6 +20,34 @@ export type CatalogState =
 const DEFAULT_APP_CARDS: AppCard[] = [
   { id: "settings", action: "settings", kicker: "System", title: "Settings" },
 ];
+
+export function buildBrowseTabs(
+  container: HTMLElement,
+  activeTab: BrowseTab,
+  onTabChange: (tab: BrowseTab) => void,
+): HTMLElement[] {
+  container.replaceChildren();
+  const tabs: Array<{ id: BrowseTab; label: string }> = [
+    { id: "movies", label: "movies" },
+    { id: "series", label: "tv shows" },
+  ];
+  const buttons: HTMLElement[] = [];
+  for (const tab of tabs) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `browse-tab${tab.id === activeTab ? " browse-tab--active" : ""}`;
+    button.dataset.tab = tab.id;
+    button.textContent = tab.label;
+    button.addEventListener("click", () => {
+      if (tab.id !== activeTab) {
+        onTabChange(tab.id);
+      }
+    });
+    container.appendChild(button);
+    buttons.push(button);
+  }
+  return buttons;
+}
 
 export function buildHomeRails(
   container: HTMLElement,

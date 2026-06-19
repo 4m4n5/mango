@@ -9,6 +9,7 @@ export interface ApiInfo {
 
 export type LaunchAction = "stremio" | "kodi";
 export type TileAction = LaunchAction | "settings";
+export type BrowseTab = "movies" | "series";
 
 export interface ContentCard {
   id: string;

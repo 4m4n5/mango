@@ -8,8 +8,14 @@ source "$(cd "$(dirname "$0")/.." && pwd)/lib/gate-common.sh"
 mango_gate_init
 gate_header "mango N2 browse gate"
 
-EXPECTED_RAILS=(trending-india popular-india recommended-india popular-global featured-global)
-STRICT_RAILS=(trending-india popular-india recommended-india popular-global)
+EXPECTED_RAILS=(
+  movies-global-popular movies-india-trending movies-classics movies-comedy movies-quick-watches movies-documentaries
+  series-global-popular series-india-picks series-classics series-comedy series-miniseries series-documentaries
+)
+STRICT_RAILS=(
+  movies-global-popular movies-india-trending
+  series-global-popular series-india-picks
+)
 
 bash scripts/phase-n2/check-n2-prereqs.sh >/dev/null && gate_pass "prereqs" || gate_fail "prereqs"
 

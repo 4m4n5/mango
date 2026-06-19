@@ -27,8 +27,9 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 | Voice pipeline (Phase 2) | ✓ | Piper TTS on HDMI (optional) |
 | Pad routing (B/Y/⌂/D-pad) | ✓ | mpv + ⌂ home (N1) |
 | **catalog-service + mpv** | ✓ | — |
-| Browse rails (N2) | ✓ | — |
-| LLM media tools (N3+) | — | stream orchestrator ← now |
+| Browse rails (N2 + N2b) | ✓ | — |
+| Playability index (N3c) | active | [N3c-INVENTORY.md](N3c-INVENTORY.md) |
+| LLM media tools | — | N5 |
 
 **Repo layout:**
 
@@ -55,8 +56,9 @@ Phase 0–2    Pi foundation + launcher + voice           ✓ shipped
 Phase 1.5    Couch launch polish                        ✓ 2026-06-18
 N0           Foundation reset (lean stack, HUD, gates)  ✓
 N1           catalog-service + one title → mpv          ✓
-N2           Browse rails (catalog.yaml)               ✓
-N3a          Stream play orchestrator                  ← now
+N2 + N2b      Browse tabs + 12 thematic rails          ✓
+N3a           Stream play orchestrator                 ✓
+N3c           Playability index + maintenance          ← active
 N3b          Stream picker + progress
 N4           Library + Continue watching
 N5–N7        AI catalogs · YouTube · 4K TV + soundbar ship
@@ -99,23 +101,27 @@ Post-N1: stream filters, audio scripts, lab vs N7 docs.
 
 ---
 
-## Native N2 ✓
+## Native N2 + N2b ✓
 
-**Goal:** Real browse rails + title detail + play from launcher UI.
+**Goal:** Browse rails + Movies/TV tabs + 12 thematic discover rails (`composite_list`).
 
-Gate: `bash scripts/phase-n2/gate-n2-browse.sh` · Inventory: [N2-INVENTORY.md](N2-INVENTORY.md)
-
-Five `addon_catalog` rails (3× AIOMetadata + 2× Cinemeta). Post-N2: full ~31-catalog management.
+Gate: `bash scripts/phase-n2/gate-n2-browse.sh` · [N2-INVENTORY.md](N2-INVENTORY.md)
 
 ---
 
-## Native N3a ← now
+## Native N3a ✓
 
-**Goal:** Reliable Play from browse — ≤15 s, no error copy, auto-retry dead streams.
+**Goal:** Reliable Play from browse — ≤15 s, auto-retry dead streams.
 
-Gate: `bash scripts/phase-n3/gate-n3-play.sh` · Inventory: [N3-INVENTORY.md](N3-INVENTORY.md)
+Gate: `bash scripts/phase-n3/gate-n3-play.sh` · [N3-INVENTORY.md](N3-INVENTORY.md)
 
-**Spec:** [tasks/phase-n3-stream-orchestrator.md](tasks/phase-n3-stream-orchestrator.md) · **Codex:** [tasks/CODEX-phase-n3-prompt.md](tasks/CODEX-phase-n3-prompt.md)
+---
+
+## Native N3c ← active
+
+**Goal:** Verified-only rails; overnight maintenance fill.
+
+[N3c-INVENTORY.md](N3c-INVENTORY.md) · `bash scripts/phase-n3c/playability-maintenance.sh --mode full`
 
 ---
 

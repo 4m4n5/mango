@@ -1,5 +1,5 @@
 import type { CatalogCore } from '../core.js';
-import type { AddonCatalogRail } from '../rails.js';
+import type { BrowsableRail } from '../rails.js';
 import type { CandidateMeta } from './list-source.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
 import {
@@ -47,6 +47,31 @@ type PreparedQueueItem = {
 
 export function candidateKey(candidate: CandidateMeta): CandidateKey {
   return `${candidate.type}:${candidate.id}`;
+}
+
+export function isActiveVerifiedTitle(
+  title: TitlePlayabilityRecord | undefined,
+  now: number,
+): boolean {
+  if (!title || title.status !== 'verified') {
+    return false;
+  }
+  return title.expires_at === null || title.expires_at > now;
+}
+
+export function shouldForceReprobeTitle(
+  title: TitlePlayabilityRecord | undefined,
+  staleKeys: Set<CandidateKey>,
+  key: CandidateKey,
+  now: number,
+): boolean {
+  if (staleKeys.has(key)) {
+    return true;
+  }
+  if (!title || title.status !== 'verified') {
+    return false;
+  }
+  return title.expires_at !== null && title.expires_at <= now;
 }
 
 export function valueAsString(value: unknown): string {
@@ -172,7 +197,7 @@ export async function processVerifyQueue(
     const primaryRailId = eligibleRefs[0]?.railId ?? null;
     const result = await verifyPreparedTitle(
       prepared.prepared,
-      { railId: primaryRailId },
+      { railId: primaryRailId, forceReprobe: item.forceReprobe },
       context,
     );
 
@@ -192,6 +217,23 @@ export async function processVerifyQueue(
         id: item.candidate.id,
         title: item.candidate.title,
         action: item.forceReprobe ? 'reverified' : 'verified',
+        rails: eligibleRefs.map((ref) => ref.railId),
+      });
+    } else if (result.status === 'verified') {
+      results.push({
+        type: item.candidate.type,
+        id: item.candidate.id,
+        title: item.candidate.title,
+        action: 'skipped_existing',
+        rails: eligibleRefs.map((ref) => ref.railId),
+      });
+    } else if (result.status === 'stale') {
+      results.push({
+        type: item.candidate.type,
+        id: item.candidate.id,
+        title: item.candidate.title,
+        action: 'failed',
+        reason: result.reason,
         rails: eligibleRefs.map((ref) => ref.railId),
       });
     } else {
@@ -283,6 +325,7 @@ export type BuildVerifyQueueOptions = {
   railPoolTargets: Map<string, number>;
   railPoolKeys: Map<string, Set<string>>;
   staleKeys?: Set<CandidateKey>;
+  refreshMode?: 'full' | 'stale';
   now?: number;
   context?: VerifyContext;
 };
@@ -303,6 +346,7 @@ export async function linkExistingVerifiedCandidates(
     railPoolTargets,
     railPoolKeys,
     staleKeys = new Set(),
+    refreshMode = 'stale',
     now = Date.now(),
     context = {},
   } = options;
@@ -319,15 +363,9 @@ export async function linkExistingVerifiedCandidates(
     if (!candidate) continue;
 
     const title = titleStatuses.get(key);
-    const forceReprobe = staleKeys.has(key);
+    const forceReprobe = shouldForceReprobeTitle(title, staleKeys, key, now);
 
-    if (
-      !forceReprobe
-      && title?.status === 'verified'
-      && title.expires_at !== null
-      && title.expires_at > now
-    ) {
-      let linkedForKey = false;
+    if (!forceReprobe && isActiveVerifiedTitle(title, now)) {
       for (const ref of refs) {
         const target = railPoolTargets.get(ref.railId) ?? 0;
         const current = railVerifiedCounts.get(ref.railId) ?? 0;
@@ -350,7 +388,6 @@ export async function linkExistingVerifiedCandidates(
           railPoolKeys.set(ref.railId, keys);
           railVerifiedCounts.set(ref.railId, current + 1);
           linkedExisting += 1;
-          linkedForKey = true;
           results.push({
             type: candidate.type,
             id: candidate.id,
@@ -360,16 +397,13 @@ export async function linkExistingVerifiedCandidates(
           });
         }
       }
-      if (linkedForKey) {
-        continue;
-      }
-      if (refs.every((ref) => (railVerifiedCounts.get(ref.railId) ?? 0) >= (railPoolTargets.get(ref.railId) ?? 0))) {
-        continue;
-      }
+      // Valid verified titles must never be re-probed just because a rail is below pool_target.
+      continue;
     }
 
     if (
       !forceReprobe
+      && refreshMode !== 'full'
       && title?.status === 'failed'
       && title.updated_at > now - failedRetryMs
     ) {
@@ -426,7 +460,7 @@ export async function finalizeVerifyContext(context: VerifyContext): Promise<{ v
 }
 
 export function railMapsFromRails(
-  rails: AddonCatalogRail[],
+  rails: BrowsableRail[],
   statuses: PlayabilityRailStatus[],
   poolTargetOverride?: number,
 ): {

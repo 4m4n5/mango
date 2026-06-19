@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     const core = await CatalogCore.create();
     if (all) {
       const rails = [];
-      for (const rail of core.addonRails()) {
+      for (const rail of core.browsableRails()) {
         rails.push(await topUpRail(core, rail.id, { poolTarget, candidateLimit }));
       }
       await writeJsonAndExit({ ok: true, rails }, 0);

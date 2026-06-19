@@ -80,6 +80,7 @@ export async function probeUrlViaPool(
     '--worker-id', String(workerId),
     '--url', url,
     '--timeout-ms', String(timeoutMs),
+    '--probe',
     '--min-duration-sec', String(minDurationSec ?? 600),
   ];
 

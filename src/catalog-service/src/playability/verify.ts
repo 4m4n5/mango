@@ -13,14 +13,17 @@ import {
   playabilityVerifyMinDurationSec,
   playabilityVerifyTtlMs,
 } from './config.js';
-import { recordVerifyResult } from './db.js';
+import {
+  getTitlePlayability,
+  recordVerifyResult,
+} from './db.js';
 import { probeUrlViaPool } from './mpv-probe-pool.js';
 
 export type VerifyTitleResult = {
   type: string;
   id: string;
   ok: boolean;
-  status: 'verified' | 'failed';
+  status: 'verified' | 'failed' | 'stale';
   reason?: string;
   resolve_ms?: number;
   prepare_ms?: number;
@@ -41,6 +44,8 @@ export type VerifyTitleResult = {
 
 export type VerifyTitleOptions = {
   railId?: string | null;
+  forceReprobe?: boolean;
+  preserveVerified?: boolean;
 };
 
 export type VerifyContext = {
@@ -114,15 +119,20 @@ async function persistVerifyResult(
 
 async function probeStreamUrl(
   url: string,
+  contentType: string,
   context?: VerifyContext,
 ): Promise<{ ttff_ms: number }> {
   const timeoutMs = playabilityProbeTimeoutMs();
-  const minDurationSec = playabilityVerifyMinDurationSec();
+  const minDurationSec = playabilityVerifyMinDurationSec(contentType);
   const usePool = context?.useProbePool ?? playabilityUseProbePool();
   if (usePool) {
     return probeUrlViaPool(url, timeoutMs, minDurationSec);
   }
   return probeUrl(url, timeoutMs, minDurationSec);
+}
+
+function isTransientFailure(reason: string): boolean {
+  return reason === 'timeout' || reason === 'probe_failed' || reason === 'no_stream';
 }
 
 async function recordFailure(
@@ -132,17 +142,32 @@ async function recordFailure(
   probeMs: number | null,
   options: VerifyTitleOptions,
   context?: VerifyContext,
-): Promise<void> {
+): Promise<'failed' | 'stale' | 'preserved'> {
+  const staleReprobe = options.forceReprobe === true;
+  const existing = await getTitlePlayability(type, id);
+
+  if (
+    options.preserveVerified !== false
+    && existing?.status === 'verified'
+    && !staleReprobe
+  ) {
+    return 'preserved';
+  }
+
+  // Re-probes should never demote a title to failed — stale keeps it in pool for retry.
+  const demoteToStale = staleReprobe || (existing?.status === 'verified' && isTransientFailure(reason));
+  const status = demoteToStale ? 'stale' : 'failed';
   await persistVerifyResult({
     type,
     id,
-    status: 'failed',
+    status,
     rail_id: options.railId ?? null,
     fail_reason: reason,
     probe_ms: probeMs,
     stage: 'verify',
-    outcome: reason,
+    outcome: demoteToStale ? 'stale_reprobe_failed' : reason,
   }, context);
+  return status;
 }
 
 export async function verifyTitle(
@@ -209,12 +234,12 @@ export async function verifyPreparedTitle(
   context?: VerifyContext,
 ): Promise<VerifyTitleResult> {
   if (!prepared.ok) {
-    await recordFailure(prepared.type, prepared.id, prepared.reason, null, options, context);
+    const recorded = await recordFailure(prepared.type, prepared.id, prepared.reason, null, options, context);
     return {
       type: prepared.type,
       id: prepared.id,
       ok: false,
-      status: 'failed',
+      status: recorded === 'preserved' ? 'verified' : recorded,
       reason: prepared.reason,
       resolve_ms: prepared.resolve_ms,
       prepare_ms: prepared.prepare_ms,
@@ -227,7 +252,7 @@ export async function verifyPreparedTitle(
   for (const [index, stream] of prepared.candidates.entries()) {
     const started = Date.now();
     try {
-      const probe = await probeStreamUrl(stream.url, context);
+      const probe = await probeStreamUrl(stream.url, prepared.type, context);
       const probeMs = Date.now() - started;
       attempts.push({
         index,
@@ -279,7 +304,7 @@ export async function verifyPreparedTitle(
   }
 
   const reason = attempts.at(-1)?.error ? failReason(attempts.at(-1)?.error) : 'probe_failed';
-  await recordFailure(
+  const recorded = await recordFailure(
     prepared.type,
     prepared.id,
     reason,
@@ -291,7 +316,7 @@ export async function verifyPreparedTitle(
     type: prepared.type,
     id: prepared.id,
     ok: false,
-    status: 'failed',
+    status: recorded === 'preserved' ? 'verified' : recorded,
     reason,
     resolve_ms: prepared.resolve_ms,
     prepare_ms: prepared.prepare_ms,

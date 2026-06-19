@@ -147,6 +147,7 @@ export async function refreshAllRails(
     railPoolTargets,
     railPoolKeys,
     staleKeys,
+    refreshMode: mode,
     context,
   });
 

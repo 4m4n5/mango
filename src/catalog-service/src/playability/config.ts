@@ -24,7 +24,7 @@ export function playabilityProbeConcurrency(): number {
 
 export function playabilityProbeTimeoutMs(): number {
   if (isMaintenanceMode()) {
-    return positiveInt(process.env.MANGO_PLAYABILITY_PROBE_MS, 6000, 2000, 30000);
+    return positiveInt(process.env.MANGO_PLAYABILITY_PROBE_MS, 8000, 2000, 30000);
   }
   return positiveInt(process.env.MANGO_PLAYABILITY_PROBE_MS, 12000, 2000, 30000);
 }
@@ -45,7 +45,10 @@ export function playabilityFailedRetryMs(): number {
   return positiveInt(process.env.MANGO_PLAYABILITY_FAILED_RETRY_MS, 24 * 60 * 60 * 1000, 60_000, 7 * 24 * 60 * 60 * 1000);
 }
 
-export function playabilityVerifyMinDurationSec(): number {
+export function playabilityVerifyMinDurationSec(contentType?: string): number {
+  if (contentType === 'series') {
+    return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC_SERIES, 300, 60, 7200);
+  }
   return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC, 600, 60, 7200);
 }
 

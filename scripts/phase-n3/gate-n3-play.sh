@@ -15,9 +15,9 @@ gate_header "mango N3 play gate"
 
 bash scripts/phase-n3/check-n3-prereqs.sh >/dev/null && gate_pass "prereqs" || gate_fail "prereqs"
 
-TRENDING_JSON="$TMP_DIR/trending-india.json"
+TRENDING_JSON="$TMP_DIR/movies-india-trending.json"
 PICK_JSON="$TMP_DIR/trending-pick.json"
-if curl -sf --max-time 30 http://127.0.0.1:3020/rails/trending-india/items >"$TRENDING_JSON"; then
+if curl -sf --max-time 30 http://127.0.0.1:3020/rails/movies-india-trending/items >"$TRENDING_JSON"; then
   python3 - "$TRENDING_JSON" "$PICK_JSON" <<'PY' && gate_pass "random pick" || gate_fail "random pick"
 import json, random, sys
 items = [i for i in json.load(open(sys.argv[1])).get("items", []) if i.get("id") != "tt0111161"]
@@ -31,7 +31,7 @@ PY
   gate_post_play "browse" "$pick_type" "$pick_id" "$TMP_DIR/play-browse.json"
   gate_mpv_stop
 else
-  gate_fail "GET trending-india"
+  gate_fail "GET movies-india-trending"
 fi
 
 gate_post_play "shawshank" "movie" "tt0111161" "$TMP_DIR/play-shawshank.json"

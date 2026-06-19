@@ -1,67 +1,66 @@
-# N3c inventory — verified catalog / playability index
+# N3c inventory — playability index
 
-Last updated: 2026-06-19
+**Branch:** `feat/native-experience`  
+**Gate:** `bash scripts/phase-n3c/gate-n3c-verified-rails.sh`
 
-## Scope
+---
 
-Phase N3c adds a persistent playability index between upstream Stremio catalogs
-and launcher rails. `GET /rails/:id/items` now serves verified DB session items
-only; upstream addon catalog order is no longer rendered directly.
+## What it does
 
-Per user direction on 2026-06-19, minimum pool depth is non-blocking while the
-rest of the tooling is finished. Empty or underfilled rails may return fewer
-cards, but never unverified cards.
+Wide ingest → stream filter → mpv probe → SQLite. Launcher shows **verified-only** posters (`GET /rails/:id/items`).
 
-## Implemented
+Hit-rate promise: **100% on shown posters**, not all upstream titles (~25–40% verify yield).
 
-- SQLite schema/status API: `GET /playability/status`
-- Single-title verify: `playability-indexer.ts verify --type movie --id ...`
-- Capped and sequential top-up: `top-up --rail ...`, `top-up --all`
-- Global dedupe refresh: `refresh --all --mode stale|full` (N3c-M Tier 1)
-- Maintenance wrapper: `scripts/phase-n3c/playability-maintenance.sh`
-- Persistent mpv probe pool: `mpv-probe-pool.sh` + `mpv-probe-ipc.sh` (maintenance only)
-- Verified-only rail serve with per-process session rotation
-- `AiCatalogListSource` stub for `/etc/mango/ai-catalogs/*.json`
-- Localhost invalidation: `POST /playability/invalidate`
-- Play-failure invalidation from `POST /play`
-- Opt-in stack warmup: `MANGO_PLAYABILITY_TOPUP_ON_START=1`
-- Timer installer: `scripts/phase-n3c/install-playability-timer.sh` (runs maintenance @ 03:00)
-- Gate: `scripts/phase-n3c/gate-n3c-verified-rails.sh` (default: 2 plays/rail; `MANGO_GATE_FULL=1` for all)
-- Status report: `scripts/diag/playability-status.py`
+---
 
-## Pi evidence so far
+## Commands
 
-- `tt0111161` single-title verify passed with `--min-duration-sec 600`.
-- `trending-india`: 24 verified from 97 upstream candidates; target 60 is not
-  reachable from that single upstream page.
-- `popular-global`: capped run reached 20 verified served candidates.
-- `popular-india`: current upstream catalog returned 0 candidates.
+| Command | Purpose |
+|---------|---------|
+| `playability-indexer.ts refresh --all --mode full\|stale` | Global dedupe + parallel probe (maintenance) |
+| `playability-indexer.ts top-up --rail <id>` | Single-rail fill (couch background) |
+| `playability-maintenance.sh [--mode full\|stale]` | Stop UI, stop catalog-service, refresh, restore couch |
+| `playability-status.py --all` | Pool depth per rail |
+| `gate-n3c-verified-rails.sh` | Sampled play gate (2/rail default) |
 
-## Verification checklist
+---
 
-- Local: `cd src/catalog-service && npm run build`
-- Local syntax:
-  - `bash -n scripts/mango-stack.sh`
-  - `bash -n scripts/pi-pre-couch-gate.sh`
-  - `bash -n scripts/phase-n3c/gate-n3c-verified-rails.sh`
-  - `python3 -B -m py_compile scripts/diag/playability-status.py`
-- Pi after deploy:
-  - `cd ~/mango && git pull --ff-only`
-  - `cd src/catalog-service && npm run build`
-  - `MANGO_CATALOG=1 bash scripts/mango-stack.sh restart`
-  - `python3 scripts/diag/playability-status.py`
-  - `bash scripts/phase-n3c/gate-n3c-verified-rails.sh`
+## Maintenance window (N3c-M)
 
-## Known follow-ups
+Env set by `playability-maintenance.sh` and timer @ 03:00:
 
-- Broaden/fallback list sources before restoring `pool_target: 60`.
-- Run full `pi-pre-couch-gate.sh` with `MANGO_N3C_REQUIRE_MIN_DISPLAY=1` once pools filled.
-- `popular-india`: upstream catalog may return 0 candidates — needs alternate source.
-- Subscribe ElfHosted private per [`ELFHOSTED.md`](ELFHOSTED.md).
+| Knob | Value |
+|------|-------|
+| `MANGO_MAINTENANCE_MODE` | 1 |
+| `MANGO_PLAYABILITY_PROBE_POOL` | 1 (persistent mpv IPC) |
+| `MANGO_PLAYABILITY_BATCH_DB` | 1 |
+| `MANGO_PLAYABILITY_RESOLVE_CONCURRENCY` | 8 |
+| `MANGO_PLAYABILITY_PROBE_CONCURRENCY` | 3 |
+| `MANGO_PLAYABILITY_PROBE_MS` | 8000 |
 
-## Audit fixes (2026-06-19)
+**Flow:** flock → resolve catalog yaml → stop Chromium → stop catalog-service → `refresh --all` → stop probe pool → `mango-refresh.sh`.
 
-- Partial rail sessions rebuild when expired titles shrink below display target.
-- `display_low` / `pool_low` enqueue triggers + debounced background top-up.
-- Rail items cache skips when `low_water`; bust on invalidate/play failure.
-- Gate: mpv `playback-time > 0`; optional `MANGO_N3C_REQUIRE_MIN_DISPLAY=1`.
+`--mode full` re-probes recently failed titles; `stale` skips failures younger than 24h. Sync `/etc/mango/catalog.yaml` from repo when they differ (maintenance uses repo example until synced).
+
+---
+
+## Verify locally
+
+```bash
+cd src/catalog-service && npm run test && npm run build
+bash -n scripts/phase-n3c/playability-maintenance.sh
+bash scripts/phase-n2b/validate-composite-rails.sh   # Pi, catalog optional
+```
+
+---
+
+## Pi deploy
+
+```bash
+cd ~/mango && git pull --ff-only
+cd src/catalog-service && npm run build   # do not copy node_modules from Mac
+sudo cp config/catalog.example.yaml /etc/mango/catalog.yaml
+cd src/launcher && npm run build
+MANGO_CATALOG=1 bash scripts/mango-refresh.sh
+bash scripts/phase-n3c/playability-maintenance.sh --mode full
+```

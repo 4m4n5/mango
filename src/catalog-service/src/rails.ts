@@ -1,7 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { parse as parseYaml } from 'yaml';
 
-export type RailType = 'addon_catalog' | 'stremio_library' | 'tmdb_list' | 'static_ids';
+export type RailType = 'addon_catalog' | 'composite_list' | 'stremio_library' | 'tmdb_list' | 'static_ids';
+
+export type CatalogTab = 'movies' | 'series';
+
+const CATALOG_TABS = new Set<CatalogTab>(['movies', 'series']);
 
 export type RailPlayabilityConfig = {
   display_limit: number;
@@ -10,17 +14,34 @@ export type RailPlayabilityConfig = {
   pool_target: number;
 };
 
-export type AddonCatalogRail = {
-  id: string;
-  label: string;
-  type: 'addon_catalog';
+export type CatalogSourceRef = {
   addon: string;
   catalog: string;
+  weight: number;
+};
+
+type BrowsableRailBase = {
+  id: string;
+  label: string;
+  tab: CatalogTab;
   content_type: string;
   limit: number;
   playability: RailPlayabilityConfig;
-  enabled: boolean;
+  enabled: true;
 };
+
+export type AddonCatalogRail = BrowsableRailBase & {
+  type: 'addon_catalog';
+  addon: string;
+  catalog: string;
+};
+
+export type CompositeListRail = BrowsableRailBase & {
+  type: 'composite_list';
+  sources: CatalogSourceRef[];
+};
+
+export type BrowsableRail = AddonCatalogRail | CompositeListRail;
 
 export type DisabledRail = {
   id: string;
@@ -29,7 +50,7 @@ export type DisabledRail = {
   enabled: false;
 };
 
-export type RailDefinition = AddonCatalogRail | DisabledRail;
+export type RailDefinition = BrowsableRail | DisabledRail;
 
 export type RailConfig = {
   version: number;
@@ -83,6 +104,44 @@ function readLimit(record: Record<string, unknown>): number {
 
 function readEnabled(record: Record<string, unknown>): boolean {
   return record.enabled !== false;
+}
+
+function readTab(record: Record<string, unknown>, contentType: string, context: string): CatalogTab {
+  const value = record.tab;
+  if (value === undefined || value === null || value === '') {
+    return contentType === 'series' ? 'series' : 'movies';
+  }
+  if (typeof value !== 'string' || !CATALOG_TABS.has(value.trim() as CatalogTab)) {
+    throw new Error(`${context}.tab must be movies or series`);
+  }
+  return value.trim() as CatalogTab;
+}
+
+function readWeight(value: unknown, context: string): number {
+  if (value === undefined || value === null || value === '') {
+    return 1;
+  }
+  const weight = Number(value);
+  if (!Number.isFinite(weight) || weight <= 0) {
+    throw new Error(`${context}.weight must be a positive number`);
+  }
+  return weight;
+}
+
+function readSources(record: Record<string, unknown>, context: string): CatalogSourceRef[] {
+  const raw = record.sources;
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error(`${context}.sources must be a non-empty array`);
+  }
+  return raw.map((entry, index) => {
+    const sourceContext = `${context}.sources[${index}]`;
+    const source = asRecord(entry, sourceContext);
+    return {
+      addon: readString(source, 'addon', sourceContext),
+      catalog: readString(source, 'catalog', sourceContext),
+      weight: readWeight(source.weight, sourceContext),
+    };
+  });
 }
 
 function readPositiveInteger(
@@ -143,6 +202,40 @@ function readPlayability(record: Record<string, unknown>, context: string): Rail
   return config;
 }
 
+function readBrowsableRail(
+  record: Record<string, unknown>,
+  context: string,
+  type: 'addon_catalog' | 'composite_list',
+): BrowsableRail {
+  const id = readString(record, 'id', context);
+  const label = optionalLabel(record, id);
+  const content_type = readString(record, 'content_type', context);
+  const base = {
+    id,
+    label,
+    tab: readTab(record, content_type, context),
+    content_type,
+    limit: readLimit(record),
+    playability: readPlayability(record, context),
+    enabled: true as const,
+  };
+
+  if (type === 'addon_catalog') {
+    return {
+      ...base,
+      type,
+      addon: readString(record, 'addon', context),
+      catalog: readString(record, 'catalog', context),
+    };
+  }
+
+  return {
+    ...base,
+    type,
+    sources: readSources(record, context),
+  };
+}
+
 function readRail(value: unknown, index: number): RailDefinition {
   const context = `rails[${index}]`;
   const record = asRecord(value, context);
@@ -155,21 +248,11 @@ function readRail(value: unknown, index: number): RailDefinition {
     return { id, label, type, enabled: false };
   }
 
-  if (type !== 'addon_catalog') {
-    throw new Error(`${context}.type ${type} is not enabled for N2`);
+  if (type === 'addon_catalog' || type === 'composite_list') {
+    return readBrowsableRail(record, context, type);
   }
 
-  return {
-    id,
-    label,
-    type,
-    addon: readString(record, 'addon', context),
-    catalog: readString(record, 'catalog', context),
-    content_type: readString(record, 'content_type', context),
-    limit: readLimit(record),
-    playability: readPlayability(record, context),
-    enabled: true,
-  };
+  throw new Error(`${context}.type ${type} is not enabled for browse rails`);
 }
 
 export async function loadRailConfig(
@@ -196,8 +279,47 @@ export async function loadRailConfig(
   return { version, rails };
 }
 
-export function enabledAddonRails(config: RailConfig): AddonCatalogRail[] {
-  return config.rails.filter((rail): rail is AddonCatalogRail => (
-    rail.enabled && rail.type === 'addon_catalog'
+export function enabledBrowsableRails(config: RailConfig): BrowsableRail[] {
+  return config.rails.filter((rail): rail is BrowsableRail => (
+    rail.enabled && (rail.type === 'addon_catalog' || rail.type === 'composite_list')
   ));
+}
+
+/** @deprecated use enabledBrowsableRails */
+export function enabledAddonRails(config: RailConfig): BrowsableRail[] {
+  return enabledBrowsableRails(config);
+}
+
+export function enabledBrowsableRailsForTab(
+  config: RailConfig,
+  tab?: CatalogTab,
+): BrowsableRail[] {
+  const rails = enabledBrowsableRails(config);
+  if (!tab) {
+    return rails;
+  }
+  return rails.filter((rail) => rail.tab === tab);
+}
+
+/** @deprecated use enabledBrowsableRailsForTab */
+export function enabledAddonRailsForTab(
+  config: RailConfig,
+  tab?: CatalogTab,
+): BrowsableRail[] {
+  return enabledBrowsableRailsForTab(config, tab);
+}
+
+export function parseCatalogTab(value: string | null | undefined): CatalogTab | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const tab = value.trim() as CatalogTab;
+  return CATALOG_TABS.has(tab) ? tab : undefined;
+}
+
+export function railSourceSummary(rail: BrowsableRail): CatalogSourceRef[] {
+  if (rail.type === 'addon_catalog') {
+    return [{ addon: rail.addon, catalog: rail.catalog, weight: 1 }];
+  }
+  return rail.sources;
 }

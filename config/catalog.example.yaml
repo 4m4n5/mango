@@ -1,76 +1,183 @@
 # mango catalog rails — copy to /etc/mango/catalog.yaml on the Pi
 #
-# N2: five rails from TWO addon sources (smoke breadth before full catalog mgmt).
-# Addon names must match /etc/mango/stremio-export.json exactly.
+# N2b: Movies | TV Shows tabs · 6 predefined discover rails per tab.
+# composite_list merges multiple addon catalogs per theme (weighted, deduped).
+# Sources validated on Pi AIOMetadata manifest (2026-06-19).
 #
 # N3c playability defaults per enabled rail:
 #   display_limit: 12        # posters served to launcher after verification
-#   min_display: 8           # low-water threshold
+#   min_display: 8           # low-water threshold (6 for niche rails)
 #   ingest_multiplier: 5     # indexer candidates = rail.limit x multiplier
-#   pool_target: 60          # steady-state target after wider source ingestion
+#   pool_target: 20          # steady-state verified pool per rail
 #
-# Current Pi bootstrap target is 20 per rail. N3c-S2 measured trending-india at
-# 24 verified titles from its 97-title upstream page, so 60 is not reachable
-# for that rail until N3c adds wider/fallback sources.
-#
-# Later: auto-import all AIOMetadata catalogs (~31), reorder UI, enable/disable per rail.
+# Addon names must match /etc/mango/stremio-export.json exactly.
 
-version: 1
+version: 2
 
 rails:
-  # --- AIOMetadata | ElfHosted (India / regional) ---
-  - id: trending-india
+  # ── Movies tab ──────────────────────────────────────────────────────────────
+
+  - id: movies-global-popular
+    tab: movies
+    label: popular worldwide
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: top, weight: 0.6 }
+      - { addon: Cinemeta, catalog: year, weight: 0.4 }
+    playability:
+      pool_target: 20
+      ingest_multiplier: 4
+
+  - id: movies-india-trending
+    tab: movies
     label: trending in india
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: "AIOMetadata  | ElfHosted", catalog: custom.in_rdata_indiastreams.movie.trendingmovies, weight: 0.5 }
+      - { addon: "AIOMetadata  | ElfHosted", catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.3 }
+      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.88302, weight: 0.2 }
+    playability:
+      pool_target: 20
+      ingest_multiplier: 6
+
+  - id: movies-classics
+    tab: movies
+    label: classics & top rated
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: imdbRating, weight: 0.7 }
+      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.83666, weight: 0.3 }
+    playability:
+      pool_target: 20
+      ingest_multiplier: 4
+
+  - id: movies-comedy
+    tab: movies
+    label: comedy & feel-good
     type: addon_catalog
     addon: "AIOMetadata  | ElfHosted"
-    catalog: custom.in_rdata_indiastreams.movie.trendingmovies
+    catalog: mdblist.91223
     content_type: movie
     limit: 20
     playability:
-      pool_target: 20
+      pool_target: 18
+      ingest_multiplier: 6
 
-  - id: popular-india
-    label: trending movies
+  - id: movies-quick-watches
+    tab: movies
+    label: quick watches
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.83668, weight: 0.7 }
+      - { addon: Cinemeta, catalog: year, weight: 0.3 }
+    playability:
+      min_display: 6
+      pool_target: 15
+      ingest_multiplier: 8
+
+  - id: movies-documentaries
+    tab: movies
+    label: documentaries
     type: addon_catalog
     addon: "AIOMetadata  | ElfHosted"
-    catalog: mdblist.88302
+    catalog: mdblist.128051
     content_type: movie
     limit: 20
     playability:
-      pool_target: 20
+      min_display: 6
+      pool_target: 15
+      ingest_multiplier: 8
 
-  - id: recommended-india
-    label: recommended indian movies
+  # ── TV Shows tab ────────────────────────────────────────────────────────────
+
+  - id: series-global-popular
+    tab: series
+    label: popular worldwide
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: top, weight: 0.6 }
+      - { addon: Cinemeta, catalog: year, weight: 0.4 }
+    playability:
+      pool_target: 20
+      ingest_multiplier: 4
+
+  - id: series-india-picks
+    tab: series
+    label: indian tv picks
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: "AIOMetadata  | ElfHosted", catalog: custom.in_rdata_indiastreams.series.atpmub, weight: 0.6 }
+      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.88303, weight: 0.4 }
+    playability:
+      pool_target: 20
+      ingest_multiplier: 6
+
+  - id: series-classics
+    tab: series
+    label: classics & top rated
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: imdbRating, weight: 0.7 }
+      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.88303, weight: 0.3 }
+    playability:
+      pool_target: 20
+      ingest_multiplier: 4
+
+  - id: series-comedy
+    tab: series
+    label: comedy & casual
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.91224, weight: 0.6 }
+      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.84401, weight: 0.4 }
+    playability:
+      pool_target: 18
+      ingest_multiplier: 6
+
+  - id: series-miniseries
+    tab: series
+    label: limited series
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.130153, weight: 0.6 }
+      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.130152, weight: 0.4 }
+    playability:
+      min_display: 6
+      pool_target: 15
+      ingest_multiplier: 8
+
+  - id: series-documentaries
+    tab: series
+    label: documentaries
     type: addon_catalog
     addon: "AIOMetadata  | ElfHosted"
-    catalog: custom.in_rdata_indiastreams.movie.recmov
-    content_type: movie
+    catalog: mdblist.128052
+    content_type: series
     limit: 20
     playability:
-      pool_target: 20
+      min_display: 6
+      pool_target: 15
+      ingest_multiplier: 8
 
-  # --- Cinemeta (global discover) ---
-  - id: popular-global
-    label: popular
-    type: addon_catalog
-    addon: Cinemeta
-    catalog: top
-    content_type: movie
-    limit: 20
-    playability:
-      pool_target: 20
-
-  - id: featured-global
-    label: featured
-    type: addon_catalog
-    addon: Cinemeta
-    catalog: imdbRating
-    content_type: movie
-    limit: 20
-    playability:
-      pool_target: 20
-
-  # N4 — Continue watching (disabled for N2 gate)
+  # N4 — Continue watching (disabled until library sync)
   - id: continue
     label: continue watching
     type: stremio_library

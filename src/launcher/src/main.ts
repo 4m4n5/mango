@@ -2,11 +2,12 @@ import "./style.css";
 import { FocusGrid } from "./focus";
 import { loadCatalogRails } from "./catalog";
 import { DetailController } from "./detail";
-import { buildHomeRails, type CatalogState, type HomeOptions } from "./home";
+import { buildHomeRails, buildBrowseTabs, type CatalogState, type HomeOptions } from "./home";
 import { startVoiceHud } from "./voice-hud";
-import type { ApiInfo, AppCard, ContentCard, LaunchAction } from "./types";
+import type { ApiInfo, AppCard, ContentCard, LaunchAction, BrowseTab } from "./types";
 
 const homeView = mustGet<HTMLElement>("home-view");
+const browseTabsEl = mustGet<HTMLElement>("browse-tabs");
 const railsEl = mustGet<HTMLElement>("rails");
 const detailView = mustGet<HTMLElement>("detail-view");
 const detailPoster = mustGet<HTMLImageElement>("detail-poster");
@@ -23,6 +24,7 @@ const backButton = mustGet<HTMLButtonElement>("back-button");
 let inSettings = false;
 let launchInFlight = false;
 let homeOptions: HomeOptions = { fallbackStremio: false, legacyYoutube: false };
+let activeBrowseTab: BrowseTab = "movies";
 let catalogState: CatalogState = { status: "loading" };
 let catalogRetryTimer: number | undefined;
 
@@ -67,11 +69,27 @@ function init(): void {
 }
 
 function renderHome(): void {
-  focusGridRows = buildHomeRails(railsEl, {
-    onContentSelect: handleContentSelect,
-    onAppSelect: handleAppSelect,
-  }, homeOptions, catalogState);
+  const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
+  focusGridRows = [
+    tabButtons,
+    ...buildHomeRails(railsEl, {
+      onContentSelect: handleContentSelect,
+      onAppSelect: handleAppSelect,
+    }, {
+      ...homeOptions,
+      browseTab: activeBrowseTab,
+      onBrowseTabChange: handleBrowseTabChange,
+    }, catalogState),
+  ];
   focusGrid.setRows(focusGridRows);
+}
+
+function handleBrowseTabChange(tab: BrowseTab): void {
+  if (tab === activeBrowseTab) {
+    return;
+  }
+  activeBrowseTab = tab;
+  void loadCatalog();
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -213,7 +231,7 @@ async function loadCatalog(): Promise<void> {
   catalogState = { status: "loading" };
   renderHome();
   try {
-    const rails = await loadCatalogRails();
+    const rails = await loadCatalogRails(activeBrowseTab);
     catalogState = { status: "ready", rails };
     renderHome();
     const itemCount = rails.reduce((total, rail) => total + rail.cards.length, 0);

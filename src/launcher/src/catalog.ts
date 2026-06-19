@@ -1,10 +1,11 @@
 import type { ContentCard, ContentRail } from "./types";
 import { couchSafeCatalogMessage } from "./catalog-errors";
+import type { BrowseTab } from "./types";
 
 const RAIL_FETCH_STAGGER_MS = 400;
 
-function isElfHostedRail(rail: { addon?: string }): boolean {
-  return /elfhosted/i.test(rail.addon || "");
+function isElfHostedRail(rail: { sources?: Array<{ addon?: string }> }): boolean {
+  return (rail.sources || []).some((source) => /elfhosted/i.test(source.addon || ""));
 }
 
 function delay(ms: number): Promise<void> {
@@ -15,10 +16,9 @@ interface RailSummaryResponse {
   rails: Array<{
     id: string;
     label: string;
-    type: "addon_catalog";
-    addon: string;
-    catalog: string;
+    type: "addon_catalog" | "composite_list";
     content_type: string;
+    sources: Array<{ addon: string; catalog: string; weight: number }>;
   }>;
 }
 
@@ -64,8 +64,10 @@ export interface PlayResult {
   error?: string;
 }
 
-export async function loadCatalogRails(): Promise<ContentRail[]> {
-  const summary = await fetchJson<RailSummaryResponse>("/api/catalog/rails");
+export async function loadCatalogRails(tab: BrowseTab = "movies"): Promise<ContentRail[]> {
+  const summary = await fetchJson<RailSummaryResponse>(
+    `/api/catalog/rails?tab=${encodeURIComponent(tab)}`,
+  );
   const ordered = [...summary.rails].sort((left, right) => {
     const leftElf = isElfHostedRail(left) ? 1 : 0;
     const rightElf = isElfHostedRail(right) ? 1 : 0;
