@@ -158,11 +158,17 @@ bash scripts/pi-pre-couch-gate.sh
 
 Do not use `git reset --hard` unless the Pi-local edits are confirmed disposable.
 
-## Current Blockers
+## Current Blockers (audit 2026-06-19)
 
-- Pi `~/mango` worktree is dirty and cannot fast-forward to N3d commits.
-- Pi-local AIOStreams configure UI must be completed with TorBox, Real-Debrid, and Easynews.
-- Pi-local AIOLists configure UI must import the MDBList rows in `scripts/phase-n3d/map-mdblist-catalogs.md`.
-- `/etc/mango/stremio-export.json` must contain local `AIOStreams`, `AIOLists`, and operator-selected `India OTT` manifest URLs.
-- India OTT catalog ids must be verified against the selected manifest; the repo yaml keeps the previous IndiaStreams ids as placeholders.
-- S5/S6 Pi gate evidence is pending until the operator configuration above is complete.
+| # | Blocker | Action |
+|---|---------|--------|
+| 1 | **Docker not installed** on Pi | `bash scripts/phase-n3d/bootstrap-docker.sh` (sudo password required) |
+| 2 | **stremio-export.json** still ElfHosted | Configure local AIOStreams → copy manifest; add AIOLists + India OTT |
+| 3 | **deploy/aiostreams/.env** missing | `cp deploy/aiostreams/.env.example deploy/aiostreams/.env` + `openssl rand -hex 32` |
+| 4 | **Operator configure UIs** not done | AIOStreams TB/RD/Easynews; AIOLists mdblists per `map-mdblist-catalogs.md` |
+| 5 | **playability.db stale** | 11 verified / 5 old rails — re-run maintenance after stream plane healthy |
+| 6 | **MANGO_SELF_HOSTED_ADDONS** unset | `export MANGO_SELF_HOSTED_ADDONS=1` in voice.env |
+
+Run anytime: `bash scripts/phase-n3d/diag-self-hosted.sh`
+
+Pi repo synced to `550a05c` via `git reset --hard origin/feat/native-experience` (tar-deploy state discarded).

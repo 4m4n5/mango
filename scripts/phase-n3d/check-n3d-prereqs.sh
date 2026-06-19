@@ -50,13 +50,44 @@ check_port() {
 check_config_key_name() {
   local pattern="$1" label="$2" file="${3:-/etc/mango/config.yaml}"
   if [[ ! -f "$file" ]]; then
-    fail "missing $file"
+    warn "missing $file (debrid keys may live in AIOStreams configure UI instead)"
     return 0
   fi
   if grep -Eiq "$pattern" "$file"; then
     pass "$label key name present in config"
   else
-    fail "$label key name missing from config"
+    warn "$label key name not in config (configure in AIOStreams UI if using N3d)"
+  fi
+}
+
+check_stremio_export() {
+  local file="/etc/mango/stremio-export.json"
+  if [[ ! -f "$file" ]]; then
+    fail "missing $file"
+    return 0
+  fi
+  if python3 - "$file" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+names = [str(a.get("name") or "") for a in data.get("addons", [])]
+errors = []
+if any("ElfHosted" in n for n in names):
+    errors.append("ElfHosted addons still present")
+if "AIOStreams" not in names:
+    errors.append("AIOStreams addon missing")
+if not any(
+    a.get("name") == "AIOStreams"
+    and str(a.get("manifestUrl", "")).startswith("http://127.0.0.1:3035")
+    for a in data.get("addons", [])
+):
+    errors.append("AIOStreams manifest not localhost:3035")
+if errors:
+    raise SystemExit("; ".join(errors))
+PY
+  then
+    pass "stremio-export wired for local AIOStreams"
+  else
+    fail "stremio-export not migrated to N3d (see configure-aiostreams.md)"
   fi
 }
 
@@ -75,6 +106,7 @@ check_port 3036 "AIOLists" "http://127.0.0.1:3036/"
 check_config_key_name "torbox|tb_" "TorBox"
 check_config_key_name "real[-_ ]?debrid|rd_" "Real-Debrid"
 check_config_key_name "easynews|usenet" "Easynews"
+check_stremio_export
 
 if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
   pass "MANGO_CATALOG=1"
