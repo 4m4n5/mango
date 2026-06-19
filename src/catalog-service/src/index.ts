@@ -94,6 +94,7 @@ async function handlePlay(
   try {
     const playback = await playWithFallback(result.streams, result.filters.applied, {
       allow_uncached_torbox: result.filters.torbox_uncached_fallback === true,
+      allow_rd_safe_unknown: result.filters.rd_safe_unknown_fallback === true,
     });
     return {
       ok: playback.ok,

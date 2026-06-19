@@ -63,14 +63,14 @@ function cleanError(error: unknown): string {
 export async function playWithFallback(
   streams: Stream[],
   config: PlayOrchestratorConfig,
-  options: { allow_uncached_torbox?: boolean } = {},
+  options: { allow_uncached_torbox?: boolean; allow_rd_safe_unknown?: boolean } = {},
 ): Promise<PlayOrchestratorResult> {
   const started = Date.now();
-  const uncachedTorbox = options.allow_uncached_torbox === true;
-  const wallMs = uncachedTorbox
+  const extendedBudget = options.allow_uncached_torbox === true || options.allow_rd_safe_unknown === true;
+  const wallMs = extendedBudget
     ? Math.max(config.auto_play_wall_ms, 60000)
     : config.auto_play_wall_ms;
-  const probeMs = uncachedTorbox
+  const probeMs = extendedBudget
     ? Math.max(config.auto_play_probe_ms, 20000)
     : config.auto_play_probe_ms;
   const deadline = started + wallMs;
