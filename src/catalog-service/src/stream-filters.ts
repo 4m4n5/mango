@@ -430,6 +430,18 @@ export function selectAutoPlayCandidates(
     }
   }
 
+  if (candidates.length === 0) {
+    for (const stream of streams) {
+      if (seen.has(stream.url)) continue;
+      if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') continue;
+      seen.add(stream.url);
+      candidates.push(stream);
+      if (candidates.length >= config.auto_play_max_attempts) {
+        break;
+      }
+    }
+  }
+
   return candidates;
 }
 

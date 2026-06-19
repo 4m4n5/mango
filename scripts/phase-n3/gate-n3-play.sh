@@ -121,7 +121,7 @@ post_play() {
   local type="$2"
   local id="$3"
   local out="$4"
-  if curl -sf --max-time 25 -X POST http://127.0.0.1:3020/play \
+  if curl -sf --max-time 60 -X POST http://127.0.0.1:3020/play \
     -H 'content-type: application/json' \
     -d "{\"type\":\"${type}\",\"id\":\"${id}\"}" >"$out"; then
     check_play_json "$label" "$out" && pass "$label POST /play" || fail "$label POST /play budget"

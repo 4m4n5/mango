@@ -1,6 +1,6 @@
 {
   "exclude_uncached_debrid": true,
-  "strict_unknown_cache": true,
+  "strict_unknown_cache": false,
   "max_quality": "1080p",
   "exclude_remux": true,
   "include_uncached": false,
