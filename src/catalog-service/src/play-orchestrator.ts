@@ -68,10 +68,10 @@ export async function playWithFallback(
   const started = Date.now();
   const uncachedTorbox = options.allow_uncached_torbox === true;
   const wallMs = uncachedTorbox
-    ? Math.max(config.auto_play_wall_ms, 45000)
+    ? Math.max(config.auto_play_wall_ms, 60000)
     : config.auto_play_wall_ms;
   const probeMs = uncachedTorbox
-    ? Math.max(config.auto_play_probe_ms, 15000)
+    ? Math.max(config.auto_play_probe_ms, 20000)
     : config.auto_play_probe_ms;
   const deadline = started + wallMs;
   const candidates = selectAutoPlayCandidates(streams, config, options);

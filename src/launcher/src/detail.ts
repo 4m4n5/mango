@@ -85,6 +85,11 @@ export class DetailController {
         this.callbacks.onStatus("starting…");
       }
     }, 1200);
+    const cachingTimer = window.setTimeout(() => {
+      if (this.playToken === token && this.card?.id === card.id) {
+        this.callbacks.onStatus("caching stream on TorBox…");
+      }
+    }, 8000);
     try {
       const result = await playCard(card);
       const quality = result.stream?.quality ? ` · ${result.stream.quality}` : "";
@@ -93,6 +98,7 @@ export class DetailController {
       this.callbacks.onStatus("couldn't start playback. try another title.");
     } finally {
       window.clearTimeout(startingTimer);
+      window.clearTimeout(cachingTimer);
       this.playButton.disabled = false;
     }
   }
