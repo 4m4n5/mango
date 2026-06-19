@@ -430,7 +430,7 @@ export function selectAutoPlayCandidates(
     }
   }
 
-  if (candidates.length === 0) {
+  if (candidates.length < config.auto_play_max_attempts) {
     for (const stream of streams) {
       if (seen.has(stream.url)) continue;
       if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') continue;
