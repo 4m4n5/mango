@@ -36,6 +36,11 @@ export type TopUpRailResult = {
   }>;
 };
 
+export type TopUpRailOptions = {
+  poolTarget?: number;
+  candidateLimit?: number;
+};
+
 function candidateKey(candidate: CandidateMeta): string {
   return `${candidate.type}:${candidate.id}`;
 }
@@ -74,11 +79,36 @@ function uniqueCandidates(candidates: CandidateMeta[]): CandidateMeta[] {
   return unique;
 }
 
-export async function topUpRail(core: CatalogCore, railId: string): Promise<TopUpRailResult> {
+export async function topUpRail(
+  core: CatalogCore,
+  railId: string,
+  options: TopUpRailOptions = {},
+): Promise<TopUpRailResult> {
   const rail = core.addonRail(railId);
   const source = core.listSourceForRail(railId);
-  const candidateLimit = rail.limit * rail.playability.ingest_multiplier;
+  const candidateLimit = options.candidateLimit ?? rail.limit * rail.playability.ingest_multiplier;
+  const poolTarget = options.poolTarget ?? rail.playability.pool_target;
   const before = await getRailPlayabilityStatus(rail.id);
+  if (before.verified_pool >= poolTarget) {
+    return {
+      rail_id: rail.id,
+      label: rail.label,
+      ok: before.verified_pool >= rail.playability.min_display,
+      candidate_limit: candidateLimit,
+      pool_target: poolTarget,
+      min_display: rail.playability.min_display,
+      before,
+      after: before,
+      candidates_seen: 0,
+      linked_existing: 0,
+      verified: 0,
+      failed: 0,
+      skipped_existing: 0,
+      skipped_recent_failed: 0,
+      exhausted: false,
+      results: [],
+    };
+  }
   const poolKeys = await getRailPoolTitleKeys(rail.id);
   let verifiedPool = before.verified_pool;
   const candidates = uniqueCandidates(await source.candidates({ offset: 0, limit: candidateLimit }));
@@ -91,7 +121,7 @@ export async function topUpRail(core: CatalogCore, railId: string): Promise<TopU
   const now = Date.now();
 
   for (const [index, candidate] of candidates.entries()) {
-    if (verifiedPool >= rail.playability.pool_target) {
+    if (verifiedPool >= poolTarget) {
       break;
     }
 
@@ -175,7 +205,7 @@ export async function topUpRail(core: CatalogCore, railId: string): Promise<TopU
     label: rail.label,
     ok: after.verified_pool >= rail.playability.min_display,
     candidate_limit: candidateLimit,
-    pool_target: rail.playability.pool_target,
+    pool_target: poolTarget,
     min_display: rail.playability.min_display,
     before,
     after,
@@ -185,7 +215,7 @@ export async function topUpRail(core: CatalogCore, railId: string): Promise<TopU
     failed,
     skipped_existing: skippedExisting,
     skipped_recent_failed: skippedRecentFailed,
-    exhausted: after.verified_pool < rail.playability.pool_target,
+    exhausted: after.verified_pool < poolTarget,
     results,
   };
 }

@@ -8,7 +8,7 @@ function usage(): never {
   console.error([
     'usage:',
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
-    '  playability-indexer.ts top-up --rail <rail-id>',
+    '  playability-indexer.ts top-up --rail <rail-id> [--pool-target <n>] [--candidate-limit <n>]',
   ].join('\n'));
   process.exit(2);
 }
@@ -18,6 +18,16 @@ function readFlag(args: string[], name: string): string | null {
   if (index === -1) return null;
   const value = args[index + 1];
   return value && !value.startsWith('--') ? value : null;
+}
+
+function readPositiveIntegerFlag(args: string[], name: string): number | undefined {
+  const value = readFlag(args, name);
+  if (value === null) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    usage();
+  }
+  return parsed;
 }
 
 async function writeJsonAndExit(value: unknown, exitCode: number): Promise<never> {
@@ -50,9 +60,11 @@ async function main(): Promise<void> {
     if (!railId) {
       usage();
     }
+    const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
+    const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
 
     const core = await CatalogCore.create();
-    const result = await topUpRail(core, railId);
+    const result = await topUpRail(core, railId, { poolTarget, candidateLimit });
     await writeJsonAndExit(result, 0);
   }
 
