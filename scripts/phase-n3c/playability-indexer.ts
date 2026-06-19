@@ -9,6 +9,7 @@ function usage(): never {
     'usage:',
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
     '  playability-indexer.ts top-up --rail <rail-id> [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
   ].join('\n'));
   process.exit(2);
 }
@@ -57,13 +58,24 @@ async function main(): Promise<void> {
 
   if (command === 'top-up') {
     const railId = readFlag(args, '--rail');
-    if (!railId) {
+    const all = args.includes('--all');
+    if ((!railId && !all) || (railId && all)) {
       usage();
     }
     const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
     const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
 
     const core = await CatalogCore.create();
+    if (all) {
+      const rails = [];
+      for (const rail of core.addonRails()) {
+        rails.push(await topUpRail(core, rail.id, { poolTarget, candidateLimit }));
+      }
+      await writeJsonAndExit({ ok: true, rails }, 0);
+    }
+    if (!railId) {
+      usage();
+    }
     const result = await topUpRail(core, railId, { poolTarget, candidateLimit });
     await writeJsonAndExit(result, 0);
   }

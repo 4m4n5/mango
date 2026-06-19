@@ -2,6 +2,7 @@ import http from 'node:http';
 import { CatalogCore, CatalogError } from './core.js';
 import { playUrl } from './mpv.js';
 import { playWithFallback } from './play-orchestrator.js';
+import { invalidateTitle } from './playability/db.js';
 import {
   parseFilterOverridesFromQuery,
   type StreamFilterOverrides,
@@ -14,6 +15,8 @@ const BODY_LIMIT = 64 * 1024;
 type PlayBody = StreamFilterOverrides & {
   type?: string;
   id?: string;
+  rail_id?: string;
+  reason?: string;
   url?: string;
 };
 
@@ -51,6 +54,11 @@ function sendError(res: http.ServerResponse, error: unknown): void {
 
 function routeParts(url: URL): string[] {
   return url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
+}
+
+function isLocalRequest(req: http.IncomingMessage): boolean {
+  const address = req.socket.remoteAddress || '';
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
 async function readBody(req: http.IncomingMessage): Promise<PlayBody> {
@@ -114,6 +122,17 @@ async function handlePlay(
       filters: result.filters,
     };
   } catch (error) {
+    await invalidateTitle({
+      type: body.type,
+      id: body.id,
+      reason: 'play_failure',
+    }).catch((invalidateError) => {
+      console.warn(
+        `playability invalidate failed type=${body.type} id=${body.id}: ${
+          invalidateError instanceof Error ? invalidateError.message : String(invalidateError)
+        }`,
+      );
+    });
     if (error instanceof CatalogError) {
       error.details = {
         ...(error.details || {}),
@@ -143,6 +162,24 @@ async function main(): Promise<void> {
 
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'playability' && parts[1] === 'status') {
         sendJson(res, 200, await core.playabilityStatus());
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2 && parts[0] === 'playability' && parts[1] === 'invalidate') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'playability invalidate is localhost-only');
+        }
+        const body = await readBody(req);
+        if (!body.type || !body.id) {
+          throw new CatalogError(400, 'POST /playability/invalidate requires {type,id}');
+        }
+        await invalidateTitle({
+          rail_id: body.rail_id,
+          type: body.type,
+          id: body.id,
+          reason: body.reason || 'manual',
+        });
+        sendJson(res, 200, { ok: true, type: body.type, id: body.id });
         return;
       }
 

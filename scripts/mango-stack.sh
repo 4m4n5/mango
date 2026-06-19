@@ -127,6 +127,18 @@ start_catalog_service() {
   return 1
 }
 
+start_playability_topup() {
+  [[ "${MANGO_CATALOG:-0}" == "1" ]] || return 0
+  [[ "${MANGO_PLAYABILITY_TOPUP_ON_START:-0}" == "1" ]] || return 0
+  mkdir -p "$CACHE_DIR"
+  (
+    cd "$REPO_DIR"
+    nice -n 10 npm --prefix src/catalog-service exec tsx -- \
+      scripts/phase-n3c/playability-indexer.ts top-up --all
+  ) >"${CACHE_DIR}/playability-indexer.log" 2>&1 &
+  echo "playability indexer started in background (log: ${CACHE_DIR}/playability-indexer.log)"
+}
+
 stop_catalog_service() {
   if [[ -f "$CATALOG_PID" ]]; then
     kill "$(cat "$CATALOG_PID")" 2>/dev/null || true
@@ -140,6 +152,7 @@ stop_catalog_service() {
 start_stack() {
   stop_idle_media
   start_catalog_service
+  start_playability_topup
   bash scripts/phase1/start-mango-ui.sh
   if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
     bash scripts/phase2/start-voice-stack.sh

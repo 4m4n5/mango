@@ -89,6 +89,14 @@ export type RailSessionOptions = {
   displayLimit: number;
 };
 
+export type PlayabilityTriggerRecord = {
+  trigger_type: 'pool_low' | 'display_low' | 'stale' | 'config_change' | 'play_failure' | 'scheduled';
+  rail_id?: string | null;
+  type?: string | null;
+  id?: string | null;
+  reason?: string | null;
+};
+
 type StatusRow = {
   rail_id: string;
   pool_depth: number | null;
@@ -601,4 +609,93 @@ WHERE shown_at < @prune_before;
   } finally {
     db.close();
   }
+}
+
+export async function enqueuePlayabilityTrigger(record: PlayabilityTriggerRecord): Promise<void> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    db.prepare(`
+INSERT INTO playability_triggers (
+  created_at, trigger_type, rail_id, type, id_value, reason, handled_at
+) VALUES (
+  @created_at, @trigger_type, @rail_id, @type, @id_value, @reason, NULL
+);
+`).run({
+      created_at: nowMs(),
+      trigger_type: record.trigger_type,
+      rail_id: record.rail_id ?? null,
+      type: record.type ?? null,
+      id_value: record.id ?? null,
+      reason: record.reason ?? null,
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function invalidateTitle(record: {
+  rail_id?: string | null;
+  type: string;
+  id: string;
+  reason?: string | null;
+}): Promise<void> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const timestamp = nowMs();
+  try {
+    const transaction = db.transaction(() => {
+      db.prepare(`
+INSERT INTO titles (
+  type, id, status, verified_at, expires_at, fail_reason, best_source,
+  cache_status, debrid_service, probe_ms, win_url_hash, updated_at
+) VALUES (
+  @type, @id, 'stale', NULL, NULL, @reason, NULL, NULL, NULL, NULL, NULL, @updated_at
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  status = 'stale',
+  expires_at = NULL,
+  fail_reason = @reason,
+  updated_at = @updated_at;
+`).run({
+        type: record.type,
+        id: record.id,
+        reason: record.reason ?? 'invalidated',
+        updated_at: timestamp,
+      });
+
+      const sessionWhere = record.rail_id
+        ? 'rail_id = @rail_id AND type = @type AND id = @id'
+        : 'type = @type AND id = @id';
+      db.prepare(`
+DELETE FROM rail_session
+WHERE ${sessionWhere};
+`).run({
+        rail_id: record.rail_id ?? null,
+        type: record.type,
+        id: record.id,
+      });
+
+      db.prepare(`
+INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
+VALUES (@started_at, @rail_id, @type, @id_value, 'invalidate', 0, @outcome);
+`).run({
+        started_at: timestamp,
+        rail_id: record.rail_id ?? null,
+        type: record.type,
+        id_value: record.id,
+        outcome: record.reason ?? 'invalidated',
+      });
+    });
+    transaction();
+  } finally {
+    db.close();
+  }
+  await enqueuePlayabilityTrigger({
+    trigger_type: record.reason === 'play_failure' ? 'play_failure' : 'stale',
+    rail_id: record.rail_id ?? null,
+    type: record.type,
+    id: record.id,
+    reason: record.reason ?? 'invalidated',
+  });
 }
