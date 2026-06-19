@@ -427,7 +427,21 @@ export class CatalogCore {
     }
 
     const config = mergeFilterConfig(this.filterConfig, overrides);
-    const filtered = filterStreamsForPlay(raw.streams, config);
+    let filterContext: import('./stream-filters.js').StreamFilterContext = { contentType: type };
+    try {
+      const meta = await this.metaCached(type, id);
+      filterContext = {
+        contentType: type,
+        metaTitle: typeof meta.name === 'string'
+          ? meta.name
+          : typeof meta.title === 'string'
+            ? meta.title
+            : undefined,
+      };
+    } catch {
+      // title relevance filter skipped when meta unavailable
+    }
+    const filtered = filterStreamsForPlay(raw.streams, config, filterContext);
     if (filtered.streams.length === 0) {
       const hint = config.exclude_uncached_debrid
         ? ' try ?include_uncached=1 or set include_uncached in POST /play'

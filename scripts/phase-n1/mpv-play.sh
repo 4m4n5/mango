@@ -9,7 +9,7 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 usage() {
-  echo "usage: $0 --url <http-url> [--probe] [--timeout-ms 4000] | --stop" >&2
+  echo "usage: $0 --url <http-url> [--probe] [--timeout-ms 4000] [--min-duration-sec 600] | --stop" >&2
   exit 2
 }
 
@@ -17,12 +17,14 @@ URL=""
 STOP=false
 PROBE=false
 TIMEOUT_MS=15000
+MIN_DURATION_SEC=600
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="${2:-}"; shift 2 ;;
     --stop) STOP=true; shift ;;
     --probe) PROBE=true; shift ;;
     --timeout-ms) TIMEOUT_MS="${2:-}"; shift 2 ;;
+    --min-duration-sec) MIN_DURATION_SEC="${2:-}"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -35,9 +37,38 @@ fi
 
 [[ -n "$URL" ]] || usage
 [[ "$TIMEOUT_MS" =~ ^[0-9]+$ ]] || usage
+[[ "$MIN_DURATION_SEC" =~ ^[0-9]+$ ]] || usage
 
 now_ms() {
   python3 -c 'import time; print(int(time.time()*1000))'
+}
+
+mpv_property() {
+  local property="$1"
+  local reply
+  reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property "$property" 2>/dev/null || true)"
+  python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' <<<"$reply" 2>/dev/null || echo 0
+}
+
+playback_is_real() {
+  local playback_time="$1"
+  local duration
+  local min_duration="$MIN_DURATION_SEC"
+  if $PROBE; then
+    min_duration=5
+  fi
+  duration="$(mpv_property duration)"
+  python3 - "$playback_time" "$duration" "$min_duration" <<'PY'
+import sys
+playback = float(sys.argv[1] or 0)
+duration = float(sys.argv[2] or 0)
+min_duration = float(sys.argv[3] or 0)
+if playback < 1.5:
+    raise SystemExit(1)
+if duration > 0 and duration < min_duration:
+    raise SystemExit(2)
+raise SystemExit(0)
+PY
 }
 
 detect_hwdec() {
@@ -62,7 +93,7 @@ MODE="play"
 if $PROBE; then
   MODE="probe"
 fi
-echo "mpv-play: $URL_LABEL mode=$MODE timeout_ms=$TIMEOUT_MS hwdec=$HWDEC"
+echo "mpv-play: $URL_LABEL mode=$MODE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC"
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 
@@ -78,12 +109,24 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     REPLY="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property playback-time 2>/dev/null || true)"
     PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
-      END_MS="$(now_ms)"
-      echo "PASS: ttff_ms=$((END_MS - START_MS))"
-      if $PROBE; then
-        bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+      if playback_is_real "${PT:-0}"; then
+        END_MS="$(now_ms)"
+        echo "PASS: ttff_ms=$((END_MS - START_MS))"
+        if $PROBE; then
+          bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+        fi
+        exit 0
       fi
-      exit 0
+      DUR="$(mpv_property duration)"
+      local min_duration="$MIN_DURATION_SEC"
+      if $PROBE; then
+        min_duration=5
+      fi
+      if python3 -c "import sys; d=float('${DUR:-0}'); sys.exit(0 if d > 0 and d < float('${min_duration}') else 1)" 2>/dev/null; then
+        echo "FAIL: debrid_status_clip duration=${DUR}" >&2
+        bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+        exit 1
+      fi
     fi
   fi
   if ! kill -0 "$MPV_PID" 2>/dev/null; then

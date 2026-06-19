@@ -62,7 +62,14 @@ export type StreamFilterMeta = {
     remux: number;
     error_stream: number;
     rd_blocked_release: number;
+    title_mismatch: number;
+    series_pack_for_movie: number;
   };
+};
+
+export type StreamFilterContext = {
+  metaTitle?: string;
+  contentType?: string;
 };
 
 const DEFAULT_FILTERS_PATH = '/etc/mango/catalog-filters.json';
@@ -110,6 +117,34 @@ function parseQualityCap(value: unknown): QualityCap | null {
 
 const DEFAULT_DEBRID_PREFERENCE = ['torbox', 'realdebrid'];
 const DEFAULT_RD_BLOCKED_TAGS = ['webrip', 'web-dl', 'webdl', 'amzn'];
+const TITLE_STOP_WORDS = new Set(['the', 'and', 'of', 'a', 'an', 'in', 'on', 'to', 'for', 'part']);
+
+function metaTitleTokens(metaTitle: string): string[] {
+  return metaTitle
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length >= 2 && !TITLE_STOP_WORDS.has(token))
+    .sort((left, right) => right.length - left.length);
+}
+
+/** Reject London.Files-style false positives for The Kashmir Files. */
+export function streamMatchesMetaTitle(stream: Stream, metaTitle: string): boolean {
+  const tokens = metaTitleTokens(metaTitle);
+  if (tokens.length === 0) return true;
+  const haystack = streamHaystack(stream);
+  const primary = tokens[0];
+  if (primary.length >= 4 && !haystack.includes(primary)) return false;
+  const hits = tokens.filter((token) => haystack.includes(token)).length;
+  if (tokens.length === 1) return hits === 1;
+  return hits >= Math.ceil(tokens.length * 0.6);
+}
+
+export function isSeriesPackForMovie(stream: Stream, contentType: string | undefined): boolean {
+  if (contentType !== 'movie') return false;
+  const haystack = streamHaystack(stream);
+  return /\b(s\d{1,2}e\d{1,2}|\.s\d{1,2}\.|season\s*\d|complete.*\bs\d{1,2}\b|series)\b/i.test(haystack);
+}
 
 function defaultAutoPlayTiers(): AutoPlayTier[] {
   return [
@@ -486,6 +521,7 @@ function qualityRank(stream: Stream, cap: QualityCap | null): number {
 export function filterAndRankStreams(
   streams: Stream[],
   config: StreamFilterConfig & { include_uncached: boolean },
+  context: StreamFilterContext = {},
 ): { streams: Stream[]; meta: StreamFilterMeta } {
   const meta: StreamFilterMeta = {
     applied: config,
@@ -498,6 +534,8 @@ export function filterAndRankStreams(
       remux: 0,
       error_stream: 0,
       rd_blocked_release: 0,
+      title_mismatch: 0,
+      series_pack_for_movie: 0,
     },
   };
 
@@ -506,6 +544,14 @@ export function filterAndRankStreams(
     const debrid = isDebridStream(stream);
     const cacheStatus = parseDebridCacheStatus(stream);
 
+    if (context.metaTitle && !streamMatchesMetaTitle(stream, context.metaTitle)) {
+      meta.excluded.title_mismatch += 1;
+      continue;
+    }
+    if (isSeriesPackForMovie(stream, context.contentType)) {
+      meta.excluded.series_pack_for_movie += 1;
+      continue;
+    }
     if (config.exclude_error_streams && isErrorStream(stream)) {
       meta.excluded.error_stream += 1;
       continue;
@@ -558,10 +604,13 @@ function buildFallbackStreams(
   config: StreamFilterConfig & { include_uncached: boolean },
   predicate: (stream: Stream) => boolean,
   annotate: (stream: Stream) => Stream,
+  context: StreamFilterContext = {},
 ): Stream[] {
   const kept: Stream[] = [];
   for (const stream of streams) {
     if (!predicate(stream)) continue;
+    if (context.metaTitle && !streamMatchesMetaTitle(stream, context.metaTitle)) continue;
+    if (isSeriesPackForMovie(stream, context.contentType)) continue;
     if (config.exclude_error_streams && isErrorStream(stream)) continue;
     if (config.exclude_remux && isRemux(stream)) continue;
     if (qualityExceedsCap(stream, config.max_quality)) continue;
@@ -575,8 +624,9 @@ function buildFallbackStreams(
 export function filterStreamsForPlay(
   streams: Stream[],
   config: StreamFilterConfig & { include_uncached: boolean },
+  context: StreamFilterContext = {},
 ): { streams: Stream[]; meta: StreamFilterMeta } {
-  const primary = filterAndRankStreams(streams, config);
+  const primary = filterAndRankStreams(streams, config, context);
   if (primary.streams.length > 0 || config.include_uncached) {
     return primary;
   }
@@ -591,6 +641,7 @@ export function filterStreamsForPlay(
         debrid_service: 'torbox',
         cache_status: parseDebridCacheStatus(stream),
       }),
+      context,
     ).filter((stream) => !isLowQualityRelease(stream));
 
     if (torboxUncached.length > 0) {
@@ -615,6 +666,7 @@ export function filterStreamsForPlay(
         debrid_service: 'realdebrid',
         cache_status: 'unknown',
       }),
+      context,
     );
 
     if (rdSafe.length > 0) {
@@ -733,7 +785,8 @@ export function selectAutoPlayCandidates(
 export function pickPlayableStream(
   streams: Stream[],
   config: StreamFilterConfig & { include_uncached: boolean },
+  context: StreamFilterContext = {},
 ): { stream: Stream | null; meta: StreamFilterMeta } {
-  const { streams: filtered, meta } = filterAndRankStreams(streams, config);
+  const { streams: filtered, meta } = filterAndRankStreams(streams, config, context);
   return { stream: filtered[0] ?? null, meta };
 }

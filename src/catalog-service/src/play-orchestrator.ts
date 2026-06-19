@@ -63,7 +63,11 @@ function cleanError(error: unknown): string {
 export async function playWithFallback(
   streams: Stream[],
   config: PlayOrchestratorConfig,
-  options: { allow_uncached_torbox?: boolean; allow_rd_safe_unknown?: boolean } = {},
+  options: {
+    allow_uncached_torbox?: boolean;
+    allow_rd_safe_unknown?: boolean;
+    contentType?: string;
+  } = {},
 ): Promise<PlayOrchestratorResult> {
   const started = Date.now();
   const extendedBudget = options.allow_uncached_torbox === true || options.allow_rd_safe_unknown === true;
@@ -75,6 +79,7 @@ export async function playWithFallback(
     : config.auto_play_probe_ms;
   const deadline = started + wallMs;
   const candidates = selectAutoPlayCandidates(streams, config, options);
+  const minDurationSec = options.contentType === 'series' ? 600 : 2700;
   const attempts: PlayAttempt[] = [];
 
   if (candidates.length === 0) {
@@ -98,7 +103,7 @@ export async function playWithFallback(
         Math.max(probeMs, 6000),
         remainingBeforeProbe,
       );
-      const playback = await playUrl(stream.url, attemptBudget);
+      const playback = await playUrl(stream.url, attemptBudget, { minDurationSec });
       const attempt: PlayAttempt = {
         ...base,
         ok: true,
