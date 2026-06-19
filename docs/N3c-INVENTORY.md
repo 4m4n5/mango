@@ -20,6 +20,7 @@ Hit-rate promise: **100% on shown posters**, not all upstream titles (~25–40% 
 | `playability-indexer.ts refresh --all --mode full\|stale` | Global dedupe + parallel probe (maintenance) |
 | `playability-indexer.ts top-up --rail <id>` | Single-rail fill (couch background) |
 | `playability-maintenance.sh [--mode full\|stale]` | Stop UI, stop catalog-service, refresh, restore couch |
+| `fill-playability-db.sh` | **Preflight + sync catalog.yaml + `--mode full` maintenance** |
 | `playability-status.py --all` | Pool depth per rail |
 | `gate-n3c-verified-rails.sh` | Sampled play gate (2/rail default) |
 
@@ -62,5 +63,7 @@ cd src/catalog-service && npm run build   # do not copy node_modules from Mac
 sudo cp config/catalog.example.yaml /etc/mango/catalog.yaml
 cd src/launcher && npm run build
 MANGO_CATALOG=1 bash scripts/mango-refresh.sh
-bash scripts/phase-n3c/playability-maintenance.sh --mode full
+bash scripts/phase-n3c/fill-playability-db.sh
 ```
+
+`fill-playability-db.sh` = preflight → sync catalog yaml → `playability-maintenance.sh --mode full` → status report.
