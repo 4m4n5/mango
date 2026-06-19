@@ -14,6 +14,8 @@ if ! command -v tmux >/dev/null 2>&1; then
   exit 1
 fi
 
+bash "$REPO_DIR/scripts/phase2/ensure-orchestrator-venv.sh"
+
 tmux kill-session -t mango-orch 2>/dev/null || true
 tmux kill-session -t mango-companion 2>/dev/null || true
 
@@ -24,7 +26,8 @@ tmux new-session -d -s mango-companion \
 
 for _ in $(seq 1 30); do
   if curl -skf --max-time 1 https://127.0.0.1:8765/health >/dev/null 2>&1 \
-    && curl -skf --max-time 1 https://127.0.0.1:3001/ >/dev/null 2>&1; then
+    && curl -skf --max-time 1 https://127.0.0.1:3001/ >/dev/null 2>&1 \
+    && ss -tlnp 2>/dev/null | grep -q '127.0.0.1:8766'; then
     pkill -f "chromium.*mango-overlay.*127.0.0.1:3000/overlay/" 2>/dev/null || true
     echo "✓ voice stack up (tmux: mango-orch, mango-companion; launcher HUD only)"
     echo "  phone: https://${MANGO_PI_IP:-10.0.0.174}:3001"

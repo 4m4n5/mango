@@ -6,6 +6,7 @@ Voice orchestrator + companion HTTPS. See [`docs/PHASE2.md`](../../docs/PHASE2.m
 |--------|------|
 | `install-voice-deps.sh` | Once — system audio/TLS helpers |
 | `install-orchestrator-deps.sh` | Once — Python venv + pip |
+| `ensure-orchestrator-venv.sh` | Idempotent — create venv / install missing deps |
 | `download-piper-voice.sh` | Once — Piper ONNX voice model |
 | `start-orchestrator.sh` | Orchestrator :8765 (WSS) + :8766 (launcher HUD) |
 | `verify-voice-ready.sh` | Smoke test voice stack |

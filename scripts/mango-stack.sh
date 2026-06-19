@@ -202,6 +202,16 @@ status_stack() {
     && echo "chromium: up" || echo "chromium: down"
   pgrep -f 'playability-indexer' >/dev/null 2>&1 \
     && echo "indexer: running (competes with mpv)" || true
+  if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
+    if curl -skf --max-time 2 https://127.0.0.1:8765/health >/dev/null 2>&1 \
+      && ss -tlnp 2>/dev/null | grep -q '127.0.0.1:8766'; then
+      echo "voice: up (:8765 WSS, :8766 HUD)"
+    else
+      echo "voice: down — bash scripts/phase2/start-voice-stack.sh"
+    fi
+  else
+    echo "voice: disabled"
+  fi
 }
 
 case "${1:-}" in

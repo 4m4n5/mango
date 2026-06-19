@@ -22,10 +22,7 @@ fi
 
 cd "$ORCH_DIR"
 
-if [[ ! -d "$VENV" ]]; then
-  echo "Run: bash scripts/phase2/install-orchestrator-deps.sh"
-  exit 1
-fi
+bash "$REPO_DIR/scripts/phase2/ensure-orchestrator-venv.sh"
 
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
