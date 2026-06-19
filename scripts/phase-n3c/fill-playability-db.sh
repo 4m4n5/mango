@@ -43,10 +43,10 @@ if [[ "$SKIP_SYNC" != "1" ]]; then
   fi
   if [[ -f "$ETC" ]] && cmp -s "$EXAMPLE" "$ETC"; then
     echo "OK: /etc/mango/catalog.yaml matches repo example"
+  elif sudo -n cp "$EXAMPLE" "$ETC" 2>/dev/null; then
+    echo "OK: catalog.yaml synced to /etc/mango/"
   else
-    echo "sync: sudo cp config/catalog.example.yaml → /etc/mango/catalog.yaml"
-    sudo cp "$EXAMPLE" "$ETC"
-    echo "OK: catalog.yaml synced"
+    echo "WARN: could not sudo cp catalog.yaml — maintenance uses repo example when /etc differs" >&2
   fi
 else
   echo "skip: catalog yaml sync (MANGO_FILL_SKIP_CATALOG_SYNC=1)"
