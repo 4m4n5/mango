@@ -81,6 +81,17 @@
 
 ---
 
+## Follow-ups (post-N2)
+
+| ID | Item | Stage | Notes |
+|----|------|-------|-------|
+| N2-F1 | Private ElfHosted manifests on Pi | **Ops** | [`ELFHOSTED.md`](ELFHOSTED.md) — AIOMetadata + AIOStreams ~$9/mo each |
+| N2-F2 | Rail cache + stagger (code) | **Shipped** | `MANGO_RAIL_*` env; launcher loads Cinemeta before ElfHosted |
+| N2-F3 | Couch-safe catalog errors | **Shipped** | No raw rate-limit text on launcher |
+| N2-F4 | N3c verified rails | N3c | Reduces live addon calls at browse time |
+
+---
+
 ## Prereq status (Pi)
 
 | Check | Status | Notes |

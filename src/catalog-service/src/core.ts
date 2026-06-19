@@ -16,6 +16,14 @@ import {
 } from './rails.js';
 import { getPlayabilityStatus, type PlayabilityStatus } from './playability/db.js';
 import { AddonCatalogListSource, type ListSource } from './playability/list-source.js';
+import {
+  CatalogError,
+  couchSafeCatalogMessage,
+  isAddonRateLimitMessage,
+  isElfHostedAddonName,
+} from './catalog-errors.js';
+
+export { CatalogError } from './catalog-errors.js';
 
 type AddonExport = {
   name?: string;
@@ -95,17 +103,34 @@ const DEFAULT_EXPORT_PATH = '/etc/mango/stremio-export.json';
 const REQUEST_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_REQUEST_TIMEOUT_MS || 20000);
 const META_CACHE_TTL_MS = Number(process.env.MANGO_META_CACHE_TTL_MS || 10 * 60 * 1000);
 const STREAM_CACHE_TTL_MS = Number(process.env.MANGO_STREAM_CACHE_TTL_MS || 10 * 60 * 1000);
+const RAIL_ITEMS_CACHE_TTL_MS = Number(process.env.MANGO_RAIL_ITEMS_CACHE_TTL_MS || 45 * 60 * 1000);
+const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 3);
+const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 250);
 const STREAM_RESOLVE_BUDGET_MS = Number(process.env.MANGO_STREAM_RESOLVE_BUDGET_MS || 12000);
 
-export class CatalogError extends Error {
-  status: number;
-  details?: Record<string, unknown>;
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-  constructor(status: number, message: string, details?: Record<string, unknown>) {
-    super(message);
-    this.status = status;
-    this.details = details;
+async function mapInBatches<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+  betweenBatchesMs = 0,
+): Promise<R[]> {
+  const results: R[] = [];
+  const limit = Math.max(1, concurrency);
+  for (let offset = 0; offset < items.length; offset += limit) {
+    const batch = items.slice(offset, offset + limit);
+    const batchResults = await Promise.all(
+      batch.map((item, index) => mapper(item, offset + index)),
+    );
+    results.push(...batchResults);
+    if (betweenBatchesMs > 0 && offset + limit < items.length) {
+      await delay(betweenBatchesMs);
+    }
   }
+  return results;
 }
 
 function normalizeAddons(data: unknown): Array<{ name: string; manifestUrl: string }> {
@@ -135,10 +160,31 @@ async function fetchJson(url: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<u
       signal: controller.signal,
       headers: { accept: 'application/json' },
     });
+    const rawBody = await response.text();
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      let detail = rawBody.trim().slice(0, 200);
+      try {
+        const parsed = JSON.parse(rawBody) as { error?: unknown; message?: unknown };
+        if (typeof parsed.error === 'string') detail = parsed.error;
+        else if (typeof parsed.message === 'string') detail = parsed.message;
+      } catch {
+        // keep text snippet
+      }
+      const message = detail || `HTTP ${response.status}`;
+      if (response.status === 429 || isAddonRateLimitMessage(message)) {
+        throw new CatalogError(503, message, undefined, {
+          couchMessage: couchSafeCatalogMessage(message),
+        });
+      }
+      throw new Error(message);
     }
-    return await response.json();
+    return rawBody ? JSON.parse(rawBody) as unknown : {};
+  } catch (error) {
+    if (error instanceof CatalogError) throw error;
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`timeout after ${timeoutMs}ms`);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -286,6 +332,17 @@ export class CatalogCore {
     resolveMs: number;
     expiresAt: number;
   }>();
+  private readonly railItemsCache = new Map<string, {
+    payload: {
+      rail_id: string;
+      label: string;
+      items: RailItem[];
+      resolve_ms: number;
+      skipped: number;
+      cached?: boolean;
+    };
+    expiresAt: number;
+  }>();
 
   private constructor(
     private readonly coreStatus: CoreStatus,
@@ -388,7 +445,13 @@ export class CatalogCore {
     items: RailItem[];
     resolve_ms: number;
     skipped: number;
+    cached?: boolean;
   }> {
+    const cachedRail = this.railItemsCache.get(railId);
+    if (cachedRail && cachedRail.expiresAt > Date.now()) {
+      return { ...cachedRail.payload, cached: true };
+    }
+
     const started = Date.now();
     const rail = enabledAddonRails(this.requireRailConfig()).find((candidate) => candidate.id === railId);
     if (!rail) {
@@ -400,19 +463,42 @@ export class CatalogCore {
       throw new CatalogError(502, `${addon.name} does not expose catalog/${rail.content_type}`);
     }
 
-    const result = await fetchJson(resourceUrl(addon, 'catalog', rail.content_type, rail.catalog)) as {
-      metas?: unknown[];
-    };
+    let result: { metas?: unknown[] };
+    try {
+      result = await fetchJson(resourceUrl(addon, 'catalog', rail.content_type, rail.catalog)) as {
+        metas?: unknown[];
+      };
+    } catch (error) {
+      if (error instanceof CatalogError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new CatalogError(503, message, { rail_id: railId, addon: addon.name }, {
+        couchMessage: couchSafeCatalogMessage(message, { addon: addon.name }),
+      });
+    }
+
     const previews = (result.metas || []).slice(0, rail.limit);
-    const resolved = await Promise.all(previews.map((preview) => this.resolveRailItem(rail, addon, preview)));
+    const staggerMs = isElfHostedAddonName(addon.name) ? RAIL_META_STAGGER_MS : 0;
+    const resolved = await mapInBatches(
+      previews,
+      RAIL_META_CONCURRENCY,
+      (preview) => this.resolveRailItem(rail, addon, preview),
+      staggerMs,
+    );
     const items = resolved.filter((item): item is RailItem => item !== null);
-    return {
+    const payload = {
       rail_id: rail.id,
       label: rail.label,
       items,
       resolve_ms: Date.now() - started,
       skipped: previews.length - items.length,
     };
+    if (items.length > 0) {
+      this.railItemsCache.set(railId, {
+        payload,
+        expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
+      });
+    }
+    return payload;
   }
 
   async meta(type: string, id: string): Promise<Meta> {

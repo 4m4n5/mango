@@ -224,7 +224,7 @@ async function loadCatalog(): Promise<void> {
       message: error instanceof Error ? error.message : "catalog unavailable",
     };
     renderHome();
-    setStatus("catalog unavailable. retrying…");
+    setStatus("catalog is refreshing — try again in a moment.");
     catalogRetryTimer = window.setTimeout(() => {
       void loadCatalog();
     }, 5000);

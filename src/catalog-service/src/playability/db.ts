@@ -61,6 +61,34 @@ export type RailPoolEntry = {
   score: number;
 };
 
+export type RailSessionPoolItem = {
+  rail_id: string;
+  type: string;
+  id: string;
+  score: number;
+  mix_bucket: 'stable' | 'fresh';
+  slot: number;
+  session_id: string;
+  best_source: string | null;
+  cache_status: string | null;
+  debrid_service: string | null;
+  verified_at: number | null;
+  expires_at: number | null;
+};
+
+export type RailSessionSnapshot = {
+  rail_id: string;
+  session_id: string;
+  items: RailSessionPoolItem[];
+  verified_pool: number;
+};
+
+export type RailSessionOptions = {
+  railId: string;
+  sessionId: string;
+  displayLimit: number;
+};
+
 type StatusRow = {
   rail_id: string;
   pool_depth: number | null;
@@ -88,6 +116,23 @@ type RailPoolKeyRow = {
   id: string;
 };
 
+type RailPoolRow = {
+  rail_id: string;
+  type: string;
+  id: string;
+  score: number;
+  best_source: string | null;
+  cache_status: string | null;
+  debrid_service: string | null;
+  verified_at: number | null;
+  expires_at: number | null;
+};
+
+type RecentRow = {
+  type: string;
+  id: string;
+};
+
 function dbPath(): string {
   return process.env.MANGO_PLAYABILITY_DB || DEFAULT_DB_PATH;
 }
@@ -102,6 +147,19 @@ function nowMs(): number {
 
 function toNumber(value: number | null | undefined): number {
   return Number(value || 0);
+}
+
+function itemKey(item: { type: string; id: string }): string {
+  return `${item.type}:${item.id}`;
+}
+
+function shuffle<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
 }
 
 function emptyRailStatus(railId: string): PlayabilityRailStatus {
@@ -393,6 +451,153 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
       score: entry.score,
       ingested_at: nowMs(),
     });
+  } finally {
+    db.close();
+  }
+}
+
+export async function getOrCreateRailSession(
+  options: RailSessionOptions,
+): Promise<RailSessionSnapshot> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const now = nowMs();
+  const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
+  const displayLimit = Math.max(1, options.displayLimit);
+
+  try {
+    const selectSessionItems = db.prepare(`
+SELECT
+  rs.rail_id,
+  rs.type,
+  rs.id,
+  rp.score,
+  rs.mix_bucket,
+  rs.slot,
+  rs.session_id,
+  t.best_source,
+  t.cache_status,
+  t.debrid_service,
+  t.verified_at,
+  t.expires_at
+FROM rail_session rs
+JOIN rail_pool rp ON rp.rail_id = rs.rail_id AND rp.type = rs.type AND rp.id = rs.id
+JOIN titles t ON t.type = rs.type AND t.id = rs.id
+WHERE rs.rail_id = @rail_id
+  AND rs.session_id = @session_id
+  AND t.status = 'verified'
+  AND COALESCE(t.expires_at, 0) > @now
+ORDER BY rs.slot ASC;
+`);
+    const existing = selectSessionItems.all({
+      rail_id: options.railId,
+      session_id: options.sessionId,
+      now,
+    }) as RailSessionPoolItem[];
+
+    const pool = db.prepare(`
+SELECT
+  rp.rail_id,
+  rp.type,
+  rp.id,
+  rp.score,
+  t.best_source,
+  t.cache_status,
+  t.debrid_service,
+  t.verified_at,
+  t.expires_at
+FROM rail_pool rp
+JOIN titles t ON t.type = rp.type AND t.id = rp.id
+WHERE rp.rail_id = @rail_id
+  AND t.status = 'verified'
+  AND COALESCE(t.expires_at, 0) > @now
+ORDER BY rp.score DESC;
+`).all({ rail_id: options.railId, now }) as RailPoolRow[];
+
+    if (existing.length > 0) {
+      return {
+        rail_id: options.railId,
+        session_id: options.sessionId,
+        items: existing,
+        verified_pool: pool.length,
+      };
+    }
+
+    const recentRows = db.prepare(`
+SELECT type, id
+FROM recently_shown
+WHERE rail_id = @rail_id AND shown_at >= @cooldown_cutoff;
+`).all({
+      rail_id: options.railId,
+      cooldown_cutoff: cooldownCutoff,
+    }) as RecentRow[];
+    const recent = new Set(recentRows.map(itemKey));
+    const stableTarget = Math.ceil(displayLimit * 0.7);
+    const stable = pool
+      .filter((item) => !recent.has(itemKey(item)))
+      .slice(0, stableTarget);
+    const chosen = new Map(stable.map((item) => [itemKey(item), item]));
+    const fresh = shuffle(pool.filter((item) => !chosen.has(itemKey(item))))
+      .slice(0, Math.max(0, displayLimit - stable.length));
+    const selected = [
+      ...stable.map((item) => ({ ...item, mix_bucket: 'stable' as const })),
+      ...fresh.map((item) => ({ ...item, mix_bucket: 'fresh' as const })),
+    ].slice(0, displayLimit);
+
+    const rows = selected.map((item, slot): RailSessionPoolItem => ({
+      ...item,
+      slot,
+      session_id: options.sessionId,
+    }));
+
+    const transaction = db.transaction(() => {
+      db.prepare(`
+DELETE FROM rail_session
+WHERE rail_id = @rail_id AND session_id = @session_id;
+`).run({
+        rail_id: options.railId,
+        session_id: options.sessionId,
+      });
+
+      const insertSession = db.prepare(`
+INSERT INTO rail_session (rail_id, type, id, slot, mix_bucket, session_id, created_at)
+VALUES (@rail_id, @type, @id, @slot, @mix_bucket, @session_id, @created_at);
+`);
+      const upsertRecent = db.prepare(`
+INSERT INTO recently_shown (rail_id, type, id, shown_at)
+VALUES (@rail_id, @type, @id, @shown_at)
+ON CONFLICT(rail_id, type, id) DO UPDATE SET shown_at = excluded.shown_at;
+`);
+      for (const row of rows) {
+        insertSession.run({
+          rail_id: row.rail_id,
+          type: row.type,
+          id: row.id,
+          slot: row.slot,
+          mix_bucket: row.mix_bucket,
+          session_id: row.session_id,
+          created_at: now,
+        });
+        upsertRecent.run({
+          rail_id: row.rail_id,
+          type: row.type,
+          id: row.id,
+          shown_at: now,
+        });
+      }
+      db.prepare(`
+DELETE FROM recently_shown
+WHERE shown_at < @prune_before;
+`).run({ prune_before: now - 14 * 24 * 60 * 60 * 1000 });
+    });
+    transaction();
+
+    return {
+      rail_id: options.railId,
+      session_id: options.sessionId,
+      items: rows,
+      verified_pool: pool.length,
+    };
   } finally {
     db.close();
   }

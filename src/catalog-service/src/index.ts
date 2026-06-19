@@ -39,11 +39,14 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
 
 function sendError(res: http.ServerResponse, error: unknown): void {
   if (error instanceof CatalogError) {
-    sendJson(res, error.status, { error: error.message, ...(error.details || {}) });
+    sendJson(res, error.status, {
+      error: error.couchMessage,
+      ...(error.details || {}),
+    });
     return;
   }
   const message = error instanceof Error ? error.message : String(error);
-  sendJson(res, 500, { error: message });
+  sendJson(res, 500, { error: 'catalog temporarily unavailable' });
 }
 
 function routeParts(url: URL): string[] {

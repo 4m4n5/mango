@@ -1,4 +1,15 @@
 import type { ContentCard, ContentRail } from "./types";
+import { couchSafeCatalogMessage } from "./catalog-errors";
+
+const RAIL_FETCH_STAGGER_MS = 400;
+
+function isElfHostedRail(rail: { addon?: string }): boolean {
+  return /elfhosted/i.test(rail.addon || "");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 interface RailSummaryResponse {
   rails: Array<{
@@ -55,9 +66,25 @@ export interface PlayResult {
 
 export async function loadCatalogRails(): Promise<ContentRail[]> {
   const summary = await fetchJson<RailSummaryResponse>("/api/catalog/rails");
-  const rails = await Promise.all(summary.rails.map(async (rail) => {
-    const data = await fetchJson<RailItemsResponse>(`/api/catalog/rails/${encodeURIComponent(rail.id)}/items`);
-    return {
+  const ordered = [...summary.rails].sort((left, right) => {
+    const leftElf = isElfHostedRail(left) ? 1 : 0;
+    const rightElf = isElfHostedRail(right) ? 1 : 0;
+    return leftElf - rightElf;
+  });
+
+  const rails: ContentRail[] = [];
+  let elfHostedLoads = 0;
+  for (const rail of ordered) {
+    if (elfHostedLoads > 0) {
+      await delay(RAIL_FETCH_STAGGER_MS);
+    }
+    if (isElfHostedRail(rail)) {
+      elfHostedLoads += 1;
+    }
+    const data = await fetchJson<RailItemsResponse>(
+      `/api/catalog/rails/${encodeURIComponent(rail.id)}/items`,
+    );
+    rails.push({
       id: rail.id,
       label: rail.label,
       cards: data.items.map((item): ContentCard => ({
@@ -70,8 +97,8 @@ export async function loadCatalogRails(): Promise<ContentRail[]> {
         description: item.description,
         source: item.source,
       })),
-    };
-  }));
+    });
+  }
   return rails;
 }
 
@@ -105,8 +132,8 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const message = typeof data.error === "string" ? data.error : `HTTP ${response.status}`;
-    throw new Error(message);
+    const raw = typeof data.error === "string" ? data.error : `HTTP ${response.status}`;
+    throw new Error(couchSafeCatalogMessage(raw));
   }
   return data as T;
 }

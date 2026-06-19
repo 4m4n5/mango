@@ -365,6 +365,16 @@ Keep `exhaustive-hitrate.py` as **indexer QA** (wide pool), not couch gate.
 | TorBox uncached wins expire | `expires_at` 48h; prefer cached in `score` |
 | AI catalog IDs bad meta | N5 silent skip at ingest; never enters pool |
 | Pi CPU during couch | indexer nice-level 10; pause when `POST /play` active |
+| **ElfHosted public rate limits** | Private subs ([`ELFHOSTED.md`](../ELFHOSTED.md)); rail cache 45 min; staggered fetch; N3c serves from DB |
+
+### Follow-ups (N3c + ops)
+
+| ID | Item | Owner |
+|----|------|-------|
+| N3c-F1 | Subscribe ElfHosted private (AIOMetadata + AIOStreams) | User — [`ELFHOSTED.md`](../ELFHOSTED.md) |
+| N3c-F2 | Indexer uses cached rails where possible | N3c-S2 |
+| N3c-F3 | `gate-n3c` only hits verified pool (not raw upstream burst) | N3c-S5 |
+| N3c-F4 | Document `MANGO_RAIL_*` in Pi `voice.env` example | N3c-S5 |
 
 ---
 

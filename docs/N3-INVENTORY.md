@@ -102,3 +102,14 @@ After N3a couch sign-off:
 - Stream picker UI (2–5 options on detail)  
 - `progress.db` + Continue rail  
 - Optional Torrentio in picker (not auto-play)
+
+---
+
+## Follow-ups (N3a → N3c / ops)
+
+| ID | Item | Stage | Notes |
+|----|------|-------|-------|
+| N3-F1 | ElfHosted private subscriptions | Ops | [`ELFHOSTED.md`](ELFHOSTED.md) — fixes rate limits, not play hit rate |
+| N3-F2 | Rail cache + stagger + couch-safe errors | **Shipped** | catalog-service + launcher |
+| N3-F3 | N3c playability index | N3c | [`phase-n3c-playability-index.md`](tasks/phase-n3c-playability-index.md) |
+| N3-F4 | Replace random gate with `gate-n3c-verified-rails` | N3c-S5 | N/N on served items only |

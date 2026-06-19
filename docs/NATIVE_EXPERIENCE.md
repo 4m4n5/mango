@@ -140,7 +140,7 @@ mango does **not** reindex torrents. It runs the same protocol Stremio uses.
 |------|---------|
 | `config/catalog.yaml` | Home rails — addon catalog refs, TMDB list IDs, order, filters |
 | `config/catalog.example.yaml` | Documented template in repo |
-| `/etc/mango/stremio-export.json` | Pasted Stremio export (addons, auth hints) |
+| `/etc/mango/stremio-export.json` | Pasted Stremio export (addons, auth hints) — use **private** ElfHosted URLs in prod ([`ELFHOSTED.md`](ELFHOSTED.md)) |
 | `/etc/mango/progress.db` | mpv resume + backup |
 | `/etc/mango/ai-catalogs/` | Persisted AI-named catalogs |
 | `config/config.yaml` | RD/TorBox keys, debrid provider choice, language filter |

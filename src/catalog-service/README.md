@@ -77,6 +77,19 @@ curl -X POST http://127.0.0.1:3020/play \
 
 Responses include a `filters` object with exclusion counts.
 
+### ElfHosted rate limits
+
+Public ElfHosted addon URLs are shared and rate-limited. Production couch use
+expects **private subscriptions** — see [`docs/ELFHOSTED.md`](../../docs/ELFHOSTED.md).
+
+| Env | Default | Meaning |
+|-----|---------|---------|
+| `MANGO_RAIL_ITEMS_CACHE_TTL_MS` | `2700000` (45 min) | Cache `GET /rails/:id/items` on Pi |
+| `MANGO_RAIL_META_CONCURRENCY` | `3` | Max parallel meta lookups per rail |
+| `MANGO_RAIL_META_STAGGER_MS` | `250` | Pause between ElfHosted meta batches |
+
+API errors return **couch-safe** `error` text (never raw “rate limit exceeded”).
+
 ## Dev (after implementation)
 
 ```bash
