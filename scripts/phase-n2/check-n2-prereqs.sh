@@ -32,7 +32,7 @@ echo
 
   if [[ -f "$CATALOG_YAML" ]]; then
     pass "$CATALOG_YAML exists"
-    local repo_example="$REPO_DIR/config/catalog.example.yaml"
+    repo_example="$REPO_DIR/config/catalog.example.yaml"
     if [[ "$CATALOG_YAML" == "/etc/mango/catalog.yaml" && -f "$repo_example" ]] && ! cmp -s "$repo_example" "$CATALOG_YAML"; then
       warn "/etc/mango/catalog.yaml differs from repo — mango-stack uses repo example until sudo cp"
     fi
