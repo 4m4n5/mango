@@ -106,9 +106,13 @@ echo "  verify exit=$VERIFY_RC"
 
 step "summary"
 echo "  play_json=$PLAY_JSON stream_json=$STREAM_JSON probe_log=$PROBE_LOG"
-if [[ "$PROBE_RC" -eq 0 && "$VERIFY_RC" -eq 0 ]]; then
-  echo "RESULT: single-stream verify path OK"
+if [[ "$VERIFY_RC" -eq 0 ]]; then
+  echo "RESULT: indexer verify OK (layer 4); top-candidate probe may fail while later candidates work"
   exit 0
 fi
-echo "RESULT: investigate failing layer above"
+if [[ "$PROBE_RC" -eq 0 ]]; then
+  echo "RESULT: headless probe OK but indexer verify failed"
+  exit 1
+fi
+echo "RESULT: investigate failing layers above"
 exit 1
