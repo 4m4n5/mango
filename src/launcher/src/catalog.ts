@@ -4,8 +4,8 @@ import type { BrowseTab } from "./types";
 
 const RAIL_FETCH_STAGGER_MS = 400;
 
-function isElfHostedRail(rail: { sources?: Array<{ addon?: string }> }): boolean {
-  return (rail.sources || []).some((source) => /elfhosted/i.test(source.addon || ""));
+function isHeavyCatalogAddon(rail: { sources?: Array<{ addon?: string }> }): boolean {
+  return (rail.sources || []).some((source) => /elfhosted|aiolists|india ott/i.test(source.addon || ""));
 }
 
 function delay(ms: number): Promise<void> {
@@ -69,19 +69,19 @@ export async function loadCatalogRails(tab: BrowseTab = "movies"): Promise<Conte
     `/api/catalog/rails?tab=${encodeURIComponent(tab)}`,
   );
   const ordered = [...summary.rails].sort((left, right) => {
-    const leftElf = isElfHostedRail(left) ? 1 : 0;
-    const rightElf = isElfHostedRail(right) ? 1 : 0;
-    return leftElf - rightElf;
+    const leftHeavy = isHeavyCatalogAddon(left) ? 1 : 0;
+    const rightHeavy = isHeavyCatalogAddon(right) ? 1 : 0;
+    return leftHeavy - rightHeavy;
   });
 
   const rails: ContentRail[] = [];
-  let elfHostedLoads = 0;
+  let heavyCatalogLoads = 0;
   for (const rail of ordered) {
-    if (elfHostedLoads > 0) {
+    if (heavyCatalogLoads > 0) {
       await delay(RAIL_FETCH_STAGGER_MS);
     }
-    if (isElfHostedRail(rail)) {
-      elfHostedLoads += 1;
+    if (isHeavyCatalogAddon(rail)) {
+      heavyCatalogLoads += 1;
     }
     const data = await fetchJson<RailItemsResponse>(
       `/api/catalog/rails/${encodeURIComponent(rail.id)}/items`,

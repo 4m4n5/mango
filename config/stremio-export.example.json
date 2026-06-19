@@ -20,6 +20,10 @@
     {
       "name": "AIOLists",
       "manifestUrl": "http://127.0.0.1:3036/YOUR_GENERATED_CONFIG/manifest.json"
+    },
+    {
+      "name": "India OTT",
+      "manifestUrl": "https://YOUR_INDIA_OTT_ADDON/manifest.json"
     }
   ],
   "auth": {}

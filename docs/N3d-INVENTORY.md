@@ -1,7 +1,7 @@
 # N3d inventory — self-hosted addon stack
 
 **Branch:** `feat/native-experience`
-**Status:** S3 AIOLists catalog plane scaffolded
+**Status:** S4 catalog yaml migrated
 **Gate:** `bash scripts/phase-n3d/gate-n3d-self-hosted.sh`
 
 ---
@@ -65,6 +65,18 @@ bash scripts/phase-n3d/gate-n3d-catalogs.sh
 
 `gate-n3d-catalogs.sh` fails if mdblist rail sources still use `AIOMetadata` or
 `ElfHosted`, if AIOLists is down, or if mdblist/India rails return zero items.
+
+## S4 Catalog Sync
+
+```bash
+sudo cp config/catalog.example.yaml /etc/mango/catalog.yaml
+cd src/launcher && npm run build
+MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+bash scripts/phase-n2/gate-n2-browse.sh
+```
+
+The repo yaml has no `AIOMetadata` or `ElfHosted` addon references. India catalog
+ids still require operator verification against the selected `India OTT` manifest.
 
 ## Current Blockers
 

@@ -2,7 +2,8 @@
 #
 # N2b: Movies | TV Shows tabs · 6 predefined discover rails per tab.
 # composite_list merges multiple addon catalogs per theme (weighted, deduped).
-# Sources validated on Pi AIOMetadata manifest (2026-06-19).
+# Sources use self-hosted AIOLists plus an operator-selected India OTT addon.
+# Verify India OTT catalog ids against the selected manifest before Pi sync.
 #
 # N3c playability defaults per enabled rail:
 #   display_limit: 12        # posters served to launcher after verification
@@ -37,9 +38,9 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: "AIOMetadata  | ElfHosted", catalog: custom.in_rdata_indiastreams.movie.trendingmovies, weight: 0.5 }
-      - { addon: "AIOMetadata  | ElfHosted", catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.3 }
-      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.88302, weight: 0.2 }
+      - { addon: "India OTT", catalog: custom.in_rdata_indiastreams.movie.trendingmovies, weight: 0.5 }
+      - { addon: "India OTT", catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.3 }
+      - { addon: AIOLists, catalog: mdblist.88302, weight: 0.2 }
     playability:
       pool_target: 20
       ingest_multiplier: 6
@@ -52,7 +53,7 @@ rails:
     limit: 20
     sources:
       - { addon: Cinemeta, catalog: imdbRating, weight: 0.7 }
-      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.83666, weight: 0.3 }
+      - { addon: AIOLists, catalog: mdblist.83666, weight: 0.3 }
     playability:
       pool_target: 20
       ingest_multiplier: 4
@@ -61,7 +62,7 @@ rails:
     tab: movies
     label: comedy & feel-good
     type: addon_catalog
-    addon: "AIOMetadata  | ElfHosted"
+    addon: AIOLists
     catalog: mdblist.91223
     content_type: movie
     limit: 20
@@ -76,7 +77,7 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.83668, weight: 0.7 }
+      - { addon: AIOLists, catalog: mdblist.83668, weight: 0.7 }
       - { addon: Cinemeta, catalog: year, weight: 0.3 }
     playability:
       min_display: 6
@@ -87,7 +88,7 @@ rails:
     tab: movies
     label: documentaries
     type: addon_catalog
-    addon: "AIOMetadata  | ElfHosted"
+    addon: AIOLists
     catalog: mdblist.128051
     content_type: movie
     limit: 20
@@ -118,8 +119,8 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: "AIOMetadata  | ElfHosted", catalog: custom.in_rdata_indiastreams.series.atpmub, weight: 0.6 }
-      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.88303, weight: 0.4 }
+      - { addon: "India OTT", catalog: custom.in_rdata_indiastreams.series.atpmub, weight: 0.6 }
+      - { addon: AIOLists, catalog: mdblist.88303, weight: 0.4 }
     playability:
       pool_target: 20
       ingest_multiplier: 6
@@ -132,7 +133,7 @@ rails:
     limit: 20
     sources:
       - { addon: Cinemeta, catalog: imdbRating, weight: 0.7 }
-      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.88303, weight: 0.3 }
+      - { addon: AIOLists, catalog: mdblist.88303, weight: 0.3 }
     playability:
       pool_target: 20
       ingest_multiplier: 4
@@ -144,8 +145,8 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.91224, weight: 0.6 }
-      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.84401, weight: 0.4 }
+      - { addon: AIOLists, catalog: mdblist.91224, weight: 0.6 }
+      - { addon: AIOLists, catalog: mdblist.84401, weight: 0.4 }
     playability:
       pool_target: 18
       ingest_multiplier: 6
@@ -157,8 +158,8 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.130153, weight: 0.6 }
-      - { addon: "AIOMetadata  | ElfHosted", catalog: mdblist.130152, weight: 0.4 }
+      - { addon: AIOLists, catalog: mdblist.130153, weight: 0.6 }
+      - { addon: AIOLists, catalog: mdblist.130152, weight: 0.4 }
     playability:
       min_display: 6
       pool_target: 15
@@ -168,7 +169,7 @@ rails:
     tab: series
     label: documentaries
     type: addon_catalog
-    addon: "AIOMetadata  | ElfHosted"
+    addon: AIOLists
     catalog: mdblist.128052
     content_type: series
     limit: 20
