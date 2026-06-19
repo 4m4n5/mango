@@ -131,12 +131,13 @@ function metaTitleTokens(metaTitle: string): string[] {
 /** Reject London.Files-style false positives for The Kashmir Files. */
 export function streamMatchesMetaTitle(stream: Stream, metaTitle: string): boolean {
   const tokens = metaTitleTokens(metaTitle);
-  if (tokens.length === 0 || tokens.length === 1) return true;
+  if (tokens.length < 2) return true;
   const haystack = streamHaystack(stream);
-  const primary = tokens[0];
-  if (primary.length >= 4 && !haystack.includes(primary)) return false;
+  const sorted = [...tokens].sort((left, right) => right.length - left.length);
+  const primary = sorted[0];
+  if (primary.length >= 5 && haystack.includes(primary)) return true;
   const hits = tokens.filter((token) => haystack.includes(token)).length;
-  return hits >= Math.ceil(tokens.length * 0.5);
+  return hits >= 2;
 }
 
 export function isSeriesPackForMovie(stream: Stream, contentType: string | undefined): boolean {
@@ -304,7 +305,7 @@ function isRemux(stream: Stream): boolean {
 
 export function isErrorStream(stream: Stream): boolean {
   const haystack = streamHaystack(stream);
-  return /\[❌\]|\[x\]|search failed|not found|no streams|error:/i.test(haystack);
+  return /\[❌\]|\[x\]|search failed|not found|no streams|error:|stream not found|being downloaded|downloading to debrid|download pending/i.test(haystack);
 }
 
 export function isRdBlockedRelease(stream: Stream, tags: string[]): boolean {
