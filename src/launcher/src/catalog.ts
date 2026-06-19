@@ -5,7 +5,7 @@ import type { BrowseTab } from "./types";
 const RAIL_FETCH_STAGGER_MS = 400;
 
 function isHeavyCatalogAddon(rail: { sources?: Array<{ addon?: string }> }): boolean {
-  return (rail.sources || []).some((source) => /elfhosted|aiolists|india ott/i.test(source.addon || ""));
+  return (rail.sources || []).some((source) => /elfhosted|aiolists|indiastreams/i.test(source.addon || ""));
 }
 
 function delay(ms: number): Promise<void> {

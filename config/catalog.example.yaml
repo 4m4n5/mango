@@ -2,8 +2,7 @@
 #
 # N2b: Movies | TV Shows tabs · 6 predefined discover rails per tab.
 # composite_list merges multiple addon catalogs per theme (weighted, deduped).
-# Sources use self-hosted AIOLists plus an operator-selected India OTT addon.
-# Verify India OTT catalog ids against the selected manifest before Pi sync.
+# Sources use self-hosted AIOLists plus IndiaStreams (free manifest at indiastreams.rdata.in).
 #
 # N3c playability defaults per enabled rail:
 #   display_limit: 12        # posters served to launcher after verification
@@ -38,8 +37,8 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: "India OTT", catalog: custom.in_rdata_indiastreams.movie.trendingmovies, weight: 0.5 }
-      - { addon: "India OTT", catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.3 }
+      - { addon: IndiaStreams, catalog: trendingmovies, weight: 0.5 }
+      - { addon: IndiaStreams, catalog: recmov, weight: 0.3 }
       - { addon: AIOLists, catalog: mdblist.88302, weight: 0.2 }
     playability:
       pool_target: 20
@@ -119,7 +118,7 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: "India OTT", catalog: custom.in_rdata_indiastreams.series.atpmub, weight: 0.6 }
+      - { addon: IndiaStreams, catalog: atpmub, weight: 0.6 }
       - { addon: AIOLists, catalog: mdblist.88303, weight: 0.4 }
     playability:
       pool_target: 20
