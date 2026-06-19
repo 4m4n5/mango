@@ -70,7 +70,7 @@ if command -v docker >/dev/null 2>&1; then
 fi
 
 check_port 3035 "AIOStreams" "http://127.0.0.1:3035/api/v1/status"
-check_port 3036 "AIOLists" "http://127.0.0.1:3036/manifest.json"
+check_port 3036 "AIOLists" "http://127.0.0.1:3036/"
 
 check_config_key_name "torbox|tb_" "TorBox"
 check_config_key_name "real[-_ ]?debrid|rd_" "Real-Debrid"

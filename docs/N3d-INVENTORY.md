@@ -1,7 +1,7 @@
 # N3d inventory — self-hosted addon stack
 
 **Branch:** `feat/native-experience`
-**Status:** S2 stream plane scaffolded
+**Status:** S3 AIOLists catalog plane scaffolded
 **Gate:** `bash scripts/phase-n3d/gate-n3d-self-hosted.sh`
 
 ---
@@ -33,6 +33,7 @@
 | `/etc/mango/config.yaml` | operator secrets | yes |
 | `/etc/mango/stremio-export.json` | local manifest URLs | yes-adjacent |
 | `~/.config/systemd/user/mango-aiostreams.service` | Pi user unit | no |
+| `~/.config/systemd/user/mango-aiolists.service` | Pi user unit | no |
 
 ## Operator Actions Still Required
 
@@ -42,6 +43,7 @@
 - Open `http://127.0.0.1:3035/stremio/configure`, add TorBox, Real-Debrid, Easynews Search, and Torrentio TB/RD.
 - Copy the generated AIOStreams manifest URL into `/etc/mango/stremio-export.json` with `"name": "AIOStreams"`.
 - Run `bash scripts/phase-n3d/install-aiolists.sh`, configure mdblist imports, and copy its manifest URL as `"name": "AIOLists"`.
+- Or enable boot startup with `bash scripts/phase-n3d/enable-aiolists-service.sh`.
 - Add `MANGO_CATALOG=1` and `MANGO_SELF_HOSTED_ADDONS=1` to `~/.config/mango/voice.env`.
 
 ## S2 Stream Gate
@@ -54,6 +56,15 @@ bash scripts/phase-n3d/gate-n3d-streams.sh
 `gate-n3d-streams.sh` fails if `AIOStreams` is absent from stream sources, if any
 stream source still contains `ElfHosted`, or if any stream URL contains the public
 rate-limit placeholder.
+
+## S3 Catalog Gate
+
+```bash
+bash scripts/phase-n3d/gate-n3d-catalogs.sh
+```
+
+`gate-n3d-catalogs.sh` fails if mdblist rail sources still use `AIOMetadata` or
+`ElfHosted`, if AIOLists is down, or if mdblist/India rails return zero items.
 
 ## Current Blockers
 

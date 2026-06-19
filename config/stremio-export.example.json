@@ -16,6 +16,10 @@
     {
       "name": "AIOStreams",
       "manifestUrl": "http://127.0.0.1:3035/stremio/YOUR_GENERATED_USER/manifest.json"
+    },
+    {
+      "name": "AIOLists",
+      "manifestUrl": "http://127.0.0.1:3036/YOUR_GENERATED_CONFIG/manifest.json"
     }
   ],
   "auth": {}
