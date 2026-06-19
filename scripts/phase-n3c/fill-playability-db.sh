@@ -9,6 +9,8 @@
 # Env:
 #   MANGO_FILL_SKIP_CATALOG_SYNC=1   skip sudo cp catalog.example.yaml → /etc/mango/
 #   MANGO_FILL_SKIP_MAINTENANCE=1    only preflight + status (dry run)
+#
+# Bootstrap sets MANGO_PLAYABILITY_BOOTSTRAP=1 (re-probes recent failures, min_display targets).
 
 set -euo pipefail
 

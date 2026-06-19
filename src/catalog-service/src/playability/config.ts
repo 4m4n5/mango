@@ -64,7 +64,8 @@ export function playabilityFailedRetryMs(): number {
 }
 
 export function playabilityFailedRetryMsForReason(reason?: string | null): number {
-  if (playabilityBootstrapFill() && reason === 'no_stream') {
+  if (playabilityBootstrapFill()) {
+    // Bootstrap re-probes titles poisoned by prior bad runs (e.g. probe argv bug).
     return 0;
   }
   switch (reason) {
