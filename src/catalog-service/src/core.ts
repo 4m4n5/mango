@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import {
   filterAndRankStreams,
@@ -14,7 +15,12 @@ import {
   type AddonCatalogRail,
   type RailConfig,
 } from './rails.js';
-import { getPlayabilityStatus, type PlayabilityStatus } from './playability/db.js';
+import {
+  getOrCreateRailSession,
+  getPlayabilityStatus,
+  type PlayabilityStatus,
+  type RailSessionPoolItem,
+} from './playability/db.js';
 import { AddonCatalogListSource, type ListSource } from './playability/list-source.js';
 import {
   CatalogError,
@@ -78,6 +84,22 @@ export type RailItem = {
   year?: number | string;
   description?: string;
   source: string;
+};
+
+export type RailItemsResponse = {
+  rail_id: string;
+  label: string;
+  items: RailItem[];
+  resolve_ms: number;
+  skipped: number;
+  cached?: boolean;
+  playability: {
+    displayed: number;
+    verified_pool: number;
+    pending: number;
+    low_water: boolean;
+    session_id: string;
+  };
 };
 
 type Addon = {
@@ -333,16 +355,10 @@ export class CatalogCore {
     expiresAt: number;
   }>();
   private readonly railItemsCache = new Map<string, {
-    payload: {
-      rail_id: string;
-      label: string;
-      items: RailItem[];
-      resolve_ms: number;
-      skipped: number;
-      cached?: boolean;
-    };
+    payload: RailItemsResponse;
     expiresAt: number;
   }>();
+  private readonly playabilitySessionId = process.env.MANGO_PLAYABILITY_SESSION_ID || randomUUID();
 
   private constructor(
     private readonly coreStatus: CoreStatus,
@@ -439,65 +455,44 @@ export class CatalogCore {
     return getPlayabilityStatus(rails);
   }
 
-  async railItems(railId: string): Promise<{
-    rail_id: string;
-    label: string;
-    items: RailItem[];
-    resolve_ms: number;
-    skipped: number;
-    cached?: boolean;
-  }> {
+  async railItems(railId: string): Promise<RailItemsResponse> {
     const cachedRail = this.railItemsCache.get(railId);
     if (cachedRail && cachedRail.expiresAt > Date.now()) {
       return { ...cachedRail.payload, cached: true };
     }
 
     const started = Date.now();
-    const rail = enabledAddonRails(this.requireRailConfig()).find((candidate) => candidate.id === railId);
-    if (!rail) {
-      throw new CatalogError(404, `unknown rail: ${railId}`);
-    }
-
-    const addon = this.findAddonByName(rail.addon);
-    if (!supportsResource(addon.manifest, 'catalog', rail.content_type)) {
-      throw new CatalogError(502, `${addon.name} does not expose catalog/${rail.content_type}`);
-    }
-
-    let result: { metas?: unknown[] };
-    try {
-      result = await fetchJson(resourceUrl(addon, 'catalog', rail.content_type, rail.catalog)) as {
-        metas?: unknown[];
-      };
-    } catch (error) {
-      if (error instanceof CatalogError) throw error;
-      const message = error instanceof Error ? error.message : String(error);
-      throw new CatalogError(503, message, { rail_id: railId, addon: addon.name }, {
-        couchMessage: couchSafeCatalogMessage(message, { addon: addon.name }),
-      });
-    }
-
-    const previews = (result.metas || []).slice(0, rail.limit);
-    const staggerMs = isElfHostedAddonName(addon.name) ? RAIL_META_STAGGER_MS : 0;
+    const rail = this.addonRail(railId);
+    const session = await getOrCreateRailSession({
+      railId: rail.id,
+      sessionId: this.playabilitySessionId,
+      displayLimit: rail.playability.display_limit,
+    });
     const resolved = await mapInBatches(
-      previews,
+      session.items,
       RAIL_META_CONCURRENCY,
-      (preview) => this.resolveRailItem(rail, addon, preview),
-      staggerMs,
+      (item) => this.resolveVerifiedRailItem(item),
     );
     const items = resolved.filter((item): item is RailItem => item !== null);
-    const payload = {
+    const pending = Math.max(0, rail.playability.min_display - session.verified_pool);
+    const payload: RailItemsResponse = {
       rail_id: rail.id,
       label: rail.label,
       items,
       resolve_ms: Date.now() - started,
-      skipped: previews.length - items.length,
+      skipped: session.items.length - items.length,
+      playability: {
+        displayed: items.length,
+        verified_pool: session.verified_pool,
+        pending,
+        low_water: items.length < rail.playability.min_display,
+        session_id: session.session_id,
+      },
     };
-    if (items.length > 0) {
-      this.railItemsCache.set(railId, {
-        payload,
-        expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
-      });
-    }
+    this.railItemsCache.set(railId, {
+      payload,
+      expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
+    });
     return payload;
   }
 
@@ -679,6 +674,32 @@ export class CatalogCore {
       return { streams };
     } catch (error) {
       throw new Error(`${addon.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async resolveVerifiedRailItem(item: RailSessionPoolItem): Promise<RailItem | null> {
+    try {
+      const meta = await this.metaCached(item.type, item.id);
+      const poster = normalizePosterUrl(meta.poster);
+      if (!poster) {
+        return null;
+      }
+      const year = metaYear(meta);
+      return {
+        id: meta.id || item.id,
+        type: meta.type || item.type,
+        title: meta.name || item.id,
+        subtitle: year ? String(year) : item.type,
+        poster,
+        year,
+        description: typeof meta.description === 'string' ? meta.description : undefined,
+        source: item.best_source || 'verified',
+      };
+    } catch (error) {
+      console.warn(
+        `verified rail item skipped rail=${item.rail_id} id=${item.id}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return null;
     }
   }
 
