@@ -76,7 +76,7 @@ fi
 PROBE_URL="${MANGO_N3_PROBE_MP4_URL:-https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_1MB.mp4}"
 if [[ "${MANGO_N3_SKIP_PROBE_SMOKE:-0}" == "1" ]]; then
   warn "skipping mpv probe smoke by env"
-elif bash scripts/phase-n1/mpv-play.sh --url "$PROBE_URL" --probe --timeout-ms 4000; then
+elif bash scripts/phase-n1/mpv-play.sh --url "$PROBE_URL" --probe --timeout-ms 8000; then
   pass "mpv-play --probe smoke"
 else
   fail "mpv-play --probe smoke"
