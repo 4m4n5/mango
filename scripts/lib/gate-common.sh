@@ -96,15 +96,20 @@ gate_post_play() {
 }
 
 # Quick process hygiene (replaces baseline-metrics for routine gates).
+gate_process_count() {
+  local pattern="$1"
+  pgrep -f "$pattern" 2>/dev/null | wc -l | tr -d '[:space:]'
+}
+
 gate_idle_hygiene() {
   local chromium stremio kodi mem_mb
-  chromium="$(pgrep -fc 'chromium.*--app=' 2>/dev/null || echo 0)"
-  stremio="$(pgrep -xc stremio 2>/dev/null || echo 0)"
-  kodi="$(pgrep -xc kodi 2>/dev/null || echo 0)"
+  chromium="$(gate_process_count 'chromium.*--app=')"
+  stremio="$(gate_process_count 'stremio')"
+  kodi="$(gate_process_count 'kodi')"
   mem_mb="$(awk '/^Mem:/ {print $7}' <(free -m 2>/dev/null) || echo 0)"
-  [[ "${chromium:-99}" -le 1 ]] && gate_pass "chromium apps ${chromium}" || gate_fail "chromium apps ${chromium} > 1"
-  [[ "${stremio:-99}" -eq 0 ]] && gate_pass "stremio idle" || gate_fail "stremio running at idle"
-  [[ "${kodi:-99}" -eq 0 ]] && gate_pass "kodi idle" || gate_fail "kodi running at idle"
+  [[ "${chromium:-0}" -le 1 ]] && gate_pass "chromium apps ${chromium}" || gate_fail "chromium apps ${chromium} > 1"
+  [[ "${stremio:-0}" -eq 0 ]] && gate_pass "stremio idle" || gate_fail "stremio running at idle"
+  [[ "${kodi:-0}" -eq 0 ]] && gate_pass "kodi idle" || gate_fail "kodi running at idle"
   if [[ "${mem_mb:-0}" -ge 2500 ]]; then
     gate_pass "mem available ${mem_mb} MB"
   else
