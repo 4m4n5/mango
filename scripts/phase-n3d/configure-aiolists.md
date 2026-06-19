@@ -1,3 +1,5 @@
+# DEPRECATED — use configure-aiometadata.md (AIOLists replaced by self-hosted AIOMetadata).
+
 # Configure AIOLists for mango
 
 Run this after `bash scripts/phase-n3d/install-aiolists.sh` or

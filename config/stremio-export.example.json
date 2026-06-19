@@ -10,8 +10,8 @@
       "manifestUrl": "http://127.0.0.1:3035/stremio/YOUR_GENERATED_USER/manifest.json"
     },
     {
-      "name": "AIOLists",
-      "manifestUrl": "http://127.0.0.1:3036/YOUR_GENERATED_CONFIG/manifest.json"
+      "name": "AIOMetadata",
+      "manifestUrl": "http://127.0.0.1:3036/stremio/YOUR_USER_UUID/YOUR_COMPRESSED_CONFIG/manifest.json"
     }
   ],
   "auth": {}

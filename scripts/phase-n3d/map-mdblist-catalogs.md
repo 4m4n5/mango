@@ -1,35 +1,42 @@
-# N3d MDBList to AIOLists mapping
+# N3d MDBList → AIOMetadata mapping
 
-Use this as the operator checklist when importing MDBList rows into AIOLists.
-AIOLists exposes native MDBList catalogs as `aiolists-<id>-L` (user lists) or
-`aiolists-<id>-E` (external lists). Validate with:
+Operator checklist when adding MDBList rows in AIOMetadata `/configure`.
+Catalog ids are **`mdblist.<numeric-list-id>`** (configured automatically).
+
+Validate after export:
 
 ```bash
-curl -sf "http://127.0.0.1:3036/<config-hash>/catalog/movie/aiolists-88302-L.json" | jq '.metas | length'
+bash scripts/phase-n3d/aiometadata-catalogs.sh
+MANIFEST="$(python3 -c "import json; print(next(a['manifestUrl'] for a in json.load(open('/etc/mango/stremio-export.json'))['addons'] if a['name']=='AIOMetadata'))")"
+BASE="${MANIFEST%/manifest.json}"
+curl -sf "${BASE}/catalog/movie/mdblist.88302.json" | jq '.metas | length'
 ```
 
-| Rail | Content | Old ElfHosted id | AIOLists catalog id |
-|------|---------|------------------|---------------------|
-| `movies-india-trending` | movie | `mdblist.88302` | `aiolists-88302-L` |
-| `movies-classics` | movie | `mdblist.83666` | `aiolists-83666-L` |
-| `movies-comedy` | movie | `mdblist.91223` | `aiolists-91223-L` |
-| `movies-quick-watches` | movie | `mdblist.83668` | `aiolists-83668-L` |
-| `movies-documentaries` | movie | `mdblist.128051` | `aiolists-128051-L` |
-| `series-india-picks` | series | `mdblist.88303` | `aiolists-88303-L` |
-| `series-classics` | series | `mdblist.88303` | `aiolists-88303-L` |
-| `series-comedy` | series | `mdblist.91224` | `aiolists-91224-L` |
-| `series-comedy` | series | `mdblist.84401` | `aiolists-84401-L` |
-| `series-miniseries` | series | `mdblist.130153` | `aiolists-130153-L` |
-| `series-miniseries` | series | `mdblist.130152` | `aiolists-130152-L` |
-| `series-documentaries` | series | `mdblist.128052` | `aiolists-128052-L` |
+| Rail | Content | catalog.yaml id | MDBList list |
+|------|---------|-----------------|--------------|
+| `movies-india-trending` | movie | `mdblist.88302` | 88302 |
+| `movies-classics` | movie | `mdblist.83666` | 83666 |
+| `movies-comedy` | movie | `mdblist.91223` | 91223 |
+| `movies-quick-watches` | movie | `mdblist.83668` | 83668 |
+| `movies-documentaries` | movie | `mdblist.128051` | 128051 |
+| `series-india-picks` | series | `mdblist.88303` | 88303 |
+| `series-classics` | series | `mdblist.88303` | 88303 |
+| `series-comedy` | series | `mdblist.91224` | 91224 |
+| `series-comedy` | series | `mdblist.84401` | 84401 |
+| `series-miniseries` | series | `mdblist.130153` | 130153 |
+| `series-miniseries` | series | `mdblist.130152` | 130152 |
+| `series-documentaries` | series | `mdblist.128052` | 128052 |
 
 ## Operator notes
 
-- MDBList API key must be saved in the configure UI (shows **Connected as …**).
-- Lists may not appear in the Manage Lists UI but still resolve at the catalog
-  endpoint when the numeric list id is valid for your account.
-- Copy the manifest URL from the configure page into `/etc/mango/stremio-export.json`
-  as `"name": "AIOLists"`.
-- `movies-india-trending` and `series-india-picks` are mdblist-backed in N3d V1
-  (no separate India catalog addon). Regional catalog expansion is deferred — see
-  `docs/N3d-INVENTORY.md` § Source expansion (future).
+- MDBList API key in `deploy/aiometadata/.env` **and** saved in configure UI.
+- Addon name in export must be `AIOMetadata`; catalog.yaml `addon:` must match.
+- Legacy AIOLists ids (`aiolists-88302-L`) are **not** used with AIOMetadata.
+- `movies-india-trending` / `series-india-picks` are mdblist-backed in N3d V1.
+
+## Migration from AIOLists
+
+```bash
+bash scripts/phase-n3d/migrate-aiolists-to-aiometadata.sh
+# then configure + export per configure-aiometadata.md
+```

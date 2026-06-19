@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# Headless AIOMetadata config — import export JSON, wire stremio-export.
+#
+# Usage:
+#   bash scripts/phase-n3d/aiometadata-config.sh import [export.json]
+#   bash scripts/phase-n3d/aiometadata-config.sh manifest
+#   bash scripts/phase-n3d/aiometadata-config.sh wire-export
+#
+# Credentials: ~/.config/mango/aiometadata.credentials
+# Env: MANGO_AIOMETADATA_URL, MANGO_AIOMETADATA_IMPORT, MANGO_AIOMETADATA_PASSWORD
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+BASE_URL="${MANGO_AIOMETADATA_URL:-http://127.0.0.1:3036}"
+CREDS="${MANGO_AIOMETADATA_CREDS:-$HOME/.config/mango/aiometadata.credentials}"
+EXPORT_FILE="${MANGO_STREMIO_EXPORT:-/etc/mango/stremio-export.json}"
+
+die() { echo "aiometadata-config: $*" >&2; exit 1; }
+
+load_creds() {
+  [[ -f "$CREDS" ]] || die "missing $CREDS — run import first"
+  # shellcheck disable=SC1090
+  source "$CREDS"
+  [[ -n "${AIOMETADATA_UUID:-}" && -n "${AIOMETADATA_PASSWORD:-}" && -n "${AIOMETADATA_MANIFEST_URL:-}" ]] \
+    || die "AIOMETADATA_UUID, AIOMETADATA_PASSWORD, AIOMETADATA_MANIFEST_URL required in $CREDS"
+}
+
+prepare_config() {
+  local import_path="$1"
+  python3 - "$import_path" "$REPO_DIR/deploy/aiometadata/.env" <<'PY'
+import json
+import os
+import sys
+
+export_path, env_path = sys.argv[1], sys.argv[2]
+raw = json.load(open(export_path, encoding="utf-8"))
+config = raw.get("config") or raw
+if not isinstance(config, dict):
+    raise SystemExit("export missing config object")
+
+config = json.loads(json.dumps(config))
+if isinstance(config.get("apiKeys"), dict):
+    config["apiKeys"]["customDescriptionBlurb"] = ""
+
+env_keys = {}
+if os.path.isfile(env_path):
+    for line in open(env_path, encoding="utf-8"):
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        env_keys[key.strip()] = value.strip()
+
+mdblist = (config.get("apiKeys") or {}).get("mdblist", "").strip()
+if not mdblist:
+    mdblist = env_keys.get("MDBLIST_API_KEY", "").strip()
+    if mdblist:
+        config.setdefault("apiKeys", {})["mdblist"] = mdblist
+
+print(json.dumps(config))
+PY
+}
+
+cmd_import() {
+  local import_path="${1:-${MANGO_AIOMETADATA_IMPORT:-}}"
+  [[ -n "$import_path" && -f "$import_path" ]] || die "import file required (arg or MANGO_AIOMETADATA_IMPORT)"
+
+  local password="${MANGO_AIOMETADATA_PASSWORD:-}"
+  if [[ -z "$password" ]]; then
+    password="$(python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(16))
+PY
+)"
+  fi
+
+  local config_tmp payload http_code
+  config_tmp="$(mktemp)"
+  trap 'rm -f "$config_tmp"' RETURN
+  prepare_config "$import_path" >"$config_tmp"
+  payload="$(AIOMETADATA_PASSWORD="$password" python3 - "$config_tmp" <<'PY'
+import json, os, sys
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+print(json.dumps({"config": config, "password": os.environ["AIOMETADATA_PASSWORD"]}))
+PY
+)"
+
+  http_code="$(printf '%s' "$payload" | curl -s -w '%{http_code}' -o /tmp/aiometadata-save.json \
+    -H "Content-Type: application/json" -X POST -d @- "$BASE_URL/api/config/save")"
+  if [[ "$http_code" != "200" ]]; then
+    cat /tmp/aiometadata-save.json >&2
+    die "POST /api/config/save failed (HTTP $http_code)"
+  fi
+
+  mkdir -p "$(dirname "$CREDS")"
+  python3 - /tmp/aiometadata-save.json "$CREDS" "$password" <<'PY'
+import json, sys
+resp = json.load(open(sys.argv[1], encoding="utf-8"))
+creds_path, password = sys.argv[2], sys.argv[3]
+uuid = resp["userUUID"]
+manifest = resp.get("installUrl") or ""
+lines = [
+    f"AIOMETADATA_UUID={uuid}",
+    f"AIOMETADATA_PASSWORD={password}",
+    f"AIOMETADATA_MANIFEST_URL={manifest}",
+]
+open(creds_path, "w", encoding="utf-8").write("\n".join(lines) + "\n")
+import os
+os.chmod(creds_path, 0o600)
+print(f"saved {creds_path}")
+print(f"manifest: {manifest}")
+PY
+}
+
+cmd_manifest() {
+  load_creds
+  echo "$AIOMETADATA_MANIFEST_URL"
+}
+
+cmd_wire_export() {
+  load_creds
+  [[ -f "$EXPORT_FILE" ]] || die "missing $EXPORT_FILE"
+  sudo python3 - "$EXPORT_FILE" "$AIOMETADATA_MANIFEST_URL" <<'PY'
+import json, sys
+path, manifest = sys.argv[1], sys.argv[2]
+data = json.load(open(path, encoding="utf-8"))
+addons = data.get("addons") or []
+addons = [a for a in addons if a.get("name") not in ("AIOLists", "AIOMetadata")]
+addons.append({"name": "AIOMetadata", "manifestUrl": manifest})
+data["addons"] = addons
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+print("updated", path)
+print("addons:", [a.get("name") for a in addons])
+PY
+}
+
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+  import) cmd_import "$@" ;;
+  manifest) cmd_manifest ;;
+  wire-export) cmd_wire_export ;;
+  *)
+    cat <<EOF
+Usage: $(basename "$0") <import|manifest|wire-export> [export.json]
+
+  import       POST export JSON to $BASE_URL/api/config/save
+  manifest     Print manifest URL from credentials
+  wire-export  Replace AIOLists with AIOMetadata in $EXPORT_FILE
+
+Env: MANGO_AIOMETADATA_URL, MANGO_AIOMETADATA_IMPORT, MANGO_AIOMETADATA_PASSWORD
+EOF
+    exit 1
+    ;;
+esac

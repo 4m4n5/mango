@@ -81,13 +81,23 @@ if not any(
     for a in data.get("addons", [])
 ):
     errors.append("AIOStreams manifest not localhost:3035")
+if "AIOMetadata" not in names:
+    errors.append("AIOMetadata addon missing")
+if not any(
+    a.get("name") == "AIOMetadata"
+    and str(a.get("manifestUrl", "")).startswith("http://127.0.0.1:3036")
+    for a in data.get("addons", [])
+):
+    errors.append("AIOMetadata manifest not localhost:3036")
+if any(n == "AIOLists" for n in names):
+    errors.append("AIOLists still in export — migrate to AIOMetadata")
 if errors:
     raise SystemExit("; ".join(errors))
 PY
   then
-    pass "stremio-export wired for local AIOStreams"
+    pass "stremio-export wired for local AIOStreams + AIOMetadata"
   else
-    fail "stremio-export not migrated to N3d (see configure-aiostreams.md)"
+    fail "stremio-export not migrated to N3d (see configure-aiostreams.md / configure-aiometadata.md)"
   fi
 }
 
@@ -101,7 +111,7 @@ if command -v docker >/dev/null 2>&1; then
 fi
 
 check_port 3035 "AIOStreams" "http://127.0.0.1:3035/api/v1/status"
-check_port 3036 "AIOLists" "http://127.0.0.1:3036/"
+check_port 3036 "AIOMetadata" "http://127.0.0.1:3036/health"
 
 check_config_key_name "torbox|tb_" "TorBox"
 check_config_key_name "real[-_ ]?debrid|rd_" "Real-Debrid"

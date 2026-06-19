@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Systematic playability DB fill — preflight, sync catalog yaml, bootstrap maintenance.
 #
-# Run on Pi after stream plane is healthy (AIOStreams + AIOLists + catalog-service).
+# Run on Pi after stream plane is healthy (AIOStreams + AIOMetadata + catalog-service).
 #
 # Usage:
 #   bash scripts/phase-n3c/fill-playability-db.sh
@@ -32,9 +32,13 @@ echo "== mango fill playability db =="
 echo "commit: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo
 
+# shellcheck source=../phase-n3d/lib/aiometadata.sh
+source "$REPO_DIR/scripts/phase-n3d/lib/aiometadata.sh"
+
 require_http "catalog-service" "http://127.0.0.1:3020/health"
 require_http "AIOStreams" "http://127.0.0.1:3035/api/v1/status"
-require_http "AIOLists" "http://127.0.0.1:3036/manifest.json"
+aiometadata_health_ok && echo "OK: AIOMetadata" || { echo "FAIL: AIOMetadata unreachable ($(aiometadata_health_url))" >&2; exit 1; }
+aiometadata_manifest_ok && echo "OK: AIOMetadata manifest" || { echo "FAIL: AIOMetadata manifest unreachable (stremio-export)" >&2; exit 1; }
 
 if [[ "$SKIP_SYNC" != "1" ]]; then
   ETC="/etc/mango/catalog.yaml"

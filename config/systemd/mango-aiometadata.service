@@ -1,0 +1,18 @@
+[Unit]
+Description=mango self-hosted AIOMetadata
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/mango/deploy/aiometadata
+Environment=HOME=%h
+ExecStart=/usr/bin/env docker compose up
+ExecStop=/usr/bin/env docker compose down
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=240
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

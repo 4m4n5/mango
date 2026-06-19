@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N3d catalog gate — mdblist rails from AIOLists; required vs optional tiers.
+# N3d catalog gate — mdblist rails from AIOMetadata; required vs optional tiers.
 
 set -euo pipefail
 
@@ -8,6 +8,8 @@ source "$(cd "$(dirname "$0")/.." && pwd)/lib/gate-common.sh"
 mango_gate_init
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=lib/aiometadata.sh
+source "$SCRIPT_DIR/lib/aiometadata.sh"
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 RAILS_CONFIG="${MANGO_CATALOG_GATE_RAILS:-$REPO_DIR/config/catalog-gate-rails.json}"
 TMP_DIR="${TMPDIR:-/tmp}/mango-n3d-gate"
@@ -37,10 +39,17 @@ for rail in json.load(open(sys.argv[1], encoding="utf-8")).get("optional") or []
 PY
 )
 
-curl -sf --max-time 5 http://127.0.0.1:3036/manifest.json >/dev/null \
-  || curl -sf --max-time 5 http://127.0.0.1:3036/ >/dev/null \
-  && gate_pass "AIOLists reachable :3036" \
-  || gate_fail "AIOLists down at :3036"
+if aiometadata_health_ok; then
+  gate_pass "AIOMetadata health :3036"
+else
+  gate_fail "AIOMetadata down at :3036/health"
+fi
+
+if aiometadata_manifest_ok; then
+  gate_pass "AIOMetadata manifest (stremio-export)"
+else
+  gate_fail "AIOMetadata manifest unreachable — configure and update stremio-export"
+fi
 
 curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
   && gate_pass "catalog /health" \
@@ -63,10 +72,10 @@ for rail in data.get("rails", []):
     for source in rail.get("sources") or []:
         addon = str(source.get("addon") or "")
         catalog = str(source.get("catalog") or "")
-        if catalog.startswith("mdblist.") and addon != "AIOLists":
+        if catalog.startswith("mdblist.") and addon != "AIOMetadata":
             bad.append(f"{rail.get('id')}:{catalog}:{addon}")
-        if catalog.startswith("aiolists-") and addon != "AIOLists":
-            bad.append(f"{rail.get('id')}:{catalog}:{addon}")
+        if catalog.startswith("aiolists-"):
+            bad.append(f"{rail.get('id')}:{catalog}:{addon} (migrate to mdblist.* + AIOMetadata)")
         if "ElfHosted" in addon:
             bad.append(f"{rail.get('id')}:{catalog}:{addon}")
         if addon == "IndiaStreams":
@@ -75,9 +84,9 @@ if bad:
     raise SystemExit("bad sources: " + ", ".join(bad))
 PY
   then
-    gate_pass "mdblist sources use AIOLists"
+    gate_pass "mdblist sources use AIOMetadata"
   else
-    gate_fail "mdblist sources use AIOLists"
+    gate_fail "mdblist sources use AIOMetadata"
   fi
 fi
 
