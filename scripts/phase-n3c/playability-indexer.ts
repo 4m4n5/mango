@@ -29,10 +29,13 @@ async function main(): Promise<void> {
 
   const core = await CatalogCore.create();
   const result = await verifyTitle(core, type, id);
-  console.log(JSON.stringify(result, null, 2));
-  if (!result.ok) {
-    process.exit(1);
-  }
+  await new Promise<void>((resolve, reject) => {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
+  process.exit(result.ok ? 0 : 1);
 }
 
 main().catch((error) => {
