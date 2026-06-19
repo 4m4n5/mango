@@ -1,7 +1,7 @@
 # N3d inventory — self-hosted addon stack
 
 **Branch:** `feat/native-experience`
-**Status:** S0 skeleton in progress
+**Status:** S1 AIOStreams service/configure path scaffolded
 **Gate:** `bash scripts/phase-n3d/gate-n3d-self-hosted.sh`
 
 ---
@@ -32,11 +32,13 @@
 | `~/.local/share/mango/aiostreams/data` | AIOStreams SQLite/config | yes-adjacent |
 | `/etc/mango/config.yaml` | operator secrets | yes |
 | `/etc/mango/stremio-export.json` | local manifest URLs | yes-adjacent |
+| `~/.config/systemd/user/mango-aiostreams.service` | Pi user unit | no |
 
 ## Operator Actions Still Required
 
 - Copy `deploy/aiostreams/.env.example` to `deploy/aiostreams/.env` on the Pi and set `SECRET_KEY`.
 - Run `bash scripts/phase-n3d/install-aiostreams.sh`.
+- Or enable boot startup with `bash scripts/phase-n3d/enable-aiostreams-service.sh`.
 - Open `http://127.0.0.1:3035/stremio/configure`, add TorBox, Real-Debrid, Easynews Search, and Torrentio TB/RD.
 - Copy the generated AIOStreams manifest URL into `/etc/mango/stremio-export.json` with `"name": "AIOStreams"`.
 - Run `bash scripts/phase-n3d/install-aiolists.sh`, configure mdblist imports, and copy its manifest URL as `"name": "AIOLists"`.
