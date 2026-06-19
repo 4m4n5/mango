@@ -29,20 +29,20 @@ load_creds() {
 
 prepare_config() {
   local import_path="$1"
-  python3 - "$import_path" "$REPO_DIR/deploy/aiometadata/.env" <<'PY'
+  local mode="${MANGO_AIOMETADATA_IMPORT_MODE:-exact}"
+  python3 - "$import_path" "$REPO_DIR/deploy/aiometadata/.env" "$mode" <<'PY'
 import json
 import os
 import sys
 
-export_path, env_path = sys.argv[1], sys.argv[2]
+export_path, env_path, mode = sys.argv[1], sys.argv[2], sys.argv[3]
 raw = json.load(open(export_path, encoding="utf-8"))
 config = raw.get("config") or raw
 if not isinstance(config, dict):
     raise SystemExit("export missing config object")
 
+# Deep copy — preserve export settings verbatim.
 config = json.loads(json.dumps(config))
-if isinstance(config.get("apiKeys"), dict):
-    config["apiKeys"]["customDescriptionBlurb"] = ""
 
 env_keys = {}
 if os.path.isfile(env_path):
@@ -53,11 +53,29 @@ if os.path.isfile(env_path):
         key, value = line.split("=", 1)
         env_keys[key.strip()] = value.strip()
 
-mdblist = (config.get("apiKeys") or {}).get("mdblist", "").strip()
-if not mdblist:
-    mdblist = env_keys.get("MDBLIST_API_KEY", "").strip()
-    if mdblist:
-        config.setdefault("apiKeys", {})["mdblist"] = mdblist
+api = config.setdefault("apiKeys", {})
+
+if mode == "exact":
+    # Self-host only: TMDB required by save API when ElfHosted built-in is absent.
+    if not str(api.get("tmdb") or "").strip():
+        tmdb = (
+            env_keys.get("TMDB_API_KEY", "").strip()
+            or env_keys.get("BUILT_IN_TMDB_API_KEY", "").strip()
+        )
+        if tmdb:
+            api["tmdb"] = tmdb
+    api["hasBuiltInTmdb"] = False
+    api["hasBuiltInTvdb"] = False
+    # Drop hosted-instance marketing from configure UI.
+    if api.get("customDescriptionBlurb", "").find("elfhosted.com") >= 0:
+        api["customDescriptionBlurb"] = ""
+else:
+    api["customDescriptionBlurb"] = ""
+    mdblist = str(api.get("mdblist") or "").strip()
+    if not mdblist:
+        mdblist = env_keys.get("MDBLIST_API_KEY", "").strip()
+        if mdblist:
+            api["mdblist"] = mdblist
 
 print(json.dumps(config))
 PY
@@ -68,6 +86,13 @@ cmd_import() {
   [[ -n "$import_path" && -f "$import_path" ]] || die "import file required (arg or MANGO_AIOMETADATA_IMPORT)"
 
   local password="${MANGO_AIOMETADATA_PASSWORD:-}"
+  local existing_uuid=""
+  if [[ -f "$CREDS" ]]; then
+    # shellcheck disable=SC1090
+    source "$CREDS"
+    password="${password:-${AIOMETADATA_PASSWORD:-}}"
+    existing_uuid="${AIOMETADATA_UUID:-}"
+  fi
   if [[ -z "$password" ]]; then
     password="$(python3 - <<'PY'
 import secrets
@@ -80,10 +105,14 @@ PY
   config_tmp="$(mktemp)"
   trap 'rm -f "$config_tmp"' RETURN
   prepare_config "$import_path" >"$config_tmp"
-  payload="$(AIOMETADATA_PASSWORD="$password" python3 - "$config_tmp" <<'PY'
+  payload="$(AIOMETADATA_PASSWORD="$password" AIOMETADATA_UUID="$existing_uuid" python3 - "$config_tmp" <<'PY'
 import json, os, sys
 config = json.load(open(sys.argv[1], encoding="utf-8"))
-print(json.dumps({"config": config, "password": os.environ["AIOMETADATA_PASSWORD"]}))
+body = {"config": config, "password": os.environ["AIOMETADATA_PASSWORD"]}
+uuid = os.environ.get("AIOMETADATA_UUID", "").strip()
+if uuid:
+    body["userUUID"] = uuid
+print(json.dumps(body))
 PY
 )"
 
@@ -122,12 +151,15 @@ cmd_manifest() {
 cmd_wire_export() {
   load_creds
   [[ -f "$EXPORT_FILE" ]] || die "missing $EXPORT_FILE"
-  sudo python3 - "$EXPORT_FILE" "$AIOMETADATA_MANIFEST_URL" <<'PY'
+  if [[ ! -w "$EXPORT_FILE" ]] && ! sudo -n true 2>/dev/null; then
+    die "$EXPORT_FILE not writable — run on Pi as owner or with sudo"
+  fi
+  run_wire() {
+    python3 - "$EXPORT_FILE" "$AIOMETADATA_MANIFEST_URL" <<'PY'
 import json, sys
 path, manifest = sys.argv[1], sys.argv[2]
 data = json.load(open(path, encoding="utf-8"))
-addons = data.get("addons") or []
-addons = [a for a in addons if a.get("name") not in ("AIOLists", "AIOMetadata")]
+addons = [a for a in data.get("addons", []) if a.get("name") not in ("AIOLists", "AIOMetadata")]
 addons.append({"name": "AIOMetadata", "manifestUrl": manifest})
 data["addons"] = addons
 with open(path, "w", encoding="utf-8") as f:
@@ -136,6 +168,24 @@ with open(path, "w", encoding="utf-8") as f:
 print("updated", path)
 print("addons:", [a.get("name") for a in addons])
 PY
+  }
+  if [[ -w "$EXPORT_FILE" ]]; then
+    run_wire
+  else
+    sudo python3 - "$EXPORT_FILE" "$AIOMETADATA_MANIFEST_URL" <<'PY'
+import json, sys
+path, manifest = sys.argv[1], sys.argv[2]
+data = json.load(open(path, encoding="utf-8"))
+addons = [a for a in data.get("addons", []) if a.get("name") not in ("AIOLists", "AIOMetadata")]
+addons.append({"name": "AIOMetadata", "manifestUrl": manifest})
+data["addons"] = addons
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f, indent=2)
+    f.write("\n")
+print("updated", path)
+print("addons:", [a.get("name") for a in addons])
+PY
+  fi
 }
 
 cmd="${1:-}"
@@ -148,11 +198,12 @@ case "$cmd" in
     cat <<EOF
 Usage: $(basename "$0") <import|manifest|wire-export> [export.json]
 
-  import       POST export JSON to $BASE_URL/api/config/save
+  import       POST export JSON to $BASE_URL/api/config/save (exact copy by default)
   manifest     Print manifest URL from credentials
   wire-export  Replace AIOLists with AIOMetadata in $EXPORT_FILE
 
 Env: MANGO_AIOMETADATA_URL, MANGO_AIOMETADATA_IMPORT, MANGO_AIOMETADATA_PASSWORD
+     MANGO_AIOMETADATA_IMPORT_MODE=exact|minimal  (default: exact)
 EOF
     exit 1
     ;;

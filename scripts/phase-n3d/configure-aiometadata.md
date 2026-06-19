@@ -11,7 +11,30 @@ Replaces self-hosted **AIOLists** on port **3036**. Catalog ids use
 1. `deploy/aiometadata/.env` with `TMDB_API_KEY` and `MDBLIST_API_KEY`
 2. Container healthy: `curl -sf http://127.0.0.1:3036/health`
 
-## Open Configure UI
+## Headless import (exact export copy)
+
+Copy your configure export to the Pi (never commit `keys/`):
+
+```bash
+# Mac → Pi
+cat keys/aiometadata-config-2026-06-19\ \(1\).json | ssh mango 'cat > ~/.config/mango/aiometadata-import.json'
+```
+
+Ensure `deploy/aiometadata/.env` has `TMDB_API_KEY` and `MDBLIST_API_KEY` (or keys
+stay in the export JSON). Then:
+
+```bash
+bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
+bash scripts/phase-n3d/aiometadata-config.sh wire-export
+```
+
+`MANGO_AIOMETADATA_IMPORT_MODE=exact` (default) copies catalogs, providers, search,
+and integrations verbatim from the export. Only self-host fixes: inject TMDB from
+`.env` when the export relied on ElfHosted built-in, clear ElfHosted marketing blurb.
+
+Re-import updates the same UUID when `~/.config/mango/aiometadata.credentials` exists.
+
+## Manual configure UI
 
 ```bash
 ssh -L 3036:127.0.0.1:3036 mango
