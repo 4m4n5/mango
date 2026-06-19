@@ -1,7 +1,7 @@
 # N3d inventory — self-hosted addon stack
 
 **Branch:** `feat/native-experience`
-**Status:** S4 catalog yaml migrated
+**Status:** S5 maintenance validation scaffolded
 **Gate:** `bash scripts/phase-n3d/gate-n3d-self-hosted.sh`
 
 ---
@@ -34,6 +34,7 @@
 | `/etc/mango/stremio-export.json` | local manifest URLs | yes-adjacent |
 | `~/.config/systemd/user/mango-aiostreams.service` | Pi user unit | no |
 | `~/.config/systemd/user/mango-aiolists.service` | Pi user unit | no |
+| `scripts/diag/poll-maintenance.py` | maintenance progress poller | no |
 
 ## Operator Actions Still Required
 
@@ -77,6 +78,27 @@ bash scripts/phase-n2/gate-n2-browse.sh
 
 The repo yaml has no `AIOMetadata` or `ElfHosted` addon references. India catalog
 ids still require operator verification against the selected `India OTT` manifest.
+
+## S5 Maintenance Validation
+
+```bash
+bash scripts/phase-n3c/playability-maintenance.sh --mode stale
+MANGO_POLL_MAX=1 python3 scripts/diag/poll-maintenance.py
+pgrep -af 'mpv-probe-ipc.sh|playability-indexer.ts' || true
+```
+
+Pass criteria:
+
+| Check | Pass |
+|-------|------|
+| maintenance JSON | includes `duration_ms` |
+| counters | `verified_total` or `failed_total` increases from start |
+| probes | no `mpv-probe-ipc.sh` process older than 30 seconds |
+| skip behavior | `skipped_recent_failed` is not 100% of candidates |
+
+Current Pi evidence: pending. If this remains pending at handoff, complete
+AIOStreams/AIOLists configure UI, restart `MANGO_CATALOG=1`, then run the stale
+maintenance command above.
 
 ## Current Blockers
 
