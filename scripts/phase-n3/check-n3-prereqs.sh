@@ -32,7 +32,7 @@ path = sys.argv[1]
 data = json.load(open(path, encoding="utf-8"))
 required = {
     "exclude_uncached_debrid": True,
-    "strict_unknown_cache": false,
+    "strict_unknown_cache": False,
     "max_quality": "1080p",
     "exclude_remux": True,
     "auto_play_max_attempts": 2,
