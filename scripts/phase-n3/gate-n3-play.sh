@@ -81,8 +81,11 @@ if data.get("ok") is not True:
 total = int(data.get("total_ms") or 0)
 ttff = int(data.get("ttff_ms") or 0)
 attempts = int(data.get("attempts") or 0)
-if total <= 0 or total > 20000:
-    raise SystemExit(f"{label}: total_ms outside budget: {total}")
+filters = data.get("filters") or {}
+fallback = filters.get("torbox_uncached_fallback") is True
+max_total = 45000 if fallback else 20000
+if total <= 0 or total > max_total:
+    raise SystemExit(f"{label}: total_ms outside budget: {total} (max {max_total})")
 if ttff <= 0:
     raise SystemExit(f"{label}: ttff_ms missing: {ttff}")
 if attempts < 1 or attempts > 3:

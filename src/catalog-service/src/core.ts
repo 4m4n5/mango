@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import {
   filterAndRankStreams,
+  filterStreamsForPlay,
   loadFilterConfig,
   mergeFilterConfig,
   type StreamFilterMeta,
@@ -426,7 +427,7 @@ export class CatalogCore {
     }
 
     const config = mergeFilterConfig(this.filterConfig, overrides);
-    const filtered = filterAndRankStreams(raw.streams, config);
+    const filtered = filterStreamsForPlay(raw.streams, config);
     if (filtered.streams.length === 0) {
       const hint = config.exclude_uncached_debrid
         ? ' try ?include_uncached=1 or set include_uncached in POST /play'

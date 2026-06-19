@@ -92,7 +92,9 @@ async function handlePlay(
   const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
   const result = await core.streams(body.type, body.id, overrides);
   try {
-    const playback = await playWithFallback(result.streams, result.filters.applied);
+    const playback = await playWithFallback(result.streams, result.filters.applied, {
+      allow_uncached_torbox: result.filters.torbox_uncached_fallback === true,
+    });
     return {
       ok: playback.ok,
       ttff_ms: playback.ttff_ms,

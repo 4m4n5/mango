@@ -26,6 +26,8 @@ export type StreamFilterConfig = {
   exclude_rd_release_tags: string[];
   /** Drop addon error placeholder streams (e.g. AIOStreams `[❌] TorBox Search`). */
   exclude_error_streams: boolean;
+  /** When no cached streams remain, allow uncached TorBox (not Real-Debrid). */
+  uncached_torbox_fallback: boolean;
   /** Max candidate URLs to try during automatic Play. */
   auto_play_max_attempts: number;
   /** Hard wall-clock budget for automatic Play. */
@@ -47,6 +49,8 @@ export type StreamFilterMeta = {
   applied: StreamFilterConfig & { include_uncached: boolean };
   total: number;
   kept: number;
+  /** Set when strict filters returned 0 streams and uncached TorBox picks were used. */
+  torbox_uncached_fallback?: boolean;
   excluded: {
     uncached_debrid: number;
     unknown_cache_debrid: number;
@@ -300,6 +304,7 @@ export function defaultFilterConfig(): StreamFilterConfig {
     debrid_preference: DEFAULT_DEBRID_PREFERENCE,
     exclude_rd_release_tags: DEFAULT_RD_BLOCKED_TAGS,
     exclude_error_streams: true,
+    uncached_torbox_fallback: true,
   };
 }
 
@@ -344,6 +349,9 @@ export async function loadFilterConfig(
     if (typeof raw.exclude_error_streams === 'boolean') {
       base.exclude_error_streams = raw.exclude_error_streams;
     }
+    if (typeof raw.uncached_torbox_fallback === 'boolean') {
+      base.uncached_torbox_fallback = raw.uncached_torbox_fallback;
+    }
     if (raw.include_uncached === true) {
       base.exclude_uncached_debrid = false;
     }
@@ -370,6 +378,7 @@ export function mergeFilterConfig(
     debrid_preference: base.debrid_preference,
     exclude_rd_release_tags: base.exclude_rd_release_tags,
     exclude_error_streams: base.exclude_error_streams,
+    uncached_torbox_fallback: base.uncached_torbox_fallback,
     include_uncached: includeUncached,
   };
 }
@@ -464,6 +473,16 @@ export function filterAndRankStreams(
     });
   }
 
+  rankKeptStreams(kept, config);
+
+  meta.kept = kept.length;
+  return { streams: kept, meta };
+}
+
+function rankKeptStreams(
+  kept: Stream[],
+  config: StreamFilterConfig & { include_uncached: boolean },
+): void {
   kept.sort((left, right) => {
     const cacheDelta = cacheRank(parseDebridCacheStatus(left)) - cacheRank(parseDebridCacheStatus(right));
     if (cacheDelta !== 0) return cacheDelta;
@@ -473,9 +492,50 @@ export function filterAndRankStreams(
     if (debridDelta !== 0) return debridDelta;
     return qualityRank(left, config.max_quality) - qualityRank(right, config.max_quality);
   });
+}
 
-  meta.kept = kept.length;
-  return { streams: kept, meta };
+/** Primary filters; if nothing kept, fall back to uncached TorBox only (avoids RD copyright traps). */
+export function filterStreamsForPlay(
+  streams: Stream[],
+  config: StreamFilterConfig & { include_uncached: boolean },
+): { streams: Stream[]; meta: StreamFilterMeta } {
+  const primary = filterAndRankStreams(streams, config);
+  if (
+    primary.streams.length > 0
+    || config.include_uncached
+    || !config.uncached_torbox_fallback
+  ) {
+    return primary;
+  }
+
+  const fallbackKept: Stream[] = [];
+  for (const stream of streams) {
+    if (debridServiceId(stream) !== 'torbox') continue;
+    const cacheStatus = parseDebridCacheStatus(stream);
+    if (cacheStatus !== 'uncached') continue;
+    if (config.exclude_error_streams && isErrorStream(stream)) continue;
+    if (config.exclude_remux && isRemux(stream)) continue;
+    if (qualityExceedsCap(stream, config.max_quality)) continue;
+    fallbackKept.push({
+      ...stream,
+      debrid_service: 'torbox',
+      cache_status: cacheStatus,
+    });
+  }
+
+  rankKeptStreams(fallbackKept, config);
+  if (fallbackKept.length === 0) {
+    return primary;
+  }
+
+  return {
+    streams: fallbackKept,
+    meta: {
+      ...primary.meta,
+      kept: fallbackKept.length,
+      torbox_uncached_fallback: true,
+    },
+  };
 }
 
 function normalizeAddonName(name: string): string {
@@ -521,16 +581,23 @@ function debridServiceAllowed(stream: Stream, allowed: string[] | undefined): bo
 function autoPlayEligible(
   stream: Stream,
   config: StreamFilterConfig & { include_uncached: boolean },
+  options: { allow_uncached_torbox?: boolean } = {},
 ): boolean {
   if (config.exclude_error_streams && isErrorStream(stream)) return false;
   if (isRdBlockedRelease(stream, config.exclude_rd_release_tags)) return false;
-  if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') return false;
+  if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') {
+    if (options.allow_uncached_torbox && debridServiceId(stream) === 'torbox') {
+      return true;
+    }
+    return false;
+  }
   return true;
 }
 
 export function selectAutoPlayCandidates(
   streams: Stream[],
   config: StreamFilterConfig & { include_uncached: boolean },
+  options: { allow_uncached_torbox?: boolean } = {},
 ): Stream[] {
   const seen = new Set<string>();
   const candidates: Stream[] = [];
@@ -538,10 +605,12 @@ export function selectAutoPlayCandidates(
   for (const tier of config.auto_play_tiers) {
     for (const stream of streams) {
       if (seen.has(stream.url)) continue;
-      if (!autoPlayEligible(stream, config)) continue;
+      if (!autoPlayEligible(stream, config, options)) continue;
       if (!sourceMatches(stream, tier.addons)) continue;
       if (!debridServiceAllowed(stream, tier.debrid_services)) continue;
-      if (!cacheAllowed(stream, tier.require_cache, config.strict_unknown_cache)) continue;
+      if (!options.allow_uncached_torbox || streamCacheStatus(stream) !== 'uncached') {
+        if (!cacheAllowed(stream, tier.require_cache, config.strict_unknown_cache)) continue;
+      }
       seen.add(stream.url);
       candidates.push(stream);
       if (candidates.length >= config.auto_play_max_attempts) {
@@ -552,7 +621,7 @@ export function selectAutoPlayCandidates(
 
   if (candidates.length < config.auto_play_max_attempts) {
     const supplement = streams
-      .filter((stream) => !seen.has(stream.url) && autoPlayEligible(stream, config))
+      .filter((stream) => !seen.has(stream.url) && autoPlayEligible(stream, config, options))
       .sort((left, right) => {
         const debridDelta =
           debridPreferenceRank(debridServiceId(left), config.debrid_preference)

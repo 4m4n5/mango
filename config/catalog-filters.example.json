@@ -7,6 +7,7 @@
   "debrid_preference": ["torbox", "realdebrid"],
   "exclude_rd_release_tags": ["webrip", "web-dl", "webdl", "amzn"],
   "exclude_error_streams": true,
+  "uncached_torbox_fallback": true,
   "auto_play_max_attempts": 3,
   "auto_play_wall_ms": 20000,
   "auto_play_probe_ms": 8000,
