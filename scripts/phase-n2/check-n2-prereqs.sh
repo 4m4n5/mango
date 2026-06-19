@@ -16,7 +16,7 @@ fi
 CATALOG_YAML="${MANGO_CATALOG_YAML:-/etc/mango/catalog.yaml}"
 EXPECTED=(
   movies-global-popular movies-india-trending movies-classics movies-comedy movies-quick-watches movies-documentaries
-  series-global-popular series-india-picks series-classics series-comedy series-miniseries series-documentaries
+  series-global-popular series-india-picks series-classics series-comedy series-miniseries series-reality-casual
 )
 ERRORS=0
 fail() { log "FAIL: $*" >&2; ERRORS=$((ERRORS + 1)); }
