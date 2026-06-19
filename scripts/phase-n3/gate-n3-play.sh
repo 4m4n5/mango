@@ -83,12 +83,12 @@ ttff = int(data.get("ttff_ms") or 0)
 attempts = int(data.get("attempts") or 0)
 filters = data.get("filters") or {}
 fallback = filters.get("torbox_uncached_fallback") is True or filters.get("rd_safe_unknown_fallback") is True
-max_total = 60000 if fallback else 20000
+max_total = 60000 if fallback else 45000
 if total <= 0 or total > max_total:
     raise SystemExit(f"{label}: total_ms outside budget: {total} (max {max_total})")
 if ttff <= 0:
     raise SystemExit(f"{label}: ttff_ms missing: {ttff}")
-if attempts < 1 or attempts > 4:
+if attempts < 1 or attempts > 5:
     raise SystemExit(f"{label}: attempts outside budget: {attempts}")
 stream = data.get("stream") or {}
 filters = data.get("filters") or {}

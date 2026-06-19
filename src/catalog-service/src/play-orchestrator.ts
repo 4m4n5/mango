@@ -73,7 +73,7 @@ export async function playWithFallback(
   const extendedBudget = options.allow_uncached_torbox === true || options.allow_rd_safe_unknown === true;
   const wallMs = extendedBudget
     ? Math.max(config.auto_play_wall_ms, 60000)
-    : config.auto_play_wall_ms;
+    : Math.max(config.auto_play_wall_ms, 30000);
   const probeMs = extendedBudget
     ? Math.max(config.auto_play_probe_ms, 20000)
     : config.auto_play_probe_ms;

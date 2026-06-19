@@ -349,9 +349,12 @@ export function streamPlayScore(
   else if (debrid === 'realdebrid') score += 40;
 
   const source = normalizeAddonName(stream.source || '');
-  if (source.includes('torrentio tb')) score += 80;
-  else if (source.includes('torrentio rd')) score += 60;
-  else if (source.includes('aiostreams')) score += 30;
+  if (source.includes('torrentio tb')) score += 100;
+  else if (source.includes('torrentio rd')) score += 70;
+  else if (source.includes('aiostreams')) score += 20;
+
+  // Unknown-cache Torrentio rows are usually instant hash-on-debrid; prefer over uncached AIOStreams.
+  if (cache === 'unknown' && source.includes('torrentio')) score += 120;
 
   const haystack = streamHaystack(stream);
   if (/\b(bluray|blu[\s-]?ray|bdrip)\b/i.test(haystack)) score += 50;
@@ -744,41 +747,69 @@ export function selectAutoPlayCandidates(
   config: StreamFilterConfig & { include_uncached: boolean },
   options: { allow_uncached_torbox?: boolean } = {},
 ): Stream[] {
-  const seen = new Set<string>();
-  const candidates: Stream[] = [];
+  const eligible = streams.filter((stream) => autoPlayEligible(stream, config, options));
+  const phases: Array<(stream: Stream) => boolean> = [
+    (stream) => streamCacheStatus(stream) === 'cached',
+    (stream) => streamCacheStatus(stream) === 'unknown',
+    (stream) => options.allow_uncached_torbox === true
+      && debridServiceId(stream) === 'torbox'
+      && streamCacheStatus(stream) === 'uncached'
+      && !isLowQualityRelease(stream),
+  ];
 
-  for (const tier of config.auto_play_tiers) {
+  const seen = new Set<string>();
+  const ranked: Stream[] = [];
+
+  for (const phase of phases) {
+    const phaseStreams = eligible
+      .filter((stream) => !seen.has(stream.url) && phase(stream))
+      .sort((left, right) => streamPlayScore(right, config) - streamPlayScore(left, config));
+    for (const stream of phaseStreams) {
+      seen.add(stream.url);
+      ranked.push(stream);
+    }
+  }
+
+  return diversifyCandidates(ranked, config.auto_play_max_attempts);
+}
+
+/** Spread attempts across addons/cache phases instead of four near-identical AIOStreams rows. */
+function diversifyCandidates(streams: Stream[], max: number): Stream[] {
+  if (streams.length <= max) return streams;
+
+  const buckets = new Map<string, Stream[]>();
+  for (const stream of streams) {
+    const key = `${normalizeAddonName(stream.source || '')}|${streamCacheStatus(stream)}|${debridServiceId(stream) || 'none'}`;
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(stream);
+    buckets.set(key, bucket);
+  }
+
+  const picked: Stream[] = [];
+  const seen = new Set<string>();
+  while (picked.length < max) {
+    let added = false;
+    for (const bucket of buckets.values()) {
+      if (bucket.length === 0) continue;
+      const stream = bucket.shift();
+      if (!stream || seen.has(stream.url)) continue;
+      seen.add(stream.url);
+      picked.push(stream);
+      added = true;
+      if (picked.length >= max) break;
+    }
+    if (!added) break;
+  }
+
+  if (picked.length < max) {
     for (const stream of streams) {
       if (seen.has(stream.url)) continue;
-      if (!autoPlayEligible(stream, config, options)) continue;
-      if (!sourceMatches(stream, tier.addons)) continue;
-      if (!debridServiceAllowed(stream, tier.debrid_services)) continue;
-      if (!options.allow_uncached_torbox || streamCacheStatus(stream) !== 'uncached') {
-        if (!cacheAllowed(stream, tier.require_cache, config.strict_unknown_cache)) continue;
-      }
-      seen.add(stream.url);
-      candidates.push(stream);
-      if (candidates.length >= config.auto_play_max_attempts) {
-        return candidates;
-      }
+      picked.push(stream);
+      if (picked.length >= max) break;
     }
   }
 
-  if (candidates.length < config.auto_play_max_attempts) {
-    const supplement = streams
-      .filter((stream) => !seen.has(stream.url) && autoPlayEligible(stream, config, options))
-      .sort((left, right) => streamPlayScore(right, config) - streamPlayScore(left, config));
-
-    for (const stream of supplement) {
-      seen.add(stream.url);
-      candidates.push(stream);
-      if (candidates.length >= config.auto_play_max_attempts) {
-        break;
-      }
-    }
-  }
-
-  return candidates;
+  return picked;
 }
 
 export function pickPlayableStream(

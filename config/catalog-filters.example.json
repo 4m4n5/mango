@@ -9,8 +9,8 @@
   "exclude_error_streams": true,
   "uncached_torbox_fallback": true,
   "rd_safe_unknown_fallback": true,
-  "auto_play_max_attempts": 4,
-  "auto_play_wall_ms": 20000,
+  "auto_play_max_attempts": 5,
+  "auto_play_wall_ms": 45000,
   "auto_play_probe_ms": 12000,
   "auto_play_tiers": [
     {
