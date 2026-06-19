@@ -123,6 +123,7 @@ async function handlePlay(
     };
   } catch (error) {
     await invalidateTitle({
+      rail_id: body.rail_id,
       type: body.type,
       id: body.id,
       reason: 'play_failure',
@@ -133,6 +134,7 @@ async function handlePlay(
         }`,
       );
     });
+    core.clearRailItemsCache(body.rail_id ?? undefined);
     if (error instanceof CatalogError) {
       error.details = {
         ...(error.details || {}),
@@ -179,6 +181,7 @@ async function main(): Promise<void> {
           id: body.id,
           reason: body.reason || 'manual',
         });
+        core.clearRailItemsCache(body.rail_id ?? undefined);
         sendJson(res, 200, { ok: true, type: body.type, id: body.id });
         return;
       }

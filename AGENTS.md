@@ -56,13 +56,14 @@ checks — never hand off after Mac-only verification.
 
 ```bash
 bash scripts/pi-exec-gate.sh          # Mac: pull + gate on Pi
-# or on Pi:
+# or on Pi (N0 + sampled N3c):
 bash scripts/pi-pre-couch-gate.sh
-# native branch direct:
+# full play gate on served items:
+MANGO_GATE_FULL=1 bash scripts/phase-n3c/gate-n3c-verified-rails.sh
+# phase-specific (no nested regressions):
 bash scripts/phase-n0/gate-n0.sh
-bash scripts/phase-n1/gate-n1-smoke.sh   # after N1 implementation
-bash scripts/phase-n2/gate-n2-browse.sh  # after N2 implementation
-bash scripts/phase-n3/gate-n3-play.sh    # after N3a implementation
+bash scripts/phase-n1/gate-n1-smoke.sh   # MANGO_GATE_SPIKES=1 for S0/S1 spikes
+bash scripts/phase-n2/gate-n2-browse.sh
 ```
 
 **N2 deploy:** requires `/etc/mango/catalog.yaml` (from `config/catalog.example.yaml`) + optional `tmdb.key`. Then:

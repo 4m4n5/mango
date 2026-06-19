@@ -20,8 +20,10 @@ import {
   getPlayabilityStatus,
   type PlayabilityStatus,
   type RailSessionPoolItem,
+  enqueuePlayabilityTrigger,
 } from './playability/db.js';
 import { AddonCatalogListSource, type ListSource } from './playability/list-source.js';
+import { schedulePlayabilityTopUp } from './playability/top-up-scheduler.js';
 import {
   CatalogError,
   couchSafeCatalogMessage,
@@ -455,9 +457,21 @@ export class CatalogCore {
     return getPlayabilityStatus(rails);
   }
 
+  clearRailItemsCache(railId?: string): void {
+    if (railId) {
+      this.railItemsCache.delete(railId);
+      return;
+    }
+    this.railItemsCache.clear();
+  }
+
   async railItems(railId: string): Promise<RailItemsResponse> {
     const cachedRail = this.railItemsCache.get(railId);
-    if (cachedRail && cachedRail.expiresAt > Date.now()) {
+    if (
+      cachedRail
+      && cachedRail.expiresAt > Date.now()
+      && cachedRail.payload.playability?.low_water !== true
+    ) {
       return { ...cachedRail.payload, cached: true };
     }
 
@@ -474,7 +488,23 @@ export class CatalogCore {
       (item) => this.resolveVerifiedRailItem(item),
     );
     const items = resolved.filter((item): item is RailItem => item !== null);
-    const pending = Math.max(0, rail.playability.min_display - session.verified_pool);
+    const pending = Math.max(0, rail.playability.min_display - items.length);
+    const lowWater = items.length < rail.playability.min_display;
+    if (lowWater) {
+      void enqueuePlayabilityTrigger({
+        trigger_type: 'display_low',
+        rail_id: rail.id,
+        reason: `displayed=${items.length} min=${rail.playability.min_display}`,
+      }).catch(() => undefined);
+      schedulePlayabilityTopUp(rail.id);
+    } else if (session.verified_pool < rail.playability.pool_target * 0.5) {
+      void enqueuePlayabilityTrigger({
+        trigger_type: 'pool_low',
+        rail_id: rail.id,
+        reason: `pool=${session.verified_pool} target=${rail.playability.pool_target}`,
+      }).catch(() => undefined);
+      schedulePlayabilityTopUp(rail.id);
+    }
     const payload: RailItemsResponse = {
       rail_id: rail.id,
       label: rail.label,
@@ -485,7 +515,7 @@ export class CatalogCore {
         displayed: items.length,
         verified_pool: session.verified_pool,
         pending,
-        low_water: items.length < rail.playability.min_display,
+        low_water: lowWater,
         session_id: session.session_id,
       },
     };

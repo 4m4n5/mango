@@ -12,13 +12,17 @@
 | **`phase1/bootstrap-after-reboot.sh`** | After Pi reboot |
 | **`phase1/restart-mango-ui.sh`** | UI-only restart |
 
-**Gates:**
+**Gates** (lean — no nested regression chains):
 
 ```bash
-bash scripts/phase-n0/gate-n0.sh
-bash scripts/phase-n1/check-n1-prereqs.sh
-bash scripts/phase-n1/gate-n1-smoke.sh    # after N1 ships
+bash scripts/pi-pre-couch-gate.sh          # N0 + sampled N3c (2 plays/rail)
+MANGO_GATE_FULL=1 bash scripts/phase-n3c/gate-n3c-verified-rails.sh  # all served items
+bash scripts/phase-n0/gate-n0.sh           # stack hygiene only
+bash scripts/phase-n1/gate-n1-smoke.sh     # catalog API (+ MANGO_GATE_SPIKES=1 for spikes)
+bash scripts/phase-n2/gate-n2-browse.sh    # rails browse only
 ```
+
+Shared helpers: `lib/gate-common.sh`
 
 ---
 

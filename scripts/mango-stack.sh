@@ -136,7 +136,7 @@ start_playability_topup() {
     nice -n 10 npm --prefix src/catalog-service exec tsx -- \
       scripts/phase-n3c/playability-indexer.ts top-up --all
   ) >"${CACHE_DIR}/playability-indexer.log" 2>&1 &
-  echo "playability indexer started in background (log: ${CACHE_DIR}/playability-indexer.log)"
+  [[ "${MANGO_STACK_VERBOSE:-0}" == "1" ]] && echo "playability indexer background (log: ${CACHE_DIR}/playability-indexer.log)"
 }
 
 stop_catalog_service() {
@@ -171,17 +171,14 @@ stop_stack() {
 }
 
 status_stack() {
-  echo "mango stack status"
-  echo "commit: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  echo "voice: ${MANGO_VOICE:-0}"
-  echo "catalog: ${MANGO_CATALOG:-0}"
+  echo "mango: commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown) voice=${MANGO_VOICE:-0} catalog=${MANGO_CATALOG:-0}"
   if curl -sf --max-time 2 http://127.0.0.1:3020/health >/tmp/mango-catalog-health.json 2>/dev/null; then
-    echo "catalog health: $(cat /tmp/mango-catalog-health.json)"
+    echo "catalog: $(tr -d '\n' </tmp/mango-catalog-health.json)"
   else
-    echo "catalog health: down"
+    echo "catalog: down"
   fi
-  echo
-  bash scripts/diag/baseline-metrics.sh --label status --print-json
+  curl -sf --max-time 2 "http://127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/api/health" >/dev/null 2>&1 \
+    && echo "launcher: up" || echo "launcher: down"
 }
 
 case "${1:-}" in

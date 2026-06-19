@@ -23,7 +23,7 @@ cards, but never unverified cards.
 - Play-failure invalidation from `POST /play`
 - Opt-in stack warmup: `MANGO_PLAYABILITY_TOPUP_ON_START=1`
 - Timer installer: `scripts/phase-n3c/install-playability-timer.sh`
-- Gate: `scripts/phase-n3c/gate-n3c-verified-rails.sh`
+- Gate: `scripts/phase-n3c/gate-n3c-verified-rails.sh` (default: 2 plays/rail; `MANGO_GATE_FULL=1` for all)
 - Status report: `scripts/diag/playability-status.py`
 
 ## Pi evidence so far
@@ -52,5 +52,13 @@ cards, but never unverified cards.
 ## Known follow-ups
 
 - Broaden/fallback list sources before restoring `pool_target: 60`.
-- Decide whether `MANGO_PLAYABILITY_TOPUP_ON_START=1` should become default.
-- Run full `pi-pre-couch-gate.sh` after TV restart settles.
+- Run full `pi-pre-couch-gate.sh` with `MANGO_N3C_REQUIRE_MIN_DISPLAY=1` once pools filled.
+- `popular-india`: upstream catalog may return 0 candidates — needs alternate source.
+- Subscribe ElfHosted private per [`ELFHOSTED.md`](ELFHOSTED.md).
+
+## Audit fixes (2026-06-19)
+
+- Partial rail sessions rebuild when expired titles shrink below display target.
+- `display_low` / `pool_low` enqueue triggers + debounced background top-up.
+- Rail items cache skips when `low_water`; bust on invalidate/play failure.
+- Gate: mpv `playback-time > 0`; optional `MANGO_N3C_REQUIRE_MIN_DISPLAY=1`.

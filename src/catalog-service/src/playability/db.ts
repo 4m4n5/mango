@@ -522,13 +522,24 @@ WHERE rp.rail_id = @rail_id
 ORDER BY rp.score DESC;
 `).all({ rail_id: options.railId, now }) as RailPoolRow[];
 
-    if (existing.length > 0) {
+    const targetSessionSize = Math.min(displayLimit, pool.length);
+    if (existing.length > 0 && existing.length >= targetSessionSize) {
       return {
         rail_id: options.railId,
         session_id: options.sessionId,
         items: existing,
         verified_pool: pool.length,
       };
+    }
+
+    if (existing.length > 0) {
+      db.prepare(`
+DELETE FROM rail_session
+WHERE rail_id = @rail_id AND session_id = @session_id;
+`).run({
+        rail_id: options.railId,
+        session_id: options.sessionId,
+      });
     }
 
     const recentRows = db.prepare(`
