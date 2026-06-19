@@ -14,6 +14,7 @@ import {
   type AddonCatalogRail,
   type RailConfig,
 } from './rails.js';
+import { getPlayabilityStatus, type PlayabilityStatus } from './playability/db.js';
 
 type AddonExport = {
   name?: string;
@@ -355,6 +356,11 @@ export class CatalogCore {
         content_type: rail.content_type,
       })),
     };
+  }
+
+  async playabilityStatus(): Promise<PlayabilityStatus> {
+    const rails = this.railConfig ? enabledAddonRails(this.railConfig).map((rail) => rail.id) : [];
+    return getPlayabilityStatus(rails);
   }
 
   async railItems(railId: string): Promise<{

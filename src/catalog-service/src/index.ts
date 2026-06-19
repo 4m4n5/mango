@@ -138,6 +138,11 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'playability' && parts[1] === 'status') {
+        sendJson(res, 200, await core.playabilityStatus());
+        return;
+      }
+
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'rails' && parts[2] === 'items') {
         sendJson(res, 200, await core.railItems(parts[1]));
         return;
