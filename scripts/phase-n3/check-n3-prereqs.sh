@@ -35,9 +35,12 @@ required = {
     "strict_unknown_cache": False,
     "max_quality": "1080p",
     "exclude_remux": True,
-    "auto_play_max_attempts": 2,
-    "auto_play_wall_ms": 15000,
+    "auto_play_max_attempts": 4,
+    "auto_play_wall_ms": 20000,
     "auto_play_probe_ms": 8000,
+    "uncached_torbox_fallback": True,
+    "rd_safe_unknown_fallback": True,
+    "debrid_preference": ["torbox", "realdebrid"],
 }
 for key, expected in required.items():
     actual = data.get(key)

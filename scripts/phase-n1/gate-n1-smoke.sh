@@ -65,7 +65,15 @@ MPV_COUNT="${MPV_COUNT:-0}"
 [[ "${MPV_COUNT}" -le 1 ]] && pass "mpv count ${MPV_COUNT}" || fail "mpv count ${MPV_COUNT} > 1"
 
 if [[ -x scripts/phase-n1/mpv-stop.sh ]]; then
-  bash scripts/phase-n1/mpv-stop.sh && pass "mpv-stop" || fail "mpv-stop"
+  for _ in 1 2 3; do
+    bash scripts/phase-n1/mpv-stop.sh && pass "mpv-stop" || fail "mpv-stop"
+    MPV_AFTER_STOP="$(pgrep -c -x mpv 2>/dev/null || true)"
+    MPV_AFTER_STOP="${MPV_AFTER_STOP:-0}"
+    [[ "${MPV_AFTER_STOP}" -eq 0 ]] && break
+    sleep 0.4
+  done
+else
+  fail "mpv-stop.sh missing"
 fi
 MPV_AFTER_STOP="$(pgrep -c -x mpv 2>/dev/null || true)"
 MPV_AFTER_STOP="${MPV_AFTER_STOP:-0}"
