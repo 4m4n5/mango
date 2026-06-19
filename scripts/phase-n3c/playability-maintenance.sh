@@ -7,6 +7,7 @@
 # Env:
 #   MANGO_MAINTENANCE_ALLOW_PARTIAL=1  exit 0 when refresh ran but pools below min_display (default 1)
 #   MANGO_MAINTENANCE_SKIP_GATE=1      skip pi-pre-couch-gate after refresh (default 1 for --mode full)
+#   MANGO_PLAYABILITY_BOOTSTRAP=1      target min_display per rail + early exit (set by --bootstrap)
 #   MANGO_N3C_GATE_MAX_PER_RAIL        sampled plays per rail (default 2)
 
 set -euo pipefail
@@ -22,6 +23,7 @@ SKIP_GATE="${MANGO_MAINTENANCE_SKIP_GATE:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --mode) MODE="${2:-}"; shift 2 ;;
+    --bootstrap) export MANGO_PLAYABILITY_BOOTSTRAP=1; shift ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
@@ -117,10 +119,16 @@ export MANGO_PLAYABILITY_PROBE_POOL=1
 export MANGO_PLAYABILITY_BATCH_DB=1
 export MANGO_PLAYABILITY_RESOLVE_CONCURRENCY="${MANGO_PLAYABILITY_RESOLVE_CONCURRENCY:-4}"
 export MANGO_PLAYABILITY_PROBE_CONCURRENCY="${MANGO_PLAYABILITY_PROBE_CONCURRENCY:-1}"
-export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-8000}"
+export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-12000}"
+
+REFRESH_ARGS=(refresh --all --mode "$MODE")
+if [[ "${MANGO_PLAYABILITY_BOOTSTRAP:-0}" == "1" ]]; then
+  REFRESH_ARGS+=(--bootstrap)
+  echo "bootstrap: pool_target=min_display, early-exit enabled"
+fi
 
 set +e
-REFRESH_JSON="$(npm --prefix src/catalog-service exec tsx -- scripts/phase-n3c/playability-indexer.ts refresh --all --mode "$MODE" 2>&1)"
+REFRESH_JSON="$(npm --prefix src/catalog-service exec tsx -- scripts/phase-n3c/playability-indexer.ts "${REFRESH_ARGS[@]}" 2>&1)"
 REFRESH_RC=$?
 set -e
 echo "$REFRESH_JSON"

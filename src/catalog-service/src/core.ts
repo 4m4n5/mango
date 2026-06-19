@@ -21,10 +21,12 @@ import {
   type RailConfig,
 } from './rails.js';
 import {
+  allocateTabRailSessions,
   getOrCreateRailSession,
   getPlayabilityStatus,
   type PlayabilityStatus,
   type RailSessionPoolItem,
+  type RailSessionSnapshot,
   enqueuePlayabilityTrigger,
 } from './playability/db.js';
 import {
@@ -111,6 +113,13 @@ export type RailItemsResponse = {
     low_water: boolean;
     session_id: string;
   };
+};
+
+export type TabRailItemsResponse = {
+  tab: CatalogTab;
+  rails: RailItemsResponse[];
+  resolve_ms: number;
+  cached?: boolean;
 };
 
 type Addon = {
@@ -364,6 +373,10 @@ export class CatalogCore {
     payload: RailItemsResponse;
     expiresAt: number;
   }>();
+  private readonly tabRailItemsCache = new Map<CatalogTab, {
+    payload: TabRailItemsResponse;
+    expiresAt: number;
+  }>();
   private readonly playabilitySessionId = process.env.MANGO_PLAYABILITY_SESSION_ID || randomUUID();
 
   private constructor(
@@ -486,28 +499,29 @@ export class CatalogCore {
   clearRailItemsCache(railId?: string): void {
     if (railId) {
       this.railItemsCache.delete(railId);
+      try {
+        const rail = this.browsableRail(railId);
+        this.tabRailItemsCache.delete(rail.tab);
+      } catch {
+        // unknown rail — tab cache left intact
+      }
       return;
     }
     this.railItemsCache.clear();
+    this.tabRailItemsCache.clear();
   }
 
-  async railItems(railId: string): Promise<RailItemsResponse> {
-    const cachedRail = this.railItemsCache.get(railId);
-    if (
-      cachedRail
-      && cachedRail.expiresAt > Date.now()
-      && cachedRail.payload.playability?.low_water !== true
-    ) {
-      return { ...cachedRail.payload, cached: true };
-    }
+  private siblingRailIds(rail: BrowsableRail): string[] {
+    return enabledBrowsableRailsForTab(this.requireRailConfig(), rail.tab)
+      .map((entry) => entry.id)
+      .filter((id) => id !== rail.id);
+  }
 
-    const started = Date.now();
-    const rail = this.browsableRail(railId);
-    const session = await getOrCreateRailSession({
-      railId: rail.id,
-      sessionId: this.playabilitySessionId,
-      displayLimit: rail.playability.display_limit,
-    });
+  private async buildRailItemsResponse(
+    rail: BrowsableRail,
+    session: RailSessionSnapshot,
+    started: number,
+  ): Promise<RailItemsResponse> {
     const resolved = await mapInBatches(
       session.items,
       RAIL_META_CONCURRENCY,
@@ -531,7 +545,7 @@ export class CatalogCore {
       }).catch(() => undefined);
       schedulePlayabilityTopUp(rail.id);
     }
-    const payload: RailItemsResponse = {
+    return {
       rail_id: rail.id,
       label: rail.label,
       items,
@@ -545,6 +559,73 @@ export class CatalogCore {
         session_id: session.session_id,
       },
     };
+  }
+
+  async tabRailItems(tab: CatalogTab): Promise<TabRailItemsResponse> {
+    const cachedTab = this.tabRailItemsCache.get(tab);
+    if (
+      cachedTab
+      && cachedTab.expiresAt > Date.now()
+      && cachedTab.payload.rails.every((rail) => rail.playability?.low_water !== true)
+    ) {
+      return { ...cachedTab.payload, cached: true };
+    }
+
+    const started = Date.now();
+    const rails = enabledBrowsableRailsForTab(this.requireRailConfig(), tab);
+    const sessions = await allocateTabRailSessions({
+      sessionId: this.playabilitySessionId,
+      rails: rails.map((rail) => ({
+        railId: rail.id,
+        displayLimit: rail.playability.display_limit,
+      })),
+    });
+
+    const responses: RailItemsResponse[] = [];
+    for (const rail of rails) {
+      const session = sessions.get(rail.id);
+      if (!session) {
+        continue;
+      }
+      const payload = await this.buildRailItemsResponse(rail, session, started);
+      responses.push(payload);
+      this.railItemsCache.set(rail.id, {
+        payload,
+        expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
+      });
+    }
+
+    const payload: TabRailItemsResponse = {
+      tab,
+      rails: responses,
+      resolve_ms: Date.now() - started,
+    };
+    this.tabRailItemsCache.set(tab, {
+      payload,
+      expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
+    });
+    return payload;
+  }
+
+  async railItems(railId: string): Promise<RailItemsResponse> {
+    const cachedRail = this.railItemsCache.get(railId);
+    if (
+      cachedRail
+      && cachedRail.expiresAt > Date.now()
+      && cachedRail.payload.playability?.low_water !== true
+    ) {
+      return { ...cachedRail.payload, cached: true };
+    }
+
+    const started = Date.now();
+    const rail = this.browsableRail(railId);
+    const session = await getOrCreateRailSession({
+      railId: rail.id,
+      sessionId: this.playabilitySessionId,
+      displayLimit: rail.playability.display_limit,
+      siblingRailIds: this.siblingRailIds(rail),
+    });
+    const payload = await this.buildRailItemsResponse(rail, session, started);
     this.railItemsCache.set(railId, {
       payload,
       expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,

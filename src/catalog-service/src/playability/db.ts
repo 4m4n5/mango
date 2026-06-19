@@ -1,6 +1,13 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
+import {
+  selectRailSessionItems,
+  sessionItemsConflictWithOccupied,
+  tabSessionsHaveDuplicateTitles,
+  titleKey,
+} from './session-select.js';
+import { seriesBareId, seriesFollowUpEpisodeIds } from './ids.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const SCHEMA_VERSION = 1;
@@ -50,6 +57,7 @@ export type TitlePlayabilityRecord = {
   type: string;
   id: string;
   status: 'verified' | 'failed' | 'pending' | 'stale';
+  fail_reason: string | null;
   expires_at: number | null;
   updated_at: number;
 };
@@ -98,6 +106,18 @@ export type RailSessionOptions = {
   railId: string;
   sessionId: string;
   displayLimit: number;
+  /** Other rails on the same tab — titles shown there are excluded from this session. */
+  siblingRailIds?: string[];
+};
+
+export type TabRailSessionRequest = {
+  railId: string;
+  displayLimit: number;
+};
+
+export type TabRailSessionAllocateOptions = {
+  sessionId: string;
+  rails: TabRailSessionRequest[];
 };
 
 export type PlayabilityTriggerRecord = {
@@ -126,6 +146,7 @@ type TitleRow = {
   type: string;
   id: string;
   status: 'verified' | 'failed' | 'pending' | 'stale';
+  fail_reason: string | null;
   expires_at: number | null;
   updated_at: number;
 };
@@ -172,13 +193,141 @@ function itemKey(item: { type: string; id: string }): string {
   return `${item.type}:${item.id}`;
 }
 
-function shuffle<T>(items: T[]): T[] {
-  const copy = [...items];
-  for (let index = copy.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+function readSiblingSessionOccupiedKeys(
+  db: Database.Database,
+  sessionId: string,
+  siblingRailIds: string[],
+): Set<string> {
+  if (siblingRailIds.length === 0) {
+    return new Set();
   }
-  return copy;
+  const placeholders = siblingRailIds.map(() => '?').join(', ');
+  const rows = db.prepare(`
+SELECT DISTINCT rs.type, rs.id
+FROM rail_session rs
+WHERE rs.session_id = ?
+  AND rs.rail_id IN (${placeholders});
+`).all(sessionId, ...siblingRailIds) as RecentRow[];
+  return new Set(rows.map((row) => titleKey(row.type, row.id)));
+}
+
+function readRailPool(
+  db: Database.Database,
+  railId: string,
+  now: number,
+): RailPoolRow[] {
+  return db.prepare(`
+SELECT
+  rp.rail_id,
+  rp.type,
+  rp.id,
+  rp.score,
+  t.best_source,
+  t.cache_status,
+  t.debrid_service,
+  t.verified_at,
+  t.expires_at
+FROM rail_pool rp
+JOIN titles t ON t.type = rp.type AND t.id = rp.id
+WHERE rp.rail_id = @rail_id
+  AND t.status = 'verified'
+  AND COALESCE(t.expires_at, 0) > @now
+ORDER BY rp.score DESC;
+`).all({ rail_id: railId, now }) as RailPoolRow[];
+}
+
+function readExistingRailSession(
+  db: Database.Database,
+  railId: string,
+  sessionId: string,
+  now: number,
+): RailSessionPoolItem[] {
+  return db.prepare(`
+SELECT
+  rs.rail_id,
+  rs.type,
+  rs.id,
+  rp.score,
+  rs.mix_bucket,
+  rs.slot,
+  rs.session_id,
+  t.best_source,
+  t.cache_status,
+  t.debrid_service,
+  t.verified_at,
+  t.expires_at
+FROM rail_session rs
+JOIN rail_pool rp ON rp.rail_id = rs.rail_id AND rp.type = rs.type AND rp.id = rs.id
+JOIN titles t ON t.type = rs.type AND t.id = rs.id
+WHERE rs.rail_id = @rail_id
+  AND rs.session_id = @session_id
+  AND t.status = 'verified'
+  AND COALESCE(t.expires_at, 0) > @now
+ORDER BY rs.slot ASC;
+`).all({
+    rail_id: railId,
+    session_id: sessionId,
+    now,
+  }) as RailSessionPoolItem[];
+}
+
+function readRecentRailKeys(
+  db: Database.Database,
+  railId: string,
+  cooldownCutoff: number,
+): Set<string> {
+  const recentRows = db.prepare(`
+SELECT type, id
+FROM recently_shown
+WHERE rail_id = @rail_id AND shown_at >= @cooldown_cutoff;
+`).all({
+    rail_id: railId,
+    cooldown_cutoff: cooldownCutoff,
+  }) as RecentRow[];
+  return new Set(recentRows.map((row) => titleKey(row.type, row.id)));
+}
+
+function writeRailSessionRows(
+  db: Database.Database,
+  railId: string,
+  sessionId: string,
+  rows: RailSessionPoolItem[],
+  now: number,
+): void {
+  db.prepare(`
+DELETE FROM rail_session
+WHERE rail_id = @rail_id AND session_id = @session_id;
+`).run({
+    rail_id: railId,
+    session_id: sessionId,
+  });
+
+  const insertSession = db.prepare(`
+INSERT INTO rail_session (rail_id, type, id, slot, mix_bucket, session_id, created_at)
+VALUES (@rail_id, @type, @id, @slot, @mix_bucket, @session_id, @created_at);
+`);
+  const upsertRecent = db.prepare(`
+INSERT INTO recently_shown (rail_id, type, id, shown_at)
+VALUES (@rail_id, @type, @id, @shown_at)
+ON CONFLICT(rail_id, type, id) DO UPDATE SET shown_at = excluded.shown_at;
+`);
+  for (const row of rows) {
+    insertSession.run({
+      rail_id: row.rail_id,
+      type: row.type,
+      id: row.id,
+      slot: row.slot,
+      mix_bucket: row.mix_bucket,
+      session_id: row.session_id,
+      created_at: now,
+    });
+    upsertRecent.run({
+      rail_id: row.rail_id,
+      type: row.type,
+      id: row.id,
+      shown_at: now,
+    });
+  }
 }
 
 function emptyRailStatus(railId: string): PlayabilityRailStatus {
@@ -273,6 +422,19 @@ CREATE TABLE IF NOT EXISTS playability_triggers (
   reason TEXT,
   handled_at INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS series_episode_queue (
+  series_id TEXT NOT NULL,
+  episode_id TEXT NOT NULL,
+  season INTEGER NOT NULL,
+  episode INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'failed', 'skipped')),
+  queued_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (series_id, episode_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_series_episode_queue_status ON series_episode_queue(status, queued_at);
 
 CREATE INDEX IF NOT EXISTS idx_titles_status_expires ON titles(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_rail_pool_rail_score ON rail_pool(rail_id, score DESC);
@@ -454,7 +616,7 @@ export async function getTitlesPlayabilityBulk(
         params[`id_${index}`] = entry.id;
       });
       const rows = db.prepare(`
-SELECT type, id, status, expires_at, updated_at
+SELECT type, id, status, fail_reason, expires_at, updated_at
 FROM titles
 WHERE (type, id) IN ( VALUES ${placeholders} );
 `).all(params) as TitleRow[];
@@ -585,6 +747,95 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
   }
 }
 
+export async function allocateTabRailSessions(
+  options: TabRailSessionAllocateOptions,
+): Promise<Map<string, RailSessionSnapshot>> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const now = nowMs();
+  const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
+  const snapshots = new Map<string, RailSessionSnapshot>();
+
+  try {
+    const existingByRail = new Map<string, RailSessionPoolItem[]>();
+    const poolSizes = new Map<string, number>();
+    let canReuseExisting = options.rails.length > 0;
+
+    for (const rail of options.rails) {
+      const displayLimit = Math.max(1, rail.displayLimit);
+      const pool = readRailPool(db, rail.railId, now);
+      poolSizes.set(rail.railId, pool.length);
+      const existing = readExistingRailSession(db, rail.railId, options.sessionId, now);
+      existingByRail.set(rail.railId, existing);
+      const targetSessionSize = Math.min(displayLimit, pool.length);
+      if (existing.length < targetSessionSize) {
+        canReuseExisting = false;
+      }
+    }
+
+    if (canReuseExisting && !tabSessionsHaveDuplicateTitles(existingByRail)) {
+      for (const rail of options.rails) {
+        const existing = existingByRail.get(rail.railId) ?? [];
+        snapshots.set(rail.railId, {
+          rail_id: rail.railId,
+          session_id: options.sessionId,
+          items: existing,
+          verified_pool: poolSizes.get(rail.railId) ?? 0,
+        });
+      }
+      return snapshots;
+    }
+
+    const tabOccupied = new Set<string>();
+    const transaction = db.transaction(() => {
+      for (const rail of options.rails) {
+        db.prepare(`
+DELETE FROM rail_session
+WHERE rail_id = @rail_id AND session_id = @session_id;
+`).run({
+          rail_id: rail.railId,
+          session_id: options.sessionId,
+        });
+      }
+
+      for (const rail of options.rails) {
+        const displayLimit = Math.max(1, rail.displayLimit);
+        const pool = readRailPool(db, rail.railId, now);
+        const recent = readRecentRailKeys(db, rail.railId, cooldownCutoff);
+        const selected = selectRailSessionItems(pool, {
+          displayLimit,
+          recentKeys: recent,
+          occupiedKeys: tabOccupied,
+        });
+        const rows = selected.map((item, slot): RailSessionPoolItem => ({
+          ...item,
+          slot,
+          session_id: options.sessionId,
+        }));
+        writeRailSessionRows(db, rail.railId, options.sessionId, rows, now);
+        for (const row of rows) {
+          tabOccupied.add(titleKey(row.type, row.id));
+        }
+        snapshots.set(rail.railId, {
+          rail_id: rail.railId,
+          session_id: options.sessionId,
+          items: rows,
+          verified_pool: pool.length,
+        });
+      }
+
+      db.prepare(`
+DELETE FROM recently_shown
+WHERE shown_at < @prune_before;
+`).run({ prune_before: now - 14 * 24 * 60 * 60 * 1000 });
+    });
+    transaction();
+    return snapshots;
+  } finally {
+    db.close();
+  }
+}
+
 export async function getOrCreateRailSession(
   options: RailSessionOptions,
 ): Promise<RailSessionSnapshot> {
@@ -593,58 +844,19 @@ export async function getOrCreateRailSession(
   const now = nowMs();
   const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
   const displayLimit = Math.max(1, options.displayLimit);
+  const siblingRailIds = options.siblingRailIds ?? [];
 
   try {
-    const selectSessionItems = db.prepare(`
-SELECT
-  rs.rail_id,
-  rs.type,
-  rs.id,
-  rp.score,
-  rs.mix_bucket,
-  rs.slot,
-  rs.session_id,
-  t.best_source,
-  t.cache_status,
-  t.debrid_service,
-  t.verified_at,
-  t.expires_at
-FROM rail_session rs
-JOIN rail_pool rp ON rp.rail_id = rs.rail_id AND rp.type = rs.type AND rp.id = rs.id
-JOIN titles t ON t.type = rs.type AND t.id = rs.id
-WHERE rs.rail_id = @rail_id
-  AND rs.session_id = @session_id
-  AND t.status = 'verified'
-  AND COALESCE(t.expires_at, 0) > @now
-ORDER BY rs.slot ASC;
-`);
-    const existing = selectSessionItems.all({
-      rail_id: options.railId,
-      session_id: options.sessionId,
-      now,
-    }) as RailSessionPoolItem[];
-
-    const pool = db.prepare(`
-SELECT
-  rp.rail_id,
-  rp.type,
-  rp.id,
-  rp.score,
-  t.best_source,
-  t.cache_status,
-  t.debrid_service,
-  t.verified_at,
-  t.expires_at
-FROM rail_pool rp
-JOIN titles t ON t.type = rp.type AND t.id = rp.id
-WHERE rp.rail_id = @rail_id
-  AND t.status = 'verified'
-  AND COALESCE(t.expires_at, 0) > @now
-ORDER BY rp.score DESC;
-`).all({ rail_id: options.railId, now }) as RailPoolRow[];
-
+    const pool = readRailPool(db, options.railId, now);
+    const existing = readExistingRailSession(db, options.railId, options.sessionId, now);
+    const siblingOccupied = readSiblingSessionOccupiedKeys(db, options.sessionId, siblingRailIds);
     const targetSessionSize = Math.min(displayLimit, pool.length);
-    if (existing.length > 0 && existing.length >= targetSessionSize) {
+
+    if (
+      existing.length > 0
+      && existing.length >= targetSessionSize
+      && !sessionItemsConflictWithOccupied(existing, siblingOccupied)
+    ) {
       return {
         rail_id: options.railId,
         session_id: options.sessionId,
@@ -653,37 +865,12 @@ ORDER BY rp.score DESC;
       };
     }
 
-    if (existing.length > 0) {
-      db.prepare(`
-DELETE FROM rail_session
-WHERE rail_id = @rail_id AND session_id = @session_id;
-`).run({
-        rail_id: options.railId,
-        session_id: options.sessionId,
-      });
-    }
-
-    const recentRows = db.prepare(`
-SELECT type, id
-FROM recently_shown
-WHERE rail_id = @rail_id AND shown_at >= @cooldown_cutoff;
-`).all({
-      rail_id: options.railId,
-      cooldown_cutoff: cooldownCutoff,
-    }) as RecentRow[];
-    const recent = new Set(recentRows.map(itemKey));
-    const stableTarget = Math.ceil(displayLimit * 0.7);
-    const stable = pool
-      .filter((item) => !recent.has(itemKey(item)))
-      .slice(0, stableTarget);
-    const chosen = new Map(stable.map((item) => [itemKey(item), item]));
-    const fresh = shuffle(pool.filter((item) => !chosen.has(itemKey(item))))
-      .slice(0, Math.max(0, displayLimit - stable.length));
-    const selected = [
-      ...stable.map((item) => ({ ...item, mix_bucket: 'stable' as const })),
-      ...fresh.map((item) => ({ ...item, mix_bucket: 'fresh' as const })),
-    ].slice(0, displayLimit);
-
+    const recent = readRecentRailKeys(db, options.railId, cooldownCutoff);
+    const selected = selectRailSessionItems(pool, {
+      displayLimit,
+      recentKeys: recent,
+      occupiedKeys: siblingOccupied,
+    });
     const rows = selected.map((item, slot): RailSessionPoolItem => ({
       ...item,
       slot,
@@ -691,40 +878,7 @@ WHERE rail_id = @rail_id AND shown_at >= @cooldown_cutoff;
     }));
 
     const transaction = db.transaction(() => {
-      db.prepare(`
-DELETE FROM rail_session
-WHERE rail_id = @rail_id AND session_id = @session_id;
-`).run({
-        rail_id: options.railId,
-        session_id: options.sessionId,
-      });
-
-      const insertSession = db.prepare(`
-INSERT INTO rail_session (rail_id, type, id, slot, mix_bucket, session_id, created_at)
-VALUES (@rail_id, @type, @id, @slot, @mix_bucket, @session_id, @created_at);
-`);
-      const upsertRecent = db.prepare(`
-INSERT INTO recently_shown (rail_id, type, id, shown_at)
-VALUES (@rail_id, @type, @id, @shown_at)
-ON CONFLICT(rail_id, type, id) DO UPDATE SET shown_at = excluded.shown_at;
-`);
-      for (const row of rows) {
-        insertSession.run({
-          rail_id: row.rail_id,
-          type: row.type,
-          id: row.id,
-          slot: row.slot,
-          mix_bucket: row.mix_bucket,
-          session_id: row.session_id,
-          created_at: now,
-        });
-        upsertRecent.run({
-          rail_id: row.rail_id,
-          type: row.type,
-          id: row.id,
-          shown_at: now,
-        });
-      }
+      writeRailSessionRows(db, options.railId, options.sessionId, rows, now);
       db.prepare(`
 DELETE FROM recently_shown
 WHERE shown_at < @prune_before;
@@ -830,4 +984,85 @@ VALUES (@started_at, @rail_id, @type, @id_value, 'invalidate', 0, @outcome);
     id: record.id,
     reason: record.reason ?? 'invalidated',
   });
+}
+
+export type EpisodeQueueEntry = {
+  series_id: string;
+  episode_id: string;
+  season: number;
+  episode: number;
+  status: 'pending' | 'verified' | 'failed' | 'skipped';
+  queued_at: number;
+  updated_at: number;
+};
+
+function parseEpisodeNumbers(episodeId: string): { season: number; episode: number } | null {
+  const match = episodeId.trim().match(/^tt\d+:(\d+):(\d+)$/i);
+  if (!match) {
+    return null;
+  }
+  return {
+    season: Number(match[1]),
+    episode: Number(match[2]),
+  };
+}
+
+/** Queue S1E2–S1E4 after a series rail title verifies via S1E1. */
+export async function enqueueSeriesFollowUpEpisodes(seriesId: string): Promise<number> {
+  const bare = seriesBareId(seriesId);
+  if (!bare) {
+    return 0;
+  }
+
+  await initPlayabilityDb();
+  const db = openDb();
+  const now = nowMs();
+  let queued = 0;
+
+  try {
+    const insert = db.prepare(`
+INSERT INTO series_episode_queue (
+  series_id, episode_id, season, episode, status, queued_at, updated_at
+) VALUES (
+  @series_id, @episode_id, @season, @episode, 'pending', @queued_at, @updated_at
+)
+ON CONFLICT(series_id, episode_id) DO NOTHING;
+`);
+    for (const episodeId of seriesFollowUpEpisodeIds(bare)) {
+      const numbers = parseEpisodeNumbers(episodeId);
+      if (!numbers) {
+        continue;
+      }
+      const result = insert.run({
+        series_id: bare,
+        episode_id: episodeId,
+        season: numbers.season,
+        episode: numbers.episode,
+        queued_at: now,
+        updated_at: now,
+      });
+      if (result.changes > 0) {
+        queued += 1;
+      }
+    }
+    return queued;
+  } finally {
+    db.close();
+  }
+}
+
+export async function listPendingEpisodeQueue(limit = 50): Promise<EpisodeQueueEntry[]> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    return db.prepare(`
+SELECT series_id, episode_id, season, episode, status, queued_at, updated_at
+FROM series_episode_queue
+WHERE status = 'pending'
+ORDER BY queued_at ASC
+LIMIT @limit;
+`).all({ limit }) as EpisodeQueueEntry[];
+  } finally {
+    db.close();
+  }
 }

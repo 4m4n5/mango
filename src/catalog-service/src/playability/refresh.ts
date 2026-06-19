@@ -17,6 +17,7 @@ import {
   uniqueCandidates,
   type RailCandidateRef,
 } from './pipeline.js';
+import { playabilityBootstrapFill, playabilityEarlyExitMinDisplay } from './config.js';
 
 export type RefreshMode = 'full' | 'stale';
 
@@ -24,7 +25,20 @@ export type RefreshAllOptions = {
   mode?: RefreshMode;
   poolTarget?: number;
   candidateLimit?: number;
+  bootstrap?: boolean;
 };
+
+function allRailsMeetMinDisplay(
+  railVerifiedCounts: Map<string, number>,
+  railMinDisplays: Map<string, number>,
+): boolean {
+  for (const [railId, minDisplay] of railMinDisplays) {
+    if ((railVerifiedCounts.get(railId) ?? 0) < minDisplay) {
+      return false;
+    }
+  }
+  return railMinDisplays.size > 0;
+}
 
 export type RefreshRailSummary = {
   rail_id: string;
@@ -47,6 +61,7 @@ export type RefreshRailSummary = {
 export type RefreshAllResult = {
   ok: boolean;
   mode: RefreshMode;
+  bootstrap: boolean;
   started_at: number;
   finished_at: number;
   duration_ms: number;
@@ -78,13 +93,14 @@ export async function refreshAllRails(
 ): Promise<RefreshAllResult> {
   const startedAt = Date.now();
   const mode = options.mode ?? 'stale';
+  const bootstrap = options.bootstrap ?? playabilityBootstrapFill();
   const rails = core.addonRails();
   const railIds = rails.map((rail) => rail.id);
   const status = await getPlayabilityStatus(railIds);
-  const { railVerifiedCounts, railPoolTargets } = railMapsFromRails(
+  const { railVerifiedCounts, railPoolTargets, railMinDisplays } = railMapsFromRails(
     rails,
     status.rails,
-    options.poolTarget,
+    { poolTargetOverride: options.poolTarget, bootstrap },
   );
   const railPoolKeys = await getRailPoolTitleKeysBulk(railIds);
   const beforeByRail = new Map(status.rails.map((rail) => [rail.rail_id, rail]));
@@ -151,14 +167,30 @@ export async function refreshAllRails(
     context,
   });
 
-  const processed = await processVerifyQueue({
-    core,
-    queue: linked.verifyQueue,
-    railVerifiedCounts,
-    railPoolTargets,
-    railPoolKeys,
-    context,
-  });
+  let processed = {
+    verified: 0,
+    failed: 0,
+    linked_existing: 0,
+    skipped_existing: 0,
+    skipped_recent_failed: 0,
+    results: [] as Awaited<ReturnType<typeof processVerifyQueue>>['results'],
+  };
+
+  const skipVerifyQueue = playabilityEarlyExitMinDisplay()
+    && allRailsMeetMinDisplay(railVerifiedCounts, railMinDisplays);
+
+  if (!skipVerifyQueue) {
+    processed = await processVerifyQueue({
+      core,
+      queue: linked.verifyQueue,
+      railVerifiedCounts,
+      railPoolTargets,
+      railMinDisplays,
+      railPoolKeys,
+      earlyExitMinDisplay: playabilityEarlyExitMinDisplay(),
+      context,
+    });
+  }
 
   const batchFlush = await finalizeVerifyContext(context);
   const finishedAt = Date.now();
@@ -201,6 +233,7 @@ export async function refreshAllRails(
   return {
     ok: railSummaries.every((rail) => rail.ok),
     mode,
+    bootstrap,
     started_at: startedAt,
     finished_at: finishedAt,
     duration_ms: finishedAt - startedAt,

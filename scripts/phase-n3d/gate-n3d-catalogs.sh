@@ -103,7 +103,7 @@ PY
   elif [[ "$mode" == "required" ]]; then
     gate_fail "$label $rail_id items=0 (required)"
   else
-    gate_warn "$label $rail_id items=0 (optional — import MDBList in AIOLists)"
+    gate_warn "$label $rail_id items=0 (optional — playability pool empty; run scripts/phase-n3c/fill-playability-db.sh)"
   fi
 }
 

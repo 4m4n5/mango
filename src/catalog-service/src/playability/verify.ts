@@ -10,15 +10,17 @@ import { PlayabilityBatchWriter } from './batch-writer.js';
 import {
   playabilityProbeTimeoutMs,
   playabilityUseProbePool,
-  playabilityVerifyMaxCandidates,
   playabilityVerifyMinDurationSec,
   playabilityVerifyTtlMs,
 } from './config.js';
 import {
+  enqueueSeriesFollowUpEpisodes,
   getTitlePlayability,
   recordVerifyResult,
 } from './db.js';
+import { normalizeSeriesVerifyId } from './ids.js';
 import { probeUrlViaPool } from './mpv-probe-pool.js';
+import { limitVerifyCandidates } from './verify-candidates.js';
 
 export type VerifyTitleResult = {
   type: string;
@@ -188,11 +190,14 @@ export async function prepareVerifyTitle(
   id: string,
 ): Promise<PreparedVerifyTitleResult> {
   const started = Date.now();
+  const verifyId = normalizeSeriesVerifyId(type, id);
   try {
-    const streamResult = await core.streams(type, id);
-    const candidates = selectAutoPlayCandidates(streamResult.streams, streamResult.filters.applied, {
-      allow_uncached_torbox: streamResult.filters.torbox_uncached_fallback === true,
-    }).slice(0, playabilityVerifyMaxCandidates());
+    const streamResult = await core.streams(type, verifyId);
+    const candidates = limitVerifyCandidates(
+      selectAutoPlayCandidates(streamResult.streams, streamResult.filters.applied, {
+        allow_uncached_torbox: streamResult.filters.torbox_uncached_fallback === true,
+      }),
+    );
 
     if (candidates.length === 0) {
       return {
@@ -292,6 +297,9 @@ export async function verifyPreparedTitle(
         stage: 'verify',
         outcome: 'verified',
       }, context);
+      if (prepared.type === 'series') {
+        void enqueueSeriesFollowUpEpisodes(prepared.id).catch(() => undefined);
+      }
       return {
         type: prepared.type,
         id: prepared.id,

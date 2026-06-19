@@ -2,16 +2,6 @@ import type { ContentCard, ContentRail } from "./types";
 import { couchSafeCatalogMessage } from "./catalog-errors";
 import type { BrowseTab } from "./types";
 
-const RAIL_FETCH_STAGGER_MS = 400;
-
-function isHeavyCatalogAddon(rail: { sources?: Array<{ addon?: string }> }): boolean {
-  return (rail.sources || []).some((source) => /elfhosted|aiolists/i.test(source.addon || ""));
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 interface RailSummaryResponse {
   rails: Array<{
     id: string;
@@ -35,6 +25,12 @@ interface RailItemsResponse {
     description?: string;
     source?: string;
   }>;
+  resolve_ms?: number;
+}
+
+interface TabRailItemsResponse {
+  tab: BrowseTab;
+  rails: RailItemsResponse[];
   resolve_ms?: number;
 }
 
@@ -64,44 +60,43 @@ export interface PlayResult {
   error?: string;
 }
 
-export async function loadCatalogRails(tab: BrowseTab = "movies"): Promise<ContentRail[]> {
-  const summary = await fetchJson<RailSummaryResponse>(
-    `/api/catalog/rails?tab=${encodeURIComponent(tab)}`,
-  );
-  const ordered = [...summary.rails].sort((left, right) => {
-    const leftHeavy = isHeavyCatalogAddon(left) ? 1 : 0;
-    const rightHeavy = isHeavyCatalogAddon(right) ? 1 : 0;
-    return leftHeavy - rightHeavy;
-  });
+function mapRailItems(data: RailItemsResponse): ContentRail {
+  return {
+    id: data.rail_id,
+    label: data.label || data.rail_id,
+    cards: data.items.map((item): ContentCard => ({
+      id: item.id,
+      type: item.type,
+      title: item.title,
+      subtitle: item.subtitle || (item.year ? String(item.year) : item.type),
+      posterUrl: item.poster,
+      year: item.year,
+      description: item.description,
+      source: item.source,
+    })),
+  };
+}
 
-  const rails: ContentRail[] = [];
-  let heavyCatalogLoads = 0;
-  for (const rail of ordered) {
-    if (heavyCatalogLoads > 0) {
-      await delay(RAIL_FETCH_STAGGER_MS);
-    }
-    if (isHeavyCatalogAddon(rail)) {
-      heavyCatalogLoads += 1;
-    }
-    const data = await fetchJson<RailItemsResponse>(
-      `/api/catalog/rails/${encodeURIComponent(rail.id)}/items`,
+export async function loadCatalogRails(tab: BrowseTab = "movies"): Promise<ContentRail[]> {
+  try {
+    const batch = await fetchJson<TabRailItemsResponse>(
+      `/api/catalog/rails/items?tab=${encodeURIComponent(tab)}`,
     );
-    rails.push({
-      id: rail.id,
-      label: rail.label,
-      cards: data.items.map((item): ContentCard => ({
-        id: item.id,
-        type: item.type,
-        title: item.title,
-        subtitle: item.subtitle || (item.year ? String(item.year) : item.type),
-        posterUrl: item.poster,
-        year: item.year,
-        description: item.description,
-        source: item.source,
-      })),
-    });
+    return batch.rails.map(mapRailItems);
+  } catch {
+    // Fallback for older catalog-service builds without tab batch allocation.
+    const summary = await fetchJson<RailSummaryResponse>(
+      `/api/catalog/rails?tab=${encodeURIComponent(tab)}`,
+    );
+    const rails: ContentRail[] = [];
+    for (const rail of summary.rails) {
+      const data = await fetchJson<RailItemsResponse>(
+        `/api/catalog/rails/${encodeURIComponent(rail.id)}/items`,
+      );
+      rails.push(mapRailItems({ ...data, label: data.label || rail.label }));
+    }
+    return rails;
   }
-  return rails;
 }
 
 export async function loadMeta(card: ContentCard): Promise<CatalogMeta> {

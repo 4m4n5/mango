@@ -94,7 +94,11 @@ export async function topUpRail(
   const railPoolKeys = new Map<string, Set<string>>([
     [rail.id, await getRailPoolTitleKeys(rail.id)],
   ]);
-  const { railVerifiedCounts, railPoolTargets } = railMapsFromRails([rail], [before], poolTarget);
+  const { railVerifiedCounts, railPoolTargets } = railMapsFromRails(
+    [rail],
+    [before],
+    { poolTargetOverride: poolTarget },
+  );
 
   const context = await createVerifyContext();
   const linked = await linkExistingVerifiedCandidates({

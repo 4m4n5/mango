@@ -150,7 +150,7 @@ Earlier `pi-exec-gate.sh` failed when Pi had rsync-dirty tree overlapping `origi
 | 2 | **stremio-export.json** AIOLists hash | Configure UI → copy manifest; remove IndiaStreams if present |
 | 3 | **deploy/aiostreams/.env** missing | `cp deploy/aiostreams/.env.example deploy/aiostreams/.env` + `openssl rand -hex 32` |
 | 4 | **Operator configure UIs** not done | AIOStreams TB/RD/Easynews; AIOLists mdblists per `map-mdblist-catalogs.md` |
-| 5 | **playability.db stale** | 11 verified / 5 old rails — re-run maintenance after stream plane healthy |
+| 5 | **playability.db sparse on N3d rails** | `bash scripts/phase-n3c/fill-playability-db.sh` (syncs catalog.yaml + full refresh) |
 | 6 | **MANGO_SELF_HOSTED_ADDONS** unset | `export MANGO_SELF_HOSTED_ADDONS=1` in voice.env |
 
 Run anytime: `bash scripts/phase-n3d/diag-self-hosted.sh`

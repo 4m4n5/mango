@@ -216,6 +216,15 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'rails' && parts[1] === 'items') {
+        const tab = parseCatalogTab(url.searchParams.get('tab'));
+        if (!tab) {
+          throw new CatalogError(400, 'GET /rails/items requires tab=movies or tab=series');
+        }
+        sendJson(res, 200, await core.tabRailItems(tab));
+        return;
+      }
+
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'rails' && parts[2] === 'items') {
         sendJson(res, 200, await core.railItems(parts[1]));
         return;

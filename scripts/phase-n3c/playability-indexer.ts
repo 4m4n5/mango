@@ -11,7 +11,7 @@ function usage(): never {
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
     '  playability-indexer.ts top-up --rail <rail-id> [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
-    '  playability-indexer.ts refresh --all [--mode full|stale] [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts refresh --all [--mode full|stale] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
   ].join('\n'));
   process.exit(2);
 }
@@ -96,11 +96,12 @@ async function main(): Promise<void> {
       usage();
     }
     const mode = readRefreshMode(args);
+    const bootstrap = args.includes('--bootstrap');
     const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
     const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
 
     const core = await CatalogCore.create();
-    const result = await refreshAllRails(core, { mode, poolTarget, candidateLimit });
+    const result = await refreshAllRails(core, { mode, bootstrap, poolTarget, candidateLimit });
     await writeJsonAndExit(result, result.ok ? 0 : 1);
   }
 

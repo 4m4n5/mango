@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Systematic playability DB fill — preflight, sync catalog yaml, full maintenance.
+# Systematic playability DB fill — preflight, sync catalog yaml, bootstrap maintenance.
 #
 # Run on Pi after stream plane is healthy (AIOStreams + AIOLists + catalog-service).
 #
@@ -62,12 +62,17 @@ if [[ "$SKIP_MAINT" == "1" ]]; then
 fi
 
 echo
-echo "starting full maintenance (stops UI + catalog, probes all rails)…"
-bash scripts/phase-n3c/playability-maintenance.sh --mode full
+echo "starting bootstrap maintenance (min_display targets, series S1E1, headless probes)…"
+export MANGO_PLAYABILITY_BOOTSTRAP=1
+bash scripts/phase-n3c/playability-maintenance.sh --mode full --bootstrap
 
 echo
 echo "--- playability after ---"
 python3 scripts/diag/playability-status.py
+
+echo
+echo "--- series episode queue (S1E2+) ---"
+python3 scripts/diag/episode-queue-status.py 2>/dev/null || true
 
 echo
 echo "optional: bash scripts/phase-n3d/gate-n3d-catalogs.sh"

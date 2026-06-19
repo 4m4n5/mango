@@ -4,7 +4,8 @@ import type { CandidateMeta } from './list-source.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
 import {
   playabilityBatchDbEnabled,
-  playabilityFailedRetryMs,
+  playabilityEarlyExitMinDisplay,
+  playabilityFailedRetryMsForReason,
   playabilityProbeConcurrency,
   playabilityResolveConcurrency,
   playabilityUseProbePool,
@@ -149,7 +150,9 @@ export type ProcessVerifyQueueOptions = {
   queue: VerifyQueueItem[];
   railVerifiedCounts: Map<string, number>;
   railPoolTargets: Map<string, number>;
+  railMinDisplays?: Map<string, number>;
   railPoolKeys: Map<string, Set<string>>;
+  earlyExitMinDisplay?: boolean;
   context?: VerifyContext;
 };
 
@@ -161,13 +164,16 @@ export async function processVerifyQueue(
     queue,
     railVerifiedCounts,
     railPoolTargets,
+    railMinDisplays,
     railPoolKeys,
+    earlyExitMinDisplay = playabilityEarlyExitMinDisplay(),
     context = {},
   } = options;
 
   const results: ProcessVerifyQueueResult['results'] = [];
   let verified = 0;
   let failed = 0;
+  let earlyStopped = false;
 
   const resolveConcurrency = playabilityResolveConcurrency();
   const probeConcurrency = playabilityProbeConcurrency();
@@ -176,6 +182,25 @@ export async function processVerifyQueue(
   const prepareInFlight = new Map<number, Promise<PreparedQueueItem>>();
   const pendingProbes: PreparedQueueItem[] = [];
   const activeProbes = new Set<Promise<void>>();
+
+  const allRailsMeetMinDisplay = (): boolean => {
+    if (!earlyExitMinDisplay || !railMinDisplays || railMinDisplays.size === 0) {
+      return false;
+    }
+    for (const [railId, minDisplay] of railMinDisplays) {
+      if ((railVerifiedCounts.get(railId) ?? 0) < minDisplay) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const maybeStopEarly = (): void => {
+    if (allRailsMeetMinDisplay()) {
+      earlyStopped = true;
+      pendingProbes.length = 0;
+    }
+  };
 
   const railStillNeeds = (railId: string): boolean => {
     const target = railPoolTargets.get(railId) ?? 0;
@@ -219,6 +244,7 @@ export async function processVerifyQueue(
         action: item.forceReprobe ? 'reverified' : 'verified',
         rails: eligibleRefs.map((ref) => ref.railId),
       });
+      maybeStopEarly();
     } else if (result.status === 'verified') {
       results.push({
         type: item.candidate.type,
@@ -250,6 +276,9 @@ export async function processVerifyQueue(
   };
 
   const scheduleProbes = () => {
+    if (earlyStopped) {
+      return;
+    }
     while (activeProbes.size < probeConcurrency && pendingProbes.length > 0) {
       const prepared = pendingProbes.shift();
       if (!prepared) break;
@@ -262,11 +291,17 @@ export async function processVerifyQueue(
   };
 
   const enqueueProbe = (prepared: PreparedQueueItem) => {
+    if (earlyStopped) {
+      return;
+    }
     pendingProbes.push(prepared);
     scheduleProbes();
   };
 
   const fillPrepareQueue = () => {
+    if (earlyStopped) {
+      return;
+    }
     while (
       prepareInFlight.size < resolveConcurrency
       && nextVerifyIndex < queue.length
@@ -283,7 +318,7 @@ export async function processVerifyQueue(
   };
 
   fillPrepareQueue();
-  while (prepareInFlight.size > 0 || pendingProbes.length > 0 || activeProbes.size > 0) {
+  while (!earlyStopped && (prepareInFlight.size > 0 || pendingProbes.length > 0 || activeProbes.size > 0)) {
     if (prepareInFlight.size > 0) {
       const prepared = await Promise.race(prepareInFlight.values());
       prepareInFlight.delete(prepared.queueId);
@@ -356,7 +391,6 @@ export async function linkExistingVerifiedCandidates(
   let linkedExisting = 0;
   let skippedExisting = 0;
   let skippedRecentFailed = 0;
-  const failedRetryMs = playabilityFailedRetryMs();
 
   for (const [key, refs] of refsByKey.entries()) {
     const candidate = refs[0]?.candidate;
@@ -403,9 +437,8 @@ export async function linkExistingVerifiedCandidates(
 
     if (
       !forceReprobe
-      && refreshMode !== 'full'
       && title?.status === 'failed'
-      && title.updated_at > now - failedRetryMs
+      && title.updated_at > now - playabilityFailedRetryMsForReason(title.fail_reason)
     ) {
       skippedRecentFailed += 1;
       results.push({
@@ -462,20 +495,26 @@ export async function finalizeVerifyContext(context: VerifyContext): Promise<{ v
 export function railMapsFromRails(
   rails: BrowsableRail[],
   statuses: PlayabilityRailStatus[],
-  poolTargetOverride?: number,
+  options?: { poolTargetOverride?: number; bootstrap?: boolean },
 ): {
   railVerifiedCounts: Map<string, number>;
   railPoolTargets: Map<string, number>;
+  railMinDisplays: Map<string, number>;
 } {
   const railVerifiedCounts = new Map<string, number>();
   const railPoolTargets = new Map<string, number>();
+  const railMinDisplays = new Map<string, number>();
   for (const rail of rails) {
     const status = statuses.find((entry) => entry.rail_id === rail.id);
     railVerifiedCounts.set(rail.id, status?.verified_pool ?? 0);
-    railPoolTargets.set(
-      rail.id,
-      poolTargetOverride ?? rail.playability.pool_target,
-    );
+    railMinDisplays.set(rail.id, rail.playability.min_display);
+    if (options?.poolTargetOverride !== undefined) {
+      railPoolTargets.set(rail.id, options.poolTargetOverride);
+    } else if (options?.bootstrap === true) {
+      railPoolTargets.set(rail.id, rail.playability.min_display);
+    } else {
+      railPoolTargets.set(rail.id, rail.playability.pool_target);
+    }
   }
-  return { railVerifiedCounts, railPoolTargets };
+  return { railVerifiedCounts, railPoolTargets, railMinDisplays };
 }
