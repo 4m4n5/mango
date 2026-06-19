@@ -9,16 +9,20 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 usage() {
-  echo "usage: $0 --url <http-url> | --stop" >&2
+  echo "usage: $0 --url <http-url> [--probe] [--timeout-ms 4000] | --stop" >&2
   exit 2
 }
 
 URL=""
 STOP=false
+PROBE=false
+TIMEOUT_MS=15000
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="${2:-}"; shift 2 ;;
     --stop) STOP=true; shift ;;
+    --probe) PROBE=true; shift ;;
+    --timeout-ms) TIMEOUT_MS="${2:-}"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -30,33 +34,64 @@ if $STOP; then
 fi
 
 [[ -n "$URL" ]] || usage
+[[ "$TIMEOUT_MS" =~ ^[0-9]+$ ]] || usage
+
+now_ms() {
+  python3 -c 'import time; print(int(time.time()*1000))'
+}
+
+detect_hwdec() {
+  if [[ -n "${MANGO_MPV_HWDEC:-}" ]]; then
+    printf '%s\n' "$MANGO_MPV_HWDEC"
+    return
+  fi
+  if grep -qi 'raspberry pi' /proc/device-tree/model 2>/dev/null; then
+    printf '%s\n' "v4l2m2m-copy"
+    return
+  fi
+  printf '%s\n' "auto-safe"
+}
 
 mkdir -p "$(dirname "$SOCKET")"
 mkdir -p "$(dirname "$MPV_LOG")"
 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
 
 URL_LABEL="$(python3 -c 'from urllib.parse import urlparse; import sys; u=urlparse(sys.argv[1]); print(f"{u.scheme}://{u.netloc}/<redacted>")' "$URL" 2>/dev/null || echo "http(s)://<redacted>")"
-echo "mpv-play: $URL_LABEL"
-START_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
+HWDEC="$(detect_hwdec)"
+MODE="play"
+if $PROBE; then
+  MODE="probe"
+fi
+echo "mpv-play: $URL_LABEL mode=$MODE timeout_ms=$TIMEOUT_MS hwdec=$HWDEC"
+START_MS="$(now_ms)"
+DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 
-mpv --fs --idle=no --keep-open=no \
-  --hwdec=auto-safe \
+mpv --fs --idle=no --keep-open=no --no-terminal \
+  --hwdec="$HWDEC" \
   --input-ipc-server="$SOCKET" \
   "$URL" >>"$MPV_LOG" 2>&1 &
-echo $! >"${HOME}/.cache/mango/mpv.pid"
+MPV_PID=$!
+echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
 
-for _ in $(seq 1 75); do
+while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
   if [[ -S "$SOCKET" ]]; then
     REPLY="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property playback-time 2>/dev/null || true)"
     PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
-      END_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
+      END_MS="$(now_ms)"
       echo "PASS: ttff_ms=$((END_MS - START_MS))"
+      if $PROBE; then
+        bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+      fi
       exit 0
     fi
+  fi
+  if ! kill -0 "$MPV_PID" 2>/dev/null; then
+    break
   fi
   sleep 0.2
 done
 
-echo "FAIL: mpv did not start playback within 15s" >&2
+echo "FAIL: mpv did not start playback within ${TIMEOUT_MS}ms" >&2
+bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
 exit 1

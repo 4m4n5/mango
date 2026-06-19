@@ -1,4 +1,4 @@
-import { loadMeta, playCard, type CatalogMeta } from "./catalog";
+import { loadMeta, playCard, prefetchStreams, type CatalogMeta } from "./catalog";
 import type { ContentCard } from "./types";
 
 export interface DetailCallbacks {
@@ -9,6 +9,7 @@ export interface DetailCallbacks {
 export class DetailController {
   private card: ContentCard | null = null;
   private focusIndex = 0;
+  private playToken = 0;
   private readonly controls: HTMLButtonElement[];
 
   constructor(
@@ -44,6 +45,7 @@ export class DetailController {
     this.applyFocus();
     this.callbacks.onStatus("B to play. Y to go back.");
     void this.loadFullMeta(card);
+    void this.prefetch(card);
   }
 
   hide(): void {
@@ -76,17 +78,30 @@ export class DetailController {
       return;
     }
     this.playButton.disabled = true;
-    this.callbacks.onStatus("resolving…");
+    const token = ++this.playToken;
+    this.callbacks.onStatus("finding stream…");
+    const startingTimer = window.setTimeout(() => {
+      if (this.playToken === token && this.card?.id === card.id) {
+        this.callbacks.onStatus("starting…");
+      }
+    }, 1200);
     try {
       const result = await playCard(card);
-      const ttff = result.ttff_ms ? ` ${result.ttff_ms} ms` : "";
       const quality = result.stream?.quality ? ` · ${result.stream.quality}` : "";
-      this.callbacks.onStatus(`playing${quality}${ttff}. ⌂ returns home.`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "unknown error";
-      this.callbacks.onStatus(`could not play: ${message}`);
+      this.callbacks.onStatus(`playing${quality}. ⌂ returns home.`);
+    } catch {
+      this.callbacks.onStatus("couldn't start playback. try another title.");
     } finally {
+      window.clearTimeout(startingTimer);
       this.playButton.disabled = false;
+    }
+  }
+
+  private async prefetch(card: ContentCard): Promise<void> {
+    try {
+      await prefetchStreams(card);
+    } catch (error) {
+      console.debug("stream prefetch failed", error);
     }
   }
 

@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { CatalogCore, CatalogError } from './core.js';
 import { playUrl } from './mpv.js';
+import { playWithFallback } from './play-orchestrator.js';
 import {
   parseFilterOverridesFromQuery,
   type StreamFilterOverrides,
@@ -38,7 +39,7 @@ function sendJson(res: http.ServerResponse, status: number, body: unknown): void
 
 function sendError(res: http.ServerResponse, error: unknown): void {
   if (error instanceof CatalogError) {
-    sendJson(res, error.status, { error: error.message });
+    sendJson(res, error.status, { error: error.message, ...(error.details || {}) });
     return;
   }
   const message = error instanceof Error ? error.message : String(error);
@@ -70,37 +71,50 @@ async function handlePlay(
   queryOverrides: StreamFilterOverrides = {},
 ): Promise<Record<string, unknown>> {
   let playUrlValue = body.url;
-  let streamInfo: Record<string, unknown> | undefined;
-  let filterMeta: Record<string, unknown> | undefined;
 
-  if (!playUrlValue) {
-    if (!body.type || !body.id) {
-      throw new CatalogError(400, 'POST /play requires {url} or {type,id}');
+  if (playUrlValue) {
+    if (!/^https?:\/\//i.test(playUrlValue)) {
+      throw new CatalogError(400, 'play url must be http(s)');
     }
-    const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
-    const result = await core.streams(body.type, body.id, overrides);
-    const stream = result.streams[0];
-    if (!stream) {
-      throw new CatalogError(502, `no playable stream for ${body.type}/${body.id}`);
-    }
-    playUrlValue = stream.url;
-    filterMeta = result.filters;
-    streamInfo = {
-      source: stream.source,
-      title: stream.title,
-      quality: stream.quality,
-      cache_status: stream.cache_status,
-      debrid_service: stream.debrid_service,
-      resolve_ms: result.resolve_ms,
+    const started = Date.now();
+    const playback = await playUrl(playUrlValue);
+    return {
+      ...playback,
+      total_ms: Date.now() - started,
+      attempts: 1,
     };
   }
 
-  if (!/^https?:\/\//i.test(playUrlValue)) {
-    throw new CatalogError(400, 'play url must be http(s)');
+  if (!body.type || !body.id) {
+    throw new CatalogError(400, 'POST /play requires {url} or {type,id}');
   }
 
-  const playback = await playUrl(playUrlValue);
-  return { ...playback, stream: streamInfo, filters: filterMeta };
+  const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
+  const result = await core.streams(body.type, body.id, overrides);
+  try {
+    const playback = await playWithFallback(result.streams, result.filters.applied);
+    return {
+      ok: playback.ok,
+      ttff_ms: playback.ttff_ms,
+      total_ms: playback.total_ms,
+      attempts: playback.attempts.length,
+      candidate_count: playback.candidate_count,
+      stream: {
+        ...playback.stream,
+        resolve_ms: result.resolve_ms,
+        cached: result.cached,
+      },
+      filters: result.filters,
+    };
+  } catch (error) {
+    if (error instanceof CatalogError) {
+      error.details = {
+        ...(error.details || {}),
+        filters: result.filters,
+      };
+    }
+    throw error;
+  }
 }
 
 async function main(): Promise<void> {

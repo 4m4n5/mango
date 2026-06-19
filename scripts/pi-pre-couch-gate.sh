@@ -65,27 +65,29 @@ if [[ "$BRANCH" == "feat/native-experience" && -x scripts/phase-n0/gate-n0.sh ]]
     else
       fail "catalog-service down — set MANGO_CATALOG=1 in voice.env and: bash scripts/mango-stack.sh restart"
     fi
-    if [[ -x scripts/phase-n2/gate-n2-browse.sh ]]; then
+    if [[ -x scripts/phase-n3/gate-n3-play.sh ]]; then
+      bash scripts/phase-n3/gate-n3-play.sh && pass "gate-n3-play" || fail "gate-n3-play"
+    elif [[ -x scripts/phase-n2/gate-n2-browse.sh ]]; then
       bash scripts/phase-n2/gate-n2-browse.sh && pass "gate-n2-browse" || fail "gate-n2-browse"
     fi
   fi
   echo
-  echo "=== couch scenarios (manual — N2) ==="
+  echo "=== couch scenarios (manual — N3) ==="
   cat <<'EOF'
 | # | Flow | Pass |
 |---|------|------|
-| N2-C1 | D-pad home → poster rails (AIOMetadata + Cinemeta) | |
-| N2-C2 | B on title → detail → B Play → mpv | |
-| N2-C3 | Y or ⌂ → home < 1 s | |
-| N2-C4 | Phone PTT → HUD on TV (voice regression) | |
-| N2-C5 | D-pad still works after play | |
+| N3-C1 | Trending India title → detail → B Play ≤15 s | |
+| N3-C2 | Second title from different rail → Play ≤15 s | |
+| N3-C3 | No API/mpv error text on status line | |
+| N3-C4 | ⌂ → home < 1 s after play | |
+| N3-C5 | Phone PTT → HUD on TV (voice regression) | |
 EOF
   echo
   if (( ERRORS > 0 )); then
     echo "GATE FAIL: $ERRORS error(s), $WARNS warning(s)"
     exit 1
   fi
-  echo "GATE PASS: native N0+N1+N2 ok ($WARNS warning(s))"
+  echo "GATE PASS: native automated checks ok ($WARNS warning(s))"
   exit 0
 fi
 

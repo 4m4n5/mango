@@ -1,7 +1,20 @@
 {
   "exclude_uncached_debrid": true,
-  "strict_unknown_cache": false,
+  "strict_unknown_cache": true,
   "max_quality": "1080p",
   "exclude_remux": true,
-  "include_uncached": false
+  "include_uncached": false,
+  "auto_play_max_attempts": 5,
+  "auto_play_wall_ms": 15000,
+  "auto_play_probe_ms": 4000,
+  "auto_play_tiers": [
+    {
+      "addons": ["AIOStreams | ElfHosted"],
+      "require_cache": "cached"
+    },
+    {
+      "addons": ["AIOStreams | ElfHosted"],
+      "require_cache": "cached_or_unknown"
+    }
+  ]
 }

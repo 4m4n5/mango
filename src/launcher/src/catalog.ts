@@ -42,6 +42,8 @@ export interface CatalogMeta {
 export interface PlayResult {
   ok: boolean;
   ttff_ms?: number;
+  total_ms?: number;
+  attempts?: number;
   stream?: {
     source?: string;
     title?: string;
@@ -76,6 +78,12 @@ export async function loadCatalogRails(): Promise<ContentRail[]> {
 export async function loadMeta(card: ContentCard): Promise<CatalogMeta> {
   return fetchJson<CatalogMeta>(
     `/api/catalog/meta/${encodeURIComponent(card.type)}/${encodeURIComponent(card.id)}`,
+  );
+}
+
+export async function prefetchStreams(card: ContentCard): Promise<void> {
+  await fetchJson(
+    `/api/catalog/stream/${encodeURIComponent(card.type)}/${encodeURIComponent(card.id)}`,
   );
 }
 

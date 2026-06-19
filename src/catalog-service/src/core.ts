@@ -75,6 +75,13 @@ type Addon = {
   manifest: Manifest;
 };
 
+type RawStreamResolution = {
+  streams: Stream[];
+  errors: string[];
+  resolveMs: number;
+  cached: boolean;
+};
+
 type CoreStatus = {
   version: string;
   ready: boolean;
@@ -84,13 +91,17 @@ const require = createRequire(import.meta.url);
 const DEFAULT_EXPORT_PATH = '/etc/mango/stremio-export.json';
 const REQUEST_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_REQUEST_TIMEOUT_MS || 20000);
 const META_CACHE_TTL_MS = Number(process.env.MANGO_META_CACHE_TTL_MS || 10 * 60 * 1000);
+const STREAM_CACHE_TTL_MS = Number(process.env.MANGO_STREAM_CACHE_TTL_MS || 10 * 60 * 1000);
+const STREAM_RESOLVE_BUDGET_MS = Number(process.env.MANGO_STREAM_RESOLVE_BUDGET_MS || 5000);
 
 export class CatalogError extends Error {
   status: number;
+  details?: Record<string, unknown>;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, details?: Record<string, unknown>) {
     super(message);
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -266,6 +277,12 @@ function normalizeStream(stream: unknown, source: string): Stream | null {
 
 export class CatalogCore {
   private readonly metaCache = new Map<string, { meta: Meta; expiresAt: number }>();
+  private readonly streamCache = new Map<string, {
+    streams: Stream[];
+    errors: string[];
+    resolveMs: number;
+    expiresAt: number;
+  }>();
 
   private constructor(
     private readonly coreStatus: CoreStatus,
@@ -392,44 +409,41 @@ export class CatalogCore {
     type: string,
     id: string,
     overrides: StreamFilterOverrides = {},
-  ): Promise<{ streams: Stream[]; resolve_ms: number; filters: StreamFilterMeta }> {
-    const started = Date.now();
-    const errors: string[] = [];
-    const streams: Stream[] = [];
+  ): Promise<{
+    streams: Stream[];
+    resolve_ms: number;
+    cached: boolean;
+    filters: StreamFilterMeta;
+    errors?: string[];
+  }> {
+    const raw = await this.rawStreams(type, id);
 
-    for (const addon of this.addons) {
-      if (!supportsResource(addon.manifest, 'stream', type)) continue;
-      try {
-        const result = await fetchJson(resourceUrl(addon, 'stream', type, id)) as { streams?: unknown[] };
-        for (const stream of result.streams || []) {
-          const normalized = normalizeStream(stream, addon.name);
-          if (normalized) streams.push(normalized);
-        }
-      } catch (error) {
-        errors.push(`${addon.name}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-
-    if (streams.length === 0) {
-      throw new CatalogError(502, `no HTTP streams for ${type}/${id}${errors.length ? ` (${errors.join('; ')})` : ''}`);
+    if (raw.streams.length === 0) {
+      throw new CatalogError(
+        502,
+        `no HTTP streams for ${type}/${id}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
+      );
     }
 
     const config = mergeFilterConfig(this.filterConfig, overrides);
-    const filtered = filterAndRankStreams(streams, config);
+    const filtered = filterAndRankStreams(raw.streams, config);
     if (filtered.streams.length === 0) {
       const hint = config.exclude_uncached_debrid
         ? ' try ?include_uncached=1 or set include_uncached in POST /play'
         : '';
       throw new CatalogError(
         502,
-        `no streams left after filters for ${type}/${id} (${filtered.meta.excluded.uncached_debrid} uncached debrid excluded)${hint}`,
+        `no streams left after filters for ${type}/${id} (${filtered.meta.excluded.uncached_debrid} uncached, ${filtered.meta.excluded.unknown_cache_debrid} unknown-cache debrid excluded)${hint}`,
+        { filters: filtered.meta },
       );
     }
 
     return {
       streams: filtered.streams,
-      resolve_ms: Date.now() - started,
+      resolve_ms: raw.cached ? 0 : raw.resolveMs,
+      cached: raw.cached,
       filters: filtered.meta,
+      errors: raw.errors.length > 0 ? raw.errors : undefined,
     };
   }
 
@@ -475,6 +489,67 @@ export class CatalogCore {
     const meta = await this.meta(type, id);
     this.metaCache.set(key, { meta, expiresAt: Date.now() + META_CACHE_TTL_MS });
     return meta;
+  }
+
+  private async rawStreams(type: string, id: string): Promise<RawStreamResolution> {
+    const key = `${type}:${id}`;
+    const cached = this.streamCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return {
+        streams: cached.streams,
+        errors: cached.errors,
+        resolveMs: cached.resolveMs,
+        cached: true,
+      };
+    }
+
+    const started = Date.now();
+    const streamAddons = this.addons.filter((addon) => supportsResource(addon.manifest, 'stream', type));
+    const settled = await Promise.allSettled(
+      streamAddons.map((addon) => this.fetchAddonStreams(addon, type, id)),
+    );
+
+    const streams: Stream[] = [];
+    const errors: string[] = [];
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        streams.push(...result.value.streams);
+      } else {
+        errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+      }
+    }
+
+    const resolveMs = Date.now() - started;
+    if (streams.length > 0) {
+      this.streamCache.set(key, {
+        streams,
+        errors,
+        resolveMs,
+        expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
+      });
+    }
+    return { streams, errors, resolveMs, cached: false };
+  }
+
+  private async fetchAddonStreams(
+    addon: Addon,
+    type: string,
+    id: string,
+  ): Promise<{ streams: Stream[] }> {
+    try {
+      const result = await fetchJson(
+        resourceUrl(addon, 'stream', type, id),
+        STREAM_RESOLVE_BUDGET_MS,
+      ) as { streams?: unknown[] };
+      const streams: Stream[] = [];
+      for (const stream of result.streams || []) {
+        const normalized = normalizeStream(stream, addon.name);
+        if (normalized) streams.push(normalized);
+      }
+      return { streams };
+    } catch (error) {
+      throw new Error(`${addon.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async resolveRailItem(

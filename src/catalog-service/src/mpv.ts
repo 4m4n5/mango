@@ -24,14 +24,24 @@ function displayEnv(): NodeJS.ProcessEnv {
   };
 }
 
-export async function playUrl(url: string): Promise<PlayResult> {
+async function runMpv(url: string, options: { probe: boolean; timeoutMs: number }): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/phase-n1/mpv-play.sh');
   const started = Date.now();
+  const args = [
+    script,
+    '--url',
+    url,
+    '--timeout-ms',
+    String(options.timeoutMs),
+  ];
+  if (options.probe) {
+    args.push('--probe');
+  }
   const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolvePromise, reject) => {
-    execFile('bash', [script, '--url', url], {
+    execFile('bash', args, {
       cwd: repoDir(),
       env: displayEnv(),
-      timeout: 90000,
+      timeout: options.timeoutMs + 5000,
       maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
       if (error) {
@@ -48,4 +58,12 @@ export async function playUrl(url: string): Promise<PlayResult> {
     ok: true,
     ttff_ms: parsed ? Number(parsed[1]) : Date.now() - started,
   };
+}
+
+export async function probeUrl(url: string, timeoutMs: number): Promise<PlayResult> {
+  return runMpv(url, { probe: true, timeoutMs });
+}
+
+export async function playUrl(url: string, timeoutMs = 90000): Promise<PlayResult> {
+  return runMpv(url, { probe: false, timeoutMs });
 }

@@ -2,6 +2,12 @@ import { readFile } from 'node:fs/promises';
 import type { Stream } from './core.js';
 
 export type QualityCap = '480p' | '720p' | '1080p' | '2160p';
+export type AutoPlayCacheRequirement = 'cached' | 'cached_or_unknown' | 'any';
+
+export type AutoPlayTier = {
+  addons: string[];
+  require_cache: AutoPlayCacheRequirement;
+};
 
 export type StreamFilterConfig = {
   /** Drop debrid streams that look uncached (default on). */
@@ -12,6 +18,14 @@ export type StreamFilterConfig = {
   max_quality: QualityCap | null;
   /** Drop REMUX / Blu-ray remux style releases. */
   exclude_remux: boolean;
+  /** Max candidate URLs to try during automatic Play. */
+  auto_play_max_attempts: number;
+  /** Hard wall-clock budget for automatic Play. */
+  auto_play_wall_ms: number;
+  /** Per-URL mpv probe budget. */
+  auto_play_probe_ms: number;
+  /** Ordered automatic Play tiers. */
+  auto_play_tiers: AutoPlayTier[];
 };
 
 export type StreamFilterOverrides = {
@@ -58,12 +72,60 @@ function truthy(value: string | undefined): boolean {
   return value === '1' || value === 'true' || value === 'yes';
 }
 
+function falsy(value: string | undefined): boolean {
+  return value === '0' || value === 'false' || value === 'no';
+}
+
+function positiveInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) return fallback;
+  return Math.min(parsed, max);
+}
+
 function parseQualityCap(value: unknown): QualityCap | null {
   if (value === null || value === undefined || value === '') return null;
   const normalized = String(value).toLowerCase().replace(/\s+/g, '');
   if (normalized === '4k') return '2160p';
   if (normalized in QUALITY_ORDER) return normalized as QualityCap;
   return null;
+}
+
+function defaultAutoPlayTiers(): AutoPlayTier[] {
+  return [
+    {
+      addons: ['AIOStreams | ElfHosted'],
+      require_cache: 'cached',
+    },
+    {
+      addons: ['AIOStreams | ElfHosted'],
+      require_cache: 'cached_or_unknown',
+    },
+  ];
+}
+
+function parseAutoPlayRequireCache(value: unknown): AutoPlayCacheRequirement | null {
+  if (value === 'cached' || value === 'cached_or_unknown' || value === 'any') {
+    return value;
+  }
+  return null;
+}
+
+function parseAutoPlayTiers(value: unknown): AutoPlayTier[] {
+  if (!Array.isArray(value)) return defaultAutoPlayTiers();
+  const tiers: AutoPlayTier[] = [];
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
+    const record = item as Record<string, unknown>;
+    const addons = Array.isArray(record.addons)
+      ? record.addons
+          .filter((addon): addon is string => typeof addon === 'string' && addon.trim() !== '')
+          .map((addon) => addon.trim())
+      : [];
+    const requireCache = parseAutoPlayRequireCache(record.require_cache);
+    if (addons.length === 0 || !requireCache) continue;
+    tiers.push({ addons, require_cache: requireCache });
+  }
+  return tiers.length > 0 ? tiers : defaultAutoPlayTiers();
 }
 
 function streamHaystack(stream: Stream): string {
@@ -151,11 +213,18 @@ function qualityExceedsCap(stream: Stream, cap: QualityCap | null): boolean {
 }
 
 export function defaultFilterConfig(): StreamFilterConfig {
+  const envStrictUnknown = process.env.MANGO_STRICT_UNKNOWN_CACHE;
   return {
     exclude_uncached_debrid: !truthy(process.env.MANGO_INCLUDE_UNCACHED),
-    strict_unknown_cache: truthy(process.env.MANGO_STRICT_UNKNOWN_CACHE),
-    max_quality: parseQualityCap(process.env.MANGO_MAX_QUALITY),
-    exclude_remux: truthy(process.env.MANGO_EXCLUDE_REMUX),
+    strict_unknown_cache: envStrictUnknown === undefined ? true : !falsy(envStrictUnknown),
+    max_quality: parseQualityCap(process.env.MANGO_MAX_QUALITY) ?? '1080p',
+    exclude_remux: process.env.MANGO_EXCLUDE_REMUX === undefined
+      ? true
+      : truthy(process.env.MANGO_EXCLUDE_REMUX),
+    auto_play_max_attempts: positiveInteger(process.env.MANGO_AUTO_PLAY_MAX_ATTEMPTS, 5, 1, 10),
+    auto_play_wall_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_WALL_MS, 15000, 1000, 60000),
+    auto_play_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_PROBE_MS, 4000, 500, 15000),
+    auto_play_tiers: defaultAutoPlayTiers(),
   };
 }
 
@@ -179,6 +248,18 @@ export async function loadFilterConfig(
     if (typeof raw.exclude_remux === 'boolean') {
       base.exclude_remux = raw.exclude_remux;
     }
+    if (raw.auto_play_max_attempts !== undefined) {
+      base.auto_play_max_attempts = positiveInteger(raw.auto_play_max_attempts, base.auto_play_max_attempts, 1, 10);
+    }
+    if (raw.auto_play_wall_ms !== undefined) {
+      base.auto_play_wall_ms = positiveInteger(raw.auto_play_wall_ms, base.auto_play_wall_ms, 1000, 60000);
+    }
+    if (raw.auto_play_probe_ms !== undefined) {
+      base.auto_play_probe_ms = positiveInteger(raw.auto_play_probe_ms, base.auto_play_probe_ms, 500, 15000);
+    }
+    if (raw.auto_play_tiers !== undefined) {
+      base.auto_play_tiers = parseAutoPlayTiers(raw.auto_play_tiers);
+    }
     if (raw.include_uncached === true) {
       base.exclude_uncached_debrid = false;
     }
@@ -198,6 +279,10 @@ export function mergeFilterConfig(
     strict_unknown_cache: overrides.strict_unknown_cache ?? base.strict_unknown_cache,
     max_quality: overrides.max_quality !== undefined ? overrides.max_quality : base.max_quality,
     exclude_remux: overrides.exclude_remux ?? base.exclude_remux,
+    auto_play_max_attempts: base.auto_play_max_attempts,
+    auto_play_wall_ms: base.auto_play_wall_ms,
+    auto_play_probe_ms: base.auto_play_probe_ms,
+    auto_play_tiers: base.auto_play_tiers,
     include_uncached: includeUncached,
   };
 }
@@ -290,6 +375,62 @@ export function filterAndRankStreams(
 
   meta.kept = kept.length;
   return { streams: kept, meta };
+}
+
+function normalizeAddonName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s*\|\s*/g, '|')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function sourceMatches(stream: Stream, addons: string[]): boolean {
+  const source = normalizeAddonName(stream.source || '');
+  return addons.some((addon) => normalizeAddonName(addon) === source);
+}
+
+function streamCacheStatus(stream: Stream): ReturnType<typeof parseDebridCacheStatus> {
+  const explicit = stream.cache_status;
+  if (explicit === 'cached' || explicit === 'uncached' || explicit === 'unknown') {
+    return explicit;
+  }
+  return parseDebridCacheStatus(stream);
+}
+
+function cacheAllowed(
+  stream: Stream,
+  requireCache: AutoPlayCacheRequirement,
+  strictUnknownCache: boolean,
+): boolean {
+  const status = streamCacheStatus(stream);
+  if (requireCache === 'any') return status !== 'uncached';
+  if (requireCache === 'cached') return status === 'cached';
+  if (status === 'cached') return true;
+  return status === 'unknown' && !strictUnknownCache;
+}
+
+export function selectAutoPlayCandidates(
+  streams: Stream[],
+  config: StreamFilterConfig & { include_uncached: boolean },
+): Stream[] {
+  const seen = new Set<string>();
+  const candidates: Stream[] = [];
+
+  for (const tier of config.auto_play_tiers) {
+    for (const stream of streams) {
+      if (seen.has(stream.url)) continue;
+      if (!sourceMatches(stream, tier.addons)) continue;
+      if (!cacheAllowed(stream, tier.require_cache, config.strict_unknown_cache)) continue;
+      seen.add(stream.url);
+      candidates.push(stream);
+      if (candidates.length >= config.auto_play_max_attempts) {
+        return candidates;
+      }
+    }
+  }
+
+  return candidates;
 }
 
 export function pickPlayableStream(
