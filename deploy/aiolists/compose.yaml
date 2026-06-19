@@ -1,0 +1,13 @@
+services:
+  aiolists:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mango-aiolists:local
+    container_name: mango-aiolists
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3036:7000"
+    environment:
+      NODE_ENV: production
+      PORT: "7000"

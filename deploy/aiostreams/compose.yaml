@@ -1,0 +1,13 @@
+services:
+  aiostreams:
+    image: ghcr.io/viren070/aiostreams:latest
+    container_name: mango-aiostreams
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3035:3000"
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+    volumes:
+      - "${MANGO_AIOSTREAMS_DATA_DIR:-/home/aman/.local/share/mango/aiostreams/data}:/app/data"

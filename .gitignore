@@ -1,6 +1,7 @@
 # Secrets
 .env
 .env.*
+!deploy/**/.env.example
 *.key
 keys/
 **/stremio.json
