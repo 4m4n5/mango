@@ -15,8 +15,11 @@ function repoDir(): string {
   return cwd;
 }
 
-/** Fire-and-forget background top-up (debounced per rail). No-op when disabled. */
+/** Fire-and-forget background top-up (debounced per rail). Off by default — use timer or manual CLI. */
 export function schedulePlayabilityTopUp(railId: string): void {
+  if (process.env.MANGO_PLAYABILITY_BACKGROUND_TOPUP !== '1') {
+    return;
+  }
   if (process.env.MANGO_PLAYABILITY_TOPUP_DISABLE === '1') {
     return;
   }

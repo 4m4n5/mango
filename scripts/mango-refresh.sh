@@ -19,9 +19,8 @@ fi
 
 echo "=== mango refresh $(git rev-parse --short HEAD 2>/dev/null) ==="
 
-# Background jobs that compete with mpv / stremio-core during couch use.
-pkill -f 'playability-indexer' 2>/dev/null || true
-pkill -f 'tsx.*phase-n3c' 2>/dev/null || true
+# Orphans that compete with mpv / stremio-core during couch use.
+bash scripts/mango-kill-strays.sh 2>/dev/null || true
 pkill -x stremio 2>/dev/null || true
 pkill -x kodi 2>/dev/null || true
 if command -v tmux >/dev/null 2>&1; then

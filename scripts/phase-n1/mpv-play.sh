@@ -100,10 +100,21 @@ echo "mpv-play: $URL_LABEL mode=$MODE timeout_ms=$TIMEOUT_MS min_duration_sec=$M
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 
-mpv --fs --idle=no --keep-open=no --no-terminal \
-  --hwdec="$HWDEC" \
-  --input-ipc-server="$SOCKET" \
-  "$URL" >>"$MPV_LOG" 2>&1 &
+mpv_args=(
+  --idle=no
+  --keep-open=no
+  --no-terminal
+  --hwdec="$HWDEC"
+  --input-ipc-server="$SOCKET"
+)
+if $PROBE; then
+  # Indexer/gate probes must not seize the TV fullscreen.
+  mpv_args+=(--vo=null --ao=null --really-quiet)
+else
+  mpv_args+=(--fs)
+fi
+
+mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 &
 MPV_PID=$!
 echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
 

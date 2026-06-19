@@ -176,6 +176,7 @@ start_stack() {
 
 stop_stack() {
   stop_orphan_indexer
+  bash "$REPO_DIR/scripts/mango-kill-strays.sh" 2>/dev/null || true
   stop_catalog_service
   bash scripts/phase-n1/mpv-stop.sh 2>/dev/null || true
   bash scripts/phase1/stop-mango-ui.sh 2>/dev/null || true
