@@ -1,5 +1,5 @@
 import { CatalogError, type Stream } from './core.js';
-import { playUrl, probeUrl } from './mpv.js';
+import { playUrl } from './mpv.js';
 import {
   selectAutoPlayCandidates,
   type StreamFilterConfig,
@@ -86,19 +86,15 @@ export async function playWithFallback(
     const attemptStarted = Date.now();
     const base = attemptBase(index, stream);
     try {
-      const probeBudget = Math.min(config.auto_play_probe_ms, remainingBeforeProbe);
-      const probe = await probeUrl(stream.url, probeBudget);
-      const remainingBeforePlay = deadline - Date.now();
-      if (remainingBeforePlay < 500) {
-        throw new Error('play budget exhausted after probe');
-      }
-
-      const playback = await playUrl(stream.url, remainingBeforePlay);
+      const attemptBudget = Math.min(
+        Math.max(config.auto_play_probe_ms, 6000),
+        remainingBeforeProbe,
+      );
+      const playback = await playUrl(stream.url, attemptBudget);
       const attempt: PlayAttempt = {
         ...base,
         ok: true,
         ms: Date.now() - attemptStarted,
-        probe_ms: probe.ttff_ms,
         ttff_ms: playback.ttff_ms,
       };
       attempts.push(attempt);

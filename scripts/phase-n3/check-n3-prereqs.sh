@@ -37,7 +37,7 @@ required = {
     "exclude_remux": True,
     "auto_play_max_attempts": 5,
     "auto_play_wall_ms": 15000,
-    "auto_play_probe_ms": 4000,
+    "auto_play_probe_ms": 8000,
 }
 for key, expected in required.items():
     actual = data.get(key)
