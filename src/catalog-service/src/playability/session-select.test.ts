@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  railsForTabSessionAllocation,
   selectRailSessionItems,
   sessionItemsConflictWithOccupied,
   tabSessionsHaveDuplicateTitles,
@@ -13,6 +14,17 @@ const pool = [
   { type: 'movie', id: 'tt3', score: 80 },
   { type: 'movie', id: 'tt4', score: 70 },
 ];
+
+test('railsForTabSessionAllocation reverses yaml order for niche-first picks', () => {
+  const rails = [
+    { railId: 'movies-global-popular' },
+    { railId: 'movies-quick-watches' },
+  ];
+  assert.deepEqual(
+    railsForTabSessionAllocation(rails).map((rail) => rail.railId),
+    ['movies-quick-watches', 'movies-global-popular'],
+  );
+});
 
 test('selectRailSessionItems excludes tab-occupied titles', () => {
   const occupied = new Set([titleKey('movie', 'tt1')]);

@@ -13,7 +13,7 @@ bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-
 | Rail | Label | Sources |
 |------|-------|---------|
 | `movies-global-popular` | popular worldwide | Cinemeta `top` + mdblist **88306** (Latest Movies) |
-| `movies-india-trending` | trending in india | IndiaStreams **trendingmovies** + **popmov** |
+| `movies-india-trending` | indian cinema | IndiaStreams **recmov** + **popmov** |
 | `movies-classics` | highly rated | Cinemeta `imdbRating` only |
 | `movies-comedy` | comedy & comfort | mdblist **91223** |
 | `movies-quick-watches` | quick watches | mdblist **86934** (digital release) + **83668** |
@@ -24,7 +24,7 @@ bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-
 | Rail | Label | Sources |
 |------|-------|---------|
 | `series-global-popular` | popular worldwide | Cinemeta `top` + mdblist **105797** (Daily Picks) |
-| `series-india-picks` | india & regional | IndiaStreams **trendingtv** + **atpmub** |
+| `series-india-picks` | indian series | IndiaStreams **atpmub** + **trendingtv** (light blend) |
 | `series-classics` | critically acclaimed | Cinemeta `imdbRating` only |
 | `series-comedy` | comedy | mdblist **91224** |
 | `series-miniseries` | limited series | mdblist **130153** + **130152** |

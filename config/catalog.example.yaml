@@ -31,13 +31,13 @@ rails:
 
   - id: movies-india-trending
     tab: movies
-    label: trending in india
+    label: indian cinema
     type: composite_list
     content_type: movie
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.trendingmovies, weight: 0.75 }
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.popmov, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.7 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.popmov, weight: 0.3 }
     playability:
       pool_target: 20
       ingest_multiplier: 6
@@ -110,13 +110,13 @@ rails:
 
   - id: series-india-picks
     tab: series
-    label: india & regional
+    label: indian series
     type: composite_list
     content_type: series
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.75 }
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.atpmub, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.atpmub, weight: 0.85 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.15 }
     playability:
       pool_target: 20
       ingest_multiplier: 6

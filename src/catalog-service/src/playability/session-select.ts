@@ -2,6 +2,11 @@ export function titleKey(type: string, id: string): string {
   return `${type}:${id}`;
 }
 
+/** Niche rails (later in catalog yaml) pick session slots first so tab-wide dedup does not starve them. */
+export function railsForTabSessionAllocation<T>(rails: T[]): T[] {
+  return [...rails].reverse();
+}
+
 export type SessionMixBucket = 'stable' | 'fresh';
 
 export type SessionSelectedItem<T> = T & { mix_bucket: SessionMixBucket };

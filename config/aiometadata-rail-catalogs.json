@@ -8,8 +8,8 @@
       "rails": ["movies-global-popular"]
     },
     {
-      "id": "custom.in_rdata_indiastreams.movie.trendingmovies",
-      "name": "Trending movies in India",
+      "id": "custom.in_rdata_indiastreams.movie.recmov",
+      "name": "Recommended Indian Movies",
       "rails": ["movies-india-trending"]
     },
     {
@@ -43,13 +43,13 @@
       "rails": ["series-global-popular"]
     },
     {
-      "id": "custom.in_rdata_indiastreams.series.trendingtv",
-      "name": "Trending TV shows in India",
+      "id": "custom.in_rdata_indiastreams.series.atpmub",
+      "name": "Recommended Indian TV Shows",
       "rails": ["series-india-picks"]
     },
     {
-      "id": "custom.in_rdata_indiastreams.series.atpmub",
-      "name": "Recommended Indian TV Shows",
+      "id": "custom.in_rdata_indiastreams.series.trendingtv",
+      "name": "Trending TV shows in India",
       "rails": ["series-india-picks"]
     },
     {

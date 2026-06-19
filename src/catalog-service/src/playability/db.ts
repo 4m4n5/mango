@@ -6,6 +6,7 @@ import {
   sessionItemsConflictWithOccupied,
   tabSessionsHaveDuplicateTitles,
   titleKey,
+  railsForTabSessionAllocation,
 } from './session-select.js';
 import { seriesBareId, seriesFollowUpEpisodeIds } from './ids.js';
 
@@ -798,7 +799,7 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
         });
       }
 
-      for (const rail of options.rails) {
+      for (const rail of railsForTabSessionAllocation(options.rails)) {
         const displayLimit = Math.max(1, rail.displayLimit);
         const pool = readRailPool(db, rail.railId, now);
         const recent = readRecentRailKeys(db, rail.railId, cooldownCutoff);
