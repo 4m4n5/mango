@@ -24,10 +24,10 @@ usage:
 Auto-import (Pi, Stremio already logged in):
   bash $0 --from-local
 
-Manual export from Stremio desktop:
+Manual export from Stremio desktop (secrets file only — not repo deploy; see docs/DEPLOY.md):
   1. Open Stremio → ⚙ Settings → Export
   2. Save the JSON file
-  3. Copy to Pi: scp export.json mango:/tmp/stremio-export.json
+  3. scp export.json mango:/tmp/stremio-export.json   # /etc/mango secret, not git
   4. bash $0 /tmp/stremio-export.json
 
 Never commit the real export. Template: config/stremio-export.example.json

@@ -2,6 +2,8 @@
 
 Agent/Codex implementation specs. Human overview: [../README.md](../README.md) · [../NATIVE_ROADMAP.md](../NATIVE_ROADMAP.md).
 
+**Pi deploy (all tasks):** commit + push from Mac → `bash scripts/pi-deploy.sh` — **never rsync.** [../DEPLOY.md](../DEPLOY.md) · [../../AGENTS.md](../../AGENTS.md)
+
 ## Native (active)
 
 | Phase | Spec | Codex prompt | Status |
@@ -12,7 +14,7 @@ Agent/Codex implementation specs. Human overview: [../README.md](../README.md) �
 | **N3a** — Stream play orchestrator | [phase-n3-stream-orchestrator.md](phase-n3-stream-orchestrator.md) | [CODEX-phase-n3-prompt.md](CODEX-phase-n3-prompt.md) | ✓ |
 | **N3c** — Playability index | [phase-n3c-playability-index.md](phase-n3c-playability-index.md) | [CODEX-phase-n3c-prompt.md](CODEX-phase-n3c-prompt.md) | ✓ |
 | **N3d** — Self-hosted addons (Free Path A) | [phase-n3d-self-hosted-addon-stack.md](phase-n3d-self-hosted-addon-stack.md) | [CODEX-phase-n3d-initial-prompt.md](CODEX-phase-n3d-initial-prompt.md) | ✓ |
-| **N3d-S7–S8** — Stream metadata + language | [phase-n3d-stream-metadata.md](phase-n3d-stream-metadata.md) | shipped in dirty tree |
+| **N3d-S7–S8** — Stream metadata + language | [phase-n3d-stream-metadata.md](phase-n3d-stream-metadata.md) | shipped `ba586c4+` |
 | **N3d-S9** — AIOStreams groups (operator) | [configure-aiostreams.md](../../scripts/phase-n3d/configure-aiostreams.md) | Pi `groups=null` — UI setup |
 | **Stack principles** | [STACK-PRINCIPLES.md](../STACK-PRINCIPLES.md) | reference |
 | **N3b** — Stream picker + progress | *(after N3d-S7–S9)* | — | planned |

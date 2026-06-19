@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Fail fast when Pi runbook references files not yet on origin.
-# Run on Mac before telling the user to git pull on the Pi:
-#   bash scripts/lib/pi-sync-check.sh scripts/phase0/install-pad-autoreconnect.sh
+# Fail fast when Pi deploy references files not yet on origin.
+# Git-only deploy: commit + push from Mac, then git pull on Pi — never rsync.
+# Usage: bash scripts/lib/pi-sync-check.sh scripts/phase0/install-pad-autoreconnect.sh
 
 set -euo pipefail
 

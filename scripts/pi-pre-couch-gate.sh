@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Pre-couch gate — run on Pi before TV testing.
-# Mac: bash scripts/pi-exec-gate.sh
-# Refresh first: bash scripts/mango-refresh.sh
+# Pre-couch gate — run on Pi before TV testing. Deploy via git pull only (see docs/DEPLOY.md).
+# Mac: bash scripts/pi-exec-gate.sh  or  bash scripts/pi-deploy.sh --gate
 
 set -euo pipefail
 

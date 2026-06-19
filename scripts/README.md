@@ -8,6 +8,8 @@
 
 | Script | When |
 |--------|------|
+| **`pi-deploy.sh`** | **Mac → Pi** git pull, build, restart (never rsync) — [DEPLOY.md](../docs/DEPLOY.md) |
+| **`pi-exec-gate.sh`** | Mac: pull + pre-couch gate on Pi |
 | **`mango-stack.sh`** `start\|stop\|status\|restart` | Primary — launcher + voice + catalog (N1: `MANGO_CATALOG=1`) |
 | **`phase1/bootstrap-after-reboot.sh`** | After Pi reboot |
 | **`phase1/restart-mango-ui.sh`** | UI-only restart |

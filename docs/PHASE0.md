@@ -12,32 +12,31 @@
 | **Gamepad** | 8BitDo Micro · **Pro Controller** · MAC `E4:17:D8:EB:00:44` |
 | **Stack** | `bash scripts/mango-stack.sh restart` |
 
-Checklist (historical): [phase0-checklist.md](phase0-checklist.md) · Scripts: [../scripts/README.md](../scripts/README.md)
+Checklist (historical): [phase0-checklist.md](phase0-checklist.md) · Scripts: [../scripts/README.md](../scripts/README.md) · **Deploy:** [DEPLOY.md](DEPLOY.md) (git only — never rsync)
 
 ---
 
 ## Bring-up (Pi)
 
-**After crash or unknown state:**
+**After crash or unknown state** — git pull only (never rsync):
 
 ```bash
-cd ~/mango && git pull
+cd ~/mango && git pull --ff-only
 bash scripts/mango-stack.sh restart
-# or UI only:
-bash scripts/phase1/restart-mango-ui.sh
+```
+
+**From Mac** (after commit + push):
+
+```bash
+bash scripts/pi-deploy.sh
+bash scripts/pi-deploy.sh --gate
 ```
 
 **After reboot** (press a pad button if BT is slow):
 
 ```bash
-cd ~/mango && git pull
+cd ~/mango && git pull --ff-only
 bash scripts/phase1/bootstrap-after-reboot.sh
-```
-
-**From Mac:**
-
-```bash
-bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/mango-stack.sh restart'
 ```
 
 **Gates before couch test:**

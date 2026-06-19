@@ -10,7 +10,7 @@
 |------|-----|
 | Product direction | [NATIVE_EXPERIENCE.md](NATIVE_EXPERIENCE.md) |
 | Current phase / rails | [N2-INVENTORY.md](N2-INVENTORY.md) · [N3c-INVENTORY.md](N3c-INVENTORY.md) |
-| Pi day-to-day | [PHASE0.md](PHASE0.md) |
+| Pi day-to-day | [PHASE0.md](PHASE0.md) · [DEPLOY.md](DEPLOY.md) |
 | Voice / phone PTT | [PHASE2.md](PHASE2.md) |
 | Foreground contract | [FOREGROUND.md](FOREGROUND.md) |
 | ElfHosted / debrid | [ELFHOSTED.md](ELFHOSTED.md) |
@@ -46,4 +46,4 @@ bash scripts/pi-pre-couch-gate.sh
 
 **Archive:** [DESIGN.md](DESIGN.md) (V1 Stremio/Kodi spec) · [PLAN.md](PLAN.md) (full timeline)
 
-**Agent specs:** [tasks/](tasks/) · [../AGENTS.md](../AGENTS.md)
+**Agent specs:** [tasks/](tasks/) · [../AGENTS.md](../AGENTS.md) · **Pi deploy:** [DEPLOY.md](DEPLOY.md) (git push/pull only — never rsync)

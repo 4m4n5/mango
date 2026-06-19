@@ -88,6 +88,15 @@ cd src/catalog-service && npm run test
 | Shawshank-only stream gates | Misses India/Hindi/series paths |
 | Hard `preferred_language` | Use `language` for hard, `preferred_language` for soft |
 | Title relax clears `hard_language` | Title fallback must keep user language intent |
+| `rsync` / `scp` repo to Pi | Git push + `git pull` only — see [`DEPLOY.md`](DEPLOY.md) |
+
+---
+
+## Pi deploy
+
+**Git only.** Diagnose on Pi → fix on Mac → commit + push → `bash scripts/pi-deploy.sh` → gates on Pi.
+
+Never rsync `~/mango`, `src/`, or `src/orchestrator/.venv`. Canonical: [`DEPLOY.md`](DEPLOY.md).
 
 ---
 

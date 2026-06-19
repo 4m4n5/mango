@@ -123,46 +123,26 @@ bash scripts/pi-pre-couch-gate.sh
 Current Pi evidence: pending. Expected first blocker is operator completion of
 the AIOStreams/AIOLists configure UIs plus `/etc/mango/stremio-export.json`.
 
-## Pi Gate Attempt — 2026-06-19
+## Pi deploy
 
-Command from Mac:
-
-```bash
-bash scripts/pi-exec-gate.sh
-```
-
-Result: blocked before N3d gates. SSH succeeded, but `git pull --ff-only` on the
-Pi aborted because `~/mango` has local modified/untracked files that would be
-overwritten by `origin/feat/native-experience`.
-
-Observed blockers included local edits under:
-
-- `config/catalog.example.yaml`
-- `scripts/phase-n2/`
-- `scripts/phase-n3c/`
-- `src/catalog-service/`
-- `src/launcher/`
-- untracked `scripts/diag/poll-maintenance.py`
-- untracked `scripts/phase-n2b/`
-- untracked `src/catalog-service/src/playability/composite-merge.*`
-
-Required user action: review, commit, or intentionally stash the Pi-local changes,
-then rerun:
+Git only — never rsync. See [`DEPLOY.md`](DEPLOY.md).
 
 ```bash
-cd ~/mango
-git pull --ff-only
-cd src/catalog-service && npm run build
-cd ../../src/launcher && npm run build
-cd ../..
-MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
-bash scripts/phase-n3d/gate-n3d-self-hosted.sh
-bash scripts/pi-pre-couch-gate.sh
+# Mac (after commit + push)
+bash scripts/pi-deploy.sh --gate
 ```
 
-Do not use `git reset --hard` unless the Pi-local edits are confirmed disposable.
+Current Pi: **`11b19b8`** · PRE-COUCH PASS (2026-06-19).
 
-## Current Blockers (audit 2026-06-19)
+---
+
+## Pi Gate history — 2026-06-19 (resolved)
+
+Earlier `pi-exec-gate.sh` failed when Pi had rsync-dirty tree overlapping `origin/feat/native-experience`. **Fix:** commit on Mac, push, `git pull --ff-only` on Pi (or `git reset --hard origin/…` with user approval). Do not rsync to reconcile.
+
+---
+
+## Current Blockers (operator)
 
 | # | Blocker | Action |
 |---|---------|--------|
@@ -187,7 +167,7 @@ Run anytime: `bash scripts/phase-n3d/diag-self-hosted.sh`
 | Pi stream gate | pending | PASS with `display_label` required by default |
 | Pi language gate | pending | PASS — hard `language` rejects Klingon (502) |
 | AIOStreams `groups` | `null` | **still `null`** — operator S9 in configure UI |
-| Pi deploy | — | git pull after push; `pi-exec-gate.sh` |
+| Pi deploy | — | `bash scripts/pi-deploy.sh` after push — see [`DEPLOY.md`](DEPLOY.md) |
 
 **S7/S8 shipped in catalog-service:**
 

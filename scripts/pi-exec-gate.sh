@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mac: pull on Pi and run pre-couch gate.
+# Mac: pull on Pi (git only) and run pre-couch gate. Never rsync — see docs/DEPLOY.md
 # Usage: bash scripts/pi-exec-gate.sh
 
 set -euo pipefail

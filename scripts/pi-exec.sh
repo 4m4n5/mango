@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Run a command on the mango Pi from the Mac (non-interactive SSH).
+# Deploy is git-only: push from Mac, pull on Pi — never rsync. See docs/DEPLOY.md
 # Usage: bash scripts/pi-exec.sh 'hostname -I'
 #        bash scripts/pi-exec.sh -- 'bash ~/mango/scripts/phase0/verify-system.sh'
 

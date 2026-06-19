@@ -18,6 +18,7 @@ Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experien
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | Pad diagram |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked choices |
 | [`docs/STACK-PRINCIPLES.md`](docs/STACK-PRINCIPLES.md) | **Layer boundaries, gates, config sources** |
+| [**`docs/DEPLOY.md`**](docs/DEPLOY.md) | **Pi deploy — git only, never rsync** |
 | [`docs/PLAN.md`](docs/PLAN.md) | Full timeline (Phase 0–5 + native) |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | V1 historical spec |
 
@@ -30,51 +31,50 @@ Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experien
 | `main` | Stable couch stack · voice + launcher · bugfixes |
 | `feat/native-experience` | **Active** — native UX · catalog-service · mpv |
 
-## Pi deploy (mandatory — no rsync)
+## Pi deploy (mandatory — git only, never rsync)
 
-`aman@10.0.0.174` · SSH `mango` · `~/mango`
+`aman@10.0.0.174` · SSH `mango` · `~/mango` · **Full runbook:** [`docs/DEPLOY.md`](docs/DEPLOY.md)
 
-**Never `rsync` or hand-copy repo files to the Pi.** Mac is source of truth via git.
+**Never `rsync`, `scp`, or hand-copy repo files to the Pi.** Mac is source of truth via git push; Pi updates via git pull only.
 
-1. **Verify** — changes are simple and principled; builds pass locally if touching `src/`.
-2. **Commit + push** from Mac (`github.com/4m4n5/mango`).
-3. **Pull + test** on Pi:
+### Agent loop
+
+| Step | Where | Action |
+|------|-------|--------|
+| 1. Diagnose | Pi | `pi-exec.sh`, gates, service logs |
+| 2. Fix | Mac | Edit repo; local `npm run test` when touching catalog-service |
+| 3. Ship | Mac | Commit (when asked) + `git push origin feat/native-experience` |
+| 4. Deploy | Pi | `bash scripts/pi-deploy.sh` from Mac, or pull + build + restart per DEPLOY.md |
+| 5. Verify | Pi | `bash scripts/pi-exec-gate.sh` — **never hand off after Mac-only checks** |
 
 ```bash
-bash scripts/lib/pi-sync-check.sh <changed-path>   # Mac, before push
-bash scripts/pi-exec.sh 'cd ~/mango && git pull && bash scripts/mango-stack.sh restart'
+# Mac — after push
+bash scripts/lib/pi-sync-check.sh path/to/changed…   # optional
+bash scripts/pi-deploy.sh                            # pull, build, restart on Pi
+bash scripts/pi-deploy.sh --gate                     # + pre-couch gate
+
+# Mac — remote command
+bash scripts/pi-exec.sh 'cd ~/mango && git pull --ff-only && …'
+
+# Pi dirty tree — stash or user-approved reset; never rsync to reconcile
 ```
 
-Voice stack after pull:
+Voice after deploy (`MANGO_VOICE=1`):
 
 ```bash
-bash scripts/mango-stack.sh restart
+bash scripts/phase2/ensure-orchestrator-venv.sh   # on Pi — never rsync .venv
+bash scripts/phase2/start-voice-stack.sh
 bash scripts/phase2/verify-voice-ready.sh
 ```
 
-**Pre-couch gate (agent runs before user tests):** SSH to Pi and run automated
-checks — never hand off after Mac-only verification.
+**Pre-couch gate (agent runs before user tests):**
 
 ```bash
 bash scripts/pi-exec-gate.sh          # Mac: pull + gate on Pi
-# or on Pi (N0 + sampled N3c):
-bash scripts/pi-pre-couch-gate.sh
-# full play gate on served items:
-MANGO_GATE_FULL=1 bash scripts/phase-n3c/gate-n3c-verified-rails.sh
-# phase-specific (no nested regressions):
+bash scripts/pi-pre-couch-gate.sh     # on Pi
+bash scripts/phase-n3d/gate-n3d-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=1
+bash scripts/phase-n3/gate-n3-play.sh
 bash scripts/phase-n0/gate-n0.sh
-bash scripts/phase-n1/gate-n1-smoke.sh   # MANGO_GATE_SPIKES=1 for S0/S1 spikes
-bash scripts/phase-n2/gate-n2-browse.sh
-```
-
-**N2 deploy:** requires `/etc/mango/catalog.yaml` (from `config/catalog.example.yaml`) + optional `tmdb.key`. Then:
-
-```bash
-cd ~/mango && git pull
-cd src/catalog-service && npm ci && npm run build
-cd src/launcher && npm ci && npm run build
-MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
-bash scripts/phase-n2/gate-n2-browse.sh
 ```
 
 ## Gamepad (locked)

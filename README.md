@@ -80,4 +80,4 @@ config/                 examples → /etc/mango/ on Pi
 | `feat/native-experience` | **Active** — native UX, mpv, catalog-service |
 | `main` | Phase 0–2 couch stack; bugfixes |
 
-Deploy: **git only** — commit + push from Mac, `git pull` on Pi. Never commit secrets (`keys/`, `/etc/mango/`).
+Deploy: **git only** — [`docs/DEPLOY.md`](docs/DEPLOY.md). Commit + push from Mac; `bash scripts/pi-deploy.sh` or `git pull` on Pi. **Never rsync.** Never commit secrets (`keys/`, `/etc/mango/`).
