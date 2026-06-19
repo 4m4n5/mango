@@ -15,6 +15,7 @@ TIMEOUT_MS=12000
 MIN_DURATION_SEC=600
 MIN_DURATION_SET=false
 PROBE=false
+ORIGINAL_ARGS=("$@")
 
 usage() {
   echo "usage: $0 --worker-id <n> --url <http-url> [--timeout-ms N] [--min-duration-sec N] [--probe]" >&2
@@ -47,7 +48,7 @@ fi
 if [[ -z "${MANGO_PROBE_TIMEOUT_WRAPPER:-}" ]]; then
   export MANGO_PROBE_TIMEOUT_WRAPPER=1
   HARD_LIMIT_SEC=$(( (TIMEOUT_MS + 999) / 1000 + 8 ))
-  exec timeout --kill-after=3 "$HARD_LIMIT_SEC" "$0" "$@"
+  exec timeout --kill-after=3 "$HARD_LIMIT_SEC" "$0" "${ORIGINAL_ARGS[@]}"
 fi
 
 SOCKET="${SOCKET_DIR}/probe-${WORKER_ID}.sock"

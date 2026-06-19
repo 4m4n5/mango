@@ -90,10 +90,11 @@ export function playabilityFailedRetryMsForReason(reason?: string | null): numbe
 }
 
 export function playabilityVerifyMinDurationSec(contentType?: string): number {
+  // Indexer probes: reject debrid status clips (~30–90s) without requiring full runtime.
   if (contentType === 'series') {
-    return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC_SERIES, 300, 60, 7200);
+    return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC_SERIES, 120, 30, 7200);
   }
-  return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC, 600, 60, 7200);
+  return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC, 120, 30, 7200);
 }
 
 export function playabilityVerifyMaxCandidates(): number {
