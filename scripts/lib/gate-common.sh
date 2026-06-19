@@ -83,6 +83,10 @@ PY
 
 gate_post_play() {
   local label="$1" type="$2" id="$3" out="$4"
+  if ! curl -sf --max-time 3 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+    gate_fail "$label catalog down"
+    return 1
+  fi
   if curl -sf --max-time 70 -X POST http://127.0.0.1:3020/play \
     -H 'content-type: application/json' \
     -d "{\"type\":\"${type}\",\"id\":\"${id}\"}" >"$out" \

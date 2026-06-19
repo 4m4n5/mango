@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Pre-couch gate — run on Pi before TV testing.
 # Mac: bash scripts/pi-exec-gate.sh
+# Refresh first: bash scripts/mango-refresh.sh
 
 set -euo pipefail
 
@@ -26,8 +27,12 @@ fi
 
 if [[ "$BRANCH" == "feat/native-experience" ]]; then
   bash scripts/phase-n0/gate-n0.sh
-  if [[ "${MANGO_CATALOG:-0}" == "1" && -x scripts/phase-n3c/gate-n3c-verified-rails.sh ]]; then
-    bash scripts/phase-n3c/gate-n3c-verified-rails.sh
+  if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
+    curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
+      || { echo "FAIL: catalog down — bash scripts/mango-refresh.sh" >&2; exit 1; }
+    if [[ -x scripts/phase-n3c/gate-n3c-verified-rails.sh ]]; then
+      bash scripts/phase-n3c/gate-n3c-verified-rails.sh
+    fi
   fi
   echo "PRE-COUCH: PASS"
   exit 0

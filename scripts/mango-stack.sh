@@ -25,17 +25,24 @@ fi
 export MANGO_SKIP_OVERLAY=1
 
 usage() {
-  echo "usage: $0 start|stop|status|restart" >&2
+  echo "usage: $0 start|stop|status|restart|refresh" >&2
   exit 2
 }
 
 stop_idle_media() {
   bash scripts/phase-n1/mpv-stop.sh 2>/dev/null || true
+  pkill -f 'playability-indexer' 2>/dev/null || true
+  pkill -f 'tsx.*phase-n3c' 2>/dev/null || true
   pkill -x stremio 2>/dev/null || true
   pkill -f '[s]tremio' 2>/dev/null || true
   pkill -x kodi 2>/dev/null || true
   pkill -f '[k]odi' 2>/dev/null || true
   pkill -f 'chromium.*mango-overlay.*127.0.0.1:3000/overlay/' 2>/dev/null || true
+}
+
+stop_orphan_indexer() {
+  pkill -f 'playability-indexer' 2>/dev/null || true
+  pkill -f 'tsx.*phase-n3c' 2>/dev/null || true
 }
 
 resolve_catalog_yaml() {
@@ -97,12 +104,15 @@ start_catalog_service() {
   local catalog_yaml catalog_filters
   catalog_yaml="$(resolve_catalog_yaml)" || return 1
   catalog_filters="$(resolve_catalog_filters)"
-  if [[ -f "$CATALOG_PID" ]] && kill -0 "$(cat "$CATALOG_PID")" 2>/dev/null; then
-    if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+  if [[ -f "$CATALOG_PID" ]]; then
+    if kill -0 "$(cat "$CATALOG_PID")" 2>/dev/null \
+      && curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
       echo "catalog-service already running"
       return 0
     fi
+    rm -f "$CATALOG_PID"
   fi
+  stop_orphan_indexer
   rm -f "$CATALOG_PID"
   (
     cd src/catalog-service
@@ -155,11 +165,17 @@ start_stack() {
   start_playability_topup
   bash scripts/phase1/start-mango-ui.sh
   if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
-    bash scripts/phase2/start-voice-stack.sh
+    bash scripts/phase2/start-voice-stack.sh \
+      || echo "voice stack: not ready (launcher+catalog ok)" >&2
+  fi
+  if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
+    curl -sf --max-time 3 http://127.0.0.1:3020/health >/dev/null \
+      || { echo "catalog-service unhealthy after start" >&2; return 1; }
   fi
 }
 
 stop_stack() {
+  stop_orphan_indexer
   stop_catalog_service
   bash scripts/phase-n1/mpv-stop.sh 2>/dev/null || true
   bash scripts/phase1/stop-mango-ui.sh 2>/dev/null || true
@@ -172,13 +188,19 @@ stop_stack() {
 
 status_stack() {
   echo "mango: commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown) voice=${MANGO_VOICE:-0} catalog=${MANGO_CATALOG:-0}"
-  if curl -sf --max-time 2 http://127.0.0.1:3020/health >/tmp/mango-catalog-health.json 2>/dev/null; then
+  if [[ -f "$CATALOG_PID" ]] && kill -0 "$(cat "$CATALOG_PID")" 2>/dev/null \
+    && curl -sf --max-time 2 http://127.0.0.1:3020/health >/tmp/mango-catalog-health.json 2>/dev/null; then
     echo "catalog: $(tr -d '\n' </tmp/mango-catalog-health.json)"
   else
+    rm -f "$CATALOG_PID"
     echo "catalog: down"
   fi
   curl -sf --max-time 2 "http://127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/api/health" >/dev/null 2>&1 \
     && echo "launcher: up" || echo "launcher: down"
+  pgrep -f "chromium.*mango-launcher" >/dev/null 2>&1 \
+    && echo "chromium: up" || echo "chromium: down"
+  pgrep -f 'playability-indexer' >/dev/null 2>&1 \
+    && echo "indexer: running (competes with mpv)" || true
 }
 
 case "${1:-}" in
@@ -188,6 +210,7 @@ case "${1:-}" in
     stop_stack
     start_stack
     ;;
+  refresh) exec bash "$REPO_DIR/scripts/mango-refresh.sh" ;;
   status) status_stack ;;
   *) usage ;;
 esac
