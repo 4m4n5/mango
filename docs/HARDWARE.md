@@ -18,13 +18,14 @@
 
 **North star unchanged:** Pi 5 8GB is the V1 platform. N7 proves 4K on your TV; if hardware limits block SOTA (DV/REMUX, HDMI bandwidth), we document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
 
-### ElfHosted (catalog + streams)
+### Addon hosting (catalog + streams)
 
-India rails and AIOStreams run on [ElfHosted](https://docs.elfhosted.com/stremio-addons/).
-**Public** instances rate-limit under burst load; **private** subscriptions (~$9/mo/app)
-are recommended for production. Setup: [`ELFHOSTED.md`](ELFHOSTED.md).
+N3d runs AIOStreams and AIOLists locally on the Pi:
+[`N3d-INVENTORY.md`](N3d-INVENTORY.md). ElfHosted is a paid fallback only:
+[`ELFHOSTED.md`](ELFHOSTED.md).
 
-N3c playability indexing still required — subscription fixes browse limits, not play guarantees.
+N3c playability indexing still required — addon hosting fixes browse/resolve
+availability, not play guarantees.
 
 ### Optional hardware (when optimizing for SOTA)
 

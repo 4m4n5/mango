@@ -1,7 +1,7 @@
 # N3d inventory — self-hosted addon stack
 
 **Branch:** `feat/native-experience`
-**Status:** S5 maintenance validation scaffolded
+**Status:** S6 pre-couch integration scaffolded
 **Gate:** `bash scripts/phase-n3d/gate-n3d-self-hosted.sh`
 
 ---
@@ -100,7 +100,29 @@ Current Pi evidence: pending. If this remains pending at handoff, complete
 AIOStreams/AIOLists configure UI, restart `MANGO_CATALOG=1`, then run the stale
 maintenance command above.
 
+## S6 Pre-Couch Gate
+
+Enable on the Pi:
+
+```bash
+printf '%s\n' 'export MANGO_SELF_HOSTED_ADDONS=1' >> ~/.config/mango/voice.env
+sudo touch /etc/mango/aiostreams.enabled
+```
+
+Then run:
+
+```bash
+bash scripts/phase-n3d/gate-n3d-self-hosted.sh
+bash scripts/pi-pre-couch-gate.sh
+```
+
+Current Pi evidence: pending. Expected first blocker is operator completion of
+the AIOStreams/AIOLists configure UIs plus `/etc/mango/stremio-export.json`.
+
 ## Current Blockers
 
-- S1-S6 not yet implemented.
-- Pi-local operator configuration not yet complete.
+- Pi-local AIOStreams configure UI must be completed with TorBox, Real-Debrid, and Easynews.
+- Pi-local AIOLists configure UI must import the MDBList rows in `scripts/phase-n3d/map-mdblist-catalogs.md`.
+- `/etc/mango/stremio-export.json` must contain local `AIOStreams`, `AIOLists`, and operator-selected `India OTT` manifest URLs.
+- India OTT catalog ids must be verified against the selected manifest; the repo yaml keeps the previous IndiaStreams ids as placeholders.
+- S5/S6 Pi gate evidence is pending until the operator configuration above is complete.

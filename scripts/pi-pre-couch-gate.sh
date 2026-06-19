@@ -30,7 +30,9 @@ if [[ "$BRANCH" == "feat/native-experience" ]]; then
   if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
     curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
       || { echo "FAIL: catalog down — bash scripts/mango-refresh.sh" >&2; exit 1; }
-    if [[ -x scripts/phase-n3c/gate-n3c-verified-rails.sh ]]; then
+    if [[ "${MANGO_SELF_HOSTED_ADDONS:-0}" == "1" || -f /etc/mango/aiostreams.enabled ]]; then
+      bash scripts/phase-n3d/gate-n3d-self-hosted.sh
+    elif [[ -x scripts/phase-n3c/gate-n3c-verified-rails.sh ]]; then
       bash scripts/phase-n3c/gate-n3c-verified-rails.sh
     fi
   fi
