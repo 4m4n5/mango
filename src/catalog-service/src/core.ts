@@ -15,6 +15,7 @@ import {
   type RailConfig,
 } from './rails.js';
 import { getPlayabilityStatus, type PlayabilityStatus } from './playability/db.js';
+import { AddonCatalogListSource, type ListSource } from './playability/list-source.js';
 
 type AddonExport = {
   name?: string;
@@ -356,6 +357,24 @@ export class CatalogCore {
         content_type: rail.content_type,
       })),
     };
+  }
+
+  addonRails(): AddonCatalogRail[] {
+    return enabledAddonRails(this.requireRailConfig());
+  }
+
+  addonRail(railId: string): AddonCatalogRail {
+    const rail = this.addonRails().find((candidate) => candidate.id === railId);
+    if (!rail) {
+      throw new CatalogError(404, `unknown rail: ${railId}`);
+    }
+    return rail;
+  }
+
+  listSourceForRail(railId: string): ListSource {
+    const rail = this.addonRail(railId);
+    const addon = this.findAddonByName(rail.addon);
+    return new AddonCatalogListSource(rail.id, rail, addon.manifestUrl);
   }
 
   async playabilityStatus(): Promise<PlayabilityStatus> {

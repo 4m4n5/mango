@@ -46,6 +46,21 @@ export type PlayabilityVerifyRecord = {
   outcome?: string;
 };
 
+export type TitlePlayabilityRecord = {
+  type: string;
+  id: string;
+  status: 'verified' | 'failed' | 'pending' | 'stale';
+  expires_at: number | null;
+  updated_at: number;
+};
+
+export type RailPoolEntry = {
+  rail_id: string;
+  type: string;
+  id: string;
+  score: number;
+};
+
 type StatusRow = {
   rail_id: string;
   pool_depth: number | null;
@@ -58,6 +73,19 @@ type StatusRow = {
 
 type IndexerRow = {
   last_indexer_run_at: number | null;
+};
+
+type TitleRow = {
+  type: string;
+  id: string;
+  status: 'verified' | 'failed' | 'pending' | 'stale';
+  expires_at: number | null;
+  updated_at: number;
+};
+
+type RailPoolKeyRow = {
+  type: string;
+  id: string;
 };
 
 function dbPath(): string {
@@ -305,6 +333,66 @@ VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
       });
     });
     transaction();
+  } finally {
+    db.close();
+  }
+}
+
+export async function getRailPlayabilityStatus(railId: string): Promise<PlayabilityRailStatus> {
+  const status = await getPlayabilityStatus([railId]);
+  return status.rails.find((rail) => rail.rail_id === railId) ?? emptyRailStatus(railId);
+}
+
+export async function getTitlePlayability(
+  type: string,
+  id: string,
+): Promise<TitlePlayabilityRecord | null> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const row = db.prepare(`
+SELECT type, id, status, expires_at, updated_at
+FROM titles
+WHERE type = @type AND id = @id;
+`).get({ type, id }) as TitleRow | undefined;
+    return row ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+export async function getRailPoolTitleKeys(railId: string): Promise<Set<string>> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const rows = db.prepare(`
+SELECT type, id
+FROM rail_pool
+WHERE rail_id = @rail_id;
+`).all({ rail_id: railId }) as RailPoolKeyRow[];
+    return new Set(rows.map((row) => `${row.type}:${row.id}`));
+  } finally {
+    db.close();
+  }
+}
+
+export async function upsertRailPoolTitle(entry: RailPoolEntry): Promise<void> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    db.prepare(`
+INSERT INTO rail_pool (rail_id, type, id, score, ingested_at)
+VALUES (@rail_id, @type, @id, @score, @ingested_at)
+ON CONFLICT(rail_id, type, id) DO UPDATE SET
+  score = excluded.score,
+  ingested_at = excluded.ingested_at;
+`).run({
+      rail_id: entry.rail_id,
+      type: entry.type,
+      id: entry.id,
+      score: entry.score,
+      ingested_at: nowMs(),
+    });
   } finally {
     db.close();
   }

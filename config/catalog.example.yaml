@@ -3,6 +3,12 @@
 # N2: five rails from TWO addon sources (smoke breadth before full catalog mgmt).
 # Addon names must match /etc/mango/stremio-export.json exactly.
 #
+# N3c playability defaults per enabled rail:
+#   display_limit: 12        # posters served to launcher after verification
+#   min_display: 8           # low-water threshold
+#   ingest_multiplier: 5     # indexer candidates = rail.limit x multiplier
+#   pool_target: 60          # verified titles maintained in playability.db
+#
 # Later: auto-import all AIOMetadata catalogs (~31), reorder UI, enable/disable per rail.
 
 version: 1
@@ -16,6 +22,12 @@ rails:
     catalog: custom.in_rdata_indiastreams.movie.trendingmovies
     content_type: movie
     limit: 20
+    # Optional per-rail override:
+    # playability:
+    #   display_limit: 12
+    #   min_display: 8
+    #   ingest_multiplier: 5
+    #   pool_target: 60
 
   - id: popular-india
     label: trending movies

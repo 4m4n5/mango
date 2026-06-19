@@ -33,6 +33,10 @@ export type VerifyTitleResult = {
   }>;
 };
 
+export type VerifyTitleOptions = {
+  railId?: string | null;
+};
+
 function urlHash(url: string): string {
   return createHash('sha256').update(url).digest('hex').slice(0, 16);
 }
@@ -73,11 +77,13 @@ async function recordFailure(
   id: string,
   reason: string,
   probeMs: number | null,
+  options: VerifyTitleOptions,
 ): Promise<void> {
   await recordVerifyResult({
     type,
     id,
     status: 'failed',
+    rail_id: options.railId ?? null,
     fail_reason: reason,
     probe_ms: probeMs,
     stage: 'verify',
@@ -89,6 +95,7 @@ export async function verifyTitle(
   core: CatalogCore,
   type: string,
   id: string,
+  options: VerifyTitleOptions = {},
 ): Promise<VerifyTitleResult> {
   let streams: Stream[] = [];
   let filters: StreamFilterMeta | undefined;
@@ -101,7 +108,7 @@ export async function verifyTitle(
     const reason = error instanceof CatalogError && error.details?.filters
       ? 'no_stream'
       : failReason(error);
-    await recordFailure(type, id, reason, null);
+    await recordFailure(type, id, reason, null, options);
     return {
       type,
       id,
@@ -118,7 +125,7 @@ export async function verifyTitle(
   }).slice(0, VERIFY_MAX_CANDIDATES);
 
   if (candidates.length === 0) {
-    await recordFailure(type, id, 'no_stream', null);
+    await recordFailure(type, id, 'no_stream', null, options);
     return {
       type,
       id,
@@ -149,6 +156,7 @@ export async function verifyTitle(
         type,
         id,
         status: 'verified',
+        rail_id: options.railId ?? null,
         best_source: stream.source,
         cache_status: typeof stream.cache_status === 'string' ? stream.cache_status : null,
         debrid_service: typeof stream.debrid_service === 'string' ? stream.debrid_service : null,
@@ -183,7 +191,13 @@ export async function verifyTitle(
   }
 
   const reason = attempts.at(-1)?.error ? failReason(attempts.at(-1)?.error) : 'probe_failed';
-  await recordFailure(type, id, reason, attempts.reduce((total, attempt) => total + attempt.ms, 0));
+  await recordFailure(
+    type,
+    id,
+    reason,
+    attempts.reduce((total, attempt) => total + attempt.ms, 0),
+    options,
+  );
   return {
     type,
     id,
