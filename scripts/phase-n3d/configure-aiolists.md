@@ -36,3 +36,26 @@ Copy the generated AIOLists manifest URL into `/etc/mango/stremio-export.json`:
 ```
 
 Keep the addon name exactly `AIOLists`.
+
+## Locked settings (Pi — 2026-06-19)
+
+| Setting | Value |
+|---------|-------|
+| MDBList | Connected (`4m4n5tv-xue5kq`) |
+| Metadata | Cinemeta (default) |
+| Split search | Cinemeta ON |
+| Anime search | Kitsu ON |
+| TMDB / Trakt | Not connected |
+| RPDB | Not set |
+
+Catalog ids for mango rails use native format `aiolists-<mdblist-id>-L`
+(e.g. `aiolists-88302-L` for trending movies). Manifest URL stored in
+`~/.config/mango/aiolists.manifest` and `/etc/mango/stremio-export.json`.
+
+## Verify
+
+```bash
+# Replace <hash> with your configure URL hash
+curl -sf "http://127.0.0.1:3036/<hash>/catalog/movie/aiolists-88302-L.json" | jq '.metas | length'
+# expect ≥ 1 when MDBList key is saved
+```

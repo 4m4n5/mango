@@ -17,6 +17,7 @@ Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experien
 | [`docs/PHASE2.md`](docs/PHASE2.md) | Voice pipeline |
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | Pad diagram |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked choices |
+| [`docs/STACK-PRINCIPLES.md`](docs/STACK-PRINCIPLES.md) | **Layer boundaries, gates, config sources** |
 | [`docs/PLAN.md`](docs/PLAN.md) | Full timeline (Phase 0–5 + native) |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | V1 historical spec |
 

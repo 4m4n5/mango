@@ -55,6 +55,34 @@ sudo cp config/catalog-filters.example.json /etc/mango/catalog-filters.json
 | `strict_unknown_cache` | `false` | Also drop debrid when cache status unknown |
 | `max_quality` | `1080p` | Skip 4K REMUX on 1080p TV (until N7) |
 | `exclude_remux` | `true` | Skip Blu-ray REMUX |
+| `stream_display_limit` | `8` | Keep picker rows scannable |
+
+`GET /stream` rows include structured stream metadata parsed from AIOStreams
+`lightgdrive` descriptions when available: `display_label`, `release_group`,
+`encode`, `size_gb`, `indexer`, `hdr_tags`, `languages`, `debrid_service`, and
+`cache_status`.
+
+Language overrides are split:
+
+| Override | Mode | Meaning |
+|----------|------|---------|
+| `preferred_language` | soft | Boost matching rows; never excludes non-matches |
+| `language` | hard | Exclude rows that do not match parsed language metadata |
+
+Examples:
+
+```bash
+# Prefer Hindi rows but keep English fallback rows visible
+curl "http://127.0.0.1:3020/stream/movie/tt8178634?preferred_language=Hindi"
+
+# Hard-filter to Hindi-tagged rows
+curl "http://127.0.0.1:3020/stream/movie/tt8178634?language=Hindi"
+
+# POST /play accepts the same split
+curl -X POST http://127.0.0.1:3020/play \
+  -H 'content-type: application/json' \
+  -d '{"type":"movie","id":"tt8178634","language":"Hindi"}'
+```
 
 **Unlock right now** (one request):
 

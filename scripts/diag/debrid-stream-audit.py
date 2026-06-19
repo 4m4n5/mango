@@ -62,6 +62,11 @@ def main() -> int:
     addon_audit()
     titles = [
         ("movie", "tt0111161", "Shawshank"),
+        ("movie", "tt8178634", "RRR"),
+        ("movie", "tt33014583", "Dhurandhar"),
+        ("series", "tt12004706:1:1", "Panchayat S1E1"),
+        ("series", "tt33094114:1:1", "Indias Got Latent S1E1"),
+        ("series", "tt0206512:1:1", "SpongeBob S1E1"),
     ]
     try:
         with urllib.request.urlopen(f"{CATALOG}/rails/movies-india-trending/items", timeout=60) as resp:

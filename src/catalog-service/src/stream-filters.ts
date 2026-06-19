@@ -1,6 +1,11 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { Stream } from './core.js';
+import {
+  buildDisplayLabel,
+  parseFormatterDescription,
+  textWithoutSubtitleLines,
+} from './stream-formatter.js';
 
 export type VerifiedStreamHint = {
   best_source?: string | null;
@@ -28,12 +33,10 @@ export type StreamFilterConfig = {
   max_quality: QualityCap | null;
   /** Drop REMUX / Blu-ray remux style releases. */
   exclude_remux: boolean;
-  /** Prefer earlier services when ranking and supplementing auto-play candidates. */
-  debrid_preference: string[];
-  /** Drop Real-Debrid streams whose title/name matches these tags (RD keyword filter). */
-  exclude_rd_release_tags: string[];
   /** Drop addon error placeholder streams (e.g. AIOStreams `[❌] TorBox Search`). */
   exclude_error_streams: boolean;
+  /** Max streams returned from GET /stream (picker headroom). */
+  stream_display_limit: number;
   /** When no cached streams remain, allow uncached TorBox (not Real-Debrid). */
   uncached_torbox_fallback: boolean;
   /** When TorBox fallback is empty, allow unknown-cache RD BluRay/x265 (not WEBRip). */
@@ -52,7 +55,12 @@ export type StreamFilterOverrides = {
   include_uncached?: boolean;
   strict_unknown_cache?: boolean;
   max_quality?: QualityCap | null;
+  min_quality?: QualityCap | null;
   exclude_remux?: boolean;
+  /** Hard filter for explicit language intent (e.g. Hindi only). */
+  hard_language?: string | null;
+  /** Soft preference for picker / play when set (e.g. Hindi, English). */
+  preferred_language?: string | null;
 };
 
 export type StreamFilterMeta = {
@@ -71,9 +79,9 @@ export type StreamFilterMeta = {
     above_max_quality: number;
     remux: number;
     error_stream: number;
-    rd_blocked_release: number;
     title_mismatch: number;
     series_pack_for_movie: number;
+    language_mismatch: number;
   };
 };
 
@@ -127,8 +135,6 @@ function parseQualityCap(value: unknown): QualityCap | null {
   return null;
 }
 
-const DEFAULT_DEBRID_PREFERENCE = ['torbox', 'realdebrid'];
-const DEFAULT_RD_BLOCKED_TAGS = ['webrip', 'web-dl', 'webdl', 'amzn'];
 const TITLE_STOP_WORDS = new Set([
   'the', 'and', 'of', 'a', 'an', 'in', 'on', 'to', 'for', 'part',
   'files', 'file', 'story', 'love', 'home', 'night', 'dead', 'last',
@@ -190,13 +196,9 @@ function defaultAutoPlayTiers(): AutoPlayTier[] {
       debrid_services: ['torbox', 'realdebrid'],
     },
     {
-      addons: ['Torrentio TB'],
-      require_cache: 'any',
-    },
-    {
-      addons: ['Torrentio RD'],
-      require_cache: 'cached',
-      debrid_services: ['realdebrid'],
+      addons: ['AIOStreams'],
+      require_cache: 'cached_or_unknown',
+      debrid_services: ['torbox'],
     },
   ];
 }
@@ -245,6 +247,18 @@ function parseStringList(value: unknown, fallback: string[]): string[] {
 
 function streamHaystack(stream: Stream): string {
   return `${stream.title || ''} ${stream.description || ''} ${stream.name || ''}`.toLowerCase();
+}
+
+function languageHaystack(stream: Stream): string {
+  const raw = `${stream.title || ''}\n${stream.description || ''}\n${stream.name || ''}`;
+  return textWithoutSubtitleLines(raw).toLowerCase();
+}
+
+function ensureEnrichedStream(stream: Stream): Stream {
+  if (typeof stream.display_label === 'string' && stream.display_label.trim() !== '') {
+    return stream;
+  }
+  return enrichStreamMetadata(stream);
 }
 
 function bingeGroup(stream: Stream): string | undefined {
@@ -322,12 +336,100 @@ export function parseDebridCacheStatus(stream: Stream): 'cached' | 'uncached' | 
 }
 
 export function streamQuality(stream: Stream): QualityCap | null {
+  if (typeof stream.resolution === 'string') {
+    const parsed = parseQualityCap(stream.resolution);
+    if (parsed) return parsed;
+  }
   if (stream.quality) {
     const parsed = parseQualityCap(stream.quality);
     if (parsed) return parsed;
   }
-  const match = streamHaystack(stream).match(/\b(2160p|4k|1080p|720p|480p)\b/);
+  const match = streamHaystack(stream).match(/\b(2160p|4k|1440p|1080p|720p|480p)\b/i);
   return match ? parseQualityCap(match[1]) : null;
+}
+
+function effectiveQualityRank(stream: Stream): number | null {
+  if (/\b1440p\b/i.test(streamHaystack(stream))) return 1440;
+  const quality = streamQuality(stream);
+  return quality ? QUALITY_ORDER[quality] : null;
+}
+
+function uniqueLanguages(...languageSets: Array<unknown>): string[] {
+  const languages: string[] = [];
+  for (const set of languageSets) {
+    if (!Array.isArray(set)) continue;
+    for (const item of set) {
+      if (typeof item !== 'string' || item.trim() === '') continue;
+      const value = item.trim();
+      if (!languages.some((existing) => existing.toLowerCase() === value.toLowerCase())) {
+        languages.push(value);
+      }
+    }
+  }
+  return languages;
+}
+
+/** Parse AIOStreams lightgdrive rows into structured fields for picker + AI. */
+export function enrichStreamMetadata(stream: Stream): Stream {
+  const haystack = streamHaystack(stream);
+  let resolution = streamQuality(stream);
+  if (!resolution && /\b1440p\b/i.test(haystack)) resolution = '1080p'; // rank handled by effectiveQualityRank
+  const resolutionLabel = /\b1440p\b/i.test(haystack) ? '1440p' : resolution ?? undefined;
+  const releaseMatch = haystack.match(/\b(bluray|blu[\s-]?ray|web[\s-]?dl|webrip|hdtv|remux|bdrip)\b/i);
+  const legacyLanguages: string[] = [];
+  const languageSource = textWithoutSubtitleLines(haystack);
+  if (/\b(hindi|हिंदी)\b/i.test(languageSource)) legacyLanguages.push('Hindi');
+  if (/\b(english|eng)\b/i.test(languageSource)) legacyLanguages.push('English');
+  if (/\b(tamil|telugu|malayalam|kannada|bengali|punjabi|marathi)\b/i.test(languageSource)) {
+    const regional = languageSource.match(/\b(tamil|telugu|malayalam|kannada|bengali|punjabi|marathi)\b/i)?.[1];
+    if (regional) legacyLanguages.push(regional[0].toUpperCase() + regional.slice(1).toLowerCase());
+  }
+  const formatterFields = parseFormatterDescription([
+    typeof stream.description === 'string' ? stream.description : '',
+    typeof stream.title === 'string' ? stream.title : '',
+    typeof stream.name === 'string' ? stream.name : '',
+    typeof stream.quality === 'string' ? stream.quality : '',
+  ].filter(Boolean).join('\n'));
+  const languages = uniqueLanguages(formatterFields.languages, stream.languages, legacyLanguages);
+  const debrid = debridServiceId(stream);
+  const cache = parseDebridCacheStatus(stream);
+  const enriched = {
+    ...stream,
+    resolution: formatterFields.resolution ?? resolutionLabel,
+    release_tier: formatterFields.release_tier ?? releaseMatch?.[1]?.replace(/\s+/g, '') ?? undefined,
+    release_group: formatterFields.release_group ?? stream.release_group,
+    encode: formatterFields.encode ?? stream.encode,
+    size_gb: formatterFields.size_gb ?? stream.size_gb,
+    indexer: formatterFields.indexer ?? stream.indexer,
+    hdr_tags: formatterFields.hdr_tags && formatterFields.hdr_tags.length > 0
+      ? formatterFields.hdr_tags
+      : stream.hdr_tags,
+    languages: languages.length > 0 ? languages : undefined,
+    debrid_service: debrid ?? undefined,
+    cache_status: cache,
+  };
+  return {
+    ...enriched,
+    display_label: buildDisplayLabel(formatterFields, enriched),
+  };
+}
+
+function streamLanguages(stream: Stream): string[] {
+  if (Array.isArray(stream.languages)) {
+    return stream.languages.filter((item): item is string => typeof item === 'string');
+  }
+  const enriched = enrichStreamMetadata(stream);
+  return Array.isArray(enriched.languages) ? enriched.languages : [];
+}
+
+export function streamMatchesLanguage(stream: Stream, language: string): boolean {
+  const needle = language.trim().toLowerCase();
+  if (!needle) return true;
+  const languages = streamLanguages(stream);
+  if (languages.length > 0) {
+    return languages.some((item) => item.toLowerCase().includes(needle));
+  }
+  return languageHaystack(stream).includes(needle);
 }
 
 function isRemux(stream: Stream): boolean {
@@ -339,12 +441,6 @@ export function isErrorStream(stream: Stream): boolean {
   return /\[❌\]|\[x\]|search failed|not found|no streams|error:|stream not found|being downloaded|downloading to debrid|download pending/i.test(haystack);
 }
 
-export function isRdBlockedRelease(stream: Stream, tags: string[]): boolean {
-  if (debridServiceId(stream) !== 'realdebrid' || tags.length === 0) return false;
-  const haystack = streamHaystack(stream);
-  return tags.some((tag) => haystack.includes(tag.toLowerCase()));
-}
-
 /** Cam / telesync / screener — poor couch experience; skip uncached fallback. */
 export function isLowQualityRelease(stream: Stream): boolean {
   const haystack = streamHaystack(stream);
@@ -352,48 +448,30 @@ export function isLowQualityRelease(stream: Stream): boolean {
     || /\b(ts|scr|tc)\b/i.test(haystack);
 }
 
-/** Unknown-cache RD encode unlikely to hit May-2026 keyword filter. */
-export function isRdSafeUnknownRelease(stream: Stream, tags: string[]): boolean {
+/** Unknown-cache RD BluRay/x265 — last-resort auto-play only. */
+export function isRdSafeUnknownRelease(stream: Stream): boolean {
   if (debridServiceId(stream) !== 'realdebrid') return false;
   if (parseDebridCacheStatus(stream) !== 'unknown') return false;
-  if (isRdBlockedRelease(stream, tags)) return false;
   if (isLowQualityRelease(stream)) return false;
   const haystack = streamHaystack(stream);
+  if (/\b(webrip|web-dl|webdl|amzn)\b/i.test(haystack)) return false;
   return /\b(bluray|blu[\s-]?ray|bdrip|bd[\s-]?rip|x265|hevc|10bit|aac)\b/i.test(haystack);
 }
 
 /**
- * Higher = try sooner. Weights encode couch hit-rate policy:
- * cache certainty → debrid safety (TB) → source reliability → release tier → quality fit.
+ * Higher = try sooner. AIOStreams owns debrid/release ranking; mango scores probe fit.
  */
 export function streamPlayScore(
   stream: Stream,
   config: StreamFilterConfig & { include_uncached: boolean },
   verifiedHint?: VerifiedStreamHint,
+  options: { preferred_language?: string | null } = {},
 ): number {
   let score = 0;
   const cache = streamCacheStatus(stream);
   if (cache === 'cached') score += 1000;
   else if (cache === 'unknown') score += 500;
   else if (cache === 'uncached') score += 200;
-
-  const debrid = debridServiceId(stream);
-  if (debrid === 'torbox') score += 120;
-  else if (debrid === 'realdebrid') score += 40;
-
-  const source = normalizeAddonName(stream.source || '');
-  if (source.includes('torrentio tb')) score += 100;
-  else if (source.includes('torrentio rd')) score += 70;
-  else if (source.includes('aiostreams')) score += 20;
-
-  // Unknown-cache Torrentio TB rows are usually instant hash-on-debrid; RD unknown often serves 30s status clips.
-  if (cache === 'unknown' && source.includes('torrentio tb')) score += 120;
-
-  const haystack = streamHaystack(stream);
-  if (/\b(bluray|blu[\s-]?ray|bdrip)\b/i.test(haystack)) score += 50;
-  else if (/\bweb[\s-]?dl\b/i.test(haystack)) score += 25;
-  else if (/\bwebrip\b/i.test(haystack)) score += 10;
-  if (isLowQualityRelease(stream)) score -= 200;
 
   const quality = streamQuality(stream);
   if (quality === '1080p') score += 30;
@@ -402,6 +480,10 @@ export function streamPlayScore(
 
   if (config.max_quality && quality) {
     score -= qualityRank(stream, config.max_quality);
+  }
+
+  if (options.preferred_language && streamMatchesLanguage(stream, options.preferred_language)) {
+    score += 200;
   }
 
   if (verifiedHint) {
@@ -423,17 +505,18 @@ export function streamPlayScore(
   return score;
 }
 
-function debridPreferenceRank(service: string | null, preference: string[]): number {
-  if (!service) return preference.length + 1;
-  const index = preference.indexOf(service);
-  return index === -1 ? preference.length : index;
+function qualityBelowMin(stream: Stream, min: QualityCap | null | undefined): boolean {
+  if (!min) return false;
+  const rank = effectiveQualityRank(stream);
+  if (rank === null) return false;
+  return rank < QUALITY_ORDER[min];
 }
 
 function qualityExceedsCap(stream: Stream, cap: QualityCap | null): boolean {
   if (!cap) return false;
-  const quality = streamQuality(stream);
-  if (!quality) return false;
-  return QUALITY_ORDER[quality] > QUALITY_ORDER[cap];
+  const rank = effectiveQualityRank(stream);
+  if (rank === null) return false;
+  return rank > QUALITY_ORDER[cap];
 }
 
 export function defaultFilterConfig(): StreamFilterConfig {
@@ -449,9 +532,8 @@ export function defaultFilterConfig(): StreamFilterConfig {
     auto_play_wall_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_WALL_MS, 15000, 1000, 60000),
     auto_play_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_PROBE_MS, 4000, 500, 15000),
     auto_play_tiers: defaultAutoPlayTiers(),
-    debrid_preference: DEFAULT_DEBRID_PREFERENCE,
-    exclude_rd_release_tags: DEFAULT_RD_BLOCKED_TAGS,
     exclude_error_streams: true,
+    stream_display_limit: positiveInteger(process.env.MANGO_STREAM_DISPLAY_LIMIT, 8, 3, 20),
     uncached_torbox_fallback: true,
     rd_safe_unknown_fallback: true,
   };
@@ -489,14 +571,11 @@ export async function loadFilterConfig(
     if (raw.auto_play_tiers !== undefined) {
       base.auto_play_tiers = parseAutoPlayTiers(raw.auto_play_tiers);
     }
-    if (raw.debrid_preference !== undefined) {
-      base.debrid_preference = parseStringList(raw.debrid_preference, base.debrid_preference);
-    }
-    if (raw.exclude_rd_release_tags !== undefined) {
-      base.exclude_rd_release_tags = parseStringList(raw.exclude_rd_release_tags, base.exclude_rd_release_tags);
-    }
     if (typeof raw.exclude_error_streams === 'boolean') {
       base.exclude_error_streams = raw.exclude_error_streams;
+    }
+    if (raw.stream_display_limit !== undefined) {
+      base.stream_display_limit = positiveInteger(raw.stream_display_limit, base.stream_display_limit, 3, 20);
     }
     if (typeof raw.uncached_torbox_fallback === 'boolean') {
       base.uncached_torbox_fallback = raw.uncached_torbox_fallback;
@@ -516,7 +595,12 @@ export async function loadFilterConfig(
 export function mergeFilterConfig(
   base: StreamFilterConfig,
   overrides: StreamFilterOverrides = {},
-): StreamFilterConfig & { include_uncached: boolean } {
+): StreamFilterConfig & {
+  include_uncached: boolean;
+  hard_language?: string | null;
+  preferred_language?: string | null;
+  min_quality?: QualityCap | null;
+} {
   const includeUncached = overrides.include_uncached === true;
   return {
     exclude_uncached_debrid: includeUncached ? false : base.exclude_uncached_debrid,
@@ -527,12 +611,14 @@ export function mergeFilterConfig(
     auto_play_wall_ms: base.auto_play_wall_ms,
     auto_play_probe_ms: base.auto_play_probe_ms,
     auto_play_tiers: base.auto_play_tiers,
-    debrid_preference: base.debrid_preference,
-    exclude_rd_release_tags: base.exclude_rd_release_tags,
     exclude_error_streams: base.exclude_error_streams,
+    stream_display_limit: base.stream_display_limit,
     uncached_torbox_fallback: base.uncached_torbox_fallback,
     rd_safe_unknown_fallback: base.rd_safe_unknown_fallback,
     include_uncached: includeUncached,
+    hard_language: overrides.hard_language,
+    preferred_language: overrides.preferred_language,
+    min_quality: overrides.min_quality,
   };
 }
 
@@ -551,6 +637,17 @@ export function parseFilterOverridesFromQuery(
   }
   if (params.has('exclude_remux')) {
     overrides.exclude_remux = truthy(params.get('exclude_remux') || undefined);
+  }
+  if (params.has('min_quality')) {
+    overrides.min_quality = parseQualityCap(params.get('min_quality'));
+  }
+  if (params.has('language')) {
+    const language = params.get('language');
+    overrides.hard_language = language && language.trim() !== '' ? language.trim() : null;
+  }
+  if (params.has('preferred_language')) {
+    const language = params.get('preferred_language');
+    overrides.preferred_language = language && language.trim() !== '' ? language.trim() : null;
   }
   return overrides;
 }
@@ -573,6 +670,11 @@ export function filterAndRankStreams(
   streams: Stream[],
   config: StreamFilterConfig & { include_uncached: boolean },
   context: StreamFilterContext = {},
+  options: {
+    hard_language?: string | null;
+    preferred_language?: string | null;
+    min_quality?: QualityCap | null;
+  } = {},
 ): { streams: Stream[]; meta: StreamFilterMeta } {
   const meta: StreamFilterMeta = {
     applied: config,
@@ -584,14 +686,15 @@ export function filterAndRankStreams(
       above_max_quality: 0,
       remux: 0,
       error_stream: 0,
-      rd_blocked_release: 0,
       title_mismatch: 0,
       series_pack_for_movie: 0,
+      language_mismatch: 0,
     },
   };
 
   const kept: Stream[] = [];
-  for (const stream of streams) {
+  for (const raw of streams) {
+    const stream = ensureEnrichedStream(raw);
     const debrid = isDebridStream(stream);
     const cacheStatus = parseDebridCacheStatus(stream);
 
@@ -607,8 +710,12 @@ export function filterAndRankStreams(
       meta.excluded.error_stream += 1;
       continue;
     }
-    if (isRdBlockedRelease(stream, config.exclude_rd_release_tags)) {
-      meta.excluded.rd_blocked_release += 1;
+    if (options.hard_language && !streamMatchesLanguage(stream, options.hard_language)) {
+      meta.excluded.language_mismatch += 1;
+      continue;
+    }
+    if (options.min_quality && qualityBelowMin(stream, options.min_quality)) {
+      meta.excluded.above_max_quality += 1;
       continue;
     }
     if (config.exclude_remux && isRemux(stream)) {
@@ -629,10 +736,6 @@ export function filterAndRankStreams(
         continue;
       }
     }
-    if (isTorrentioRealDebridStream(stream) && cacheStatus !== 'cached') {
-      meta.excluded.uncached_debrid += 1;
-      continue;
-    }
 
     kept.push({
       ...stream,
@@ -641,17 +744,20 @@ export function filterAndRankStreams(
     });
   }
 
-  rankKeptStreams(kept, config);
+  rankKeptStreams(kept, config, options);
 
   meta.kept = kept.length;
-  return { streams: kept, meta };
+  const limited = kept.slice(0, config.stream_display_limit);
+  return { streams: limited, meta: { ...meta, kept: limited.length } };
 }
 
 function rankKeptStreams(
   kept: Stream[],
   config: StreamFilterConfig & { include_uncached: boolean },
+  options: { preferred_language?: string | null } = {},
 ): void {
-  kept.sort((left, right) => streamPlayScore(right, config) - streamPlayScore(left, config));
+  kept.sort((left, right) => streamPlayScore(right, config, undefined, options)
+    - streamPlayScore(left, config, undefined, options));
 }
 
 function buildFallbackStreams(
@@ -660,15 +766,18 @@ function buildFallbackStreams(
   predicate: (stream: Stream) => boolean,
   annotate: (stream: Stream) => Stream,
   context: StreamFilterContext = {},
+  options: { hard_language?: string | null } = {},
 ): Stream[] {
   const kept: Stream[] = [];
-  for (const stream of streams) {
+  for (const raw of streams) {
+    const stream = ensureEnrichedStream(raw);
     if (!predicate(stream)) continue;
     if (context.metaTitle && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)) {
       continue;
     }
     if (isSeriesPackForMovie(stream, context.contentType)) continue;
     if (config.exclude_error_streams && isErrorStream(stream)) continue;
+    if (options.hard_language && !streamMatchesLanguage(stream, options.hard_language)) continue;
     if (config.exclude_remux && isRemux(stream)) continue;
     if (qualityExceedsCap(stream, config.max_quality)) continue;
     kept.push(annotate(stream));
@@ -680,10 +789,20 @@ function buildFallbackStreams(
 /** Primary filters; cascade to TorBox uncached then RD safe-unknown when empty. */
 export function filterStreamsForPlay(
   streams: Stream[],
-  config: StreamFilterConfig & { include_uncached: boolean },
+  config: StreamFilterConfig & {
+    include_uncached: boolean;
+    hard_language?: string | null;
+    preferred_language?: string | null;
+    min_quality?: QualityCap | null;
+  },
   context: StreamFilterContext = {},
 ): { streams: Stream[]; meta: StreamFilterMeta } {
-  const primary = filterAndRankStreams(streams, config, context);
+  const filterOptions = {
+    hard_language: config.hard_language,
+    preferred_language: config.preferred_language,
+    min_quality: config.min_quality,
+  };
+  const primary = filterAndRankStreams(streams, config, context, filterOptions);
   if (primary.streams.length > 0 || config.include_uncached) {
     return primary;
   }
@@ -692,7 +811,7 @@ export function filterStreamsForPlay(
     const relaxed = filterAndRankStreams(streams, config, {
       ...context,
       metaTitle: undefined,
-    });
+    }, filterOptions);
     if (relaxed.streams.length > 0) {
       return {
         streams: relaxed.streams,
@@ -715,6 +834,7 @@ export function filterStreamsForPlay(
         cache_status: parseDebridCacheStatus(stream),
       }),
       context,
+      filterOptions,
     ).filter((stream) => !isLowQualityRelease(stream));
 
     if (torboxUncached.length > 0) {
@@ -733,13 +853,14 @@ export function filterStreamsForPlay(
     const rdSafe = buildFallbackStreams(
       streams,
       config,
-      (stream) => isRdSafeUnknownRelease(stream, config.exclude_rd_release_tags),
+      (stream) => isRdSafeUnknownRelease(stream),
       (stream) => ({
         ...stream,
         debrid_service: 'realdebrid',
         cache_status: 'unknown',
       }),
       context,
+      filterOptions,
     );
 
     if (rdSafe.length > 0) {
@@ -755,12 +876,6 @@ export function filterStreamsForPlay(
   }
 
   return primary;
-}
-
-function isTorrentioRealDebridStream(stream: Stream): boolean {
-  const source = normalizeAddonName(stream.source || '');
-  if (source.includes('torrentio rd')) return true;
-  return source.includes('torrentio') && debridServiceId(stream) === 'realdebrid';
 }
 
 function normalizeAddonName(name: string): string {
@@ -809,14 +924,6 @@ function autoPlayEligible(
   options: { allow_uncached_torbox?: boolean } = {},
 ): boolean {
   if (config.exclude_error_streams && isErrorStream(stream)) return false;
-  if (isRdBlockedRelease(stream, config.exclude_rd_release_tags)) return false;
-  if (
-    isTorrentioRealDebridStream(stream)
-    && streamCacheStatus(stream) !== 'cached'
-    && !isRdSafeUnknownRelease(stream, config.exclude_rd_release_tags)
-  ) {
-    return false;
-  }
   if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') {
     if (options.allow_uncached_torbox && debridServiceId(stream) === 'torbox') {
       return true;
@@ -858,43 +965,9 @@ export function selectAutoPlayCandidates(
   return diversifyCandidates(ranked, config.auto_play_max_attempts);
 }
 
-/** Spread attempts across addons/cache phases instead of four near-identical AIOStreams rows. */
+/** AIOStreams upstream dedup/limit already diversifies; keep top ranked attempts. */
 function diversifyCandidates(streams: Stream[], max: number): Stream[] {
-  if (streams.length <= max) return streams;
-
-  const buckets = new Map<string, Stream[]>();
-  for (const stream of streams) {
-    const key = `${normalizeAddonName(stream.source || '')}|${streamCacheStatus(stream)}|${debridServiceId(stream) || 'none'}`;
-    const bucket = buckets.get(key) ?? [];
-    bucket.push(stream);
-    buckets.set(key, bucket);
-  }
-
-  const picked: Stream[] = [];
-  const seen = new Set<string>();
-  while (picked.length < max) {
-    let added = false;
-    for (const bucket of buckets.values()) {
-      if (bucket.length === 0) continue;
-      const stream = bucket.shift();
-      if (!stream || seen.has(stream.url)) continue;
-      seen.add(stream.url);
-      picked.push(stream);
-      added = true;
-      if (picked.length >= max) break;
-    }
-    if (!added) break;
-  }
-
-  if (picked.length < max) {
-    for (const stream of streams) {
-      if (seen.has(stream.url)) continue;
-      picked.push(stream);
-      if (picked.length >= max) break;
-    }
-  }
-
-  return picked;
+  return streams.slice(0, max);
 }
 
 export function pickPlayableStream(

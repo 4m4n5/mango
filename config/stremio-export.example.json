@@ -6,24 +6,12 @@
       "manifestUrl": "https://v3-cinemeta.strem.io/manifest.json"
     },
     {
-      "name": "Torrentio TB",
-      "manifestUrl": "https://torrentio.strem.fun/YOUR_TORBOX_CONFIG/manifest.json"
-    },
-    {
-      "name": "Torrentio RD",
-      "manifestUrl": "https://torrentio.strem.fun/YOUR_REAL_DEBRID_CONFIG/manifest.json"
-    },
-    {
       "name": "AIOStreams",
       "manifestUrl": "http://127.0.0.1:3035/stremio/YOUR_GENERATED_USER/manifest.json"
     },
     {
       "name": "AIOLists",
       "manifestUrl": "http://127.0.0.1:3036/YOUR_GENERATED_CONFIG/manifest.json"
-    },
-    {
-      "name": "IndiaStreams",
-      "manifestUrl": "https://indiastreams.rdata.in/manifest.json"
     }
   ],
   "auth": {}

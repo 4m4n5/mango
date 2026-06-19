@@ -73,8 +73,8 @@ else:
     print("WARN AIOStreams not pointing at 127.0.0.1:3035 yet")
 if "AIOLists" not in names:
     print("WARN AIOLists missing from export")
-if "India OTT" not in names:
-    print("WARN India OTT missing from export (India rails need operator manifest)")
+if any(n == "IndiaStreams" for n in names):
+    print("WARN IndiaStreams still in export — removed from N3d V1 catalog rails")
 PY
 else
   bad "missing $EXPORT"

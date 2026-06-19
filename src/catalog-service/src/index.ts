@@ -19,6 +19,7 @@ type PlayBody = StreamFilterOverrides & {
   rail_id?: string;
   reason?: string;
   url?: string;
+  language?: string | null;
 };
 
 function filterOverridesFromBody(body: PlayBody): StreamFilterOverrides {
@@ -29,6 +30,18 @@ function filterOverridesFromBody(body: PlayBody): StreamFilterOverrides {
   }
   if (body.max_quality !== undefined) overrides.max_quality = body.max_quality;
   if (typeof body.exclude_remux === 'boolean') overrides.exclude_remux = body.exclude_remux;
+  if (body.min_quality !== undefined) overrides.min_quality = body.min_quality;
+  if (body.language !== undefined) {
+    overrides.hard_language = typeof body.language === 'string' && body.language.trim() !== ''
+      ? body.language.trim()
+      : null;
+  }
+  if (body.hard_language !== undefined) {
+    overrides.hard_language = body.hard_language;
+  }
+  if (body.preferred_language !== undefined) {
+    overrides.preferred_language = body.preferred_language;
+  }
   return overrides;
 }
 

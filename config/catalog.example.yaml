@@ -2,7 +2,8 @@
 #
 # N2b: Movies | TV Shows tabs · 6 predefined discover rails per tab.
 # composite_list merges multiple addon catalogs per theme (weighted, deduped).
-# Sources use self-hosted AIOLists plus IndiaStreams (free manifest at indiastreams.rdata.in).
+# Sources: Cinemeta + self-hosted AIOLists (mdblist lists). No regional catalog
+# addons in N3d V1 — see docs/N3d-INVENTORY.md § Source expansion (future).
 #
 # N3c playability defaults per enabled rail:
 #   display_limit: 12        # posters served to launcher after verification
@@ -37,9 +38,8 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: IndiaStreams, catalog: trendingmovies, weight: 0.5 }
-      - { addon: IndiaStreams, catalog: recmov, weight: 0.3 }
-      - { addon: AIOLists, catalog: mdblist.88302, weight: 0.2 }
+      - { addon: AIOLists, catalog: aiolists-88302-L, weight: 0.7 }
+      - { addon: Cinemeta, catalog: year, weight: 0.3 }
     playability:
       pool_target: 20
       ingest_multiplier: 6
@@ -52,7 +52,7 @@ rails:
     limit: 20
     sources:
       - { addon: Cinemeta, catalog: imdbRating, weight: 0.7 }
-      - { addon: AIOLists, catalog: mdblist.83666, weight: 0.3 }
+      - { addon: AIOLists, catalog: aiolists-83666-L, weight: 0.3 }
     playability:
       pool_target: 20
       ingest_multiplier: 4
@@ -62,7 +62,7 @@ rails:
     label: comedy & feel-good
     type: addon_catalog
     addon: AIOLists
-    catalog: mdblist.91223
+    catalog: aiolists-91223-L
     content_type: movie
     limit: 20
     playability:
@@ -76,7 +76,7 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: AIOLists, catalog: mdblist.83668, weight: 0.7 }
+      - { addon: AIOLists, catalog: aiolists-83668-L, weight: 0.7 }
       - { addon: Cinemeta, catalog: year, weight: 0.3 }
     playability:
       min_display: 6
@@ -88,7 +88,7 @@ rails:
     label: documentaries
     type: addon_catalog
     addon: AIOLists
-    catalog: mdblist.128051
+    catalog: aiolists-128051-L
     content_type: movie
     limit: 20
     playability:
@@ -118,8 +118,8 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: IndiaStreams, catalog: atpmub, weight: 0.6 }
-      - { addon: AIOLists, catalog: mdblist.88303, weight: 0.4 }
+      - { addon: AIOLists, catalog: aiolists-88303-L, weight: 0.7 }
+      - { addon: Cinemeta, catalog: year, weight: 0.3 }
     playability:
       pool_target: 20
       ingest_multiplier: 6
@@ -132,7 +132,7 @@ rails:
     limit: 20
     sources:
       - { addon: Cinemeta, catalog: imdbRating, weight: 0.7 }
-      - { addon: AIOLists, catalog: mdblist.88303, weight: 0.3 }
+      - { addon: AIOLists, catalog: aiolists-88303-L, weight: 0.3 }
     playability:
       pool_target: 20
       ingest_multiplier: 4
@@ -144,8 +144,8 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: AIOLists, catalog: mdblist.91224, weight: 0.6 }
-      - { addon: AIOLists, catalog: mdblist.84401, weight: 0.4 }
+      - { addon: AIOLists, catalog: aiolists-91224-L, weight: 0.6 }
+      - { addon: AIOLists, catalog: aiolists-84401-L, weight: 0.4 }
     playability:
       pool_target: 18
       ingest_multiplier: 6
@@ -157,8 +157,8 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: AIOLists, catalog: mdblist.130153, weight: 0.6 }
-      - { addon: AIOLists, catalog: mdblist.130152, weight: 0.4 }
+      - { addon: AIOLists, catalog: aiolists-130153-L, weight: 0.6 }
+      - { addon: AIOLists, catalog: aiolists-130152-L, weight: 0.4 }
     playability:
       min_display: 6
       pool_target: 15
@@ -169,7 +169,7 @@ rails:
     label: documentaries
     type: addon_catalog
     addon: AIOLists
-    catalog: mdblist.128052
+    catalog: aiolists-128052-L
     content_type: series
     limit: 20
     playability:

@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import {
   filterAndRankStreams,
   filterStreamsForPlay,
+  enrichStreamMetadata,
   loadFilterConfig,
   mergeFilterConfig,
   type StreamFilterMeta,
@@ -337,23 +338,18 @@ async function bootStremioCore(): Promise<CoreStatus> {
   return { version: packageJson.version, ready: true };
 }
 
-function qualityFromStream(stream: Record<string, unknown>): string | undefined {
-  const haystack = `${stream.title || ''} ${stream.name || ''} ${stream.description || ''}`;
-  return haystack.match(/\b(2160p|4k|1080p|720p|480p)\b/i)?.[1];
-}
-
 function normalizeStream(stream: unknown, source: string): Stream | null {
   if (typeof stream !== 'object' || stream === null) return null;
   const raw = stream as Record<string, unknown>;
   const url = typeof raw.url === 'string' ? raw.url : typeof raw.externalUrl === 'string' ? raw.externalUrl : '';
   if (!/^https?:\/\//i.test(url)) return null;
-  return {
+  return enrichStreamMetadata({
     ...raw,
     url,
     title: typeof raw.title === 'string' ? raw.title : typeof raw.name === 'string' ? raw.name : undefined,
-    quality: qualityFromStream(raw),
+    quality: typeof raw.quality === 'string' ? raw.quality : undefined,
     source,
-  };
+  });
 }
 
 export class CatalogCore {

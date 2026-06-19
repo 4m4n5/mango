@@ -21,7 +21,8 @@
 |----------|----------|-------|
 | `AIOStreams | ElfHosted` | `AIOStreams` | Local manifest copied from AIOStreams configure UI |
 | `AIOMetadata  | ElfHosted` | `AIOLists` | mdblist rails after operator mapping |
-| IndiaStreams custom catalogs | `India OTT` | India trending source, with mdblist fallback |
+
+**N3d V1 export:** Cinemeta, AIOStreams, AIOLists only — no standalone Torrentio (Torrentio lives inside AIOStreams via Service Wrap).
 
 ## Paths
 
@@ -54,6 +55,8 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 bash scripts/phase-n3d/gate-n3d-streams.sh
 ```
 
+Evaluation corpus: `config/stream-gate-fixtures.json` — Shawshank, RRR, Dhurandhar, Panchayat S1E1, India's Got Latent S1E1, SpongeBob S1E1. Series fixtures use episode ids (`tt…:1:1`).
+
 `gate-n3d-streams.sh` fails if `AIOStreams` is absent from stream sources, if any
 stream source still contains `ElfHosted`, or if any stream URL contains the public
 rate-limit placeholder.
@@ -76,8 +79,9 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 bash scripts/phase-n2/gate-n2-browse.sh
 ```
 
-The repo yaml has no `AIOMetadata` or `ElfHosted` addon references. India catalog
-ids still require operator verification against the selected `India OTT` manifest.
+The repo yaml has no `AIOMetadata`, `ElfHosted`, or `IndiaStreams` addon references.
+India-themed rails (`movies-india-trending`, `series-india-picks`) use AIOLists mdblist
+lists plus Cinemeta `year` for freshness.
 
 ## S5 Maintenance Validation
 
@@ -163,7 +167,7 @@ Do not use `git reset --hard` unless the Pi-local edits are confirmed disposable
 | # | Blocker | Action |
 |---|---------|--------|
 | 1 | **Docker not installed** on Pi | `bash scripts/phase-n3d/bootstrap-docker.sh` (sudo password required) |
-| 2 | **stremio-export.json** still ElfHosted | Configure local AIOStreams → copy manifest; add AIOLists + India OTT |
+| 2 | **stremio-export.json** AIOLists hash | Configure UI → copy manifest; remove IndiaStreams if present |
 | 3 | **deploy/aiostreams/.env** missing | `cp deploy/aiostreams/.env.example deploy/aiostreams/.env` + `openssl rand -hex 32` |
 | 4 | **Operator configure UIs** not done | AIOStreams TB/RD/Easynews; AIOLists mdblists per `map-mdblist-catalogs.md` |
 | 5 | **playability.db stale** | 11 verified / 5 old rails — re-run maintenance after stream plane healthy |
@@ -171,4 +175,51 @@ Do not use `git reset --hard` unless the Pi-local edits are confirmed disposable
 
 Run anytime: `bash scripts/phase-n3d/diag-self-hosted.sh`
 
-Pi repo synced to `550a05c` via `git reset --hard origin/feat/native-experience` (tar-deploy state discarded).
+---
+
+## S7-S9 stream metadata handoff — 2026-06-19
+
+| Metric | Before | Current |
+|--------|--------|---------|
+| Shawshank unique `name` / `display_label` | `name`: 1 | `display_label`: 3 (Pi gate) |
+| Stream corpus | Shawshank-only | 6 fixtures (movies + India + TV) |
+| Catalog-service tests | none | 13 tests (`npm run test`) |
+| Pi stream gate | pending | PASS with `display_label` required by default |
+| Pi language gate | pending | PASS — hard `language` rejects Klingon (502) |
+| AIOStreams `groups` | `null` | **still `null`** — operator S9 in configure UI |
+| Pi deploy | — | git pull after push; `pi-exec-gate.sh` |
+
+**S7/S8 shipped in catalog-service:**
+
+- `enrichStreamMetadata()` → `stream-formatter.ts` parser → `display_label`, structured fields
+- `preferred_language` soft-only; `language` / `hard_language` hard filter
+- Title relaxation keeps `hard_language` (Shawshank title-mismatch path)
+- Subtitle lines excluded from audio-language parsing
+
+**S9 operator (remaining):**
+
+```bash
+# After Groups UI setup in http://127.0.0.1:3035/stremio/configure
+bash scripts/phase-n3d/aiostreams-config.sh get \
+  | python3 -c "import json,sys; g=json.load(sys.stdin)['data']['userData'].get('groups'); assert g, 'groups still null'"
+```
+
+See `scripts/phase-n3d/configure-aiostreams.md` § Groups.
+
+---
+
+## Source expansion (future) — N3d-F7
+
+**Deferred after N3d V1 is stable.** Goal: widen browse and play surfaces without
+re-opening ElfHosted.
+
+| Track | Examples | When |
+|-------|----------|------|
+| Regional catalogs | India OTT Catalog, indiastreams-style scrapers | After AIOLists mdblist rails pass gates on Pi |
+| Extra mdblist lists | Import more lists in AIOLists configure UI | Anytime; update `catalog.example.yaml` + mapping doc |
+| Stream-only addons | Additional Torrentio profiles, usenet indexers | When playability maintenance needs more candidates |
+| Self-hosted metadata | TMDB bearer in AIOLists env | Optional; Cinemeta default is fine for V1 |
+
+**Process:** add addon to `stremio-export.json` → validate catalog ids on Pi
+(`curl …/catalog/…`) → add or extend composite rail in `catalog.example.yaml` →
+re-run `gate-n3d-catalogs.sh` and playability maintenance.

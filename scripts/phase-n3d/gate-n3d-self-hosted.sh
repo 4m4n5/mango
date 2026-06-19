@@ -21,6 +21,7 @@ run_gate() {
 
 run_gate "N3d prereqs" bash scripts/phase-n3d/check-n3d-prereqs.sh
 run_gate "N3d streams" bash scripts/phase-n3d/gate-n3d-streams.sh
+run_gate "N3d stream language" bash scripts/phase-n3d/gate-n3d-stream-language.sh
 run_gate "N3d catalogs" bash scripts/phase-n3d/gate-n3d-catalogs.sh
 gate_idle_hygiene
 

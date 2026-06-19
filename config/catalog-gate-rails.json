@@ -1,0 +1,19 @@
+{
+  "_comment": "Catalog gate tiers — required rails must have >=1 item; optional rails warn when empty (MDBList import pending).",
+  "required": [
+    "movies-india-trending",
+    "movies-classics",
+    "movies-quick-watches",
+    "movies-global-popular"
+  ],
+  "optional": [
+    "movies-comedy",
+    "movies-documentaries",
+    "series-global-popular",
+    "series-india-picks",
+    "series-classics",
+    "series-comedy",
+    "series-miniseries",
+    "series-documentaries"
+  ]
+}

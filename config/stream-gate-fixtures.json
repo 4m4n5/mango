@@ -1,0 +1,53 @@
+{
+  "_comment": "N3d stream evaluation corpus — diverse movies/series for gate-n3d-streams.sh. Series ids use Stremio episode form tt…:season:episode.",
+  "fixtures": [
+    {
+      "label": "Shawshank",
+      "type": "movie",
+      "id": "tt0111161",
+      "notes": "Western classic; N1 smoke baseline",
+      "min_streams": 1,
+      "min_unique_urls": 2
+    },
+    {
+      "label": "RRR",
+      "type": "movie",
+      "id": "tt8178634",
+      "notes": "Indian blockbuster; Hindi/Telugu audio common",
+      "min_streams": 2,
+      "min_unique_urls": 2
+    },
+    {
+      "label": "Dhurandhar",
+      "type": "movie",
+      "id": "tt33014583",
+      "notes": "2025 Hindi spy thriller",
+      "min_streams": 2,
+      "min_unique_urls": 2
+    },
+    {
+      "label": "Panchayat",
+      "type": "series",
+      "id": "tt12004706:1:1",
+      "notes": "Amazon India comedy-drama S1E1",
+      "min_streams": 1,
+      "min_unique_urls": 2
+    },
+    {
+      "label": "Indias Got Latent",
+      "type": "series",
+      "id": "tt33094114:1:1",
+      "notes": "Samay Raina YouTube-origin series S1E1",
+      "min_streams": 1,
+      "min_unique_urls": 1
+    },
+    {
+      "label": "SpongeBob",
+      "type": "series",
+      "id": "tt0206512:1:1",
+      "notes": "Western animation S1E1; kid-friendly lane",
+      "min_streams": 2,
+      "min_unique_urls": 2
+    }
+  ]
+}

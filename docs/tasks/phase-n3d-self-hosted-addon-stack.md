@@ -167,7 +167,7 @@ Manifest path after AIOStreams configure is copied from the install UI — gate 
 ### `scripts/phase-n3d/gate-n3d-streams.sh`
 
 - AIOStreams `/api/v1/status` OK
-- `GET http://127.0.0.1:3020/stream/movie/tt0111161` — parse JSON; **fail** if any URL matches `rate-limit-exceeded`
+- `GET http://127.0.0.1:3020/stream/...` — parse JSON per `config/stream-gate-fixtures.json`; **fail** if any URL matches `rate-limit-exceeded`
 - Optional: one `POST /play` smoke (Shawshank or gate fixture id)
 
 ### `scripts/phase-n3d/gate-n3d-catalogs.sh`
