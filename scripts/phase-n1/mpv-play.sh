@@ -63,10 +63,12 @@ import sys
 playback = float(sys.argv[1] or 0)
 duration = float(sys.argv[2] or 0)
 min_duration = float(sys.argv[3] or 0)
-if playback < 1.5:
-    raise SystemExit(1)
 if duration > 0 and duration < min_duration:
     raise SystemExit(2)
+if duration <= 0 and playback < 3.0:
+    raise SystemExit(1)
+if duration > 0 and playback < 1.5:
+    raise SystemExit(1)
 raise SystemExit(0)
 PY
 }

@@ -37,7 +37,7 @@ required = {
     "exclude_remux": True,
     "auto_play_max_attempts": 4,
     "auto_play_wall_ms": 20000,
-    "auto_play_probe_ms": 8000,
+    "auto_play_probe_ms": 12000,
     "uncached_torbox_fallback": True,
     "rd_safe_unknown_fallback": True,
     "debrid_preference": ["torbox", "realdebrid"],
