@@ -131,13 +131,12 @@ function metaTitleTokens(metaTitle: string): string[] {
 /** Reject London.Files-style false positives for The Kashmir Files. */
 export function streamMatchesMetaTitle(stream: Stream, metaTitle: string): boolean {
   const tokens = metaTitleTokens(metaTitle);
-  if (tokens.length === 0) return true;
+  if (tokens.length === 0 || tokens.length === 1) return true;
   const haystack = streamHaystack(stream);
   const primary = tokens[0];
   if (primary.length >= 4 && !haystack.includes(primary)) return false;
   const hits = tokens.filter((token) => haystack.includes(token)).length;
-  if (tokens.length === 1) return hits === 1;
-  return hits >= Math.ceil(tokens.length * 0.6);
+  return hits >= Math.ceil(tokens.length * 0.5);
 }
 
 export function isSeriesPackForMovie(stream: Stream, contentType: string | undefined): boolean {

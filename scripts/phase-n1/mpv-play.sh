@@ -118,7 +118,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
         exit 0
       fi
       DUR="$(mpv_property duration)"
-      local min_duration="$MIN_DURATION_SEC"
+      min_duration="$MIN_DURATION_SEC"
       if $PROBE; then
         min_duration=5
       fi

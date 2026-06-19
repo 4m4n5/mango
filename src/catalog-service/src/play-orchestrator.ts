@@ -79,7 +79,7 @@ export async function playWithFallback(
     : config.auto_play_probe_ms;
   const deadline = started + wallMs;
   const candidates = selectAutoPlayCandidates(streams, config, options);
-  const minDurationSec = options.contentType === 'series' ? 600 : 2700;
+  const minDurationSec = options.contentType === 'series' ? 600 : 1200;
   const attempts: PlayAttempt[] = [];
 
   if (candidates.length === 0) {
