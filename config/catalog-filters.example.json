@@ -14,12 +14,12 @@
   "auto_play_probe_ms": 12000,
   "auto_play_tiers": [
     {
-      "addons": ["AIOStreams | ElfHosted"],
+      "addons": ["AIOStreams"],
       "require_cache": "cached",
       "debrid_services": ["torbox"]
     },
     {
-      "addons": ["AIOStreams | ElfHosted"],
+      "addons": ["AIOStreams"],
       "require_cache": "cached",
       "debrid_services": ["torbox", "realdebrid"]
     },

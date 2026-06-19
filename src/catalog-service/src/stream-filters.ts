@@ -180,12 +180,12 @@ export function isSeriesPackForMovie(stream: Stream, contentType: string | undef
 function defaultAutoPlayTiers(): AutoPlayTier[] {
   return [
     {
-      addons: ['AIOStreams | ElfHosted'],
+      addons: ['AIOStreams'],
       require_cache: 'cached',
       debrid_services: ['torbox'],
     },
     {
-      addons: ['AIOStreams | ElfHosted'],
+      addons: ['AIOStreams'],
       require_cache: 'cached',
       debrid_services: ['torbox', 'realdebrid'],
     },

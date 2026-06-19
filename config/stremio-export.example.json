@@ -6,12 +6,16 @@
       "manifestUrl": "https://v3-cinemeta.strem.io/manifest.json"
     },
     {
-      "name": "Torrentio",
-      "manifestUrl": "https://torrentio.strem.fun/manifest.json"
+      "name": "Torrentio TB",
+      "manifestUrl": "https://torrentio.strem.fun/YOUR_TORBOX_CONFIG/manifest.json"
+    },
+    {
+      "name": "Torrentio RD",
+      "manifestUrl": "https://torrentio.strem.fun/YOUR_REAL_DEBRID_CONFIG/manifest.json"
     },
     {
       "name": "AIOStreams",
-      "manifestUrl": "https://YOUR_AIOSTREAMS_HOST/manifest.json"
+      "manifestUrl": "http://127.0.0.1:3035/stremio/YOUR_GENERATED_USER/manifest.json"
     }
   ],
   "auth": {}

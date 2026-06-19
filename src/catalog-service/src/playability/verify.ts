@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { CatalogCore, CatalogError, type Stream } from '../core.js';
+import { isRateLimitedStreamUrl } from '../catalog-errors.js';
 import { probeUrl } from '../mpv.js';
 import {
   selectAutoPlayCandidates,
@@ -88,6 +89,7 @@ function cleanError(error: unknown): string {
 
 function failReason(error: unknown): string {
   const message = cleanError(error).toLowerCase();
+  if (message.includes('rate_limit') || message.includes('rate limit')) return 'rate_limit';
   if (message.includes('debrid_status_clip')) return 'status_clip';
   if (message.includes('copyright') || message.includes('removed')) return 'copyright';
   if (message.includes('timeout') || message.includes('within')) return 'timeout';
@@ -251,6 +253,19 @@ export async function verifyPreparedTitle(
   const attempts: VerifyTitleResult['attempts'] = [];
   for (const [index, stream] of prepared.candidates.entries()) {
     const started = Date.now();
+    if (isRateLimitedStreamUrl(stream.url)) {
+      attempts.push({
+        index,
+        source: stream.source,
+        quality: stream.quality,
+        cache_status: stream.cache_status,
+        debrid_service: stream.debrid_service,
+        ok: false,
+        ms: Date.now() - started,
+        error: 'rate_limited',
+      });
+      continue;
+    }
     try {
       const probe = await probeStreamUrl(stream.url, prepared.type, context);
       const probeMs = Date.now() - started;

@@ -1,9 +1,15 @@
 /** Couch-safe catalog errors — never surface raw addon host messages on TV. */
 
 const RATE_LIMIT_RE = /rate\s*limit|too many requests|429/i;
+const RATE_LIMIT_URL_RE = /rate-limit-exceeded|public-rate-limit/i;
 
 export function isAddonRateLimitMessage(message: string): boolean {
   return RATE_LIMIT_RE.test(message);
+}
+
+/** AIOStreams returns this placeholder when ElfHosted public instances are throttled. */
+export function isRateLimitedStreamUrl(url: string): boolean {
+  return RATE_LIMIT_URL_RE.test(url);
 }
 
 export function isElfHostedAddonName(name: string): boolean {

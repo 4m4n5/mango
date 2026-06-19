@@ -1,7 +1,7 @@
 # N3d inventory — self-hosted addon stack
 
 **Branch:** `feat/native-experience`
-**Status:** S1 AIOStreams service/configure path scaffolded
+**Status:** S2 stream plane scaffolded
 **Gate:** `bash scripts/phase-n3d/gate-n3d-self-hosted.sh`
 
 ---
@@ -43,6 +43,17 @@
 - Copy the generated AIOStreams manifest URL into `/etc/mango/stremio-export.json` with `"name": "AIOStreams"`.
 - Run `bash scripts/phase-n3d/install-aiolists.sh`, configure mdblist imports, and copy its manifest URL as `"name": "AIOLists"`.
 - Add `MANGO_CATALOG=1` and `MANGO_SELF_HOSTED_ADDONS=1` to `~/.config/mango/voice.env`.
+
+## S2 Stream Gate
+
+```bash
+MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+bash scripts/phase-n3d/gate-n3d-streams.sh
+```
+
+`gate-n3d-streams.sh` fails if `AIOStreams` is absent from stream sources, if any
+stream source still contains `ElfHosted`, or if any stream URL contains the public
+rate-limit placeholder.
 
 ## Current Blockers
 

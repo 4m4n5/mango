@@ -99,9 +99,12 @@ stop_worker() {
     pid="$(cat "$pid_file" 2>/dev/null || true)"
     if [[ -n "$pid" ]]; then
       kill "$pid" 2>/dev/null || true
+      sleep 0.1
+      kill -9 "$pid" 2>/dev/null || true
     fi
     rm -f "$pid_file"
   fi
+  pkill -f "input-ipc-server=${socket}" 2>/dev/null || true
   rm -f "$socket"
 }
 

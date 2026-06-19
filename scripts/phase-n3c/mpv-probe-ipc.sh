@@ -37,6 +37,19 @@ done
 [[ "$TIMEOUT_MS" =~ ^[0-9]+$ ]] || usage
 [[ "$MIN_DURATION_SEC" =~ ^[0-9]+$ ]] || usage
 
+# ElfHosted public instances return a short placeholder — never mpv-probe it.
+if [[ "$URL" == *rate-limit-exceeded* || "$URL" == *public-rate-limit* ]]; then
+  echo "FAIL: rate_limited stream URL" >&2
+  exit 1
+fi
+
+# Hard wall-clock cap — kills hung socat/mpv orphans when Node's execFile timeout fires.
+if [[ -z "${MANGO_PROBE_TIMEOUT_WRAPPER:-}" ]]; then
+  export MANGO_PROBE_TIMEOUT_WRAPPER=1
+  HARD_LIMIT_SEC=$(( (TIMEOUT_MS + 999) / 1000 + 8 ))
+  exec timeout --kill-after=3 "$HARD_LIMIT_SEC" "$0" "$@"
+fi
+
 SOCKET="${SOCKET_DIR}/probe-${WORKER_ID}.sock"
 POOL_SCRIPT="${SCRIPT_DIR}/mpv-probe-pool.sh"
 REQUEST_ID=0
