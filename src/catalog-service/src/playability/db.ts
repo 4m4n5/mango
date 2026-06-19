@@ -30,6 +30,22 @@ export type PlayabilityStatus = {
   last_indexer_run_at: number | null;
 };
 
+export type PlayabilityVerifyRecord = {
+  type: string;
+  id: string;
+  status: 'verified' | 'failed' | 'pending' | 'stale';
+  rail_id?: string | null;
+  fail_reason?: string | null;
+  best_source?: string | null;
+  cache_status?: string | null;
+  debrid_service?: string | null;
+  probe_ms?: number | null;
+  win_url_hash?: string | null;
+  expires_at?: number | null;
+  stage?: string;
+  outcome?: string;
+};
+
 type StatusRow = {
   rail_id: string;
   pool_depth: number | null;
@@ -225,6 +241,70 @@ FROM verify_log;
       ),
       last_indexer_run_at: lastRun[0]?.last_indexer_run_at ?? null,
     };
+  } finally {
+    db.close();
+  }
+}
+
+export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promise<void> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const timestamp = nowMs();
+  const verifiedAt = record.status === 'verified' ? timestamp : null;
+  const expiresAt = record.status === 'verified'
+    ? record.expires_at ?? timestamp + 48 * 60 * 60 * 1000
+    : record.expires_at ?? null;
+
+  try {
+    const transaction = db.transaction(() => {
+      db.prepare(`
+INSERT INTO titles (
+  type, id, status, verified_at, expires_at, fail_reason, best_source,
+  cache_status, debrid_service, probe_ms, win_url_hash, updated_at
+) VALUES (
+  @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @updated_at
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  status = excluded.status,
+  verified_at = excluded.verified_at,
+  expires_at = excluded.expires_at,
+  fail_reason = excluded.fail_reason,
+  best_source = excluded.best_source,
+  cache_status = excluded.cache_status,
+  debrid_service = excluded.debrid_service,
+  probe_ms = excluded.probe_ms,
+  win_url_hash = excluded.win_url_hash,
+  updated_at = excluded.updated_at;
+`).run({
+        type: record.type,
+        id: record.id,
+        status: record.status,
+        verified_at: verifiedAt,
+        expires_at: expiresAt,
+        fail_reason: record.fail_reason ?? null,
+        best_source: record.best_source ?? null,
+        cache_status: record.cache_status ?? null,
+        debrid_service: record.debrid_service ?? null,
+        probe_ms: record.probe_ms ?? null,
+        win_url_hash: record.win_url_hash ?? null,
+        updated_at: timestamp,
+      });
+
+      db.prepare(`
+INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
+VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
+`).run({
+        started_at: timestamp,
+        rail_id: record.rail_id ?? null,
+        type: record.type,
+        id_value: record.id,
+        stage: record.stage ?? 'verify',
+        ms: record.probe_ms ?? 0,
+        outcome: record.outcome ?? record.status,
+      });
+    });
+    transaction();
   } finally {
     db.close();
   }

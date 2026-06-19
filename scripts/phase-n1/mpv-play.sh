@@ -18,13 +18,14 @@ STOP=false
 PROBE=false
 TIMEOUT_MS=15000
 MIN_DURATION_SEC=600
+MIN_DURATION_SET=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="${2:-}"; shift 2 ;;
     --stop) STOP=true; shift ;;
     --probe) PROBE=true; shift ;;
     --timeout-ms) TIMEOUT_MS="${2:-}"; shift 2 ;;
-    --min-duration-sec) MIN_DURATION_SEC="${2:-}"; shift 2 ;;
+    --min-duration-sec) MIN_DURATION_SEC="${2:-}"; MIN_DURATION_SET=true; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -54,7 +55,7 @@ playback_is_real() {
   local playback_time="$1"
   local duration
   local min_duration="$MIN_DURATION_SEC"
-  if $PROBE; then
+  if $PROBE && ! $MIN_DURATION_SET; then
     min_duration=5
   fi
   duration="$(mpv_property duration)"
@@ -121,7 +122,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
       fi
       DUR="$(mpv_property duration)"
       min_duration="$MIN_DURATION_SEC"
-      if $PROBE; then
+      if $PROBE && ! $MIN_DURATION_SET; then
         min_duration=5
       fi
       if python3 -c "import sys; d=float('${DUR:-0}'); sys.exit(0 if d > 0 and d < float('${min_duration}') else 1)" 2>/dev/null; then
