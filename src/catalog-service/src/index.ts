@@ -2,7 +2,7 @@ import http from 'node:http';
 import { CatalogCore, CatalogError } from './core.js';
 import { playUrl } from './mpv.js';
 import { playWithFallback } from './play-orchestrator.js';
-import { invalidateTitle } from './playability/db.js';
+import { invalidateTitle, getTitleVerifyProfile } from './playability/db.js';
 import {
   parseFilterOverridesFromQuery,
   type StreamFilterOverrides,
@@ -102,11 +102,23 @@ async function handlePlay(
 
   const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
   const result = await core.streams(body.type, body.id, overrides);
+  const now = Date.now();
+  const profile = await getTitleVerifyProfile(body.type, body.id);
+  const verifiedHint = profile?.status === 'verified'
+    && (profile.expires_at === null || profile.expires_at > now)
+    ? {
+      best_source: profile.best_source,
+      cache_status: profile.cache_status,
+      debrid_service: profile.debrid_service,
+      win_url_hash: profile.win_url_hash,
+    }
+    : undefined;
   try {
     const playback = await playWithFallback(result.streams, result.filters.applied, {
       allow_uncached_torbox: result.filters.torbox_uncached_fallback === true,
       allow_rd_safe_unknown: result.filters.rd_safe_unknown_fallback === true,
       contentType: body.type,
+      verified_hint: verifiedHint,
     });
     return {
       ok: playback.ok,

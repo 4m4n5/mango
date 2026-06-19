@@ -1,5 +1,13 @@
+import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { Stream } from './core.js';
+
+export type VerifiedStreamHint = {
+  best_source?: string | null;
+  cache_status?: string | null;
+  debrid_service?: string | null;
+  win_url_hash?: string | null;
+};
 
 export type QualityCap = '480p' | '720p' | '1080p' | '2160p';
 export type AutoPlayCacheRequirement = 'cached' | 'cached_or_unknown' | 'any';
@@ -361,6 +369,7 @@ export function isRdSafeUnknownRelease(stream: Stream, tags: string[]): boolean 
 export function streamPlayScore(
   stream: Stream,
   config: StreamFilterConfig & { include_uncached: boolean },
+  verifiedHint?: VerifiedStreamHint,
 ): number {
   let score = 0;
   const cache = streamCacheStatus(stream);
@@ -393,6 +402,22 @@ export function streamPlayScore(
 
   if (config.max_quality && quality) {
     score -= qualityRank(stream, config.max_quality);
+  }
+
+  if (verifiedHint) {
+    if (verifiedHint.win_url_hash) {
+      const hash = createHash('sha256').update(stream.url).digest('hex').slice(0, 16);
+      if (hash === verifiedHint.win_url_hash) score += 5000;
+    }
+    const source = normalizeAddonName(stream.source || '');
+    const hintSource = normalizeAddonName(verifiedHint.best_source || '');
+    if (hintSource && source.includes(hintSource)) score += 800;
+    if (verifiedHint.cache_status && streamCacheStatus(stream) === verifiedHint.cache_status) {
+      score += 400;
+    }
+    if (verifiedHint.debrid_service && debridServiceId(stream) === verifiedHint.debrid_service) {
+      score += 200;
+    }
   }
 
   return score;
@@ -804,7 +829,7 @@ function autoPlayEligible(
 export function selectAutoPlayCandidates(
   streams: Stream[],
   config: StreamFilterConfig & { include_uncached: boolean },
-  options: { allow_uncached_torbox?: boolean } = {},
+  options: { allow_uncached_torbox?: boolean; verified_hint?: VerifiedStreamHint } = {},
 ): Stream[] {
   const eligible = streams.filter((stream) => autoPlayEligible(stream, config, options));
   const phases: Array<(stream: Stream) => boolean> = [
@@ -822,7 +847,8 @@ export function selectAutoPlayCandidates(
   for (const phase of phases) {
     const phaseStreams = eligible
       .filter((stream) => !seen.has(stream.url) && phase(stream))
-      .sort((left, right) => streamPlayScore(right, config) - streamPlayScore(left, config));
+      .sort((left, right) => streamPlayScore(right, config, options.verified_hint)
+        - streamPlayScore(left, config, options.verified_hint));
     for (const stream of phaseStreams) {
       seen.add(stream.url);
       ranked.push(stream);

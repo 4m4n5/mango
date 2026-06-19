@@ -3,6 +3,7 @@ import { playUrl } from './mpv.js';
 import {
   selectAutoPlayCandidates,
   type StreamFilterConfig,
+  type VerifiedStreamHint,
 } from './stream-filters.js';
 
 export type PlayOrchestratorConfig = StreamFilterConfig & { include_uncached: boolean };
@@ -67,6 +68,7 @@ export async function playWithFallback(
     allow_uncached_torbox?: boolean;
     allow_rd_safe_unknown?: boolean;
     contentType?: string;
+    verified_hint?: VerifiedStreamHint;
   } = {},
 ): Promise<PlayOrchestratorResult> {
   const started = Date.now();
@@ -78,7 +80,10 @@ export async function playWithFallback(
     ? Math.max(config.auto_play_probe_ms, 20000)
     : config.auto_play_probe_ms;
   const deadline = started + wallMs;
-  const candidates = selectAutoPlayCandidates(streams, config, options);
+  const candidates = selectAutoPlayCandidates(streams, config, {
+    allow_uncached_torbox: options.allow_uncached_torbox,
+    verified_hint: options.verified_hint,
+  });
   const minDurationSec = options.contentType === 'series' ? 600 : 600;
   const attempts: PlayAttempt[] = [];
 

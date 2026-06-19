@@ -54,6 +54,17 @@ export type TitlePlayabilityRecord = {
   updated_at: number;
 };
 
+export type TitleVerifyProfile = {
+  type: string;
+  id: string;
+  status: 'verified' | 'failed' | 'pending' | 'stale';
+  best_source: string | null;
+  cache_status: string | null;
+  debrid_service: string | null;
+  win_url_hash: string | null;
+  expires_at: number | null;
+};
+
 export type RailPoolEntry = {
   rail_id: string;
   type: string;
@@ -421,6 +432,33 @@ SELECT type, id, status, expires_at, updated_at
 FROM titles
 WHERE type = @type AND id = @id;
 `).get({ type, id }) as TitleRow | undefined;
+    return row ?? null;
+  } finally {
+    db.close();
+  }
+}
+
+export async function getTitleVerifyProfile(
+  type: string,
+  id: string,
+): Promise<TitleVerifyProfile | null> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const row = db.prepare(`
+SELECT type, id, status, best_source, cache_status, debrid_service, win_url_hash, expires_at
+FROM titles
+WHERE type = @type AND id = @id;
+`).get({ type, id }) as {
+      type: string;
+      id: string;
+      status: TitleVerifyProfile['status'];
+      best_source: string | null;
+      cache_status: string | null;
+      debrid_service: string | null;
+      win_url_hash: string | null;
+      expires_at: number | null;
+    } | undefined;
     return row ?? null;
   } finally {
     db.close();
