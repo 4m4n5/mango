@@ -5,7 +5,7 @@ import type { PlayResult } from '../mpv.js';
 import { playabilityProbeConcurrency, playabilityUseProbePool } from './config.js';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
-const defaultRepoDir = resolve(moduleDir, '../../..');
+const defaultRepoDir = resolve(moduleDir, '../../../../');
 
 let poolEnsured = false;
 let nextWorker = 0;
