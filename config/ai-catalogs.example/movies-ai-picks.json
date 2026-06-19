@@ -1,0 +1,7 @@
+{
+  "_comment": "Example AI rail candidate pool — consumed by catalog-service ai_catalog list source.",
+  "_schema": "items[] with { id: imdb:tt...|tmdb:..., type: movie|series, title?, poster? }",
+  "generated_at": null,
+  "prompt_version": null,
+  "items": []
+}

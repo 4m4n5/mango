@@ -28,8 +28,8 @@ bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-
 bash scripts/phase-n3d/aiometadata-config.sh wire-export
 ```
 
-`MANGO_AIOMETADATA_IMPORT_MODE=mango` (default) keeps rail mdblist catalogs + providers/apiKeys
-from the export. Use `exact` only if you want the full 26+ enabled catalogs on the Pi.
+`MANGO_AIOMETADATA_IMPORT_MODE=mango` (default) keeps catalogs in
+`config/aiometadata-rail-catalogs.json` (mdblist + IndiaStreams custom ids).
 
 ## Manual configure UI
 

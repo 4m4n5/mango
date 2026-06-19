@@ -1,17 +1,15 @@
 # mango catalog rails — copy to /etc/mango/catalog.yaml on the Pi
 #
-# N2b: Movies | TV Shows tabs · 6 predefined discover rails per tab.
-# composite_list merges multiple addon catalogs per theme (weighted, deduped).
-# Sources: Cinemeta + self-hosted AIOMetadata (mdblist lists). No regional catalog
-# addons in N3d V1 — see docs/N3d-INVENTORY.md § Source expansion (future).
+# N2b: Movies | TV Shows tabs · 6 discover rails per tab.
+# composite_list merges addon catalogs per theme (weighted, deduped).
+# Sources: Cinemeta charts + AIOMetadata (mdblist + IndiaStreams custom catalogs).
 #
-# N3c playability defaults per enabled rail:
-#   display_limit: 12        # posters served to launcher after verification
-#   min_display: 8           # low-water threshold (6 for niche rails)
-#   ingest_multiplier: 5     # indexer candidates = rail.limit x multiplier
-#   pool_target: 20          # steady-state verified pool per rail
+# Rail catalog ids must exist in AIOMetadata manifest — sync via:
+#   bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
+# Mapping reference: config/aiometadata-rail-catalogs.json
 #
-# Addon names must match /etc/mango/stremio-export.json exactly.
+# Future AI rails: type ai_catalog · static JSON pool · same playability path as addon rails
+# (see config/ai-catalogs.example/ and scripts/phase-n3d/ai-catalog-refresh.sh).
 
 version: 2
 
@@ -26,7 +24,7 @@ rails:
     limit: 20
     sources:
       - { addon: Cinemeta, catalog: top, weight: 0.6 }
-      - { addon: Cinemeta, catalog: year, weight: 0.4 }
+      - { addon: AIOMetadata, catalog: mdblist.88306, weight: 0.4 }
     playability:
       pool_target: 20
       ingest_multiplier: 4
@@ -38,28 +36,27 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: mdblist.88302, weight: 0.7 }
-      - { addon: Cinemeta, catalog: year, weight: 0.3 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.trendingmovies, weight: 0.75 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.popmov, weight: 0.25 }
     playability:
       pool_target: 20
       ingest_multiplier: 6
 
   - id: movies-classics
     tab: movies
-    label: classics & top rated
-    type: composite_list
+    label: highly rated
+    type: addon_catalog
+    addon: Cinemeta
+    catalog: imdbRating
     content_type: movie
     limit: 20
-    sources:
-      - { addon: Cinemeta, catalog: imdbRating, weight: 0.7 }
-      - { addon: AIOMetadata, catalog: mdblist.83666, weight: 0.3 }
     playability:
       pool_target: 20
       ingest_multiplier: 4
 
   - id: movies-comedy
     tab: movies
-    label: comedy & feel-good
+    label: comedy & comfort
     type: addon_catalog
     addon: AIOMetadata
     catalog: mdblist.91223
@@ -76,8 +73,8 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: mdblist.83668, weight: 0.7 }
-      - { addon: Cinemeta, catalog: year, weight: 0.3 }
+      - { addon: AIOMetadata, catalog: mdblist.86934, weight: 0.65 }
+      - { addon: AIOMetadata, catalog: mdblist.83668, weight: 0.35 }
     playability:
       min_display: 6
       pool_target: 15
@@ -85,7 +82,7 @@ rails:
 
   - id: movies-documentaries
     tab: movies
-    label: documentaries
+    label: true stories
     type: addon_catalog
     addon: AIOMetadata
     catalog: mdblist.128051
@@ -105,47 +102,45 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: Cinemeta, catalog: top, weight: 0.6 }
-      - { addon: Cinemeta, catalog: year, weight: 0.4 }
+      - { addon: Cinemeta, catalog: top, weight: 0.65 }
+      - { addon: AIOMetadata, catalog: mdblist.105797, weight: 0.35 }
     playability:
       pool_target: 20
       ingest_multiplier: 4
 
   - id: series-india-picks
     tab: series
-    label: indian tv picks
+    label: india & regional
     type: composite_list
     content_type: series
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: mdblist.88303, weight: 0.7 }
-      - { addon: Cinemeta, catalog: year, weight: 0.3 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.75 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.atpmub, weight: 0.25 }
     playability:
       pool_target: 20
       ingest_multiplier: 6
 
   - id: series-classics
     tab: series
-    label: classics & top rated
-    type: composite_list
+    label: critically acclaimed
+    type: addon_catalog
+    addon: Cinemeta
+    catalog: imdbRating
     content_type: series
     limit: 20
-    sources:
-      - { addon: Cinemeta, catalog: imdbRating, weight: 0.7 }
-      - { addon: AIOMetadata, catalog: mdblist.88303, weight: 0.3 }
     playability:
       pool_target: 20
       ingest_multiplier: 4
 
   - id: series-comedy
     tab: series
-    label: comedy & casual
-    type: composite_list
+    label: comedy
+    type: addon_catalog
+    addon: AIOMetadata
+    catalog: mdblist.91224
     content_type: series
     limit: 20
-    sources:
-      - { addon: AIOMetadata, catalog: mdblist.91224, weight: 0.6 }
-      - { addon: AIOMetadata, catalog: mdblist.84401, weight: 0.4 }
     playability:
       pool_target: 18
       ingest_multiplier: 6
@@ -164,12 +159,12 @@ rails:
       pool_target: 15
       ingest_multiplier: 8
 
-  - id: series-documentaries
+  - id: series-reality-casual
     tab: series
-    label: documentaries
+    label: reality & casual
     type: addon_catalog
     addon: AIOMetadata
-    catalog: mdblist.128052
+    catalog: mdblist.84401
     content_type: series
     limit: 20
     playability:
@@ -182,3 +177,16 @@ rails:
     label: continue watching
     type: stremio_library
     enabled: false
+
+  # N5 — AI-curated rail (disabled until ai-catalog-refresh ships candidates)
+  # - id: movies-ai-picks
+  #   tab: movies
+  #   label: picked for you
+  #   type: ai_catalog
+  #   catalog: movies-ai-picks
+  #   content_type: movie
+  #   limit: 20
+  #   enabled: false
+  #   playability:
+  #     pool_target: 15
+  #     ingest_multiplier: 6

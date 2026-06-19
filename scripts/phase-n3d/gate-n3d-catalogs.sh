@@ -72,7 +72,7 @@ for rail in data.get("rails", []):
     for source in rail.get("sources") or []:
         addon = str(source.get("addon") or "")
         catalog = str(source.get("catalog") or "")
-        if catalog.startswith("mdblist.") and addon != "AIOMetadata":
+        if catalog.startswith(("mdblist.", "custom.")) and addon != "AIOMetadata":
             bad.append(f"{rail.get('id')}:{catalog}:{addon}")
         if catalog.startswith("aiolists-"):
             bad.append(f"{rail.get('id')}:{catalog}:{addon} (migrate to mdblist.* + AIOMetadata)")
@@ -84,9 +84,9 @@ if bad:
     raise SystemExit("bad sources: " + ", ".join(bad))
 PY
   then
-    gate_pass "mdblist sources use AIOMetadata"
+    gate_pass "AIOMetadata catalog sources"
   else
-    gate_fail "mdblist sources use AIOMetadata"
+    gate_fail "AIOMetadata catalog sources"
   fi
 fi
 

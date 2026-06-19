@@ -9,6 +9,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+CATALOG_ID_RE = re.compile(
+    r"^(?:mdblist\.\d+|custom\.[a-z0-9_.]+)$",
+    re.IGNORECASE,
+)
+
 
 def load_env_keys(env_path: Path) -> dict[str, str]:
     keys: dict[str, str] = {}
@@ -23,8 +28,28 @@ def load_env_keys(env_path: Path) -> dict[str, str]:
     return keys
 
 
-def rail_catalog_refs(catalog_yaml: Path) -> list[dict[str, str]]:
-    """Parse config/catalog.example.yaml for AIOMetadata mdblist sources."""
+def repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def rail_catalog_index(repo: Path, catalog_yaml: Path) -> list[dict[str, str]]:
+    """Catalog ids required for mango rails — from aiometadata-rail-catalogs.json or yaml."""
+    index_path = repo / "config/aiometadata-rail-catalogs.json"
+    if index_path.is_file():
+        data = json.loads(index_path.read_text(encoding="utf-8"))
+        out: list[dict[str, str]] = []
+        for entry in data.get("catalogs") or []:
+            cid = str(entry.get("id") or "")
+            if not cid:
+                continue
+            for rail in entry.get("rails") or []:
+                out.append({"rail": str(rail), "catalog": cid})
+        if out:
+            return out
+    return rail_catalog_refs_yaml(catalog_yaml)
+
+
+def rail_catalog_refs_yaml(catalog_yaml: Path) -> list[dict[str, str]]:
     refs: list[dict[str, str]] = []
     current_rail: str | None = None
     pending_aiometadata = False
@@ -40,15 +65,16 @@ def rail_catalog_refs(catalog_yaml: Path) -> list[dict[str, str]]:
             pending_aiometadata = True
             continue
         if pending_aiometadata:
-            m = re.match(r"^\s*catalog:\s*(mdblist\.\d+)", line)
-            if m:
+            m = re.match(r"^\s*catalog:\s*(\S+)", line)
+            if m and CATALOG_ID_RE.match(m.group(1)):
                 refs.append({"rail": current_rail, "catalog": m.group(1)})
                 pending_aiometadata = False
             continue
         if "addon: AIOMetadata" in line:
-            for catalog_id in re.findall(r"mdblist\.\d+", line):
-                refs.append({"rail": current_rail, "catalog": catalog_id})
-
+            for token in re.findall(r"catalog:\s*([^,}]+)", line):
+                cid = token.strip()
+                if CATALOG_ID_RE.match(cid):
+                    refs.append({"rail": current_rail, "catalog": cid})
     seen: set[tuple[str, str]] = set()
     unique: list[dict[str, str]] = []
     for ref in refs:
@@ -59,7 +85,7 @@ def rail_catalog_refs(catalog_yaml: Path) -> list[dict[str, str]]:
     return unique
 
 
-def required_catalog_keys(refs: list[dict[str, str]]) -> set[str]:
+def needed_catalog_ids(refs: list[dict[str, str]]) -> set[str]:
     return {r["catalog"] for r in refs}
 
 
@@ -79,6 +105,35 @@ def apply_self_host_api_keys(api: dict[str, Any], env_keys: dict[str, str]) -> N
         api["customDescriptionBlurb"] = ""
 
 
+def select_catalogs_from_export(
+    export_catalogs: list[dict[str, Any]],
+    needed_ids: set[str],
+    refs: list[dict[str, str]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    by_id: dict[str, list[dict[str, Any]]] = {}
+    for cat in export_catalogs:
+        cid = str(cat.get("id") or "")
+        if cid:
+            by_id.setdefault(cid, []).append(cat)
+
+    selected: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for catalog_id in sorted(needed_ids):
+        matches = by_id.get(catalog_id, [])
+        if not matches:
+            rails = [r["rail"] for r in refs if r["catalog"] == catalog_id]
+            warnings.append(
+                f"missing in export: {catalog_id} (rails: {', '.join(rails)})"
+            )
+            continue
+        for cat in matches:
+            entry = json.loads(json.dumps(cat))
+            entry["enabled"] = True
+            entry["showInHome"] = False
+            selected.append(entry)
+    return selected, warnings
+
+
 def build_mango_config(
     export_path: Path,
     catalog_yaml: Path,
@@ -89,32 +144,14 @@ def build_mango_config(
     if not isinstance(source, dict):
         raise SystemExit("export missing config object")
 
-    refs = rail_catalog_refs(catalog_yaml)
-    needed_ids = {r["catalog"] for r in refs}
-
-    export_catalogs = source.get("catalogs") or []
-    by_key: dict[tuple[str, str], dict[str, Any]] = {}
-    for cat in export_catalogs:
-        cid = str(cat.get("id") or "")
-        ctype = str(cat.get("type") or "")
-        if cid.startswith("mdblist."):
-            by_key[(cid, ctype)] = cat
-
-    selected: list[dict[str, Any]] = []
-    warnings: list[str] = []
-    for catalog_id in sorted(needed_ids):
-        matches = [(k, v) for k, v in by_key.items() if k[0] == catalog_id]
-        if not matches:
-            rails = [r["rail"] for r in refs if r["catalog"] == catalog_id]
-            warnings.append(
-                f"missing in export: {catalog_id} (rails: {', '.join(rails)})"
-            )
-            continue
-        for (_, _), cat in matches:
-            entry = json.loads(json.dumps(cat))
-            entry["enabled"] = True
-            entry["showInHome"] = False
-            selected.append(entry)
+    repo = repo_root()
+    refs = rail_catalog_index(repo, catalog_yaml)
+    needed_ids = needed_catalog_ids(refs)
+    selected, warnings = select_catalogs_from_export(
+        source.get("catalogs") or [],
+        needed_ids,
+        refs,
+    )
 
     config: dict[str, Any] = {
         "language": source.get("language", "en-US"),
@@ -140,7 +177,6 @@ def build_mango_config(
     }
 
     apply_self_host_api_keys(config["apiKeys"], load_env_keys(env_path))
-
     return config, warnings
 
 
@@ -149,25 +185,18 @@ def check_export(
     catalog_yaml: Path,
     manifest_path: Path | None = None,
 ) -> int:
-    refs = rail_catalog_refs(catalog_yaml)
-    needed_ids = {r["catalog"] for r in refs}
+    repo = repo_root()
+    refs = rail_catalog_index(repo, catalog_yaml)
+    needed_ids = needed_catalog_ids(refs)
     raw = json.loads(export_path.read_text(encoding="utf-8"))
     source = raw.get("config") or raw
-    export_ids = {
-        str(c.get("id"))
-        for c in (source.get("catalogs") or [])
-        if str(c.get("id", "")).startswith("mdblist.")
-    }
+    export_ids = {str(c.get("id")) for c in (source.get("catalogs") or []) if c.get("id")}
     manifest_ids: set[str] = set()
     if manifest_path and manifest_path.is_file():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        manifest_ids = {
-            str(c.get("id"))
-            for c in (manifest.get("catalogs") or [])
-            if str(c.get("id", "")).startswith("mdblist.")
-        }
+        manifest_ids = {str(c.get("id")) for c in (manifest.get("catalogs") or []) if c.get("id")}
 
-    print(f"rails need {len(needed_ids)} mdblist catalogs")
+    print(f"rails need {len(needed_ids)} AIOMetadata catalogs")
     for catalog_id in sorted(needed_ids):
         rails = [r["rail"] for r in refs if r["catalog"] == catalog_id]
         in_export = catalog_id in export_ids
@@ -176,7 +205,7 @@ def check_export(
         status.append("export" if in_export else "NO export")
         if in_manifest is not None:
             status.append("manifest" if in_manifest else "NO manifest")
-        print(f"  {catalog_id:20} {' | '.join(status):20} ← {', '.join(rails)}")
+        print(f"  {catalog_id:48} {' | '.join(status):20} ← {', '.join(rails)}")
 
     missing = needed_ids - export_ids
     if missing:
@@ -188,13 +217,15 @@ def check_export(
 
 def main() -> None:
     if len(sys.argv) < 2:
-        raise SystemExit("usage: aiometadata_mango.py build|check <export.json> [catalog.yaml] [env]")
+        raise SystemExit(
+            "usage: aiometadata_mango.py build|check <export.json> [catalog.yaml] [manifest.json]"
+        )
 
     cmd = sys.argv[1]
     export_path = Path(sys.argv[2])
-    repo = Path(__file__).resolve().parents[3]
+    repo = repo_root()
     catalog_yaml = Path(sys.argv[3]) if len(sys.argv) > 3 else repo / "config/catalog.example.yaml"
-    env_path = Path(sys.argv[4]) if len(sys.argv) > 4 else repo / "deploy/aiometadata/.env"
+    env_path = repo / "deploy/aiometadata/.env"
 
     if cmd == "build":
         config, warnings = build_mango_config(export_path, catalog_yaml, env_path)

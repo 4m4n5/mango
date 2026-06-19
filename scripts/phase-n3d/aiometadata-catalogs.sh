@@ -44,8 +44,11 @@ for ctype in sorted(by_type):
     print()
 
 mdblist = [cid for ctype in by_type for cid, _ in by_type[ctype] if cid.startswith("mdblist.")]
+custom = [cid for ctype in by_type for cid, _ in by_type[ctype] if cid.startswith("custom.")]
 if mdblist:
     print(f"mdblist catalogs: {len(mdblist)}")
-else:
-    print("WARN: no mdblist.* catalogs in manifest — import lists in /configure")
+if custom:
+    print(f"custom catalogs: {len(custom)}")
+if not mdblist and not custom:
+    print("WARN: no mdblist/custom catalogs in manifest — run aiometadata-config.sh import")
 PY

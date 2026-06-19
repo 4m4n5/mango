@@ -1,52 +1,55 @@
-# N3d MDBList → AIOMetadata mapping
+# N3d rail → AIOMetadata catalog mapping (v2)
 
-Operator checklist when adding MDBList rows in AIOMetadata `/configure`.
-Catalog ids are **`mdblist.<numeric-list-id>`** (configured automatically).
-
-Validate after export:
-
-```bash
-bash scripts/phase-n3d/aiometadata-catalogs.sh
-MANIFEST="$(python3 -c "import json; print(next(a['manifestUrl'] for a in json.load(open('/etc/mango/stremio-export.json'))['addons'] if a['name']=='AIOMetadata'))")"
-BASE="${MANIFEST%/manifest.json}"
-curl -sf "${BASE}/catalog/movie/mdblist.88302.json" | jq '.metas | length'
-```
-
-| Rail | Content | catalog.yaml id | MDBList list |
-|------|---------|-----------------|--------------|
-| `movies-india-trending` | movie | `mdblist.88302` | 88302 |
-| `movies-classics` | movie | `mdblist.83666` | 83666 |
-| `movies-comedy` | movie | `mdblist.91223` | 91223 |
-| `movies-quick-watches` | movie | `mdblist.83668` | 83668 |
-| `movies-documentaries` | movie | `mdblist.128051` | 128051 |
-| `series-india-picks` | series | `mdblist.88303` | 88303 |
-| `series-classics` | series | `mdblist.88303` | 88303 |
-| `series-comedy` | series | `mdblist.91224` | 91224 |
-| `series-comedy` | series | `mdblist.84401` | 84401 |
-| `series-miniseries` | series | `mdblist.130153` | 130153 |
-| `series-miniseries` | series | `mdblist.130152` | 130152 |
-| `series-documentaries` | series | `mdblist.128052` | 128052 |
-
-## Operator notes
-
-- MDBList API key in `deploy/aiometadata/.env` **and** saved in configure UI.
-- Addon name in export must be `AIOMetadata`; catalog.yaml `addon:` must match.
-- Legacy AIOLists ids (`aiolists-88302-L`) are **not** used with AIOMetadata.
-- `movies-india-trending` / `series-india-picks` are mdblist-backed in N3d V1.
-
-## Import from configure export
+Catalog ids must exist in the configure export and AIOMetadata manifest.
+Machine-readable index: `config/aiometadata-rail-catalogs.json`.
 
 ```bash
 bash scripts/phase-n3d/aiometadata-config.sh check ~/.config/mango/aiometadata-import.json
 bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
 ```
 
-`import` uses **mango mode** by default: copies only the mdblist catalogs that
-`catalog.example.yaml` rails reference (11 lists), not the full export.
+## Movies
+
+| Rail | Label | Sources |
+|------|-------|---------|
+| `movies-global-popular` | popular worldwide | Cinemeta `top` + mdblist **88306** (Latest Movies) |
+| `movies-india-trending` | trending in india | IndiaStreams **trendingmovies** + **popmov** |
+| `movies-classics` | highly rated | Cinemeta `imdbRating` only |
+| `movies-comedy` | comedy & comfort | mdblist **91223** |
+| `movies-quick-watches` | quick watches | mdblist **86934** (digital release) + **83668** |
+| `movies-documentaries` | true stories | mdblist **128051** |
+
+## Series
+
+| Rail | Label | Sources |
+|------|-------|---------|
+| `series-global-popular` | popular worldwide | Cinemeta `top` + mdblist **105797** (Daily Picks) |
+| `series-india-picks` | india & regional | IndiaStreams **trendingtv** + **atpmub** |
+| `series-classics` | critically acclaimed | Cinemeta `imdbRating` only |
+| `series-comedy` | comedy | mdblist **91224** |
+| `series-miniseries` | limited series | mdblist **130153** + **130152** |
+| `series-reality-casual` | reality & casual | mdblist **84401** |
+
+## IndiaStreams custom catalog ids
+
+| catalog.yaml id | IndiaStreams endpoint |
+|-----------------|----------------------|
+| `custom.in_rdata_indiastreams.movie.trendingmovies` | `/catalog/movie/trendingmovies.json` |
+| `custom.in_rdata_indiastreams.movie.popmov` | `/catalog/movie/popmov.json` |
+| `custom.in_rdata_indiastreams.series.trendingtv` | `/catalog/series/trendingtv.json` |
+| `custom.in_rdata_indiastreams.series.atpmub` | `/catalog/series/atpmub.json` |
+
+Also in export (not wired to rails v2): `recmov` (Recommended Indian Movies).
+
+## Import from configure export
+
+```bash
+bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
+```
+
+`import` uses **mango mode** (default): copies only catalogs listed in
+`config/aiometadata-rail-catalogs.json`.
 
 ## Migration from AIOLists
 
-```bash
-bash scripts/phase-n3d/migrate-aiolists-to-aiometadata.sh
-# then configure + export per configure-aiometadata.md
-```
+Retired — use AIOMetadata per `configure-aiometadata.md`.
