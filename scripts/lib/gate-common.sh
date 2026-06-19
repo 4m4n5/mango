@@ -98,7 +98,9 @@ gate_post_play() {
 # Quick process hygiene (replaces baseline-metrics for routine gates).
 gate_process_count() {
   local pattern="$1"
-  pgrep -f "$pattern" 2>/dev/null | wc -l | tr -d '[:space:]'
+  local n
+  n="$(pgrep -f "$pattern" 2>/dev/null | wc -l | tr -d '[:space:]')" || true
+  echo "${n:-0}"
 }
 
 gate_idle_hygiene() {
