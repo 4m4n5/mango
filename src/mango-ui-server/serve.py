@@ -13,12 +13,14 @@ import os
 import socket
 import subprocess
 import sys
+import threading
 import time
+from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Final
-from urllib.parse import unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -37,6 +39,10 @@ LAUNCH_SCRIPTS: Final = {
 LAUNCH_DEBOUNCE_SEC: Final = 2.0
 _last_launch_at: dict[str, float] = {}
 
+_voice_lock: Final = threading.Lock()
+_voice_command_seq: int = 0
+_voice_commands: Final = deque[dict[str, object]](maxlen=64)
+
 
 def run_check(cmd: list[str]) -> bool:
     try:
@@ -51,6 +57,27 @@ def mango_log(event: str, **fields: str) -> None:
     args = [str(LOG_SCRIPT), event]
     args.extend(f"{key}={value}" for key, value in fields.items())
     subprocess.run(args, check=False, capture_output=True)
+
+
+def _client_is_local(handler: BaseHTTPRequestHandler) -> bool:
+    host = handler.client_address[0]
+    return host in {"127.0.0.1", "::1", "localhost"}
+
+
+def enqueue_voice_command(command: dict[str, object]) -> int:
+    global _voice_command_seq
+    with _voice_lock:
+        _voice_command_seq += 1
+        seq = _voice_command_seq
+        entry = {"seq": seq, **command}
+        _voice_commands.append(entry)
+    mango_log("voice_command", seq=str(seq), action=str(command.get("action", "")))
+    return seq
+
+
+def voice_commands_since(after: int) -> list[dict[str, object]]:
+    with _voice_lock:
+        return [entry for entry in _voice_commands if int(entry.get("seq", 0)) > after]
 
 
 def collect_health(port: int) -> dict[str, object]:
@@ -119,6 +146,15 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         if path == "/api/health":
             self._write_json(collect_health(self.server.server_port))
             return
+        if path == "/api/voice/commands":
+            parsed = urlparse(self.path)
+            after_values = parse_qs(parsed.query).get("after", ["0"])
+            try:
+                after = max(0, int(after_values[0]))
+            except (ValueError, IndexError):
+                after = 0
+            self._write_json({"ok": True, "commands": voice_commands_since(after)})
+            return
         if path.startswith("/overlay/"):
             self._write_json(
                 {"ok": False, "error": "overlay deprecated; use launcher HUD"},
@@ -129,6 +165,32 @@ class MangoUiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/voice/command":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "voice commands are localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            length = int(self.headers.get("content-length") or "0")
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                command = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                self._write_json(
+                    {"ok": False, "error": "invalid json"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if not isinstance(command, dict) or command.get("type") != "launcher_command":
+                self._write_json(
+                    {"ok": False, "error": "expected launcher_command payload"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            seq = enqueue_voice_command(command)
+            self._write_json({"ok": True, "seq": seq})
+            return
         if path.startswith("/api/catalog/"):
             self._proxy_catalog("POST")
             return

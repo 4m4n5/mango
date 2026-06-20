@@ -144,7 +144,7 @@ export type TabRailSessionAllocateOptions = {
 };
 
 export type PlayabilityTriggerRecord = {
-  trigger_type: 'pool_low' | 'display_low' | 'stale' | 'config_change' | 'play_failure' | 'scheduled';
+  trigger_type: 'pool_low' | 'display_low' | 'stale' | 'config_change' | 'play_failure' | 'scheduled' | 'voice_request';
   rail_id?: string | null;
   type?: string | null;
   id?: string | null;
@@ -1001,6 +1001,87 @@ export type VerifiedRailPoolSearchRow = {
   poster: string | null;
   year: string | null;
 };
+
+export type VerifiedLibraryCatalogRow = VerifiedRailPoolSearchRow & {
+  rail_id: string;
+};
+
+export async function listVerifiedLibraryCatalogRows(
+  limit = 500,
+): Promise<VerifiedLibraryCatalogRow[]> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    return db.prepare(`
+SELECT
+  rp.rail_id,
+  rp.type,
+  rp.id,
+  rp.title,
+  rp.poster_url AS poster,
+  rp.year
+FROM rail_pool rp
+JOIN titles t ON t.type = rp.type AND t.id = rp.id
+WHERE t.status = 'verified'
+  AND rp.title IS NOT NULL
+  AND trim(rp.title) != ''
+ORDER BY rp.title ASC
+LIMIT @limit;
+`).all({ limit: Math.max(1, limit) }) as VerifiedLibraryCatalogRow[];
+  } finally {
+    db.close();
+  }
+}
+
+export async function queueTitleForVoiceIngest(input: {
+  type: string;
+  id: string;
+  title: string;
+  rail_id: string;
+  poster_url?: string | null;
+  year?: string | null;
+}): Promise<void> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const now = nowMs();
+  try {
+    db.prepare(`
+INSERT INTO titles (
+  type, id, status, verified_at, expires_at, fail_reason, best_source,
+  cache_status, debrid_service, probe_ms, win_url_hash, updated_at
+) VALUES (
+  @type, @id, 'pending', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, @updated_at
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  status = CASE WHEN titles.status = 'verified' THEN titles.status ELSE 'pending' END,
+  updated_at = @updated_at;
+`).run({
+      type: input.type,
+      id: input.id,
+      updated_at: now,
+    });
+  } finally {
+    db.close();
+  }
+
+  await upsertRailPoolTitle({
+    rail_id: input.rail_id,
+    type: input.type,
+    id: input.id,
+    score: 0,
+    title: input.title,
+    poster_url: input.poster_url ?? undefined,
+    year: input.year ?? undefined,
+  });
+
+  await enqueuePlayabilityTrigger({
+    trigger_type: 'voice_request',
+    rail_id: input.rail_id,
+    type: input.type,
+    id: input.id,
+    reason: `voice_request:${input.title}`,
+  });
+}
 
 export async function searchVerifiedRailPoolTitles(
   query: string,

@@ -44,6 +44,47 @@ async def execute_tool(
             )
         )
 
+    if name == "mango_library_overview":
+        return _compact(await asyncio.to_thread(catalog_tools.tool_library_overview, settings))
+
+    if name == "mango_library_browse":
+        limit = tool_input.get("limit", 120)
+        limit_value = int(limit) if isinstance(limit, (int, float)) else 120
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_library_browse, settings, limit_value)
+        )
+
+    if name == "mango_search_external":
+        query = tool_input.get("query")
+        if not isinstance(query, str) or not query.strip():
+            return _compact({"ok": False, "error": "query required"})
+        content_type = tool_input.get("type")
+        type_value = content_type if isinstance(content_type, str) else None
+        limit = tool_input.get("limit", 8)
+        limit_value = int(limit) if isinstance(limit, (int, float)) else 8
+        queue_missing = bool(tool_input.get("queue_missing"))
+        return _compact(
+            await asyncio.to_thread(
+                catalog_tools.tool_search_external,
+                settings,
+                query.strip(),
+                content_type=type_value,
+                limit=limit_value,
+                queue_missing=queue_missing,
+            )
+        )
+
+    if name == "mango_read_librarian_notes":
+        return _compact(await asyncio.to_thread(catalog_tools.tool_read_librarian_notes, settings))
+
+    if name == "mango_update_librarian_notes":
+        notes = tool_input.get("notes")
+        if not isinstance(notes, str):
+            return _compact({"ok": False, "error": "notes required"})
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_update_librarian_notes, settings, notes)
+        )
+
     if name in {"mango_play", "mango_play_continue"}:
         return _compact({
             "ok": False,
@@ -84,7 +125,17 @@ async def execute_tool(
 
 def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
     if name == "mango_search":
-        return f"Searching for {tool_input.get('query', '…')}"
+        return f"Searching library for {tool_input.get('query', '…')}"
+    if name == "mango_library_overview":
+        return "Reading library overview"
+    if name == "mango_library_browse":
+        return "Browsing verified library"
+    if name == "mango_search_external":
+        return f"Searching outside library for {tool_input.get('query', '…')}"
+    if name == "mango_read_librarian_notes":
+        return "Reading librarian notes"
+    if name == "mango_update_librarian_notes":
+        return "Updating librarian notes"
     if name == "mango_open_title":
         return f"Opening {tool_input.get('title', 'title')}"
     if name == "mango_now_playing":

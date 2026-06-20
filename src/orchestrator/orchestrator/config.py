@@ -44,6 +44,7 @@ class OrchestratorSettings:
     llm_history_turns: int
     llm_api_key_file: str | None
     catalog_upstream: str
+    launcher_ui_upstream: str
     voice_tools_enabled: bool
     max_tool_rounds: int
 
@@ -108,8 +109,14 @@ def load_settings() -> OrchestratorSettings:
                 catalog.get("service_url", orch.get("catalog_upstream", "http://127.0.0.1:3020")),
             )
         ),
+        launcher_ui_upstream=str(
+            os.environ.get(
+                "MANGO_LAUNCHER_UPSTREAM",
+                orch.get("launcher_ui_upstream", "http://127.0.0.1:3000"),
+            )
+        ),
         voice_tools_enabled=bool(orch.get("voice_tools_enabled", True)),
-        max_tool_rounds=max(1, int(orch.get("max_tool_rounds", 4))),
+        max_tool_rounds=max(1, int(orch.get("max_tool_rounds", 6))),
     )
 
 

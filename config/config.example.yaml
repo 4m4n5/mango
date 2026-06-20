@@ -93,5 +93,6 @@ orchestrator:
   ssl_keyfile: null   # or /home/aman/.config/mango/certs/mango-companion-key.pem
   local_ws_port: 8766  # plain WS on loopback for launcher TV HUD (mkcert not trusted in kiosk)
   voice_tools_enabled: true  # N5a: catalog play/search + launcher navigate via Anthropic tools
-  max_tool_rounds: 4
+  max_tool_rounds: 6
   catalog_upstream: http://127.0.0.1:3020
+  launcher_ui_upstream: http://127.0.0.1:3000  # HTTP voice commands → TV Chromium

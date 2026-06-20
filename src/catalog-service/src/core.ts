@@ -1141,6 +1141,43 @@ export class CatalogCore {
     throw new CatalogError(502, `meta not resolved for ${type}/${id}${errors.length ? ` (${errors.join('; ')})` : ''}`);
   }
 
+  /** Cinemeta/addon catalog search — used for out-of-library voice lookups. */
+  async searchMeta(type: string, query: string): Promise<Meta[]> {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      return [];
+    }
+    const results: Meta[] = [];
+    const seen = new Set<string>();
+    for (const addon of this.metaAddonsInOrder()) {
+      if (!supportsResource(addon.manifest, 'search', type)) {
+        continue;
+      }
+      try {
+        const result = await fetchJson(
+          resourceUrl(addon, 'search', type, trimmed),
+        ) as { metas?: Meta[] };
+        for (const meta of result.metas ?? []) {
+          if (!meta?.id || isBlockedCatalogMeta(meta)) {
+            continue;
+          }
+          const key = `${type}:${meta.id}`;
+          if (seen.has(key)) {
+            continue;
+          }
+          seen.add(key);
+          results.push(Object.assign({}, meta, { source: addon.name }) as Meta);
+        }
+        if (results.length > 0) {
+          break;
+        }
+      } catch {
+        // try next meta addon
+      }
+    }
+    return results;
+  }
+
   async seriesEpisodes(bareId: string): Promise<SeriesEpisodesResponse> {
     const trimmed = bareId.trim();
     const normalizedBare = seriesBareId(trimmed);

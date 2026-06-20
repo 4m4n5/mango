@@ -135,7 +135,7 @@ function init(): void {
     },
     onOpenDetail: (card, tab) => {
       activeBrowseTab = tab;
-      handleContentSelect(card, "voice");
+      handleContentSelect(card, "voice", tab);
     },
   });
 }
@@ -317,12 +317,13 @@ function activateFocused(): void {
   focused.click();
 }
 
-function handleContentSelect(card: ContentCard, railLabel: string): void {
+function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseTab): void {
   inSettings = false;
   nextEpisodePrompt.dismiss();
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
-  detail.show(card, railLabel, activeBrowseTab, pinnedKeys.has(`${card.type}:${card.id}`));
+  const browseTab = tab ?? activeBrowseTab;
+  detail.show(card, railLabel, browseTab, pinnedKeys.has(`${card.type}:${card.id}`));
 }
 
 function handleAppSelect(app: AppCard): void {

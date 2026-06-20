@@ -21,7 +21,7 @@ import {
   listRefreshLevelsForUi,
   startRefreshLevel,
 } from './playability/refresh-control.js';
-import { parseCatalogTab } from './rails.js';
+import { parseCatalogTab, loadRailConfig } from './rails.js';
 import {
   addUserPin,
   listUserPins,
@@ -36,6 +36,9 @@ import {
 import { searchVerifiedLibrary } from './voice/search.js';
 import { buildContinuePlayTarget, buildNowPlayingResponse } from './voice/now-playing.js';
 import { buildVoiceToolManifest } from './voice/tools.js';
+import { buildLibraryCatalog, buildLibraryOverview } from './voice/library.js';
+import { readLibrarianNotes, writeLibrarianNotes } from './voice/librarian-notes.js';
+import { searchExternalTitles } from './voice/external.js';
 
 const HOST = process.env.MANGO_CATALOG_HOST || '127.0.0.1';
 const PORT = Number(process.env.MANGO_CATALOG_PORT || 3020);
@@ -404,6 +407,56 @@ async function main(): Promise<void> {
 
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'tools') {
         sendJson(res, 200, buildVoiceToolManifest());
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'library') {
+        const limit = Number(url.searchParams.get('limit') || 500);
+        const overviewOnly = url.searchParams.get('overview') === '1'
+          || url.searchParams.get('overview') === 'true';
+        const config = await loadRailConfig();
+        const railLabels = new Map(
+          config.rails
+            .filter((rail) => rail.enabled !== false && 'label' in rail)
+            .map((rail) => [rail.id, rail.label]),
+        );
+        const catalog = await buildLibraryCatalog(railLabels, Number.isFinite(limit) ? limit : 500);
+        if (overviewOnly) {
+          sendJson(res, 200, buildLibraryOverview(catalog.titles, railLabels));
+          return;
+        }
+        sendJson(res, 200, catalog);
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'library' && parts[2] === 'notes') {
+        sendJson(res, 200, await readLibrarianNotes());
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'library' && parts[2] === 'notes') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'librarian notes are localhost-only');
+        }
+        const body = await readBody(req) as { notes?: string };
+        if (typeof body.notes !== 'string') {
+          throw new CatalogError(400, 'POST /voice/library/notes requires { notes }');
+        }
+        sendJson(res, 200, await writeLibrarianNotes(body.notes));
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'search-external') {
+        const query = url.searchParams.get('q')?.trim() ?? '';
+        const typeParam = url.searchParams.get('type');
+        const contentType = typeParam === 'movie' || typeParam === 'series' ? typeParam : null;
+        const queue = url.searchParams.get('queue') === '1' || url.searchParams.get('queue') === 'true';
+        const limit = Number(url.searchParams.get('limit') || 8);
+        sendJson(res, 200, await searchExternalTitles(core, query, {
+          type: contentType,
+          limit: Number.isFinite(limit) ? limit : 8,
+          queue_missing: queue,
+        }));
         return;
       }
 

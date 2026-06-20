@@ -47,6 +47,30 @@ else
   bad voice-now-playing
 fi
 
+LIB_JSON="$(curl -sf --max-time 15 "$CATALOG/voice/library?overview=1" || true)"
+if [[ -n "$LIB_JSON" ]] && echo "$LIB_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True and "verified_count" in d' 2>/dev/null; then
+  ok voice-library-overview
+else
+  bad voice-library-overview
+fi
+
+NOTES_JSON="$(curl -sf --max-time 10 "$CATALOG/voice/library/notes" || true)"
+if [[ -n "$NOTES_JSON" ]] && echo "$NOTES_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True' 2>/dev/null; then
+  ok voice-librarian-notes
+else
+  bad voice-librarian-notes
+fi
+
+LAUNCHER_PORT="${MANGO_LAUNCHER_PORT:-3000}"
+VOICE_POST="$(curl -sf --max-time 5 -X POST "http://127.0.0.1:${LAUNCHER_PORT}/api/voice/command" \
+  -H 'content-type: application/json' \
+  -d '{"type":"launcher_command","action":"tab","tab":"movies"}' || true)"
+if [[ -n "$VOICE_POST" ]] && echo "$VOICE_POST" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True and d.get("seq", 0) > 0' 2>/dev/null; then
+  ok launcher-voice-command-post
+else
+  bad launcher-voice-command-post
+fi
+
 if [[ -d src/orchestrator/.venv ]]; then
   (
     cd src/orchestrator

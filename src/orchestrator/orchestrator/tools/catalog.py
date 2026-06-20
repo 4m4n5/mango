@@ -99,6 +99,65 @@ def tool_search(settings: OrchestratorSettings, query: str, limit: int = 5) -> d
     )
 
 
+def tool_library_overview(settings: OrchestratorSettings) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "GET",
+        "/voice/library",
+        params={"overview": "1"},
+        timeout=20.0,
+    )
+
+
+def tool_library_browse(settings: OrchestratorSettings, limit: int = 120) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "GET",
+        "/voice/library",
+        params={"limit": max(1, min(limit, 500))},
+        timeout=30.0,
+    )
+
+
+def tool_search_external(
+    settings: OrchestratorSettings,
+    query: str,
+    *,
+    content_type: str | None = None,
+    limit: int = 8,
+    queue_missing: bool = False,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {
+        "q": query,
+        "limit": max(1, min(limit, 12)),
+    }
+    if content_type in {"movie", "series"}:
+        params["type"] = content_type
+    if queue_missing:
+        params["queue"] = "1"
+    return _request_json(
+        settings,
+        "GET",
+        "/voice/search-external",
+        params=params,
+        timeout=30.0,
+    )
+
+
+def tool_read_librarian_notes(settings: OrchestratorSettings) -> dict[str, Any]:
+    return _request_json(settings, "GET", "/voice/library/notes", timeout=10.0)
+
+
+def tool_update_librarian_notes(settings: OrchestratorSettings, notes: str) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "POST",
+        "/voice/library/notes",
+        body={"notes": notes},
+        timeout=10.0,
+    )
+
+
 def tool_now_playing(settings: OrchestratorSettings) -> dict[str, Any]:
     return _request_json(settings, "GET", "/voice/now-playing", timeout=10.0)
 

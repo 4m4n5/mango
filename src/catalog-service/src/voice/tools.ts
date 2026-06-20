@@ -24,7 +24,7 @@ export function buildVoiceToolManifest(): {
   const tools: VoiceToolDefinition[] = [
     {
       name: 'mango_search',
-      description: 'Search verified mango library titles by name. Use before open_title when the user names a show or movie.',
+      description: 'Search verified mango library titles by name. Use first when the user names a show or movie.',
       layer: 'catalog',
       input_schema: {
         type: 'object',
@@ -33,6 +33,56 @@ export function buildVoiceToolManifest(): {
           limit: { type: 'integer', description: 'Max results (default 5)' },
         },
         required: ['query'],
+      },
+    },
+    {
+      name: 'mango_library_overview',
+      description: 'Summarize the verified playable library — rail themes, counts, and sample titles. Use for recommendations and "what do we have?" questions.',
+      layer: 'catalog',
+      input_schema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'mango_library_browse',
+      description: 'List verified playable titles grouped by rails (up to ~120). Use when you need specific title names from the library.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          limit: { type: 'integer', description: 'Max titles (default 120, max 500)' },
+        },
+      },
+    },
+    {
+      name: 'mango_search_external',
+      description: 'Search Cinemeta for titles outside the verified library. Use when the user asks for something not in mango_search results. Can queue hits for playability verification.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Title to look up' },
+          type: { type: 'string', enum: ['movie', 'series'], description: 'Optional content type filter' },
+          limit: { type: 'integer', description: 'Max results (default 8)' },
+          queue_missing: { type: 'boolean', description: 'Queue unverified hits for the next pool verify pass' },
+        },
+        required: ['query'],
+      },
+    },
+    {
+      name: 'mango_read_librarian_notes',
+      description: 'Read persistent notes about the library — themes, prior recommendations, user taste. Avoid re-deriving the same analysis each session.',
+      layer: 'catalog',
+      input_schema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'mango_update_librarian_notes',
+      description: 'Update persistent librarian notes after learning something useful about the library or user preferences. Keep concise bullet-style text.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          notes: { type: 'string', description: 'Full replacement notes text (not a patch)' },
+        },
+        required: ['notes'],
       },
     },
     {

@@ -1,5 +1,5 @@
 /**
- * Launcher voice command channel — orchestrator broadcasts launcher_command over WS.
+ * Launcher voice command channel — HTTP poll (primary) + orchestrator WS (fallback).
  */
 
 import type { BrowseTab, ContentCard } from "./types";
@@ -22,11 +22,27 @@ type LauncherCommandMessage = {
   poster?: string;
 };
 
+type VoiceCommandsResponse = {
+  ok?: boolean;
+  commands?: Array<LauncherCommandMessage & { seq?: number }>;
+};
+
 function parseBrowseTab(value: string | undefined): BrowseTab | null {
   if (value === "movies" || value === "series" || value === "live") {
     return value;
   }
   return null;
+}
+
+function tabFromContentType(contentType: string | undefined): BrowseTab {
+  const normalized = contentType?.trim().toLowerCase() ?? "";
+  if (normalized === "series" || normalized === "tv") {
+    return "series";
+  }
+  if (normalized === "channel") {
+    return "live";
+  }
+  return "movies";
 }
 
 function cardFromCommand(message: LauncherCommandMessage): ContentCard | null {
@@ -78,7 +94,7 @@ export function handleLauncherCommand(
     return true;
   }
   if (action === "open_detail") {
-    const tab = parseBrowseTab(message.tab) ?? "movies";
+    const tab = parseBrowseTab(message.tab) ?? tabFromContentType(message.content_type);
     const card = cardFromCommand(message);
     if (card !== null) {
       handlers.onOpenDetail(card, tab);
@@ -88,10 +104,47 @@ export function handleLauncherCommand(
   return false;
 }
 
+function startVoiceCommandPoll(handlers: VoiceCommandHandlers): () => void {
+  let lastSeq = 0;
+  let stopped = false;
+  let pollTimer: number | undefined;
+
+  const poll = async (): Promise<void> => {
+    if (stopped) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/voice/commands?after=${lastSeq}`);
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as VoiceCommandsResponse;
+      for (const command of payload.commands ?? []) {
+        if (typeof command.seq === "number" && command.seq > lastSeq) {
+          lastSeq = command.seq;
+        }
+        handleLauncherCommand(command, handlers);
+      }
+    } catch {
+      // launcher UI server may restart briefly
+    }
+  };
+
+  void poll();
+  pollTimer = window.setInterval(() => void poll(), 400);
+
+  return () => {
+    stopped = true;
+    window.clearInterval(pollTimer);
+  };
+}
+
 export function startVoiceCommands(
   wsUrls: string[],
   handlers: VoiceCommandHandlers,
 ): () => void {
+  const stopPoll = startVoiceCommandPoll(handlers);
+
   let reconnectTimer: number | undefined;
   let urlIndex = 0;
   let stopped = false;
@@ -137,8 +190,10 @@ export function startVoiceCommands(
   };
 
   connect();
+
   return () => {
     stopped = true;
+    stopPoll();
     window.clearTimeout(reconnectTimer);
   };
 }

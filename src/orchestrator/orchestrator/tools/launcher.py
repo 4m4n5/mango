@@ -55,6 +55,12 @@ def _open_title_command(tool_input: dict[str, Any]) -> dict[str, Any]:
     tab = tool_input.get("tab")
     if isinstance(tab, str) and tab.strip():
         payload["tab"] = tab.strip()
+    else:
+        normalized = content_type.strip().lower()
+        if normalized in {"series", "tv"}:
+            payload["tab"] = "series"
+        elif normalized == "movie":
+            payload["tab"] = "movies"
     poster = tool_input.get("poster")
     if isinstance(poster, str) and poster.strip():
         payload["poster"] = poster.strip()
