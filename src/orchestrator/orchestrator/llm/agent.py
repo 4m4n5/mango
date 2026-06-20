@@ -395,7 +395,7 @@ async def _fast_path_open(
             }
         )
 
-    hit = pick_hit_from_utterance(user_text, hits) or pick_auto_open_hit(hits)
+    hit = pick_hit_from_utterance(user_text, hits) or pick_auto_open_hit(hits, query=query)
     need_external = hit is None or not hit_matches_sequel_query(user_text, hit)
     if need_external:
         external_hits = await _fast_path_external_search(
@@ -406,7 +406,8 @@ async def _fast_path_open(
         )
         if external_hits:
             hit = pick_hit_from_utterance(user_text, external_hits) or pick_auto_open_hit(
-                external_hits
+                external_hits,
+                query=query,
             )
 
     if hit is None:
@@ -505,7 +506,7 @@ async def _open_best_from_hits(
     *,
     on_tool_event: ToolEventCallback | None = None,
 ) -> tuple[bool, str]:
-    hit = pick_auto_open_hit(hits)
+    hit = pick_auto_open_hit(hits, query=extract_title_search_query(user_text) or user_text)
     if hit is None:
         return False, ""
     return await _open_hit(hit, settings, dispatch_launcher, on_tool_event=on_tool_event)

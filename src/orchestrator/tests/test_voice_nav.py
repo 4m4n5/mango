@@ -31,10 +31,17 @@ class OpenIntentTests(unittest.TestCase):
 
     def test_extract_query(self) -> None:
         self.assertEqual(extract_title_search_query("open Shawshank"), "Shawshank")
+        self.assertEqual(extract_title_search_query("Toy Story kholo"), "Toy Story")
+        self.assertEqual(extract_title_search_query("toy story open karo"), "toy story")
+
+    def test_bare_title_navigation(self) -> None:
+        self.assertTrue(user_wants_title_navigation("toy story"))
+        self.assertTrue(user_wants_title_navigation("toy story dekhte hain"))
 
     def test_followup_pick(self) -> None:
         self.assertTrue(is_followup_pick_only("doosra wala"))
         self.assertFalse(is_followup_pick_only("open Godfather"))
+        self.assertFalse(is_followup_pick_only("toy story three"))
 
     def test_switch_phrases(self) -> None:
         self.assertTrue(user_wants_title_navigation("instead open Godfather"))
@@ -72,6 +79,23 @@ class VoiceNavPickTests(unittest.TestCase):
         hit = {"type": "movie", "id": "tt0114709", "title": "Toy Story", "score": 100}
         self.assertFalse(hit_matches_sequel_query("open toy story 3", hit))
         self.assertTrue(hit_matches_sequel_query("open toy story", hit))
+
+    def test_spoken_sequel_three(self) -> None:
+        hits = [
+            {"type": "movie", "id": "tt0435761", "title": "Toy Story 3", "score": 68},
+            {"type": "movie", "id": "tt0114709", "title": "Toy Story", "score": 68},
+            {"type": "movie", "id": "tt0120363", "title": "Toy Story 2", "score": 68},
+        ]
+        hit = pick_hit_from_utterance("toy story three", hits)
+        self.assertEqual(hit["id"], "tt0435761")
+
+    def test_franchise_auto_open(self) -> None:
+        hits = [
+            {"type": "movie", "id": "tt0114709", "title": "Toy Story", "score": 100},
+            {"type": "movie", "id": "tt1979376", "title": "Toy Story 4", "score": 92},
+        ]
+        hit = pick_auto_open_hit(hits, query="toy story")
+        self.assertEqual(hit["id"], "tt0114709")
 
 
 if __name__ == "__main__":

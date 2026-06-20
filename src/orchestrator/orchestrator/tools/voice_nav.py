@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from orchestrator.llm.open_intent import is_followup_pick_only
+
 _ORDINAL_WORDS: dict[str, int] = {
     "first": 0,
     "one": 0,
@@ -24,14 +26,52 @@ _ORDINAL_WORDS: dict[str, int] = {
     "four": 3,
     "chautha": 3,
 }
+# Spoken sequel numbers — only when naming a title ("toy story three"), not list picks.
+_SPOKEN_SEQUEL_NUMBERS: dict[str, str] = {
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+    "first": "1",
+    "second": "2",
+    "third": "3",
+    "fourth": "4",
+    "fifth": "5",
+    "teesra": "3",
+    "teesri": "3",
+    "chautha": "4",
+}
+_FRANCHISE_WORDS = re.compile(
+    r"\b(story|stories|part|chapter|season|episode|movie|film|series)\b",
+    re.IGNORECASE,
+)
 _OPTION_NUM = re.compile(r"\b(?:option|number|#)\s*(\d+)\b", re.IGNORECASE)
 _BARE_NUM = re.compile(r"\b([1-4])\b")
 _SEQUEL_NUM = re.compile(r"\b(\d+)\b")
 
 
 def sequel_number_in_query(text: str) -> str | None:
-    match = _SEQUEL_NUM.search(text.strip())
-    return match.group(1) if match else None
+    normalized = text.strip().lower()
+    if not normalized:
+        return None
+    digit = _SEQUEL_NUM.search(normalized)
+    if digit:
+        return digit.group(1)
+    # Spoken sequel ("toy story three") — not bare list picks like "the third one".
+    if is_followup_pick_only(text):
+        return None
+    if not _FRANCHISE_WORDS.search(normalized) and len(normalized.split()) <= 3:
+        return None
+    for word, num in _SPOKEN_SEQUEL_NUMBERS.items():
+        if re.search(rf"\b{re.escape(word)}\b", normalized):
+            return num
+    return None
 
 
 def hit_matches_sequel_query(text: str, hit: dict[str, Any]) -> bool:
@@ -54,6 +94,20 @@ def _pick_sequel_hit(text: str, hits: list[dict[str, Any]]) -> dict[str, Any] | 
         if isinstance(title, str) and re.search(rf"\b{re.escape(num)}\b", title):
             return hit
     return None
+
+
+def _should_use_ordinal_index(text: str) -> bool:
+    """List picks only — never treat 'toy story three' as 'third search result'."""
+    normalized = text.strip().lower()
+    if not normalized:
+        return False
+    if sequel_number_in_query(text) and _FRANCHISE_WORDS.search(normalized):
+        return False
+    if is_followup_pick_only(text):
+        return True
+    if re.search(r"\b(wala|wali|wale|option|number)\b", normalized):
+        return True
+    return len(normalized.split()) <= 3 and not _FRANCHISE_WORDS.search(normalized)
 
 
 def hit_to_open_input(hit: dict[str, Any]) -> dict[str, Any]:
@@ -86,26 +140,27 @@ def pick_hit_from_utterance(text: str, hits: list[dict[str, Any]]) -> dict[str, 
     if not normalized:
         return None
 
-    for word, index in _ORDINAL_WORDS.items():
-        if re.search(rf"\b{re.escape(word)}\b", normalized) and index < len(hits):
-            return hits[index]
-
-    option_match = _OPTION_NUM.search(normalized)
-    if option_match:
-        index = int(option_match.group(1)) - 1
-        if 0 <= index < len(hits):
-            return hits[index]
-
-    if len(hits) <= 4:
-        bare = _BARE_NUM.search(normalized)
-        if bare and any(token in normalized for token in ("option", "number", "wala", "one")):
-            index = int(bare.group(1)) - 1
-            if 0 <= index < len(hits):
-                return hits[index]
-
     sequel = _pick_sequel_hit(normalized, hits)
     if sequel is not None:
         return sequel
+
+    if _should_use_ordinal_index(text):
+        for word, index in _ORDINAL_WORDS.items():
+            if re.search(rf"\b{re.escape(word)}\b", normalized) and index < len(hits):
+                return hits[index]
+
+        option_match = _OPTION_NUM.search(normalized)
+        if option_match:
+            index = int(option_match.group(1)) - 1
+            if 0 <= index < len(hits):
+                return hits[index]
+
+        if len(hits) <= 4:
+            bare = _BARE_NUM.search(normalized)
+            if bare and any(token in normalized for token in ("option", "number", "wala", "one")):
+                index = int(bare.group(1)) - 1
+                if 0 <= index < len(hits):
+                    return hits[index]
 
     best: tuple[int, dict[str, Any]] | None = None
     for hit in hits:
@@ -124,9 +179,30 @@ def pick_hit_from_utterance(text: str, hits: list[dict[str, Any]]) -> dict[str, 
     return best[1] if best is not None else None
 
 
-def pick_auto_open_hit(hits: list[dict[str, Any]]) -> dict[str, Any] | None:
+def _normalize_query(query: str) -> str:
+    return query.strip().lower().replace("  ", " ")
+
+
+def pick_auto_open_hit(hits: list[dict[str, Any]], *, query: str | None = None) -> dict[str, Any] | None:
     if not hits:
         return None
+
+    normalized_query = _normalize_query(query) if isinstance(query, str) and query.strip() else ""
+    if normalized_query:
+        for hit in hits:
+            title = hit.get("title")
+            if isinstance(title, str) and _normalize_query(title) == normalized_query:
+                return hit
+        if sequel_number_in_query(query or "") is None:
+            prefix_hits = [
+                hit
+                for hit in hits
+                if isinstance(hit.get("title"), str)
+                and _normalize_query(str(hit["title"])).startswith(f"{normalized_query} ")
+            ]
+            if prefix_hits:
+                return min(prefix_hits, key=lambda hit: len(str(hit.get("title", ""))))
+
     scored: list[tuple[int, dict[str, Any]]] = []
     for hit in hits:
         score = hit.get("score")
@@ -139,6 +215,8 @@ def pick_auto_open_hit(hits: list[dict[str, Any]]) -> dict[str, Any] | None:
         return None
     scored.sort(key=lambda pair: pair[0], reverse=True)
     top_score, top_hit = scored[0]
+    if top_score >= 100:
+        return top_hit
     if top_score >= 92:
         return top_hit
     if len(scored) == 1 and top_score >= 78:
@@ -148,5 +226,7 @@ def pick_auto_open_hit(hits: list[dict[str, Any]]) -> dict[str, Any] | None:
     if len(scored) > 1:
         second_score = scored[1][0]
         if top_score >= 85 and top_score - second_score >= 12:
+            return top_hit
+        if normalized_query and top_score >= 78 and top_score - second_score >= 6:
             return top_hit
     return None

@@ -2,7 +2,7 @@
 
 llm:
   provider: anthropic  # anthropic | openai
-  model: claude-haiku-4-5-20251001  # haiku = fast; sonnet-4-6 = smarter/slower
+  model: claude-sonnet-4-6  # sonnet = best Hinglish + tool use; haiku = faster/cheaper
   max_tokens: 192  # voice tools need slightly longer replies
   history_turns: 3  # user+assistant pairs kept for context
   api_key_file: /etc/mango/llm.key
@@ -21,10 +21,21 @@ stt:
     - mango
     - movie
     - series
+    - kholo
+    - khol
+    - dikhao
+    - chalao
+    - lagao
+    - Shawshank
+    - Godfather
+    - Panchayat
+    - Toy Story
+    - Breaking Bad
     - aaj kya
     - dekhein
     - dekhte hain
     - kya chal raha hai
+    - kya dekhu
     - lagao
     - band karo
   # local fallback only (provider: local):

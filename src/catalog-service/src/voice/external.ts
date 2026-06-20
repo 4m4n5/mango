@@ -120,11 +120,18 @@ export async function searchExternalTitles(
         library_status: playability?.status,
         queued_for_verify: queued,
       });
-      if (results.length >= limit) {
-        return { ok: true, query: trimmed, results };
-      }
     }
   }
 
-  return { ok: true, query: trimmed, results };
+  results.sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    if (left.in_library !== right.in_library) {
+      return left.in_library ? -1 : 1;
+    }
+    return left.title.localeCompare(right.title);
+  });
+
+  return { ok: true, query: trimmed, results: results.slice(0, limit) };
 }

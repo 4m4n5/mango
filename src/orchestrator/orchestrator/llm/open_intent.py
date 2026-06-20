@@ -6,8 +6,9 @@ import re
 
 _OPEN_VERBS = re.compile(
     r"\b("
-    r"open|kholo|khol|dikhao|dikha|dikha\s*do|show|play|chalao|chala|chala\s*do|"
-    r"lagao|laga\s*do|start|dekhna|dekho|pull\s*up|bring\s*up"
+    r"open|kholo|khol|dikhao|dikha|dikha\s*do|dikha\s*de|show|play|chalao|chala|chala\s*do|"
+    r"chalaye|chalana|lagao|laga\s*do|laga\s*de|start|dekhna|dekho|dekhe|dekhte|"
+    r"pull\s*up|bring\s*up|karo|kar\s*do|kar\s*de"
     r")\b",
     re.IGNORECASE,
 )
@@ -37,11 +38,36 @@ _FOLLOWUP = re.compile(
 )
 _OPEN_VERBS_STRIP = re.compile(
     r"^\s*(?:"
-    r"open|kholo|khol|dikhao|dikha(?:\s*do)?|show|play|chalao|chala(?:\s*do)?|"
-    r"lagao|laga(?:\s*do)?|start|dekhna|dekho|pull\s*up|bring\s*up"
+    r"open|kholo|khol|dikhao|dikha(?:\s*do|\s*de)?|show|play|chalao|chala(?:\s*do)?|"
+    r"chalaye|chalana|lagao|laga(?:\s*do|\s*de)?|start|dekhna|dekho|dekhe|dekhte|"
+    r"pull\s*up|bring\s*up|karo|kar\s*do|kar\s*de"
     r")\s+",
     re.IGNORECASE,
 )
+_HINDI_SUFFIX = re.compile(
+    r"\s+(?:"
+    r"kholo|khol|karo|kar\s*do|kar\s*de|kar\s*dena|chalao|chala\s*do|dikhao|"
+    r"dikha\s*do|dikha\s*de|laga\s*do|laga\s*de|open\s*karo|play\s*karo|"
+    r"de\s*do|dedo|please|na|ji|yaar|bhai"
+    r")\s*$",
+    re.IGNORECASE,
+)
+_QUESTION = re.compile(
+    r"\b(what|why|how|when|who|kya|kaise|kyun|tell\s+me\s+about|about)\b",
+    re.IGNORECASE,
+)
+_FRANCHISE_WORDS = re.compile(
+    r"\b(story|stories|part|chapter|season|episode|movie|film|series)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_title_query(text: str) -> str:
+    cleaned = text.strip(" .,!?:;")
+    cleaned = _OPEN_VERBS_STRIP.sub("", cleaned).strip()
+    cleaned = _HINDI_SUFFIX.sub("", cleaned).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
 
 
 def user_wants_open_detail(text: str) -> bool:
@@ -67,19 +93,28 @@ def user_wants_title_navigation(text: str) -> bool:
         return False
     if user_wants_open_detail(normalized):
         return True
-    if _ORDINAL_PICK.search(normalized):
+    if is_followup_pick_only(normalized):
         return True
     if _SWITCH.search(normalized):
         return True
     if _FOLLOWUP.search(normalized):
         return True
+    if _bare_title_request(normalized):
+        return True
     return False
 
 
-_QUESTION = re.compile(
-    r"\b(what|why|how|when|who|kya|kaise|kyun|tell\s+me\s+about|about)\b",
-    re.IGNORECASE,
-)
+def _bare_title_request(text: str) -> bool:
+    """Short title name without an open verb — 'toy story', 'Shawshank'."""
+    if _QUESTION.search(text) or _RECOMMEND_ONLY.search(text):
+        return False
+    if is_followup_pick_only(text):
+        return False
+    cleaned = _clean_title_query(text)
+    if len(cleaned) < 2:
+        return False
+    words = cleaned.split()
+    return 1 <= len(words) <= 6
 
 
 def extract_title_search_query(text: str) -> str | None:
@@ -87,7 +122,7 @@ def extract_title_search_query(text: str) -> str | None:
     normalized = text.strip()
     if not normalized:
         return None
-    stripped = _OPEN_VERBS_STRIP.sub("", normalized).strip(" .,!?:;")
+    stripped = _clean_title_query(normalized)
     if len(stripped) < 2:
         return None
     if _RECOMMEND_ONLY.search(stripped) and not _OPEN_VERBS.search(normalized):
@@ -100,12 +135,14 @@ def is_followup_pick_only(text: str) -> bool:
     normalized = text.strip()
     if not normalized:
         return False
-    if _ORDINAL_PICK.search(normalized):
-        return True
     if _FOLLOWUP.search(normalized):
         return True
     if _SWITCH.search(normalized) and not extract_title_search_query(normalized):
         return True
+    cleaned = _clean_title_query(normalized)
+    if _ORDINAL_PICK.search(normalized) and len(cleaned.split()) <= 3:
+        if not _FRANCHISE_WORDS.search(normalized):
+            return True
     return False
 
 
@@ -118,5 +155,4 @@ def utterance_is_title_pick_only(text: str) -> bool:
         return True
     if _RECOMMEND_ONLY.search(normalized):
         return False
-    # Short utterance that names a title after the agent listed options.
     return len(normalized.split()) <= 6
