@@ -640,24 +640,55 @@ WHERE (type, id) IN ( VALUES ${placeholders} );
   }
 }
 
-export async function getStaleTitlesInPools(): Promise<Array<{ type: string; id: string }>> {
+export async function getStaleTitlesForRefresh(): Promise<Array<{ type: string; id: string; rail_id: string | null }>> {
   await initPlayabilityDb();
   const now = nowMs();
   const couchProbeMs = playabilityCouchProbeMs();
   const db = openDb();
   try {
-    const rows = db.prepare(`
-SELECT DISTINCT rp.type, rp.id
-FROM rail_pool rp
-JOIN titles t ON t.type = rp.type AND t.id = rp.id
-WHERE t.status = 'stale'
-   OR (t.status = 'verified' AND COALESCE(t.expires_at, 0) <= @now)
-   OR (t.status = 'verified' AND COALESCE(t.probe_ms, 999999) > @couch_probe_ms);
-`).all({ now, couch_probe_ms: couchProbeMs }) as Array<{ type: string; id: string }>;
-    return rows;
+    return db.prepare(`
+SELECT DISTINCT type, id, rail_id FROM (
+  SELECT
+    t.type,
+    t.id,
+    (
+      SELECT vl.rail_id
+      FROM verify_log vl
+      WHERE vl.type = t.type
+        AND vl.id_value = t.id
+        AND vl.rail_id IS NOT NULL
+      ORDER BY vl.started_at DESC
+      LIMIT 1
+    ) AS rail_id
+  FROM titles t
+  WHERE t.status = 'stale'
+  UNION
+  SELECT
+    t.type,
+    t.id,
+    (
+      SELECT rp.rail_id
+      FROM rail_pool rp
+      WHERE rp.type = t.type AND rp.id = t.id
+      LIMIT 1
+    ) AS rail_id
+  FROM titles t
+  INNER JOIN rail_pool rp ON rp.type = t.type AND rp.id = t.id
+  WHERE t.status = 'verified'
+    AND (
+      COALESCE(t.expires_at, 0) <= @now
+      OR COALESCE(t.probe_ms, 999999) > @couch_probe_ms
+    )
+);
+`).all({ now, couch_probe_ms: couchProbeMs }) as Array<{ type: string; id: string; rail_id: string | null }>;
   } finally {
     db.close();
   }
+}
+
+export async function getStaleTitlesInPools(): Promise<Array<{ type: string; id: string }>> {
+  const rows = await getStaleTitlesForRefresh();
+  return rows.map(({ type, id }) => ({ type, id }));
 }
 
 export async function getRailPoolTitleKeysBulk(

@@ -2,7 +2,7 @@ import type { CatalogCore } from '../core.js';
 import {
   getPlayabilityStatus,
   getRailPoolTitleKeysBulk,
-  getStaleTitlesInPools,
+  getStaleTitlesForRefresh,
   getTitlesPlayabilityBulk,
   pruneNonPlayableFromRailPools,
   type PlayabilityRailStatus,
@@ -150,13 +150,13 @@ export async function refreshAllRails(
     }
   }));
 
-  const staleTitles = mode === 'stale' ? await getStaleTitlesInPools() : [];
+  const staleTitles = mode === 'stale' ? await getStaleTitlesForRefresh() : [];
   const staleKeys = new Set(staleTitles.map((title) => candidateKey(title)));
   for (const title of staleTitles) {
     const key = candidateKey(title);
     if (!refsByKey.has(key)) {
       refsByKey.set(key, [{
-        railId: railIds[0] ?? 'unknown',
+        railId: title.rail_id ?? railIds[0] ?? 'unknown',
         index: 0,
         candidate: { id: title.id, type: title.type, source: 'stale_pool' },
       }]);
