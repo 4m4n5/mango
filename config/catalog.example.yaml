@@ -3,6 +3,8 @@
 # N2b: Movies | TV Shows tabs · 6 discover rails per tab.
 # Curation notes: config/catalog-rail-curation.md
 #
+# Series yaml order: anchor rails first, optional/niche last (niche-first session allocation).
+#
 # Rail catalog ids must exist in AIOMetadata manifest — sync via:
 #   bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
 # Mapping reference: config/aiometadata-rail-catalogs.json
@@ -10,7 +12,7 @@
 version: 2
 
 rails:
-  # ── Movies tab (yaml order = display priority; niche rails allocate session slots first) ──
+  # ── Movies tab (niche rails later in yaml → allocate session slots first) ──
 
   - id: movies-global-popular
     tab: movies
@@ -77,13 +79,13 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: mdblist.83668, weight: 0.6 }
-      - { addon: AIOMetadata, catalog: mdblist.88302, weight: 0.4 }
+      - { addon: AIOMetadata, catalog: mdblist.88302, weight: 0.7 }
+      - { addon: AIOMetadata, catalog: mdblist.83666, weight: 0.3 }
     playability:
       display_limit: 20
       min_display: 20
       pool_target: 20
-      ingest_multiplier: 10
+      ingest_multiplier: 8
 
   - id: movies-documentaries
     tab: movies
@@ -99,7 +101,7 @@ rails:
       pool_target: 20
       ingest_multiplier: 10
 
-  # ── TV Shows tab ────────────────────────────────────────────────────────────
+  # ── TV Shows tab (comedy last → first pick in tab session for dedup) ────────
 
   - id: series-global-popular
     tab: series
@@ -108,27 +110,13 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: Cinemeta, catalog: top, weight: 0.7 }
-      - { addon: AIOMetadata, catalog: mdblist.88303, weight: 0.3 }
+      - { addon: Cinemeta, catalog: top, weight: 0.8 }
+      - { addon: AIOMetadata, catalog: mdblist.105797, weight: 0.2 }
     playability:
       display_limit: 20
       min_display: 20
       pool_target: 20
       ingest_multiplier: 5
-
-  - id: series-india-picks
-    tab: series
-    label: indian series
-    type: addon_catalog
-    addon: AIOMetadata
-    catalog: custom.in_rdata_indiastreams.series.trendingtv
-    content_type: series
-    limit: 20
-    playability:
-      display_limit: 20
-      min_display: 20
-      pool_target: 20
-      ingest_multiplier: 8
 
   - id: series-classics
     tab: series
@@ -144,14 +132,15 @@ rails:
       pool_target: 20
       ingest_multiplier: 5
 
-  - id: series-comedy
+  - id: series-india-picks
     tab: series
-    label: comedy
-    type: addon_catalog
-    addon: AIOMetadata
-    catalog: mdblist.91224
+    label: indian series
+    type: composite_list
     content_type: series
     limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.7 }
+      - { addon: Cinemeta, catalog: top, weight: 0.3 }
     playability:
       display_limit: 20
       min_display: 20
@@ -174,15 +163,31 @@ rails:
 
   - id: series-reality-casual
     tab: series
-    label: reality & casual
-    type: addon_catalog
-    addon: AIOMetadata
-    catalog: mdblist.84401
+    label: light & casual
+    type: composite_list
     content_type: series
     limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: top, weight: 0.65 }
+      - { addon: AIOMetadata, catalog: mdblist.105797, weight: 0.35 }
     playability:
       display_limit: 20
-      min_display: 20
+      min_display: 12
+      pool_target: 20
+      ingest_multiplier: 10
+
+  - id: series-comedy
+    tab: series
+    label: comedy
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: top, weight: 0.65 }
+      - { addon: AIOMetadata, catalog: mdblist.91224, weight: 0.35 }
+    playability:
+      display_limit: 20
+      min_display: 12
       pool_target: 20
       ingest_multiplier: 10
 
