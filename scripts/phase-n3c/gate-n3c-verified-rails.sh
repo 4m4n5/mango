@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N3c gate — play served rail items (sampled unless MANGO_GATE_FULL=1).
+# N3c gate — play served rail items (full gate only; deploy uses gate-lite-play.sh).
 
 set -euo pipefail
 

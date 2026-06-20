@@ -17,11 +17,15 @@
 **Gates** (lean — no nested regression chains):
 
 ```bash
-bash scripts/pi-pre-couch-gate.sh          # N0 + sampled N3c (2 plays/rail)
-MANGO_GATE_FULL=1 bash scripts/phase-n3c/gate-n3c-verified-rails.sh  # all served items
+bash scripts/pi-pre-couch-gate.sh          # gate-lite (~1–2 min) — default for deploy --gate
+bash scripts/gate-lite.sh                  # same, on Pi directly
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # full: 2 plays/rail + N3a browse picks
+bash scripts/pi-pre-couch-gate-full.sh     # explicit full gate
+MANGO_GATE_FULL=1 bash scripts/phase-n3c/gate-n3c-verified-rails.sh  # all served items/rail
 bash scripts/phase-n0/gate-n0.sh           # stack hygiene only
 bash scripts/phase-n1/gate-n1-smoke.sh     # catalog API (+ MANGO_GATE_SPIKES=1 for spikes)
 bash scripts/phase-n2/gate-n2-browse.sh    # rails browse only
+bash scripts/gate-lite-play.sh             # 1 movie + 1 series play smoke
 ```
 
 Shared helpers: `lib/gate-common.sh`
@@ -82,6 +86,7 @@ Details: [phase0/README.md](phase0/README.md)
 |--------|------|
 | `diag/playability-status.py` | Pool depth / verified counts |
 | `diag/source-hitrate.py` | Per-catalog candidate probe rates |
+| `diag/mdblist-inventory.py` | Sync [mdblist toplists](https://mdblist.com/toplists/), LLM export |
 | `diag/rail-hitrate.py` | Per-rail verified play samples |
 | `diag/alpha-test.sh` | Couch session log on Pi |
 | `diag/fetch-session.sh` | Pull session tarball to Mac |
@@ -96,6 +101,15 @@ Details: [phase0/README.md](phase0/README.md)
 | `phase-n3c/playability-maintenance.sh` | Indexer refresh worker (timer + manual) |
 | `phase-n3c/rail-curation.sh` | Manual pins/blocks |
 | `phase-n3c/install-playability-timer.sh` | One-time Pi systemd timer setup |
+
+## MDBList curation (N3d)
+
+| Script | Role |
+|--------|------|
+| `phase-n3d/mdblist-catalog-pipeline.sh` | Sync toplists → inventory → LLM export → compose |
+| `phase-n3d/rail-compose.py` | Apply LLM `rail-compose.schema.json` proposals to catalog yaml |
+| `diag/mdblist-inventory.py` | `config/mdblist-inventory.json` — tags, hit rates, toplists |
+| `diag/resolve-mdblist-ids.py` | Resolve `user/slug` → `mdblist.N` |
 
 ## Mac → Pi
 

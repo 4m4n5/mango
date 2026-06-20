@@ -156,8 +156,8 @@ if [[ "$REFRESH_RC" -ne 0 ]]; then
 fi
 
 if [[ "$SKIP_GATE" != "1" && -x "$REPO_DIR/scripts/pi-pre-couch-gate.sh" ]]; then
-  echo "running sampled pre-couch gate"
-  MANGO_N3C_GATE_MAX_PER_RAIL="$GATE_SAMPLE" bash "$REPO_DIR/scripts/pi-pre-couch-gate.sh" || {
+  echo "running gate-lite after maintenance"
+  bash "$REPO_DIR/scripts/gate-lite.sh" || {
     echo "gate failed after maintenance — inspect playability status" >&2
     exit 1
   }

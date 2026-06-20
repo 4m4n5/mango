@@ -73,13 +73,15 @@ bash scripts/phase2/verify-voice-ready.sh
 **Pre-couch gate (agent runs before user tests):**
 
 ```bash
-bash scripts/pi-exec-gate.sh          # Mac: pull + gate on Pi
-bash scripts/pi-pre-couch-gate.sh     # on Pi
+bash scripts/pi-exec-gate.sh          # Mac: pull + gate-lite on Pi
+bash scripts/pi-pre-couch-gate.sh     # on Pi — gate-lite (~1–2 min)
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # full per-rail play sweep (slow)
 bash scripts/phase-n3d/gate-n3d-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=1
+bash scripts/gate-lite.sh             # quick deploy gate (N0 + N3d API + N2 + unit + 2 plays)
 bash scripts/phase-n3a/gate-n3a-play-ladder.sh   # ladder config + unit (Mac or Pi)
 bash scripts/phase-n3c/gate-n3c-verify-ladder.sh
-bash scripts/phase-n3c/gate-n3c-verified-rails.sh  # sampled play on displayed items
-bash scripts/phase-n3a/gate-n3a-play.sh          # live couch play on Pi
+bash scripts/phase-n3c/gate-n3c-verified-rails.sh  # full gate only — per-rail play
+bash scripts/phase-n3a/gate-n3a-play.sh          # full gate browse picks (slow)
 bash scripts/phase-n0/gate-n0.sh
 ```
 

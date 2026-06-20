@@ -7,7 +7,7 @@
 #   --fast   default for agent iteration — build + restart; npm ci only when
 #            package-lock.json changes (see scripts/lib/pi-npm-deps.sh)
 #   --full   always npm ci both apps (deps change, first boot, handoff)
-#   --gate   run pi-pre-couch gate after deploy (use before couch handoff)
+#   --gate   run gate-lite after deploy (MANGO_GATE_FULL=1 for per-rail play sweep)
 
 set -euo pipefail
 

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Pre-couch gate — run on Pi before TV testing. Deploy via git pull only (see docs/DEPLOY.md).
 # Mac: bash scripts/pi-exec-gate.sh  or  bash scripts/pi-deploy.sh --fast --gate
+#
+# Default: gate-lite (~1–2 min). Full per-rail play: MANGO_GATE_FULL=1
 
 set -euo pipefail
 
@@ -25,20 +27,11 @@ if git fetch origin 2>/dev/null; then
 fi
 
 if [[ "$BRANCH" == "feat/native-experience" ]]; then
-  bash scripts/phase-n0/gate-n0.sh
-  if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
-    curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
-      || { echo "FAIL: catalog down — bash scripts/mango-refresh.sh" >&2; exit 1; }
-    if [[ "${MANGO_SELF_HOSTED_ADDONS:-0}" == "1" || -f /etc/mango/aiostreams.enabled ]]; then
-      bash scripts/phase-n3d/gate-n3d-self-hosted.sh
-    fi
-    if [[ -x scripts/phase-n3c/gate-n3c-verified-rails.sh ]]; then
-      bash scripts/phase-n3c/gate-n3c-verified-rails.sh
-    fi
-    if [[ -x scripts/phase-n3a/gate-n3a-play.sh ]]; then
-      bash scripts/phase-n3a/gate-n3a-play.sh
-    fi
+  if [[ "${MANGO_GATE_FULL:-0}" == "1" ]]; then
+    bash scripts/pi-pre-couch-gate-full.sh
+    exit $?
   fi
+  bash scripts/gate-lite.sh
   echo "PRE-COUCH: PASS"
   exit 0
 fi
