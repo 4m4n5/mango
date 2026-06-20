@@ -285,12 +285,20 @@ export function normalizeLiveChannelMeta(meta: Record<string, unknown>): LiveCha
     : typeof meta.title === 'string' && meta.title.trim() !== ''
       ? meta.title.trim()
       : id;
+  const genreFromList = Array.isArray(meta.genres)
+    ? (meta.genres as unknown[])
+      .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+      .join(' · ')
+    : '';
+  const genre = typeof meta.genre === 'string' && meta.genre.trim() !== ''
+    ? meta.genre.trim()
+    : genreFromList || undefined;
   return {
     id,
     name,
     title: typeof meta.title === 'string' ? meta.title : undefined,
     description: typeof meta.description === 'string' ? meta.description : undefined,
-    genre: typeof meta.genre === 'string' ? meta.genre : undefined,
+    genre,
     poster: typeof meta.poster === 'string' ? meta.poster : undefined,
     releaseInfo: typeof meta.releaseInfo === 'string' ? meta.releaseInfo : undefined,
   };
