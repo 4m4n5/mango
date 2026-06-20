@@ -109,11 +109,14 @@ apply_profile() {
 }
 
 apply_free() {
-  local free_base free_creds
+  local free_base free_creds data_dir
   free_base="$(nexotv_free_base_url)"
   free_creds="$(nexotv_free_credentials_file)"
+  data_dir="${MANGO_NEXOTV_FREE_DATA_DIR:-$HOME/.local/share/mango/nexotv-free/data}"
   nexotv_free_health_ok || die "NexoTV free down at $free_base — run: bash scripts/phase-live/install-nexotv-free.sh"
-  apply_profile_to "$free_base" "$free_creds" "${PROFILE_ID:-iptv-org-sports}"
+  mkdir -p "$data_dir"
+  cp -f "${REPO_DIR}/config/live-sports-curated.m3u" "$data_dir/live-sports-curated.m3u"
+  apply_profile_to "$free_base" "$free_creds" "${PROFILE_ID:-m3u-sports-curated}"
 }
 
 apply_news() {
@@ -244,7 +247,7 @@ case "$cmd" in
   init-profiles) init_profiles ;;
   list-profiles) list_profiles ;;
   apply) apply_profile ;;
-  apply-free) PROFILE_ID="${2:-iptv-org-sports}"; apply_free ;;
+  apply-free) PROFILE_ID="${2:-m3u-sports-curated}"; apply_free ;;
   apply-news) PROFILE_ID="${2:-m3u-news-hi-en}"; apply_news ;;
   apply-area69) apply_area69 ;;
   wire-export) wire_export ;;

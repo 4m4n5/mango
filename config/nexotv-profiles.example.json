@@ -66,6 +66,16 @@
         "catalogName": "mango Live News"
       }
     },
+    "m3u-sports-curated": {
+      "label": "Curated sports (mango — cricket, FIFA, racing)",
+      "config": {
+        "provider": "m3u",
+        "m3uUrl": "file:///app/data/live-sports-curated.m3u",
+        "enableEpg": false,
+        "reformatLogos": true,
+        "catalogName": "mango Live Free"
+      }
+    },
     "m3u-sports": {
       "label": "IPTV-org sports M3U playlist",
       "config": {

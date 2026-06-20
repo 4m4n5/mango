@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   channelSubtitle,
   keywordPattern,
+  matchAllChannelsToRail,
   matchChannelsToRail,
   matchChannelsWithSourceFill,
   partitionChannelsBySportRails,
@@ -108,6 +109,47 @@ test('live-rails hindi english news excludes regional language variants', () => 
   const assigned = new Set<string>();
   const matches = matchChannelsToRail(channels, rail, assigned);
   assert.deepEqual(matches.map((item) => item.id), ['1', '3', '5']);
+});
+
+test('live-rails match_all fills curated addon in order', () => {
+  const rail: LiveSportRail = {
+    id: 'live-news',
+    label: 'news',
+    keywords: ['news'],
+    limit: 3,
+    source_fill: [{ addon: 'mango Live News', limit: 3, match_all: true }],
+  };
+  const channels: LiveChannelWithSource[] = [
+    { ...channel({ id: '1', name: 'Republic TV (1080p)' }), source_addon: 'mango Live News' },
+    { ...channel({ id: '2', name: 'NDTV 24x7 (720p)' }), source_addon: 'mango Live News' },
+    { ...channel({ id: '3', name: 'Aaj Tak HD (1080p)' }), source_addon: 'mango Live News' },
+  ];
+  const assigned = new Set<string>();
+  const matches = matchChannelsWithSourceFill(channels, rail, assigned);
+  assert.deepEqual(matches.map((item) => item.id), ['1', '2', '3']);
+});
+
+test('live-rails football fill excludes generic PRIME channels', () => {
+  const rail: LiveSportRail = {
+    id: 'live-football',
+    label: 'football',
+    keywords: ['football'],
+    limit: 5,
+    source_fill: [{
+      addon: 'mango Live TV',
+      limit: 5,
+      keywords: ['world cup'],
+      exclude_keywords: ['prime', 'sitcom'],
+    }],
+  };
+  const channels: LiveChannelWithSource[] = [
+    { ...channel({ id: 'wc', name: 'World Cup 01 : Netherlands vs Sweden' }), source_addon: 'mango Live TV' },
+    { ...channel({ id: 'bad', name: 'PRIME: 90S SITCOM' }), source_addon: 'mango Live TV' },
+    { ...channel({ id: 'bad2', name: 'PRIME: ABC NEWS LIVE' }), source_addon: 'mango Live TV' },
+  ];
+  const assigned = new Set<string>();
+  const matches = matchChannelsWithSourceFill(channels, rail, assigned);
+  assert.deepEqual(matches.map((item) => item.id), ['wc']);
 });
 
 test('live-rails source_fill prefers Indian news before US paid affiliates', () => {

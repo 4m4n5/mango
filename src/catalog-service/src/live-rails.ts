@@ -8,6 +8,9 @@ export type LiveSourceFill = {
   addon: string;
   limit: number;
   keywords?: string[];
+  exclude_keywords?: string[];
+  /** Take channels in catalog order (for mango-curated M3U addons). */
+  match_all?: boolean;
 };
 
 export type LiveSportRail = {
@@ -143,7 +146,15 @@ function readSourceFill(record: Record<string, unknown>, context: string): LiveS
     const keywords = row.keywords === undefined
       ? undefined
       : readKeywords(row, `${context}.source_fill[${index}]`);
-    return { addon, limit, keywords };
+    const match_all = row.match_all === true;
+    const exclude_keywords = readOptionalStringArray(row, 'exclude_keywords');
+    return {
+      addon,
+      limit,
+      keywords,
+      exclude_keywords,
+      match_all: match_all || undefined,
+    };
   });
 }
 
@@ -334,6 +345,32 @@ export function normalizeLiveChannelMeta(meta: Record<string, unknown>): LiveCha
 
 export type LiveChannelWithSource = LiveChannelMeta & { source_addon?: string };
 
+export function matchAllChannelsToRail(
+  channels: LiveChannelMeta[],
+  rail: Pick<LiveSportRail, 'limit' | 'exclude_keywords'>,
+  assignedIds: Set<string>,
+): LiveChannelMeta[] {
+  const excludePattern = rail.exclude_keywords?.length
+    ? keywordPattern(rail.exclude_keywords)
+    : null;
+  const matches: LiveChannelMeta[] = [];
+  for (const channel of channels) {
+    if (assignedIds.has(channel.id)) {
+      continue;
+    }
+    const text = searchableChannelText(channel);
+    if (excludePattern?.test(text)) {
+      continue;
+    }
+    matches.push(channel);
+    assignedIds.add(channel.id);
+    if (matches.length >= rail.limit) {
+      break;
+    }
+  }
+  return matches;
+}
+
 export function matchChannelsWithSourceFill(
   channels: LiveChannelWithSource[],
   rail: LiveSportRail,
@@ -348,10 +385,17 @@ export function matchChannelsWithSourceFill(
     const subRail: LiveSportRail = {
       ...rail,
       keywords: fill.keywords?.length ? fill.keywords : rail.keywords,
+      exclude_keywords: fill.exclude_keywords?.length
+        ? fill.exclude_keywords
+        : rail.exclude_keywords,
       limit: fill.limit,
+      include_genres: fill.match_all || fill.keywords?.length ? undefined : rail.include_genres,
       source_fill: undefined,
     };
-    matches.push(...matchChannelsToRail(pool, subRail, assignedIds));
+    const next = fill.match_all
+      ? matchAllChannelsToRail(pool, subRail, assignedIds)
+      : matchChannelsToRail(pool, subRail, assignedIds);
+    matches.push(...next);
     if (matches.length >= rail.limit) {
       break;
     }

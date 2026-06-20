@@ -1,6 +1,6 @@
 # mango live TV rails — copy to /etc/mango/catalog-live.yaml on the Pi
 #
-# Mixes AREA69 (paid) + IPTV-org sports (free) via two NexoTV instances.
+# Curated free sports via mango Live Free M3U; AREA69 paid for live PPV events.
 # verify_streams: false avoids NexoTV /stream/ rate limits; disk cache at ~/.cache/mango/
 
 version: 2
@@ -12,12 +12,12 @@ sources:
     label: AREA69
     catalog: iptv_channels
     catalog_type: tv
-    pages: 8
+    pages: 3
   - addon: mango Live Free
     label: free
     catalog: iptv_channels
     catalog_type: tv
-    pages: 4
+    pages: 1
   - addon: mango Live News
     label: news
     catalog: iptv_channels
@@ -27,74 +27,76 @@ sources:
 rails:
   - id: live-cricket
     label: cricket
+    limit: 7
+    source_fill:
+      - addon: mango Live Free
+        limit: 7
+        keywords:
+          - star sports
+          - willow
+          - dd sports
+          - cricket gold
     keywords:
       - cricket
-      - ipl
-      - willow
-      - star sports
-      - bcci
-      - ashes
-    include_genres:
-      - WT| WORLD CRICKET
-      - WORLD CRICKET
-      - ASIA| SPORTS
     exclude_keywords:
-      - 24/7
       - replay
-    limit: 12
+      - 24/7
 
   - id: live-football
     label: football & soccer
+    limit: 12
+    source_fill:
+      - addon: mango Live TV
+        limit: 10
+        keywords:
+          - world cup
+        exclude_keywords:
+          - prime
+          - tubi
+          - sitcom
+          - news
+          - crime
+          - movie
+      - addon: mango Live Free
+        limit: 3
+        keywords:
+          - fifa+
+          - bein sports usa
     keywords:
       - football
-      - soccer
-      - sport
-      - premier league
-      - epl
-      - uefa
-      - champions league
-      - la liga
-      - bundesliga
-    include_genres:
-      - US| PRIME
-      - UK| SPORT
-      - SOCCER PPV
-      - EPL
-      - UEFA
-      - LA LIGA
-      - LIVE FOOTBALL
     exclude_keywords:
       - replay
       - 24/7
-    limit: 12
+      - darts
+      - handball
+      - combat
+      - storm football
+      - pluto
 
   - id: live-racing
     label: racing
+    limit: 7
+    source_fill:
+      - addon: mango Live TV
+        limit: 2
+        keywords:
+          - f1 tv
+          - nascar
+        exclude_keywords:
+          - tubi
+      - addon: mango Live Free
+        limit: 5
+        keywords:
+          - fanduel racing
+          - floracing
+          - rally tv
+          - sky racing
     keywords:
-      - formula 1
-      - formula one
-      - f1 tv
-      - f1 channel
-      - grand prix
-      - motogp
-      - moto gp
-      - nascar
-      - indycar
-      - fanduel racing
-      - floracing
-      - rally tv
-      - sky racing
-      - racing.com
-    include_genres:
-      - FORMULA 1
-      - F1 PPV
-      - MOTOGP
-      - NASCAR
+      - racing
     exclude_keywords:
       - replay
       - 24/7
       - news
-    limit: 10
 
   - id: live-news
     label: news
@@ -102,26 +104,7 @@ rails:
     source_fill:
       - addon: mango Live News
         limit: 12
-        keywords:
-          - republic tv
-          - republic bharat
-          - ndtv 24x7
-          - ndtv india
-          - aaj tak
-          - times now news
-          - times now navbharat
-          - times now world
-          - wion
-          - zee news
-          - india today
-          - news18 india
-          - abp news
-          - dd news
-          - mirror now
-          - news nation
-          - india tv
-          - sansad tv
-          - bharat samachar
+        match_all: true
     keywords:
       - news
     exclude_keywords:

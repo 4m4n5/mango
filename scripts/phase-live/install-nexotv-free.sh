@@ -24,6 +24,7 @@ if ! grep -Eq '^CONFIG_SECRET=[0-9a-fA-F]{32,}$' "$ENV_FILE"; then
 fi
 
 mkdir -p "$DATA_DIR"
+cp -f "$REPO_DIR/config/live-sports-curated.m3u" "$DATA_DIR/live-sports-curated.m3u"
 docker_compose pull
 docker_compose up -d
 
