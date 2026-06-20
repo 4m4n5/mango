@@ -1,6 +1,5 @@
 import { getMpvPlaybackState, isMpvActive } from '../mpv.js';
 import { upsertWatchProgress } from './db.js';
-import { progressTitleKey } from './keys.js';
 
 export type ActiveWatchSession = {
   type: string;
@@ -12,36 +11,79 @@ export type ActiveWatchSession = {
 
 let activeSession: ActiveWatchSession | null = null;
 let pollTimer: NodeJS.Timeout | null = null;
+let lastSnapshot: {
+  session: ActiveWatchSession;
+  position_sec: number;
+  duration_sec: number;
+} | null = null;
 
-export function beginWatchSession(session: ActiveWatchSession): void {
+function sessionKey(session: ActiveWatchSession): string {
+  return `${session.type}:${session.play_id}`;
+}
+
+function persistSessionProgress(
+  session: ActiveWatchSession,
+  position_sec: number,
+  duration_sec: number,
+): void {
+  if (duration_sec <= 0) {
+    return;
+  }
+  lastSnapshot = {
+    session: { ...session },
+    position_sec,
+    duration_sec,
+  };
+  upsertWatchProgress({
+    type: session.type,
+    id: session.title_id,
+    play_id: session.play_id,
+    title: session.title,
+    poster: session.poster,
+    position_sec,
+    duration_sec,
+  });
+}
+
+export async function handoffWatchSession(session: ActiveWatchSession): Promise<void> {
+  if (activeSession && sessionKey(activeSession) !== sessionKey(session)) {
+    await flushWatchProgress();
+  }
   activeSession = session;
   ensurePollLoop();
 }
 
 export function clearWatchSession(): void {
   activeSession = null;
+  lastSnapshot = null;
 }
 
 export async function flushWatchProgress(): Promise<boolean> {
   const session = activeSession;
-  const playback = await getMpvPlaybackState();
-  if (session && playback && playback.duration_sec > 0) {
-    upsertWatchProgress({
-      type: session.type,
-      id: session.title_id,
-      play_id: session.play_id,
-      title: session.title,
-      poster: session.poster,
-      position_sec: playback.position_sec,
-      duration_sec: playback.duration_sec,
-    });
+  if (!session) {
+    return false;
   }
+
+  const playback = await getMpvPlaybackState();
+  if (playback && playback.duration_sec > 0) {
+    persistSessionProgress(session, playback.position_sec, playback.duration_sec);
+  } else if (
+    lastSnapshot
+    && sessionKey(lastSnapshot.session) === sessionKey(session)
+  ) {
+    persistSessionProgress(
+      session,
+      lastSnapshot.position_sec,
+      lastSnapshot.duration_sec,
+    );
+  }
+
   const stillActive = await isMpvActive();
   if (!stillActive) {
     activeSession = null;
     stopPollLoop();
   }
-  return Boolean(session && playback);
+  return Boolean(playback || lastSnapshot);
 }
 
 function ensurePollLoop(): void {
@@ -68,27 +110,24 @@ export function activeWatchSession(): ActiveWatchSession | null {
 
 export function resetWatchWatcherForTests(): void {
   activeSession = null;
+  lastSnapshot = null;
   stopPollLoop();
 }
 
-export function startWatchSessionFromPlay(input: {
+export async function startWatchSessionFromPlay(input: {
   type: string;
   id: string;
   title?: string | null;
   poster?: string | null;
-}): void {
+}): Promise<void> {
   const titleId = input.type === 'series' && input.id.includes(':')
     ? input.id.split(':')[0]
     : input.id;
-  beginWatchSession({
+  await handoffWatchSession({
     type: input.type,
     title_id: titleId,
     play_id: input.id,
     title: input.title,
     poster: input.poster,
   });
-}
-
-export function progressKeyForSession(session: ActiveWatchSession): string {
-  return progressTitleKey(session.type, session.play_id);
 }

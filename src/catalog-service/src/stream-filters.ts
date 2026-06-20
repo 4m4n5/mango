@@ -105,6 +105,8 @@ export type StreamFilterContext = {
   /** Stremio/Cinemeta id (e.g. tt0111161) for torrent name matching. */
   metaId?: string;
   contentType?: string;
+  /** Expected main-feature runtime in minutes (from meta). */
+  metaRuntimeMinutes?: number;
   /** Manual curation — skip title relevance filter for pinned couch titles. */
   skipTitleFilter?: boolean;
 };
@@ -477,6 +479,59 @@ export function isLowQualityRelease(stream: Stream): boolean {
     || /\b(ts|scr|tc)\b/i.test(haystack);
 }
 
+/** Bonus discs, BTS, featurettes — wrong file for feature play. */
+export function isSupplementalRelease(stream: Stream): boolean {
+  const haystack = streamHaystack(stream);
+  return /\b(behind[\s-]?the[\s-]?scenes|featurette|bonus|extras?|making[\s-]?of|interview|deleted[\s-]?scene|bts|after[\s-]?credits|promo[\s-]?reel|proof[\s-]?reel|sample[\s-]?clip|sneak[\s-]?peek|production[\s-]?diary)\b/i.test(haystack);
+}
+
+export function parseRuntimeMinutes(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.round(value);
+  }
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+  const hours = trimmed.match(/(\d+)\s*h/);
+  const minutes = trimmed.match(/(\d+)\s*m/);
+  let total = 0;
+  if (hours) {
+    total += Number(hours[1]) * 60;
+  }
+  if (minutes) {
+    total += Number(minutes[1]);
+  }
+  if (total > 0) {
+    return total;
+  }
+  const bare = trimmed.match(/^(\d+)$/);
+  return bare ? Number(bare[1]) : null;
+}
+
+export function isPlausibleFeatureDuration(
+  probedMinutes: number,
+  contentType: string | undefined,
+  expectedMinutes?: number | null,
+): boolean {
+  if (!Number.isFinite(probedMinutes) || probedMinutes <= 0) {
+    return false;
+  }
+  if (contentType === 'series') {
+    return probedMinutes >= 10;
+  }
+  if (probedMinutes < 40) {
+    return false;
+  }
+  if (expectedMinutes && expectedMinutes >= 70) {
+    return probedMinutes >= expectedMinutes * 0.45;
+  }
+  return true;
+}
+
 /** Unknown-cache RD BluRay/x265 — last-resort auto-play only. */
 export function isRdSafeUnknownRelease(stream: Stream): boolean {
   if (debridServiceId(stream) !== 'realdebrid') return false;
@@ -763,6 +818,10 @@ export function filterAndRankStreams(
     }
     if (isSeriesPackForMovie(stream, context.contentType)) {
       meta.excluded.series_pack_for_movie += 1;
+      continue;
+    }
+    if (isSupplementalRelease(stream)) {
+      meta.excluded.error_stream += 1;
       continue;
     }
     if (config.exclude_error_streams && isErrorStream(stream)) {

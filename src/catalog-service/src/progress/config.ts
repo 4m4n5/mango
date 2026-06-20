@@ -1,5 +1,8 @@
-/** Min fraction watched before Continue rail (5%). */
+/** Min fraction watched before Continue rail (5%) when duration is known. */
 export const PROGRESS_CONTINUE_MIN = 0.05;
+
+/** Absolute minimum watch time before Continue (1 min couch test). */
+export const PROGRESS_CONTINUE_MIN_SEC = 60;
 
 /** Max fraction — at/above this, title is finished and dropped from Continue (90%). */
 export const PROGRESS_CONTINUE_MAX = 0.90;

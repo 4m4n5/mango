@@ -21,6 +21,9 @@ export function couchPlayFailureMessage(attempts: Array<{ error?: string }> | un
   if (/debrid_nfo_sidecar|debrid_playback_unreadable/i.test(errors)) {
     return 'stream not ready on TorBox — try again in a few minutes';
   }
+  if (/supplemental_or_short_release/i.test(errors)) {
+    return 'no full-length stream found — try another option';
+  }
   if (/debrid_status_clip/i.test(errors)) {
     return 'stream still caching on TorBox — try again in a few minutes';
   }

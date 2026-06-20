@@ -7,6 +7,7 @@ import {
   enrichStreamMetadata,
   loadFilterConfig,
   mergeFilterConfig,
+  parseRuntimeMinutes,
   type StreamFilterMeta,
   type StreamFilterOverrides,
   type StreamFilterContext,
@@ -758,6 +759,9 @@ export class CatalogCore {
           : typeof meta.title === 'string'
             ? meta.title
             : undefined,
+        metaRuntimeMinutes: parseRuntimeMinutes(meta.runtime)
+          ?? parseRuntimeMinutes(meta.runtimeMinutes)
+          ?? undefined,
       };
     } catch {
       // title relevance filter skipped when meta unavailable

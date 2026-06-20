@@ -124,14 +124,14 @@ async function attachWatchSession(core: CatalogCore, type: string, playId: strin
   try {
     const metaId = type === 'series' ? (seriesBareId(playId) || playId) : playId;
     const meta = await core.meta(type, metaId);
-    startWatchSessionFromPlay({
+    await startWatchSessionFromPlay({
       type,
       id: playId,
       title: typeof meta.name === 'string' ? meta.name : null,
       poster: resolvePosterFromMeta(meta),
     });
   } catch {
-    startWatchSessionFromPlay({ type, id: playId });
+    await startWatchSessionFromPlay({ type, id: playId });
   }
 }
 

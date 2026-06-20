@@ -1,5 +1,5 @@
 import { seriesBareId } from '../playability/ids.js';
-import { PROGRESS_CONTINUE_MAX, PROGRESS_CONTINUE_MIN } from './config.js';
+import { PROGRESS_CONTINUE_MAX, PROGRESS_CONTINUE_MIN, PROGRESS_CONTINUE_MIN_SEC } from './config.js';
 
 export function progressTitleKey(type: string, id: string): string {
   const normalizedType = type.trim().toLowerCase();
@@ -23,7 +23,13 @@ export function progressPct(positionSec: number, durationSec: number): number {
 
 export function isContinueEligible(positionSec: number, durationSec: number): boolean {
   const pct = progressPct(positionSec, durationSec);
-  return pct >= PROGRESS_CONTINUE_MIN && pct < PROGRESS_CONTINUE_MAX;
+  if (pct >= PROGRESS_CONTINUE_MAX) {
+    return false;
+  }
+  if (positionSec >= PROGRESS_CONTINUE_MIN_SEC) {
+    return true;
+  }
+  return pct >= PROGRESS_CONTINUE_MIN;
 }
 
 export function episodeLabel(playId: string): string | null {

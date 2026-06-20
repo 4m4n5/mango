@@ -1,5 +1,5 @@
 import { CatalogError, type Stream } from './core.js';
-import { playUrl, probeUrl } from './mpv.js';
+import { playUrl, probeUrl, getMpvPlaybackState } from './mpv.js';
 import { preflightPlaybackUrl } from './preflight-playback.js';
 import {
   couchStatusForLadderStep,
@@ -14,6 +14,7 @@ import {
   streamUrlHash,
   type StreamFilterConfig,
   type VerifiedStreamHint,
+  isPlausibleFeatureDuration,
 } from './stream-filters.js';
 
 export type PlayOrchestratorConfig = StreamFilterConfig & { include_uncached: boolean };
@@ -92,6 +93,24 @@ function shouldSkipProbe(candidate: LadderCandidate): boolean {
     || parseDebridCacheStatus(candidate.stream) === 'uncached';
 }
 
+async function assertPlausibleFeatureProbe(options: {
+  contentType?: string;
+  filterContext?: import('./stream-filters.js').StreamFilterContext;
+}): Promise<void> {
+  const playbackState = await getMpvPlaybackState();
+  if (!playbackState || playbackState.duration_sec <= 0) {
+    return;
+  }
+  const probedMinutes = playbackState.duration_sec / 60;
+  if (!isPlausibleFeatureDuration(
+    probedMinutes,
+    options.contentType,
+    options.filterContext?.metaRuntimeMinutes,
+  )) {
+    throw new Error('supplemental_or_short_release');
+  }
+}
+
 /** Probe-only ladder walk — used by N3c verify (Phase 2). */
 export async function probeWithLadder(
   streams: Stream[],
@@ -149,6 +168,7 @@ export async function probeWithLadder(
       }
       const probeBudget = probeBudgetForCandidate(candidate, config, remaining);
       const probeResult = await probe(candidate.stream.url, probeBudget, undefined, options.playEpoch);
+      await assertPlausibleFeatureProbe(options);
       attempts.push({
         ...base,
         ok: true,
@@ -262,6 +282,7 @@ export async function playWithLadder(
           if (options.playEpoch !== undefined) {
             await assertPlayEpoch(options.playEpoch);
           }
+          await assertPlausibleFeatureProbe(options);
         } else {
           observedProbeMs = 0;
         }

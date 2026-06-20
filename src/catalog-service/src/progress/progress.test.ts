@@ -16,7 +16,9 @@ test('progressTitleKey collapses series episodes to bare id', () => {
   assert.equal(progressTitleKey('movie', 'tt0111161'), 'movie:tt0111161');
 });
 
-test('isContinueEligible enforces 5% to 90% window', () => {
+test('isContinueEligible enforces 1 min or 5% up to 90%', () => {
+  assert.equal(isContinueEligible(45, 6000), false);
+  assert.equal(isContinueEligible(60, 6000), true);
   assert.equal(isContinueEligible(29, 600), false);
   assert.equal(isContinueEligible(60, 600), true);
   assert.equal(isContinueEligible(540, 600), false);
@@ -26,7 +28,7 @@ test('continueSubtitle formats episode progress', () => {
   assert.equal(continueSubtitle('tt35870921:1:3', 'series', 0.42), 'S1 E3 · 42%');
 });
 
-test('upsertWatchProgress stores and lists continue items', async () => {
+test('listContinueItems returns multiple titles', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-progress-'));
   process.env.MANGO_PROGRESS_DB_PATH = join(dir, 'progress.db');
   resetProgressDbForTests();
@@ -51,12 +53,24 @@ test('upsertWatchProgress stores and lists continue items', async () => {
 
   upsertWatchProgress({
     type: 'movie',
+    id: 'tt0468569',
+    play_id: 'tt0468569',
+    title: 'Dark Knight',
+    position_sec: 120,
+    duration_sec: 9000,
+  });
+  assert.equal(listContinueItems('movies').length, 2);
+
+  upsertWatchProgress({
+    type: 'movie',
     id: 'tt0111161',
     play_id: 'tt0111161',
     position_sec: 5700,
     duration_sec: 6000,
   });
-  assert.equal(listContinueItems('movies').length, 0);
+  const afterComplete = listContinueItems('movies');
+  assert.equal(afterComplete.length, 1);
+  assert.equal(afterComplete[0]?.title, 'Dark Knight');
 
   rmSync(dir, { recursive: true, force: true });
   delete process.env.MANGO_PROGRESS_DB_PATH;

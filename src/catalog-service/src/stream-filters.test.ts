@@ -10,6 +10,9 @@ import {
   selectAutoPlayCandidates,
   streamMatchesMetaTitle,
   streamUrlHash,
+  isSupplementalRelease,
+  isPlausibleFeatureDuration,
+  parseRuntimeMinutes,
 } from './stream-filters.js';
 
 function stream(description: string, url: string): Stream {
@@ -205,4 +208,17 @@ test('selectAutoPlayCandidates prefers verified URL hash before other tier strea
     },
   });
   assert.deepEqual(selected.map((item) => item.url), [winner.url, other.url]);
+});
+
+test('isSupplementalRelease drops BTS and featurette labels', () => {
+  assert.equal(isSupplementalRelease(stream('Behind the Scenes', 'https://example.test/bts.mp4')), true);
+  assert.equal(isSupplementalRelease(stream('Featurette: Making Of', 'https://example.test/ft.mp4')), true);
+  assert.equal(isSupplementalRelease(stream('1080p BluRay', 'https://example.test/main.mp4')), false);
+});
+
+test('isPlausibleFeatureDuration rejects short probes for movies', () => {
+  assert.equal(parseRuntimeMinutes('2h30min'), 150);
+  assert.equal(isPlausibleFeatureDuration(12, 'movie', 150), false);
+  assert.equal(isPlausibleFeatureDuration(120, 'movie', 150), true);
+  assert.equal(isPlausibleFeatureDuration(45, 'movie', null), true);
 });

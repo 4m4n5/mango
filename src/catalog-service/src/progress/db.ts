@@ -6,6 +6,9 @@ import {
   CONTINUE_RAIL_ID,
   DEFAULT_PROGRESS_DB_PATH,
   PROGRESS_CONTINUE_LIMIT,
+  PROGRESS_CONTINUE_MAX,
+  PROGRESS_CONTINUE_MIN,
+  PROGRESS_CONTINUE_MIN_SEC,
 } from './config.js';
 import {
   continueSubtitle,
@@ -165,14 +168,15 @@ SELECT progress_key, type, id, play_id, title, poster,
        position_sec, duration_sec, progress_pct, updated_at
 FROM watch_progress
 WHERE type = ?
-  AND progress_pct >= ?
   AND progress_pct < ?
+  AND (position_sec >= ? OR progress_pct >= ?)
 ORDER BY updated_at DESC
 LIMIT ?
 `).all(
     contentType,
-    0.05,
-    0.90,
+    PROGRESS_CONTINUE_MAX,
+    PROGRESS_CONTINUE_MIN_SEC,
+    PROGRESS_CONTINUE_MIN,
     limit,
   ) as WatchProgressRecord[];
 
