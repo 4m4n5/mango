@@ -74,13 +74,17 @@ run_rail_pick() {
   local items_json="$TMP_DIR/${rail_id}.json"
   local max_tries="${MANGO_N3A_PICK_RETRIES:-5}"
   local attempt=1
-  local item_count
-  item_count="$(curl -sf --max-time 30 "http://127.0.0.1:3020/rails/${rail_id}/items" >"$items_json" \
-    && python3 - "$items_json" <<'PY' || echo 0
+  local item_count=0
+  if curl -sf --max-time 30 "http://127.0.0.1:3020/rails/${rail_id}/items" >"$items_json"; then
+    item_count="$(python3 - "$items_json" <<'PY'
 import json, sys
 print(len(json.load(open(sys.argv[1], encoding="utf-8")).get("items") or []))
 PY
 )"
+  else
+    gate_fail "GET /rails/${rail_id}/items"
+    return 1
+  fi
   if [[ "${item_count:-0}" -eq 0 && -n "$fallback_rail_id" ]]; then
     gate_warn "${label} rail=${rail_id} empty; fallback=${fallback_rail_id}"
     rail_id="$fallback_rail_id"
