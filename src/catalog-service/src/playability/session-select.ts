@@ -24,14 +24,18 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
   railsInYamlOrder: TabSessionRailRequest[],
   pools: Map<string, T[]>,
   recentKeysByRail: Map<string, Set<string>>,
-  options: { reserveFloor?: number; shuffleFn?: (items: T[]) => T[] } = {},
+  options: { reserveFloor?: number; anchorRailCount?: number; shuffleFn?: (items: T[]) => T[] } = {},
 ): Map<string, SessionSelectedItem<T>[]> {
   const floor = options.reserveFloor ?? TAB_SESSION_RESERVE_FLOOR;
+  const anchorCount = Math.min(
+    options.anchorRailCount ?? 2,
+    railsInYamlOrder.length,
+  );
   const shuffleFn = options.shuffleFn;
   const tabOccupied = new Set<string>();
   const selections = new Map<string, SessionSelectedItem<T>[]>();
 
-  for (const rail of railsForTabSessionAllocation(railsInYamlOrder)) {
+  const reserveForRail = (rail: TabSessionRailRequest): void => {
     const pool = pools.get(rail.railId) ?? [];
     const reserve = Math.min(floor, rail.minDisplay, rail.displayLimit, pool.length);
     const picked = selectRailSessionItems(pool, {
@@ -40,10 +44,19 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
       occupiedKeys: tabOccupied,
       shuffleFn,
     });
-    selections.set(rail.railId, picked);
+    const existing = selections.get(rail.railId) ?? [];
+    const merged = [...existing, ...picked].slice(0, reserve);
+    selections.set(rail.railId, merged);
     for (const item of picked) {
       tabOccupied.add(titleKey(item.type, item.id));
     }
+  };
+
+  for (const rail of railsInYamlOrder.slice(0, anchorCount)) {
+    reserveForRail(rail);
+  }
+  for (const rail of railsForTabSessionAllocation(railsInYamlOrder.slice(anchorCount))) {
+    reserveForRail(rail);
   }
 
   for (const rail of railsInYamlOrder) {

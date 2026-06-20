@@ -100,6 +100,32 @@ test('buildTabSessionSelections tops up anchor rails after niche reserve pass', 
   assert.equal(keys.size, global.length + comedy.length);
 });
 
+test('buildTabSessionSelections anchor-first reserve fills global when pools overlap', () => {
+  const shared = Array.from({ length: 12 }, (_, index) => ({
+    type: 'series',
+    id: `tt${index + 1}`,
+    score: 100 - index,
+  }));
+  const rails = [
+    { railId: 'series-global-popular', displayLimit: 10, minDisplay: 10 },
+    { railId: 'series-classics', displayLimit: 10, minDisplay: 10 },
+    { railId: 'series-comedy', displayLimit: 10, minDisplay: 8 },
+  ];
+  const pools = new Map([
+    ['series-global-popular', [...shared]],
+    ['series-classics', [...shared]],
+    ['series-comedy', [...shared, { type: 'series', id: 'tt99', score: 50 }]],
+  ]);
+  const recent = new Map(rails.map((rail) => [rail.railId, new Set<string>()]));
+  const selections = buildTabSessionSelections(rails, pools, recent, {
+    reserveFloor: 8,
+    anchorRailCount: 2,
+    shuffleFn: (items) => items,
+  });
+  assert.ok((selections.get('series-global-popular') ?? []).length >= 8);
+  assert.ok((selections.get('series-comedy') ?? []).length >= 1);
+});
+
 test('selectRailSessionItems excludes tab-occupied titles', () => {
   const occupied = new Set([titleKey('movie', 'tt1')]);
   const selected = selectRailSessionItems(pool, {
