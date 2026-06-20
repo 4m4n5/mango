@@ -42,6 +42,7 @@ import {
   mergePinnedPoolItems,
   shouldSkipTitleFilter,
 } from './playability/rail-overrides.js';
+import { normalizeSeriesVerifyId } from './playability/ids.js';
 import {
   CatalogError,
   couchSafeCatalogMessage,
@@ -661,12 +662,13 @@ export class CatalogCore {
     filters: StreamFilterMeta;
     errors?: string[];
   }> {
-    const raw = await this.rawStreams(type, id);
+    const streamId = normalizeSeriesVerifyId(type, id);
+    const raw = await this.rawStreams(type, streamId);
 
     if (raw.streams.length === 0) {
       throw new CatalogError(
         502,
-        `no HTTP streams for ${type}/${id}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
+        `no HTTP streams for ${type}/${streamId}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
       );
     }
 
