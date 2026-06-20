@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Systematic playability DB fill — preflight, sync catalog yaml, bootstrap maintenance.
+# Systematic playability DB fill — preflight, sync catalog yaml, bootstrap + pool top-up.
 #
 # Run on Pi after stream plane is healthy (AIOStreams + AIOMetadata + catalog-service).
 #
@@ -9,8 +9,11 @@
 # Env:
 #   MANGO_FILL_SKIP_CATALOG_SYNC=1   skip sudo cp catalog.example.yaml → /etc/mango/
 #   MANGO_FILL_SKIP_MAINTENANCE=1    only preflight + status (dry run)
+#   MANGO_FILL_PURGE_POOLS=1         clear rail_pool + rail_session for all browse rails before fill
+#   MANGO_FILL_POOL_TOPUP=1          second pass: full refresh to pool_target (default 1)
 #
-# Bootstrap sets MANGO_PLAYABILITY_BOOTSTRAP=1 (re-probes recent failures, min_display targets).
+# Pass 1 (bootstrap): min_display per rail, re-probes recent failures.
+# Pass 2 (pool top-up): full mode without bootstrap — fills to pool_target when > min_display.
 
 set -euo pipefail
 
@@ -19,6 +22,8 @@ cd "$REPO_DIR"
 
 SKIP_SYNC="${MANGO_FILL_SKIP_CATALOG_SYNC:-0}"
 SKIP_MAINT="${MANGO_FILL_SKIP_MAINTENANCE:-0}"
+PURGE_POOLS="${MANGO_FILL_PURGE_POOLS:-0}"
+POOL_TOPUP="${MANGO_FILL_POOL_TOPUP:-1}"
 
 require_http() {
   local label="$1"
@@ -26,6 +31,35 @@ require_http() {
   curl -sf --max-time 8 "$url" >/dev/null \
     || { echo "FAIL: $label unreachable ($url)" >&2; exit 1; }
   echo "OK: $label"
+}
+
+purge_browse_rail_pools() {
+  local catalog_yaml="${MANGO_CATALOG_YAML:-$REPO_DIR/config/catalog.example.yaml}"
+  python3 - "$catalog_yaml" <<'PY'
+import sqlite3
+import sys
+from pathlib import Path
+
+import yaml
+
+catalog_path = Path(sys.argv[1])
+data = yaml.safe_load(catalog_path.read_text(encoding="utf-8"))
+rail_ids = [
+    rail["id"]
+    for rail in data.get("rails") or []
+    if rail.get("enabled", True) is not False
+    and rail.get("type") in ("addon_catalog", "composite_list")
+]
+if not rail_ids:
+    raise SystemExit("no browse rails to purge")
+
+db = sqlite3.connect("/etc/mango/playability.db")
+for rail_id in rail_ids:
+    db.execute("DELETE FROM rail_pool WHERE rail_id = ?", (rail_id,))
+    db.execute("DELETE FROM rail_session WHERE rail_id = ?", (rail_id,))
+db.commit()
+print(f"purged pools + sessions for {len(rail_ids)} rails")
+PY
 }
 
 echo "== mango fill playability db =="
@@ -67,10 +101,24 @@ if [[ "$SKIP_MAINT" == "1" ]]; then
   exit 0
 fi
 
+if [[ "$PURGE_POOLS" == "1" ]]; then
+  echo
+  echo "purging browse rail pools (MANGO_FILL_PURGE_POOLS=1)…"
+  purge_browse_rail_pools
+fi
+
 echo
-echo "starting bootstrap maintenance (min_display targets, series S1E1, headless probes)…"
+echo "pass 1: bootstrap maintenance (min_display targets)…"
 export MANGO_PLAYABILITY_BOOTSTRAP=1
 bash scripts/phase-n3c/playability-maintenance.sh --mode full --bootstrap
+
+if [[ "$POOL_TOPUP" == "1" ]]; then
+  echo
+  echo "pass 2: pool top-up (pool_target, no early exit)…"
+  export MANGO_PLAYABILITY_BOOTSTRAP=0
+  export MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY=0
+  bash scripts/phase-n3c/playability-maintenance.sh --mode full
+fi
 
 echo
 echo "--- playability after ---"
@@ -81,4 +129,5 @@ echo "--- series episode queue (S1E2+) ---"
 python3 scripts/diag/episode-queue-status.py 2>/dev/null || true
 
 echo
+echo "optional: MANGO_RAIL_HITRATE_PER_RAIL=2 python3 scripts/diag/rail-hitrate.py"
 echo "optional: bash scripts/phase-n3d/gate-n3d-catalogs.sh"
