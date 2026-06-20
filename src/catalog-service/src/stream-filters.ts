@@ -90,6 +90,8 @@ export type StreamFilterContext = {
   /** Stremio/Cinemeta id (e.g. tt0111161) for torrent name matching. */
   metaId?: string;
   contentType?: string;
+  /** Manual curation — skip title relevance filter for pinned couch titles. */
+  skipTitleFilter?: boolean;
 };
 
 const DEFAULT_FILTERS_PATH = '/etc/mango/catalog-filters.json';
@@ -698,7 +700,11 @@ export function filterAndRankStreams(
     const debrid = isDebridStream(stream);
     const cacheStatus = parseDebridCacheStatus(stream);
 
-    if (context.metaTitle && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)) {
+    if (
+      !context.skipTitleFilter
+      && context.metaTitle
+      && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)
+    ) {
       meta.excluded.title_mismatch += 1;
       continue;
     }
@@ -772,7 +778,11 @@ function buildFallbackStreams(
   for (const raw of streams) {
     const stream = ensureEnrichedStream(raw);
     if (!predicate(stream)) continue;
-    if (context.metaTitle && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)) {
+    if (
+      !context.skipTitleFilter
+      && context.metaTitle
+      && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)
+    ) {
       continue;
     }
     if (isSeriesPackForMovie(stream, context.contentType)) continue;

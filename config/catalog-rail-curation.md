@@ -38,6 +38,26 @@ MANGO_SOURCE_PROBE_EXPORT=1 MANGO_AIOMETADATA_EXPORT=~/.config/mango/aiometadata
 
 Goal: ≥80% stream resolve per active source (`MANGO_SOURCE_TARGET_RATE=0.80`).
 
+## Manual rail curation (pins / blocks)
+
+Override automatic catalog picks for couch-critical titles (e.g. **India's Got Latent** on `series-comedy`).
+
+```bash
+# Edit config/rail-curation-overrides.yaml (Pi: /etc/mango/rail-curation-overrides.yaml)
+bash scripts/phase-n3c/rail-curation.sh list
+bash scripts/phase-n3c/rail-curation.sh apply
+
+# Quick pin without editing yaml:
+bash scripts/phase-n3c/rail-curation.sh pin add --rail series-comedy --type series --id tt33094114 --label "India's Got Latent"
+bash scripts/phase-n3c/rail-curation.sh pin remove --rail series-comedy --id tt33094114
+```
+
+| Field | Effect |
+|-------|--------|
+| `pins` | Verify stream resolve → `rail_pool` → force session slot |
+| `skip_title_filter` | Keep streams when title relevance would drop rows |
+| `blocks` | Remove `type:id` from pool (`rail_id: *` = all rails) |
+
 Demoted candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.88303`, `mdblist.84401`, `mdblist.83666`.
 
 **Stream gate couch exemplars** (`config/stream-gate-fixtures.json`): IGL + Panchayat are **soft** — track Indian series streams without blocking deploy. Filters must not drop IGL when AIOStreams returns rows (see `debrid-stream-audit.py`).

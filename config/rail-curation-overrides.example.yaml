@@ -1,0 +1,25 @@
+# Manual rail curation — pins force titles onto rails; blocks remove them from pools.
+# Copy to /etc/mango/rail-curation-overrides.yaml (or set MANGO_RAIL_CURATION_OVERRIDES).
+#
+# Apply after edits:
+#   bash scripts/phase-n3c/rail-curation.sh apply
+#
+# Pins are verified (stream + optional probe) then written to rail_pool with high score.
+# skip_title_filter: keep streams when mango title relevance would drop them (e.g. IGL).
+
+version: 1
+
+pins:
+  - rail_id: series-comedy
+    type: series
+    id: tt33094114
+    label: "India's Got Latent"
+    score: 9999
+    skip_title_filter: true
+    session_slot: 0
+
+# blocks:
+#   - rail_id: series-global-popular
+#     type: series
+#     id: tt0944947
+#     reason: "duplicate — already on india rail"
