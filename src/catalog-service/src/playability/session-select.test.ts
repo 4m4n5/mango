@@ -45,7 +45,13 @@ test('catalog order gives optional series rails first tab-session picks', () => 
   ).map((rail) => rail.railId);
 
   assert.deepEqual(allocated.slice(0, 2), ['series-comedy', 'series-reality-casual']);
-  assert.ok(allocated.indexOf('series-comedy') < allocated.indexOf('series-global-popular'));
+  assert.ok(allocated.indexOf('series-comedy') < allocated.indexOf('series-india-picks'));
+});
+
+test('catalog order anchors india before classics on series tab', () => {
+  const series = catalogRailIdsForTab('series');
+  assert.equal(series[1], 'series-india-picks');
+  assert.equal(series[2], 'series-classics');
 });
 
 test('catalog order preserves movies quick-watches before anchor rails', () => {

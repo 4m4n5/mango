@@ -2,7 +2,10 @@ export function titleKey(type: string, id: string): string {
   return `${type}:${id}`;
 }
 
-/** Guaranteed display slots per rail before anchor rails top up (tab-wide dedup). */
+/** Anchor rails (first N in yaml) reserve slots before niche reverse pass. */
+export const TAB_SESSION_ANCHOR_RAIL_COUNT = 3;
+
+/** Guaranteed display slots per rail before top-up (tab-wide dedup). */
 export const TAB_SESSION_RESERVE_FLOOR = 8;
 
 /** Niche rails (later in catalog yaml) pick reserved slots first so tab-wide dedup does not starve them. */
@@ -28,7 +31,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
 ): Map<string, SessionSelectedItem<T>[]> {
   const floor = options.reserveFloor ?? TAB_SESSION_RESERVE_FLOOR;
   const anchorCount = Math.min(
-    options.anchorRailCount ?? 2,
+    options.anchorRailCount ?? TAB_SESSION_ANCHOR_RAIL_COUNT,
     railsInYamlOrder.length,
   );
   const shuffleFn = options.shuffleFn;

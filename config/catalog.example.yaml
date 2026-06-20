@@ -118,20 +118,6 @@ rails:
       pool_target: 20
       ingest_multiplier: 5
 
-  - id: series-classics
-    tab: series
-    label: critically acclaimed
-    type: addon_catalog
-    addon: Cinemeta
-    catalog: imdbRating
-    content_type: series
-    limit: 20
-    playability:
-      display_limit: 20
-      min_display: 20
-      pool_target: 20
-      ingest_multiplier: 5
-
   - id: series-india-picks
     tab: series
     label: indian series
@@ -146,6 +132,20 @@ rails:
       min_display: 20
       pool_target: 20
       ingest_multiplier: 10
+
+  - id: series-classics
+    tab: series
+    label: critically acclaimed
+    type: addon_catalog
+    addon: Cinemeta
+    catalog: imdbRating
+    content_type: series
+    limit: 20
+    playability:
+      display_limit: 20
+      min_display: 20
+      pool_target: 20
+      ingest_multiplier: 5
 
   - id: series-miniseries
     tab: series
