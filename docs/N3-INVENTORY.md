@@ -82,7 +82,7 @@ Status: `python3 scripts/diag/playability-status.py`
 
 | Priority | Item | Notes |
 |----------|------|-------|
-| 1 | **N3e polish** | Next-episode autoplay countdown · episode playability on-demand probe |
+| 1 | **N3e polish** | Couch verify multi-episode ladder play on Pi |
 | 2 | **N3b polish** | Picker focus/labels; cancel during long resolve |
 | 3 | **N5 prep** | Wire `mango_playability_refresh` LLM tool in orchestrator |
 | 4 | **N4** library + write-back | Stremio export import; finished → library sync |

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  isSeriesRailGateId,
   normalizeSeriesVerifyId,
   seriesBareId,
-  seriesFollowUpEpisodeIds,
 } from './ids.js';
 
 test('normalizeSeriesVerifyId appends S1E1 for bare imdb series ids', () => {
@@ -20,12 +20,11 @@ test('normalizeSeriesVerifyId leaves movie ids unchanged', () => {
   assert.equal(normalizeSeriesVerifyId('movie', 'tt0111161'), 'tt0111161');
 });
 
-test('seriesFollowUpEpisodeIds queues S1E2 through S1E4', () => {
-  assert.deepEqual(seriesFollowUpEpisodeIds('tt0944947'), [
-    'tt0944947:1:2',
-    'tt0944947:1:3',
-    'tt0944947:1:4',
-  ]);
+test('isSeriesRailGateId matches bare id and S1E1 only', () => {
+  assert.equal(isSeriesRailGateId('tt0944947'), true);
+  assert.equal(isSeriesRailGateId('tt0944947:1:1'), true);
+  assert.equal(isSeriesRailGateId('tt0944947:1:2'), false);
+  assert.equal(isSeriesRailGateId('tt0944947:2:5'), false);
 });
 
 test('seriesBareId extracts bare id from episode id', () => {

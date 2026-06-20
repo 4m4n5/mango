@@ -8,7 +8,7 @@ import {
   titleKey,
   buildTabSessionSelections,
 } from './session-select.js';
-import { seriesBareId, seriesFollowUpEpisodeIds } from './ids.js';
+import { seriesBareId } from './ids.js';
 import {
   injectPinnedSessionItems,
   loadRailCurationOverrides,
@@ -436,19 +436,6 @@ CREATE TABLE IF NOT EXISTS playability_triggers (
   handled_at INTEGER
 );
 
-CREATE TABLE IF NOT EXISTS series_episode_queue (
-  series_id TEXT NOT NULL,
-  episode_id TEXT NOT NULL,
-  season INTEGER NOT NULL,
-  episode INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'verified', 'failed', 'skipped')),
-  queued_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY (series_id, episode_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_series_episode_queue_status ON series_episode_queue(status, queued_at);
-
 CREATE INDEX IF NOT EXISTS idx_titles_status_expires ON titles(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_rail_pool_rail_score ON rail_pool(rail_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_rail_session_session ON rail_session(session_id, rail_id, slot);
@@ -812,47 +799,6 @@ WHERE type = @type AND id = @id;
       expires_at: number | null;
     } | undefined;
     return row ?? null;
-  } finally {
-    db.close();
-  }
-}
-
-export async function getSeriesEpisodePlayableMap(
-  episodeIds: string[],
-): Promise<Map<string, boolean | null>> {
-  const result = new Map<string, boolean | null>();
-  for (const episodeId of episodeIds) {
-    result.set(episodeId, null);
-  }
-  if (episodeIds.length === 0) {
-    return result;
-  }
-
-  await initPlayabilityDb();
-  const db = openDb();
-  const now = Date.now();
-  try {
-    const placeholders = episodeIds.map(() => '?').join(', ');
-    const rows = db.prepare(`
-SELECT id, status, expires_at
-FROM titles
-WHERE type = 'series' AND id IN (${placeholders});
-`).all(...episodeIds) as Array<{
-      id: string;
-      status: TitleVerifyProfile['status'];
-      expires_at: number | null;
-    }>;
-
-    for (const row of rows) {
-      if (row.status === 'verified' && (row.expires_at === null || row.expires_at > now)) {
-        result.set(row.id, true);
-      } else if (row.status === 'failed') {
-        result.set(row.id, false);
-      } else {
-        result.set(row.id, null);
-      }
-    }
-    return result;
   } finally {
     db.close();
   }
@@ -1285,85 +1231,4 @@ VALUES (@started_at, @rail_id, @type, @id_value, 'invalidate', 0, @outcome);
     id: record.id,
     reason: record.reason ?? 'invalidated',
   });
-}
-
-export type EpisodeQueueEntry = {
-  series_id: string;
-  episode_id: string;
-  season: number;
-  episode: number;
-  status: 'pending' | 'verified' | 'failed' | 'skipped';
-  queued_at: number;
-  updated_at: number;
-};
-
-function parseEpisodeNumbers(episodeId: string): { season: number; episode: number } | null {
-  const match = episodeId.trim().match(/^tt\d+:(\d+):(\d+)$/i);
-  if (!match) {
-    return null;
-  }
-  return {
-    season: Number(match[1]),
-    episode: Number(match[2]),
-  };
-}
-
-/** Queue S1E2–S1E4 after a series rail title verifies via S1E1. */
-export async function enqueueSeriesFollowUpEpisodes(seriesId: string): Promise<number> {
-  const bare = seriesBareId(seriesId);
-  if (!bare) {
-    return 0;
-  }
-
-  await initPlayabilityDb();
-  const db = openDb();
-  const now = nowMs();
-  let queued = 0;
-
-  try {
-    const insert = db.prepare(`
-INSERT INTO series_episode_queue (
-  series_id, episode_id, season, episode, status, queued_at, updated_at
-) VALUES (
-  @series_id, @episode_id, @season, @episode, 'pending', @queued_at, @updated_at
-)
-ON CONFLICT(series_id, episode_id) DO NOTHING;
-`);
-    for (const episodeId of seriesFollowUpEpisodeIds(bare)) {
-      const numbers = parseEpisodeNumbers(episodeId);
-      if (!numbers) {
-        continue;
-      }
-      const result = insert.run({
-        series_id: bare,
-        episode_id: episodeId,
-        season: numbers.season,
-        episode: numbers.episode,
-        queued_at: now,
-        updated_at: now,
-      });
-      if (result.changes > 0) {
-        queued += 1;
-      }
-    }
-    return queued;
-  } finally {
-    db.close();
-  }
-}
-
-export async function listPendingEpisodeQueue(limit = 50): Promise<EpisodeQueueEntry[]> {
-  await initPlayabilityDb();
-  const db = openDb();
-  try {
-    return db.prepare(`
-SELECT series_id, episode_id, season, episode, status, queued_at, updated_at
-FROM series_episode_queue
-WHERE status = 'pending'
-ORDER BY queued_at ASC
-LIMIT @limit;
-`).all({ limit }) as EpisodeQueueEntry[];
-  } finally {
-    db.close();
-  }
 }

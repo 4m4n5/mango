@@ -84,7 +84,6 @@ export interface SeriesEpisodeRow {
   title: string;
   thumbnail?: string;
   progress_pct: number | null;
-  playable: boolean | null;
 }
 
 export interface SeriesSeasonBlock {

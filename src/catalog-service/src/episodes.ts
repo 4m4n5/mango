@@ -1,5 +1,4 @@
 import type { Meta } from './core.js';
-import { getSeriesEpisodePlayableMap } from './playability/db.js';
 import type { WatchProgressRecord } from './progress/db.js';
 import { progressPct } from './progress/keys.js';
 
@@ -21,7 +20,6 @@ export type SeriesEpisodeRow = {
   title: string;
   thumbnail?: string;
   progress_pct: number | null;
-  playable: boolean | null;
 };
 
 export type SeriesSeasonBlock = {
@@ -58,9 +56,8 @@ export function isSupplementalMetaEpisode(video: CinemetaVideo): boolean {
 export function normalizeSeriesEpisodes(
   bareId: string,
   videos: CinemetaVideo[],
-): { seasons: SeriesSeasonBlock[]; episodeIds: string[] } {
+): { seasons: SeriesSeasonBlock[] } {
   const bySeason = new Map<number, SeriesEpisodeRow[]>();
-  const episodeIds: string[] = [];
 
   for (const video of videos) {
     if (isSupplementalMetaEpisode(video)) {
@@ -79,12 +76,10 @@ export function normalizeSeriesEpisodes(
       title: (video.title || video.name || `Episode ${episode}`).trim(),
       thumbnail: typeof video.thumbnail === 'string' ? video.thumbnail : undefined,
       progress_pct: null,
-      playable: null,
     };
     const bucket = bySeason.get(season) || [];
     bucket.push(row);
     bySeason.set(season, bucket);
-    episodeIds.push(episodeId);
   }
 
   const seasons = [...bySeason.entries()]
@@ -95,7 +90,7 @@ export function normalizeSeriesEpisodes(
       episodes: episodes.sort((left, right) => left.episode - right.episode),
     }));
 
-  return { seasons, episodeIds };
+  return { seasons };
 }
 
 export function applyEpisodeProgress(
@@ -109,19 +104,6 @@ export function applyEpisodeProgress(
     for (const row of block.episodes) {
       if (row.id === saved.play_id) {
         row.progress_pct = progressPct(saved.position_sec, saved.duration_sec);
-      }
-    }
-  }
-}
-
-export function applyEpisodePlayable(
-  seasons: SeriesSeasonBlock[],
-  playable: Map<string, boolean | null>,
-): void {
-  for (const block of seasons) {
-    for (const row of block.episodes) {
-      if (playable.has(row.id)) {
-        row.playable = playable.get(row.id) ?? null;
       }
     }
   }
@@ -181,8 +163,6 @@ export async function assembleSeriesEpisodes(
   const videos = Array.isArray(meta.videos) ? meta.videos as CinemetaVideo[] : [];
   const normalized = normalizeSeriesEpisodes(bareId, videos);
   applyEpisodeProgress(normalized.seasons, saved);
-  const playable = await getSeriesEpisodePlayableMap(normalized.episodeIds);
-  applyEpisodePlayable(normalized.seasons, playable);
   return buildSeriesEpisodesResponse(
     bareId,
     meta,

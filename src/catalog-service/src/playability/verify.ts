@@ -10,7 +10,6 @@ import {
   playabilityVerifyTtlMs,
 } from './config.js';
 import {
-  enqueueSeriesFollowUpEpisodes,
   getTitlePlayability,
   recordVerifyResult,
 } from './db.js';
@@ -289,9 +288,6 @@ export async function verifyPreparedTitle(
       stage: 'verify',
       outcome: 'verified',
     }, context);
-    if (prepared.type === 'series') {
-      void enqueueSeriesFollowUpEpisodes(prepared.id).catch(() => undefined);
-    }
     return {
       type: prepared.type,
       id: prepared.id,

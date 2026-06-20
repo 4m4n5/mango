@@ -30,7 +30,6 @@ test('normalizeSeriesEpisodes filters extras and groups seasons', () => {
   const chernobyl = normalizeSeriesEpisodes('tt7366338', CHERNOBYL_VIDEOS);
   assert.equal(chernobyl.seasons.length, 1);
   assert.equal(chernobyl.seasons[0]?.episodes.length, 3);
-  assert.equal(chernobyl.episodeIds.length, 3);
 
   const panchayat = normalizeSeriesEpisodes('tt12004706', PANCHAYAT_VIDEOS);
   assert.equal(panchayat.seasons.length, 2);

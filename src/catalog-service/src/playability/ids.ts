@@ -22,17 +22,13 @@ export function normalizeSeriesVerifyId(type: string, id: string): string {
   return trimmed;
 }
 
-/** Next episodes to verify after S1E1 passes (S1E2–S1E4). Playback tooling polls these later. */
-export function seriesFollowUpEpisodeIds(seriesBareId: string, count = 3): string[] {
-  const base = seriesBareId.trim();
-  if (!BARE_IMDB_ID.test(base)) {
-    return [];
+/** True when playability index applies (bare series id or S1E1 only — not other episodes). */
+export function isSeriesRailGateId(id: string): boolean {
+  const trimmed = id.trim();
+  if (BARE_IMDB_ID.test(trimmed)) {
+    return true;
   }
-  const episodes: string[] = [];
-  for (let episode = 2; episode <= count + 1; episode += 1) {
-    episodes.push(`${base}:1:${episode}`);
-  }
-  return episodes;
+  return /^tt\d+:1:1$/i.test(trimmed);
 }
 
 export function isSeriesEpisodeId(id: string): boolean {

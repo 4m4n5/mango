@@ -70,7 +70,7 @@ export function buildNextPromptResponse(
   }
   const flat = seasons.flatMap((block) => block.episodes);
   const next = flat.find((row) => row.id === nextId);
-  if (!next || next.playable === false) {
+  if (!next) {
     return { show: false };
   }
   return {

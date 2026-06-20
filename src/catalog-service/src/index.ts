@@ -5,7 +5,7 @@ import { playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { bumpPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import { invalidateTitle, getTitleVerifyProfile, recordVerifyResult } from './playability/db.js';
-import { seriesBareId } from './playability/ids.js';
+import { isSeriesRailGateId, seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
 import { resolvePosterFromMeta } from './poster.js';
@@ -229,7 +229,10 @@ async function handlePlay(
 
   const playEpoch = await bumpPlayEpoch();
   const now = Date.now();
-  const profile = await getTitleVerifyProfile(body.type, playId);
+  const usePlayabilityIndex = body.type !== 'series' || isSeriesRailGateId(playId);
+  const profile = usePlayabilityIndex
+    ? await getTitleVerifyProfile(body.type, playId)
+    : null;
   const profileHint = profile?.status === 'verified'
     && (profile.expires_at === null || profile.expires_at > now)
     ? {
@@ -257,27 +260,29 @@ async function handlePlay(
       startSec,
     });
 
-    await recordVerifyResult({
-      type: body.type,
-      id: playId,
-      status: 'verified',
-      rail_id: body.rail_id ?? null,
-      best_source: typeof playback.stream.source === 'string' ? playback.stream.source : null,
-      cache_status: typeof playback.stream.cache_status === 'string' ? playback.stream.cache_status : null,
-      debrid_service: typeof playback.stream.debrid_service === 'string' ? playback.stream.debrid_service : null,
-      probe_ms: playback.ttff_ms,
-      win_url_hash: playback.win_url_hash,
-      win_ladder_step: playback.win_ladder_step,
-      expires_at: Date.now() + playabilityVerifyTtlMs(),
-      stage: 'play',
-      outcome: 'verified',
-    }).catch((writeError) => {
-      console.warn(
-        `playability refresh on play failed type=${body.type} id=${body.id}: ${
-          writeError instanceof Error ? writeError.message : String(writeError)
-        }`,
-      );
-    });
+    if (usePlayabilityIndex) {
+      await recordVerifyResult({
+        type: body.type,
+        id: playId,
+        status: 'verified',
+        rail_id: body.rail_id ?? null,
+        best_source: typeof playback.stream.source === 'string' ? playback.stream.source : null,
+        cache_status: typeof playback.stream.cache_status === 'string' ? playback.stream.cache_status : null,
+        debrid_service: typeof playback.stream.debrid_service === 'string' ? playback.stream.debrid_service : null,
+        probe_ms: playback.ttff_ms,
+        win_url_hash: playback.win_url_hash,
+        win_ladder_step: playback.win_ladder_step,
+        expires_at: Date.now() + playabilityVerifyTtlMs(),
+        stage: 'play',
+        outcome: 'verified',
+      }).catch((writeError) => {
+        console.warn(
+          `playability refresh on play failed type=${body.type} id=${body.id}: ${
+            writeError instanceof Error ? writeError.message : String(writeError)
+          }`,
+        );
+      });
+    }
 
     await attachWatchSession(core, body.type, playId);
 
@@ -309,7 +314,7 @@ async function handlePlay(
       : undefined;
     const attempts = details?.attempts;
     const probedStreams = Array.isArray(attempts) && attempts.length > 0;
-    if (probedStreams) {
+    if (probedStreams && usePlayabilityIndex) {
       await invalidateTitle({
         rail_id: body.rail_id,
         type: body.type,

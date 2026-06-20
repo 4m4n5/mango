@@ -252,7 +252,7 @@ export class DetailController {
         button.disabled = false;
       }
       for (const button of this.episodeButtons) {
-        button.disabled = button.classList.contains("detail-episode--disabled");
+        button.disabled = false;
       }
     }
   }
@@ -392,11 +392,6 @@ export class DetailController {
         const button = document.createElement("button");
         button.type = "button";
         button.className = "detail-episode";
-        const disabled = episode.playable === false;
-        if (disabled) {
-          button.classList.add("detail-episode--disabled");
-          button.disabled = true;
-        }
         if (episode.id === this.selectedEpisodeId) {
           button.classList.add("detail-episode--selected");
         }
@@ -418,9 +413,7 @@ export class DetailController {
           void this.activateEpisode(episode);
         });
         this.episodeList.append(button);
-        if (!disabled) {
-          this.episodeButtons.push(button);
-        }
+        this.episodeButtons.push(button);
       }
     }
 
@@ -436,9 +429,6 @@ export class DetailController {
   }
 
   private async selectEpisode(episode: SeriesEpisodeRow): Promise<void> {
-    if (episode.playable === false) {
-      return;
-    }
     const card = this.card;
     if (!card) {
       return;

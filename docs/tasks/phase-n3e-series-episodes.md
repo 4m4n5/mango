@@ -80,7 +80,7 @@ Launcher detail (series)
 Catalog-service
   ├─ normalizeSeriesVerifyId (keep for bare-id compat)
   ├─ episodes.ts — normalize Cinemeta videos[]
-  ├─ playability: indexer + on-demand playable flags
+  ├─ play: ladder on demand for all episodes; rails gate on S1E1 only
   └─ progress.db: play_id = episode id; list key = series:tt…
 ```
 
@@ -149,7 +149,7 @@ Normalized couch response — hides Cinemeta quirks from TV UI.
 - [x] `episodes.ts` — normalize `videos[]`
 - [x] `GET /series/:bareId/episodes` + progress join
 - [x] `POST /play` resolve latest episode for bare series id
-- [ ] Playability `playable` flags (hybrid)
+- [x] No per-episode verify — ladder at play time
 - [x] Unit tests (Chernobyl season 0, resume resolution)
 - [ ] Deploy + `series-episodes.sh --sample`
 

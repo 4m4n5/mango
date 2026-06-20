@@ -157,7 +157,7 @@ fi
 
 echo
 echo "--- series episode queue (S1E2+) ---"
-python3 scripts/diag/episode-queue-status.py 2>/dev/null || true
+python3 scripts/diag/playability-status.py 2>/dev/null || true
 
 echo
 echo "reports: ~/.cache/mango/source-hitrate/latest.json"
