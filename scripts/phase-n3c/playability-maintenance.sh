@@ -62,8 +62,9 @@ resolve_catalog_yaml() {
 export MANGO_CATALOG_YAML="$(resolve_catalog_yaml)" || exit 1
 echo "catalog: $MANGO_CATALOG_YAML"
 
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
+# Use fd 200 — fd 9 is often inherited by catalog-service/chromium children.
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
   echo "another maintenance run is in progress ($LOCK_FILE)" >&2
   exit 2
 fi
