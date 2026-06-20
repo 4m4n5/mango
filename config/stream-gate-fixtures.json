@@ -1,5 +1,5 @@
 {
-  "_comment": "N3d stream evaluation corpus — diverse movies/series for gate-n3d-streams.sh. Series ids use Stremio episode form tt…:season:episode. tier: required=hard fail, soft=warn, optional=warn.",
+  "_comment": "N3d stream evaluation corpus — diverse movies/series for gate-n3d-streams.sh. GET /stream returns ideal play_ladder step only (see core.ts). Series ids use Stremio episode form tt…:season:episode. tier: required=hard fail, soft=warn, optional=warn.",
   "fixtures": [
     {
       "label": "Shawshank",
@@ -42,9 +42,9 @@
       "tier": "required",
       "type": "series",
       "id": "tt0903747:1:1",
-      "notes": "Mainstream western series S1E1; series resolve baseline",
-      "min_streams": 2,
-      "min_unique_urls": 2
+      "notes": "Mainstream western series S1E1; ideal ladder step may surface a single cached 1080p encode",
+      "min_streams": 1,
+      "min_unique_urls": 1
     },
     {
       "label": "Indias Got Latent",

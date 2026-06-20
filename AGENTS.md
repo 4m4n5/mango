@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 + N3c + N3d shipped**. **Next:** N3a stream play orchestrator ([`docs/tasks/phase-n3-stream-orchestrator.md`](docs/tasks/phase-n3-stream-orchestrator.md), [`docs/tasks/CODEX-phase-n3a-prompt.md`](docs/tasks/CODEX-phase-n3a-prompt.md), [`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md), [`docs/N3d-INVENTORY.md`](docs/N3d-INVENTORY.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 + N3a (play ladder) + N3c + N3d shipped**. **Next:** Track B verified-only rails ([`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md)).
 
 ## Read first
 
@@ -76,6 +76,9 @@ bash scripts/phase2/verify-voice-ready.sh
 bash scripts/pi-exec-gate.sh          # Mac: pull + gate on Pi
 bash scripts/pi-pre-couch-gate.sh     # on Pi
 bash scripts/phase-n3d/gate-n3d-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=1
+bash scripts/phase-n3a/gate-n3a-play-ladder.sh   # ladder config + unit (Mac or Pi)
+bash scripts/phase-n3c/gate-n3c-verify-ladder.sh
+bash scripts/phase-n3a/gate-n3a-play.sh          # live couch play on Pi
 bash scripts/phase-n3c/gate-n3c-verified-rails.sh
 bash scripts/phase-n0/gate-n0.sh
 ```

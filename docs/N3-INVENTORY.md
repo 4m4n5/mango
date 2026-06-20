@@ -1,93 +1,72 @@
 # N3 inventory — stream play orchestrator (N3a)
 
 **Branch:** `feat/native-experience`  
-**Gate:** `bash scripts/phase-n3a/gate-n3a-play.sh`
-**Spec:** [`tasks/phase-n3-stream-orchestrator.md`](tasks/phase-n3-stream-orchestrator.md)
+**Gates:** `bash scripts/phase-n3a/gate-n3a-play.sh` · `bash scripts/phase-n3a/gate-n3a-play-ladder.sh` · `bash scripts/phase-n3c/gate-n3c-verify-ladder.sh`  
+**Spec:** [`tasks/phase-n3-stream-orchestrator.md`](tasks/phase-n3-stream-orchestrator.md)  
+**Manual:** [`../scripts/phase-n3a/MANUAL-GATE-play-ladder.md`](../scripts/phase-n3a/MANUAL-GATE-play-ladder.md)
 
 ---
 
 ## Plan
 
-**Locked scope:** orchestrator backend · filter tiers · pre-resolve · launcher copy · gates. **No picker UI** (N3b).
+**Locked scope:** orchestrator backend · play preference ladder · filter tiers · pre-resolve · launcher copy · gates. **No picker UI** (N3b).
 
-### Closure plan
+### Play preference ladder (shipped)
 
-- Change only N3a closure surfaces: couch filter defaults, tier-driven auto-play selection, probe-then-play orchestration, browse-pick gate, inventory metrics, and launcher `rail_id`; keep picker UI, 4K relaxation, Stremio fallback, and indexer architecture unchanged.
-- Filter diff: repo/Pi couch defaults become `strict_unknown_cache: true`, `auto_play_wall_ms: 15000`, `auto_play_probe_ms: 4000`, with AIOStreams-only cached tiers honored from config and Torrentio kept out of default auto-play.
-- Gate strategy: add `gate-n3a-play.sh` for two random browse picks across movie/series rails, enforce `ok`, `total_ms <= 15000`, `attempts <= 5`, mpv playing, warn-only Shawshank regression, then run N2 browse and N0 foundation.
-- Ship probe-then-play for unverified candidates; exact DB-verified winning URL hashes may reuse their stored Pi `probe_ms` so the couch path starts mpv once under the 15 s wall.
-- Indexer risk: keep TorBox uncached/RD safe-unknown fallback paths for playability verification and maintenance windows, but do not let longer indexer budgets leak into couch Play.
-- **Audit fix (2026-06-20):** maintenance had `MANGO_PLAYABILITY_PROBE_MS=12000` while couch uses 4000 ms — verified titles could pass indexer yet fail N3a. Aligned verify + maintenance to couch `auto_play_probe_ms`; stale refresh re-probes `probe_ms > 4000`; orchestrator only reuses stored probe when within couch budget. Verified titles lock autoplay to `win_url_hash` only. N3a gate prefers couch-playable verified pool picks (`probe_ms <= 4000`).
+Couch `POST /play` and playability **verify** share the same ladder (`config/catalog-filters.example.json` → `play_ladder`):
 
-### Root cause
+| Step | Intent |
+|------|--------|
+| `ideal` | 1080p cached encode, TorBox, no remux |
+| `1080p_uncached` | 1080p TorBox uncached allowed |
+| `1080p_remux` | 1080p cached remux |
+| `2160p_encode` | 2160p encode, TorBox + RD |
+| `last_resort` | any cache, remux OK, RD safe-unknown |
 
-N2 browse now reaches real titles, but the current Play path is still an N1
-single-title spike: `POST /play` resolves stream addons at button press, waits
-through them sequentially, picks `streams[0]`, and calls mpv once. That makes
-arbitrary browse picks fragile because the first stream can be uncached,
-unknown-cache Torrentio, removed, too slow, or a 4K/REMUX format outside the
-1080p lab profile. N1 measured stream resolve around 8 s, so sequential resolve
-plus no retry burns most of the couch budget before mpv even proves a frame.
+**Budgets:** `auto_play_wall_ms: 90000` · `auto_play_max_attempts: 12` · `auto_play_probe_ms: 8000` · `auto_play_uncached_probe_ms: 25000`.
 
-### Orchestrator design
+**NFO preflight** rejects non-video sidecars before mpv. **GET /stream** still filters to **ideal step only** (display headroom for N3b picker). **POST /play** uses raw streams + full ladder.
 
-N3a makes Play an mpv-backed retry loop with a hard 15 s wall budget. Stream
-resolution runs in parallel across stream addons, stores a 10 min in-memory
-cache keyed by `{type}:{id}`, and keeps the existing quality/remux/debrid
-filters. Auto-play candidates are tiered after filtering:
+**Verify DB:** `schema_version >= 2` · `win_ladder_step` on verified rows · play prefers matching hash + step.
 
-1. `AIOStreams` with `cache_status === cached`
-2. `AIOStreams` with `cached_or_unknown`, still honoring
-   `strict_unknown_cache`
+### Orchestrator (baseline N3a)
 
-Standalone Torrentio is intentionally excluded from default auto-play tiers; it
-can remain visible to future picker work but must not drive N3a autoplay. The
-orchestrator probes unverified candidates with
-`mpv-play.sh --probe --timeout-ms 4000`, records redacted attempt metadata, then
-starts full mpv playback only for a candidate that reaches `playback-time > 0`.
-For the exact winning URL hash already verified by the playability DB, N3a
-reuses that Pi `probe_ms` and starts playback once. It stops after 5 attempts or
-15 s total.
+Parallel stream resolve (10 min cache) · probe-then-play · verified `win_url_hash` fast path when `probe_ms` within couch budget · AIOStreams-only autoplay tiers · Torrentio excluded from autoplay.
 
 ### Pre-resolve
 
-Detail open fires `GET /api/catalog/stream/:type/:id` in the background. The
-launcher ignores prefetch errors and keeps detail focused; the cache warms the
-same backend path used by `POST /play`. Status copy stays couch-safe:
-`finding stream…`, `starting…`, `playing…`, or a generic failure only.
+Detail fires `GET /api/catalog/stream/:type/:id` in background. Launcher status: `finding stream…` → ladder copy (`trying best match…` / `trying alternate release…`) → `playing…`.
 
 ### Gate strategy
 
-`gate-n3a-play.sh` must pick random items from `movies-india-trending` and
-`series-india-picks`, excluding `tt0111161`, then `POST /play` those browse
-titles and verify `ok`, `total_ms <= 15000`, attempts `<=5`, and mpv
-`playback-time > 0`. Shawshank remains a regression inside the gate, not the
-only proof, and warns rather than fails when it exceeds 15 s. The N3a gate also
-runs N2/N0 regression before handoff.
+| Gate | Role |
+|------|------|
+| `gate-n3a-play-ladder.sh` | Config contract + ladder unit tests |
+| `gate-n3c-verify-ladder.sh` | Verify imports ladder + DB `win_ladder_step` |
+| `gate-n3a-play.sh` | Live couch: 2 browse picks + Shawshank warn-only; wall ≤90s, attempts ≤12 |
+
+Browse picks: `movies-india-trending` / `series-india-picks` (fallback global rails when empty). Also runs N2 + N0 regression.
 
 ### Deferred N3b
 
-Stream picker UI, `progress.db`, resume/Continue, Settings toggles for
-uncached streams, and hidden Stremio fallback stay out of N3a. If all N3a
-autoplay candidates fail, the launcher shows a generic message and the
-inventory records the failure rather than relaxing filters or adding fallback
-UI.
+Stream picker UI · `progress.db` · Continue rail · Torrentio in picker only.
 
 ---
 
-## Metrics (after N3a)
+## Metrics (after play ladder — Track A)
 
 | Metric | Value |
 |--------|-------|
-| `gate-n3a-play.sh` | **PASS** @ `556895f` (Pi pre-couch 2026-06-19) |
-| Browse movie pick | india-trending (fallback global-popular); up to 5 retries |
-| Browse series pick | india-picks (fallback global-popular); up to 5 retries |
-| Browse pick `total_ms` | ≤15000 (gate-enforced) |
-| Browse pick `attempts` | ≤5 |
-| Shawshank regression | warn-only 502 under strict couch filters |
-| Filter exclusions | `strict_unknown_cache: true`; AIOStreams tiers |
-| catalog-service tests | 51 pass (local) |
-| Pi pre-couch | PASS @ `556895f` (2 N3a warnings) |
+| `gate-n3a-play-ladder.sh` | **PASS** @ `8f6aad5` |
+| `gate-n3c-verify-ladder.sh` | **PASS** @ `8f6aad5` |
+| `gate-n3a-play.sh` | **PASS** @ `8f6aad5` (Pi pre-couch) |
+| Dark Knight regression | `win_ladder_step: 1080p_remux` ~9s (NFO skip on ideal) |
+| Shawshank regression | warn-only when `total_ms > 90000` |
+| Browse pick budget | `total_ms ≤ 90000`, `attempts ≤ 12` |
+| `playability.db` | `schema_version: 2`, stale **0** @ Track A audit |
+| `movies-india-trending` | low_water (10/20 verified) — bootstrap top-up @ Track A — bootstrap maintenance |
+| catalog-service tests | **57** pass (ladder + preflight + orchestrator) |
+| `/etc/mango/catalog-filters.json` | synced via `scripts/lib/sync-etc-mango-config.sh` on deploy |
 
 ---
 
@@ -103,29 +82,28 @@ UI.
 
 **Lab:** 1080p monitor · headphones via monitor 3.5 mm.
 
-- [ ] Title A (browse rail) → Play ≤15 s, picture + audio
-- [ ] Title B (different rail) → Play ≤15 s
-- [ ] No API error text on status line
+- [x] Verified title (Shawshank) → Play without alternate-release copy
+- [x] Ladder fallback (Dark Knight) → playback after ladder status
+- [ ] Cancel (Y) during long resolve
+- [ ] One series from india picks
 - [ ] ⌂ → home < 1 s after play
 - [ ] Voice HUD regression (N0 gate)
 
 ---
 
-## Handoff to N3b
+## Handoff to N3b / Track B
 
-After N3a couch sign-off:
-
-- Stream picker UI (2–5 options on detail)  
-- `progress.db` + Continue rail  
-- Optional Torrentio in picker (not auto-play)
+- **N3b:** Stream picker (2–5 options from ideal step) · `progress.db` · Continue  
+- **Track B:** Verified-only rail display · `gate-n3c-verified-rails` as primary couch proof
 
 ---
 
-## Follow-ups (N3a → N3c / ops)
+## Follow-ups
 
 | ID | Item | Stage | Notes |
 |----|------|-------|-------|
-| N3-F1 | ElfHosted private subscriptions | Ops | [`ELFHOSTED.md`](ELFHOSTED.md) — fixes rate limits, not play hit rate |
-| N3-F2 | Rail cache + stagger + couch-safe errors | **Shipped** | catalog-service + launcher |
-| N3-F3 | N3c playability index | N3c | [`phase-n3c-playability-index.md`](tasks/phase-n3c-playability-index.md) |
-| N3-F4 | Replace random gate with `gate-n3c-verified-rails` | N3c-S5 | N/N on served items only |
+| N3-F1 | ElfHosted private subscriptions | Ops | [`ELFHOSTED.md`](ELFHOSTED.md) |
+| N3-F2 | Rail cache + stagger + couch-safe errors | **Shipped** | |
+| N3-F3 | N3c playability index + ladder verify | **Shipped** | `win_ladder_step` |
+| N3-F4 | `gate-n3c-verified-rails` primary gate | Track B | displayed ⇒ playable |
+| N3-F5 | Async play progress API | Track C | 90s wall vs launcher HTTP |

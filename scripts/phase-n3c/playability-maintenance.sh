@@ -40,6 +40,20 @@ source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
 export MANGO_CATALOG_YAML="$(resolve_catalog_yaml)" || exit 1
 echo "catalog: $MANGO_CATALOG_YAML"
 
+FILTERS_JSON="$(resolve_catalog_filters)"
+if [[ -z "${MANGO_PLAYABILITY_PROBE_MS:-}" && -f "$FILTERS_JSON" ]]; then
+  export MANGO_PLAYABILITY_PROBE_MS="$(
+    python3 - "$FILTERS_JSON" <<'PY'
+import json
+import sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+print(int(data.get("auto_play_probe_ms") or 8000))
+PY
+  )"
+fi
+export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-8000}"
+echo "probe_ms: $MANGO_PLAYABILITY_PROBE_MS (aligned with couch auto_play_probe_ms)"
+
 # Use fd 200 — fd 9 is often inherited by catalog-service/chromium children.
 exec 200>"$LOCK_FILE"
 if ! flock -n 200; then

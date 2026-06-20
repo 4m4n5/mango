@@ -20,7 +20,11 @@ bash scripts/phase-n3a/gate-n3a-play.sh   # live couch play on Pi
 ## Verify maintenance
 
 ```bash
+# Full stale refresh + bootstrap (long — prefer targeted rail top-up)
 MANGO_MAINTENANCE_SKIP_GATE=1 bash scripts/phase-n3c/playability-maintenance.sh --mode stale --bootstrap
-sqlite3 /etc/mango/playability.db \
-  "SELECT id, status, win_ladder_step, probe_ms FROM titles WHERE status='verified' LIMIT 5;"
+
+# Targeted low_water rail (bootstrap re-probes recent failures)
+bash scripts/phase-n3c/playability-top-up-rail.sh movies-india-trending --pool-target 20
+
+python3 scripts/diag/playability-status.py
 ```

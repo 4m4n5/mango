@@ -9,7 +9,7 @@ function usage(): never {
   console.error([
     'usage:',
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
-    '  playability-indexer.ts top-up --rail <rail-id> [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts top-up --rail <rail-id> [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts refresh --all [--mode full|stale] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
   ].join('\n'));
@@ -71,6 +71,9 @@ async function main(): Promise<void> {
     const all = args.includes('--all');
     if ((!railId && !all) || (railId && all)) {
       usage();
+    }
+    if (args.includes('--bootstrap')) {
+      process.env.MANGO_PLAYABILITY_BOOTSTRAP = '1';
     }
     const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
     const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
