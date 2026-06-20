@@ -23,6 +23,29 @@ gate_header "mango N3d stream gate"
 [[ -f "$FIXTURES" ]] || gate_fail "missing fixtures: $FIXTURES"
 [[ -f "$VALIDATOR" ]] || gate_fail "missing validator: $VALIDATOR"
 
+python3 - "$FIXTURES" <<'PY' || gate_fail "fixture tier validation"
+import json
+import sys
+
+path = sys.argv[1]
+data = json.load(open(path, encoding="utf-8"))
+fixtures = data.get("fixtures") or []
+if not fixtures:
+    raise SystemExit("no fixtures")
+labels = set()
+for fixture in fixtures:
+    label = fixture.get("label")
+    if not label:
+        raise SystemExit("fixture missing label")
+    if label in labels:
+        raise SystemExit(f"duplicate fixture label: {label}")
+    labels.add(label)
+    tier = fixture.get("tier", "required")
+    if tier not in {"required", "soft", "optional"}:
+        raise SystemExit(f"bad tier for {label}: {tier}")
+print(f"fixture tiers ok ({len(fixtures)} titles)")
+PY
+
 curl -sf --max-time 5 http://127.0.0.1:3035/api/v1/status >/dev/null \
   && gate_pass "AIOStreams /api/v1/status" \
   || gate_fail "AIOStreams down at http://127.0.0.1:3035/api/v1/status"
@@ -30,6 +53,16 @@ curl -sf --max-time 5 http://127.0.0.1:3035/api/v1/status >/dev/null \
 curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
   && gate_pass "catalog /health" \
   || gate_fail "catalog-service down at :3020"
+
+fixture_fail() {
+  local tier="$1"
+  shift
+  if [[ "$tier" == "required" ]]; then
+    gate_fail "$*"
+  else
+    gate_warn "$* ($tier)"
+  fi
+}
 
 FIXTURE_LABELS=()
 while IFS= read -r label; do
@@ -51,7 +84,7 @@ fi
 gate_pass "evaluation corpus: ${#FIXTURE_LABELS[@]} titles"
 
 for label in "${FIXTURE_LABELS[@]}"; do
-  read -r type id path_slug < <(python3 - "$FIXTURES" "$label" <<'PY'
+  read -r type id path_slug tier < <(python3 - "$FIXTURES" "$label" <<'PY'
 import json
 import sys
 
@@ -59,7 +92,10 @@ data = json.load(open(sys.argv[1], encoding="utf-8"))
 label = sys.argv[2]
 for fixture in data.get("fixtures") or []:
     if fixture.get("label") == label:
-        print(fixture["type"], fixture["id"], f"{fixture['type']}-{fixture['id']}".replace(":", "_"))
+        tier = fixture.get("tier", "required")
+        if tier not in {"required", "soft", "optional"}:
+            raise SystemExit(f"bad tier for {label}: {tier}")
+        print(fixture["type"], fixture["id"], f"{fixture['type']}-{fixture['id']}".replace(":", "_"), tier)
         break
 else:
     raise SystemExit(f"missing fixture {label}")
@@ -72,12 +108,12 @@ PY
   if curl -sf --max-time 90 "$stream_url" >"$out_json"; then
     gate_pass "GET /stream/${type}/${id} ($label)"
   else
-    gate_fail "GET /stream/${type}/${id} ($label)"
+    fixture_fail "$tier" "GET /stream/${type}/${id} ($label)"
     continue
   fi
 
   if [[ ! -s "$out_json" ]]; then
-    gate_fail "$label empty response"
+    fixture_fail "$tier" "$label empty response"
     continue
   fi
 
@@ -86,10 +122,10 @@ PY
     validator_args+=(--require-display-label)
   fi
 
-  if summary="$(python3 "$VALIDATOR" "${validator_args[@]}")"; then
+  if summary="$(python3 "$VALIDATOR" "${validator_args[@]}" 2>&1)"; then
     gate_pass "$summary"
   else
-    gate_fail "$label stream validation"
+    fixture_fail "$tier" "$label stream validation: $summary"
   fi
 done
 

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { parse as parseYaml } from 'yaml';
 import {
   railsForTabSessionAllocation,
   selectRailSessionItems,
@@ -15,6 +17,16 @@ const pool = [
   { type: 'movie', id: 'tt4', score: 70 },
 ];
 
+function catalogRailIdsForTab(tab: string): string[] {
+  const catalogUrl = new URL('../../../../config/catalog.example.yaml', import.meta.url);
+  const catalog = parseYaml(readFileSync(catalogUrl, 'utf8')) as {
+    rails?: Array<{ id?: string; tab?: string; enabled?: boolean }>;
+  };
+  return (catalog.rails ?? [])
+    .filter((rail) => rail.enabled !== false && rail.tab === tab && typeof rail.id === 'string')
+    .map((rail) => rail.id as string);
+}
+
 test('railsForTabSessionAllocation reverses yaml order for niche-first picks', () => {
   const rails = [
     { railId: 'movies-global-popular' },
@@ -24,6 +36,24 @@ test('railsForTabSessionAllocation reverses yaml order for niche-first picks', (
     railsForTabSessionAllocation(rails).map((rail) => rail.railId),
     ['movies-quick-watches', 'movies-global-popular'],
   );
+});
+
+test('catalog order gives optional series rails first tab-session picks', () => {
+  const allocated = railsForTabSessionAllocation(
+    catalogRailIdsForTab('series').map((railId) => ({ railId })),
+  ).map((rail) => rail.railId);
+
+  assert.deepEqual(allocated.slice(0, 2), ['series-comedy', 'series-reality-casual']);
+  assert.ok(allocated.indexOf('series-comedy') < allocated.indexOf('series-global-popular'));
+});
+
+test('catalog order preserves movies quick-watches before anchor rails', () => {
+  const allocated = railsForTabSessionAllocation(
+    catalogRailIdsForTab('movies').map((railId) => ({ railId })),
+  ).map((rail) => rail.railId);
+
+  assert.ok(allocated.indexOf('movies-quick-watches') < allocated.indexOf('movies-global-popular'));
+  assert.ok(allocated.indexOf('movies-quick-watches') < allocated.indexOf('movies-india-trending'));
 });
 
 test('selectRailSessionItems excludes tab-occupied titles', () => {

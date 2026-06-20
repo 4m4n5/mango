@@ -9,8 +9,44 @@ mango_gate_init
 
 TMP_DIR="${TMPDIR:-/tmp}/mango-n3d-gate"
 mkdir -p "$TMP_DIR"
+FIXTURES="${MANGO_STREAM_GATE_FIXTURES:-$REPO_DIR/config/stream-gate-fixtures.json}"
 
 gate_header "mango N3d stream language gate"
+
+fixture_tier() {
+  local label="$1"
+  python3 - "$FIXTURES" "$label" <<'PY'
+import json
+import sys
+
+path, label = sys.argv[1], sys.argv[2]
+try:
+    data = json.load(open(path, encoding="utf-8"))
+except FileNotFoundError:
+    print("required")
+    raise SystemExit(0)
+
+for fixture in data.get("fixtures") or []:
+    if fixture.get("label") == label:
+        tier = fixture.get("tier", "required")
+        if tier not in {"required", "soft", "optional"}:
+            raise SystemExit(f"bad tier for {label}: {tier}")
+        print(tier)
+        break
+else:
+    print("required")
+PY
+}
+
+fixture_fail() {
+  local tier="$1"
+  shift
+  if [[ "$tier" == "required" ]]; then
+    gate_fail "$*"
+  else
+    gate_warn "$* ($tier)"
+  fi
+}
 
 stream_count() {
   python3 - "$1" <<'PY'
@@ -26,12 +62,13 @@ require_count_at_least() {
   local label="$1"
   local path="$2"
   local min_count="$3"
+  local tier="${4:-required}"
   local count
   count="$(stream_count "$path")"
   if [[ "$count" -ge "$min_count" ]]; then
     gate_pass "$label count=$count"
   else
-    gate_fail "$label count=$count expected>=$min_count"
+    fixture_fail "$tier" "$label count=$count expected>=$min_count"
   fi
 }
 
@@ -82,11 +119,12 @@ fi
 RRR_DEFAULT="$TMP_DIR/language-rrr-default.json"
 RRR_HINDI="$TMP_DIR/language-rrr-hindi.json"
 RRR_URL="http://127.0.0.1:3020/stream/movie/tt8178634"
+RRR_TIER="$(fixture_tier RRR)"
 
 if curl -sf --max-time 90 "$RRR_URL" >"$RRR_DEFAULT"; then
-  require_count_at_least "RRR default stream policy" "$RRR_DEFAULT" 2
+  require_count_at_least "RRR default stream policy" "$RRR_DEFAULT" 2 "$RRR_TIER"
 else
-  gate_fail "RRR default stream request"
+  fixture_fail "$RRR_TIER" "RRR default stream request"
 fi
 
 if curl -sf --max-time 90 "$RRR_URL?language=Hindi" >"$RRR_HINDI"; then

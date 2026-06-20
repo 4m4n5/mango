@@ -6,6 +6,7 @@ import {
   filterStreamsForPlay,
   mergeFilterConfig,
   parseFilterOverridesFromQuery,
+  streamMatchesMetaTitle,
 } from './stream-filters.js';
 
 function stream(description: string, url: string): Stream {
@@ -89,4 +90,22 @@ test('title relaxation keeps hard_language filter', () => {
   assert.equal(result.streams.length, 1);
   assert.equal(result.streams[0]?.url, hindiStream.url);
   assert.equal(result.meta.title_filter_relaxed, true);
+});
+
+test('Indias Got Latent releases pass title relevance filter', () => {
+  const iglStream = stream(
+    "India's Got Latent S01E01 WEB-DL 1080p",
+    'https://example.test/igl.mp4',
+  );
+  assert.equal(
+    streamMatchesMetaTitle(iglStream, "India's Got Latent", 'tt33094114:1:1'),
+    true,
+  );
+  const result = filterStreamsForPlay(
+    [iglStream],
+    testConfig(),
+    { contentType: 'series', metaTitle: "India's Got Latent", metaId: 'tt33094114:1:1' },
+  );
+  assert.equal(result.streams.length, 1);
+  assert.equal(result.meta.excluded.title_mismatch, 0);
 });

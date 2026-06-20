@@ -79,7 +79,7 @@ IndiaStreams / mdblist / Cinemeta  →  AIOMetadata (:3036)  →  catalog-servic
 
 ### WP1 — Source discovery & rail swaps ✅ shipped (v2.2 yaml)
 
-Parallel agent: **skip yaml/list swaps** unless re-probe fails — pick up at **WP2**.
+Parallel agent: **skip yaml/list swaps** unless re-probe finds a better ≥80% Indian/comedy source — pick up at **WP2**.
 
 Use existing tooling before further list changes:
 
@@ -130,13 +130,17 @@ Apply patch only if diff shows drift. **No API keys in git.**
 
 ---
 
-### WP3 — Stream gate corpus tiers
+### WP3 — Stream gate corpus tiers ✅ (audited 2026-06-19)
 
 Add `tier` field to `config/stream-gate-fixtures.json`: `required` | `soft` | `optional`.
 
-Update `gate-n3d-streams.sh` and `gate-n3d-stream-language.sh` to hard-fail only **required** fixtures.
+`gate-n3d-streams.sh` and `gate-n3d-stream-language.sh` hard-fail only **required** fixtures.
 
-Replace fixtures that will never resolve (e.g. IGL) with titles proven in `source-hitrate`.
+- **Required:** Shawshank, Breaking Bad, SpongeBob (mainstream resolve baseline).
+- **Soft:** RRR, Panchayat, **India's Got Latent** — Indian couch titles; warn on fail, never block.
+- **Optional:** Dhurandhar (new-release probe).
+
+Do **not** remove IGL from the corpus — Pi shows `kept=1`, `title_mismatch=0`. Low stream count is an indexer/debrid issue, not a mango filter regression.
 
 ---
 

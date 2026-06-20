@@ -1,8 +1,9 @@
 {
-  "_comment": "N3d stream evaluation corpus — diverse movies/series for gate-n3d-streams.sh. Series ids use Stremio episode form tt…:season:episode.",
+  "_comment": "N3d stream evaluation corpus — diverse movies/series for gate-n3d-streams.sh. Series ids use Stremio episode form tt…:season:episode. tier: required=hard fail, soft=warn, optional=warn.",
   "fixtures": [
     {
       "label": "Shawshank",
+      "tier": "required",
       "type": "movie",
       "id": "tt0111161",
       "notes": "Western classic; N1 smoke baseline",
@@ -11,6 +12,7 @@
     },
     {
       "label": "RRR",
+      "tier": "soft",
       "type": "movie",
       "id": "tt8178634",
       "notes": "Indian blockbuster; Hindi/Telugu audio common",
@@ -19,6 +21,7 @@
     },
     {
       "label": "Dhurandhar",
+      "tier": "optional",
       "type": "movie",
       "id": "tt33014583",
       "notes": "2025 Hindi spy thriller",
@@ -27,6 +30,7 @@
     },
     {
       "label": "Panchayat",
+      "tier": "soft",
       "type": "series",
       "id": "tt12004706:1:1",
       "notes": "Amazon India comedy-drama S1E1",
@@ -34,15 +38,27 @@
       "min_unique_urls": 2
     },
     {
+      "label": "Breaking Bad",
+      "tier": "required",
+      "type": "series",
+      "id": "tt0903747:1:1",
+      "notes": "Mainstream western series S1E1; series resolve baseline",
+      "min_streams": 2,
+      "min_unique_urls": 2
+    },
+    {
       "label": "Indias Got Latent",
+      "tier": "soft",
       "type": "series",
       "id": "tt33094114:1:1",
-      "notes": "Samay Raina YouTube-origin series S1E1",
+      "notes": "Samay Raina YouTube-origin Indian series S1E1; couch exemplar — track streams, do not hard-fail gate",
       "min_streams": 1,
-      "min_unique_urls": 1
+      "min_unique_urls": 1,
+      "min_unique_display_labels": 1
     },
     {
       "label": "SpongeBob",
+      "tier": "required",
       "type": "series",
       "id": "tt0206512:1:1",
       "notes": "Western animation S1E1; kid-friendly lane",
