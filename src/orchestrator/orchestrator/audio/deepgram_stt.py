@@ -180,3 +180,9 @@ def _read_api_key(settings: OrchestratorSettings) -> str:
         if key_path.is_file():
             return key_path.read_text(encoding="utf-8").strip()
     raise RuntimeError("missing Deepgram API key — set /etc/mango/stt.key")
+
+
+def _samples_to_pcm16le(samples: np.ndarray) -> bytes:
+    clipped = np.clip(samples, -1.0, 1.0)
+    int16 = (clipped * 32767.0).astype(np.int16)
+    return int16.tobytes()

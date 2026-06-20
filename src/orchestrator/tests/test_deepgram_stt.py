@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from orchestrator.audio.deepgram_stt import _listen_params
+from orchestrator.audio.deepgram_stt import _listen_params, _samples_to_pcm16le
 from orchestrator.config import OrchestratorSettings
 
 
@@ -62,6 +62,14 @@ class DeepgramParamsTests(unittest.TestCase):
         detect = [value for key, value in params if key == "detect_language"]
         self.assertEqual(detect, ["hi", "en-IN"])
         self.assertFalse(any(key == "language" for key, _ in params))
+
+    def test_samples_to_pcm16le(self) -> None:
+        import numpy as np
+
+        samples = np.array([0.0, 0.5, -0.5, 1.0, -1.0], dtype=np.float32)
+        pcm = _samples_to_pcm16le(samples)
+        self.assertEqual(len(pcm), len(samples) * 2)
+        self.assertEqual(pcm[0:2], b"\x00\x00")
 
 
 if __name__ == "__main__":
