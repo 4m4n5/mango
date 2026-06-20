@@ -9,8 +9,8 @@
 #
 # Prereqs:
 #   bash scripts/phase-live/install-nexotv.sh
-#   bash scripts/phase-live/nexotv-config.sh init-profiles
-#   bash scripts/phase-live/nexotv-config.sh apply iptv-org-sports
+#   bash scripts/phase-live/install-nexotv-free.sh   # optional free tier
+#   bash scripts/phase-live/nexotv-config.sh apply-area69   # or apply iptv-org-sports
 #   bash scripts/phase-live/nexotv-config.sh wire-export
 
 set -euo pipefail

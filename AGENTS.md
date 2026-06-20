@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 + N3a + N3c + N3d + Track B shipped**. **Next:** N3b stream picker + progress ([`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). **Shipped:** N0–N3d, Track B, Live TV tab, N3b C1/C2 partial. **Next:** N3e episode picker · N3b polish · N4 library ([`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md) · [`docs/LIVE_TV.md`](docs/LIVE_TV.md)).
 
 ## Read first
 
@@ -20,6 +20,7 @@ Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experien
 | [`docs/STACK-PRINCIPLES.md`](docs/STACK-PRINCIPLES.md) | **Layer boundaries, gates, config sources** |
 | [**`docs/DEPLOY.md`**](docs/DEPLOY.md) | **Pi deploy — git only, never rsync** |
 | [`docs/N3d-INVENTORY.md`](docs/N3d-INVENTORY.md) | **Self-hosted addons + rails** |
+| [`docs/LIVE_TV.md`](docs/LIVE_TV.md) | **Live IPTV** (NexoTV, opt-in gates) |
 | [`docs/PLAN.md`](docs/PLAN.md) | Full timeline (Phase 0–5 + native) |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | V1 historical spec |
 
@@ -74,16 +75,11 @@ bash scripts/phase2/verify-voice-ready.sh
 
 ```bash
 bash scripts/pi-exec-gate.sh          # Mac: pull + gate-lite on Pi
-bash scripts/pi-pre-couch-gate.sh     # on Pi — gate-lite (~1–2 min)
-MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # full per-rail play sweep (slow)
-bash scripts/phase-n3d/gate-n3d-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=1
-bash scripts/gate-lite.sh             # quick deploy gate (N0 + N3d API + N2 + unit + 2 plays)
-bash scripts/phase-n3a/gate-n3a-play-ladder.sh   # ladder config + unit (Mac or Pi)
-bash scripts/phase-n3c/gate-n3c-verify-ladder.sh
-bash scripts/phase-n3c/gate-n3c-verified-rails.sh  # full gate only — per-rail play
-bash scripts/phase-n3a/gate-n3a-play.sh          # full gate browse picks (slow)
-bash scripts/phase-n0/gate-n0.sh
+bash scripts/pi-pre-couch-gate.sh     # gate-lite (~1–2 min) — see docs/STACK-PRINCIPLES.md
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # slow per-rail play sweep
 ```
+
+Live IPTV (NexoTV) is **excluded** from deploy gates — opt in: `MANGO_LIVE_GATE=1` / `MANGO_LIVE_PROBE=1` ([`docs/LIVE_TV.md`](docs/LIVE_TV.md)).
 
 ## Gamepad (locked)
 

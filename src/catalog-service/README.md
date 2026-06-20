@@ -2,7 +2,7 @@
 
 HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
 
-**Status:** N1–N2 browse shipped; N3c playability index + N3d self-hosted addons on `feat/native-experience`.
+**Status:** N1–N3d + Track B + Live TV on `feat/native-experience`.
 
 ## Config (Pi)
 
@@ -13,6 +13,8 @@ HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
 | `/etc/mango/catalog-filters.json` | Stream filters (uncached debrid, max quality) |
 | `/etc/mango/playability.db` | Verified pools + tab session allocation |
 | `/etc/mango/rail-curation-overrides.yaml` | Optional pins/blocks per rail |
+| `/etc/mango/catalog-live.yaml` | Live sport rails (optional; repo example fallback) |
+| `/etc/mango/progress.db` | mpv resume (Continue rail) |
 | `/etc/mango/config.yaml` | Debrid / household keys |
 
 Templates: [`config/stremio-export.example.json`](../../config/stremio-export.example.json) · [`config/catalog.example.yaml`](../../config/catalog.example.yaml) · [`config/catalog-filters.example.json`](../../config/catalog-filters.example.json)
@@ -23,7 +25,7 @@ Templates: [`config/stremio-export.example.json`](../../config/stremio-export.ex
 |----------|---------|
 | `GET /health` | Service + core readiness |
 | `GET /rails` | Rail summaries from `catalog.yaml` |
-| `GET /rails/items?tab=` | Tab batch — playability session rows for all rails |
+| `GET /rails/items?tab=` | Tab batch — movies · series · **live** |
 | `GET /rails/:id/items` | Single-rail items (fallback) |
 | `GET /meta/:type/:id` | Cinemeta meta |
 | `GET /series/:id/episodes` | Normalized season/episode list + resume + playable flags |
@@ -116,6 +118,17 @@ catalog-service **drops** them instead of showing them on posters.
 If daily limits still bite: [MDBList Standard](https://mdblist.memberful.com/join) (~€2/mo) or TMDB commercial plan.
 
 API errors return **couch-safe** `error` text (never raw “rate limit exceeded”).
+
+### Live TV
+
+Sport rails from `catalog-live.yaml` — dual NexoTV (`mango Live TV` + `mango Live Free`). Full ops: [`docs/LIVE_TV.md`](../../docs/LIVE_TV.md).
+
+| Endpoint | Notes |
+|----------|-------|
+| `GET /rails/items?tab=live` | Cached; launcher skips reshuffle on live tab |
+| `POST /play` + `live: true` | mpv `--live` |
+
+`verify_streams: false` in catalog-live — NexoTV `/stream/` probes share ~60 req/min.
 
 ## Dev
 

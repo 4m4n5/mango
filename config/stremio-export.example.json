@@ -18,8 +18,12 @@
       "manifestUrl": "https://bharat-binge.semi-column.workers.dev/lang%3Ahi-recent-movie%2Clang%3Ahi-recent-series%2Clang%3Ahi-latest_episodes-series%2Clang%3Ahi-top_rated-movie%2Clang%3Ahi-top_rated-series%2Clang%3Ahi-surprise_me-movie%2Clang%3Ahi-surprise_me-series/manifest.json"
     },
     {
-      "name": "NexoTV",
+      "name": "mango Live TV",
       "manifestUrl": "http://127.0.0.1:7000/YOUR_NEXOTV_TOKEN/manifest.json"
+    },
+    {
+      "name": "mango Live Free",
+      "manifestUrl": "http://127.0.0.1:7001/YOUR_NEXOTV_FREE_TOKEN/manifest.json"
     }
   ],
   "auth": {}

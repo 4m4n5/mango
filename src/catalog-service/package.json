@@ -10,6 +10,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/*.test.js dist/**/*.test.js",
+    "test:gate": "npm run build && bash ../../scripts/lib/gate-catalog-unit.sh .",
     "start": "node dist/index.js",
     "dev": "npm run build && node --watch dist/index.js",
     "spike:core": "node scripts/spike-core-boot.mjs"

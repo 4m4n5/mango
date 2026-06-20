@@ -15,7 +15,7 @@ Locked choices. Update when changing behavior.
 | Topic | Choice |
 |-------|--------|
 | Layout | **Y · X · A · B** clockwise from left ([`HARDWARE.md`](HARDWARE.md)) |
-| Select / back | **B**=`304` · **Y**=`308` |
+| Select / back | **B**=`304` · **Y**=`308` · **L**=`310` tab − · **R**=`311` tab + · **↻**=`317` shuffle |
 | Home | `316`/`311` → `launch-launcher.sh` directly (`mango-tv-pad.py`) |
 | Pad owner | **`mango-tv-pad.py`** — launcher + mpv (N1) + fallback Stremio/Kodi |
 | Fallback | `input-remapper` `mango-tv` only if pad fails to grab |
@@ -50,6 +50,9 @@ Locked choices. Update when changing behavior.
 | Chromium budget | One launcher kiosk only at idle; overlay Chromium removed from default runtime |
 | Fallback apps | Stremio via `MANGO_FALLBACK_STREMIO=1`; Kodi/YouTube via `MANGO_LEGACY_YOUTUBE=1` |
 | Player (N1+) | **mpv** fullscreen — not Stremio/Kodi chrome |
+
+| Live TV | NexoTV Docker `:7000`/`:7001` · `catalog-live.yaml` · launcher **live** tab · mpv `--live` ([`LIVE_TV.md`](LIVE_TV.md)) |
+| Live gates | **Excluded** from gate-lite — opt-in `MANGO_LIVE_GATE=1` only |
 | Catalog | `catalog-service` `:3020` · `@stremio/stremio-core-web` · addons from `/etc/mango/stremio-export.json` |
 
 Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.

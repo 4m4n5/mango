@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase N3c gate — verify path uses play ladder (unit contract).
+# Phase N3c gate — verify DB uses play ladder.
 
 set -euo pipefail
 
@@ -22,11 +22,8 @@ grep -q "probeWithLadder" "$CATALOG_DIR/src/playability/verify.ts" \
 grep -q "win_ladder_step" "$CATALOG_DIR/src/playability/db.ts" \
   && gate_pass "db stores win_ladder_step" || gate_fail "db stores win_ladder_step"
 
-(
-  cd "$CATALOG_DIR"
-  npm run build >/dev/null
-  node --test dist/play-ladder.test.js dist/play-orchestrator.test.js
-) && gate_pass "ladder verify unit slice" || gate_fail "ladder verify unit slice"
+bash "$REPO_DIR/scripts/lib/gate-play-ladder-core.sh" --strict \
+  && gate_pass "play_ladder + catalog unit" || gate_fail "play_ladder + catalog unit"
 
 if curl -sf --max-time 3 http://127.0.0.1:3020/health >/dev/null 2>&1; then
   STATUS="$(curl -sf http://127.0.0.1:3020/playability/status)"

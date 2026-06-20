@@ -30,7 +30,8 @@ Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
 |------|---------|---------|
 | `config/stremio-export.example.json` | `/etc/mango/stremio-export.json` | Addon graph — **Cinemeta + AIOStreams + AIOLists only** |
 | `config/catalog-filters.example.json` | `/etc/mango/catalog-filters.json` | Play policy — AIOStreams-only tiers |
-| `config/catalog.example.yaml` | `/etc/mango/catalog.yaml` | Browse rails |
+| `config/catalog.example.yaml` | `/etc/mango/catalog.yaml` | Browse rails (movies/series) |
+| `config/catalog-live.example.yaml` | `/etc/mango/catalog-live.yaml` | Live sport rails (optional) |
 | `config/stream-gate-fixtures.json` | repo only | Stream evaluation corpus (6 titles) |
 | `config/catalog-gate-rails.json` | repo only | Required vs optional catalog rails |
 | `config/aiostreams-target-patch.json` | via `aiostreams-config.sh apply` | Headless AIOStreams profile |
@@ -58,23 +59,16 @@ Enriched fields (from `stream-formatter.ts`): `display_label`, `release_group`, 
 
 | Gate | When | What |
 |------|------|------|
-| `gate-n0.sh` | always | Foundation |
-| `gate-n3d-streams.sh` | self-hosted | 6-title stream corpus |
-| `gate-n3d-stream-language.sh` | self-hosted | Language soft/hard policy |
-| `gate-n3d-catalogs.sh` | self-hosted | Required rails + optional warns |
-| `gate-n3d-self-hosted.sh` | pre-couch | Orchestrates N3d gates |
-| `gate-n3a-play.sh` | pre-couch / manual | Two browse picks play <=15s + N2/N0 |
-| `gate-n3c-verified-rails.sh` | manual / CI | Browse pick play ≤15s |
-| `pi-pre-couch-gate.sh` | Mac `pi-exec-gate.sh` | Pull + N0 + N3d when `MANGO_SELF_HOSTED_ADDONS=1` |
+| **`gate-lite.sh`** | **default deploy** | N0 + N3d (if enabled) + N2 browse + unit + 2 plays |
+| `pi-pre-couch-gate.sh` | Mac `pi-exec-gate.sh` | Pull + gate-lite |
+| `MANGO_GATE_FULL=1` | release handoff | + per-rail verified play + N3a browse picks |
+| `gate-n3d-self-hosted.sh` | self-hosted | N3d stream + catalog corpus |
+| `gate-live-iptv.sh` | **opt-in only** | `MANGO_LIVE_GATE=1` — NexoTV (never in gate-lite) |
 
 ```bash
-# Mac
-bash scripts/pi-exec-gate.sh
-
-# Pi full N3d
-bash scripts/phase-n3d/gate-n3d-self-hosted.sh
-bash scripts/phase-n3d/gate-n3d-stream-language.sh
-cd src/catalog-service && npm run test
+bash scripts/pi-exec-gate.sh              # Mac: pull + gate-lite on Pi
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
+MANGO_LIVE_GATE=1 bash scripts/phase-live/gate-live-iptv.sh   # manual live only
 ```
 
 ---
@@ -93,6 +87,17 @@ cd src/catalog-service && npm run test
 
 ---
 
+
+## Test tiers
+
+| Tier | Command | When |
+|------|---------|------|
+| **gate** | `npm run test:gate` in catalog-service | gate-lite / pi-deploy `--gate` (~42 tests) |
+| **full** | `npm run test` in catalog-service | release / playability changes (~86 tests) |
+| **live** | `MANGO_LIVE_GATE=1 bash scripts/phase-live/gate-live-iptv.sh` | manual only — never deploy gate |
+
+Shared ladder contract: `scripts/lib/verify-play-ladder-config.py`.
+
 ## Pi deploy
 
 **Git only.** Diagnose on Pi → fix on Mac → commit + push → **`bash scripts/pi-deploy.sh --fast`** (iterate) or **`--full --gate`** (handoff) → gates on Pi.
@@ -105,9 +110,12 @@ Never rsync `~/mango`, `src/`, or `src/orchestrator/.venv`. Canonical: [`DEPLOY.
 
 | Feature | Ready when |
 |---------|------------|
-| N3b stream picker | `display_label` + `POST /play { url }` |
+| N3e episode picker | `GET /series/:id/episodes` + per-episode play |
+| N3b picker polish | focus order · cancel long resolve |
 | Voice “play in Hindi” | `POST /play { language: "Hindi" }` |
 | N7 OLED 4K | Drop `max_quality` / `exclude_remux` in catalog-filters only |
 | AI stream context | Enriched stream objects from GET `/stream` |
+
+| Live TV | [`LIVE_TV.md`](LIVE_TV.md) — NexoTV excluded from deploy gates |
 
 See also: [`N3d-AIOSTREAMS-PROFILE.md`](N3d-AIOSTREAMS-PROFILE.md), [`N3d-INVENTORY.md`](N3d-INVENTORY.md).

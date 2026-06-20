@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared NexoTV helpers for mango live TV spike.
+# Shared NexoTV helpers for mango live TV.
 
 nexotv_base_url() {
   echo "${MANGO_NEXOTV_URL:-http://127.0.0.1:7000}"

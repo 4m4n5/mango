@@ -133,3 +133,5 @@ If `git pull --ff-only` fails on Pi:
 | Pre-push check | `bash scripts/lib/pi-sync-check.sh <paths>` |
 
 See also: [`../AGENTS.md`](../AGENTS.md) · [`STACK-PRINCIPLES.md`](STACK-PRINCIPLES.md)
+
+Live IPTV: [`LIVE_TV.md`](LIVE_TV.md) — gates opt-in only.

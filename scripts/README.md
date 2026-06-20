@@ -82,28 +82,40 @@ Details: [phase0/README.md](phase0/README.md)
 
 ## Diagnostics
 
+**Deploy path:** `gate-lite` only. Everything below is manual / maintenance.
+
 | Script | Role |
 |--------|------|
 | `diag/playability-status.py` | Pool depth / verified counts |
-| `diag/series-episodes.sh` | Cinemeta episode list + per-episode stream probe |
 | `diag/source-hitrate.py` | Per-catalog candidate probe rates |
-| `diag/mdblist-inventory.py` | Sync [mdblist toplists](https://mdblist.com/toplists/), LLM export |
+| `diag/mdblist-inventory.py` | MDBList toplists + LLM export |
 | `diag/rail-hitrate.py` | Per-rail verified play samples |
-| `diag/alpha-test.sh` | Couch session log on Pi |
-| `diag/fetch-session.sh` | Pull session tarball to Mac |
+| `diag/probe-one-stream.sh` | Single-title resolve + probe |
+| `diag/series-episodes.sh` | Cinemeta episodes + stream probe |
 | `phase-n3d/diag-self-hosted.sh` | AIOStreams + AIOMetadata health |
-| `verify-tv.sh` | Health gate |
+| `verify-tv.sh` | Stack health (N0 gate) |
+
+**Legacy couch session harness** (Phase 0 Stremio/Kodi matrix — not native gate-lite):
+
+`diag/alpha-test.sh` · `restart-with-diag.sh` · `print-runbook.sh` · `fetch-session.sh`
+
+## Gate unit slice
+
+Shared: `lib/gate-play-ladder-core.sh` · `lib/gate-catalog-unit.sh` · `lib/verify-play-ladder-config.py`  
+Fast tests: `cd src/catalog-service && npm run test:gate` (42 tests)  
+Full suite: `npm test` (86 tests — playability index, formatter, session-select, etc.)
 
 ## Live TV / IPTV (NexoTV)
 
+**Doc:** [`docs/LIVE_TV.md`](../docs/LIVE_TV.md) · **Excluded from gate-lite** (hammers NexoTV rate limits).
+
 | Script | Role |
 |--------|------|
-| `phase-live/install-nexotv.sh` | Docker pull + start NexoTV on `:7000` |
-| `phase-live/nexotv-config.sh` | IPTV profiles, token, `stremio-export` wire |
-| `phase-live/gate-live-iptv.sh` | Opt-in: `MANGO_LIVE_GATE=1` — health → stream → mpv (not in gate-lite) |
-| `phase-live/probe-live-catalog.sh` | Opt-in: `MANGO_LIVE_PROBE=1` — sports scan + probe |
-
-See [`docs/LIVE_TV.md`](../docs/LIVE_TV.md).
+| `phase-live/install-nexotv.sh` | Paid NexoTV Docker on `:7000` |
+| `phase-live/install-nexotv-free.sh` | Free NexoTV Docker on `:7001` |
+| `phase-live/nexotv-config.sh` | `apply-area69` · `apply-free` · `wire-export` |
+| `phase-live/gate-live-iptv.sh` | Opt-in: `MANGO_LIVE_GATE=1` |
+| `phase-live/probe-live-catalog.sh` | Opt-in: `MANGO_LIVE_PROBE=1` |
 
 ## Playability (N3c)
 

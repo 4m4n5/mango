@@ -9,12 +9,14 @@
 | Task | Doc |
 |------|-----|
 | Product direction | [NATIVE_EXPERIENCE.md](NATIVE_EXPERIENCE.md) |
-| Active work / rails | [N3-INVENTORY.md](N3-INVENTORY.md) · [N3d-INVENTORY.md](N3d-INVENTORY.md) |
+| What's shipped / next | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) · [N3-INVENTORY.md](N3-INVENTORY.md) |
+| Live TV / sports IPTV | [LIVE_TV.md](LIVE_TV.md) |
+| Self-hosted addons + rails | [N3d-INVENTORY.md](N3d-INVENTORY.md) |
 | Pi day-to-day | [PHASE0.md](PHASE0.md) · [DEPLOY.md](DEPLOY.md) |
+| Stack boundaries + gates | [STACK-PRINCIPLES.md](STACK-PRINCIPLES.md) |
 | Voice / phone PTT | [PHASE2.md](PHASE2.md) |
 | Foreground contract | [FOREGROUND.md](FOREGROUND.md) |
-| ElfHosted / debrid | [ELFHOSTED.md](ELFHOSTED.md) |
-| Stack boundaries | [STACK-PRINCIPLES.md](STACK-PRINCIPLES.md) |
+| Gamepad | [HARDWARE.md](HARDWARE.md) |
 
 ---
 
@@ -22,28 +24,31 @@
 
 | Phase | Status | Reference |
 |-------|--------|-----------|
-| N0–N2 browse + tabs | ✓ shipped | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) |
-| N3a stream orchestrator | in progress | [N3-INVENTORY.md](N3-INVENTORY.md) · [tasks/phase-n3-stream-orchestrator.md](tasks/phase-n3-stream-orchestrator.md) |
-| N3c playability index | ✓ shipped | accumulative pools · `scripts/phase-n3c/` |
-| N3d self-hosted addons | ✓ shipped | [N3d-INVENTORY.md](N3d-INVENTORY.md) |
-| N3b–N7 | planned | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) |
+| N0 foundation | ✓ | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) |
+| N1 catalog + mpv | ✓ | `scripts/phase-n1/` |
+| N2 browse + tabs | ✓ | movies · series · **live** |
+| N3a play orchestrator + ladder | ✓ | [N3-INVENTORY.md](N3-INVENTORY.md) |
+| N3c playability index | ✓ | `scripts/phase-n3c/` |
+| N3d self-hosted addons | ✓ | [N3d-INVENTORY.md](N3d-INVENTORY.md) |
+| Track B verified rails UX | ✓ | thin rows · library refresh |
+| N3b stream picker + progress | **partial** | C1 picker on detail · C2 Continue rail |
+| Live TV (NexoTV) | ✓ | [LIVE_TV.md](LIVE_TV.md) |
+| N3e episode picker | design | `tasks/` (series UX) |
+| N4–N7 | planned | library write-back · AI catalogs · YouTube · 4K ship |
 
-**Pre-couch gate (Pi):**
+**Default pre-couch gate:** `bash scripts/pi-pre-couch-gate.sh` → `gate-lite` (~1–2 min). Live IPTV gates are **excluded** (opt-in only).
 
 ```bash
 bash scripts/pi-pre-couch-gate.sh
-# or individually:
-bash scripts/phase-n0/gate-n0.sh
-bash scripts/phase-n3c/gate-n3c-verified-rails.sh   # when MANGO_CATALOG=1
-bash scripts/phase-n3d/gate-n3d-self-hosted.sh      # when self-hosted addons enabled
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # slow per-rail play sweep
 ```
 
 ---
 
 ## Foundation (still valid)
 
-[PHASE0.md](PHASE0.md) · [PHASE1.md](PHASE1.md) · [PHASE2.md](PHASE2.md) · [HARDWARE.md](HARDWARE.md) · [DECISIONS.md](DECISIONS.md)
+[PHASE0.md](PHASE0.md) · [PHASE1.md](PHASE1.md) · [PHASE2.md](PHASE2.md) · [DECISIONS.md](DECISIONS.md)
 
 **Archive:** [DESIGN.md](DESIGN.md) (V1 Stremio/Kodi spec) · [PLAN.md](PLAN.md) (full timeline) · [tasks/archive/](tasks/archive/)
 
-**Agent entry:** [../AGENTS.md](../AGENTS.md) · **Pi deploy:** [DEPLOY.md](DEPLOY.md) (git push/pull only — never rsync)
+**Agents:** [../AGENTS.md](../AGENTS.md) · **Deploy:** [DEPLOY.md](DEPLOY.md) (git only — never rsync)

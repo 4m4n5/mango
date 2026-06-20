@@ -1,124 +1,73 @@
-# N3 inventory — stream play orchestrator (N3a)
+# N3 inventory — play + browse
 
 **Branch:** `feat/native-experience`  
-**Gates:** `bash scripts/phase-n3a/gate-n3a-play.sh` · `bash scripts/phase-n3a/gate-n3a-play-ladder.sh` · `bash scripts/phase-n3c/gate-n3c-verify-ladder.sh`  
-**Spec:** [`tasks/phase-n3-stream-orchestrator.md`](tasks/phase-n3-stream-orchestrator.md)  
-**Manual:** [`../scripts/phase-n3a/MANUAL-GATE-play-ladder.md`](../scripts/phase-n3a/MANUAL-GATE-play-ladder.md)
+**Spec:** [`tasks/phase-n3-stream-orchestrator.md`](tasks/phase-n3-stream-orchestrator.md)
 
 ---
 
-## Plan
+## Shipped
 
-**Locked scope:** orchestrator backend · play preference ladder · filter tiers · pre-resolve · launcher copy · gates. **No picker UI** (N3b).
+### N3a — play orchestrator + ladder ✓
 
-### Play preference ladder (shipped)
+- Shared `play_ladder` in `config/catalog-filters.json` (ideal → last_resort)
+- `POST /play` — parallel resolve, probe-then-play, 90s wall, NFO preflight
+- Pre-resolve on detail open; couch-safe error copy
+- Gates: `gate-n3a-play-ladder.sh`, `gate-n3c-verify-ladder.sh`, `gate-lite-play.sh`
 
-Couch `POST /play` and playability **verify** share the same ladder (`config/catalog-filters.example.json` → `play_ladder`):
+### N3c — playability index ✓
 
-| Step | Intent |
-|------|--------|
-| `ideal` | 1080p cached encode, TorBox, no remux |
-| `1080p_uncached` | 1080p TorBox uncached allowed |
-| `1080p_remux` | 1080p cached remux |
-| `2160p_encode` | 2160p encode, TorBox + RD |
-| `last_resort` | any cache, remux OK, RD safe-unknown |
+- `playability.db` with verified pools, `win_ladder_step`, maintenance timer
+- `gate-n3c-verified-rails.sh` for full per-rail play sweep (`MANGO_GATE_FULL=1`)
 
-**Budgets:** `auto_play_wall_ms: 90000` · `auto_play_max_attempts: 12` · `auto_play_probe_ms: 8000` · `auto_play_uncached_probe_ms: 25000`.
+### Track B — verified rails UX ✓
 
-**NFO preflight** rejects non-video sidecars before mpv. **GET /stream** still filters to **ideal step only** (display headroom for N3b picker). **POST /play** uses raw streams + full ladder.
+- Thin rails (no filler), empty rails hidden, ↻ library refresh reshuffles verified pool
+- Settings: library refresh levels + time estimates
 
-**Verify DB:** `schema_version >= 2` · `win_ladder_step` on verified rows · play prefers matching hash + step.
+### N3b — partial ✓
 
-### Orchestrator (baseline N3a)
+| Slice | Status |
+|-------|--------|
+| **C1** stream picker on detail | ✓ `GET /stream` rows with `display_label`; tap to `POST /play { url }` |
+| **C2** Continue watching | ✓ `progress.db` + Continue rail; mpv position watcher |
+| Episode picker (N3e) | design / next |
+| Stremio library merge (N4) | planned |
 
-Parallel stream resolve (10 min cache) · probe-then-play · verified `win_url_hash` fast path when `probe_ms` within couch budget · AIOStreams-only autoplay tiers · Torrentio excluded from autoplay.
+### Live TV ✓
 
-### Pre-resolve
+Dual NexoTV + **live** tab — see [`LIVE_TV.md`](LIVE_TV.md). Excluded from deploy gates.
 
-Detail fires `GET /api/catalog/stream/:type/:id` in background. Launcher status: `finding stream…` → ladder copy (`trying best match…` / `trying alternate release…`) → `playing…`.
+---
 
-### Gate strategy
+## Gate strategy (deploy)
 
 | Gate | Role |
 |------|------|
-| `gate-n3a-play-ladder.sh` | Config contract + ladder unit tests |
-| `gate-n3c-verify-ladder.sh` | Verify imports ladder + DB `win_ladder_step` |
-| `gate-n3a-play.sh` | Live couch: 2 browse picks + Shawshank warn-only; wall ≤90s, attempts ≤12 |
-
-Browse picks: `movies-india-trending` / `series-india-picks` (fallback global rails when empty). Also runs N2 + N0 regression.
-
-### Deferred N3b
-
-Stream picker UI · `progress.db` · Continue rail · Torrentio in picker only.
+| `gate-lite.sh` / `pi-pre-couch-gate.sh` | **Default** — N0 + N3d (if enabled) + N2 browse + unit + 2 plays |
+| `MANGO_GATE_FULL=1` | Adds `gate-n3c-verified-rails` + `gate-n3a-play` per-rail sweep |
+| `gate-live-iptv.sh` | **Opt-in only** — `MANGO_LIVE_GATE=1` |
 
 ---
 
-## Metrics (after play ladder — Track A)
+## Next paths
 
-| Metric | Value |
-|--------|-------|
-| `gate-n3a-play-ladder.sh` | **PASS** @ `8f6aad5` |
-| `gate-n3c-verify-ladder.sh` | **PASS** @ `8f6aad5` |
-| `gate-n3a-play.sh` | **PASS** @ `8f6aad5` (Pi pre-couch) |
-| Dark Knight regression | `win_ladder_step: 1080p_remux` ~9s (NFO skip on ideal) |
-| Shawshank regression | warn-only when `total_ms > 90000` |
-| Browse pick budget | `total_ms ≤ 90000`, `attempts ≤ 12` |
-| `playability.db` | `schema_version: 2`, stale **0** @ Track A audit |
-| `movies-india-trending` | low_water (10/20 verified) — bootstrap top-up @ Track A — bootstrap maintenance |
-| catalog-service tests | **57** pass (ladder + preflight + orchestrator) |
-| `/etc/mango/catalog-filters.json` | synced via `scripts/lib/sync-etc-mango-config.sh` on deploy |
+| Priority | Item | Notes |
+|----------|------|-------|
+| 1 | **N3e** series episode picker | Detail → season/episode grid; gate in `tasks/` |
+| 2 | **N3b polish** | Picker UX (focus, labels), cancel during long resolve |
+| 3 | **N4** library + write-back | Stremio export import; finished → library sync |
+| 4 | **Live** paid cricket | AREA69 catalog depth / genre fetch |
+| 5 | **N5–N7** | AI catalogs · YouTube · 4K TV ship |
 
 ---
 
-## Waivers
+## Config touchpoints
 
-| ID | Check | Reason | Owner |
-|----|-------|--------|-------|
-| | | | |
+| File | Purpose |
+|------|---------|
+| `/etc/mango/catalog-filters.json` | Ladder, quality cap, stream display limit |
+| `/etc/mango/playability.db` | Verified pools |
+| `/etc/mango/progress.db` | mpv resume positions |
+| `/etc/mango/catalog-live.yaml` | Live sport rails (optional; repo example fallback) |
 
----
-
-## N3-C1 couch note (manual)
-
-**Lab:** 1080p monitor · headphones via monitor 3.5 mm.
-
-- [x] Verified title (Shawshank) → Play without alternate-release copy
-- [x] Ladder fallback (Dark Knight) → playback after ladder status
-- [ ] Cancel (Y) during long resolve
-- [ ] One series from india picks
-- [ ] ⌂ → home < 1 s after play
-- [ ] Voice HUD regression (N0 gate)
-
----
-
-## Handoff to N3b / Track B
-
-- **N3b:** Stream picker (2–5 options from ideal step) · `progress.db` · Continue  
-- **Track B:** Verified-only rail display · `gate-n3c-verified-rails` as primary couch proof
-
----
-
-## Follow-ups
-
-| ID | Item | Stage | Notes |
-|----|------|-------|-------|
-| N3-F1 | ElfHosted private subscriptions | Ops | [`ELFHOSTED.md`](ELFHOSTED.md) |
-| N3-F2 | Rail cache + stagger + couch-safe errors | **Shipped** | |
-| N3-F3 | N3c playability index + ladder verify | **Shipped** | `win_ladder_step` |
-| N3-F4 | `gate-n3c-verified-rails` primary gate | Track B | displayed ⇒ playable |
-| N3-F5 | Async play progress API | Track C | 90s wall vs launcher HTTP |
-
----
-
-## Track B — verified-only rails (shipped)
-
-| UX choice | Behavior |
-|-----------|----------|
-| Thin rails | Show partial verified row (no filler) |
-| Empty rails | Hidden on home |
-| Play failure | Poster stays until session shuffle |
-| ⌂ on home | Reshuffle from verified pool (~5s, no indexer) |
-| Settings | Library refresh levels + time estimates |
-| LLM API | `GET /playability/refresh/levels` · `POST /playability/refresh` |
-
-**Gates:** `gate-n3c-verified-rails.sh` (sampled) + N3a random picks + N3d when self-hosted.
+Deploy sync: `scripts/lib/sync-etc-mango-config.sh` on `pi-deploy.sh`.

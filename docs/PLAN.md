@@ -21,14 +21,18 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 └── Stremio / Kodi          fallback only (opt-in env)
 ```
 
-| Layer | Shipped | In progress |
-|-------|---------|-------------|
+| Layer | Shipped | Next |
+|-------|---------|------|
 | Lean base stack (N0) | ✓ | — |
-| Voice pipeline (Phase 2) | ✓ | Piper TTS on HDMI (optional) |
-| Pad routing (B/Y/⌂/D-pad) | ✓ | mpv + ⌂ home (N1) |
-| **catalog-service + mpv** | ✓ | — |
-| Browse rails (N2 + N2b) | ✓ | — |
-| Playability index (N3c) | active | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) (N3c) |
+| Voice pipeline (Phase 2) | ✓ | Piper TTS on HDMI (N7) |
+| Pad routing (B/Y/L/R/↻/⌂) | ✓ | — |
+| catalog-service + mpv | ✓ | — |
+| Browse rails + tabs (movies/series/live) | ✓ | — |
+| N3a play ladder + orchestrator | ✓ | — |
+| N3c playability + Track B UX | ✓ | — |
+| N3d self-hosted addons | ✓ | — |
+| Live TV (NexoTV) | ✓ | paid cricket coverage |
+| N3b picker + Continue | partial | N3e episode picker |
 | LLM media tools | — | N5 |
 
 **Repo layout:**
@@ -58,9 +62,12 @@ N0           Foundation reset (lean stack, HUD, gates)  ✓
 N1           catalog-service + one title → mpv          ✓
 N2 + N2b      Browse tabs + 12 thematic rails          ✓
 N3a           Stream play orchestrator                 ✓
-N3c           Playability index + maintenance          ← active
-N3b          Stream picker + progress
-N4           Library + Continue watching
+N3c           Playability index + maintenance          ✓
+Track B       Verified rails UX + library refresh      ✓
+Live TV       NexoTV dual instance + live tab          ✓
+N3b           Stream picker + progress (partial)       ← active
+N3e           Series episode picker                    next
+N4            Library + Stremio write-back
 N5–N7        AI catalogs · YouTube · 4K TV + soundbar ship
 Phase 5      install.sh + first-boot wizard (ongoing)
 ```

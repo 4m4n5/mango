@@ -1,7 +1,7 @@
 # mango live TV rails — copy to /etc/mango/catalog-live.yaml on the Pi
 #
 # Mixes AREA69 (paid) + IPTV-org sports (free) via two NexoTV instances.
-# Only verified playable stream URLs appear in rails (skips rate-limit placeholders).
+# verify_streams: false avoids NexoTV /stream/ rate limits; disk cache at ~/.cache/mango/
 
 version: 2
 cache_ttl_sec: 1800

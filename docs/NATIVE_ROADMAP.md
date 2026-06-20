@@ -68,7 +68,7 @@ N0 delivers **`scripts/diag/baseline-metrics.sh`** — RSS, process count, GPU/C
 | **N0** | **Foundation reset** | Principled base stack; stripped cruft; metrics + gates | N0-GATE (automated on Pi) |
 | **N1** | Catalog + play spike | `catalog-service` + **one title → mpv** with RD stream | N1-SMOKE |
 | **N2** | Real browse UI | `catalog.yaml` rails; launcher wired; India/Bollywood | N2-BROWSE |
-| **N3** | Stream picker + progress | Simple picker; mango `progress.db` | N3-PLAY |
+| **N3** | Stream play + picker + progress | N3a/N3c/Track B ✓ · N3b partial · Live TV ✓ | gate-lite |
 | **N4** | Library + Continue | Stremio export import; merged Continue rail; write-back spike | N4-CONTINUE |
 | **N5** | AI catalogs + voice tools | 3 home slots; LLM create/list catalogs | N5-AI |
 | **N6** | YouTube | yt-dlp rail; remove Kodi from default path | N6-YT |
@@ -148,7 +148,18 @@ Inventory → strip → consolidate → document → measure on Pi.
 - `gate-n3c-verified-rails.sh` on **browse pick** (not Shawshank-only)  
 - ⌂ returns to launcher &lt; 300 ms (unchanged)  
 
-**N3b (after N3a couch):** stream picker UI (2–5 options) · `progress.db` · language filter  
+**N3b (partial):** C1 stream picker on detail ✓ · C2 Continue rail + `progress.db` ✓ · N3e episode picker next  
+
+---
+
+## Live TV (shipped)
+
+**Doc:** [`LIVE_TV.md`](LIVE_TV.md)
+
+- Dual NexoTV Docker (`:7000` paid, `:7001` free) → `mango Live TV` / `mango Live Free` in export
+- `config/catalog-live.example.yaml` — cricket / football / F1 rails
+- Launcher **live** tab; `POST /play` with `live: true`; mpv `--live`
+- Disk + memory rail cache; no reshuffle on live refresh; gates opt-in only
 
 ---
 
