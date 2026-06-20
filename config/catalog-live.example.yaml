@@ -22,7 +22,7 @@ sources:
     label: news
     catalog: iptv_channels
     catalog_type: tv
-    pages: 5
+    pages: 1
 
 rails:
   - id: live-cricket
@@ -101,121 +101,29 @@ rails:
     limit: 12
     source_fill:
       - addon: mango Live News
-        limit: 9
+        limit: 12
         keywords:
-          - aaj tak
-          - abp news
-          - ndtv 24x7
-          - ndtv india
           - republic tv
           - republic bharat
-          - times now
+          - ndtv 24x7
+          - ndtv india
+          - aaj tak
+          - times now news
           - times now navbharat
           - times now world
           - wion
           - zee news
           - india today
           - news18 india
-          - cnn-news18
+          - abp news
           - dd news
-          - india tv
           - mirror now
           - news nation
+          - india tv
+          - sansad tv
           - bharat samachar
-          - rajya sabha
-      - addon: mango Live TV
-        limit: 3
-        keywords:
-          - abc news live
-          - nbc news now
-          - bbc news
-          - cnn headline
-          - bloomberg tv
-          - cbs news 24
-          - sky news
     keywords:
       - news
     exclude_keywords:
       - replay
       - sport
-      - originals
-      - comedy
-      - ananda
-      - asmita
-      - ganga
-      - majha
-      - sanjha
-      - bangla
-      - bengali
-      - tamil
-      - telugu
-      - kannada
-      - malayalam
-      - marathi
-      - gujarati
-      - punjabi
-      - odia
-      - assamese
-      - urdu
-      - bhojpuri
-      - republic bangla
-      - republic kannada
-      - news18 bangla
-      - news18 tamil
-      - news18 telugu
-      - news18 kannada
-      - news18 kerala
-      - news18 gujarati
-      - news18 punjab
-      - news18 rajasthan
-      - news18 assam
-      - news18 bihar
-      - news18 odisha
-      - news18 madhya
-      - news18 lokmat
-      - ndtv marathi
-      - ndtv rajasthan
-      - ndtv madhya
-      - zee marathi
-      - zee tamil
-      - zee telugu
-      - zee kannada
-      - zee malayalam
-      - zee punjabi
-      - zee gujarati
-      - zee bangla
-      - zee keralam
-      - dd mizoram
-      - global punjab
-      - andhra
-      - telangana
-      - baltimore
-      - boise
-      - buffalo
-      - charleston
-      - columbus
-      - dayton
-      - denver
-      - detroit
-      - memphis
-      - phoenix
-      - portland
-      - tampa
-      - tucson
-      - waco
-      - bay area
-      - boston
-      - chicago
-      - colorado
-      - los angeles
-      - minnesota
-      - philadelphia
-      - pittsburgh
-      - texas
-      - houston
-      - austin
-      - cincinnati
-      - el paso
-      - myrtle beach
-      - san diego
-      - cbc news

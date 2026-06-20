@@ -117,11 +117,14 @@ apply_free() {
 }
 
 apply_news() {
-  local news_base news_creds
+  local news_base news_creds data_dir
   news_base="$(nexotv_news_base_url)"
   news_creds="$(nexotv_news_credentials_file)"
+  data_dir="${MANGO_NEXOTV_NEWS_DATA_DIR:-$HOME/.local/share/mango/nexotv-news/data}"
   nexotv_news_health_ok || die "NexoTV news down at $news_base — run: bash scripts/phase-live/install-nexotv-news.sh"
-  apply_profile_to "$news_base" "$news_creds" "${PROFILE_ID:-iptv-org-news}"
+  mkdir -p "$data_dir"
+  cp -f "${REPO_DIR}/config/live-news-hindi-english.m3u" "$data_dir/live-news-hindi-english.m3u"
+  apply_profile_to "$news_base" "$news_creds" "${PROFILE_ID:-m3u-news-hi-en}"
 }
 
 wire_export() {
@@ -242,7 +245,7 @@ case "$cmd" in
   list-profiles) list_profiles ;;
   apply) apply_profile ;;
   apply-free) PROFILE_ID="${2:-iptv-org-sports}"; apply_free ;;
-  apply-news) PROFILE_ID="${2:-iptv-org-news-in}"; apply_news ;;
+  apply-news) PROFILE_ID="${2:-m3u-news-hi-en}"; apply_news ;;
   apply-area69) apply_area69 ;;
   wire-export) wire_export ;;
   manifest) print_manifest ;;
