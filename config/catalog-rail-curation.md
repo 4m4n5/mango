@@ -60,8 +60,8 @@ bash scripts/phase-n3c/rail-curation.sh pin remove --rail series-comedy --id tt3
 
 Demoted candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.88303`, `mdblist.84401`, `mdblist.83666`.
 
-**Stream gate couch exemplars** (`config/stream-gate-fixtures.json`): IGL + Panchayat are **soft** — track Indian series streams without blocking deploy. Filters must not drop IGL when AIOStreams returns rows (see `debrid-stream-audit.py`).
+**Stream gate couch exemplars** (`config/stream-gate-fixtures.json`): IGL + Panchayat are **soft** — track Indian series streams without blocking deploy.
 
-## Coordination
+## Next phase
 
-Series stream plane / gate work: `scripts/phase-n3d/TASK-series-stream-plane.md` (WP2–WP5).
+Stream play orchestrator (N3a): [`docs/tasks/phase-n3-stream-orchestrator.md`](../docs/tasks/phase-n3-stream-orchestrator.md)

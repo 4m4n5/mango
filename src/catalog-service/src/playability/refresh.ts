@@ -94,7 +94,7 @@ export async function refreshAllRails(
   const startedAt = Date.now();
   const mode = options.mode ?? 'stale';
   const bootstrap = options.bootstrap ?? playabilityBootstrapFill();
-  const rails = core.addonRails();
+  const rails = core.browsableRails();
   const railIds = rails.map((rail) => rail.id);
   const status = await getPlayabilityStatus(railIds);
   const { railVerifiedCounts, railPoolTargets, railMinDisplays } = railMapsFromRails(

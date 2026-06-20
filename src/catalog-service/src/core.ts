@@ -462,22 +462,12 @@ export class CatalogCore {
     return enabledBrowsableRails(this.requireRailConfig());
   }
 
-  /** @deprecated use browsableRails */
-  addonRails(): BrowsableRail[] {
-    return this.browsableRails();
-  }
-
   browsableRail(railId: string): BrowsableRail {
     const rail = this.browsableRails().find((candidate) => candidate.id === railId);
     if (!rail) {
       throw new CatalogError(404, `unknown rail: ${railId}`);
     }
     return rail;
-  }
-
-  /** @deprecated use browsableRail */
-  addonRail(railId: string): BrowsableRail {
-    return this.browsableRail(railId);
   }
 
   listSourceForRail(railId: string): ListSource {

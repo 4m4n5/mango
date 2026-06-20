@@ -52,7 +52,7 @@ export async function topUpRail(
   railId: string,
   options: TopUpRailOptions = {},
 ): Promise<TopUpRailResult> {
-  const rail = core.addonRail(railId);
+  const rail = core.browsableRail(railId);
   const source = core.listSourceForRail(railId);
   const candidateLimit = options.candidateLimit ?? rail.limit * rail.playability.ingest_multiplier;
   const poolTarget = options.poolTarget ?? rail.playability.pool_target;

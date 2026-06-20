@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 shipped**. **N3a in progress:** stream play orchestrator ([`docs/tasks/phase-n3-stream-orchestrator.md`](docs/tasks/phase-n3-stream-orchestrator.md), [`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 + N3c + N3d shipped**. **Next:** N3a stream play orchestrator ([`docs/tasks/phase-n3-stream-orchestrator.md`](docs/tasks/phase-n3-stream-orchestrator.md), [`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md), [`docs/N3d-INVENTORY.md`](docs/N3d-INVENTORY.md)).
 
 ## Read first
 
@@ -19,6 +19,7 @@ Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experien
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked choices |
 | [`docs/STACK-PRINCIPLES.md`](docs/STACK-PRINCIPLES.md) | **Layer boundaries, gates, config sources** |
 | [**`docs/DEPLOY.md`**](docs/DEPLOY.md) | **Pi deploy — git only, never rsync** |
+| [`docs/N3d-INVENTORY.md`](docs/N3d-INVENTORY.md) | **Self-hosted addons + rails** |
 | [`docs/PLAN.md`](docs/PLAN.md) | Full timeline (Phase 0–5 + native) |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | V1 historical spec |
 

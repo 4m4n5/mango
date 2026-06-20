@@ -2,42 +2,35 @@
 
 HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
 
-**Status:** N1 shipped; N2 extends the service with YAML-driven browse rails
-per [`docs/tasks/phase-n2-browse-ui.md`](../../docs/tasks/phase-n2-browse-ui.md).
-
-## Spike order (do not skip)
-
-1. `bash scripts/phase-n1/spike-mpv-http.sh` — mpv HTTP on Pi  
-2. `bash scripts/phase-n1/spike-stremio-core.sh` — WASM + addons boot  
-3. Implement this service (`:3020`)  
-4. `bash scripts/phase-n1/gate-n1-smoke.sh`
+**Status:** N1–N2 browse shipped; N3c playability index + N3d self-hosted addons on `feat/native-experience`.
 
 ## Config (Pi)
 
 | Path | Purpose |
 |------|---------|
-| `/etc/mango/stremio-export.json` | Addon manifests (from Stremio export) |
-| `/etc/mango/catalog.yaml` | N2 home rails (copy from `config/catalog.example.yaml`) |
+| `/etc/mango/stremio-export.json` | Addon manifests (Cinemeta, AIOStreams, AIOMetadata) |
+| `/etc/mango/catalog.yaml` | Home rails (copy from `config/catalog.example.yaml`) |
 | `/etc/mango/catalog-filters.json` | Stream filters (uncached debrid, max quality) |
+| `/etc/mango/playability.db` | Verified pools + tab session allocation |
+| `/etc/mango/rail-curation-overrides.yaml` | Optional pins/blocks per rail |
 | `/etc/mango/config.yaml` | Debrid / household keys |
 
-Template: [`config/stremio-export.example.json`](../../config/stremio-export.example.json)  
-Rails: [`config/catalog.example.yaml`](../../config/catalog.example.yaml)
-Filters: [`config/catalog-filters.example.json`](../../config/catalog-filters.example.json)
+Templates: [`config/stremio-export.example.json`](../../config/stremio-export.example.json) · [`config/catalog.example.yaml`](../../config/catalog.example.yaml) · [`config/catalog-filters.example.json`](../../config/catalog-filters.example.json)
 
 ## API
 
 | Endpoint | Purpose |
 |----------|---------|
 | `GET /health` | Service + core readiness |
-| `GET /rails` | N2 rail summaries from `catalog.yaml` |
-| `GET /rails/:id/items` | N2 resolved poster items for one rail |
+| `GET /rails` | Rail summaries from `catalog.yaml` |
+| `GET /rails/items?tab=` | Tab batch — playability session rows for all rails |
+| `GET /rails/:id/items` | Single-rail items (fallback) |
 | `GET /meta/:type/:id` | Cinemeta meta |
 | `GET /stream/:type/:id` | Resolved streams (filtered + ranked) |
 | `POST /play` | Resolve (if needed) + mpv fullscreen |
+| `GET /playability/status` | Pool depth + maintenance counters |
 
-N2 currently supports enabled `addon_catalog` rails only. `tmdb_list`,
-Stremio library/Continue, and full catalog management are post-N2.
+Rails: `addon_catalog` and `composite_list` (weighted mdblist/Cinemeta blends). Tab session allocation dedupes titles across rails (`session-select.ts`).
 
 ### Stream filters (uncached debrid)
 
@@ -118,19 +111,18 @@ expects **private subscriptions** — see [`docs/ELFHOSTED.md`](../../docs/ELFHO
 
 API errors return **couch-safe** `error` text (never raw “rate limit exceeded”).
 
-## Dev (after implementation)
+## Dev
 
 ```bash
 cd src/catalog-service
 npm ci
 npm run build
+npm run test
 MANGO_CATALOG=1 npm start
 ```
 
-## Dependencies (planned)
+## Dependencies
 
 - Node ≥ 20
 - `@stremio/stremio-core-web`
-- TypeScript
-
-Codex: see [`docs/tasks/CODEX-phase-n1-prompt.md`](../../docs/tasks/CODEX-phase-n1-prompt.md).
+- TypeScript · `better-sqlite3`

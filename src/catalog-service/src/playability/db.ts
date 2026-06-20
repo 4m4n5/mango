@@ -197,10 +197,6 @@ function toNumber(value: number | null | undefined): number {
   return Number(value || 0);
 }
 
-function itemKey(item: { type: string; id: string }): string {
-  return `${item.type}:${item.id}`;
-}
-
 function readSiblingSessionOccupiedKeys(
   db: Database.Database,
   sessionId: string,
@@ -595,7 +591,7 @@ export async function getTitlePlayability(
   id: string,
 ): Promise<TitlePlayabilityRecord | null> {
   const map = await getTitlesPlayabilityBulk([{ type, id }]);
-  return map.get(itemKey({ type, id })) ?? null;
+  return map.get(titleKey(type, id)) ?? null;
 }
 
 export async function getTitlesPlayabilityBulk(
@@ -611,7 +607,7 @@ export async function getTitlesPlayabilityBulk(
   try {
     const unique = new Map<string, { type: string; id: string }>();
     for (const key of keys) {
-      unique.set(itemKey(key), key);
+      unique.set(titleKey(key.type, key.id), key);
     }
     const values = [...unique.values()];
     const chunkSize = 200;
@@ -629,7 +625,7 @@ FROM titles
 WHERE (type, id) IN ( VALUES ${placeholders} );
 `).all(params) as TitleRow[];
       for (const row of rows) {
-        result.set(itemKey(row), row);
+        result.set(titleKey(row.type, row.id), row);
       }
     }
     return result;
@@ -682,7 +678,7 @@ WHERE rail_id IN (${placeholders});
 `).all(params) as Array<{ rail_id: string; type: string; id: string }>;
     for (const row of rows) {
       const keys = result.get(row.rail_id) ?? new Set<string>();
-      keys.add(itemKey(row));
+      keys.add(titleKey(row.type, row.id));
       result.set(row.rail_id, keys);
     }
     return result;
@@ -847,12 +843,14 @@ export async function allocateTabRailSessions(
 
   try {
     const existingByRail = new Map<string, RailSessionPoolItem[]>();
+    const curatedPools = new Map<string, ReturnType<typeof readRailPool>>();
     const poolSizes = new Map<string, number>();
     let canReuseExisting = options.rails.length > 0;
 
     for (const rail of options.rails) {
       const displayLimit = Math.max(1, rail.displayLimit);
       const pool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides);
+      curatedPools.set(rail.railId, pool);
       poolSizes.set(rail.railId, pool.length);
       const existing = readExistingRailSession(db, rail.railId, options.sessionId, now);
       existingByRail.set(rail.railId, existing);
@@ -886,13 +884,9 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
         });
       }
 
-      const pools = new Map<string, ReturnType<typeof readRailPool>>();
+      const pools = curatedPools;
       const recentKeysByRail = new Map<string, Set<string>>();
       for (const rail of options.rails) {
-        pools.set(
-          rail.railId,
-          curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides),
-        );
         recentKeysByRail.set(rail.railId, readRecentRailKeys(db, rail.railId, cooldownCutoff));
       }
 

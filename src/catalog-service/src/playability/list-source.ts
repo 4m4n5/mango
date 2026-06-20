@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { BrowsableRail, CatalogSourceRef } from '../rails.js';
 import {
   allocateSourceLimits,
@@ -7,7 +5,7 @@ import {
   type WeightedCandidateBatch,
 } from './composite-merge.js';
 
-export type ListSourceType = 'addon_catalog' | 'composite_list' | 'ai_catalog' | 'static_ids' | 'tmdb_list';
+export type ListSourceType = 'addon_catalog' | 'composite_list';
 
 export type CandidateMeta = {
   id: string;
@@ -27,29 +25,6 @@ export type ResolvedCatalogSource = CatalogSourceRef & {
   manifestUrl: string;
   sourceLabel: string;
 };
-
-const DEFAULT_AI_CATALOG_DIR = '/etc/mango/ai-catalogs';
-
-function normalizeCandidate(value: unknown, fallbackType: string, sourceId: string): CandidateMeta | null {
-  if (typeof value === 'string') {
-    const id = value.trim();
-    return id ? { id, type: fallbackType, source: sourceId } : null;
-  }
-  if (typeof value !== 'object' || value === null) return null;
-  const record = value as Record<string, unknown>;
-  const id = typeof record.id === 'string' && record.id.trim() !== '' ? record.id.trim() : null;
-  if (!id) return null;
-  const type = typeof record.type === 'string' && record.type.trim() !== ''
-    ? record.type.trim()
-    : fallbackType;
-  return {
-    id,
-    type,
-    title: typeof record.title === 'string' && record.title.trim() !== '' ? record.title.trim() : undefined,
-    poster: typeof record.poster === 'string' && record.poster.trim() !== '' ? record.poster.trim() : undefined,
-    source: sourceId,
-  };
-}
 
 export function resourceUrl(manifestUrl: string, resource: string, type: string, id: string): string {
   const encodedType = encodeURIComponent(type);
@@ -205,49 +180,5 @@ export class CompositeListSource implements ListSource {
     }
 
     return mergeCompositeCandidates(batches, options.limit, options.offset);
-  }
-}
-
-export class StaticIdsListSource implements ListSource {
-  readonly sourceType = 'static_ids' as const;
-
-  constructor(
-    readonly sourceId: string,
-    private readonly items: CandidateMeta[],
-  ) {}
-
-  async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
-    return this.items.slice(options.offset, options.offset + options.limit);
-  }
-}
-
-export class AiCatalogListSource implements ListSource {
-  readonly sourceType = 'ai_catalog' as const;
-
-  constructor(
-    readonly sourceId: string,
-    private readonly options: {
-      dir?: string;
-      fallbackType?: string;
-    } = {},
-  ) {}
-
-  async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
-    if (!/^[A-Za-z0-9_.-]+$/.test(this.sourceId)) {
-      throw new Error(`invalid ai catalog id: ${this.sourceId}`);
-    }
-    const root = this.options.dir || process.env.MANGO_AI_CATALOG_DIR || DEFAULT_AI_CATALOG_DIR;
-    const fallbackType = this.options.fallbackType || 'movie';
-    const raw = await readFile(join(root, `${this.sourceId}.json`), 'utf8');
-    const parsed = JSON.parse(raw) as unknown;
-    const items = Array.isArray(parsed)
-      ? parsed
-      : typeof parsed === 'object' && parsed !== null && Array.isArray((parsed as { items?: unknown }).items)
-        ? (parsed as { items: unknown[] }).items
-        : [];
-    return items
-      .map((item) => normalizeCandidate(item, fallbackType, this.sourceId))
-      .filter((candidate): candidate is CandidateMeta => candidate !== null)
-      .slice(options.offset, options.offset + options.limit);
   }
 }

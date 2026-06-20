@@ -285,11 +285,6 @@ export function enabledBrowsableRails(config: RailConfig): BrowsableRail[] {
   ));
 }
 
-/** @deprecated use enabledBrowsableRails */
-export function enabledAddonRails(config: RailConfig): BrowsableRail[] {
-  return enabledBrowsableRails(config);
-}
-
 export function enabledBrowsableRailsForTab(
   config: RailConfig,
   tab?: CatalogTab,
@@ -299,14 +294,6 @@ export function enabledBrowsableRailsForTab(
     return rails;
   }
   return rails.filter((rail) => rail.tab === tab);
-}
-
-/** @deprecated use enabledBrowsableRailsForTab */
-export function enabledAddonRailsForTab(
-  config: RailConfig,
-  tab?: CatalogTab,
-): BrowsableRail[] {
-  return enabledBrowsableRailsForTab(config, tab);
 }
 
 export function parseCatalogTab(value: string | null | undefined): CatalogTab | undefined {

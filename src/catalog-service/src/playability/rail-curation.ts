@@ -8,7 +8,6 @@ import {
 import {
   invalidateRailCurationCache,
   loadRailCurationOverrides,
-  parseRailCurationOverrides,
   type RailCurationOverrides,
   type RailCurationPin,
 } from './rail-overrides.js';
@@ -115,5 +114,3 @@ export async function applyRailCuration(
     details,
   };
 }
-
-export { parseRailCurationOverrides };
