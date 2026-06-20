@@ -59,6 +59,12 @@ OUT_PATH = Path(
     ),
 )
 MPV_STOP = ["bash", "scripts/phase-n1/mpv-stop.sh"]
+EXPORT_JSON = Path(os.environ.get("MANGO_AIOMETADATA_EXPORT", ""))
+PROBE_EXPORT = os.environ.get("MANGO_SOURCE_PROBE_EXPORT", "0") == "1"
+CINEMETA_CATALOG_ROOT = os.environ.get(
+    "MANGO_CINEMETA_CATALOG_ROOT",
+    "https://cinemeta-catalogs.strem.io/top/catalog",
+)
 
 
 @dataclass
@@ -94,13 +100,20 @@ class SourceStats:
 
 def fetch_json(url: str, *, method: str = "GET", body: dict | None = None, timeout: float = 90) -> dict:
     data = None
-    headers = {"accept": "application/json"}
+    headers = {
+        "accept": "application/json",
+        "user-agent": "Stremio/4.0 (mango-source-hitrate)",
+    }
     if body is not None:
         data = json.dumps(body).encode()
         headers["content-type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
+
+
+def cinemeta_catalog_url(content_type: str, catalog_id: str) -> str:
+    return f"{CINEMETA_CATALOG_ROOT}/{urllib.parse.quote(content_type)}/{urllib.parse.quote(catalog_id)}.json"
 
 
 def load_manifests() -> dict[str, str]:
@@ -122,10 +135,49 @@ def catalog_resource_url(manifest_url: str, content_type: str, catalog_id: str) 
 
 
 def load_catalog_index() -> dict[str, str]:
-    if not CATALOG_INDEX.is_file():
+    names: dict[str, str] = {}
+    if CATALOG_INDEX.is_file():
+        data = json.loads(CATALOG_INDEX.read_text(encoding="utf-8"))
+        for entry in data.get("catalogs") or []:
+            cid = str(entry.get("id") or "")
+            if cid:
+                names[cid] = str(entry.get("name") or cid)
+    if EXPORT_JSON.is_file():
+        data = json.loads(EXPORT_JSON.read_text(encoding="utf-8"))
+        for entry in (data.get("config") or data).get("catalogs") or []:
+            cid = str(entry.get("id") or "")
+            if cid and cid not in names:
+                names[cid] = str(entry.get("name") or cid)
+    return names
+
+
+def load_export_catalog_sources() -> dict[str, SourceRef]:
+    """All enabled movie/series catalogs from AIOMetadata export (for discovery probes)."""
+    if not EXPORT_JSON.is_file():
         return {}
-    data = json.loads(CATALOG_INDEX.read_text(encoding="utf-8"))
-    return {str(c["id"]): str(c.get("name") or c["id"]) for c in data.get("catalogs") or [] if c.get("id")}
+    data = json.loads(EXPORT_JSON.read_text(encoding="utf-8"))
+    catalogs = (data.get("config") or data).get("catalogs") or []
+    sources: dict[str, SourceRef] = {}
+    for entry in catalogs:
+        if entry.get("enabled") is False:
+            continue
+        content_type = str(entry.get("type") or "")
+        if content_type not in ("movie", "series"):
+            continue
+        cid = str(entry.get("id") or "")
+        if not cid:
+            continue
+        if cid.startswith("tmdb."):
+            addon = "Cinemeta"
+            catalog = {"tmdb.top": "top", "tmdb.top_rated": "imdbRating"}.get(cid, cid)
+        elif cid.startswith("mdblist.") or cid.startswith("custom."):
+            addon = "AIOMetadata"
+            catalog = cid
+        else:
+            continue
+        key = f"{addon}|{catalog}|{content_type}"
+        sources[key] = SourceRef(addon=addon, catalog=catalog, content_type=content_type, rails=["(export)"])
+    return sources
 
 
 def load_sources_from_yaml() -> dict[str, SourceRef]:
@@ -156,9 +208,13 @@ def load_sources_from_yaml() -> dict[str, SourceRef]:
     return sources
 
 
-def fetch_catalog_metas(manifest_url: str, content_type: str, catalog_id: str, limit: int) -> list[dict]:
-    url = catalog_resource_url(manifest_url, content_type, catalog_id)
-    data = fetch_json(url, timeout=30)
+def fetch_catalog_metas(addon: str, manifest_url: str, content_type: str, catalog_id: str, limit: int) -> list[dict]:
+    if addon == "Cinemeta":
+        url = cinemeta_catalog_url(content_type, catalog_id)
+        data = fetch_json(url, timeout=30)
+    else:
+        url = catalog_resource_url(manifest_url, content_type, catalog_id)
+        data = fetch_json(url, timeout=30)
     metas = data.get("metas") or []
     out: list[dict] = []
     for meta in metas[:limit]:
@@ -236,7 +292,12 @@ def main() -> int:
 
     manifests = load_manifests()
     catalog_names = load_catalog_index()
-    sources = load_sources_from_yaml()
+    if PROBE_EXPORT and EXPORT_JSON.is_file():
+        sources = load_export_catalog_sources()
+        print(f"mode: export probe ({EXPORT_JSON})")
+    else:
+        sources = load_sources_from_yaml()
+        print("mode: active rails")
     rng = random.Random(SEED)
 
     print("========== mango source hit-rate ==========")
@@ -249,11 +310,17 @@ def main() -> int:
 
     for key, ref in sorted(sources.items(), key=lambda item: item[0]):
         manifest = manifests.get(ref.addon)
-        if not manifest:
+        if ref.addon != "Cinemeta" and not manifest:
             print(f"SKIP {key}: no manifest for addon {ref.addon}")
             continue
         try:
-            metas = fetch_catalog_metas(manifest, ref.content_type, ref.catalog, limit=max(PER_SOURCE * 3, 15))
+            metas = fetch_catalog_metas(
+                ref.addon,
+                manifest or "",
+                ref.content_type,
+                ref.catalog,
+                limit=max(PER_SOURCE * 3, 15),
+            )
         except Exception as exc:
             print(f"SKIP {key}: catalog fetch failed — {exc}")
             continue
