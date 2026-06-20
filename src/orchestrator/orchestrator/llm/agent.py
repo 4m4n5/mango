@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -17,10 +18,13 @@ from orchestrator.session import VoiceBrowseContext
 from orchestrator.tools import catalog as catalog_tools
 from orchestrator.tools.runner import execute_tool, tool_summary
 from orchestrator.tools.voice_nav import (
+    hit_matches_sequel_query,
     hit_to_open_input,
     pick_auto_open_hit,
     pick_hit_from_utterance,
 )
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = (
     "You are mango's TV librarian — warm, knowledgeable couch assistant for a mango TV box. "
@@ -383,11 +387,27 @@ async def _fast_path_open(
                 "result": search_json,
             }
         )
-    if not hits:
-        return False, "", False
 
     hit = pick_hit_from_utterance(user_text, hits) or pick_auto_open_hit(hits)
+    need_external = hit is None or not hit_matches_sequel_query(user_text, hit)
+    if need_external:
+        external_hits = await _fast_path_external_search(
+            query,
+            settings,
+            browse,
+            on_tool_event=on_tool_event,
+        )
+        if external_hits:
+            hit = pick_hit_from_utterance(user_text, external_hits) or pick_auto_open_hit(
+                external_hits
+            )
+
     if hit is None:
+        logger.info(
+            "voice fast_path miss query=%r library_hits=%d",
+            query,
+            len(hits),
+        )
         return False, "", False
 
     opened, title = await _open_hit(
@@ -397,6 +417,42 @@ async def _fast_path_open(
         on_tool_event=on_tool_event,
     )
     return opened, title, opened
+
+
+async def _fast_path_external_search(
+    query: str,
+    settings: OrchestratorSettings,
+    browse: VoiceBrowseContext,
+    *,
+    on_tool_event: ToolEventCallback | None = None,
+) -> list[dict[str, Any]]:
+    if on_tool_event is not None:
+        await on_tool_event(
+            {
+                "type": "tool",
+                "phase": "start",
+                "name": "mango_search_external",
+                "summary": tool_summary("mango_search_external", {"query": query}),
+            }
+        )
+    search_json = await execute_tool(
+        "mango_search_external",
+        {"query": query, "limit": 8, "queue_missing": False},
+        settings,
+    )
+    hits = _parse_search_results(search_json)
+    browse.remember_external(hits)
+    if on_tool_event is not None:
+        await on_tool_event(
+            {
+                "type": "tool",
+                "phase": "done",
+                "name": "mango_search_external",
+                "summary": tool_summary("mango_search_external", {"query": query}),
+                "result": search_json,
+            }
+        )
+    return hits
 
 
 async def _open_hit(

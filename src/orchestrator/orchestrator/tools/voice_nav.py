@@ -26,6 +26,34 @@ _ORDINAL_WORDS: dict[str, int] = {
 }
 _OPTION_NUM = re.compile(r"\b(?:option|number|#)\s*(\d+)\b", re.IGNORECASE)
 _BARE_NUM = re.compile(r"\b([1-4])\b")
+_SEQUEL_NUM = re.compile(r"\b(\d+)\b")
+
+
+def sequel_number_in_query(text: str) -> str | None:
+    match = _SEQUEL_NUM.search(text.strip())
+    return match.group(1) if match else None
+
+
+def hit_matches_sequel_query(text: str, hit: dict[str, Any]) -> bool:
+    """When the user names a sequel number, reject library hits that lack it."""
+    num = sequel_number_in_query(text)
+    if not num:
+        return True
+    title = hit.get("title")
+    if not isinstance(title, str) or not title.strip():
+        return False
+    return bool(re.search(rf"\b{re.escape(num)}\b", title))
+
+
+def _pick_sequel_hit(text: str, hits: list[dict[str, Any]]) -> dict[str, Any] | None:
+    num = sequel_number_in_query(text)
+    if not num:
+        return None
+    for hit in hits:
+        title = hit.get("title")
+        if isinstance(title, str) and re.search(rf"\b{re.escape(num)}\b", title):
+            return hit
+    return None
 
 
 def hit_to_open_input(hit: dict[str, Any]) -> dict[str, Any]:
@@ -74,6 +102,10 @@ def pick_hit_from_utterance(text: str, hits: list[dict[str, Any]]) -> dict[str, 
             index = int(bare.group(1)) - 1
             if 0 <= index < len(hits):
                 return hits[index]
+
+    sequel = _pick_sequel_hit(normalized, hits)
+    if sequel is not None:
+        return sequel
 
     best: tuple[int, dict[str, Any]] | None = None
     for hit in hits:

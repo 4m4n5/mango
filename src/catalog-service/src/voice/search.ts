@@ -62,7 +62,13 @@ export async function searchVerifiedLibrary(
     return [];
   }
 
-  const rows = await searchVerifiedRailPoolTitles(trimmed, 40);
+  let rows = await searchVerifiedRailPoolTitles(trimmed, 40);
+  if (rows.length === 0 && /\d/.test(trimmed)) {
+    const base = trimmed.replace(/\s+\d+\s*$/, '').trim();
+    if (base.length >= 2 && base !== trimmed) {
+      rows = await searchVerifiedRailPoolTitles(base, 40);
+    }
+  }
   const seen = new Set<string>();
   const hits: VoiceSearchHit[] = [];
   for (const row of rows) {

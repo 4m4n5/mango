@@ -324,6 +324,17 @@ function resourceUrl(addon: Addon, resource: string, type: string, id: string): 
   return url.toString();
 }
 
+/** Cinemeta exposes search via catalog/top/search= — not the Stremio search resource. */
+function catalogSearchUrl(addon: Addon, type: string, query: string): string {
+  const encodedType = encodeURIComponent(type);
+  const encodedQuery = encodeURIComponent(query);
+  const url = new URL(addon.manifestUrl);
+  const root = url.pathname.replace(/\/manifest\.json$/, '').replace(/\/$/, '');
+  url.pathname = `${root}/catalog/${encodedType}/top/search=${encodedQuery}.json`;
+  url.hash = '';
+  return url.toString();
+}
+
 function normalizeAddonName(name: string): string {
   return name
     .toLowerCase()
@@ -1150,13 +1161,19 @@ export class CatalogCore {
     const results: Meta[] = [];
     const seen = new Set<string>();
     for (const addon of this.metaAddonsInOrder()) {
-      if (!supportsResource(addon.manifest, 'search', type)) {
+      const hasSearch = supportsResource(addon.manifest, 'search', type);
+      const hasCatalogSearch =
+        !hasSearch
+        && normalizeAddonName(addon.name) === 'cinemeta'
+        && supportsResource(addon.manifest, 'catalog', type);
+      if (!hasSearch && !hasCatalogSearch) {
         continue;
       }
       try {
-        const result = await fetchJson(
-          resourceUrl(addon, 'search', type, trimmed),
-        ) as { metas?: Meta[] };
+        const fetchUrl = hasSearch
+          ? resourceUrl(addon, 'search', type, trimmed)
+          : catalogSearchUrl(addon, type, trimmed);
+        const result = await fetchJson(fetchUrl) as { metas?: Meta[] };
         for (const meta of result.metas ?? []) {
           if (!meta?.id || isBlockedCatalogMeta(meta)) {
             continue;

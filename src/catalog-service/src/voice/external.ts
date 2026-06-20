@@ -3,6 +3,7 @@ import { isBlockedCatalogMeta } from '../catalog-errors.js';
 import { getTitlePlayability, queueTitleForVoiceIngest } from '../playability/db.js';
 import { loadRailConfig, type CatalogTab } from '../rails.js';
 import { metahubPosterUrl } from '../poster.js';
+import { scoreTitleMatch } from './search.js';
 
 export type ExternalSearchHit = {
   type: string;
@@ -11,6 +12,7 @@ export type ExternalSearchHit = {
   year?: string;
   poster?: string;
   tab: CatalogTab;
+  score: number;
   in_library: boolean;
   library_status?: string;
   queued_for_verify: boolean;
@@ -105,13 +107,15 @@ export async function searchExternalTitles(
         queued = true;
       }
 
+      const title = metaTitle(meta as Record<string, unknown>);
       results.push({
         type: contentType,
         id: bareId,
-        title: metaTitle(meta as Record<string, unknown>),
+        title,
         year: metaYear(meta as Record<string, unknown>),
         poster: metahubPosterUrl(bareId) ?? undefined,
         tab: tabForType(contentType),
+        score: scoreTitleMatch(title, trimmed),
         in_library: inLibrary,
         library_status: playability?.status,
         queued_for_verify: queued,

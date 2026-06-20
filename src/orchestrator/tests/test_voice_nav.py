@@ -10,7 +10,11 @@ from orchestrator.llm.open_intent import (
     user_wants_open_detail,
     user_wants_title_navigation,
 )
-from orchestrator.tools.voice_nav import pick_auto_open_hit, pick_hit_from_utterance
+from orchestrator.tools.voice_nav import (
+    hit_matches_sequel_query,
+    pick_auto_open_hit,
+    pick_hit_from_utterance,
+)
 
 
 class OpenIntentTests(unittest.TestCase):
@@ -54,6 +58,20 @@ class VoiceNavPickTests(unittest.TestCase):
     def test_auto_open_clear_winner(self) -> None:
         hit = pick_auto_open_hit(self.hits)
         self.assertEqual(hit["id"], "tt0111161")
+
+    def test_sequel_pick(self) -> None:
+        hits = [
+            {"type": "movie", "id": "tt0114709", "title": "Toy Story", "score": 100},
+            {"type": "movie", "id": "tt1979376", "title": "Toy Story 4", "score": 92},
+            {"type": "movie", "id": "tt0412449", "title": "Toy Story 3", "score": 95},
+        ]
+        hit = pick_hit_from_utterance("open toy story 3", hits)
+        self.assertEqual(hit["id"], "tt0412449")
+
+    def test_sequel_mismatch_blocks_wrong_hit(self) -> None:
+        hit = {"type": "movie", "id": "tt0114709", "title": "Toy Story", "score": 100}
+        self.assertFalse(hit_matches_sequel_query("open toy story 3", hit))
+        self.assertTrue(hit_matches_sequel_query("open toy story", hit))
 
 
 if __name__ == "__main__":
