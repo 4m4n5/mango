@@ -30,7 +30,7 @@ N1 proved one smoke title (`tt0111161`). N2 proved browse UI. **N3a proves play 
 | Stream filters | `strict_unknown_cache: true` default; AIOStreams-first tiers |
 | `mpv-play.sh` | `--probe` mode for fast TTFF check per attempt |
 | Launcher | Pre-resolve on detail open; friendly spinner only |
-| Gate | `bash scripts/phase-n3/gate-n3-play.sh` exit 0 |
+| Gate | `bash scripts/phase-n3c/gate-n3c-verified-rails.sh` exit 0 |
 | N2+N1+N0 regression | All prior gates still pass |
 | `docs/N3-INVENTORY.md` | Plan, metrics, couch note |
 
@@ -260,8 +260,8 @@ Play button still calls `POST /api/catalog/play` with `{ type, id }` only.
 | D5 | `index.ts` — wired `playWithFallback` |
 | D6 | `scripts/phase-n1/mpv-play.sh` — `--probe` mode |
 | D7 | `src/launcher/src/catalog.ts` + `detail.ts` — prefetch + copy |
-| D8 | `scripts/phase-n3/check-n3-prereqs.sh` |
-| D9 | `scripts/phase-n3/gate-n3-play.sh` |
+| D8 | `scripts/phase-n3c/gate-n3c-verified-rails.sh` |
+| D9 | `scripts/phase-n3/gate-n3c-verified-rails.sh` |
 | D10 | `docs/N3-INVENTORY.md` — plan + metrics + couch note |
 | D11 | `scripts/pi-pre-couch-gate.sh` — run N3 gate when catalog on (optional but preferred) |
 
@@ -272,7 +272,7 @@ Play button still calls `POST /api/catalog/play` with `{ type, id }` only.
 ### Gate N3-A — Prereqs
 
 ```bash
-bash scripts/phase-n3/check-n3-prereqs.sh
+bash scripts/phase-n3c/gate-n3c-verified-rails.sh
 ```
 
 | Check | Pass |
@@ -285,7 +285,7 @@ bash scripts/phase-n3/check-n3-prereqs.sh
 ### Gate N3-B — Play orchestrator (critical)
 
 ```bash
-bash scripts/phase-n3/gate-n3-play.sh
+bash scripts/phase-n3c/gate-n3c-verified-rails.sh
 ```
 
 | Check | Pass |
@@ -333,7 +333,7 @@ Document in `N3-INVENTORY.md`:
 
 | # | Test | Pass |
 |---|------|------|
-| 1 | `gate-n3-play.sh` | exit 0 |
+| 1 | `gate-n3c-verified-rails.sh` | exit 0 |
 | 2 | Browse pick A → Play | ≤15 s, picture + audio |
 | 3 | Browse pick B (different rail) | ≤15 s |
 | 4 | No API error on status line | generic message only on total fail |
@@ -350,7 +350,7 @@ cd src/launcher && npm ci && npm run build
 # filters — mango-stack may use repo example if /etc differs
 sudo cp config/catalog-filters.example.json /etc/mango/catalog-filters.json  # if sudo available
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
-bash scripts/phase-n3/gate-n3-play.sh
+bash scripts/phase-n3c/gate-n3c-verified-rails.sh
 ```
 
 ---

@@ -63,7 +63,7 @@ Enriched fields (from `stream-formatter.ts`): `display_label`, `release_group`, 
 | `gate-n3d-stream-language.sh` | self-hosted | Language soft/hard policy |
 | `gate-n3d-catalogs.sh` | self-hosted | Required rails + optional warns |
 | `gate-n3d-self-hosted.sh` | pre-couch | Orchestrates N3d gates |
-| `gate-n3-play.sh` | manual / CI | Browse pick play ≤15s |
+| `gate-n3c-verified-rails.sh` | manual / CI | Browse pick play ≤15s |
 | `pi-pre-couch-gate.sh` | Mac `pi-exec-gate.sh` | Pull + N0 + N3d when `MANGO_SELF_HOSTED_ADDONS=1` |
 
 ```bash

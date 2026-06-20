@@ -1,10 +1,10 @@
 import type { CatalogCore } from '../core.js';
 import {
   getPlayabilityStatus,
-  getRailPlayabilityStatus,
   getRailPoolTitleKeysBulk,
   getStaleTitlesInPools,
   getTitlesPlayabilityBulk,
+  pruneNonPlayableFromRailPools,
   type PlayabilityRailStatus,
 } from './db.js';
 import {
@@ -18,6 +18,10 @@ import {
   type RailCandidateRef,
 } from './pipeline.js';
 import { playabilityBootstrapFill, playabilityEarlyExitMinDisplay } from './config.js';
+import {
+  effectiveCandidateLimit,
+  effectivePoolTarget,
+} from './pool-growth.js';
 
 export type RefreshMode = 'full' | 'stale';
 
@@ -73,6 +77,7 @@ export type RefreshAllResult = {
   skipped_existing: number;
   skipped_recent_failed: number;
   batch_flush: { verify_count: number; pool_count: number };
+  pruned_pool_entries: number;
   rails: RefreshRailSummary[];
 };
 
@@ -84,7 +89,7 @@ function railNeedsWork(
   if (mode === 'full') {
     return status.verified_pool < poolTarget;
   }
-  return status.verified_pool < poolTarget * 0.5 || status.stale > 0;
+  return status.verified_pool < poolTarget || status.stale > 0;
 }
 
 export async function refreshAllRails(
@@ -108,7 +113,10 @@ export async function refreshAllRails(
   const refsByKey = new Map<string, RailCandidateRef[]>();
   const candidatesSeenByRail = new Map<string, number>();
   const railsToFetch = rails.filter((rail) => {
-    const poolTarget = railPoolTargets.get(rail.id) ?? rail.playability.pool_target;
+    const verified = beforeByRail.get(rail.id)?.verified_pool ?? 0;
+    const poolTarget = options.poolTarget
+      ?? effectivePoolTarget(rail.playability, verified, { bootstrap });
+    railPoolTargets.set(rail.id, poolTarget);
     const before = beforeByRail.get(rail.id) ?? {
       rail_id: rail.id,
       pool_depth: 0,
@@ -123,8 +131,15 @@ export async function refreshAllRails(
 
   await Promise.all(railsToFetch.map(async (rail) => {
     const source = core.listSourceForRail(rail.id);
+    const verified = railVerifiedCounts.get(rail.id) ?? 0;
+    const poolTarget = railPoolTargets.get(rail.id) ?? rail.playability.pool_target;
     const candidateLimit = options.candidateLimit
-      ?? rail.limit * rail.playability.ingest_multiplier;
+      ?? effectiveCandidateLimit(
+        rail.limit,
+        rail.playability.ingest_multiplier,
+        verified,
+        poolTarget,
+      );
     const candidates = uniqueCandidates(await source.candidates({ offset: 0, limit: candidateLimit }));
     candidatesSeenByRail.set(rail.id, candidates.length);
     for (const [index, candidate] of candidates.entries()) {
@@ -193,7 +208,10 @@ export async function refreshAllRails(
   }
 
   const batchFlush = await finalizeVerifyContext(context);
+  const prunedPoolEntries = await pruneNonPlayableFromRailPools();
   const finishedAt = Date.now();
+  const afterStatus = await getPlayabilityStatus(railIds);
+  const afterByRail = new Map(afterStatus.rails.map((rail) => [rail.rail_id, rail]));
 
   const railSummaries: RefreshRailSummary[] = [];
   for (const rail of rails) {
@@ -206,8 +224,18 @@ export async function refreshAllRails(
       failed: 0,
       last_verified_at: null,
     };
-    const after = await getRailPlayabilityStatus(rail.id);
-    const poolTarget = railPoolTargets.get(rail.id) ?? rail.playability.pool_target;
+    const after = afterByRail.get(rail.id) ?? {
+      rail_id: rail.id,
+      pool_depth: 0,
+      verified_pool: 0,
+      pending: 0,
+      stale: 0,
+      failed: 0,
+      last_verified_at: null,
+    };
+    const verified = before.verified_pool;
+    const poolTarget = railPoolTargets.get(rail.id)
+      ?? effectivePoolTarget(rail.playability, verified, { bootstrap });
     const railResults = [...linked.results, ...processed.results].filter((result) => (
       result.rails?.includes(rail.id)
     ));
@@ -217,7 +245,13 @@ export async function refreshAllRails(
       ok: after.verified_pool >= rail.playability.min_display,
       before,
       after,
-      candidate_limit: options.candidateLimit ?? rail.limit * rail.playability.ingest_multiplier,
+      candidate_limit: options.candidateLimit
+        ?? effectiveCandidateLimit(
+          rail.limit,
+          rail.playability.ingest_multiplier,
+          verified,
+          poolTarget,
+        ),
       pool_target: poolTarget,
       min_display: rail.playability.min_display,
       candidates_seen: candidatesSeenByRail.get(rail.id) ?? 0,
@@ -245,6 +279,7 @@ export async function refreshAllRails(
     skipped_existing: linked.skipped_existing,
     skipped_recent_failed: linked.skipped_recent_failed,
     batch_flush: batchFlush,
+    pruned_pool_entries: prunedPoolEntries,
     rails: railSummaries,
   };
 }

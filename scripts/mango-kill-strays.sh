@@ -9,7 +9,7 @@ REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 pkill -f 'playability-indexer' 2>/dev/null || true
 pkill -f 'tsx.*phase-n3c' 2>/dev/null || true
 pkill -f 'gate-n3c-verified-rails' 2>/dev/null || true
-pkill -f 'gate-n3-play' 2>/dev/null || true
+pkill -f 'gate-n3c-verified' 2>/dev/null || true
 pkill -f 'curl.*127.0.0.1:3020/play' 2>/dev/null || true
 
 if [[ -x "$REPO_DIR/scripts/phase-n1/mpv-stop.sh" ]]; then

@@ -1,7 +1,8 @@
 # Rail catalog curation (v2.2)
 
-Playability-first picks. Target **20 verified playable titles** per rail.
-After each fill: `source-hitrate.py` → tune → re-import → `fill-playability-db.sh`.
+Playability-first picks. **Accumulative pools:** each refresh grows verified depth by `pool_growth_per_refresh` (default 10) up to `pool_max` (120); only confirmed-dead titles are pruned from `rail_pool`.
+
+After each fill: `source-hitrate.py` → tune → re-import → `fill-playability-db.sh` (never use `MANGO_FILL_PURGE_POOLS=1` unless resetting).
 
 ## Hit-rate principles
 
@@ -43,7 +44,7 @@ Goal: ≥80% stream resolve per active source (`MANGO_SOURCE_TARGET_RATE=0.80`).
 Override automatic catalog picks for couch-critical titles (e.g. **India's Got Latent** on `series-comedy`).
 
 ```bash
-# Edit config/rail-curation-overrides.yaml (Pi: /etc/mango/rail-curation-overrides.yaml)
+# Edit config/rail-curation-overrides.example.yaml (Pi: /etc/mango/rail-curation-overrides.yaml)
 bash scripts/phase-n3c/rail-curation.sh list
 bash scripts/phase-n3c/rail-curation.sh apply
 

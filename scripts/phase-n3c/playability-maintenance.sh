@@ -35,30 +35,8 @@ fi
 
 mkdir -p "$CACHE_DIR"
 
-resolve_catalog_yaml() {
-  local etc="/etc/mango/catalog.yaml"
-  local example="$REPO_DIR/config/catalog.example.yaml"
-  if [[ -n "${MANGO_CATALOG_YAML:-}" ]]; then
-    printf '%s\n' "$MANGO_CATALOG_YAML"
-    return 0
-  fi
-  if [[ -f "$example" && -f "$etc" ]] && ! cmp -s "$example" "$etc"; then
-    echo "catalog: /etc/mango/catalog.yaml differs from repo — using config/catalog.example.yaml" >&2
-    printf '%s\n' "$example"
-    return 0
-  fi
-  if [[ -f "$etc" ]]; then
-    printf '%s\n' "$etc"
-    return 0
-  fi
-  if [[ -f "$example" ]]; then
-    printf '%s\n' "$example"
-    return 0
-  fi
-  echo "catalog: no catalog.yaml found" >&2
-  return 1
-}
-
+# shellcheck source=../lib/catalog-yaml.sh
+source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
 export MANGO_CATALOG_YAML="$(resolve_catalog_yaml)" || exit 1
 echo "catalog: $MANGO_CATALOG_YAML"
 

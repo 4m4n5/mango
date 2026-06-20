@@ -35,6 +35,7 @@ import {
   type ListSource,
 } from './playability/list-source.js';
 import { schedulePlayabilityTopUp } from './playability/top-up-scheduler.js';
+import { effectivePoolTarget } from './playability/pool-growth.js';
 import {
   injectPinnedSessionItems,
   loadRailCurationOverrides,
@@ -526,6 +527,7 @@ export class CatalogCore {
     const items = resolved.filter((item): item is RailItem => item !== null);
     const pending = Math.max(0, rail.playability.min_display - items.length);
     const lowWater = items.length < rail.playability.min_display;
+    const poolTarget = effectivePoolTarget(rail.playability, session.verified_pool);
     if (lowWater) {
       void enqueuePlayabilityTrigger({
         trigger_type: 'display_low',
@@ -533,11 +535,11 @@ export class CatalogCore {
         reason: `displayed=${items.length} min=${rail.playability.min_display}`,
       }).catch(() => undefined);
       schedulePlayabilityTopUp(rail.id);
-    } else if (session.verified_pool < rail.playability.pool_target * 0.5) {
+    } else if (session.verified_pool < poolTarget * 0.5) {
       void enqueuePlayabilityTrigger({
         trigger_type: 'pool_low',
         rail_id: rail.id,
-        reason: `pool=${session.verified_pool} target=${rail.playability.pool_target}`,
+        reason: `pool=${session.verified_pool} target=${poolTarget}`,
       }).catch(() => undefined);
       schedulePlayabilityTopUp(rail.id);
     }
@@ -575,6 +577,7 @@ export class CatalogCore {
         railId: rail.id,
         displayLimit: rail.playability.display_limit,
         minDisplay: rail.playability.min_display,
+        playability: rail.playability,
       })),
     });
 
@@ -620,6 +623,7 @@ export class CatalogCore {
       railId: rail.id,
       sessionId: this.playabilitySessionId,
       displayLimit: rail.playability.display_limit,
+      playability: rail.playability,
       siblingRailIds: this.siblingRailIds(rail),
     });
     const payload = await this.buildRailItemsResponse(rail, session, started);

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Systematic playability DB fill — preflight, sync catalog yaml, bootstrap + pool top-up.
 #
+# Default behaviour is accumulative: each refresh grows verified pools by
+# pool_growth_per_refresh (catalog yaml) and only drops rail_pool rows whose
+# titles are no longer verified-playable. Do not purge unless you mean to reset.
+#
 # Run on Pi after stream plane is healthy (AIOStreams + AIOMetadata + catalog-service).
 #
 # Usage:
@@ -10,11 +14,11 @@
 #   MANGO_FILL_SKIP_CATALOG_SYNC=1   skip sudo cp catalog.example.yaml → /etc/mango/
 #   MANGO_FILL_SKIP_HITRATE=1        skip source + rail hit-rate after fill
 #   MANGO_FILL_SKIP_MAINTENANCE=1    only preflight + status (dry run)
-#   MANGO_FILL_PURGE_POOLS=1         clear rail_pool + rail_session for all browse rails before fill
-#   MANGO_FILL_POOL_TOPUP=1          second pass: full refresh to pool_target (default 1)
+#   MANGO_FILL_PURGE_POOLS=1         DESTRUCTIVE: wipe rail_pool + rail_session before fill
+#   MANGO_FILL_POOL_TOPUP=1          second pass: full refresh toward growth target (default 1)
 #
 # Pass 1 (bootstrap): min_display per rail, re-probes recent failures.
-# Pass 2 (pool top-up): full mode without bootstrap — fills to pool_target when > min_display.
+# Pass 2 (pool top-up): full mode without bootstrap — grows toward effective pool target.
 
 set -euo pipefail
 
@@ -117,7 +121,7 @@ bash scripts/phase-n3c/playability-maintenance.sh --mode full --bootstrap
 
 if [[ "$POOL_TOPUP" == "1" ]]; then
   echo
-  echo "pass 2: pool top-up (pool_target, no early exit)…"
+  echo "pass 2: pool top-up (growth target, no early exit)…"
   rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
   export MANGO_PLAYABILITY_BOOTSTRAP=0
   export MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY=0

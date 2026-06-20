@@ -25,7 +25,7 @@
 
 **V1 export:** Cinemeta + AIOStreams + AIOMetadata only.
 
-Migrate from legacy AIOLists: `bash scripts/phase-n3d/migrate-aiolists-to-aiometadata.sh`
+
 
 ## Key paths
 
@@ -37,7 +37,7 @@ Migrate from legacy AIOLists: `bash scripts/phase-n3d/migrate-aiolists-to-aiomet
 | `config/catalog.example.yaml` | Canonical rails (copy to `/etc/mango/catalog.yaml`) |
 | `config/catalog-gate-rails.json` | Required/optional rails for `gate-n3d-catalogs.sh` |
 | `config/stream-gate-fixtures.json` | Tiered stream evaluation corpus |
-| `config/rail-curation-overrides.yaml` | Pins/blocks (Pi: `/etc/mango/rail-curation-overrides.yaml`) |
+| `config/rail-curation-overrides.example.yaml` | Pins/blocks (Pi: `/etc/mango/rail-curation-overrides.yaml`) |
 | `/etc/mango/playability.db` | Verified pools + tab session rows |
 
 ## Operator setup (one-time)

@@ -27,6 +27,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 5
 
   - id: movies-india-trending
@@ -42,6 +45,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 8
 
   - id: movies-classics
@@ -56,6 +62,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 5
 
   - id: movies-comedy
@@ -70,6 +79,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 10
 
   - id: movies-quick-watches
@@ -85,6 +97,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 8
 
   - id: movies-documentaries
@@ -99,6 +114,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 10
 
   # ── TV Shows tab (comedy last → first pick in tab session for dedup) ────────
@@ -116,6 +134,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 5
 
   - id: series-india-picks
@@ -131,6 +152,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 10
 
   - id: series-classics
@@ -145,6 +169,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 5
 
   - id: series-miniseries
@@ -159,6 +186,9 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 8
 
   - id: series-reality-casual
@@ -174,6 +204,9 @@ rails:
       display_limit: 20
       min_display: 12
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 10
 
   - id: series-comedy
@@ -189,6 +222,9 @@ rails:
       display_limit: 20
       min_display: 12
       pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
       ingest_multiplier: 10
 
   - id: continue

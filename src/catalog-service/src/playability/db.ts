@@ -15,6 +15,8 @@ import {
   mergePinnedPoolItems,
   type RailCurationOverrides,
 } from './rail-overrides.js';
+import type { RailPlayabilityConfig } from '../rails.js';
+import { effectiveDisplayLimit } from './pool-growth.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const SCHEMA_VERSION = 1;
@@ -113,6 +115,7 @@ export type RailSessionOptions = {
   railId: string;
   sessionId: string;
   displayLimit: number;
+  playability?: RailPlayabilityConfig;
   /** Other rails on the same tab — titles shown there are excluded from this session. */
   siblingRailIds?: string[];
 };
@@ -121,6 +124,7 @@ export type TabRailSessionRequest = {
   railId: string;
   displayLimit: number;
   minDisplay: number;
+  playability?: RailPlayabilityConfig;
 };
 
 export type TabRailSessionAllocateOptions = {
@@ -809,6 +813,35 @@ function toRailSessionPoolItem(
   };
 }
 
+function resolveRailDisplayLimit(
+  rail: { displayLimit: number; playability?: RailPlayabilityConfig },
+  verifiedPool: number,
+): number {
+  if (!rail.playability) {
+    return Math.max(1, rail.displayLimit);
+  }
+  return Math.max(1, effectiveDisplayLimit(rail.playability, verifiedPool));
+}
+
+export async function pruneNonPlayableFromRailPools(now: number = nowMs()): Promise<number> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const result = db.prepare(`
+DELETE FROM rail_pool
+WHERE NOT EXISTS (
+  SELECT 1 FROM titles t
+  WHERE t.type = rail_pool.type AND t.id = rail_pool.id
+    AND t.status = 'verified'
+    AND COALESCE(t.expires_at, 0) > @now
+);
+`).run({ now });
+    return result.changes;
+  } finally {
+    db.close();
+  }
+}
+
 export async function upsertRailPoolTitle(entry: RailPoolEntry): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
@@ -848,10 +881,10 @@ export async function allocateTabRailSessions(
     let canReuseExisting = options.rails.length > 0;
 
     for (const rail of options.rails) {
-      const displayLimit = Math.max(1, rail.displayLimit);
       const pool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides);
       curatedPools.set(rail.railId, pool);
       poolSizes.set(rail.railId, pool.length);
+      const displayLimit = resolveRailDisplayLimit(rail, pool.length);
       const existing = readExistingRailSession(db, rail.railId, options.sessionId, now);
       existingByRail.set(rail.railId, existing);
       const targetSessionSize = Math.min(displayLimit, pool.length);
@@ -891,18 +924,22 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
       }
 
       const tabSelections = buildTabSessionSelections(
-        options.rails.map((rail) => ({
-          railId: rail.railId,
-          displayLimit: Math.max(1, rail.displayLimit),
-          minDisplay: Math.max(1, rail.minDisplay),
-        })),
+        options.rails.map((rail) => {
+          const pool = pools.get(rail.railId) ?? [];
+          const displayLimit = resolveRailDisplayLimit(rail, pool.length);
+          return {
+            railId: rail.railId,
+            displayLimit,
+            minDisplay: Math.max(1, rail.minDisplay),
+          };
+        }),
         pools,
         recentKeysByRail,
       );
 
       for (const rail of options.rails) {
-        const displayLimit = Math.max(1, rail.displayLimit);
         const pool = pools.get(rail.railId) ?? [];
+        const displayLimit = resolveRailDisplayLimit(rail, pool.length);
         const selected = injectPinnedSessionItems(
           tabSelections.get(rail.railId) ?? [],
           pool,
@@ -947,11 +984,11 @@ export async function getOrCreateRailSession(
   const db = openDb();
   const now = nowMs();
   const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
-  const displayLimit = Math.max(1, options.displayLimit);
   const siblingRailIds = options.siblingRailIds ?? [];
 
   try {
     const pool = curatedPool(readRailPool(db, options.railId, now), options.railId, overrides);
+    const displayLimit = resolveRailDisplayLimit(options, pool.length);
     const existing = readExistingRailSession(db, options.railId, options.sessionId, now);
     const siblingOccupied = readSiblingSessionOccupiedKeys(db, options.sessionId, siblingRailIds);
     const targetSessionSize = Math.min(displayLimit, pool.length);

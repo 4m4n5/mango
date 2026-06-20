@@ -34,7 +34,7 @@ const DEFAULT_PATHS = [
 let cached: { path: string; mtimeMs: number; data: RailCurationOverrides } | null = null;
 
 function repoOverridePath(): string {
-  return new URL('../../../../config/rail-curation-overrides.yaml', import.meta.url).pathname;
+  return new URL('../../../../config/rail-curation-overrides.example.yaml', import.meta.url).pathname;
 }
 
 export function railCurationOverridesPath(): string {

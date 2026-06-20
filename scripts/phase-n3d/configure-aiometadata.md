@@ -1,7 +1,6 @@
 # Configure AIOMetadata for mango
 
-Run after `bash scripts/phase-n3d/install-aiometadata.sh` or
-`bash scripts/phase-n3d/migrate-aiolists-to-aiometadata.sh`.
+Run after `bash scripts/phase-n3d/install-aiometadata.sh`.
 
 Replaces self-hosted **AIOLists** on port **3036**. Catalog ids use
 `mdblist.<listId>` (same shape as legacy ElfHosted aiometadata).

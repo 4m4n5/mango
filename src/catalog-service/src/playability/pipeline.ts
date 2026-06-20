@@ -24,6 +24,7 @@ import {
   type PreparedVerifyTitleResult,
   type VerifyContext,
 } from './verify.js';
+import { effectivePoolTarget } from './pool-growth.js';
 
 export type CandidateKey = string;
 
@@ -510,10 +511,13 @@ export function railMapsFromRails(
     railMinDisplays.set(rail.id, rail.playability.min_display);
     if (options?.poolTargetOverride !== undefined) {
       railPoolTargets.set(rail.id, options.poolTargetOverride);
-    } else if (options?.bootstrap === true) {
-      railPoolTargets.set(rail.id, rail.playability.min_display);
     } else {
-      railPoolTargets.set(rail.id, rail.playability.pool_target);
+      railPoolTargets.set(
+        rail.id,
+        effectivePoolTarget(rail.playability, status?.verified_pool ?? 0, {
+          bootstrap: options?.bootstrap,
+        }),
+      );
     }
   }
   return { railVerifiedCounts, railPoolTargets, railMinDisplays };

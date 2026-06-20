@@ -83,7 +83,7 @@ bash scripts/phase2/start-voice-stack.sh
 ```bash
 bash scripts/pi-pre-couch-gate.sh
 bash scripts/phase-n3d/gate-n3d-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=1
-bash scripts/phase-n3/gate-n3-play.sh
+bash scripts/phase-n3c/gate-n3c-verified-rails.sh
 bash scripts/phase2/verify-voice-ready.sh      # when MANGO_VOICE=1
 ```
 

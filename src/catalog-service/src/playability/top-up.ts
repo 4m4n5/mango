@@ -3,6 +3,7 @@ import {
   getRailPlayabilityStatus,
   getRailPoolTitleKeys,
   getTitlesPlayabilityBulk,
+  pruneNonPlayableFromRailPools,
   type PlayabilityRailStatus,
 } from './db.js';
 import {
@@ -15,6 +16,7 @@ import {
   uniqueCandidates,
   type RailCandidateRef,
 } from './pipeline.js';
+import { effectiveCandidateLimit, effectivePoolTarget } from './pool-growth.js';
 
 export type TopUpRailResult = {
   rail_id: string;
@@ -54,9 +56,15 @@ export async function topUpRail(
 ): Promise<TopUpRailResult> {
   const rail = core.browsableRail(railId);
   const source = core.listSourceForRail(railId);
-  const candidateLimit = options.candidateLimit ?? rail.limit * rail.playability.ingest_multiplier;
-  const poolTarget = options.poolTarget ?? rail.playability.pool_target;
   const before = await getRailPlayabilityStatus(rail.id);
+  const poolTarget = options.poolTarget ?? effectivePoolTarget(rail.playability, before.verified_pool);
+  const candidateLimit = options.candidateLimit
+    ?? effectiveCandidateLimit(
+      rail.limit,
+      rail.playability.ingest_multiplier,
+      before.verified_pool,
+      poolTarget,
+    );
 
   if (before.verified_pool >= poolTarget) {
     return {
@@ -118,6 +126,7 @@ export async function topUpRail(
     context,
   });
   await finalizeVerifyContext(context);
+  await pruneNonPlayableFromRailPools();
 
   const after = await getRailPlayabilityStatus(rail.id);
   return {

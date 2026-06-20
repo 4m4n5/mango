@@ -1,7 +1,7 @@
 # N3 inventory — stream play orchestrator (N3a)
 
 **Branch:** `feat/native-experience`  
-**Gate:** `bash scripts/phase-n3/gate-n3-play.sh`  
+**Gate:** `bash scripts/phase-n3c/gate-n3c-verified-rails.sh`  
 **Spec:** [`tasks/phase-n3-stream-orchestrator.md`](tasks/phase-n3-stream-orchestrator.md)
 
 ---
@@ -46,7 +46,7 @@ same backend path used by `POST /play`. Status copy stays couch-safe:
 
 ### Gate strategy
 
-`gate-n3-play.sh` must pick a random item from
+`gate-n3c-verified-rails.sh` must pick a random item from
 `GET /rails/trending-india/items`, excluding `tt0111161`, then `POST /play`
 that browse title and verify `ok`, `total_ms <= 15000`, attempts `<=5`, and mpv
 `playback-time > 0`. Shawshank remains a regression inside the gate, not the
@@ -66,7 +66,7 @@ UI.
 
 | Metric | Value |
 |--------|-------|
-| `gate-n3-play.sh` | |
+| `gate-n3c-verified-rails.sh` | |
 | Browse pick (gate title) | |
 | Browse pick `total_ms` | |
 | Browse pick `attempts` | |

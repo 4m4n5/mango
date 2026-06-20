@@ -145,7 +145,7 @@ Inventory → strip → consolidate → document → measure on Pi.
 
 - Play orchestrator — retry loop, 15 s budget, AIOStreams cached tiers  
 - Parallel resolve + pre-resolve on detail  
-- `gate-n3-play.sh` on **browse pick** (not Shawshank-only)  
+- `gate-n3c-verified-rails.sh` on **browse pick** (not Shawshank-only)  
 - ⌂ returns to launcher &lt; 300 ms (unchanged)  
 
 **N3b (after N3a couch):** stream picker UI (2–5 options) · `progress.db` · language filter  

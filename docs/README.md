@@ -9,33 +9,33 @@
 | Task | Doc |
 |------|-----|
 | Product direction | [NATIVE_EXPERIENCE.md](NATIVE_EXPERIENCE.md) |
-| Current phase / rails | [N2-INVENTORY.md](N2-INVENTORY.md) · [N3c-INVENTORY.md](N3c-INVENTORY.md) |
+| Active work / rails | [N3-INVENTORY.md](N3-INVENTORY.md) · [N3d-INVENTORY.md](N3d-INVENTORY.md) |
 | Pi day-to-day | [PHASE0.md](PHASE0.md) · [DEPLOY.md](DEPLOY.md) |
 | Voice / phone PTT | [PHASE2.md](PHASE2.md) |
 | Foreground contract | [FOREGROUND.md](FOREGROUND.md) |
 | ElfHosted / debrid | [ELFHOSTED.md](ELFHOSTED.md) |
+| Stack boundaries | [STACK-PRINCIPLES.md](STACK-PRINCIPLES.md) |
 
 ---
 
 ## Native phases (status)
 
-| Phase | Status | Inventory |
+| Phase | Status | Reference |
 |-------|--------|-----------|
-| N0–N1 | ✓ | [N0](N0-INVENTORY.md) · [N1](N1-INVENTORY.md) |
-| N2 + N2b tabs/rails | ✓ | [N2-INVENTORY.md](N2-INVENTORY.md) |
-| N3a stream orchestrator | ✓ | [N3-INVENTORY.md](N3-INVENTORY.md) |
-| N3c playability index | active | [N3c-INVENTORY.md](N3c-INVENTORY.md) |
+| N0–N2 browse + tabs | ✓ shipped | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) |
+| N3a stream orchestrator | in progress | [N3-INVENTORY.md](N3-INVENTORY.md) · [tasks/phase-n3-stream-orchestrator.md](tasks/phase-n3-stream-orchestrator.md) |
+| N3c playability index | ✓ shipped | accumulative pools · `scripts/phase-n3c/` |
+| N3d self-hosted addons | ✓ shipped | [N3d-INVENTORY.md](N3d-INVENTORY.md) |
 | N3b–N7 | planned | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) |
 
-**Gates (Pi):**
+**Pre-couch gate (Pi):**
 
 ```bash
-bash scripts/phase-n0/gate-n0.sh
-bash scripts/phase-n1/gate-n1-smoke.sh
-bash scripts/phase-n2/gate-n2-browse.sh
-bash scripts/phase-n3/gate-n3-play.sh
-bash scripts/phase-n3c/gate-n3c-verified-rails.sh
 bash scripts/pi-pre-couch-gate.sh
+# or individually:
+bash scripts/phase-n0/gate-n0.sh
+bash scripts/phase-n3c/gate-n3c-verified-rails.sh   # when MANGO_CATALOG=1
+bash scripts/phase-n3d/gate-n3d-self-hosted.sh      # when self-hosted addons enabled
 ```
 
 ---
@@ -44,6 +44,6 @@ bash scripts/pi-pre-couch-gate.sh
 
 [PHASE0.md](PHASE0.md) · [PHASE1.md](PHASE1.md) · [PHASE2.md](PHASE2.md) · [HARDWARE.md](HARDWARE.md) · [DECISIONS.md](DECISIONS.md)
 
-**Archive:** [DESIGN.md](DESIGN.md) (V1 Stremio/Kodi spec) · [PLAN.md](PLAN.md) (full timeline)
+**Archive:** [DESIGN.md](DESIGN.md) (V1 Stremio/Kodi spec) · [PLAN.md](PLAN.md) (full timeline) · [tasks/archive/](tasks/archive/)
 
-**Agent specs:** [tasks/](tasks/) · [../AGENTS.md](../AGENTS.md) · **Pi deploy:** [DEPLOY.md](DEPLOY.md) (git push/pull only — never rsync)
+**Agent entry:** [../AGENTS.md](../AGENTS.md) · **Pi deploy:** [DEPLOY.md](DEPLOY.md) (git push/pull only — never rsync)

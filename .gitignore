@@ -30,6 +30,8 @@ dist/
 # Pi-local downloads (e.g. Kodi addons)
 downloads/
 
-# Editor
+# Editor / local tooling
 .vscode/
+.cursor/
+*.code-workspace
 assets/

@@ -28,7 +28,7 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 | Pad routing (B/Y/⌂/D-pad) | ✓ | mpv + ⌂ home (N1) |
 | **catalog-service + mpv** | ✓ | — |
 | Browse rails (N2 + N2b) | ✓ | — |
-| Playability index (N3c) | active | [N3c-INVENTORY.md](N3c-INVENTORY.md) |
+| Playability index (N3c) | active | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) (N3c) |
 | LLM media tools | — | N5 |
 
 **Repo layout:**
@@ -87,7 +87,7 @@ Media tools deferred to native N3+ (not Phase 3 stremio-service as originally pl
 
 ## Native N0 ✓
 
-One Chromium · overlay removed · `mango-stack.sh` · `gate-n0.sh`. [N0-INVENTORY.md](N0-INVENTORY.md)
+One Chromium · overlay removed · `mango-stack.sh` · `gate-n0.sh`. [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) (N0)
 
 ---
 
@@ -113,7 +113,7 @@ Gate: `bash scripts/phase-n2/gate-n2-browse.sh` · [N2-INVENTORY.md](N2-INVENTOR
 
 **Goal:** Reliable Play from browse — ≤15 s, auto-retry dead streams.
 
-Gate: `bash scripts/phase-n3/gate-n3-play.sh` · [N3-INVENTORY.md](N3-INVENTORY.md)
+Gate: `bash scripts/phase-n3c/gate-n3c-verified-rails.sh` · [N3-INVENTORY.md](N3-INVENTORY.md)
 
 ---
 
@@ -121,7 +121,7 @@ Gate: `bash scripts/phase-n3/gate-n3-play.sh` · [N3-INVENTORY.md](N3-INVENTORY.
 
 **Goal:** Verified-only rails; overnight maintenance fill.
 
-[N3c-INVENTORY.md](N3c-INVENTORY.md) · `bash scripts/phase-n3c/playability-maintenance.sh --mode full`
+[NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) (N3c) · `bash scripts/phase-n3c/playability-maintenance.sh --mode full`
 
 ---
 

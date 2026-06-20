@@ -134,7 +134,7 @@ Do **not** change evdev codes without approval.
 
 ## Stremio — legacy fallback
 
-`scripts/fallback/launch-stremio.sh` · `reset-stremio.sh` · Pad log: `/tmp/mango-tv-pad.log`
+`scripts/launch-stremio.sh` · `reset-stremio.sh` · Pad log: `/tmp/mango-tv-pad.log`
 
 **N1 addons on Pi:** `/etc/mango/stremio-export.json` — `bash scripts/phase-n1/setup-stremio-export.sh --from-local`
 

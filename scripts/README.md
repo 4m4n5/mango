@@ -80,9 +80,22 @@ Details: [phase0/README.md](phase0/README.md)
 
 | Script | Role |
 |--------|------|
+| `diag/playability-status.py` | Pool depth / verified counts |
+| `diag/source-hitrate.py` | Per-catalog candidate probe rates |
+| `diag/rail-hitrate.py` | Per-rail verified play samples |
 | `diag/alpha-test.sh` | Couch session log on Pi |
 | `diag/fetch-session.sh` | Pull session tarball to Mac |
+| `phase-n3d/diag-self-hosted.sh` | AIOStreams + AIOMetadata health |
 | `verify-tv.sh` | Health gate |
+
+## Playability (N3c)
+
+| Script | Role |
+|--------|------|
+| `phase-n3c/fill-playability-db.sh` | Full fill orchestration (preflight → maintenance → hit-rate) |
+| `phase-n3c/playability-maintenance.sh` | Indexer refresh worker (timer + manual) |
+| `phase-n3c/rail-curation.sh` | Manual pins/blocks |
+| `phase-n3c/install-playability-timer.sh` | One-time Pi systemd timer setup |
 
 ## Mac → Pi
 
