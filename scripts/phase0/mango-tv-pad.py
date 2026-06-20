@@ -235,6 +235,26 @@ def stop_mpv_home() -> None:
     )
 
 
+def reshuffle_launcher_rails() -> None:
+    subprocess.run(
+        [
+            "curl",
+            "-sf",
+            "-X",
+            "POST",
+            "http://127.0.0.1:3020/playability/session/reshuffle",
+            "-H",
+            "content-type: application/json",
+            "-d",
+            "{}",
+        ],
+        env=_env,
+        timeout=5,
+        check=False,
+    )
+    send_key_launcher("F5")
+
+
 def go_home() -> None:
     name, klass = active_window_meta()
     app = foreground_app()
@@ -244,8 +264,9 @@ def go_home() -> None:
             foreground=app,
             active_name=name,
             active_class=klass,
-            skipped="already_launcher",
+            action="reshuffle_rails",
         )
+        reshuffle_launcher_rails()
         return
     diag_event("home_press", foreground=app, active_name=name, active_class=klass)
     if app == "mpv":

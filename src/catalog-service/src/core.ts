@@ -391,7 +391,7 @@ export class CatalogCore {
     payload: TabRailItemsResponse;
     expiresAt: number;
   }>();
-  private readonly playabilitySessionId = process.env.MANGO_PLAYABILITY_SESSION_ID || randomUUID();
+  private playabilitySessionId = process.env.MANGO_PLAYABILITY_SESSION_ID || randomUUID();
 
   private constructor(
     private readonly coreStatus: CoreStatus,
@@ -500,6 +500,18 @@ export class CatalogCore {
     return getPlayabilityStatus(rails);
   }
 
+  /** New session id — reshuffle rails from latest verified pool (no indexer). */
+  reshufflePlayabilitySession(): string {
+    this.playabilitySessionId = randomUUID();
+    this.railItemsCache.clear();
+    this.tabRailItemsCache.clear();
+    return this.playabilitySessionId;
+  }
+
+  currentPlayabilitySessionId(): string {
+    return this.playabilitySessionId;
+  }
+
   clearRailItemsCache(railId?: string): void {
     if (railId) {
       this.railItemsCache.delete(railId);
@@ -566,10 +578,15 @@ export class CatalogCore {
     };
   }
 
-  async tabRailItems(tab: CatalogTab): Promise<TabRailItemsResponse> {
+  async tabRailItems(tab: CatalogTab, options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
+    if (options.reshuffle) {
+      this.reshufflePlayabilitySession();
+    }
+
     const cachedTab = this.tabRailItemsCache.get(tab);
     if (
-      cachedTab
+      !options.reshuffle
+      && cachedTab
       && cachedTab.expiresAt > Date.now()
       && cachedTab.payload.rails.every((rail) => rail.playability?.low_water !== true)
     ) {
@@ -602,9 +619,11 @@ export class CatalogCore {
       });
     }
 
+    const visibleRails = responses.filter((rail) => rail.items.length > 0);
+
     const payload: TabRailItemsResponse = {
       tab,
-      rails: responses,
+      rails: visibleRails,
       resolve_ms: Date.now() - started,
     };
     this.tabRailItemsCache.set(tab, {
@@ -638,6 +657,12 @@ export class CatalogCore {
       payload,
       expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
     });
+    if (payload.items.length === 0) {
+      return {
+        ...payload,
+        items: [],
+      };
+    }
     return payload;
   }
 

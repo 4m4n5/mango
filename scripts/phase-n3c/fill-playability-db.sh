@@ -17,8 +17,8 @@
 #   MANGO_FILL_PURGE_POOLS=1         DESTRUCTIVE: wipe rail_pool + rail_session before fill
 #   MANGO_FILL_POOL_TOPUP=1          second pass: full refresh toward growth target (default 1)
 #
-# Pass 1 (bootstrap): min_display per rail, re-probes recent failures.
-# Pass 2 (pool top-up): full mode without bootstrap — grows toward effective pool target.
+# Pass 1 (growth): additive verify toward min_display when pools are thin.
+# Pass 2 (pool top-up): full mode — grows toward effective pool target (pool_growth_per_refresh).
 
 set -euo pipefail
 
@@ -113,18 +113,20 @@ if [[ "$PURGE_POOLS" == "1" ]]; then
 fi
 
 echo
-echo "pass 1: bootstrap maintenance (min_display targets)…"
+echo "pass 1: additive growth toward min_display…"
 rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
 export MANGO_PLAYABILITY_BOOTSTRAP=1
+export MANGO_MAINTENANCE_SKIP_GATE=1
 export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_FILL_CANDIDATE_LIMIT:-250}"
 bash scripts/phase-n3c/playability-maintenance.sh --mode full --bootstrap
 
 if [[ "$POOL_TOPUP" == "1" ]]; then
   echo
-  echo "pass 2: pool top-up (growth target, no early exit)…"
+  echo "pass 2: additive pool growth (pool_growth_per_refresh)…"
   rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
   export MANGO_PLAYABILITY_BOOTSTRAP=0
   export MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY=0
+  export MANGO_MAINTENANCE_SKIP_GATE=1
   export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_FILL_CANDIDATE_LIMIT:-250}"
   bash scripts/phase-n3c/playability-maintenance.sh --mode full
 fi

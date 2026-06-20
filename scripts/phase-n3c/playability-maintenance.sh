@@ -2,7 +2,11 @@
 # Dedicated maintenance: stop couch UI + catalog-service, refresh playability, restore stack.
 #
 # Usage:
-#   bash scripts/phase-n3c/playability-maintenance.sh [--mode full|stale]
+#   bash scripts/phase-n3c/playability-maintenance.sh [--mode full|stale] [--bootstrap]
+#
+# Modes (additive library contract):
+#   full  — grow verified pools toward pool target; never reprobe verified rows
+#   stale — re-probe titles with status=stale only; prune removes stale pool rows
 #
 # Env:
 #   MANGO_MAINTENANCE_ALLOW_PARTIAL=1  exit 0 when refresh ran but pools below min_display (default 1)

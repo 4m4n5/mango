@@ -129,10 +129,7 @@ class MangoUiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path == "/api/catalog/play":
-            self._proxy_catalog("POST")
-            return
-        if path == "/api/catalog/play-cancel":
+        if path.startswith("/api/catalog/"):
             self._proxy_catalog("POST")
             return
 

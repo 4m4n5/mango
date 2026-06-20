@@ -86,10 +86,11 @@ function railNeedsWork(
   status: PlayabilityRailStatus,
   poolTarget: number,
 ): boolean {
-  if (mode === 'full') {
-    return status.verified_pool < poolTarget;
+  if (mode === 'stale') {
+    return status.stale > 0;
   }
-  return status.verified_pool < poolTarget || status.stale > 0;
+  // full = additive growth — ingest new candidates when below pool target only
+  return status.verified_pool < poolTarget;
 }
 
 export async function refreshAllRails(
@@ -191,7 +192,8 @@ export async function refreshAllRails(
     results: [] as Awaited<ReturnType<typeof processVerifyQueue>>['results'],
   };
 
-  const skipVerifyQueue = playabilityEarlyExitMinDisplay()
+  const skipVerifyQueue = mode !== 'stale'
+    && playabilityEarlyExitMinDisplay()
     && allRailsMeetMinDisplay(railVerifiedCounts, railMinDisplays);
 
   if (!skipVerifyQueue) {

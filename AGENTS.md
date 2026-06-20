@@ -78,8 +78,8 @@ bash scripts/pi-pre-couch-gate.sh     # on Pi
 bash scripts/phase-n3d/gate-n3d-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=1
 bash scripts/phase-n3a/gate-n3a-play-ladder.sh   # ladder config + unit (Mac or Pi)
 bash scripts/phase-n3c/gate-n3c-verify-ladder.sh
+bash scripts/phase-n3c/gate-n3c-verified-rails.sh  # sampled play on displayed items
 bash scripts/phase-n3a/gate-n3a-play.sh          # live couch play on Pi
-bash scripts/phase-n3c/gate-n3c-verified-rails.sh
 bash scripts/phase-n0/gate-n0.sh
 ```
 

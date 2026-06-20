@@ -78,10 +78,14 @@ function mapRailItems(data: RailItemsResponse): ContentRail {
   };
 }
 
-export async function loadCatalogRails(tab: BrowseTab = "movies"): Promise<ContentRail[]> {
+export async function loadCatalogRails(
+  tab: BrowseTab = "movies",
+  options: { reshuffle?: boolean } = {},
+): Promise<ContentRail[]> {
+  const reshuffle = options.reshuffle ? "&reshuffle=1" : "";
   try {
     const batch = await fetchJson<TabRailItemsResponse>(
-      `/api/catalog/rails/items?tab=${encodeURIComponent(tab)}`,
+      `/api/catalog/rails/items?tab=${encodeURIComponent(tab)}${reshuffle}`,
     );
     return batch.rails.map(mapRailItems);
   } catch {

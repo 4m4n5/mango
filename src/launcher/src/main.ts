@@ -3,6 +3,7 @@ import { FocusGrid } from "./focus";
 import { loadCatalogRails } from "./catalog";
 import { DetailController } from "./detail";
 import { buildHomeRails, buildBrowseTabs, type CatalogState, type HomeOptions } from "./home";
+import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
 import type { ApiInfo, AppCard, ContentCard, LaunchAction, BrowseTab } from "./types";
 
@@ -18,10 +19,12 @@ const detailDescription = mustGet<HTMLElement>("detail-description");
 const detailPlay = mustGet<HTMLButtonElement>("detail-play");
 const detailBack = mustGet<HTMLButtonElement>("detail-back");
 const settingsView = mustGet<HTMLElement>("settings-view");
+const settingsRefreshEl = mustGet<HTMLElement>("settings-refresh");
 const statusEl = mustGet<HTMLElement>("status");
 const backButton = mustGet<HTMLButtonElement>("back-button");
 
 let inSettings = false;
+let settingsFocusIndex = 0;
 let launchInFlight = false;
 let homeOptions: HomeOptions = { fallbackStremio: false, legacyYoutube: false };
 let activeBrowseTab: BrowseTab = "movies";
@@ -120,7 +123,32 @@ function handleKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape" || event.key === "Backspace") {
       event.preventDefault();
       showHome();
+      return;
     }
+    const items = settingsFocusables(settingsView);
+    if (items.length === 0) {
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+      event.preventDefault();
+      focusSettingsItem(items, settingsFocusIndex + 1);
+      return;
+    }
+    if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      focusSettingsItem(items, settingsFocusIndex - 1);
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      items[settingsFocusIndex]?.click();
+    }
+    return;
+  }
+
+  if (event.key === "F5" && !detail.isOpen && !homeView.classList.contains("hidden")) {
+    event.preventDefault();
+    void loadCatalog({ reshuffle: true });
     return;
   }
 
@@ -199,7 +227,24 @@ function showSettings(): void {
   detailView.classList.add("hidden");
   homeView.classList.add("hidden");
   settingsView.classList.remove("hidden");
-  backButton.focus({ preventScroll: true });
+  backButton.dataset.settingsFocus = "true";
+  buildSettingsRefresh(settingsRefreshEl, setStatus);
+  const items = settingsFocusables(settingsView);
+  focusSettingsItem(items, 0);
+}
+
+function focusSettingsItem(items: HTMLElement[], index: number): void {
+  if (items.length === 0) {
+    return;
+  }
+  const wrapped = ((index % items.length) + items.length) % items.length;
+  settingsFocusIndex = wrapped;
+  for (const item of items) {
+    item.classList.remove("focused");
+  }
+  const target = items[wrapped];
+  target.classList.add("focused");
+  target.focus({ preventScroll: true });
 }
 
 function showHome(): void {
@@ -212,7 +257,7 @@ function showHome(): void {
   detailView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. ⌂ for home.");
+  setStatus("D-pad to browse. B to select. ⌂ on home shuffles rails.");
 }
 
 function restoreHomeFromDetail(): void {
@@ -220,22 +265,29 @@ function restoreHomeFromDetail(): void {
   settingsView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. ⌂ for home.");
+  setStatus("D-pad to browse. B to select. ⌂ on home shuffles rails.");
 }
 
-async function loadCatalog(): Promise<void> {
+async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void> {
   if (catalogRetryTimer !== undefined) {
     window.clearTimeout(catalogRetryTimer);
     catalogRetryTimer = undefined;
   }
+  if (options.reshuffle) {
+    setStatus("shuffling home rails…");
+  }
   catalogState = { status: "loading" };
   renderHome();
   try {
-    const rails = await loadCatalogRails(activeBrowseTab);
+    const rails = await loadCatalogRails(activeBrowseTab, { reshuffle: options.reshuffle });
     catalogState = { status: "ready", rails };
     renderHome();
     const itemCount = rails.reduce((total, rail) => total + rail.cards.length, 0);
-    setStatus(itemCount > 0 ? "D-pad to browse. B to select. ⌂ for home." : "catalog loaded with no posters");
+    setStatus(itemCount > 0
+      ? options.reshuffle
+        ? "home rails shuffled. D-pad to browse."
+        : "D-pad to browse. B to select. ⌂ on home shuffles rails."
+      : "catalog loaded with no posters");
   } catch (error) {
     catalogState = {
       status: "error",

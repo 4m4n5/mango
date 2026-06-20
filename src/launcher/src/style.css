@@ -310,6 +310,66 @@ h1 {
   font-size: 1.35rem;
 }
 
+.settings-heading {
+  margin: 2rem 0 0.5rem;
+  font-size: 2rem;
+  font-weight: 600;
+  color: #f7f3e8;
+}
+
+.settings-refresh {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 52rem;
+  margin-top: 1rem;
+}
+
+.settings-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 1.1rem 1.4rem;
+  border: 1px solid rgba(247, 243, 232, 0.14);
+  border-radius: 0.75rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: #f7f3e8;
+  text-align: left;
+}
+
+.settings-action.focused,
+.settings-action:focus-visible {
+  outline: 2px solid #ffb300;
+  outline-offset: 2px;
+}
+
+.settings-action--primary {
+  border-color: rgba(10, 107, 72, 0.55);
+  background: rgba(10, 107, 72, 0.22);
+}
+
+.settings-action:disabled {
+  opacity: 0.55;
+}
+
+.settings-action-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.settings-action-meta {
+  font-size: 1.15rem;
+  color: #9eb4c4;
+}
+
+.settings-action-body {
+  font-size: 1.2rem;
+  color: #c8d6df;
+  line-height: 1.35;
+}
+
 .shell-status {
   position: fixed;
   left: 5vw;

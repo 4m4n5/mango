@@ -17,7 +17,6 @@ import {
 } from './rail-overrides.js';
 import type { RailPlayabilityConfig } from '../rails.js';
 import { effectiveDisplayLimit } from './pool-growth.js';
-import { playabilityCouchProbeMs } from './config.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const SCHEMA_VERSION = 2;
@@ -658,15 +657,19 @@ WHERE (type, id) IN ( VALUES ${placeholders} );
 
 export async function getStaleTitlesForRefresh(): Promise<Array<{ type: string; id: string; rail_id: string | null }>> {
   await initPlayabilityDb();
-  const now = nowMs();
-  const couchProbeMs = playabilityCouchProbeMs();
   const db = openDb();
   try {
     return db.prepare(`
-SELECT DISTINCT type, id, rail_id FROM (
-  SELECT
-    t.type,
-    t.id,
+SELECT DISTINCT
+  t.type,
+  t.id,
+  COALESCE(
+    (
+      SELECT rp.rail_id
+      FROM rail_pool rp
+      WHERE rp.type = t.type AND rp.id = t.id
+      LIMIT 1
+    ),
     (
       SELECT vl.rail_id
       FROM verify_log vl
@@ -675,28 +678,11 @@ SELECT DISTINCT type, id, rail_id FROM (
         AND vl.rail_id IS NOT NULL
       ORDER BY vl.started_at DESC
       LIMIT 1
-    ) AS rail_id
-  FROM titles t
-  WHERE t.status = 'stale'
-  UNION
-  SELECT
-    t.type,
-    t.id,
-    (
-      SELECT rp.rail_id
-      FROM rail_pool rp
-      WHERE rp.type = t.type AND rp.id = t.id
-      LIMIT 1
-    ) AS rail_id
-  FROM titles t
-  INNER JOIN rail_pool rp ON rp.type = t.type AND rp.id = t.id
-  WHERE t.status = 'verified'
-    AND (
-      COALESCE(t.expires_at, 0) <= @now
-      OR COALESCE(t.probe_ms, 999999) > @couch_probe_ms
     )
-);
-`).all({ now, couch_probe_ms: couchProbeMs }) as Array<{ type: string; id: string; rail_id: string | null }>;
+  ) AS rail_id
+FROM titles t
+WHERE t.status = 'stale';
+`).all() as Array<{ type: string; id: string; rail_id: string | null }>;
   } finally {
     db.close();
   }
@@ -876,19 +862,19 @@ function resolveRailDisplayLimit(
   return Math.max(1, effectiveDisplayLimit(rail.playability, verifiedPool));
 }
 
-export async function pruneNonPlayableFromRailPools(now: number = nowMs()): Promise<number> {
+/** Remove pool rows only for titles definitively marked stale (additive library — never drop verified). */
+export async function pruneNonPlayableFromRailPools(_now: number = nowMs()): Promise<number> {
   await initPlayabilityDb();
   const db = openDb();
   try {
     const result = db.prepare(`
 DELETE FROM rail_pool
-WHERE NOT EXISTS (
+WHERE EXISTS (
   SELECT 1 FROM titles t
   WHERE t.type = rail_pool.type AND t.id = rail_pool.id
-    AND t.status = 'verified'
-    AND COALESCE(t.expires_at, 0) > @now
+    AND t.status = 'stale'
 );
-`).run({ now });
+`).run();
     return result.changes;
   } finally {
     db.close();
@@ -1132,6 +1118,8 @@ export async function invalidateTitle(record: {
   type: string;
   id: string;
   reason?: string | null;
+  /** Keep current session posters until session rotates (Track B couch UX). */
+  preserve_session?: boolean;
 }): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
@@ -1157,17 +1145,19 @@ ON CONFLICT(type, id) DO UPDATE SET
         updated_at: timestamp,
       });
 
-      const sessionWhere = record.rail_id
-        ? 'rail_id = @rail_id AND type = @type AND id = @id'
-        : 'type = @type AND id = @id';
-      db.prepare(`
+      if (!record.preserve_session) {
+        const sessionWhere = record.rail_id
+          ? 'rail_id = @rail_id AND type = @type AND id = @id'
+          : 'type = @type AND id = @id';
+        db.prepare(`
 DELETE FROM rail_session
 WHERE ${sessionWhere};
 `).run({
-        rail_id: record.rail_id ?? null,
-        type: record.type,
-        id: record.id,
-      });
+          rail_id: record.rail_id ?? null,
+          type: record.type,
+          id: record.id,
+        });
+      }
 
       db.prepare(`
 INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)

@@ -6,6 +6,11 @@ import { playWithLadder } from './play-orchestrator.js';
 import { bumpPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import { invalidateTitle, getTitleVerifyProfile, recordVerifyResult } from './playability/db.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
+import {
+  getRefreshLevel,
+  listRefreshLevels,
+  startRefreshLevel,
+} from './playability/refresh-control.js';
 import { parseCatalogTab } from './rails.js';
 import { streamUrlHash } from './stream-filters.js';
 import {
@@ -24,6 +29,7 @@ type PlayBody = StreamFilterOverrides & {
   reason?: string;
   url?: string;
   language?: string | null;
+  level?: string;
 };
 
 function filterOverridesFromBody(body: PlayBody): StreamFilterOverrides {
@@ -198,6 +204,7 @@ async function handlePlay(
         type: body.type,
         id: body.id,
         reason: 'play_failure',
+        preserve_session: true,
       }).catch((invalidateError) => {
         console.warn(
           `playability invalidate failed type=${body.type} id=${body.id}: ${
@@ -205,7 +212,6 @@ async function handlePlay(
           }`,
         );
       });
-      core.clearRailItemsCache(body.rail_id ?? undefined);
     }
     if (error instanceof CatalogError) {
       if (error.message === 'no_playable_stream') {
@@ -246,6 +252,59 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'playability' && parts[1] === 'refresh' && parts[2] === 'levels') {
+        sendJson(res, 200, { ok: true, levels: listRefreshLevels() });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2 && parts[0] === 'playability' && parts[1] === 'refresh') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'playability refresh is localhost-only');
+        }
+        const body = await readBody(req);
+        const levelId = body.level;
+        if (!levelId || typeof levelId !== 'string') {
+          throw new CatalogError(400, 'POST /playability/refresh requires { level }');
+        }
+        const level = getRefreshLevel(levelId);
+        if (!level) {
+          throw new CatalogError(400, `unknown refresh level: ${levelId}`);
+        }
+        const started = await startRefreshLevel(levelId);
+        if (!started.ok) {
+          throw new CatalogError(started.busy ? 409 : 400, started.error);
+        }
+        if (started.mode === 'inline') {
+          const sessionId = core.reshufflePlayabilitySession();
+          sendJson(res, 200, {
+            ok: true,
+            level: levelId,
+            mode: 'inline',
+            session_id: sessionId,
+            estimated_sec: level.estimated_sec,
+          });
+          return;
+        }
+        sendJson(res, 202, {
+          ok: true,
+          level: levelId,
+          mode: 'background',
+          pid: started.pid,
+          estimated_sec: level.estimated_sec,
+          blocks_couch: level.blocks_couch,
+        });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'playability' && parts[1] === 'session' && parts[2] === 'reshuffle') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'session reshuffle is localhost-only');
+        }
+        const sessionId = core.reshufflePlayabilitySession();
+        sendJson(res, 200, { ok: true, session_id: sessionId });
+        return;
+      }
+
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'playability' && parts[1] === 'status') {
         sendJson(res, 200, await core.playabilityStatus());
         return;
@@ -275,7 +334,9 @@ async function main(): Promise<void> {
         if (!tab) {
           throw new CatalogError(400, 'GET /rails/items requires tab=movies or tab=series');
         }
-        sendJson(res, 200, await core.tabRailItems(tab));
+        const reshuffle = url.searchParams.get('reshuffle') === '1'
+          || url.searchParams.get('reshuffle') === 'true';
+        sendJson(res, 200, await core.tabRailItems(tab, { reshuffle }));
         return;
       }
 

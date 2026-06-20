@@ -11,6 +11,12 @@ export type LaunchAction = "stremio" | "kodi";
 export type TileAction = LaunchAction | "settings";
 export type BrowseTab = "movies" | "series";
 
+export type RefreshLevelId =
+  | "shuffle_rails"
+  | "stale_refresh"
+  | "topup_low_rails"
+  | "full_maintenance";
+
 export interface ContentCard {
   id: string;
   type: string;

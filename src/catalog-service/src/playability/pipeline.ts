@@ -65,15 +65,10 @@ export function shouldForceReprobeTitle(
   title: TitlePlayabilityRecord | undefined,
   staleKeys: Set<CandidateKey>,
   key: CandidateKey,
-  now: number,
+  _now: number,
 ): boolean {
-  if (staleKeys.has(key)) {
-    return true;
-  }
-  if (!title || title.status !== 'verified') {
-    return false;
-  }
-  return title.expires_at !== null && title.expires_at <= now;
+  // Only titles explicitly marked stale are reprobed — never refresh-replace verified rows.
+  return staleKeys.has(key);
 }
 
 export function valueAsString(value: unknown): string {

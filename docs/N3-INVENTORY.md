@@ -107,3 +107,18 @@ Stream picker UI · `progress.db` · Continue rail · Torrentio in picker only.
 | N3-F3 | N3c playability index + ladder verify | **Shipped** | `win_ladder_step` |
 | N3-F4 | `gate-n3c-verified-rails` primary gate | Track B | displayed ⇒ playable |
 | N3-F5 | Async play progress API | Track C | 90s wall vs launcher HTTP |
+
+---
+
+## Track B — verified-only rails (shipped)
+
+| UX choice | Behavior |
+|-----------|----------|
+| Thin rails | Show partial verified row (no filler) |
+| Empty rails | Hidden on home |
+| Play failure | Poster stays until session shuffle |
+| ⌂ on home | Reshuffle from verified pool (~5s, no indexer) |
+| Settings | Library refresh levels + time estimates |
+| LLM API | `GET /playability/refresh/levels` · `POST /playability/refresh` |
+
+**Gates:** `gate-n3c-verified-rails.sh` (sampled) + N3a random picks + N3d when self-hosted.
