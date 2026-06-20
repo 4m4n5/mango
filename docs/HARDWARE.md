@@ -97,13 +97,14 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 ```
   [−]  [+]
-  [ ]  [⌂]    ← right bottom = home (evdev 316, fallback 311)
+  [↻]  [⌂]    ← shuffle = left bottom (evdev 317); home = right bottom (316, fallback 311)
 ```
 
 | Label | evdev | Action |
 |-------|-------|--------|
 | **−** | `314` | — |
 | **+** | `315` | — |
+| **↻ shuffle** (left, below −/+) | `317` | **Reshuffle library** (launcher) |
 | **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
 
 **D-pad** → navigate (arrow keys).

@@ -12,16 +12,15 @@
           <p class="eyebrow">mango</p>
           <h1>What do you want to watch?</h1>
         </header>
-        <nav id="browse-tabs" class="browse-tabs" aria-label="Browse tabs"></nav>
+        <div class="browse-bar">
+          <nav id="browse-tabs" class="browse-tabs" aria-label="Browse tabs"></nav>
+          <button id="library-refresh" class="browse-shuffle" type="button" aria-label="Shuffle library">
+            <span class="browse-shuffle-icon" aria-hidden="true">↻</span>
+            <span class="browse-shuffle-label">shuffle</span>
+          </button>
+        </div>
         <div id="rails" class="rails" aria-label="Browse"></div>
       </section>
-
-      <nav id="shell-dock" class="shell-dock" aria-label="Library controls">
-        <button id="library-refresh" class="shell-dock-btn" type="button" data-shell-focus="true">
-          <span class="shell-dock-icon" aria-hidden="true">↻</span>
-          <span class="shell-dock-label">refresh</span>
-        </button>
-      </nav>
 
       <section id="detail-view" class="view detail hidden" aria-label="Title detail">
         <div class="detail-poster-wrap">

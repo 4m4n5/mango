@@ -80,7 +80,7 @@ async function runRefresh(
   try {
     const result = await startRefreshLevel(level);
     if (result.mode === "inline") {
-      onStatus("library refreshed — pad refresh (left of ⌂) to shuffle again");
+      onStatus("library refreshed — shuffle on the pad or browse bar to reshuffle");
       return;
     }
     const minutes = Math.max(1, Math.round((result.estimated_sec ?? 300) / 60));

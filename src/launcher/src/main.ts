@@ -85,11 +85,9 @@ function init(): void {
 }
 
 function renderHome(): void {
-  const dockButtons = [libraryRefreshBtn];
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
   focusGridRows = [
-    dockButtons,
-    tabButtons,
+    [...tabButtons, libraryRefreshBtn],
     ...buildHomeRails(railsEl, {
       onContentSelect: handleContentSelect,
       onAppSelect: handleAppSelect,
@@ -274,7 +272,7 @@ function showHome(): void {
   detailView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. pad refresh (left of ⌂).");
+  setStatus("D-pad to browse. B to select. shuffle reshuffles picks.");
 }
 
 function restoreHomeFromDetail(): void {
@@ -282,7 +280,7 @@ function restoreHomeFromDetail(): void {
   settingsView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. pad refresh (left of ⌂).");
+  setStatus("D-pad to browse. B to select. shuffle reshuffles picks.");
 }
 
 async function reloadPinsAndCatalog(): Promise<void> {
@@ -299,7 +297,7 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
     return;
   }
   libraryRefreshInFlight = true;
-  libraryRefreshBtn.classList.add("shell-dock-btn--active");
+  libraryRefreshBtn.classList.add("browse-shuffle--active");
   railsEl.classList.remove("rails--refresh-settled");
   railsEl.classList.add("rails--refreshing");
   if (!options.quiet) {
@@ -312,7 +310,7 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
     }
   } finally {
     libraryRefreshInFlight = false;
-    libraryRefreshBtn.classList.remove("shell-dock-btn--active");
+    libraryRefreshBtn.classList.remove("browse-shuffle--active");
     railsEl.classList.remove("rails--refreshing");
     railsEl.classList.add("rails--refresh-settled");
     window.setTimeout(() => railsEl.classList.remove("rails--refresh-settled"), 320);
@@ -342,7 +340,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     setStatus(itemCount > 0
       ? options.reshuffle
         ? "updated — keep browsing."
-        : "D-pad to browse. B to select. pad refresh (left of ⌂)."
+        : "D-pad to browse. B to select. shuffle reshuffles picks."
       : "catalog loaded with no posters");
   } catch (error) {
     catalogState = {
