@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 + N3a (play ladder) + N3c + N3d shipped**. **Next:** Track B verified-only rails ([`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 + N3a + N3c + N3d + Track B shipped**. **Next:** N3b stream picker + progress ([`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md)).
 
 ## Read first
 
