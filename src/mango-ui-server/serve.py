@@ -40,9 +40,24 @@ LAUNCH_DEBOUNCE_SEC: Final = 2.0
 _last_launch_at: dict[str, float] = {}
 
 _voice_lock: Final = threading.Lock()
-_voice_command_seq: int = 0
 _voice_commands: Final = deque[dict[str, object]](maxlen=64)
 VOICE_COMMAND_TTL_SEC: Final = 45.0
+VOICE_SEQ_FILE: Final = LOG_DIR / "voice-command-seq"
+
+
+def _load_persisted_voice_seq() -> int:
+    try:
+        return max(0, int(VOICE_SEQ_FILE.read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        return 0
+
+
+def _persist_voice_seq(seq: int) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    VOICE_SEQ_FILE.write_text(f"{seq}\n", encoding="utf-8")
+
+
+_voice_command_seq: int = _load_persisted_voice_seq()
 
 
 def run_check(cmd: list[str]) -> bool:
@@ -72,6 +87,7 @@ def enqueue_voice_command(command: dict[str, object]) -> int:
         seq = _voice_command_seq
         entry = {"seq": seq, "issued_at": time.time(), **command}
         _voice_commands.append(entry)
+    _persist_voice_seq(seq)
     mango_log("voice_command", seq=str(seq), action=str(command.get("action", "")))
     return seq
 

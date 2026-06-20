@@ -1,9 +1,10 @@
 /**
- * Launcher voice commands — HTTP poll only (reliable on Pi kiosk).
- * WS is reserved for HUD/chat; never replay stale navigation commands.
+ * Launcher voice commands — HTTP poll (primary) + orchestrator WS (backup).
+ * Cursor always syncs from server; never trust sessionStorage across restarts.
  */
 
 import type { BrowseTab, ContentCard } from "./types";
+import { resolveCardPosterUrl } from "./poster";
 
 export type VoiceCommandHandlers = {
   onHome: () => void;
@@ -21,6 +22,7 @@ type LauncherCommandMessage = {
   id?: string;
   title?: string;
   poster?: string;
+  seq?: number;
 };
 
 type VoiceCommandsResponse = {
@@ -33,8 +35,6 @@ type VoiceStateResponse = {
   ok?: boolean;
   latest_seq?: number;
 };
-
-const LAST_SEQ_KEY = "mango.voice.lastSeq";
 
 function parseBrowseTab(value: string | undefined): BrowseTab | null {
   if (value === "movies" || value === "series" || value === "live") {
@@ -54,9 +54,23 @@ function tabFromContentType(contentType: string | undefined): BrowseTab {
   return "movies";
 }
 
+function normalizeContentType(value: string | undefined): string | null {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (normalized === "series" || normalized === "tv") {
+    return "series";
+  }
+  if (normalized === "movie" || normalized === "film") {
+    return "movie";
+  }
+  if (normalized === "channel") {
+    return "tv";
+  }
+  return normalized || null;
+}
+
 function cardFromCommand(message: LauncherCommandMessage): ContentCard | null {
   const id = message.id?.trim();
-  const contentType = message.content_type?.trim();
+  const contentType = normalizeContentType(message.content_type);
   if (!id || !contentType) {
     return null;
   }
@@ -65,7 +79,7 @@ function cardFromCommand(message: LauncherCommandMessage): ContentCard | null {
     type: contentType,
     title: message.title?.trim() || id,
     subtitle: "",
-    posterUrl: message.poster?.trim() || undefined,
+    posterUrl: resolveCardPosterUrl({ id, posterUrl: message.poster?.trim() }),
     source: "voice",
   };
 }
@@ -113,46 +127,29 @@ export function handleLauncherCommand(
   return false;
 }
 
-function readStoredLastSeq(): number {
-  try {
-    const raw = sessionStorage.getItem(LAST_SEQ_KEY);
-    const parsed = raw !== null ? Number(raw) : 0;
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function storeLastSeq(seq: number): void {
-  try {
-    sessionStorage.setItem(LAST_SEQ_KEY, String(seq));
-  } catch {
-    // ignore private mode / storage errors
-  }
-}
-
-function startVoiceCommandPoll(handlers: VoiceCommandHandlers): () => void {
-  let lastSeq = readStoredLastSeq();
-  let bootstrapped = lastSeq > 0;
+function startVoiceCommandPoll(
+  applyCommand: (command: LauncherCommandMessage) => boolean,
+): () => void {
+  let lastSeq = 0;
+  let cursorReady = false;
   let stopped = false;
   let pollTimer: number | undefined;
 
-  const bootstrap = async (): Promise<void> => {
-    if (bootstrapped) {
-      return;
-    }
+  const syncCursor = async (): Promise<boolean> => {
     try {
       const response = await fetch("/api/voice/state");
       if (!response.ok) {
-        return;
+        return false;
       }
       const payload = (await response.json()) as VoiceStateResponse;
       const latest = typeof payload.latest_seq === "number" ? payload.latest_seq : 0;
-      lastSeq = Math.max(lastSeq, latest);
-      storeLastSeq(lastSeq);
-      bootstrapped = true;
+      if (!cursorReady || latest < lastSeq) {
+        lastSeq = latest;
+      }
+      cursorReady = true;
+      return true;
     } catch {
-      // UI server may be restarting
+      return false;
     }
   };
 
@@ -160,36 +157,36 @@ function startVoiceCommandPoll(handlers: VoiceCommandHandlers): () => void {
     if (stopped) {
       return;
     }
-    if (!bootstrapped) {
-      await bootstrap();
+    if (!cursorReady) {
+      await syncCursor();
       return;
     }
     try {
       const response = await fetch(`/api/voice/commands?after=${lastSeq}`);
       if (!response.ok) {
+        cursorReady = false;
         return;
       }
       const payload = (await response.json()) as VoiceCommandsResponse;
-      if (typeof payload.latest_seq === "number" && payload.latest_seq > lastSeq && (payload.commands?.length ?? 0) === 0) {
+      if (typeof payload.latest_seq === "number" && payload.latest_seq < lastSeq) {
         lastSeq = payload.latest_seq;
-        storeLastSeq(lastSeq);
       }
       for (const command of payload.commands ?? []) {
-        if (typeof command.seq === "number" && command.seq > lastSeq) {
+        if (typeof command.seq === "number") {
+          if (command.seq <= lastSeq) {
+            continue;
+          }
           lastSeq = command.seq;
         }
-        handleLauncherCommand(command, handlers);
-      }
-      if ((payload.commands?.length ?? 0) > 0) {
-        storeLastSeq(lastSeq);
+        applyCommand(command);
       }
     } catch {
-      // launcher UI server may restart briefly
+      cursorReady = false;
     }
   };
 
-  void bootstrap().then(() => void poll());
-  pollTimer = window.setInterval(() => void poll(), 350);
+  void syncCursor().then(() => void poll());
+  pollTimer = window.setInterval(() => void poll(), 300);
 
   return () => {
     stopped = true;
@@ -198,10 +195,87 @@ function startVoiceCommandPoll(handlers: VoiceCommandHandlers): () => void {
 }
 
 export function startVoiceCommands(
-  _wsUrls: string[],
+  wsUrls: string[],
   handlers: VoiceCommandHandlers,
 ): () => void {
-  return startVoiceCommandPoll(handlers);
+  const appliedSeq = new Set<number>();
+
+  const applyCommand = (command: LauncherCommandMessage): boolean => {
+    if (typeof command.seq === "number") {
+      if (appliedSeq.has(command.seq)) {
+        return false;
+      }
+      appliedSeq.add(command.seq);
+      if (appliedSeq.size > 128) {
+        const oldest = [...appliedSeq].sort((left, right) => left - right).slice(0, 64);
+        for (const seq of oldest) {
+          appliedSeq.delete(seq);
+        }
+      }
+    }
+    return handleLauncherCommand(command, handlers);
+  };
+
+  const stopPoll = startVoiceCommandPoll(applyCommand);
+
+  let reconnectTimer: number | undefined;
+  let urlIndex = 0;
+  let wsStopped = false;
+
+  const scheduleReconnect = (advanceUrl: boolean): void => {
+    if (wsStopped) {
+      return;
+    }
+    if (advanceUrl && wsUrls.length > 1) {
+      urlIndex = (urlIndex + 1) % wsUrls.length;
+    }
+    reconnectTimer = window.setTimeout(connect, advanceUrl ? 250 : 2000);
+  };
+
+  const connect = (): void => {
+    window.clearTimeout(reconnectTimer);
+    let socket: WebSocket;
+    let opened = false;
+    try {
+      socket = new WebSocket(wsUrls[urlIndex] ?? "ws://127.0.0.1:8766/ws");
+    } catch {
+      scheduleReconnect(true);
+      return;
+    }
+
+    socket.addEventListener("open", () => {
+      opened = true;
+    });
+    socket.addEventListener("message", (event: MessageEvent<string>) => {
+      try {
+        const payload = JSON.parse(event.data) as unknown;
+        if (!payload || typeof payload !== "object") {
+          return;
+        }
+        const message = payload as LauncherCommandMessage;
+        if (message.type !== "launcher_command") {
+          return;
+        }
+        applyCommand(message);
+      } catch {
+        // ignore malformed payloads
+      }
+    });
+    socket.addEventListener("close", () => {
+      scheduleReconnect(!opened);
+    });
+    socket.addEventListener("error", () => {
+      socket.close();
+    });
+  };
+
+  connect();
+
+  return () => {
+    wsStopped = true;
+    stopPoll();
+    window.clearTimeout(reconnectTimer);
+  };
 }
 
 export function resolveVoiceWsUrls(): string[] {

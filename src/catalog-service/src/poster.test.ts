@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { metahubPosterUrl, normalizePosterUrl, resolvePosterFromMeta } from './poster.js';
+import { metahubPosterUrl, normalizePosterUrl, resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
 
 test('normalizePosterUrl upgrades http and protocol-relative URLs', () => {
   assert.equal(normalizePosterUrl('//cdn.example/p.jpg'), 'https://cdn.example/p.jpg');
@@ -27,4 +27,22 @@ test('resolvePosterFromMeta falls back through artwork fields', () => {
     }),
     'https://cdn.example/bg.jpg',
   );
+});
+
+test('enrichMetaForLauncher adds metahub poster and display title', () => {
+  const enriched = enrichMetaForLauncher({
+    id: 'tt0111161',
+    type: 'movie',
+    name: 'The Shawshank Redemption',
+    description: 'Hope.',
+  });
+  assert.equal(enriched.name, 'The Shawshank Redemption');
+  assert.match(String(enriched.poster), /metahub\.space\/poster\/large\/tt0111161/);
+});
+
+test('stubMetaForLauncher returns metahub poster for imdb ids', () => {
+  const stub = stubMetaForLauncher('movie', 'tt0111161');
+  assert.ok(stub);
+  assert.match(String(stub?.poster), /metahub\.space/);
+  assert.equal(stubMetaForLauncher('movie', 'not-an-id'), null);
 });

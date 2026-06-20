@@ -8,7 +8,7 @@ import { invalidateTitle, getTitleVerifyProfile, recordVerifyResult } from './pl
 import { isSeriesRailGateId, seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
-import { resolvePosterFromMeta } from './poster.js';
+import { resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
 import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
 import {
   buildNextPromptResponse,
@@ -600,7 +600,19 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'meta') {
-        sendJson(res, 200, await core.meta(parts[1], parts[2]));
+        const contentType = parts[1];
+        const contentId = parts[2];
+        try {
+          const meta = await core.meta(contentType, contentId);
+          sendJson(res, 200, enrichMetaForLauncher(meta, contentId));
+        } catch (error) {
+          const stub = stubMetaForLauncher(contentType, contentId);
+          if (stub) {
+            sendJson(res, 200, stub);
+            return;
+          }
+          throw error;
+        }
         return;
       }
 

@@ -135,6 +135,7 @@ function init(): void {
     },
     onOpenDetail: (card, tab) => {
       activeBrowseTab = tab;
+      setStatus(`Opening ${card.title}…`);
       handleContentSelect(card, "voice", tab);
     },
   });

@@ -206,14 +206,16 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
             use_tools = voice_tools_enabled(settings)
 
             async def dispatch_launcher(command: dict[str, Any]) -> int | None:
-                await broadcast(command)
+                seq: int | None = None
                 try:
                     from orchestrator.tools.launcher_dispatch import post_launcher_command
 
-                    return await asyncio.to_thread(post_launcher_command, settings, command)
+                    seq = await asyncio.to_thread(post_launcher_command, settings, command)
                 except Exception as exc:
                     logger.warning("launcher HTTP dispatch failed: %s", exc)
-                    return None
+                payload = {**command, "seq": seq} if seq is not None else command
+                await broadcast(payload)
+                return seq
 
             async def on_tool_event(payload: dict[str, Any]) -> None:
                 await broadcast(payload)

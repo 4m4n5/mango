@@ -67,6 +67,7 @@ async def generate_agent_reply(
 
     client = Anthropic(api_key=api_key)
     transcript = messages
+    open_confirmed = False
     for _round in range(max(1, settings.max_tool_rounds)):
         response = client.messages.create(
             model=settings.llm_model,
@@ -89,6 +90,7 @@ async def generate_agent_reply(
 
         if response.stop_reason != "tool_use" or not tool_uses:
             reply = _clean_reply(" ".join(text_parts))
+            reply = _guard_open_claims(reply, open_confirmed)
             if on_delta is not None:
                 on_delta(reply)
             return reply
@@ -121,6 +123,9 @@ async def generate_agent_reply(
                 settings,
                 dispatch_launcher=dispatch_launcher,
             )
+
+            if name == "mango_open_title":
+                open_confirmed = _tool_open_confirmed(result)
 
             if on_tool_event is not None:
                 await on_tool_event(
@@ -178,6 +183,33 @@ def _serialize_block(block: Any) -> dict[str, Any]:
             "input": getattr(block, "input", {}),
         }
     return {"type": str(block_type or "unknown")}
+
+
+def _tool_open_confirmed(result: str) -> bool:
+    try:
+        import json
+
+        payload = json.loads(result)
+    except json.JSONDecodeError:
+        return False
+    return payload.get("ok") is True and isinstance(payload.get("tv_seq"), int)
+
+
+def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
+    """Do not claim the TV opened unless mango_open_title confirmed tv_seq."""
+    if open_confirmed:
+        return reply
+    lowered = reply.lower()
+    claims_open = any(
+        phrase in lowered
+        for phrase in ("press b", "opened", "open kar", "khol diya", "detail page", "play kar")
+    )
+    if not claims_open:
+        return reply
+    return (
+        "TV pe abhi title open nahi hua — ek baar phir try karte hain. "
+        "Agar phir bhi home screen pe ho, ⌂ dabao aur dubara bolo."
+    )
 
 
 def _mock_reply(

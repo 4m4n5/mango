@@ -1,4 +1,5 @@
 import { searchVerifiedRailPoolTitles } from '../playability/db.js';
+import { metahubPosterUrl, normalizePosterUrl } from '../poster.js';
 
 export type VoiceSearchHit = {
   type: string;
@@ -79,7 +80,7 @@ export async function searchVerifiedLibrary(
       id: row.id,
       title: row.title,
       year: row.year ?? undefined,
-      poster: row.poster ?? undefined,
+      poster: normalizePosterUrl(row.poster) ?? metahubPosterUrl(row.id) ?? undefined,
       tab: tabForType(row.type),
       score,
     });

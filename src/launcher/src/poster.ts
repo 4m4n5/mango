@@ -1,4 +1,28 @@
 /** Couch-safe poster: show title initials when artwork 404s or is missing. */
+
+/** Cinemeta CDN fallback when pool / voice payloads omit artwork. */
+export function metahubPosterUrl(
+  id: string,
+  size: "medium" | "large" = "medium",
+): string | undefined {
+  const bare = id.trim().split(":")[0];
+  if (!bare || !/^tt\d+$/i.test(bare)) {
+    return undefined;
+  }
+  return `https://images.metahub.space/poster/${size}/${bare}/img`;
+}
+
+export function resolveCardPosterUrl(
+  card: { id: string; posterUrl?: string },
+  size: "medium" | "large" = "medium",
+): string {
+  const explicit = card.posterUrl?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  return metahubPosterUrl(card.id, size) || "";
+}
+
 export function bindPosterImage(img: HTMLImageElement, title: string): void {
   const host = img.closest(".card--poster, .detail-poster-wrap");
   const applyFallback = (): void => {

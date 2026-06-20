@@ -1559,8 +1559,8 @@ export class CatalogCore {
 
   private railItemFromPoolSnapshot(item: RailSessionPoolItem): RailItem | null {
     const title = item.title?.trim();
-    const poster = normalizePosterUrl(item.poster_url) ?? metahubPosterUrl(item.id);
-    if (!title || !poster) {
+    const poster = normalizePosterUrl(item.poster_url) ?? metahubPosterUrl(item.id, 'medium');
+    if (!title) {
       return null;
     }
     const year = item.year?.trim() || undefined;
@@ -1569,7 +1569,7 @@ export class CatalogCore {
       type: item.type,
       title,
       subtitle: year || item.type,
-      poster,
+      poster: poster || '',
       year,
       source: item.best_source || 'verified',
     };

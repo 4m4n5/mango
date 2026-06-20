@@ -24,6 +24,25 @@ export function normalizePosterUrl(value: unknown): string | null {
   return null;
 }
 
+function metaYear(meta: Meta): number | string | undefined {
+  if (meta.year !== undefined && meta.year !== null) {
+    return meta.year as number | string;
+  }
+  const released = typeof meta.released === 'string' ? meta.released : '';
+  const match = released.match(/\b(19|20)\d{2}\b/);
+  return match?.[0];
+}
+
+function metaTitle(meta: Meta, fallbackId: string): string {
+  if (typeof meta.name === 'string' && meta.name.trim()) {
+    return meta.name.trim();
+  }
+  if (typeof meta.title === 'string' && meta.title.trim()) {
+    return meta.title.trim();
+  }
+  return fallbackId;
+}
+
 /** Best-effort poster from meta + catalog preview (poster → background → logo). */
 export function resolvePosterFromMeta(meta: Meta, preview?: unknown): string | null {
   const previewPoster = typeof preview === 'object' && preview !== null
@@ -36,4 +55,44 @@ export function resolvePosterFromMeta(meta: Meta, preview?: unknown): string | n
   }
   const metaId = typeof meta.id === 'string' ? meta.id : null;
   return metaId ? metahubPosterUrl(metaId) : null;
+}
+
+/** Launcher-facing meta — always includes best-effort poster + display title. */
+export function enrichMetaForLauncher(meta: Meta, fallbackId = ''): Record<string, unknown> {
+  const id = typeof meta.id === 'string' && meta.id.trim() ? meta.id.trim() : fallbackId;
+  const title = metaTitle(meta, id);
+  let poster: string | null = null;
+  for (const candidate of [meta.poster, meta.background, meta.logo]) {
+    poster = normalizePosterUrl(candidate);
+    if (poster) break;
+  }
+  if (!poster && id) {
+    poster = metahubPosterUrl(id, 'large');
+  }
+  const year = metaYear(meta);
+  return {
+    id,
+    type: meta.type,
+    name: title,
+    title,
+    year,
+    poster: poster ?? undefined,
+    description: typeof meta.description === 'string' ? meta.description : undefined,
+    releaseInfo: meta.releaseInfo,
+    runtime: meta.runtime,
+    source: meta.source,
+  };
+}
+
+/** Minimal display meta when addon meta lookup fails but we have a Stremio id. */
+export function stubMetaForLauncher(type: string, id: string): Record<string, unknown> | null {
+  const poster = metahubPosterUrl(id, 'large');
+  if (!poster) {
+    return null;
+  }
+  return {
+    id,
+    type,
+    poster,
+  };
 }

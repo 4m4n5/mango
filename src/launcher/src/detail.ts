@@ -13,7 +13,7 @@ import {
 } from "./catalog";
 import type { ContentCard, BrowseTab } from "./types";
 import { pinCard, unpinCard } from "./pins";
-import { bindPosterImage } from "./poster";
+import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 
 export interface DetailCallbacks {
   onClose: () => void;
@@ -82,7 +82,7 @@ export class DetailController {
     this.title.textContent = card.title;
     this.meta.textContent = card.subtitle;
     this.description.textContent = card.description || "loading details…";
-    this.poster.src = card.posterUrl || "";
+    this.poster.src = resolveCardPosterUrl(card, "large");
     bindPosterImage(this.poster, card.title);
     this.poster.alt = "";
     this.view.classList.remove("hidden");
@@ -620,10 +620,21 @@ export class DetailController {
       if (meta.poster) {
         this.poster.src = meta.poster;
         bindPosterImage(this.poster, meta.name || meta.title || card.title);
+      } else {
+        const fallback = resolveCardPosterUrl(card, "large");
+        if (fallback) {
+          this.poster.src = fallback;
+          bindPosterImage(this.poster, meta.name || meta.title || card.title);
+        }
       }
     } catch {
       if (this.card?.id === card.id) {
         this.description.textContent = card.description || "details unavailable";
+        const fallback = resolveCardPosterUrl(card, "large");
+        if (fallback && !this.poster.src) {
+          this.poster.src = fallback;
+          bindPosterImage(this.poster, card.title);
+        }
       }
     }
   }

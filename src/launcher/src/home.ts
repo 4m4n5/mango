@@ -1,5 +1,5 @@
 import type { AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
-import { bindPosterImage } from "./poster";
+import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { applyRailLayout, observeRailLayouts } from "./layout";
 
 export interface HomeCallbacks {
@@ -230,7 +230,7 @@ function createPosterCard(
   poster.alt = "";
   poster.loading = "lazy";
   poster.decoding = "async";
-  poster.src = card.posterUrl || "";
+  poster.src = resolveCardPosterUrl(card);
   bindPosterImage(poster, card.title);
 
   const shade = document.createElement("span");
