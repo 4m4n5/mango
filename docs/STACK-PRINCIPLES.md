@@ -63,6 +63,7 @@ Enriched fields (from `stream-formatter.ts`): `display_label`, `release_group`, 
 | `gate-n3d-stream-language.sh` | self-hosted | Language soft/hard policy |
 | `gate-n3d-catalogs.sh` | self-hosted | Required rails + optional warns |
 | `gate-n3d-self-hosted.sh` | pre-couch | Orchestrates N3d gates |
+| `gate-n3a-play.sh` | pre-couch / manual | Two browse picks play <=15s + N2/N0 |
 | `gate-n3c-verified-rails.sh` | manual / CI | Browse pick play ≤15s |
 | `pi-pre-couch-gate.sh` | Mac `pi-exec-gate.sh` | Pull + N0 + N3d when `MANGO_SELF_HOSTED_ADDONS=1` |
 
@@ -94,7 +95,7 @@ cd src/catalog-service && npm run test
 
 ## Pi deploy
 
-**Git only.** Diagnose on Pi → fix on Mac → commit + push → `bash scripts/pi-deploy.sh` → gates on Pi.
+**Git only.** Diagnose on Pi → fix on Mac → commit + push → **`bash scripts/pi-deploy.sh --fast`** (iterate) or **`--full --gate`** (handoff) → gates on Pi.
 
 Never rsync `~/mango`, `src/`, or `src/orchestrator/.venv`. Canonical: [`DEPLOY.md`](DEPLOY.md).
 

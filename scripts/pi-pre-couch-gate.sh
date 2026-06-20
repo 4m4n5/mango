@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Pre-couch gate — run on Pi before TV testing. Deploy via git pull only (see docs/DEPLOY.md).
-# Mac: bash scripts/pi-exec-gate.sh  or  bash scripts/pi-deploy.sh --gate
+# Mac: bash scripts/pi-exec-gate.sh  or  bash scripts/pi-deploy.sh --fast --gate
 
 set -euo pipefail
 
@@ -33,6 +33,9 @@ if [[ "$BRANCH" == "feat/native-experience" ]]; then
       bash scripts/phase-n3d/gate-n3d-self-hosted.sh
     elif [[ -x scripts/phase-n3c/gate-n3c-verified-rails.sh ]]; then
       bash scripts/phase-n3c/gate-n3c-verified-rails.sh
+    fi
+    if [[ -x scripts/phase-n3a/gate-n3a-play.sh ]]; then
+      bash scripts/phase-n3a/gate-n3a-play.sh
     fi
   fi
   echo "PRE-COUCH: PASS"

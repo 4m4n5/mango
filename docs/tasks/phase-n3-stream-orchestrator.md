@@ -204,7 +204,7 @@ No waivers for browse-pick play within 15 s.
 ## 11. Deploy
 
 ```bash
-git push origin feat/native-experience && bash scripts/pi-deploy.sh --gate
+git push origin feat/native-experience && bash scripts/pi-deploy.sh --fast   # iterate; --full --gate before handoff
 sudo cp config/catalog-filters.example.json /etc/mango/catalog-filters.json
 ```
 

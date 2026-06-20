@@ -45,14 +45,16 @@ Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experien
 | 1. Diagnose | Pi | `pi-exec.sh`, gates, service logs |
 | 2. Fix | Mac | Edit repo; local `npm run test` when touching catalog-service |
 | 3. Ship | Mac | Commit (when asked) + `git push origin feat/native-experience` |
-| 4. Deploy | Pi | `bash scripts/pi-deploy.sh` from Mac, or pull + build + restart per DEPLOY.md |
-| 5. Verify | Pi | `bash scripts/pi-exec-gate.sh` — **never hand off after Mac-only checks** |
+| 4. Deploy | Pi | **`bash scripts/pi-deploy.sh --fast`** (iteration) or `--full` (deps change) |
+| 5. Verify | Pi | `bash scripts/pi-exec-gate.sh` before couch handoff — **never hand off after Mac-only checks** |
 
 ```bash
-# Mac — after push
+# Mac — after push (agent iteration loop — prefer --fast)
 bash scripts/lib/pi-sync-check.sh path/to/changed…   # optional
-bash scripts/pi-deploy.sh                            # pull, build, restart on Pi
-bash scripts/pi-deploy.sh --gate                     # + pre-couch gate
+bash scripts/pi-deploy.sh --fast                     # ~30–45s: pull, build, restart (skip npm ci if lock unchanged)
+bash scripts/pi-deploy.sh --fast --gate              # fast deploy + pre-couch gate before user tests
+bash scripts/pi-deploy.sh --full                     # always npm ci (package-lock / native module changes)
+bash scripts/pi-deploy.sh --full --gate              # full deps + gate (release handoff)
 
 # Mac — remote command
 bash scripts/pi-exec.sh 'cd ~/mango && git pull --ff-only && …'

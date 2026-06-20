@@ -43,7 +43,8 @@ Apply **`$mango-tv-box-expert`**.
 
 - **`feat/native-experience`** only
 - Pi: SSH **`mango`** · `~/mango` · **never rsync**
-- Deploy: `bash scripts/pi-deploy.sh --gate`
+- Deploy (iterate): `bash scripts/pi-deploy.sh --fast`
+- Deploy (handoff): `bash scripts/pi-deploy.sh --full --gate`
 
 ### Mission — closure only
 
@@ -66,7 +67,7 @@ Apply **`$mango-tv-box-expert`**.
 5. G4 gate-n3a-play.sh
 6. G6 launcher rail_id (if quick)
 7. npm test + build
-8. pi-deploy --gate
+8. pi-deploy --fast (loop) · --full --gate (handoff)
 9. G5 inventory metrics
 ```
 
@@ -84,7 +85,8 @@ Extend `gate_check_play_json` for max `total_ms`.
 
 ```bash
 git push origin feat/native-experience
-bash scripts/pi-deploy.sh --gate
+bash scripts/pi-deploy.sh --fast   # iterate
+bash scripts/pi-deploy.sh --full --gate   # handoff
 sudo cp config/catalog-filters.example.json /etc/mango/catalog-filters.json
 bash scripts/phase-n3a/gate-n3a-play.sh
 ```

@@ -55,23 +55,34 @@ git push origin feat/native-experience
 
 ### 4. Pull + build + restart (Pi)
 
+**Agents:** use **`--fast`** for diagnose/fix loops (~30–45s). Use **`--full`** when `package-lock.json` changes or native deps misbehave. Use **`--gate`** before couch handoff.
+
 From Mac:
 
 ```bash
-bash scripts/pi-deploy.sh              # pull, build, restart
-bash scripts/pi-deploy.sh --gate       # + pre-couch gate
+bash scripts/pi-deploy.sh --fast           # default — skip npm ci when lock unchanged
+bash scripts/pi-deploy.sh --fast --gate   # fast + pre-couch gate
+bash scripts/pi-deploy.sh --full          # always npm ci (deps / first boot)
+bash scripts/pi-deploy.sh --full --gate   # full + gate (release handoff)
 ```
 
-Or on Pi:
+Fast path uses `scripts/lib/pi-npm-deps.sh` (SHA-256 of each `package-lock.json` under `~/.cache/mango/`).
+
+Or on Pi (manual fast path):
 
 ```bash
-cd ~/mango
-git fetch origin
-git checkout feat/native-experience
-git pull --ff-only
+cd ~/mango && git pull --ff-only
+bash scripts/lib/pi-npm-deps.sh build src/catalog-service
+bash scripts/lib/pi-npm-deps.sh build src/launcher
+MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+```
+
+Full deps on Pi:
+
+```bash
+cd ~/mango && git pull --ff-only
 cd src/catalog-service && npm ci && npm run build
 cd ../launcher && npm ci && npm run build
-cd ~/mango
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 # voice (MANGO_VOICE=1 in ~/.config/mango/voice.env):
 bash scripts/phase2/ensure-orchestrator-venv.sh
