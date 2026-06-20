@@ -159,14 +159,16 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
         exit 0
       fi
       DUR="$(mpv_property duration)"
-      min_duration="$MIN_DURATION_SEC"
-      if $PROBE && ! $MIN_DURATION_SET; then
-        min_duration=5
-      fi
-      if python3 -c "import sys; d=float('${DUR:-0}'); sys.exit(0 if d > 0 and d < float('${min_duration}') else 1)" 2>/dev/null; then
-        echo "FAIL: debrid_status_clip duration=${DUR}" >&2
-        MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-        exit 1
+      if ! $LIVE; then
+        min_duration="$MIN_DURATION_SEC"
+        if $PROBE && ! $MIN_DURATION_SET; then
+          min_duration=5
+        fi
+        if python3 -c "import sys; d=float('${DUR:-0}'); sys.exit(0 if d > 0 and d < float('${min_duration}') else 1)" 2>/dev/null; then
+          echo "FAIL: debrid_status_clip duration=${DUR}" >&2
+          MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+          exit 1
+        fi
       fi
     fi
   fi
