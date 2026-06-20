@@ -111,11 +111,20 @@ export async function prefetchStreams(card: ContentCard): Promise<void> {
   );
 }
 
-export async function playCard(card: ContentCard): Promise<PlayResult> {
+export async function cancelPlay(): Promise<void> {
+  try {
+    await fetch("/api/catalog/play-cancel", { method: "POST" });
+  } catch {
+    // best-effort — mpv-stop on pad also bumps cancel epoch
+  }
+}
+
+export async function playCard(card: ContentCard, signal?: AbortSignal): Promise<PlayResult> {
   return fetchJson<PlayResult>("/api/catalog/play", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ type: card.type, id: card.id }),
+    signal,
   });
 }
 
@@ -129,6 +138,9 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 499) {
+      throw new Error("play cancelled");
+    }
     const raw = typeof data.error === "string" ? data.error : `HTTP ${response.status}`;
     throw new Error(couchSafeCatalogMessage(raw));
   }

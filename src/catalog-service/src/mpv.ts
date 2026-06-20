@@ -26,7 +26,7 @@ function displayEnv(): NodeJS.ProcessEnv {
 
 async function runMpv(
   url: string,
-  options: { probe: boolean; timeoutMs: number; minDurationSec?: number },
+  options: { probe: boolean; timeoutMs: number; minDurationSec?: number; playEpoch?: number },
 ): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/phase-n1/mpv-play.sh');
   const started = Date.now();
@@ -42,10 +42,14 @@ async function runMpv(
   if (options.probe) {
     args.push('--probe');
   }
+  const env = displayEnv();
+  if (options.playEpoch !== undefined) {
+    env.MANGO_PLAY_EPOCH = String(options.playEpoch);
+  }
   const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolvePromise, reject) => {
     execFile('bash', args, {
       cwd: repoDir(),
-      env: displayEnv(),
+      env,
       timeout: options.timeoutMs + 5000,
       maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
@@ -72,7 +76,7 @@ export async function probeUrl(url: string, timeoutMs: number, minDurationSec?: 
 export async function playUrl(
   url: string,
   timeoutMs = 90000,
-  options: { minDurationSec?: number } = {},
+  options: { minDurationSec?: number; playEpoch?: number } = {},
 ): Promise<PlayResult> {
-  return runMpv(url, { probe: false, timeoutMs, minDurationSec: options.minDurationSec });
+  return runMpv(url, { probe: false, timeoutMs, minDurationSec: options.minDurationSec, playEpoch: options.playEpoch });
 }

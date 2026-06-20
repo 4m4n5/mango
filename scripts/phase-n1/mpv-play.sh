@@ -5,6 +5,7 @@ set -euo pipefail
 
 SOCKET="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
 MPV_LOG="${MANGO_MPV_LOG:-${HOME}/.cache/mango/mpv-play.log}"
+PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epoch}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
@@ -74,6 +75,12 @@ raise SystemExit(0)
 PY
 }
 
+play_cancelled() {
+  [[ -n "${MANGO_PLAY_EPOCH:-}" ]] || return 1
+  [[ -f "$PLAY_CANCEL_FILE" ]] || return 1
+  [[ "$(tr -d '[:space:]' <"$PLAY_CANCEL_FILE" 2>/dev/null || true)" != "$MANGO_PLAY_EPOCH" ]]
+}
+
 detect_hwdec() {
   if [[ -n "${MANGO_MPV_HWDEC:-}" ]]; then
     printf '%s\n' "$MANGO_MPV_HWDEC"
@@ -119,6 +126,11 @@ MPV_PID=$!
 echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
 
 while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
+  if play_cancelled; then
+    echo "FAIL: play cancelled" >&2
+    bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+    exit 1
+  fi
   if [[ -S "$SOCKET" ]]; then
     REPLY="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property playback-time 2>/dev/null || true)"
     PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"

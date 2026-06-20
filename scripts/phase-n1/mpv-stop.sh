@@ -7,11 +7,15 @@ SOCKET="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 GO_HOME="${MANGO_MPV_STOP_HOME:-0}"
 HOME_LAUNCHED=0
+PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epoch}"
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+mkdir -p "$(dirname "$PLAY_CANCEL_FILE")"
+date +%s%3N >"$PLAY_CANCEL_FILE" 2>/dev/null || date +%s >"$PLAY_CANCEL_FILE"
 
 launch_home_once() {
   if [[ "${GO_HOME}" == "1" && "$HOME_LAUNCHED" -eq 0 ]]; then

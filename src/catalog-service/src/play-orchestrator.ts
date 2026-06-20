@@ -1,5 +1,6 @@
 import { CatalogError, type Stream } from './core.js';
 import { playUrl } from './mpv.js';
+import { assertPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import {
   selectAutoPlayCandidates,
   type StreamFilterConfig,
@@ -69,6 +70,7 @@ export async function playWithFallback(
     allow_rd_safe_unknown?: boolean;
     contentType?: string;
     verified_hint?: VerifiedStreamHint;
+    playEpoch?: number;
   } = {},
 ): Promise<PlayOrchestratorResult> {
   const started = Date.now();
@@ -96,6 +98,9 @@ export async function playWithFallback(
   }
 
   for (const [index, stream] of candidates.entries()) {
+    if (options.playEpoch !== undefined) {
+      await assertPlayEpoch(options.playEpoch);
+    }
     const remainingBeforeProbe = deadline - Date.now();
     if (remainingBeforeProbe < 500) {
       break;
@@ -108,7 +113,10 @@ export async function playWithFallback(
         Math.max(probeMs, 6000),
         remainingBeforeProbe,
       );
-      const playback = await playUrl(stream.url, attemptBudget, { minDurationSec });
+      const playback = await playUrl(stream.url, attemptBudget, {
+        minDurationSec,
+        playEpoch: options.playEpoch,
+      });
       const attempt: PlayAttempt = {
         ...base,
         ok: true,
@@ -125,6 +133,9 @@ export async function playWithFallback(
         candidate_count: candidates.length,
       };
     } catch (error) {
+      if (error instanceof PlayCancelledError) {
+        throw error;
+      }
       attempts.push({
         ...base,
         ok: false,

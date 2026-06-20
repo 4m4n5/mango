@@ -132,6 +132,9 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         if path == "/api/catalog/play":
             self._proxy_catalog("POST")
             return
+        if path == "/api/catalog/play-cancel":
+            self._proxy_catalog("POST")
+            return
 
         script = LAUNCH_SCRIPTS.get(path)
         if script is None:

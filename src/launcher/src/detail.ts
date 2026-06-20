@@ -1,4 +1,4 @@
-import { loadMeta, playCard, prefetchStreams, type CatalogMeta } from "./catalog";
+import { loadMeta, playCard, prefetchStreams, cancelPlay, type CatalogMeta } from "./catalog";
 import type { ContentCard } from "./types";
 
 export interface DetailCallbacks {
@@ -10,6 +10,7 @@ export class DetailController {
   private card: ContentCard | null = null;
   private focusIndex = 0;
   private playToken = 0;
+  private playAbort: AbortController | null = null;
   private readonly controls: HTMLButtonElement[];
 
   constructor(
@@ -52,6 +53,10 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
+    this.playToken += 1;
+    this.playAbort?.abort();
+    this.playAbort = null;
+    void cancelPlay();
     this.card = null;
     this.view.classList.add("hidden");
     this.callbacks.onClose();
@@ -79,6 +84,9 @@ export class DetailController {
     }
     this.playButton.disabled = true;
     const token = ++this.playToken;
+    this.playAbort?.abort();
+    const abort = new AbortController();
+    this.playAbort = abort;
     this.callbacks.onStatus("finding stream…");
     const startingTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
@@ -91,12 +99,24 @@ export class DetailController {
       }
     }, 8000);
     try {
-      const result = await playCard(card);
+      const result = await playCard(card, abort.signal);
+      if (this.playToken !== token) {
+        return;
+      }
       const quality = result.stream?.quality ? ` · ${result.stream.quality}` : "";
       this.callbacks.onStatus(`playing${quality}. ⌂ returns home.`);
-    } catch {
+    } catch (error) {
+      if (abort.signal.aborted || (error instanceof Error && error.message === "play cancelled")) {
+        return;
+      }
+      if (this.playToken !== token) {
+        return;
+      }
       this.callbacks.onStatus("couldn't start playback. try another title.");
     } finally {
+      if (this.playAbort === abort) {
+        this.playAbort = null;
+      }
       window.clearTimeout(startingTimer);
       window.clearTimeout(cachingTimer);
       this.playButton.disabled = false;

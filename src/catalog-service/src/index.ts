@@ -2,6 +2,7 @@ import http from 'node:http';
 import { CatalogCore, CatalogError } from './core.js';
 import { playUrl } from './mpv.js';
 import { playWithFallback } from './play-orchestrator.js';
+import { bumpPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import { invalidateTitle, getTitleVerifyProfile } from './playability/db.js';
 import { parseCatalogTab } from './rails.js';
 import {
@@ -115,6 +116,7 @@ async function handlePlay(
   }
 
   const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
+  const playEpoch = await bumpPlayEpoch();
   const result = await core.streams(body.type, body.id, overrides);
   const now = Date.now();
   const profile = await getTitleVerifyProfile(body.type, body.id);
@@ -133,6 +135,7 @@ async function handlePlay(
       allow_rd_safe_unknown: result.filters.rd_safe_unknown_fallback === true,
       contentType: body.type,
       verified_hint: verifiedHint,
+      playEpoch,
     });
     return {
       ok: playback.ok,
@@ -148,6 +151,9 @@ async function handlePlay(
       filters: result.filters,
     };
   } catch (error) {
+    if (error instanceof PlayCancelledError) {
+      throw new CatalogError(499, 'play cancelled');
+    }
     await invalidateTitle({
       rail_id: body.rail_id,
       type: body.type,
@@ -245,6 +251,12 @@ async function main(): Promise<void> {
         const body = await readBody(req);
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
         sendJson(res, 200, await handlePlay(core, body, overrides));
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play-cancel') {
+        await bumpPlayEpoch();
+        sendJson(res, 200, { ok: true, cancelled: true });
         return;
       }
 
