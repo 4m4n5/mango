@@ -20,7 +20,7 @@ def _settings(**overrides: object) -> OrchestratorSettings:
         "stt_model": "nova-3-general",
         "stt_language": "multi",
         "stt_strategy": "multilingual_with_detect_fallback",
-        "stt_detect_languages": ("hi", "en-IN"),
+        "stt_detect_languages": ("hi", "en"),
         "stt_api_key_file": None,
         "stt_timeout_seconds": 30.0,
         "stt_keyterms": ("kholo", "Toy Story"),
@@ -60,7 +60,7 @@ class DeepgramParamsTests(unittest.TestCase):
     def test_detect_restricts_hindi_and_indian_english(self) -> None:
         params = _listen_params(_settings(), mode="detect")
         detect = [value for key, value in params if key == "detect_language"]
-        self.assertEqual(detect, ["hi", "en-IN"])
+        self.assertEqual(detect, ["hi", "en"])
         self.assertFalse(any(key == "language" for key, _ in params))
 
     def test_samples_to_pcm16le(self) -> None:
@@ -70,6 +70,11 @@ class DeepgramParamsTests(unittest.TestCase):
         pcm = _samples_to_pcm16le(samples)
         self.assertEqual(len(pcm), len(samples) * 2)
         self.assertEqual(pcm[0:2], b"\x00\x00")
+
+    def test_detect_normalizes_en_in(self) -> None:
+        params = _listen_params(_settings(stt_detect_languages=("hi", "en-IN")), mode="detect")
+        detect = [value for key, value in params if key == "detect_language"]
+        self.assertEqual(detect, ["hi", "en"])
 
 
 if __name__ == "__main__":

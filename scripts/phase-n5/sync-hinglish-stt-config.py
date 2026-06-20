@@ -15,7 +15,7 @@ HINGLISH_STT = {
     "model": "nova-3-general",
     "language": "multi",
     "strategy": "multilingual_with_detect_fallback",
-    "detect_languages": ["hi", "en-IN"],
+    "detect_languages": ["hi", "en"],
     "timeout_seconds": 30,
     "prepare_audio": True,
 }

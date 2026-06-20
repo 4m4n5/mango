@@ -77,7 +77,7 @@ def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
 
     if strategy in {"multilingual", "multilingual_with_detect_fallback"}:
         logger.info(
-            "stt multilingual weak (conf=%s lang=%s) — retry detect hi+en-IN",
+            "stt multilingual weak (conf=%s lang=%s) — retry detect hi+en",
             confidence,
             detected,
         )
@@ -160,7 +160,7 @@ def _listen_params(settings: OrchestratorSettings, *, mode: str) -> list[tuple[s
         ("channels", "1"),
     ]
     if mode == "detect":
-        for language in settings.stt_detect_languages:
+        for language in _normalize_detect_languages(settings.stt_detect_languages):
             params.append(("detect_language", language))
     else:
         params.append(("language", settings.stt_language))
@@ -180,6 +180,18 @@ def _read_api_key(settings: OrchestratorSettings) -> str:
         if key_path.is_file():
             return key_path.read_text(encoding="utf-8").strip()
     raise RuntimeError("missing Deepgram API key — set /etc/mango/stt.key")
+
+
+def _normalize_detect_languages(languages: tuple[str, ...]) -> tuple[str, ...]:
+    """Deepgram detect_language rejects some BCP-47 tags (e.g. en-IN) in multi-value mode."""
+    normalized: list[str] = []
+    for language in languages:
+        code = language.strip()
+        if code.lower() in {"en-in", "en_in"}:
+            code = "en"
+        if code and code not in normalized:
+            normalized.append(code)
+    return tuple(normalized) or ("hi", "en")
 
 
 def _samples_to_pcm16le(samples: np.ndarray) -> bytes:
