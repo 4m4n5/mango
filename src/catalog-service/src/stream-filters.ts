@@ -319,8 +319,20 @@ export function isDebridStream(stream: Stream): boolean {
   return debridServiceId(stream) !== null;
 }
 
+/** AIOStreams name tags when bingeGroup is absent (v2.30+): ☁️ = on-debrid cache. */
+function parseAioStreamsNameCacheStatus(stream: Stream): 'cached' | 'uncached' | null {
+  const label = `${stream.name || ''} ${stream.title || ''}`;
+  if (!/\[(?:TB|RD)/i.test(label)) return null;
+  if (/☁️/.test(label)) return 'cached';
+  if (/\[(?:TB|RD)⚡\]/.test(label)) return 'uncached';
+  return null;
+}
+
 /** AIOStreams autoplay bingeGroup: addonId|service|cached|resolution|... */
 export function parseDebridCacheStatus(stream: Stream): 'cached' | 'uncached' | 'unknown' {
+  const fromName = parseAioStreamsNameCacheStatus(stream);
+  if (fromName) return fromName;
+
   const haystack = streamHaystack(stream);
   if (/\bnot cached\b|\buncached\b/.test(haystack)) return 'uncached';
   if (/\bcached\b/.test(haystack) && !/\bnot cached\b|\buncached\b/.test(haystack)) return 'cached';

@@ -5,6 +5,7 @@ import {
   defaultFilterConfig,
   filterStreamsForPlay,
   mergeFilterConfig,
+  parseDebridCacheStatus,
   parseFilterOverridesFromQuery,
   selectAutoPlayCandidates,
   streamMatchesMetaTitle,
@@ -60,6 +61,23 @@ function candidate(
     },
   };
 }
+
+test('parseDebridCacheStatus reads AIOStreams name tags when bingeGroup is missing', () => {
+  const cached: Stream = {
+    url: 'https://example.test/cached.mp4',
+    source: 'AIOStreams',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    title: '[TB☁️⚡] Torrentio 1080p',
+  };
+  const uncached: Stream = {
+    url: 'https://example.test/uncached.mp4',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 1080p',
+    title: '[TB⚡] Torrentio 1080p',
+  };
+  assert.equal(parseDebridCacheStatus(cached), 'cached');
+  assert.equal(parseDebridCacheStatus(uncached), 'uncached');
+});
 
 test('parseFilterOverridesFromQuery splits hard language from soft preference', () => {
   const overrides = parseFilterOverridesFromQuery(new URLSearchParams('language=Hindi&preferred_language=English'));
