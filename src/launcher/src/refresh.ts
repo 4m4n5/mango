@@ -1,18 +1,22 @@
-import type { RefreshLevelId } from "./types";
+import type { RefreshLevelCategory, RefreshLevelId } from "./types";
 
 export interface RefreshLevel {
   id: RefreshLevelId;
   label: string;
   description: string;
+  category: RefreshLevelCategory;
   estimated_sec: number;
   estimated_label: string;
   blocks_couch: boolean;
   llm_hint: string;
+  script?: string;
+  detach_supported?: boolean;
 }
 
 export interface RefreshLevelsResponse {
   ok: boolean;
   levels: RefreshLevel[];
+  shuffle?: RefreshLevel | null;
 }
 
 export interface RefreshStartResponse {
@@ -22,7 +26,11 @@ export interface RefreshStartResponse {
   session_id?: string;
   pid?: number;
   estimated_sec?: number;
+  estimated_label?: string;
   blocks_couch?: boolean;
+  category?: RefreshLevelCategory;
+  llm_hint?: string;
+  detach_supported?: boolean;
   error?: string;
 }
 

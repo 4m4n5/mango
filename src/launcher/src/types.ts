@@ -15,7 +15,11 @@ export type RefreshLevelId =
   | "shuffle_rails"
   | "stale_refresh"
   | "topup_low_rails"
-  | "full_maintenance";
+  | "quick_topup"
+  | "full_maintenance"
+  | "overnight_grow";
+
+export type RefreshLevelCategory = "instant" | "quick" | "standard" | "overnight";
 
 export interface ContentCard {
   id: string;

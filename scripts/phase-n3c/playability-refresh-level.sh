@@ -4,7 +4,7 @@
 # All levels are additive: verified titles stay unless status=stale.
 #
 # Usage: bash scripts/phase-n3c/playability-refresh-level.sh <level-id>
-# Levels: stale_refresh | topup_low_rails | quick_topup | full_maintenance
+# Levels: stale_refresh | topup_low_rails | quick_topup | full_maintenance | overnight_grow
 
 set -euo pipefail
 
@@ -24,11 +24,16 @@ case "$LEVEL" in
     exec bash scripts/phase-n3c/playability-maintenance.sh --mode full
     ;;
   quick_topup)
-    exec bash scripts/phase-n3c/quick-playability-topup.sh
+    exec bash scripts/phase-n3c/quick-playability-topup.sh --detach
     ;;
   full_maintenance)
+    export MANGO_PLAYABILITY_FRESH_PER_RAIL="${MANGO_PLAYABILITY_FRESH_PER_RAIL:-40}"
+    export MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH="${MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH:-15}"
     export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_PLAYABILITY_CANDIDATE_LIMIT:-250}"
     exec bash scripts/phase-n3c/playability-maintenance.sh --mode full
+    ;;
+  overnight_grow)
+    exec bash scripts/phase-n3c/overnight-playability-grow.sh --detach
     ;;
   *)
     echo "unknown refresh level: $LEVEL" >&2

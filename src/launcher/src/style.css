@@ -431,6 +431,15 @@ h1 {
   color: #f7f3e8;
 }
 
+.settings-subheading {
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(247, 243, 232, 0.55);
+}
+
 .settings-refresh {
   display: flex;
   flex-direction: column;
@@ -462,6 +471,19 @@ h1 {
 .settings-action--primary {
   border-color: rgba(10, 107, 72, 0.55);
   background: rgba(10, 107, 72, 0.22);
+}
+
+.settings-action--quick {
+  border-color: rgba(56, 189, 248, 0.35);
+}
+
+.settings-action--standard {
+  border-color: rgba(255, 179, 0, 0.35);
+}
+
+.settings-action--overnight {
+  border-color: rgba(167, 139, 250, 0.4);
+  background: rgba(167, 139, 250, 0.08);
 }
 
 .settings-action:disabled {

@@ -12,8 +12,9 @@ import { resolvePosterFromMeta } from './poster.js';
 import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
 import { resolveSeriesPlayTarget } from './series-play.js';
 import {
+  buildLlmRefreshToolManifest,
   getRefreshLevel,
-  listRefreshLevels,
+  listRefreshLevelsForUi,
   startRefreshLevel,
 } from './playability/refresh-control.js';
 import { parseCatalogTab } from './rails.js';
@@ -404,7 +405,16 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'playability' && parts[1] === 'refresh' && parts[2] === 'levels') {
-        sendJson(res, 200, { ok: true, levels: listRefreshLevels() });
+        sendJson(res, 200, {
+          ok: true,
+          levels: listRefreshLevelsForUi(),
+          shuffle: getRefreshLevel('shuffle_rails'),
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'playability' && parts[1] === 'refresh' && parts[2] === 'tools') {
+        sendJson(res, 200, { ok: true, ...buildLlmRefreshToolManifest() });
         return;
       }
 
@@ -442,7 +452,11 @@ async function main(): Promise<void> {
           mode: 'background',
           pid: started.pid,
           estimated_sec: level.estimated_sec,
+          estimated_label: level.estimated_label,
           blocks_couch: level.blocks_couch,
+          category: level.category,
+          llm_hint: level.llm_hint,
+          detach_supported: level.detach_supported,
         });
         return;
       }

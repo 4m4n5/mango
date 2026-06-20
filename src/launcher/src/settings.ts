@@ -17,19 +17,16 @@ export function buildSettingsRefresh(
 
   const intro = document.createElement("p");
   intro.className = "settings-note";
-  intro.textContent = "Shuffle re-picks verified titles only. Growth jobs add titles — verified rows stay unless marked stale.";
+  intro.textContent = "Shuffle re-picks verified titles only. Growth jobs add new playable titles — verified rows stay unless marked stale.";
 
   container.append(heading, intro);
 
   void fetchRefreshLevels()
     .then((levels) => {
       container.append(createShuffleButton(onStatus));
-      for (const level of levels) {
-        if (level.id === "shuffle_rails") {
-          continue;
-        }
-        container.append(createRefreshButton(level, onStatus));
-      }
+      appendLevelGroup(container, "Quick", levels.filter((level) => level.category === "quick"), onStatus);
+      appendLevelGroup(container, "Standard", levels.filter((level) => level.category === "standard"), onStatus);
+      appendLevelGroup(container, "Overnight", levels.filter((level) => level.category === "overnight"), onStatus);
     })
     .catch(() => {
       const fallback = document.createElement("p");
@@ -39,12 +36,30 @@ export function buildSettingsRefresh(
     });
 }
 
+function appendLevelGroup(
+  container: HTMLElement,
+  title: string,
+  levels: RefreshLevel[],
+  onStatus: (message: string) => void,
+): void {
+  if (levels.length === 0) {
+    return;
+  }
+  const subheading = document.createElement("h3");
+  subheading.className = "settings-subheading";
+  subheading.textContent = title;
+  container.append(subheading);
+  for (const level of levels) {
+    container.append(createRefreshButton(level, onStatus));
+  }
+}
+
 function createShuffleButton(onStatus: (message: string) => void): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "settings-action settings-action--primary";
+  button.className = "settings-action settings-action--primary settings-action--instant";
   button.dataset.settingsFocus = "true";
-  button.innerHTML = "<span class=\"settings-action-title\">Refresh library</span><span class=\"settings-action-meta\">~5 sec · diverse re-pick</span>";
+  button.innerHTML = "<span class=\"settings-action-title\">Refresh library</span><span class=\"settings-action-meta\">~5 sec · diverse re-pick · TV stays on</span>";
   button.addEventListener("click", () => {
     void runRefresh("shuffle_rails", onStatus, button);
   });
@@ -57,10 +72,11 @@ function createRefreshButton(
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "settings-action";
+  button.className = `settings-action settings-action--${level.category}`;
   button.dataset.settingsFocus = "true";
   const couchNote = level.blocks_couch ? " · pauses TV UI" : "";
-  button.innerHTML = `<span class="settings-action-title">${level.label}</span><span class="settings-action-meta">${level.estimated_label}${couchNote}</span><span class="settings-action-body">${level.description}</span>`;
+  const detachNote = level.detach_supported ? " · runs in background" : "";
+  button.innerHTML = `<span class="settings-action-title">${level.label}</span><span class="settings-action-meta">${level.estimated_label}${couchNote}${detachNote}</span><span class="settings-action-body">${level.description}</span>`;
   button.addEventListener("click", () => {
     void runRefresh(level.id, onStatus, button);
   });
@@ -81,13 +97,14 @@ async function runRefresh(
     const result = await startRefreshLevel(level);
     if (result.mode === "inline") {
       onStatus("library refreshed — shuffle on the pad or browse bar to reshuffle");
+      window.dispatchEvent(new CustomEvent("mango:library-refresh"));
       return;
     }
-    const minutes = Math.max(1, Math.round((result.estimated_sec ?? 300) / 60));
-    onStatus(`${level.replace(/_/g, " ")} running (~${minutes} min). TV may pause briefly.`);
+    const label = result.estimated_label || `~${Math.max(1, Math.round((result.estimated_sec ?? 600) / 60))} min`;
+    onStatus(`${level.replace(/_/g, " ")} running (${label}). TV pauses until done.`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "refresh failed";
-    onStatus(message);
+    onStatus(message.includes("already running") ? "a library job is already running" : message);
   } finally {
     window.setTimeout(() => {
       button.disabled = false;
