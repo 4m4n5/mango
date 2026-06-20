@@ -152,6 +152,7 @@ async def generate_agent_reply(
                     browse.all_hits(),
                     settings,
                     dispatch_launcher,
+                    user_text=user_text,
                     on_tool_event=on_tool_event,
                 )
             reply = _clean_reply(" ".join(text_parts))
@@ -199,6 +200,7 @@ async def generate_agent_reply(
                         hits,
                         settings,
                         dispatch_launcher,
+                        user_text=user_text,
                         on_tool_event=on_tool_event,
                     )
 
@@ -210,6 +212,7 @@ async def generate_agent_reply(
                         hits,
                         settings,
                         dispatch_launcher,
+                        user_text=user_text,
                         on_tool_event=on_tool_event,
                     )
 
@@ -504,9 +507,11 @@ async def _open_best_from_hits(
     settings: OrchestratorSettings,
     dispatch_launcher: LauncherDispatch,
     *,
+    user_text: str = "",
     on_tool_event: ToolEventCallback | None = None,
 ) -> tuple[bool, str]:
-    hit = pick_auto_open_hit(hits, query=extract_title_search_query(user_text) or user_text)
+    query = extract_title_search_query(user_text) or user_text.strip() or None
+    hit = pick_auto_open_hit(hits, query=query)
     if hit is None:
         return False, ""
     return await _open_hit(hit, settings, dispatch_launcher, on_tool_event=on_tool_event)
