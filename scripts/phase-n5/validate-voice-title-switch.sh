@@ -26,21 +26,6 @@ if ! pgrep -f "chromium.*mango-launcher.*127.0.0.1:${LAUNCHER_PORT}/" >/dev/null
   exit 1
 fi
 
-resolve_hit() {
-  local query="$1"
-  local json
-  json="$(curl -sf --max-time 10 "${CATALOG}/voice/search?q=${query// /%20}&limit=3")"
-  python3 -c 'import json,sys; d=json.load(sys.stdin); hits=d.get("results") or []; assert hits, "no hits"; h=hits[0]; print(h["type"], h["id"], h["title"], h.get("tab") or "movies")' <<<"$json"
-}
-
-read -r TYPE_A ID_A TITLE_A TAB_A < <(resolve_hit "$QUERY_A")
-read -r TYPE_B ID_B TITLE_B TAB_B < <(resolve_hit "$QUERY_B")
-
-if [[ "$ID_A" == "$ID_B" ]]; then
-  echo "FAIL: switch test needs two distinct titles (both resolved to ${ID_A})"
-  exit 1
-fi
-
 wait_ack() {
   local seq="$1"
   local action="$2"
@@ -56,30 +41,94 @@ wait_ack() {
   return 1
 }
 
-open_title() {
-  local type="$1"
-  local id="$2"
-  local title="$3"
-  local tab="$4"
-  local post_json seq
-  post_json="$(curl -sf --max-time 5 -X POST "${BASE}/api/voice/command" \
-    -H 'content-type: application/json' \
-    -d "{\"type\":\"launcher_command\",\"action\":\"open_detail\",\"content_type\":\"${type}\",\"id\":\"${id}\",\"title\":\"${title}\",\"tab\":\"${tab}\"}")"
-  seq="$(echo "$post_json" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("seq",0))')"
-  if [[ -z "$seq" || "$seq" == "0" ]]; then
-    echo "FAIL: enqueue open_detail returned no seq: $post_json"
-    exit 1
-  fi
-  echo "enqueued open_detail seq=${seq} title=${title}"
-  if ! wait_ack "$seq" "open_detail"; then
-    echo "FAIL: no ack for seq=${seq} title=${title}"
-    exit 1
-  fi
-  echo "PASS: ack seq=${seq} title=${title}"
-}
+export BASE CATALOG WAIT_SEC QUERY_A QUERY_B
 
-echo "=== voice title switch: ${TITLE_A} → ${TITLE_B} ==="
-open_title "$TYPE_A" "$ID_A" "$TITLE_A" "$TAB_A"
-sleep 0.5
-open_title "$TYPE_B" "$ID_B" "$TITLE_B" "$TAB_B"
-echo "PASS: switched titles without manual home/back"
+python3 <<PY
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+
+base = os.environ.get("BASE", "http://127.0.0.1:3000")
+catalog = os.environ.get("CATALOG", "http://127.0.0.1:3020")
+wait_sec = float(os.environ.get("WAIT_SEC", "12"))
+query_a = os.environ.get("QUERY_A", "Shawshank")
+query_b = os.environ.get("QUERY_B", "Godfather")
+
+
+def fetch_json(url: str) -> dict:
+    with urllib.request.urlopen(url, timeout=10) as resp:
+        return json.load(resp)
+
+
+def resolve_hit(query: str) -> dict:
+    q = urllib.parse.quote(query)
+    payload = fetch_json(f"{catalog}/voice/search?q={q}&limit=3")
+    hits = payload.get("results") or []
+    if not hits:
+        raise SystemExit(f"FAIL: no search hits for {query!r}")
+    hit = hits[0]
+    return {
+        "type": hit["type"],
+        "id": hit["id"],
+        "title": hit["title"],
+        "tab": hit.get("tab") or "movies",
+    }
+
+
+def wait_ack(seq: int, action: str) -> bool:
+    deadline = time.monotonic() + wait_sec
+    while time.monotonic() < deadline:
+        try:
+            payload = fetch_json(f"{base}/api/voice/ack")
+        except Exception:
+            time.sleep(0.25)
+            continue
+        if payload.get("seq") == seq and payload.get("ok") is True and payload.get("action") == action:
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def open_title(hit: dict) -> None:
+    body = json.dumps(
+        {
+            "type": "launcher_command",
+            "action": "open_detail",
+            "content_type": hit["type"],
+            "id": hit["id"],
+            "title": hit["title"],
+            "tab": hit["tab"],
+        }
+    ).encode()
+    req = urllib.request.Request(
+        f"{base}/api/voice/command",
+        data=body,
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        payload = json.load(resp)
+    seq = payload.get("seq")
+    if not isinstance(seq, int) or seq <= 0:
+        raise SystemExit(f"FAIL: enqueue open_detail returned no seq: {payload}")
+    print(f"enqueued open_detail seq={seq} title={hit['title']}")
+    if not wait_ack(seq, "open_detail"):
+        raise SystemExit(f"FAIL: no ack for seq={seq} title={hit['title']}")
+    print(f"PASS: ack seq={seq} title={hit['title']}")
+
+
+hit_a = resolve_hit(query_a)
+hit_b = resolve_hit(query_b)
+if hit_a["id"] == hit_b["id"]:
+    raise SystemExit(f"FAIL: switch test needs two distinct titles (both resolved to {hit_a['id']})")
+
+print(f"=== voice title switch: {hit_a['title']} → {hit_b['title']} ===")
+open_title(hit_a)
+time.sleep(0.5)
+open_title(hit_b)
+print("PASS: switched titles without manual home/back")
+PY
