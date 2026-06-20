@@ -8,7 +8,7 @@
 #
 # Env:
 #   MANGO_FILL_SKIP_CATALOG_SYNC=1   skip sudo cp catalog.example.yaml → /etc/mango/
-#   MANGO_FILL_SKIP_MAINTENANCE=1    only preflight + status (dry run)
+#   MANGO_FILL_SKIP_HITRATE=1        skip source + rail hit-rate after fill
 #   MANGO_FILL_PURGE_POOLS=1         clear rail_pool + rail_session for all browse rails before fill
 #   MANGO_FILL_POOL_TOPUP=1          second pass: full refresh to pool_target (default 1)
 #
@@ -128,10 +128,30 @@ echo
 echo "--- playability after ---"
 python3 scripts/diag/playability-status.py
 
+if [[ "${MANGO_FILL_SKIP_HITRATE:-0}" != "1" ]]; then
+  echo
+  echo "--- source hit-rate (catalog candidates) ---"
+  set +e
+  python3 scripts/diag/source-hitrate.py
+  SOURCE_RC=$?
+  set -e
+  echo "source-hitrate exit=$SOURCE_RC (0=ok, 1=below 80% overall, 2=source below 50%)"
+
+  echo
+  echo "--- rail hit-rate (verified display items) ---"
+  set +e
+  MANGO_RAIL_HITRATE_PLAY="${MANGO_RAIL_HITRATE_PLAY:-0}" \
+    MANGO_RAIL_HITRATE_PER_RAIL="${MANGO_RAIL_HITRATE_PER_RAIL:-2}" \
+    python3 scripts/diag/rail-hitrate.py
+  RAIL_RC=$?
+  set -e
+  echo "rail-hitrate exit=$RAIL_RC"
+fi
+
 echo
 echo "--- series episode queue (S1E2+) ---"
 python3 scripts/diag/episode-queue-status.py 2>/dev/null || true
 
 echo
-echo "optional: MANGO_RAIL_HITRATE_PER_RAIL=2 python3 scripts/diag/rail-hitrate.py"
+echo "reports: ~/.cache/mango/source-hitrate/latest.json"
 echo "optional: bash scripts/phase-n3d/gate-n3d-catalogs.sh"

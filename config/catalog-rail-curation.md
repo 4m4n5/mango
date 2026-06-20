@@ -7,7 +7,7 @@ Playability-first catalog picks for mango discover rails. Each rail targets **20
 
 1. **Cinemeta charts** (`top`, `imdbRating`) — highest debrid cache rate; anchor global/classics rails.
 2. **mdblist trending** (`88302` movies, `88303` series) — mainstream titles with strong cache vs “latest/digital” lists.
-3. **IndiaStreams regional** (`recmov`, `popmov`, `atpmub`) — Indian content; `atpmub` only for series (no chart bleed).
+3. **IndiaStreams regional** (`recmov`, `popmov`, `trendingtv`) — Indian content; avoid `atpmub` (Western-heavy).
 4. **Niche mdblist** — higher `ingest_multiplier` (probe more candidates); swap list when probe pass rate is near zero.
 5. **Session dedup** — niche rails are later in yaml but allocate **first** (reverse tab session order).
 
@@ -33,7 +33,18 @@ Playability-first catalog picks for mango discover rails. Each rail targets **20
 ```bash
 bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
 MANGO_FILL_PURGE_POOLS=1 bash scripts/phase-n3c/fill-playability-db.sh
-MANGO_RAIL_HITRATE_PER_RAIL=2 bash scripts/diag/rail-hitrate.py
 ```
+
+After each fill, `fill-playability-db.sh` runs **source-level** then **rail-level** hit-rate analysis.
+Reports: `~/.cache/mango/source-hitrate/latest.json` (+ `history.jsonl` for trends).
+
+```bash
+# Manual re-run
+MANGO_SOURCE_HITRATE_PER_SOURCE=8 python3 scripts/diag/source-hitrate.py
+MANGO_RAIL_HITRATE_PER_RAIL=2 python3 scripts/diag/rail-hitrate.py
+```
+
+**Tuning goal:** ≥80% stream resolve per source (`MANGO_SOURCE_TARGET_RATE=0.80`).
+Sources below 50% should be swapped or demoted before the next fill.
 
 `fill-playability-db.sh` runs bootstrap (min_display) then pool top-up (pool_target) when `MANGO_FILL_POOL_TOPUP=1` (default).
