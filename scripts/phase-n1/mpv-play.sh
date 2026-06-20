@@ -95,7 +95,7 @@ detect_hwdec() {
 
 mkdir -p "$(dirname "$SOCKET")"
 mkdir -p "$(dirname "$MPV_LOG")"
-bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
+MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
 
 URL_LABEL="$(python3 -c 'from urllib.parse import urlparse; import sys; u=urlparse(sys.argv[1]); print(f"{u.scheme}://{u.netloc}/<redacted>")' "$URL" 2>/dev/null || echo "http(s)://<redacted>")"
 HWDEC="$(detect_hwdec)"
@@ -128,7 +128,7 @@ echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
 while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
   if play_cancelled; then
     echo "FAIL: play cancelled" >&2
-    bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+    MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
     exit 1
   fi
   if [[ -S "$SOCKET" ]]; then
@@ -139,7 +139,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
         END_MS="$(now_ms)"
         echo "PASS: ttff_ms=$((END_MS - START_MS))"
         if $PROBE; then
-          bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+          MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
         fi
         exit 0
       fi
@@ -150,7 +150,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
       fi
       if python3 -c "import sys; d=float('${DUR:-0}'); sys.exit(0 if d > 0 and d < float('${min_duration}') else 1)" 2>/dev/null; then
         echo "FAIL: debrid_status_clip duration=${DUR}" >&2
-        bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+        MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
         exit 1
       fi
     fi
@@ -158,7 +158,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
   if ! kill -0 "$MPV_PID" 2>/dev/null; then
     if tail -40 "$MPV_LOG" 2>/dev/null | grep -qiE 'copyright infringement|removed from.*debrid|file was removed'; then
       echo "FAIL: debrid_copyright_block" >&2
-      bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+      MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
       exit 1
     fi
     break
@@ -168,10 +168,10 @@ done
 
 if tail -40 "$MPV_LOG" 2>/dev/null | grep -qiE 'copyright infringement|removed from.*debrid|file was removed'; then
   echo "FAIL: debrid_copyright_block" >&2
-  bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+  MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
   exit 1
 fi
 
 echo "FAIL: mpv did not start playback within ${TIMEOUT_MS}ms" >&2
-bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
 exit 1

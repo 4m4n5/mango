@@ -14,8 +14,10 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-mkdir -p "$(dirname "$PLAY_CANCEL_FILE")"
-date +%s%3N >"$PLAY_CANCEL_FILE" 2>/dev/null || date +%s >"$PLAY_CANCEL_FILE"
+if [[ "${MANGO_MPV_STOP_NO_CANCEL:-0}" != "1" ]]; then
+  mkdir -p "$(dirname "$PLAY_CANCEL_FILE")"
+  date +%s%3N >"$PLAY_CANCEL_FILE" 2>/dev/null || date +%s >"$PLAY_CANCEL_FILE"
+fi
 
 launch_home_once() {
   if [[ "${GO_HOME}" == "1" && "$HOME_LAUNCHED" -eq 0 ]]; then
