@@ -79,6 +79,7 @@ export type TitleVerifyProfile = {
   cache_status: string | null;
   debrid_service: string | null;
   win_url_hash: string | null;
+  probe_ms: number | null;
   expires_at: number | null;
 };
 
@@ -699,7 +700,7 @@ export async function getTitleVerifyProfile(
   const db = openDb();
   try {
     const row = db.prepare(`
-SELECT type, id, status, best_source, cache_status, debrid_service, win_url_hash, expires_at
+SELECT type, id, status, best_source, cache_status, debrid_service, win_url_hash, probe_ms, expires_at
 FROM titles
 WHERE type = @type AND id = @id;
 `).get({ type, id }) as {
@@ -710,6 +711,7 @@ WHERE type = @type AND id = @id;
       cache_status: string | null;
       debrid_service: string | null;
       win_url_hash: string | null;
+      probe_ms: number | null;
       expires_at: number | null;
     } | undefined;
     return row ?? null;

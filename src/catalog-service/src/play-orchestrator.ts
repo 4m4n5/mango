@@ -3,6 +3,7 @@ import { playUrl, probeUrl } from './mpv.js';
 import { assertPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import {
   selectAutoPlayCandidates,
+  streamMatchesVerifiedHint,
   type StreamFilterConfig,
   type VerifiedStreamHint,
 } from './stream-filters.js';
@@ -18,6 +19,7 @@ export type PlayAttempt = {
   ok: boolean;
   ms: number;
   probe_ms?: number;
+  probe_reused?: boolean;
   ttff_ms?: number;
   error?: string;
 };
@@ -71,11 +73,15 @@ export async function playWithFallback(
     contentType?: string;
     verified_hint?: VerifiedStreamHint;
     playEpoch?: number;
+    probe?: typeof probeUrl;
+    play?: typeof playUrl;
   } = {},
 ): Promise<PlayOrchestratorResult> {
   const started = Date.now();
   const wallMs = config.auto_play_wall_ms;
   const probeMs = config.auto_play_probe_ms;
+  const probe = options.probe ?? probeUrl;
+  const play = options.play ?? playUrl;
   const deadline = started + wallMs;
   const candidates = selectAutoPlayCandidates(streams, config, {
     allow_uncached_torbox: options.allow_uncached_torbox,
@@ -104,17 +110,29 @@ export async function playWithFallback(
 
     const attemptStarted = Date.now();
     const base = attemptBase(index, stream);
+    const reusableProbeMs = streamMatchesVerifiedHint(stream, options.verified_hint)
+      && options.verified_hint?.probe_ms
+      && options.verified_hint.probe_ms > 0
+      ? options.verified_hint.probe_ms
+      : undefined;
     try {
-      const probeBudget = Math.min(probeMs, remainingBeforeProbe);
-      const probe = await probeUrl(stream.url, probeBudget, minDurationSec, options.playEpoch);
-      if (options.playEpoch !== undefined) {
-        await assertPlayEpoch(options.playEpoch);
+      let observedProbeMs = reusableProbeMs;
+      let probeReused = false;
+      if (!observedProbeMs) {
+        const probeBudget = Math.min(probeMs, remainingBeforeProbe);
+        const probeResult = await probe(stream.url, probeBudget, minDurationSec, options.playEpoch);
+        observedProbeMs = probeResult.ttff_ms;
+        if (options.playEpoch !== undefined) {
+          await assertPlayEpoch(options.playEpoch);
+        }
+      } else {
+        probeReused = true;
       }
       const remainingBeforePlay = deadline - Date.now();
       if (remainingBeforePlay < 500) {
         throw new Error('play budget exhausted after probe');
       }
-      const playback = await playUrl(stream.url, remainingBeforePlay, {
+      const playback = await play(stream.url, remainingBeforePlay, {
         playEpoch: options.playEpoch,
         minDurationSec,
       });
@@ -122,7 +140,8 @@ export async function playWithFallback(
         ...base,
         ok: true,
         ms: Date.now() - attemptStarted,
-        probe_ms: probe.ttff_ms,
+        probe_ms: observedProbeMs,
+        ...(probeReused ? { probe_reused: true } : {}),
         ttff_ms: playback.ttff_ms,
       };
       attempts.push(attempt);

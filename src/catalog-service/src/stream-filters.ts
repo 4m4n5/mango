@@ -12,6 +12,7 @@ export type VerifiedStreamHint = {
   cache_status?: string | null;
   debrid_service?: string | null;
   win_url_hash?: string | null;
+  probe_ms?: number | null;
 };
 
 export type QualityCap = '480p' | '720p' | '1080p' | '2160p';
@@ -489,10 +490,7 @@ export function streamPlayScore(
   }
 
   if (verifiedHint) {
-    if (verifiedHint.win_url_hash) {
-      const hash = createHash('sha256').update(stream.url).digest('hex').slice(0, 16);
-      if (hash === verifiedHint.win_url_hash) score += 5000;
-    }
+    if (streamMatchesVerifiedHint(stream, verifiedHint)) score += 5000;
     const source = normalizeAddonName(stream.source || '');
     const hintSource = normalizeAddonName(verifiedHint.best_source || '');
     if (hintSource && source.includes(hintSource)) score += 800;
@@ -505,6 +503,15 @@ export function streamPlayScore(
   }
 
   return score;
+}
+
+export function streamUrlHash(url: string): string {
+  return createHash('sha256').update(url).digest('hex').slice(0, 16);
+}
+
+export function streamMatchesVerifiedHint(stream: Stream, verifiedHint?: VerifiedStreamHint): boolean {
+  if (!verifiedHint?.win_url_hash) return false;
+  return streamUrlHash(stream.url) === verifiedHint.win_url_hash;
 }
 
 function qualityBelowMin(stream: Stream, min: QualityCap | null | undefined): boolean {

@@ -126,6 +126,7 @@ async function handlePlay(
       cache_status: profile.cache_status,
       debrid_service: profile.debrid_service,
       win_url_hash: profile.win_url_hash,
+      probe_ms: profile.probe_ms,
     }
     : undefined;
   let verifiedUnknownCacheReplay = false;

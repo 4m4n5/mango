@@ -89,7 +89,7 @@ PY
 
 gate_post_play() {
   local label="$1" type="$2" id="$3" out="$4" max_total="${5:-}" max_attempts="${6:-}" rail_id="${7:-}"
-  local payload
+  local payload status
   if [[ -n "$rail_id" ]]; then
     payload="{\"type\":\"${type}\",\"id\":\"${id}\",\"rail_id\":\"${rail_id}\"}"
   else
@@ -99,15 +99,29 @@ gate_post_play() {
     gate_fail "$label catalog down"
     return 1
   fi
-  if curl -sf --max-time 70 -X POST http://127.0.0.1:3020/play \
+  status="$(curl -sS --max-time 70 -X POST http://127.0.0.1:3020/play \
     -H 'content-type: application/json' \
-    -d "$payload" >"$out" \
+    -d "$payload" \
+    -o "$out" \
+    -w '%{http_code}' || true)"
+  if [[ "$status" =~ ^2 ]] \
     && gate_check_play_json "$out" "$max_total" "$max_attempts" \
     && gate_check_mpv_playing "$label"; then
     gate_pass "$label play $id"
     return 0
   fi
-  gate_fail "$label play $id"
+  gate_fail "$label play $id http=${status:-unknown}"
+  if [[ -s "$out" && "${MANGO_GATE_QUIET:-0}" != "1" ]]; then
+    python3 - "$out" <<'PY' >&2 || true
+import json
+import sys
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception:
+    raise SystemExit(0)
+print(json.dumps(data, sort_keys=True)[:600])
+PY
+  fi
   return 1
 }
 

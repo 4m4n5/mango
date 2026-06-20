@@ -15,7 +15,7 @@
 - Change only N3a closure surfaces: couch filter defaults, tier-driven auto-play selection, probe-then-play orchestration, browse-pick gate, inventory metrics, and launcher `rail_id`; keep picker UI, 4K relaxation, Stremio fallback, and indexer architecture unchanged.
 - Filter diff: repo/Pi couch defaults become `strict_unknown_cache: true`, `auto_play_wall_ms: 15000`, `auto_play_probe_ms: 4000`, with AIOStreams-only cached tiers honored from config and Torrentio kept out of default auto-play.
 - Gate strategy: add `gate-n3a-play.sh` for two random browse picks across movie/series rails, enforce `ok`, `total_ms <= 15000`, `attempts <= 5`, mpv playing, warn-only Shawshank regression, then run N2 browse and N0 foundation.
-- Ship probe-then-play unless Pi numbers prove it regresses TTFF; probe failures must stop mpv and full playback starts only for the winning candidate.
+- Ship probe-then-play for unverified candidates; exact DB-verified winning URL hashes may reuse their stored Pi `probe_ms` so the couch path starts mpv once under the 15 s wall.
 - Indexer risk: keep TorBox uncached/RD safe-unknown fallback paths for playability verification and maintenance windows, but do not let longer indexer budgets leak into couch Play.
 
 ### Root cause
@@ -35,15 +35,18 @@ resolution runs in parallel across stream addons, stores a 10 min in-memory
 cache keyed by `{type}:{id}`, and keeps the existing quality/remux/debrid
 filters. Auto-play candidates are tiered after filtering:
 
-1. `AIOStreams | ElfHosted` with `cache_status === cached`
-2. `AIOStreams | ElfHosted` with `cached_or_unknown`, still honoring
+1. `AIOStreams` with `cache_status === cached`
+2. `AIOStreams` with `cached_or_unknown`, still honoring
    `strict_unknown_cache`
 
-Torrentio is intentionally excluded from default auto-play tiers; it can remain
-visible to future picker work but must not drive N3a autoplay. The orchestrator
-probes each candidate with `mpv-play.sh --probe --timeout-ms 4000`, records
-redacted attempt metadata, then starts full mpv playback only for a candidate
-that reaches `playback-time > 0`. It stops after 5 attempts or 15 s total.
+Standalone Torrentio is intentionally excluded from default auto-play tiers; it
+can remain visible to future picker work but must not drive N3a autoplay. The
+orchestrator probes unverified candidates with
+`mpv-play.sh --probe --timeout-ms 4000`, records redacted attempt metadata, then
+starts full mpv playback only for a candidate that reaches `playback-time > 0`.
+For the exact winning URL hash already verified by the playability DB, N3a
+reuses that Pi `probe_ms` and starts playback once. It stops after 5 attempts or
+15 s total.
 
 ### Pre-resolve
 
