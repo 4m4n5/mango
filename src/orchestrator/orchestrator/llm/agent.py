@@ -302,6 +302,8 @@ def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
             "khol diya",
             "khol raha",
             "khol deta",
+            "khol dunga",
+            "khol deti",
             "detail page",
             "play kar",
             "mil gaya",
@@ -309,6 +311,11 @@ def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
             "found ",
             "dikha diya",
             "tv pe",
+            "going to open",
+            "i'll open",
+            "let me open",
+            "switching to",
+            "switch kar",
         )
     )
     if not claims_open:

@@ -210,6 +210,16 @@ export async function cancelPlay(): Promise<void> {
   }
 }
 
+/** Stop mpv and return focus to the launcher before voice-driven title switches. */
+export async function stopPlaybackForVoice(): Promise<void> {
+  await cancelPlay();
+  try {
+    await fetch("/api/playback/stop", { method: "POST" });
+  } catch {
+    // mpv may already be stopped
+  }
+}
+
 export async function playCard(
   card: ContentCard,
   options: { signal?: AbortSignal; preferUrl?: string; startSec?: number; episodeId?: string } = {},

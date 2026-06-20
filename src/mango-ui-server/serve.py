@@ -36,6 +36,7 @@ LAUNCH_SCRIPTS: Final = {
     "/api/launch/kodi": REPO_ROOT / "scripts" / "launch-kodi.sh",
     "/api/launch/launcher": REPO_ROOT / "scripts" / "launch-launcher.sh",
 }
+MPV_STOP_SCRIPT: Final = REPO_ROOT / "scripts" / "phase-n1" / "mpv-stop.sh"
 LAUNCH_DEBOUNCE_SEC: Final = 2.0
 _last_launch_at: dict[str, float] = {}
 
@@ -325,6 +326,40 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/catalog/"):
             self._proxy_catalog("POST")
+            return
+        if path == "/api/playback/stop":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "playback stop is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            if not MPV_STOP_SCRIPT.is_file():
+                self._write_json(
+                    {"ok": False, "error": f"missing script: {MPV_STOP_SCRIPT}"},
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            env = os.environ.copy()
+            env["MANGO_MPV_STOP_HOME"] = "1"
+            env.setdefault("DISPLAY", ":0")
+            env.setdefault("XAUTHORITY", str(Path.home() / ".Xauthority"))
+            try:
+                subprocess.run(
+                    ["bash", str(MPV_STOP_SCRIPT)],
+                    env=env,
+                    capture_output=True,
+                    check=False,
+                    timeout=15,
+                )
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                self._write_json(
+                    {"ok": False, "error": str(exc)},
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                )
+                return
+            mango_log("playback_stop", status="ok")
+            self._write_json({"ok": True, "stopped": True})
             return
 
         script = LAUNCH_SCRIPTS.get(path)

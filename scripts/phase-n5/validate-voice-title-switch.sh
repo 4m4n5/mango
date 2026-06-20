@@ -93,6 +93,29 @@ def wait_ack(seq: int, action: str) -> bool:
     return False
 
 
+def launcher_is_foreground() -> bool:
+    try:
+        proc = subprocess.run(
+            ["xdotool", "getactivewindow", "getwindowname"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    name = (proc.stdout or "").strip().lower()
+    return "mango launcher" in name or "mango-launcher" in name
+
+
+def mpv_is_running() -> bool:
+    try:
+        proc = subprocess.run(["pgrep", "-x", "mpv"], capture_output=True, check=False)
+        return proc.returncode == 0
+    except OSError:
+        return False
+
+
 def open_title(hit: dict) -> None:
     body = json.dumps(
         {
@@ -118,7 +141,16 @@ def open_title(hit: dict) -> None:
     print(f"enqueued open_detail seq={seq} title={hit['title']}")
     if not wait_ack(seq, "open_detail"):
         raise SystemExit(f"FAIL: no ack for seq={seq} title={hit['title']}")
-    print(f"PASS: ack seq={seq} title={hit['title']}")
+    time.sleep(0.6)
+    if mpv_is_running():
+        raise SystemExit(
+            f"FAIL: mpv still running after voice open for {hit['title']} — TV stays on old playback"
+        )
+    if not launcher_is_foreground():
+        raise SystemExit(
+            f"FAIL: launcher not foreground after voice open for {hit['title']} — ack alone is not enough"
+        )
+    print(f"PASS: ack seq={seq} title={hit['title']} (launcher foreground, mpv stopped)")
 
 
 hit_a = resolve_hit(query_a)

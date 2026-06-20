@@ -1,6 +1,6 @@
 import "./style.css";
 import { FocusGrid } from "./focus";
-import { loadCatalogRails, cancelPlay } from "./catalog";
+import { loadCatalogRails, stopPlaybackForVoice } from "./catalog";
 import { DetailController } from "./detail";
 import { NextEpisodePrompt } from "./next-prompt";
 import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, type HomeOptions } from "./home";
@@ -141,9 +141,7 @@ function init(): void {
       focusBrowseTabOnRender = true;
       handleBrowseTabChange(tab);
     },
-    onOpenDetail: (card, tab) => {
-      openVoiceDetail(card, tab);
-    },
+    onOpenDetail: (card, tab) => openVoiceDetail(card, tab),
   });
 }
 
@@ -336,7 +334,7 @@ function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseT
 function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
   return (async () => {
     nextEpisodePrompt.dismiss();
-    await cancelPlay();
+    await stopPlaybackForVoice();
     inSettings = false;
     settingsView.classList.add("hidden");
     homeView.classList.add("hidden");
