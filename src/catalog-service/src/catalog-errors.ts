@@ -1,7 +1,32 @@
 /** Couch-safe catalog errors — never surface raw addon host messages on TV. */
 
-const RATE_LIMIT_RE = /rate\s*limit|too many requests|429/i;
+const RATE_LIMIT_RE = /rate\s*limit|too many requests|429|ratelimit_error|please wait/i;
 const RATE_LIMIT_URL_RE = /rate-limit-exceeded|public-rate-limit/i;
+
+/** True when addon text must never appear as a browse title or description. */
+export function isBlockedCatalogText(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return RATE_LIMIT_RE.test(trimmed);
+}
+
+type CatalogMetaLike = {
+  id?: unknown;
+  name?: unknown;
+  title?: unknown;
+  description?: unknown;
+};
+
+/** AIOMetadata/TMDB throttles sometimes return error metas with human-readable limit copy. */
+export function isBlockedCatalogMeta(meta: CatalogMetaLike): boolean {
+  const fields = [meta.id, meta.name, meta.title, meta.description];
+  for (const value of fields) {
+    if (typeof value === 'string' && isBlockedCatalogText(value)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 export function isAddonRateLimitMessage(message: string): boolean {
   return RATE_LIMIT_RE.test(message);

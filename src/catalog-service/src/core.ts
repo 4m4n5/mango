@@ -54,6 +54,7 @@ import {
   CatalogError,
   couchSafeCatalogMessage,
   isAddonRateLimitMessage,
+  isBlockedCatalogMeta,
   isElfHostedAddonName,
 } from './catalog-errors.js';
 import { resolvePosterFromMeta } from './poster.js';
@@ -201,10 +202,11 @@ const require = createRequire(import.meta.url);
 const DEFAULT_EXPORT_PATH = '/etc/mango/stremio-export.json';
 const REQUEST_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_REQUEST_TIMEOUT_MS || 20000);
 const META_CACHE_TTL_MS = Number(process.env.MANGO_META_CACHE_TTL_MS || 10 * 60 * 1000);
+const META_RATE_LIMIT_BACKOFF_MS = Number(process.env.MANGO_META_RATE_LIMIT_BACKOFF_MS || 5 * 60 * 1000);
 const STREAM_CACHE_TTL_MS = Number(process.env.MANGO_STREAM_CACHE_TTL_MS || 10 * 60 * 1000);
 const RAIL_ITEMS_CACHE_TTL_MS = Number(process.env.MANGO_RAIL_ITEMS_CACHE_TTL_MS || 45 * 60 * 1000);
-const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 3);
-const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 250);
+const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 2);
+const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 400);
 const STREAM_RESOLVE_BUDGET_MS = Number(process.env.MANGO_STREAM_RESOLVE_BUDGET_MS || 12000);
 
 function delay(ms: number): Promise<void> {
@@ -411,7 +413,7 @@ function normalizeStream(stream: unknown, source: string): Stream | null {
 }
 
 export class CatalogCore {
-  private readonly metaCache = new Map<string, { meta: Meta; expiresAt: number }>();
+  private readonly metaCache = new Map<string, { meta?: Meta; expiresAt: number; blocked?: boolean }>();
   private readonly streamCache = new Map<string, {
     streams: Stream[];
     errors: string[];
@@ -916,6 +918,7 @@ export class CatalogCore {
       session.items,
       RAIL_META_CONCURRENCY,
       (item) => this.resolveVerifiedRailItem(item),
+      RAIL_META_STAGGER_MS,
     );
     const items = resolved.filter((item): item is RailItem => item !== null);
     const pending = Math.max(0, rail.playability.min_display - items.length);
@@ -1064,7 +1067,7 @@ export class CatalogCore {
       try {
         const result = await fetchJson(resourceUrl(addon, 'meta', type, id)) as { meta?: Meta };
         const piece = result.meta;
-        if (!piece?.id) {
+        if (!piece?.id || isBlockedCatalogMeta(piece)) {
           continue;
         }
         merged = merged
@@ -1074,7 +1077,7 @@ export class CatalogCore {
         errors.push(`${addon.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    if (merged) {
+    if (merged && !isBlockedCatalogMeta(merged)) {
       return merged;
     }
     throw new CatalogError(502, `meta not resolved for ${type}/${id}${errors.length ? ` (${errors.join('; ')})` : ''}`);
@@ -1254,15 +1257,43 @@ export class CatalogCore {
     });
   }
 
+  private cacheMetaRateLimit(key: string): void {
+    this.metaCache.set(key, {
+      blocked: true,
+      expiresAt: Date.now() + META_RATE_LIMIT_BACKOFF_MS,
+    });
+  }
+
   private async metaCached(type: string, id: string): Promise<Meta> {
     const key = `${type}:${id}`;
     const cached = this.metaCache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.meta;
+      if (cached.blocked) {
+        throw new CatalogError(503, 'meta rate limited', undefined, {
+          couchMessage: couchSafeCatalogMessage('rate limit exceeded'),
+        });
+      }
+      return cached.meta as Meta;
     }
-    const meta = await this.meta(type, id);
-    this.metaCache.set(key, { meta, expiresAt: Date.now() + META_CACHE_TTL_MS });
-    return meta;
+    try {
+      const meta = await this.meta(type, id);
+      if (isBlockedCatalogMeta(meta)) {
+        this.cacheMetaRateLimit(key);
+        throw new CatalogError(503, 'meta rate limited', undefined, {
+          couchMessage: couchSafeCatalogMessage('rate limit exceeded'),
+        });
+      }
+      this.metaCache.set(key, { meta, expiresAt: Date.now() + META_CACHE_TTL_MS });
+      return meta;
+    } catch (error) {
+      if (
+        error instanceof CatalogError
+        && (error.status === 503 || isAddonRateLimitMessage(error.message))
+      ) {
+        this.cacheMetaRateLimit(key);
+      }
+      throw error;
+    }
   }
 
   private async rawStreams(type: string, id: string): Promise<RawStreamResolution> {
@@ -1329,6 +1360,9 @@ export class CatalogCore {
   private async resolveVerifiedRailItem(item: RailSessionPoolItem): Promise<RailItem | null> {
     try {
       const meta = await this.metaCached(item.type, item.id);
+      if (isBlockedCatalogMeta(meta)) {
+        return null;
+      }
       const poster = resolvePosterFromMeta(meta);
       if (!poster) {
         return null;
@@ -1363,6 +1397,9 @@ export class CatalogCore {
 
     try {
       const meta = await this.metaCached(type, id);
+      if (isBlockedCatalogMeta(meta)) {
+        return null;
+      }
       const poster = resolvePosterFromMeta(meta, preview);
       if (!poster) {
         return null;

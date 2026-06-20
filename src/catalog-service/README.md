@@ -99,16 +99,39 @@ curl -X POST http://127.0.0.1:3020/play \
 
 Responses include a `filters` object with exclusion counts.
 
-### ElfHosted rate limits
+### Rate limits and self-hosting
 
-Public ElfHosted addon URLs are shared and rate-limited. Production couch use
-expects **private subscriptions** — see [`docs/ELFHOSTED.md`](../../docs/ELFHOSTED.md).
+Browse titles come from **Cinemeta** first, then **AIOMetadata** (MDBList/TMDB on Pi `:3036`).
+When upstream APIs throttle, addons can return error metas whose `name`/`description` are literally
+“Rate limit exceeded”. catalog-service now **drops** those metas instead of merging them into titles.
+
+**Mitigation (recommended — already on Pi when `MANGO_SELF_HOSTED_ADDONS=1`):**
+
+| Layer | What | Notes |
+|-------|------|-------|
+| Self-host | **AIOStreams** `:3035`, **AIOMetadata** `:3036` | `deploy/aiometadata/.env` — your own `TMDB_API_KEY` + `MDBLIST_API_KEY` |
+| Self-host | **Cinemeta** in `stremio-export.json` | Stable IMDB posters/titles; merged first |
+| Cache | `MANGO_RAIL_ITEMS_CACHE_TTL_MS` | Default 45 min — reshuffle still re-fetches meta |
+| Throttle | `MANGO_RAIL_META_CONCURRENCY` / `MANGO_RAIL_META_STAGGER_MS` | Default **2** parallel, **400 ms** between batches |
+| Backoff | `MANGO_META_RATE_LIMIT_BACKOFF_MS` | Default 5 min negative cache after throttle |
+
+**Paid upgrades if daily limits still bite:**
+
+| Service | Free tier | Paid |
+|---------|-----------|------|
+| [MDBList](https://mdblist.com) | ~1k req/day | [Standard ~€2/mo](https://mdblist.memberful.com/join) — 10k+ req/day |
+| [TMDB](https://www.themoviedb.org/settings/api) | ~40 req/10s | Commercial plan if needed |
+| ElfHosted private | Public URLs rate-limited | ~$9/mo per addon — see [`docs/ELFHOSTED.md`](../../docs/ELFHOSTED.md) |
+
+Public ElfHosted addon URLs are shared and rate-limited. Production couch use expects **private subscriptions** or self-host above.
 
 | Env | Default | Meaning |
 |-----|---------|---------|
 | `MANGO_RAIL_ITEMS_CACHE_TTL_MS` | `2700000` (45 min) | Cache `GET /rails/:id/items` on Pi |
-| `MANGO_RAIL_META_CONCURRENCY` | `3` | Max parallel meta lookups per rail |
-| `MANGO_RAIL_META_STAGGER_MS` | `250` | Pause between ElfHosted meta batches |
+| `MANGO_META_CACHE_TTL_MS` | `600000` (10 min) | Positive meta cache TTL |
+| `MANGO_META_RATE_LIMIT_BACKOFF_MS` | `300000` (5 min) | Skip re-fetch after throttle |
+| `MANGO_RAIL_META_CONCURRENCY` | `2` | Max parallel meta lookups per rail |
+| `MANGO_RAIL_META_STAGGER_MS` | `400` | Pause between meta batches |
 
 API errors return **couch-safe** `error` text (never raw “rate limit exceeded”).
 

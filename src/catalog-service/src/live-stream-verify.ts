@@ -1,4 +1,5 @@
 import { buildLiveCatalogUrl, type LiveChannelMeta } from './live-rails.js';
+import { isBlockedCatalogText } from './catalog-errors.js';
 
 export function isBlockedLiveStreamUrl(url: string): boolean {
   const trimmed = url.trim();
@@ -12,7 +13,7 @@ export function isBlockedLiveChannel(channel: LiveChannelMeta): boolean {
   const haystack = [channel.id, channel.name, channel.title, channel.description]
     .filter((value): value is string => typeof value === 'string')
     .join(' ');
-  return /rate\s*limit|ratelimit_error|please wait/i.test(haystack);
+  return isBlockedCatalogText(haystack) || /ratelimit_error/i.test(haystack);
 }
 
 function buildLiveStreamUrl(manifestUrl: string, catalogType: string, channelId: string): string {

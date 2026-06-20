@@ -1,4 +1,5 @@
 import type { BrowsableRail, CatalogSourceRef } from '../rails.js';
+import { isBlockedCatalogText } from '../catalog-errors.js';
 import {
   allocateSourceLimits,
   mergeCompositeCandidates,
@@ -81,6 +82,10 @@ export async function fetchAddonCatalogCandidates(
     const data = await response.json() as { metas?: unknown[] };
     return (data.metas || [])
       .slice(options.offset, options.offset + options.limit)
+      .filter((preview) => {
+        const title = previewTitle(preview);
+        return !title || !isBlockedCatalogText(title);
+      })
       .map((preview): CandidateMeta | null => {
         const id = previewId(preview);
         if (!id) return null;
