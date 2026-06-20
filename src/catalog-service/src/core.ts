@@ -32,6 +32,8 @@ import {
   allocateTabRailSessions,
   getOrCreateRailSession,
   getPlayabilityStatus,
+  listRailPoolMissingDisplay,
+  patchRailPoolDisplay,
   type PlayabilityStatus,
   type RailSessionPoolItem,
   type RailSessionSnapshot,
@@ -57,7 +59,7 @@ import {
   isAddonRateLimitMessage,
   isBlockedCatalogMeta,
 } from './catalog-errors.js';
-import { resolvePosterFromMeta } from './poster.js';
+import { resolvePosterFromMeta, metahubPosterUrl, normalizePosterUrl } from './poster.js';
 import { CONTINUE_RAIL_ID } from './progress/config.js';
 import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
 import { assembleSeriesEpisodes, type SeriesEpisodesResponse } from './episodes.js';
@@ -611,6 +613,17 @@ export class CatalogCore {
 
   /** Pre-build movies + series tab caches so first couch browse is warm. */
   async warmBrowseTabs(): Promise<void> {
+    try {
+      const patched = await this.backfillRailPoolDisplaySnapshots();
+      if (patched > 0) {
+        console.log(`catalog-service rail_pool display backfill: ${patched} row(s)`);
+      }
+    } catch (error) {
+      console.warn(
+        `rail_pool display backfill failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     const tabs: CatalogTab[] = ['movies', 'series'];
     await Promise.all(tabs.map(async (tab) => {
       try {
@@ -621,6 +634,45 @@ export class CatalogCore {
         );
       }
     }));
+  }
+
+  /** One-shot meta fetch for legacy pool rows missing title/poster snapshots. */
+  async backfillRailPoolDisplaySnapshots(limit = 120): Promise<number> {
+    const missing = await listRailPoolMissingDisplay(limit);
+    if (missing.length === 0) {
+      return 0;
+    }
+
+    let updated = 0;
+    await mapInBatches(
+      missing,
+      RAIL_META_CONCURRENCY,
+      async (row) => {
+        try {
+          const meta = await this.metaCached(row.type, row.id);
+          if (isBlockedCatalogMeta(meta)) {
+            return;
+          }
+          const title = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
+            || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null);
+          const poster = resolvePosterFromMeta(meta);
+          if (!title || !poster) {
+            return;
+          }
+          const year = metaYear(meta);
+          await patchRailPoolDisplay(row.rail_id, row.type, row.id, {
+            title,
+            poster_url: poster,
+            year: year != null ? String(year) : null,
+          });
+          updated += 1;
+        } catch {
+          // skip rows that fail meta lookup
+        }
+      },
+      RAIL_META_STAGGER_MS,
+    );
+    return updated;
   }
 
   private requireLiveRailConfig(): LiveRailConfig {
@@ -702,7 +754,9 @@ export class CatalogCore {
     candidates: TaggedLiveChannel[],
     config: LiveRailConfig,
   ): Promise<VerifiedLiveChannel[]> {
-    const ordered = this.orderLiveCandidates(candidates, config);
+    const ordered = rail.source_fill?.length
+      ? candidates
+      : this.orderLiveCandidates(candidates, config);
     if (!config.verify_streams || ordered.length === 0) {
       return ordered.slice(0, rail.limit).map((channel) => ({
         ...channel,
@@ -1418,6 +1472,11 @@ export class CatalogCore {
   }
 
   private async resolveVerifiedRailItem(item: RailSessionPoolItem): Promise<RailItem | null> {
+    const fromPool = this.railItemFromPoolSnapshot(item);
+    if (fromPool) {
+      return fromPool;
+    }
+
     try {
       const meta = await this.metaCached(item.type, item.id);
       if (isBlockedCatalogMeta(meta)) {
@@ -1428,10 +1487,16 @@ export class CatalogCore {
         return null;
       }
       const year = metaYear(meta);
+      const title = meta.name || item.id;
+      await patchRailPoolDisplay(item.rail_id, item.type, item.id, {
+        title: typeof title === 'string' ? title : String(title),
+        poster_url: poster,
+        year: year != null ? String(year) : null,
+      }).catch(() => undefined);
       return {
         id: meta.id || item.id,
         type: meta.type || item.type,
-        title: meta.name || item.id,
+        title: typeof title === 'string' ? title : String(title),
         subtitle: year ? String(year) : item.type,
         poster,
         year,
@@ -1444,6 +1509,24 @@ export class CatalogCore {
       );
       return null;
     }
+  }
+
+  private railItemFromPoolSnapshot(item: RailSessionPoolItem): RailItem | null {
+    const title = item.title?.trim();
+    const poster = normalizePosterUrl(item.poster_url) ?? metahubPosterUrl(item.id);
+    if (!title || !poster) {
+      return null;
+    }
+    const year = item.year?.trim() || undefined;
+    return {
+      id: item.id,
+      type: item.type,
+      title,
+      subtitle: year || item.type,
+      poster,
+      year,
+      source: item.best_source || 'verified',
+    };
   }
 
   private async resolveRailItem(

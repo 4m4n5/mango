@@ -72,11 +72,14 @@ INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
 VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
 `);
         const upsertPool = db.prepare(`
-INSERT INTO rail_pool (rail_id, type, id, score, ingested_at)
-VALUES (@rail_id, @type, @id, @score, @ingested_at)
+INSERT INTO rail_pool (rail_id, type, id, score, ingested_at, title, poster_url, year)
+VALUES (@rail_id, @type, @id, @score, @ingested_at, @title, @poster_url, @year)
 ON CONFLICT(rail_id, type, id) DO UPDATE SET
   score = excluded.score,
-  ingested_at = excluded.ingested_at;
+  ingested_at = excluded.ingested_at,
+  title = COALESCE(excluded.title, rail_pool.title),
+  poster_url = COALESCE(excluded.poster_url, rail_pool.poster_url),
+  year = COALESCE(excluded.year, rail_pool.year);
 `);
 
         for (const record of this.verifyRecords) {
@@ -117,6 +120,9 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
             id: entry.id,
             score: entry.score,
             ingested_at: timestamp,
+            title: entry.title ?? null,
+            poster_url: entry.poster_url ?? null,
+            year: entry.year ?? null,
           });
         }
       });

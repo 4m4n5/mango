@@ -15,8 +15,10 @@ import {
   getTitlesPlayabilityBulk,
   upsertRailPoolTitle,
   type PlayabilityRailStatus,
+  type RailPoolEntry,
   type TitlePlayabilityRecord,
 } from './db.js';
+import { displaySnapshotFromCandidate } from './pool-display.js';
 import { ensureProbePool, stopProbePool } from './mpv-probe-pool.js';
 import {
   prepareVerifyTitle,
@@ -112,11 +114,12 @@ async function queuePoolLink(
   stream: Record<string, unknown> | undefined,
   context: VerifyContext,
 ): Promise<void> {
-  const entry = {
+  const entry: RailPoolEntry = {
     rail_id: railId,
     type: candidate.type,
     id: candidate.id,
     score: scoreForCandidate(index, stream),
+    ...displaySnapshotFromCandidate(candidate),
   };
   if (context.batchWriter) {
     context.batchWriter.queuePool(entry);

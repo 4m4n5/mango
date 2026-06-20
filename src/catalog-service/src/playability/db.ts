@@ -19,7 +19,7 @@ import type { RailPlayabilityConfig } from '../rails.js';
 import { effectiveDisplayLimit } from './pool-growth.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export type PlayabilityRailStatus = {
   rail_id: string;
@@ -90,6 +90,9 @@ export type RailPoolEntry = {
   type: string;
   id: string;
   score: number;
+  title?: string | null;
+  poster_url?: string | null;
+  year?: string | null;
 };
 
 export type RailSessionPoolItem = {
@@ -105,6 +108,9 @@ export type RailSessionPoolItem = {
   debrid_service: string | null;
   verified_at: number | null;
   expires_at: number | null;
+  title?: string | null;
+  poster_url?: string | null;
+  year?: string | null;
 };
 
 export type RailSessionSnapshot = {
@@ -183,6 +189,9 @@ type RailPoolRow = {
   debrid_service: string | null;
   verified_at: number | null;
   expires_at: number | null;
+  title: string | null;
+  poster_url: string | null;
+  year: string | null;
 };
 
 type RecentRow = {
@@ -235,6 +244,9 @@ SELECT
   rp.type,
   rp.id,
   rp.score,
+  rp.title,
+  rp.poster_url,
+  rp.year,
   t.best_source,
   t.cache_status,
   t.debrid_service,
@@ -264,6 +276,9 @@ SELECT
   rs.mix_bucket,
   rs.slot,
   rs.session_id,
+  rp.title,
+  rp.poster_url,
+  rp.year,
   t.best_source,
   t.cache_status,
   t.debrid_service,
@@ -457,6 +472,16 @@ function applySchemaMigrations(db: Database.Database): void {
   if (!columns.some((column) => column.name === 'win_ladder_step')) {
     db.exec('ALTER TABLE titles ADD COLUMN win_ladder_step TEXT');
   }
+  const poolColumns = db.prepare('PRAGMA table_info(rail_pool)').all() as Array<{ name: string }>;
+  if (!poolColumns.some((column) => column.name === 'title')) {
+    db.exec('ALTER TABLE rail_pool ADD COLUMN title TEXT');
+  }
+  if (!poolColumns.some((column) => column.name === 'poster_url')) {
+    db.exec('ALTER TABLE rail_pool ADD COLUMN poster_url TEXT');
+  }
+  if (!poolColumns.some((column) => column.name === 'year')) {
+    db.exec('ALTER TABLE rail_pool ADD COLUMN year TEXT');
+  }
   db.exec(`
 CREATE TABLE IF NOT EXISTS rail_ingest_state (
   rail_id TEXT PRIMARY KEY,
@@ -471,6 +496,10 @@ VALUES (2, @applied_at);
   db.prepare(`
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (3, @applied_at);
+`).run({ applied_at: nowMs() });
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (4, @applied_at);
 `).run({ applied_at: nowMs() });
 }
 
@@ -896,6 +925,9 @@ function toRailSessionPoolItem(
     debrid_service: full?.debrid_service ?? null,
     verified_at: full?.verified_at ?? null,
     expires_at: full?.expires_at ?? null,
+    title: full?.title ?? null,
+    poster_url: full?.poster_url ?? null,
+    year: full?.year ?? null,
   };
 }
 
@@ -933,17 +965,74 @@ export async function upsertRailPoolTitle(entry: RailPoolEntry): Promise<void> {
   const db = openDb();
   try {
     db.prepare(`
-INSERT INTO rail_pool (rail_id, type, id, score, ingested_at)
-VALUES (@rail_id, @type, @id, @score, @ingested_at)
+INSERT INTO rail_pool (rail_id, type, id, score, ingested_at, title, poster_url, year)
+VALUES (@rail_id, @type, @id, @score, @ingested_at, @title, @poster_url, @year)
 ON CONFLICT(rail_id, type, id) DO UPDATE SET
   score = excluded.score,
-  ingested_at = excluded.ingested_at;
+  ingested_at = excluded.ingested_at,
+  title = COALESCE(excluded.title, rail_pool.title),
+  poster_url = COALESCE(excluded.poster_url, rail_pool.poster_url),
+  year = COALESCE(excluded.year, rail_pool.year);
 `).run({
       rail_id: entry.rail_id,
       type: entry.type,
       id: entry.id,
       score: entry.score,
       ingested_at: nowMs(),
+      title: entry.title ?? null,
+      poster_url: entry.poster_url ?? null,
+      year: entry.year ?? null,
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export type RailPoolDisplayRow = {
+  rail_id: string;
+  type: string;
+  id: string;
+};
+
+export async function listRailPoolMissingDisplay(limit: number): Promise<RailPoolDisplayRow[]> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    return db.prepare(`
+SELECT DISTINCT rail_id, type, id
+FROM rail_pool
+WHERE COALESCE(TRIM(title), '') = ''
+   OR COALESCE(TRIM(poster_url), '') = ''
+LIMIT @limit;
+`).all({ limit: Math.max(1, limit) }) as RailPoolDisplayRow[];
+  } finally {
+    db.close();
+  }
+}
+
+export async function patchRailPoolDisplay(
+  railId: string,
+  type: string,
+  id: string,
+  patch: Pick<RailPoolEntry, 'title' | 'poster_url' | 'year'>,
+): Promise<void> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    db.prepare(`
+UPDATE rail_pool
+SET
+  title = COALESCE(@title, title),
+  poster_url = COALESCE(@poster_url, poster_url),
+  year = COALESCE(@year, year)
+WHERE rail_id = @rail_id AND type = @type AND id = @id;
+`).run({
+      rail_id: railId,
+      type,
+      id,
+      title: patch.title ?? null,
+      poster_url: patch.poster_url ?? null,
+      year: patch.year ?? null,
     });
   } finally {
     db.close();

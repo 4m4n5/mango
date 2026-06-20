@@ -1,4 +1,5 @@
 import { CatalogCore } from '../core.js';
+import { metahubPosterUrl } from '../poster.js';
 import {
   clearRailSessions,
   deleteRailPoolTitle,
@@ -62,6 +63,8 @@ async function verifyPin(
     type: pin.type,
     id: pin.id,
     score: pin.score,
+    title: pin.label?.trim() || undefined,
+    poster_url: metahubPosterUrl(pin.id) ?? undefined,
   });
   return {
     ok: true,
