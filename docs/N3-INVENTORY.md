@@ -79,14 +79,15 @@ UI.
 
 | Metric | Value |
 |--------|-------|
-| `gate-n3a-play.sh` | **PASS** @ `c2fc004`+ (Pi pre-couch 2026-06-19) |
-| Browse movie pick | india-trending; up to 3 retries |
-| Browse series pick | india-picks; up to 3 retries |
+| `gate-n3a-play.sh` | **PASS** @ `556895f` (Pi pre-couch 2026-06-19) |
+| Browse movie pick | india-trending (fallback global-popular); up to 5 retries |
+| Browse series pick | india-picks (fallback global-popular); up to 5 retries |
 | Browse pick `total_ms` | ≤15000 (gate-enforced) |
 | Browse pick `attempts` | ≤5 |
 | Shawshank regression | warn-only 502 under strict couch filters |
 | Filter exclusions | `strict_unknown_cache: true`; AIOStreams tiers |
 | catalog-service tests | 51 pass (local) |
+| Pi pre-couch | PASS @ `556895f` (2 N3a warnings) |
 
 ---
 
