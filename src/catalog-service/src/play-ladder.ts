@@ -230,7 +230,7 @@ export function filterStreamsForLadderStep(
       continue;
     }
     if (isSeriesPackForMovie(stream, context.contentType)) continue;
-    if (isSupplementalRelease(stream)) continue;
+    if (isSupplementalRelease(stream, context.contentType)) continue;
     if (options.hard_language && !streamMatchesLanguage(stream, options.hard_language)) continue;
     if (!streamMatchesLadderStep(stream, step, options)) continue;
 

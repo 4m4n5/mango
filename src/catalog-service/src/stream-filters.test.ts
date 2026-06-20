@@ -210,10 +210,26 @@ test('selectAutoPlayCandidates prefers verified URL hash before other tier strea
   assert.deepEqual(selected.map((item) => item.url), [winner.url, other.url]);
 });
 
-test('isSupplementalRelease drops BTS and featurette labels', () => {
-  assert.equal(isSupplementalRelease(stream('Behind the Scenes', 'https://example.test/bts.mp4')), true);
-  assert.equal(isSupplementalRelease(stream('Featurette: Making Of', 'https://example.test/ft.mp4')), true);
-  assert.equal(isSupplementalRelease(stream('1080p BluRay', 'https://example.test/main.mp4')), false);
+test('isSupplementalRelease drops BTS and featurette labels for movies', () => {
+  assert.equal(isSupplementalRelease(stream('Behind the Scenes', 'https://example.test/bts.mp4'), 'movie'), true);
+  assert.equal(isSupplementalRelease(stream('Featurette: Making Of', 'https://example.test/ft.mp4'), 'movie'), true);
+  assert.equal(isSupplementalRelease(stream('1080p BluRay', 'https://example.test/main.mp4'), 'movie'), false);
+});
+
+test('isSupplementalRelease keeps bonus-labeled series torrents (indexer mislabels)', () => {
+  const iglBonus = stream('Igl Bonus E01 WEB-DL 1080p', 'https://example.test/igl-bonus.mp4');
+  assert.equal(isSupplementalRelease(iglBonus, 'series'), false);
+  assert.equal(isSupplementalRelease(iglBonus, 'movie'), true);
+});
+
+test('Indias Got Latent bonus-labeled S01E01 passes stream filters', () => {
+  const iglBonus = stream('📁 Igl Bonus E01 🎧 OPUS', 'https://example.test/igl-bonus.mp4');
+  const result = filterStreamsForPlay(
+    [iglBonus],
+    testConfig(),
+    { contentType: 'series', metaTitle: "India's Got Latent", metaId: 'tt33094114:1:1' },
+  );
+  assert.equal(result.streams.length, 1);
 });
 
 test('isPlausibleFeatureDuration rejects short probes for movies', () => {

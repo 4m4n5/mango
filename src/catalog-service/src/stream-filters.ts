@@ -479,8 +479,11 @@ export function isLowQualityRelease(stream: Stream): boolean {
     || /\b(ts|scr|tc)\b/i.test(haystack);
 }
 
-/** Bonus discs, BTS, featurettes — wrong file for feature play. */
-export function isSupplementalRelease(stream: Stream): boolean {
+/** Bonus discs, BTS, featurettes — wrong file for movie play (series keeps indexer labels like "Bonus E01"). */
+export function isSupplementalRelease(stream: Stream, contentType?: string): boolean {
+  if (contentType?.trim().toLowerCase() === 'series') {
+    return false;
+  }
   const haystack = streamHaystack(stream);
   return /\b(behind[\s-]?the[\s-]?scenes|featurette|bonus|extras?|making[\s-]?of|interview|deleted[\s-]?scene|bts|after[\s-]?credits|promo[\s-]?reel|proof[\s-]?reel|sample[\s-]?clip|sneak[\s-]?peek|production[\s-]?diary)\b/i.test(haystack);
 }
@@ -820,7 +823,7 @@ export function filterAndRankStreams(
       meta.excluded.series_pack_for_movie += 1;
       continue;
     }
-    if (isSupplementalRelease(stream)) {
+    if (isSupplementalRelease(stream, context.contentType)) {
       meta.excluded.error_stream += 1;
       continue;
     }
