@@ -1007,17 +1007,21 @@ export async function getOrCreateRailSession(
     }
 
     const recent = readRecentRailKeys(db, options.railId, cooldownCutoff);
-    const selected = injectPinnedSessionItems(
+    const selectWithOccupied = (occupiedKeys: Set<string>): RailPoolRow[] => injectPinnedSessionItems(
       selectRailSessionItems(pool, {
         displayLimit,
         recentKeys: recent,
-        occupiedKeys: siblingOccupied,
+        occupiedKeys,
       }),
       pool,
       options.railId,
       overrides,
       displayLimit,
     );
+    let selected = selectWithOccupied(siblingOccupied);
+    if (selected.length === 0 && pool.length > 0 && siblingOccupied.size > 0) {
+      selected = selectWithOccupied(new Set());
+    }
     const poolByKey = new Map(pool.map((item) => [titleKey(item.type, item.id), item]));
     const rows = selected.map((item, slot) => toRailSessionPoolItem(
       options.railId,
