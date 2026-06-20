@@ -103,7 +103,7 @@ play_pick() {
 run_rail_pick() {
   local label="$1" rail_id="$2"
   local items_json="$TMP_DIR/${rail_id}.json"
-  local max_tries="${MANGO_N3A_PICK_RETRIES:-3}"
+  local max_tries="${MANGO_N3A_PICK_RETRIES:-5}"
   local attempt=1
   while (( attempt <= max_tries )); do
     local picked item_type item_id title

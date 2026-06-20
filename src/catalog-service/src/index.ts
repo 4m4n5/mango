@@ -7,6 +7,7 @@ import { invalidateTitle, getTitleVerifyProfile } from './playability/db.js';
 import { parseCatalogTab } from './rails.js';
 import {
   parseFilterOverridesFromQuery,
+  streamMatchesVerifiedHint,
   type StreamFilterOverrides,
 } from './stream-filters.js';
 
@@ -142,6 +143,18 @@ async function handlePlay(
     if (!canReplayVerifiedUnknown) {
       throw error;
     }
+    result = await core.streams(body.type, body.id, {
+      ...overrides,
+      strict_unknown_cache: false,
+    });
+    verifiedUnknownCacheReplay = true;
+  }
+  if (
+    verifiedHint?.cache_status === 'unknown'
+    && verifiedHint.win_url_hash
+    && result.filters.applied.strict_unknown_cache === true
+    && !result.streams.some((stream) => streamMatchesVerifiedHint(stream, verifiedHint))
+  ) {
     result = await core.streams(body.type, body.id, {
       ...overrides,
       strict_unknown_cache: false,
