@@ -9,6 +9,7 @@
 # Env:
 #   MANGO_FILL_SKIP_CATALOG_SYNC=1   skip sudo cp catalog.example.yaml → /etc/mango/
 #   MANGO_FILL_SKIP_HITRATE=1        skip source + rail hit-rate after fill
+#   MANGO_FILL_SKIP_MAINTENANCE=1    only preflight + status (dry run)
 #   MANGO_FILL_PURGE_POOLS=1         clear rail_pool + rail_session for all browse rails before fill
 #   MANGO_FILL_POOL_TOPUP=1          second pass: full refresh to pool_target (default 1)
 #
