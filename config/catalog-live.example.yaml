@@ -1,15 +1,25 @@
 # mango live TV rails — copy to /etc/mango/catalog-live.yaml on the Pi
 #
-# Requires NexoTV in stremio-export (scripts/phase-live/install-nexotv.sh).
-# Channels are matched by keyword against name, description, genre, and EPG text.
-# First matching rail wins — put specific sports before the catch-all.
+# Mixes AREA69 (paid) + IPTV-org sports (free) via two NexoTV instances.
+# Only verified playable stream URLs appear in rails (skips rate-limit placeholders).
 
-version: 1
-addon: mango Live TV
-catalog: iptv_channels
-catalog_type: tv
-pages: 8
-cache_ttl_sec: 600
+version: 2
+cache_ttl_sec: 300
+verify_streams: true
+verify_pool_multiplier: 3
+verify_delay_ms: 150
+
+sources:
+  - addon: mango Live TV
+    label: AREA69
+    catalog: iptv_channels
+    catalog_type: tv
+    pages: 2
+  - addon: mango Live Free
+    label: free
+    catalog: iptv_channels
+    catalog_type: tv
+    pages: 1
 
 rails:
   - id: live-cricket
@@ -21,14 +31,17 @@ rails:
       - star sports
       - bcci
       - ashes
-      - test match
-    limit: 24
+    include_genres:
+      - WORLD CRICKET
+      - ASIA| SPORTS
+    exclude_keywords:
+      - 24/7
+      - replay
+    limit: 12
 
   - id: live-football
     label: football & soccer
     keywords:
-      - football
-      - soccer
       - premier league
       - epl
       - uefa
@@ -37,42 +50,32 @@ rails:
       - bundesliga
       - serie a
       - ligue 1
-      - fox soccer
-    limit: 24
+      - soccer
+      - football
+    include_genres:
+      - SOCCER PPV
+      - EPL
+      - UEFA
+      - LA LIGA
+      - LIVE FOOTBALL
+    exclude_keywords:
+      - replay
+      - 24/7
+    limit: 12
 
   - id: live-f1
-    label: formula 1 & motorsport
+    label: formula 1
     keywords:
       - formula 1
       - formula one
-      - f1
+      - f1 tv
       - grand prix
       - motogp
-      - motorsport
-      - nascar
-    limit: 20
-
-  - id: live-us-sports
-    label: nfl, nba & more
-    keywords:
-      - nfl
-      - nba
-      - mlb
-      - nhl
-      - espn
-      - fox sports
-      - tnt sports
-    limit: 20
-
-  - id: live-other
-    label: more sports
-    keywords:
-      - bein
-      - sky sport
-      - dazn
-      - tennis
-      - golf
-      - rugby
-      - wwe
-      - sport
-    limit: 16
+    include_genres:
+      - FORMULA 1
+      - F1 PPV
+      - MOTOGP
+    exclude_keywords:
+      - replay
+      - 24/7
+    limit: 8

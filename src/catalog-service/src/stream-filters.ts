@@ -469,7 +469,11 @@ export function isRemux(stream: Stream): boolean {
 
 export function isErrorStream(stream: Stream): boolean {
   const haystack = streamHaystack(stream);
-  return /\[❌\]|\[x\]|search failed|not found|no streams|error:|stream not found|being downloaded|downloading to debrid|download pending/i.test(haystack);
+  const url = typeof stream.url === 'string' ? stream.url : '';
+  if (url && (/example\.com\/ratelimit|ratelimit/i.test(url))) {
+    return true;
+  }
+  return /\[❌\]|\[x\]|search failed|not found|no streams|error:|stream not found|being downloaded|downloading to debrid|download pending|rate\s*limit exceeded/i.test(haystack);
 }
 
 /** Cam / telesync / screener — poor couch experience; skip uncached fallback. */

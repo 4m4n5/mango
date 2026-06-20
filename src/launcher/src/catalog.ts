@@ -164,10 +164,14 @@ export async function playCard(
     rail_id?: string;
     prefer_url?: string;
     start_sec?: number;
+    live?: boolean;
   } = {
     type: card.type,
     id: playId,
   };
+  if (card.type === "tv") {
+    body.live = true;
+  }
   if (card.railId) {
     body.rail_id = card.railId;
   }

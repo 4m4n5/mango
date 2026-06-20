@@ -8,6 +8,16 @@ export type LiveSportRail = {
   label: string;
   keywords: string[];
   limit: number;
+  include_genres?: string[];
+  exclude_keywords?: string[];
+};
+
+export type LiveSourceConfig = {
+  addon: string;
+  catalog: string;
+  catalog_type: string;
+  pages: number;
+  label?: string;
 };
 
 export type LiveRailConfig = {
@@ -17,6 +27,10 @@ export type LiveRailConfig = {
   catalog_type: string;
   pages: number;
   cache_ttl_sec: number;
+  verify_streams: boolean;
+  verify_pool_multiplier: number;
+  verify_delay_ms: number;
+  sources: LiveSourceConfig[];
   rails: LiveSportRail[];
 };
 
@@ -88,6 +102,22 @@ function readKeywords(record: Record<string, unknown>, context: string): string[
   });
 }
 
+function readOptionalStringArray(record: Record<string, unknown>, key: string): string[] | undefined {
+  const value = record[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${key} must be a non-empty array when set`);
+  }
+  return value.map((entry, index) => {
+    if (typeof entry !== 'string' || entry.trim() === '') {
+      throw new Error(`${key}[${index}] must be a non-empty string`);
+    }
+    return entry.trim();
+  });
+}
+
 function readLiveSportRail(record: Record<string, unknown>, index: number): LiveSportRail {
   const context = `live rails[${index}]`;
   const id = readString(record, 'id', context);
@@ -99,6 +129,28 @@ function readLiveSportRail(record: Record<string, unknown>, index: number): Live
     label,
     keywords: readKeywords(record, context),
     limit: readPositiveInt(record, 'limit', context, 20),
+    include_genres: readOptionalStringArray(record, 'include_genres'),
+    exclude_keywords: readOptionalStringArray(record, 'exclude_keywords'),
+  };
+}
+
+function readLiveSourceConfig(record: Record<string, unknown>, index: number, fallback: {
+  addon: string;
+  catalog: string;
+  catalog_type: string;
+  pages: number;
+}): LiveSourceConfig {
+  const context = `live sources[${index}]`;
+  return {
+    addon: readString(record, 'addon', context),
+    catalog: readString(record, 'catalog', context),
+    catalog_type: typeof record.catalog_type === 'string' && record.catalog_type.trim() !== ''
+      ? record.catalog_type.trim()
+      : fallback.catalog_type,
+    pages: readPositiveInt(record, 'pages', context, fallback.pages),
+    label: typeof record.label === 'string' && record.label.trim() !== ''
+      ? record.label.trim()
+      : undefined,
   };
 }
 
@@ -132,15 +184,48 @@ export async function loadLiveRailConfig(path = defaultLiveCatalogPath()): Promi
     seen.add(rail.id);
   }
 
+  const catalogType = typeof parsed.catalog_type === 'string' && parsed.catalog_type.trim() !== ''
+    ? parsed.catalog_type.trim()
+    : 'tv';
+  const defaultAddon = typeof parsed.addon === 'string' ? parsed.addon.trim() : '';
+  const defaultCatalog = typeof parsed.catalog === 'string' ? parsed.catalog.trim() : 'iptv_channels';
+  const defaultPages = readPositiveInt(parsed, 'pages', path, 2);
+
+  let sources: LiveSourceConfig[] = [];
+  if (Array.isArray(parsed.sources) && parsed.sources.length > 0) {
+    sources = parsed.sources.map((source, index) => readLiveSourceConfig(
+      asRecord(source, `live sources[${index}]`),
+      index,
+      {
+        addon: defaultAddon,
+        catalog: defaultCatalog,
+        catalog_type: catalogType,
+        pages: defaultPages,
+      },
+    ));
+  } else if (defaultAddon) {
+    sources = [{
+      addon: defaultAddon,
+      catalog: defaultCatalog,
+      catalog_type: catalogType,
+      pages: defaultPages,
+    }];
+  } else {
+    throw new Error('live catalog requires addon or sources[]');
+  }
+
+  const primary = sources[0];
   return {
     version,
-    addon: readString(parsed, 'addon', path),
-    catalog: readString(parsed, 'catalog', path),
-    catalog_type: typeof parsed.catalog_type === 'string' && parsed.catalog_type.trim() !== ''
-      ? parsed.catalog_type.trim()
-      : 'tv',
-    pages: readPositiveInt(parsed, 'pages', path, 5),
-    cache_ttl_sec: readPositiveInt(parsed, 'cache_ttl_sec', path, 600),
+    addon: primary.addon,
+    catalog: primary.catalog,
+    catalog_type: primary.catalog_type,
+    pages: primary.pages,
+    cache_ttl_sec: readPositiveInt(parsed, 'cache_ttl_sec', path, 300),
+    verify_streams: parsed.verify_streams !== false,
+    verify_pool_multiplier: readPositiveInt(parsed, 'verify_pool_multiplier', path, 2),
+    verify_delay_ms: readPositiveInt(parsed, 'verify_delay_ms', path, 120),
+    sources,
     rails,
   };
 }
@@ -214,12 +299,22 @@ export function matchChannelsToRail(
   assignedIds: Set<string>,
 ): LiveChannelMeta[] {
   const pattern = keywordPattern(rail.keywords);
+  const genrePattern = rail.include_genres?.length
+    ? keywordPattern(rail.include_genres)
+    : null;
+  const excludePattern = rail.exclude_keywords?.length
+    ? keywordPattern(rail.exclude_keywords)
+    : null;
   const matches: LiveChannelMeta[] = [];
   for (const channel of channels) {
     if (assignedIds.has(channel.id)) {
       continue;
     }
-    if (!pattern.test(searchableChannelText(channel))) {
+    const text = searchableChannelText(channel);
+    if (excludePattern?.test(text)) {
+      continue;
+    }
+    if (!pattern.test(text) && !(genrePattern && genrePattern.test(text))) {
       continue;
     }
     matches.push(channel);
@@ -247,16 +342,16 @@ type JsonFetcher = (url: string, timeoutMs?: number) => Promise<unknown>;
 
 export async function fetchLiveCatalogChannels(
   manifestUrl: string,
-  config: LiveRailConfig,
+  source: Pick<LiveSourceConfig, 'catalog' | 'catalog_type' | 'pages'>,
   fetchJson: JsonFetcher,
   timeoutMs = 45_000,
 ): Promise<LiveChannelMeta[]> {
   const channels: LiveChannelMeta[] = [];
   const seen = new Set<string>();
 
-  for (let page = 0; page < config.pages; page += 1) {
+  for (let page = 0; page < source.pages; page += 1) {
     const skip = page * 100;
-    const url = buildLiveCatalogUrl(manifestUrl, config.catalog_type, config.catalog, skip);
+    const url = buildLiveCatalogUrl(manifestUrl, source.catalog_type, source.catalog, skip);
     let data: unknown;
     try {
       data = await fetchJson(url, timeoutMs);
@@ -280,6 +375,9 @@ export async function fetchLiveCatalogChannels(
       }
       seen.add(channel.id);
       channels.push(channel);
+    }
+    if (page + 1 < source.pages) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
     }
   }
 

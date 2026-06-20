@@ -5,6 +5,10 @@ nexotv_base_url() {
   echo "${MANGO_NEXOTV_URL:-http://127.0.0.1:7000}"
 }
 
+nexotv_free_base_url() {
+  echo "${MANGO_NEXOTV_FREE_URL:-http://127.0.0.1:7001}"
+}
+
 nexotv_profiles_file() {
   echo "${MANGO_NEXOTV_PROFILES:-${HOME}/.config/mango/nexotv-profiles.json}"
 }
@@ -13,12 +17,20 @@ nexotv_credentials_file() {
   echo "${MANGO_NEXOTV_CREDS:-${HOME}/.config/mango/nexotv.credentials}"
 }
 
+nexotv_free_credentials_file() {
+  echo "${MANGO_NEXOTV_FREE_CREDS:-${HOME}/.config/mango/nexotv-free.credentials}"
+}
+
 nexotv_export_file() {
   echo "${MANGO_STREMIO_EXPORT:-/etc/mango/stremio-export.json}"
 }
 
 nexotv_health_ok() {
   curl -sf --max-time 5 "$(nexotv_base_url)/health" >/dev/null 2>&1
+}
+
+nexotv_free_health_ok() {
+  curl -sf --max-time 5 "$(nexotv_free_base_url)/health" >/dev/null 2>&1
 }
 
 nexotv_load_credentials() {

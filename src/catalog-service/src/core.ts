@@ -66,11 +66,24 @@ import {
   fetchLiveCatalogChannels,
   loadLiveRailConfig,
   partitionChannelsBySportRails,
+  type LiveChannelMeta,
   type LiveRailConfig,
   type LiveSportRail,
 } from './live-rails.js';
+import {
+  verifyLiveChannelCandidates,
+  type VerifiedLiveChannel,
+  isBlockedLiveStreamUrl,
+} from './live-stream-verify.js';
 
-const LIVE_TAB_CACHE_TTL_MS = 10 * 60 * 1000;
+const LIVE_TAB_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type TaggedLiveChannel = LiveChannelMeta & {
+  source_manifest: string;
+  source_addon: string;
+  source_label?: string;
+  source_catalog_type: string;
+};
 
 export const PINNED_RAIL_ID = 'pinned';
 
@@ -593,36 +606,100 @@ export class CatalogCore {
     };
   }
 
-  private liveChannelToRailItem(
-    channel: Awaited<ReturnType<typeof fetchLiveCatalogChannels>>[number],
-    config: LiveRailConfig,
-  ): RailItem {
+  private liveChannelToRailItem(channel: VerifiedLiveChannel): RailItem {
+    const sourceLabel = channel.source_label || channel.source_addon;
+    const subtitle = channelSubtitle(channel);
     return {
       id: channel.id,
-      type: config.catalog_type,
+      type: 'tv',
       title: channel.name,
-      subtitle: channelSubtitle(channel),
+      subtitle: sourceLabel ? `${sourceLabel} · ${subtitle}` : subtitle,
       poster: channel.poster || '',
       description: channel.description || channel.releaseInfo,
-      source: config.addon,
+      source: channel.source_addon,
     };
+  }
+
+  private async fetchTaggedLiveChannels(
+    config: LiveRailConfig,
+  ): Promise<TaggedLiveChannel[]> {
+    const tagged: TaggedLiveChannel[] = [];
+    for (const source of config.sources) {
+      const addon = this.findAddonByName(source.addon);
+      const channels = await fetchLiveCatalogChannels(addon.manifestUrl, source, fetchJson);
+      for (const channel of channels) {
+        tagged.push({
+          ...channel,
+          source_manifest: addon.manifestUrl,
+          source_addon: source.addon,
+          source_label: source.label,
+          source_catalog_type: source.catalog_type,
+        });
+      }
+    }
+    return tagged;
+  }
+
+  private async verifyRailChannels(
+    rail: LiveSportRail,
+    candidates: TaggedLiveChannel[],
+    config: LiveRailConfig,
+  ): Promise<VerifiedLiveChannel[]> {
+    if (!config.verify_streams || candidates.length === 0) {
+      return candidates.slice(0, rail.limit).map((channel) => ({
+        ...channel,
+        source_addon: channel.source_addon,
+        source_label: channel.source_label,
+      }));
+    }
+
+    const bySource = new Map<string, TaggedLiveChannel[]>();
+    for (const channel of candidates) {
+      const bucket = bySource.get(channel.source_addon) || [];
+      bucket.push(channel);
+      bySource.set(channel.source_addon, bucket);
+    }
+
+    const verified: VerifiedLiveChannel[] = [];
+    for (const source of config.sources) {
+      if (verified.length >= rail.limit) {
+        break;
+      }
+      const pool = bySource.get(source.addon) || [];
+      if (pool.length === 0) {
+        continue;
+      }
+      const addon = this.findAddonByName(source.addon);
+      const next = await verifyLiveChannelCandidates(
+        addon.manifestUrl,
+        source.catalog_type,
+        source.addon,
+        source.label,
+        pool,
+        rail.limit - verified.length,
+        fetchJson,
+        {
+          poolMultiplier: config.verify_pool_multiplier,
+          delayMs: config.verify_delay_ms,
+        },
+      );
+      verified.push(...next);
+    }
+    return verified.slice(0, rail.limit);
   }
 
   private async buildLiveRailItemsResponse(
     rail: LiveSportRail,
-    channels: Awaited<ReturnType<typeof fetchLiveCatalogChannels>>,
-    config: LiveRailConfig,
+    channels: VerifiedLiveChannel[],
     started: number,
   ): Promise<RailItemsResponse> {
-    const items = channels
-      .slice(0, rail.limit)
-      .map((channel) => this.liveChannelToRailItem(channel, config));
+    const items = channels.map((channel) => this.liveChannelToRailItem(channel));
     return {
       rail_id: rail.id,
       label: rail.label,
       items,
       resolve_ms: Date.now() - started,
-      skipped: Math.max(0, channels.length - items.length),
+      skipped: 0,
       playability: this.livePlayabilityStub(items.length),
     };
   }
@@ -640,17 +717,20 @@ export class CatalogCore {
 
     const started = Date.now();
     const config = this.requireLiveRailConfig();
-    const addon = this.findAddonByName(config.addon);
-    const channels = await fetchLiveCatalogChannels(addon.manifestUrl, config, fetchJson);
-    const byRail = partitionChannelsBySportRails(channels, config.rails);
+    const tagged = await this.fetchTaggedLiveChannels(config);
+    const byRail = partitionChannelsBySportRails(tagged, config.rails);
 
     const responses: RailItemsResponse[] = [];
     for (const rail of config.rails) {
-      const matched = byRail.get(rail.id) || [];
+      const matched = (byRail.get(rail.id) || []) as TaggedLiveChannel[];
       if (matched.length === 0) {
         continue;
       }
-      responses.push(await this.buildLiveRailItemsResponse(rail, matched, config, started));
+      const verified = await this.verifyRailChannels(rail, matched, config);
+      if (verified.length === 0) {
+        continue;
+      }
+      responses.push(await this.buildLiveRailItemsResponse(rail, verified, started));
     }
 
     const pinnedRail = await this.buildPinnedRail('live');

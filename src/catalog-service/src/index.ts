@@ -22,7 +22,8 @@ import {
   listUserPins,
   removeUserPin,
 } from './user-pins.js';
-import { streamUrlHash } from './stream-filters.js';
+import { streamUrlHash, isErrorStream } from './stream-filters.js';
+import { isBlockedLiveStreamUrl } from './live-stream-verify.js';
 import {
   parseFilterOverridesFromQuery,
   type StreamFilterOverrides,
@@ -179,8 +180,13 @@ async function handlePlay(
     const started = Date.now();
     const playEpoch = await bumpPlayEpoch();
     const resolved = await core.resolveForPlay(body.type, body.id, overrides);
-    const stream = resolved.streams.find((candidate) => typeof candidate.url === 'string' && candidate.url)
-      || resolved.streams[0];
+    const stream = resolved.streams.find((candidate) => {
+      const url = candidate.url;
+      return typeof url === 'string'
+        && url.trim() !== ''
+        && !isBlockedLiveStreamUrl(url)
+        && !isErrorStream(candidate);
+    }) || resolved.streams[0];
     const streamUrl = typeof stream?.url === 'string' ? stream.url : '';
     if (!streamUrl) {
       throw new CatalogError(502, 'no_playable_stream');
