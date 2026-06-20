@@ -204,8 +204,8 @@ const META_CACHE_TTL_MS = Number(process.env.MANGO_META_CACHE_TTL_MS || 10 * 60 
 const META_RATE_LIMIT_BACKOFF_MS = Number(process.env.MANGO_META_RATE_LIMIT_BACKOFF_MS || 5 * 60 * 1000);
 const STREAM_CACHE_TTL_MS = Number(process.env.MANGO_STREAM_CACHE_TTL_MS || 10 * 60 * 1000);
 const RAIL_ITEMS_CACHE_TTL_MS = Number(process.env.MANGO_RAIL_ITEMS_CACHE_TTL_MS || 45 * 60 * 1000);
-const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 2);
-const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 400);
+const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 6);
+const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 0);
 const STREAM_RESOLVE_BUDGET_MS = Number(process.env.MANGO_STREAM_RESOLVE_BUDGET_MS || 12000);
 
 function delay(ms: number): Promise<void> {
@@ -595,6 +595,20 @@ export class CatalogCore {
     this.liveTabRailItemsCache = null;
   }
 
+  /** Pre-build movies + series tab caches so first couch browse is warm. */
+  async warmBrowseTabs(): Promise<void> {
+    const tabs: CatalogTab[] = ['movies', 'series'];
+    await Promise.all(tabs.map(async (tab) => {
+      try {
+        await this.tabRailItems(tab);
+      } catch (error) {
+        console.warn(
+          `browse warm ${tab} failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }));
+  }
+
   private requireLiveRailConfig(): LiveRailConfig {
     if (this.liveRailConfig) {
       return this.liveRailConfig;
@@ -814,35 +828,38 @@ export class CatalogCore {
   private async buildPinnedRail(tab: CatalogTab): Promise<RailItemsResponse> {
     const started = Date.now();
     const pins = await listUserPins(tab);
-    const items: RailItem[] = [];
-
-    for (const pin of pins) {
-      let title = pin.title;
-      let poster = pin.poster;
-      let year: number | string | undefined;
-      let description: string | undefined;
-      try {
-        const meta = await this.metaCached(pin.type, pin.id);
-        title = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
-          || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
-          || title;
-        poster = resolvePosterFromMeta(meta) || poster;
-        year = metaYear(meta);
-        description = typeof meta.description === 'string' ? meta.description : undefined;
-      } catch {
-        // keep stored snapshot
-      }
-      items.push({
-        id: pin.id,
-        type: pin.type,
-        title,
-        subtitle: year ? String(year) : pin.type,
-        poster: poster || '',
-        year,
-        description,
-        source: 'pinned',
-      });
-    }
+    const items = await mapInBatches(
+      pins,
+      RAIL_META_CONCURRENCY,
+      async (pin) => {
+        let title = pin.title;
+        let poster = pin.poster;
+        let year: number | string | undefined;
+        let description: string | undefined;
+        try {
+          const meta = await this.metaCached(pin.type, pin.id);
+          title = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
+            || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
+            || title;
+          poster = resolvePosterFromMeta(meta) || poster;
+          year = metaYear(meta);
+          description = typeof meta.description === 'string' ? meta.description : undefined;
+        } catch {
+          // keep stored snapshot
+        }
+        return {
+          id: pin.id,
+          type: pin.type,
+          title,
+          subtitle: year ? String(year) : pin.type,
+          poster: poster || '',
+          year,
+          description,
+          source: 'pinned',
+        } satisfies RailItem;
+      },
+      RAIL_META_STAGGER_MS,
+    );
 
     return {
       rail_id: PINNED_RAIL_ID,
@@ -863,44 +880,47 @@ export class CatalogCore {
   private async buildContinueRail(tab: CatalogTab): Promise<RailItemsResponse> {
     const started = Date.now();
     const candidates = listContinueItems(tab);
-    const items: RailItem[] = [];
-
-    for (const candidate of candidates) {
-      let title = candidate.title;
-      let poster = candidate.poster;
-      let year: number | string | undefined;
-      try {
-        const meta = await this.metaCached(candidate.type, candidate.id);
-        title = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
-          || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
-          || title;
-        poster = resolvePosterFromMeta(meta) || poster;
-        year = metaYear(meta);
-      } catch {
-        // keep stored snapshot
-      }
-      items.push({
-        id: candidate.id,
-        type: candidate.type,
-        title,
-        subtitle: candidate.subtitle,
-        poster: poster || '',
-        year,
-        description: candidate.description,
-        source: candidate.source,
-        progress: candidate.progress,
-      });
-    }
+    const resolved = await mapInBatches(
+      candidates,
+      RAIL_META_CONCURRENCY,
+      async (candidate) => {
+        let title = candidate.title;
+        let poster = candidate.poster;
+        let year: number | string | undefined;
+        try {
+          const meta = await this.metaCached(candidate.type, candidate.id);
+          title = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
+            || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
+            || title;
+          poster = resolvePosterFromMeta(meta) || poster;
+          year = metaYear(meta);
+        } catch {
+          // keep stored snapshot
+        }
+        return {
+          id: candidate.id,
+          type: candidate.type,
+          title,
+          subtitle: candidate.subtitle,
+          poster: poster || '',
+          year,
+          description: candidate.description,
+          source: candidate.source,
+          progress: candidate.progress,
+        } satisfies RailItem;
+      },
+      RAIL_META_STAGGER_MS,
+    );
 
     return {
       rail_id: CONTINUE_RAIL_ID,
       label: 'continue watching',
-      items,
+      items: resolved,
       resolve_ms: Date.now() - started,
       skipped: 0,
       playability: {
-        displayed: items.length,
-        verified_pool: items.length,
+        displayed: resolved.length,
+        verified_pool: resolved.length,
         pending: 0,
         low_water: false,
         session_id: this.playabilitySessionId,
@@ -987,26 +1007,31 @@ export class CatalogCore {
       stableRatio: reshuffle ? 0.15 : undefined,
     });
 
-    const responses: RailItemsResponse[] = [];
-    for (const rail of rails) {
-      const session = sessions.get(rail.id);
-      if (!session) {
-        continue;
-      }
-      const payload = await this.buildRailItemsResponse(rail, session, started);
-      responses.push(payload);
-      this.railItemsCache.set(rail.id, {
-        payload,
-        expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
-      });
-    }
+    const [railResponses, continueRail, pinnedRail] = await Promise.all([
+      Promise.all(
+        rails.map(async (rail) => {
+          const session = sessions.get(rail.id);
+          if (!session) {
+            return null;
+          }
+          const railStarted = Date.now();
+          const payload = await this.buildRailItemsResponse(rail, session, railStarted);
+          this.railItemsCache.set(rail.id, {
+            payload,
+            expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
+          });
+          return payload;
+        }),
+      ),
+      this.buildContinueRail(tab),
+      this.buildPinnedRail(tab),
+    ]);
 
+    const responses = railResponses.filter((rail): rail is RailItemsResponse => rail !== null);
     const visibleRails = responses.filter((rail) => rail.items.length > 0);
-    const continueRail = await this.buildContinueRail(tab);
     if (continueRail.items.length > 0) {
       visibleRails.unshift(continueRail);
     }
-    const pinnedRail = await this.buildPinnedRail(tab);
     if (pinnedRail.items.length > 0) {
       const continueIndex = visibleRails.findIndex((rail) => rail.rail_id === CONTINUE_RAIL_ID);
       const insertAt = continueIndex >= 0 ? continueIndex + 1 : 0;

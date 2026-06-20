@@ -7,7 +7,7 @@ import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, t
 import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
 import { fetchPinnedIds } from "./pins";
-import type { ApiInfo, AppCard, ContentCard, LaunchAction, BrowseTab } from "./types";
+import type { ApiInfo, AppCard, ContentCard, ContentRail, LaunchAction, BrowseTab } from "./types";
 
 const homeView = mustGet<HTMLElement>("home-view");
 const browseTabsEl = mustGet<HTMLElement>("browse-tabs");
@@ -45,6 +45,8 @@ let catalogState: CatalogState = { status: "loading" };
 let catalogRetryTimer: number | undefined;
 let libraryRefreshInFlight = false;
 let pinnedKeys = new Set<string>();
+const tabCatalogCache = new Map<BrowseTab, ContentRail[]>();
+const tabCatalogPrefetching = new Set<BrowseTab>();
 
 const focusGrid = new FocusGrid((element) => {
   element.classList.add("focused");
@@ -412,20 +414,28 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     window.clearTimeout(catalogRetryTimer);
     catalogRetryTimer = undefined;
   }
-  if (options.reshuffle) {
+  const reshuffle = Boolean(options.reshuffle && activeBrowseTab !== "live");
+  if (reshuffle) {
+    tabCatalogCache.delete(activeBrowseTab);
     setStatus("refreshing…");
   }
-  try {
-    pinnedKeys = await fetchPinnedIds(activeBrowseTab);
-  } catch {
-    pinnedKeys = new Set();
+
+  const cachedRails = !reshuffle ? tabCatalogCache.get(activeBrowseTab) : undefined;
+  if (cachedRails && cachedRails.length > 0) {
+    catalogState = { status: "ready", rails: cachedRails };
+    renderHome();
+  } else if (!reshuffle || catalogState.status !== "ready") {
+    catalogState = { status: "loading" };
+    renderHome();
   }
-  catalogState = { status: "loading" };
-  renderHome();
+
   try {
-    const rails = await loadCatalogRails(activeBrowseTab, {
-      reshuffle: Boolean(options.reshuffle && activeBrowseTab !== "live"),
-    });
+    const [rails, pins] = await Promise.all([
+      loadCatalogRails(activeBrowseTab, { reshuffle }),
+      fetchPinnedIds(activeBrowseTab).catch(() => new Set<string>()),
+    ]);
+    pinnedKeys = pins;
+    tabCatalogCache.set(activeBrowseTab, rails);
     catalogState = { status: "ready", rails };
     renderHome();
     const itemCount = rails.reduce((total, rail) => total + rail.cards.length, 0);
@@ -434,17 +444,41 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
         ? "updated — keep browsing."
         : "D-pad to browse. L/R shoulders switch tabs. B to select."
       : "catalog loaded with no posters");
+    if (!reshuffle) {
+      for (const tab of BROWSE_TAB_ORDER) {
+        if (tab !== activeBrowseTab) {
+          prefetchCatalogTab(tab);
+        }
+      }
+    }
   } catch (error) {
-    catalogState = {
-      status: "error",
-      message: error instanceof Error ? error.message : "catalog unavailable",
-    };
-    renderHome();
+    if (!cachedRails?.length) {
+      catalogState = {
+        status: "error",
+        message: error instanceof Error ? error.message : "catalog unavailable",
+      };
+      renderHome();
+    }
     setStatus("catalog is refreshing — try again in a moment.");
     catalogRetryTimer = window.setTimeout(() => {
       void loadCatalog();
     }, 5000);
   }
+}
+
+function prefetchCatalogTab(tab: BrowseTab): void {
+  if (tab === activeBrowseTab || tabCatalogCache.has(tab) || tabCatalogPrefetching.has(tab)) {
+    return;
+  }
+  tabCatalogPrefetching.add(tab);
+  void loadCatalogRails(tab)
+    .then((rails) => {
+      tabCatalogCache.set(tab, rails);
+    })
+    .catch(() => undefined)
+    .finally(() => {
+      tabCatalogPrefetching.delete(tab);
+    });
 }
 
 async function loadInfo(): Promise<void> {

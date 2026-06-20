@@ -575,6 +575,9 @@ async function main(): Promise<void> {
   server.listen(PORT, HOST, () => {
     console.log(`catalog-service listening http://${HOST}:${PORT}`);
     console.log(JSON.stringify(core.health()));
+    void core.warmBrowseTabs()
+      .then(() => console.log('catalog-service browse tabs warmed'))
+      .catch(() => undefined);
   });
 }
 

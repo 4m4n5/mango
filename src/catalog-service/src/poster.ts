@@ -1,5 +1,18 @@
 import type { Meta } from './core.js';
 
+/** Bare IMDB id from Cinemeta ids (`tt123` or `tt123:1:1`). */
+export function imdbBareId(id: string): string | null {
+  const bare = id.trim().split(':')[0];
+  return bare && /^tt\d+$/i.test(bare) ? bare : null;
+}
+
+/** Cinemeta image CDN — avoids a meta round-trip when poster is missing from meta. */
+export function metahubPosterUrl(id: string, size: 'medium' | 'large' = 'medium'): string | null {
+  const bare = imdbBareId(id);
+  if (!bare) return null;
+  return `https://images.metahub.space/poster/${size}/${bare}/img`;
+}
+
 /** Normalize poster/artwork URLs for launcher `<img src>`. */
 export function normalizePosterUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -21,5 +34,6 @@ export function resolvePosterFromMeta(meta: Meta, preview?: unknown): string | n
     const url = normalizePosterUrl(candidate);
     if (url) return url;
   }
-  return null;
+  const metaId = typeof meta.id === 'string' ? meta.id : null;
+  return metaId ? metahubPosterUrl(metaId) : null;
 }

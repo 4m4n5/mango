@@ -112,8 +112,8 @@ catalog-service **drops** them instead of showing them on posters.
 | `MANGO_RAIL_ITEMS_CACHE_TTL_MS` | `2700000` (45 min) | Cache `GET /rails/:id/items` |
 | `MANGO_META_CACHE_TTL_MS` | `600000` (10 min) | Positive meta cache TTL |
 | `MANGO_META_RATE_LIMIT_BACKOFF_MS` | `300000` (5 min) | Skip re-fetch after throttle |
-| `MANGO_RAIL_META_CONCURRENCY` | `2` | Max parallel meta lookups per rail |
-| `MANGO_RAIL_META_STAGGER_MS` | `400` | Pause between meta batches |
+| `MANGO_RAIL_META_CONCURRENCY` | `6` | Max parallel meta lookups per rail |
+| `MANGO_RAIL_META_STAGGER_MS` | `0` | Pause between meta batches (raise if Cinemeta rate-limits) |
 
 If daily limits still bite: [MDBList Standard](https://mdblist.memberful.com/join) (~€2/mo) or TMDB commercial plan.
 
