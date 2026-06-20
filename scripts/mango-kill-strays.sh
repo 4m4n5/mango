@@ -38,4 +38,8 @@ if (( remaining != 0 )); then
   exit 1
 fi
 
+if [[ -x "$REPO_DIR/scripts/lib/stale-flock-cleanup.sh" ]]; then
+  bash "$REPO_DIR/scripts/lib/stale-flock-cleanup.sh" || true
+fi
+
 echo "strays: cleared"

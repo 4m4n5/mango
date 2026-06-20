@@ -613,16 +613,17 @@ export class CatalogCore {
 
   /** Pre-build movies + series tab caches so first couch browse is warm. */
   async warmBrowseTabs(): Promise<void> {
-    try {
-      const patched = await this.backfillRailPoolDisplaySnapshots();
-      if (patched > 0) {
-        console.log(`catalog-service rail_pool display backfill: ${patched} row(s)`);
-      }
-    } catch (error) {
-      console.warn(
-        `rail_pool display backfill failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
+    void this.backfillRailPoolDisplaySnapshots()
+      .then((patched) => {
+        if (patched > 0) {
+          console.log(`catalog-service rail_pool display backfill: ${patched} row(s)`);
+        }
+      })
+      .catch((error) => {
+        console.warn(
+          `rail_pool display backfill failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
 
     const tabs: CatalogTab[] = ['movies', 'series'];
     await Promise.all(tabs.map(async (tab) => {
@@ -905,33 +906,7 @@ export class CatalogCore {
     const items = await mapInBatches(
       pins,
       RAIL_META_CONCURRENCY,
-      async (pin) => {
-        let title = pin.title;
-        let poster = pin.poster;
-        let year: number | string | undefined;
-        let description: string | undefined;
-        try {
-          const meta = await this.metaCached(pin.type, pin.id);
-          title = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
-            || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
-            || title;
-          poster = resolvePosterFromMeta(meta) || poster;
-          year = metaYear(meta);
-          description = typeof meta.description === 'string' ? meta.description : undefined;
-        } catch {
-          // keep stored snapshot
-        }
-        return {
-          id: pin.id,
-          type: pin.type,
-          title,
-          subtitle: year ? String(year) : pin.type,
-          poster: poster || '',
-          year,
-          description,
-          source: 'pinned',
-        } satisfies RailItem;
-      },
+      async (pin) => this.resolvePinnedRailItem(pin),
       RAIL_META_STAGGER_MS,
     );
 
@@ -953,48 +928,27 @@ export class CatalogCore {
 
   private async buildContinueRail(tab: CatalogTab): Promise<RailItemsResponse> {
     const started = Date.now();
-    const candidates = listContinueItems(tab);
-    const resolved = await mapInBatches(
-      candidates,
-      RAIL_META_CONCURRENCY,
-      async (candidate) => {
-        let title = candidate.title;
-        let poster = candidate.poster;
-        let year: number | string | undefined;
-        try {
-          const meta = await this.metaCached(candidate.type, candidate.id);
-          title = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
-            || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
-            || title;
-          poster = resolvePosterFromMeta(meta) || poster;
-          year = metaYear(meta);
-        } catch {
-          // keep stored snapshot
-        }
-        return {
-          id: candidate.id,
-          type: candidate.type,
-          title,
-          subtitle: candidate.subtitle,
-          poster: poster || '',
-          year,
-          description: candidate.description,
-          source: candidate.source,
-          progress: candidate.progress,
-        } satisfies RailItem;
-      },
-      RAIL_META_STAGGER_MS,
-    );
+    const items = listContinueItems(tab).map((candidate) => ({
+      id: candidate.id,
+      type: candidate.type,
+      title: candidate.title,
+      subtitle: candidate.subtitle,
+      poster: normalizePosterUrl(candidate.poster) ?? metahubPosterUrl(candidate.id) ?? '',
+      year: undefined,
+      description: candidate.description,
+      source: candidate.source,
+      progress: candidate.progress,
+    } satisfies RailItem));
 
     return {
       rail_id: CONTINUE_RAIL_ID,
       label: 'continue watching',
-      items: resolved,
+      items,
       resolve_ms: Date.now() - started,
       skipped: 0,
       playability: {
-        displayed: resolved.length,
-        verified_pool: resolved.length,
+        displayed: items.length,
+        verified_pool: items.length,
         pending: 0,
         low_water: false,
         session_id: this.playabilitySessionId,
@@ -1007,13 +961,19 @@ export class CatalogCore {
     session: RailSessionSnapshot,
     started: number,
   ): Promise<RailItemsResponse> {
-    const resolved = await mapInBatches(
-      session.items,
-      RAIL_META_CONCURRENCY,
-      (item) => this.resolveVerifiedRailItem(item),
-      RAIL_META_STAGGER_MS,
+    const poolSnapshotItems = session.items.every(
+      (item) => this.railItemFromPoolSnapshot(item) !== null,
     );
-    const items = resolved.filter((item): item is RailItem => item !== null);
+    const items = poolSnapshotItems
+      ? session.items
+        .map((item) => this.railItemFromPoolSnapshot(item))
+        .filter((item): item is RailItem => item !== null)
+      : (await mapInBatches(
+        session.items,
+        RAIL_META_CONCURRENCY,
+        (item) => this.resolveVerifiedRailItem(item),
+        RAIL_META_STAGGER_MS,
+      )).filter((item): item is RailItem => item !== null);
     const pending = Math.max(0, rail.playability.min_display - items.length);
     const lowWater = items.length < rail.playability.min_display;
     const poolTarget = effectivePoolTarget(rail.playability, session.verified_pool);
@@ -1468,6 +1428,55 @@ export class CatalogCore {
       return { streams };
     } catch (error) {
       throw new Error(`${addon.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async resolvePinnedRailItem(
+    pin: Awaited<ReturnType<typeof listUserPins>>[number],
+  ): Promise<RailItem> {
+    const title = pin.title?.trim();
+    const poster = normalizePosterUrl(pin.poster) ?? metahubPosterUrl(pin.id);
+    if (title && poster) {
+      return {
+        id: pin.id,
+        type: pin.type,
+        title,
+        subtitle: pin.type,
+        poster,
+        source: 'pinned',
+      };
+    }
+
+    try {
+      const meta = await this.metaCached(pin.type, pin.id);
+      if (isBlockedCatalogMeta(meta)) {
+        throw new Error('blocked meta');
+      }
+      const resolvedPoster = resolvePosterFromMeta(meta) || poster || '';
+      const resolvedTitle = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
+        || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
+        || title
+        || pin.id;
+      const year = metaYear(meta);
+      return {
+        id: pin.id,
+        type: pin.type,
+        title: resolvedTitle,
+        subtitle: year ? String(year) : pin.type,
+        poster: resolvedPoster,
+        year,
+        description: typeof meta.description === 'string' ? meta.description : undefined,
+        source: 'pinned',
+      };
+    } catch {
+      return {
+        id: pin.id,
+        type: pin.type,
+        title: title || pin.id,
+        subtitle: pin.type,
+        poster: poster || '',
+        source: 'pinned',
+      };
     }
   }
 
