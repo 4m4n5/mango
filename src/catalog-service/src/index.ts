@@ -33,6 +33,9 @@ import {
   parseFilterOverridesFromQuery,
   type StreamFilterOverrides,
 } from './stream-filters.js';
+import { searchVerifiedLibrary } from './voice/search.js';
+import { buildContinuePlayTarget, buildNowPlayingResponse } from './voice/now-playing.js';
+import { buildVoiceToolManifest } from './voice/tools.js';
 
 const HOST = process.env.MANGO_CATALOG_HOST || '127.0.0.1';
 const PORT = Number(process.env.MANGO_CATALOG_PORT || 3020);
@@ -396,6 +399,30 @@ async function main(): Promise<void> {
         });
         core.clearRailItemsCache();
         sendJson(res, 200, { ok: true, removed });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'tools') {
+        sendJson(res, 200, buildVoiceToolManifest());
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'search') {
+        const query = url.searchParams.get('q')?.trim() ?? '';
+        const limit = Number(url.searchParams.get('limit') || 8);
+        const results = await searchVerifiedLibrary(query, Number.isFinite(limit) ? limit : 8);
+        sendJson(res, 200, { ok: true, query, results });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'now-playing') {
+        sendJson(res, 200, await buildNowPlayingResponse());
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'continue') {
+        const tab = parseCatalogTab(url.searchParams.get('tab'));
+        sendJson(res, 200, buildContinuePlayTarget(tab));
         return;
       }
 

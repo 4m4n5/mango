@@ -6,6 +6,7 @@ import { NextEpisodePrompt } from "./next-prompt";
 import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, type HomeOptions } from "./home";
 import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
+import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
 import { fetchPinnedIds } from "./pins";
 import type { ApiInfo, AppCard, ContentCard, ContentRail, LaunchAction, BrowseTab } from "./types";
 
@@ -116,6 +117,27 @@ function init(): void {
   void loadInfo();
   void loadCatalog();
   startVoiceHud();
+  startVoiceCommands(resolveVoiceWsUrls(), {
+    onHome: showHome,
+    onBack: () => {
+      if (detail.isOpen) {
+        detail.hide();
+        return;
+      }
+      if (inSettings) {
+        showHome();
+      }
+    },
+    onSettings: showSettings,
+    onTab: (tab) => {
+      focusBrowseTabOnRender = true;
+      handleBrowseTabChange(tab);
+    },
+    onOpenDetail: (card, tab) => {
+      activeBrowseTab = tab;
+      handleContentSelect(card, "voice");
+    },
+  });
 }
 
 function renderHome(): void {

@@ -19,6 +19,7 @@ from orchestrator.audio.ingest import decode_pcm_b64
 from orchestrator.audio.piper_tts import speak_reply
 from orchestrator.audio.stt import transcribe
 from orchestrator.config import load_settings
+from orchestrator.llm.agent import generate_agent_reply, voice_tools_enabled
 from orchestrator.llm.provider import generate_reply
 from orchestrator.session import ChatMessage, SessionState
 from orchestrator.timing import voice_stage
@@ -202,13 +203,30 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
             session.set_overlay("thinking", "thinking…")
             await broadcast_status()
             pump_task = asyncio.create_task(pump_llm_partials())
+            use_tools = voice_tools_enabled(settings)
+
+            async def dispatch_launcher(command: dict[str, Any]) -> None:
+                await broadcast(command)
+
+            async def on_tool_event(payload: dict[str, Any]) -> None:
+                await broadcast(payload)
+
             with voice_stage("llm"):
-                reply = await asyncio.to_thread(
-                    generate_reply,
-                    session.provider_messages(max_turns=settings.llm_history_turns),
-                    settings,
-                    on_delta=on_llm_delta,
-                )
+                if use_tools:
+                    reply = await generate_agent_reply(
+                        session.provider_messages(max_turns=settings.llm_history_turns),
+                        settings,
+                        on_delta=on_llm_delta,
+                        dispatch_launcher=dispatch_launcher,
+                        on_tool_event=on_tool_event,
+                    )
+                else:
+                    reply = await asyncio.to_thread(
+                        generate_reply,
+                        session.provider_messages(max_turns=settings.llm_history_turns),
+                        settings,
+                        on_delta=on_llm_delta,
+                    )
             if pump_task is not None:
                 pump_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):

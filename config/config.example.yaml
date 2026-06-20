@@ -3,7 +3,7 @@
 llm:
   provider: anthropic  # anthropic | openai
   model: claude-haiku-4-5-20251001  # haiku = fast; sonnet-4-6 = smarter/slower
-  max_tokens: 96
+  max_tokens: 192  # voice tools need slightly longer replies
   history_turns: 3  # user+assistant pairs kept for context
   api_key_file: /etc/mango/llm.key
 
@@ -92,3 +92,6 @@ orchestrator:
   ssl_certfile: null  # or /home/aman/.config/mango/certs/mango-companion.pem
   ssl_keyfile: null   # or /home/aman/.config/mango/certs/mango-companion-key.pem
   local_ws_port: 8766  # plain WS on loopback for launcher TV HUD (mkcert not trusted in kiosk)
+  voice_tools_enabled: true  # N5a: catalog play/search + launcher navigate via Anthropic tools
+  max_tool_rounds: 4
+  catalog_upstream: http://127.0.0.1:3020

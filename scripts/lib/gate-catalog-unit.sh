@@ -19,5 +19,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/progress/progress.test.js \
     dist/progress/next-prompt.test.js \
     dist/episodes.test.js \
+    dist/voice/search.test.js \
+    dist/voice/tools.test.js \
     dist/stream-filters.test.js
 )

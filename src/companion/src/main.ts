@@ -4,7 +4,8 @@ type ChatRole = "user" | "assistant";
 type ServerMessage =
   | { type: "status"; state?: string; text?: string }
   | { type: "chat"; role?: ChatRole; text?: string; partial?: boolean }
-  | { type: "error"; message?: string };
+  | { type: "error"; message?: string }
+  | { type: "tool"; phase?: string; name?: string; summary?: string };
 
 const TARGET_SAMPLE_RATE = 16_000;
 const MAX_UTTERANCE_MS = 30_000;
@@ -80,6 +81,10 @@ function handleServerMessage(raw: string): void {
     }
     if (msg.type === "error") {
       setError(msg.message ?? "voice error");
+      return;
+    }
+    if (msg.type === "tool") {
+      appendToolCard(msg.summary ?? msg.name ?? "working…", msg.phase ?? "start");
     }
   } catch {
     setStatus(raw.trim());
@@ -97,6 +102,22 @@ function setError(text: string): void {
     errorEl.textContent = text;
     errorEl.toggleAttribute("hidden", text.length === 0);
   }
+}
+
+function appendToolCard(text: string, phase: string): void {
+  if (chatEl === null) {
+    return;
+  }
+  const item = document.createElement("article");
+  item.className = `message tool tool--${phase}`;
+  const roleEl = document.createElement("span");
+  roleEl.className = "role";
+  roleEl.textContent = phase === "done" ? "done" : "tool";
+  const textEl = document.createElement("p");
+  textEl.textContent = text;
+  item.append(roleEl, textEl);
+  chatEl.append(item);
+  chatEl.scrollTop = chatEl.scrollHeight;
 }
 
 function appendChat(role: ChatRole, text: string): void {

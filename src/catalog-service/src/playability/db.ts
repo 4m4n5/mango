@@ -994,6 +994,46 @@ export type RailPoolDisplayRow = {
   id: string;
 };
 
+export type VerifiedRailPoolSearchRow = {
+  type: string;
+  id: string;
+  title: string;
+  poster: string | null;
+  year: string | null;
+};
+
+export async function searchVerifiedRailPoolTitles(
+  query: string,
+  limit = 40,
+): Promise<VerifiedRailPoolSearchRow[]> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) {
+    return [];
+  }
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const like = `%${trimmed.toLowerCase()}%`;
+    return db.prepare(`
+SELECT DISTINCT
+  rp.type,
+  rp.id,
+  rp.title,
+  rp.poster_url AS poster,
+  rp.year
+FROM rail_pool rp
+JOIN titles t ON t.type = rp.type AND t.id = rp.id
+WHERE t.status = 'verified'
+  AND rp.title IS NOT NULL
+  AND trim(rp.title) != ''
+  AND lower(rp.title) LIKE @like
+LIMIT @limit;
+`).all({ like, limit: Math.max(1, limit) }) as VerifiedRailPoolSearchRow[];
+  } finally {
+    db.close();
+  }
+}
+
 export async function listRailPoolMissingDisplay(limit: number): Promise<RailPoolDisplayRow[]> {
   await initPlayabilityDb();
   const db = openDb();

@@ -23,4 +23,13 @@ def warmup_voice_stack(settings: OrchestratorSettings) -> None:
 
         logger.info("warming local whisper")
         warmup_whisper(settings)
+    if os.environ.get("MANGO_VOICE_TOOLS", "") != "0" and settings.voice_tools_enabled:
+        try:
+            from orchestrator.tools import catalog as catalog_tools
+
+            manifest = catalog_tools.fetch_tool_manifest(settings)
+            tool_count = len(manifest.get("tools", []))
+            logger.info("voice tools manifest ready (%s tools)", tool_count)
+        except Exception as exc:
+            logger.warning("voice tools manifest warmup failed: %s", exc)
     logger.info("voice stack warm")

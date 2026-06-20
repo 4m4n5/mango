@@ -43,6 +43,9 @@ class OrchestratorSettings:
     llm_max_tokens: int
     llm_history_turns: int
     llm_api_key_file: str | None
+    catalog_upstream: str
+    voice_tools_enabled: bool
+    max_tool_rounds: int
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -62,6 +65,7 @@ def load_settings() -> OrchestratorSettings:
     audio = raw.get("audio", {}) if isinstance(raw.get("audio"), dict) else {}
     stt = raw.get("stt", {}) if isinstance(raw.get("stt"), dict) else {}
     llm = raw.get("llm", {}) if isinstance(raw.get("llm"), dict) else {}
+    catalog = raw.get("catalog", {}) if isinstance(raw.get("catalog"), dict) else {}
     return OrchestratorSettings(
         host=str(os.environ.get("MANGO_ORCH_HOST", orch.get("host", "127.0.0.1"))),
         port=int(os.environ.get("MANGO_ORCH_PORT", orch.get("port", 8765))),
@@ -95,9 +99,17 @@ def load_settings() -> OrchestratorSettings:
         duck_volume_percent=int(audio.get("duck_volume_percent", 40)),
         llm_provider=str(llm.get("provider", "anthropic")),
         llm_model=str(llm.get("model", "claude-haiku-4-5-20251001")),
-        llm_max_tokens=max(32, int(llm.get("max_tokens", 96))),
+        llm_max_tokens=max(64, int(llm.get("max_tokens", 192))),
         llm_history_turns=max(1, int(llm.get("history_turns", 3))),
         llm_api_key_file=_optional_str(llm.get("api_key_file")),
+        catalog_upstream=str(
+            os.environ.get(
+                "MANGO_CATALOG_UPSTREAM",
+                catalog.get("service_url", orch.get("catalog_upstream", "http://127.0.0.1:3020")),
+            )
+        ),
+        voice_tools_enabled=bool(orch.get("voice_tools_enabled", True)),
+        max_tool_rounds=max(1, int(orch.get("max_tool_rounds", 4))),
     )
 
 
