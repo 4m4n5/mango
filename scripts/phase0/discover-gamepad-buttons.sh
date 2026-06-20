@@ -23,7 +23,7 @@ if dev is None:
     raise SystemExit("Pro Controller not found — bluetoothctl connect E4:17:D8:EB:00:44")
 
 print(f"Listening on {dev.path} ({dev.name}) for {duration}s — press each button once.")
-print("Codes: 304=B 308=Y 317=shuffle 314=− 315=+ 316=HOME/MODE 311=TR")
+print("Codes: 304=B 308=Y 310=L tab− 311=R tab+ 317=shuffle 314=− 315=+ 316=HOME 311=home alt")
 seen = set()
 end = time.monotonic() + duration
 try:

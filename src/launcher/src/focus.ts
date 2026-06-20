@@ -48,6 +48,15 @@ export class FocusGrid {
     return row[this.colIndex] ?? null;
   }
 
+  setPosition(row: number, col: number): void {
+    if (this.rows.length === 0) {
+      return;
+    }
+    this.rowIndex = clamp(row, 0, this.rows.length - 1);
+    this.colIndex = clamp(col, 0, this.currentRow().length - 1);
+    this.applyFocus();
+  }
+
   restoreFocus(): void {
     this.applyFocus();
   }

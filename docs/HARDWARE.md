@@ -105,6 +105,8 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | **−** | `314` | — |
 | **+** | `315` | — |
 | **↻ shuffle** (left, below −/+) | `317` | **Reshuffle library** (launcher) |
+| **L** shoulder | `310` | **Prev browse tab** (launcher) |
+| **R** shoulder | `311` | **Next browse tab** (launcher); home fallback in apps |
 | **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
 
 **D-pad** → navigate (arrow keys).

@@ -25,19 +25,19 @@ const DEFAULT_APP_CARDS: AppCard[] = [
   { id: "settings", action: "settings", kicker: "System", title: "Settings" },
 ];
 
+export const BROWSE_TAB_ORDER: BrowseTab[] = ["movies", "series", "live"];
+
 export function buildBrowseTabs(
   container: HTMLElement,
   activeTab: BrowseTab,
   onTabChange: (tab: BrowseTab) => void,
 ): HTMLElement[] {
   container.replaceChildren();
-  const tabs: Array<{ id: BrowseTab; label: string }> = [
-    { id: "movies", label: "movies" },
-    { id: "series", label: "tv shows" },
-    { id: "live", label: "live" },
-  ];
   const buttons: HTMLElement[] = [];
-  for (const tab of tabs) {
+  for (const tab of BROWSE_TAB_ORDER.map((id) => ({
+    id,
+    label: id === "series" ? "tv shows" : id,
+  }))) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `browse-tab${tab.id === activeTab ? " browse-tab--active" : ""}`;

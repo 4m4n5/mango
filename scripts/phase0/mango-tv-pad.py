@@ -40,6 +40,8 @@ MPV_STOP_SH = REPO / "scripts/phase-n1/mpv-stop.sh"
 BTN_B = 304
 BTN_Y = 308
 BTN_MINUS = 314
+BTN_TL = 310  # L shoulder — prev browse tab (launcher)
+BTN_TR = 311  # R shoulder — next browse tab (launcher); home fallback elsewhere
 BTN_SHUFFLE = 317  # BTN_THUMBL — bottom-left grid, left of ⌂ (Switch capture)
 HOME_BUTTONS = {316, 311}
 BT_MAC = "E4:17:D8:EB:00:44"
@@ -237,10 +239,24 @@ def stop_mpv_home() -> None:
     )
 
 
-def launcher_shuffle_allowed() -> bool:
+def launcher_surface_active() -> bool:
     if foreground_app() == "launcher":
         return True
     return bool(_launcher_window_ids())
+
+
+def send_launcher_key(symbol: str) -> None:
+    wid = find_best_wid("mango-launcher", "mango")
+    if wid:
+        _xdotool("windowactivate", "--sync", wid)
+    send_key_launcher(symbol)
+
+
+def switch_launcher_tab(delta: int) -> None:
+    if not launcher_surface_active():
+        return
+    diag_event("tab_switch", foreground=foreground_app(), delta=str(delta))
+    send_launcher_key("F7" if delta > 0 else "F6")
 
 
 def reshuffle_launcher_rails() -> None:
@@ -260,14 +276,11 @@ def reshuffle_launcher_rails() -> None:
         timeout=5,
         check=False,
     )
-    wid = find_best_wid("mango-launcher", "mango")
-    if wid:
-        _xdotool("windowactivate", "--sync", wid)
-    send_key_launcher("F5")
+    send_launcher_key("F5")
 
 
 def refresh_launcher_library() -> None:
-    if not launcher_shuffle_allowed():
+    if not launcher_surface_active():
         return
     diag_event("shuffle_press", foreground=foreground_app())
     reshuffle_launcher_rails()
@@ -417,6 +430,10 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                     debounced(f"{app}-back", lambda: route_face(app, "back"))
                 elif event.code == BTN_SHUFFLE:
                     debounced("shuffle", refresh_launcher_library)
+                elif app == "launcher" and event.code == BTN_TL:
+                    debounced("tab-prev", lambda: switch_launcher_tab(-1))
+                elif app == "launcher" and event.code == BTN_TR:
+                    debounced("tab-next", lambda: switch_launcher_tab(1))
                 elif event.code in HOME_BUTTONS:
                     debounced("home", go_home)
     except OSError as exc:

@@ -2,7 +2,7 @@ import "./style.css";
 import { FocusGrid } from "./focus";
 import { loadCatalogRails } from "./catalog";
 import { DetailController } from "./detail";
-import { buildHomeRails, buildBrowseTabs, type CatalogState, type HomeOptions } from "./home";
+import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, type HomeOptions } from "./home";
 import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
 import { fetchPinnedIds } from "./pins";
@@ -50,6 +50,7 @@ const focusGrid = new FocusGrid((element) => {
 });
 
 let focusGridRows: HTMLElement[][] = [];
+let focusBrowseTabOnRender = false;
 
 const detail = new DetailController(
   detailView,
@@ -99,6 +100,13 @@ function renderHome(): void {
     }, catalogState),
   ];
   focusGrid.setRows(focusGridRows);
+  if (focusBrowseTabOnRender) {
+    focusBrowseTabOnRender = false;
+    const tabIndex = BROWSE_TAB_ORDER.indexOf(activeBrowseTab);
+    if (tabIndex >= 0) {
+      focusGrid.setPosition(0, tabIndex);
+    }
+  }
 }
 
 function handleBrowseTabChange(tab: BrowseTab): void {
@@ -107,6 +115,21 @@ function handleBrowseTabChange(tab: BrowseTab): void {
   }
   activeBrowseTab = tab;
   void loadCatalog();
+}
+
+function cycleBrowseTab(delta: number): void {
+  if (detail.isOpen || inSettings || homeView.classList.contains("hidden")) {
+    return;
+  }
+  const index = BROWSE_TAB_ORDER.indexOf(activeBrowseTab);
+  if (index < 0) {
+    return;
+  }
+  const next = BROWSE_TAB_ORDER[
+    (index + delta + BROWSE_TAB_ORDER.length) % BROWSE_TAB_ORDER.length
+  ];
+  focusBrowseTabOnRender = true;
+  handleBrowseTabChange(next);
 }
 
 function handleKeydown(event: KeyboardEvent): void {
@@ -163,6 +186,17 @@ function handleKeydown(event: KeyboardEvent): void {
   if (event.key === "F5" && !detail.isOpen && !homeView.classList.contains("hidden")) {
     event.preventDefault();
     void libraryRefresh();
+    return;
+  }
+
+  if (
+    (event.key === "F6" || event.key === "F7")
+    && !detail.isOpen
+    && !inSettings
+    && !homeView.classList.contains("hidden")
+  ) {
+    event.preventDefault();
+    cycleBrowseTab(event.key === "F7" ? 1 : -1);
     return;
   }
 
@@ -272,7 +306,7 @@ function showHome(): void {
   detailView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. shuffle reshuffles picks.");
+  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
 }
 
 function restoreHomeFromDetail(): void {
@@ -280,7 +314,7 @@ function restoreHomeFromDetail(): void {
   settingsView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. shuffle reshuffles picks.");
+  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
 }
 
 async function reloadPinsAndCatalog(): Promise<void> {
@@ -340,7 +374,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     setStatus(itemCount > 0
       ? options.reshuffle
         ? "updated — keep browsing."
-        : "D-pad to browse. B to select. shuffle reshuffles picks."
+        : "D-pad to browse. L/R shoulders switch tabs. B to select."
       : "catalog loaded with no posters");
   } catch (error) {
     catalogState = {

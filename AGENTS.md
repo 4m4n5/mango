@@ -87,7 +87,7 @@ bash scripts/phase-n0/gate-n0.sh
 
 ## Gamepad (locked)
 
-8BitDo Micro · **B**=`304` select · **Y**=`308` back · **↻**=`317` shuffle · **⌂**=`316` home
+8BitDo Micro · **B**=`304` select · **Y**=`308` back · **L**=`310` tab − · **R**=`311` tab + · **↻**=`317` shuffle · **⌂**=`316` home
 
 | Surface | Input |
 |---------|--------|
