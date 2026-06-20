@@ -49,10 +49,10 @@ export class PlayabilityBatchWriter {
         const upsertTitle = db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
-  cache_status, debrid_service, probe_ms, win_url_hash, updated_at
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
 ) VALUES (
   @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
-  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @updated_at
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @updated_at
 )
 ON CONFLICT(type, id) DO UPDATE SET
   status = excluded.status,
@@ -64,6 +64,7 @@ ON CONFLICT(type, id) DO UPDATE SET
   debrid_service = excluded.debrid_service,
   probe_ms = excluded.probe_ms,
   win_url_hash = excluded.win_url_hash,
+  win_ladder_step = excluded.win_ladder_step,
   updated_at = excluded.updated_at;
 `);
         const insertLog = db.prepare(`
@@ -95,6 +96,7 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
             debrid_service: record.debrid_service ?? null,
             probe_ms: record.probe_ms ?? null,
             win_url_hash: record.win_url_hash ?? null,
+            win_ladder_step: record.win_ladder_step ?? null,
             updated_at: timestamp,
           });
           insertLog.run({

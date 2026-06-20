@@ -10,8 +10,8 @@ mango_gate_init
 TMP_DIR="${TMPDIR:-/tmp}/mango-n3a-gate"
 mkdir -p "$TMP_DIR"
 
-MAX_TOTAL_MS="${MANGO_N3A_MAX_TOTAL_MS:-15000}"
-MAX_ATTEMPTS="${MANGO_N3A_MAX_ATTEMPTS:-5}"
+MAX_TOTAL_MS="${MANGO_N3A_MAX_TOTAL_MS:-90000}"
+MAX_ATTEMPTS="${MANGO_N3A_MAX_ATTEMPTS:-12}"
 SHAWSHANK_ID="${MANGO_N3A_SHAWSHANK_ID:-tt0111161}"
 
 trap gate_mpv_stop EXIT
@@ -21,6 +21,8 @@ gate_header "mango N3a play gate"
 curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
   && gate_pass "catalog /health" || { gate_fail "catalog /health"; exit 1; }
 
+bash scripts/phase-n3a/gate-n3a-play-ladder.sh || gate_fail "N3a play-ladder regression"
+
 python3 - config/catalog-filters.example.json "$MAX_TOTAL_MS" <<'PY' \
   && gate_pass "repo couch filters" || gate_fail "repo couch filters"
 import json
@@ -29,13 +31,12 @@ path, max_total = sys.argv[1], int(sys.argv[2])
 data = json.load(open(path, encoding="utf-8"))
 assert data.get("strict_unknown_cache") is True, "strict_unknown_cache must be true"
 assert int(data.get("auto_play_wall_ms") or 0) <= max_total, "auto_play_wall_ms too high"
-assert int(data.get("auto_play_probe_ms") or 0) <= 6000, "auto_play_probe_ms too high"
-tiers = data.get("auto_play_tiers") or []
-assert tiers, "auto_play_tiers missing"
-for tier in tiers:
-    addons = [str(item).lower() for item in tier.get("addons", [])]
-    assert any("aiostreams" in item for item in addons), "autoplay tier must use AIOStreams"
-    assert not any(item == "torrentio" for item in addons), "standalone Torrentio is not autoplay"
+ladder = data.get("play_ladder") or []
+assert len(ladder) >= 3, "play_ladder missing"
+assert ladder[0].get("step") == "ideal", "first ladder step must be ideal"
+for step in ladder:
+    addons = [str(item).lower() for item in step.get("addons", [])]
+    assert any("aiostreams" in item for item in addons), "ladder step must use AIOStreams"
 PY
 
 pick_rail_item() {

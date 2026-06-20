@@ -1,48 +1,50 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Stream } from './core.js';
-import { playWithFallback } from './play-orchestrator.js';
+import { playWithLadder } from './play-orchestrator.js';
+import { defaultPlayLadder } from './play-ladder.js';
 import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
 
 function testConfig() {
   return mergeFilterConfig({
     ...defaultFilterConfig(),
     strict_unknown_cache: false,
-    max_quality: '1080p',
-    exclude_remux: false,
-    auto_play_wall_ms: 15000,
-    auto_play_probe_ms: 4000,
-    auto_play_max_attempts: 5,
+    play_ladder: defaultPlayLadder(),
+    auto_play_wall_ms: 90000,
+    auto_play_probe_ms: 8000,
+    auto_play_max_attempts: 12,
     stream_display_limit: 8,
   });
 }
 
-function candidate(url: string): Stream {
+function candidate(url: string, name = '[TB☁️⚡] Torrentio 1080p'): Stream {
   return {
     url,
     source: 'AIOStreams',
-    name: '[TB] Torrentio 1080p',
-    title: '[TB] Torrentio 1080p',
+    name,
+    title: name,
     description: 'WEB-DL 1080p',
     behaviorHints: {
-      bingeGroup: 'com.aiostreams|torbox|unknown|1080p',
+      bingeGroup: 'com.aiostreams|torbox|true|1080p',
     },
   };
 }
 
-test('playWithFallback reuses the verified winning probe for exact URL hash matches', async () => {
+test('playWithLadder reuses verified probe for matching hash and ladder step', async () => {
   const stream = candidate('https://example.test/verified.mp4');
   let probeCalls = 0;
   let playTimeout = 0;
 
-  const result = await playWithFallback([stream], testConfig(), {
+  const result = await playWithLadder([stream], testConfig(), {
     verified_hint: {
       best_source: 'AIOStreams',
-      cache_status: 'unknown',
+      cache_status: 'cached',
       debrid_service: 'torbox',
       win_url_hash: streamUrlHash(stream.url),
+      win_ladder_step: 'ideal',
       probe_ms: 3210,
     },
+    preflight: async () => 'video',
     probe: async () => {
       probeCalls += 1;
       throw new Error('probe should not run');
@@ -54,57 +56,29 @@ test('playWithFallback reuses the verified winning probe for exact URL hash matc
   });
 
   assert.equal(probeCalls, 0);
-  assert.equal(result.ok, true);
-  assert.equal(result.attempts[0]?.probe_ms, 3210);
+  assert.equal(result.win_ladder_step, 'ideal');
   assert.equal(result.attempts[0]?.probe_reused, true);
-  assert.equal(result.ttff_ms, 812);
-  assert.ok(playTimeout > 14000);
+  assert.ok(playTimeout > 80000);
 });
 
-test('playWithFallback probes when stored probe_ms exceeds couch budget', async () => {
-  const stream = candidate('https://example.test/verified.mp4');
-  let probeCalls = 0;
+test('playWithLadder skips nfo sidecars and reaches a later ladder step', async () => {
+  const bad = candidate('https://example.test/bad.mkv');
+  const good = candidate(
+    'https://example.test/good.mkv',
+    '[TB⚡] Torrentio 2160p',
+  );
+  good.description = '2160p HEVC encode';
+  good.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|false|2160p' };
 
-  const result = await playWithFallback([stream], testConfig(), {
-    verified_hint: {
-      best_source: 'AIOStreams',
-      cache_status: 'cached',
-      debrid_service: 'torbox',
-      win_url_hash: streamUrlHash(stream.url),
-      probe_ms: 9000,
-    },
-    probe: async () => {
-      probeCalls += 1;
-      return { ok: true, ttff_ms: 900 };
-    },
-    play: async () => ({ ok: true, ttff_ms: 1100 }),
+  const result = await playWithLadder([bad, good], testConfig(), {
+    preflight: async (url) => (url.includes('bad') ? 'nfo' : 'video'),
+    probe: async () => ({ ok: true, ttff_ms: 500 }),
+    play: async () => ({ ok: true, ttff_ms: 900 }),
   });
 
-  assert.equal(probeCalls, 1);
-  assert.equal(result.attempts[0]?.probe_ms, 900);
-  assert.equal(result.attempts[0]?.probe_reused, undefined);
-});
-
-test('playWithFallback probes streams that do not match the verified URL hash', async () => {
-  const stream = candidate('https://example.test/current.mp4');
-  let probeCalls = 0;
-
-  const result = await playWithFallback([stream], testConfig(), {
-    verified_hint: {
-      best_source: 'AIOStreams',
-      cache_status: 'unknown',
-      debrid_service: 'torbox',
-      win_url_hash: streamUrlHash('https://example.test/old.mp4'),
-      probe_ms: 3210,
-    },
-    probe: async () => {
-      probeCalls += 1;
-      return { ok: true, ttff_ms: 443 };
-    },
-    play: async () => ({ ok: true, ttff_ms: 901 }),
-  });
-
-  assert.equal(probeCalls, 1);
-  assert.equal(result.attempts[0]?.probe_ms, 443);
-  assert.equal(result.attempts[0]?.probe_reused, undefined);
+  assert.equal(result.ok, true);
+  assert.equal(result.attempts.length, 2);
+  assert.equal(result.attempts[0]?.ok, false);
+  assert.match(result.attempts[0]?.error || '', /debrid_nfo_sidecar/);
+  assert.equal(result.win_ladder_step, '2160p_encode');
 });

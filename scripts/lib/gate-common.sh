@@ -107,7 +107,7 @@ gate_post_play() {
     gate_fail "$label catalog down"
     return 1
   fi
-  status="$(curl -sS --max-time 70 -X POST http://127.0.0.1:3020/play \
+  status="$(curl -sS --max-time 100 -X POST http://127.0.0.1:3020/play \
     -H 'content-type: application/json' \
     -d "$payload" \
     -o "$out" \

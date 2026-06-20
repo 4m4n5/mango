@@ -1,15 +1,10 @@
-import { createHash } from 'node:crypto';
 import { CatalogCore, CatalogError, type Stream } from '../core.js';
 import { isRateLimitedStreamUrl } from '../catalog-errors.js';
-import { probeUrl } from '../mpv.js';
-import {
-  selectAutoPlayCandidates,
-  type StreamFilterMeta,
-} from '../stream-filters.js';
+import { probeWithLadder } from '../play-orchestrator.js';
+import { expandPlayLadder } from '../play-ladder.js';
+import { streamUrlHash } from '../stream-filters.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
 import {
-  playabilityCouchProbeMs,
-  playabilityProbeTimeoutMs,
   playabilityUseProbePool,
   playabilityVerifyMinDurationSec,
   playabilityVerifyTtlMs,
@@ -21,7 +16,7 @@ import {
 } from './db.js';
 import { normalizeSeriesVerifyId } from './ids.js';
 import { probeUrlViaPool } from './mpv-probe-pool.js';
-import { limitVerifyCandidates } from './verify-candidates.js';
+import { probeUrl } from '../mpv.js';
 
 export type VerifyTitleResult = {
   type: string;
@@ -32,10 +27,12 @@ export type VerifyTitleResult = {
   resolve_ms?: number;
   prepare_ms?: number;
   probe_ms?: number;
+  win_ladder_step?: string;
   stream?: Record<string, unknown>;
-  filters?: StreamFilterMeta;
+  filters?: Record<string, unknown>;
   attempts: Array<{
     index: number;
+    ladder_step?: string;
     source?: string;
     quality?: string;
     cache_status?: unknown;
@@ -63,8 +60,7 @@ export type PreparedVerifyTitleResult = {
   ok: true;
   resolve_ms: number;
   prepare_ms: number;
-  filters: StreamFilterMeta;
-  candidates: Stream[];
+  resolved: Awaited<ReturnType<CatalogCore['resolveForPlay']>>;
 } | {
   type: string;
   id: string;
@@ -72,12 +68,8 @@ export type PreparedVerifyTitleResult = {
   reason: string;
   resolve_ms?: number;
   prepare_ms: number;
-  filters?: StreamFilterMeta;
+  filters?: Record<string, unknown>;
 };
-
-function urlHash(url: string): string {
-  return createHash('sha256').update(url).digest('hex').slice(0, 16);
-}
 
 function cleanError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
@@ -92,22 +84,26 @@ function cleanError(error: unknown): string {
 
 function failReason(error: unknown): string {
   const message = cleanError(error).toLowerCase();
+  if (message.includes('debrid_nfo') || message.includes('debrid_playback_unreadable')) {
+    return 'bad_stream';
+  }
   if (message.includes('rate_limit') || message.includes('rate limit')) return 'rate_limit';
   if (message.includes('debrid_status_clip')) return 'status_clip';
   if (message.includes('copyright') || message.includes('removed')) return 'copyright';
   if (message.includes('timeout') || message.includes('within')) return 'timeout';
-  if (message.includes('no streams')) return 'no_stream';
+  if (message.includes('no streams') || message.includes('no_playable')) return 'no_stream';
   if (message.includes('title')) return 'title_mismatch';
   return 'probe_failed';
 }
 
-function streamMeta(stream: Stream): Record<string, unknown> {
+function streamMeta(stream: Stream, ladderStep: string): Record<string, unknown> {
   return {
     source: stream.source,
     title: stream.title,
     quality: stream.quality,
     cache_status: stream.cache_status,
     debrid_service: stream.debrid_service,
+    ladder_step: ladderStep,
   };
 }
 
@@ -122,23 +118,8 @@ async function persistVerifyResult(
   await recordVerifyResult(record);
 }
 
-async function probeStreamUrl(
-  url: string,
-  contentType: string,
-  context?: VerifyContext,
-  timeoutMs?: number,
-): Promise<{ ttff_ms: number }> {
-  const budget = timeoutMs ?? playabilityProbeTimeoutMs();
-  const minDurationSec = playabilityVerifyMinDurationSec(contentType);
-  const usePool = context?.useProbePool ?? playabilityUseProbePool();
-  if (usePool) {
-    return probeUrlViaPool(url, budget, minDurationSec);
-  }
-  return probeUrl(url, budget, minDurationSec);
-}
-
 function isTransientFailure(reason: string): boolean {
-  return reason === 'timeout' || reason === 'probe_failed' || reason === 'no_stream';
+  return reason === 'timeout' || reason === 'probe_failed' || reason === 'no_stream' || reason === 'bad_stream';
 }
 
 async function recordFailure(
@@ -160,7 +141,6 @@ async function recordFailure(
     return 'preserved';
   }
 
-  // Re-probes should never demote a title to failed — stale keeps it in pool for retry.
   const demoteToStale = staleReprobe || (existing?.status === 'verified' && isTransientFailure(reason));
   const status = demoteToStale ? 'stale' : 'failed';
   await persistVerifyResult({
@@ -194,11 +174,16 @@ export async function prepareVerifyTitle(
   const started = Date.now();
   const verifyId = normalizeSeriesVerifyId(type, id);
   try {
-    const streamResult = await core.streams(type, verifyId);
-    const candidates = limitVerifyCandidates(
-      selectAutoPlayCandidates(streamResult.streams, streamResult.filters.applied, {
-        allow_uncached_torbox: streamResult.filters.torbox_uncached_fallback === true,
-      }),
+    const resolved = await core.resolveForPlay(type, verifyId);
+    const candidates = expandPlayLadder(
+      resolved.streams,
+      resolved.filters.play_ladder,
+      resolved.filterContext,
+      {
+        strict_unknown_cache: resolved.filters.strict_unknown_cache,
+        preferred_quality: resolved.filters.preferred_quality,
+        max_candidates: resolved.filters.auto_play_max_attempts,
+      },
     );
 
     if (candidates.length === 0) {
@@ -207,9 +192,12 @@ export async function prepareVerifyTitle(
         id,
         ok: false,
         reason: 'no_stream',
-        resolve_ms: streamResult.resolve_ms,
+        resolve_ms: resolved.resolve_ms,
         prepare_ms: Date.now() - started,
-        filters: streamResult.filters,
+        filters: {
+          applied: resolved.filters,
+          play_ladder: resolved.filters.play_ladder.map((step) => step.step),
+        },
       };
     }
 
@@ -217,13 +205,12 @@ export async function prepareVerifyTitle(
       type,
       id,
       ok: true,
-      resolve_ms: streamResult.resolve_ms,
+      resolve_ms: resolved.resolve_ms,
       prepare_ms: Date.now() - started,
-      filters: streamResult.filters,
-      candidates,
+      resolved,
     };
   } catch (error) {
-    const reason = error instanceof CatalogError && error.details?.filters
+    const reason = error instanceof CatalogError
       ? 'no_stream'
       : failReason(error);
     return {
@@ -232,7 +219,9 @@ export async function prepareVerifyTitle(
       ok: false,
       reason,
       prepare_ms: Date.now() - started,
-      filters: error instanceof CatalogError ? error.details?.filters as StreamFilterMeta | undefined : undefined,
+      filters: error instanceof CatalogError
+        ? error.details?.filters as Record<string, unknown> | undefined
+        : undefined,
     };
   }
 }
@@ -257,87 +246,75 @@ export async function verifyPreparedTitle(
     };
   }
 
-  const attempts: VerifyTitleResult['attempts'] = [];
-  const probeBudgetMs = Math.min(
-    prepared.filters.applied.auto_play_probe_ms,
-    playabilityCouchProbeMs(),
+  const usePool = context?.useProbePool ?? playabilityUseProbePool();
+  const probe = usePool
+    ? (url: string, timeoutMs: number) => probeUrlViaPool(url, timeoutMs, playabilityVerifyMinDurationSec(prepared.type))
+    : probeUrl;
+
+  const ladderResult = await probeWithLadder(
+    prepared.resolved.streams,
+    prepared.resolved.filters,
+    {
+      ladder: prepared.resolved.filters.play_ladder,
+      contentType: prepared.type,
+      filterContext: prepared.resolved.filterContext,
+      probe: async (url, timeoutMs) => {
+        if (isRateLimitedStreamUrl(url)) {
+          throw new Error('rate_limited');
+        }
+        return probe(url, timeoutMs);
+      },
+    },
   );
-  for (const [index, stream] of prepared.candidates.entries()) {
-    const started = Date.now();
-    if (isRateLimitedStreamUrl(stream.url)) {
-      attempts.push({
-        index,
-        source: stream.source,
-        quality: stream.quality,
-        cache_status: stream.cache_status,
-        debrid_service: stream.debrid_service,
-        ok: false,
-        ms: Date.now() - started,
-        error: 'rate_limited',
-      });
-      continue;
+
+  const responseFilters = {
+    applied: prepared.resolved.filters,
+    play_ladder: prepared.resolved.filters.play_ladder.map((step) => step.step),
+  };
+
+  if (ladderResult.ok) {
+    const stream = ladderResult.stream;
+    await persistVerifyResult({
+      type: prepared.type,
+      id: prepared.id,
+      status: 'verified',
+      rail_id: options.railId ?? null,
+      best_source: stream.source,
+      cache_status: typeof stream.cache_status === 'string' ? stream.cache_status : null,
+      debrid_service: typeof stream.debrid_service === 'string' ? stream.debrid_service : null,
+      probe_ms: ladderResult.probe_ms,
+      win_url_hash: streamUrlHash(stream.url),
+      win_ladder_step: ladderResult.ladder_step,
+      expires_at: Date.now() + playabilityVerifyTtlMs(),
+      stage: 'verify',
+      outcome: 'verified',
+    }, context);
+    if (prepared.type === 'series') {
+      void enqueueSeriesFollowUpEpisodes(prepared.id).catch(() => undefined);
     }
-    try {
-      const probe = await probeStreamUrl(stream.url, prepared.type, context, probeBudgetMs);
-      const probeMs = Date.now() - started;
-      attempts.push({
-        index,
-        source: stream.source,
-        quality: stream.quality,
-        cache_status: stream.cache_status,
-        debrid_service: stream.debrid_service,
-        ok: true,
-        ms: probeMs,
-      });
-      await persistVerifyResult({
-        type: prepared.type,
-        id: prepared.id,
-        status: 'verified',
-        rail_id: options.railId ?? null,
-        best_source: stream.source,
-        cache_status: typeof stream.cache_status === 'string' ? stream.cache_status : null,
-        debrid_service: typeof stream.debrid_service === 'string' ? stream.debrid_service : null,
-        probe_ms: probe.ttff_ms,
-        win_url_hash: urlHash(stream.url),
-        expires_at: Date.now() + playabilityVerifyTtlMs(),
-        stage: 'verify',
-        outcome: 'verified',
-      }, context);
-      if (prepared.type === 'series') {
-        void enqueueSeriesFollowUpEpisodes(prepared.id).catch(() => undefined);
-      }
-      return {
-        type: prepared.type,
-        id: prepared.id,
-        ok: true,
-        status: 'verified',
-        resolve_ms: prepared.resolve_ms,
-        prepare_ms: prepared.prepare_ms,
-        probe_ms: probe.ttff_ms,
-        stream: streamMeta(stream),
-        filters: prepared.filters,
-        attempts,
-      };
-    } catch (error) {
-      attempts.push({
-        index,
-        source: stream.source,
-        quality: stream.quality,
-        cache_status: stream.cache_status,
-        debrid_service: stream.debrid_service,
-        ok: false,
-        ms: Date.now() - started,
-        error: cleanError(error),
-      });
-    }
+    return {
+      type: prepared.type,
+      id: prepared.id,
+      ok: true,
+      status: 'verified',
+      resolve_ms: prepared.resolve_ms,
+      prepare_ms: prepared.prepare_ms,
+      probe_ms: ladderResult.probe_ms,
+      win_ladder_step: ladderResult.ladder_step,
+      stream: streamMeta(stream, ladderResult.ladder_step),
+      filters: responseFilters,
+      attempts: ladderResult.attempts,
+    };
   }
 
-  const reason = attempts.at(-1)?.error ? failReason(attempts.at(-1)?.error) : 'probe_failed';
+  const reason = ladderResult.attempts.at(-1)?.error
+    ? failReason(ladderResult.attempts.at(-1)?.error)
+    : 'probe_failed';
   const recorded = await recordFailure(
     prepared.type,
     prepared.id,
     reason,
-    attempts.reduce((total, attempt) => total + attempt.ms, 0),
+    ladderResult.attempts.reduce((total, attempt) => total + attempt.ms, 0),
     options,
     context,
   );
@@ -349,7 +326,7 @@ export async function verifyPreparedTitle(
     reason,
     resolve_ms: prepared.resolve_ms,
     prepare_ms: prepared.prepare_ms,
-    filters: prepared.filters,
-    attempts,
+    filters: responseFilters,
+    attempts: ladderResult.attempts,
   };
 }

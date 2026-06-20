@@ -16,6 +16,17 @@ export function isElfHostedAddonName(name: string): boolean {
   return /elfhosted/i.test(name);
 }
 
+export function couchPlayFailureMessage(attempts: Array<{ error?: string }> | undefined): string {
+  const errors = (attempts || []).map((attempt) => attempt.error || '').join(' ');
+  if (/debrid_nfo_sidecar|debrid_playback_unreadable/i.test(errors)) {
+    return 'stream not ready on TorBox — try again in a few minutes';
+  }
+  if (/debrid_status_clip/i.test(errors)) {
+    return 'stream still caching on TorBox — try again in a few minutes';
+  }
+  return 'catalog temporarily unavailable';
+}
+
 export function couchSafeCatalogMessage(message: string, context?: { addon?: string }): string {
   if (isAddonRateLimitMessage(message)) {
     if (context?.addon && isElfHostedAddonName(context.addon)) {

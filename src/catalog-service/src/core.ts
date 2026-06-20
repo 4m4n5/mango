@@ -9,7 +9,13 @@ import {
   mergeFilterConfig,
   type StreamFilterMeta,
   type StreamFilterOverrides,
+  type StreamFilterContext,
 } from './stream-filters.js';
+import {
+  defaultPlayLadder,
+  enrichStreams,
+  filterStreamsForLadderStep,
+} from './play-ladder.js';
 import {
   enabledBrowsableRails,
   enabledBrowsableRailsForTab,
@@ -651,6 +657,63 @@ export class CatalogCore {
     throw new CatalogError(502, `meta not resolved for ${type}/${id}${errors.length ? ` (${errors.join('; ')})` : ''}`);
   }
 
+  private async buildStreamFilterContext(type: string, id: string): Promise<StreamFilterContext> {
+    let filterContext: StreamFilterContext = {
+      contentType: type,
+      metaId: id,
+    };
+    try {
+      const meta = await this.metaCached(type, id);
+      filterContext = {
+        contentType: type,
+        metaId: id,
+        metaTitle: typeof meta.name === 'string'
+          ? meta.name
+          : typeof meta.title === 'string'
+            ? meta.title
+            : undefined,
+      };
+    } catch {
+      // title relevance filter skipped when meta unavailable
+    }
+    const curation = await loadRailCurationOverrides();
+    if (shouldSkipTitleFilter(type, id, curation)) {
+      filterContext.skipTitleFilter = true;
+    }
+    return filterContext;
+  }
+
+  /** Raw addon streams + merged couch config for play-ladder orchestration. */
+  async resolveForPlay(
+    type: string,
+    id: string,
+    overrides: StreamFilterOverrides = {},
+  ): Promise<{
+    streams: Stream[];
+    resolve_ms: number;
+    cached: boolean;
+    filters: ReturnType<typeof mergeFilterConfig>;
+    filterContext: StreamFilterContext;
+    errors?: string[];
+  }> {
+    const streamId = normalizeSeriesVerifyId(type, id);
+    const raw = await this.rawStreams(type, streamId);
+    if (raw.streams.length === 0) {
+      throw new CatalogError(
+        502,
+        `no HTTP streams for ${type}/${streamId}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
+      );
+    }
+    return {
+      streams: enrichStreams(raw.streams),
+      resolve_ms: raw.cached ? 0 : raw.resolveMs,
+      cached: raw.cached,
+      filters: mergeFilterConfig(this.filterConfig, overrides),
+      filterContext: await this.buildStreamFilterContext(type, id),
+      errors: raw.errors.length > 0 ? raw.errors : undefined,
+    };
+  }
+
   async streams(
     type: string,
     id: string,
@@ -673,29 +736,34 @@ export class CatalogCore {
     }
 
     const config = mergeFilterConfig(this.filterConfig, overrides);
-    let filterContext: import('./stream-filters.js').StreamFilterContext = {
-      contentType: type,
-      metaId: id,
-    };
-    try {
-      const meta = await this.metaCached(type, id);
-      filterContext = {
-        contentType: type,
-        metaId: id,
-        metaTitle: typeof meta.name === 'string'
-          ? meta.name
-          : typeof meta.title === 'string'
-            ? meta.title
-            : undefined,
-      };
-    } catch {
-      // title relevance filter skipped when meta unavailable
-    }
-    const curation = await loadRailCurationOverrides();
-    if (shouldSkipTitleFilter(type, id, curation)) {
-      filterContext.skipTitleFilter = true;
-    }
-    const filtered = filterStreamsForPlay(raw.streams, config, filterContext);
+    const filterContext = await this.buildStreamFilterContext(type, id);
+    const idealStep = config.play_ladder[0] ?? defaultPlayLadder()[0];
+    const idealStreams = filterStreamsForLadderStep(raw.streams, idealStep, filterContext, {
+      strict_unknown_cache: config.strict_unknown_cache,
+      preferred_quality: config.preferred_quality,
+      hard_language: config.hard_language,
+    });
+    const filtered = idealStreams.length > 0
+      ? {
+        streams: idealStreams.slice(0, config.stream_display_limit),
+        meta: {
+          applied: config,
+          total: raw.streams.length,
+          kept: idealStreams.length,
+          excluded: {
+            uncached_debrid: 0,
+            unknown_cache_debrid: 0,
+            above_max_quality: 0,
+            remux: 0,
+            error_stream: 0,
+            title_mismatch: 0,
+            series_pack_for_movie: 0,
+            language_mismatch: 0,
+          },
+          play_ladder_step: idealStep.step,
+        } satisfies StreamFilterMeta,
+      }
+      : filterStreamsForPlay(raw.streams, config, filterContext);
     if (filtered.streams.length === 0) {
       const hint = config.exclude_uncached_debrid
         ? ' try ?include_uncached=1 or set include_uncached in POST /play'

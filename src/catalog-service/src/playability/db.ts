@@ -20,7 +20,7 @@ import { effectiveDisplayLimit } from './pool-growth.js';
 import { playabilityCouchProbeMs } from './config.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 export type PlayabilityRailStatus = {
   rail_id: string;
@@ -58,6 +58,7 @@ export type PlayabilityVerifyRecord = {
   debrid_service?: string | null;
   probe_ms?: number | null;
   win_url_hash?: string | null;
+  win_ladder_step?: string | null;
   expires_at?: number | null;
   stage?: string;
   outcome?: string;
@@ -80,6 +81,7 @@ export type TitleVerifyProfile = {
   cache_status: string | null;
   debrid_service: string | null;
   win_url_hash: string | null;
+  win_ladder_step: string | null;
   probe_ms: number | null;
   expires_at: number | null;
 };
@@ -456,9 +458,21 @@ CREATE INDEX IF NOT EXISTS idx_playability_triggers_open ON playability_triggers
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (${SCHEMA_VERSION}, ${nowMs()});
 `);
+    applySchemaMigrations(db);
   } finally {
     db.close();
   }
+}
+
+function applySchemaMigrations(db: Database.Database): void {
+  const columns = db.prepare('PRAGMA table_info(titles)').all() as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === 'win_ladder_step')) {
+    db.exec('ALTER TABLE titles ADD COLUMN win_ladder_step TEXT');
+  }
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (2, @applied_at);
+`).run({ applied_at: nowMs() });
 }
 
 export async function getPlayabilityStatus(railIds: string[]): Promise<PlayabilityStatus> {
@@ -537,10 +551,10 @@ export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promi
       db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
-  cache_status, debrid_service, probe_ms, win_url_hash, updated_at
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
 ) VALUES (
   @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
-  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @updated_at
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @updated_at
 )
 ON CONFLICT(type, id) DO UPDATE SET
   status = excluded.status,
@@ -552,6 +566,7 @@ ON CONFLICT(type, id) DO UPDATE SET
   debrid_service = excluded.debrid_service,
   probe_ms = excluded.probe_ms,
   win_url_hash = excluded.win_url_hash,
+  win_ladder_step = excluded.win_ladder_step,
   updated_at = excluded.updated_at;
 `).run({
         type: record.type,
@@ -565,6 +580,7 @@ ON CONFLICT(type, id) DO UPDATE SET
         debrid_service: record.debrid_service ?? null,
         probe_ms: record.probe_ms ?? null,
         win_url_hash: record.win_url_hash ?? null,
+        win_ladder_step: record.win_ladder_step ?? null,
         updated_at: timestamp,
       });
 
@@ -734,7 +750,7 @@ export async function getTitleVerifyProfile(
   const db = openDb();
   try {
     const row = db.prepare(`
-SELECT type, id, status, best_source, cache_status, debrid_service, win_url_hash, probe_ms, expires_at
+SELECT type, id, status, best_source, cache_status, debrid_service, win_url_hash, win_ladder_step, probe_ms, expires_at
 FROM titles
 WHERE type = @type AND id = @id;
 `).get({ type, id }) as {
@@ -745,6 +761,7 @@ WHERE type = @type AND id = @id;
       cache_status: string | null;
       debrid_service: string | null;
       win_url_hash: string | null;
+      win_ladder_step: string | null;
       probe_ms: number | null;
       expires_at: number | null;
     } | undefined;

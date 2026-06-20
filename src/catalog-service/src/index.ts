@@ -1,13 +1,15 @@
 import http from 'node:http';
 import { CatalogCore, CatalogError } from './core.js';
+import { couchPlayFailureMessage } from './catalog-errors.js';
 import { playUrl } from './mpv.js';
-import { playWithFallback } from './play-orchestrator.js';
+import { playWithLadder } from './play-orchestrator.js';
 import { bumpPlayEpoch, PlayCancelledError } from './play-cancel.js';
-import { invalidateTitle, getTitleVerifyProfile } from './playability/db.js';
+import { invalidateTitle, getTitleVerifyProfile, recordVerifyResult } from './playability/db.js';
+import { playabilityVerifyTtlMs } from './playability/config.js';
 import { parseCatalogTab } from './rails.js';
+import { streamUrlHash } from './stream-filters.js';
 import {
   parseFilterOverridesFromQuery,
-  streamMatchesVerifiedHint,
   type StreamFilterOverrides,
 } from './stream-filters.js';
 
@@ -127,63 +129,59 @@ async function handlePlay(
       cache_status: profile.cache_status,
       debrid_service: profile.debrid_service,
       win_url_hash: profile.win_url_hash,
+      win_ladder_step: profile.win_ladder_step,
       probe_ms: profile.probe_ms,
     }
     : undefined;
-  let verifiedUnknownCacheReplay = false;
-  let result: Awaited<ReturnType<CatalogCore['streams']>>;
+
+  const resolved = await core.resolveForPlay(body.type, body.id, overrides);
+
   try {
-    result = await core.streams(body.type, body.id, overrides);
-  } catch (error) {
-    const filters = error instanceof CatalogError
-      ? (error.details?.filters as { applied?: { strict_unknown_cache?: boolean } } | undefined)
-      : undefined;
-    const canReplayVerifiedUnknown = verifiedHint?.cache_status === 'unknown'
-      && filters?.applied?.strict_unknown_cache === true;
-    if (!canReplayVerifiedUnknown) {
-      throw error;
-    }
-    result = await core.streams(body.type, body.id, {
-      ...overrides,
-      strict_unknown_cache: false,
-    });
-    verifiedUnknownCacheReplay = true;
-  }
-  if (
-    verifiedHint?.cache_status === 'unknown'
-    && verifiedHint.win_url_hash
-    && result.filters.applied.strict_unknown_cache === true
-    && !result.streams.some((stream) => streamMatchesVerifiedHint(stream, verifiedHint))
-  ) {
-    result = await core.streams(body.type, body.id, {
-      ...overrides,
-      strict_unknown_cache: false,
-    });
-    verifiedUnknownCacheReplay = true;
-  }
-  const responseFilters = verifiedUnknownCacheReplay
-    ? { ...result.filters, verified_unknown_cache_replay: true }
-    : result.filters;
-  try {
-    const playback = await playWithFallback(result.streams, result.filters.applied, {
-      allow_uncached_torbox: result.filters.torbox_uncached_fallback === true,
-      allow_rd_safe_unknown: result.filters.rd_safe_unknown_fallback === true,
+    const playback = await playWithLadder(resolved.streams, resolved.filters, {
       contentType: body.type,
+      filterContext: resolved.filterContext,
       verified_hint: verifiedHint,
       playEpoch,
     });
+
+    await recordVerifyResult({
+      type: body.type,
+      id: body.id,
+      status: 'verified',
+      rail_id: body.rail_id ?? null,
+      best_source: typeof playback.stream.source === 'string' ? playback.stream.source : null,
+      cache_status: typeof playback.stream.cache_status === 'string' ? playback.stream.cache_status : null,
+      debrid_service: typeof playback.stream.debrid_service === 'string' ? playback.stream.debrid_service : null,
+      probe_ms: playback.ttff_ms,
+      win_url_hash: playback.win_url_hash,
+      win_ladder_step: playback.win_ladder_step,
+      expires_at: Date.now() + playabilityVerifyTtlMs(),
+      stage: 'play',
+      outcome: 'verified',
+    }).catch((writeError) => {
+      console.warn(
+        `playability refresh on play failed type=${body.type} id=${body.id}: ${
+          writeError instanceof Error ? writeError.message : String(writeError)
+        }`,
+      );
+    });
+
     return {
       ok: playback.ok,
       ttff_ms: playback.ttff_ms,
       total_ms: playback.total_ms,
       attempts: playback.attempts.length,
       candidate_count: playback.candidate_count,
+      win_ladder_step: playback.win_ladder_step,
       stream: {
         ...playback.stream,
-        resolve_ms: result.resolve_ms,
-        cached: result.cached,
+        resolve_ms: resolved.resolve_ms,
+        cached: resolved.cached,
       },
-      filters: responseFilters,
+      filters: {
+        applied: resolved.filters,
+        play_ladder: resolved.filters.play_ladder.map((step) => step.step),
+      },
     };
   } catch (error) {
     if (error instanceof PlayCancelledError) {
@@ -194,10 +192,7 @@ async function handlePlay(
       : undefined;
     const attempts = details?.attempts;
     const probedStreams = Array.isArray(attempts) && attempts.length > 0;
-    const filterEmpty = error instanceof CatalogError
-      && typeof error.message === 'string'
-      && error.message.includes('no streams left after filters');
-    if (probedStreams && !filterEmpty) {
+    if (probedStreams) {
       await invalidateTitle({
         rail_id: body.rail_id,
         type: body.type,
@@ -213,9 +208,17 @@ async function handlePlay(
       core.clearRailItemsCache(body.rail_id ?? undefined);
     }
     if (error instanceof CatalogError) {
+      if (error.message === 'no_playable_stream') {
+        error.couchMessage = couchPlayFailureMessage(
+          details?.attempts as Array<{ error?: string }> | undefined,
+        );
+      }
       error.details = {
         ...(error.details || {}),
-        filters: responseFilters,
+        filters: {
+          applied: resolved.filters,
+          play_ladder: resolved.filters.play_ladder.map((step) => step.step),
+        },
       };
     }
     throw error;

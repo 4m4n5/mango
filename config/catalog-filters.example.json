@@ -2,15 +2,60 @@
   "exclude_uncached_debrid": true,
   "strict_unknown_cache": true,
   "max_quality": "1080p",
+  "preferred_quality": "1080p",
   "exclude_remux": true,
   "include_uncached": false,
   "exclude_error_streams": true,
   "uncached_torbox_fallback": true,
   "rd_safe_unknown_fallback": true,
   "stream_display_limit": 8,
-  "auto_play_max_attempts": 5,
-  "auto_play_wall_ms": 15000,
-  "auto_play_probe_ms": 6000,
+  "auto_play_max_attempts": 12,
+  "auto_play_wall_ms": 90000,
+  "auto_play_probe_ms": 8000,
+  "auto_play_uncached_probe_ms": 25000,
+  "play_ladder": [
+    {
+      "step": "ideal",
+      "max_quality": "1080p",
+      "exclude_remux": true,
+      "require_cache": "cached",
+      "debrid_services": ["torbox"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "1080p_uncached",
+      "max_quality": "1080p",
+      "exclude_remux": true,
+      "require_cache": "cached_or_uncached",
+      "debrid_services": ["torbox"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "1080p_remux",
+      "max_quality": "1080p",
+      "exclude_remux": false,
+      "require_cache": "cached",
+      "debrid_services": ["torbox"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "2160p_encode",
+      "max_quality": "2160p",
+      "exclude_remux": true,
+      "require_cache": "cached_or_uncached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "last_resort",
+      "max_quality": "2160p",
+      "exclude_remux": false,
+      "require_cache": "any",
+      "debrid_services": ["torbox", "realdebrid"],
+      "rd_safe_unknown": true,
+      "addons": ["AIOStreams"]
+    }
+  ],
   "auto_play_tiers": [
     {
       "addons": ["AIOStreams"],

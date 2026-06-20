@@ -11,6 +11,7 @@ import {
   type RailCurationOverrides,
   type RailCurationPin,
 } from './rail-overrides.js';
+import { expandPlayLadder } from '../play-ladder.js';
 import { prepareVerifyTitle, verifyPreparedTitle } from './verify.js';
 
 export type ApplyRailCurationResult = {
@@ -43,7 +44,12 @@ async function verifyPin(
     };
   }
   if (!verified.ok && !pin.verify_probe) {
-    const streamCount = prepared.candidates.length;
+    const streamCount = expandPlayLadder(
+      prepared.resolved.streams,
+      prepared.resolved.filters.play_ladder,
+      prepared.resolved.filterContext,
+      { max_candidates: prepared.resolved.filters.auto_play_max_attempts },
+    ).length;
     if (streamCount === 0) {
       return {
         ok: false,

@@ -6,12 +6,14 @@ import {
   parseFormatterDescription,
   textWithoutSubtitleLines,
 } from './stream-formatter.js';
+import { defaultPlayLadder, parsePlayLadder, type PlayLadderStep } from './play-ladder.js';
 
 export type VerifiedStreamHint = {
   best_source?: string | null;
   cache_status?: string | null;
   debrid_service?: string | null;
   win_url_hash?: string | null;
+  win_ladder_step?: string | null;
   probe_ms?: number | null;
 };
 
@@ -48,7 +50,13 @@ export type StreamFilterConfig = {
   auto_play_wall_ms: number;
   /** Per-URL mpv probe budget. */
   auto_play_probe_ms: number;
-  /** Ordered automatic Play tiers. */
+  /** Longer probe budget for uncached TorBox ladder steps. */
+  auto_play_uncached_probe_ms: number;
+  /** Couch preferred quality target (ladder step 1). */
+  preferred_quality: QualityCap;
+  /** Ordered play preference ladder — see play-ladder.ts */
+  play_ladder: import('./play-ladder.js').PlayLadderStep[];
+  /** Ordered automatic Play tiers (legacy — derived from ladder when empty). */
   auto_play_tiers: AutoPlayTier[];
 };
 
@@ -76,6 +84,10 @@ export type StreamFilterMeta = {
   rd_safe_unknown_fallback?: boolean;
   /** Set when strict title tokens matched nothing but imdb-id / relaxed pass recovered streams. */
   title_filter_relaxed?: boolean;
+  /** Set when couch play retried with 2160p + uncached after 1080p candidates failed. */
+  quality_relaxed?: boolean;
+  /** Ladder step used for GET /stream display filtering. */
+  play_ladder_step?: string;
   excluded: {
     uncached_debrid: number;
     unknown_cache_debrid: number;
@@ -449,7 +461,7 @@ export function streamMatchesLanguage(stream: Stream, language: string): boolean
   return languageHaystack(stream).includes(needle);
 }
 
-function isRemux(stream: Stream): boolean {
+export function isRemux(stream: Stream): boolean {
   return /\bremux\b|\bblu[- ]?ray\b.*\bremux\b/i.test(streamHaystack(stream));
 }
 
@@ -551,9 +563,12 @@ export function defaultFilterConfig(): StreamFilterConfig {
     exclude_remux: process.env.MANGO_EXCLUDE_REMUX === undefined
       ? true
       : truthy(process.env.MANGO_EXCLUDE_REMUX),
-    auto_play_max_attempts: positiveInteger(process.env.MANGO_AUTO_PLAY_MAX_ATTEMPTS, 5, 1, 10),
-    auto_play_wall_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_WALL_MS, 15000, 1000, 60000),
-    auto_play_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_PROBE_MS, 6000, 500, 15000),
+    auto_play_max_attempts: positiveInteger(process.env.MANGO_AUTO_PLAY_MAX_ATTEMPTS, 12, 1, 20),
+    auto_play_wall_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_WALL_MS, 90000, 1000, 120000),
+    auto_play_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_PROBE_MS, 8000, 500, 20000),
+    auto_play_uncached_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_UNCACHED_PROBE_MS, 25000, 5000, 45000),
+    preferred_quality: parseQualityCap(process.env.MANGO_PREFERRED_QUALITY) ?? '1080p',
+    play_ladder: defaultPlayLadder(),
     auto_play_tiers: defaultAutoPlayTiers(),
     exclude_error_streams: true,
     stream_display_limit: positiveInteger(process.env.MANGO_STREAM_DISPLAY_LIMIT, 8, 3, 20),
@@ -583,13 +598,27 @@ export async function loadFilterConfig(
       base.exclude_remux = raw.exclude_remux;
     }
     if (raw.auto_play_max_attempts !== undefined) {
-      base.auto_play_max_attempts = positiveInteger(raw.auto_play_max_attempts, base.auto_play_max_attempts, 1, 10);
+      base.auto_play_max_attempts = positiveInteger(raw.auto_play_max_attempts, base.auto_play_max_attempts, 1, 20);
     }
     if (raw.auto_play_wall_ms !== undefined) {
-      base.auto_play_wall_ms = positiveInteger(raw.auto_play_wall_ms, base.auto_play_wall_ms, 1000, 60000);
+      base.auto_play_wall_ms = positiveInteger(raw.auto_play_wall_ms, base.auto_play_wall_ms, 1000, 120000);
     }
     if (raw.auto_play_probe_ms !== undefined) {
-      base.auto_play_probe_ms = positiveInteger(raw.auto_play_probe_ms, base.auto_play_probe_ms, 500, 15000);
+      base.auto_play_probe_ms = positiveInteger(raw.auto_play_probe_ms, base.auto_play_probe_ms, 500, 20000);
+    }
+    if (raw.auto_play_uncached_probe_ms !== undefined) {
+      base.auto_play_uncached_probe_ms = positiveInteger(
+        raw.auto_play_uncached_probe_ms,
+        base.auto_play_uncached_probe_ms,
+        5000,
+        45000,
+      );
+    }
+    if (raw.preferred_quality !== undefined) {
+      base.preferred_quality = parseQualityCap(raw.preferred_quality) ?? base.preferred_quality;
+    }
+    if (raw.play_ladder !== undefined) {
+      base.play_ladder = parsePlayLadder(raw.play_ladder);
     }
     if (raw.auto_play_tiers !== undefined) {
       base.auto_play_tiers = parseAutoPlayTiers(raw.auto_play_tiers);
@@ -633,6 +662,9 @@ export function mergeFilterConfig(
     auto_play_max_attempts: base.auto_play_max_attempts,
     auto_play_wall_ms: base.auto_play_wall_ms,
     auto_play_probe_ms: base.auto_play_probe_ms,
+    auto_play_uncached_probe_ms: base.auto_play_uncached_probe_ms,
+    preferred_quality: base.preferred_quality,
+    play_ladder: base.play_ladder,
     auto_play_tiers: base.auto_play_tiers,
     exclude_error_streams: base.exclude_error_streams,
     stream_display_limit: base.stream_display_limit,
@@ -945,7 +977,7 @@ function normalizeAddonName(name: string): string {
     .trim();
 }
 
-function sourceMatches(stream: Stream, addons: string[]): boolean {
+export function sourceMatches(stream: Stream, addons: string[]): boolean {
   const source = normalizeAddonName(stream.source || '');
   return addons.some((addon) => {
     const normalized = normalizeAddonName(addon);

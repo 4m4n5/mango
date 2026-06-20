@@ -90,14 +90,19 @@ export class DetailController {
     this.callbacks.onStatus("finding stream…");
     const startingTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
-        this.callbacks.onStatus("starting…");
+        this.callbacks.onStatus("trying best match…");
       }
-    }, 1200);
+    }, 2000);
+    const alternateTimer = window.setTimeout(() => {
+      if (this.playToken === token && this.card?.id === card.id) {
+        this.callbacks.onStatus("trying alternate release…");
+      }
+    }, 20000);
     const cachingTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
         this.callbacks.onStatus("caching stream on TorBox…");
       }
-    }, 8000);
+    }, 10000);
     try {
       const result = await playCard(card, abort.signal);
       if (this.playToken !== token) {
@@ -112,12 +117,18 @@ export class DetailController {
       if (this.playToken !== token) {
         return;
       }
-      this.callbacks.onStatus("couldn't start playback. try another title.");
+      const message = error instanceof Error ? error.message : "couldn't start playback. try another title.";
+      this.callbacks.onStatus(
+        message && !message.startsWith("HTTP ")
+          ? message
+          : "couldn't start playback. try another title.",
+      );
     } finally {
       if (this.playAbort === abort) {
         this.playAbort = null;
       }
       window.clearTimeout(startingTimer);
+      window.clearTimeout(alternateTimer);
       window.clearTimeout(cachingTimer);
       this.playButton.disabled = false;
     }
