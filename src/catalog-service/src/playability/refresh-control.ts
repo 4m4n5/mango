@@ -6,6 +6,7 @@ export type RefreshLevelId =
   | 'shuffle_rails'
   | 'stale_refresh'
   | 'topup_low_rails'
+  | 'quick_topup'
   | 'full_maintenance';
 
 export type RefreshLevel = {
@@ -47,6 +48,15 @@ export const REFRESH_LEVELS: RefreshLevel[] = [
     estimated_label: '~15 min',
     blocks_couch: true,
     llm_hint: 'Use when home rows look sparse. Adds titles; does not remove verified pool rows.',
+  },
+  {
+    id: 'quick_topup',
+    label: 'Quick top-up',
+    description: 'Short additive pass — ~10 fresh probes per rail, +8 verified cap.',
+    estimated_sec: 600,
+    estimated_label: '~10 min',
+    blocks_couch: true,
+    llm_hint: 'Use when stepping away briefly. Paginated ingest; couch restores on exit.',
   },
   {
     id: 'full_maintenance',

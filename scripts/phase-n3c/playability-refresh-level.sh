@@ -4,7 +4,7 @@
 # All levels are additive: verified titles stay unless status=stale.
 #
 # Usage: bash scripts/phase-n3c/playability-refresh-level.sh <level-id>
-# Levels: stale_refresh | topup_low_rails | full_maintenance
+# Levels: stale_refresh | topup_low_rails | quick_topup | full_maintenance
 
 set -euo pipefail
 
@@ -22,6 +22,9 @@ case "$LEVEL" in
     ;;
   topup_low_rails)
     exec bash scripts/phase-n3c/playability-maintenance.sh --mode full
+    ;;
+  quick_topup)
+    exec bash scripts/phase-n3c/quick-playability-topup.sh
     ;;
   full_maintenance)
     export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_PLAYABILITY_CANDIDATE_LIMIT:-250}"

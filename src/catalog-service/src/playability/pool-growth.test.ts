@@ -23,6 +23,20 @@ test('effectivePoolTarget grows by pool_growth_per_refresh', () => {
   assert.equal(effectivePoolTarget(base, 115), 120);
 });
 
+test('effectivePoolTarget honors MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH', () => {
+  const previous = process.env.MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH;
+  process.env.MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH = '8';
+  try {
+    assert.equal(effectivePoolTarget(base, 20), 28);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH;
+    } else {
+      process.env.MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH = previous;
+    }
+  }
+});
+
 test('effectivePoolTarget bootstrap uses min_display only', () => {
   assert.equal(effectivePoolTarget(base, 20, { bootstrap: true }), 20);
 });

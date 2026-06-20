@@ -1,4 +1,5 @@
 import type { RailPlayabilityConfig } from '../rails.js';
+import { playabilityPoolGrowthOverride } from './config.js';
 
 export type PoolTargetOptions = {
   bootstrap?: boolean;
@@ -14,7 +15,7 @@ export function effectivePoolTarget(
     return playability.min_display;
   }
 
-  const growth = playability.pool_growth_per_refresh;
+  const growth = playabilityPoolGrowthOverride(playability.pool_growth_per_refresh);
   if (growth <= 0) {
     return playability.pool_target;
   }

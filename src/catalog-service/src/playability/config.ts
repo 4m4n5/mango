@@ -122,6 +122,15 @@ export function playabilityFreshPerRail(): number {
   return boundedInt(process.env.MANGO_PLAYABILITY_FRESH_PER_RAIL, 40, 5, 200);
 }
 
+/** Override catalog yaml pool_growth_per_refresh for this process (quick vs nightly passes). */
+export function playabilityPoolGrowthOverride(yamlGrowth: number): number {
+  const raw = process.env.MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH;
+  if (raw === undefined || raw === '') {
+    return yamlGrowth;
+  }
+  return boundedInt(raw, yamlGrowth, 1, 50);
+}
+
 /** @deprecated Use MANGO_PLAYABILITY_FRESH_PER_RAIL — kept for one release. */
 export function playabilityFreshTargetPerRefresh(): number {
   const perRail = process.env.MANGO_PLAYABILITY_FRESH_PER_RAIL;
