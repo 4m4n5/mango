@@ -38,8 +38,8 @@
       "rails": ["movies-documentaries"]
     },
     {
-      "id": "custom.in_rdata_indiastreams.series.atpmub",
-      "name": "Recommended Indian TV Shows",
+      "id": "custom.in_rdata_indiastreams.series.trendingtv",
+      "name": "Trending TV shows in India",
       "rails": ["series-india-picks"]
     },
     {

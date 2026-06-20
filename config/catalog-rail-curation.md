@@ -22,7 +22,7 @@ Playability-first catalog picks for mango discover rails. Each rail targets **20
 | `movies-quick-watches` | mdblist **83668** modern + **88302** trending | Dropped digital-release list (low cache on new titles) |
 | `movies-documentaries` | mdblist **84677** top documentaries | Replaced **128051** (0% probe pass in bootstrap) |
 | `series-global-popular` | Cinemeta `top` + mdblist **88303** trending shows | Trending over daily-picks for cache |
-| `series-india-picks` | IndiaStreams **atpmub** only | Pure Indian series recommendations |
+| `series-india-picks` | IndiaStreams **trendingtv** only | Indian OTT series chart (`atpmub` is mislabeled — mostly Western) |
 | `series-classics` | Cinemeta `imdbRating` | Same as movies-classics |
 | `series-comedy` | mdblist **91224** | Stable comedy shows list |
 | `series-miniseries` | mdblist **130153** popular miniseries | Single list (popular > latest for playability) |

@@ -24,7 +24,7 @@ bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-
 | Rail | Label | Sources |
 |------|-------|---------|
 | `series-global-popular` | popular worldwide | Cinemeta `top` + mdblist **88303** (trending shows) |
-| `series-india-picks` | indian series | IndiaStreams **atpmub** only |
+| `series-india-picks` | indian series | IndiaStreams **trendingtv** only |
 | `series-classics` | critically acclaimed | Cinemeta `imdbRating` only |
 | `series-comedy` | comedy | mdblist **91224** |
 | `series-miniseries` | limited series | mdblist **130153** (popular miniseries) |
@@ -36,7 +36,7 @@ bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-
 |-----------------|----------------------|
 | `custom.in_rdata_indiastreams.movie.recmov` | `/catalog/movie/recmov.json` |
 | `custom.in_rdata_indiastreams.movie.popmov` | `/catalog/movie/popmov.json` |
-| `custom.in_rdata_indiastreams.series.atpmub` | `/catalog/series/atpmub.json` |
+| `custom.in_rdata_indiastreams.series.trendingtv` | `/catalog/series/trendingtv.json` |
 
 ## Import from configure export
 

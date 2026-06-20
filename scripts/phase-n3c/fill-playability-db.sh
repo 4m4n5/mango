@@ -111,6 +111,7 @@ echo
 echo "pass 1: bootstrap maintenance (min_display targets)…"
 rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
 export MANGO_PLAYABILITY_BOOTSTRAP=1
+export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_FILL_CANDIDATE_LIMIT:-250}"
 bash scripts/phase-n3c/playability-maintenance.sh --mode full --bootstrap
 
 if [[ "$POOL_TOPUP" == "1" ]]; then
@@ -119,6 +120,7 @@ if [[ "$POOL_TOPUP" == "1" ]]; then
   rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
   export MANGO_PLAYABILITY_BOOTSTRAP=0
   export MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY=0
+  export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_FILL_CANDIDATE_LIMIT:-250}"
   bash scripts/phase-n3c/playability-maintenance.sh --mode full
 fi
 

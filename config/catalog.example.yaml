@@ -68,7 +68,7 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
-      ingest_multiplier: 6
+      ingest_multiplier: 10
 
   - id: movies-quick-watches
     tab: movies
@@ -83,7 +83,7 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
-      ingest_multiplier: 8
+      ingest_multiplier: 10
 
   - id: movies-documentaries
     tab: movies
@@ -121,7 +121,7 @@ rails:
     label: indian series
     type: addon_catalog
     addon: AIOMetadata
-    catalog: custom.in_rdata_indiastreams.series.atpmub
+    catalog: custom.in_rdata_indiastreams.series.trendingtv
     content_type: series
     limit: 20
     playability:
@@ -156,7 +156,7 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
-      ingest_multiplier: 6
+      ingest_multiplier: 10
 
   - id: series-miniseries
     tab: series
@@ -184,7 +184,7 @@ rails:
       display_limit: 20
       min_display: 20
       pool_target: 20
-      ingest_multiplier: 8
+      ingest_multiplier: 10
 
   - id: continue
     label: continue watching

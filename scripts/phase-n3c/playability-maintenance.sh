@@ -123,6 +123,9 @@ export MANGO_PLAYABILITY_PROBE_CONCURRENCY="${MANGO_PLAYABILITY_PROBE_CONCURRENC
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-12000}"
 
 REFRESH_ARGS=(refresh --all --mode "$MODE")
+if [[ -n "${MANGO_PLAYABILITY_CANDIDATE_LIMIT:-}" ]]; then
+  REFRESH_ARGS+=(--candidate-limit "$MANGO_PLAYABILITY_CANDIDATE_LIMIT")
+fi
 if [[ "${MANGO_PLAYABILITY_BOOTSTRAP:-0}" == "1" ]]; then
   REFRESH_ARGS+=(--bootstrap)
   echo "bootstrap: pool_target=min_display, early-exit enabled"
