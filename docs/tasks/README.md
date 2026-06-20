@@ -8,3 +8,4 @@
 **Inventories:** [../N3-INVENTORY.md](../N3-INVENTORY.md) · [../N3d-INVENTORY.md](../N3d-INVENTORY.md)
 
 **Entry:** [../AGENTS.md](../../AGENTS.md) · [../NATIVE_ROADMAP.md](../NATIVE_ROADMAP.md)
+| **N3e** series episodes | [phase-n3e-series-episodes.md](phase-n3e-series-episodes.md) |

@@ -85,6 +85,7 @@ Details: [phase0/README.md](phase0/README.md)
 | Script | Role |
 |--------|------|
 | `diag/playability-status.py` | Pool depth / verified counts |
+| `diag/series-episodes.sh` | Cinemeta episode list + per-episode stream probe |
 | `diag/source-hitrate.py` | Per-catalog candidate probe rates |
 | `diag/mdblist-inventory.py` | Sync [mdblist toplists](https://mdblist.com/toplists/), LLM export |
 | `diag/rail-hitrate.py` | Per-rail verified play samples |
