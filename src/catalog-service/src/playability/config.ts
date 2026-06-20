@@ -117,8 +117,17 @@ export function playabilityVerifyTtlMs(): number {
   return positiveDurationMs(process.env.MANGO_PLAYABILITY_TTL_MS, 48 * 60 * 60 * 1000, 3_600_000, 14 * 24 * 60 * 60 * 1000);
 }
 
-/** Minimum fresh (never-probed) titles to queue across a full refresh/top-up pass. */
+/** Fresh (untested) titles to queue per rail on each full refresh/top-up pass. */
+export function playabilityFreshPerRail(): number {
+  return boundedInt(process.env.MANGO_PLAYABILITY_FRESH_PER_RAIL, 40, 5, 200);
+}
+
+/** @deprecated Use MANGO_PLAYABILITY_FRESH_PER_RAIL — kept for one release. */
 export function playabilityFreshTargetPerRefresh(): number {
+  const perRail = process.env.MANGO_PLAYABILITY_FRESH_PER_RAIL;
+  if (perRail) {
+    return boundedInt(perRail, 40, 5, 200);
+  }
   return boundedInt(process.env.MANGO_PLAYABILITY_FRESH_TARGET, 100, 10, 500);
 }
 
@@ -127,5 +136,5 @@ export function playabilityIngestPageSize(): number {
 }
 
 export function playabilityMaxIngestScan(): number {
-  return boundedInt(process.env.MANGO_PLAYABILITY_MAX_INGEST_SCAN, 800, 50, 5000);
+  return boundedInt(process.env.MANGO_PLAYABILITY_MAX_INGEST_SCAN, 1200, 50, 5000);
 }

@@ -22,7 +22,7 @@ import {
   type RailCandidateRef,
 } from './pipeline.js';
 import {
-  playabilityFreshTargetPerRefresh,
+  playabilityFreshPerRail,
   playabilityIngestPageSize,
   playabilityMaxIngestScan,
 } from './config.js';
@@ -69,7 +69,7 @@ export async function topUpRail(
   const source = core.listSourceForRail(railId);
   const before = await getRailPlayabilityStatus(rail.id);
   const poolTarget = options.poolTarget ?? effectivePoolTarget(rail.playability, before.verified_pool);
-  const freshTarget = options.candidateLimit ?? playabilityFreshTargetPerRefresh();
+  const freshTarget = options.candidateLimit ?? playabilityFreshPerRail();
 
   if (before.verified_pool >= poolTarget) {
     return {

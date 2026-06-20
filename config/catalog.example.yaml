@@ -28,7 +28,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 5
@@ -49,7 +49,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 8
@@ -66,7 +66,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 5
@@ -85,7 +85,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 10
@@ -102,7 +102,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 8
@@ -123,7 +123,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 10
@@ -140,7 +140,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 5
@@ -161,7 +161,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 10
@@ -178,7 +178,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 5
@@ -197,7 +197,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 8
@@ -214,7 +214,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 10
@@ -234,7 +234,7 @@ rails:
       display_limit: 9
       min_display: 6
       pool_target: 20
-      pool_growth_per_refresh: 10
+      pool_growth_per_refresh: 15
       pool_max: 120
       display_max: 9
       ingest_multiplier: 10

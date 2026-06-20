@@ -10,7 +10,6 @@ import {
   type PlayabilityRailStatus,
 } from './db.js';
 import {
-  freshTargetPerRail,
   ingestPaginatedCandidates,
   type IngestCandidatesStats,
 } from './candidate-ingest.js';
@@ -27,7 +26,7 @@ import {
 import {
   playabilityBootstrapFill,
   playabilityEarlyExitMinDisplay,
-  playabilityFreshTargetPerRefresh,
+  playabilityFreshPerRail,
   playabilityIngestPageSize,
   playabilityMaxIngestScan,
 } from './config.js';
@@ -147,7 +146,7 @@ export async function refreshAllRails(
     return railNeedsWork(mode, before, poolTarget);
   });
 
-  const freshPerRail = freshTargetPerRail(playabilityFreshTargetPerRefresh(), railsToFetch.length);
+  const freshPerRail = playabilityFreshPerRail();
   const ingestOffsets = mode === 'full'
     ? await getRailIngestOffsetsBulk(railsToFetch.map((rail) => rail.id))
     : new Map<string, number>();
