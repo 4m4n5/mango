@@ -37,7 +37,7 @@ def build_launcher_command(name: str, tool_input: dict[str, Any]) -> dict[str, A
 
 
 def _open_title_command(tool_input: dict[str, Any]) -> dict[str, Any]:
-    content_type = tool_input.get("type")
+    content_type = tool_input.get("type") or tool_input.get("content_type")
     content_id = tool_input.get("id")
     title = tool_input.get("title")
     if not isinstance(content_type, str) or not isinstance(content_id, str):

@@ -108,6 +108,12 @@ else
   bad voice-tv-open-ack
 fi
 
+if bash scripts/phase-n5/validate-voice-orchestrator-open.sh; then
+  ok voice-orchestrator-open-ack
+else
+  bad voice-orchestrator-open-ack
+fi
+
 echo
 echo "SUMMARY pass=$PASS fail=$FAIL"
 [[ "$FAIL" -eq 0 ]]

@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from orchestrator.config import OrchestratorSettings
+from orchestrator.llm.open_intent import user_wants_open_detail
 from orchestrator.llm.provider import DeltaCallback, _clean_reply, _read_api_key
 from orchestrator.tools import catalog as catalog_tools
 from orchestrator.tools.runner import execute_tool, tool_summary
@@ -68,6 +69,8 @@ async def generate_agent_reply(
     client = Anthropic(api_key=api_key)
     transcript = messages
     open_confirmed = False
+    last_search_hits: list[dict[str, Any]] = []
+    user_open_intent = user_wants_open_detail(_last_user_text(messages))
     for _round in range(max(1, settings.max_tool_rounds)):
         response = client.messages.create(
             model=settings.llm_model,
@@ -89,7 +92,21 @@ async def generate_agent_reply(
                     text_parts.append(text)
 
         if response.stop_reason != "tool_use" or not tool_uses:
+            if (
+                user_open_intent
+                and not open_confirmed
+                and last_search_hits
+                and dispatch_launcher is not None
+            ):
+                open_confirmed = await _auto_open_best_hit(
+                    last_search_hits,
+                    settings,
+                    dispatch_launcher,
+                    on_tool_event=on_tool_event,
+                )
             reply = _clean_reply(" ".join(text_parts))
+            if open_confirmed and user_open_intent and not reply.strip():
+                reply = _default_open_reply(last_search_hits)
             reply = _guard_open_claims(reply, open_confirmed)
             if on_delta is not None:
                 on_delta(reply)
@@ -123,6 +140,20 @@ async def generate_agent_reply(
                 settings,
                 dispatch_launcher=dispatch_launcher,
             )
+
+            if name == "mango_search":
+                last_search_hits = _parse_search_results(result)
+                if (
+                    user_open_intent
+                    and not open_confirmed
+                    and dispatch_launcher is not None
+                ):
+                    open_confirmed = await _auto_open_best_hit(
+                        last_search_hits,
+                        settings,
+                        dispatch_launcher,
+                        on_tool_event=on_tool_event,
+                    )
 
             if name == "mango_open_title":
                 open_confirmed = _tool_open_confirmed(result)
@@ -202,7 +233,22 @@ def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
     lowered = reply.lower()
     claims_open = any(
         phrase in lowered
-        for phrase in ("press b", "opened", "open kar", "khol diya", "detail page", "play kar")
+        for phrase in (
+            "press b",
+            "opened",
+            "opening",
+            "open kar",
+            "khol diya",
+            "khol raha",
+            "khol deta",
+            "detail page",
+            "play kar",
+            "mil gaya",
+            "found it",
+            "found ",
+            "dikha diya",
+            "tv pe",
+        )
     )
     if not claims_open:
         return reply
@@ -210,6 +256,126 @@ def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
         "TV pe abhi title open nahi hua — ek baar phir try karte hain. "
         "Agar phir bhi home screen pe ho, ⌂ dabao aur dubara bolo."
     )
+
+
+def _last_user_text(messages: list[dict[str, str]]) -> str:
+    for message in reversed(messages):
+        if message.get("role") == "user":
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+    return ""
+
+
+def _parse_search_results(result: str) -> list[dict[str, Any]]:
+    try:
+        import json
+
+        payload = json.loads(result)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, dict) or payload.get("ok") is not True:
+        return []
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return []
+    hits: list[dict[str, Any]] = []
+    for item in results:
+        if isinstance(item, dict):
+            hits.append(item)
+    return hits
+
+
+def _pick_auto_open_hit(hits: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not hits:
+        return None
+    scored: list[tuple[int, dict[str, Any]]] = []
+    for hit in hits:
+        score = hit.get("score")
+        score_value = int(score) if isinstance(score, (int, float)) else 0
+        if isinstance(hit.get("id"), str) and isinstance(hit.get("title"), str):
+            scored.append((score_value, hit))
+    if not scored:
+        return None
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    top_score, top_hit = scored[0]
+    if top_score >= 92:
+        return top_hit
+    if len(scored) == 1 and top_score >= 78:
+        return top_hit
+    if len(scored) > 1:
+        second_score = scored[1][0]
+        if top_score >= 85 and top_score - second_score >= 12:
+            return top_hit
+    return None
+
+
+def _open_tool_input_from_hit(hit: dict[str, Any]) -> dict[str, Any]:
+    content_type = hit.get("type")
+    content_id = hit.get("id")
+    title = hit.get("title")
+    if not isinstance(content_type, str) or not isinstance(content_id, str):
+        raise ValueError("search hit missing type/id")
+    if not isinstance(title, str) or not title.strip():
+        title = content_id
+    payload: dict[str, Any] = {
+        "type": content_type,
+        "id": content_id,
+        "title": title.strip(),
+    }
+    tab = hit.get("tab")
+    if isinstance(tab, str) and tab.strip():
+        payload["tab"] = tab.strip()
+    poster = hit.get("poster")
+    if isinstance(poster, str) and poster.strip():
+        payload["poster"] = poster.strip()
+    return payload
+
+
+async def _auto_open_best_hit(
+    hits: list[dict[str, Any]],
+    settings: OrchestratorSettings,
+    dispatch_launcher: LauncherDispatch,
+    *,
+    on_tool_event: ToolEventCallback | None = None,
+) -> bool:
+    hit = _pick_auto_open_hit(hits)
+    if hit is None:
+        return False
+    try:
+        tool_input = _open_tool_input_from_hit(hit)
+    except ValueError:
+        return False
+    summary = tool_summary("mango_open_title", tool_input)
+    if on_tool_event is not None:
+        await on_tool_event(
+            {"type": "tool", "phase": "start", "name": "mango_open_title", "summary": summary}
+        )
+    result = await execute_tool(
+        "mango_open_title",
+        tool_input,
+        settings,
+        dispatch_launcher=dispatch_launcher,
+    )
+    if on_tool_event is not None:
+        await on_tool_event(
+            {
+                "type": "tool",
+                "phase": "done",
+                "name": "mango_open_title",
+                "summary": summary,
+                "result": result,
+            }
+        )
+    return _tool_open_confirmed(result)
+
+
+def _default_open_reply(hits: list[dict[str, Any]]) -> str:
+    hit = _pick_auto_open_hit(hits) or (hits[0] if hits else None)
+    title = hit.get("title") if isinstance(hit, dict) else "title"
+    if not isinstance(title, str) or not title.strip():
+        title = "title"
+    return f"{title.strip()} detail pe khula — B dabao play ke liye."
 
 
 def _mock_reply(
