@@ -3,6 +3,7 @@ services:
     image: ghcr.io/viren070/aiostreams:latest
     container_name: mango-aiostreams
     restart: unless-stopped
+    mem_limit: 1g
     ports:
       - "127.0.0.1:3035:3000"
     env_file:

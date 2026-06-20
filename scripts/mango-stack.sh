@@ -114,6 +114,8 @@ stop_catalog_service() {
 }
 
 start_stack() {
+  bash "$REPO_DIR/scripts/mango-kill-strays.sh" 2>/dev/null || true
+  bash "$REPO_DIR/scripts/lib/stop-input-remapper.sh" 2>/dev/null || true
   stop_idle_media
   start_catalog_service
   start_playability_topup
@@ -133,11 +135,14 @@ stop_stack() {
   bash "$REPO_DIR/scripts/mango-kill-strays.sh" 2>/dev/null || true
   stop_catalog_service
   bash scripts/phase-n1/mpv-stop.sh 2>/dev/null || true
-  bash scripts/phase1/stop-mango-ui.sh 2>/dev/null || true
+  if systemctl --user is-enabled mango-orchestrator.service &>/dev/null 2>&1; then
+    systemctl --user stop mango-companion.service mango-orchestrator.service 2>/dev/null || true
+  fi
   if command -v tmux >/dev/null 2>&1; then
     tmux kill-session -t mango-orch 2>/dev/null || true
     tmux kill-session -t mango-companion 2>/dev/null || true
   fi
+  bash scripts/phase1/stop-mango-ui.sh 2>/dev/null || true
   stop_idle_media
 }
 

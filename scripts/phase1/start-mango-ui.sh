@@ -72,38 +72,27 @@ for _ in $(seq 1 15); do
   sleep 0.1
 done
 
-if command -v chromium >/dev/null 2>&1; then
-  CHROMIUM_BIN="chromium"
-elif command -v chromium-browser >/dev/null 2>&1; then
-  CHROMIUM_BIN="chromium-browser"
-else
-  echo "chromium is required for the TV launcher" >&2
-  exit 1
-fi
+start_chromium_kiosk() {
+  if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null 2>&1; then
+    systemctl --user start mango-launcher-chromium.service
+    return
+  fi
+  if ! pgrep -f "chromium.*--class=mango-launcher.*127.0.0.1:${PORT}/" >/dev/null 2>&1; then
+    if command -v systemd-run >/dev/null 2>&1; then
+      systemd-run --user --scope \
+        -p "MemoryMax=512M" \
+        -p "OOMScoreAdjust=800" \
+        --unit=mango-launcher-chromium-scope \
+        bash "$REPO_DIR/scripts/phase1/start-mango-launcher-chromium.sh" \
+        >/dev/null 2>&1 &
+    else
+      bash "$REPO_DIR/scripts/phase1/start-mango-launcher-chromium.sh" &
+    fi
+    sleep 0.25
+  fi
+}
 
-chromium_common_flags=(
-  --no-first-run
-  --no-default-browser-check
-  --disable-infobars
-  --disable-translate
-  --noerrdialogs
-)
-
-chromium_pi_flags=()
-if [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; then
-  chromium_pi_flags+=(--disable-gpu --disable-gpu-compositing)
-fi
-
-if ! pgrep -f "chromium.*--class=mango-launcher.*127.0.0.1:${PORT}/" >/dev/null 2>&1; then
-  "$CHROMIUM_BIN" \
-    "${chromium_common_flags[@]}" \
-    "${chromium_pi_flags[@]}" \
-    --class=mango-launcher \
-    --kiosk \
-    --app="http://127.0.0.1:${PORT}/" \
-    >"$LOG_DIR/mango-launcher-chromium.log" 2>&1 &
-  sleep 0.25
-fi
+start_chromium_kiosk
 
 pkill -f "chromium.*mango-overlay.*127.0.0.1:${PORT}/overlay/" 2>/dev/null || true
 

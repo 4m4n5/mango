@@ -12,6 +12,9 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 if systemctl --user is-enabled mango-ui-server.service &>/dev/null; then
   systemctl --user stop mango-ui-server.service 2>/dev/null || true
 fi
+if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null 2>&1; then
+  systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
+fi
 
 if [[ -f "$PID_DIR/mango-ui-server.pid" ]]; then
   pid=$(cat "$PID_DIR/mango-ui-server.pid")

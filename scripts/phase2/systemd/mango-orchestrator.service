@@ -1,0 +1,24 @@
+[Unit]
+Description=mango voice orchestrator (WSS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/mango
+Environment=HOME=%h
+Environment=MANGO_SKIP_OVERLAY=1
+Environment=MANGO_ORCH_TLS=1
+Environment=MANGO_ORCH_HOST=0.0.0.0
+Environment=MANGO_ORCH_PORT=8765
+EnvironmentFile=-%h/.config/mango/voice.env
+ExecStartPre=/bin/mkdir -p %h/.cache/mango
+ExecStartPre=%h/mango/scripts/phase2/ensure-orchestrator-venv.sh
+ExecStart=%h/mango/src/orchestrator/.venv/bin/python -m orchestrator.main --host 0.0.0.0 --port 8765 --ssl-certfile %h/.config/mango/certs/mango-companion.pem --ssl-keyfile %h/.config/mango/certs/mango-companion-key.pem
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/.cache/mango/orchestrator.log
+StandardError=append:%h/.cache/mango/orchestrator.log
+
+[Install]
+WantedBy=default.target

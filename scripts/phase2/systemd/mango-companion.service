@@ -1,0 +1,23 @@
+[Unit]
+Description=mango voice companion HTTPS (phone PTT)
+After=network-online.target mango-orchestrator.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/mango
+Environment=HOME=%h
+Environment=MANGO_SKIP_OVERLAY=1
+Environment=MANGO_COMPANION_HOST=0.0.0.0
+Environment=MANGO_COMPANION_PORT=3001
+EnvironmentFile=-%h/.config/mango/voice.env
+ExecStartPre=/bin/mkdir -p %h/.cache/mango
+ExecStartPre=/bin/bash -c 'test -d %h/mango/src/companion/dist || npm --prefix %h/mango/src/companion run build'
+ExecStart=/usr/bin/python3 %h/mango/scripts/phase2/serve_https.py --directory %h/mango/src/companion/dist --host 0.0.0.0 --port 3001 --certfile %h/.config/mango/certs/mango-companion.pem --keyfile %h/.config/mango/certs/mango-companion-key.pem
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/.cache/mango/companion.log
+StandardError=append:%h/.cache/mango/companion.log
+
+[Install]
+WantedBy=default.target

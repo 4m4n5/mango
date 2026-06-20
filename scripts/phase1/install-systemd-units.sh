@@ -12,12 +12,14 @@ UNIT_DST="${HOME}/.config/systemd/user"
 
 mkdir -p "$UNIT_DST" "${HOME}/.cache/mango"
 
-for unit in mango-ui-server.service mango-watchdog.service mango-watchdog.timer; do
+for unit in mango-ui-server.service mango-watchdog.service mango-watchdog.timer mango-launcher-chromium.service; do
   install -m 0644 "$UNIT_SRC/$unit" "$UNIT_DST/$unit"
 done
 
+chmod +x "$REPO_DIR/scripts/phase1/start-mango-launcher-chromium.sh"
+
 systemctl --user daemon-reload
-systemctl --user enable mango-ui-server.service mango-watchdog.timer
+systemctl --user enable mango-ui-server.service mango-watchdog.timer mango-launcher-chromium.service
 systemctl --user start mango-ui-server.service mango-watchdog.timer
 
 if ! loginctl show-user "$USER" -p Linger 2>/dev/null | grep -q yes; then
