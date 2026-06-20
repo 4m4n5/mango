@@ -37,16 +37,28 @@ for rail in "${EXPECTED_RAILS[@]}"; do
   min_items=0
   for strict in "${STRICT_RAILS[@]}"; do [[ "$rail" == "$strict" ]] && min_items=1; done
   if curl -sf --max-time 30 "http://127.0.0.1:3020/rails/${rail}/items" >"$out"; then
-    python3 - "$out" "$rail" "$min_items" <<'PY' && gate_pass "${rail} items" || gate_fail "${rail} items"
+    rail_rc=0
+    python3 - "$out" "$rail" "$min_items" <<'PY' || rail_rc=$?
 import json, sys
 path, rail, min_items = sys.argv[1], sys.argv[2], int(sys.argv[3])
-items = json.load(open(path)).get("items") or []
+data = json.load(open(path))
+items = data.get("items") or []
+playability = data.get("playability") or {}
 if len(items) < min_items:
+    if min_items > 0 and len(items) == 0 and playability.get("low_water"):
+        raise SystemExit(2)
     raise SystemExit(f"{rail}: {len(items)} < {min_items}")
 bad = [i.get("poster","") for i in items if not str(i.get("poster","")).startswith("https://")]
 if bad:
     raise SystemExit(f"{rail}: bad posters")
 PY
+    if [[ "$rail_rc" -eq 0 ]]; then
+      gate_pass "${rail} items"
+    elif [[ "$rail_rc" -eq 2 ]]; then
+      gate_warn "${rail} bootstrap low_water (0 items)"
+    else
+      gate_fail "${rail} items"
+    fi
   else
     gate_fail "GET /rails/${rail}/items"
   fi

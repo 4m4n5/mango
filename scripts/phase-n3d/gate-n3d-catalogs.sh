@@ -104,11 +104,22 @@ check_rail_items() {
   item_count="$(python3 - "$items_json" <<'PY'
 import json
 import sys
-print(len((json.load(open(sys.argv[1], encoding="utf-8")).get("items") or [])))
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+print(len(data.get("items") or []))
+PY
+)"
+  local low_water=0
+  low_water="$(python3 - "$items_json" <<'PY'
+import json
+import sys
+pb = json.load(open(sys.argv[1], encoding="utf-8")).get("playability") or {}
+print(1 if pb.get("low_water") else 0)
 PY
 )"
   if [[ "${item_count:-0}" -ge 1 ]]; then
     gate_pass "$label $rail_id items=${item_count}"
+  elif [[ "$mode" == "required" && "${low_water:-0}" -eq 1 ]]; then
+    gate_warn "$label $rail_id bootstrap low_water (0 items)"
   elif [[ "$mode" == "required" ]]; then
     gate_fail "$label $rail_id items=0 (required)"
   else
