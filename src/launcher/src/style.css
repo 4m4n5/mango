@@ -400,6 +400,7 @@ h1 {
 }
 
 .detail-poster-wrap {
+  position: relative;
   width: 100%;
   aspect-ratio: 2 / 3;
   overflow: hidden;
@@ -533,6 +534,32 @@ h1 {
 
 .settings {
   justify-content: flex-start;
+  overflow-y: auto;
+  min-height: 0;
+  max-height: 100%;
+  padding-bottom: 14vh;
+  scrollbar-width: none;
+}
+
+.card--poster .poster-fallback,
+.detail-poster-wrap .poster-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  color: rgba(255, 249, 196, 0.92);
+  font-size: clamp(2rem, 8vw, 3.4rem);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background:
+    linear-gradient(145deg, rgba(10, 107, 72, 0.35), rgba(5, 8, 10, 0.92));
+  pointer-events: none;
+}
+
+.poster-image--missing {
+  opacity: 0;
 }
 
 .back-button {

@@ -1,4 +1,5 @@
 import type { AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
+import { bindPosterImage } from "./poster";
 
 export interface HomeCallbacks {
   onContentSelect: (card: ContentCard, railLabel: string) => void;
@@ -213,6 +214,7 @@ function createPosterCard(
   poster.loading = "lazy";
   poster.decoding = "async";
   poster.src = card.posterUrl || "";
+  bindPosterImage(poster, card.title);
 
   const shade = document.createElement("span");
   shade.className = "poster-shade";

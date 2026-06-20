@@ -55,6 +55,7 @@ import {
   isAddonRateLimitMessage,
   isElfHostedAddonName,
 } from './catalog-errors.js';
+import { normalizePosterUrl, resolvePosterFromMeta } from './poster.js';
 
 export { CatalogError } from './catalog-errors.js';
 
@@ -285,14 +286,6 @@ function metaYear(meta: Meta): number | string | undefined {
   const releaseInfo = typeof meta.releaseInfo === 'string' ? meta.releaseInfo : '';
   const match = `${released} ${releaseInfo}`.match(/\b(19|20)\d{2}\b/);
   return match?.[0];
-}
-
-function normalizePosterUrl(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (trimmed.startsWith('//')) return `https:${trimmed}`;
-  if (/^https:\/\//i.test(trimmed)) return trimmed;
-  return null;
 }
 
 function previewId(preview: unknown): string | null {
@@ -668,16 +661,24 @@ export class CatalogCore {
 
   async meta(type: string, id: string): Promise<Meta> {
     const errors: string[] = [];
+    let merged: Meta | null = null;
     for (const addon of this.metaAddonsInOrder()) {
       if (!supportsResource(addon.manifest, 'meta', type)) continue;
       try {
         const result = await fetchJson(resourceUrl(addon, 'meta', type, id)) as { meta?: Meta };
-        if (result.meta?.id) {
-          return { ...result.meta, source: addon.name };
+        const piece = result.meta;
+        if (!piece?.id) {
+          continue;
         }
+        merged = merged
+          ? Object.assign({}, merged, piece, { source: merged.source || addon.name }) as Meta
+          : Object.assign({}, piece, { source: addon.name }) as Meta;
       } catch (error) {
         errors.push(`${addon.name}: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+    if (merged) {
+      return merged;
     }
     throw new CatalogError(502, `meta not resolved for ${type}/${id}${errors.length ? ` (${errors.join('; ')})` : ''}`);
   }
@@ -917,7 +918,7 @@ export class CatalogCore {
   private async resolveVerifiedRailItem(item: RailSessionPoolItem): Promise<RailItem | null> {
     try {
       const meta = await this.metaCached(item.type, item.id);
-      const poster = normalizePosterUrl(meta.poster);
+      const poster = resolvePosterFromMeta(meta);
       if (!poster) {
         return null;
       }
@@ -951,7 +952,7 @@ export class CatalogCore {
 
     try {
       const meta = await this.metaCached(type, id);
-      const poster = normalizePosterUrl(meta.poster) || normalizePosterUrl((preview as { poster?: unknown })?.poster);
+      const poster = resolvePosterFromMeta(meta, preview);
       if (!poster) {
         return null;
       }

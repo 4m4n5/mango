@@ -248,7 +248,8 @@ function focusSettingsItem(items: HTMLElement[], index: number): void {
   }
   const target = items[wrapped];
   target.classList.add("focused");
-  target.focus({ preventScroll: true });
+  target.focus();
+  target.scrollIntoView({ block: "nearest", behavior: "instant" });
 }
 
 function showHome(): void {

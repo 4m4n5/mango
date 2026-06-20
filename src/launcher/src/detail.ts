@@ -7,6 +7,7 @@ import {
   type CatalogStream,
 } from "./catalog";
 import type { ContentCard } from "./types";
+import { bindPosterImage } from "./poster";
 
 export interface DetailCallbacks {
   onClose: () => void;
@@ -55,6 +56,7 @@ export class DetailController {
     this.meta.textContent = card.subtitle;
     this.description.textContent = card.description || "loading details…";
     this.poster.src = card.posterUrl || "";
+    bindPosterImage(this.poster, card.title);
     this.poster.alt = "";
     this.view.classList.remove("hidden");
     this.applyFocus();
@@ -224,6 +226,7 @@ export class DetailController {
       this.description.textContent = meta.description || card.description || "no synopsis available";
       if (meta.poster) {
         this.poster.src = meta.poster;
+        bindPosterImage(this.poster, meta.name || meta.title || card.title);
       }
     } catch {
       if (this.card?.id === card.id) {
