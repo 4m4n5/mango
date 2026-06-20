@@ -103,7 +103,7 @@ PY
 )
 
   out_json="$TMP_DIR/stream-${path_slug}.json"
-  stream_url="http://127.0.0.1:3020/stream/${type}/${id}"
+  stream_url="http://127.0.0.1:3020/stream/${type}/${id}?strict_unknown_cache=false"
 
   if curl -sf --max-time 90 "$stream_url" >"$out_json"; then
     gate_pass "GET /stream/${type}/${id} ($label)"

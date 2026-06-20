@@ -77,7 +77,7 @@ curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
   || gate_fail "catalog-service down at :3020"
 
 # Policy checks on Shawshank (stable western baseline).
-SHAWSHANK="http://127.0.0.1:3020/stream/movie/tt0111161"
+SHAWSHANK="http://127.0.0.1:3020/stream/movie/tt0111161?strict_unknown_cache=false"
 DEFAULT_JSON="$TMP_DIR/language-default.json"
 SOFT_JSON="$TMP_DIR/language-soft-klingon.json"
 HARD_ENGLISH_JSON="$TMP_DIR/language-hard-english.json"
@@ -89,19 +89,19 @@ else
   gate_fail "Shawshank default stream request"
 fi
 
-if curl -sf --max-time 60 "$SHAWSHANK?preferred_language=Klingon" >"$SOFT_JSON"; then
+if curl -sf --max-time 60 "$SHAWSHANK&preferred_language=Klingon" >"$SOFT_JSON"; then
   require_count_at_least "Shawshank soft preferred_language does not exclude" "$SOFT_JSON" 1
 else
   gate_fail "Shawshank soft preferred_language request"
 fi
 
-if curl -sf --max-time 60 "$SHAWSHANK?language=English" >"$HARD_ENGLISH_JSON"; then
+if curl -sf --max-time 60 "$SHAWSHANK&language=English" >"$HARD_ENGLISH_JSON"; then
   require_count_at_least "Shawshank hard language=English" "$HARD_ENGLISH_JSON" 1
 else
   gate_fail "Shawshank hard language=English request"
 fi
 
-if curl -sf --max-time 60 "$SHAWSHANK?language=Klingon" >"$HARD_NONSENSE_JSON"; then
+if curl -sf --max-time 60 "$SHAWSHANK&language=Klingon" >"$HARD_NONSENSE_JSON"; then
   count="$(stream_count "$HARD_NONSENSE_JSON")"
   default_count="$(stream_count "$DEFAULT_JSON")"
   if [[ "$count" -eq 0 ]]; then
@@ -118,7 +118,7 @@ fi
 # India corpus — default must resolve; Hindi hard filter is best-effort (warn if empty).
 RRR_DEFAULT="$TMP_DIR/language-rrr-default.json"
 RRR_HINDI="$TMP_DIR/language-rrr-hindi.json"
-RRR_URL="http://127.0.0.1:3020/stream/movie/tt8178634"
+RRR_URL="http://127.0.0.1:3020/stream/movie/tt8178634?strict_unknown_cache=false"
 RRR_TIER="$(fixture_tier RRR)"
 
 if curl -sf --max-time 90 "$RRR_URL" >"$RRR_DEFAULT"; then
@@ -127,7 +127,7 @@ else
   fixture_fail "$RRR_TIER" "RRR default stream request"
 fi
 
-if curl -sf --max-time 90 "$RRR_URL?language=Hindi" >"$RRR_HINDI"; then
+if curl -sf --max-time 90 "$RRR_URL&language=Hindi" >"$RRR_HINDI"; then
   count="$(stream_count "$RRR_HINDI")"
   if [[ "$count" -ge 1 ]]; then
     gate_pass "RRR hard language=Hindi count=$count"
