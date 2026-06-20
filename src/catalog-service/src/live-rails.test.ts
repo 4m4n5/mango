@@ -89,6 +89,27 @@ test('live-rails matches mixed racing channels', () => {
   assert.deepEqual(matches.map((item) => item.id), ['1', '2', '3']);
 });
 
+test('live-rails hindi english news excludes regional language variants', () => {
+  const rail: LiveSportRail = {
+    id: 'live-news',
+    label: 'news',
+    keywords: ['abp news', 'republic tv', 'ndtv 24x7', 'aaj tak'],
+    exclude_keywords: ['ananda', 'bangla', 'kannada', 'marathi', 'majha'],
+    limit: 10,
+  };
+  const channels = [
+    channel({ id: '1', name: 'ABP News' }),
+    channel({ id: '2', name: 'ABP Ananda' }),
+    channel({ id: '3', name: 'Republic TV' }),
+    channel({ id: '4', name: 'Republic Bangla' }),
+    channel({ id: '5', name: 'NDTV 24x7' }),
+    channel({ id: '6', name: 'NDTV Marathi' }),
+  ];
+  const assigned = new Set<string>();
+  const matches = matchChannelsToRail(channels, rail, assigned);
+  assert.deepEqual(matches.map((item) => item.id), ['1', '3', '5']);
+});
+
 test('live-rails source_fill prefers Indian news before US paid affiliates', () => {
   const rail: LiveSportRail = {
     id: 'live-news',

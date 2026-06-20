@@ -104,18 +104,25 @@ rails:
         limit: 9
         keywords:
           - aaj tak
-          - ndtv
-          - republic
-          - zee news
-          - abp
-          - news18
-          - wion
+          - abp news
+          - ndtv 24x7
+          - ndtv india
+          - republic tv
+          - republic bharat
           - times now
+          - times now navbharat
+          - times now world
+          - wion
+          - zee news
           - india today
+          - news18 india
+          - cnn-news18
           - dd news
-          - rajya sabha
+          - india tv
+          - mirror now
+          - news nation
           - bharat samachar
-          - samachar
+          - rajya sabha
       - addon: mango Live TV
         limit: 3
         keywords:
@@ -133,6 +140,55 @@ rails:
       - sport
       - originals
       - comedy
+      - ananda
+      - asmita
+      - ganga
+      - majha
+      - sanjha
+      - bangla
+      - bengali
+      - tamil
+      - telugu
+      - kannada
+      - malayalam
+      - marathi
+      - gujarati
+      - punjabi
+      - odia
+      - assamese
+      - urdu
+      - bhojpuri
+      - republic bangla
+      - republic kannada
+      - news18 bangla
+      - news18 tamil
+      - news18 telugu
+      - news18 kannada
+      - news18 kerala
+      - news18 gujarati
+      - news18 punjab
+      - news18 rajasthan
+      - news18 assam
+      - news18 bihar
+      - news18 odisha
+      - news18 madhya
+      - news18 lokmat
+      - ndtv marathi
+      - ndtv rajasthan
+      - ndtv madhya
+      - zee marathi
+      - zee tamil
+      - zee telugu
+      - zee kannada
+      - zee malayalam
+      - zee punjabi
+      - zee gujarati
+      - zee bangla
+      - zee keralam
+      - dd mizoram
+      - global punjab
+      - andhra
+      - telangana
       - baltimore
       - boise
       - buffalo

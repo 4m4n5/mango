@@ -37,6 +37,15 @@
         "catalogName": "mango Live News"
       }
     },
+    "iptv-org-news-in": {
+      "label": "IPTV-org news (India — Hindi + English)",
+      "config": {
+        "provider": "iptv-org",
+        "iptvOrgCountry": "IN",
+        "iptvOrgCategory": "news",
+        "catalogName": "mango Live News"
+      }
+    },
     "m3u-news": {
       "label": "IPTV-org news M3U playlist",
       "config": {

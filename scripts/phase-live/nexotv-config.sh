@@ -242,7 +242,7 @@ case "$cmd" in
   list-profiles) list_profiles ;;
   apply) apply_profile ;;
   apply-free) PROFILE_ID="${2:-iptv-org-sports}"; apply_free ;;
-  apply-news) PROFILE_ID="${2:-iptv-org-news}"; apply_news ;;
+  apply-news) PROFILE_ID="${2:-iptv-org-news-in}"; apply_news ;;
   apply-area69) apply_area69 ;;
   wire-export) wire_export ;;
   manifest) print_manifest ;;
