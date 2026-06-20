@@ -1,5 +1,6 @@
 /**
- * Launcher voice command channel — HTTP poll (primary) + orchestrator WS (fallback).
+ * Launcher voice commands — HTTP poll only (reliable on Pi kiosk).
+ * WS is reserved for HUD/chat; never replay stale navigation commands.
  */
 
 import type { BrowseTab, ContentCard } from "./types";
@@ -24,8 +25,16 @@ type LauncherCommandMessage = {
 
 type VoiceCommandsResponse = {
   ok?: boolean;
+  latest_seq?: number;
   commands?: Array<LauncherCommandMessage & { seq?: number }>;
 };
+
+type VoiceStateResponse = {
+  ok?: boolean;
+  latest_seq?: number;
+};
+
+const LAST_SEQ_KEY = "mango.voice.lastSeq";
 
 function parseBrowseTab(value: string | undefined): BrowseTab | null {
   if (value === "movies" || value === "series" || value === "live") {
@@ -98,19 +107,61 @@ export function handleLauncherCommand(
     const card = cardFromCommand(message);
     if (card !== null) {
       handlers.onOpenDetail(card, tab);
+      return true;
     }
-    return true;
   }
   return false;
 }
 
+function readStoredLastSeq(): number {
+  try {
+    const raw = sessionStorage.getItem(LAST_SEQ_KEY);
+    const parsed = raw !== null ? Number(raw) : 0;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function storeLastSeq(seq: number): void {
+  try {
+    sessionStorage.setItem(LAST_SEQ_KEY, String(seq));
+  } catch {
+    // ignore private mode / storage errors
+  }
+}
+
 function startVoiceCommandPoll(handlers: VoiceCommandHandlers): () => void {
-  let lastSeq = 0;
+  let lastSeq = readStoredLastSeq();
+  let bootstrapped = lastSeq > 0;
   let stopped = false;
   let pollTimer: number | undefined;
 
+  const bootstrap = async (): Promise<void> => {
+    if (bootstrapped) {
+      return;
+    }
+    try {
+      const response = await fetch("/api/voice/state");
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as VoiceStateResponse;
+      const latest = typeof payload.latest_seq === "number" ? payload.latest_seq : 0;
+      lastSeq = Math.max(lastSeq, latest);
+      storeLastSeq(lastSeq);
+      bootstrapped = true;
+    } catch {
+      // UI server may be restarting
+    }
+  };
+
   const poll = async (): Promise<void> => {
     if (stopped) {
+      return;
+    }
+    if (!bootstrapped) {
+      await bootstrap();
       return;
     }
     try {
@@ -119,19 +170,26 @@ function startVoiceCommandPoll(handlers: VoiceCommandHandlers): () => void {
         return;
       }
       const payload = (await response.json()) as VoiceCommandsResponse;
+      if (typeof payload.latest_seq === "number" && payload.latest_seq > lastSeq && (payload.commands?.length ?? 0) === 0) {
+        lastSeq = payload.latest_seq;
+        storeLastSeq(lastSeq);
+      }
       for (const command of payload.commands ?? []) {
         if (typeof command.seq === "number" && command.seq > lastSeq) {
           lastSeq = command.seq;
         }
         handleLauncherCommand(command, handlers);
       }
+      if ((payload.commands?.length ?? 0) > 0) {
+        storeLastSeq(lastSeq);
+      }
     } catch {
       // launcher UI server may restart briefly
     }
   };
 
-  void poll();
-  pollTimer = window.setInterval(() => void poll(), 400);
+  void bootstrap().then(() => void poll());
+  pollTimer = window.setInterval(() => void poll(), 350);
 
   return () => {
     stopped = true;
@@ -140,62 +198,10 @@ function startVoiceCommandPoll(handlers: VoiceCommandHandlers): () => void {
 }
 
 export function startVoiceCommands(
-  wsUrls: string[],
+  _wsUrls: string[],
   handlers: VoiceCommandHandlers,
 ): () => void {
-  const stopPoll = startVoiceCommandPoll(handlers);
-
-  let reconnectTimer: number | undefined;
-  let urlIndex = 0;
-  let stopped = false;
-
-  const scheduleReconnect = (advanceUrl: boolean): void => {
-    if (stopped) {
-      return;
-    }
-    if (advanceUrl && wsUrls.length > 1) {
-      urlIndex = (urlIndex + 1) % wsUrls.length;
-    }
-    reconnectTimer = window.setTimeout(connect, advanceUrl ? 250 : 2000);
-  };
-
-  const connect = (): void => {
-    window.clearTimeout(reconnectTimer);
-    let socket: WebSocket;
-    let opened = false;
-    try {
-      socket = new WebSocket(wsUrls[urlIndex] ?? "ws://127.0.0.1:8766/ws");
-    } catch {
-      scheduleReconnect(true);
-      return;
-    }
-
-    socket.addEventListener("open", () => {
-      opened = true;
-    });
-    socket.addEventListener("message", (event: MessageEvent<string>) => {
-      try {
-        const payload = JSON.parse(event.data) as unknown;
-        handleLauncherCommand(payload, handlers);
-      } catch {
-        // ignore malformed payloads
-      }
-    });
-    socket.addEventListener("close", () => {
-      scheduleReconnect(!opened);
-    });
-    socket.addEventListener("error", () => {
-      socket.close();
-    });
-  };
-
-  connect();
-
-  return () => {
-    stopped = true;
-    stopPoll();
-    window.clearTimeout(reconnectTimer);
-  };
+  return startVoiceCommandPoll(handlers);
 }
 
 export function resolveVoiceWsUrls(): string[] {

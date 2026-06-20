@@ -54,7 +54,7 @@ export function buildVoiceToolManifest(): {
     },
     {
       name: 'mango_search_external',
-      description: 'Search Cinemeta for titles outside the verified library. Use when the user asks for something not in mango_search results. Can queue hits for playability verification.',
+      description: 'Search Cinemeta for titles outside the verified library. Default queue_missing=false. Use queue_missing=true only when the user wants a title added to the verify pool without opening it on TV.',
       layer: 'catalog',
       input_schema: {
         type: 'object',

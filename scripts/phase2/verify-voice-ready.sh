@@ -43,6 +43,22 @@ else
 fi
 [[ -s /etc/mango/stt.key ]] && ok stt-key || bad stt-key-empty
 [[ -s /etc/mango/llm.key ]] && ok llm-key || bad llm-key-empty
+MAX_TOKENS="$(python3 - <<'PY' 2>/dev/null || echo 0
+import yaml
+from pathlib import Path
+p = Path("/etc/mango/config.yaml")
+if not p.is_file():
+    print(0)
+    raise SystemExit
+raw = yaml.safe_load(p.read_text()) or {}
+print(int((raw.get("llm") or {}).get("max_tokens") or 0))
+PY
+)"
+if [[ "${MAX_TOKENS:-0}" -ge 192 ]]; then
+  ok "llm-max-tokens ($MAX_TOKENS)"
+else
+  bad "llm-max-tokens too low ($MAX_TOKENS) — voice tools need >= 192 on Pi"
+fi
 if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
   # shellcheck disable=SC1091
   source "${HOME}/.config/mango/voice.env"

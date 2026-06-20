@@ -42,6 +42,7 @@ _last_launch_at: dict[str, float] = {}
 _voice_lock: Final = threading.Lock()
 _voice_command_seq: int = 0
 _voice_commands: Final = deque[dict[str, object]](maxlen=64)
+VOICE_COMMAND_TTL_SEC: Final = 45.0
 
 
 def run_check(cmd: list[str]) -> bool:
@@ -69,15 +70,53 @@ def enqueue_voice_command(command: dict[str, object]) -> int:
     with _voice_lock:
         _voice_command_seq += 1
         seq = _voice_command_seq
-        entry = {"seq": seq, **command}
+        entry = {"seq": seq, "issued_at": time.time(), **command}
         _voice_commands.append(entry)
     mango_log("voice_command", seq=str(seq), action=str(command.get("action", "")))
     return seq
 
 
-def voice_commands_since(after: int) -> list[dict[str, object]]:
+def _prune_expired_voice_commands(now: float | None = None) -> None:
+    cutoff = (now or time.time()) - VOICE_COMMAND_TTL_SEC
+    fresh = deque(
+        (
+            entry
+            for entry in _voice_commands
+            if float(entry.get("issued_at", 0)) >= cutoff
+        ),
+        maxlen=_voice_commands.maxlen,
+    )
+    _voice_commands.clear()
+    _voice_commands.extend(fresh)
+
+
+def drain_voice_commands(after: int) -> tuple[list[dict[str, object]], int]:
+    """Return pending commands once — never replay on later polls."""
+    now = time.time()
     with _voice_lock:
-        return [entry for entry in _voice_commands if int(entry.get("seq", 0)) > after]
+        _prune_expired_voice_commands(now)
+        pending = [
+            entry
+            for entry in list(_voice_commands)
+            if int(entry.get("seq", 0)) > after
+        ]
+        pending_seqs = {int(entry.get("seq", 0)) for entry in pending}
+        kept = deque(
+            (
+                entry
+                for entry in _voice_commands
+                if int(entry.get("seq", 0)) not in pending_seqs
+            ),
+            maxlen=_voice_commands.maxlen,
+        )
+        _voice_commands.clear()
+        _voice_commands.extend(kept)
+        return pending, _voice_command_seq
+
+
+def latest_voice_command_seq() -> int:
+    with _voice_lock:
+        return _voice_command_seq
 
 
 def collect_health(port: int) -> dict[str, object]:
@@ -153,7 +192,11 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                 after = max(0, int(after_values[0]))
             except (ValueError, IndexError):
                 after = 0
-            self._write_json({"ok": True, "commands": voice_commands_since(after)})
+            commands, latest_seq = drain_voice_commands(after)
+            self._write_json({"ok": True, "latest_seq": latest_seq, "commands": commands})
+            return
+        if path == "/api/voice/state":
+            self._write_json({"ok": True, "latest_seq": latest_voice_command_seq()})
             return
         if path.startswith("/overlay/"):
             self._write_json(

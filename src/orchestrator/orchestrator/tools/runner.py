@@ -15,7 +15,7 @@ from orchestrator.tools.launcher import (
     summarize_launcher_command,
 )
 
-LauncherDispatch = Callable[[dict[str, Any]], Awaitable[None]]
+LauncherDispatch = Callable[[dict[str, Any]], Awaitable[int | None]]
 
 
 def _compact(payload: dict[str, Any]) -> str:
@@ -116,9 +116,20 @@ async def execute_tool(
             command = build_launcher_command(name, tool_input)
         except LauncherCommandError as exc:
             return _compact({"ok": False, "error": str(exc)})
+        tv_seq: int | None = None
         if dispatch_launcher is not None:
-            await dispatch_launcher(command)
-        return _compact({"ok": True, "summary": summarize_launcher_command(command)})
+            tv_seq = await dispatch_launcher(command)
+        if tv_seq is None:
+            return _compact({
+                "ok": False,
+                "error": "TV did not receive navigation command",
+                "summary": summarize_launcher_command(command),
+            })
+        return _compact({
+            "ok": True,
+            "tv_seq": tv_seq,
+            "summary": summarize_launcher_command(command),
+        })
 
     return _compact({"ok": False, "error": f"unknown tool: {name}"})
 

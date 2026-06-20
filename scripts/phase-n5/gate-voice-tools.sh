@@ -71,6 +71,17 @@ else
   bad launcher-voice-command-post
 fi
 
+STATE_JSON="$(curl -sf --max-time 5 "http://127.0.0.1:${LAUNCHER_PORT}/api/voice/state" || true)"
+DRAIN_JSON="$(curl -sf --max-time 5 "http://127.0.0.1:${LAUNCHER_PORT}/api/voice/commands?after=0" || true)"
+REPLAY_JSON="$(curl -sf --max-time 5 "http://127.0.0.1:${LAUNCHER_PORT}/api/voice/commands?after=99999" || true)"
+if [[ -n "$STATE_JSON" ]] && echo "$STATE_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True' 2>/dev/null \
+  && [[ -n "$DRAIN_JSON" ]] && echo "$DRAIN_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True' 2>/dev/null \
+  && [[ -n "$REPLAY_JSON" ]] && echo "$REPLAY_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True and d.get("commands")==[]' 2>/dev/null; then
+  ok launcher-voice-command-drain
+else
+  bad launcher-voice-command-drain
+fi
+
 if [[ -d src/orchestrator/.venv ]]; then
   (
     cd src/orchestrator
