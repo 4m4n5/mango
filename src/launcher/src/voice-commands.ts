@@ -1,6 +1,6 @@
 /**
  * Launcher voice commands — HTTP poll (primary) + orchestrator WS (backup).
- * Cursor always syncs from server; never trust sessionStorage across restarts.
+ * Never advance the poll cursor without applying commands (no bootstrap skip).
  */
 
 import type { BrowseTab, ContentCard } from "./types";
@@ -31,10 +31,25 @@ type VoiceCommandsResponse = {
   commands?: Array<LauncherCommandMessage & { seq?: number }>;
 };
 
-type VoiceStateResponse = {
-  ok?: boolean;
-  latest_seq?: number;
-};
+const APPLIED_SEQ_KEY = "mango.voice.appliedSeq";
+
+function readAppliedSeq(): number {
+  try {
+    const raw = sessionStorage.getItem(APPLIED_SEQ_KEY);
+    const parsed = raw !== null ? Number(raw) : 0;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function storeAppliedSeq(seq: number): void {
+  try {
+    sessionStorage.setItem(APPLIED_SEQ_KEY, String(seq));
+  } catch {
+    // ignore
+  }
+}
 
 function parseBrowseTab(value: string | undefined): BrowseTab | null {
   if (value === "movies" || value === "series" || value === "live") {
@@ -68,125 +83,135 @@ function normalizeContentType(value: string | undefined): string | null {
   return normalized || null;
 }
 
-function cardFromCommand(message: LauncherCommandMessage): ContentCard | null {
+function cardFromCommand(message: LauncherCommandMessage): { card: ContentCard | null; reason: string } {
   const id = message.id?.trim();
   const contentType = normalizeContentType(message.content_type);
-  if (!id || !contentType) {
-    return null;
+  if (!id) {
+    return { card: null, reason: "missing_id" };
+  }
+  if (!contentType) {
+    return { card: null, reason: "missing_content_type" };
   }
   return {
-    id,
-    type: contentType,
-    title: message.title?.trim() || id,
-    subtitle: "",
-    posterUrl: resolveCardPosterUrl({ id, posterUrl: message.poster?.trim() }),
-    source: "voice",
+    card: {
+      id,
+      type: contentType,
+      title: message.title?.trim() || id,
+      subtitle: "",
+      posterUrl: resolveCardPosterUrl({ id, posterUrl: message.poster?.trim() }),
+      source: "voice",
+    },
+    reason: "",
   };
 }
 
 export function handleLauncherCommand(
   raw: unknown,
   handlers: VoiceCommandHandlers,
-): boolean {
+): { ok: boolean; reason: string } {
   if (!raw || typeof raw !== "object") {
-    return false;
+    return { ok: false, reason: "invalid_payload" };
   }
   const message = raw as LauncherCommandMessage;
   if (message.type !== "launcher_command") {
-    return false;
+    return { ok: false, reason: "not_launcher_command" };
   }
 
   const action = message.action?.trim();
   if (action === "home") {
     handlers.onHome();
-    return true;
+    return { ok: true, reason: "" };
   }
   if (action === "back") {
     handlers.onBack();
-    return true;
+    return { ok: true, reason: "" };
   }
   if (action === "settings") {
     handlers.onSettings();
-    return true;
+    return { ok: true, reason: "" };
   }
   if (action === "tab") {
     const tab = parseBrowseTab(message.tab);
     if (tab !== null) {
       handlers.onTab(tab);
+      return { ok: true, reason: "" };
     }
-    return true;
+    return { ok: false, reason: "invalid_tab" };
   }
   if (action === "open_detail") {
     const tab = parseBrowseTab(message.tab) ?? tabFromContentType(message.content_type);
-    const card = cardFromCommand(message);
+    const { card, reason } = cardFromCommand(message);
     if (card !== null) {
       handlers.onOpenDetail(card, tab);
-      return true;
+      return { ok: true, reason: "" };
     }
+    return { ok: false, reason: reason || "open_detail_failed" };
   }
-  return false;
+  return { ok: false, reason: "unknown_action" };
+}
+
+async function postVoiceAck(
+  seq: number | undefined,
+  action: string | undefined,
+  ok: boolean,
+  reason: string,
+): Promise<void> {
+  if (typeof seq !== "number" || seq <= 0) {
+    return;
+  }
+  try {
+    await fetch("/api/voice/ack", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        seq,
+        action: action ?? "",
+        ok,
+        reason,
+      }),
+    });
+  } catch {
+    // UI server may restart briefly
+  }
 }
 
 function startVoiceCommandPoll(
-  applyCommand: (command: LauncherCommandMessage) => boolean,
+  applyCommand: (command: LauncherCommandMessage) => { ok: boolean; reason: string },
 ): () => void {
-  let lastSeq = 0;
-  let cursorReady = false;
+  let lastSeq = readAppliedSeq();
   let stopped = false;
   let pollTimer: number | undefined;
-
-  const syncCursor = async (): Promise<boolean> => {
-    try {
-      const response = await fetch("/api/voice/state");
-      if (!response.ok) {
-        return false;
-      }
-      const payload = (await response.json()) as VoiceStateResponse;
-      const latest = typeof payload.latest_seq === "number" ? payload.latest_seq : 0;
-      if (!cursorReady || latest < lastSeq) {
-        lastSeq = latest;
-      }
-      cursorReady = true;
-      return true;
-    } catch {
-      return false;
-    }
-  };
 
   const poll = async (): Promise<void> => {
     if (stopped) {
       return;
     }
-    if (!cursorReady) {
-      await syncCursor();
-      return;
-    }
     try {
       const response = await fetch(`/api/voice/commands?after=${lastSeq}`);
       if (!response.ok) {
-        cursorReady = false;
         return;
       }
       const payload = (await response.json()) as VoiceCommandsResponse;
       if (typeof payload.latest_seq === "number" && payload.latest_seq < lastSeq) {
         lastSeq = payload.latest_seq;
+        storeAppliedSeq(lastSeq);
       }
       for (const command of payload.commands ?? []) {
-        if (typeof command.seq === "number") {
-          if (command.seq <= lastSeq) {
-            continue;
-          }
-          lastSeq = command.seq;
+        const seq = command.seq;
+        const result = applyCommand(command);
+        void postVoiceAck(seq, command.action, result.ok, result.reason);
+        if (typeof seq === "number" && seq > lastSeq) {
+          lastSeq = seq;
+          storeAppliedSeq(lastSeq);
         }
-        applyCommand(command);
       }
     } catch {
-      cursorReady = false;
+      // launcher UI server may restart briefly
     }
   };
 
-  void syncCursor().then(() => void poll());
-  pollTimer = window.setInterval(() => void poll(), 300);
+  void poll();
+  pollTimer = window.setInterval(() => void poll(), 250);
 
   return () => {
     stopped = true;
@@ -200,10 +225,10 @@ export function startVoiceCommands(
 ): () => void {
   const appliedSeq = new Set<number>();
 
-  const applyCommand = (command: LauncherCommandMessage): boolean => {
+  const applyCommand = (command: LauncherCommandMessage): { ok: boolean; reason: string } => {
     if (typeof command.seq === "number") {
       if (appliedSeq.has(command.seq)) {
-        return false;
+        return { ok: true, reason: "duplicate" };
       }
       appliedSeq.add(command.seq);
       if (appliedSeq.size > 128) {
@@ -256,7 +281,8 @@ export function startVoiceCommands(
         if (message.type !== "launcher_command") {
           return;
         }
-        applyCommand(message);
+        const result = applyCommand(message);
+        void postVoiceAck(message.seq, message.action, result.ok, result.reason);
       } catch {
         // ignore malformed payloads
       }

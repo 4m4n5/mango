@@ -102,6 +102,12 @@ else
   echo "  WARN: orchestrator venv missing — skip python smoke"
 fi
 
+if bash scripts/phase-n5/validate-voice-tv-open.sh; then
+  ok voice-tv-open-ack
+else
+  bad voice-tv-open-ack
+fi
+
 echo
 echo "SUMMARY pass=$PASS fail=$FAIL"
 [[ "$FAIL" -eq 0 ]]

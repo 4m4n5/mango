@@ -80,6 +80,10 @@ else
 fi
 cd ~/mango
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null; then
+  systemctl --user restart mango-launcher-chromium.service || true
+  sleep 2
+fi
 if [[ "\${MANGO_VOICE:-0}" == "1" ]]; then
   bash scripts/phase2/ensure-orchestrator-venv.sh
   bash scripts/phase2/start-voice-stack.sh || true

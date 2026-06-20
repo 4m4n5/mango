@@ -130,9 +130,44 @@ def drain_voice_commands(after: int) -> tuple[list[dict[str, object]], int]:
         return pending, _voice_command_seq
 
 
+_voice_ack_lock: Final = threading.Lock()
+_last_voice_ack: dict[str, object] = {
+    "ok": False,
+    "seq": 0,
+    "action": "",
+    "reason": "",
+    "at": 0.0,
+}
+
+
 def latest_voice_command_seq() -> int:
     with _voice_lock:
         return _voice_command_seq
+
+
+def read_voice_ack() -> dict[str, object]:
+    with _voice_ack_lock:
+        return dict(_last_voice_ack)
+
+
+def record_voice_ack(payload: dict[str, object]) -> dict[str, object]:
+    global _last_voice_ack
+    with _voice_ack_lock:
+        _last_voice_ack = {
+            "ok": bool(payload.get("ok")),
+            "seq": max(0, int(payload.get("seq", 0) or 0)),
+            "action": str(payload.get("action", "")),
+            "reason": str(payload.get("reason", "")),
+            "at": time.time(),
+        }
+        mango_log(
+            "voice_ack",
+            seq=str(_last_voice_ack["seq"]),
+            action=str(_last_voice_ack["action"]),
+            ok="1" if _last_voice_ack["ok"] else "0",
+            reason=str(_last_voice_ack["reason"]),
+        )
+        return dict(_last_voice_ack)
 
 
 def collect_health(port: int) -> dict[str, object]:
@@ -214,6 +249,9 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         if path == "/api/voice/state":
             self._write_json({"ok": True, "latest_seq": latest_voice_command_seq()})
             return
+        if path == "/api/voice/ack":
+            self._write_json({"ok": True, **read_voice_ack()})
+            return
         if path.startswith("/overlay/"):
             self._write_json(
                 {"ok": False, "error": "overlay deprecated; use launcher HUD"},
@@ -249,6 +287,32 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                 return
             seq = enqueue_voice_command(command)
             self._write_json({"ok": True, "seq": seq})
+            return
+        if path == "/api/voice/ack":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "voice ack is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            length = int(self.headers.get("content-length") or "0")
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                self._write_json(
+                    {"ok": False, "error": "invalid json"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if not isinstance(payload, dict):
+                self._write_json(
+                    {"ok": False, "error": "expected object"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            ack = record_voice_ack(payload)
+            self._write_json({"ok": True, **ack})
             return
         if path.startswith("/api/catalog/"):
             self._proxy_catalog("POST")
