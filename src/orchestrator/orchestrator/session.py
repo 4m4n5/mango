@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 OverlayState = Literal["idle", "listening", "thinking", "speaking"]
 ChatRole = Literal["user", "assistant"]
@@ -14,10 +14,30 @@ class ChatMessage:
 
 
 @dataclass
+class VoiceBrowseContext:
+    """Recent search hits for follow-up picks ('the second one', 'open that')."""
+
+    library_hits: list[dict[str, Any]] = field(default_factory=list)
+    external_hits: list[dict[str, Any]] = field(default_factory=list)
+
+    def all_hits(self) -> list[dict[str, Any]]:
+        return [*self.library_hits, *self.external_hits]
+
+    def remember_library(self, hits: list[dict[str, Any]]) -> None:
+        if hits:
+            self.library_hits = hits[:8]
+
+    def remember_external(self, hits: list[dict[str, Any]]) -> None:
+        if hits:
+            self.external_hits = hits[:8]
+
+
+@dataclass
 class SessionState:
     overlay_state: OverlayState = "idle"
     overlay_text: str = "idle"
     messages: list[ChatMessage] = field(default_factory=list)
+    voice_browse: VoiceBrowseContext = field(default_factory=VoiceBrowseContext)
 
     def set_overlay(self, state: OverlayState, text: str | None = None) -> None:
         self.overlay_state = state

@@ -24,8 +24,8 @@ import os
 import sys
 
 from orchestrator.config import load_settings
-from orchestrator.llm.agent import _auto_open_best_hit, _parse_search_results
-from orchestrator.llm.open_intent import user_wants_open_detail
+from orchestrator.llm.agent import _open_best_from_hits, _parse_search_results
+from orchestrator.llm.open_intent import user_wants_title_navigation
 from orchestrator.tools.launcher import build_launcher_command
 from orchestrator.tools.launcher_dispatch import post_launcher_command
 from orchestrator.tools.runner import execute_tool
@@ -44,7 +44,7 @@ async def dispatch(command: dict) -> int | None:
 
 async def main() -> int:
     settings = load_settings()
-    assert user_wants_open_detail(f"open {QUERY}"), "open intent detector broken"
+    assert user_wants_title_navigation(f"open {QUERY}"), "title navigation intent detector broken"
     search_json = await execute_tool(
         "mango_search",
         {"query": QUERY, "limit": 3},
@@ -54,7 +54,7 @@ async def main() -> int:
     if not hits:
         print(f"FAIL: no search hits for {QUERY}: {search_json}", file=sys.stderr)
         return 1
-    opened = await _auto_open_best_hit(hits, settings, dispatch)
+    opened, _title = await _open_best_from_hits(hits, settings, dispatch)
     if not opened:
         cmd = build_launcher_command("mango_open_title", {
             "type": hits[0].get("type"),

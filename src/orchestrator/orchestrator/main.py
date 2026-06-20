@@ -225,6 +225,7 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
                     reply = await generate_agent_reply(
                         session.provider_messages(max_turns=settings.llm_history_turns),
                         settings,
+                        voice_browse=session.voice_browse,
                         on_delta=on_llm_delta,
                         dispatch_launcher=dispatch_launcher,
                         on_tool_event=on_tool_event,

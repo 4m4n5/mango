@@ -87,7 +87,8 @@ export function buildVoiceToolManifest(): {
     },
     {
       name: 'mango_open_title',
-      description: 'Open a title on the TV detail page so the user can press B to play. Never starts playback.',
+      description:
+        'Open a title on the TV detail page (works from home, detail, or settings — replaces the current title in place). Never starts playback; user presses B to play.',
       layer: 'launcher',
       input_schema: {
         type: 'object',

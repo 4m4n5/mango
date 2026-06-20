@@ -7,26 +7,39 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from orchestrator.config import OrchestratorSettings
-from orchestrator.llm.open_intent import user_wants_open_detail
+from orchestrator.llm.open_intent import (
+    utterance_is_title_pick_only,
+    user_wants_title_navigation,
+)
 from orchestrator.llm.provider import DeltaCallback, _clean_reply, _read_api_key
+from orchestrator.session import VoiceBrowseContext
 from orchestrator.tools import catalog as catalog_tools
 from orchestrator.tools.runner import execute_tool, tool_summary
+from orchestrator.tools.voice_nav import (
+    hit_to_open_input,
+    pick_auto_open_hit,
+    pick_hit_from_utterance,
+)
 
 SYSTEM_PROMPT = (
     "You are mango's TV librarian — warm, knowledgeable couch assistant for a mango TV box. "
     "Users speak Hinglish, Hindi, or English — reply in the same mix (Roman script is fine). "
     "You know the verified playable library via tools; use world knowledge about films and shows too. "
+    "NAVIGATION (seamless — never ask the user to press ⌂ home or go back manually): "
+    "mango_open_title works from home, detail, or settings — it replaces the current title in place. "
+    "To switch titles: mango_search (or use recent results) → mango_open_title. "
+    "For 'the second one' / 'doosra' after you listed options, mango_open_title using that hit. "
+    "mango_navigate back/home only when the user explicitly wants to leave detail. "
     "For recommendations: mango_read_librarian_notes, then mango_library_overview or mango_library_browse. "
-    "Suggest verified titles when possible; explain themes and why something fits. "
-    "OPEN FLOW (specific title to watch now): mango_search → if match, mango_open_title with type,id,title,tab,poster. "
-    "If not in library: mango_search_external with queue_missing=false → list 2–4 options on phone → "
-    "only mango_open_title after the user picks one. "
-    "QUEUE FLOW (add to library for later, no TV change): mango_search_external with queue_missing=true only when "
-    "the user wants it saved for a future pool update — never open detail in the same turn as queue-only. "
+    "OPEN FLOW (specific title now): mango_search → mango_open_title with type,id,title,tab,poster. "
+    "If not in library: mango_search_external (queue_missing=false) → list 2–4 options → "
+    "mango_open_title when the user picks or names one. "
+    "QUEUE FLOW (save for later, no TV change): mango_search_external with queue_missing=true only when "
+    "the user wants verify-pool ingest — never open detail in the same turn as queue-only. "
     "After useful recommendation sessions, save concise taste/themes in mango_update_librarian_notes. "
     "NEVER start, pause, or resume playback — user presses B on the remote. "
     "CRITICAL: only say you opened a title if mango_open_title returned ok:true with tv_seq. "
-    "If tv_seq is missing or ok:false, say the TV did not update and offer to retry. "
+    "If tv_seq is missing or ok:false, say the TV did not update — do NOT tell them to press ⌂ home. "
     "If search returns multiple close matches, ask one short clarifying question. "
     "For library refresh jobs that pause browsing, ask phone confirmation before confirmed=true. "
     "On failure, explain plainly — no fake success. "
@@ -49,6 +62,7 @@ async def generate_agent_reply(
     messages: list[dict[str, str]],
     settings: OrchestratorSettings,
     *,
+    voice_browse: VoiceBrowseContext | None = None,
     on_delta: DeltaCallback | None = None,
     dispatch_launcher: LauncherDispatch | None = None,
     on_tool_event: ToolEventCallback | None = None,
@@ -66,11 +80,24 @@ async def generate_agent_reply(
 
     from anthropic import Anthropic
 
+    browse = voice_browse or VoiceBrowseContext()
     client = Anthropic(api_key=api_key)
     transcript = messages
     open_confirmed = False
-    last_search_hits: list[dict[str, Any]] = []
-    user_open_intent = user_wants_open_detail(_last_user_text(messages))
+    last_open_title = ""
+    user_text = _last_user_text(messages)
+    nav_intent = user_wants_title_navigation(user_text)
+
+    if dispatch_launcher is not None:
+        contextual = pick_hit_from_utterance(user_text, browse.all_hits())
+        if contextual is not None and (nav_intent or _contextual_open_allowed(user_text, contextual)):
+            open_confirmed, last_open_title = await _open_hit(
+                contextual,
+                settings,
+                dispatch_launcher,
+                on_tool_event=on_tool_event,
+            )
+
     for _round in range(max(1, settings.max_tool_rounds)):
         response = client.messages.create(
             model=settings.llm_model,
@@ -92,21 +119,16 @@ async def generate_agent_reply(
                     text_parts.append(text)
 
         if response.stop_reason != "tool_use" or not tool_uses:
-            if (
-                user_open_intent
-                and not open_confirmed
-                and last_search_hits
-                and dispatch_launcher is not None
-            ):
-                open_confirmed = await _auto_open_best_hit(
-                    last_search_hits,
+            if nav_intent and not open_confirmed and browse.all_hits() and dispatch_launcher:
+                open_confirmed, last_open_title = await _open_best_from_hits(
+                    browse.all_hits(),
                     settings,
                     dispatch_launcher,
                     on_tool_event=on_tool_event,
                 )
             reply = _clean_reply(" ".join(text_parts))
-            if open_confirmed and user_open_intent and not reply.strip():
-                reply = _default_open_reply(last_search_hits)
+            if open_confirmed and nav_intent and not reply.strip():
+                reply = _default_open_reply(last_open_title)
             reply = _guard_open_claims(reply, open_confirmed)
             if on_delta is not None:
                 on_delta(reply)
@@ -142,14 +164,22 @@ async def generate_agent_reply(
             )
 
             if name == "mango_search":
-                last_search_hits = _parse_search_results(result)
-                if (
-                    user_open_intent
-                    and not open_confirmed
-                    and dispatch_launcher is not None
-                ):
-                    open_confirmed = await _auto_open_best_hit(
-                        last_search_hits,
+                hits = _parse_search_results(result)
+                browse.remember_library(hits)
+                if nav_intent and not open_confirmed and dispatch_launcher is not None:
+                    open_confirmed, last_open_title = await _open_best_from_hits(
+                        hits,
+                        settings,
+                        dispatch_launcher,
+                        on_tool_event=on_tool_event,
+                    )
+
+            if name == "mango_search_external":
+                hits = _parse_search_results(result)
+                browse.remember_external(hits)
+                if nav_intent and not open_confirmed and dispatch_launcher is not None:
+                    open_confirmed, last_open_title = await _open_best_from_hits(
+                        hits,
                         settings,
                         dispatch_launcher,
                         on_tool_event=on_tool_event,
@@ -157,6 +187,10 @@ async def generate_agent_reply(
 
             if name == "mango_open_title":
                 open_confirmed = _tool_open_confirmed(result)
+                if open_confirmed:
+                    title = tool_input.get("title")
+                    if isinstance(title, str) and title.strip():
+                        last_open_title = title.strip()
 
             if on_tool_event is not None:
                 await on_tool_event(
@@ -227,7 +261,6 @@ def _tool_open_confirmed(result: str) -> bool:
 
 
 def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
-    """Do not claim the TV opened unless mango_open_title confirmed tv_seq."""
     if open_confirmed:
         return reply
     lowered = reply.lower()
@@ -253,9 +286,21 @@ def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
     if not claims_open:
         return reply
     return (
-        "TV pe abhi title open nahi hua — ek baar phir try karte hain. "
-        "Agar phir bhi home screen pe ho, ⌂ dabao aur dubara bolo."
+        "TV pe title switch nahi hua — ek baar aur try karte hain. "
+        "Tum detail ya home pe ho, dono theek hain — bas dubara bolo kaunsa title."
     )
+
+
+def _contextual_open_allowed(text: str, hit: dict[str, Any]) -> bool:
+    """Open from recent hits when user names a title or picks from a list."""
+    if user_wants_title_navigation(text):
+        return True
+    if not utterance_is_title_pick_only(text):
+        return False
+    title = hit.get("title")
+    if not isinstance(title, str) or not title.strip():
+        return False
+    return title.strip().lower() in text.strip().lower()
 
 
 def _last_user_text(messages: list[dict[str, str]]) -> str:
@@ -286,66 +331,18 @@ def _parse_search_results(result: str) -> list[dict[str, Any]]:
     return hits
 
 
-def _pick_auto_open_hit(hits: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if not hits:
-        return None
-    scored: list[tuple[int, dict[str, Any]]] = []
-    for hit in hits:
-        score = hit.get("score")
-        score_value = int(score) if isinstance(score, (int, float)) else 0
-        if isinstance(hit.get("id"), str) and isinstance(hit.get("title"), str):
-            scored.append((score_value, hit))
-    if not scored:
-        return None
-    scored.sort(key=lambda pair: pair[0], reverse=True)
-    top_score, top_hit = scored[0]
-    if top_score >= 92:
-        return top_hit
-    if len(scored) == 1 and top_score >= 78:
-        return top_hit
-    if len(scored) > 1:
-        second_score = scored[1][0]
-        if top_score >= 85 and top_score - second_score >= 12:
-            return top_hit
-    return None
-
-
-def _open_tool_input_from_hit(hit: dict[str, Any]) -> dict[str, Any]:
-    content_type = hit.get("type")
-    content_id = hit.get("id")
-    title = hit.get("title")
-    if not isinstance(content_type, str) or not isinstance(content_id, str):
-        raise ValueError("search hit missing type/id")
-    if not isinstance(title, str) or not title.strip():
-        title = content_id
-    payload: dict[str, Any] = {
-        "type": content_type,
-        "id": content_id,
-        "title": title.strip(),
-    }
-    tab = hit.get("tab")
-    if isinstance(tab, str) and tab.strip():
-        payload["tab"] = tab.strip()
-    poster = hit.get("poster")
-    if isinstance(poster, str) and poster.strip():
-        payload["poster"] = poster.strip()
-    return payload
-
-
-async def _auto_open_best_hit(
-    hits: list[dict[str, Any]],
+async def _open_hit(
+    hit: dict[str, Any],
     settings: OrchestratorSettings,
     dispatch_launcher: LauncherDispatch,
     *,
     on_tool_event: ToolEventCallback | None = None,
-) -> bool:
-    hit = _pick_auto_open_hit(hits)
-    if hit is None:
-        return False
+) -> tuple[bool, str]:
     try:
-        tool_input = _open_tool_input_from_hit(hit)
+        tool_input = hit_to_open_input(hit)
     except ValueError:
-        return False
+        return False, ""
+    title = str(tool_input.get("title", ""))
     summary = tool_summary("mango_open_title", tool_input)
     if on_tool_event is not None:
         await on_tool_event(
@@ -367,15 +364,25 @@ async def _auto_open_best_hit(
                 "result": result,
             }
         )
-    return _tool_open_confirmed(result)
+    return _tool_open_confirmed(result), title
 
 
-def _default_open_reply(hits: list[dict[str, Any]]) -> str:
-    hit = _pick_auto_open_hit(hits) or (hits[0] if hits else None)
-    title = hit.get("title") if isinstance(hit, dict) else "title"
-    if not isinstance(title, str) or not title.strip():
-        title = "title"
-    return f"{title.strip()} detail pe khula — B dabao play ke liye."
+async def _open_best_from_hits(
+    hits: list[dict[str, Any]],
+    settings: OrchestratorSettings,
+    dispatch_launcher: LauncherDispatch,
+    *,
+    on_tool_event: ToolEventCallback | None = None,
+) -> tuple[bool, str]:
+    hit = pick_auto_open_hit(hits)
+    if hit is None:
+        return False, ""
+    return await _open_hit(hit, settings, dispatch_launcher, on_tool_event=on_tool_event)
+
+
+def _default_open_reply(title: str) -> str:
+    name = title.strip() if title.strip() else "title"
+    return f"{name} detail pe khula — B dabao play ke liye."
 
 
 def _mock_reply(

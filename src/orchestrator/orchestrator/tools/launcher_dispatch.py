@@ -60,11 +60,11 @@ def wait_for_launcher_ack(
     return False
 
 
-def post_launcher_command(
+def _enqueue_and_wait(
     settings: OrchestratorSettings,
     command: dict[str, object],
     *,
-    wait_for_ack: bool = True,
+    wait_for_ack: bool,
 ) -> int:
     url = f"{_launcher_base(settings)}/api/voice/command"
     with httpx.Client(timeout=5.0) as client:
@@ -85,3 +85,35 @@ def post_launcher_command(
             )
         logger.info("voice command ack seq=%s action=%s", seq, action)
     return seq
+
+
+def _recover_open_detail(settings: OrchestratorSettings, command: dict[str, object]) -> int:
+    for prep_action in ("back", "home"):
+        prep = {"type": "launcher_command", "action": prep_action}
+        try:
+            _enqueue_and_wait(settings, prep, wait_for_ack=True)
+        except LauncherDispatchError:
+            logger.info("voice open recovery prep=%s failed", prep_action)
+            continue
+        try:
+            return _enqueue_and_wait(settings, command, wait_for_ack=True)
+        except LauncherDispatchError:
+            logger.info("voice open recovery retry after=%s failed", prep_action)
+            continue
+    raise LauncherDispatchError("launcher did not apply open_detail after recovery attempts")
+
+
+def post_launcher_command(
+    settings: OrchestratorSettings,
+    command: dict[str, object],
+    *,
+    wait_for_ack: bool = True,
+) -> int:
+    action = str(command.get("action", ""))
+    try:
+        return _enqueue_and_wait(settings, command, wait_for_ack=wait_for_ack)
+    except LauncherDispatchError as exc:
+        if wait_for_ack and action == "open_detail":
+            logger.warning("open_detail failed (%s) — trying recovery", exc)
+            return _recover_open_detail(settings, command)
+        raise

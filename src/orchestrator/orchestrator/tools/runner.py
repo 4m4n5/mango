@@ -119,6 +119,17 @@ async def execute_tool(
         tv_seq: int | None = None
         if dispatch_launcher is not None:
             tv_seq = await dispatch_launcher(command)
+        if tv_seq is None and name == "mango_open_title":
+            from orchestrator.tools.launcher_dispatch import post_launcher_command
+
+            try:
+                tv_seq = await asyncio.to_thread(post_launcher_command, settings, command)
+            except Exception as exc:
+                return _compact({
+                    "ok": False,
+                    "error": str(exc),
+                    "summary": summarize_launcher_command(command),
+                })
         if tv_seq is None:
             return _compact({
                 "ok": False,

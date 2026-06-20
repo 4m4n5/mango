@@ -1,6 +1,6 @@
 import "./style.css";
 import { FocusGrid } from "./focus";
-import { loadCatalogRails } from "./catalog";
+import { loadCatalogRails, cancelPlay } from "./catalog";
 import { DetailController } from "./detail";
 import { NextEpisodePrompt } from "./next-prompt";
 import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, type HomeOptions } from "./home";
@@ -130,13 +130,19 @@ function init(): void {
     },
     onSettings: showSettings,
     onTab: (tab) => {
+      if (detail.isOpen) {
+        detail.hide();
+      }
+      if (inSettings) {
+        inSettings = false;
+        settingsView.classList.add("hidden");
+        homeView.classList.remove("hidden");
+      }
       focusBrowseTabOnRender = true;
       handleBrowseTabChange(tab);
     },
     onOpenDetail: (card, tab) => {
-      activeBrowseTab = tab;
-      setStatus(`Opening ${card.title}…`);
-      handleContentSelect(card, "voice", tab);
+      openVoiceDetail(card, tab);
     },
   });
 }
@@ -327,6 +333,17 @@ function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseT
   detail.show(card, railLabel, browseTab, pinnedKeys.has(`${card.type}:${card.id}`));
 }
 
+function openVoiceDetail(card: ContentCard, tab: BrowseTab): void {
+  nextEpisodePrompt.dismiss();
+  void cancelPlay();
+  inSettings = false;
+  settingsView.classList.add("hidden");
+  homeView.classList.add("hidden");
+  activeBrowseTab = tab;
+  setStatus(`Opening ${card.title}…`);
+  detail.show(card, "voice", tab, pinnedKeys.has(`${card.type}:${card.id}`));
+}
+
 function handleAppSelect(app: AppCard): void {
   if (app.action === "settings") {
     showSettings();
@@ -506,11 +523,26 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
       };
       renderHome();
     }
-    setStatus("catalog is refreshing — try again in a moment.");
+    setStatus(catalogRetryStatus(error, reshuffle));
     catalogRetryTimer = window.setTimeout(() => {
       void loadCatalog();
     }, 5000);
   }
+}
+
+function catalogRetryStatus(error: unknown, reshuffle: boolean): string {
+  const message = error instanceof Error ? error.message : "catalog unavailable";
+  const lower = message.toLowerCase();
+  if (lower.includes("temporarily unavailable") || lower.includes("catalog unavailable")) {
+    return "catalog temporarily unavailable — retrying…";
+  }
+  if (lower.includes("rate limit") || lower.includes("busy")) {
+    return "catalog is busy — try again in a moment.";
+  }
+  if (reshuffle) {
+    return "refreshing…";
+  }
+  return "catalog is reconnecting…";
 }
 
 function prefetchCatalogTab(tab: BrowseTab): void {

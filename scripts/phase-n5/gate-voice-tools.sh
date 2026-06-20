@@ -114,6 +114,12 @@ else
   bad voice-orchestrator-open-ack
 fi
 
+if bash scripts/phase-n5/validate-voice-title-switch.sh; then
+  ok voice-title-switch-without-home
+else
+  bad voice-title-switch-without-home
+fi
+
 echo
 echo "SUMMARY pass=$PASS fail=$FAIL"
 [[ "$FAIL" -eq 0 ]]
