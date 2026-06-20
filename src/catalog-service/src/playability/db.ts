@@ -757,6 +757,47 @@ WHERE type = @type AND id = @id;
   }
 }
 
+export async function getSeriesEpisodePlayableMap(
+  episodeIds: string[],
+): Promise<Map<string, boolean | null>> {
+  const result = new Map<string, boolean | null>();
+  for (const episodeId of episodeIds) {
+    result.set(episodeId, null);
+  }
+  if (episodeIds.length === 0) {
+    return result;
+  }
+
+  await initPlayabilityDb();
+  const db = openDb();
+  const now = Date.now();
+  try {
+    const placeholders = episodeIds.map(() => '?').join(', ');
+    const rows = db.prepare(`
+SELECT id, status, expires_at
+FROM titles
+WHERE type = 'series' AND id IN (${placeholders});
+`).all(...episodeIds) as Array<{
+      id: string;
+      status: TitleVerifyProfile['status'];
+      expires_at: number | null;
+    }>;
+
+    for (const row of rows) {
+      if (row.status === 'verified' && (row.expires_at === null || row.expires_at > now)) {
+        result.set(row.id, true);
+      } else if (row.status === 'failed') {
+        result.set(row.id, false);
+      } else {
+        result.set(row.id, null);
+      }
+    }
+    return result;
+  } finally {
+    db.close();
+  }
+}
+
 export async function getRailPoolTitleKeys(railId: string): Promise<Set<string>> {
   await initPlayabilityDb();
   const db = openDb();

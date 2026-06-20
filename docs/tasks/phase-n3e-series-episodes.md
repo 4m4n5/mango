@@ -146,11 +146,11 @@ Normalized couch response — hides Cinemeta quirks from TV UI.
 
 ### PR1 — catalog-service
 
-- [ ] `episodes.ts` — normalize `videos[]`
-- [ ] `GET /series/:bareId/episodes` + progress join
-- [ ] `POST /play` resolve latest episode for bare series id
+- [x] `episodes.ts` — normalize `videos[]`
+- [x] `GET /series/:bareId/episodes` + progress join
+- [x] `POST /play` resolve latest episode for bare series id
 - [ ] Playability `playable` flags (hybrid)
-- [ ] Unit tests (Chernobyl season 0, resume resolution)
+- [x] Unit tests (Chernobyl season 0, resume resolution)
 - [ ] Deploy + `series-episodes.sh --sample`
 
 ### PR2 — launcher + next prompt

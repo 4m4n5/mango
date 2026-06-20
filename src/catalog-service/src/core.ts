@@ -49,7 +49,7 @@ import {
   mergePinnedPoolItems,
   shouldSkipTitleFilter,
 } from './playability/rail-overrides.js';
-import { normalizeSeriesVerifyId } from './playability/ids.js';
+import { normalizeSeriesVerifyId, seriesBareId } from './playability/ids.js';
 import {
   CatalogError,
   couchSafeCatalogMessage,
@@ -58,7 +58,8 @@ import {
 } from './catalog-errors.js';
 import { resolvePosterFromMeta } from './poster.js';
 import { CONTINUE_RAIL_ID } from './progress/config.js';
-import { listContinueItems } from './progress/db.js';
+import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
+import { assembleSeriesEpisodes, type SeriesEpisodesResponse } from './episodes.js';
 
 export { CatalogError } from './catalog-errors.js';
 
@@ -742,6 +743,17 @@ export class CatalogCore {
       return merged;
     }
     throw new CatalogError(502, `meta not resolved for ${type}/${id}${errors.length ? ` (${errors.join('; ')})` : ''}`);
+  }
+
+  async seriesEpisodes(bareId: string): Promise<SeriesEpisodesResponse> {
+    const trimmed = bareId.trim();
+    const normalizedBare = seriesBareId(trimmed);
+    if (!normalizedBare || normalizedBare.toLowerCase() !== trimmed.toLowerCase()) {
+      throw new CatalogError(400, 'GET /series/:id/episodes requires bare imdb series id');
+    }
+    const meta = await this.meta('series', normalizedBare);
+    const saved = getWatchProgressForTitle('series', normalizedBare);
+    return assembleSeriesEpisodes(normalizedBare, meta, saved);
   }
 
   private async buildStreamFilterContext(type: string, id: string): Promise<StreamFilterContext> {

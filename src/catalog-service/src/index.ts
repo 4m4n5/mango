@@ -10,6 +10,7 @@ import { playabilityVerifyTtlMs } from './playability/config.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
 import { resolvePosterFromMeta } from './poster.js';
 import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
+import { resolveSeriesPlayTarget } from './series-play.js';
 import {
   getRefreshLevel,
   listRefreshLevels,
@@ -169,13 +170,14 @@ async function handlePlay(
   let startSec = typeof body.start_sec === 'number' && body.start_sec > 0
     ? body.start_sec
     : undefined;
-  if (body.resume) {
-    const saved = getWatchProgressForTitle(body.type, body.id);
-    if (saved) {
-      playId = saved.play_id;
-      startSec = startSec ?? saved.position_sec;
-    }
-  }
+  const saved = getWatchProgressForTitle(body.type, body.id);
+  const playTarget = resolveSeriesPlayTarget(body.type, body.id, {
+    saved,
+    resume: body.resume,
+    startSec,
+  });
+  playId = playTarget.playId;
+  startSec = playTarget.startSec;
 
   const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
   const playEpoch = await bumpPlayEpoch();
@@ -239,6 +241,8 @@ async function handlePlay(
       attempts: playback.attempts.length,
       candidate_count: playback.candidate_count,
       win_ladder_step: playback.win_ladder_step,
+      play_id: playId,
+      resolved_from: playTarget.resolved_from,
       stream: {
         ...playback.stream,
         resolve_ms: resolved.resolve_ms,
@@ -408,6 +412,11 @@ async function main(): Promise<void> {
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'meta') {
         sendJson(res, 200, await core.meta(parts[1], parts[2]));
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'series' && parts[2] === 'episodes') {
+        sendJson(res, 200, await core.seriesEpisodes(parts[1]));
         return;
       }
 

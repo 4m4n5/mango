@@ -37,5 +37,6 @@ PY
     dist/play-orchestrator.test.js \
     dist/preflight-playback.test.js \
     dist/progress/progress.test.js \
+    dist/episodes.test.js \
     dist/stream-filters.test.js
 ) && gate_pass "catalog unit tests" || { gate_fail "catalog unit tests"; exit 1; }

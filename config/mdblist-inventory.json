@@ -11,7 +11,65 @@
     "target_rate": 0.8,
     "notes": "Cinemeta charts are probed via catalog-service, not mdblist rows below."
   },
-  "toplists_snapshots": [],
+  "toplists_snapshots": [
+    {
+      "fetched_at": "2026-06-20T07:47:00.533685+00:00",
+      "source": "toplists",
+      "count": 50,
+      "catalog_ids": [
+        "mdblist.2194",
+        "mdblist.14",
+        "mdblist.3082",
+        "mdblist.2236",
+        "mdblist.86934",
+        "mdblist.3093",
+        "mdblist.2410",
+        "mdblist.87667",
+        "mdblist.2406",
+        "mdblist.3892",
+        "mdblist.3086",
+        "mdblist.3090",
+        "mdblist.2412",
+        "mdblist.101881",
+        "mdblist.2195",
+        "mdblist.88434",
+        "mdblist.2407",
+        "mdblist.3088",
+        "mdblist.3095",
+        "mdblist.3094",
+        "mdblist.3089",
+        "mdblist.2409",
+        "mdblist.2618",
+        "mdblist.2416",
+        "mdblist.3882",
+        "mdblist.3364",
+        "mdblist.3110",
+        "mdblist.2411",
+        "mdblist.2415",
+        "mdblist.3096",
+        "mdblist.101882",
+        "mdblist.3107",
+        "mdblist.3087",
+        "mdblist.3111",
+        "mdblist.3106",
+        "mdblist.3885",
+        "mdblist.3125",
+        "mdblist.3105",
+        "mdblist.3126",
+        "mdblist.2202",
+        "mdblist.3922",
+        "mdblist.3923",
+        "mdblist.69",
+        "mdblist.2413",
+        "mdblist.3108",
+        "mdblist.88469",
+        "mdblist.3921",
+        "mdblist.2408",
+        "mdblist.3112",
+        "mdblist.72464"
+      ]
+    }
+  ],
   "tags": {
     "genre": [
       "comedy",
@@ -54,17 +112,19 @@
       "items": 158,
       "media": "mixed",
       "tags": [
-        "science",
-        "documentary",
         "community",
-        "candidate"
+        "deployed",
+        "documentary",
+        "science"
       ],
       "hit_rate": {
         "source": null,
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-documentaries"
+      ]
     },
     {
       "catalog_id": "mdblist.101881",
@@ -165,17 +225,19 @@
       "media": "movie",
       "tags": [
         "comedy",
-        "trending",
+        "deep-pool",
+        "deployed",
         "official-snoak",
-        "candidate",
-        "deep-pool"
+        "trending"
       ],
       "hit_rate": {
         "source": null,
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-comedy"
+      ]
     },
     {
       "catalog_id": "mdblist.130153",
@@ -183,10 +245,10 @@
       "name": "Popular Miniseries",
       "media": "series",
       "tags": [
-        "limited-series",
-        "global",
         "deployed",
-        "legacy"
+        "global",
+        "legacy",
+        "limited-series"
       ],
       "hit_rate": {
         "source": 0.25,
@@ -228,18 +290,20 @@
       "items": 675,
       "media": "series",
       "tags": [
-        "limited-series",
-        "global",
         "community",
-        "candidate",
-        "deep-pool"
+        "deep-pool",
+        "deployed",
+        "global",
+        "limited-series"
       ],
       "hit_rate": {
         "source": null,
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "series-miniseries"
+      ]
     },
     {
       "catalog_id": "mdblist.169800",
@@ -249,17 +313,19 @@
       "items": 200,
       "media": "series",
       "tags": [
-        "limited-series",
-        "curated-small",
         "community",
-        "candidate"
+        "curated-small",
+        "deployed",
+        "limited-series"
       ],
       "hit_rate": {
         "source": null,
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "series-miniseries"
+      ]
     },
     {
       "catalog_id": "mdblist.2194",
@@ -608,17 +674,19 @@
       "items": 99,
       "media": "mixed",
       "tags": [
-        "documentary",
-        "curated-small",
         "community",
-        "candidate"
+        "curated-small",
+        "deployed",
+        "documentary"
       ],
       "hit_rate": {
         "source": null,
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-documentaries"
+      ]
     },
     {
       "catalog_id": "mdblist.3082",
@@ -904,10 +972,10 @@
       "popularity": 186,
       "source": "toplists",
       "tags": [
-        "candidate",
         "comedy",
         "community",
         "deep-pool",
+        "deployed",
         "global",
         "movie",
         "toplists"
@@ -917,7 +985,9 @@
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-comedy"
+      ]
     },
     {
       "catalog_id": "mdblist.3108",
@@ -1020,17 +1090,19 @@
       "media": "series",
       "tags": [
         "comedy",
-        "global",
         "community",
-        "candidate",
-        "deep-pool"
+        "deep-pool",
+        "deployed",
+        "global"
       ],
       "hit_rate": {
         "source": null,
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "series-comedy"
+      ]
     },
     {
       "catalog_id": "mdblist.3125",
@@ -1243,19 +1315,21 @@
       "items": 52,
       "media": "mixed",
       "tags": [
-        "stand-up",
         "comedy",
-        "india",
-        "curated-small",
         "community",
-        "candidate"
+        "curated-small",
+        "deployed",
+        "india",
+        "stand-up"
       ],
       "hit_rate": {
         "source": null,
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "series-comedy"
+      ]
     },
     {
       "catalog_id": "mdblist.69",
@@ -1287,18 +1361,20 @@
       "items": 659,
       "media": "mixed",
       "tags": [
-        "true-crime",
-        "documentary",
         "community",
-        "candidate",
-        "deep-pool"
+        "deep-pool",
+        "deployed",
+        "documentary",
+        "true-crime"
       ],
       "hit_rate": {
         "source": null,
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-documentaries"
+      ]
     },
     {
       "catalog_id": "mdblist.72464",
@@ -1330,18 +1406,20 @@
       "items": 76,
       "media": "mixed",
       "tags": [
-        "true-crime",
-        "documentary",
-        "curated-small",
         "community",
-        "candidate"
+        "curated-small",
+        "deployed",
+        "documentary",
+        "true-crime"
       ],
       "hit_rate": {
         "source": null,
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-documentaries"
+      ]
     },
     {
       "catalog_id": "mdblist.83666",
@@ -1412,9 +1490,9 @@
       "name": "Top Documentaries (Movies)",
       "media": "movie",
       "tags": [
+        "deployed",
         "documentary",
-        "global",
-        "deployed"
+        "global"
       ],
       "hit_rate": {
         "source": 1.0,
@@ -1552,10 +1630,10 @@
       "media": "movie",
       "tags": [
         "comedy",
-        "global",
-        "official-snoak",
+        "deep-pool",
         "deployed",
-        "deep-pool"
+        "global",
+        "official-snoak"
       ],
       "hit_rate": {
         "source": 1.0,
@@ -1577,10 +1655,10 @@
       "media": "series",
       "tags": [
         "comedy",
-        "global",
-        "official-snoak",
+        "deep-pool",
         "deployed",
-        "deep-pool"
+        "global",
+        "official-snoak"
       ],
       "hit_rate": {
         "source": 0.4,
@@ -1594,208 +1672,112 @@
       ]
     }
   ],
-  "rail_proposals": {
-    "_comment": "Stay within 6 discover rails per tab (N2b). Composites use additive pool growth.",
-    "v2_3_movies": [
-      {
-        "rail_id": "movies-comedy",
-        "label": "comedy & comfort",
-        "sources": [
-          {
-            "catalog_id": "mdblist.91223",
-            "weight": 0.45
-          },
-          {
-            "catalog_id": "mdblist.128040",
-            "weight": 0.35
-          },
-          {
-            "catalog_id": "mdblist.3107",
-            "weight": 0.2,
-            "filter_content_type": "movie"
-          }
-        ],
-        "rationale": "Popular anchor + fresh latest + Gary depth; replaces single-list rail"
-      },
-      {
-        "rail_id": "movies-documentaries",
-        "label": "true stories",
-        "sources": [
-          {
-            "catalog_id": "mdblist.78210",
-            "weight": 0.3
-          },
-          {
-            "catalog_id": "mdblist.72165",
-            "weight": 0.25
-          },
-          {
-            "catalog_id": "mdblist.2885",
-            "weight": 0.25,
-            "filter_content_type": "movie"
-          },
-          {
-            "catalog_id": "mdblist.100477",
-            "weight": 0.1,
-            "filter_content_type": "movie"
-          },
-          {
-            "catalog_id": "mdblist.84677",
-            "weight": 0.1
-          }
-        ],
-        "rationale": "Break pool exhaustion on 84677; thematic true-crime + science + Riz curated"
-      }
-    ],
-    "v2_3_series": [
-      {
-        "rail_id": "series-miniseries",
-        "label": "limited series",
-        "sources": [
-          {
-            "catalog_id": "mdblist.143745",
-            "weight": 0.55
-          },
-          {
-            "catalog_id": "mdblist.169800",
-            "weight": 0.3
-          },
-          {
-            "catalog_id": "mdblist.130153",
-            "weight": 0.15
-          }
-        ],
-        "rationale": "675-item deep pool + curated picks; keep 130153 as proven fallback"
-      },
-      {
-        "rail_id": "series-comedy",
-        "label": "comedy",
-        "sources": [
-          {
-            "catalog_id": "Cinemeta.top",
-            "weight": 0.5
-          },
-          {
-            "catalog_id": "mdblist.91224",
-            "weight": 0.25
-          },
-          {
-            "catalog_id": "mdblist.3122",
-            "weight": 0.15
-          },
-          {
-            "catalog_id": "mdblist.49761",
-            "weight": 0.1
-          }
-        ],
-        "rationale": "Raise Cinemeta anchor for probe rate; India stand-up as spice"
-      },
-      {
-        "rail_id": "series-true-stories",
-        "label": "true stories",
-        "new_rail": true,
-        "replaces": "series-reality-casual",
-        "sources": [
-          {
-            "catalog_id": "mdblist.84403",
-            "weight": 0.45
-          },
-          {
-            "catalog_id": "mdblist.72165",
-            "weight": 0.35,
-            "filter_content_type": "series"
-          },
-          {
-            "catalog_id": "mdblist.78210",
-            "weight": 0.2,
-            "filter_content_type": "series"
-          }
-        ],
-        "rationale": "Doc series + true crime TV; swap out weak reality-casual slot if probed \u226580%"
-      }
-    ],
-    "optional_overflow": [
-      {
-        "rail_id": "specials-stand-up",
-        "tab": "movies",
-        "label": "stand-up",
-        "new_rail": true,
-        "requires_tab_slot": "demote movies-quick-watches or raise tab limit",
-        "sources": [
-          {
-            "catalog_id": "mdblist.84444",
-            "weight": 0.4
-          },
-          {
-            "catalog_id": "mdblist.11274",
-            "weight": 0.35
-          },
-          {
-            "catalog_id": "mdblist.49761",
-            "weight": 0.25
-          }
-        ],
-        "min_display": 12
-      }
-    ]
-  },
-  "toplists_snapshots": [
+  "rail_proposals": [],
+  "applied_proposals": [
     {
-      "fetched_at": "2026-06-20T07:47:00.533685+00:00",
-      "source": "toplists",
-      "count": 50,
-      "catalog_ids": [
-        "mdblist.2194",
-        "mdblist.14",
-        "mdblist.3082",
-        "mdblist.2236",
-        "mdblist.86934",
-        "mdblist.3093",
-        "mdblist.2410",
-        "mdblist.87667",
-        "mdblist.2406",
-        "mdblist.3892",
-        "mdblist.3086",
-        "mdblist.3090",
-        "mdblist.2412",
-        "mdblist.101881",
-        "mdblist.2195",
-        "mdblist.88434",
-        "mdblist.2407",
-        "mdblist.3088",
-        "mdblist.3095",
-        "mdblist.3094",
-        "mdblist.3089",
-        "mdblist.2409",
-        "mdblist.2618",
-        "mdblist.2416",
-        "mdblist.3882",
-        "mdblist.3364",
-        "mdblist.3110",
-        "mdblist.2411",
-        "mdblist.2415",
-        "mdblist.3096",
-        "mdblist.101882",
-        "mdblist.3107",
-        "mdblist.3087",
-        "mdblist.3111",
-        "mdblist.3106",
-        "mdblist.3885",
-        "mdblist.3125",
-        "mdblist.3105",
-        "mdblist.3126",
-        "mdblist.2202",
-        "mdblist.3922",
-        "mdblist.3923",
-        "mdblist.69",
-        "mdblist.2413",
-        "mdblist.3108",
-        "mdblist.88469",
-        "mdblist.3921",
-        "mdblist.2408",
-        "mdblist.3112",
-        "mdblist.72464"
-      ]
+      "applied_at": "2026-06-20T08:35:26.633843+00:00",
+      "proposal": {
+        "version": 1,
+        "description": "v2.3 full \u2014 comedy, documentaries, miniseries, series comedy (enrich existing rails only)",
+        "rails": [
+          {
+            "rail_id": "movies-comedy",
+            "label": "comedy & comfort",
+            "tab": "movies",
+            "content_type": "movie",
+            "rationale": "Popular anchor + fresh latest + Gary depth",
+            "sources": [
+              {
+                "catalog_id": "mdblist.91223",
+                "weight": 0.45
+              },
+              {
+                "catalog_id": "mdblist.128040",
+                "weight": 0.35
+              },
+              {
+                "catalog_id": "mdblist.3107",
+                "weight": 0.2
+              }
+            ]
+          },
+          {
+            "rail_id": "movies-documentaries",
+            "label": "true stories",
+            "tab": "movies",
+            "content_type": "movie",
+            "rationale": "Break 84677 pool exhaustion; true-crime + science + Riz curated",
+            "sources": [
+              {
+                "catalog_id": "mdblist.78210",
+                "weight": 0.3
+              },
+              {
+                "catalog_id": "mdblist.72165",
+                "weight": 0.25
+              },
+              {
+                "catalog_id": "mdblist.2885",
+                "weight": 0.25
+              },
+              {
+                "catalog_id": "mdblist.100477",
+                "weight": 0.1
+              },
+              {
+                "catalog_id": "mdblist.84677",
+                "weight": 0.1
+              }
+            ]
+          },
+          {
+            "rail_id": "series-miniseries",
+            "label": "limited series",
+            "tab": "series",
+            "content_type": "series",
+            "rationale": "675-item deep pool + curated picks; keep 130153 fallback",
+            "sources": [
+              {
+                "catalog_id": "mdblist.143745",
+                "weight": 0.55
+              },
+              {
+                "catalog_id": "mdblist.169800",
+                "weight": 0.3
+              },
+              {
+                "catalog_id": "mdblist.130153",
+                "weight": 0.15
+              }
+            ]
+          },
+          {
+            "rail_id": "series-comedy",
+            "label": "comedy",
+            "tab": "series",
+            "content_type": "series",
+            "rationale": "Cinemeta anchor + snoak + Gary + India stand-up spice",
+            "sources": [
+              {
+                "catalog_id": "Cinemeta.top",
+                "weight": 0.5
+              },
+              {
+                "catalog_id": "mdblist.91224",
+                "weight": 0.25
+              },
+              {
+                "catalog_id": "mdblist.3122",
+                "weight": 0.15
+              },
+              {
+                "catalog_id": "mdblist.49761",
+                "weight": 0.1
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

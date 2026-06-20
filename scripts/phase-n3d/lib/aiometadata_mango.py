@@ -89,6 +89,60 @@ def needed_catalog_ids(refs: list[dict[str, str]]) -> set[str]:
     return {r["catalog"] for r in refs}
 
 
+def load_mdblist_inventory(repo: Path) -> dict[str, Any]:
+    path = repo / "config" / "mdblist-inventory.json"
+    if not path.is_file():
+        return {"catalogs": []}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def inventory_by_catalog_id(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(row.get("catalog_id")): row
+        for row in (inventory.get("catalogs") or [])
+        if row.get("catalog_id")
+    }
+
+
+def mdblist_catalog_type(media: str | None) -> str:
+    if media == "series":
+        return "series"
+    return "movie"
+
+
+def synthesize_mdblist_catalog(row: dict[str, Any]) -> dict[str, Any]:
+    catalog_id = str(row["catalog_id"])
+    slug = str(row.get("slug") or "")
+    author = slug.split("/", 1)[0] if slug else ""
+    url = str(row.get("url") or f"https://mdblist.com/lists/{slug}")
+    return {
+        "id": catalog_id,
+        "name": str(row.get("name") or catalog_id),
+        "sort": "default",
+        "type": mdblist_catalog_type(row.get("media")),
+        "order": "asc",
+        "source": "mdblist",
+        "enabled": True,
+        "cacheTTL": 86400,
+        "metadata": {
+            "url": url,
+            "author": author,
+            "itemCount": int(row.get("items") or 0),
+        },
+        "showInHome": False,
+        "genreSelection": "standard",
+        "randomizePerPage": True,
+        "enableRatingPosters": True,
+    }
+
+
+def collect_rail_refs(repo: Path, catalog_yaml: Path) -> list[dict[str, str]]:
+    refs = rail_catalog_refs_yaml(catalog_yaml)
+    if refs:
+        return refs
+    return rail_catalog_index(repo, catalog_yaml)
+
+
 def apply_self_host_api_keys(api: dict[str, Any], env_keys: dict[str, str]) -> None:
     if not str(api.get("tmdb") or "").strip():
         tmdb = env_keys.get("TMDB_API_KEY", "") or env_keys.get("BUILT_IN_TMDB_API_KEY", "")
@@ -109,6 +163,7 @@ def select_catalogs_from_export(
     export_catalogs: list[dict[str, Any]],
     needed_ids: set[str],
     refs: list[dict[str, str]],
+    inventory: dict[str, Any] | None = None,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     by_id: dict[str, list[dict[str, Any]]] = {}
     for cat in export_catalogs:
@@ -116,21 +171,34 @@ def select_catalogs_from_export(
         if cid:
             by_id.setdefault(cid, []).append(cat)
 
+    inv_index = inventory_by_catalog_id(inventory or {})
     selected: list[dict[str, Any]] = []
     warnings: list[str] = []
+    synthesized: list[str] = []
     for catalog_id in sorted(needed_ids):
         matches = by_id.get(catalog_id, [])
         if not matches:
-            rails = [r["rail"] for r in refs if r["catalog"] == catalog_id]
-            warnings.append(
-                f"missing in export: {catalog_id} (rails: {', '.join(rails)})"
-            )
-            continue
+            inv_row = inv_index.get(catalog_id)
+            if inv_row and catalog_id.startswith("mdblist."):
+                matches = [synthesize_mdblist_catalog(inv_row)]
+                synthesized.append(catalog_id)
+            else:
+                rails = [r["rail"] for r in refs if r["catalog"] == catalog_id]
+                warnings.append(
+                    f"missing in export: {catalog_id} (rails: {', '.join(rails)})"
+                )
+                continue
         for cat in matches:
             entry = json.loads(json.dumps(cat))
             entry["enabled"] = True
             entry["showInHome"] = False
             selected.append(entry)
+    if synthesized:
+        print(
+            f"synthesized {len(synthesized)} mdblist catalogs from inventory: "
+            + ", ".join(synthesized),
+            file=sys.stderr,
+        )
     return selected, warnings
 
 
@@ -145,12 +213,14 @@ def build_mango_config(
         raise SystemExit("export missing config object")
 
     repo = repo_root()
-    refs = rail_catalog_index(repo, catalog_yaml)
+    refs = collect_rail_refs(repo, catalog_yaml)
     needed_ids = needed_catalog_ids(refs)
+    inventory = load_mdblist_inventory(repo)
     selected, warnings = select_catalogs_from_export(
         source.get("catalogs") or [],
         needed_ids,
         refs,
+        inventory,
     )
 
     config: dict[str, Any] = {
@@ -186,8 +256,10 @@ def check_export(
     manifest_path: Path | None = None,
 ) -> int:
     repo = repo_root()
-    refs = rail_catalog_index(repo, catalog_yaml)
+    refs = collect_rail_refs(repo, catalog_yaml)
     needed_ids = needed_catalog_ids(refs)
+    inventory = load_mdblist_inventory(repo)
+    inv_index = inventory_by_catalog_id(inventory)
     raw = json.loads(export_path.read_text(encoding="utf-8"))
     source = raw.get("config") or raw
     export_ids = {str(c.get("id")) for c in (source.get("catalogs") or []) if c.get("id")}
@@ -208,11 +280,24 @@ def check_export(
         print(f"  {catalog_id:48} {' | '.join(status):20} ← {', '.join(rails)}")
 
     missing = needed_ids - export_ids
-    if missing:
-        print(f"\nWARN: {len(missing)} catalogs missing from export")
+    synthesizable = {
+        cid for cid in missing
+        if cid.startswith("mdblist.") and cid in inv_index
+    }
+    still_missing = missing - synthesizable
+    if synthesizable:
+        print(f"\nOK: {len(synthesizable)} catalogs synthesizable from mdblist-inventory.json")
+        for cid in sorted(synthesizable):
+            print(f"  + {cid} (inventory)")
+    if still_missing:
+        print(f"\nWARN: {len(still_missing)} catalogs missing from export and inventory")
         return 1
-    print("\nOK: export covers all mango rail catalogs")
-    return 0
+    if missing and not still_missing:
+        print("\nOK: export + inventory cover all mango rail catalogs")
+        return 0
+    if not missing:
+        print("\nOK: export covers all mango rail catalogs")
+    return 0 if not still_missing else 1
 
 
 def main() -> None:

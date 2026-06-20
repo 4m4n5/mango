@@ -282,6 +282,16 @@ def cmd_plan(args: argparse.Namespace) -> int:
     return 0
 
 
+def is_low_risk_proposal(proposal: dict[str, Any], yaml_text: str) -> bool:
+    existing = set(re.findall(r"^  - id: (\S+)", yaml_text, re.M))
+    for rail in proposal.get("rails") or []:
+        if rail.get("new_rail"):
+            return False
+        if rail.get("rail_id") not in existing:
+            return False
+    return True
+
+
 def cmd_apply(args: argparse.Namespace) -> int:
     proposal = load_proposal(args.proposal)
     errors = validate_proposal(proposal)
@@ -323,7 +333,15 @@ def cmd_apply(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
 
-    if not args.write:
+    write = args.write
+    if args.auto_low_risk:
+        if is_low_risk_proposal(proposal, yaml_path.read_text(encoding="utf-8")):
+            write = True
+            print("auto-low-risk: enriching existing rails only — applying")
+        elif not write:
+            print("auto-low-risk: new rails detected — dry-run (pass --write to force)")
+
+    if not write:
         print("dry-run — pass --write to apply")
         print(f"would update: {yaml_path}")
         print(f"would update: {RAIL_INDEX_PATH}")
@@ -351,6 +369,11 @@ def main() -> int:
         p.add_argument("proposal", type=Path)
         if name == "apply":
             p.add_argument("--write", action="store_true", help="Write yaml + inventory (default dry-run)")
+            p.add_argument(
+                "--auto-low-risk",
+                action="store_true",
+                help="Auto --write when proposal only enriches existing rail ids",
+            )
         p.set_defaults(func=globals()[f"cmd_{name}"])
 
     args = parser.parse_args()

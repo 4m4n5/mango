@@ -1,56 +1,127 @@
 {
-  "_comment": "AIOMetadata catalog ids referenced by config/catalog.example.yaml. Regenerate check: aiometadata-config.sh check",
+  "_comment": "AIOMetadata catalog ids referenced by config/catalog.example.yaml. Regenerate: rail-compose.py apply",
   "addon": "AIOMetadata",
   "catalogs": [
     {
-      "id": "mdblist.88302",
-      "name": "Trending Movies",
-      "rails": ["movies-global-popular", "movies-quick-watches"]
-    },
-    {
-      "id": "mdblist.83666",
-      "name": "Top Classic Movies",
-      "rails": ["movies-quick-watches"]
-    },
-    {
-      "id": "custom.in_rdata_indiastreams.movie.recmov",
-      "name": "Recommended Indian Movies",
-      "rails": ["movies-india-trending"]
-    },
-    {
-      "id": "custom.in_rdata_indiastreams.movie.popmov",
-      "name": "Popular movies in India",
-      "rails": ["movies-india-trending"]
-    },
-    {
-      "id": "mdblist.91223",
-      "name": "Popular Comedy Movies",
-      "rails": ["movies-comedy"]
-    },
-    {
-      "id": "mdblist.84677",
-      "name": "Top Documentary Movies",
-      "rails": ["movies-documentaries"]
+      "id": "mdblist.100477",
+      "name": "Science and Nature Documentaries",
+      "rails": [
+        "movies-documentaries"
+      ]
     },
     {
       "id": "mdblist.105797",
       "name": "Daily Picks",
-      "rails": ["series-global-popular", "series-reality-casual"]
+      "rails": [
+        "series-global-popular",
+        "series-reality-casual"
+      ]
     },
     {
-      "id": "custom.in_rdata_indiastreams.series.trendingtv",
-      "name": "Trending TV shows in India",
-      "rails": ["series-india-picks"]
-    },
-    {
-      "id": "mdblist.91224",
-      "name": "Popular Comedy Shows",
-      "rails": ["series-comedy"]
+      "id": "mdblist.128040",
+      "name": "Latest Comedy Movies",
+      "rails": [
+        "movies-comedy"
+      ]
     },
     {
       "id": "mdblist.130153",
       "name": "Popular Miniseries",
-      "rails": ["series-miniseries"]
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.143745",
+      "name": "Limited Series (Jordan Hawk)",
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.169800",
+      "name": "Unmissable Limited Series",
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.2885",
+      "name": "Documentaries (Riz)",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.3107",
+      "name": "Comedy",
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.3122",
+      "name": "Comedy Shows (Gary)",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.49761",
+      "name": "Indian Stand Up Comedy",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.72165",
+      "name": "True Crime Documentaries",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.78210",
+      "name": "Best True Crime Documentaries",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.83666",
+      "name": "Top Classic Movies",
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.84677",
+      "name": "Top Documentaries (Movies)",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.88302",
+      "name": "Trending Movies",
+      "rails": [
+        "movies-global-popular",
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.91223",
+      "name": "Popular Comedy Movies",
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.91224",
+      "name": "Popular Comedy Shows",
+      "rails": [
+        "series-comedy"
+      ]
     }
   ]
 }

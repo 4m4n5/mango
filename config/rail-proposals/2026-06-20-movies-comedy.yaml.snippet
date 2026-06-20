@@ -1,0 +1,81 @@
+  - id: movies-comedy
+    tab: movies
+    label: comedy & comfort
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.91223, weight: 0.45 }
+      - { addon: AIOMetadata, catalog: mdblist.128040, weight: 0.35 }
+      - { addon: AIOMetadata, catalog: mdblist.3107, weight: 0.2 }
+    playability:
+      display_limit: 20
+      min_display: 20
+      pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
+      ingest_multiplier: 10
+
+
+  - id: movies-documentaries
+    tab: movies
+    label: true stories
+    type: composite_list
+    content_type: movie
+    limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.78210, weight: 0.3 }
+      - { addon: AIOMetadata, catalog: mdblist.72165, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: mdblist.2885, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: mdblist.100477, weight: 0.1 }
+      - { addon: AIOMetadata, catalog: mdblist.84677, weight: 0.1 }
+    playability:
+      display_limit: 20
+      min_display: 20
+      pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
+      ingest_multiplier: 10
+
+
+  - id: series-miniseries
+    tab: series
+    label: limited series
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.143745, weight: 0.55 }
+      - { addon: AIOMetadata, catalog: mdblist.169800, weight: 0.3 }
+      - { addon: AIOMetadata, catalog: mdblist.130153, weight: 0.15 }
+    playability:
+      display_limit: 20
+      min_display: 20
+      pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
+      ingest_multiplier: 8
+
+
+  - id: series-comedy
+    tab: series
+    label: comedy
+    type: composite_list
+    content_type: series
+    limit: 20
+    sources:
+      - { addon: Cinemeta, catalog: top, weight: 0.5 }
+      - { addon: AIOMetadata, catalog: mdblist.91224, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: mdblist.3122, weight: 0.15 }
+      - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.1 }
+    playability:
+      display_limit: 20
+      min_display: 12
+      pool_target: 20
+      pool_growth_per_refresh: 10
+      pool_max: 120
+      display_max: 28
+      ingest_multiplier: 10

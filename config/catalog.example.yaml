@@ -74,11 +74,13 @@ rails:
   - id: movies-comedy
     tab: movies
     label: comedy & comfort
-    type: addon_catalog
-    addon: AIOMetadata
-    catalog: mdblist.91223
+    type: composite_list
     content_type: movie
     limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.91223, weight: 0.45 }
+      - { addon: AIOMetadata, catalog: mdblist.128040, weight: 0.35 }
+      - { addon: AIOMetadata, catalog: mdblist.3107, weight: 0.2 }
     playability:
       display_limit: 20
       min_display: 20
@@ -87,7 +89,6 @@ rails:
       pool_max: 120
       display_max: 28
       ingest_multiplier: 10
-
   - id: movies-quick-watches
     tab: movies
     label: quick watches
@@ -109,11 +110,15 @@ rails:
   - id: movies-documentaries
     tab: movies
     label: true stories
-    type: addon_catalog
-    addon: AIOMetadata
-    catalog: mdblist.84677
+    type: composite_list
     content_type: movie
     limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.78210, weight: 0.3 }
+      - { addon: AIOMetadata, catalog: mdblist.72165, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: mdblist.2885, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: mdblist.100477, weight: 0.1 }
+      - { addon: AIOMetadata, catalog: mdblist.84677, weight: 0.1 }
     playability:
       display_limit: 20
       min_display: 20
@@ -122,9 +127,6 @@ rails:
       pool_max: 120
       display_max: 28
       ingest_multiplier: 10
-
-  # ── TV Shows tab (comedy last → first pick in tab session for dedup) ────────
-
   - id: series-global-popular
     tab: series
     label: popular worldwide
@@ -184,11 +186,13 @@ rails:
   - id: series-miniseries
     tab: series
     label: limited series
-    type: addon_catalog
-    addon: AIOMetadata
-    catalog: mdblist.130153
+    type: composite_list
     content_type: series
     limit: 20
+    sources:
+      - { addon: AIOMetadata, catalog: mdblist.143745, weight: 0.55 }
+      - { addon: AIOMetadata, catalog: mdblist.169800, weight: 0.3 }
+      - { addon: AIOMetadata, catalog: mdblist.130153, weight: 0.15 }
     playability:
       display_limit: 20
       min_display: 20
@@ -197,7 +201,6 @@ rails:
       pool_max: 120
       display_max: 28
       ingest_multiplier: 8
-
   - id: series-reality-casual
     tab: series
     label: light & casual
@@ -223,8 +226,10 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: Cinemeta, catalog: top, weight: 0.65 }
-      - { addon: AIOMetadata, catalog: mdblist.91224, weight: 0.35 }
+      - { addon: Cinemeta, catalog: top, weight: 0.5 }
+      - { addon: AIOMetadata, catalog: mdblist.91224, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: mdblist.3122, weight: 0.15 }
+      - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.1 }
     playability:
       display_limit: 20
       min_display: 12
@@ -233,7 +238,6 @@ rails:
       pool_max: 120
       display_max: 28
       ingest_multiplier: 10
-
   - id: continue
     label: continue watching
     type: stremio_library

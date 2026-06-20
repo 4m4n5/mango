@@ -26,8 +26,9 @@ Templates: [`config/stremio-export.example.json`](../../config/stremio-export.ex
 | `GET /rails/items?tab=` | Tab batch — playability session rows for all rails |
 | `GET /rails/:id/items` | Single-rail items (fallback) |
 | `GET /meta/:type/:id` | Cinemeta meta |
+| `GET /series/:id/episodes` | Normalized season/episode list + resume + playable flags |
 | `GET /stream/:type/:id` | Resolved streams (filtered + ranked) |
-| `POST /play` | Resolve (if needed) + mpv fullscreen |
+| `POST /play` | Resolve (if needed) + mpv fullscreen — bare series id resumes latest episode |
 | `GET /playability/status` | Pool depth + maintenance counters |
 
 Rails: `addon_catalog` and `composite_list` (weighted mdblist/Cinemeta blends). Tab session allocation dedupes titles across rails (`session-select.ts`).
