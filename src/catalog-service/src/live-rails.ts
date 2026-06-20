@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import { isBlockedLiveChannel } from './live-stream-verify.js';
 
 export type LiveSportRail = {
   id: string;
@@ -370,7 +371,7 @@ export async function fetchLiveCatalogChannels(
         continue;
       }
       const channel = normalizeLiveChannelMeta(raw as Record<string, unknown>);
-      if (!channel || seen.has(channel.id)) {
+      if (!channel || seen.has(channel.id) || isBlockedLiveChannel(channel)) {
         continue;
       }
       seen.add(channel.id);
