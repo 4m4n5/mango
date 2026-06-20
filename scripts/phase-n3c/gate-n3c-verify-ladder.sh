@@ -16,10 +16,10 @@ gate_header "mango N3c verify-ladder gate"
 
 [[ -d "$CATALOG_DIR" ]] || { gate_fail "catalog-service missing"; exit 1; }
 
-rg -q "probeWithLadder" "$CATALOG_DIR/src/playability/verify.ts" \
+grep -q "probeWithLadder" "$CATALOG_DIR/src/playability/verify.ts" \
   && gate_pass "verify imports probeWithLadder" || gate_fail "verify imports probeWithLadder"
 
-rg -q "win_ladder_step" "$CATALOG_DIR/src/playability/db.ts" \
+grep -q "win_ladder_step" "$CATALOG_DIR/src/playability/db.ts" \
   && gate_pass "db stores win_ladder_step" || gate_fail "db stores win_ladder_step"
 
 (
