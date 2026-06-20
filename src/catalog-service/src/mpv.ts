@@ -36,11 +36,14 @@ async function runMpv(
     url,
     '--timeout-ms',
     String(options.timeoutMs),
-    '--min-duration-sec',
-    String(options.minDurationSec ?? 600),
   ];
   if (options.probe) {
     args.push('--probe');
+    if (options.minDurationSec !== undefined) {
+      args.push('--min-duration-sec', String(options.minDurationSec));
+    }
+  } else {
+    args.push('--min-duration-sec', String(options.minDurationSec ?? 600));
   }
   const env = displayEnv();
   if (options.playEpoch !== undefined) {

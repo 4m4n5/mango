@@ -17,6 +17,7 @@ import {
 } from './rail-overrides.js';
 import type { RailPlayabilityConfig } from '../rails.js';
 import { effectiveDisplayLimit } from './pool-growth.js';
+import { playabilityCouchProbeMs } from './config.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const SCHEMA_VERSION = 1;
@@ -642,6 +643,7 @@ WHERE (type, id) IN ( VALUES ${placeholders} );
 export async function getStaleTitlesInPools(): Promise<Array<{ type: string; id: string }>> {
   await initPlayabilityDb();
   const now = nowMs();
+  const couchProbeMs = playabilityCouchProbeMs();
   const db = openDb();
   try {
     const rows = db.prepare(`
@@ -649,8 +651,9 @@ SELECT DISTINCT rp.type, rp.id
 FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE t.status = 'stale'
-   OR (t.status = 'verified' AND COALESCE(t.expires_at, 0) <= @now);
-`).all({ now }) as Array<{ type: string; id: string }>;
+   OR (t.status = 'verified' AND COALESCE(t.expires_at, 0) <= @now)
+   OR (t.status = 'verified' AND COALESCE(t.probe_ms, 999999) > @couch_probe_ms);
+`).all({ now, couch_probe_ms: couchProbeMs }) as Array<{ type: string; id: string }>;
     return rows;
   } finally {
     db.close();

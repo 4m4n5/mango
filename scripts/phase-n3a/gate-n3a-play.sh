@@ -78,12 +78,22 @@ PY
 run_rail_pick() {
   local label="$1" rail_id="$2"
   local items_json="$TMP_DIR/${rail_id}.json"
-  local picked item_type item_id title
-  picked="$(pick_rail_item "$rail_id" "$items_json")" || return 1
-  IFS=$'\t' read -r item_type item_id title <<<"$picked"
-  [[ -n "$item_id" ]] || { gate_fail "${label} empty pick"; return 1; }
-  play_pick "$label" "$rail_id" "$item_type" "$item_id" "$title"
-  gate_mpv_stop
+  local max_tries="${MANGO_N3A_PICK_RETRIES:-3}"
+  local attempt=1
+  while (( attempt <= max_tries )); do
+    local picked item_type item_id title
+    picked="$(pick_rail_item "$rail_id" "$items_json")" || return 1
+    IFS=$'\t' read -r item_type item_id title <<<"$picked"
+    [[ -n "$item_id" ]] || { gate_fail "${label} empty pick"; return 1; }
+    if play_pick "${label} try${attempt}" "$rail_id" "$item_type" "$item_id" "$title"; then
+      gate_mpv_stop
+      return 0
+    fi
+    gate_mpv_stop
+    attempt=$((attempt + 1))
+  done
+  gate_fail "${label} failed after ${max_tries} browse picks"
+  return 1
 }
 
 run_rail_pick "browse-movie" "movies-india-trending" || true

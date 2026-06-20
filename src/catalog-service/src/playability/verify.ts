@@ -8,6 +8,7 @@ import {
 } from '../stream-filters.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
 import {
+  playabilityCouchProbeMs,
   playabilityProbeTimeoutMs,
   playabilityUseProbePool,
   playabilityVerifyMinDurationSec,
@@ -125,14 +126,15 @@ async function probeStreamUrl(
   url: string,
   contentType: string,
   context?: VerifyContext,
+  timeoutMs?: number,
 ): Promise<{ ttff_ms: number }> {
-  const timeoutMs = playabilityProbeTimeoutMs();
+  const budget = timeoutMs ?? playabilityProbeTimeoutMs();
   const minDurationSec = playabilityVerifyMinDurationSec(contentType);
   const usePool = context?.useProbePool ?? playabilityUseProbePool();
   if (usePool) {
-    return probeUrlViaPool(url, timeoutMs, minDurationSec);
+    return probeUrlViaPool(url, budget, minDurationSec);
   }
-  return probeUrl(url, timeoutMs, minDurationSec);
+  return probeUrl(url, budget, minDurationSec);
 }
 
 function isTransientFailure(reason: string): boolean {
@@ -256,6 +258,10 @@ export async function verifyPreparedTitle(
   }
 
   const attempts: VerifyTitleResult['attempts'] = [];
+  const probeBudgetMs = Math.min(
+    prepared.filters.applied.auto_play_probe_ms,
+    playabilityCouchProbeMs(),
+  );
   for (const [index, stream] of prepared.candidates.entries()) {
     const started = Date.now();
     if (isRateLimitedStreamUrl(stream.url)) {
@@ -272,7 +278,7 @@ export async function verifyPreparedTitle(
       continue;
     }
     try {
-      const probe = await probeStreamUrl(stream.url, prepared.type, context);
+      const probe = await probeStreamUrl(stream.url, prepared.type, context, probeBudgetMs);
       const probeMs = Date.now() - started;
       attempts.push({
         index,

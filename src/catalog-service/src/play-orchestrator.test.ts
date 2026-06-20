@@ -61,6 +61,30 @@ test('playWithFallback reuses the verified winning probe for exact URL hash matc
   assert.ok(playTimeout > 14000);
 });
 
+test('playWithFallback probes when stored probe_ms exceeds couch budget', async () => {
+  const stream = candidate('https://example.test/verified.mp4');
+  let probeCalls = 0;
+
+  const result = await playWithFallback([stream], testConfig(), {
+    verified_hint: {
+      best_source: 'AIOStreams',
+      cache_status: 'cached',
+      debrid_service: 'torbox',
+      win_url_hash: streamUrlHash(stream.url),
+      probe_ms: 9000,
+    },
+    probe: async () => {
+      probeCalls += 1;
+      return { ok: true, ttff_ms: 900 };
+    },
+    play: async () => ({ ok: true, ttff_ms: 1100 }),
+  });
+
+  assert.equal(probeCalls, 1);
+  assert.equal(result.attempts[0]?.probe_ms, 900);
+  assert.equal(result.attempts[0]?.probe_reused, undefined);
+});
+
 test('playWithFallback probes streams that do not match the verified URL hash', async () => {
   const stream = candidate('https://example.test/current.mp4');
   let probeCalls = 0;

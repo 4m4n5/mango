@@ -17,6 +17,7 @@
 - Gate strategy: add `gate-n3a-play.sh` for two random browse picks across movie/series rails, enforce `ok`, `total_ms <= 15000`, `attempts <= 5`, mpv playing, warn-only Shawshank regression, then run N2 browse and N0 foundation.
 - Ship probe-then-play for unverified candidates; exact DB-verified winning URL hashes may reuse their stored Pi `probe_ms` so the couch path starts mpv once under the 15 s wall.
 - Indexer risk: keep TorBox uncached/RD safe-unknown fallback paths for playability verification and maintenance windows, but do not let longer indexer budgets leak into couch Play.
+- **Audit fix (2026-06-20):** maintenance had `MANGO_PLAYABILITY_PROBE_MS=12000` while couch uses 4000 ms — verified titles could pass indexer yet fail N3a. Aligned verify + maintenance to couch `auto_play_probe_ms`; stale refresh re-probes `probe_ms > 4000`; orchestrator only reuses stored probe when within couch budget.
 
 ### Root cause
 

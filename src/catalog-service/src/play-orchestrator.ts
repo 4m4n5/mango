@@ -113,6 +113,7 @@ export async function playWithFallback(
     const reusableProbeMs = streamMatchesVerifiedHint(stream, options.verified_hint)
       && options.verified_hint?.probe_ms
       && options.verified_hint.probe_ms > 0
+      && options.verified_hint.probe_ms <= probeMs
       ? options.verified_hint.probe_ms
       : undefined;
     try {
@@ -120,7 +121,7 @@ export async function playWithFallback(
       let probeReused = false;
       if (!observedProbeMs) {
         const probeBudget = Math.min(probeMs, remainingBeforeProbe);
-        const probeResult = await probe(stream.url, probeBudget, minDurationSec, options.playEpoch);
+        const probeResult = await probe(stream.url, probeBudget, undefined, options.playEpoch);
         observedProbeMs = probeResult.ttff_ms;
         if (options.playEpoch !== undefined) {
           await assertPlayEpoch(options.playEpoch);
