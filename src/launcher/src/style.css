@@ -578,17 +578,30 @@ h1 {
   gap: 0.55rem;
 }
 
-.detail-season-label {
+.detail-season-header {
+  display: block;
+  width: 100%;
   margin: 1.2rem 0 0.4rem;
-  color: rgba(255, 249, 196, 0.72);
+  padding: 0.55rem 0.75rem;
+  color: rgba(255, 249, 196, 0.82);
   font-size: 1.1rem;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+  text-align: left;
+  background: rgba(255, 249, 196, 0.06);
+  border: 2px solid rgba(255, 249, 196, 0.14);
+  border-radius: 10px;
 }
 
-.detail-season-label:first-child {
+.detail-season-header:first-child {
   margin-top: 0;
+}
+
+.detail-season-header.focused,
+.detail-season-header:focus-visible {
+  outline: 6px solid #ffb300;
+  outline-offset: 2px;
 }
 
 .detail-episode {

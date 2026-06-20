@@ -32,7 +32,8 @@ export class DetailController {
   private streamsLoadToken = 0;
   private episodesLoadToken = 0;
   private seriesEpisodes: SeriesEpisodesResponse | null = null;
-  private episodeButtons: HTMLButtonElement[] = [];
+  /** Season headers + enabled episode rows — D-pad order in the list. */
+  private listFocusables: HTMLElement[] = [];
   private selectedEpisodeId: string | null = null;
   private nextPromptPollTimer: number | undefined;
   private browseTab: BrowseTab = "movies";
@@ -71,7 +72,7 @@ export class DetailController {
     this.streams = [];
     this.streamButtons = [];
     this.seriesEpisodes = null;
-    this.episodeButtons = [];
+    this.listFocusables = [];
     this.selectedEpisodeId = null;
     this.streamList.replaceChildren();
     this.episodeList.replaceChildren();
@@ -115,7 +116,7 @@ export class DetailController {
     this.streams = [];
     this.streamButtons = [];
     this.seriesEpisodes = null;
-    this.episodeButtons = [];
+    this.listFocusables = [];
     this.selectedEpisodeId = null;
     this.streamList.replaceChildren();
     this.episodeList.replaceChildren();
@@ -170,7 +171,7 @@ export class DetailController {
     for (const button of this.streamButtons) {
       button.disabled = true;
     }
-    for (const button of this.episodeButtons) {
+    for (const button of this.episodeButtons()) {
       button.disabled = true;
     }
     const token = ++this.playToken;
@@ -251,8 +252,8 @@ export class DetailController {
       for (const button of this.streamButtons) {
         button.disabled = false;
       }
-      for (const button of this.episodeButtons) {
-        button.disabled = false;
+      for (const button of this.episodeButtons()) {
+        button.disabled = button.classList.contains("detail-episode--disabled");
       }
     }
   }
@@ -263,7 +264,10 @@ export class DetailController {
       return undefined;
     }
     if (this.selectedEpisodeId) {
-      return this.selectedEpisodeId;
+      const selected = this.episodeButtonForId(this.selectedEpisodeId);
+      if (selected && !selected.disabled) {
+        return this.selectedEpisodeId;
+      }
     }
     if (this.seriesEpisodes?.resume?.episode_id) {
       return this.seriesEpisodes.resume.episode_id;
@@ -290,7 +294,83 @@ export class DetailController {
   }
 
   private focusables(): HTMLElement[] {
-    return [this.playButton, this.pinButton, this.backButton, ...this.episodeButtons, ...this.streamButtons];
+    return [
+      this.playButton,
+      this.pinButton,
+      this.backButton,
+      ...this.listFocusables,
+      ...this.streamButtons,
+    ];
+  }
+
+  private episodeButtons(): HTMLButtonElement[] {
+    return [...this.episodeList.querySelectorAll<HTMLButtonElement>("button.detail-episode")];
+  }
+
+  private episodeButtonForId(episodeId: string): HTMLButtonElement | null {
+    return this.episodeList.querySelector<HTMLButtonElement>(
+      `button.detail-episode[data-episode-id="${episodeId}"]`,
+    );
+  }
+
+  private rebuildListFocusables(): void {
+    const next: HTMLElement[] = [];
+    for (const child of this.episodeList.children) {
+      if (!(child instanceof HTMLButtonElement)) {
+        continue;
+      }
+      if (child.classList.contains("detail-season-header")) {
+        next.push(child);
+        continue;
+      }
+      if (child.classList.contains("detail-episode") && !child.disabled) {
+        next.push(child);
+      }
+    }
+    this.listFocusables = next;
+    const controls = this.focusables();
+    if (this.focusIndex >= controls.length) {
+      this.focusIndex = Math.max(controls.length - 1, 0);
+    }
+  }
+
+  private jumpToSeason(season: number): void {
+    const block = this.seriesEpisodes?.seasons.find((row) => row.season === season);
+    if (!block || block.episodes.length === 0) {
+      return;
+    }
+    const targetEpisode = block.episodes.find((episode) => {
+      const button = this.episodeButtonForId(episode.id);
+      return button !== null && !button.disabled;
+    }) ?? block.episodes[0];
+    const button = this.episodeButtonForId(targetEpisode.id);
+    if (!button) {
+      return;
+    }
+    const controls = this.focusables();
+    const index = controls.indexOf(button);
+    if (index < 0) {
+      return;
+    }
+    this.focusIndex = index;
+    void this.selectEpisode(targetEpisode);
+    this.applyFocus();
+  }
+
+  private setEpisodeHasStreams(episodeId: string, hasStreams: boolean): void {
+    const button = this.episodeButtonForId(episodeId);
+    if (!button) {
+      return;
+    }
+    button.disabled = !hasStreams;
+    button.classList.toggle("detail-episode--disabled", !hasStreams);
+    button.setAttribute("aria-disabled", hasStreams ? "false" : "true");
+    this.rebuildListFocusables();
+    const controls = this.focusables();
+    const current = controls[this.focusIndex];
+    if (current instanceof HTMLButtonElement && current.disabled) {
+      this.moveFocus(1);
+    }
   }
 
   private updatePinButton(): void {
@@ -369,7 +449,7 @@ export class DetailController {
 
   private renderEpisodes(episodes: SeriesEpisodesResponse): void {
     this.episodeList.replaceChildren();
-    this.episodeButtons = [];
+    this.listFocusables = [];
     const flatCount = episodes.seasons.reduce((total, block) => total + block.episodes.length, 0);
     if (flatCount === 0) {
       this.episodesWrap.hidden = true;
@@ -383,9 +463,12 @@ export class DetailController {
       || null;
 
     for (const block of episodes.seasons) {
-      const header = document.createElement("p");
-      header.className = "detail-season-label";
+      const header = document.createElement("button");
+      header.type = "button";
+      header.className = "detail-season-header";
       header.textContent = block.label;
+      header.dataset.season = String(block.season);
+      header.addEventListener("click", () => this.jumpToSeason(block.season));
       this.episodeList.append(header);
 
       for (const episode of block.episodes) {
@@ -413,10 +496,10 @@ export class DetailController {
           void this.activateEpisode(episode);
         });
         this.episodeList.append(button);
-        this.episodeButtons.push(button);
       }
     }
 
+    this.rebuildListFocusables();
     const scrollTarget = this.episodeList.querySelector<HTMLElement>("[data-scroll-target='true']");
     scrollTarget?.scrollIntoView({ block: "nearest", behavior: "instant" });
     this.focusIndex = Math.min(this.focusIndex, this.focusables().length - 1);
@@ -424,6 +507,11 @@ export class DetailController {
   }
 
   private async activateEpisode(episode: SeriesEpisodeRow): Promise<void> {
+    const button = this.episodeButtonForId(episode.id);
+    if (button?.disabled) {
+      this.callbacks.onStatus("no streams for this episode.");
+      return;
+    }
     await this.selectEpisode(episode);
     await this.play();
   }
@@ -434,7 +522,7 @@ export class DetailController {
       return;
     }
     this.selectedEpisodeId = episode.id;
-    for (const button of this.episodeButtons) {
+    for (const button of this.episodeButtons()) {
       button.classList.toggle(
         "detail-episode--selected",
         button.dataset.episodeId === episode.id,
@@ -444,7 +532,13 @@ export class DetailController {
   }
 
   private async onFocusChanged(target: HTMLElement | undefined): Promise<void> {
+    if (target?.classList.contains("detail-season-header")) {
+      return;
+    }
     if (!target?.classList.contains("detail-episode")) {
+      return;
+    }
+    if ((target as HTMLButtonElement).disabled) {
       return;
     }
     const episodeId = target.dataset.episodeId;
@@ -468,12 +562,18 @@ export class DetailController {
         return;
       }
       this.streams = result.streams;
+      if (episodeId) {
+        this.setEpisodeHasStreams(episodeId, result.streams.length > 0);
+      }
       this.renderStreams();
     } catch {
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
       }
       this.streams = [];
+      if (episodeId) {
+        this.setEpisodeHasStreams(episodeId, false);
+      }
       this.renderStreams();
     }
   }
@@ -483,6 +583,7 @@ export class DetailController {
     this.streamButtons = [];
     if (this.streams.length === 0) {
       this.streamsWrap.hidden = true;
+      this.focusIndex = Math.min(this.focusIndex, this.focusables().length - 1);
       this.applyFocus();
       return;
     }

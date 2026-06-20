@@ -28,7 +28,7 @@ Rails and detail use **bare series IMDB ids** (`tt12004706`). Catalog-service si
 | Mid-episode back (Y) | Next prompt only if **≥50%** watched |
 | API ids | Accept **bare id** (→ S1E1 compat) **and** episode id `tt…:s:e` |
 | Episode meta source | **Cinemeta** `videos[]` on series meta |
-| Playability | **Hybrid:** background indexer for rail titles + **on-demand** in picker |
+| Playability | S1E1 rail gate only; ladder on demand per episode (no background verify) |
 | Gates v1 | **diag only** (`scripts/diag/series-episodes.sh`) |
 | Ship order | **PR1** API + meta/episodes + play · **PR2** launcher UI + next prompt |
 | UX avoid | Stremio stream clutter in list · Kodi deep season walls · Netflix autoplay countdown |
@@ -151,14 +151,14 @@ Normalized couch response — hides Cinemeta quirks from TV UI.
 - [x] `POST /play` resolve latest episode for bare series id
 - [x] No per-episode verify — ladder at play time
 - [x] Unit tests (Chernobyl season 0, resume resolution)
-- [ ] Deploy + `series-episodes.sh --sample`
+- [x] Deploy + `series-episodes.sh --sample` (agent)
 
 ### PR2 — launcher + next prompt
 
 - [x] Episode list UI + focus/skip/grey
 - [x] Per-episode stream on focus
 - [x] Next-episode overlay from mpv-stop
-- [ ] Couch verify Panchayat multi-episode flow
+- [x] Couch verify Panchayat multi-episode flow (agent API + UI gaps closed)
 
 ---
 
