@@ -132,6 +132,32 @@ test('buildTabSessionSelections anchor-first reserve fills global when pools ove
   assert.ok((selections.get('series-comedy') ?? []).length >= 1);
 });
 
+test('buildTabSessionSelections does not starve india anchor during top-up', () => {
+  const shared = Array.from({ length: 20 }, (_, index) => ({
+    type: 'series',
+    id: `tt${index + 1}`,
+    score: 100 - index,
+  }));
+  const rails = [
+    { railId: 'series-global-popular', displayLimit: 20, minDisplay: 20 },
+    { railId: 'series-india-picks', displayLimit: 20, minDisplay: 20 },
+    { railId: 'series-classics', displayLimit: 20, minDisplay: 20 },
+  ];
+  const pools = new Map([
+    ['series-global-popular', [...shared]],
+    ['series-india-picks', [...shared]],
+    ['series-classics', [{ type: 'series', id: 'tt-classic', score: 80 }]],
+  ]);
+  const recent = new Map(rails.map((rail) => [rail.railId, new Set<string>()]));
+  const selections = buildTabSessionSelections(rails, pools, recent, {
+    reserveFloor: 8,
+    anchorRailCount: 3,
+    shuffleFn: (items) => items,
+  });
+  assert.ok((selections.get('series-global-popular') ?? []).length >= 1);
+  assert.ok((selections.get('series-india-picks') ?? []).length >= 8);
+});
+
 test('selectRailSessionItems excludes tab-occupied titles', () => {
   const occupied = new Set([titleKey('movie', 'tt1')]);
   const selected = selectRailSessionItems(pool, {

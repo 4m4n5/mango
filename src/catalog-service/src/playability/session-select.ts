@@ -62,7 +62,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
     reserveForRail(rail);
   }
 
-  for (const rail of railsInYamlOrder) {
+  for (const rail of railsForTabSessionAllocation(railsInYamlOrder)) {
     const pool = pools.get(rail.railId) ?? [];
     const existing = selections.get(rail.railId) ?? [];
     const need = Math.max(0, rail.displayLimit - existing.length);
