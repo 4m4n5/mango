@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "description": "v2.3 full — comedy, documentaries, miniseries, series comedy (enrich existing rails only)",
+  "rails": [
+    {
+      "rail_id": "movies-comedy",
+      "label": "comedy & comfort",
+      "tab": "movies",
+      "content_type": "movie",
+      "rationale": "Popular anchor + fresh latest + Gary depth",
+      "sources": [
+        { "catalog_id": "mdblist.91223", "weight": 0.45 },
+        { "catalog_id": "mdblist.128040", "weight": 0.35 },
+        { "catalog_id": "mdblist.3107", "weight": 0.2 }
+      ]
+    },
+    {
+      "rail_id": "movies-documentaries",
+      "label": "true stories",
+      "tab": "movies",
+      "content_type": "movie",
+      "rationale": "Break 84677 pool exhaustion; true-crime + science + Riz curated",
+      "sources": [
+        { "catalog_id": "mdblist.78210", "weight": 0.3 },
+        { "catalog_id": "mdblist.72165", "weight": 0.25 },
+        { "catalog_id": "mdblist.2885", "weight": 0.25 },
+        { "catalog_id": "mdblist.100477", "weight": 0.1 },
+        { "catalog_id": "mdblist.84677", "weight": 0.1 }
+      ]
+    },
+    {
+      "rail_id": "series-miniseries",
+      "label": "limited series",
+      "tab": "series",
+      "content_type": "series",
+      "rationale": "675-item deep pool + curated picks; keep 130153 fallback",
+      "sources": [
+        { "catalog_id": "mdblist.143745", "weight": 0.55 },
+        { "catalog_id": "mdblist.169800", "weight": 0.3 },
+        { "catalog_id": "mdblist.130153", "weight": 0.15 }
+      ]
+    },
+    {
+      "rail_id": "series-comedy",
+      "label": "comedy",
+      "tab": "series",
+      "content_type": "series",
+      "rationale": "Cinemeta anchor + snoak + Gary + India stand-up spice",
+      "sources": [
+        { "catalog_id": "Cinemeta.top", "weight": 0.5 },
+        { "catalog_id": "mdblist.91224", "weight": 0.25 },
+        { "catalog_id": "mdblist.3122", "weight": 0.15 },
+        { "catalog_id": "mdblist.49761", "weight": 0.1 }
+      ]
+    }
+  ]
+}

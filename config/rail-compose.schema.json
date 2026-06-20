@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mango.local/schemas/rail-compose.v1.json",
+  "title": "mango rail composition (LLM output)",
+  "type": "object",
+  "required": ["version", "rails"],
+  "properties": {
+    "version": { "const": 1 },
+    "description": { "type": "string" },
+    "rails": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/rail" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": ["catalog_id", "weight"],
+      "properties": {
+        "catalog_id": {
+          "type": "string",
+          "pattern": "^(mdblist\\.\\d+|Cinemeta\\.(top|imdbRating))$"
+        },
+        "weight": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+        "addon": { "type": "string", "enum": ["AIOMetadata", "Cinemeta", "Bharat Binge"] }
+      },
+      "additionalProperties": false
+    },
+    "rail": {
+      "type": "object",
+      "required": ["rail_id", "sources"],
+      "properties": {
+        "rail_id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "label": { "type": "string" },
+        "tab": { "type": "string", "enum": ["movies", "series"] },
+        "type": { "type": "string", "enum": ["composite_list", "addon_catalog"] },
+        "content_type": { "type": "string", "enum": ["movie", "series"] },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 6,
+          "items": { "$ref": "#/$defs/source" }
+        },
+        "rationale": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

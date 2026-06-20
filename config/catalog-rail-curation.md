@@ -40,6 +40,27 @@ MANGO_SOURCE_PROBE_EXPORT=1 MANGO_AIOMETADATA_EXPORT=~/.config/mango/aiometadata
 
 Goal: ≥80% stream resolve per active source (`MANGO_SOURCE_TARGET_RATE=0.80`).
 
+## MDBList inventory + LLM rail composition
+
+Tagged catalog index: `config/mdblist-inventory.json` (synced from [mdblist toplists](https://mdblist.com/toplists/)).
+
+```bash
+# Pull popular lists (50 cards) into inventory
+bash scripts/phase-n3d/mdblist-catalog-pipeline.sh sync
+
+# Export compact context for LLM rail design
+bash scripts/phase-n3d/mdblist-catalog-pipeline.sh export-llm
+
+# LLM outputs JSON matching config/rail-compose.schema.json → review + apply
+python3 scripts/phase-n3d/rail-compose.py plan config/rail-proposals/my-rail.json
+python3 scripts/phase-n3d/rail-compose.py apply config/rail-proposals/my-rail.json --write
+
+# Verify AIOMetadata export covers new mdblist.* ids before Pi import
+bash scripts/phase-n3d/mdblist-catalog-pipeline.sh check-import
+```
+
+Resolve ad-hoc list URLs: `python3 scripts/diag/mdblist-inventory.py resolve user/list-slug`
+
 ## Manual rail curation (pins / blocks)
 
 Override automatic catalog picks for couch-critical titles (e.g. **India's Got Latent** on `series-comedy`).

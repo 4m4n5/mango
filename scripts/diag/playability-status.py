@@ -37,6 +37,15 @@ def age(value: int | None) -> str:
 
 
 def main() -> int:
+    args = sys.argv[1:]
+    if args and args[0] == "--json":
+        data = fetch_status()
+        print(json.dumps(data, indent=2))
+        return 0
+    return _main_table()
+
+
+def _main_table() -> int:
     data = fetch_status()
     print("mango playability")
     print(f"db: {data.get('db_path', '-')}")
