@@ -20,7 +20,7 @@ fi
   source .venv/bin/activate
   python3 <<'PY'
 import asyncio
-import json
+import os
 import sys
 
 from orchestrator.config import load_settings
@@ -30,7 +30,7 @@ from orchestrator.tools.launcher import build_launcher_command
 from orchestrator.tools.launcher_dispatch import post_launcher_command
 from orchestrator.tools.runner import execute_tool
 
-QUERY = "Panchayat"
+QUERY = os.environ.get("MANGO_VOICE_TEST_QUERY", "Shawshank")
 
 
 async def dispatch(command: dict) -> int | None:
