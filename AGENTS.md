@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 + N3c + N3d shipped**. **Next:** N3a stream play orchestrator ([`docs/tasks/phase-n3-stream-orchestrator.md`](docs/tasks/phase-n3-stream-orchestrator.md), [`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md), [`docs/N3d-INVENTORY.md`](docs/N3d-INVENTORY.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). N0 + **N1 + N2 + N3c + N3d shipped**. **Next:** N3a stream play orchestrator ([`docs/tasks/phase-n3-stream-orchestrator.md`](docs/tasks/phase-n3-stream-orchestrator.md), [`docs/tasks/CODEX-phase-n3a-prompt.md`](docs/tasks/CODEX-phase-n3a-prompt.md), [`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md), [`docs/N3d-INVENTORY.md`](docs/N3d-INVENTORY.md)).
 
 ## Read first
 

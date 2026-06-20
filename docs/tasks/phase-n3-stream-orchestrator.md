@@ -1,12 +1,12 @@
 # Phase N3a — Stream play orchestrator
 
-**Status:** Not started  
+**Status:** In progress (~75% shipped on `feat/native-experience` @ `865312c`)  
 **Branch:** `feat/native-experience`  
 **Roadmap:** [`NATIVE_ROADMAP.md`](../NATIVE_ROADMAP.md) § N3  
-**Codex prompt:** [`CODEX-phase-n3-prompt.md`](CODEX-phase-n3-prompt.md)  
-**Prerequisite:** N2 gate passes (`bash scripts/phase-n2/gate-n2-browse.sh` exit 0) · browse rails on Pi · [`N2-INVENTORY.md`](../N2-INVENTORY.md)
+**Codex prompt:** [`CODEX-phase-n3a-prompt.md`](CODEX-phase-n3a-prompt.md)  
+**Inventory:** [`N3-INVENTORY.md`](../N3-INVENTORY.md)
 
-**N3 split:** This spec is **N3a** (orchestrator backend + launcher copy + gates). **N3b** (stream picker UI + `progress.db`) is a follow-up Codex run after couch verifies N3a.
+**N3 split:** **N3a** = orchestrator + launcher copy + gates (this spec). **N3b** = stream picker UI + `progress.db` (after couch sign-off).
 
 ---
 
@@ -14,25 +14,27 @@
 
 Make **browse → detail → Play** reliable on the couch:
 
-- **≤15 s** from Play press to mpv first frame (wall clock)
-- **No error strings** on the launcher status line — spinner copy only
-- **Auto-try** ranked streams when the first URL is dead, uncached, or slow
-- **Prefer cached AIOStreams** streams; do not auto-play unknown Torrentio debrid
+| Target | Requirement |
+|--------|-------------|
+| Wall clock | **≤15 s** from Play press to mpv first frame |
+| UX | **No API/mpv error strings** on launcher status line |
+| Resilience | Auto-try ranked streams when first URL is dead, uncached, or slow |
+| Source policy | Prefer **cached AIOStreams**; no auto-play Torrentio debrid |
 
-N1 proved one smoke title (`tt0111161`). N2 proved browse UI. **N3a proves play works on arbitrary browse picks** — not only Shawshank.
+N1 proved one smoke title. N2 proved browse UI. **N3a proves play on arbitrary browse picks** — not Shawshank-only.
 
 ### Success definition
 
 | Artifact | Requirement |
 |----------|-------------|
-| `play-orchestrator` | Try top N streams within 15 s budget; per-URL probe ≤4 s |
-| `core.streams` | Parallel addon fetch; in-memory stream cache (TTL) |
-| Stream filters | `strict_unknown_cache: true` default; AIOStreams-first tiers |
-| `mpv-play.sh` | `--probe` mode for fast TTFF check per attempt |
+| `play-orchestrator.ts` | Try top N streams within 15 s wall; per-attempt budget from config |
+| `core.streams` | Parallel addon fetch; in-memory stream cache (10 min TTL) |
+| Stream filters | Tier-ranked auto-play candidates; couch-safe defaults in example JSON |
+| `mpv-play.sh` | `--probe` mode for fast TTFF check |
 | Launcher | Pre-resolve on detail open; friendly spinner only |
-| Gate | `bash scripts/phase-n3c/gate-n3c-verified-rails.sh` exit 0 |
-| N2+N1+N0 regression | All prior gates still pass |
-| `docs/N3-INVENTORY.md` | Plan, metrics, couch note |
+| Gate | `gate-n3a-play.sh` exit 0 (browse pick + budget) · `gate-n3c-verified-rails.sh` regression |
+| N0 + N3d regression | `pi-pre-couch-gate.sh` still passes |
+| `docs/N3-INVENTORY.md` | Metrics filled + couch sign-off note |
 
 ### Dev lab context
 
@@ -40,325 +42,174 @@ N1 proved one smoke title (`tt0111161`). N2 proved browse UI. **N3a proves play 
 
 ---
 
-## 2. Non-goals (N3a — defer to N3b / N4 / N7)
+## 2. Already shipped (do not redo)
+
+Audit before coding — these exist on `feat/native-experience`:
+
+| Area | Location | Notes |
+|------|----------|-------|
+| Orchestrator module | `src/catalog-service/src/play-orchestrator.ts` | `playWithFallback()` · attempt log · wall budget |
+| Wired `POST /play` | `src/catalog-service/src/index.ts` | Uses orchestrator · invalidates title on failure |
+| Parallel resolve + cache | `src/catalog-service/src/core.ts` | `Promise.allSettled` · `streamCache` 10 min |
+| mpv probe + play | `src/catalog-service/src/mpv.ts` · `scripts/phase-n1/mpv-play.sh` | `--probe` · `--timeout-ms` |
+| Candidate ranking | `src/catalog-service/src/stream-filters.ts` | `selectAutoPlayCandidates()` · phased cache tiers |
+| Launcher prefetch | `src/launcher/src/catalog.ts` · `detail.ts` | `prefetchStreams()` on detail open |
+| Launcher copy | `src/launcher/src/detail.ts` | Spinner states · generic failure message |
+| N3c play gate | `scripts/phase-n3c/gate-n3c-verified-rails.sh` | Samples served rail items · `POST /play` |
+| Gate helpers | `scripts/lib/gate-common.sh` | `gate_post_play` · mpv playback-time check |
+| Inventory plan | `docs/N3-INVENTORY.md` § Plan | Root cause + design locked |
+
+**Codex mission = close gaps below**, not greenfield rewrite.
+
+---
+
+## 3. Remaining gaps (closure work)
+
+### G1 — Couch defaults in `catalog-filters.example.json`
+
+Current example diverges from N3a contract:
+
+| Field | Spec | Current example | Action |
+|-------|------|-----------------|--------|
+| `strict_unknown_cache` | `true` | `false` | Set `true` |
+| `auto_play_wall_ms` | `15000` | `45000` | Set `15000` (keep TorBox/RD fallback env paths for indexer) |
+| `auto_play_probe_ms` | `4000` | `12000` | Set `4000` for couch play |
+
+Pi sync: `sudo cp config/catalog-filters.example.json /etc/mango/catalog-filters.json`
+
+Indexer/playability verify may need longer budgets via env — **do not** slow couch play to match indexer.
+
+### G2 — Wire `auto_play_tiers` into candidate selection
+
+`stream-filters.ts` parses `auto_play_tiers` from JSON but `selectAutoPlayCandidates()` uses hardcoded phases. Either:
+
+- **Preferred:** flatten tiers from config (addon name fuzzy match + `require_cache`) into ranked list, then `diversifyCandidates`; or
+- Document phases as equivalent and add test proving tier config is honored.
+
+Torrentio must remain **excluded** from default auto-play tiers.
+
+### G3 — Probe-then-play (optional but spec-aligned)
+
+Today orchestrator calls full `playUrl()` per attempt (with `minDurationSec: 600`). Spec design:
+
+1. `probeUrl()` — fast TTFF check, **stop mpv**
+2. On probe success → single full `playUrl()` on winner
+
+**Benefit:** failed attempts don't leave fullscreen mpv running; faster retry. **Risk:** double mpv start adds ~1 s — measure on Pi before/after.
+
+If probe-then-play regresses TTFF, keep full-play loop but document waiver in `N3-INVENTORY.md`.
+
+### G4 — Dedicated N3a gate: `scripts/phase-n3a/gate-n3a-play.sh`
+
+N3c gate proves served items play; N3a gate proves **browse contract**:
+
+```bash
+bash scripts/phase-n3a/gate-n3a-play.sh
+```
+
+| Check | Pass |
+|-------|------|
+| Prereqs | `catalog-service` up · filters example has N3a fields |
+| **Browse pick A** | Random item from `movies-india-trending` or `series-india-picks` (not `tt0111161`) |
+| `POST /play` | `ok: true` |
+| `total_ms` | ≤ **15000** |
+| `attempts` | ≤ `auto_play_max_attempts` (5) |
+| mpv | `playback-time > 0` |
+| **Browse pick B** | Different rail than A — same checks |
+| Shawshank regression | `tt0111161` still plays (budget may exceed 15 s — warn only) |
+| Regression | `gate-n2-browse.sh` · `gate-n0.sh` exit 0 |
+
+Add to `pi-pre-couch-gate.sh` when `MANGO_CATALOG=1`.
+
+Reuse `scripts/lib/gate-common.sh`. Extend `gate_check_play_json` to accept max `total_ms` arg.
+
+### G5 — Inventory metrics + couch note
+
+Fill `docs/N3-INVENTORY.md` § Metrics after Pi gate run. Add § Couch sign-off checklist (manual).
+
+### G6 — Launcher passes `rail_id` on play (nice-to-have)
+
+`POST /play` body supports `rail_id` for playability invalidation. Launcher `playCard()` should pass rail context when available.
+
+---
+
+## 4. Non-goals (N3a — defer)
 
 | Out of scope | Phase |
 |--------------|-------|
-| Stream picker UI (2–5 rows on detail) | N3b |
+| Stream picker UI | N3b |
 | `progress.db` / resume | N3b / N4 |
-| Hidden Stremio desktop fallback launch | N7 |
-| `include_uncached` Settings toggle | N3b |
+| Hidden Stremio fallback | N7 |
+| Settings UI for `include_uncached` | N3b |
 | Search UI | Later |
 | 4K / REMUX relaxation | N7 |
 | Change gamepad evdev codes | Never |
-| In-browser `<video>` | Never |
 
 ---
 
-## 3. Problem statement (why N3a exists)
+## 5. Design principles (binding)
 
-Current `POST /play` path ([`src/catalog-service/src/index.ts`](../../src/catalog-service/src/index.ts)):
-
-1. Resolves streams **sequentially** across addons (~8 s on N1).
-2. Picks **`streams[0]`** only — no retry on dead URL.
-3. **`strict_unknown_cache: false`** lets Torrentio RD/TB through with `cache_status: unknown` → *download pending* / *removed files* in mpv.
-4. Resolve happens **at Play**, not when detail opens.
-5. Launcher shows **`could not play: …`** to the user.
+Apply **`$mango-tv-box-expert`**: 15 s wall budget · silent launcher failures · cached AIOStreams first · git-only deploy · gate before handoff.
 
 ---
 
-## 4. Design principles (binding)
+## 6. Stream filter contract
 
-Apply **`$mango-tv-box-expert`**:
+**Repo:** `config/catalog-filters.example.json` · **Pi:** `/etc/mango/catalog-filters.json`
 
-| Principle | N3a meaning |
-|-----------|-------------|
-| **Never single-shot play** | ExoPlayer-style fallback: try next URL on load failure |
-| **Filter before try** | Auto-play tier 1 = AIOStreams + `cached` only |
-| **Pre-resolve** | Warm stream list when detail opens (target ≤5 s before Play) |
-| **15 s wall budget** | Total Play → first frame; not 15 s per URL |
-| **Silent failure** | Log errors server-side; launcher shows spinner states only |
-| **Chromium = UI only** | mpv remains sole player |
-| **Git-only Pi deploy** | Commit + push; `git pull` on Pi |
+N3a couch defaults: `strict_unknown_cache: true` · `auto_play_wall_ms: 15000` · `auto_play_probe_ms: 4000` · tiered AIOStreams cached-first.
+
+Indexer relaxations (`uncached_torbox_fallback`, `rd_safe_unknown_fallback`) stay for verify — not default couch browse.
 
 ---
 
-## 5. Stream filter contract
+## 7. API contract (`POST /play`)
 
-**Repo template:** `config/catalog-filters.example.json`  
-**Pi path:** `/etc/mango/catalog-filters.json`
-
-### N3a default changes
-
-```json
-{
-  "exclude_uncached_debrid": true,
-  "strict_unknown_cache": true,
-  "max_quality": "1080p",
-  "exclude_remux": true,
-  "auto_play_max_attempts": 5,
-  "auto_play_wall_ms": 15000,
-  "auto_play_probe_ms": 4000,
-  "auto_play_tiers": [
-    {
-      "addons": ["AIOStreams | ElfHosted"],
-      "require_cache": "cached"
-    },
-    {
-      "addons": ["AIOStreams | ElfHosted"],
-      "require_cache": "cached_or_unknown"
-    }
-  ]
-}
-```
-
-| Field | Default | Meaning |
-|-------|---------|---------|
-| `strict_unknown_cache` | `true` | Drop debrid streams without AIOStreams `bingeGroup` cache hint |
-| `auto_play_max_attempts` | `5` | Max URLs to probe per Play |
-| `auto_play_wall_ms` | `15000` | Hard stop for orchestrator |
-| `auto_play_probe_ms` | `4000` | Per-URL mpv probe timeout |
-| `auto_play_tiers` | see above | Ordered tiers; flatten to candidate list |
-
-**Addon name matching:** reuse existing fuzzy match in `core.ts` (`AIOMetadata  | ElfHosted` spacing variants).
-
-**Torrentio** streams are **not** in default auto-play tiers. They may appear in `GET /stream` for N3b picker — not auto-play in N3a.
-
-Existing query/body overrides (`include_uncached`, etc.) must still work for API callers.
+Success: `{ ok, ttff_ms, total_ms, attempts, stream, filters }`  
+Failure: HTTP 502 `no_playable_stream` — launcher generic message only.
 
 ---
 
-## 6. catalog-service architecture
+## 8. Launcher status copy
 
-### 6.1 New module: `play-orchestrator.ts`
+`finding stream…` → `starting…` → `playing · 1080p. ⌂ returns home.` or `couldn't start playback. try another title.`
 
-```typescript
-playWithFallback(
-  streams: Stream[],
-  config: PlayOrchestratorConfig,
-): Promise<PlayOrchestratorResult>
-```
+---
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `ok` | boolean | true if mpv reached `playback-time > 0` |
-| `ttff_ms` | number | First frame on winning attempt |
-| `total_ms` | number | Wall clock from orchestrator start |
-| `attempts` | array | `{ index, source, cache_status, ok, ms, error? }` — **no raw URLs in logs to launcher** |
-| `stream` | object | Winning stream metadata |
-| `filters` | object | Filter meta from resolve |
+## 9. Deliverables (closure)
 
-**Algorithm:**
+| ID | Deliverable | Status |
+|----|-------------|--------|
+| D1–D2 | orchestrator + core cache | ✓ shipped |
+| D3 | tier wiring | **G2** |
+| D4 | filter defaults | **G1** |
+| D5–D7 | API + launcher | ✓ shipped (G6 optional) |
+| D8–D9 | `gate-n3a-play.sh` + pre-couch | **G4** |
+| D10 | inventory metrics | **G5** |
 
-```
-1. Apply tier filter → ranked candidate URLs (max auto_play_max_attempts)
-2. deadline = now + auto_play_wall_ms
-3. for each candidate while now < deadline:
-     probe = mpv-play.sh --url URL --probe --timeout-ms auto_play_probe_ms
-     if probe.ok → return success
-     else record attempt, continue
-4. if all failed → throw CatalogError(502, 'no playable stream within budget')
-   (launcher maps to spinner message, not raw error — see §7)
-```
+---
 
-### 6.2 `core.streams` — parallel resolve
-
-Replace sequential `for` loop with `Promise.allSettled` per stream addon. Merge results; preserve `resolve_ms` in response.
-
-**Timeout:** cap total resolve at **5 s** for orchestrator path (env `MANGO_STREAM_RESOLVE_BUDGET_MS` default 5000). Return partial results if budget exceeded — do not fail entire resolve.
-
-### 6.3 Stream cache
-
-In-process `Map<string, { streams, filters, expiresAt }>` keyed by `{type}:{id}`.
-
-| Trigger | Action |
-|---------|--------|
-| `GET /stream/:type/:id` | Resolve (or cache hit); store TTL **10 min** |
-| Detail pre-resolve (launcher) | Same as GET |
-| `POST /play` | Use cache if fresh; else resolve |
-
-Expose optional `resolve_ms` and `cached: true|false` on responses.
-
-### 6.4 `POST /play` handler
-
-Replace single-shot `streams[0]` + `playUrl` with `playWithFallback`.
-
-Response shape (extend existing):
-
-```json
-{
-  "ok": true,
-  "ttff_ms": 4200,
-  "total_ms": 8900,
-  "attempts": 2,
-  "stream": { "source": "AIOStreams | ElfHosted", "quality": "1080p", "cache_status": "cached" },
-  "filters": { "kept": 12, "excluded": { "uncached_debrid": 8 } }
-}
-```
-
-On failure: HTTP 502 with `{ "error": "no_playable_stream", "attempts": [...] }` — launcher must **not** display `error` text.
-
-### 6.5 `mpv-play.sh` probe mode
-
-Add flags:
+## 10. Validation
 
 ```bash
-mpv-play.sh --url <url> --probe [--timeout-ms 4000]
-```
-
-- Starts mpv, polls `playback-time > 0` via existing IPC
-- On success: print `PASS: ttff_ms=N`, exit 0, **stop mpv** (probe only)
-- On timeout: exit 1
-- Full play (no `--probe`): existing behavior for winning URL after probe loop — or orchestrator calls full play once probe succeeds
-
-**Recommended:** probe stops mpv; orchestrator then calls full `playUrl` on winner (avoids double-start complexity). Gate measures **total** `POST /play` wall time.
-
-### 6.6 Pi hwdec (lab)
-
-Probe and full play on Pi lab should use `--hwdec=v4l2m2m-copy` when `MANGO_MPV_HWDEC` unset and Pi detected — or document in inventory if left as env override. **Do not** regress N1 gate on Shawshank.
-
----
-
-## 7. Launcher changes
-
-### 7.1 Pre-resolve on detail open
-
-In `detail.ts` `show()`:
-
-```typescript
-void prefetchStreams(card);  // GET /api/catalog/stream/:type/:id — fire-and-forget
-```
-
-Add `prefetchStreams` in `catalog.ts`. Ignore errors silently (log to console only).
-
-### 7.2 Status copy (no errors)
-
-| State | Status line |
-|-------|-------------|
-| Detail open | `B to play. Y to go back.` |
-| Play pressed | `finding stream…` |
-| mpv starting | `starting…` |
-| Success | `playing · 1080p. ⌂ returns home.` |
-| Failure | `couldn't start playback. try another title.` — **never** API/mpv stderr |
-
-Remove `could not play: ${message}` pattern from [`detail.ts`](../../src/launcher/src/detail.ts).
-
-### 7.3 No picker UI
-
-Play button still calls `POST /api/catalog/play` with `{ type, id }` only.
-
----
-
-## 8. Deliverables
-
-| ID | Deliverable |
-|----|-------------|
-| D1 | `src/catalog-service/src/play-orchestrator.ts` |
-| D2 | `core.ts` — parallel resolve + stream cache |
-| D3 | `stream-filters.ts` — tier support + `strict_unknown_cache` default true in example |
-| D4 | `config/catalog-filters.example.json` — N3a fields |
-| D5 | `index.ts` — wired `playWithFallback` |
-| D6 | `scripts/phase-n1/mpv-play.sh` — `--probe` mode |
-| D7 | `src/launcher/src/catalog.ts` + `detail.ts` — prefetch + copy |
-| D8 | `scripts/phase-n3c/gate-n3c-verified-rails.sh` |
-| D9 | `scripts/phase-n3/gate-n3c-verified-rails.sh` |
-| D10 | `docs/N3-INVENTORY.md` — plan + metrics + couch note |
-| D11 | `scripts/pi-pre-couch-gate.sh` — run N3 gate when catalog on (optional but preferred) |
-
----
-
-## 9. Validation gates
-
-### Gate N3-A — Prereqs
-
-```bash
+bash scripts/phase-n3a/gate-n3a-play.sh
 bash scripts/phase-n3c/gate-n3c-verified-rails.sh
+bash scripts/pi-pre-couch-gate.sh
 ```
 
-| Check | Pass |
-|-------|------|
-| `catalog-filters.example.json` has N3a fields | yes |
-| `catalog-service` dist built | yes |
-| `play-orchestrator` in dist | yes |
-| `mpv-play.sh --probe` exists | yes |
+No waivers for browse-pick play within 15 s.
 
-### Gate N3-B — Play orchestrator (critical)
+---
+
+## 11. Deploy
 
 ```bash
-bash scripts/phase-n3c/gate-n3c-verified-rails.sh
-```
-
-| Check | Pass |
-|-------|------|
-| **Browse pick** | Random title from `GET /rails/trending-india/items` (not `tt0111161`) |
-| `POST /play` | `ok: true` |
-| `total_ms` | ≤ **15000** |
-| `ttff_ms` | > 0 |
-| `attempts` | ≤ 5 |
-| mpv | `playback-time > 0` after play |
-| Shawshank regression | `POST /play` `tt0111161` still ok (can be separate step in gate) |
-| `gate-n2-browse.sh` | exit 0 |
-| `gate-n1-smoke.sh` | exit 0 |
-| `gate-n0.sh` | exit 0 |
-
-**Waiver policy:** no waivers for browse-pick play. If `trending-india` title fails after 5 attempts, gate **fails** — document in inventory, do not ship.
-
-### Gate N3-C — Couch note (manual)
-
-Document in `N3-INVENTORY.md`:
-
-1. Home → trending title → detail (spinner absent or brief)  
-2. B Play → picture + audio ≤15 s  
-3. No error text on status line  
-4. ⌂ → home < 1 s  
-5. Second title from different rail — repeat  
-
----
-
-## 10. Failure-mode table
-
-| Failure | Symptom | Mitigation |
-|---------|---------|------------|
-| Uncached RD | download pending in mpv | `strict_unknown_cache` + AIOStreams tier 1 |
-| Dead torrent | removed files | try next URL in orchestrator |
-| First stream 4K REMUX | blue screen | `exclude_remux` + `max_quality: 1080p` (unchanged) |
-| Resolve slow | long spinner | parallel fetch + pre-resolve on detail |
-| All streams fail | user sees generic message | N3a copy; N7 Stremio fallback |
-| Probe passes, full play fails | rare | orchestrator retries next candidate |
-| Gate only tests Shawshank | false confidence | gate **must** use browse pick |
-
----
-
-## 11. Couch acceptance — N3-PLAY
-
-| # | Test | Pass |
-|---|------|------|
-| 1 | `gate-n3c-verified-rails.sh` | exit 0 |
-| 2 | Browse pick A → Play | ≤15 s, picture + audio |
-| 3 | Browse pick B (different rail) | ≤15 s |
-| 4 | No API error on status line | generic message only on total fail |
-| 5 | `gate-n2` + `gate-n1` + `gate-n0` | exit 0 |
-
----
-
-## 12. Deploy protocol
-
-```bash
-cd ~/mango && git pull
-cd src/catalog-service && npm ci && npm run build
-cd src/launcher && npm ci && npm run build
-# filters — mango-stack may use repo example if /etc differs
-sudo cp config/catalog-filters.example.json /etc/mango/catalog-filters.json  # if sudo available
-MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
-bash scripts/phase-n3c/gate-n3c-verified-rails.sh
+git push origin feat/native-experience && bash scripts/pi-deploy.sh --gate
+sudo cp config/catalog-filters.example.json /etc/mango/catalog-filters.json
 ```
 
 ---
 
-## 13. Handoff to N3b
+## 12. Handoff to N3b
 
-After N3a couch sign-off:
-
-- Stream picker UI on detail (2–5 filtered streams)  
-- `progress.db` + Continue rail  
-- Optional Torrentio tier in picker (not auto-play)
+Stream picker · `progress.db` · Continue rail · optional Torrentio in picker (not auto-play).
