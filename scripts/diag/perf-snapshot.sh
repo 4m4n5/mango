@@ -13,7 +13,11 @@ bench() {
   local ms
   printf "%-22s" "$label"
   for ((i = 1; i <= RUNS; i++)); do
-    ms=$(curl -sf -o /dev/null -w "%{time_total}" "$url" 2>/dev/null || echo 9.999)
+    if ms=$(curl -sf -o /dev/null -w "%{time_total}" "$url" 2>/dev/null); then
+      :
+    else
+      ms="9.999"
+    fi
     ms=$(python3 -c "print(int(float('${ms}') * 1000))")
     total=$((total + ms))
     printf " %4dms" "$ms"
