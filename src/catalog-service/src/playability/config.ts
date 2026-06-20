@@ -4,6 +4,12 @@ function positiveInt(value: string | undefined, fallback: number, min = 1, max =
   return Math.min(parsed, max);
 }
 
+function boundedInt(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < min) return fallback;
+  return Math.min(parsed, max);
+}
+
 function positiveDurationMs(
   value: string | undefined,
   fallback: number,
@@ -109,4 +115,17 @@ export function playabilityVerifyMaxCandidates(): number {
 
 export function playabilityVerifyTtlMs(): number {
   return positiveDurationMs(process.env.MANGO_PLAYABILITY_TTL_MS, 48 * 60 * 60 * 1000, 3_600_000, 14 * 24 * 60 * 60 * 1000);
+}
+
+/** Minimum fresh (never-probed) titles to queue across a full refresh/top-up pass. */
+export function playabilityFreshTargetPerRefresh(): number {
+  return boundedInt(process.env.MANGO_PLAYABILITY_FRESH_TARGET, 100, 10, 500);
+}
+
+export function playabilityIngestPageSize(): number {
+  return boundedInt(process.env.MANGO_PLAYABILITY_INGEST_PAGE_SIZE, 50, 10, 200);
+}
+
+export function playabilityMaxIngestScan(): number {
+  return boundedInt(process.env.MANGO_PLAYABILITY_MAX_INGEST_SCAN, 800, 50, 5000);
 }

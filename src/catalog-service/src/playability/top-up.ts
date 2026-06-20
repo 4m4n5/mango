@@ -1,11 +1,17 @@
 import type { CatalogCore } from '../core.js';
 import {
+  getRailIngestOffsetsBulk,
   getRailPlayabilityStatus,
   getRailPoolTitleKeys,
   getTitlesPlayabilityBulk,
   pruneNonPlayableFromRailPools,
+  setRailIngestOffset,
   type PlayabilityRailStatus,
 } from './db.js';
+import {
+  ingestPaginatedCandidates,
+  type IngestCandidatesStats,
+} from './candidate-ingest.js';
 import {
   candidateKey,
   createVerifyContext,
@@ -13,10 +19,14 @@ import {
   linkExistingVerifiedCandidates,
   processVerifyQueue,
   railMapsFromRails,
-  uniqueCandidates,
   type RailCandidateRef,
 } from './pipeline.js';
-import { effectiveCandidateLimit, effectivePoolTarget } from './pool-growth.js';
+import {
+  playabilityFreshTargetPerRefresh,
+  playabilityIngestPageSize,
+  playabilityMaxIngestScan,
+} from './config.js';
+import { effectivePoolTarget } from './pool-growth.js';
 
 export type TopUpRailResult = {
   rail_id: string;
@@ -34,6 +44,7 @@ export type TopUpRailResult = {
   skipped_existing: number;
   skipped_recent_failed: number;
   exhausted: boolean;
+  ingest?: IngestCandidatesStats;
   results: Array<{
     type: string;
     id: string;
@@ -58,20 +69,14 @@ export async function topUpRail(
   const source = core.listSourceForRail(railId);
   const before = await getRailPlayabilityStatus(rail.id);
   const poolTarget = options.poolTarget ?? effectivePoolTarget(rail.playability, before.verified_pool);
-  const candidateLimit = options.candidateLimit
-    ?? effectiveCandidateLimit(
-      rail.limit,
-      rail.playability.ingest_multiplier,
-      before.verified_pool,
-      poolTarget,
-    );
+  const freshTarget = options.candidateLimit ?? playabilityFreshTargetPerRefresh();
 
   if (before.verified_pool >= poolTarget) {
     return {
       rail_id: rail.id,
       label: rail.label,
       ok: before.verified_pool >= rail.playability.min_display,
-      candidate_limit: candidateLimit,
+      candidate_limit: freshTarget,
       pool_target: poolTarget,
       min_display: rail.playability.min_display,
       before,
@@ -87,7 +92,16 @@ export async function topUpRail(
     };
   }
 
-  const candidates = uniqueCandidates(await source.candidates({ offset: 0, limit: candidateLimit }));
+  const ingestOffsets = await getRailIngestOffsetsBulk([rail.id]);
+  const ingested = await ingestPaginatedCandidates(source, {
+    startOffset: ingestOffsets.get(rail.id) ?? 0,
+    freshTarget,
+    pageSize: playabilityIngestPageSize(),
+    maxScanned: playabilityMaxIngestScan(),
+    lookupTitles: getTitlesPlayabilityBulk,
+  });
+  await setRailIngestOffset(rail.id, ingested.next_offset);
+  const candidates = ingested.candidates;
   const refsByKey = new Map<string, RailCandidateRef[]>();
   for (const [index, candidate] of candidates.entries()) {
     const key = candidateKey(candidate);
@@ -133,18 +147,19 @@ export async function topUpRail(
     rail_id: rail.id,
     label: rail.label,
     ok: after.verified_pool >= rail.playability.min_display,
-    candidate_limit: candidateLimit,
+    candidate_limit: freshTarget,
     pool_target: poolTarget,
     min_display: rail.playability.min_display,
     before,
     after,
-    candidates_seen: candidates.length,
+    candidates_seen: ingested.scanned,
     linked_existing: linked.linked_existing,
     verified: processed.verified,
     failed: processed.failed,
     skipped_existing: linked.skipped_existing,
     skipped_recent_failed: linked.skipped_recent_failed,
     exhausted: after.verified_pool < poolTarget,
+    ingest: ingested,
     results: [...linked.results, ...processed.results],
   };
 }

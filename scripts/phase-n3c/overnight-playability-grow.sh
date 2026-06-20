@@ -297,13 +297,15 @@ except Exception as exc:
 verified = data.get("verified", "?")
 failed = data.get("failed", "?")
 duration_ms = data.get("duration_ms", "?")
+ingest_fresh = data.get("ingest_fresh_queued", "?")
+ingest_scanned = data.get("ingest_scanned", "?")
 rails = data.get("rails") or []
 gained = sum(
     int((r.get("after") or {}).get("verified_pool") or 0)
     - int((r.get("before") or {}).get("verified_pool") or 0)
     for r in rails
 )
-print(f"chunk {chunk} rc={rc} duration_ms={duration_ms} verified_new={verified} failed={failed} rail_slots_gained={gained}")
+print(f"chunk {chunk} rc={rc} duration_ms={duration_ms} ingest_fresh={ingest_fresh} ingest_scanned={ingest_scanned} verified_new={verified} failed={failed} rail_slots_gained={gained}")
 for rail in rails:
     before = int((rail.get("before") or {}).get("verified_pool") or 0)
     after = int((rail.get("after") or {}).get("verified_pool") or 0)
@@ -380,11 +382,17 @@ while [[ $(date +%s) -lt $END_TS ]]; do
   echo "$BELOW_RAW" | tail -n +2 | head -5 | while read -r line; do log "  thin: $line"; done
 
   GAINED="$(run_chunk "$CHUNK")"
+  INGEST_FRESH="$(python3 - "$CACHE_DIR/overnight-chunk-${CHUNK}.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+print(int(data.get("ingest_fresh_queued") or 0))
+PY
+)"
   print_pool_summary | while read -r line; do log "$line"; done
 
-  if [[ "${GAINED:-0}" -eq 0 ]]; then
+  if [[ "${GAINED:-0}" -eq 0 && "${INGEST_FRESH:-0}" -eq 0 ]]; then
     STALL_CHUNKS=$((STALL_CHUNKS + 1))
-    log "warn chunk $CHUNK gained 0 rail slots (stall $STALL_CHUNKS/3)"
+    log "warn chunk $CHUNK gained 0 rail slots and queued 0 fresh candidates (stall $STALL_CHUNKS/3)"
     if [[ "$STALL_CHUNKS" -ge 3 ]]; then
       log "stopping: no growth in 3 consecutive chunks"
       break

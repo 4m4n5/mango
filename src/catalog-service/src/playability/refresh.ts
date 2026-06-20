@@ -1,12 +1,19 @@
 import type { CatalogCore } from '../core.js';
 import {
   getPlayabilityStatus,
+  getRailIngestOffsetsBulk,
   getRailPoolTitleKeysBulk,
   getStaleTitlesForRefresh,
   getTitlesPlayabilityBulk,
   pruneNonPlayableFromRailPools,
+  setRailIngestOffset,
   type PlayabilityRailStatus,
 } from './db.js';
+import {
+  freshTargetPerRail,
+  ingestPaginatedCandidates,
+  type IngestCandidatesStats,
+} from './candidate-ingest.js';
 import {
   candidateKey,
   createVerifyContext,
@@ -17,7 +24,13 @@ import {
   uniqueCandidates,
   type RailCandidateRef,
 } from './pipeline.js';
-import { playabilityBootstrapFill, playabilityEarlyExitMinDisplay } from './config.js';
+import {
+  playabilityBootstrapFill,
+  playabilityEarlyExitMinDisplay,
+  playabilityFreshTargetPerRefresh,
+  playabilityIngestPageSize,
+  playabilityMaxIngestScan,
+} from './config.js';
 import {
   effectiveCandidateLimit,
   effectivePoolTarget,
@@ -60,6 +73,7 @@ export type RefreshRailSummary = {
   skipped_existing: number;
   skipped_recent_failed: number;
   exhausted: boolean;
+  ingest?: IngestCandidatesStats;
 };
 
 export type RefreshAllResult = {
@@ -78,6 +92,8 @@ export type RefreshAllResult = {
   skipped_recent_failed: number;
   batch_flush: { verify_count: number; pool_count: number };
   pruned_pool_entries: number;
+  ingest_fresh_queued: number;
+  ingest_scanned: number;
   rails: RefreshRailSummary[];
 };
 
@@ -113,6 +129,7 @@ export async function refreshAllRails(
 
   const refsByKey = new Map<string, RailCandidateRef[]>();
   const candidatesSeenByRail = new Map<string, number>();
+  const ingestStatsByRail = new Map<string, IngestCandidatesStats>();
   const railsToFetch = rails.filter((rail) => {
     const verified = beforeByRail.get(rail.id)?.verified_pool ?? 0;
     const poolTarget = options.poolTarget
@@ -130,19 +147,41 @@ export async function refreshAllRails(
     return railNeedsWork(mode, before, poolTarget);
   });
 
+  const freshPerRail = freshTargetPerRail(playabilityFreshTargetPerRefresh(), railsToFetch.length);
+  const ingestOffsets = mode === 'full'
+    ? await getRailIngestOffsetsBulk(railsToFetch.map((rail) => rail.id))
+    : new Map<string, number>();
+
   await Promise.all(railsToFetch.map(async (rail) => {
     const source = core.listSourceForRail(rail.id);
     const verified = railVerifiedCounts.get(rail.id) ?? 0;
     const poolTarget = railPoolTargets.get(rail.id) ?? rail.playability.pool_target;
-    const candidateLimit = options.candidateLimit
-      ?? effectiveCandidateLimit(
-        rail.limit,
-        rail.playability.ingest_multiplier,
-        verified,
-        poolTarget,
-      );
-    const candidates = uniqueCandidates(await source.candidates({ offset: 0, limit: candidateLimit }));
-    candidatesSeenByRail.set(rail.id, candidates.length);
+    let candidates;
+
+    if (mode === 'full') {
+      const ingested = await ingestPaginatedCandidates(source, {
+        startOffset: ingestOffsets.get(rail.id) ?? 0,
+        freshTarget: freshPerRail,
+        pageSize: playabilityIngestPageSize(),
+        maxScanned: playabilityMaxIngestScan(),
+        lookupTitles: getTitlesPlayabilityBulk,
+      });
+      await setRailIngestOffset(rail.id, ingested.next_offset);
+      ingestStatsByRail.set(rail.id, ingested);
+      candidates = ingested.candidates;
+      candidatesSeenByRail.set(rail.id, ingested.scanned);
+    } else {
+      const candidateLimit = options.candidateLimit
+        ?? effectiveCandidateLimit(
+          rail.limit,
+          rail.playability.ingest_multiplier,
+          verified,
+          poolTarget,
+        );
+      candidates = uniqueCandidates(await source.candidates({ offset: 0, limit: candidateLimit }));
+      candidatesSeenByRail.set(rail.id, candidates.length);
+    }
+
     for (const [index, candidate] of candidates.entries()) {
       const key = candidateKey(candidate);
       const refs = refsByKey.get(key) ?? [];
@@ -263,8 +302,18 @@ export async function refreshAllRails(
       skipped_existing: railResults.filter((result) => result.action === 'skipped_existing').length,
       skipped_recent_failed: railResults.filter((result) => result.action === 'skipped_recent_failed').length,
       exhausted: after.verified_pool < poolTarget,
+      ingest: ingestStatsByRail.get(rail.id),
     });
   }
+
+  const ingestFreshQueued = [...ingestStatsByRail.values()].reduce(
+    (sum, stats) => sum + stats.fresh_queued,
+    0,
+  );
+  const ingestScanned = [...ingestStatsByRail.values()].reduce(
+    (sum, stats) => sum + stats.scanned,
+    0,
+  );
 
   return {
     ok: railSummaries.every((rail) => rail.ok),
@@ -282,6 +331,8 @@ export async function refreshAllRails(
     skipped_recent_failed: linked.skipped_recent_failed,
     batch_flush: batchFlush,
     pruned_pool_entries: prunedPoolEntries,
+    ingest_fresh_queued: ingestFreshQueued,
+    ingest_scanned: ingestScanned,
     rails: railSummaries,
   };
 }

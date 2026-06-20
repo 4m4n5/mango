@@ -19,7 +19,7 @@ import type { RailPlayabilityConfig } from '../rails.js';
 import { effectiveDisplayLimit } from './pool-growth.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export type PlayabilityRailStatus = {
   rail_id: string;
@@ -470,10 +470,68 @@ function applySchemaMigrations(db: Database.Database): void {
   if (!columns.some((column) => column.name === 'win_ladder_step')) {
     db.exec('ALTER TABLE titles ADD COLUMN win_ladder_step TEXT');
   }
+  db.exec(`
+CREATE TABLE IF NOT EXISTS rail_ingest_state (
+  rail_id TEXT PRIMARY KEY,
+  catalog_offset INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+`);
   db.prepare(`
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (2, @applied_at);
 `).run({ applied_at: nowMs() });
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (3, @applied_at);
+`).run({ applied_at: nowMs() });
+}
+
+export async function getRailIngestOffsetsBulk(railIds: string[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (railIds.length === 0) {
+    return result;
+  }
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const placeholders = railIds.map((_, index) => `@rail_${index}`).join(', ');
+    const params: Record<string, string> = {};
+    railIds.forEach((railId, index) => {
+      params[`rail_${index}`] = railId;
+    });
+    const rows = db.prepare(`
+SELECT rail_id, catalog_offset
+FROM rail_ingest_state
+WHERE rail_id IN (${placeholders});
+`).all(params) as Array<{ rail_id: string; catalog_offset: number }>;
+    for (const row of rows) {
+      result.set(row.rail_id, row.catalog_offset);
+    }
+    return result;
+  } finally {
+    db.close();
+  }
+}
+
+export async function setRailIngestOffset(railId: string, catalogOffset: number): Promise<void> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    db.prepare(`
+INSERT INTO rail_ingest_state (rail_id, catalog_offset, updated_at)
+VALUES (@rail_id, @catalog_offset, @updated_at)
+ON CONFLICT(rail_id) DO UPDATE SET
+  catalog_offset = excluded.catalog_offset,
+  updated_at = excluded.updated_at;
+`).run({
+      rail_id: railId,
+      catalog_offset: Math.max(0, catalogOffset),
+      updated_at: nowMs(),
+    });
+  } finally {
+    db.close();
+  }
 }
 
 export async function getPlayabilityStatus(railIds: string[]): Promise<PlayabilityStatus> {
