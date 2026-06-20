@@ -7,7 +7,7 @@ version: 2
 cache_ttl_sec: 300
 verify_streams: true
 verify_pool_multiplier: 3
-verify_delay_ms: 150
+verify_delay_ms: 80
 
 sources:
   - addon: mango Live TV
@@ -19,7 +19,7 @@ sources:
     label: free
     catalog: iptv_channels
     catalog_type: tv
-    pages: 1
+    pages: 4
 
 rails:
   - id: live-cricket
@@ -42,16 +42,15 @@ rails:
   - id: live-football
     label: football & soccer
     keywords:
+      - football
+      - soccer
+      - sport
       - premier league
       - epl
       - uefa
       - champions league
       - la liga
       - bundesliga
-      - serie a
-      - ligue 1
-      - soccer
-      - football
     include_genres:
       - SOCCER PPV
       - EPL

@@ -743,11 +743,15 @@ export class CatalogCore {
       rails: responses,
       resolve_ms: Date.now() - started,
     };
-    const ttlMs = (config.cache_ttl_sec ?? 600) * 1000;
-    this.liveTabRailItemsCache = {
-      payload,
-      expiresAt: Date.now() + Math.max(ttlMs, LIVE_TAB_CACHE_TTL_MS),
-    };
+    if (responses.length > 0) {
+      const ttlMs = (config.cache_ttl_sec ?? 600) * 1000;
+      this.liveTabRailItemsCache = {
+        payload,
+        expiresAt: Date.now() + Math.max(ttlMs, LIVE_TAB_CACHE_TTL_MS),
+      };
+    } else {
+      this.liveTabRailItemsCache = null;
+    }
     return payload;
   }
 
