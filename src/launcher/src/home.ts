@@ -34,6 +34,7 @@ export function buildBrowseTabs(
   const tabs: Array<{ id: BrowseTab; label: string }> = [
     { id: "movies", label: "movies" },
     { id: "series", label: "tv shows" },
+    { id: "live", label: "live" },
   ];
   const buttons: HTMLElement[] = [];
   for (const tab of tabs) {

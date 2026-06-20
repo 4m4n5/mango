@@ -94,6 +94,17 @@ Details: [phase0/README.md](phase0/README.md)
 | `phase-n3d/diag-self-hosted.sh` | AIOStreams + AIOMetadata health |
 | `verify-tv.sh` | Health gate |
 
+## Live TV / IPTV (NexoTV)
+
+| Script | Role |
+|--------|------|
+| `phase-live/install-nexotv.sh` | Docker pull + start NexoTV on `:7000` |
+| `phase-live/nexotv-config.sh` | IPTV profiles, token, `stremio-export` wire |
+| `phase-live/gate-live-iptv.sh` | Health → catalog → stream → mpv live probe |
+| `phase-live/probe-live-catalog.sh` | Sports keyword scan + probe |
+
+See [`docs/LIVE_TV.md`](../docs/LIVE_TV.md).
+
 ## Playability (N3c)
 
 | Script | Role |

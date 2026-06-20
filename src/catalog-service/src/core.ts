@@ -61,6 +61,16 @@ import { CONTINUE_RAIL_ID } from './progress/config.js';
 import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
 import { assembleSeriesEpisodes, type SeriesEpisodesResponse } from './episodes.js';
 import { listUserPins } from './user-pins.js';
+import {
+  channelSubtitle,
+  fetchLiveCatalogChannels,
+  loadLiveRailConfig,
+  partitionChannelsBySportRails,
+  type LiveRailConfig,
+  type LiveSportRail,
+} from './live-rails.js';
+
+const LIVE_TAB_CACHE_TTL_MS = 10 * 60 * 1000;
 
 export const PINNED_RAIL_ID = 'pinned';
 
@@ -397,6 +407,10 @@ export class CatalogCore {
     payload: TabRailItemsResponse;
     expiresAt: number;
   }>();
+  private liveTabRailItemsCache: {
+    payload: TabRailItemsResponse;
+    expiresAt: number;
+  } | null = null;
   private playabilitySessionId = process.env.MANGO_PLAYABILITY_SESSION_ID || randomUUID();
 
   private constructor(
@@ -405,6 +419,8 @@ export class CatalogCore {
     private readonly filterConfig: Awaited<ReturnType<typeof loadFilterConfig>>,
     private readonly railConfig: RailConfig | null,
     private readonly railConfigError: Error | null,
+    private readonly liveRailConfig: LiveRailConfig | null,
+    private readonly liveRailConfigError: Error | null,
   ) {}
 
   static async create(exportPath = process.env.MANGO_STREMIO_EXPORT || DEFAULT_EXPORT_PATH): Promise<CatalogCore> {
@@ -426,9 +442,15 @@ export class CatalogCore {
         manifest,
       });
     }
-    const [filterConfig, railConfigResult] = await Promise.all([
+    const [filterConfig, railConfigResult, liveRailConfigResult] = await Promise.all([
       loadFilterConfig(),
       loadRailConfig()
+        .then((config) => ({ config, error: null }))
+        .catch((error: unknown) => ({
+          config: null,
+          error: error instanceof Error ? error : new Error(String(error)),
+        })),
+      loadLiveRailConfig()
         .then((config) => ({ config, error: null }))
         .catch((error: unknown) => ({
           config: null,
@@ -441,6 +463,8 @@ export class CatalogCore {
       filterConfig,
       railConfigResult.config,
       railConfigResult.error,
+      liveRailConfigResult.config,
+      liveRailConfigResult.error,
     );
   }
 
@@ -453,11 +477,27 @@ export class CatalogCore {
       addon_names: this.addons.map((addon) => addon.name),
       rails: this.railConfig ? enabledBrowsableRails(this.railConfig).length : 0,
       rails_ready: this.railConfigError === null,
+      live_rails: this.liveRailConfig ? this.liveRailConfig.rails.length : 0,
+      live_ready: this.liveRailConfigError === null,
       rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
     };
   }
 
   rails(tab?: CatalogTab): { rails: RailSummary[]; tab?: CatalogTab } {
+    if (tab === 'live') {
+      const config = this.requireLiveRailConfig();
+      return {
+        tab: 'live',
+        rails: config.rails.map((rail) => ({
+          id: rail.id,
+          label: rail.label,
+          tab: 'live' as const,
+          type: 'addon_catalog' as const,
+          content_type: config.catalog_type,
+          sources: [{ addon: config.addon, catalog: config.catalog, weight: 1 }],
+        })),
+      };
+    }
     const rails = enabledBrowsableRailsForTab(this.requireRailConfig(), tab);
     return {
       ...(tab ? { tab } : {}),
@@ -511,6 +551,7 @@ export class CatalogCore {
     this.playabilitySessionId = randomUUID();
     this.railItemsCache.clear();
     this.tabRailItemsCache.clear();
+    this.liveTabRailItemsCache = null;
     return this.playabilitySessionId;
   }
 
@@ -531,6 +572,103 @@ export class CatalogCore {
     }
     this.railItemsCache.clear();
     this.tabRailItemsCache.clear();
+    this.liveTabRailItemsCache = null;
+  }
+
+  private requireLiveRailConfig(): LiveRailConfig {
+    if (this.liveRailConfig) {
+      return this.liveRailConfig;
+    }
+    const reason = this.liveRailConfigError?.message || 'catalog-live yaml not loaded';
+    throw new CatalogError(503, `live rails unavailable: ${reason}`);
+  }
+
+  private livePlayabilityStub(displayed: number): RailItemsResponse['playability'] {
+    return {
+      displayed,
+      verified_pool: displayed,
+      pending: 0,
+      low_water: false,
+      session_id: 'live',
+    };
+  }
+
+  private liveChannelToRailItem(
+    channel: Awaited<ReturnType<typeof fetchLiveCatalogChannels>>[number],
+    config: LiveRailConfig,
+  ): RailItem {
+    return {
+      id: channel.id,
+      type: config.catalog_type,
+      title: channel.name,
+      subtitle: channelSubtitle(channel),
+      poster: channel.poster || '',
+      description: channel.description || channel.releaseInfo,
+      source: config.addon,
+    };
+  }
+
+  private async buildLiveRailItemsResponse(
+    rail: LiveSportRail,
+    channels: Awaited<ReturnType<typeof fetchLiveCatalogChannels>>,
+    config: LiveRailConfig,
+    started: number,
+  ): Promise<RailItemsResponse> {
+    const items = channels
+      .slice(0, rail.limit)
+      .map((channel) => this.liveChannelToRailItem(channel, config));
+    return {
+      rail_id: rail.id,
+      label: rail.label,
+      items,
+      resolve_ms: Date.now() - started,
+      skipped: Math.max(0, channels.length - items.length),
+      playability: this.livePlayabilityStub(items.length),
+    };
+  }
+
+  async liveTabRailItems(options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
+    const reshuffle = Boolean(options.reshuffle);
+    if (reshuffle) {
+      this.liveTabRailItemsCache = null;
+    }
+
+    const cached = this.liveTabRailItemsCache;
+    if (!reshuffle && cached && cached.expiresAt > Date.now()) {
+      return { ...cached.payload, cached: true };
+    }
+
+    const started = Date.now();
+    const config = this.requireLiveRailConfig();
+    const addon = this.findAddonByName(config.addon);
+    const channels = await fetchLiveCatalogChannels(addon.manifestUrl, config, fetchJson);
+    const byRail = partitionChannelsBySportRails(channels, config.rails);
+
+    const responses: RailItemsResponse[] = [];
+    for (const rail of config.rails) {
+      const matched = byRail.get(rail.id) || [];
+      if (matched.length === 0) {
+        continue;
+      }
+      responses.push(await this.buildLiveRailItemsResponse(rail, matched, config, started));
+    }
+
+    const pinnedRail = await this.buildPinnedRail('live');
+    if (pinnedRail.items.length > 0) {
+      responses.unshift(pinnedRail);
+    }
+
+    const payload: TabRailItemsResponse = {
+      tab: 'live',
+      rails: responses,
+      resolve_ms: Date.now() - started,
+    };
+    const ttlMs = (config.cache_ttl_sec ?? 600) * 1000;
+    this.liveTabRailItemsCache = {
+      payload,
+      expiresAt: Date.now() + Math.max(ttlMs, LIVE_TAB_CACHE_TTL_MS),
+    };
+    return payload;
   }
 
   private siblingRailIds(rail: BrowsableRail): string[] {
@@ -682,6 +820,9 @@ export class CatalogCore {
   }
 
   async tabRailItems(tab: CatalogTab, options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
+    if (tab === 'live') {
+      return this.liveTabRailItems(options);
+    }
     const reshuffle = Boolean(options.reshuffle);
     if (reshuffle) {
       this.reshufflePlayabilitySession();

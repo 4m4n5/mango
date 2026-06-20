@@ -3,9 +3,9 @@ import { parse as parseYaml } from 'yaml';
 
 export type RailType = 'addon_catalog' | 'composite_list' | 'stremio_library' | 'tmdb_list' | 'static_ids';
 
-export type CatalogTab = 'movies' | 'series';
+export type CatalogTab = 'movies' | 'series' | 'live';
 
-const CATALOG_TABS = new Set<CatalogTab>(['movies', 'series']);
+const CATALOG_TABS = new Set<CatalogTab>(['movies', 'series', 'live']);
 
 export type RailPlayabilityConfig = {
   display_limit: number;
@@ -122,7 +122,7 @@ function readTab(record: Record<string, unknown>, contentType: string, context: 
     return contentType === 'series' ? 'series' : 'movies';
   }
   if (typeof value !== 'string' || !CATALOG_TABS.has(value.trim() as CatalogTab)) {
-    throw new Error(`${context}.tab must be movies or series`);
+    throw new Error(`${context}.tab must be movies, series, or live`);
   }
   return value.trim() as CatalogTab;
 }

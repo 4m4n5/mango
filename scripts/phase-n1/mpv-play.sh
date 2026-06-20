@@ -10,13 +10,14 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 usage() {
-  echo "usage: $0 --url <http-url> [--probe] [--timeout-ms 4000] [--min-duration-sec 600] | --stop" >&2
+  echo "usage: $0 --url <http-url> [--probe] [--live] [--timeout-ms 4000] [--min-duration-sec 600] | --stop" >&2
   exit 2
 }
 
 URL=""
 STOP=false
 PROBE=false
+LIVE=false
 TIMEOUT_MS=15000
 MIN_DURATION_SEC=600
 MIN_DURATION_SET=false
@@ -26,6 +27,7 @@ while [[ $# -gt 0 ]]; do
     --url) URL="${2:-}"; shift 2 ;;
     --stop) STOP=true; shift ;;
     --probe) PROBE=true; shift ;;
+    --live) LIVE=true; shift ;;
     --timeout-ms) TIMEOUT_MS="${2:-}"; shift 2 ;;
     --min-duration-sec) MIN_DURATION_SEC="${2:-}"; MIN_DURATION_SET=true; shift 2 ;;
     --start-sec) START_SEC="${2:-}"; shift 2 ;;
@@ -58,6 +60,14 @@ playback_is_real() {
   local playback_time="$1"
   local duration
   local min_duration="$MIN_DURATION_SEC"
+  if $LIVE; then
+    python3 - "$playback_time" <<'PY'
+import sys
+playback = float(sys.argv[1] or 0)
+raise SystemExit(0 if playback >= 1.0 else 1)
+PY
+    return $?
+  fi
   if $PROBE && ! $MIN_DURATION_SET; then
     min_duration=5
   fi
@@ -105,7 +115,7 @@ MODE="play"
 if $PROBE; then
   MODE="probe"
 fi
-echo "mpv-play: $URL_LABEL mode=$MODE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC"
+echo "mpv-play: $URL_LABEL mode=$MODE live=$LIVE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC"
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 

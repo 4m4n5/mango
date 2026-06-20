@@ -9,7 +9,7 @@ export interface ApiInfo {
 
 export type LaunchAction = "stremio" | "kodi";
 export type TileAction = LaunchAction | "settings";
-export type BrowseTab = "movies" | "series";
+export type BrowseTab = "movies" | "series" | "live";
 
 export type RefreshLevelId =
   | "shuffle_rails"

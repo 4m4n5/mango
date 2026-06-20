@@ -44,6 +44,8 @@ type PlayBody = StreamFilterOverrides & {
   start_sec?: number;
   /** Lookup saved progress for {type,id} and resume. */
   resume?: boolean;
+  /** Live IPTV channel — skip VOD ladder and min-duration probe. */
+  live?: boolean;
   language?: string | null;
   level?: string;
 };
@@ -171,6 +173,36 @@ async function handlePlay(
     throw new CatalogError(400, 'POST /play requires {url} or {type,id}');
   }
 
+  const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
+
+  if (body.type === 'tv' || body.live === true) {
+    const started = Date.now();
+    const playEpoch = await bumpPlayEpoch();
+    const resolved = await core.resolveForPlay(body.type, body.id, overrides);
+    const stream = resolved.streams.find((candidate) => typeof candidate.url === 'string' && candidate.url)
+      || resolved.streams[0];
+    const streamUrl = typeof stream?.url === 'string' ? stream.url : '';
+    if (!streamUrl) {
+      throw new CatalogError(502, 'no_playable_stream');
+    }
+    const playback = await playUrl(streamUrl, 90000, { live: true, playEpoch });
+    return {
+      ok: playback.ok,
+      live: true,
+      ttff_ms: playback.ttff_ms,
+      total_ms: Date.now() - started,
+      attempts: 1,
+      play_id: body.id,
+      stream: {
+        url: streamUrl,
+        source: typeof stream.source === 'string' ? stream.source : undefined,
+        display_label: 'live',
+        resolve_ms: resolved.resolve_ms,
+        cached: resolved.cached,
+      },
+    };
+  }
+
   let playId = body.id;
   let startSec = typeof body.start_sec === 'number' && body.start_sec > 0
     ? body.start_sec
@@ -184,7 +216,6 @@ async function handlePlay(
   playId = playTarget.playId;
   startSec = playTarget.startSec;
 
-  const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
   const playEpoch = await bumpPlayEpoch();
   const now = Date.now();
   const profile = await getTitleVerifyProfile(body.type, playId);
@@ -311,7 +342,7 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 1 && parts[0] === 'pins') {
         const tab = parseCatalogTab(url.searchParams.get('tab'));
         if (!tab) {
-          throw new CatalogError(400, 'GET /pins requires tab=movies|series');
+          throw new CatalogError(400, 'GET /pins requires tab=movies|series|live');
         }
         const pins = await listUserPins(tab);
         sendJson(res, 200, { ok: true, tab, pins });
@@ -360,7 +391,7 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 1 && parts[0] === 'rails') {
         const tab = parseCatalogTab(url.searchParams.get('tab'));
         if (url.searchParams.has('tab') && !tab) {
-          throw new CatalogError(400, 'tab must be movies or series');
+          throw new CatalogError(400, 'tab must be movies, series, or live');
         }
         sendJson(res, 200, core.rails(tab));
         return;
@@ -446,7 +477,7 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'rails' && parts[1] === 'items') {
         const tab = parseCatalogTab(url.searchParams.get('tab'));
         if (!tab) {
-          throw new CatalogError(400, 'GET /rails/items requires tab=movies or tab=series');
+          throw new CatalogError(400, 'GET /rails/items requires tab=movies|series|live');
         }
         const reshuffle = url.searchParams.get('reshuffle') === '1'
           || url.searchParams.get('reshuffle') === 'true';

@@ -1,0 +1,78 @@
+# mango live TV rails — copy to /etc/mango/catalog-live.yaml on the Pi
+#
+# Requires NexoTV in stremio-export (scripts/phase-live/install-nexotv.sh).
+# Channels are matched by keyword against name, description, genre, and EPG text.
+# First matching rail wins — put specific sports before the catch-all.
+
+version: 1
+addon: NexoTV
+catalog: iptv_channels
+catalog_type: tv
+pages: 8
+cache_ttl_sec: 600
+
+rails:
+  - id: live-cricket
+    label: cricket
+    keywords:
+      - cricket
+      - ipl
+      - willow
+      - star sports
+      - bcci
+      - ashes
+      - test match
+    limit: 24
+
+  - id: live-football
+    label: football & soccer
+    keywords:
+      - football
+      - soccer
+      - premier league
+      - epl
+      - uefa
+      - champions league
+      - la liga
+      - bundesliga
+      - serie a
+      - ligue 1
+      - fox soccer
+    limit: 24
+
+  - id: live-f1
+    label: formula 1 & motorsport
+    keywords:
+      - formula 1
+      - formula one
+      - f1
+      - grand prix
+      - motogp
+      - motorsport
+      - nascar
+    limit: 20
+
+  - id: live-us-sports
+    label: nfl, nba & more
+    keywords:
+      - nfl
+      - nba
+      - mlb
+      - nhl
+      - espn
+      - fox sports
+      - tnt sports
+    limit: 20
+
+  - id: live-other
+    label: more sports
+    keywords:
+      - bein
+      - sky sport
+      - dazn
+      - tennis
+      - golf
+      - rugby
+      - wwe
+      - sport
+    limit: 16

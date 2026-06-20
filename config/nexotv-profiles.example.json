@@ -1,0 +1,77 @@
+{
+  "_comment": "NexoTV headless profiles — copy to ~/.config/mango/nexotv-profiles.json. Legal test sources only.",
+  "profiles": {
+    "iptv-org-sports": {
+      "label": "IPTV-org sports (worldwide)",
+      "config": {
+        "provider": "iptv-org",
+        "iptvOrgCountry": "",
+        "iptvOrgCategory": "sports",
+        "catalogName": "Live Sports"
+      }
+    },
+    "iptv-org-sports-in": {
+      "label": "IPTV-org sports (India)",
+      "config": {
+        "provider": "iptv-org",
+        "iptvOrgCountry": "IN",
+        "iptvOrgCategory": "sports",
+        "catalogName": "India Sports"
+      }
+    },
+    "iptv-org-sports-us-gb": {
+      "label": "IPTV-org sports (US + UK)",
+      "config": {
+        "provider": "iptv-org",
+        "iptvOrgCountry": "US,GB",
+        "iptvOrgCategory": "sports",
+        "catalogName": "US UK Sports"
+      }
+    },
+    "m3u-sports": {
+      "label": "IPTV-org sports M3U playlist",
+      "config": {
+        "provider": "m3u",
+        "m3uUrl": "https://iptv-org.github.io/iptv/categories/sports.m3u",
+        "enableEpg": false,
+        "reformatLogos": true,
+        "catalogName": "Sports M3U"
+      }
+    },
+    "m3u-custom": {
+      "label": "Your M3U/Xtream playlist (edit before use)",
+      "config": {
+        "provider": "m3u",
+        "m3uUrl": "https://example.com/playlist.m3u",
+        "enableEpg": true,
+        "reformatLogos": true,
+        "catalogName": "My IPTV"
+      }
+    },
+    "xtream-custom": {
+      "label": "Xtream Codes (edit credentials)",
+      "config": {
+        "provider": "xtream",
+        "xtreamUrl": "http://example.com:8080",
+        "xtreamUsername": "user",
+        "xtreamPassword": "pass",
+        "enableEpg": true,
+        "reformatLogos": true,
+        "catalogName": "My IPTV"
+      }
+    },
+    "area69-xtream": {
+      "label": "AREA69IPTV (Xtream — use apply-area69 with local creds)",
+      "config": {
+        "provider": "xtream",
+        "xtreamUrl": "http://REPLACE_SERVER:8080",
+        "xtreamUsername": "REPLACE_USER",
+        "xtreamPassword": "REPLACE_PASS",
+        "enableEpg": true,
+        "reformatLogos": true,
+        "catalogName": "AREA69 Live"
+      }
+    }
+  },
+  "default_profile": "iptv-org-sports"
+}

@@ -69,9 +69,13 @@ export class DetailController {
     this.view.classList.remove("hidden");
     this.updatePinButton();
     this.applyFocus();
-    this.callbacks.onStatus("B to play. Y to go back.");
+    const isLive = card.type === "tv" || tab === "live";
+    this.playButton.textContent = isLive ? "watch live" : "play";
+    this.callbacks.onStatus(isLive ? "B to watch live. Y to go back." : "B to play. Y to go back.");
     void this.loadFullMeta(card);
-    void this.loadStreamList(card);
+    if (!isLive) {
+      void this.loadStreamList(card);
+    }
   }
 
   hide(): void {
@@ -127,20 +131,32 @@ export class DetailController {
         ? "resuming…"
         : preferUrl
           ? "starting stream…"
-          : "finding stream…",
+          : card.type === "tv" || this.browseTab === "live"
+            ? "tuning in…"
+            : "finding stream…",
     );
     const startingTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
-        this.callbacks.onStatus("trying best match…");
+        this.callbacks.onStatus(
+          card.type === "tv" || this.browseTab === "live"
+            ? "connecting to channel…"
+            : "trying best match…",
+        );
       }
     }, 2000);
     const alternateTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
+        if (card.type === "tv" || this.browseTab === "live") {
+          return;
+        }
         this.callbacks.onStatus("trying alternate release…");
       }
     }, 20000);
     const cachingTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
+        if (card.type === "tv" || this.browseTab === "live") {
+          return;
+        }
         this.callbacks.onStatus("caching stream on TorBox…");
       }
     }, 10000);
@@ -295,6 +311,9 @@ export class DetailController {
 }
 
 function detailMetaLine(meta: CatalogMeta, card: ContentCard): string {
+  if (card.type === "tv") {
+    return meta.releaseInfo || card.subtitle || "live";
+  }
   const parts = [
     meta.year ?? meta.releaseInfo ?? card.year,
     meta.runtime,

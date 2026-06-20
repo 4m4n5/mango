@@ -27,7 +27,7 @@ function displayEnv(): NodeJS.ProcessEnv {
 
 async function runMpv(
   url: string,
-  options: { probe: boolean; timeoutMs: number; minDurationSec?: number; playEpoch?: number; startSec?: number },
+  options: { probe: boolean; live?: boolean; timeoutMs: number; minDurationSec?: number; playEpoch?: number; startSec?: number },
 ): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/phase-n1/mpv-play.sh');
   const started = Date.now();
@@ -38,13 +38,16 @@ async function runMpv(
     '--timeout-ms',
     String(options.timeoutMs),
   ];
+  if (options.live) {
+    args.push('--live');
+  }
   if (options.probe) {
     args.push('--probe');
     if (options.minDurationSec !== undefined) {
       args.push('--min-duration-sec', String(options.minDurationSec));
     }
   } else {
-    args.push('--min-duration-sec', String(options.minDurationSec ?? 600));
+    args.push('--min-duration-sec', String(options.minDurationSec ?? (options.live ? 3 : 600)));
     if (options.startSec !== undefined && options.startSec > 0) {
       args.push('--start-sec', String(Math.floor(options.startSec)));
     }
@@ -88,7 +91,7 @@ export async function probeUrl(
 export async function playUrl(
   url: string,
   timeoutMs = 90000,
-  options: { minDurationSec?: number; playEpoch?: number; startSec?: number } = {},
+  options: { minDurationSec?: number; playEpoch?: number; startSec?: number; live?: boolean } = {},
 ): Promise<PlayResult> {
   return runMpv(url, {
     probe: false,
@@ -96,6 +99,7 @@ export async function playUrl(
     minDurationSec: options.minDurationSec,
     playEpoch: options.playEpoch,
     startSec: options.startSec,
+    live: options.live,
   });
 }
 
