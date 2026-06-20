@@ -12,9 +12,14 @@ sources:
     label: AREA69
     catalog: iptv_channels
     catalog_type: tv
-    pages: 6
+    pages: 8
   - addon: mango Live Free
     label: free
+    catalog: iptv_channels
+    catalog_type: tv
+    pages: 4
+  - addon: mango Live News
+    label: news
     catalog: iptv_channels
     catalog_type: tv
     pages: 4
@@ -63,23 +68,95 @@ rails:
       - 24/7
     limit: 12
 
-  - id: live-f1
-    label: formula 1
+  - id: live-racing
+    label: racing
     keywords:
       - formula 1
       - formula one
       - f1 tv
+      - f1 channel
       - grand prix
       - motogp
+      - moto gp
+      - nascar
+      - indycar
+      - fanduel racing
+      - floracing
+      - rally tv
+      - sky racing
+      - racing.com
     include_genres:
       - FORMULA 1
       - F1 PPV
       - MOTOGP
+      - NASCAR
     exclude_keywords:
       - replay
       - 24/7
       - news
-      - abc
-      - nbc
-      - cbs
-    limit: 8
+    limit: 10
+
+  - id: live-news
+    label: news
+    keywords:
+      - aaj tak
+      - aajtak
+      - ndtv
+      - times now
+      - republic tv
+      - republic bharat
+      - zee news
+      - abp news
+      - abp majha
+      - news18
+      - cnn-news18
+      - wion
+      - india today
+      - dd news
+      - rajya sabha
+      - abc news live
+      - cnn headline
+      - nbc news now
+      - bbc news
+      - sky news
+      - bloomberg tv
+      - cbs news 24
+      - fox news
+      - msnbc
+      - newsmax
+      - cnbc
+    include_genres:
+      - NEWS
+      - IN| NEWS
+      - US| NEWS
+      - UK| NEWS
+    exclude_keywords:
+      - 24/7 movie
+      - replay
+      - sport
+      - baltimore
+      - boise
+      - buffalo
+      - charleston
+      - columbus
+      - dayton
+      - denver
+      - detroit
+      - memphis
+      - phoenix
+      - portland
+      - tampa
+      - tucson
+      - waco
+      - bay area
+      - boston
+      - chicago
+      - colorado
+      - los angeles
+      - minnesota
+      - philadelphia
+      - pittsburgh
+      - texas
+      - originals
+      - comedy
+    limit: 12

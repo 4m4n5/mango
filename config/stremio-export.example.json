@@ -24,6 +24,10 @@
     {
       "name": "mango Live Free",
       "manifestUrl": "http://127.0.0.1:7001/YOUR_NEXOTV_FREE_TOKEN/manifest.json"
+    },
+    {
+      "name": "mango Live News",
+      "manifestUrl": "http://127.0.0.1:7002/YOUR_NEXOTV_NEWS_TOKEN/manifest.json"
     }
   ],
   "auth": {}

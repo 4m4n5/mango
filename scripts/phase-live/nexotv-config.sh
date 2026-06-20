@@ -116,34 +116,66 @@ apply_free() {
   apply_profile_to "$free_base" "$free_creds" "${PROFILE_ID:-iptv-org-sports}"
 }
 
+apply_news() {
+  local news_base news_creds
+  news_base="$(nexotv_news_base_url)"
+  news_creds="$(nexotv_news_credentials_file)"
+  nexotv_news_health_ok || die "NexoTV news down at $news_base — run: bash scripts/phase-live/install-nexotv-news.sh"
+  apply_profile_to "$news_base" "$news_creds" "${PROFILE_ID:-iptv-org-news}"
+}
+
 wire_export() {
   nexotv_load_credentials || die "missing paid credentials — run: $0 apply-area69"
   [[ -f "$EXPORT" ]] || cp "${REPO_DIR}/config/stremio-export.example.json" "$EXPORT"
 
   local paid_manifest="$NEXOTV_MANIFEST_URL"
   local free_manifest=""
+  local news_manifest=""
   if nexotv_load_free_credentials 2>/dev/null; then
     free_manifest="$NEXOTV_MANIFEST_URL"
   fi
+  if nexotv_load_news_credentials 2>/dev/null; then
+    news_manifest="$NEXOTV_MANIFEST_URL"
+  fi
 
-  python3 - "$EXPORT" "$paid_manifest" "$free_manifest" <<'PY'
+  python3 - "$EXPORT" "$paid_manifest" "$free_manifest" "$news_manifest" <<'PY'
 import json, sys
-path, paid_manifest, free_manifest = sys.argv[1], sys.argv[2], sys.argv[3]
+path, paid_manifest, free_manifest, news_manifest = sys.argv[1:5]
 data = json.load(open(path, encoding="utf-8"))
 addons = data.get("addons") or []
-addons = [a for a in addons if a.get("name") not in ("NexoTV", "NexoTV Free")]
-addons.append({"name": "NexoTV", "manifestUrl": paid_manifest})
+drop = {
+    "NexoTV", "NexoTV Free", "NexoTV News",
+    "mango Live TV", "mango Live Free", "mango Live News",
+}
+addons = [a for a in addons if a.get("name") not in drop]
+addons.append({"name": "mango Live TV", "manifestUrl": paid_manifest})
 if free_manifest:
-    addons.append({"name": "NexoTV Free", "manifestUrl": free_manifest})
+    addons.append({"name": "mango Live Free", "manifestUrl": free_manifest})
+if news_manifest:
+    addons.append({"name": "mango Live News", "manifestUrl": news_manifest})
 data["addons"] = addons
 json.dump(data, open(path, "w", encoding="utf-8"), indent=2)
-print(f"wired NexoTV manifests into {path} (free={'yes' if free_manifest else 'no'})")
+parts = ["paid"]
+if free_manifest:
+    parts.append("free")
+if news_manifest:
+    parts.append("news")
+print(f"wired mango Live TV manifests into {path} ({', '.join(parts)})")
 PY
 }
 
 nexotv_load_free_credentials() {
   local creds
   creds="$(nexotv_free_credentials_file)"
+  [[ -f "$creds" ]] || return 1
+  # shellcheck disable=SC1090
+  source "$creds"
+  [[ -n "${NEXOTV_TOKEN:-}" && -n "${NEXOTV_MANIFEST_URL:-}" ]]
+}
+
+nexotv_load_news_credentials() {
+  local creds
+  creds="$(nexotv_news_credentials_file)"
   [[ -f "$creds" ]] || return 1
   # shellcheck disable=SC1090
   source "$creds"
@@ -210,10 +242,11 @@ case "$cmd" in
   list-profiles) list_profiles ;;
   apply) apply_profile ;;
   apply-free) PROFILE_ID="${2:-iptv-org-sports}"; apply_free ;;
+  apply-news) PROFILE_ID="${2:-iptv-org-news}"; apply_news ;;
   apply-area69) apply_area69 ;;
   wire-export) wire_export ;;
   manifest) print_manifest ;;
   *)
-    die "usage: $0 {init-profiles|list-profiles|apply [profile]|apply-free [profile]|apply-area69|wire-export|manifest}"
+    die "usage: $0 {init-profiles|list-profiles|apply [profile]|apply-free [profile]|apply-news [profile]|apply-area69|wire-export|manifest}"
     ;;
 esac

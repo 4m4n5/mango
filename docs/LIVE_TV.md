@@ -21,8 +21,9 @@ NexoTV free  :7001  ─┘         ↓
 |---------------------|----------|-----------------|
 | `mango Live TV` | `:7000` | `area69-xtream` (paid) |
 | `mango Live Free` | `:7001` | `iptv-org-sports` (legal free) |
+| `mango Live News` | `:7002` | `iptv-org-news` (India + US + UK) |
 
-Rails (3): **cricket**, **football & soccer**, **formula 1** — see `config/catalog-live.example.yaml`.
+Rails (5): **cricket**, **football & soccer**, **racing**, **news** — see `config/catalog-live.example.yaml`.
 
 ---
 
@@ -56,6 +57,14 @@ bash scripts/phase-live/nexotv-config.sh apply-area69
 
 ```bash
 bash scripts/phase-live/nexotv-config.sh apply-free iptv-org-sports
+```
+
+
+### News (IPTV-org — India + US + UK)
+
+```bash
+bash scripts/phase-live/install-nexotv-news.sh
+bash scripts/phase-live/nexotv-config.sh apply-news iptv-org-news
 ```
 
 ### Wire + restart
@@ -126,7 +135,8 @@ cd ~/mango/deploy/nexotv-free && docker compose restart
 | Rail | Paid (AREA69) | Free |
 |------|---------------|------|
 | Football & soccer | ✓ PRIME / sport genres | backup |
-| Formula 1 | ✓ `PRIME: F1 TV` etc. | — |
+| Racing | ✓ F1 / NASCAR (paid) | ✓ Rally, Sky Racing, FloRacing (free) |
+| News | ✓ CNN / NBC / BBC / Bloomberg (paid national) | ✓ Indian + US via `:7002` |
 | Cricket | sparse in AREA69 catalog pages | ✓ Star Sports, Willow-class channels |
 
 Paid cricket may require more catalog pages or provider-side genre browsing — not a launcher bug.

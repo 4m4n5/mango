@@ -113,7 +113,8 @@ Full suite: `npm test` (86 tests — playability index, formatter, session-selec
 |--------|------|
 | `phase-live/install-nexotv.sh` | Paid NexoTV Docker on `:7000` |
 | `phase-live/install-nexotv-free.sh` | Free NexoTV Docker on `:7001` |
-| `phase-live/nexotv-config.sh` | `apply-area69` · `apply-free` · `wire-export` |
+| `phase-live/install-nexotv-news.sh` | News NexoTV Docker on `:7002` |
+| `phase-live/nexotv-config.sh` | `apply-area69` · `apply-free` · `apply-news` · `wire-export` |
 | `phase-live/gate-live-iptv.sh` | Opt-in: `MANGO_LIVE_GATE=1` |
 | `phase-live/probe-live-catalog.sh` | Opt-in: `MANGO_LIVE_PROBE=1` |
 

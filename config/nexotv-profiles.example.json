@@ -28,6 +28,25 @@
         "catalogName": "US UK Sports"
       }
     },
+    "iptv-org-news": {
+      "label": "IPTV-org news (India + US + UK)",
+      "config": {
+        "provider": "iptv-org",
+        "iptvOrgCountry": "IN,US,GB",
+        "iptvOrgCategory": "news",
+        "catalogName": "mango Live News"
+      }
+    },
+    "m3u-news": {
+      "label": "IPTV-org news M3U playlist",
+      "config": {
+        "provider": "m3u",
+        "m3uUrl": "https://iptv-org.github.io/iptv/categories/news.m3u",
+        "enableEpg": false,
+        "reformatLogos": true,
+        "catalogName": "mango Live News"
+      }
+    },
     "m3u-sports": {
       "label": "IPTV-org sports M3U playlist",
       "config": {
