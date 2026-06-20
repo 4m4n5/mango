@@ -54,7 +54,7 @@ import urllib.request
 
 base = os.environ.get("BASE", "http://127.0.0.1:3000")
 catalog = os.environ.get("CATALOG", "http://127.0.0.1:3020")
-wait_sec = float(os.environ.get("WAIT_SEC", "12"))
+wait_sec = float(os.environ.get("WAIT_SEC", "14"))
 query_a = os.environ.get("QUERY_A", "Shawshank")
 query_b = os.environ.get("QUERY_B", "Godfather")
 

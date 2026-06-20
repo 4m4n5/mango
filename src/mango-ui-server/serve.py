@@ -81,14 +81,23 @@ def _client_is_local(handler: BaseHTTPRequestHandler) -> bool:
 
 
 def enqueue_voice_command(command: dict[str, object]) -> int:
-    global _voice_command_seq
+    global _voice_command_seq, _last_voice_ack
+    action = str(command.get("action", ""))
     with _voice_lock:
         _voice_command_seq += 1
         seq = _voice_command_seq
         entry = {"seq": seq, "issued_at": time.time(), **command}
         _voice_commands.append(entry)
+    with _voice_ack_lock:
+        _last_voice_ack = {
+            "ok": False,
+            "seq": seq,
+            "action": action,
+            "reason": "pending",
+            "at": time.time(),
+        }
     _persist_voice_seq(seq)
-    mango_log("voice_command", seq=str(seq), action=str(command.get("action", "")))
+    mango_log("voice_command", seq=str(seq), action=action)
     return seq
 
 

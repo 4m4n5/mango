@@ -8,7 +8,8 @@ from typing import Any
 
 from orchestrator.config import OrchestratorSettings
 from orchestrator.llm.open_intent import (
-    utterance_is_title_pick_only,
+    extract_title_search_query,
+    is_followup_pick_only,
     user_wants_title_navigation,
 )
 from orchestrator.llm.provider import DeltaCallback, _clean_reply, _read_api_key
@@ -87,16 +88,33 @@ async def generate_agent_reply(
     last_open_title = ""
     user_text = _last_user_text(messages)
     nav_intent = user_wants_title_navigation(user_text)
+    fast_path_only = False
 
-    if dispatch_launcher is not None:
-        contextual = pick_hit_from_utterance(user_text, browse.all_hits())
-        if contextual is not None and (nav_intent or _contextual_open_allowed(user_text, contextual)):
-            open_confirmed, last_open_title = await _open_hit(
-                contextual,
+    if nav_intent and dispatch_launcher is not None:
+        if is_followup_pick_only(user_text):
+            contextual = pick_hit_from_utterance(user_text, browse.all_hits())
+            if contextual is not None:
+                open_confirmed, last_open_title = await _open_hit(
+                    contextual,
+                    settings,
+                    dispatch_launcher,
+                    on_tool_event=on_tool_event,
+                )
+        else:
+            open_confirmed, last_open_title, fast_path_only = await _fast_path_open(
+                user_text,
                 settings,
+                browse,
                 dispatch_launcher,
                 on_tool_event=on_tool_event,
             )
+
+    if open_confirmed and nav_intent and fast_path_only:
+        reply = _default_open_reply(last_open_title)
+        reply = _guard_open_claims(reply, open_confirmed)
+        if on_delta is not None:
+            on_delta(reply)
+        return reply
 
     for _round in range(max(1, settings.max_tool_rounds)):
         response = client.messages.create(
@@ -119,7 +137,13 @@ async def generate_agent_reply(
                     text_parts.append(text)
 
         if response.stop_reason != "tool_use" or not tool_uses:
-            if nav_intent and not open_confirmed and browse.all_hits() and dispatch_launcher:
+            if (
+                nav_intent
+                and not open_confirmed
+                and is_followup_pick_only(user_text)
+                and browse.all_hits()
+                and dispatch_launcher
+            ):
                 open_confirmed, last_open_title = await _open_best_from_hits(
                     browse.all_hits(),
                     settings,
@@ -291,17 +315,6 @@ def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
     )
 
 
-def _contextual_open_allowed(text: str, hit: dict[str, Any]) -> bool:
-    """Open from recent hits when user names a title or picks from a list."""
-    if user_wants_title_navigation(text):
-        return True
-    if not utterance_is_title_pick_only(text):
-        return False
-    title = hit.get("title")
-    if not isinstance(title, str) or not title.strip():
-        return False
-    return title.strip().lower() in text.strip().lower()
-
 
 def _last_user_text(messages: list[dict[str, str]]) -> str:
     for message in reversed(messages):
@@ -329,6 +342,61 @@ def _parse_search_results(result: str) -> list[dict[str, Any]]:
         if isinstance(item, dict):
             hits.append(item)
     return hits
+
+
+async def _fast_path_open(
+    user_text: str,
+    settings: OrchestratorSettings,
+    browse: VoiceBrowseContext,
+    dispatch_launcher: LauncherDispatch,
+    *,
+    on_tool_event: ToolEventCallback | None = None,
+) -> tuple[bool, str, bool]:
+    """Search library then open — before LLM, for fresh title/switch requests."""
+    query = extract_title_search_query(user_text) or user_text.strip()
+    if len(query) < 2:
+        return False, "", False
+
+    if on_tool_event is not None:
+        await on_tool_event(
+            {
+                "type": "tool",
+                "phase": "start",
+                "name": "mango_search",
+                "summary": tool_summary("mango_search", {"query": query}),
+            }
+        )
+    search_json = await execute_tool(
+        "mango_search",
+        {"query": query, "limit": 5},
+        settings,
+    )
+    hits = _parse_search_results(search_json)
+    browse.remember_library(hits)
+    if on_tool_event is not None:
+        await on_tool_event(
+            {
+                "type": "tool",
+                "phase": "done",
+                "name": "mango_search",
+                "summary": tool_summary("mango_search", {"query": query}),
+                "result": search_json,
+            }
+        )
+    if not hits:
+        return False, "", False
+
+    hit = pick_hit_from_utterance(user_text, hits) or pick_auto_open_hit(hits)
+    if hit is None:
+        return False, "", False
+
+    opened, title = await _open_hit(
+        hit,
+        settings,
+        dispatch_launcher,
+        on_tool_event=on_tool_event,
+    )
+    return opened, title, opened
 
 
 async def _open_hit(

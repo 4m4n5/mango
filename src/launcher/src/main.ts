@@ -333,15 +333,17 @@ function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseT
   detail.show(card, railLabel, browseTab, pinnedKeys.has(`${card.type}:${card.id}`));
 }
 
-function openVoiceDetail(card: ContentCard, tab: BrowseTab): void {
-  nextEpisodePrompt.dismiss();
-  void cancelPlay();
-  inSettings = false;
-  settingsView.classList.add("hidden");
-  homeView.classList.add("hidden");
-  activeBrowseTab = tab;
-  setStatus(`Opening ${card.title}…`);
-  detail.show(card, "voice", tab, pinnedKeys.has(`${card.type}:${card.id}`));
+function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
+  return (async () => {
+    nextEpisodePrompt.dismiss();
+    await cancelPlay();
+    inSettings = false;
+    settingsView.classList.add("hidden");
+    homeView.classList.add("hidden");
+    activeBrowseTab = tab;
+    setStatus(`Opening ${card.title}…`);
+    detail.show(card, "voice", tab, pinnedKeys.has(`${card.type}:${card.id}`));
+  })();
 }
 
 function handleAppSelect(app: AppCard): void {

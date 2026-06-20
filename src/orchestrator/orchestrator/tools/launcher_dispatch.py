@@ -12,7 +12,9 @@ from orchestrator.config import OrchestratorSettings
 logger = logging.getLogger(__name__)
 
 DEFAULT_ACK_WAIT_SEC = 4.0
-DEFAULT_ACK_POLL_SEC = 0.2
+OPEN_DETAIL_ACK_WAIT_SEC = 10.0
+DEFAULT_ACK_POLL_SEC = 0.15
+RECOVERY_SETTLE_SEC = 0.35
 
 
 class LauncherDispatchError(RuntimeError):
@@ -21,6 +23,12 @@ class LauncherDispatchError(RuntimeError):
 
 def _launcher_base(settings: OrchestratorSettings) -> str:
     return settings.launcher_ui_upstream.rstrip("/")
+
+
+def _ack_timeout_for_action(action: str) -> float:
+    if action == "open_detail":
+        return OPEN_DETAIL_ACK_WAIT_SEC
+    return DEFAULT_ACK_WAIT_SEC
 
 
 def wait_for_launcher_ack(
@@ -46,6 +54,9 @@ def wait_for_launcher_ack(
                 time.sleep(DEFAULT_ACK_POLL_SEC)
                 continue
             if payload.get("seq") != seq:
+                time.sleep(DEFAULT_ACK_POLL_SEC)
+                continue
+            if payload.get("reason") == "pending":
                 time.sleep(DEFAULT_ACK_POLL_SEC)
                 continue
             if payload.get("ok") is True:
@@ -77,30 +88,43 @@ def _enqueue_and_wait(
     if not isinstance(seq, int) or seq <= 0:
         raise LauncherDispatchError("launcher UI did not return command seq")
     action = str(command.get("action", ""))
+    ack_timeout = _ack_timeout_for_action(action)
     logger.info("voice command enqueued seq=%s action=%s", seq, action)
     if wait_for_ack:
-        if not wait_for_launcher_ack(settings, seq, action=action):
+        if not wait_for_launcher_ack(settings, seq, action=action, timeout_sec=ack_timeout):
             raise LauncherDispatchError(
-                f"launcher did not apply voice command seq={seq} within {DEFAULT_ACK_WAIT_SEC}s"
+                f"launcher did not apply voice command seq={seq} within {ack_timeout}s"
             )
         logger.info("voice command ack seq=%s action=%s", seq, action)
     return seq
 
 
 def _recover_open_detail(settings: OrchestratorSettings, command: dict[str, object]) -> int:
-    for prep_action in ("back", "home"):
-        prep = {"type": "launcher_command", "action": prep_action}
-        try:
-            _enqueue_and_wait(settings, prep, wait_for_ack=True)
-        except LauncherDispatchError:
-            logger.info("voice open recovery prep=%s failed", prep_action)
-            continue
+    """Retry in place before any visible back/home navigation."""
+    time.sleep(RECOVERY_SETTLE_SEC)
+    try:
+        return _enqueue_and_wait(settings, command, wait_for_ack=True)
+    except LauncherDispatchError:
+        logger.info("voice open recovery immediate retry failed")
+
+    prep = {"type": "launcher_command", "action": "back"}
+    try:
+        _enqueue_and_wait(settings, prep, wait_for_ack=True)
+    except LauncherDispatchError:
+        logger.info("voice open recovery prep=back failed")
+    else:
+        time.sleep(RECOVERY_SETTLE_SEC)
         try:
             return _enqueue_and_wait(settings, command, wait_for_ack=True)
         except LauncherDispatchError:
-            logger.info("voice open recovery retry after=%s failed", prep_action)
-            continue
-    raise LauncherDispatchError("launcher did not apply open_detail after recovery attempts")
+            logger.info("voice open recovery retry after=back failed")
+
+    try:
+        return _enqueue_and_wait(settings, command, wait_for_ack=True)
+    except LauncherDispatchError as exc:
+        raise LauncherDispatchError(
+            f"launcher did not apply open_detail after recovery attempts: {exc}"
+        ) from exc
 
 
 def post_launcher_command(

@@ -35,8 +35,11 @@ _FOLLOWUP = re.compile(
     r"\b(that\s+one|this\s+one|ye\s+wala|ye\s+wali|wahi|vahi|ye\s+hi|the\s+one)\b",
     re.IGNORECASE,
 )
-_QUESTION = re.compile(
-    r"\b(what|why|how|when|who|kya|kaise|kyun|tell\s+me\s+about|about)\b",
+_OPEN_VERBS_STRIP = re.compile(
+    r"^\s*(?:"
+    r"open|kholo|khol|dikhao|dikha(?:\s*do)?|show|play|chalao|chala(?:\s*do)?|"
+    r"lagao|laga(?:\s*do)?|start|dekhna|dekho|pull\s*up|bring\s*up"
+    r")\s+",
     re.IGNORECASE,
 )
 
@@ -69,6 +72,39 @@ def user_wants_title_navigation(text: str) -> bool:
     if _SWITCH.search(normalized):
         return True
     if _FOLLOWUP.search(normalized):
+        return True
+    return False
+
+
+_QUESTION = re.compile(
+    r"\b(what|why|how|when|who|kya|kaise|kyun|tell\s+me\s+about|about)\b",
+    re.IGNORECASE,
+)
+
+
+def extract_title_search_query(text: str) -> str | None:
+    """Strip open verbs and return a catalog search query, if any."""
+    normalized = text.strip()
+    if not normalized:
+        return None
+    stripped = _OPEN_VERBS_STRIP.sub("", normalized).strip(" .,!?:;")
+    if len(stripped) < 2:
+        return None
+    if _RECOMMEND_ONLY.search(stripped) and not _OPEN_VERBS.search(normalized):
+        return None
+    return stripped
+
+
+def is_followup_pick_only(text: str) -> bool:
+    """Utterance picks from a prior list — not a fresh title name."""
+    normalized = text.strip()
+    if not normalized:
+        return False
+    if _ORDINAL_PICK.search(normalized):
+        return True
+    if _FOLLOWUP.search(normalized):
+        return True
+    if _SWITCH.search(normalized) and not extract_title_search_query(normalized):
         return True
     return False
 

@@ -11,7 +11,7 @@ export type VoiceCommandHandlers = {
   onBack: () => void;
   onSettings: () => void;
   onTab: (tab: BrowseTab) => void;
-  onOpenDetail: (card: ContentCard, tab: BrowseTab) => void;
+  onOpenDetail: (card: ContentCard, tab: BrowseTab) => void | Promise<void>;
 };
 
 type LauncherCommandMessage = {
@@ -109,6 +109,33 @@ export function handleLauncherCommand(
   raw: unknown,
   handlers: VoiceCommandHandlers,
 ): { ok: boolean; reason: string } {
+  // Sync entry for tests — open_detail still fires async without waiting.
+  void applyLauncherCommand(raw, handlers);
+  const message = raw as LauncherCommandMessage;
+  if (!raw || typeof raw !== "object" || message.type !== "launcher_command") {
+    return { ok: false, reason: "invalid_payload" };
+  }
+  const action = message.action?.trim();
+  if (action === "open_detail") {
+    const { card, reason } = cardFromCommand(message);
+    if (card === null) {
+      return { ok: false, reason: reason || "open_detail_failed" };
+    }
+    return { ok: true, reason: "" };
+  }
+  if (action === "tab" && parseBrowseTab(message.tab) === null) {
+    return { ok: false, reason: "invalid_tab" };
+  }
+  if (!action || action === "unknown_action") {
+    return { ok: false, reason: "unknown_action" };
+  }
+  return { ok: true, reason: "" };
+}
+
+async function applyLauncherCommand(
+  raw: unknown,
+  handlers: VoiceCommandHandlers,
+): Promise<{ ok: boolean; reason: string }> {
   if (!raw || typeof raw !== "object") {
     return { ok: false, reason: "invalid_payload" };
   }
@@ -141,11 +168,15 @@ export function handleLauncherCommand(
   if (action === "open_detail") {
     const tab = parseBrowseTab(message.tab) ?? tabFromContentType(message.content_type);
     const { card, reason } = cardFromCommand(message);
-    if (card !== null) {
-      handlers.onOpenDetail(card, tab);
-      return { ok: true, reason: "" };
+    if (card === null) {
+      return { ok: false, reason: reason || "open_detail_failed" };
     }
-    return { ok: false, reason: reason || "open_detail_failed" };
+    try {
+      await handlers.onOpenDetail(card, tab);
+      return { ok: true, reason: "" };
+    } catch {
+      return { ok: false, reason: "open_detail_failed" };
+    }
   }
   return { ok: false, reason: "unknown_action" };
 }
@@ -176,16 +207,18 @@ async function postVoiceAck(
 }
 
 function startVoiceCommandPoll(
-  applyCommand: (command: LauncherCommandMessage) => { ok: boolean; reason: string },
+  applyCommand: (command: LauncherCommandMessage) => Promise<{ ok: boolean; reason: string }>,
 ): () => void {
   let lastSeq = readAppliedSeq();
   let stopped = false;
   let pollTimer: number | undefined;
+  let pollInFlight = false;
 
   const poll = async (): Promise<void> => {
-    if (stopped) {
+    if (stopped || pollInFlight) {
       return;
     }
+    pollInFlight = true;
     try {
       const response = await fetch(`/api/voice/commands?after=${lastSeq}`);
       if (!response.ok) {
@@ -198,7 +231,7 @@ function startVoiceCommandPoll(
       }
       for (const command of payload.commands ?? []) {
         const seq = command.seq;
-        const result = applyCommand(command);
+        const result = await applyCommand(command);
         void postVoiceAck(seq, command.action, result.ok, result.reason);
         if (typeof seq === "number" && seq > lastSeq) {
           lastSeq = seq;
@@ -207,11 +240,13 @@ function startVoiceCommandPoll(
       }
     } catch {
       // launcher UI server may restart briefly
+    } finally {
+      pollInFlight = false;
     }
   };
 
   void poll();
-  pollTimer = window.setInterval(() => void poll(), 250);
+  pollTimer = window.setInterval(() => void poll(), 150);
 
   return () => {
     stopped = true;
@@ -225,7 +260,9 @@ export function startVoiceCommands(
 ): () => void {
   const appliedSeq = new Set<number>();
 
-  const applyCommand = (command: LauncherCommandMessage): { ok: boolean; reason: string } => {
+  const applyCommand = async (
+    command: LauncherCommandMessage,
+  ): Promise<{ ok: boolean; reason: string }> => {
     if (typeof command.seq === "number") {
       if (appliedSeq.has(command.seq)) {
         return { ok: true, reason: "duplicate" };
@@ -238,7 +275,7 @@ export function startVoiceCommands(
         }
       }
     }
-    return handleLauncherCommand(command, handlers);
+    return applyLauncherCommand(command, handlers);
   };
 
   const stopPoll = startVoiceCommandPoll(applyCommand);
@@ -281,8 +318,10 @@ export function startVoiceCommands(
         if (message.type !== "launcher_command") {
           return;
         }
-        const result = applyCommand(message);
-        void postVoiceAck(message.seq, message.action, result.ok, result.reason);
+        void (async () => {
+          const result = await applyCommand(message);
+          void postVoiceAck(message.seq, message.action, result.ok, result.reason);
+        })();
       } catch {
         // ignore malformed payloads
       }
