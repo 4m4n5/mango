@@ -6,6 +6,7 @@ import {
   filterStreamsForPlay,
   mergeFilterConfig,
   parseFilterOverridesFromQuery,
+  selectAutoPlayCandidates,
   streamMatchesMetaTitle,
 } from './stream-filters.js';
 
@@ -39,6 +40,24 @@ function testConfig(overrides = {}) {
     max_quality: '1080p',
     stream_display_limit: 8,
   }, overrides);
+}
+
+function candidate(
+  source: string,
+  service: string,
+  cached: 'true' | 'false' | 'unknown',
+  url: string,
+): Stream {
+  return {
+    url,
+    source,
+    name: `${source} 1080p`,
+    title: `${source} 1080p`,
+    description: 'BluRay HEVC 1080p',
+    behaviorHints: {
+      bingeGroup: `com.aiostreams|${service}|${cached}|1080p`,
+    },
+  };
 }
 
 test('parseFilterOverridesFromQuery splits hard language from soft preference', () => {
@@ -108,4 +127,47 @@ test('Indias Got Latent releases pass title relevance filter', () => {
   );
   assert.equal(result.streams.length, 1);
   assert.equal(result.meta.excluded.title_mismatch, 0);
+});
+
+test('selectAutoPlayCandidates honors configured tier order before score order', () => {
+  const config = {
+    ...testConfig(),
+    auto_play_max_attempts: 5,
+    auto_play_tiers: [
+      { addons: ['AIOStreams'], require_cache: 'cached' as const, debrid_services: ['realdebrid'] },
+      { addons: ['AIOStreams'], require_cache: 'cached' as const, debrid_services: ['torbox'] },
+    ],
+  };
+  const torbox = candidate('AIOStreams | TorBox', 'torbox', 'true', 'https://example.test/tb.mp4');
+  const rd = candidate('AIOStreams | RealDebrid', 'realdebrid', 'true', 'https://example.test/rd.mp4');
+  const selected = selectAutoPlayCandidates([torbox, rd], config);
+  assert.deepEqual(selected.map((item) => item.url), [rd.url, torbox.url]);
+});
+
+test('selectAutoPlayCandidates keeps standalone Torrentio out of default autoplay', () => {
+  const config = testConfig();
+  const selected = selectAutoPlayCandidates([
+    candidate('Torrentio RD', 'realdebrid', 'true', 'https://example.test/torrentio.mp4'),
+  ], config);
+  assert.equal(selected.length, 0);
+});
+
+test('selectAutoPlayCandidates applies strict unknown cache inside cached_or_unknown tiers', () => {
+  const strictConfig = {
+    ...testConfig(),
+    strict_unknown_cache: true,
+    auto_play_tiers: [
+      { addons: ['AIOStreams'], require_cache: 'cached_or_unknown' as const, debrid_services: ['torbox'] },
+    ],
+  };
+  const looseConfig = {
+    ...testConfig(),
+    strict_unknown_cache: false,
+    auto_play_tiers: [
+      { addons: ['AIOStreams'], require_cache: 'cached_or_unknown' as const, debrid_services: ['torbox'] },
+    ],
+  };
+  const unknown = candidate('AIOStreams | TorBox', 'torbox', 'unknown', 'https://example.test/unknown.mp4');
+  assert.equal(selectAutoPlayCandidates([unknown], strictConfig).length, 0);
+  assert.equal(selectAutoPlayCandidates([unknown], looseConfig).length, 1);
 });

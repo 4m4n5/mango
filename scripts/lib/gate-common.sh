@@ -67,10 +67,12 @@ gate_check_mpv_playing() {
 }
 
 gate_check_play_json() {
-  python3 - "$1" <<'PY'
+  python3 - "$1" "${2:-}" "${3:-}" <<'PY'
 import json
 import sys
 data = json.load(open(sys.argv[1], encoding="utf-8"))
+max_total = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2] else None
+max_attempts = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else None
 if data.get("ok") is not True:
     raise SystemExit("ok is not true")
 ttff = int(data.get("ttff_ms") or 0)
@@ -78,19 +80,29 @@ total = int(data.get("total_ms") or 0)
 attempts = int(data.get("attempts") or 0)
 if ttff <= 0 or total <= 0 or attempts < 1:
     raise SystemExit(f"bad metrics ttff={ttff} total={total} attempts={attempts}")
+if max_total is not None and total > max_total:
+    raise SystemExit(f"total_ms {total} > {max_total}")
+if max_attempts is not None and attempts > max_attempts:
+    raise SystemExit(f"attempts {attempts} > {max_attempts}")
 PY
 }
 
 gate_post_play() {
-  local label="$1" type="$2" id="$3" out="$4"
+  local label="$1" type="$2" id="$3" out="$4" max_total="${5:-}" max_attempts="${6:-}" rail_id="${7:-}"
+  local payload
+  if [[ -n "$rail_id" ]]; then
+    payload="{\"type\":\"${type}\",\"id\":\"${id}\",\"rail_id\":\"${rail_id}\"}"
+  else
+    payload="{\"type\":\"${type}\",\"id\":\"${id}\"}"
+  fi
   if ! curl -sf --max-time 3 http://127.0.0.1:3020/health >/dev/null 2>&1; then
     gate_fail "$label catalog down"
     return 1
   fi
   if curl -sf --max-time 70 -X POST http://127.0.0.1:3020/play \
     -H 'content-type: application/json' \
-    -d "{\"type\":\"${type}\",\"id\":\"${id}\"}" >"$out" \
-    && gate_check_play_json "$out" \
+    -d "$payload" >"$out" \
+    && gate_check_play_json "$out" "$max_total" "$max_attempts" \
     && gate_check_mpv_playing "$label"; then
     gate_pass "$label play $id"
     return 0

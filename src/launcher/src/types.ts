@@ -20,6 +20,7 @@ export interface ContentCard {
   year?: number | string;
   description?: string;
   source?: string;
+  railId?: string;
 }
 
 export interface ContentRail {

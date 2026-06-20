@@ -1,5 +1,5 @@
 import { CatalogError, type Stream } from './core.js';
-import { playUrl } from './mpv.js';
+import { playUrl, probeUrl } from './mpv.js';
 import { assertPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import {
   selectAutoPlayCandidates,
@@ -74,16 +74,12 @@ export async function playWithFallback(
   } = {},
 ): Promise<PlayOrchestratorResult> {
   const started = Date.now();
-  const extendedBudget = options.allow_uncached_torbox === true || options.allow_rd_safe_unknown === true;
-  const wallMs = extendedBudget
-    ? Math.max(config.auto_play_wall_ms, 60000)
-    : Math.max(config.auto_play_wall_ms, 30000);
-  const probeMs = extendedBudget
-    ? Math.max(config.auto_play_probe_ms, 20000)
-    : config.auto_play_probe_ms;
+  const wallMs = config.auto_play_wall_ms;
+  const probeMs = config.auto_play_probe_ms;
   const deadline = started + wallMs;
   const candidates = selectAutoPlayCandidates(streams, config, {
     allow_uncached_torbox: options.allow_uncached_torbox,
+    allow_rd_safe_unknown: options.allow_rd_safe_unknown,
     verified_hint: options.verified_hint,
   });
   const minDurationSec = options.contentType === 'series' ? 600 : 600;
@@ -109,18 +105,24 @@ export async function playWithFallback(
     const attemptStarted = Date.now();
     const base = attemptBase(index, stream);
     try {
-      const attemptBudget = Math.min(
-        Math.max(probeMs, 6000),
-        remainingBeforeProbe,
-      );
-      const playback = await playUrl(stream.url, attemptBudget, {
-        minDurationSec,
+      const probeBudget = Math.min(probeMs, remainingBeforeProbe);
+      const probe = await probeUrl(stream.url, probeBudget, minDurationSec, options.playEpoch);
+      if (options.playEpoch !== undefined) {
+        await assertPlayEpoch(options.playEpoch);
+      }
+      const remainingBeforePlay = deadline - Date.now();
+      if (remainingBeforePlay < 500) {
+        throw new Error('play budget exhausted after probe');
+      }
+      const playback = await playUrl(stream.url, remainingBeforePlay, {
         playEpoch: options.playEpoch,
+        minDurationSec,
       });
       const attempt: PlayAttempt = {
         ...base,
         ok: true,
         ms: Date.now() - attemptStarted,
+        probe_ms: probe.ttff_ms,
         ttff_ms: playback.ttff_ms,
       };
       attempts.push(attempt);

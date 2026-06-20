@@ -1,7 +1,7 @@
 # N3 inventory — stream play orchestrator (N3a)
 
 **Branch:** `feat/native-experience`  
-**Gate:** `bash scripts/phase-n3c/gate-n3c-verified-rails.sh`  
+**Gate:** `bash scripts/phase-n3a/gate-n3a-play.sh`
 **Spec:** [`tasks/phase-n3-stream-orchestrator.md`](tasks/phase-n3-stream-orchestrator.md)
 
 ---
@@ -9,6 +9,14 @@
 ## Plan
 
 **Locked scope:** orchestrator backend · filter tiers · pre-resolve · launcher copy · gates. **No picker UI** (N3b).
+
+### Closure plan
+
+- Change only N3a closure surfaces: couch filter defaults, tier-driven auto-play selection, probe-then-play orchestration, browse-pick gate, inventory metrics, and launcher `rail_id`; keep picker UI, 4K relaxation, Stremio fallback, and indexer architecture unchanged.
+- Filter diff: repo/Pi couch defaults become `strict_unknown_cache: true`, `auto_play_wall_ms: 15000`, `auto_play_probe_ms: 4000`, with AIOStreams-only cached tiers honored from config and Torrentio kept out of default auto-play.
+- Gate strategy: add `gate-n3a-play.sh` for two random browse picks across movie/series rails, enforce `ok`, `total_ms <= 15000`, `attempts <= 5`, mpv playing, warn-only Shawshank regression, then run N2 browse and N0 foundation.
+- Ship probe-then-play unless Pi numbers prove it regresses TTFF; probe failures must stop mpv and full playback starts only for the winning candidate.
+- Indexer risk: keep TorBox uncached/RD safe-unknown fallback paths for playability verification and maintenance windows, but do not let longer indexer budgets leak into couch Play.
 
 ### Root cause
 
@@ -46,11 +54,12 @@ same backend path used by `POST /play`. Status copy stays couch-safe:
 
 ### Gate strategy
 
-`gate-n3c-verified-rails.sh` must pick a random item from
-`GET /rails/trending-india/items`, excluding `tt0111161`, then `POST /play`
-that browse title and verify `ok`, `total_ms <= 15000`, attempts `<=5`, and mpv
+`gate-n3a-play.sh` must pick random items from `movies-india-trending` and
+`series-india-picks`, excluding `tt0111161`, then `POST /play` those browse
+titles and verify `ok`, `total_ms <= 15000`, attempts `<=5`, and mpv
 `playback-time > 0`. Shawshank remains a regression inside the gate, not the
-only proof. The N3 gate also runs N2/N1/N0 regression before handoff.
+only proof, and warns rather than fails when it exceeds 15 s. The N3a gate also
+runs N2/N0 regression before handoff.
 
 ### Deferred N3b
 
@@ -66,7 +75,7 @@ UI.
 
 | Metric | Value |
 |--------|-------|
-| `gate-n3c-verified-rails.sh` | |
+| `gate-n3a-play.sh` | |
 | Browse pick (gate title) | |
 | Browse pick `total_ms` | |
 | Browse pick `attempts` | |

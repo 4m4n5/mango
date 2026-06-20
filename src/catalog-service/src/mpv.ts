@@ -69,8 +69,13 @@ async function runMpv(
   };
 }
 
-export async function probeUrl(url: string, timeoutMs: number, minDurationSec?: number): Promise<PlayResult> {
-  return runMpv(url, { probe: true, timeoutMs, minDurationSec });
+export async function probeUrl(
+  url: string,
+  timeoutMs: number,
+  minDurationSec?: number,
+  playEpoch?: number,
+): Promise<PlayResult> {
+  return runMpv(url, { probe: true, timeoutMs, minDurationSec, playEpoch });
 }
 
 export async function playUrl(

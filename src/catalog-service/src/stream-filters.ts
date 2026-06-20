@@ -898,7 +898,10 @@ function normalizeAddonName(name: string): string {
 
 function sourceMatches(stream: Stream, addons: string[]): boolean {
   const source = normalizeAddonName(stream.source || '');
-  return addons.some((addon) => normalizeAddonName(addon) === source);
+  return addons.some((addon) => {
+    const normalized = normalizeAddonName(addon);
+    return normalized !== '' && (source === normalized || source.includes(normalized));
+  });
 }
 
 function streamCacheStatus(stream: Stream): ReturnType<typeof parseDebridCacheStatus> {
@@ -915,7 +918,7 @@ function cacheAllowed(
   strictUnknownCache: boolean,
 ): boolean {
   const status = streamCacheStatus(stream);
-  if (requireCache === 'any') return status !== 'uncached';
+  if (requireCache === 'any') return true;
   if (requireCache === 'cached') return status === 'cached';
   if (status === 'cached') return true;
   return status === 'unknown' && !strictUnknownCache;
@@ -935,6 +938,9 @@ function autoPlayEligible(
 ): boolean {
   if (config.exclude_error_streams && isErrorStream(stream)) return false;
   if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') {
+    if (config.include_uncached) {
+      return true;
+    }
     if (options.allow_uncached_torbox && debridServiceId(stream) === 'torbox') {
       return true;
     }
@@ -946,30 +952,46 @@ function autoPlayEligible(
 export function selectAutoPlayCandidates(
   streams: Stream[],
   config: StreamFilterConfig & { include_uncached: boolean },
-  options: { allow_uncached_torbox?: boolean; verified_hint?: VerifiedStreamHint } = {},
+  options: {
+    allow_uncached_torbox?: boolean;
+    allow_rd_safe_unknown?: boolean;
+    verified_hint?: VerifiedStreamHint;
+  } = {},
 ): Stream[] {
   const eligible = streams.filter((stream) => autoPlayEligible(stream, config, options));
-  const phases: Array<(stream: Stream) => boolean> = [
-    (stream) => streamCacheStatus(stream) === 'cached',
-    (stream) => streamCacheStatus(stream) === 'unknown',
-    (stream) => options.allow_uncached_torbox === true
-      && debridServiceId(stream) === 'torbox'
-      && streamCacheStatus(stream) === 'uncached'
-      && !isLowQualityRelease(stream),
-  ];
-
   const seen = new Set<string>();
   const ranked: Stream[] = [];
 
-  for (const phase of phases) {
+  for (const tier of config.auto_play_tiers) {
     const phaseStreams = eligible
-      .filter((stream) => !seen.has(stream.url) && phase(stream))
+      .filter((stream) => !seen.has(stream.url)
+        && sourceMatches(stream, tier.addons)
+        && cacheAllowed(stream, tier.require_cache, config.strict_unknown_cache)
+        && debridServiceAllowed(stream, tier.debrid_services))
       .sort((left, right) => streamPlayScore(right, config, options.verified_hint)
         - streamPlayScore(left, config, options.verified_hint));
     for (const stream of phaseStreams) {
       seen.add(stream.url);
       ranked.push(stream);
     }
+  }
+
+  const fallbackStreams = eligible
+    .filter((stream) => !seen.has(stream.url))
+    .filter((stream) => (
+      options.allow_uncached_torbox === true
+        && debridServiceId(stream) === 'torbox'
+        && streamCacheStatus(stream) === 'uncached'
+        && !isLowQualityRelease(stream)
+    ) || (
+      options.allow_rd_safe_unknown === true
+        && isRdSafeUnknownRelease(stream)
+    ))
+    .sort((left, right) => streamPlayScore(right, config, options.verified_hint)
+      - streamPlayScore(left, config, options.verified_hint));
+  for (const stream of fallbackStreams) {
+    seen.add(stream.url);
+    ranked.push(stream);
   }
 
   return diversifyCandidates(ranked, config.auto_play_max_attempts);

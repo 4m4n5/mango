@@ -73,6 +73,7 @@ function mapRailItems(data: RailItemsResponse): ContentRail {
       year: item.year,
       description: item.description,
       source: item.source,
+      railId: data.rail_id,
     })),
   };
 }
@@ -120,10 +121,14 @@ export async function cancelPlay(): Promise<void> {
 }
 
 export async function playCard(card: ContentCard, signal?: AbortSignal): Promise<PlayResult> {
+  const body: { type: string; id: string; rail_id?: string } = { type: card.type, id: card.id };
+  if (card.railId) {
+    body.rail_id = card.railId;
+  }
   return fetchJson<PlayResult>("/api/catalog/play", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ type: card.type, id: card.id }),
+    body: JSON.stringify(body),
     signal,
   });
 }
