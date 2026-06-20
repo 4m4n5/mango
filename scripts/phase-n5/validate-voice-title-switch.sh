@@ -6,6 +6,9 @@
 
 set -euo pipefail
 
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
+
 REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 cd "$REPO_DIR"
 
@@ -105,7 +108,11 @@ def launcher_is_foreground() -> bool:
     except (OSError, subprocess.TimeoutExpired):
         return False
     name = (proc.stdout or "").strip().lower()
-    return "mango launcher" in name or "mango-launcher" in name
+    return (
+        "mango launcher" in name
+        or "mango-launcher" in name
+        or name == "mango"
+    )
 
 
 def mpv_is_running() -> bool:
