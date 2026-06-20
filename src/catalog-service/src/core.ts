@@ -74,6 +74,7 @@ import {
   verifyLiveChannelCandidates,
   type VerifiedLiveChannel,
   isBlockedLiveStreamUrl,
+  isBlockedLiveChannel,
 } from './live-stream-verify.js';
 
 const LIVE_TAB_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -676,7 +677,7 @@ export class CatalogCore {
         source.addon,
         source.label,
         pool,
-        rail.limit - verified.length,
+        Math.min(rail.limit - verified.length, config.verify_max_per_rail),
         fetchJson,
         {
           poolMultiplier: config.verify_pool_multiplier,
@@ -685,7 +686,19 @@ export class CatalogCore {
       );
       verified.push(...next);
     }
-    return verified.slice(0, rail.limit);
+    if (verified.length > 0) {
+      return verified.slice(0, rail.limit);
+    }
+    // NexoTV rate limits stream resolves — still surface free legal channels for browse.
+    const freeFallback = candidates
+      .filter((channel) => channel.source_label === 'free' && !isBlockedLiveChannel(channel))
+      .slice(0, rail.limit)
+      .map((channel) => ({
+        ...channel,
+        source_addon: channel.source_addon,
+        source_label: channel.source_label,
+      }));
+    return freeFallback;
   }
 
   private async buildLiveRailItemsResponse(

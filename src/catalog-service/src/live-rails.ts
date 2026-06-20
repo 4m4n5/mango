@@ -31,6 +31,7 @@ export type LiveRailConfig = {
   verify_streams: boolean;
   verify_pool_multiplier: number;
   verify_delay_ms: number;
+  verify_max_per_rail: number;
   sources: LiveSourceConfig[];
   rails: LiveSportRail[];
 };
@@ -225,7 +226,8 @@ export async function loadLiveRailConfig(path = defaultLiveCatalogPath()): Promi
     cache_ttl_sec: readPositiveInt(parsed, 'cache_ttl_sec', path, 300),
     verify_streams: parsed.verify_streams !== false,
     verify_pool_multiplier: readPositiveInt(parsed, 'verify_pool_multiplier', path, 2),
-    verify_delay_ms: readPositiveInt(parsed, 'verify_delay_ms', path, 120),
+    verify_delay_ms: readPositiveInt(parsed, 'verify_delay_ms', path, 200),
+    verify_max_per_rail: readPositiveInt(parsed, 'verify_max_per_rail', path, 6),
     sources,
     rails,
   };

@@ -6,8 +6,9 @@
 version: 2
 cache_ttl_sec: 300
 verify_streams: true
-verify_pool_multiplier: 3
-verify_delay_ms: 80
+verify_pool_multiplier: 2
+verify_delay_ms: 200
+verify_max_per_rail: 6
 
 sources:
   - addon: mango Live TV
