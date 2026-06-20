@@ -8,22 +8,23 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 
 1. **Cinemeta charts** (`top`, `imdbRating`) — highest debrid cache; use as anchor on weak series rails.
 2. **mdblist daily/trending** (`88302`, `105797`) — mainstream cache over “latest/digital/reality”.
-3. **IndiaStreams** (`recmov`, `popmov`, **`trendingtv`**) — regional movies stable; **`trendingtv` kept** for Indian series UX (Mirzapur, IGL) despite ~20% probe — Cinemeta anchor blend, not full demotion.
-4. **Session dedup** — niche/optional rails **last** in yaml (allocate tab session slots first).
-5. **Optional rails** — `min_display: 12` so fill does not block on hard-to-probe catalogs.
+3. **IndiaStreams** (`recmov`, `popmov`, **`trendingtv`**) — legacy regional blend; **demoted** on india rails in favor of **Bharat Binge** (better posters + hit-rate). Keep small weight for dedup diversity.
+4. **Bharat Binge** (`tmdb-hi-*`) — Hindi OTT charts via TMDB; catalog+meta only (streams via AIOStreams). Manifest: `config/bharat-binge-manifest.url`.
+5. **Session dedup** — niche/optional rails **last** in yaml (allocate tab session slots first).
+6. **Optional rails** — `min_display: 12` so fill does not block on hard-to-probe catalogs.
 
 ## Rail → source map (v2.2)
 
 | Rail | Sources | Rationale |
 |------|---------|-----------|
 | `movies-global-popular` | Cinemeta `top` + **88302** | 100% / 80% source hit-rate |
-| `movies-india-trending` | **recmov** + **popmov** | 100% regional |
+| `movies-india-trending` | **Bharat Binge** recent + surprise + top_rated (85%) · IndiaStreams recmov/popmov (15%) | Bharat primary; IndiaStreams demoted (low hit-rate) |
 | `movies-classics` | Cinemeta `imdbRating` | Anchor |
 | `movies-comedy` | **91223** | 100% source; pool top-up not swap |
 | `movies-quick-watches` | **88302** + **83666** | Dropped 83668 (60%); classics/modern blend |
 | `movies-documentaries` | **84677** | 100%; enable in mango import |
 | `series-global-popular` | Cinemeta `top` 0.8 + **105797** | Dropped 88303 (40%); daily picks 100% probe |
-| `series-india-picks` | **trendingtv** 0.7 + Cinemeta `top` 0.3 | Indian OTT chart; low probe rate but right couch titles |
+| `series-india-picks` | **Bharat Binge** recent + latest_episodes + top_rated (85%) · IndiaStreams trendingtv (10%) · Cinemeta `top` (5%) | Fresh Hindi OTT; IndiaStreams demoted |
 | `series-classics` | Cinemeta `imdbRating` | Anchor |
 | `series-comedy` | Cinemeta `top` + **91224** | yaml last = session priority; probe ~40% — WP2 stream tuning |
 | `series-miniseries` | **130153** | 80% probe |

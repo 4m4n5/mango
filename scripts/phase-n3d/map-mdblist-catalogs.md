@@ -7,7 +7,7 @@ Curation: `config/catalog-rail-curation.md` · Index: `config/aiometadata-rail-c
 | Rail | Label | Sources |
 |------|-------|---------|
 | `movies-global-popular` | popular worldwide | Cinemeta `top` + mdblist **88302** |
-| `movies-india-trending` | indian cinema | IndiaStreams **recmov** + **popmov** |
+| `movies-india-trending` | indian cinema | Bharat Binge **recent** + **surprise** + **top_rated** (85%) · IndiaStreams recmov/popmov (15%) |
 | `movies-classics` | highly rated | Cinemeta `imdbRating` |
 | `movies-comedy` | comedy & comfort | mdblist **91223** |
 | `movies-quick-watches` | quick watches | mdblist **88302** + **83666** |
@@ -19,7 +19,7 @@ Curation: `config/catalog-rail-curation.md` · Index: `config/aiometadata-rail-c
 |------|-------|---------|
 | `series-global-popular` | popular worldwide | Cinemeta `top` + mdblist **105797** (daily picks) |
 | `series-classics` | critically acclaimed | Cinemeta `imdbRating` |
-| `series-india-picks` | indian series | IndiaStreams **trendingtv** + Cinemeta `top` |
+| `series-india-picks` | indian series | Bharat Binge **recent** + **latest_episodes** + **top_rated** (85%) · IndiaStreams trendingtv · Cinemeta `top` |
 | `series-miniseries` | limited series | mdblist **130153** |
 | `series-reality-casual` | light & casual | Cinemeta `top` + mdblist **105797** |
 | `series-comedy` | comedy | Cinemeta `top` + mdblist **91224** |

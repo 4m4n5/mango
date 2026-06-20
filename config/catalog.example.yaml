@@ -5,8 +5,9 @@
 #
 # Series yaml order: anchor rails first, optional/niche last (niche-first session allocation).
 #
-# Rail catalog ids must exist in AIOMetadata manifest — sync via:
-#   bash scripts/phase-n3d/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
+# Rail catalog ids must exist in addon manifests:
+#   AIOMetadata — bash scripts/phase-n3d/aiometadata-config.sh import …
+#   Bharat Binge — config/bharat-binge-manifest.url + config/bharat-binge-rail-catalogs.json
 # Mapping reference: config/aiometadata-rail-catalogs.json
 
 version: 2
@@ -39,8 +40,11 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.75 }
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.popmov, weight: 0.25 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-movie, weight: 0.45 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-surprise_me-movie, weight: 0.25 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-movie, weight: 0.15 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.popmov, weight: 0.05 }
     playability:
       display_limit: 20
       min_display: 20
@@ -146,8 +150,11 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.7 }
-      - { addon: Cinemeta, catalog: top, weight: 0.3 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-series, weight: 0.40 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-latest_episodes-series, weight: 0.35 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-series, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.10 }
+      - { addon: Cinemeta, catalog: top, weight: 0.05 }
     playability:
       display_limit: 20
       min_display: 20

@@ -1,0 +1,36 @@
+{
+  "_comment": "Bharat Binge catalog ids for config/catalog.example.yaml. Manifest: config/bharat-binge-manifest.url",
+  "addon": "Bharat Binge",
+  "catalogs": [
+    {
+      "id": "tmdb-hi-recent-movie",
+      "name": "Hindi New Releases (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-hi-surprise_me-movie",
+      "name": "Hindi Surprise Me (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-hi-top_rated-movie",
+      "name": "Hindi Top Rated (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-hi-recent-series",
+      "name": "Hindi New Releases (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-hi-latest_episodes-series",
+      "name": "Hindi Latest Episodes",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-hi-top_rated-series",
+      "name": "Hindi Top Rated (series)",
+      "rails": ["series-india-picks"]
+    }
+  ]
+}
