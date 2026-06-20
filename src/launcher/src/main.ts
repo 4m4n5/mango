@@ -18,6 +18,8 @@ const detailMeta = mustGet<HTMLElement>("detail-meta");
 const detailDescription = mustGet<HTMLElement>("detail-description");
 const detailPlay = mustGet<HTMLButtonElement>("detail-play");
 const detailBack = mustGet<HTMLButtonElement>("detail-back");
+const detailStreams = mustGet<HTMLElement>("detail-streams");
+const detailStreamList = mustGet<HTMLElement>("detail-stream-list");
 const settingsView = mustGet<HTMLElement>("settings-view");
 const settingsRefreshEl = mustGet<HTMLElement>("settings-refresh");
 const statusEl = mustGet<HTMLElement>("status");
@@ -53,6 +55,8 @@ const detail = new DetailController(
   detailDescription,
   detailPlay,
   detailBack,
+  detailStreams,
+  detailStreamList,
   {
     onClose: restoreHomeFromDetail,
     onStatus: setStatus,

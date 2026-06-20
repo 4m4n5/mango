@@ -470,6 +470,67 @@ h1 {
   opacity: 0.62;
 }
 
+.detail-streams {
+  margin-top: 1.6rem;
+}
+
+.detail-streams-label {
+  margin: 0 0 0.55rem;
+  color: rgba(158, 180, 196, 0.72);
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: lowercase;
+}
+
+.detail-stream-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  max-height: 14rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.detail-stream {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(216, 228, 236, 0.9);
+  text-align: left;
+}
+
+.detail-stream-label {
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.25;
+  color: rgba(247, 243, 232, 0.92);
+}
+
+.detail-stream-audio {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: rgba(158, 180, 196, 0.88);
+  text-transform: lowercase;
+}
+
+.detail-stream.focused,
+.detail-stream:focus-visible {
+  outline: none;
+  border-color: rgba(255, 249, 196, 0.55);
+  box-shadow: 0 0 0 4px rgba(255, 179, 0, 0.22);
+}
+
+.detail-stream:disabled {
+  opacity: 0.55;
+}
+
 .settings {
   justify-content: flex-start;
 }

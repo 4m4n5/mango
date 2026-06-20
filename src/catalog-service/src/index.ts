@@ -28,9 +28,21 @@ type PlayBody = StreamFilterOverrides & {
   rail_id?: string;
   reason?: string;
   url?: string;
+  /** Picker row — prefer this stream in the play ladder (ideal step first). */
+  prefer_url?: string;
   language?: string | null;
   level?: string;
 };
+
+function playPickHint(preferUrl: string | undefined): import('./stream-filters.js').VerifiedStreamHint | undefined {
+  if (!preferUrl || !/^https?:\/\//i.test(preferUrl)) {
+    return undefined;
+  }
+  return {
+    win_url_hash: streamUrlHash(preferUrl),
+    win_ladder_step: 'ideal',
+  };
+}
 
 function filterOverridesFromBody(body: PlayBody): StreamFilterOverrides {
   const overrides: StreamFilterOverrides = {};
@@ -128,7 +140,7 @@ async function handlePlay(
   const playEpoch = await bumpPlayEpoch();
   const now = Date.now();
   const profile = await getTitleVerifyProfile(body.type, body.id);
-  const verifiedHint = profile?.status === 'verified'
+  const profileHint = profile?.status === 'verified'
     && (profile.expires_at === null || profile.expires_at > now)
     ? {
       best_source: profile.best_source,
@@ -139,6 +151,10 @@ async function handlePlay(
       probe_ms: profile.probe_ms,
     }
     : undefined;
+  const pickerHint = playPickHint(body.prefer_url);
+  const verifiedHint = pickerHint
+    ? { ...profileHint, ...pickerHint }
+    : profileHint;
 
   const resolved = await core.resolveForPlay(body.type, body.id, overrides);
 

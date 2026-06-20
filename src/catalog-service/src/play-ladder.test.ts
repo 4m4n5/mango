@@ -7,6 +7,7 @@ import {
   parsePlayLadder,
   streamMatchesLadderStep,
 } from './play-ladder.js';
+import { streamUrlHash } from './stream-filters.js';
 
 function stream(partial: Partial<Stream> & { url: string }): Stream {
   return {
@@ -62,4 +63,29 @@ test('expandPlayLadder walks steps after ideal failures', () => {
 
   assert.ok(ranked.some((item) => item.ladder_step === 'ideal'));
   assert.ok(ranked.some((item) => item.ladder_step === '2160p_encode'));
+});
+
+test('expandPlayLadder prefers picker win_url_hash on ideal step', () => {
+  const ladder = defaultPlayLadder();
+  const picked = stream({
+    url: 'https://example.test/picked.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: 'FLUX x265',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const other = stream({
+    url: 'https://example.test/other.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: 'SM737 x265',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+
+  const ranked = expandPlayLadder([other, picked], ladder, { contentType: 'movie' }, {
+    verified_hint: { win_url_hash: streamUrlHash(picked.url), win_ladder_step: 'ideal' },
+    prefer_ladder_step: 'ideal',
+    max_candidates: 4,
+  });
+
+  assert.equal(ranked[0]?.stream.url, picked.url);
+  assert.equal(ranked[0]?.ladder_step, 'ideal');
 });

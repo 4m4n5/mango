@@ -1,4 +1,11 @@
-import { loadMeta, playCard, prefetchStreams, cancelPlay, type CatalogMeta } from "./catalog";
+import {
+  loadMeta,
+  loadStreams,
+  playCard,
+  cancelPlay,
+  type CatalogMeta,
+  type CatalogStream,
+} from "./catalog";
 import type { ContentCard } from "./types";
 
 export interface DetailCallbacks {
@@ -11,7 +18,9 @@ export class DetailController {
   private focusIndex = 0;
   private playToken = 0;
   private playAbort: AbortController | null = null;
-  private readonly controls: HTMLButtonElement[];
+  private streams: CatalogStream[] = [];
+  private streamButtons: HTMLButtonElement[] = [];
+  private streamsLoadToken = 0;
 
   constructor(
     private readonly view: HTMLElement,
@@ -22,9 +31,10 @@ export class DetailController {
     private readonly description: HTMLElement,
     private readonly playButton: HTMLButtonElement,
     private readonly backButton: HTMLButtonElement,
+    private readonly streamsWrap: HTMLElement,
+    private readonly streamList: HTMLElement,
     private readonly callbacks: DetailCallbacks,
   ) {
-    this.controls = [this.playButton, this.backButton];
     this.playButton.addEventListener("click", () => void this.play());
     this.backButton.addEventListener("click", () => this.hide());
   }
@@ -36,6 +46,10 @@ export class DetailController {
   show(card: ContentCard, railLabel: string): void {
     this.card = card;
     this.focusIndex = 0;
+    this.streams = [];
+    this.streamButtons = [];
+    this.streamList.replaceChildren();
+    this.streamsWrap.hidden = true;
     this.eyebrow.textContent = railLabel;
     this.title.textContent = card.title;
     this.meta.textContent = card.subtitle;
@@ -46,7 +60,7 @@ export class DetailController {
     this.applyFocus();
     this.callbacks.onStatus("B to play. Y to go back.");
     void this.loadFullMeta(card);
-    void this.prefetch(card);
+    void this.loadStreamList(card);
   }
 
   hide(): void {
@@ -54,10 +68,15 @@ export class DetailController {
       return;
     }
     this.playToken += 1;
+    this.streamsLoadToken += 1;
     this.playAbort?.abort();
     this.playAbort = null;
     void cancelPlay();
     this.card = null;
+    this.streams = [];
+    this.streamButtons = [];
+    this.streamList.replaceChildren();
+    this.streamsWrap.hidden = true;
     this.view.classList.add("hidden");
     this.callbacks.onClose();
   }
@@ -66,7 +85,8 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
-    this.focusIndex = Math.min(Math.max(this.focusIndex + delta, 0), this.controls.length - 1);
+    const controls = this.focusables();
+    this.focusIndex = Math.min(Math.max(this.focusIndex + delta, 0), controls.length - 1);
     this.applyFocus();
   }
 
@@ -74,20 +94,24 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
-    this.controls[this.focusIndex]?.click();
+    const target = this.focusables()[this.focusIndex];
+    target?.click();
   }
 
-  async play(): Promise<void> {
+  async play(preferUrl?: string): Promise<void> {
     const card = this.card;
     if (!card) {
       return;
     }
     this.playButton.disabled = true;
+    for (const button of this.streamButtons) {
+      button.disabled = true;
+    }
     const token = ++this.playToken;
     this.playAbort?.abort();
     const abort = new AbortController();
     this.playAbort = abort;
-    this.callbacks.onStatus("finding stream…");
+    this.callbacks.onStatus(preferUrl ? "starting stream…" : "finding stream…");
     const startingTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
         this.callbacks.onStatus("trying best match…");
@@ -104,11 +128,12 @@ export class DetailController {
       }
     }, 10000);
     try {
-      const result = await playCard(card, abort.signal);
+      const result = await playCard(card, { signal: abort.signal, preferUrl });
       if (this.playToken !== token) {
         return;
       }
-      const quality = result.stream?.quality ? ` · ${result.stream.quality}` : "";
+      const label = result.stream?.display_label || result.stream?.quality;
+      const quality = label ? ` · ${label}` : "";
       this.callbacks.onStatus(`playing${quality}. ⌂ returns home.`);
     } catch (error) {
       if (abort.signal.aborted || (error instanceof Error && error.message === "play cancelled")) {
@@ -131,15 +156,61 @@ export class DetailController {
       window.clearTimeout(alternateTimer);
       window.clearTimeout(cachingTimer);
       this.playButton.disabled = false;
+      for (const button of this.streamButtons) {
+        button.disabled = false;
+      }
     }
   }
 
-  private async prefetch(card: ContentCard): Promise<void> {
+  private focusables(): HTMLElement[] {
+    return [this.playButton, this.backButton, ...this.streamButtons];
+  }
+
+  private async loadStreamList(card: ContentCard): Promise<void> {
+    const token = ++this.streamsLoadToken;
     try {
-      await prefetchStreams(card);
-    } catch (error) {
-      console.debug("stream prefetch failed", error);
+      const result = await loadStreams(card);
+      if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
+        return;
+      }
+      this.streams = result.streams;
+      this.renderStreams();
+    } catch {
+      if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
+        return;
+      }
+      this.streams = [];
+      this.renderStreams();
     }
+  }
+
+  private renderStreams(): void {
+    this.streamList.replaceChildren();
+    this.streamButtons = [];
+    if (this.streams.length === 0) {
+      this.streamsWrap.hidden = true;
+      this.applyFocus();
+      return;
+    }
+
+    this.streamsWrap.hidden = false;
+    for (const stream of this.streams) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "detail-stream";
+      const label = document.createElement("span");
+      label.className = "detail-stream-label";
+      label.textContent = streamPrimaryLabel(stream);
+      const audio = document.createElement("span");
+      audio.className = "detail-stream-audio";
+      audio.textContent = streamAudioLabel(stream);
+      button.append(label, audio);
+      button.addEventListener("click", () => void this.play(stream.url));
+      this.streamList.append(button);
+      this.streamButtons.push(button);
+    }
+    this.focusIndex = Math.min(this.focusIndex, this.focusables().length - 1);
+    this.applyFocus();
   }
 
   private async loadFullMeta(card: ContentCard): Promise<void> {
@@ -162,10 +233,11 @@ export class DetailController {
   }
 
   private applyFocus(): void {
-    for (const [index, control] of this.controls.entries()) {
+    const controls = this.focusables();
+    for (const [index, control] of controls.entries()) {
       control.classList.toggle("focused", index === this.focusIndex);
     }
-    this.controls[this.focusIndex]?.focus({ preventScroll: true });
+    controls[this.focusIndex]?.focus({ preventScroll: true });
   }
 }
 
@@ -176,4 +248,22 @@ function detailMetaLine(meta: CatalogMeta, card: ContentCard): string {
     card.type,
   ].filter(Boolean).map(String);
   return parts.join(" · ") || card.subtitle;
+}
+
+function streamPrimaryLabel(stream: CatalogStream): string {
+  const label = stream.display_label?.trim();
+  if (label) {
+    return label;
+  }
+  return stream.title?.trim() || stream.name?.trim() || stream.quality?.trim() || "stream";
+}
+
+function streamAudioLabel(stream: CatalogStream): string {
+  const languages = Array.isArray(stream.languages)
+    ? stream.languages.filter((item) => typeof item === "string" && item.trim() !== "")
+    : [];
+  if (languages.length === 0) {
+    return "audio unknown";
+  }
+  return languages.slice(0, 3).join(" · ");
 }

@@ -55,9 +55,25 @@ export interface PlayResult {
     source?: string;
     title?: string;
     quality?: string;
+    display_label?: string;
     resolve_ms?: number;
   };
   error?: string;
+}
+
+export interface CatalogStream {
+  url: string;
+  display_label?: string;
+  title?: string;
+  name?: string;
+  quality?: string;
+  languages?: string[];
+  source?: string;
+}
+
+export interface StreamsResult {
+  streams: CatalogStream[];
+  resolve_ms?: number;
 }
 
 function mapRailItems(data: RailItemsResponse): ContentRail {
@@ -110,10 +126,14 @@ export async function loadMeta(card: ContentCard): Promise<CatalogMeta> {
   );
 }
 
-export async function prefetchStreams(card: ContentCard): Promise<void> {
-  await fetchJson(
+export async function loadStreams(card: ContentCard): Promise<StreamsResult> {
+  return fetchJson<StreamsResult>(
     `/api/catalog/stream/${encodeURIComponent(card.type)}/${encodeURIComponent(card.id)}`,
   );
+}
+
+export async function prefetchStreams(card: ContentCard): Promise<void> {
+  await loadStreams(card);
 }
 
 export async function cancelPlay(): Promise<void> {
@@ -124,16 +144,25 @@ export async function cancelPlay(): Promise<void> {
   }
 }
 
-export async function playCard(card: ContentCard, signal?: AbortSignal): Promise<PlayResult> {
-  const body: { type: string; id: string; rail_id?: string } = { type: card.type, id: card.id };
+export async function playCard(
+  card: ContentCard,
+  options: { signal?: AbortSignal; preferUrl?: string } = {},
+): Promise<PlayResult> {
+  const body: { type: string; id: string; rail_id?: string; prefer_url?: string } = {
+    type: card.type,
+    id: card.id,
+  };
   if (card.railId) {
     body.rail_id = card.railId;
+  }
+  if (options.preferUrl) {
+    body.prefer_url = options.preferUrl;
   }
   return fetchJson<PlayResult>("/api/catalog/play", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-    signal,
+    signal: options.signal,
   });
 }
 
