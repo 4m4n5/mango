@@ -1,6 +1,6 @@
 # Phase N3e — Series episode picker & play
 
-**Status:** design locked · spike done · **PR1 not started**  
+**Status:** PR1 shipped · **PR2 shipped** (launcher episode list + next-prompt)  
 **Branch:** `feat/native-experience`  
 **Last updated:** 2026-06-20
 
@@ -156,7 +156,7 @@ Normalized couch response — hides Cinemeta quirks from TV UI.
 ### PR2 — launcher + next prompt
 
 - [ ] Episode list UI + focus/skip/grey
-- [ ] Per-episode stream on focus
+- [x] Per-episode stream on focus
 - [ ] Next-episode overlay from mpv-stop
 - [ ] Couch verify Panchayat multi-episode flow
 

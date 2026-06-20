@@ -2,6 +2,7 @@ import "./style.css";
 import { FocusGrid } from "./focus";
 import { loadCatalogRails } from "./catalog";
 import { DetailController } from "./detail";
+import { NextEpisodePrompt } from "./next-prompt";
 import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, type HomeOptions } from "./home";
 import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
@@ -23,6 +24,13 @@ const detailPin = mustGet<HTMLButtonElement>("detail-pin");
 const detailBack = mustGet<HTMLButtonElement>("detail-back");
 const detailStreams = mustGet<HTMLElement>("detail-streams");
 const detailStreamList = mustGet<HTMLElement>("detail-stream-list");
+const detailEpisodes = mustGet<HTMLElement>("detail-episodes");
+const detailEpisodeList = mustGet<HTMLElement>("detail-episode-list");
+const nextPromptView = mustGet<HTMLElement>("next-episode-prompt");
+const nextPromptTitle = mustGet<HTMLElement>("next-prompt-title");
+const nextPromptMeta = mustGet<HTMLElement>("next-prompt-meta");
+const nextPromptPlay = mustGet<HTMLButtonElement>("next-prompt-play");
+const nextPromptDismiss = mustGet<HTMLButtonElement>("next-prompt-dismiss");
 const settingsView = mustGet<HTMLElement>("settings-view");
 const settingsRefreshEl = mustGet<HTMLElement>("settings-refresh");
 const statusEl = mustGet<HTMLElement>("status");
@@ -52,6 +60,21 @@ const focusGrid = new FocusGrid((element) => {
 let focusGridRows: HTMLElement[][] = [];
 let focusBrowseTabOnRender = false;
 
+let nextPromptFocusIndex = 0;
+
+const nextEpisodePrompt = new NextEpisodePrompt(
+  nextPromptView,
+  nextPromptTitle,
+  nextPromptMeta,
+  nextPromptPlay,
+  nextPromptDismiss,
+  setStatus,
+  () => {
+    nextPromptFocusIndex = 0;
+    setStatus("B to play. Y to go back.");
+  },
+);
+
 const detail = new DetailController(
   detailView,
   detailPoster,
@@ -64,10 +87,17 @@ const detail = new DetailController(
   detailBack,
   detailStreams,
   detailStreamList,
+  detailEpisodes,
+  detailEpisodeList,
   {
     onClose: restoreHomeFromDetail,
     onStatus: setStatus,
     onPinsChanged: () => void reloadPinsAndCatalog(),
+    onNextEpisodePrompt: (hint, card) => {
+      nextEpisodePrompt.show(hint, card);
+      nextPromptFocusIndex = 0;
+      nextEpisodePrompt.applyFocus(nextPromptFocusIndex);
+    },
   },
 );
 
@@ -133,6 +163,31 @@ function cycleBrowseTab(delta: number): void {
 }
 
 function handleKeydown(event: KeyboardEvent): void {
+  if (nextEpisodePrompt.isOpen) {
+    if (event.key === "Escape" || event.key === "Backspace") {
+      event.preventDefault();
+      nextEpisodePrompt.dismiss();
+      return;
+    }
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+      event.preventDefault();
+      nextPromptFocusIndex = nextEpisodePrompt.moveFocus(1, nextPromptFocusIndex);
+      nextEpisodePrompt.applyFocus(nextPromptFocusIndex);
+      return;
+    }
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+      event.preventDefault();
+      nextPromptFocusIndex = nextEpisodePrompt.moveFocus(-1, nextPromptFocusIndex);
+      nextEpisodePrompt.applyFocus(nextPromptFocusIndex);
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      nextEpisodePrompt.activateFocused(nextPromptFocusIndex);
+      return;
+    }
+  }
+
   if (detail.isOpen) {
     if (event.key === "Escape" || event.key === "Backspace") {
       event.preventDefault();
@@ -236,6 +291,7 @@ function activateFocused(): void {
 
 function handleContentSelect(card: ContentCard, railLabel: string): void {
   inSettings = false;
+  nextEpisodePrompt.dismiss();
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
   detail.show(card, railLabel, activeBrowseTab, pinnedKeys.has(`${card.type}:${card.id}`));

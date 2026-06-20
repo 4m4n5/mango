@@ -10,6 +10,10 @@ import { playabilityVerifyTtlMs } from './playability/config.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
 import { resolvePosterFromMeta } from './poster.js';
 import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
+import {
+  buildNextPromptResponse,
+  takePendingNextPrompt,
+} from './progress/next-prompt.js';
 import { resolveSeriesPlayTarget } from './series-play.js';
 import {
   buildLlmRefreshToolManifest,
@@ -523,6 +527,21 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'stream') {
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
         sendJson(res, 200, await core.streams(parts[1], parts[2], overrides));
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'play' && parts[1] === 'next-prompt') {
+        const pending = takePendingNextPrompt();
+        if (!pending) {
+          sendJson(res, 200, { show: false });
+          return;
+        }
+        const episodes = await core.seriesEpisodes(pending.series_id);
+        sendJson(res, 200, buildNextPromptResponse(
+          pending,
+          episodes.seasons,
+          episodes.name,
+        ));
         return;
       }
 

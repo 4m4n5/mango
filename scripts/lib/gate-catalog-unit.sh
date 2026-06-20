@@ -17,6 +17,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/play-orchestrator.test.js \
     dist/preflight-playback.test.js \
     dist/progress/progress.test.js \
+    dist/progress/next-prompt.test.js \
     dist/episodes.test.js \
     dist/stream-filters.test.js
 )

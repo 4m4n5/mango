@@ -77,6 +77,49 @@ export interface CatalogStream {
   source?: string;
 }
 
+export interface SeriesEpisodeRow {
+  id: string;
+  season: number;
+  episode: number;
+  title: string;
+  thumbnail?: string;
+  progress_pct: number | null;
+  playable: boolean | null;
+}
+
+export interface SeriesSeasonBlock {
+  season: number;
+  label: string;
+  episodes: SeriesEpisodeRow[];
+}
+
+export interface SeriesEpisodesResponse {
+  series_id: string;
+  name: string;
+  seasons: SeriesSeasonBlock[];
+  resume: {
+    episode_id: string;
+    position_sec: number;
+    duration_sec: number;
+    progress_pct: number;
+  } | null;
+  episode_count: number;
+}
+
+export interface NextPromptResponse {
+  show: boolean;
+  series_id?: string;
+  series_name?: string;
+  from_episode_id?: string;
+  progress_pct?: number;
+  next?: {
+    id: string;
+    season: number;
+    episode: number;
+    title: string;
+  };
+}
+
 export interface StreamsResult {
   streams: CatalogStream[];
   resolve_ms?: number;
@@ -135,10 +178,25 @@ export async function loadMeta(card: ContentCard): Promise<CatalogMeta> {
   );
 }
 
-export async function loadStreams(card: ContentCard): Promise<StreamsResult> {
-  return fetchJson<StreamsResult>(
-    `/api/catalog/stream/${encodeURIComponent(card.type)}/${encodeURIComponent(card.id)}`,
+export async function loadSeriesEpisodes(bareId: string): Promise<SeriesEpisodesResponse> {
+  return fetchJson<SeriesEpisodesResponse>(
+    `/api/catalog/series/${encodeURIComponent(bareId)}/episodes`,
   );
+}
+
+export async function loadNextPrompt(): Promise<NextPromptResponse> {
+  return fetchJson<NextPromptResponse>("/api/catalog/play/next-prompt");
+}
+
+export async function loadStreamsForId(type: string, id: string): Promise<StreamsResult> {
+  return fetchJson<StreamsResult>(
+    `/api/catalog/stream/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,
+  );
+}
+
+export async function loadStreams(card: ContentCard, episodeId?: string): Promise<StreamsResult> {
+  const streamId = episodeId || card.playId || card.id;
+  return loadStreamsForId(card.type, streamId);
 }
 
 export async function prefetchStreams(card: ContentCard): Promise<void> {
@@ -155,9 +213,9 @@ export async function cancelPlay(): Promise<void> {
 
 export async function playCard(
   card: ContentCard,
-  options: { signal?: AbortSignal; preferUrl?: string; startSec?: number } = {},
+  options: { signal?: AbortSignal; preferUrl?: string; startSec?: number; episodeId?: string } = {},
 ): Promise<PlayResult> {
-  const playId = card.playId || card.id;
+  const playId = options.episodeId || card.playId || card.id;
   const body: {
     type: string;
     id: string;

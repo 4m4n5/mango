@@ -1,4 +1,5 @@
 import { getMpvPlaybackState, isMpvActive } from '../mpv.js';
+import { notePlaybackExit } from './next-prompt.js';
 import { upsertWatchProgress } from './db.js';
 
 export type ActiveWatchSession = {
@@ -67,6 +68,7 @@ export async function flushWatchProgress(): Promise<boolean> {
   const playback = await getMpvPlaybackState();
   if (playback && playback.duration_sec > 0) {
     persistSessionProgress(session, playback.position_sec, playback.duration_sec);
+    notePlaybackExit(session, playback.position_sec, playback.duration_sec);
   } else if (
     lastSnapshot
     && sessionKey(lastSnapshot.session) === sessionKey(session)
@@ -76,6 +78,7 @@ export async function flushWatchProgress(): Promise<boolean> {
       lastSnapshot.position_sec,
       lastSnapshot.duration_sec,
     );
+    notePlaybackExit(session, lastSnapshot.position_sec, lastSnapshot.duration_sec);
   }
 
   const stillActive = await isMpvActive();

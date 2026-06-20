@@ -1,10 +1,15 @@
 import {
   loadMeta,
   loadStreams,
+  loadSeriesEpisodes,
+  loadNextPrompt,
   playCard,
   cancelPlay,
   type CatalogMeta,
   type CatalogStream,
+  type SeriesEpisodesResponse,
+  type SeriesEpisodeRow,
+  type NextPromptResponse,
 } from "./catalog";
 import type { ContentCard, BrowseTab } from "./types";
 import { pinCard, unpinCard } from "./pins";
@@ -14,6 +19,7 @@ export interface DetailCallbacks {
   onClose: () => void;
   onStatus: (message: string) => void;
   onPinsChanged?: () => void;
+  onNextEpisodePrompt?: (hint: NextPromptResponse, card: ContentCard) => void;
 }
 
 export class DetailController {
@@ -24,6 +30,11 @@ export class DetailController {
   private streams: CatalogStream[] = [];
   private streamButtons: HTMLButtonElement[] = [];
   private streamsLoadToken = 0;
+  private episodesLoadToken = 0;
+  private seriesEpisodes: SeriesEpisodesResponse | null = null;
+  private episodeButtons: HTMLButtonElement[] = [];
+  private selectedEpisodeId: string | null = null;
+  private nextPromptPollTimer: number | undefined;
   private browseTab: BrowseTab = "movies";
   private pinned = false;
 
@@ -39,6 +50,8 @@ export class DetailController {
     private readonly backButton: HTMLButtonElement,
     private readonly streamsWrap: HTMLElement,
     private readonly streamList: HTMLElement,
+    private readonly episodesWrap: HTMLElement,
+    private readonly episodeList: HTMLElement,
     private readonly callbacks: DetailCallbacks,
   ) {
     this.playButton.addEventListener("click", () => void this.play());
@@ -57,8 +70,13 @@ export class DetailController {
     this.focusIndex = 0;
     this.streams = [];
     this.streamButtons = [];
+    this.seriesEpisodes = null;
+    this.episodeButtons = [];
+    this.selectedEpisodeId = null;
     this.streamList.replaceChildren();
+    this.episodeList.replaceChildren();
     this.streamsWrap.hidden = true;
+    this.episodesWrap.hidden = true;
     this.eyebrow.textContent = railLabel;
     this.title.textContent = card.title;
     this.meta.textContent = card.subtitle;
@@ -68,13 +86,17 @@ export class DetailController {
     this.poster.alt = "";
     this.view.classList.remove("hidden");
     this.updatePinButton();
+    this.updatePlayButtonLabel();
     this.applyFocus();
     const isLive = card.type === "tv" || tab === "live";
-    this.playButton.textContent = isLive ? "watch live" : "play";
     this.callbacks.onStatus(isLive ? "B to watch live. Y to go back." : "B to play. Y to go back.");
     void this.loadFullMeta(card);
     if (!isLive) {
-      void this.loadStreamList(card);
+      if (card.type === "series") {
+        void this.loadEpisodeList(card);
+      } else {
+        void this.loadStreamList(card);
+      }
     }
   }
 
@@ -82,16 +104,23 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
+    this.stopNextPromptPoll();
     this.playToken += 1;
     this.streamsLoadToken += 1;
+    this.episodesLoadToken += 1;
     this.playAbort?.abort();
     this.playAbort = null;
     void cancelPlay();
     this.card = null;
     this.streams = [];
     this.streamButtons = [];
+    this.seriesEpisodes = null;
+    this.episodeButtons = [];
+    this.selectedEpisodeId = null;
     this.streamList.replaceChildren();
+    this.episodeList.replaceChildren();
     this.streamsWrap.hidden = true;
+    this.episodesWrap.hidden = true;
     this.view.classList.add("hidden");
     this.callbacks.onClose();
   }
@@ -101,7 +130,24 @@ export class DetailController {
       return;
     }
     const controls = this.focusables();
-    this.focusIndex = Math.min(Math.max(this.focusIndex + delta, 0), controls.length - 1);
+    if (controls.length === 0) {
+      return;
+    }
+    let next = this.focusIndex;
+    for (let step = 0; step < controls.length; step += 1) {
+      next = Math.min(Math.max(next + delta, 0), controls.length - 1);
+      if (!(controls[next] as HTMLButtonElement).disabled) {
+        break;
+      }
+      if (next === 0 && delta < 0) {
+        break;
+      }
+      if (next === controls.length - 1 && delta > 0) {
+        break;
+      }
+    }
+    this.focusIndex = next;
+    void this.onFocusChanged(controls[this.focusIndex]);
     this.applyFocus();
   }
 
@@ -118,8 +164,13 @@ export class DetailController {
     if (!card) {
       return;
     }
+    const episodeId = this.playEpisodeId();
+    const startSec = this.playStartSec(episodeId);
     this.playButton.disabled = true;
     for (const button of this.streamButtons) {
+      button.disabled = true;
+    }
+    for (const button of this.episodeButtons) {
       button.disabled = true;
     }
     const token = ++this.playToken;
@@ -127,7 +178,7 @@ export class DetailController {
     const abort = new AbortController();
     this.playAbort = abort;
     this.callbacks.onStatus(
-      card.resumeSec
+      startSec
         ? "resuming…"
         : preferUrl
           ? "starting stream…"
@@ -164,7 +215,8 @@ export class DetailController {
       const result = await playCard(card, {
         signal: abort.signal,
         preferUrl,
-        startSec: card.resumeSec,
+        startSec,
+        episodeId: card.type === "series" ? episodeId : undefined,
       });
       if (this.playToken !== token) {
         return;
@@ -172,6 +224,9 @@ export class DetailController {
       const label = result.stream?.display_label || result.stream?.quality;
       const quality = label ? ` · ${label}` : "";
       this.callbacks.onStatus(`playing${quality}. ⌂ returns home.`);
+      if (card.type === "series") {
+        this.startNextPromptPoll();
+      }
     } catch (error) {
       if (abort.signal.aborted || (error instanceof Error && error.message === "play cancelled")) {
         return;
@@ -196,16 +251,67 @@ export class DetailController {
       for (const button of this.streamButtons) {
         button.disabled = false;
       }
+      for (const button of this.episodeButtons) {
+        button.disabled = button.classList.contains("detail-episode--disabled");
+      }
     }
   }
 
+  private playEpisodeId(): string | undefined {
+    const card = this.card;
+    if (!card || card.type !== "series") {
+      return undefined;
+    }
+    if (this.selectedEpisodeId) {
+      return this.selectedEpisodeId;
+    }
+    if (this.seriesEpisodes?.resume?.episode_id) {
+      return this.seriesEpisodes.resume.episode_id;
+    }
+    if (card.playId?.includes(":")) {
+      return card.playId;
+    }
+    const first = this.seriesEpisodes?.seasons[0]?.episodes[0];
+    return first?.id;
+  }
+
+  private playStartSec(episodeId?: string): number | undefined {
+    const card = this.card;
+    if (!card) {
+      return undefined;
+    }
+    if (episodeId && this.seriesEpisodes?.resume?.episode_id === episodeId) {
+      return this.seriesEpisodes.resume.position_sec;
+    }
+    if (!episodeId || episodeId === card.playId) {
+      return card.resumeSec;
+    }
+    return undefined;
+  }
+
   private focusables(): HTMLElement[] {
-    return [this.playButton, this.pinButton, this.backButton, ...this.streamButtons];
+    return [this.playButton, this.pinButton, this.backButton, ...this.episodeButtons, ...this.streamButtons];
   }
 
   private updatePinButton(): void {
     this.pinButton.textContent = this.pinned ? "unpin" : "pin";
     this.pinButton.setAttribute("aria-pressed", this.pinned ? "true" : "false");
+  }
+
+  private updatePlayButtonLabel(): void {
+    const card = this.card;
+    if (!card) {
+      return;
+    }
+    const isLive = card.type === "tv" || this.browseTab === "live";
+    if (isLive) {
+      this.playButton.textContent = "watch live";
+      return;
+    }
+    const hasResume = Boolean(card.resumeSec)
+      || Boolean(this.seriesEpisodes?.resume)
+      || Boolean(card.playId?.includes(":"));
+    this.playButton.textContent = hasResume ? "resume" : "play";
   }
 
   private async togglePin(): Promise<void> {
@@ -234,10 +340,140 @@ export class DetailController {
     }
   }
 
-  private async loadStreamList(card: ContentCard): Promise<void> {
+  private async loadEpisodeList(card: ContentCard): Promise<void> {
+    const token = ++this.episodesLoadToken;
+    try {
+      const episodes = await loadSeriesEpisodes(seriesBareId(card.id));
+      if (this.episodesLoadToken !== token || !this.card || this.card.id !== card.id) {
+        return;
+      }
+      this.seriesEpisodes = episodes;
+      this.renderEpisodes(episodes);
+      this.updatePlayButtonLabel();
+      const initialEpisode = episodes.resume?.episode_id
+        || episodes.seasons[0]?.episodes[0]?.id
+        || null;
+      if (initialEpisode) {
+        this.selectedEpisodeId = initialEpisode;
+        void this.loadStreamList(card, initialEpisode);
+      }
+    } catch {
+      if (this.episodesLoadToken !== token || !this.card || this.card.id !== card.id) {
+        return;
+      }
+      this.seriesEpisodes = null;
+      this.episodesWrap.hidden = true;
+      void this.loadStreamList(card);
+    }
+  }
+
+  private renderEpisodes(episodes: SeriesEpisodesResponse): void {
+    this.episodeList.replaceChildren();
+    this.episodeButtons = [];
+    const flatCount = episodes.seasons.reduce((total, block) => total + block.episodes.length, 0);
+    if (flatCount === 0) {
+      this.episodesWrap.hidden = true;
+      this.applyFocus();
+      return;
+    }
+
+    this.episodesWrap.hidden = false;
+    const scrollTargetId = episodes.resume?.episode_id
+      || episodes.seasons[0]?.episodes[0]?.id
+      || null;
+
+    for (const block of episodes.seasons) {
+      const header = document.createElement("p");
+      header.className = "detail-season-label";
+      header.textContent = block.label;
+      this.episodeList.append(header);
+
+      for (const episode of block.episodes) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "detail-episode";
+        const disabled = episode.playable === false;
+        if (disabled) {
+          button.classList.add("detail-episode--disabled");
+          button.disabled = true;
+        }
+        if (episode.id === this.selectedEpisodeId) {
+          button.classList.add("detail-episode--selected");
+        }
+        if (episode.id === scrollTargetId) {
+          button.dataset.scrollTarget = "true";
+        }
+
+        const label = document.createElement("span");
+        label.className = "detail-episode-label";
+        label.textContent = episodeRowLabel(episode);
+
+        const progress = document.createElement("span");
+        progress.className = "detail-episode-progress";
+        progress.textContent = episodeProgressLabel(episode.progress_pct);
+
+        button.dataset.episodeId = episode.id;
+        button.append(label, progress);
+        button.addEventListener("click", () => {
+          void this.activateEpisode(episode);
+        });
+        this.episodeList.append(button);
+        if (!disabled) {
+          this.episodeButtons.push(button);
+        }
+      }
+    }
+
+    const scrollTarget = this.episodeList.querySelector<HTMLElement>("[data-scroll-target='true']");
+    scrollTarget?.scrollIntoView({ block: "nearest", behavior: "instant" });
+    this.focusIndex = Math.min(this.focusIndex, this.focusables().length - 1);
+    this.applyFocus();
+  }
+
+  private async activateEpisode(episode: SeriesEpisodeRow): Promise<void> {
+    await this.selectEpisode(episode);
+    await this.play();
+  }
+
+  private async selectEpisode(episode: SeriesEpisodeRow): Promise<void> {
+    if (episode.playable === false) {
+      return;
+    }
+    const card = this.card;
+    if (!card) {
+      return;
+    }
+    this.selectedEpisodeId = episode.id;
+    for (const button of this.episodeButtons) {
+      button.classList.toggle(
+        "detail-episode--selected",
+        button.dataset.episodeId === episode.id,
+      );
+    }
+    await this.loadStreamList(card, episode.id);
+  }
+
+  private async onFocusChanged(target: HTMLElement | undefined): Promise<void> {
+    if (!target?.classList.contains("detail-episode")) {
+      return;
+    }
+    const episodeId = target.dataset.episodeId;
+    if (!episodeId || episodeId === this.selectedEpisodeId) {
+      return;
+    }
+    const episode = this.seriesEpisodes?.seasons
+      .flatMap((block) => block.episodes)
+      .find((row) => row.id === episodeId);
+    if (!episode) {
+      return;
+    }
+    await this.selectEpisode(episode);
+  }
+
+  private async loadStreamList(card: ContentCard, episodeId?: string): Promise<void> {
     const token = ++this.streamsLoadToken;
     try {
-      const result = await loadStreams(card);
+      const result = await loadStreams(card, episodeId);
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
       }
@@ -306,8 +542,61 @@ export class DetailController {
     for (const [index, control] of controls.entries()) {
       control.classList.toggle("focused", index === this.focusIndex);
     }
-    controls[this.focusIndex]?.focus({ preventScroll: true });
+    const target = controls[this.focusIndex];
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: "nearest", behavior: "instant" });
   }
+
+  private startNextPromptPoll(): void {
+    this.stopNextPromptPoll();
+    let attempts = 0;
+    this.nextPromptPollTimer = window.setInterval(() => {
+      attempts += 1;
+      void this.checkNextPrompt();
+      if (attempts >= 120) {
+        this.stopNextPromptPoll();
+      }
+    }, 1500);
+  }
+
+  private stopNextPromptPoll(): void {
+    if (this.nextPromptPollTimer !== undefined) {
+      window.clearInterval(this.nextPromptPollTimer);
+      this.nextPromptPollTimer = undefined;
+    }
+  }
+
+  private async checkNextPrompt(): Promise<void> {
+    const card = this.card;
+    if (!card || card.type !== "series" || !this.callbacks.onNextEpisodePrompt) {
+      return;
+    }
+    try {
+      const hint = await loadNextPrompt();
+      if (!hint.show || !hint.next) {
+        return;
+      }
+      this.stopNextPromptPoll();
+      this.callbacks.onNextEpisodePrompt(hint, card);
+    } catch {
+      // keep polling until timeout
+    }
+  }
+}
+
+function seriesBareId(id: string): string {
+  return id.includes(":") ? id.split(":")[0] : id;
+}
+
+function episodeRowLabel(episode: SeriesEpisodeRow): string {
+  return `S${episode.season} E${episode.episode} · ${episode.title}`;
+}
+
+function episodeProgressLabel(progressPct: number | null): string {
+  if (progressPct === null || progressPct <= 0) {
+    return "";
+  }
+  return `${Math.round(progressPct * 100)}%`;
 }
 
 function detailMetaLine(meta: CatalogMeta, card: ContentCard): string {
