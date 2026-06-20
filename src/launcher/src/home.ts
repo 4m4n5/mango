@@ -171,7 +171,7 @@ function appendCatalogSections(
       track.appendChild(button);
       items.push(button);
     }
-    applyRailLayout(track, rail.cards.length);
+    applyRailLayout(track);
     section.appendChild(track);
     container.appendChild(section);
     rows.push(items);

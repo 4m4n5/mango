@@ -128,27 +128,31 @@ button {
 .rail-track--posters {
   display: grid;
   grid-template-columns: repeat(var(--rail-cols, 9), minmax(0, 1fr));
-  gap: 1.4vw;
+  gap: clamp(0.65rem, 1.1vw, 1.25rem);
   overflow: hidden;
   padding: 0.4rem 0.2rem 0.8rem;
+  width: 100%;
+  scroll-snap-type: none;
 }
 
-.rails--refreshing .card--poster {
-  animation: rail-refresh-pulse 0.55s ease;
+.rails--refreshing {
+  opacity: 0.62;
+  transition: opacity 0.16s ease-out;
 }
 
-@keyframes rail-refresh-pulse {
-  0% {
-    opacity: 0.35;
-    transform: scale(0.96);
+.rails--refresh-settled {
+  opacity: 1;
+  transition: opacity 0.32s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rails--refreshing,
+  .rails--refresh-settled {
+    transition-duration: 0.01ms;
   }
-  100% {
-    opacity: 1;
-    transform: scale(1);
-  }
 }
 
-.rail-track {
+.rail-track:not(.rail-track--posters) {
   display: flex;
   gap: 1.4vw;
   overflow-x: auto;
@@ -476,16 +480,7 @@ h1 {
 }
 
 .shell-dock-btn--active {
-  animation: shell-dock-spin 0.65s ease;
-}
-
-@keyframes shell-dock-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  opacity: 0.7;
 }
 
 .shell-dock-icon {

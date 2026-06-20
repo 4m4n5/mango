@@ -40,6 +40,7 @@ MPV_STOP_SH = REPO / "scripts/phase-n1/mpv-stop.sh"
 BTN_B = 304
 BTN_Y = 308
 BTN_MINUS = 314
+BTN_REFRESH = 310  # bottom-left under − — left of ⌂ (BTN_TL on Micro grid)
 HOME_BUTTONS = {316, 311}
 BT_MAC = "E4:17:D8:EB:00:44"
 RECONNECT_SLEEP_SEC = 0.75
@@ -402,7 +403,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                     debounced(f"{app}-select", lambda: route_face(app, "select"))
                 elif event.code == BTN_Y:
                     debounced(f"{app}-back", lambda: route_face(app, "back"))
-                elif event.code == BTN_MINUS and app == "launcher":
+                elif event.code == BTN_REFRESH and app == "launcher":
                     debounced("refresh", refresh_launcher_library)
                 elif event.code in HOME_BUTTONS:
                     debounced("home", go_home)

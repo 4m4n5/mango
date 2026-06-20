@@ -274,7 +274,7 @@ function showHome(): void {
   detailView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. − to refresh library.");
+  setStatus("D-pad to browse. B to select. pad refresh (left of ⌂).");
 }
 
 function restoreHomeFromDetail(): void {
@@ -282,7 +282,7 @@ function restoreHomeFromDetail(): void {
   settingsView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. − to refresh library.");
+  setStatus("D-pad to browse. B to select. pad refresh (left of ⌂).");
 }
 
 async function reloadPinsAndCatalog(): Promise<void> {
@@ -300,19 +300,22 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
   }
   libraryRefreshInFlight = true;
   libraryRefreshBtn.classList.add("shell-dock-btn--active");
+  railsEl.classList.remove("rails--refresh-settled");
   railsEl.classList.add("rails--refreshing");
   if (!options.quiet) {
-    setStatus("refreshing your library…");
+    setStatus("refreshing…");
   }
   try {
     await loadCatalog({ reshuffle: true });
     if (!options.quiet) {
-      setStatus("fresh picks across every rail — keep browsing.");
+      setStatus("updated — keep browsing");
     }
   } finally {
     libraryRefreshInFlight = false;
     libraryRefreshBtn.classList.remove("shell-dock-btn--active");
-    window.setTimeout(() => railsEl.classList.remove("rails--refreshing"), 650);
+    railsEl.classList.remove("rails--refreshing");
+    railsEl.classList.add("rails--refresh-settled");
+    window.setTimeout(() => railsEl.classList.remove("rails--refresh-settled"), 320);
   }
 }
 
@@ -322,7 +325,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     catalogRetryTimer = undefined;
   }
   if (options.reshuffle) {
-    setStatus("refreshing your library…");
+    setStatus("refreshing…");
   }
   try {
     pinnedKeys = await fetchPinnedIds(activeBrowseTab);
@@ -338,8 +341,8 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     const itemCount = rails.reduce((total, rail) => total + rail.cards.length, 0);
     setStatus(itemCount > 0
       ? options.reshuffle
-        ? "fresh picks across every rail — keep browsing."
-        : "D-pad to browse. B to select. − to refresh library."
+        ? "updated — keep browsing."
+        : "D-pad to browse. B to select. pad refresh (left of ⌂)."
       : "catalog loaded with no posters");
   } catch (error) {
     catalogState = {
