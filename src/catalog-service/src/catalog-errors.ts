@@ -32,13 +32,9 @@ export function isAddonRateLimitMessage(message: string): boolean {
   return RATE_LIMIT_RE.test(message);
 }
 
-/** AIOStreams returns this placeholder when ElfHosted public instances are throttled. */
+/** AIOStreams may return this placeholder URL when upstream APIs are throttled. */
 export function isRateLimitedStreamUrl(url: string): boolean {
   return RATE_LIMIT_URL_RE.test(url);
-}
-
-export function isElfHostedAddonName(name: string): boolean {
-  return /elfhosted/i.test(name);
 }
 
 export function couchPlayFailureMessage(attempts: Array<{ error?: string }> | undefined): string {
@@ -55,11 +51,8 @@ export function couchPlayFailureMessage(attempts: Array<{ error?: string }> | un
   return 'catalog temporarily unavailable';
 }
 
-export function couchSafeCatalogMessage(message: string, context?: { addon?: string }): string {
+export function couchSafeCatalogMessage(message: string): string {
   if (isAddonRateLimitMessage(message)) {
-    if (context?.addon && isElfHostedAddonName(context.addon)) {
-      return 'catalog is refreshing — try again in a moment';
-    }
     return 'catalog is busy — try again in a moment';
   }
   if (/HTTP 5\d\d/i.test(message) || /HTTP 429/i.test(message)) {

@@ -55,7 +55,6 @@ import {
   couchSafeCatalogMessage,
   isAddonRateLimitMessage,
   isBlockedCatalogMeta,
-  isElfHostedAddonName,
 } from './catalog-errors.js';
 import { resolvePosterFromMeta } from './poster.js';
 import { CONTINUE_RAIL_ID } from './progress/config.js';
