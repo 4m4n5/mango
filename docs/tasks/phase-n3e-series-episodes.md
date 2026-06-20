@@ -155,9 +155,9 @@ Normalized couch response — hides Cinemeta quirks from TV UI.
 
 ### PR2 — launcher + next prompt
 
-- [ ] Episode list UI + focus/skip/grey
+- [x] Episode list UI + focus/skip/grey
 - [x] Per-episode stream on focus
-- [ ] Next-episode overlay from mpv-stop
+- [x] Next-episode overlay from mpv-stop
 - [ ] Couch verify Panchayat multi-episode flow
 
 ---

@@ -36,7 +36,7 @@
 |-------|--------|
 | **C1** stream picker on detail | ✓ `GET /stream` rows with `display_label`; tap to `POST /play { url }` |
 | **C2** Continue watching | ✓ `progress.db` + Continue rail; mpv position watcher |
-| Episode picker (N3e) | design / next |
+| **N3e** episode picker | ✓ season list, per-episode streams, next-up prompt |
 | Stremio library merge (N4) | planned |
 
 ### Live TV ✓
