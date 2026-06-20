@@ -70,6 +70,8 @@ export type StreamFilterMeta = {
   kept: number;
   /** Set when strict filters returned 0 streams and uncached TorBox picks were used. */
   torbox_uncached_fallback?: boolean;
+  /** Set when strict unknown-cache filter emptied results and TorBox unknown picks were used. */
+  torbox_unknown_fallback?: boolean;
   /** Set when RD unknown-cache BluRay/x265 picks were used as last resort. */
   rd_safe_unknown_fallback?: boolean;
   /** Set when strict title tokens matched nothing but imdb-id / relaxed pass recovered streams. */
@@ -539,7 +541,7 @@ export function defaultFilterConfig(): StreamFilterConfig {
       : truthy(process.env.MANGO_EXCLUDE_REMUX),
     auto_play_max_attempts: positiveInteger(process.env.MANGO_AUTO_PLAY_MAX_ATTEMPTS, 5, 1, 10),
     auto_play_wall_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_WALL_MS, 15000, 1000, 60000),
-    auto_play_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_PROBE_MS, 4000, 500, 15000),
+    auto_play_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_PROBE_MS, 6000, 500, 15000),
     auto_play_tiers: defaultAutoPlayTiers(),
     exclude_error_streams: true,
     stream_display_limit: positiveInteger(process.env.MANGO_STREAM_DISPLAY_LIMIT, 8, 3, 20),
@@ -866,6 +868,34 @@ export function filterStreamsForPlay(
     }
   }
 
+  if (config.strict_unknown_cache && primary.meta.excluded.unknown_cache_debrid > 0) {
+    const torboxUnknown = buildFallbackStreams(
+      streams,
+      config,
+      (stream) => sourceMatches(stream, ['AIOStreams'])
+        && debridServiceId(stream) === 'torbox'
+        && parseDebridCacheStatus(stream) === 'unknown',
+      (stream) => ({
+        ...stream,
+        debrid_service: 'torbox',
+        cache_status: 'unknown',
+      }),
+      context,
+      filterOptions,
+    ).filter((stream) => !isLowQualityRelease(stream));
+
+    if (torboxUnknown.length > 0) {
+      return {
+        streams: torboxUnknown.slice(0, config.stream_display_limit),
+        meta: {
+          ...primary.meta,
+          kept: Math.min(torboxUnknown.length, config.stream_display_limit),
+          torbox_unknown_fallback: true,
+        },
+      };
+    }
+  }
+
   if (config.rd_safe_unknown_fallback) {
     const rdSafe = buildFallbackStreams(
       streams,
@@ -922,13 +952,16 @@ function streamCacheStatus(stream: Stream): ReturnType<typeof parseDebridCacheSt
 function cacheAllowed(
   stream: Stream,
   requireCache: AutoPlayCacheRequirement,
-  strictUnknownCache: boolean,
+  _strictUnknownCache: boolean,
 ): boolean {
   const status = streamCacheStatus(stream);
   if (requireCache === 'any') return true;
+  if (requireCache === 'cached_or_unknown') {
+    return status === 'cached' || status === 'unknown';
+  }
   if (requireCache === 'cached') return status === 'cached';
   if (status === 'cached') return true;
-  return status === 'unknown' && !strictUnknownCache;
+  return status === 'unknown';
 }
 
 function debridServiceAllowed(stream: Stream, allowed: string[] | undefined): boolean {
@@ -966,12 +999,6 @@ export function selectAutoPlayCandidates(
   } = {},
 ): Stream[] {
   const eligible = streams.filter((stream) => autoPlayEligible(stream, config, options));
-  if (options.verified_hint?.win_url_hash) {
-    const winner = eligible.find((stream) => streamMatchesVerifiedHint(stream, options.verified_hint));
-    if (winner) {
-      return diversifyCandidates([winner], config.auto_play_max_attempts);
-    }
-  }
   const seen = new Set<string>();
   const ranked: Stream[] = [];
 

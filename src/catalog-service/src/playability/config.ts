@@ -44,12 +44,12 @@ export function playabilityProbeConcurrency(): number {
 }
 
 export function playabilityProbeTimeoutMs(): number {
-  return positiveInt(process.env.MANGO_PLAYABILITY_PROBE_MS, 4000, 2000, 30000);
+  return positiveInt(process.env.MANGO_PLAYABILITY_PROBE_MS, 6000, 2000, 30000);
 }
 
 /** Couch N3a probe budget — verified titles must pass within this window. */
 export function playabilityCouchProbeMs(): number {
-  return positiveInt(process.env.MANGO_AUTO_PLAY_PROBE_MS, 4000, 500, 15000);
+  return positiveInt(process.env.MANGO_AUTO_PLAY_PROBE_MS, 6000, 500, 15000);
 }
 
 export function playabilityBatchDbEnabled(): boolean {

@@ -153,7 +153,7 @@ test('selectAutoPlayCandidates keeps standalone Torrentio out of default autopla
   assert.equal(selected.length, 0);
 });
 
-test('selectAutoPlayCandidates applies strict unknown cache inside cached_or_unknown tiers', () => {
+test('selectAutoPlayCandidates allows unknown streams in cached_or_unknown tiers', () => {
   const strictConfig = {
     ...testConfig(),
     strict_unknown_cache: true,
@@ -161,19 +161,19 @@ test('selectAutoPlayCandidates applies strict unknown cache inside cached_or_unk
       { addons: ['AIOStreams'], require_cache: 'cached_or_unknown' as const, debrid_services: ['torbox'] },
     ],
   };
-  const looseConfig = {
-    ...testConfig(),
-    strict_unknown_cache: false,
-    auto_play_tiers: [
-      { addons: ['AIOStreams'], require_cache: 'cached_or_unknown' as const, debrid_services: ['torbox'] },
-    ],
-  };
   const unknown = candidate('AIOStreams | TorBox', 'torbox', 'unknown', 'https://example.test/unknown.mp4');
-  assert.equal(selectAutoPlayCandidates([unknown], strictConfig).length, 0);
-  assert.equal(selectAutoPlayCandidates([unknown], looseConfig).length, 1);
+  assert.equal(selectAutoPlayCandidates([unknown], strictConfig).length, 1);
 });
 
-test('selectAutoPlayCandidates locks verified titles to the winning URL hash', () => {
+test('filterStreamsForPlay cascades to TorBox unknown cache when strict filter empties', () => {
+  const config = mergeFilterConfig(defaultFilterConfig(), { strict_unknown_cache: true });
+  const unknown = candidate('AIOStreams | TorBox', 'torbox', 'unknown', 'https://example.test/unknown.mp4');
+  const result = filterStreamsForPlay([unknown], config);
+  assert.equal(result.streams.length, 1);
+  assert.equal(result.meta.torbox_unknown_fallback, true);
+});
+
+test('selectAutoPlayCandidates prefers verified URL hash before other tier streams', () => {
   const config = testConfig();
   const winner = candidate('AIOStreams | TorBox', 'torbox', 'unknown', 'https://example.test/winner.mp4');
   const other = candidate('AIOStreams | TorBox', 'torbox', 'unknown', 'https://example.test/other.mp4');
@@ -186,13 +186,5 @@ test('selectAutoPlayCandidates locks verified titles to the winning URL hash', (
       probe_ms: 2800,
     },
   });
-  assert.deepEqual(selected.map((item) => item.url), [winner.url]);
-  const fallback = selectAutoPlayCandidates([other], config, {
-    verified_hint: {
-      best_source: 'AIOStreams',
-      win_url_hash: streamUrlHash(winner.url),
-    },
-  });
-  assert.equal(fallback.length, 1);
-  assert.equal(fallback[0]?.url, other.url);
+  assert.deepEqual(selected.map((item) => item.url), [winner.url, other.url]);
 });

@@ -189,19 +189,29 @@ async function handlePlay(
     if (error instanceof PlayCancelledError) {
       throw new CatalogError(499, 'play cancelled');
     }
-    await invalidateTitle({
-      rail_id: body.rail_id,
-      type: body.type,
-      id: body.id,
-      reason: 'play_failure',
-    }).catch((invalidateError) => {
-      console.warn(
-        `playability invalidate failed type=${body.type} id=${body.id}: ${
-          invalidateError instanceof Error ? invalidateError.message : String(invalidateError)
-        }`,
-      );
-    });
-    core.clearRailItemsCache(body.rail_id ?? undefined);
+    const details = error instanceof CatalogError
+      ? (error.details as { attempts?: unknown[]; candidates?: number } | undefined)
+      : undefined;
+    const attempts = details?.attempts;
+    const probedStreams = Array.isArray(attempts) && attempts.length > 0;
+    const filterEmpty = error instanceof CatalogError
+      && typeof error.message === 'string'
+      && error.message.includes('no streams left after filters');
+    if (probedStreams && !filterEmpty) {
+      await invalidateTitle({
+        rail_id: body.rail_id,
+        type: body.type,
+        id: body.id,
+        reason: 'play_failure',
+      }).catch((invalidateError) => {
+        console.warn(
+          `playability invalidate failed type=${body.type} id=${body.id}: ${
+            invalidateError instanceof Error ? invalidateError.message : String(invalidateError)
+          }`,
+        );
+      });
+      core.clearRailItemsCache(body.rail_id ?? undefined);
+    }
     if (error instanceof CatalogError) {
       error.details = {
         ...(error.details || {}),

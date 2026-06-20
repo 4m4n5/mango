@@ -10,7 +10,7 @@
   "stream_display_limit": 8,
   "auto_play_max_attempts": 5,
   "auto_play_wall_ms": 15000,
-  "auto_play_probe_ms": 4000,
+  "auto_play_probe_ms": 6000,
   "auto_play_tiers": [
     {
       "addons": ["AIOStreams"],

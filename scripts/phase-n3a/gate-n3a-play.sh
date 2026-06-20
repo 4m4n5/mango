@@ -29,7 +29,7 @@ path, max_total = sys.argv[1], int(sys.argv[2])
 data = json.load(open(path, encoding="utf-8"))
 assert data.get("strict_unknown_cache") is True, "strict_unknown_cache must be true"
 assert int(data.get("auto_play_wall_ms") or 0) <= max_total, "auto_play_wall_ms too high"
-assert int(data.get("auto_play_probe_ms") or 0) <= 4000, "auto_play_probe_ms too high"
+assert int(data.get("auto_play_probe_ms") or 0) <= 6000, "auto_play_probe_ms too high"
 tiers = data.get("auto_play_tiers") or []
 assert tiers, "auto_play_tiers missing"
 for tier in tiers:
