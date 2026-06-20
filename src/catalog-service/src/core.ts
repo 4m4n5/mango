@@ -5,6 +5,7 @@ import {
   filterAndRankStreams,
   filterStreamsForPlay,
   enrichStreamMetadata,
+  hasCacheableStream,
   loadFilterConfig,
   mergeFilterConfig,
   parseRuntimeMinutes,
@@ -208,6 +209,7 @@ const REQUEST_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_REQUEST_TIMEOUT_MS |
 const META_CACHE_TTL_MS = Number(process.env.MANGO_META_CACHE_TTL_MS || 10 * 60 * 1000);
 const META_RATE_LIMIT_BACKOFF_MS = Number(process.env.MANGO_META_RATE_LIMIT_BACKOFF_MS || 5 * 60 * 1000);
 const STREAM_CACHE_TTL_MS = Number(process.env.MANGO_STREAM_CACHE_TTL_MS || 10 * 60 * 1000);
+const STREAM_NEGATIVE_CACHE_MS = Number(process.env.MANGO_STREAM_NEGATIVE_CACHE_MS || 90 * 1000);
 const RAIL_ITEMS_CACHE_TTL_MS = Number(process.env.MANGO_RAIL_ITEMS_CACHE_TTL_MS || 45 * 60 * 1000);
 const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 6);
 const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 0);
@@ -424,6 +426,8 @@ export class CatalogCore {
     resolveMs: number;
     expiresAt: number;
   }>();
+  /** Short TTL after error-only stream resolves — avoids caching poisoned placeholders. */
+  private readonly streamNegativeCache = new Map<string, number>();
   private readonly railItemsCache = new Map<string, {
     payload: RailItemsResponse;
     expiresAt: number;
@@ -1348,6 +1352,19 @@ export class CatalogCore {
       };
     }
 
+    const negativeUntil = this.streamNegativeCache.get(key);
+    if (negativeUntil && negativeUntil > Date.now()) {
+      return {
+        streams: [],
+        errors: ['stream resolve skipped — recent rate-limit placeholders'],
+        resolveMs: 0,
+        cached: true,
+      };
+    }
+    if (negativeUntil) {
+      this.streamNegativeCache.delete(key);
+    }
+
     const started = Date.now();
     const streamAddons = this.addons.filter((addon) => supportsResource(addon.manifest, 'stream', type));
     const settled = await Promise.allSettled(
@@ -1365,13 +1382,16 @@ export class CatalogCore {
     }
 
     const resolveMs = Date.now() - started;
-    if (streams.length > 0) {
+    if (streams.length > 0 && hasCacheableStream(streams)) {
+      this.streamNegativeCache.delete(key);
       this.streamCache.set(key, {
         streams,
         errors,
         resolveMs,
         expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
       });
+    } else if (streams.length > 0) {
+      this.streamNegativeCache.set(key, Date.now() + STREAM_NEGATIVE_CACHE_MS);
     }
     return { streams, errors, resolveMs, cached: false };
   }

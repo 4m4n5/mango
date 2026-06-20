@@ -83,7 +83,14 @@ fi
 
 gate_pass "evaluation corpus: ${#FIXTURE_LABELS[@]} titles"
 
+PROBE_DELAY_MS="${MANGO_GATE_STREAM_PROBE_DELAY_MS:-2500}"
+fixture_index=0
+
 for label in "${FIXTURE_LABELS[@]}"; do
+  if ((fixture_index > 0)) && ((PROBE_DELAY_MS > 0)); then
+    sleep "$(awk "BEGIN { printf \"%.3f\", ${PROBE_DELAY_MS} / 1000 }")"
+  fi
+  fixture_index=$((fixture_index + 1))
   read -r type id path_slug tier < <(python3 - "$FIXTURES" "$label" <<'PY'
 import json
 import sys

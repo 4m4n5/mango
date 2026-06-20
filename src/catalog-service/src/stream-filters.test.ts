@@ -4,6 +4,8 @@ import type { Stream } from './core.js';
 import {
   defaultFilterConfig,
   filterStreamsForPlay,
+  hasCacheableStream,
+  isCacheableStream,
   mergeFilterConfig,
   parseDebridCacheStatus,
   parseFilterOverridesFromQuery,
@@ -237,4 +239,15 @@ test('isPlausibleFeatureDuration rejects short probes for movies', () => {
   assert.equal(isPlausibleFeatureDuration(12, 'movie', 150), false);
   assert.equal(isPlausibleFeatureDuration(120, 'movie', 150), true);
   assert.equal(isPlausibleFeatureDuration(45, 'movie', null), true);
+});
+
+test('isCacheableStream rejects rate-limit placeholders', () => {
+  const good = stream('BluRay 1080p', 'https://example.test/play.mp4');
+  const rateLimitUrl = stream('rate limit', 'https://aiostreams.example/rate-limit-exceeded');
+  const errorLabel = stream('rate limit exceeded', 'https://example.test/placeholder.mp4');
+  assert.equal(isCacheableStream(good), true);
+  assert.equal(isCacheableStream(rateLimitUrl), false);
+  assert.equal(isCacheableStream(errorLabel), false);
+  assert.equal(hasCacheableStream([errorLabel, rateLimitUrl]), false);
+  assert.equal(hasCacheableStream([errorLabel, good]), true);
 });

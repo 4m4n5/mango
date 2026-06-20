@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { Stream } from './core.js';
+import { isRateLimitedStreamUrl } from './catalog-errors.js';
 import {
   buildDisplayLabel,
   parseFormatterDescription,
@@ -474,6 +475,18 @@ export function isErrorStream(stream: Stream): boolean {
     return true;
   }
   return /\[❌\]|\[x\]|search failed|not found|no streams|error:|stream not found|being downloaded|downloading to debrid|download pending|rate\s*limit exceeded/i.test(haystack);
+}
+
+/** True when a raw addon stream is worth caching (not a rate-limit / error placeholder). */
+export function isCacheableStream(stream: Stream): boolean {
+  if (isErrorStream(stream)) return false;
+  const url = typeof stream.url === 'string' ? stream.url : '';
+  if (url && isRateLimitedStreamUrl(url)) return false;
+  return Boolean(url);
+}
+
+export function hasCacheableStream(streams: Stream[]): boolean {
+  return streams.some(isCacheableStream);
 }
 
 /** Cam / telesync / screener — poor couch experience; skip uncached fallback. */
