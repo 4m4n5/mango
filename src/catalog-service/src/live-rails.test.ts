@@ -4,9 +4,11 @@ import {
   channelSubtitle,
   keywordPattern,
   matchChannelsToRail,
+  matchChannelsWithSourceFill,
   partitionChannelsBySportRails,
   searchableChannelText,
   type LiveChannelMeta,
+  type LiveChannelWithSource,
   type LiveSportRail,
 } from './live-rails.js';
 
@@ -85,6 +87,37 @@ test('live-rails matches mixed racing channels', () => {
   const assigned = new Set<string>();
   const matches = matchChannelsToRail(channels, rail, assigned);
   assert.deepEqual(matches.map((item) => item.id), ['1', '2', '3']);
+});
+
+test('live-rails source_fill prefers Indian news before US paid affiliates', () => {
+  const rail: LiveSportRail = {
+    id: 'live-news',
+    label: 'news',
+    keywords: ['news'],
+    limit: 4,
+    source_fill: [
+      {
+        addon: 'mango Live News',
+        limit: 2,
+        keywords: ['ndtv', 'aaj tak'],
+      },
+      {
+        addon: 'mango Live TV',
+        limit: 2,
+        keywords: ['abc news live', 'bbc news'],
+      },
+    ],
+  };
+  const channels: LiveChannelWithSource[] = [
+    { ...channel({ id: 'us1', name: 'PRIME: ABC NEWS LIVE' }), source_addon: 'mango Live TV' },
+    { ...channel({ id: 'us2', name: 'PRIME: ABC BALTIMORE NEWS' }), source_addon: 'mango Live TV' },
+    { ...channel({ id: 'in1', name: 'NDTV 24x7' }), source_addon: 'mango Live News' },
+    { ...channel({ id: 'in2', name: 'Aaj Tak' }), source_addon: 'mango Live News' },
+    { ...channel({ id: 'us3', name: 'PRIME: BBC NEWS' }), source_addon: 'mango Live TV' },
+  ];
+  const assigned = new Set<string>();
+  const matches = matchChannelsWithSourceFill(channels, rail, assigned);
+  assert.deepEqual(matches.map((item) => item.id), ['in1', 'in2', 'us1', 'us3']);
 });
 
 test('live-rails prefers EPG text for subtitles', () => {

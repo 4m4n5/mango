@@ -4,6 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { isBlockedLiveChannel } from './live-stream-verify.js';
 
+export type LiveSourceFill = {
+  addon: string;
+  limit: number;
+  keywords?: string[];
+};
+
 export type LiveSportRail = {
   id: string;
   label: string;
@@ -11,6 +17,8 @@ export type LiveSportRail = {
   limit: number;
   include_genres?: string[];
   exclude_keywords?: string[];
+  /** Fill slots per addon in order (e.g. Indian news first, then US national). */
+  source_fill?: LiveSourceFill[];
 };
 
 export type LiveSourceConfig = {
@@ -120,6 +128,25 @@ function readOptionalStringArray(record: Record<string, unknown>, key: string): 
   });
 }
 
+function readSourceFill(record: Record<string, unknown>, context: string): LiveSourceFill[] | undefined {
+  const value = record.source_fill;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${context}.source_fill must be a non-empty array when set`);
+  }
+  return value.map((entry, index) => {
+    const row = asRecord(entry, `${context}.source_fill[${index}]`);
+    const addon = readString(row, 'addon', `${context}.source_fill[${index}]`);
+    const limit = readPositiveInt(row, 'limit', `${context}.source_fill[${index}]`, 1);
+    const keywords = row.keywords === undefined
+      ? undefined
+      : readKeywords(row, `${context}.source_fill[${index}]`);
+    return { addon, limit, keywords };
+  });
+}
+
 function readLiveSportRail(record: Record<string, unknown>, index: number): LiveSportRail {
   const context = `live rails[${index}]`;
   const id = readString(record, 'id', context);
@@ -133,6 +160,7 @@ function readLiveSportRail(record: Record<string, unknown>, index: number): Live
     limit: readPositiveInt(record, 'limit', context, 20),
     include_genres: readOptionalStringArray(record, 'include_genres'),
     exclude_keywords: readOptionalStringArray(record, 'exclude_keywords'),
+    source_fill: readSourceFill(record, context),
   };
 }
 
@@ -304,6 +332,33 @@ export function normalizeLiveChannelMeta(meta: Record<string, unknown>): LiveCha
   };
 }
 
+export type LiveChannelWithSource = LiveChannelMeta & { source_addon?: string };
+
+export function matchChannelsWithSourceFill(
+  channels: LiveChannelWithSource[],
+  rail: LiveSportRail,
+  assignedIds: Set<string>,
+): LiveChannelMeta[] {
+  if (!rail.source_fill?.length) {
+    return matchChannelsToRail(channels, rail, assignedIds);
+  }
+  const matches: LiveChannelMeta[] = [];
+  for (const fill of rail.source_fill) {
+    const pool = channels.filter((channel) => channel.source_addon === fill.addon);
+    const subRail: LiveSportRail = {
+      ...rail,
+      keywords: fill.keywords?.length ? fill.keywords : rail.keywords,
+      limit: fill.limit,
+      source_fill: undefined,
+    };
+    matches.push(...matchChannelsToRail(pool, subRail, assignedIds));
+    if (matches.length >= rail.limit) {
+      break;
+    }
+  }
+  return matches.slice(0, rail.limit);
+}
+
 export function matchChannelsToRail(
   channels: LiveChannelMeta[],
   rail: LiveSportRail,
@@ -338,13 +393,13 @@ export function matchChannelsToRail(
 }
 
 export function partitionChannelsBySportRails(
-  channels: LiveChannelMeta[],
+  channels: LiveChannelWithSource[],
   rails: LiveSportRail[],
 ): Map<string, LiveChannelMeta[]> {
   const assigned = new Set<string>();
   const byRail = new Map<string, LiveChannelMeta[]>();
   for (const rail of rails) {
-    byRail.set(rail.id, matchChannelsToRail(channels, rail, assigned));
+    byRail.set(rail.id, matchChannelsWithSourceFill(channels, rail, assigned));
   }
   return byRail;
 }

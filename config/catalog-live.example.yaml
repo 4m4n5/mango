@@ -22,7 +22,7 @@ sources:
     label: news
     catalog: iptv_channels
     catalog_type: tv
-    pages: 4
+    pages: 5
 
 rails:
   - id: live-cricket
@@ -98,42 +98,41 @@ rails:
 
   - id: live-news
     label: news
+    limit: 12
+    source_fill:
+      - addon: mango Live News
+        limit: 9
+        keywords:
+          - aaj tak
+          - ndtv
+          - republic
+          - zee news
+          - abp
+          - news18
+          - wion
+          - times now
+          - india today
+          - dd news
+          - rajya sabha
+          - bharat samachar
+          - samachar
+      - addon: mango Live TV
+        limit: 3
+        keywords:
+          - abc news live
+          - nbc news now
+          - bbc news
+          - cnn headline
+          - bloomberg tv
+          - cbs news 24
+          - sky news
     keywords:
-      - aaj tak
-      - aajtak
-      - ndtv
-      - times now
-      - republic tv
-      - republic bharat
-      - zee news
-      - abp news
-      - abp majha
-      - news18
-      - cnn-news18
-      - wion
-      - india today
-      - dd news
-      - rajya sabha
-      - abc news live
-      - cnn headline
-      - nbc news now
-      - bbc news
-      - sky news
-      - bloomberg tv
-      - cbs news 24
-      - fox news
-      - msnbc
-      - newsmax
-      - cnbc
-    include_genres:
-      - NEWS
-      - IN| NEWS
-      - US| NEWS
-      - UK| NEWS
+      - news
     exclude_keywords:
-      - 24/7 movie
       - replay
       - sport
+      - originals
+      - comedy
       - baltimore
       - boise
       - buffalo
@@ -157,6 +156,10 @@ rails:
       - philadelphia
       - pittsburgh
       - texas
-      - originals
-      - comedy
-    limit: 12
+      - houston
+      - austin
+      - cincinnati
+      - el paso
+      - myrtle beach
+      - san diego
+      - cbc news
