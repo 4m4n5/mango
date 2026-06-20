@@ -72,11 +72,14 @@ rails:
       - grand prix
       - motogp
     include_genres:
-      - US| PRIME
       - FORMULA 1
       - F1 PPV
       - MOTOGP
     exclude_keywords:
       - replay
       - 24/7
+      - news
+      - abc
+      - nbc
+      - cbs
     limit: 8
