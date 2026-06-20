@@ -27,7 +27,7 @@ else
 fi
 
 TOOLS_JSON="$(curl -sf --max-time 10 "$CATALOG/voice/tools" || true)"
-if [[ -n "$TOOLS_JSON" ]] && echo "$TOOLS_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; names={t["name"] for t in d["tools"]}; assert "mango_play" in names and "mango_search" in names and "mango_navigate" in names' 2>/dev/null; then
+if [[ -n "$TOOLS_JSON" ]] && echo "$TOOLS_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; names={t["name"] for t in d["tools"]}; assert "mango_open_title" in names and "mango_search" in names and "mango_play" not in names' 2>/dev/null; then
   ok voice-tools-manifest
 else
   bad voice-tools-manifest

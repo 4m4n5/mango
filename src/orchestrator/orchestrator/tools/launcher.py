@@ -10,6 +10,9 @@ class LauncherCommandError(RuntimeError):
 
 
 def build_launcher_command(name: str, tool_input: dict[str, Any]) -> dict[str, Any]:
+    if name == "mango_open_title":
+        return _open_title_command(tool_input)
+
     if name != "mango_navigate":
         raise LauncherCommandError(f"unknown launcher tool: {name}")
 
@@ -27,22 +30,34 @@ def build_launcher_command(name: str, tool_input: dict[str, Any]) -> dict[str, A
         if not isinstance(tab, str):
             raise LauncherCommandError("mango_navigate tab requires tab")
         payload["tab"] = tab
-    elif action == "open_detail":
-        content_type = tool_input.get("type")
-        content_id = tool_input.get("id")
-        if not isinstance(content_type, str) or not isinstance(content_id, str):
-            raise LauncherCommandError("open_detail requires type and id")
-        payload["content_type"] = content_type
-        payload["id"] = content_id
-        title = tool_input.get("title")
-        poster = tool_input.get("poster")
-        if isinstance(title, str) and title.strip():
-            payload["title"] = title.strip()
-        if isinstance(poster, str) and poster.strip():
-            payload["poster"] = poster.strip()
     elif action not in {"home", "back", "settings"}:
         raise LauncherCommandError(f"unsupported navigate action: {action}")
 
+    return payload
+
+
+def _open_title_command(tool_input: dict[str, Any]) -> dict[str, Any]:
+    content_type = tool_input.get("type")
+    content_id = tool_input.get("id")
+    title = tool_input.get("title")
+    if not isinstance(content_type, str) or not isinstance(content_id, str):
+        raise LauncherCommandError("open_title requires type and id")
+    if not isinstance(title, str) or not title.strip():
+        raise LauncherCommandError("open_title requires title")
+
+    payload: dict[str, Any] = {
+        "type": "launcher_command",
+        "action": "open_detail",
+        "content_type": content_type,
+        "id": content_id,
+        "title": title.strip(),
+    }
+    tab = tool_input.get("tab")
+    if isinstance(tab, str) and tab.strip():
+        payload["tab"] = tab.strip()
+    poster = tool_input.get("poster")
+    if isinstance(poster, str) and poster.strip():
+        payload["poster"] = poster.strip()
     return payload
 
 
@@ -58,5 +73,5 @@ def summarize_launcher_command(command: dict[str, Any]) -> str:
         return f"Switched to {command.get('tab', 'tab')}"
     if action == "open_detail":
         title = command.get("title") or command.get("id") or "title"
-        return f"Opened {title}"
+        return f"Opened {title} — press B to play"
     return "Navigation updated"

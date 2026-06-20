@@ -24,7 +24,7 @@ export function buildVoiceToolManifest(): {
   const tools: VoiceToolDefinition[] = [
     {
       name: 'mango_search',
-      description: 'Search verified mango library titles by name. Use before play when the user gives a title, not an id.',
+      description: 'Search verified mango library titles by name. Use before open_title when the user names a show or movie.',
       layer: 'catalog',
       input_schema: {
         type: 'object',
@@ -36,33 +36,24 @@ export function buildVoiceToolManifest(): {
       },
     },
     {
-      name: 'mango_play',
-      description: 'Start playback for a movie or series. Series bare ids resume continue progress or start at S1E1.',
-      layer: 'catalog',
+      name: 'mango_open_title',
+      description: 'Open a title on the TV detail page so the user can press B to play. Never starts playback.',
+      layer: 'launcher',
       input_schema: {
         type: 'object',
         properties: {
           type: { type: 'string', enum: ['movie', 'series', 'tv'] },
-          id: { type: 'string' },
-          resume: { type: 'boolean' },
+          id: { type: 'string', description: 'Stremio id from search results' },
+          title: { type: 'string', description: 'Display title from search' },
+          poster: { type: 'string', description: 'Poster URL from search' },
+          tab: { type: 'string', enum: ['movies', 'series', 'live'], description: 'Browse tab from search' },
         },
-        required: ['type', 'id'],
-      },
-    },
-    {
-      name: 'mango_play_continue',
-      description: 'Resume the most recent continue-watching title.',
-      layer: 'catalog',
-      input_schema: {
-        type: 'object',
-        properties: {
-          tab: { type: 'string', enum: ['movies', 'series'] },
-        },
+        required: ['type', 'id', 'title'],
       },
     },
     {
       name: 'mango_now_playing',
-      description: 'Report what is currently playing on the TV, if anything.',
+      description: 'Report what is currently playing on the TV, if anything. Read-only — does not control playback.',
       layer: 'catalog',
       input_schema: { type: 'object', properties: {} },
     },
@@ -95,20 +86,16 @@ export function buildVoiceToolManifest(): {
     },
     {
       name: 'mango_navigate',
-      description: 'Navigate the TV launcher UI. Does not start playback.',
+      description: 'Navigate the TV launcher (home, back, settings, tab). Does not open titles or start playback.',
       layer: 'launcher',
       input_schema: {
         type: 'object',
         properties: {
           action: {
             type: 'string',
-            enum: ['home', 'back', 'settings', 'tab', 'open_detail'],
+            enum: ['home', 'back', 'settings', 'tab'],
           },
           tab: { type: 'string', enum: ['movies', 'series', 'live'] },
-          type: { type: 'string' },
-          id: { type: 'string' },
-          title: { type: 'string' },
-          poster: { type: 'string' },
         },
         required: ['action'],
       },

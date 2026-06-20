@@ -44,39 +44,11 @@ async def execute_tool(
             )
         )
 
-    if name == "mango_play":
-        content_type = tool_input.get("type")
-        content_id = tool_input.get("id")
-        if not isinstance(content_type, str) or not isinstance(content_id, str):
-            return _compact({"ok": False, "error": "type and id required"})
-        resume = bool(tool_input.get("resume"))
-        result = await asyncio.to_thread(
-            catalog_tools.tool_play,
-            settings,
-            content_type=content_type,
-            content_id=content_id,
-            resume=resume,
-        )
-        return _compact(result)
-
-    if name == "mango_play_continue":
-        tab = tool_input.get("tab")
-        tab_value = tab if isinstance(tab, str) else None
-        target = await asyncio.to_thread(
-            catalog_tools.tool_continue_target,
-            settings,
-            tab_value,
-        )
-        if not target.get("found"):
-            return _compact(target)
-        play_result = await asyncio.to_thread(
-            catalog_tools.tool_play,
-            settings,
-            content_type=str(target["type"]),
-            content_id=str(target["id"]),
-            resume=True,
-        )
-        return _compact({"continue": target, "play": play_result})
+    if name in {"mango_play", "mango_play_continue"}:
+        return _compact({
+            "ok": False,
+            "error": "voice cannot start playback — use mango_open_title after search",
+        })
 
     if name == "mango_now_playing":
         return _compact(await asyncio.to_thread(catalog_tools.tool_now_playing, settings))
@@ -98,7 +70,7 @@ async def execute_tool(
             )
         )
 
-    if name == "mango_navigate":
+    if name in {"mango_navigate", "mango_open_title"}:
         try:
             command = build_launcher_command(name, tool_input)
         except LauncherCommandError as exc:
@@ -113,17 +85,15 @@ async def execute_tool(
 def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
     if name == "mango_search":
         return f"Searching for {tool_input.get('query', '…')}"
-    if name == "mango_play":
-        return f"Starting playback ({tool_input.get('type')} {tool_input.get('id')})"
-    if name == "mango_play_continue":
-        return "Resuming continue watching"
+    if name == "mango_open_title":
+        return f"Opening {tool_input.get('title', 'title')}"
     if name == "mango_now_playing":
         return "Checking now playing"
     if name == "mango_library_shuffle":
         return "Shuffling home rails"
     if name == "mango_playability_refresh":
         return f"Library refresh ({tool_input.get('level', 'job')})"
-    if name == "mango_navigate":
+    if name in {"mango_navigate", "mango_open_title"}:
         try:
             command = build_launcher_command(name, tool_input)
             return summarize_launcher_command(command)
