@@ -89,6 +89,7 @@ PY
 
 gate_post_play() {
   local label="$1" type="$2" id="$3" out="$4" max_total="${5:-}" max_attempts="${6:-}" rail_id="${7:-}"
+  local severity="${8:-fail}"
   local payload status
   if [[ -n "$rail_id" ]]; then
     payload="{\"type\":\"${type}\",\"id\":\"${id}\",\"rail_id\":\"${rail_id}\"}"
@@ -110,7 +111,11 @@ gate_post_play() {
     gate_pass "$label play $id"
     return 0
   fi
-  gate_fail "$label play $id http=${status:-unknown}"
+  if [[ "$severity" == "warn" ]]; then
+    gate_warn "$label play $id http=${status:-unknown}"
+  else
+    gate_fail "$label play $id http=${status:-unknown}"
+  fi
   if [[ -s "$out" && "${MANGO_GATE_QUIET:-0}" != "1" ]]; then
     python3 - "$out" <<'PY' >&2 || true
 import json

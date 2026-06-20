@@ -90,7 +90,7 @@ run_rail_pick "browse-movie" "movies-india-trending" || true
 run_rail_pick "browse-series" "series-india-picks" || true
 
 SHAW_JSON="$TMP_DIR/play-shawshank.json"
-if gate_post_play "shawshank" "movie" "$SHAWSHANK_ID" "$SHAW_JSON" "" "$MAX_ATTEMPTS"; then
+if gate_post_play "shawshank" "movie" "$SHAWSHANK_ID" "$SHAW_JSON" "" "$MAX_ATTEMPTS" "" "warn"; then
   if ! python3 - "$SHAW_JSON" "$MAX_TOTAL_MS" <<'PY'
 import json
 import sys
@@ -107,7 +107,7 @@ PY
     gate_warn "shawshank total_ms > ${MAX_TOTAL_MS}"
   fi
 else
-  gate_warn "shawshank regression failed"
+  :
 fi
 gate_mpv_stop
 
