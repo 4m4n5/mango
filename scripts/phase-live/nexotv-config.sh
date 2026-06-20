@@ -120,12 +120,13 @@ wire_export() {
   nexotv_load_credentials || die "missing paid credentials — run: $0 apply-area69"
   [[ -f "$EXPORT" ]] || cp "${REPO_DIR}/config/stremio-export.example.json" "$EXPORT"
 
+  local paid_manifest="$NEXOTV_MANIFEST_URL"
   local free_manifest=""
   if nexotv_load_free_credentials 2>/dev/null; then
     free_manifest="$NEXOTV_MANIFEST_URL"
   fi
 
-  python3 - "$EXPORT" "$NEXOTV_MANIFEST_URL" "$free_manifest" <<'PY'
+  python3 - "$EXPORT" "$paid_manifest" "$free_manifest" <<'PY'
 import json, sys
 path, paid_manifest, free_manifest = sys.argv[1], sys.argv[2], sys.argv[3]
 data = json.load(open(path, encoding="utf-8"))
