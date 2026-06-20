@@ -25,12 +25,12 @@ rails:
       - { addon: Cinemeta, catalog: top, weight: 0.7 }
       - { addon: AIOMetadata, catalog: mdblist.88302, weight: 0.3 }
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 5
 
   - id: movies-india-trending
@@ -46,12 +46,12 @@ rails:
       - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.10 }
       - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.popmov, weight: 0.05 }
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 8
 
   - id: movies-classics
@@ -63,12 +63,12 @@ rails:
     content_type: movie
     limit: 20
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 5
 
   - id: movies-comedy
@@ -82,16 +82,16 @@ rails:
       - { addon: AIOMetadata, catalog: mdblist.128040, weight: 0.35 }
       - { addon: AIOMetadata, catalog: mdblist.3107, weight: 0.2 }
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 10
   - id: movies-quick-watches
     tab: movies
-    label: quick watches
+    label: gems & favorites
     type: composite_list
     content_type: movie
     limit: 20
@@ -99,12 +99,12 @@ rails:
       - { addon: AIOMetadata, catalog: mdblist.88302, weight: 0.7 }
       - { addon: AIOMetadata, catalog: mdblist.83666, weight: 0.3 }
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 8
 
   - id: movies-documentaries
@@ -120,12 +120,12 @@ rails:
       - { addon: AIOMetadata, catalog: mdblist.100477, weight: 0.1 }
       - { addon: AIOMetadata, catalog: mdblist.84677, weight: 0.1 }
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 10
   - id: series-global-popular
     tab: series
@@ -137,12 +137,12 @@ rails:
       - { addon: Cinemeta, catalog: top, weight: 0.8 }
       - { addon: AIOMetadata, catalog: mdblist.105797, weight: 0.2 }
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 5
 
   - id: series-india-picks
@@ -158,12 +158,12 @@ rails:
       - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.10 }
       - { addon: Cinemeta, catalog: top, weight: 0.05 }
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 10
 
   - id: series-classics
@@ -175,12 +175,12 @@ rails:
     content_type: series
     limit: 20
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 5
 
   - id: series-miniseries
@@ -194,12 +194,12 @@ rails:
       - { addon: AIOMetadata, catalog: mdblist.169800, weight: 0.3 }
       - { addon: AIOMetadata, catalog: mdblist.130153, weight: 0.15 }
     playability:
-      display_limit: 20
-      min_display: 20
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 8
   - id: series-reality-casual
     tab: series
@@ -211,12 +211,12 @@ rails:
       - { addon: Cinemeta, catalog: top, weight: 0.65 }
       - { addon: AIOMetadata, catalog: mdblist.105797, weight: 0.35 }
     playability:
-      display_limit: 20
-      min_display: 12
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 10
 
   - id: series-comedy
@@ -231,12 +231,12 @@ rails:
       - { addon: AIOMetadata, catalog: mdblist.3122, weight: 0.15 }
       - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.1 }
     playability:
-      display_limit: 20
-      min_display: 12
+      display_limit: 9
+      min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 10
       pool_max: 120
-      display_max: 28
+      display_max: 9
       ingest_multiplier: 10
   - id: continue
     label: continue watching

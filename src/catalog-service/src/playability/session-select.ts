@@ -6,7 +6,7 @@ export function titleKey(type: string, id: string): string {
 export const TAB_SESSION_ANCHOR_RAIL_COUNT = 3;
 
 /** Guaranteed display slots per rail before top-up (tab-wide dedup). */
-export const TAB_SESSION_RESERVE_FLOOR = 8;
+export const TAB_SESSION_RESERVE_FLOOR = 4;
 
 /** Niche rails (later in catalog yaml) pick reserved slots first so tab-wide dedup does not starve them. */
 export function railsForTabSessionAllocation<T>(rails: T[]): T[] {
@@ -27,9 +27,15 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
   railsInYamlOrder: TabSessionRailRequest[],
   pools: Map<string, T[]>,
   recentKeysByRail: Map<string, Set<string>>,
-  options: { reserveFloor?: number; anchorRailCount?: number; shuffleFn?: (items: T[]) => T[] } = {},
+  options: {
+    reserveFloor?: number;
+    anchorRailCount?: number;
+    shuffleFn?: (items: T[]) => T[];
+    stableRatio?: number;
+  } = {},
 ): Map<string, SessionSelectedItem<T>[]> {
   const floor = options.reserveFloor ?? TAB_SESSION_RESERVE_FLOOR;
+  const stableRatio = options.stableRatio;
   const anchorCount = Math.min(
     options.anchorRailCount ?? TAB_SESSION_ANCHOR_RAIL_COUNT,
     railsInYamlOrder.length,
@@ -46,6 +52,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
       recentKeys: recentKeysByRail.get(rail.railId) ?? new Set(),
       occupiedKeys: tabOccupied,
       shuffleFn,
+      stableRatio,
     });
     const existing = selections.get(rail.railId) ?? [];
     const merged = [...existing, ...picked].slice(0, reserve);
@@ -76,6 +83,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
       recentKeys: recentKeysByRail.get(rail.railId) ?? new Set(),
       occupiedKeys: tabOccupied,
       shuffleFn,
+      stableRatio,
     });
     const merged = [...existing, ...extra].slice(0, rail.displayLimit);
     selections.set(rail.railId, merged);
@@ -108,6 +116,7 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     recentKeys: Set<string>;
     occupiedKeys: Set<string>;
     shuffleFn?: (items: T[]) => T[];
+    stableRatio?: number;
   },
 ): SessionSelectedItem<T>[] {
   const {
@@ -115,11 +124,12 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     recentKeys,
     occupiedKeys,
     shuffleFn = defaultShuffle,
+    stableRatio = 0.7,
   } = options;
 
   const blocked = (item: T): boolean => occupiedKeys.has(titleKey(item.type, item.id));
   const available = pool.filter((item) => !blocked(item));
-  const stableTarget = Math.ceil(displayLimit * 0.7);
+  const stableTarget = Math.ceil(displayLimit * Math.min(1, Math.max(0, stableRatio)));
   const stable = available
     .filter((item) => !recentKeys.has(titleKey(item.type, item.id)))
     .slice(0, stableTarget);

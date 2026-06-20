@@ -16,6 +16,13 @@
         <div id="rails" class="rails" aria-label="Browse"></div>
       </section>
 
+      <nav id="shell-dock" class="shell-dock" aria-label="Library controls">
+        <button id="library-refresh" class="shell-dock-btn" type="button" data-shell-focus="true">
+          <span class="shell-dock-icon" aria-hidden="true">↻</span>
+          <span class="shell-dock-label">refresh</span>
+        </button>
+      </nav>
+
       <section id="detail-view" class="view detail hidden" aria-label="Title detail">
         <div class="detail-poster-wrap">
           <img id="detail-poster" class="detail-poster" alt="" />
@@ -27,6 +34,7 @@
           <p id="detail-description" class="detail-description">loading details…</p>
           <div class="detail-actions">
             <button id="detail-play" class="detail-button detail-button--primary" type="button">play</button>
+            <button id="detail-pin" class="detail-button" type="button">pin</button>
             <button id="detail-back" class="detail-button" type="button">back</button>
           </div>
           <div id="detail-streams" class="detail-streams" hidden aria-label="Streams">
@@ -80,7 +88,7 @@
         <div id="settings-refresh" class="settings-refresh" aria-label="Library refresh"></div>
       </section>
 
-      <p id="status" class="status shell-status" role="status">D-pad to browse. B to select. ⌂ for home.</p>
+      <p id="status" class="status shell-status" role="status">D-pad to browse. B to select. − to refresh library.</p>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

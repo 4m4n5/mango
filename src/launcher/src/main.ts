@@ -5,11 +5,13 @@ import { DetailController } from "./detail";
 import { buildHomeRails, buildBrowseTabs, type CatalogState, type HomeOptions } from "./home";
 import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
+import { fetchPinnedIds } from "./pins";
 import type { ApiInfo, AppCard, ContentCard, LaunchAction, BrowseTab } from "./types";
 
 const homeView = mustGet<HTMLElement>("home-view");
 const browseTabsEl = mustGet<HTMLElement>("browse-tabs");
 const railsEl = mustGet<HTMLElement>("rails");
+const libraryRefreshBtn = mustGet<HTMLButtonElement>("library-refresh");
 const detailView = mustGet<HTMLElement>("detail-view");
 const detailPoster = mustGet<HTMLImageElement>("detail-poster");
 const detailEyebrow = mustGet<HTMLElement>("detail-eyebrow");
@@ -17,6 +19,7 @@ const detailTitle = mustGet<HTMLElement>("detail-title");
 const detailMeta = mustGet<HTMLElement>("detail-meta");
 const detailDescription = mustGet<HTMLElement>("detail-description");
 const detailPlay = mustGet<HTMLButtonElement>("detail-play");
+const detailPin = mustGet<HTMLButtonElement>("detail-pin");
 const detailBack = mustGet<HTMLButtonElement>("detail-back");
 const detailStreams = mustGet<HTMLElement>("detail-streams");
 const detailStreamList = mustGet<HTMLElement>("detail-stream-list");
@@ -32,6 +35,8 @@ let homeOptions: HomeOptions = { fallbackStremio: false, legacyYoutube: false };
 let activeBrowseTab: BrowseTab = "movies";
 let catalogState: CatalogState = { status: "loading" };
 let catalogRetryTimer: number | undefined;
+let libraryRefreshInFlight = false;
+let pinnedKeys = new Set<string>();
 
 const focusGrid = new FocusGrid((element) => {
   element.classList.add("focused");
@@ -54,12 +59,14 @@ const detail = new DetailController(
   detailMeta,
   detailDescription,
   detailPlay,
+  detailPin,
   detailBack,
   detailStreams,
   detailStreamList,
   {
     onClose: restoreHomeFromDetail,
     onStatus: setStatus,
+    onPinsChanged: () => void reloadPinsAndCatalog(),
   },
 );
 
@@ -69,15 +76,19 @@ function init(): void {
   renderHome();
 
   backButton.addEventListener("click", showHome);
+  libraryRefreshBtn.addEventListener("click", () => void libraryRefresh());
   document.addEventListener("keydown", handleKeydown);
+  window.addEventListener("mango:library-refresh", () => void libraryRefresh({ quiet: true }));
   void loadInfo();
   void loadCatalog();
   startVoiceHud();
 }
 
 function renderHome(): void {
+  const dockButtons = [libraryRefreshBtn];
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
   focusGridRows = [
+    dockButtons,
     tabButtons,
     ...buildHomeRails(railsEl, {
       onContentSelect: handleContentSelect,
@@ -86,6 +97,7 @@ function renderHome(): void {
       ...homeOptions,
       browseTab: activeBrowseTab,
       onBrowseTabChange: handleBrowseTabChange,
+      pinnedKeys,
     }, catalogState),
   ];
   focusGrid.setRows(focusGridRows);
@@ -152,7 +164,7 @@ function handleKeydown(event: KeyboardEvent): void {
 
   if (event.key === "F5" && !detail.isOpen && !homeView.classList.contains("hidden")) {
     event.preventDefault();
-    void loadCatalog({ reshuffle: true });
+    void libraryRefresh();
     return;
   }
 
@@ -194,7 +206,7 @@ function handleContentSelect(card: ContentCard, railLabel: string): void {
   inSettings = false;
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
-  detail.show(card, railLabel);
+  detail.show(card, railLabel, activeBrowseTab, pinnedKeys.has(`${card.type}:${card.id}`));
 }
 
 function handleAppSelect(app: AppCard): void {
@@ -262,7 +274,7 @@ function showHome(): void {
   detailView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. ⌂ on home shuffles rails.");
+  setStatus("D-pad to browse. B to select. − to refresh library.");
 }
 
 function restoreHomeFromDetail(): void {
@@ -270,7 +282,38 @@ function restoreHomeFromDetail(): void {
   settingsView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. B to select. ⌂ on home shuffles rails.");
+  setStatus("D-pad to browse. B to select. − to refresh library.");
+}
+
+async function reloadPinsAndCatalog(): Promise<void> {
+  try {
+    pinnedKeys = await fetchPinnedIds(activeBrowseTab);
+  } catch {
+    pinnedKeys = new Set();
+  }
+  await loadCatalog();
+}
+
+async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> {
+  if (libraryRefreshInFlight || detail.isOpen || inSettings) {
+    return;
+  }
+  libraryRefreshInFlight = true;
+  libraryRefreshBtn.classList.add("shell-dock-btn--active");
+  railsEl.classList.add("rails--refreshing");
+  if (!options.quiet) {
+    setStatus("refreshing your library…");
+  }
+  try {
+    await loadCatalog({ reshuffle: true });
+    if (!options.quiet) {
+      setStatus("fresh picks across every rail — keep browsing.");
+    }
+  } finally {
+    libraryRefreshInFlight = false;
+    libraryRefreshBtn.classList.remove("shell-dock-btn--active");
+    window.setTimeout(() => railsEl.classList.remove("rails--refreshing"), 650);
+  }
 }
 
 async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void> {
@@ -279,7 +322,12 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     catalogRetryTimer = undefined;
   }
   if (options.reshuffle) {
-    setStatus("shuffling home rails…");
+    setStatus("refreshing your library…");
+  }
+  try {
+    pinnedKeys = await fetchPinnedIds(activeBrowseTab);
+  } catch {
+    pinnedKeys = new Set();
   }
   catalogState = { status: "loading" };
   renderHome();
@@ -290,8 +338,8 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     const itemCount = rails.reduce((total, rail) => total + rail.cards.length, 0);
     setStatus(itemCount > 0
       ? options.reshuffle
-        ? "home rails shuffled. D-pad to browse."
-        : "D-pad to browse. B to select. ⌂ on home shuffles rails."
+        ? "fresh picks across every rail — keep browsing."
+        : "D-pad to browse. B to select. − to refresh library."
       : "catalog loaded with no posters");
   } catch (error) {
     catalogState = {

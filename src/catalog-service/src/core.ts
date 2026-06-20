@@ -60,6 +60,9 @@ import { resolvePosterFromMeta } from './poster.js';
 import { CONTINUE_RAIL_ID } from './progress/config.js';
 import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
 import { assembleSeriesEpisodes, type SeriesEpisodesResponse } from './episodes.js';
+import { listUserPins } from './user-pins.js';
+
+export const PINNED_RAIL_ID = 'pinned';
 
 export { CatalogError } from './catalog-errors.js';
 
@@ -536,6 +539,55 @@ export class CatalogCore {
       .filter((id) => id !== rail.id);
   }
 
+  private async buildPinnedRail(tab: CatalogTab): Promise<RailItemsResponse> {
+    const started = Date.now();
+    const pins = await listUserPins(tab);
+    const items: RailItem[] = [];
+
+    for (const pin of pins) {
+      let title = pin.title;
+      let poster = pin.poster;
+      let year: number | string | undefined;
+      let description: string | undefined;
+      try {
+        const meta = await this.metaCached(pin.type, pin.id);
+        title = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
+          || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
+          || title;
+        poster = resolvePosterFromMeta(meta) || poster;
+        year = metaYear(meta);
+        description = typeof meta.description === 'string' ? meta.description : undefined;
+      } catch {
+        // keep stored snapshot
+      }
+      items.push({
+        id: pin.id,
+        type: pin.type,
+        title,
+        subtitle: year ? String(year) : pin.type,
+        poster: poster || '',
+        year,
+        description,
+        source: 'pinned',
+      });
+    }
+
+    return {
+      rail_id: PINNED_RAIL_ID,
+      label: 'pinned',
+      items,
+      resolve_ms: Date.now() - started,
+      skipped: 0,
+      playability: {
+        displayed: items.length,
+        verified_pool: items.length,
+        pending: 0,
+        low_water: false,
+        session_id: this.playabilitySessionId,
+      },
+    };
+  }
+
   private async buildContinueRail(tab: CatalogTab): Promise<RailItemsResponse> {
     const started = Date.now();
     const candidates = listContinueItems(tab);
@@ -630,13 +682,14 @@ export class CatalogCore {
   }
 
   async tabRailItems(tab: CatalogTab, options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
-    if (options.reshuffle) {
+    const reshuffle = Boolean(options.reshuffle);
+    if (reshuffle) {
       this.reshufflePlayabilitySession();
     }
 
     const cachedTab = this.tabRailItemsCache.get(tab);
     if (
-      !options.reshuffle
+      !reshuffle
       && cachedTab
       && cachedTab.expiresAt > Date.now()
       && cachedTab.payload.rails.every((rail) => rail.playability?.low_water !== true)
@@ -654,6 +707,8 @@ export class CatalogCore {
         minDisplay: rail.playability.min_display,
         playability: rail.playability,
       })),
+      forceReshuffle: reshuffle,
+      stableRatio: reshuffle ? 0.15 : undefined,
     });
 
     const responses: RailItemsResponse[] = [];
@@ -674,6 +729,12 @@ export class CatalogCore {
     const continueRail = await this.buildContinueRail(tab);
     if (continueRail.items.length > 0) {
       visibleRails.unshift(continueRail);
+    }
+    const pinnedRail = await this.buildPinnedRail(tab);
+    if (pinnedRail.items.length > 0) {
+      const continueIndex = visibleRails.findIndex((rail) => rail.rail_id === CONTINUE_RAIL_ID);
+      const insertAt = continueIndex >= 0 ? continueIndex + 1 : 0;
+      visibleRails.splice(insertAt, 0, pinnedRail);
     }
 
     const payload: TabRailItemsResponse = {

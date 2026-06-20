@@ -68,9 +68,9 @@ const DEFAULT_CATALOG_PATH = '/etc/mango/catalog.yaml';
 const DEFAULT_RAIL_LIMIT = 20;
 const MAX_RAIL_LIMIT = 50;
 export const DEFAULT_PLAYABILITY_CONFIG: RailPlayabilityConfig = {
-  display_limit: 12,
-  display_max: 24,
-  min_display: 8,
+  display_limit: 9,
+  display_max: 9,
+  min_display: 6,
   ingest_multiplier: 5,
   pool_target: 60,
   pool_growth_per_refresh: 10,

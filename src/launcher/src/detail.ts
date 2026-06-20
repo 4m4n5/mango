@@ -6,12 +6,14 @@ import {
   type CatalogMeta,
   type CatalogStream,
 } from "./catalog";
-import type { ContentCard } from "./types";
+import type { ContentCard, BrowseTab } from "./types";
+import { pinCard, unpinCard } from "./pins";
 import { bindPosterImage } from "./poster";
 
 export interface DetailCallbacks {
   onClose: () => void;
   onStatus: (message: string) => void;
+  onPinsChanged?: () => void;
 }
 
 export class DetailController {
@@ -22,6 +24,8 @@ export class DetailController {
   private streams: CatalogStream[] = [];
   private streamButtons: HTMLButtonElement[] = [];
   private streamsLoadToken = 0;
+  private browseTab: BrowseTab = "movies";
+  private pinned = false;
 
   constructor(
     private readonly view: HTMLElement,
@@ -31,12 +35,14 @@ export class DetailController {
     private readonly meta: HTMLElement,
     private readonly description: HTMLElement,
     private readonly playButton: HTMLButtonElement,
+    private readonly pinButton: HTMLButtonElement,
     private readonly backButton: HTMLButtonElement,
     private readonly streamsWrap: HTMLElement,
     private readonly streamList: HTMLElement,
     private readonly callbacks: DetailCallbacks,
   ) {
     this.playButton.addEventListener("click", () => void this.play());
+    this.pinButton.addEventListener("click", () => void this.togglePin());
     this.backButton.addEventListener("click", () => this.hide());
   }
 
@@ -44,8 +50,10 @@ export class DetailController {
     return this.card !== null;
   }
 
-  show(card: ContentCard, railLabel: string): void {
+  show(card: ContentCard, railLabel: string, tab: BrowseTab, pinned = false): void {
     this.card = card;
+    this.browseTab = tab;
+    this.pinned = pinned;
     this.focusIndex = 0;
     this.streams = [];
     this.streamButtons = [];
@@ -59,6 +67,7 @@ export class DetailController {
     bindPosterImage(this.poster, card.title);
     this.poster.alt = "";
     this.view.classList.remove("hidden");
+    this.updatePinButton();
     this.applyFocus();
     this.callbacks.onStatus("B to play. Y to go back.");
     void this.loadFullMeta(card);
@@ -175,7 +184,38 @@ export class DetailController {
   }
 
   private focusables(): HTMLElement[] {
-    return [this.playButton, this.backButton, ...this.streamButtons];
+    return [this.playButton, this.pinButton, this.backButton, ...this.streamButtons];
+  }
+
+  private updatePinButton(): void {
+    this.pinButton.textContent = this.pinned ? "unpin" : "pin";
+    this.pinButton.setAttribute("aria-pressed", this.pinned ? "true" : "false");
+  }
+
+  private async togglePin(): Promise<void> {
+    const card = this.card;
+    if (!card) {
+      return;
+    }
+    this.pinButton.disabled = true;
+    try {
+      if (this.pinned) {
+        await unpinCard(this.browseTab, card);
+        this.pinned = false;
+        this.callbacks.onStatus("removed from pinned.");
+      } else {
+        await pinCard(this.browseTab, card);
+        this.pinned = true;
+        this.callbacks.onStatus("pinned — find it in your pinned rail.");
+      }
+      this.updatePinButton();
+      this.callbacks.onPinsChanged?.();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "could not update pin";
+      this.callbacks.onStatus(message);
+    } finally {
+      this.pinButton.disabled = false;
+    }
   }
 
   private async loadStreamList(card: ContentCard): Promise<void> {

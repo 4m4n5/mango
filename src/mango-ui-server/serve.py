@@ -174,6 +174,13 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             )
         self._write_json({"ok": True})
 
+    def do_DELETE(self) -> None:
+        path = urlparse(self.path).path
+        if path.startswith("/api/catalog/"):
+            self._proxy_catalog("DELETE")
+            return
+        self._write_json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
+
     def log_message(self, fmt: str, *args: object) -> None:
         print(f"{self.address_string()} - {fmt % args}", file=sys.stderr)
 

@@ -1,5 +1,6 @@
 import type { AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 import { bindPosterImage } from "./poster";
+import { applyRailLayout, observeRailLayouts } from "./layout";
 
 export interface HomeCallbacks {
   onContentSelect: (card: ContentCard, railLabel: string) => void;
@@ -11,6 +12,8 @@ export interface HomeOptions {
   legacyYoutube: boolean;
   browseTab?: BrowseTab;
   onBrowseTabChange?: (tab: BrowseTab) => void;
+  pinnedKeys?: Set<string>;
+  onLayoutApplied?: () => void;
 }
 
 export type CatalogState =
@@ -60,7 +63,14 @@ export function buildHomeRails(
 
   const rows: HTMLElement[][] = [];
 
-  rows.push(...appendCatalogSections(container, callbacks, catalogState));
+  rows.push(...appendCatalogSections(container, callbacks, catalogState, options));
+
+  if (catalogState.status === "ready") {
+    window.requestAnimationFrame(() => {
+      observeRailLayouts(container);
+      options.onLayoutApplied?.();
+    });
+  }
 
   const appsSection = document.createElement("section");
   appsSection.className = "rail rail--apps";
@@ -119,6 +129,7 @@ function appendCatalogSections(
   container: HTMLElement,
   callbacks: HomeCallbacks,
   catalogState: CatalogState,
+  options: HomeOptions,
 ): HTMLElement[][] {
   if (catalogState.status === "loading") {
     container.appendChild(createCatalogMessage("catalog", "loading", "loading catalog…", "posters will appear here when the Pi responds."));
@@ -156,10 +167,11 @@ function appendCatalogSections(
 
     const items: HTMLElement[] = [];
     for (const card of rail.cards) {
-      const button = createPosterCard(card, rail.label, callbacks);
+      const button = createPosterCard(card, rail.label, callbacks, options.pinnedKeys);
       track.appendChild(button);
       items.push(button);
     }
+    applyRailLayout(track, rail.cards.length);
     section.appendChild(track);
     container.appendChild(section);
     rows.push(items);
@@ -201,10 +213,14 @@ function createPosterCard(
   card: ContentCard,
   railLabel: string,
   callbacks: HomeCallbacks,
+  pinnedKeys: Set<string> = new Set(),
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "card card--poster";
+  if (pinnedKeys.has(`${card.type}:${card.id}`)) {
+    button.classList.add("card--pinned");
+  }
   button.setAttribute("role", "listitem");
   button.setAttribute("aria-label", `${card.title}, ${card.subtitle}`);
 

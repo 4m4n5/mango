@@ -17,6 +17,11 @@ import {
   startRefreshLevel,
 } from './playability/refresh-control.js';
 import { parseCatalogTab } from './rails.js';
+import {
+  addUserPin,
+  listUserPins,
+  removeUserPin,
+} from './user-pins.js';
 import { streamUrlHash } from './stream-filters.js';
 import {
   parseFilterOverridesFromQuery,
@@ -302,6 +307,50 @@ async function main(): Promise<void> {
     void (async () => {
       const url = new URL(req.url || '/', `http://${HOST}:${PORT}`);
       const parts = routeParts(url);
+
+      if (req.method === 'GET' && parts.length === 1 && parts[0] === 'pins') {
+        const tab = parseCatalogTab(url.searchParams.get('tab'));
+        if (!tab) {
+          throw new CatalogError(400, 'GET /pins requires tab=movies|series');
+        }
+        const pins = await listUserPins(tab);
+        sendJson(res, 200, { ok: true, tab, pins });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 1 && parts[0] === 'pins') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const tab = parseCatalogTab(typeof body.tab === 'string' ? body.tab : null);
+        if (!tab || !body.type || !body.id) {
+          throw new CatalogError(400, 'POST /pins requires { tab, type, id }');
+        }
+        const pin = await addUserPin({
+          tab,
+          type: String(body.type),
+          id: String(body.id),
+          title: typeof body.title === 'string' ? body.title : undefined,
+          poster: typeof body.poster === 'string' ? body.poster : undefined,
+        });
+        core.clearRailItemsCache();
+        sendJson(res, 200, { ok: true, pin });
+        return;
+      }
+
+      if (req.method === 'DELETE' && parts.length === 1 && parts[0] === 'pins') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const tab = parseCatalogTab(typeof body.tab === 'string' ? body.tab : null);
+        if (!tab || !body.type || !body.id) {
+          throw new CatalogError(400, 'DELETE /pins requires { tab, type, id }');
+        }
+        const removed = await removeUserPin({
+          tab,
+          type: String(body.type),
+          id: String(body.id),
+        });
+        core.clearRailItemsCache();
+        sendJson(res, 200, { ok: true, removed });
+        return;
+      }
 
       if (req.method === 'GET' && parts.length === 1 && parts[0] === 'health') {
         sendJson(res, 200, core.health());

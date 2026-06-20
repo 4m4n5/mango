@@ -23,8 +23,8 @@ export type RefreshLevel = {
 export const REFRESH_LEVELS: RefreshLevel[] = [
   {
     id: 'shuffle_rails',
-    label: 'Shuffle home rails',
-    description: 'Re-pick posters from the verified pool. No new stream checks.',
+    label: 'Refresh library',
+    description: 'Re-pick diverse titles from verified pools across every rail.',
     estimated_sec: 5,
     estimated_label: '~5 sec',
     blocks_couch: false,

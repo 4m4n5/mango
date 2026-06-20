@@ -27,6 +27,18 @@ launch_home_once() {
   fi
 }
 
+trigger_library_refresh() {
+  curl -sf -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/playability/session/reshuffle" \
+    >/dev/null 2>&1 || true
+  if command -v xdotool >/dev/null 2>&1; then
+    local wid
+    wid="$(xdotool search --onlyvisible --class chromium 2>/dev/null | head -1 || true)"
+    if [[ -n "$wid" ]]; then
+      xdotool key --window "$wid" F5 >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
 if [[ -S "$SOCKET" ]]; then
   curl -s -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
   echo '{"command":["quit"]}' | socat - "$SOCKET" >/dev/null 2>&1 || true
@@ -38,5 +50,9 @@ pkill -x mpv 2>/dev/null || true
 rm -f "${HOME}/.cache/mango/mpv.pid" "$SOCKET"
 
 launch_home_once
+
+if [[ "${GO_HOME}" == "1" ]]; then
+  trigger_library_refresh
+fi
 
 exit 0

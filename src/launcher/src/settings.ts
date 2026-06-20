@@ -44,7 +44,7 @@ function createShuffleButton(onStatus: (message: string) => void): HTMLButtonEle
   button.type = "button";
   button.className = "settings-action settings-action--primary";
   button.dataset.settingsFocus = "true";
-  button.innerHTML = "<span class=\"settings-action-title\">Shuffle home rails</span><span class=\"settings-action-meta\">~5 sec · verified pool only</span>";
+  button.innerHTML = "<span class=\"settings-action-title\">Refresh library</span><span class=\"settings-action-meta\">~5 sec · diverse re-pick</span>";
   button.addEventListener("click", () => {
     void runRefresh("shuffle_rails", onStatus, button);
   });
@@ -80,7 +80,7 @@ async function runRefresh(
   try {
     const result = await startRefreshLevel(level);
     if (result.mode === "inline") {
-      onStatus("home rails shuffled — press ⌂ on home to shuffle again");
+      onStatus("library refreshed — press − on the pad to refresh again");
       return;
     }
     const minutes = Math.max(1, Math.round((result.estimated_sec ?? 300) / 60));

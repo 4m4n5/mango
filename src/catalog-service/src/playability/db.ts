@@ -133,6 +133,8 @@ export type TabRailSessionRequest = {
 export type TabRailSessionAllocateOptions = {
   sessionId: string;
   rails: TabRailSessionRequest[];
+  forceReshuffle?: boolean;
+  stableRatio?: number;
 };
 
 export type PlayabilityTriggerRecord = {
@@ -958,7 +960,7 @@ export async function allocateTabRailSessions(
     const existingByRail = new Map<string, RailSessionPoolItem[]>();
     const curatedPools = new Map<string, ReturnType<typeof readRailPool>>();
     const poolSizes = new Map<string, number>();
-    let canReuseExisting = options.rails.length > 0;
+    let canReuseExisting = options.rails.length > 0 && !options.forceReshuffle;
 
     for (const rail of options.rails) {
       const pool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides);
@@ -1015,6 +1017,9 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
         }),
         pools,
         recentKeysByRail,
+        {
+          stableRatio: options.stableRatio,
+        },
       );
 
       for (const rail of options.rails) {

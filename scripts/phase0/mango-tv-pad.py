@@ -39,6 +39,7 @@ MPV_STOP_SH = REPO / "scripts/phase-n1/mpv-stop.sh"
 
 BTN_B = 304
 BTN_Y = 308
+BTN_MINUS = 314
 HOME_BUTTONS = {316, 311}
 BT_MAC = "E4:17:D8:EB:00:44"
 RECONNECT_SLEEP_SEC = 0.75
@@ -255,6 +256,10 @@ def reshuffle_launcher_rails() -> None:
     send_key_launcher("F5")
 
 
+def refresh_launcher_library() -> None:
+    reshuffle_launcher_rails()
+
+
 def go_home() -> None:
     name, klass = active_window_meta()
     app = foreground_app()
@@ -264,9 +269,11 @@ def go_home() -> None:
             foreground=app,
             active_name=name,
             active_class=klass,
-            action="reshuffle_rails",
+            action="focus_launcher",
         )
-        reshuffle_launcher_rails()
+        wid = find_best_wid("mango-launcher", "mango")
+        if wid:
+            _xdotool("windowactivate", "--sync", wid)
         return
     diag_event("home_press", foreground=app, active_name=name, active_class=klass)
     if app == "mpv":
@@ -395,6 +402,8 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                     debounced(f"{app}-select", lambda: route_face(app, "select"))
                 elif event.code == BTN_Y:
                     debounced(f"{app}-back", lambda: route_face(app, "back"))
+                elif event.code == BTN_MINUS and app == "launcher":
+                    debounced("refresh", refresh_launcher_library)
                 elif event.code in HOME_BUTTONS:
                     debounced("home", go_home)
     except OSError as exc:
