@@ -70,9 +70,22 @@ play_pick() {
 
 run_rail_pick() {
   local label="$1" rail_id="$2"
+  local fallback_rail_id="${3:-}"
   local items_json="$TMP_DIR/${rail_id}.json"
   local max_tries="${MANGO_N3A_PICK_RETRIES:-5}"
   local attempt=1
+  local item_count
+  item_count="$(curl -sf --max-time 30 "http://127.0.0.1:3020/rails/${rail_id}/items" >"$items_json" \
+    && python3 - "$items_json" <<'PY' || echo 0
+import json, sys
+print(len(json.load(open(sys.argv[1], encoding="utf-8")).get("items") or []))
+PY
+)"
+  if [[ "${item_count:-0}" -eq 0 && -n "$fallback_rail_id" ]]; then
+    gate_warn "${label} rail=${rail_id} empty; fallback=${fallback_rail_id}"
+    rail_id="$fallback_rail_id"
+    items_json="$TMP_DIR/${rail_id}.json"
+  fi
   while (( attempt <= max_tries )); do
     local picked item_type item_id title
     picked="$(pick_rail_item "$rail_id" "$items_json")" || return 1
@@ -95,8 +108,8 @@ PY
   return 1
 }
 
-run_rail_pick "browse-movie" "movies-india-trending" || true
-run_rail_pick "browse-series" "series-india-picks" || true
+run_rail_pick "browse-movie" "movies-india-trending" "movies-global-popular" || true
+run_rail_pick "browse-series" "series-india-picks" "series-global-popular" || true
 
 SHAW_JSON="$TMP_DIR/play-shawshank.json"
 if gate_post_play "shawshank" "movie" "$SHAWSHANK_ID" "$SHAW_JSON" "" "$MAX_ATTEMPTS" "" "warn"; then
