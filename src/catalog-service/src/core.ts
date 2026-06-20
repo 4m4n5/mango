@@ -73,9 +73,13 @@ import {
 import {
   verifyLiveChannelCandidates,
   type VerifiedLiveChannel,
-  isBlockedLiveStreamUrl,
   isBlockedLiveChannel,
 } from './live-stream-verify.js';
+import {
+  readLiveRailsDiskCache,
+  writeLiveRailsDiskCache,
+  liveRailsDiskCacheFresh,
+} from './live-rails-cache.js';
 
 const LIVE_TAB_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -172,6 +176,7 @@ export type TabRailItemsResponse = {
   rails: RailItemsResponse[];
   resolve_ms: number;
   cached?: boolean;
+  stale?: boolean;
 };
 
 type Addon = {
@@ -641,13 +646,26 @@ export class CatalogCore {
     return tagged;
   }
 
+  private orderLiveCandidates(
+    candidates: TaggedLiveChannel[],
+    config: LiveRailConfig,
+  ): TaggedLiveChannel[] {
+    const order = new Map(config.sources.map((source, index) => [source.addon, index]));
+    return [...candidates].sort((left, right) => {
+      const leftOrder = order.get(left.source_addon) ?? 99;
+      const rightOrder = order.get(right.source_addon) ?? 99;
+      return leftOrder - rightOrder;
+    });
+  }
+
   private async verifyRailChannels(
     rail: LiveSportRail,
     candidates: TaggedLiveChannel[],
     config: LiveRailConfig,
   ): Promise<VerifiedLiveChannel[]> {
-    if (!config.verify_streams || candidates.length === 0) {
-      return candidates.slice(0, rail.limit).map((channel) => ({
+    const ordered = this.orderLiveCandidates(candidates, config);
+    if (!config.verify_streams || ordered.length === 0) {
+      return ordered.slice(0, rail.limit).map((channel) => ({
         ...channel,
         source_addon: channel.source_addon,
         source_label: channel.source_label,
@@ -655,7 +673,7 @@ export class CatalogCore {
     }
 
     const bySource = new Map<string, TaggedLiveChannel[]>();
-    for (const channel of candidates) {
+    for (const channel of ordered) {
       const bucket = bySource.get(channel.source_addon) || [];
       bucket.push(channel);
       bySource.set(channel.source_addon, bucket);
@@ -690,7 +708,7 @@ export class CatalogCore {
       return verified.slice(0, rail.limit);
     }
     // NexoTV rate limits stream resolves — still surface free legal channels for browse.
-    const freeFallback = candidates
+    const freeFallback = ordered
       .filter((channel) => channel.source_label === 'free' && !isBlockedLiveChannel(channel))
       .slice(0, rail.limit)
       .map((channel) => ({
@@ -728,6 +746,16 @@ export class CatalogCore {
       return { ...cached.payload, cached: true };
     }
 
+    const diskCache = await readLiveRailsDiskCache();
+    if (!reshuffle && liveRailsDiskCacheFresh(diskCache) && !cached) {
+      const payload = diskCache.payload as TabRailItemsResponse;
+      this.liveTabRailItemsCache = {
+        payload,
+        expiresAt: diskCache.expires_at,
+      };
+      return { ...payload, cached: true };
+    }
+
     const started = Date.now();
     const config = this.requireLiveRailConfig();
     const tagged = await this.fetchTaggedLiveChannels(config);
@@ -751,20 +779,28 @@ export class CatalogCore {
       responses.unshift(pinnedRail);
     }
 
+    if (responses.length === 0) {
+      const fallback = cached?.payload
+        || (liveRailsDiskCacheFresh(diskCache) ? diskCache.payload as TabRailItemsResponse : null);
+      if (fallback && fallback.rails.length > 0) {
+        return { ...fallback, cached: true, stale: true };
+      }
+      this.liveTabRailItemsCache = null;
+      return { tab: 'live', rails: [], resolve_ms: Date.now() - started };
+    }
+
     const payload: TabRailItemsResponse = {
       tab: 'live',
       rails: responses,
       resolve_ms: Date.now() - started,
     };
-    if (responses.length > 0) {
-      const ttlMs = (config.cache_ttl_sec ?? 600) * 1000;
-      this.liveTabRailItemsCache = {
-        payload,
-        expiresAt: Date.now() + Math.max(ttlMs, LIVE_TAB_CACHE_TTL_MS),
-      };
-    } else {
-      this.liveTabRailItemsCache = null;
-    }
+    const ttlMs = (config.cache_ttl_sec ?? 600) * 1000;
+    const expiresAt = Date.now() + Math.max(ttlMs, LIVE_TAB_CACHE_TTL_MS);
+    this.liveTabRailItemsCache = { payload, expiresAt };
+    await writeLiveRailsDiskCache(
+      { ...payload, tab: 'live' },
+      Math.ceil((expiresAt - Date.now()) / 1000),
+    ).catch(() => undefined);
     return payload;
   }
 

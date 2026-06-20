@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Live IPTV gate — NexoTV health, catalog, stream resolve, headless mpv probe.
 #
+# Opt-in only — excluded from gate-lite / pre-couch gates (hammers NexoTV rate limits).
+#
 # Usage:
-#   bash scripts/phase-live/gate-live-iptv.sh
-#   MANGO_LIVE_PLAY=1 bash scripts/phase-live/gate-live-iptv.sh   # fullscreen play smoke (Pi couch)
+#   MANGO_LIVE_GATE=1 bash scripts/phase-live/gate-live-iptv.sh
+#   MANGO_LIVE_GATE=1 MANGO_LIVE_PLAY=1 bash scripts/phase-live/gate-live-iptv.sh
 #
 # Prereqs:
 #   bash scripts/phase-live/install-nexotv.sh
@@ -12,6 +14,11 @@
 #   bash scripts/phase-live/nexotv-config.sh wire-export
 
 set -euo pipefail
+
+if [[ "${MANGO_LIVE_GATE:-0}" != "1" ]]; then
+  echo "skip: live IPTV gate (set MANGO_LIVE_GATE=1 to run — excluded from deploy gates)"
+  exit 0
+fi
 
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 cd "$REPO_DIR"

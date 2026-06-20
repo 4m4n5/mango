@@ -100,8 +100,8 @@ Details: [phase0/README.md](phase0/README.md)
 |--------|------|
 | `phase-live/install-nexotv.sh` | Docker pull + start NexoTV on `:7000` |
 | `phase-live/nexotv-config.sh` | IPTV profiles, token, `stremio-export` wire |
-| `phase-live/gate-live-iptv.sh` | Health → catalog → stream → mpv live probe |
-| `phase-live/probe-live-catalog.sh` | Sports keyword scan + probe |
+| `phase-live/gate-live-iptv.sh` | Opt-in: `MANGO_LIVE_GATE=1` — health → stream → mpv (not in gate-lite) |
+| `phase-live/probe-live-catalog.sh` | Opt-in: `MANGO_LIVE_PROBE=1` — sports scan + probe |
 
 See [`docs/LIVE_TV.md`](../docs/LIVE_TV.md).
 

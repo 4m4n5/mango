@@ -4,18 +4,15 @@
 # Only verified playable stream URLs appear in rails (skips rate-limit placeholders).
 
 version: 2
-cache_ttl_sec: 300
-verify_streams: true
-verify_pool_multiplier: 2
-verify_delay_ms: 200
-verify_max_per_rail: 6
+cache_ttl_sec: 1800
+verify_streams: false
 
 sources:
   - addon: mango Live TV
     label: AREA69
     catalog: iptv_channels
     catalog_type: tv
-    pages: 2
+    pages: 3
   - addon: mango Live Free
     label: free
     catalog: iptv_channels

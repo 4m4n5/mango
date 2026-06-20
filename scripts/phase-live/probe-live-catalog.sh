@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Discover sports-ish channels from NexoTV and optionally probe one in mpv.
 #
+# Opt-in only — excluded from deploy gates (hammers NexoTV rate limits).
+#
 # Usage:
-#   bash scripts/phase-live/probe-live-catalog.sh
-#   bash scripts/phase-live/probe-live-catalog.sh --play
+#   MANGO_LIVE_PROBE=1 bash scripts/phase-live/probe-live-catalog.sh
+#   MANGO_LIVE_PROBE=1 bash scripts/phase-live/probe-live-catalog.sh --play
 
 set -euo pipefail
+
+if [[ "${MANGO_LIVE_PROBE:-0}" != "1" ]]; then
+  echo "skip: live IPTV probe (set MANGO_LIVE_PROBE=1 to run)"
+  exit 0
+fi
 
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 cd "$REPO_DIR"

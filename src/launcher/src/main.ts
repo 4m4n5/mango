@@ -367,7 +367,9 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
   catalogState = { status: "loading" };
   renderHome();
   try {
-    const rails = await loadCatalogRails(activeBrowseTab, { reshuffle: options.reshuffle });
+    const rails = await loadCatalogRails(activeBrowseTab, {
+      reshuffle: Boolean(options.reshuffle && activeBrowseTab !== "live"),
+    });
     catalogState = { status: "ready", rails };
     renderHome();
     const itemCount = rails.reduce((total, rail) => total + rail.cards.length, 0);
