@@ -187,13 +187,12 @@ test('selectAutoPlayCandidates locks verified titles to the winning URL hash', (
     },
   });
   assert.deepEqual(selected.map((item) => item.url), [winner.url]);
-  assert.equal(
-    selectAutoPlayCandidates([other], config, {
-      verified_hint: {
-        best_source: 'AIOStreams',
-        win_url_hash: streamUrlHash(winner.url),
-      },
-    }).length,
-    0,
-  );
+  const fallback = selectAutoPlayCandidates([other], config, {
+    verified_hint: {
+      best_source: 'AIOStreams',
+      win_url_hash: streamUrlHash(winner.url),
+    },
+  });
+  assert.equal(fallback.length, 1);
+  assert.equal(fallback[0]?.url, other.url);
 });

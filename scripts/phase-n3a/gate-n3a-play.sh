@@ -44,49 +44,17 @@ pick_rail_item() {
     || { gate_fail "GET /rails/${rail_id}/items"; return 1; }
   python3 - "$out_json" "$rail_id" "$SHAWSHANK_ID" <<'PY'
 import json
-import os
 import random
-import sqlite3
 import sys
-import time
 
 path, rail_id, excluded_id = sys.argv[1:4]
-couch_probe_ms = int(os.environ.get("MANGO_AUTO_PLAY_PROBE_MS", "4000"))
-now = int(time.time() * 1000)
 items = [
     item for item in (json.load(open(path, encoding="utf-8")).get("items") or [])
     if item.get("id") and item.get("id") != excluded_id
 ]
 if not items:
     raise SystemExit(f"{rail_id}: no non-Shawshank items")
-
-playable_ids: set[tuple[str, str]] = set()
-db_path = os.environ.get("MANGO_PLAYABILITY_DB", "/etc/mango/playability.db")
-try:
-    with sqlite3.connect(db_path) as db:
-        rows = db.execute(
-            """
-SELECT t.type, t.id
-FROM rail_pool rp
-JOIN titles t ON t.type = rp.type AND t.id = rp.id
-WHERE rp.rail_id = ?
-  AND t.status = 'verified'
-  AND COALESCE(t.probe_ms, 999999) <= ?
-  AND (t.expires_at IS NULL OR t.expires_at > ?)
-  AND t.win_url_hash IS NOT NULL
-""",
-            (rail_id, couch_probe_ms, now),
-        ).fetchall()
-        playable_ids = {(row[0], row[1]) for row in rows}
-except sqlite3.Error:
-    playable_ids = set()
-
-preferred = [
-    item for item in items
-    if (item.get("type") or "movie", item.get("id")) in playable_ids
-]
-pool = preferred if preferred else items
-item = random.SystemRandom().choice(pool)
+item = random.SystemRandom().choice(items)
 title = (item.get("title") or item.get("id") or "").replace("\t", " ")
 print(f"{item.get('type') or 'movie'}\t{item.get('id')}\t{title}")
 PY

@@ -968,7 +968,9 @@ export function selectAutoPlayCandidates(
   const eligible = streams.filter((stream) => autoPlayEligible(stream, config, options));
   if (options.verified_hint?.win_url_hash) {
     const winner = eligible.find((stream) => streamMatchesVerifiedHint(stream, options.verified_hint));
-    return winner ? diversifyCandidates([winner], config.auto_play_max_attempts) : [];
+    if (winner) {
+      return diversifyCandidates([winner], config.auto_play_max_attempts);
+    }
   }
   const seen = new Set<string>();
   const ranked: Stream[] = [];
