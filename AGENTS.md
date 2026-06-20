@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). **Shipped:** N0–N3d, Track B, Live TV tab, N3b C1/C2 partial. **Next:** N3e episode picker · N3b polish · N4 library ([`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md) · [`docs/LIVE_TV.md`](docs/LIVE_TV.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). **Shipped:** N0–N3d, Track B, Live TV, N3b C1/C2, playability refresh UI + LLM API. **Next:** N3e episode picker · N3b polish · N4 library ([`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md) · [`docs/COUCH_TEST.md`](docs/COUCH_TEST.md)).
 
 ## Read first
 

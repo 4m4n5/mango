@@ -1,7 +1,8 @@
 # N3 inventory — play + browse
 
-**Branch:** `feat/native-experience`  
-**Spec:** [`tasks/phase-n3-stream-orchestrator.md`](tasks/phase-n3-stream-orchestrator.md)
+**Branch:** `feat/native-experience` @ `553c35a`  
+**Spec:** [`tasks/phase-n3-stream-orchestrator.md`](tasks/phase-n3-stream-orchestrator.md)  
+**Couch checklist:** [`COUCH_TEST.md`](COUCH_TEST.md)
 
 ---
 
@@ -16,13 +17,18 @@
 
 ### N3c — playability index ✓
 
-- `playability.db` with verified pools, `win_ladder_step`, maintenance timer
+- `playability.db` with verified pools, `win_ladder_step`, paginated ingest cursors (schema v3)
+- **Growth jobs:** Quick top-up (~10 min) · Nightly pass (~45 min) · Overnight grow (~4 h)
+- **Settings UI** + `GET /playability/refresh/levels` + `GET /playability/refresh/tools` (LLM-ready)
+- Scripts: `quick-playability-topup.sh`, `overnight-playability-grow.sh`, `playability-maintenance.sh`
+- Defaults: 40 fresh probes/rail (nightly), 15 verified cap/rail, paginated catalog offset
 - `gate-n3c-verified-rails.sh` for full per-rail play sweep (`MANGO_GATE_FULL=1`)
 
 ### Track B — verified rails UX ✓
 
-- Thin rails (no filler), empty rails hidden, ↻ library refresh reshuffles verified pool
-- Settings: library refresh levels + time estimates
+- 9-up poster grid, ↻ shuffle (pad `317` + browse bar), L/R tab shoulders
+- Thin rails (no filler), empty rails hidden, rate-limit meta blocked in browse
+- Settings: grouped refresh levels (Quick · Standard · Overnight)
 
 ### N3b — partial ✓
 
@@ -35,7 +41,12 @@
 
 ### Live TV ✓
 
-Dual NexoTV + **live** tab — see [`LIVE_TV.md`](LIVE_TV.md). Excluded from deploy gates.
+Dual/triple NexoTV + **live** tab (sport, news, free) — see [`LIVE_TV.md`](LIVE_TV.md). Excluded from deploy gates.
+
+### Catalog hygiene ✓
+
+- Self-hosted AIOStreams + AIOMetadata only (no ElfHosted in export)
+- Meta merge: Cinemeta first; throttled addon error text never shown on posters
 
 ---
 
@@ -43,9 +54,27 @@ Dual NexoTV + **live** tab — see [`LIVE_TV.md`](LIVE_TV.md). Excluded from dep
 
 | Gate | Role |
 |------|------|
-| `gate-lite.sh` / `pi-pre-couch-gate.sh` | **Default** — N0 + N3d (if enabled) + N2 browse + unit + 2 plays |
+| `gate-lite.sh` / `pi-pre-couch-gate.sh` | **Default** — N0 + N3d + N2 browse + unit + 2 plays |
 | `MANGO_GATE_FULL=1` | Adds `gate-n3c-verified-rails` + `gate-n3a-play` per-rail sweep |
 | `gate-live-iptv.sh` | **Opt-in only** — `MANGO_LIVE_GATE=1` |
+
+```bash
+bash scripts/pi-exec-gate.sh              # Mac → Pi gate-lite
+bash scripts/pi-deploy.sh --fast --gate     # deploy + gate
+```
+
+---
+
+## Playability ops (Pi)
+
+| Job | Settings button | Script |
+|-----|-----------------|--------|
+| Reshuffle picks | Refresh library | inline reshuffle |
+| ~10 min grow | Quick top-up | `quick-playability-topup.sh --detach` |
+| ~45 min grow | Nightly pass | `playability-maintenance.sh --mode full` |
+| ~4 h loop | Overnight grow | `overnight-playability-grow.sh --detach` |
+
+Status: `python3 scripts/diag/playability-status.py`
 
 ---
 
@@ -53,11 +82,13 @@ Dual NexoTV + **live** tab — see [`LIVE_TV.md`](LIVE_TV.md). Excluded from dep
 
 | Priority | Item | Notes |
 |----------|------|-------|
-| 1 | **N3e** series episode picker | Detail → season/episode grid; gate in `tasks/` |
-| 2 | **N3b polish** | Picker UX (focus, labels), cancel during long resolve |
-| 3 | **N4** library + write-back | Stremio export import; finished → library sync |
-| 4 | **Live** paid cricket | AREA69 catalog depth / genre fetch |
-| 5 | **N5–N7** | AI catalogs · YouTube · 4K TV ship |
+| 1 | **N3e** series episode picker | Detail → season/episode grid; `GET /series/:id/episodes` exists |
+| 2 | **N3b polish** | Picker focus/labels; cancel during long resolve |
+| 3 | **N5 prep** | Wire `mango_playability_refresh` LLM tool in orchestrator |
+| 4 | **N4** library + write-back | Stremio export import; finished → library sync |
+| 5 | **Pool depth** | Quick top-up after couch test; MDBList Standard if ingest stalls |
+| 6 | **Live** | Paid cricket / AREA69 depth (opt-in gates) |
+| 7 | **N6–N7** | YouTube · 4K TV ship |
 
 ---
 
@@ -66,7 +97,7 @@ Dual NexoTV + **live** tab — see [`LIVE_TV.md`](LIVE_TV.md). Excluded from dep
 | File | Purpose |
 |------|---------|
 | `/etc/mango/catalog-filters.json` | Ladder, quality cap, stream display limit |
-| `/etc/mango/playability.db` | Verified pools |
+| `/etc/mango/playability.db` | Verified pools + ingest cursors |
 | `/etc/mango/progress.db` | mpv resume positions |
 | `/etc/mango/catalog-live.yaml` | Live sport rails (optional; repo example fallback) |
 

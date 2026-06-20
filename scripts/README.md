@@ -102,8 +102,8 @@ Details: [phase0/README.md](phase0/README.md)
 ## Gate unit slice
 
 Shared: `lib/gate-play-ladder-core.sh` · `lib/gate-catalog-unit.sh` · `lib/verify-play-ladder-config.py`  
-Fast tests: `cd src/catalog-service && npm run test:gate` (42 tests)  
-Full suite: `npm test` (86 tests — playability index, formatter, session-select, etc.)
+Fast tests: `cd src/catalog-service && npm run test:gate`  
+Full suite: `npm test` (~95 tests)
 
 ## Live TV / IPTV (NexoTV)
 
@@ -122,10 +122,15 @@ Full suite: `npm test` (86 tests — playability index, formatter, session-selec
 
 | Script | Role |
 |--------|------|
+| `phase-n3c/quick-playability-topup.sh` | **~10 min** detached grow (`--detach`, `--status`) |
+| `phase-n3c/overnight-playability-grow.sh` | **~4 h** loop nightly passes (`--detach`, `--status`) |
+| `phase-n3c/playability-refresh-level.sh` | Dispatcher for settings / `POST /playability/refresh` |
 | `phase-n3c/fill-playability-db.sh` | Full fill orchestration (preflight → maintenance → hit-rate) |
 | `phase-n3c/playability-maintenance.sh` | Indexer refresh worker (timer + manual) |
 | `phase-n3c/rail-curation.sh` | Manual pins/blocks |
 | `phase-n3c/install-playability-timer.sh` | One-time Pi systemd timer setup |
+
+**Settings UI** (launcher → Settings) and **LLM API:** `GET /playability/refresh/tools` on catalog-service.
 
 ## MDBList curation (N3d)
 
