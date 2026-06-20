@@ -143,7 +143,7 @@ cfg = {
     "xtreamPassword": os.environ["XTREAM_PASS"].strip(),
     "enableEpg": True,
     "reformatLogos": True,
-    "catalogName": "AREA69 Live",
+    "catalogName": "mango Live TV",
 }
 epg = os.environ.get("EPG_URL", "").strip()
 if epg:

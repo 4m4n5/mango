@@ -130,9 +130,9 @@ import json,sys
 h=json.load(sys.stdin)
 names=h.get("addon_names") or []
 import sys as _s
-_s.exit(0 if "NexoTV" in names else 1)
+_s.exit(0 if any("Live TV" in n or n == "NexoTV" for n in names) else 1)
 '; then
-    gate_pass "catalog-service sees NexoTV addon"
+    gate_pass "catalog-service sees live TV addon"
   else
     gate_warn "restart catalog-service after wire-export"
   fi

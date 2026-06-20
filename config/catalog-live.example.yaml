@@ -5,7 +5,7 @@
 # First matching rail wins — put specific sports before the catch-all.
 
 version: 1
-addon: NexoTV
+addon: mango Live TV
 catalog: iptv_channels
 catalog_type: tv
 pages: 8
