@@ -23,6 +23,8 @@ class OrchestratorSettings:
     stt_provider: str
     stt_model: str
     stt_language: str
+    stt_strategy: str
+    stt_detect_languages: tuple[str, ...]
     stt_api_key_file: str | None
     stt_timeout_seconds: float
     stt_keyterms: tuple[str, ...]
@@ -81,8 +83,10 @@ def load_settings() -> OrchestratorSettings:
             )
         )),
         stt_provider=str(stt.get("provider", "deepgram")),
-        stt_model=str(stt.get("model", "nova-2")),
-        stt_language=str(stt.get("language", "hi")),
+        stt_model=str(stt.get("model", "nova-3-general")),
+        stt_language=str(stt.get("language", "multi")),
+        stt_strategy=str(stt.get("strategy", "multilingual_with_detect_fallback")),
+        stt_detect_languages=_load_keyterms(stt.get("detect_languages", ["hi", "en-IN"])),
         stt_api_key_file=_optional_str(stt.get("api_key_file")),
         stt_timeout_seconds=max(5.0, float(stt.get("timeout_seconds", 30))),
         stt_keyterms=_load_keyterms(stt.get("keyterms")),

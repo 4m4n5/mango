@@ -67,6 +67,25 @@ fi
 [[ "${MANGO_TTS_DISABLED:-}" == "1" ]] && ok tts-disabled-env || wrn MANGO_TTS_DISABLED-not-set
 [[ "${MANGO_SKIP_OVERLAY:-1}" == "1" ]] && ok skip-overlay-env || bad MANGO_SKIP_OVERLAY-not-1
 
+python3 <<'PY' && ok hinglish-stt-config || bad hinglish-stt-config
+import sys
+import yaml
+from pathlib import Path
+
+path = Path("/etc/mango/config.yaml")
+raw = yaml.safe_load(path.read_text()) if path.is_file() else {}
+stt = raw.get("stt") or {}
+model = str(stt.get("model", ""))
+language = str(stt.get("language", ""))
+strategy = str(stt.get("strategy", "multilingual_with_detect_fallback"))
+if "nova-3" not in model:
+    sys.exit(f"model={model!r}")
+if language != "multi":
+    sys.exit(f"language={language!r}")
+if strategy not in {"multilingual", "multilingual_with_detect_fallback", "detect"}:
+    sys.exit(f"strategy={strategy!r}")
+PY
+
 echo "--- HTTP health ---"
 curl -sf http://127.0.0.1:3000/api/health >/tmp/mango-launcher-health.json && ok launcher-health || bad launcher-health
 curl -sf http://127.0.0.1:3000/ | grep -q voice-hud && ok launcher-voice-hud || bad launcher-voice-hud-missing

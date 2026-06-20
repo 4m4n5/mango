@@ -235,7 +235,8 @@ async function startCapture(): Promise<void> {
       channelCount: { ideal: 1 },
       sampleRate: { ideal: TARGET_SAMPLE_RATE },
       echoCancellation: true,
-      noiseSuppression: true,
+      // Noise suppression can clip Hindi/Hinglish consonants on phone mics.
+      noiseSuppression: false,
       autoGainControl: true,
     },
   });

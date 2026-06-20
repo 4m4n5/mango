@@ -102,6 +102,12 @@ else
   echo "  WARN: orchestrator venv missing — skip python smoke"
 fi
 
+if bash scripts/phase-n5/validate-stt-hinglish-config.sh; then
+  ok hinglish-stt-config
+else
+  bad hinglish-stt-config
+fi
+
 if bash scripts/phase-n5/validate-voice-tv-open.sh; then
   ok voice-tv-open-ack
 else
