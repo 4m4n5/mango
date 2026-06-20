@@ -117,7 +117,6 @@ async function handlePlay(
 
   const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
   const playEpoch = await bumpPlayEpoch();
-  const result = await core.streams(body.type, body.id, overrides);
   const now = Date.now();
   const profile = await getTitleVerifyProfile(body.type, body.id);
   const verifiedHint = profile?.status === 'verified'
@@ -129,6 +128,28 @@ async function handlePlay(
       win_url_hash: profile.win_url_hash,
     }
     : undefined;
+  let verifiedUnknownCacheReplay = false;
+  let result: Awaited<ReturnType<CatalogCore['streams']>>;
+  try {
+    result = await core.streams(body.type, body.id, overrides);
+  } catch (error) {
+    const filters = error instanceof CatalogError
+      ? (error.details?.filters as { applied?: { strict_unknown_cache?: boolean } } | undefined)
+      : undefined;
+    const canReplayVerifiedUnknown = verifiedHint?.cache_status === 'unknown'
+      && filters?.applied?.strict_unknown_cache === true;
+    if (!canReplayVerifiedUnknown) {
+      throw error;
+    }
+    result = await core.streams(body.type, body.id, {
+      ...overrides,
+      strict_unknown_cache: false,
+    });
+    verifiedUnknownCacheReplay = true;
+  }
+  const responseFilters = verifiedUnknownCacheReplay
+    ? { ...result.filters, verified_unknown_cache_replay: true }
+    : result.filters;
   try {
     const playback = await playWithFallback(result.streams, result.filters.applied, {
       allow_uncached_torbox: result.filters.torbox_uncached_fallback === true,
@@ -148,7 +169,7 @@ async function handlePlay(
         resolve_ms: result.resolve_ms,
         cached: result.cached,
       },
-      filters: result.filters,
+      filters: responseFilters,
     };
   } catch (error) {
     if (error instanceof PlayCancelledError) {
@@ -170,7 +191,7 @@ async function handlePlay(
     if (error instanceof CatalogError) {
       error.details = {
         ...(error.details || {}),
-        filters: result.filters,
+        filters: responseFilters,
       };
     }
     throw error;
