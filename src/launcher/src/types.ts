@@ -27,6 +27,10 @@ export interface ContentCard {
   description?: string;
   source?: string;
   railId?: string;
+  /** Stremio play id — episode id when resuming series. */
+  playId?: string;
+  resumeSec?: number;
+  progressPct?: number;
 }
 
 export interface ContentRail {

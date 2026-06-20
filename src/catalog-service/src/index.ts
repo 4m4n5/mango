@@ -5,7 +5,11 @@ import { playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { bumpPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import { invalidateTitle, getTitleVerifyProfile, recordVerifyResult } from './playability/db.js';
+import { seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
+import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
+import { resolvePosterFromMeta } from './poster.js';
+import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
 import {
   getRefreshLevel,
   listRefreshLevels,
@@ -30,6 +34,10 @@ type PlayBody = StreamFilterOverrides & {
   url?: string;
   /** Picker row — prefer this stream in the play ladder (ideal step first). */
   prefer_url?: string;
+  /** Resume playback at this position (seconds). */
+  start_sec?: number;
+  /** Lookup saved progress for {type,id} and resume. */
+  resume?: boolean;
   language?: string | null;
   level?: string;
 };
@@ -112,6 +120,21 @@ async function readBody(req: http.IncomingMessage): Promise<PlayBody> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as PlayBody;
 }
 
+async function attachWatchSession(core: CatalogCore, type: string, playId: string): Promise<void> {
+  try {
+    const metaId = type === 'series' ? (seriesBareId(playId) || playId) : playId;
+    const meta = await core.meta(type, metaId);
+    startWatchSessionFromPlay({
+      type,
+      id: playId,
+      title: typeof meta.name === 'string' ? meta.name : null,
+      poster: resolvePosterFromMeta(meta),
+    });
+  } catch {
+    startWatchSessionFromPlay({ type, id: playId });
+  }
+}
+
 async function handlePlay(
   core: CatalogCore,
   body: PlayBody,
@@ -124,7 +147,13 @@ async function handlePlay(
       throw new CatalogError(400, 'play url must be http(s)');
     }
     const started = Date.now();
-    const playback = await playUrl(playUrlValue);
+    const startSec = typeof body.start_sec === 'number' && body.start_sec > 0
+      ? body.start_sec
+      : undefined;
+    const playback = await playUrl(playUrlValue, 90000, { startSec });
+    if (body.type && body.id) {
+      await attachWatchSession(core, body.type, body.id);
+    }
     return {
       ...playback,
       total_ms: Date.now() - started,
@@ -136,10 +165,22 @@ async function handlePlay(
     throw new CatalogError(400, 'POST /play requires {url} or {type,id}');
   }
 
+  let playId = body.id;
+  let startSec = typeof body.start_sec === 'number' && body.start_sec > 0
+    ? body.start_sec
+    : undefined;
+  if (body.resume) {
+    const saved = getWatchProgressForTitle(body.type, body.id);
+    if (saved) {
+      playId = saved.play_id;
+      startSec = startSec ?? saved.position_sec;
+    }
+  }
+
   const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
   const playEpoch = await bumpPlayEpoch();
   const now = Date.now();
-  const profile = await getTitleVerifyProfile(body.type, body.id);
+  const profile = await getTitleVerifyProfile(body.type, playId);
   const profileHint = profile?.status === 'verified'
     && (profile.expires_at === null || profile.expires_at > now)
     ? {
@@ -156,7 +197,7 @@ async function handlePlay(
     ? { ...profileHint, ...pickerHint }
     : profileHint;
 
-  const resolved = await core.resolveForPlay(body.type, body.id, overrides);
+  const resolved = await core.resolveForPlay(body.type, playId, overrides);
 
   try {
     const playback = await playWithLadder(resolved.streams, resolved.filters, {
@@ -164,11 +205,12 @@ async function handlePlay(
       filterContext: resolved.filterContext,
       verified_hint: verifiedHint,
       playEpoch,
+      startSec,
     });
 
     await recordVerifyResult({
       type: body.type,
-      id: body.id,
+      id: playId,
       status: 'verified',
       rail_id: body.rail_id ?? null,
       best_source: typeof playback.stream.source === 'string' ? playback.stream.source : null,
@@ -187,6 +229,8 @@ async function handlePlay(
         }`,
       );
     });
+
+    await attachWatchSession(core, body.type, playId);
 
     return {
       ok: playback.ok,
@@ -218,7 +262,7 @@ async function handlePlay(
       await invalidateTitle({
         rail_id: body.rail_id,
         type: body.type,
-        id: body.id,
+        id: playId,
         reason: 'play_failure',
         preserve_session: true,
       }).catch((invalidateError) => {
@@ -248,6 +292,7 @@ async function handlePlay(
 }
 
 async function main(): Promise<void> {
+  await initProgressDb();
   const core = await CatalogCore.create();
   const server = http.createServer((req, res) => {
     void (async () => {
@@ -379,8 +424,18 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (req.method === 'POST' && parts.length === 2 && parts[0] === 'progress' && parts[1] === 'flush') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'progress flush is localhost-only');
+        }
+        const flushed = await flushWatchProgress();
+        sendJson(res, 200, { ok: true, flushed });
+        return;
+      }
+
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play-cancel') {
         await bumpPlayEpoch();
+        await flushWatchProgress();
         sendJson(res, 200, { ok: true, cancelled: true });
         return;
       }

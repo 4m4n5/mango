@@ -113,7 +113,13 @@ export class DetailController {
     this.playAbort?.abort();
     const abort = new AbortController();
     this.playAbort = abort;
-    this.callbacks.onStatus(preferUrl ? "starting stream…" : "finding stream…");
+    this.callbacks.onStatus(
+      card.resumeSec
+        ? "resuming…"
+        : preferUrl
+          ? "starting stream…"
+          : "finding stream…",
+    );
     const startingTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
         this.callbacks.onStatus("trying best match…");
@@ -130,7 +136,11 @@ export class DetailController {
       }
     }, 10000);
     try {
-      const result = await playCard(card, { signal: abort.signal, preferUrl });
+      const result = await playCard(card, {
+        signal: abort.signal,
+        preferUrl,
+        startSec: card.resumeSec,
+      });
       if (this.playToken !== token) {
         return;
       }

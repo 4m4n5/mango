@@ -55,7 +55,9 @@ import {
   isAddonRateLimitMessage,
   isElfHostedAddonName,
 } from './catalog-errors.js';
-import { normalizePosterUrl, resolvePosterFromMeta } from './poster.js';
+import { resolvePosterFromMeta } from './poster.js';
+import { CONTINUE_RAIL_ID } from './progress/config.js';
+import { listContinueItems } from './progress/db.js';
 
 export { CatalogError } from './catalog-errors.js';
 
@@ -112,6 +114,12 @@ export type RailItem = {
   year?: number | string;
   description?: string;
   source: string;
+  progress?: {
+    play_id: string;
+    position_sec: number;
+    duration_sec: number;
+    progress_pct: number;
+  };
 };
 
 export type RailItemsResponse = {
@@ -526,6 +534,54 @@ export class CatalogCore {
       .filter((id) => id !== rail.id);
   }
 
+  private async buildContinueRail(tab: CatalogTab): Promise<RailItemsResponse> {
+    const started = Date.now();
+    const candidates = listContinueItems(tab);
+    const items: RailItem[] = [];
+
+    for (const candidate of candidates) {
+      let title = candidate.title;
+      let poster = candidate.poster;
+      let year: number | string | undefined;
+      try {
+        const meta = await this.metaCached(candidate.type, candidate.id);
+        title = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
+          || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
+          || title;
+        poster = resolvePosterFromMeta(meta) || poster;
+        year = metaYear(meta);
+      } catch {
+        // keep stored snapshot
+      }
+      items.push({
+        id: candidate.id,
+        type: candidate.type,
+        title,
+        subtitle: candidate.subtitle,
+        poster: poster || '',
+        year,
+        description: candidate.description,
+        source: candidate.source,
+        progress: candidate.progress,
+      });
+    }
+
+    return {
+      rail_id: CONTINUE_RAIL_ID,
+      label: 'continue watching',
+      items,
+      resolve_ms: Date.now() - started,
+      skipped: 0,
+      playability: {
+        displayed: items.length,
+        verified_pool: items.length,
+        pending: 0,
+        low_water: false,
+        session_id: this.playabilitySessionId,
+      },
+    };
+  }
+
   private async buildRailItemsResponse(
     rail: BrowsableRail,
     session: RailSessionSnapshot,
@@ -613,6 +669,10 @@ export class CatalogCore {
     }
 
     const visibleRails = responses.filter((rail) => rail.items.length > 0);
+    const continueRail = await this.buildContinueRail(tab);
+    if (continueRail.items.length > 0) {
+      visibleRails.unshift(continueRail);
+    }
 
     const payload: TabRailItemsResponse = {
       tab,

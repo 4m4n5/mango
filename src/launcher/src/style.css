@@ -251,6 +251,24 @@ button {
   padding: 1rem 1rem 1.1rem;
 }
 
+.poster-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.14);
+  z-index: 2;
+}
+
+.poster-progress::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: var(--progress, 0%);
+  background: #fff9c4;
+}
+
 .card-title {
   display: block;
   overflow: hidden;

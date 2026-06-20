@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -26,7 +27,7 @@ function displayEnv(): NodeJS.ProcessEnv {
 
 async function runMpv(
   url: string,
-  options: { probe: boolean; timeoutMs: number; minDurationSec?: number; playEpoch?: number },
+  options: { probe: boolean; timeoutMs: number; minDurationSec?: number; playEpoch?: number; startSec?: number },
 ): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/phase-n1/mpv-play.sh');
   const started = Date.now();
@@ -44,6 +45,9 @@ async function runMpv(
     }
   } else {
     args.push('--min-duration-sec', String(options.minDurationSec ?? 600));
+    if (options.startSec !== undefined && options.startSec > 0) {
+      args.push('--start-sec', String(Math.floor(options.startSec)));
+    }
   }
   const env = displayEnv();
   if (options.playEpoch !== undefined) {
@@ -84,7 +88,70 @@ export async function probeUrl(
 export async function playUrl(
   url: string,
   timeoutMs = 90000,
-  options: { minDurationSec?: number; playEpoch?: number } = {},
+  options: { minDurationSec?: number; playEpoch?: number; startSec?: number } = {},
 ): Promise<PlayResult> {
-  return runMpv(url, { probe: false, timeoutMs, minDurationSec: options.minDurationSec, playEpoch: options.playEpoch });
+  return runMpv(url, {
+    probe: false,
+    timeoutMs,
+    minDurationSec: options.minDurationSec,
+    playEpoch: options.playEpoch,
+    startSec: options.startSec,
+  });
+}
+
+function mpvSocketPath(): string {
+  const home = process.env.HOME || '/home/aman';
+  return process.env.MANGO_MPV_SOCKET || `${home}/.cache/mango/mpv.sock`;
+}
+
+async function mpvIpcProperty(property: string): Promise<number | null> {
+  const script = resolve(repoDir(), 'scripts/phase-n1/mpv-ipc.sh');
+  try {
+    const { stdout } = await new Promise<{ stdout: string; stderr: string }>((resolvePromise, reject) => {
+      execFile('bash', [script, 'get_property', property], {
+        cwd: repoDir(),
+        env: displayEnv(),
+        timeout: 3000,
+        maxBuffer: 256 * 1024,
+      }, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr || stdout || `mpv-ipc failed for ${property}`));
+          return;
+        }
+        resolvePromise({ stdout, stderr });
+      });
+    });
+    const parsed = JSON.parse(stdout) as { data?: unknown };
+    const value = typeof parsed.data === 'number' ? parsed.data : Number(parsed.data);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function isMpvActive(): Promise<boolean> {
+  try {
+    await access(mpvSocketPath());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function getMpvPlaybackState(): Promise<{
+  position_sec: number;
+  duration_sec: number;
+} | null> {
+  if (!(await isMpvActive())) {
+    return null;
+  }
+  const position = await mpvIpcProperty('playback-time');
+  const duration = await mpvIpcProperty('duration');
+  if (position === null || duration === null) {
+    return null;
+  }
+  return {
+    position_sec: Math.max(0, position),
+    duration_sec: Math.max(0, duration),
+  };
 }

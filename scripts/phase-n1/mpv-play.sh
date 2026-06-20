@@ -20,6 +20,7 @@ PROBE=false
 TIMEOUT_MS=15000
 MIN_DURATION_SEC=600
 MIN_DURATION_SET=false
+START_SEC=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="${2:-}"; shift 2 ;;
@@ -27,6 +28,7 @@ while [[ $# -gt 0 ]]; do
     --probe) PROBE=true; shift ;;
     --timeout-ms) TIMEOUT_MS="${2:-}"; shift 2 ;;
     --min-duration-sec) MIN_DURATION_SEC="${2:-}"; MIN_DURATION_SET=true; shift 2 ;;
+    --start-sec) START_SEC="${2:-}"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -119,6 +121,9 @@ if $PROBE; then
   mpv_args+=(--vo=null --ao=null --really-quiet)
 else
   mpv_args+=(--fs)
+  if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
+    mpv_args+=(--start="$START_SEC")
+  fi
 fi
 
 mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 &

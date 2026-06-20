@@ -233,6 +233,13 @@ function createPosterCard(
 
   content.append(title, subtitle);
   button.append(poster, shade, content);
+  if (card.progressPct !== undefined && card.progressPct > 0) {
+    const progress = document.createElement("span");
+    progress.className = "poster-progress";
+    progress.setAttribute("aria-hidden", "true");
+    progress.style.setProperty("--progress", `${Math.round(card.progressPct * 100)}%`);
+    button.append(progress);
+  }
   button.addEventListener("click", () => callbacks.onContentSelect(card, railLabel));
   return button;
 }

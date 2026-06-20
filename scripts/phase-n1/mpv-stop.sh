@@ -28,6 +28,7 @@ launch_home_once() {
 }
 
 if [[ -S "$SOCKET" ]]; then
+  curl -s -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
   echo '{"command":["quit"]}' | socat - "$SOCKET" >/dev/null 2>&1 || true
   launch_home_once
   sleep 0.2

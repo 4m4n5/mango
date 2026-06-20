@@ -24,6 +24,12 @@ interface RailItemsResponse {
     year?: number | string;
     description?: string;
     source?: string;
+    progress?: {
+      play_id: string;
+      position_sec: number;
+      duration_sec: number;
+      progress_pct: number;
+    };
   }>;
   resolve_ms?: number;
 }
@@ -90,6 +96,9 @@ function mapRailItems(data: RailItemsResponse): ContentRail {
       description: item.description,
       source: item.source,
       railId: data.rail_id,
+      playId: item.progress?.play_id,
+      resumeSec: item.progress?.position_sec,
+      progressPct: item.progress?.progress_pct,
     })),
   };
 }
@@ -146,17 +155,28 @@ export async function cancelPlay(): Promise<void> {
 
 export async function playCard(
   card: ContentCard,
-  options: { signal?: AbortSignal; preferUrl?: string } = {},
+  options: { signal?: AbortSignal; preferUrl?: string; startSec?: number } = {},
 ): Promise<PlayResult> {
-  const body: { type: string; id: string; rail_id?: string; prefer_url?: string } = {
+  const playId = card.playId || card.id;
+  const body: {
+    type: string;
+    id: string;
+    rail_id?: string;
+    prefer_url?: string;
+    start_sec?: number;
+  } = {
     type: card.type,
-    id: card.id,
+    id: playId,
   };
   if (card.railId) {
     body.rail_id = card.railId;
   }
   if (options.preferUrl) {
     body.prefer_url = options.preferUrl;
+  }
+  const startSec = options.startSec ?? card.resumeSec;
+  if (typeof startSec === 'number' && startSec > 0) {
+    body.start_sec = startSec;
   }
   return fetchJson<PlayResult>("/api/catalog/play", {
     method: "POST",

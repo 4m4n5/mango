@@ -189,6 +189,7 @@ export async function playWithLadder(
     play?: typeof playUrl;
     preflight?: typeof preflightPlaybackUrl;
     onLadderStep?: (step: string, label: string) => void;
+    startSec?: number;
   } = {},
 ): Promise<PlayOrchestratorResult> {
   const started = Date.now();
@@ -274,6 +275,7 @@ export async function playWithLadder(
       const playback = await play(candidate.stream.url, remainingBeforePlay, {
         playEpoch: options.playEpoch,
         minDurationSec,
+        startSec: options.startSec,
       });
       const attempt: PlayAttempt = {
         ...base,
