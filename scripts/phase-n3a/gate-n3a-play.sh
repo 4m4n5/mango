@@ -61,18 +61,10 @@ PY
 
 play_pick() {
   local label="$1" rail_id="$2" item_type="$3" item_id="$4" title="$5"
+  local severity="${6:-attempt}"
   local out="$TMP_DIR/play-${rail_id}-${item_id}.json"
   echo "pick: ${label} rail=${rail_id} type=${item_type} id=${item_id} title=${title}"
-  if gate_post_play "$label" "$item_type" "$item_id" "$out" "$MAX_TOTAL_MS" "$MAX_ATTEMPTS" "$rail_id"; then
-    python3 - "$out" "$label" <<'PY'
-import json
-import sys
-data = json.load(open(sys.argv[1], encoding="utf-8"))
-print(f"metric: {sys.argv[2]} total_ms={data.get('total_ms')} attempts={data.get('attempts')} ttff_ms={data.get('ttff_ms')}")
-PY
-    return 0
-  fi
-  return 1
+  gate_post_play "$label" "$item_type" "$item_id" "$out" "$MAX_TOTAL_MS" "$MAX_ATTEMPTS" "$rail_id" "$severity"
 }
 
 run_rail_pick() {
@@ -85,7 +77,13 @@ run_rail_pick() {
     picked="$(pick_rail_item "$rail_id" "$items_json")" || return 1
     IFS=$'\t' read -r item_type item_id title <<<"$picked"
     [[ -n "$item_id" ]] || { gate_fail "${label} empty pick"; return 1; }
-    if play_pick "${label} try${attempt}" "$rail_id" "$item_type" "$item_id" "$title"; then
+    if play_pick "${label} try${attempt}" "$rail_id" "$item_type" "$item_id" "$title" "attempt"; then
+      python3 - "$TMP_DIR/play-${rail_id}-${item_id}.json" "${label}" <<'PY'
+import json
+import sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+print(f"metric: {sys.argv[2]} total_ms={data.get('total_ms')} attempts={data.get('attempts')} ttff_ms={data.get('ttff_ms')}")
+PY
       gate_mpv_stop
       return 0
     fi
