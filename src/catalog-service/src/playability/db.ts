@@ -6,9 +6,15 @@ import {
   sessionItemsConflictWithOccupied,
   tabSessionsHaveDuplicateTitles,
   titleKey,
-  railsForTabSessionAllocation,
+  buildTabSessionSelections,
 } from './session-select.js';
 import { seriesBareId, seriesFollowUpEpisodeIds } from './ids.js';
+import {
+  injectPinnedSessionItems,
+  loadRailCurationOverrides,
+  mergePinnedPoolItems,
+  type RailCurationOverrides,
+} from './rail-overrides.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const SCHEMA_VERSION = 1;
@@ -114,6 +120,7 @@ export type RailSessionOptions = {
 export type TabRailSessionRequest = {
   railId: string;
   displayLimit: number;
+  minDisplay: number;
 };
 
 export type TabRailSessionAllocateOptions = {
@@ -726,6 +733,86 @@ WHERE rail_id = @rail_id;
   }
 }
 
+export async function deleteRailPoolTitle(
+  railId: string,
+  type: string,
+  id: string,
+): Promise<void> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    db.prepare(`
+DELETE FROM rail_pool
+WHERE rail_id = @rail_id AND type = @type AND id = @id;
+`).run({ rail_id: railId, type, id });
+  } finally {
+    db.close();
+  }
+}
+
+export async function listRailIdsContainingTitle(
+  type: string,
+  id: string,
+): Promise<string[]> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const rows = db.prepare(`
+SELECT DISTINCT rail_id
+FROM rail_pool
+WHERE type = @type AND id = @id;
+`).all({ type, id }) as Array<{ rail_id: string }>;
+    return rows.map((row) => row.rail_id);
+  } finally {
+    db.close();
+  }
+}
+
+export async function clearRailSessions(railIds: string[]): Promise<void> {
+  if (railIds.length === 0) return;
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const stmt = db.prepare('DELETE FROM rail_session WHERE rail_id = ?;');
+    for (const railId of railIds) {
+      stmt.run(railId);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+function curatedPool(
+  pool: RailPoolRow[],
+  railId: string,
+  overrides: RailCurationOverrides,
+): RailPoolRow[] {
+  return mergePinnedPoolItems(pool, railId, overrides) as RailPoolRow[];
+}
+
+function toRailSessionPoolItem(
+  railId: string,
+  sessionId: string,
+  item: { type: string; id: string; score?: number; mix_bucket?: 'stable' | 'fresh' },
+  full: RailPoolRow | undefined,
+  slot: number,
+): RailSessionPoolItem {
+  return {
+    rail_id: railId,
+    type: item.type,
+    id: item.id,
+    score: full?.score ?? item.score ?? 0,
+    mix_bucket: item.mix_bucket ?? 'stable',
+    slot,
+    session_id: sessionId,
+    best_source: full?.best_source ?? null,
+    cache_status: full?.cache_status ?? null,
+    debrid_service: full?.debrid_service ?? null,
+    verified_at: full?.verified_at ?? null,
+    expires_at: full?.expires_at ?? null,
+  };
+}
+
 export async function upsertRailPoolTitle(entry: RailPoolEntry): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
@@ -752,6 +839,7 @@ export async function allocateTabRailSessions(
   options: TabRailSessionAllocateOptions,
 ): Promise<Map<string, RailSessionSnapshot>> {
   await initPlayabilityDb();
+  const overrides = await loadRailCurationOverrides();
   const db = openDb();
   const now = nowMs();
   const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
@@ -764,7 +852,7 @@ export async function allocateTabRailSessions(
 
     for (const rail of options.rails) {
       const displayLimit = Math.max(1, rail.displayLimit);
-      const pool = readRailPool(db, rail.railId, now);
+      const pool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides);
       poolSizes.set(rail.railId, pool.length);
       const existing = readExistingRailSession(db, rail.railId, options.sessionId, now);
       existingByRail.set(rail.railId, existing);
@@ -787,7 +875,6 @@ export async function allocateTabRailSessions(
       return snapshots;
     }
 
-    const tabOccupied = new Set<string>();
     const transaction = db.transaction(() => {
       for (const rail of options.rails) {
         db.prepare(`
@@ -799,24 +886,45 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
         });
       }
 
-      for (const rail of railsForTabSessionAllocation(options.rails)) {
+      const pools = new Map<string, ReturnType<typeof readRailPool>>();
+      const recentKeysByRail = new Map<string, Set<string>>();
+      for (const rail of options.rails) {
+        pools.set(
+          rail.railId,
+          curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides),
+        );
+        recentKeysByRail.set(rail.railId, readRecentRailKeys(db, rail.railId, cooldownCutoff));
+      }
+
+      const tabSelections = buildTabSessionSelections(
+        options.rails.map((rail) => ({
+          railId: rail.railId,
+          displayLimit: Math.max(1, rail.displayLimit),
+          minDisplay: Math.max(1, rail.minDisplay),
+        })),
+        pools,
+        recentKeysByRail,
+      );
+
+      for (const rail of options.rails) {
         const displayLimit = Math.max(1, rail.displayLimit);
-        const pool = readRailPool(db, rail.railId, now);
-        const recent = readRecentRailKeys(db, rail.railId, cooldownCutoff);
-        const selected = selectRailSessionItems(pool, {
+        const pool = pools.get(rail.railId) ?? [];
+        const selected = injectPinnedSessionItems(
+          tabSelections.get(rail.railId) ?? [],
+          pool,
+          rail.railId,
+          overrides,
           displayLimit,
-          recentKeys: recent,
-          occupiedKeys: tabOccupied,
-        });
-        const rows = selected.map((item, slot): RailSessionPoolItem => ({
-          ...item,
+        );
+        const poolByKey = new Map(pool.map((item) => [titleKey(item.type, item.id), item]));
+        const rows = selected.map((item, slot) => toRailSessionPoolItem(
+          rail.railId,
+          options.sessionId,
+          item,
+          poolByKey.get(titleKey(item.type, item.id)),
           slot,
-          session_id: options.sessionId,
-        }));
+        ));
         writeRailSessionRows(db, rail.railId, options.sessionId, rows, now);
-        for (const row of rows) {
-          tabOccupied.add(titleKey(row.type, row.id));
-        }
         snapshots.set(rail.railId, {
           rail_id: rail.railId,
           session_id: options.sessionId,
@@ -841,6 +949,7 @@ export async function getOrCreateRailSession(
   options: RailSessionOptions,
 ): Promise<RailSessionSnapshot> {
   await initPlayabilityDb();
+  const overrides = await loadRailCurationOverrides();
   const db = openDb();
   const now = nowMs();
   const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
@@ -848,7 +957,7 @@ export async function getOrCreateRailSession(
   const siblingRailIds = options.siblingRailIds ?? [];
 
   try {
-    const pool = readRailPool(db, options.railId, now);
+    const pool = curatedPool(readRailPool(db, options.railId, now), options.railId, overrides);
     const existing = readExistingRailSession(db, options.railId, options.sessionId, now);
     const siblingOccupied = readSiblingSessionOccupiedKeys(db, options.sessionId, siblingRailIds);
     const targetSessionSize = Math.min(displayLimit, pool.length);
@@ -867,16 +976,25 @@ export async function getOrCreateRailSession(
     }
 
     const recent = readRecentRailKeys(db, options.railId, cooldownCutoff);
-    const selected = selectRailSessionItems(pool, {
+    const selected = injectPinnedSessionItems(
+      selectRailSessionItems(pool, {
+        displayLimit,
+        recentKeys: recent,
+        occupiedKeys: siblingOccupied,
+      }),
+      pool,
+      options.railId,
+      overrides,
       displayLimit,
-      recentKeys: recent,
-      occupiedKeys: siblingOccupied,
-    });
-    const rows = selected.map((item, slot): RailSessionPoolItem => ({
-      ...item,
+    );
+    const poolByKey = new Map(pool.map((item) => [titleKey(item.type, item.id), item]));
+    const rows = selected.map((item, slot) => toRailSessionPoolItem(
+      options.railId,
+      options.sessionId,
+      item,
+      poolByKey.get(titleKey(item.type, item.id)),
       slot,
-      session_id: options.sessionId,
-    }));
+    ));
 
     const transaction = db.transaction(() => {
       writeRailSessionRows(db, options.railId, options.sessionId, rows, now);

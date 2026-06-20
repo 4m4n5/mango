@@ -2,9 +2,73 @@ export function titleKey(type: string, id: string): string {
   return `${type}:${id}`;
 }
 
-/** Niche rails (later in catalog yaml) pick session slots first so tab-wide dedup does not starve them. */
+/** Guaranteed display slots per rail before anchor rails top up (tab-wide dedup). */
+export const TAB_SESSION_RESERVE_FLOOR = 8;
+
+/** Niche rails (later in catalog yaml) pick reserved slots first so tab-wide dedup does not starve them. */
 export function railsForTabSessionAllocation<T>(rails: T[]): T[] {
   return [...rails].reverse();
+}
+
+export type TabSessionRailRequest = {
+  railId: string;
+  displayLimit: number;
+  minDisplay: number;
+};
+
+/**
+ * Two-phase tab session: reverse yaml reserves a floor for niche rails, then forward yaml
+ * tops up anchor rails so global rows are not empty after comedy claims unique titles.
+ */
+export function buildTabSessionSelections<T extends { type: string; id: string }>(
+  railsInYamlOrder: TabSessionRailRequest[],
+  pools: Map<string, T[]>,
+  recentKeysByRail: Map<string, Set<string>>,
+  options: { reserveFloor?: number; shuffleFn?: (items: T[]) => T[] } = {},
+): Map<string, SessionSelectedItem<T>[]> {
+  const floor = options.reserveFloor ?? TAB_SESSION_RESERVE_FLOOR;
+  const shuffleFn = options.shuffleFn;
+  const tabOccupied = new Set<string>();
+  const selections = new Map<string, SessionSelectedItem<T>[]>();
+
+  for (const rail of railsForTabSessionAllocation(railsInYamlOrder)) {
+    const pool = pools.get(rail.railId) ?? [];
+    const reserve = Math.min(floor, rail.minDisplay, rail.displayLimit, pool.length);
+    const picked = selectRailSessionItems(pool, {
+      displayLimit: reserve,
+      recentKeys: recentKeysByRail.get(rail.railId) ?? new Set(),
+      occupiedKeys: tabOccupied,
+      shuffleFn,
+    });
+    selections.set(rail.railId, picked);
+    for (const item of picked) {
+      tabOccupied.add(titleKey(item.type, item.id));
+    }
+  }
+
+  for (const rail of railsInYamlOrder) {
+    const pool = pools.get(rail.railId) ?? [];
+    const existing = selections.get(rail.railId) ?? [];
+    const need = Math.max(0, rail.displayLimit - existing.length);
+    if (need === 0) {
+      continue;
+    }
+    const existingKeys = new Set(existing.map((item) => titleKey(item.type, item.id)));
+    const available = pool.filter((item) => !existingKeys.has(titleKey(item.type, item.id)));
+    const extra = selectRailSessionItems(available, {
+      displayLimit: need,
+      recentKeys: recentKeysByRail.get(rail.railId) ?? new Set(),
+      occupiedKeys: tabOccupied,
+      shuffleFn,
+    });
+    const merged = [...existing, ...extra].slice(0, rail.displayLimit);
+    selections.set(rail.railId, merged);
+    for (const item of extra) {
+      tabOccupied.add(titleKey(item.type, item.id));
+    }
+  }
+
+  return selections;
 }
 
 export type SessionMixBucket = 'stable' | 'fresh';

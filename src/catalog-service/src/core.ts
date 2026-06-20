@@ -36,6 +36,12 @@ import {
 } from './playability/list-source.js';
 import { schedulePlayabilityTopUp } from './playability/top-up-scheduler.js';
 import {
+  injectPinnedSessionItems,
+  loadRailCurationOverrides,
+  mergePinnedPoolItems,
+  shouldSkipTitleFilter,
+} from './playability/rail-overrides.js';
+import {
   CatalogError,
   couchSafeCatalogMessage,
   isAddonRateLimitMessage,
@@ -578,6 +584,7 @@ export class CatalogCore {
       rails: rails.map((rail) => ({
         railId: rail.id,
         displayLimit: rail.playability.display_limit,
+        minDisplay: rail.playability.min_display,
       })),
     });
 
@@ -687,6 +694,10 @@ export class CatalogCore {
       };
     } catch {
       // title relevance filter skipped when meta unavailable
+    }
+    const curation = await loadRailCurationOverrides();
+    if (shouldSkipTitleFilter(type, id, curation)) {
+      filterContext.skipTitleFilter = true;
     }
     const filtered = filterStreamsForPlay(raw.streams, config, filterContext);
     if (filtered.streams.length === 0) {

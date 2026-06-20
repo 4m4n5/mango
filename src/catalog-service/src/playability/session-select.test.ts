@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { parse as parseYaml } from 'yaml';
 import {
+  buildTabSessionSelections,
   railsForTabSessionAllocation,
   selectRailSessionItems,
   sessionItemsConflictWithOccupied,
@@ -54,6 +55,49 @@ test('catalog order preserves movies quick-watches before anchor rails', () => {
 
   assert.ok(allocated.indexOf('movies-quick-watches') < allocated.indexOf('movies-global-popular'));
   assert.ok(allocated.indexOf('movies-quick-watches') < allocated.indexOf('movies-india-trending'));
+});
+
+test('buildTabSessionSelections tops up anchor rails after niche reserve pass', () => {
+  const rails = [
+    { railId: 'series-global-popular', displayLimit: 20, minDisplay: 20 },
+    { railId: 'series-comedy', displayLimit: 20, minDisplay: 12 },
+  ];
+  const pools = new Map([
+    ['series-global-popular', [
+      { type: 'series', id: 'tt1', score: 100 },
+      { type: 'series', id: 'tt2', score: 90 },
+      { type: 'series', id: 'tt3', score: 80 },
+      { type: 'series', id: 'tt4', score: 70 },
+      { type: 'series', id: 'tt5', score: 60 },
+      { type: 'series', id: 'tt6', score: 50 },
+      { type: 'series', id: 'tt7', score: 40 },
+      { type: 'series', id: 'tt8', score: 30 },
+      { type: 'series', id: 'tt9', score: 20 },
+      { type: 'series', id: 'tt10', score: 10 },
+    ]],
+    ['series-comedy', [
+      { type: 'series', id: 'tt1', score: 100 },
+      { type: 'series', id: 'tt11', score: 95 },
+      { type: 'series', id: 'tt12', score: 85 },
+      { type: 'series', id: 'tt13', score: 75 },
+      { type: 'series', id: 'tt14', score: 65 },
+      { type: 'series', id: 'tt15', score: 55 },
+      { type: 'series', id: 'tt16', score: 45 },
+      { type: 'series', id: 'tt17', score: 35 },
+      { type: 'series', id: 'tt18', score: 25 },
+    ]],
+  ]);
+  const recent = new Map(rails.map((rail) => [rail.railId, new Set<string>()]));
+  const selections = buildTabSessionSelections(rails, pools, recent, {
+    reserveFloor: 8,
+    shuffleFn: (items) => items,
+  });
+  const global = selections.get('series-global-popular') ?? [];
+  const comedy = selections.get('series-comedy') ?? [];
+  assert.ok(global.length >= 8, `global starved: ${global.length}`);
+  assert.ok(comedy.length >= 8, `comedy starved: ${comedy.length}`);
+  const keys = new Set([...global, ...comedy].map((item) => titleKey(item.type, item.id)));
+  assert.equal(keys.size, global.length + comedy.length);
 });
 
 test('selectRailSessionItems excludes tab-occupied titles', () => {
