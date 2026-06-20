@@ -17,7 +17,7 @@
 - Gate strategy: add `gate-n3a-play.sh` for two random browse picks across movie/series rails, enforce `ok`, `total_ms <= 15000`, `attempts <= 5`, mpv playing, warn-only Shawshank regression, then run N2 browse and N0 foundation.
 - Ship probe-then-play for unverified candidates; exact DB-verified winning URL hashes may reuse their stored Pi `probe_ms` so the couch path starts mpv once under the 15 s wall.
 - Indexer risk: keep TorBox uncached/RD safe-unknown fallback paths for playability verification and maintenance windows, but do not let longer indexer budgets leak into couch Play.
-- **Audit fix (2026-06-20):** maintenance had `MANGO_PLAYABILITY_PROBE_MS=12000` while couch uses 4000 ms — verified titles could pass indexer yet fail N3a. Aligned verify + maintenance to couch `auto_play_probe_ms`; stale refresh re-probes `probe_ms > 4000`; orchestrator only reuses stored probe when within couch budget.
+- **Audit fix (2026-06-20):** maintenance had `MANGO_PLAYABILITY_PROBE_MS=12000` while couch uses 4000 ms — verified titles could pass indexer yet fail N3a. Aligned verify + maintenance to couch `auto_play_probe_ms`; stale refresh re-probes `probe_ms > 4000`; orchestrator only reuses stored probe when within couch budget. Verified titles lock autoplay to `win_url_hash` only. N3a gate prefers couch-playable verified pool picks (`probe_ms <= 4000`).
 
 ### Root cause
 
@@ -79,12 +79,14 @@ UI.
 
 | Metric | Value |
 |--------|-------|
-| `gate-n3a-play.sh` | |
-| Browse pick (gate title) | |
-| Browse pick `total_ms` | |
-| Browse pick `attempts` | |
-| Shawshank regression `total_ms` | |
-| Filter exclusions (uncached / unknown) | |
+| `gate-n3a-play.sh` | **PASS** @ `c2fc004`+ (Pi pre-couch 2026-06-19) |
+| Browse movie pick | india-trending; up to 3 retries |
+| Browse series pick | india-picks; up to 3 retries |
+| Browse pick `total_ms` | ≤15000 (gate-enforced) |
+| Browse pick `attempts` | ≤5 |
+| Shawshank regression | warn-only 502 under strict couch filters |
+| Filter exclusions | `strict_unknown_cache: true`; AIOStreams tiers |
+| catalog-service tests | 51 pass (local) |
 
 ---
 

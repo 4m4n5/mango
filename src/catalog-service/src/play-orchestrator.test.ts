@@ -85,26 +85,30 @@ test('playWithFallback probes when stored probe_ms exceeds couch budget', async 
   assert.equal(result.attempts[0]?.probe_reused, undefined);
 });
 
-test('playWithFallback probes streams that do not match the verified URL hash', async () => {
+test('playWithFallback rejects when verified URL hash is absent from resolved streams', async () => {
   const stream = candidate('https://example.test/current.mp4');
   let probeCalls = 0;
 
-  const result = await playWithFallback([stream], testConfig(), {
-    verified_hint: {
-      best_source: 'AIOStreams',
-      cache_status: 'unknown',
-      debrid_service: 'torbox',
-      win_url_hash: streamUrlHash('https://example.test/old.mp4'),
-      probe_ms: 3210,
+  await assert.rejects(
+    () => playWithFallback([stream], testConfig(), {
+      verified_hint: {
+        best_source: 'AIOStreams',
+        cache_status: 'unknown',
+        debrid_service: 'torbox',
+        win_url_hash: streamUrlHash('https://example.test/old.mp4'),
+        probe_ms: 3210,
+      },
+      probe: async () => {
+        probeCalls += 1;
+        return { ok: true, ttff_ms: 443 };
+      },
+      play: async () => ({ ok: true, ttff_ms: 901 }),
+    }),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /no_playable_stream|no playable/i);
+      return true;
     },
-    probe: async () => {
-      probeCalls += 1;
-      return { ok: true, ttff_ms: 443 };
-    },
-    play: async () => ({ ok: true, ttff_ms: 901 }),
-  });
-
-  assert.equal(probeCalls, 1);
-  assert.equal(result.attempts[0]?.probe_ms, 443);
-  assert.equal(result.attempts[0]?.probe_reused, undefined);
+  );
+  assert.equal(probeCalls, 0);
 });

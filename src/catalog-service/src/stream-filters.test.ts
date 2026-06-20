@@ -8,6 +8,7 @@ import {
   parseFilterOverridesFromQuery,
   selectAutoPlayCandidates,
   streamMatchesMetaTitle,
+  streamUrlHash,
 } from './stream-filters.js';
 
 function stream(description: string, url: string): Stream {
@@ -170,4 +171,29 @@ test('selectAutoPlayCandidates applies strict unknown cache inside cached_or_unk
   const unknown = candidate('AIOStreams | TorBox', 'torbox', 'unknown', 'https://example.test/unknown.mp4');
   assert.equal(selectAutoPlayCandidates([unknown], strictConfig).length, 0);
   assert.equal(selectAutoPlayCandidates([unknown], looseConfig).length, 1);
+});
+
+test('selectAutoPlayCandidates locks verified titles to the winning URL hash', () => {
+  const config = testConfig();
+  const winner = candidate('AIOStreams | TorBox', 'torbox', 'unknown', 'https://example.test/winner.mp4');
+  const other = candidate('AIOStreams | TorBox', 'torbox', 'unknown', 'https://example.test/other.mp4');
+  const selected = selectAutoPlayCandidates([other, winner], config, {
+    verified_hint: {
+      best_source: 'AIOStreams',
+      cache_status: 'unknown',
+      debrid_service: 'torbox',
+      win_url_hash: streamUrlHash(winner.url),
+      probe_ms: 2800,
+    },
+  });
+  assert.deepEqual(selected.map((item) => item.url), [winner.url]);
+  assert.equal(
+    selectAutoPlayCandidates([other], config, {
+      verified_hint: {
+        best_source: 'AIOStreams',
+        win_url_hash: streamUrlHash(winner.url),
+      },
+    }).length,
+    0,
+  );
 });
