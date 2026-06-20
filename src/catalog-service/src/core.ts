@@ -83,6 +83,11 @@ import {
 
 const LIVE_TAB_CACHE_TTL_MS = 5 * 60 * 1000;
 
+function liveCatalogCacheTtlMs(config: LiveRailConfig): number {
+  const configured = (config.cache_ttl_sec ?? 600) * 1000;
+  return Math.max(configured, LIVE_TAB_CACHE_TTL_MS);
+}
+
 type TaggedLiveChannel = LiveChannelMeta & {
   source_manifest: string;
   source_addon: string;
@@ -431,6 +436,10 @@ export class CatalogCore {
     payload: TabRailItemsResponse;
     expiresAt: number;
   } | null = null;
+  private liveChannelCatalogCache: {
+    channels: TaggedLiveChannel[];
+    expiresAt: number;
+  } | null = null;
   private playabilitySessionId = process.env.MANGO_PLAYABILITY_SESSION_ID || randomUUID();
 
   private constructor(
@@ -593,6 +602,7 @@ export class CatalogCore {
     this.railItemsCache.clear();
     this.tabRailItemsCache.clear();
     this.liveTabRailItemsCache = null;
+    this.liveChannelCatalogCache = null;
   }
 
   /** Pre-build movies + series tab caches so first couch browse is warm. */
@@ -644,6 +654,12 @@ export class CatalogCore {
   private async fetchTaggedLiveChannels(
     config: LiveRailConfig,
   ): Promise<TaggedLiveChannel[]> {
+    const ttlMs = liveCatalogCacheTtlMs(config);
+    const cached = this.liveChannelCatalogCache;
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.channels;
+    }
+
     const tagged: TaggedLiveChannel[] = [];
     for (const source of config.sources) {
       const addon = this.findAddonByName(source.addon);
@@ -658,6 +674,10 @@ export class CatalogCore {
         });
       }
     }
+    this.liveChannelCatalogCache = {
+      channels: tagged,
+      expiresAt: Date.now() + ttlMs,
+    };
     return tagged;
   }
 
@@ -750,20 +770,16 @@ export class CatalogCore {
     };
   }
 
-  async liveTabRailItems(options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
-    const reshuffle = Boolean(options.reshuffle);
-    if (reshuffle) {
-      this.liveTabRailItemsCache = null;
-    }
-
+  async liveTabRailItems(_options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
     const cached = this.liveTabRailItemsCache;
-    if (!reshuffle && cached && cached.expiresAt > Date.now()) {
+    if (cached && cached.expiresAt > Date.now()) {
       return { ...cached.payload, cached: true };
     }
 
     const diskCache = await readLiveRailsDiskCache();
-    if (!reshuffle && liveRailsDiskCacheFresh(diskCache) && !cached) {
-      const payload = diskCache.payload as TabRailItemsResponse;
+    const diskPayload = diskCache?.payload as TabRailItemsResponse | undefined;
+    if (liveRailsDiskCacheFresh(diskCache)) {
+      const payload = diskPayload as TabRailItemsResponse;
       this.liveTabRailItemsCache = {
         payload,
         expiresAt: diskCache.expires_at,
@@ -795,8 +811,9 @@ export class CatalogCore {
     }
 
     if (responses.length === 0) {
-      const fallback = cached?.payload
-        || (liveRailsDiskCacheFresh(diskCache) ? diskCache.payload as TabRailItemsResponse : null);
+      const staleMemory = this.liveTabRailItemsCache?.payload;
+      const fallback = staleMemory
+        || (diskPayload && diskPayload.rails.length > 0 ? diskPayload : null);
       if (fallback && fallback.rails.length > 0) {
         return { ...fallback, cached: true, stale: true };
       }
@@ -809,8 +826,7 @@ export class CatalogCore {
       rails: responses,
       resolve_ms: Date.now() - started,
     };
-    const ttlMs = (config.cache_ttl_sec ?? 600) * 1000;
-    const expiresAt = Date.now() + Math.max(ttlMs, LIVE_TAB_CACHE_TTL_MS);
+    const expiresAt = Date.now() + liveCatalogCacheTtlMs(config);
     this.liveTabRailItemsCache = { payload, expiresAt };
     await writeLiveRailsDiskCache(
       { ...payload, tab: 'live' },
@@ -976,7 +992,7 @@ export class CatalogCore {
 
   async tabRailItems(tab: CatalogTab, options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
     if (tab === 'live') {
-      return this.liveTabRailItems(options);
+      return this.liveTabRailItems();
     }
     const reshuffle = Boolean(options.reshuffle);
     if (reshuffle) {

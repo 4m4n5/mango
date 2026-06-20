@@ -17,7 +17,7 @@ export function buildSettingsRefresh(
 
   const intro = document.createElement("p");
   intro.className = "settings-note";
-  intro.textContent = "Shuffle re-picks verified titles only. Growth jobs add new playable titles — verified rows stay unless marked stale.";
+  intro.textContent = "Shuffle re-picks verified titles on movies & tv shows. Live channels stay cached — no reshuffle.";
 
   container.append(heading, intro);
 

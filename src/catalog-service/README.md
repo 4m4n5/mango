@@ -125,7 +125,7 @@ Sport rails from `catalog-live.yaml` — dual NexoTV (`mango Live TV` + `mango L
 
 | Endpoint | Notes |
 |----------|-------|
-| `GET /rails/items?tab=live` | Cached; launcher skips reshuffle on live tab |
+| `GET /rails/items?tab=live` | **Long-lived cache** (memory + `~/.cache/mango/live-rails-cache.json`); ignores `reshuffle=1`; launcher hides shuffle on live tab |
 | `POST /play` + `live: true` | mpv `--live` |
 
 `verify_streams: false` in catalog-live — NexoTV `/stream/` probes share ~60 req/min.

@@ -47,6 +47,7 @@ let libraryRefreshInFlight = false;
 let pinnedKeys = new Set<string>();
 const tabCatalogCache = new Map<BrowseTab, ContentRail[]>();
 const tabCatalogPrefetching = new Set<BrowseTab>();
+let liveCatalogSessionCached = false;
 
 const focusGrid = new FocusGrid((element) => {
   element.classList.add("focused");
@@ -119,8 +120,11 @@ function init(): void {
 
 function renderHome(): void {
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
+  const showShuffle = activeBrowseTab !== "live";
+  libraryRefreshBtn.hidden = !showShuffle;
+  const browseChrome = showShuffle ? [...tabButtons, libraryRefreshBtn] : tabButtons;
   focusGridRows = [
-    [...tabButtons, libraryRefreshBtn],
+    browseChrome,
     ...buildHomeRails(railsEl, {
       onContentSelect: handleContentSelect,
       onAppSelect: handleAppSelect,
@@ -388,6 +392,12 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
   if (libraryRefreshInFlight || detail.isOpen || inSettings) {
     return;
   }
+  if (activeBrowseTab === "live") {
+    if (!options.quiet) {
+      setStatus("live channels stay fixed — shuffle movies & tv shows only.");
+    }
+    return;
+  }
   libraryRefreshInFlight = true;
   libraryRefreshBtn.classList.add("browse-shuffle--active");
   railsEl.classList.remove("rails--refresh-settled");
@@ -420,6 +430,16 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     setStatus("refreshing…");
   }
 
+  if (activeBrowseTab === "live" && liveCatalogSessionCached) {
+    const frozen = tabCatalogCache.get("live");
+    if (frozen && frozen.length > 0) {
+      pinnedKeys = await fetchPinnedIds("live").catch(() => new Set<string>());
+      catalogState = { status: "ready", rails: frozen };
+      renderHome();
+      return;
+    }
+  }
+
   const cachedRails = !reshuffle ? tabCatalogCache.get(activeBrowseTab) : undefined;
   if (cachedRails && cachedRails.length > 0) {
     catalogState = { status: "ready", rails: cachedRails };
@@ -436,6 +456,9 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     ]);
     pinnedKeys = pins;
     tabCatalogCache.set(activeBrowseTab, rails);
+    if (activeBrowseTab === "live") {
+      liveCatalogSessionCached = true;
+    }
     catalogState = { status: "ready", rails };
     renderHome();
     const itemCount = rails.reduce((total, rail) => total + rail.cards.length, 0);
@@ -446,7 +469,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
       : "catalog loaded with no posters");
     if (!reshuffle) {
       for (const tab of BROWSE_TAB_ORDER) {
-        if (tab !== activeBrowseTab) {
+        if (tab !== activeBrowseTab && tab !== "live") {
           prefetchCatalogTab(tab);
         }
       }
@@ -467,7 +490,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
 }
 
 function prefetchCatalogTab(tab: BrowseTab): void {
-  if (tab === activeBrowseTab || tabCatalogCache.has(tab) || tabCatalogPrefetching.has(tab)) {
+  if (tab === "live" || tab === activeBrowseTab || tabCatalogCache.has(tab) || tabCatalogPrefetching.has(tab)) {
     return;
   }
   tabCatalogPrefetching.add(tab);
