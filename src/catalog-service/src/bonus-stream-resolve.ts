@@ -72,6 +72,51 @@ export function streamMatchesBonusEpisodeNumber(haystack: string, episode: numbe
   return false;
 }
 
+/** True when release label names this main-line season/episode (S01E07, 1x07, Igl E07, …). */
+export function streamMatchesMainEpisodeNumber(
+  haystack: string,
+  season: number,
+  episode: number,
+): boolean {
+  const epVariants = [String(episode), String(episode).padStart(2, '0')];
+  const seasonVariants = season > 0
+    ? [String(season), String(season).padStart(2, '0')]
+    : [];
+
+  for (const ep of epVariants) {
+    for (const s of seasonVariants) {
+      if (new RegExp(`\\bs0*${s}[\\s._-]*e0*${ep}\\b`, 'i').test(haystack)) {
+        return true;
+      }
+    }
+    if (season === 1 && new RegExp(`\\b1[\\s._-]*x0*${ep}\\b`, 'i').test(haystack)) {
+      return true;
+    }
+    if (new RegExp(`\\b(?:e|ep|episode)[\\s._-]*0*${ep}\\b`, 'i').test(haystack)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** True when label names a different main-line episode (E07 while resolving E01). */
+export function streamConflictsMainEpisodeNumber(
+  haystack: string,
+  season: number,
+  episode: number,
+  maxEpisode = 30,
+): boolean {
+  for (let other = 1; other <= maxEpisode; other += 1) {
+    if (other === episode) {
+      continue;
+    }
+    if (streamMatchesMainEpisodeNumber(haystack, season, other)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function buildBonusTitleTokens(episodeTitle: string): string[] {
   const normalized = episodeTitle
     .toLowerCase()
@@ -175,12 +220,14 @@ export function pickBonusStreamsFromCandidates(
   );
 }
 
-/** Main-line partition — drops supplemental and bonus-number mislabels (IGL S1E01 quirk). */
+/** Main-line partition — drops supplemental, bonus mislabels, and wrong-episode labels. */
 export function pickMainEpisodeStreams(
   streams: Stream[],
-  _season: number,
+  season: number,
   episode: number,
+  options: { requireEpisodeLabel?: boolean } = {},
 ): Stream[] {
+  const requireEpisodeLabel = options.requireEpisodeLabel === true;
   return dedupeStreamsByUrl(
     streams.filter((stream) => {
       const haystack = bonusEpisodeHaystack(stream);
@@ -188,6 +235,12 @@ export function pickMainEpisodeStreams(
         return false;
       }
       if (streamMatchesBonusEpisodeNumber(haystack, episode)) {
+        return false;
+      }
+      if (streamConflictsMainEpisodeNumber(haystack, season, episode)) {
+        return false;
+      }
+      if (requireEpisodeLabel && !streamMatchesMainEpisodeNumber(haystack, season, episode)) {
         return false;
       }
       return true;

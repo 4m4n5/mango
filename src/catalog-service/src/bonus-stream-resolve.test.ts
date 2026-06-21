@@ -8,7 +8,9 @@ import {
   parseSeriesEpisodeId,
   pickBonusStreamsFromCandidates,
   pickMainEpisodeStreams,
+  streamConflictsMainEpisodeNumber,
   streamMatchesBonusEpisodeNumber,
+  streamMatchesMainEpisodeNumber,
   streamMatchesBonusEpisodeTitle,
 } from './bonus-stream-resolve.js';
 import type { Stream } from './core.js';
@@ -97,6 +99,31 @@ test('pickMainEpisodeStreams drops supplemental and bonus-number mislabels', () 
   );
   assert.equal(mixed.length, 1);
   assert.ok(/S01E01/i.test(String(mixed[0]?.description ?? '')));
+});
+
+test('pickMainEpisodeStreams rejects wrong-episode labels (IGL E07 on S1E1)', () => {
+  const wrongEpisode = pickMainEpisodeStreams(
+    [stream('Torrentio', '📁 Igl E07 🎞️ AVC')],
+    1,
+    1,
+  );
+  assert.equal(wrongEpisode.length, 0);
+  assert.equal(streamConflictsMainEpisodeNumber('igl e07 avc', 1, 1), true);
+  assert.equal(streamMatchesMainEpisodeNumber('igl e07 avc', 1, 7), true);
+});
+
+test('pickMainEpisodeStreams cross-probe mode requires episode label match', () => {
+  const strict = pickMainEpisodeStreams(
+    [
+      stream('Torrentio', '📁 Igl E07 🎞️ AVC'),
+      stream('Torrentio', '📁 Igl E01 🎞️ AVC'),
+    ],
+    1,
+    1,
+    { requireEpisodeLabel: true },
+  );
+  assert.equal(strict.length, 1);
+  assert.ok(/E01/i.test(String(strict[0]?.description ?? '')));
 });
 
 test('pickMainEpisodeStreams keeps normal series releases', () => {

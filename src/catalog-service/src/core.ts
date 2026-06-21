@@ -1574,7 +1574,9 @@ export class CatalogCore {
       resolveMs += probe.resolveMs;
       errors.push(...probe.errors, `main cross-probe ${probeId}`);
       collected.push(
-        ...pickMainEpisodeStreams(probe.streams, parsed.season, parsed.episode),
+        ...pickMainEpisodeStreams(probe.streams, parsed.season, parsed.episode, {
+          requireEpisodeLabel: true,
+        }),
       );
       if (collected.length >= 2) {
         break;
