@@ -2,14 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   bonusIndexerAliasId,
+  bonusIndexerProbeIds,
   buildBonusTitleTokens,
   dedupeStreamsByUrl,
+  isSupplementalEpisodeTitle,
   isSupplementalStream,
+  listEpisodeCrossProbeIds,
   parseSeriesEpisodeId,
   pickBonusStreamsFromCandidates,
   pickMainEpisodeStreams,
   streamConflictsMainEpisodeNumber,
   streamMatchesBonusEpisodeNumber,
+  streamMatchesBonusEpisodeTitleRelaxed,
   streamMatchesMainEpisodeNumber,
   streamMatchesBonusEpisodeTitle,
 } from './bonus-stream-resolve.js';
@@ -30,8 +34,33 @@ test('parseSeriesEpisodeId reads season and episode', () => {
 test('bonusIndexerAliasId maps season 0 to season 1 for early bonus rows', () => {
   assert.equal(bonusIndexerAliasId('tt33094114:0:1'), 'tt33094114:1:1');
   assert.equal(bonusIndexerAliasId('tt33094114:0:6'), 'tt33094114:1:6');
-  assert.equal(bonusIndexerAliasId('tt33094114:0:7'), null);
+  assert.equal(bonusIndexerAliasId('tt33094114:0:7'), 'tt33094114:1:7');
   assert.equal(bonusIndexerAliasId('tt33094114:1:1'), null);
+});
+
+test('bonusIndexerProbeIds includes each main season for the same episode number', () => {
+  assert.deepEqual(
+    bonusIndexerProbeIds('tt33094114:0:1', [
+      { season: 1 },
+      { season: 2 },
+    ]),
+    ['tt33094114:1:1', 'tt33094114:2:1'],
+  );
+});
+
+test('listEpisodeCrossProbeIds prioritizes same episode number across seasons', () => {
+  const ids = listEpisodeCrossProbeIds(
+    'tt33094114',
+    [
+      { id: 'tt33094114:1:3', season: 1, episode: 3 },
+      { id: 'tt33094114:2:1', season: 2, episode: 1 },
+      { id: 'tt33094114:1:1', season: 1, episode: 1 },
+    ],
+    { bare: 'tt33094114', season: 2, episode: 1 },
+    'tt33094114:2:1',
+    8,
+  );
+  assert.deepEqual(ids.slice(0, 2), ['tt33094114:1:1', 'tt33094114:1:3']);
 });
 
 test('streamMatchesBonusEpisodeNumber matches indexer bonus labels', () => {
@@ -50,6 +79,48 @@ test('streamMatchesBonusEpisodeTitle matches deleted-moments extras', () => {
     streamMatchesBonusEpisodeTitle('igl e07 main episode', 'EP 07 ft. guest', 7),
     false,
   );
+});
+
+test('relaxed bonus title match uses meta supplemental title without torrent keywords', () => {
+  assert.equal(isSupplementalEpisodeTitle('Deepak Kalal Episode Deleted Moments'), true);
+  assert.equal(
+    streamMatchesBonusEpisodeTitleRelaxed(
+      'indias got latent deepak kalal 1080p repack',
+      'Deepak Kalal Episode Deleted Moments',
+      8,
+    ),
+    true,
+  );
+  assert.equal(
+    streamMatchesBonusEpisodeTitleRelaxed(
+      'igl e08 ft poonam pandey 1080p',
+      'Deepak Kalal Episode Deleted Moments',
+      8,
+    ),
+    false,
+  );
+  assert.equal(
+    streamMatchesBonusEpisodeTitleRelaxed(
+      'igl e07 main episode 1080p',
+      'Bonus EP 7 ft. Aakash Gupta',
+      7,
+    ),
+    false,
+  );
+});
+
+test('pickBonusStreamsFromCandidates relaxed tier finds title-only supplemental matches', () => {
+  const picked = pickBonusStreamsFromCandidates(
+    [
+      stream('Torrentio', 'indias got latent deepak kalal 1080p'),
+      stream('Torrentio', 'igl e08 main 1080p'),
+    ],
+    8,
+    'Deepak Kalal Episode Deleted Moments',
+    'relaxed',
+  );
+  assert.equal(picked.length, 1);
+  assert.ok(/deepak/i.test(String(picked[0]?.description ?? '')));
 });
 
 test('buildBonusTitleTokens strips short and stop words', () => {

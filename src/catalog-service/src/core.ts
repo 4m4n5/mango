@@ -73,13 +73,14 @@ import {
 } from './episodes.js';
 import { mergeCatalogMetaPieces, type VideoLayer } from './meta-merge.js';
 import {
-  bonusIndexerAliasId,
+  bonusIndexerProbeIds,
   dedupeStreamsByUrl,
-  listMainSeasonProbeIds,
+  listEpisodeCrossProbeIds,
   parseSeriesEpisodeId,
   parsedSeasonRole,
   pickBonusStreamsFromCandidates,
   pickMainEpisodeStreams,
+  type BonusStreamMatchTier,
   type ParsedSeriesEpisodeId,
 } from './bonus-stream-resolve.js';
 import { listUserPins } from './user-pins.js';
@@ -1564,7 +1565,7 @@ export class CatalogCore {
   ): Promise<RawStreamResolution> {
     const errors: string[] = [];
     let resolveMs = 0;
-    const probeIds = await this.bonusProbeEpisodeIds(parsed.bare, episodeId);
+    const probeIds = await this.episodeCrossProbeIds(parsed.bare, episodeId, parsed);
     const collected: Stream[] = [];
     for (const probeId of probeIds) {
       if (probeId === episodeId) {
@@ -1653,16 +1654,18 @@ export class CatalogCore {
   ): Promise<RawStreamResolution> {
     const errors: string[] = [];
     let resolveMs = 0;
+    const videos = await this.episodeVideosFromMeta(parsed.bare);
+    const episodeTitle = await this.episodeTitleFromMeta(parsed.bare, episodeId);
 
-    const aliasId = bonusIndexerAliasId(episodeId);
-    if (aliasId) {
-      const aliasRaw = await this.rawStreams('series', aliasId);
-      resolveMs += aliasRaw.resolveMs;
-      errors.push(...aliasRaw.errors, `bonus alias probe ${aliasId}`);
+    for (const probeId of bonusIndexerProbeIds(episodeId, videos)) {
+      const probe = await this.rawStreams('series', probeId);
+      resolveMs += probe.resolveMs;
+      errors.push(...probe.errors, `bonus indexer probe ${probeId}`);
       const aliasStreams = pickBonusStreamsFromCandidates(
-        aliasRaw.streams,
+        probe.streams,
         parsed.episode,
-        null,
+        episodeTitle,
+        'strict',
       );
       if (aliasStreams.length > 0) {
         return {
@@ -1674,32 +1677,44 @@ export class CatalogCore {
       }
     }
 
-    const episodeTitle = await this.episodeTitleFromMeta(parsed.bare, episodeId);
     if (!episodeTitle) {
       errors.push('bonus title fallback: episode title unavailable');
       return { streams: [], errors, resolveMs, cached: false };
     }
 
-    const probeIds = await this.bonusProbeEpisodeIds(parsed.bare, episodeId);
-    const collected: Stream[] = [];
-    for (const probeId of probeIds) {
-      const probe = await this.rawStreams('series', probeId);
-      resolveMs += probe.resolveMs;
-      errors.push(...probe.errors, `bonus title probe ${probeId}`);
-      collected.push(
-        ...pickBonusStreamsFromCandidates(probe.streams, parsed.episode, episodeTitle),
-      );
-      if (collected.length >= 2) {
-        break;
+    const probeIds = await this.episodeCrossProbeIds(parsed.bare, episodeId, parsed);
+    const tiers: BonusStreamMatchTier[] = ['strict', 'relaxed'];
+    for (const tier of tiers) {
+      const collected: Stream[] = [];
+      for (const probeId of probeIds) {
+        const probe = await this.rawStreams('series', probeId);
+        resolveMs += probe.resolveMs;
+        errors.push(...probe.errors, `bonus ${tier} probe ${probeId}`);
+        collected.push(
+          ...pickBonusStreamsFromCandidates(probe.streams, parsed.episode, episodeTitle, tier),
+        );
+        if (collected.length >= 2) {
+          break;
+        }
+      }
+      const streams = dedupeStreamsByUrl(collected);
+      if (streams.length > 0) {
+        return { streams, errors, resolveMs, cached: false };
       }
     }
 
-    return {
-      streams: dedupeStreamsByUrl(collected),
-      errors,
-      resolveMs,
-      cached: false,
-    };
+    return { streams: [], errors, resolveMs, cached: false };
+  }
+
+  private async episodeVideosFromMeta(
+    bareId: string,
+  ): Promise<Array<{ id?: string; season?: number; episode?: number }>> {
+    try {
+      const meta = await this.metaCached('series', bareId);
+      return Array.isArray(meta.videos) ? meta.videos : [];
+    } catch {
+      return [];
+    }
   }
 
   private async episodeTitleFromMeta(bareId: string, episodeId: string): Promise<string | null> {
@@ -1723,14 +1738,13 @@ export class CatalogCore {
     return null;
   }
 
-  private async bonusProbeEpisodeIds(bareId: string, excludeId: string): Promise<string[]> {
-    try {
-      const meta = await this.metaCached('series', bareId);
-      const videos = Array.isArray(meta.videos) ? meta.videos : [];
-      return listMainSeasonProbeIds(bareId, videos, excludeId, 16);
-    } catch {
-      return listMainSeasonProbeIds(bareId, [], excludeId, 12);
-    }
+  private async episodeCrossProbeIds(
+    bareId: string,
+    excludeId: string,
+    target: ParsedSeriesEpisodeId,
+  ): Promise<string[]> {
+    const videos = await this.episodeVideosFromMeta(bareId);
+    return listEpisodeCrossProbeIds(bareId, videos, target, excludeId, 24);
   }
 
   private async rawStreams(type: string, id: string): Promise<RawStreamResolution> {
