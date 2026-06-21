@@ -32,6 +32,7 @@ import {
   allocateTabRailSessions,
   getOrCreateRailSession,
   getPlayabilityStatus,
+  getTitlesPlayabilityBulk,
   listRailPoolMissingDisplay,
   patchRailPoolDisplay,
   type PlayabilityStatus,
@@ -62,7 +63,11 @@ import {
 import { resolvePosterFromMeta, metahubPosterUrl, normalizePosterUrl } from './poster.js';
 import { CONTINUE_RAIL_ID } from './progress/config.js';
 import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
-import { assembleSeriesEpisodes, type SeriesEpisodesResponse } from './episodes.js';
+import {
+  assembleSeriesEpisodes,
+  applyEpisodePlayability,
+  type SeriesEpisodesResponse,
+} from './episodes.js';
 import { listUserPins } from './user-pins.js';
 import {
   channelSubtitle,
@@ -1203,7 +1208,16 @@ export class CatalogCore {
     }
     const meta = await this.meta('series', normalizedBare);
     const saved = getWatchProgressForTitle('series', normalizedBare);
-    return assembleSeriesEpisodes(normalizedBare, meta, saved);
+    const response = await assembleSeriesEpisodes(normalizedBare, meta, saved);
+    const keys = response.seasons.flatMap((block) => block.episodes.map((row) => ({
+      type: 'series',
+      id: row.id,
+    })));
+    if (keys.length > 0) {
+      const playability = await getTitlesPlayabilityBulk(keys);
+      applyEpisodePlayability(response.seasons, playability);
+    }
+    return response;
   }
 
   private async buildStreamFilterContext(type: string, id: string): Promise<StreamFilterContext> {

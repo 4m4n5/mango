@@ -32,7 +32,7 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 | N3c playability + Track B UX | ✓ | — |
 | N3d self-hosted addons | ✓ | — |
 | Live TV (NexoTV) | ✓ | paid cricket coverage |
-| N3b picker + Continue | partial | N3e episode picker |
+| N3b picker + Continue | ✓ | — |
 | N5a voice tools (browse/open) | ✓ | N5b AI catalogs · voice play |
 
 **Repo layout:**
@@ -68,7 +68,7 @@ Track B       Verified rails UX + library refresh      ✓
 Live TV       NexoTV dual instance + live tab          ✓
 N3b           Stream picker + progress (partial)
 N5a           Voice tools librarian + Hinglish STT        ✓
-N3e           Series episode picker                    next
+N3e           Series episode picker                    ✓
 N4            Library + Stremio write-back
 N5b–N7       AI home catalogs · YouTube · 4K TV + soundbar ship
 Phase 5      install.sh + first-boot wizard (ongoing)

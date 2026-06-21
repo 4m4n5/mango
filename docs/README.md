@@ -31,10 +31,10 @@
 | N3c playability index | ✓ | `scripts/phase-n3c/` |
 | N3d self-hosted addons | ✓ | [N3d-INVENTORY.md](N3d-INVENTORY.md) |
 | Track B verified rails UX | ✓ | thin rows · library refresh |
-| N3b stream picker + progress | **partial** | C1 picker on detail · C2 Continue rail |
+| N3b stream picker + progress | ✓ | C1 picker · C2 Continue · cancel-on-Y |
 | Live TV (NexoTV) | ✓ | [LIVE_TV.md](LIVE_TV.md) |
 | N5a voice tools | ✓ | [N5-INVENTORY.md](N5-INVENTORY.md) · browse/open · Hinglish STT |
-| N3e episode picker | design | `tasks/` (series UX) |
+| N3e episode picker | ✓ | season list · per-episode streams · next-up |
 | N5b AI catalogs | planned | 3 home slots · create/list catalogs |
 | N4–N7 | planned | library write-back · YouTube · 4K ship |
 

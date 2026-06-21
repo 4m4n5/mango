@@ -31,6 +31,8 @@ export class DetailController {
   private streamButtons: HTMLButtonElement[] = [];
   private streamsLoadToken = 0;
   private episodesLoadToken = 0;
+  private resolvingPlay = false;
+  private streamsPending = false;
   private seriesEpisodes: SeriesEpisodesResponse | null = null;
   /** Season headers + enabled episode rows — D-pad order in the list. */
   private listFocusables: HTMLElement[] = [];
@@ -62,6 +64,38 @@ export class DetailController {
 
   get isOpen(): boolean {
     return this.card !== null;
+  }
+
+  /** True while play resolve or stream list fetch is in flight — Y cancels instead of closing. */
+  isResolving(): boolean {
+    return this.resolvingPlay || this.streamsPending;
+  }
+
+  cancelResolve(): void {
+    if (!this.isResolving()) {
+      return;
+    }
+    this.playToken += 1;
+    this.streamsLoadToken += 1;
+    this.playAbort?.abort();
+    this.playAbort = null;
+    this.resolvingPlay = false;
+    this.streamsPending = false;
+    void cancelPlay();
+    this.playButton.disabled = false;
+    this.pinButton.disabled = false;
+    this.backButton.disabled = false;
+    for (const button of this.streamButtons) {
+      button.disabled = false;
+    }
+    for (const button of this.episodeButtons()) {
+      button.disabled = button.classList.contains("detail-episode--disabled");
+    }
+    const card = this.card;
+    const isLive = card?.type === "tv" || this.browseTab === "live";
+    this.callbacks.onStatus(
+      isLive ? "B to watch live. Y to go back." : "B to play. Y to go back.",
+    );
   }
 
   show(card: ContentCard, railLabel: string, tab: BrowseTab, pinned = false): void {
@@ -109,6 +143,8 @@ export class DetailController {
     this.playToken += 1;
     this.streamsLoadToken += 1;
     this.episodesLoadToken += 1;
+    this.resolvingPlay = false;
+    this.streamsPending = false;
     this.playAbort?.abort();
     this.playAbort = null;
     void cancelPlay();
@@ -178,6 +214,7 @@ export class DetailController {
     this.playAbort?.abort();
     const abort = new AbortController();
     this.playAbort = abort;
+    this.resolvingPlay = true;
     this.callbacks.onStatus(
       startSec
         ? "resuming…"
@@ -245,6 +282,7 @@ export class DetailController {
       if (this.playAbort === abort) {
         this.playAbort = null;
       }
+      this.resolvingPlay = false;
       window.clearTimeout(startingTimer);
       window.clearTimeout(alternateTimer);
       window.clearTimeout(cachingTimer);
@@ -491,6 +529,11 @@ export class DetailController {
         progress.textContent = episodeProgressLabel(episode.progress_pct);
 
         button.dataset.episodeId = episode.id;
+        if (episode.playable === false) {
+          button.disabled = true;
+          button.classList.add("detail-episode--disabled");
+          button.setAttribute("aria-disabled", "true");
+        }
         button.append(label, progress);
         button.addEventListener("click", () => {
           void this.activateEpisode(episode);
@@ -519,6 +562,10 @@ export class DetailController {
   private async selectEpisode(episode: SeriesEpisodeRow): Promise<void> {
     const card = this.card;
     if (!card) {
+      return;
+    }
+    if (episode.playable === false) {
+      this.callbacks.onStatus("no streams for this episode.");
       return;
     }
     this.selectedEpisodeId = episode.id;
@@ -556,6 +603,10 @@ export class DetailController {
 
   private async loadStreamList(card: ContentCard, episodeId?: string): Promise<void> {
     const token = ++this.streamsLoadToken;
+    this.streamsPending = true;
+    if (this.card?.id === card.id) {
+      this.callbacks.onStatus("loading streams…");
+    }
     try {
       const result = await loadStreams(card, episodeId);
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
@@ -566,6 +617,14 @@ export class DetailController {
         this.setEpisodeHasStreams(episodeId, result.streams.length > 0);
       }
       this.renderStreams();
+      if (this.card?.id === card.id && !this.resolvingPlay) {
+        const count = result.streams.length;
+        this.callbacks.onStatus(
+          count > 0
+            ? `${count} stream${count === 1 ? "" : "s"} ready. B to play. Y to go back.`
+            : "no streams found for this title.",
+        );
+      }
     } catch {
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
@@ -575,6 +634,10 @@ export class DetailController {
         this.setEpisodeHasStreams(episodeId, false);
       }
       this.renderStreams();
+    } finally {
+      if (this.streamsLoadToken === token) {
+        this.streamsPending = false;
+      }
     }
   }
 

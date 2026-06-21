@@ -78,7 +78,7 @@ Launcher voice-hud ◄── WS loopback :8766
 
 | Gate | When | What |
 |------|------|------|
-| **`gate-lite.sh`** | **default deploy** | N0 + N3d (if enabled) + N2 browse + unit + 2 plays + **N5 voice** (if `MANGO_VOICE=1`) |
+| **`gate-lite.sh`** | **default deploy** | N0 + N3d (if enabled) + N2 + **N3b/N3e** + unit + 2 plays + **N5 voice** (if `MANGO_VOICE=1`) |
 | `pi-pre-couch-gate.sh` | Mac `pi-exec-gate.sh` | Pull + gate-lite |
 | `MANGO_GATE_FULL=1` | release handoff | + per-rail verified play + N3a browse picks |
 | `gate-n3d-self-hosted.sh` | self-hosted | N3d stream + catalog corpus |

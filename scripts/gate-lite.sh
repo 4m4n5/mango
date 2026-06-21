@@ -42,6 +42,8 @@ if [[ "${MANGO_SELF_HOSTED_ADDONS:-0}" == "1" || -f /etc/mango/aiostreams.enable
 fi
 
 run_step "N2 browse" bash scripts/phase-n2/gate-n2-browse.sh
+run_step "N3b detail streams" bash scripts/phase-n3/gate-n3b-detail.sh
+run_step "N3e episodes" bash scripts/phase-n3/gate-n3e-episodes.sh
 run_step "catalog unit" bash scripts/gate-lite-unit.sh
 run_step "lite play" bash scripts/gate-lite-play.sh
 

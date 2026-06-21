@@ -1,6 +1,7 @@
 import type { Meta } from './core.js';
 import type { WatchProgressRecord } from './progress/db.js';
 import { progressPct } from './progress/keys.js';
+import { titleKey } from './playability/session-select.js';
 
 export type CinemetaVideo = {
   id?: string;
@@ -20,6 +21,8 @@ export type SeriesEpisodeRow = {
   title: string;
   thumbnail?: string;
   progress_pct: number | null;
+  /** null = unknown until stream probe; true/false from playability index when known */
+  playable: boolean | null;
 };
 
 export type SeriesSeasonBlock = {
@@ -76,6 +79,7 @@ export function normalizeSeriesEpisodes(
       title: (video.title || video.name || `Episode ${episode}`).trim(),
       thumbnail: typeof video.thumbnail === 'string' ? video.thumbnail : undefined,
       progress_pct: null,
+      playable: null,
     };
     const bucket = bySeason.get(season) || [];
     bucket.push(row);
@@ -104,6 +108,30 @@ export function applyEpisodeProgress(
     for (const row of block.episodes) {
       if (row.id === saved.play_id) {
         row.progress_pct = progressPct(saved.position_sec, saved.duration_sec);
+      }
+    }
+  }
+}
+
+/** Playability index hints — episodes without rows stay null (client stream probe). */
+export function applyEpisodePlayability(
+  seasons: SeriesSeasonBlock[],
+  playability: Map<string, { status: string; expires_at: number | null }>,
+): void {
+  const now = Date.now();
+  for (const block of seasons) {
+    for (const row of block.episodes) {
+      const record = playability.get(titleKey('series', row.id));
+      if (!record) {
+        row.playable = null;
+        continue;
+      }
+      if (record.status === 'verified' && (record.expires_at ?? 0) > now) {
+        row.playable = true;
+      } else if (record.status === 'failed') {
+        row.playable = false;
+      } else {
+        row.playable = null;
       }
     }
   }

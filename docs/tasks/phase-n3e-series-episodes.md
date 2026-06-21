@@ -1,6 +1,6 @@
 # Phase N3e — Series episode picker & play
 
-**Status:** PR1 shipped · **PR2 shipped** (launcher episode list + next-prompt)  
+**Status:** ✓ Shipped — playability hints, gates, cancel-on-Y polish  
 **Branch:** `feat/native-experience`  
 **Last updated:** 2026-06-20
 
@@ -29,7 +29,7 @@ Rails and detail use **bare series IMDB ids** (`tt12004706`). Catalog-service si
 | API ids | Accept **bare id** (→ S1E1 compat) **and** episode id `tt…:s:e` |
 | Episode meta source | **Cinemeta** `videos[]` on series meta |
 | Playability | S1E1 rail gate only; ladder on demand per episode (no background verify) |
-| Gates v1 | **diag only** (`scripts/diag/series-episodes.sh`) |
+| Gates | `gate-n3e-episodes.sh` in gate-lite · diag: `series-episodes.sh` |
 | Ship order | **PR1** API + meta/episodes + play · **PR2** launcher UI + next prompt |
 | UX avoid | Stremio stream clutter in list · Kodi deep season walls · Netflix autoplay countdown |
 

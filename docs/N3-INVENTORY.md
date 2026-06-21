@@ -30,13 +30,13 @@
 - Thin rails (no filler), empty rails hidden, rate-limit meta blocked in browse
 - Settings: grouped refresh levels (Quick · Standard · Overnight)
 
-### N3b — partial ✓
+### N3b — shipped ✓
 
 | Slice | Status |
 |-------|--------|
 | **C1** stream picker on detail | ✓ `GET /stream` rows with `display_label`; tap to `POST /play { url }` |
 | **C2** Continue watching | ✓ `progress.db` + Continue rail; mpv position watcher |
-| **N3e** episode picker | ✓ season list, per-episode streams, next-up prompt |
+| **N3e** episode picker | ✓ playability hints · gates · cancel-on-Y |
 | Stremio library merge (N4) | planned |
 
 ### Live TV ✓
@@ -82,8 +82,7 @@ Status: `python3 scripts/diag/playability-status.py`
 
 | Priority | Item | Notes |
 |----------|------|-------|
-| 1 | **N3e polish** | Couch verify multi-episode ladder play on Pi |
-| 2 | **N3b polish** | Picker focus/labels; cancel during long resolve |
+| 1 | **N5b** | AI home catalogs (3 slots) |
 | 3 | **N5 prep** | Wire `mango_playability_refresh` LLM tool in orchestrator |
 | 4 | **N4** library + write-back | Stremio export import; finished → library sync |
 | 5 | **Pool depth** | Quick top-up after couch test; MDBList Standard if ingest stalls |

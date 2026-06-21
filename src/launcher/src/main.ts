@@ -224,6 +224,10 @@ function handleKeydown(event: KeyboardEvent): void {
   if (detail.isOpen) {
     if (event.key === "Escape" || event.key === "Backspace") {
       event.preventDefault();
+      if (detail.isResolving()) {
+        detail.cancelResolve();
+        return;
+      }
       detail.hide();
       return;
     }

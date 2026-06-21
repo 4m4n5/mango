@@ -5,6 +5,7 @@ import {
   nextEpisodeId,
   normalizeSeriesEpisodes,
   applyEpisodeProgress,
+  applyEpisodePlayability,
 } from './episodes.js';
 import { resolveSeriesPlayTarget } from './series-play.js';
 
@@ -61,6 +62,18 @@ test('nextEpisodeId walks flat season order', () => {
   assert.equal(nextEpisodeId(seasons, 'tt12004706:1:1'), 'tt12004706:1:2');
   assert.equal(nextEpisodeId(seasons, 'tt12004706:1:2'), 'tt12004706:2:1');
   assert.equal(nextEpisodeId(seasons, 'tt12004706:2:1'), null);
+});
+
+test('applyEpisodePlayability marks verified and failed episodes', () => {
+  const { seasons } = normalizeSeriesEpisodes('tt12004706', PANCHAYAT_VIDEOS);
+  const now = Date.now();
+  applyEpisodePlayability(seasons, new Map([
+    ['series:tt12004706:1:1', { status: 'verified', expires_at: now + 60_000 }],
+    ['series:tt12004706:1:2', { status: 'failed', expires_at: null }],
+  ]));
+  assert.equal(seasons[0]?.episodes[0]?.playable, true);
+  assert.equal(seasons[0]?.episodes[1]?.playable, false);
+  assert.equal(seasons[1]?.episodes[0]?.playable, null);
 });
 
 test('resolveSeriesPlayTarget uses latest continue progress for bare id', () => {
