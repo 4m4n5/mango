@@ -120,10 +120,10 @@ rails:
 
   - id: live-cartoons
     label: cartoons
-    limit: 12
+    limit: 15
     source_fill:
       - addon: mango Live Cartoons
-        limit: 12
+        limit: 15
         match_all: true
     keywords:
       - kids
