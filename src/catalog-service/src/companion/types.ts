@@ -39,6 +39,9 @@ export type CompanionProfile = {
 
 export const TITLE_LOVES_CAP = 50;
 export const SESSION_NOTE_BULLETS_MAX = 5;
+export const REGULAR_SESSIONS = 5;
+export const FRIEND_SESSIONS = 20;
+export const FRIEND_COMPLETED_WATCHES = 5;
 
 export function defaultProfile(): CompanionProfile {
   return {

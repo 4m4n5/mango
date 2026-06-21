@@ -2,9 +2,13 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import {
+  FRIEND_COMPLETED_WATCHES,
+  FRIEND_SESSIONS,
+  REGULAR_SESSIONS,
   TITLE_LOVES_CAP,
   defaultProfile,
   type CompanionProfile,
+  type FamiliarityStage,
   type TitleRef,
 } from './types.js';
 import { profilePath } from './paths.js';
@@ -90,6 +94,34 @@ export function normalizeProfile(raw: unknown): CompanionProfile {
       proactive_opt_in: behavior.proactive_opt_in === true,
     },
     session_notes: asStringArray(record.session_notes),
+  };
+}
+
+export function computeFamiliarityStage(profile: CompanionProfile): FamiliarityStage {
+  const { sessions, completed_watches } = profile.familiarity;
+  if (sessions >= FRIEND_SESSIONS && completed_watches >= FRIEND_COMPLETED_WATCHES) {
+    return 'friend';
+  }
+  if (sessions >= REGULAR_SESSIONS) {
+    return 'regular';
+  }
+  return 'stranger';
+}
+
+export function applyFamiliarityStage(profile: CompanionProfile): CompanionProfile {
+  const stage = computeFamiliarityStage(profile);
+  const score = Math.min(
+    1,
+    (profile.familiarity.sessions / FRIEND_SESSIONS) * 0.6
+      + (profile.familiarity.completed_watches / FRIEND_COMPLETED_WATCHES) * 0.4,
+  );
+  return {
+    ...profile,
+    familiarity: {
+      ...profile.familiarity,
+      stage,
+      score: Math.round(score * 100) / 100,
+    },
   };
 }
 

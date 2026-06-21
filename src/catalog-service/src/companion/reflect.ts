@@ -1,5 +1,5 @@
 import { appendJournalEvent } from './journal.js';
-import { patchProfile, readProfile } from './profile.js';
+import { applyFamiliarityStage, patchProfile, readProfile, writeProfile } from './profile.js';
 import { writeCompiledNotes } from './compile-notes.js';
 
 export type LightReflectInput = {
@@ -56,17 +56,23 @@ export async function processLightReflect(input: LightReflectInput): Promise<{ o
     familiarity: { sessions: current.familiarity.sessions + 1 },
     ...extractPreferencePatches(transcript),
   });
+  const staged = applyFamiliarityStage(updated);
+  if (staged.familiarity.stage !== updated.familiarity.stage || staged.familiarity.score !== updated.familiarity.score) {
+    await writeProfile(staged);
+    await writeCompiledNotes(staged);
+    return { ok: true };
+  }
   await writeCompiledNotes(updated);
 
   return { ok: true };
 }
 
-export async function consolidateCompanionNightly(): Promise<{ ok: true; events: number }> {
-  const { readProfile } = await import('./profile.js');
+export async function consolidateCompanionNightly(): Promise<{ ok: true; events: number; stage: string }> {
   const { listJournalEvents } = await import('./journal.js');
-  const profile = await readProfile();
+  const profile = applyFamiliarityStage(await readProfile());
+  await writeProfile(profile);
   const events = listJournalEvents(200);
   await writeCompiledNotes(profile);
-  appendJournalEvent('nightly_consolidate', { event_count: events.length });
-  return { ok: true, events: events.length };
+  appendJournalEvent('nightly_consolidate', { event_count: events.length, stage: profile.familiarity.stage });
+  return { ok: true, events: events.length, stage: profile.familiarity.stage };
 }

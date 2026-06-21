@@ -4,13 +4,21 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
+  applyFamiliarityStage,
+  computeFamiliarityStage,
   normalizeProfile,
   patchProfile,
   profileSummary,
   readProfile,
   writeProfile,
 } from './profile.js';
-import { defaultProfile, TITLE_LOVES_CAP } from './types.js';
+import {
+  defaultProfile,
+  FRIEND_COMPLETED_WATCHES,
+  FRIEND_SESSIONS,
+  REGULAR_SESSIONS,
+  TITLE_LOVES_CAP,
+} from './types.js';
 
 function withCompanionDir(run: (dir: string) => Promise<void>): Promise<void> {
   const dir = mkdtempSync(path.join(tmpdir(), 'mango-companion-'));
@@ -63,6 +71,18 @@ test('profileSummary is human readable', () => {
   const summary = profileSummary(profile);
   assert.match(summary, /comedy/);
   assert.match(summary, /2 sessions/);
+});
+
+test('computeFamiliarityStage thresholds', () => {
+  let profile = defaultProfile();
+  assert.equal(computeFamiliarityStage(profile), 'stranger');
+  profile.familiarity.sessions = REGULAR_SESSIONS;
+  assert.equal(computeFamiliarityStage(profile), 'regular');
+  profile.familiarity.sessions = FRIEND_SESSIONS;
+  profile.familiarity.completed_watches = FRIEND_COMPLETED_WATCHES;
+  assert.equal(computeFamiliarityStage(profile), 'friend');
+  const staged = applyFamiliarityStage(profile);
+  assert.ok(staged.familiarity.score > 0.9);
 });
 
 test('normalizeProfile tolerates partial yaml', () => {
