@@ -60,7 +60,7 @@
       "label": "Curated Hindi + English Indian news (mango)",
       "config": {
         "provider": "m3u",
-        "m3uUrl": "file:///app/data/live-news-hindi-english.m3u",
+        "m3uUrl": "https://raw.githubusercontent.com/4m4n5/mango/feat/native-experience/config/live-news-hindi-english.m3u",
         "enableEpg": false,
         "reformatLogos": true,
         "catalogName": "mango Live News"
@@ -70,7 +70,7 @@
       "label": "Curated sports (mango — cricket, FIFA, racing)",
       "config": {
         "provider": "m3u",
-        "m3uUrl": "file:///app/data/live-sports-curated.m3u",
+        "m3uUrl": "https://raw.githubusercontent.com/4m4n5/mango/feat/native-experience/config/live-sports-curated.m3u",
         "enableEpg": false,
         "reformatLogos": true,
         "catalogName": "mango Live Free"

@@ -32,7 +32,8 @@ rails:
       - addon: mango Live Free
         limit: 7
         keywords:
-          - star sports
+          - star sports 1
+          - star sports 2
           - willow
           - dd sports
           - cricket gold
@@ -88,9 +89,10 @@ rails:
         limit: 5
         keywords:
           - fanduel racing
-          - floracing
+          - floracing 24
           - rally tv
-          - sky racing
+          - sky racing 1
+          - sky racing 2
     keywords:
       - racing
     exclude_keywords:
