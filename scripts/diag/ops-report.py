@@ -73,7 +73,8 @@ def reconstruct_playability(date: str) -> dict[str, Any]:
     if not db_path.exists():
         return {"error": f"playability db missing: {db_path}"}
 
-    start_ms, end_ms = pdt_window_ms(date, 2, 4)  # 02:00–04:00 PDT (playability timer ~03:00)
+    start_ms, _ = pdt_window_ms(date, 3, 4)  # 03:00 PDT
+    end_ms = pdt_window_ms(date, 3, 4)[0] + (30 * 60 * 1000)  # +30 min
     conn = sqlite3.connect(db_path)
 
     rows = conn.execute(
@@ -90,6 +91,8 @@ def reconstruct_playability(date: str) -> dict[str, Any]:
         lambda: {"verified": [], "failed": [], "no_stream": [], "other": []},
     )
     for rail_id, type_, id_value, outcome, started_at in rows:
+        if not rail_id:
+            continue
         entry = by_rail[rail_id]
         key = outcome if outcome in entry else "other"
         entry[key].append({"type": type_, "id": id_value, "ts_ms": started_at})
@@ -118,7 +121,7 @@ def reconstruct_playability(date: str) -> dict[str, Any]:
 
     return {
         "source": "verify_log_reconstruct",
-        "window_pdt": f"{date} 02:00–04:00",
+        "window_pdt": f"{date} 03:00–03:30",
         "verify_events": len(rows),
         "verified_adds_by_rail": verified_adds,
         "total_verified_adds": sum(verified_adds.values()),
@@ -258,7 +261,12 @@ def print_report(date: str, *, reconstruct: bool = False) -> int:
                     f"  {rail_id:28} +{count} verified (current pool={pool.get('verified_pool', '?')})",
                 )
             print()
-            for rail_id, data in sorted(recon.get("by_rail", {}).items()):
+            for rail_id, data in sorted(
+                recon.get("by_rail", {}).items(),
+                key=lambda item: (item[0] or ""),
+            ):
+                if not rail_id:
+                    continue
                 verified = data.get("verified") or []
                 if not verified:
                     continue
