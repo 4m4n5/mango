@@ -21,6 +21,7 @@ def _http_json(
     *,
     body: dict | None = None,
     timeout: float = 30.0,
+    optional: bool = False,
 ) -> dict:
     url = f"{settings.catalog_upstream.rstrip('/')}{path}"
     data = None
@@ -29,8 +30,13 @@ def _http_json(
         data = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if optional and exc.code in {404, 409}:
+            return {}
+        raise
 
 
 def _build_prompt(profile: dict, journal: list[dict], compiled_excerpt: str) -> str:
@@ -114,18 +120,30 @@ def run(*, dry_run: bool = False) -> int:
         _http_json(settings, "POST", "/voice/library/notes", body={"notes": merged[-4000:]})
 
     if isinstance(catalog_hints, list):
+        catalogs_resp = _http_json(settings, "GET", "/voice/ai-catalogs")
+        valid_slot_ids = {
+            entry.get("slot_id")
+            for entry in catalogs_resp.get("catalogs", [])
+            if isinstance(entry, dict) and isinstance(entry.get("slot_id"), str)
+        }
         for hint in catalog_hints:
             if not isinstance(hint, dict):
                 continue
             slot_id = hint.get("slot_id")
-            if not isinstance(slot_id, str):
+            if not isinstance(slot_id, str) or slot_id not in valid_slot_ids:
                 continue
             body: dict = {"slot_id": slot_id, "llm_hints": {}}
             if isinstance(hint.get("topup_suggestion"), str):
                 body["llm_hints"]["topup_suggestions"] = [hint["topup_suggestion"]]
             if isinstance(hint.get("add_ids"), list):
                 body["llm_hints"]["add_ids"] = hint["add_ids"]
-            _http_json(settings, "POST", "/voice/ai-catalogs/update", body=body)
+            _http_json(
+                settings,
+                "POST",
+                "/voice/ai-catalogs/update",
+                body=body,
+                optional=True,
+            )
 
     print("PASS: companion nightly LLM consolidation")
     return 0
