@@ -20,6 +20,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/progress/next-prompt.test.js \
     dist/episodes.test.js \
     dist/meta-merge.test.js \
+    dist/bonus-stream-resolve.test.js \
     dist/voice/search.test.js \
     dist/voice/tools.test.js \
     dist/ai-catalogs/store.test.js \
