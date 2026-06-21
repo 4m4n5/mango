@@ -50,7 +50,7 @@ rails:
       - addon: mango Live Free
         limit: 3
         keywords:
-          - fifa+
+          - fifa
           - bein sports usa
       - addon: mango Live TV
         limit: 9
