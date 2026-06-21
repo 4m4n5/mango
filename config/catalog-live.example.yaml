@@ -23,6 +23,11 @@ sources:
     catalog: iptv_channels
     catalog_type: tv
     pages: 1
+  - addon: mango Live Cartoons
+    label: cartoons
+    catalog: iptv_channels
+    catalog_type: tv
+    pages: 1
 
 rails:
   - id: live-cricket
@@ -112,3 +117,15 @@ rails:
     exclude_keywords:
       - replay
       - sport
+
+  - id: live-cartoons
+    label: cartoons
+    limit: 12
+    source_fill:
+      - addon: mango Live Cartoons
+        limit: 12
+        match_all: true
+    keywords:
+      - kids
+    exclude_keywords:
+      - replay

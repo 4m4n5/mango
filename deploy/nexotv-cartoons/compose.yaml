@@ -1,0 +1,18 @@
+services:
+  nexotv-cartoons:
+    image: savibrabo/nexotv:latest
+    container_name: mango-nexotv-cartoons
+    restart: unless-stopped
+    mem_limit: 384m
+    ports:
+      - "127.0.0.1:7003:7000"
+    env_file:
+      - .env
+    volumes:
+      - "${MANGO_NEXOTV_CARTOONS_DATA_DIR:-/home/aman/.local/share/mango/nexotv-cartoons/data}:/app/data"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:7000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

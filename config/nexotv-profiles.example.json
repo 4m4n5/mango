@@ -86,6 +86,16 @@
         "catalogName": "Sports M3U"
       }
     },
+    "m3u-cartoons": {
+      "label": "Curated cartoons & kids (mango)",
+      "config": {
+        "provider": "m3u",
+        "m3uUrl": "https://raw.githubusercontent.com/4m4n5/mango/feat/native-experience/config/live-cartoons.m3u",
+        "enableEpg": false,
+        "reformatLogos": true,
+        "catalogName": "mango Live Cartoons"
+      }
+    },
     "m3u-custom": {
       "label": "Your M3U/Xtream playlist (edit before use)",
       "config": {

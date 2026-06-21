@@ -13,6 +13,10 @@ nexotv_news_base_url() {
   echo "${MANGO_NEXOTV_NEWS_URL:-http://127.0.0.1:7002}"
 }
 
+nexotv_cartoons_base_url() {
+  echo "${MANGO_NEXOTV_CARTOONS_URL:-http://127.0.0.1:7003}"
+}
+
 nexotv_profiles_file() {
   echo "${MANGO_NEXOTV_PROFILES:-${HOME}/.config/mango/nexotv-profiles.json}"
 }
@@ -29,6 +33,10 @@ nexotv_news_credentials_file() {
   echo "${MANGO_NEXOTV_NEWS_CREDS:-${HOME}/.config/mango/nexotv-news.credentials}"
 }
 
+nexotv_cartoons_credentials_file() {
+  echo "${MANGO_NEXOTV_CARTOONS_CREDS:-${HOME}/.config/mango/nexotv-cartoons.credentials}"
+}
+
 nexotv_export_file() {
   echo "${MANGO_STREMIO_EXPORT:-/etc/mango/stremio-export.json}"
 }
@@ -43,6 +51,10 @@ nexotv_free_health_ok() {
 
 nexotv_news_health_ok() {
   curl -sf --max-time 5 "$(nexotv_news_base_url)/health" >/dev/null 2>&1
+}
+
+nexotv_cartoons_health_ok() {
+  curl -sf --max-time 5 "$(nexotv_cartoons_base_url)/health" >/dev/null 2>&1
 }
 
 nexotv_load_credentials() {

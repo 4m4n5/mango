@@ -130,6 +130,17 @@ apply_news() {
   apply_profile_to "$news_base" "$news_creds" "${PROFILE_ID:-m3u-news-hi-en}"
 }
 
+apply_cartoons() {
+  local cartoons_base cartoons_creds data_dir
+  cartoons_base="$(nexotv_cartoons_base_url)"
+  cartoons_creds="$(nexotv_cartoons_credentials_file)"
+  data_dir="${MANGO_NEXOTV_CARTOONS_DATA_DIR:-$HOME/.local/share/mango/nexotv-cartoons/data}"
+  nexotv_cartoons_health_ok || die "NexoTV cartoons down at $cartoons_base — run: bash scripts/phase-live/install-nexotv-cartoons.sh"
+  mkdir -p "$data_dir"
+  cp -f "${REPO_DIR}/config/live-cartoons.m3u" "$data_dir/live-cartoons.m3u"
+  apply_profile_to "$cartoons_base" "$cartoons_creds" "${PROFILE_ID:-m3u-cartoons}"
+}
+
 wire_export() {
   nexotv_load_credentials || die "missing paid credentials — run: $0 apply-area69"
   [[ -f "$EXPORT" ]] || cp "${REPO_DIR}/config/stremio-export.example.json" "$EXPORT"
@@ -137,21 +148,25 @@ wire_export() {
   local paid_manifest="$NEXOTV_MANIFEST_URL"
   local free_manifest=""
   local news_manifest=""
+  local cartoons_manifest=""
   if nexotv_load_free_credentials 2>/dev/null; then
     free_manifest="$NEXOTV_MANIFEST_URL"
   fi
   if nexotv_load_news_credentials 2>/dev/null; then
     news_manifest="$NEXOTV_MANIFEST_URL"
   fi
+  if nexotv_load_cartoons_credentials 2>/dev/null; then
+    cartoons_manifest="$NEXOTV_MANIFEST_URL"
+  fi
 
-  python3 - "$EXPORT" "$paid_manifest" "$free_manifest" "$news_manifest" <<'PY'
+  python3 - "$EXPORT" "$paid_manifest" "$free_manifest" "$news_manifest" "$cartoons_manifest" <<'PY'
 import json, sys
-path, paid_manifest, free_manifest, news_manifest = sys.argv[1:5]
+path, paid_manifest, free_manifest, news_manifest, cartoons_manifest = sys.argv[1:6]
 data = json.load(open(path, encoding="utf-8"))
 addons = data.get("addons") or []
 drop = {
-    "NexoTV", "NexoTV Free", "NexoTV News",
-    "mango Live TV", "mango Live Free", "mango Live News",
+    "NexoTV", "NexoTV Free", "NexoTV News", "NexoTV Cartoons",
+    "mango Live TV", "mango Live Free", "mango Live News", "mango Live Cartoons",
 }
 addons = [a for a in addons if a.get("name") not in drop]
 addons.append({"name": "mango Live TV", "manifestUrl": paid_manifest})
@@ -159,6 +174,8 @@ if free_manifest:
     addons.append({"name": "mango Live Free", "manifestUrl": free_manifest})
 if news_manifest:
     addons.append({"name": "mango Live News", "manifestUrl": news_manifest})
+if cartoons_manifest:
+    addons.append({"name": "mango Live Cartoons", "manifestUrl": cartoons_manifest})
 data["addons"] = addons
 json.dump(data, open(path, "w", encoding="utf-8"), indent=2)
 parts = ["paid"]
@@ -166,6 +183,8 @@ if free_manifest:
     parts.append("free")
 if news_manifest:
     parts.append("news")
+if cartoons_manifest:
+    parts.append("cartoons")
 print(f"wired mango Live TV manifests into {path} ({', '.join(parts)})")
 PY
 }
@@ -182,6 +201,15 @@ nexotv_load_free_credentials() {
 nexotv_load_news_credentials() {
   local creds
   creds="$(nexotv_news_credentials_file)"
+  [[ -f "$creds" ]] || return 1
+  # shellcheck disable=SC1090
+  source "$creds"
+  [[ -n "${NEXOTV_TOKEN:-}" && -n "${NEXOTV_MANIFEST_URL:-}" ]]
+}
+
+nexotv_load_cartoons_credentials() {
+  local creds
+  creds="$(nexotv_cartoons_credentials_file)"
   [[ -f "$creds" ]] || return 1
   # shellcheck disable=SC1090
   source "$creds"
@@ -249,10 +277,11 @@ case "$cmd" in
   apply) apply_profile ;;
   apply-free) PROFILE_ID="${2:-m3u-sports-curated}"; apply_free ;;
   apply-news) PROFILE_ID="${2:-m3u-news-hi-en}"; apply_news ;;
+  apply-cartoons) PROFILE_ID="${2:-m3u-cartoons}"; apply_cartoons ;;
   apply-area69) apply_area69 ;;
   wire-export) wire_export ;;
   manifest) print_manifest ;;
   *)
-    die "usage: $0 {init-profiles|list-profiles|apply [profile]|apply-free [profile]|apply-news [profile]|apply-area69|wire-export|manifest}"
+    die "usage: $0 {init-profiles|list-profiles|apply [profile]|apply-free [profile]|apply-news [profile]|apply-cartoons [profile]|apply-area69|wire-export|manifest}"
     ;;
 esac
