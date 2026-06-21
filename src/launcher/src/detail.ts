@@ -296,6 +296,23 @@ export class DetailController {
     }
   }
 
+  private primaryEpisodeId(): string | undefined {
+    const card = this.card;
+    if (!card || card.type !== "series") {
+      return undefined;
+    }
+    if (this.seriesEpisodes?.resume?.episode_id) {
+      return this.seriesEpisodes.resume.episode_id;
+    }
+    if (this.seriesEpisodes?.default_episode_id) {
+      return this.seriesEpisodes.default_episode_id;
+    }
+    if (card.playId?.includes(":")) {
+      return card.playId;
+    }
+    return undefined;
+  }
+
   private playEpisodeId(): string | undefined {
     const card = this.card;
     if (!card || card.type !== "series") {
@@ -307,14 +324,7 @@ export class DetailController {
         return this.selectedEpisodeId;
       }
     }
-    if (this.seriesEpisodes?.resume?.episode_id) {
-      return this.seriesEpisodes.resume.episode_id;
-    }
-    if (card.playId?.includes(":")) {
-      return card.playId;
-    }
-    const first = this.seriesEpisodes?.seasons[0]?.episodes[0];
-    return first?.id;
+    return this.primaryEpisodeId();
   }
 
   private playStartSec(episodeId?: string): number | undefined {
@@ -469,7 +479,7 @@ export class DetailController {
       this.renderEpisodes(episodes);
       this.updatePlayButtonLabel();
       const initialEpisode = episodes.resume?.episode_id
-        || episodes.seasons[0]?.episodes[0]?.id
+        || episodes.default_episode_id
         || null;
       if (initialEpisode) {
         this.selectedEpisodeId = initialEpisode;
@@ -497,7 +507,7 @@ export class DetailController {
 
     this.episodesWrap.hidden = false;
     const scrollTargetId = episodes.resume?.episode_id
-      || episodes.seasons[0]?.episodes[0]?.id
+      || episodes.default_episode_id
       || null;
 
     for (const block of episodes.seasons) {

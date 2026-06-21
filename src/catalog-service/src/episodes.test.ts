@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  isBonusBucketEpisode,
   isSupplementalMetaEpisode,
   nextEpisodeId,
   normalizeSeriesEpisodes,
   applyEpisodeProgress,
   applyEpisodePlayability,
+  defaultMainEpisodeId,
+  seasonBlockLabel,
 } from './episodes.js';
 import { resolveSeriesPlayTarget } from './series-play.js';
 
@@ -22,20 +25,56 @@ const PANCHAYAT_VIDEOS = [
   { id: 'tt12004706:2:1', season: 2, episode: 1, title: 'Naach' },
 ];
 
-test('isSupplementalMetaEpisode drops season 0 and BTS titles', () => {
+test('isBonusBucketEpisode routes season 0 and BTS titles to bonus block', () => {
+  assert.equal(isBonusBucketEpisode(CHERNOBYL_VIDEOS[0]), true);
+  assert.equal(isBonusBucketEpisode(CHERNOBYL_VIDEOS[1]), false);
   assert.equal(isSupplementalMetaEpisode(CHERNOBYL_VIDEOS[0]), true);
-  assert.equal(isSupplementalMetaEpisode(CHERNOBYL_VIDEOS[1]), false);
+  assert.equal(
+    isBonusBucketEpisode({
+      id: 'tt33094114:0:1',
+      season: 0,
+      episode: 1,
+      title: 'Bonus EP ft. Arpit Bala',
+    }),
+    true,
+  );
 });
 
-test('normalizeSeriesEpisodes filters extras and groups seasons', () => {
+test('normalizeSeriesEpisodes groups main seasons and consolidates extras in Bonus', () => {
   const chernobyl = normalizeSeriesEpisodes('tt7366338', CHERNOBYL_VIDEOS);
-  assert.equal(chernobyl.seasons.length, 1);
+  assert.equal(chernobyl.seasons.length, 2);
+  assert.equal(chernobyl.seasons[0]?.label, 'Season 1');
   assert.equal(chernobyl.seasons[0]?.episodes.length, 3);
+  assert.equal(chernobyl.seasons[1]?.label, 'Bonus');
+  assert.equal(chernobyl.seasons[1]?.episodes[0]?.id, 'tt7366338:0:23');
 
   const panchayat = normalizeSeriesEpisodes('tt12004706', PANCHAYAT_VIDEOS);
   assert.equal(panchayat.seasons.length, 2);
   assert.equal(panchayat.seasons[0]?.episodes.length, 2);
   assert.equal(panchayat.seasons[1]?.episodes[0]?.id, 'tt12004706:2:1');
+});
+
+const IGL_VIDEOS = [
+  { id: 'tt33094114:0:1', season: 0, episode: 1, title: 'Bonus EP ft. Arpit Bala' },
+  { id: 'tt33094114:0:2', season: 0, episode: 2, title: 'Ep 1-3 Deleted Moments' },
+  { id: 'tt33094114:1:1', season: 1, episode: 1, title: 'EP 01' },
+  { id: 'tt33094114:2:1', season: 2, episode: 1, title: 'Episode 1' },
+];
+
+test('normalizeSeriesEpisodes includes bonus season after main seasons', () => {
+  const igl = normalizeSeriesEpisodes('tt33094114', IGL_VIDEOS);
+  assert.equal(igl.seasons.length, 3);
+  assert.equal(igl.seasons[0]?.label, 'Season 1');
+  assert.equal(igl.seasons[0]?.episodes.length, 1);
+  assert.equal(igl.seasons[1]?.label, 'Season 2');
+  assert.equal(igl.seasons[2]?.label, 'Bonus');
+  assert.equal(igl.seasons[2]?.episodes.length, 2);
+  assert.equal(defaultMainEpisodeId(igl.seasons), 'tt33094114:1:1');
+});
+
+test('seasonBlockLabel names bonus season', () => {
+  assert.equal(seasonBlockLabel(0), 'Bonus');
+  assert.equal(seasonBlockLabel(2), 'Season 2');
 });
 
 test('applyEpisodeProgress marks saved episode row', () => {

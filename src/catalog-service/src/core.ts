@@ -70,6 +70,7 @@ import {
   applyEpisodePlayability,
   type SeriesEpisodesResponse,
 } from './episodes.js';
+import { mergeCatalogMetaPieces, type VideoLayer } from './meta-merge.js';
 import { listUserPins } from './user-pins.js';
 import { loadAiCatalogRails } from './ai-catalogs/store.js';
 import { AiCatalogListSource } from './ai-catalogs/list-source.js';
@@ -1196,6 +1197,7 @@ export class CatalogCore {
   async meta(type: string, id: string): Promise<Meta> {
     const errors: string[] = [];
     let merged: Meta | null = null;
+    const videoLayers: VideoLayer[] = [];
     for (const addon of this.metaAddonsInOrder()) {
       if (!supportsResource(addon.manifest, 'meta', type)) continue;
       try {
@@ -1204,9 +1206,7 @@ export class CatalogCore {
         if (!piece?.id || isBlockedCatalogMeta(piece)) {
           continue;
         }
-        merged = merged
-          ? Object.assign({}, merged, piece, { source: merged.source || addon.name }) as Meta
-          : Object.assign({}, piece, { source: addon.name }) as Meta;
+        merged = mergeCatalogMetaPieces(merged, piece, addon.name, videoLayers);
       } catch (error) {
         errors.push(`${addon.name}: ${error instanceof Error ? error.message : String(error)}`);
       }

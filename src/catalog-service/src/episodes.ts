@@ -44,16 +44,57 @@ export type SeriesEpisodesResponse = {
   seasons: SeriesSeasonBlock[];
   resume: SeriesResumeInfo | null;
   episode_count: number;
+  /** Main-line default play target (S1E1) — excludes bonus season. */
+  default_episode_id: string | null;
 };
 
 /** BTS / extras rows in Cinemeta videos[] (e.g. Chernobyl season 0). */
-export function isSupplementalMetaEpisode(video: CinemetaVideo): boolean {
+const BTS_TITLE_RE = /\b(behind the scenes|featurette|inside the episode|trailer|preview|making of|deleted scene)\b/i;
+
+/** Route to Bonus block — season 0 or BTS/extras titles (never dropped). */
+export function isBonusBucketEpisode(video: CinemetaVideo): boolean {
   const season = Number(video.season ?? -1);
-  if (season <= 0) {
+  if (season === 0) {
     return true;
   }
   const title = `${video.title || ''} ${video.name || ''}`.toLowerCase();
-  return /\b(behind the scenes|featurette|inside the episode|trailer|preview|bonus)\b/.test(title);
+  if (BTS_TITLE_RE.test(title)) {
+    return true;
+  }
+  if (season >= 1 && /\b(bonus|extras?|bts)\b/.test(title)) {
+    return true;
+  }
+  return false;
+}
+
+/** @deprecated Use isBonusBucketEpisode — kept for tests and external callers. */
+export function isSupplementalMetaEpisode(video: CinemetaVideo): boolean {
+  return isBonusBucketEpisode(video);
+}
+
+export function seasonBlockLabel(season: number): string {
+  if (season === 0) {
+    return 'Bonus';
+  }
+  return `Season ${season}`;
+}
+
+/** First episode of the lowest main season (S1E1 when present). */
+export function defaultMainEpisodeId(seasons: SeriesSeasonBlock[]): string | null {
+  const mainSeasons = seasons
+    .filter((block) => block.season >= 1)
+    .sort((left, right) => left.season - right.season);
+  return mainSeasons[0]?.episodes[0]?.id ?? null;
+}
+
+function compareSeasonBlocks(left: number, right: number): number {
+  if (left === 0) {
+    return 1;
+  }
+  if (right === 0) {
+    return -1;
+  }
+  return left - right;
 }
 
 export function normalizeSeriesEpisodes(
@@ -61,15 +102,13 @@ export function normalizeSeriesEpisodes(
   videos: CinemetaVideo[],
 ): { seasons: SeriesSeasonBlock[] } {
   const bySeason = new Map<number, SeriesEpisodeRow[]>();
+  const bonusRows: SeriesEpisodeRow[] = [];
 
   for (const video of videos) {
-    if (isSupplementalMetaEpisode(video)) {
-      continue;
-    }
     const episodeId = typeof video.id === 'string' ? video.id.trim() : '';
     const season = Number(video.season);
     const episode = Number(video.episode);
-    if (!episodeId || !Number.isFinite(season) || !Number.isFinite(episode) || season < 1) {
+    if (!episodeId || !Number.isFinite(season) || !Number.isFinite(episode) || season < 0) {
       continue;
     }
     const row: SeriesEpisodeRow = {
@@ -81,17 +120,38 @@ export function normalizeSeriesEpisodes(
       progress_pct: null,
       playable: null,
     };
+    if (isBonusBucketEpisode(video)) {
+      bonusRows.push(row);
+      continue;
+    }
     const bucket = bySeason.get(season) || [];
     bucket.push(row);
     bySeason.set(season, bucket);
   }
 
+  if (bonusRows.length > 0) {
+    bySeason.set(
+      0,
+      bonusRows.sort((left, right) => {
+        if (left.season !== right.season) {
+          return left.season - right.season;
+        }
+        return left.episode - right.episode;
+      }),
+    );
+  }
+
   const seasons = [...bySeason.entries()]
-    .sort(([left], [right]) => left - right)
+    .sort(([left], [right]) => compareSeasonBlocks(left, right))
     .map(([season, episodes]) => ({
       season,
-      label: `Season ${season}`,
-      episodes: episodes.sort((left, right) => left.episode - right.episode),
+      label: seasonBlockLabel(season),
+      episodes: episodes.sort((left, right) => {
+        if (left.season !== right.season) {
+          return left.season - right.season;
+        }
+        return left.episode - right.episode;
+      }),
     }));
 
   return { seasons };
@@ -180,6 +240,7 @@ export function buildSeriesEpisodesResponse(
     seasons,
     resume,
     episode_count: episodeCount,
+    default_episode_id: defaultMainEpisodeId(seasons),
   };
 }
 

@@ -104,6 +104,7 @@ export interface SeriesEpisodesResponse {
     progress_pct: number;
   } | null;
   episode_count: number;
+  default_episode_id: string | null;
 }
 
 export interface NextPromptResponse {
