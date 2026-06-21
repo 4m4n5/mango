@@ -2,6 +2,7 @@ import type { Meta } from './core.js';
 import type { WatchProgressRecord } from './progress/db.js';
 import { progressPct } from './progress/keys.js';
 import { titleKey } from './playability/session-select.js';
+import { parseSeriesEpisodeId } from './bonus-stream-resolve.js';
 
 export type CinemetaVideo = {
   id?: string;
@@ -70,6 +71,21 @@ export function isBonusBucketEpisode(video: CinemetaVideo): boolean {
 /** @deprecated Use isBonusBucketEpisode — kept for tests and external callers. */
 export function isSupplementalMetaEpisode(video: CinemetaVideo): boolean {
   return isBonusBucketEpisode(video);
+}
+
+/** Stream resolve role — meta bucket wins over raw season in the episode id. */
+export function episodeStreamRoleForId(
+  videos: CinemetaVideo[],
+  episodeId: string,
+): 'main' | 'bonus' {
+  const trimmed = episodeId.trim();
+  for (const video of videos) {
+    if (typeof video.id === 'string' && video.id.trim() === trimmed) {
+      return isBonusBucketEpisode(video) ? 'bonus' : 'main';
+    }
+  }
+  const parsed = parseSeriesEpisodeId(trimmed);
+  return parsed?.season === 0 ? 'bonus' : 'main';
 }
 
 export function seasonBlockLabel(season: number): string {

@@ -4,8 +4,10 @@ import {
   bonusIndexerAliasId,
   buildBonusTitleTokens,
   dedupeStreamsByUrl,
+  isSupplementalStream,
   parseSeriesEpisodeId,
   pickBonusStreamsFromCandidates,
+  pickMainEpisodeStreams,
   streamMatchesBonusEpisodeNumber,
   streamMatchesBonusEpisodeTitle,
 } from './bonus-stream-resolve.js';
@@ -75,4 +77,34 @@ test('dedupeStreamsByUrl keeps first stream per url', () => {
     stream('three', '', 'https://example.test/other'),
   ]);
   assert.equal(kept.length, 2);
+});
+
+test('pickMainEpisodeStreams drops supplemental and bonus-number mislabels', () => {
+  const bonusOnly = pickMainEpisodeStreams(
+    [stream('Torrentio', '📁 Igl Bonus E01 WEB-DL 1080p')],
+    1,
+    1,
+  );
+  assert.equal(bonusOnly.length, 0);
+
+  const mixed = pickMainEpisodeStreams(
+    [
+      stream('Torrentio', '📁 Igl Bonus E01 WEB-DL 1080p'),
+      stream('Torrentio', '📁 Igl S01E01 WEB-DL 1080p'),
+    ],
+    1,
+    1,
+  );
+  assert.equal(mixed.length, 1);
+  assert.ok(/S01E01/i.test(String(mixed[0]?.description ?? '')));
+});
+
+test('pickMainEpisodeStreams keeps normal series releases', () => {
+  const kept = pickMainEpisodeStreams(
+    [stream('Torrentio', '📁 Panchayat S01E01 AMZN WEB-DL')],
+    1,
+    1,
+  );
+  assert.equal(kept.length, 1);
+  assert.equal(isSupplementalStream(kept[0] ?? stream('', '')), false);
 });

@@ -68,6 +68,7 @@ import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
 import {
   assembleSeriesEpisodes,
   applyEpisodePlayability,
+  episodeStreamRoleForId,
   type SeriesEpisodesResponse,
 } from './episodes.js';
 import { mergeCatalogMetaPieces, type VideoLayer } from './meta-merge.js';
@@ -76,7 +77,9 @@ import {
   dedupeStreamsByUrl,
   listMainSeasonProbeIds,
   parseSeriesEpisodeId,
+  parsedSeasonRole,
   pickBonusStreamsFromCandidates,
+  pickMainEpisodeStreams,
   type ParsedSeriesEpisodeId,
 } from './bonus-stream-resolve.js';
 import { listUserPins } from './user-pins.js';
@@ -1492,37 +1495,154 @@ export class CatalogCore {
 
   private async resolveRawStreams(type: string, id: string): Promise<RawStreamResolution> {
     const primary = await this.rawStreams(type, id);
-    if (primary.streams.length > 0 || type !== 'series') {
+    if (type !== 'series') {
       return primary;
     }
 
     const parsed = parseSeriesEpisodeId(id);
-    if (!parsed || parsed.season !== 0) {
+    if (!parsed) {
       return primary;
     }
 
-    const fallback = await this.resolveBonusEpisodeStreams(id, parsed);
-    if (fallback.streams.length === 0) {
-      return primary;
+    const role = await this.episodeStreamRoleFromMeta(parsed.bare, id);
+    if (role === 'bonus') {
+      return this.resolveBonusRoleEpisodeStreams(id, parsed, primary);
     }
 
-    const key = `${type}:${id}`;
-    if (hasCacheableStream(fallback.streams)) {
-      this.streamNegativeCache.delete(key);
-      this.streamCache.set(key, {
+    return this.resolveMainRoleEpisodeStreams(id, parsed, primary);
+  }
+
+  private async episodeStreamRoleFromMeta(
+    bareId: string,
+    episodeId: string,
+  ): Promise<'main' | 'bonus'> {
+    try {
+      const meta = await this.metaCached('series', bareId);
+      const videos = Array.isArray(meta.videos) ? meta.videos : [];
+      return episodeStreamRoleForId(videos, episodeId);
+    } catch {
+      return parsedSeasonRole(episodeId);
+    }
+  }
+
+  private async resolveMainRoleEpisodeStreams(
+    episodeId: string,
+    parsed: ParsedSeriesEpisodeId,
+    primary: RawStreamResolution,
+  ): Promise<RawStreamResolution> {
+    let streams = pickMainEpisodeStreams(primary.streams, parsed.season, parsed.episode);
+    let resolveMs = primary.resolveMs;
+    const errors = [...primary.errors];
+
+    if (streams.length === 0) {
+      const probed = await this.resolveMainEpisodeCrossProbe(episodeId, parsed);
+      resolveMs += probed.resolveMs;
+      errors.push(...probed.errors);
+      streams = probed.streams;
+    }
+
+    if (streams.length === 0 && primary.streams.length > 0) {
+      errors.push('main partition empty — keeping indexer pool (mislabel fallback)');
+      return {
+        streams: primary.streams,
+        errors,
+        resolveMs,
+        cached: primary.cached,
+      };
+    }
+
+    if (streams.length === 0) {
+      return { streams: [], errors, resolveMs, cached: primary.cached };
+    }
+
+    return { streams, errors, resolveMs, cached: false };
+  }
+
+  private async resolveMainEpisodeCrossProbe(
+    episodeId: string,
+    parsed: ParsedSeriesEpisodeId,
+  ): Promise<RawStreamResolution> {
+    const errors: string[] = [];
+    let resolveMs = 0;
+    const probeIds = await this.bonusProbeEpisodeIds(parsed.bare, episodeId);
+    const collected: Stream[] = [];
+    for (const probeId of probeIds) {
+      if (probeId === episodeId) {
+        continue;
+      }
+      const probe = await this.rawStreams('series', probeId);
+      resolveMs += probe.resolveMs;
+      errors.push(...probe.errors, `main cross-probe ${probeId}`);
+      collected.push(
+        ...pickMainEpisodeStreams(probe.streams, parsed.season, parsed.episode),
+      );
+      if (collected.length >= 2) {
+        break;
+      }
+    }
+    return {
+      streams: dedupeStreamsByUrl(collected),
+      errors,
+      resolveMs,
+      cached: false,
+    };
+  }
+
+  private async resolveBonusRoleEpisodeStreams(
+    episodeId: string,
+    parsed: ParsedSeriesEpisodeId,
+    primary: RawStreamResolution,
+  ): Promise<RawStreamResolution> {
+    if (parsed.season === 0 && primary.streams.length === 0) {
+      const fallback = await this.resolveBonusEpisodeStreams(episodeId, parsed);
+      if (fallback.streams.length === 0) {
+        return primary;
+      }
+
+      const key = `series:${episodeId}`;
+      if (hasCacheableStream(fallback.streams)) {
+        this.streamNegativeCache.delete(key);
+        this.streamCache.set(key, {
+          streams: fallback.streams,
+          errors: [...primary.errors, ...fallback.errors],
+          resolveMs: primary.resolveMs + fallback.resolveMs,
+          expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
+        });
+      }
+
+      return {
         streams: fallback.streams,
         errors: [...primary.errors, ...fallback.errors],
         resolveMs: primary.resolveMs + fallback.resolveMs,
-        expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
-      });
+        cached: false,
+      };
     }
 
-    return {
-      streams: fallback.streams,
-      errors: [...primary.errors, ...fallback.errors],
-      resolveMs: primary.resolveMs + fallback.resolveMs,
-      cached: false,
-    };
+    const episodeTitle = await this.episodeTitleFromMeta(parsed.bare, episodeId);
+    let streams = pickBonusStreamsFromCandidates(
+      primary.streams,
+      parsed.episode,
+      episodeTitle,
+    );
+    let resolveMs = primary.resolveMs;
+    const errors = [...primary.errors];
+
+    if (streams.length === 0) {
+      const fallback = await this.resolveBonusEpisodeStreams(episodeId, parsed);
+      resolveMs += fallback.resolveMs;
+      errors.push(...fallback.errors);
+      streams = fallback.streams;
+    }
+
+    if (streams.length === 0) {
+      if (primary.streams.length === 0) {
+        return primary;
+      }
+      errors.push('bonus partition empty');
+      return { streams: [], errors, resolveMs, cached: primary.cached };
+    }
+
+    return { streams, errors, resolveMs, cached: false };
   }
 
   private async resolveBonusEpisodeStreams(

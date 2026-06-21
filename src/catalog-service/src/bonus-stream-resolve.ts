@@ -24,6 +24,11 @@ export function parseSeriesEpisodeId(id: string): ParsedSeriesEpisodeId | null {
   };
 }
 
+export function parsedSeasonRole(episodeId: string): 'main' | 'bonus' {
+  const parsed = parseSeriesEpisodeId(episodeId);
+  return parsed?.season === 0 ? 'bonus' : 'main';
+}
+
 /** Indexers often publish Cinemeta S0 bonus rows under S1EN ids (IGL quirk). */
 export function bonusIndexerAliasId(
   episodeId: string,
@@ -46,6 +51,14 @@ export function defaultMainSeasonProbeIds(bareId: string, maxEpisode = 12): stri
 
 export function bonusEpisodeHaystack(stream: Stream): string {
   return `${stream.title || ''} ${stream.description || ''} ${stream.name || ''}`.toLowerCase();
+}
+
+export function isSupplementalStreamHaystack(haystack: string): boolean {
+  return SUPPLEMENTAL_HAYSTACK_RE.test(haystack);
+}
+
+export function isSupplementalStream(stream: Stream): boolean {
+  return isSupplementalStreamHaystack(bonusEpisodeHaystack(stream));
 }
 
 export function streamMatchesBonusEpisodeNumber(haystack: string, episode: number): boolean {
@@ -159,5 +172,25 @@ export function pickBonusStreamsFromCandidates(
 ): Stream[] {
   return dedupeStreamsByUrl(
     streams.filter((stream) => streamMatchesBonusEpisode(stream, episode, episodeTitle)),
+  );
+}
+
+/** Main-line partition — drops supplemental and bonus-number mislabels (IGL S1E01 quirk). */
+export function pickMainEpisodeStreams(
+  streams: Stream[],
+  _season: number,
+  episode: number,
+): Stream[] {
+  return dedupeStreamsByUrl(
+    streams.filter((stream) => {
+      const haystack = bonusEpisodeHaystack(stream);
+      if (isSupplementalStreamHaystack(haystack)) {
+        return false;
+      }
+      if (streamMatchesBonusEpisodeNumber(haystack, episode)) {
+        return false;
+      }
+      return true;
+    }),
   );
 }

@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   isBonusBucketEpisode,
   isSupplementalMetaEpisode,
+  episodeStreamRoleForId,
   nextEpisodeId,
   normalizeSeriesEpisodes,
   applyEpisodeProgress,
@@ -38,6 +39,37 @@ test('isBonusBucketEpisode routes season 0 and BTS titles to bonus block', () =>
     }),
     true,
   );
+});
+
+test('episodeStreamRoleForId uses meta bucket over season in id', () => {
+  assert.equal(
+    episodeStreamRoleForId(
+      [{ id: 'tt33094114:0:1', season: 0, episode: 1, title: 'Bonus EP' }],
+      'tt33094114:0:1',
+    ),
+    'bonus',
+  );
+  assert.equal(
+    episodeStreamRoleForId(
+      [{ id: 'tt33094114:1:1', season: 1, episode: 1, title: 'EP 01' }],
+      'tt33094114:1:1',
+    ),
+    'main',
+  );
+  assert.equal(
+    episodeStreamRoleForId(
+      [{
+        id: 'tt7366338:1:9',
+        season: 1,
+        episode: 9,
+        title: 'Season 1 Bonus Featurette',
+      }],
+      'tt7366338:1:9',
+    ),
+    'bonus',
+  );
+  assert.equal(episodeStreamRoleForId([], 'tt33094114:0:3'), 'bonus');
+  assert.equal(episodeStreamRoleForId([], 'tt33094114:1:3'), 'main');
 });
 
 test('normalizeSeriesEpisodes groups main seasons and consolidates extras in Bonus', () => {
