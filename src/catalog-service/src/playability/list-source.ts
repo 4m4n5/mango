@@ -6,7 +6,7 @@ import {
   type WeightedCandidateBatch,
 } from './composite-merge.js';
 
-export type ListSourceType = 'addon_catalog' | 'composite_list';
+export type ListSourceType = 'addon_catalog' | 'composite_list' | 'ai_catalog';
 
 export type CandidateMeta = {
   id: string;

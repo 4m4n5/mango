@@ -111,6 +111,49 @@ async def execute_tool(
             )
         )
 
+    if name == "mango_list_ai_catalogs":
+        return _compact(await asyncio.to_thread(catalog_tools.tool_list_ai_catalogs, settings))
+
+    if name == "mango_create_ai_catalog":
+        label = tool_input.get("label")
+        tab = tool_input.get("tab")
+        content_type = tool_input.get("content_type")
+        if not isinstance(label, str) or not label.strip():
+            return _compact({"ok": False, "error": "label required"})
+        if tab not in {"movies", "series"}:
+            return _compact({"ok": False, "error": "tab must be movies or series"})
+        if content_type not in {"movie", "series"}:
+            return _compact({"ok": False, "error": "content_type must be movie or series"})
+        body = dict(tool_input)
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_create_ai_catalog, settings, body)
+        )
+
+    if name == "mango_update_ai_catalog":
+        slot_id = tool_input.get("slot_id")
+        if not isinstance(slot_id, str) or not slot_id.strip():
+            return _compact({"ok": False, "error": "slot_id required"})
+        body = dict(tool_input)
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_update_ai_catalog, settings, body)
+        )
+
+    if name == "mango_delete_ai_catalog":
+        slot_id = tool_input.get("slot_id")
+        if not isinstance(slot_id, str) or not slot_id.strip():
+            return _compact({"ok": False, "error": "slot_id required"})
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_delete_ai_catalog, settings, slot_id.strip())
+        )
+
+    if name == "mango_refresh_ai_catalog":
+        slot_id = tool_input.get("slot_id")
+        if not isinstance(slot_id, str) or not slot_id.strip():
+            return _compact({"ok": False, "error": "slot_id required"})
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_refresh_ai_catalog, settings, slot_id.strip())
+        )
+
     if name in {"mango_navigate", "mango_open_title"}:
         try:
             command = build_launcher_command(name, tool_input)
@@ -166,6 +209,16 @@ def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
         return "Shuffling home rails"
     if name == "mango_playability_refresh":
         return f"Library refresh ({tool_input.get('level', 'job')})"
+    if name == "mango_list_ai_catalogs":
+        return "Listing AI catalog rails"
+    if name == "mango_create_ai_catalog":
+        return f"Creating AI catalog {tool_input.get('label', '…')}"
+    if name == "mango_update_ai_catalog":
+        return f"Updating AI catalog {tool_input.get('slot_id', '…')}"
+    if name == "mango_delete_ai_catalog":
+        return f"Deleting AI catalog {tool_input.get('slot_id', '…')}"
+    if name == "mango_refresh_ai_catalog":
+        return f"Refreshing AI catalog pool {tool_input.get('slot_id', '…')}"
     if name in {"mango_navigate", "mango_open_title"}:
         try:
             command = build_launcher_command(name, tool_input)

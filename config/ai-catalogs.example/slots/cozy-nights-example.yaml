@@ -1,0 +1,16 @@
+version: 1
+slot_id: cozy-nights-example
+tab: movies
+label: Cozy Nights
+content_type: movie
+enabled: true
+created_at: "2026-01-01T00:00:00.000Z"
+seed_titles:
+  - type: movie
+    id: tt0114709
+    title: Toy Story
+sources: []
+llm_hints:
+  theme: cozy family-friendly evenings
+  topup_suggestions:
+    - add more G-rated comfort watches from verified pool

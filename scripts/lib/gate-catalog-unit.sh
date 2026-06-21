@@ -21,5 +21,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/episodes.test.js \
     dist/voice/search.test.js \
     dist/voice/tools.test.js \
+    dist/ai-catalogs/store.test.js \
+    dist/ai-catalogs/list-source.test.js \
     dist/stream-filters.test.js
 )

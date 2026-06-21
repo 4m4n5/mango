@@ -190,6 +190,65 @@ def tool_library_shuffle(settings: OrchestratorSettings) -> dict[str, Any]:
     )
 
 
+def tool_refresh_ai_catalog(settings: OrchestratorSettings, slot_id: str) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "POST",
+        "/voice/ai-catalogs/refresh",
+        body={"slot_id": slot_id},
+        timeout=120.0,
+    )
+
+
+def tool_list_ai_catalogs(settings: OrchestratorSettings) -> dict[str, Any]:
+    return _request_json(settings, "GET", "/voice/ai-catalogs", timeout=15.0)
+
+
+def tool_create_ai_catalog(
+    settings: OrchestratorSettings,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    url = f"{_base_url(settings)}/voice/ai-catalogs"
+    with httpx.Client(timeout=120.0) as client:
+        response = client.post(url, json=body)
+        try:
+            payload = response.json()
+        except json.JSONDecodeError as exc:
+            raise CatalogToolError(f"catalog returned non-json ({response.status_code})") from exc
+        if response.status_code == 409 and isinstance(payload, dict):
+            return payload
+        if response.status_code >= 400:
+            error = payload.get("error") if isinstance(payload, dict) else None
+            message = error if isinstance(error, str) else f"catalog error {response.status_code}"
+            raise CatalogToolError(message)
+        if not isinstance(payload, dict):
+            raise CatalogToolError("catalog returned unexpected payload")
+        return payload
+
+
+def tool_update_ai_catalog(
+    settings: OrchestratorSettings,
+    body: dict[str, Any],
+) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "POST",
+        "/voice/ai-catalogs/update",
+        body=body,
+        timeout=30.0,
+    )
+
+
+def tool_delete_ai_catalog(settings: OrchestratorSettings, slot_id: str) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "POST",
+        "/voice/ai-catalogs/delete",
+        body={"slot_id": slot_id},
+        timeout=15.0,
+    )
+
+
 def tool_playability_refresh(
     settings: OrchestratorSettings,
     *,

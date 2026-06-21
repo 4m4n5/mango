@@ -136,6 +136,91 @@ export function buildVoiceToolManifest(): {
       },
     },
     {
+      name: 'mango_list_ai_catalogs',
+      description: 'List voice-created AI catalog rails (max 3 per movies/series tab). Read-only.',
+      layer: 'catalog',
+      input_schema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'mango_create_ai_catalog',
+      description:
+        'Create a voice-managed AI catalog rail (verified playability pool + nightly top-up). '
+        + 'Movies-only or series-only. When tab already has 3 catalogs, response includes overflow_options - '
+        + 'ask the user once: replace a slot, pin specific titles, or merge seeds into an existing AI rail.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          label: { type: 'string', description: 'Short rail label' },
+          tab: { type: 'string', enum: ['movies', 'series'] },
+          content_type: { type: 'string', enum: ['movie', 'series'] },
+          seed_titles: {
+            type: 'array',
+            description: 'Hand-picked Stremio titles { type, id, title?, poster? }',
+          },
+          sources: {
+            type: 'array',
+            description: 'Optional addon catalog sources { addon, catalog, weight? }',
+          },
+          llm_hints: {
+            type: 'object',
+            description: 'Theme/prompt, add_ids, remove_ids, topup_suggestions for pool curation',
+          },
+          overflow_action: {
+            type: 'string',
+            enum: ['replace', 'pin_titles', 'merge'],
+            description: 'Only when tab is full (4th catalog)',
+          },
+          replace_slot_id: { type: 'string' },
+          merge_into_slot_id: { type: 'string' },
+          pin_titles: { type: 'array', description: 'Titles to pin when overflow_action=pin_titles' },
+        },
+        required: ['label', 'tab', 'content_type'],
+      },
+    },
+    {
+      name: 'mango_update_ai_catalog',
+      description: 'Rename or update an AI catalog - seeds, sources, llm_hints (add/remove/suggest for next top-up).',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          slot_id: { type: 'string' },
+          label: { type: 'string' },
+          seed_titles: { type: 'array' },
+          append_seeds: { type: 'array' },
+          remove_seed_ids: { type: 'array', items: { type: 'string' } },
+          sources: { type: 'array' },
+          llm_hints: { type: 'object' },
+        },
+        required: ['slot_id'],
+      },
+    },
+    {
+      name: 'mango_delete_ai_catalog',
+      description: 'Delete a voice-managed AI catalog slot and hide its rail.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          slot_id: { type: 'string' },
+        },
+        required: ['slot_id'],
+      },
+    },
+    {
+      name: 'mango_refresh_ai_catalog',
+      description: 'Top up one AI catalog playability pool now (applies llm remove_ids first).',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          slot_id: { type: 'string' },
+        },
+        required: ['slot_id'],
+      },
+    },
+    {
       name: 'mango_navigate',
       description: 'Navigate the TV launcher (home, back, settings, tab). Does not open titles or start playback.',
       layer: 'launcher',

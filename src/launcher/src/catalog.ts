@@ -6,7 +6,7 @@ interface RailSummaryResponse {
   rails: Array<{
     id: string;
     label: string;
-    type: "addon_catalog" | "composite_list";
+    type: "addon_catalog" | "composite_list" | "ai_catalog";
     content_type: string;
     sources: Array<{ addon: string; catalog: string; weight: number }>;
   }>;

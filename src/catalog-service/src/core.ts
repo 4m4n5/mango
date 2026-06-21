@@ -28,6 +28,8 @@ import {
   type CatalogTab,
   type RailConfig,
 } from './rails.js';
+
+export type PlayableRail = BrowsableRail | AiCatalogRail;
 import {
   allocateTabRailSessions,
   getOrCreateRailSession,
@@ -69,6 +71,9 @@ import {
   type SeriesEpisodesResponse,
 } from './episodes.js';
 import { listUserPins } from './user-pins.js';
+import { loadAiCatalogRails } from './ai-catalogs/store.js';
+import { AiCatalogListSource } from './ai-catalogs/list-source.js';
+import type { AiCatalogRail } from './ai-catalogs/types.js';
 import {
   channelSubtitle,
   fetchLiveCatalogChannels,
@@ -146,7 +151,7 @@ export type RailSummary = {
   id: string;
   label: string;
   tab: CatalogTab;
-  type: BrowsableRail['type'];
+  type: BrowsableRail['type'] | 'ai_catalog';
   content_type: string;
   sources: Array<{ addon: string; catalog: string; weight: number }>;
 };
@@ -463,6 +468,7 @@ export class CatalogCore {
     expiresAt: number;
   } | null = null;
   private playabilitySessionId = process.env.MANGO_PLAYABILITY_SESSION_ID || randomUUID();
+  private aiCatalogRails: AiCatalogRail[] = [];
 
   private constructor(
     private readonly coreStatus: CoreStatus,
@@ -516,7 +522,27 @@ export class CatalogCore {
       railConfigResult.error,
       liveRailConfigResult.config,
       liveRailConfigResult.error,
-    );
+    ).withAiCatalogRails(await loadAiCatalogRails().catch((error: unknown) => {
+      console.warn(
+        `ai catalogs load failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return [];
+    }));
+  }
+
+  private withAiCatalogRails(rails: AiCatalogRail[]): this {
+    this.aiCatalogRails = rails;
+    return this;
+  }
+
+  async reloadAiCatalogRails(): Promise<void> {
+    this.aiCatalogRails = await loadAiCatalogRails().catch((error: unknown) => {
+      console.warn(
+        `ai catalogs reload failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return [];
+    });
+    this.clearRailItemsCache();
   }
 
   health(): Record<string, unknown> {
@@ -526,7 +552,8 @@ export class CatalogCore {
       core_version: this.coreStatus.version,
       addons: this.addons.length,
       addon_names: this.addons.map((addon) => addon.name),
-      rails: this.railConfig ? enabledBrowsableRails(this.railConfig).length : 0,
+      rails: this.railConfig ? enabledBrowsableRails(this.railConfig).length + this.aiCatalogRails.length : this.aiCatalogRails.length,
+      ai_catalogs: this.aiCatalogRails.length,
       rails_ready: this.railConfigError === null,
       live_rails: this.liveRailConfig ? this.liveRailConfig.rails.length : 0,
       live_ready: this.liveRailConfigError === null,
@@ -549,7 +576,11 @@ export class CatalogCore {
         })),
       };
     }
-    const rails = enabledBrowsableRailsForTab(this.requireRailConfig(), tab);
+    const yamlRails = enabledBrowsableRailsForTab(this.requireRailConfig(), tab);
+    const aiRails = tab
+      ? this.aiCatalogRails.filter((rail) => rail.tab === tab)
+      : this.aiCatalogRails;
+    const rails = [...aiRails, ...yamlRails];
     return {
       ...(tab ? { tab } : {}),
       rails: rails.map((rail) => ({
@@ -558,17 +589,28 @@ export class CatalogCore {
         tab: rail.tab,
         type: rail.type,
         content_type: rail.content_type,
-        sources: railSourceSummary(rail),
+        sources: rail.type === 'ai_catalog'
+          ? rail.sources
+          : railSourceSummary(rail),
       })),
     };
   }
 
-  browsableRails(): BrowsableRail[] {
-    return enabledBrowsableRails(this.requireRailConfig());
+  browsableRails(): PlayableRail[] {
+    return [...this.aiCatalogRails, ...enabledBrowsableRails(this.requireRailConfig())];
   }
 
-  browsableRail(railId: string): BrowsableRail {
-    const rail = this.browsableRails().find((candidate) => candidate.id === railId);
+  private browsableRailsForTab(tab: CatalogTab): PlayableRail[] {
+    const ai = this.aiCatalogRails.filter((rail) => rail.tab === tab);
+    return [...ai, ...enabledBrowsableRailsForTab(this.requireRailConfig(), tab)];
+  }
+
+  browsableRail(railId: string): PlayableRail {
+    const ai = this.aiCatalogRails.find((candidate) => candidate.id === railId);
+    if (ai) {
+      return ai;
+    }
+    const rail = enabledBrowsableRails(this.requireRailConfig()).find((candidate) => candidate.id === railId);
     if (!rail) {
       throw new CatalogError(404, `unknown rail: ${railId}`);
     }
@@ -577,6 +619,23 @@ export class CatalogCore {
 
   listSourceForRail(railId: string): ListSource {
     const rail = this.browsableRail(railId);
+    if (rail.type === 'ai_catalog') {
+      const sources = rail.sources.map((source) => {
+        const addon = this.findAddonByName(source.addon);
+        return {
+          ...source,
+          manifestUrl: addon.manifestUrl,
+          sourceLabel: `${source.addon}/${source.catalog}`,
+        };
+      });
+      return new AiCatalogListSource({
+        sourceId: rail.id,
+        contentType: rail.content_type,
+        seedTitles: rail.seed_titles,
+        sources,
+        llmHints: rail.llm_hints,
+      });
+    }
     if (rail.type === 'addon_catalog') {
       const addon = this.findAddonByName(rail.addon);
       return AddonCatalogListSource.fromRail(rail, addon.manifestUrl);
@@ -593,8 +652,9 @@ export class CatalogCore {
   }
 
   async playabilityStatus(): Promise<PlayabilityStatus> {
-    const rails = this.railConfig ? enabledBrowsableRails(this.railConfig).map((rail) => rail.id) : [];
-    return getPlayabilityStatus(rails);
+    const rails = this.browsableRails();
+    const railIds = rails.map((rail) => rail.id);
+    return getPlayabilityStatus(railIds);
   }
 
   /** New session id — reshuffle rails from latest verified pool (no indexer). */
@@ -910,8 +970,8 @@ export class CatalogCore {
     return payload;
   }
 
-  private siblingRailIds(rail: BrowsableRail): string[] {
-    return enabledBrowsableRailsForTab(this.requireRailConfig(), rail.tab)
+  private siblingRailIds(rail: PlayableRail): string[] {
+    return this.browsableRailsForTab(rail.tab)
       .map((entry) => entry.id)
       .filter((id) => id !== rail.id);
   }
@@ -973,7 +1033,7 @@ export class CatalogCore {
   }
 
   private async buildRailItemsResponse(
-    rail: BrowsableRail,
+    rail: PlayableRail,
     session: RailSessionSnapshot,
     started: number,
   ): Promise<RailItemsResponse> {
@@ -1044,7 +1104,7 @@ export class CatalogCore {
     }
 
     const started = Date.now();
-    const rails = enabledBrowsableRailsForTab(this.requireRailConfig(), tab);
+    const rails = this.browsableRailsForTab(tab);
     const sessions = await allocateTabRailSessions({
       sessionId: this.playabilitySessionId,
       rails: rails.map((rail) => ({

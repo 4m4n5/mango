@@ -1,4 +1,6 @@
+import type { BrowsableRail } from '../rails.js';
 import type { CatalogCore } from '../core.js';
+import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
 import {
   getPlayabilityStatus,
   getRailIngestOffsetsBulk,
@@ -119,7 +121,7 @@ export async function refreshAllRails(
   const railIds = rails.map((rail) => rail.id);
   const status = await getPlayabilityStatus(railIds);
   const { railVerifiedCounts, railPoolTargets, railMinDisplays } = railMapsFromRails(
-    rails,
+    rails as BrowsableRail[],
     status.rails,
     { poolTargetOverride: options.poolTarget, bootstrap },
   );
@@ -152,6 +154,9 @@ export async function refreshAllRails(
     : new Map<string, number>();
 
   await Promise.all(railsToFetch.map(async (rail) => {
+    if (rail.type === 'ai_catalog') {
+      await applyAiCatalogTopUpHints(rail);
+    }
     const source = core.listSourceForRail(rail.id);
     const verified = railVerifiedCounts.get(rail.id) ?? 0;
     const poolTarget = railPoolTargets.get(rail.id) ?? rail.playability.pool_target;
@@ -249,6 +254,12 @@ export async function refreshAllRails(
 
   const batchFlush = await finalizeVerifyContext(context);
   const prunedPoolEntries = await pruneNonPlayableFromRailPools();
+  for (const rail of railsToFetch) {
+    if (rail.type === 'ai_catalog') {
+      await clearAppliedTopUpHints(rail.id);
+    }
+  }
+  await core.reloadAiCatalogRails();
   const finishedAt = Date.now();
   const afterStatus = await getPlayabilityStatus(railIds);
   const afterByRail = new Map(afterStatus.rails.map((rail) => [rail.rail_id, rail]));

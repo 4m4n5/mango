@@ -27,6 +27,8 @@ import {
   playabilityMaxIngestScan,
 } from './config.js';
 import { effectivePoolTarget } from './pool-growth.js';
+import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
+import type { BrowsableRail } from '../rails.js';
 
 export type TopUpRailResult = {
   rail_id: string;
@@ -66,6 +68,10 @@ export async function topUpRail(
   options: TopUpRailOptions = {},
 ): Promise<TopUpRailResult> {
   const rail = core.browsableRail(railId);
+  if (rail.type === 'ai_catalog') {
+    await applyAiCatalogTopUpHints(rail);
+    await core.reloadAiCatalogRails();
+  }
   const source = core.listSourceForRail(railId);
   const before = await getRailPlayabilityStatus(rail.id);
   const poolTarget = options.poolTarget ?? effectivePoolTarget(rail.playability, before.verified_pool);
@@ -117,7 +123,7 @@ export async function topUpRail(
     [rail.id, await getRailPoolTitleKeys(rail.id)],
   ]);
   const { railVerifiedCounts, railPoolTargets } = railMapsFromRails(
-    [rail],
+    [rail as BrowsableRail],
     [before],
     { poolTargetOverride: poolTarget },
   );
@@ -141,6 +147,11 @@ export async function topUpRail(
   });
   await finalizeVerifyContext(context);
   await pruneNonPlayableFromRailPools();
+
+  if (rail.type === 'ai_catalog') {
+    await clearAppliedTopUpHints(rail.id);
+    await core.reloadAiCatalogRails();
+  }
 
   const after = await getRailPlayabilityStatus(rail.id);
   return {

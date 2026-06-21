@@ -39,6 +39,15 @@ import { buildVoiceToolManifest } from './voice/tools.js';
 import { buildLibraryCatalog, buildLibraryOverview } from './voice/library.js';
 import { readLibrarianNotes, writeLibrarianNotes } from './voice/librarian-notes.js';
 import { searchExternalTitles } from './voice/external.js';
+import {
+  createAiCatalog,
+  deleteAiCatalog,
+  listAiCatalogSummaries,
+  refreshAiCatalog,
+  updateAiCatalog,
+  type CreateAiCatalogInput,
+} from './ai-catalogs/service.js';
+import type { AiSeedTitle } from './ai-catalogs/types.js';
 
 const HOST = process.env.MANGO_CATALOG_HOST || '127.0.0.1';
 const PORT = Number(process.env.MANGO_CATALOG_PORT || 3020);
@@ -465,6 +474,99 @@ async function main(): Promise<void> {
         const limit = Number(url.searchParams.get('limit') || 8);
         const results = await searchVerifiedLibrary(query, Number.isFinite(limit) ? limit : 8);
         sendJson(res, 200, { ok: true, query, results });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'ai-catalogs') {
+        sendJson(res, 200, { ok: true, catalogs: await listAiCatalogSummaries() });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'ai-catalogs') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'ai catalog writes are localhost-only');
+        }
+        const body = await readBody(req) as Record<string, unknown>;
+        const tab = parseCatalogTab(typeof body.tab === 'string' ? body.tab : null);
+        const contentType = body.content_type === 'movie' || body.content_type === 'series'
+          ? body.content_type
+          : null;
+        if (!tab || tab === 'live' || !contentType || typeof body.label !== 'string' || !body.label.trim()) {
+          throw new CatalogError(400, 'POST /voice/ai-catalogs requires { label, tab, content_type }');
+        }
+        const result = await createAiCatalog(core, {
+          label: body.label.trim(),
+          tab,
+          content_type: contentType,
+          seed_titles: Array.isArray(body.seed_titles) ? body.seed_titles as AiSeedTitle[] : undefined,
+          sources: Array.isArray(body.sources) ? body.sources as CreateAiCatalogInput['sources'] : undefined,
+          llm_hints: typeof body.llm_hints === 'object' && body.llm_hints !== null
+            ? body.llm_hints as CreateAiCatalogInput['llm_hints']
+            : undefined,
+          overflow_action: body.overflow_action === 'replace'
+            || body.overflow_action === 'pin_titles'
+            || body.overflow_action === 'merge'
+            ? body.overflow_action
+            : undefined,
+          replace_slot_id: typeof body.replace_slot_id === 'string' ? body.replace_slot_id : undefined,
+          merge_into_slot_id: typeof body.merge_into_slot_id === 'string' ? body.merge_into_slot_id : undefined,
+          pin_titles: Array.isArray(body.pin_titles) ? body.pin_titles as AiSeedTitle[] : undefined,
+        });
+        if (!result.ok) {
+          sendJson(res, 409, { ok: false, error: result.error, overflow_options: result.overflow_options });
+          return;
+        }
+        sendJson(res, 200, { ok: true, catalog: result.slot });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'ai-catalogs' && parts[2] === 'update') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'ai catalog writes are localhost-only');
+        }
+        const body = await readBody(req) as Record<string, unknown>;
+        if (typeof body.slot_id !== 'string' || !body.slot_id.trim()) {
+          throw new CatalogError(400, 'POST /voice/ai-catalogs/update requires { slot_id }');
+        }
+        const catalog = await updateAiCatalog(core, {
+          slot_id: body.slot_id.trim(),
+          label: typeof body.label === 'string' ? body.label : undefined,
+          seed_titles: Array.isArray(body.seed_titles) ? body.seed_titles as AiSeedTitle[] : undefined,
+          sources: Array.isArray(body.sources) ? body.sources as never : undefined,
+          llm_hints: typeof body.llm_hints === 'object' && body.llm_hints !== null
+            ? body.llm_hints as never
+            : undefined,
+          append_seeds: Array.isArray(body.append_seeds) ? body.append_seeds as AiSeedTitle[] : undefined,
+          remove_seed_ids: Array.isArray(body.remove_seed_ids)
+            ? body.remove_seed_ids.map(String)
+            : undefined,
+        });
+        sendJson(res, 200, { ok: true, catalog });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'ai-catalogs' && parts[2] === 'delete') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'ai catalog writes are localhost-only');
+        }
+        const body = await readBody(req) as Record<string, unknown>;
+        if (typeof body.slot_id !== 'string' || !body.slot_id.trim()) {
+          throw new CatalogError(400, 'POST /voice/ai-catalogs/delete requires { slot_id }');
+        }
+        const removed = await deleteAiCatalog(core, body.slot_id.trim());
+        sendJson(res, 200, { ok: true, removed });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'ai-catalogs' && parts[2] === 'refresh') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'ai catalog writes are localhost-only');
+        }
+        const body = await readBody(req) as Record<string, unknown>;
+        if (typeof body.slot_id !== 'string' || !body.slot_id.trim()) {
+          throw new CatalogError(400, 'POST /voice/ai-catalogs/refresh requires { slot_id }');
+        }
+        sendJson(res, 200, await refreshAiCatalog(core, body.slot_id.trim()));
         return;
       }
 
