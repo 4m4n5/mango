@@ -126,3 +126,13 @@ bash scripts/pi-deploy.sh --fast --gate
 bash scripts/phase-n5/gate-voice-tools.sh
 python3 scripts/phase-n5/sync-hinglish-stt-config.py
 ```
+
+---
+
+## N5d — AI catalog bootstrap (spec locked, not shipped)
+
+**Task doc:** [`docs/tasks/phase-n5d-ai-catalog-bootstrap.md`](tasks/phase-n5d-ai-catalog-bootstrap.md)
+
+Non-empty voice-created AI rails: server Source Composer + async bootstrap until `visible_on_tab` (≥6 posters). AI Rail Catalog Reserve (~40 mdblist lists) + lazy import.
+
+**Gates:** `gate-n5d-ai-catalog-bootstrap.sh` · `gate-n5d-mdblist-reserve.sh`

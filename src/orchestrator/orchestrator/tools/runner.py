@@ -174,6 +174,14 @@ async def execute_tool(
             await asyncio.to_thread(catalog_tools.tool_refresh_ai_catalog, settings, slot_id.strip())
         )
 
+    if name == "mango_ai_catalog_status":
+        slot_id = tool_input.get("slot_id")
+        if not isinstance(slot_id, str) or not slot_id.strip():
+            return _compact({"ok": False, "error": "slot_id required"})
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_ai_catalog_status, settings, slot_id.strip())
+        )
+
     if name in {"mango_navigate", "mango_open_title"}:
         try:
             command = build_launcher_command(name, tool_input)
@@ -247,6 +255,8 @@ def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
         return f"Deleting AI catalog {tool_input.get('slot_id', '…')}"
     if name == "mango_refresh_ai_catalog":
         return f"Refreshing AI catalog pool {tool_input.get('slot_id', '…')}"
+    if name == "mango_ai_catalog_status":
+        return f"Checking AI catalog {tool_input.get('slot_id', '…')}"
     if name in {"mango_navigate", "mango_open_title"}:
         try:
             command = build_launcher_command(name, tool_input)

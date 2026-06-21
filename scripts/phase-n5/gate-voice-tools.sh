@@ -144,6 +144,18 @@ else
   bad n5c-companion-llm-policy
 fi
 
+if bash scripts/phase-n5/gate-n5d-ai-catalog-bootstrap.sh; then
+  ok n5d-ai-catalog-bootstrap
+else
+  bad n5d-ai-catalog-bootstrap
+fi
+
+if bash scripts/phase-n5/gate-n5d-mdblist-reserve.sh; then
+  ok n5d-mdblist-reserve
+else
+  bad n5d-mdblist-reserve
+fi
+
 echo
 echo "SUMMARY pass=$PASS fail=$FAIL"
 [[ "$FAIL" -eq 0 ]]

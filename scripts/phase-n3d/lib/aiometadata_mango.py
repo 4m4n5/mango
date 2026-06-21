@@ -202,19 +202,28 @@ def select_catalogs_from_export(
     return selected, warnings
 
 
-def build_mango_config(
+def build_mango_config_with_extras(
     export_path: Path,
     catalog_yaml: Path,
     env_path: Path,
+    extra_ids: set[str],
 ) -> tuple[dict[str, Any], list[str]]:
+    repo = repo_root()
+    refs = collect_rail_refs(repo, catalog_yaml)
+    reserve_path = repo / "config/ai-catalog-reserve.json"
+    reserve_ids: set[str] = set()
+    if reserve_path.is_file():
+        reserve_data = json.loads(reserve_path.read_text(encoding="utf-8"))
+        for entry in reserve_data.get("catalogs") or []:
+            cid = str(entry.get("id") or "")
+            if cid:
+                reserve_ids.add(cid)
+    needed_ids = needed_catalog_ids(refs) | extra_ids | reserve_ids
     raw = json.loads(export_path.read_text(encoding="utf-8"))
     source = raw.get("config") or raw
     if not isinstance(source, dict):
         raise SystemExit("export missing config object")
 
-    repo = repo_root()
-    refs = collect_rail_refs(repo, catalog_yaml)
-    needed_ids = needed_catalog_ids(refs)
     inventory = load_mdblist_inventory(repo)
     selected, warnings = select_catalogs_from_export(
         source.get("catalogs") or [],
@@ -248,6 +257,14 @@ def build_mango_config(
 
     apply_self_host_api_keys(config["apiKeys"], load_env_keys(env_path))
     return config, warnings
+
+
+def build_mango_config(
+    export_path: Path,
+    catalog_yaml: Path,
+    env_path: Path,
+) -> tuple[dict[str, Any], list[str]]:
+    return build_mango_config_with_extras(export_path, catalog_yaml, env_path, set())
 
 
 def check_export(
@@ -303,7 +320,7 @@ def check_export(
 def main() -> None:
     if len(sys.argv) < 2:
         raise SystemExit(
-            "usage: aiometadata_mango.py build|check <export.json> [catalog.yaml] [manifest.json]"
+            "usage: aiometadata_mango.py build|check|ensure <export.json> [catalog.yaml] [manifest.json|extra_ids...]"
         )
 
     cmd = sys.argv[1]
@@ -324,6 +341,19 @@ def main() -> None:
     if cmd == "check":
         manifest = Path(sys.argv[4]) if len(sys.argv) > 4 else None
         raise SystemExit(check_export(export_path, catalog_yaml, manifest))
+
+    if cmd == "ensure":
+        extra_ids = {arg.strip() for arg in sys.argv[3:] if arg.strip()}
+        config, warnings = build_mango_config_with_extras(
+            export_path,
+            catalog_yaml,
+            env_path,
+            extra_ids,
+        )
+        for w in warnings:
+            print(f"WARN: {w}", file=sys.stderr)
+        print(json.dumps(config))
+        return
 
     raise SystemExit(f"unknown command: {cmd}")
 

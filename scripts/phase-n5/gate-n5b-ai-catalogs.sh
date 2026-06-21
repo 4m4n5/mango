@@ -10,7 +10,7 @@ EXAMPLE_DIR="$REPO_DIR/config/ai-catalogs.example"
 cd "$CATALOG_DIR"
 npm run build >/dev/null
 
-node --test dist/ai-catalogs/store.test.js dist/ai-catalogs/list-source.test.js
+node --test dist/ai-catalogs/store.test.js dist/ai-catalogs/list-source.test.js dist/ai-catalogs/compose.test.js
 
 node - <<'NODE'
 import { buildVoiceToolManifest } from './dist/voice/tools.js';

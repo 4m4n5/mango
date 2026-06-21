@@ -182,9 +182,9 @@ export function buildVoiceToolManifest(): {
     {
       name: 'mango_create_ai_catalog',
       description:
-        'Create a voice-managed AI catalog rail (verified playability pool + nightly top-up). '
-        + 'Movies-only or series-only. When tab already has 3 catalogs, response includes overflow_options - '
-        + 'ask the user once: replace a slot, pin specific titles, or merge seeds into an existing AI rail.',
+        'Create a voice-managed AI catalog rail. Server composes mdblist sources + thematic seeds from theme. '
+        + 'Returns bootstrap job — poll mango_ai_catalog_status until visible_on_tab before claiming TV visibility. '
+        + 'When tab already has 3 catalogs, response includes overflow_options.',
       layer: 'catalog',
       input_schema: {
         type: 'object',
@@ -192,17 +192,10 @@ export function buildVoiceToolManifest(): {
           label: { type: 'string', description: 'Short rail label' },
           tab: { type: 'string', enum: ['movies', 'series'] },
           content_type: { type: 'string', enum: ['movie', 'series'] },
-          seed_titles: {
-            type: 'array',
-            description: 'Hand-picked Stremio titles { type, id, title?, poster? }',
-          },
-          sources: {
-            type: 'array',
-            description: 'Optional addon catalog sources { addon, catalog, weight? }',
-          },
+          theme: { type: 'string', description: 'Thematic intent e.g. horror movies, hindi comedy' },
           llm_hints: {
             type: 'object',
-            description: 'Theme/prompt, add_ids, remove_ids, topup_suggestions for pool curation',
+            description: 'Optional theme/prompt override',
           },
           overflow_action: {
             type: 'string',
@@ -214,6 +207,18 @@ export function buildVoiceToolManifest(): {
           pin_titles: { type: 'array', description: 'Titles to pin when overflow_action=pin_titles' },
         },
         required: ['label', 'tab', 'content_type'],
+      },
+    },
+    {
+      name: 'mango_ai_catalog_status',
+      description: 'Poll AI catalog bootstrap status — visible_on_tab, verified_pool, displayed count.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          slot_id: { type: 'string' },
+        },
+        required: ['slot_id'],
       },
     },
     {

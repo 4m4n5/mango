@@ -54,10 +54,16 @@ import {
   createAiCatalog,
   deleteAiCatalog,
   listAiCatalogSummaries,
-  refreshAiCatalog,
   updateAiCatalog,
   type CreateAiCatalogInput,
 } from './ai-catalogs/service.js';
+import {
+  createAiCatalogWithBootstrap,
+  getBootstrapJob,
+  getSlotBootstrapStatus,
+  migrateSlotIfEmpty,
+  refreshAiCatalogWithMigrate,
+} from './ai-catalogs/bootstrap.js';
 import type { AiSeedTitle } from './ai-catalogs/types.js';
 
 const HOST = process.env.MANGO_CATALOG_HOST || '127.0.0.1';
@@ -598,10 +604,12 @@ async function main(): Promise<void> {
         if (!tab || tab === 'live' || !contentType || typeof body.label !== 'string' || !body.label.trim()) {
           throw new CatalogError(400, 'POST /voice/ai-catalogs requires { label, tab, content_type }');
         }
-        const result = await createAiCatalog(core, {
+        const theme = typeof body.theme === 'string' ? body.theme.trim() : undefined;
+        const result = await createAiCatalogWithBootstrap(core, {
           label: body.label.trim(),
           tab,
           content_type: contentType,
+          theme,
           seed_titles: Array.isArray(body.seed_titles) ? body.seed_titles as AiSeedTitle[] : undefined,
           sources: Array.isArray(body.sources) ? body.sources as CreateAiCatalogInput['sources'] : undefined,
           llm_hints: typeof body.llm_hints === 'object' && body.llm_hints !== null
@@ -620,7 +628,43 @@ async function main(): Promise<void> {
           sendJson(res, 409, { ok: false, error: result.error, overflow_options: result.overflow_options });
           return;
         }
-        sendJson(res, 200, { ok: true, catalog: result.slot });
+        sendJson(res, 200, { ok: true, catalog: result.catalog, bootstrap: result.bootstrap });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'ai-catalogs' && parts[2] === 'status') {
+        const slotId = url.searchParams.get('slot_id')?.trim() ?? '';
+        if (!slotId) {
+          throw new CatalogError(400, 'GET /voice/ai-catalogs/status requires slot_id');
+        }
+        const status = getSlotBootstrapStatus(slotId);
+        sendJson(res, 200, { ok: true, status: status ?? { slot_id: slotId, bootstrap_status: 'unknown' } });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'ai-catalogs' && parts[2] === 'bootstrap') {
+        const jobId = url.searchParams.get('job_id')?.trim() ?? '';
+        if (!jobId) {
+          throw new CatalogError(400, 'GET /voice/ai-catalogs/bootstrap requires job_id');
+        }
+        const job = getBootstrapJob(jobId);
+        if (!job) {
+          throw new CatalogError(404, `unknown bootstrap job: ${jobId}`);
+        }
+        sendJson(res, 200, { ok: true, job });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'ai-catalogs' && parts[2] === 'migrate') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'ai catalog migrate is localhost-only');
+        }
+        const body = await readBody(req) as Record<string, unknown>;
+        if (typeof body.slot_id !== 'string' || !body.slot_id.trim()) {
+          throw new CatalogError(400, 'POST /voice/ai-catalogs/migrate requires { slot_id }');
+        }
+        const migrated = await migrateSlotIfEmpty(core, body.slot_id.trim());
+        sendJson(res, 200, { ok: true, migrated, status: getSlotBootstrapStatus(body.slot_id.trim()) });
         return;
       }
 
@@ -670,7 +714,7 @@ async function main(): Promise<void> {
         if (typeof body.slot_id !== 'string' || !body.slot_id.trim()) {
           throw new CatalogError(400, 'POST /voice/ai-catalogs/refresh requires { slot_id }');
         }
-        sendJson(res, 200, await refreshAiCatalog(core, body.slot_id.trim()));
+        sendJson(res, 200, await refreshAiCatalogWithMigrate(core, body.slot_id.trim()));
         return;
       }
 

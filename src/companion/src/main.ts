@@ -108,13 +108,16 @@ function appendToolCard(text: string, phase: string): void {
   if (chatEl === null) {
     return;
   }
+  const display = phase === "done" && text.startsWith("Creating AI catalog")
+    ? `${text} — building rail in background`
+    : text;
   const item = document.createElement("article");
   item.className = `message tool tool--${phase}`;
   const roleEl = document.createElement("span");
   roleEl.className = "role";
   roleEl.textContent = phase === "done" ? "done" : "tool";
   const textEl = document.createElement("p");
-  textEl.textContent = text;
+  textEl.textContent = display;
   item.append(roleEl, textEl);
   chatEl.append(item);
   chatEl.scrollTop = chatEl.scrollHeight;

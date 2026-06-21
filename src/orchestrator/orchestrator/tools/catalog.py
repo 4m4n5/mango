@@ -297,6 +297,17 @@ def tool_delete_ai_catalog(settings: OrchestratorSettings, slot_id: str) -> dict
     )
 
 
+def tool_ai_catalog_status(settings: OrchestratorSettings, slot_id: str) -> dict[str, Any]:
+    from urllib.parse import quote
+
+    return _request_json(
+        settings,
+        "GET",
+        f"/voice/ai-catalogs/status?slot_id={quote(slot_id.strip())}",
+        timeout=15.0,
+    )
+
+
 def tool_playability_refresh(
     settings: OrchestratorSettings,
     *,

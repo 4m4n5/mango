@@ -218,6 +218,48 @@ PY
   fi
 }
 
+cmd_ensure_catalogs() {
+  [[ $# -gt 0 ]] || die "ensure-catalogs requires mdblist catalog ids"
+  local import_path="${1:-${MANGO_AIOMETADATA_IMPORT:-}}"
+  shift || true
+  [[ -n "$import_path" && -f "$import_path" ]] || die "export file required for ensure-catalogs"
+  local catalog_yaml="${MANGO_CATALOG_YAML:-$REPO_DIR/config/catalog.example.yaml}"
+  local mango_py="$SCRIPT_DIR/lib/aiometadata_mango.py"
+  local config_tmp payload http_code password existing_uuid
+  config_tmp="$(mktemp)"
+  trap 'rm -f "$config_tmp"' RETURN
+  python3 "$mango_py" ensure "$import_path" "$@" >"$config_tmp" || die "ensure catalog synthesis failed"
+
+  password="${MANGO_AIOMETADATA_PASSWORD:-}"
+  existing_uuid=""
+  if [[ -f "$CREDS" ]]; then
+    # shellcheck disable=SC1090
+    source "$CREDS"
+    password="${password:-${AIOMETADATA_PASSWORD:-}}"
+    existing_uuid="${AIOMETADATA_UUID:-}"
+  fi
+  [[ -n "$password" ]] || die "AIOMETADATA_PASSWORD required"
+
+  payload="$(AIOMETADATA_PASSWORD="$password" AIOMETADATA_UUID="$existing_uuid" python3 - "$config_tmp" <<'PY'
+import json, os, sys
+config = json.load(open(sys.argv[1], encoding="utf-8"))
+body = {"config": config, "password": os.environ["AIOMETADATA_PASSWORD"]}
+uuid = os.environ.get("AIOMETADATA_UUID", "").strip()
+if uuid:
+    body["userUUID"] = uuid
+print(json.dumps(body))
+PY
+)"
+
+  http_code="$(printf '%s' "$payload" | curl -s -w '%{http_code}' -o /tmp/aiometadata-save.json \
+    -H "Content-Type: application/json" -X POST -d @- "$BASE_URL/api/config/save")"
+  if [[ "$http_code" != "200" ]]; then
+    cat /tmp/aiometadata-save.json >&2
+    die "POST /api/config/save failed (HTTP $http_code)"
+  fi
+  echo "ensure-catalogs ok: $*"
+}
+
 cmd="${1:-}"
 shift || true
 case "$cmd" in
@@ -225,14 +267,16 @@ case "$cmd" in
   check) cmd_check "$@" ;;
   manifest) cmd_manifest ;;
   wire-export) cmd_wire_export ;;
+  ensure-catalogs) cmd_ensure_catalogs "$@" ;;
   *)
     cat <<EOF
-Usage: $(basename "$0") <import|check|manifest|wire-export> [export.json]
+Usage: $(basename "$0") <import|check|manifest|wire-export|ensure-catalogs> [export.json] [ids...]
 
-  import       Import configure export → AIOMetadata (mango rail catalogs only)
-  check        Compare export/manifest vs catalog.yaml mdblist rails
-  manifest     Print manifest URL from credentials
-  wire-export  Replace AIOLists with AIOMetadata in $EXPORT_FILE
+  import           Import configure export → AIOMetadata (mango rail catalogs only)
+  check            Compare export/manifest vs catalog.yaml mdblist rails
+  manifest         Print manifest URL from credentials
+  wire-export      Replace AIOLists with AIOMetadata in $EXPORT_FILE
+  ensure-catalogs  Add mdblist ids (plus reserve) to AIOMetadata import and save
 
 Env: MANGO_AIOMETADATA_URL, MANGO_AIOMETADATA_IMPORT, MANGO_AIOMETADATA_PASSWORD
      MANGO_AIOMETADATA_IMPORT_MODE=mango|exact|minimal  (default: mango)

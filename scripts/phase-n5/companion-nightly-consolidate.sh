@@ -39,4 +39,23 @@ echo "$GARDEN" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.g
   || { echo "FAIL: gardener" >&2; echo "$GARDEN" >&2; exit 1; }
 echo "PASS: gardener"
 echo "$GARDEN"
+
+echo "=== Phase 3b: migrate empty AI catalog slots ==="
+curl -sf --max-time 120 "$CATALOG/voice/ai-catalogs" | python3 - <<'PY' "$CATALOG"
+import json, sys, urllib.request
+catalog_url = sys.argv[1]
+data = json.load(sys.stdin)
+for row in data.get("catalogs") or []:
+    if (row.get("seed_count") or 0) == 0 and (row.get("source_count") or 0) == 0:
+        slot = row["slot_id"]
+        req = urllib.request.Request(
+            f"{catalog_url}/voice/ai-catalogs/migrate",
+            data=json.dumps({"slot_id": slot}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            print(f"migrate {slot}:", resp.read().decode()[:120])
+PY
+
 echo "PASS: companion nightly pipeline complete"
