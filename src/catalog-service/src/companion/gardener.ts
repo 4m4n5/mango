@@ -193,6 +193,18 @@ export async function applyCompanionGardener(
     details,
   });
 
+  if (process.env.MANGO_OPS_LOG_GARDENER !== '0') {
+    const { recordCompanionOps } = await import('../ops/record.js');
+    recordCompanionOps(
+      'companion_gardener',
+      slotsUpdated > 0
+        ? `gardener updated ${slotsUpdated} slot(s): ${details.map((d) => d.slot_id).join(', ')}`
+        : 'gardener: no slot updates',
+      { slots_updated: slotsUpdated, details },
+      process.env.MANGO_OPS_RUN_ID,
+    );
+  }
+
   return { ok: true, slots_updated: slotsUpdated, details };
 }
 

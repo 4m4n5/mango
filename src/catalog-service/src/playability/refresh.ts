@@ -325,7 +325,7 @@ export async function refreshAllRails(
     0,
   );
 
-  return {
+  const refreshResult = {
     ok: railSummaries.every((rail) => rail.ok),
     mode,
     bootstrap,
@@ -345,4 +345,15 @@ export async function refreshAllRails(
     ingest_scanned: ingestScanned,
     rails: railSummaries,
   };
+
+  if (process.env.MANGO_OPS_LOG_REFRESH !== '0') {
+    const { recordRefreshOps } = await import('../ops/record.js');
+    recordRefreshOps(
+      refreshResult,
+      process.env.MANGO_OPS_SOURCE ?? 'refresh',
+      process.env.MANGO_OPS_RUN_ID,
+    );
+  }
+
+  return refreshResult;
 }

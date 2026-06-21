@@ -77,6 +77,31 @@ async function runTopUpRound(core: CatalogCore, railId: string): Promise<boolean
   return result.ok;
 }
 
+async function logBootstrapJob(job: BootstrapJobRecord): Promise<void> {
+  if (process.env.MANGO_OPS_LOG_BOOTSTRAP === '0') return;
+  const { recordAiCatalogOps } = await import('../ops/record.js');
+  recordAiCatalogOps(
+    'ai_catalog_bootstrap',
+    `${job.slot_id}: ${job.status} pool=${job.verified_pool} displayed=${job.displayed} visible=${job.visible_on_tab}`,
+    {
+      job_id: job.job_id,
+      slot_id: job.slot_id,
+      rail_id: job.rail_id,
+      tab: job.tab,
+      status: job.status,
+      visible_on_tab: job.visible_on_tab,
+      verified_pool: job.verified_pool,
+      displayed: job.displayed,
+      thematic_score: job.thematic_score,
+      fallback_level: job.fallback_level,
+      message: job.message,
+      error: job.error,
+      started_at: job.started_at,
+      finished_at: job.finished_at,
+    },
+  );
+}
+
 export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise<BootstrapJobRecord> {
   const job = jobs.get(jobId);
   if (!job) {
@@ -118,6 +143,7 @@ export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise
         job.status = 'ready';
         job.message = `${slot.label} rail is ready on ${job.tab} tab — shuffle to see it`;
         job.finished_at = new Date().toISOString();
+        await logBootstrapJob(job);
         return job;
       }
 
@@ -130,6 +156,7 @@ export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise
           job.status = 'ready';
           job.message = `${slot.label} rail is ready on ${job.tab} tab — shuffle to see it`;
           job.finished_at = new Date().toISOString();
+          await logBootstrapJob(job);
           return job;
         }
       }
@@ -181,12 +208,14 @@ export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise
       job.message = `${slot.label} rail is still filling — try shuffle again in a minute`;
     }
     job.finished_at = new Date().toISOString();
+    await logBootstrapJob(job);
     return job;
   } catch (error) {
     job.status = 'failed';
     job.error = error instanceof Error ? error.message : String(error);
     job.message = `Bootstrap failed for ${job.slot_id}`;
     job.finished_at = new Date().toISOString();
+    await logBootstrapJob(job);
     return job;
   }
 }

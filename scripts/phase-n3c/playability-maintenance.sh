@@ -38,6 +38,13 @@ if [[ -z "$SKIP_GATE" ]]; then
 fi
 
 mkdir -p "$CACHE_DIR"
+OPS_DIR="${CACHE_DIR}/ops"
+RUN_ID="playability-$(date +%Y%m%d-%H%M%S)"
+export MANGO_OPS_RUN_ID="$RUN_ID"
+export MANGO_OPS_SOURCE="playability-maintenance"
+mkdir -p "$OPS_DIR"
+MAINT_LOG="${OPS_DIR}/maintenance-${RUN_ID}.log"
+exec > >(tee -a "$MAINT_LOG") 2>&1
 
 # shellcheck source=../lib/catalog-yaml.sh
 source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
@@ -168,3 +175,15 @@ restore_couch
 
 echo "maintenance complete"
 python3 "$REPO_DIR/scripts/diag/playability-status.py" --all 2>/dev/null | tail -20 || true
+
+REFRESH_OUT="${OPS_DIR}/refresh-${RUN_ID}.json"
+if echo "$REFRESH_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+  echo "$REFRESH_JSON" > "$REFRESH_OUT"
+  python3 "$REPO_DIR/scripts/diag/ops-write-run.py" \
+    --kind playability_maintenance \
+    --run-id "$RUN_ID" \
+    --source playability-maintenance \
+    --write-report \
+    --summary "maintenance mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))" \
+    --payload-file "$REFRESH_OUT"
+fi

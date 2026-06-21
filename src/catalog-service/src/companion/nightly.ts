@@ -30,6 +30,15 @@ export async function runCompanionNightly(options: NightlyOptions = {}): Promise
       stage: profile.familiarity.stage,
       phase: 'rule',
     });
+    if (process.env.MANGO_OPS_LOG_CONSOLIDATE !== '0') {
+      const { recordCompanionOps } = await import('../ops/record.js');
+      recordCompanionOps(
+        'companion_consolidate',
+        `rule consolidate: ${events.length} journal events, stage=${profile.familiarity.stage}`,
+        { event_count: events.length, stage: profile.familiarity.stage, phase: 'rule' },
+        process.env.MANGO_OPS_RUN_ID,
+      );
+    }
     ruleResult = { events: events.length, stage: profile.familiarity.stage };
   }
 
