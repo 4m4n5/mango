@@ -23,7 +23,7 @@ if [[ "${MANGO_COMPANION_LLM_NIGHTLY:-1}" == "1" ]] && [[ -f /etc/mango/llm.key 
       cd src/orchestrator
       # shellcheck disable=SC1091
       source .venv/bin/activate
-      python3 "$REPO_DIR/scripts/phase-n5/companion-nightly-llm.py"
+      PYTHONPATH="$REPO_DIR/src/orchestrator" python3 "$REPO_DIR/scripts/phase-n5/companion-nightly-llm.py"
     ) || echo "WARN: LLM nightly skipped/failed — continuing with gardener"
   else
     echo "WARN: orchestrator venv missing — skip LLM nightly"
