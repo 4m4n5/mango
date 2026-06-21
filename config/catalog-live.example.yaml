@@ -47,8 +47,13 @@ rails:
     label: football & soccer
     limit: 12
     source_fill:
+      - addon: mango Live Free
+        limit: 3
+        keywords:
+          - fifa+
+          - bein sports usa
       - addon: mango Live TV
-        limit: 10
+        limit: 9
         keywords:
           - world cup
         exclude_keywords:
@@ -58,11 +63,6 @@ rails:
           - news
           - crime
           - movie
-      - addon: mango Live Free
-        limit: 3
-        keywords:
-          - fifa+
-          - bein sports usa
     keywords:
       - football
     exclude_keywords:
@@ -89,7 +89,7 @@ rails:
         limit: 5
         keywords:
           - fanduel racing
-          - floracing 24
+          - floracing
           - rally tv
           - sky racing 1
           - sky racing 2
