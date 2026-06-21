@@ -111,7 +111,9 @@ def reconstruct_playability(date: str) -> dict[str, Any]:
     }
 
     verified_adds = {
-        rail: len(data["verified"]) for rail, data in by_rail.items() if data["verified"]
+        rail: len(data["verified"])
+        for rail, data in by_rail.items()
+        if rail and data["verified"]
     }
 
     return {
@@ -249,6 +251,8 @@ def print_report(date: str, *, reconstruct: bool = False) -> int:
                 recon["verified_adds_by_rail"].items(),
                 key=lambda item: (item[0] or ""),
             ):
+                if not rail_id:
+                    continue
                 pool = recon.get("current_pools", {}).get(rail_id, {})
                 print(
                     f"  {rail_id:28} +{count} verified (current pool={pool.get('verified_pool', '?')})",
