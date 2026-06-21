@@ -88,12 +88,33 @@ Pi merge: `python3 scripts/phase-n5/sync-hinglish-stt-config.py` (on deploy when
 
 ---
 
-## Not shipped (N5b+)
+## N5b — AI catalog rails (shipped)
+
+| Artifact | Path |
+|----------|------|
+| Task doc | [`tasks/phase-n5b-ai-catalogs.md`](tasks/phase-n5b-ai-catalogs.md) |
+| Module | `src/catalog-service/src/ai-catalogs/` |
+| Gate | `scripts/phase-n5/gate-n5b-ai-catalogs.sh` |
+
+---
+
+## N5c — Living librarian (in progress)
+
+| Artifact | Path |
+|----------|------|
+| Task doc | [`tasks/phase-n5c-living-librarian.md`](tasks/phase-n5c-living-librarian.md) |
+| Scope | Conversation agent + companion memory + profile/journal |
+
+**Milestone N5c.1:** profile + journal + conversation fix (bundled).
+
+---
+
+## Not shipped (N5c+ / N7)
 
 | Feature | Phase |
 |---------|-------|
-| Persisted AI home catalogs (3 slots) | N5b |
-| Voice play / pause / stream language | N5c |
+| Voice play / pause / stream language | deferred (B-only forever) |
+| Proactive companion HUD | N5c.2 |
 | TTS on TV | N7 |
 
 ---

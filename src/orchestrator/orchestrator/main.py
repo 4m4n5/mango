@@ -17,12 +17,23 @@ from fastapi.responses import JSONResponse
 from orchestrator.audio.duck import duck_audio, restore_audio
 from orchestrator.audio.ingest import decode_pcm_b64
 from orchestrator.audio.piper_tts import speak_reply
-from orchestrator.audio.stt import transcribe
+from orchestrator.audio.stt import transcribe_detailed
 from orchestrator.config import load_settings
+from orchestrator.companion_reflect import reflect_after_turn
 from orchestrator.llm.agent import generate_agent_reply, voice_tools_enabled
 from orchestrator.llm.provider import generate_reply
 from orchestrator.session import ChatMessage, SessionState
 from orchestrator.timing import voice_stage
+from orchestrator.voice_log import (
+    TurnTimer,
+    append_event,
+    configure_logging,
+    new_turn_id,
+    reset_turn_id,
+    reset_turn_timer,
+    set_turn_id,
+    set_turn_timer,
+)
 from orchestrator.warmup import warmup_voice_stack
 
 logger = logging.getLogger(__name__)
@@ -157,7 +168,13 @@ async def handle_client_message(websocket: WebSocket, raw: str) -> None:
 async def run_voice_pipeline(pcm_b64: str) -> None:
     settings = load_settings()
     epoch = voice_epoch
+    turn_id = new_turn_id()
+    turn_token = set_turn_id(turn_id)
+    turn_timer = TurnTimer()
+    timer_token = set_turn_timer(turn_timer)
     partial_state = {"text": "", "sent_at": 0.0}
+
+    append_event("turn_start", turn_id=turn_id, llm_model=settings.llm_model)
 
     def on_llm_delta(text: str) -> None:
         partial_state["text"] = text
@@ -194,7 +211,20 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
             if epoch != voice_epoch:
                 return
             with voice_stage("stt"):
-                transcript = await asyncio.to_thread(transcribe, audio.samples, settings)
+                stt_result = await asyncio.to_thread(transcribe_detailed, audio.samples, settings)
+            transcript = stt_result.text
+            append_event(
+                "stt",
+                turn_id=turn_id,
+                text=transcript,
+                provider=stt_result.provider,
+                model=stt_result.model,
+                confidence=stt_result.confidence,
+                language=stt_result.language,
+                mode=stt_result.mode,
+                fallback=stt_result.fallback,
+                audio_seconds=round(audio.duration_seconds, 2),
+            )
             user_message = session.add_message("user", transcript)
             await broadcast_chat(user_message)
 
@@ -242,7 +272,23 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
                 with contextlib.suppress(asyncio.CancelledError):
                     await pump_task
             assistant_message = session.add_message("assistant", reply)
+            append_event(
+                "agent_reply",
+                turn_id=turn_id,
+                text=reply,
+                use_tools=use_tools,
+                llm_model=settings.llm_model,
+            )
             await broadcast_chat(assistant_message)
+
+            if use_tools and transcript.strip():
+                asyncio.create_task(
+                    reflect_after_turn(
+                        settings,
+                        transcript=transcript,
+                        reply=reply,
+                    )
+                )
 
             if epoch != voice_epoch:
                 return
@@ -265,8 +311,12 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
                 with contextlib.suppress(asyncio.CancelledError):
                     await pump_task
             if epoch == voice_epoch:
+                append_event("turn_error", turn_id=turn_id, error=str(exc))
                 await broadcast_error(str(exc))
         finally:
+            append_event("turn_done", turn_id=turn_id, stages=turn_timer.as_dict())
+            reset_turn_timer(timer_token)
+            reset_turn_id(turn_token)
             await asyncio.to_thread(restore_audio)
             if epoch == voice_epoch and not showing_reply:
                 session.set_overlay("idle", "idle")
@@ -344,6 +394,7 @@ async def fail_to_idle(message: str) -> None:
 def main() -> None:
     import uvicorn
 
+    configure_logging()
     settings = load_settings()
     parser = argparse.ArgumentParser(description="mango orchestrator")
     parser.add_argument("--host", default=settings.host)

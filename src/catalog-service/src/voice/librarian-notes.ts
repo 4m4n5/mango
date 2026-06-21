@@ -1,5 +1,9 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { readCompiledNotes, writeCompiledNotes } from '../companion/compile-notes.js';
+import { appendJournalEvent } from '../companion/journal.js';
+import { readProfile } from '../companion/profile.js';
+import { compiledNotesPath } from '../companion/paths.js';
 
 export type LibrarianNotes = {
   ok: true;
@@ -16,6 +20,15 @@ function notesPath(): string {
 }
 
 export async function readLibrarianNotes(): Promise<LibrarianNotes> {
+  const compiled = await readCompiledNotes();
+  if (compiled.trim()) {
+    const profile = await readProfile();
+    return {
+      ok: true,
+      updated_at: profile.updated_at,
+      notes: compiled.trim(),
+    };
+  }
   try {
     const raw = await readFile(notesPath(), 'utf8');
     const parsed = JSON.parse(raw) as { updated_at?: string; notes?: string };
@@ -31,12 +44,13 @@ export async function readLibrarianNotes(): Promise<LibrarianNotes> {
 
 export async function writeLibrarianNotes(notes: string): Promise<LibrarianNotes> {
   const trimmed = notes.trim();
-  const payload = {
-    updated_at: new Date().toISOString(),
-    notes: trimmed,
-  };
-  const filePath = notesPath();
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-  return { ok: true, updated_at: payload.updated_at, notes: trimmed };
+  const profile = await readProfile();
+  await writeCompiledNotes({ ...profile, session_notes: trimmed.split('\n').filter(Boolean).slice(-5) });
+  appendJournalEvent('librarian_notes_replace', { length: trimmed.length });
+  try {
+    await writeFile(compiledNotesPath(), `${trimmed}\n`, 'utf8');
+  } catch {
+    // companion dir may be read-only in dev — still return ok for API contract
+  }
+  return { ok: true, updated_at: new Date().toISOString(), notes: trimmed };
 }

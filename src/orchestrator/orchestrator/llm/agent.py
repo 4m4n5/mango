@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import Awaitable, Callable
@@ -10,51 +11,24 @@ from typing import Any
 from orchestrator.config import OrchestratorSettings
 from orchestrator.llm.open_intent import (
     extract_title_search_query,
+    is_discover_request,
     is_followup_pick_only,
+    user_wants_open_detail,
     user_wants_title_navigation,
 )
+from orchestrator.llm.persona import build_system_prompt
 from orchestrator.llm.provider import DeltaCallback, _clean_reply, _read_api_key
 from orchestrator.session import VoiceBrowseContext
 from orchestrator.tools import catalog as catalog_tools
 from orchestrator.tools.runner import execute_tool, tool_summary
 from orchestrator.tools.voice_nav import (
-    hit_matches_sequel_query,
     hit_to_open_input,
     pick_auto_open_hit,
     pick_hit_from_utterance,
 )
+from orchestrator.voice_log import log_tool
 
 logger = logging.getLogger(__name__)
-
-SYSTEM_PROMPT = (
-    "You are mango's TV librarian — warm, knowledgeable couch assistant for a mango TV box. "
-    "Users speak Hinglish, Hindi, or English — reply in the same mix (Roman script is fine). "
-    "You know the verified playable library via tools; use world knowledge about films and shows too. "
-    "NAVIGATION (seamless — never ask the user to press ⌂ home or go back manually): "
-    "mango_open_title works from home, detail, or settings — it replaces the current title in place. "
-    "To switch titles: mango_search (or use recent results) → mango_open_title. "
-    "For 'the second one' / 'doosra' after you listed options, mango_open_title using that hit. "
-    "mango_navigate back/home only when the user explicitly wants to leave detail. "
-    "For recommendations: mango_read_librarian_notes, then mango_library_overview or mango_library_browse. "
-    "AI CATALOGS (voice-managed home rails, max 3 per movies/series tab): mango_list_ai_catalogs; "
-    "create with mango_create_ai_catalog (seed titles + optional addon sources; verified pool grows on top-up). "
-    "When tab is full, mango_create_ai_catalog returns overflow_options — ask once: replace slot, pin titles, or merge into another AI rail. "
-    "Update/rename/delete/refresh via mango_update_ai_catalog, mango_delete_ai_catalog, mango_refresh_ai_catalog. "
-    "Store llm_hints (add_ids, remove_ids, topup_suggestions) when curating. "
-    "OPEN FLOW (specific title now): mango_search → mango_open_title with type,id,title,tab,poster. "
-    "If not in library: mango_search_external (queue_missing=false) → list 2–4 options → "
-    "mango_open_title when the user picks or names one. "
-    "QUEUE FLOW (save for later, no TV change): mango_search_external with queue_missing=true only when "
-    "the user wants verify-pool ingest — never open detail in the same turn as queue-only. "
-    "After useful recommendation sessions, save concise taste/themes in mango_update_librarian_notes. "
-    "NEVER start, pause, or resume playback — user presses B on the remote. "
-    "CRITICAL: only say you opened a title if mango_open_title returned ok:true with tv_seq. "
-    "If tv_seq is missing or ok:false, say the TV did not update — do NOT tell them to press ⌂ home. "
-    "If search returns multiple close matches, ask one short clarifying question. "
-    "For library refresh jobs that pause browsing, ask phone confirmation before confirmed=true. "
-    "On failure, explain plainly — no fake success. "
-    "Keep replies to one or two short sentences unless listing options."
-)
 
 LauncherDispatch = Callable[[dict[str, Any]], Awaitable[int | None]]
 ToolEventCallback = Callable[[dict[str, Any]], Awaitable[None]]
@@ -97,39 +71,23 @@ async def generate_agent_reply(
     last_open_title = ""
     user_text = _last_user_text(messages)
     nav_intent = user_wants_title_navigation(user_text)
-    fast_path_only = False
+    system_prompt = await _build_system_prompt(settings)
 
-    if nav_intent and dispatch_launcher is not None:
-        if is_followup_pick_only(user_text):
-            contextual = pick_hit_from_utterance(user_text, browse.all_hits())
-            if contextual is not None:
-                open_confirmed, last_open_title = await _open_hit(
-                    contextual,
-                    settings,
-                    dispatch_launcher,
-                    on_tool_event=on_tool_event,
-                )
-        else:
-            open_confirmed, last_open_title, fast_path_only = await _fast_path_open(
-                user_text,
+    if nav_intent and dispatch_launcher is not None and is_followup_pick_only(user_text):
+        contextual = pick_hit_from_utterance(user_text, browse.all_hits())
+        if contextual is not None:
+            open_confirmed, last_open_title = await _open_hit(
+                contextual,
                 settings,
-                browse,
                 dispatch_launcher,
                 on_tool_event=on_tool_event,
             )
-
-    if open_confirmed and nav_intent and fast_path_only:
-        reply = _default_open_reply(last_open_title)
-        reply = _guard_open_claims(reply, open_confirmed)
-        if on_delta is not None:
-            on_delta(reply)
-        return reply
 
     for _round in range(max(1, settings.max_tool_rounds)):
         response = client.messages.create(
             model=settings.llm_model,
             max_tokens=settings.llm_max_tokens,
-            system=SYSTEM_PROMPT,
+            system=system_prompt,
             messages=transcript,
             tools=tools,
         )
@@ -153,13 +111,14 @@ async def generate_agent_reply(
                 and browse.all_hits()
                 and dispatch_launcher
             ):
-                open_confirmed, last_open_title = await _open_best_from_hits(
-                    browse.all_hits(),
-                    settings,
-                    dispatch_launcher,
-                    user_text=user_text,
-                    on_tool_event=on_tool_event,
-                )
+                follow_up = pick_hit_from_utterance(user_text, browse.all_hits())
+                if follow_up is not None:
+                    open_confirmed, last_open_title = await _open_hit(
+                        follow_up,
+                        settings,
+                        dispatch_launcher,
+                        on_tool_event=on_tool_event,
+                    )
             reply = _clean_reply(" ".join(text_parts))
             if open_confirmed and nav_intent and not reply.strip():
                 reply = _default_open_reply(last_open_title)
@@ -189,37 +148,42 @@ async def generate_agent_reply(
                 await on_tool_event(
                     {"type": "tool", "phase": "start", "name": name, "summary": summary}
                 )
+            log_tool(phase="start", name=name, summary=summary)
 
-            result = await execute_tool(
-                name,
-                tool_input,
-                settings,
-                dispatch_launcher=dispatch_launcher,
-            )
+            if name == "mango_open_title":
+                block_reason = open_title_block_reason(user_text, browse)
+                if block_reason:
+                    import json
+
+                    result = json.dumps(
+                        {
+                            "ok": False,
+                            "error": "open_blocked",
+                            "message": block_reason,
+                        }
+                    )
+                else:
+                    result = await execute_tool(
+                        name,
+                        tool_input,
+                        settings,
+                        dispatch_launcher=dispatch_launcher,
+                    )
+            else:
+                result = await execute_tool(
+                    name,
+                    tool_input,
+                    settings,
+                    dispatch_launcher=dispatch_launcher,
+                )
 
             if name == "mango_search":
                 hits = _parse_search_results(result)
                 browse.remember_library(hits)
-                if nav_intent and not open_confirmed and dispatch_launcher is not None:
-                    open_confirmed, last_open_title = await _open_best_from_hits(
-                        hits,
-                        settings,
-                        dispatch_launcher,
-                        user_text=user_text,
-                        on_tool_event=on_tool_event,
-                    )
 
             if name == "mango_search_external":
                 hits = _parse_search_results(result)
                 browse.remember_external(hits)
-                if nav_intent and not open_confirmed and dispatch_launcher is not None:
-                    open_confirmed, last_open_title = await _open_best_from_hits(
-                        hits,
-                        settings,
-                        dispatch_launcher,
-                        user_text=user_text,
-                        on_tool_event=on_tool_event,
-                    )
 
             if name == "mango_open_title":
                 open_confirmed = _tool_open_confirmed(result)
@@ -232,6 +196,12 @@ async def generate_agent_reply(
                 await on_tool_event(
                     {"type": "tool", "phase": "done", "name": name, "summary": summary, "result": result}
                 )
+            log_tool(
+                phase="done",
+                name=name,
+                summary=summary,
+                ok=_tool_result_ok(result),
+            )
 
             tool_result_blocks.append(
                 {
@@ -294,6 +264,21 @@ def _tool_open_confirmed(result: str) -> bool:
     except json.JSONDecodeError:
         return False
     return payload.get("ok") is True and isinstance(payload.get("tv_seq"), int)
+
+
+def _tool_result_ok(result: str) -> bool | None:
+    try:
+        import json
+
+        payload = json.loads(result)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    ok = payload.get("ok")
+    if isinstance(ok, bool):
+        return ok
+    return None
 
 
 def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
@@ -363,112 +348,53 @@ def _parse_search_results(result: str) -> list[dict[str, Any]]:
     return hits
 
 
-async def _fast_path_open(
-    user_text: str,
-    settings: OrchestratorSettings,
-    browse: VoiceBrowseContext,
-    dispatch_launcher: LauncherDispatch,
-    *,
-    on_tool_event: ToolEventCallback | None = None,
-) -> tuple[bool, str, bool]:
-    """Search library then open — before LLM, for fresh title/switch requests."""
-    query = extract_title_search_query(user_text) or user_text.strip()
-    if len(query) < 2:
-        return False, "", False
-
-    if on_tool_event is not None:
-        await on_tool_event(
-            {
-                "type": "tool",
-                "phase": "start",
-                "name": "mango_search",
-                "summary": tool_summary("mango_search", {"query": query}),
-            }
-        )
-    search_json = await execute_tool(
-        "mango_search",
-        {"query": query, "limit": 5},
-        settings,
-    )
-    hits = _parse_search_results(search_json)
-    browse.remember_library(hits)
-    if on_tool_event is not None:
-        await on_tool_event(
-            {
-                "type": "tool",
-                "phase": "done",
-                "name": "mango_search",
-                "summary": tool_summary("mango_search", {"query": query}),
-                "result": search_json,
-            }
-        )
-
-    hit = pick_hit_from_utterance(user_text, hits) or pick_auto_open_hit(hits, query=query)
-    need_external = hit is None or not hit_matches_sequel_query(user_text, hit)
-    if need_external:
-        external_hits = await _fast_path_external_search(
-            query,
+async def _build_system_prompt(settings: OrchestratorSettings) -> str:
+    prompt = build_system_prompt()
+    try:
+        summary_payload = await asyncio.to_thread(
+            catalog_tools.tool_companion_summary,
             settings,
-            browse,
-            on_tool_event=on_tool_event,
         )
-        if external_hits:
-            hit = pick_hit_from_utterance(user_text, external_hits) or pick_auto_open_hit(
-                external_hits,
-                query=query,
-            )
-
-    if hit is None:
-        logger.info(
-            "voice fast_path miss query=%r library_hits=%d",
-            query,
-            len(hits),
-        )
-        return False, "", False
-
-    opened, title = await _open_hit(
-        hit,
-        settings,
-        dispatch_launcher,
-        on_tool_event=on_tool_event,
-    )
-    return opened, title, opened
+        if isinstance(summary_payload, dict) and summary_payload.get("ok") is True:
+            summary = summary_payload.get("summary")
+            excerpt = summary_payload.get("compiled_excerpt")
+            blocks: list[str] = []
+            if isinstance(summary, str) and summary.strip():
+                blocks.append(f"USER PROFILE: {summary.strip()}")
+            if isinstance(excerpt, str) and excerpt.strip():
+                blocks.append(f"COMPILED NOTES:\n{excerpt.strip()}")
+            if blocks:
+                prompt = f"{prompt}\n\n" + "\n\n".join(blocks)
+    except Exception:
+        logger.debug("companion summary unavailable for prompt inject", exc_info=True)
+    return prompt
 
 
-async def _fast_path_external_search(
-    query: str,
-    settings: OrchestratorSettings,
+def open_title_block_reason(
+    user_text: str,
     browse: VoiceBrowseContext,
-    *,
-    on_tool_event: ToolEventCallback | None = None,
-) -> list[dict[str, Any]]:
-    if on_tool_event is not None:
-        await on_tool_event(
-            {
-                "type": "tool",
-                "phase": "start",
-                "name": "mango_search_external",
-                "summary": tool_summary("mango_search_external", {"query": query}),
-            }
+) -> str | None:
+    """Safety rail — block ambiguous or discover opens the agent should not perform."""
+    if is_discover_request(user_text):
+        return (
+            "Discover intent — clarify or list recommendations; do not open TV without an explicit pick."
         )
-    search_json = await execute_tool(
-        "mango_search_external",
-        {"query": query, "limit": 8, "queue_missing": False},
-        settings,
-    )
-    hits = _parse_search_results(search_json)
-    browse.remember_external(hits)
-    if on_tool_event is not None:
-        await on_tool_event(
-            {
-                "type": "tool",
-                "phase": "done",
-                "name": "mango_search_external",
-                "summary": tool_summary("mango_search_external", {"query": query}),
-                "result": search_json,
-            }
-        )
-    return hits
+    if is_followup_pick_only(user_text):
+        return None
+    hits = browse.all_hits()
+    if len(hits) < 2:
+        return None
+    if user_wants_open_detail(user_text):
+        query = extract_title_search_query(user_text)
+        if query and (
+            pick_auto_open_hit(hits, query=query)
+            or pick_hit_from_utterance(user_text, hits)
+        ):
+            return None
+    query = extract_title_search_query(user_text) or user_text.strip()
+    if pick_auto_open_hit(hits, query=query or None) is None:
+        return "Multiple plausible matches — ask the user to pick; do not open."
+    return None
 
 
 async def _open_hit(

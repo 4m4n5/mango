@@ -38,6 +38,15 @@ import { buildContinuePlayTarget, buildNowPlayingResponse } from './voice/now-pl
 import { buildVoiceToolManifest } from './voice/tools.js';
 import { buildLibraryCatalog, buildLibraryOverview } from './voice/library.js';
 import { readLibrarianNotes, writeLibrarianNotes } from './voice/librarian-notes.js';
+import {
+  patchProfile,
+  profileSummary,
+  readProfile,
+  type ProfilePatch,
+} from './companion/profile.js';
+import { appendJournalEvent, listJournalEvents } from './companion/journal.js';
+import { compiledNotesExcerpt, readCompiledNotes, writeCompiledNotes } from './companion/compile-notes.js';
+import { consolidateCompanionNightly, processLightReflect } from './companion/reflect.js';
 import { searchExternalTitles } from './voice/external.js';
 import {
   createAiCatalog,
@@ -452,6 +461,80 @@ async function main(): Promise<void> {
           throw new CatalogError(400, 'POST /voice/library/notes requires { notes }');
         }
         sendJson(res, 200, await writeLibrarianNotes(body.notes));
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'profile') {
+        sendJson(res, 200, { ok: true, profile: await readProfile() });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'profile') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'companion profile writes are localhost-only');
+        }
+        const body = await readBody(req) as ProfilePatch;
+        const profile = await patchProfile(body);
+        await writeCompiledNotes(profile);
+        appendJournalEvent('profile_patch', { keys: Object.keys(body) });
+        sendJson(res, 200, { ok: true, profile });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'summary') {
+        const profile = await readProfile();
+        const compiled = await readCompiledNotes();
+        sendJson(res, 200, {
+          ok: true,
+          summary: profileSummary(profile),
+          compiled_excerpt: compiledNotesExcerpt(compiled),
+          familiarity: profile.familiarity,
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'journal') {
+        const limit = Number(url.searchParams.get('limit') || 50);
+        sendJson(res, 200, { ok: true, events: listJournalEvents(Number.isFinite(limit) ? limit : 50) });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'session-notes') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'companion session notes are localhost-only');
+        }
+        const body = await readBody(req) as { bullets?: string[] };
+        if (!Array.isArray(body.bullets)) {
+          throw new CatalogError(400, 'POST /voice/companion/session-notes requires { bullets: string[] }');
+        }
+        const profile = await patchProfile({ append_session_notes: body.bullets });
+        await writeCompiledNotes(profile);
+        appendJournalEvent('session_notes', { count: body.bullets.length });
+        sendJson(res, 200, { ok: true, profile });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'reflect') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'companion reflect is localhost-only');
+        }
+        const body = await readBody(req) as { transcript?: string; reply?: string; tools_used?: string[] };
+        if (typeof body.transcript !== 'string') {
+          throw new CatalogError(400, 'POST /voice/companion/reflect requires { transcript }');
+        }
+        sendJson(res, 200, await processLightReflect({
+          transcript: body.transcript,
+          reply: typeof body.reply === 'string' ? body.reply : undefined,
+          tools_used: Array.isArray(body.tools_used) ? body.tools_used.filter((t) => typeof t === 'string') : [],
+        }));
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'consolidate') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'companion consolidate is localhost-only');
+        }
+        sendJson(res, 200, await consolidateCompanionNightly());
         return;
       }
 

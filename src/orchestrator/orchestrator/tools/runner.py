@@ -85,6 +85,26 @@ async def execute_tool(
             await asyncio.to_thread(catalog_tools.tool_update_librarian_notes, settings, notes)
         )
 
+    if name == "mango_read_profile":
+        return _compact(await asyncio.to_thread(catalog_tools.tool_read_profile, settings))
+
+    if name == "mango_companion_summary":
+        return _compact(await asyncio.to_thread(catalog_tools.tool_companion_summary, settings))
+
+    if name == "mango_patch_profile":
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_patch_profile, settings, dict(tool_input))
+        )
+
+    if name == "mango_append_session_notes":
+        bullets = tool_input.get("bullets")
+        if not isinstance(bullets, list):
+            return _compact({"ok": False, "error": "bullets required"})
+        bullet_text = [str(item).strip() for item in bullets if str(item).strip()]
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_append_session_notes, settings, bullet_text)
+        )
+
     if name in {"mango_play", "mango_play_continue"}:
         return _compact({
             "ok": False,
@@ -201,6 +221,14 @@ def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
         return "Reading librarian notes"
     if name == "mango_update_librarian_notes":
         return "Updating librarian notes"
+    if name == "mango_read_profile":
+        return "Reading companion profile"
+    if name == "mango_patch_profile":
+        return "Updating companion profile"
+    if name == "mango_companion_summary":
+        return "Summarizing what I know about you"
+    if name == "mango_append_session_notes":
+        return "Saving session notes"
     if name == "mango_open_title":
         return f"Opening {tool_input.get('title', 'title')}"
     if name == "mango_now_playing":

@@ -126,6 +126,12 @@ else
   bad voice-title-switch-without-home
 fi
 
+if bash scripts/phase-n5/gate-n5c-conversation-policy.sh; then
+  ok n5c-conversation-policy
+else
+  bad n5c-conversation-policy
+fi
+
 echo
 echo "SUMMARY pass=$PASS fail=$FAIL"
 [[ "$FAIL" -eq 0 ]]

@@ -1,0 +1,23 @@
+version: 2
+updated_at: ""
+familiarity:
+  stage: stranger
+  score: 0
+  sessions: 0
+  completed_watches: 0
+identity:
+  languages:
+    - hinglish
+  reply_style: contextual
+taste:
+  loves: []
+  avoids: []
+  title_loves: []
+  title_avoids: []
+  mood_defaults:
+    weeknight: null
+    weekend: null
+facts: []
+open_questions: []
+behavior:
+  proactive_opt_in: false

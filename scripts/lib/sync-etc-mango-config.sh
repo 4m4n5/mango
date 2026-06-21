@@ -24,3 +24,4 @@ sync_one() {
 
 sync_one "$REPO_DIR/config/catalog-filters.example.json" /etc/mango/catalog-filters.json catalog-filters
 sync_one "$REPO_DIR/config/catalog.example.yaml" /etc/mango/catalog.yaml catalog.yaml
+bash "$REPO_DIR/scripts/phase-n5/sync-companion-example.sh" || true

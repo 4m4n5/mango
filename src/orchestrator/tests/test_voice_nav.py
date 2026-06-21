@@ -47,6 +47,10 @@ class OpenIntentTests(unittest.TestCase):
         self.assertTrue(user_wants_title_navigation("instead open Godfather"))
         self.assertTrue(user_wants_title_navigation("uski jagah Breaking Bad"))
 
+    def test_discover_not_navigation(self) -> None:
+        self.assertFalse(user_wants_title_navigation("good hindi movies"))
+        self.assertFalse(user_wants_title_navigation("what are some good hindi movies"))
+
 
 class VoiceNavPickTests(unittest.TestCase):
     hits = [

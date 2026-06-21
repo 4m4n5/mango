@@ -158,6 +158,54 @@ def tool_update_librarian_notes(settings: OrchestratorSettings, notes: str) -> d
     )
 
 
+def tool_read_profile(settings: OrchestratorSettings) -> dict[str, Any]:
+    return _request_json(settings, "GET", "/voice/companion/profile", timeout=10.0)
+
+
+def tool_companion_summary(settings: OrchestratorSettings) -> dict[str, Any]:
+    return _request_json(settings, "GET", "/voice/companion/summary", timeout=10.0)
+
+
+def tool_patch_profile(settings: OrchestratorSettings, patch: dict[str, Any]) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "POST",
+        "/voice/companion/profile",
+        body=patch,
+        timeout=10.0,
+    )
+
+
+def tool_append_session_notes(settings: OrchestratorSettings, bullets: list[str]) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "POST",
+        "/voice/companion/session-notes",
+        body={"bullets": bullets},
+        timeout=10.0,
+    )
+
+
+def tool_companion_reflect(
+    settings: OrchestratorSettings,
+    *,
+    transcript: str,
+    reply: str = "",
+    tools_used: list[str] | None = None,
+) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "POST",
+        "/voice/companion/reflect",
+        body={
+            "transcript": transcript,
+            "reply": reply,
+            "tools_used": tools_used or [],
+        },
+        timeout=10.0,
+    )
+
+
 def tool_now_playing(settings: OrchestratorSettings) -> dict[str, Any]:
     return _request_json(settings, "GET", "/voice/now-playing", timeout=10.0)
 

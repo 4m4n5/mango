@@ -185,7 +185,21 @@ else
 fi
 
 echo "--- orchestrator log ---"
-tmux capture-pane -t mango-orch -p 2>/dev/null | tail -6 | sed 's/^/  /' || wrn tmux-orch-unreadable
+if tmux has-session -t mango-orch 2>/dev/null; then
+  tmux capture-pane -t mango-orch -p 2>/dev/null | tail -6 | sed 's/^/  /' || wrn tmux-orch-unreadable
+elif [[ -f "${HOME}/.cache/mango/orchestrator.log" ]]; then
+  tail -6 "${HOME}/.cache/mango/orchestrator.log" | sed 's/^/  /'
+else
+  wrn orchestrator-log-missing
+fi
+
+echo "--- voice turns (recent) ---"
+VOICE_LOG="${HOME}/.cache/mango/voice-turns.jsonl"
+if [[ -f "$VOICE_LOG" ]]; then
+  tail -4 "$VOICE_LOG" | sed 's/^/  /'
+else
+  wrn voice-turns-missing
+fi
 
 echo
 echo "========== SUMMARY pass=$PASS fail=$FAIL warn=$WARN =========="

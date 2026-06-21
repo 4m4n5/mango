@@ -8,6 +8,7 @@ import httpx
 import numpy as np
 
 from orchestrator.audio.pcm_prep import prepare_for_stt
+from orchestrator.audio.stt_types import SttResult
 from orchestrator.config import OrchestratorSettings
 
 logger = logging.getLogger(__name__)
@@ -56,13 +57,18 @@ DEFAULT_KEYTERMS = (
 
 
 def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
+    return transcribe_detailed(samples, settings).text
+
+
+def transcribe_detailed(samples: np.ndarray, settings: OrchestratorSettings) -> SttResult:
     api_key = _read_api_key(settings)
     prepared = prepare_for_stt(samples, SAMPLE_RATE) if settings.stt_prepare_audio else samples
     pcm = _samples_to_pcm16le(prepared)
     strategy = settings.stt_strategy.strip().lower()
+    model = settings.stt_model
 
     if strategy == "detect":
-        return _transcribe_once(pcm, settings, api_key, mode="detect")
+        return _transcribe_once(pcm, settings, api_key, mode="detect", model=model)
 
     text, confidence, detected = _request_transcript(pcm, settings, api_key, mode="multilingual")
     if text and _confidence_ok(confidence):
@@ -73,7 +79,15 @@ def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
             len(text),
             text[:96],
         )
-        return text
+        return SttResult(
+            text=text,
+            provider="deepgram",
+            model=model,
+            confidence=confidence,
+            language=detected,
+            mode="multilingual",
+            fallback=False,
+        )
 
     if strategy in {"multilingual", "multilingual_with_detect_fallback"}:
         logger.info(
@@ -81,12 +95,22 @@ def transcribe(samples: np.ndarray, settings: OrchestratorSettings) -> str:
             confidence,
             detected,
         )
-        fallback = _transcribe_once(pcm, settings, api_key, mode="detect")
-        if fallback:
+        fallback = _transcribe_once(
+            pcm, settings, api_key, mode="detect", model=model, fallback=True
+        )
+        if fallback.text:
             return fallback
 
     if text:
-        return text
+        return SttResult(
+            text=text,
+            provider="deepgram",
+            model=model,
+            confidence=confidence,
+            language=detected,
+            mode="multilingual",
+            fallback=False,
+        )
     raise RuntimeError("no speech detected")
 
 
@@ -96,7 +120,9 @@ def _transcribe_once(
     api_key: str,
     *,
     mode: str,
-) -> str:
+    model: str,
+    fallback: bool = False,
+) -> SttResult:
     text, confidence, detected = _request_transcript(pcm, settings, api_key, mode=mode)
     if not text:
         raise RuntimeError("no speech detected")
@@ -108,7 +134,15 @@ def _transcribe_once(
         len(text),
         text[:96],
     )
-    return text
+    return SttResult(
+        text=text,
+        provider="deepgram",
+        model=model,
+        confidence=confidence,
+        language=detected,
+        mode=mode,
+        fallback=fallback,
+    )
 
 
 def _confidence_ok(confidence: float | None) -> bool:

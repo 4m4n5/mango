@@ -13,8 +13,21 @@ _OPEN_VERBS = re.compile(
     re.IGNORECASE,
 )
 _RECOMMEND_ONLY = re.compile(
-    r"\b(recommend|suggest|suggestion|kya\s+dekhu|kya\s+dekhe|what\s+should|"
-    r"mood|vibe|bored|kuch\s+accha|options|list)\b",
+    r"\b("
+    r"recommend|suggest|suggestion|suggestions|"
+    r"kya\s+dekhu|kya\s+dekhe|kya\s+dekhen|kuch\s+dekhu|kuch\s+dekhe|"
+    r"what\s+should|what\s+are\s+some|what\s+to\s+watch|"
+    r"mood|vibe|bored|kuch\s+accha|kuch\s+light|kuch\s+fun|"
+    r"options|list|batao|bata|batana|"
+    r"good|best|great|accha|achha|"
+    r"hindi|english|tamil|telugu|marathi|"
+    r"movies|movie|films|film|series|shows|show"
+    r")\b",
+    re.IGNORECASE,
+)
+_DISCOVER_QUALIFIER = re.compile(
+    r"\b(some|kuch|any|koi|recommend|suggest|good|best|accha|achha|"
+    r"light|fun|mood|bored|options|list|batao|dekhu|dekhe|watch)\b",
     re.IGNORECASE,
 )
 _ORDINAL_PICK = re.compile(
@@ -151,8 +164,28 @@ def utterance_is_title_pick_only(text: str) -> bool:
     normalized = text.strip()
     if not normalized or _QUESTION.search(normalized):
         return False
+    if is_discover_request(normalized):
+        return False
     if user_wants_title_navigation(normalized):
         return True
     if _RECOMMEND_ONLY.search(normalized):
         return False
     return len(normalized.split()) <= 6
+
+
+def is_discover_request(text: str) -> bool:
+    """Vague recommendation / browse intent — chat or clarify, never auto-open."""
+    normalized = text.strip()
+    if not normalized:
+        return False
+    if user_wants_open_detail(normalized):
+        return False
+    if is_followup_pick_only(normalized):
+        return False
+    if _SWITCH.search(normalized) or _FOLLOWUP.search(normalized):
+        return False
+    if _QUESTION.search(normalized) and _DISCOVER_QUALIFIER.search(normalized):
+        return True
+    if _RECOMMEND_ONLY.search(normalized) and not _OPEN_VERBS.search(normalized):
+        return True
+    return False

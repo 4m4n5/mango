@@ -24,7 +24,8 @@ export function buildVoiceToolManifest(): {
   const tools: VoiceToolDefinition[] = [
     {
       name: 'mango_search',
-      description: 'Search verified mango library titles by name. Use first when the user names a show or movie.',
+      description:
+        'Search verified mango library by normalized title or keywords. Do NOT pass the user\'s full vague question (e.g. "good hindi movies") — use title names or extracted keywords after clarifying discover intent.',
       layer: 'catalog',
       input_schema: {
         type: 'object',
@@ -86,9 +87,47 @@ export function buildVoiceToolManifest(): {
       },
     },
     {
+      name: 'mango_read_profile',
+      description: 'Read the companion taste profile — loves, avoids, title favorites, familiarity stage, and stored facts.',
+      layer: 'catalog',
+      input_schema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'mango_patch_profile',
+      description: 'Patch companion profile fields (append facts/loves/avoids, update familiarity). Never full-replace the profile.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          append_facts: { type: 'array', items: { type: 'string' } },
+          append_loves: { type: 'array', items: { type: 'string' } },
+          append_avoids: { type: 'array', items: { type: 'string' } },
+          familiarity: { type: 'object' },
+        },
+      },
+    },
+    {
+      name: 'mango_companion_summary',
+      description: 'Human-readable summary of what mango knows about the user — for "what do you know about me?" questions.',
+      layer: 'catalog',
+      input_schema: { type: 'object', properties: {} },
+    },
+    {
+      name: 'mango_append_session_notes',
+      description: 'Append up to 5 concise session bullets to companion memory after a useful chat.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          bullets: { type: 'array', items: { type: 'string' }, maxItems: 5 },
+        },
+        required: ['bullets'],
+      },
+    },
+    {
       name: 'mango_open_title',
       description:
-        'Open a title on the TV detail page (works from home, detail, or settings — replaces the current title in place). Never starts playback; user presses B to play.',
+        'Open a title on the TV detail page (works from home, detail, or settings — replaces the current title in place). Use only when intent is clear: explicit open/kholo, unambiguous single search match, or ordinal/follow-up after listing options. Never starts playback; user presses B to play.',
       layer: 'launcher',
       input_schema: {
         type: 'object',
@@ -118,7 +157,6 @@ export function buildVoiceToolManifest(): {
       name: 'mango_playability_refresh',
       description: REFRESH_MANIFEST.description,
       layer: 'catalog',
-      requires_confirm: true,
       input_schema: {
         type: 'object',
         properties: {

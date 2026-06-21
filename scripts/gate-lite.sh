@@ -50,6 +50,8 @@ run_step "lite play" bash scripts/gate-lite-play.sh
 
 if [[ "${MANGO_VOICE:-}" == "1" ]]; then
   run_step "N5 voice tools" bash scripts/phase-n5/gate-voice-tools.sh
+  run_step "N5c conversation" bash scripts/phase-n5/gate-n5c-conversation-policy.sh
+  run_step "N5c companion memory" bash scripts/phase-n5/gate-n5c-companion-memory.sh
 fi
 
 gate_finish "gate-lite" || exit 1

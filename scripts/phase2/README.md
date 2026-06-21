@@ -12,3 +12,12 @@ Voice orchestrator + companion HTTPS. See [`docs/PHASE2.md`](../../docs/PHASE2.m
 | `verify-voice-ready.sh` | Smoke test voice stack |
 | `setup-mkcert.sh` | Once — TLS for phone mic (companion :3001) |
 | `serve-companion-https.sh` | Build + serve companion over HTTPS on :3001 |
+
+**Voice diagnosis logs** (Pi: `~/.cache/mango/`):
+
+| File | Contents |
+|------|----------|
+| `voice-turns.jsonl` | One JSON line per event: `stt`, `agent_reply`, `tool`, `turn_error`, `turn_done` |
+| `orchestrator.log` | orchestrator.* INFO (STT previews, warmup, errors) |
+
+Disable with `MANGO_VOICE_LOG=0` or `MANGO_ORCH_LOGGING=0`.
