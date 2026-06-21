@@ -33,7 +33,7 @@ Pi 5 · Pi OS Desktop · X11 + Openbox
 | N3d self-hosted addons | ✓ | — |
 | Live TV (NexoTV) | ✓ | paid cricket coverage |
 | N3b picker + Continue | partial | N3e episode picker |
-| LLM media tools | — | N5 |
+| N5a voice tools (browse/open) | ✓ | N5b AI catalogs · voice play |
 
 **Repo layout:**
 
@@ -49,6 +49,7 @@ scripts/phase-n1/         mpv + catalog spikes
 scripts/phase0/         pad, Kodi, Stremio fallback
 scripts/phase1/         UI bring-up
 scripts/phase2/         voice stack
+scripts/phase-n5/       voice tools gates + STT sync
 ```
 
 ---
@@ -65,10 +66,11 @@ N3a           Stream play orchestrator                 ✓
 N3c           Playability index + maintenance          ✓
 Track B       Verified rails UX + library refresh      ✓
 Live TV       NexoTV dual instance + live tab          ✓
-N3b           Stream picker + progress (partial)       ← active
+N3b           Stream picker + progress (partial)
+N5a           Voice tools librarian + Hinglish STT        ✓
 N3e           Series episode picker                    next
 N4            Library + Stremio write-back
-N5–N7        AI catalogs · YouTube · 4K TV + soundbar ship
+N5b–N7       AI home catalogs · YouTube · 4K TV + soundbar ship
 Phase 5      install.sh + first-boot wizard (ongoing)
 ```
 
@@ -144,7 +146,8 @@ Stream picker UI + `progress.db` after N3a couch sign-off.
 |-------|---------|
 | N3b | Stream picker · watch progress |
 | N4 | Library sync · Continue watching |
-| N5 | LLM tool calling against catalog |
+| N5a | Voice browse/open tools + Hinglish STT ✓ |
+| N5b | AI home catalogs (3 slots) |
 | N6 | YouTube path (Kodi or native) |
 | N7 | 4K TV + soundbar · world-class ship |
 

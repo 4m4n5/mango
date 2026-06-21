@@ -7,7 +7,7 @@
 
 ## Goal
 
-Phone PTT → transcript → LLM reply → **TV HUD**. Reply dwells ~10 s on TV, then dismisses; full history on phone. Chat only — no media tools (those move to native UX).
+Phone PTT → transcript → LLM reply → **TV HUD**. Reply dwells ~10 s on TV, then dismisses; full history on phone. Chat + **N5a voice tools** on native branch — browse/open librarian; play stays on pad B. See [N5-INVENTORY.md](N5-INVENTORY.md).
 
 ## Architecture
 
@@ -44,7 +44,7 @@ Launcher and pad stack unchanged from Phase 1.
 | TV HUD | `src/launcher/src/voice-hud.ts` | Primary — visible on kiosk |
 | Overlay (deprecated) | `src/overlay` | Removed from default build/start path in N0 |
 | STT | Deepgram `nova-3` + `multi` + keyterms | Local Whisper: `stt.provider: local` |
-| LLM | Haiku `claude-haiku-4-5-20251001` | Streaming deltas |
+| LLM | Sonnet `claude-sonnet-4-6` (tools) | Agent loop · catalog + launcher tools |
 | TTS | Piper | **Off on Pi** — `audio.tts_enabled: false` |
 
 **Ops:** `scripts/mango-stack.sh` · `scripts/phase2/start-voice-stack.sh` · `verify-voice-ready.sh` · `setup-mkcert.sh`

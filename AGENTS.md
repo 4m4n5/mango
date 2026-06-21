@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). **Shipped:** N0–N3d, Track B, Live TV, N3b C1/C2, playability refresh UI + LLM API. **Next:** N3e episode picker · N3b polish · N4 library ([`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md) · [`docs/COUCH_TEST.md`](docs/COUCH_TEST.md)).
+Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experience` — native TV home ([`docs/NATIVE_EXPERIENCE.md`](docs/NATIVE_EXPERIENCE.md)). **Shipped:** N0–N3d, Track B, Live TV, N3b C1/C2, **N5a voice tools** (browse/open librarian). **Next:** N3e episode picker · N5b AI catalogs · N4 library ([`docs/N3-INVENTORY.md`](docs/N3-INVENTORY.md) · [`docs/COUCH_TEST.md`](docs/COUCH_TEST.md)).
 
 ## Read first
 
@@ -20,6 +20,7 @@ Phase 0–**2 shipped on `main`**. **Active work:** branch `feat/native-experien
 | [`docs/STACK-PRINCIPLES.md`](docs/STACK-PRINCIPLES.md) | **Layer boundaries, gates, config sources** |
 | [**`docs/DEPLOY.md`**](docs/DEPLOY.md) | **Pi deploy — git only, never rsync** |
 | [`docs/N3d-INVENTORY.md`](docs/N3d-INVENTORY.md) | **Self-hosted addons + rails** |
+| [`docs/N5-INVENTORY.md`](docs/N5-INVENTORY.md) | **Voice tools (N5a)** |
 | [`docs/LIVE_TV.md`](docs/LIVE_TV.md) | **Live IPTV** (NexoTV, opt-in gates) |
 | [`docs/PLAN.md`](docs/PLAN.md) | Full timeline (Phase 0–5 + native) |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | V1 historical spec |

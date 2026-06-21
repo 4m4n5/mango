@@ -1,27 +1,22 @@
-# N5a — Voice tools (phone PTT)
+# Phase N5a — Voice tools (browse + open)
 
-**Input:** phone PTT only · **Playback:** user presses B on remote — voice never auto-plays
+**Status:** ✓ Shipped on `feat/native-experience`  
+**Inventory:** [`../N5-INVENTORY.md`](../N5-INVENTORY.md)  
+**Gate:** `bash scripts/phase-n5/gate-voice-tools.sh`
 
-## Flow
+## Goal
 
-1. User: *"India's Got Latent dikhao"* / *"open Panchayat"*
-2. Agent: `mango_search` → `mango_open_title` (detail page on TV)
-3. User presses **B** when ready to play
+Phone PTT → Hinglish transcript → TV librarian: search verified library, open titles on TV, remember taste — no voice play, no manual ⌂ on title switch.
 
-No `mango_play`, pause, or continue-play tools in voice V1.
+## Acceptance
 
-## Tool manifest
+- [x] Catalog `/voice/*` + manifest (no `mango_play`)
+- [x] Orchestrator tools loop + launcher HTTP dispatch + TV ack
+- [x] Title switch stops mpv in place
+- [x] Hinglish STT nova-3 multi + detect fallback
+- [x] Fast-path nav + external Cinemeta search
+- [x] 13-check gate in gate-lite when `MANGO_VOICE=1`
 
-```http
-GET http://127.0.0.1:3020/voice/tools
-```
+## Out of scope
 
-`mango_search`, `mango_open_title`, `mango_navigate`, `mango_now_playing` (read-only), `mango_library_shuffle`, `mango_playability_refresh`.
-
-## Gates
-
-```bash
-bash scripts/phase-n5/gate-voice-tools.sh
-```
-
-gate-lite runs N5 when `MANGO_VOICE=1`.
+AI home catalogs (N5b) · voice play (N5c) · TTS (N7)

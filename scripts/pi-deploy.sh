@@ -84,7 +84,8 @@ if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null; then
   systemctl --user restart mango-launcher-chromium.service || true
   sleep 2
 fi
-if [[ "\${MANGO_VOICE:-0}" == "1" ]]; then
+if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
+  python3 scripts/phase-n5/sync-hinglish-stt-config.py || true
   bash scripts/phase2/ensure-orchestrator-venv.sh
   bash scripts/phase2/start-voice-stack.sh || true
 fi

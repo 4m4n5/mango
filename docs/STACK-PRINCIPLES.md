@@ -55,11 +55,30 @@ Enriched fields (from `stream-formatter.ts`): `display_label`, `release_group`, 
 
 ---
 
+
+## Voice stack (N5a)
+
+```
+Phone companion (:3001) ──WSS──► orchestrator (:8765)
+                                      ├─► catalog-service /voice/*
+                                      └─► launcher POST /api/voice/command
+Launcher voice-hud ◄── WS loopback :8766
+```
+
+| Layer | Owns |
+|-------|------|
+| companion | Mic · PCM · chat UI |
+| orchestrator | STT · LLM tools · launcher dispatch |
+| catalog-service | Search · library · notes · manifest |
+| launcher | Poll commands · open detail · mpv stop on switch |
+
+**Rule:** Voice opens detail only — playback stays on pad **B**. No `mango_play` in manifest.
+
 ## Gate matrix
 
 | Gate | When | What |
 |------|------|------|
-| **`gate-lite.sh`** | **default deploy** | N0 + N3d (if enabled) + N2 browse + unit + 2 plays |
+| **`gate-lite.sh`** | **default deploy** | N0 + N3d (if enabled) + N2 browse + unit + 2 plays + **N5 voice** (if `MANGO_VOICE=1`) |
 | `pi-pre-couch-gate.sh` | Mac `pi-exec-gate.sh` | Pull + gate-lite |
 | `MANGO_GATE_FULL=1` | release handoff | + per-rail verified play + N3a browse picks |
 | `gate-n3d-self-hosted.sh` | self-hosted | N3d stream + catalog corpus |

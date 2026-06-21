@@ -9,7 +9,7 @@
 | Task | Doc |
 |------|-----|
 | Product direction | [NATIVE_EXPERIENCE.md](NATIVE_EXPERIENCE.md) |
-| What's shipped / next | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) · [N3-INVENTORY.md](N3-INVENTORY.md) |
+| What's shipped / next | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) · [N3-INVENTORY.md](N3-INVENTORY.md) · [N5-INVENTORY.md](N5-INVENTORY.md) |
 | Live TV / sports IPTV | [LIVE_TV.md](LIVE_TV.md) |
 | Self-hosted addons + rails | [N3d-INVENTORY.md](N3d-INVENTORY.md) |
 | Pi day-to-day | [PHASE0.md](PHASE0.md) · [DEPLOY.md](DEPLOY.md) |
@@ -33,8 +33,10 @@
 | Track B verified rails UX | ✓ | thin rows · library refresh |
 | N3b stream picker + progress | **partial** | C1 picker on detail · C2 Continue rail |
 | Live TV (NexoTV) | ✓ | [LIVE_TV.md](LIVE_TV.md) |
+| N5a voice tools | ✓ | [N5-INVENTORY.md](N5-INVENTORY.md) · browse/open · Hinglish STT |
 | N3e episode picker | design | `tasks/` (series UX) |
-| N4–N7 | planned | library write-back · AI catalogs · YouTube · 4K ship |
+| N5b AI catalogs | planned | 3 home slots · create/list catalogs |
+| N4–N7 | planned | library write-back · YouTube · 4K ship |
 
 **Default pre-couch gate:** `bash scripts/pi-pre-couch-gate.sh` → `gate-lite` (~1–2 min). Live IPTV gates are **excluded** (opt-in only).
 

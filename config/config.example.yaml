@@ -11,12 +11,12 @@ stt:
   provider: deepgram  # deepgram | local (on-device faster-whisper fallback)
   model: nova-3-general  # nova-3 multilingual + per-language; best Hinglish WER (2026)
   language: multi  # codeswitch Hindi+English in one utterance — required for Hinglish
-  # multilingual = multi only; detect = hi+en-IN auto per utterance;
+  # multilingual = multi only; detect = hi+en auto per utterance;
   # multilingual_with_detect_fallback = multi first, detect retry when confidence low
   strategy: multilingual_with_detect_fallback
   detect_languages:
     - hi
-    - en-IN
+    - en
   api_key_file: /etc/mango/stt.key
   timeout_seconds: 30
   prepare_audio: true  # trim edge silence + boost quiet phone mics (local, no API latency)
@@ -113,7 +113,7 @@ orchestrator:
   ssl_certfile: null  # or /home/aman/.config/mango/certs/mango-companion.pem
   ssl_keyfile: null   # or /home/aman/.config/mango/certs/mango-companion-key.pem
   local_ws_port: 8766  # plain WS on loopback for launcher TV HUD (mkcert not trusted in kiosk)
-  voice_tools_enabled: true  # N5a: catalog play/search + launcher navigate via Anthropic tools
+  voice_tools_enabled: true  # N5a: browse/search/open via Anthropic tools — no voice play
   max_tool_rounds: 6
   catalog_upstream: http://127.0.0.1:3020
   launcher_ui_upstream: http://127.0.0.1:3000  # HTTP voice commands → TV Chromium

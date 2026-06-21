@@ -70,7 +70,8 @@ N0 delivers **`scripts/diag/baseline-metrics.sh`** — RSS, process count, GPU/C
 | **N2** | Real browse UI | `catalog.yaml` rails; launcher wired; India/Bollywood | N2-BROWSE |
 | **N3** | Stream play + picker + progress | N3a/N3c/Track B ✓ · N3b partial · Live TV ✓ | gate-lite |
 | **N4** | Library + Continue | Stremio export import; merged Continue rail; write-back spike | N4-CONTINUE |
-| **N5** | AI catalogs + voice tools | 3 home slots; LLM create/list catalogs | N5-AI |
+| **N5a** | Voice tools librarian | Hinglish STT · search/open · TV ack | N5 voice gate |
+| **N5b** | AI home catalogs | 3 slots; create/list catalogs | N5-AI |
 | **N6** | YouTube | yt-dlp rail; remove Kodi from default path | N6-YT |
 | **N7** | 4K + fallback polish | mpv 4K flags; Stremio hidden fallback; systemd persistence | N7-SHIP |
 
@@ -172,11 +173,20 @@ Inventory → strip → consolidate → document → measure on Pi.
 
 ---
 
-## N5 — AI catalogs
+## N5 — AI + voice
+
+**N5a (shipped):** [`N5-INVENTORY.md`](N5-INVENTORY.md) · [`tasks/phase-n5-voice-tools.md`](tasks/phase-n5-voice-tools.md)
+
+- Phone PTT → Hinglish STT (nova-3 multi) → Anthropic tools librarian  
+- Catalog `/voice/*` · launcher open/navigate · **no voice play** (B on remote)  
+- Title switch without ⌂ · external Cinemeta search · librarian notes  
+- Gate: `scripts/phase-n5/gate-voice-tools.sh` in gate-lite when `MANGO_VOICE=1`
+
+**N5b (next):**
 
 - Persisted named catalogs (`/etc/mango/ai-catalogs/`)  
 - Max 3 on home; frozen vs live per catalog  
-- Orchestrator tools: `create_catalog`, `list_catalogs`, `search_titles`, `play_title`  
+- Orchestrator tools: `create_catalog`, `list_catalogs`  
 
 ---
 
