@@ -68,11 +68,7 @@ export async function processLightReflect(input: LightReflectInput): Promise<{ o
 }
 
 export async function consolidateCompanionNightly(): Promise<{ ok: true; events: number; stage: string }> {
-  const { listJournalEvents } = await import('./journal.js');
-  const profile = applyFamiliarityStage(await readProfile());
-  await writeProfile(profile);
-  const events = listJournalEvents(200);
-  await writeCompiledNotes(profile);
-  appendJournalEvent('nightly_consolidate', { event_count: events.length, stage: profile.familiarity.stage });
-  return { ok: true, events: events.length, stage: profile.familiarity.stage };
+  const { runCompanionNightly } = await import('./nightly.js');
+  const result = await runCompanionNightly({ phases: ['rule'] });
+  return { ok: true, events: result.rule.events, stage: result.rule.stage };
 }

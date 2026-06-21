@@ -9,6 +9,6 @@ CATALOG_DIR="$REPO_DIR/src/catalog-service"
 
 cd "$CATALOG_DIR"
 npm run build >/dev/null
-node --test dist/companion/profile.test.js dist/companion/journal.test.js dist/companion/compile-notes.test.js dist/companion/reflect.test.js
+node --test dist/companion/profile.test.js dist/companion/journal.test.js dist/companion/compile-notes.test.js dist/companion/reflect.test.js dist/companion/gardener.test.js
 
 echo "PASS: N5c companion memory unit tests"

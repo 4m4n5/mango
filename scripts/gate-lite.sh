@@ -52,6 +52,8 @@ if [[ "${MANGO_VOICE:-}" == "1" ]]; then
   run_step "N5 voice tools" bash scripts/phase-n5/gate-voice-tools.sh
   run_step "N5c conversation" bash scripts/phase-n5/gate-n5c-conversation-policy.sh
   run_step "N5c companion memory" bash scripts/phase-n5/gate-n5c-companion-memory.sh
+  run_step "N5c gardener" bash scripts/phase-n5/gate-n5c-gardener.sh
+  run_step "N5c LLM policy" bash scripts/phase-n5/gate-n5c-companion-llm-policy.sh
 fi
 
 gate_finish "gate-lite" || exit 1

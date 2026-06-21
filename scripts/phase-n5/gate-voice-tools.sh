@@ -132,6 +132,18 @@ else
   bad n5c-conversation-policy
 fi
 
+if bash scripts/phase-n5/gate-n5c-gardener.sh; then
+  ok n5c-gardener
+else
+  bad n5c-gardener
+fi
+
+if bash scripts/phase-n5/gate-n5c-companion-llm-policy.sh; then
+  ok n5c-companion-llm-policy
+else
+  bad n5c-companion-llm-policy
+fi
+
 echo
 echo "SUMMARY pass=$PASS fail=$FAIL"
 [[ "$FAIL" -eq 0 ]]

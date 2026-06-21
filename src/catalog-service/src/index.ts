@@ -47,6 +47,8 @@ import {
 import { appendJournalEvent, listJournalEvents } from './companion/journal.js';
 import { compiledNotesExcerpt, readCompiledNotes, writeCompiledNotes } from './companion/compile-notes.js';
 import { consolidateCompanionNightly, processLightReflect } from './companion/reflect.js';
+import { runCompanionNightly } from './companion/nightly.js';
+import { applyCompanionGardener } from './companion/gardener.js';
 import { searchExternalTitles } from './voice/external.js';
 import {
   createAiCatalog,
@@ -535,6 +537,25 @@ async function main(): Promise<void> {
           throw new CatalogError(403, 'companion consolidate is localhost-only');
         }
         sendJson(res, 200, await consolidateCompanionNightly());
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'nightly') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'companion nightly is localhost-only');
+        }
+        const body = await readBody(req) as { phases?: Array<'rule' | 'gardener'> };
+        sendJson(res, 200, await runCompanionNightly({ phases: body.phases }));
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'gardener') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'companion gardener is localhost-only');
+        }
+        const gardenerResult = await applyCompanionGardener();
+        await core.reloadAiCatalogRails();
+        sendJson(res, 200, gardenerResult);
         return;
       }
 
