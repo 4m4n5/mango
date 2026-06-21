@@ -73,7 +73,7 @@ def reconstruct_playability(date: str) -> dict[str, Any]:
     if not db_path.exists():
         return {"error": f"playability db missing: {db_path}"}
 
-    start_ms, end_ms = pdt_window_ms(date, 2, 6)
+    start_ms, end_ms = pdt_window_ms(date, 2, 4)  # 02:00–04:00 PDT (playability timer ~03:00)
     conn = sqlite3.connect(db_path)
 
     rows = conn.execute(
@@ -116,7 +116,7 @@ def reconstruct_playability(date: str) -> dict[str, Any]:
 
     return {
         "source": "verify_log_reconstruct",
-        "window_pdt": f"{date} 02:00–06:00",
+        "window_pdt": f"{date} 02:00–04:00",
         "verify_events": len(rows),
         "verified_adds_by_rail": verified_adds,
         "total_verified_adds": sum(verified_adds.values()),
@@ -245,7 +245,10 @@ def print_report(date: str, *, reconstruct: bool = False) -> int:
         recon = reconstruct_playability(date)
         if recon.get("verified_adds_by_rail"):
             print("  (reconstructed from verify_log — before counts unavailable)")
-            for rail_id, count in sorted(recon["verified_adds_by_rail"].items()):
+            for rail_id, count in sorted(
+                recon["verified_adds_by_rail"].items(),
+                key=lambda item: (item[0] or ""),
+            ):
                 pool = recon.get("current_pools", {}).get(rail_id, {})
                 print(
                     f"  {rail_id:28} +{count} verified (current pool={pool.get('verified_pool', '?')})",
