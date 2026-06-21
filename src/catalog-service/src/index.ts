@@ -638,7 +638,24 @@ async function main(): Promise<void> {
           throw new CatalogError(400, 'GET /voice/ai-catalogs/status requires slot_id');
         }
         const status = getSlotBootstrapStatus(slotId);
-        sendJson(res, 200, { ok: true, status: status ?? { slot_id: slotId, bootstrap_status: 'unknown' } });
+        if (!status) {
+          sendJson(res, 200, {
+            ok: true,
+            status: {
+              slot_id: slotId,
+              bootstrap_status: 'unknown',
+              visible_on_tab: false,
+            },
+          });
+          return;
+        }
+        sendJson(res, 200, {
+          ok: true,
+          status: {
+            ...status,
+            bootstrap_status: status.status,
+          },
+        });
         return;
       }
 
