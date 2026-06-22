@@ -40,6 +40,50 @@ Baseline file: `~/.cache/mango/grow-baseline.json` (schema v2 — `grow_rail_ids
 
 Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending).
 
+## Grow presets
+
+| Preset | Wall | Max probes | Use |
+|--------|------|------------|-----|
+| `quick` | 10 min | 200 | Daily `--mode grow`, manual top-up |
+| `nightly` | 90 min | 500 | Nightly timer phase 2 (stale + grow) |
+
+Defaults when `MANGO_GROW_PRESET` is unset:
+
+- `playability-grow.sh --mode grow` → **quick**
+- `playability-maintenance.sh --mode nightly` → **nightly** (grow phase only)
+
+```bash
+# Daily quick grow (15:00 timer — install once on Pi)
+bash scripts/m3-play/playability/install-playability-daily-grow.sh
+
+# Manual quick grow
+bash scripts/m3-play/playability/playability-grow.sh --mode grow --preset quick --detach
+
+# Full backfill (nightly timer at 03:00 — stale then grow)
+bash scripts/m3-play/playability/install-playability-timer.sh
+```
+
+## Source hit-rate weights
+
+Before grow (when catalog-service is still up), maintenance runs a quick `source-hitrate.py` sample
+(`MANGO_SOURCE_HITRATE_PREFLIGHT=1`, 3 probes/source). Grow reads
+`~/.cache/mango/source-hitrate/latest.json` and scales composite/AI catalog source weights
+(`MANGO_GROW_HITRATE_WEIGHTS=1`, default on).
+
+Disable: `MANGO_SOURCE_HITRATE_PREFLIGHT=0` and/or `MANGO_GROW_HITRATE_WEIGHTS=0`.
+
+## Global link-first pass
+
+Each rail grow session links globally verified titles (same content type, not yet in that rail pool)
+**before** catalog ingest — zero probes. Counts toward `linked_global` / `linked_existing`.
+Disable: `MANGO_GROW_GLOBAL_LINK=0`.
+
+## Head tombstone advance
+
+On the first ingest loops, when `skipped_recent_failed` dominates the page (default ≥50%),
+cursors advance by `MANGO_GROW_HEAD_ADVANCE_PAGES` (default 5) without consuming deep-page reset cycles.
+Tune: `MANGO_GROW_HEAD_TOMBSTONE_RATIO`, `MANGO_GROW_HEAD_ADVANCE_MAX_CYCLES`.
+
 ## SLA section (PR6)
 
 The **Library Grower SLA** block summarizes the latest **grow** phase per browse rail.

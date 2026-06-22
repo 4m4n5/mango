@@ -1123,6 +1123,76 @@ export type VerifiedLibraryCatalogRow = VerifiedRailPoolSearchRow & {
   rail_id: string;
 };
 
+export type LinkableVerifiedCandidateRow = {
+  type: string;
+  id: string;
+  title: string | null;
+  poster: string | null;
+  year: string | null;
+};
+
+/** Active verified titles matching content type that are not yet in the target rail pool. */
+export async function listLinkableVerifiedForRail(
+  railId: string,
+  contentType: string,
+  limit: number,
+  now = Date.now(),
+): Promise<LinkableVerifiedCandidateRow[]> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    return db.prepare(`
+SELECT
+  t.type,
+  t.id,
+  (
+    SELECT rp.title
+    FROM rail_pool rp
+    WHERE rp.type = t.type
+      AND rp.id = t.id
+      AND rp.title IS NOT NULL
+      AND trim(rp.title) != ''
+    LIMIT 1
+  ) AS title,
+  (
+    SELECT rp.poster_url
+    FROM rail_pool rp
+    WHERE rp.type = t.type AND rp.id = t.id
+    LIMIT 1
+  ) AS poster,
+  (
+    SELECT rp.year
+    FROM rail_pool rp
+    WHERE rp.type = t.type AND rp.id = t.id
+    LIMIT 1
+  ) AS year
+FROM titles t
+WHERE t.status = 'verified'
+  AND (t.expires_at IS NULL OR t.expires_at > @now)
+  AND t.type = @content_type
+  AND NOT EXISTS (
+    SELECT 1
+    FROM rail_pool rp2
+    JOIN titles tv ON tv.type = rp2.type AND tv.id = rp2.id
+    WHERE rp2.rail_id = @rail_id
+      AND rp2.type = t.type
+      AND rp2.id = t.id
+      AND tv.status = 'verified'
+      AND (tv.expires_at IS NULL OR tv.expires_at > @now)
+  )
+ORDER BY t.verified_at DESC
+LIMIT @limit;
+`).all({
+      rail_id: railId,
+      content_type: contentType,
+      now,
+      limit: Math.max(1, limit),
+    }) as LinkableVerifiedCandidateRow[];
+  } finally {
+    db.close();
+  }
+}
+
 export async function listVerifiedLibraryCatalogRows(
   limit = 500,
 ): Promise<VerifiedLibraryCatalogRow[]> {

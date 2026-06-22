@@ -10,6 +10,12 @@ function boundedInt(value: string | undefined, fallback: number, min: number, ma
   return Math.min(parsed, max);
 }
 
+function boundedFloat(value: string | undefined, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min) return fallback;
+  return Math.min(parsed, max);
+}
+
 function positiveDurationMs(
   value: string | undefined,
   fallback: number,
@@ -163,6 +169,21 @@ export function playabilityMaxIngestScan(): number {
 /** Pages to advance each catalog source when a grow pass exhausts without hitting target. */
 export function playabilityGrowSourceAdvancePages(): number {
   return boundedInt(process.env.MANGO_GROW_SOURCE_ADVANCE_PAGES, 25, 5, 200);
+}
+
+/** Pages to advance on first-loop tombstone skew (before deep-page source reset cycles). */
+export function playabilityGrowHeadAdvancePages(): number {
+  return boundedInt(process.env.MANGO_GROW_HEAD_ADVANCE_PAGES, 5, 1, 50);
+}
+
+/** Fraction of ingest page that must be skipped_recent_failed to trigger head advance. */
+export function playabilityGrowHeadTombstoneRatio(): number {
+  return boundedFloat(process.env.MANGO_GROW_HEAD_TOMBSTONE_RATIO, 0.5, 0.1, 0.95);
+}
+
+/** Max head-advance cycles per rail grow session (independent of source reset cycles). */
+export function playabilityGrowHeadAdvanceMaxCycles(): number {
+  return boundedInt(process.env.MANGO_GROW_HEAD_ADVANCE_MAX_CYCLES, 8, 1, 30);
 }
 
 /** Grow passes: advance catalog cursors when exhausted but pool still below grow target. */

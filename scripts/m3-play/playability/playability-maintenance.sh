@@ -15,7 +15,8 @@
 #   MANGO_MAINTENANCE_ALLOW_PARTIAL=1  exit 0 when refresh ran but pools below min_display (default 1)
 #   MANGO_MAINTENANCE_SKIP_GATE=1      skip pi-pre-couch-gate after refresh (default 1 for grow/nightly)
 #   MANGO_PLAYABILITY_BOOTSTRAP=1      target min_display per rail + early exit (set by --bootstrap)
-#   MANGO_GROW_PRESET=nightly          preset wall/attempt limits for grow phase (default nightly)
+#   MANGO_GROW_PRESET=quick|nightly   preset for grow phase (default: quick for --mode grow, nightly for nightly)
+#   MANGO_SOURCE_HITRATE_PREFLIGHT=1  refresh hit-rate report before grow when catalog is up (default 1)
 #   MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC  pause between stale and grow (default 45)
 
 set -euo pipefail
@@ -90,6 +91,20 @@ fi
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-8000}"
 echo "probe_ms: $MANGO_PLAYABILITY_PROBE_MS (aligned with couch auto_play_probe_ms)"
 
+run_source_hitrate_preflight() {
+  if [[ "${MANGO_SOURCE_HITRATE_PREFLIGHT:-1}" != "1" ]]; then
+    echo "source-hitrate preflight: skipped (MANGO_SOURCE_HITRATE_PREFLIGHT=0)"
+    return 0
+  fi
+  if ! curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+    echo "source-hitrate preflight: catalog down — using cached report if present"
+    return 0
+  fi
+  echo "source-hitrate preflight (quick sample for grow weights)"
+  MANGO_SOURCE_HITRATE_PER_SOURCE="${MANGO_SOURCE_HITRATE_PREFLIGHT_PER_SOURCE:-3}" \
+    python3 "$REPO_DIR/scripts/diag/source-hitrate.py" || true
+}
+
 exec 200>"$LOCK_FILE"
 if ! flock -n 200; then
   echo "another maintenance run is in progress ($LOCK_FILE)" >&2
@@ -143,6 +158,9 @@ if pgrep -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1; then
 fi
 
 if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+  if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]]; then
+    run_source_hitrate_preflight
+  fi
   echo "stopping catalog-service (exclusive indexer)"
   stop_catalog_service
 fi
@@ -159,7 +177,16 @@ else
   export MANGO_PLAYABILITY_PROBE_CONCURRENCY="${MANGO_PLAYABILITY_PROBE_CONCURRENCY:-1}"
 fi
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-6000}"
-export MANGO_GROW_PRESET="${MANGO_GROW_PRESET:-nightly}"
+if [[ -z "${MANGO_GROW_PRESET:-}" ]]; then
+  if [[ "$MODE" == "grow" ]]; then
+    export MANGO_GROW_PRESET=quick
+  else
+    export MANGO_GROW_PRESET=nightly
+  fi
+else
+  export MANGO_GROW_PRESET="${MANGO_GROW_PRESET}"
+fi
+export MANGO_GROW_HITRATE_WEIGHTS="${MANGO_GROW_HITRATE_WEIGHTS:-1}"
 export MANGO_GROW_REQUIRE_TARGET="${MANGO_GROW_REQUIRE_TARGET:-1}"
 export MANGO_GROW_SOURCE_RESET_CYCLES="${MANGO_GROW_SOURCE_RESET_CYCLES:-10}"
 export MANGO_GROW_SOURCE_ADVANCE_PAGES="${MANGO_GROW_SOURCE_ADVANCE_PAGES:-25}"

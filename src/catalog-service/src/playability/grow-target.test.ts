@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { RailPlayabilityConfig } from '../rails.js';
 import {
+  defaultGrowPresetId,
   effectiveGrowPerPass,
   GROW_PRESETS,
   isGrowRefreshMode,
@@ -42,15 +43,27 @@ test('effectiveGrowPerPass defaults from yaml and honors env override', () => {
   }
 });
 
-test('resolveGrowPreset defaults to nightly', () => {
-  const previous = process.env.MANGO_GROW_PRESET;
+test('resolveGrowPreset defaults to nightly for maintenance, quick for grow mode', () => {
+  const previousPreset = process.env.MANGO_GROW_PRESET;
+  const previousMode = process.env.MANGO_PLAYABILITY_REFRESH_MODE;
   delete process.env.MANGO_GROW_PRESET;
+  delete process.env.MANGO_PLAYABILITY_REFRESH_MODE;
   try {
     assert.equal(resolveGrowPreset().wall_ms, GROW_PRESETS.nightly.wall_ms);
+    process.env.MANGO_PLAYABILITY_REFRESH_MODE = 'grow';
+    assert.equal(defaultGrowPresetId(), 'quick');
+    assert.equal(resolveGrowPreset().wall_ms, GROW_PRESETS.quick.wall_ms);
     assert.equal(resolveGrowPreset('quick').max_attempts, 200);
   } finally {
-    if (previous !== undefined) {
-      process.env.MANGO_GROW_PRESET = previous;
+    if (previousPreset !== undefined) {
+      process.env.MANGO_GROW_PRESET = previousPreset;
+    } else {
+      delete process.env.MANGO_GROW_PRESET;
+    }
+    if (previousMode !== undefined) {
+      process.env.MANGO_PLAYABILITY_REFRESH_MODE = previousMode;
+    } else {
+      delete process.env.MANGO_PLAYABILITY_REFRESH_MODE;
     }
   }
 });

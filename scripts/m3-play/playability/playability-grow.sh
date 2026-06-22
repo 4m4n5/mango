@@ -11,7 +11,8 @@
 #   stale   — re-probe stale titles only
 #   nightly — stale all rails, then grow (Pi timer default)
 #
-# Presets set MANGO_GROW_PRESET wall/attempt limits for grow phases (default nightly).
+# Presets set MANGO_GROW_PRESET wall/attempt limits for grow phases.
+# Default: quick for --mode grow, nightly for --mode nightly (override with --preset or env).
 
 set -euo pipefail
 
@@ -21,7 +22,7 @@ LOG="${CACHE_DIR}/playability-grow.log"
 PIDFILE="${CACHE_DIR}/playability-grow.pid"
 
 MODE="${MANGO_PLAYABILITY_REFRESH_MODE:-grow}"
-PRESET="${MANGO_GROW_PRESET:-nightly}"
+PRESET="${MANGO_GROW_PRESET:-}"
 DETACH=0
 
 usage() {
@@ -74,6 +75,9 @@ if [[ "$MODE" == "__status" ]]; then
 fi
 
 MODE="$(normalize_mode "$MODE")"
+if [[ -z "$PRESET" ]]; then
+  PRESET=$([[ "$MODE" == "grow" ]] && echo quick || echo nightly)
+fi
 PRESET="$(normalize_preset "$PRESET")"
 
 if [[ "$DETACH" -eq 1 ]]; then

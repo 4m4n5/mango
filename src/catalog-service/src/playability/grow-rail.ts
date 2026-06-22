@@ -30,6 +30,9 @@ import {
   growIngestFreshTarget,
   playabilityGrowSourceAdvancePages,
   playabilityGrowSourceResetCycles,
+  playabilityGrowHeadAdvancePages,
+  playabilityGrowHeadTombstoneRatio,
+  playabilityGrowHeadAdvanceMaxCycles,
 } from './config.js';
 import {
   createGrowthPassState,
@@ -49,6 +52,9 @@ import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs
 import { tryGrowComposeEscalation } from '../ai-catalogs/grow-compose-escalation.js';
 import type { AiCatalogRail } from '../ai-catalogs/types.js';
 import { GROW_DEEP_PAGE_BYPASS_REASONS } from './grow-tombstones.js';
+import { runGlobalVerifiedLinkPass } from './grow-global-link.js';
+import { shouldHeadAdvanceOnTombstoneSkew } from './grow-head-advance.js';
+import { applyHitrateWeightsToListSource } from './source-hitrate-weights.js';
 
 export type GrowRailResult = {
   rail_id: string;
@@ -72,6 +78,7 @@ export type GrowRailResult = {
   after: PlayabilityRailStatus;
   candidates_seen: number;
   linked_existing: number;
+  linked_global: number;
   verified: number;
   failed: number;
   skipped_existing: number;
@@ -136,6 +143,7 @@ export async function growRail(
   );
 
   let listSource = core.listSourceForRail(railId);
+  applyHitrateWeightsToListSource(listSource, rail.content_type);
   let sourceOffsets = await loadSourceOffsetsForListSource(rail.id, listSource);
   let ingestOffset = sourceOffsets
     ? 0
@@ -144,6 +152,7 @@ export async function growRail(
   const allResults: GrowRailResult['results'] = [];
   let totalCandidatesSeen = 0;
   let totalLinked = 0;
+  let totalLinkedGlobal = 0;
   let totalVerified = 0;
   let totalFailed = 0;
   let totalSkippedExisting = 0;
@@ -156,7 +165,9 @@ export async function growRail(
   let composeEscalated = false;
   let composeFallbackLevel: number | undefined;
   let sourceResetCycles = 0;
+  let headAdvanceCycles = 0;
   const maxSourceResetCycles = playabilityGrowSourceResetCycles();
+  const maxHeadAdvanceCycles = playabilityGrowHeadAdvanceMaxCycles();
 
   const context = await createVerifyContext();
 
@@ -167,6 +178,7 @@ export async function growRail(
 
   async function reloadIngestState(): Promise<void> {
     listSource = core.listSourceForRail(railId);
+    applyHitrateWeightsToListSource(listSource, rail.content_type);
     if (isSourceCursorListSource(listSource)) {
       listSource.resetAllSourceOffsets();
     }
@@ -219,7 +231,47 @@ export async function growRail(
     return true;
   }
 
+  async function tryHeadAdvanceOnTombstoneSkew(ingested: IngestCandidatesStats): Promise<boolean> {
+    if (sourceResetCycles > 0 || headAdvanceCycles >= maxHeadAdvanceCycles) {
+      return false;
+    }
+    if (await poolGrowthSoFar() >= growTarget) {
+      return false;
+    }
+    const pageSize = playabilityIngestPageSize();
+    if (!shouldHeadAdvanceOnTombstoneSkew(ingested, pageSize, playabilityGrowHeadTombstoneRatio())) {
+      return false;
+    }
+    headAdvanceCycles += 1;
+    catalogExhausted = false;
+    const jump = pageSize * playabilityGrowHeadAdvancePages();
+    if (isSourceCursorListSource(listSource)) {
+      const offsets = new Map(listSource.readSourceOffsets());
+      for (const key of listSource.listSourceKeys()) {
+        offsets.set(key, (offsets.get(key) ?? 0) + jump);
+      }
+      listSource.writeSourceOffsets(offsets);
+      await persistSourceOffsetsForListSource(rail.id, listSource);
+      sourceOffsets = offsets;
+    } else {
+      ingestOffset += jump;
+      await setRailIngestOffset(rail.id, ingestOffset);
+    }
+    return true;
+  }
+
   try {
+    const initialRemaining = Math.max(0, growTarget);
+    const globalLink = await runGlobalVerifiedLinkPass(
+      rail as BrowsableRail,
+      initialRemaining,
+      growthPass,
+      context,
+    );
+    totalLinked += globalLink.linked;
+    totalLinkedGlobal += globalLink.linked_global;
+    allResults.push(...globalLink.results);
+
     while (Date.now() - startedAt < wallMs && attempts < maxAttempts) {
       if (await poolGrowthSoFar() >= growTarget) {
         break;
@@ -249,6 +301,10 @@ export async function growRail(
       growLoops += 1;
       maxSourcesTouched = Math.max(maxSourcesTouched, ingested.sources_touched ?? 0);
       totalCandidatesSeen += ingested.scanned;
+
+      if (await tryHeadAdvanceOnTombstoneSkew(ingested)) {
+        continue;
+      }
 
       // Only skip link/verify when ingest found nothing left to process.
       if (
@@ -395,6 +451,7 @@ export async function growRail(
     after,
     candidates_seen: totalCandidatesSeen,
     linked_existing: totalLinked,
+    linked_global: totalLinkedGlobal,
     verified: totalVerified,
     failed: totalFailed,
     skipped_existing: totalSkippedExisting,

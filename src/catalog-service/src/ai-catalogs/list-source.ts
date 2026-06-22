@@ -10,6 +10,7 @@ import {
   type WeightedCandidateBatch,
 } from '../playability/composite-merge.js';
 import { fetchAddonCatalogCandidates } from '../playability/list-source.js';
+import { effectiveSourceWeight } from '../playability/source-hitrate-weights.js';
 import type { AiCatalogLlmHints, AiSeedTitle } from './types.js';
 
 export type AiCatalogListSourceOptions = {
@@ -43,12 +44,26 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
   private readonly sources: ResolvedCatalogSource[];
   private sourceOffsets = new Map<string, number>();
   private exhaustedSources = new Set<string>();
+  private hitrateWeightMultipliers = new Map<string, number>();
 
   constructor(options: AiCatalogListSourceOptions) {
     this.sourceId = options.sourceId;
     this.contentType = options.contentType;
     this.seeds = mergeSeedTitles(options.seedTitles, options.contentType, options.llmHints);
     this.sources = options.sources;
+  }
+
+  setHitrateWeightMultipliers(multipliers: Map<string, number>): void {
+    this.hitrateWeightMultipliers = new Map(multipliers);
+  }
+
+  private sourceWeight(source: ResolvedCatalogSource): number {
+    return effectiveSourceWeight(
+      source.addon,
+      source.catalog,
+      source.weight ?? 1,
+      this.hitrateWeightMultipliers,
+    );
   }
 
   listSourceKeys(): string[] {
@@ -109,7 +124,7 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
   }
 
   private async fetchAddonCandidates(limit: number): Promise<CandidateMeta[]> {
-    const weights = this.sources.map((source) => source.weight);
+    const weights = this.sources.map((source) => this.sourceWeight(source));
     const perSourceLimits = allocateSourceLimits(limit, weights);
     const batches: WeightedCandidateBatch[] = [];
 
@@ -132,7 +147,7 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
-          weight: source.weight,
+          weight: this.sourceWeight(source),
           candidates,
         });
       } catch (error) {
@@ -145,7 +160,7 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
-          weight: source.weight,
+          weight: this.sourceWeight(source),
           candidates: [],
         });
       }

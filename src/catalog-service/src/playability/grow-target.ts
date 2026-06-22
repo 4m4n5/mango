@@ -66,8 +66,17 @@ export function resolveGrowTarget(
 
 export function resolveGrowPreset(preset?: GrowPresetId): GrowPreset {
   const fromEnv = process.env.MANGO_GROW_PRESET?.trim() as GrowPresetId | undefined;
-  const id = preset ?? fromEnv ?? 'nightly';
+  const id = preset ?? fromEnv ?? defaultGrowPresetId();
   return GROW_PRESETS[id] ?? GROW_PRESETS.nightly;
+}
+
+/** Default grow wall/attempt preset when MANGO_GROW_PRESET is unset. */
+export function defaultGrowPresetId(): GrowPresetId {
+  const refreshMode = process.env.MANGO_PLAYABILITY_REFRESH_MODE?.trim();
+  if (refreshMode === 'grow') {
+    return 'quick';
+  }
+  return 'nightly';
 }
 
 export function isGrowRefreshMode(mode: string | undefined, bootstrap = false): boolean {

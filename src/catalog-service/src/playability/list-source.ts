@@ -5,6 +5,7 @@ import {
   mergeCompositeCandidates,
   type WeightedCandidateBatch,
 } from './composite-merge.js';
+import { effectiveSourceWeight } from './source-hitrate-weights.js';
 import {
   AI_SEED_CURSOR_KEY,
   catalogSourceKey,
@@ -205,12 +206,26 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
   readonly sourceType = 'composite_list' as const;
   private sourceOffsets = new Map<string, number>();
   private exhaustedSources = new Set<string>();
+  private hitrateWeightMultipliers = new Map<string, number>();
 
   constructor(
     readonly sourceId: string,
     private readonly contentType: string,
     private readonly sources: ResolvedCatalogSource[],
   ) {}
+
+  setHitrateWeightMultipliers(multipliers: Map<string, number>): void {
+    this.hitrateWeightMultipliers = new Map(multipliers);
+  }
+
+  private sourceWeight(source: ResolvedCatalogSource): number {
+    return effectiveSourceWeight(
+      source.addon,
+      source.catalog,
+      source.weight ?? 1,
+      this.hitrateWeightMultipliers,
+    );
+  }
 
   listSourceKeys(): string[] {
     return this.sources.map((source) => catalogSourceKey(source.addon, source.catalog));
@@ -245,7 +260,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
   }
 
   private async candidatesWithSourceCursors(limit: number): Promise<CandidateMeta[]> {
-    const weights = this.sources.map((source) => source.weight);
+    const weights = this.sources.map((source) => this.sourceWeight(source));
     const perSourceLimits = allocateSourceLimits(limit, weights);
     const batches: WeightedCandidateBatch[] = [];
 
@@ -268,7 +283,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
-          weight: source.weight,
+          weight: this.sourceWeight(source),
           candidates,
         });
       } catch (error) {
@@ -281,7 +296,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
-          weight: source.weight,
+          weight: this.sourceWeight(source),
           candidates: [],
         });
       }
