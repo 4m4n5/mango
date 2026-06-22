@@ -19,7 +19,7 @@ import type { RailPlayabilityConfig } from '../rails.js';
 import { effectiveDisplayLimit } from './pool-growth.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export type PlayabilityRailStatus = {
   rail_id: string;
@@ -501,6 +501,20 @@ VALUES (3, @applied_at);
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (4, @applied_at);
 `).run({ applied_at: nowMs() });
+  db.exec(`
+CREATE TABLE IF NOT EXISTS rail_source_ingest_state (
+  rail_id TEXT NOT NULL,
+  source_key TEXT NOT NULL,
+  catalog_offset INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (rail_id, source_key)
+);
+CREATE INDEX IF NOT EXISTS idx_rail_source_ingest_rail ON rail_source_ingest_state(rail_id);
+`);
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (5, @applied_at);
+`).run({ applied_at: nowMs() });
 }
 
 export async function getRailIngestOffsetsBulk(railIds: string[]): Promise<Map<string, number>> {
@@ -548,6 +562,88 @@ ON CONFLICT(rail_id) DO UPDATE SET
   } finally {
     db.close();
   }
+}
+
+export async function getRailSourceIngestOffsetsBulk(
+  railId: string,
+  sourceKeys: string[],
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (sourceKeys.length === 0) {
+    return result;
+  }
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const placeholders = sourceKeys.map((_, index) => `@source_${index}`).join(', ');
+    const params: Record<string, string> = { rail_id: railId };
+    sourceKeys.forEach((sourceKey, index) => {
+      params[`source_${index}`] = sourceKey;
+    });
+    const rows = db.prepare(`
+SELECT source_key, catalog_offset
+FROM rail_source_ingest_state
+WHERE rail_id = @rail_id AND source_key IN (${placeholders});
+`).all(params) as Array<{ source_key: string; catalog_offset: number }>;
+    for (const row of rows) {
+      result.set(row.source_key, row.catalog_offset);
+    }
+    return result;
+  } finally {
+    db.close();
+  }
+}
+
+export async function setRailSourceIngestOffsetsBulk(
+  railId: string,
+  offsets: Map<string, number>,
+): Promise<void> {
+  if (offsets.size === 0) {
+    return;
+  }
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const stmt = db.prepare(`
+INSERT INTO rail_source_ingest_state (rail_id, source_key, catalog_offset, updated_at)
+VALUES (@rail_id, @source_key, @catalog_offset, @updated_at)
+ON CONFLICT(rail_id, source_key) DO UPDATE SET
+  catalog_offset = excluded.catalog_offset,
+  updated_at = excluded.updated_at;
+`);
+    const updatedAt = nowMs();
+    for (const [sourceKey, catalogOffset] of offsets.entries()) {
+      stmt.run({
+        rail_id: railId,
+        source_key: sourceKey,
+        catalog_offset: Math.max(0, catalogOffset),
+        updated_at: updatedAt,
+      });
+    }
+  } finally {
+    db.close();
+  }
+}
+
+/** Seed per-source cursors from legacy rail_ingest_state when missing. */
+export async function ensureRailSourceIngestOffsets(
+  railId: string,
+  sourceKeys: string[],
+): Promise<Map<string, number>> {
+  const existing = await getRailSourceIngestOffsetsBulk(railId, sourceKeys);
+  const result = new Map<string, number>();
+  for (const key of sourceKeys) {
+    result.set(key, existing.get(key) ?? 0);
+  }
+  if (existing.size === 0 && sourceKeys.length > 0) {
+    const legacy = await getRailIngestOffsetsBulk([railId]);
+    const globalOffset = legacy.get(railId) ?? 0;
+    if (globalOffset > 0) {
+      result.set(sourceKeys[0], globalOffset);
+      await setRailSourceIngestOffsetsBulk(railId, result);
+    }
+  }
+  return result;
 }
 
 export async function getPlayabilityStatus(railIds: string[]): Promise<PlayabilityStatus> {

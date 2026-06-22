@@ -6,6 +6,7 @@ import {
   isActiveVerifiedTitle,
   uniqueCandidates,
 } from './pipeline.js';
+import { isSourceCursorListSource } from './source-cursors.js';
 
 export type IngestCandidatesStats = {
   start_offset: number;
@@ -16,6 +17,7 @@ export type IngestCandidatesStats = {
   skipped_recent_failed: number;
   linked_verified_seen: number;
   catalog_exhausted: boolean;
+  sources_touched?: number;
 };
 
 export type IngestCandidatesResult = IngestCandidatesStats & {
@@ -40,11 +42,17 @@ export async function ingestPaginatedCandidates(
     pageSize: number;
     maxScanned: number;
     now?: number;
+    sourceOffsets?: Map<string, number>;
     lookupTitles: (candidates: CandidateMeta[]) => Promise<Map<string, TitlePlayabilityRecord>>;
   },
 ): Promise<IngestCandidatesResult> {
   const now = options.now ?? Date.now();
   const collected: CandidateMeta[] = [];
+  const useSourceCursors = isSourceCursorListSource(source);
+  if (useSourceCursors && options.sourceOffsets) {
+    source.writeSourceOffsets(new Map(options.sourceOffsets));
+  }
+
   let offset = Math.max(0, options.startOffset);
   let scanned = 0;
   let freshQueued = 0;
@@ -52,17 +60,27 @@ export async function ingestPaginatedCandidates(
   let skippedRecentFailed = 0;
   let linkedVerifiedSeen = 0;
   let catalogExhausted = false;
+  const sourcesTouched = new Set<string>();
 
   while (scanned < options.maxScanned && freshQueued < options.freshTarget) {
-    const page = await source.candidates({ offset, limit: options.pageSize });
+    const page = await source.candidates({
+      offset: useSourceCursors ? 0 : offset,
+      limit: options.pageSize,
+    });
     if (page.length === 0) {
       catalogExhausted = true;
+      if (useSourceCursors) {
+        source.resetAllSourceOffsets();
+      }
       break;
     }
 
     const statuses = await options.lookupTitles(page);
     for (const candidate of page) {
       scanned += 1;
+      if (candidate.source) {
+        sourcesTouched.add(candidate.source);
+      }
       const key = candidateKey(candidate);
       const title = statuses.get(key);
 
@@ -85,6 +103,15 @@ export async function ingestPaginatedCandidates(
       }
     }
 
+    if (useSourceCursors) {
+      if (page.length < options.pageSize && freshQueued < options.freshTarget) {
+        catalogExhausted = true;
+        source.resetAllSourceOffsets();
+        break;
+      }
+      continue;
+    }
+
     offset += page.length;
     if (page.length < options.pageSize) {
       catalogExhausted = true;
@@ -104,6 +131,7 @@ export async function ingestPaginatedCandidates(
     skipped_recent_failed: skippedRecentFailed,
     linked_verified_seen: linkedVerifiedSeen,
     catalog_exhausted: catalogExhausted,
+    sources_touched: useSourceCursors ? sourcesTouched.size : undefined,
   };
 }
 

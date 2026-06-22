@@ -5,6 +5,11 @@ import {
   mergeCompositeCandidates,
   type WeightedCandidateBatch,
 } from './composite-merge.js';
+import {
+  AI_SEED_CURSOR_KEY,
+  catalogSourceKey,
+  type SourceCursorListSource,
+} from './source-cursors.js';
 
 export type ListSourceType = 'addon_catalog' | 'composite_list' | 'ai_catalog';
 
@@ -103,11 +108,13 @@ export async function fetchAddonCatalogCandidates(
   }
 }
 
-export class AddonCatalogListSource implements ListSource {
+export class AddonCatalogListSource implements ListSource, SourceCursorListSource {
   readonly sourceType = 'addon_catalog' as const;
+  private sourceOffsets = new Map<string, number>();
 
   constructor(
     readonly sourceId: string,
+    private readonly addonName: string,
     private readonly contentType: string,
     private readonly catalog: string,
     private readonly manifestUrl: string,
@@ -120,6 +127,7 @@ export class AddonCatalogListSource implements ListSource {
   ): AddonCatalogListSource {
     return new AddonCatalogListSource(
       rail.id,
+      rail.addon,
       rail.content_type,
       rail.catalog,
       manifestUrl,
@@ -127,19 +135,45 @@ export class AddonCatalogListSource implements ListSource {
     );
   }
 
+  listSourceKeys(): string[] {
+    return [catalogSourceKey(this.addonName, this.catalog)];
+  }
+
+  readSourceOffsets(): ReadonlyMap<string, number> {
+    return this.sourceOffsets;
+  }
+
+  writeSourceOffsets(offsets: Map<string, number>): void {
+    this.sourceOffsets = new Map(offsets);
+  }
+
+  resetAllSourceOffsets(): void {
+    for (const key of this.listSourceKeys()) {
+      this.sourceOffsets.set(key, 0);
+    }
+  }
+
+  private cursorKey(): string {
+    return catalogSourceKey(this.addonName, this.catalog);
+  }
+
   async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
-    return fetchAddonCatalogCandidates(
+    const start = this.sourceOffsets.get(this.cursorKey()) ?? options.offset;
+    const candidates = await fetchAddonCatalogCandidates(
       this.manifestUrl,
       this.contentType,
       this.catalog,
       this.sourceLabel,
-      options,
+      { offset: start, limit: options.limit },
     );
+    this.sourceOffsets.set(this.cursorKey(), start + candidates.length);
+    return candidates;
   }
 }
 
-export class CompositeListSource implements ListSource {
+export class CompositeListSource implements ListSource, SourceCursorListSource {
   readonly sourceType = 'composite_list' as const;
+  private sourceOffsets = new Map<string, number>();
 
   constructor(
     readonly sourceId: string,
@@ -147,13 +181,39 @@ export class CompositeListSource implements ListSource {
     private readonly sources: ResolvedCatalogSource[],
   ) {}
 
+  listSourceKeys(): string[] {
+    return this.sources.map((source) => catalogSourceKey(source.addon, source.catalog));
+  }
+
+  readSourceOffsets(): ReadonlyMap<string, number> {
+    return this.sourceOffsets;
+  }
+
+  writeSourceOffsets(offsets: Map<string, number>): void {
+    this.sourceOffsets = new Map(offsets);
+  }
+
+  resetAllSourceOffsets(): void {
+    for (const key of this.listSourceKeys()) {
+      this.sourceOffsets.set(key, 0);
+    }
+  }
+
   async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
-    const ingestLimit = options.offset + options.limit;
+    if (this.sources.length === 0) {
+      return [];
+    }
+    return this.candidatesWithSourceCursors(options.limit);
+  }
+
+  private async candidatesWithSourceCursors(limit: number): Promise<CandidateMeta[]> {
     const weights = this.sources.map((source) => source.weight);
-    const perSourceLimits = allocateSourceLimits(ingestLimit, weights);
+    const perSourceLimits = allocateSourceLimits(limit, weights);
     const batches: WeightedCandidateBatch[] = [];
 
     for (const [index, source] of this.sources.entries()) {
+      const key = catalogSourceKey(source.addon, source.catalog);
+      const start = this.sourceOffsets.get(key) ?? 0;
       const fetchLimit = perSourceLimits[index] ?? 1;
       try {
         const candidates = await fetchAddonCatalogCandidates(
@@ -161,8 +221,9 @@ export class CompositeListSource implements ListSource {
           this.contentType,
           source.catalog,
           source.sourceLabel,
-          { offset: 0, limit: fetchLimit },
+          { offset: start, limit: fetchLimit },
         );
+        this.sourceOffsets.set(key, start + candidates.length);
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
@@ -184,6 +245,6 @@ export class CompositeListSource implements ListSource {
       }
     }
 
-    return mergeCompositeCandidates(batches, options.limit, options.offset);
+    return mergeCompositeCandidates(batches, limit, 0);
   }
 }

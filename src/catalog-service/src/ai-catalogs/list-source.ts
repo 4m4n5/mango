@@ -1,5 +1,10 @@
 import type { ListSource, CandidateMeta, ResolvedCatalogSource } from '../playability/list-source.js';
 import {
+  AI_SEED_CURSOR_KEY,
+  catalogSourceKey,
+  type SourceCursorListSource,
+} from '../playability/source-cursors.js';
+import {
   allocateSourceLimits,
   mergeCompositeCandidates,
   type WeightedCandidateBatch,
@@ -29,13 +34,14 @@ function seedToCandidate(seed: AiSeedTitle, contentType: string): CandidateMeta 
   };
 }
 
-export class AiCatalogListSource implements ListSource {
+export class AiCatalogListSource implements ListSource, SourceCursorListSource {
   readonly sourceType = 'ai_catalog' as const;
   readonly sourceId: string;
 
   private readonly contentType: string;
   private readonly seeds: AiSeedTitle[];
   private readonly sources: ResolvedCatalogSource[];
+  private sourceOffsets = new Map<string, number>();
 
   constructor(options: AiCatalogListSourceOptions) {
     this.sourceId = options.sourceId;
@@ -44,37 +50,59 @@ export class AiCatalogListSource implements ListSource {
     this.sources = options.sources;
   }
 
+  listSourceKeys(): string[] {
+    const keys = [AI_SEED_CURSOR_KEY];
+    for (const source of this.sources) {
+      keys.push(catalogSourceKey(source.addon, source.catalog));
+    }
+    return keys;
+  }
+
+  readSourceOffsets(): ReadonlyMap<string, number> {
+    return this.sourceOffsets;
+  }
+
+  writeSourceOffsets(offsets: Map<string, number>): void {
+    this.sourceOffsets = new Map(offsets);
+  }
+
+  resetAllSourceOffsets(): void {
+    for (const key of this.listSourceKeys()) {
+      this.sourceOffsets.set(key, 0);
+    }
+  }
+
   async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
     const seedCandidates = this.seeds.map((seed) => seedToCandidate(seed, this.contentType));
-    const { offset, limit } = options;
-    if (offset < seedCandidates.length) {
-      const fromSeeds = seedCandidates.slice(offset, offset + limit);
-      if (fromSeeds.length >= limit || this.sources.length === 0) {
-        return fromSeeds.slice(0, limit);
+    const seedStart = this.sourceOffsets.get(AI_SEED_CURSOR_KEY) ?? 0;
+    const { limit } = options;
+    const collected: CandidateMeta[] = [];
+
+    if (seedStart < seedCandidates.length) {
+      const fromSeeds = seedCandidates.slice(seedStart, seedStart + limit);
+      collected.push(...fromSeeds);
+      this.sourceOffsets.set(AI_SEED_CURSOR_KEY, seedStart + fromSeeds.length);
+      if (collected.length >= limit || this.sources.length === 0) {
+        return dedupeCandidates(collected).slice(0, limit);
       }
-      const addon = await this.fetchAddonCandidates({
-        offset: 0,
-        limit: limit - fromSeeds.length,
-      });
-      return dedupeCandidates([...fromSeeds, ...addon]).slice(0, limit);
     }
 
     if (this.sources.length === 0) {
-      return [];
+      return dedupeCandidates(collected).slice(0, limit);
     }
-    return this.fetchAddonCandidates({
-      offset: offset - seedCandidates.length,
-      limit,
-    });
+
+    const addon = await this.fetchAddonCandidates(limit - collected.length);
+    return dedupeCandidates([...collected, ...addon]).slice(0, limit);
   }
 
-  private async fetchAddonCandidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
-    const ingestLimit = options.offset + options.limit;
+  private async fetchAddonCandidates(limit: number): Promise<CandidateMeta[]> {
     const weights = this.sources.map((source) => source.weight);
-    const perSourceLimits = allocateSourceLimits(ingestLimit, weights);
+    const perSourceLimits = allocateSourceLimits(limit, weights);
     const batches: WeightedCandidateBatch[] = [];
 
     for (const [index, source] of this.sources.entries()) {
+      const key = catalogSourceKey(source.addon, source.catalog);
+      const start = this.sourceOffsets.get(key) ?? 0;
       const fetchLimit = perSourceLimits[index] ?? 1;
       try {
         const candidates = await fetchAddonCatalogCandidates(
@@ -82,8 +110,9 @@ export class AiCatalogListSource implements ListSource {
           this.contentType,
           source.catalog,
           source.sourceLabel,
-          { offset: 0, limit: fetchLimit },
+          { offset: start, limit: fetchLimit },
         );
+        this.sourceOffsets.set(key, start + candidates.length);
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
@@ -105,7 +134,7 @@ export class AiCatalogListSource implements ListSource {
       }
     }
 
-    return mergeCompositeCandidates(batches, options.limit, options.offset);
+    return mergeCompositeCandidates(batches, limit, 0);
   }
 }
 

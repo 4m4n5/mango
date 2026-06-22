@@ -36,6 +36,10 @@ import {
   resolveGrowTarget,
   type GrowPresetId,
 } from './grow-target.js';
+import {
+  loadSourceOffsetsForListSource,
+  persistSourceOffsetsForListSource,
+} from './source-cursors.js';
 import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
 
 export type GrowRailResult = {
@@ -65,6 +69,7 @@ export type GrowRailResult = {
   skipped_recent_failed: number;
   exhausted: boolean;
   grow_loops: number;
+  sources_touched?: number;
   ingest?: IngestCandidatesStats;
   results: Array<{
     type: string;
@@ -120,7 +125,10 @@ export async function growRail(
   );
 
   const source = core.listSourceForRail(railId);
-  let ingestOffset = (await getRailIngestOffsetsBulk([rail.id])).get(rail.id) ?? 0;
+  const sourceOffsets = await loadSourceOffsetsForListSource(rail.id, source);
+  let ingestOffset = sourceOffsets
+    ? 0
+    : ((await getRailIngestOffsetsBulk([rail.id])).get(rail.id) ?? 0);
 
   const allResults: GrowRailResult['results'] = [];
   let totalCandidatesSeen = 0;
@@ -131,6 +139,7 @@ export async function growRail(
   let totalSkippedRecentFailed = 0;
   let attempts = 0;
   let growLoops = 0;
+  let maxSourcesTouched = 0;
   let lastIngest: IngestCandidatesStats | undefined;
   let catalogExhausted = false;
 
@@ -145,15 +154,21 @@ export async function growRail(
 
       const ingested = await ingestPaginatedCandidates(source, {
         startOffset: ingestOffset,
+        sourceOffsets,
         freshTarget: ingestBatchFresh,
         pageSize: playabilityIngestPageSize(),
         maxScanned: playabilityMaxIngestScan(),
         lookupTitles: getTitlesPlayabilityBulk,
       });
-      await setRailIngestOffset(rail.id, ingested.next_offset);
-      ingestOffset = ingested.next_offset;
+      if (sourceOffsets) {
+        await persistSourceOffsetsForListSource(rail.id, source);
+      } else {
+        await setRailIngestOffset(rail.id, ingested.next_offset);
+        ingestOffset = ingested.next_offset;
+      }
       lastIngest = ingested;
       growLoops += 1;
+      maxSourcesTouched = Math.max(maxSourcesTouched, ingested.sources_touched ?? 0);
       totalCandidatesSeen += ingested.scanned;
 
       if (ingested.fresh_queued === 0 && ingested.catalog_exhausted) {
@@ -267,6 +282,7 @@ export async function growRail(
     skipped_recent_failed: totalSkippedRecentFailed,
     exhausted,
     grow_loops: growLoops,
+    sources_touched: maxSourcesTouched > 0 ? maxSourcesTouched : undefined,
     ingest: lastIngest,
     results: allResults,
   };

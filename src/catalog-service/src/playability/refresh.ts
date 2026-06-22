@@ -41,6 +41,10 @@ import {
 } from './pool-growth.js';
 import { growRail } from './grow-rail.js';
 import { isGrowRefreshMode, resolveGrowPreset, type GrowPresetId } from './grow-target.js';
+import {
+  loadSourceOffsetsForListSource,
+  persistSourceOffsetsForListSource,
+} from './source-cursors.js';
 
 export type RefreshMode = 'full' | 'stale' | 'growth' | 'grow';
 
@@ -286,14 +290,20 @@ export async function refreshAllRails(
       const freshTarget = mode === 'growth'
         ? effectiveGrowthAttemptBudget(rail.playability)
         : freshPerRail;
+      const sourceOffsets = await loadSourceOffsetsForListSource(rail.id, source);
       const ingested = await ingestPaginatedCandidates(source, {
-        startOffset: ingestOffsets.get(rail.id) ?? 0,
+        startOffset: sourceOffsets ? 0 : (ingestOffsets.get(rail.id) ?? 0),
+        sourceOffsets,
         freshTarget,
         pageSize: playabilityIngestPageSize(),
         maxScanned: playabilityMaxIngestScan(),
         lookupTitles: getTitlesPlayabilityBulk,
       });
-      await setRailIngestOffset(rail.id, ingested.next_offset);
+      if (sourceOffsets) {
+        await persistSourceOffsetsForListSource(rail.id, source);
+      } else {
+        await setRailIngestOffset(rail.id, ingested.next_offset);
+      }
       ingestStatsByRail.set(rail.id, ingested);
       candidates = ingested.candidates;
       candidatesSeenByRail.set(rail.id, ingested.scanned);

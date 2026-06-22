@@ -29,6 +29,10 @@ import {
 } from './config.js';
 import { effectivePoolTarget } from './pool-growth.js';
 import { growRail, type GrowRailOptions } from './grow-rail.js';
+import {
+  loadSourceOffsetsForListSource,
+  persistSourceOffsetsForListSource,
+} from './source-cursors.js';
 import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
 import type { BrowsableRail } from '../rails.js';
 
@@ -158,14 +162,20 @@ async function topUpRailIncremental(
   }
 
   const ingestOffsets = await getRailIngestOffsetsBulk([rail.id]);
+  const sourceOffsets = await loadSourceOffsetsForListSource(rail.id, source);
   const ingested = await ingestPaginatedCandidates(source, {
-    startOffset: ingestOffsets.get(rail.id) ?? 0,
+    startOffset: sourceOffsets ? 0 : (ingestOffsets.get(rail.id) ?? 0),
+    sourceOffsets,
     freshTarget,
     pageSize: playabilityIngestPageSize(),
     maxScanned: playabilityMaxIngestScan(),
     lookupTitles: getTitlesPlayabilityBulk,
   });
-  await setRailIngestOffset(rail.id, ingested.next_offset);
+  if (sourceOffsets) {
+    await persistSourceOffsetsForListSource(rail.id, source);
+  } else {
+    await setRailIngestOffset(rail.id, ingested.next_offset);
+  }
   const candidates = ingested.candidates;
   const refsByKey = new Map<string, RailCandidateRef[]>();
   for (const [index, candidate] of candidates.entries()) {
