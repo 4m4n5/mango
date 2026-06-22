@@ -4,7 +4,7 @@
 # Cron fallback: 30 4 * * * cd ~/mango && bash scripts/m5-voice/ai/companion-nightly-consolidate.sh
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 CATALOG="${MANGO_CATALOG_UPSTREAM:-http://127.0.0.1:3020}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 OPS_DIR="${CACHE_DIR}/ops"

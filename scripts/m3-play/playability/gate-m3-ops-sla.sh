@@ -2,7 +2,7 @@
 # Gate: Library Grower PR6 — ops report SLA section + tests.
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 cd "$REPO_DIR"
 
 echo "== gate-m3-ops-sla =="

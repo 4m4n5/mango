@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 RESERVE="$REPO_DIR/config/ai-catalog-reserve.json"
 INVENTORY="$REPO_DIR/config/mdblist-inventory.json"
 

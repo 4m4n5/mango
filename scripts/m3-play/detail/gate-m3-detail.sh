@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 cd "$REPO_DIR"
 
 CATALOG="${MANGO_CATALOG_UPSTREAM:-http://127.0.0.1:3020}"

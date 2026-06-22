@@ -13,7 +13,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 USER_NAME="${SUDO_USER:-aman}"
 HOME_DIR="/home/${USER_NAME}"
 BT_MAC="E4:17:D8:EB:00:44"

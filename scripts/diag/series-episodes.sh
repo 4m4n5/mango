@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 CATALOG_URL="${MANGO_CATALOG_URL:-http://127.0.0.1:3020}"
 SAMPLE_IDS=(tt12004706 tt0903747 tt7366338)
 PROBE_EPISODES="${MANGO_SERIES_DIAG_PROBE:-3}"

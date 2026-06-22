@@ -7,7 +7,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 CERT_DIR="${MANGO_CERT_DIR:-$HOME/.config/mango/certs}"
 PI_IP="${MANGO_PI_IP:-10.0.0.174}"
 

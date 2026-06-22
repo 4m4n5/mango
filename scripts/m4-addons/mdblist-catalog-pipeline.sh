@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 cd "$REPO_DIR"
 
 INVENTORY="${MANGO_MDBLIST_INVENTORY:-$REPO_DIR/config/mdblist-inventory.json}"

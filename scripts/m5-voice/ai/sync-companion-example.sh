@@ -2,7 +2,7 @@
 # Seed /etc/mango/companion from repo examples when missing (never overwrite live profile).
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 EXAMPLE="$REPO_DIR/config/companion.example"
 DEST="/etc/mango/companion"
 

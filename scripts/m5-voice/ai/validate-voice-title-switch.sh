@@ -9,7 +9,7 @@ set -euo pipefail
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-${HOME}/.Xauthority}"
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 cd "$REPO_DIR"
 
 LAUNCHER_PORT="${MANGO_LAUNCHER_PORT:-3000}"

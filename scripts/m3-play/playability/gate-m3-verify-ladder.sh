@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-export MANGO_REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+export MANGO_REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 # shellcheck source=../../lib/gate-common.sh
 source "$(cd "$(dirname "$0")/../.." && pwd)/lib/gate-common.sh"

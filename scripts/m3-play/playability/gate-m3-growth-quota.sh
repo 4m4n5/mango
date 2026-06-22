@@ -2,7 +2,7 @@
 # Gate: growth-quota playability mode (Phase 1+2).
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 cd "$REPO_DIR"
 
 echo "== gate-m3-growth-quota =="

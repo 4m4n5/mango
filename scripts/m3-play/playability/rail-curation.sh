@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 export MANGO_RAIL_CURATION_OVERRIDES="${MANGO_RAIL_CURATION_OVERRIDES:-$REPO_DIR/config/rail-curation-overrides.example.yaml}"
 
 if [[ ! -f "$MANGO_RAIL_CURATION_OVERRIDES" ]]; then

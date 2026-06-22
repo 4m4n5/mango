@@ -2,7 +2,7 @@
 # N5c nightly LLM policy gate — JSON parse only (no API).
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 cd "$REPO_DIR/src/orchestrator"
 # shellcheck disable=SC1091
 source .venv/bin/activate

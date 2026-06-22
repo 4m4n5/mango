@@ -2,7 +2,7 @@
 # Gate: Library Grower PR3 — grow/stale modes, nightly sequence, yaml grow_per_pass.
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 cd "$REPO_DIR"
 
 echo "== gate-m3-library-grower =="
