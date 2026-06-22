@@ -2,18 +2,20 @@
 # Dedicated maintenance: stop couch UI + catalog-service, refresh playability, restore stack.
 #
 # Usage:
-#   bash scripts/phase-n3c/playability-maintenance.sh [--mode full|stale] [--bootstrap]
+#   bash scripts/phase-n3c/playability-maintenance.sh [--mode grow|stale|nightly] [--bootstrap]
 #
-# Modes (additive library contract):
-#   full  — grow verified pools toward pool target; never reprobe verified rows
-#   growth — quota-driven pass: verify up to growth_quota new titles per rail
-#   stale — re-probe titles with status=stale only; prune removes stale pool rows
+# Modes:
+#   nightly — stale refresh all rails, then grow pass (default for Pi timer)
+#   grow    — grow pass only (Library Grower inner loop)
+#   stale   — re-probe stale titles only
+#
+# Deprecated aliases (warn once): full, growth → grow
 #
 # Env:
 #   MANGO_MAINTENANCE_ALLOW_PARTIAL=1  exit 0 when refresh ran but pools below min_display (default 1)
-#   MANGO_MAINTENANCE_SKIP_GATE=1      skip pi-pre-couch-gate after refresh (default 1 for --mode full)
+#   MANGO_MAINTENANCE_SKIP_GATE=1      skip pi-pre-couch-gate after refresh (default 1 for grow/nightly)
 #   MANGO_PLAYABILITY_BOOTSTRAP=1      target min_display per rail + early exit (set by --bootstrap)
-#   MANGO_N3C_GATE_MAX_PER_RAIL        sampled plays per rail (default 2)
+#   MANGO_GROW_PRESET=nightly          preset wall/attempt limits for grow phase (default nightly)
 
 set -euo pipefail
 
@@ -33,9 +35,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$MODE" == "full" || "$MODE" == "stale" || "$MODE" == "growth" ]] || { echo "mode must be full, stale, or growth" >&2; exit 2; }
+normalize_mode() {
+  case "$1" in
+    nightly|grow|stale) echo "$1" ;;
+    full|growth)
+      echo "playability-maintenance: mode '$1' deprecated — use grow or nightly" >&2
+      echo grow
+      ;;
+    *)
+      echo "mode must be grow, stale, or nightly (got: $1)" >&2
+      exit 2
+      ;;
+  esac
+}
+
+MODE="$(normalize_mode "$MODE")"
+
 if [[ -z "$SKIP_GATE" ]]; then
-  SKIP_GATE=$([[ "$MODE" == "full" ]] && echo 1 || echo 0)
+  SKIP_GATE=$([[ "$MODE" == "grow" || "$MODE" == "nightly" ]] && echo 1 || echo 0)
 fi
 
 mkdir -p "$CACHE_DIR"
@@ -66,7 +83,6 @@ fi
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-8000}"
 echo "probe_ms: $MANGO_PLAYABILITY_PROBE_MS (aligned with couch auto_play_probe_ms)"
 
-# Use fd 200 — fd 9 is often inherited by catalog-service/chromium children.
 exec 200>"$LOCK_FILE"
 if ! flock -n 200; then
   echo "another maintenance run is in progress ($LOCK_FILE)" >&2
@@ -108,7 +124,7 @@ echo "== mango playability maintenance (mode=$MODE) =="
 
 if pgrep -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1; then
   echo "stopping chromium"
-  pkill -f 'chromium.*127.0.0.1:3000' 2>/dev/null || true
+  pkill -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1 || true
   sleep 1
 fi
 
@@ -125,21 +141,43 @@ export MANGO_PLAYABILITY_BATCH_DB=1
 export MANGO_PLAYABILITY_RESOLVE_CONCURRENCY="${MANGO_PLAYABILITY_RESOLVE_CONCURRENCY:-4}"
 export MANGO_PLAYABILITY_PROBE_CONCURRENCY="${MANGO_PLAYABILITY_PROBE_CONCURRENCY:-1}"
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-6000}"
+export MANGO_GROW_PRESET="${MANGO_GROW_PRESET:-nightly}"
 
-REFRESH_ARGS=(refresh --all --mode "$MODE")
-if [[ -n "${MANGO_PLAYABILITY_CANDIDATE_LIMIT:-}" ]]; then
-  REFRESH_ARGS+=(--candidate-limit "$MANGO_PLAYABILITY_CANDIDATE_LIMIT")
-fi
-if [[ "${MANGO_PLAYABILITY_BOOTSTRAP:-0}" == "1" ]]; then
-  REFRESH_ARGS+=(--bootstrap)
-  echo "bootstrap: pool_target=min_display, early-exit enabled"
-fi
+run_refresh() {
+  local refresh_mode="$1"
+  local -a args=(refresh --all --mode "$refresh_mode")
+  if [[ -n "${MANGO_PLAYABILITY_CANDIDATE_LIMIT:-}" ]]; then
+    args+=(--candidate-limit "$MANGO_PLAYABILITY_CANDIDATE_LIMIT")
+  fi
+  if [[ "${MANGO_PLAYABILITY_BOOTSTRAP:-0}" == "1" ]]; then
+    args+=(--bootstrap)
+    echo "bootstrap: pool_target=min_display, early-exit enabled"
+  fi
+  npm --prefix src/catalog-service exec tsx -- scripts/phase-n3c/playability-indexer.ts "${args[@]}"
+}
+
+REFRESH_JSON=""
+REFRESH_RC=0
 
 set +e
-REFRESH_JSON="$(npm --prefix src/catalog-service exec tsx -- scripts/phase-n3c/playability-indexer.ts "${REFRESH_ARGS[@]}" 2>&1)"
-REFRESH_RC=$?
+if [[ "$MODE" == "nightly" ]]; then
+  echo "== phase 1: stale refresh =="
+  STALE_JSON="$(run_refresh stale 2>&1)"
+  STALE_RC=$?
+  echo "$STALE_JSON"
+  echo "== phase 2: grow pass (preset=$MANGO_GROW_PRESET) =="
+  REFRESH_JSON="$(run_refresh grow 2>&1)"
+  REFRESH_RC=$?
+  echo "$REFRESH_JSON"
+  if [[ "$STALE_RC" -ne 0 && "$REFRESH_RC" -eq 0 ]]; then
+    REFRESH_RC=$STALE_RC
+  fi
+else
+  REFRESH_JSON="$(run_refresh "$MODE" 2>&1)"
+  REFRESH_RC=$?
+  echo "$REFRESH_JSON"
+fi
 set -e
-echo "$REFRESH_JSON"
 
 END_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
 echo "maintenance refresh rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))"

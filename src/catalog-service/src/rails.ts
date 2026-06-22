@@ -19,12 +19,8 @@ export type RailPlayabilityConfig = {
   pool_growth_per_refresh: number;
   /** Upper bound on verified pool depth; null = unbounded (growth mode default). */
   pool_max: number | null;
-  /** Min new probe-verified titles per grow session (preferred over growth_quota). */
+  /** Min new probe-verified titles per grow session. */
   grow_per_pass: number;
-  /** Min new probe-verified titles per growth pass (mode=growth). @deprecated use grow_per_pass */
-  growth_quota: number;
-  /** Max fresh candidates to queue per rail per growth pass. */
-  growth_attempt_budget: number;
 };
 
 export type CatalogSourceRef = {
@@ -82,8 +78,6 @@ export const DEFAULT_PLAYABILITY_CONFIG: RailPlayabilityConfig = {
   pool_growth_per_refresh: 10,
   pool_max: null,
   grow_per_pass: 20,
-  growth_quota: 20,
-  growth_attempt_budget: 80,
 };
 
 function asRecord(value: unknown, context: string): Record<string, unknown> {
@@ -264,24 +258,7 @@ function readPlayability(record: Record<string, unknown>, context: string): Rail
     grow_per_pass: readPositiveInteger(
       playability,
       'grow_per_pass',
-      readPositiveInteger(
-        playability,
-        'growth_quota',
-        DEFAULT_PLAYABILITY_CONFIG.grow_per_pass,
-        `${context}.playability`,
-      ),
-      `${context}.playability`,
-    ),
-    growth_quota: readPositiveInteger(
-      playability,
-      'growth_quota',
-      DEFAULT_PLAYABILITY_CONFIG.growth_quota,
-      `${context}.playability`,
-    ),
-    growth_attempt_budget: readPositiveInteger(
-      playability,
-      'growth_attempt_budget',
-      DEFAULT_PLAYABILITY_CONFIG.growth_attempt_budget,
+      DEFAULT_PLAYABILITY_CONFIG.grow_per_pass,
       `${context}.playability`,
     ),
   };

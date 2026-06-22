@@ -1,7 +1,8 @@
 #!/usr/bin/env -S npm --prefix src/catalog-service exec tsx --
 
 import { CatalogCore } from '../../src/catalog-service/src/core.js';
-import { refreshAllRails, type RefreshMode } from '../../src/catalog-service/src/playability/refresh.js';
+import { refreshAllRails } from '../../src/catalog-service/src/playability/refresh.js';
+import { normalizeRefreshMode } from '../../src/catalog-service/src/playability/grow-target.js';
 import { topUpRail } from '../../src/catalog-service/src/playability/top-up.js';
 import { verifyTitle } from '../../src/catalog-service/src/playability/verify.js';
 
@@ -11,7 +12,7 @@ function usage(): never {
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
     '  playability-indexer.ts top-up --rail <rail-id> [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
-    '  playability-indexer.ts refresh --all [--mode full|stale|growth] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts refresh --all [--mode grow|stale] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
   ].join('\n'));
   process.exit(2);
 }
@@ -33,12 +34,13 @@ function readPositiveIntegerFlag(args: string[], name: string): number | undefin
   return parsed;
 }
 
-function readRefreshMode(args: string[]): RefreshMode {
+function readRefreshMode(args: string[]) {
   const value = readFlag(args, '--mode') ?? 'stale';
-  if (value === 'full' || value === 'stale' || value === 'growth' || value === 'grow') {
-    return value;
+  try {
+    return normalizeRefreshMode(value);
+  } catch {
+    usage();
   }
-  usage();
 }
 
 async function writeJsonAndExit(value: unknown, exitCode: number): Promise<never> {

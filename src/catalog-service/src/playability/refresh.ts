@@ -33,20 +33,23 @@ import {
   playabilityMaxIngestScan,
 } from './config.js';
 import {
-  createGrowthPassState,
   effectiveCandidateLimit,
-  effectiveGrowthAttemptBudget,
   effectivePoolTarget,
-  type GrowthPassState,
 } from './pool-growth.js';
 import { growRail } from './grow-rail.js';
-import { isGrowRefreshMode, resolveGrowPreset, type GrowPresetId } from './grow-target.js';
+import {
+  isGrowRefreshMode,
+  normalizeRefreshMode,
+  resolveGrowPreset,
+  type GrowPresetId,
+  type RefreshMode,
+} from './grow-target.js';
 import {
   loadSourceOffsetsForListSource,
   persistSourceOffsetsForListSource,
 } from './source-cursors.js';
 
-export type RefreshMode = 'full' | 'stale' | 'growth' | 'grow';
+export type { RefreshMode } from './grow-target.js';
 
 export type RefreshAllOptions = {
   mode?: RefreshMode;
@@ -126,19 +129,16 @@ function railNeedsWork(
   mode: RefreshMode,
   status: PlayabilityRailStatus,
   poolTarget: number,
+  bootstrap: boolean,
 ): boolean {
   if (mode === 'stale') {
     return status.stale > 0;
   }
-  if (mode === 'growth') {
-    return true;
-  }
-  // full = additive growth — ingest new candidates when below pool target only
-  return status.verified_pool < poolTarget;
+  return bootstrap || status.verified_pool < poolTarget;
 }
 
-function usesPaginatedIngest(mode: RefreshMode): boolean {
-  return mode === 'full' || mode === 'growth' || mode === 'grow';
+function usesBootstrapIngest(bootstrap: boolean): boolean {
+  return bootstrap;
 }
 
 function growResultToRailSummary(
@@ -233,10 +233,10 @@ export async function refreshAllRails(
   core: CatalogCore,
   options: RefreshAllOptions = {},
 ): Promise<RefreshAllResult> {
-  const mode = options.mode ?? 'stale';
+  const mode = normalizeRefreshMode(options.mode);
   const bootstrap = options.bootstrap ?? playabilityBootstrapFill();
   if (isGrowRefreshMode(mode, bootstrap)) {
-    return refreshAllRailsGrow(core, options);
+    return refreshAllRailsGrow(core, { ...options, mode });
   }
 
   const startedAt = Date.now();
@@ -251,9 +251,6 @@ export async function refreshAllRails(
   const railPoolKeys = await getRailPoolTitleKeysBulk(railIds);
   const beforeByRail = new Map(status.rails.map((rail) => [rail.rail_id, rail]));
 
-  const growthPass: GrowthPassState | undefined = mode === 'growth'
-    ? createGrowthPassState(rails as BrowsableRail[])
-    : undefined;
   const refsByKey = new Map<string, RailCandidateRef[]>();
   const candidatesSeenByRail = new Map<string, number>();
   const ingestStatsByRail = new Map<string, IngestCandidatesStats>();
@@ -271,11 +268,11 @@ export async function refreshAllRails(
       failed: 0,
       last_verified_at: null,
     };
-    return railNeedsWork(mode, before, poolTarget);
+    return railNeedsWork(mode, before, poolTarget, bootstrap);
   });
 
   const freshPerRail = playabilityFreshPerRail();
-  const ingestOffsets = usesPaginatedIngest(mode)
+  const ingestOffsets = usesBootstrapIngest(bootstrap)
     ? await getRailIngestOffsetsBulk(railsToFetch.map((rail) => rail.id))
     : new Map<string, number>();
 
@@ -288,15 +285,12 @@ export async function refreshAllRails(
     const poolTarget = railPoolTargets.get(rail.id) ?? rail.playability.pool_target;
     let candidates;
 
-    if (usesPaginatedIngest(mode)) {
-      const freshTarget = mode === 'growth'
-        ? effectiveGrowthAttemptBudget(rail.playability)
-        : freshPerRail;
+    if (usesBootstrapIngest(bootstrap)) {
       const sourceOffsets = await loadSourceOffsetsForListSource(rail.id, source);
       const ingested = await ingestPaginatedCandidates(source, {
         startOffset: sourceOffsets ? 0 : (ingestOffsets.get(rail.id) ?? 0),
         sourceOffsets,
-        freshTarget,
+        freshTarget: freshPerRail,
         pageSize: playabilityIngestPageSize(),
         maxScanned: playabilityMaxIngestScan(),
         lookupTitles: getTitlesPlayabilityBulk,
@@ -357,8 +351,7 @@ export async function refreshAllRails(
     railPoolTargets,
     railPoolKeys,
     staleKeys,
-    refreshMode: mode,
-    growthPass,
+    refreshMode: bootstrap ? 'full' : mode,
     context,
   });
 
@@ -371,8 +364,7 @@ export async function refreshAllRails(
     results: [] as Awaited<ReturnType<typeof processVerifyQueue>>['results'],
   };
 
-  const skipVerifyQueue = mode !== 'stale'
-    && mode !== 'growth'
+  const skipVerifyQueue = bootstrap
     && playabilityEarlyExitMinDisplay()
     && allRailsMeetMinDisplay(railVerifiedCounts, railMinDisplays);
 
@@ -384,8 +376,7 @@ export async function refreshAllRails(
       railPoolTargets,
       railMinDisplays,
       railPoolKeys,
-      earlyExitMinDisplay: mode === 'growth' ? false : playabilityEarlyExitMinDisplay(),
-      growthPass,
+      earlyExitMinDisplay: playabilityEarlyExitMinDisplay(),
       context,
     });
   }
@@ -428,10 +419,9 @@ export async function refreshAllRails(
     const railResults = [...linked.results, ...processed.results].filter((result) => (
       result.rails?.includes(rail.id)
     ));
-    const verifiedAdded = growthPass
-      ? (growthPass.verifiedAddedThisPass.get(rail.id) ?? 0)
-      : railResults.filter((result) => result.action === 'verified' || result.action === 'reverified').length;
-    const growthQuota = growthPass?.quotas.get(rail.id);
+    const verifiedAdded = railResults.filter(
+      (result) => result.action === 'verified' || result.action === 'reverified',
+    ).length;
     const ingestStats = ingestStatsByRail.get(rail.id);
     railSummaries.push({
       rail_id: rail.id,
@@ -439,19 +429,15 @@ export async function refreshAllRails(
       ok: after.verified_pool >= rail.playability.min_display,
       before,
       after,
-      candidate_limit: mode === 'growth'
-        ? effectiveGrowthAttemptBudget(rail.playability)
-        : (options.candidateLimit
-          ?? effectiveCandidateLimit(
-            rail.limit,
-            rail.playability.ingest_multiplier,
-            verified,
-            poolTarget,
-          )),
+      candidate_limit: options.candidateLimit
+        ?? effectiveCandidateLimit(
+          rail.limit,
+          rail.playability.ingest_multiplier,
+          verified,
+          poolTarget,
+        ),
       pool_target: poolTarget,
-      growth_quota: growthQuota,
       verified_added: verifiedAdded,
-      growth_quota_met: growthQuota !== undefined ? verifiedAdded >= growthQuota : undefined,
       min_display: rail.playability.min_display,
       candidates_seen: candidatesSeenByRail.get(rail.id) ?? 0,
       linked_existing: railResults.filter((result) => result.action === 'linked_existing').length,
@@ -459,11 +445,7 @@ export async function refreshAllRails(
       failed: railResults.filter((result) => result.action === 'failed').length,
       skipped_existing: railResults.filter((result) => result.action === 'skipped_existing').length,
       skipped_recent_failed: railResults.filter((result) => result.action === 'skipped_recent_failed').length,
-      exhausted: mode === 'growth'
-        ? (growthQuota !== undefined
-          && verifiedAdded < growthQuota
-          && Boolean(ingestStats?.catalog_exhausted))
-        : after.verified_pool < poolTarget,
+      exhausted: bootstrap ? after.verified_pool < poolTarget : false,
       ingest: ingestStats,
     });
   }

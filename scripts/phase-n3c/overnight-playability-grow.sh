@@ -339,7 +339,7 @@ run_chunk() {
   set +e
   npm --prefix "$REPO_DIR/src/catalog-service" exec tsx -- \
     "$REPO_DIR/scripts/phase-n3c/playability-indexer.ts" \
-    refresh --all --mode full \
+    refresh --all --mode grow \
     >"$json_file" 2>"$err_file"
   local rc=$?
   set -e

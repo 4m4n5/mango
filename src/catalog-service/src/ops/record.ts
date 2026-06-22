@@ -30,9 +30,7 @@ export function recordRefreshOps(
 ): void {
   const deltas = deltasFromRefresh(result);
   const totalAdded = deltas.reduce((sum, delta) => sum + delta.verified_added, 0);
-  const kind = result.mode === 'growth' || result.mode === 'grow' || result.mode === 'full'
-    ? 'playability_growth'
-    : 'playability_refresh';
+  const kind = result.mode === 'grow' ? 'playability_growth' : 'playability_refresh';
   appendOpsEvent(
     kind,
     `${result.mode} refresh: ${totalAdded >= 0 ? '+' : ''}${totalAdded} verified across ${deltas.filter((d) => d.verified_added !== 0).length} rails (${summarizeRailDeltas(deltas)})`,

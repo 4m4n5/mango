@@ -6,46 +6,13 @@ export type PoolTargetOptions = {
   bootstrap?: boolean;
 };
 
-/** Per-rail growth pass state — quota-driven verification (Phase 2). */
+/** Per-rail grow session probe counter (growRail inner loop). */
 export type GrowthPassState = {
   quotas: Map<string, number>;
   verifiedAddedThisPass: Map<string, number>;
-  attemptBudgets: Map<string, number>;
 };
 
 const UNBOUNDED_POOL_MAX = Number.MAX_SAFE_INTEGER;
-
-function growthQuotaOverride(yamlQuota: number): number {
-  const raw = process.env.MANGO_PLAYABILITY_GROWTH_QUOTA;
-  if (raw === undefined || raw === '') {
-    return yamlQuota;
-  }
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    return yamlQuota;
-  }
-  return Math.min(parsed, 200);
-}
-
-function attemptBudgetOverride(yamlBudget: number): number {
-  const raw = process.env.MANGO_PLAYABILITY_GROWTH_ATTEMPT_BUDGET;
-  if (raw === undefined || raw === '') {
-    return yamlBudget;
-  }
-  const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed < 1) {
-    return yamlBudget;
-  }
-  return Math.min(parsed, 1000);
-}
-
-export function effectiveGrowthQuota(playability: RailPlayabilityConfig): number {
-  return growthQuotaOverride(playability.growth_quota);
-}
-
-export function effectiveGrowthAttemptBudget(playability: RailPlayabilityConfig): number {
-  return attemptBudgetOverride(playability.growth_attempt_budget);
-}
 
 export function createGrowthPassState(
   rails: BrowsableRail[],
@@ -53,16 +20,11 @@ export function createGrowthPassState(
 ): GrowthPassState {
   const quotas = new Map<string, number>();
   const verifiedAddedThisPass = new Map<string, number>();
-  const attemptBudgets = new Map<string, number>();
   for (const rail of rails) {
-    quotas.set(
-      rail.id,
-      targetsByRail?.get(rail.id) ?? effectiveGrowthQuota(rail.playability),
-    );
+    quotas.set(rail.id, targetsByRail?.get(rail.id) ?? 0);
     verifiedAddedThisPass.set(rail.id, 0);
-    attemptBudgets.set(rail.id, effectiveGrowthAttemptBudget(rail.playability));
   }
-  return { quotas, verifiedAddedThisPass, attemptBudgets };
+  return { quotas, verifiedAddedThisPass };
 }
 
 export function railMeetsGrowthQuota(
@@ -86,7 +48,7 @@ export function incrementGrowthPassVerified(
   }
 }
 
-/** Per-refresh pool goal: grow by pool_growth_per_refresh unless legacy (growth=0). */
+/** Bootstrap / incremental top-up pool goal (not used by growRail). */
 export function effectivePoolTarget(
   playability: RailPlayabilityConfig,
   currentVerified: number,

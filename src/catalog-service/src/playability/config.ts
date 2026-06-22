@@ -149,11 +149,18 @@ export function playabilityMaxIngestScan(): number {
 }
 
 export function isPlayabilityGrowthMode(mode?: string): boolean {
-  if (mode === 'growth' || mode === 'grow') {
+  if (mode === 'grow') {
+    return true;
+  }
+  if (mode === 'growth' || mode === 'full') {
+    console.warn(`playability: growth mode "${mode}" is deprecated — use "grow"`);
     return true;
   }
   const refreshMode = process.env.MANGO_PLAYABILITY_REFRESH_MODE;
-  if (refreshMode === 'growth' || refreshMode === 'grow') {
+  if (refreshMode === 'grow' || refreshMode === 'nightly') {
+    return true;
+  }
+  if (refreshMode === 'growth' || refreshMode === 'full') {
     return true;
   }
   return process.env.MANGO_PLAYABILITY_GROWTH_MODE === '1';

@@ -28,7 +28,7 @@ for rail in catalog.get("rails") or []:
     if rail.get("type") not in {"addon_catalog", "composite_list"}:
         continue
     play = rail.get("playability") or {}
-    assert play.get("growth_quota", 0) >= 20, f"{rail['id']} missing growth_quota"
+    assert play.get("grow_per_pass", 0) >= 20, f"{rail['id']} missing grow_per_pass"
 print("catalog growth config ok")
 PY
 

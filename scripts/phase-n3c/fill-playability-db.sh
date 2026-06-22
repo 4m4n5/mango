@@ -118,7 +118,7 @@ rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
 export MANGO_PLAYABILITY_BOOTSTRAP=1
 export MANGO_MAINTENANCE_SKIP_GATE=1
 export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_FILL_CANDIDATE_LIMIT:-250}"
-bash scripts/phase-n3c/playability-maintenance.sh --mode full --bootstrap
+bash scripts/phase-n3c/playability-maintenance.sh --mode grow --bootstrap
 
 if [[ "$POOL_TOPUP" == "1" ]]; then
   echo
@@ -128,7 +128,7 @@ if [[ "$POOL_TOPUP" == "1" ]]; then
   export MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY=0
   export MANGO_MAINTENANCE_SKIP_GATE=1
   export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_FILL_CANDIDATE_LIMIT:-250}"
-  bash scripts/phase-n3c/playability-maintenance.sh --mode full
+  bash scripts/phase-n3c/playability-maintenance.sh --mode grow
 fi
 
 echo

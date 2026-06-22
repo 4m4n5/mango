@@ -21,19 +21,14 @@ case "$LEVEL" in
     exec bash scripts/phase-n3c/playability-maintenance.sh --mode stale
     ;;
   topup_low_rails)
-    exec bash scripts/phase-n3c/playability-maintenance.sh --mode full
+    exec bash scripts/phase-n3c/playability-maintenance.sh --mode grow
     ;;
   quick_topup)
     exec bash scripts/phase-n3c/quick-playability-topup.sh --detach
     ;;
-  full_maintenance)
-    export MANGO_PLAYABILITY_FRESH_PER_RAIL="${MANGO_PLAYABILITY_FRESH_PER_RAIL:-40}"
-    export MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH="${MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH:-15}"
-    export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_PLAYABILITY_CANDIDATE_LIMIT:-250}"
-    exec bash scripts/phase-n3c/playability-maintenance.sh --mode full
-    ;;
-  growth_pass)
-    exec bash scripts/phase-n3c/playability-maintenance.sh --mode growth
+  full_maintenance|growth_pass)
+    export MANGO_GROW_PRESET="${MANGO_GROW_PRESET:-nightly}"
+    exec bash scripts/phase-n3c/playability-maintenance.sh --mode nightly
     ;;
   overnight_grow)
     exec bash scripts/phase-n3c/overnight-playability-grow.sh --detach

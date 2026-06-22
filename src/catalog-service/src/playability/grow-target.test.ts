@@ -5,6 +5,7 @@ import {
   effectiveGrowPerPass,
   GROW_PRESETS,
   isGrowRefreshMode,
+  normalizeRefreshMode,
   resolveGrowPreset,
   resolveGrowTarget,
 } from './grow-target.js';
@@ -18,8 +19,6 @@ const base: RailPlayabilityConfig = {
   pool_growth_per_refresh: 10,
   pool_max: null,
   grow_per_pass: 20,
-  growth_quota: 20,
-  growth_attempt_budget: 80,
 };
 
 test('resolveGrowTarget doubles when verified pool is below display_limit', () => {
@@ -28,10 +27,8 @@ test('resolveGrowTarget doubles when verified pool is below display_limit', () =
   assert.equal(resolveGrowTarget(base, 50), 20);
 });
 
-test('effectiveGrowPerPass prefers grow_per_pass and honors env override', () => {
+test('effectiveGrowPerPass defaults from yaml and honors env override', () => {
   assert.equal(effectiveGrowPerPass(base), 20);
-  const withLegacy = { ...base, grow_per_pass: 25, growth_quota: 20 };
-  assert.equal(effectiveGrowPerPass(withLegacy), 25);
   const previous = process.env.MANGO_GROW_PER_PASS;
   process.env.MANGO_GROW_PER_PASS = '30';
   try {
@@ -58,7 +55,14 @@ test('resolveGrowPreset defaults to nightly', () => {
   }
 });
 
-test('isGrowRefreshMode maps full and growth to grow unless bootstrap', () => {
+test('normalizeRefreshMode maps deprecated full and growth to grow', () => {
+  assert.equal(normalizeRefreshMode('grow'), 'grow');
+  assert.equal(normalizeRefreshMode('stale'), 'stale');
+  assert.equal(normalizeRefreshMode('full'), 'grow');
+  assert.equal(normalizeRefreshMode('growth'), 'grow');
+});
+
+test('isGrowRefreshMode treats grow aliases unless bootstrap', () => {
   assert.equal(isGrowRefreshMode('full'), true);
   assert.equal(isGrowRefreshMode('growth'), true);
   assert.equal(isGrowRefreshMode('grow'), true);

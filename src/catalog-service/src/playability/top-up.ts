@@ -75,12 +75,12 @@ export type TopUpRailResult = {
   }>;
 };
 
-export type TopUpRailMode = 'incremental' | 'grow' | 'full' | 'growth';
+export type TopUpRailMode = 'incremental' | 'grow';
 
 export type TopUpRailOptions = GrowRailOptions & {
   poolTarget?: number;
   candidateLimit?: number;
-  mode?: TopUpRailMode;
+  mode?: TopUpRailMode | 'full' | 'growth';
 };
 
 function resolveTopUpMode(options: TopUpRailOptions): 'incremental' | 'grow' {
@@ -88,6 +88,9 @@ function resolveTopUpMode(options: TopUpRailOptions): 'incremental' | 'grow' {
     return 'incremental';
   }
   if (options.mode === 'grow' || options.mode === 'full' || options.mode === 'growth') {
+    if (options.mode === 'full' || options.mode === 'growth') {
+      console.warn(`playability: top-up mode "${options.mode}" is deprecated — use "grow"`);
+    }
     return 'grow';
   }
   if (isPlayabilityGrowthMode()) {

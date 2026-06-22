@@ -83,7 +83,8 @@ run_topup() {
   rm -f "${CACHE_DIR}/playability-maintenance.lock"
 
   set +e
-  bash "$REPO_DIR/scripts/phase-n3c/playability-maintenance.sh" --mode full >>"$LOG" 2>&1
+  export MANGO_GROW_PRESET=quick
+  bash "$REPO_DIR/scripts/phase-n3c/playability-maintenance.sh" --mode grow >>"$LOG" 2>&1
   local rc=$?
   set -e
 

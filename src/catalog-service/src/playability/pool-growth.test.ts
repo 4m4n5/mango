@@ -5,8 +5,6 @@ import {
   createGrowthPassState,
   effectiveCandidateLimit,
   effectiveDisplayLimit,
-  effectiveGrowthAttemptBudget,
-  effectiveGrowthQuota,
   effectivePoolTarget,
   incrementGrowthPassVerified,
   railMeetsGrowthQuota,
@@ -21,8 +19,6 @@ const base: RailPlayabilityConfig = {
   pool_growth_per_refresh: 10,
   pool_max: 120,
   grow_per_pass: 20,
-  growth_quota: 20,
-  growth_attempt_budget: 80,
 };
 
 test('effectivePoolTarget grows by pool_growth_per_refresh', () => {
@@ -60,21 +56,6 @@ test('effectivePoolTarget legacy mode caps at pool_target when growth is 0', () 
   assert.equal(effectivePoolTarget(legacy, 40), 20);
 });
 
-test('effectiveGrowthQuota defaults from yaml and honors env override', () => {
-  assert.equal(effectiveGrowthQuota(base), 20);
-  const previous = process.env.MANGO_PLAYABILITY_GROWTH_QUOTA;
-  process.env.MANGO_PLAYABILITY_GROWTH_QUOTA = '25';
-  try {
-    assert.equal(effectiveGrowthQuota(base), 25);
-  } finally {
-    if (previous === undefined) {
-      delete process.env.MANGO_PLAYABILITY_GROWTH_QUOTA;
-    } else {
-      process.env.MANGO_PLAYABILITY_GROWTH_QUOTA = previous;
-    }
-  }
-});
-
 test('growth pass tracks verified additions until quota met', () => {
   const growthPass = createGrowthPassState([{
     id: 'movies-classics',
@@ -87,7 +68,7 @@ test('growth pass tracks verified additions until quota met', () => {
     limit: 20,
     enabled: true,
     playability: base,
-  }]);
+  }], new Map([['movies-classics', 20]]));
   assert.equal(growthPass.quotas.get('movies-classics'), 20);
   assert.equal(railMeetsGrowthQuota(growthPass, 'movies-classics'), false);
   incrementGrowthPassVerified(growthPass, ['movies-classics']);
@@ -96,10 +77,6 @@ test('growth pass tracks verified additions until quota met', () => {
     incrementGrowthPassVerified(growthPass, ['movies-classics']);
   }
   assert.equal(railMeetsGrowthQuota(growthPass, 'movies-classics'), true);
-});
-
-test('effectiveGrowthAttemptBudget defaults to yaml value', () => {
-  assert.equal(effectiveGrowthAttemptBudget(base), 80);
 });
 
 test('effectiveDisplayLimit grows slowly toward display_max', () => {

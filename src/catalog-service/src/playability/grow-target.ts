@@ -27,10 +27,26 @@ function growPerPassOverride(yamlValue: number): number {
   return Math.min(parsed, 200);
 }
 
-/** Base verified titles to add per grow session (yaml grow_per_pass or growth_quota). */
+/** Base verified titles to add per grow session (yaml grow_per_pass). */
 export function effectiveGrowPerPass(playability: RailPlayabilityConfig): number {
-  const yamlValue = playability.grow_per_pass ?? playability.growth_quota;
-  return growPerPassOverride(yamlValue);
+  return growPerPassOverride(playability.grow_per_pass);
+}
+
+export type RefreshMode = 'grow' | 'stale';
+
+const DEPRECATED_REFRESH_MODES = new Set(['full', 'growth']);
+
+/** Normalize CLI/API refresh mode — full and growth alias to grow. */
+export function normalizeRefreshMode(mode: string | undefined, fallback: RefreshMode = 'stale'): RefreshMode {
+  const value = (mode ?? fallback).trim();
+  if (value === 'grow' || value === 'stale') {
+    return value;
+  }
+  if (DEPRECATED_REFRESH_MODES.has(value)) {
+    console.warn(`playability: refresh mode "${value}" is deprecated — use "grow" or "stale"`);
+    return 'grow';
+  }
+  throw new Error(`unsupported playability refresh mode: ${value}`);
 }
 
 /**
@@ -58,5 +74,11 @@ export function isGrowRefreshMode(mode: string | undefined, bootstrap = false): 
   if (bootstrap) {
     return false;
   }
-  return mode === 'grow' || mode === 'growth' || mode === 'full';
+  if (!mode) {
+    return false;
+  }
+  if (DEPRECATED_REFRESH_MODES.has(mode)) {
+    return true;
+  }
+  return mode === 'grow';
 }
