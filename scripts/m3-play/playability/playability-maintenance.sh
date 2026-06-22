@@ -243,13 +243,6 @@ fi
 trap - EXIT
 restore_couch
 
-echo "maintenance complete"
-python3 "$REPO_DIR/scripts/diag/grow_monitor.py" status 2>/dev/null || true
-python3 "$REPO_DIR/scripts/diag/playability-status.py" 2>/dev/null | tail -20 || true
-if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]]; then
-  python3 "$REPO_DIR/scripts/diag/grow_monitor.py" assess 2>/dev/null || true
-fi
-
 REFRESH_OUT="${OPS_DIR}/refresh-${RUN_ID}.json"
 if echo "$REFRESH_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
   echo "$REFRESH_JSON" > "$REFRESH_OUT"
@@ -260,4 +253,11 @@ if echo "$REFRESH_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/
     --write-report \
     --summary "maintenance mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))" \
     --payload-file "$REFRESH_OUT"
+fi
+
+echo "maintenance complete"
+python3 "$REPO_DIR/scripts/diag/grow_monitor.py" status 2>/dev/null || true
+python3 "$REPO_DIR/scripts/diag/playability-status.py" 2>/dev/null | tail -20 || true
+if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]] && [[ -f "$REFRESH_OUT" ]]; then
+  python3 "$REPO_DIR/scripts/diag/grow_monitor.py" assess --refresh-json "$REFRESH_OUT" 2>/dev/null || true
 fi

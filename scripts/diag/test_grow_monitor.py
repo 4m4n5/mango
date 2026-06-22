@@ -14,9 +14,11 @@ from grow_monitor import (
     _normalize_baseline,
     build_live_status,
     fetch_verified_pool_counts,
+    format_live_status,
     load_baseline,
     write_baseline,
 )
+from ops_grow_sla import list_grow_rail_ids
 
 
 class GrowMonitorTests(unittest.TestCase):
@@ -26,22 +28,61 @@ class GrowMonitorTests(unittest.TestCase):
             "_total": 50,
             "movies-global-popular": 30,
             "series-classics": 20,
+            "popular-global": 7,
         }
         normalized = _normalize_baseline(raw)
         self.assertEqual(normalized["schema_version"], SCHEMA_VERSION)
-        self.assertEqual(normalized["verified_pool"], 50)
-        self.assertEqual(normalized["rails"]["movies-global-popular"], 30)
+        self.assertIn("grow_rail_ids", normalized)
+        self.assertNotIn("popular-global", normalized["rails"])
 
     def test_normalize_nested_baseline(self) -> None:
         raw = {
-            "schema_version": 1,
+            "schema_version": 2,
             "created_at_ms": 2000,
             "verified_pool": 498,
-            "rails": {"movies-global-popular": 57},
+            "grow_rail_ids": ["movies-global-popular", "ai-horror"],
+            "rails": {"movies-global-popular": 57, "ai-horror": 32},
         }
         normalized = _normalize_baseline(raw)
-        self.assertEqual(normalized["verified_pool"], 498)
-        self.assertEqual(normalized["rails"]["movies-global-popular"], 57)
+        self.assertEqual(normalized["verified_pool"], 89)
+        self.assertEqual(normalized["rails"]["ai-horror"], 32)
+
+    def test_fetch_excludes_expired_verified(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "playability.db"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE titles (
+                  type TEXT, id TEXT, status TEXT, verified_at INTEGER,
+                  expires_at INTEGER, fail_reason TEXT, best_source TEXT,
+                  cache_status TEXT, debrid_service TEXT, probe_ms INTEGER,
+                  win_url_hash TEXT, win_ladder_step TEXT, updated_at INTEGER,
+                  PRIMARY KEY (type, id)
+                );
+                CREATE TABLE rail_pool (
+                  rail_id TEXT, type TEXT, id TEXT, score INTEGER,
+                  ingested_at INTEGER, title TEXT, poster_url TEXT, year TEXT,
+                  PRIMARY KEY (rail_id, type, id)
+                );
+                INSERT INTO titles VALUES (
+                  'movie','fresh','verified',0,9999999999999,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0
+                );
+                INSERT INTO titles VALUES (
+                  'movie','stale','verified',0,1,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0
+                );
+                INSERT INTO rail_pool VALUES (
+                  'movies-documentaries','movie','fresh',100,0,NULL,NULL,NULL
+                );
+                INSERT INTO rail_pool VALUES (
+                  'movies-documentaries','movie','stale',90,0,NULL,NULL,NULL
+                );
+                """,
+            )
+            conn.close()
+
+            counts = fetch_verified_pool_counts(db, now_ms=1000)
+            self.assertEqual(counts.rails.get("movies-documentaries"), 1)
 
     def test_pool_counts_and_live_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -62,7 +103,7 @@ class GrowMonitorTests(unittest.TestCase):
                   PRIMARY KEY (rail_id, type, id)
                 );
                 INSERT INTO titles VALUES (
-                  'movie','tt1','verified',0,999999999,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0
+                  'movie','tt1','verified',0,9999999999999,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0
                 );
                 INSERT INTO rail_pool VALUES (
                   'movies-global-popular','movie','tt1',100,0,NULL,NULL,NULL
@@ -73,19 +114,26 @@ class GrowMonitorTests(unittest.TestCase):
 
             counts = fetch_verified_pool_counts(db)
             self.assertEqual(counts.total, 1)
-            self.assertEqual(counts.rails["movies-global-popular"], 1)
 
+            grow_ids = ["movies-global-popular", "ai-horror"]
             baseline = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "created_at_ms": 0,
                 "verified_pool": 0,
-                "rails": {"movies-global-popular": 0},
+                "grow_rail_ids": grow_ids,
+                "rails": {"movies-global-popular": 0, "ai-horror": 0},
             }
             status = build_live_status(baseline, catalog={}, db_file=db)
+            self.assertEqual(status["rails_total"], 2)
             self.assertEqual(status["verified_pool"], 1)
             self.assertEqual(status["verified_pool_delta"], 1)
-            rail = status["rails"][0]
-            self.assertEqual(rail["pool_growth"], 1)
+            self.assertEqual(status["rails"][0]["rail_id"], "movies-global-popular")
+            self.assertEqual(status["rails"][1]["rail_id"], "ai-horror")
+            self.assertEqual(status["rails"][1]["pool_growth"], 0)
+
+            text = format_live_status(status)
+            self.assertIn("ai-horror", text)
+            self.assertIn("movies-global-popular", text)
 
     def test_write_and_load_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -107,10 +155,13 @@ class GrowMonitorTests(unittest.TestCase):
                   PRIMARY KEY (rail_id, type, id)
                 );
                 INSERT INTO titles VALUES (
-                  'movie','tt2','verified',0,999999999,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0
+                  'movie','tt2','verified',0,9999999999999,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0
                 );
                 INSERT INTO rail_pool VALUES (
                   'movies-comedy','movie','tt2',100,0,NULL,NULL,NULL
+                );
+                INSERT INTO rail_pool VALUES (
+                  'popular-global','movie','tt2',100,0,NULL,NULL,NULL
                 );
                 """,
             )
@@ -120,15 +171,53 @@ class GrowMonitorTests(unittest.TestCase):
 
             os.environ["MANGO_PLAYABILITY_DB"] = str(db)
             os.environ["MANGO_GROW_BASELINE"] = str(baseline_file)
+            os.environ["MANGO_CATALOG_YAML"] = str(Path(tmp) / "missing.yaml")
             try:
                 written = write_baseline(db)
-                self.assertEqual(written["verified_pool"], 1)
+                self.assertNotIn("popular-global", written["rails"])
+                self.assertIn("grow_rail_ids", written)
                 loaded = load_baseline()
                 assert loaded is not None
-                self.assertEqual(loaded["rails"]["movies-comedy"], 1)
+                self.assertEqual(loaded["grow_rail_ids"], written["grow_rail_ids"])
             finally:
                 os.environ.pop("MANGO_PLAYABILITY_DB", None)
                 os.environ.pop("MANGO_GROW_BASELINE", None)
+                os.environ.pop("MANGO_CATALOG_YAML", None)
+
+    def test_list_grow_rail_ids_orders_ai_last(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            catalog = Path(tmp) / "catalog.yaml"
+            ai_dir = Path(tmp) / "ai-catalogs"
+            ai_dir.mkdir()
+            catalog.write_text(
+                """
+rails:
+  - id: movies-global-popular
+    enabled: true
+    type: composite_list
+    playability: { display_limit: 9, grow_per_pass: 20 }
+  - id: featured-global
+    enabled: false
+    type: addon_catalog
+    playability: { display_limit: 9, grow_per_pass: 20 }
+""",
+                encoding="utf-8",
+            )
+            (ai_dir / "horror.json").write_text(
+                json.dumps({"slot_id": "horror", "enabled": True, "playability": {"grow_per_pass": 20}}),
+                encoding="utf-8",
+            )
+            import os
+
+            os.environ["MANGO_CATALOG_YAML"] = str(catalog)
+            os.environ["MANGO_AI_CATALOGS_DIR"] = str(ai_dir)
+            try:
+                ids = list_grow_rail_ids()
+                self.assertEqual(ids[-1], "ai-horror")
+                self.assertNotIn("featured-global", ids)
+            finally:
+                os.environ.pop("MANGO_CATALOG_YAML", None)
+                os.environ.pop("MANGO_AI_CATALOGS_DIR", None)
 
 
 if __name__ == "__main__":

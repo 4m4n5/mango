@@ -21,14 +21,16 @@ from ops_grow_sla import (  # noqa: E402
     assess_rail_sla,
     collect_grow_rail_rows,
     format_grow_sla_section,
+    list_grow_rail_ids,
     load_catalog_playability,
     resolve_grow_target,
     summarize_grow_sla,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_BASELINE = "grow-baseline.json"
 GROW_INDEXER_PATTERN = "playability-indexer.ts refresh"
+REFRESH_JSON_GLOB = "refresh-playability-*.json"
 
 
 def cache_dir() -> Path:
@@ -95,7 +97,7 @@ def detect_grow_state() -> dict[str, Any]:
     indexer_lines = _pgrep(GROW_INDEXER_PATTERN)
     maintenance_lines = [
         line for line in _pgrep("playability-maintenance.sh")
-        if "playability-maintenance.sh --mode" in line or "playability-maintenance.sh --mode" in line
+        if "--mode" in line
     ]
 
     running = pid_alive or bool(indexer_lines) or bool(maintenance_lines)
@@ -126,36 +128,43 @@ def _latest_grow_log() -> str | None:
     return str(candidates[-1]) if candidates else None
 
 
-def _latest_refresh_json() -> Path | None:
+def _latest_refresh_json(after_ms: int | None = None) -> Path | None:
     files = sorted(
-        ops_dir().glob("refresh-playability-*.json"),
+        ops_dir().glob(REFRESH_JSON_GLOB),
         key=lambda path: path.stat().st_mtime,
     )
+    if after_ms is not None:
+        files = [path for path in files if int(path.stat().st_mtime * 1000) >= after_ms]
     return files[-1] if files else None
 
 
 def _normalize_baseline(raw: dict[str, Any]) -> dict[str, Any]:
     """Accept legacy flat rail maps and current nested schema."""
-    if "rails" in raw and isinstance(raw["rails"], dict):
-        rails = {str(k): int(v) for k, v in raw["rails"].items()}
-        verified_pool = int(raw.get("verified_pool") or sum(rails.values()))
-        return {
-            "schema_version": int(raw.get("schema_version") or SCHEMA_VERSION),
-            "created_at_ms": int(raw.get("created_at_ms") or raw.get("ts") or 0),
-            "verified_pool": verified_pool,
-            "rails": rails,
-        }
+    grow_rail_ids = raw.get("grow_rail_ids")
+    if isinstance(grow_rail_ids, list):
+        ordered_ids = [str(rid) for rid in grow_rail_ids]
+    else:
+        ordered_ids = list_grow_rail_ids()
 
-    rails: dict[str, int] = {}
-    for key, value in raw.items():
-        if key.startswith("_") or key in {"ts", "verified_pool", "schema_version", "created_at_ms"}:
-            continue
-        if isinstance(value, int):
-            rails[str(key)] = value
+    if "rails" in raw and isinstance(raw["rails"], dict):
+        all_rails = {str(k): int(v) for k, v in raw["rails"].items()}
+    else:
+        all_rails = {}
+        for key, value in raw.items():
+            if key.startswith("_") or key in {
+                "ts", "verified_pool", "schema_version", "created_at_ms", "grow_rail_ids",
+            }:
+                continue
+            if isinstance(value, int):
+                all_rails[str(key)] = value
+
+    rails = {rid: all_rails.get(rid, 0) for rid in ordered_ids}
+    verified_pool = sum(rails.values())
     return {
-        "schema_version": SCHEMA_VERSION,
-        "created_at_ms": int(raw.get("ts") or raw.get("created_at_ms") or 0),
-        "verified_pool": int(raw.get("verified_pool") or sum(rails.values())),
+        "schema_version": int(raw.get("schema_version") or SCHEMA_VERSION),
+        "created_at_ms": int(raw.get("created_at_ms") or raw.get("ts") or 0),
+        "verified_pool": verified_pool,
+        "grow_rail_ids": ordered_ids,
         "rails": rails,
     }
 
@@ -174,12 +183,15 @@ def load_baseline() -> dict[str, Any] | None:
 
 
 def write_baseline(db: Path | None = None) -> dict[str, Any]:
+    grow_ids = list_grow_rail_ids()
     counts = fetch_verified_pool_counts(db)
+    rails = {rail_id: counts.rails.get(rail_id, 0) for rail_id in grow_ids}
     baseline = {
         "schema_version": SCHEMA_VERSION,
         "created_at_ms": _now_ms(),
-        "verified_pool": counts.total,
-        "rails": counts.rails,
+        "grow_rail_ids": grow_ids,
+        "verified_pool": sum(rails.values()),
+        "rails": rails,
     }
     path = baseline_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,11 +205,17 @@ class PoolCounts:
     rails: dict[str, int]
 
 
-def fetch_verified_pool_counts(db_file: Path | None = None) -> PoolCounts:
+def fetch_verified_pool_counts(
+    db_file: Path | None = None,
+    *,
+    now_ms: int | None = None,
+) -> PoolCounts:
+    """Count active verified titles per rail (excludes expired verify TTL)."""
     path = db_file or db_path()
     if not path.is_file():
         return PoolCounts(total=0, rails={})
 
+    active_at = now_ms if now_ms is not None else _now_ms()
     conn = sqlite3.connect(path)
     try:
         rows = conn.execute(
@@ -206,9 +224,11 @@ def fetch_verified_pool_counts(db_file: Path | None = None) -> PoolCounts:
             FROM rail_pool rp
             JOIN titles t ON t.type = rp.type AND t.id = rp.id
             WHERE t.status = 'verified'
+              AND (t.expires_at IS NULL OR t.expires_at > ?)
             GROUP BY rp.rail_id
             ORDER BY rp.rail_id
             """,
+            (active_at,),
         ).fetchall()
     finally:
         conn.close()
@@ -277,17 +297,19 @@ def build_live_status(
 ) -> dict[str, Any]:
     if catalog is None:
         catalog = load_catalog_playability()
-    baseline = baseline or {"verified_pool": 0, "rails": {}}
+    baseline = baseline or {"verified_pool": 0, "rails": {}, "grow_rail_ids": list_grow_rail_ids()}
     baseline_rails: dict[str, int] = baseline.get("rails") or {}
+    grow_rail_ids: list[str] = list(baseline.get("grow_rail_ids") or list_grow_rail_ids())
     current = fetch_verified_pool_counts(db_file)
     since_ms = int(baseline.get("created_at_ms") or 0) or (_now_ms() - verify_window_ms)
     verify_stats = fetch_verify_log_stats(since_ms, db_file)
 
-    rail_ids = sorted(set(baseline_rails) | set(current.rails) | set(catalog))
     rows: list[RailLiveStatus] = []
     met_count = 0
+    grow_pool_before = 0
+    grow_pool_now = 0
 
-    for rail_id in rail_ids:
+    for rail_id in grow_rail_ids:
         verified_before = int(baseline_rails.get(rail_id, 0))
         verified_now = int(current.rails.get(rail_id, verified_before))
         pool_growth = verified_now - verified_before
@@ -299,6 +321,8 @@ def build_live_status(
         met = pool_growth >= grow_target
         if met:
             met_count += 1
+        grow_pool_before += verified_before
+        grow_pool_now += verified_now
         rows.append(
             RailLiveStatus(
                 rail_id=rail_id,
@@ -312,18 +336,28 @@ def build_live_status(
             ),
         )
 
+    grow_ids_set = set(grow_rail_ids)
+    extra_rails = {
+        rail_id: count
+        for rail_id, count in sorted(current.rails.items())
+        if rail_id not in grow_ids_set
+    }
+
     browse_count = len(rows)
     pass_rate = met_count / browse_count if browse_count else 0.0
     return {
         "baseline_path": str(baseline_path()),
         "baseline_created_at_ms": baseline.get("created_at_ms"),
-        "verified_pool": current.total,
-        "verified_pool_delta": current.total - int(baseline.get("verified_pool") or 0),
+        "grow_rail_ids": grow_rail_ids,
+        "verified_pool": grow_pool_now,
+        "verified_pool_delta": grow_pool_now - grow_pool_before,
+        "global_verified_pool": current.total,
         "rails_met_target": met_count,
         "rails_total": browse_count,
         "program_pass_rate": pass_rate,
         "program_pass": pass_rate >= PROGRAM_PASS_RATE if browse_count else False,
         "grow": detect_grow_state(),
+        "extra_rails": extra_rails,
         "rails": [
             {
                 "rail_id": row.rail_id,
@@ -340,13 +374,20 @@ def build_live_status(
     }
 
 
-def format_live_status(data: dict[str, Any]) -> str:
+def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
     grow = data.get("grow") or {}
+    global_pool = data.get("global_verified_pool")
+    pool_line = (
+        f"pool: {data.get('verified_pool', 0)} grow-rail verified "
+        f"(delta {data.get('verified_pool_delta', 0):+d})"
+    )
+    if global_pool is not None and global_pool != data.get("verified_pool"):
+        pool_line += f" · global {global_pool}"
+
     lines = [
         "mango library grower",
         f"baseline: {data.get('baseline_path', '-')}",
-        f"pool: {data.get('verified_pool', 0)} "
-        f"(delta {data.get('verified_pool_delta', 0):+d})",
+        pool_line,
         f"rails +target: {data.get('rails_met_target', 0)}/{data.get('rails_total', 0)} "
         f"({int(round((data.get('program_pass_rate') or 0) * 100))}%)",
         f"running: {'yes' if grow.get('running') else 'no'}"
@@ -368,8 +409,6 @@ def format_live_status(data: dict[str, Any]) -> str:
         verified = int(stats.get("verified", 0))
         no_stream = int(stats.get("no_stream", 0))
         growth = int(row.get("pool_growth") or 0)
-        if growth == 0 and verified == 0 and no_stream == 0 and not row.get("grow_target_met"):
-            continue
         mark = " ✓" if row.get("grow_target_met") else ""
         lines.append(
             f"{str(row.get('rail_id', '-'))[:28]:28} "
@@ -381,6 +420,13 @@ def format_live_status(data: dict[str, Any]) -> str:
             f"{verified:4d} {no_stream:4d}{mark}",
         )
 
+    extra = data.get("extra_rails") or {}
+    if verbose and extra:
+        lines.append("")
+        lines.append("extra pool rails (not in grow pass):")
+        for rail_id, count in extra.items():
+            lines.append(f"  {rail_id}: {count}")
+
     return "\n".join(lines) + "\n"
 
 
@@ -391,7 +437,7 @@ def assess_refresh_json(path: Path, catalog: dict[str, RailPlayabilityConfig] | 
         catalog=catalog,
     )
     if summary is None:
-        return f"no grow rails in {path}\n"
+        return f"no grow rails in {path.name}\n"
     header = f"assess: {path.name}\n"
     return header + format_grow_sla_section(summary)
 
@@ -407,20 +453,21 @@ def cmd_status(args: argparse.Namespace) -> int:
     if baseline is None:
         if not getattr(args, "allow_missing_baseline", False):
             print(
-                f"note: no baseline at {baseline_path()} — showing pool only",
+                f"note: no baseline at {baseline_path()} — showing grow rails only",
                 file=sys.stderr,
             )
         baseline = {
             "schema_version": SCHEMA_VERSION,
             "created_at_ms": _now_ms() - 60 * 60 * 1000,
             "verified_pool": 0,
+            "grow_rail_ids": list_grow_rail_ids(),
             "rails": {},
         }
     data = build_live_status(baseline)
     if args.json:
         print(json.dumps(data, indent=2))
     else:
-        print(format_live_status(data), end="")
+        print(format_live_status(data, verbose=args.verbose), end="")
     return 0
 
 
@@ -429,7 +476,7 @@ def cmd_watch(args: argparse.Namespace) -> int:
     while True:
         polls += 1
         print(f"=== poll {polls} {time.strftime('%H:%M:%S')} ===")
-        rc = cmd_status(argparse.Namespace(json=False, allow_missing_baseline=True))
+        rc = cmd_status(argparse.Namespace(json=False, allow_missing_baseline=True, verbose=False))
         grow = detect_grow_state()
         if not grow["running"]:
             print("grow: not running")
@@ -445,7 +492,14 @@ def cmd_watch(args: argparse.Namespace) -> int:
 
 
 def cmd_assess(args: argparse.Namespace) -> int:
-    path = Path(args.refresh_json).expanduser() if args.refresh_json else _latest_refresh_json()
+    baseline = load_baseline()
+    after_ms = int(baseline.get("created_at_ms") or 0) if baseline else None
+    if args.refresh_json:
+        path = Path(args.refresh_json).expanduser()
+    else:
+        path = _latest_refresh_json(after_ms=after_ms if after_ms else None)
+        if path is None:
+            path = _latest_refresh_json()
     if path is None or not path.is_file():
         print("no refresh-playability JSON found in ops cache", file=sys.stderr)
         return 1
@@ -456,7 +510,11 @@ def cmd_assess(args: argparse.Namespace) -> int:
         summary = summarize_grow_sla(
             [{"kind": "playability_growth", "payload": payload}],
         )
-        print(json.dumps({"path": str(path), "summary": summary.__dict__ if summary else None, "rows": rows}, indent=2, default=str))
+        print(json.dumps({
+            "path": str(path),
+            "summary": summary.__dict__ if summary else None,
+            "rows": rows,
+        }, indent=2, default=str))
     else:
         print(text, end="")
     return 0
@@ -470,6 +528,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="live pool deltas vs baseline")
     status.add_argument("--json", action="store_true")
+    status.add_argument("--verbose", action="store_true", help="include non-grow pool rails")
     status.add_argument(
         "--allow-missing-baseline",
         action="store_true",

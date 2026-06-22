@@ -112,6 +112,26 @@ def load_catalog_playability(path: Path | None = None) -> dict[str, RailPlayabil
     return configs
 
 
+def list_grow_rail_ids(path: Path | None = None) -> list[str]:
+    """Grow-pass rail ids: yaml browse rails in catalog order, then ai-* slots."""
+    catalog_path = path or catalog_playability_path()
+    browse: list[str] = []
+    if catalog_path.exists() and yaml is not None:
+        data = yaml.safe_load(catalog_path.read_text(encoding="utf-8")) or {}
+        for rail in data.get("rails") or []:
+            if rail.get("enabled") is False:
+                continue
+            if rail.get("type") not in {"addon_catalog", "composite_list"}:
+                continue
+            browse.append(str(rail["id"]))
+
+    ai: list[str] = []
+    for rail_id in sorted(load_catalog_playability(catalog_path)):
+        if rail_id.startswith("ai-"):
+            ai.append(rail_id)
+    return browse + ai
+
+
 def _verified_before(row: dict[str, Any]) -> int:
     if row.get("verified_before") is not None:
         return int(row["verified_before"])

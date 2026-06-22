@@ -36,7 +36,9 @@ bash scripts/pi-exec.sh 'cd ~/mango && python3 scripts/diag/grow_monitor.py stat
 bash scripts/m3-play/playability/playability-grow.sh --status
 ```
 
-Baseline file: `~/.cache/mango/grow-baseline.json` (schema v1, nested `rails` map).
+Baseline file: `~/.cache/mango/grow-baseline.json` (schema v2 — `grow_rail_ids` + per-rail verified counts).
+
+Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending).
 
 ## SLA section (PR6)
 
