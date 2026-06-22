@@ -27,8 +27,13 @@ export type IngestCandidatesResult = IngestCandidatesStats & {
 export function isRecentFailedTitle(
   title: TitlePlayabilityRecord | undefined,
   now: number,
+  options?: { bypassReasons?: ReadonlySet<string> },
 ): boolean {
   if (!title || title.status !== 'failed') {
+    return false;
+  }
+  const reason = title.fail_reason ?? '';
+  if (options?.bypassReasons?.has(reason)) {
     return false;
   }
   return title.updated_at > now - playabilityFailedRetryMsForReason(title.fail_reason);
@@ -44,6 +49,7 @@ export async function ingestPaginatedCandidates(
     now?: number;
     sourceOffsets?: Map<string, number>;
     lookupTitles: (candidates: CandidateMeta[]) => Promise<Map<string, TitlePlayabilityRecord>>;
+    bypassRecentFailedReasons?: ReadonlySet<string>;
   },
 ): Promise<IngestCandidatesResult> {
   const now = options.now ?? Date.now();
@@ -87,7 +93,7 @@ export async function ingestPaginatedCandidates(
         continue;
       }
 
-      if (isRecentFailedTitle(title, now)) {
+      if (isRecentFailedTitle(title, now, { bypassReasons: options.bypassRecentFailedReasons })) {
         skippedRecentFailed += 1;
         continue;
       }

@@ -2,10 +2,10 @@ import type { CatalogCore } from '../core.js';
 import type { BrowsableRail } from '../rails.js';
 import type { CandidateMeta } from './list-source.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
+import { isRecentFailedTitle } from './candidate-ingest.js';
 import {
   playabilityBatchDbEnabled,
   playabilityEarlyExitMinDisplay,
-  playabilityFailedRetryMsForReason,
   playabilityProbeConcurrency,
   playabilityResolveConcurrency,
   playabilityUseProbePool,
@@ -376,6 +376,7 @@ export type BuildVerifyQueueOptions = {
   growthPass?: GrowthPassState;
   now?: number;
   context?: VerifyContext;
+  bypassRecentFailedReasons?: ReadonlySet<string>;
 };
 
 export async function linkExistingVerifiedCandidates(
@@ -398,6 +399,7 @@ export async function linkExistingVerifiedCandidates(
     growthPass,
     now = Date.now(),
     context = {},
+    bypassRecentFailedReasons,
   } = options;
 
   const railAtTarget = (railId: string): boolean => {
@@ -464,8 +466,7 @@ export async function linkExistingVerifiedCandidates(
 
     if (
       !forceReprobe
-      && title?.status === 'failed'
-      && title.updated_at > now - playabilityFailedRetryMsForReason(title.fail_reason)
+      && isRecentFailedTitle(title, now, { bypassReasons: bypassRecentFailedReasons })
     ) {
       skippedRecentFailed += 1;
       results.push({
@@ -506,6 +507,13 @@ export async function createVerifyContext(): Promise<VerifyContext> {
     batchWriter: playabilityBatchDbEnabled() ? new PlayabilityBatchWriter() : null,
     useProbePool: usePool,
   };
+}
+
+export async function flushVerifyContextBatch(context: VerifyContext): Promise<{ verify_count: number; pool_count: number }> {
+  if (!context.batchWriter?.hasPending()) {
+    return { verify_count: 0, pool_count: 0 };
+  }
+  return context.batchWriter.flush();
 }
 
 export async function finalizeVerifyContext(context: VerifyContext): Promise<{ verify_count: number; pool_count: number }> {

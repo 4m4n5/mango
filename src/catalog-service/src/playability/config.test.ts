@@ -14,7 +14,7 @@ test('playabilityFailedRetryMsForReason uses shorter window for no_stream during
   const prev = process.env.MANGO_PLAYABILITY_GROW_PASS;
   process.env.MANGO_PLAYABILITY_GROW_PASS = '1';
   try {
-    assert.equal(playabilityFailedRetryMsForReason('no_stream'), 6 * 60 * 60 * 1000);
+    assert.equal(playabilityFailedRetryMsForReason('no_stream'), 1 * 60 * 60 * 1000);
   } finally {
     if (prev === undefined) {
       delete process.env.MANGO_PLAYABILITY_GROW_PASS;

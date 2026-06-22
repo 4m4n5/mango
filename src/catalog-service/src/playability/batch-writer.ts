@@ -22,7 +22,6 @@ function nowMs(): number {
 export class PlayabilityBatchWriter {
   private verifyRecords: PlayabilityVerifyRecord[] = [];
   private poolEntries: RailPoolEntry[] = [];
-  private flushed = false;
 
   queueVerify(record: PlayabilityVerifyRecord): void {
     this.verifyRecords.push(record);
@@ -32,12 +31,14 @@ export class PlayabilityBatchWriter {
     this.poolEntries.push(entry);
   }
 
+  hasPending(): boolean {
+    return this.verifyRecords.length > 0 || this.poolEntries.length > 0;
+  }
+
   async flush(): Promise<{ verify_count: number; pool_count: number }> {
-    if (this.flushed) {
-      throw new Error('PlayabilityBatchWriter already flushed');
-    }
-    this.flushed = true;
-    if (this.verifyRecords.length === 0 && this.poolEntries.length === 0) {
+    const verifyCount = this.verifyRecords.length;
+    const poolCount = this.poolEntries.length;
+    if (verifyCount === 0 && poolCount === 0) {
       return { verify_count: 0, pool_count: 0 };
     }
 
@@ -131,9 +132,12 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
       db.close();
     }
 
+    this.verifyRecords = [];
+    this.poolEntries = [];
+
     return {
-      verify_count: this.verifyRecords.length,
-      pool_count: this.poolEntries.length,
+      verify_count: verifyCount,
+      pool_count: poolCount,
     };
   }
 }

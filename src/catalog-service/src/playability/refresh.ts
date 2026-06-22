@@ -38,6 +38,7 @@ import {
   effectivePoolTarget,
 } from './pool-growth.js';
 import { growRail } from './grow-rail.js';
+import { railsForGrowPass } from './grow-order.js';
 import {
   isGrowRefreshMode,
   normalizeRefreshMode,
@@ -187,7 +188,7 @@ async function refreshAllRailsGrow(
   const startedAt = Date.now();
   const mode = options.mode ?? 'grow';
   const preset = resolveGrowPreset(options.growPreset);
-  const rails = core.browsableRails();
+  const rails = railsForGrowPass(core.browsableRails());
   const railSummaries: RefreshRailSummary[] = [];
   const prevGrowPass = process.env.MANGO_PLAYABILITY_GROW_PASS;
   process.env.MANGO_PLAYABILITY_GROW_PASS = '1';

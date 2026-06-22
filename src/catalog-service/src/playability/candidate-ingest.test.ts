@@ -187,6 +187,36 @@ test('ingestPaginatedCandidates marks catalog exhausted when all sources drained
   assert.equal(source.readSourceOffsets().get('A:c1'), 500);
 });
 
+test('ingestPaginatedCandidates bypasses tombstoned no_stream after deep cursor advance', async () => {
+  const source = new MockListSource([
+    [movie('retry-me')],
+  ]);
+  const now = Date.now();
+
+  const result = await ingestPaginatedCandidates(source, {
+    startOffset: 0,
+    freshTarget: 1,
+    pageSize: 10,
+    maxScanned: 10,
+    now,
+    bypassRecentFailedReasons: new Set(['no_stream']),
+    lookupTitles: async () => new Map([
+      ['movie:retry-me', {
+        type: 'movie',
+        id: 'retry-me',
+        status: 'failed',
+        fail_reason: 'no_stream',
+        expires_at: null,
+        updated_at: now - 1000,
+      }],
+    ]),
+  });
+
+  assert.equal(result.fresh_queued, 1);
+  assert.equal(result.skipped_recent_failed, 0);
+  assert.equal(result.candidates[0]?.id, 'retry-me');
+});
+
 test('isRecentFailedTitle respects retry window', () => {
   const now = Date.now();
   assert.equal(isRecentFailedTitle({

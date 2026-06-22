@@ -89,7 +89,7 @@ export function playabilityFailedRetryMsForReason(reason?: string | null): numbe
       if (isPlayabilityGrowPass()) {
         return positiveDurationMs(
           process.env.MANGO_GROW_NO_STREAM_RETRY_MS,
-          6 * 60 * 60 * 1000,
+          1 * 60 * 60 * 1000,
           0,
           7 * 24 * 60 * 60 * 1000,
         );

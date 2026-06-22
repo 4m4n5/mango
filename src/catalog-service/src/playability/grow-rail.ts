@@ -17,6 +17,7 @@ import {
   candidateKey,
   createVerifyContext,
   finalizeVerifyContext,
+  flushVerifyContextBatch,
   linkExistingVerifiedCandidates,
   processVerifyQueue,
   railMapsFromRails,
@@ -47,6 +48,7 @@ import {
 import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
 import { tryGrowComposeEscalation } from '../ai-catalogs/grow-compose-escalation.js';
 import type { AiCatalogRail } from '../ai-catalogs/types.js';
+import { GROW_DEEP_PAGE_BYPASS_REASONS } from './grow-tombstones.js';
 
 export type GrowRailResult = {
   rail_id: string;
@@ -226,6 +228,8 @@ export async function growRail(
       const remainingQuota = Math.max(0, growTarget - (await poolGrowthSoFar()));
       const freshTarget = growIngestFreshTarget(remainingQuota, ingestBatchFresh);
 
+      const deepPageBypass = sourceResetCycles > 0 ? GROW_DEEP_PAGE_BYPASS_REASONS : undefined;
+
       const ingested = await ingestPaginatedCandidates(listSource, {
         startOffset: ingestOffset,
         sourceOffsets,
@@ -233,6 +237,7 @@ export async function growRail(
         pageSize: playabilityIngestPageSize(),
         maxScanned: playabilityMaxIngestScan(),
         lookupTitles: getTitlesPlayabilityBulk,
+        bypassRecentFailedReasons: deepPageBypass,
       });
       if (sourceOffsets) {
         await persistSourceOffsetsForListSource(rail.id, listSource);
@@ -301,6 +306,7 @@ export async function growRail(
         refreshMode: 'grow',
         growthPass,
         context,
+        bypassRecentFailedReasons: deepPageBypass,
       });
 
       const processed = await processVerifyQueue({
@@ -339,6 +345,9 @@ export async function growRail(
 
       const madeLinkOrProbeProgress =
         linked.linked_existing > 0 || iterationAttempts > 0;
+      if (madeLinkOrProbeProgress) {
+        await flushVerifyContextBatch(context);
+      }
       if (!madeLinkOrProbeProgress && ingested.fresh_queued === 0) {
         catalogExhausted = ingested.catalog_exhausted;
         if (catalogExhausted && await tryComposeOnExhaustion()) {
