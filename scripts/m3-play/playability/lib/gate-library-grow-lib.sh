@@ -129,6 +129,9 @@ gate_library_grow_fresh_quota() {
   grep -q 'MANGO_GROW_LINK_MAX' src/catalog-service/src/playability/config.ts
   ! grep -q 'incrementGrowthPassVerified(growthPass' src/catalog-service/src/playability/pipeline.ts
   grep -q '_fresh_verified' scripts/diag/ops_grow_sla.py
+  grep -q 'fetch_unique_verified_library_count' scripts/diag/grow_monitor.py
+  grep -q 'getUniqueVerifiedLibraryCount' src/catalog-service/src/playability/db.ts
+  grep -q 'unique_verified_delta' src/catalog-service/src/playability/refresh.ts
 }
 
 gate_library_grow_run() {

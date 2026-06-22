@@ -30,10 +30,14 @@ export function recordRefreshOps(
 ): void {
   const deltas = deltasFromRefresh(result);
   const totalAdded = deltas.reduce((sum, delta) => sum + delta.verified_added, 0);
+  const uniqueDelta = result.unique_verified_delta;
+  const uniqueSuffix = uniqueDelta !== undefined
+    ? ` · +${uniqueDelta} unique titles (${result.unique_verified_before ?? '?'}→${result.unique_verified_after ?? '?'})`
+    : '';
   const kind = result.mode === 'grow' ? 'playability_growth' : 'playability_refresh';
   appendOpsEvent(
     kind,
-    `${result.mode} refresh: ${totalAdded >= 0 ? '+' : ''}${totalAdded} verified across ${deltas.filter((d) => d.verified_added !== 0).length} rails (${summarizeRailDeltas(deltas)})`,
+    `${result.mode} refresh: ${totalAdded >= 0 ? '+' : ''}${totalAdded} pool slots across ${deltas.filter((d) => d.verified_added !== 0).length} rails${uniqueSuffix} (${summarizeRailDeltas(deltas)})`,
     {
       mode: result.mode,
       bootstrap: result.bootstrap,
@@ -42,6 +46,9 @@ export function recordRefreshOps(
       failed: result.failed,
       ingest_fresh_queued: result.ingest_fresh_queued,
       ingest_scanned: result.ingest_scanned,
+      unique_verified_before: result.unique_verified_before,
+      unique_verified_after: result.unique_verified_after,
+      unique_verified_delta: result.unique_verified_delta,
       rails: result.rails.map((rail) => ({
         rail_id: rail.rail_id,
         grow_target: rail.grow_target ?? rail.growth_quota,
@@ -84,7 +91,10 @@ export function recordTopUpOps(result: TopUpRailResult, source: string, runId?: 
   if (!delta) return;
   appendOpsEvent(
     'playability_topup',
-    `${result.rail_id}: ${delta.verified_before}→${delta.verified_after} (+${delta.verified_added} verified)`,
+    `${result.rail_id}: ${delta.verified_before}→${delta.verified_after} (+${delta.verified_added} pool)`
+    + (result.unique_verified_delta !== undefined
+      ? ` · +${result.unique_verified_delta} unique (${result.unique_verified_before}→${result.unique_verified_after})`
+      : ''),
     {
       rail_id: result.rail_id,
       label: result.label,
@@ -92,6 +102,9 @@ export function recordTopUpOps(result: TopUpRailResult, source: string, runId?: 
       failed: result.failed,
       candidates_seen: result.candidates_seen,
       exhausted: result.exhausted,
+      unique_verified_before: result.unique_verified_before,
+      unique_verified_after: result.unique_verified_after,
+      unique_verified_delta: result.unique_verified_delta,
       before: result.before,
       after: result.after,
       results: result.results.slice(0, 20),

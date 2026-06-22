@@ -2,6 +2,7 @@ import type { CatalogCore } from '../core.js';
 import {
   getRailIngestOffsetsBulk,
   getRailPlayabilityStatus,
+  getUniqueVerifiedLibraryCount,
   getRailPoolTitleKeys,
   getTitlesPlayabilityBulk,
   pruneNonPlayableFromRailPools,
@@ -62,6 +63,9 @@ export type TopUpRailResult = {
   skipped_existing: number;
   skipped_recent_failed: number;
   exhausted: boolean;
+  unique_verified_before?: number;
+  unique_verified_after?: number;
+  unique_verified_delta?: number;
   grow_loops?: number;
   attempts?: number;
   sources_touched?: number;
@@ -257,8 +261,15 @@ export async function topUpRail(
   railId: string,
   options: TopUpRailOptions = {},
 ): Promise<TopUpRailResult> {
-  if (resolveTopUpMode(options) === 'grow') {
-    return growResultToTopUp(await growRail(core, railId, options));
-  }
-  return topUpRailIncremental(core, railId, options);
+  const uniqueBefore = await getUniqueVerifiedLibraryCount();
+  const result = resolveTopUpMode(options) === 'grow'
+    ? growResultToTopUp(await growRail(core, railId, options))
+    : await topUpRailIncremental(core, railId, options);
+  const uniqueAfter = await getUniqueVerifiedLibraryCount();
+  return {
+    ...result,
+    unique_verified_before: uniqueBefore,
+    unique_verified_after: uniqueAfter,
+    unique_verified_delta: uniqueAfter - uniqueBefore,
+  };
 }

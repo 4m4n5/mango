@@ -180,6 +180,7 @@ def _normalize_baseline(raw: dict[str, Any]) -> dict[str, Any]:
         for key, value in raw.items():
             if key.startswith("_") or key in {
                 "ts", "verified_pool", "schema_version", "created_at_ms", "grow_rail_ids",
+                "unique_verified",
             }:
                 continue
             if isinstance(value, int):
@@ -187,13 +188,16 @@ def _normalize_baseline(raw: dict[str, Any]) -> dict[str, Any]:
 
     rails = {rid: all_rails.get(rid, 0) for rid in ordered_ids}
     verified_pool = sum(rails.values())
-    return {
+    out: dict[str, Any] = {
         "schema_version": int(raw.get("schema_version") or SCHEMA_VERSION),
         "created_at_ms": int(raw.get("created_at_ms") or raw.get("ts") or 0),
         "verified_pool": verified_pool,
         "grow_rail_ids": ordered_ids,
         "rails": rails,
     }
+    if raw.get("unique_verified") is not None:
+        out["unique_verified"] = int(raw["unique_verified"])
+    return out
 
 
 def load_baseline() -> dict[str, Any] | None:
@@ -212,12 +216,14 @@ def load_baseline() -> dict[str, Any] | None:
 def write_baseline(db: Path | None = None) -> dict[str, Any]:
     grow_ids = list_grow_rail_ids()
     counts = fetch_verified_pool_counts(db)
+    unique_verified = fetch_unique_verified_library_count(db)
     rails = {rail_id: counts.rails.get(rail_id, 0) for rail_id in grow_ids}
     baseline = {
         "schema_version": SCHEMA_VERSION,
         "created_at_ms": _now_ms(),
         "grow_rail_ids": grow_ids,
         "verified_pool": sum(rails.values()),
+        "unique_verified": unique_verified,
         "rails": rails,
     }
     path = baseline_path()
@@ -262,6 +268,60 @@ def fetch_verified_pool_counts(
 
     rails = {str(rail_id): int(count) for rail_id, count in rows}
     return PoolCounts(total=sum(rails.values()), rails=rails)
+
+
+def fetch_unique_verified_library_count(
+    db_file: Path | None = None,
+    *,
+    now_ms: int | None = None,
+) -> int:
+    """Distinct active verified titles in the global library (titles table)."""
+    path = db_file or db_path()
+    if not path.is_file():
+        return 0
+
+    active_at = now_ms if now_ms is not None else _now_ms()
+    conn = sqlite3.connect(path)
+    try:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM titles
+            WHERE status = 'verified'
+              AND (expires_at IS NULL OR expires_at > ?)
+            """,
+            (active_at,),
+        ).fetchone()
+        return int(row[0]) if row else 0
+    finally:
+        conn.close()
+
+
+def fetch_distinct_probe_verified_since(
+    since_ms: int,
+    db_file: Path | None = None,
+) -> int:
+    """Distinct titles with a successful probe since since_ms (verify_log)."""
+    path = db_file or db_path()
+    if not path.is_file() or since_ms <= 0:
+        return 0
+
+    conn = sqlite3.connect(path)
+    try:
+        try:
+            row = conn.execute(
+                """
+                SELECT COUNT(DISTINCT type || ':' || id_value) AS c
+                FROM verify_log
+                WHERE started_at > ? AND outcome = 'verified'
+                """,
+                (since_ms,),
+            ).fetchone()
+            return int(row[0]) if row else 0
+        except sqlite3.OperationalError:
+            return 0
+    finally:
+        conn.close()
 
 
 def fetch_verify_log_stats(since_ms: int, db_file: Path | None = None) -> dict[str, dict[str, int]]:
@@ -331,6 +391,16 @@ def build_live_status(
     current = fetch_verified_pool_counts(db_file)
     since_ms = int(baseline.get("created_at_ms") or 0) or (_now_ms() - verify_window_ms)
     verify_stats = fetch_verify_log_stats(since_ms, db_file)
+    unique_now = fetch_unique_verified_library_count(db_file)
+    if "unique_verified" in baseline:
+        unique_before = int(baseline["unique_verified"])
+    elif since_ms > 0:
+        # Legacy baselines without unique_verified — best-effort from verify_log.
+        unique_before = max(0, unique_now - fetch_distinct_probe_verified_since(since_ms, db_file))
+    else:
+        unique_before = 0
+    unique_delta = unique_now - unique_before
+    distinct_probe_verified = fetch_distinct_probe_verified_since(since_ms, db_file)
 
     rows: list[RailLiveStatus] = []
     met_count = 0
@@ -383,6 +453,10 @@ def build_live_status(
         "verified_pool": grow_pool_now,
         "verified_pool_delta": grow_pool_now - grow_pool_before,
         "global_verified_pool": current.total,
+        "unique_verified": unique_now,
+        "unique_verified_before": unique_before,
+        "unique_verified_delta": unique_delta,
+        "distinct_probe_verified": distinct_probe_verified,
         "rails_met_target": met_count,
         "rails_total": browse_count,
         "program_pass_rate": pass_rate,
@@ -426,17 +500,24 @@ def _format_phase_line(grow: dict[str, Any]) -> str | None:
 def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
     grow = data.get("grow") or {}
     global_pool = data.get("global_verified_pool")
+    unique_now = int(data.get("unique_verified") or 0)
+    unique_before = int(data.get("unique_verified_before") or 0)
+    unique_delta = int(data.get("unique_verified_delta") or (unique_now - unique_before))
     pool_line = (
-        f"pool: {data.get('verified_pool', 0)} grow-rail verified "
-        f"(delta {data.get('verified_pool_delta', 0):+d})"
+        f"unique: {unique_now} titles ({unique_delta:+d} since baseline)"
+    )
+    slots_line = (
+        f"pool slots: {data.get('verified_pool', 0)} grow-rail "
+        f"({data.get('verified_pool_delta', 0):+d})"
     )
     if global_pool is not None and global_pool != data.get("verified_pool"):
-        pool_line += f" · global {global_pool}"
+        slots_line += f" · global slots {global_pool}"
 
     lines = [
         "mango library grower",
         f"baseline: {data.get('baseline_path', '-')}",
         pool_line,
+        slots_line,
         f"rails +target: {data.get('rails_met_target', 0)}/{data.get('rails_total', 0)} "
         f"({int(round((data.get('program_pass_rate') or 0) * 100))}%)",
         f"running: {'yes' if grow.get('running') else 'no'}"
@@ -491,6 +572,16 @@ def assess_refresh_json(path: Path, catalog: dict[str, RailPlayabilityConfig] | 
     if summary is None:
         return f"no grow rails in {path.name}\n"
     header = f"assess: {path.name}\n"
+    unique_before = payload.get("unique_verified_before")
+    unique_after = payload.get("unique_verified_after")
+    unique_delta = payload.get("unique_verified_delta")
+    if unique_before is not None and unique_after is not None:
+        delta = (
+            int(unique_delta)
+            if unique_delta is not None
+            else int(unique_after) - int(unique_before)
+        )
+        header += f"unique library: {unique_after} titles (+{delta} this run, was {unique_before})\n"
     return header + format_grow_sla_section(summary)
 
 
@@ -567,6 +658,9 @@ def cmd_assess(args: argparse.Namespace) -> int:
         )
         print(json.dumps({
             "path": str(path),
+            "unique_verified_before": payload.get("unique_verified_before"),
+            "unique_verified_after": payload.get("unique_verified_after"),
+            "unique_verified_delta": payload.get("unique_verified_delta"),
             "summary": summary.__dict__ if summary else None,
             "rows": rows,
         }, indent=2, default=str))

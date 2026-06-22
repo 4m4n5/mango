@@ -667,6 +667,23 @@ export async function ensureRailSourceIngestOffsets(
   return result;
 }
 
+/** Distinct active verified titles in the global library (not per-rail pool slots). */
+export async function getUniqueVerifiedLibraryCount(now = nowMs()): Promise<number> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const row = db.prepare(`
+SELECT COUNT(*) AS c
+FROM titles
+WHERE status = 'verified'
+  AND (expires_at IS NULL OR expires_at > @now);
+`).get({ now }) as { c: number } | undefined;
+    return toNumber(row?.c);
+  } finally {
+    db.close();
+  }
+}
+
 export async function getPlayabilityStatus(railIds: string[]): Promise<PlayabilityStatus> {
   await initPlayabilityDb();
   const now = nowMs();

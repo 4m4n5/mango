@@ -100,11 +100,15 @@ Default: `MANGO_GROW_LINK_MAX=0` (off). Force off: `MANGO_GROW_GLOBAL_LINK=0`.
 
 | Metric | Meaning |
 |--------|---------|
-| `fresh_verified` / `probe_verified` | New probe-verified titles this pass — **counts toward target** |
+| `unique_verified` | **Distinct** active verified titles in `titles` table (true library size) |
+| `unique_verified_delta` | Net new unique titles since grow baseline / refresh start |
+| `pool slots` / `verified_pool` | Per-rail pool entries summed — same title in 3 rails counts **3** |
+| `fresh_verified` / `probe_verified` | New probe-verified titles this pass per rail — **counts toward target** |
 | `linked_existing` | Verified titles linked from library without probing — metrics only |
-| `pool_growth` | Verified pool delta (fresh + links) — informational |
+| `pool_growth` | Verified pool delta per rail (fresh + links) — informational |
 
 The grow loop exits when `fresh_verified >= grow_target`, not when pool reshuffles alone.
+Grow monitor header shows **unique titles** separately from **pool slots**.
 
 ## Head tombstone advance
 

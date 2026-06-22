@@ -3,6 +3,7 @@ import type { CatalogCore } from '../core.js';
 import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
 import {
   getPlayabilityStatus,
+  getUniqueVerifiedLibraryCount,
   getRailIngestOffsetsBulk,
   getRailPoolTitleKeysBulk,
   getStaleTitlesForRefresh,
@@ -128,6 +129,10 @@ export type RefreshAllResult = {
   pruned_pool_entries: number;
   ingest_fresh_queued: number;
   ingest_scanned: number;
+  /** Global library size — distinct active verified titles (not rail pool slots). */
+  unique_verified_before?: number;
+  unique_verified_after?: number;
+  unique_verified_delta?: number;
   rails: RefreshRailSummary[];
 };
 
@@ -190,6 +195,7 @@ async function refreshAllRailsGrow(
   const startedAt = Date.now();
   const mode = options.mode ?? 'grow';
   const preset = resolveGrowPreset(options.growPreset);
+  const uniqueVerifiedBefore = await getUniqueVerifiedLibraryCount();
   const rails = railsForGrowPass(core.browsableRails());
   const railSummaries: RefreshRailSummary[] = [];
   const prevGrowPass = process.env.MANGO_PLAYABILITY_GROW_PASS;
@@ -213,6 +219,7 @@ async function refreshAllRailsGrow(
   }
 
   const finishedAt = Date.now();
+  const uniqueVerifiedAfter = await getUniqueVerifiedLibraryCount();
   const requireGrowTarget = playabilityGrowRequireTarget();
   const refreshResult: RefreshAllResult = {
     ok: railSummaries.every((rail) => rail.ok && (!requireGrowTarget || rail.grow_target_met === true)),
@@ -221,6 +228,9 @@ async function refreshAllRailsGrow(
     started_at: startedAt,
     finished_at: finishedAt,
     duration_ms: finishedAt - startedAt,
+    unique_verified_before: uniqueVerifiedBefore,
+    unique_verified_after: uniqueVerifiedAfter,
+    unique_verified_delta: uniqueVerifiedAfter - uniqueVerifiedBefore,
     unique_candidates: railSummaries.reduce((sum, rail) => sum + rail.candidates_seen, 0),
     verify_queue_size: 0,
     linked_existing: railSummaries.reduce((sum, rail) => sum + rail.linked_existing, 0),
@@ -261,6 +271,7 @@ export async function refreshAllRails(
   }
 
   const startedAt = Date.now();
+  const uniqueVerifiedBefore = await getUniqueVerifiedLibraryCount();
   const rails = core.browsableRails();
   const railIds = rails.map((rail) => rail.id);
   const status = await getPlayabilityStatus(railIds);
@@ -480,6 +491,7 @@ export async function refreshAllRails(
     0,
   );
 
+  const uniqueVerifiedAfter = await getUniqueVerifiedLibraryCount();
   const refreshResult = {
     ok: railSummaries.every((rail) => rail.ok),
     mode,
@@ -487,6 +499,9 @@ export async function refreshAllRails(
     started_at: startedAt,
     finished_at: finishedAt,
     duration_ms: finishedAt - startedAt,
+    unique_verified_before: uniqueVerifiedBefore,
+    unique_verified_after: uniqueVerifiedAfter,
+    unique_verified_delta: uniqueVerifiedAfter - uniqueVerifiedBefore,
     unique_candidates: refsByKey.size,
     verify_queue_size: linked.verifyQueue.length,
     linked_existing: linked.linked_existing,
