@@ -129,6 +129,13 @@ stop_catalog_service() {
 
 echo "== mango playability maintenance (mode=$MODE) =="
 
+write_grow_baseline_if_needed() {
+  if [[ "$1" == "grow" ]]; then
+    echo "grow baseline snapshot"
+    python3 "$REPO_DIR/scripts/diag/grow_monitor.py" baseline
+  fi
+}
+
 if pgrep -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1; then
   echo "stopping chromium"
   pkill -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1 || true
@@ -188,6 +195,7 @@ if [[ "$MODE" == "nightly" ]]; then
     sleep "$PHASE_COOLDOWN_SEC"
   fi
   echo "== phase 2: grow pass (preset=$MANGO_GROW_PRESET) =="
+  write_grow_baseline_if_needed grow
   REFRESH_JSON="$(run_refresh grow 2>&1)"
   REFRESH_RC=$?
   echo "$REFRESH_JSON"
@@ -195,6 +203,7 @@ if [[ "$MODE" == "nightly" ]]; then
     REFRESH_RC=$STALE_RC
   fi
 else
+  write_grow_baseline_if_needed "$MODE"
   REFRESH_JSON="$(run_refresh "$MODE" 2>&1)"
   REFRESH_RC=$?
   echo "$REFRESH_JSON"
@@ -235,7 +244,11 @@ trap - EXIT
 restore_couch
 
 echo "maintenance complete"
-python3 "$REPO_DIR/scripts/diag/playability-status.py" --all 2>/dev/null | tail -20 || true
+python3 "$REPO_DIR/scripts/diag/grow_monitor.py" status 2>/dev/null || true
+python3 "$REPO_DIR/scripts/diag/playability-status.py" 2>/dev/null | tail -20 || true
+if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]]; then
+  python3 "$REPO_DIR/scripts/diag/grow_monitor.py" assess 2>/dev/null || true
+fi
 
 REFRESH_OUT="${OPS_DIR}/refresh-${RUN_ID}.json"
 if echo "$REFRESH_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then

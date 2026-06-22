@@ -40,19 +40,15 @@ bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
 
 Shared: `lib/gate-common.sh` · `gate-lite-play.sh` · `gate-lite-unit.sh`
 
-### PR regression gates (Library Grower / compose — not in gate-lite)
+### PR regression gates (Library Grower — not in gate-lite)
 
-Run after grow-rail, compose, or playability policy changes:
+Run after grow-rail, compose, monitor, or playability policy changes:
 
 ```bash
-bash scripts/m3-play/playability/gate-m3-library-grower.sh
-bash scripts/m3-play/playability/gate-m3-grow-rail.sh
-bash scripts/m3-play/playability/gate-m3-grow-compose.sh
-bash scripts/m3-play/playability/gate-m3-playability-grow.sh
-bash scripts/m3-play/playability/gate-m3-source-cursors.sh
-bash scripts/m3-play/playability/gate-m3-ops-sla.sh
-bash scripts/m4-addons/gate-m4-stream-integrity.sh
+bash scripts/m3-play/playability/gate-m3-library-grow.sh
 ```
+
+Legacy per-PR gates (`gate-m3-grow-rail.sh`, `gate-m3-library-grower.sh`, …) forward to the unified gate above.
 
 ---
 
@@ -92,7 +88,9 @@ diag/            manual diagnostics
 | `m3-play/playability/quick-playability-topup.sh` | ~10 min grow |
 | `m3-play/playability/overnight-playability-grow.sh` | ~4 h loop |
 | `m3-play/playability/playability-maintenance.sh` | Nightly worker |
-| `diag/playability-status.py` | Pool depth |
+| `diag/playability-status.py` | Pool depth (catalog-service must be up) |
+| `diag/grow_monitor.py` | **Grow monitor** — baseline, live status, watch, assess |
+| `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
 
 ## Mac → Pi
 

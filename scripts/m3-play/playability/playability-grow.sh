@@ -69,16 +69,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$MODE" == "__status" ]]; then
-  if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    echo "running pid=$(cat "$PIDFILE")"
-  else
-    echo "not running"
-  fi
-  echo "log: $LOG"
-  if [[ -f "$LOG" ]]; then
-    echo "--- last 25 lines ---"
-    tail -25 "$LOG"
-  fi
+  python3 "$REPO_DIR/scripts/diag/grow_monitor.py" status || true
   exit 0
 fi
 
