@@ -625,6 +625,27 @@ ON CONFLICT(rail_id, source_key) DO UPDATE SET
   }
 }
 
+/** Reset paginated ingest cursors after AI catalog compose escalation. */
+export async function resetRailIngestCursors(railId: string): Promise<void> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    db.prepare('DELETE FROM rail_source_ingest_state WHERE rail_id = @rail_id').run({ rail_id: railId });
+    db.prepare(`
+INSERT INTO rail_ingest_state (rail_id, catalog_offset, updated_at)
+VALUES (@rail_id, 0, @updated_at)
+ON CONFLICT(rail_id) DO UPDATE SET
+  catalog_offset = 0,
+  updated_at = excluded.updated_at;
+`).run({
+      rail_id: railId,
+      updated_at: nowMs(),
+    });
+  } finally {
+    db.close();
+  }
+}
+
 /** Seed per-source cursors from legacy rail_ingest_state when missing. */
 export async function ensureRailSourceIngestOffsets(
   railId: string,

@@ -20,6 +20,8 @@ export type AiCatalogLlmHints = {
   add_ids?: string[];
   /** Natural-language suggestions for the next nightly top-up (orchestrator reads). */
   topup_suggestions?: string[];
+  /** Compose fallback level applied during grow exhaustion (0 = strict thematic). */
+  compose_fallback_level?: number;
   updated_at?: string;
 };
 

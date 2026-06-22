@@ -101,6 +101,8 @@ export type RefreshRailSummary = {
   skipped_existing: number;
   skipped_recent_failed: number;
   exhausted: boolean;
+  compose_escalated?: boolean;
+  compose_fallback_level?: number;
   ingest?: IngestCandidatesStats;
 };
 
@@ -169,6 +171,8 @@ function growResultToRailSummary(
     skipped_existing: result.skipped_existing,
     skipped_recent_failed: result.skipped_recent_failed,
     exhausted: result.exhausted,
+    compose_escalated: result.compose_escalated,
+    compose_fallback_level: result.compose_fallback_level,
     ingest: result.ingest,
   };
 }

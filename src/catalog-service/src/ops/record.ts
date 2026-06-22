@@ -51,6 +51,8 @@ export function recordRefreshOps(
         verified_added: rail.verified_added,
         growth_quota_met: rail.growth_quota_met,
         grow_loops: rail.grow_loops,
+        compose_escalated: rail.compose_escalated,
+        compose_fallback_level: rail.compose_fallback_level,
         attempts: rail.attempts,
         verified_before: rail.before.verified_pool,
         verified_after: rail.after.verified_pool,

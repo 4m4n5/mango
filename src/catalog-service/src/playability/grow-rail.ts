@@ -39,8 +39,11 @@ import {
 import {
   loadSourceOffsetsForListSource,
   persistSourceOffsetsForListSource,
+  isSourceCursorListSource,
 } from './source-cursors.js';
 import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
+import { tryGrowComposeEscalation } from '../ai-catalogs/grow-compose-escalation.js';
+import type { AiCatalogRail } from '../ai-catalogs/types.js';
 
 export type GrowRailResult = {
   rail_id: string;
@@ -69,6 +72,8 @@ export type GrowRailResult = {
   skipped_recent_failed: number;
   exhausted: boolean;
   grow_loops: number;
+  compose_escalated?: boolean;
+  compose_fallback_level?: number;
   sources_touched?: number;
   ingest?: IngestCandidatesStats;
   results: Array<{
@@ -124,8 +129,8 @@ export async function growRail(
     new Map([[rail.id, growTarget]]),
   );
 
-  const source = core.listSourceForRail(railId);
-  const sourceOffsets = await loadSourceOffsetsForListSource(rail.id, source);
+  let listSource = core.listSourceForRail(railId);
+  let sourceOffsets = await loadSourceOffsetsForListSource(rail.id, listSource);
   let ingestOffset = sourceOffsets
     ? 0
     : ((await getRailIngestOffsetsBulk([rail.id])).get(rail.id) ?? 0);
@@ -142,8 +147,40 @@ export async function growRail(
   let maxSourcesTouched = 0;
   let lastIngest: IngestCandidatesStats | undefined;
   let catalogExhausted = false;
+  let composeEscalated = false;
+  let composeFallbackLevel: number | undefined;
 
   const context = await createVerifyContext();
+
+  async function reloadIngestState(): Promise<void> {
+    listSource = core.listSourceForRail(railId);
+    if (isSourceCursorListSource(listSource)) {
+      listSource.resetAllSourceOffsets();
+    }
+    sourceOffsets = await loadSourceOffsetsForListSource(rail.id, listSource);
+    ingestOffset = sourceOffsets
+      ? 0
+      : ((await getRailIngestOffsetsBulk([rail.id])).get(rail.id) ?? 0);
+  }
+
+  async function tryComposeOnExhaustion(): Promise<boolean> {
+    if (composeEscalated || rail.type !== 'ai_catalog') {
+      return false;
+    }
+    const probeVerified = growthPass.verifiedAddedThisPass.get(rail.id) ?? 0;
+    if (probeVerified >= growTarget) {
+      return false;
+    }
+    const escalation = await tryGrowComposeEscalation(core, rail as AiCatalogRail);
+    if (!escalation.applied) {
+      return false;
+    }
+    composeEscalated = true;
+    composeFallbackLevel = escalation.fallback_level;
+    catalogExhausted = false;
+    await reloadIngestState();
+    return true;
+  }
 
   try {
     while (Date.now() - startedAt < wallMs && attempts < maxAttempts) {
@@ -152,7 +189,7 @@ export async function growRail(
         break;
       }
 
-      const ingested = await ingestPaginatedCandidates(source, {
+      const ingested = await ingestPaginatedCandidates(listSource, {
         startOffset: ingestOffset,
         sourceOffsets,
         freshTarget: ingestBatchFresh,
@@ -161,7 +198,7 @@ export async function growRail(
         lookupTitles: getTitlesPlayabilityBulk,
       });
       if (sourceOffsets) {
-        await persistSourceOffsetsForListSource(rail.id, source);
+        await persistSourceOffsetsForListSource(rail.id, listSource);
       } else {
         await setRailIngestOffset(rail.id, ingested.next_offset);
         ingestOffset = ingested.next_offset;
@@ -173,6 +210,9 @@ export async function growRail(
 
       if (ingested.fresh_queued === 0 && ingested.catalog_exhausted) {
         catalogExhausted = true;
+        if (await tryComposeOnExhaustion()) {
+          continue;
+        }
         break;
       }
 
@@ -233,12 +273,18 @@ export async function growRail(
         catalogExhausted = true;
         const probeVerifiedAfter = growthPass.verifiedAddedThisPass.get(rail.id) ?? 0;
         if (probeVerifiedAfter < growTarget) {
+          if (await tryComposeOnExhaustion()) {
+            continue;
+          }
           break;
         }
       }
 
       if (iterationAttempts === 0 && ingested.fresh_queued === 0) {
         catalogExhausted = ingested.catalog_exhausted;
+        if (catalogExhausted && await tryComposeOnExhaustion()) {
+          continue;
+        }
         break;
       }
     }
@@ -282,6 +328,8 @@ export async function growRail(
     skipped_recent_failed: totalSkippedRecentFailed,
     exhausted,
     grow_loops: growLoops,
+    compose_escalated: composeEscalated || undefined,
+    compose_fallback_level: composeFallbackLevel,
     sources_touched: maxSourcesTouched > 0 ? maxSourcesTouched : undefined,
     ingest: lastIngest,
     results: allResults,
