@@ -5,74 +5,83 @@ Locked choices. Update when changing behavior.
 | Decision | Choice |
 |----------|--------|
 | LLM provider | Configurable — Anthropic + OpenAI in `config.yaml` |
-| Stremio install | 
 | Display | X11 + Openbox (not Wayland) |
 | TV navigation | 8BitDo Micro Bluetooth |
 | UI stack | Vite + vanilla TypeScript |
+| Branch | `feat/native-experience` |
+| Product direction | mango-owned TV-first UX; Stremio/Kodi = fallback engines |
+
+---
 
 ## Gamepad
 
 | Topic | Choice |
 |-------|--------|
-| Layout | **Y · X · A · B** clockwise from left ([`HARDWARE.md`](HARDWARE.md)) |
+| Layout | **Y · X · A · B** clockwise from left ([HARDWARE.md](HARDWARE.md)) |
 | Select / back | **B**=`304` · **Y**=`308` · **L**=`310` tab − · **R**=`311` tab + · **↻**=`317` shuffle |
-| Home | `316`/`311` → `launch-launcher.sh` directly (`mango-tv-pad.py`) |
-| Pad owner | **`mango-tv-pad.py`** — launcher + mpv only |
-| Fallback | `input-remapper` `mango-tv` only if pad fails to grab |
+| Home | `316`/`311` → `launch-launcher.sh` (`mango-tv-pad.py`) |
+| Pad owner | **`mango-tv-pad.py`** — launcher + mpv |
+| Fallback | `input-remapper` only if pad fails to grab |
 
-## Phase 1 TV shell
+---
+
+## M1 — Foundation & launcher
 
 | Topic | Choice |
 |-------|--------|
+| Base stack | `scripts/mango-stack.sh start|stop|status|restart` |
 | Launcher | Chromium kiosk `mango-launcher` · `serve.py` `:3000` |
-| Overlay on Pi | Off (`MANGO_SKIP_OVERLAY=1`) |
-| Hide launcher | Z-order below media app (`mango-window.sh hide`) |
-| Hide sibling apps | **`hide-media.sh`** — never `killall` on tile switch |
-| Refocus failure | Always `mango-window.sh show` — restore launcher |
-| Launch lock | `flock` per script — **release before** background child |
-| API debounce | Media launches always queued; launcher home debounced 2 s |
-| Launcher client | No debounce on Stremio/YouTube tiles |
-| YouTube | Kodi RPC · window id **10025** |
-| Home | No `xdotool --sync` · pad stays grabbed (`MANGO_SKIP_REMAPPER=1`) |
-| Stremio present-after-back | `present-stremio.sh --after-back` — no F11 toggle |
-| Health | `tv_pad` OR `input_remapper=active` — never false-fail watchdog |
+| Foreground | `launcher | mpv | fallback_stremio` ([ARCHITECTURE.md](ARCHITECTURE.md)) |
+| Chromium budget | One launcher at idle; no overlay Chromium |
+| Hide launcher | Z-order below media (`mango-window.sh hide`) |
+| Fallback apps | `MANGO_FALLBACK_STREMIO=1` · `MANGO_LEGACY_YOUTUBE=1` |
+| Launch lock | `flock` — release before background child |
+| API debounce | Launcher home debounced 2 s |
+| Health | `tv_pad` OR `input_remapper=active` |
 
-## Native experience (branch)
+---
+
+## M2–M4 — Catalog & playback
 
 | Topic | Choice |
 |-------|--------|
-| Product direction | **Option 2** — mango-owned TV-first UX; Stremio/Kodi = playback engines |
-| Branch | `feat/native-experience` |
-| Doc | [`VISION.md`](VISION.md) |
-| N0 base stack | `scripts/mango-stack.sh start|stop|status|restart` |
-| Foreground states | `launcher | mpv | fallback_stremio` ([`ARCHITECTURE.md`](ARCHITECTURE.md)) |
-| Chromium budget | One launcher kiosk only at idle; overlay Chromium removed from default runtime |
-| Fallback apps | Stremio via `MANGO_FALLBACK_STREMIO=1`; Kodi/YouTube via `MANGO_LEGACY_YOUTUBE=1` |
-| Player (N1+) | **mpv** fullscreen — not Stremio/Kodi chrome |
+| Catalog service | `:3020` · `@stremio/stremio-core-web` |
+| Addon graph | `/etc/mango/stremio-export.json` |
+| Player | **mpv** fullscreen — not Stremio/Kodi chrome |
+| Self-hosted addons | AIOStreams `:3035` · AIOMetadata `:3036` |
+| Live TV | NexoTV · `catalog-live.yaml` · opt-in gates ([LIVE_TV.md](LIVE_TV.md)) |
+| Lab quality cap | `max_quality: 1080p` until M6.3 ship profile |
 
-| Live TV | NexoTV Docker `:7000`/`:7001` · `catalog-live.yaml` · launcher **live** tab · mpv `--live` ([`LIVE_TV.md`](LIVE_TV.md)) |
-| Live gates | **Excluded** from gate-lite — opt-in `MANGO_LIVE_GATE=1` only |
-| Catalog | `catalog-service` `:3020` · `@stremio/stremio-core-web` · addons from `/etc/mango/stremio-export.json` |
+---
 
-Ops: [`OPS.md`](OPS.md). Never commit API keys or RPC password.
-
-## Phase 2 voice
+## M5 — Voice
 
 | Topic | Choice |
 |-------|--------|
-| Orchestrator | FastAPI + uvicorn · WS `/ws` · HTTP `/health` · port **8765** |
-| Companion | Vite PWA · port **3001** · **HTTPS required** for phone mic |
-| TLS | **Approach A** — mkcert HTTPS companion + WSS orchestrator; trust root CA on phone once |
-| Orchestrator bind | `0.0.0.0:8765` on Pi for phone WSS; use `MANGO_ORCH_TLS=1` |
-| Voice WS | Phone: `wss://<pi>:8765/ws` · Launcher HUD: loopback `ws://127.0.0.1:8766/ws` (same process) |
-| Voice state | Orchestrator owns idle/listening/thinking/speaking; errors restore idle |
-| Audio payload | `ptt_end.pcm_b64` = 16 kHz mono int16 LE PCM, max 30s |
-| Phase 2 scope | Chat only — media tools in Native UX N1 |
-| STT | **Deepgram** `nova-3` + `multi` + keyterms; `stt.key` in `/etc/mango/` |
-| TTS on Pi | **Off** — `audio.tts_enabled: false` until **M6 soundbar/TV** path validated |
-| Dev lab audio | Headphones via **monitor HDMI out**, **USB DAC**, or **Bluetooth** — Pi 5 has no 3.5 mm jack ([`HARDWARE.md`](HARDWARE.md)) |
-| TV HUD | **Launcher-embedded** `voice-hud.ts` — only default TV voice surface |
-| Loopback WS | `127.0.0.1:8766` plain WS for launcher TV HUD (single process, not overlay Chromium) |
-| Overlay Chromium | Deprecated in N0; `/overlay/` returns 410 and start scripts kill stale overlay windows |
-| Multi-turn PTT | Allowed while reply visible; block only when `ptt_owner` or voice lock held |
-| Reply dwell | `overlay_reply_seconds: 10` — HUD dismisses; phone keeps full history |
+| Orchestrator | FastAPI · WSS `:8765` · HUD loopback `:8766` |
+| Companion | HTTPS PWA `:3001` (mkcert) |
+| Voice role | Browse + open librarian — **no voice play** |
+| STT | Deepgram `nova-3` + `multi` + keyterms |
+| TTS | Off until M6.3 soundbar/TV validated |
+| TV HUD | `voice-hud.ts` in launcher — only default TV voice surface |
+| Multi-turn PTT | Allowed while reply visible |
+| Reply dwell | `overlay_reply_seconds: 10` |
+
+---
+
+## M6 — Ship (planned)
+
+| Topic | Choice |
+|-------|--------|
+| Library | Stremio export + mango progress merge |
+| YouTube | yt-dlp → mpv |
+| 4K | Ship profile on target TV; relax filters in `catalog-filters.json` |
+| Deploy | `install.sh` wizard — no SSH for household setup |
+
+Ops: [OPS.md](OPS.md). Never commit API keys.
+
+---
+
+## Appendix — legacy section names
+
+Older docs used **Phase 0–2** (foundation + voice shell) and **N0–N7** slice labels. Map to milestones in [ROADMAP.md](ROADMAP.md#appendix--legacy-names).

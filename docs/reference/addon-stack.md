@@ -93,4 +93,4 @@ bash scripts/pi-deploy.sh --gate
 |------|--------|
 | `series-reality-casual` session rows | Optional rail — may show 0 items when Cinemeta pools overlap tab dedup |
 | AIOStreams `groups` | Operator S9 — configure UI if stream picker grouping needed |
-| **N3a** stream play orchestrator | Next product phase — launcher → mpv foreground |
+| **M3** play orchestrator | Shipped — launcher → mpv |

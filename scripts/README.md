@@ -59,7 +59,7 @@ bash scripts/m4-addons/gate-m4-stream-integrity.sh
 ## Milestone directories
 
 ```
-m1-foundation/   pad (gamepad) · ui (launcher) · gate (N0)
+m1-foundation/   pad (gamepad) · ui (launcher) · gate (M1)
 m2-catalog/      service (mpv, catalog API) · browse · rails
 m3-play/         detail · orchestrator · playability
 m4-addons/       AIOStreams · AIOMetadata · mdblist pipeline

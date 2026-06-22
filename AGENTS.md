@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-**Branch:** `feat/native-experience` — native TV home. **Shipped through M4 + most of M5** (browse · play · addons · voice librarian · AI catalog slots). **Next:** M5 completion (N5c/N5d) · **M6 ship** (library · YouTube · 4K HDR · plug-and-play wizard).
+**Branch:** `feat/native-experience` — native TV home. **Shipped through M4 + most of M5** (browse · play · addons · voice librarian · AI catalog slots). **Next:** M5 completion (living librarian + **M5.5 companion UX ship bar**) · **M6 ship** (library · YouTube · 4K · **M6.5 TV UX** · wizard).
 
 ## Read first
 
@@ -15,7 +15,7 @@
 | [**`docs/ARCHITECTURE.md`**](docs/ARCHITECTURE.md) | **Stack · layers · foreground** |
 | [**`docs/OPS.md`**](docs/OPS.md) | **Pi ops** — bring-up, gamepad, troubleshooting |
 | [**`docs/DEPLOY.md`**](docs/DEPLOY.md) | **Pi deploy — git only, never rsync** |
-| [`docs/VOICE.md`](docs/VOICE.md) | Voice pipeline + N5a tools |
+| [`docs/VOICE.md`](docs/VOICE.md) | Voice pipeline (M5) |
 | [`docs/LIVE_TV.md`](docs/LIVE_TV.md) | Live IPTV (opt-in gates) |
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | Pad diagram |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked choices |
@@ -23,6 +23,11 @@
 | [`scripts/MILESTONES.md`](scripts/MILESTONES.md) | Script dirs M1–M5 · milestone layout only |
 
 **TV box systems:** `$mango-tv-box-expert` · **Launcher visuals:** `$ux-design-expert`
+
+## Cursor performance
+
+- **Indexing:** `.cursorignore` excludes caches, `node_modules/`, `.venv/`, lockfiles, and build output — repos stay visible in the explorer.
+- **MCP:** this workspace ships GitHub only (`mango/.cursor/mcp.json`). Disable unused MCP servers in **Cursor Settings → Tools & MCP** per session; parent-studio servers (playwright, godot) live in `../.cursor/mcp.json`.
 
 ## Branches
 

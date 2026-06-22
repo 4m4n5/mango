@@ -17,7 +17,7 @@ Canonical paths aligned with [docs/ROADMAP.md](../docs/ROADMAP.md) milestones **
 | | `m3-play/playability/` | Verified pools · grow jobs |
 | **M4** Addons | `m4-addons/` | AIOStreams · AIOMetadata |
 | **M5** Voice + AI | `m5-voice/stack/` | Orchestrator · companion |
-| | `m5-voice/ai/` | Voice tools · AI catalog gates |
+| | `m5-voice/ai/` | Voice tools · AI catalog gates · M5.5 companion UX (planned) |
 | **Live** (opt-in) | `live/` | NexoTV IPTV |
 
 ## Gates (default deploy)
@@ -37,6 +37,12 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 | M5 | `m5-voice/ai/gate-m5-ai-catalogs.sh`, `gate-m5-voice.sh` (if voice) |
 
 Full play sweep: `m3-play/playability/gate-m3-verified-rails.sh` · `m3-play/orchestrator/gate-m3-play.sh`
+
+## M6 ship polish (planned)
+
+| Step | Script |
+|------|--------|
+| M6.5 TV UX | `m6-ship/gate-m6-ux-smoke.sh` (planned) |
 
 ## Daily stack
 

@@ -1,8 +1,8 @@
 # mango — implementation roadmap
 
-**Branch:** `feat/native-experience` · **Vision:** [VISION.md](VISION.md) · **Shipped detail:** [STATUS.md](STATUS.md)
+**Branch:** `feat/native-experience` · **Vision:** [VISION.md](VISION.md) · **Status:** [STATUS.md](STATUS.md)
 
-This is the **single implementation plan**. Older `N0`–`N7` and `Phase 0–2` labels are kept only as script/gate aliases — see [Legacy aliases](#legacy-aliases).
+Single plan for the native TV experience — milestones **M1–M6** only.
 
 ---
 
@@ -13,22 +13,22 @@ M1 Foundation     ████████████████████  
 M2 Browse         ████████████████████  shipped
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
-M5 Voice + AI     █████████████████░░░  mostly shipped (N5c polish remains)
-M6 Ship           ░░░░░░░░░░░░░░░░░░░░  next — 4K HDR · library · YouTube · plug-and-play
+M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 ship bar
+M6 Ship           ░░░░░░░░░░░░░░░░░░░░  next — library · YouTube · 4K · TV UX · wizard
 ```
 
 | Milestone | Outcome | Status |
 |-----------|---------|--------|
-| **M1** Foundation | Pi stack · pad · launcher kiosk · voice HUD · gates | ✓ |
-| **M2** Browse | `catalog-service` rails · Movies / Series / Live tabs · 9-up grid | ✓ |
-| **M3** Play | mpv orchestrator · picker · episodes · progress · playability pools | ✓ |
-| **M4** Addons | Self-hosted AIOStreams + AIOMetadata on Pi | ✓ |
-| **M5** Voice + AI | Phone librarian · Hinglish STT · AI catalog slots · living librarian | ◐ |
-| **M6** Ship | Library sync · YouTube · **4K HDR** · soundbar · TTS · first-boot wizard | planned |
+| **M1** Foundation | Pi stack · pad · launcher kiosk · voice shell · gates | ✓ |
+| **M2** Browse | Catalog rails · Movies / Series / Live · 9-up grid | ✓ |
+| **M3** Play | mpv orchestrator · picker · episodes · playability | ✓ |
+| **M4** Addons | Self-hosted AIOStreams + AIOMetadata | ✓ |
+| **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · companion UX ship bar | ◐ |
+| **M6** Ship | Library · YouTube · 4K HDR · TV UI/UX polish · plug-and-play | planned |
 
 ---
 
-## Current stack
+## Stack
 
 ```
 Pi 5 · X11 + Openbox
@@ -50,8 +50,6 @@ Pi 5 · X11 + Openbox
 
 ## M1 — Foundation ✓
 
-**Was:** Phase 0–2 on `main` + native **N0**
-
 - X11 + Openbox Pi bring-up · 8BitDo pad · Chromium kiosk
 - `mango-stack.sh` — one Chromium at idle · no Stremio/Kodi/mpv at idle
 - Voice pipeline shell (orchestrator + companion + launcher HUD)
@@ -63,8 +61,6 @@ Pi 5 · X11 + Openbox
 ---
 
 ## M2 — Browse ✓
-
-**Was:** **N1** catalog spike + **N2** / **N2b** browse UI
 
 - `catalog-service` on `:3020` with `@stremio/stremio-core-web`
 - `config/catalog.yaml` rails — addon catalogs, mdblist, Cinemeta charts
@@ -78,16 +74,14 @@ Pi 5 · X11 + Openbox
 
 ## M3 — Play ✓
 
-**Was:** **N3a** orchestrator · **N3b** picker/progress · **N3c** playability · **N3e** episodes · Track B UX
-
 | Capability | Notes |
 |------------|-------|
-| Play ladder | `config/catalog-filters.json` tiers · parallel resolve · 90 s wall |
-| Stream picker | `GET /stream` enriched rows · tap to play |
+| Play ladder | `catalog-filters.json` tiers · parallel resolve · 90 s wall |
+| Stream picker | `GET /stream` enriched rows |
 | Continue watching | `progress.db` + mpv position watcher |
 | Episode picker | Per-episode streams · next-up overlay · cancel-on-Y |
 | Playability index | Verified pools · quick/nightly/overnight grow jobs |
-| Browse UX | Thin verified rails · empty rails hidden · rate-limit safe |
+| Browse UX | Verified-only thin rails · empty hidden · rate-limit safe |
 
 **Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`)
 
@@ -96,8 +90,6 @@ Pi 5 · X11 + Openbox
 ---
 
 ## M4 — Self-hosted addons ✓
-
-**Was:** **N3d**
 
 - AIOStreams `:3035` — dedup, debrid order, formatter (policy upstream)
 - AIOMetadata `:3036` — mdblist + regional catalogs
@@ -111,103 +103,95 @@ Pi 5 · X11 + Openbox
 
 ## M5 — Voice + AI ◐
 
-**Was:** **N5a** · **N5b** · **N5d** (compose/bootstrap) · **N5c** (partial)
-
 | Slice | Status | Notes |
 |-------|--------|-------|
-| Voice librarian (N5a) | ✓ | Search · open detail · Hinglish STT · librarian notes |
-| AI catalog slots (N5b) | ✓ | Max 3/tab · voice CRUD · playability pools |
-| Living librarian (N5c) | ◐ | Companion memory · profile · conversation policy |
-| AI catalog bootstrap (N5d) | ✓ | Compose · reserve · async bootstrap · in gate-lite |
+| Voice librarian | ✓ | Search · open detail · Hinglish STT |
+| AI catalog slots | ✓ | Max 3/tab · voice CRUD · playability pools |
+| Living librarian | ◐ | Profile · journal · conversation policy · reflection |
+| AI catalog bootstrap | ✓ | Compose · reserve · async bootstrap |
+| **M5.5 Companion UX ship bar** | — | Capability review + phone/HUD polish — **M5 merge blocker** |
 
-**Voice:** [VOICE.md](VOICE.md) · **Gate:** `scripts/m5-voice/ai/gate-m5-voice.sh`
+### M5.5 — AI companion UX ship bar
+
+Half the north star is *ask in mango*. Infrastructure can pass gates while the companion still feels like a debug console. **M5.5** makes the living librarian ship-ready across phone, orchestrator, and TV HUD.
+
+| Area | Work |
+|------|------|
+| Capability review | Full `mango_*` tool audit · Hinglish corpus · persona/policy alignment |
+| Agent quality | Discover / open / curate / memory lanes · ordinals · no false TV opens |
+| Phone companion | PTT · tool transparency · proactive opt-in · memory summary |
+| TV voice HUD | Ephemeral card · safe area · opt-in proactive (≤1/day) |
+| Coherence | Phone/TV agreement · `tv_seq` ack · async catalog copy |
+| Acceptance | Couch C-V1–C-V8 · `gate-m5-companion-couch.sh` · opt-in LLM integration |
+
+**Spec:** [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
+
+**M5 complete when:** living librarian infrastructure **and** M5.5 ship bar both pass.
+
+**Detail:** [VOICE.md](VOICE.md) · **Gate:** `scripts/m5-voice/ai/gate-m5-voice.sh`
 
 ---
 
 ## M6 — Ship (next)
 
-**Was:** **N4** · **N6** · **N7** · Phase 5 install wizard
-
 Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented hardware upgrade path).
 
-### M6.1 — Library sync (was N4)
+### M6.1 — Library sync
 
 - Stremio export import as source of truth for library rail
 - Merge Continue: Stremio library → mango resume
 - Finished → write-back to Stremio library (best-effort)
 - Progress backup on exit / cron
 
-### M6.2 — YouTube (was N6)
+### M6.2 — YouTube
 
 - yt-dlp resolve → mpv play
 - Dedicated YouTube rail · voice `play_youtube`
 - Deprecate Kodi YouTube tile when gate passes
 
-### M6.3 — 4K HDR living room (was N7)
+### M6.3 — 4K HDR living room
 
-**Dev lab constraint:** Pi 5 + X11 + `hwdec=auto-safe` blanks on REMUX/DV/10-bit HEVC — validated on 1080p monitor.
-
-**Ship deliverables:**
+**Dev lab:** Pi 5 + X11 + `hwdec=auto-safe` blanks on REMUX/DV/10-bit HEVC — validated on 1080p monitor.
 
 | Area | Work |
 |------|------|
 | Physical | 4K TV + soundbar (HDMI eARC) |
 | HDMI | 4K mode · EDID verification |
 | mpv profile | `v4l2m2m-copy` · `--gpu-context=x11egl` · stream rank for WEB-DL 4K |
-| Audio | Default sink = TV/bar · enable Piper TTS smoke |
-| Filters | Relax lab `max_quality` / `exclude_remux` only on ship profile |
-| Fallback | Stremio desktop on exhaustion |
-| Persistence | systemd units for full stack |
-| Gate | 4K smoke — **picture-visible** assert, not just TTFT |
+| Audio | Default sink = TV/bar · Piper TTS smoke |
+| Filters | Relax lab `max_quality` / `exclude_remux` on ship profile only |
+| Gate | 4K smoke — **picture-visible** assert |
+
+### M6.5 — TV UI/UX ship polish
+
+Functional gates ≠ ship quality. Polishes the **10-foot launcher** for 3 m viewing — type, focus, safe area, couch-safe copy, latency feel.
+
+**Spec:** [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · **Acceptance:** COUCH_TEST U1–U8 · `gate-m6-ux-smoke.sh`
 
 ### M6.4 — Plug-and-play
 
-- `install.sh` + first-boot wizard (no SSH required for household setup)
-- Merge criteria to `main`
-- Optional: NVMe / USB DAC evaluation in [HARDWARE.md](HARDWARE.md)
+- `install.sh` + first-boot wizard (no SSH for household setup)
+- Merge to `main` (requires M6.5 sign-off)
+- Optional: NVMe / USB DAC — [HARDWARE.md](HARDWARE.md)
 
-### Live TV (shipped, opt-in gates)
+**Ship order:** M6.1 → M6.2 → M6.3 → **M6.5** → M6.4 wizard → merge.
 
-NexoTV dual instance · sport rails · excluded from default deploy gate. [LIVE_TV.md](LIVE_TV.md)
+### Live TV (shipped · opt-in)
+
+NexoTV · sport rails · excluded from default gate. [LIVE_TV.md](LIVE_TV.md)
 
 ---
 
-## Gate strategy
+## Gates
 
 | Command | When |
 |---------|------|
-| `bash scripts/pi-exec-gate.sh` | **Default** before couch — gate-lite on Pi |
-| `bash scripts/pi-deploy.sh --fast --gate` | After Mac push — deploy + gate |
-| `MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh` | Release handoff — per-rail play sweep |
-| `MANGO_LIVE_GATE=1 bash scripts/live/gate-live-iptv.sh` | Live IPTV only — never in gate-lite |
+| `bash scripts/pi-exec-gate.sh` | **Default** before couch |
+| `bash scripts/pi-deploy.sh --fast --gate` | After push — deploy + gate |
+| `MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh` | Release — per-rail play sweep |
+| `MANGO_LIVE_GATE=1 bash scripts/live/gate-live-iptv.sh` | Live IPTV only |
 
 Details: [STATUS.md](STATUS.md#gates) · [ARCHITECTURE.md](ARCHITECTURE.md#gates)
-
----
-
-## Legacy aliases
-
-Scripts and git history use older phase IDs. Map them here — **do not create new N-letter sub-phases.**
-
-| Alias | Milestone | Meaning |
-|-------|-----------|---------|
-| Phase 0–2 | M1 | Pi foundation · launcher · voice on `main` |
-| N0 | M1 | Native foundation reset |
-| N1 | M2 | catalog-service + mpv spike |
-| N2, N2b | M2 | Browse UI + thematic rails |
-| N3a | M3 | Play orchestrator |
-| N3b | M3 | Stream picker + progress |
-| N3c | M3 | Playability index |
-| N3d | M4 | Self-hosted addons |
-| N3e | M3 | Episode picker |
-| Track B | M3 | Verified rails browse UX |
-| N4 | M6.1 | Library sync |
-| N5a | M5 | Voice tools |
-| N5b | M5 | AI catalog slots |
-| N5c | M5 | Living librarian |
-| N5d | M5 | AI catalog bootstrap |
-| N6 | M6.2 | YouTube |
-| N7 | M6.3 | 4K HDR ship |
 
 ---
 
@@ -215,13 +199,13 @@ Scripts and git history use older phase IDs. Map them here — **do not create n
 
 | Risk | Mitigation |
 |------|------------|
-| 4K HEVC/DV on Pi 5 X11 | Ship profile + stream rank; document hardware limits |
+| 4K HEVC/DV on Pi 5 X11 | Ship profile + stream rank; document limits |
 | Phone mic on HTTP | mkcert HTTPS companion |
 | Refocus fail → wallpaper | Always restore launcher |
 | RAM: Chromium + mpv + voice | One Chromium; mpv exits on ⌂ |
-| stremio-core on ARM | Proven in M2 — monitor on addon upgrades |
 | yt-dlp breakage | Pin version; Kodi emergency fallback |
-| False watchdog restart | `tv_pad` health signal |
+| Companion feels dumb despite tools | M5.5 capability review + couch corpus |
+| TV reads as dev UI at ship | M6.5 polish before merge |
 
 ---
 
@@ -230,7 +214,27 @@ Scripts and git history use older phase IDs. Map them here — **do not create n
 | Doc | Use |
 |-----|-----|
 | [VISION.md](VISION.md) | Product principles |
-| [STATUS.md](STATUS.md) | Feature inventory · config · ops commands |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Layer boundaries · API contracts |
+| [STATUS.md](STATUS.md) | Shipped inventory · config |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Layers · APIs |
 | [DEPLOY.md](DEPLOY.md) | Pi deploy (git only) |
-| [archive/](archive/) | Superseded docs |
+| [archive/](archive/) | Historical docs |
+
+---
+
+## Appendix — legacy names
+
+Git history and some script paths still use older labels. **Do not use these in new docs or milestones.**
+
+| Legacy | Milestone |
+|--------|-----------|
+| Phase 0–2 | M1 |
+| N0 | M1 (foundation reset) |
+| N1 | M2 (catalog + mpv) |
+| N2, N2b | M2 (browse UI) |
+| N3a, N3b, N3e, Track B | M3 |
+| N3c | M3 (playability) |
+| N3d | M4 |
+| N4 | M6.1 |
+| N5a–N5d | M5 slices (see STATUS) |
+| N6 | M6.2 |
+| N7 | M6.3 |

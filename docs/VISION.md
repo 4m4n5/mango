@@ -92,7 +92,10 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | Stream exhaustion | Auto-retry → hidden Stremio |
 | **⌂** from mpv | Home < 300 ms |
 | Voice creates AI catalog | Persists across reboot |
+| Companion discover query | No TV jump; clarifying chat (M5.5) |
+| Companion clear open | Detail on TV; phone/TV agree (M5.5) |
 | 4K title on ship TV | Visible picture + reliable audio (**M6**) |
+| TV browse at 3 m | Legible focus, stable rails, couch-safe errors (**M6.5**) |
 | First boot | `install.sh` wizard → couch-ready without SSH (**M6**) |
 
 ---

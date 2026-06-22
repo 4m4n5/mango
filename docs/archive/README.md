@@ -1,3 +1,5 @@
+> **Historical only.** Current plan: [../ROADMAP.md](../ROADMAP.md). Legacy N/Phase names: [appendix](../ROADMAP.md#appendix--legacy-names).
+
 # Archived documentation
 
 These files were superseded by the **2026-06 doc consolidation**. Do not update them.

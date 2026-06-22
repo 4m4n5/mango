@@ -1,6 +1,6 @@
 # ElfHosted fallback for mango
 
-**N3d default:** mango uses self-hosted AIOStreams and AIOMetadata on the Pi. See
+**M4 default:** mango uses self-hosted AIOStreams and AIOMetadata on the Pi. See
 [`reference/addon-stack.md`](addon-stack.md) and
 [`../archive/tasks/archive/phase-n3d-self-hosted-addon-stack.md`](../archive/tasks/archive/phase-n3d-self-hosted-addon-stack.md).
 
@@ -20,7 +20,7 @@ Docs: [Stremio addons overview](https://docs.elfhosted.com/stremio-addons/) · [
 
 **Not included:** TorBox / Real-Debrid — paid directly to those providers.
 
-Optional later (N7 / 4K proxy): [AIOStreams + MediaFlow 4K](https://store.elfhosted.com/product/aiostreams-mediaflowproxy/) · [2×4K booster](https://store.elfhosted.com/product/aiostreams-2x4k-booster/) (+$9/mo)
+Optional later (M6.3 / 4K proxy): [AIOStreams + MediaFlow 4K](https://store.elfhosted.com/product/aiostreams-mediaflowproxy/) · [2×4K booster](https://store.elfhosted.com/product/aiostreams-2x4k-booster/) (+$9/mo)
 
 ## If you choose the fallback
 
@@ -36,15 +36,15 @@ Or re-export from Stremio desktop (Settings → Export) after installing private
 bash ~/mango/scripts/m2-catalog/service/setup-stremio-export.sh /path/to/stremioExport.json
 ```
 
-## What subscription fixes vs N3c playability
+## What subscription fixes vs M3 playability
 
-| Issue | Private ElfHosted | N3c `playability.db` |
+| Issue | Private ElfHosted | M3 `playability.db` |
 |-------|-------------------|----------------------|
 | Rate limit on browse | **Yes** | Reduces repeat calls |
 | Posters / catalog load | **Yes** (faster, dedicated) | Serves verified subset |
 | Play actually works | **No** | **Yes** — probe before show |
 
-N3c playability remains required. Private ElfHosted improves addon availability;
+M3 playability remains required. Private ElfHosted improves addon availability;
 it does not prove a shown poster will play.
 
 ## Code mitigations (public instances)

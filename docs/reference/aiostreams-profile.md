@@ -4,7 +4,7 @@
 **Pi instance:** v2.30.3 @ `127.0.0.1:3035`  
 **Headless API:** `GET` / `PUT` `/api/v1/user` (Basic auth: UUID + password from `~/.config/mango/aiostreams.credentials`)
 
-This doc maps **every useful AIOStreams knob** to mango’s north star (legit catalogs, ~5 s play, mpv-only, TB-first, 1080p lab cap until N7 OLED) and records **current vs target** for the Pi.
+This doc maps **every useful AIOStreams knob** to mango’s north star (legit catalogs, ~5 s play, mpv-only, TB-first, 1080p lab cap until M6.3 ship TV) and records **current vs target** for the Pi.
 
 ---
 
@@ -22,7 +22,7 @@ AIOStreams is the **stream aggregation + hygiene** layer. mango `catalog-service
 | TorBox before Real-Debrid | **Yes** (service order + sort + SEL) | Scoring boost only |
 | Cap result count (stop 40× “same” row) | **Yes** (result limits) | No |
 | Easynews only when torrents thin | **Yes** (groups) | No |
-| Full upstream quality (2160p REMUX, DV) | **Yes** (no resolution cap) | **No** — `max_quality: 1080p` until N7 |
+| Full upstream quality (2160p REMUX, DV) | **Yes** (no resolution cap) | **No** — `max_quality: 1080p` until M6.3 |
 | Exclude remux on Pi lab | No | **Yes** `exclude_remux` |
 | Title mismatch (London.Files) | Optional TMDB title match | **Yes** `streamMatchesMetaTitle` |
 | mpv probe, playability DB, verified hints | No | **Yes** |
@@ -103,7 +103,7 @@ Each attribute section (Resolution, Encode, Stream Type, Visual Tag, Audio, Lang
 | **Stream type** | Prefer debrid; no P2P for mango | — |
 | **Language** | Prefer English (+ Hindi later if indexer supports) | Future: mango audio pref |
 
-**Do not** exclude REMUX, WEB-DL, or 2160p in AIOStreams — N7 OLED should get full upstream without reconfiguring the aggregator.
+**Do not** exclude REMUX, WEB-DL, or 2160p in AIOStreams — M6.3 ship TV should get full upstream without reconfiguring the aggregator.
 
 ### Filters → Seeders
 
@@ -243,7 +243,7 @@ Today mango fetches streams from **three** addons in parallel:
 2. Torrentio TB  
 3. Torrentio RD  
 
-That triples indexer work and defeats dedup. **Phase 2** (after AIOStreams profile applied + gate green):
+That triples indexer work and defeats dedup. **M4 follow-up** (after AIOStreams profile applied + gate green):
 
 - Remove Torrentio TB/RD from `/etc/mango/stremio-export.json`
 - Simplify `catalog-filters.example.json` auto-play tiers to **AIOStreams-only**
@@ -310,7 +310,7 @@ flowchart LR
 | **Conjunctive result limits** | service 2 × resolution 2 × group 1 | ~6–8 **distinct** rows — ideal picker cardinality (not 40 duplicates) |
 | **`hideErrors: true`** | ON | AI never sees `[❌]` placeholder rows |
 | **`posterService: none`** | ON | Posters from Cinemeta/AIOLists — one poster pipeline |
-| **No resolution cap upstream** | Keep 2160p/REMUX in AIOStreams | N7 OLED: drop `max_quality` in mango only |
+| **No resolution cap upstream** | Keep 2160p/REMUX in AIOStreams | M6.3: drop `max_quality` in mango only |
 | **SEL ranked + excluded** | TB boost, RD WEBRip block | Policy in one place; AI reads outcomes, not rules |
 
 ### mango API surface (implemented)
@@ -357,7 +357,7 @@ maps to `{ "preferred_language": "Hindi" }`.
 
 Keep **only** Cinemeta, AIOStreams, AIOLists in `/etc/mango/stremio-export.json`. Standalone Torrentio TB/RD duplicates indexer work and collapses unique names (measured: 20 streams → 2 unique labels).
 
-### When N7 OLED ships
+### When M6.3 ships
 
 | Change | Where |
 |--------|-------|

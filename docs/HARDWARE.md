@@ -8,7 +8,7 @@
 
 ## Product target vs dev lab (2026-06)
 
-| | **Target (N7 ship)** | **Dev lab today (N1–N6)** |
+| | **Target (M6.3 ship)** | **Dev lab today (M1–M5)** |
 |--|----------------------|---------------------------|
 | **Vision** | World-class **4K AI-first TV box** — native browse, voice, mpv playback | Same software path; validate on desk before living room |
 | **Display** | **4K TV** · HDMI 2.0/2.1 · tuned mode + EDID | **1080p monitor** · 1920×1080@60 |
@@ -16,15 +16,15 @@
 | **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | `max_quality: 1080p` in `/etc/mango/catalog-filters.json` |
 | **mpv** | 4K HEVC profile · visible-picture gate | `v4l2m2m-copy` · 1080p smoke passed |
 
-**North star unchanged:** Pi 5 8GB is the V1 platform. N7 proves 4K on your TV; if hardware limits block SOTA (DV/REMUX, HDMI bandwidth), we document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
+**North star unchanged:** Pi 5 8GB is the V1 platform. M6.3 proves 4K on your TV; if hardware limits block SOTA (DV/REMUX, HDMI bandwidth), we document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
 
 ### Addon hosting (catalog + streams)
 
-N3d runs AIOStreams and AIOMetadata locally on the Pi:
+M4 runs AIOStreams and AIOMetadata locally on the Pi:
 [`reference/addon-stack.md`](reference/addon-stack.md). ElfHosted is a paid fallback only:
 [`reference/elfhosted.md`](reference/elfhosted.md).
 
-N3c playability indexing still required — addon hosting fixes browse/resolve
+M3 playability indexing still required — addon hosting fixes browse/resolve
 availability, not play guarantees.
 
 ### Optional hardware (when optimizing for SOTA)
@@ -66,7 +66,7 @@ Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`). Stack reapplie
 ## Display (current)
 
 - **Connected:** 1080p monitor on HDMI (lab)
-- **Later (M6):** 4K TV + soundbar — `raspi-config` / `kmsprint` / mpv profile in [ROADMAP.md](ROADMAP.md) §M6.3
+- **Later (M6.3):** 4K TV + soundbar — `raspi-config` / `kmsprint` / mpv profile in [ROADMAP.md](ROADMAP.md) §M6.3
 
 ---
 

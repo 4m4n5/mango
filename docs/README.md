@@ -1,6 +1,6 @@
 # mango documentation
 
-**Product:** [VISION.md](VISION.md) · **Plan:** [ROADMAP.md](ROADMAP.md) · **Status:** [STATUS.md](STATUS.md) · **Branch:** `feat/native-experience`
+**Product:** [VISION.md](VISION.md) · **Plan:** [ROADMAP.md](ROADMAP.md) · **Status:** [STATUS.md](STATUS.md)
 
 ---
 
@@ -13,16 +13,18 @@
 | Understand the stack | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Operate the Pi | [OPS.md](OPS.md) · [DEPLOY.md](DEPLOY.md) |
 | Run couch tests | [COUCH_TEST.md](COUCH_TEST.md) |
+| M5.5 companion UX ship bar | [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) |
+| M6.5 TV UX polish | [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) |
 | Set up voice | [VOICE.md](VOICE.md) |
 | Set up live TV | [LIVE_TV.md](LIVE_TV.md) |
-| Gamepad layout | [HARDWARE.md](HARDWARE.md) |
+| Gamepad | [HARDWARE.md](HARDWARE.md) |
 | Locked choices | [DECISIONS.md](DECISIONS.md) |
 
 **Scripts:** [../scripts/MILESTONES.md](../scripts/MILESTONES.md) · **Agents:** [../AGENTS.md](../AGENTS.md)
 
 ---
 
-## Milestones (quick reference)
+## Milestones
 
 | | Status |
 |--|--------|
@@ -31,35 +33,33 @@
 | M3 Play | ✓ |
 | M4 Addons | ✓ |
 | M5 Voice + AI | ◐ |
-| M6 Ship (4K HDR · library · wizard) | next |
+| M6 Ship | next |
 
-Full detail: [ROADMAP.md](ROADMAP.md). Legacy `N0`–`N7` names map to these milestones in the roadmap alias table.
+Detail: [ROADMAP.md](ROADMAP.md)
 
 ---
 
-## Reference (deep dives)
+## Reference
 
 | Doc | Use |
 |-----|-----|
-| [reference/addon-stack.md](reference/addon-stack.md) | Self-hosted AIOStreams + AIOMetadata setup |
-| [reference/aiostreams-profile.md](reference/aiostreams-profile.md) | AIOStreams headless profile |
-| [reference/elfhosted.md](reference/elfhosted.md) | Optional cloud addon hosting |
-| [reference/kodi-youtube-fallback.md](reference/kodi-youtube-fallback.md) | Legacy Kodi YouTube fallback |
+| [reference/addon-stack.md](reference/addon-stack.md) | Self-hosted addons |
+| [reference/aiostreams-profile.md](reference/aiostreams-profile.md) | AIOStreams profile |
+| [reference/elfhosted.md](reference/elfhosted.md) | Optional cloud hosting |
+| [reference/kodi-youtube-fallback.md](reference/kodi-youtube-fallback.md) | Legacy Kodi YouTube |
 
 ---
 
-## Default gate (before couch)
+## Gate (before couch)
 
 ```bash
 bash scripts/pi-exec-gate.sh
-# or
-bash scripts/pi-deploy.sh --fast --gate
 ```
 
-Live IPTV gates are **opt-in** — not in gate-lite.
+Live IPTV gates are opt-in.
 
 ---
 
 ## Archive
 
-Superseded docs (old phase plans, inventories, task prompts): [archive/](archive/)
+Superseded phase plans: [archive/](archive/) · Legacy name map: [ROADMAP.md#appendix--legacy-names](ROADMAP.md#appendix--legacy-names)
