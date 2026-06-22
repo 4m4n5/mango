@@ -16,6 +16,7 @@
 #   MANGO_MAINTENANCE_SKIP_GATE=1      skip pi-pre-couch-gate after refresh (default 1 for grow/nightly)
 #   MANGO_PLAYABILITY_BOOTSTRAP=1      target min_display per rail + early exit (set by --bootstrap)
 #   MANGO_GROW_PRESET=nightly          preset wall/attempt limits for grow phase (default nightly)
+#   MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC  pause between stale and grow (default 45)
 
 set -euo pipefail
 
@@ -146,6 +147,7 @@ else
 fi
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-6000}"
 export MANGO_GROW_PRESET="${MANGO_GROW_PRESET:-nightly}"
+PHASE_COOLDOWN_SEC="${MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC:-45}"
 
 run_refresh() {
   local refresh_mode="$1"
@@ -169,6 +171,10 @@ if [[ "$MODE" == "nightly" ]]; then
   STALE_JSON="$(run_refresh stale 2>&1)"
   STALE_RC=$?
   echo "$STALE_JSON"
+  if [[ "$PHASE_COOLDOWN_SEC" -gt 0 ]]; then
+    echo "phase cooldown: ${PHASE_COOLDOWN_SEC}s (AIOStreams stream rate-limit window)"
+    sleep "$PHASE_COOLDOWN_SEC"
+  fi
   echo "== phase 2: grow pass (preset=$MANGO_GROW_PRESET) =="
   REFRESH_JSON="$(run_refresh grow 2>&1)"
   REFRESH_RC=$?

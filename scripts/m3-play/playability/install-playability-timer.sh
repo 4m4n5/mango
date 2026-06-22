@@ -27,9 +27,10 @@ Environment=MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY=0
 Environment=MANGO_MAINTENANCE_SKIP_GATE=1
 Environment=MANGO_PLAYABILITY_PROBE_POOL=1
 Environment=MANGO_PLAYABILITY_BATCH_DB=1
-Environment=MANGO_PLAYABILITY_RESOLVE_CONCURRENCY=8
+Environment=MANGO_PLAYABILITY_RESOLVE_CONCURRENCY=4
 Environment=MANGO_PLAYABILITY_PROBE_CONCURRENCY=3
-ExecStart=/usr/bin/env bash scripts/m3-play/playability/playability-maintenance.sh --mode nightly
+Environment=MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC=45
+ExecStart=/usr/bin/bash $REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh --mode nightly
 EOF
 
 cat >"$TIMER_PATH" <<'EOF'

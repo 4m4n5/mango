@@ -1,10 +1,10 @@
 #!/usr/bin/env -S npm --prefix src/catalog-service exec tsx --
 
-import { CatalogCore } from '../../src/catalog-service/src/core.js';
-import { refreshAllRails } from '../../src/catalog-service/src/playability/refresh.js';
-import { normalizeRefreshMode, type GrowPresetId } from '../../src/catalog-service/src/playability/grow-target.js';
-import { topUpRail } from '../../src/catalog-service/src/playability/top-up.js';
-import { verifyTitle } from '../../src/catalog-service/src/playability/verify.js';
+import { CatalogCore } from '../../../src/catalog-service/src/core.js';
+import { refreshAllRails } from '../../../src/catalog-service/src/playability/refresh.js';
+import { normalizeRefreshMode, type GrowPresetId } from '../../../src/catalog-service/src/playability/grow-target.js';
+import { topUpRail } from '../../../src/catalog-service/src/playability/top-up.js';
+import { verifyTitle } from '../../../src/catalog-service/src/playability/verify.js';
 
 function usage(): never {
   console.error([
