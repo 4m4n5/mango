@@ -89,6 +89,7 @@ export type RefreshRailSummary = {
   growth_quota_met?: boolean;
   grow_loops?: number;
   attempts?: number;
+  sources_touched?: number;
   min_display: number;
   candidates_seen: number;
   linked_existing: number;
@@ -159,6 +160,7 @@ function growResultToRailSummary(
     growth_quota_met: result.growth_quota_met,
     grow_loops: result.grow_loops,
     attempts: result.attempts,
+    sources_touched: result.sources_touched,
     min_display: result.min_display,
     candidates_seen: result.candidates_seen,
     linked_existing: result.linked_existing,

@@ -63,6 +63,7 @@ export type TopUpRailResult = {
   exhausted: boolean;
   grow_loops?: number;
   attempts?: number;
+  sources_touched?: number;
   ingest?: IngestCandidatesStats;
   results: Array<{
     type: string;
@@ -120,6 +121,7 @@ function growResultToTopUp(result: Awaited<ReturnType<typeof growRail>>): TopUpR
     exhausted: result.exhausted,
     grow_loops: result.grow_loops,
     attempts: result.attempts,
+    sources_touched: result.sources_touched,
     ingest: result.ingest,
     results: result.results,
   };
