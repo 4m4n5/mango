@@ -42,6 +42,26 @@ export function resourceUrl(manifestUrl: string, resource: string, type: string,
   return url.toString();
 }
 
+/** Stremio catalog pagination — skip is passed to the addon, not applied client-side only. */
+export function catalogResourceUrl(
+  manifestUrl: string,
+  contentType: string,
+  catalog: string,
+  options: { skip?: number } = {},
+): string {
+  const skip = Math.max(0, options.skip ?? 0);
+  if (skip <= 0) {
+    return resourceUrl(manifestUrl, 'catalog', contentType, catalog);
+  }
+  const encodedType = encodeURIComponent(contentType);
+  const encodedId = encodeURIComponent(catalog);
+  const url = new URL(manifestUrl);
+  const root = url.pathname.replace(/\/manifest\.json$/, '').replace(/\/$/, '');
+  url.pathname = `${root}/catalog/${encodedType}/${encodedId}/skip=${skip}.json`;
+  url.hash = '';
+  return url.toString();
+}
+
 function previewId(preview: unknown): string | null {
   if (typeof preview !== 'object' || preview === null) return null;
   const id = (preview as { id?: unknown }).id;
@@ -72,11 +92,11 @@ export async function fetchAddonCatalogCandidates(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CATALOG_FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(resourceUrl(
+    const response = await fetch(catalogResourceUrl(
       manifestUrl,
-      'catalog',
       contentType,
       catalog,
+      { skip: options.offset },
     ), {
       headers: { accept: 'application/json' },
       signal: controller.signal,
@@ -86,7 +106,7 @@ export async function fetchAddonCatalogCandidates(
     }
     const data = await response.json() as { metas?: unknown[] };
     return (data.metas || [])
-      .slice(options.offset, options.offset + options.limit)
+      .slice(0, options.limit)
       .filter((preview) => {
         const title = previewTitle(preview);
         return !title || !isBlockedCatalogText(title);
