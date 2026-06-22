@@ -65,12 +65,29 @@ bash scripts/m3-play/playability/install-playability-timer.sh
 
 ## Source hit-rate weights
 
-Before grow (when catalog-service is still up), maintenance runs a quick `source-hitrate.py` sample
-(`MANGO_SOURCE_HITRATE_PREFLIGHT=1`, 3 probes/source). Grow reads
-`~/.cache/mango/source-hitrate/latest.json` and scales composite/AI catalog source weights
-(`MANGO_GROW_HITRATE_WEIGHTS=1`, default on).
+**Quick grow** (`--mode grow`, `--preset quick`):
+
+- Skips preflight when `~/.cache/mango/source-hitrate/latest.json` is **< 24h** old (uses cached weights).
+- Otherwise runs a **1 probe/source** sample while catalog is still up.
+- Progress appears in `playability-grow.log` and `grow_monitor.py status` (`phase: preflight`).
+
+**Nightly grow** (timer phase 2, after stale + cooldown):
+
+- Always runs full preflight (**3 probes/source**) immediately before the grow pass.
+- Briefly restarts catalog-service for probes, then stops it for indexing.
+
+```bash
+# Tune quick skip window / sample sizes
+MANGO_SOURCE_HITRATE_QUICK_FRESH_HOURS=24   # skip quick preflight when newer
+MANGO_SOURCE_HITRATE_QUICK_PER_SOURCE=1
+MANGO_SOURCE_HITRATE_NIGHTLY_PER_SOURCE=3
+```
+
+Grow reads the report and scales composite/AI catalog source weights (`MANGO_GROW_HITRATE_WEIGHTS=1`, default on).
 
 Disable: `MANGO_SOURCE_HITRATE_PREFLIGHT=0` and/or `MANGO_GROW_HITRATE_WEIGHTS=0`.
+
+Monitor phase file: `~/.cache/mango/grow-run-state.json` (also appended to `playability-grow.log`).
 
 ## Global link-first pass
 

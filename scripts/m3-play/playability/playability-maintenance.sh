@@ -16,7 +16,10 @@
 #   MANGO_MAINTENANCE_SKIP_GATE=1      skip pi-pre-couch-gate after refresh (default 1 for grow/nightly)
 #   MANGO_PLAYABILITY_BOOTSTRAP=1      target min_display per rail + early exit (set by --bootstrap)
 #   MANGO_GROW_PRESET=quick|nightly   preset for grow phase (default: quick for --mode grow, nightly for nightly)
-#   MANGO_SOURCE_HITRATE_PREFLIGHT=1  refresh hit-rate report before grow when catalog is up (default 1)
+#   MANGO_SOURCE_HITRATE_PREFLIGHT=1  refresh hit-rate before grow (default 1)
+#   MANGO_SOURCE_HITRATE_QUICK_FRESH_HOURS=24  skip quick preflight when report newer (default 24)
+#   MANGO_SOURCE_HITRATE_QUICK_PER_SOURCE=1    probes/source for quick grow preflight (default 1)
+#   MANGO_SOURCE_HITRATE_NIGHTLY_PER_SOURCE=3  probes/source before nightly grow phase (default 3)
 #   MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC  pause between stale and grow (default 45)
 
 set -euo pipefail
@@ -91,18 +94,81 @@ fi
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-8000}"
 echo "probe_ms: $MANGO_PLAYABILITY_PROBE_MS (aligned with couch auto_play_probe_ms)"
 
+resolve_grow_preset_early() {
+  if [[ -z "${MANGO_GROW_PRESET:-}" ]]; then
+    if [[ "$MODE" == "grow" ]]; then
+      export MANGO_GROW_PRESET=quick
+    else
+      export MANGO_GROW_PRESET=nightly
+    fi
+  else
+    export MANGO_GROW_PRESET="${MANGO_GROW_PRESET}"
+  fi
+}
+resolve_grow_preset_early
+
+grow_state() {
+  python3 "$REPO_DIR/scripts/diag/grow_run_state.py" "$@"
+}
+
+# shellcheck source=../../lib/catalog-service-stack.sh
+source "$REPO_DIR/scripts/lib/catalog-service-stack.sh"
+
 run_source_hitrate_preflight() {
+  local preset="$1"
+  local force="${2:-0}"
+  local -a force_args=()
+  if [[ "$force" == "1" ]]; then
+    force_args+=(--force)
+  fi
+
   if [[ "${MANGO_SOURCE_HITRATE_PREFLIGHT:-1}" != "1" ]]; then
+    grow_state set --phase preflight --message "hit-rate preflight disabled" \
+      --mode "$MODE" --preset "$preset" \
+      --log "source-hitrate preflight: skipped (MANGO_SOURCE_HITRATE_PREFLIGHT=0)"
     echo "source-hitrate preflight: skipped (MANGO_SOURCE_HITRATE_PREFLIGHT=0)"
     return 0
   fi
   if ! curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+    grow_state set --phase preflight --message "catalog down — using cached report" \
+      --mode "$MODE" --preset "$preset" \
+      --log "source-hitrate preflight: catalog down — using cached report if present"
     echo "source-hitrate preflight: catalog down — using cached report if present"
     return 0
   fi
-  echo "source-hitrate preflight (quick sample for grow weights)"
-  MANGO_SOURCE_HITRATE_PER_SOURCE="${MANGO_SOURCE_HITRATE_PREFLIGHT_PER_SOURCE:-3}" \
-    python3 "$REPO_DIR/scripts/diag/source-hitrate.py" || true
+
+  local plan_json decision reason per_source
+  plan_json="$(python3 "$REPO_DIR/scripts/diag/source_hitrate_preflight.py" plan --preset "$preset" "${force_args[@]}")"
+  decision="$(python3 -c "import json,sys; print(json.load(sys.stdin)['decision'])" <<<"$plan_json")"
+  reason="$(python3 -c "import json,sys; print(json.load(sys.stdin)['reason'])" <<<"$plan_json")"
+  per_source="$(python3 -c "import json,sys; print(json.load(sys.stdin)['per_source'])" <<<"$plan_json")"
+
+  if [[ "$decision" == "skip" ]]; then
+    grow_state set --phase preflight --message "using cached hit-rate ($reason)" \
+      --mode "$MODE" --preset "$preset" \
+      --log "source-hitrate preflight: skipped ($reason)"
+    echo "source-hitrate preflight: skipped ($reason)"
+    return 0
+  fi
+
+  grow_state set --phase preflight \
+    --message "probing sources (per_source=$per_source)" \
+    --mode "$MODE" --preset "$preset" \
+    --preflight-done 0 --preflight-total 36 \
+    --log "source-hitrate preflight: start preset=$preset per_source=$per_source ($reason)"
+
+  echo "source-hitrate preflight: preset=$preset per_source=$per_source ($reason)"
+  export MANGO_GROW_RUN_STATE=1
+  PYTHONUNBUFFERED=1 \
+    MANGO_SOURCE_HITRATE_PER_SOURCE="$per_source" \
+    python3 "$REPO_DIR/scripts/diag/source-hitrate.py" 2>&1 \
+    | tee -a "${CACHE_DIR}/playability-grow.log" \
+    || true
+  unset MANGO_GROW_RUN_STATE
+
+  grow_state set --phase preflight --message "hit-rate report written" \
+    --mode "$MODE" --preset "$preset" \
+    --log "source-hitrate preflight: complete"
 }
 
 exec 200>"$LOCK_FILE"
@@ -130,19 +196,11 @@ restore_couch() {
 
 trap restore_couch EXIT
 
-stop_catalog_service() {
-  local pid_file="${CACHE_DIR}/catalog-service.pid"
-  if [[ -f "$pid_file" ]]; then
-    kill "$(cat "$pid_file")" 2>/dev/null || true
-    sleep 0.3
-    kill -9 "$(cat "$pid_file")" 2>/dev/null || true
-    rm -f "$pid_file"
-  fi
-  pkill -f '[c]atalog-service/dist/index.js' 2>/dev/null || true
-  sleep 0.5
-}
-
-echo "== mango playability maintenance (mode=$MODE) =="
+echo "== mango playability maintenance (mode=$MODE preset=$MANGO_GROW_PRESET) =="
+grow_state set --phase init \
+  --message "maintenance starting" \
+  --mode "$MODE" --preset "$MANGO_GROW_PRESET" --run-id "$RUN_ID" \
+  --log "playability-maintenance: mode=$MODE preset=$MANGO_GROW_PRESET"
 
 write_grow_baseline_if_needed() {
   if [[ "$1" == "grow" ]]; then
@@ -158,11 +216,11 @@ if pgrep -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1; then
 fi
 
 if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
-  if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]]; then
-    run_source_hitrate_preflight
+  if [[ "$MODE" == "grow" ]]; then
+    run_source_hitrate_preflight quick 0
   fi
   echo "stopping catalog-service (exclusive indexer)"
-  stop_catalog_service
+  stop_catalog_service_only
 fi
 
 START_MS="$(python3 -c 'import time; print(int(time.time()*1000))')"
@@ -177,15 +235,6 @@ else
   export MANGO_PLAYABILITY_PROBE_CONCURRENCY="${MANGO_PLAYABILITY_PROBE_CONCURRENCY:-1}"
 fi
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-6000}"
-if [[ -z "${MANGO_GROW_PRESET:-}" ]]; then
-  if [[ "$MODE" == "grow" ]]; then
-    export MANGO_GROW_PRESET=quick
-  else
-    export MANGO_GROW_PRESET=nightly
-  fi
-else
-  export MANGO_GROW_PRESET="${MANGO_GROW_PRESET}"
-fi
 export MANGO_GROW_HITRATE_WEIGHTS="${MANGO_GROW_HITRATE_WEIGHTS:-1}"
 export MANGO_GROW_REQUIRE_TARGET="${MANGO_GROW_REQUIRE_TARGET:-1}"
 export MANGO_GROW_SOURCE_RESET_CYCLES="${MANGO_GROW_SOURCE_RESET_CYCLES:-10}"
@@ -213,16 +262,29 @@ REFRESH_RC=0
 
 set +e
 if [[ "$MODE" == "nightly" ]]; then
+  grow_state set --phase stale --message "stale refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
   echo "== phase 1: stale refresh =="
   STALE_JSON="$(run_refresh stale 2>&1)"
   STALE_RC=$?
   echo "$STALE_JSON"
   if [[ "$PHASE_COOLDOWN_SEC" -gt 0 ]]; then
+    grow_state set --phase cooldown \
+      --message "phase cooldown ${PHASE_COOLDOWN_SEC}s (stream rate-limit window)" \
+      --mode "$MODE" --preset "$MANGO_GROW_PRESET"
     echo "phase cooldown: ${PHASE_COOLDOWN_SEC}s (AIOStreams stream rate-limit window)"
     sleep "$PHASE_COOLDOWN_SEC"
   fi
   echo "== phase 2: grow pass (preset=$MANGO_GROW_PRESET) =="
+  grow_state set --phase preflight \
+    --message "starting catalog for nightly hit-rate preflight" \
+    --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
+    --log "nightly grow: hit-rate preflight before grow phase"
+  MANGO_CATALOG=1 start_catalog_service_only \
+    || grow_state log "warn: catalog start for hitrate failed — using cached report"
+  run_source_hitrate_preflight nightly 1
+  stop_catalog_service_only
   write_grow_baseline_if_needed grow
+  grow_state set --phase grow --message "grow refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
   REFRESH_JSON="$(run_refresh grow 2>&1)"
   REFRESH_RC=$?
   echo "$REFRESH_JSON"
@@ -230,6 +292,11 @@ if [[ "$MODE" == "nightly" ]]; then
     REFRESH_RC=$STALE_RC
   fi
 else
+  if [[ "$MODE" == "grow" ]]; then
+    grow_state set --phase grow --message "grow refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
+  elif [[ "$MODE" == "stale" ]]; then
+    grow_state set --phase stale --message "stale refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
+  fi
   write_grow_baseline_if_needed "$MODE"
   REFRESH_JSON="$(run_refresh "$MODE" 2>&1)"
   REFRESH_RC=$?
@@ -268,6 +335,7 @@ if [[ "$SKIP_GATE" != "1" && -x "$REPO_DIR/scripts/pi-pre-couch-gate.sh" ]]; the
 fi
 
 trap - EXIT
+grow_state set --phase restore --message "restoring couch stack" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
 restore_couch
 
 REFRESH_OUT="${OPS_DIR}/refresh-${RUN_ID}.json"
@@ -283,6 +351,8 @@ if echo "$REFRESH_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/
 fi
 
 echo "maintenance complete"
+grow_state set --phase done --message "complete rc=$REFRESH_RC" --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
+  --log "maintenance complete mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))"
 python3 "$REPO_DIR/scripts/diag/grow_monitor.py" status 2>/dev/null || true
 python3 "$REPO_DIR/scripts/diag/playability-status.py" 2>/dev/null | tail -20 || true
 if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]] && [[ -f "$REFRESH_OUT" ]]; then

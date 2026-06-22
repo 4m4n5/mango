@@ -83,6 +83,21 @@ def _pgrep(pattern: str) -> list[str]:
     return lines
 
 
+def grow_run_state_path() -> Path:
+    return cache_dir() / "grow-run-state.json"
+
+
+def load_grow_run_state() -> dict[str, Any] | None:
+    path = grow_run_state_path()
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
 def detect_grow_state() -> dict[str, Any]:
     pidfile = pidfile_path()
     pid: int | None = None
@@ -99,8 +114,16 @@ def detect_grow_state() -> dict[str, Any]:
         line for line in _pgrep("playability-maintenance.sh")
         if "--mode" in line
     ]
+    hitrate_lines = _pgrep("source-hitrate.py")
 
-    running = pid_alive or bool(indexer_lines) or bool(maintenance_lines)
+    run_state = load_grow_run_state()
+    phase = run_state.get("phase") if run_state else None
+    phase_message = run_state.get("message") if run_state else None
+
+    running = pid_alive or bool(indexer_lines) or bool(maintenance_lines) or bool(hitrate_lines)
+    if phase and phase not in {"done", "idle"} and (pid_alive or maintenance_lines or hitrate_lines):
+        running = True
+
     return {
         "running": running,
         "pid": pid if pid_alive else None,
@@ -108,6 +131,10 @@ def detect_grow_state() -> dict[str, Any]:
         "maintenance_lock": lock_held,
         "indexer": indexer_lines[:3],
         "maintenance": maintenance_lines[:2],
+        "hitrate": hitrate_lines[:2],
+        "phase": phase,
+        "phase_message": phase_message,
+        "run_state": run_state,
         "log": str(grow_log_path()) if grow_log_path().is_file() else _latest_grow_log(),
     }
 
@@ -374,6 +401,23 @@ def build_live_status(
     }
 
 
+def _format_phase_line(grow: dict[str, Any]) -> str | None:
+    phase = grow.get("phase")
+    if not phase or phase in {"done", "idle", "init"}:
+        return None
+    message = grow.get("phase_message") or ""
+    state = grow.get("run_state") if isinstance(grow.get("run_state"), dict) else {}
+    if phase == "preflight":
+        done = state.get("preflight_done")
+        total = state.get("preflight_total")
+        if isinstance(done, int) and isinstance(total, int) and total > 0:
+            message = f"{message} ({done}/{total})".strip()
+    label = phase
+    if message:
+        return f"phase: {label} — {message}"
+    return f"phase: {label}"
+
+
 def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
     grow = data.get("grow") or {}
     global_pool = data.get("global_verified_pool")
@@ -393,6 +437,9 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
         f"running: {'yes' if grow.get('running') else 'no'}"
         + (f" pid={grow.get('pid')}" if grow.get('pid') else ""),
     ]
+    phase_line = _format_phase_line(grow)
+    if phase_line:
+        lines.append(phase_line)
     if grow.get("log"):
         lines.append(f"log: {grow['log']}")
     lines.append("")
@@ -485,6 +532,9 @@ def cmd_watch(args: argparse.Namespace) -> int:
             break
         else:
             print("grow: running")
+            phase_line = _format_phase_line(grow)
+            if phase_line:
+                print(phase_line)
         if args.max_polls and polls >= args.max_polls:
             return rc
         time.sleep(max(5, args.interval))

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from grow_monitor import (
     SCHEMA_VERSION,
+    _format_phase_line,
     _normalize_baseline,
     build_live_status,
     fetch_verified_pool_counts,
@@ -183,6 +184,16 @@ class GrowMonitorTests(unittest.TestCase):
                 os.environ.pop("MANGO_PLAYABILITY_DB", None)
                 os.environ.pop("MANGO_GROW_BASELINE", None)
                 os.environ.pop("MANGO_CATALOG_YAML", None)
+
+    def test_format_phase_line_preflight_progress(self) -> None:
+        line = _format_phase_line({
+            "phase": "preflight",
+            "phase_message": "probing sources",
+            "run_state": {"preflight_done": 5, "preflight_total": 36},
+        })
+        assert line is not None
+        self.assertIn("preflight", line)
+        self.assertIn("5/36", line)
 
     def test_list_grow_rail_ids_orders_ai_last(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

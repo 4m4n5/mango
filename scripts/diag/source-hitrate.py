@@ -67,6 +67,19 @@ CINEMETA_CATALOG_ROOT = os.environ.get(
 )
 
 
+def _emit_preflight_progress(done: int, total: int, catalog: str) -> None:
+    label = catalog[:60]
+    print(f"grow-run: preflight {done}/{total} {label}", flush=True)
+    if os.environ.get("MANGO_GROW_RUN_STATE") != "1":
+        return
+    try:
+        from grow_run_state import touch_preflight_progress
+
+        touch_preflight_progress(done, total, catalog)
+    except Exception:
+        pass
+
+
 @dataclass
 class SourceRef:
     addon: str
@@ -307,8 +320,10 @@ def main() -> int:
 
     all_stats: list[SourceStats] = []
     all_picks: list[dict] = []
+    source_items = sorted(sources.items(), key=lambda item: item[0])
+    total_sources = len(source_items)
 
-    for key, ref in sorted(sources.items(), key=lambda item: item[0]):
+    for key, ref in source_items:
         manifest = manifests.get(ref.addon)
         if ref.addon != "Cinemeta" and not manifest:
             print(f"SKIP {key}: no manifest for addon {ref.addon}")
@@ -359,6 +374,7 @@ def main() -> int:
                 "error": err,
             })
         all_stats.append(stats)
+        _emit_preflight_progress(len(all_stats), total_sources, ref.catalog)
 
     metric = "play" if DO_PLAY else "stream"
     print(f"{'source':42} {'rails':>4} {'n':>3} {'stream':>8} {'play':>8}  note")
