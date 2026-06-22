@@ -12,6 +12,8 @@ npm --prefix src/catalog-service run test 2>&1 | tail -8
 test -f src/catalog-service/src/playability/grow-rail.ts
 test -f src/catalog-service/src/playability/grow-target.ts
 grep -q 'export async function growRail' src/catalog-service/src/playability/grow-rail.ts
+grep -q 'candidates.length === 0' src/catalog-service/src/playability/grow-rail.ts
+grep -q 'madeLinkOrProbeProgress' src/catalog-service/src/playability/grow-rail.ts
 grep -q 'resolveGrowTarget' src/catalog-service/src/playability/grow-target.ts
 grep -q 'isGrowRefreshMode' src/catalog-service/src/playability/grow-target.ts
 grep -q 'refreshAllRailsGrow' src/catalog-service/src/playability/refresh.ts

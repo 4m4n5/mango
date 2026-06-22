@@ -50,7 +50,7 @@ case "$RESOLVED" in
     exec bash scripts/phase-n3c/playability-grow.sh --mode grow --preset quick --detach
     ;;
   grow_nightly)
-    exec bash scripts/phase-n3c/playability-grow.sh --mode nightly --preset nightly
+    exec bash scripts/phase-n3c/playability-grow.sh --mode nightly --preset nightly --detach
     ;;
   grow_overnight)
     exec bash scripts/phase-n3c/overnight-playability-grow.sh --detach

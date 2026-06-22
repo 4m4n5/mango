@@ -208,7 +208,12 @@ export async function growRail(
       maxSourcesTouched = Math.max(maxSourcesTouched, ingested.sources_touched ?? 0);
       totalCandidatesSeen += ingested.scanned;
 
-      if (ingested.fresh_queued === 0 && ingested.catalog_exhausted) {
+      // Only skip link/verify when ingest found nothing left to process.
+      if (
+        ingested.fresh_queued === 0
+        && ingested.catalog_exhausted
+        && ingested.candidates.length === 0
+      ) {
         catalogExhausted = true;
         if (await tryComposeOnExhaustion()) {
           continue;
@@ -217,6 +222,13 @@ export async function growRail(
       }
 
       const candidates = ingested.candidates;
+      if (candidates.length === 0) {
+        catalogExhausted = ingested.catalog_exhausted;
+        if (catalogExhausted && await tryComposeOnExhaustion()) {
+          continue;
+        }
+        break;
+      }
       const refsByKey = new Map<string, RailCandidateRef[]>();
       for (const [index, candidate] of candidates.entries()) {
         const key = candidateKey(candidate);
@@ -280,7 +292,9 @@ export async function growRail(
         }
       }
 
-      if (iterationAttempts === 0 && ingested.fresh_queued === 0) {
+      const madeLinkOrProbeProgress =
+        linked.linked_existing > 0 || iterationAttempts > 0;
+      if (!madeLinkOrProbeProgress && ingested.fresh_queued === 0) {
         catalogExhausted = ingested.catalog_exhausted;
         if (catalogExhausted && await tryComposeOnExhaustion()) {
           continue;
