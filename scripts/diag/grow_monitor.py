@@ -275,7 +275,8 @@ def build_live_status(
     verify_window_ms: int = 60 * 60 * 1000,
     db_file: Path | None = None,
 ) -> dict[str, Any]:
-    catalog = catalog or load_catalog_playability()
+    if catalog is None:
+        catalog = load_catalog_playability()
     baseline = baseline or {"verified_pool": 0, "rails": {}}
     baseline_rails: dict[str, int] = baseline.get("rails") or {}
     current = fetch_verified_pool_counts(db_file)
