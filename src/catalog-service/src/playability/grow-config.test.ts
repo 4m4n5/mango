@@ -41,19 +41,28 @@ test('playabilityGrowHeadAdvancePages defaults to 5', async () => {
   }
 });
 
-test('growGlobalLinkEnabled is on unless MANGO_GROW_GLOBAL_LINK=0', async () => {
-  const previous = process.env.MANGO_GROW_GLOBAL_LINK;
+test('growGlobalLinkEnabled requires positive MANGO_GROW_LINK_MAX', async () => {
+  const prevLink = process.env.MANGO_GROW_LINK_MAX;
+  const prevGlobal = process.env.MANGO_GROW_GLOBAL_LINK;
+  delete process.env.MANGO_GROW_LINK_MAX;
   delete process.env.MANGO_GROW_GLOBAL_LINK;
   try {
     const { growGlobalLinkEnabled } = await import('./grow-global-link.js');
+    assert.equal(growGlobalLinkEnabled(), false);
+    process.env.MANGO_GROW_LINK_MAX = '5';
     assert.equal(growGlobalLinkEnabled(), true);
     process.env.MANGO_GROW_GLOBAL_LINK = '0';
     assert.equal(growGlobalLinkEnabled(), false);
   } finally {
-    if (previous === undefined) {
+    if (prevLink === undefined) {
+      delete process.env.MANGO_GROW_LINK_MAX;
+    } else {
+      process.env.MANGO_GROW_LINK_MAX = prevLink;
+    }
+    if (prevGlobal === undefined) {
       delete process.env.MANGO_GROW_GLOBAL_LINK;
     } else {
-      process.env.MANGO_GROW_GLOBAL_LINK = previous;
+      process.env.MANGO_GROW_GLOBAL_LINK = prevGlobal;
     }
   }
 });

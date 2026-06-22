@@ -5,6 +5,7 @@ import {
   getTitlesPlayabilityBulk,
   listLinkableVerifiedForRail,
 } from './db.js';
+import { growLinkMaxPerRail } from './config.js';
 import type { GrowthPassState } from './pool-growth.js';
 import {
   candidateKey,
@@ -30,24 +31,28 @@ export type GlobalLinkPassResult = {
 };
 
 export function growGlobalLinkEnabled(): boolean {
-  return process.env.MANGO_GROW_GLOBAL_LINK !== '0';
+  if (process.env.MANGO_GROW_GLOBAL_LINK === '0') {
+    return false;
+  }
+  return growLinkMaxPerRail() > 0;
 }
 
 /**
  * Link globally verified titles into this rail before catalog ingest — zero probes.
+ * Capped by linkMax (not grow quota); does not satisfy fresh probe target.
  */
 export async function runGlobalVerifiedLinkPass(
   rail: BrowsableRail,
-  remainingQuota: number,
+  linkMax: number,
   growthPass: GrowthPassState,
   context: VerifyContext,
 ): Promise<GlobalLinkPassResult> {
   const empty: GlobalLinkPassResult = { linked: 0, linked_global: 0, results: [] };
-  if (!growGlobalLinkEnabled() || remainingQuota <= 0) {
+  if (!growGlobalLinkEnabled() || linkMax <= 0) {
     return empty;
   }
 
-  const rows = await listLinkableVerifiedForRail(rail.id, rail.content_type, remainingQuota);
+  const rows = await listLinkableVerifiedForRail(rail.id, rail.content_type, linkMax);
   if (rows.length === 0) {
     return empty;
   }

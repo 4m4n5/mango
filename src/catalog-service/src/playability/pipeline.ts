@@ -26,7 +26,12 @@ import {
   type PreparedVerifyTitleResult,
   type VerifyContext,
 } from './verify.js';
-import { effectivePoolTarget, incrementGrowthPassVerified, type GrowthPassState } from './pool-growth.js';
+import {
+  effectivePoolTarget,
+  incrementGrowthPassFresh,
+  incrementGrowthPassLinked,
+  type GrowthPassState,
+} from './pool-growth.js';
 
 export type CandidateKey = string;
 
@@ -250,8 +255,8 @@ export async function processVerifyQueue(
         action: item.forceReprobe ? 'reverified' : 'verified',
         rails: eligibleRefs.map((ref) => ref.railId),
       });
-      if (growthPass) {
-        incrementGrowthPassVerified(
+      if (growthPass && !item.forceReprobe) {
+        incrementGrowthPassFresh(
           growthPass,
           eligibleRefs.map((ref) => ref.railId),
         );
@@ -449,7 +454,7 @@ export async function linkExistingVerifiedCandidates(
           railVerifiedCounts.set(ref.railId, linkedCount + 1);
           linkedExisting += 1;
           if (growthPass) {
-            incrementGrowthPassVerified(growthPass, [ref.railId]);
+            incrementGrowthPassLinked(growthPass, [ref.railId]);
           }
           results.push({
             type: candidate.type,

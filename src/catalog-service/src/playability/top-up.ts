@@ -43,6 +43,7 @@ export type TopUpRailResult = {
   candidate_limit: number;
   pool_target: number;
   grow_target?: number;
+  fresh_verified?: number;
   probe_verified?: number;
   grow_target_met?: boolean;
   /** @deprecated Use grow_target */
@@ -107,6 +108,7 @@ function growResultToTopUp(result: Awaited<ReturnType<typeof growRail>>): TopUpR
     candidate_limit: result.candidate_limit,
     pool_target: result.pool_target,
     grow_target: result.grow_target,
+    fresh_verified: result.fresh_verified,
     probe_verified: result.probe_verified,
     grow_target_met: result.grow_target_met,
     growth_quota: result.growth_quota,

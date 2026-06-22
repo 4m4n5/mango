@@ -45,7 +45,8 @@ export function recordRefreshOps(
       rails: result.rails.map((rail) => ({
         rail_id: rail.rail_id,
         grow_target: rail.grow_target ?? rail.growth_quota,
-        probe_verified: rail.probe_verified ?? rail.verified_added,
+        probe_verified: rail.probe_verified ?? rail.fresh_verified ?? rail.verified_added,
+        fresh_verified: rail.fresh_verified ?? rail.probe_verified ?? rail.verified_added,
         pool_growth: rail.pool_growth ?? (
           rail.after.verified_pool - rail.before.verified_pool
         ),

@@ -309,6 +309,7 @@ class RailLiveStatus:
     verified_before: int
     verified_now: int
     pool_growth: int
+    fresh_verified: int
     grow_target: int
     grow_target_met: bool
     sparse_tier: bool
@@ -340,12 +341,14 @@ def build_live_status(
         verified_before = int(baseline_rails.get(rail_id, 0))
         verified_now = int(current.rails.get(rail_id, verified_before))
         pool_growth = verified_now - verified_before
+        stats = verify_stats.get(rail_id, {})
+        fresh_verified = int(stats.get("verified", 0))
         grow_target = _grow_target_for_rail(rail_id, verified_before, catalog)
         sparse_tier = verified_before < catalog.get(
             rail_id,
             RailPlayabilityConfig(),
         ).display_limit
-        met = pool_growth >= grow_target
+        met = fresh_verified >= grow_target
         if met:
             met_count += 1
         grow_pool_before += verified_before
@@ -356,6 +359,7 @@ def build_live_status(
                 verified_before=verified_before,
                 verified_now=verified_now,
                 pool_growth=pool_growth,
+                fresh_verified=fresh_verified,
                 grow_target=grow_target,
                 grow_target_met=met,
                 sparse_tier=sparse_tier,
@@ -391,6 +395,7 @@ def build_live_status(
                 "verified_before": row.verified_before,
                 "verified_now": row.verified_now,
                 "pool_growth": row.pool_growth,
+                "fresh_verified": row.fresh_verified,
                 "grow_target": row.grow_target,
                 "grow_target_met": row.grow_target_met,
                 "sparse_tier": row.sparse_tier,

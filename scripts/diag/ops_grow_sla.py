@@ -173,18 +173,18 @@ def _verified_before(row: dict[str, Any]) -> int:
     return 0
 
 
-def _probe_verified(row: dict[str, Any]) -> int:
-    if row.get("pool_growth") is not None:
-        return int(row["pool_growth"])
+def _fresh_verified(row: dict[str, Any]) -> int:
+    if row.get("fresh_verified") is not None:
+        return int(row["fresh_verified"])
     if row.get("probe_verified") is not None:
         return int(row["probe_verified"])
     if row.get("verified_added") is not None:
         return int(row["verified_added"])
-    before = _verified_before(row)
-    after_obj = row.get("after")
-    if isinstance(after_obj, dict) and after_obj.get("verified_pool") is not None:
-        return int(after_obj["verified_pool"]) - before
     return 0
+
+
+def _probe_verified(row: dict[str, Any]) -> int:
+    return _fresh_verified(row)
 
 
 def normalize_grow_rail_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -193,8 +193,10 @@ def normalize_grow_rail_row(row: dict[str, Any]) -> dict[str, Any]:
         "label": row.get("label") or row.get("rail_id") or "-",
         "verified_before": _verified_before(row),
         "grow_target": row.get("grow_target"),
+        "fresh_verified": _fresh_verified(row),
         "probe_verified": _probe_verified(row),
         "pool_growth": row.get("pool_growth"),
+        "linked_existing": row.get("linked_existing"),
         "grow_target_met": row.get("grow_target_met"),
         "exhausted": bool(row.get("exhausted")),
         "compose_escalated": bool(row.get("compose_escalated")),

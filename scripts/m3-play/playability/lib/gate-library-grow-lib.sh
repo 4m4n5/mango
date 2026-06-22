@@ -118,6 +118,19 @@ gate_library_grow_maintenance() {
   test -f scripts/m4-addons/sync-aiometadata-rail-catalogs.sh
 }
 
+gate_library_grow_fresh_quota() {
+  echo "-- fresh-only grow quota --"
+  test -f src/catalog-service/src/playability/grow-fresh-quota.test.ts
+  grep -q 'fresh_verified' src/catalog-service/src/playability/grow-rail.ts
+  grep -q 'freshVerifiedCount' src/catalog-service/src/playability/grow-rail.ts
+  grep -q 'incrementGrowthPassFresh' src/catalog-service/src/playability/pipeline.ts
+  grep -q 'incrementGrowthPassLinked' src/catalog-service/src/playability/pipeline.ts
+  grep -q 'growLinkMaxPerRail' src/catalog-service/src/playability/config.ts
+  grep -q 'MANGO_GROW_LINK_MAX' src/catalog-service/src/playability/config.ts
+  ! grep -q 'incrementGrowthPassVerified(growthPass' src/catalog-service/src/playability/pipeline.ts
+  grep -q '_fresh_verified' scripts/diag/ops_grow_sla.py
+}
+
 gate_library_grow_run() {
   gate_library_grow_repo
   gate_library_grow_header
@@ -129,6 +142,7 @@ gate_library_grow_run() {
   gate_library_grow_cursors
   gate_library_grow_refresh_api
   gate_library_grow_ops
+  gate_library_grow_fresh_quota
   gate_library_grow_catalog_yaml
   gate_library_grow_maintenance
   echo "N3c library grow gate ok"

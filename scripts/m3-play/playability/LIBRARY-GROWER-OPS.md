@@ -89,11 +89,22 @@ Disable: `MANGO_SOURCE_HITRATE_PREFLIGHT=0` and/or `MANGO_GROW_HITRATE_WEIGHTS=0
 
 Monitor phase file: `~/.cache/mango/grow-run-state.json` (also appended to `playability-grow.log`).
 
-## Global link-first pass
+## Global link pass (optional bonus)
 
-Each rail grow session links globally verified titles (same content type, not yet in that rail pool)
-**before** catalog ingest — zero probes. Counts toward `linked_global` / `linked_existing`.
-Disable: `MANGO_GROW_GLOBAL_LINK=0`.
+When `MANGO_GROW_LINK_MAX` > 0, each rail grow session may link globally verified titles
+(same content type, not yet in that rail pool) **before** catalog ingest — zero probes.
+These links appear in `linked_global` / `linked_existing` but **do not** count toward the grow target.
+Default: `MANGO_GROW_LINK_MAX=0` (off). Force off: `MANGO_GROW_GLOBAL_LINK=0`.
+
+## Grow quota semantics
+
+| Metric | Meaning |
+|--------|---------|
+| `fresh_verified` / `probe_verified` | New probe-verified titles this pass — **counts toward target** |
+| `linked_existing` | Verified titles linked from library without probing — metrics only |
+| `pool_growth` | Verified pool delta (fresh + links) — informational |
+
+The grow loop exits when `fresh_verified >= grow_target`, not when pool reshuffles alone.
 
 ## Head tombstone advance
 
@@ -109,7 +120,8 @@ The **Library Grower SLA** block summarizes the latest **grow** phase per browse
 |--------|------|
 | Per-rail target | `grow_per_pass` from catalog yaml (default **20**) |
 | Sparse tier | When `verified_before < display_limit` (9), target is **2×** (40) |
-| Count toward target | **Pool growth** (`pool_growth` / verified pool delta) |
+| Count toward target | **Fresh probe-verified** (`fresh_verified` / `probe_verified`) |
+| Pool delta | `pool_growth` — includes links; **not** used for SLA pass |
 | Program pass | **≥80%** of rails met target |
 | Exhaustion below target | **WARN** in report; nightly gate still passes |
 | AI compose escalation | Logged per rail (`compose_escalated`, `compose_fallback_level`) |

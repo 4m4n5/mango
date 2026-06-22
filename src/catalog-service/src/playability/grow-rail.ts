@@ -33,9 +33,11 @@ import {
   playabilityGrowHeadAdvancePages,
   playabilityGrowHeadTombstoneRatio,
   playabilityGrowHeadAdvanceMaxCycles,
+  growLinkMaxPerRail,
 } from './config.js';
 import {
   createGrowthPassState,
+  freshVerifiedCount,
   type GrowthPassState,
 } from './pool-growth.js';
 import {
@@ -61,6 +63,8 @@ export type GrowRailResult = {
   label: string;
   ok: boolean;
   grow_target: number;
+  /** Probe-verified titles this pass (grow quota). */
+  fresh_verified: number;
   probe_verified: number;
   pool_growth: number;
   grow_target_met: boolean;
@@ -171,10 +175,7 @@ export async function growRail(
 
   const context = await createVerifyContext();
 
-  const poolGrowthSoFar = async (): Promise<number> => {
-    const status = await getRailPlayabilityStatus(rail.id);
-    return Math.max(0, status.verified_pool - before.verified_pool);
-  };
+  const freshQuotaSoFar = (): number => freshVerifiedCount(growthPass, rail.id);
 
   async function reloadIngestState(): Promise<void> {
     listSource = core.listSourceForRail(railId);
@@ -192,7 +193,7 @@ export async function growRail(
     if (composeEscalated || rail.type !== 'ai_catalog') {
       return false;
     }
-    if (await poolGrowthSoFar() >= growTarget) {
+    if (freshQuotaSoFar() >= growTarget) {
       return false;
     }
     const escalation = await tryGrowComposeEscalation(core, rail as AiCatalogRail);
@@ -210,7 +211,7 @@ export async function growRail(
     if (sourceResetCycles >= maxSourceResetCycles) {
       return false;
     }
-    if (await poolGrowthSoFar() >= growTarget) {
+    if (freshQuotaSoFar() >= growTarget) {
       return false;
     }
     sourceResetCycles += 1;
@@ -235,7 +236,7 @@ export async function growRail(
     if (sourceResetCycles > 0 || headAdvanceCycles >= maxHeadAdvanceCycles) {
       return false;
     }
-    if (await poolGrowthSoFar() >= growTarget) {
+    if (freshQuotaSoFar() >= growTarget) {
       return false;
     }
     const pageSize = playabilityIngestPageSize();
@@ -261,10 +262,9 @@ export async function growRail(
   }
 
   try {
-    const initialRemaining = Math.max(0, growTarget);
     const globalLink = await runGlobalVerifiedLinkPass(
       rail as BrowsableRail,
-      initialRemaining,
+      growLinkMaxPerRail(),
       growthPass,
       context,
     );
@@ -273,11 +273,11 @@ export async function growRail(
     allResults.push(...globalLink.results);
 
     while (Date.now() - startedAt < wallMs && attempts < maxAttempts) {
-      if (await poolGrowthSoFar() >= growTarget) {
+      if (freshQuotaSoFar() >= growTarget) {
         break;
       }
 
-      const remainingQuota = Math.max(0, growTarget - (await poolGrowthSoFar()));
+      const remainingQuota = Math.max(0, growTarget - freshQuotaSoFar());
       const freshTarget = growIngestFreshTarget(remainingQuota, ingestBatchFresh);
 
       const deepPageBypass = sourceResetCycles > 0 ? GROW_DEEP_PAGE_BYPASS_REASONS : undefined;
@@ -388,7 +388,7 @@ export async function growRail(
 
       if (ingested.catalog_exhausted) {
         catalogExhausted = true;
-        if (await poolGrowthSoFar() < growTarget) {
+        if (freshQuotaSoFar() < growTarget) {
           if (await tryComposeOnExhaustion()) {
             continue;
           }
@@ -427,9 +427,9 @@ export async function growRail(
   }
 
   const after = await getRailPlayabilityStatus(rail.id);
-  const probeVerified = growthPass.verifiedAddedThisPass.get(rail.id) ?? 0;
+  const freshVerified = freshVerifiedCount(growthPass, rail.id);
   const poolGrowth = Math.max(0, after.verified_pool - before.verified_pool);
-  const targetMet = poolGrowth >= growTarget;
+  const targetMet = freshVerified >= growTarget;
   const exhausted = !targetMet && catalogExhausted;
 
   return {
@@ -437,11 +437,12 @@ export async function growRail(
     label: rail.label,
     ok: after.verified_pool >= rail.playability.min_display && targetMet,
     grow_target: growTarget,
-    probe_verified: probeVerified,
+    fresh_verified: freshVerified,
+    probe_verified: freshVerified,
     pool_growth: poolGrowth,
     grow_target_met: targetMet,
     growth_quota: growTarget,
-    verified_added: probeVerified,
+    verified_added: freshVerified,
     growth_quota_met: targetMet,
     pool_target: growTarget,
     candidate_limit: maxAttempts,

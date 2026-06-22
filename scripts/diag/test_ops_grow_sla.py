@@ -27,6 +27,7 @@ class GrowSlaTests(unittest.TestCase):
             "label": "Test",
             "verified_before": 30,
             "grow_target": 20,
+            "fresh_verified": 22,
             "probe_verified": 22,
             "grow_target_met": True,
             "exhausted": False,
@@ -35,6 +36,24 @@ class GrowSlaTests(unittest.TestCase):
         assert result is not None
         self.assertEqual(result.status, "ok")
         self.assertTrue(result.grow_target_met)
+
+    def test_pool_growth_does_not_satisfy_quota_without_fresh_probes(self) -> None:
+        row = {
+            "rail_id": "movies-shuffle",
+            "verified_before": 100,
+            "grow_target": 20,
+            "pool_growth": 20,
+            "fresh_verified": 0,
+            "probe_verified": 0,
+            "linked_existing": 20,
+            "grow_target_met": False,
+            "exhausted": True,
+        }
+        result = assess_rail_sla(row)
+        assert result is not None
+        self.assertEqual(result.probe_verified, 0)
+        self.assertFalse(result.grow_target_met)
+        self.assertEqual(result.status, "warn")
 
     def test_assess_rail_exhausted_warn(self) -> None:
         row = {

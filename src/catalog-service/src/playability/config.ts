@@ -199,7 +199,7 @@ export function playabilityGrowRequireTarget(): boolean {
 }
 
 /**
- * Fresh candidates to queue per grow loop — scale with remaining quota (probe+link hit rate ~25–40%).
+ * Fresh candidates to queue per grow loop — scale with remaining quota (probe hit rate ~25–40%).
  */
 export function growIngestFreshTarget(remainingQuota: number, batchDefault: number): number {
   if (remainingQuota <= 0) {
@@ -207,6 +207,11 @@ export function growIngestFreshTarget(remainingQuota: number, batchDefault: numb
   }
   const scaled = Math.max(batchDefault, remainingQuota * 5);
   return Math.min(scaled, 200);
+}
+
+/** Max cross-rail links per grow session (0 = global link pass off). Links never count toward grow quota. */
+export function growLinkMaxPerRail(): number {
+  return boundedInt(process.env.MANGO_GROW_LINK_MAX, 0, 0, 20);
 }
 
 export function isPlayabilityGrowthMode(mode?: string): boolean {

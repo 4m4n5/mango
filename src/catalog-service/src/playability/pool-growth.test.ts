@@ -6,7 +6,8 @@ import {
   effectiveCandidateLimit,
   effectiveDisplayLimit,
   effectivePoolTarget,
-  incrementGrowthPassVerified,
+  incrementGrowthPassFresh,
+  incrementGrowthPassLinked,
   railMeetsGrowthQuota,
 } from './pool-growth.js';
 
@@ -71,12 +72,30 @@ test('growth pass tracks verified additions until quota met', () => {
   }], new Map([['movies-classics', 20]]));
   assert.equal(growthPass.quotas.get('movies-classics'), 20);
   assert.equal(railMeetsGrowthQuota(growthPass, 'movies-classics'), false);
-  incrementGrowthPassVerified(growthPass, ['movies-classics']);
+  incrementGrowthPassFresh(growthPass, ['movies-classics']);
   assert.equal(growthPass.verifiedAddedThisPass.get('movies-classics'), 1);
   for (let index = 0; index < 19; index += 1) {
-    incrementGrowthPassVerified(growthPass, ['movies-classics']);
+    incrementGrowthPassFresh(growthPass, ['movies-classics']);
   }
   assert.equal(railMeetsGrowthQuota(growthPass, 'movies-classics'), true);
+});
+
+test('linked titles tracked separately from fresh quota', () => {
+  const growthPass = createGrowthPassState([{
+    id: 'movies-classics',
+    label: 'highly rated',
+    tab: 'movies',
+    type: 'addon_catalog',
+    addon: 'Cinemeta',
+    catalog: 'imdbRating',
+    content_type: 'movie',
+    limit: 20,
+    enabled: true,
+    playability: base,
+  }], new Map([['movies-classics', 20]]));
+  incrementGrowthPassLinked(growthPass, ['movies-classics']);
+  assert.equal(growthPass.linkedThisPass.get('movies-classics'), 1);
+  assert.equal(railMeetsGrowthQuota(growthPass, 'movies-classics'), false);
 });
 
 test('effectiveDisplayLimit grows slowly toward display_max', () => {

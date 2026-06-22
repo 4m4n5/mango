@@ -6,10 +6,13 @@ export type PoolTargetOptions = {
   bootstrap?: boolean;
 };
 
-/** Per-rail grow session probe counter (growRail inner loop). */
+/** Per-rail grow session counters (growRail inner loop). */
 export type GrowthPassState = {
   quotas: Map<string, number>;
+  /** Probe-verified titles this pass — only these count toward grow quota. */
   verifiedAddedThisPass: Map<string, number>;
+  /** Linked existing titles this pass — metrics only, does not satisfy quota. */
+  linkedThisPass: Map<string, number>;
 };
 
 const UNBOUNDED_POOL_MAX = Number.MAX_SAFE_INTEGER;
@@ -20,11 +23,20 @@ export function createGrowthPassState(
 ): GrowthPassState {
   const quotas = new Map<string, number>();
   const verifiedAddedThisPass = new Map<string, number>();
+  const linkedThisPass = new Map<string, number>();
   for (const rail of rails) {
     quotas.set(rail.id, targetsByRail?.get(rail.id) ?? 0);
     verifiedAddedThisPass.set(rail.id, 0);
+    linkedThisPass.set(rail.id, 0);
   }
-  return { quotas, verifiedAddedThisPass };
+  return { quotas, verifiedAddedThisPass, linkedThisPass };
+}
+
+export function freshVerifiedCount(
+  growthPass: GrowthPassState,
+  railId: string,
+): number {
+  return growthPass.verifiedAddedThisPass.get(railId) ?? 0;
 }
 
 export function railMeetsGrowthQuota(
@@ -36,7 +48,8 @@ export function railMeetsGrowthQuota(
   return added >= quota;
 }
 
-export function incrementGrowthPassVerified(
+/** Count a newly probe-verified title toward the per-rail grow quota. */
+export function incrementGrowthPassFresh(
   growthPass: GrowthPassState,
   railIds: string[],
 ): void {
@@ -44,6 +57,21 @@ export function incrementGrowthPassVerified(
     growthPass.verifiedAddedThisPass.set(
       railId,
       (growthPass.verifiedAddedThisPass.get(railId) ?? 0) + 1,
+    );
+  }
+}
+
+/** @deprecated Use incrementGrowthPassFresh */
+export const incrementGrowthPassVerified = incrementGrowthPassFresh;
+
+export function incrementGrowthPassLinked(
+  growthPass: GrowthPassState,
+  railIds: string[],
+): void {
+  for (const railId of railIds) {
+    growthPass.linkedThisPass.set(
+      railId,
+      (growthPass.linkedThisPass.get(railId) ?? 0) + 1,
     );
   }
 }

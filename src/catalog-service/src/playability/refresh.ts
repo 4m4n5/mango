@@ -84,6 +84,7 @@ export type RefreshRailSummary = {
   candidate_limit: number;
   pool_target: number;
   grow_target?: number;
+  fresh_verified?: number;
   probe_verified?: number;
   pool_growth?: number;
   grow_target_met?: boolean;
@@ -158,6 +159,7 @@ function growResultToRailSummary(
     candidate_limit: result.candidate_limit,
     pool_target: result.pool_target,
     grow_target: result.grow_target,
+    fresh_verified: result.fresh_verified,
     probe_verified: result.probe_verified,
     pool_growth: result.pool_growth,
     grow_target_met: result.grow_target_met,
