@@ -1,76 +1,37 @@
-# Phase 0 scripts
+# M1 foundation — pad scripts
 
-Run on the Pi from `~/mango`. Full context: [docs/OPS.md](../../docs/OPS.md).
+Run on the Pi from `~/mango`. Full context: [docs/OPS.md](../../../docs/OPS.md).
 
-> **Native branch:** daily stack is `mango-stack.sh`. Scripts here support **fallback** Stremio/Kodi and pad maintenance.
+> **Native branch:** daily stack is `mango-stack.sh`. Scripts here support gamepad bring-up and **`mango-tv-pad.py`** (launcher + mpv).
 
 ## Daily (native)
 
 | Script | Purpose |
 |--------|---------|
-| **`mango-tv-pad.py`** | **Pad owner** — launcher · mpv · fallback (via `start-mango-tv-pad.sh`) |
+| **`mango-tv-pad.py`** | **Pad owner** — launcher · mpv (via `start-mango-tv-pad.sh`) |
 | `start-mango-tv-pad.sh` | Idempotent pad start |
-
-## Legacy app launch
-
-| Script | Purpose |
-|--------|---------|
-| **`tv.sh`** `kodi\|stremio` | CLI launch (fallback env vars) |
-| `connect-gamepad.sh` | BT connect 8BitDo Micro |
-| `launch-kodi.sh` | Kodi + YouTube RPC · hides Stremio (`hide-media`) |
-| `open-kodi-youtube.sh` | Open YouTube addon (window 10025) |
-| `focus-kodi.sh` / `present-kodi.sh` | TV focus + fullscreen |
-| `lib/kodi-rpc.sh` | JSON-RPC client |
-| `reset-stremio.sh` | Kill zombies + Stremio + pad + focus (maintenance only) |
-| `launch-stremio.sh` | Cold Stremio (API uses `scripts/launch-stremio.sh` for refocus) |
-| `present-stremio.sh` | Fullscreen; `--after-back` after Y/Escape |
+| `stop-mango-tv-pad.sh` | Stop pad router |
 
 ## Gamepad
 
 | Script | Purpose |
 |--------|---------|
-| `start-mango-tv-pad.sh` | Idempotent pad start (do not restart on every home) |
+| `connect-gamepad.sh` | BT connect 8BitDo Micro |
 | **`install-pad-autoreconnect.sh`** | **Once** — BT trust + udev + systemd pad recovery |
 | `install-pad-sudoers.sh` | Passwordless sudo for pad grab |
-| `map-pro-controller.sh` | Write/apply `mango-tv` preset (fallback remapper) |
-| `stremio-pad-bridge.py` | **Legacy** — prefer unified `mango-tv-pad.py` |
+| `map-pro-controller.sh` | Write/apply `mango-tv` preset (input-remapper fallback) |
 | `lib/irctl.sh` | Quiet input-remapper-control (Py3.13 noise) |
-| `lib/gamepad-js.sh` | Hide `/dev/input/js*` for Stremio |
 | `gamepad-fresh-start.sh` | Post-reboot pad + evtest |
-| `focus-stremio.sh` | Focus main Stremio window + click webview |
-| `stop-stremio-pad-bridge.sh` | Stop legacy bridge |
 
-## Kodi / YouTube
+## Bring-up
 
 | Script | Purpose |
 |--------|---------|
-| `set-youtube-api-keys.sh` | `~/.config/mango/youtube-api.json` → addon |
-| `reset-youtube-login.sh` | Clear login + re-apply keys |
-| `diagnose-kodi-youtube.sh` | Health check |
-| `kodi-enable-rpc.sh` | JSON-RPC user/password |
-| `test-kodi-rpc.sh` | curl ping |
-| `kodi-keyboard-only.sh` | Disable Kodi native joysticks |
-| `install-kodi-inputstream.sh` | apt InputStream Adaptive |
-| `reset-kodi-youtube.sh` | Clean addon + download zip |
+| `bootstrap.sh` | Interactive Pi bring-up after clone |
+| `verify-system.sh` | X11 + deps smoke |
+| `switch-to-x11.sh` | Switch display manager to X11 |
+| `install-base-deps.sh` | apt packages for TV stack |
 
-## Stremio maintenance
+## Gamepad (locked)
 
-| Script | Purpose |
-|--------|---------|
-| `kill-stremio.sh` | Kill all Stremio/node + free ports (zombie recovery only) |
-| `test-stremio-input.sh` | xdotool key test |
-
-## One-time / bootstrap
-
-| Script | Purpose |
-|--------|---------|
-| `bootstrap.sh` | Phase 0 install entry |
-| `switch-to-x11.sh` | Wayland → X11 |
-| `verify-system.sh` | Green-light checks |
-| `setup-8bitdo-bt.sh` | Pair Micro |
-| `install-gamepad-remap.sh` | input-remapper + polkit (fallback) |
-| `install-kodi.sh` / `install-stremio.sh` | App install |
-
-## Legacy (avoid unless debugging)
-
-`map-gamepad-ssh.sh` · `map-pro-controller-sticks.sh` · `remove-fastpad.sh` · FastPad dongle retired.
+See [docs/HARDWARE.md](../../../docs/HARDWARE.md) · [AGENTS.md](../../../AGENTS.md).

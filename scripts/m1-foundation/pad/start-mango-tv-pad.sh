@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
-# Single pad owner for mango TV — Stremio, Kodi, launcher. Stops input-remapper.
+# Single pad owner for mango TV — launcher + mpv. Stops input-remapper.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=lib/irctl.sh
 source "$SCRIPT_DIR/lib/irctl.sh"
-# shellcheck source=lib/gamepad-js.sh
-source "$SCRIPT_DIR/lib/gamepad-js.sh"
 
 CACHE_DIR="${HOME}/.cache/mango"
 PIDFILE="${CACHE_DIR}/mango-tv-pad.pid"
@@ -101,11 +99,7 @@ fi
 
 ensure_sudo || exit 1
 
-pkill -f stremio-pad-bridge.py 2>/dev/null || true
-sudo -n pkill -f stremio-pad-bridge.py 2>/dev/null || true
-
 ir_stop_service
-hide_pro_controller_js
 pkill -f mango-tv-pad.py 2>/dev/null || true
 sudo -n pkill -f mango-tv-pad.py 2>/dev/null || true
 ir_kill_readers

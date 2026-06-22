@@ -125,5 +125,5 @@ if [[ "${MANGO_AUTO_PAD:-1}" == "1" ]]; then
   echo "Starting mango TV pad router..."
   bash "$SCRIPT_DIR/start-mango-tv-pad.sh" || true
 fi
-echo "Next: bash scripts/m1-foundation/pad/launch-kodi.sh   (or reset-stremio.sh)"
+echo "Next: MANGO_CATALOG=1 bash scripts/mango-stack.sh restart"
 echo "Reconnect: press any button on the Micro (trusted BT auto-connect)"

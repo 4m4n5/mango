@@ -3,7 +3,7 @@
 Run these on the Pi after `bash scripts/m4-addons/install-aiostreams.sh` or
 `bash scripts/m4-addons/enable-aiostreams-service.sh` reports healthy.
 
-**Full knob map + optimal profile:** [`docs/N3d-AIOSTREAMS-PROFILE.md`](../../docs/N3d-AIOSTREAMS-PROFILE.md)
+**Full knob map + optimal profile:** [`docs/reference/aiostreams-profile.md`](../../docs/reference/aiostreams-profile.md)
 
 **Headless (no browser):**
 

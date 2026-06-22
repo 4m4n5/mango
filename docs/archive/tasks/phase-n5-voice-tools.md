@@ -1,3 +1,6 @@
+> **Archived spec** — superseded by [ROADMAP.md](../../ROADMAP.md) / [STATUS.md](../../STATUS.md).
+> Shipped status may differ from this doc. Do not implement from here without checking STATUS.
+
 # Phase N5a — Voice tools (browse + open)
 
 **Status:** ✓ Shipped on `feat/native-experience`  

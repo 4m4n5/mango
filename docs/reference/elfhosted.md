@@ -1,6 +1,6 @@
 # ElfHosted fallback for mango
 
-**N3d default:** mango uses self-hosted AIOStreams and AIOLists on the Pi. See
+**N3d default:** mango uses self-hosted AIOStreams and AIOMetadata on the Pi. See
 [`reference/addon-stack.md`](addon-stack.md) and
 [`../archive/tasks/archive/phase-n3d-self-hosted-addon-stack.md`](../archive/tasks/archive/phase-n3d-self-hosted-addon-stack.md).
 
@@ -26,7 +26,7 @@ Optional later (N7 / 4K proxy): [AIOStreams + MediaFlow 4K](https://store.elfhos
 
 1. Open **My Account** on ElfHosted and copy your **private manifest URLs** for AIOMetadata and AIOStreams.
 2. On the Pi, edit `/etc/mango/stremio-export.json` and replace local manifest URLs with your private instance URLs.
-3. Restore matching addon names in `/etc/mango/catalog.yaml` and `/etc/mango/catalog-filters.json`; do not mix `AIOLists` yaml with `AIOMetadata` manifests.
+3. Restore matching addon names in `/etc/mango/catalog.yaml` and `/etc/mango/catalog-filters.json`; do not mix `AIOMetadata` yaml with `AIOMetadata` manifests.
 4. Restart: `MANGO_CATALOG=1 bash ~/mango/scripts/mango-stack.sh restart`
 5. Verify: `curl -sf http://127.0.0.1:3020/health` and load the launcher — no “rate limit exceeded” on home.
 

@@ -78,12 +78,6 @@ for key in launcher_dist chromium input_remapper openbox; do
   esac
 done
 
-if [[ "${CHK_KODI_RPC:-}" == "up" ]]; then
-  pass "kodi_rpc: up"
-elif [[ -n "${CHK_KODI_RPC:-}" ]]; then
-  warn "kodi_rpc: ${CHK_KODI_RPC} (expected when Kodi idle)"
-fi
-
 if $REPAIR_SERVER && (( ERRORS > 0 )); then
   if systemctl --user is-enabled mango-ui-server.service &>/dev/null; then
     mango_log verify_tv action=repair_server reason=health_fail

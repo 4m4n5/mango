@@ -1,3 +1,6 @@
+> **Archived spec** — superseded by [ROADMAP.md](../../ROADMAP.md) / [STATUS.md](../../STATUS.md).
+> Shipped status may differ from this doc. Do not implement from here without checking STATUS.
+
 # Unified plan — uninhibited library growth
 
 **Status:** active · **Branch:** `feat/native-experience`  

@@ -8,8 +8,6 @@ export interface HomeCallbacks {
 }
 
 export interface HomeOptions {
-  fallbackStremio: boolean;
-  legacyYoutube: boolean;
   browseTab?: BrowseTab;
   onBrowseTabChange?: (tab: BrowseTab) => void;
   pinnedKeys?: Set<string>;
@@ -57,7 +55,7 @@ export function buildBrowseTabs(
 export function buildHomeRails(
   container: HTMLElement,
   callbacks: HomeCallbacks,
-  options: HomeOptions = { fallbackStremio: false, legacyYoutube: false },
+  options: HomeOptions = {},
   catalogState: CatalogState = { status: "loading" },
 ): HTMLElement[][] {
   container.replaceChildren();
@@ -96,32 +94,6 @@ export function buildHomeRails(
   appsSection.appendChild(appsTrack);
   container.appendChild(appsSection);
   rows.push(appItems);
-
-  const fallbackCards = buildFallbackCards(options);
-  if (fallbackCards.length > 0) {
-    const fallbackSection = document.createElement("section");
-    fallbackSection.className = "rail rail--advanced";
-    fallbackSection.dataset.railId = "advanced";
-
-    const fallbackHeading = document.createElement("h2");
-    fallbackHeading.className = "rail-title";
-    fallbackHeading.textContent = "Advanced fallback";
-    fallbackSection.appendChild(fallbackHeading);
-
-    const fallbackTrack = document.createElement("div");
-    fallbackTrack.className = "rail-track rail-track--apps";
-    fallbackTrack.setAttribute("role", "list");
-
-    const fallbackItems: HTMLElement[] = [];
-    for (const app of fallbackCards) {
-      const button = createAppCard(app, callbacks);
-      fallbackTrack.appendChild(button);
-      fallbackItems.push(button);
-    }
-    fallbackSection.appendChild(fallbackTrack);
-    container.appendChild(fallbackSection);
-    rows.push(fallbackItems);
-  }
 
   return rows;
 }
@@ -280,25 +252,4 @@ function createAppCard(app: AppCard, callbacks: HomeCallbacks): HTMLButtonElemen
   button.append(kicker, title);
   button.addEventListener("click", () => callbacks.onAppSelect(app));
   return button;
-}
-
-function buildFallbackCards(options: HomeOptions): AppCard[] {
-  const cards: AppCard[] = [];
-  if (options.fallbackStremio) {
-    cards.push({
-      id: "fallback-stremio",
-      action: "stremio",
-      kicker: "Fallback only",
-      title: "Stremio",
-    });
-  }
-  if (options.legacyYoutube) {
-    cards.push({
-      id: "legacy-youtube",
-      action: "kodi",
-      kicker: "Legacy only",
-      title: "YouTube",
-    });
-  }
-  return cards;
 }

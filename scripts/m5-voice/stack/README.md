@@ -1,6 +1,6 @@
-# Phase 2 scripts
+# M5 voice — stack scripts
 
-Voice orchestrator + companion HTTPS. See [`docs/VOICE.md`](../../docs/VOICE.md).
+Voice orchestrator + companion HTTPS. See [`docs/VOICE.md`](../../../docs/VOICE.md).
 
 | Script | When |
 |--------|------|

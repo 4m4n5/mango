@@ -83,7 +83,7 @@ Live IPTV (NexoTV) is **excluded** from deploy gates — opt in: `MANGO_LIVE_GAT
 
 | Surface | Input |
 |---------|--------|
-| Launcher, mpv, fallback Stremio/Kodi | **`mango-tv-pad.py`** |
-| Fallback only | `input-remapper` `mango-tv` if pad fails |
+| Launcher, mpv | **`mango-tv-pad.py`** |
+| Pad recovery only | `input-remapper` `mango-tv` if pad fails to grab |
 
 Do not change pad/input stacks without user approval.

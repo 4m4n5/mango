@@ -8,7 +8,7 @@ import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
 import { fetchPinnedIds } from "./pins";
-import type { ApiInfo, AppCard, ContentCard, ContentRail, LaunchAction, BrowseTab } from "./types";
+import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 
 const homeView = mustGet<HTMLElement>("home-view");
 const browseTabsEl = mustGet<HTMLElement>("browse-tabs");
@@ -39,8 +39,7 @@ const backButton = mustGet<HTMLButtonElement>("back-button");
 
 let inSettings = false;
 let settingsFocusIndex = 0;
-let launchInFlight = false;
-let homeOptions: HomeOptions = { fallbackStremio: false, legacyYoutube: false };
+let homeOptions: HomeOptions = {};
 let activeBrowseTab: BrowseTab = "movies";
 let catalogState: CatalogState = { status: "loading" };
 let catalogRetryTimer: number | undefined;
@@ -351,29 +350,6 @@ function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
 function handleAppSelect(app: AppCard): void {
   if (app.action === "settings") {
     showSettings();
-    return;
-  }
-  void launch(app.action);
-}
-
-async function launch(action: LaunchAction): Promise<void> {
-  if (launchInFlight) {
-    return;
-  }
-  launchInFlight = true;
-  const label = action === "kodi" ? "YouTube" : "Stremio";
-  setStatus(`Opening ${label}…`);
-  try {
-    const response = await fetch(`/api/launch/${action}`, { method: "POST" });
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    setStatus(`${label} is starting. ⌂ button returns home.`);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown error";
-    setStatus(`Could not launch ${label}: ${message}`);
-  } finally {
-    launchInFlight = false;
   }
 }
 
@@ -575,17 +551,6 @@ async function loadInfo(): Promise<void> {
     setText("ip-address", info.ip);
     setText("launcher-url", `http://${info.ip}:${info.launcher_port}`);
     setText("companion-url", `https://${info.ip}:${info.companion_port}`);
-    const nextOptions = {
-      fallbackStremio: Boolean(info.fallback_stremio),
-      legacyYoutube: Boolean(info.legacy_youtube),
-    };
-    if (
-      nextOptions.fallbackStremio !== homeOptions.fallbackStremio ||
-      nextOptions.legacyYoutube !== homeOptions.legacyYoutube
-    ) {
-      homeOptions = nextOptions;
-      renderHome();
-    }
   } catch {
     setText("hostname", "mango");
     setText("ip-address", "10.0.0.174");

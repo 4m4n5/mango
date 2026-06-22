@@ -10,7 +10,7 @@ python3 src/mango-ui-server/serve.py --host 127.0.0.1 --port 3000
 |-------|-------|
 | `/` | Launcher (Vite build) + embedded voice HUD |
 | `/api/health` | Stack health |
-| `/api/launch/{launcher,stremio,kodi}` | Home + **fallback** app launch |
+| `/api/launch/launcher` | Home (return to launcher) |
 | `/overlay/` | 410 — overlay removed in N0 |
 
 **Pi:** started by `mango-stack.sh` / `m1-foundation/ui/start-mango-ui.sh`

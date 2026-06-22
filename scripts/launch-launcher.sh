@@ -35,11 +35,9 @@ LOCK_DIR="${HOME}/.cache/mango"
 LOCK_FILE="${LOCK_DIR}/launch-launcher.lock"
 mkdir -p "$LOCK_DIR"
 
-# Stop orphaned media focus loops (they steal focus back to Kodi/Stremio after ⌂).
+# Stop orphaned media focus loops (they steal focus back after ⌂).
 pkill -f 'bash.*focus-kodi.sh' 2>/dev/null || true
 pkill -f 'bash.*focus-stremio.sh' 2>/dev/null || true
-pkill -f 'bash.*launch-kodi.sh' 2>/dev/null || true
-pkill -f 'bash.*launch-stremio.sh' 2>/dev/null || true
 
 # Drop duplicate home while a switch is in flight.
 exec 9>"$LOCK_FILE"

@@ -1,3 +1,6 @@
+> **Archived spec** — superseded by [ROADMAP.md](../../ROADMAP.md) / [STATUS.md](../../STATUS.md).
+> Shipped status may differ from this doc. Do not implement from here without checking STATUS.
+
 # Phase N3a — Stream play orchestrator
 
 **Status:** In progress (~75% shipped on `feat/native-experience` @ `865312c`)  

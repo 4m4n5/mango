@@ -1,3 +1,6 @@
+> **Archived spec** — superseded by [ROADMAP.md](../../ROADMAP.md) / [STATUS.md](../../STATUS.md).
+> Shipped status may differ from this doc. Do not implement from here without checking STATUS.
+
 # Codex prompt — Phase N3a stream play orchestrator (closure)
 
 **Last updated:** 2026-06-19 · N3a ~75% shipped · **close gaps, do not rewrite**

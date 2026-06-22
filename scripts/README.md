@@ -2,7 +2,7 @@
 
 **Layout:** [MILESTONES.md](MILESTONES.md) · **Ops:** [docs/OPS.md](../docs/OPS.md) · **Plan:** [docs/ROADMAP.md](../docs/ROADMAP.md)
 
-Scripts are organized by **milestone** (M1–M6). Legacy `phase-*` paths are symlinks — see [MILESTONES.md](MILESTONES.md).
+Scripts are organized by **milestone** (M1–M6). Legacy `phase-*` trees were removed in the milestone rename (`852ba05`) — use paths in [MILESTONES.md](MILESTONES.md) only.
 
 ---
 
@@ -40,6 +40,20 @@ bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
 
 Shared: `lib/gate-common.sh` · `gate-lite-play.sh` · `gate-lite-unit.sh`
 
+### PR regression gates (Library Grower / compose — not in gate-lite)
+
+Run after grow-rail, compose, or playability policy changes:
+
+```bash
+bash scripts/m3-play/playability/gate-m3-library-grower.sh
+bash scripts/m3-play/playability/gate-m3-grow-rail.sh
+bash scripts/m3-play/playability/gate-m3-grow-compose.sh
+bash scripts/m3-play/playability/gate-m3-playability-grow.sh
+bash scripts/m3-play/playability/gate-m3-source-cursors.sh
+bash scripts/m3-play/playability/gate-m3-ops-sla.sh
+bash scripts/m4-addons/gate-m4-stream-integrity.sh
+```
+
 ---
 
 ## Milestone directories
@@ -62,8 +76,6 @@ diag/            manual diagnostics
 | Script | Notes |
 |--------|-------|
 | `launch-launcher.sh` | Home |
-| `launch-stremio.sh` | Fallback — `MANGO_FALLBACK_STREMIO=1` |
-| `launch-kodi.sh` | Legacy — `MANGO_LEGACY_YOUTUBE=1` |
 
 ## Gamepad
 

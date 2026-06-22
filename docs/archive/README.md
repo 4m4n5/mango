@@ -6,7 +6,7 @@ These files were superseded by the **2026-06 doc consolidation**. Do not update 
 |---------|-------------|
 | `NATIVE_EXPERIENCE.md` | [../VISION.md](../VISION.md) |
 | `NATIVE_ROADMAP.md`, `PLAN.md` | [../ROADMAP.md](../ROADMAP.md) |
-| `N3-INVENTORY.md`, `N5-INVENTORY.md`, `N3d-INVENTORY.md` | [../STATUS.md](../STATUS.md) |
+| *(deleted — see git history)* | [../STATUS.md](../STATUS.md) |
 | `STACK-PRINCIPLES.md`, `FOREGROUND.md` | [../ARCHITECTURE.md](../ARCHITECTURE.md) |
 | `PHASE0.md` | [../OPS.md](../OPS.md) |
 | `PHASE2.md` | [../VOICE.md](../VOICE.md) |

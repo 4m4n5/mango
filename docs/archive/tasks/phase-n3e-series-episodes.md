@@ -1,3 +1,6 @@
+> **Archived spec** — superseded by [ROADMAP.md](../../ROADMAP.md) / [STATUS.md](../../STATUS.md).
+> Shipped status may differ from this doc. Do not implement from here without checking STATUS.
+
 # Phase N3e — Series episode picker & play
 
 **Status:** ✓ Shipped — playability hints, gates, cancel-on-Y polish  

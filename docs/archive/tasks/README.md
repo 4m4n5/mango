@@ -1,3 +1,6 @@
+> **Archived spec** — superseded by [ROADMAP.md](../../ROADMAP.md) / [STATUS.md](../../STATUS.md).
+> Shipped status may differ from this doc. Do not implement from here without checking STATUS.
+
 # Agent task specs
 
 **Active:** [phase-n3-stream-orchestrator.md](phase-n3-stream-orchestrator.md) (N3a play orchestrator — ~75% shipped, closure work)  

@@ -12,7 +12,5 @@ fi
 
 pkill -f mango-tv-pad.py 2>/dev/null || true
 sudo -n pkill -f mango-tv-pad.py 2>/dev/null || true
-pkill -f stremio-pad-bridge.py 2>/dev/null || true
-sudo -n pkill -f stremio-pad-bridge.py 2>/dev/null || true
 
 echo "✓ mango TV pad stopped"

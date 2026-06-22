@@ -51,7 +51,7 @@ if wid and wid != "0":
     active["class"] = run(["xdotool", "getwindowclassname", wid])
 
 windows = []
-for cls in ("mango-launcher", "Stremio", "Kodi", "chromium"):
+for cls in ("mango-launcher", "mpv", "chromium"):
     out = run(["xdotool", "search", "--class", cls])
     for w in out.split():
         windows.append({
@@ -61,22 +61,6 @@ for cls in ("mango-launcher", "Stremio", "Kodi", "chromium"):
         })
 
 lock = home / ".cache/mango/launch-launcher.lock"
-
-kodi_window = {}
-if pgrep("kodi.bin"):
-    rpc = run(["bash", "-lc", f"source {home}/mango/scripts/m1-foundation/pad/lib/kodi-rpc.sh && kodi_rpc GUI.GetProperties '{{\"properties\":[\"currentwindow\"]}}' 2>/dev/null"])
-    if rpc and "currentwindow" in rpc:
-        kodi_window["raw"] = rpc[:500]
-    try:
-        import re
-        m = re.search(r'"id":(\d+)', rpc or "")
-        m2 = re.search(r'"label":"([^"]*)"', rpc or "")
-        if m:
-            kodi_window["id"] = m.group(1)
-        if m2:
-            kodi_window["label"] = m2.group(1)
-    except Exception:
-        pass
 
 geometries = []
 for w in windows[:8]:
@@ -89,13 +73,10 @@ data = {
     "active_window": active,
     "windows": windows[:20],
     "window_geometries": geometries,
-    "kodi_window": kodi_window,
     "processes": {
         "mango_tv_pad": pgrep("mango-tv-pad.py"),
-        "stremio_bridge": pgrep("stremio-pad-bridge.py"),
         "input_remapper": pgrep("input-remapper"),
-        "kodi": pgrep("kodi"),
-        "stremio": pgrep("stremio"),
+        "mpv": pgrep("mpv"),
         "poll_diag": pgrep("poll-state.sh"),
     },
     "systemd": {

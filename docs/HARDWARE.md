@@ -2,7 +2,7 @@
 
 **Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone
 
-> **Native branch:** pad routes to **launcher**, **mpv** (N1+), and **fallback** Stremio/Kodi only. See [ARCHITECTURE.md](ARCHITECTURE.md).
+> **Native branch:** pad routes to **launcher** and **mpv** only. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -20,7 +20,7 @@
 
 ### Addon hosting (catalog + streams)
 
-N3d runs AIOStreams and AIOLists locally on the Pi:
+N3d runs AIOStreams and AIOMetadata locally on the Pi:
 [`reference/addon-stack.md`](reference/addon-stack.md). ElfHosted is a paid fallback only:
 [`reference/elfhosted.md`](reference/elfhosted.md).
 
@@ -119,9 +119,7 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 | Surface | Method |
 |---------|--------|
-| **Launcher + mpv + fallback apps** | **`mango-tv-pad.py`** — single pad owner |
-| **Legacy Kodi** | `input-remapper` preset `mango-tv` if pad fails to grab |
-| **Legacy Stremio** | `stremio-pad-bridge.py` when using fallback desktop app |
+| **Launcher + mpv** | **`mango-tv-pad.py`** — single pad owner |
 
 ### After reboot or pad drop
 

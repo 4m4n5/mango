@@ -3,12 +3,9 @@ export interface ApiInfo {
   ip: string;
   launcher_port: number;
   companion_port: number;
-  fallback_stremio: boolean;
-  legacy_youtube: boolean;
 }
 
-export type LaunchAction = "stremio" | "kodi";
-export type TileAction = LaunchAction | "settings";
+export type TileAction = "settings";
 export type BrowseTab = "movies" | "series" | "live";
 
 export type RefreshLevelId =

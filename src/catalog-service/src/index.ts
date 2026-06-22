@@ -56,7 +56,6 @@ import { runCompanionNightly } from './companion/nightly.js';
 import { applyCompanionGardener } from './companion/gardener.js';
 import { searchExternalTitles } from './voice/external.js';
 import {
-  createAiCatalog,
   deleteAiCatalog,
   listAiCatalogSummaries,
   updateAiCatalog,

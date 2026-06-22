@@ -141,7 +141,7 @@ Compose + reserve + bootstrap jobs shipped. Full voice E2E bootstrap: `MANGO_AI_
 
 | Gate | Role |
 |------|------|
-| **`gate-lite.sh`** | **Default deploy** — N0 + N3d (if enabled) + N2 + N3b/N3e + unit + **N5b/N5d** + 2 plays + N5a/N5c (if `MANGO_VOICE=1`) |
+| **`gate-lite.sh`** | **Default deploy** — M1 + M4 (if self-hosted) + M2 + M3 detail/episodes + unit + M5 ai/bootstrap/reserve + lite play + M5 voice/policy/memory/gardener (if `MANGO_VOICE=1`) |
 | `pi-pre-couch-gate.sh` | Mac `pi-exec-gate.sh` wrapper |
 | `MANGO_GATE_FULL=1` | + per-rail verified play sweep |
 | `gate-m4-self-hosted.sh` | Self-hosted addon corpus |

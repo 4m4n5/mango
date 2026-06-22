@@ -9,9 +9,6 @@ Native TV stack on `feat/native-experience`. Local-first; Pi deploy via git pull
 | `orchestrator/` | Shipped | Voice hub — WSS `:8765` + loopback `:8766` |
 | `companion/` | Shipped | Phone PWA (HTTPS `:3001`) |
 | **`catalog-service/`** | Shipped | stremio-core bridge → mpv (`:3020`) + live rails |
-| `overlay/` | Removed (N0) | Historical — not in build path |
-| `stremio-service/` | Superseded | Replaced by `catalog-service` |
-| `adapters/` | N3+ | Kodi RPC, window focus, LLM tools |
 
 ## Build launcher
 

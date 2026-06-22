@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """8BitDo Micro -> xdotool for mango TV (single pad owner).
 
-One process grabs Pro Controller and routes by foreground app:
-  Stremio  — Escape back, Return select (Qt ignores input-remapper)
-  Kodi     — BackSpace back, Return select
+Routes by foreground surface:
   Launcher — arrow keys + Return
+  mpv      — arrow keys + space/back via IPC
 
-Home (316/311) always runs launch-launcher.sh directly — never keyboard chords.
+Home (316/311) runs launch-launcher.sh or mpv-stop — never keyboard chords.
 See docs/HARDWARE.md
 """
 
@@ -33,7 +32,6 @@ THRESH = int(32767 * 0.8)
 DEBOUNCE_SEC = 0.12
 REPO = _HOME / "mango"
 LAUNCHER_SH = REPO / "scripts/launch-launcher.sh"
-PRESENT_STREMIO_SH = REPO / "scripts/m1-foundation/pad/present-stremio.sh"
 MPV_IPC_SH = REPO / "scripts/m2-catalog/service/mpv-ipc.sh"
 MPV_STOP_SH = REPO / "scripts/m2-catalog/service/mpv-stop.sh"
 
@@ -156,10 +154,6 @@ def foreground_app() -> str:
     blob = f"{name} {klass}"
     if is_mpv_focused() or "mpv" in blob:
         return "mpv"
-    if "stremio" in blob and "selection owner" not in blob:
-        return "stremio"
-    if "kodi" in blob:
-        return "kodi"
     if "mango-overlay" in klass or "mango overlay" in name:
         return "launcher"
     if "mango-launcher" in blob or "mango launcher" in name:
@@ -202,19 +196,6 @@ def send_key_to_wid(wid: str, symbol: str, *, activate: bool = True) -> None:
         if active != wid:
             _xdotool("windowactivate", wid)
     _xdotool("key", "--clearmodifiers", "--window", wid, symbol)
-
-
-def send_key_stremio(symbol: str) -> None:
-    wid = find_best_wid("Stremio", "Stremio")
-    if wid:
-        # Escape to webview: avoid windowactivate — it steals focus and needs a second press.
-        send_key_to_wid(wid, symbol, activate=symbol != "Escape")
-
-
-def send_key_kodi(symbol: str) -> None:
-    wid = find_best_wid("Kodi", "Kodi")
-    if wid:
-        send_key_to_wid(wid, symbol)
 
 
 def send_key_launcher(symbol: str) -> None:
@@ -315,11 +296,7 @@ def go_home() -> None:
 
 def route_dpad(app: str, direction: str) -> None:
     symbol = {"left": "Left", "right": "Right", "up": "Up", "down": "Down"}[direction]
-    if app == "stremio":
-        send_key_stremio(symbol)
-    elif app == "kodi":
-        send_key_kodi(symbol)
-    elif app == "mpv":
+    if app == "mpv":
         send_mpv_ipc("keypress", symbol.upper())
     elif app == "launcher":
         send_key_launcher(symbol)
@@ -328,21 +305,12 @@ def route_dpad(app: str, direction: str) -> None:
 def route_face(app: str, action: str) -> None:
     if action == "select":
         symbol = "Return"
-        if app == "stremio":
-            send_key_stremio(symbol)
-        elif app == "kodi":
-            send_key_kodi(symbol)
-        elif app == "mpv":
+        if app == "mpv":
             send_mpv_ipc("keypress", "SPACE")
         elif app == "launcher":
             send_key_launcher(symbol)
     elif action == "back":
-        if app == "stremio":
-            send_key_stremio("Escape")
-            popen_tv_user(["bash", str(PRESENT_STREMIO_SH), "--after-back"])
-        elif app == "kodi":
-            send_key_kodi("BackSpace")
-        elif app == "mpv":
+        if app == "mpv":
             stop_mpv_home()
         elif app == "launcher":
             send_key_launcher("BackSpace")

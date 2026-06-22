@@ -5,7 +5,7 @@ Locked choices. Update when changing behavior.
 | Decision | Choice |
 |----------|--------|
 | LLM provider | Configurable — Anthropic + OpenAI in `config.yaml` |
-| Stremio install | fragarray/stremio-rpi5 `.deb` |
+| Stremio install | 
 | Display | X11 + Openbox (not Wayland) |
 | TV navigation | 8BitDo Micro Bluetooth |
 | UI stack | Vite + vanilla TypeScript |
@@ -17,9 +17,8 @@ Locked choices. Update when changing behavior.
 | Layout | **Y · X · A · B** clockwise from left ([`HARDWARE.md`](HARDWARE.md)) |
 | Select / back | **B**=`304` · **Y**=`308` · **L**=`310` tab − · **R**=`311` tab + · **↻**=`317` shuffle |
 | Home | `316`/`311` → `launch-launcher.sh` directly (`mango-tv-pad.py`) |
-| Pad owner | **`mango-tv-pad.py`** — launcher + mpv (N1) + fallback Stremio/Kodi |
+| Pad owner | **`mango-tv-pad.py`** — launcher + mpv only |
 | Fallback | `input-remapper` `mango-tv` only if pad fails to grab |
-| Stremio Y-back | Escape to focused window — **no** `windowactivate` before key |
 
 ## Phase 1 TV shell
 

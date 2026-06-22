@@ -32,8 +32,6 @@ CATALOG_UPSTREAM: Final = os.environ.get("MANGO_CATALOG_UPSTREAM", "http://127.0
 CATALOG_PROXY_TIMEOUT_SEC: Final = 60
 
 LAUNCH_SCRIPTS: Final = {
-    "/api/launch/stremio": REPO_ROOT / "scripts" / "launch-stremio.sh",
-    "/api/launch/kodi": REPO_ROOT / "scripts" / "launch-kodi.sh",
     "/api/launch/launcher": REPO_ROOT / "scripts" / "launch-launcher.sh",
 }
 MPV_STOP_SCRIPT: Final = REPO_ROOT / "scripts" / "m2-catalog" / "service" / "mpv-stop.sh"
@@ -194,21 +192,6 @@ def collect_health(port: int) -> dict[str, object]:
     elif run_check(["systemctl", "is-active", "input-remapper"]):
         remapper = "inactive"
     openbox = "active" if run_check(["pgrep", "-x", "openbox"]) else "inactive"
-    kodi = "down"
-    kodi_ping = REPO_ROOT / "scripts" / "m1-foundation" / "pad" / "lib" / "kodi-rpc.sh"
-    if kodi_ping.is_file():
-        try:
-            result = subprocess.run(
-                ["bash", "-c", f'source "{kodi_ping}" && kodi_rpc JSONRPC.Ping'],
-                capture_output=True,
-                text=True,
-                timeout=2,
-                check=False,
-            )
-            if result.returncode == 0 and '"result"' in result.stdout:
-                kodi = "up"
-        except (OSError, subprocess.TimeoutExpired):
-            kodi = "down"
 
     input_ok = remapper in ("active", "tv_pad")
     checks = {
@@ -217,7 +200,6 @@ def collect_health(port: int) -> dict[str, object]:
         "input_remapper": remapper,
         "tv_pad": tv_pad,
         "openbox": openbox,
-        "kodi_rpc": kodi,
     }
     ok = launcher_ok and chromium_ok and input_ok and openbox == "active"
     return {"ok": ok, "checks": checks}
@@ -238,8 +220,6 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                     "ip": detect_ip_address(),
                     "launcher_port": self.server.server_port,
                     "companion_port": 3001,
-                    "fallback_stremio": env_enabled("MANGO_FALLBACK_STREMIO"),
-                    "legacy_youtube": env_enabled("MANGO_LEGACY_YOUTUBE"),
                 }
             )
             return
@@ -373,8 +353,7 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         action = path.removeprefix("/api/launch/")
         now = time.monotonic()
         last = _last_launch_at.get(action, 0.0)
-        # Media apps may already be running — always allow refocus from the launcher.
-        if action not in ("stremio", "kodi") and now - last < LAUNCH_DEBOUNCE_SEC:
+        if now - last < LAUNCH_DEBOUNCE_SEC:
             mango_log("api_launch", path=action, status="debounced")
             self._write_json({"ok": True, "debounced": True})
             return

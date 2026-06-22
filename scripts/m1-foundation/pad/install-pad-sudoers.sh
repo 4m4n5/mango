@@ -20,7 +20,6 @@ Defaults:${USER_NAME} !requiretty
 ${USER_NAME} ALL=(ALL) NOPASSWD: ${PAD_RUN}
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/python3 ${PAD_PY}
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/pkill -f mango-tv-pad.py
-${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/pkill -f stremio-pad-bridge.py
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/pkill -f input-remapper-reader-service
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop input-remapper
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/systemctl start input-remapper
