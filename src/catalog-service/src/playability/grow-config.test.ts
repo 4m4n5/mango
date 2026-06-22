@@ -8,7 +8,7 @@ import {
 
 test('growIngestFreshTarget scales with remaining quota', () => {
   assert.equal(growIngestFreshTarget(0, 40), 40);
-  assert.equal(growIngestFreshTarget(20, 40), 80);
+  assert.equal(growIngestFreshTarget(20, 40), 100);
   assert.equal(growIngestFreshTarget(60, 40), 200);
 });
 

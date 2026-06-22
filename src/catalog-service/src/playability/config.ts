@@ -70,6 +70,10 @@ export function playabilityUseProbePool(): boolean {
   return isMaintenanceMode();
 }
 
+export function isPlayabilityGrowPass(): boolean {
+  return process.env.MANGO_PLAYABILITY_GROW_PASS === '1';
+}
+
 export function playabilityFailedRetryMs(): number {
   return positiveDurationMs(process.env.MANGO_PLAYABILITY_FAILED_RETRY_MS, 24 * 60 * 60 * 1000, 60_000, 7 * 24 * 60 * 60 * 1000);
 }
@@ -82,6 +86,14 @@ export function playabilityFailedRetryMsForReason(reason?: string | null): numbe
   switch (reason) {
     case 'no_stream':
     case 'title_mismatch':
+      if (isPlayabilityGrowPass()) {
+        return positiveDurationMs(
+          process.env.MANGO_GROW_NO_STREAM_RETRY_MS,
+          6 * 60 * 60 * 1000,
+          0,
+          7 * 24 * 60 * 60 * 1000,
+        );
+      }
       return positiveDurationMs(
         process.env.MANGO_PLAYABILITY_NO_STREAM_RETRY_MS,
         7 * 24 * 60 * 60 * 1000,
@@ -172,7 +184,7 @@ export function growIngestFreshTarget(remainingQuota: number, batchDefault: numb
   if (remainingQuota <= 0) {
     return batchDefault;
   }
-  const scaled = Math.max(batchDefault, remainingQuota * 4);
+  const scaled = Math.max(batchDefault, remainingQuota * 5);
   return Math.min(scaled, 200);
 }
 

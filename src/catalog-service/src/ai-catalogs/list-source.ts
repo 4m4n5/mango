@@ -42,6 +42,7 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
   private readonly seeds: AiSeedTitle[];
   private readonly sources: ResolvedCatalogSource[];
   private sourceOffsets = new Map<string, number>();
+  private exhaustedSources = new Set<string>();
 
   constructor(options: AiCatalogListSourceOptions) {
     this.sourceId = options.sourceId;
@@ -64,12 +65,24 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
 
   writeSourceOffsets(offsets: Map<string, number>): void {
     this.sourceOffsets = new Map(offsets);
+    this.exhaustedSources.clear();
   }
 
   resetAllSourceOffsets(): void {
     for (const key of this.listSourceKeys()) {
       this.sourceOffsets.set(key, 0);
     }
+    this.exhaustedSources.clear();
+  }
+
+  areAllSourcesExhausted(): boolean {
+    const seedCount = this.seeds.length;
+    const seedDone = (this.sourceOffsets.get(AI_SEED_CURSOR_KEY) ?? 0) >= seedCount;
+    if (this.sources.length === 0) {
+      return seedDone;
+    }
+    const addonKeys = this.sources.map((source) => catalogSourceKey(source.addon, source.catalog));
+    return seedDone && addonKeys.every((key) => this.exhaustedSources.has(key));
   }
 
   async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
@@ -113,6 +126,9 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
           { offset: start, limit: fetchLimit },
         );
         this.sourceOffsets.set(key, start + candidates.length);
+        if (candidates.length < fetchLimit) {
+          this.exhaustedSources.add(key);
+        }
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
@@ -125,6 +141,7 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
             error instanceof Error ? error.message : String(error)
           }`,
         );
+        this.exhaustedSources.add(key);
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,

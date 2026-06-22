@@ -10,6 +10,20 @@ test.afterEach(() => {
   process.env = { ...ENV };
 });
 
+test('playabilityFailedRetryMsForReason uses shorter window for no_stream during grow pass', () => {
+  const prev = process.env.MANGO_PLAYABILITY_GROW_PASS;
+  process.env.MANGO_PLAYABILITY_GROW_PASS = '1';
+  try {
+    assert.equal(playabilityFailedRetryMsForReason('no_stream'), 6 * 60 * 60 * 1000);
+  } finally {
+    if (prev === undefined) {
+      delete process.env.MANGO_PLAYABILITY_GROW_PASS;
+    } else {
+      process.env.MANGO_PLAYABILITY_GROW_PASS = prev;
+    }
+  }
+});
+
 test('playabilityFailedRetryMsForReason uses long window for no_stream', () => {
   delete process.env.MANGO_PLAYABILITY_BOOTSTRAP;
   assert.equal(playabilityFailedRetryMsForReason('no_stream'), 7 * 24 * 60 * 60 * 1000);

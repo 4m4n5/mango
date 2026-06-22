@@ -189,14 +189,24 @@ async function refreshAllRailsGrow(
   const preset = resolveGrowPreset(options.growPreset);
   const rails = core.browsableRails();
   const railSummaries: RefreshRailSummary[] = [];
+  const prevGrowPass = process.env.MANGO_PLAYABILITY_GROW_PASS;
+  process.env.MANGO_PLAYABILITY_GROW_PASS = '1';
 
-  for (const rail of rails) {
-    const growResult = await growRail(core, rail.id, {
-      preset: options.growPreset,
-      wallMs: options.growWallMs ?? preset.wall_ms,
-      maxAttempts: options.growMaxAttempts ?? preset.max_attempts,
-    });
-    railSummaries.push(growResultToRailSummary(growResult));
+  try {
+    for (const rail of rails) {
+      const growResult = await growRail(core, rail.id, {
+        preset: options.growPreset,
+        wallMs: options.growWallMs ?? preset.wall_ms,
+        maxAttempts: options.growMaxAttempts ?? preset.max_attempts,
+      });
+      railSummaries.push(growResultToRailSummary(growResult));
+    }
+  } finally {
+    if (prevGrowPass === undefined) {
+      delete process.env.MANGO_PLAYABILITY_GROW_PASS;
+    } else {
+      process.env.MANGO_PLAYABILITY_GROW_PASS = prevGrowPass;
+    }
   }
 
   const finishedAt = Date.now();

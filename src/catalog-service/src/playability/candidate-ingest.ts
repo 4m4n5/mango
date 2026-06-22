@@ -68,16 +68,12 @@ export async function ingestPaginatedCandidates(
       limit: options.pageSize,
     });
     if (page.length === 0) {
-      catalogExhausted = true;
-      if (useSourceCursors) {
-        source.resetAllSourceOffsets();
-      }
+      catalogExhausted = !useSourceCursors || source.areAllSourcesExhausted();
       break;
     }
 
     const statuses = await options.lookupTitles(page);
     for (const candidate of page) {
-      scanned += 1;
       if (candidate.source) {
         sourcesTouched.add(candidate.source);
       }
@@ -96,6 +92,7 @@ export async function ingestPaginatedCandidates(
         continue;
       }
 
+      scanned += 1;
       collected.push(candidate);
       freshQueued += 1;
       if (freshQueued >= options.freshTarget) {
@@ -104,9 +101,8 @@ export async function ingestPaginatedCandidates(
     }
 
     if (useSourceCursors) {
-      if (page.length < options.pageSize && freshQueued < options.freshTarget) {
+      if (source.areAllSourcesExhausted() && freshQueued < options.freshTarget) {
         catalogExhausted = true;
-        source.resetAllSourceOffsets();
         break;
       }
       continue;

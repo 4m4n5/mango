@@ -446,6 +446,9 @@ export async function linkExistingVerifiedCandidates(
           const linkedCount = railVerifiedCounts.get(ref.railId) ?? 0;
           railVerifiedCounts.set(ref.railId, linkedCount + 1);
           linkedExisting += 1;
+          if (growthPass) {
+            incrementGrowthPassVerified(growthPass, [ref.railId]);
+          }
           results.push({
             type: candidate.type,
             id: candidate.id,

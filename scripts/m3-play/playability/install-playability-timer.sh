@@ -35,6 +35,7 @@ Environment=MANGO_GROW_SOURCE_RESET_CYCLES=10
 Environment=MANGO_GROW_SOURCE_ADVANCE_PAGES=25
 Environment=MANGO_PLAYABILITY_GROW_INGEST_BATCH=80
 Environment=MANGO_PLAYABILITY_MAX_INGEST_SCAN=2400
+Environment=MANGO_GROW_NO_STREAM_RETRY_MS=21600000
 ExecStart=/usr/bin/bash $REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh --mode nightly
 EOF
 

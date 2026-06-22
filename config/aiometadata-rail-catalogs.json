@@ -10,11 +10,25 @@
       ]
     },
     {
+      "id": "mdblist.101881",
+      "name": "IMDb Top 250 Movies",
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.101882",
+      "name": "IMDb Top 250 Shows",
+      "rails": [
+        "series-global-popular",
+        "series-classics"
+      ]
+    },
+    {
       "id": "mdblist.105797",
       "name": "Daily Picks",
       "rails": [
         "series-global-popular",
-        "series-reality-casual",
         "series-classics"
       ]
     },
@@ -45,6 +59,28 @@
       "name": "Unmissable Limited Series",
       "rails": [
         "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.14",
+      "name": "Top Watched Movies of the Week",
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.2194",
+      "name": "Latest TV Shows",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.2236",
+      "name": "Top Movies of the Week",
+      "rails": [
+        "movies-global-popular",
+        "movies-quick-watches"
       ]
     },
     {
@@ -109,7 +145,6 @@
       "name": "Trending Movies",
       "rails": [
         "movies-global-popular",
-        "movies-quick-watches",
         "movies-classics"
       ]
     },

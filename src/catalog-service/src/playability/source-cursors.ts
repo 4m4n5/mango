@@ -15,6 +15,8 @@ export interface SourceCursorListSource extends ListSource {
   readSourceOffsets(): ReadonlyMap<string, number>;
   writeSourceOffsets(offsets: Map<string, number>): void;
   resetAllSourceOffsets(): void;
+  /** True when every catalog source has returned a short/empty page (no more pages). */
+  areAllSourcesExhausted(): boolean;
 }
 
 export function isSourceCursorListSource(source: ListSource): source is SourceCursorListSource {

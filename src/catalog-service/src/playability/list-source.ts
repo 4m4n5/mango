@@ -131,6 +131,7 @@ export async function fetchAddonCatalogCandidates(
 export class AddonCatalogListSource implements ListSource, SourceCursorListSource {
   readonly sourceType = 'addon_catalog' as const;
   private sourceOffsets = new Map<string, number>();
+  private catalogExhausted = false;
 
   constructor(
     readonly sourceId: string,
@@ -165,12 +166,18 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
 
   writeSourceOffsets(offsets: Map<string, number>): void {
     this.sourceOffsets = new Map(offsets);
+    this.catalogExhausted = false;
   }
 
   resetAllSourceOffsets(): void {
     for (const key of this.listSourceKeys()) {
       this.sourceOffsets.set(key, 0);
     }
+    this.catalogExhausted = false;
+  }
+
+  areAllSourcesExhausted(): boolean {
+    return this.catalogExhausted;
   }
 
   private cursorKey(): string {
@@ -187,6 +194,9 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
       { offset: start, limit: options.limit },
     );
     this.sourceOffsets.set(this.cursorKey(), start + candidates.length);
+    if (candidates.length < options.limit) {
+      this.catalogExhausted = true;
+    }
     return candidates;
   }
 }
@@ -194,6 +204,7 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
 export class CompositeListSource implements ListSource, SourceCursorListSource {
   readonly sourceType = 'composite_list' as const;
   private sourceOffsets = new Map<string, number>();
+  private exhaustedSources = new Set<string>();
 
   constructor(
     readonly sourceId: string,
@@ -211,12 +222,19 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
 
   writeSourceOffsets(offsets: Map<string, number>): void {
     this.sourceOffsets = new Map(offsets);
+    this.exhaustedSources.clear();
   }
 
   resetAllSourceOffsets(): void {
     for (const key of this.listSourceKeys()) {
       this.sourceOffsets.set(key, 0);
     }
+    this.exhaustedSources.clear();
+  }
+
+  areAllSourcesExhausted(): boolean {
+    const keys = this.listSourceKeys();
+    return keys.length > 0 && keys.every((key) => this.exhaustedSources.has(key));
   }
 
   async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
@@ -244,6 +262,9 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
           { offset: start, limit: fetchLimit },
         );
         this.sourceOffsets.set(key, start + candidates.length);
+        if (candidates.length < fetchLimit) {
+          this.exhaustedSources.add(key);
+        }
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
@@ -256,6 +277,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
             error instanceof Error ? error.message : String(error)
           }`,
         );
+        this.exhaustedSources.add(key);
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,

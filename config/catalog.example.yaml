@@ -22,9 +22,10 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: Cinemeta, catalog: top, weight: 0.55 }
+      - { addon: Cinemeta, catalog: top, weight: 0.45 }
       - { addon: AIOMetadata, catalog: mdblist.88302, weight: 0.25 }
-      - { addon: Cinemeta, catalog: year, weight: 0.2 }
+      - { addon: AIOMetadata, catalog: mdblist.2236, weight: 0.15 }
+      - { addon: Cinemeta, catalog: year, weight: 0.15 }
     playability:
       display_limit: 9
       min_display: 6
@@ -66,7 +67,7 @@ rails:
     sources:
       - { addon: Cinemeta, catalog: imdbRating, weight: 0.45 }
       - { addon: AIOMetadata, catalog: mdblist.83666, weight: 0.35 }
-      - { addon: AIOMetadata, catalog: mdblist.88302, weight: 0.2 }
+      - { addon: AIOMetadata, catalog: mdblist.101881, weight: 0.2 }
     playability:
       display_limit: 9
       min_display: 6
@@ -84,9 +85,10 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: mdblist.91223, weight: 0.45 }
-      - { addon: AIOMetadata, catalog: mdblist.128040, weight: 0.35 }
-      - { addon: AIOMetadata, catalog: mdblist.3107, weight: 0.2 }
+      - { addon: Cinemeta, catalog: top, weight: 0.35 }
+      - { addon: AIOMetadata, catalog: mdblist.91223, weight: 0.35 }
+      - { addon: AIOMetadata, catalog: mdblist.128040, weight: 0.2 }
+      - { addon: AIOMetadata, catalog: mdblist.3107, weight: 0.1 }
     playability:
       display_limit: 9
       min_display: 6
@@ -103,8 +105,10 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: mdblist.88302, weight: 0.7 }
-      - { addon: AIOMetadata, catalog: mdblist.83666, weight: 0.3 }
+      - { addon: Cinemeta, catalog: year, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: mdblist.2236, weight: 0.35 }
+      - { addon: AIOMetadata, catalog: mdblist.83666, weight: 0.25 }
+      - { addon: AIOMetadata, catalog: mdblist.14, weight: 0.15 }
     playability:
       display_limit: 9
       min_display: 6
@@ -143,8 +147,9 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: Cinemeta, catalog: top, weight: 0.8 }
+      - { addon: Cinemeta, catalog: top, weight: 0.65 }
       - { addon: AIOMetadata, catalog: mdblist.105797, weight: 0.2 }
+      - { addon: AIOMetadata, catalog: mdblist.101882, weight: 0.15 }
     playability:
       display_limit: 9
       min_display: 6
@@ -184,8 +189,8 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: Cinemeta, catalog: imdbRating, weight: 0.5 }
-      - { addon: AIOMetadata, catalog: mdblist.105797, weight: 0.3 }
+      - { addon: Cinemeta, catalog: imdbRating, weight: 0.45 }
+      - { addon: AIOMetadata, catalog: mdblist.101882, weight: 0.35 }
       - { addon: AIOMetadata, catalog: mdblist.143745, weight: 0.2 }
     playability:
       display_limit: 9
@@ -224,7 +229,7 @@ rails:
     limit: 20
     sources:
       - { addon: Cinemeta, catalog: top, weight: 0.65 }
-      - { addon: AIOMetadata, catalog: mdblist.105797, weight: 0.35 }
+      - { addon: AIOMetadata, catalog: mdblist.2194, weight: 0.35 }
     playability:
       display_limit: 9
       min_display: 6

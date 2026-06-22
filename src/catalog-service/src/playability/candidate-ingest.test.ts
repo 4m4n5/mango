@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { ListSource, CandidateMeta } from './list-source.js';
 import type { TitlePlayabilityRecord } from './db.js';
+import type { SourceCursorListSource } from './source-cursors.js';
 import {
   freshTargetPerRail,
   ingestPaginatedCandidates,
@@ -62,7 +63,7 @@ test('ingestPaginatedCandidates pages past verified and failed to find fresh tit
   });
 
   assert.equal(result.fresh_queued, 10);
-  assert.equal(result.scanned, 30);
+  assert.equal(result.scanned, 10);
   assert.equal(result.next_offset, 30);
   assert.equal(result.candidates.filter((candidate) => candidate.id.startsWith('fresh-')).length, 10);
 });
@@ -83,6 +84,107 @@ test('ingestPaginatedCandidates resets offset when catalog exhausted', async () 
   assert.equal(result.catalog_exhausted, true);
   assert.equal(result.next_offset, 0);
   assert.equal(result.fresh_queued, 2);
+});
+
+test('ingestPaginatedCandidates does not reset source cursors on short composite page', async () => {
+  class ShortPageSource implements ListSource, SourceCursorListSource {
+    readonly sourceId = 'composite';
+    readonly sourceType = 'composite_list' as const;
+    private offsets = new Map([['A:c1', 100]]);
+    private exhausted = new Set<string>();
+
+    listSourceKeys(): string[] {
+      return ['A:c1'];
+    }
+
+    readSourceOffsets(): ReadonlyMap<string, number> {
+      return this.offsets;
+    }
+
+    writeSourceOffsets(offsets: Map<string, number>): void {
+      this.offsets = new Map(offsets);
+      this.exhausted.clear();
+    }
+
+    resetAllSourceOffsets(): void {
+      this.offsets.set('A:c1', 0);
+      this.exhausted.clear();
+    }
+
+    areAllSourcesExhausted(): boolean {
+      return this.exhausted.has('A:c1');
+    }
+
+    async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
+      const start = this.offsets.get('A:c1') ?? 0;
+      const page = [movie(`at-${start}`)];
+      this.offsets.set('A:c1', start + page.length);
+      if (page.length < options.limit) {
+        this.exhausted.add('A:c1');
+      }
+      return page;
+    }
+  }
+
+  const source = new ShortPageSource();
+  const result = await ingestPaginatedCandidates(source, {
+    startOffset: 0,
+    freshTarget: 1,
+    pageSize: 10,
+    maxScanned: 50,
+    sourceOffsets: new Map([['A:c1', 100]]),
+    lookupTitles: async () => new Map(),
+  });
+
+  assert.equal(result.catalog_exhausted, false);
+  assert.equal(result.fresh_queued, 1);
+  assert.equal(source.readSourceOffsets().get('A:c1'), 101);
+});
+
+test('ingestPaginatedCandidates marks catalog exhausted when all sources drained', async () => {
+  class ExhaustedSource implements ListSource, SourceCursorListSource {
+    readonly sourceId = 'composite';
+    readonly sourceType = 'composite_list' as const;
+    private offsets = new Map([['A:c1', 500]]);
+
+    listSourceKeys(): string[] {
+      return ['A:c1'];
+    }
+
+    readSourceOffsets(): ReadonlyMap<string, number> {
+      return this.offsets;
+    }
+
+    writeSourceOffsets(offsets: Map<string, number>): void {
+      this.offsets = new Map(offsets);
+    }
+
+    resetAllSourceOffsets(): void {
+      this.offsets.set('A:c1', 0);
+    }
+
+    areAllSourcesExhausted(): boolean {
+      return true;
+    }
+
+    async candidates(): Promise<CandidateMeta[]> {
+      return [];
+    }
+  }
+
+  const source = new ExhaustedSource();
+  const result = await ingestPaginatedCandidates(source, {
+    startOffset: 0,
+    freshTarget: 5,
+    pageSize: 10,
+    maxScanned: 50,
+    sourceOffsets: new Map([['A:c1', 500]]),
+    lookupTitles: async () => new Map(),
+  });
+
+  assert.equal(result.catalog_exhausted, true);
+  assert.equal(result.fresh_queued, 0);
+  assert.equal(source.readSourceOffsets().get('A:c1'), 500);
 });
 
 test('isRecentFailedTitle respects retry window', () => {
