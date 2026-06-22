@@ -114,6 +114,7 @@ export MANGO_PLAYABILITY_PROBE_CONCURRENCY="${MANGO_PLAYABILITY_PROBE_CONCURRENC
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-6000}"
 export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_PLAYABILITY_CANDIDATE_LIMIT:-250}"
 export MANGO_PLAYABILITY_FRESH_PER_RAIL="${MANGO_PLAYABILITY_FRESH_PER_RAIL:-40}"
+export MANGO_GROW_PRESET="${MANGO_GROW_PRESET:-overnight}"
 
 restore_couch() {
   log "restoring couch stack"
@@ -339,7 +340,7 @@ run_chunk() {
   set +e
   npm --prefix "$REPO_DIR/src/catalog-service" exec tsx -- \
     "$REPO_DIR/scripts/phase-n3c/playability-indexer.ts" \
-    refresh --all --mode grow \
+    refresh --all --mode grow --preset overnight \
     >"$json_file" 2>"$err_file"
   local rc=$?
   set -e

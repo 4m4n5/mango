@@ -14,9 +14,13 @@ export type BrowseTab = "movies" | "series" | "live";
 export type RefreshLevelId =
   | "shuffle_rails"
   | "stale_refresh"
-  | "topup_low_rails"
+  | "grow_quick"
+  | "grow_nightly"
+  | "grow_overnight"
   | "quick_topup"
+  | "topup_low_rails"
   | "full_maintenance"
+  | "growth_pass"
   | "overnight_grow";
 
 export type RefreshLevelCategory = "instant" | "quick" | "standard" | "overnight";

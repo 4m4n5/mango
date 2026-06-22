@@ -2,7 +2,7 @@
 
 import { CatalogCore } from '../../src/catalog-service/src/core.js';
 import { refreshAllRails } from '../../src/catalog-service/src/playability/refresh.js';
-import { normalizeRefreshMode } from '../../src/catalog-service/src/playability/grow-target.js';
+import { normalizeRefreshMode, type GrowPresetId } from '../../src/catalog-service/src/playability/grow-target.js';
 import { topUpRail } from '../../src/catalog-service/src/playability/top-up.js';
 import { verifyTitle } from '../../src/catalog-service/src/playability/verify.js';
 
@@ -12,7 +12,7 @@ function usage(): never {
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
     '  playability-indexer.ts top-up --rail <rail-id> [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
-    '  playability-indexer.ts refresh --all [--mode grow|stale] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts refresh --all [--mode grow|stale|nightly] [--preset quick|nightly|overnight] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
   ].join('\n'));
   process.exit(2);
 }
@@ -41,6 +41,15 @@ function readRefreshMode(args: string[]) {
   } catch {
     usage();
   }
+}
+
+function readGrowPreset(args: string[]): GrowPresetId | undefined {
+  const value = readFlag(args, '--preset');
+  if (value === null) return undefined;
+  if (value !== 'quick' && value !== 'nightly' && value !== 'overnight') {
+    usage();
+  }
+  return value;
 }
 
 async function writeJsonAndExit(value: unknown, exitCode: number): Promise<never> {
@@ -101,12 +110,13 @@ async function main(): Promise<void> {
       usage();
     }
     const mode = readRefreshMode(args);
+    const growPreset = readGrowPreset(args);
     const bootstrap = args.includes('--bootstrap');
     const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
     const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
 
     const core = await CatalogCore.create();
-    const result = await refreshAllRails(core, { mode, bootstrap, poolTarget, candidateLimit });
+    const result = await refreshAllRails(core, { mode, bootstrap, poolTarget, candidateLimit, growPreset });
     await writeJsonAndExit(result, result.ok ? 0 : 1);
   }
 

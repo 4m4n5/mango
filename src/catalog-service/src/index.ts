@@ -20,7 +20,11 @@ import {
   getRefreshLevel,
   listRefreshLevelsForUi,
   startRefreshLevel,
+  startRefreshJob,
+  resolveRefreshLevelId,
 } from './playability/refresh-control.js';
+import type { GrowPresetId } from './playability/grow-target.js';
+import { GROW_PRESETS } from './playability/grow-target.js';
 import { parseCatalogTab, loadRailConfig } from './rails.js';
 import {
   addUserPin,
@@ -86,6 +90,10 @@ type PlayBody = StreamFilterOverrides & {
   live?: boolean;
   language?: string | null;
   level?: string;
+  /** Library Grower refresh — alternative to level. */
+  mode?: string;
+  preset?: string;
+  detach?: boolean;
 };
 
 function playPickHint(preferUrl: string | undefined): import('./stream-filters.js').VerifiedStreamHint | undefined {
@@ -780,10 +788,54 @@ async function main(): Promise<void> {
         }
         const body = await readBody(req);
         const levelId = body.level;
-        if (!levelId || typeof levelId !== 'string') {
-          throw new CatalogError(400, 'POST /playability/refresh requires { level }');
+        const refreshMode = body.mode;
+        const refreshPreset = body.preset;
+
+        if (refreshMode && typeof refreshMode === 'string') {
+          if (refreshMode !== 'grow' && refreshMode !== 'stale' && refreshMode !== 'nightly') {
+            throw new CatalogError(400, 'mode must be grow, stale, or nightly');
+          }
+          const preset =
+            refreshPreset && typeof refreshPreset === 'string'
+              ? (refreshPreset as GrowPresetId)
+              : undefined;
+          if (preset && !GROW_PRESETS[preset]) {
+            throw new CatalogError(400, 'preset must be quick, nightly, or overnight');
+          }
+          const started = await startRefreshJob({
+            mode: refreshMode,
+            preset,
+            detach: body.detach === true,
+          });
+          if (!started.ok) {
+            throw new CatalogError(started.busy ? 409 : 400, started.error);
+          }
+          if (started.mode !== 'background') {
+            throw new CatalogError(500, 'refresh job failed to start');
+          }
+          const level = getRefreshLevel(started.level);
+          sendJson(res, 202, {
+            ok: true,
+            mode: 'background',
+            refresh_mode: refreshMode,
+            preset: preset ?? 'nightly',
+            level: started.level,
+            pid: started.pid,
+            estimated_sec: level?.estimated_sec,
+            estimated_label: level?.estimated_label,
+            blocks_couch: level?.blocks_couch,
+            category: level?.category,
+            llm_hint: level?.llm_hint,
+            detach_supported: level?.detach_supported,
+          });
+          return;
         }
-        const level = getRefreshLevel(levelId);
+
+        if (!levelId || typeof levelId !== 'string') {
+          throw new CatalogError(400, 'POST /playability/refresh requires { level } or { mode, preset? }');
+        }
+        const resolvedLevel = resolveRefreshLevelId(levelId);
+        const level = resolvedLevel ? getRefreshLevel(resolvedLevel) : null;
         if (!level) {
           throw new CatalogError(400, `unknown refresh level: ${levelId}`);
         }
@@ -795,7 +847,8 @@ async function main(): Promise<void> {
           const sessionId = core.reshufflePlayabilitySession();
           sendJson(res, 200, {
             ok: true,
-            level: levelId,
+            level: started.level,
+            requested_level: levelId !== started.level ? levelId : undefined,
             mode: 'inline',
             session_id: sessionId,
             estimated_sec: level.estimated_sec,
@@ -804,7 +857,8 @@ async function main(): Promise<void> {
         }
         sendJson(res, 202, {
           ok: true,
-          level: levelId,
+          level: started.level,
+          requested_level: levelId !== started.level ? levelId : undefined,
           mode: 'background',
           pid: started.pid,
           estimated_sec: level.estimated_sec,

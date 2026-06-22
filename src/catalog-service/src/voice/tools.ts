@@ -165,6 +165,8 @@ export function buildVoiceToolManifest(): {
             enum: REFRESH_ENUM,
             description: REFRESH_MANIFEST.parameters.properties.level.description,
           },
+          mode: REFRESH_MANIFEST.parameters.properties.mode,
+          preset: REFRESH_MANIFEST.parameters.properties.preset,
           confirmed: {
             type: 'boolean',
             description: 'Must be true for jobs that pause couch browsing.',
