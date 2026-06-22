@@ -188,7 +188,8 @@ class GrowMonitorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             catalog = Path(tmp) / "catalog.yaml"
             ai_dir = Path(tmp) / "ai-catalogs"
-            ai_dir.mkdir()
+            slots_dir = ai_dir / "slots"
+            slots_dir.mkdir(parents=True)
             catalog.write_text(
                 """
 rails:
@@ -203,8 +204,8 @@ rails:
 """,
                 encoding="utf-8",
             )
-            (ai_dir / "horror.json").write_text(
-                json.dumps({"slot_id": "horror", "enabled": True, "playability": {"grow_per_pass": 20}}),
+            (ai_dir / "slots" / "horror.yaml").write_text(
+                "slot_id: horror\nenabled: true\nplayability:\n  grow_per_pass: 20\n",
                 encoding="utf-8",
             )
             import os

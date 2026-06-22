@@ -71,6 +71,55 @@ def catalog_playability_path() -> Path:
     return Path("/etc/mango/catalog.yaml")
 
 
+def ai_catalogs_dir() -> Path:
+    return Path(os.environ.get("MANGO_AI_CATALOGS_DIR", "/etc/mango/ai-catalogs"))
+
+
+def _iter_ai_slot_paths(ai_dir: Path) -> list[Path]:
+    if not ai_dir.is_dir():
+        return []
+    paths: set[Path] = set()
+    for pattern in ("*.json", "*.yaml", "*.yml"):
+        paths.update(ai_dir.glob(pattern))
+    slots_dir = ai_dir / "slots"
+    if slots_dir.is_dir():
+        for pattern in ("*.json", "*.yaml", "*.yml"):
+            paths.update(slots_dir.glob(pattern))
+    return sorted(paths)
+
+
+def _read_ai_slot_file(slot_path: Path) -> dict[str, Any] | None:
+    try:
+        raw = slot_path.read_text(encoding="utf-8")
+        if slot_path.suffix in {".yaml", ".yml"}:
+            if yaml is None:
+                return None
+            data = yaml.safe_load(raw)
+        else:
+            import json
+
+            data = json.loads(raw)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _ai_slot_configs(ai_dir: Path) -> dict[str, RailPlayabilityConfig]:
+    configs: dict[str, RailPlayabilityConfig] = {}
+    for slot_path in _iter_ai_slot_paths(ai_dir):
+        slot = _read_ai_slot_file(slot_path)
+        if not slot or slot.get("enabled") is False:
+            continue
+        slot_id = str(slot.get("slot_id") or slot_path.stem)
+        rail_id = f"ai-{slot_id}"
+        play = slot.get("playability") or {}
+        configs[rail_id] = RailPlayabilityConfig(
+            display_limit=int(play.get("display_limit") or DEFAULT_DISPLAY_LIMIT),
+            grow_per_pass=int(play.get("grow_per_pass") or DEFAULT_GROW_PER_PASS),
+        )
+    return configs
+
+
 def load_catalog_playability(path: Path | None = None) -> dict[str, RailPlayabilityConfig]:
     catalog_path = path or catalog_playability_path()
     if not catalog_path.exists() or yaml is None:
@@ -90,24 +139,7 @@ def load_catalog_playability(path: Path | None = None) -> dict[str, RailPlayabil
             grow_per_pass=int(play.get("grow_per_pass") or DEFAULT_GROW_PER_PASS),
         )
 
-    ai_dir = Path(os.environ.get("MANGO_AI_CATALOGS_DIR", "/etc/mango/ai-catalogs"))
-    if ai_dir.is_dir():
-        for slot_path in sorted(ai_dir.glob("*.json")):
-            try:
-                import json
-
-                slot = json.loads(slot_path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if slot.get("enabled") is False:
-                continue
-            slot_id = str(slot.get("slot_id") or slot_path.stem)
-            rail_id = f"ai-{slot_id}"
-            play = slot.get("playability") or {}
-            configs[rail_id] = RailPlayabilityConfig(
-                display_limit=int(play.get("display_limit") or DEFAULT_DISPLAY_LIMIT),
-                grow_per_pass=int(play.get("grow_per_pass") or DEFAULT_GROW_PER_PASS),
-            )
+    configs.update(_ai_slot_configs(ai_catalogs_dir()))
 
     return configs
 
