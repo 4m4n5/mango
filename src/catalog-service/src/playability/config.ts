@@ -148,9 +148,14 @@ export function playabilityMaxIngestScan(): number {
   return boundedInt(process.env.MANGO_PLAYABILITY_MAX_INGEST_SCAN, 1200, 50, 5000);
 }
 
-/** Grow passes: reset catalog cursors when exhausted but pool still below grow target. */
+/** Pages to advance each catalog source when a grow pass exhausts without hitting target. */
+export function playabilityGrowSourceAdvancePages(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_ADVANCE_PAGES, 25, 5, 200);
+}
+
+/** Grow passes: advance catalog cursors when exhausted but pool still below grow target. */
 export function playabilityGrowSourceResetCycles(): number {
-  return boundedInt(process.env.MANGO_GROW_SOURCE_RESET_CYCLES, 5, 0, 20);
+  return boundedInt(process.env.MANGO_GROW_SOURCE_RESET_CYCLES, 10, 0, 30);
 }
 
 /** When 1 (default in maintenance), grow refresh ok requires +grow_per_pass verified per rail. */

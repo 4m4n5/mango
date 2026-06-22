@@ -6,7 +6,6 @@ import {
   getRailPoolTitleKeys,
   getTitlesPlayabilityBulk,
   pruneNonPlayableFromRailPools,
-  resetRailIngestCursors,
   setRailIngestOffset,
   type PlayabilityRailStatus,
 } from './db.js';
@@ -28,6 +27,7 @@ import {
   playabilityIngestPageSize,
   playabilityMaxIngestScan,
   growIngestFreshTarget,
+  playabilityGrowSourceAdvancePages,
   playabilityGrowSourceResetCycles,
 } from './config.js';
 import {
@@ -192,7 +192,7 @@ export async function growRail(
     return true;
   }
 
-  async function trySourceResetOnExhaustion(): Promise<boolean> {
+  async function trySourceAdvanceOnExhaustion(): Promise<boolean> {
     if (sourceResetCycles >= maxSourceResetCycles) {
       return false;
     }
@@ -201,8 +201,19 @@ export async function growRail(
     }
     sourceResetCycles += 1;
     catalogExhausted = false;
-    await resetRailIngestCursors(rail.id);
-    await reloadIngestState();
+    const jump = playabilityIngestPageSize() * playabilityGrowSourceAdvancePages() * sourceResetCycles;
+    if (isSourceCursorListSource(listSource)) {
+      const offsets = new Map(listSource.readSourceOffsets());
+      for (const key of listSource.listSourceKeys()) {
+        offsets.set(key, (offsets.get(key) ?? 0) + jump);
+      }
+      listSource.writeSourceOffsets(offsets);
+      await persistSourceOffsetsForListSource(rail.id, listSource);
+      sourceOffsets = offsets;
+    } else {
+      ingestOffset += jump;
+      await setRailIngestOffset(rail.id, ingestOffset);
+    }
     return true;
   }
 
@@ -244,7 +255,7 @@ export async function growRail(
         if (await tryComposeOnExhaustion()) {
           continue;
         }
-        if (await trySourceResetOnExhaustion()) {
+        if (await trySourceAdvanceOnExhaustion()) {
           continue;
         }
         break;
@@ -256,7 +267,7 @@ export async function growRail(
         if (catalogExhausted && await tryComposeOnExhaustion()) {
           continue;
         }
-        if (catalogExhausted && await trySourceResetOnExhaustion()) {
+        if (catalogExhausted && await trySourceAdvanceOnExhaustion()) {
           continue;
         }
         break;
@@ -319,7 +330,7 @@ export async function growRail(
           if (await tryComposeOnExhaustion()) {
             continue;
           }
-          if (await trySourceResetOnExhaustion()) {
+          if (await trySourceAdvanceOnExhaustion()) {
             continue;
           }
           break;
@@ -333,7 +344,7 @@ export async function growRail(
         if (catalogExhausted && await tryComposeOnExhaustion()) {
           continue;
         }
-        if (catalogExhausted && await trySourceResetOnExhaustion()) {
+        if (catalogExhausted && await trySourceAdvanceOnExhaustion()) {
           continue;
         }
         break;

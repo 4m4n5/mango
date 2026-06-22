@@ -12,11 +12,11 @@ test('growIngestFreshTarget scales with remaining quota', () => {
   assert.equal(growIngestFreshTarget(60, 40), 200);
 });
 
-test('playabilityGrowSourceResetCycles defaults to 5', () => {
+test('playabilityGrowSourceResetCycles defaults to 10', () => {
   const previous = process.env.MANGO_GROW_SOURCE_RESET_CYCLES;
   delete process.env.MANGO_GROW_SOURCE_RESET_CYCLES;
   try {
-    assert.equal(playabilityGrowSourceResetCycles(), 5);
+    assert.equal(playabilityGrowSourceResetCycles(), 10);
   } finally {
     if (previous === undefined) {
       delete process.env.MANGO_GROW_SOURCE_RESET_CYCLES;
