@@ -14,6 +14,12 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+
+from ops_grow_sla import format_grow_sla_section, summarize_grow_sla
+
 PDT = ZoneInfo("America/Los_Angeles")
 
 
@@ -193,7 +199,14 @@ def print_report(date: str, *, reconstruct: bool = False) -> int:
 
     # Scheduled tasks status
     print("## Scheduled nightly tasks")
-    playability_events = [e for e in events if e.get("kind") in {"playability_refresh", "playability_maintenance"}]
+    playability_events = [
+        e for e in events
+        if e.get("kind") in {
+            "playability_refresh",
+            "playability_maintenance",
+            "playability_growth",
+        }
+    ]
     companion_events = [e for e in events if str(e.get("kind", "")).startswith("companion_")]
 
     if playability_events:
@@ -278,6 +291,17 @@ def print_report(date: str, *, reconstruct: bool = False) -> int:
     else:
         print("  (no rail delta data — run with --reconstruct)\n")
 
+    # Library Grower SLA (PR6)
+    print("## Library Grower SLA")
+    sla = summarize_grow_sla(events, reports)
+    if sla:
+        print(format_grow_sla_section(sla))
+    else:
+        print("  (no grow-phase ops data for this date — run nightly maintenance or grow pass)")
+        print("  Target: ≥20 probe-verified per rail (40 when verified pool < display_limit)")
+        print("  Program pass: ≥80% of browse rails met target; exhaustion below target = WARN only")
+        print()
+
     # Agent / companion updates
     print("## Agent & companion updates")
     if reconstruct:
@@ -351,6 +375,30 @@ def main() -> int:
             "events": load_events(date),
             "reports": load_reports(date),
         }
+        sla = summarize_grow_sla(payload["events"], payload["reports"])
+        if sla:
+            payload["library_grower_sla"] = {
+                "program_pass": sla.program_pass,
+                "program_pass_rate": sla.program_pass_rate,
+                "met_count": sla.met_count,
+                "browse_rail_count": sla.browse_rail_count,
+                "compose_escalated_rails": sla.compose_escalated_rails,
+                "exhausted_below_target": sla.exhausted_below_target,
+                "rails": [
+                    {
+                        "rail_id": rail.rail_id,
+                        "grow_target": rail.grow_target,
+                        "probe_verified": rail.probe_verified,
+                        "grow_target_met": rail.grow_target_met,
+                        "sparse_tier": rail.sparse_tier,
+                        "exhausted": rail.exhausted,
+                        "compose_escalated": rail.compose_escalated,
+                        "status": rail.status,
+                        "reason": rail.reason,
+                    }
+                    for rail in sla.rails
+                ],
+            }
         if args.reconstruct:
             payload["reconstructed_playability"] = reconstruct_playability(date)
             payload["reconstructed_companion"] = reconstruct_companion(date)
