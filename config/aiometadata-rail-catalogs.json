@@ -14,7 +14,8 @@
       "name": "Daily Picks",
       "rails": [
         "series-global-popular",
-        "series-reality-casual"
+        "series-reality-casual",
+        "series-classics"
       ]
     },
     {
@@ -35,7 +36,8 @@
       "id": "mdblist.143745",
       "name": "Limited Series (Jordan Hawk)",
       "rails": [
-        "series-miniseries"
+        "series-miniseries",
+        "series-classics"
       ]
     },
     {
@@ -91,7 +93,8 @@
       "id": "mdblist.83666",
       "name": "Top Classic Movies",
       "rails": [
-        "movies-quick-watches"
+        "movies-quick-watches",
+        "movies-classics"
       ]
     },
     {
@@ -106,7 +109,8 @@
       "name": "Trending Movies",
       "rails": [
         "movies-global-popular",
-        "movies-quick-watches"
+        "movies-quick-watches",
+        "movies-classics"
       ]
     },
     {

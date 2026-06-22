@@ -46,6 +46,9 @@ export function recordRefreshOps(
         rail_id: rail.rail_id,
         grow_target: rail.grow_target ?? rail.growth_quota,
         probe_verified: rail.probe_verified ?? rail.verified_added,
+        pool_growth: rail.pool_growth ?? (
+          rail.after.verified_pool - rail.before.verified_pool
+        ),
         grow_target_met: rail.grow_target_met ?? rail.growth_quota_met,
         growth_quota: rail.growth_quota,
         verified_added: rail.verified_added,

@@ -122,6 +122,8 @@ def _verified_before(row: dict[str, Any]) -> int:
 
 
 def _probe_verified(row: dict[str, Any]) -> int:
+    if row.get("pool_growth") is not None:
+        return int(row["pool_growth"])
     if row.get("probe_verified") is not None:
         return int(row["probe_verified"])
     if row.get("verified_added") is not None:
@@ -140,6 +142,7 @@ def normalize_grow_rail_row(row: dict[str, Any]) -> dict[str, Any]:
         "verified_before": _verified_before(row),
         "grow_target": row.get("grow_target"),
         "probe_verified": _probe_verified(row),
+        "pool_growth": row.get("pool_growth"),
         "grow_target_met": row.get("grow_target_met"),
         "exhausted": bool(row.get("exhausted")),
         "compose_escalated": bool(row.get("compose_escalated")),

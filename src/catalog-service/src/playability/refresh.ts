@@ -29,6 +29,7 @@ import {
   playabilityBootstrapFill,
   playabilityEarlyExitMinDisplay,
   playabilityFreshPerRail,
+  playabilityGrowRequireTarget,
   playabilityIngestPageSize,
   playabilityMaxIngestScan,
 } from './config.js';
@@ -83,6 +84,7 @@ export type RefreshRailSummary = {
   pool_target: number;
   grow_target?: number;
   probe_verified?: number;
+  pool_growth?: number;
   grow_target_met?: boolean;
   /** @deprecated Use grow_target */
   growth_quota?: number;
@@ -156,6 +158,7 @@ function growResultToRailSummary(
     pool_target: result.pool_target,
     grow_target: result.grow_target,
     probe_verified: result.probe_verified,
+    pool_growth: result.pool_growth,
     grow_target_met: result.grow_target_met,
     growth_quota: result.growth_quota,
     verified_added: result.verified_added,
@@ -197,8 +200,9 @@ async function refreshAllRailsGrow(
   }
 
   const finishedAt = Date.now();
+  const requireGrowTarget = playabilityGrowRequireTarget();
   const refreshResult: RefreshAllResult = {
-    ok: railSummaries.every((rail) => rail.ok),
+    ok: railSummaries.every((rail) => rail.ok && (!requireGrowTarget || rail.grow_target_met === true)),
     mode,
     bootstrap: false,
     started_at: startedAt,

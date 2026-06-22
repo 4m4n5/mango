@@ -148,6 +148,29 @@ export function playabilityMaxIngestScan(): number {
   return boundedInt(process.env.MANGO_PLAYABILITY_MAX_INGEST_SCAN, 1200, 50, 5000);
 }
 
+/** Grow passes: reset catalog cursors when exhausted but pool still below grow target. */
+export function playabilityGrowSourceResetCycles(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_RESET_CYCLES, 5, 0, 20);
+}
+
+/** When 1 (default in maintenance), grow refresh ok requires +grow_per_pass verified per rail. */
+export function playabilityGrowRequireTarget(): boolean {
+  if (process.env.MANGO_GROW_REQUIRE_TARGET === '0') return false;
+  if (process.env.MANGO_GROW_REQUIRE_TARGET === '1') return true;
+  return process.env.MANGO_MAINTENANCE_MODE === '1';
+}
+
+/**
+ * Fresh candidates to queue per grow loop — scale with remaining quota (probe+link hit rate ~25–40%).
+ */
+export function growIngestFreshTarget(remainingQuota: number, batchDefault: number): number {
+  if (remainingQuota <= 0) {
+    return batchDefault;
+  }
+  const scaled = Math.max(batchDefault, remainingQuota * 4);
+  return Math.min(scaled, 200);
+}
+
 export function isPlayabilityGrowthMode(mode?: string): boolean {
   if (mode === 'grow') {
     return true;

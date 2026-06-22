@@ -6,6 +6,7 @@ import {
   getRailPoolTitleKeys,
   getTitlesPlayabilityBulk,
   pruneNonPlayableFromRailPools,
+  resetRailIngestCursors,
   setRailIngestOffset,
   type PlayabilityRailStatus,
 } from './db.js';
@@ -26,6 +27,8 @@ import {
   playabilityFreshPerRail,
   playabilityIngestPageSize,
   playabilityMaxIngestScan,
+  growIngestFreshTarget,
+  playabilityGrowSourceResetCycles,
 } from './config.js';
 import {
   createGrowthPassState,
@@ -51,6 +54,7 @@ export type GrowRailResult = {
   ok: boolean;
   grow_target: number;
   probe_verified: number;
+  pool_growth: number;
   grow_target_met: boolean;
   /** @deprecated Use grow_target — kept for one release. */
   growth_quota?: number;
@@ -149,8 +153,15 @@ export async function growRail(
   let catalogExhausted = false;
   let composeEscalated = false;
   let composeFallbackLevel: number | undefined;
+  let sourceResetCycles = 0;
+  const maxSourceResetCycles = playabilityGrowSourceResetCycles();
 
   const context = await createVerifyContext();
+
+  const poolGrowthSoFar = async (): Promise<number> => {
+    const status = await getRailPlayabilityStatus(rail.id);
+    return Math.max(0, status.verified_pool - before.verified_pool);
+  };
 
   async function reloadIngestState(): Promise<void> {
     listSource = core.listSourceForRail(railId);
@@ -167,8 +178,7 @@ export async function growRail(
     if (composeEscalated || rail.type !== 'ai_catalog') {
       return false;
     }
-    const probeVerified = growthPass.verifiedAddedThisPass.get(rail.id) ?? 0;
-    if (probeVerified >= growTarget) {
+    if (await poolGrowthSoFar() >= growTarget) {
       return false;
     }
     const escalation = await tryGrowComposeEscalation(core, rail as AiCatalogRail);
@@ -182,17 +192,33 @@ export async function growRail(
     return true;
   }
 
+  async function trySourceResetOnExhaustion(): Promise<boolean> {
+    if (sourceResetCycles >= maxSourceResetCycles) {
+      return false;
+    }
+    if (await poolGrowthSoFar() >= growTarget) {
+      return false;
+    }
+    sourceResetCycles += 1;
+    catalogExhausted = false;
+    await resetRailIngestCursors(rail.id);
+    await reloadIngestState();
+    return true;
+  }
+
   try {
     while (Date.now() - startedAt < wallMs && attempts < maxAttempts) {
-      const probeVerified = growthPass.verifiedAddedThisPass.get(rail.id) ?? 0;
-      if (probeVerified >= growTarget) {
+      if (await poolGrowthSoFar() >= growTarget) {
         break;
       }
+
+      const remainingQuota = Math.max(0, growTarget - (await poolGrowthSoFar()));
+      const freshTarget = growIngestFreshTarget(remainingQuota, ingestBatchFresh);
 
       const ingested = await ingestPaginatedCandidates(listSource, {
         startOffset: ingestOffset,
         sourceOffsets,
-        freshTarget: ingestBatchFresh,
+        freshTarget,
         pageSize: playabilityIngestPageSize(),
         maxScanned: playabilityMaxIngestScan(),
         lookupTitles: getTitlesPlayabilityBulk,
@@ -218,6 +244,9 @@ export async function growRail(
         if (await tryComposeOnExhaustion()) {
           continue;
         }
+        if (await trySourceResetOnExhaustion()) {
+          continue;
+        }
         break;
       }
 
@@ -225,6 +254,9 @@ export async function growRail(
       if (candidates.length === 0) {
         catalogExhausted = ingested.catalog_exhausted;
         if (catalogExhausted && await tryComposeOnExhaustion()) {
+          continue;
+        }
+        if (catalogExhausted && await trySourceResetOnExhaustion()) {
           continue;
         }
         break;
@@ -283,9 +315,11 @@ export async function growRail(
 
       if (ingested.catalog_exhausted) {
         catalogExhausted = true;
-        const probeVerifiedAfter = growthPass.verifiedAddedThisPass.get(rail.id) ?? 0;
-        if (probeVerifiedAfter < growTarget) {
+        if (await poolGrowthSoFar() < growTarget) {
           if (await tryComposeOnExhaustion()) {
+            continue;
+          }
+          if (await trySourceResetOnExhaustion()) {
             continue;
           }
           break;
@@ -297,6 +331,9 @@ export async function growRail(
       if (!madeLinkOrProbeProgress && ingested.fresh_queued === 0) {
         catalogExhausted = ingested.catalog_exhausted;
         if (catalogExhausted && await tryComposeOnExhaustion()) {
+          continue;
+        }
+        if (catalogExhausted && await trySourceResetOnExhaustion()) {
           continue;
         }
         break;
@@ -315,15 +352,17 @@ export async function growRail(
 
   const after = await getRailPlayabilityStatus(rail.id);
   const probeVerified = growthPass.verifiedAddedThisPass.get(rail.id) ?? 0;
-  const targetMet = probeVerified >= growTarget;
+  const poolGrowth = Math.max(0, after.verified_pool - before.verified_pool);
+  const targetMet = poolGrowth >= growTarget;
   const exhausted = !targetMet && catalogExhausted;
 
   return {
     rail_id: rail.id,
     label: rail.label,
-    ok: after.verified_pool >= rail.playability.min_display,
+    ok: after.verified_pool >= rail.playability.min_display && targetMet,
     grow_target: growTarget,
     probe_verified: probeVerified,
+    pool_growth: poolGrowth,
     grow_target_met: targetMet,
     growth_quota: growTarget,
     verified_added: probeVerified,
