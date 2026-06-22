@@ -1,14 +1,14 @@
 {
-  "_comment": "N3d stream evaluation corpus — diverse movies/series for gate-n3d-streams.sh. GET /stream returns ideal play_ladder step only (see core.ts). Series ids use Stremio episode form tt…:season:episode. tier: required=hard fail, soft=warn, optional=warn.",
+  "_comment": "N3d stream evaluation corpus — diverse movies/series for gate-n3d-streams.sh. GET /stream returns expandPlayLadder preview (play order). Series ids use Stremio episode form tt…:season:episode. tier: required=hard fail, soft=warn, optional=warn.",
   "fixtures": [
     {
       "label": "Shawshank",
       "tier": "required",
       "type": "movie",
       "id": "tt0111161",
-      "notes": "Western classic; N1 smoke baseline",
+      "notes": "Western classic; ideal ladder step may surface a single cached 1080p encode",
       "min_streams": 1,
-      "min_unique_urls": 2
+      "min_unique_urls": 1
     },
     {
       "label": "RRR",

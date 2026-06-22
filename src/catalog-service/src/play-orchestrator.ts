@@ -282,12 +282,14 @@ export async function playWithLadder(
           if (options.playEpoch !== undefined) {
             await assertPlayEpoch(options.playEpoch);
           }
-          await assertPlausibleFeatureProbe(options);
         } else {
           observedProbeMs = 0;
         }
       } else {
         probeReused = true;
+      }
+      if (!skipProbe) {
+        await assertPlausibleFeatureProbe(options);
       }
       const remainingBeforePlay = deadline - Date.now();
       if (remainingBeforePlay < 500) {

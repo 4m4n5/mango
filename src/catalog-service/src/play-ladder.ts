@@ -12,7 +12,7 @@ import {
   parseDebridCacheStatus,
   sourceMatches,
   streamMatchesLanguage,
-  streamMatchesMetaTitle,
+  streamPassesIntegrity,
   streamMatchesVerifiedHint,
   streamPlayScore,
   streamQuality,
@@ -222,11 +222,7 @@ export function filterStreamsForLadderStep(
   const kept: Stream[] = [];
   for (const raw of streams) {
     const stream = ensureEnriched(raw);
-    if (
-      !context.skipTitleFilter
-      && context.metaTitle
-      && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)
-    ) {
+    if (!streamPassesIntegrity(stream, context)) {
       continue;
     }
     if (isSeriesPackForMovie(stream, context.contentType)) continue;

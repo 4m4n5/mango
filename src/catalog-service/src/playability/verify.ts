@@ -11,6 +11,7 @@ import {
 } from './config.js';
 import {
   getTitlePlayability,
+  getTitleVerifyProfile,
   recordVerifyResult,
 } from './db.js';
 import { normalizeSeriesVerifyId } from './ids.js';
@@ -153,6 +154,55 @@ async function recordFailure(
     outcome: demoteToStale ? 'stale_reprobe_failed' : reason,
   }, context);
   return status;
+}
+
+/** Demote verified titles when play-order top candidate no longer matches stored win_url_hash. */
+export async function demoteVerifyIfDrifted(
+  core: CatalogCore,
+  type: string,
+  id: string,
+  context?: VerifyContext,
+): Promise<'fresh' | 'stale'> {
+  const verifyId = normalizeSeriesVerifyId(type, id);
+  const existing = await getTitleVerifyProfile(type, verifyId);
+  if (!existing || existing.status !== 'verified' || !existing.win_url_hash) {
+    return 'fresh';
+  }
+
+  const prepared = await prepareVerifyTitle(core, type, id);
+  if (!prepared.ok || !prepared.resolved) {
+    return 'fresh';
+  }
+
+  const candidates = expandPlayLadder(
+    prepared.resolved.streams,
+    prepared.resolved.filters.play_ladder,
+    prepared.resolved.filterContext,
+    {
+      strict_unknown_cache: prepared.resolved.filters.strict_unknown_cache,
+      preferred_quality: prepared.resolved.filters.preferred_quality,
+      max_candidates: prepared.resolved.filters.auto_play_max_attempts,
+    },
+  );
+  if (candidates.length === 0) {
+    return 'fresh';
+  }
+
+  const topHash = streamUrlHash(candidates[0].stream.url);
+  if (topHash === existing.win_url_hash) {
+    return 'fresh';
+  }
+
+  await persistVerifyResult({
+    type,
+    id: verifyId,
+    status: 'stale',
+    rail_id: null,
+    fail_reason: 'verify_drift',
+    stage: 'verify',
+    outcome: 'verify_drift',
+  }, context);
+  return 'stale';
 }
 
 export async function verifyTitle(

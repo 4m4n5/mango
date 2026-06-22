@@ -89,6 +89,8 @@ export type StreamFilterMeta = {
   quality_relaxed?: boolean;
   /** Ladder step used for GET /stream display filtering. */
   play_ladder_step?: string;
+  /** GET /stream rows follow expandPlayLadder play order (not ideal-only). */
+  play_ladder_preview?: boolean;
   excluded: {
     uncached_debrid: number;
     unknown_cache_debrid: number;
@@ -170,13 +172,60 @@ function metaTitleTokens(metaTitle: string): string[] {
     .sort((left, right) => right.length - left.length);
 }
 
+function streamFilenameHaystack(stream: Stream): string {
+  const hints = stream.behaviorHints;
+  const filename = hints && typeof hints === 'object' && !Array.isArray(hints)
+    && typeof (hints as Record<string, unknown>).filename === 'string'
+    ? String((hints as Record<string, unknown>).filename)
+    : '';
+  return filename
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ');
+}
+
+function streamRelevanceHaystack(stream: Stream): string {
+  const filename = streamFilenameHaystack(stream);
+  return `${streamHaystack(stream)} ${filename}`.trim();
+}
+
+/** Minimum GB per minute of runtime for long features (catches mislabeled tiny encodes). */
+const FEATURE_SIZE_GB_PER_MINUTE = 0.004;
+
+export function streamByteSize(stream: Stream): number | null {
+  const hints = stream.behaviorHints;
+  if (hints && typeof hints === 'object' && !Array.isArray(hints)) {
+    const videoSize = (hints as Record<string, unknown>).videoSize;
+    if (typeof videoSize === 'number' && Number.isFinite(videoSize) && videoSize > 0) {
+      return videoSize;
+    }
+  }
+  if (typeof stream.size_gb === 'number' && Number.isFinite(stream.size_gb) && stream.size_gb > 0) {
+    return stream.size_gb * 1_000_000_000;
+  }
+  return null;
+}
+
+export function isSuspiciousFeatureSize(
+  stream: Stream,
+  runtimeMinutes: number | null | undefined,
+  contentType: string | undefined,
+): boolean {
+  if (contentType !== 'movie') return false;
+  if (!runtimeMinutes || runtimeMinutes < 70) return false;
+  const bytes = streamByteSize(stream);
+  if (!bytes) return false;
+  const minBytes = runtimeMinutes * FEATURE_SIZE_GB_PER_MINUTE * 1_000_000_000;
+  return bytes < minBytes;
+}
+
 /** Reject London.Files-style false positives for The Kashmir Files. */
 export function streamMatchesMetaTitle(
   stream: Stream,
   metaTitle: string,
   metaId?: string,
+  context?: Pick<StreamFilterContext, 'contentType'>,
 ): boolean {
-  const haystack = streamHaystack(stream);
+  const haystack = streamRelevanceHaystack(stream);
   if (metaId) {
     const normalized = metaId.toLowerCase();
     if (haystack.includes(normalized)) return true;
@@ -190,11 +239,35 @@ export function streamMatchesMetaTitle(
   if (tokens.length < 2) return true;
   const sorted = [...tokens].sort((left, right) => right.length - left.length);
   const primary = sorted[0];
+  if (
+    context?.contentType === 'movie'
+    && primary
+    && primary.length >= 5
+    && !TITLE_STOP_WORDS.has(primary)
+  ) {
+    const filenameHaystack = streamFilenameHaystack(stream);
+    if (!filenameHaystack.trim() || !filenameHaystack.includes(primary)) {
+      return false;
+    }
+  }
   if (primary.length >= 5 && !TITLE_STOP_WORDS.has(primary) && haystack.includes(primary)) {
     return true;
   }
   const hits = tokens.filter((token) => haystack.includes(token)).length;
   return hits >= 2;
+}
+
+export function streamPassesIntegrity(stream: Stream, context: StreamFilterContext): boolean {
+  if (context.skipTitleFilter || !context.metaTitle) {
+    return true;
+  }
+  if (!streamMatchesMetaTitle(stream, context.metaTitle, context.metaId, context)) {
+    return false;
+  }
+  if (isSuspiciousFeatureSize(stream, context.metaRuntimeMinutes, context.contentType)) {
+    return false;
+  }
+  return true;
 }
 
 export function isSeriesPackForMovie(stream: Stream, contentType: string | undefined): boolean {
@@ -828,11 +901,7 @@ export function filterAndRankStreams(
     const debrid = isDebridStream(stream);
     const cacheStatus = parseDebridCacheStatus(stream);
 
-    if (
-      !context.skipTitleFilter
-      && context.metaTitle
-      && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)
-    ) {
+    if (!streamPassesIntegrity(stream, context)) {
       meta.excluded.title_mismatch += 1;
       continue;
     }
@@ -910,11 +979,7 @@ function buildFallbackStreams(
   for (const raw of streams) {
     const stream = ensureEnrichedStream(raw);
     if (!predicate(stream)) continue;
-    if (
-      !context.skipTitleFilter
-      && context.metaTitle
-      && !streamMatchesMetaTitle(stream, context.metaTitle, context.metaId)
-    ) {
+    if (!streamPassesIntegrity(stream, context)) {
       continue;
     }
     if (isSeriesPackForMovie(stream, context.contentType)) continue;

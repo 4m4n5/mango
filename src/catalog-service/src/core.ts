@@ -16,7 +16,7 @@ import {
 import {
   defaultPlayLadder,
   enrichStreams,
-  filterStreamsForLadderStep,
+  expandPlayLadder,
 } from './play-ladder.js';
 import {
   enabledBrowsableRails,
@@ -1375,49 +1375,60 @@ export class CatalogCore {
 
     const config = mergeFilterConfig(this.filterConfig, overrides);
     const filterContext = await this.buildStreamFilterContext(type, id);
-    const idealStep = config.play_ladder[0] ?? defaultPlayLadder()[0];
-    const idealStreams = filterStreamsForLadderStep(raw.streams, idealStep, filterContext, {
+    const enriched = enrichStreams(raw.streams);
+    const candidates = expandPlayLadder(enriched, config.play_ladder, filterContext, {
       strict_unknown_cache: config.strict_unknown_cache,
       preferred_quality: config.preferred_quality,
       hard_language: config.hard_language,
+      max_candidates: config.stream_display_limit,
     });
-    const filtered = idealStreams.length > 0
-      ? {
-        streams: idealStreams.slice(0, config.stream_display_limit),
-        meta: {
-          applied: config,
-          total: raw.streams.length,
-          kept: idealStreams.length,
-          excluded: {
-            uncached_debrid: 0,
-            unknown_cache_debrid: 0,
-            above_max_quality: 0,
-            remux: 0,
-            error_stream: 0,
-            title_mismatch: 0,
-            series_pack_for_movie: 0,
-            language_mismatch: 0,
-          },
-          play_ladder_step: idealStep.step,
-        } satisfies StreamFilterMeta,
+
+    let streams: Stream[];
+    let meta: StreamFilterMeta;
+
+    if (candidates.length > 0) {
+      streams = candidates.map((candidate) => ({
+        ...candidate.stream,
+        ladder_step: candidate.ladder_step,
+      }));
+      meta = {
+        applied: config,
+        total: raw.streams.length,
+        kept: candidates.length,
+        play_ladder_step: 'preview',
+        play_ladder_preview: true,
+        excluded: {
+          uncached_debrid: 0,
+          unknown_cache_debrid: 0,
+          above_max_quality: 0,
+          remux: 0,
+          error_stream: 0,
+          title_mismatch: 0,
+          series_pack_for_movie: 0,
+          language_mismatch: 0,
+        },
+      };
+    } else {
+      const filtered = filterStreamsForPlay(enriched, config, filterContext);
+      if (filtered.streams.length === 0) {
+        const hint = config.exclude_uncached_debrid
+          ? ' try ?include_uncached=1 or set include_uncached in POST /play'
+          : '';
+        throw new CatalogError(
+          502,
+          `no streams left after filters for ${type}/${id} (${filtered.meta.excluded.uncached_debrid} uncached, ${filtered.meta.excluded.unknown_cache_debrid} unknown-cache debrid excluded)${hint}`,
+          { filters: filtered.meta },
+        );
       }
-      : filterStreamsForPlay(raw.streams, config, filterContext);
-    if (filtered.streams.length === 0) {
-      const hint = config.exclude_uncached_debrid
-        ? ' try ?include_uncached=1 or set include_uncached in POST /play'
-        : '';
-      throw new CatalogError(
-        502,
-        `no streams left after filters for ${type}/${id} (${filtered.meta.excluded.uncached_debrid} uncached, ${filtered.meta.excluded.unknown_cache_debrid} unknown-cache debrid excluded)${hint}`,
-        { filters: filtered.meta },
-      );
+      streams = filtered.streams;
+      meta = filtered.meta;
     }
 
     return {
-      streams: filtered.streams,
+      streams,
       resolve_ms: raw.cached ? 0 : raw.resolveMs,
       cached: raw.cached,
-      filters: filtered.meta,
+      filters: meta,
       errors: raw.errors.length > 0 ? raw.errors : undefined,
     };
   }

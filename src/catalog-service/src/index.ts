@@ -5,6 +5,7 @@ import { playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { bumpPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import { invalidateTitle, getTitleVerifyProfile, recordVerifyResult } from './playability/db.js';
+import { demoteVerifyIfDrifted } from './playability/verify.js';
 import { isSeriesRailGateId, seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
@@ -270,6 +271,15 @@ async function handlePlay(
   const playEpoch = await bumpPlayEpoch();
   const now = Date.now();
   const usePlayabilityIndex = body.type !== 'series' || isSeriesRailGateId(playId);
+  if (usePlayabilityIndex) {
+    await demoteVerifyIfDrifted(core, body.type, playId).catch((error) => {
+      console.warn(
+        `verify drift check failed type=${body.type} id=${playId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+  }
   const profile = usePlayabilityIndex
     ? await getTitleVerifyProfile(body.type, playId)
     : null;

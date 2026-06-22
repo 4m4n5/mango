@@ -14,6 +14,7 @@ import {
   streamUrlHash,
   isSupplementalRelease,
   isPlausibleFeatureDuration,
+  isSuspiciousFeatureSize,
   parseRuntimeMinutes,
 } from './stream-filters.js';
 
@@ -239,6 +240,42 @@ test('isPlausibleFeatureDuration rejects short probes for movies', () => {
   assert.equal(isPlausibleFeatureDuration(12, 'movie', 150), false);
   assert.equal(isPlausibleFeatureDuration(120, 'movie', 150), true);
   assert.equal(isPlausibleFeatureDuration(45, 'movie', null), true);
+});
+
+test('movie filename integrity rejects mislabeled torrent descriptions', () => {
+  const mislabeled: Stream = {
+    url: 'https://example.test/bad.mkv',
+    source: 'AIOStreams',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    title: '[TB☁️⚡] Torrentio 1080p',
+    description: '📁 The Shawshank Redemption (1994)\n🎥 BluRay 🎞️ HEVC',
+    behaviorHints: { filename: '3x2 a New Conversation.mkv', videoSize: 460_000_000 },
+    size_gb: 0.45,
+  };
+  const good: Stream = {
+    ...mislabeled,
+    url: 'https://example.test/good.mkv',
+    behaviorHints: {
+      filename: 'The.Shawshank.Redemption.1994.1080p.BluRay.x265.mkv',
+      videoSize: 9_000_000_000,
+    },
+    size_gb: 9,
+  };
+  assert.equal(
+    streamMatchesMetaTitle(mislabeled, 'The Shawshank Redemption', 'tt0111161', { contentType: 'movie' }),
+    false,
+  );
+  assert.equal(
+    streamMatchesMetaTitle(good, 'The Shawshank Redemption', 'tt0111161', { contentType: 'movie' }),
+    true,
+  );
+  const result = filterStreamsForPlay(
+    [mislabeled, good],
+    testConfig({ exclude_uncached_debrid: false }),
+    { contentType: 'movie', metaTitle: 'The Shawshank Redemption', metaId: 'tt0111161', metaRuntimeMinutes: 142 },
+  );
+  assert.equal(result.streams.length, 1);
+  assert.equal(result.streams[0]?.url, good.url);
 });
 
 test('isCacheableStream rejects rate-limit placeholders', () => {
