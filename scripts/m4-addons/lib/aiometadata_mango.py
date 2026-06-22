@@ -317,10 +317,36 @@ def check_export(
     return 0 if not still_missing else 1
 
 
+def manifest_catalog_ids(manifest: dict[str, Any]) -> set[str]:
+    return {str(c.get("id")) for c in (manifest.get("catalogs") or []) if c.get("id")}
+
+
+def missing_manifest_catalog_ids(
+    catalog_yaml: Path,
+    manifest_ids: set[str],
+) -> set[str]:
+    repo = repo_root()
+    refs = collect_rail_refs(repo, catalog_yaml)
+    return needed_catalog_ids(refs) - manifest_ids
+
+
+def cmd_missing_manifest(
+    export_path: Path,
+    catalog_yaml: Path,
+    manifest_path: Path,
+) -> int:
+    del export_path  # reserved for future export-vs-manifest diff
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    missing = sorted(missing_manifest_catalog_ids(catalog_yaml, manifest_catalog_ids(manifest)))
+    for catalog_id in missing:
+        print(catalog_id)
+    return 0
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         raise SystemExit(
-            "usage: aiometadata_mango.py build|check|ensure <export.json> [catalog.yaml] [manifest.json|extra_ids...]"
+            "usage: aiometadata_mango.py build|check|ensure|missing <export.json> [catalog.yaml] [manifest.json|extra_ids...]"
         )
 
     cmd = sys.argv[1]
@@ -342,8 +368,14 @@ def main() -> None:
         manifest = Path(sys.argv[4]) if len(sys.argv) > 4 else None
         raise SystemExit(check_export(export_path, catalog_yaml, manifest))
 
+    if cmd == "missing":
+        manifest = Path(sys.argv[4]) if len(sys.argv) > 4 else None
+        if manifest is None or not manifest.is_file():
+            raise SystemExit("missing requires manifest.json path")
+        raise SystemExit(cmd_missing_manifest(export_path, catalog_yaml, manifest))
+
     if cmd == "ensure":
-        extra_ids = {arg.strip() for arg in sys.argv[3:] if arg.strip()}
+        extra_ids = {arg.strip() for arg in sys.argv[4:] if arg.strip()}
         config, warnings = build_mango_config_with_extras(
             export_path,
             catalog_yaml,

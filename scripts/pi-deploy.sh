@@ -66,6 +66,7 @@ git checkout $(printf '%q' "$BRANCH")
 git pull --ff-only
 echo "Pi at \$(git rev-parse --short HEAD)"
 bash scripts/lib/sync-etc-mango-config.sh || true
+bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh || true
 bash scripts/m5-voice/ai/sync-companion-example.sh || true
 bash scripts/m4-addons/ensure-bharat-binge-export.sh || true
 if [[ -f ~/.config/mango/voice.env ]]; then

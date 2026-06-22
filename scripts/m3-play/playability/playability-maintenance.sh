@@ -70,6 +70,12 @@ source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
 export MANGO_CATALOG_YAML="$(resolve_catalog_yaml)" || exit 1
 echo "catalog: $MANGO_CATALOG_YAML"
 
+if [[ "${MANGO_SKIP_AIOMETADATA_SYNC:-0}" != "1" ]]; then
+  bash "$REPO_DIR/scripts/m4-addons/sync-aiometadata-rail-catalogs.sh" || {
+    echo "warn: AIOMetadata rail catalog sync failed — grow may miss mdblist sources" >&2
+  }
+fi
+
 FILTERS_JSON="$(resolve_catalog_filters)"
 if [[ -z "${MANGO_PLAYABILITY_PROBE_MS:-}" && -f "$FILTERS_JSON" ]]; then
   export MANGO_PLAYABILITY_PROBE_MS="$(
