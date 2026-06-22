@@ -30,9 +30,9 @@ usage() {
 }
 
 stop_idle_media() {
-  bash scripts/phase-n1/mpv-stop.sh 2>/dev/null || true
+  bash scripts/m2-catalog/service/mpv-stop.sh 2>/dev/null || true
   pkill -f 'playability-indexer' 2>/dev/null || true
-  pkill -f 'tsx.*phase-n3c' 2>/dev/null || true
+  pkill -f 'tsx.*m3-play/playability' 2>/dev/null || true
   pkill -x stremio 2>/dev/null || true
   pkill -f '[s]tremio' 2>/dev/null || true
   pkill -x kodi 2>/dev/null || true
@@ -42,7 +42,7 @@ stop_idle_media() {
 
 stop_orphan_indexer() {
   pkill -f 'playability-indexer' 2>/dev/null || true
-  pkill -f 'tsx.*phase-n3c' 2>/dev/null || true
+  pkill -f 'tsx.*m3-play/playability' 2>/dev/null || true
 }
 
 # shellcheck source=lib/catalog-yaml.sh
@@ -98,7 +98,7 @@ start_playability_topup() {
   (
     cd "$REPO_DIR"
     nice -n 10 npm --prefix src/catalog-service exec tsx -- \
-      scripts/phase-n3c/playability-indexer.ts top-up --all
+      scripts/m3-play/playability/playability-indexer.ts top-up --all
   ) >"${CACHE_DIR}/playability-indexer.log" 2>&1 &
   [[ "${MANGO_STACK_VERBOSE:-0}" == "1" ]] && echo "playability indexer background (log: ${CACHE_DIR}/playability-indexer.log)"
 }
@@ -119,9 +119,9 @@ start_stack() {
   stop_idle_media
   start_catalog_service
   start_playability_topup
-  bash scripts/phase1/start-mango-ui.sh
+  bash scripts/m1-foundation/ui/start-mango-ui.sh
   if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
-    bash scripts/phase2/start-voice-stack.sh \
+    bash scripts/m5-voice/stack/start-voice-stack.sh \
       || echo "voice stack: not ready (launcher+catalog ok)" >&2
   fi
   if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
@@ -134,7 +134,7 @@ stop_stack() {
   stop_orphan_indexer
   bash "$REPO_DIR/scripts/mango-kill-strays.sh" 2>/dev/null || true
   stop_catalog_service
-  bash scripts/phase-n1/mpv-stop.sh 2>/dev/null || true
+  bash scripts/m2-catalog/service/mpv-stop.sh 2>/dev/null || true
   if systemctl --user is-enabled mango-orchestrator.service &>/dev/null 2>&1; then
     systemctl --user stop mango-companion.service mango-orchestrator.service 2>/dev/null || true
   fi
@@ -142,7 +142,7 @@ stop_stack() {
     tmux kill-session -t mango-orch 2>/dev/null || true
     tmux kill-session -t mango-companion 2>/dev/null || true
   fi
-  bash scripts/phase1/stop-mango-ui.sh 2>/dev/null || true
+  bash scripts/m1-foundation/ui/stop-mango-ui.sh 2>/dev/null || true
   stop_idle_media
 }
 
@@ -166,7 +166,7 @@ status_stack() {
       && ss -tlnp 2>/dev/null | grep -q '127.0.0.1:8766'; then
       echo "voice: up (:8765 WSS, :8766 HUD)"
     else
-      echo "voice: down — bash scripts/phase2/start-voice-stack.sh"
+      echo "voice: down — bash scripts/m5-voice/stack/start-voice-stack.sh"
     fi
   else
     echo "voice: disabled"

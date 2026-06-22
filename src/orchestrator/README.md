@@ -1,6 +1,6 @@
 # mango orchestrator
 
-FastAPI voice hub — phone PTT, STT, LLM agent, TV command dispatch. See [docs/PHASE2.md](../../docs/PHASE2.md) and [docs/N5-INVENTORY.md](../../docs/N5-INVENTORY.md).
+FastAPI voice hub — phone PTT, STT, LLM agent, TV command dispatch. See [docs/VOICE.md](../../docs/VOICE.md) and [docs/STATUS.md](../../docs/STATUS.md).
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
@@ -34,4 +34,4 @@ ptt_end (pcm_b64) → decode → Deepgram STT → chat broadcast
 
 Toggle tools: `orchestrator.voice_tools_enabled` or `MANGO_VOICE_TOOLS=0`.
 
-**Pi:** `scripts/mango-stack.sh` when `MANGO_VOICE=1` · STT merge: `scripts/phase-n5/sync-hinglish-stt-config.py`
+**Pi:** `scripts/mango-stack.sh` when `MANGO_VOICE=1` · STT merge: `scripts/m5-voice/ai/sync-hinglish-stt-config.py`

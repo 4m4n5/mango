@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PHASE0="$REPO_DIR/scripts/phase0"
+PHASE0="$REPO_DIR/scripts/m1-foundation/pad"
 WINDOW_SH="$REPO_DIR/scripts/lib/mango-window.sh"
 
 export DISPLAY=":0"
@@ -33,7 +33,7 @@ if ! flock -n 9; then
   exit 0
 fi
 
-# shellcheck source=phase0/lib/kodi-rpc.sh
+# shellcheck source=m1-foundation/pad/lib/kodi-rpc.sh
 source "$PHASE0/lib/kodi-rpc.sh"
 
 restore_shell() {

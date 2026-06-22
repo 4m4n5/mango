@@ -1,48 +1,59 @@
 # Scripts
 
-**Ops runbook:** [docs/PHASE0.md](../docs/PHASE0.md) · **Native roadmap:** [docs/NATIVE_ROADMAP.md](../docs/NATIVE_ROADMAP.md)
+**Layout:** [MILESTONES.md](MILESTONES.md) · **Ops:** [docs/OPS.md](../docs/OPS.md) · **Plan:** [docs/ROADMAP.md](../docs/ROADMAP.md)
+
+Scripts are organized by **milestone** (M1–M6). Legacy `phase-*` paths are symlinks — see [MILESTONES.md](MILESTONES.md).
 
 ---
 
-## Daily stack (native)
+## Daily stack
 
 | Script | When |
 |--------|------|
-| **`pi-deploy.sh`** | **Mac → Pi** git pull, build, restart — **`--fast`** for iteration (default), **`--full`** when lockfiles change — [DEPLOY.md](../docs/DEPLOY.md) |
-| **`pi-exec-gate.sh`** | Mac: pull + pre-couch gate on Pi |
-| **`mango-stack.sh`** `start\|stop\|status\|restart` | Primary — launcher + voice + catalog (N1: `MANGO_CATALOG=1`) |
-| **`phase1/bootstrap-after-reboot.sh`** | After Pi reboot |
-| **`phase1/restart-mango-ui.sh`** | UI-only restart |
-
-**Gates** (lean — no nested regression chains):
-
-```bash
-bash scripts/pi-pre-couch-gate.sh          # gate-lite (~1–2 min) — default for deploy --gate
-bash scripts/gate-lite.sh                  # same, on Pi directly
-MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # full: 2 plays/rail + N3a browse picks
-bash scripts/pi-pre-couch-gate-full.sh     # explicit full gate
-MANGO_GATE_FULL=1 bash scripts/phase-n3c/gate-n3c-verified-rails.sh  # all served items/rail
-bash scripts/phase-n0/gate-n0.sh           # stack hygiene only
-bash scripts/phase-n1/gate-n1-smoke.sh     # catalog API (+ MANGO_GATE_SPIKES=1 for spikes)
-bash scripts/phase-n2/gate-n2-browse.sh    # rails browse only
-bash scripts/gate-lite-play.sh             # 1 movie + 1 series play smoke
-```
-
-Shared helpers: `lib/gate-common.sh`
+| **`pi-deploy.sh`** | Mac → Pi: git pull, build, restart (`--fast` / `--full` / `--gate`) |
+| **`pi-exec-gate.sh`** | Mac: pull + gate-lite on Pi |
+| **`mango-stack.sh`** | `start\|stop\|status\|restart\|refresh` — launcher + catalog + voice |
+| **`m1-foundation/ui/bootstrap-after-reboot.sh`** | After Pi reboot |
+| **`m1-foundation/ui/restart-mango-ui.sh`** | UI-only restart |
 
 ---
 
-## Native N1 (catalog + mpv)
+## Gates
 
-| Script | Role |
-|--------|------|
-| `phase-n1/install-n1-prereqs.sh` | mpv, socat, node 20 |
-| `phase-n1/check-n1-prereqs.sh` | Prereq gate |
-| `phase-n1/setup-stremio-export.sh` | Normalize `/etc/mango/stremio-export.json` |
-| `phase-n1/import-stremio-local.py` | Import addons from desktop Stremio leveldb |
-| `phase-n1/spike-mpv-http.sh` | S0 — mpv IPC |
-| `phase-n1/spike-stremio-core.sh` | S1 — stremio-core boot |
-| `phase-n1/mpv-play.sh` / `mpv-stop.sh` / `mpv-ipc.sh` | mpv helpers |
+```bash
+bash scripts/pi-pre-couch-gate.sh          # default (~1–2 min)
+bash scripts/gate-lite.sh                  # same, on Pi
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
+bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
+```
+
+| Milestone | Script |
+|-----------|--------|
+| M1 | `m1-foundation/gate/gate-m1.sh` |
+| M2 | `m2-catalog/browse/gate-m2-browse.sh` |
+| M2 smoke | `m2-catalog/service/gate-m2-smoke.sh` |
+| M3 | `m3-play/detail/gate-m3-detail.sh`, `gate-m3-episodes.sh` |
+| M3 full | `m3-play/playability/gate-m3-verified-rails.sh`, `m3-play/orchestrator/gate-m3-play.sh` |
+| M4 | `m4-addons/gate-m4-self-hosted.sh` |
+| M5 | `m5-voice/ai/gate-m5-voice.sh`, `gate-m5-ai-catalogs.sh` |
+| Live (opt-in) | `live/gate-live-iptv.sh` — `MANGO_LIVE_GATE=1` |
+
+Shared: `lib/gate-common.sh` · `gate-lite-play.sh` · `gate-lite-unit.sh`
+
+---
+
+## Milestone directories
+
+```
+m1-foundation/   pad (gamepad) · ui (launcher) · gate (N0)
+m2-catalog/      service (mpv, catalog API) · browse · rails
+m3-play/         detail · orchestrator · playability
+m4-addons/       AIOStreams · AIOMetadata · mdblist pipeline
+m5-voice/        stack (orchestrator, companion) · ai (voice tools, catalogs)
+live/            NexoTV IPTV (excluded from gate-lite)
+lib/             shared helpers · milestone-paths.sh
+diag/            manual diagnostics
+```
 
 ---
 
@@ -50,96 +61,26 @@ Shared helpers: `lib/gate-common.sh`
 
 | Script | Notes |
 |--------|-------|
-| `launch-launcher.sh` | Home · debounced 2 s in API |
-| `launch-stremio.sh` | **Fallback** — `MANGO_FALLBACK_STREMIO=1` |
-| `launch-kodi.sh` | **Legacy** — `MANGO_LEGACY_YOUTUBE=1` |
-
-## `lib/` — TV windows
-
-| Script | Role |
-|--------|------|
-| `hide-media.sh` | Stack apps below without kill |
-| `present-launcher.sh` | Launcher 1920×1080 |
-| `present-stremio.sh` | Fullscreen; `--after-back` = no F11 |
-| `present-kodi.sh` | Media fullscreen |
-| `mango-window.sh` | hide/show launcher z-order |
-| `mango-desktop.sh` | lxpanel |
-| `mango-cursor.sh` | Hide cursor |
+| `launch-launcher.sh` | Home |
+| `launch-stremio.sh` | Fallback — `MANGO_FALLBACK_STREMIO=1` |
+| `launch-kodi.sh` | Legacy — `MANGO_LEGACY_YOUTUBE=1` |
 
 ## Gamepad
 
-| Path | Role |
-|------|------|
-| `phase0/mango-tv-pad.py` | **Pad owner** — launcher · mpv · fallback |
-| `phase0/start-mango-tv-pad.sh` | Manual pad start |
-| `phase0/tv.sh` | CLI: stremio / kodi (legacy) |
+`m1-foundation/pad/mango-tv-pad.py` — pad owner for launcher · mpv · fallback.
 
-Details: [phase0/README.md](phase0/README.md)
+## Voice
 
-## Voice (Phase 2)
+`m5-voice/stack/` — mkcert, orchestrator, companion. [docs/VOICE.md](../docs/VOICE.md)
 
-`phase2/start-voice-stack.sh` · `setup-mkcert.sh` · `verify-voice-ready.sh` — [phase2/README.md](phase2/README.md)
-
-## Diagnostics
-
-**Deploy path:** `gate-lite` only. Everything below is manual / maintenance.
+## Playability ops (M3)
 
 | Script | Role |
 |--------|------|
-| `diag/playability-status.py` | Pool depth / verified counts |
-| `diag/source-hitrate.py` | Per-catalog candidate probe rates |
-| `diag/mdblist-inventory.py` | MDBList toplists + LLM export |
-| `diag/rail-hitrate.py` | Per-rail verified play samples |
-| `diag/probe-one-stream.sh` | Single-title resolve + probe |
-| `diag/series-episodes.sh` | Cinemeta episodes + stream probe |
-| `phase-n3d/diag-self-hosted.sh` | AIOStreams + AIOMetadata health |
-| `verify-tv.sh` | Stack health (N0 gate) |
-
-**Legacy couch session harness** (Phase 0 Stremio/Kodi matrix — not native gate-lite):
-
-`diag/alpha-test.sh` · `restart-with-diag.sh` · `print-runbook.sh` · `fetch-session.sh`
-
-## Gate unit slice
-
-Shared: `lib/gate-play-ladder-core.sh` · `lib/gate-catalog-unit.sh` · `lib/verify-play-ladder-config.py`  
-Fast tests: `cd src/catalog-service && npm run test:gate`  
-Full suite: `npm test` (~95 tests)
-
-## Live TV / IPTV (NexoTV)
-
-**Doc:** [`docs/LIVE_TV.md`](../docs/LIVE_TV.md) · **Excluded from gate-lite** (hammers NexoTV rate limits).
-
-| Script | Role |
-|--------|------|
-| `phase-live/install-nexotv.sh` | Paid NexoTV Docker on `:7000` |
-| `phase-live/install-nexotv-free.sh` | Free NexoTV Docker on `:7001` |
-| `phase-live/install-nexotv-news.sh` | News NexoTV Docker on `:7002` |
-| `phase-live/nexotv-config.sh` | `apply-area69` · `apply-free` · `apply-news` · `wire-export` |
-| `phase-live/gate-live-iptv.sh` | Opt-in: `MANGO_LIVE_GATE=1` |
-| `phase-live/probe-live-catalog.sh` | Opt-in: `MANGO_LIVE_PROBE=1` |
-
-## Playability (N3c)
-
-| Script | Role |
-|--------|------|
-| `phase-n3c/quick-playability-topup.sh` | **~10 min** detached grow (`--detach`, `--status`) |
-| `phase-n3c/overnight-playability-grow.sh` | **~4 h** loop nightly passes (`--detach`, `--status`) |
-| `phase-n3c/playability-refresh-level.sh` | Dispatcher for settings / `POST /playability/refresh` |
-| `phase-n3c/fill-playability-db.sh` | Full fill orchestration (preflight → maintenance → hit-rate) |
-| `phase-n3c/playability-maintenance.sh` | Indexer refresh worker (timer + manual) |
-| `phase-n3c/rail-curation.sh` | Manual pins/blocks |
-| `phase-n3c/install-playability-timer.sh` | One-time Pi systemd timer setup |
-
-**Settings UI** (launcher → Settings) and **LLM API:** `GET /playability/refresh/tools` on catalog-service.
-
-## MDBList curation (N3d)
-
-| Script | Role |
-|--------|------|
-| `phase-n3d/mdblist-catalog-pipeline.sh` | Sync toplists → inventory → LLM export → compose |
-| `phase-n3d/rail-compose.py` | Apply LLM `rail-compose.schema.json` proposals to catalog yaml |
-| `diag/mdblist-inventory.py` | `config/mdblist-inventory.json` — tags, hit rates, toplists |
-| `diag/resolve-mdblist-ids.py` | Resolve `user/slug` → `mdblist.N` |
+| `m3-play/playability/quick-playability-topup.sh` | ~10 min grow |
+| `m3-play/playability/overnight-playability-grow.sh` | ~4 h loop |
+| `m3-play/playability/playability-maintenance.sh` | Nightly worker |
+| `diag/playability-status.py` | Pool depth |
 
 ## Mac → Pi
 

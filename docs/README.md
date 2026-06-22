@@ -1,56 +1,65 @@
 # mango documentation
 
-**Vision:** [NATIVE_EXPERIENCE.md](NATIVE_EXPERIENCE.md) · **Roadmap:** [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) · **Branch:** `feat/native-experience`
+**Product:** [VISION.md](VISION.md) · **Plan:** [ROADMAP.md](ROADMAP.md) · **Status:** [STATUS.md](STATUS.md) · **Branch:** `feat/native-experience`
 
 ---
 
 ## Start here
 
-| Task | Doc |
-|------|-----|
-| Product direction | [NATIVE_EXPERIENCE.md](NATIVE_EXPERIENCE.md) |
-| What's shipped / next | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) · [N3-INVENTORY.md](N3-INVENTORY.md) · [N5-INVENTORY.md](N5-INVENTORY.md) |
-| Live TV / sports IPTV | [LIVE_TV.md](LIVE_TV.md) |
-| Self-hosted addons + rails | [N3d-INVENTORY.md](N3d-INVENTORY.md) |
-| Pi day-to-day | [PHASE0.md](PHASE0.md) · [DEPLOY.md](DEPLOY.md) |
-| Stack boundaries + gates | [STACK-PRINCIPLES.md](STACK-PRINCIPLES.md) |
-| Voice / phone PTT | [PHASE2.md](PHASE2.md) |
-| Foreground contract | [FOREGROUND.md](FOREGROUND.md) |
-| Gamepad | [HARDWARE.md](HARDWARE.md) |
+| I want to… | Read |
+|------------|------|
+| Understand the product | [VISION.md](VISION.md) |
+| See what's shipped and what's next | [ROADMAP.md](ROADMAP.md) · [STATUS.md](STATUS.md) |
+| Understand the stack | [ARCHITECTURE.md](ARCHITECTURE.md) |
+| Operate the Pi | [OPS.md](OPS.md) · [DEPLOY.md](DEPLOY.md) |
+| Run couch tests | [COUCH_TEST.md](COUCH_TEST.md) |
+| Set up voice | [VOICE.md](VOICE.md) |
+| Set up live TV | [LIVE_TV.md](LIVE_TV.md) |
+| Gamepad layout | [HARDWARE.md](HARDWARE.md) |
+| Locked choices | [DECISIONS.md](DECISIONS.md) |
+
+**Scripts:** [../scripts/MILESTONES.md](../scripts/MILESTONES.md) · **Agents:** [../AGENTS.md](../AGENTS.md)
 
 ---
 
-## Native phases (status)
+## Milestones (quick reference)
 
-| Phase | Status | Reference |
-|-------|--------|-----------|
-| N0 foundation | ✓ | [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) |
-| N1 catalog + mpv | ✓ | `scripts/phase-n1/` |
-| N2 browse + tabs | ✓ | movies · series · **live** |
-| N3a play orchestrator + ladder | ✓ | [N3-INVENTORY.md](N3-INVENTORY.md) |
-| N3c playability index | ✓ | `scripts/phase-n3c/` |
-| N3d self-hosted addons | ✓ | [N3d-INVENTORY.md](N3d-INVENTORY.md) |
-| Track B verified rails UX | ✓ | thin rows · library refresh |
-| N3b stream picker + progress | ✓ | C1 picker · C2 Continue · cancel-on-Y |
-| Live TV (NexoTV) | ✓ | [LIVE_TV.md](LIVE_TV.md) |
-| N5a voice tools | ✓ | [N5-INVENTORY.md](N5-INVENTORY.md) · browse/open · Hinglish STT |
-| N3e episode picker | ✓ | season list · per-episode streams · next-up |
-| N5b AI catalogs | planned | 3 home slots · create/list catalogs |
-| N4–N7 | planned | library write-back · YouTube · 4K ship |
+| | Status |
+|--|--------|
+| M1 Foundation | ✓ |
+| M2 Browse | ✓ |
+| M3 Play | ✓ |
+| M4 Addons | ✓ |
+| M5 Voice + AI | ◐ |
+| M6 Ship (4K HDR · library · wizard) | next |
 
-**Default pre-couch gate:** `bash scripts/pi-pre-couch-gate.sh` → `gate-lite` (~1–2 min). Live IPTV gates are **excluded** (opt-in only).
+Full detail: [ROADMAP.md](ROADMAP.md). Legacy `N0`–`N7` names map to these milestones in the roadmap alias table.
+
+---
+
+## Reference (deep dives)
+
+| Doc | Use |
+|-----|-----|
+| [reference/addon-stack.md](reference/addon-stack.md) | Self-hosted AIOStreams + AIOMetadata setup |
+| [reference/aiostreams-profile.md](reference/aiostreams-profile.md) | AIOStreams headless profile |
+| [reference/elfhosted.md](reference/elfhosted.md) | Optional cloud addon hosting |
+| [reference/kodi-youtube-fallback.md](reference/kodi-youtube-fallback.md) | Legacy Kodi YouTube fallback |
+
+---
+
+## Default gate (before couch)
 
 ```bash
-bash scripts/pi-pre-couch-gate.sh
-MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # slow per-rail play sweep
+bash scripts/pi-exec-gate.sh
+# or
+bash scripts/pi-deploy.sh --fast --gate
 ```
+
+Live IPTV gates are **opt-in** — not in gate-lite.
 
 ---
 
-## Foundation (still valid)
+## Archive
 
-[PHASE0.md](PHASE0.md) · [PHASE1.md](PHASE1.md) · [PHASE2.md](PHASE2.md) · [DECISIONS.md](DECISIONS.md)
-
-**Archive:** [DESIGN.md](DESIGN.md) (V1 Stremio/Kodi spec) · [PLAN.md](PLAN.md) (full timeline) · [tasks/archive/](tasks/archive/)
-
-**Agents:** [../AGENTS.md](../AGENTS.md) · **Deploy:** [DEPLOY.md](DEPLOY.md) (git only — never rsync)
+Superseded docs (old phase plans, inventories, task prompts): [archive/](archive/)

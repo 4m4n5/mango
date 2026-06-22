@@ -1,5 +1,5 @@
 {
-  "_comment": "Target AIOStreams userData patch — merge via scripts/phase-n3d/aiostreams-config.sh apply",
+  "_comment": "Target AIOStreams userData patch — merge via scripts/m4-addons/aiostreams-config.sh apply",
   "deduplicator": {
     "enabled": true,
     "keys": ["infoHash", "smartDetect", "filename"],

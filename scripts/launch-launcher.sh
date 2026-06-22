@@ -5,8 +5,8 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-# shellcheck source=phase0/lib/irctl.sh
-source "$REPO_DIR/scripts/phase0/lib/irctl.sh"
+# shellcheck source=m1-foundation/pad/lib/irctl.sh
+source "$REPO_DIR/scripts/m1-foundation/pad/lib/irctl.sh"
 
 export DISPLAY=":0"
 export XAUTHORITY="/home/aman/.Xauthority"
@@ -96,7 +96,7 @@ exec 9>&-
 
 # One pad owner: ensure router after home (no sync input-remapper handoff).
 if [[ "${MANGO_SKIP_REMAPPER:-}" != "1" ]]; then
-  bash "$REPO_DIR/scripts/phase0/start-mango-tv-pad.sh" 2>/dev/null || \
+  bash "$REPO_DIR/scripts/m1-foundation/pad/start-mango-tv-pad.sh" 2>/dev/null || \
     ir_resume_after_bridge "Pro Controller" "mango-tv"
 fi
 

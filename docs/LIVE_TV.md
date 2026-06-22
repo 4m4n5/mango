@@ -32,15 +32,15 @@ Rails (5): **cricket**, **football & soccer**, **racing**, **news** — see `con
 ```bash
 cd ~/mango && git pull
 
-bash scripts/phase-n3d/bootstrap-docker.sh   # once
+bash scripts/m4-addons/bootstrap-docker.sh   # once
 cp deploy/nexotv/.env.example deploy/nexotv/.env
 cp deploy/nexotv-free/.env.example deploy/nexotv-free/.env
 # CONFIG_SECRET in each: openssl rand -hex 32
 
-bash scripts/phase-live/install-nexotv.sh
-bash scripts/phase-live/install-nexotv-free.sh
+bash scripts/live/install-nexotv.sh
+bash scripts/live/install-nexotv-free.sh
 
-bash scripts/phase-live/nexotv-config.sh init-profiles
+bash scripts/live/nexotv-config.sh init-profiles
 ```
 
 ### Paid (AREA69 Xtream)
@@ -50,27 +50,27 @@ cp config/area69.credentials.example ~/.config/mango/area69.credentials
 chmod 600 ~/.config/mango/area69.credentials
 # XTREAM_URL, XTREAM_USER, XTREAM_PASS
 
-bash scripts/phase-live/nexotv-config.sh apply-area69
+bash scripts/live/nexotv-config.sh apply-area69
 ```
 
 ### Free sports (IPTV-org)
 
 ```bash
-bash scripts/phase-live/nexotv-config.sh apply-free iptv-org-sports
+bash scripts/live/nexotv-config.sh apply-free iptv-org-sports
 ```
 
 
 ### News (IPTV-org — India + US + UK)
 
 ```bash
-bash scripts/phase-live/install-nexotv-news.sh
-bash scripts/phase-live/nexotv-config.sh apply-news iptv-org-news
+bash scripts/live/install-nexotv-news.sh
+bash scripts/live/nexotv-config.sh apply-news iptv-org-news
 ```
 
 ### Wire + restart
 
 ```bash
-bash scripts/phase-live/nexotv-config.sh wire-export
+bash scripts/live/nexotv-config.sh wire-export
 # optional: sudo cp config/catalog-live.example.yaml /etc/mango/catalog-live.yaml
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 ```
@@ -117,8 +117,8 @@ NexoTV returns `ratelimit_error` metas and `https://example.com/ratelimited` str
 **Do not** run live gates/probes during deploy — they are **opt-in only**:
 
 ```bash
-MANGO_LIVE_GATE=1 bash scripts/phase-live/gate-live-iptv.sh
-MANGO_LIVE_PROBE=1 bash scripts/phase-live/probe-live-catalog.sh
+MANGO_LIVE_GATE=1 bash scripts/live/gate-live-iptv.sh
+MANGO_LIVE_PROBE=1 bash scripts/live/probe-live-catalog.sh
 ```
 
 **Recovery:** restart both NexoTV containers, wait ~1 min, browse Live tab once (no reshuffle).
@@ -146,8 +146,8 @@ Paid cricket may require more catalog pages or provider-side genre browsing — 
 ## Manual checks (opt-in)
 
 ```bash
-MANGO_LIVE_PROBE=1 bash scripts/phase-live/probe-live-catalog.sh
-MANGO_LIVE_GATE=1 MANGO_LIVE_PLAY=1 bash scripts/phase-live/gate-live-iptv.sh
+MANGO_LIVE_PROBE=1 bash scripts/live/probe-live-catalog.sh
+MANGO_LIVE_GATE=1 MANGO_LIVE_PLAY=1 bash scripts/live/gate-live-iptv.sh
 curl -s http://127.0.0.1:3020/health | python3 -m json.tool   # live_rails: 3
 curl -s 'http://127.0.0.1:3020/rails/items?tab=live' | python3 -c "import json,sys;d=json.load(sys.stdin);print([(r['label'],len(r.get('items')or[])) for r in d.get('rails',[])])"
 ```

@@ -13,6 +13,6 @@ python3 src/mango-ui-server/serve.py --host 127.0.0.1 --port 3000
 | `/api/launch/{launcher,stremio,kodi}` | Home + **fallback** app launch |
 | `/overlay/` | 410 — overlay removed in N0 |
 
-**Pi:** started by `mango-stack.sh` / `phase1/start-mango-ui.sh`
+**Pi:** started by `mango-stack.sh` / `m1-foundation/ui/start-mango-ui.sh`
 
-Docs: [PHASE1.md](../../docs/PHASE1.md) · [FOREGROUND.md](../../docs/FOREGROUND.md)
+Docs: [ARCHITECTURE.md](../../docs/ARCHITECTURE.md) · [ARCHITECTURE.md](../../docs/ARCHITECTURE.md)

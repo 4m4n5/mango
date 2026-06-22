@@ -1,5 +1,5 @@
 {
-  "_comment": "N3d stream evaluation corpus — diverse movies/series for gate-n3d-streams.sh. GET /stream returns expandPlayLadder preview (play order). Series ids use Stremio episode form tt…:season:episode. tier: required=hard fail, soft=warn, optional=warn.",
+  "_comment": "N3d stream evaluation corpus — diverse movies/series for gate-m4-streams.sh. GET /stream returns expandPlayLadder preview (play order). Series ids use Stremio episode form tt…:season:episode. tier: required=hard fail, soft=warn, optional=warn.",
   "fixtures": [
     {
       "label": "Shawshank",

@@ -85,17 +85,17 @@ cd src/catalog-service && npm ci && npm run build
 cd ../launcher && npm ci && npm run build
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 # voice (MANGO_VOICE=1 in ~/.config/mango/voice.env):
-bash scripts/phase2/ensure-orchestrator-venv.sh
-bash scripts/phase2/start-voice-stack.sh
+bash scripts/m5-voice/stack/ensure-orchestrator-venv.sh
+bash scripts/m5-voice/stack/start-voice-stack.sh
 ```
 
 ### 5. Verify (Pi)
 
 ```bash
 bash scripts/pi-pre-couch-gate.sh
-bash scripts/phase-n3d/gate-n3d-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=1
-bash scripts/phase-n3c/gate-n3c-verified-rails.sh
-bash scripts/phase2/verify-voice-ready.sh      # when MANGO_VOICE=1
+bash scripts/m4-addons/gate-m4-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=1
+bash scripts/m3-play/playability/gate-m3-verified-rails.sh
+bash scripts/m5-voice/stack/verify-voice-ready.sh      # when MANGO_VOICE=1
 ```
 
 **Do not hand off** after Mac-only tests. Gates must pass **on the Pi**.
@@ -116,7 +116,7 @@ If `git pull --ff-only` fails on Pi:
 
 | Path | Instead |
 |------|---------|
-| `src/orchestrator/.venv` | `bash scripts/phase2/ensure-orchestrator-venv.sh` on Pi |
+| `src/orchestrator/.venv` | `bash scripts/m5-voice/stack/ensure-orchestrator-venv.sh` on Pi |
 | `src/catalog-service/node_modules` | `npm ci` on Pi after pull |
 | `src/launcher/node_modules` | `npm ci` on Pi after pull |
 | Whole `~/mango` | `git pull` |
@@ -132,6 +132,6 @@ If `git pull --ff-only` fails on Pi:
 | Mac gate | `bash scripts/pi-exec-gate.sh` |
 | Pre-push check | `bash scripts/lib/pi-sync-check.sh <paths>` |
 
-See also: [`../AGENTS.md`](../AGENTS.md) · [`STACK-PRINCIPLES.md`](STACK-PRINCIPLES.md)
+See also: [`../AGENTS.md`](../AGENTS.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 Live IPTV: [`LIVE_TV.md`](LIVE_TV.md) — gates opt-in only.

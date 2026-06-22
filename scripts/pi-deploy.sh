@@ -66,8 +66,8 @@ git checkout $(printf '%q' "$BRANCH")
 git pull --ff-only
 echo "Pi at \$(git rev-parse --short HEAD)"
 bash scripts/lib/sync-etc-mango-config.sh || true
-bash scripts/phase-n5/sync-companion-example.sh || true
-bash scripts/phase-n3d/ensure-bharat-binge-export.sh || true
+bash scripts/m5-voice/ai/sync-companion-example.sh || true
+bash scripts/m4-addons/ensure-bharat-binge-export.sh || true
 if [[ -f ~/.config/mango/voice.env ]]; then
   # shellcheck disable=SC1091
   source ~/.config/mango/voice.env
@@ -86,9 +86,9 @@ if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null; then
   sleep 2
 fi
 if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
-  python3 scripts/phase-n5/sync-hinglish-stt-config.py || true
-  bash scripts/phase2/ensure-orchestrator-venv.sh
-  bash scripts/phase2/start-voice-stack.sh || true
+  python3 scripts/m5-voice/ai/sync-hinglish-stt-config.py || true
+  bash scripts/m5-voice/stack/ensure-orchestrator-venv.sh
+  bash scripts/m5-voice/stack/start-voice-stack.sh || true
 fi
 bash scripts/mango-stack.sh status
 EOF

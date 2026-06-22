@@ -20,7 +20,7 @@ export async function ensureCatalogsActive(catalogIds: string[]): Promise<Ensure
   }
 
   const repo = resolveRepoRoot();
-  const script = path.join(repo, 'scripts/phase-n3d/aiometadata-config.sh');
+  const script = path.join(repo, 'scripts/m4-addons/aiometadata-config.sh');
   if (!existsSync(script)) {
     return {
       ok: false,

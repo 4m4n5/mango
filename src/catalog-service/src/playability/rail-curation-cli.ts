@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** CLI — manual rail pins/blocks. Run from repo: bash scripts/phase-n3c/rail-curation.sh */
+/** CLI — manual rail pins/blocks. Run from repo: bash scripts/m3-play/playability/rail-curation.sh */
 
 import { readFile, writeFile } from 'node:fs/promises';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';

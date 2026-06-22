@@ -7,14 +7,14 @@ set -euo pipefail
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 
 pkill -f 'playability-indexer' 2>/dev/null || true
-pkill -f 'tsx.*phase-n3c' 2>/dev/null || true
-pkill -f 'gate-n3c-verified-rails' 2>/dev/null || true
-pkill -f 'gate-n3c-verified' 2>/dev/null || true
+pkill -f 'tsx.*m3-play/playability' 2>/dev/null || true
+pkill -f 'gate-m3-verified-rails' 2>/dev/null || true
+pkill -f 'gate-m3-verified' 2>/dev/null || true
 pkill -f 'curl.*127.0.0.1:3020/play' 2>/dev/null || true
 pkill -f 'node --input-type=module -e.*CatalogCore' 2>/dev/null || true
 
-if [[ -x "$REPO_DIR/scripts/phase-n1/mpv-stop.sh" ]]; then
-  bash "$REPO_DIR/scripts/phase-n1/mpv-stop.sh" 2>/dev/null || true
+if [[ -x "$REPO_DIR/scripts/m2-catalog/service/mpv-stop.sh" ]]; then
+  bash "$REPO_DIR/scripts/m2-catalog/service/mpv-stop.sh" 2>/dev/null || true
 fi
 pkill -x mpv 2>/dev/null || true
 

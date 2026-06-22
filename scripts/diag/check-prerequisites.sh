@@ -10,7 +10,7 @@ pass() { echo "✓ $*"; }
 if sudo -n true 2>/dev/null; then
   pass "passwordless sudo (sudo -n)"
 else
-  warn "passwordless sudo missing — pad grab needs one interactive: bash ~/mango/scripts/phase0/start-mango-tv-pad.sh"
+  warn "passwordless sudo missing — pad grab needs one interactive: bash ~/mango/scripts/m1-foundation/pad/start-mango-tv-pad.sh"
 fi
 
 if pgrep -f 'python3.*mango-tv-pad.py' >/dev/null; then

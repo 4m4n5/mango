@@ -64,7 +64,7 @@ lock = home / ".cache/mango/launch-launcher.lock"
 
 kodi_window = {}
 if pgrep("kodi.bin"):
-    rpc = run(["bash", "-lc", f"source {home}/mango/scripts/phase0/lib/kodi-rpc.sh && kodi_rpc GUI.GetProperties '{{\"properties\":[\"currentwindow\"]}}' 2>/dev/null"])
+    rpc = run(["bash", "-lc", f"source {home}/mango/scripts/m1-foundation/pad/lib/kodi-rpc.sh && kodi_rpc GUI.GetProperties '{{\"properties\":[\"currentwindow\"]}}' 2>/dev/null"])
     if rpc and "currentwindow" in rpc:
         kodi_window["raw"] = rpc[:500]
     try:

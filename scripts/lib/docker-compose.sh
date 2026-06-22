@@ -12,6 +12,6 @@ docker_compose() {
     docker-compose "$@"
     return
   fi
-  echo "docker compose not found — run: bash scripts/phase-n3d/bootstrap-docker.sh" >&2
+  echo "docker compose not found — run: bash scripts/m4-addons/bootstrap-docker.sh" >&2
   exit 1
 }

@@ -44,9 +44,9 @@ Locked choices. Update when changing behavior.
 |-------|--------|
 | Product direction | **Option 2** — mango-owned TV-first UX; Stremio/Kodi = playback engines |
 | Branch | `feat/native-experience` |
-| Doc | [`NATIVE_EXPERIENCE.md`](NATIVE_EXPERIENCE.md) |
+| Doc | [`VISION.md`](VISION.md) |
 | N0 base stack | `scripts/mango-stack.sh start|stop|status|restart` |
-| Foreground states | `launcher | mpv | fallback_stremio` ([`FOREGROUND.md`](FOREGROUND.md)) |
+| Foreground states | `launcher | mpv | fallback_stremio` ([`ARCHITECTURE.md`](ARCHITECTURE.md)) |
 | Chromium budget | One launcher kiosk only at idle; overlay Chromium removed from default runtime |
 | Fallback apps | Stremio via `MANGO_FALLBACK_STREMIO=1`; Kodi/YouTube via `MANGO_LEGACY_YOUTUBE=1` |
 | Player (N1+) | **mpv** fullscreen — not Stremio/Kodi chrome |
@@ -55,7 +55,7 @@ Locked choices. Update when changing behavior.
 | Live gates | **Excluded** from gate-lite — opt-in `MANGO_LIVE_GATE=1` only |
 | Catalog | `catalog-service` `:3020` · `@stremio/stremio-core-web` · addons from `/etc/mango/stremio-export.json` |
 
-Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.
+Ops: [`OPS.md`](OPS.md). Never commit API keys or RPC password.
 
 ## Phase 2 voice
 
@@ -70,7 +70,7 @@ Ops: [`PHASE0.md`](PHASE0.md). Never commit API keys or RPC password.
 | Audio payload | `ptt_end.pcm_b64` = 16 kHz mono int16 LE PCM, max 30s |
 | Phase 2 scope | Chat only — media tools in Native UX N1 |
 | STT | **Deepgram** `nova-3` + `multi` + keyterms; `stt.key` in `/etc/mango/` |
-| TTS on Pi | **Off** — `audio.tts_enabled: false` until **N7 soundbar/TV** path validated |
+| TTS on Pi | **Off** — `audio.tts_enabled: false` until **M6 soundbar/TV** path validated |
 | Dev lab audio | Headphones via **monitor HDMI out**, **USB DAC**, or **Bluetooth** — Pi 5 has no 3.5 mm jack ([`HARDWARE.md`](HARDWARE.md)) |
 | TV HUD | **Launcher-embedded** `voice-hud.ts` — only default TV voice surface |
 | Loopback WS | `127.0.0.1:8766` plain WS for launcher TV HUD (single process, not overlay Chromium) |

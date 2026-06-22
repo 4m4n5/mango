@@ -47,7 +47,7 @@ gate_finish() {
 }
 
 gate_mpv_stop() {
-  bash scripts/phase-n1/mpv-stop.sh >/dev/null 2>&1 || true
+  bash scripts/m2-catalog/service/mpv-stop.sh >/dev/null 2>&1 || true
 }
 
 gate_check_mpv_playing() {
@@ -55,7 +55,7 @@ gate_check_mpv_playing() {
   local quiet="${2:-0}"
   for _ in $(seq 1 15); do
     local reply playback_time
-    reply="$(bash scripts/phase-n1/mpv-ipc.sh get_property playback-time 2>/dev/null || true)"
+    reply="$(bash scripts/m2-catalog/service/mpv-ipc.sh get_property playback-time 2>/dev/null || true)"
     playback_time="$(printf '%s' "$reply" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${playback_time:-0}') > 0 else 1)" 2>/dev/null; then
       gate_pass "$label mpv playing"

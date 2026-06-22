@@ -58,7 +58,7 @@ OUT_PATH = Path(
         os.path.expanduser("~/.cache/mango/source-hitrate/latest.json"),
     ),
 )
-MPV_STOP = ["bash", "scripts/phase-n1/mpv-stop.sh"]
+MPV_STOP = ["bash", "scripts/m2-catalog/service/mpv-stop.sh"]
 EXPORT_JSON = Path(os.environ.get("MANGO_AIOMETADATA_EXPORT", ""))
 PROBE_EXPORT = os.environ.get("MANGO_SOURCE_PROBE_EXPORT", "0") == "1"
 CINEMETA_CATALOG_ROOT = os.environ.get(

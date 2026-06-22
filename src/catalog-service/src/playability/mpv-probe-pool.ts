@@ -46,7 +46,7 @@ export async function ensureProbePool(): Promise<void> {
   if (!playabilityUseProbePool() || poolEnsured) {
     return;
   }
-  const poolScript = resolve(repoDir(), 'scripts/phase-n3c/mpv-probe-pool.sh');
+  const poolScript = resolve(repoDir(), 'scripts/m3-play/playability/mpv-probe-pool.sh');
   await runScript(poolScript, ['ensure', '--workers', String(playabilityProbeConcurrency())]);
   poolEnsured = true;
 }
@@ -55,7 +55,7 @@ export async function stopProbePool(): Promise<void> {
   if (!playabilityUseProbePool()) {
     return;
   }
-  const poolScript = resolve(repoDir(), 'scripts/phase-n3c/mpv-probe-pool.sh');
+  const poolScript = resolve(repoDir(), 'scripts/m3-play/playability/mpv-probe-pool.sh');
   try {
     await runScript(poolScript, ['stop-all']);
   } catch {
@@ -74,7 +74,7 @@ export async function probeUrlViaPool(
   const workerId = nextWorker % workerCount;
   nextWorker += 1;
 
-  const probeScript = resolve(repoDir(), 'scripts/phase-n3c/mpv-probe-ipc.sh');
+  const probeScript = resolve(repoDir(), 'scripts/m3-play/playability/mpv-probe-ipc.sh');
   const started = Date.now();
   const args = [
     '--worker-id', String(workerId),

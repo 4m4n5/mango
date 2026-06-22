@@ -31,8 +31,8 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 
 | Topic | Doc |
 |-------|-----|
-| Launcher API | [PHASE1.md](../docs/PHASE1.md) |
-| Voice | [PHASE2.md](../docs/PHASE2.md) |
-| Foreground states | [FOREGROUND.md](../docs/FOREGROUND.md) |
+| Launcher API | [ARCHITECTURE.md](../docs/ARCHITECTURE.md) |
+| Voice | [VOICE.md](../docs/VOICE.md) |
+| Foreground states | [ARCHITECTURE.md](../docs/ARCHITECTURE.md) |
 | catalog-service | [catalog-service/README.md](catalog-service/README.md) |
 | Live IPTV | [LIVE_TV.md](../docs/LIVE_TV.md) |

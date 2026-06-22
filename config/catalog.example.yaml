@@ -6,7 +6,7 @@
 # Series yaml order: anchor rails first, optional/niche last (niche-first session allocation).
 #
 # Rail catalog ids must exist in addon manifests:
-#   AIOMetadata — bash scripts/phase-n3d/aiometadata-config.sh import …
+#   AIOMetadata — bash scripts/m4-addons/aiometadata-config.sh import …
 #   Bharat Binge — config/bharat-binge-manifest.url + config/bharat-binge-rail-catalogs.json
 # Mapping reference: config/aiometadata-rail-catalogs.json
 

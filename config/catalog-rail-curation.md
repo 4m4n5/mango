@@ -46,17 +46,17 @@ Tagged catalog index: `config/mdblist-inventory.json` (synced from [mdblist topl
 
 ```bash
 # Pull popular lists (50 cards) into inventory
-bash scripts/phase-n3d/mdblist-catalog-pipeline.sh sync
+bash scripts/m4-addons/mdblist-catalog-pipeline.sh sync
 
 # Export compact context for LLM rail design
-bash scripts/phase-n3d/mdblist-catalog-pipeline.sh export-llm
+bash scripts/m4-addons/mdblist-catalog-pipeline.sh export-llm
 
 # LLM outputs JSON matching config/rail-compose.schema.json → review + apply
-python3 scripts/phase-n3d/rail-compose.py plan config/rail-proposals/my-rail.json
-python3 scripts/phase-n3d/rail-compose.py apply config/rail-proposals/my-rail.json --write
+python3 scripts/m4-addons/rail-compose.py plan config/rail-proposals/my-rail.json
+python3 scripts/m4-addons/rail-compose.py apply config/rail-proposals/my-rail.json --write
 
 # Verify AIOMetadata export covers new mdblist.* ids before Pi import
-bash scripts/phase-n3d/mdblist-catalog-pipeline.sh check-import
+bash scripts/m4-addons/mdblist-catalog-pipeline.sh check-import
 ```
 
 Resolve ad-hoc list URLs: `python3 scripts/diag/mdblist-inventory.py resolve user/list-slug`
@@ -67,12 +67,12 @@ Override automatic catalog picks for couch-critical titles (e.g. **India's Got L
 
 ```bash
 # Edit config/rail-curation-overrides.example.yaml (Pi: /etc/mango/rail-curation-overrides.yaml)
-bash scripts/phase-n3c/rail-curation.sh list
-bash scripts/phase-n3c/rail-curation.sh apply
+bash scripts/m3-play/playability/rail-curation.sh list
+bash scripts/m3-play/playability/rail-curation.sh apply
 
 # Quick pin without editing yaml:
-bash scripts/phase-n3c/rail-curation.sh pin add --rail series-comedy --type series --id tt33094114 --label "India's Got Latent"
-bash scripts/phase-n3c/rail-curation.sh pin remove --rail series-comedy --id tt33094114
+bash scripts/m3-play/playability/rail-curation.sh pin add --rail series-comedy --type series --id tt33094114 --label "India's Got Latent"
+bash scripts/m3-play/playability/rail-curation.sh pin remove --rail series-comedy --id tt33094114
 ```
 
 | Field | Effect |
@@ -87,4 +87,4 @@ Demoted candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.88303
 
 ## Next phase
 
-Stream play orchestrator (N3a): [`docs/tasks/phase-n3-stream-orchestrator.md`](../docs/tasks/phase-n3-stream-orchestrator.md)
+Stream play orchestrator (N3a): [`docs/archive/tasks/phase-n3-stream-orchestrator.md`](../docs/archive/tasks/phase-n3-stream-orchestrator.md)

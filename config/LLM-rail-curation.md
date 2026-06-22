@@ -1,6 +1,6 @@
 # LLM rail curation — couch test runbook
 
-Operator: `bash scripts/phase-n3d/rail-curate.sh` · Inventory: `config/mdblist-inventory.json`
+Operator: `bash scripts/m4-addons/rail-curate.sh` · Inventory: `config/mdblist-inventory.json`
 
 ## Couch session — test tonight
 
@@ -8,7 +8,7 @@ On the Pi (catalog-service up):
 
 ```bash
 cd ~/mango
-bash scripts/phase-n3d/rail-curate.sh couch-measure
+bash scripts/m4-addons/rail-curate.sh couch-measure
 ```
 
 Writes `~/.cache/mango/mdblist-llm-context.json` with measured hit rates.
@@ -16,8 +16,8 @@ Writes `~/.cache/mango/mdblist-llm-context.json` with measured hit rates.
 ## Compose v2.3 (after measure)
 
 ```bash
-bash scripts/phase-n3d/rail-curate.sh plan config/rail-proposals/v2_3-full.json
-bash scripts/phase-n3d/rail-curate.sh apply config/rail-proposals/v2_3-full.json --write
+bash scripts/m4-addons/rail-curate.sh plan config/rail-proposals/v2_3-full.json
+bash scripts/m4-addons/rail-curate.sh apply config/rail-proposals/v2_3-full.json --write
 ```
 
 ## Import

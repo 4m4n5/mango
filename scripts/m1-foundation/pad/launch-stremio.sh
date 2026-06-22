@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Cold-launch Stremio — hide Kodi, start pad (`mango-tv-pad.py`), present window.
+# Run on the Pi: bash scripts/m1-foundation/pad/launch-stremio.sh
+# Clean restart: bash scripts/m1-foundation/pad/reset-stremio.sh
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+LOG="${TMPDIR:-/tmp}/mango-stremio.log"
+
+# shellcheck source=lib/stremio-ports.sh
+source "$SCRIPT_DIR/lib/stremio-ports.sh"
+
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+
+bash "$SCRIPT_DIR/connect-gamepad.sh"
+
+# Keep Kodi alive in background when switching back from YouTube.
+bash "$SCRIPT_DIR/../lib/hide-media.sh" kodi 2>/dev/null || true
+
+if stremio_process_running; then
+  bash "$SCRIPT_DIR/kill-stremio.sh" || true
+fi
+
+stremio_ports_free || {
+  echo "! Stremio ports still busy — run: bash scripts/m1-foundation/pad/kill-stremio.sh"
+  exit 1
+}
+
+if ! command -v stremio &>/dev/null; then
+  echo "! stremio not in PATH — bash scripts/m1-foundation/pad/install-stremio.sh"
+  exit 1
+fi
+
+echo "Starting Stremio — D-pad = move, B = select, Y = back"
+echo "Pad: mango-tv-pad.py (evdev → xdotool)"
+nohup stremio >"$LOG" 2>&1 &
+STREMIO_PID=$!
+echo "Stremio pid: $STREMIO_PID"
+
+ready=false
+for _ in $(seq 1 30); do
+  if ! kill -0 "$STREMIO_PID" 2>/dev/null; then
+    echo "! Stremio exited. Log:"
+    tail -20 "$LOG" 2>/dev/null || true
+    exit 1
+  fi
+  if command -v xdotool &>/dev/null; then
+    for wid in $(xdotool search --name Stremio 2>/dev/null); do
+      name=$(xdotool getwindowname "$wid" 2>/dev/null || true)
+      if [[ "$name" == "Stremio" ]]; then
+        ready=true
+        break 2
+      fi
+    done
+  fi
+  sleep 0.2
+done
+
+if ! $ready; then
+  echo "! Stremio window not detected yet — continuing focus loop"
+fi
+
+bash "$SCRIPT_DIR/start-stremio-pad-bridge.sh" || {
+  echo "! Pad start failed — check /tmp/mango-tv-pad.log"
+}
+
+focused=false
+for _ in $(seq 1 20); do
+  if bash "$SCRIPT_DIR/focus-stremio.sh" 2>/dev/null; then
+    focused=true
+    break
+  fi
+  sleep 0.15
+done
+
+if $focused; then
+  echo "✓ Stremio ready — D-pad / B select / Y back / ⌂ home"
+else
+  echo "! Click Stremio on the TV, then: bash scripts/m1-foundation/pad/focus-stremio.sh"
+fi
+
+echo "Log: $LOG"

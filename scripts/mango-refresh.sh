@@ -29,7 +29,7 @@ if command -v tmux >/dev/null 2>&1; then
 fi
 
 bash scripts/mango-stack.sh stop
-bash scripts/phase-n1/mpv-stop.sh 2>/dev/null || true
+bash scripts/m2-catalog/service/mpv-stop.sh 2>/dev/null || true
 rm -f "${HOME}/.cache/mango/catalog-service.pid" "${HOME}/.cache/mango/mpv.pid"
 
 bash scripts/mango-stack.sh start

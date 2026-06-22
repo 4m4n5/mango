@@ -31,7 +31,7 @@ export function schedulePlayabilityTopUp(railId: string): void {
   lastScheduled.set(railId, now);
 
   const root = repoDir();
-  const indexer = join(root, 'scripts/phase-n3c/playability-indexer.ts');
+  const indexer = join(root, 'scripts/m3-play/playability/playability-indexer.ts');
   const child = spawn(
     'npm',
     ['--prefix', join(root, 'src/catalog-service'), 'exec', 'tsx', '--', indexer, 'top-up', '--rail', railId],

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared play_ladder contract for deploy gates (gate-lite-unit, gate-n3a-play-ladder)."""
+"""Shared play_ladder contract for deploy gates (gate-lite-unit, gate-m3-play-ladder)."""
 from __future__ import annotations
 
 import json

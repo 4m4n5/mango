@@ -5,7 +5,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-PHASE0="$REPO_DIR/scripts/phase0"
+PHASE0="$REPO_DIR/scripts/m1-foundation/pad"
 WINDOW_SH="$REPO_DIR/scripts/lib/mango-window.sh"
 
 export DISPLAY=":0"
@@ -38,7 +38,7 @@ acquire_launch_lock() {
   return 0
 }
 
-# shellcheck source=phase0/lib/stremio-ports.sh
+# shellcheck source=m1-foundation/pad/lib/stremio-ports.sh
 source "$PHASE0/lib/stremio-ports.sh"
 
 restore_shell() {

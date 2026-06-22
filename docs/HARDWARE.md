@@ -2,7 +2,7 @@
 
 **Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone
 
-> **Native branch:** pad routes to **launcher**, **mpv** (N1+), and **fallback** Stremio/Kodi only. See [FOREGROUND.md](FOREGROUND.md).
+> **Native branch:** pad routes to **launcher**, **mpv** (N1+), and **fallback** Stremio/Kodi only. See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -21,8 +21,8 @@
 ### Addon hosting (catalog + streams)
 
 N3d runs AIOStreams and AIOLists locally on the Pi:
-[`N3d-INVENTORY.md`](N3d-INVENTORY.md). ElfHosted is a paid fallback only:
-[`ELFHOSTED.md`](ELFHOSTED.md).
+[`reference/addon-stack.md`](reference/addon-stack.md). ElfHosted is a paid fallback only:
+[`reference/elfhosted.md`](reference/elfhosted.md).
 
 N3c playability indexing still required — addon hosting fixes browse/resolve
 availability, not play guarantees.
@@ -66,7 +66,7 @@ Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`). Stack reapplie
 ## Display (current)
 
 - **Connected:** 1080p monitor on HDMI (lab)
-- **Later (N7):** 4K TV + soundbar — `raspi-config` / `kmsprint` / mpv profile in [NATIVE_ROADMAP.md](NATIVE_ROADMAP.md) §N7
+- **Later (M6):** 4K TV + soundbar — `raspi-config` / `kmsprint` / mpv profile in [ROADMAP.md](ROADMAP.md) §M6.3
 
 ---
 
@@ -131,7 +131,7 @@ Bluetooth may show **Connected** before Linux registers the pad. **Press any but
 
 ```bash
 cd ~/mango && git pull
-sudo bash scripts/phase0/install-pad-autoreconnect.sh
+sudo bash scripts/m1-foundation/pad/install-pad-autoreconnect.sh
 ```
 
 Then a single button press wakes BT, reconnects, and restarts the pad router — no SSH.
@@ -139,7 +139,7 @@ Then a single button press wakes BT, reconnects, and restarts the pad router —
 **Manual fallback:**
 
 ```bash
-bash scripts/phase0/start-mango-tv-pad.sh
+bash scripts/m1-foundation/pad/start-mango-tv-pad.sh
 ```
 
 If input still missing: `bluetoothctl disconnect E4:17:D8:EB:00:44` → press a pad button → `bluetoothctl connect E4:17:D8:EB:00:44`
@@ -150,16 +150,16 @@ If input still missing: `bluetoothctl disconnect E4:17:D8:EB:00:44` → press a 
 cd ~/mango && git pull
 bash scripts/mango-stack.sh restart    # native default
 # legacy fallback only:
-bash scripts/phase0/tv.sh stremio
-bash scripts/phase0/tv.sh kodi
+bash scripts/m1-foundation/pad/tv.sh stremio
+bash scripts/m1-foundation/pad/tv.sh kodi
 ```
 
-See [PHASE0.md](PHASE0.md) for full runbook.
+See [OPS.md](OPS.md) for full runbook.
 
 ### First-time pair
 
 1. **Unplug** the old FastPad USB dongle.
-2. Run: `bash scripts/phase0/setup-8bitdo-bt.sh`  
+2. Run: `bash scripts/m1-foundation/pad/setup-8bitdo-bt.sh`  
    Or pair manually: Micro **START+Y** → `bluetoothctl pair/trust/connect E4:17:D8:EB:00:44`
 
 ---
@@ -168,4 +168,4 @@ See [PHASE0.md](PHASE0.md) for full runbook.
 
 Unstable 2.4G dongle — replaced by 8BitDo Micro.
 
-Details: [`PHASE0.md`](PHASE0.md) · [`phase0-checklist.md`](phase0-checklist.md)
+Details: [`OPS.md`](OPS.md) · [`archive/phase0-checklist.md`](archive/phase0-checklist.md)

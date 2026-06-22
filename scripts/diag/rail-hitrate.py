@@ -18,7 +18,7 @@ REPO = os.environ.get("MANGO_REPO_DIR", os.path.expanduser("~/mango"))
 PER_RAIL = int(os.environ.get("MANGO_RAIL_HITRATE_PER_RAIL", "2"))
 DO_PLAY = os.environ.get("MANGO_RAIL_HITRATE_PLAY", "1") == "1"
 SEED = int(os.environ.get("MANGO_RAIL_HITRATE_SEED", str(int(time.time()))))
-MPV_STOP = ["bash", "scripts/phase-n1/mpv-stop.sh"]
+MPV_STOP = ["bash", "scripts/m2-catalog/service/mpv-stop.sh"]
 
 
 def fetch_json(url: str, *, method: str = "GET", body: dict | None = None, timeout: float = 120) -> dict:

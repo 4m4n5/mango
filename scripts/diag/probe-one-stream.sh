@@ -21,7 +21,7 @@ ID="${2:-}"
 CATALOG="${MANGO_CATALOG_URL:-http://127.0.0.1:3020}"
 TMP="${TMPDIR:-/tmp}/mango-probe-one-$$"
 mkdir -p "$TMP"
-trap 'bash scripts/phase-n1/mpv-stop.sh >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
+trap 'bash scripts/m2-catalog/service/mpv-stop.sh >/dev/null 2>&1 || true; rm -rf "$TMP"' EXIT
 
 [[ -n "$TYPE" && -n "$ID" ]] || {
   echo "usage: $0 <movie|series> <id>" >&2
@@ -37,7 +37,7 @@ curl -sf --max-time 5 "$CATALOG/health" >/dev/null || fail "catalog down at $CAT
 echo "OK catalog"
 
 step "1. couch play (POST /play)"
-bash scripts/phase-n1/mpv-stop.sh >/dev/null 2>&1 || true
+bash scripts/m2-catalog/service/mpv-stop.sh >/dev/null 2>&1 || true
 PLAY_JSON="$TMP/play.json"
 if curl -sf --max-time 90 -X POST "$CATALOG/play" \
   -H 'content-type: application/json' \
@@ -54,7 +54,7 @@ PY
 else
   echo "  FAIL: POST /play"
 fi
-bash scripts/phase-n1/mpv-stop.sh >/dev/null 2>&1 || true
+bash scripts/m2-catalog/service/mpv-stop.sh >/dev/null 2>&1 || true
 
 step "2. stream resolve (GET /stream)"
 STREAM_JSON="$TMP/stream.json"
@@ -77,11 +77,11 @@ PY
 URL="$(cat "$TMP/stream.url")"
 
 step "3. headless probe (mpv-probe-ipc)"
-bash scripts/phase-n3c/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
-bash scripts/phase-n3c/mpv-probe-pool.sh ensure --workers 1
+bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
+bash scripts/m3-play/playability/mpv-probe-pool.sh ensure --workers 1
 PROBE_LOG="$TMP/probe.log"
 set +e
-bash scripts/phase-n3c/mpv-probe-ipc.sh \
+bash scripts/m3-play/playability/mpv-probe-ipc.sh \
   --worker-id 0 \
   --url "$URL" \
   --timeout-ms "${MANGO_PLAYABILITY_PROBE_MS:-20000}" \
@@ -99,7 +99,7 @@ export MANGO_PLAYABILITY_BATCH_DB=0
 export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-20000}"
 set +e
 npm --prefix src/catalog-service exec tsx -- \
-  scripts/phase-n3c/playability-indexer.ts verify --type "$TYPE" --id "$ID"
+  scripts/m3-play/playability/playability-indexer.ts verify --type "$TYPE" --id "$ID"
 VERIFY_RC=$?
 set -e
 echo "  verify exit=$VERIFY_RC"

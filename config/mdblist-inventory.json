@@ -3,9 +3,9 @@
   "_updated": "2026-06-20",
   "_measurement": {
     "sync_toplists": "python3 scripts/diag/mdblist-inventory.py sync-toplists",
-    "pipeline": "bash scripts/phase-n3d/mdblist-catalog-pipeline.sh full",
+    "pipeline": "bash scripts/m4-addons/mdblist-catalog-pipeline.sh full",
     "export_llm": "python3 scripts/diag/mdblist-inventory.py export-llm --out ~/.cache/mango/mdblist-llm-context.json",
-    "compose": "python3 scripts/phase-n3d/rail-compose.py plan config/rail-proposals/example.json",
+    "compose": "python3 scripts/m4-addons/rail-compose.py plan config/rail-proposals/example.json",
     "source_hitrate_cmd": "MANGO_SOURCE_HITRATE_PER_SOURCE=8 python3 scripts/diag/source-hitrate.py",
     "pool_status_cmd": "python3 scripts/diag/playability-status.py --all",
     "target_rate": 0.8,

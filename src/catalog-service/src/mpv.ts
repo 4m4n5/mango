@@ -29,7 +29,7 @@ async function runMpv(
   url: string,
   options: { probe: boolean; live?: boolean; timeoutMs: number; minDurationSec?: number; playEpoch?: number; startSec?: number },
 ): Promise<PlayResult> {
-  const script = resolve(repoDir(), 'scripts/phase-n1/mpv-play.sh');
+  const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-play.sh');
   const started = Date.now();
   const args = [
     script,
@@ -109,7 +109,7 @@ function mpvSocketPath(): string {
 }
 
 async function mpvIpcProperty(property: string): Promise<number | null> {
-  const script = resolve(repoDir(), 'scripts/phase-n1/mpv-ipc.sh');
+  const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-ipc.sh');
   try {
     const { stdout } = await new Promise<{ stdout: string; stderr: string }>((resolvePromise, reject) => {
       execFile('bash', [script, 'get_property', property], {

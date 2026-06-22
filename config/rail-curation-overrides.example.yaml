@@ -2,7 +2,7 @@
 # Copy to /etc/mango/rail-curation-overrides.yaml (or set MANGO_RAIL_CURATION_OVERRIDES).
 #
 # Apply after edits:
-#   bash scripts/phase-n3c/rail-curation.sh apply
+#   bash scripts/m3-play/playability/rail-curation.sh apply
 #
 # Pins are verified (stream + optional probe) then written to rail_pool with high score.
 # skip_title_filter: keep streams when mango title relevance would drop them (e.g. IGL).

@@ -36,7 +36,7 @@ LAUNCH_SCRIPTS: Final = {
     "/api/launch/kodi": REPO_ROOT / "scripts" / "launch-kodi.sh",
     "/api/launch/launcher": REPO_ROOT / "scripts" / "launch-launcher.sh",
 }
-MPV_STOP_SCRIPT: Final = REPO_ROOT / "scripts" / "phase-n1" / "mpv-stop.sh"
+MPV_STOP_SCRIPT: Final = REPO_ROOT / "scripts" / "m2-catalog" / "service" / "mpv-stop.sh"
 LAUNCH_DEBOUNCE_SEC: Final = 2.0
 _last_launch_at: dict[str, float] = {}
 
@@ -195,7 +195,7 @@ def collect_health(port: int) -> dict[str, object]:
         remapper = "inactive"
     openbox = "active" if run_check(["pgrep", "-x", "openbox"]) else "inactive"
     kodi = "down"
-    kodi_ping = REPO_ROOT / "scripts" / "phase0" / "lib" / "kodi-rpc.sh"
+    kodi_ping = REPO_ROOT / "scripts" / "m1-foundation" / "pad" / "lib" / "kodi-rpc.sh"
     if kodi_ping.is_file():
         try:
             result = subprocess.run(

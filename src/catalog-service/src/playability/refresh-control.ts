@@ -35,7 +35,7 @@ export type RefreshLevel = {
   blocks_couch: boolean;
   /** Machine hint for voice/LLM tools. */
   llm_hint: string;
-  /** Shell entrypoint under repo scripts/phase-n3c (for ops docs). */
+  /** Shell entrypoint under repo scripts/m3-play/playability (for ops docs). */
   script: string;
   detach_supported: boolean;
   /** Grow preset wall/attempt limits when applicable. */
@@ -284,7 +284,7 @@ export type StartRefreshResult =
   | { ok: false; error: string; busy?: boolean };
 
 function spawnDetached(args: string[]): { pid: number } {
-  const script = path.join(repoDir(), 'scripts/phase-n3c/playability-grow.sh');
+  const script = path.join(repoDir(), 'scripts/m3-play/playability/playability-grow.sh');
   const child = spawn('bash', [script, ...args], {
     cwd: repoDir(),
     detached: true,
@@ -300,7 +300,7 @@ function spawnDetached(args: string[]): { pid: number } {
 }
 
 function spawnRefreshLevelScript(levelId: string): { pid: number } {
-  const script = path.join(repoDir(), 'scripts/phase-n3c/playability-refresh-level.sh');
+  const script = path.join(repoDir(), 'scripts/m3-play/playability/playability-refresh-level.sh');
   const child = spawn('bash', [script, levelId], {
     cwd: repoDir(),
     detached: true,
