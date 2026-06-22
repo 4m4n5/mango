@@ -80,6 +80,10 @@ else
   cd ~/mango/src/launcher && npm ci --silent && npm run build
 fi
 cd ~/mango
+bash scripts/m1-foundation/ui/install-systemd-units.sh || true
+if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
+  bash scripts/m5-voice/stack/install-voice-systemd.sh || true
+fi
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null; then
   systemctl --user restart mango-launcher-chromium.service || true
