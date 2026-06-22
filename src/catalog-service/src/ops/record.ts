@@ -14,7 +14,7 @@ function deltasFromRefresh(result: RefreshAllResult): OpsRailDelta[] {
     label: rail.label,
     verified_before: rail.before.verified_pool,
     verified_after: rail.after.verified_pool,
-    verified_added: rail.after.verified_pool - rail.before.verified_pool,
+    verified_added: rail.verified_added ?? (rail.after.verified_pool - rail.before.verified_pool),
     pool_before: rail.before.pool_depth,
     pool_after: rail.after.pool_depth,
     failed: rail.failed,
@@ -30,8 +30,11 @@ export function recordRefreshOps(
 ): void {
   const deltas = deltasFromRefresh(result);
   const totalAdded = deltas.reduce((sum, delta) => sum + delta.verified_added, 0);
+  const kind = result.mode === 'growth' || result.mode === 'grow' || result.mode === 'full'
+    ? 'playability_growth'
+    : 'playability_refresh';
   appendOpsEvent(
-    'playability_refresh',
+    kind,
     `${result.mode} refresh: ${totalAdded >= 0 ? '+' : ''}${totalAdded} verified across ${deltas.filter((d) => d.verified_added !== 0).length} rails (${summarizeRailDeltas(deltas)})`,
     {
       mode: result.mode,
@@ -41,13 +44,27 @@ export function recordRefreshOps(
       failed: result.failed,
       ingest_fresh_queued: result.ingest_fresh_queued,
       ingest_scanned: result.ingest_scanned,
-      rails: deltas,
+      rails: result.rails.map((rail) => ({
+        rail_id: rail.rail_id,
+        grow_target: rail.grow_target ?? rail.growth_quota,
+        probe_verified: rail.probe_verified ?? rail.verified_added,
+        grow_target_met: rail.grow_target_met ?? rail.growth_quota_met,
+        growth_quota: rail.growth_quota,
+        verified_added: rail.verified_added,
+        growth_quota_met: rail.growth_quota_met,
+        grow_loops: rail.grow_loops,
+        attempts: rail.attempts,
+        verified_before: rail.before.verified_pool,
+        verified_after: rail.after.verified_pool,
+        failed: rail.failed,
+        exhausted: rail.exhausted,
+      })),
     },
     { run_id: runId, source },
   );
   if (runId) {
     writeOpsRunReport(runId, {
-      kind: 'playability_refresh',
+      kind,
       source,
       run_id: runId,
       finished_at: new Date().toISOString(),

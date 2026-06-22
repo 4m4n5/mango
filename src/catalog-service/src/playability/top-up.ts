@@ -22,11 +22,13 @@ import {
   type RailCandidateRef,
 } from './pipeline.js';
 import {
+  isPlayabilityGrowthMode,
   playabilityFreshPerRail,
   playabilityIngestPageSize,
   playabilityMaxIngestScan,
 } from './config.js';
 import { effectivePoolTarget } from './pool-growth.js';
+import { growRail, type GrowRailOptions } from './grow-rail.js';
 import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
 import type { BrowsableRail } from '../rails.js';
 
@@ -36,6 +38,15 @@ export type TopUpRailResult = {
   ok: boolean;
   candidate_limit: number;
   pool_target: number;
+  grow_target?: number;
+  probe_verified?: number;
+  grow_target_met?: boolean;
+  /** @deprecated Use grow_target */
+  growth_quota?: number;
+  /** @deprecated Use probe_verified */
+  verified_added?: number;
+  /** @deprecated Use grow_target_met */
+  growth_quota_met?: boolean;
   min_display: number;
   before: PlayabilityRailStatus;
   after: PlayabilityRailStatus;
@@ -46,6 +57,8 @@ export type TopUpRailResult = {
   skipped_existing: number;
   skipped_recent_failed: number;
   exhausted: boolean;
+  grow_loops?: number;
+  attempts?: number;
   ingest?: IngestCandidatesStats;
   results: Array<{
     type: string;
@@ -57,12 +70,58 @@ export type TopUpRailResult = {
   }>;
 };
 
-export type TopUpRailOptions = {
+export type TopUpRailMode = 'incremental' | 'grow' | 'full' | 'growth';
+
+export type TopUpRailOptions = GrowRailOptions & {
   poolTarget?: number;
   candidateLimit?: number;
+  mode?: TopUpRailMode;
 };
 
-export async function topUpRail(
+function resolveTopUpMode(options: TopUpRailOptions): 'incremental' | 'grow' {
+  if (options.mode === 'incremental') {
+    return 'incremental';
+  }
+  if (options.mode === 'grow' || options.mode === 'full' || options.mode === 'growth') {
+    return 'grow';
+  }
+  if (isPlayabilityGrowthMode()) {
+    return 'grow';
+  }
+  return 'incremental';
+}
+
+function growResultToTopUp(result: Awaited<ReturnType<typeof growRail>>): TopUpRailResult {
+  return {
+    rail_id: result.rail_id,
+    label: result.label,
+    ok: result.ok,
+    candidate_limit: result.candidate_limit,
+    pool_target: result.pool_target,
+    grow_target: result.grow_target,
+    probe_verified: result.probe_verified,
+    grow_target_met: result.grow_target_met,
+    growth_quota: result.growth_quota,
+    verified_added: result.verified_added,
+    growth_quota_met: result.growth_quota_met,
+    min_display: result.min_display,
+    before: result.before,
+    after: result.after,
+    candidates_seen: result.candidates_seen,
+    linked_existing: result.linked_existing,
+    verified: result.verified,
+    failed: result.failed,
+    skipped_existing: result.skipped_existing,
+    skipped_recent_failed: result.skipped_recent_failed,
+    exhausted: result.exhausted,
+    grow_loops: result.grow_loops,
+    attempts: result.attempts,
+    ingest: result.ingest,
+    results: result.results,
+  };
+}
+
+async function topUpRailIncremental(
   core: CatalogCore,
   railId: string,
   options: TopUpRailOptions = {},
@@ -135,6 +194,7 @@ export async function topUpRail(
     railVerifiedCounts,
     railPoolTargets,
     railPoolKeys,
+    refreshMode: 'full',
     context,
   });
   const processed = await processVerifyQueue({
@@ -169,8 +229,19 @@ export async function topUpRail(
     failed: processed.failed,
     skipped_existing: linked.skipped_existing,
     skipped_recent_failed: linked.skipped_recent_failed,
-    exhausted: after.verified_pool < poolTarget,
+    exhausted: after.verified_pool < poolTarget && Boolean(ingested.catalog_exhausted),
     ingest: ingested,
     results: [...linked.results, ...processed.results],
   };
+}
+
+export async function topUpRail(
+  core: CatalogCore,
+  railId: string,
+  options: TopUpRailOptions = {},
+): Promise<TopUpRailResult> {
+  if (resolveTopUpMode(options) === 'grow') {
+    return growResultToTopUp(await growRail(core, railId, options));
+  }
+  return topUpRailIncremental(core, railId, options);
 }

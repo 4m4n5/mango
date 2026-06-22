@@ -20,7 +20,8 @@ Type=oneshot
 WorkingDirectory=$REPO_DIR
 Environment=MANGO_REPO_DIR=$REPO_DIR
 Environment=MANGO_MAINTENANCE_MODE=1
-Environment=MANGO_PLAYABILITY_REFRESH_MODE=full
+Environment=MANGO_PLAYABILITY_REFRESH_MODE=growth
+Environment=MANGO_PLAYABILITY_GROWTH_MODE=1
 Environment=MANGO_PLAYABILITY_BOOTSTRAP=0
 Environment=MANGO_PLAYABILITY_EARLY_EXIT_MIN_DISPLAY=0
 Environment=MANGO_MAINTENANCE_SKIP_GATE=1
@@ -28,7 +29,7 @@ Environment=MANGO_PLAYABILITY_PROBE_POOL=1
 Environment=MANGO_PLAYABILITY_BATCH_DB=1
 Environment=MANGO_PLAYABILITY_RESOLVE_CONCURRENCY=8
 Environment=MANGO_PLAYABILITY_PROBE_CONCURRENCY=3
-ExecStart=/usr/bin/env bash scripts/phase-n3c/playability-maintenance.sh --mode full
+ExecStart=/usr/bin/env bash scripts/phase-n3c/playability-maintenance.sh --mode growth
 EOF
 
 cat >"$TIMER_PATH" <<'EOF'

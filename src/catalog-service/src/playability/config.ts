@@ -147,3 +147,14 @@ export function playabilityIngestPageSize(): number {
 export function playabilityMaxIngestScan(): number {
   return boundedInt(process.env.MANGO_PLAYABILITY_MAX_INGEST_SCAN, 1200, 50, 5000);
 }
+
+export function isPlayabilityGrowthMode(mode?: string): boolean {
+  if (mode === 'growth' || mode === 'grow') {
+    return true;
+  }
+  const refreshMode = process.env.MANGO_PLAYABILITY_REFRESH_MODE;
+  if (refreshMode === 'growth' || refreshMode === 'grow') {
+    return true;
+  }
+  return process.env.MANGO_PLAYABILITY_GROWTH_MODE === '1';
+}

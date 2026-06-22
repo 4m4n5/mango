@@ -26,7 +26,7 @@ import {
   type PreparedVerifyTitleResult,
   type VerifyContext,
 } from './verify.js';
-import { effectivePoolTarget } from './pool-growth.js';
+import { effectivePoolTarget, incrementGrowthPassVerified, type GrowthPassState } from './pool-growth.js';
 
 export type CandidateKey = string;
 
@@ -152,6 +152,7 @@ export type ProcessVerifyQueueOptions = {
   railMinDisplays?: Map<string, number>;
   railPoolKeys: Map<string, Set<string>>;
   earlyExitMinDisplay?: boolean;
+  growthPass?: GrowthPassState;
   context?: VerifyContext;
 };
 
@@ -166,6 +167,7 @@ export async function processVerifyQueue(
     railMinDisplays,
     railPoolKeys,
     earlyExitMinDisplay = playabilityEarlyExitMinDisplay(),
+    growthPass,
     context = {},
   } = options;
 
@@ -202,6 +204,11 @@ export async function processVerifyQueue(
   };
 
   const railStillNeeds = (railId: string): boolean => {
+    if (growthPass) {
+      const added = growthPass.verifiedAddedThisPass.get(railId) ?? 0;
+      const quota = growthPass.quotas.get(railId) ?? 0;
+      return added < quota;
+    }
     const target = railPoolTargets.get(railId) ?? 0;
     const current = railVerifiedCounts.get(railId) ?? 0;
     return current < target;
@@ -243,6 +250,12 @@ export async function processVerifyQueue(
         action: item.forceReprobe ? 'reverified' : 'verified',
         rails: eligibleRefs.map((ref) => ref.railId),
       });
+      if (growthPass) {
+        incrementGrowthPassVerified(
+          growthPass,
+          eligibleRefs.map((ref) => ref.railId),
+        );
+      }
       maybeStopEarly();
     } else if (result.status === 'verified') {
       results.push({
@@ -359,7 +372,8 @@ export type BuildVerifyQueueOptions = {
   railPoolTargets: Map<string, number>;
   railPoolKeys: Map<string, Set<string>>;
   staleKeys?: Set<CandidateKey>;
-  refreshMode?: 'full' | 'stale';
+  refreshMode?: 'full' | 'stale' | 'growth' | 'grow';
+  growthPass?: GrowthPassState;
   now?: number;
   context?: VerifyContext;
 };
@@ -381,9 +395,21 @@ export async function linkExistingVerifiedCandidates(
     railPoolKeys,
     staleKeys = new Set(),
     refreshMode = 'stale',
+    growthPass,
     now = Date.now(),
     context = {},
   } = options;
+
+  const railAtTarget = (railId: string): boolean => {
+    if (growthPass) {
+      const added = growthPass.verifiedAddedThisPass.get(railId) ?? 0;
+      const quota = growthPass.quotas.get(railId) ?? 0;
+      return added >= quota;
+    }
+    const target = railPoolTargets.get(railId) ?? 0;
+    const current = railVerifiedCounts.get(railId) ?? 0;
+    return current >= target;
+  };
 
   const verifyQueue: VerifyQueueItem[] = [];
   const results: ProcessVerifyQueueResult['results'] = [];
@@ -400,9 +426,7 @@ export async function linkExistingVerifiedCandidates(
 
     if (!forceReprobe && isActiveVerifiedTitle(title, now)) {
       for (const ref of refs) {
-        const target = railPoolTargets.get(ref.railId) ?? 0;
-        const current = railVerifiedCounts.get(ref.railId) ?? 0;
-        if (current >= target) {
+        if (railAtTarget(ref.railId)) {
           continue;
         }
         const keys = railPoolKeys.get(ref.railId) ?? new Set<string>();
@@ -419,7 +443,8 @@ export async function linkExistingVerifiedCandidates(
         } else {
           keys.add(key);
           railPoolKeys.set(ref.railId, keys);
-          railVerifiedCounts.set(ref.railId, current + 1);
+          const linkedCount = railVerifiedCounts.get(ref.railId) ?? 0;
+          railVerifiedCounts.set(ref.railId, linkedCount + 1);
           linkedExisting += 1;
           results.push({
             type: candidate.type,
@@ -450,7 +475,7 @@ export async function linkExistingVerifiedCandidates(
       continue;
     }
 
-    if (refs.some((ref) => forceReprobe || (railVerifiedCounts.get(ref.railId) ?? 0) < (railPoolTargets.get(ref.railId) ?? 0))) {
+    if (refs.some((ref) => forceReprobe || !railAtTarget(ref.railId))) {
       verifyQueue.push({
         key,
         candidate,

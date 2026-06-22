@@ -11,7 +11,7 @@ function usage(): never {
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
     '  playability-indexer.ts top-up --rail <rail-id> [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
-    '  playability-indexer.ts refresh --all [--mode full|stale] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts refresh --all [--mode full|stale|growth] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
   ].join('\n'));
   process.exit(2);
 }
@@ -35,7 +35,7 @@ function readPositiveIntegerFlag(args: string[], name: string): number | undefin
 
 function readRefreshMode(args: string[]): RefreshMode {
   const value = readFlag(args, '--mode') ?? 'stale';
-  if (value === 'full' || value === 'stale') {
+  if (value === 'full' || value === 'stale' || value === 'growth' || value === 'grow') {
     return value;
   }
   usage();

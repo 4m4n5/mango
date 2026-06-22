@@ -2,6 +2,7 @@ export type OpsEventKind =
   | 'playability_refresh'
   | 'playability_topup'
   | 'playability_maintenance'
+  | 'playability_growth'
   | 'companion_consolidate'
   | 'companion_gardener'
   | 'companion_llm'

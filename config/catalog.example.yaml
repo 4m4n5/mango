@@ -29,7 +29,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 5
 
@@ -50,7 +51,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 8
 
@@ -67,7 +69,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 5
 
@@ -86,7 +89,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 10
   - id: movies-quick-watches
@@ -103,7 +107,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 8
 
@@ -124,7 +129,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 10
   - id: series-global-popular
@@ -141,7 +147,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 5
 
@@ -162,7 +169,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 10
 
@@ -179,7 +187,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 5
 
@@ -198,7 +207,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 8
   - id: series-reality-casual
@@ -215,7 +225,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 10
 
@@ -235,7 +246,8 @@ rails:
       min_display: 6
       pool_target: 20
       pool_growth_per_refresh: 15
-      pool_max: 120
+      growth_quota: 20
+      growth_attempt_budget: 80
       display_max: 9
       ingest_multiplier: 10
   - id: continue

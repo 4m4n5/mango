@@ -6,6 +6,7 @@
 #
 # Modes (additive library contract):
 #   full  — grow verified pools toward pool target; never reprobe verified rows
+#   growth — quota-driven pass: verify up to growth_quota new titles per rail
 #   stale — re-probe titles with status=stale only; prune removes stale pool rows
 #
 # Env:
@@ -32,7 +33,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ "$MODE" == "full" || "$MODE" == "stale" ]] || { echo "mode must be full or stale" >&2; exit 2; }
+[[ "$MODE" == "full" || "$MODE" == "stale" || "$MODE" == "growth" ]] || { echo "mode must be full, stale, or growth" >&2; exit 2; }
 if [[ -z "$SKIP_GATE" ]]; then
   SKIP_GATE=$([[ "$MODE" == "full" ]] && echo 1 || echo 0)
 fi

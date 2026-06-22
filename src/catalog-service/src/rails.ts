@@ -15,10 +15,16 @@ export type RailPlayabilityConfig = {
   ingest_multiplier: number;
   /** Floor verified pool size; also legacy cap when pool_growth_per_refresh is 0. */
   pool_target: number;
-  /** Verified titles to add per refresh when > 0 (accumulative growth). */
+  /** Verified titles to add per refresh when > 0 (accumulative growth — legacy full mode). */
   pool_growth_per_refresh: number;
-  /** Upper bound on verified pool depth per rail. */
-  pool_max: number;
+  /** Upper bound on verified pool depth; null = unbounded (growth mode default). */
+  pool_max: number | null;
+  /** Min new probe-verified titles per grow session (preferred over growth_quota). */
+  grow_per_pass: number;
+  /** Min new probe-verified titles per growth pass (mode=growth). @deprecated use grow_per_pass */
+  growth_quota: number;
+  /** Max fresh candidates to queue per rail per growth pass. */
+  growth_attempt_budget: number;
 };
 
 export type CatalogSourceRef = {
@@ -74,7 +80,10 @@ export const DEFAULT_PLAYABILITY_CONFIG: RailPlayabilityConfig = {
   ingest_multiplier: 5,
   pool_target: 60,
   pool_growth_per_refresh: 10,
-  pool_max: 200,
+  pool_max: null,
+  grow_per_pass: 20,
+  growth_quota: 20,
+  growth_attempt_budget: 80,
 };
 
 function asRecord(value: unknown, context: string): Record<string, unknown> {
@@ -188,6 +197,22 @@ function readNonNegativeInteger(
   return parsed;
 }
 
+function readOptionalPositiveInteger(
+  record: Record<string, unknown>,
+  key: keyof RailPlayabilityConfig,
+  context: string,
+): number | null {
+  const value = record[key];
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${context}.${String(key)} must be a positive integer or null`);
+  }
+  return parsed;
+}
+
 function readPlayability(record: Record<string, unknown>, context: string): RailPlayabilityConfig {
   const raw = record.playability;
   if (raw === undefined || raw === null) {
@@ -231,10 +256,32 @@ function readPlayability(record: Record<string, unknown>, context: string): Rail
       DEFAULT_PLAYABILITY_CONFIG.pool_growth_per_refresh,
       `${context}.playability`,
     ),
-    pool_max: readPositiveInteger(
+    pool_max: readOptionalPositiveInteger(
       playability,
       'pool_max',
-      DEFAULT_PLAYABILITY_CONFIG.pool_max,
+      `${context}.playability`,
+    ),
+    grow_per_pass: readPositiveInteger(
+      playability,
+      'grow_per_pass',
+      readPositiveInteger(
+        playability,
+        'growth_quota',
+        DEFAULT_PLAYABILITY_CONFIG.grow_per_pass,
+        `${context}.playability`,
+      ),
+      `${context}.playability`,
+    ),
+    growth_quota: readPositiveInteger(
+      playability,
+      'growth_quota',
+      DEFAULT_PLAYABILITY_CONFIG.growth_quota,
+      `${context}.playability`,
+    ),
+    growth_attempt_budget: readPositiveInteger(
+      playability,
+      'growth_attempt_budget',
+      DEFAULT_PLAYABILITY_CONFIG.growth_attempt_budget,
       `${context}.playability`,
     ),
   };
@@ -247,7 +294,7 @@ function readPlayability(record: Record<string, unknown>, context: string): Rail
   if (config.pool_target < config.min_display) {
     throw new Error(`${context}.playability.pool_target must be >= min_display`);
   }
-  if (config.pool_max < config.pool_target) {
+  if (config.pool_max !== null && config.pool_max < config.pool_target) {
     throw new Error(`${context}.playability.pool_max must be >= pool_target`);
   }
   return config;

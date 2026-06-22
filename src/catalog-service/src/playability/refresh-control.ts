@@ -8,6 +8,7 @@ export type RefreshLevelId =
   | 'topup_low_rails'
   | 'quick_topup'
   | 'full_maintenance'
+  | 'growth_pass'
   | 'overnight_grow';
 
 export type RefreshLevelCategory = 'instant' | 'quick' | 'standard' | 'overnight';
@@ -90,6 +91,18 @@ export const REFRESH_LEVELS: RefreshLevel[] = [
     detach_supported: false,
   },
   {
+    id: 'growth_pass',
+    label: 'Growth pass',
+    description: 'Quota-driven pass — verify up to growth_quota (default 20) new titles per rail; unbounded pool depth.',
+    category: 'standard',
+    estimated_sec: 3600,
+    estimated_label: '~60 min',
+    blocks_couch: true,
+    llm_hint: 'Default nightly mode. Each rail targets +20 probe-verified titles; no pool_max stop.',
+    script: 'playability-maintenance.sh --mode growth',
+    detach_supported: false,
+  },
+  {
     id: 'overnight_grow',
     label: 'Overnight grow',
     description: 'Loop nightly passes for up to 4 hours — max library depth while you sleep.',
@@ -110,6 +123,7 @@ export const REFRESH_LEVEL_UI_ORDER: RefreshLevelId[] = [
   'quick_topup',
   'stale_refresh',
   'topup_low_rails',
+  'growth_pass',
   'full_maintenance',
   'overnight_grow',
 ];

@@ -32,6 +32,9 @@ case "$LEVEL" in
     export MANGO_PLAYABILITY_CANDIDATE_LIMIT="${MANGO_PLAYABILITY_CANDIDATE_LIMIT:-250}"
     exec bash scripts/phase-n3c/playability-maintenance.sh --mode full
     ;;
+  growth_pass)
+    exec bash scripts/phase-n3c/playability-maintenance.sh --mode growth
+    ;;
   overnight_grow)
     exec bash scripts/phase-n3c/overnight-playability-grow.sh --detach
     ;;

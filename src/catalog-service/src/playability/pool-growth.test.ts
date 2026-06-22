@@ -2,9 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { RailPlayabilityConfig } from '../rails.js';
 import {
+  createGrowthPassState,
   effectiveCandidateLimit,
   effectiveDisplayLimit,
+  effectiveGrowthAttemptBudget,
+  effectiveGrowthQuota,
   effectivePoolTarget,
+  incrementGrowthPassVerified,
+  railMeetsGrowthQuota,
 } from './pool-growth.js';
 
 const base: RailPlayabilityConfig = {
@@ -15,12 +20,20 @@ const base: RailPlayabilityConfig = {
   pool_target: 20,
   pool_growth_per_refresh: 10,
   pool_max: 120,
+  grow_per_pass: 20,
+  growth_quota: 20,
+  growth_attempt_budget: 80,
 };
 
 test('effectivePoolTarget grows by pool_growth_per_refresh', () => {
   assert.equal(effectivePoolTarget(base, 20), 30);
   assert.equal(effectivePoolTarget(base, 55), 65);
   assert.equal(effectivePoolTarget(base, 115), 120);
+});
+
+test('effectivePoolTarget is unbounded when pool_max is null', () => {
+  const unbounded = { ...base, pool_max: null };
+  assert.equal(effectivePoolTarget(unbounded, 500), 510);
 });
 
 test('effectivePoolTarget honors MANGO_PLAYABILITY_POOL_GROWTH_PER_REFRESH', () => {
@@ -45,6 +58,48 @@ test('effectivePoolTarget legacy mode caps at pool_target when growth is 0', () 
   const legacy = { ...base, pool_growth_per_refresh: 0 };
   assert.equal(effectivePoolTarget(legacy, 5), 20);
   assert.equal(effectivePoolTarget(legacy, 40), 20);
+});
+
+test('effectiveGrowthQuota defaults from yaml and honors env override', () => {
+  assert.equal(effectiveGrowthQuota(base), 20);
+  const previous = process.env.MANGO_PLAYABILITY_GROWTH_QUOTA;
+  process.env.MANGO_PLAYABILITY_GROWTH_QUOTA = '25';
+  try {
+    assert.equal(effectiveGrowthQuota(base), 25);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MANGO_PLAYABILITY_GROWTH_QUOTA;
+    } else {
+      process.env.MANGO_PLAYABILITY_GROWTH_QUOTA = previous;
+    }
+  }
+});
+
+test('growth pass tracks verified additions until quota met', () => {
+  const growthPass = createGrowthPassState([{
+    id: 'movies-classics',
+    label: 'highly rated',
+    tab: 'movies',
+    type: 'addon_catalog',
+    addon: 'Cinemeta',
+    catalog: 'imdbRating',
+    content_type: 'movie',
+    limit: 20,
+    enabled: true,
+    playability: base,
+  }]);
+  assert.equal(growthPass.quotas.get('movies-classics'), 20);
+  assert.equal(railMeetsGrowthQuota(growthPass, 'movies-classics'), false);
+  incrementGrowthPassVerified(growthPass, ['movies-classics']);
+  assert.equal(growthPass.verifiedAddedThisPass.get('movies-classics'), 1);
+  for (let index = 0; index < 19; index += 1) {
+    incrementGrowthPassVerified(growthPass, ['movies-classics']);
+  }
+  assert.equal(railMeetsGrowthQuota(growthPass, 'movies-classics'), true);
+});
+
+test('effectiveGrowthAttemptBudget defaults to yaml value', () => {
+  assert.equal(effectiveGrowthAttemptBudget(base), 80);
 });
 
 test('effectiveDisplayLimit grows slowly toward display_max', () => {
