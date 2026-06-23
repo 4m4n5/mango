@@ -100,6 +100,23 @@ def load_grow_run_state() -> dict[str, Any] | None:
     return raw if isinstance(raw, dict) else None
 
 
+def _count_active_probes() -> int:
+    lines = _pgrep("mpv-probe-ipc.sh")
+    return len(lines)
+
+
+def _couch_stack_up() -> bool:
+    try:
+        result = subprocess.run(
+            ["curl", "-sf", "--max-time", "2", "http://127.0.0.1:3000/api/health"],
+            capture_output=True,
+            timeout=3,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
 def detect_grow_state() -> dict[str, Any]:
     pidfile = pidfile_path()
     pid: int | None = None
@@ -139,6 +156,8 @@ def detect_grow_state() -> dict[str, Any]:
         "pid": pid if pid_alive else None,
         "pidfile": str(pidfile),
         "maintenance_lock": lock_held,
+        "couch_up": _couch_stack_up(),
+        "active_probes": _count_active_probes(),
         "indexer": indexer_lines[:3],
         "topup": topup_lines[:2],
         "maintenance": maintenance_lines[:2],
@@ -567,6 +586,17 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
         f"running: {'yes' if grow.get('running') else 'no'}"
         + (f" pid={grow.get('pid')}" if grow.get('pid') else ""),
     ]
+    if grow.get("running") and grow.get("maintenance_lock"):
+        couch = "up" if grow.get("couch_up") else "down"
+        probes = int(grow.get("active_probes") or 0)
+        lines.append(
+            f"maintenance: couch {couch} — gate will fail until grow completes "
+            f"(active probes: {probes})",
+        )
+    elif grow.get("running") and int(grow.get("active_probes") or 0) > 0:
+        lines.append(
+            f"probing: {int(grow.get('active_probes'))} active — pool counts update on verify success",
+        )
     phase_line = _format_phase_line(grow)
     if phase_line:
         lines.append(phase_line)

@@ -16,6 +16,14 @@ fi
 
 echo "=== pre-couch $(hostname) $(git rev-parse --short HEAD 2>/dev/null) ==="
 
+MAINT_LOCK="${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
+if [[ -f "$MAINT_LOCK" ]] || pgrep -f '[p]layability-indexer.ts' >/dev/null 2>&1; then
+  echo "FAIL: playability maintenance/grow in progress — couch stack is down" >&2
+  echo "  check: python3 scripts/diag/grow_monitor.py status" >&2
+  echo "  wait for grow to finish, or abort: bash scripts/m3-play/playability/abort-maintenance-grow.sh" >&2
+  exit 1
+fi
+
 BRANCH="$(git branch --show-current 2>/dev/null || echo main)"
 if git fetch origin 2>/dev/null; then
   LOCAL="$(git rev-parse HEAD)"
