@@ -1,0 +1,31 @@
+# Python cache / bytecode
+**/__pycache__/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/*.pyc
+
+# Python venvs (orchestrator .venv is ~300MB)
+**/.venv/
+**/venv/
+
+# Lockfiles (use package.json / requirements*.txt for versions)
+**/package-lock.json
+**/yarn.lock
+**/pnpm-lock.yaml
+
+# JS / build outputs
+**/node_modules/
+**/dist/
+**/build/
+
+# Local diag / verify artifacts
+**/.verify-shots/
+**/.cache/
+**/downloads/
+
+# OS noise
+**/.DS_Store
+
+# Git pack internals (large, non-informative for agents)
+**/.git/objects/
