@@ -13,6 +13,7 @@
 | Understand the stack | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Operate the Pi | [OPS.md](OPS.md) · [DEPLOY.md](DEPLOY.md) |
 | Run couch tests | [COUCH_TEST.md](COUCH_TEST.md) |
+| Playability · grow · thematic rails | [PLAYABILITY.md](PLAYABILITY.md) |
 | M5.5 companion UX ship bar | [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) |
 | M6.5 TV UX polish | [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) |
 | Set up voice | [VOICE.md](VOICE.md) |
@@ -53,10 +54,11 @@ Detail: [ROADMAP.md](ROADMAP.md)
 ## Gate (before couch)
 
 ```bash
-bash scripts/pi-exec-gate.sh
+bash scripts/pi-exec-gate.sh              # gate-lite (~2 min)
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # full (~5–8 min, 3 plays/rail)
 ```
 
-Live IPTV gates are opt-in.
+Live IPTV gates are opt-in. See [PLAYABILITY.md](PLAYABILITY.md) for grow/monitor.
 
 ---
 

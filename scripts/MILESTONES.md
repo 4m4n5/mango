@@ -14,7 +14,7 @@ Canonical paths aligned with [docs/ROADMAP.md](../docs/ROADMAP.md) milestones **
 | | `m2-catalog/rails/` | Composite rail validation |
 | **M3** Play | `m3-play/detail/` | Detail + episode gates |
 | | `m3-play/orchestrator/` | Play ladder + couch play |
-| | `m3-play/playability/` | Verified pools · grow jobs |
+| | `m3-play/playability/` | Verified pools · grow · theme gate · retheme |
 | **M4** Addons | `m4-addons/` | AIOStreams · AIOMetadata |
 | **M5** Voice + AI | `m5-voice/stack/` | Orchestrator · companion |
 | | `m5-voice/ai/` | Voice tools · AI catalog gates · M5.5 companion UX (planned) |
@@ -25,7 +25,7 @@ Canonical paths aligned with [docs/ROADMAP.md](../docs/ROADMAP.md) milestones **
 ```bash
 bash scripts/gate-lite.sh
 bash scripts/pi-pre-couch-gate.sh
-MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh  # 3 plays/rail
 ```
 
 | Step | Script |
@@ -36,7 +36,7 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 | M3 | `m3-play/detail/gate-m3-detail.sh`, `gate-m3-episodes.sh` |
 | M5 | `m5-voice/ai/gate-m5-ai-catalogs.sh`, `gate-m5-voice.sh` (if voice) |
 
-Full play sweep: `m3-play/playability/gate-m3-verified-rails.sh` · `m3-play/orchestrator/gate-m3-play.sh`
+Full gate play sample: `gate-m3-verified-rails.sh` (3/rail) · `gate-m3-play.sh` · ops: [docs/PLAYABILITY.md](../docs/PLAYABILITY.md)
 
 ## M6 ship polish (planned)
 

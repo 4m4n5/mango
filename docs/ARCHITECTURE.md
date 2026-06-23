@@ -19,6 +19,10 @@ Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
 | **AIOStreams** (`:3035`) | Aggregate indexers + debrid, dedup, SEL, formatter | Lab 1080p cap, mpv probe, auto-play |
 | **AIOMetadata** (`:3036`) | mdblist catalog adapters | Stream resolve |
 | **catalog-service** | Rails YAML, play orchestrator, stream metadata, playability, voice `/voice/*` | Indexer credentials, debrid keys |
+
+### Playability layer
+
+Verified pools in `playability.db` feed browse rails. **Theme gate** (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on every pool write during grow/link/verify. Manual **pool retheme** prunes legacy mismatches. See [PLAYABILITY.md](PLAYABILITY.md).
 | **Launcher** | Browse UI, detail, picker, voice command poll | Stream ranking (trust upstream + filters) |
 | **mpv** | Decode + render | Catalog metadata |
 | **orchestrator** | STT · LLM · launcher dispatch | Catalog data · mpv IPC |
@@ -156,8 +160,8 @@ Chromium is **UI only** — never decode 4K in the browser. mpv owns playback.
 
 | Gate | When |
 |------|------|
-| `gate-lite.sh` | Default deploy |
-| `MANGO_GATE_FULL=1` | Release · per-rail play |
+| `gate-lite.sh` | Default deploy (~2 min) |
+| `MANGO_GATE_FULL=1` | Full gate (~5–8 min, 3 plays/rail) |
 | `gate-m4-self-hosted.sh` | Self-hosted addons |
 | `gate-live-iptv.sh` | Opt-in live only |
 

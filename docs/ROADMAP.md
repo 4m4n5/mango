@@ -80,10 +80,13 @@ Pi 5 · X11 + Openbox
 | Stream picker | `GET /stream` enriched rows |
 | Continue watching | `progress.db` + mpv position watcher |
 | Episode picker | Per-episode streams · next-up overlay · cancel-on-Y |
-| Playability index | Verified pools · quick/nightly/overnight grow jobs |
+| Playability index | Verified pools · quick/nightly/overnight grow · unique-library tracking |
+| Thematic rails | Theme gate on pool writes · India/reality/quick-watch profiles · optional retheme |
 | Browse UX | Verified-only thin rails · empty hidden · rate-limit safe |
 
-**Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`)
+**Detail:** [PLAYABILITY.md](PLAYABILITY.md)
+
+**Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`, 3 plays/rail)
 
 **Couch:** [COUCH_TEST.md](COUCH_TEST.md)
 
@@ -186,9 +189,9 @@ NexoTV · sport rails · excluded from default gate. [LIVE_TV.md](LIVE_TV.md)
 
 | Command | When |
 |---------|------|
-| `bash scripts/pi-exec-gate.sh` | **Default** before couch |
-| `bash scripts/pi-deploy.sh --fast --gate` | After push — deploy + gate |
-| `MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh` | Release — per-rail play sweep |
+| `bash scripts/pi-exec-gate.sh` | **Default** before couch (gate-lite) |
+| `bash scripts/pi-deploy.sh --fast --gate` | After push — deploy + gate-lite |
+| `MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh` | Release — full gate (3 plays/rail, ~5–8 min) |
 | `MANGO_LIVE_GATE=1 bash scripts/live/gate-live-iptv.sh` | Live IPTV only |
 
 Details: [STATUS.md](STATUS.md#gates) · [ARCHITECTURE.md](ARCHITECTURE.md#gates)

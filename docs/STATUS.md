@@ -41,8 +41,12 @@ What works today, how to verify it, and what's next.
 | Stream picker | `GET /stream/{type}/{id}` · `display_label` rows |
 | Continue | `progress.db` · mpv position watcher |
 | Episodes | Season list · per-episode streams · next-up overlay |
-| Playability | `playability.db` verified pools · grow jobs |
+| Playability | `playability.db` verified pools · thematic theme gate · grow jobs |
 | Browse UX | Verified-only thin rails · empty hidden |
+| Thematic rails | `rail-theme-gate` on grow/link/verify · profiles in `rail-theme-profiles.yaml` |
+| Pool retheme | Manual prune/relocate: `rail-pool-retheme.sh` (one-off) |
+
+**Detail:** [PLAYABILITY.md](PLAYABILITY.md)
 
 ### Playability ops (Pi)
 
@@ -53,9 +57,9 @@ What works today, how to verify it, and what's next.
 | ~45 min | Nightly pass | `playability-maintenance.sh --mode full` |
 | ~4 h | Overnight grow | `overnight-playability-grow.sh --detach` |
 
-Status: `python3 scripts/diag/playability-status.py`
+Status: `python3 scripts/diag/playability-status.py` · grow monitor: `grow_monitor.py status`
 
-**Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`)
+**Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`, 3 plays/rail)
 
 ---
 
@@ -135,9 +139,9 @@ Full detail: [VOICE.md](VOICE.md)
 
 | Gate | Role |
 |------|------|
-| **`gate-lite.sh`** | Default deploy — M1–M4 + M2–M3 + M5 (if voice) |
+| **`gate-lite.sh`** | Default deploy (~2 min) — M1–M4 + M2–M3 + M5 (if voice) + 2-play smoke |
 | `pi-pre-couch-gate.sh` | Mac wrapper |
-| `MANGO_GATE_FULL=1` | Per-rail verified play sweep |
+| `MANGO_GATE_FULL=1` | Full gate (~5–8 min) — holistic M1/M4 + **3 plays/rail** + N3a |
 | `gate-m4-self-hosted.sh` | Self-hosted addon corpus |
 | `gate-live-iptv.sh` | Opt-in live only |
 
@@ -163,6 +167,8 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 | `config/stremio-export.example.json` | `/etc/mango/stremio-export.json` | Addon graph |
 | `config/catalog-filters.example.json` | `/etc/mango/catalog-filters.json` | Play ladder |
 | `config/catalog.example.yaml` | `/etc/mango/catalog.yaml` | Browse rails |
+| `config/rail-theme-profiles.yaml` | repo (or `MANGO_RAIL_THEME_PROFILES`) | Thematic fit for grow + retheme |
+| `config/rail-curation-overrides.example.yaml` | `/etc/mango/rail-curation-overrides.yaml` | Pins / blocks |
 | `config/catalog-live.example.yaml` | `/etc/mango/catalog-live.yaml` | Live rails |
 | — | `/etc/mango/playability.db` | Verified pools |
 | — | `/etc/mango/progress.db` | mpv resume |

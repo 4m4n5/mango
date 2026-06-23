@@ -13,6 +13,7 @@
 | [**`docs/ROADMAP.md`**](docs/ROADMAP.md) | **Milestones M1–M6** (single plan) |
 | [**`docs/STATUS.md`**](docs/STATUS.md) | **What's shipped · gates · config** |
 | [**`docs/ARCHITECTURE.md`**](docs/ARCHITECTURE.md) | **Stack · layers · foreground** |
+| [**`docs/PLAYABILITY.md`**](docs/PLAYABILITY.md) | **Playability · grow · thematic rails** |
 | [**`docs/OPS.md`**](docs/OPS.md) | **Pi ops** — bring-up, gamepad, troubleshooting |
 | [**`docs/DEPLOY.md`**](docs/DEPLOY.md) | **Pi deploy — git only, never rsync** |
 | [`docs/VOICE.md`](docs/VOICE.md) | Voice pipeline (M5) |

@@ -21,7 +21,7 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 | `movies-india-trending` | **Bharat Binge** recent + surprise + top_rated (85%) · IndiaStreams recmov/popmov (15%) | Bharat primary; IndiaStreams demoted (low hit-rate) |
 | `movies-classics` | Cinemeta `imdbRating` | Anchor |
 | `movies-comedy` | **91223** | 100% source; pool top-up not swap |
-| `movies-quick-watches` | **86934** streaming + **84444** stand-up + **3885** RT100 | Shorter/easier picks — no classics/week-overlap lists |
+| `movies-quick-watches` | **86934** (35%) + **84444** (30%) + **3885** (20%) + Cinemeta `year` (15%) | Shorter/easier — no overlap lists 2236/83666/14 |
 | `movies-documentaries` | **84677** | 100%; enable in mango import |
 | `series-global-popular` | Cinemeta `top` 0.8 + **105797** | Dropped 88303 (40%); daily picks 100% probe |
 | `series-india-picks` | **Bharat Binge** recent + latest_episodes + top_rated (85%) · IndiaStreams trendingtv (10%) · Cinemeta `top` (5%) | Fresh Hindi OTT; IndiaStreams demoted |
@@ -61,6 +61,17 @@ bash scripts/m4-addons/mdblist-catalog-pipeline.sh check-import
 
 Resolve ad-hoc list URLs: `python3 scripts/diag/mdblist-inventory.py resolve user/list-slug`
 
+
+## Thematic enforcement (grow + retheme)
+
+**Ongoing:** `rail-theme-gate` scores title metadata on every `rail_pool` upsert during grow, global link, and verify. Profiles: `config/rail-theme-profiles.yaml`.
+
+**One-off:** `bash scripts/m3-play/playability/rail-pool-retheme.sh` — prune mismatches and relocate to best-fit or anchor rails.
+
+India rails use **strict** profiles (`min_fit: 14`) — Indian titles only, not western hits popular in India.
+
+Full detail: [docs/PLAYABILITY.md](../docs/PLAYABILITY.md)
+
 ## Manual rail curation (pins / blocks)
 
 Override automatic catalog picks for couch-critical titles (e.g. **India's Got Latent** on `series-comedy`).
@@ -84,7 +95,3 @@ bash scripts/m3-play/playability/rail-curation.sh pin remove --rail series-comed
 Demoted candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.88303`, `mdblist.84401`, `mdblist.83666`, `mdblist.63182` (new on reality rail).
 
 **Stream gate couch exemplars** (`config/stream-gate-fixtures.json`): IGL + Panchayat are **soft** — track Indian series streams without blocking deploy.
-
-## Next phase
-
-Stream play orchestrator (N3a): [`docs/archive/tasks/phase-n3-stream-orchestrator.md`](../docs/archive/tasks/phase-n3-stream-orchestrator.md)

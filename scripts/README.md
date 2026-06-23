@@ -23,7 +23,7 @@ Scripts are organized by **milestone** (M1–M6). Legacy `phase-*` trees were re
 ```bash
 bash scripts/pi-pre-couch-gate.sh          # default (~1–2 min)
 bash scripts/gate-lite.sh                  # same, on Pi
-MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh  # ~5–8 min, 3 plays/rail
 bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
 ```
 
@@ -91,6 +91,8 @@ diag/            manual diagnostics
 | `diag/playability-status.py` | Pool depth (catalog-service must be up) |
 | `diag/grow_monitor.py` | **Grow monitor** — baseline, live status, watch, assess |
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
+| `m3-play/playability/rail-pool-retheme.sh` | Thematic pool prune/relocate (manual) |
+| `m3-play/playability/rail-curation.sh` | Pins / blocks |
 
 ## Mac → Pi
 
