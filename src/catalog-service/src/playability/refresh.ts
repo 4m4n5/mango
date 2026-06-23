@@ -196,7 +196,12 @@ async function refreshAllRailsGrow(
   const mode = options.mode ?? 'grow';
   const preset = resolveGrowPreset(options.growPreset);
   const uniqueVerifiedBefore = await getUniqueVerifiedLibraryCount();
-  const rails = railsForGrowPass(core.browsableRails());
+  const browsable = core.browsableRails();
+  const status = await getPlayabilityStatus(browsable.map((rail) => rail.id));
+  const verifiedPoolByRail = new Map(
+    status.rails.map((rail) => [rail.rail_id, rail.verified_pool]),
+  );
+  const rails = railsForGrowPass(browsable, { verifiedPoolByRail });
   const railSummaries: RefreshRailSummary[] = [];
   const prevGrowPass = process.env.MANGO_PLAYABILITY_GROW_PASS;
   process.env.MANGO_PLAYABILITY_GROW_PASS = '1';

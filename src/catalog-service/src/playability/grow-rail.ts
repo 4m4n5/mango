@@ -141,7 +141,38 @@ export async function growRail(
   const startedAt = Date.now();
 
   const before = await getRailPlayabilityStatus(rail.id);
-  const growTarget = resolveGrowTarget(rail.playability, before.verified_pool);
+  const growTarget = resolveGrowTarget(rail.playability, before.verified_pool, rail.id);
+  if (growTarget <= 0) {
+    return {
+      rail_id: rail.id,
+      label: rail.label,
+      ok: before.verified_pool >= rail.playability.min_display,
+      grow_target: 0,
+      fresh_verified: 0,
+      probe_verified: 0,
+      pool_growth: 0,
+      grow_target_met: true,
+      growth_quota: 0,
+      verified_added: 0,
+      growth_quota_met: true,
+      pool_target: rail.playability.pool_target,
+      candidate_limit: 0,
+      attempts: 0,
+      min_display: rail.playability.min_display,
+      before,
+      after: before,
+      candidates_seen: 0,
+      linked_existing: 0,
+      linked_global: 0,
+      verified: 0,
+      failed: 0,
+      skipped_existing: 0,
+      skipped_recent_failed: 0,
+      exhausted: false,
+      grow_loops: 0,
+      results: [],
+    };
+  }
   const growthPass: GrowthPassState = createGrowthPassState(
     [rail as BrowsableRail],
     new Map([[rail.id, growTarget]]),

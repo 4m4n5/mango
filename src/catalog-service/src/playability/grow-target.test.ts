@@ -28,6 +28,23 @@ test('resolveGrowTarget doubles when verified pool is below display_limit', () =
   assert.equal(resolveGrowTarget(base, 50), 20);
 });
 
+test('resolveGrowTarget returns 0 for anchor rails at pool_target when diet enabled', () => {
+  const prev = process.env.MANGO_GROW_ANCHOR_DIET;
+  delete process.env.MANGO_GROW_ANCHOR_DIET;
+  try {
+    assert.equal(resolveGrowTarget(base, 60, 'movies-global-popular'), 0);
+    assert.equal(resolveGrowTarget(base, 8, 'movies-global-popular'), 40);
+    process.env.MANGO_GROW_ANCHOR_DIET = '0';
+    assert.equal(resolveGrowTarget(base, 60, 'movies-global-popular'), 20);
+  } finally {
+    if (prev === undefined) {
+      delete process.env.MANGO_GROW_ANCHOR_DIET;
+    } else {
+      process.env.MANGO_GROW_ANCHOR_DIET = prev;
+    }
+  }
+});
+
 test('effectiveGrowPerPass defaults from yaml and honors env override', () => {
   assert.equal(effectiveGrowPerPass(base), 20);
   const previous = process.env.MANGO_GROW_PER_PASS;

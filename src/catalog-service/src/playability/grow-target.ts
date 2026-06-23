@@ -1,4 +1,5 @@
 import type { RailPlayabilityConfig } from '../rails.js';
+import { anchorGrowDietEnabled, isAnchorRail } from './grow-anchors.js';
 
 export type GrowPresetId = 'quick' | 'nightly' | 'overnight';
 
@@ -52,16 +53,28 @@ export function normalizeRefreshMode(mode: string | undefined, fallback: Refresh
 /**
  * Per-rail grow target at session start.
  * Sparse rails (verified pool below display_limit) receive 2× the base target.
+ * Anchor rails at/above pool_target receive 0 when anchor diet is on (P1).
  */
 export function resolveGrowTarget(
   playability: RailPlayabilityConfig,
   verifiedPool: number,
+  railId?: string,
 ): number {
   const base = effectiveGrowPerPass(playability);
-  if (verifiedPool < playability.display_limit) {
-    return base * SPARSE_TIER_MULTIPLIER;
+  let target = verifiedPool < playability.display_limit
+    ? base * SPARSE_TIER_MULTIPLIER
+    : base;
+
+  if (
+    railId
+    && isAnchorRail(railId)
+    && anchorGrowDietEnabled()
+    && verifiedPool >= playability.pool_target
+  ) {
+    return 0;
   }
-  return base;
+
+  return target;
 }
 
 export function resolveGrowPreset(preset?: GrowPresetId): GrowPreset {

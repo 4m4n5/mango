@@ -15,8 +15,12 @@ except ImportError:  # pragma: no cover - Pi has PyYAML via catalog scripts
 
 DEFAULT_DISPLAY_LIMIT = 9
 DEFAULT_GROW_PER_PASS = 20
+DEFAULT_POOL_TARGET = 20
 SPARSE_MULTIPLIER = 2
 PROGRAM_PASS_RATE = 0.80
+THIN_POOL_FILL_RATIO = 0.50
+THIN_POOL_ALERT_MS = 48 * 60 * 60 * 1000
+ANCHOR_RAIL_IDS = frozenset({"movies-global-popular", "series-global-popular"})
 GROW_EVENT_KINDS = frozenset({"playability_growth", "playability_maintenance"})
 
 
@@ -24,6 +28,7 @@ GROW_EVENT_KINDS = frozenset({"playability_growth", "playability_maintenance"})
 class RailPlayabilityConfig:
     display_limit: int = DEFAULT_DISPLAY_LIMIT
     grow_per_pass: int = DEFAULT_GROW_PER_PASS
+    pool_target: int = DEFAULT_POOL_TARGET
 
 
 @dataclass(frozen=True)
@@ -57,11 +62,18 @@ class GrowSlaSummary:
 def resolve_grow_target(
     playability: RailPlayabilityConfig,
     verified_before: int,
+    rail_id: str | None = None,
 ) -> int:
     base = playability.grow_per_pass
-    if verified_before < playability.display_limit:
-        return base * SPARSE_MULTIPLIER
-    return base
+    target = base * SPARSE_MULTIPLIER if verified_before < playability.display_limit else base
+    if (
+        rail_id
+        and rail_id in ANCHOR_RAIL_IDS
+        and os.environ.get("MANGO_GROW_ANCHOR_DIET", "1") != "0"
+        and verified_before >= playability.pool_target
+    ):
+        return 0
+    return target
 
 
 def catalog_playability_path() -> Path:
@@ -116,6 +128,7 @@ def _ai_slot_configs(ai_dir: Path) -> dict[str, RailPlayabilityConfig]:
         configs[rail_id] = RailPlayabilityConfig(
             display_limit=int(play.get("display_limit") or DEFAULT_DISPLAY_LIMIT),
             grow_per_pass=int(play.get("grow_per_pass") or DEFAULT_GROW_PER_PASS),
+            pool_target=int(play.get("pool_target") or DEFAULT_POOL_TARGET),
         )
     return configs
 
@@ -137,6 +150,7 @@ def load_catalog_playability(path: Path | None = None) -> dict[str, RailPlayabil
         configs[str(rail["id"])] = RailPlayabilityConfig(
             display_limit=int(play.get("display_limit") or DEFAULT_DISPLAY_LIMIT),
             grow_per_pass=int(play.get("grow_per_pass") or DEFAULT_GROW_PER_PASS),
+            pool_target=int(play.get("pool_target") or DEFAULT_POOL_TARGET),
         )
 
     configs.update(_ai_slot_configs(ai_catalogs_dir()))
@@ -219,7 +233,7 @@ def assess_rail_sla(
     grow_target = (
         int(grow_target_raw)
         if grow_target_raw is not None
-        else resolve_grow_target(cfg, verified_before)
+        else resolve_grow_target(cfg, verified_before, str(rail_id))
     )
     probe_verified = _probe_verified(row)
     grow_target_met = row.get("grow_target_met")

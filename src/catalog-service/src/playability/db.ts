@@ -1116,6 +1116,55 @@ export async function clearRailSessions(railIds: string[]): Promise<void> {
   }
 }
 
+/** Verified pool depth for legacy / ops prune (active TTL only). */
+export async function countVerifiedRailPoolByRailIds(
+  railIds: string[],
+  nowMs = Date.now(),
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (railIds.length === 0) {
+    return counts;
+  }
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const placeholders = railIds.map(() => '?').join(', ');
+    const rows = db.prepare(`
+SELECT rp.rail_id, COUNT(*) AS c
+FROM rail_pool rp
+JOIN titles t ON t.type = rp.type AND t.id = rp.id
+WHERE rp.rail_id IN (${placeholders})
+  AND t.status = 'verified'
+  AND (t.expires_at IS NULL OR t.expires_at > ?)
+GROUP BY rp.rail_id;
+`).all(...railIds, nowMs) as Array<{ rail_id: string; c: number }>;
+    for (const row of rows) {
+      counts.set(row.rail_id, row.c);
+    }
+  } finally {
+    db.close();
+  }
+  return counts;
+}
+
+export async function deleteRailPoolForRailIds(railIds: string[]): Promise<number> {
+  if (railIds.length === 0) {
+    return 0;
+  }
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const placeholders = railIds.map(() => '?').join(', ');
+    const result = db.prepare(`
+DELETE FROM rail_pool
+WHERE rail_id IN (${placeholders});
+`).run(...railIds);
+    return result.changes;
+  } finally {
+    db.close();
+  }
+}
+
 function curatedPool(
   pool: RailPoolRow[],
   railId: string,

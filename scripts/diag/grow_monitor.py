@@ -17,6 +17,8 @@ from typing import Any
 # Import SLA helpers from sibling module (scripts/diag is on sys.path when run as script).
 from ops_grow_sla import (  # noqa: E402
     PROGRAM_PASS_RATE,
+    THIN_POOL_ALERT_MS,
+    THIN_POOL_FILL_RATIO,
     RailPlayabilityConfig,
     assess_rail_sla,
     collect_grow_rail_rows,
@@ -369,7 +371,34 @@ def _grow_target_for_rail(
     catalog: dict[str, RailPlayabilityConfig],
 ) -> int:
     cfg = catalog.get(rail_id, RailPlayabilityConfig())
-    return resolve_grow_target(cfg, verified_before)
+    return resolve_grow_target(cfg, verified_before, rail_id)
+
+
+def _thin_pool_rails(
+    grow_rail_ids: list[str],
+    current_rails: dict[str, int],
+    catalog: dict[str, RailPlayabilityConfig],
+    *,
+    baseline_age_ms: int,
+) -> list[dict[str, Any]]:
+    """Rails below THIN_POOL_FILL_RATIO of pool_target — alert when baseline is stale."""
+    thin: list[dict[str, Any]] = []
+    alert = baseline_age_ms >= THIN_POOL_ALERT_MS
+    for rail_id in grow_rail_ids:
+        cfg = catalog.get(rail_id, RailPlayabilityConfig())
+        target = cfg.pool_target
+        verified = int(current_rails.get(rail_id, 0))
+        ratio = verified / max(1, target)
+        if ratio >= THIN_POOL_FILL_RATIO:
+            continue
+        thin.append({
+            "rail_id": rail_id,
+            "verified": verified,
+            "pool_target": target,
+            "fill_pct": int(round(ratio * 100)),
+            "alert": alert,
+        })
+    return thin
 
 
 @dataclass(frozen=True)
@@ -455,6 +484,9 @@ def build_live_status(
 
     browse_count = len(rows)
     pass_rate = met_count / browse_count if browse_count else 0.0
+    baseline_age_ms = max(0, _now_ms() - int(baseline.get("created_at_ms") or 0))
+    thin_rails = _thin_pool_rails(grow_rail_ids, current.rails, catalog, baseline_age_ms=baseline_age_ms)
+    thin_alerts = [row for row in thin_rails if row.get("alert")]
     return {
         "baseline_path": str(baseline_path()),
         "baseline_created_at_ms": baseline.get("created_at_ms"),
@@ -472,6 +504,9 @@ def build_live_status(
         "program_pass": pass_rate >= PROGRAM_PASS_RATE if browse_count else False,
         "grow": detect_grow_state(),
         "extra_rails": extra_rails,
+        "thin_rails": thin_rails,
+        "thin_rail_alerts": thin_alerts,
+        "baseline_age_hours": round(baseline_age_ms / (60 * 60 * 1000), 1),
         "rails": [
             {
                 "rail_id": row.rail_id,
@@ -563,6 +598,25 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
         )
 
     extra = data.get("extra_rails") or {}
+    thin = data.get("thin_rails") or []
+    thin_alerts = data.get("thin_rail_alerts") or []
+    if thin:
+        lines.append("")
+        lines.append(f"thin rails (<{int(THIN_POOL_FILL_RATIO * 100)}% pool_target):")
+        for row in thin:
+            if not isinstance(row, dict):
+                continue
+            mark = " ⚠" if row.get("alert") else ""
+            lines.append(
+                f"  {row.get('rail_id')}: {row.get('verified')}/{row.get('pool_target')} "
+                f"({row.get('fill_pct')}%)"
+                f"{mark}",
+            )
+    if thin_alerts:
+        lines.append(
+            f"  alert: {len(thin_alerts)} rail(s) thin for >{THIN_POOL_ALERT_MS // (60 * 60 * 1000)}h "
+            f"(baseline age {data.get('baseline_age_hours', '?')}h)",
+        )
     if verbose and extra:
         lines.append("")
         lines.append("extra pool rails (not in grow pass):")
