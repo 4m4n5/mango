@@ -1,5 +1,5 @@
 import type { BrowsableRail, CatalogSourceRef } from '../rails.js';
-import { isBlockedCatalogText } from '../catalog-errors.js';
+import { isAddonRateLimitMessage, isBlockedCatalogText } from '../catalog-errors.js';
 import {
   allocateSourceLimits,
   mergeCompositeCandidates,
@@ -20,12 +20,29 @@ export type CandidateMeta = {
   title?: string;
   poster?: string;
   source?: string;
+  source_key?: string;
+  source_addon?: string;
+  source_catalog?: string;
 };
 
 export interface ListSource {
   readonly sourceId: string;
   readonly sourceType: ListSourceType;
   candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]>;
+}
+
+export type ListSourceFetchStats = {
+  source_key: string;
+  source_label: string;
+  requested: number;
+  returned: number;
+  errors: number;
+  rate_limited: number;
+  exhausted: boolean;
+};
+
+export interface SourceStatsListSource {
+  readLastSourceFetchStats(): ListSourceFetchStats[];
 }
 
 export type ResolvedCatalogSource = CatalogSourceRef & {
@@ -89,6 +106,7 @@ export async function fetchAddonCatalogCandidates(
   catalog: string,
   sourceLabel: string,
   options: { offset: number; limit: number },
+  source?: { sourceKey?: string; addon?: string; catalog?: string },
 ): Promise<CandidateMeta[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CATALOG_FETCH_TIMEOUT_MS);
@@ -121,6 +139,9 @@ export async function fetchAddonCatalogCandidates(
           title: previewTitle(preview),
           poster: previewPoster(preview),
           source: sourceLabel,
+          source_key: source?.sourceKey,
+          source_addon: source?.addon,
+          source_catalog: source?.catalog,
         };
       })
       .filter((candidate): candidate is CandidateMeta => candidate !== null);
@@ -133,6 +154,7 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
   readonly sourceType = 'addon_catalog' as const;
   private sourceOffsets = new Map<string, number>();
   private catalogExhausted = false;
+  private lastFetchStats: ListSourceFetchStats[] = [];
 
   constructor(
     readonly sourceId: string,
@@ -187,18 +209,50 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
 
   async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
     const start = this.sourceOffsets.get(this.cursorKey()) ?? options.offset;
-    const candidates = await fetchAddonCatalogCandidates(
-      this.manifestUrl,
-      this.contentType,
-      this.catalog,
-      this.sourceLabel,
-      { offset: start, limit: options.limit },
-    );
+    const key = this.cursorKey();
+    this.lastFetchStats = [];
+    let candidates: CandidateMeta[] = [];
+    try {
+      candidates = await fetchAddonCatalogCandidates(
+        this.manifestUrl,
+        this.contentType,
+        this.catalog,
+        this.sourceLabel,
+        { offset: start, limit: options.limit },
+        { sourceKey: key, addon: this.addonName, catalog: this.catalog },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.catalogExhausted = true;
+      this.lastFetchStats.push({
+        source_key: key,
+        source_label: this.sourceLabel,
+        requested: options.limit,
+        returned: 0,
+        errors: 1,
+        rate_limited: isAddonRateLimitMessage(message) ? 1 : 0,
+        exhausted: true,
+      });
+      throw error;
+    }
     this.sourceOffsets.set(this.cursorKey(), start + candidates.length);
     if (candidates.length < options.limit) {
       this.catalogExhausted = true;
     }
+    this.lastFetchStats.push({
+      source_key: key,
+      source_label: this.sourceLabel,
+      requested: options.limit,
+      returned: candidates.length,
+      errors: 0,
+      rate_limited: 0,
+      exhausted: this.catalogExhausted,
+    });
     return candidates;
+  }
+
+  readLastSourceFetchStats(): ListSourceFetchStats[] {
+    return [...this.lastFetchStats];
   }
 }
 
@@ -207,6 +261,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
   private sourceOffsets = new Map<string, number>();
   private exhaustedSources = new Set<string>();
   private hitrateWeightMultipliers = new Map<string, number>();
+  private lastFetchStats: ListSourceFetchStats[] = [];
 
   constructor(
     readonly sourceId: string,
@@ -263,6 +318,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
     const weights = this.sources.map((source) => this.sourceWeight(source));
     const perSourceLimits = allocateSourceLimits(limit, weights);
     const batches: WeightedCandidateBatch[] = [];
+    this.lastFetchStats = [];
 
     for (const [index, source] of this.sources.entries()) {
       const key = catalogSourceKey(source.addon, source.catalog);
@@ -275,11 +331,21 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
           source.catalog,
           source.sourceLabel,
           { offset: start, limit: fetchLimit },
+          { sourceKey: key, addon: source.addon, catalog: source.catalog },
         );
         this.sourceOffsets.set(key, start + candidates.length);
         if (candidates.length < fetchLimit) {
           this.exhaustedSources.add(key);
         }
+        this.lastFetchStats.push({
+          source_key: key,
+          source_label: source.sourceLabel,
+          requested: fetchLimit,
+          returned: candidates.length,
+          errors: 0,
+          rate_limited: 0,
+          exhausted: this.exhaustedSources.has(key),
+        });
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
@@ -287,12 +353,22 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
           candidates,
         });
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         console.warn(
           `composite source skipped rail=${this.sourceId} source=${source.sourceLabel}: ${
-            error instanceof Error ? error.message : String(error)
+            message
           }`,
         );
         this.exhaustedSources.add(key);
+        this.lastFetchStats.push({
+          source_key: key,
+          source_label: source.sourceLabel,
+          requested: fetchLimit,
+          returned: 0,
+          errors: 1,
+          rate_limited: isAddonRateLimitMessage(message) ? 1 : 0,
+          exhausted: true,
+        });
         batches.push({
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
@@ -304,4 +380,12 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
 
     return mergeCompositeCandidates(batches, limit, 0);
   }
+
+  readLastSourceFetchStats(): ListSourceFetchStats[] {
+    return [...this.lastFetchStats];
+  }
+}
+
+export function isSourceStatsListSource(source: ListSource): source is ListSource & SourceStatsListSource {
+  return typeof (source as unknown as SourceStatsListSource).readLastSourceFetchStats === 'function';
 }

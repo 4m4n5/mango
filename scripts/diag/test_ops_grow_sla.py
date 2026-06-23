@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import unittest
+import os
 
 from ops_grow_sla import (
     PROGRAM_PASS_RATE,
@@ -20,6 +21,19 @@ class GrowSlaTests(unittest.TestCase):
         cfg = RailPlayabilityConfig(display_limit=9, grow_per_pass=20)
         self.assertEqual(resolve_grow_target(cfg, 8), 40)
         self.assertEqual(resolve_grow_target(cfg, 9), 20)
+
+    def test_anchor_rails_are_included_by_default(self) -> None:
+        cfg = RailPlayabilityConfig(display_limit=9, grow_per_pass=20, pool_target=20)
+        previous = os.environ.pop("MANGO_GROW_ANCHOR_DIET", None)
+        try:
+            self.assertEqual(resolve_grow_target(cfg, 120, "movies-global-popular"), 20)
+            os.environ["MANGO_GROW_ANCHOR_DIET"] = "1"
+            self.assertEqual(resolve_grow_target(cfg, 120, "movies-global-popular"), 0)
+        finally:
+            if previous is None:
+                os.environ.pop("MANGO_GROW_ANCHOR_DIET", None)
+            else:
+                os.environ["MANGO_GROW_ANCHOR_DIET"] = previous
 
     def test_assess_rail_met(self) -> None:
         row = {
@@ -119,8 +133,33 @@ class GrowSlaTests(unittest.TestCase):
         self.assertEqual(summary.met_count, 8)
         self.assertEqual(summary.browse_rail_count, 10)
         self.assertAlmostEqual(summary.program_pass_rate, 0.8)
-        self.assertTrue(summary.program_pass)
+        self.assertFalse(summary.program_pass)
         self.assertGreaterEqual(PROGRAM_PASS_RATE, 0.8)
+
+    def test_all_rails_required_for_program_pass(self) -> None:
+        events = [
+            {
+                "kind": "playability_growth",
+                "payload": {
+                    "mode": "grow",
+                    "rails": [
+                        {
+                            "rail_id": f"rail-{index}",
+                            "grow_target": 20,
+                            "new_to_rail_verified": 20,
+                            "grow_target_met": True,
+                            "verified_before": 20,
+                        }
+                        for index in range(13)
+                    ],
+                },
+            },
+        ]
+        summary = summarize_grow_sla(events, catalog={})
+        assert summary is not None
+        self.assertEqual(summary.met_count, 13)
+        self.assertEqual(summary.browse_rail_count, 13)
+        self.assertTrue(summary.program_pass)
 
 
 if __name__ == "__main__":

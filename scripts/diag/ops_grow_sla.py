@@ -17,7 +17,7 @@ DEFAULT_DISPLAY_LIMIT = 9
 DEFAULT_GROW_PER_PASS = 20
 DEFAULT_POOL_TARGET = 20
 SPARSE_MULTIPLIER = 2
-PROGRAM_PASS_RATE = 0.80
+PROGRAM_PASS_RATE = 0.80  # Warning threshold only; strict pass requires every rail.
 THIN_POOL_FILL_RATIO = 0.50
 THIN_POOL_ALERT_MS = 48 * 60 * 60 * 1000
 ANCHOR_RAIL_IDS = frozenset({"movies-global-popular", "series-global-popular"})
@@ -69,7 +69,7 @@ def resolve_grow_target(
     if (
         rail_id
         and rail_id in ANCHOR_RAIL_IDS
-        and os.environ.get("MANGO_GROW_ANCHOR_DIET", "1") != "0"
+        and os.environ.get("MANGO_GROW_ANCHOR_DIET") == "1"
         and verified_before >= playability.pool_target
     ):
         return 0
@@ -188,6 +188,8 @@ def _verified_before(row: dict[str, Any]) -> int:
 
 
 def _fresh_verified(row: dict[str, Any]) -> int:
+    if row.get("new_to_rail_verified") is not None:
+        return int(row["new_to_rail_verified"])
     if row.get("fresh_verified") is not None:
         return int(row["fresh_verified"])
     if row.get("probe_verified") is not None:
@@ -208,6 +210,7 @@ def normalize_grow_rail_row(row: dict[str, Any]) -> dict[str, Any]:
         "verified_before": _verified_before(row),
         "grow_target": row.get("grow_target"),
         "fresh_verified": _fresh_verified(row),
+        "new_to_rail_verified": _fresh_verified(row),
         "probe_verified": _probe_verified(row),
         "pool_growth": row.get("pool_growth"),
         "linked_existing": row.get("linked_existing"),
@@ -215,6 +218,8 @@ def normalize_grow_rail_row(row: dict[str, Any]) -> dict[str, Any]:
         "exhausted": bool(row.get("exhausted")),
         "compose_escalated": bool(row.get("compose_escalated")),
         "compose_fallback_level": row.get("compose_fallback_level"),
+        "failure_category": row.get("failure_category"),
+        "repair_suggestions": row.get("repair_suggestions"),
     }
 
 
@@ -264,7 +269,10 @@ def assess_rail_sla(
             reason=None,
         )
 
-    if exhausted:
+    failure_category = row.get("failure_category")
+    if isinstance(failure_category, str) and failure_category:
+        reason = failure_category.replace("_", " ")
+    elif exhausted:
         reason = "catalog exhausted below target"
         if compose_escalated:
             reason += f" (compose fallback {fallback_level})"
@@ -360,7 +368,7 @@ def summarize_grow_sla(
         browse_rail_count=browse_count,
         met_count=met_count,
         warn_count=warn_count,
-        program_pass=pass_rate >= PROGRAM_PASS_RATE,
+        program_pass=browse_count > 0 and met_count == browse_count,
         program_pass_rate=pass_rate,
         compose_escalated_rails=[
             item.rail_id for item in assessments if item.compose_escalated
@@ -375,10 +383,11 @@ def summarize_grow_sla(
 
 def format_grow_sla_section(summary: GrowSlaSummary) -> str:
     pct = int(round(summary.program_pass_rate * 100))
-    verdict = "PASS" if summary.program_pass else "WARN"
+    verdict = "PASS" if summary.program_pass else "FAIL"
+    warning = "" if summary.program_pass_rate >= PROGRAM_PASS_RATE else f" · below {int(PROGRAM_PASS_RATE * 100)}% warn line"
     lines = [
         f"Program: {summary.met_count}/{summary.browse_rail_count} rails met grow target "
-        f"({pct}%) — {verdict} (≥{int(PROGRAM_PASS_RATE * 100)}%)",
+        f"({pct}%) — {verdict} (strict all-rails SLA{warning})",
         "",
         f"  {'rail':28} {'tgt':>4} {'probe':>5} {'met':>4} {'sparse':>6} {'exh':>4}  notes",
         "  " + "-" * 72,

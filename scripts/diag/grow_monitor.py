@@ -626,7 +626,7 @@ def build_live_status(
         "rails_met_target": met_count,
         "rails_total": browse_count,
         "program_pass_rate": pass_rate,
-        "program_pass": pass_rate >= PROGRAM_PASS_RATE if browse_count else False,
+        "program_pass": met_count == browse_count if browse_count else False,
         "grow": detect_grow_state(),
         "verify_since_baseline": verify_totals,
         "extra_rails": extra_rails,
@@ -793,13 +793,28 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
 
 def assess_refresh_json(path: Path, catalog: dict[str, RailPlayabilityConfig] | None = None) -> str:
     payload = json.loads(path.read_text(encoding="utf-8"))
+    header = f"assess: {path.name}\n"
+    if payload.get("ok") is False and not payload.get("rails"):
+        category = payload.get("failure_category") or "refresh_failed"
+        stage = payload.get("stage") or "-"
+        error = payload.get("error") or "-"
+        lines = [
+            header.rstrip("\n"),
+            f"refresh failed: {category} stage={stage}",
+            f"error: {error}",
+        ]
+        suggestions = payload.get("repair_suggestions")
+        if isinstance(suggestions, list) and suggestions:
+            lines.append("repair suggestions:")
+            for suggestion in suggestions:
+                lines.append(f"  - {suggestion}")
+        return "\n".join(lines) + "\n"
     summary = summarize_grow_sla(
         [{"kind": "playability_growth", "payload": payload}],
         catalog=catalog,
     )
     if summary is None:
         return f"no grow rails in {path.name}\n"
-    header = f"assess: {path.name}\n"
     unique_before = payload.get("unique_verified_before")
     unique_after = payload.get("unique_verified_after")
     unique_delta = payload.get("unique_verified_delta")
@@ -903,9 +918,9 @@ def cmd_assess(args: argparse.Namespace) -> int:
     if path is None or not path.is_file():
         print("no refresh-playability JSON found in ops cache", file=sys.stderr)
         return 1
+    payload = json.loads(path.read_text(encoding="utf-8"))
     text = assess_refresh_json(path)
     if args.json:
-        payload = json.loads(path.read_text(encoding="utf-8"))
         rows = collect_grow_rail_rows([{"kind": "playability_growth", "payload": payload}])
         summary = summarize_grow_sla(
             [{"kind": "playability_growth", "payload": payload}],
@@ -920,6 +935,13 @@ def cmd_assess(args: argparse.Namespace) -> int:
         }, indent=2, default=str))
     else:
         print(text, end="")
+    if payload.get("ok") is False:
+        return 1
+    summary = summarize_grow_sla(
+        [{"kind": "playability_growth", "payload": payload}],
+    )
+    if summary is not None and not summary.program_pass:
+        return 1
     return 0
 
 

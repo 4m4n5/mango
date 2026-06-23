@@ -11,5 +11,5 @@ export function isAnchorRail(railId: string): boolean {
 
 /** When false, anchors use the same grow target as other rails. */
 export function anchorGrowDietEnabled(): boolean {
-  return process.env.MANGO_GROW_ANCHOR_DIET !== '0';
+  return process.env.MANGO_GROW_ANCHOR_DIET === '1';
 }

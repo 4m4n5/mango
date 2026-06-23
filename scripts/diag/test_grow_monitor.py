@@ -370,6 +370,28 @@ class GrowMonitorTests(unittest.TestCase):
             text = assess_refresh_json(path)
             self.assertIn("unique library: 904 titles (+4 this run, was 900)", text)
 
+    def test_assess_refresh_json_formats_structured_failure(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "refresh-playability-failed.json"
+            path.write_text(
+                json.dumps({
+                    "ok": False,
+                    "mode": "grow",
+                    "duration_ms": 123,
+                    "stage": "core_boot",
+                    "failure_category": "rate_limited",
+                    "error": "Too many addon requests with your token, please slow down.",
+                    "repair_suggestions": [
+                        "Use playability VOD boot or stagger addon access.",
+                    ],
+                    "rails": [],
+                }),
+                encoding="utf-8",
+            )
+            text = assess_refresh_json(path)
+            self.assertIn("refresh failed: rate_limited stage=core_boot", text)
+            self.assertIn("repair suggestions:", text)
+
     def test_list_grow_rail_ids_orders_ai_last(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             catalog = Path(tmp) / "catalog.yaml"

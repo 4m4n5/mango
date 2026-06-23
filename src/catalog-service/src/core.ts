@@ -133,6 +133,16 @@ type AddonExport = {
   manifest?: { name?: string };
 };
 
+type NormalizedAddonExport = {
+  name: string;
+  manifestUrl: string;
+};
+
+export type CatalogCoreCreateOptions = {
+  exportPath?: string;
+  purpose?: 'default' | 'playability_vod';
+};
+
 type ManifestResource = string | { name?: string; types?: string[] };
 
 type Manifest = {
@@ -265,7 +275,7 @@ async function mapInBatches<T, R>(
   return results;
 }
 
-function normalizeAddons(data: unknown): Array<{ name: string; manifestUrl: string }> {
+function normalizeAddons(data: unknown): NormalizedAddonExport[] {
   const root = data as { addons?: AddonExport[] | { addons?: AddonExport[] } };
   const raw = Array.isArray(root?.addons)
     ? root.addons
@@ -281,7 +291,46 @@ function normalizeAddons(data: unknown): Array<{ name: string; manifestUrl: stri
       const name = addon.name || manifest.name || new URL(manifestUrl).hostname;
       return { name: String(name), manifestUrl: String(manifestUrl) };
     })
-    .filter((addon): addon is { name: string; manifestUrl: string } => addon !== null);
+    .filter((addon): addon is NormalizedAddonExport => addon !== null);
+}
+
+function liveAddonNames(config: LiveRailConfig | null): Set<string> {
+  const names = new Set<string>();
+  if (!config) {
+    return names;
+  }
+  for (const source of config.sources) {
+    names.add(normalizeAddonName(source.addon));
+  }
+  return names;
+}
+
+function looksLikeLiveAddon(addon: NormalizedAddonExport, liveNames: ReadonlySet<string>): boolean {
+  const normalized = normalizeAddonName(addon.name);
+  if (liveNames.has(normalized)) {
+    return true;
+  }
+  if (/^mango live\b|nexotv|iptv/i.test(addon.name)) {
+    return true;
+  }
+  try {
+    const url = new URL(addon.manifestUrl);
+    const port = Number(url.port);
+    if (Number.isInteger(port) && port >= 7000 && port <= 7009) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+export function filterVodAddonExports(
+  addons: NormalizedAddonExport[],
+  liveConfig: LiveRailConfig | null,
+): NormalizedAddonExport[] {
+  const liveNames = liveAddonNames(liveConfig);
+  return addons.filter((addon) => !looksLikeLiveAddon(addon, liveNames));
 }
 
 async function fetchJson(url: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> {
@@ -493,26 +542,22 @@ export class CatalogCore {
     private readonly liveRailConfigError: Error | null,
   ) {}
 
-  static async create(exportPath = process.env.MANGO_STREMIO_EXPORT || DEFAULT_EXPORT_PATH): Promise<CatalogCore> {
-    const [coreStatus, exportData] = await Promise.all([
+  static async create(
+    exportPathOrOptions: string | CatalogCoreCreateOptions = process.env.MANGO_STREMIO_EXPORT || DEFAULT_EXPORT_PATH,
+  ): Promise<CatalogCore> {
+    const options: CatalogCoreCreateOptions = typeof exportPathOrOptions === 'string'
+      ? { exportPath: exportPathOrOptions }
+      : exportPathOrOptions;
+    const exportPath = options.exportPath || process.env.MANGO_STREMIO_EXPORT || DEFAULT_EXPORT_PATH;
+    const purpose = options.purpose || (
+      process.env.MANGO_CATALOG_PURPOSE === 'playability_vod'
+      || process.env.MANGO_PLAYABILITY_VOD_ONLY === '1'
+        ? 'playability_vod'
+        : 'default'
+    );
+    const [coreStatus, exportData, filterConfig, railConfigResult, liveRailConfigResult, aiCatalogRails] = await Promise.all([
       bootStremioCore(),
       readFile(exportPath, 'utf8').then((raw) => JSON.parse(raw) as unknown),
-    ]);
-    const exported = normalizeAddons(exportData);
-    if (exported.length === 0) {
-      throw new CatalogError(500, `${exportPath} has no addon manifest URLs`);
-    }
-
-    const addons: Addon[] = [];
-    for (const addon of exported) {
-      const manifest = await fetchJson(addon.manifestUrl) as Manifest;
-      addons.push({
-        name: manifest.name || addon.name,
-        manifestUrl: addon.manifestUrl,
-        manifest,
-      });
-    }
-    const [filterConfig, railConfigResult, liveRailConfigResult] = await Promise.all([
       loadFilterConfig(),
       loadRailConfig()
         .then((config) => ({ config, error: null }))
@@ -526,7 +571,29 @@ export class CatalogCore {
           config: null,
           error: error instanceof Error ? error : new Error(String(error)),
         })),
+      loadAiCatalogRails().catch((error: unknown) => {
+        console.warn(
+          `ai catalogs load failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return [];
+      }),
     ]);
+    const exported = purpose === 'playability_vod'
+      ? filterVodAddonExports(normalizeAddons(exportData), liveRailConfigResult.config)
+      : normalizeAddons(exportData);
+    if (exported.length === 0) {
+      throw new CatalogError(500, `${exportPath} has no addon manifest URLs`);
+    }
+
+    const addons: Addon[] = [];
+    for (const addon of exported) {
+      const manifest = await fetchJson(addon.manifestUrl) as Manifest;
+      addons.push({
+        name: manifest.name || addon.name,
+        manifestUrl: addon.manifestUrl,
+        manifest,
+      });
+    }
     return new CatalogCore(
       coreStatus,
       addons,
@@ -535,12 +602,7 @@ export class CatalogCore {
       railConfigResult.error,
       liveRailConfigResult.config,
       liveRailConfigResult.error,
-    ).withAiCatalogRails(await loadAiCatalogRails().catch((error: unknown) => {
-      console.warn(
-        `ai catalogs load failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return [];
-    }));
+    ).withAiCatalogRails(aiCatalogRails);
   }
 
   private withAiCatalogRails(rails: AiCatalogRail[]): this {

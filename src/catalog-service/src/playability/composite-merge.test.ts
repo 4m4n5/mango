@@ -54,3 +54,68 @@ test('allocateSourceLimits honors weights with minimum one per source', () => {
   assert.deepEqual(allocateSourceLimits(10, [0.6, 0.4]), [6, 4]);
   assert.deepEqual(allocateSourceLimits(3, [0.5, 0.5]), [2, 1]);
 });
+
+test('mergeCompositeCandidates interleaves weighted sources instead of source-order monopoly', () => {
+  const batches: WeightedCandidateBatch[] = [
+    {
+      sourceIndex: 0,
+      sourceLabel: 'primary',
+      weight: 1,
+      candidates: Array.from({ length: 8 }, (_, index) => ({
+        id: `p${index}`,
+        type: 'movie',
+        title: `Primary ${index}`,
+      })),
+    },
+    {
+      sourceIndex: 1,
+      sourceLabel: 'fallback',
+      weight: 1,
+      candidates: Array.from({ length: 8 }, (_, index) => ({
+        id: `f${index}`,
+        type: 'movie',
+        title: `Fallback ${index}`,
+      })),
+    },
+  ];
+  const previous = process.env.MANGO_GROW_SOURCE_CAP_RATIO;
+  process.env.MANGO_GROW_SOURCE_CAP_RATIO = '0.55';
+  try {
+    const merged = mergeCompositeCandidates(batches, 10);
+    assert.ok(merged.some((item) => item.source === 'fallback'));
+    assert.ok(merged.filter((item) => item.source === 'primary').length <= 6);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MANGO_GROW_SOURCE_CAP_RATIO;
+    } else {
+      process.env.MANGO_GROW_SOURCE_CAP_RATIO = previous;
+    }
+  }
+});
+
+test('mergeCompositeCandidates caps near-duplicate title clusters', () => {
+  const previous = process.env.MANGO_GROW_TITLE_CLUSTER_CAP;
+  process.env.MANGO_GROW_TITLE_CLUSTER_CAP = '2';
+  try {
+    const merged = mergeCompositeCandidates([
+      {
+        sourceIndex: 0,
+        sourceLabel: 'sequels',
+        weight: 1,
+        candidates: [
+          { id: 'a1', type: 'movie', title: 'Example Saga 2021' },
+          { id: 'a2', type: 'movie', title: 'Example Saga 2022' },
+          { id: 'a3', type: 'movie', title: 'Example Saga 2023' },
+          { id: 'b1', type: 'movie', title: 'Different Pick' },
+        ],
+      },
+    ], 10);
+    assert.deepEqual(merged.map((item) => item.id), ['a1', 'a2', 'b1']);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.MANGO_GROW_TITLE_CLUSTER_CAP;
+    } else {
+      process.env.MANGO_GROW_TITLE_CLUSTER_CAP = previous;
+    }
+  }
+});

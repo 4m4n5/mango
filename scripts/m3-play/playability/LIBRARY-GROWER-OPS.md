@@ -83,7 +83,9 @@ MANGO_SOURCE_HITRATE_QUICK_PER_SOURCE=1
 MANGO_SOURCE_HITRATE_NIGHTLY_PER_SOURCE=3
 ```
 
-Grow reads the report and scales composite/AI catalog source weights (`MANGO_GROW_HITRATE_WEIGHTS=1`, default on).
+Grow reads the report and scales composite/AI catalog source weights (`MANGO_GROW_HITRATE_WEIGHTS=1`, default on). Each grow also writes runtime-only source outcomes to `~/.cache/mango/source-grow/latest.json`: scanned, queued, verified, theme-rejected, catalog errors, rate limits, exhaustion, and multiplier. These weights are advisory cache state only; catalog YAML and theme profiles are never edited automatically.
+
+Demoted sources keep a probation path: the weighted allocator still reserves at least one fetch slot per configured source, and multipliers are clamped to a small floor. If a rail previously met target under weighted selection and later regresses, the runtime multipliers for that rail's touched sources reset to neutral.
 
 Disable: `MANGO_SOURCE_HITRATE_PREFLIGHT=0` and/or `MANGO_GROW_HITRATE_WEIGHTS=0`.
 
@@ -104,10 +106,11 @@ Default: `MANGO_GROW_LINK_MAX=0` (off). Force off: `MANGO_GROW_GLOBAL_LINK=0`.
 | `unique_verified_delta` | Net new unique titles since grow baseline / refresh start |
 | `pool slots` / `verified_pool` | Per-rail pool entries summed — same title in 3 rails counts **3** |
 | `fresh_verified` / `probe_verified` | New probe-verified titles this pass per rail — **counts toward target** |
+| `new_to_rail_verified` | Strict SLA alias for the same fresh new-to-rail probe count |
 | `linked_existing` | Verified titles linked from library without probing — metrics only |
 | `pool_growth` | Verified pool delta per rail (fresh + links) — informational |
 
-The grow loop exits when `fresh_verified >= grow_target`, not when pool reshuffles alone.
+The grow loop exits when `new_to_rail_verified >= grow_target`, not when pool reshuffles alone.
 Grow monitor header shows **unique titles** separately from **pool slots**.
 
 ## Head tombstone advance
@@ -126,9 +129,28 @@ The **Library Grower SLA** block summarizes the latest **grow** phase per browse
 | Sparse tier | When `verified_before < display_limit` (9), target is **2×** (40) |
 | Count toward target | **Fresh probe-verified** (`fresh_verified` / `probe_verified`) |
 | Pool delta | `pool_growth` — includes links; **not** used for SLA pass |
-| Program pass | **≥80%** of rails met target |
-| Exhaustion below target | **WARN** in report; nightly gate still passes |
+| Program pass | **All active grow rails** met target (`12/13` is FAIL) |
+| 80% line | Warning context only, not pass criteria |
+| Exhaustion below target | FAIL with a classified cause and repair suggestion |
 | AI compose escalation | Logged per rail (`compose_escalated`, `compose_fallback_level`) |
+
+Failure categories:
+
+| Category | Meaning |
+|----------|---------|
+| `rate_limited` | Addon/catalog rate limit blocked source fetch or catalog boot |
+| `source_exhausted` | Configured sources returned no usable candidates |
+| `theme_rejected` | Candidates were rejected by strict rail theme profiles |
+| `low_stream_hit_rate` | Candidates resolved poorly during verification |
+| `same_theme_fallback_exhausted` | Same-theme source space was tried but could not fill the target |
+| `time_budget_exceeded` | Grow wall time or probe attempt budget ended first |
+| `catalog_boot_failed` | Required VOD catalog boot failed before rails ran |
+
+Structured failed refresh JSON is valid report input:
+
+```bash
+python3 scripts/diag/grow_monitor.py assess --refresh-json ~/.cache/mango/ops/refresh-<run>.json
+```
 
 ### Event sources
 

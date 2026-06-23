@@ -28,14 +28,14 @@ test('resolveGrowTarget doubles when verified pool is below display_limit', () =
   assert.equal(resolveGrowTarget(base, 50), 20);
 });
 
-test('resolveGrowTarget returns 0 for anchor rails at pool_target when diet enabled', () => {
+test('resolveGrowTarget includes anchor rails by default and diets only when explicitly enabled', () => {
   const prev = process.env.MANGO_GROW_ANCHOR_DIET;
   delete process.env.MANGO_GROW_ANCHOR_DIET;
   try {
-    assert.equal(resolveGrowTarget(base, 60, 'movies-global-popular'), 0);
-    assert.equal(resolveGrowTarget(base, 8, 'movies-global-popular'), 40);
-    process.env.MANGO_GROW_ANCHOR_DIET = '0';
     assert.equal(resolveGrowTarget(base, 60, 'movies-global-popular'), 20);
+    assert.equal(resolveGrowTarget(base, 8, 'movies-global-popular'), 40);
+    process.env.MANGO_GROW_ANCHOR_DIET = '1';
+    assert.equal(resolveGrowTarget(base, 60, 'movies-global-popular'), 0);
   } finally {
     if (prev === undefined) {
       delete process.env.MANGO_GROW_ANCHOR_DIET;

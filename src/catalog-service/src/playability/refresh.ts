@@ -15,6 +15,7 @@ import {
 import {
   ingestPaginatedCandidates,
   type IngestCandidatesStats,
+  type SourceIngestStats,
 } from './candidate-ingest.js';
 import {
   candidateKey,
@@ -87,6 +88,7 @@ export type RefreshRailSummary = {
   grow_target?: number;
   fresh_verified?: number;
   probe_verified?: number;
+  new_to_rail_verified?: number;
   pool_growth?: number;
   grow_target_met?: boolean;
   /** @deprecated Use grow_target */
@@ -98,6 +100,9 @@ export type RefreshRailSummary = {
   grow_loops?: number;
   attempts?: number;
   sources_touched?: number;
+  source_stats?: SourceIngestStats[];
+  failure_category?: string;
+  repair_suggestions?: string[];
   min_display: number;
   candidates_seen: number;
   linked_existing: number;
@@ -129,6 +134,9 @@ export type RefreshAllResult = {
   pruned_pool_entries: number;
   ingest_fresh_queued: number;
   ingest_scanned: number;
+  strict_grow_sla?: boolean;
+  failure_category?: string;
+  repair_suggestions?: string[];
   /** Global library size — distinct active verified titles (not rail pool slots). */
   unique_verified_before?: number;
   unique_verified_after?: number;
@@ -166,6 +174,7 @@ function growResultToRailSummary(
     grow_target: result.grow_target,
     fresh_verified: result.fresh_verified,
     probe_verified: result.probe_verified,
+    new_to_rail_verified: result.new_to_rail_verified,
     pool_growth: result.pool_growth,
     grow_target_met: result.grow_target_met,
     growth_quota: result.growth_quota,
@@ -174,6 +183,9 @@ function growResultToRailSummary(
     grow_loops: result.grow_loops,
     attempts: result.attempts,
     sources_touched: result.sources_touched,
+    source_stats: result.source_stats,
+    failure_category: result.failure_category,
+    repair_suggestions: result.repair_suggestions,
     min_display: result.min_display,
     candidates_seen: result.candidates_seen,
     linked_existing: result.linked_existing,
@@ -226,10 +238,15 @@ async function refreshAllRailsGrow(
   const finishedAt = Date.now();
   const uniqueVerifiedAfter = await getUniqueVerifiedLibraryCount();
   const requireGrowTarget = playabilityGrowRequireTarget();
+  const ok = railSummaries.every((rail) => rail.ok && (!requireGrowTarget || rail.grow_target_met === true));
+  const repairSuggestions = railSummaries
+    .flatMap((rail) => rail.repair_suggestions ?? [])
+    .filter((suggestion, index, all) => all.indexOf(suggestion) === index);
   const refreshResult: RefreshAllResult = {
-    ok: railSummaries.every((rail) => rail.ok && (!requireGrowTarget || rail.grow_target_met === true)),
+    ok,
     mode,
     bootstrap: false,
+    strict_grow_sla: true,
     started_at: startedAt,
     finished_at: finishedAt,
     duration_ms: finishedAt - startedAt,
@@ -250,6 +267,8 @@ async function refreshAllRailsGrow(
       0,
     ),
     ingest_scanned: railSummaries.reduce((sum, rail) => sum + rail.candidates_seen, 0),
+    failure_category: ok ? undefined : 'rail_grow_target_shortfall',
+    repair_suggestions: repairSuggestions.length > 0 ? repairSuggestions : undefined,
     rails: railSummaries,
   };
 

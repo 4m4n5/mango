@@ -16,7 +16,7 @@ How mango builds and maintains **verified play pools** per browse rail, keeps ti
 
 - **Browse rails** only show titles with active **verified** status in `rail_pool`.
 - A title may appear in **multiple rails**; the **unique library** is distinct `type:id` in `titles` where `status=verified`.
-- **Grow** adds fresh probes and optional global links; **top-up** fills gaps without full grow.
+- **Grow** adds fresh probes; optional global links are metrics only. A successful grow requires every active rail to meet its configured fresh target.
 
 ---
 
@@ -91,7 +91,7 @@ Hit-rate tuning: `python3 scripts/diag/source-hitrate.py`
 
 **Presets:** `quick` (10 min wall) · `nightly` (90 min) — see [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md)
 
-**Grow quota:** fresh probe-verified titles per rail (`+20` default); global links optional (`MANGO_GROW_LINK_MAX`, default off).
+**Grow quota:** fresh **new-to-rail probe-verified** titles per rail (`+20` default). Existing verified links, orphan reattachments, and pool reshuffles do **not** satisfy the quota. Anchor rails are included by default; the old anchor diet is opt-in only (`MANGO_GROW_ANCHOR_DIET=1`).
 
 **Monitor:**
 
@@ -102,7 +102,7 @@ python3 scripts/diag/playability-status.py
 python3 scripts/diag/ops-report.py
 ```
 
-Tracks **unique verified library** size and per-rail deltas (`unique_verified`, `unique_verified_delta`).
+Tracks **unique verified library** size and per-rail deltas (`unique_verified`, `unique_verified_delta`) separately from strict per-rail grow success.
 
 ---
 
@@ -126,10 +126,11 @@ Addons (Cinemeta, AIOMetadata, AIOStreams) throttle aggressive meta/stream burst
 | `rail-pool-retheme apply` on full library | ~900 sequential meta calls — run off-hours; catalog backoff 5 min |
 | Gate-lite + deploy restart | M4 stream gate uses fixture corpus only — bounded |
 | Grow preflight | Quick: 1 probe/source (skip if report <24h); nightly: 3/source |
+| Live/IPTV addon rate limit during VOD grow | Playability refresh boots catalog-service in VOD mode and skips optional Live manifests |
 
 Catalog env: `MANGO_META_RATE_LIMIT_BACKOFF_MS` (default 5 min) · `MANGO_RAIL_META_CONCURRENCY` (default 6)
 
-If refresh fails with *Too many addon requests*: wait for backoff, then `bash scripts/mango-refresh.sh`.
+If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_category`, and `repair_suggestions`; use `python3 scripts/diag/grow_monitor.py assess --refresh-json <file>`.
 
 ---
 

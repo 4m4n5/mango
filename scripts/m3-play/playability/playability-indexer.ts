@@ -1,6 +1,7 @@
 #!/usr/bin/env -S npm --prefix src/catalog-service exec tsx --
 
 import { CatalogCore } from '../../../src/catalog-service/src/core.js';
+import { isAddonRateLimitMessage } from '../../../src/catalog-service/src/catalog-errors.js';
 import { refreshAllRails } from '../../../src/catalog-service/src/playability/refresh.js';
 import { normalizeRefreshMode, type GrowPresetId } from '../../../src/catalog-service/src/playability/grow-target.js';
 import { topUpRail } from '../../../src/catalog-service/src/playability/top-up.js';
@@ -62,6 +63,74 @@ async function writeJsonAndExit(value: unknown, exitCode: number): Promise<never
   process.exit(exitCode);
 }
 
+function failureCategory(error: unknown, stage: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (isAddonRateLimitMessage(message)) {
+    return 'rate_limited';
+  }
+  if (/timeout|abort/i.test(message)) {
+    return stage === 'core_boot' ? 'catalog_boot_failed' : 'time_budget_exceeded';
+  }
+  return stage === 'core_boot' ? 'catalog_boot_failed' : 'source_exhausted';
+}
+
+function repairSuggestions(category: string): string[] {
+  if (category === 'rate_limited') {
+    return [
+      'Use playability VOD boot or stagger addon access; optional Live/IPTV manifests must not block movie/series grow.',
+    ];
+  }
+  if (category === 'catalog_boot_failed') {
+    return [
+      'Check required VOD addon manifests in the Stremio export; Live/IPTV addons are skipped only in playability_vod mode.',
+    ];
+  }
+  if (category === 'time_budget_exceeded') {
+    return [
+      'Increase grow wall time or reduce slow sources; do not satisfy rail grow quota with existing verified links.',
+    ];
+  }
+  return [
+    'Review same-theme source membership and runtime source weights; generated suggestions are advisory only.',
+  ];
+}
+
+function structuredRefreshFailure(options: {
+  mode: string;
+  stage: string;
+  startedAt: number;
+  error: unknown;
+}): Record<string, unknown> {
+  const category = failureCategory(options.error, options.stage);
+  const message = options.error instanceof Error ? options.error.message : String(options.error);
+  const finishedAt = Date.now();
+  return {
+    ok: false,
+    mode: options.mode,
+    bootstrap: false,
+    strict_grow_sla: true,
+    started_at: options.startedAt,
+    finished_at: finishedAt,
+    duration_ms: finishedAt - options.startedAt,
+    stage: options.stage,
+    failure_category: category,
+    error: message,
+    repair_suggestions: repairSuggestions(category),
+    unique_candidates: 0,
+    verify_queue_size: 0,
+    linked_existing: 0,
+    verified: 0,
+    failed: 0,
+    skipped_existing: 0,
+    skipped_recent_failed: 0,
+    batch_flush: { verify_count: 0, pool_count: 0 },
+    pruned_pool_entries: 0,
+    ingest_fresh_queued: 0,
+    ingest_scanned: 0,
+    rails: [],
+  };
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
 
@@ -115,9 +184,29 @@ async function main(): Promise<void> {
     const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
     const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
 
-    const core = await CatalogCore.create();
-    const result = await refreshAllRails(core, { mode, bootstrap, poolTarget, candidateLimit, growPreset });
-    await writeJsonAndExit(result, result.ok ? 0 : 1);
+    const startedAt = Date.now();
+    let core: CatalogCore;
+    try {
+      core = await CatalogCore.create({ purpose: 'playability_vod' });
+    } catch (error) {
+      await writeJsonAndExit(structuredRefreshFailure({
+        mode,
+        stage: 'core_boot',
+        startedAt,
+        error,
+      }), 1);
+    }
+    try {
+      const result = await refreshAllRails(core, { mode, bootstrap, poolTarget, candidateLimit, growPreset });
+      await writeJsonAndExit(result, result.ok ? 0 : 1);
+    } catch (error) {
+      await writeJsonAndExit(structuredRefreshFailure({
+        mode,
+        stage: 'refresh_run',
+        startedAt,
+        error,
+      }), 1);
+    }
   }
 
   usage();

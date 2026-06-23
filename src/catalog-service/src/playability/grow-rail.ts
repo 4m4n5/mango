@@ -58,6 +58,10 @@ import { GROW_DEEP_PAGE_BYPASS_REASONS } from './grow-tombstones.js';
 import { runGlobalVerifiedLinkPass } from './grow-global-link.js';
 import { shouldHeadAdvanceOnTombstoneSkew } from './grow-head-advance.js';
 import { applyHitrateWeightsToListSource } from './source-hitrate-weights.js';
+import {
+  recordSourceGrowOutcome,
+  type SourceGrowStats,
+} from './source-hitrate-weights.js';
 
 export type GrowRailResult = {
   rail_id: string;
@@ -69,6 +73,8 @@ export type GrowRailResult = {
   probe_verified: number;
   pool_growth: number;
   grow_target_met: boolean;
+  /** Strict grow SLA count: newly probe-verified titles linked to this rail in this run. */
+  new_to_rail_verified: number;
   /** @deprecated Use grow_target — kept for one release. */
   growth_quota?: number;
   /** @deprecated Use probe_verified — kept for one release. */
@@ -93,6 +99,9 @@ export type GrowRailResult = {
   compose_escalated?: boolean;
   compose_fallback_level?: number;
   sources_touched?: number;
+  source_stats?: SourceGrowStats[];
+  failure_category?: GrowFailureCategory;
+  repair_suggestions?: string[];
   ingest?: IngestCandidatesStats;
   results: Array<{
     type: string;
@@ -103,6 +112,14 @@ export type GrowRailResult = {
     rails?: string[];
   }>;
 };
+
+export type GrowFailureCategory =
+  | 'rate_limited'
+  | 'source_exhausted'
+  | 'theme_rejected'
+  | 'low_stream_hit_rate'
+  | 'same_theme_fallback_exhausted'
+  | 'time_budget_exceeded';
 
 export type GrowRailOptions = {
   preset?: GrowPresetId;
@@ -150,6 +167,7 @@ export async function growRail(
       grow_target: 0,
       fresh_verified: 0,
       probe_verified: 0,
+      new_to_rail_verified: 0,
       pool_growth: 0,
       grow_target_met: true,
       growth_quota: 0,
@@ -179,7 +197,7 @@ export async function growRail(
   );
 
   let listSource = core.listSourceForRail(railId);
-  applyHitrateWeightsToListSource(listSource, rail.content_type);
+  let weightsApplied = applyHitrateWeightsToListSource(listSource, rail.content_type);
   let sourceOffsets = await loadSourceOffsetsForListSource(rail.id, listSource);
   let ingestOffset = sourceOffsets
     ? 0
@@ -197,6 +215,7 @@ export async function growRail(
   let growLoops = 0;
   let maxSourcesTouched = 0;
   let lastIngest: IngestCandidatesStats | undefined;
+  const sourceStats = new Map<string, SourceGrowStats>();
   let catalogExhausted = false;
   let composeEscalated = false;
   let composeFallbackLevel: number | undefined;
@@ -209,9 +228,85 @@ export async function growRail(
 
   const freshQuotaSoFar = (): number => freshVerifiedCount(growthPass, rail.id);
 
+  function statForSource(sourceKey: string, sourceLabel = sourceKey): SourceGrowStats {
+    const existing = sourceStats.get(sourceKey);
+    if (existing) {
+      return existing;
+    }
+    const [addon, catalog] = sourceKey.includes(':')
+      ? sourceKey.split(/:(.*)/s).filter(Boolean)
+      : ['', ''];
+    const created: SourceGrowStats = {
+      source_key: sourceKey,
+      source_label: sourceLabel,
+      content_type: rail.content_type,
+      scanned: 0,
+      fresh_queued: 0,
+      skipped_verified: 0,
+      skipped_recent_failed: 0,
+      linked_verified_seen: 0,
+      requested: 0,
+      returned: 0,
+      catalog_errors: 0,
+      rate_limited: 0,
+      exhausted: false,
+      verified: 0,
+      failed: 0,
+      theme_rejected: 0,
+    };
+    if (addon) {
+      created.source_addon = addon;
+    }
+    if (catalog) {
+      created.source_catalog = catalog;
+    }
+    sourceStats.set(sourceKey, created);
+    return created;
+  }
+
+  function mergeIngestSourceStats(ingested: IngestCandidatesStats): void {
+    for (const row of ingested.source_stats ?? []) {
+      const stat = statForSource(row.source_key, row.source_label);
+      stat.scanned += row.scanned;
+      stat.fresh_queued += row.fresh_queued;
+      stat.skipped_verified += row.skipped_verified;
+      stat.skipped_recent_failed += row.skipped_recent_failed;
+      stat.linked_verified_seen += row.linked_verified_seen;
+      stat.requested += row.requested;
+      stat.returned += row.returned;
+      stat.catalog_errors += row.catalog_errors;
+      stat.rate_limited += row.rate_limited;
+      stat.exhausted = stat.exhausted || row.exhausted;
+    }
+  }
+
+  function sourceKeyForCandidate(key: string, sourceByCandidateKey: Map<string, string>): string | undefined {
+    return sourceByCandidateKey.get(key);
+  }
+
+  function recordVerifyResultsBySource(
+    results: GrowRailResult['results'],
+    sourceByCandidateKey: Map<string, string>,
+  ): void {
+    for (const result of results) {
+      const sourceKey = sourceKeyForCandidate(`${result.type}:${result.id}`, sourceByCandidateKey);
+      if (!sourceKey) {
+        continue;
+      }
+      const stat = statForSource(sourceKey);
+      if (result.action === 'verified') {
+        stat.verified += 1;
+      } else if (result.action === 'failed') {
+        stat.failed += 1;
+      } else if (result.action === 'skipped_theme') {
+        stat.theme_rejected += 1;
+      }
+    }
+  }
+
   async function reloadIngestState(): Promise<void> {
     listSource = core.listSourceForRail(railId);
-    applyHitrateWeightsToListSource(listSource, rail.content_type);
+    weightsApplied = applyHitrateWeightsToListSource(listSource, rail.content_type) || weightsApplied;
     if (isSourceCursorListSource(listSource)) {
       listSource.resetAllSourceOffsets();
     }
@@ -330,6 +425,7 @@ export async function growRail(
         ingestOffset = ingested.next_offset;
       }
       lastIngest = ingested;
+      mergeIngestSourceStats(ingested);
       growLoops += 1;
       maxSourcesTouched = Math.max(maxSourcesTouched, ingested.sources_touched ?? 0);
       totalCandidatesSeen += ingested.scanned;
@@ -355,6 +451,12 @@ export async function growRail(
       }
 
       const candidates = ingested.candidates;
+      const sourceByCandidateKey = new Map<string, string>();
+      for (const candidate of candidates) {
+        if (candidate.source_key || candidate.source) {
+          sourceByCandidateKey.set(candidateKey(candidate), candidate.source_key ?? candidate.source ?? 'unknown');
+        }
+      }
       if (candidates.length === 0) {
         catalogExhausted = ingested.catalog_exhausted;
         if (catalogExhausted && await tryComposeOnExhaustion()) {
@@ -417,6 +519,7 @@ export async function growRail(
       totalSkippedExisting += linked.skipped_existing;
       totalSkippedRecentFailed += linked.skipped_recent_failed;
       allResults.push(...linked.results, ...processed.results);
+      recordVerifyResultsBySource([...linked.results, ...processed.results], sourceByCandidateKey);
 
       if (ingested.catalog_exhausted) {
         catalogExhausted = true;
@@ -463,6 +566,29 @@ export async function growRail(
   const poolGrowth = Math.max(0, after.verified_pool - before.verified_pool);
   const targetMet = freshVerified >= growTarget;
   const exhausted = !targetMet && catalogExhausted;
+  const sourceStatsRows = [...sourceStats.values()];
+  const failureCategory = targetMet
+    ? undefined
+    : classifyGrowFailure({
+      sourceStats: sourceStatsRows,
+      exhausted,
+      attempts,
+      maxAttempts,
+      elapsedMs: Date.now() - startedAt,
+      wallMs,
+      verified: totalVerified,
+      failed: totalFailed,
+    });
+  const repairSuggestions = targetMet
+    ? undefined
+    : repairSuggestionsForFailure(failureCategory, rail.id, sourceStatsRows);
+
+  recordSourceGrowOutcome(
+    rail.id,
+    rail.content_type,
+    sourceStatsRows,
+    { growTargetMet: targetMet, weighted: weightsApplied },
+  );
 
   return {
     rail_id: rail.id,
@@ -471,6 +597,7 @@ export async function growRail(
     grow_target: growTarget,
     fresh_verified: freshVerified,
     probe_verified: freshVerified,
+    new_to_rail_verified: freshVerified,
     pool_growth: poolGrowth,
     grow_target_met: targetMet,
     growth_quota: growTarget,
@@ -494,7 +621,68 @@ export async function growRail(
     compose_escalated: composeEscalated || undefined,
     compose_fallback_level: composeFallbackLevel,
     sources_touched: maxSourcesTouched > 0 ? maxSourcesTouched : undefined,
+    source_stats: sourceStatsRows.length > 0 ? sourceStatsRows : undefined,
+    failure_category: failureCategory,
+    repair_suggestions: repairSuggestions,
     ingest: lastIngest,
     results: allResults,
   };
+}
+
+function classifyGrowFailure(options: {
+  sourceStats: SourceGrowStats[];
+  exhausted: boolean;
+  attempts: number;
+  maxAttempts: number;
+  elapsedMs: number;
+  wallMs: number;
+  verified: number;
+  failed: number;
+}): GrowFailureCategory {
+  const rateLimited = options.sourceStats.reduce((sum, stat) => sum + stat.rate_limited, 0);
+  if (rateLimited > 0) {
+    return 'rate_limited';
+  }
+  const themeRejected = options.sourceStats.reduce((sum, stat) => sum + stat.theme_rejected, 0);
+  if (themeRejected > Math.max(2, options.verified + options.failed)) {
+    return 'theme_rejected';
+  }
+  if (options.exhausted) {
+    const anyReturned = options.sourceStats.some((stat) => stat.returned > 0);
+    return anyReturned ? 'same_theme_fallback_exhausted' : 'source_exhausted';
+  }
+  if (options.failed > Math.max(5, options.verified * 2)) {
+    return 'low_stream_hit_rate';
+  }
+  if (options.attempts >= options.maxAttempts || options.elapsedMs >= options.wallMs) {
+    return 'time_budget_exceeded';
+  }
+  return 'same_theme_fallback_exhausted';
+}
+
+function repairSuggestionsForFailure(
+  category: GrowFailureCategory | undefined,
+  railId: string,
+  sourceStats: SourceGrowStats[],
+): string[] | undefined {
+  if (!category) {
+    return undefined;
+  }
+  const weakest = [...sourceStats]
+    .sort((a, b) => (
+      (b.rate_limited + b.catalog_errors + b.theme_rejected + b.failed)
+      - (a.rate_limited + a.catalog_errors + a.theme_rejected + a.failed)
+    ))
+    .slice(0, 3)
+    .map((stat) => stat.source_label || stat.source_key);
+  const suffix = weakest.length ? ` (${weakest.join(', ')})` : '';
+  const suggestions: Record<GrowFailureCategory, string> = {
+    rate_limited: `Reduce or stagger grow pressure for rate-limited sources${suffix}; do not expose raw addon errors on TV.`,
+    source_exhausted: `Add or replace same-theme sources for ${railId}${suffix}; existing sources returned no usable candidates.`,
+    theme_rejected: `Review ${railId} source membership against rail-theme-profiles.yaml${suffix}; theme profiles remain manual-only.`,
+    low_stream_hit_rate: `Probe source hit-rate and demote low-yield catalogs at runtime${suffix}; do not satisfy quota with unverified links.`,
+    same_theme_fallback_exhausted: `Add broader same-theme fallback sources for ${railId}${suffix}; avoid cross-theme fills.`,
+    time_budget_exceeded: `Increase grow window or reduce slow sources for ${railId}${suffix}; current run hit wall/attempt budget.`,
+  };
+  return [suggestions[category]];
 }

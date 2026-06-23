@@ -1,4 +1,5 @@
-import type { ListSource, CandidateMeta } from './list-source.js';
+import type { ListSource, CandidateMeta, ListSourceFetchStats } from './list-source.js';
+import { isSourceStatsListSource } from './list-source.js';
 import type { TitlePlayabilityRecord } from './db.js';
 import { playabilityFailedRetryMsForReason } from './config.js';
 import {
@@ -18,6 +19,24 @@ export type IngestCandidatesStats = {
   linked_verified_seen: number;
   catalog_exhausted: boolean;
   sources_touched?: number;
+  source_stats?: SourceIngestStats[];
+};
+
+export type SourceIngestStats = {
+  source_key: string;
+  source_label: string;
+  source_addon?: string;
+  source_catalog?: string;
+  scanned: number;
+  fresh_queued: number;
+  skipped_verified: number;
+  skipped_recent_failed: number;
+  linked_verified_seen: number;
+  requested: number;
+  returned: number;
+  catalog_errors: number;
+  rate_limited: number;
+  exhausted: boolean;
 };
 
 export type IngestCandidatesResult = IngestCandidatesStats & {
@@ -67,12 +86,57 @@ export async function ingestPaginatedCandidates(
   let linkedVerifiedSeen = 0;
   let catalogExhausted = false;
   const sourcesTouched = new Set<string>();
+  const sourceStats = new Map<string, SourceIngestStats>();
+
+  const statForCandidate = (candidate: CandidateMeta): SourceIngestStats => (
+    statForSource(
+      candidate.source_key ?? candidate.source ?? 'unknown',
+      candidate.source ?? candidate.source_key ?? 'unknown',
+    )
+  );
+
+  const statForSource = (sourceKey: string, sourceLabel: string): SourceIngestStats => {
+    const existing = sourceStats.get(sourceKey);
+    if (existing) {
+      return existing;
+    }
+    const created: SourceIngestStats = {
+      source_key: sourceKey,
+      source_label: sourceLabel,
+      scanned: 0,
+      fresh_queued: 0,
+      skipped_verified: 0,
+      skipped_recent_failed: 0,
+      linked_verified_seen: 0,
+      requested: 0,
+      returned: 0,
+      catalog_errors: 0,
+      rate_limited: 0,
+      exhausted: false,
+    };
+    sourceStats.set(sourceKey, created);
+    return created;
+  };
+
+  const mergeFetchStats = (stats: ListSourceFetchStats[]): void => {
+    for (const row of stats) {
+      const stat = statForSource(row.source_key, row.source_label);
+      stat.requested += row.requested;
+      stat.returned += row.returned;
+      stat.catalog_errors += row.errors;
+      stat.rate_limited += row.rate_limited;
+      stat.exhausted = stat.exhausted || row.exhausted;
+    }
+  };
 
   while (scanned < options.maxScanned && freshQueued < options.freshTarget) {
     const page = await source.candidates({
       offset: useSourceCursors ? 0 : offset,
       limit: options.pageSize,
     });
+    if (isSourceStatsListSource(source)) {
+      mergeFetchStats(source.readLastSourceFetchStats());
+    }
     if (page.length === 0) {
       catalogExhausted = !useSourceCursors || source.areAllSourcesExhausted();
       break;
@@ -83,24 +147,30 @@ export async function ingestPaginatedCandidates(
       if (candidate.source) {
         sourcesTouched.add(candidate.source);
       }
+      const sourceStat = statForCandidate(candidate);
       const key = candidateKey(candidate);
       const title = statuses.get(key);
 
       if (isActiveVerifiedTitle(title, now)) {
         linkedVerifiedSeen += 1;
         skippedVerified += 1;
+        sourceStat.linked_verified_seen += 1;
+        sourceStat.skipped_verified += 1;
         collected.push(candidate);
         continue;
       }
 
       if (isRecentFailedTitle(title, now, { bypassReasons: options.bypassRecentFailedReasons })) {
         skippedRecentFailed += 1;
+        sourceStat.skipped_recent_failed += 1;
         continue;
       }
 
       scanned += 1;
+      sourceStat.scanned += 1;
       collected.push(candidate);
       freshQueued += 1;
+      sourceStat.fresh_queued += 1;
       if (freshQueued >= options.freshTarget) {
         break;
       }
@@ -134,6 +204,7 @@ export async function ingestPaginatedCandidates(
     linked_verified_seen: linkedVerifiedSeen,
     catalog_exhausted: catalogExhausted,
     sources_touched: useSourceCursors ? sourcesTouched.size : undefined,
+    source_stats: sourceStats.size > 0 ? [...sourceStats.values()] : undefined,
   };
 }
 
