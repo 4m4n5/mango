@@ -28,8 +28,7 @@
       "id": "mdblist.105797",
       "name": "Daily Picks",
       "rails": [
-        "series-global-popular",
-        "series-classics"
+        "series-global-popular"
       ]
     },
     {
@@ -62,25 +61,10 @@
       ]
     },
     {
-      "id": "mdblist.14",
-      "name": "Top Watched Movies of the Week",
-      "rails": [
-        "movies-quick-watches"
-      ]
-    },
-    {
-      "id": "mdblist.2194",
-      "name": "Latest TV Shows",
-      "rails": [
-        "series-reality-casual"
-      ]
-    },
-    {
       "id": "mdblist.2236",
       "name": "Top Movies of the Week",
       "rails": [
-        "movies-global-popular",
-        "movies-quick-watches"
+        "movies-global-popular"
       ]
     },
     {
@@ -105,10 +89,24 @@
       ]
     },
     {
+      "id": "mdblist.3885",
+      "name": "100% on RottenTomatoes.com",
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
       "id": "mdblist.49761",
       "name": "Indian Stand Up Comedy",
       "rails": [
         "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.63182",
+      "name": "Reality TV & Game Shows",
+      "rails": [
+        "series-reality-casual"
       ]
     },
     {
@@ -129,8 +127,14 @@
       "id": "mdblist.83666",
       "name": "Top Classic Movies",
       "rails": [
-        "movies-quick-watches",
         "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.84444",
+      "name": "Top Stand Up Comedy (Since 1983)",
+      "rails": [
+        "movies-quick-watches"
       ]
     },
     {
@@ -141,11 +145,17 @@
       ]
     },
     {
+      "id": "mdblist.86934",
+      "name": "Latest Streaming Movies",
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
       "id": "mdblist.88302",
       "name": "Trending Movies",
       "rails": [
-        "movies-global-popular",
-        "movies-classics"
+        "movies-global-popular"
       ]
     },
     {

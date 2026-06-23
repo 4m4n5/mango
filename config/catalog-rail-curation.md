@@ -17,18 +17,18 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 
 | Rail | Sources | Rationale |
 |------|---------|-----------|
-| `movies-global-popular` | Cinemeta `top` + **88302** | 100% / 80% source hit-rate |
+| `movies-global-popular` | Cinemeta `top` + **88302** + **2236** | Mainstream charts; no overlap with quick-watches |
 | `movies-india-trending` | **Bharat Binge** recent + surprise + top_rated (85%) · IndiaStreams recmov/popmov (15%) | Bharat primary; IndiaStreams demoted (low hit-rate) |
 | `movies-classics` | Cinemeta `imdbRating` | Anchor |
 | `movies-comedy` | **91223** | 100% source; pool top-up not swap |
-| `movies-quick-watches` | **88302** + **83666** | Dropped 83668 (60%); classics/modern blend |
+| `movies-quick-watches` | **86934** streaming + **84444** stand-up + **3885** RT100 | Shorter/easier picks — no classics/week-overlap lists |
 | `movies-documentaries` | **84677** | 100%; enable in mango import |
 | `series-global-popular` | Cinemeta `top` 0.8 + **105797** | Dropped 88303 (40%); daily picks 100% probe |
 | `series-india-picks` | **Bharat Binge** recent + latest_episodes + top_rated (85%) · IndiaStreams trendingtv (10%) · Cinemeta `top` (5%) | Fresh Hindi OTT; IndiaStreams demoted |
 | `series-classics` | Cinemeta `imdbRating` | Anchor |
 | `series-comedy` | Cinemeta `top` + **91224** | yaml last = session priority; probe ~40% — WP2 stream tuning |
 | `series-miniseries` | **130153** | 80% probe |
-| `series-reality-casual` | Cinemeta `top` + **105797** | Dropped **84401** (0%); label **light & casual** |
+| `series-reality-casual` | **63182** reality (70%) + Cinemeta `top` anchor (30%) | Replaces **2194** latest-TV blend; **84401** was 0% probe (legacy) |
 
 ## Measurement
 
@@ -81,7 +81,7 @@ bash scripts/m3-play/playability/rail-curation.sh pin remove --rail series-comed
 | `skip_title_filter` | Keep streams when title relevance would drop rows |
 | `blocks` | Remove `type:id` from pool (`rail_id: *` = all rails) |
 
-Demoted candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.88303`, `mdblist.84401`, `mdblist.83666`.
+Demoted candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.88303`, `mdblist.84401`, `mdblist.83666`, `mdblist.63182` (new on reality rail).
 
 **Stream gate couch exemplars** (`config/stream-gate-fixtures.json`): IGL + Panchayat are **soft** — track Indian series streams without blocking deploy.
 

@@ -1,6 +1,6 @@
 {
   "_comment": "Tagged MDBList catalog inventory for mango rail composition. Hit rates: source = stream resolve sample (source-hitrate.py); pool = verified_pool after maintenance. unprobed = not yet in AIOMetadata import.",
-  "_updated": "2026-06-20",
+  "_updated": "2026-06-23",
   "_measurement": {
     "sync_toplists": "python3 scripts/diag/mdblist-inventory.py sync-toplists",
     "pipeline": "bash scripts/m4-addons/mdblist-catalog-pipeline.sh full",
@@ -416,7 +416,9 @@
       "hit_rate": {
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-global-popular"
+      ]
     },
     {
       "catalog_id": "mdblist.2406",
@@ -1216,7 +1218,9 @@
       "hit_rate": {
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-quick-watches"
+      ]
     },
     {
       "catalog_id": "mdblist.3892",
@@ -1332,6 +1336,27 @@
       ]
     },
     {
+      "catalog_id": "mdblist.63182",
+      "slug": "trackertrack/reality-tv",
+      "url": "https://mdblist.com/lists/trackertrack/reality-tv",
+      "name": "Reality TV & Game Shows, a list by trackertrack",
+      "items": 556,
+      "media": "mixed",
+      "curator": "trackertrack",
+      "popularity": null,
+      "source": "slug-resolve",
+      "tags": [
+        "candidate",
+        "community"
+      ],
+      "hit_rate": {
+        "status": "unprobed"
+      },
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
       "catalog_id": "mdblist.69",
       "slug": "linaspurinis/imdb-moviemeter-top-100",
       "url": "https://mdblist.com/lists/linaspurinis/imdb-moviemeter-top-100",
@@ -1439,7 +1464,7 @@
         "notes": "Demoted candidate in curation doc \u2014 re-test before raising weight"
       },
       "rails": [
-        "movies-quick-watches"
+        "movies-classics"
       ]
     },
     {
@@ -1482,7 +1507,9 @@
         "pool_verified": null,
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-quick-watches"
+      ]
     },
     {
       "catalog_id": "mdblist.84677",
@@ -1526,7 +1553,9 @@
       "hit_rate": {
         "status": "unprobed"
       },
-      "rails": []
+      "rails": [
+        "movies-quick-watches"
+      ]
     },
     {
       "catalog_id": "mdblist.87667",
