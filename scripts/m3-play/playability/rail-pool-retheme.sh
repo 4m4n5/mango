@@ -3,7 +3,9 @@
 #
 #   bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run
 #   bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run --rail series-reality-casual
+#   bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run --include-orphans --limit 200
 #   bash scripts/m3-play/playability/rail-pool-retheme.sh apply
+#   bash scripts/m3-play/playability/rail-pool-retheme.sh apply --include-orphans
 #
 # Profiles: config/rail-theme-profiles.yaml (override: MANGO_RAIL_THEME_PROFILES)
 

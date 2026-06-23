@@ -52,10 +52,15 @@ Use after large source reshapes or legacy overlap — not part of nightly grow.
 bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run
 bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run --rail series-reality-casual
 bash scripts/m3-play/playability/rail-pool-retheme.sh apply          # preserve titles → best-fit or anchor
+bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run --include-orphans --limit 200
+bash scripts/m3-play/playability/rail-pool-retheme.sh apply --include-orphans   # all verified titles → best-fit or anchor
 bash scripts/m3-play/playability/rail-pool-retheme.sh recover         # orphans → anchor rails
 ```
 
-Apply clears affected rail sessions. Prefer **grow + theme gate** for steady state; retheme is a scalpel.
+Apply clears affected rail sessions. `--include-orphans` extends the same theme
+scoring to active verified titles that are not in any rail; use `--limit` for
+off-hours batches when addon meta limits are tight. Prefer **grow + theme gate**
+for steady state; retheme is a scalpel.
 
 ---
 

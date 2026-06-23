@@ -3,6 +3,7 @@ import type { Meta } from '../core.js';
 import {
   clearRailSessions,
   deleteRailPoolTitle,
+  listOrphanVerifiedPoolTitles,
   listVerifiedPoolMemberships,
   recoverOrphanVerifiedPoolTitles,
   upsertRailPoolTitle,
@@ -21,20 +22,26 @@ import {
 export type RethemeAction =
   | { action: 'keep'; rail_id: string; type: string; id: string; score: number }
   | { action: 'remove'; rail_id: string; type: string; id: string; score: number; reason: string }
+  | { action: 'attach'; rail_id: string; type: string; id: string; target_score: number; reason: string }
   | { action: 'relocate'; from_rail: string; to_rail: string; type: string; id: string; score: number; target_score: number };
 
 export type RethemePoolsResult = {
   ok: boolean;
   dry_run: boolean;
+  include_orphans: boolean;
   memberships_scanned: number;
+  orphans_scanned: number;
   unique_titles: number;
   kept: number;
   removed: number;
   relocated: number;
+  attached: number;
   meta_fetched: number;
   rails_touched: string[];
   actions: RethemeAction[];
 };
+
+export type RethemeCore = Pick<CatalogCore, 'browsableRails' | 'meta'>;
 
 const RELOCATE_MIN_SCORE = 12;
 const RELOCATE_MARGIN = 10;
@@ -90,7 +97,7 @@ function railsForContentType(
 }
 
 async function fetchMetaCached(
-  core: CatalogCore,
+  core: RethemeCore,
   type: string,
   id: string,
   cache: Map<string, Meta | null>,
@@ -110,12 +117,14 @@ async function fetchMetaCached(
 }
 
 export async function rethemeRailPools(
-  core: CatalogCore,
+  core: RethemeCore,
   options: {
     dryRun?: boolean;
     withMeta?: boolean;
     preserveTitles?: boolean;
     railFilter?: string;
+    includeOrphans?: boolean;
+    orphanLimit?: number;
     metaConcurrency?: number;
   } = {},
 ): Promise<RethemePoolsResult> {
@@ -123,6 +132,10 @@ export async function rethemeRailPools(
   const withMeta = options.withMeta !== false;
   const preserveTitles = options.preserveTitles !== false;
   const railFilter = options.railFilter?.trim() || null;
+  const includeOrphans = options.includeOrphans === true;
+  const orphanLimit = options.orphanLimit && Number.isFinite(options.orphanLimit)
+    ? Math.max(0, Math.floor(options.orphanLimit))
+    : null;
 
   const [profiles, overrides, memberships] = await Promise.all([
     loadRailThemeProfiles(),
@@ -152,6 +165,7 @@ export async function rethemeRailPools(
   const railsTouched = new Set<string>();
   let removed = 0;
   let relocated = 0;
+  let attached = 0;
   let kept = 0;
   let processed = 0;
   const progressEvery = Number(process.env.MANGO_RETHEME_PROGRESS_EVERY ?? 25);
@@ -273,7 +287,70 @@ export async function rethemeRailPools(
     }
   }
 
-  if (!dryRun && preserveTitles) {
+  let orphansScanned = 0;
+  if (includeOrphans) {
+    const allOrphans = await listOrphanVerifiedPoolTitles();
+    const orphans = orphanLimit === null ? allOrphans : allOrphans.slice(0, orphanLimit);
+    orphansScanned = orphans.length;
+    for (const orphan of orphans) {
+      processed += 1;
+      if (progressEvery > 0 && processed % progressEvery === 0) {
+        console.error(`retheme: scored ${processed}/${byTitle.size + orphans.length} titles…`);
+      }
+      const meta = await fetchMetaCached(
+        core,
+        orphan.type,
+        orphan.id,
+        metaCache,
+        withMeta,
+      );
+      const title = meta?.name ?? orphan.display_title ?? null;
+      const haystack = metaHaystack(meta, title);
+      const runtimeMinutes = orphan.type === 'movie' ? parseRuntimeMinutes(meta) : null;
+      const applicable = railsForContentType(profiles, orphan.type)
+        .filter((profile) => enabledRailIds.has(profile.rail_id));
+      const scores = new Map<string, number>();
+      for (const profile of applicable) {
+        scores.set(profile.rail_id, scoreThematicFit(haystack, profile, runtimeMinutes));
+      }
+      const best = bestRailForTitle(scores);
+      const targetRail = resolveTargetRail(orphan.type, scores, enabledRailIds);
+      if (railFilter && targetRail !== railFilter) {
+        continue;
+      }
+      const targetScore = scores.get(targetRail) ?? 0;
+      const reason = best
+        && best.rail_id === targetRail
+        && best.score >= RELOCATE_MIN_SCORE
+        ? 'orphan_best_fit'
+        : 'orphan_anchor_fallback';
+      actions.push({
+        action: 'attach',
+        rail_id: targetRail,
+        type: orphan.type,
+        id: orphan.id,
+        target_score: targetScore,
+        reason,
+      });
+      railsTouched.add(targetRail);
+      attached += 1;
+      if (!dryRun) {
+        await upsertRailPoolTitle({
+          rail_id: targetRail,
+          type: orphan.type,
+          id: orphan.id,
+          score: Math.max(80, targetScore),
+          title,
+          poster_url: typeof meta?.poster === 'string' ? meta.poster : undefined,
+          year: typeof meta?.releaseInfo === 'string'
+            ? meta.releaseInfo.match(/\d{4}/)?.[0]
+            : undefined,
+        });
+      }
+    }
+  }
+
+  if (!dryRun && preserveTitles && !includeOrphans) {
     const recovered = await recoverOrphanVerifiedPoolTitles();
     if (recovered > 0) {
       railsTouched.add(ANCHOR_MOVIES_RAIL);
@@ -288,11 +365,14 @@ export async function rethemeRailPools(
   return {
     ok: true,
     dry_run: dryRun,
+    include_orphans: includeOrphans,
     memberships_scanned: memberships.length,
-    unique_titles: byTitle.size,
+    orphans_scanned: orphansScanned,
+    unique_titles: byTitle.size + orphansScanned,
     kept,
     removed,
     relocated,
+    attached,
     meta_fetched: metaCache.size,
     rails_touched: [...railsTouched].sort(),
     actions,
