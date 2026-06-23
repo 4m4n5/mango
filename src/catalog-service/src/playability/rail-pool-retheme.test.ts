@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import type { Meta, PlayableRail } from '../core.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
-import { listOrphanVerifiedPoolTitles, listRailIdsContainingTitle } from './db.js';
+import { listOrphanVerifiedPoolTitles, listRailIdsContainingTitle, upsertRailPoolTitle } from './db.js';
 import { rethemeRailPools, type RethemeCore } from './rail-pool-retheme.js';
 
 const ENV = { ...process.env };
@@ -54,6 +54,10 @@ rails:
     intent: comedy funny comfort laugh
     exclude: documentary horror
     min_fit: 8
+  movies-documentaries:
+    intent: documentary true story nature crime investigation
+    exclude: fiction comedy horror
+    min_fit: 8
   series-global-popular:
     intent: popular series
     min_fit: 3
@@ -68,6 +72,7 @@ rails:
     browsableRails: () => [
       rail('movies-global-popular', 'movie'),
       rail('movies-comedy', 'movie'),
+      rail('movies-documentaries', 'movie'),
       rail('series-global-popular', 'series'),
       rail('series-reality-casual', 'series'),
     ],
@@ -153,4 +158,63 @@ test('retheme apply attaches weak-fit orphan verified titles to anchor fallback'
   assert.equal(action.type, 'movie');
   assert.equal(action.id, 'tt-obscure-orphan');
   assert.equal(action.reason, 'orphan_anchor_fallback');
+});
+
+test('retheme keeps weak existing anchor titles without same-rail churn', async () => {
+  const core = await setupRethemeTest({
+    'movie:tt-anchor-weak': {
+      id: 'tt-anchor-weak',
+      type: 'movie',
+      name: 'Obscure Film',
+      genre: 'Drama',
+      description: 'A quiet title without a strong configured rail signal.',
+    } as Meta,
+  });
+  await verifyTitle('movie', 'tt-anchor-weak');
+  await upsertRailPoolTitle({
+    rail_id: 'movies-global-popular',
+    type: 'movie',
+    id: 'tt-anchor-weak',
+    score: 75,
+    title: 'Obscure Film',
+  });
+
+  const result = await rethemeRailPools(core, {
+    dryRun: false,
+    includeOrphans: true,
+  });
+
+  assert.equal(result.kept, 1);
+  assert.equal(result.removed, 0);
+  assert.equal(result.relocated, 0);
+  assert.equal(result.attached, 0);
+  assert.deepEqual(await listRailIdsContainingTitle('movie', 'tt-anchor-weak'), ['movies-global-popular']);
+  assert.equal((await listOrphanVerifiedPoolTitles()).length, 0);
+  assert.ok(!result.actions.some((action) => action.action === 'relocate'));
+});
+
+test('retheme orphan target selection avoids rails rejected by exclude tags', async () => {
+  const core = await setupRethemeTest({
+    'movie:tt-doc-comedy-orphan': {
+      id: 'tt-doc-comedy-orphan',
+      type: 'movie',
+      name: 'Funny True Crime Documentary',
+      genre: 'Documentary',
+      description: 'A funny documentary investigation built around a true crime case.',
+    } as Meta,
+  });
+  await verifyTitle('movie', 'tt-doc-comedy-orphan');
+
+  const result = await rethemeRailPools(core, {
+    dryRun: false,
+    includeOrphans: true,
+  });
+
+  assert.equal(result.attached, 1);
+  assert.deepEqual(await listRailIdsContainingTitle('movie', 'tt-doc-comedy-orphan'), ['movies-documentaries']);
+  const action = result.actions.find((candidate) => candidate.action === 'attach');
+  assert.ok(action);
+  assert.equal(action.action, 'attach');
+  assert.equal(action.rail_id, 'movies-documentaries');
+  assert.equal(action.reason, 'orphan_best_fit');
 });

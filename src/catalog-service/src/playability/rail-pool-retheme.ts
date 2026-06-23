@@ -47,6 +47,7 @@ const RELOCATE_MIN_SCORE = 12;
 const RELOCATE_MARGIN = 10;
 const ANCHOR_MOVIES_RAIL = 'movies-global-popular';
 const ANCHOR_SERIES_RAIL = 'series-global-popular';
+const ANCHOR_RAILS = new Set([ANCHOR_MOVIES_RAIL, ANCHOR_SERIES_RAIL]);
 
 function fallbackRailForType(contentType: string): string {
   return contentType === 'movie' ? ANCHOR_MOVIES_RAIL : ANCHOR_SERIES_RAIL;
@@ -63,6 +64,33 @@ function resolveTargetRail(
   }
   const fallback = fallbackRailForType(contentType);
   return enabledRailIds.has(fallback) ? fallback : best?.rail_id ?? fallback;
+}
+
+function isAnchorRail(railId: string): boolean {
+  return ANCHOR_RAILS.has(railId);
+}
+
+function profileExcludeHit(profile: RailThemeProfile, haystack: string): boolean {
+  return [...profile.exclude_tags].some(
+    (tag) => tag.length >= 4 && haystack.includes(tag),
+  );
+}
+
+function targetScoresForProfiles(
+  profiles: RailThemeProfile[],
+  scores: Map<string, number>,
+  enabledRailIds: Set<string>,
+  blockedRailIds: Set<string>,
+): Map<string, number> {
+  const eligible = new Map<string, number>();
+  for (const profile of profiles) {
+    if (!enabledRailIds.has(profile.rail_id)) continue;
+    if (blockedRailIds.has(profile.rail_id)) continue;
+    const score = scores.get(profile.rail_id) ?? 0;
+    if (!isAnchorRail(profile.rail_id) && score < profile.min_fit) continue;
+    eligible.set(profile.rail_id, score);
+  }
+  return eligible;
 }
 
 function pinKey(railId: string, type: string, id: string): string {
@@ -173,7 +201,7 @@ export async function rethemeRailPools(
   for (const [titleKey, rows] of byTitle) {
     processed += 1;
     if (progressEvery > 0 && processed % progressEvery === 0) {
-      console.error(`retheme: scored ${processed}/${byTitle.size} titles…`);
+      console.error(`retheme: scored ${processed}/${byTitle.size} pool titles…`);
     }
     const { type, id } = parseMembershipKey(titleKey);
     const poolTitle = rows.find((row) => row.title)?.title ?? null;
@@ -187,8 +215,14 @@ export async function rethemeRailPools(
     for (const profile of applicable) {
       scores.set(profile.rail_id, scoreThematicFit(haystack, profile, runtimeMinutes));
     }
-    const best = bestRailForTitle(scores);
-    const targetRail = resolveTargetRail(type, scores, enabledRailIds);
+    const blockedRailIds = new Set(
+      applicable
+        .filter((profile) => profileExcludeHit(profile, haystack))
+        .map((profile) => profile.rail_id),
+    );
+    const targetScores = targetScoresForProfiles(applicable, scores, enabledRailIds, blockedRailIds);
+    const best = bestRailForTitle(targetScores);
+    const targetRail = resolveTargetRail(type, targetScores, enabledRailIds);
 
     type RowDecision = {
       row: RailPoolMembership;
@@ -209,10 +243,8 @@ export async function rethemeRailPools(
         continue;
       }
 
-      const excludeHit = [...profile.exclude_tags].some(
-        (tag) => tag.length >= 4 && haystack.includes(tag),
-      );
-      const belowMin = score < profile.min_fit;
+      const excludeHit = blockedRailIds.has(row.rail_id);
+      const belowMin = !isAnchorRail(row.rail_id) && score < profile.min_fit;
       const betterElsewhere = Boolean(
         best
         && best.rail_id !== row.rail_id
@@ -313,8 +345,14 @@ export async function rethemeRailPools(
       for (const profile of applicable) {
         scores.set(profile.rail_id, scoreThematicFit(haystack, profile, runtimeMinutes));
       }
-      const best = bestRailForTitle(scores);
-      const targetRail = resolveTargetRail(orphan.type, scores, enabledRailIds);
+      const blockedRailIds = new Set(
+        applicable
+          .filter((profile) => profileExcludeHit(profile, haystack))
+          .map((profile) => profile.rail_id),
+      );
+      const targetScores = targetScoresForProfiles(applicable, scores, enabledRailIds, blockedRailIds);
+      const best = bestRailForTitle(targetScores);
+      const targetRail = resolveTargetRail(orphan.type, targetScores, enabledRailIds);
       if (railFilter && targetRail !== railFilter) {
         continue;
       }
