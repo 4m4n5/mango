@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full pre-couch gate — per-rail play samples (slow). Prefer gate-lite for deploy iteration.
+# Full pre-couch gate — holistic M1/M4 + sampled per-rail play (3/rail default).
 
 set -euo pipefail
 

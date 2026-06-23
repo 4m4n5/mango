@@ -10,7 +10,7 @@ source "$(cd "$(dirname "$0")" && pwd)/lib/gate-common.sh"
 mango_gate_init
 
 gate_header "mango gate-lite"
-echo "full per-rail play: MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh"
+echo "full gate (sampled plays): MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh"
 echo
 
 run_step() {

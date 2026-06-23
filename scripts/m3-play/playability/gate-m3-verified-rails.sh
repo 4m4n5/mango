@@ -10,8 +10,9 @@ mango_gate_init
 TMP_DIR="${TMPDIR:-/tmp}/mango-n3c-gate"
 mkdir -p "$TMP_DIR"
 
+# Sample N couch plays per rail (never 0 — that meant “all items” and made full gate ~15+ min).
 if [[ "${MANGO_GATE_FULL:-0}" == "1" ]]; then
-  MAX_PER_RAIL=0
+  MAX_PER_RAIL="${MANGO_N3C_GATE_MAX_PER_RAIL:-${MANGO_GATE_FULL_MAX_PER_RAIL:-3}}"
 else
   MAX_PER_RAIL="${MANGO_N3C_GATE_MAX_PER_RAIL:-2}"
 fi
@@ -19,7 +20,7 @@ fi
 trap gate_mpv_stop EXIT
 
 gate_header "mango N3c verified rails gate"
-[[ "$MAX_PER_RAIL" -gt 0 ]] && echo "sample: ${MAX_PER_RAIL} item(s)/rail (set MANGO_GATE_FULL=1 for all)" && echo
+echo "sample: ${MAX_PER_RAIL} play(s)/rail (override: MANGO_N3C_GATE_MAX_PER_RAIL or MANGO_GATE_FULL_MAX_PER_RAIL)" && echo
 
 CHECKED=0
 PASSED=0

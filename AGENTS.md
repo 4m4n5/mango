@@ -77,7 +77,7 @@ bash scripts/m5-voice/stack/verify-voice-ready.sh
 ```bash
 bash scripts/pi-exec-gate.sh          # Mac: pull + gate-lite on Pi
 bash scripts/pi-pre-couch-gate.sh     # gate-lite (~1–2 min) — see docs/ARCHITECTURE.md
-MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # slow per-rail play sweep
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # full gate (~5–8 min, 3 plays/rail)
 ```
 
 Live IPTV (NexoTV) is **excluded** from deploy gates — opt in: `MANGO_LIVE_GATE=1` / `MANGO_LIVE_PROBE=1` ([`docs/LIVE_TV.md`](docs/LIVE_TV.md)).
