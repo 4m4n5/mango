@@ -82,6 +82,9 @@ PRESET="$(normalize_preset "$PRESET")"
 
 if [[ "$DETACH" -eq 1 ]]; then
   mkdir -p "$CACHE_DIR"
+  if [[ -f "$PIDFILE" ]] && ! kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    rm -f "$PIDFILE"
+  fi
   if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     echo "already running pid=$(cat "$PIDFILE") log=$LOG"
     exit 0
@@ -96,6 +99,14 @@ fi
 
 mkdir -p "$CACHE_DIR"
 touch "$LOG"
+
+cleanup_grow_pidfile() {
+  if [[ -f "$PIDFILE" ]] && [[ "$(cat "$PIDFILE" 2>/dev/null || true)" == "$$" ]]; then
+    rm -f "$PIDFILE"
+  fi
+}
+trap cleanup_grow_pidfile EXIT
+
 echo "playability-grow: mode=$MODE preset=$PRESET" | tee -a "$LOG"
 export MANGO_GROW_PRESET="$PRESET"
 bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode "$MODE" 2>&1 | tee -a "$LOG"

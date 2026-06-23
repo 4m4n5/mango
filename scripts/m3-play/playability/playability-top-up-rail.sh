@@ -35,7 +35,16 @@ export MANGO_PLAYABILITY_PROBE_POOL=1
 export MANGO_MAINTENANCE_MODE=1
 export MANGO_PLAYABILITY_BOOTSTRAP=1
 
+restore_couch() {
+  bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
+  bash scripts/mango-kill-strays.sh >/dev/null 2>&1 || true
+  MANGO_CATALOG=1 MANGO_PLAYABILITY_TOPUP_ON_START=0 bash scripts/mango-refresh.sh >/dev/null 2>&1 \
+    || echo "warn: mango-refresh failed — run manually" >&2
+}
+
 echo "top-up rail=$RAIL_ID probe_ms=$MANGO_PLAYABILITY_PROBE_MS"
+
+trap restore_couch EXIT
 
 if pgrep -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1; then
   pkill -f 'chromium.*127.0.0.1:3000' 2>/dev/null || true
@@ -54,5 +63,6 @@ ARGS=(top-up --rail "$RAIL_ID" --bootstrap)
 
 npm --prefix src/catalog-service exec tsx -- scripts/m3-play/playability/playability-indexer.ts "${ARGS[@]}"
 
-MANGO_CATALOG=1 bash scripts/mango-refresh.sh >/dev/null
+trap - EXIT
+restore_couch
 echo "top-up complete: $RAIL_ID"

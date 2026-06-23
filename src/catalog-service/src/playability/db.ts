@@ -982,6 +982,40 @@ WHERE rail_id = @rail_id;
   }
 }
 
+export type RailPoolMembership = {
+  rail_id: string;
+  type: string;
+  id: string;
+  title: string | null;
+  year: string | null;
+  score: number;
+};
+
+export async function listVerifiedPoolMemberships(
+  now: number = nowMs(),
+): Promise<RailPoolMembership[]> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    return db.prepare(`
+SELECT
+  rp.rail_id,
+  rp.type,
+  rp.id,
+  rp.title,
+  rp.year,
+  rp.score
+FROM rail_pool rp
+JOIN titles t ON t.type = rp.type AND t.id = rp.id
+WHERE t.status = 'verified'
+  AND (t.expires_at IS NULL OR t.expires_at > @now)
+ORDER BY rp.rail_id, rp.score DESC;
+`).all({ now }) as RailPoolMembership[];
+  } finally {
+    db.close();
+  }
+}
+
 export async function deleteRailPoolTitle(
   railId: string,
   type: string,

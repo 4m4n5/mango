@@ -1,0 +1,63 @@
+# Thematic fit profiles for rail_pool reorganization (rail-pool-retheme).
+# intent: positive keywords (tokenized like AI compose)
+# exclude: strong mismatch signals — hit removes title unless pinned
+# min_fit: optional per-rail keep threshold (default 8; anchor rails use 3)
+# max_runtime_minutes: movies only — penalize features longer than this
+
+version: 1
+
+rails:
+  movies-global-popular:
+    intent: popular worldwide mainstream blockbuster trending hit
+    min_fit: 3
+
+  movies-india-trending:
+    intent: hindi bollywood tamil telugu malayalam kannada bengali marathi punjabi gujarati bhojpuri indian cinema desi mumbai kollywood tollywood
+    exclude: hollywood american british korean japanese french german spanish italian chinese anime marvel superhero western european
+    min_fit: 14
+
+  movies-classics:
+    intent: classic acclaimed masterpiece imdb rated timeless award
+    exclude: stand-up reality
+
+  movies-comedy:
+    intent: comedy funny humor laugh rom-com parody
+    exclude: horror documentary true crime
+
+  movies-quick-watches:
+    intent: stand-up comedy special short quick easy light
+    max_runtime_minutes: 110
+    exclude: documentary epic miniseries
+
+  movies-documentaries:
+    intent: documentary true story nature crime biography investigation
+    exclude: fiction comedy horror superhero
+
+  series-global-popular:
+    intent: popular trending worldwide hit series drama
+    min_fit: 3
+
+  series-india-picks:
+    intent: hindi bollywood tamil telugu malayalam kannada bengali marathi punjabi indian series desi hotstar zee sonyliv voot jio panchayat sacred games
+    exclude: hollywood american british korean japanese anime french german spanish hbo netflix worldwide western european
+    min_fit: 14
+
+  series-classics:
+    intent: acclaimed prestige classic masterpiece award imdb top
+    exclude: reality game show
+
+  series-miniseries:
+    intent: miniseries limited series anthology finite season
+    exclude: reality soap opera
+
+  series-reality-casual:
+    intent: reality game show competition dating survivor bachelor bachelorette amazing race idol talent cooking renovation housewives
+    exclude: drama sitcom scripted fiction crime documentary animation anime miniseries
+
+  series-comedy:
+    intent: comedy sitcom funny humor parody late night
+    exclude: horror reality documentary crime thriller
+
+  ai-horror:
+    intent: horror thriller scary slasher supernatural psychological creepy
+    exclude: comedy romance documentary family

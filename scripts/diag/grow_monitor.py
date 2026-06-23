@@ -29,7 +29,7 @@ from ops_grow_sla import (  # noqa: E402
 
 SCHEMA_VERSION = 2
 DEFAULT_BASELINE = "grow-baseline.json"
-GROW_INDEXER_PATTERN = "playability-indexer.ts refresh"
+GROW_INDEXER_PATTERN = "playability-indexer.ts"
 REFRESH_JSON_GLOB = "refresh-playability-*.json"
 
 
@@ -108,8 +108,16 @@ def detect_grow_state() -> dict[str, Any]:
             pid = None
 
     pid_alive = pid is not None and _pid_alive(pid)
+    if pidfile.is_file() and not pid_alive:
+        try:
+            pidfile.unlink()
+        except OSError:
+            pass
+        pid = None
+
     lock_held = maintenance_lock_path().is_file()
     indexer_lines = _pgrep(GROW_INDEXER_PATTERN)
+    topup_lines = _pgrep("playability-top-up-rail.sh")
     maintenance_lines = [
         line for line in _pgrep("playability-maintenance.sh")
         if "--mode" in line
@@ -120,8 +128,8 @@ def detect_grow_state() -> dict[str, Any]:
     phase = run_state.get("phase") if run_state else None
     phase_message = run_state.get("message") if run_state else None
 
-    running = pid_alive or bool(indexer_lines) or bool(maintenance_lines) or bool(hitrate_lines)
-    if phase and phase not in {"done", "idle"} and (pid_alive or maintenance_lines or hitrate_lines):
+    running = pid_alive or bool(indexer_lines) or bool(topup_lines) or bool(maintenance_lines) or bool(hitrate_lines)
+    if phase and phase not in {"done", "idle"} and (pid_alive or maintenance_lines or hitrate_lines or topup_lines):
         running = True
 
     return {
@@ -130,6 +138,7 @@ def detect_grow_state() -> dict[str, Any]:
         "pidfile": str(pidfile),
         "maintenance_lock": lock_held,
         "indexer": indexer_lines[:3],
+        "topup": topup_lines[:2],
         "maintenance": maintenance_lines[:2],
         "hitrate": hitrate_lines[:2],
         "phase": phase,

@@ -1,0 +1,91 @@
+#!/usr/bin/env node
+/** CLI — thematic rail_pool reorganization. Run: bash scripts/m3-play/playability/rail-pool-retheme.sh */
+
+import { CatalogCore } from '../core.js';
+import { rethemeRailPools } from './rail-pool-retheme.js';
+
+function usage(): never {
+  console.error(`usage:
+  rail-pool-retheme dry-run [--rail <id>] [--no-meta] [--no-preserve]
+  rail-pool-retheme apply [--rail <id>] [--no-meta] [--no-preserve]
+
+  dry-run (default): score pool memberships; print summary + sample actions
+  apply: move mismatches to best-fit rail; titles land on anchor rail if no strong fit
+  --rail: limit to one rail id
+  --no-meta: title/pool fields only (faster; weaker signals)
+  --no-preserve: prune without upserting into another rail
+`);
+  process.exit(2);
+}
+
+function argValue(flag: string): string | undefined {
+  const index = process.argv.indexOf(flag);
+  if (index === -1) return undefined;
+  return process.argv[index + 1];
+}
+
+function summarizeByRail(actions: Awaited<ReturnType<typeof rethemeRailPools>>['actions']): void {
+  const counts = new Map<string, { remove: number; relocate: number; keep: number }>();
+  for (const action of actions) {
+    const railId = action.action === 'relocate' ? action.from_rail : action.rail_id;
+    const bucket = counts.get(railId) ?? { remove: 0, relocate: 0, keep: 0 };
+    if (action.action === 'remove') bucket.remove += 1;
+    if (action.action === 'relocate') bucket.relocate += 1;
+    if (action.action === 'keep') bucket.keep += 1;
+    counts.set(railId, bucket);
+  }
+  const rows = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  for (const [railId, stats] of rows) {
+    if (stats.remove === 0 && stats.relocate === 0) continue;
+    console.log(`  ${railId}: remove=${stats.remove} relocate=${stats.relocate} keep=${stats.keep}`);
+  }
+}
+
+async function main(): Promise<void> {
+  const [command] = process.argv.slice(2);
+  if (!command || (command !== 'dry-run' && command !== 'apply')) {
+    usage();
+  }
+
+  const dryRun = command === 'dry-run';
+  const core = await CatalogCore.create();
+  const result = await rethemeRailPools(core, {
+    dryRun,
+    withMeta: !process.argv.includes('--no-meta'),
+    preserveTitles: !process.argv.includes('--no-preserve'),
+    railFilter: argValue('--rail'),
+  });
+
+  console.log(JSON.stringify({
+    ok: result.ok,
+    dry_run: result.dry_run,
+    memberships_scanned: result.memberships_scanned,
+    unique_titles: result.unique_titles,
+    kept: result.kept,
+    removed: result.removed,
+    relocated: result.relocated,
+    meta_fetched: result.meta_fetched,
+    rails_touched: result.rails_touched,
+  }, null, 2));
+
+  console.log('by_rail:');
+  summarizeByRail(result.actions);
+
+  const sample = result.actions.filter((action) => action.action !== 'keep').slice(0, 40);
+  if (sample.length > 0) {
+    console.log('sample_actions:');
+    for (const action of sample) {
+      console.log(`  ${JSON.stringify(action)}`);
+    }
+    if (result.actions.filter((action) => action.action !== 'keep').length > sample.length) {
+      console.log(`  … ${result.actions.filter((action) => action.action !== 'keep').length - sample.length} more`);
+    }
+  }
+
+  process.exit(0);
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(1);
+});
