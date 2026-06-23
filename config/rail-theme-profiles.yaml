@@ -1,4 +1,5 @@
-# Thematic fit profiles for rail_pool reorganization (rail-pool-retheme).
+# Thematic fit profiles — shared by rail-pool-retheme (one-off prune) and
+# rail-theme-gate (grow/link/verify pool writes; on by default).
 # intent: positive keywords (tokenized like AI compose)
 # exclude: strong mismatch signals — hit removes title unless pinned
 # min_fit: optional per-rail keep threshold (default 8; anchor rails use 3)

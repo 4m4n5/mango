@@ -17,6 +17,7 @@ import {
 import { normalizeSeriesVerifyId } from './ids.js';
 import { probeUrlViaPool } from './mpv-probe-pool.js';
 import { probeUrl } from '../mpv.js';
+import type { RailThemeGate } from './rail-theme-gate.js';
 
 export type VerifyTitleResult = {
   type: string;
@@ -52,6 +53,7 @@ export type VerifyTitleOptions = {
 export type VerifyContext = {
   batchWriter?: PlayabilityBatchWriter | null;
   useProbePool?: boolean;
+  themeGate?: RailThemeGate;
 };
 
 export type PreparedVerifyTitleResult = {

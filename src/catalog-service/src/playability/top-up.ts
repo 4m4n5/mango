@@ -20,6 +20,7 @@ import {
   linkExistingVerifiedCandidates,
   processVerifyQueue,
   railMapsFromRails,
+  type PlayabilityVerifyAction,
   type RailCandidateRef,
 } from './pipeline.js';
 import {
@@ -74,7 +75,7 @@ export type TopUpRailResult = {
     type: string;
     id: string;
     title?: string;
-    action: 'linked_existing' | 'verified' | 'failed' | 'skipped_existing' | 'skipped_recent_failed' | 'reverified';
+    action: PlayabilityVerifyAction;
     reason?: string;
     rails?: string[];
   }>;
@@ -208,7 +209,7 @@ async function topUpRailIncremental(
     { poolTargetOverride: poolTarget },
   );
 
-  const context = await createVerifyContext();
+  const context = await createVerifyContext(core);
   const linked = await linkExistingVerifiedCandidates({
     refsByKey,
     titleStatuses,

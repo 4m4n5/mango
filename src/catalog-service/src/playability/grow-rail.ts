@@ -21,6 +21,7 @@ import {
   linkExistingVerifiedCandidates,
   processVerifyQueue,
   railMapsFromRails,
+  type PlayabilityVerifyAction,
   type RailCandidateRef,
 } from './pipeline.js';
 import {
@@ -97,7 +98,7 @@ export type GrowRailResult = {
     type: string;
     id: string;
     title?: string;
-    action: 'linked_existing' | 'verified' | 'failed' | 'skipped_existing' | 'skipped_recent_failed' | 'reverified';
+    action: PlayabilityVerifyAction;
     reason?: string;
     rails?: string[];
   }>;
@@ -173,7 +174,7 @@ export async function growRail(
   const maxSourceResetCycles = playabilityGrowSourceResetCycles();
   const maxHeadAdvanceCycles = playabilityGrowHeadAdvanceMaxCycles();
 
-  const context = await createVerifyContext();
+  const context = await createVerifyContext(core);
 
   const freshQuotaSoFar = (): number => freshVerifiedCount(growthPass, rail.id);
 

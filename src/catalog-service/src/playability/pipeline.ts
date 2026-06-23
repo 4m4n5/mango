@@ -27,6 +27,10 @@ import {
   type VerifyContext,
 } from './verify.js';
 import {
+  RailThemeGate,
+  themeGateEnabled,
+} from './rail-theme-gate.js';
+import {
   effectivePoolTarget,
   incrementGrowthPassFresh,
   incrementGrowthPassLinked,
@@ -118,7 +122,13 @@ async function queuePoolLink(
   index: number,
   stream: Record<string, unknown> | undefined,
   context: VerifyContext,
-): Promise<void> {
+): Promise<boolean> {
+  if (context.themeGate) {
+    const fit = await context.themeGate.fitsRail(railId, candidate);
+    if (!fit.fit) {
+      return false;
+    }
+  }
   const entry: RailPoolEntry = {
     rail_id: railId,
     type: candidate.type,
@@ -128,10 +138,20 @@ async function queuePoolLink(
   };
   if (context.batchWriter) {
     context.batchWriter.queuePool(entry);
-    return;
+    return true;
   }
   await upsertRailPoolTitle(entry);
+  return true;
 }
+
+export type PlayabilityVerifyAction =
+  | 'linked_existing'
+  | 'verified'
+  | 'failed'
+  | 'skipped_existing'
+  | 'skipped_recent_failed'
+  | 'skipped_theme'
+  | 'reverified';
 
 export type ProcessVerifyQueueResult = {
   verified: number;
@@ -143,7 +163,7 @@ export type ProcessVerifyQueueResult = {
     type: string;
     id: string;
     title?: string;
-    action: 'linked_existing' | 'verified' | 'failed' | 'skipped_existing' | 'skipped_recent_failed' | 'reverified';
+    action: PlayabilityVerifyAction;
     reason?: string;
     rails?: string[];
   }>;
@@ -238,14 +258,30 @@ export async function processVerifyQueue(
     );
 
     if (result.ok) {
+      const linkedRails: string[] = [];
       for (const ref of eligibleRefs) {
         const keys = railPoolKeys.get(ref.railId) ?? new Set<string>();
-        await queuePoolLink(ref.railId, ref.candidate, ref.index, result.stream, context);
+        const linked = await queuePoolLink(ref.railId, ref.candidate, ref.index, result.stream, context);
+        if (!linked) {
+          results.push({
+            type: item.candidate.type,
+            id: item.candidate.id,
+            title: item.candidate.title,
+            action: 'skipped_theme',
+            reason: 'theme_mismatch',
+            rails: [ref.railId],
+          });
+          continue;
+        }
         if (!keys.has(item.key)) {
           keys.add(item.key);
           railPoolKeys.set(ref.railId, keys);
           railVerifiedCounts.set(ref.railId, (railVerifiedCounts.get(ref.railId) ?? 0) + 1);
+          linkedRails.push(ref.railId);
         }
+      }
+      if (linkedRails.length === 0) {
+        return;
       }
       verified += 1;
       results.push({
@@ -253,12 +289,12 @@ export async function processVerifyQueue(
         id: item.candidate.id,
         title: item.candidate.title,
         action: item.forceReprobe ? 'reverified' : 'verified',
-        rails: eligibleRefs.map((ref) => ref.railId),
+        rails: linkedRails,
       });
       if (growthPass && !item.forceReprobe) {
         incrementGrowthPassFresh(
           growthPass,
-          eligibleRefs.map((ref) => ref.railId),
+          linkedRails,
         );
       }
       maybeStopEarly();
@@ -391,6 +427,7 @@ export async function linkExistingVerifiedCandidates(
   linked_existing: number;
   skipped_existing: number;
   skipped_recent_failed: number;
+  skipped_theme: number;
   results: ProcessVerifyQueueResult['results'];
 }> {
   const {
@@ -423,6 +460,7 @@ export async function linkExistingVerifiedCandidates(
   let linkedExisting = 0;
   let skippedExisting = 0;
   let skippedRecentFailed = 0;
+  let skippedTheme = 0;
 
   for (const [key, refs] of refsByKey.entries()) {
     const candidate = refs[0]?.candidate;
@@ -437,7 +475,19 @@ export async function linkExistingVerifiedCandidates(
           continue;
         }
         const keys = railPoolKeys.get(ref.railId) ?? new Set<string>();
-        await queuePoolLink(ref.railId, candidate, ref.index, undefined, context);
+        const linked = await queuePoolLink(ref.railId, candidate, ref.index, undefined, context);
+        if (!linked) {
+          skippedTheme += 1;
+          results.push({
+            type: candidate.type,
+            id: candidate.id,
+            title: candidate.title,
+            action: 'skipped_theme',
+            reason: 'theme_mismatch',
+            rails: [ref.railId],
+          });
+          continue;
+        }
         if (keys.has(key)) {
           skippedExisting += 1;
           results.push({
@@ -485,12 +535,32 @@ export async function linkExistingVerifiedCandidates(
     }
 
     if (refs.some((ref) => forceReprobe || !railAtTarget(ref.railId))) {
-      verifyQueue.push({
-        key,
-        candidate,
-        refs,
-        forceReprobe,
+      const probeRefs = refs.filter((ref) => {
+        if (forceReprobe || !railAtTarget(ref.railId)) {
+          if (context.themeGate?.shouldSkipProbe(ref.railId, candidate)) {
+            skippedTheme += 1;
+            results.push({
+              type: candidate.type,
+              id: candidate.id,
+              title: candidate.title,
+              action: 'skipped_theme',
+              reason: 'theme_probe_skip',
+              rails: [ref.railId],
+            });
+            return false;
+          }
+          return true;
+        }
+        return false;
       });
+      if (probeRefs.length > 0) {
+        verifyQueue.push({
+          key,
+          candidate,
+          refs: probeRefs,
+          forceReprobe,
+        });
+      }
     }
   }
 
@@ -499,18 +569,23 @@ export async function linkExistingVerifiedCandidates(
     linked_existing: linkedExisting,
     skipped_existing: skippedExisting,
     skipped_recent_failed: skippedRecentFailed,
+    skipped_theme: skippedTheme,
     results,
   };
 }
 
-export async function createVerifyContext(): Promise<VerifyContext> {
+export async function createVerifyContext(core?: CatalogCore): Promise<VerifyContext> {
   const usePool = playabilityUseProbePool();
   if (usePool) {
     await ensureProbePool();
   }
+  const themeGate = core && themeGateEnabled()
+    ? await RailThemeGate.create(core)
+    : undefined;
   return {
     batchWriter: playabilityBatchDbEnabled() ? new PlayabilityBatchWriter() : null,
     useProbePool: usePool,
+    themeGate,
   };
 }
 

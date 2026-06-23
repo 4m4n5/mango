@@ -24,7 +24,7 @@ export type GlobalLinkPassResult = {
     type: string;
     id: string;
     title?: string;
-    action: 'linked_existing' | 'verified' | 'failed' | 'skipped_existing' | 'skipped_recent_failed' | 'reverified';
+    action: 'linked_existing' | 'verified' | 'failed' | 'skipped_existing' | 'skipped_recent_failed' | 'skipped_theme' | 'reverified';
     reason?: string;
     rails?: string[];
   }>;

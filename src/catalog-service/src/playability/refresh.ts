@@ -375,7 +375,7 @@ export async function refreshAllRails(
     }))),
   );
 
-  const context = await createVerifyContext();
+  const context = await createVerifyContext(core);
   const linked = await linkExistingVerifiedCandidates({
     refsByKey,
     titleStatuses,
