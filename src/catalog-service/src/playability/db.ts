@@ -1016,6 +1016,57 @@ ORDER BY rp.rail_id, rp.score DESC;
   }
 }
 
+type OrphanVerifiedRow = {
+  type: string;
+  id: string;
+  display_title: string | null;
+};
+
+/** Verified titles with no rail_pool row — e.g. after a bad retheme pass. */
+export async function listOrphanVerifiedPoolTitles(
+  now: number = nowMs(),
+): Promise<OrphanVerifiedRow[]> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    return db.prepare(`
+SELECT t.type, t.id, (
+  SELECT rp.title FROM rail_pool rp
+  WHERE rp.type = t.type AND rp.id = t.id
+  LIMIT 1
+) AS display_title
+FROM titles t
+WHERE t.status = 'verified'
+  AND (t.expires_at IS NULL OR t.expires_at > @now)
+  AND NOT EXISTS (
+    SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id
+  );
+`).all({ now }) as OrphanVerifiedRow[];
+  } finally {
+    db.close();
+  }
+}
+
+export async function recoverOrphanVerifiedPoolTitles(
+  now: number = nowMs(),
+): Promise<number> {
+  const orphans = await listOrphanVerifiedPoolTitles(now);
+  if (orphans.length === 0) {
+    return 0;
+  }
+  for (const row of orphans) {
+    const railId = row.type === 'movie' ? 'movies-global-popular' : 'series-global-popular';
+    await upsertRailPoolTitle({
+      rail_id: railId,
+      type: row.type,
+      id: row.id,
+      score: 75,
+      title: row.display_title ?? undefined,
+    });
+  }
+  return orphans.length;
+}
+
 export async function deleteRailPoolTitle(
   railId: string,
   type: string,

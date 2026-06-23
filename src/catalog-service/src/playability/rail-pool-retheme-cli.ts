@@ -6,6 +6,7 @@ import { rethemeRailPools } from './rail-pool-retheme.js';
 
 function usage(): never {
   console.error(`usage:
+  rail-pool-retheme recover
   rail-pool-retheme dry-run [--rail <id>] [--no-meta] [--no-preserve]
   rail-pool-retheme apply [--rail <id>] [--no-meta] [--no-preserve]
 
@@ -41,8 +42,25 @@ function summarizeByRail(actions: Awaited<ReturnType<typeof rethemeRailPools>>['
   }
 }
 
+async function cmdRecover(): Promise<void> {
+  const { recoverOrphanVerifiedPoolTitles } = await import('./db.js');
+  const recovered = await recoverOrphanVerifiedPoolTitles();
+  console.log(JSON.stringify({ ok: true, recovered }, null, 2));
+  await clearRailSessionsFromRecover(recovered);
+}
+
+async function clearRailSessionsFromRecover(recovered: number): Promise<void> {
+  if (recovered <= 0) return;
+  const { clearRailSessions } = await import('./db.js');
+  await clearRailSessions(['movies-global-popular', 'series-global-popular']);
+}
+
 async function main(): Promise<void> {
   const [command] = process.argv.slice(2);
+  if (command === 'recover') {
+    await cmdRecover();
+    return;
+  }
   if (!command || (command !== 'dry-run' && command !== 'apply')) {
     usage();
   }

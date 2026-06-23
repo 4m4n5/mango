@@ -4,6 +4,7 @@ import {
   clearRailSessions,
   deleteRailPoolTitle,
   listVerifiedPoolMemberships,
+  recoverOrphanVerifiedPoolTitles,
   upsertRailPoolTitle,
   type RailPoolMembership,
 } from './db.js';
@@ -152,13 +153,17 @@ export async function rethemeRailPools(
   let removed = 0;
   let relocated = 0;
   let kept = 0;
-  let metaFetched = 0;
+  let processed = 0;
+  const progressEvery = Number(process.env.MANGO_RETHEME_PROGRESS_EVERY ?? 25);
 
   for (const [titleKey, rows] of byTitle) {
+    processed += 1;
+    if (progressEvery > 0 && processed % progressEvery === 0) {
+      console.error(`retheme: scored ${processed}/${byTitle.size} titles…`);
+    }
     const { type, id } = parseMembershipKey(titleKey);
     const poolTitle = rows.find((row) => row.title)?.title ?? null;
     const meta = await fetchMetaCached(core, type, id, metaCache, withMeta);
-    if (withMeta && metaCache.has(titleKey)) metaFetched += 1;
     const haystack = metaHaystack(meta, poolTitle);
     const runtimeMinutes = type === 'movie' ? parseRuntimeMinutes(meta) : null;
 
@@ -170,7 +175,14 @@ export async function rethemeRailPools(
     }
     const best = bestRailForTitle(scores);
     const targetRail = resolveTargetRail(type, scores, enabledRailIds);
-    const ensuredRails = new Set<string>();
+
+    type RowDecision = {
+      row: RailPoolMembership;
+      score: number;
+      remove: boolean;
+      reason?: string;
+    };
+    const decisions: RowDecision[] = [];
 
     for (const row of rows) {
       const profile = profiles.get(row.rail_id);
@@ -179,6 +191,7 @@ export async function rethemeRailPools(
       if (pinned.has(pinKey(row.rail_id, type, id))) {
         kept += 1;
         actions.push({ action: 'keep', rail_id: row.rail_id, type, id, score });
+        decisions.push({ row, score, remove: false });
         continue;
       }
 
@@ -196,6 +209,7 @@ export async function rethemeRailPools(
       if (!belowMin && !excludeHit && !betterElsewhere) {
         kept += 1;
         actions.push({ action: 'keep', rail_id: row.rail_id, type, id, score });
+        decisions.push({ row, score, remove: false });
         continue;
       }
 
@@ -204,41 +218,66 @@ export async function rethemeRailPools(
         : betterElsewhere
           ? 'better_rail_available'
           : 'below_min_fit';
-      actions.push({ action: 'remove', rail_id: row.rail_id, type, id, score, reason });
-      railsTouched.add(row.rail_id);
+      decisions.push({ row, score, remove: true, reason });
+    }
+
+    const toRemove = decisions.filter((decision) => decision.remove);
+    if (toRemove.length === 0) {
+      continue;
+    }
+
+    const keepingRails = new Set(
+      decisions.filter((decision) => !decision.remove).map((decision) => decision.row.rail_id),
+    );
+    const targetScore = scores.get(targetRail) ?? 0;
+    const needsEnsure = preserveTitles && !keepingRails.has(targetRail);
+
+    if (needsEnsure) {
+      actions.push({
+        action: 'relocate',
+        from_rail: toRemove[0]!.row.rail_id,
+        to_rail: targetRail,
+        type,
+        id,
+        score: toRemove[0]!.score,
+        target_score: targetScore,
+      });
+      railsTouched.add(targetRail);
+      relocated += 1;
+      if (!dryRun) {
+        await upsertRailPoolTitle({
+          rail_id: targetRail,
+          type,
+          id,
+          score: Math.max(80, targetScore),
+          title: poolTitle ?? undefined,
+        });
+      }
+    }
+
+    for (const decision of toRemove) {
+      const reason = decision.reason ?? 'below_min_fit';
+      actions.push({
+        action: 'remove',
+        rail_id: decision.row.rail_id,
+        type,
+        id,
+        score: decision.score,
+        reason,
+      });
+      railsTouched.add(decision.row.rail_id);
       removed += 1;
       if (!dryRun) {
-        await deleteRailPoolTitle(row.rail_id, type, id);
+        await deleteRailPoolTitle(decision.row.rail_id, type, id);
       }
+    }
+  }
 
-      if (preserveTitles) {
-        const alreadyPresent = rows.some((entry) => entry.rail_id === targetRail)
-          || ensuredRails.has(targetRail);
-        if (!alreadyPresent && targetRail !== row.rail_id) {
-          const targetScore = scores.get(targetRail) ?? 0;
-          actions.push({
-            action: 'relocate',
-            from_rail: row.rail_id,
-            to_rail: targetRail,
-            type,
-            id,
-            score,
-            target_score: targetScore,
-          });
-          railsTouched.add(targetRail);
-          relocated += 1;
-          ensuredRails.add(targetRail);
-          if (!dryRun) {
-            await upsertRailPoolTitle({
-              rail_id: targetRail,
-              type,
-              id,
-              score: Math.max(80, targetScore),
-              title: poolTitle ?? undefined,
-            });
-          }
-        }
-      }
+  if (!dryRun && preserveTitles) {
+    const recovered = await recoverOrphanVerifiedPoolTitles();
+    if (recovered > 0) {
+      railsTouched.add(ANCHOR_MOVIES_RAIL);
+      railsTouched.add(ANCHOR_SERIES_RAIL);
     }
   }
 
