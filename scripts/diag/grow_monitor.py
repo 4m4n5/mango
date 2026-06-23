@@ -709,9 +709,19 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
         )
     elif overnight.get("log"):
         lines.append(f"overnight: no (last log {overnight.get('log')})")
-    if grow.get("running") and (
-        grow.get("maintenance_lock") or overnight.get("running") or not grow.get("couch_up")
-    ):
+    if grow.get("running") and overnight.get("running"):
+        probes = int(grow.get("active_probes") or 0)
+        couch = "up" if grow.get("couch_up") else "down"
+        lines.append(
+            f"maintenance: overnight grow — couch should be {couch} "
+            f"(active probes: {probes})",
+        )
+        if grow.get("couch_up"):
+            lines.append(
+                "  warn: launcher responded during overnight — "
+                "watchdog may have restarted UI; grow still owns indexer",
+            )
+    elif grow.get("running") and grow.get("maintenance_lock"):
         couch = "up" if grow.get("couch_up") else "down"
         probes = int(grow.get("active_probes") or 0)
         lines.append(
