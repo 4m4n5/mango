@@ -193,6 +193,7 @@ async function postVoiceAck(
   try {
     await fetch("/api/voice/ack", {
       method: "POST",
+      cache: "no-store",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         seq,
@@ -220,7 +221,7 @@ function startVoiceCommandPoll(
     }
     pollInFlight = true;
     try {
-      const response = await fetch(`/api/voice/commands?after=${lastSeq}`);
+      const response = await fetch(`/api/voice/commands?after=${lastSeq}`, { cache: "no-store" });
       if (!response.ok) {
         return;
       }
