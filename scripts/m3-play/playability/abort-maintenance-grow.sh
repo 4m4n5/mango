@@ -21,10 +21,22 @@ if [[ -f "$CACHE_DIR/playability-grow.pid" ]]; then
   rm -f "$CACHE_DIR/playability-grow.pid"
 fi
 
+if [[ -f "$CACHE_DIR/overnight-fill.pid" ]]; then
+  opid="$(cat "$CACHE_DIR/overnight-fill.pid" 2>/dev/null || true)"
+  if [[ -n "$opid" ]] && kill -0 "$opid" 2>/dev/null; then
+    kill "$opid" 2>/dev/null || true
+    sleep 1
+    kill -9 "$opid" 2>/dev/null || true
+  fi
+  rm -f "$CACHE_DIR/overnight-fill.pid"
+fi
+
 pkill -f '[p]layability-indexer.ts' 2>/dev/null || true
 pkill -f '[p]layability-maintenance.sh' 2>/dev/null || true
+pkill -f '[o]vernight-playability-grow.sh' 2>/dev/null || true
 bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
 rm -f "$CACHE_DIR/playability-maintenance.lock"
+rm -f "$CACHE_DIR/overnight-fill.lock"
 
 python3 scripts/diag/grow_run_state.py set \
   --phase done \

@@ -63,6 +63,18 @@ def grow_log_path() -> Path:
     return cache_dir() / "playability-grow.log"
 
 
+def overnight_pidfile_path() -> Path:
+    return cache_dir() / "overnight-fill.pid"
+
+
+def overnight_log_path() -> Path:
+    return cache_dir() / "overnight-fill.log"
+
+
+def overnight_lock_path() -> Path:
+    return cache_dir() / "overnight-fill.lock"
+
+
 def ops_dir() -> Path:
     return cache_dir() / "ops"
 
@@ -117,6 +129,52 @@ def _couch_stack_up() -> bool:
         return False
 
 
+def detect_overnight_state() -> dict[str, Any]:
+    pidfile = overnight_pidfile_path()
+    pid: int | None = None
+    if pidfile.is_file():
+        try:
+            pid = int(pidfile.read_text(encoding="utf-8").strip())
+        except ValueError:
+            pid = None
+
+    pid_alive = pid is not None and _pid_alive(pid)
+    if pidfile.is_file() and not pid_alive:
+        try:
+            pidfile.unlink()
+        except OSError:
+            pass
+        pid = None
+
+    log_path = overnight_log_path()
+    log_tail: list[str] = []
+    if log_path.is_file():
+        try:
+            log_tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            log_tail = []
+
+    return {
+        "running": pid_alive,
+        "pid": pid if pid_alive else None,
+        "pidfile": str(pidfile),
+        "lock": overnight_lock_path().is_file(),
+        "log": str(log_path) if log_path.is_file() else None,
+        "log_lines": len(log_tail),
+    }
+
+
+def tail_overnight_log(max_lines: int = 25) -> list[str]:
+    path = overnight_log_path()
+    if not path.is_file() or max_lines <= 0:
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    return lines[-max_lines:]
+
+
 def detect_grow_state() -> dict[str, Any]:
     pidfile = pidfile_path()
     pid: int | None = None
@@ -143,11 +201,19 @@ def detect_grow_state() -> dict[str, Any]:
     ]
     hitrate_lines = _pgrep("source-hitrate.py")
 
+    overnight = detect_overnight_state()
     run_state = load_grow_run_state()
     phase = run_state.get("phase") if run_state else None
     phase_message = run_state.get("message") if run_state else None
 
-    running = pid_alive or bool(indexer_lines) or bool(topup_lines) or bool(maintenance_lines) or bool(hitrate_lines)
+    running = (
+        pid_alive
+        or overnight["running"]
+        or bool(indexer_lines)
+        or bool(topup_lines)
+        or bool(maintenance_lines)
+        or bool(hitrate_lines)
+    )
     if phase and phase not in {"done", "idle"} and (pid_alive or maintenance_lines or hitrate_lines or topup_lines):
         running = True
 
@@ -156,6 +222,7 @@ def detect_grow_state() -> dict[str, Any]:
         "pid": pid if pid_alive else None,
         "pidfile": str(pidfile),
         "maintenance_lock": lock_held,
+        "overnight": overnight,
         "couch_up": _couch_stack_up(),
         "active_probes": _count_active_probes(),
         "indexer": indexer_lines[:3],
@@ -354,6 +421,44 @@ def fetch_distinct_probe_verified_since(
         conn.close()
 
 
+def fetch_verify_log_totals_since(
+    since_ms: int,
+    db_file: Path | None = None,
+) -> dict[str, int]:
+    """Aggregate verify_log outcomes since baseline (all rails)."""
+    path = db_file or db_path()
+    if not path.is_file() or since_ms <= 0:
+        return {"total": 0, "verified": 0, "failed": 0}
+
+    conn = sqlite3.connect(path)
+    try:
+        try:
+            rows = conn.execute(
+                """
+                SELECT outcome, COUNT(*) AS c
+                FROM verify_log
+                WHERE started_at > ?
+                GROUP BY outcome
+                """,
+                (since_ms,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return {"total": 0, "verified": 0, "failed": 0}
+    finally:
+        conn.close()
+
+    totals = {"total": 0, "verified": 0, "failed": 0}
+    for outcome, count in rows:
+        outcome_key = str(outcome)
+        value = int(count)
+        totals["total"] += value
+        if outcome_key == "verified":
+            totals["verified"] = value
+        elif outcome_key in {"failed", "no_stream", "timeout", "verify_drift"}:
+            totals["failed"] += value
+    return totals
+
+
 def fetch_verify_log_stats(since_ms: int, db_file: Path | None = None) -> dict[str, dict[str, int]]:
     path = db_file or db_path()
     if not path.is_file():
@@ -448,6 +553,7 @@ def build_live_status(
     current = fetch_verified_pool_counts(db_file)
     since_ms = int(baseline.get("created_at_ms") or 0) or (_now_ms() - verify_window_ms)
     verify_stats = fetch_verify_log_stats(since_ms, db_file)
+    verify_totals = fetch_verify_log_totals_since(since_ms, db_file)
     unique_now = fetch_unique_verified_library_count(db_file)
     if "unique_verified" in baseline:
         unique_before = int(baseline["unique_verified"])
@@ -522,6 +628,7 @@ def build_live_status(
         "program_pass_rate": pass_rate,
         "program_pass": pass_rate >= PROGRAM_PASS_RATE if browse_count else False,
         "grow": detect_grow_state(),
+        "verify_since_baseline": verify_totals,
         "extra_rails": extra_rails,
         "thin_rails": thin_rails,
         "thin_rail_alerts": thin_alerts,
@@ -576,17 +683,35 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
     if global_pool is not None and global_pool != data.get("verified_pool"):
         slots_line += f" · global slots {global_pool}"
 
+    verify_totals = data.get("verify_since_baseline") or {}
+    verify_line = (
+        f"probes since baseline: {int(verify_totals.get('verified') or 0)} verified, "
+        f"{int(verify_totals.get('failed') or 0)} failed "
+        f"({int(verify_totals.get('total') or 0)} total)"
+    )
+
+    overnight = (grow.get("overnight") or {}) if isinstance(grow.get("overnight"), dict) else {}
+
     lines = [
         "mango library grower",
         f"baseline: {data.get('baseline_path', '-')}",
         pool_line,
         slots_line,
+        verify_line,
         f"rails +target: {data.get('rails_met_target', 0)}/{data.get('rails_total', 0)} "
         f"({int(round((data.get('program_pass_rate') or 0) * 100))}%)",
         f"running: {'yes' if grow.get('running') else 'no'}"
         + (f" pid={grow.get('pid')}" if grow.get('pid') else ""),
     ]
-    if grow.get("running") and grow.get("maintenance_lock"):
+    if overnight.get("running"):
+        lines.append(
+            f"overnight: yes pid={overnight.get('pid')} log={overnight.get('log') or '-'}",
+        )
+    elif overnight.get("log"):
+        lines.append(f"overnight: no (last log {overnight.get('log')})")
+    if grow.get("running") and (
+        grow.get("maintenance_lock") or overnight.get("running") or not grow.get("couch_up")
+    ):
         couch = "up" if grow.get("couch_up") else "down"
         probes = int(grow.get("active_probes") or 0)
         lines.append(
@@ -707,23 +832,49 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_overnight_log_tail(max_lines: int) -> None:
+    tail = tail_overnight_log(max_lines)
+    if not tail:
+        return
+    print("")
+    print(f"overnight log (last {len(tail)} lines):")
+    for line in tail:
+        print(line)
+
+
 def cmd_watch(args: argparse.Namespace) -> int:
     polls = 0
+    verbose = bool(getattr(args, "verbose", True))
+    log_lines = int(getattr(args, "log_lines", 25))
     while True:
         polls += 1
-        print(f"=== poll {polls} {time.strftime('%H:%M:%S')} ===")
-        rc = cmd_status(argparse.Namespace(json=False, allow_missing_baseline=True, verbose=False))
+        print("")
+        print("=" * 80)
+        print(f"GROW MONITOR poll={polls} {time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print("=" * 80)
+        rc = cmd_status(
+            argparse.Namespace(
+                json=False,
+                allow_missing_baseline=True,
+                verbose=verbose,
+            ),
+        )
+        _print_overnight_log_tail(log_lines)
         grow = detect_grow_state()
+        indexer = grow.get("indexer") or []
+        if indexer:
+            print("")
+            print("indexer:")
+            for line in indexer:
+                print(f"  {line}")
         if not grow["running"]:
-            print("grow: not running")
-            if args.exit_when_done:
-                return rc
-            break
-        else:
-            print("grow: running")
-            phase_line = _format_phase_line(grow)
-            if phase_line:
-                print(phase_line)
+            overnight = grow.get("overnight") or {}
+            if not overnight.get("running"):
+                print("")
+                print("grow: not running")
+                if args.exit_when_done:
+                    return rc
+                break
         if args.max_polls and polls >= args.max_polls:
             return rc
         time.sleep(max(5, args.interval))
@@ -777,10 +928,22 @@ def build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,
     )
 
-    watch = sub.add_parser("watch", help="poll status until grow stops or max polls")
-    watch.add_argument("--interval", type=int, default=30)
-    watch.add_argument("--max-polls", type=int, default=0)
+    watch = sub.add_parser("watch", help="poll full status until grow stops or max polls")
+    watch.add_argument("--interval", type=int, default=90, help="seconds between polls (default 90)")
+    watch.add_argument("--max-polls", type=int, default=0, help="0 = unlimited")
     watch.add_argument("--exit-when-done", action="store_true")
+    watch.add_argument(
+        "--verbose",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="include thin rails and extra pool rails (default on)",
+    )
+    watch.add_argument(
+        "--log-lines",
+        type=int,
+        default=25,
+        help="overnight-fill.log lines to print each poll (default 25)",
+    )
 
     assess = sub.add_parser("assess", help="SLA assess latest or given refresh JSON")
     assess.add_argument("--refresh-json")

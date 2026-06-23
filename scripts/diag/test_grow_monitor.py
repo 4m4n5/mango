@@ -197,6 +197,38 @@ class GrowMonitorTests(unittest.TestCase):
         self.assertIn("preflight", line)
         self.assertIn("5/36", line)
 
+    def test_format_includes_probe_and_thin_rails(self) -> None:
+        text = format_live_status({
+            "baseline_path": "/tmp/grow-baseline.json",
+            "unique_verified": 100,
+            "unique_verified_before": 90,
+            "unique_verified_delta": 10,
+            "verified_pool": 50,
+            "verified_pool_delta": 5,
+            "rails_met_target": 1,
+            "rails_total": 2,
+            "program_pass_rate": 0.5,
+            "verify_since_baseline": {"verified": 3, "failed": 1, "total": 4},
+            "grow": {
+                "running": True,
+                "overnight": {"running": True, "pid": 99, "log": "/tmp/overnight-fill.log"},
+                "couch_up": False,
+                "active_probes": 2,
+            },
+            "rails": [],
+            "thin_rails": [{
+                "rail_id": "movies-classics",
+                "verified": 3,
+                "pool_target": 20,
+                "fill_pct": 15,
+                "alert": False,
+            }],
+        })
+        self.assertIn("probes since baseline: 3 verified, 1 failed (4 total)", text)
+        self.assertIn("thin rails (<50% pool_target):", text)
+        self.assertIn("movies-classics: 3/20 (15%)", text)
+        self.assertIn("overnight: yes pid=99", text)
+
     def test_fetch_unique_verified_excludes_expired(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "playability.db"

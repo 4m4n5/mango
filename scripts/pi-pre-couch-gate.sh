@@ -16,10 +16,16 @@ fi
 
 echo "=== pre-couch $(hostname) $(git rev-parse --short HEAD 2>/dev/null) ==="
 
-MAINT_LOCK="${XDG_CACHE_HOME:-$HOME/.cache}/mango/playability-maintenance.lock"
-if [[ -f "$MAINT_LOCK" ]] || pgrep -f '[p]layability-indexer.ts' >/dev/null 2>&1; then
+CACHE_MANGO="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
+MAINT_LOCK="${CACHE_MANGO}/playability-maintenance.lock"
+OVERNIGHT_PID="${CACHE_MANGO}/overnight-fill.pid"
+OVERNIGHT_RUNNING=0
+if [[ -f "$OVERNIGHT_PID" ]] && kill -0 "$(cat "$OVERNIGHT_PID")" 2>/dev/null; then
+  OVERNIGHT_RUNNING=1
+fi
+if [[ -f "$MAINT_LOCK" ]] || [[ "$OVERNIGHT_RUNNING" -eq 1 ]] || pgrep -f '[p]layability-indexer.ts' >/dev/null 2>&1; then
   echo "FAIL: playability maintenance/grow in progress — couch stack is down" >&2
-  echo "  check: python3 scripts/diag/grow_monitor.py status" >&2
+  echo "  check: python3 scripts/diag/grow_monitor.py watch --exit-when-done" >&2
   echo "  wait for grow to finish, or abort: bash scripts/m3-play/playability/abort-maintenance-grow.sh" >&2
   exit 1
 fi
