@@ -17,6 +17,7 @@ export type SourceCircuitDecision = {
 export type SourceCircuitDecisionOptions = {
   noVerifyScanLimit?: number;
   failMinSamples?: number;
+  themeRejectMinSamples?: number;
 };
 
 export function sourceCircuitSampleLimitForGrowTarget(
@@ -38,6 +39,7 @@ export function sourceCircuitDecision(
   }
   const noVerifyScanLimit = options.noVerifyScanLimit ?? playabilityGrowSourceNoVerifyScanLimit();
   const failMinSamples = options.failMinSamples ?? playabilityGrowSourceFailMinSamples();
+  const themeRejectMinSamples = options.themeRejectMinSamples ?? playabilityGrowSourceThemeRejectMinSamples();
 
   if (stat.rate_limited > 0) {
     return { suppress: true, reason: 'rate_limited' };
@@ -56,7 +58,7 @@ export function sourceCircuitDecision(
 
   const themeSamples = stat.theme_rejected + stat.verified + stat.failed;
   if (
-    themeSamples >= playabilityGrowSourceThemeRejectMinSamples()
+    themeSamples >= themeRejectMinSamples
     && stat.theme_rejected / Math.max(1, themeSamples) >= playabilityGrowSourceThemeRejectRatio()
   ) {
     return { suppress: true, reason: 'theme_rejected' };

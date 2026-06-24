@@ -40,6 +40,7 @@ import {
   playabilityRailRejectionTtlMsForReason,
   playabilityGrowSourceFailMinSamples,
   playabilityGrowSourceNoVerifyScanLimit,
+  playabilityGrowSourceThemeRejectMinSamples,
 } from './config.js';
 import {
   createGrowthPassState,
@@ -362,6 +363,12 @@ export async function growRail(
         growTarget,
         20,
         4,
+      ),
+      themeRejectMinSamples: sourceCircuitSampleLimitForGrowTarget(
+        playabilityGrowSourceThemeRejectMinSamples(),
+        growTarget,
+        8,
+        1.5,
       ),
     };
     for (const stat of sourceStats.values()) {

@@ -176,6 +176,9 @@ Defaults favor moving on once evidence is clear: zero-yield suppression starts
 after 60 scanned candidates and low stream hit-rate suppression after 20
 stream samples. Tune with `MANGO_GROW_SOURCE_NO_VERIFY_SCAN_LIMIT`,
 `MANGO_GROW_SOURCE_FAIL_MIN_SAMPLES`, and `MANGO_GROW_SOURCE_FAIL_RATIO`.
+Benchmark grows lower the in-memory stream and theme sample floors in proportion
+to `MANGO_GROW_PER_PASS`, while production `+20` grows keep the configured
+sample floors.
 
 Audit runtime source health after grows:
 

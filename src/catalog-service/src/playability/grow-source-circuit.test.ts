@@ -107,4 +107,18 @@ test('sourceCircuitSampleLimitForGrowTarget scales benchmark thresholds without 
   assert.equal(sourceCircuitSampleLimitForGrowTarget(20, 20, 8), 20);
   assert.equal(sourceCircuitSampleLimitForGrowTarget(60, 5, 20, 4), 20);
   assert.equal(sourceCircuitSampleLimitForGrowTarget(60, 20, 20, 4), 60);
+  assert.equal(sourceCircuitSampleLimitForGrowTarget(25, 5, 8, 1.5), 8);
+  assert.equal(sourceCircuitSampleLimitForGrowTarget(25, 20, 8, 1.5), 25);
+});
+
+test('sourceCircuitDecision accepts benchmark-sized theme rejection thresholds', () => {
+  process.env.MANGO_GROW_SOURCE_THEME_REJECT_MIN_SAMPLES = '25';
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ theme_rejected: 7 }), { themeRejectMinSamples: 8 }),
+    { suppress: false },
+  );
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ theme_rejected: 8 }), { themeRejectMinSamples: 8 }),
+    { suppress: true, reason: 'theme_rejected' },
+  );
 });
