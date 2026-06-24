@@ -10,7 +10,10 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 mkdir -p "$LOG_DIR"
 
-if command -v chromium >/dev/null 2>&1; then
+if [[ -x /usr/lib/chromium/chromium ]]; then
+  # Debian's wrapper can inject stale V8 flags on aarch64 page-size checks.
+  CHROMIUM_BIN="/usr/lib/chromium/chromium"
+elif command -v chromium >/dev/null 2>&1; then
   CHROMIUM_BIN="chromium"
 elif command -v chromium-browser >/dev/null 2>&1; then
   CHROMIUM_BIN="chromium-browser"
