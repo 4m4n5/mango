@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Meta } from '../core.js';
 import {
+  haystackHasThemeTag,
   metaHaystack,
   parseRuntimeMinutes,
   scoreThematicFit,
@@ -68,6 +69,12 @@ test('scoreThematicFit rejects western blockbuster on india movie rail', () => {
   const rrHaystack = 'rrr telugu indian action drama rajamouli';
   assert.ok(scoreThematicFit(rrHaystack, india) >= india.min_fit);
   assert.ok(scoreThematicFit(duneHaystack, india) < india.min_fit);
+});
+
+test('haystackHasThemeTag matches tokens, not substrings', () => {
+  assert.equal(haystackHasThemeTag('country india language hindi', 'india'), true);
+  assert.equal(haystackHasThemeTag('indian territory oil drama', 'india'), false);
+  assert.equal(haystackHasThemeTag('late-night stand-up special', 'stand-up'), true);
 });
 
 test('scoreThematicFit penalizes long runtime on quick-watches', () => {

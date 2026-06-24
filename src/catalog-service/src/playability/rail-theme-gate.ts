@@ -3,6 +3,7 @@ import type { CandidateMeta } from './list-source.js';
 import { loadRailCurationOverrides, type RailCurationOverrides } from './rail-overrides.js';
 import {
   loadRailThemeProfiles,
+  haystackHasThemeTag,
   metaHaystack,
   parseRuntimeMinutes,
   scoreThematicFit,
@@ -34,7 +35,7 @@ function isPinned(
 
 function excludeHit(haystack: string, profile: RailThemeProfile): boolean {
   return [...profile.exclude_tags].some(
-    (tag) => tag.length >= 4 && haystack.includes(tag),
+    (tag) => tag.length >= 4 && haystackHasThemeTag(haystack, tag),
   );
 }
 

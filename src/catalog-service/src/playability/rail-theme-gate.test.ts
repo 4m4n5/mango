@@ -127,7 +127,7 @@ test('fitsRail does not treat Indian Territory as Indian cinema', async () => {
       'movies-india-trending',
       'india hindi bollywood tamil telugu malayalam kannada desi',
       'hollywood american british',
-      14,
+      10,
     )],
   ]);
   const gate = RailThemeGate.forTest(
@@ -159,7 +159,7 @@ test('fitsRail accepts regional movie metadata with language and country signals
       'movies-india-trending',
       'india hindi bollywood tamil telugu malayalam kannada desi',
       'hollywood american british',
-      14,
+      10,
     )],
   ]);
   const gate = RailThemeGate.forTest(

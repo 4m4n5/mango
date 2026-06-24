@@ -12,6 +12,7 @@ import {
 import { loadRailCurationOverrides } from './rail-overrides.js';
 import {
   bestRailForTitle,
+  haystackHasThemeTag,
   loadRailThemeProfiles,
   metaHaystack,
   parseRuntimeMinutes,
@@ -72,7 +73,7 @@ function isAnchorRail(railId: string): boolean {
 
 function profileExcludeHit(profile: RailThemeProfile, haystack: string): boolean {
   return [...profile.exclude_tags].some(
-    (tag) => tag.length >= 4 && haystack.includes(tag),
+    (tag) => tag.length >= 4 && haystackHasThemeTag(haystack, tag),
   );
 }
 

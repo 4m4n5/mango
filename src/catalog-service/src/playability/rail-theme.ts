@@ -96,6 +96,18 @@ export function parseRuntimeMinutes(meta: Meta | null): number | null {
   return h * 60 + m;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function haystackHasThemeTag(haystack: string, tag: string): boolean {
+  if (!tag) return false;
+  const normalized = tag.toLowerCase().trim();
+  if (!normalized) return false;
+  const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(normalized)}([^a-z0-9]|$)`, 'i');
+  return pattern.test(haystack);
+}
+
 export function scoreThematicFit(
   haystack: string,
   profile: RailThemeProfile,
@@ -104,13 +116,13 @@ export function scoreThematicFit(
   let score = 0;
   for (const tag of profile.intent_tags) {
     if (tag.length < 3) continue;
-    if (haystack.includes(tag)) {
+    if (haystackHasThemeTag(haystack, tag)) {
       score += tag.length >= 6 ? 14 : 10;
     }
   }
   for (const tag of profile.exclude_tags) {
     if (tag.length < 3) continue;
-    if (haystack.includes(tag)) {
+    if (haystackHasThemeTag(haystack, tag)) {
       score -= tag.length >= 6 ? 22 : 16;
     }
   }
