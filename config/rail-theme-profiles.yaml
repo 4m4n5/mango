@@ -20,6 +20,7 @@ rails:
   movies-classics:
     intent: classic acclaimed masterpiece imdb rated timeless award
     exclude: stand-up reality
+    min_fit: 0
 
   movies-comedy:
     intent: comedy funny humor laugh rom-com parody
@@ -46,10 +47,12 @@ rails:
   series-classics:
     intent: acclaimed prestige classic masterpiece award imdb top
     exclude: reality game show
+    min_fit: 0
 
   series-miniseries:
     intent: miniseries limited series anthology finite season
     exclude: reality soap opera
+    min_fit: 0
 
   series-reality-casual:
     intent: reality game show competition dating survivor bachelor bachelorette amazing race idol talent cooking renovation housewives
