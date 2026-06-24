@@ -10,6 +10,11 @@ import sys
 import time
 from pathlib import Path
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover - Pi/local gates install PyYAML.
+    yaml = None
+
 DEFAULT_REPORT = Path.home() / ".cache/mango/source-hitrate/latest.json"
 FRESH_HOURS = float(os.environ.get(
     "MANGO_SOURCE_HITRATE_FRESH_HOURS",
@@ -38,6 +43,73 @@ def report_age_hours(path: Path | None = None) -> float | None:
         return (time.time() - path.stat().st_mtime) / 3600
 
 
+def catalog_yaml_path() -> Path:
+    raw = os.environ.get("MANGO_CATALOG_YAML", "")
+    if raw:
+        return Path(raw).expanduser()
+    repo = Path(os.environ.get("MANGO_REPO_DIR", os.path.expanduser("~/mango")))
+    return repo / "config/catalog.example.yaml"
+
+
+def configured_source_keys() -> set[str]:
+    if yaml is None:
+        return set()
+    path = catalog_yaml_path()
+    if not path.is_file():
+        return set()
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    keys: set[str] = set()
+    for rail in data.get("rails") or []:
+        if rail.get("enabled") is False:
+            continue
+        rail_type = rail.get("type")
+        content_type = str(rail.get("content_type") or "movie")
+        if rail_type == "addon_catalog":
+            addon = rail.get("addon")
+            catalog = rail.get("catalog")
+            if addon and catalog:
+                keys.add(f"{addon}|{catalog}|{content_type}")
+        elif rail_type == "composite_list":
+            for source in rail.get("sources") or []:
+                addon = source.get("addon")
+                catalog = source.get("catalog")
+                if addon and catalog:
+                    keys.add(f"{addon}|{catalog}|{content_type}")
+    return keys
+
+
+def report_source_keys(path: Path | None = None) -> set[str] | None:
+    path = path or report_path()
+    if not path.is_file():
+        return None
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    keys: set[str] = set()
+    for source in raw.get("sources") or []:
+        source_key = source.get("source_key")
+        if source_key:
+            keys.add(str(source_key))
+            continue
+        addon = source.get("addon")
+        catalog = source.get("catalog")
+        content_type = source.get("content_type")
+        if addon and catalog and content_type:
+            keys.add(f"{addon}|{catalog}|{content_type}")
+    return keys
+
+
+def missing_report_sources(path: Path | None = None) -> list[str]:
+    configured = configured_source_keys()
+    if not configured:
+        return []
+    reported = report_source_keys(path)
+    if reported is None:
+        return sorted(configured)
+    return sorted(configured - reported)
+
+
 def per_source_for_preset(preset: str) -> int:
     if preset == "quick":
         return max(1, QUICK_PER_SOURCE)
@@ -50,6 +122,11 @@ def should_skip_preflight(preset: str, *, force: bool = False) -> tuple[bool, st
     age = report_age_hours()
     if age is None:
         return False, "no cached report"
+    missing = missing_report_sources()
+    if missing:
+        sample = ", ".join(missing[:4])
+        extra = "" if len(missing) <= 4 else f", +{len(missing) - 4} more"
+        return False, f"cached report missing {len(missing)} sources ({sample}{extra})"
     if age <= FRESH_HOURS:
         return True, f"cached report {age:.1f}h old (<{FRESH_HOURS:.0f}h)"
     return False, f"cached report stale ({age:.1f}h)"
@@ -73,6 +150,7 @@ def cmd_info(args: argparse.Namespace) -> int:
         "age_hours": age,
         "fresh_hours": FRESH_HOURS,
         "per_source": per_source_for_preset(args.preset),
+        "missing_sources": missing_report_sources(path),
         "skip": should_skip_preflight(args.preset, force=False)[0],
     }
     print(json.dumps(payload, indent=2))
@@ -87,6 +165,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
         "per_source": per_source_for_preset(args.preset),
         "preset": args.preset,
         "force": args.force,
+        "missing_sources": missing_report_sources(),
     }))
     return 0
 
