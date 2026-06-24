@@ -489,7 +489,7 @@ def fetch_verified_pool_counts(
     *,
     now_ms: int | None = None,
 ) -> PoolCounts:
-    """Count active verified titles per rail (excludes expired verify TTL)."""
+    """Count published verified titles per rail. TTL is a recheck due date, not visibility."""
     path = db_file or db_path()
     if not path.is_file():
         return PoolCounts(total=0, rails={})
@@ -503,11 +503,9 @@ def fetch_verified_pool_counts(
             FROM rail_pool rp
             JOIN titles t ON t.type = rp.type AND t.id = rp.id
             WHERE t.status = 'verified'
-              AND (t.expires_at IS NULL OR t.expires_at > ?)
             GROUP BY rp.rail_id
             ORDER BY rp.rail_id
             """,
-            (active_at,),
         ).fetchall()
     finally:
         conn.close()
@@ -521,7 +519,7 @@ def fetch_unique_verified_library_count(
     *,
     now_ms: int | None = None,
 ) -> int:
-    """Distinct active verified titles in the global library (titles table)."""
+    """Distinct published verified titles in the global library (titles table)."""
     path = db_file or db_path()
     if not path.is_file():
         return 0
@@ -534,9 +532,7 @@ def fetch_unique_verified_library_count(
             SELECT COUNT(*) AS c
             FROM titles
             WHERE status = 'verified'
-              AND (expires_at IS NULL OR expires_at > ?)
             """,
-            (active_at,),
         ).fetchone()
         return int(row[0]) if row else 0
     finally:
@@ -561,13 +557,11 @@ def fetch_orphan_verified_library_count(
                 SELECT COUNT(*) AS c
                 FROM titles t
                 WHERE t.status = 'verified'
-                  AND (t.expires_at IS NULL OR t.expires_at > ?)
                   AND NOT EXISTS (
                     SELECT 1 FROM rail_pool rp
                     WHERE rp.type = t.type AND rp.id = t.id
                   )
                 """,
-                (active_at,),
             ).fetchone()
         except sqlite3.OperationalError:
             return 0
@@ -605,7 +599,6 @@ def fetch_overlap_summary(
                   FROM rail_pool rp
                   JOIN titles t ON t.type = rp.type AND t.id = rp.id
                   WHERE t.status = 'verified'
-                    AND (t.expires_at IS NULL OR t.expires_at > ?)
                 ), title_counts AS (
                   SELECT type, id, COUNT(DISTINCT rail_id) AS rails
                   FROM active
@@ -618,7 +611,7 @@ def fetch_overlap_summary(
                   MAX(rails)
                 FROM title_counts
                 """,
-                (active_at, max_rails_per_title, max_rails_per_title, max_rails_per_title),
+                (max_rails_per_title, max_rails_per_title, max_rails_per_title),
             ).fetchone()
             pair_rows = conn.execute(
                 """
@@ -627,7 +620,6 @@ def fetch_overlap_summary(
                   FROM rail_pool rp
                   JOIN titles t ON t.type = rp.type AND t.id = rp.id
                   WHERE t.status = 'verified'
-                    AND (t.expires_at IS NULL OR t.expires_at > ?)
                 )
                 SELECT a.rail_id, b.rail_id, COUNT(*) AS shared_titles
                 FROM active a
@@ -636,7 +628,7 @@ def fetch_overlap_summary(
                 ORDER BY shared_titles DESC, a.rail_id, b.rail_id
                 LIMIT ?
                 """,
-                (active_at, top_pairs),
+                (top_pairs,),
             ).fetchall()
         except sqlite3.OperationalError:
             return empty

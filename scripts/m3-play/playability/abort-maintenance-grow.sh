@@ -37,6 +37,7 @@ pkill -f '[s]ource-hitrate.py' 2>/dev/null || true
 bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
 rm -f "$CACHE_DIR/playability-maintenance.lock"
 rm -f "$CACHE_DIR/overnight-fill.lock"
+rm -f "$CACHE_DIR"/playability-work-*.db "$CACHE_DIR"/playability-work-*.db-wal "$CACHE_DIR"/playability-work-*.db-shm
 bash scripts/lib/stale-flock-cleanup.sh >/dev/null 2>&1 || true
 
 python3 - <<'PY' || true

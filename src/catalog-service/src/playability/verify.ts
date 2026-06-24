@@ -143,8 +143,20 @@ async function persistVerifyResult(
   await recordVerifyResult(record);
 }
 
-function isTransientFailure(reason: string): boolean {
-  return reason === 'timeout' || reason === 'probe_failed' || reason === 'no_stream' || reason === 'bad_stream';
+function isInfrastructureFailure(reason: string): boolean {
+  return reason === 'timeout'
+    || reason === 'probe_failed'
+    || reason === 'rate_limited'
+    || reason === 'rate_limit';
+}
+
+function isConfirmedPlaybackFailure(reason: string): boolean {
+  return reason === 'no_stream'
+    || reason === 'title_mismatch'
+    || reason === 'bad_stream'
+    || reason === 'status_clip'
+    || reason === 'copyright'
+    || reason === 'play_failure';
 }
 
 async function recordFailure(
@@ -166,8 +178,9 @@ async function recordFailure(
     return 'preserved';
   }
 
-  const demoteToStale = staleReprobe || (existing?.status === 'verified' && isTransientFailure(reason));
-  const status = demoteToStale ? 'stale' : 'failed';
+  const status = isConfirmedPlaybackFailure(reason) && !isInfrastructureFailure(reason)
+    ? 'failed'
+    : 'stale';
   await persistVerifyResult({
     type,
     id,
@@ -176,7 +189,7 @@ async function recordFailure(
     fail_reason: reason,
     probe_ms: probeMs,
     stage: 'verify',
-    outcome: demoteToStale ? 'stale_reprobe_failed' : reason,
+    outcome: staleReprobe ? `${status}_reprobe_failed` : reason,
   }, context);
   return status;
 }

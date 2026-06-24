@@ -184,7 +184,12 @@ export function playabilitySeriesCrossProbeLimit(): number {
 }
 
 export function playabilityVerifyTtlMs(): number {
-  return positiveDurationMs(process.env.MANGO_PLAYABILITY_TTL_MS, 48 * 60 * 60 * 1000, 3_600_000, 14 * 24 * 60 * 60 * 1000);
+  return positiveDurationMs(
+    process.env.MANGO_PLAYABILITY_TTL_MS,
+    30 * 24 * 60 * 60 * 1000,
+    3_600_000,
+    180 * 24 * 60 * 60 * 1000,
+  );
 }
 
 /** Fresh (untested) titles to queue per rail on each full refresh/top-up pass. */

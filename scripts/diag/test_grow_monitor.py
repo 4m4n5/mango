@@ -95,7 +95,7 @@ class GrowMonitorTests(unittest.TestCase):
         self.assertEqual(normalized["verified_pool"], 89)
         self.assertEqual(normalized["rails"]["ai-horror"], 32)
 
-    def test_fetch_excludes_expired_verified(self) -> None:
+    def test_fetch_includes_expired_verified_as_published(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "playability.db"
             conn = sqlite3.connect(db)
@@ -130,7 +130,7 @@ class GrowMonitorTests(unittest.TestCase):
             conn.close()
 
             counts = fetch_verified_pool_counts(db, now_ms=1000)
-            self.assertEqual(counts.rails.get("movies-documentaries"), 1)
+            self.assertEqual(counts.rails.get("movies-documentaries"), 2)
 
     def test_pool_counts_and_live_status(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -377,7 +377,7 @@ class GrowMonitorTests(unittest.TestCase):
         self.assertIn("movies-classics: 3/20 (15%)", text)
         self.assertIn("overnight: yes pid=99", text)
 
-    def test_fetch_unique_verified_excludes_expired(self) -> None:
+    def test_fetch_unique_verified_includes_expired_published_rows(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "playability.db"
             conn = sqlite3.connect(db)
@@ -402,7 +402,7 @@ class GrowMonitorTests(unittest.TestCase):
                 """,
             )
             conn.close()
-            self.assertEqual(fetch_unique_verified_library_count(db, now_ms=1000), 1)
+            self.assertEqual(fetch_unique_verified_library_count(db, now_ms=1000), 2)
 
     def test_baseline_stores_unique_verified(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

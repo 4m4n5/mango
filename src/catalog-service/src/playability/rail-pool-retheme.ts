@@ -44,6 +44,15 @@ export type RethemePoolsResult = {
   actions: RethemeAction[];
 };
 
+export type AssignVerifiedTitleResult = {
+  ok: true;
+  rail_id: string;
+  type: string;
+  id: string;
+  score: number;
+  reason: 'preferred_fit' | 'best_fit' | 'anchor_fallback';
+};
+
 export type RethemeCore = Pick<CatalogCore, 'browsableRails' | 'meta'>;
 
 const RELOCATE_MIN_SCORE = 12;
@@ -155,6 +164,72 @@ async function fetchMetaCached(
     cache.set(key, null);
     return null;
   }
+}
+
+export async function assignVerifiedTitleToBestRail(
+  core: RethemeCore,
+  input: {
+    type: string;
+    id: string;
+    preferredRailId?: string | null;
+    title?: string | null;
+    poster_url?: string | null;
+    year?: string | null;
+  },
+): Promise<AssignVerifiedTitleResult> {
+  const [profiles, meta] = await Promise.all([
+    loadRailThemeProfiles(),
+    fetchMetaCached(core, input.type, input.id, new Map(), true),
+  ]);
+  const enabledRailIds = new Set(core.browsableRails().map((rail) => rail.id));
+  const applicable = railsForContentType(profiles, input.type)
+    .filter((profile) => enabledRailIds.has(profile.rail_id));
+  const title = input.title ?? meta?.name ?? null;
+  const haystack = metaHaystack(meta, title);
+  const runtimeMinutes = input.type === 'movie' ? parseRuntimeMinutes(meta) : null;
+  const scores = new Map<string, number>();
+  for (const profile of applicable) {
+    scores.set(profile.rail_id, scoreThematicFit(haystack, profile, runtimeMinutes));
+  }
+  const blockedRailIds = new Set(
+    applicable
+      .filter((profile) => profileExcludeHit(profile, haystack))
+      .map((profile) => profile.rail_id),
+  );
+  const targetScores = targetScoresForProfiles(applicable, scores, enabledRailIds, blockedRailIds);
+  const preferredRailId = input.preferredRailId && targetScores.has(input.preferredRailId)
+    ? input.preferredRailId
+    : null;
+  const best = bestRailForTitle(targetScores);
+  const targetRail = preferredRailId ?? resolveTargetRail(input.type, targetScores, enabledRailIds);
+  const targetScore = scores.get(targetRail) ?? 0;
+  const reason = preferredRailId
+    ? 'preferred_fit'
+    : best && best.rail_id === targetRail && best.score >= RELOCATE_MIN_SCORE
+      ? 'best_fit'
+      : 'anchor_fallback';
+  const year = input.year
+    ?? (typeof meta?.releaseInfo === 'string'
+      ? meta.releaseInfo.match(/\d{4}/)?.[0]
+      : undefined);
+  await upsertRailPoolTitle({
+    rail_id: targetRail,
+    type: input.type,
+    id: input.id,
+    score: Math.max(80, targetScore),
+    title: title ?? undefined,
+    poster_url: input.poster_url ?? (typeof meta?.poster === 'string' ? meta.poster : undefined),
+    year,
+  });
+  await clearRailSessions([targetRail]);
+  return {
+    ok: true,
+    rail_id: targetRail,
+    type: input.type,
+    id: input.id,
+    score: targetScore,
+    reason,
+  };
 }
 
 export async function rethemeRailPools(

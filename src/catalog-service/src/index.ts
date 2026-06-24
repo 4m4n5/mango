@@ -8,6 +8,7 @@ import { invalidateTitle, getTitleVerifyProfile, recordVerifyResult } from './pl
 import { demoteVerifyIfDrifted } from './playability/verify.js';
 import { isSeriesRailGateId, seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
+import { assignVerifiedTitleToBestRail } from './playability/rail-pool-retheme.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
 import { resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
 import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
@@ -331,6 +332,17 @@ async function handlePlay(
           }`,
         );
       });
+      await assignVerifiedTitleToBestRail(core, {
+        type: body.type,
+        id: playId,
+        preferredRailId: body.rail_id ?? null,
+      }).catch((assignError) => {
+        console.warn(
+          `playability rail assign on play failed type=${body.type} id=${body.id}: ${
+            assignError instanceof Error ? assignError.message : String(assignError)
+          }`,
+        );
+      });
     }
 
     await attachWatchSession(core, body.type, playId);
@@ -369,7 +381,6 @@ async function handlePlay(
         type: body.type,
         id: playId,
         reason: 'play_failure',
-        preserve_session: true,
       }).catch((invalidateError) => {
         console.warn(
           `playability invalidate failed type=${body.type} id=${body.id}: ${

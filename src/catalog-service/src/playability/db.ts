@@ -19,6 +19,7 @@ import type { RailPlayabilityConfig } from '../rails.js';
 import { effectiveDisplayLimit } from './pool-growth.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
+const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const SCHEMA_VERSION = 6;
 
 export type PlayabilityRailStatus = {
@@ -279,7 +280,6 @@ FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE rp.rail_id = @rail_id
   AND t.status = 'verified'
-  AND COALESCE(t.expires_at, 0) > @now
 ORDER BY rp.score DESC;
 `).all({ rail_id: railId, now }) as RailPoolRow[];
 }
@@ -313,7 +313,6 @@ JOIN titles t ON t.type = rs.type AND t.id = rs.id
 WHERE rs.rail_id = @rail_id
   AND rs.session_id = @session_id
   AND t.status = 'verified'
-  AND COALESCE(t.expires_at, 0) > @now
 ORDER BY rs.slot ASC;
 `).all({
     rail_id: railId,
@@ -724,7 +723,7 @@ export async function ensureRailSourceIngestOffsets(
   return result;
 }
 
-/** Distinct active verified titles in the global library (not per-rail pool slots). */
+/** Distinct published verified titles in the global library (not per-rail pool slots). */
 export async function getUniqueVerifiedLibraryCount(now = nowMs()): Promise<number> {
   await initPlayabilityDb();
   const db = openDb();
@@ -732,8 +731,7 @@ export async function getUniqueVerifiedLibraryCount(now = nowMs()): Promise<numb
     const row = db.prepare(`
 SELECT COUNT(*) AS c
 FROM titles
-WHERE status = 'verified'
-  AND (expires_at IS NULL OR expires_at > @now);
+WHERE status = 'verified';
 `).get({ now }) as { c: number } | undefined;
     return toNumber(row?.c);
   } finally {
@@ -876,9 +874,9 @@ export async function getPlayabilityStatus(railIds: string[]): Promise<Playabili
 SELECT
   rp.rail_id AS rail_id,
   COUNT(*) AS pool_depth,
-  SUM(CASE WHEN t.status = 'verified' AND COALESCE(t.expires_at, 0) > ${now} THEN 1 ELSE 0 END) AS verified_pool,
+  SUM(CASE WHEN t.status = 'verified' THEN 1 ELSE 0 END) AS verified_pool,
   SUM(CASE WHEN t.status = 'pending' THEN 1 ELSE 0 END) AS pending,
-  SUM(CASE WHEN t.status = 'stale' OR (t.status = 'verified' AND COALESCE(t.expires_at, 0) <= ${now}) THEN 1 ELSE 0 END) AS stale,
+  SUM(CASE WHEN t.status = 'stale' THEN 1 ELSE 0 END) AS stale,
   SUM(CASE WHEN t.status = 'failed' THEN 1 ELSE 0 END) AS failed,
   MAX(t.verified_at) AS last_verified_at
 FROM rail_pool rp
@@ -935,7 +933,7 @@ export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promi
   const timestamp = nowMs();
   const verifiedAt = record.status === 'verified' ? timestamp : null;
   const expiresAt = record.status === 'verified'
-    ? record.expires_at ?? timestamp + 48 * 60 * 60 * 1000
+    ? record.expires_at ?? timestamp + DEFAULT_VERIFY_TTL_MS
     : record.expires_at ?? null;
 
   try {
@@ -1205,7 +1203,6 @@ SELECT
 FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE t.status = 'verified'
-  AND (t.expires_at IS NULL OR t.expires_at > @now)
 ORDER BY rp.rail_id, rp.score DESC;
 `).all({ now }) as RailPoolMembership[];
   } finally {
@@ -1234,7 +1231,6 @@ SELECT t.type, t.id, (
 ) AS display_title
 FROM titles t
 WHERE t.status = 'verified'
-  AND (t.expires_at IS NULL OR t.expires_at > @now)
   AND NOT EXISTS (
     SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id
   );
@@ -1254,7 +1250,6 @@ export async function countOrphanVerifiedPoolTitles(
 SELECT COUNT(*) AS c
 FROM titles t
 WHERE t.status = 'verified'
-  AND (t.expires_at IS NULL OR t.expires_at > @now)
   AND NOT EXISTS (
     SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id
   );
@@ -1282,7 +1277,6 @@ WITH active AS (
   FROM rail_pool rp
   JOIN titles t ON t.type = rp.type AND t.id = rp.id
   WHERE t.status = 'verified'
-    AND (t.expires_at IS NULL OR t.expires_at > @now)
 ), title_counts AS (
   SELECT type, id, COUNT(DISTINCT rail_id) AS rails
   FROM active
@@ -1308,7 +1302,6 @@ WITH active AS (
   FROM rail_pool rp
   JOIN titles t ON t.type = rp.type AND t.id = rp.id
   WHERE t.status = 'verified'
-    AND (t.expires_at IS NULL OR t.expires_at > @now)
 )
 SELECT a.rail_id AS rail_a, b.rail_id AS rail_b, COUNT(*) AS shared_titles
 FROM active a
@@ -1404,10 +1397,10 @@ export async function clearRailSessions(railIds: string[]): Promise<void> {
   }
 }
 
-/** Verified pool depth for legacy / ops prune (active TTL only). */
+/** Verified pool depth for published rows. TTL is a recheck signal, not a visibility cutoff. */
 export async function countVerifiedRailPoolByRailIds(
   railIds: string[],
-  nowMs = Date.now(),
+  _nowMs = Date.now(),
 ): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   if (railIds.length === 0) {
@@ -1423,9 +1416,8 @@ FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE rp.rail_id IN (${placeholders})
   AND t.status = 'verified'
-  AND (t.expires_at IS NULL OR t.expires_at > ?)
 GROUP BY rp.rail_id;
-`).all(...railIds, nowMs) as Array<{ rail_id: string; c: number }>;
+`).all(...railIds) as Array<{ rail_id: string; c: number }>;
     for (const row of rows) {
       counts.set(row.rail_id, row.c);
     }
@@ -1607,7 +1599,6 @@ SELECT
   ) AS year
 FROM titles t
 WHERE t.status = 'verified'
-  AND (t.expires_at IS NULL OR t.expires_at > @now)
   AND t.type = @content_type
   AND NOT EXISTS (
     SELECT 1
@@ -1617,7 +1608,6 @@ WHERE t.status = 'verified'
       AND rp2.type = t.type
       AND rp2.id = t.id
       AND tv.status = 'verified'
-      AND (tv.expires_at IS NULL OR tv.expires_at > @now)
   )
 ORDER BY t.verified_at DESC
 LIMIT @limit;
@@ -2010,6 +2000,7 @@ export async function invalidateTitle(record: {
   await initPlayabilityDb();
   const db = openDb();
   const timestamp = nowMs();
+  const status = record.reason === 'play_failure' ? 'failed' : 'stale';
   try {
     const transaction = db.transaction(() => {
       db.prepare(`
@@ -2017,16 +2008,17 @@ INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
   cache_status, debrid_service, probe_ms, win_url_hash, updated_at
 ) VALUES (
-  @type, @id, 'stale', NULL, NULL, @reason, NULL, NULL, NULL, NULL, NULL, @updated_at
+  @type, @id, @status, NULL, NULL, @reason, NULL, NULL, NULL, NULL, NULL, @updated_at
 )
 ON CONFLICT(type, id) DO UPDATE SET
-  status = 'stale',
+  status = @status,
   expires_at = NULL,
   fail_reason = @reason,
   updated_at = @updated_at;
 `).run({
         type: record.type,
         id: record.id,
+        status,
         reason: record.reason ?? 'invalidated',
         updated_at: timestamp,
       });

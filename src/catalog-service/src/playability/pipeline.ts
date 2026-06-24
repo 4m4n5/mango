@@ -64,12 +64,12 @@ export function candidateKey(candidate: CandidateMeta): CandidateKey {
 
 export function isActiveVerifiedTitle(
   title: TitlePlayabilityRecord | undefined,
-  now: number,
+  _now: number,
 ): boolean {
   if (!title || title.status !== 'verified') {
     return false;
   }
-  return title.expires_at === null || title.expires_at > now;
+  return true;
 }
 
 export function shouldForceReprobeTitle(

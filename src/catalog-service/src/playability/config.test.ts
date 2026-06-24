@@ -4,6 +4,7 @@ import {
   playabilityFailedRetryMsForReason,
   playabilityRailRejectionTtlMsForReason,
   playabilitySeriesCrossProbeLimit,
+  playabilityVerifyTtlMs,
 } from './config.js';
 
 const ENV = { ...process.env };
@@ -65,4 +66,11 @@ test('playabilitySeriesCrossProbeLimit defaults to one maintenance fallback prob
   assert.equal(playabilitySeriesCrossProbeLimit(), 0);
   process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT = '99';
   assert.equal(playabilitySeriesCrossProbeLimit(), 24);
+});
+
+test('playabilityVerifyTtlMs defaults to a long recheck window', () => {
+  delete process.env.MANGO_PLAYABILITY_TTL_MS;
+  assert.equal(playabilityVerifyTtlMs(), 30 * 24 * 60 * 60 * 1000);
+  process.env.MANGO_PLAYABILITY_TTL_MS = String(180 * 24 * 60 * 60 * 1000);
+  assert.equal(playabilityVerifyTtlMs(), 180 * 24 * 60 * 60 * 1000);
 });

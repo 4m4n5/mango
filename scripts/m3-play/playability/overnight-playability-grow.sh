@@ -181,9 +181,8 @@ for rail_id in rail_ids:
         JOIN titles t ON t.type = rp.type AND t.id = rp.id
         WHERE rp.rail_id = ?
           AND t.status = 'verified'
-          AND (t.expires_at IS NULL OR t.expires_at > ?)
         """,
-        (rail_id, now_ms),
+        (rail_id,),
     ).fetchone()
     verified = int(row[0] if row else 0)
     if verified < target:
@@ -228,9 +227,8 @@ for rail_id in rail_ids:
         JOIN titles t ON t.type = rp.type AND t.id = rp.id
         WHERE rp.rail_id = ?
           AND t.status = 'verified'
-          AND (t.expires_at IS NULL OR t.expires_at > ?)
         """,
-        (rail_id, now_ms),
+        (rail_id,),
     ).fetchone()
     verified = int(row[0] if row else 0)
     rows.append((rail_id, verified))

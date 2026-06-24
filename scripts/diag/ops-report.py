@@ -108,7 +108,7 @@ def reconstruct_playability(date: str) -> dict[str, Any]:
         """
         SELECT rp.rail_id,
                COUNT(*) AS pool_depth,
-               SUM(CASE WHEN t.status = 'verified' AND COALESCE(t.expires_at, 0) > CAST(strftime('%s','now') AS INTEGER) * 1000 THEN 1 ELSE 0 END) AS verified_pool
+               SUM(CASE WHEN t.status = 'verified' THEN 1 ELSE 0 END) AS verified_pool
         FROM rail_pool rp
         JOIN titles t ON t.type = rp.type AND t.id = rp.id
         GROUP BY rp.rail_id

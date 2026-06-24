@@ -31,6 +31,13 @@ MODE="${MANGO_PLAYABILITY_REFRESH_MODE:-stale}"
 GATE_SAMPLE="${MANGO_N3C_GATE_MAX_PER_RAIL:-2}"
 ALLOW_PARTIAL="${MANGO_MAINTENANCE_ALLOW_PARTIAL:-1}"
 SKIP_GATE="${MANGO_MAINTENANCE_SKIP_GATE:-}"
+ORIG_MANGO_PLAYABILITY_DB_SET=0
+if [[ -n "${MANGO_PLAYABILITY_DB+x}" ]]; then
+  ORIG_MANGO_PLAYABILITY_DB_SET=1
+fi
+LIVE_PLAYABILITY_DB="${MANGO_PLAYABILITY_DB:-/etc/mango/playability.db}"
+WORK_PLAYABILITY_DB=""
+STAGED_GROW_DB=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -114,6 +121,122 @@ grow_state() {
 # shellcheck source=../../lib/catalog-service-stack.sh
 source "$REPO_DIR/scripts/lib/catalog-service-stack.sh"
 
+set_live_playability_db_env() {
+  if [[ "$ORIG_MANGO_PLAYABILITY_DB_SET" == "1" ]]; then
+    export MANGO_PLAYABILITY_DB="$LIVE_PLAYABILITY_DB"
+  else
+    unset MANGO_PLAYABILITY_DB
+  fi
+}
+
+sqlite_backup_db() {
+  local src="$1"
+  local dest="$2"
+  python3 - "$src" "$dest" <<'PY'
+import sqlite3
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+dest.parent.mkdir(parents=True, exist_ok=True)
+for suffix in ("", "-wal", "-shm"):
+    try:
+        Path(str(dest) + suffix).unlink()
+    except FileNotFoundError:
+        pass
+if not src.exists():
+    sqlite3.connect(dest).close()
+    raise SystemExit(0)
+with sqlite3.connect(f"file:{src}?mode=ro", uri=True) as source:
+    with sqlite3.connect(dest) as target:
+        source.backup(target)
+PY
+}
+
+sqlite_publish_db() {
+  local src="$1"
+  local dest="$2"
+  python3 - "$src" "$dest" <<'PY'
+import sqlite3
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+dest.parent.mkdir(parents=True, exist_ok=True)
+with sqlite3.connect(src) as source:
+    with sqlite3.connect(dest) as target:
+        source.backup(target)
+        target.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+for suffix in ("-wal", "-shm"):
+    try:
+        Path(str(dest) + suffix).unlink()
+    except FileNotFoundError:
+        pass
+PY
+}
+
+cleanup_work_playability_db() {
+  if [[ -n "$WORK_PLAYABILITY_DB" ]]; then
+    rm -f "$WORK_PLAYABILITY_DB" "$WORK_PLAYABILITY_DB-wal" "$WORK_PLAYABILITY_DB-shm"
+  fi
+}
+
+stage_playability_db_if_needed() {
+  if [[ "$MODE" != "grow" && "$MODE" != "nightly" ]]; then
+    return 0
+  fi
+  if [[ "${MANGO_GROW_STAGE_DB:-1}" != "1" ]]; then
+    echo "grow DB staging disabled (MANGO_GROW_STAGE_DB=0)"
+    return 0
+  fi
+  STAGED_GROW_DB=1
+  WORK_PLAYABILITY_DB="${CACHE_DIR}/playability-work-${RUN_ID}.db"
+  grow_state set --phase stage --message "staging playability DB" \
+    --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
+    --log "stage DB: live=$LIVE_PLAYABILITY_DB work=$WORK_PLAYABILITY_DB"
+  echo "stage DB: live=$LIVE_PLAYABILITY_DB work=$WORK_PLAYABILITY_DB"
+  sqlite_backup_db "$LIVE_PLAYABILITY_DB" "$WORK_PLAYABILITY_DB"
+  export MANGO_PLAYABILITY_DB="$WORK_PLAYABILITY_DB"
+}
+
+refresh_json_ok() {
+  local path="$1"
+  python3 - "$path" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+try:
+    payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+except Exception:
+    print("0")
+    raise SystemExit(0)
+print("1" if payload.get("ok") is True else "0")
+PY
+}
+
+publish_or_discard_staged_db() {
+  if [[ "$STAGED_GROW_DB" != "1" ]]; then
+    return 0
+  fi
+  local json_ok="0"
+  if [[ "$REFRESH_OUT_WRITTEN" == "1" && -f "$REFRESH_OUT" ]]; then
+    json_ok="$(refresh_json_ok "$REFRESH_OUT")"
+  fi
+  set_live_playability_db_env
+  if [[ "$REFRESH_RC" -eq 0 && "$json_ok" == "1" ]]; then
+    echo "stage DB: publishing strict successful grow to $LIVE_PLAYABILITY_DB"
+    sqlite_publish_db "$WORK_PLAYABILITY_DB" "$LIVE_PLAYABILITY_DB"
+    grow_state log "stage DB: published strict successful grow"
+  else
+    echo "stage DB: discarding failed or partial grow DB; live library unchanged"
+    grow_state log "stage DB: discarded failed or partial grow DB"
+  fi
+  cleanup_work_playability_db
+}
+
 run_source_hitrate_preflight() {
   local preset="$1"
   local force="${2:-0}"
@@ -196,10 +319,12 @@ preflight_native_deps() {
 preflight_native_deps
 
 restore_couch() {
+  set_live_playability_db_env
   bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
   bash scripts/mango-kill-strays.sh >/dev/null 2>&1 || true
   MANGO_CATALOG=1 MANGO_PLAYABILITY_TOPUP_ON_START=0 bash scripts/mango-refresh.sh >/dev/null 2>&1 \
     || echo "warn: mango-refresh failed — run manually" >&2
+  cleanup_work_playability_db
 }
 
 trap restore_couch EXIT
@@ -252,6 +377,8 @@ export MANGO_PLAYABILITY_GROW_INGEST_BATCH="${MANGO_PLAYABILITY_GROW_INGEST_BATC
 export MANGO_PLAYABILITY_MAX_INGEST_SCAN="${MANGO_PLAYABILITY_MAX_INGEST_SCAN:-2400}"
 export MANGO_GROW_NO_STREAM_RETRY_MS="${MANGO_GROW_NO_STREAM_RETRY_MS:-604800000}"
 PHASE_COOLDOWN_SEC="${MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC:-45}"
+
+stage_playability_db_if_needed
 
 run_refresh() {
   local refresh_mode="$1"
@@ -334,6 +461,8 @@ REFRESH_CRASHED=0
 if [[ "$REFRESH_RC" -ne 0 ]] && ! echo "$REFRESH_JSON" | grep -q '"duration_ms"'; then
   REFRESH_CRASHED=1
 fi
+
+publish_or_discard_staged_db
 
 if [[ "$REFRESH_CRASHED" -eq 1 ]]; then
   echo "refresh crashed" >&2
