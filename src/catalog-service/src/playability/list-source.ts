@@ -324,6 +324,24 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
       const key = catalogSourceKey(source.addon, source.catalog);
       const start = this.sourceOffsets.get(key) ?? 0;
       const fetchLimit = perSourceLimits[index] ?? 1;
+      if (this.exhaustedSources.has(key)) {
+        this.lastFetchStats.push({
+          source_key: key,
+          source_label: source.sourceLabel,
+          requested: 0,
+          returned: 0,
+          errors: 0,
+          rate_limited: 0,
+          exhausted: true,
+        });
+        batches.push({
+          sourceIndex: index,
+          sourceLabel: source.sourceLabel,
+          weight: this.sourceWeight(source),
+          candidates: [],
+        });
+        continue;
+      }
       try {
         const candidates = await fetchAddonCatalogCandidates(
           source.manifestUrl,

@@ -187,6 +187,70 @@ test('ingestPaginatedCandidates marks catalog exhausted when all sources drained
   assert.equal(source.readSourceOffsets().get('A:c1'), 500);
 });
 
+test('ingestPaginatedCandidates preserves exhausted source cursor state across batches', async () => {
+  class ExhaustOnceSource implements ListSource, SourceCursorListSource {
+    readonly sourceId = 'composite';
+    readonly sourceType = 'composite_list' as const;
+    private offsets = new Map<string, number>();
+    private exhausted = false;
+    fetches = 0;
+    writes = 0;
+
+    listSourceKeys(): string[] {
+      return ['A:c1'];
+    }
+
+    readSourceOffsets(): ReadonlyMap<string, number> {
+      return this.offsets;
+    }
+
+    writeSourceOffsets(offsets: Map<string, number>): void {
+      this.writes += 1;
+      this.offsets = new Map(offsets);
+      this.exhausted = false;
+    }
+
+    resetAllSourceOffsets(): void {
+      this.offsets.set('A:c1', 0);
+      this.exhausted = false;
+    }
+
+    areAllSourcesExhausted(): boolean {
+      return this.exhausted;
+    }
+
+    async candidates(): Promise<CandidateMeta[]> {
+      this.fetches += 1;
+      this.exhausted = true;
+      return [];
+    }
+  }
+
+  const source = new ExhaustOnceSource();
+  const offsets = new Map([['A:c1', 500]]);
+  const first = await ingestPaginatedCandidates(source, {
+    startOffset: 0,
+    freshTarget: 5,
+    pageSize: 10,
+    maxScanned: 50,
+    sourceOffsets: offsets,
+    lookupTitles: async () => new Map(),
+  });
+  const second = await ingestPaginatedCandidates(source, {
+    startOffset: 0,
+    freshTarget: 5,
+    pageSize: 10,
+    maxScanned: 50,
+    sourceOffsets: offsets,
+    lookupTitles: async () => new Map(),
+  });
+
+  assert.equal(first.catalog_exhausted, true);
+  assert.equal(second.catalog_exhausted, true);
+  assert.equal(source.fetches, 1);
+  assert.equal(source.writes, 1);
+});
+
 test('ingestPaginatedCandidates bypasses tombstoned no_stream after deep cursor advance', async () => {
   const source = new MockListSource([
     [movie('retry-me')],

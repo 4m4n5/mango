@@ -428,8 +428,9 @@ export async function growRail(
         lookupTitles: getTitlesPlayabilityBulk,
         bypassRecentFailedReasons: deepPageBypass,
       });
-      if (sourceOffsets) {
+      if (sourceOffsets && isSourceCursorListSource(listSource)) {
         await persistSourceOffsetsForListSource(rail.id, listSource);
+        sourceOffsets = new Map(listSource.readSourceOffsets());
       } else {
         await setRailIngestOffset(rail.id, ingested.next_offset);
         ingestOffset = ingested.next_offset;

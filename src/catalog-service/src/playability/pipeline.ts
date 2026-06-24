@@ -462,6 +462,20 @@ export async function linkExistingVerifiedCandidates(
   let skippedRecentFailed = 0;
   let skippedTheme = 0;
 
+  const growProbeFitsTheme = async (
+    ref: RailCandidateRef,
+    candidate: CandidateMeta,
+  ): Promise<boolean> => {
+    if (!context.themeGate || refreshMode !== 'grow') {
+      return true;
+    }
+    if (context.themeGate.shouldSkipProbe(ref.railId, candidate)) {
+      return false;
+    }
+    const fit = await context.themeGate.fitsRail(ref.railId, candidate);
+    return fit.fit;
+  };
+
   for (const [key, refs] of refsByKey.entries()) {
     const candidate = refs[0]?.candidate;
     if (!candidate) continue;
@@ -535,9 +549,11 @@ export async function linkExistingVerifiedCandidates(
     }
 
     if (refs.some((ref) => forceReprobe || !railAtTarget(ref.railId))) {
-      const probeRefs = refs.filter((ref) => {
+      const probeRefs: RailCandidateRef[] = [];
+      for (const ref of refs) {
         if (forceReprobe || !railAtTarget(ref.railId)) {
-          if (context.themeGate?.shouldSkipProbe(ref.railId, candidate)) {
+          const themeFit = forceReprobe || await growProbeFitsTheme(ref, candidate);
+          if (!themeFit) {
             skippedTheme += 1;
             results.push({
               type: candidate.type,
@@ -547,12 +563,11 @@ export async function linkExistingVerifiedCandidates(
               reason: 'theme_probe_skip',
               rails: [ref.railId],
             });
-            return false;
+            continue;
           }
-          return true;
+          probeRefs.push(ref);
         }
-        return false;
-      });
+      }
       if (probeRefs.length > 0) {
         verifyQueue.push({
           key,

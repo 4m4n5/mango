@@ -74,7 +74,11 @@ export async function ingestPaginatedCandidates(
   const now = options.now ?? Date.now();
   const collected: CandidateMeta[] = [];
   const useSourceCursors = isSourceCursorListSource(source);
-  if (useSourceCursors && options.sourceOffsets) {
+  if (
+    useSourceCursors
+    && options.sourceOffsets
+    && source.readSourceOffsets().size === 0
+  ) {
     source.writeSourceOffsets(new Map(options.sourceOffsets));
   }
 
@@ -130,6 +134,11 @@ export async function ingestPaginatedCandidates(
   };
 
   while (scanned < options.maxScanned && freshQueued < options.freshTarget) {
+    if (useSourceCursors && source.areAllSourcesExhausted()) {
+      catalogExhausted = true;
+      break;
+    }
+
     const page = await source.candidates({
       offset: useSourceCursors ? 0 : offset,
       limit: options.pageSize,
