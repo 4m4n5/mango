@@ -68,6 +68,38 @@ test('ingestPaginatedCandidates pages past verified and failed to find fresh tit
   assert.equal(result.candidates.filter((candidate) => candidate.id.startsWith('fresh-')).length, 10);
 });
 
+test('ingestPaginatedCandidates can skip collecting active verified links during strict grow', async () => {
+  const source = new MockListSource([
+    Array.from({ length: 20 }, (_, index) => movie(`seen-${index}`)),
+    Array.from({ length: 20 }, (_, index) => movie(`fresh-${index}`)),
+  ]);
+  const now = Date.now();
+
+  const result = await ingestPaginatedCandidates(source, {
+    startOffset: 0,
+    freshTarget: 10,
+    pageSize: 10,
+    maxScanned: 100,
+    now,
+    collectActiveVerified: false,
+    lookupTitles: async (candidates) => new Map(candidates
+      .filter((candidate) => candidate.id.startsWith('seen-'))
+      .map((candidate) => [`${candidate.type}:${candidate.id}`, {
+        type: candidate.type,
+        id: candidate.id,
+        status: 'verified' as const,
+        fail_reason: null,
+        expires_at: now + 60_000,
+        updated_at: now,
+      }])),
+  });
+
+  assert.equal(result.linked_verified_seen, 20);
+  assert.equal(result.fresh_queued, 10);
+  assert.equal(result.candidates.length, 10);
+  assert.equal(result.candidates.every((candidate) => candidate.id.startsWith('fresh-')), true);
+});
+
 test('ingestPaginatedCandidates resets offset when catalog exhausted', async () => {
   const source = new MockListSource([
     [movie('a'), movie('b')],

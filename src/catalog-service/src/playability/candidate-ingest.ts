@@ -67,11 +67,13 @@ export async function ingestPaginatedCandidates(
     maxScanned: number;
     now?: number;
     sourceOffsets?: Map<string, number>;
+    collectActiveVerified?: boolean;
     lookupTitles: (candidates: CandidateMeta[]) => Promise<Map<string, TitlePlayabilityRecord>>;
     bypassRecentFailedReasons?: ReadonlySet<string>;
   },
 ): Promise<IngestCandidatesResult> {
   const now = options.now ?? Date.now();
+  const collectActiveVerified = options.collectActiveVerified !== false;
   const collected: CandidateMeta[] = [];
   const useSourceCursors = isSourceCursorListSource(source);
   if (
@@ -165,7 +167,9 @@ export async function ingestPaginatedCandidates(
         skippedVerified += 1;
         sourceStat.linked_verified_seen += 1;
         sourceStat.skipped_verified += 1;
-        collected.push(candidate);
+        if (collectActiveVerified) {
+          collected.push(candidate);
+        }
         continue;
       }
 

@@ -418,6 +418,7 @@ export type BuildVerifyQueueOptions = {
   now?: number;
   context?: VerifyContext;
   bypassRecentFailedReasons?: ReadonlySet<string>;
+  allowExistingVerifiedLinks?: boolean;
 };
 
 export async function linkExistingVerifiedCandidates(
@@ -442,6 +443,7 @@ export async function linkExistingVerifiedCandidates(
     now = Date.now(),
     context = {},
     bypassRecentFailedReasons,
+    allowExistingVerifiedLinks = true,
   } = options;
 
   const railAtTarget = (railId: string): boolean => {
@@ -484,6 +486,18 @@ export async function linkExistingVerifiedCandidates(
     const forceReprobe = shouldForceReprobeTitle(title, staleKeys, key, now);
 
     if (!forceReprobe && isActiveVerifiedTitle(title, now)) {
+      if (!allowExistingVerifiedLinks) {
+        skippedExisting += refs.length;
+        results.push({
+          type: candidate.type,
+          id: candidate.id,
+          title: candidate.title,
+          action: 'skipped_existing',
+          reason: 'existing_link_disabled',
+          rails: refs.map((ref) => ref.railId),
+        });
+        continue;
+      }
       for (const ref of refs) {
         if (railAtTarget(ref.railId)) {
           continue;

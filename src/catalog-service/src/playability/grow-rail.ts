@@ -224,6 +224,7 @@ export async function growRail(
   let headAdvanceCycles = 0;
   const maxSourceResetCycles = playabilityGrowSourceResetCycles();
   const maxHeadAdvanceCycles = playabilityGrowHeadAdvanceMaxCycles();
+  const allowExistingVerifiedLinks = growLinkMaxPerRail() > 0;
 
   const context = await createVerifyContext(core);
 
@@ -422,6 +423,7 @@ export async function growRail(
       const ingested = await ingestPaginatedCandidates(listSource, {
         startOffset: ingestOffset,
         sourceOffsets,
+        collectActiveVerified: allowExistingVerifiedLinks,
         freshTarget,
         pageSize: playabilityIngestPageSize(),
         maxScanned: playabilityMaxIngestScan(),
@@ -508,6 +510,7 @@ export async function growRail(
         growthPass,
         context,
         bypassRecentFailedReasons: deepPageBypass,
+        allowExistingVerifiedLinks,
       });
 
       const processed = await processVerifyQueue({

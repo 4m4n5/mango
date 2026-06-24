@@ -83,3 +83,41 @@ test('grow queue skips full-theme mismatches before verification', async () => {
   assert.equal(result.results[0]?.action, 'skipped_theme');
   assert.equal(result.results[0]?.reason, 'theme_probe_skip');
 });
+
+test('grow queue can disable existing verified source links', async () => {
+  const growthPass = createGrowthPassState([rail], new Map([[rail.id, 20]]));
+  const candidate = {
+    type: 'movie',
+    id: 'tt-existing',
+    title: 'Existing',
+  };
+  const now = Date.now();
+
+  const result = await linkExistingVerifiedCandidates({
+    refsByKey: new Map([
+      [candidateKey(candidate), [{ railId: rail.id, index: 0, candidate }]],
+    ]),
+    titleStatuses: new Map([
+      [candidateKey(candidate), {
+        type: candidate.type,
+        id: candidate.id,
+        status: 'verified' as const,
+        fail_reason: null,
+        expires_at: now + 60_000,
+        updated_at: now,
+      }],
+    ]),
+    railVerifiedCounts: new Map([[rail.id, 24]]),
+    railPoolTargets: new Map([[rail.id, 44]]),
+    railPoolKeys: new Map([[rail.id, new Set()]]),
+    refreshMode: 'grow',
+    growthPass,
+    allowExistingVerifiedLinks: false,
+  });
+
+  assert.equal(result.linked_existing, 0);
+  assert.equal(result.verifyQueue.length, 0);
+  assert.equal(result.skipped_existing, 1);
+  assert.equal(result.results[0]?.reason, 'existing_link_disabled');
+  assert.equal(growthPass.linkedThisPass.get(rail.id), 0);
+});
