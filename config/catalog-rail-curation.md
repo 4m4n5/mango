@@ -1,4 +1,4 @@
-# Rail catalog curation (v2.2)
+# Rail catalog curation (v2.3)
 
 Playability-first picks. **Accumulative pools:** each refresh grows verified depth by `pool_growth_per_refresh` (default 10) up to `pool_max` (120); only confirmed-dead titles are pruned from `rail_pool`.
 
@@ -7,28 +7,28 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 ## Hit-rate principles
 
 1. **Cinemeta charts** (`top`, `imdbRating`) — highest debrid cache; use as anchor on weak series rails.
-2. **mdblist daily/trending** (`88302`, `105797`) — mainstream cache over “latest/digital/reality”.
+2. **mdblist daily/trending** (`88302`, `88303`, `88306`) — mainstream cache over one-off novelty lists.
 3. **IndiaStreams** (`recmov`, `popmov`, **`trendingtv`**) — legacy regional blend; **demoted** on india rails in favor of **Bharat Binge** (better posters + hit-rate). Keep small weight for dedup diversity.
 4. **Bharat Binge** (`tmdb-hi-*`) — Hindi OTT charts via TMDB; catalog+meta only (streams via AIOStreams). Manifest: `config/bharat-binge-manifest.url`.
 5. **Session dedup** — niche/optional rails **last** in yaml (allocate tab session slots first).
 6. **Optional rails** — `min_display: 12` so fill does not block on hard-to-probe catalogs.
 
-## Rail → source map (v2.2)
+## Rail -> source map (v2.3)
 
 | Rail | Sources | Rationale |
 |------|---------|-----------|
-| `movies-global-popular` | Cinemeta `top` + **88302** + **2236** | Mainstream charts; no overlap with quick-watches |
-| `movies-india-trending` | **Bharat Binge** recent + surprise + top_rated (81%) · IndiaStreams recmov/popmov (14%) · **49761** India stand-up probation (5%) | Bharat primary; IndiaStreams demoted; 49761 gets small same-theme recovery budget |
-| `movies-classics` | Cinemeta `imdbRating` | Anchor |
-| `movies-comedy` | **91223** | 100% source; pool top-up not swap |
-| `movies-quick-watches` | **86934** (35%) + **84444** (30%) + **3885** (20%) + Cinemeta `year` (15%) | Shorter/easier — no overlap lists 2236/83666/14 |
-| `movies-documentaries` | **84677** | 100%; enable in mango import |
-| `series-global-popular` | Cinemeta `top` 0.8 + **105797** | Dropped 88303 (40%); daily picks 100% probe |
-| `series-india-picks` | **Bharat Binge** recent + latest_episodes + top_rated (85%) · IndiaStreams trendingtv (8%) · **49761** India stand-up probation (5%) · Cinemeta `top` (2%) | Fresh Hindi OTT; IndiaStreams demoted; 49761 can recover only if verified/theme-fit yield is good |
-| `series-classics` | Cinemeta `imdbRating` | Anchor |
-| `series-comedy` | Cinemeta `top` + **91224** | yaml last = session priority; probe ~40% — WP2 stream tuning |
-| `series-miniseries` | **130153** | 80% probe |
-| `series-reality-casual` | **63182** reality (70%) + Cinemeta `top` anchor (30%) | Replaces **2194** latest-TV blend; **84401** was 0% probe (legacy) |
+| `movies-global-popular` | Cinemeta `top` + **88302** + **88306** + **2236** + Cinemeta `year` | Mainstream cache with latest-movies depth; avoid over-weighting one chart |
+| `movies-india-trending` | **Bharat Binge** recent/surprise/top_rated + **170279** + **180437** + **183641** + **157957** + IndiaStreams recmov/popmov + **49761** probation | India-native movie pools first; IndiaStreams and stand-up stay as small diversity/probation lanes |
+| `movies-classics` | Cinemeta `imdbRating` + **83666** + **101881** + **88006** + **143797** | Anchor plus Criterion/Oscar depth so classics can grow without repeating the same Top 250 set |
+| `movies-comedy` | Cinemeta `top` + **91223** + **128040** + **2195** + **3107** + **69712** + **86734** | Popular comedy plus stand-up lists for fresh verified candidates |
+| `movies-quick-watches` | **86934** + **84444** + **69712** + **3885** + **86734** + Cinemeta `year` + **45854** | Streaming movies, stand-up, RT-short/easy picks, and shorts; no classics-heavy overlap |
+| `movies-documentaries` | **128051** + **84677** + **78210** + **2885** + **178241** + **100477** + **34451** + demoted **72165** | Broad doc supply; 72165 is retained at low weight after a 0/3 Pi stream probe |
+| `series-global-popular` | Cinemeta `top` + **88303** + **2194** + **88434** + **101882** + demoted **105797** | 88303 probed 3/3 on Pi; 105797 stays as low-weight recovery after 0/3 |
+| `series-india-picks` | **Bharat Binge** recent/latest_episodes/top_rated + **181302** + **166155** + **138454** + IndiaStreams trendingtv + **183642** + **49761** + Cinemeta `top` | Hindi/regional OTT and Indian TV pools; generic/global series only tiny anchor budget |
+| `series-classics` | Cinemeta `imdbRating` + **101882** + **143745** + **50087** | Anchor plus BBC/limited-series overlap where thematically valid |
+| `series-comedy` | Cinemeta `top` + **91224** + **83918** + **3122** + **142679** + **155168** + **49761** | Sitcom and comedy lists expand theme-safe supply beyond generic top shows |
+| `series-miniseries` | **143745** + **50083** + **169800** + **130152** + **147478** + **130153** | Limited-series lists from multiple curators; keep 130153 active but not sole supply |
+| `series-reality-casual` | **84401** + **147884** + **143024** + **122526** + demoted **63182** + **125320** + **125155** + Cinemeta `top` | 84401 probed 3/3 on Pi and becomes primary; 63182 is retained at low weight after 1/3 |
 
 ## Measurement
 
@@ -96,6 +96,6 @@ bash scripts/m3-play/playability/rail-curation.sh pin remove --rail series-comed
 | `skip_title_filter` | Keep streams when title relevance would drop rows |
 | `blocks` | Remove `type:id` from pool (`rail_id: *` = all rails) |
 
-Demoted candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.88303`, `mdblist.84401`, `mdblist.83666`, `mdblist.63182` (new on reality rail).
+Demoted/probation candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.63182`, `mdblist.72165`, `mdblist.105797`, plus any newly imported list that reports repeated theme rejects or no-stream failures.
 
 **Stream gate couch exemplars** (`config/stream-gate-fixtures.json`): IGL + Panchayat are **soft** — track Indian series streams without blocking deploy.

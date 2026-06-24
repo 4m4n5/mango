@@ -2,11 +2,11 @@ import { readFile } from 'node:fs/promises';
 import {
   CompositeListSource,
   type ResolvedCatalogSource,
-} from '../../src/catalog-service/src/playability/list-source.js';
+} from '../../../src/catalog-service/src/playability/list-source.ts';
 import {
   loadRailConfig,
   type CompositeListRail,
-} from '../../src/catalog-service/src/rails.js';
+} from '../../../src/catalog-service/src/rails.ts';
 
 const MIN_CANDIDATES = Number(process.env.MANGO_COMPOSITE_MIN_CANDIDATES || 10);
 const SMOKE_LIMIT = Number(process.env.MANGO_COMPOSITE_SMOKE_LIMIT || 40);

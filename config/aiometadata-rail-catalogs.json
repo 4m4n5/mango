@@ -11,14 +11,14 @@
     },
     {
       "id": "mdblist.101881",
-      "name": "IMDb Top 250 Movies",
+      "name": "Top 250 Movies (iMDB)",
       "rails": [
         "movies-classics"
       ]
     },
     {
       "id": "mdblist.101882",
-      "name": "IMDb Top 250 Shows",
+      "name": "Top 250 Shows (iMDB)",
       "rails": [
         "series-global-popular",
         "series-classics"
@@ -32,10 +32,45 @@
       ]
     },
     {
+      "id": "mdblist.122526",
+      "name": "Reality TV Shows, a list by Ahmad al-rufaidy",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.125155",
+      "name": "Reality Series",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.125320",
+      "name": "Reality Series",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
       "id": "mdblist.128040",
       "name": "Latest Comedy Movies",
       "rails": [
         "movies-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.128051",
+      "name": "Popular Documentary Movies",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.130152",
+      "name": "Latest Miniseries",
+      "rails": [
+        "series-miniseries"
       ]
     },
     {
@@ -46,11 +81,74 @@
       ]
     },
     {
+      "id": "mdblist.138454",
+      "name": "TV Shows",
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.142679",
+      "name": "Comedy Shows (1950-2014), a list by huntyknowsbest",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.143024",
+      "name": "Discovery Shows and Reality TV, a list by Pether",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
       "id": "mdblist.143745",
       "name": "Limited Series (Jordan Hawk)",
       "rails": [
-        "series-miniseries",
-        "series-classics"
+        "series-classics",
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.143797",
+      "name": "Oscar Nominees for Best Picture, a list by jservs7",
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.147478",
+      "name": "Best Miniseries, a list by Kometa",
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.147884",
+      "name": "Reality TV, a list by Brent Livingstone",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.155168",
+      "name": "Rolling Stone's 100 Best Sitcoms of All Time, a list by NxSxS",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.157957",
+      "name": "Bollywood Latest HD Releases, a list by jan sun",
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.166155",
+      "name": "Trending Indian TV Shows, a list by Test Test",
+      "rails": [
+        "series-india-picks"
       ]
     },
     {
@@ -61,8 +159,64 @@
       ]
     },
     {
+      "id": "mdblist.170279",
+      "name": "Latest Indian Movies",
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.178241",
+      "name": "Top 250 Documentary Films, a list by John Nathan",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
+      "id": "mdblist.180437",
+      "name": "New Indian Movies, a list by dnp",
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.181302",
+      "name": "List of Indian TV Shows, a list by sivam chopra",
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.183641",
+      "name": "Best Indian movies, a list by Dipan",
+      "rails": [
+        "movies-india-trending"
+      ]
+    },
+    {
+      "id": "mdblist.183642",
+      "name": "Best Indian shows, a list by Dipan",
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.2194",
+      "name": "Latest TV Shows",
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.2195",
+      "name": "Comedy Movies (Top Rated From 1960 To Today)",
+      "rails": [
+        "movies-comedy"
+      ]
+    },
+    {
       "id": "mdblist.2236",
-      "name": "Top Movies of the Week",
+      "name": "Top Movies of the week",
       "rails": [
         "movies-global-popular"
       ]
@@ -89,8 +243,22 @@
       ]
     },
     {
+      "id": "mdblist.34451",
+      "name": "Academy Award for Best Documentary Feature Film, a list by Jo\u00e3o Segatti",
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
       "id": "mdblist.3885",
       "name": "100% on RottenTomatoes.com",
+      "rails": [
+        "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.45854",
+      "name": "Pixar Shorts, a list by Traction1",
       "rails": [
         "movies-quick-watches"
       ]
@@ -105,10 +273,32 @@
       ]
     },
     {
+      "id": "mdblist.50083",
+      "name": "IMDB Best Miniseries, a list by RDsgTrakt",
+      "rails": [
+        "series-miniseries"
+      ]
+    },
+    {
+      "id": "mdblist.50087",
+      "name": "BBC Top Shows, a list by RDsgTrakt",
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
       "id": "mdblist.63182",
-      "name": "Reality TV & Game Shows",
+      "name": "Reality TV & Game Shows, a list by trackertrack",
       "rails": [
         "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.69712",
+      "name": "Stand Up Comedy, a list by sentinam",
+      "rails": [
+        "movies-comedy",
+        "movies-quick-watches"
       ]
     },
     {
@@ -133,6 +323,20 @@
       ]
     },
     {
+      "id": "mdblist.83918",
+      "name": "Comedy/Sitcom, a list by ldroid",
+      "rails": [
+        "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.84401",
+      "name": "Top Reality TV",
+      "rails": [
+        "series-reality-casual"
+      ]
+    },
+    {
       "id": "mdblist.84444",
       "name": "Top Stand Up Comedy (Since 1983)",
       "rails": [
@@ -147,6 +351,14 @@
       ]
     },
     {
+      "id": "mdblist.86734",
+      "name": "Netflix Stand Up Comedy, a list by Ricky Cash",
+      "rails": [
+        "movies-comedy",
+        "movies-quick-watches"
+      ]
+    },
+    {
       "id": "mdblist.86934",
       "name": "Latest Streaming Movies",
       "rails": [
@@ -154,10 +366,38 @@
       ]
     },
     {
+      "id": "mdblist.88006",
+      "name": "The Complete Criterion Collection, a list by Evan Varisto",
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
       "id": "mdblist.88302",
       "name": "Trending Movies",
       "rails": [
         "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.88303",
+      "name": "Trending Shows",
+      "rails": [
+        "series-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.88306",
+      "name": "Latest Movies",
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
+      "id": "mdblist.88434",
+      "name": "Trakt's Trending Shows",
+      "rails": [
+        "series-global-popular"
       ]
     },
     {
