@@ -330,6 +330,9 @@ export async function growRail(
         stat.verified += 1;
       } else if (result.action === 'failed') {
         stat.failed += 1;
+        if (result.reason === 'rate_limited' || result.reason === 'rate_limit') {
+          stat.rate_limited += 1;
+        }
       } else if (result.action === 'skipped_theme') {
         stat.theme_rejected += 1;
       }
