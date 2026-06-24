@@ -51,6 +51,8 @@ stop_orphan_indexer() {
 
 # shellcheck source=lib/catalog-yaml.sh
 source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
+# shellcheck source=lib/catalog-service-stack.sh
+source "$REPO_DIR/scripts/lib/catalog-service-stack.sh"
 
 start_catalog_service() {
   [[ "${MANGO_CATALOG:-0}" == "1" ]] || return 0
@@ -64,14 +66,18 @@ start_catalog_service() {
   catalog_filters="$(resolve_catalog_filters)"
   if [[ -f "$CATALOG_PID" ]]; then
     if kill -0 "$(cat "$CATALOG_PID")" 2>/dev/null \
-      && curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+      && catalog_service_healthy; then
       echo "catalog-service already running"
       return 0
     fi
     rm -f "$CATALOG_PID"
   fi
+  if catalog_service_recover_pid_file "$CATALOG_PID"; then
+    return 0
+  fi
   stop_orphan_indexer
   rm -f "$CATALOG_PID"
+  catalog_service_kill_port_listener
   (
     cd src/catalog-service
     MANGO_REPO_DIR="$REPO_DIR" MANGO_CATALOG_YAML="$catalog_yaml" MANGO_CATALOG_FILTERS="$catalog_filters" node dist/index.js
@@ -79,8 +85,8 @@ start_catalog_service() {
   echo $! >"$CATALOG_PID"
 
   for _ in $(seq 1 40); do
-    if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
-      echo "catalog-service ready (:3020)"
+    if catalog_service_healthy; then
+      echo "catalog-service ready (:$(catalog_service_port))"
       return 0
     fi
     if ! kill -0 "$(cat "$CATALOG_PID")" 2>/dev/null; then
@@ -115,6 +121,8 @@ stop_catalog_service() {
     rm -f "$CATALOG_PID"
   fi
   pkill -f '[s]rc/catalog-service/dist/index.js' 2>/dev/null || true
+  pkill -f '[c]atalog-service/dist/index.js' 2>/dev/null || true
+  catalog_service_kill_port_listener
 }
 
 start_stack() {
@@ -129,7 +137,7 @@ start_stack() {
       || echo "voice stack: not ready (launcher+catalog ok)" >&2
   fi
   if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
-    curl -sf --max-time 3 http://127.0.0.1:3020/health >/dev/null \
+    curl -sf --max-time 3 "$(catalog_service_url)/health" >/dev/null \
       || { echo "catalog-service unhealthy after start" >&2; return 1; }
   fi
 }
@@ -153,7 +161,7 @@ stop_stack() {
 status_stack() {
   echo "mango: commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown) voice=${MANGO_VOICE:-0} catalog=${MANGO_CATALOG:-0}"
   if [[ -f "$CATALOG_PID" ]] && kill -0 "$(cat "$CATALOG_PID")" 2>/dev/null \
-    && curl -sf --max-time 2 http://127.0.0.1:3020/health >/tmp/mango-catalog-health.json 2>/dev/null; then
+    && curl -sf --max-time 2 "$(catalog_service_url)/health" >/tmp/mango-catalog-health.json 2>/dev/null; then
     echo "catalog: $(tr -d '\n' </tmp/mango-catalog-health.json)"
   else
     rm -f "$CATALOG_PID"

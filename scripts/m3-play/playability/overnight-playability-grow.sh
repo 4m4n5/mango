@@ -30,6 +30,9 @@ TARGET_VERIFIED="${MANGO_OVERNIGHT_TARGET:-90}"
 DURATION_SEC="${MANGO_OVERNIGHT_DURATION_SEC:-14400}"
 CHUNK_PAUSE_SEC="${MANGO_OVERNIGHT_CHUNK_PAUSE_SEC:-90}"
 
+# shellcheck source=../../lib/catalog-service-stack.sh
+source "$REPO_DIR/scripts/lib/catalog-service-stack.sh"
+
 log() {
   printf '%s %s\n' "$(date -Is)" "$*" >>"$LOG"
 }
@@ -131,17 +134,9 @@ stop_couch_for_indexer() {
     pkill -f 'firefox.*127.0.0.1:3000' 2>/dev/null || true
     sleep 1
   fi
-  if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+  if catalog_service_healthy || [[ -n "$(catalog_service_port_pids | head -n 1 || true)" ]]; then
     log "stopping catalog-service"
-    local pid_file="${CACHE_DIR}/catalog-service.pid"
-    if [[ -f "$pid_file" ]]; then
-      kill "$(cat "$pid_file")" 2>/dev/null || true
-      sleep 0.3
-      kill -9 "$(cat "$pid_file")" 2>/dev/null || true
-      rm -f "$pid_file"
-    fi
-    pkill -f '[c]atalog-service/dist/index.js' 2>/dev/null || true
-    sleep 0.5
+    stop_catalog_service_only
   fi
 }
 
