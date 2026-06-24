@@ -58,6 +58,7 @@ const MIN_SAMPLES = 2;
 const DEFAULT_PROBATION_MULTIPLIER = 0.08;
 const MAX_MULTIPLIER = 2.0;
 const GROW_DECAY = 0.70;
+const DEFAULT_GROW_PROBATION_MIN_SAMPLES = 12;
 
 export function growHitrateWeightsEnabled(): boolean {
   return process.env.MANGO_GROW_HITRATE_WEIGHTS !== '0';
@@ -83,6 +84,18 @@ export function sourceGrowProbationMultiplier(): number {
   return parsed;
 }
 
+export function sourceGrowProbationMinSamples(): number {
+  const raw = process.env.MANGO_GROW_SOURCE_PROBATION_MIN_SAMPLES;
+  if (raw === undefined || raw === '') {
+    return DEFAULT_GROW_PROBATION_MIN_SAMPLES;
+  }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 5 || parsed > 200) {
+    return DEFAULT_GROW_PROBATION_MIN_SAMPLES;
+  }
+  return parsed;
+}
+
 export function sourceHitrateMaxAgeMs(): number {
   const raw = process.env.MANGO_SOURCE_HITRATE_MAX_AGE_MS;
   if (raw === undefined || raw === '') {
@@ -93,6 +106,21 @@ export function sourceHitrateMaxAgeMs(): number {
     return DEFAULT_MAX_AGE_MS;
   }
   return parsed;
+}
+
+function reportTimestampMs(ts: unknown): number | null {
+  if (typeof ts !== 'number' || !Number.isFinite(ts) || ts <= 0) {
+    return null;
+  }
+  return ts < 1_000_000_000_000 ? ts * 1000 : ts;
+}
+
+function reportIsExpired(ts: unknown, now: number, maxAgeMs: number): boolean {
+  const timestampMs = reportTimestampMs(ts);
+  if (timestampMs === null || maxAgeMs <= 0) {
+    return false;
+  }
+  return now - timestampMs > maxAgeMs;
 }
 
 export function loadSourceHitrateReport(now = Date.now()): SourceHitrateReport | null {
@@ -106,7 +134,7 @@ export function loadSourceHitrateReport(now = Date.now()): SourceHitrateReport |
       return null;
     }
     const maxAge = sourceHitrateMaxAgeMs();
-    if (maxAge > 0 && typeof report.ts === 'number' && now - report.ts > maxAge) {
+    if (reportIsExpired(report.ts, now, maxAge)) {
       return null;
     }
     return report;
@@ -126,7 +154,7 @@ export function loadSourceGrowReport(now = Date.now()): SourceGrowReport | null 
       return null;
     }
     const maxAge = sourceHitrateMaxAgeMs();
-    if (maxAge > 0 && typeof report.ts === 'number' && now - report.ts > maxAge) {
+    if (reportIsExpired(report.ts, now, maxAge)) {
       return null;
     }
     return report;
@@ -430,7 +458,29 @@ function sourceGrowMultiplier(stats: {
   rate_limited: number;
   exhausted: boolean;
 }): number {
+  const probation = sourceGrowProbationMultiplier();
+  const probationMinSamples = sourceGrowProbationMinSamples();
   const attempted = Math.max(1, stats.fresh_queued + stats.failed + stats.theme_rejected);
+  const useful = stats.verified + stats.linked_verified_seen;
+  const negative = stats.failed + stats.theme_rejected + stats.catalog_errors + stats.rate_limited;
+  const streamSamples = stats.failed + stats.verified;
+  const themeSamples = stats.theme_rejected + stats.verified + stats.failed;
+  if (useful <= 0 && negative >= probationMinSamples && (stats.exhausted || stats.failed > 0 || stats.theme_rejected > 0)) {
+    return probation;
+  }
+  if (
+    streamSamples >= Math.max(20, probationMinSamples)
+    && stats.verified / Math.max(1, streamSamples) <= 0.03
+    && stats.failed / Math.max(1, streamSamples) >= 0.90
+  ) {
+    return probation;
+  }
+  if (
+    themeSamples >= Math.max(25, probationMinSamples)
+    && stats.theme_rejected / Math.max(1, themeSamples) >= 0.90
+  ) {
+    return probation;
+  }
   const verifiedYield = stats.verified / attempted;
   const linkedYield = Math.min(0.5, stats.linked_verified_seen / Math.max(1, stats.linked_verified_seen + attempted));
   const themePenalty = stats.theme_rejected / attempted;

@@ -11,7 +11,10 @@ import time
 from pathlib import Path
 
 DEFAULT_REPORT = Path.home() / ".cache/mango/source-hitrate/latest.json"
-QUICK_FRESH_HOURS = float(os.environ.get("MANGO_SOURCE_HITRATE_QUICK_FRESH_HOURS", "24"))
+FRESH_HOURS = float(os.environ.get(
+    "MANGO_SOURCE_HITRATE_FRESH_HOURS",
+    os.environ.get("MANGO_SOURCE_HITRATE_QUICK_FRESH_HOURS", "24"),
+))
 QUICK_PER_SOURCE = int(os.environ.get("MANGO_SOURCE_HITRATE_QUICK_PER_SOURCE", "1"))
 NIGHTLY_PER_SOURCE = int(os.environ.get("MANGO_SOURCE_HITRATE_NIGHTLY_PER_SOURCE", "3"))
 
@@ -42,13 +45,13 @@ def per_source_for_preset(preset: str) -> int:
 
 
 def should_skip_preflight(preset: str, *, force: bool = False) -> tuple[bool, str]:
-    if force or preset != "quick":
+    if force:
         return False, "run"
     age = report_age_hours()
     if age is None:
         return False, "no cached report"
-    if age <= QUICK_FRESH_HOURS:
-        return True, f"cached report {age:.1f}h old (<{QUICK_FRESH_HOURS:.0f}h)"
+    if age <= FRESH_HOURS:
+        return True, f"cached report {age:.1f}h old (<{FRESH_HOURS:.0f}h)"
     return False, f"cached report stale ({age:.1f}h)"
 
 
@@ -68,9 +71,9 @@ def cmd_info(args: argparse.Namespace) -> int:
         "report_path": str(path),
         "report_exists": path.is_file(),
         "age_hours": age,
-        "quick_fresh_hours": QUICK_FRESH_HOURS,
+        "fresh_hours": FRESH_HOURS,
         "per_source": per_source_for_preset(args.preset),
-        "skip_quick": should_skip_preflight("quick", force=False)[0] if args.preset == "quick" else False,
+        "skip": should_skip_preflight(args.preset, force=False)[0],
     }
     print(json.dumps(payload, indent=2))
     return 0

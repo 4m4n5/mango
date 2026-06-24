@@ -282,7 +282,7 @@ if [[ "$MODE" == "nightly" ]]; then
     --log "nightly grow: hit-rate preflight before grow phase"
   MANGO_CATALOG=1 start_catalog_service_only \
     || grow_state log "warn: catalog start for hitrate failed — using cached report"
-  run_source_hitrate_preflight nightly 1
+  run_source_hitrate_preflight nightly "${MANGO_SOURCE_HITRATE_FORCE:-0}"
   stop_catalog_service_only
   write_grow_baseline_if_needed grow
   grow_state set --phase grow --message "grow refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"

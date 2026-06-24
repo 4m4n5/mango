@@ -257,7 +257,7 @@ export function playabilityGrowSourceCircuitBreakerEnabled(): boolean {
 }
 
 export function playabilityGrowSourceNoVerifyScanLimit(): number {
-  return boundedInt(process.env.MANGO_GROW_SOURCE_NO_VERIFY_SCAN_LIMIT, 200, 25, 5000);
+  return boundedInt(process.env.MANGO_GROW_SOURCE_NO_VERIFY_SCAN_LIMIT, 60, 25, 5000);
 }
 
 export function playabilityGrowSourceThemeRejectMinSamples(): number {
@@ -269,7 +269,7 @@ export function playabilityGrowSourceThemeRejectRatio(): number {
 }
 
 export function playabilityGrowSourceFailMinSamples(): number {
-  return boundedInt(process.env.MANGO_GROW_SOURCE_FAIL_MIN_SAMPLES, 30, 5, 500);
+  return boundedInt(process.env.MANGO_GROW_SOURCE_FAIL_MIN_SAMPLES, 20, 5, 500);
 }
 
 export function playabilityGrowSourceFailRatio(): number {

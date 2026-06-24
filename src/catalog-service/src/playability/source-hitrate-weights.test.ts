@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -8,8 +8,10 @@ import {
   buildRailSourceGrowMultipliers,
   buildSourceGrowMultipliers,
   effectiveSourceWeight,
+  loadSourceHitrateReport,
   loadSourceGrowReport,
   recordSourceGrowOutcome,
+  sourceGrowProbationMinSamples,
   sourceGrowProbationMultiplier,
   type SourceGrowReport,
   type SourceHitrateReport,
@@ -52,6 +54,27 @@ test('buildHitrateMultipliers scales weights from stream rate vs min_rate', () =
   assert.equal(multipliers.get('AIOMetadata:mdblist.1'), 2);
   assert.equal(multipliers.get('AIOMetadata:mdblist.2'), 0.5);
   assert.equal(multipliers.has('Cinemeta:top'), false);
+});
+
+test('loadSourceHitrateReport accepts source-hitrate seconds timestamps', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-hitrate-'));
+  const previousOut = process.env.MANGO_SOURCE_HITRATE_OUT;
+  process.env.MANGO_SOURCE_HITRATE_OUT = join(dir, 'latest.json');
+  try {
+    writeFileSync(process.env.MANGO_SOURCE_HITRATE_OUT, JSON.stringify({
+      ts: 1_782_300_000,
+      sources: [],
+    }), 'utf8');
+    assert.ok(loadSourceHitrateReport(1_782_300_000_000 + 1000));
+    assert.equal(loadSourceHitrateReport(1_782_300_000_000 + 8 * 24 * 60 * 60 * 1000), null);
+  } finally {
+    if (previousOut === undefined) {
+      delete process.env.MANGO_SOURCE_HITRATE_OUT;
+    } else {
+      process.env.MANGO_SOURCE_HITRATE_OUT = previousOut;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('effectiveSourceWeight applies multiplier to base yaml weight', () => {
@@ -243,6 +266,49 @@ test('recordSourceGrowOutcome writes runtime cache and rolls back weighted regre
   }
 });
 
+test('recordSourceGrowOutcome sends catastrophic zero-yield sources to probation', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
+  const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  try {
+    recordSourceGrowOutcome('series-india-picks', 'series', [
+      {
+        source_key: 'AIOMetadata:mdblist.181302',
+        source_label: 'AIOMetadata/mdblist.181302',
+        content_type: 'series',
+        scanned: 120,
+        fresh_queued: 120,
+        skipped_verified: 0,
+        skipped_recent_failed: 0,
+        linked_verified_seen: 0,
+        requested: 120,
+        returned: 120,
+        catalog_errors: 0,
+        rate_limited: 0,
+        exhausted: true,
+        verified: 0,
+        failed: 56,
+        theme_rejected: 36,
+      },
+    ], { growTargetMet: false, weighted: true, now: Date.now(), elapsedMs: 60_000 });
+    const report = loadSourceGrowReport();
+    assert.ok(report);
+    assert.equal(report.sources[0]?.multiplier, sourceGrowProbationMultiplier());
+    assert.equal(report.sources[0]?.probation, true);
+    assert.equal(
+      report.rail_sources?.['series-india-picks']?.[0]?.multiplier,
+      sourceGrowProbationMultiplier(),
+    );
+  } finally {
+    if (previousOut === undefined) {
+      delete process.env.MANGO_SOURCE_GROW_OUT;
+    } else {
+      process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('sourceGrowProbationMultiplier is explicit and bounded to 5-10%', () => {
   const prev = process.env.MANGO_GROW_SOURCE_PROBATION_MULTIPLIER;
   try {
@@ -257,6 +323,24 @@ test('sourceGrowProbationMultiplier is explicit and bounded to 5-10%', () => {
       delete process.env.MANGO_GROW_SOURCE_PROBATION_MULTIPLIER;
     } else {
       process.env.MANGO_GROW_SOURCE_PROBATION_MULTIPLIER = prev;
+    }
+  }
+});
+
+test('sourceGrowProbationMinSamples is explicit and bounded', () => {
+  const prev = process.env.MANGO_GROW_SOURCE_PROBATION_MIN_SAMPLES;
+  try {
+    delete process.env.MANGO_GROW_SOURCE_PROBATION_MIN_SAMPLES;
+    assert.equal(sourceGrowProbationMinSamples(), 12);
+    process.env.MANGO_GROW_SOURCE_PROBATION_MIN_SAMPLES = '5';
+    assert.equal(sourceGrowProbationMinSamples(), 5);
+    process.env.MANGO_GROW_SOURCE_PROBATION_MIN_SAMPLES = '2';
+    assert.equal(sourceGrowProbationMinSamples(), 12);
+  } finally {
+    if (prev === undefined) {
+      delete process.env.MANGO_GROW_SOURCE_PROBATION_MIN_SAMPLES;
+    } else {
+      process.env.MANGO_GROW_SOURCE_PROBATION_MIN_SAMPLES = prev;
     }
   }
 });

@@ -73,19 +73,21 @@ bash scripts/m3-play/playability/install-playability-timer.sh
 
 **Nightly grow** (timer phase 2, after stale + cooldown):
 
-- Always runs full preflight (**3 probes/source**) immediately before the grow pass.
+- Skips preflight when `~/.cache/mango/source-hitrate/latest.json` is **< 24h** old (uses cached weights).
+- Otherwise runs full preflight (**3 probes/source**) immediately before the grow pass.
 - Briefly restarts catalog-service for probes, then stops it for indexing.
+- Force a fresh nightly source sample with `MANGO_SOURCE_HITRATE_FORCE=1`.
 
 ```bash
-# Tune quick skip window / sample sizes
-MANGO_SOURCE_HITRATE_QUICK_FRESH_HOURS=24   # skip quick preflight when newer
+# Tune skip window / sample sizes
+MANGO_SOURCE_HITRATE_FRESH_HOURS=24
 MANGO_SOURCE_HITRATE_QUICK_PER_SOURCE=1
 MANGO_SOURCE_HITRATE_NIGHTLY_PER_SOURCE=3
 ```
 
-Grow reads the report and scales composite/AI catalog source weights (`MANGO_GROW_HITRATE_WEIGHTS=1`, default on). Each grow also writes runtime-only source outcomes to `~/.cache/mango/source-grow/latest.json`: scanned, queued, verified, theme-rejected, catalog errors, rate limits, exhaustion, and multiplier. These weights are advisory cache state only; catalog YAML and theme profiles are never edited automatically.
+Grow reads the report and scales composite/AI catalog source weights (`MANGO_GROW_HITRATE_WEIGHTS=1`, default on). Python hit-rate reports use seconds timestamps; the TypeScript loader normalizes seconds/milliseconds before applying `MANGO_SOURCE_HITRATE_MAX_AGE_MS`. Each grow also writes runtime-only source outcomes to `~/.cache/mango/source-grow/latest.json`: scanned, queued, verified, theme-rejected, catalog errors, rate limits, exhaustion, and multiplier. These weights are advisory cache state only; catalog YAML and theme profiles are never edited automatically.
 
-Demoted sources keep a probation path: the weighted allocator still reserves at least one fetch slot per configured source, and multipliers are clamped to a small floor. If a rail previously met target under weighted selection and later regresses, the runtime multipliers for that rail's touched sources reset to neutral.
+Demoted sources keep a probation path: the weighted allocator still reserves at least one fetch slot per configured source, and multipliers are clamped to a small floor (`MANGO_GROW_SOURCE_PROBATION_MULTIPLIER`, default 0.08). Catastrophic zero-yield sources drop to probation after bounded evidence (`MANGO_GROW_SOURCE_PROBATION_MIN_SAMPLES`, default 12). If a rail previously met target under weighted selection and later regresses, the runtime multipliers for that rail's touched sources reset to neutral.
 
 Disable: `MANGO_SOURCE_HITRATE_PREFLIGHT=0` and/or `MANGO_GROW_HITRATE_WEIGHTS=0`.
 
@@ -143,6 +145,10 @@ rate limits, catalog errors, zero verified yield, extreme theme rejection, or
 low stream hit-rate. Suppression is in-memory for the active rail run; longer
 term promotion/demotion still comes from runtime source-grow weights in
 `~/.cache/mango/source-grow/latest.json`.
+Defaults favor moving on once evidence is clear: zero-yield suppression starts
+after 60 scanned candidates and low stream hit-rate suppression after 20
+stream samples. Tune with `MANGO_GROW_SOURCE_NO_VERIFY_SCAN_LIMIT`,
+`MANGO_GROW_SOURCE_FAIL_MIN_SAMPLES`, and `MANGO_GROW_SOURCE_FAIL_RATIO`.
 
 Audit runtime source health after grows:
 

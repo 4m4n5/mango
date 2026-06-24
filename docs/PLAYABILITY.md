@@ -136,7 +136,7 @@ Addons (Cinemeta, AIOMetadata, AIOStreams) throttle aggressive meta/stream burst
 | Full gate played every couch item per rail (old behavior) | **Fixed:** `MANGO_GATE_FULL=1` samples **3 plays/rail** |
 | `rail-pool-retheme apply` on full library | ~900 sequential meta calls — run off-hours; catalog backoff 5 min |
 | Gate-lite + deploy restart | M4 stream gate uses fixture corpus only — bounded |
-| Grow preflight | Quick: 1 probe/source (skip if report <24h); nightly: 3/source |
+| Grow preflight | Reuse report if <24h; otherwise quick: 1 probe/source, nightly: 3/source. Force with `MANGO_SOURCE_HITRATE_FORCE=1` |
 | Live/IPTV addon rate limit during VOD grow | Playability refresh boots catalog-service in VOD mode and skips optional Live manifests |
 | Repeated bad candidates during long grow | Rail-specific rejection ledger skips recent theme/stream misses before probing |
 | One weak source burns a rail window | Runtime source circuit breakers suppress rate-limited, exhausted, theme-mismatched, or low-hit sources for the current rail run |
@@ -148,6 +148,8 @@ Grow negative memory is runtime-only:
 - `rail_candidate_rejections` lives in `playability.db` and is scoped to `rail_id + title`.
 - Theme rejects default to a 7-day rail TTL; no-stream/title-mismatch grow rejects default to 24h.
 - Runtime source weights and source suppressions never edit catalog YAML or theme profiles.
+- Source hit-rate reports written by Python use seconds timestamps; the grow loader normalizes seconds/milliseconds before age checks.
+- Catastrophic zero-yield or near-zero-yield runtime source outcomes fall to the 5-10% probation floor so weak sources can recover without burning the rail window.
 - Monitor state is written to `~/.cache/mango/grow-run-state.json`; it is operator-only and not shown on TV.
 
 If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_category`, and `repair_suggestions`; use `python3 scripts/diag/grow_monitor.py assess --refresh-json <file>`.
