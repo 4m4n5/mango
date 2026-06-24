@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { catalogResourceUrl, CompositeListSource, fetchAddonCatalogCandidates } from './list-source.js';
+import {
+  catalogResourceUrl,
+  compositeCatalogFetchConcurrency,
+  CompositeListSource,
+  fetchAddonCatalogCandidates,
+} from './list-source.js';
 
 test('catalogResourceUrl passes skip to addon for server-side pagination', () => {
   const base = 'http://127.0.0.1:3036/stremio/uuid/manifest.json';
@@ -162,5 +167,58 @@ test('CompositeListSource samples probation sources without fetching all of them
     assert.ok(fetched.some((url) => url.includes('/p1')));
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test('CompositeListSource fetches active sources with bounded parallelism', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalConcurrency = process.env.MANGO_CATALOG_COMPOSITE_FETCH_CONCURRENCY;
+  let active = 0;
+  let maxActive = 0;
+  const fetched: string[] = [];
+  process.env.MANGO_CATALOG_COMPOSITE_FETCH_CONCURRENCY = '2';
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    fetched.push(url);
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    active -= 1;
+    const match = url.match(/catalog\/movie\/([^/.]+)/);
+    const catalog = match?.[1] ?? 'unknown';
+    return new Response(JSON.stringify({
+      metas: [{ id: `tt-${catalog}`, name: `Title ${catalog}` }],
+    }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  try {
+    const source = new CompositeListSource('rail', 'movie', Array.from({ length: 4 }, (_, index) => ({
+      addon: 'A',
+      catalog: `c${index}`,
+      weight: 1,
+      manifestUrl: 'http://127.0.0.1:3036/stremio/a/manifest.json',
+      sourceLabel: `A/c${index}`,
+    })));
+
+    const candidates = await source.candidates({ offset: 0, limit: 4 });
+
+    assert.equal(compositeCatalogFetchConcurrency(), 2);
+    assert.equal(fetched.length, 4);
+    assert.equal(maxActive, 2);
+    assert.equal(candidates.length, 4);
+    assert.deepEqual(
+      source.readLastSourceFetchStats().map((stat) => stat.source_key),
+      ['A:c0', 'A:c1', 'A:c2', 'A:c3'],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalConcurrency === undefined) {
+      delete process.env.MANGO_CATALOG_COMPOSITE_FETCH_CONCURRENCY;
+    } else {
+      process.env.MANGO_CATALOG_COMPOSITE_FETCH_CONCURRENCY = originalConcurrency;
+    }
   }
 });

@@ -106,6 +106,19 @@ function previewPoster(preview: unknown): string | undefined {
 
 const CATALOG_FETCH_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS || 20_000);
 const DEFAULT_PROBATION_MULTIPLIER = 0.08;
+const DEFAULT_COMPOSITE_FETCH_CONCURRENCY = 4;
+
+export function compositeCatalogFetchConcurrency(): number {
+  const raw = process.env.MANGO_CATALOG_COMPOSITE_FETCH_CONCURRENCY;
+  if (raw === undefined || raw === '') {
+    return DEFAULT_COMPOSITE_FETCH_CONCURRENCY;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_COMPOSITE_FETCH_CONCURRENCY;
+  }
+  return Math.max(1, Math.min(8, Math.floor(parsed)));
+}
 
 function growSourceProbationMultiplier(): number {
   const raw = process.env.MANGO_GROW_SOURCE_PROBATION_MULTIPLIER;
@@ -164,6 +177,11 @@ export async function fetchAddonCatalogCandidates(
         };
       })
       .filter((candidate): candidate is CandidateMeta => candidate !== null);
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`catalog ${sourceLabel} failed: timeout after ${CATALOG_FETCH_TIMEOUT_MS}ms`);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -376,15 +394,35 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
       value > 0 && weights[index] <= probationFloor + 0.0001
     )).length;
     this.probationCursor += probationFetches;
-    const batches: WeightedCandidateBatch[] = [];
-    this.lastFetchStats = [];
+    const batches: Array<WeightedCandidateBatch | undefined> = new Array(this.sources.length);
+    const stats: Array<ListSourceFetchStats | undefined> = new Array(this.sources.length);
+    const fetchPlans: Array<{
+      index: number;
+      source: ResolvedCatalogSource;
+      key: string;
+      start: number;
+      fetchLimit: number;
+      weight: number;
+    }> = [];
+
+    const emptyBatch = (
+      index: number,
+      source: ResolvedCatalogSource,
+      weight: number,
+    ): WeightedCandidateBatch => ({
+      sourceIndex: index,
+      sourceLabel: source.sourceLabel,
+      weight,
+      candidates: [],
+    });
 
     for (const [index, source] of this.sources.entries()) {
       const key = catalogSourceKey(source.addon, source.catalog);
       const start = this.sourceOffsets.get(key) ?? 0;
       const fetchLimit = perSourceLimits[index] ?? 1;
+      const weight = this.sourceWeight(source);
       if (fetchLimit <= 0) {
-        this.lastFetchStats.push({
+        stats[index] = {
           source_key: key,
           source_label: source.sourceLabel,
           requested: 0,
@@ -392,17 +430,12 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
           errors: 0,
           rate_limited: 0,
           exhausted: this.exhaustedSources.has(key),
-        });
-        batches.push({
-          sourceIndex: index,
-          sourceLabel: source.sourceLabel,
-          weight: this.sourceWeight(source),
-          candidates: [],
-        });
+        };
+        batches[index] = emptyBatch(index, source, weight);
         continue;
       }
       if (this.exhaustedSources.has(key) || this.suppressedSources.has(key)) {
-        this.lastFetchStats.push({
+        stats[index] = {
           source_key: key,
           source_label: source.sourceLabel,
           requested: 0,
@@ -410,15 +443,28 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
           errors: 0,
           rate_limited: 0,
           exhausted: true,
-        });
-        batches.push({
-          sourceIndex: index,
-          sourceLabel: source.sourceLabel,
-          weight: this.sourceWeight(source),
-          candidates: [],
-        });
+        };
+        batches[index] = emptyBatch(index, source, weight);
         continue;
       }
+      fetchPlans.push({ index, source, key, start, fetchLimit, weight });
+    }
+
+    let nextPlan = 0;
+    const workerCount = Math.min(compositeCatalogFetchConcurrency(), fetchPlans.length);
+    async function next(): Promise<void> {
+      while (nextPlan < fetchPlans.length) {
+        const plan = fetchPlans[nextPlan];
+        nextPlan += 1;
+        if (!plan) {
+          continue;
+        }
+        await fetchPlan(plan);
+      }
+    }
+
+    const fetchPlan = async (plan: typeof fetchPlans[number]): Promise<void> => {
+      const { index, source, key, start, fetchLimit, weight } = plan;
       try {
         const candidates = await fetchAddonCatalogCandidates(
           source.manifestUrl,
@@ -432,7 +478,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
         if (candidates.length < fetchLimit) {
           this.exhaustedSources.add(key);
         }
-        this.lastFetchStats.push({
+        stats[index] = {
           source_key: key,
           source_label: source.sourceLabel,
           requested: fetchLimit,
@@ -440,13 +486,13 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
           errors: 0,
           rate_limited: 0,
           exhausted: this.exhaustedSources.has(key),
-        });
-        batches.push({
+        };
+        batches[index] = {
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
-          weight: this.sourceWeight(source),
+          weight,
           candidates,
-        });
+        };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.warn(
@@ -455,7 +501,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
           }`,
         );
         this.exhaustedSources.add(key);
-        this.lastFetchStats.push({
+        stats[index] = {
           source_key: key,
           source_label: source.sourceLabel,
           requested: fetchLimit,
@@ -463,17 +509,30 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
           errors: 1,
           rate_limited: isAddonRateLimitMessage(message) ? 1 : 0,
           exhausted: true,
-        });
-        batches.push({
+        };
+        batches[index] = {
           sourceIndex: index,
           sourceLabel: source.sourceLabel,
-          weight: this.sourceWeight(source),
+          weight,
           candidates: [],
-        });
+        };
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, () => next()));
+
+    this.lastFetchStats = stats.filter((stat): stat is ListSourceFetchStats => stat !== undefined);
+    for (const [index, source] of this.sources.entries()) {
+      if (!batches[index]) {
+        batches[index] = emptyBatch(index, source, this.sourceWeight(source));
       }
     }
 
-    return mergeCompositeCandidates(batches, limit, 0);
+    return mergeCompositeCandidates(
+      batches.filter((batch): batch is WeightedCandidateBatch => batch !== undefined),
+      limit,
+      0,
+    );
   }
 
   readLastSourceFetchStats(): ListSourceFetchStats[] {
