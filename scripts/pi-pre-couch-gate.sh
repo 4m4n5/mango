@@ -23,7 +23,34 @@ OVERNIGHT_RUNNING=0
 if [[ -f "$OVERNIGHT_PID" ]] && kill -0 "$(cat "$OVERNIGHT_PID")" 2>/dev/null; then
   OVERNIGHT_RUNNING=1
 fi
-if [[ -f "$MAINT_LOCK" ]] || [[ "$OVERNIGHT_RUNNING" -eq 1 ]] || pgrep -f '[p]layability-indexer.ts' >/dev/null 2>&1; then
+MAINT_RUNNING=0
+if [[ -f "$MAINT_LOCK" ]]; then
+  if python3 - "$MAINT_LOCK" <<'PY'
+import fcntl
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    with path.open("a+", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            sys.exit(0)
+        finally:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+except OSError:
+    sys.exit(0)
+sys.exit(1)
+PY
+  then
+    MAINT_RUNNING=1
+  fi
+fi
+if [[ "$MAINT_RUNNING" -eq 1 ]] || [[ "$OVERNIGHT_RUNNING" -eq 1 ]] || pgrep -f '[p]layability-indexer.ts' >/dev/null 2>&1; then
   echo "FAIL: playability maintenance/grow in progress — couch stack is down" >&2
   echo "  check: python3 scripts/diag/grow_monitor.py watch --exit-when-done" >&2
   echo "  wait for grow to finish, or abort: bash scripts/m3-play/playability/abort-maintenance-grow.sh" >&2
