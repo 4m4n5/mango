@@ -36,9 +36,20 @@ bash scripts/pi-exec.sh 'cd ~/mango && python3 scripts/diag/grow_monitor.py stat
 bash scripts/m3-play/playability/playability-grow.sh --status
 ```
 
+Controller entrypoint:
+
+```bash
+bash scripts/m3-play/playability/grow-run-control.sh start --mode grow --preset quick
+bash scripts/m3-play/playability/grow-run-control.sh benchmark   # MANGO_GROW_PER_PASS defaults to 5
+bash scripts/m3-play/playability/grow-run-control.sh status
+bash scripts/m3-play/playability/grow-run-control.sh watch --interval 30
+bash scripts/m3-play/playability/grow-run-control.sh assess
+bash scripts/m3-play/playability/grow-run-control.sh abort
+```
+
 Baseline file: `~/.cache/mango/grow-baseline.json` (schema v2 — `grow_rail_ids` + per-rail verified counts).
 
-Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending).
+Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending). The header also reports global orphan count and rail overlap health so pool hygiene is visible during long runs.
 
 ## Grow presets
 
@@ -99,6 +110,12 @@ rail-rejection skips, and any source suppressions. This is a silent operator
 surface only; couch UI continues to serve the previous stable rail snapshot
 unless the strict grow run succeeds.
 
+Stage-level heartbeats are also written for preflight, candidate ingest,
+verification, retheme finalization, and publish. If a run is aborted through
+`grow-run-control.sh abort`, the abort is idempotent: owned grow/indexer
+processes and locks are cleared, a structured `ok:false` refresh JSON is
+written, and the couch stack is restored.
+
 ## Global link pass (optional bonus)
 
 When `MANGO_GROW_LINK_MAX` > 0, each rail grow session may link globally verified titles
@@ -119,7 +136,14 @@ Default: `MANGO_GROW_LINK_MAX=0` (off). Force off: `MANGO_GROW_GLOBAL_LINK=0`.
 | `pool_growth` | Verified pool delta per rail (fresh + links) — informational |
 
 The grow loop exits when `new_to_rail_verified >= grow_target`, not when pool reshuffles alone.
-Grow monitor header shows **unique titles** separately from **pool slots**.
+Grow monitor header shows **unique titles** separately from **pool slots**. It
+also shows orphan count and overlap caps; those are hygiene checks and do not
+replace the per-rail fresh quota.
+
+After every strict successful grow, finalization runs the retheme scorer with
+orphans included. Active verified orphans are attached to best-fit rails or
+anchor fallback, and unpinned titles are capped at two rail memberships. These
+attachments and overlap removals do **not** count toward the fresh quota.
 
 ## Head tombstone advance
 
@@ -134,11 +158,14 @@ Grow writes rail-specific negative memory to `rail_candidate_rejections`:
 | Reason | Default TTL | Effect |
 |--------|-------------|--------|
 | `theme_mismatch` / `theme_probe_skip` | 7 days | Do not probe/link this title for that rail until the theme window expires |
-| `no_stream` / `title_mismatch` | 24h | Avoid re-testing the same stream miss during long strict grow windows |
+| `no_stream` / `title_mismatch` | ~7 days | Avoid re-testing the same stream miss during long strict grow windows |
 | other probe failures | 24h | Keep bounded negative memory without making failures permanent |
 
 Tune: `MANGO_GROW_THEME_REJECTION_TTL_MS`,
 `MANGO_GROW_NO_STREAM_REJECTION_TTL_MS`, `MANGO_GROW_REJECTION_TTL_MS`.
+Normal grow does not bypass recent `no_stream` / `title_mismatch` tombstones
+during deep cursor cycles. Use `MANGO_GROW_BYPASS_RECENT_FAILED=1` only for
+explicit debug reprobes; user/voice search remains the intentional bypass path.
 
 Within a rail run, source circuits suppress a source after bounded evidence of
 rate limits, catalog errors, zero verified yield, extreme theme rejection, or
@@ -194,6 +221,10 @@ Structured failed refresh JSON is valid report input:
 python3 scripts/diag/grow_monitor.py assess --refresh-json ~/.cache/mango/ops/refresh-<run>.json
 ```
 
+Refresh JSON also carries benchmark target, orphan before/after, overlap
+summary, duplicate candidate count, wasted candidate ratio, and retheme
+finalization counters when available.
+
 ### Event sources
 
 - `playability_maintenance` — Pi timer (`mode=nightly` grow phase, or `--mode grow`)
@@ -209,10 +240,47 @@ After grow pipeline changes:
 bash scripts/m3-play/playability/gate-m3-library-grow.sh
 ```
 
+## Current diagnostics — 2026-06-24
+
+Use this as context before another strict nightly grow investigation.
+
+- Source expansion can be **catalog-rich but not playable-rich**. The 2026-06-24
+  Pi grow showed `series-miniseries` reach `0/20` after 74 no-stream probe
+  failures; its source audit was dominated by probation/no-stream or
+  theme-rejected MDBList catalogs. `series-india-picks` similarly showed Bharat
+  regional series catalogs with poor/no stream yield despite valid catalog
+  supply.
+- Hit-rate preflight must cover every active source. Commit `7dc282a` made
+  stale reports invalid when configured sources are missing. Commit `167a1bb`
+  then fixed source-hitrate reports to keep zero-sample catalog error rows so
+  failed catalogs do not disappear from coverage and force preflight forever.
+- Probation must be a **small budget**, not one fetch per demoted source per
+  page. Commit `167a1bb` changed composite allocation so active sources get most
+  fetch slots while probation sources are sampled through a rotating 5-10%
+  budget.
+- The grow state heartbeat used to be rail-loop scoped only. It now writes
+  stage-level progress for preflight, candidate ingest, verification, retheme,
+  and publish. If status stalls, inspect the reported stage before killing the
+  process.
+- Orphans are possible because the global `titles` table is independent of
+  `rail_pool`. A title can be verified globally without a rail attachment after
+  stale pruning, failed/theme-rejected linking, manual retheme dry-runs, or
+  workflows that verify/search outside a rail. Strict successful grow
+  finalization now runs best-fit orphan attachment automatically; use
+  `rail-pool-retheme.sh apply --include-orphans` for manual repair.
+- Current hardening defaults skip recent `no_stream` / `title_mismatch` grow
+  misses for about seven days and remove the previous deep-page bypass unless
+  `MANGO_GROW_BYPASS_RECENT_FAILED=1` is set for debug.
+- Remaining source-design question: add stronger India OTT service-specific
+  sources (SonyLIV, ZEE5, Hotstar/JioCinema style catalogs if available through
+  Stremio-compatible metadata) and keep promoting them only after measured
+  verified thematic yield.
+
 ## Related scripts
 
 | Script | Use |
 |--------|-----|
+| `scripts/m3-play/playability/grow-run-control.sh` | Single operator path for start, benchmark, status, watch, assess, abort |
 | `scripts/m3-play/playability/playability-grow.sh` | Manual grow / stale / nightly (`--status` → grow_monitor) |
 | `scripts/diag/grow_monitor.py` | Baseline, live status, watch, assess |
 | `scripts/diag/ops_grow_sla.py` | SLA logic (imported by ops-report + grow_monitor) |

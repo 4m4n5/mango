@@ -1174,6 +1174,20 @@ export type RailPoolMembership = {
   score: number;
 };
 
+export type RailPoolOverlapPair = {
+  rail_a: string;
+  rail_b: string;
+  shared_titles: number;
+};
+
+export type RailPoolOverlapSummary = {
+  overlapped_titles: number;
+  over_cap_titles: number;
+  overlap_extra_slots: number;
+  max_rails_per_title: number;
+  top_pairs: RailPoolOverlapPair[];
+};
+
 export async function listVerifiedPoolMemberships(
   now: number = nowMs(),
 ): Promise<RailPoolMembership[]> {
@@ -1225,6 +1239,97 @@ WHERE t.status = 'verified'
     SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id
   );
 `).all({ now }) as OrphanVerifiedRow[];
+  } finally {
+    db.close();
+  }
+}
+
+export async function countOrphanVerifiedPoolTitles(
+  now: number = nowMs(),
+): Promise<number> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const row = db.prepare(`
+SELECT COUNT(*) AS c
+FROM titles t
+WHERE t.status = 'verified'
+  AND (t.expires_at IS NULL OR t.expires_at > @now)
+  AND NOT EXISTS (
+    SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id
+  );
+`).get({ now }) as { c: number } | undefined;
+    return Number(row?.c ?? 0);
+  } finally {
+    db.close();
+  }
+}
+
+export async function getRailPoolOverlapSummary(options: {
+  maxRailsPerTitle?: number;
+  topPairs?: number;
+  now?: number;
+} = {}): Promise<RailPoolOverlapSummary> {
+  const maxRailsPerTitle = Math.max(1, Math.floor(options.maxRailsPerTitle ?? 2));
+  const topPairs = Math.max(0, Math.floor(options.topPairs ?? 10));
+  const now = options.now ?? nowMs();
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const summary = db.prepare(`
+WITH active AS (
+  SELECT rp.rail_id, rp.type, rp.id
+  FROM rail_pool rp
+  JOIN titles t ON t.type = rp.type AND t.id = rp.id
+  WHERE t.status = 'verified'
+    AND (t.expires_at IS NULL OR t.expires_at > @now)
+), title_counts AS (
+  SELECT type, id, COUNT(DISTINCT rail_id) AS rails
+  FROM active
+  GROUP BY type, id
+)
+SELECT
+  SUM(CASE WHEN rails > 1 THEN 1 ELSE 0 END) AS overlapped_titles,
+  SUM(CASE WHEN rails > @max_rails THEN 1 ELSE 0 END) AS over_cap_titles,
+  SUM(CASE WHEN rails > @max_rails THEN rails - @max_rails ELSE 0 END) AS overlap_extra_slots,
+  MAX(rails) AS max_rails_per_title
+FROM title_counts;
+`).get({ now, max_rails: maxRailsPerTitle }) as {
+      overlapped_titles: number | null;
+      over_cap_titles: number | null;
+      overlap_extra_slots: number | null;
+      max_rails_per_title: number | null;
+    } | undefined;
+
+    const pairs = topPairs > 0
+      ? db.prepare(`
+WITH active AS (
+  SELECT rp.rail_id, rp.type, rp.id
+  FROM rail_pool rp
+  JOIN titles t ON t.type = rp.type AND t.id = rp.id
+  WHERE t.status = 'verified'
+    AND (t.expires_at IS NULL OR t.expires_at > @now)
+)
+SELECT a.rail_id AS rail_a, b.rail_id AS rail_b, COUNT(*) AS shared_titles
+FROM active a
+JOIN active b ON b.type = a.type AND b.id = a.id AND b.rail_id > a.rail_id
+GROUP BY a.rail_id, b.rail_id
+ORDER BY shared_titles DESC, rail_a, rail_b
+LIMIT @limit;
+`).all({ now, limit: topPairs }) as RailPoolOverlapPair[]
+      : [];
+
+    return {
+      overlapped_titles: Number(summary?.overlapped_titles ?? 0),
+      over_cap_titles: Number(summary?.over_cap_titles ?? 0),
+      overlap_extra_slots: Number(summary?.overlap_extra_slots ?? 0),
+      max_rails_per_title: Number(summary?.max_rails_per_title ?? 0),
+      top_pairs: pairs.map((pair) => ({
+        rail_a: pair.rail_a,
+        rail_b: pair.rail_b,
+        shared_titles: Number(pair.shared_titles),
+      })),
+    };
   } finally {
     db.close();
   }

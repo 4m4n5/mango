@@ -473,6 +473,122 @@ def fetch_unique_verified_library_count(
         conn.close()
 
 
+def fetch_orphan_verified_library_count(
+    db_file: Path | None = None,
+    *,
+    now_ms: int | None = None,
+) -> int:
+    path = db_file or db_path()
+    if not path.is_file():
+        return 0
+
+    active_at = now_ms if now_ms is not None else _now_ms()
+    conn = sqlite3.connect(path)
+    try:
+        try:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM titles t
+                WHERE t.status = 'verified'
+                  AND (t.expires_at IS NULL OR t.expires_at > ?)
+                  AND NOT EXISTS (
+                    SELECT 1 FROM rail_pool rp
+                    WHERE rp.type = t.type AND rp.id = t.id
+                  )
+                """,
+                (active_at,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return 0
+        return int(row[0]) if row else 0
+    finally:
+        conn.close()
+
+
+def fetch_overlap_summary(
+    db_file: Path | None = None,
+    *,
+    now_ms: int | None = None,
+    max_rails_per_title: int = 2,
+    top_pairs: int = 10,
+) -> dict[str, Any]:
+    path = db_file or db_path()
+    empty = {
+        "overlapped_titles": 0,
+        "over_cap_titles": 0,
+        "overlap_extra_slots": 0,
+        "max_rails_per_title": 0,
+        "top_pairs": [],
+    }
+    if not path.is_file():
+        return empty
+
+    active_at = now_ms if now_ms is not None else _now_ms()
+    conn = sqlite3.connect(path)
+    try:
+        try:
+            row = conn.execute(
+                """
+                WITH active AS (
+                  SELECT rp.rail_id, rp.type, rp.id
+                  FROM rail_pool rp
+                  JOIN titles t ON t.type = rp.type AND t.id = rp.id
+                  WHERE t.status = 'verified'
+                    AND (t.expires_at IS NULL OR t.expires_at > ?)
+                ), title_counts AS (
+                  SELECT type, id, COUNT(DISTINCT rail_id) AS rails
+                  FROM active
+                  GROUP BY type, id
+                )
+                SELECT
+                  SUM(CASE WHEN rails > 1 THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN rails > ? THEN 1 ELSE 0 END),
+                  SUM(CASE WHEN rails > ? THEN rails - ? ELSE 0 END),
+                  MAX(rails)
+                FROM title_counts
+                """,
+                (active_at, max_rails_per_title, max_rails_per_title, max_rails_per_title),
+            ).fetchone()
+            pair_rows = conn.execute(
+                """
+                WITH active AS (
+                  SELECT rp.rail_id, rp.type, rp.id
+                  FROM rail_pool rp
+                  JOIN titles t ON t.type = rp.type AND t.id = rp.id
+                  WHERE t.status = 'verified'
+                    AND (t.expires_at IS NULL OR t.expires_at > ?)
+                )
+                SELECT a.rail_id, b.rail_id, COUNT(*) AS shared_titles
+                FROM active a
+                JOIN active b ON b.type = a.type AND b.id = a.id AND b.rail_id > a.rail_id
+                GROUP BY a.rail_id, b.rail_id
+                ORDER BY shared_titles DESC, a.rail_id, b.rail_id
+                LIMIT ?
+                """,
+                (active_at, top_pairs),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return empty
+    finally:
+        conn.close()
+
+    return {
+        "overlapped_titles": int(row[0] or 0) if row else 0,
+        "over_cap_titles": int(row[1] or 0) if row else 0,
+        "overlap_extra_slots": int(row[2] or 0) if row else 0,
+        "max_rails_per_title": int(row[3] or 0) if row else 0,
+        "top_pairs": [
+            {
+                "rail_a": str(left),
+                "rail_b": str(right),
+                "shared_titles": int(count),
+            }
+            for left, right, count in pair_rows
+        ],
+    }
+
+
 def fetch_distinct_probe_verified_since(
     since_ms: int,
     db_file: Path | None = None,
@@ -634,6 +750,8 @@ def build_live_status(
     verify_stats = fetch_verify_log_stats(since_ms, db_file)
     verify_totals = fetch_verify_log_totals_since(since_ms, db_file)
     unique_now = fetch_unique_verified_library_count(db_file)
+    orphan_total = fetch_orphan_verified_library_count(db_file)
+    overlap = fetch_overlap_summary(db_file, max_rails_per_title=2)
     if "unique_verified" in baseline:
         unique_before = int(baseline["unique_verified"])
     elif since_ms > 0:
@@ -702,6 +820,8 @@ def build_live_status(
         "unique_verified": unique_now,
         "unique_verified_before": unique_before,
         "unique_verified_delta": unique_delta,
+        "orphan_total": orphan_total,
+        "overlap": overlap,
         "distinct_probe_verified": distinct_probe_verified,
         "rails_met_target": met_count,
         "rails_total": browse_count,
@@ -769,6 +889,13 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
         f"{int(verify_totals.get('failed') or 0)} failed "
         f"({int(verify_totals.get('total') or 0)} total)"
     )
+    overlap = data.get("overlap") if isinstance(data.get("overlap"), dict) else {}
+    library_hygiene_line = (
+        f"orphans: {int(data.get('orphan_total') or 0)} · "
+        f"overlap: {int(overlap.get('overlapped_titles') or 0)} titles, "
+        f"over cap {int(overlap.get('over_cap_titles') or 0)}, "
+        f"max rails/title {int(overlap.get('max_rails_per_title') or 0)}"
+    )
 
     overnight = (grow.get("overnight") or {}) if isinstance(grow.get("overnight"), dict) else {}
 
@@ -778,6 +905,7 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
         pool_line,
         slots_line,
         verify_line,
+        library_hygiene_line,
         f"rails +target: {data.get('rails_met_target', 0)}/{data.get('rails_total', 0)} "
         f"({int(round((data.get('program_pass_rate') or 0) * 100))}%)",
         f"running: {'yes' if grow.get('running') else 'no'}"
@@ -905,6 +1033,29 @@ def assess_refresh_json(path: Path, catalog: dict[str, RailPlayabilityConfig] | 
             else int(unique_after) - int(unique_before)
         )
         header += f"unique library: {unique_after} titles (+{delta} this run, was {unique_before})\n"
+    if payload.get("benchmark_target") is not None:
+        header += f"benchmark target: +{payload.get('benchmark_target')} per rail\n"
+    if payload.get("orphan_total_after") is not None:
+        header += (
+            f"orphans: {payload.get('orphan_total_after')} "
+            f"(was {payload.get('orphan_total_before')}, attached {payload.get('orphan_attached', 0)})\n"
+        )
+    overlap_after = payload.get("overlap_after")
+    if isinstance(overlap_after, dict):
+        header += (
+            "overlap: "
+            f"{overlap_after.get('overlapped_titles', 0)} titles, "
+            f"over cap {overlap_after.get('over_cap_titles', 0)}, "
+            f"max rails/title {overlap_after.get('max_rails_per_title', 0)}\n"
+        )
+    retheme = payload.get("retheme_finalization")
+    if isinstance(retheme, dict):
+        header += (
+            "retheme finalization: "
+            f"attached={retheme.get('attached', 0)} "
+            f"removed={retheme.get('removed', 0)} "
+            f"overlap_removed={retheme.get('overlap_removed', 0)}\n"
+        )
     return header + format_grow_sla_section(summary)
 
 
@@ -1020,6 +1171,11 @@ def cmd_assess(args: argparse.Namespace) -> int:
             "unique_verified_before": payload.get("unique_verified_before"),
             "unique_verified_after": payload.get("unique_verified_after"),
             "unique_verified_delta": payload.get("unique_verified_delta"),
+            "benchmark_target": payload.get("benchmark_target"),
+            "orphan_total_before": payload.get("orphan_total_before"),
+            "orphan_total_after": payload.get("orphan_total_after"),
+            "overlap_after": payload.get("overlap_after"),
+            "retheme_finalization": payload.get("retheme_finalization"),
             "summary": summary.__dict__ if summary else None,
             "rows": rows,
         }, indent=2, default=str))

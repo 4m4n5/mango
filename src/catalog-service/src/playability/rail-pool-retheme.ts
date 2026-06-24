@@ -30,11 +30,13 @@ export type RethemePoolsResult = {
   ok: boolean;
   dry_run: boolean;
   include_orphans: boolean;
+  max_rails_per_title: number;
   memberships_scanned: number;
   orphans_scanned: number;
   unique_titles: number;
   kept: number;
   removed: number;
+  overlap_removed: number;
   relocated: number;
   attached: number;
   meta_fetched: number;
@@ -46,6 +48,7 @@ export type RethemeCore = Pick<CatalogCore, 'browsableRails' | 'meta'>;
 
 const RELOCATE_MIN_SCORE = 12;
 const RELOCATE_MARGIN = 10;
+const DEFAULT_MAX_RAILS_PER_TITLE = 2;
 const ANCHOR_MOVIES_RAIL = 'movies-global-popular';
 const ANCHOR_SERIES_RAIL = 'series-global-popular';
 const ANCHOR_RAILS = new Set([ANCHOR_MOVIES_RAIL, ANCHOR_SERIES_RAIL]);
@@ -125,6 +128,15 @@ function railsForContentType(
   });
 }
 
+function maxRailsPerTitleOption(raw: number | undefined): number {
+  const envRaw = process.env.MANGO_RETHEME_MAX_RAILS_PER_TITLE;
+  const value = raw ?? (envRaw === undefined || envRaw === '' ? DEFAULT_MAX_RAILS_PER_TITLE : Number(envRaw));
+  if (!Number.isInteger(value) || value < 1 || value > 10) {
+    return DEFAULT_MAX_RAILS_PER_TITLE;
+  }
+  return value;
+}
+
 async function fetchMetaCached(
   core: RethemeCore,
   type: string,
@@ -154,6 +166,7 @@ export async function rethemeRailPools(
     railFilter?: string;
     includeOrphans?: boolean;
     orphanLimit?: number;
+    maxRailsPerTitle?: number;
     metaConcurrency?: number;
   } = {},
 ): Promise<RethemePoolsResult> {
@@ -165,6 +178,7 @@ export async function rethemeRailPools(
   const orphanLimit = options.orphanLimit && Number.isFinite(options.orphanLimit)
     ? Math.max(0, Math.floor(options.orphanLimit))
     : null;
+  const maxRailsPerTitle = maxRailsPerTitleOption(options.maxRailsPerTitle);
 
   const [profiles, overrides, memberships] = await Promise.all([
     loadRailThemeProfiles(),
@@ -193,6 +207,7 @@ export async function rethemeRailPools(
   const actions: RethemeAction[] = [];
   const railsTouched = new Set<string>();
   let removed = 0;
+  let overlapRemoved = 0;
   let relocated = 0;
   let attached = 0;
   let kept = 0;
@@ -229,6 +244,7 @@ export async function rethemeRailPools(
       row: RailPoolMembership;
       score: number;
       remove: boolean;
+      pinned: boolean;
       reason?: string;
     };
     const decisions: RowDecision[] = [];
@@ -238,9 +254,7 @@ export async function rethemeRailPools(
       if (!profile) continue;
       const score = scores.get(row.rail_id) ?? 0;
       if (pinned.has(pinKey(row.rail_id, type, id))) {
-        kept += 1;
-        actions.push({ action: 'keep', rail_id: row.rail_id, type, id, score });
-        decisions.push({ row, score, remove: false });
+        decisions.push({ row, score, remove: false, pinned: true });
         continue;
       }
 
@@ -254,9 +268,7 @@ export async function rethemeRailPools(
       );
 
       if (!belowMin && !excludeHit && !betterElsewhere) {
-        kept += 1;
-        actions.push({ action: 'keep', rail_id: row.rail_id, type, id, score });
-        decisions.push({ row, score, remove: false });
+        decisions.push({ row, score, remove: false, pinned: false });
         continue;
       }
 
@@ -265,7 +277,40 @@ export async function rethemeRailPools(
         : betterElsewhere
           ? 'better_rail_available'
           : 'below_min_fit';
-      decisions.push({ row, score, remove: true, reason });
+      decisions.push({ row, score, remove: true, pinned: false, reason });
+    }
+
+    const unpinnedKept = decisions.filter((decision) => !decision.remove && !decision.pinned);
+    if (unpinnedKept.length > maxRailsPerTitle) {
+      const allowed = new Set(
+        [...unpinnedKept]
+          .sort((a, b) => {
+            const aTargetBoost = a.row.rail_id === targetRail ? 10_000 : 0;
+            const bTargetBoost = b.row.rail_id === targetRail ? 10_000 : 0;
+            return (b.score + bTargetBoost) - (a.score + aTargetBoost)
+              || b.row.rail_id.localeCompare(a.row.rail_id);
+          })
+          .slice(0, maxRailsPerTitle)
+          .map((decision) => decision.row.rail_id),
+      );
+      for (const decision of unpinnedKept) {
+        if (allowed.has(decision.row.rail_id)) {
+          continue;
+        }
+        decision.remove = true;
+        decision.reason = 'overlap_cap';
+      }
+    }
+
+    for (const decision of decisions.filter((candidate) => !candidate.remove)) {
+      kept += 1;
+      actions.push({
+        action: 'keep',
+        rail_id: decision.row.rail_id,
+        type,
+        id,
+        score: decision.score,
+      });
     }
 
     const toRemove = decisions.filter((decision) => decision.remove);
@@ -314,6 +359,9 @@ export async function rethemeRailPools(
       });
       railsTouched.add(decision.row.rail_id);
       removed += 1;
+      if (reason === 'overlap_cap') {
+        overlapRemoved += 1;
+      }
       if (!dryRun) {
         await deleteRailPoolTitle(decision.row.rail_id, type, id);
       }
@@ -405,11 +453,13 @@ export async function rethemeRailPools(
     ok: true,
     dry_run: dryRun,
     include_orphans: includeOrphans,
+    max_rails_per_title: maxRailsPerTitle,
     memberships_scanned: memberships.length,
     orphans_scanned: orphansScanned,
     unique_titles: byTitle.size + orphansScanned,
     kept,
     removed,
+    overlap_removed: overlapRemoved,
     relocated,
     attached,
     meta_fetched: metaCache.size,

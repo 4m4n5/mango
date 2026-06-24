@@ -44,7 +44,7 @@ What works today, how to verify it, and what's next.
 | Playability | `playability.db` verified pools · thematic theme gate · grow jobs |
 | Browse UX | Verified-only thin rails · empty hidden |
 | Thematic rails | `rail-theme-gate` on grow/link/verify · profiles in `rail-theme-profiles.yaml` |
-| Pool retheme | Manual prune/relocate: `rail-pool-retheme.sh` (one-off) |
+| Pool retheme | Manual repair plus strict-grow orphan/overlap finalization |
 
 **Detail:** [PLAYABILITY.md](PLAYABILITY.md)
 
@@ -54,7 +54,7 @@ What works today, how to verify it, and what's next.
 |-----|----------|--------|
 | Reshuffle | Refresh library | inline |
 | ~10 min | Quick top-up | `quick-playability-topup.sh --detach` |
-| ~45 min | Nightly pass | `playability-maintenance.sh --mode full` |
+| ~45 min | Nightly pass | `playability-maintenance.sh --mode nightly` |
 | ~4 h | Overnight grow | `overnight-playability-grow.sh --detach` |
 
 Status: `python3 scripts/diag/playability-status.py` · grow monitor: `grow_monitor.py status`

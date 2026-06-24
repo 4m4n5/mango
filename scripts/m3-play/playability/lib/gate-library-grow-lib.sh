@@ -13,7 +13,9 @@ gate_library_grow_header() {
 
 gate_library_grow_tests() {
   echo "-- catalog-service unit tests --"
-  npm --prefix src/catalog-service run test 2>&1 | tail -12
+  local cache_dir="${MANGO_TEST_XDG_CACHE_HOME:-${TMPDIR:-/tmp}/mango-catalog-test-cache}"
+  mkdir -p "$cache_dir"
+  XDG_CACHE_HOME="$cache_dir" npm --prefix src/catalog-service run test 2>&1 | tail -12
 }
 
 gate_library_grow_monitor() {
@@ -28,15 +30,19 @@ gate_library_grow_monitor() {
 gate_library_grow_entrypoints() {
   echo "-- entrypoints --"
   test -x scripts/m3-play/playability/playability-grow.sh
+  test -x scripts/m3-play/playability/grow-run-control.sh
   bash scripts/m3-play/playability/playability-grow.sh --help >/dev/null
+  bash scripts/m3-play/playability/grow-run-control.sh status --help >/dev/null
   grep -q 'grow_monitor.py' scripts/m3-play/playability/playability-grow.sh
+  grep -q 'abort-maintenance-grow.sh' scripts/m3-play/playability/grow-run-control.sh
   grep -q 'grow_monitor.py' scripts/m3-play/playability/playability-maintenance.sh
   python3 scripts/diag/source-grow-audit.py --help >/dev/null
   grep -q 'list_grow_rail_ids' scripts/diag/ops_grow_sla.py
   grep -q 'railsForGrowPass' src/catalog-service/src/playability/refresh.ts
   grep -q 'flushVerifyContextBatch' src/catalog-service/src/playability/grow-rail.ts
-  grep -q 'GROW_DEEP_PAGE_BYPASS_REASONS' src/catalog-service/src/playability/grow-rail.ts
-  grep -q 'MANGO_GROW_NO_STREAM_RETRY_MS.*86400000' scripts/m3-play/playability/playability-maintenance.sh
+  grep -q 'growDeepPageBypassReasons' src/catalog-service/src/playability/grow-rail.ts
+  grep -q 'MANGO_GROW_BYPASS_RECENT_FAILED' src/catalog-service/src/playability/grow-tombstones.ts
+  grep -q 'MANGO_GROW_NO_STREAM_RETRY_MS.*604800000' scripts/m3-play/playability/playability-maintenance.sh
 }
 
 gate_library_grow_rail_impl() {

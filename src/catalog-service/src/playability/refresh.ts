@@ -4,6 +4,8 @@ import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs
 import {
   getPlayabilityStatus,
   getUniqueVerifiedLibraryCount,
+  countOrphanVerifiedPoolTitles,
+  getRailPoolOverlapSummary,
   getRailIngestOffsetsBulk,
   getRailPoolTitleKeysBulk,
   getStaleTitlesForRefresh,
@@ -11,6 +13,7 @@ import {
   pruneNonPlayableFromRailPools,
   setRailIngestOffset,
   type PlayabilityRailStatus,
+  type RailPoolOverlapSummary,
 } from './db.js';
 import {
   ingestPaginatedCandidates,
@@ -52,6 +55,8 @@ import {
   loadSourceOffsetsForListSource,
   persistSourceOffsetsForListSource,
 } from './source-cursors.js';
+import { rethemeRailPools, type RethemePoolsResult } from './rail-pool-retheme.js';
+import { recordGrowRunState } from './grow-run-state.js';
 
 export type { RefreshMode } from './grow-target.js';
 
@@ -111,6 +116,8 @@ export type RefreshRailSummary = {
   skipped_existing: number;
   skipped_recent_failed: number;
   skipped_rejected?: number;
+  duplicate_candidates?: number;
+  wasted_candidate_ratio?: number;
   exhausted: boolean;
   compose_escalated?: boolean;
   compose_fallback_level?: number;
@@ -132,6 +139,8 @@ export type RefreshAllResult = {
   skipped_existing: number;
   skipped_recent_failed: number;
   skipped_rejected?: number;
+  duplicate_candidates?: number;
+  wasted_candidate_ratio?: number;
   batch_flush: { verify_count: number; pool_count: number };
   pruned_pool_entries: number;
   ingest_fresh_queued: number;
@@ -143,6 +152,13 @@ export type RefreshAllResult = {
   unique_verified_before?: number;
   unique_verified_after?: number;
   unique_verified_delta?: number;
+  benchmark_target?: number;
+  orphan_total_before?: number;
+  orphan_total_after?: number;
+  orphan_attached?: number;
+  overlap_before?: RailPoolOverlapSummary;
+  overlap_after?: RailPoolOverlapSummary;
+  retheme_finalization?: Omit<RethemePoolsResult, 'actions'>;
   rails: RefreshRailSummary[];
 };
 
@@ -196,6 +212,8 @@ function growResultToRailSummary(
     skipped_existing: result.skipped_existing,
     skipped_recent_failed: result.skipped_recent_failed,
     skipped_rejected: result.skipped_rejected,
+    duplicate_candidates: result.duplicate_candidates,
+    wasted_candidate_ratio: result.wasted_candidate_ratio,
     exhausted: result.exhausted,
     compose_escalated: result.compose_escalated,
     compose_fallback_level: result.compose_fallback_level,
@@ -211,6 +229,8 @@ async function refreshAllRailsGrow(
   const mode = options.mode ?? 'grow';
   const preset = resolveGrowPreset(options.growPreset);
   const uniqueVerifiedBefore = await getUniqueVerifiedLibraryCount();
+  const orphanTotalBefore = await countOrphanVerifiedPoolTitles();
+  const overlapBefore = await getRailPoolOverlapSummary({ maxRailsPerTitle: 2 });
   const browsable = core.browsableRails();
   const status = await getPlayabilityStatus(browsable.map((rail) => rail.id));
   const verifiedPoolByRail = new Map(
@@ -238,13 +258,52 @@ async function refreshAllRailsGrow(
     }
   }
 
+  const requireGrowTarget = playabilityGrowRequireTarget();
+  const strictOk = railSummaries.every((rail) => rail.ok && (!requireGrowTarget || rail.grow_target_met === true));
+  let rethemeFinalization: RethemePoolsResult | undefined;
+  let finalizationOk = true;
+  if (strictOk && process.env.MANGO_GROW_FINAL_RETHEME !== '0') {
+    recordGrowRunState({
+      phase: 'retheme',
+      message: 'post-grow retheme finalization',
+      mode,
+      preset: process.env.MANGO_GROW_PRESET,
+    });
+    rethemeFinalization = await rethemeRailPools(core, {
+      dryRun: false,
+      includeOrphans: true,
+      maxRailsPerTitle: 2,
+    });
+    const finalStatus = await getPlayabilityStatus(rails.map((rail) => rail.id));
+    const minByRail = new Map(rails.map((rail) => [rail.id, rail.playability.min_display]));
+    finalizationOk = finalStatus.rails.every((rail) => (
+      rail.verified_pool >= (minByRail.get(rail.rail_id) ?? 0)
+    ));
+    recordGrowRunState({
+      phase: 'publish',
+      message: finalizationOk
+        ? 'strict grow finalization complete'
+        : 'strict grow finalization left a rail below min_display',
+      mode,
+      preset: process.env.MANGO_GROW_PRESET,
+      ok: finalizationOk,
+      orphan_attached: rethemeFinalization.attached,
+      overlap_removed: rethemeFinalization.overlap_removed,
+    });
+  }
   const finishedAt = Date.now();
   const uniqueVerifiedAfter = await getUniqueVerifiedLibraryCount();
-  const requireGrowTarget = playabilityGrowRequireTarget();
-  const ok = railSummaries.every((rail) => rail.ok && (!requireGrowTarget || rail.grow_target_met === true));
-  const repairSuggestions = railSummaries
+  const orphanTotalAfter = await countOrphanVerifiedPoolTitles();
+  const overlapAfter = await getRailPoolOverlapSummary({ maxRailsPerTitle: 2 });
+  const ok = strictOk && finalizationOk;
+  const repairSuggestions = [
+    ...railSummaries
     .flatMap((rail) => rail.repair_suggestions ?? [])
-    .filter((suggestion, index, all) => all.indexOf(suggestion) === index);
+    .filter((suggestion, index, all) => all.indexOf(suggestion) === index),
+    ...(!finalizationOk
+      ? ['Review retheme finalization: orphan/overlap cleanup left one or more rails below min_display; do not publish couch sessions until rail depth is repaired.']
+      : []),
+  ];
   const refreshResult: RefreshAllResult = {
     ok,
     mode,
@@ -256,6 +315,32 @@ async function refreshAllRailsGrow(
     unique_verified_before: uniqueVerifiedBefore,
     unique_verified_after: uniqueVerifiedAfter,
     unique_verified_delta: uniqueVerifiedAfter - uniqueVerifiedBefore,
+    benchmark_target: process.env.MANGO_GROW_PER_PASS
+      ? Number(process.env.MANGO_GROW_PER_PASS)
+      : undefined,
+    orphan_total_before: orphanTotalBefore,
+    orphan_total_after: orphanTotalAfter,
+    orphan_attached: rethemeFinalization?.attached ?? 0,
+    overlap_before: overlapBefore,
+    overlap_after: overlapAfter,
+    retheme_finalization: rethemeFinalization
+      ? {
+        ok: rethemeFinalization.ok,
+        dry_run: rethemeFinalization.dry_run,
+        include_orphans: rethemeFinalization.include_orphans,
+        max_rails_per_title: rethemeFinalization.max_rails_per_title,
+        memberships_scanned: rethemeFinalization.memberships_scanned,
+        orphans_scanned: rethemeFinalization.orphans_scanned,
+        unique_titles: rethemeFinalization.unique_titles,
+        kept: rethemeFinalization.kept,
+        removed: rethemeFinalization.removed,
+        overlap_removed: rethemeFinalization.overlap_removed,
+        relocated: rethemeFinalization.relocated,
+        attached: rethemeFinalization.attached,
+        meta_fetched: rethemeFinalization.meta_fetched,
+        rails_touched: rethemeFinalization.rails_touched,
+      }
+      : undefined,
     unique_candidates: railSummaries.reduce((sum, rail) => sum + rail.candidates_seen, 0),
     verify_queue_size: 0,
     linked_existing: railSummaries.reduce((sum, rail) => sum + rail.linked_existing, 0),
@@ -264,6 +349,19 @@ async function refreshAllRailsGrow(
     skipped_existing: railSummaries.reduce((sum, rail) => sum + rail.skipped_existing, 0),
     skipped_recent_failed: railSummaries.reduce((sum, rail) => sum + rail.skipped_recent_failed, 0),
     skipped_rejected: railSummaries.reduce((sum, rail) => sum + (rail.skipped_rejected ?? 0), 0),
+    duplicate_candidates: railSummaries.reduce((sum, rail) => sum + (rail.duplicate_candidates ?? 0), 0),
+    wasted_candidate_ratio: (() => {
+      const candidates = railSummaries.reduce((sum, rail) => sum + rail.candidates_seen, 0);
+      if (candidates <= 0) return undefined;
+      const wasted = railSummaries.reduce((sum, rail) => (
+        sum
+        + rail.skipped_existing
+        + rail.skipped_recent_failed
+        + (rail.skipped_rejected ?? 0)
+        + (rail.duplicate_candidates ?? 0)
+      ), 0);
+      return wasted / candidates;
+    })(),
     batch_flush: { verify_count: 0, pool_count: 0 },
     pruned_pool_entries: 0,
     ingest_fresh_queued: railSummaries.reduce(
@@ -271,7 +369,11 @@ async function refreshAllRailsGrow(
       0,
     ),
     ingest_scanned: railSummaries.reduce((sum, rail) => sum + rail.candidates_seen, 0),
-    failure_category: ok ? undefined : 'rail_grow_target_shortfall',
+    failure_category: ok
+      ? undefined
+      : strictOk
+        ? 'retheme_finalization_failed'
+        : 'rail_grow_target_shortfall',
     repair_suggestions: repairSuggestions.length > 0 ? repairSuggestions : undefined,
     rails: railSummaries,
   };

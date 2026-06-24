@@ -14,6 +14,7 @@ export type IngestCandidatesStats = {
   next_offset: number;
   scanned: number;
   fresh_queued: number;
+  duplicate_candidates: number;
   skipped_verified: number;
   skipped_recent_failed: number;
   linked_verified_seen: number;
@@ -206,12 +207,15 @@ export async function ingestPaginatedCandidates(
 
   const nextOffset = catalogExhausted ? 0 : offset;
 
+  const unique = uniqueCandidates(collected);
+
   return {
-    candidates: uniqueCandidates(collected),
+    candidates: unique,
     start_offset: options.startOffset,
     next_offset: nextOffset,
     scanned,
     fresh_queued: freshQueued,
+    duplicate_candidates: Math.max(0, collected.length - unique.length),
     skipped_verified: skippedVerified,
     skipped_recent_failed: skippedRecentFailed,
     linked_verified_seen: linkedVerifiedSeen,

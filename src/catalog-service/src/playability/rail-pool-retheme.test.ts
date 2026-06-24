@@ -54,6 +54,14 @@ rails:
     intent: comedy funny comfort laugh
     exclude: documentary horror
     min_fit: 8
+  movies-comfort:
+    intent: comedy funny comfort laugh
+    exclude: documentary horror
+    min_fit: 8
+  movies-classics:
+    intent: comedy funny comfort laugh
+    exclude: documentary horror
+    min_fit: 8
   movies-documentaries:
     intent: documentary true story nature crime investigation
     exclude: fiction comedy horror
@@ -72,6 +80,8 @@ rails:
     browsableRails: () => [
       rail('movies-global-popular', 'movie'),
       rail('movies-comedy', 'movie'),
+      rail('movies-comfort', 'movie'),
+      rail('movies-classics', 'movie'),
       rail('movies-documentaries', 'movie'),
       rail('series-global-popular', 'series'),
       rail('series-reality-casual', 'series'),
@@ -217,4 +227,83 @@ test('retheme orphan target selection avoids rails rejected by exclude tags', as
   assert.equal(action.action, 'attach');
   assert.equal(action.rail_id, 'movies-documentaries');
   assert.equal(action.reason, 'orphan_best_fit');
+});
+
+test('retheme caps unpinned overlap to strongest rails', async () => {
+  const core = await setupRethemeTest({
+    'movie:tt-overlap': {
+      id: 'tt-overlap',
+      type: 'movie',
+      name: 'A Funny Comfort Classic',
+      genre: 'Comedy',
+      description: 'A funny comfort comedy built for laughs.',
+    } as Meta,
+  });
+  await verifyTitle('movie', 'tt-overlap');
+  for (const railId of ['movies-comedy', 'movies-comfort', 'movies-classics']) {
+    await upsertRailPoolTitle({
+      rail_id: railId,
+      type: 'movie',
+      id: 'tt-overlap',
+      score: 80,
+      title: 'A Funny Comfort Classic',
+    });
+  }
+
+  const result = await rethemeRailPools(core, {
+    dryRun: false,
+    includeOrphans: true,
+    maxRailsPerTitle: 2,
+  });
+
+  assert.equal(result.overlap_removed, 1);
+  assert.equal((await listRailIdsContainingTitle('movie', 'tt-overlap')).length, 2);
+  assert.ok(result.actions.some((action) => (
+    action.action === 'remove'
+    && action.type === 'movie'
+    && action.id === 'tt-overlap'
+    && action.reason === 'overlap_cap'
+  )));
+});
+
+test('retheme overlap cap preserves pinned memberships', async () => {
+  const core = await setupRethemeTest({
+    'movie:tt-pinned-overlap': {
+      id: 'tt-pinned-overlap',
+      type: 'movie',
+      name: 'A Funny Comfort Classic',
+      genre: 'Comedy',
+      description: 'A funny comfort comedy built for laughs.',
+    } as Meta,
+  });
+  await writeFile(process.env.MANGO_RAIL_CURATION_OVERRIDES!, `
+version: 1
+pins:
+  - rail_id: movies-classics
+    type: movie
+    id: tt-pinned-overlap
+    score: 999
+blocks: []
+`, 'utf8');
+  await verifyTitle('movie', 'tt-pinned-overlap');
+  for (const railId of ['movies-comedy', 'movies-comfort', 'movies-classics']) {
+    await upsertRailPoolTitle({
+      rail_id: railId,
+      type: 'movie',
+      id: 'tt-pinned-overlap',
+      score: 80,
+      title: 'A Funny Comfort Classic',
+    });
+  }
+
+  const result = await rethemeRailPools(core, {
+    dryRun: false,
+    includeOrphans: true,
+    maxRailsPerTitle: 1,
+  });
+  const rails = await listRailIdsContainingTitle('movie', 'tt-pinned-overlap');
+
+  assert.equal(result.overlap_removed, 1);
+  assert.ok(rails.includes('movies-classics'));
+  assert.equal(rails.length, 2);
 });

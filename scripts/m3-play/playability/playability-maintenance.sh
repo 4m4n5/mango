@@ -137,11 +137,12 @@ run_source_hitrate_preflight() {
     return 0
   fi
 
-  local plan_json decision reason per_source
+  local plan_json decision reason per_source source_total
   plan_json="$(python3 "$REPO_DIR/scripts/diag/source_hitrate_preflight.py" plan --preset "$preset" "${force_args[@]}")"
   decision="$(python3 -c "import json,sys; print(json.load(sys.stdin)['decision'])" <<<"$plan_json")"
   reason="$(python3 -c "import json,sys; print(json.load(sys.stdin)['reason'])" <<<"$plan_json")"
   per_source="$(python3 -c "import json,sys; print(json.load(sys.stdin)['per_source'])" <<<"$plan_json")"
+  source_total="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('source_total') or 0)" <<<"$plan_json")"
 
   if [[ "$decision" == "skip" ]]; then
     grow_state set --phase preflight --message "using cached hit-rate ($reason)" \
@@ -154,7 +155,7 @@ run_source_hitrate_preflight() {
   grow_state set --phase preflight \
     --message "probing sources (per_source=$per_source)" \
     --mode "$MODE" --preset "$preset" \
-    --preflight-done 0 --preflight-total 36 \
+    --preflight-done 0 --preflight-total "$source_total" \
     --log "source-hitrate preflight: start preset=$preset per_source=$per_source ($reason)"
 
   echo "source-hitrate preflight: preset=$preset per_source=$per_source ($reason)"
@@ -249,7 +250,7 @@ export MANGO_GROW_SOURCE_RESET_CYCLES="${MANGO_GROW_SOURCE_RESET_CYCLES:-10}"
 export MANGO_GROW_SOURCE_ADVANCE_PAGES="${MANGO_GROW_SOURCE_ADVANCE_PAGES:-25}"
 export MANGO_PLAYABILITY_GROW_INGEST_BATCH="${MANGO_PLAYABILITY_GROW_INGEST_BATCH:-80}"
 export MANGO_PLAYABILITY_MAX_INGEST_SCAN="${MANGO_PLAYABILITY_MAX_INGEST_SCAN:-2400}"
-export MANGO_GROW_NO_STREAM_RETRY_MS="${MANGO_GROW_NO_STREAM_RETRY_MS:-86400000}"
+export MANGO_GROW_NO_STREAM_RETRY_MS="${MANGO_GROW_NO_STREAM_RETRY_MS:-604800000}"
 PHASE_COOLDOWN_SEC="${MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC:-45}"
 
 run_refresh() {

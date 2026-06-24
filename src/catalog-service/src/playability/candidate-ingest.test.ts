@@ -283,7 +283,7 @@ test('ingestPaginatedCandidates preserves exhausted source cursor state across b
   assert.equal(source.writes, 1);
 });
 
-test('ingestPaginatedCandidates bypasses tombstoned no_stream after deep cursor advance', async () => {
+test('ingestPaginatedCandidates only bypasses tombstoned no_stream when explicitly requested', async () => {
   const source = new MockListSource([
     [movie('retry-me')],
   ]);
@@ -311,6 +311,35 @@ test('ingestPaginatedCandidates bypasses tombstoned no_stream after deep cursor 
   assert.equal(result.fresh_queued, 1);
   assert.equal(result.skipped_recent_failed, 0);
   assert.equal(result.candidates[0]?.id, 'retry-me');
+});
+
+test('ingestPaginatedCandidates skips recent no_stream without explicit bypass', async () => {
+  const source = new MockListSource([
+    [movie('skip-me')],
+  ]);
+  const now = Date.now();
+
+  const result = await ingestPaginatedCandidates(source, {
+    startOffset: 0,
+    freshTarget: 1,
+    pageSize: 10,
+    maxScanned: 10,
+    now,
+    lookupTitles: async () => new Map([
+      ['movie:skip-me', {
+        type: 'movie',
+        id: 'skip-me',
+        status: 'failed',
+        fail_reason: 'no_stream',
+        expires_at: null,
+        updated_at: now - 1000,
+      }],
+    ]),
+  });
+
+  assert.equal(result.fresh_queued, 0);
+  assert.equal(result.skipped_recent_failed, 1);
+  assert.equal(result.candidates.length, 0);
 });
 
 test('isRecentFailedTitle respects retry window', () => {

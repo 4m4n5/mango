@@ -13,6 +13,7 @@ function usage(): never {
   dry-run (default): score pool memberships; print summary + sample actions
   --include-orphans: also attach active verified titles with no rail_pool row to best-fit rail
   --limit: cap orphan attachments when --include-orphans is set
+  --max-rails-per-title: cap unpinned cross-rail membership (default 2)
   apply: move mismatches to best-fit rail; titles land on anchor rail if no strong fit
   --rail: limit to one rail id
   --no-meta: title/pool fields only (faster; weaker signals)
@@ -84,17 +85,20 @@ async function main(): Promise<void> {
     railFilter: argValue('--rail'),
     includeOrphans: process.argv.includes('--include-orphans'),
     orphanLimit: argNumber('--limit'),
+    maxRailsPerTitle: argNumber('--max-rails-per-title'),
   });
 
   console.log(JSON.stringify({
     ok: result.ok,
     dry_run: result.dry_run,
     include_orphans: result.include_orphans,
+    max_rails_per_title: result.max_rails_per_title,
     memberships_scanned: result.memberships_scanned,
     orphans_scanned: result.orphans_scanned,
     unique_titles: result.unique_titles,
     kept: result.kept,
     removed: result.removed,
+    overlap_removed: result.overlap_removed,
     relocated: result.relocated,
     attached: result.attached,
     meta_fetched: result.meta_fetched,

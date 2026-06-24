@@ -58,7 +58,7 @@ import {
 import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
 import { tryGrowComposeEscalation } from '../ai-catalogs/grow-compose-escalation.js';
 import type { AiCatalogRail } from '../ai-catalogs/types.js';
-import { GROW_DEEP_PAGE_BYPASS_REASONS } from './grow-tombstones.js';
+import { growDeepPageBypassReasons } from './grow-tombstones.js';
 import { runGlobalVerifiedLinkPass } from './grow-global-link.js';
 import { shouldHeadAdvanceOnTombstoneSkew } from './grow-head-advance.js';
 import { applyHitrateWeightsToListSource } from './source-hitrate-weights.js';
@@ -106,6 +106,8 @@ export type GrowRailResult = {
   skipped_existing: number;
   skipped_recent_failed: number;
   skipped_rejected: number;
+  duplicate_candidates: number;
+  wasted_candidate_ratio?: number;
   exhausted: boolean;
   grow_loops: number;
   compose_escalated?: boolean;
@@ -199,6 +201,7 @@ export async function growRail(
       skipped_existing: 0,
       skipped_recent_failed: 0,
       skipped_rejected: 0,
+      duplicate_candidates: 0,
       exhausted: false,
       grow_loops: 0,
       results: [],
@@ -225,6 +228,7 @@ export async function growRail(
   let totalSkippedExisting = 0;
   let totalSkippedRecentFailed = 0;
   let totalSkippedRejected = 0;
+  let totalDuplicateCandidates = 0;
   let attempts = 0;
   let growLoops = 0;
   let maxSourcesTouched = 0;
@@ -390,6 +394,8 @@ export async function growRail(
       max_attempts: maxAttempts,
       candidates_seen: totalCandidatesSeen,
       skipped_rejected: totalSkippedRejected,
+      skipped_recent_failed: totalSkippedRecentFailed,
+      duplicate_candidates: totalDuplicateCandidates,
       suppressed_sources: [...suppressedSources.entries()].map(([source, reason]) => `${source}:${reason}`),
       elapsed_ms: Date.now() - startedAt,
       wall_ms: wallMs,
@@ -509,8 +515,13 @@ export async function growRail(
       const remainingQuota = Math.max(0, growTarget - freshQuotaSoFar());
       const freshTarget = growIngestFreshTarget(remainingQuota, ingestBatchFresh);
 
-      const deepPageBypass = sourceResetCycles > 0 ? GROW_DEEP_PAGE_BYPASS_REASONS : undefined;
+      const deepPageBypass = sourceResetCycles > 0 ? growDeepPageBypassReasons() : undefined;
 
+      heartbeat(`grow ${rail.id}: fetching candidates`, {
+        stage: 'candidate_ingest',
+        source_reset_cycles: sourceResetCycles,
+        fresh_target: freshTarget,
+      });
       const ingested = await ingestPaginatedCandidates(listSource, {
         startOffset: ingestOffset,
         sourceOffsets,
@@ -536,6 +547,7 @@ export async function growRail(
       growLoops += 1;
       maxSourcesTouched = Math.max(maxSourcesTouched, ingested.sources_touched ?? 0);
       totalCandidatesSeen += ingested.scanned;
+      totalDuplicateCandidates += ingested.duplicate_candidates;
 
       if (await tryHeadAdvanceOnTombstoneSkew(ingested)) {
         continue;
@@ -631,6 +643,11 @@ export async function growRail(
 
       const iterationAttempts = processed.verified + processed.failed;
       attempts += iterationAttempts;
+      heartbeat(`grow ${rail.id}: verifying candidates`, {
+        stage: 'verify',
+        loop: growLoops,
+        verify_queue_size: linked.verifyQueue.length,
+      });
 
       totalLinked += linked.linked_existing;
       totalVerified += processed.verified;
@@ -781,6 +798,10 @@ export async function growRail(
     skipped_existing: totalSkippedExisting,
     skipped_recent_failed: totalSkippedRecentFailed,
     skipped_rejected: totalSkippedRejected,
+    duplicate_candidates: totalDuplicateCandidates,
+    wasted_candidate_ratio: totalCandidatesSeen > 0
+      ? (totalSkippedExisting + totalSkippedRecentFailed + totalSkippedRejected + totalDuplicateCandidates) / totalCandidatesSeen
+      : undefined,
     exhausted,
     grow_loops: growLoops,
     compose_escalated: composeEscalated || undefined,

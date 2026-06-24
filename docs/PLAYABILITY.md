@@ -27,7 +27,7 @@ Two mechanisms share one profile file:
 | Mechanism | When | Script / code |
 |-----------|------|----------------|
 | **Theme gate** (ongoing) | Every grow · link · verify pool write | `rail-theme-gate.ts` — on by default |
-| **Pool retheme** (one-off) | Manual prune + relocate mismatches | `rail-pool-retheme.sh` |
+| **Pool retheme** | Manual repair + strict-grow finalization | `rail-pool-retheme.sh` / `refreshAllRailsGrow` |
 
 **Profiles:** `config/rail-theme-profiles.yaml` (`MANGO_RAIL_THEME_PROFILES`)
 
@@ -44,9 +44,12 @@ Two mechanisms share one profile file:
 
 Disable gate (debug only): `MANGO_RAIL_THEME_GATE=0`
 
-### Pool retheme (manual)
+### Pool retheme
 
-Use after large source reshapes or legacy overlap — not part of nightly grow.
+Use manually after large source reshapes or legacy overlap. Strict successful
+grow runs also reuse this scorer as finalization: active verified orphans are
+attached to their best matching rail or anchor fallback, and unpinned titles are
+capped to two rail memberships.
 
 ```bash
 bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run
@@ -59,8 +62,8 @@ bash scripts/m3-play/playability/rail-pool-retheme.sh recover         # orphans 
 
 Apply clears affected rail sessions. `--include-orphans` extends the same theme
 scoring to active verified titles that are not in any rail; use `--limit` for
-off-hours batches when addon meta limits are tight. Prefer **grow + theme gate**
-for steady state; retheme is a scalpel.
+manual off-hours batches when addon meta limits are tight. Pins and curation
+overrides are preserved.
 
 ---
 
@@ -97,9 +100,10 @@ python3 scripts/diag/source-grow-audit.py --rail series-reality-casual
 |-----|----------|---------|
 | Reshuffle | Refresh library | launcher inline |
 | Quick top-up | ~10 min | `quick-playability-topup.sh --detach` |
-| Nightly | ~45 min | `playability-maintenance.sh --mode full` |
+| Nightly | ~45 min | `playability-maintenance.sh --mode nightly` |
 | Overnight | ~4 h | `overnight-playability-grow.sh --detach` |
 | Manual grow | — | `playability-grow.sh --mode grow --detach` |
+| Run control | operator | `grow-run-control.sh start/status/watch/assess/abort` |
 
 **Presets:** `quick` (10 min wall) · `nightly` (90 min) — see [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md)
 
@@ -110,11 +114,15 @@ python3 scripts/diag/source-grow-audit.py --rail series-reality-casual
 ```bash
 python3 scripts/diag/grow_monitor.py status
 python3 scripts/diag/grow_monitor.py watch --interval 30
+python3 scripts/diag/grow_monitor.py assess
 python3 scripts/diag/playability-status.py
 python3 scripts/diag/ops-report.py
 ```
 
 Tracks **unique verified library** size and per-rail deltas (`unique_verified`, `unique_verified_delta`) separately from strict per-rail grow success.
+Status and assess output also include orphan count, overlap count, over-cap
+titles, duplicate candidate pressure, wasted candidate ratio, and retheme
+finalization results when present.
 
 ---
 
@@ -139,7 +147,7 @@ Addons (Cinemeta, AIOMetadata, AIOStreams) throttle aggressive meta/stream burst
 | Gate-lite + deploy restart | M4 stream gate uses fixture corpus only — bounded |
 | Grow preflight | Reuse report if <24h; otherwise quick: 1 probe/source, nightly: 3/source. Force with `MANGO_SOURCE_HITRATE_FORCE=1` |
 | Live/IPTV addon rate limit during VOD grow | Playability refresh boots catalog-service in VOD mode and skips optional Live manifests |
-| Repeated bad candidates during long grow | Rail-specific rejection ledger skips recent theme/stream misses before probing |
+| Repeated bad candidates during long grow | Rail-specific rejection ledger skips recent theme/stream misses before probing; deep-page bypass for stream misses is debug-only |
 | One weak source burns a rail window | Runtime source circuit breakers suppress rate-limited, exhausted, theme-mismatched, or low-hit sources for the current rail run |
 
 Catalog env: `MANGO_META_RATE_LIMIT_BACKOFF_MS` (default 5 min) · `MANGO_RAIL_META_CONCURRENCY` (default 6)
@@ -147,11 +155,13 @@ Catalog env: `MANGO_META_RATE_LIMIT_BACKOFF_MS` (default 5 min) · `MANGO_RAIL_M
 Grow negative memory is runtime-only:
 
 - `rail_candidate_rejections` lives in `playability.db` and is scoped to `rail_id + title`.
-- Theme rejects default to a 7-day rail TTL; no-stream/title-mismatch grow rejects default to 24h.
+- Theme rejects default to a 7-day rail TTL; no-stream/title-mismatch grow rejects also default to about 7 days.
+- Debug-only failed-title bypass: `MANGO_GROW_BYPASS_RECENT_FAILED=1`.
 - Runtime source weights and source suppressions never edit catalog YAML or theme profiles.
 - Source hit-rate reports written by Python use seconds timestamps; the grow loader normalizes seconds/milliseconds before age checks.
 - Catastrophic zero-yield or near-zero-yield runtime source outcomes fall to the 5-10% probation floor so weak sources can recover without burning the rail window.
 - Monitor state is written to `~/.cache/mango/grow-run-state.json`; it is operator-only and not shown on TV.
+- Strict successful grow finalization attaches verified orphans and prunes unpinned overlap above two rails per title. Failed or short grows keep the previous stable couch sessions visible.
 
 If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_category`, and `repair_suggestions`; use `python3 scripts/diag/grow_monitor.py assess --refresh-json <file>`.
 

@@ -24,6 +24,8 @@ from grow_monitor import (
     assess_refresh_json,
     build_live_status,
     cmd_assess,
+    fetch_orphan_verified_library_count,
+    fetch_overlap_summary,
     fetch_unique_verified_library_count,
     fetch_verified_pool_counts,
     format_live_status,
@@ -169,6 +171,51 @@ class GrowMonitorTests(unittest.TestCase):
             text = format_live_status(status)
             self.assertIn("ai-horror", text)
             self.assertIn("movies-global-popular", text)
+            self.assertIn("orphans:", text)
+
+    def test_orphan_and_overlap_audit_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "playability.db"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE titles (
+                  type TEXT, id TEXT, status TEXT, verified_at INTEGER,
+                  expires_at INTEGER, fail_reason TEXT, best_source TEXT,
+                  cache_status TEXT, debrid_service TEXT, probe_ms INTEGER,
+                  win_url_hash TEXT, win_ladder_step TEXT, updated_at INTEGER,
+                  PRIMARY KEY (type, id)
+                );
+                CREATE TABLE rail_pool (
+                  rail_id TEXT, type TEXT, id TEXT, score INTEGER,
+                  ingested_at INTEGER, title TEXT, poster_url TEXT, year TEXT,
+                  PRIMARY KEY (rail_id, type, id)
+                );
+                INSERT INTO titles VALUES (
+                  'movie','orphan','verified',0,9999999999999,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0
+                );
+                INSERT INTO titles VALUES (
+                  'movie','shared','verified',0,9999999999999,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0
+                );
+                INSERT INTO rail_pool VALUES (
+                  'movies-comedy','movie','shared',100,0,NULL,NULL,NULL
+                );
+                INSERT INTO rail_pool VALUES (
+                  'movies-classics','movie','shared',90,0,NULL,NULL,NULL
+                );
+                INSERT INTO rail_pool VALUES (
+                  'movies-global-popular','movie','shared',80,0,NULL,NULL,NULL
+                );
+                """,
+            )
+            conn.close()
+
+            self.assertEqual(fetch_orphan_verified_library_count(db), 1)
+            overlap = fetch_overlap_summary(db, max_rails_per_title=2)
+            self.assertEqual(overlap["overlapped_titles"], 1)
+            self.assertEqual(overlap["over_cap_titles"], 1)
+            self.assertEqual(overlap["overlap_extra_slots"], 1)
+            self.assertEqual(overlap["max_rails_per_title"], 3)
 
     def test_live_status_clamps_probe_successes_to_pool_growth(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

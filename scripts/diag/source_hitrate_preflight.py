@@ -144,12 +144,14 @@ def cmd_decide(args: argparse.Namespace) -> int:
 def cmd_info(args: argparse.Namespace) -> int:
     path = report_path()
     age = report_age_hours(path)
+    configured = configured_source_keys()
     payload = {
         "report_path": str(path),
         "report_exists": path.is_file(),
         "age_hours": age,
         "fresh_hours": FRESH_HOURS,
         "per_source": per_source_for_preset(args.preset),
+        "source_total": len(configured),
         "missing_sources": missing_report_sources(path),
         "skip": should_skip_preflight(args.preset, force=False)[0],
     }
@@ -159,10 +161,12 @@ def cmd_info(args: argparse.Namespace) -> int:
 
 def cmd_plan(args: argparse.Namespace) -> int:
     skip, reason = should_skip_preflight(args.preset, force=args.force)
+    configured = configured_source_keys()
     print(json.dumps({
         "decision": "skip" if skip else "run",
         "reason": reason,
         "per_source": per_source_for_preset(args.preset),
+        "source_total": len(configured),
         "preset": args.preset,
         "force": args.force,
         "missing_sources": missing_report_sources(),
