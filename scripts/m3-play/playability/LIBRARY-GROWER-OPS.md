@@ -126,7 +126,7 @@ The **Library Grower SLA** block summarizes the latest **grow** phase per browse
 | Metric | Rule |
 |--------|------|
 | Per-rail target | `grow_per_pass` from catalog yaml (default **20**) |
-| Sparse tier | When `verified_before < display_limit` (9), target is **2×** (40) |
+| Thin rail signal | Rails below `display_limit` are reported, but the strict target remains `grow_per_pass` |
 | Count toward target | **Fresh probe-verified** (`fresh_verified` / `probe_verified`) |
 | Pool delta | `pool_growth` — includes links; **not** used for SLA pass |
 | Program pass | **All active grow rails** met target (`12/13` is FAIL) |

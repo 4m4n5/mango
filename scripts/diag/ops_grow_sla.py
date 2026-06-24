@@ -16,7 +16,6 @@ except ImportError:  # pragma: no cover - Pi has PyYAML via catalog scripts
 DEFAULT_DISPLAY_LIMIT = 9
 DEFAULT_GROW_PER_PASS = 20
 DEFAULT_POOL_TARGET = 20
-SPARSE_MULTIPLIER = 2
 PROGRAM_PASS_RATE = 0.80  # Warning threshold only; strict pass requires every rail.
 THIN_POOL_FILL_RATIO = 0.50
 THIN_POOL_ALERT_MS = 48 * 60 * 60 * 1000
@@ -65,7 +64,6 @@ def resolve_grow_target(
     rail_id: str | None = None,
 ) -> int:
     base = playability.grow_per_pass
-    target = base * SPARSE_MULTIPLIER if verified_before < playability.display_limit else base
     if (
         rail_id
         and rail_id in ANCHOR_RAIL_IDS
@@ -73,7 +71,7 @@ def resolve_grow_target(
         and verified_before >= playability.pool_target
     ):
         return 0
-    return target
+    return base
 
 
 def catalog_playability_path() -> Path:

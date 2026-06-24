@@ -14,8 +14,6 @@ export const GROW_PRESETS: Record<GrowPresetId, GrowPreset> = {
   overnight: { wall_ms: 4 * 60 * 60 * 1000, max_attempts: 800 },
 };
 
-const SPARSE_TIER_MULTIPLIER = 2;
-
 function growPerPassOverride(yamlValue: number): number {
   const raw = process.env.MANGO_GROW_PER_PASS ?? process.env.MANGO_PLAYABILITY_GROWTH_QUOTA;
   if (raw === undefined || raw === '') {
@@ -52,7 +50,7 @@ export function normalizeRefreshMode(mode: string | undefined, fallback: Refresh
 
 /**
  * Per-rail grow target at session start.
- * Sparse rails (verified pool below display_limit) receive 2× the base target.
+ * Strict grow SLA is exactly grow_per_pass for every active rail.
  * Anchor rails at/above pool_target receive 0 when anchor diet is on (P1).
  */
 export function resolveGrowTarget(
@@ -61,9 +59,6 @@ export function resolveGrowTarget(
   railId?: string,
 ): number {
   const base = effectiveGrowPerPass(playability);
-  let target = verifiedPool < playability.display_limit
-    ? base * SPARSE_TIER_MULTIPLIER
-    : base;
 
   if (
     railId
@@ -74,7 +69,7 @@ export function resolveGrowTarget(
     return 0;
   }
 
-  return target;
+  return base;
 }
 
 export function resolveGrowPreset(preset?: GrowPresetId): GrowPreset {

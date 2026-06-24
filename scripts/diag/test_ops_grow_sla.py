@@ -17,9 +17,9 @@ from ops_grow_sla import (
 
 
 class GrowSlaTests(unittest.TestCase):
-    def test_resolve_grow_target_sparse_doubles(self) -> None:
+    def test_resolve_grow_target_uses_grow_per_pass_for_sparse_rails(self) -> None:
         cfg = RailPlayabilityConfig(display_limit=9, grow_per_pass=20)
-        self.assertEqual(resolve_grow_target(cfg, 8), 40)
+        self.assertEqual(resolve_grow_target(cfg, 8), 20)
         self.assertEqual(resolve_grow_target(cfg, 9), 20)
 
     def test_anchor_rails_are_included_by_default(self) -> None:

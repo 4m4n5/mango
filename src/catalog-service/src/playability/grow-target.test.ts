@@ -22,8 +22,8 @@ const base: RailPlayabilityConfig = {
   grow_per_pass: 20,
 };
 
-test('resolveGrowTarget doubles when verified pool is below display_limit', () => {
-  assert.equal(resolveGrowTarget(base, 8), 40);
+test('resolveGrowTarget uses grow_per_pass even when verified pool is below display_limit', () => {
+  assert.equal(resolveGrowTarget(base, 8), 20);
   assert.equal(resolveGrowTarget(base, 9), 20);
   assert.equal(resolveGrowTarget(base, 50), 20);
 });
@@ -33,7 +33,7 @@ test('resolveGrowTarget includes anchor rails by default and diets only when exp
   delete process.env.MANGO_GROW_ANCHOR_DIET;
   try {
     assert.equal(resolveGrowTarget(base, 60, 'movies-global-popular'), 20);
-    assert.equal(resolveGrowTarget(base, 8, 'movies-global-popular'), 40);
+    assert.equal(resolveGrowTarget(base, 8, 'movies-global-popular'), 20);
     process.env.MANGO_GROW_ANCHOR_DIET = '1';
     assert.equal(resolveGrowTarget(base, 60, 'movies-global-popular'), 0);
   } finally {
