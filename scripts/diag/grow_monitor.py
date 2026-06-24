@@ -84,6 +84,61 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _process_line_pid(line: str) -> int | None:
+    first = line.strip().split(maxsplit=1)[0] if line.strip() else ""
+    try:
+        return int(first)
+    except ValueError:
+        return None
+
+
+def _parent_pid(pid: int) -> int | None:
+    if pid <= 1:
+        return None
+
+    stat_path = Path("/proc") / str(pid) / "stat"
+    try:
+        fields = stat_path.read_text(encoding="utf-8").split()
+        if len(fields) >= 4:
+            return int(fields[3])
+    except (OSError, ValueError):
+        pass
+
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    try:
+        return int((result.stdout or "").strip())
+    except ValueError:
+        return None
+
+
+def _ancestor_pids() -> set[int]:
+    pids: set[int] = set()
+    pid: int | None = os.getpid()
+    while pid and pid > 1 and pid not in pids:
+        pids.add(pid)
+        pid = _parent_pid(pid)
+    return pids
+
+
+def _filter_own_process_tree(lines: list[str], own_pids: set[int] | None = None) -> list[str]:
+    excluded = own_pids if own_pids is not None else _ancestor_pids()
+    filtered: list[str] = []
+    for line in lines:
+        pid = _process_line_pid(line)
+        if pid is not None and pid in excluded:
+            continue
+        filtered.append(line)
+    return filtered
+
+
 def _pgrep(pattern: str) -> list[str]:
     try:
         result = subprocess.run(
@@ -95,7 +150,7 @@ def _pgrep(pattern: str) -> list[str]:
     except (OSError, subprocess.TimeoutExpired):
         return []
     lines = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
-    return lines
+    return _filter_own_process_tree(lines)
 
 
 def _lock_file_active(path: Path) -> bool:

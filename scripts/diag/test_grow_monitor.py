@@ -18,6 +18,7 @@ from unittest.mock import patch
 from grow_monitor import (
     SCHEMA_VERSION,
     _count_active_probes,
+    _filter_own_process_tree,
     _format_phase_line,
     _lock_file_active,
     _normalize_baseline,
@@ -58,6 +59,16 @@ class GrowMonitorTests(unittest.TestCase):
         ]
         with patch("grow_monitor._pgrep", return_value=lines):
             self.assertEqual(_count_active_probes(), 2)
+
+    def test_process_filter_drops_monitor_parent_commands(self) -> None:
+        lines = [
+            "100 bash -c cd ~/mango && python3 scripts/diag/grow_monitor.py status && pgrep -af playability-indexer.ts",
+            "200 node scripts/m3-play/playability/playability-indexer.ts --mode grow",
+        ]
+        self.assertEqual(
+            _filter_own_process_tree(lines, own_pids={100, 999}),
+            ["200 node scripts/m3-play/playability/playability-indexer.ts --mode grow"],
+        )
 
     def test_normalize_legacy_flat_baseline(self) -> None:
         raw = {
