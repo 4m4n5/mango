@@ -10,6 +10,14 @@ export function seriesBareId(id: string): string | null {
   return match?.[1] ?? null;
 }
 
+export function canonicalTitleId(type: string, id: string): string {
+  const trimmed = id.trim();
+  if (type === 'series') {
+    return seriesBareId(trimmed) ?? trimmed;
+  }
+  return trimmed;
+}
+
 /** Stremio series catalogs expose bare IMDB ids; stream resolve needs S1E1. */
 export function normalizeSeriesVerifyId(type: string, id: string): string {
   if (type !== 'series') {

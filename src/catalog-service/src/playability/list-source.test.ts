@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { catalogResourceUrl, CompositeListSource } from './list-source.js';
+import { catalogResourceUrl, CompositeListSource, fetchAddonCatalogCandidates } from './list-source.js';
 
 test('catalogResourceUrl passes skip to addon for server-side pagination', () => {
   const base = 'http://127.0.0.1:3036/stremio/uuid/manifest.json';
@@ -12,6 +12,32 @@ test('catalogResourceUrl passes skip to addon for server-side pagination', () =>
     catalogResourceUrl(base, 'movie', 'mdblist.88302', { skip: 200 }),
     'http://127.0.0.1:3036/stremio/uuid/catalog/movie/mdblist.88302/skip=200.json',
   );
+});
+
+test('fetchAddonCatalogCandidates canonicalizes series episode ids to title ids', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    metas: [
+      { id: 'tt18266602:1:14', name: 'Man Udu Udu Zhala' },
+      { id: 'tt12004706', name: 'Panchayat' },
+    ],
+  }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })) as typeof fetch;
+
+  try {
+    const candidates = await fetchAddonCatalogCandidates(
+      'http://127.0.0.1:3036/stremio/a/manifest.json',
+      'series',
+      'tmdb-hi-latest_episodes-series',
+      'A/latest',
+      { offset: 0, limit: 10 },
+    );
+    assert.deepEqual(candidates.map((candidate) => candidate.id), ['tt18266602', 'tt12004706']);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test('CompositeListSource skips exhausted sources until cursor reset', async () => {

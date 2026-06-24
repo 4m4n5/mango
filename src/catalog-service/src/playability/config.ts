@@ -114,6 +114,14 @@ export function playabilityFailedRetryMsForReason(reason?: string | null): numbe
         0,
         30 * 24 * 60 * 60 * 1000,
       );
+    case 'rate_limited':
+    case 'rate_limit':
+      return positiveDurationMs(
+        process.env.MANGO_GROW_RATE_LIMIT_RETRY_MS,
+        60 * 60 * 1000,
+        0,
+        24 * 60 * 60 * 1000,
+      );
     default:
       return playabilityFailedRetryMs();
   }
@@ -142,6 +150,7 @@ export function playabilityRailRejectionTtlMsForReason(reason?: string | null): 
         7 * 24 * 60 * 60 * 1000,
       );
     case 'rate_limited':
+    case 'rate_limit':
       return positiveDurationMs(
         process.env.MANGO_GROW_RATE_LIMIT_REJECTION_TTL_MS,
         60 * 60 * 1000,
@@ -167,6 +176,11 @@ export function playabilityVerifyMinDurationSec(contentType?: string): number {
 
 export function playabilityVerifyMaxCandidates(): number {
   return positiveInt(process.env.MANGO_PLAYABILITY_MAX_CANDIDATES, 3, 1, 5);
+}
+
+/** Maintenance verification is title-level; keep series episode cross-probing bounded. */
+export function playabilitySeriesCrossProbeLimit(): number {
+  return boundedInt(process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT, 1, 0, 24);
 }
 
 export function playabilityVerifyTtlMs(): number {

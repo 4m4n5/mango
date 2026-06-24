@@ -121,6 +121,18 @@ type TaggedLiveChannel = LiveChannelMeta & {
   source_catalog_type: string;
 };
 
+type ResolveStreamOptions = {
+  seriesCrossProbeLimit?: number;
+};
+
+function seriesCrossProbeLimit(options?: ResolveStreamOptions): number {
+  const raw = options?.seriesCrossProbeLimit;
+  if (raw === undefined || !Number.isFinite(raw)) {
+    return 24;
+  }
+  return Math.max(0, Math.min(24, Math.floor(raw)));
+}
+
 export const PINNED_RAIL_ID = 'pinned';
 
 export { CatalogError } from './catalog-errors.js';
@@ -1388,6 +1400,7 @@ export class CatalogCore {
     type: string,
     id: string,
     overrides: StreamFilterOverrides = {},
+    options: ResolveStreamOptions = {},
   ): Promise<{
     streams: Stream[];
     resolve_ms: number;
@@ -1397,7 +1410,7 @@ export class CatalogCore {
     errors?: string[];
   }> {
     const streamId = normalizeSeriesVerifyId(type, id);
-    const raw = await this.resolveRawStreams(type, streamId);
+    const raw = await this.resolveRawStreams(type, streamId, options);
     if (raw.streams.length === 0) {
       throw new CatalogError(
         502,
@@ -1567,7 +1580,11 @@ export class CatalogCore {
     }
   }
 
-  private async resolveRawStreams(type: string, id: string): Promise<RawStreamResolution> {
+  private async resolveRawStreams(
+    type: string,
+    id: string,
+    options: ResolveStreamOptions = {},
+  ): Promise<RawStreamResolution> {
     const primary = await this.rawStreams(type, id);
     if (type !== 'series') {
       return primary;
@@ -1580,10 +1597,10 @@ export class CatalogCore {
 
     const role = await this.episodeStreamRoleFromMeta(parsed.bare, id);
     if (role === 'bonus') {
-      return this.resolveBonusRoleEpisodeStreams(id, parsed, primary);
+      return this.resolveBonusRoleEpisodeStreams(id, parsed, primary, options);
     }
 
-    return this.resolveMainRoleEpisodeStreams(id, parsed, primary);
+    return this.resolveMainRoleEpisodeStreams(id, parsed, primary, options);
   }
 
   private async episodeStreamRoleFromMeta(
@@ -1603,13 +1620,15 @@ export class CatalogCore {
     episodeId: string,
     parsed: ParsedSeriesEpisodeId,
     primary: RawStreamResolution,
+    options: ResolveStreamOptions,
   ): Promise<RawStreamResolution> {
     let streams = pickMainEpisodeStreams(primary.streams, parsed.season, parsed.episode);
     let resolveMs = primary.resolveMs;
     const errors = [...primary.errors];
 
-    if (streams.length === 0) {
-      const probed = await this.resolveMainEpisodeCrossProbe(episodeId, parsed);
+    const crossProbeLimit = seriesCrossProbeLimit(options);
+    if (streams.length === 0 && crossProbeLimit > 0) {
+      const probed = await this.resolveMainEpisodeCrossProbe(episodeId, parsed, crossProbeLimit);
       resolveMs += probed.resolveMs;
       errors.push(...probed.errors);
       streams = probed.streams;
@@ -1635,10 +1654,11 @@ export class CatalogCore {
   private async resolveMainEpisodeCrossProbe(
     episodeId: string,
     parsed: ParsedSeriesEpisodeId,
+    limit = 24,
   ): Promise<RawStreamResolution> {
     const errors: string[] = [];
     let resolveMs = 0;
-    const probeIds = await this.episodeCrossProbeIds(parsed.bare, episodeId, parsed);
+    const probeIds = await this.episodeCrossProbeIds(parsed.bare, episodeId, parsed, limit);
     const collected: Stream[] = [];
     for (const probeId of probeIds) {
       if (probeId === episodeId) {
@@ -1668,9 +1688,10 @@ export class CatalogCore {
     episodeId: string,
     parsed: ParsedSeriesEpisodeId,
     primary: RawStreamResolution,
+    options: ResolveStreamOptions,
   ): Promise<RawStreamResolution> {
     if (parsed.season === 0 && primary.streams.length === 0) {
-      const fallback = await this.resolveBonusEpisodeStreams(episodeId, parsed);
+      const fallback = await this.resolveBonusEpisodeStreams(episodeId, parsed, options);
       if (fallback.streams.length === 0) {
         return primary;
       }
@@ -1704,7 +1725,7 @@ export class CatalogCore {
     const errors = [...primary.errors];
 
     if (streams.length === 0) {
-      const fallback = await this.resolveBonusEpisodeStreams(episodeId, parsed);
+      const fallback = await this.resolveBonusEpisodeStreams(episodeId, parsed, options);
       resolveMs += fallback.resolveMs;
       errors.push(...fallback.errors);
       streams = fallback.streams;
@@ -1724,13 +1745,23 @@ export class CatalogCore {
   private async resolveBonusEpisodeStreams(
     episodeId: string,
     parsed: ParsedSeriesEpisodeId,
+    options: ResolveStreamOptions,
   ): Promise<RawStreamResolution> {
     const errors: string[] = [];
     let resolveMs = 0;
     const videos = await this.episodeVideosFromMeta(parsed.bare);
     const episodeTitle = await this.episodeTitleFromMeta(parsed.bare, episodeId);
+    const crossProbeLimit = seriesCrossProbeLimit(options);
+    if (crossProbeLimit <= 0) {
+      return { streams: [], errors, resolveMs, cached: false };
+    }
+    let probesUsed = 0;
 
     for (const probeId of bonusIndexerProbeIds(episodeId, videos)) {
+      if (probesUsed >= crossProbeLimit) {
+        break;
+      }
+      probesUsed += 1;
       const probe = await this.rawStreams('series', probeId);
       resolveMs += probe.resolveMs;
       errors.push(...probe.errors, `bonus indexer probe ${probeId}`);
@@ -1755,11 +1786,15 @@ export class CatalogCore {
       return { streams: [], errors, resolveMs, cached: false };
     }
 
-    const probeIds = await this.episodeCrossProbeIds(parsed.bare, episodeId, parsed);
+    const probeIds = await this.episodeCrossProbeIds(parsed.bare, episodeId, parsed, crossProbeLimit);
     const tiers: BonusStreamMatchTier[] = ['strict', 'relaxed'];
     for (const tier of tiers) {
       const collected: Stream[] = [];
       for (const probeId of probeIds) {
+        if (probesUsed >= crossProbeLimit) {
+          break;
+        }
+        probesUsed += 1;
         const probe = await this.rawStreams('series', probeId);
         resolveMs += probe.resolveMs;
         errors.push(...probe.errors, `bonus ${tier} probe ${probeId}`);
@@ -1815,9 +1850,10 @@ export class CatalogCore {
     bareId: string,
     excludeId: string,
     target: ParsedSeriesEpisodeId,
+    limit = 24,
   ): Promise<string[]> {
     const videos = await this.episodeVideosFromMeta(bareId);
-    return listEpisodeCrossProbeIds(bareId, videos, target, excludeId, 24);
+    return listEpisodeCrossProbeIds(bareId, videos, target, excludeId, limit);
   }
 
   private async rawStreams(type: string, id: string): Promise<RawStreamResolution> {

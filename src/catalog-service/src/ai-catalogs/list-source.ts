@@ -11,6 +11,7 @@ import {
 } from '../playability/composite-merge.js';
 import { fetchAddonCatalogCandidates } from '../playability/list-source.js';
 import { effectiveSourceWeight } from '../playability/source-hitrate-weights.js';
+import { canonicalTitleId } from '../playability/ids.js';
 import type { AiCatalogLlmHints, AiSeedTitle } from './types.js';
 
 export type AiCatalogListSourceOptions = {
@@ -26,9 +27,10 @@ function seedKey(type: string, id: string): string {
 }
 
 function seedToCandidate(seed: AiSeedTitle, contentType: string): CandidateMeta {
+  const type = seed.type || contentType;
   return {
-    id: seed.id,
-    type: seed.type || contentType,
+    id: canonicalTitleId(type, seed.id),
+    type,
     title: seed.title,
     poster: seed.poster,
     source: 'ai_seed',
@@ -197,10 +199,12 @@ export function mergeSeedTitles(
 ): AiSeedTitle[] {
   const merged = new Map<string, AiSeedTitle>();
   for (const seed of seedTitles) {
-    merged.set(seedKey(seed.type, seed.id), seed);
+    const type = seed.type || contentType;
+    const id = canonicalTitleId(type, seed.id);
+    merged.set(seedKey(type, id), { ...seed, type, id });
   }
   for (const id of hints?.add_ids ?? []) {
-    const trimmed = id.trim();
+    const trimmed = canonicalTitleId(contentType, id);
     if (!trimmed) continue;
     const key = seedKey(contentType, trimmed);
     if (!merged.has(key)) {

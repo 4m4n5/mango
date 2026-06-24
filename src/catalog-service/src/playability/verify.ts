@@ -5,6 +5,7 @@ import { expandPlayLadder } from '../play-ladder.js';
 import { streamUrlHash } from '../stream-filters.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
 import {
+  playabilitySeriesCrossProbeLimit,
   playabilityUseProbePool,
   playabilityVerifyMinDurationSec,
   playabilityVerifyTtlMs,
@@ -89,7 +90,14 @@ function failReason(error: unknown): string {
   if (message.includes('debrid_nfo') || message.includes('debrid_playback_unreadable')) {
     return 'bad_stream';
   }
-  if (message.includes('rate_limit') || message.includes('rate limit')) return 'rate_limit';
+  if (
+    message.includes('rate_limit')
+    || message.includes('rate limit')
+    || message.includes('rate-limited')
+    || message.includes('rate_limited')
+    || message.includes('too many requests')
+    || message.includes('429')
+  ) return 'rate_limited';
   if (message.includes('debrid_status_clip')) return 'status_clip';
   if (message.includes('copyright') || message.includes('removed')) return 'copyright';
   if (message.includes('timeout') || message.includes('within')) return 'timeout';
@@ -225,7 +233,9 @@ export async function prepareVerifyTitle(
   const started = Date.now();
   const verifyId = normalizeSeriesVerifyId(type, id);
   try {
-    const resolved = await core.resolveForPlay(type, verifyId);
+    const resolved = await core.resolveForPlay(type, verifyId, {}, {
+      seriesCrossProbeLimit: playabilitySeriesCrossProbeLimit(),
+    });
     const candidates = expandPlayLadder(
       resolved.streams,
       resolved.filters.play_ladder,
@@ -261,9 +271,7 @@ export async function prepareVerifyTitle(
       resolved,
     };
   } catch (error) {
-    const reason = error instanceof CatalogError
-      ? 'no_stream'
-      : failReason(error);
+    const reason = failReason(error);
     return {
       type,
       id,

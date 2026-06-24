@@ -11,6 +11,7 @@ import {
   catalogSourceKey,
   type SourceCursorListSource,
 } from './source-cursors.js';
+import { canonicalTitleId } from './ids.js';
 
 export type ListSourceType = 'addon_catalog' | 'composite_list' | 'ai_catalog';
 
@@ -152,7 +153,7 @@ export async function fetchAddonCatalogCandidates(
         const id = previewId(preview);
         if (!id) return null;
         return {
-          id,
+          id: canonicalTitleId(contentType, id),
           type: contentType,
           title: previewTitle(preview),
           poster: previewPoster(preview),

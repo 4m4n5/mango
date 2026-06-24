@@ -11,3 +11,13 @@ test('mergeSeedTitles prioritizes add_ids from llm hints', () => {
   assert.equal(seeds.length, 2);
   assert.ok(seeds.some((seed) => seed.id === 'tt2'));
 });
+
+test('mergeSeedTitles canonicalizes series episode ids to title ids', () => {
+  const seeds = mergeSeedTitles(
+    [{ type: 'series', id: 'tt18266602:1:14', title: 'Man Udu Udu Zhala' }],
+    'series',
+    { add_ids: ['tt18266602:1:15'] },
+  );
+  assert.equal(seeds.length, 1);
+  assert.equal(seeds[0]?.id, 'tt18266602');
+});
