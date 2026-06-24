@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CatalogCore } from '../core.js';
-import { prepareVerifyTitle } from './verify.js';
+import { failedLadderReason, prepareVerifyTitle } from './verify.js';
 
 const ENV = { ...process.env };
 
@@ -24,4 +24,13 @@ test('prepareVerifyTitle passes bounded series cross-probe budget and classifies
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'rate_limited');
   assert.deepEqual(options, { seriesCrossProbeLimit: 2 });
+});
+
+test('failedLadderReason classifies zero-candidate ladder failures as no_stream', () => {
+  assert.equal(failedLadderReason({ attempts: [], candidate_count: 0 }), 'no_stream');
+  assert.equal(failedLadderReason({ attempts: [], candidate_count: 2 }), 'probe_failed');
+  assert.equal(
+    failedLadderReason({ attempts: [{ error: '429 Too Many Requests' }], candidate_count: 2 }),
+    'rate_limited',
+  );
 });

@@ -106,6 +106,17 @@ function failReason(error: unknown): string {
   return 'probe_failed';
 }
 
+export function failedLadderReason(result: {
+  attempts: Array<{ error?: string }>;
+  candidate_count: number;
+}): string {
+  const lastError = result.attempts.at(-1)?.error;
+  if (lastError) {
+    return failReason(lastError);
+  }
+  return result.candidate_count === 0 ? 'no_stream' : 'probe_failed';
+}
+
 function streamMeta(stream: Stream, ladderStep: string): Record<string, unknown> {
   return {
     source: stream.source,
@@ -363,9 +374,7 @@ export async function verifyPreparedTitle(
     };
   }
 
-  const reason = ladderResult.attempts.at(-1)?.error
-    ? failReason(ladderResult.attempts.at(-1)?.error)
-    : 'probe_failed';
+  const reason = failedLadderReason(ladderResult);
   const recorded = await recordFailure(
     prepared.type,
     prepared.id,
