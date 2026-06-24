@@ -133,7 +133,62 @@ test('buildSourceGrowMultipliers uses runtime grow outcomes', () => {
   };
   const multipliers = buildSourceGrowMultipliers(report, 'movie');
   assert.equal(multipliers.get('AIOMetadata:good'), 1.6);
-  assert.equal(multipliers.get('AIOMetadata:bad'), 0.1);
+  assert.equal(multipliers.get('AIOMetadata:bad'), sourceGrowProbationMultiplier());
+});
+
+test('buildSourceGrowMultipliers reapplies current probation policy to stored reports', () => {
+  const report: SourceGrowReport = {
+    ts: Date.now(),
+    sources: [
+      {
+        source_key: 'AIOMetadata:old-bad',
+        source_label: 'AIOMetadata/old-bad',
+        content_type: 'series',
+        scanned: 120,
+        fresh_queued: 120,
+        skipped_verified: 0,
+        skipped_recent_failed: 0,
+        linked_verified_seen: 0,
+        requested: 120,
+        returned: 120,
+        catalog_errors: 0,
+        rate_limited: 0,
+        exhausted: true,
+        verified: 0,
+        failed: 56,
+        theme_rejected: 36,
+        runs: 1,
+        multiplier: 0.33,
+        last_ts: Date.now(),
+      },
+      {
+        source_key: 'AIOMetadata:rollback',
+        source_label: 'AIOMetadata/rollback',
+        content_type: 'series',
+        scanned: 120,
+        fresh_queued: 120,
+        skipped_verified: 0,
+        skipped_recent_failed: 0,
+        linked_verified_seen: 0,
+        requested: 120,
+        returned: 120,
+        catalog_errors: 0,
+        rate_limited: 0,
+        exhausted: true,
+        verified: 0,
+        failed: 56,
+        theme_rejected: 36,
+        runs: 1,
+        multiplier: 1,
+        rollback_reason: 'rail regressed after weighted success',
+        last_ts: Date.now(),
+      },
+    ],
+  };
+
+  const multipliers = buildSourceGrowMultipliers(report, 'series');
+  assert.equal(multipliers.get('AIOMetadata:old-bad'), sourceGrowProbationMultiplier());
+  assert.equal(multipliers.get('AIOMetadata:rollback'), 1);
 });
 
 test('buildSourceGrowMultipliers applies rail-specific source outcomes over global outcomes', () => {

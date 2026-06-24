@@ -208,7 +208,7 @@ export function buildSourceGrowMultipliers(
       if (samples < MIN_SAMPLES) {
         continue;
       }
-      const mult = clampMultiplier(entry.multiplier);
+      const mult = sourceGrowEntryMultiplier(entry);
       if (!railSpecific) {
         multipliers.set(entry.source_key, mult);
         continue;
@@ -489,6 +489,24 @@ function sourceGrowMultiplier(stats: {
   const raw = 0.75 + verifiedYield * 2.0 + linkedYield - themePenalty - failurePenalty * 0.35 - infraPenalty;
   const exhaustedPenalty = stats.exhausted && stats.verified <= 0 ? 0.5 : 1;
   return clampMultiplier(raw * exhaustedPenalty);
+}
+
+function sourceGrowEntryMultiplier(entry: SourceGrowEntry): number {
+  const stored = clampMultiplier(entry.multiplier);
+  if (entry.rollback_reason) {
+    return stored;
+  }
+  const currentPolicy = sourceGrowMultiplier({
+    fresh_queued: entry.fresh_queued,
+    linked_verified_seen: entry.linked_verified_seen,
+    verified: entry.verified,
+    failed: entry.failed,
+    theme_rejected: entry.theme_rejected,
+    catalog_errors: entry.catalog_errors,
+    rate_limited: entry.rate_limited,
+    exhausted: entry.exhausted,
+  });
+  return Math.min(stored, currentPolicy);
 }
 
 function clampMultiplier(value: number): number {
