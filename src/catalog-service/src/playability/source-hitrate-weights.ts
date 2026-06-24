@@ -263,7 +263,11 @@ export function loadHitrateMultipliersForContentType(
   if (growReport) {
     for (const [key, mult] of buildSourceGrowMultipliers(growReport, contentType, railId)) {
       const existing = combined.get(key);
-      combined.set(key, existing === undefined ? mult : clampMultiplier((existing + mult) / 2));
+      if (existing === undefined || mult < existing) {
+        combined.set(key, mult);
+      } else {
+        combined.set(key, clampMultiplier((existing + mult) / 2));
+      }
     }
   }
   return combined.size > 0 ? combined : null;

@@ -8,6 +8,7 @@ import {
   buildRailSourceGrowMultipliers,
   buildSourceGrowMultipliers,
   effectiveSourceWeight,
+  loadHitrateMultipliersForContentType,
   loadSourceHitrateReport,
   loadSourceGrowReport,
   recordSourceGrowOutcome,
@@ -189,6 +190,80 @@ test('buildSourceGrowMultipliers reapplies current probation policy to stored re
   const multipliers = buildSourceGrowMultipliers(report, 'series');
   assert.equal(multipliers.get('AIOMetadata:old-bad'), sourceGrowProbationMultiplier());
   assert.equal(multipliers.get('AIOMetadata:rollback'), 1);
+});
+
+test('loadHitrateMultipliersForContentType lets grow demotions cap optimistic head hit-rate', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-combined-'));
+  const previousHitrateOut = process.env.MANGO_SOURCE_HITRATE_OUT;
+  const previousGrowOut = process.env.MANGO_SOURCE_GROW_OUT;
+  process.env.MANGO_SOURCE_HITRATE_OUT = join(dir, 'source-hitrate.json');
+  process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'source-grow.json');
+  try {
+    writeFileSync(process.env.MANGO_SOURCE_HITRATE_OUT, JSON.stringify({
+      ts: 1_782_300_000,
+      min_rate: 0.5,
+      sources: [
+        {
+          source_key: 'AIOMetadata|mdblist.181302|series',
+          addon: 'AIOMetadata',
+          catalog: 'mdblist.181302',
+          content_type: 'series',
+          sampled: 3,
+          stream_rate: 1.0,
+        },
+      ],
+    }), 'utf8');
+    writeFileSync(process.env.MANGO_SOURCE_GROW_OUT, JSON.stringify({
+      ts: 1_782_300_000_000,
+      sources: [],
+      rail_sources: {
+        'series-india-picks': [
+          {
+            source_key: 'AIOMetadata:mdblist.181302',
+            source_label: 'AIOMetadata/mdblist.181302',
+            rail_id: 'series-india-picks',
+            content_type: 'series',
+            scanned: 120,
+            fresh_queued: 120,
+            skipped_verified: 0,
+            skipped_recent_failed: 0,
+            linked_verified_seen: 0,
+            requested: 120,
+            returned: 120,
+            catalog_errors: 0,
+            rate_limited: 0,
+            exhausted: true,
+            verified: 0,
+            failed: 56,
+            theme_rejected: 36,
+            runs: 1,
+            multiplier: 0.33,
+            last_ts: 1_782_300_000_000,
+          },
+        ],
+      },
+    }), 'utf8');
+
+    const multipliers = loadHitrateMultipliersForContentType(
+      'series',
+      1_782_300_000_000 + 1000,
+      'series-india-picks',
+    );
+    assert.ok(multipliers);
+    assert.equal(multipliers.get('AIOMetadata:mdblist.181302'), sourceGrowProbationMultiplier());
+  } finally {
+    if (previousHitrateOut === undefined) {
+      delete process.env.MANGO_SOURCE_HITRATE_OUT;
+    } else {
+      process.env.MANGO_SOURCE_HITRATE_OUT = previousHitrateOut;
+    }
+    if (previousGrowOut === undefined) {
+      delete process.env.MANGO_SOURCE_GROW_OUT;
+    } else {
+      process.env.MANGO_SOURCE_GROW_OUT = previousGrowOut;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('buildSourceGrowMultipliers applies rail-specific source outcomes over global outcomes', () => {
