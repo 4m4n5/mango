@@ -120,3 +120,67 @@ test('shouldSkipProbe does not skip low-information regional titles before meta'
     false,
   );
 });
+
+test('fitsRail does not treat Indian Territory as Indian cinema', async () => {
+  const profileMap = new Map([
+    ['movies-india-trending', profile(
+      'movies-india-trending',
+      'india hindi bollywood tamil telugu malayalam kannada desi',
+      'hollywood american british',
+      14,
+    )],
+  ]);
+  const gate = RailThemeGate.forTest(
+    profileMap,
+    parseRailCurationOverrides('version: 1\npins: []\nblocks: []'),
+    {
+      meta: async () => ({
+        id: 'tt31727267',
+        type: 'movie',
+        name: "Sarah's Oil",
+        description: 'A young girl in Indian Territory discovers oil and fights for her future.',
+        country: 'United States',
+        genres: ['Drama'],
+      }),
+    } as never,
+  );
+
+  const fit = await gate.fitsRail('movies-india-trending', {
+    type: 'movie',
+    id: 'tt31727267',
+    title: "Sarah's Oil",
+  });
+  assert.equal(fit.fit, false);
+});
+
+test('fitsRail accepts regional movie metadata with language and country signals', async () => {
+  const profileMap = new Map([
+    ['movies-india-trending', profile(
+      'movies-india-trending',
+      'india hindi bollywood tamil telugu malayalam kannada desi',
+      'hollywood american british',
+      14,
+    )],
+  ]);
+  const gate = RailThemeGate.forTest(
+    profileMap,
+    parseRailCurationOverrides('version: 1\npins: []\nblocks: []'),
+    {
+      meta: async () => ({
+        id: 'tt0422091',
+        type: 'movie',
+        name: 'Dhoom',
+        country: 'India',
+        languages: ['Hindi'],
+        genres: ['Action'],
+      }),
+    } as never,
+  );
+
+  const fit = await gate.fitsRail('movies-india-trending', {
+    type: 'movie',
+    id: 'tt0422091',
+    title: 'Dhoom',
+  });
+  assert.equal(fit.fit, true);
+});

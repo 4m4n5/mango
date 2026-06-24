@@ -13,7 +13,7 @@ rails:
     min_fit: 3
 
   movies-india-trending:
-    intent: hindi bollywood tamil telugu malayalam kannada bengali marathi punjabi gujarati bhojpuri indian cinema desi mumbai kollywood tollywood
+    intent: india hindi bollywood tamil telugu malayalam kannada bengali marathi punjabi gujarati bhojpuri desi mumbai kollywood tollywood
     exclude: hollywood american british korean japanese french german spanish italian chinese anime marvel superhero western european
     min_fit: 14
 
@@ -39,7 +39,7 @@ rails:
     min_fit: 3
 
   series-india-picks:
-    intent: hindi bollywood tamil telugu malayalam kannada bengali marathi punjabi indian series desi hotstar zee sonyliv voot jio panchayat sacred games
+    intent: india hindi bollywood tamil telugu malayalam kannada bengali marathi punjabi desi hotstar zee sonyliv voot jio panchayat sacred games
     exclude: hollywood american british korean japanese anime french german spanish hbo netflix worldwide western european
     min_fit: 14
 

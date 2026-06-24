@@ -35,8 +35,7 @@ export function sourceCircuitDecision(stat: SourceGrowStats): SourceCircuitDecis
 
   const themeSamples = stat.theme_rejected + stat.verified + stat.failed;
   if (
-    stat.verified <= 0
-    && themeSamples >= playabilityGrowSourceThemeRejectMinSamples()
+    themeSamples >= playabilityGrowSourceThemeRejectMinSamples()
     && stat.theme_rejected / Math.max(1, themeSamples) >= playabilityGrowSourceThemeRejectRatio()
   ) {
     return { suppress: true, reason: 'theme_rejected' };
@@ -44,8 +43,7 @@ export function sourceCircuitDecision(stat: SourceGrowStats): SourceCircuitDecis
 
   const streamSamples = stat.failed + stat.verified;
   if (
-    stat.verified <= 0
-    && streamSamples >= playabilityGrowSourceFailMinSamples()
+    streamSamples >= playabilityGrowSourceFailMinSamples()
     && stat.failed / Math.max(1, streamSamples) >= playabilityGrowSourceFailRatio()
   ) {
     return { suppress: true, reason: 'low_stream_hit_rate' };

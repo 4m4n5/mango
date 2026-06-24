@@ -48,6 +48,26 @@ test('sourceCircuitDecision suppresses low-yield sources after bounded evidence'
   );
 });
 
+test('sourceCircuitDecision suppresses high reject ratios even with a small yield', () => {
+  process.env.MANGO_GROW_SOURCE_THEME_REJECT_MIN_SAMPLES = '25';
+  process.env.MANGO_GROW_SOURCE_THEME_REJECT_RATIO = '0.85';
+  process.env.MANGO_GROW_SOURCE_FAIL_MIN_SAMPLES = '20';
+  process.env.MANGO_GROW_SOURCE_FAIL_RATIO = '0.85';
+
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ verified: 1, theme_rejected: 24 })),
+    { suppress: true, reason: 'theme_rejected' },
+  );
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ verified: 2, failed: 18 })),
+    { suppress: true, reason: 'low_stream_hit_rate' },
+  );
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ verified: 4, theme_rejected: 21 })),
+    { suppress: false },
+  );
+});
+
 test('sourceCircuitDecision classifies infrastructure, theme, and stream failures', () => {
   process.env.MANGO_GROW_SOURCE_THEME_REJECT_MIN_SAMPLES = '10';
   process.env.MANGO_GROW_SOURCE_FAIL_MIN_SAMPLES = '10';

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Idempotently add Bharat Binge to /etc/mango/stremio-export.json (Hindi catalog pack).
+# Idempotently add Bharat Binge to /etc/mango/stremio-export.json.
 set -euo pipefail
 
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"

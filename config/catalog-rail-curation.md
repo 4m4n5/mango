@@ -9,7 +9,7 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 1. **Cinemeta charts** (`top`, `imdbRating`) — highest debrid cache; use as anchor on weak series rails.
 2. **mdblist daily/trending** (`88302`, `88303`, `88306`) — mainstream cache over one-off novelty lists.
 3. **IndiaStreams** (`recmov`, `popmov`, **`trendingtv`**) — legacy regional blend; **demoted** on india rails in favor of **Bharat Binge** (better posters + hit-rate). Keep small weight for dedup diversity.
-4. **Bharat Binge** (`tmdb-hi-*`) — Hindi OTT charts via TMDB; catalog+meta only (streams via AIOStreams). Manifest: `config/bharat-binge-manifest.url`.
+4. **Bharat Binge** (`tmdb-hi-*`, `tmdb-ta-*`, `tmdb-te-*`, `tmdb-ml-*`, `tmdb-kn-*`) — Hindi plus regional-language TMDB charts; catalog+meta only (streams via AIOStreams). Manifest: `config/bharat-binge-manifest.url`.
 5. **Session dedup** — niche/optional rails **last** in yaml (allocate tab session slots first).
 6. **Optional rails** — `min_display: 12` so fill does not block on hard-to-probe catalogs.
 
@@ -18,7 +18,7 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 | Rail | Sources | Rationale |
 |------|---------|-----------|
 | `movies-global-popular` | Cinemeta `top` + **88302** + **88306** + **2236** + Cinemeta `year` | Mainstream cache with latest-movies depth; avoid over-weighting one chart |
-| `movies-india-trending` | **Bharat Binge** recent/surprise/top_rated + **170279** + **180437** + **183641** + **157957** + IndiaStreams recmov/popmov + **49761** probation + tiny Cinemeta top/imdb/year fallback | India-native movie pools first; strict theme gate admits only Indian cinema from global high-cache fallback charts |
+| `movies-india-trending` | **Bharat Binge** Hindi/Tamil/Telugu/Malayalam/Kannada recent/top/surprise + **170279** + **180437** + **183641** + **157957** + IndiaStreams recmov/popmov + **49761** probation | India-native movie pools only; no generic global charts because they produce too many off-theme candidates for a strict regional rail |
 | `movies-classics` | Cinemeta `imdbRating` + **83666** + **101881** + **88006** + **143797** | Anchor plus Criterion/Oscar depth so classics can grow without repeating the same Top 250 set |
 | `movies-comedy` | Cinemeta `top` + **91223** + **128040** + **2195** + **3107** + **69712** + **86734** | Popular comedy plus stand-up lists for fresh verified candidates |
 | `movies-quick-watches` | **86934** + **84444** + **69712** + **3885** + **86734** + Cinemeta `year` + **45854** | Streaming movies, stand-up, RT-short/easy picks, and shorts; no classics-heavy overlap |

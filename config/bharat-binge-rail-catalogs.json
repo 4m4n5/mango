@@ -18,6 +18,66 @@
       "rails": ["movies-india-trending"]
     },
     {
+      "id": "tmdb-ta-recent-movie",
+      "name": "Tamil New Releases (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-ta-top_rated-movie",
+      "name": "Tamil Top Rated (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-ta-surprise_me-movie",
+      "name": "Tamil Surprise Me (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-te-recent-movie",
+      "name": "Telugu New Releases (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-te-top_rated-movie",
+      "name": "Telugu Top Rated (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-te-surprise_me-movie",
+      "name": "Telugu Surprise Me (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-ml-recent-movie",
+      "name": "Malayalam New Releases (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-ml-top_rated-movie",
+      "name": "Malayalam Top Rated (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-ml-surprise_me-movie",
+      "name": "Malayalam Surprise Me (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-kn-recent-movie",
+      "name": "Kannada New Releases (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-kn-top_rated-movie",
+      "name": "Kannada Top Rated (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
+      "id": "tmdb-kn-surprise_me-movie",
+      "name": "Kannada Surprise Me (movies)",
+      "rails": ["movies-india-trending"]
+    },
+    {
       "id": "tmdb-hi-recent-series",
       "name": "Hindi New Releases (series)",
       "rails": ["series-india-picks"]
