@@ -356,7 +356,7 @@ def _normalize_baseline(raw: dict[str, Any]) -> dict[str, Any]:
         for key, value in raw.items():
             if key.startswith("_") or key in {
                 "ts", "verified_pool", "schema_version", "created_at_ms", "grow_rail_ids",
-                "unique_verified",
+                "unique_verified", "grow_per_pass",
             }:
                 continue
             if isinstance(value, int):
@@ -373,6 +373,13 @@ def _normalize_baseline(raw: dict[str, Any]) -> dict[str, Any]:
     }
     if raw.get("unique_verified") is not None:
         out["unique_verified"] = int(raw["unique_verified"])
+    if raw.get("grow_per_pass") is not None:
+        try:
+            grow_per_pass = int(raw["grow_per_pass"])
+        except (TypeError, ValueError):
+            grow_per_pass = 0
+        if grow_per_pass > 0:
+            out["grow_per_pass"] = grow_per_pass
     return out
 
 
@@ -402,6 +409,14 @@ def write_baseline(db: Path | None = None) -> dict[str, Any]:
         "unique_verified": unique_verified,
         "rails": rails,
     }
+    grow_per_pass = os.environ.get("MANGO_GROW_PER_PASS")
+    if grow_per_pass:
+        try:
+            parsed = int(grow_per_pass)
+        except ValueError:
+            parsed = 0
+        if parsed > 0:
+            baseline["grow_per_pass"] = parsed
     path = baseline_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
@@ -688,9 +703,32 @@ def _grow_target_for_rail(
     rail_id: str,
     verified_before: int,
     catalog: dict[str, RailPlayabilityConfig],
+    *,
+    target_override: int | None = None,
 ) -> int:
+    if target_override is not None and target_override > 0:
+        return target_override
     cfg = catalog.get(rail_id, RailPlayabilityConfig())
     return resolve_grow_target(cfg, verified_before, rail_id)
+
+
+def _grow_target_override(
+    baseline: dict[str, Any],
+    grow_state: dict[str, Any],
+) -> int | None:
+    for source in (baseline, grow_state.get("run_state") or {}):
+        if not isinstance(source, dict):
+            continue
+        raw = source.get("grow_per_pass")
+        if raw is None:
+            continue
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            return value
+    return None
 
 
 def _thin_pool_rails(
@@ -752,6 +790,8 @@ def build_live_status(
     unique_now = fetch_unique_verified_library_count(db_file)
     orphan_total = fetch_orphan_verified_library_count(db_file)
     overlap = fetch_overlap_summary(db_file, max_rails_per_title=2)
+    grow_state = detect_grow_state()
+    target_override = _grow_target_override(baseline, grow_state)
     if "unique_verified" in baseline:
         unique_before = int(baseline["unique_verified"])
     elif since_ms > 0:
@@ -774,7 +814,12 @@ def build_live_status(
         stats = verify_stats.get(rail_id, {})
         probe_verified = int(stats.get("verified", 0))
         fresh_verified = min(probe_verified, max(0, pool_growth))
-        grow_target = _grow_target_for_rail(rail_id, verified_before, catalog)
+        grow_target = _grow_target_for_rail(
+            rail_id,
+            verified_before,
+            catalog,
+            target_override=target_override,
+        )
         sparse_tier = verified_before < catalog.get(
             rail_id,
             RailPlayabilityConfig(),
@@ -827,7 +872,7 @@ def build_live_status(
         "rails_total": browse_count,
         "program_pass_rate": pass_rate,
         "program_pass": met_count == browse_count if browse_count else False,
-        "grow": detect_grow_state(),
+        "grow": grow_state,
         "verify_since_baseline": verify_totals,
         "extra_rails": extra_rails,
         "thin_rails": thin_rails,

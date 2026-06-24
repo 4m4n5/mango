@@ -157,6 +157,7 @@ class GrowMonitorTests(unittest.TestCase):
                 "schema_version": 2,
                 "created_at_ms": 0,
                 "verified_pool": 0,
+                "grow_per_pass": 5,
                 "grow_rail_ids": grow_ids,
                 "rails": {"movies-global-popular": 0, "ai-horror": 0},
             }
@@ -167,6 +168,7 @@ class GrowMonitorTests(unittest.TestCase):
             self.assertEqual(status["rails"][0]["rail_id"], "movies-global-popular")
             self.assertEqual(status["rails"][1]["rail_id"], "ai-horror")
             self.assertEqual(status["rails"][1]["pool_growth"], 0)
+            self.assertEqual(status["rails"][0]["grow_target"], 5)
 
             text = format_live_status(status)
             self.assertIn("ai-horror", text)
@@ -428,15 +430,19 @@ class GrowMonitorTests(unittest.TestCase):
             os.environ["MANGO_PLAYABILITY_DB"] = str(db)
             os.environ["MANGO_GROW_BASELINE"] = str(baseline_file)
             os.environ["MANGO_CATALOG_YAML"] = str(Path(tmp) / "missing.yaml")
+            os.environ["MANGO_GROW_PER_PASS"] = "5"
             try:
                 written = write_baseline(db)
                 self.assertEqual(written["unique_verified"], 2)
+                self.assertEqual(written["grow_per_pass"], 5)
                 normalized = _normalize_baseline(written)
                 self.assertEqual(normalized["unique_verified"], 2)
+                self.assertEqual(normalized["grow_per_pass"], 5)
             finally:
                 os.environ.pop("MANGO_PLAYABILITY_DB", None)
                 os.environ.pop("MANGO_GROW_BASELINE", None)
                 os.environ.pop("MANGO_CATALOG_YAML", None)
+                os.environ.pop("MANGO_GROW_PER_PASS", None)
 
     def test_live_status_shows_unique_line(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

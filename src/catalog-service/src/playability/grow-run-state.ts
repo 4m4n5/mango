@@ -54,6 +54,13 @@ function loadPreviousState(path: string): Record<string, unknown> {
   }
 }
 
+function envPositiveInt(name: string): number | undefined {
+  const raw = process.env[name];
+  if (!raw || raw.trim() === '') return undefined;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 export function recordGrowRunState(update: GrowRunStateUpdate, options: { log?: string } = {}): void {
   if (process.env.MANGO_GROW_RUN_STATE === '0') {
     return;
@@ -67,6 +74,7 @@ export function recordGrowRunState(update: GrowRunStateUpdate, options: { log?: 
       run_id: update.run_id ?? process.env.MANGO_OPS_RUN_ID ?? previous.run_id,
       mode: update.mode ?? process.env.MANGO_PLAYABILITY_REFRESH_MODE ?? previous.mode,
       preset: update.preset ?? process.env.MANGO_GROW_PRESET ?? previous.preset,
+      grow_per_pass: update.grow_per_pass ?? envPositiveInt('MANGO_GROW_PER_PASS') ?? previous.grow_per_pass,
       updated_at: update.updated_at ?? new Date().toISOString(),
     };
     writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8');

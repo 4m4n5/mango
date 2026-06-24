@@ -80,3 +80,28 @@ test('recordGrowRunState does not leak stale rail outcome fields', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('recordGrowRunState preserves benchmark grow_per_pass', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-grow-state-'));
+  process.env.XDG_CACHE_HOME = dir;
+  process.env.MANGO_OPS_RUN_ID = 'run-789';
+  process.env.MANGO_GROW_PER_PASS = '5';
+  try {
+    recordGrowRunState({
+      phase: 'preflight',
+      message: 'probing sources',
+    });
+    delete process.env.MANGO_GROW_PER_PASS;
+    recordGrowRunState({
+      phase: 'grow',
+      rail_id: 'movies-comedy',
+      message: 'grow movies-comedy',
+    });
+
+    const state = JSON.parse(await readFile(growRunStatePath(), 'utf8')) as Record<string, unknown>;
+    assert.equal(state.run_id, 'run-789');
+    assert.equal(state.grow_per_pass, 5);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

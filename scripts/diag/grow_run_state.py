@@ -35,6 +35,17 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _env_int(name: str) -> int | None:
+    raw = os.environ.get(name)
+    if raw is None or raw == "":
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
 def read_state() -> dict[str, Any] | None:
     path = state_path()
     if not path.is_file():
@@ -69,6 +80,7 @@ def write_state(
         "run_id": run_id or os.environ.get("MANGO_OPS_RUN_ID") or previous.get("run_id"),
         "mode": mode or previous.get("mode"),
         "preset": preset or previous.get("preset"),
+        "grow_per_pass": _env_int("MANGO_GROW_PER_PASS") or previous.get("grow_per_pass"),
         "phase": phase,
         "message": message,
     }
