@@ -373,6 +373,7 @@ if ! flock -n 200; then
   echo "another maintenance run is in progress ($LOCK_FILE)" >&2
   exit 2
 fi
+LOCK_RELEASED=0
 
 cd "$REPO_DIR"
 
@@ -384,7 +385,17 @@ preflight_native_deps() {
 }
 preflight_native_deps
 
+release_maintenance_lock() {
+  if [[ "${LOCK_RELEASED:-1}" == "1" ]]; then
+    return 0
+  fi
+  flock -u 200 >/dev/null 2>&1 || true
+  exec 200>&- || true
+  LOCK_RELEASED=1
+}
+
 restore_couch() {
+  release_maintenance_lock
   set_live_playability_db_env
   bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
   bash scripts/mango-kill-strays.sh >/dev/null 2>&1 || true
