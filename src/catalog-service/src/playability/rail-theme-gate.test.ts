@@ -97,3 +97,26 @@ test('shouldSkipProbe skips clear exclude matches', () => {
     true,
   );
 });
+
+test('shouldSkipProbe does not skip low-information regional titles before meta', () => {
+  const gate = RailThemeGate.forTest(
+    new Map([
+      ['movies-india-trending', profile(
+        'movies-india-trending',
+        'hindi bollywood tamil telugu indian cinema desi',
+        'hollywood american british',
+        14,
+      )],
+    ]),
+    parseRailCurationOverrides('version: 1\npins: []\nblocks: []'),
+  );
+
+  assert.equal(
+    gate.shouldSkipProbe('movies-india-trending', {
+      type: 'movie',
+      id: 'tt27940442',
+      title: 'Ground Zero',
+    }),
+    false,
+  );
+});

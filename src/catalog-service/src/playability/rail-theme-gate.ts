@@ -10,7 +10,6 @@ import {
 } from './rail-theme.js';
 
 const ANCHOR_RAILS = new Set(['movies-global-popular', 'series-global-popular']);
-const TITLE_ONLY_MARGIN = 8;
 
 export type RailThemeFitResult = {
   fit: boolean;
@@ -104,19 +103,14 @@ export class RailThemeGate {
     return evaluateHaystack(haystack, profile, runtimeMinutes);
   }
 
-  /** Skip probes when title-only score is far below the rail threshold. */
+  /** Skip probes only for high-confidence title-only mismatches. */
   shouldSkipProbe(railId: string, candidate: CandidateMeta): boolean {
     if (!themeGateEnabled()) return false;
     const result = this.scoreTitleOnly(railId, candidate);
     if (result.fit || result.reason === 'pinned' || result.reason === 'anchor' || result.reason === 'no_profile') {
       return false;
     }
-    if (result.reason === 'exclude_match') {
-      return true;
-    }
-    const profile = this.profiles.get(railId);
-    if (!profile) return false;
-    return result.score < profile.min_fit - TITLE_ONLY_MARGIN;
+    return result.reason === 'exclude_match';
   }
 
   async fitsRail(railId: string, candidate: CandidateMeta): Promise<RailThemeFitResult> {
