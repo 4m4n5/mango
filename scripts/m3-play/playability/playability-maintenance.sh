@@ -177,6 +177,70 @@ for suffix in ("-wal", "-shm"):
 PY
 }
 
+sqlite_publish_cursor_rewinds() {
+  local src="$1"
+  local dest="$2"
+  python3 - "$src" "$dest" <<'PY'
+import sqlite3
+import sys
+from pathlib import Path
+
+src = Path(sys.argv[1])
+dest = Path(sys.argv[2])
+if not src.exists() or not dest.exists():
+    print("stage DB: cursor rewind sync skipped (missing DB)")
+    raise SystemExit(0)
+
+TABLES = {
+    "rail_ingest_state": ("rail_id",),
+    "rail_source_ingest_state": ("rail_id", "source_key"),
+}
+
+def table_exists(conn, schema, name):
+    return conn.execute(
+        f"SELECT 1 FROM {schema}.sqlite_master WHERE type='table' AND name=?",
+        (name,),
+    ).fetchone() is not None
+
+rewound = 0
+with sqlite3.connect(dest) as live:
+    live.row_factory = sqlite3.Row
+    live.execute("ATTACH DATABASE ? AS staged", (str(src),))
+    for table, keys in TABLES.items():
+        if not table_exists(live, "main", table) or not table_exists(live, "staged", table):
+            continue
+        key_select = ", ".join(keys)
+        staged_rows = live.execute(
+            f"SELECT {key_select}, catalog_offset, updated_at FROM staged.{table}"
+        ).fetchall()
+        for row in staged_rows:
+            where = " AND ".join(f"{key}=?" for key in keys)
+            params = tuple(row[key] for key in keys)
+            current = live.execute(
+                f"SELECT catalog_offset FROM {table} WHERE {where}",
+                params,
+            ).fetchone()
+            staged_offset = int(row["catalog_offset"] or 0)
+            if current is not None and staged_offset >= int(current["catalog_offset"] or 0):
+                continue
+            columns = [*keys, "catalog_offset", "updated_at"]
+            placeholders = ", ".join("?" for _ in columns)
+            updates = "catalog_offset=excluded.catalog_offset, updated_at=excluded.updated_at"
+            live.execute(
+                f"""
+INSERT INTO {table} ({", ".join(columns)})
+VALUES ({placeholders})
+ON CONFLICT({", ".join(keys)}) DO UPDATE SET {updates}
+""",
+                (*params, staged_offset, int(row["updated_at"] or 0)),
+            )
+            rewound += 1
+    live.execute("DETACH DATABASE staged")
+    live.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+print(f"stage DB: synced {rewound} cursor rewind(s) to live DB")
+PY
+}
+
 cleanup_work_playability_db() {
   if [[ -n "$WORK_PLAYABILITY_DB" ]]; then
     rm -f "$WORK_PLAYABILITY_DB" "$WORK_PLAYABILITY_DB-wal" "$WORK_PLAYABILITY_DB-shm"
@@ -231,6 +295,7 @@ publish_or_discard_staged_db() {
     sqlite_publish_db "$WORK_PLAYABILITY_DB" "$LIVE_PLAYABILITY_DB"
     grow_state log "stage DB: published strict successful grow"
   else
+    sqlite_publish_cursor_rewinds "$WORK_PLAYABILITY_DB" "$LIVE_PLAYABILITY_DB" || true
     echo "stage DB: discarding failed or partial grow DB; live library unchanged"
     grow_state log "stage DB: discarded failed or partial grow DB"
   fi
