@@ -8,6 +8,7 @@ REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 cd "$REPO_DIR"
 
 CATALOG="${MANGO_CATALOG_UPSTREAM:-http://127.0.0.1:3020}"
+FIXTURES="${MANGO_STREAM_GATE_FIXTURES:-$REPO_DIR/config/stream-gate-fixtures.json}"
 PASS=0
 FAIL=0
 
@@ -32,16 +33,42 @@ else
   bad "movie-stream-labels"
 fi
 
-SERIES_JSON="$(curl -sf --max-time 45 "$CATALOG/stream/series/tt12004706:1:1" || true)"
+IFS=$'\t' read -r SERIES_TYPE SERIES_ID SERIES_LABEL < <(python3 - "$FIXTURES" <<'PY'
+import json
+import pathlib
+import sys
+
+fallback = ("series", "tt0903747:1:1", "Breaking Bad")
+path = pathlib.Path(sys.argv[1])
+try:
+    data = json.loads(path.read_text(encoding="utf-8"))
+except Exception:
+    print("\t".join(fallback))
+    raise SystemExit(0)
+
+for fixture in data.get("fixtures") or []:
+    if fixture.get("type") == "series" and fixture.get("tier", "required") == "required":
+        print("\t".join([
+            str(fixture.get("type") or fallback[0]),
+            str(fixture.get("id") or fallback[1]),
+            str(fixture.get("label") or fallback[2]),
+        ]))
+        break
+else:
+    print("\t".join(fallback))
+PY
+)
+
+SERIES_JSON="$(curl -sf --max-time 45 "$CATALOG/stream/${SERIES_TYPE}/${SERIES_ID}" || true)"
 if [[ -n "$SERIES_JSON" ]] && echo "$SERIES_JSON" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
 streams = d.get("streams") or []
 assert len(streams) >= 1
 ' 2>/dev/null; then
-  ok "series-episode-streams"
+  ok "series-episode-streams (${SERIES_LABEL})"
 else
-  bad "series-episode-streams"
+  bad "series-episode-streams (${SERIES_LABEL})"
 fi
 
 echo
