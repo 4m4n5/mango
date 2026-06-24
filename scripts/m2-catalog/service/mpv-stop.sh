@@ -32,7 +32,13 @@ trigger_library_refresh() {
     >/dev/null 2>&1 || true
   if command -v xdotool >/dev/null 2>&1; then
     local wid
-    wid="$(xdotool search --onlyvisible --class chromium 2>/dev/null | head -1 || true)"
+    wid="$(xdotool search --onlyvisible --class mango-launcher 2>/dev/null | head -1 || true)"
+    if [[ -z "$wid" ]]; then
+      wid="$(xdotool search --onlyvisible --class firefox 2>/dev/null | head -1 || true)"
+    fi
+    if [[ -z "$wid" ]]; then
+      wid="$(xdotool search --onlyvisible --class chromium 2>/dev/null | head -1 || true)"
+    fi
     if [[ -n "$wid" ]]; then
       xdotool key --window "$wid" F5 >/dev/null 2>&1 || true
     fi

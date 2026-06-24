@@ -46,8 +46,9 @@ echo "top-up rail=$RAIL_ID probe_ms=$MANGO_PLAYABILITY_PROBE_MS"
 
 trap restore_couch EXIT
 
-if pgrep -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1; then
+if pgrep -f 'chromium.*127.0.0.1:3000|firefox.*127.0.0.1:3000' >/dev/null 2>&1; then
   pkill -f 'chromium.*127.0.0.1:3000' 2>/dev/null || true
+  pkill -f 'firefox.*127.0.0.1:3000' 2>/dev/null || true
   sleep 1
 fi
 

@@ -183,6 +183,8 @@ def collect_health(port: int) -> dict[str, object]:
     chromium_ok = run_check(
         ["pgrep", "-f", f"chromium.*mango-launcher.*127.0.0.1:{port}/"]
     )
+    firefox_ok = run_check(["pgrep", "-f", f"firefox.*127.0.0.1:{port}/"])
+    browser_ok = chromium_ok or firefox_ok
     tv_pad = run_check(["pgrep", "-f", "mango-tv-pad.py"])
     remapper = "unknown"
     if tv_pad:
@@ -196,12 +198,14 @@ def collect_health(port: int) -> dict[str, object]:
     input_ok = remapper in ("active", "tv_pad")
     checks = {
         "launcher_dist": launcher_ok,
-        "chromium": chromium_ok,
+        "launcher_browser": browser_ok,
+        "chromium": browser_ok,
+        "firefox": firefox_ok,
         "input_remapper": remapper,
         "tv_pad": tv_pad,
         "openbox": openbox,
     }
-    ok = launcher_ok and chromium_ok and input_ok and openbox == "active"
+    ok = launcher_ok and browser_ok and input_ok and openbox == "active"
     return {"ok": ok, "checks": checks}
 
 

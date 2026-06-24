@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Size the mango launcher Chromium window for TV (kiosk breaks after hide/show).
+# Size the mango launcher browser window for TV (kiosk breaks after hide/show).
 
 set -euo pipefail
 
@@ -9,7 +9,7 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 find_launcher_pid() {
-  pgrep -f 'chromium.*--class=mango-launcher.*127\.0\.0\.1:3000/' 2>/dev/null | head -1
+  pgrep -f 'chromium.*--class=mango-launcher.*127\.0\.0\.1:3000/|firefox.*127\.0\.0\.1:3000/' 2>/dev/null | head -1
 }
 
 find_launcher_wid() {
@@ -20,7 +20,7 @@ find_launcher_wid() {
     [[ -n "$wid" ]] && echo "$wid" && return 0
   fi
   if command -v wmctrl >/dev/null 2>&1; then
-    wid=$(wmctrl -lx 2>/dev/null | awk '/\.mango-launcher/ && !/overlay/ {print $1; exit}')
+    wid=$(wmctrl -lx 2>/dev/null | awk '(/\.mango-launcher/ || /[Ff]irefox/ || /Navigator/) && !/overlay/ {print $1; exit}')
     [[ -n "$wid" ]] && echo "$wid" && return 0
   fi
   return 1

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start the mango launcher server and single Chromium kiosk.
+# Start the mango launcher server and single browser kiosk.
 
 set -euo pipefail
 
@@ -72,12 +72,16 @@ for _ in $(seq 1 15); do
   sleep 0.1
 done
 
-start_chromium_kiosk() {
+launcher_browser_pattern() {
+  printf '%s' "chromium.*--class=mango-launcher.*127.0.0.1:${PORT}/|firefox.*127.0.0.1:${PORT}/"
+}
+
+start_launcher_browser_kiosk() {
   if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null 2>&1; then
     systemctl --user start mango-launcher-chromium.service
     return
   fi
-  if ! pgrep -f "chromium.*--class=mango-launcher.*127.0.0.1:${PORT}/" >/dev/null 2>&1; then
+  if ! pgrep -f "$(launcher_browser_pattern)" >/dev/null 2>&1; then
     if command -v systemd-run >/dev/null 2>&1; then
       systemd-run --user --scope \
         -p "MemoryMax=512M" \
@@ -92,14 +96,14 @@ start_chromium_kiosk() {
   fi
 }
 
-start_chromium_kiosk
+start_launcher_browser_kiosk
 
 pkill -f "chromium.*mango-overlay.*127.0.0.1:${PORT}/overlay/" 2>/dev/null || true
 
 sleep 0.25
 if command -v wmctrl >/dev/null 2>&1; then
-  wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
-  wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
+  wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa firefox.Firefox 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
+  wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa firefox.Firefox 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
 fi
 
 bash scripts/lib/present-launcher.sh --quick 2>/dev/null || bash scripts/lib/present-launcher.sh 2>/dev/null || true

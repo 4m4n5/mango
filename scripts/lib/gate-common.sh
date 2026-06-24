@@ -160,8 +160,10 @@ gate_process_count() {
 }
 
 gate_idle_hygiene() {
-  local chromium stremio kodi mem_mb indexer orphans remapper pad
+  local chromium firefox browser_apps stremio kodi mem_mb indexer orphans remapper pad
   chromium="$(gate_process_count 'chromium.*--app=')"
+  firefox="$(gate_process_count 'firefox.*127\.0\.0\.1:3000/')"
+  browser_apps=$(( ${chromium:-0} + ${firefox:-0} ))
   stremio="$(gate_process_count 'stremio')"
   kodi="$(gate_process_count 'kodi')"
   indexer="$(gate_process_count 'playability-indexer')"
@@ -169,7 +171,7 @@ gate_idle_hygiene() {
   remapper="$(gate_process_count 'input-remapper-service')"
   pad="$(gate_process_count 'mango-tv-pad\.py')"
   mem_mb="$(awk '/^Mem:/ {print $7}' <(free -m 2>/dev/null) || echo 0)"
-  [[ "${chromium:-0}" -le 1 ]] && gate_pass "chromium apps ${chromium}" || gate_fail "chromium apps ${chromium} > 1"
+  [[ "${browser_apps:-0}" -le 1 ]] && gate_pass "launcher browser apps ${browser_apps}" || gate_fail "launcher browser apps ${browser_apps} > 1"
   [[ "${stremio:-0}" -eq 0 ]] && gate_pass "stremio idle" || gate_fail "stremio running at idle"
   [[ "${kodi:-0}" -eq 0 ]] && gate_pass "kodi idle" || gate_fail "kodi running at idle"
   [[ "${indexer:-0}" -eq 0 ]] && gate_pass "playability indexer idle" || gate_fail "playability indexer running at couch idle"

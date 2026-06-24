@@ -125,9 +125,10 @@ restore_couch() {
 }
 
 stop_couch_for_indexer() {
-  if pgrep -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1; then
-    log "stopping chromium"
+  if pgrep -f 'chromium.*127.0.0.1:3000|firefox.*127.0.0.1:3000' >/dev/null 2>&1; then
+    log "stopping launcher browser"
     pkill -f 'chromium.*127.0.0.1:3000' 2>/dev/null || true
+    pkill -f 'firefox.*127.0.0.1:3000' 2>/dev/null || true
     sleep 1
   fi
   if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then

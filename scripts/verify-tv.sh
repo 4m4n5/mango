@@ -67,7 +67,7 @@ else
   bump_fail
 fi
 
-for key in launcher_dist chromium input_remapper openbox; do
+for key in launcher_dist launcher_browser input_remapper openbox; do
   var="CHK_${key^^}"
   val="${!var:-}"
   case "$val" in

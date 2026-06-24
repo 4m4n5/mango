@@ -209,9 +209,10 @@ write_grow_baseline_if_needed() {
   fi
 }
 
-if pgrep -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1; then
-  echo "stopping chromium"
+if pgrep -f 'chromium.*127.0.0.1:3000|firefox.*127.0.0.1:3000' >/dev/null 2>&1; then
+  echo "stopping launcher browser"
   pkill -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1 || true
+  pkill -f 'firefox.*127.0.0.1:3000' >/dev/null 2>&1 || true
   sleep 1
 fi
 

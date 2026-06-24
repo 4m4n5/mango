@@ -107,7 +107,7 @@ else
 fi
 
 echo "--- processes ---"
-pgrep -f "mango-launcher.*127.0.0.1:3000" >/dev/null && ok launcher-chromium || bad launcher-chromium
+pgrep -f "mango-launcher.*127.0.0.1:3000|firefox.*127.0.0.1:3000" >/dev/null && ok launcher-browser || bad launcher-browser
 if pgrep -f "mango-overlay.*127.0.0.1:3000/overlay" >/dev/null; then
   bad overlay-chromium-running
 else
@@ -119,7 +119,7 @@ tmux has-session -t mango-companion 2>/dev/null && ok tmux-companion || bad tmux
 
 echo "--- X11 windows ---"
 if command -v wmctrl >/dev/null 2>&1; then
-  wmctrl -lx 2>/dev/null | grep -q mango-launcher && ok wmctrl-launcher || bad wmctrl-launcher
+  wmctrl -lx 2>/dev/null | grep -Eiq 'mango-launcher|firefox|Navigator' && ok wmctrl-launcher || bad wmctrl-launcher
   if wmctrl -lx 2>/dev/null | grep -q mango-overlay; then
     bad wmctrl-overlay-present
   else

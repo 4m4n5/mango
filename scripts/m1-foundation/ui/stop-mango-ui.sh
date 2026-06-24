@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stop Phase 1 launcher server and Chromium windows (safe patterns for remote SSH).
+# Stop Phase 1 launcher server and browser windows (safe patterns for remote SSH).
 
 set -euo pipefail
 
@@ -27,6 +27,7 @@ if [[ -f "$PID_DIR/mango-ui-server.pid" ]]; then
 fi
 
 pkill -f "chromium.*mango-launcher.*127.0.0.1:${PORT}/" 2>/dev/null || true
+pkill -f "firefox.*127.0.0.1:${PORT}/" 2>/dev/null || true
 pkill -f "chromium.*mango-overlay.*127.0.0.1:${PORT}/overlay/" 2>/dev/null || true
 sleep 0.5
 

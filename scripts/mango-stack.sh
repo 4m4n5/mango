@@ -40,6 +40,10 @@ stop_idle_media() {
   pkill -f 'chromium.*mango-overlay.*127.0.0.1:3000/overlay/' 2>/dev/null || true
 }
 
+launcher_browser_running() {
+  pgrep -f "chromium.*mango-launcher.*127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/|firefox.*127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/" >/dev/null 2>&1
+}
+
 stop_orphan_indexer() {
   pkill -f 'playability-indexer' 2>/dev/null || true
   pkill -f 'tsx.*m3-play/playability' 2>/dev/null || true
@@ -157,8 +161,8 @@ status_stack() {
   fi
   curl -sf --max-time 2 "http://127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/api/health" >/dev/null 2>&1 \
     && echo "launcher: up" || echo "launcher: down"
-  pgrep -f "chromium.*mango-launcher" >/dev/null 2>&1 \
-    && echo "chromium: up" || echo "chromium: down"
+  launcher_browser_running \
+    && echo "launcher browser: up" || echo "launcher browser: down"
   pgrep -f 'playability-indexer' >/dev/null 2>&1 \
     && echo "indexer: running (competes with mpv)" || true
   if [[ "${MANGO_VOICE:-0}" == "1" ]]; then

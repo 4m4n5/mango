@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Voice navigation: open title A → open title B without manual home/back.
-# Run on Pi (or via pi-exec.sh). Requires mango-launcher Chromium kiosk up.
+# Run on Pi (or via pi-exec.sh). Requires mango-launcher browser kiosk up.
 #
 # Usage: bash scripts/m5-voice/ai/validate-voice-title-switch.sh
 
@@ -24,8 +24,8 @@ if ! curl -sf --max-time 3 "${BASE}/api/health" >/dev/null; then
   exit 1
 fi
 
-if ! pgrep -f "chromium.*mango-launcher.*127.0.0.1:${LAUNCHER_PORT}/" >/dev/null; then
-  echo "FAIL: mango-launcher Chromium not running"
+if ! pgrep -f "chromium.*mango-launcher.*127.0.0.1:${LAUNCHER_PORT}/|firefox.*127.0.0.1:${LAUNCHER_PORT}/" >/dev/null; then
+  echo "FAIL: mango-launcher browser not running"
   exit 1
 fi
 

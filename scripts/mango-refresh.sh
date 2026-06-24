@@ -35,7 +35,7 @@ rm -f "${HOME}/.cache/mango/catalog-service.pid" "${HOME}/.cache/mango/mpv.pid"
 bash scripts/mango-stack.sh start
 
 for _ in $(seq 1 24); do
-  if pgrep -f "chromium.*mango-launcher" >/dev/null 2>&1; then
+  if pgrep -f "chromium.*mango-launcher.*127.0.0.1:3000/|firefox.*127.0.0.1:3000/" >/dev/null 2>&1; then
     break
   fi
   sleep 0.25

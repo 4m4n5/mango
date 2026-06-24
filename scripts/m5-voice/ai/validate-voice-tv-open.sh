@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end: enqueue open_detail → launcher Chromium polls → POST /api/voice/ack.
-# Run on Pi (or via pi-exec.sh). Requires mango-launcher Chromium kiosk up.
+# End-to-end: enqueue open_detail → launcher browser polls → POST /api/voice/ack.
+# Run on Pi (or via pi-exec.sh). Requires mango-launcher browser kiosk up.
 #
 # Usage: bash scripts/m5-voice/ai/validate-voice-tv-open.sh
 
@@ -20,8 +20,8 @@ if ! curl -sf --max-time 3 "${BASE}/api/health" >/dev/null; then
   exit 1
 fi
 
-if ! pgrep -f "chromium.*mango-launcher.*127.0.0.1:${LAUNCHER_PORT}/" >/dev/null; then
-  echo "FAIL: mango-launcher Chromium not running"
+if ! pgrep -f "chromium.*mango-launcher.*127.0.0.1:${LAUNCHER_PORT}/|firefox.*127.0.0.1:${LAUNCHER_PORT}/" >/dev/null; then
+  echo "FAIL: mango-launcher browser not running"
   exit 1
 fi
 
