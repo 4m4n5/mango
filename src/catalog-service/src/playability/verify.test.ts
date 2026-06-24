@@ -33,4 +33,8 @@ test('failedLadderReason classifies zero-candidate ladder failures as no_stream'
     failedLadderReason({ attempts: [{ error: '429 Too Many Requests' }], candidate_count: 2 }),
     'rate_limited',
   );
+  assert.equal(
+    failedLadderReason({ attempts: [{ error: 'no HTTP streams for series/tt123' }], candidate_count: 2 }),
+    'no_stream',
+  );
 });

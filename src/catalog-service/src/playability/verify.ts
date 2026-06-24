@@ -101,7 +101,11 @@ function failReason(error: unknown): string {
   if (message.includes('debrid_status_clip')) return 'status_clip';
   if (message.includes('copyright') || message.includes('removed')) return 'copyright';
   if (message.includes('timeout') || message.includes('within')) return 'timeout';
-  if (message.includes('no streams') || message.includes('no_playable')) return 'no_stream';
+  if (
+    message.includes('no streams')
+    || message.includes('no http streams')
+    || message.includes('no_playable')
+  ) return 'no_stream';
   if (message.includes('title')) return 'title_mismatch';
   return 'probe_failed';
 }
