@@ -97,6 +97,44 @@ def wait_ack(seq: int, action: str) -> bool:
 
 
 def launcher_is_foreground() -> bool:
+    active_window = ""
+    try:
+        proc = subprocess.run(
+            ["xdotool", "getactivewindow"],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
+        )
+        active_window = (proc.stdout or "").strip()
+    except (OSError, subprocess.TimeoutExpired):
+        active_window = ""
+    if active_window:
+        try:
+            pid_proc = subprocess.run(
+                ["xdotool", "getwindowpid", active_window],
+                capture_output=True,
+                text=True,
+                timeout=3,
+                check=False,
+            )
+            pid = (pid_proc.stdout or "").strip()
+            if pid:
+                cmdline = subprocess.run(
+                    ["ps", "-p", pid, "-o", "args="],
+                    capture_output=True,
+                    text=True,
+                    timeout=3,
+                    check=False,
+                )
+                args = (cmdline.stdout or "").lower()
+                if (
+                    "127.0.0.1:3000" in args
+                    and ("firefox" in args or "chromium" in args)
+                ):
+                    return True
+        except (OSError, subprocess.TimeoutExpired):
+            pass
     try:
         proc = subprocess.run(
             ["xdotool", "getactivewindow", "getwindowname"],
