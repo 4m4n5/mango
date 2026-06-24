@@ -38,6 +38,8 @@ import {
   playabilityGrowHeadAdvanceMaxCycles,
   growLinkMaxPerRail,
   playabilityRailRejectionTtlMsForReason,
+  playabilityGrowSourceFailMinSamples,
+  playabilityGrowSourceNoVerifyScanLimit,
 } from './config.js';
 import {
   createGrowthPassState,
@@ -68,7 +70,10 @@ import {
 } from './source-hitrate-weights.js';
 import { isSuppressibleListSource } from './list-source.js';
 import { recordGrowRunState } from './grow-run-state.js';
-import { sourceCircuitDecision } from './grow-source-circuit.js';
+import {
+  sourceCircuitDecision,
+  sourceCircuitSampleLimitForGrowTarget,
+} from './grow-source-circuit.js';
 import {
   sourceAdvanceJump,
   sourceOffsetsForGrowOutcome,
@@ -346,11 +351,24 @@ export async function growRail(
   }
 
   function evaluateSourceCircuits(): void {
+    const circuitOptions = {
+      failMinSamples: sourceCircuitSampleLimitForGrowTarget(
+        playabilityGrowSourceFailMinSamples(),
+        growTarget,
+        8,
+      ),
+      noVerifyScanLimit: sourceCircuitSampleLimitForGrowTarget(
+        playabilityGrowSourceNoVerifyScanLimit(),
+        growTarget,
+        20,
+        4,
+      ),
+    };
     for (const stat of sourceStats.values()) {
       if (suppressedSources.has(stat.source_key)) {
         continue;
       }
-      const decision = sourceCircuitDecision(stat);
+      const decision = sourceCircuitDecision(stat, circuitOptions);
       if (decision.suppress && decision.reason) {
         suppressedSources.set(stat.source_key, decision.reason);
       }

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { sourceCircuitDecision } from './grow-source-circuit.js';
+import {
+  sourceCircuitDecision,
+  sourceCircuitSampleLimitForGrowTarget,
+} from './grow-source-circuit.js';
 import type { SourceGrowStats } from './source-hitrate-weights.js';
 
 const ENV = { ...process.env };
@@ -88,4 +91,20 @@ test('sourceCircuitDecision classifies infrastructure, theme, and stream failure
     sourceCircuitDecision(stat({ failed: 10 })),
     { suppress: true, reason: 'low_stream_hit_rate' },
   );
+});
+
+test('sourceCircuitDecision accepts benchmark-sized stream failure thresholds', () => {
+  process.env.MANGO_GROW_SOURCE_FAIL_MIN_SAMPLES = '20';
+  assert.deepEqual(sourceCircuitDecision(stat({ failed: 7 }), { failMinSamples: 8 }), { suppress: false });
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ failed: 8 }), { failMinSamples: 8 }),
+    { suppress: true, reason: 'low_stream_hit_rate' },
+  );
+});
+
+test('sourceCircuitSampleLimitForGrowTarget scales benchmark thresholds without weakening production', () => {
+  assert.equal(sourceCircuitSampleLimitForGrowTarget(20, 5, 8), 8);
+  assert.equal(sourceCircuitSampleLimitForGrowTarget(20, 20, 8), 20);
+  assert.equal(sourceCircuitSampleLimitForGrowTarget(60, 5, 20, 4), 20);
+  assert.equal(sourceCircuitSampleLimitForGrowTarget(60, 20, 20, 4), 60);
 });

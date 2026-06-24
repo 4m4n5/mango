@@ -14,10 +14,31 @@ export type SourceCircuitDecision = {
   reason?: 'rate_limited' | 'catalog_errors' | 'zero_verified_yield' | 'theme_rejected' | 'low_stream_hit_rate';
 };
 
-export function sourceCircuitDecision(stat: SourceGrowStats): SourceCircuitDecision {
+export type SourceCircuitDecisionOptions = {
+  noVerifyScanLimit?: number;
+  failMinSamples?: number;
+};
+
+export function sourceCircuitSampleLimitForGrowTarget(
+  configured: number,
+  growTarget: number,
+  floor: number,
+  targetMultiplier = 1,
+): number {
+  const targetLimit = Math.max(floor, Math.ceil(growTarget * targetMultiplier));
+  return Math.min(configured, targetLimit);
+}
+
+export function sourceCircuitDecision(
+  stat: SourceGrowStats,
+  options: SourceCircuitDecisionOptions = {},
+): SourceCircuitDecision {
   if (!playabilityGrowSourceCircuitBreakerEnabled()) {
     return { suppress: false };
   }
+  const noVerifyScanLimit = options.noVerifyScanLimit ?? playabilityGrowSourceNoVerifyScanLimit();
+  const failMinSamples = options.failMinSamples ?? playabilityGrowSourceFailMinSamples();
+
   if (stat.rate_limited > 0) {
     return { suppress: true, reason: 'rate_limited' };
   }
@@ -28,7 +49,7 @@ export function sourceCircuitDecision(stat: SourceGrowStats): SourceCircuitDecis
     stat.verified <= 0
     && stat.linked_verified_seen <= 0
     && (stat.failed > 0 || stat.theme_rejected > 0 || stat.returned === 0 || stat.exhausted)
-    && stat.scanned >= playabilityGrowSourceNoVerifyScanLimit()
+    && stat.scanned >= noVerifyScanLimit
   ) {
     return { suppress: true, reason: 'zero_verified_yield' };
   }
@@ -43,7 +64,7 @@ export function sourceCircuitDecision(stat: SourceGrowStats): SourceCircuitDecis
 
   const streamSamples = stat.failed + stat.verified;
   if (
-    streamSamples >= playabilityGrowSourceFailMinSamples()
+    streamSamples >= failMinSamples
     && stat.failed / Math.max(1, streamSamples) >= playabilityGrowSourceFailRatio()
   ) {
     return { suppress: true, reason: 'low_stream_hit_rate' };
