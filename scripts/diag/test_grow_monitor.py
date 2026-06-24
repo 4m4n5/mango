@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
+import argparse
+import contextlib
+import io
 import json
 import fcntl
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -17,6 +21,7 @@ from grow_monitor import (
     _normalize_baseline,
     assess_refresh_json,
     build_live_status,
+    cmd_assess,
     fetch_unique_verified_library_count,
     fetch_verified_pool_counts,
     format_live_status,
@@ -462,6 +467,71 @@ class GrowMonitorTests(unittest.TestCase):
             text = assess_refresh_json(path)
             self.assertIn("refresh failed: rate_limited stage=core_boot", text)
             self.assertIn("repair suggestions:", text)
+
+    def test_assess_does_not_mask_current_baseline_with_older_success(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache = root / "cache"
+            ops = cache / "mango" / "ops"
+            ops.mkdir(parents=True)
+            baseline_file = root / "grow-baseline.json"
+            baseline_file.write_text(
+                json.dumps({
+                    "schema_version": 2,
+                    "created_at_ms": 2_000_000,
+                    "grow_rail_ids": ["movies-global-popular"],
+                    "unique_verified": 100,
+                    "rails": {"movies-global-popular": 10},
+                }),
+                encoding="utf-8",
+            )
+            old_report = ops / "refresh-playability-old.json"
+            old_report.write_text(
+                json.dumps({
+                    "mode": "grow",
+                    "rails": [
+                        {
+                            "rail_id": "movies-global-popular",
+                            "fresh_verified": 20,
+                            "grow_target": 20,
+                            "verified_before": 10,
+                            "verified_after": 30,
+                        },
+                    ],
+                }),
+                encoding="utf-8",
+            )
+            os.utime(old_report, (1, 1))
+            (cache / "mango" / "grow-run-state.json").write_text(
+                json.dumps({
+                    "run_id": "playability-test",
+                    "phase": "done",
+                    "message": "aborted - couch restore",
+                }),
+                encoding="utf-8",
+            )
+
+            old_env = {
+                "XDG_CACHE_HOME": os.environ.get("XDG_CACHE_HOME"),
+                "MANGO_GROW_BASELINE": os.environ.get("MANGO_GROW_BASELINE"),
+            }
+            os.environ["XDG_CACHE_HOME"] = str(cache)
+            os.environ["MANGO_GROW_BASELINE"] = str(baseline_file)
+            try:
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    rc = cmd_assess(argparse.Namespace(refresh_json=None, json=False))
+                self.assertEqual(rc, 1)
+                text = out.getvalue()
+                self.assertIn("no refresh-playability JSON found after grow baseline", text)
+                self.assertIn("grow_aborted", text)
+                self.assertIn("ignored older refresh JSON", text)
+            finally:
+                for key, value in old_env.items():
+                    if value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = value
 
     def test_list_grow_rail_ids_orders_ai_last(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -282,6 +282,61 @@ def _latest_refresh_json(after_ms: int | None = None) -> Path | None:
     return files[-1] if files else None
 
 
+def _missing_completion_failure(
+    baseline: dict[str, Any],
+    *,
+    latest_refresh_json: Path | None,
+) -> dict[str, Any]:
+    run_state = load_grow_run_state() or {}
+    message = str(run_state.get("message") or "")
+    aborted = "abort" in message.lower()
+    stage = "aborted" if aborted else "completion_report"
+    category = "grow_aborted" if aborted else "missing_completion_report"
+    run_id = run_state.get("run_id")
+    baseline_ms = int(baseline.get("created_at_ms") or 0)
+    payload: dict[str, Any] = {
+        "ok": False,
+        "run_id": run_id,
+        "stage": stage,
+        "failure_category": category,
+        "baseline_created_at_ms": baseline_ms,
+        "error": "No refresh-playability JSON was written after the current grow baseline.",
+        "repair_suggestions": [
+            "Inspect playability-grow.log and the matching maintenance log for interruption or crash details.",
+            "Run a fresh grow after deploy/restart work is complete; do not use older refresh JSON as evidence for this baseline.",
+        ],
+    }
+    if latest_refresh_json is not None:
+        payload["latest_refresh_json_ignored"] = str(latest_refresh_json)
+    if run_state:
+        payload["run_state"] = run_state
+    return payload
+
+
+def _format_missing_completion_failure(payload: dict[str, Any]) -> str:
+    lines = [
+        "assess: no refresh-playability JSON found after grow baseline",
+        f"refresh failed: {payload.get('failure_category') or 'missing_completion_report'} "
+        f"stage={payload.get('stage') or '-'}",
+        f"error: {payload.get('error') or '-'}",
+    ]
+    run_id = payload.get("run_id")
+    if run_id:
+        lines.append(f"run_id: {run_id}")
+    ignored = payload.get("latest_refresh_json_ignored")
+    if ignored:
+        lines.append(f"ignored older refresh JSON: {ignored}")
+    run_state = payload.get("run_state")
+    if isinstance(run_state, dict) and run_state.get("message"):
+        lines.append(f"run_state: {run_state.get('phase') or '-'} — {run_state.get('message')}")
+    suggestions = payload.get("repair_suggestions")
+    if isinstance(suggestions, list) and suggestions:
+        lines.append("repair suggestions:")
+        for suggestion in suggestions:
+            lines.append(f"  - {suggestion}")
+    return "\n".join(lines) + "\n"
+
+
 def _normalize_baseline(raw: dict[str, Any]) -> dict[str, Any]:
     """Accept legacy flat rail maps and current nested schema."""
     grow_rail_ids = raw.get("grow_rail_ids")
@@ -934,6 +989,16 @@ def cmd_assess(args: argparse.Namespace) -> int:
         path = Path(args.refresh_json).expanduser()
     else:
         path = _latest_refresh_json(after_ms=after_ms if after_ms else None)
+        if path is None and after_ms:
+            failure = _missing_completion_failure(
+                baseline,
+                latest_refresh_json=_latest_refresh_json(),
+            )
+            if args.json:
+                print(json.dumps({"path": None, **failure}, indent=2, default=str))
+            else:
+                print(_format_missing_completion_failure(failure), end="")
+            return 1
         if path is None:
             path = _latest_refresh_json()
     if path is None or not path.is_file():
