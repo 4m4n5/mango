@@ -345,6 +345,11 @@ export function filterVodAddonExports(
   return addons.filter((addon) => !looksLikeLiveAddon(addon, liveNames));
 }
 
+function manifestLoadError(addon: NormalizedAddonExport, error: unknown): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  return new Error(`manifest boot failed for ${addon.name}: ${message}`);
+}
+
 async function fetchJson(url: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -598,13 +603,29 @@ export class CatalogCore {
     }
 
     const addons: Addon[] = [];
+    const manifestFailures: string[] = [];
     for (const addon of exported) {
-      const manifest = await fetchJson(addon.manifestUrl) as Manifest;
-      addons.push({
-        name: manifest.name || addon.name,
-        manifestUrl: addon.manifestUrl,
-        manifest,
-      });
+      try {
+        const manifest = await fetchJson(addon.manifestUrl) as Manifest;
+        addons.push({
+          name: manifest.name || addon.name,
+          manifestUrl: addon.manifestUrl,
+          manifest,
+        });
+      } catch (error) {
+        const wrapped = manifestLoadError(addon, error);
+        if (purpose === 'playability_vod') {
+          throw wrapped;
+        }
+        manifestFailures.push(wrapped.message);
+        console.warn(`catalog-service warning: ${wrapped.message}`);
+      }
+    }
+    if (addons.length === 0) {
+      const suffix = manifestFailures.length > 0
+        ? `; manifest failures: ${manifestFailures.join(' | ')}`
+        : '';
+      throw new CatalogError(500, `${exportPath} loaded zero addon manifests${suffix}`);
     }
     return new CatalogCore(
       coreStatus,
