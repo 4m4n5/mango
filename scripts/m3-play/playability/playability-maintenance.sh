@@ -203,8 +203,9 @@ def table_exists(conn, schema, name):
     ).fetchone() is not None
 
 rewound = 0
-with sqlite3.connect(dest) as live:
+with sqlite3.connect(dest, timeout=30) as live:
     live.row_factory = sqlite3.Row
+    live.execute("PRAGMA busy_timeout=30000")
     live.execute("ATTACH DATABASE ? AS staged", (str(src),))
     for table, keys in TABLES.items():
         if not table_exists(live, "main", table) or not table_exists(live, "staged", table):
@@ -235,7 +236,7 @@ ON CONFLICT({", ".join(keys)}) DO UPDATE SET {updates}
                 (*params, staged_offset, int(row["updated_at"] or 0)),
             )
             rewound += 1
-    live.execute("DETACH DATABASE staged")
+    live.commit()
     live.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 print(f"stage DB: synced {rewound} cursor rewind(s) to live DB")
 PY
