@@ -99,6 +99,8 @@
       "id": "mdblist.49761",
       "name": "Indian Stand Up Comedy",
       "rails": [
+        "movies-india-trending",
+        "series-india-picks",
         "series-comedy"
       ]
     },

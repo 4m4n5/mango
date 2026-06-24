@@ -206,7 +206,7 @@ export async function growRail(
   );
 
   let listSource = core.listSourceForRail(railId);
-  let weightsApplied = applyHitrateWeightsToListSource(listSource, rail.content_type);
+  let weightsApplied = applyHitrateWeightsToListSource(listSource, rail.content_type, rail.id);
   let sourceOffsets = await loadSourceOffsetsForListSource(rail.id, listSource);
   let ingestOffset = sourceOffsets
     ? 0
@@ -392,7 +392,7 @@ export async function growRail(
 
   async function reloadIngestState(): Promise<void> {
     listSource = core.listSourceForRail(railId);
-    weightsApplied = applyHitrateWeightsToListSource(listSource, rail.content_type) || weightsApplied;
+    weightsApplied = applyHitrateWeightsToListSource(listSource, rail.content_type, rail.id) || weightsApplied;
     applySourceSuppressions();
     if (isSourceCursorListSource(listSource)) {
       listSource.resetAllSourceOffsets();
@@ -704,7 +704,7 @@ export async function growRail(
     rail.id,
     rail.content_type,
     sourceStatsRows,
-    { growTargetMet: targetMet, weighted: weightsApplied },
+    { growTargetMet: targetMet, weighted: weightsApplied, elapsedMs: Date.now() - startedAt },
   );
   recordGrowRunState({
     phase: 'grow',

@@ -31,6 +31,7 @@ gate_library_grow_entrypoints() {
   bash scripts/m3-play/playability/playability-grow.sh --help >/dev/null
   grep -q 'grow_monitor.py' scripts/m3-play/playability/playability-grow.sh
   grep -q 'grow_monitor.py' scripts/m3-play/playability/playability-maintenance.sh
+  python3 scripts/diag/source-grow-audit.py --help >/dev/null
   grep -q 'list_grow_rail_ids' scripts/diag/ops_grow_sla.py
   grep -q 'railsForGrowPass' src/catalog-service/src/playability/refresh.ts
   grep -q 'flushVerifyContextBatch' src/catalog-service/src/playability/grow-rail.ts

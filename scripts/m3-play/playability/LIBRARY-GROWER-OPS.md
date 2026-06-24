@@ -144,6 +144,17 @@ low stream hit-rate. Suppression is in-memory for the active rail run; longer
 term promotion/demotion still comes from runtime source-grow weights in
 `~/.cache/mango/source-grow/latest.json`.
 
+Audit runtime source health after grows:
+
+```bash
+python3 scripts/diag/source-grow-audit.py
+python3 scripts/diag/source-grow-audit.py --rail series-india-picks
+python3 scripts/diag/source-grow-audit.py --json
+```
+
+The audit reports rail-specific verified/min, theme reject rate, no-stream
+rejection rate, duplicate pressure, cursor depth, and probation/recovery state.
+
 ## SLA section (PR6)
 
 The **Library Grower SLA** block summarizes the latest **grow** phase per browse rail.

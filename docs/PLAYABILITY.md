@@ -77,6 +77,13 @@ Curated in [catalog-rail-curation.md](../config/catalog-rail-curation.md). Highl
 
 Hit-rate tuning: `python3 scripts/diag/source-hitrate.py`
 
+Runtime grow audit:
+
+```bash
+python3 scripts/diag/source-grow-audit.py --rail movies-india-trending
+python3 scripts/diag/source-grow-audit.py --rail series-india-picks
+```
+
 ---
 
 ## Grow & top-up jobs

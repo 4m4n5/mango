@@ -43,11 +43,12 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-movie, weight: 0.45 }
-      - { addon: "Bharat Binge", catalog: tmdb-hi-surprise_me-movie, weight: 0.25 }
-      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-movie, weight: 0.15 }
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.10 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-movie, weight: 0.43 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-surprise_me-movie, weight: 0.24 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-movie, weight: 0.14 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.09 }
       - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.popmov, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.05 }
     playability:
       display_limit: 9
       min_display: 6
@@ -167,11 +168,12 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-series, weight: 0.40 }
-      - { addon: "Bharat Binge", catalog: tmdb-hi-latest_episodes-series, weight: 0.35 }
-      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-series, weight: 0.10 }
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.10 }
-      - { addon: Cinemeta, catalog: top, weight: 0.05 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-series, weight: 0.39 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-latest_episodes-series, weight: 0.34 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-series, weight: 0.12 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.05 }
+      - { addon: Cinemeta, catalog: top, weight: 0.02 }
     playability:
       display_limit: 9
       min_display: 6

@@ -18,13 +18,13 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 | Rail | Sources | Rationale |
 |------|---------|-----------|
 | `movies-global-popular` | Cinemeta `top` + **88302** + **2236** | Mainstream charts; no overlap with quick-watches |
-| `movies-india-trending` | **Bharat Binge** recent + surprise + top_rated (85%) · IndiaStreams recmov/popmov (15%) | Bharat primary; IndiaStreams demoted (low hit-rate) |
+| `movies-india-trending` | **Bharat Binge** recent + surprise + top_rated (81%) · IndiaStreams recmov/popmov (14%) · **49761** India stand-up probation (5%) | Bharat primary; IndiaStreams demoted; 49761 gets small same-theme recovery budget |
 | `movies-classics` | Cinemeta `imdbRating` | Anchor |
 | `movies-comedy` | **91223** | 100% source; pool top-up not swap |
 | `movies-quick-watches` | **86934** (35%) + **84444** (30%) + **3885** (20%) + Cinemeta `year` (15%) | Shorter/easier — no overlap lists 2236/83666/14 |
 | `movies-documentaries` | **84677** | 100%; enable in mango import |
 | `series-global-popular` | Cinemeta `top` 0.8 + **105797** | Dropped 88303 (40%); daily picks 100% probe |
-| `series-india-picks` | **Bharat Binge** recent + latest_episodes + top_rated (85%) · IndiaStreams trendingtv (10%) · Cinemeta `top` (5%) | Fresh Hindi OTT; IndiaStreams demoted |
+| `series-india-picks` | **Bharat Binge** recent + latest_episodes + top_rated (85%) · IndiaStreams trendingtv (8%) · **49761** India stand-up probation (5%) · Cinemeta `top` (2%) | Fresh Hindi OTT; IndiaStreams demoted; 49761 can recover only if verified/theme-fit yield is good |
 | `series-classics` | Cinemeta `imdbRating` | Anchor |
 | `series-comedy` | Cinemeta `top` + **91224** | yaml last = session priority; probe ~40% — WP2 stream tuning |
 | `series-miniseries` | **130153** | 80% probe |
@@ -36,9 +36,13 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 python3 scripts/diag/source-hitrate.py
 MANGO_SOURCE_PROBE_EXPORT=1 MANGO_AIOMETADATA_EXPORT=~/.config/mango/aiometadata-import.json \
   python3 scripts/diag/source-hitrate.py
+python3 scripts/diag/source-grow-audit.py --rail series-india-picks
 ```
 
 Goal: ≥80% stream resolve per active source (`MANGO_SOURCE_TARGET_RATE=0.80`).
+Use `source-grow-audit.py` after strict grow runs to inspect rail-specific
+verified/min, theme rejects, no-stream rejection rate, duplicate pressure,
+cursor depth, and probation recovery before promoting or removing a source.
 
 ## MDBList inventory + LLM rail composition
 
