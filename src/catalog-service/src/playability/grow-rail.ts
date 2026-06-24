@@ -752,6 +752,8 @@ export async function growRail(
       usedDeepSourceAdvance,
       preDeepSourceOffsets,
       finalSourceOffsets: listSource.readSourceOffsets(),
+      exhausted: catalogExhausted,
+      candidatesSeen: totalCandidatesSeen,
     });
     if (offsetsToPersist) {
       listSource.writeSourceOffsets(offsetsToPersist);
@@ -760,6 +762,9 @@ export async function growRail(
     }
   } else if (usedDeepSourceAdvance && !targetMet && preDeepIngestOffset !== undefined) {
     ingestOffset = preDeepIngestOffset;
+    await setRailIngestOffset(rail.id, ingestOffset);
+  } else if (!targetMet && catalogExhausted && totalCandidatesSeen === 0) {
+    ingestOffset = 0;
     await setRailIngestOffset(rail.id, ingestOffset);
   }
   const exhausted = !targetMet && catalogExhausted;

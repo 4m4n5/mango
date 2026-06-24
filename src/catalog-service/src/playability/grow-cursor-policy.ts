@@ -7,9 +7,14 @@ export function sourceOffsetsForGrowOutcome(options: {
   usedDeepSourceAdvance: boolean;
   preDeepSourceOffsets?: ReadonlyMap<string, number>;
   finalSourceOffsets?: ReadonlyMap<string, number>;
+  exhausted?: boolean;
+  candidatesSeen?: number;
 }): Map<string, number> | undefined {
   if (!options.finalSourceOffsets) {
     return undefined;
+  }
+  if (!options.targetMet && options.exhausted && (options.candidatesSeen ?? 0) === 0) {
+    return new Map([...options.finalSourceOffsets.keys()].map((key) => [key, 0]));
   }
   if (options.usedDeepSourceAdvance && !options.targetMet && options.preDeepSourceOffsets) {
     return new Map(options.preDeepSourceOffsets);
