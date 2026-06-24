@@ -71,7 +71,7 @@ Curated in [catalog-rail-curation.md](../config/catalog-rail-curation.md). Highl
 | Rail | Theme |
 |------|--------|
 | `movies-quick-watches` | Short / stand-up / easy - streaming, RT-short, and shorts lists; not classics overlap lists |
-| `movies-india-trending` | **Indian cinema** - Bharat Binge plus India-native MDBList pools; not "trending in India" western hits |
+| `movies-india-trending` | **Indian cinema** - Bharat Binge plus India-native MDBList pools, with tiny Cinemeta high-cache fallback filtered by the strict theme gate; not "trending in India" western hits |
 | `series-india-picks` | **Indian series** - Hindi/regional OTT plus India-native MDBList pools |
 | `movies-documentaries` | Documentary pools widened; weak true-crime source retained only as low-weight probation |
 | `series-global-popular` | Cinemeta anchor plus `mdblist.88303` / `88434` trending-show depth; weak older daily source is low-weight probation |

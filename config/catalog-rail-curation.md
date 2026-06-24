@@ -18,7 +18,7 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 | Rail | Sources | Rationale |
 |------|---------|-----------|
 | `movies-global-popular` | Cinemeta `top` + **88302** + **88306** + **2236** + Cinemeta `year` | Mainstream cache with latest-movies depth; avoid over-weighting one chart |
-| `movies-india-trending` | **Bharat Binge** recent/surprise/top_rated + **170279** + **180437** + **183641** + **157957** + IndiaStreams recmov/popmov + **49761** probation | India-native movie pools first; IndiaStreams and stand-up stay as small diversity/probation lanes |
+| `movies-india-trending` | **Bharat Binge** recent/surprise/top_rated + **170279** + **180437** + **183641** + **157957** + IndiaStreams recmov/popmov + **49761** probation + tiny Cinemeta top/imdb/year fallback | India-native movie pools first; strict theme gate admits only Indian cinema from global high-cache fallback charts |
 | `movies-classics` | Cinemeta `imdbRating` + **83666** + **101881** + **88006** + **143797** | Anchor plus Criterion/Oscar depth so classics can grow without repeating the same Top 250 set |
 | `movies-comedy` | Cinemeta `top` + **91223** + **128040** + **2195** + **3107** + **69712** + **86734** | Popular comedy plus stand-up lists for fresh verified candidates |
 | `movies-quick-watches` | **86934** + **84444** + **69712** + **3885** + **86734** + Cinemeta `year` + **45854** | Streaming movies, stand-up, RT-short/easy picks, and shorts; no classics-heavy overlap |
