@@ -31,26 +31,6 @@ type VoiceCommandsResponse = {
   commands?: Array<LauncherCommandMessage & { seq?: number }>;
 };
 
-const APPLIED_SEQ_KEY = "mango.voice.appliedSeq";
-
-function readAppliedSeq(): number {
-  try {
-    const raw = sessionStorage.getItem(APPLIED_SEQ_KEY);
-    const parsed = raw !== null ? Number(raw) : 0;
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function storeAppliedSeq(seq: number): void {
-  try {
-    sessionStorage.setItem(APPLIED_SEQ_KEY, String(seq));
-  } catch {
-    // ignore
-  }
-}
-
 function parseBrowseTab(value: string | undefined): BrowseTab | null {
   if (value === "movies" || value === "series" || value === "live") {
     return value;
@@ -210,7 +190,7 @@ async function postVoiceAck(
 function startVoiceCommandPoll(
   applyCommand: (command: LauncherCommandMessage) => Promise<{ ok: boolean; reason: string }>,
 ): () => void {
-  let lastSeq = readAppliedSeq();
+  let lastSeq = 0;
   let stopped = false;
   let pollTimer: number | undefined;
   let pollInFlight = false;
@@ -228,7 +208,6 @@ function startVoiceCommandPoll(
       const payload = (await response.json()) as VoiceCommandsResponse;
       if (typeof payload.latest_seq === "number" && payload.latest_seq < lastSeq) {
         lastSeq = payload.latest_seq;
-        storeAppliedSeq(lastSeq);
       }
       for (const command of payload.commands ?? []) {
         const seq = command.seq;
@@ -236,8 +215,10 @@ function startVoiceCommandPoll(
         void postVoiceAck(seq, command.action, result.ok, result.reason);
         if (typeof seq === "number" && seq > lastSeq) {
           lastSeq = seq;
-          storeAppliedSeq(lastSeq);
         }
+      }
+      if ((payload.commands ?? []).length === 0 && typeof payload.latest_seq === "number" && payload.latest_seq > lastSeq) {
+        lastSeq = payload.latest_seq;
       }
     } catch {
       // launcher UI server may restart briefly
@@ -260,6 +241,21 @@ export function startVoiceCommands(
   handlers: VoiceCommandHandlers,
 ): () => void {
   const appliedSeq = new Set<number>();
+  const applyTimeoutMs = (command: LauncherCommandMessage): number => (
+    command.action === "open_detail" ? 9000 : 3000
+  );
+  const withTimeout = (
+    command: LauncherCommandMessage,
+    work: Promise<{ ok: boolean; reason: string }>,
+  ): Promise<{ ok: boolean; reason: string }> => new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({ ok: false, reason: "apply_timeout" });
+    }, applyTimeoutMs(command));
+    work
+      .then(resolve)
+      .catch(() => resolve({ ok: false, reason: "apply_failed" }))
+      .finally(() => window.clearTimeout(timeout));
+  });
 
   const applyCommand = async (
     command: LauncherCommandMessage,
@@ -276,7 +272,7 @@ export function startVoiceCommands(
         }
       }
     }
-    return applyLauncherCommand(command, handlers);
+    return withTimeout(command, applyLauncherCommand(command, handlers));
   };
 
   const stopPoll = startVoiceCommandPoll(applyCommand);
