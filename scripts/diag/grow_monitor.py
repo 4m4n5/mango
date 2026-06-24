@@ -595,7 +595,8 @@ def build_live_status(
         verified_now = int(current.rails.get(rail_id, verified_before))
         pool_growth = verified_now - verified_before
         stats = verify_stats.get(rail_id, {})
-        fresh_verified = int(stats.get("verified", 0))
+        probe_verified = int(stats.get("verified", 0))
+        fresh_verified = min(probe_verified, max(0, pool_growth))
         grow_target = _grow_target_for_rail(rail_id, verified_before, catalog)
         sparse_tier = verified_before < catalog.get(
             rail_id,

@@ -153,6 +153,62 @@ class GrowMonitorTests(unittest.TestCase):
             self.assertIn("ai-horror", text)
             self.assertIn("movies-global-popular", text)
 
+    def test_live_status_clamps_probe_successes_to_pool_growth(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / "playability.db"
+            conn = sqlite3.connect(db)
+            conn.executescript(
+                """
+                CREATE TABLE titles (
+                  type TEXT, id TEXT, status TEXT, verified_at INTEGER,
+                  expires_at INTEGER, fail_reason TEXT, best_source TEXT,
+                  cache_status TEXT, debrid_service TEXT, probe_ms INTEGER,
+                  win_url_hash TEXT, win_ladder_step TEXT, updated_at INTEGER,
+                  PRIMARY KEY (type, id)
+                );
+                CREATE TABLE rail_pool (
+                  rail_id TEXT, type TEXT, id TEXT, score INTEGER,
+                  ingested_at INTEGER, title TEXT, poster_url TEXT, year TEXT,
+                  PRIMARY KEY (rail_id, type, id)
+                );
+                CREATE TABLE verify_log (
+                  started_at INTEGER, rail_id TEXT, type TEXT, id_value TEXT,
+                  stage TEXT, ms INTEGER, outcome TEXT
+                );
+                """
+            )
+            for index in range(9):
+                conn.execute(
+                    "INSERT INTO titles VALUES ('series', ?, 'verified', 0, 9999999999999, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0)",
+                    (f"tt{index}",),
+                )
+                conn.execute(
+                    "INSERT INTO rail_pool VALUES ('series-classics', 'series', ?, 100, 0, NULL, NULL, NULL)",
+                    (f"tt{index}",),
+                )
+            for index in range(70):
+                conn.execute(
+                    "INSERT INTO verify_log VALUES (2000, 'series-classics', 'series', ?, 'verify', 1, 'verified')",
+                    (f"tt-log-{index}",),
+                )
+            conn.commit()
+            conn.close()
+
+            baseline = {
+                "schema_version": 2,
+                "created_at_ms": 1000,
+                "verified_pool": 8,
+                "unique_verified": 8,
+                "grow_rail_ids": ["series-classics"],
+                "rails": {"series-classics": 8},
+            }
+            status = build_live_status(baseline, catalog={}, db_file=db)
+            rail = status["rails"][0]
+            self.assertEqual(rail["pool_growth"], 1)
+            self.assertEqual(rail["verify_stats"]["verified"], 70)
+            self.assertEqual(rail["fresh_verified"], 1)
+            self.assertFalse(rail["grow_target_met"])
+
     def test_write_and_load_baseline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "playability.db"

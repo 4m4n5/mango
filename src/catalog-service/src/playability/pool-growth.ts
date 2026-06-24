@@ -39,6 +39,14 @@ export function freshVerifiedCount(
   return growthPass.verifiedAddedThisPass.get(railId) ?? 0;
 }
 
+export function setGrowthPassFreshCount(
+  growthPass: GrowthPassState,
+  railId: string,
+  count: number,
+): void {
+  growthPass.verifiedAddedThisPass.set(railId, Math.max(0, Math.floor(count)));
+}
+
 export function railMeetsGrowthQuota(
   growthPass: GrowthPassState,
   railId: string,

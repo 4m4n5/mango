@@ -51,6 +51,24 @@ class GrowSlaTests(unittest.TestCase):
         self.assertEqual(result.status, "ok")
         self.assertTrue(result.grow_target_met)
 
+    def test_probe_successes_do_not_override_low_new_to_rail_growth(self) -> None:
+        row = {
+            "rail_id": "series-classics",
+            "label": "Classics",
+            "verified_before": 8,
+            "grow_target": 20,
+            "fresh_verified": 70,
+            "probe_verified": 70,
+            "pool_growth": 1,
+            "grow_target_met": True,
+            "exhausted": False,
+        }
+        result = assess_rail_sla(row)
+        assert result is not None
+        self.assertEqual(result.probe_verified, 1)
+        self.assertFalse(result.grow_target_met)
+        self.assertEqual(result.status, "warn")
+
     def test_pool_growth_does_not_satisfy_quota_without_fresh_probes(self) -> None:
         row = {
             "rail_id": "movies-shuffle",

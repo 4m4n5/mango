@@ -188,16 +188,26 @@ def _verified_before(row: dict[str, Any]) -> int:
 def _fresh_verified(row: dict[str, Any]) -> int:
     if row.get("new_to_rail_verified") is not None:
         return int(row["new_to_rail_verified"])
+    raw = 0
     if row.get("fresh_verified") is not None:
-        return int(row["fresh_verified"])
-    if row.get("probe_verified") is not None:
-        return int(row["probe_verified"])
-    if row.get("verified_added") is not None:
-        return int(row["verified_added"])
-    return 0
+        raw = int(row["fresh_verified"])
+    elif row.get("probe_verified") is not None:
+        raw = int(row["probe_verified"])
+    elif row.get("verified_added") is not None:
+        raw = int(row["verified_added"])
+    pool_growth = row.get("pool_growth")
+    if pool_growth is not None:
+        return min(raw, max(0, int(pool_growth)))
+    return raw
 
 
 def _probe_verified(row: dict[str, Any]) -> int:
+    if row.get("probe_verified") is not None:
+        return int(row["probe_verified"])
+    if row.get("fresh_verified") is not None:
+        return int(row["fresh_verified"])
+    if row.get("verified_added") is not None:
+        return int(row["verified_added"])
     return _fresh_verified(row)
 
 
@@ -238,12 +248,8 @@ def assess_rail_sla(
         if grow_target_raw is not None
         else resolve_grow_target(cfg, verified_before, str(rail_id))
     )
-    probe_verified = _probe_verified(row)
-    grow_target_met = row.get("grow_target_met")
-    if grow_target_met is None:
-        grow_target_met = probe_verified >= grow_target
-    else:
-        grow_target_met = bool(grow_target_met)
+    fresh_verified = _fresh_verified(row)
+    grow_target_met = fresh_verified >= grow_target
 
     sparse_tier = verified_before < cfg.display_limit
     exhausted = bool(row.get("exhausted"))
@@ -257,7 +263,7 @@ def assess_rail_sla(
             label=str(row.get("label") or rail_id),
             verified_before=verified_before,
             grow_target=grow_target,
-            probe_verified=probe_verified,
+            probe_verified=fresh_verified,
             grow_target_met=True,
             sparse_tier=sparse_tier,
             exhausted=exhausted,
@@ -275,14 +281,14 @@ def assess_rail_sla(
         if compose_escalated:
             reason += f" (compose fallback {fallback_level})"
     else:
-        reason = f"+{probe_verified}/{grow_target} probe-verified (wall or attempt limit)"
+        reason = f"+{fresh_verified}/{grow_target} new-to-rail verified (wall or attempt limit)"
 
     return RailSlaAssessment(
         rail_id=str(rail_id),
         label=str(row.get("label") or rail_id),
         verified_before=verified_before,
         grow_target=grow_target,
-        probe_verified=probe_verified,
+        probe_verified=fresh_verified,
         grow_target_met=False,
         sparse_tier=sparse_tier,
         exhausted=exhausted,

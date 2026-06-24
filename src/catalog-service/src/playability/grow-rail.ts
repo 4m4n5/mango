@@ -39,6 +39,7 @@ import {
 import {
   createGrowthPassState,
   freshVerifiedCount,
+  setGrowthPassFreshCount,
   type GrowthPassState,
 } from './pool-growth.js';
 import {
@@ -227,6 +228,15 @@ export async function growRail(
   const context = await createVerifyContext(core);
 
   const freshQuotaSoFar = (): number => freshVerifiedCount(growthPass, rail.id);
+  const strictFreshFromStatus = (status: PlayabilityRailStatus): number => (
+    Math.max(0, status.verified_pool - before.verified_pool - totalLinked)
+  );
+  const syncFreshQuotaWithPool = async (): Promise<number> => {
+    const status = await getRailPlayabilityStatus(rail.id);
+    const strictFresh = strictFreshFromStatus(status);
+    setGrowthPassFreshCount(growthPass, rail.id, strictFresh);
+    return strictFresh;
+  };
 
   function statForSource(sourceKey: string, sourceLabel = sourceKey): SourceGrowStats {
     const existing = sourceStats.get(sourceKey);
@@ -521,6 +531,13 @@ export async function growRail(
       allResults.push(...linked.results, ...processed.results);
       recordVerifyResultsBySource([...linked.results, ...processed.results], sourceByCandidateKey);
 
+      const madeLinkOrProbeProgress =
+        linked.linked_existing > 0 || iterationAttempts > 0;
+      if (madeLinkOrProbeProgress) {
+        await flushVerifyContextBatch(context);
+        await syncFreshQuotaWithPool();
+      }
+
       if (ingested.catalog_exhausted) {
         catalogExhausted = true;
         if (freshQuotaSoFar() < growTarget) {
@@ -532,12 +549,6 @@ export async function growRail(
           }
           break;
         }
-      }
-
-      const madeLinkOrProbeProgress =
-        linked.linked_existing > 0 || iterationAttempts > 0;
-      if (madeLinkOrProbeProgress) {
-        await flushVerifyContextBatch(context);
       }
       if (!madeLinkOrProbeProgress && ingested.fresh_queued === 0) {
         catalogExhausted = ingested.catalog_exhausted;
@@ -562,8 +573,9 @@ export async function growRail(
   }
 
   const after = await getRailPlayabilityStatus(rail.id);
-  const freshVerified = freshVerifiedCount(growthPass, rail.id);
   const poolGrowth = Math.max(0, after.verified_pool - before.verified_pool);
+  const freshVerified = strictFreshFromStatus(after);
+  setGrowthPassFreshCount(growthPass, rail.id, freshVerified);
   const targetMet = freshVerified >= growTarget;
   const exhausted = !targetMet && catalogExhausted;
   const sourceStatsRows = [...sourceStats.values()];
