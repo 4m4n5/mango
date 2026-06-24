@@ -159,11 +159,18 @@ run_source_hitrate_preflight() {
 
   echo "source-hitrate preflight: preset=$preset per_source=$per_source ($reason)"
   export MANGO_GROW_RUN_STATE=1
-  PYTHONUNBUFFERED=1 \
-    MANGO_SOURCE_HITRATE_PER_SOURCE="$per_source" \
-    python3 "$REPO_DIR/scripts/diag/source-hitrate.py" 2>&1 \
-    | tee -a "${CACHE_DIR}/playability-grow.log" \
-    || true
+  if [[ "${MANGO_GROW_LOG_WRAPPED:-0}" == "1" ]]; then
+    PYTHONUNBUFFERED=1 \
+      MANGO_SOURCE_HITRATE_PER_SOURCE="$per_source" \
+      python3 "$REPO_DIR/scripts/diag/source-hitrate.py" 2>&1 \
+      || true
+  else
+    PYTHONUNBUFFERED=1 \
+      MANGO_SOURCE_HITRATE_PER_SOURCE="$per_source" \
+      python3 "$REPO_DIR/scripts/diag/source-hitrate.py" 2>&1 \
+      | tee -a "${CACHE_DIR}/playability-grow.log" \
+      || true
+  fi
   unset MANGO_GROW_RUN_STATE
 
   grow_state set --phase preflight --message "hit-rate report written" \

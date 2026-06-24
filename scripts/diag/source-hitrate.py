@@ -323,10 +323,24 @@ def main() -> int:
     source_items = sorted(sources.items(), key=lambda item: item[0])
     total_sources = len(source_items)
 
+    processed_sources = 0
     for key, ref in source_items:
+        processed_sources += 1
+        name = catalog_names.get(ref.catalog, ref.catalog)
+        stats = SourceStats(
+            source_key=key,
+            addon=ref.addon,
+            catalog=ref.catalog,
+            content_type=ref.content_type,
+            name=name,
+            rails=ref.rails,
+        )
         manifest = manifests.get(ref.addon)
         if ref.addon != "Cinemeta" and not manifest:
             print(f"SKIP {key}: no manifest for addon {ref.addon}")
+            stats.errors[f"no manifest for addon {ref.addon}"] += 1
+            all_stats.append(stats)
+            _emit_preflight_progress(processed_sources, total_sources, ref.catalog)
             continue
         try:
             metas = fetch_catalog_metas(
@@ -338,20 +352,17 @@ def main() -> int:
             )
         except Exception as exc:
             print(f"SKIP {key}: catalog fetch failed — {exc}")
+            stats.errors[f"catalog fetch failed: {str(exc)[:80]}"] += 1
+            all_stats.append(stats)
+            _emit_preflight_progress(processed_sources, total_sources, ref.catalog)
             continue
         if not metas:
             print(f"SKIP {key}: empty catalog")
+            stats.errors["empty catalog"] += 1
+            all_stats.append(stats)
+            _emit_preflight_progress(processed_sources, total_sources, ref.catalog)
             continue
         sample = metas if len(metas) <= PER_SOURCE else rng.sample(metas, PER_SOURCE)
-        name = catalog_names.get(ref.catalog, ref.catalog)
-        stats = SourceStats(
-            source_key=key,
-            addon=ref.addon,
-            catalog=ref.catalog,
-            content_type=ref.content_type,
-            name=name,
-            rails=ref.rails,
-        )
         for pick in sample:
             stats.sampled += 1
             stream_ok, err = probe_stream(pick)
@@ -374,7 +385,7 @@ def main() -> int:
                 "error": err,
             })
         all_stats.append(stats)
-        _emit_preflight_progress(len(all_stats), total_sources, ref.catalog)
+        _emit_preflight_progress(processed_sources, total_sources, ref.catalog)
 
     metric = "play" if DO_PLAY else "stream"
     print(f"{'source':42} {'rails':>4} {'n':>3} {'stream':>8} {'play':>8}  note")

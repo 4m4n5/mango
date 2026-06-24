@@ -104,6 +104,19 @@ function previewPoster(preview: unknown): string | undefined {
 }
 
 const CATALOG_FETCH_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS || 20_000);
+const DEFAULT_PROBATION_MULTIPLIER = 0.08;
+
+function growSourceProbationMultiplier(): number {
+  const raw = process.env.MANGO_GROW_SOURCE_PROBATION_MULTIPLIER;
+  if (raw === undefined || raw === '') {
+    return DEFAULT_PROBATION_MULTIPLIER;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0.05 || parsed > 0.10) {
+    return DEFAULT_PROBATION_MULTIPLIER;
+  }
+  return parsed;
+}
 
 export async function fetchAddonCatalogCandidates(
   manifestUrl: string,
@@ -289,6 +302,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
   private suppressedSources = new Set<string>();
   private hitrateWeightMultipliers = new Map<string, number>();
   private lastFetchStats: ListSourceFetchStats[] = [];
+  private probationCursor = 0;
 
   constructor(
     readonly sourceId: string,
@@ -353,7 +367,14 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
 
   private async candidatesWithSourceCursors(limit: number): Promise<CandidateMeta[]> {
     const weights = this.sources.map((source) => this.sourceWeight(source));
-    const perSourceLimits = allocateSourceLimits(limit, weights);
+    const perSourceLimits = allocateSourceLimits(limit, weights, {
+      probationStartIndex: this.probationCursor,
+    });
+    const probationFloor = growSourceProbationMultiplier();
+    const probationFetches = perSourceLimits.filter((value, index) => (
+      value > 0 && weights[index] <= probationFloor + 0.0001
+    )).length;
+    this.probationCursor += probationFetches;
     const batches: WeightedCandidateBatch[] = [];
     this.lastFetchStats = [];
 
@@ -361,6 +382,24 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
       const key = catalogSourceKey(source.addon, source.catalog);
       const start = this.sourceOffsets.get(key) ?? 0;
       const fetchLimit = perSourceLimits[index] ?? 1;
+      if (fetchLimit <= 0) {
+        this.lastFetchStats.push({
+          source_key: key,
+          source_label: source.sourceLabel,
+          requested: 0,
+          returned: 0,
+          errors: 0,
+          rate_limited: 0,
+          exhausted: this.exhaustedSources.has(key),
+        });
+        batches.push({
+          sourceIndex: index,
+          sourceLabel: source.sourceLabel,
+          weight: this.sourceWeight(source),
+          candidates: [],
+        });
+        continue;
+      }
       if (this.exhaustedSources.has(key) || this.suppressedSources.has(key)) {
         this.lastFetchStats.push({
           source_key: key,

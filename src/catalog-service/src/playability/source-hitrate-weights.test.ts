@@ -57,6 +57,30 @@ test('buildHitrateMultipliers scales weights from stream rate vs min_rate', () =
   assert.equal(multipliers.has('Cinemeta:top'), false);
 });
 
+test('buildHitrateMultipliers demotes zero-sample catalog error rows', () => {
+  const report: SourceHitrateReport = {
+    ts: Date.now(),
+    min_rate: 0.5,
+    sources: [
+      {
+        source_key: 'Bharat Binge|tmdb-ta-latest_episodes-series|series',
+        addon: 'Bharat Binge',
+        catalog: 'tmdb-ta-latest_episodes-series',
+        content_type: 'series',
+        sampled: 0,
+        stream_rate: 0,
+        errors: { 'catalog fetch failed': 1 },
+      },
+    ],
+  };
+
+  const multipliers = buildHitrateMultipliers(report, 'series');
+  assert.equal(
+    multipliers.get('Bharat Binge:tmdb-ta-latest_episodes-series'),
+    sourceGrowProbationMultiplier(),
+  );
+});
+
 test('loadSourceHitrateReport accepts source-hitrate seconds timestamps', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-hitrate-'));
   const previousOut = process.env.MANGO_SOURCE_HITRATE_OUT;

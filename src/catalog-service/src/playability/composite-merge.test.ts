@@ -50,9 +50,30 @@ test('mergeCompositeCandidates respects offset and limit', () => {
   );
 });
 
-test('allocateSourceLimits honors weights with minimum one per source', () => {
+test('allocateSourceLimits honors ordinary weights', () => {
   assert.deepEqual(allocateSourceLimits(10, [0.6, 0.4]), [6, 4]);
   assert.deepEqual(allocateSourceLimits(3, [0.5, 0.5]), [2, 1]);
+});
+
+test('allocateSourceLimits keeps probation sources to a small rotating budget', () => {
+  const previousRatio = process.env.MANGO_GROW_SOURCE_PROBATION_BUDGET_RATIO;
+  process.env.MANGO_GROW_SOURCE_PROBATION_BUDGET_RATIO = '0.1';
+  try {
+    assert.deepEqual(
+      allocateSourceLimits(20, [1, 0.08, 0.08, 0.08, 0.08], { probationStartIndex: 0 }),
+      [18, 1, 1, 0, 0],
+    );
+    assert.deepEqual(
+      allocateSourceLimits(20, [1, 0.08, 0.08, 0.08, 0.08], { probationStartIndex: 2 }),
+      [18, 0, 0, 1, 1],
+    );
+  } finally {
+    if (previousRatio === undefined) {
+      delete process.env.MANGO_GROW_SOURCE_PROBATION_BUDGET_RATIO;
+    } else {
+      process.env.MANGO_GROW_SOURCE_PROBATION_BUDGET_RATIO = previousRatio;
+    }
+  }
 });
 
 test('mergeCompositeCandidates interleaves weighted sources instead of source-order monopoly', () => {

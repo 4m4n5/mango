@@ -14,6 +14,7 @@ export type SourceHitrateEntry = {
   content_type: string;
   sampled: number;
   stream_rate: number;
+  errors?: Record<string, number>;
 };
 
 export type SourceHitrateReport = {
@@ -173,6 +174,14 @@ export function buildHitrateMultipliers(
 
   for (const entry of report.sources) {
     if (entry.content_type !== contentType) {
+      continue;
+    }
+    if (
+      (!Number.isFinite(entry.sampled) || entry.sampled <= 0)
+      && entry.errors
+      && Object.keys(entry.errors).length > 0
+    ) {
+      multipliers.set(catalogSourceKey(entry.addon, entry.catalog), sourceGrowProbationMultiplier());
       continue;
     }
     if (!Number.isFinite(entry.sampled) || entry.sampled < MIN_SAMPLES) {

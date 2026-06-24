@@ -89,7 +89,7 @@ if [[ "$DETACH" -eq 1 ]]; then
     echo "already running pid=$(cat "$PIDFILE") log=$LOG"
     exit 0
   fi
-  nohup env MANGO_REPO_DIR="$REPO_DIR" MANGO_GROW_PRESET="$PRESET" bash "$0" --mode "$MODE" >>"$LOG" 2>&1 &
+  nohup env MANGO_REPO_DIR="$REPO_DIR" MANGO_GROW_PRESET="$PRESET" bash "$0" --mode "$MODE" >/dev/null 2>&1 &
   echo $! >"$PIDFILE"
   disown -h 2>/dev/null || true
   echo "started pid=$(cat "$PIDFILE") mode=$MODE preset=$PRESET log=$LOG"
@@ -109,4 +109,4 @@ trap cleanup_grow_pidfile EXIT
 
 echo "playability-grow: mode=$MODE preset=$PRESET" | tee -a "$LOG"
 export MANGO_GROW_PRESET="$PRESET"
-bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode "$MODE" 2>&1 | tee -a "$LOG"
+MANGO_GROW_LOG_WRAPPED=1 bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode "$MODE" 2>&1 | tee -a "$LOG"
