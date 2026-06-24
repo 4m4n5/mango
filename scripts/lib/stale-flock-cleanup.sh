@@ -6,9 +6,35 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 mkdir -p "$CACHE_DIR"
 
 removed=0
+
+lock_is_held() {
+  local lock="$1"
+  python3 - "$lock" <<'PY'
+import fcntl
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    with path.open("a+", encoding="utf-8") as handle:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            sys.exit(0)
+        finally:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+except OSError:
+    sys.exit(0)
+sys.exit(1)
+PY
+}
+
 for lock in "$CACHE_DIR"/*.lock; do
   [[ -f "$lock" ]] || continue
-  if fuser "$lock" >/dev/null 2>&1; then
+  if lock_is_held "$lock"; then
     continue
   fi
   rm -f "$lock"
