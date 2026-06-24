@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { access, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { GrowPresetId } from './grow-target.js';
@@ -244,12 +244,39 @@ function cacheDir(): string {
 }
 
 async function lockFileActive(relativePath: string): Promise<boolean> {
+  const lockPath = path.join(cacheDir(), relativePath);
   try {
-    await access(path.join(cacheDir(), relativePath));
-    return true;
+    await access(lockPath);
   } catch {
     return false;
   }
+  const probe = spawnSync('python3', [
+    '-c',
+    [
+      'import fcntl, os, sys',
+      'path = sys.argv[1]',
+      'try:',
+      '    fd = os.open(path, os.O_RDWR)',
+      'except OSError:',
+      '    sys.exit(0)',
+      'try:',
+      '    try:',
+      '        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)',
+      '    except BlockingIOError:',
+      '        sys.exit(1)',
+      '    sys.exit(0)',
+      'finally:',
+      '    os.close(fd)',
+    ].join('\n'),
+    lockPath,
+  ], { stdio: 'ignore' });
+  if (probe.status === 0) {
+    return false;
+  }
+  if (probe.status === 1) {
+    return true;
+  }
+  return true;
 }
 
 async function pidFileRunning(relativePath: string): Promise<boolean> {

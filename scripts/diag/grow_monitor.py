@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import os
 import sqlite3
@@ -95,6 +96,25 @@ def _pgrep(pattern: str) -> list[str]:
         return []
     lines = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
     return lines
+
+
+def _lock_file_active(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        with path.open("a+", encoding="utf-8") as handle:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            finally:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+    except OSError:
+        return True
+    return False
 
 
 def grow_run_state_path() -> Path:
@@ -192,7 +212,7 @@ def detect_grow_state() -> dict[str, Any]:
             pass
         pid = None
 
-    lock_held = maintenance_lock_path().is_file()
+    lock_held = _lock_file_active(maintenance_lock_path())
     indexer_lines = _pgrep(GROW_INDEXER_PATTERN)
     topup_lines = _pgrep("playability-top-up-rail.sh")
     maintenance_lines = [

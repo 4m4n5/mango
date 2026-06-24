@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import fcntl
 import sqlite3
 import tempfile
 import unittest
@@ -12,6 +13,7 @@ from pathlib import Path
 from grow_monitor import (
     SCHEMA_VERSION,
     _format_phase_line,
+    _lock_file_active,
     _normalize_baseline,
     assess_refresh_json,
     build_live_status,
@@ -25,6 +27,19 @@ from ops_grow_sla import list_grow_rail_ids
 
 
 class GrowMonitorTests(unittest.TestCase):
+    def test_stale_lock_file_is_not_active(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "playability-maintenance.lock"
+            lock.touch()
+            self.assertFalse(_lock_file_active(lock))
+
+            with lock.open("a+", encoding="utf-8") as handle:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                try:
+                    self.assertTrue(_lock_file_active(lock))
+                finally:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
     def test_normalize_legacy_flat_baseline(self) -> None:
         raw = {
             "ts": 1000,
