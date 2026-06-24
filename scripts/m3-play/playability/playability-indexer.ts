@@ -13,7 +13,7 @@ function usage(): never {
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
     '  playability-indexer.ts top-up --rail <rail-id> [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
-    '  playability-indexer.ts refresh --all [--mode grow|stale|nightly] [--preset quick|nightly|overnight] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts refresh --all [--mode grow|stale|nightly] [--preset quick|nightly|overnight] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>]',
   ].join('\n'));
   process.exit(2);
 }
@@ -28,6 +28,16 @@ function readFlag(args: string[], name: string): string | null {
 function readPositiveIntegerFlag(args: string[], name: string): number | undefined {
   const value = readFlag(args, name);
   if (value === null) return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    usage();
+  }
+  return parsed;
+}
+
+function readPositiveIntegerEnv(name: string): number | undefined {
+  const value = process.env[name];
+  if (value === undefined || value.trim() === '') return undefined;
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1) {
     usage();
@@ -183,6 +193,10 @@ async function main(): Promise<void> {
     const bootstrap = args.includes('--bootstrap');
     const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
     const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
+    const growWallMs = readPositiveIntegerFlag(args, '--grow-wall-ms')
+      ?? readPositiveIntegerEnv('MANGO_GROW_WALL_MS');
+    const growMaxAttempts = readPositiveIntegerFlag(args, '--grow-max-attempts')
+      ?? readPositiveIntegerEnv('MANGO_GROW_MAX_ATTEMPTS');
 
     const startedAt = Date.now();
     let core: CatalogCore;
@@ -197,7 +211,15 @@ async function main(): Promise<void> {
       }), 1);
     }
     try {
-      const result = await refreshAllRails(core, { mode, bootstrap, poolTarget, candidateLimit, growPreset });
+      const result = await refreshAllRails(core, {
+        mode,
+        bootstrap,
+        poolTarget,
+        candidateLimit,
+        growPreset,
+        growWallMs,
+        growMaxAttempts,
+      });
       await writeJsonAndExit(result, result.ok ? 0 : 1);
     } catch (error) {
       await writeJsonAndExit(structuredRefreshFailure({

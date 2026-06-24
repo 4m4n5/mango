@@ -47,6 +47,11 @@ bash scripts/m3-play/playability/grow-run-control.sh assess
 bash scripts/m3-play/playability/grow-run-control.sh abort
 ```
 
+`benchmark` is a real grow with a smaller target and budget for iteration:
+`MANGO_GROW_PER_PASS=5`, `MANGO_GROW_WALL_MS=180000`, and
+`MANGO_GROW_MAX_ATTEMPTS=80` by default. Override those env vars explicitly
+when a benchmark needs production-sized patience.
+
 Baseline file: `~/.cache/mango/grow-baseline.json` (schema v2 — `grow_rail_ids` + per-rail verified counts).
 
 Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending). The header also reports global orphan count and rail overlap health so pool hygiene is visible during long runs.
@@ -57,6 +62,10 @@ Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes le
 |--------|------|------------|-----|
 | `quick` | 10 min | 200 | Daily `--mode grow`, manual top-up |
 | `nightly` | 90 min | 500 | Nightly timer phase 2 (stale + grow) |
+
+The `benchmark` controller command still uses the `quick` preset, but overrides
+per-rail wall/probe budgets through `MANGO_GROW_WALL_MS` and
+`MANGO_GROW_MAX_ATTEMPTS` unless the operator already set them.
 
 Defaults when `MANGO_GROW_PRESET` is unset:
 
