@@ -24,11 +24,11 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 | `movies-quick-watches` | **86934** + **84444** + **69712** + **3885** + **86734** + Cinemeta `year` + **45854** | Streaming movies, stand-up, RT-short/easy picks, and shorts; no classics-heavy overlap |
 | `movies-documentaries` | **128051** + **84677** + **78210** + **2885** + **178241** + **100477** + **34451** + demoted **72165** | Broad doc supply; 72165 is retained at low weight after a 0/3 Pi stream probe |
 | `series-global-popular` | Cinemeta `top` + **88303** + **2194** + **88434** + **101882** + demoted **105797** | 88303 probed 3/3 on Pi; 105797 stays as low-weight recovery after 0/3 |
-| `series-india-picks` | **Bharat Binge** recent/latest_episodes/top_rated + **181302** + **166155** + **138454** + IndiaStreams trendingtv + **183642** + **49761** + Cinemeta `top` | Hindi/regional OTT and Indian TV pools; generic/global series only tiny anchor budget |
-| `series-classics` | Cinemeta `imdbRating` + **101882** + **143745** + **50087** | Anchor plus BBC/limited-series overlap where thematically valid |
+| `series-india-picks` | **Bharat Binge** Hindi/Tamil/Telugu/Malayalam/Kannada recent/latest_episodes/top_rated + **181302** + **166155** + **138454** + IndiaStreams trendingtv + **183642** + **49761** + Cinemeta `top` | Regional OTT series first; generic/global series only tiny anchor budget because the strict India profile rejects western/global titles |
+| `series-classics` | Cinemeta `imdbRating` + **101882** + **3086** + **50087** + **3087** + demoted **143745** | Anchor plus HBO/BBC provider depth for prestige/cache; limited-series overlap stays low because it is now exhausted on nightly grow |
 | `series-comedy` | Cinemeta `top` + **91224** + **83918** + **3122** + **142679** + **155168** + **49761** | Sitcom and comedy lists expand theme-safe supply beyond generic top shows |
 | `series-miniseries` | **143745** + **50083** + **169800** + **130152** + **147478** + **130153** | Limited-series lists from multiple curators; keep 130153 active but not sole supply |
-| `series-reality-casual` | **84401** + **147884** + **143024** + **122526** + demoted **63182** + **125320** + **125155** + Cinemeta `top` | 84401 probed 3/3 on Pi and becomes primary; 63182 is retained at low weight after 1/3 |
+| `series-reality-casual` | **84401** + promoted deep pool **147884** + **143024** + **122526** + demoted **63182** + **125320** + **125155** + tiny Cinemeta `top` | 84401 probed 3/3 on Pi and remains primary; 147884 gives depth; generic Cinemeta is only a recovery trickle |
 
 ## Measurement
 

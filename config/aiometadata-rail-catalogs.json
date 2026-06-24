@@ -229,6 +229,20 @@
       ]
     },
     {
+      "id": "mdblist.3086",
+      "name": "HBO Shows",
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
+      "id": "mdblist.3087",
+      "name": "BBC Shows",
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
       "id": "mdblist.3107",
       "name": "Comedy",
       "rails": [

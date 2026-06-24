@@ -44,19 +44,19 @@ rails:
     content_type: movie
     limit: 20
     sources:
-      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-movie, weight: 0.16 }
-      - { addon: "Bharat Binge", catalog: tmdb-ta-recent-movie, weight: 0.10 }
-      - { addon: "Bharat Binge", catalog: tmdb-te-recent-movie, weight: 0.10 }
-      - { addon: "Bharat Binge", catalog: tmdb-ml-recent-movie, weight: 0.08 }
-      - { addon: "Bharat Binge", catalog: tmdb-kn-recent-movie, weight: 0.06 }
-      - { addon: AIOMetadata, catalog: mdblist.170279, weight: 0.11 }
-      - { addon: AIOMetadata, catalog: mdblist.180437, weight: 0.08 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-movie, weight: 0.14 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-recent-movie, weight: 0.09 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-recent-movie, weight: 0.09 }
+      - { addon: "Bharat Binge", catalog: tmdb-ml-recent-movie, weight: 0.07 }
+      - { addon: "Bharat Binge", catalog: tmdb-kn-recent-movie, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.170279, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.180437, weight: 0.07 }
       - { addon: "Bharat Binge", catalog: tmdb-hi-surprise_me-movie, weight: 0.06 }
-      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-movie, weight: 0.05 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-movie, weight: 0.04 }
       - { addon: "Bharat Binge", catalog: tmdb-ta-top_rated-movie, weight: 0.04 }
       - { addon: "Bharat Binge", catalog: tmdb-te-top_rated-movie, weight: 0.04 }
-      - { addon: AIOMetadata, catalog: mdblist.183641, weight: 0.05 }
-      - { addon: AIOMetadata, catalog: mdblist.157957, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.183641, weight: 0.04 }
+      - { addon: AIOMetadata, catalog: mdblist.157957, weight: 0.03 }
       - { addon: "Bharat Binge", catalog: tmdb-ml-top_rated-movie, weight: 0.03 }
       - { addon: "Bharat Binge", catalog: tmdb-kn-top_rated-movie, weight: 0.03 }
       - { addon: "Bharat Binge", catalog: tmdb-ta-surprise_me-movie, weight: 0.02 }
@@ -197,16 +197,26 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-series, weight: 0.24 }
-      - { addon: "Bharat Binge", catalog: tmdb-hi-latest_episodes-series, weight: 0.18 }
-      - { addon: AIOMetadata, catalog: mdblist.181302, weight: 0.14 }
-      - { addon: AIOMetadata, catalog: mdblist.166155, weight: 0.10 }
-      - { addon: AIOMetadata, catalog: mdblist.138454, weight: 0.08 }
-      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-series, weight: 0.07 }
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.06 }
-      - { addon: AIOMetadata, catalog: mdblist.183642, weight: 0.06 }
-      - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.04 }
-      - { addon: Cinemeta, catalog: top, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-series, weight: 0.14 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-latest_episodes-series, weight: 0.09 }
+      - { addon: AIOMetadata, catalog: mdblist.181302, weight: 0.09 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-recent-series, weight: 0.08 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-recent-series, weight: 0.08 }
+      - { addon: "Bharat Binge", catalog: tmdb-ml-recent-series, weight: 0.06 }
+      - { addon: "Bharat Binge", catalog: tmdb-kn-recent-series, weight: 0.05 }
+      - { addon: AIOMetadata, catalog: mdblist.166155, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.138454, weight: 0.04 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-series, weight: 0.04 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-latest_episodes-series, weight: 0.04 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-latest_episodes-series, weight: 0.04 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-top_rated-series, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-top_rated-series, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-ml-top_rated-series, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-kn-top_rated-series, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.183642, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.01 }
+      - { addon: Cinemeta, catalog: top, weight: 0.01 }
     playability:
       display_limit: 9
       min_display: 6
@@ -224,10 +234,12 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: Cinemeta, catalog: imdbRating, weight: 0.40 }
-      - { addon: AIOMetadata, catalog: mdblist.101882, weight: 0.30 }
-      - { addon: AIOMetadata, catalog: mdblist.143745, weight: 0.15 }
-      - { addon: AIOMetadata, catalog: mdblist.50087, weight: 0.15 }
+      - { addon: Cinemeta, catalog: imdbRating, weight: 0.32 }
+      - { addon: AIOMetadata, catalog: mdblist.101882, weight: 0.24 }
+      - { addon: AIOMetadata, catalog: mdblist.3086, weight: 0.16 }
+      - { addon: AIOMetadata, catalog: mdblist.50087, weight: 0.12 }
+      - { addon: AIOMetadata, catalog: mdblist.3087, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.143745, weight: 0.06 }
     playability:
       display_limit: 9
       min_display: 6
@@ -268,13 +280,13 @@ rails:
     limit: 20
     sources:
       - { addon: AIOMetadata, catalog: mdblist.84401, weight: 0.35 }
-      - { addon: AIOMetadata, catalog: mdblist.147884, weight: 0.20 }
+      - { addon: AIOMetadata, catalog: mdblist.147884, weight: 0.25 }
       - { addon: AIOMetadata, catalog: mdblist.143024, weight: 0.14 }
       - { addon: AIOMetadata, catalog: mdblist.122526, weight: 0.10 }
-      - { addon: AIOMetadata, catalog: mdblist.63182, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.63182, weight: 0.04 }
       - { addon: AIOMetadata, catalog: mdblist.125320, weight: 0.05 }
       - { addon: AIOMetadata, catalog: mdblist.125155, weight: 0.05 }
-      - { addon: Cinemeta, catalog: top, weight: 0.05 }
+      - { addon: Cinemeta, catalog: top, weight: 0.02 }
     playability:
       display_limit: 9
       min_display: 6

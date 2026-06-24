@@ -91,6 +91,91 @@
       "id": "tmdb-hi-top_rated-series",
       "name": "Hindi Top Rated (series)",
       "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-hi-surprise_me-series",
+      "name": "Hindi Surprise Me (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-ta-recent-series",
+      "name": "Tamil New Releases (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-ta-latest_episodes-series",
+      "name": "Tamil Latest Episodes",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-ta-top_rated-series",
+      "name": "Tamil Top Rated (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-ta-surprise_me-series",
+      "name": "Tamil Surprise Me (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-te-recent-series",
+      "name": "Telugu New Releases (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-te-latest_episodes-series",
+      "name": "Telugu Latest Episodes",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-te-top_rated-series",
+      "name": "Telugu Top Rated (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-te-surprise_me-series",
+      "name": "Telugu Surprise Me (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-ml-recent-series",
+      "name": "Malayalam New Releases (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-ml-latest_episodes-series",
+      "name": "Malayalam Latest Episodes",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-ml-top_rated-series",
+      "name": "Malayalam Top Rated (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-ml-surprise_me-series",
+      "name": "Malayalam Surprise Me (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-kn-recent-series",
+      "name": "Kannada New Releases (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-kn-latest_episodes-series",
+      "name": "Kannada Latest Episodes",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-kn-top_rated-series",
+      "name": "Kannada Top Rated (series)",
+      "rails": ["series-india-picks"]
+    },
+    {
+      "id": "tmdb-kn-surprise_me-series",
+      "name": "Kannada Surprise Me (series)",
+      "rails": ["series-india-picks"]
     }
   ]
 }
