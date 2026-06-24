@@ -330,7 +330,7 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                     env=env,
                     capture_output=True,
                     check=False,
-                    timeout=15,
+                    timeout=6,
                 )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 self._write_json(

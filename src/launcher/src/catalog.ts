@@ -204,9 +204,23 @@ export async function prefetchStreams(card: ContentCard): Promise<void> {
   await loadStreams(card);
 }
 
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
 export async function cancelPlay(): Promise<void> {
   try {
-    await fetch("/api/catalog/play-cancel", { method: "POST" });
+    await fetchWithTimeout("/api/catalog/play-cancel", { method: "POST" }, 2500);
   } catch {
     // best-effort — mpv-stop on pad also bumps cancel epoch
   }
@@ -216,7 +230,7 @@ export async function cancelPlay(): Promise<void> {
 export async function stopPlaybackForVoice(): Promise<void> {
   await cancelPlay();
   try {
-    await fetch("/api/playback/stop", { method: "POST" });
+    await fetchWithTimeout("/api/playback/stop", { method: "POST" }, 7500);
   } catch {
     // mpv may already be stopped
   }

@@ -28,7 +28,7 @@ launch_home_once() {
 }
 
 trigger_library_refresh() {
-  curl -sf -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/playability/session/reshuffle" \
+  curl -sf --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/playability/session/reshuffle" \
     >/dev/null 2>&1 || true
   if command -v xdotool >/dev/null 2>&1; then
     local wid
@@ -40,8 +40,12 @@ trigger_library_refresh() {
 }
 
 if [[ -S "$SOCKET" ]]; then
-  curl -s -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
-  echo '{"command":["quit"]}' | socat - "$SOCKET" >/dev/null 2>&1 || true
+  curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
+  if command -v timeout >/dev/null 2>&1; then
+    echo '{"command":["quit"]}' | timeout 1s socat - "$SOCKET" >/dev/null 2>&1 || true
+  else
+    echo '{"command":["quit"]}' | socat - "$SOCKET" >/dev/null 2>&1 || true
+  fi
   launch_home_once
   sleep 0.2
 fi
