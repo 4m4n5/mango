@@ -35,7 +35,7 @@ gate_library_grow_entrypoints() {
   grep -q 'railsForGrowPass' src/catalog-service/src/playability/refresh.ts
   grep -q 'flushVerifyContextBatch' src/catalog-service/src/playability/grow-rail.ts
   grep -q 'GROW_DEEP_PAGE_BYPASS_REASONS' src/catalog-service/src/playability/grow-rail.ts
-  grep -q 'MANGO_GROW_NO_STREAM_RETRY_MS.*3600000' scripts/m3-play/playability/playability-maintenance.sh
+  grep -q 'MANGO_GROW_NO_STREAM_RETRY_MS.*86400000' scripts/m3-play/playability/playability-maintenance.sh
 }
 
 gate_library_grow_rail_impl() {

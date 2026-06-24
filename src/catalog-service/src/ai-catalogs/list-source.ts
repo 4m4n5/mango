@@ -44,6 +44,7 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
   private readonly sources: ResolvedCatalogSource[];
   private sourceOffsets = new Map<string, number>();
   private exhaustedSources = new Set<string>();
+  private suppressedSources = new Set<string>();
   private hitrateWeightMultipliers = new Map<string, number>();
 
   constructor(options: AiCatalogListSourceOptions) {
@@ -78,6 +79,14 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
     return this.sourceOffsets;
   }
 
+  setSuppressedSourceKeys(keys: ReadonlySet<string>): void {
+    this.suppressedSources = new Set(keys);
+  }
+
+  readSuppressedSourceKeys(): ReadonlySet<string> {
+    return this.suppressedSources;
+  }
+
   writeSourceOffsets(offsets: Map<string, number>): void {
     this.sourceOffsets = new Map(offsets);
     this.exhaustedSources.clear();
@@ -97,7 +106,9 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
       return seedDone;
     }
     const addonKeys = this.sources.map((source) => catalogSourceKey(source.addon, source.catalog));
-    return seedDone && addonKeys.every((key) => this.exhaustedSources.has(key));
+    return seedDone && addonKeys.every((key) => (
+      this.exhaustedSources.has(key) || this.suppressedSources.has(key)
+    ));
   }
 
   async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
@@ -132,6 +143,15 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
       const key = catalogSourceKey(source.addon, source.catalog);
       const start = this.sourceOffsets.get(key) ?? 0;
       const fetchLimit = perSourceLimits[index] ?? 1;
+      if (this.suppressedSources.has(key)) {
+        batches.push({
+          sourceIndex: index,
+          sourceLabel: source.sourceLabel,
+          weight: this.sourceWeight(source),
+          candidates: [],
+        });
+        continue;
+      }
       try {
         const candidates = await fetchAddonCatalogCandidates(
           source.manifestUrl,

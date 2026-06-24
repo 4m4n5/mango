@@ -5,7 +5,9 @@ import {
   getRailPlayabilityStatus,
   getRailPoolTitleKeys,
   getTitlesPlayabilityBulk,
+  getActiveRailCandidateRejectionKeys,
   pruneNonPlayableFromRailPools,
+  recordRailCandidateRejections,
   setRailIngestOffset,
   type PlayabilityRailStatus,
 } from './db.js';
@@ -35,6 +37,7 @@ import {
   playabilityGrowHeadTombstoneRatio,
   playabilityGrowHeadAdvanceMaxCycles,
   growLinkMaxPerRail,
+  playabilityRailRejectionTtlMsForReason,
 } from './config.js';
 import {
   createGrowthPassState,
@@ -63,6 +66,9 @@ import {
   recordSourceGrowOutcome,
   type SourceGrowStats,
 } from './source-hitrate-weights.js';
+import { isSuppressibleListSource } from './list-source.js';
+import { recordGrowRunState } from './grow-run-state.js';
+import { sourceCircuitDecision } from './grow-source-circuit.js';
 
 export type GrowRailResult = {
   rail_id: string;
@@ -95,6 +101,7 @@ export type GrowRailResult = {
   failed: number;
   skipped_existing: number;
   skipped_recent_failed: number;
+  skipped_rejected: number;
   exhausted: boolean;
   grow_loops: number;
   compose_escalated?: boolean;
@@ -187,6 +194,7 @@ export async function growRail(
       failed: 0,
       skipped_existing: 0,
       skipped_recent_failed: 0,
+      skipped_rejected: 0,
       exhausted: false,
       grow_loops: 0,
       results: [],
@@ -212,6 +220,7 @@ export async function growRail(
   let totalFailed = 0;
   let totalSkippedExisting = 0;
   let totalSkippedRecentFailed = 0;
+  let totalSkippedRejected = 0;
   let attempts = 0;
   let growLoops = 0;
   let maxSourcesTouched = 0;
@@ -222,6 +231,7 @@ export async function growRail(
   let composeFallbackLevel: number | undefined;
   let sourceResetCycles = 0;
   let headAdvanceCycles = 0;
+  const suppressedSources = new Map<string, string>();
   const maxSourceResetCycles = playabilityGrowSourceResetCycles();
   const maxHeadAdvanceCycles = playabilityGrowHeadAdvanceMaxCycles();
   const allowExistingVerifiedLinks = growLinkMaxPerRail() > 0;
@@ -315,9 +325,75 @@ export async function growRail(
     }
   }
 
+  function applySourceSuppressions(): void {
+    if (isSuppressibleListSource(listSource)) {
+      listSource.setSuppressedSourceKeys(new Set(suppressedSources.keys()));
+    }
+  }
+
+  function evaluateSourceCircuits(): void {
+    for (const stat of sourceStats.values()) {
+      if (suppressedSources.has(stat.source_key)) {
+        continue;
+      }
+      const decision = sourceCircuitDecision(stat);
+      if (decision.suppress && decision.reason) {
+        suppressedSources.set(stat.source_key, decision.reason);
+      }
+    }
+    applySourceSuppressions();
+  }
+
+  async function recordRejectedResults(
+    results: GrowRailResult['results'],
+    sourceByCandidateKey?: Map<string, string>,
+  ): Promise<void> {
+    const now = Date.now();
+    await recordRailCandidateRejections(results.flatMap((result) => {
+      if (result.action !== 'failed' && result.action !== 'skipped_theme') {
+        return [];
+      }
+      const reason = result.reason ?? result.action;
+      const ttl = playabilityRailRejectionTtlMsForReason(reason);
+      if (ttl <= 0) {
+        return [];
+      }
+      const sourceKey = sourceByCandidateKey?.get(`${result.type}:${result.id}`);
+      return (result.rails ?? [rail.id]).map((railId) => ({
+        rail_id: railId,
+        type: result.type,
+        id: result.id,
+        reason,
+        source_key: sourceKey,
+        run_id: process.env.MANGO_OPS_RUN_ID,
+        expires_at: now + ttl,
+      }));
+    }), now);
+  }
+
+  function heartbeat(message: string, extra: Record<string, unknown> = {}): void {
+    recordGrowRunState({
+      phase: 'grow',
+      message,
+      rail_id: rail.id,
+      rail_label: rail.label,
+      grow_target: growTarget,
+      fresh_verified: freshQuotaSoFar(),
+      attempts,
+      max_attempts: maxAttempts,
+      candidates_seen: totalCandidatesSeen,
+      skipped_rejected: totalSkippedRejected,
+      suppressed_sources: [...suppressedSources.entries()].map(([source, reason]) => `${source}:${reason}`),
+      elapsed_ms: Date.now() - startedAt,
+      wall_ms: wallMs,
+      ...extra,
+    });
+  }
+
   async function reloadIngestState(): Promise<void> {
     listSource = core.listSourceForRail(railId);
     weightsApplied = applyHitrateWeightsToListSource(listSource, rail.content_type) || weightsApplied;
+    applySourceSuppressions();
     if (isSourceCursorListSource(listSource)) {
       listSource.resetAllSourceOffsets();
     }
@@ -400,6 +476,8 @@ export async function growRail(
   }
 
   try {
+    applySourceSuppressions();
+    heartbeat(`grow ${rail.id}: starting 0/${growTarget}`);
     const globalLink = await runGlobalVerifiedLinkPass(
       rail as BrowsableRail,
       growLinkMaxPerRail(),
@@ -409,6 +487,7 @@ export async function growRail(
     totalLinked += globalLink.linked;
     totalLinkedGlobal += globalLink.linked_global;
     allResults.push(...globalLink.results);
+    await recordRejectedResults(globalLink.results);
 
     while (Date.now() - startedAt < wallMs && attempts < maxAttempts) {
       if (freshQuotaSoFar() >= growTarget) {
@@ -439,6 +518,7 @@ export async function growRail(
       }
       lastIngest = ingested;
       mergeIngestSourceStats(ingested);
+      evaluateSourceCircuits();
       growLoops += 1;
       maxSourcesTouched = Math.max(maxSourcesTouched, ingested.sources_touched ?? 0);
       totalCandidatesSeen += ingested.scanned;
@@ -463,14 +543,25 @@ export async function growRail(
         break;
       }
 
-      const candidates = ingested.candidates;
+      const rejectedKeys = await getActiveRailCandidateRejectionKeys(rail.id, ingested.candidates);
+      const candidates = ingested.candidates.filter((candidate) => {
+        const rejected = rejectedKeys.has(candidateKey(candidate));
+        if (rejected) {
+          totalSkippedRejected += 1;
+        }
+        return !rejected;
+      });
       const sourceByCandidateKey = new Map<string, string>();
-      for (const candidate of candidates) {
+      for (const candidate of ingested.candidates) {
         if (candidate.source_key || candidate.source) {
           sourceByCandidateKey.set(candidateKey(candidate), candidate.source_key ?? candidate.source ?? 'unknown');
         }
       }
       if (candidates.length === 0) {
+        heartbeat(
+          `grow ${rail.id}: ${freshQuotaSoFar()}/${growTarget} verified, skipped rejected page`,
+          { catalog_exhausted: ingested.catalog_exhausted },
+        );
         catalogExhausted = ingested.catalog_exhausted;
         if (catalogExhausted && await tryComposeOnExhaustion()) {
           continue;
@@ -478,7 +569,7 @@ export async function growRail(
         if (catalogExhausted && await trySourceAdvanceOnExhaustion()) {
           continue;
         }
-        break;
+        continue;
       }
       const refsByKey = new Map<string, RailCandidateRef[]>();
       for (const [index, candidate] of candidates.entries()) {
@@ -534,13 +625,23 @@ export async function growRail(
       totalSkippedRecentFailed += linked.skipped_recent_failed;
       allResults.push(...linked.results, ...processed.results);
       recordVerifyResultsBySource([...linked.results, ...processed.results], sourceByCandidateKey);
+      evaluateSourceCircuits();
 
       const madeLinkOrProbeProgress =
         linked.linked_existing > 0 || iterationAttempts > 0;
       if (madeLinkOrProbeProgress) {
         await flushVerifyContextBatch(context);
+      }
+      await recordRejectedResults([...linked.results, ...processed.results], sourceByCandidateKey);
+      if (madeLinkOrProbeProgress) {
         await syncFreshQuotaWithPool();
       }
+      heartbeat(`grow ${rail.id}: ${freshQuotaSoFar()}/${growTarget} verified`, {
+        loop: growLoops,
+        ingested_fresh_queued: ingested.fresh_queued,
+        verified: totalVerified,
+        failed: totalFailed,
+      });
 
       if (ingested.catalog_exhausted) {
         catalogExhausted = true;
@@ -605,6 +706,23 @@ export async function growRail(
     sourceStatsRows,
     { growTargetMet: targetMet, weighted: weightsApplied },
   );
+  recordGrowRunState({
+    phase: 'grow',
+    message: `grow ${rail.id}: ${freshVerified}/${growTarget} verified${targetMet ? '' : ' short'}`,
+    rail_id: rail.id,
+    rail_label: rail.label,
+    grow_target: growTarget,
+    fresh_verified: freshVerified,
+    attempts,
+    max_attempts: maxAttempts,
+    candidates_seen: totalCandidatesSeen,
+    skipped_rejected: totalSkippedRejected,
+    suppressed_sources: [...suppressedSources.entries()].map(([source, reason]) => `${source}:${reason}`),
+    elapsed_ms: Date.now() - startedAt,
+    wall_ms: wallMs,
+    ok: targetMet,
+    failure_category: failureCategory,
+  });
 
   return {
     rail_id: rail.id,
@@ -632,6 +750,7 @@ export async function growRail(
     failed: totalFailed,
     skipped_existing: totalSkippedExisting,
     skipped_recent_failed: totalSkippedRecentFailed,
+    skipped_rejected: totalSkippedRejected,
     exhausted,
     grow_loops: growLoops,
     compose_escalated: composeEscalated || undefined,

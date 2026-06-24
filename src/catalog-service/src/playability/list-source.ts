@@ -45,6 +45,11 @@ export interface SourceStatsListSource {
   readLastSourceFetchStats(): ListSourceFetchStats[];
 }
 
+export interface SuppressibleListSource {
+  setSuppressedSourceKeys(keys: ReadonlySet<string>): void;
+  readSuppressedSourceKeys(): ReadonlySet<string>;
+}
+
 export type ResolvedCatalogSource = CatalogSourceRef & {
   manifestUrl: string;
   sourceLabel: string;
@@ -154,6 +159,7 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
   readonly sourceType = 'addon_catalog' as const;
   private sourceOffsets = new Map<string, number>();
   private catalogExhausted = false;
+  private suppressedSources = new Set<string>();
   private lastFetchStats: ListSourceFetchStats[] = [];
 
   constructor(
@@ -187,6 +193,14 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
     return this.sourceOffsets;
   }
 
+  setSuppressedSourceKeys(keys: ReadonlySet<string>): void {
+    this.suppressedSources = new Set(keys);
+  }
+
+  readSuppressedSourceKeys(): ReadonlySet<string> {
+    return this.suppressedSources;
+  }
+
   writeSourceOffsets(offsets: Map<string, number>): void {
     this.sourceOffsets = new Map(offsets);
     this.catalogExhausted = false;
@@ -200,7 +214,7 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
   }
 
   areAllSourcesExhausted(): boolean {
-    return this.catalogExhausted;
+    return this.catalogExhausted || this.suppressedSources.has(this.cursorKey());
   }
 
   private cursorKey(): string {
@@ -211,6 +225,18 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
     const start = this.sourceOffsets.get(this.cursorKey()) ?? options.offset;
     const key = this.cursorKey();
     this.lastFetchStats = [];
+    if (this.suppressedSources.has(key)) {
+      this.lastFetchStats.push({
+        source_key: key,
+        source_label: this.sourceLabel,
+        requested: 0,
+        returned: 0,
+        errors: 0,
+        rate_limited: 0,
+        exhausted: true,
+      });
+      return [];
+    }
     let candidates: CandidateMeta[] = [];
     try {
       candidates = await fetchAddonCatalogCandidates(
@@ -260,6 +286,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
   readonly sourceType = 'composite_list' as const;
   private sourceOffsets = new Map<string, number>();
   private exhaustedSources = new Set<string>();
+  private suppressedSources = new Set<string>();
   private hitrateWeightMultipliers = new Map<string, number>();
   private lastFetchStats: ListSourceFetchStats[] = [];
 
@@ -290,6 +317,14 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
     return this.sourceOffsets;
   }
 
+  setSuppressedSourceKeys(keys: ReadonlySet<string>): void {
+    this.suppressedSources = new Set(keys);
+  }
+
+  readSuppressedSourceKeys(): ReadonlySet<string> {
+    return this.suppressedSources;
+  }
+
   writeSourceOffsets(offsets: Map<string, number>): void {
     this.sourceOffsets = new Map(offsets);
     this.exhaustedSources.clear();
@@ -304,7 +339,9 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
 
   areAllSourcesExhausted(): boolean {
     const keys = this.listSourceKeys();
-    return keys.length > 0 && keys.every((key) => this.exhaustedSources.has(key));
+    return keys.length > 0 && keys.every((key) => (
+      this.exhaustedSources.has(key) || this.suppressedSources.has(key)
+    ));
   }
 
   async candidates(options: { offset: number; limit: number }): Promise<CandidateMeta[]> {
@@ -324,7 +361,7 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
       const key = catalogSourceKey(source.addon, source.catalog);
       const start = this.sourceOffsets.get(key) ?? 0;
       const fetchLimit = perSourceLimits[index] ?? 1;
-      if (this.exhaustedSources.has(key)) {
+      if (this.exhaustedSources.has(key) || this.suppressedSources.has(key)) {
         this.lastFetchStats.push({
           source_key: key,
           source_label: source.sourceLabel,
@@ -406,4 +443,8 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
 
 export function isSourceStatsListSource(source: ListSource): source is ListSource & SourceStatsListSource {
   return typeof (source as unknown as SourceStatsListSource).readLastSourceFetchStats === 'function';
+}
+
+export function isSuppressibleListSource(source: ListSource): source is ListSource & SuppressibleListSource {
+  return typeof (source as unknown as SuppressibleListSource).setSuppressedSourceKeys === 'function';
 }

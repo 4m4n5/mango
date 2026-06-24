@@ -91,6 +91,12 @@ Disable: `MANGO_SOURCE_HITRATE_PREFLIGHT=0` and/or `MANGO_GROW_HITRATE_WEIGHTS=0
 
 Monitor phase file: `~/.cache/mango/grow-run-state.json` (also appended to `playability-grow.log`).
 
+During the TypeScript grow loop this file is refreshed after each rail loop
+with the active rail, target progress, attempts, candidates scanned,
+rail-rejection skips, and any source suppressions. This is a silent operator
+surface only; couch UI continues to serve the previous stable rail snapshot
+unless the strict grow run succeeds.
+
 ## Global link pass (optional bonus)
 
 When `MANGO_GROW_LINK_MAX` > 0, each rail grow session may link globally verified titles
@@ -118,6 +124,25 @@ Grow monitor header shows **unique titles** separately from **pool slots**.
 On the first ingest loops, when `skipped_recent_failed` dominates the page (default ≥50%),
 cursors advance by `MANGO_GROW_HEAD_ADVANCE_PAGES` (default 5) without consuming deep-page reset cycles.
 Tune: `MANGO_GROW_HEAD_TOMBSTONE_RATIO`, `MANGO_GROW_HEAD_ADVANCE_MAX_CYCLES`.
+
+## Rejection ledger and source circuits
+
+Grow writes rail-specific negative memory to `rail_candidate_rejections`:
+
+| Reason | Default TTL | Effect |
+|--------|-------------|--------|
+| `theme_mismatch` / `theme_probe_skip` | 7 days | Do not probe/link this title for that rail until the theme window expires |
+| `no_stream` / `title_mismatch` | 24h | Avoid re-testing the same stream miss during long strict grow windows |
+| other probe failures | 24h | Keep bounded negative memory without making failures permanent |
+
+Tune: `MANGO_GROW_THEME_REJECTION_TTL_MS`,
+`MANGO_GROW_NO_STREAM_REJECTION_TTL_MS`, `MANGO_GROW_REJECTION_TTL_MS`.
+
+Within a rail run, source circuits suppress a source after bounded evidence of
+rate limits, catalog errors, zero verified yield, extreme theme rejection, or
+low stream hit-rate. Suppression is in-memory for the active rail run; longer
+term promotion/demotion still comes from runtime source-grow weights in
+`~/.cache/mango/source-grow/latest.json`.
 
 ## SLA section (PR6)
 

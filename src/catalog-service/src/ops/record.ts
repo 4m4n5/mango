@@ -68,6 +68,7 @@ export function recordRefreshOps(
         verified_before: rail.before.verified_pool,
         verified_after: rail.after.verified_pool,
         failed: rail.failed,
+        skipped_rejected: rail.skipped_rejected,
         exhausted: rail.exhausted,
       })),
     },

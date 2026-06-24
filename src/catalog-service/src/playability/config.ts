@@ -95,7 +95,7 @@ export function playabilityFailedRetryMsForReason(reason?: string | null): numbe
       if (isPlayabilityGrowPass()) {
         return positiveDurationMs(
           process.env.MANGO_GROW_NO_STREAM_RETRY_MS,
-          1 * 60 * 60 * 1000,
+          24 * 60 * 60 * 1000,
           0,
           7 * 24 * 60 * 60 * 1000,
         );
@@ -119,6 +119,44 @@ export function playabilityFailedRetryMsForReason(reason?: string | null): numbe
   }
 }
 
+export function playabilityRailRejectionTtlMsForReason(reason?: string | null): number {
+  if (playabilityBootstrapFill()) {
+    return 0;
+  }
+  switch (reason) {
+    case 'theme_mismatch':
+    case 'theme_probe_skip':
+      return positiveDurationMs(
+        process.env.MANGO_GROW_THEME_REJECTION_TTL_MS,
+        7 * 24 * 60 * 60 * 1000,
+        0,
+        30 * 24 * 60 * 60 * 1000,
+      );
+    case 'no_stream':
+    case 'title_mismatch':
+      return positiveDurationMs(
+        process.env.MANGO_GROW_NO_STREAM_REJECTION_TTL_MS
+          ?? process.env.MANGO_GROW_NO_STREAM_RETRY_MS,
+        24 * 60 * 60 * 1000,
+        0,
+        7 * 24 * 60 * 60 * 1000,
+      );
+    case 'rate_limited':
+      return positiveDurationMs(
+        process.env.MANGO_GROW_RATE_LIMIT_REJECTION_TTL_MS,
+        60 * 60 * 1000,
+        0,
+        24 * 60 * 60 * 1000,
+      );
+    default:
+      return positiveDurationMs(
+        process.env.MANGO_GROW_REJECTION_TTL_MS,
+        24 * 60 * 60 * 1000,
+        0,
+        14 * 24 * 60 * 60 * 1000,
+      );
+  }
+}
 export function playabilityVerifyMinDurationSec(contentType?: string): number {
   // Indexer probes: reject debrid status clips (~30–90s) without requiring full runtime.
   if (contentType === 'series') {
@@ -212,6 +250,34 @@ export function growIngestFreshTarget(remainingQuota: number, batchDefault: numb
 /** Max cross-rail links per grow session (0 = global link pass off). Links never count toward grow quota. */
 export function growLinkMaxPerRail(): number {
   return boundedInt(process.env.MANGO_GROW_LINK_MAX, 0, 0, 20);
+}
+
+export function playabilityGrowSourceCircuitBreakerEnabled(): boolean {
+  return process.env.MANGO_GROW_SOURCE_CIRCUIT_BREAKER !== '0';
+}
+
+export function playabilityGrowSourceNoVerifyScanLimit(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_NO_VERIFY_SCAN_LIMIT, 200, 25, 5000);
+}
+
+export function playabilityGrowSourceThemeRejectMinSamples(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_THEME_REJECT_MIN_SAMPLES, 25, 5, 500);
+}
+
+export function playabilityGrowSourceThemeRejectRatio(): number {
+  return boundedFloat(process.env.MANGO_GROW_SOURCE_THEME_REJECT_RATIO, 0.85, 0.1, 1);
+}
+
+export function playabilityGrowSourceFailMinSamples(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_FAIL_MIN_SAMPLES, 30, 5, 500);
+}
+
+export function playabilityGrowSourceFailRatio(): number {
+  return boundedFloat(process.env.MANGO_GROW_SOURCE_FAIL_RATIO, 0.85, 0.1, 1);
+}
+
+export function playabilityGrowSourceCatalogErrorLimit(): number {
+  return boundedInt(process.env.MANGO_GROW_SOURCE_CATALOG_ERROR_LIMIT, 2, 1, 20);
 }
 
 export function isPlayabilityGrowthMode(mode?: string): boolean {

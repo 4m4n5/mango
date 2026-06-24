@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   playabilityFailedRetryMsForReason,
+  playabilityRailRejectionTtlMsForReason,
 } from './config.js';
 
 const ENV = { ...process.env };
@@ -10,11 +11,11 @@ test.afterEach(() => {
   process.env = { ...ENV };
 });
 
-test('playabilityFailedRetryMsForReason uses shorter window for no_stream during grow pass', () => {
+test('playabilityFailedRetryMsForReason uses full-day window for no_stream during grow pass', () => {
   const prev = process.env.MANGO_PLAYABILITY_GROW_PASS;
   process.env.MANGO_PLAYABILITY_GROW_PASS = '1';
   try {
-    assert.equal(playabilityFailedRetryMsForReason('no_stream'), 1 * 60 * 60 * 1000);
+    assert.equal(playabilityFailedRetryMsForReason('no_stream'), 24 * 60 * 60 * 1000);
   } finally {
     if (prev === undefined) {
       delete process.env.MANGO_PLAYABILITY_GROW_PASS;
@@ -22,6 +23,13 @@ test('playabilityFailedRetryMsForReason uses shorter window for no_stream during
       process.env.MANGO_PLAYABILITY_GROW_PASS = prev;
     }
   }
+});
+
+test('playabilityRailRejectionTtlMsForReason classifies rail-level negative memory', () => {
+  delete process.env.MANGO_PLAYABILITY_BOOTSTRAP;
+  assert.equal(playabilityRailRejectionTtlMsForReason('theme_probe_skip'), 7 * 24 * 60 * 60 * 1000);
+  assert.equal(playabilityRailRejectionTtlMsForReason('no_stream'), 24 * 60 * 60 * 1000);
+  assert.equal(playabilityRailRejectionTtlMsForReason('rate_limited'), 60 * 60 * 1000);
 });
 
 test('playabilityFailedRetryMsForReason uses long window for no_stream', () => {

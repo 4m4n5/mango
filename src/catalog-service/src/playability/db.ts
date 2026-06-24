@@ -19,7 +19,7 @@ import type { RailPlayabilityConfig } from '../rails.js';
 import { effectiveDisplayLimit } from './pool-growth.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 export type PlayabilityRailStatus = {
   rail_id: string;
@@ -93,6 +93,17 @@ export type RailPoolEntry = {
   title?: string | null;
   poster_url?: string | null;
   year?: string | null;
+};
+
+export type RailCandidateRejectionRecord = {
+  rail_id: string;
+  type: string;
+  id: string;
+  reason: string;
+  source_key?: string | null;
+  run_id?: string | null;
+  expires_at: number;
+  details?: string | null;
 };
 
 export type RailSessionPoolItem = {
@@ -197,6 +208,18 @@ type RailPoolRow = {
 type RecentRow = {
   type: string;
   id: string;
+};
+
+type RailCandidateRejectionRow = {
+  rail_id: string;
+  type: string;
+  id: string;
+  reason: string;
+  source_key: string | null;
+  run_id: string | null;
+  created_at: number;
+  expires_at: number;
+  details: string | null;
 };
 
 function dbPath(): string {
@@ -451,12 +474,26 @@ CREATE TABLE IF NOT EXISTS playability_triggers (
   handled_at INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS rail_candidate_rejections (
+  rail_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  source_key TEXT,
+  run_id TEXT,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  details TEXT,
+  PRIMARY KEY (rail_id, type, id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_titles_status_expires ON titles(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_rail_pool_rail_score ON rail_pool(rail_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_rail_session_session ON rail_session(session_id, rail_id, slot);
 CREATE INDEX IF NOT EXISTS idx_recently_shown_rail_time ON recently_shown(rail_id, shown_at);
 CREATE INDEX IF NOT EXISTS idx_verify_log_started ON verify_log(started_at);
 CREATE INDEX IF NOT EXISTS idx_playability_triggers_open ON playability_triggers(handled_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_rail_candidate_rejections_active ON rail_candidate_rejections(rail_id, expires_at);
 
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (${SCHEMA_VERSION}, ${nowMs()});
@@ -514,6 +551,26 @@ CREATE INDEX IF NOT EXISTS idx_rail_source_ingest_rail ON rail_source_ingest_sta
   db.prepare(`
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (5, @applied_at);
+`).run({ applied_at: nowMs() });
+  db.exec(`
+CREATE TABLE IF NOT EXISTS rail_candidate_rejections (
+  rail_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  source_key TEXT,
+  run_id TEXT,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  details TEXT,
+  PRIMARY KEY (rail_id, type, id)
+);
+CREATE INDEX IF NOT EXISTS idx_rail_candidate_rejections_active
+  ON rail_candidate_rejections(rail_id, expires_at);
+`);
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (6, @applied_at);
 `).run({ applied_at: nowMs() });
 }
 
@@ -679,6 +736,132 @@ WHERE status = 'verified'
   AND (expires_at IS NULL OR expires_at > @now);
 `).get({ now }) as { c: number } | undefined;
     return toNumber(row?.c);
+  } finally {
+    db.close();
+  }
+}
+
+export async function recordRailCandidateRejections(
+  records: RailCandidateRejectionRecord[],
+  now = nowMs(),
+): Promise<number> {
+  const activeRecords = records.filter((record) => record.expires_at > now);
+  if (activeRecords.length === 0) {
+    return 0;
+  }
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const unique = new Map<string, RailCandidateRejectionRecord>();
+    for (const record of activeRecords) {
+      unique.set(`${record.rail_id}:${titleKey(record.type, record.id)}`, record);
+    }
+    const stmt = db.prepare(`
+INSERT INTO rail_candidate_rejections (
+  rail_id, type, id, reason, source_key, run_id, created_at, expires_at, details
+) VALUES (
+  @rail_id, @type, @id, @reason, @source_key, @run_id, @created_at, @expires_at, @details
+)
+ON CONFLICT(rail_id, type, id) DO UPDATE SET
+  reason = excluded.reason,
+  source_key = COALESCE(excluded.source_key, rail_candidate_rejections.source_key),
+  run_id = COALESCE(excluded.run_id, rail_candidate_rejections.run_id),
+  created_at = excluded.created_at,
+  expires_at = MAX(rail_candidate_rejections.expires_at, excluded.expires_at),
+  details = COALESCE(excluded.details, rail_candidate_rejections.details);
+`);
+    const transaction = db.transaction(() => {
+      for (const record of unique.values()) {
+        stmt.run({
+          rail_id: record.rail_id,
+          type: record.type,
+          id: record.id,
+          reason: record.reason,
+          source_key: record.source_key ?? null,
+          run_id: record.run_id ?? null,
+          created_at: now,
+          expires_at: record.expires_at,
+          details: record.details ?? null,
+        });
+      }
+    });
+    transaction();
+    return unique.size;
+  } finally {
+    db.close();
+  }
+}
+
+export async function getActiveRailCandidateRejectionKeys(
+  railId: string,
+  keys: Array<{ type: string; id: string }>,
+  now = nowMs(),
+): Promise<Set<string>> {
+  const result = new Set<string>();
+  if (keys.length === 0) {
+    return result;
+  }
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const unique = new Map<string, { type: string; id: string }>();
+    for (const key of keys) {
+      unique.set(titleKey(key.type, key.id), key);
+    }
+    const values = [...unique.values()];
+    const chunkSize = 200;
+    for (let offset = 0; offset < values.length; offset += chunkSize) {
+      const chunk = values.slice(offset, offset + chunkSize);
+      const placeholders = chunk.map((_, index) => `( @type_${index}, @id_${index} )`).join(', ');
+      const params: Record<string, string | number> = { rail_id: railId, now };
+      chunk.forEach((entry, index) => {
+        params[`type_${index}`] = entry.type;
+        params[`id_${index}`] = entry.id;
+      });
+      const rows = db.prepare(`
+SELECT type, id
+FROM rail_candidate_rejections
+WHERE rail_id = @rail_id
+  AND expires_at > @now
+  AND (type, id) IN ( VALUES ${placeholders} );
+`).all(params) as RailPoolKeyRow[];
+      for (const row of rows) {
+        result.add(titleKey(row.type, row.id));
+      }
+    }
+    return result;
+  } finally {
+    db.close();
+  }
+}
+
+export async function listActiveRailCandidateRejections(
+  railId: string,
+  now = nowMs(),
+): Promise<RailCandidateRejectionRow[]> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    return db.prepare(`
+SELECT rail_id, type, id, reason, source_key, run_id, created_at, expires_at, details
+FROM rail_candidate_rejections
+WHERE rail_id = @rail_id AND expires_at > @now
+ORDER BY expires_at DESC, type, id;
+`).all({ rail_id: railId, now }) as RailCandidateRejectionRow[];
+  } finally {
+    db.close();
+  }
+}
+
+export async function clearExpiredRailCandidateRejections(now = nowMs()): Promise<number> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const result = db.prepare(`
+DELETE FROM rail_candidate_rejections
+WHERE expires_at <= @now;
+`).run({ now });
+    return result.changes;
   } finally {
     db.close();
   }

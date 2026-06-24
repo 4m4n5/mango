@@ -110,6 +110,7 @@ export type RefreshRailSummary = {
   failed: number;
   skipped_existing: number;
   skipped_recent_failed: number;
+  skipped_rejected?: number;
   exhausted: boolean;
   compose_escalated?: boolean;
   compose_fallback_level?: number;
@@ -130,6 +131,7 @@ export type RefreshAllResult = {
   failed: number;
   skipped_existing: number;
   skipped_recent_failed: number;
+  skipped_rejected?: number;
   batch_flush: { verify_count: number; pool_count: number };
   pruned_pool_entries: number;
   ingest_fresh_queued: number;
@@ -193,6 +195,7 @@ function growResultToRailSummary(
     failed: result.failed,
     skipped_existing: result.skipped_existing,
     skipped_recent_failed: result.skipped_recent_failed,
+    skipped_rejected: result.skipped_rejected,
     exhausted: result.exhausted,
     compose_escalated: result.compose_escalated,
     compose_fallback_level: result.compose_fallback_level,
@@ -260,6 +263,7 @@ async function refreshAllRailsGrow(
     failed: railSummaries.reduce((sum, rail) => sum + rail.failed, 0),
     skipped_existing: railSummaries.reduce((sum, rail) => sum + rail.skipped_existing, 0),
     skipped_recent_failed: railSummaries.reduce((sum, rail) => sum + rail.skipped_recent_failed, 0),
+    skipped_rejected: railSummaries.reduce((sum, rail) => sum + (rail.skipped_rejected ?? 0), 0),
     batch_flush: { verify_count: 0, pool_count: 0 },
     pruned_pool_entries: 0,
     ingest_fresh_queued: railSummaries.reduce(

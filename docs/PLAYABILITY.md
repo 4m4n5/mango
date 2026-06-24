@@ -127,8 +127,17 @@ Addons (Cinemeta, AIOMetadata, AIOStreams) throttle aggressive meta/stream burst
 | Gate-lite + deploy restart | M4 stream gate uses fixture corpus only — bounded |
 | Grow preflight | Quick: 1 probe/source (skip if report <24h); nightly: 3/source |
 | Live/IPTV addon rate limit during VOD grow | Playability refresh boots catalog-service in VOD mode and skips optional Live manifests |
+| Repeated bad candidates during long grow | Rail-specific rejection ledger skips recent theme/stream misses before probing |
+| One weak source burns a rail window | Runtime source circuit breakers suppress rate-limited, exhausted, theme-mismatched, or low-hit sources for the current rail run |
 
 Catalog env: `MANGO_META_RATE_LIMIT_BACKOFF_MS` (default 5 min) · `MANGO_RAIL_META_CONCURRENCY` (default 6)
+
+Grow negative memory is runtime-only:
+
+- `rail_candidate_rejections` lives in `playability.db` and is scoped to `rail_id + title`.
+- Theme rejects default to a 7-day rail TTL; no-stream/title-mismatch grow rejects default to 24h.
+- Runtime source weights and source suppressions never edit catalog YAML or theme profiles.
+- Monitor state is written to `~/.cache/mango/grow-run-state.json`; it is operator-only and not shown on TV.
 
 If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_category`, and `repair_suggestions`; use `python3 scripts/diag/grow_monitor.py assess --refresh-json <file>`.
 
