@@ -69,6 +69,10 @@ import {
 import { isSuppressibleListSource } from './list-source.js';
 import { recordGrowRunState } from './grow-run-state.js';
 import { sourceCircuitDecision } from './grow-source-circuit.js';
+import {
+  sourceAdvanceJump,
+  sourceOffsetsForGrowOutcome,
+} from './grow-cursor-policy.js';
 
 export type GrowRailResult = {
   rail_id: string;
@@ -231,6 +235,9 @@ export async function growRail(
   let composeFallbackLevel: number | undefined;
   let sourceResetCycles = 0;
   let headAdvanceCycles = 0;
+  let usedDeepSourceAdvance = false;
+  let preDeepSourceOffsets: Map<string, number> | undefined;
+  let preDeepIngestOffset: number | undefined;
   const suppressedSources = new Map<string, string>();
   const maxSourceResetCycles = playabilityGrowSourceResetCycles();
   const maxHeadAdvanceCycles = playabilityGrowHeadAdvanceMaxCycles();
@@ -429,19 +436,24 @@ export async function growRail(
       return false;
     }
     sourceResetCycles += 1;
+    usedDeepSourceAdvance = true;
     catalogExhausted = false;
-    const jump = playabilityIngestPageSize() * playabilityGrowSourceAdvancePages() * sourceResetCycles;
+    const jump = sourceAdvanceJump(playabilityIngestPageSize(), playabilityGrowSourceAdvancePages());
     if (isSourceCursorListSource(listSource)) {
+      if (!preDeepSourceOffsets) {
+        preDeepSourceOffsets = new Map(listSource.readSourceOffsets());
+      }
       const offsets = new Map(listSource.readSourceOffsets());
       for (const key of listSource.listSourceKeys()) {
         offsets.set(key, (offsets.get(key) ?? 0) + jump);
       }
       listSource.writeSourceOffsets(offsets);
-      await persistSourceOffsetsForListSource(rail.id, listSource);
       sourceOffsets = offsets;
     } else {
+      if (preDeepIngestOffset === undefined) {
+        preDeepIngestOffset = ingestOffset;
+      }
       ingestOffset += jump;
-      await setRailIngestOffset(rail.id, ingestOffset);
     }
     return true;
   }
@@ -510,8 +522,10 @@ export async function growRail(
         bypassRecentFailedReasons: deepPageBypass,
       });
       if (sourceOffsets && isSourceCursorListSource(listSource)) {
-        await persistSourceOffsetsForListSource(rail.id, listSource);
         sourceOffsets = new Map(listSource.readSourceOffsets());
+        if (!usedDeepSourceAdvance) {
+          await persistSourceOffsetsForListSource(rail.id, listSource);
+        }
       } else {
         await setRailIngestOffset(rail.id, ingested.next_offset);
         ingestOffset = ingested.next_offset;
@@ -682,6 +696,22 @@ export async function growRail(
   const freshVerified = strictFreshFromStatus(after);
   setGrowthPassFreshCount(growthPass, rail.id, freshVerified);
   const targetMet = freshVerified >= growTarget;
+  if (sourceOffsets && isSourceCursorListSource(listSource)) {
+    const offsetsToPersist = sourceOffsetsForGrowOutcome({
+      targetMet,
+      usedDeepSourceAdvance,
+      preDeepSourceOffsets,
+      finalSourceOffsets: listSource.readSourceOffsets(),
+    });
+    if (offsetsToPersist) {
+      listSource.writeSourceOffsets(offsetsToPersist);
+      await persistSourceOffsetsForListSource(rail.id, listSource);
+      sourceOffsets = offsetsToPersist;
+    }
+  } else if (usedDeepSourceAdvance && !targetMet && preDeepIngestOffset !== undefined) {
+    ingestOffset = preDeepIngestOffset;
+    await setRailIngestOffset(rail.id, ingestOffset);
+  }
   const exhausted = !targetMet && catalogExhausted;
   const sourceStatsRows = [...sourceStats.values()];
   const failureCategory = targetMet

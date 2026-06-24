@@ -62,15 +62,14 @@ export function recordGrowRunState(update: GrowRunStateUpdate, options: { log?: 
   try {
     mkdirSync(dirname(path), { recursive: true });
     const previous = loadPreviousState(path);
-    const merged = {
-      ...previous,
+    const state = {
       ...update,
       run_id: update.run_id ?? process.env.MANGO_OPS_RUN_ID ?? previous.run_id,
       mode: update.mode ?? process.env.MANGO_PLAYABILITY_REFRESH_MODE ?? previous.mode,
       preset: update.preset ?? process.env.MANGO_GROW_PRESET ?? previous.preset,
       updated_at: update.updated_at ?? new Date().toISOString(),
     };
-    writeFileSync(path, `${JSON.stringify(merged, null, 2)}\n`, 'utf8');
+    writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
   } catch {
     // Monitoring state must never fail a grow run.
   }

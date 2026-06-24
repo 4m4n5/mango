@@ -134,7 +134,11 @@ def load_grow_run_state() -> dict[str, Any] | None:
 
 def _count_active_probes() -> int:
     lines = _pgrep("mpv-probe-ipc.sh")
-    return len(lines)
+    wrappers = [
+        line for line in lines
+        if "timeout --kill-after=3" in line and "mpv-probe-ipc.sh" in line
+    ]
+    return len(wrappers)
 
 
 def _couch_stack_up() -> bool:

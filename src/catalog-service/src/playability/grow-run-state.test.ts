@@ -26,7 +26,9 @@ test('recordGrowRunState writes operator-only grow progress and preserves run id
     recordGrowRunState({
       phase: 'grow',
       rail_id: 'movies-comedy',
+      grow_target: 20,
       fresh_verified: 4,
+      message: 'grow movies-comedy: 4/20 verified',
     });
 
     const state = JSON.parse(await readFile(growRunStatePath(), 'utf8')) as {
@@ -41,6 +43,39 @@ test('recordGrowRunState writes operator-only grow progress and preserves run id
     assert.equal(state.rail_id, 'movies-comedy');
     assert.equal(state.grow_target, 20);
     assert.equal(state.fresh_verified, 4);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('recordGrowRunState does not leak stale rail outcome fields', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-grow-state-'));
+  process.env.XDG_CACHE_HOME = dir;
+  process.env.MANGO_OPS_RUN_ID = 'run-456';
+  try {
+    recordGrowRunState({
+      phase: 'grow',
+      rail_id: 'series-classics',
+      message: 'grow series-classics: 1/20 short',
+      grow_target: 20,
+      fresh_verified: 1,
+      ok: false,
+      failure_category: 'theme_rejected',
+    });
+    recordGrowRunState({
+      phase: 'grow',
+      rail_id: 'series-miniseries',
+      message: 'grow series-miniseries: starting 0/20',
+      grow_target: 20,
+      fresh_verified: 0,
+    });
+
+    const state = JSON.parse(await readFile(growRunStatePath(), 'utf8')) as Record<string, unknown>;
+    assert.equal(state.run_id, 'run-456');
+    assert.equal(state.rail_id, 'series-miniseries');
+    assert.equal(state.fresh_verified, 0);
+    assert.equal(Object.prototype.hasOwnProperty.call(state, 'ok'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(state, 'failure_category'), false);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
