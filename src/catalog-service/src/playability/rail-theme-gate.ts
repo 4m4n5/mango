@@ -54,6 +54,16 @@ function evaluateHaystack(
   return { fit: true, score, reason: 'title_match' };
 }
 
+function candidateThemeText(candidate: CandidateMeta): string {
+  return [
+    candidate.title,
+    candidate.source_name,
+    candidate.source,
+  ]
+    .filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+    .join(' ');
+}
+
 export function themeGateEnabled(): boolean {
   return process.env.MANGO_RAIL_THEME_GATE !== '0';
 }
@@ -99,7 +109,7 @@ export class RailThemeGate {
     if (ANCHOR_RAILS.has(railId)) {
       return { fit: true, score: profile.min_fit, reason: 'anchor' };
     }
-    const haystack = metaHaystack(null, candidate.title);
+    const haystack = metaHaystack(null, candidateThemeText(candidate));
     const runtimeMinutes = candidate.type === 'movie' ? null : null;
     return evaluateHaystack(haystack, profile, runtimeMinutes);
   }
@@ -133,7 +143,7 @@ export class RailThemeGate {
     }
 
     const meta = await this.fetchMeta(candidate.type, candidate.id);
-    const haystack = metaHaystack(meta, candidate.title);
+    const haystack = metaHaystack(meta, candidateThemeText(candidate));
     const runtimeMinutes = candidate.type === 'movie' ? parseRuntimeMinutes(meta) : null;
     const scored = evaluateHaystack(haystack, profile, runtimeMinutes);
     return {

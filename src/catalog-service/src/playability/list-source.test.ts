@@ -38,8 +38,15 @@ test('fetchAddonCatalogCandidates canonicalizes series episode ids to title ids'
       'tmdb-hi-latest_episodes-series',
       'A/latest',
       { offset: 0, limit: 10 },
+      {
+        sourceKey: 'A:latest',
+        addon: 'A',
+        catalog: 'tmdb-hi-latest_episodes-series',
+        sourceName: 'Latest Episodes',
+      },
     );
     assert.deepEqual(candidates.map((candidate) => candidate.id), ['tt18266602', 'tt12004706']);
+    assert.equal(candidates[0]?.source_name, 'Latest Episodes');
   } finally {
     globalThis.fetch = originalFetch;
   }

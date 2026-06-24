@@ -41,7 +41,7 @@ rails:
 
   series-india-picks:
     intent: india hindi bollywood tamil telugu malayalam kannada bengali marathi punjabi desi hotstar zee sonyliv voot jio panchayat sacred games
-    exclude: hollywood american british korean japanese anime french german spanish hbo netflix worldwide western european
+    exclude: hollywood american british korean japanese anime french german spanish hbo worldwide western european
     min_fit: 10
 
   series-classics:
@@ -52,7 +52,7 @@ rails:
   series-miniseries:
     intent: miniseries limited series anthology finite season
     exclude: reality soap opera
-    min_fit: 0
+    min_fit: 8
 
   series-reality-casual:
     intent: reality game show competition dating survivor bachelor bachelorette amazing race idol talent cooking renovation housewives

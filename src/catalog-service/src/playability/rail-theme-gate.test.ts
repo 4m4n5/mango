@@ -76,6 +76,36 @@ test('scoreTitleOnly allows anchor rails broadly', () => {
   assert.equal(fit.reason, 'anchor');
 });
 
+test('scoreTitleOnly uses source name evidence without admitting generic series sources', () => {
+  const gate = RailThemeGate.forTest(
+    new Map([
+      ['series-miniseries', profile(
+        'series-miniseries',
+        'miniseries limited series anthology finite season',
+        'reality soap opera',
+        8,
+      )],
+    ]),
+    parseRailCurationOverrides('version: 1\npins: []\nblocks: []'),
+  );
+
+  const explicit = gate.scoreTitleOnly('series-miniseries', {
+    type: 'series',
+    id: 'tt1',
+    title: 'Unknown Title',
+    source_name: 'Top Miniseries',
+  });
+  assert.equal(explicit.fit, true);
+
+  const generic = gate.scoreTitleOnly('series-miniseries', {
+    type: 'series',
+    id: 'tt2',
+    title: 'Unknown Title',
+    source_name: 'HBO Shows',
+  });
+  assert.equal(generic.fit, false);
+});
+
 test('shouldSkipProbe skips clear exclude matches', () => {
   const gate = RailThemeGate.forTest(
     new Map([

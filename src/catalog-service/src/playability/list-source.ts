@@ -22,6 +22,7 @@ export type CandidateMeta = {
   poster?: string;
   year?: number | string;
   source?: string;
+  source_name?: string;
   source_key?: string;
   source_addon?: string;
   source_catalog?: string;
@@ -55,6 +56,7 @@ export interface SuppressibleListSource {
 export type ResolvedCatalogSource = CatalogSourceRef & {
   manifestUrl: string;
   sourceLabel: string;
+  sourceName?: string;
 };
 
 export function resourceUrl(manifestUrl: string, resource: string, type: string, id: string): string {
@@ -152,7 +154,7 @@ export async function fetchAddonCatalogCandidates(
   catalog: string,
   sourceLabel: string,
   options: { offset: number; limit: number },
-  source?: { sourceKey?: string; addon?: string; catalog?: string },
+  source?: { sourceKey?: string; addon?: string; catalog?: string; sourceName?: string },
 ): Promise<CandidateMeta[]> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), CATALOG_FETCH_TIMEOUT_MS);
@@ -186,6 +188,7 @@ export async function fetchAddonCatalogCandidates(
           poster: previewPoster(preview),
           year: previewYear(preview),
           source: sourceLabel,
+          source_name: source?.sourceName,
           source_key: source?.sourceKey,
           source_addon: source?.addon,
           source_catalog: source?.catalog,
@@ -216,6 +219,7 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
     private readonly catalog: string,
     private readonly manifestUrl: string,
     private readonly sourceLabel: string,
+    private readonly sourceName?: string,
   ) {}
 
   static fromRail(
@@ -292,7 +296,12 @@ export class AddonCatalogListSource implements ListSource, SourceCursorListSourc
         this.catalog,
         this.sourceLabel,
         { offset: start, limit: options.limit },
-        { sourceKey: key, addon: this.addonName, catalog: this.catalog },
+        {
+          sourceKey: key,
+          addon: this.addonName,
+          catalog: this.catalog,
+          sourceName: this.sourceName,
+        },
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -487,7 +496,12 @@ export class CompositeListSource implements ListSource, SourceCursorListSource {
           source.catalog,
           source.sourceLabel,
           { offset: start, limit: fetchLimit },
-          { sourceKey: key, addon: source.addon, catalog: source.catalog },
+          {
+            sourceKey: key,
+            addon: source.addon,
+            catalog: source.catalog,
+            sourceName: source.sourceName,
+          },
         );
         this.sourceOffsets.set(key, start + candidates.length);
         if (candidates.length < fetchLimit) {

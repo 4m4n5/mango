@@ -161,6 +161,12 @@ export class AiCatalogListSource implements ListSource, SourceCursorListSource {
           source.catalog,
           source.sourceLabel,
           { offset: start, limit: fetchLimit },
+          {
+            sourceKey: key,
+            addon: source.addon,
+            catalog: source.catalog,
+            sourceName: source.sourceName,
+          },
         );
         this.sourceOffsets.set(key, start + candidates.length);
         if (candidates.length < fetchLimit) {

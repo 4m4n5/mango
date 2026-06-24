@@ -92,8 +92,35 @@ def needed_catalog_ids(refs: list[dict[str, str]]) -> set[str]:
 def load_mdblist_inventory(repo: Path) -> dict[str, Any]:
     path = repo / "config" / "mdblist-inventory.json"
     if not path.is_file():
-        return {"catalogs": []}
-    return json.loads(path.read_text(encoding="utf-8"))
+        inventory: dict[str, Any] = {"catalogs": []}
+    else:
+        inventory = json.loads(path.read_text(encoding="utf-8"))
+    catalogs = list(inventory.get("catalogs") or [])
+    known_ids = {str(row.get("catalog_id")) for row in catalogs if row.get("catalog_id")}
+    index_path = repo / "config/aiometadata-rail-catalogs.json"
+    if index_path.is_file():
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        for entry in index.get("catalogs") or []:
+            catalog_id = str(entry.get("id") or "")
+            if not catalog_id.startswith("mdblist.") or catalog_id in known_ids:
+                continue
+            slug = str(entry.get("slug") or "")
+            rails = [str(rail) for rail in (entry.get("rails") or [])]
+            media = str(entry.get("media") or ("series" if any(r.startswith("series-") for r in rails) else "movie"))
+            row = {
+                "catalog_id": catalog_id,
+                "slug": slug,
+                "url": str(entry.get("url") or (f"https://mdblist.com/lists/{slug}" if slug else "")),
+                "name": str(entry.get("name") or catalog_id),
+                "items": int(entry.get("items") or 0),
+                "media": media,
+                "tags": list(entry.get("tags") or ["deployed"]),
+                "rails": rails,
+            }
+            catalogs.append(row)
+            known_ids.add(catalog_id)
+    inventory["catalogs"] = catalogs
+    return inventory
 
 
 def inventory_by_catalog_id(inventory: dict[str, Any]) -> dict[str, dict[str, Any]]:

@@ -46,6 +46,7 @@ import {
   AddonCatalogListSource,
   CompositeListSource,
   type ListSource,
+  type ResolvedCatalogSource,
 } from './playability/list-source.js';
 import { schedulePlayabilityTopUp } from './playability/top-up-scheduler.js';
 import { effectivePoolTarget } from './playability/pool-growth.js';
@@ -732,20 +733,43 @@ export class CatalogCore {
     return rail;
   }
 
+  private catalogNameFor(addon: Addon, contentType: string, catalog: string): string | undefined {
+    const match = (addon.manifest.catalogs || []).find((candidate) => (
+      candidate.id === catalog
+      && (!candidate.type || candidate.type === contentType)
+    ));
+    return typeof match?.name === 'string' && match.name.trim() !== ''
+      ? match.name.trim()
+      : undefined;
+  }
+
+  private resolveCatalogSource(
+    railId: string,
+    contentType: string,
+    source: { addon: string; catalog: string; weight: number },
+  ): ResolvedCatalogSource | null {
+    const addon = this.maybeFindAddonByName(source.addon);
+    if (!addon) {
+      console.warn(`rail source skipped rail=${railId} addon=${source.addon}: manifest unavailable`);
+      return null;
+    }
+    const sourceName = this.catalogNameFor(addon, contentType, source.catalog);
+    return {
+      ...source,
+      manifestUrl: addon.manifestUrl,
+      sourceLabel: sourceName
+        ? `${source.addon}/${source.catalog} · ${sourceName}`
+        : `${source.addon}/${source.catalog}`,
+      sourceName,
+    };
+  }
+
   listSourceForRail(railId: string): ListSource {
     const rail = this.browsableRail(railId);
     if (rail.type === 'ai_catalog') {
       const sources = rail.sources.flatMap((source) => {
-        const addon = this.maybeFindAddonByName(source.addon);
-        if (!addon) {
-          console.warn(`rail source skipped rail=${rail.id} addon=${source.addon}: manifest unavailable`);
-          return [];
-        }
-        return {
-          ...source,
-          manifestUrl: addon.manifestUrl,
-          sourceLabel: `${source.addon}/${source.catalog}`,
-        };
+        const resolved = this.resolveCatalogSource(rail.id, rail.content_type, source);
+        return resolved ? [resolved] : [];
       });
       if (sources.length === 0) {
         throw new CatalogError(503, `rail has no available catalog sources: ${rail.id}`);
@@ -763,16 +787,8 @@ export class CatalogCore {
       return AddonCatalogListSource.fromRail(rail, addon.manifestUrl);
     }
     const sources = rail.sources.flatMap((source) => {
-      const addon = this.maybeFindAddonByName(source.addon);
-      if (!addon) {
-        console.warn(`rail source skipped rail=${rail.id} addon=${source.addon}: manifest unavailable`);
-        return [];
-      }
-      return {
-        ...source,
-        manifestUrl: addon.manifestUrl,
-        sourceLabel: `${source.addon}/${source.catalog}`,
-      };
+      const resolved = this.resolveCatalogSource(rail.id, rail.content_type, source);
+      return resolved ? [resolved] : [];
     });
     if (sources.length === 0) {
       throw new CatalogError(503, `rail has no available catalog sources: ${rail.id}`);
