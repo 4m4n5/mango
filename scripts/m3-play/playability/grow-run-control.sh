@@ -24,6 +24,7 @@ case "$command" in
     MANGO_GROW_PER_PASS="${MANGO_GROW_PER_PASS:-5}" \
     MANGO_GROW_WALL_MS="${MANGO_GROW_WALL_MS:-180000}" \
     MANGO_GROW_MAX_ATTEMPTS="${MANGO_GROW_MAX_ATTEMPTS:-80}" \
+    MANGO_GROW_FAIL_FAST="${MANGO_GROW_FAIL_FAST:-1}" \
       bash scripts/m3-play/playability/playability-grow.sh --mode grow --preset quick --detach
     ;;
   status)

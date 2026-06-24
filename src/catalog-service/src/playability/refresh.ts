@@ -68,7 +68,13 @@ export type RefreshAllOptions = {
   growPreset?: GrowPresetId;
   growWallMs?: number;
   growMaxAttempts?: number;
+  growFailFast?: boolean;
 };
+
+function growFailFastEnabled(option?: boolean): boolean {
+  if (option !== undefined) return option;
+  return process.env.MANGO_GROW_FAIL_FAST === '1';
+}
 
 function allRailsMeetMinDisplay(
   railVerifiedCounts: Map<string, number>,
@@ -240,6 +246,8 @@ async function refreshAllRailsGrow(
   const railSummaries: RefreshRailSummary[] = [];
   const prevGrowPass = process.env.MANGO_PLAYABILITY_GROW_PASS;
   process.env.MANGO_PLAYABILITY_GROW_PASS = '1';
+  const requireGrowTarget = playabilityGrowRequireTarget();
+  const failFast = growFailFastEnabled(options.growFailFast);
 
   try {
     for (const rail of rails) {
@@ -249,6 +257,27 @@ async function refreshAllRailsGrow(
         maxAttempts: options.growMaxAttempts ?? preset.max_attempts,
       });
       railSummaries.push(growResultToRailSummary(growResult));
+      if (
+        failFast
+        && (!growResult.ok || (requireGrowTarget && growResult.grow_target_met !== true))
+      ) {
+        recordGrowRunState({
+          phase: 'grow',
+          message: `grow fail-fast after ${rail.id}: target short`,
+          mode,
+          preset: process.env.MANGO_GROW_PRESET,
+          ok: false,
+          rail_id: rail.id,
+          rail_label: rail.label,
+          grow_target: growResult.grow_target,
+          fresh_verified: growResult.fresh_verified,
+          attempts: growResult.attempts,
+          max_attempts: growResult.max_attempts,
+          candidates_seen: growResult.candidates_seen,
+          failure_category: growResult.failure_category ?? 'rail_grow_target_shortfall',
+        });
+        break;
+      }
     }
   } finally {
     if (prevGrowPass === undefined) {
@@ -258,7 +287,6 @@ async function refreshAllRailsGrow(
     }
   }
 
-  const requireGrowTarget = playabilityGrowRequireTarget();
   const strictOk = railSummaries.every((rail) => rail.ok && (!requireGrowTarget || rail.grow_target_met === true));
   let rethemeFinalization: RethemePoolsResult | undefined;
   let finalizationOk = true;

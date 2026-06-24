@@ -13,7 +13,7 @@ function usage(): never {
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
     '  playability-indexer.ts top-up --rail <rail-id> [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
-    '  playability-indexer.ts refresh --all [--mode grow|stale|nightly] [--preset quick|nightly|overnight] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>]',
+    '  playability-indexer.ts refresh --all [--mode grow|stale|nightly] [--preset quick|nightly|overnight] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>] [--grow-fail-fast]',
   ].join('\n'));
   process.exit(2);
 }
@@ -197,6 +197,9 @@ async function main(): Promise<void> {
       ?? readPositiveIntegerEnv('MANGO_GROW_WALL_MS');
     const growMaxAttempts = readPositiveIntegerFlag(args, '--grow-max-attempts')
       ?? readPositiveIntegerEnv('MANGO_GROW_MAX_ATTEMPTS');
+    const growFailFast = args.includes('--grow-fail-fast')
+      || process.env.MANGO_GROW_FAIL_FAST === '1'
+      || undefined;
 
     const startedAt = Date.now();
     let core: CatalogCore;
@@ -219,6 +222,7 @@ async function main(): Promise<void> {
         growPreset,
         growWallMs,
         growMaxAttempts,
+        growFailFast,
       });
       await writeJsonAndExit(result, result.ok ? 0 : 1);
     } catch (error) {

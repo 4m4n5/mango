@@ -101,6 +101,7 @@ export type GrowRailResult = {
   pool_target: number;
   candidate_limit: number;
   attempts: number;
+  max_attempts: number;
   min_display: number;
   before: PlayabilityRailStatus;
   after: PlayabilityRailStatus;
@@ -196,6 +197,7 @@ export async function growRail(
       pool_target: rail.playability.pool_target,
       candidate_limit: 0,
       attempts: 0,
+      max_attempts: maxAttempts,
       min_display: rail.playability.min_display,
       before,
       after: before,
@@ -815,6 +817,7 @@ export async function growRail(
     pool_target: growTarget,
     candidate_limit: maxAttempts,
     attempts,
+    max_attempts: maxAttempts,
     min_display: rail.playability.min_display,
     before,
     after,
