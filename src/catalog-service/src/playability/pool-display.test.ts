@@ -8,9 +8,11 @@ test('displaySnapshotFromCandidate uses catalog title and poster', () => {
     type: 'movie',
     title: 'The Shawshank Redemption',
     poster: 'https://example.test/poster.jpg',
+    year: 1994,
   });
   assert.equal(snapshot.title, 'The Shawshank Redemption');
   assert.equal(snapshot.poster_url, 'https://example.test/poster.jpg');
+  assert.equal(snapshot.year, '1994');
 });
 
 test('displaySnapshotFromCandidate falls back to metahub poster', () => {

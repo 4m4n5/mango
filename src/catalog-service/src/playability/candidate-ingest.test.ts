@@ -25,6 +25,32 @@ function movie(id: string): CandidateMeta {
   return { id, type: 'movie' };
 }
 
+test('ingestPaginatedCandidates normalizes candidates before status lookup', async () => {
+  const source = new MockListSource([
+    [{ id: 'tmdb:123', type: 'series', title: 'Mapped Show' }],
+  ]);
+  const seenLookupKeys: string[] = [];
+
+  const result = await ingestPaginatedCandidates(source, {
+    startOffset: 0,
+    freshTarget: 1,
+    pageSize: 10,
+    maxScanned: 10,
+    normalizeCandidate: async (candidate) => ({
+      ...candidate,
+      id: 'tt1234567',
+    }),
+    lookupTitles: async (candidates) => {
+      seenLookupKeys.push(...candidates.map((candidate) => `${candidate.type}:${candidate.id}`));
+      return new Map();
+    },
+  });
+
+  assert.deepEqual(seenLookupKeys, ['series:tt1234567']);
+  assert.equal(result.candidates[0]?.id, 'tt1234567');
+  assert.equal(result.fresh_queued, 1);
+});
+
 test('ingestPaginatedCandidates pages past verified and failed to find fresh titles', async () => {
   const source = new MockListSource([
     Array.from({ length: 20 }, (_, index) => movie(`seen-${index}`)),

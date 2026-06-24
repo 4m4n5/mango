@@ -79,6 +79,7 @@ import {
   sourceAdvanceJump,
   sourceOffsetsForGrowOutcome,
 } from './grow-cursor-policy.js';
+import { createCandidateNormalizer } from './candidate-normalize.js';
 
 export type GrowRailResult = {
   rail_id: string;
@@ -221,6 +222,7 @@ export async function growRail(
   );
 
   let listSource = core.listSourceForRail(railId);
+  const normalizeCandidate = createCandidateNormalizer(core);
   let weightsApplied = applyHitrateWeightsToListSource(listSource, rail.content_type, rail.id);
   let sourceOffsets = await loadSourceOffsetsForListSource(rail.id, listSource);
   let ingestOffset = sourceOffsets
@@ -561,6 +563,7 @@ export async function growRail(
         maxScanned: playabilityMaxIngestScan(),
         lookupTitles: getTitlesPlayabilityBulk,
         bypassRecentFailedReasons: deepPageBypass,
+        normalizeCandidate,
       });
       if (sourceOffsets && isSourceCursorListSource(listSource)) {
         sourceOffsets = new Map(listSource.readSourceOffsets());

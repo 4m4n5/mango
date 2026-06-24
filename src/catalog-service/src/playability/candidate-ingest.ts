@@ -71,6 +71,7 @@ export async function ingestPaginatedCandidates(
     collectActiveVerified?: boolean;
     lookupTitles: (candidates: CandidateMeta[]) => Promise<Map<string, TitlePlayabilityRecord>>;
     bypassRecentFailedReasons?: ReadonlySet<string>;
+    normalizeCandidate?: (candidate: CandidateMeta) => Promise<CandidateMeta>;
   },
 ): Promise<IngestCandidatesResult> {
   const now = options.now ?? Date.now();
@@ -142,13 +143,16 @@ export async function ingestPaginatedCandidates(
       break;
     }
 
-    const page = await source.candidates({
+    const rawPage = await source.candidates({
       offset: useSourceCursors ? 0 : offset,
       limit: options.pageSize,
     });
     if (isSourceStatsListSource(source)) {
       mergeFetchStats(source.readLastSourceFetchStats());
     }
+    const page = options.normalizeCandidate
+      ? await Promise.all(rawPage.map((candidate) => options.normalizeCandidate?.(candidate) ?? candidate))
+      : rawPage;
     if (page.length === 0) {
       catalogExhausted = !useSourceCursors || source.areAllSourcesExhausted();
       break;

@@ -20,6 +20,7 @@ export type CandidateMeta = {
   type: string;
   title?: string;
   poster?: string;
+  year?: number | string;
   source?: string;
   source_key?: string;
   source_addon?: string;
@@ -104,6 +105,19 @@ function previewPoster(preview: unknown): string | undefined {
   return typeof poster === 'string' && poster.trim() !== '' ? poster.trim() : undefined;
 }
 
+function previewYear(preview: unknown): number | string | undefined {
+  if (typeof preview !== 'object' || preview === null) return undefined;
+  const row = preview as { year?: unknown; releaseInfo?: unknown; released?: unknown };
+  if (typeof row.year === 'number' && Number.isFinite(row.year)) return row.year;
+  if (typeof row.year === 'string' && row.year.trim() !== '') return row.year.trim();
+  for (const value of [row.releaseInfo, row.released]) {
+    if (typeof value !== 'string') continue;
+    const match = value.match(/\b(19|20)\d{2}\b/);
+    if (match) return match[0];
+  }
+  return undefined;
+}
+
 const CATALOG_FETCH_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS || 20_000);
 const DEFAULT_PROBATION_MULTIPLIER = 0.08;
 const DEFAULT_COMPOSITE_FETCH_CONCURRENCY = 4;
@@ -170,6 +184,7 @@ export async function fetchAddonCatalogCandidates(
           type: contentType,
           title: previewTitle(preview),
           poster: previewPoster(preview),
+          year: previewYear(preview),
           source: sourceLabel,
           source_key: source?.sourceKey,
           source_addon: source?.addon,

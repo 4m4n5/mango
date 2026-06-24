@@ -10,7 +10,10 @@ export function displaySnapshotFromCandidate(candidate: CandidateMeta): RailPool
   const poster_url = normalizePosterUrl(candidate.poster)
     ?? metahubPosterUrl(candidate.id)
     ?? undefined;
-  return { title, poster_url };
+  const year = candidate.year !== undefined && candidate.year !== null
+    ? String(candidate.year)
+    : undefined;
+  return { title, poster_url, year };
 }
 
 export function mergePoolDisplayPatch(

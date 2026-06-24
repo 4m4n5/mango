@@ -57,6 +57,7 @@ import {
 } from './source-cursors.js';
 import { rethemeRailPools, type RethemePoolsResult } from './rail-pool-retheme.js';
 import { recordGrowRunState } from './grow-run-state.js';
+import { createCandidateNormalizer } from './candidate-normalize.js';
 
 export type { RefreshMode } from './grow-target.js';
 
@@ -444,6 +445,7 @@ export async function refreshAllRails(
   const refsByKey = new Map<string, RailCandidateRef[]>();
   const candidatesSeenByRail = new Map<string, number>();
   const ingestStatsByRail = new Map<string, IngestCandidatesStats>();
+  const normalizeCandidate = createCandidateNormalizer(core);
   const railsToFetch = rails.filter((rail) => {
     const verified = beforeByRail.get(rail.id)?.verified_pool ?? 0;
     const poolTarget = options.poolTarget
@@ -484,6 +486,7 @@ export async function refreshAllRails(
         pageSize: playabilityIngestPageSize(),
         maxScanned: playabilityMaxIngestScan(),
         lookupTitles: getTitlesPlayabilityBulk,
+        normalizeCandidate,
       });
       if (sourceOffsets) {
         await persistSourceOffsetsForListSource(rail.id, source);
@@ -501,7 +504,8 @@ export async function refreshAllRails(
           verified,
           poolTarget,
         );
-      candidates = uniqueCandidates(await source.candidates({ offset: 0, limit: candidateLimit }));
+      const rawCandidates = await source.candidates({ offset: 0, limit: candidateLimit });
+      candidates = uniqueCandidates(await Promise.all(rawCandidates.map(normalizeCandidate)));
       candidatesSeenByRail.set(rail.id, candidates.length);
     }
 

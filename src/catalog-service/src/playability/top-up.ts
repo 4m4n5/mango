@@ -37,6 +37,7 @@ import {
 } from './source-cursors.js';
 import { applyAiCatalogTopUpHints, clearAppliedTopUpHints } from '../ai-catalogs/hints.js';
 import type { BrowsableRail } from '../rails.js';
+import { createCandidateNormalizer } from './candidate-normalize.js';
 
 export type TopUpRailResult = {
   rail_id: string;
@@ -175,6 +176,7 @@ async function topUpRailIncremental(
 
   const ingestOffsets = await getRailIngestOffsetsBulk([rail.id]);
   const sourceOffsets = await loadSourceOffsetsForListSource(rail.id, source);
+  const normalizeCandidate = createCandidateNormalizer(core);
   const ingested = await ingestPaginatedCandidates(source, {
     startOffset: sourceOffsets ? 0 : (ingestOffsets.get(rail.id) ?? 0),
     sourceOffsets,
@@ -182,6 +184,7 @@ async function topUpRailIncremental(
     pageSize: playabilityIngestPageSize(),
     maxScanned: playabilityMaxIngestScan(),
     lookupTitles: getTitlesPlayabilityBulk,
+    normalizeCandidate,
   });
   if (sourceOffsets) {
     await persistSourceOffsetsForListSource(rail.id, source);
