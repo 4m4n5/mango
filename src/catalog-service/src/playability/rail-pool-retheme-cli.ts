@@ -80,7 +80,7 @@ async function main(): Promise<void> {
 
   const dryRun = command === 'dry-run';
   const orphansOnly = process.argv.includes('--orphans-only');
-  const core = await CatalogCore.create();
+  const core = await CatalogCore.create({ purpose: 'playability_vod' });
   const result = await rethemeRailPools(core, {
     dryRun,
     withMeta: !process.argv.includes('--no-meta'),
