@@ -310,14 +310,14 @@ publish_or_discard_staged_db() {
   fi
   set_live_playability_db_env
   if [[ "$REFRESH_RC" -eq 0 && "$json_ok" == "1" ]]; then
-    echo "stage DB: publishing strict successful grow to $LIVE_PLAYABILITY_DB"
+    echo "stage DB: publishing completed grow to $LIVE_PLAYABILITY_DB"
     sqlite_publish_db "$WORK_PLAYABILITY_DB" "$LIVE_PLAYABILITY_DB"
-    grow_state log "stage DB: published strict successful grow"
+    grow_state log "stage DB: published completed grow"
   else
     sqlite_publish_cursor_rewinds "$WORK_PLAYABILITY_DB" "$LIVE_PLAYABILITY_DB" || true
     sqlite_publish_failed_grow_memory "$WORK_PLAYABILITY_DB" "$LIVE_PLAYABILITY_DB" "$START_MS" "$END_MS" || true
-    echo "stage DB: discarding failed or partial grow DB; live library unchanged"
-    grow_state log "stage DB: discarded failed or partial grow DB"
+    echo "stage DB: discarding failed or incomplete grow DB; live library unchanged"
+    grow_state log "stage DB: discarded failed or incomplete grow DB"
   fi
   cleanup_work_playability_db
 }
@@ -474,7 +474,7 @@ export MANGO_PLAYABILITY_PROBE_MS="${MANGO_PLAYABILITY_PROBE_MS:-6000}"
 export MANGO_CATALOG_FETCH_TIMEOUT_MS="${MANGO_CATALOG_FETCH_TIMEOUT_MS:-8000}"
 export MANGO_CATALOG_COMPOSITE_FETCH_CONCURRENCY="${MANGO_CATALOG_COMPOSITE_FETCH_CONCURRENCY:-8}"
 export MANGO_GROW_HITRATE_WEIGHTS="${MANGO_GROW_HITRATE_WEIGHTS:-1}"
-export MANGO_GROW_REQUIRE_TARGET="${MANGO_GROW_REQUIRE_TARGET:-1}"
+export MANGO_GROW_REQUIRE_TARGET="${MANGO_GROW_REQUIRE_TARGET:-0}"
 export MANGO_GROW_SOURCE_RESET_CYCLES="${MANGO_GROW_SOURCE_RESET_CYCLES:-10}"
 export MANGO_GROW_SOURCE_ADVANCE_PAGES="${MANGO_GROW_SOURCE_ADVANCE_PAGES:-25}"
 export MANGO_PLAYABILITY_GROW_INGEST_BATCH="${MANGO_PLAYABILITY_GROW_INGEST_BATCH:-80}"

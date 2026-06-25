@@ -276,11 +276,11 @@ export function playabilityGrowSourceResetCycles(): number {
   return boundedInt(process.env.MANGO_GROW_SOURCE_RESET_CYCLES, 10, 0, 30);
 }
 
-/** When 1 (default in maintenance), grow refresh ok requires +grow_per_pass verified per rail. */
+/** When 1, grow refresh ok requires +grow_per_pass verified per rail. Default is best-effort publish. */
 export function playabilityGrowRequireTarget(): boolean {
   if (process.env.MANGO_GROW_REQUIRE_TARGET === '0') return false;
   if (process.env.MANGO_GROW_REQUIRE_TARGET === '1') return true;
-  return process.env.MANGO_MAINTENANCE_MODE === '1';
+  return false;
 }
 
 /**

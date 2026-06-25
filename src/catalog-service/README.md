@@ -38,7 +38,7 @@ Rails: `addon_catalog` and `composite_list` (weighted mdblist/Cinemeta blends). 
 Playability grow contract:
 
 - Fresh target is `grow_per_pass` per active rail (`20` in production YAML).
-- Work happens in a staged DB and publishes only after strict success.
+- Work happens in a staged DB and publishes after a completed publishable run; target shortfalls are operator warnings unless `MANGO_GROW_REQUIRE_TARGET=1`.
 - Orphan repair, overlap caps, rejection tombstones, runtime source weights, and source diagnostics are operator-only surfaces. See [`docs/PLAYABILITY.md`](../../docs/PLAYABILITY.md).
 
 ### Stream filters (uncached debrid)

@@ -14,7 +14,7 @@ Canonical paths aligned with [docs/ROADMAP.md](../docs/ROADMAP.md) milestones **
 | | `m2-catalog/rails/` | Composite rail validation |
 | **M3** Play | `m3-play/detail/` | Detail + episode gates |
 | | `m3-play/orchestrator/` | Play ladder + couch play |
-| | `m3-play/playability/` | Verified pools · strict grow · theme gate · retheme |
+| | `m3-play/playability/` | Verified pools · best-effort grow · theme gate · retheme |
 | **M4** Addons | `m4-addons/` | AIOStreams · AIOMetadata |
 | **M5** Voice + AI | `m5-voice/stack/` | Orchestrator · companion |
 | | `m5-voice/ai/` | Voice tools · AI catalog gates · M5.5 companion UX (planned) |

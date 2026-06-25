@@ -68,7 +68,7 @@ bash scripts/pi-pre-couch-gate.sh
 - **Movies:** global popular, indian cinema, classics, quick-watches, comedy, documentaries
 - **Series:** global popular, india picks, classics, miniseries, reality TV, comedy
 - **Session dedup:** verified rail sessions from `playability.db` — see `session-select.ts`
-- **Strict grow:** every active rail targets fresh `+20` new-to-rail verified titles; benchmark override is `MANGO_GROW_PER_PASS=5`
+- **Library grow:** every active rail targets fresh `+20` new-to-rail verified titles; benchmark override is `MANGO_GROW_PER_PASS=5`
 - **Curation:** `bash scripts/m3-play/playability/rail-curation.sh` for pins (e.g. India's Got Latent on `series-comedy`)
 
 ## Maintenance

@@ -34,7 +34,7 @@ Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
 | `titles` | Global verified/failed state and TTLs for unique playable titles |
 | `rail_pool` | Thematic per-rail membership used by couch-visible browse sessions |
 
-The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on grow/link/verify pool writes. Strict grow runs operate on an isolated work DB and publish the live DB only after every active rail reaches its fresh quota; failed or partial runs preserve the previous couch snapshot. Finalization attaches verified orphans and caps unpinned overlap without full metadata retheme. See [PLAYABILITY.md](PLAYABILITY.md).
+The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on grow/link/verify pool writes. Grow runs operate on an isolated work DB and publish the live DB after a completed publishable run; per-rail `+20` shortfalls are operator warnings by default, while failed or aborted runs preserve the previous couch snapshot. Finalization attaches verified orphans and caps unpinned overlap without full metadata retheme. See [PLAYABILITY.md](PLAYABILITY.md).
 
 ---
 

@@ -86,7 +86,7 @@ Pi 5 · X11 + Openbox
 
 **Detail:** [PLAYABILITY.md](PLAYABILITY.md)
 
-**Current hardening state:** strict fresh `+20` per active rail is the production contract. The system now has staged work DB publishing, VOD-only grow boot, structured failed-run JSON, 7-day grow rejection memory, source circuits, source-grow audits, orphan-only retheme, pinned overlap semantics, and grow verification retry for transient zero-stream responses. It is not declared production-done until repeated full `+20` grows pass without manual repair; the 2026-06-25 Pi run showed the remaining blocker is source yield for `series-reality-casual` and `series-india-picks`, not couch publishing or stale config.
+**Current hardening state:** fresh `+20` per active rail is the production target, not the default publish blocker. The system now has staged work DB publishing, VOD-only grow boot, structured failed-run JSON, 7-day grow rejection memory, source circuits, source-grow audits, orphan-only retheme, pinned overlap semantics, grow verification retry for transient zero-stream responses, and best-effort publishing for completed runs. It is not declared production-done until repeated unattended grows publish reliably and the `+20` target hit rate improves; the 2026-06-25 Pi evidence showed an abort/discarded nightly plus remaining source-yield blockers for `series-reality-casual` and `series-india-picks`, not couch publishing or stale config.
 
 **Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`, 3 plays/rail)
 

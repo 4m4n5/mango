@@ -8,13 +8,13 @@ How mango builds and maintains **verified play pools** per browse rail, keeps ti
 
 ## Current state
 
-The grow system is implemented as a strict, couch-silent maintenance workflow:
+The grow system is implemented as a best-effort, couch-silent maintenance workflow:
 
 - Production YAML keeps `grow_per_pass: 20`; benchmark iterations may set `MANGO_GROW_PER_PASS=5`.
-- A successful grow requires every active browse/AI rail to add fresh `new_to_rail_verified` titles; global unique growth, orphan repair, and existing verified links are metrics only.
-- Grow uses a staged work DB. Couch-visible rails publish only after strict success; failed or aborted runs write structured diagnostics and leave the previous stable rail snapshot visible.
-- Strict finalization attaches verified orphans to best-fit rails or anchors and caps unpinned cross-rail membership. Pins do not consume the unpinned cap, so a pinned title can still appear in two other strong thematic rails.
-- Remaining hardening focus is source quality and repeatability: `series-reality-casual` and `series-india-picks` currently cannot meet strict `+20` in one run from the configured sources.
+- Each active browse/AI rail aims to add fresh `new_to_rail_verified` titles. Global unique growth, orphan repair, and existing verified links are metrics only and do not satisfy the per-rail target.
+- Grow uses a staged work DB. Completed publishable runs publish even when some rails miss the `+20` target; failed, aborted, or crashed runs write structured diagnostics and leave the previous stable rail snapshot visible.
+- Finalization attaches verified orphans to best-fit rails or anchors and caps unpinned cross-rail membership. Pins do not consume the unpinned cap, so a pinned title can still appear in two other strong thematic rails.
+- Remaining hardening focus is source quality and repeatability: `series-reality-casual` and `series-india-picks` currently struggle to meet `+20` in one run from the configured sources.
 
 ---
 
@@ -28,7 +28,7 @@ The grow system is implemented as a strict, couch-silent maintenance workflow:
 
 - **Browse rails** only show titles with active **verified** status in `rail_pool`.
 - A title may appear in **multiple rails**; the **unique library** is distinct `type:id` in `titles` where `status=verified`.
-- **Grow** adds fresh probes; optional global links are metrics only. A successful grow requires every active rail to meet its configured fresh target.
+- **Grow** adds fresh probes; optional global links are metrics only. The configured fresh target is an SLA warning, while publish safety is based on the run completing cleanly, rails staying displayable, and finalization preserving orphan/overlap hygiene.
 
 ---
 
@@ -39,7 +39,7 @@ Two mechanisms share one profile file:
 | Mechanism | When | Script / code |
 |-----------|------|----------------|
 | **Theme gate** (ongoing) | Every grow · link · verify pool write | `rail-theme-gate.ts` — on by default |
-| **Pool retheme** | Manual repair + strict-grow finalization | `rail-pool-retheme.sh` / `refreshAllRailsGrow` |
+| **Pool retheme** | Manual repair + grow finalization | `rail-pool-retheme.sh` / `refreshAllRailsGrow` |
 
 **Profiles:** `config/rail-theme-profiles.yaml` (`MANGO_RAIL_THEME_PROFILES`)
 
@@ -58,8 +58,8 @@ Disable gate (debug only): `MANGO_RAIL_THEME_GATE=0`
 
 ### Pool retheme
 
-Use manually after large source reshapes or legacy overlap. Strict successful
-grow runs use a lightweight finalization path: active verified orphans are
+Use manually after large source reshapes or legacy overlap. Completed
+publishable grow runs use a lightweight finalization path: active verified orphans are
 scored to their best matching rail or anchor fallback, and existing pooled
 titles are capped to two unpinned memberships by current pool score. Full
 metadata retheme remains a manual/off-hours repair operation.
@@ -111,13 +111,14 @@ python3 scripts/diag/source-grow-audit.py --rail series-india-picks
 python3 scripts/diag/source-grow-audit.py --rail series-reality-casual
 ```
 
-Latest measured blocker: on 2026-06-25, a strict Pi grow at commit `33275c1`
-started from neutral runtime source-grow weights. `series-reality-casual`
-reached `+9/20`, mostly failing on no-stream reality catalogs and theme-rejected
-broad show charts. `series-india-picks` reached `+0/20` in the observed window;
-its sampled India-series sources were overwhelmingly no-stream. The grow was
-aborted before publish, and the live DB restored to `1054` unique verified
-titles with `0` orphans.
+Latest measured blocker: on 2026-06-25, an earlier Pi grow published `+280`
+unique verified titles. The scheduled 03:00 nightly later staged `+3` stale
+re-verifications, but the maintenance process was aborted with rc `143`; the
+staged DB was discarded and the live DB remained at `1054` unique verified
+titles with `0` orphans. Separate source-yield audits showed
+`series-reality-casual` reaching only `+9/20` and `series-india-picks`
+remaining at `+0/20` in observed strict windows, mostly due to no-stream
+catalogs, duplicates, unresolved IDs, and theme-rejected broad charts.
 
 ---
 
@@ -134,7 +135,7 @@ titles with `0` orphans.
 
 **Presets:** `quick` (10 min wall) · `nightly` (90 min) — see [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md)
 
-**Grow quota:** fresh **new-to-rail probe-verified** titles per rail (`+20` default). Existing verified links, orphan reattachments, and pool reshuffles do **not** satisfy the quota. Anchor rails are included by default; the old anchor diet is opt-in only (`MANGO_GROW_ANCHOR_DIET=1`).
+**Grow target:** fresh **new-to-rail probe-verified** titles per rail (`+20` default). Existing verified links, orphan reattachments, and pool reshuffles do **not** satisfy the target. Anchor rails are included by default; the old anchor diet is opt-in only (`MANGO_GROW_ANCHOR_DIET=1`). By default, target misses are warnings and usable verified work still publishes; set `MANGO_GROW_REQUIRE_TARGET=1` for strict proof runs.
 
 **Monitor:**
 
@@ -146,12 +147,12 @@ python3 scripts/diag/playability-status.py
 python3 scripts/diag/ops-report.py
 ```
 
-Tracks **unique verified library** size and per-rail deltas (`unique_verified`, `unique_verified_delta`) separately from strict per-rail grow success.
+Tracks **unique verified library** size and per-rail deltas (`unique_verified`, `unique_verified_delta`) separately from per-rail target completion.
 Status and assess output also include orphan count, overlap count, over-cap
 titles, duplicate candidate pressure, wasted candidate ratio, and retheme
 finalization results when present. During an active staged grow, status reads
 the isolated work DB and labels it as `staged work DB`; couch-visible rails
-still switch only after strict success and publish.
+switch only after a completed publishable run.
 
 ---
 
@@ -196,8 +197,8 @@ Grow negative memory is runtime-only:
 - Catastrophic zero-yield or near-zero-yield runtime source outcomes fall to the 5-10% probation floor so weak sources can recover without burning the rail window.
 - Nonzero but unsustainable stream yield is still demoted: `MANGO_GROW_SOURCE_MIN_VERIFY_RATE` defaults to `0.05`, so sources with enough samples but <=5% verified yield stay in the small probation budget.
 - Monitor state is written to `~/.cache/mango/grow-run-state.json`; it is operator-only and not shown on TV.
-- Strict successful grow finalization attaches verified orphans and prunes unpinned overlap above two rails per title without full-library metadata rescoring. Failed or short grows keep the previous stable couch sessions visible.
-- Manual `playability-indexer top-up` and `playability-top-up-rail.sh` default to strict grow mode with playability VOD boot. Legacy incremental top-up is debug-only via `--mode incremental`; it can verify globally playable titles that do not fit the target rail and should not be used for strict thematic repair.
+- Completed grow finalization attaches verified orphans and prunes unpinned overlap above two rails per title without full-library metadata rescoring. Failed or aborted grows keep the previous stable couch sessions visible.
+- Manual `playability-indexer top-up` and `playability-top-up-rail.sh` default to grow mode with playability VOD boot. Legacy incremental top-up is debug-only via `--mode incremental`; it can verify globally playable titles that do not fit the target rail and should not be used for thematic repair.
 
 If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_category`, and `repair_suggestions`; use `python3 scripts/diag/grow_monitor.py assess --refresh-json <file>`.
 

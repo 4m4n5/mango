@@ -50,7 +50,7 @@ bash scripts/m3-play/playability/grow-run-control.sh abort
 `benchmark` is a real grow with a smaller target and budget for iteration:
 `MANGO_GROW_PER_PASS=5`, `MANGO_GROW_WALL_MS=180000`, and
 `MANGO_GROW_MAX_ATTEMPTS=200` by default. It also sets
-`MANGO_GROW_FAIL_FAST=1`, so a benchmark stops after the first strict-short
+`MANGO_GROW_FAIL_FAST=1`, so a benchmark stops after the first target-short
 rail. Override those env vars explicitly when a benchmark needs
 production-sized patience or all-rail diagnostics.
 
@@ -94,9 +94,9 @@ Defaults when `MANGO_GROW_PRESET` is unset:
 
 - `playability-grow.sh --mode grow` → **quick**
 - `playability-maintenance.sh --mode nightly` → **nightly** (grow phase only)
-- `playability-indexer.ts top-up` / `playability-top-up-rail.sh` → strict
-  **grow** mode by default; use `--mode incremental` only for explicit legacy
-  debugging, not strict thematic repair.
+- `playability-indexer.ts top-up` / `playability-top-up-rail.sh` → **grow**
+  mode by default; use `--mode incremental` only for explicit legacy debugging,
+  not thematic repair.
 
 ```bash
 # Daily quick grow (15:00 timer — install once on Pi)
@@ -147,7 +147,7 @@ During the TypeScript grow loop this file is refreshed after each rail loop
 with the active rail, target progress, attempts, candidates scanned,
 rail-rejection skips, and any source suppressions. This is a silent operator
 surface only; couch UI continues to serve the previous stable rail snapshot
-unless the strict grow run succeeds.
+until a completed publishable grow is staged and published.
 
 Stage-level heartbeats are also written for preflight, candidate ingest,
 verification, grow-safe retheme finalization, and publish. If a run is aborted through
@@ -170,7 +170,7 @@ Default: `MANGO_GROW_LINK_MAX=0` (off). Force off: `MANGO_GROW_GLOBAL_LINK=0`.
 | `unique_verified_delta` | Net new unique titles since grow baseline / refresh start |
 | `pool slots` / `verified_pool` | Per-rail pool entries summed — same title in 3 rails counts **3** |
 | `fresh_verified` / `probe_verified` | New probe-verified titles this pass per rail — **counts toward target** |
-| `new_to_rail_verified` | Strict SLA alias for the same fresh new-to-rail probe count |
+| `new_to_rail_verified` | SLA alias for the same fresh new-to-rail probe count |
 | `linked_existing` | Verified titles linked from library without probing — metrics only |
 | `pool_growth` | Verified pool delta per rail (fresh + links) — informational |
 
@@ -179,7 +179,7 @@ Grow monitor header shows **unique titles** separately from **pool slots**. It
 also shows orphan count and overlap caps; those are hygiene checks and do not
 replace the per-rail fresh quota.
 
-After every strict successful grow, finalization runs a grow-safe retheme pass:
+After every completed publishable grow, finalization runs a grow-safe retheme pass:
 active verified orphans are scored against rail themes and attached to best-fit
 rails or anchor fallback, while existing pooled titles use a lightweight
 overlap-only cap. Pins are explicit curation overrides and do not consume the
@@ -201,7 +201,7 @@ Grow writes rail-specific negative memory to `rail_candidate_rejections`:
 | Reason | Default TTL | Effect |
 |--------|-------------|--------|
 | `theme_mismatch` / `theme_probe_skip` | 7 days | Do not probe/link this title for that rail until the theme window expires |
-| `no_stream` / `title_mismatch` | ~7 days | Avoid re-testing the same stream miss during long strict grow windows |
+| `no_stream` / `title_mismatch` | ~7 days | Avoid re-testing the same stream miss during long grow windows |
 | `unresolved_external_id` | 7 days | Avoid probing catalog rows that could not map from external IDs to verifiable IMDb IDs |
 | other probe failures | 24h | Keep bounded negative memory without making failures permanent |
 
@@ -237,7 +237,7 @@ The audit reports rail-specific verified/min, theme reject rate, unresolved-ID
 rate, no-stream rejection rate, duplicate pressure, cursor depth, and
 probation/recovery state.
 
-For a manual overlap repair that matches strict-grow finalization without
+For a manual overlap repair that matches grow finalization without
 metadata calls or theme relocation:
 
 ```bash
@@ -254,19 +254,19 @@ bash scripts/m3-play/playability/rail-pool-retheme.sh apply --orphans-only
 This attaches verified orphans to best-fit rails or anchors without pruning
 existing memberships.
 
-## SLA section (PR6)
+## Target SLA section (PR6)
 
-The **Library Grower SLA** block summarizes the latest **grow** phase per browse rail.
+The **Library Grower SLA** block summarizes target completion for the latest **grow** phase per browse rail. It is a source-yield and planning report; default publishing is best-effort for completed publishable runs.
 
 | Metric | Rule |
 |--------|------|
 | Per-rail target | `grow_per_pass` from catalog yaml (default **20**) |
-| Thin rail signal | Rails below `display_limit` are reported, but the strict target remains `grow_per_pass` |
+| Thin rail signal | Rails below `display_limit` are reported, but the fresh target remains `grow_per_pass` |
 | Count toward target | **Fresh probe-verified** (`fresh_verified` / `probe_verified`) |
 | Pool delta | `pool_growth` — includes links; **not** used for SLA pass |
-| Program pass | **All active grow rails** met target (`12/13` is FAIL) |
+| Target pass | **All active grow rails** met target (`12/13` is a target shortfall) |
 | 80% line | Warning context only, not pass criteria |
-| Exhaustion below target | FAIL with a classified cause and repair suggestion |
+| Exhaustion below target | Target shortfall with a classified cause and repair suggestion |
 | AI compose escalation | Logged per rail (`compose_escalated`, `compose_fallback_level`) |
 
 Failure categories:
@@ -308,7 +308,7 @@ bash scripts/m3-play/playability/gate-m3-library-grow.sh
 
 ## Current diagnostics — 2026-06-25
 
-Use this as context before another strict nightly grow investigation.
+Use this as context before another nightly grow investigation.
 
 - Commit `33275c1` added one bounded zero-stream retry to grow verification and
   was deployed/gated on the Pi. Gate-lite/pre-couch passed with only the known
@@ -317,15 +317,20 @@ Use this as context before another strict nightly grow investigation.
   `~/.cache/mango/source-grow/latest.json` before comparing grow yield. Runtime
   source-grow weights are cache-only; stale pre-policy demotions can bias source
   allocation even though catalog YAML is correct.
-- A strict Pi grow from neutral source-grow weights still failed the thin series
+- A strict proof run from neutral source-grow weights still missed the thin series
   rails: `series-reality-casual` reached `+9/20`, then moved on; in the observed
   India window `series-india-picks` stayed at `+0/20`. The run was aborted before
   publish, and the live DB restored to baseline (`1054` unique verified, `0`
   orphans).
-- The current blocker is source yield, not stale config or hidden process state.
+- The 03:00 scheduled nightly on 2026-06-25 was aborted with rc `143` and
+  therefore discarded its staged DB; it did not complete a short grow and then
+  choose to publish nothing. Earlier the same night, a completed grow published
+  `+280` unique verified titles. This points to an abort/strict-publish contract
+  issue plus thin-source yield, not a verifier regression.
+- The current `+20` target blocker is source yield, not stale config or hidden process state.
   Reality sources are mostly no-stream or broad-chart theme rejects; India-series
   sources are mostly no-stream despite valid catalog rows. Do not loosen the
-  theme gate to make strict grow pass.
+  theme gate to force target completion.
 - Source expansion can be **catalog-rich but not playable-rich**. The 2026-06-24
   Pi grow showed `series-miniseries` reach `0/20` after 74 no-stream probe
   failures; its source audit was dominated by probation/no-stream or
@@ -347,8 +352,8 @@ Use this as context before another strict nightly grow investigation.
 - Orphans are possible because the global `titles` table is independent of
   `rail_pool`. A title can be verified globally without a rail attachment after
   stale pruning, failed/theme-rejected linking, manual retheme dry-runs, or
-  workflows that verify/search outside a rail. Strict successful grow
-  finalization now runs best-fit orphan attachment automatically; use
+  workflows that verify/search outside a rail. Grow finalization now runs
+  best-fit orphan attachment automatically; use
   `rail-pool-retheme.sh apply --include-orphans` for manual repair.
 - Current hardening defaults skip recent `no_stream` / `title_mismatch` grow
   misses for about seven days and remove the previous deep-page bypass unless

@@ -301,7 +301,7 @@ def assess_rail_sla(
 
 def _grow_rail_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     mode = payload.get("mode")
-    if mode not in (None, "grow"):
+    if mode not in (None, "grow", "nightly"):
         return []
     rails = payload.get("rails")
     if not isinstance(rails, list):
@@ -390,8 +390,8 @@ def format_grow_sla_section(summary: GrowSlaSummary) -> str:
     verdict = "PASS" if summary.program_pass else "FAIL"
     warning = "" if summary.program_pass_rate >= PROGRAM_PASS_RATE else f" · below {int(PROGRAM_PASS_RATE * 100)}% warn line"
     lines = [
-        f"Program: {summary.met_count}/{summary.browse_rail_count} rails met grow target "
-        f"({pct}%) — {verdict} (strict all-rails SLA{warning})",
+        f"Target: {summary.met_count}/{summary.browse_rail_count} rails met grow target "
+        f"({pct}%) — {verdict} (all-rails target SLA{warning})",
         "",
         f"  {'rail':28} {'tgt':>4} {'probe':>5} {'met':>4} {'sparse':>6} {'exh':>4}  notes",
         "  " + "-" * 72,

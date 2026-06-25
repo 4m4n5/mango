@@ -67,12 +67,14 @@ test('growGlobalLinkEnabled requires positive MANGO_GROW_LINK_MAX', async () => 
   }
 });
 
-test('playabilityGrowRequireTarget follows maintenance mode', () => {
+test('playabilityGrowRequireTarget defaults to best-effort publish', () => {
   const prevMaint = process.env.MANGO_MAINTENANCE_MODE;
   const prevReq = process.env.MANGO_GROW_REQUIRE_TARGET;
   delete process.env.MANGO_GROW_REQUIRE_TARGET;
   process.env.MANGO_MAINTENANCE_MODE = '1';
   try {
+    assert.equal(playabilityGrowRequireTarget(), false);
+    process.env.MANGO_GROW_REQUIRE_TARGET = '1';
     assert.equal(playabilityGrowRequireTarget(), true);
     process.env.MANGO_GROW_REQUIRE_TARGET = '0';
     assert.equal(playabilityGrowRequireTarget(), false);

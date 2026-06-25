@@ -59,9 +59,9 @@ Locked choices. Update when changing behavior.
 | Topic | Choice |
 |-------|--------|
 | Visible rails | Serve only verified `rail_pool` titles; hidden/empty rails are acceptable when underfilled |
-| Grow success | Strict all-active-rails pass; `12/13` is a failure |
+| Grow target | Best effort toward all-active-rails `+20`; `12/13` is an SLA shortfall warning unless strict mode is explicitly enabled |
 | Fresh quota | `grow_per_pass` new-to-rail probe-verified titles; links/orphans/reshuffles do not count |
-| Publish | Staged work DB publishes only after strict success |
+| Publish | Staged work DB publishes after a completed publishable run; failed or aborted runs preserve the previous couch snapshot |
 | Orphans | Attach active verified orphans to best-fit thematic rail or anchor fallback |
 | Overlap | Cap unpinned memberships; pins do not consume the unpinned cap |
 | Runtime source weights | Cache/state only; never auto-edit catalog YAML or theme profiles |

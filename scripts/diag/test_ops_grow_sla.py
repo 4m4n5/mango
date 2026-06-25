@@ -127,6 +127,30 @@ class GrowSlaTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["probe_verified"], 18)
 
+    def test_collect_from_nightly_payload(self) -> None:
+        events = [
+            {
+                "kind": "playability_maintenance",
+                "payload": {
+                    "mode": "nightly",
+                    "rails": [
+                        {
+                            "rail_id": "series-a",
+                            "before": {"verified_pool": 20},
+                            "after": {"verified_pool": 24},
+                            "new_to_rail_verified": 4,
+                            "grow_target": 20,
+                            "grow_target_met": False,
+                        },
+                    ],
+                },
+            },
+        ]
+        rows = collect_grow_rail_rows(events)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["rail_id"], "series-a")
+        self.assertEqual(rows[0]["probe_verified"], 4)
+
     def test_program_pass_rate(self) -> None:
         events = [
             {

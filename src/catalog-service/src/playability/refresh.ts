@@ -156,6 +156,12 @@ export type RefreshAllResult = {
   ingest_fresh_queued: number;
   ingest_scanned: number;
   strict_grow_sla?: boolean;
+  grow_target_required?: boolean;
+  grow_target_met?: boolean;
+  grow_target_warning?: boolean;
+  grow_target_short_rails?: string[];
+  best_effort_publish?: boolean;
+  all_rails_publishable?: boolean;
   failure_category?: string;
   repair_suggestions?: string[];
   /** Global library size — distinct active verified titles (not rail pool slots). */
@@ -171,6 +177,54 @@ export type RefreshAllResult = {
   retheme_finalization?: Omit<RethemePoolsResult, 'actions'>;
   rails: RefreshRailSummary[];
 };
+
+export type GrowPublishPolicy = {
+  ok: boolean;
+  all_rails_publishable: boolean;
+  grow_target_met: boolean;
+  grow_target_warning: boolean;
+  grow_target_short_rails: string[];
+  failure_category?: string;
+};
+
+export function growRailMeetsPublishFloor(
+  rail: Pick<RefreshRailSummary, 'after' | 'min_display'>,
+): boolean {
+  return (rail.after?.verified_pool ?? 0) >= rail.min_display;
+}
+
+export function resolveGrowPublishPolicy(
+  rails: Pick<RefreshRailSummary, 'rail_id' | 'after' | 'min_display' | 'grow_target_met'>[],
+  options: { requireGrowTarget: boolean; finalizationOk: boolean },
+): GrowPublishPolicy {
+  const allRailsPublishable = rails.length > 0 && rails.every(growRailMeetsPublishFloor);
+  const targetShortRails = rails
+    .filter((rail) => rail.grow_target_met !== true)
+    .map((rail) => rail.rail_id);
+  const growTargetMet = rails.length > 0 && targetShortRails.length === 0;
+  const preFinalizationOk = options.requireGrowTarget
+    ? allRailsPublishable && growTargetMet
+    : allRailsPublishable;
+  const ok = preFinalizationOk && options.finalizationOk;
+  let failureCategory: string | undefined;
+  if (!ok) {
+    if (!allRailsPublishable) {
+      failureCategory = 'rail_min_display_shortfall';
+    } else if (options.requireGrowTarget && !growTargetMet) {
+      failureCategory = 'rail_grow_target_shortfall';
+    } else {
+      failureCategory = 'retheme_finalization_failed';
+    }
+  }
+  return {
+    ok,
+    all_rails_publishable: allRailsPublishable,
+    grow_target_met: growTargetMet,
+    grow_target_warning: !growTargetMet,
+    grow_target_short_rails: targetShortRails,
+    failure_category: failureCategory,
+  };
+}
 
 function railNeedsWork(
   mode: RefreshMode,
@@ -263,13 +317,17 @@ async function refreshAllRailsGrow(
         maxAttempts: options.growMaxAttempts ?? preset.max_attempts,
       });
       railSummaries.push(growResultToRailSummary(growResult));
+      const railPublishable = growRailMeetsPublishFloor(growResult);
       if (
         failFast
-        && (!growResult.ok || (requireGrowTarget && growResult.grow_target_met !== true))
+        && (!railPublishable || (requireGrowTarget && growResult.grow_target_met !== true))
       ) {
+        const failureCategory = !railPublishable
+          ? 'rail_min_display_shortfall'
+          : (growResult.failure_category ?? 'rail_grow_target_shortfall');
         recordGrowRunState({
           phase: 'grow',
-          message: `grow fail-fast after ${rail.id}: target short`,
+          message: `grow fail-fast after ${rail.id}: ${failureCategory}`,
           mode,
           preset: process.env.MANGO_GROW_PRESET,
           ok: false,
@@ -280,7 +338,7 @@ async function refreshAllRailsGrow(
           attempts: growResult.attempts,
           max_attempts: growResult.max_attempts,
           candidates_seen: growResult.candidates_seen,
-          failure_category: growResult.failure_category ?? 'rail_grow_target_shortfall',
+          failure_category: failureCategory,
         });
         break;
       }
@@ -293,15 +351,21 @@ async function refreshAllRailsGrow(
     }
   }
 
-  const strictOk = railSummaries.every((rail) => rail.ok && (!requireGrowTarget || rail.grow_target_met === true));
+  const preFinalizationPolicy = resolveGrowPublishPolicy(railSummaries, {
+    requireGrowTarget,
+    finalizationOk: true,
+  });
   const finalMinPoolByRail = new Map<string, number>();
   for (const rail of railSummaries) {
     const beforePool = verifiedPoolByRail.get(rail.rail_id) ?? 0;
-    finalMinPoolByRail.set(rail.rail_id, beforePool + (rail.grow_target ?? 0));
+    finalMinPoolByRail.set(
+      rail.rail_id,
+      requireGrowTarget ? beforePool + (rail.grow_target ?? 0) : rail.min_display,
+    );
   }
   let rethemeFinalization: RethemePoolsResult | undefined;
   let finalizationOk = true;
-  if (strictOk && process.env.MANGO_GROW_FINAL_RETHEME !== '0') {
+  if (preFinalizationPolicy.ok && process.env.MANGO_GROW_FINAL_RETHEME !== '0') {
     recordGrowRunState({
       phase: 'retheme',
       message: 'post-grow retheme finalization',
@@ -322,8 +386,8 @@ async function refreshAllRailsGrow(
     recordGrowRunState({
       phase: 'publish',
       message: finalizationOk
-        ? 'strict grow finalization complete'
-        : 'strict grow finalization left a rail below grow target or overlap cap',
+        ? `${requireGrowTarget ? 'strict' : 'best-effort'} grow finalization complete`
+        : `${requireGrowTarget ? 'strict' : 'best-effort'} grow finalization left a rail below publish floor or overlap cap`,
       mode,
       preset: process.env.MANGO_GROW_PRESET,
       ok: finalizationOk,
@@ -335,20 +399,33 @@ async function refreshAllRailsGrow(
   const uniqueVerifiedAfter = await getUniqueVerifiedLibraryCount();
   const orphanTotalAfter = await countOrphanVerifiedPoolTitles();
   const overlapAfter = await getRailPoolOverlapSummary({ maxRailsPerTitle: 2 });
-  const ok = strictOk && finalizationOk;
+  const publishPolicy = resolveGrowPublishPolicy(railSummaries, {
+    requireGrowTarget,
+    finalizationOk,
+  });
+  const ok = publishPolicy.ok;
   const repairSuggestions = [
     ...railSummaries
     .flatMap((rail) => rail.repair_suggestions ?? [])
     .filter((suggestion, index, all) => all.indexOf(suggestion) === index),
+    ...(publishPolicy.grow_target_warning && !requireGrowTarget
+      ? [`Grow completed below target for ${publishPolicy.grow_target_short_rails.length} rail(s); publishable verified work was kept, but source yield should be reviewed for those rails.`]
+      : []),
     ...(!finalizationOk
-      ? ['Review retheme finalization: orphan/overlap cleanup left one or more rails below grow target or overlap cap; do not publish couch sessions until rail depth is repaired.']
+      ? ['Review retheme finalization: orphan/overlap cleanup left one or more rails below publish floor or overlap cap; do not publish couch sessions until rail depth is repaired.']
       : []),
   ];
   const refreshResult: RefreshAllResult = {
     ok,
     mode,
     bootstrap: false,
-    strict_grow_sla: true,
+    strict_grow_sla: publishPolicy.grow_target_met,
+    grow_target_required: requireGrowTarget,
+    grow_target_met: publishPolicy.grow_target_met,
+    grow_target_warning: publishPolicy.grow_target_warning,
+    grow_target_short_rails: publishPolicy.grow_target_short_rails,
+    best_effort_publish: !requireGrowTarget,
+    all_rails_publishable: publishPolicy.all_rails_publishable,
     started_at: startedAt,
     finished_at: finishedAt,
     duration_ms: finishedAt - startedAt,
@@ -415,11 +492,7 @@ async function refreshAllRailsGrow(
       0,
     ),
     ingest_scanned: railSummaries.reduce((sum, rail) => sum + rail.candidates_seen, 0),
-    failure_category: ok
-      ? undefined
-      : strictOk
-        ? 'retheme_finalization_failed'
-        : 'rail_grow_target_shortfall',
+    failure_category: publishPolicy.failure_category,
     repair_suggestions: repairSuggestions.length > 0 ? repairSuggestions : undefined,
     rails: railSummaries,
   };

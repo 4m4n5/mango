@@ -24,7 +24,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | **Stremio-compatible graph** | Rails and AI catalogs use the same addon protocol as Stremio |
 | **mpv is the player** | Movies, series, live IPTV, and (future) YouTube play in mpv — not Stremio/Kodi chrome |
 | **AI catalogs are real** | Named, persistent home rails (max 3 per tab) — not ephemeral toasts |
-| **Verified rails stay quiet** | Background grow can work for hours, but couch rails switch only after a strict successful publish |
+| **Verified rails stay quiet** | Background grow can work for hours, but couch rails switch only after a completed publishable maintenance run |
 | **Stremio desktop is insurance** | Installed, hidden; opens only when mango stream/play exhausts retries |
 | **Couch-first** | 3 m / 10 ft · D-pad only · sub-300 ms home from mpv |
 | **Voice opens, pad plays** | Phone finds and opens titles; **B** on the remote starts playback |
@@ -65,7 +65,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | Continue rail | Stremio library first, then mango `progress.db` resume |
 | Resume source of truth | mango progress DB (mpv position watcher) |
 | Verified library | `playability.db` active verified titles; thematic `rail_pool` memberships |
-| Library grow | Strict fresh `+20` new-to-rail verified titles per active rail per successful grow |
+| Library grow | Best-effort fresh `+20` new-to-rail verified target per active rail; shortfalls publish usable verified work with operator warnings |
 | Grow visibility | Operator-only reports; no TV debug/progress surface |
 | Finished watching | Write back to Stremio library when possible (**M6**) |
 
@@ -92,7 +92,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 |------|------|
 | Home rails show real Cinemeta/TMDB posters | No mocks |
 | Play from configured rail | mpv, no Stremio UI |
-| Verified library grows | Every active rail gets fresh verified thematic titles without orphan drift |
+| Verified library grows | Active rails gain fresh verified thematic titles, shortfalls are visible to operators, and verified work is not discarded when a rail misses target |
 | Continue rail order | Stremio library → local resume |
 | Stream exhaustion | Auto-retry → hidden Stremio |
 | **⌂** from mpv | Home < 300 ms |
