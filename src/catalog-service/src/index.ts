@@ -8,6 +8,7 @@ import { invalidateTitle, getTitleVerifyProfile, recordVerifyResult } from './pl
 import { demoteVerifyIfDrifted } from './playability/verify.js';
 import { isSeriesRailGateId, seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
+import { shouldInvalidatePlayabilityAfterPlayError } from './playability/play-failure-policy.js';
 import { assignVerifiedTitleToBestRail } from './playability/rail-pool-retheme.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
 import { resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
@@ -374,8 +375,12 @@ async function handlePlay(
       ? (error.details as { attempts?: unknown[]; candidates?: number } | undefined)
       : undefined;
     const attempts = details?.attempts;
-    const probedStreams = Array.isArray(attempts) && attempts.length > 0;
-    if (probedStreams && usePlayabilityIndex) {
+    const confirmedPlayFailure = shouldInvalidatePlayabilityAfterPlayError({
+      isNoPlayableStream: error instanceof CatalogError && error.message === 'no_playable_stream',
+      attempts,
+      candidates: details?.candidates,
+    });
+    if (confirmedPlayFailure && usePlayabilityIndex) {
       await invalidateTitle({
         rail_id: body.rail_id,
         type: body.type,
