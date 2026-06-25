@@ -187,12 +187,13 @@ def build_rows(
         verified = int(grow.get("verified") or 0)
         failed = int(grow.get("failed") or 0)
         theme_rejected = int(grow.get("theme_rejected") or 0)
+        unresolved_external_id = int(grow.get("unresolved_external_id") or 0)
         fresh_queued = int(grow.get("fresh_queued") or 0)
         skipped_verified = int(grow.get("skipped_verified") or 0)
         linked_seen = int(grow.get("linked_verified_seen") or 0)
         no_stream = int(rejects.get("no_stream") or 0)
         title_mismatch = int(rejects.get("title_mismatch") or 0)
-        samples = verified + failed + theme_rejected
+        samples = verified + failed + theme_rejected + unresolved_external_id
         duplicate_seen = skipped_verified + linked_seen
         returned = int(grow.get("returned") or 0)
         probation_multiplier = float(grow.get("probation_multiplier") or 0.08)
@@ -214,6 +215,8 @@ def build_rows(
             "failed": failed,
             "theme_rejected": theme_rejected,
             "theme_reject_rate": rate(theme_rejected, samples),
+            "unresolved_external_id": unresolved_external_id,
+            "unresolved_external_id_rate": rate(unresolved_external_id, samples),
             "no_stream": no_stream,
             "title_mismatch": title_mismatch,
             "no_stream_rate": rate(no_stream + title_mismatch, max(1, no_stream + title_mismatch + verified)),
@@ -229,7 +232,7 @@ def build_rows(
 
 
 def print_table(rows: list[dict[str, Any]], limit: int) -> None:
-    print("rail                         source                          mult prob v/min theme  no_str dup  cursor")
+    print("rail                         source                          mult prob v/min theme unresolved no_str dup  cursor")
     print("-" * 112)
     for row in rows[:limit]:
         prob = "Y" if row["probation"] else ("R" if row["probation_recovery"] else "-")
@@ -239,6 +242,7 @@ def print_table(rows: list[dict[str, Any]], limit: int) -> None:
             f"{row['runtime_multiplier']:4.2f} {prob:>4} "
             f"{row['verified_per_min']:5.2f} "
             f"{row['theme_reject_rate'] * 100:5.0f}% "
+            f"{row['unresolved_external_id_rate'] * 100:9.0f}% "
             f"{row['no_stream_rate'] * 100:6.0f}% "
             f"{row['duplicate_rate'] * 100:4.0f}% "
             f"{row['cursor_depth']:7d}"
@@ -265,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     rows.sort(key=lambda row: (
         row["rail_id"],
         row["probation"] is False,
-        -(row["theme_reject_rate"] + row["no_stream_rate"]),
+        -(row["theme_reject_rate"] + row["unresolved_external_id_rate"] + row["no_stream_rate"]),
         row["source_key"],
     ))
 

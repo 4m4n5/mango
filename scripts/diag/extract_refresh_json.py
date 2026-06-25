@@ -91,6 +91,7 @@ def fallback_payload(args: argparse.Namespace, raw: str) -> dict[str, Any]:
         "failed": 0,
         "skipped_existing": 0,
         "skipped_recent_failed": 0,
+        "skipped_unresolved_external_id": 0,
         "batch_flush": {"verify_count": 0, "pool_count": 0},
         "pruned_pool_entries": 0,
         "ingest_fresh_queued": 0,

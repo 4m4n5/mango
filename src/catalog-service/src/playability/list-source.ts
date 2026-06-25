@@ -26,6 +26,9 @@ export type CandidateMeta = {
   source_key?: string;
   source_addon?: string;
   source_catalog?: string;
+  original_id?: string;
+  normalized_id?: string;
+  normalization_status?: 'resolved_imdb' | 'unresolved_external_id';
 };
 
 export interface ListSource {

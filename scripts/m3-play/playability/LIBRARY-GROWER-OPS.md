@@ -61,6 +61,13 @@ serving: `MANGO_CATALOG_FETCH_TIMEOUT_MS` defaults to `8000` and
 forensics; do not let normal grows spend the full rail wall inside catalog
 fetches before verification starts.
 
+Grow reports include a bounded `candidate_audit` sample per rail
+(`MANGO_GROW_CANDIDATE_AUDIT_LIMIT`, default 80). Each entry records the
+candidate's original/normalized ID, source, title/year, action, stage, and
+reason. Use it to distinguish theme rejects, recent-failure tombstones,
+unresolved external IDs, and real stream probe failures without re-running the
+same candidate by hand.
+
 Baseline file: `~/.cache/mango/grow-baseline.json` (schema v2 — `grow_rail_ids` + per-rail verified counts).
 
 Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending). The header also reports global orphan count and rail overlap health so pool hygiene is visible during long runs.
@@ -178,6 +185,7 @@ Grow writes rail-specific negative memory to `rail_candidate_rejections`:
 |--------|-------------|--------|
 | `theme_mismatch` / `theme_probe_skip` | 7 days | Do not probe/link this title for that rail until the theme window expires |
 | `no_stream` / `title_mismatch` | ~7 days | Avoid re-testing the same stream miss during long strict grow windows |
+| `unresolved_external_id` | 7 days | Avoid probing catalog rows that could not map from external IDs to verifiable IMDb IDs |
 | other probe failures | 24h | Keep bounded negative memory without making failures permanent |
 
 Tune: `MANGO_GROW_THEME_REJECTION_TTL_MS`,
@@ -188,7 +196,8 @@ explicit debug reprobes; user/voice search remains the intentional bypass path.
 
 Within a rail run, source circuits suppress a source after bounded evidence of
 rate limits, catalog errors, zero verified yield, extreme theme rejection, or
-low stream hit-rate. Suppression is in-memory for the active rail run; longer
+low stream hit-rate. Catalogs dominated by unresolved external IDs are treated
+as source exhaustion, not stream outages. Suppression is in-memory for the active rail run; longer
 term promotion/demotion still comes from runtime source-grow weights in
 `~/.cache/mango/source-grow/latest.json`.
 Defaults favor moving on once evidence is clear: zero-yield suppression starts
@@ -207,8 +216,9 @@ python3 scripts/diag/source-grow-audit.py --rail series-india-picks
 python3 scripts/diag/source-grow-audit.py --json
 ```
 
-The audit reports rail-specific verified/min, theme reject rate, no-stream
-rejection rate, duplicate pressure, cursor depth, and probation/recovery state.
+The audit reports rail-specific verified/min, theme reject rate, unresolved-ID
+rate, no-stream rejection rate, duplicate pressure, cursor depth, and
+probation/recovery state.
 
 ## SLA section (PR6)
 

@@ -151,6 +151,7 @@ export type PlayabilityVerifyAction =
   | 'skipped_existing'
   | 'skipped_recent_failed'
   | 'skipped_theme'
+  | 'skipped_unresolved_external_id'
   | 'reverified';
 
 export type ProcessVerifyQueueResult = {

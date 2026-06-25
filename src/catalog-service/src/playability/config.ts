@@ -134,6 +134,7 @@ export function playabilityRailRejectionTtlMsForReason(reason?: string | null): 
   switch (reason) {
     case 'theme_mismatch':
     case 'theme_probe_skip':
+    case 'unresolved_external_id':
       return positiveDurationMs(
         process.env.MANGO_GROW_THEME_REJECTION_TTL_MS,
         7 * 24 * 60 * 60 * 1000,
@@ -297,6 +298,11 @@ export function playabilityGrowSourceFailRatio(): number {
 
 export function playabilityGrowSourceCatalogErrorLimit(): number {
   return boundedInt(process.env.MANGO_GROW_SOURCE_CATALOG_ERROR_LIMIT, 2, 1, 20);
+}
+
+/** Bounded per-rail candidate audit samples included in grow reports. */
+export function playabilityGrowCandidateAuditLimit(): number {
+  return boundedInt(process.env.MANGO_GROW_CANDIDATE_AUDIT_LIMIT, 80, 0, 500);
 }
 
 export function isPlayabilityGrowthMode(mode?: string): boolean {

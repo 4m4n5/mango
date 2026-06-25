@@ -41,6 +41,7 @@ import {
   playabilityGrowSourceFailMinSamples,
   playabilityGrowSourceNoVerifyScanLimit,
   playabilityGrowSourceThemeRejectMinSamples,
+  playabilityGrowCandidateAuditLimit,
 } from './config.js';
 import {
   createGrowthPassState,
@@ -69,7 +70,7 @@ import {
   recordSourceGrowOutcome,
   type SourceGrowStats,
 } from './source-hitrate-weights.js';
-import { isSuppressibleListSource } from './list-source.js';
+import { isSuppressibleListSource, type CandidateMeta } from './list-source.js';
 import { recordGrowRunState } from './grow-run-state.js';
 import {
   sourceCircuitDecision,
@@ -113,6 +114,7 @@ export type GrowRailResult = {
   failed: number;
   skipped_existing: number;
   skipped_recent_failed: number;
+  skipped_unresolved_external_id: number;
   skipped_rejected: number;
   duplicate_candidates: number;
   wasted_candidate_ratio?: number;
@@ -125,6 +127,7 @@ export type GrowRailResult = {
   failure_category?: GrowFailureCategory;
   repair_suggestions?: string[];
   ingest?: IngestCandidatesStats;
+  candidate_audit?: GrowCandidateAuditEntry[];
   results: Array<{
     type: string;
     id: string;
@@ -133,6 +136,24 @@ export type GrowRailResult = {
     reason?: string;
     rails?: string[];
   }>;
+};
+
+export type GrowCandidateAuditEntry = {
+  rail_id: string;
+  stage: 'ingest' | 'reject_filter' | 'normalize' | 'link' | 'theme' | 'verify';
+  type: string;
+  id: string;
+  original_id?: string;
+  normalized_id?: string;
+  title?: string;
+  year?: number | string;
+  source_key?: string;
+  source_label?: string;
+  source_addon?: string;
+  source_catalog?: string;
+  action: PlayabilityVerifyAction | 'skipped_rejected';
+  reason?: string;
+  rails?: string[];
 };
 
 export type GrowFailureCategory =
@@ -149,6 +170,13 @@ export type GrowRailOptions = {
   maxAttempts?: number;
   ingestBatchFresh?: number;
 };
+
+const EXTERNAL_TMDB_ID = /^tmdb:\d+$/i;
+
+function isUnresolvedExternalCandidate(candidate: CandidateMeta): boolean {
+  return candidate.normalization_status === 'unresolved_external_id'
+    || EXTERNAL_TMDB_ID.test(candidate.id);
+}
 
 function playabilityGrowIngestBatch(): number {
   const raw = process.env.MANGO_PLAYABILITY_GROW_INGEST_BATCH;
@@ -209,6 +237,7 @@ export async function growRail(
       failed: 0,
       skipped_existing: 0,
       skipped_recent_failed: 0,
+      skipped_unresolved_external_id: 0,
       skipped_rejected: 0,
       duplicate_candidates: 0,
       exhausted: false,
@@ -237,6 +266,7 @@ export async function growRail(
   let totalFailed = 0;
   let totalSkippedExisting = 0;
   let totalSkippedRecentFailed = 0;
+  let totalSkippedUnresolvedExternalId = 0;
   let totalSkippedRejected = 0;
   let totalDuplicateCandidates = 0;
   let attempts = 0;
@@ -256,6 +286,8 @@ export async function growRail(
   const maxSourceResetCycles = playabilityGrowSourceResetCycles();
   const maxHeadAdvanceCycles = playabilityGrowHeadAdvanceMaxCycles();
   const allowExistingVerifiedLinks = growLinkMaxPerRail() > 0;
+  const candidateAuditLimit = playabilityGrowCandidateAuditLimit();
+  const candidateAudit: GrowCandidateAuditEntry[] = [];
 
   const context = await createVerifyContext(core);
 
@@ -295,6 +327,7 @@ export async function growRail(
       verified: 0,
       failed: 0,
       theme_rejected: 0,
+      unresolved_external_id: 0,
     };
     if (addon) {
       created.source_addon = addon;
@@ -319,6 +352,61 @@ export async function growRail(
       stat.catalog_errors += row.catalog_errors;
       stat.rate_limited += row.rate_limited;
       stat.exhausted = stat.exhausted || row.exhausted;
+    }
+  }
+
+  function candidateSourceLabel(candidate: CandidateMeta): string | undefined {
+    return candidate.source
+      ?? candidate.source_name
+      ?? candidate.source_key;
+  }
+
+  function auditCandidate(
+    candidate: CandidateMeta,
+    action: GrowCandidateAuditEntry['action'],
+    stage: GrowCandidateAuditEntry['stage'],
+    options: { reason?: string; rails?: string[] } = {},
+  ): void {
+    if (candidateAuditLimit <= 0 || candidateAudit.length >= candidateAuditLimit) {
+      return;
+    }
+    candidateAudit.push({
+      rail_id: rail.id,
+      stage,
+      type: candidate.type,
+      id: candidate.id,
+      original_id: candidate.original_id,
+      normalized_id: candidate.normalized_id,
+      title: candidate.title,
+      year: candidate.year,
+      source_key: candidate.source_key,
+      source_label: candidateSourceLabel(candidate),
+      source_addon: candidate.source_addon,
+      source_catalog: candidate.source_catalog,
+      action,
+      reason: options.reason,
+      rails: options.rails,
+    });
+  }
+
+  function auditResults(
+    results: GrowRailResult['results'],
+    candidateByKey: Map<string, CandidateMeta>,
+    fallbackStage: GrowCandidateAuditEntry['stage'],
+  ): void {
+    for (const result of results) {
+      const candidate = candidateByKey.get(`${result.type}:${result.id}`);
+      const stage = result.action === 'skipped_theme'
+        ? 'theme'
+        : result.action === 'linked_existing'
+          ? 'link'
+          : fallbackStage;
+      auditCandidate(
+        candidate ?? { type: result.type, id: result.id, title: result.title },
+        result.action,
+        stage,
+        { reason: result.reason, rails: result.rails },
+      );
     }
   }
 
@@ -389,7 +477,11 @@ export async function growRail(
   ): Promise<void> {
     const now = Date.now();
     await recordRailCandidateRejections(results.flatMap((result) => {
-      if (result.action !== 'failed' && result.action !== 'skipped_theme') {
+      if (
+        result.action !== 'failed'
+        && result.action !== 'skipped_theme'
+        && result.action !== 'skipped_unresolved_external_id'
+      ) {
         return [];
       }
       const reason = result.reason ?? result.action;
@@ -423,6 +515,7 @@ export async function growRail(
       candidates_seen: totalCandidatesSeen,
       skipped_rejected: totalSkippedRejected,
       skipped_recent_failed: totalSkippedRecentFailed,
+      skipped_unresolved_external_id: totalSkippedUnresolvedExternalId,
       duplicate_candidates: totalDuplicateCandidates,
       suppressed_sources: [...suppressedSources.entries()].map(([source, reason]) => `${source}:${reason}`),
       elapsed_ms: Date.now() - startedAt,
@@ -576,6 +669,7 @@ export async function growRail(
       growLoops += 1;
       maxSourcesTouched = Math.max(maxSourcesTouched, ingested.sources_touched ?? 0);
       totalCandidatesSeen += ingested.scanned;
+      totalSkippedRecentFailed += ingested.skipped_recent_failed;
       totalDuplicateCandidates += ingested.duplicate_candidates;
 
       if (await tryHeadAdvanceOnTombstoneSkew(ingested)) {
@@ -599,22 +693,58 @@ export async function growRail(
       }
 
       const rejectedKeys = await getActiveRailCandidateRejectionKeys(rail.id, ingested.candidates);
-      const candidates = ingested.candidates.filter((candidate) => {
+      const sourceByCandidateKey = new Map<string, string>();
+      const candidateByKey = new Map<string, CandidateMeta>();
+      for (const candidate of ingested.candidates) {
+        const key = candidateKey(candidate);
+        candidateByKey.set(key, candidate);
+        if (candidate.source_key || candidate.source) {
+          sourceByCandidateKey.set(key, candidate.source_key ?? candidate.source ?? 'unknown');
+        }
+      }
+
+      const unresolvedResults: GrowRailResult['results'] = [];
+      const candidates: CandidateMeta[] = [];
+      for (const candidate of ingested.candidates) {
+        const key = candidateKey(candidate);
         const rejected = rejectedKeys.has(candidateKey(candidate));
         if (rejected) {
           totalSkippedRejected += 1;
+          auditCandidate(candidate, 'skipped_rejected', 'reject_filter', { reason: 'active_rail_rejection' });
+          continue;
         }
-        return !rejected;
-      });
-      const sourceByCandidateKey = new Map<string, string>();
-      for (const candidate of ingested.candidates) {
-        if (candidate.source_key || candidate.source) {
-          sourceByCandidateKey.set(candidateKey(candidate), candidate.source_key ?? candidate.source ?? 'unknown');
+        if (isUnresolvedExternalCandidate(candidate)) {
+          totalSkippedUnresolvedExternalId += 1;
+          const sourceKey = sourceByCandidateKey.get(key);
+          if (sourceKey) {
+            const stat = statForSource(sourceKey, candidateSourceLabel(candidate) ?? sourceKey);
+            stat.unresolved_external_id = (stat.unresolved_external_id ?? 0) + 1;
+          }
+          const result: GrowRailResult['results'][number] = {
+            type: candidate.type,
+            id: candidate.id,
+            title: candidate.title,
+            action: 'skipped_unresolved_external_id',
+            reason: 'unresolved_external_id',
+            rails: [rail.id],
+          };
+          unresolvedResults.push(result);
+          auditCandidate(candidate, 'skipped_unresolved_external_id', 'normalize', {
+            reason: 'unresolved_external_id',
+            rails: [rail.id],
+          });
+          continue;
         }
+        candidates.push(candidate);
+      }
+      if (unresolvedResults.length > 0) {
+        allResults.push(...unresolvedResults);
+        await recordRejectedResults(unresolvedResults, sourceByCandidateKey);
+        evaluateSourceCircuits();
       }
       if (candidates.length === 0) {
         heartbeat(
-          `grow ${rail.id}: ${freshQuotaSoFar()}/${growTarget} verified, skipped rejected page`,
+          `grow ${rail.id}: ${freshQuotaSoFar()}/${growTarget} verified, skipped unusable page`,
           { catalog_exhausted: ingested.catalog_exhausted },
         );
         catalogExhausted = ingested.catalog_exhausted;
@@ -684,6 +814,7 @@ export async function growRail(
       totalSkippedExisting += linked.skipped_existing;
       totalSkippedRecentFailed += linked.skipped_recent_failed;
       allResults.push(...linked.results, ...processed.results);
+      auditResults([...linked.results, ...processed.results], candidateByKey, 'verify');
       recordVerifyResultsBySource([...linked.results, ...processed.results], sourceByCandidateKey);
       evaluateSourceCircuits();
 
@@ -798,6 +929,7 @@ export async function growRail(
     max_attempts: maxAttempts,
     candidates_seen: totalCandidatesSeen,
     skipped_rejected: totalSkippedRejected,
+    skipped_unresolved_external_id: totalSkippedUnresolvedExternalId,
     suppressed_sources: [...suppressedSources.entries()].map(([source, reason]) => `${source}:${reason}`),
     elapsed_ms: Date.now() - startedAt,
     wall_ms: wallMs,
@@ -832,10 +964,17 @@ export async function growRail(
     failed: totalFailed,
     skipped_existing: totalSkippedExisting,
     skipped_recent_failed: totalSkippedRecentFailed,
+    skipped_unresolved_external_id: totalSkippedUnresolvedExternalId,
     skipped_rejected: totalSkippedRejected,
     duplicate_candidates: totalDuplicateCandidates,
     wasted_candidate_ratio: totalCandidatesSeen > 0
-      ? (totalSkippedExisting + totalSkippedRecentFailed + totalSkippedRejected + totalDuplicateCandidates) / totalCandidatesSeen
+      ? (
+        totalSkippedExisting
+        + totalSkippedRecentFailed
+        + totalSkippedUnresolvedExternalId
+        + totalSkippedRejected
+        + totalDuplicateCandidates
+      ) / totalCandidatesSeen
       : undefined,
     exhausted,
     grow_loops: growLoops,
@@ -846,6 +985,7 @@ export async function growRail(
     failure_category: failureCategory,
     repair_suggestions: repairSuggestions,
     ingest: lastIngest,
+    candidate_audit: candidateAudit.length > 0 ? candidateAudit : undefined,
     results: allResults,
   };
 }
@@ -862,6 +1002,7 @@ export function classifyGrowFailure(options: {
 }): GrowFailureCategory {
   const rateLimited = options.sourceStats.reduce((sum, stat) => sum + stat.rate_limited, 0);
   const themeRejected = options.sourceStats.reduce((sum, stat) => sum + stat.theme_rejected, 0);
+  const unresolvedExternal = options.sourceStats.reduce((sum, stat) => sum + (stat.unresolved_external_id ?? 0), 0);
   const outcomeSamples = Math.max(1, options.verified + options.failed + themeRejected + rateLimited);
   const rateLimitDominates = rateLimited > 0 && (
     options.failed === 0
@@ -872,6 +1013,9 @@ export function classifyGrowFailure(options: {
   }
   if (themeRejected > Math.max(2, options.verified + options.failed)) {
     return 'theme_rejected';
+  }
+  if (unresolvedExternal > Math.max(5, options.verified + options.failed + themeRejected)) {
+    return 'source_exhausted';
   }
   if (options.exhausted) {
     const anyReturned = options.sourceStats.some((stat) => stat.returned > 0);
@@ -897,7 +1041,8 @@ function repairSuggestionsForFailure(
   const weakest = [...sourceStats]
     .sort((a, b) => (
       (b.rate_limited + b.catalog_errors + b.theme_rejected + b.failed)
-      - (a.rate_limited + a.catalog_errors + a.theme_rejected + a.failed)
+      + (b.unresolved_external_id ?? 0)
+      - (a.rate_limited + a.catalog_errors + a.theme_rejected + a.failed + (a.unresolved_external_id ?? 0))
     ))
     .slice(0, 3)
     .map((stat) => stat.source_label || stat.source_key);

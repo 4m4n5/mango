@@ -12,6 +12,7 @@ import {
   flushVerifyContextBatch,
   linkExistingVerifiedCandidates,
   railMapsFromRails,
+  type ProcessVerifyQueueResult,
   type RailCandidateRef,
 } from './pipeline.js';
 import type { VerifyContext } from './verify.js';
@@ -20,14 +21,7 @@ import type { BrowsableRail } from '../rails.js';
 export type GlobalLinkPassResult = {
   linked: number;
   linked_global: number;
-  results: Array<{
-    type: string;
-    id: string;
-    title?: string;
-    action: 'linked_existing' | 'verified' | 'failed' | 'skipped_existing' | 'skipped_recent_failed' | 'skipped_theme' | 'reverified';
-    reason?: string;
-    rails?: string[];
-  }>;
+  results: ProcessVerifyQueueResult['results'];
 };
 
 export function growGlobalLinkEnabled(): boolean {

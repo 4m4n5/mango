@@ -95,6 +95,10 @@ test('sourceCircuitDecision classifies infrastructure, theme, and stream failure
     sourceCircuitDecision(stat({ failed: 10 })),
     { suppress: true, reason: 'low_stream_hit_rate' },
   );
+  assert.deepEqual(
+    sourceCircuitDecision(stat({ unresolved_external_id: 10 })),
+    { suppress: true, reason: 'unresolved_external_id' },
+  );
 });
 
 test('sourceCircuitDecision accepts benchmark-sized stream failure thresholds', () => {

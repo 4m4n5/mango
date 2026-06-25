@@ -34,6 +34,9 @@ test('normalizeExternalCandidateId maps tmdb candidates to unique exact imdb mat
   ]), candidate());
 
   assert.equal(normalized.id, 'tt1234567');
+  assert.equal(normalized.original_id, 'tmdb:106314');
+  assert.equal(normalized.normalized_id, 'tt1234567');
+  assert.equal(normalized.normalization_status, 'resolved_imdb');
   assert.equal(normalized.type, 'series');
   assert.equal(normalized.source_key, 'Bharat Binge:tmdb-hi-recent-series');
   assert.equal(normalized.poster, 'https://example.test/poster.jpg');
@@ -56,6 +59,8 @@ test('normalizeExternalCandidateId leaves ambiguous title-only matches unchanged
   ]), original);
 
   assert.equal(normalized.id, 'tmdb:106314');
+  assert.equal(normalized.normalization_status, 'unresolved_external_id');
+  assert.equal(normalized.original_id, 'tmdb:106314');
 });
 
 test('normalizeExternalCandidateId leaves non-exact matches unchanged', async () => {
@@ -64,4 +69,5 @@ test('normalizeExternalCandidateId leaves non-exact matches unchanged', async ()
   ]), candidate());
 
   assert.equal(normalized.id, 'tmdb:106314');
+  assert.equal(normalized.normalization_status, 'unresolved_external_id');
 });

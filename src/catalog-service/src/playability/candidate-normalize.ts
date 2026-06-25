@@ -51,6 +51,15 @@ function imdbIdForMeta(meta: Meta): string | null {
   return null;
 }
 
+function unresolvedExternalCandidate(candidate: CandidateMeta): CandidateMeta {
+  return {
+    ...candidate,
+    original_id: candidate.original_id ?? candidate.id,
+    normalized_id: candidate.normalized_id ?? candidate.id,
+    normalization_status: 'unresolved_external_id',
+  };
+}
+
 export async function normalizeExternalCandidateId(
   core: SearchCore,
   candidate: CandidateMeta,
@@ -61,21 +70,21 @@ export async function normalizeExternalCandidateId(
 
   const targetTitle = normalizedTitle(candidate.title);
   if (!targetTitle) {
-    return candidate;
+    return unresolvedExternalCandidate(candidate);
   }
 
   let metas: Meta[];
   try {
     metas = await core.searchMeta(candidate.type, candidate.title);
   } catch {
-    return candidate;
+    return unresolvedExternalCandidate(candidate);
   }
 
   const exact = metas.filter((meta) => (
     imdbIdForMeta(meta) !== null && titleForMeta(meta) === targetTitle
   ));
   if (exact.length === 0) {
-    return candidate;
+    return unresolvedExternalCandidate(candidate);
   }
 
   const targetYear = yearForCandidate(candidate);
@@ -89,12 +98,15 @@ export async function normalizeExternalCandidateId(
       : null;
   const imdbId = chosen ? imdbIdForMeta(chosen) : null;
   if (!imdbId) {
-    return candidate;
+    return unresolvedExternalCandidate(candidate);
   }
 
   return {
     ...candidate,
+    original_id: candidate.original_id ?? candidate.id,
     id: canonicalTitleId(candidate.type, imdbId),
+    normalized_id: canonicalTitleId(candidate.type, imdbId),
+    normalization_status: 'resolved_imdb',
     poster: candidate.poster ?? (typeof chosen?.poster === 'string' ? chosen.poster : undefined),
     title: candidate.title ?? (typeof chosen?.name === 'string' ? chosen.name : undefined),
     year: candidate.year ?? chosen?.year,

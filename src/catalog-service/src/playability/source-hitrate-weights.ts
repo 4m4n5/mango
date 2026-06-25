@@ -28,6 +28,7 @@ export type SourceGrowStats = SourceIngestStats & {
   verified: number;
   failed: number;
   theme_rejected: number;
+  unresolved_external_id?: number;
 };
 
 export type SourceGrowEntry = SourceGrowStats & {
@@ -213,7 +214,11 @@ export function buildSourceGrowMultipliers(
       if (entry.content_type !== contentType) {
         continue;
       }
-      const samples = entry.fresh_queued + entry.linked_verified_seen + entry.failed + entry.theme_rejected;
+      const samples = entry.fresh_queued
+        + entry.linked_verified_seen
+        + entry.failed
+        + entry.theme_rejected
+        + (entry.unresolved_external_id ?? 0);
       if (samples < MIN_SAMPLES) {
         continue;
       }
@@ -247,7 +252,11 @@ export function buildRailSourceGrowMultipliers(
     if (entry.content_type !== contentType) {
       continue;
     }
-    const samples = entry.fresh_queued + entry.linked_verified_seen + entry.failed + entry.theme_rejected;
+    const samples = entry.fresh_queued
+      + entry.linked_verified_seen
+      + entry.failed
+      + entry.theme_rejected
+      + (entry.unresolved_external_id ?? 0);
     if (samples < MIN_SAMPLES) {
       continue;
     }
@@ -404,6 +413,7 @@ function mergeGrowStats(
       verified: existing.verified * GROW_DECAY,
       failed: existing.failed * GROW_DECAY,
       theme_rejected: existing.theme_rejected * GROW_DECAY,
+      unresolved_external_id: (existing.unresolved_external_id ?? 0) * GROW_DECAY,
       elapsed_ms: (existing.elapsed_ms ?? 0) * GROW_DECAY,
       runs: existing.runs,
     }
@@ -420,6 +430,7 @@ function mergeGrowStats(
       verified: 0,
       failed: 0,
       theme_rejected: 0,
+      unresolved_external_id: 0,
       elapsed_ms: 0,
       runs: 0,
     };
@@ -429,6 +440,7 @@ function mergeGrowStats(
     verified: decayed.verified + stat.verified,
     failed: decayed.failed + stat.failed,
     theme_rejected: decayed.theme_rejected + stat.theme_rejected,
+    unresolved_external_id: decayed.unresolved_external_id + (stat.unresolved_external_id ?? 0),
     catalog_errors: decayed.catalog_errors + stat.catalog_errors,
     rate_limited: decayed.rate_limited + stat.rate_limited,
     exhausted: stat.exhausted,
@@ -450,6 +462,7 @@ function mergeGrowStats(
     verified: Math.round(decayed.verified + stat.verified),
     failed: Math.round(decayed.failed + stat.failed),
     theme_rejected: Math.round(decayed.theme_rejected + stat.theme_rejected),
+    unresolved_external_id: Math.round(decayed.unresolved_external_id + (stat.unresolved_external_id ?? 0)),
     elapsed_ms: Math.round(decayed.elapsed_ms + Math.max(0, elapsedMs)),
     exhausted: stat.exhausted || Boolean(existing?.exhausted && stat.returned === 0),
     runs: decayed.runs + 1,
@@ -467,6 +480,7 @@ function sourceGrowMultiplier(stats: {
   verified: number;
   failed: number;
   theme_rejected: number;
+  unresolved_external_id?: number;
   catalog_errors: number;
   rate_limited: number;
   exhausted: boolean;
@@ -476,10 +490,19 @@ function sourceGrowMultiplier(stats: {
   const freshSamples = Math.max(1, stats.fresh_queued);
   const outcomeSamples = Math.max(1, stats.verified + stats.failed + stats.theme_rejected);
   const useful = stats.verified;
-  const negative = stats.failed + stats.theme_rejected + stats.catalog_errors + stats.rate_limited;
+  const unresolved = stats.unresolved_external_id ?? 0;
+  const negative = stats.failed + stats.theme_rejected + unresolved + stats.catalog_errors + stats.rate_limited;
   const streamSamples = stats.failed + stats.verified;
   const themeSamples = stats.theme_rejected + stats.verified + stats.failed;
+  const unresolvedSamples = unresolved + stats.verified + stats.failed + stats.theme_rejected;
   if (useful <= 0 && negative >= probationMinSamples && (stats.exhausted || stats.failed > 0 || stats.theme_rejected > 0)) {
+    return probation;
+  }
+  if (
+    useful <= 0
+    && unresolvedSamples >= Math.max(12, probationMinSamples)
+    && unresolved / Math.max(1, unresolvedSamples) >= 0.90
+  ) {
     return probation;
   }
   if (
@@ -503,8 +526,15 @@ function sourceGrowMultiplier(stats: {
     : 0;
   const themePenalty = stats.theme_rejected / Math.max(freshSamples, outcomeSamples);
   const failurePenalty = stats.failed / Math.max(1, streamSamples);
+  const unresolvedPenalty = Math.min(1, unresolved / freshSamples);
   const infraPenalty = Math.min(1, (stats.catalog_errors + stats.rate_limited * 2) / freshSamples);
-  const raw = 0.65 + verifiedYield * 3.0 + linkedThemeSignal - themePenalty - failurePenalty * 0.5 - infraPenalty;
+  const raw = 0.65
+    + verifiedYield * 3.0
+    + linkedThemeSignal
+    - themePenalty
+    - failurePenalty * 0.5
+    - unresolvedPenalty
+    - infraPenalty;
   const exhaustedPenalty = stats.exhausted && stats.verified <= 0 ? 0.5 : 1;
   return clampMultiplier(raw * exhaustedPenalty);
 }
@@ -520,6 +550,7 @@ function sourceGrowEntryMultiplier(entry: SourceGrowEntry): number {
     verified: entry.verified,
     failed: entry.failed,
     theme_rejected: entry.theme_rejected,
+    unresolved_external_id: entry.unresolved_external_id ?? 0,
     catalog_errors: entry.catalog_errors,
     rate_limited: entry.rate_limited,
     exhausted: entry.exhausted,

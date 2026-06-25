@@ -11,7 +11,13 @@ import {
 
 export type SourceCircuitDecision = {
   suppress: boolean;
-  reason?: 'rate_limited' | 'catalog_errors' | 'zero_verified_yield' | 'theme_rejected' | 'low_stream_hit_rate';
+  reason?:
+    | 'rate_limited'
+    | 'catalog_errors'
+    | 'zero_verified_yield'
+    | 'theme_rejected'
+    | 'low_stream_hit_rate'
+    | 'unresolved_external_id';
 };
 
 export type SourceCircuitDecisionOptions = {
@@ -71,6 +77,16 @@ export function sourceCircuitDecision(
     && stat.failed / Math.max(1, streamSamples) >= playabilityGrowSourceFailRatio()
   ) {
     return { suppress: true, reason: 'low_stream_hit_rate' };
+  }
+
+  const unresolvedExternal = stat.unresolved_external_id ?? 0;
+  const unresolvedSamples = unresolvedExternal + stat.verified + stat.failed + stat.theme_rejected;
+  if (
+    stat.verified <= 0
+    && unresolvedExternal >= failMinSamples
+    && unresolvedExternal / Math.max(1, unresolvedSamples) >= playabilityGrowSourceFailRatio()
+  ) {
+    return { suppress: true, reason: 'unresolved_external_id' };
   }
 
   return { suppress: false };

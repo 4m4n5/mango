@@ -115,6 +115,7 @@ export type RefreshRailSummary = {
   source_stats?: SourceIngestStats[];
   failure_category?: string;
   repair_suggestions?: string[];
+  candidate_audit?: Awaited<ReturnType<typeof growRail>>['candidate_audit'];
   min_display: number;
   candidates_seen: number;
   linked_existing: number;
@@ -122,6 +123,7 @@ export type RefreshRailSummary = {
   failed: number;
   skipped_existing: number;
   skipped_recent_failed: number;
+  skipped_unresolved_external_id?: number;
   skipped_rejected?: number;
   duplicate_candidates?: number;
   wasted_candidate_ratio?: number;
@@ -145,6 +147,7 @@ export type RefreshAllResult = {
   failed: number;
   skipped_existing: number;
   skipped_recent_failed: number;
+  skipped_unresolved_external_id?: number;
   skipped_rejected?: number;
   duplicate_candidates?: number;
   wasted_candidate_ratio?: number;
@@ -211,6 +214,7 @@ function growResultToRailSummary(
     source_stats: result.source_stats,
     failure_category: result.failure_category,
     repair_suggestions: result.repair_suggestions,
+    candidate_audit: result.candidate_audit,
     min_display: result.min_display,
     candidates_seen: result.candidates_seen,
     linked_existing: result.linked_existing,
@@ -218,6 +222,7 @@ function growResultToRailSummary(
     failed: result.failed,
     skipped_existing: result.skipped_existing,
     skipped_recent_failed: result.skipped_recent_failed,
+    skipped_unresolved_external_id: result.skipped_unresolved_external_id,
     skipped_rejected: result.skipped_rejected,
     duplicate_candidates: result.duplicate_candidates,
     wasted_candidate_ratio: result.wasted_candidate_ratio,
@@ -377,6 +382,10 @@ async function refreshAllRailsGrow(
     failed: railSummaries.reduce((sum, rail) => sum + rail.failed, 0),
     skipped_existing: railSummaries.reduce((sum, rail) => sum + rail.skipped_existing, 0),
     skipped_recent_failed: railSummaries.reduce((sum, rail) => sum + rail.skipped_recent_failed, 0),
+    skipped_unresolved_external_id: railSummaries.reduce(
+      (sum, rail) => sum + (rail.skipped_unresolved_external_id ?? 0),
+      0,
+    ),
     skipped_rejected: railSummaries.reduce((sum, rail) => sum + (rail.skipped_rejected ?? 0), 0),
     duplicate_candidates: railSummaries.reduce((sum, rail) => sum + (rail.duplicate_candidates ?? 0), 0),
     wasted_candidate_ratio: (() => {
@@ -386,6 +395,7 @@ async function refreshAllRailsGrow(
         sum
         + rail.skipped_existing
         + rail.skipped_recent_failed
+        + (rail.skipped_unresolved_external_id ?? 0)
         + (rail.skipped_rejected ?? 0)
         + (rail.duplicate_candidates ?? 0)
       ), 0);

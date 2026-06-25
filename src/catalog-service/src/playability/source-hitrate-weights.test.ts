@@ -463,6 +463,47 @@ test('recordSourceGrowOutcome sends catastrophic zero-yield sources to probation
   }
 });
 
+test('recordSourceGrowOutcome sends unresolved external-id sources to probation', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
+  const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  try {
+    recordSourceGrowOutcome('series-india-picks', 'series', [
+      {
+        source_key: 'Bharat Binge:tmdb-hi-recent-series',
+        source_label: 'Bharat Binge/tmdb-hi-recent-series',
+        content_type: 'series',
+        scanned: 40,
+        fresh_queued: 40,
+        skipped_verified: 0,
+        skipped_recent_failed: 0,
+        linked_verified_seen: 0,
+        requested: 40,
+        returned: 40,
+        catalog_errors: 0,
+        rate_limited: 0,
+        exhausted: false,
+        verified: 0,
+        failed: 0,
+        theme_rejected: 0,
+        unresolved_external_id: 40,
+      },
+    ], { growTargetMet: false, weighted: true, now: Date.now(), elapsedMs: 60_000 });
+    const report = loadSourceGrowReport();
+    assert.ok(report);
+    assert.equal(report.sources[0]?.multiplier, sourceGrowProbationMultiplier());
+    assert.equal(report.sources[0]?.probation, true);
+    assert.equal(report.sources[0]?.unresolved_external_id, 40);
+  } finally {
+    if (previousOut === undefined) {
+      delete process.env.MANGO_SOURCE_GROW_OUT;
+    } else {
+      process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('recordSourceGrowOutcome does not let linked existing titles mask zero fresh yield', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
   const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
