@@ -54,6 +54,13 @@ bash scripts/m3-play/playability/grow-run-control.sh abort
 rail. Override those env vars explicitly when a benchmark needs
 production-sized patience or all-rail diagnostics.
 
+Maintenance grow also bounds catalog fetch latency separately from couch
+serving: `MANGO_CATALOG_FETCH_TIMEOUT_MS` defaults to `8000` and
+`MANGO_CATALOG_COMPOSITE_FETCH_CONCURRENCY` defaults to `8` inside
+`playability-maintenance.sh`. Override them explicitly for slow-source
+forensics; do not let normal grows spend the full rail wall inside catalog
+fetches before verification starts.
+
 Baseline file: `~/.cache/mango/grow-baseline.json` (schema v2 — `grow_rail_ids` + per-rail verified counts).
 
 Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending). The header also reports global orphan count and rail overlap health so pool hygiene is visible during long runs.
