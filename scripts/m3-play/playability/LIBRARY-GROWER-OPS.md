@@ -72,6 +72,12 @@ Baseline file: `~/.cache/mango/grow-baseline.json` (schema v2 — `grow_rail_ids
 
 Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending). During an active staged grow, status reads the isolated `playability-work-<run>.db` and labels it as `staged work DB`; after publish, abort, or idle it falls back to the live DB. The header also reports global orphan count and rail overlap health so pool hygiene is visible during long runs.
 
+Use `~/.cache/mango/grow-run-state.json` and
+`~/.cache/mango/source-grow/latest.json` as the active heartbeat during long
+verify batches. `playability-grow.log` can be quiet while probe batches commit
+or while the indexer is between rail phases; stale log mtime alone is not a
+hang signal.
+
 ## Grow presets
 
 | Preset | Wall | Max probes | Use |
