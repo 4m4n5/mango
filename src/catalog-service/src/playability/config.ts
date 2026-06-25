@@ -90,6 +90,13 @@ export function playabilityFailedRetryMsForReason(reason?: string | null): numbe
     return 0;
   }
   switch (reason) {
+    case 'uncached_verify_legacy':
+      return positiveDurationMs(
+        process.env.MANGO_PLAYABILITY_LEGACY_UNCACHED_RETRY_MS,
+        0,
+        0,
+        24 * 60 * 60 * 1000,
+      );
     case 'no_stream':
     case 'title_mismatch':
       if (isPlayabilityGrowPass()) {

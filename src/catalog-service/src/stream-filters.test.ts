@@ -68,20 +68,33 @@ function candidate(
   };
 }
 
-test('parseDebridCacheStatus reads AIOStreams name tags when bingeGroup is missing', () => {
-  const cached: Stream = {
-    url: 'https://example.test/cached.mp4',
-    source: 'AIOStreams',
-    name: '[TB☁️⚡] Torrentio 1080p',
-    title: '[TB☁️⚡] Torrentio 1080p',
-  };
-  const uncached: Stream = {
-    url: 'https://example.test/uncached.mp4',
+test('parseDebridCacheStatus reads current AIOStreams cache badges when bingeGroup is missing', () => {
+  const torbox: Stream = {
+    url: 'https://example.test/torbox.mp4',
     source: 'AIOStreams',
     name: '[TB⚡] Torrentio 1080p',
     title: '[TB⚡] Torrentio 1080p',
   };
-  assert.equal(parseDebridCacheStatus(cached), 'cached');
+  const realDebrid: Stream = {
+    url: 'https://example.test/rd.mp4',
+    source: 'AIOStreams',
+    name: '[RD✔] Torrentio 1080p',
+    title: '[RD✔] Torrentio 1080p',
+  };
+  assert.equal(parseDebridCacheStatus(torbox), 'cached');
+  assert.equal(parseDebridCacheStatus(realDebrid), 'cached');
+});
+
+test('parseDebridCacheStatus trusts explicit AIOStreams bingeGroup over display badge', () => {
+  const uncached: Stream = {
+    url: 'https://example.test/explicit-uncached.mp4',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 1080p',
+    title: '[TB⚡] Torrentio 1080p',
+    behaviorHints: {
+      bingeGroup: 'com.aiostreams|torbox|false|1080p',
+    },
+  };
   assert.equal(parseDebridCacheStatus(uncached), 'uncached');
 });
 

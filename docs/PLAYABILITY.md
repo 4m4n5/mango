@@ -163,6 +163,7 @@ Grow negative memory is runtime-only:
 - Debug-only failed-title bypass: `MANGO_GROW_BYPASS_RECENT_FAILED=1`.
 - Runtime source weights and source suppressions never edit catalog YAML or theme profiles.
 - Unresolved external catalog IDs are structural candidate failures, not playback failures; they should show up as `skipped_unresolved_external_id` and source `unresolved_external_id`, not as repeated `no_stream` probes.
+- `uncached_verify_legacy` is a migration quarantine reason for older rows proven by stale cache metadata; it retries immediately by default so the current stream parser can re-verify them.
 - Source hit-rate reports written by Python use seconds timestamps; the grow loader normalizes seconds/milliseconds before age checks.
 - Catastrophic zero-yield or near-zero-yield runtime source outcomes fall to the 5-10% probation floor so weak sources can recover without burning the rail window.
 - Monitor state is written to `~/.cache/mango/grow-run-state.json`; it is operator-only and not shown on TV.

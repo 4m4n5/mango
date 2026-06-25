@@ -407,36 +407,44 @@ export function isDebridStream(stream: Stream): boolean {
   return debridServiceId(stream) !== null;
 }
 
-/** AIOStreams name tags when bingeGroup is absent (v2.30+): ☁️ = on-debrid cache. */
+function parseAioStreamsBingeGroupCacheStatus(stream: Stream): 'cached' | 'uncached' | null {
+  const group = bingeGroup(stream);
+  if (!group) return null;
+  const addonId = group?.split('|')[0]?.toLowerCase();
+  if (addonId !== 'com.aiostreams' && addonId !== 'aiostreams') return null;
+
+  const parts = group.split('|');
+  if (parts.length < 3) return null;
+
+  const service = parts[1]?.toLowerCase();
+  if (!service || !DEBRID_SERVICE_IDS.has(service)) return null;
+
+  const flag = parts[2]?.toLowerCase();
+  if (flag === 'true') return 'cached';
+  if (flag === 'false') return 'uncached';
+  return null;
+}
+
+/** AIOStreams lightgdrive tags when explicit cache metadata is absent. */
 function parseAioStreamsNameCacheStatus(stream: Stream): 'cached' | 'uncached' | null {
   const label = `${stream.name || ''} ${stream.title || ''}`;
   if (!/\[(?:TB|RD)/i.test(label)) return null;
-  if (/☁️/.test(label)) return 'cached';
-  if (/\[(?:TB|RD)⚡\]/.test(label)) return 'uncached';
+  if (/☁️|✔|⚡/.test(label)) return 'cached';
   return null;
 }
 
 /** AIOStreams autoplay bingeGroup: addonId|service|cached|resolution|... */
 export function parseDebridCacheStatus(stream: Stream): 'cached' | 'uncached' | 'unknown' {
-  const fromName = parseAioStreamsNameCacheStatus(stream);
-  if (fromName) return fromName;
+  const fromGroup = parseAioStreamsBingeGroupCacheStatus(stream);
+  if (fromGroup) return fromGroup;
 
   const haystack = streamHaystack(stream);
   if (/\bnot cached\b|\buncached\b/.test(haystack)) return 'uncached';
   if (/\bcached\b/.test(haystack) && !/\bnot cached\b|\buncached\b/.test(haystack)) return 'cached';
 
-  const group = bingeGroup(stream);
-  if (!group?.startsWith('com.aiostreams')) return 'unknown';
+  const fromName = parseAioStreamsNameCacheStatus(stream);
+  if (fromName) return fromName;
 
-  const parts = group.split('|');
-  if (parts.length < 3) return 'unknown';
-
-  const service = parts[1]?.toLowerCase();
-  if (!service || !DEBRID_SERVICE_IDS.has(service)) return 'unknown';
-
-  const flag = parts[2]?.toLowerCase();
-  if (flag === 'true') return 'cached';
-  if (flag === 'false') return 'uncached';
   return 'unknown';
 }
 

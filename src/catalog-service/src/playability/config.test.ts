@@ -59,6 +59,13 @@ test('playabilityFailedRetryMsForReason uses short window for rate limits', () =
   assert.equal(playabilityFailedRetryMsForReason('rate_limit'), 60 * 60 * 1000);
 });
 
+test('playabilityFailedRetryMsForReason retries legacy uncached quarantine immediately', () => {
+  delete process.env.MANGO_PLAYABILITY_BOOTSTRAP;
+  assert.equal(playabilityFailedRetryMsForReason('uncached_verify_legacy'), 0);
+  process.env.MANGO_PLAYABILITY_LEGACY_UNCACHED_RETRY_MS = '60000';
+  assert.equal(playabilityFailedRetryMsForReason('uncached_verify_legacy'), 60_000);
+});
+
 test('playabilitySeriesCrossProbeLimit defaults to one maintenance fallback probe', () => {
   delete process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT;
   assert.equal(playabilitySeriesCrossProbeLimit(), 1);
