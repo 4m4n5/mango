@@ -828,6 +828,209 @@
       ]
     },
     {
+      "id": "mdblist.33753",
+      "name": "Indian Web Series",
+      "media": "series",
+      "items": 1770,
+      "slug": "lmaggoo/indian-web-series",
+      "tags": [
+        "deep-pool",
+        "india",
+        "series",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.65408",
+      "name": "Best Indian Series",
+      "media": "series",
+      "items": 281,
+      "slug": "smarthome4103/best-indian-series",
+      "tags": [
+        "india",
+        "series",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.80807",
+      "name": "Bollywood Series - Popular",
+      "media": "series",
+      "items": 100,
+      "slug": "gilanimovies/bollywood-series-popular",
+      "tags": [
+        "bollywood",
+        "india",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.81619",
+      "name": "Top Rated Indian Web Series",
+      "media": "series",
+      "items": 65,
+      "slug": "dkwatch/top-rated-indian-web-series",
+      "tags": [
+        "india",
+        "series",
+        "top-rated",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.89014",
+      "name": "Latest Indian Shows: Top Rated",
+      "media": "series",
+      "items": 72,
+      "slug": "dani2819/indian-shows",
+      "tags": [
+        "india",
+        "series",
+        "top-rated",
+        "trending"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.107438",
+      "name": "Indian web series",
+      "media": "series",
+      "items": 442,
+      "slug": "sheikh-talib/indian-web-series",
+      "tags": [
+        "deep-pool",
+        "india",
+        "series",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.107457",
+      "name": "indian web series latest",
+      "media": "series",
+      "items": 139,
+      "slug": "anariasheikh/indian-web-series-latest",
+      "tags": [
+        "india",
+        "series",
+        "trending",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.11103",
+      "name": "Top Rated Indian Shows",
+      "media": "series",
+      "items": 1650,
+      "slug": "cakepopcorn/top-rated-indian-shows",
+      "tags": [
+        "deep-pool",
+        "india",
+        "series",
+        "top-rated"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.122391",
+      "name": "Hindi Web Series",
+      "media": "series",
+      "items": 475,
+      "slug": "zenstream/hindi-web-series",
+      "tags": [
+        "hindi",
+        "india",
+        "series",
+        "web-series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.141869",
+      "name": "Trakt Top Indian Shows",
+      "media": "series",
+      "items": 89,
+      "slug": "dajaginator/trakt-top-indian-shows",
+      "tags": [
+        "india",
+        "series",
+        "top-rated"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.173530",
+      "name": "My Popular Indian Shows",
+      "media": "series",
+      "items": 3236,
+      "slug": "akshaybholee/my-popular-indian-shows",
+      "tags": [
+        "deep-pool",
+        "india",
+        "series"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.181621",
+      "name": "Trending Bollywood Series",
+      "media": "series",
+      "items": 250,
+      "slug": "lynx7288/trending-bollywood-series",
+      "tags": [
+        "bollywood",
+        "india",
+        "series",
+        "trending"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
+      "id": "mdblist.55120",
+      "name": "New Indian Shows",
+      "media": "series",
+      "items": 149,
+      "slug": "singhtheking/new-indian-shows",
+      "tags": [
+        "india",
+        "series",
+        "trending"
+      ],
+      "rails": [
+        "series-india-picks"
+      ]
+    },
+    {
       "id": "mdblist.2406",
       "name": "Documentary Movies (Top Rated From 1980 to Today)",
       "media": "movie",

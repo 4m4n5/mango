@@ -104,6 +104,12 @@ export function haystackHasThemeTag(haystack: string, tag: string): boolean {
   if (!tag) return false;
   const normalized = tag.toLowerCase().trim();
   if (!normalized) return false;
+  if (
+    normalized === 'india'
+    && /\bindian[^a-z0-9]+(?:web[^a-z0-9]+)?(?:series|show|shows|tv|cinema|movie|movies|film|films)\b/i.test(haystack)
+  ) {
+    return true;
+  }
   const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(normalized)}([^a-z0-9]|$)`, 'i');
   return pattern.test(haystack);
 }

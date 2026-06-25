@@ -106,6 +106,28 @@ test('scoreTitleOnly uses source name evidence without admitting generic series 
   assert.equal(generic.fit, false);
 });
 
+test('scoreTitleOnly uses Indian web-series source evidence for India series rail', () => {
+  const gate = RailThemeGate.forTest(
+    new Map([
+      ['series-india-picks', profile(
+        'series-india-picks',
+        'india hindi bollywood tamil telugu malayalam kannada desi hotstar zee sonyliv voot jio panchayat sacred games',
+        'hollywood american british korean japanese anime french german spanish hbo worldwide western european',
+        10,
+      )],
+    ]),
+    parseRailCurationOverrides('version: 1\npins: []\nblocks: []'),
+  );
+
+  const fit = gate.scoreTitleOnly('series-india-picks', {
+    type: 'series',
+    id: 'tt1',
+    title: 'Unknown Title',
+    source_name: 'Indian Web Series',
+  });
+  assert.equal(fit.fit, true);
+});
+
 test('shouldSkipProbe skips clear exclude matches', () => {
   const gate = RailThemeGate.forTest(
     new Map([
