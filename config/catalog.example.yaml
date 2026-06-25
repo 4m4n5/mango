@@ -232,20 +232,23 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: "Bharat Binge", catalog: tmdb-hi-latest_episodes-series, weight: 0.12 }
-      - { addon: AIOMetadata, catalog: mdblist.165054, weight: 0.11 }
-      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-series, weight: 0.10 }
-      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-series, weight: 0.09 }
-      - { addon: AIOMetadata, catalog: mdblist.166155, weight: 0.09 }
-      - { addon: "Bharat Binge", catalog: tmdb-ta-recent-series, weight: 0.09 }
-      - { addon: "Bharat Binge", catalog: tmdb-te-recent-series, weight: 0.09 }
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.160359, weight: 0.16 }
+      - { addon: AIOMetadata, catalog: mdblist.167064, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.166155, weight: 0.07 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.05 }
       - { addon: AIOMetadata, catalog: mdblist.107457, weight: 0.05 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-latest_episodes-series, weight: 0.04 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-recent-series, weight: 0.04 }
       - { addon: AIOMetadata, catalog: mdblist.173530, weight: 0.04 }
-      - { addon: AIOMetadata, catalog: mdblist.160359, weight: 0.04 }
-      - { addon: AIOMetadata, catalog: mdblist.167064, weight: 0.03 }
       - { addon: AIOMetadata, catalog: mdblist.181302, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-hi-top_rated-series, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-ta-recent-series, weight: 0.03 }
+      - { addon: "Bharat Binge", catalog: tmdb-te-recent-series, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.160360, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.167061, weight: 0.03 }
+      - { addon: AIOMetadata, catalog: mdblist.160363, weight: 0.03 }
       - { addon: AIOMetadata, catalog: mdblist.21011, weight: 0.02 }
+      - { addon: AIOMetadata, catalog: mdblist.165054, weight: 0.02 }
       - { addon: AIOMetadata, catalog: mdblist.33753, weight: 0.01 }
       - { addon: AIOMetadata, catalog: mdblist.11103, weight: 0.01 }
       - { addon: AIOMetadata, catalog: mdblist.122391, weight: 0.01 }
@@ -268,9 +271,6 @@ rails:
       - { addon: "Bharat Binge", catalog: tmdb-ml-top_rated-series, weight: 0.01 }
       - { addon: "Bharat Binge", catalog: tmdb-kn-top_rated-series, weight: 0.01 }
       - { addon: AIOMetadata, catalog: mdblist.79344, weight: 0.01 }
-      - { addon: AIOMetadata, catalog: mdblist.160360, weight: 0.01 }
-      - { addon: AIOMetadata, catalog: mdblist.167061, weight: 0.01 }
-      - { addon: AIOMetadata, catalog: mdblist.160363, weight: 0.01 }
       - { addon: AIOMetadata, catalog: mdblist.131190, weight: 0.01 }
       - { addon: AIOMetadata, catalog: mdblist.183642, weight: 0.01 }
     playability:
