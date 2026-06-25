@@ -11,6 +11,7 @@ test.afterEach(() => {
 
 test('prepareVerifyTitle passes bounded series cross-probe budget and classifies 429s', async () => {
   process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT = '2';
+  process.env.MANGO_PLAYABILITY_GROW_PASS = '1';
   let options: unknown;
   const core = {
     async resolveForPlay(_type: string, _id: string, _overrides: unknown, resolveOptions: unknown) {
@@ -23,7 +24,31 @@ test('prepareVerifyTitle passes bounded series cross-probe budget and classifies
 
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'rate_limited');
-  assert.deepEqual(options, { seriesCrossProbeLimit: 2 });
+  assert.deepEqual(options, {
+    seriesCrossProbeLimit: 2,
+    zeroStreamRetryAttempts: 1,
+    zeroStreamRetryDelayMs: 1200,
+  });
+});
+
+test('prepareVerifyTitle does not retry zero-stream resolves outside grow unless configured', async () => {
+  let options: unknown;
+  const core = {
+    async resolveForPlay(_type: string, _id: string, _overrides: unknown, resolveOptions: unknown) {
+      options = resolveOptions;
+      throw new Error('no HTTP streams for movie/tt123');
+    },
+  } as unknown as CatalogCore;
+
+  const result = await prepareVerifyTitle(core, 'movie', 'tt123');
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'no_stream');
+  assert.deepEqual(options, {
+    seriesCrossProbeLimit: 1,
+    zeroStreamRetryAttempts: 0,
+    zeroStreamRetryDelayMs: 0,
+  });
 });
 
 test('failedLadderReason classifies zero-candidate ladder failures as no_stream', () => {

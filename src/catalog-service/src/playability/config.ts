@@ -191,6 +191,26 @@ export function playabilitySeriesCrossProbeLimit(): number {
   return boundedInt(process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT, 1, 0, 24);
 }
 
+export function playabilityVerifyZeroStreamRetryAttempts(): number {
+  const fallback = isPlayabilityGrowPass() ? 1 : 0;
+  return boundedInt(
+    process.env.MANGO_PLAYABILITY_VERIFY_ZERO_RETRY_ATTEMPTS,
+    fallback,
+    0,
+    2,
+  );
+}
+
+export function playabilityVerifyZeroStreamRetryDelayMs(): number {
+  const fallback = isPlayabilityGrowPass() ? 1200 : 0;
+  return boundedInt(
+    process.env.MANGO_PLAYABILITY_VERIFY_ZERO_RETRY_DELAY_MS,
+    fallback,
+    0,
+    5000,
+  );
+}
+
 export function playabilityVerifyTtlMs(): number {
   return positiveDurationMs(
     process.env.MANGO_PLAYABILITY_TTL_MS,

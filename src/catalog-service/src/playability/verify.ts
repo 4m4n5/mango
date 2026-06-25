@@ -9,6 +9,8 @@ import {
   playabilityUseProbePool,
   playabilityVerifyMinDurationSec,
   playabilityVerifyTtlMs,
+  playabilityVerifyZeroStreamRetryAttempts,
+  playabilityVerifyZeroStreamRetryDelayMs,
 } from './config.js';
 import {
   getTitlePlayability,
@@ -264,6 +266,8 @@ export async function prepareVerifyTitle(
   try {
     const resolved = await core.resolveForPlay(type, verifyId, {}, {
       seriesCrossProbeLimit: playabilitySeriesCrossProbeLimit(),
+      zeroStreamRetryAttempts: playabilityVerifyZeroStreamRetryAttempts(),
+      zeroStreamRetryDelayMs: playabilityVerifyZeroStreamRetryDelayMs(),
     });
     const candidates = expandPlayLadder(
       resolved.streams,
