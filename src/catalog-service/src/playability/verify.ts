@@ -220,6 +220,7 @@ export async function demoteVerifyIfDrifted(
       strict_unknown_cache: prepared.resolved.filters.strict_unknown_cache,
       preferred_quality: prepared.resolved.filters.preferred_quality,
       max_candidates: prepared.resolved.filters.auto_play_max_attempts,
+      include_uncached: false,
     },
   );
   if (candidates.length === 0) {
@@ -272,6 +273,7 @@ export async function prepareVerifyTitle(
         strict_unknown_cache: resolved.filters.strict_unknown_cache,
         preferred_quality: resolved.filters.preferred_quality,
         max_candidates: resolved.filters.auto_play_max_attempts,
+        include_uncached: false,
       },
     );
 
@@ -345,6 +347,7 @@ export async function verifyPreparedTitle(
       ladder: prepared.resolved.filters.play_ladder,
       contentType: prepared.type,
       filterContext: prepared.resolved.filterContext,
+      include_uncached: false,
       probe: async (url, timeoutMs) => {
         if (isRateLimitedStreamUrl(url)) {
           throw new Error('rate_limited');

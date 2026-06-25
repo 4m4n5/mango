@@ -124,6 +124,7 @@ export async function probeWithLadder(
     probe?: typeof probeUrl;
     preflight?: typeof preflightPlaybackUrl;
     max_candidates?: number;
+    include_uncached?: boolean;
   } = {},
 ): Promise<{
   ok: true;
@@ -147,6 +148,7 @@ export async function probeWithLadder(
     preferred_quality: config.preferred_quality,
     verified_hint: options.verified_hint,
     max_candidates: options.max_candidates ?? config.auto_play_max_attempts,
+    include_uncached: options.include_uncached,
     prefer_ladder_step: options.verified_hint?.win_ladder_step ?? null,
   });
   const attempts: PlayAttempt[] = [];

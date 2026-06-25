@@ -284,6 +284,7 @@ export function expandPlayLadder(
     preferred_quality?: QualityCap | null;
     verified_hint?: VerifiedStreamHint;
     max_candidates?: number;
+    include_uncached?: boolean;
     /** When set, prefer candidates from this ladder step (verify hint). */
     prefer_ladder_step?: string | null;
   } = {},
@@ -295,6 +296,9 @@ export function expandPlayLadder(
   const pushStep = (step: PlayLadderStep): void => {
     const stepStreams = filterStreamsForLadderStep(streams, step, context, options);
     for (const stream of stepStreams) {
+      if (options.include_uncached === false && parseDebridCacheStatus(stream) === 'uncached') {
+        continue;
+      }
       if (seen.has(stream.url)) continue;
       seen.add(stream.url);
       ranked.push({ stream, ladder_step: step.step });

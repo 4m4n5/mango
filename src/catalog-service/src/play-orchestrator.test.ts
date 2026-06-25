@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Stream } from './core.js';
-import { playWithLadder } from './play-orchestrator.js';
+import { playWithLadder, probeWithLadder } from './play-orchestrator.js';
 import { defaultPlayLadder } from './play-ladder.js';
 import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
 
@@ -81,4 +81,27 @@ test('playWithLadder skips nfo sidecars and reaches a later ladder step', async 
   assert.equal(result.attempts[0]?.ok, false);
   assert.match(result.attempts[0]?.error || '', /debrid_nfo_sidecar/);
   assert.equal(result.win_ladder_step, '2160p_encode');
+});
+
+test('probeWithLadder can reject uncached fallback for durable verification', async () => {
+  const stream = candidate(
+    'https://example.test/uncached.mkv',
+    '[TB⚡] Torrentio 1080p',
+  );
+  stream.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|false|1080p' };
+  let probeCalls = 0;
+
+  const result = await probeWithLadder([stream], testConfig(), {
+    include_uncached: false,
+    preflight: async () => 'video',
+    probe: async () => {
+      probeCalls += 1;
+      return { ok: true, ttff_ms: 500 };
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.candidate_count, 0);
+  assert.equal(result.attempts.length, 0);
+  assert.equal(probeCalls, 0);
 });

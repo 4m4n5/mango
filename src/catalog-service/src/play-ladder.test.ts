@@ -65,6 +65,29 @@ test('expandPlayLadder walks steps after ideal failures', () => {
   assert.ok(ranked.some((item) => item.ladder_step === '2160p_encode'));
 });
 
+test('expandPlayLadder can exclude uncached candidates for durable verification', () => {
+  const ladder = defaultPlayLadder();
+  const cached = stream({
+    url: 'https://example.test/cached.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const uncached = stream({
+    url: 'https://example.test/uncached.mkv',
+    name: '[TB⚡] Torrentio 2160p',
+    description: '2160p HEVC encode',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|false|2160p' },
+  });
+
+  const ranked = expandPlayLadder([uncached, cached], ladder, { contentType: 'movie' }, {
+    include_uncached: false,
+    max_candidates: 6,
+  });
+
+  assert.deepEqual(ranked.map((item) => item.stream.url), [cached.url]);
+  assert.equal(ranked[0]?.ladder_step, 'ideal');
+});
+
 test('expandPlayLadder prefers picker win_url_hash on ideal step', () => {
   const ladder = defaultPlayLadder();
   const picked = stream({
