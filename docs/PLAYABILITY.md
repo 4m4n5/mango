@@ -94,11 +94,11 @@ Curated in [catalog-rail-curation.md](../config/catalog-rail-curation.md). Highl
 |------|--------|
 | `movies-quick-watches` | Short / stand-up / easy - streaming, RT-short, and shorts lists; not classics overlap lists |
 | `movies-india-trending` | **Indian cinema** - Bharat Binge Hindi/Tamil/Telugu/Malayalam/Kannada catalogs plus India-native MDBList pools; not generic western titles "trending in India" |
-| `series-india-picks` | **Indian series** - Hindi/Tamil/Telugu/Malayalam/Kannada OTT plus India-native MDBList pools |
+| `series-india-picks` | **Indian series** - Hindi/Tamil/Telugu/Malayalam/Kannada OTT plus India-native MDBList pools, with new regional/provider sources admitted as probation probes |
 | `series-classics` | Critically acclaimed shows - IMDb anchor plus HBO/BBC depth |
 | `movies-documentaries` | Documentary pools widened; weak true-crime source retained only as low-weight probation |
 | `series-global-popular` | Cinemeta anchor plus `mdblist.88303` / `88434` trending-show depth; weak older daily source is low-weight probation |
-| `series-reality-casual` | Reality / game shows - `mdblist.84401` plus deep `147884`, weak `63182` kept only as probation |
+| `series-reality-casual` | Reality / game shows - `mdblist.84401` plus deep `147884`; weak and broad show-chart sources stay low-weight and must pass the reality/game-show theme gate |
 | `series-comedy` | Sitcom/comedy MDBList pools plus small Indian stand-up overlap where theme-fit passes |
 
 Hit-rate tuning: `python3 scripts/diag/source-hitrate.py`

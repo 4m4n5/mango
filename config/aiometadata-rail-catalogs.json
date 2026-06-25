@@ -21,7 +21,8 @@
       "name": "Top 250 Shows (iMDB)",
       "rails": [
         "series-global-popular",
-        "series-classics"
+        "series-classics",
+        "series-reality-casual"
       ]
     },
     {
@@ -504,7 +505,8 @@
       "id": "mdblist.88303",
       "name": "Trending Shows",
       "rails": [
-        "series-global-popular"
+        "series-global-popular",
+        "series-reality-casual"
       ]
     },
     {
@@ -518,7 +520,8 @@
       "id": "mdblist.88434",
       "name": "Trakt's Trending Shows",
       "rails": [
-        "series-global-popular"
+        "series-global-popular",
+        "series-reality-casual"
       ]
     },
     {
