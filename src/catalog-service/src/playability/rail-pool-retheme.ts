@@ -30,6 +30,7 @@ export type RethemePoolsResult = {
   ok: boolean;
   dry_run: boolean;
   include_orphans: boolean;
+  membership_mode: 'full' | 'overlap_only' | 'skip';
   max_rails_per_title: number;
   memberships_scanned: number;
   orphans_scanned: number;
@@ -243,6 +244,7 @@ export async function rethemeRailPools(
     orphanLimit?: number;
     maxRailsPerTitle?: number;
     metaConcurrency?: number;
+    membershipMode?: 'full' | 'overlap_only' | 'skip';
   } = {},
 ): Promise<RethemePoolsResult> {
   const dryRun = options.dryRun !== false;
@@ -254,6 +256,7 @@ export async function rethemeRailPools(
     ? Math.max(0, Math.floor(options.orphanLimit))
     : null;
   const maxRailsPerTitle = maxRailsPerTitleOption(options.maxRailsPerTitle);
+  const membershipMode = options.membershipMode ?? 'full';
 
   const [profiles, overrides, memberships] = await Promise.all([
     loadRailThemeProfiles(),
@@ -289,7 +292,64 @@ export async function rethemeRailPools(
   let processed = 0;
   const progressEvery = Number(process.env.MANGO_RETHEME_PROGRESS_EVERY ?? 25);
 
-  for (const [titleKey, rows] of byTitle) {
+  if (membershipMode === 'overlap_only') {
+    for (const [titleKey, rows] of byTitle) {
+      processed += 1;
+      if (progressEvery > 0 && processed % progressEvery === 0) {
+        console.error(`retheme: overlap scanned ${processed}/${byTitle.size} pool titles...`);
+      }
+      const { type, id } = parseMembershipKey(titleKey);
+      const pinnedRows = rows.filter((row) => pinned.has(pinKey(row.rail_id, type, id)));
+      const unpinnedRows = rows.filter((row) => !pinned.has(pinKey(row.rail_id, type, id)));
+      const allowed = new Set(
+        [...unpinnedRows]
+          .sort((a, b) => (
+            (b.score ?? 0) - (a.score ?? 0)
+            || a.rail_id.localeCompare(b.rail_id)
+          ))
+          .slice(0, maxRailsPerTitle)
+          .map((row) => row.rail_id),
+      );
+      for (const row of pinnedRows) {
+        kept += 1;
+        actions.push({
+          action: 'keep',
+          rail_id: row.rail_id,
+          type,
+          id,
+          score: row.score ?? 0,
+        });
+      }
+      for (const row of unpinnedRows) {
+        if (allowed.has(row.rail_id)) {
+          kept += 1;
+          actions.push({
+            action: 'keep',
+            rail_id: row.rail_id,
+            type,
+            id,
+            score: row.score ?? 0,
+          });
+          continue;
+        }
+        removed += 1;
+        overlapRemoved += 1;
+        railsTouched.add(row.rail_id);
+        actions.push({
+          action: 'remove',
+          rail_id: row.rail_id,
+          type,
+          id,
+          score: row.score ?? 0,
+          reason: 'overlap_cap',
+        });
+        if (!dryRun) {
+          await deleteRailPoolTitle(row.rail_id, type, id);
+        }
+      }
+    }
+  } else if (membershipMode === 'full') {
+    for (const [titleKey, rows] of byTitle) {
     processed += 1;
     if (progressEvery > 0 && processed % progressEvery === 0) {
       console.error(`retheme: scored ${processed}/${byTitle.size} pool titles…`);
@@ -442,6 +502,7 @@ export async function rethemeRailPools(
       }
     }
   }
+  }
 
   let orphansScanned = 0;
   if (includeOrphans) {
@@ -528,6 +589,7 @@ export async function rethemeRailPools(
     ok: true,
     dry_run: dryRun,
     include_orphans: includeOrphans,
+    membership_mode: membershipMode,
     max_rails_per_title: maxRailsPerTitle,
     memberships_scanned: memberships.length,
     orphans_scanned: orphansScanned,

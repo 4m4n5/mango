@@ -266,6 +266,45 @@ test('retheme caps unpinned overlap to strongest rails', async () => {
   )));
 });
 
+test('retheme overlap-only mode caps overlap without metadata fetches', async () => {
+  const core = await setupRethemeTest({});
+  await verifyTitle('movie', 'tt-overlap-lightweight');
+  await upsertRailPoolTitle({
+    rail_id: 'movies-comedy',
+    type: 'movie',
+    id: 'tt-overlap-lightweight',
+    score: 92,
+    title: 'Lightweight Comedy',
+  });
+  await upsertRailPoolTitle({
+    rail_id: 'movies-comfort',
+    type: 'movie',
+    id: 'tt-overlap-lightweight',
+    score: 88,
+    title: 'Lightweight Comedy',
+  });
+  await upsertRailPoolTitle({
+    rail_id: 'movies-classics',
+    type: 'movie',
+    id: 'tt-overlap-lightweight',
+    score: 60,
+    title: 'Lightweight Comedy',
+  });
+
+  const result = await rethemeRailPools(core, {
+    dryRun: false,
+    includeOrphans: false,
+    maxRailsPerTitle: 2,
+    membershipMode: 'overlap_only',
+  });
+  const rails = await listRailIdsContainingTitle('movie', 'tt-overlap-lightweight');
+
+  assert.equal(result.membership_mode, 'overlap_only');
+  assert.equal(result.meta_fetched, 0);
+  assert.equal(result.overlap_removed, 1);
+  assert.deepEqual(rails.sort(), ['movies-comedy', 'movies-comfort']);
+});
+
 test('retheme overlap cap preserves pinned memberships', async () => {
   const core = await setupRethemeTest({
     'movie:tt-pinned-overlap': {

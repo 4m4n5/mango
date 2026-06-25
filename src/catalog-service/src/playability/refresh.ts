@@ -307,6 +307,7 @@ async function refreshAllRailsGrow(
       dryRun: false,
       includeOrphans: true,
       maxRailsPerTitle: 2,
+      membershipMode: 'overlap_only',
     });
     const finalStatus = await getPlayabilityStatus(rails.map((rail) => rail.id));
     const minByRail = new Map(rails.map((rail) => [rail.id, rail.playability.min_display]));
@@ -362,6 +363,7 @@ async function refreshAllRailsGrow(
         ok: rethemeFinalization.ok,
         dry_run: rethemeFinalization.dry_run,
         include_orphans: rethemeFinalization.include_orphans,
+        membership_mode: rethemeFinalization.membership_mode,
         max_rails_per_title: rethemeFinalization.max_rails_per_title,
         memberships_scanned: rethemeFinalization.memberships_scanned,
         orphans_scanned: rethemeFinalization.orphans_scanned,

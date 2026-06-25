@@ -315,6 +315,24 @@ def detect_grow_state() -> dict[str, Any]:
     }
 
 
+def active_staged_work_db(grow: dict[str, Any] | None = None) -> Path | None:
+    """Return the isolated grow work DB for an active run, if it exists."""
+    grow_state = grow if grow is not None else detect_grow_state()
+    if not grow_state.get("running"):
+        return None
+    run_state = grow_state.get("run_state")
+    if not isinstance(run_state, dict):
+        return None
+    phase = str(run_state.get("phase") or grow_state.get("phase") or "")
+    if phase in {"done", "idle"}:
+        return None
+    run_id = str(run_state.get("run_id") or "").strip()
+    if not run_id:
+        return None
+    candidate = cache_dir() / f"playability-work-{run_id}.db"
+    return candidate if candidate.is_file() else None
+
+
 def _pid_alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -830,24 +848,26 @@ def build_live_status(
     baseline = baseline or {"verified_pool": 0, "rails": {}, "grow_rail_ids": list_grow_rail_ids()}
     baseline_rails: dict[str, int] = baseline.get("rails") or {}
     grow_rail_ids: list[str] = list(baseline.get("grow_rail_ids") or list_grow_rail_ids())
-    current = fetch_verified_pool_counts(db_file)
-    since_ms = int(baseline.get("created_at_ms") or 0) or (_now_ms() - verify_window_ms)
-    verify_stats = fetch_verify_log_stats(since_ms, db_file)
-    verify_totals = fetch_verify_log_totals_since(since_ms, db_file)
-    unique_now = fetch_unique_verified_library_count(db_file)
-    orphan_total = fetch_orphan_verified_library_count(db_file)
-    overlap = fetch_overlap_summary(db_file, max_rails_per_title=2)
     grow_state = detect_grow_state()
+    active_work_db = active_staged_work_db(grow_state) if db_file is None else None
+    effective_db = db_file or active_work_db
+    current = fetch_verified_pool_counts(effective_db)
+    since_ms = int(baseline.get("created_at_ms") or 0) or (_now_ms() - verify_window_ms)
+    verify_stats = fetch_verify_log_stats(since_ms, effective_db)
+    verify_totals = fetch_verify_log_totals_since(since_ms, effective_db)
+    unique_now = fetch_unique_verified_library_count(effective_db)
+    orphan_total = fetch_orphan_verified_library_count(effective_db)
+    overlap = fetch_overlap_summary(effective_db, max_rails_per_title=2)
     target_override = _grow_target_override(baseline, grow_state)
     if "unique_verified" in baseline:
         unique_before = int(baseline["unique_verified"])
     elif since_ms > 0:
         # Legacy baselines without unique_verified — best-effort from verify_log.
-        unique_before = max(0, unique_now - fetch_distinct_probe_verified_since(since_ms, db_file))
+        unique_before = max(0, unique_now - fetch_distinct_probe_verified_since(since_ms, effective_db))
     else:
         unique_before = 0
     unique_delta = unique_now - unique_before
-    distinct_probe_verified = fetch_distinct_probe_verified_since(since_ms, db_file)
+    distinct_probe_verified = fetch_distinct_probe_verified_since(since_ms, effective_db)
 
     rows: list[RailLiveStatus] = []
     met_count = 0
@@ -904,6 +924,8 @@ def build_live_status(
     thin_alerts = [row for row in thin_rails if row.get("alert")]
     return {
         "baseline_path": str(baseline_path()),
+        "db_source": "staged_work" if active_work_db is not None else "live",
+        "db_path": str(effective_db or db_path()),
         "baseline_created_at_ms": baseline.get("created_at_ms"),
         "grow_rail_ids": grow_rail_ids,
         "verified_pool": grow_pool_now,
@@ -994,6 +1016,12 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
     lines = [
         "mango library grower",
         f"baseline: {data.get('baseline_path', '-')}",
+    ]
+    if data.get("db_source") == "staged_work":
+        lines.append(f"data: staged work DB (not yet published) {data.get('db_path', '-')}")
+    elif verbose:
+        lines.append(f"data: live DB {data.get('db_path', '-')}")
+    lines.extend([
         pool_line,
         slots_line,
         verify_line,
@@ -1002,7 +1030,7 @@ def format_live_status(data: dict[str, Any], *, verbose: bool = False) -> str:
         f"({int(round((data.get('program_pass_rate') or 0) * 100))}%)",
         f"running: {'yes' if grow.get('running') else 'no'}"
         + (f" pid={grow.get('pid')}" if grow.get('pid') else ""),
-    ]
+    ])
     if overnight.get("running"):
         lines.append(
             f"overnight: yes pid={overnight.get('pid')} log={overnight.get('log') or '-'}",
@@ -1142,8 +1170,10 @@ def assess_refresh_json(path: Path, catalog: dict[str, RailPlayabilityConfig] | 
         )
     retheme = payload.get("retheme_finalization")
     if isinstance(retheme, dict):
+        mode = retheme.get("membership_mode") or "full"
         header += (
             "retheme finalization: "
+            f"mode={mode} "
             f"attached={retheme.get('attached', 0)} "
             f"removed={retheme.get('removed', 0)} "
             f"overlap_removed={retheme.get('overlap_removed', 0)}\n"

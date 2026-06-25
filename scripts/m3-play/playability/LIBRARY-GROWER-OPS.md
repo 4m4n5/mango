@@ -70,7 +70,7 @@ same candidate by hand.
 
 Baseline file: `~/.cache/mango/grow-baseline.json` (schema v2 — `grow_rail_ids` + per-rail verified counts).
 
-Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending). The header also reports global orphan count and rail overlap health so pool hygiene is visible during long runs.
+Status counts **grow-pass rails only** (yaml browse + `ai-*` slots), excludes legacy pool entries like `popular-global`. All grow rails are always listed (including `ai-horror` while pending). During an active staged grow, status reads the isolated `playability-work-<run>.db` and labels it as `staged work DB`; after publish, abort, or idle it falls back to the live DB. The header also reports global orphan count and rail overlap health so pool hygiene is visible during long runs.
 
 ## Grow presets
 
@@ -139,7 +139,7 @@ surface only; couch UI continues to serve the previous stable rail snapshot
 unless the strict grow run succeeds.
 
 Stage-level heartbeats are also written for preflight, candidate ingest,
-verification, retheme finalization, and publish. If a run is aborted through
+verification, grow-safe retheme finalization, and publish. If a run is aborted through
 `grow-run-control.sh abort`, the abort is idempotent: owned grow/indexer
 processes and locks are cleared, a structured `ok:false` refresh JSON is
 written, and the couch stack is restored.
@@ -168,10 +168,12 @@ Grow monitor header shows **unique titles** separately from **pool slots**. It
 also shows orphan count and overlap caps; those are hygiene checks and do not
 replace the per-rail fresh quota.
 
-After every strict successful grow, finalization runs the retheme scorer with
-orphans included. Active verified orphans are attached to best-fit rails or
-anchor fallback, and unpinned titles are capped at two rail memberships. These
-attachments and overlap removals do **not** count toward the fresh quota.
+After every strict successful grow, finalization runs a grow-safe retheme pass:
+active verified orphans are scored against rail themes and attached to best-fit
+rails or anchor fallback, while existing pooled titles use a lightweight
+overlap-only cap. Full metadata retheme remains a manual repair tool; it is not
+run on every grow. Orphan attachments and overlap removals do **not** count
+toward the fresh quota.
 
 ## Head tombstone advance
 
@@ -293,9 +295,9 @@ Use this as context before another strict nightly grow investigation.
   fetch slots while probation sources are sampled through a rotating 5-10%
   budget.
 - The grow state heartbeat used to be rail-loop scoped only. It now writes
-  stage-level progress for preflight, candidate ingest, verification, retheme,
-  and publish. If status stalls, inspect the reported stage before killing the
-  process.
+  stage-level progress for preflight, candidate ingest, verification,
+  grow-safe retheme, and publish. If status stalls, inspect the reported stage
+  before killing the process.
 - Orphans are possible because the global `titles` table is independent of
   `rail_pool`. A title can be verified globally without a rail attachment after
   stale pruning, failed/theme-rejected linking, manual retheme dry-runs, or

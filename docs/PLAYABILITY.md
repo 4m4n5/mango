@@ -47,9 +47,10 @@ Disable gate (debug only): `MANGO_RAIL_THEME_GATE=0`
 ### Pool retheme
 
 Use manually after large source reshapes or legacy overlap. Strict successful
-grow runs also reuse this scorer as finalization: active verified orphans are
-attached to their best matching rail or anchor fallback, and unpinned titles are
-capped to two rail memberships.
+grow runs use a lightweight finalization path: active verified orphans are
+scored to their best matching rail or anchor fallback, and existing pooled
+titles are capped to two unpinned memberships by current pool score. Full
+metadata retheme remains a manual/off-hours repair operation.
 
 ```bash
 bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run
@@ -122,7 +123,9 @@ python3 scripts/diag/ops-report.py
 Tracks **unique verified library** size and per-rail deltas (`unique_verified`, `unique_verified_delta`) separately from strict per-rail grow success.
 Status and assess output also include orphan count, overlap count, over-cap
 titles, duplicate candidate pressure, wasted candidate ratio, and retheme
-finalization results when present.
+finalization results when present. During an active staged grow, status reads
+the isolated work DB and labels it as `staged work DB`; couch-visible rails
+still switch only after strict success and publish.
 
 ---
 
@@ -143,7 +146,7 @@ Addons (Cinemeta, AIOMetadata, AIOStreams) throttle aggressive meta/stream burst
 | Risk | Mitigation |
 |------|------------|
 | Full gate played every couch item per rail (old behavior) | **Fixed:** `MANGO_GATE_FULL=1` samples **3 plays/rail** |
-| `rail-pool-retheme apply` on full library | ~900 sequential meta calls — run off-hours; catalog backoff 5 min |
+| `rail-pool-retheme apply` on full library | Full metadata retheme can issue thousands of sequential meta calls — run off-hours; grow finalization uses the lightweight overlap/orphan path |
 | Gate-lite + deploy restart | M4 stream gate uses fixture corpus only — bounded |
 | Grow preflight | Reuse report if <24h; otherwise quick: 1 probe/source, nightly: 3/source. Force with `MANGO_SOURCE_HITRATE_FORCE=1` |
 | Live/IPTV addon rate limit during VOD grow | Playability refresh boots catalog-service in VOD mode and skips optional Live manifests |
@@ -163,7 +166,7 @@ Grow negative memory is runtime-only:
 - Source hit-rate reports written by Python use seconds timestamps; the grow loader normalizes seconds/milliseconds before age checks.
 - Catastrophic zero-yield or near-zero-yield runtime source outcomes fall to the 5-10% probation floor so weak sources can recover without burning the rail window.
 - Monitor state is written to `~/.cache/mango/grow-run-state.json`; it is operator-only and not shown on TV.
-- Strict successful grow finalization attaches verified orphans and prunes unpinned overlap above two rails per title. Failed or short grows keep the previous stable couch sessions visible.
+- Strict successful grow finalization attaches verified orphans and prunes unpinned overlap above two rails per title without full-library metadata rescoring. Failed or short grows keep the previous stable couch sessions visible.
 
 If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_category`, and `repair_suggestions`; use `python3 scripts/diag/grow_monitor.py assess --refresh-json <file>`.
 
