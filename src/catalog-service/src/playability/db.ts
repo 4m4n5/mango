@@ -279,7 +279,7 @@ SELECT
 FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE rp.rail_id = @rail_id
-  AND t.status = 'verified'
+  AND t.status IN ('verified', 'stale')
 ORDER BY rp.score DESC;
 `).all({ rail_id: railId, now }) as RailPoolRow[];
 }
@@ -312,7 +312,7 @@ JOIN rail_pool rp ON rp.rail_id = rs.rail_id AND rp.type = rs.type AND rp.id = r
 JOIN titles t ON t.type = rs.type AND t.id = rs.id
 WHERE rs.rail_id = @rail_id
   AND rs.session_id = @session_id
-  AND t.status = 'verified'
+  AND t.status IN ('verified', 'stale')
 ORDER BY rs.slot ASC;
 `).all({
     rail_id: railId,
@@ -1489,7 +1489,7 @@ function resolveRailDisplayLimit(
   return Math.max(1, effectiveDisplayLimit(rail.playability, verifiedPool));
 }
 
-/** Remove pool rows only for titles definitively marked stale (additive library — never drop verified). */
+/** Remove pool rows only for confirmed failed titles; stale remains published until confirmed. */
 export async function pruneNonPlayableFromRailPools(_now: number = nowMs()): Promise<number> {
   await initPlayabilityDb();
   const db = openDb();
@@ -1499,7 +1499,7 @@ DELETE FROM rail_pool
 WHERE EXISTS (
   SELECT 1 FROM titles t
   WHERE t.type = rail_pool.type AND t.id = rail_pool.id
-    AND t.status = 'stale'
+    AND t.status = 'failed'
 );
 `).run();
     return result.changes;
@@ -2001,6 +2001,7 @@ export async function invalidateTitle(record: {
   const db = openDb();
   const timestamp = nowMs();
   const status = record.reason === 'play_failure' ? 'failed' : 'stale';
+  const confirmedFailure = status === 'failed';
   try {
     const transaction = db.transaction(() => {
       db.prepare(`
@@ -2023,8 +2024,18 @@ ON CONFLICT(type, id) DO UPDATE SET
         updated_at: timestamp,
       });
 
+      if (confirmedFailure) {
+        db.prepare(`
+DELETE FROM rail_pool
+WHERE type = @type AND id = @id;
+`).run({
+          type: record.type,
+          id: record.id,
+        });
+      }
+
       if (!record.preserve_session) {
-        const sessionWhere = record.rail_id
+        const sessionWhere = record.rail_id && !confirmedFailure
           ? 'rail_id = @rail_id AND type = @type AND id = @id'
           : 'type = @type AND id = @id';
         db.prepare(`

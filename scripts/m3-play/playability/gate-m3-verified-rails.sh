@@ -59,7 +59,7 @@ PY
     CHECKED=$((CHECKED + 1))
     rail_checked=$((rail_checked + 1))
     OUT_JSON="$TMP_DIR/play-${rail_id}-${item_id}.json"
-    if gate_post_play "$rail_id" "$item_type" "$item_id" "$OUT_JSON"; then
+    if gate_post_play "$rail_id" "$item_type" "$item_id" "$OUT_JSON" "" "" "$rail_id"; then
       PASSED=$((PASSED + 1))
       rail_passed=$((rail_passed + 1))
     fi

@@ -388,6 +388,7 @@ async function handlePlay(
           }`,
         );
       });
+      core.reshufflePlayabilitySession();
     }
     if (error instanceof CatalogError) {
       if (error.message === 'no_playable_stream') {
@@ -919,7 +920,11 @@ async function main(): Promise<void> {
           id: body.id,
           reason: body.reason || 'manual',
         });
-        core.clearRailItemsCache(body.rail_id ?? undefined);
+        if (body.reason === 'play_failure') {
+          core.reshufflePlayabilitySession();
+        } else {
+          core.clearRailItemsCache(body.rail_id ?? undefined);
+        }
         sendJson(res, 200, { ok: true, type: body.type, id: body.id });
         return;
       }
