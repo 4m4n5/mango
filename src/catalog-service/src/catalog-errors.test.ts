@@ -10,6 +10,7 @@ import {
 
 test('isBlockedCatalogText catches rate-limit copy', () => {
   assert.equal(isBlockedCatalogText('Rate limit exceeded'), true);
+  assert.equal(isBlockedCatalogText('rate-limit exceeded'), true);
   assert.equal(isBlockedCatalogText('Too many requests'), true);
   assert.equal(isBlockedCatalogText('Breaking Bad'), false);
 });

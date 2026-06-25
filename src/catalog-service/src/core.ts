@@ -579,13 +579,24 @@ function streamResolveInfoOnly(error: string): boolean {
 export function hasStreamResolveInfrastructureErrors(errors: string[]): boolean {
   return errors.some((error) => {
     if (streamResolveInfoOnly(error)) return false;
-    return /rate\s*limit|too many requests|429|timeout|abort|HTTP 5\d\d|fetch failed|ECONN|socket|public-rate-limit|rate-limit-exceeded/i
+    return /rate[-\s]*limit|too many requests|429|timeout|abort|HTTP 5\d\d|fetch failed|ECONN|socket|public-rate-limit|rate-limit-exceeded/i
       .test(error);
   });
 }
 
 function streamResolveCouchMessage(errors: string[]): string {
   return couchSafeCatalogMessage(errors.join('; ') || 'stream resolve failed');
+}
+
+export function streamsAreOnlyErrorPlaceholders(streams: Stream[]): boolean {
+  return streams.length > 0 && !hasCacheableStream(streams);
+}
+
+function errorPlaceholderCouchMessage(streams: Stream[]): string {
+  const text = streams.map((stream) => (
+    `${stream.title || ''} ${stream.name || ''} ${stream.description || ''} ${stream.url || ''}`
+  )).join(' ');
+  return couchSafeCatalogMessage(text || 'HTTP 502');
 }
 
 export class CatalogCore {
@@ -1578,8 +1589,17 @@ export class CatalogCore {
         { couchMessage: 'no streams found for this title' },
       );
     }
+    const enriched = enrichStreams(raw.streams);
+    if (streamsAreOnlyErrorPlaceholders(enriched)) {
+      throw new CatalogError(
+        502,
+        `stream resolve returned only addon error streams for ${type}/${streamId}`,
+        { errors: raw.errors, resolve_ms: raw.resolveMs },
+        { couchMessage: errorPlaceholderCouchMessage(enriched) },
+      );
+    }
     return {
-      streams: enrichStreams(raw.streams),
+      streams: enriched,
       resolve_ms: raw.cached ? 0 : raw.resolveMs,
       cached: raw.cached,
       filters: mergeFilterConfig(this.filterConfig, overrides),
@@ -1661,6 +1681,14 @@ export class CatalogCore {
     } else {
       const filtered = filterStreamsForPlay(enriched, config, filterContext);
       if (filtered.streams.length === 0) {
+        if (streamsAreOnlyErrorPlaceholders(enriched)) {
+          throw new CatalogError(
+            502,
+            `stream resolve returned only addon error streams for ${type}/${streamId}`,
+            { errors: raw.errors, resolve_ms: raw.resolveMs, filters: filtered.meta },
+            { couchMessage: errorPlaceholderCouchMessage(enriched) },
+          );
+        }
         return {
           streams: [],
           resolve_ms: raw.cached ? 0 : raw.resolveMs,

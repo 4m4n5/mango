@@ -1,6 +1,6 @@
 /** Couch-safe catalog errors — never surface raw addon host messages on TV. */
 
-const RATE_LIMIT_RE = /rate\s*limit|too many requests|429|ratelimit_error|please wait/i;
+const RATE_LIMIT_RE = /rate[-\s]*limit|too many requests|429|ratelimit_error|please wait/i;
 const RATE_LIMIT_URL_RE = /rate-limit-exceeded|public-rate-limit/i;
 
 /** True when addon text must never appear as a browse title or description. */
