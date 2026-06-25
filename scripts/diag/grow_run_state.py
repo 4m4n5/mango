@@ -75,15 +75,19 @@ def write_state(
         return {}
 
     previous = read_state() or {}
+    run_id_value = run_id or os.environ.get("MANGO_OPS_RUN_ID") or previous.get("run_id")
+    same_run = run_id_value is not None and previous.get("run_id") == run_id_value
     state: dict[str, Any] = {
         "updated_at_ms": _now_ms(),
-        "run_id": run_id or os.environ.get("MANGO_OPS_RUN_ID") or previous.get("run_id"),
+        "run_id": run_id_value,
         "mode": mode or previous.get("mode"),
         "preset": preset or previous.get("preset"),
-        "grow_per_pass": _env_int("MANGO_GROW_PER_PASS") or previous.get("grow_per_pass"),
+        "grow_per_pass": _env_int("MANGO_GROW_PER_PASS") or (previous.get("grow_per_pass") if same_run else None),
         "phase": phase,
         "message": message,
     }
+    if state["grow_per_pass"] is None:
+        del state["grow_per_pass"]
     for key, value in extra.items():
         if value is not None:
             state[key] = value
