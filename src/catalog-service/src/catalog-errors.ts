@@ -39,6 +39,9 @@ export function isRateLimitedStreamUrl(url: string): boolean {
 
 export function couchPlayFailureMessage(attempts: Array<{ error?: string }> | undefined): string {
   const errors = (attempts || []).map((attempt) => attempt.error || '').join(' ');
+  if (!errors.trim()) {
+    return 'no streams found for this title';
+  }
   if (/debrid_nfo_sidecar|debrid_playback_unreadable/i.test(errors)) {
     return 'stream not ready on TorBox — try again in a few minutes';
   }
@@ -48,14 +51,14 @@ export function couchPlayFailureMessage(attempts: Array<{ error?: string }> | un
   if (/debrid_status_clip/i.test(errors)) {
     return 'stream still caching on TorBox — try again in a few minutes';
   }
-  return 'catalog temporarily unavailable';
+  return 'stream did not start — try another option';
 }
 
 export function couchSafeCatalogMessage(message: string): string {
   if (isAddonRateLimitMessage(message)) {
     return 'catalog is busy — try again in a moment';
   }
-  if (/HTTP 5\d\d/i.test(message) || /HTTP 429/i.test(message)) {
+  if (/HTTP 5\d\d/i.test(message) || /HTTP 429/i.test(message) || /fetch failed|ECONN|socket/i.test(message)) {
     return 'catalog temporarily unavailable';
   }
   if (/abort/i.test(message) || /timeout/i.test(message)) {

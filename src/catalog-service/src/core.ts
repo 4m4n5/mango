@@ -552,6 +552,42 @@ function normalizeStream(stream: unknown, source: string): Stream | null {
   });
 }
 
+function emptyStreamFilterMeta(config: ReturnType<typeof mergeFilterConfig>): StreamFilterMeta {
+  return {
+    applied: config,
+    total: 0,
+    kept: 0,
+    play_ladder_step: 'preview',
+    play_ladder_preview: true,
+    excluded: {
+      uncached_debrid: 0,
+      unknown_cache_debrid: 0,
+      above_max_quality: 0,
+      remux: 0,
+      error_stream: 0,
+      title_mismatch: 0,
+      series_pack_for_movie: 0,
+      language_mismatch: 0,
+    },
+  };
+}
+
+function streamResolveInfoOnly(error: string): boolean {
+  return /^zero streams after \d+ attempts?$/i.test(error.trim());
+}
+
+export function hasStreamResolveInfrastructureErrors(errors: string[]): boolean {
+  return errors.some((error) => {
+    if (streamResolveInfoOnly(error)) return false;
+    return /rate\s*limit|too many requests|429|timeout|abort|HTTP 5\d\d|fetch failed|ECONN|socket|public-rate-limit|rate-limit-exceeded/i
+      .test(error);
+  });
+}
+
+function streamResolveCouchMessage(errors: string[]): string {
+  return couchSafeCatalogMessage(errors.join('; ') || 'stream resolve failed');
+}
+
 export class CatalogCore {
   private readonly metaCache = new Map<string, { meta?: Meta; expiresAt: number; blocked?: boolean }>();
   private readonly streamCache = new Map<string, {
@@ -1522,9 +1558,24 @@ export class CatalogCore {
     const streamId = normalizeSeriesVerifyId(type, id);
     const raw = await this.resolveRawStreams(type, streamId, options);
     if (raw.streams.length === 0) {
+      if (hasStreamResolveInfrastructureErrors(raw.errors)) {
+        throw new CatalogError(
+          502,
+          `stream resolve failed for ${type}/${streamId}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
+          { errors: raw.errors, resolve_ms: raw.resolveMs },
+          { couchMessage: streamResolveCouchMessage(raw.errors) },
+        );
+      }
       throw new CatalogError(
         502,
-        `no HTTP streams for ${type}/${streamId}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
+        'no_playable_stream',
+        {
+          attempts: [],
+          candidates: 0,
+          errors: raw.errors,
+          resolve_ms: raw.resolveMs,
+        },
+        { couchMessage: 'no streams found for this title' },
       );
     }
     return {
@@ -1553,15 +1604,26 @@ export class CatalogCore {
       zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
       zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
     });
+    const config = mergeFilterConfig(this.filterConfig, overrides);
 
     if (raw.streams.length === 0) {
-      throw new CatalogError(
-        502,
-        `no HTTP streams for ${type}/${streamId}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
-      );
+      if (hasStreamResolveInfrastructureErrors(raw.errors)) {
+        throw new CatalogError(
+          502,
+          `stream resolve failed for ${type}/${streamId}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
+          { errors: raw.errors, resolve_ms: raw.resolveMs },
+          { couchMessage: streamResolveCouchMessage(raw.errors) },
+        );
+      }
+      return {
+        streams: [],
+        resolve_ms: raw.cached ? 0 : raw.resolveMs,
+        cached: raw.cached,
+        filters: emptyStreamFilterMeta(config),
+        errors: raw.errors.length > 0 ? raw.errors : undefined,
+      };
     }
 
-    const config = mergeFilterConfig(this.filterConfig, overrides);
     const filterContext = await this.buildStreamFilterContext(type, id);
     const enriched = enrichStreams(raw.streams);
     const candidates = expandPlayLadder(enriched, config.play_ladder, filterContext, {
@@ -1599,14 +1661,13 @@ export class CatalogCore {
     } else {
       const filtered = filterStreamsForPlay(enriched, config, filterContext);
       if (filtered.streams.length === 0) {
-        const hint = config.exclude_uncached_debrid
-          ? ' try ?include_uncached=1 or set include_uncached in POST /play'
-          : '';
-        throw new CatalogError(
-          502,
-          `no streams left after filters for ${type}/${id} (${filtered.meta.excluded.uncached_debrid} uncached, ${filtered.meta.excluded.unknown_cache_debrid} unknown-cache debrid excluded)${hint}`,
-          { filters: filtered.meta },
-        );
+        return {
+          streams: [],
+          resolve_ms: raw.cached ? 0 : raw.resolveMs,
+          cached: raw.cached,
+          filters: filtered.meta,
+          errors: raw.errors.length > 0 ? raw.errors : undefined,
+        };
       }
       streams = filtered.streams;
       meta = filtered.meta;
