@@ -67,6 +67,22 @@
       ]
     },
     {
+      "id": "mdblist.128052",
+      "name": "Popular Documentary Shows",
+      "media": "series",
+      "items": 500,
+      "slug": "snoak/popular-documentary-shows",
+      "tags": [
+        "documentary",
+        "global",
+        "official-snoak",
+        "series"
+      ],
+      "rails": [
+        "series-classics"
+      ]
+    },
+    {
       "id": "mdblist.130152",
       "name": "Latest Miniseries",
       "rails": [
@@ -215,6 +231,21 @@
       ]
     },
     {
+      "id": "mdblist.2202",
+      "name": "Latest Blu-ray Releases",
+      "media": "movie",
+      "items": 44,
+      "slug": "garycrawfordgc/latest-blu-ray-releases",
+      "tags": [
+        "global",
+        "movie",
+        "trending"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
       "id": "mdblist.2236",
       "name": "Top Movies of the week",
       "rails": [
@@ -243,6 +274,21 @@
       ]
     },
     {
+      "id": "mdblist.3096",
+      "name": "Hulu Movies",
+      "media": "movie",
+      "items": 200,
+      "slug": "garycrawfordgc/hulu-movies",
+      "tags": [
+        "global",
+        "hulu",
+        "movie"
+      ],
+      "rails": [
+        "movies-global-popular"
+      ]
+    },
+    {
       "id": "mdblist.3107",
       "name": "Comedy",
       "rails": [
@@ -268,6 +314,21 @@
       "name": "100% on RottenTomatoes.com",
       "rails": [
         "movies-quick-watches"
+      ]
+    },
+    {
+      "id": "mdblist.44081",
+      "name": "Bollywood: The 2000s, a list by Apollo",
+      "media": "movie",
+      "items": 487,
+      "slug": "apollocat/bollywood-the-2000s-ny1mv80m7s",
+      "tags": [
+        "bollywood",
+        "india",
+        "movie"
+      ],
+      "rails": [
+        "movies-india-trending"
       ]
     },
     {
@@ -346,6 +407,21 @@
       ]
     },
     {
+      "id": "mdblist.81741",
+      "name": "True Crime Docs & Series, a list by Julian",
+      "media": "movie",
+      "items": 198,
+      "slug": "jewelbear/true-crime-docs-series",
+      "tags": [
+        "documentary",
+        "movie",
+        "true-crime"
+      ],
+      "rails": [
+        "movies-documentaries"
+      ]
+    },
+    {
       "id": "mdblist.83666",
       "name": "Top Classic Movies",
       "rails": [
@@ -364,6 +440,21 @@
       "name": "Top Reality TV",
       "rails": [
         "series-reality-casual"
+      ]
+    },
+    {
+      "id": "mdblist.84403",
+      "name": "Top Documentaries (Shows)",
+      "media": "series",
+      "items": 200,
+      "slug": "tvgeniekodi/top-documentaries",
+      "tags": [
+        "documentary",
+        "global",
+        "series"
+      ],
+      "rails": [
+        "series-classics"
       ]
     },
     {
@@ -442,6 +533,36 @@
       "name": "Popular Comedy Shows",
       "rails": [
         "series-comedy"
+      ]
+    },
+    {
+      "id": "mdblist.97710",
+      "name": "A24, a list by Alex van Nieuwkuyk",
+      "media": "movie",
+      "items": 181,
+      "slug": "vancityguy/a24",
+      "tags": [
+        "classics",
+        "movie",
+        "prestige"
+      ],
+      "rails": [
+        "movies-classics"
+      ]
+    },
+    {
+      "id": "mdblist.99248",
+      "name": "Cannes Film Festival",
+      "media": "movie",
+      "items": 98,
+      "slug": "kackebob/cannes-film-festival-palme-dor",
+      "tags": [
+        "awards",
+        "classics",
+        "movie"
+      ],
+      "rails": [
+        "movies-classics"
       ]
     },
     {
