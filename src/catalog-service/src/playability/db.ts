@@ -865,6 +865,87 @@ WHERE expires_at <= @now;
   }
 }
 
+type LegacyUncachedVerifiedRow = {
+  type: string;
+  id: string;
+};
+
+function listLegacyBackgroundUncachedVerifiedRows(db: Database.Database): LegacyUncachedVerifiedRow[] {
+  return db.prepare(`
+SELECT t.type, t.id
+FROM titles t
+LEFT JOIN verify_log latest
+  ON latest.id = (
+    SELECT v.id
+    FROM verify_log v
+    WHERE v.type = t.type AND v.id_value = t.id
+    ORDER BY v.started_at DESC, v.id DESC
+    LIMIT 1
+  )
+WHERE t.status = 'verified'
+  AND t.cache_status = 'uncached'
+  AND COALESCE(latest.stage, 'verify') != 'play';
+`).all() as LegacyUncachedVerifiedRow[];
+}
+
+export type LegacyUncachedQuarantineResult = {
+  titles: number;
+  rail_pool: number;
+  rail_session: number;
+};
+
+export async function quarantineLegacyBackgroundUncachedVerifiedTitles(
+  now: number = nowMs(),
+): Promise<LegacyUncachedQuarantineResult> {
+  await initPlayabilityDb();
+  const db = openDb();
+  try {
+    const transaction = db.transaction(() => {
+      const rows = listLegacyBackgroundUncachedVerifiedRows(db);
+      if (rows.length === 0) {
+        return { titles: 0, rail_pool: 0, rail_session: 0 };
+      }
+
+      const updateTitle = db.prepare(`
+UPDATE titles
+SET status = 'failed',
+    verified_at = NULL,
+    expires_at = NULL,
+    fail_reason = 'uncached_verify_legacy',
+    updated_at = @updated_at
+WHERE type = @type AND id = @id AND status = 'verified' AND cache_status = 'uncached';
+`);
+      const deletePool = db.prepare(`
+DELETE FROM rail_pool
+WHERE type = @type AND id = @id;
+`);
+      const deleteSession = db.prepare(`
+DELETE FROM rail_session
+WHERE type = @type AND id = @id;
+`);
+      const logRow = db.prepare(`
+INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
+VALUES (@started_at, NULL, @type, @id, 'quarantine', 0, 'uncached_verify_legacy');
+`);
+
+      let titles = 0;
+      let railPool = 0;
+      let railSession = 0;
+      for (const row of rows) {
+        titles += updateTitle.run({ ...row, updated_at: now }).changes;
+        railPool += deletePool.run(row).changes;
+        railSession += deleteSession.run(row).changes;
+        logRow.run({ ...row, started_at: now });
+      }
+
+      return { titles, rail_pool: railPool, rail_session: railSession };
+    });
+    return transaction();
+  } finally {
+    db.close();
+  }
+}
+
 export async function getPlayabilityStatus(railIds: string[]): Promise<PlayabilityStatus> {
   await initPlayabilityDb();
   const now = nowMs();
@@ -1491,6 +1572,7 @@ function resolveRailDisplayLimit(
 
 /** Remove pool rows only for confirmed failed titles; stale remains published until confirmed. */
 export async function pruneNonPlayableFromRailPools(_now: number = nowMs()): Promise<number> {
+  const quarantined = await quarantineLegacyBackgroundUncachedVerifiedTitles(_now);
   await initPlayabilityDb();
   const db = openDb();
   try {
@@ -1502,7 +1584,7 @@ WHERE EXISTS (
     AND t.status = 'failed'
 );
 `).run();
-    return result.changes;
+    return quarantined.rail_pool + result.changes;
   } finally {
     db.close();
   }

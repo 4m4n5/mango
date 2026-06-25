@@ -9,6 +9,7 @@ import {
   getRailPlayabilityStatus,
   getTitlePlayability,
   invalidateTitle,
+  quarantineLegacyBackgroundUncachedVerifiedTitles,
   recordVerifyResult,
   upsertRailPoolTitle,
 } from './db.js';
@@ -123,5 +124,73 @@ test('play failure invalidation removes title from all rail pools and sessions',
     });
     assert.equal(afterIndia.items.length, 0);
     assert.equal(afterHorror.items.length, 0);
+  });
+});
+
+test('legacy background uncached quarantine preserves play-backed verified titles', async () => {
+  await withTempDb(async () => {
+    const now = Date.now();
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt-bg-uncached',
+      status: 'verified',
+      cache_status: 'uncached',
+      win_ladder_step: '1080p_uncached',
+      expires_at: now + 60_000,
+      stage: 'verify',
+      outcome: 'verified',
+    });
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt-play-uncached',
+      status: 'verified',
+      cache_status: 'uncached',
+      win_ladder_step: '1080p_uncached',
+      expires_at: now + 60_000,
+      stage: 'play',
+      outcome: 'verified',
+    });
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt-bg-cached',
+      status: 'verified',
+      cache_status: 'cached',
+      win_ladder_step: 'ideal',
+      expires_at: now + 60_000,
+      stage: 'verify',
+      outcome: 'verified',
+    });
+    await addVerifiedPoolTitle('movies-quick-watches', 'tt-bg-uncached');
+    await addVerifiedPoolTitle('movies-quick-watches', 'tt-play-uncached');
+    await addVerifiedPoolTitle('movies-quick-watches', 'tt-bg-cached');
+
+    const before = await getOrCreateRailSession({
+      railId: 'movies-quick-watches',
+      sessionId: 'session-1',
+      displayLimit: 9,
+    });
+    assert.equal(before.items.length, 3);
+
+    const result = await quarantineLegacyBackgroundUncachedVerifiedTitles(now + 1);
+    assert.deepEqual(result, { titles: 1, rail_pool: 1, rail_session: 1 });
+
+    const quarantined = await getTitlePlayability('movie', 'tt-bg-uncached');
+    const playBacked = await getTitlePlayability('movie', 'tt-play-uncached');
+    const cached = await getTitlePlayability('movie', 'tt-bg-cached');
+    assert.equal(quarantined?.status, 'failed');
+    assert.equal(quarantined?.fail_reason, 'uncached_verify_legacy');
+    assert.equal(playBacked?.status, 'verified');
+    assert.equal(cached?.status, 'verified');
+
+    const status = await getRailPlayabilityStatus('movies-quick-watches');
+    assert.equal(status.pool_depth, 2);
+    assert.equal(status.verified_pool, 2);
+
+    const after = await getOrCreateRailSession({
+      railId: 'movies-quick-watches',
+      sessionId: 'session-1',
+      displayLimit: 9,
+    });
+    assert.deepEqual(after.items.map((item) => item.id).sort(), ['tt-bg-cached', 'tt-play-uncached']);
   });
 });
