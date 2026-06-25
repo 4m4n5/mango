@@ -522,8 +522,16 @@ echo "maintenance refresh rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))"
 
 REFRESH_OUT="${OPS_DIR}/refresh-${RUN_ID}.json"
 REFRESH_OUT_WRITTEN=0
-if echo "$REFRESH_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
-  echo "$REFRESH_JSON" > "$REFRESH_OUT"
+REFRESH_WRITE_KIND=""
+REFRESH_STATE_PATH="${CACHE_DIR}/grow-run-state.json"
+if REFRESH_WRITE_KIND="$(printf '%s' "$REFRESH_JSON" | python3 "$REPO_DIR/scripts/diag/extract_refresh_json.py" \
+  --out "$REFRESH_OUT" \
+  --mode "$MODE" \
+  --run-id "$RUN_ID" \
+  --start-ms "$START_MS" \
+  --end-ms "$END_MS" \
+  --rc "$REFRESH_RC" \
+  --state-path "$REFRESH_STATE_PATH")"; then
   REFRESH_OUT_WRITTEN=1
   python3 "$REPO_DIR/scripts/diag/ops-write-run.py" \
     --kind playability_maintenance \
@@ -535,7 +543,7 @@ if echo "$REFRESH_JSON" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/
 fi
 
 REFRESH_CRASHED=0
-if [[ "$REFRESH_RC" -ne 0 ]] && ! echo "$REFRESH_JSON" | grep -q '"duration_ms"'; then
+if [[ "$REFRESH_RC" -ne 0 && "$REFRESH_WRITE_KIND" == "fallback" ]]; then
   REFRESH_CRASHED=1
 fi
 
