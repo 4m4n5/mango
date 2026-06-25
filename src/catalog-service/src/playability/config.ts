@@ -303,6 +303,11 @@ export function playabilityGrowSourceFailRatio(): number {
   return boundedFloat(process.env.MANGO_GROW_SOURCE_FAIL_RATIO, 0.85, 0.1, 1);
 }
 
+/** Minimum verified/playable yield for a source to keep normal grow allocation. */
+export function playabilityGrowSourceMinVerifyRate(): number {
+  return boundedFloat(process.env.MANGO_GROW_SOURCE_MIN_VERIFY_RATE, 0.05, 0.01, 0.25);
+}
+
 export function playabilityGrowSourceCatalogErrorLimit(): number {
   return boundedInt(process.env.MANGO_GROW_SOURCE_CATALOG_ERROR_LIMIT, 2, 1, 20);
 }

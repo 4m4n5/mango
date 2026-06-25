@@ -66,6 +66,10 @@ test('sourceCircuitDecision suppresses high reject ratios even with a small yiel
     { suppress: false },
   );
   assert.deepEqual(
+    sourceCircuitDecision(stat({ verified: 1, failed: 39 })),
+    { suppress: true, reason: 'low_stream_hit_rate' },
+  );
+  assert.deepEqual(
     sourceCircuitDecision(stat({ verified: 0, failed: 20 })),
     { suppress: true, reason: 'low_stream_hit_rate' },
   );

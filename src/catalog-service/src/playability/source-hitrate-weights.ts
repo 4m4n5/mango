@@ -6,6 +6,7 @@ import { CompositeListSource } from './list-source.js';
 import { AiCatalogListSource } from '../ai-catalogs/list-source.js';
 import { catalogSourceKey } from './source-cursors.js';
 import type { SourceIngestStats } from './candidate-ingest.js';
+import { playabilityGrowSourceMinVerifyRate } from './config.js';
 
 export type SourceHitrateEntry = {
   source_key: string;
@@ -506,10 +507,12 @@ function sourceGrowMultiplier(stats: {
     return probation;
   }
   if (
-    useful <= 0
-    && streamSamples >= Math.max(20, probationMinSamples)
-    && stats.verified / Math.max(1, streamSamples) <= 0.03
+    streamSamples >= Math.max(20, probationMinSamples)
     && stats.failed / Math.max(1, streamSamples) >= 0.90
+    && (
+      useful <= 0
+      || stats.verified / Math.max(1, streamSamples) <= playabilityGrowSourceMinVerifyRate()
+    )
   ) {
     return probation;
   }

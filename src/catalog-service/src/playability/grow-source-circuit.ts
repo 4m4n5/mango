@@ -4,6 +4,7 @@ import {
   playabilityGrowSourceCircuitBreakerEnabled,
   playabilityGrowSourceFailMinSamples,
   playabilityGrowSourceFailRatio,
+  playabilityGrowSourceMinVerifyRate,
   playabilityGrowSourceNoVerifyScanLimit,
   playabilityGrowSourceThemeRejectMinSamples,
   playabilityGrowSourceThemeRejectRatio,
@@ -46,6 +47,7 @@ export function sourceCircuitDecision(
   const noVerifyScanLimit = options.noVerifyScanLimit ?? playabilityGrowSourceNoVerifyScanLimit();
   const failMinSamples = options.failMinSamples ?? playabilityGrowSourceFailMinSamples();
   const themeRejectMinSamples = options.themeRejectMinSamples ?? playabilityGrowSourceThemeRejectMinSamples();
+  const minVerifyRate = playabilityGrowSourceMinVerifyRate();
 
   if (stat.rate_limited > 0) {
     return { suppress: true, reason: 'rate_limited' };
@@ -72,9 +74,12 @@ export function sourceCircuitDecision(
 
   const streamSamples = stat.failed + stat.verified;
   if (
-    stat.verified <= 0
-    && streamSamples >= failMinSamples
+    streamSamples >= failMinSamples
     && stat.failed / Math.max(1, streamSamples) >= playabilityGrowSourceFailRatio()
+    && (
+      stat.verified <= 0
+      || stat.verified / Math.max(1, streamSamples) <= minVerifyRate
+    )
   ) {
     return { suppress: true, reason: 'low_stream_hit_rate' };
   }

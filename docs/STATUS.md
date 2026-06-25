@@ -69,6 +69,7 @@ Status: `python3 scripts/diag/playability-status.py` · grow monitor: `grow_moni
 | Couch publish | Grow writes an isolated work DB and publishes only after strict success; failed/partial grows keep the previous visible rail snapshot |
 | Hygiene | Strict success attaches verified orphans, caps unpinned overlap, and preserves pins/curation overrides |
 | Negative memory | Recent theme/no-stream/title-mismatch/unresolved-ID misses are tombstoned per rail to avoid re-probing the same bad candidates |
+| Source control | Runtime-only source weights demote zero-yield and near-zero-yield catalogs into the 5-10% probation budget; catalog YAML is never auto-edited |
 | Diagnostics | `grow_monitor.py`, structured refresh JSON, candidate audit samples, source-grow weights, and `source-grow-audit.py` expose failure causes |
 
 **Known hardening gap:** the pipeline is wired correctly enough for targeted repair and benchmark iteration, but sustained unattended full `+20` nightly reliability is still under validation. India-series growth remains the clearest source-quality/ID-resolution risk: many fresh catalog rows are off-theme, TMDB-only/unresolved, duplicate-heavy, or no-stream despite strong-looking catalogs. See [PLAYABILITY.md](PLAYABILITY.md) and [catalog-rail-curation.md](../config/catalog-rail-curation.md).

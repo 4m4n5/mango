@@ -170,7 +170,7 @@ Addons (Cinemeta, AIOMetadata, AIOStreams) throttle aggressive meta/stream burst
 | Live/IPTV addon rate limit during VOD grow | Playability refresh boots catalog-service in VOD mode and skips optional Live manifests |
 | Repeated bad candidates during long grow | Rail-specific rejection ledger skips recent theme/stream misses before probing; deep-page bypass for stream misses is debug-only |
 | TMDB-only candidates that cannot map to IMDb | Grow marks them `unresolved_external_id`, skips stream probes, records a rail TTL, and demotes the source through runtime-only weights |
-| One weak source burns a rail window | Runtime source circuit breakers suppress rate-limited, exhausted, theme-mismatched, or low-hit sources for the current rail run |
+| One weak source burns a rail window | Runtime source circuit breakers suppress rate-limited, exhausted, theme-mismatched, or unsustainably low verified-yield sources for the current rail run |
 
 Catalog env: `MANGO_META_RATE_LIMIT_BACKOFF_MS` (default 5 min) · `MANGO_RAIL_META_CONCURRENCY` (default 6)
 
@@ -184,6 +184,7 @@ Grow negative memory is runtime-only:
 - `uncached_verify_legacy` is a migration quarantine reason for older rows proven by stale cache metadata; it retries immediately by default so the current stream parser can re-verify them.
 - Source hit-rate reports written by Python use seconds timestamps; the grow loader normalizes seconds/milliseconds before age checks.
 - Catastrophic zero-yield or near-zero-yield runtime source outcomes fall to the 5-10% probation floor so weak sources can recover without burning the rail window.
+- Nonzero but unsustainable stream yield is still demoted: `MANGO_GROW_SOURCE_MIN_VERIFY_RATE` defaults to `0.05`, so sources with enough samples but <=5% verified yield stay in the small probation budget.
 - Monitor state is written to `~/.cache/mango/grow-run-state.json`; it is operator-only and not shown on TV.
 - Strict successful grow finalization attaches verified orphans and prunes unpinned overlap above two rails per title without full-library metadata rescoring. Failed or short grows keep the previous stable couch sessions visible.
 - Manual `playability-indexer top-up` and `playability-top-up-rail.sh` default to strict grow mode with playability VOD boot. Legacy incremental top-up is debug-only via `--mode incremental`; it can verify globally playable titles that do not fit the target rail and should not be used for strict thematic repair.

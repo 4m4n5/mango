@@ -543,7 +543,7 @@ test('recordSourceGrowOutcome does not let linked existing titles mask zero fres
   }
 });
 
-test('recordSourceGrowOutcome keeps scarce verified-yield sources out of hard probation', () => {
+test('recordSourceGrowOutcome sends unsustainably low verified-yield sources to probation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
   const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
   process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
@@ -570,9 +570,8 @@ test('recordSourceGrowOutcome keeps scarce verified-yield sources out of hard pr
     ], { growTargetMet: false, weighted: true, now: Date.now(), elapsedMs: 60_000 });
     const report = loadSourceGrowReport();
     assert.ok(report);
-    assert.ok((report.sources[0]?.multiplier ?? 0) > sourceGrowProbationMultiplier());
-    assert.ok((report.sources[0]?.multiplier ?? 0) < 1);
-    assert.equal(report.sources[0]?.probation, false);
+    assert.equal(report.sources[0]?.multiplier, sourceGrowProbationMultiplier());
+    assert.equal(report.sources[0]?.probation, true);
   } finally {
     if (previousOut === undefined) {
       delete process.env.MANGO_SOURCE_GROW_OUT;
