@@ -276,13 +276,13 @@ function boundedInt(value: unknown, fallback: number, min: number, max: number):
 
 const STREAM_ZERO_RETRY_ATTEMPTS = boundedInt(
   process.env.MANGO_STREAM_ZERO_RETRY_ATTEMPTS,
-  1,
+  0,
   0,
   3,
 );
 const STREAM_ZERO_RETRY_DELAY_MS = boundedInt(
   process.env.MANGO_STREAM_ZERO_RETRY_DELAY_MS,
-  1500,
+  0,
   0,
   10000,
 );
@@ -292,12 +292,35 @@ const STREAM_SERIES_CROSS_PROBE_LIMIT = boundedInt(
   0,
   24,
 );
+const STREAM_META_CONTEXT_TIMEOUT_MS = boundedInt(
+  process.env.MANGO_STREAM_META_CONTEXT_TIMEOUT_MS,
+  1200,
+  0,
+  REQUEST_TIMEOUT_MS,
+);
 
 function couchResolveOptions(options: ResolveStreamOptions = {}): ResolveStreamOptions {
   return {
     seriesCrossProbeLimit: STREAM_SERIES_CROSS_PROBE_LIMIT,
     ...options,
   };
+}
+
+async function optionalWithBudget<T>(work: Promise<T>, timeoutMs: number): Promise<T | undefined> {
+  if (timeoutMs <= 0) {
+    return work.catch(() => undefined);
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work.catch(() => undefined),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function delay(ms: number): Promise<void> {
@@ -1542,19 +1565,21 @@ export class CatalogCore {
       metaId: id,
     };
     try {
-      const meta = await this.metaCached(type, id);
-      filterContext = {
-        contentType: type,
-        metaId: id,
-        metaTitle: typeof meta.name === 'string'
-          ? meta.name
-          : typeof meta.title === 'string'
-            ? meta.title
-            : undefined,
-        metaRuntimeMinutes: parseRuntimeMinutes(meta.runtime)
-          ?? parseRuntimeMinutes(meta.runtimeMinutes)
-          ?? undefined,
-      };
+      const meta = await optionalWithBudget(this.metaCached(type, id), STREAM_META_CONTEXT_TIMEOUT_MS);
+      if (meta) {
+        filterContext = {
+          contentType: type,
+          metaId: id,
+          metaTitle: typeof meta.name === 'string'
+            ? meta.name
+            : typeof meta.title === 'string'
+              ? meta.title
+              : undefined,
+          metaRuntimeMinutes: parseRuntimeMinutes(meta.runtime)
+            ?? parseRuntimeMinutes(meta.runtimeMinutes)
+            ?? undefined,
+        };
+      }
     } catch {
       // title relevance filter skipped when meta unavailable
     }
