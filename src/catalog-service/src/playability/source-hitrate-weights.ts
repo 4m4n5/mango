@@ -473,8 +473,9 @@ function sourceGrowMultiplier(stats: {
 }): number {
   const probation = sourceGrowProbationMultiplier();
   const probationMinSamples = sourceGrowProbationMinSamples();
-  const attempted = Math.max(1, stats.fresh_queued + stats.failed + stats.theme_rejected);
-  const useful = stats.verified + stats.linked_verified_seen;
+  const freshSamples = Math.max(1, stats.fresh_queued);
+  const outcomeSamples = Math.max(1, stats.verified + stats.failed + stats.theme_rejected);
+  const useful = stats.verified;
   const negative = stats.failed + stats.theme_rejected + stats.catalog_errors + stats.rate_limited;
   const streamSamples = stats.failed + stats.verified;
   const themeSamples = stats.theme_rejected + stats.verified + stats.failed;
@@ -496,12 +497,14 @@ function sourceGrowMultiplier(stats: {
   ) {
     return probation;
   }
-  const verifiedYield = stats.verified / attempted;
-  const linkedYield = Math.min(0.5, stats.linked_verified_seen / Math.max(1, stats.linked_verified_seen + attempted));
-  const themePenalty = stats.theme_rejected / attempted;
-  const failurePenalty = stats.failed / attempted;
-  const infraPenalty = Math.min(1, (stats.catalog_errors + stats.rate_limited * 2) / Math.max(1, attempted));
-  const raw = 0.75 + verifiedYield * 2.0 + linkedYield - themePenalty - failurePenalty * 0.35 - infraPenalty;
+  const verifiedYield = stats.verified / freshSamples;
+  const linkedThemeSignal = stats.verified > 0
+    ? Math.min(0.12, stats.linked_verified_seen / Math.max(1, stats.linked_verified_seen + freshSamples))
+    : 0;
+  const themePenalty = stats.theme_rejected / Math.max(freshSamples, outcomeSamples);
+  const failurePenalty = stats.failed / Math.max(1, streamSamples);
+  const infraPenalty = Math.min(1, (stats.catalog_errors + stats.rate_limited * 2) / freshSamples);
+  const raw = 0.65 + verifiedYield * 3.0 + linkedThemeSignal - themePenalty - failurePenalty * 0.5 - infraPenalty;
   const exhaustedPenalty = stats.exhausted && stats.verified <= 0 ? 0.5 : 1;
   return clampMultiplier(raw * exhaustedPenalty);
 }

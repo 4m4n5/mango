@@ -357,11 +357,7 @@ export async function growRail(
 
   function evaluateSourceCircuits(): void {
     const circuitOptions = {
-      failMinSamples: sourceCircuitSampleLimitForGrowTarget(
-        playabilityGrowSourceFailMinSamples(),
-        growTarget,
-        8,
-      ),
+      failMinSamples: playabilityGrowSourceFailMinSamples(),
       noVerifyScanLimit: sourceCircuitSampleLimitForGrowTarget(
         playabilityGrowSourceNoVerifyScanLimit(),
         growTarget,

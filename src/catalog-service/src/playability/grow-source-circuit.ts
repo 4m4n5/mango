@@ -66,7 +66,8 @@ export function sourceCircuitDecision(
 
   const streamSamples = stat.failed + stat.verified;
   if (
-    streamSamples >= failMinSamples
+    stat.verified <= 0
+    && streamSamples >= failMinSamples
     && stat.failed / Math.max(1, streamSamples) >= playabilityGrowSourceFailRatio()
   ) {
     return { suppress: true, reason: 'low_stream_hit_rate' };

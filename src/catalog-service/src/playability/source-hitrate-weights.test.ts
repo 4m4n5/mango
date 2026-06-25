@@ -463,6 +463,45 @@ test('recordSourceGrowOutcome sends catastrophic zero-yield sources to probation
   }
 });
 
+test('recordSourceGrowOutcome does not let linked existing titles mask zero fresh yield', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
+  const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  try {
+    recordSourceGrowOutcome('series-india-picks', 'series', [
+      {
+        source_key: 'AIOMetadata:mdblist.8310',
+        source_label: 'AIOMetadata/mdblist.8310',
+        content_type: 'series',
+        scanned: 30,
+        fresh_queued: 30,
+        skipped_verified: 40,
+        skipped_recent_failed: 12,
+        linked_verified_seen: 40,
+        requested: 80,
+        returned: 80,
+        catalog_errors: 0,
+        rate_limited: 0,
+        exhausted: false,
+        verified: 0,
+        failed: 14,
+        theme_rejected: 0,
+      },
+    ], { growTargetMet: false, weighted: true, now: Date.now(), elapsedMs: 60_000 });
+    const report = loadSourceGrowReport();
+    assert.ok(report);
+    assert.equal(report.sources[0]?.multiplier, sourceGrowProbationMultiplier());
+    assert.equal(report.sources[0]?.probation, true);
+  } finally {
+    if (previousOut === undefined) {
+      delete process.env.MANGO_SOURCE_GROW_OUT;
+    } else {
+      process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('recordSourceGrowOutcome keeps scarce verified-yield sources out of hard probation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
   const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
