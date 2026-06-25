@@ -45,7 +45,7 @@ What works today, what is still being hardened, and how to verify it.
 | Browse UX | Verified-only thin rails · empty hidden |
 | Thematic rails | `rail-theme-gate` on grow/link/verify · profiles in `rail-theme-profiles.yaml` |
 | Pool retheme | Manual repair plus grow orphan/overlap finalization |
-| Couch reliability | Launcher fetch/focus timing logs · Live stale-cache fallback · idle-gated maintenance · X11 anti-sleep/wake |
+| Couch reliability | Chromium launcher · 1080p60 couch display mode · fetch/focus timing logs · Live stale-cache fallback · idle-gated maintenance · X11 anti-sleep/wake |
 
 **Detail:** [PLAYABILITY.md](PLAYABILITY.md)
 

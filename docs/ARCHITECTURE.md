@@ -38,6 +38,12 @@ disabled, and controller input wakes the display through
 `scripts/lib/mango-display-wake.sh`. Launcher focus is restored only when mpv is
 not active.
 
+Launcher display mode is separate from playback stream policy. Couch mode
+applies a lightweight launcher mode through `scripts/lib/mango-display-mode.sh`;
+the default is `1920x1080@60` so browse/focus stays smooth on the Pi. mpv owns
+playback and may later opt into its own display mode via `MANGO_MPV_DISPLAY_*`
+after 4K decode/display gates prove it reliable.
+
 ### Playability layer
 
 `playability.db` has two related but distinct surfaces:
@@ -171,7 +177,7 @@ Chromium is **UI only** — never decode 4K in the browser. mpv owns playback.
 
 | Milestone | Display | Notes |
 |-------|---------|-------|
-| M1–M5 (lab) | 1080p monitor · headphones | `max_quality: 1080p` in filters |
+| M1–M5 (lab/couch) | 1080p60 launcher · headphones | `max_quality: 1080p` in filters |
 | M6 (ship) | 4K TV · soundbar eARC | mpv 4K profile · relax filters |
 
 ---

@@ -112,7 +112,7 @@ detect_hwdec() {
 
 mkdir -p "$(dirname "$SOCKET")"
 mkdir -p "$(dirname "$MPV_LOG")"
-MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
+MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_NO_DISPLAY=1 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
 
 URL_LABEL="$(python3 -c 'from urllib.parse import urlparse; import sys; u=urlparse(sys.argv[1]); print(f"{u.scheme}://{u.netloc}/<redacted>")' "$URL" 2>/dev/null || echo "http(s)://<redacted>")"
 HWDEC="$(detect_hwdec)"
@@ -135,6 +135,7 @@ if $PROBE; then
   # Indexer/gate probes must not seize the TV fullscreen.
   mpv_args+=(--vo=null --ao=null --really-quiet)
 else
+  bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
   mpv_args+=(--fs)
   if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
     mpv_args+=(--start="$START_SEC")

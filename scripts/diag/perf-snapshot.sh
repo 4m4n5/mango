@@ -35,10 +35,18 @@ echo "--- system ---"
 free -h | head -2
 echo "load: $(cat /proc/loadavg)"
 vcgencmd measure_temp 2>/dev/null || true
+if [[ -x "${HOME}/mango/scripts/lib/mango-display-mode.sh" ]]; then
+  printf "display: "
+  bash "${HOME}/mango/scripts/lib/mango-display-mode.sh" status 2>/dev/null || true
+fi
 echo ""
 
 echo "--- top RSS ---"
 ps -eo pid,rss,comm --sort=-rss | head -15 | awk 'NR==1 || $2>0 {printf "%6s %7.1fMB %s\n", $1, $2/1024, $3}'
+echo ""
+
+echo "--- launcher browser ---"
+pgrep -af 'chromium.*mango-launcher|firefox.*127.0.0.1:3000' 2>/dev/null || echo "launcher browser not found"
 echo ""
 
 echo "--- catalog health ---"

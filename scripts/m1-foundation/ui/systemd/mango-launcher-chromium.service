@@ -12,6 +12,9 @@ Environment=XAUTHORITY=%h/.Xauthority
 Environment=HOME=%h
 Environment=MANGO_SKIP_OVERLAY=1
 Environment=MANGO_LAUNCHER_PORT=3000
+Environment=MANGO_LAUNCHER_BROWSER=chromium
+Environment=MANGO_LAUNCHER_DISPLAY_MODE=1920x1080
+Environment=MANGO_LAUNCHER_DISPLAY_RATE=60
 ExecStartPre=/bin/mkdir -p %h/.cache/mango
 ExecStart=%h/mango/scripts/m1-foundation/ui/start-mango-launcher-chromium.sh
 Restart=on-failure

@@ -63,6 +63,10 @@ fi
 pkill -x mpv 2>/dev/null || true
 rm -f "${HOME}/.cache/mango/mpv.pid" "$SOCKET"
 
+if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
+  bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" launcher 2>/dev/null || true
+fi
+
 launch_home_once
 
 if [[ "${GO_HOME}" == "1" ]]; then

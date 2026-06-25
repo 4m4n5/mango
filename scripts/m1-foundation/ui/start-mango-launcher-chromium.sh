@@ -3,13 +3,16 @@
 
 set -euo pipefail
 
+REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 PORT="${MANGO_LAUNCHER_PORT:-3000}"
 LOG_DIR="${HOME}/.cache/mango"
 FIREFOX_PROFILE="${MANGO_LAUNCHER_FIREFOX_PROFILE:-${LOG_DIR}/firefox-launcher-profile}"
+CHROMIUM_PROFILE="${MANGO_LAUNCHER_CHROMIUM_PROFILE:-${LOG_DIR}/chromium-launcher-profile}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 mkdir -p "$LOG_DIR"
+bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" launcher 2>/dev/null || true
 
 if [[ -x /usr/lib/chromium/chromium ]]; then
   # Debian's wrapper can inject stale V8 flags on aarch64 page-size checks.
@@ -57,9 +60,7 @@ choose_launcher_browser() {
       echo firefox
       ;;
     auto | "")
-      if chromium_known_bad_for_http && [[ -n "$FIREFOX_BIN" ]]; then
-        echo firefox
-      elif [[ -n "$CHROMIUM_BIN" ]]; then
+      if [[ -n "$CHROMIUM_BIN" ]]; then
         echo chromium
       elif [[ -n "$FIREFOX_BIN" ]]; then
         echo firefox
@@ -80,12 +81,20 @@ chromium_common_flags=(
   --no-default-browser-check
   --disable-infobars
   --disable-translate
+  --disable-background-networking
+  --disable-component-update
+  --disable-session-crashed-bubble
+  --disable-sync
   --noerrdialogs
+  --password-store=basic
+  --user-data-dir="$CHROMIUM_PROFILE"
 )
 
 chromium_pi_flags=()
-if [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; then
+if [[ "${MANGO_CHROMIUM_DISABLE_GPU:-0}" == "1" ]]; then
   chromium_pi_flags+=(--disable-gpu --disable-gpu-compositing)
+elif [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; then
+  chromium_pi_flags+=(--enable-gpu-rasterization --ignore-gpu-blocklist)
 fi
 
 write_firefox_profile() {
@@ -101,6 +110,9 @@ write_firefox_profile() {
 
 browser="$(choose_launcher_browser)"
 echo "launcher browser: ${browser}" >>"$LOG_DIR/mango-launcher-chromium.log"
+if [[ "$browser" == "chromium" ]] && chromium_known_bad_for_http; then
+  echo "launcher browser: chromium forced despite old page-size guard; set MANGO_LAUNCHER_BROWSER=firefox to override" >>"$LOG_DIR/mango-launcher-chromium.log"
+fi
 
 if [[ "$browser" == "firefox" ]]; then
   write_firefox_profile

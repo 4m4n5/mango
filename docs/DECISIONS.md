@@ -40,6 +40,7 @@ Locked choices. Update when changing behavior.
 | Health | `tv_pad` OR `input_remapper=active` |
 | Couch activity | Timestamp-only shared state; maintenance defers when couch is active |
 | Display sleep | X11 DPMS/screensaver disabled in couch mode; pad input wakes display |
+| Launcher display | `1920x1080@60` couch default; stream/playback quality is owned separately by catalog filters + mpv |
 
 ---
 

@@ -84,6 +84,24 @@ bash scripts/lib/mango-display-wake.sh --focus-launcher-if-idle
 
 The helper restores launcher focus only when mpv is not active.
 
+The launcher is intentionally a lightweight 60 Hz surface. By default Mango
+applies `1920x1080@60` before launching the kiosk browser:
+
+```bash
+bash scripts/lib/mango-display-mode.sh status
+bash scripts/lib/mango-display-mode.sh launcher
+```
+
+Override only for device validation:
+
+```bash
+MANGO_LAUNCHER_DISPLAY_MODE=3840x2160 MANGO_LAUNCHER_DISPLAY_RATE=60 \
+  bash scripts/lib/mango-display-mode.sh launcher
+```
+
+This display mode does not change stream filters. 4K stream/playback policy
+stays in `/etc/mango/catalog-filters.json` and the mpv profile.
+
 ---
 
 ## Gates
