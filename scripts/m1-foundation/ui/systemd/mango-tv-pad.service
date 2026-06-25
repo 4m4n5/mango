@@ -10,6 +10,8 @@ Environment=XAUTHORITY=/home/aman/.Xauthority
 Environment=HOME=/home/aman
 Environment=USER=aman
 Environment=SUDO_USER=aman
+ExecStartPre=-/usr/bin/sudo -n /usr/bin/systemctl stop input-remapper
+ExecStartPre=-/usr/bin/sudo -n /usr/bin/pkill -f input-remapper-reader-service
 ExecStart=/usr/bin/sudo -n /home/aman/mango/scripts/m1-foundation/pad/run-mango-tv-pad.sh
 Restart=always
 RestartSec=2
