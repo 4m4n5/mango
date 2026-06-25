@@ -12,16 +12,24 @@ BT_MAC="E4:17:D8:EB:00:44"
 DEVICE_NAME="Pro Controller"
 
 find_pro_controller_event() {
-  local f name ev
-  for f in /sys/class/input/event*/device/name; do
-    [[ -f "$f" ]] || continue
-    name=$(tr -d '\n' <"$f")
-    [[ "$name" == "Pro Controller" ]] || continue
-    ev=$(basename "$(dirname "$(dirname "$f")")")
-    echo "/dev/input/${ev}"
-    return 0
-  done
-  return 1
+  python3 - <<'PY'
+import evdev
+from evdev import ecodes
+
+required_keys = {304, 308}
+required_abs = {ecodes.ABS_X, ecodes.ABS_Y}
+for path in evdev.list_devices():
+    dev = evdev.InputDevice(path)
+    if dev.name != "Pro Controller":
+        continue
+    caps = dev.capabilities()
+    keys = set(caps.get(ecodes.EV_KEY, []))
+    abs_axes = set(caps.get(ecodes.EV_ABS, []))
+    if required_keys.issubset(keys) and required_abs.issubset(abs_axes):
+        print(path)
+        raise SystemExit(0)
+raise SystemExit(1)
+PY
 }
 
 bt_connect() {

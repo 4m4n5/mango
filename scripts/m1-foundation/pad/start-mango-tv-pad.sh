@@ -36,8 +36,17 @@ pad_running() {
 pro_controller_present() {
   python3 - <<'PY'
 import evdev
+from evdev import ecodes
+required_keys = {304, 308}
+required_abs = {ecodes.ABS_X, ecodes.ABS_Y}
 for path in evdev.list_devices():
-    if evdev.InputDevice(path).name == "Pro Controller":
+    dev = evdev.InputDevice(path)
+    if dev.name != "Pro Controller":
+        continue
+    caps = dev.capabilities()
+    keys = set(caps.get(ecodes.EV_KEY, []))
+    abs_axes = set(caps.get(ecodes.EV_ABS, []))
+    if required_keys.issubset(keys) and required_abs.issubset(abs_axes):
         raise SystemExit(0)
 raise SystemExit(1)
 PY

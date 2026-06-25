@@ -317,9 +317,16 @@ def route_face(app: str, action: str) -> None:
 
 
 def find_pro_controller() -> evdev.InputDevice:
+    required_keys = {BTN_B, BTN_Y}
+    required_abs = {ecodes.ABS_X, ecodes.ABS_Y}
     for path in evdev.list_devices():
         dev = evdev.InputDevice(path)
-        if dev.name == "Pro Controller":
+        if dev.name != "Pro Controller":
+            continue
+        caps = dev.capabilities()
+        keys = set(caps.get(ecodes.EV_KEY, []))
+        abs_axes = set(caps.get(ecodes.EV_ABS, []))
+        if required_keys.issubset(keys) and required_abs.issubset(abs_axes):
             return dev
     raise DeviceNotFoundError(
         "Pro Controller not found — press any button on the Micro to wake Bluetooth"
