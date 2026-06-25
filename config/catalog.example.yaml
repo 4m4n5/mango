@@ -226,16 +226,17 @@ rails:
     content_type: series
     limit: 20
     sources:
-      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.18 }
-      - { addon: AIOMetadata, catalog: mdblist.33753, weight: 0.17 }
-      - { addon: AIOMetadata, catalog: mdblist.11103, weight: 0.14 }
-      - { addon: AIOMetadata, catalog: mdblist.122391, weight: 0.12 }
-      - { addon: AIOMetadata, catalog: mdblist.65408, weight: 0.11 }
-      - { addon: AIOMetadata, catalog: mdblist.81619, weight: 0.10 }
-      - { addon: AIOMetadata, catalog: mdblist.107457, weight: 0.10 }
-      - { addon: AIOMetadata, catalog: mdblist.89014, weight: 0.09 }
-      - { addon: AIOMetadata, catalog: mdblist.107438, weight: 0.09 }
-      - { addon: AIOMetadata, catalog: mdblist.8310, weight: 0.09 }
+      - { addon: AIOMetadata, catalog: mdblist.173530, weight: 0.28 }
+      - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.series.trendingtv, weight: 0.24 }
+      - { addon: AIOMetadata, catalog: mdblist.33753, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.11103, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.122391, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.65408, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.81619, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.107457, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.89014, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.107438, weight: 0.08 }
+      - { addon: AIOMetadata, catalog: mdblist.8310, weight: 0.08 }
       - { addon: AIOMetadata, catalog: mdblist.181302, weight: 0.08 }
       - { addon: AIOMetadata, catalog: mdblist.1824, weight: 0.08 }
       - { addon: AIOMetadata, catalog: mdblist.21011, weight: 0.08 }
@@ -247,7 +248,6 @@ rails:
       - { addon: AIOMetadata, catalog: mdblist.141869, weight: 0.08 }
       - { addon: AIOMetadata, catalog: mdblist.80807, weight: 0.08 }
       - { addon: AIOMetadata, catalog: mdblist.181621, weight: 0.08 }
-      - { addon: AIOMetadata, catalog: mdblist.173530, weight: 0.08 }
       - { addon: AIOMetadata, catalog: mdblist.79344, weight: 0.05 }
       - { addon: AIOMetadata, catalog: mdblist.160360, weight: 0.05 }
       - { addon: AIOMetadata, catalog: mdblist.167061, weight: 0.05 }

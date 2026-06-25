@@ -854,7 +854,7 @@ export async function growRail(
   };
 }
 
-function classifyGrowFailure(options: {
+export function classifyGrowFailure(options: {
   sourceStats: SourceGrowStats[];
   exhausted: boolean;
   attempts: number;
@@ -865,10 +865,15 @@ function classifyGrowFailure(options: {
   failed: number;
 }): GrowFailureCategory {
   const rateLimited = options.sourceStats.reduce((sum, stat) => sum + stat.rate_limited, 0);
-  if (rateLimited > 0) {
+  const themeRejected = options.sourceStats.reduce((sum, stat) => sum + stat.theme_rejected, 0);
+  const outcomeSamples = Math.max(1, options.verified + options.failed + themeRejected + rateLimited);
+  const rateLimitDominates = rateLimited > 0 && (
+    options.failed === 0
+    || rateLimited >= Math.max(3, Math.ceil(outcomeSamples * 0.2))
+  );
+  if (rateLimitDominates) {
     return 'rate_limited';
   }
-  const themeRejected = options.sourceStats.reduce((sum, stat) => sum + stat.theme_rejected, 0);
   if (themeRejected > Math.max(2, options.verified + options.failed)) {
     return 'theme_rejected';
   }
