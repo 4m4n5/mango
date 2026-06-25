@@ -123,7 +123,13 @@ function previewYear(preview: unknown): number | string | undefined {
   return undefined;
 }
 
-const CATALOG_FETCH_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS || 20_000);
+function catalogFetchTimeoutMs(): number {
+  const raw = Number(process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS || 20_000);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return 20_000;
+  }
+  return Math.max(500, Math.min(60_000, Math.floor(raw)));
+}
 const DEFAULT_PROBATION_MULTIPLIER = 0.08;
 const DEFAULT_COMPOSITE_FETCH_CONCURRENCY = 4;
 
@@ -160,21 +166,34 @@ export async function fetchAddonCatalogCandidates(
   source?: { sourceKey?: string; addon?: string; catalog?: string; sourceName?: string },
 ): Promise<CandidateMeta[]> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), CATALOG_FETCH_TIMEOUT_MS);
+  const timeoutMs = catalogFetchTimeoutMs();
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
   try {
-    const response = await fetch(catalogResourceUrl(
-      manifestUrl,
-      contentType,
-      catalog,
-      { skip: options.offset },
-    ), {
-      headers: { accept: 'application/json' },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`catalog ${sourceLabel} failed: HTTP ${response.status}`);
-    }
-    const data = await response.json() as { metas?: unknown[] };
+    const data = await Promise.race([
+      (async (): Promise<{ metas?: unknown[] }> => {
+        const response = await fetch(catalogResourceUrl(
+          manifestUrl,
+          contentType,
+          catalog,
+          { skip: options.offset },
+        ), {
+          headers: { accept: 'application/json' },
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(`catalog ${sourceLabel} failed: HTTP ${response.status}`);
+        }
+        return await response.json() as { metas?: unknown[] };
+      })(),
+      new Promise<{ metas?: unknown[] }>((_, reject) => {
+        timeout = setTimeout(() => {
+          timedOut = true;
+          controller.abort();
+          reject(new Error(`catalog ${sourceLabel} failed: timeout after ${timeoutMs}ms`));
+        }, timeoutMs);
+      }),
+    ]);
     return (data.metas || [])
       .slice(0, options.limit)
       .filter((preview) => {
@@ -200,11 +219,16 @@ export async function fetchAddonCatalogCandidates(
       .filter((candidate): candidate is CandidateMeta => candidate !== null);
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`catalog ${sourceLabel} failed: timeout after ${CATALOG_FETCH_TIMEOUT_MS}ms`);
+      throw new Error(`catalog ${sourceLabel} failed: timeout after ${timeoutMs}ms`);
+    }
+    if (timedOut) {
+      throw new Error(`catalog ${sourceLabel} failed: timeout after ${timeoutMs}ms`);
     }
     throw error;
   } finally {
-    clearTimeout(timeout);
+    if (timeout) {
+      clearTimeout(timeout);
+    }
   }
 }
 

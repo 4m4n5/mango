@@ -172,7 +172,7 @@ Addons (Cinemeta, AIOMetadata, AIOStreams) throttle aggressive meta/stream burst
 | TMDB-only candidates that cannot map to IMDb | Grow marks them `unresolved_external_id`, skips stream probes, records a rail TTL, and demotes the source through runtime-only weights |
 | One weak source burns a rail window | Runtime source circuit breakers suppress rate-limited, exhausted, theme-mismatched, or unsustainably low verified-yield sources for the current rail run |
 
-Catalog env: `MANGO_META_RATE_LIMIT_BACKOFF_MS` (default 5 min) · `MANGO_RAIL_META_CONCURRENCY` (default 6) · `MANGO_STREAM_ZERO_RETRY_ATTEMPTS` / `MANGO_STREAM_ZERO_RETRY_DELAY_MS` (default one 1.5s retry for `GET /stream` display/gate resolves only)
+Catalog env: `MANGO_META_RATE_LIMIT_BACKOFF_MS` (default 5 min) · `MANGO_RAIL_META_CONCURRENCY` (default 6) · `MANGO_CATALOG_FETCH_TIMEOUT_MS` (default 20s, hard-bounds catalog fetch and JSON body parsing) · `MANGO_STREAM_ZERO_RETRY_ATTEMPTS` / `MANGO_STREAM_ZERO_RETRY_DELAY_MS` (default one 1.5s retry for `GET /stream` display/gate resolves only)
 
 Grow negative memory is runtime-only:
 

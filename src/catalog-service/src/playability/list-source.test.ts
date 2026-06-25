@@ -52,6 +52,40 @@ test('fetchAddonCatalogCandidates canonicalizes series episode ids to title ids'
   }
 });
 
+test('fetchAddonCatalogCandidates hard-times out stalled catalog body fetches', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalTimeout = process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS;
+  process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS = '10';
+  let aborted = false;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    init?.signal?.addEventListener('abort', () => {
+      aborted = true;
+    });
+    return await new Promise<Response>(() => {});
+  }) as typeof fetch;
+
+  try {
+    await assert.rejects(
+      () => fetchAddonCatalogCandidates(
+        'http://127.0.0.1:3036/stremio/a/manifest.json',
+        'series',
+        'mdblist.slow',
+        'A/slow',
+        { offset: 0, limit: 10 },
+      ),
+      /catalog A\/slow failed: timeout after 500ms/,
+    );
+    assert.equal(aborted, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalTimeout === undefined) {
+      delete process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS;
+    } else {
+      process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS = originalTimeout;
+    }
+  }
+});
+
 test('CompositeListSource skips exhausted sources until cursor reset', async () => {
   const originalFetch = globalThis.fetch;
   let fetches = 0;
