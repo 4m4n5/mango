@@ -21,6 +21,8 @@ fi
 export MANGO_SKIP_OVERLAY=1
 
 cd "$REPO_DIR"
+# shellcheck source=../../lib/launcher-window.sh
+source "$REPO_DIR/scripts/lib/launcher-window.sh"
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
 bash scripts/lib/mango-desktop.sh hide 2>/dev/null || true
@@ -102,9 +104,12 @@ start_launcher_browser_kiosk
 pkill -f "chromium.*mango-overlay.*127.0.0.1:${PORT}/overlay/" 2>/dev/null || true
 
 sleep 0.25
-if command -v wmctrl >/dev/null 2>&1; then
-  wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa firefox.Firefox 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
-  wmctrl -xa mango-launcher 2>/dev/null || wmctrl -xa firefox.Firefox 2>/dev/null || wmctrl -xa chromium.Chromium 2>/dev/null || true
+if command -v xdotool >/dev/null 2>&1; then
+  wid="$(find_launcher_wid 2>/dev/null || true)"
+  if [[ -n "$wid" ]]; then
+    xdotool windowactivate "$wid" 2>/dev/null || true
+    xdotool windowactivate "$wid" 2>/dev/null || true
+  fi
 fi
 
 bash scripts/lib/present-launcher.sh --quick 2>/dev/null || bash scripts/lib/present-launcher.sh 2>/dev/null || true

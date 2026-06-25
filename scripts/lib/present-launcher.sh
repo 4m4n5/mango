@@ -7,24 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
-
-find_launcher_pid() {
-  pgrep -f 'chromium.*--class=mango-launcher.*127\.0\.0\.1:3000/|firefox.*127\.0\.0\.1:3000/' 2>/dev/null | head -1
-}
-
-find_launcher_wid() {
-  local pid wid
-  pid=$(find_launcher_pid) || true
-  if [[ -n "$pid" ]] && command -v xdotool >/dev/null 2>&1; then
-    wid=$(xdotool search --pid "$pid" 2>/dev/null | head -1)
-    [[ -n "$wid" ]] && echo "$wid" && return 0
-  fi
-  if command -v wmctrl >/dev/null 2>&1; then
-    wid=$(wmctrl -lx 2>/dev/null | awk '(/\.mango-launcher/ || /[Ff]irefox/ || /Navigator/) && !/overlay/ {print $1; exit}')
-    [[ -n "$wid" ]] && echo "$wid" && return 0
-  fi
-  return 1
-}
+source "$SCRIPT_DIR/launcher-window.sh"
 
 launcher_is_tv_sized() {
   local wid=$1 screen_w screen_h

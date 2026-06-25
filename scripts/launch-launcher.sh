@@ -7,6 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=m1-foundation/pad/lib/irctl.sh
 source "$REPO_DIR/scripts/m1-foundation/pad/lib/irctl.sh"
+# shellcheck source=lib/launcher-window.sh
+source "$REPO_DIR/scripts/lib/launcher-window.sh"
 
 export DISPLAY=":0"
 export XAUTHORITY="/home/aman/.Xauthority"
@@ -49,9 +51,7 @@ fi
 
 launcher_already_focused() {
   command -v xdotool >/dev/null 2>&1 || return 1
-  local name
-  name=$(xdotool getactivewindow getwindowname 2>/dev/null || true)
-  [[ "$name" == *"mango launcher"* ]] || [[ "$name" == *"mango-launcher"* ]]
+  active_window_is_launcher
 }
 
 if launcher_already_focused; then
@@ -72,7 +72,10 @@ if command -v wmctrl >/dev/null 2>&1; then
   bash "$REPO_DIR/scripts/lib/hide-media.sh" all 2>/dev/null || true
   wmctrl -x -r mango-launcher -b remove,hidden 2>/dev/null || true
   wmctrl -r "mango launcher" -b remove,hidden 2>/dev/null || true
-  wmctrl -xa mango-launcher 2>/dev/null || true
+  wid="$(find_launcher_wid 2>/dev/null || true)"
+  if [[ -n "$wid" ]] && command -v xdotool >/dev/null 2>&1; then
+    xdotool windowactivate "$wid" 2>/dev/null || true
+  fi
 fi
 
 if [[ "${MANGO_FAST_UI}" != "1" ]]; then

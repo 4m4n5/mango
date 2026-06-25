@@ -13,6 +13,8 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=../../lib/launcher-window.sh
+source "$REPO_DIR/scripts/lib/launcher-window.sh"
 
 if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
   bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv stop >/dev/null 2>&1 || true
@@ -36,13 +38,7 @@ trigger_library_refresh() {
     >/dev/null 2>&1 || true
   if command -v xdotool >/dev/null 2>&1; then
     local wid
-    wid="$(xdotool search --onlyvisible --class mango-launcher 2>/dev/null | head -1 || true)"
-    if [[ -z "$wid" ]]; then
-      wid="$(xdotool search --onlyvisible --class firefox 2>/dev/null | head -1 || true)"
-    fi
-    if [[ -z "$wid" ]]; then
-      wid="$(xdotool search --onlyvisible --class chromium 2>/dev/null | head -1 || true)"
-    fi
+    wid="$(find_launcher_wid 2>/dev/null || true)"
     if [[ -n "$wid" ]]; then
       xdotool key --window "$wid" F5 >/dev/null 2>&1 || true
     fi

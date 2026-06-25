@@ -6,6 +6,9 @@ set -u
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 export MANGO_SKIP_OVERLAY="${MANGO_SKIP_OVERLAY:-1}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=launcher-window.sh
+source "$SCRIPT_DIR/launcher-window.sh"
 
 _overlay_wid() {
   [[ "${MANGO_SKIP_OVERLAY}" == "1" ]] && return 0
@@ -13,15 +16,12 @@ _overlay_wid() {
 }
 
 present_mango_launcher() {
-  local script_dir
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  bash "$script_dir/present-launcher.sh" 2>/dev/null || true
+  bash "$SCRIPT_DIR/present-launcher.sh" 2>/dev/null || true
 }
 
 hide_mango_shell() {
   command -v wmctrl >/dev/null 2>&1 || return 0
-  local script_dir wid owid
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local wid owid
   owid=$(_overlay_wid)
 
   # Chromium kiosk ignores unmap/minimize; drop launcher below media apps.
@@ -33,9 +33,9 @@ hide_mango_shell() {
       wmctrl -i -r "$wid" -e 0,-2000,-2000,1,1 2>/dev/null || true
     done
   fi
-  if [[ -f "$script_dir/present-launcher.sh" ]]; then
+  if [[ -f "$SCRIPT_DIR/present-launcher.sh" ]]; then
     # shellcheck source=present-launcher.sh
-    source "$script_dir/present-launcher.sh"
+    source "$SCRIPT_DIR/present-launcher.sh"
     wid=$(find_launcher_wid 2>/dev/null || true)
     if [[ -n "$wid" ]] && command -v xdotool >/dev/null 2>&1; then
       xdotool windowunmap "$wid" 2>/dev/null || true
@@ -61,7 +61,7 @@ show_mango_shell() {
   command -v wmctrl >/dev/null 2>&1 || return 0
   local script_dir wid
 
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  script_dir="$SCRIPT_DIR"
 
   wmctrl -x -r mango-launcher -b remove,hidden 2>/dev/null || true
   wmctrl -r "mango launcher" -b remove,hidden 2>/dev/null || true
@@ -76,7 +76,10 @@ show_mango_shell() {
   bash "$script_dir/present-launcher.sh" --quick 2>/dev/null \
     || bash "$script_dir/present-launcher.sh" 2>/dev/null \
     || present_mango_launcher
-  wmctrl -xa mango-launcher 2>/dev/null || true
+  wid="$(find_launcher_wid 2>/dev/null || true)"
+  if [[ -n "$wid" ]] && command -v xdotool >/dev/null 2>&1; then
+    xdotool windowactivate "$wid" 2>/dev/null || true
+  fi
 
   if [[ "${MANGO_SKIP_OVERLAY}" != "1" ]]; then
     local owid

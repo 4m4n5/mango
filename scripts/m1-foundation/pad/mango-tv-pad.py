@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -36,6 +37,7 @@ MPV_IPC_SH = REPO / "scripts/m2-catalog/service/mpv-ipc.sh"
 MPV_STOP_SH = REPO / "scripts/m2-catalog/service/mpv-stop.sh"
 DISPLAY_WAKE_SH = REPO / "scripts/lib/mango-display-wake.sh"
 COUCH_ACTIVITY_SH = REPO / "scripts/lib/couch-activity.sh"
+LAUNCHER_PORT = os.environ.get("MANGO_LAUNCHER_PORT", "3000")
 
 BTN_B = 304
 BTN_Y = 308
@@ -151,7 +153,14 @@ def _window_class(wid: str) -> str:
         )
     except FileNotFoundError:
         return ""
+    matches = re.findall(r'"([^"]+)"', result.stdout)
+    if matches:
+        return " ".join(part.lower() for part in matches)
     return result.stdout.strip().lower()
+
+
+def _window_name(wid: str) -> str:
+    return _xdotool("getwindowname", wid).stdout.strip().lower()
 
 
 def _window_process(wid: str) -> str:
@@ -172,22 +181,61 @@ def _window_process(wid: str) -> str:
     return result.stdout.strip().lower()
 
 
+def _window_cmdline(wid: str) -> str:
+    pid = _xdotool("getwindowpid", wid).stdout.strip()
+    if not pid.isdigit():
+        return ""
+    try:
+        result = subprocess.run(
+            ["ps", "-p", pid, "-o", "args="],
+            env=_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return ""
+    return result.stdout.strip().lower()
+
+
 def active_window_meta() -> tuple[str, str]:
     wid = _xdotool("getactivewindow").stdout.strip()
     if not wid or wid == "0":
         return "", ""
-    name = _xdotool("getwindowname", wid).stdout.strip()
+    name = _window_name(wid)
     klass = _window_class(wid)
-    return name.lower(), klass.lower()
+    return name, klass.lower()
+
+
+def _launcher_browser_pids() -> list[str]:
+    try:
+        result = subprocess.run(
+            [
+                "pgrep",
+                "-f",
+                rf"chromium.*--class=mango-launcher.*127\.0\.0\.1:{LAUNCHER_PORT}/|firefox.*127\.0\.0\.1:{LAUNCHER_PORT}/",
+            ],
+            env=_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return []
+    return [pid for pid in result.stdout.split() if pid.isdigit()]
 
 
 def _launcher_window_ids() -> list[str]:
     ids: list[str] = []
-    for args in (
-        ("--class", "mango-launcher"),
-        ("--class", "firefox"),
-        ("--name", "mango"),
-    ):
+    for pid in _launcher_browser_pids():
+        result = _xdotool("search", "--pid", pid)
+        if result.returncode == 0 and result.stdout.strip():
+            ids.extend(result.stdout.split())
+    if ids:
+        return list(dict.fromkeys(ids))
+    for args in (("--class", "mango-launcher"), ("--class", "firefox")):
         result = _xdotool("search", *args)
         if result.returncode == 0 and result.stdout.strip():
             ids.extend(result.stdout.split())
@@ -195,17 +243,20 @@ def _launcher_window_ids() -> list[str]:
 
 
 def _is_launcher_window(wid: str) -> bool:
-    name = _xdotool("getwindowname", wid).stdout.strip().lower()
+    name = _window_name(wid)
     klass = _window_class(wid)
     process = _window_process(wid)
+    cmdline = _window_cmdline(wid)
     if "selection owner" in name or "tooltip" in name:
         return False
-    if "mango-launcher" in klass:
+    if "/overlay/" in cmdline or "mango-overlay" in klass:
+        return False
+    if f"127.0.0.1:{LAUNCHER_PORT}/" not in cmdline:
+        return False
+    if "mango-launcher" in klass and process in {"chromium", "chrome", "chromium-browser"}:
         return True
-    browser_blob = f"{klass} {process}"
-    return "mango" in name and any(
-        token in browser_blob for token in ("firefox", "navigator", "chromium", "chrome")
-    )
+    browser_blob = f"{klass} {process} {cmdline}"
+    return "firefox" in browser_blob or "navigator" in browser_blob
 
 
 def is_launcher_focused() -> bool:
@@ -308,8 +359,7 @@ def send_key_launcher(symbol: str) -> None:
     wid = find_launcher_wid()
     if not wid:
         return
-    # Route keys without raising the browser; the HUD must stay visible but not eat input.
-    send_key_to_wid(wid, symbol, activate=False)
+    send_key_to_wid(wid, symbol, activate=True)
 
 
 def send_mpv_ipc(command: str, arg: str = "") -> None:
@@ -333,9 +383,6 @@ def launcher_surface_active() -> bool:
 
 
 def send_launcher_key(symbol: str) -> None:
-    wid = find_launcher_wid()
-    if wid:
-        _xdotool("windowactivate", "--sync", wid)
     send_key_launcher(symbol)
 
 
