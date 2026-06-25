@@ -14,7 +14,7 @@ The grow system is implemented as a strict, couch-silent maintenance workflow:
 - A successful grow requires every active browse/AI rail to add fresh `new_to_rail_verified` titles; global unique growth, orphan repair, and existing verified links are metrics only.
 - Grow uses a staged work DB. Couch-visible rails publish only after strict success; failed or aborted runs write structured diagnostics and leave the previous stable rail snapshot visible.
 - Strict finalization attaches verified orphans to best-fit rails or anchors and caps unpinned cross-rail membership. Pins do not consume the unpinned cap, so a pinned title can still appear in two other strong thematic rails.
-- Remaining hardening focus is source quality and repeatability: India-series catalogs still produce many duplicate, no-stream, unresolved-ID, or theme-rejected candidates.
+- Remaining hardening focus is source quality and repeatability: `series-reality-casual` and `series-india-picks` currently cannot meet strict `+20` in one run from the configured sources.
 
 ---
 
@@ -111,6 +111,14 @@ python3 scripts/diag/source-grow-audit.py --rail series-india-picks
 python3 scripts/diag/source-grow-audit.py --rail series-reality-casual
 ```
 
+Latest measured blocker: on 2026-06-25, a strict Pi grow at commit `33275c1`
+started from neutral runtime source-grow weights. `series-reality-casual`
+reached `+9/20`, mostly failing on no-stream reality catalogs and theme-rejected
+broad show charts. `series-india-picks` reached `+0/20` in the observed window;
+its sampled India-series sources were overwhelmingly no-stream. The grow was
+aborted before publish, and the live DB restored to `1054` unique verified
+titles with `0` orphans.
+
 ---
 
 ## Grow & top-up jobs
@@ -181,6 +189,7 @@ Grow negative memory is runtime-only:
 - Theme rejects default to a 7-day rail TTL; no-stream/title-mismatch grow rejects also default to about 7 days.
 - Debug-only failed-title bypass: `MANGO_GROW_BYPASS_RECENT_FAILED=1`.
 - Runtime source weights and source suppressions never edit catalog YAML or theme profiles.
+- After changing verification policy, archive/reset `~/.cache/mango/source-grow/latest.json` before benchmark comparison; old runtime demotions are cache-only but can otherwise bias the next run.
 - Unresolved external catalog IDs are structural candidate failures, not playback failures; they should show up as `skipped_unresolved_external_id` and source `unresolved_external_id`, not as repeated `no_stream` probes.
 - `uncached_verify_legacy` is a migration quarantine reason for older rows proven by stale cache metadata; it retries immediately by default so the current stream parser can re-verify them.
 - Source hit-rate reports written by Python use seconds timestamps; the grow loader normalizes seconds/milliseconds before age checks.
@@ -217,7 +226,7 @@ PR regression (not gate-lite): `bash scripts/m3-play/playability/gate-m3-library
 | Item | Why it matters |
 |------|----------------|
 | Prove repeated unattended full `+20` grows | Target state is a constantly growing library without manual repair |
-| Improve India-series source yield | Current catalogs are thematically useful but often no-stream, duplicate-heavy, or unresolved to IMDb |
+| Improve reality and India-series source yield | Current catalogs are thematically useful but often no-stream, duplicate-heavy, unresolved to IMDb, or rejected by the strict theme gate |
 | Promote/demote sources from measured grow outcomes | Runtime weights should keep healthy catalogs hot and weak catalogs on small probation budgets |
 | Keep diagnostics compact | Operators need exact stage/source/reason without exposing grow/debug status on TV |
 | Revisit full retheme cadence | Full metadata retheme is useful but can trigger many meta calls; default grow should stay lightweight |

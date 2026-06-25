@@ -306,10 +306,26 @@ After grow pipeline changes:
 bash scripts/m3-play/playability/gate-m3-library-grow.sh
 ```
 
-## Current diagnostics — 2026-06-24
+## Current diagnostics — 2026-06-25
 
 Use this as context before another strict nightly grow investigation.
 
+- Commit `33275c1` added one bounded zero-stream retry to grow verification and
+  was deployed/gated on the Pi. Gate-lite/pre-couch passed with only the known
+  soft Indian-series stream warnings during the stream fixture section.
+- After the retry-policy change, archive/reset
+  `~/.cache/mango/source-grow/latest.json` before comparing grow yield. Runtime
+  source-grow weights are cache-only; stale pre-policy demotions can bias source
+  allocation even though catalog YAML is correct.
+- A strict Pi grow from neutral source-grow weights still failed the thin series
+  rails: `series-reality-casual` reached `+9/20`, then moved on; in the observed
+  India window `series-india-picks` stayed at `+0/20`. The run was aborted before
+  publish, and the live DB restored to baseline (`1054` unique verified, `0`
+  orphans).
+- The current blocker is source yield, not stale config or hidden process state.
+  Reality sources are mostly no-stream or broad-chart theme rejects; India-series
+  sources are mostly no-stream despite valid catalog rows. Do not loosen the
+  theme gate to make strict grow pass.
 - Source expansion can be **catalog-rich but not playable-rich**. The 2026-06-24
   Pi grow showed `series-miniseries` reach `0/20` after 74 no-stream probe
   failures; its source audit was dominated by probation/no-stream or

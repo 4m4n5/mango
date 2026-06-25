@@ -72,7 +72,7 @@ Status: `python3 scripts/diag/playability-status.py` · grow monitor: `grow_moni
 | Source control | Runtime-only source weights demote zero-yield and near-zero-yield catalogs into the 5-10% probation budget; catalog YAML is never auto-edited |
 | Diagnostics | `grow_monitor.py`, structured refresh JSON, candidate audit samples, source-grow weights, and `source-grow-audit.py` expose failure causes |
 
-**Known hardening gap:** the pipeline is wired correctly enough for targeted repair and benchmark iteration, but sustained unattended full `+20` nightly reliability is still under validation. India-series growth remains the clearest source-quality/ID-resolution risk: many fresh catalog rows are off-theme, TMDB-only/unresolved, duplicate-heavy, or no-stream despite strong-looking catalogs. See [PLAYABILITY.md](PLAYABILITY.md) and [catalog-rail-curation.md](../config/catalog-rail-curation.md).
+**Known hardening gap:** the pipeline is wired correctly enough for targeted repair and benchmark iteration, but sustained unattended full `+20` nightly reliability is still blocked by source yield on thin rails. On 2026-06-25, a strict Pi grow at commit `33275c1` from neutral runtime source-grow weights reached `series-reality-casual +9/20` and `series-india-picks +0/20` before abort; the live DB restored to baseline (`1054` unique verified, `0` orphans). The retry/heartbeat/staged-publish mechanics worked, but the sampled sources were mostly no-stream, duplicate-heavy, unresolved-ID, or theme-rejected. See [PLAYABILITY.md](PLAYABILITY.md), [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md), and [catalog-rail-curation.md](../config/catalog-rail-curation.md).
 
 ---
 
@@ -138,7 +138,7 @@ Full detail: [VOICE.md](VOICE.md)
 
 | # | Item | Milestone |
 |---|------|-----------|
-| 1 | Prove repeated unattended strict grow passes; improve India-series source yield | M3 hardening |
+| 1 | Prove repeated unattended strict grow passes; add stronger playable sources for reality and India-series rails | M3 hardening |
 | 2 | Living librarian (memory + policy) | M5 |
 | 3 | M5.5 AI companion UX ship bar | M5 |
 | 4 | Library sync + write-back | M6.1 |

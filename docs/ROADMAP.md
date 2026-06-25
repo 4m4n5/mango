@@ -86,7 +86,7 @@ Pi 5 · X11 + Openbox
 
 **Detail:** [PLAYABILITY.md](PLAYABILITY.md)
 
-**Current hardening state:** strict fresh `+20` per active rail is the production contract. The system now has staged work DB publishing, VOD-only grow boot, structured failed-run JSON, 7-day grow rejection memory, source circuits, source-grow audits, orphan-only retheme, and pinned overlap semantics. It is not declared production-done until repeated full `+20` grows pass without manual repair, especially on India-series supply.
+**Current hardening state:** strict fresh `+20` per active rail is the production contract. The system now has staged work DB publishing, VOD-only grow boot, structured failed-run JSON, 7-day grow rejection memory, source circuits, source-grow audits, orphan-only retheme, pinned overlap semantics, and grow verification retry for transient zero-stream responses. It is not declared production-done until repeated full `+20` grows pass without manual repair; the 2026-06-25 Pi run showed the remaining blocker is source yield for `series-reality-casual` and `series-india-picks`, not couch publishing or stale config.
 
 **Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`, 3 plays/rail)
 
@@ -211,7 +211,7 @@ Details: [STATUS.md](STATUS.md#gates) · [ARCHITECTURE.md](ARCHITECTURE.md#gates
 | yt-dlp breakage | Pin version; Kodi emergency fallback |
 | Companion feels dumb despite tools | M5.5 capability review + couch corpus |
 | TV reads as dev UI at ship | M6.5 polish before merge |
-| Grow passes but specific rails starve | Source-grow audit, probation weights, stronger same-theme sources |
+| Grow passes but specific rails starve | Source-grow audit, probation weights, stronger same-theme playable sources |
 | Verified orphans/overlap drift | Strict publish finalization + orphan-only/overlap-only repair |
 
 ---
