@@ -286,6 +286,19 @@ const STREAM_ZERO_RETRY_DELAY_MS = boundedInt(
   0,
   10000,
 );
+const STREAM_SERIES_CROSS_PROBE_LIMIT = boundedInt(
+  process.env.MANGO_STREAM_SERIES_CROSS_PROBE_LIMIT,
+  2,
+  0,
+  24,
+);
+
+function couchResolveOptions(options: ResolveStreamOptions = {}): ResolveStreamOptions {
+  return {
+    seriesCrossProbeLimit: STREAM_SERIES_CROSS_PROBE_LIMIT,
+    ...options,
+  };
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1567,7 +1580,7 @@ export class CatalogCore {
     errors?: string[];
   }> {
     const streamId = normalizeSeriesVerifyId(type, id);
-    const raw = await this.resolveRawStreams(type, streamId, options);
+    const raw = await this.resolveRawStreams(type, streamId, couchResolveOptions(options));
     if (raw.streams.length === 0) {
       if (hasStreamResolveInfrastructureErrors(raw.errors)) {
         throw new CatalogError(
@@ -1620,10 +1633,10 @@ export class CatalogCore {
     errors?: string[];
   }> {
     const streamId = normalizeSeriesVerifyId(type, id);
-    const raw = await this.resolveRawStreams(type, streamId, {
+    const raw = await this.resolveRawStreams(type, streamId, couchResolveOptions({
       zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
       zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
-    });
+    }));
     const config = mergeFilterConfig(this.filterConfig, overrides);
 
     if (raw.streams.length === 0) {
