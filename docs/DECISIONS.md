@@ -38,6 +38,8 @@ Locked choices. Update when changing behavior.
 | Launch lock | `flock` — release before background child |
 | API debounce | Launcher home debounced 2 s |
 | Health | `tv_pad` OR `input_remapper=active` |
+| Couch activity | Timestamp-only shared state; maintenance defers when couch is active |
+| Display sleep | X11 DPMS/screensaver disabled in couch mode; pad input wakes display |
 
 ---
 
@@ -50,6 +52,7 @@ Locked choices. Update when changing behavior.
 | Player | **mpv** fullscreen — not Stremio/Kodi chrome |
 | Self-hosted addons | AIOStreams `:3035` · AIOMetadata `:3036` |
 | Live TV | NexoTV · `catalog-live.yaml` · opt-in gates ([LIVE_TV.md](LIVE_TV.md)) |
+| Live cache | Never replace a non-empty Live cache with empty rebuild output; stale non-empty cache may serve indefinitely |
 | Lab quality cap | `max_quality: 1080p` until M6.3 ship profile |
 
 ---
@@ -66,6 +69,7 @@ Locked choices. Update when changing behavior.
 | Overlap | Cap unpinned memberships; pins do not consume the unpinned cap |
 | Runtime source weights | Cache/state only; never auto-edit catalog YAML or theme profiles |
 | TV visibility | No couch-facing grow/progress/debug UI |
+| Timers | No couch-disruptive `OnBootSec`; post-boot maintenance catch-up is explicit operator action |
 
 ---
 

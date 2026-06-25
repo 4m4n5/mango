@@ -60,6 +60,30 @@ bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh
 | ↻ (`317`) | Shuffle rail |
 | ⌂ (`316`) | Home |
 
+### Couch activity and display
+
+Mango couch mode is silent: no maintenance, grow, or debug status is shown on
+the TV. Activity is recorded only as a timestamp/source/hint in
+`~/.cache/mango/couch-activity.json`.
+
+```bash
+bash scripts/diag/couch-activity-status.sh
+bash scripts/lib/couch-activity.sh touch operator inspect
+```
+
+Pad input, launcher key/clicks, voice turns, mpv play/stop, and progress flushes
+update the activity file. Maintenance uses a 30 minute idle threshold by
+default (`MANGO_COUCH_IDLE_SEC` for tests only).
+
+When couch mode starts, Mango disables X11 DPMS/screensaver blanking. Controller
+input also runs the display wake helper, throttled to a few seconds:
+
+```bash
+bash scripts/lib/mango-display-wake.sh --focus-launcher-if-idle
+```
+
+The helper restores launcher focus only when mpv is not active.
+
 ---
 
 ## Gates
@@ -86,13 +110,24 @@ bash scripts/m2-catalog/service/check-m2-prereqs.sh
 | Pad dead | `pgrep -af mango-tv-pad` · reboot pad (Pro Controller mode) |
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
 | Empty rails | `curl localhost:3020/health` · playability status script |
+| Live tab empty after source error | `bash scripts/live/live-diagnostics.sh` · stale cache should remain available |
 | Grow seems hung | `python3 scripts/diag/grow_monitor.py status --verbose` · inspect stage/source before killing |
+| Maintenance did not run | `bash scripts/diag/couch-activity-status.sh` · check deferred JSON in `~/.cache/mango/ops/` |
 | Orphans or overlap drift | `rail-pool-retheme.sh dry-run --orphans-only` or `--overlap-only`; see [PLAYABILITY.md](PLAYABILITY.md) |
 | Chromium duplicate | `bash scripts/mango-kill-strays.sh` |
 
 Logs: `~/.cache/mango/mango.log` · `journalctl --user -u mango-stack` (if systemd)
 
 Grow operator state: `~/.cache/mango/grow-run-state.json`, `~/.cache/mango/ops/refresh-*.json`, `~/.cache/mango/source-grow/latest.json`.
+
+Playability timers do not run a couch-disruptive `OnBootSec` catch-up by
+default. After a reboot, use the explicit operator catch-up only when the couch
+is idle:
+
+```bash
+bash scripts/m3-play/playability/playability-catch-up.sh nightly
+systemctl --user list-timers 'mango-playability*'
+```
 
 ---
 

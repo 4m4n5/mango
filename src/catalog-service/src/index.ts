@@ -57,6 +57,7 @@ import { consolidateCompanionNightly, processLightReflect } from './companion/re
 import { runCompanionNightly } from './companion/nightly.js';
 import { applyCompanionGardener } from './companion/gardener.js';
 import { searchExternalTitles } from './voice/external.js';
+import { touchCouchActivity } from './couch-activity.js';
 import {
   deleteAiCatalog,
   listAiCatalogSummaries,
@@ -995,6 +996,7 @@ async function main(): Promise<void> {
 
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play') {
         const body = await readBody(req);
+        touchCouchActivity('catalog', 'play');
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
         sendJson(res, 200, await handlePlay(core, body, overrides));
         return;
@@ -1004,12 +1006,14 @@ async function main(): Promise<void> {
         if (!isLocalRequest(req)) {
           throw new CatalogError(403, 'progress flush is localhost-only');
         }
+        touchCouchActivity('catalog', 'progress_flush');
         const flushed = await flushWatchProgress();
         sendJson(res, 200, { ok: true, flushed });
         return;
       }
 
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play-cancel') {
+        touchCouchActivity('catalog', 'play_cancel');
         await bumpPlayEpoch();
         await flushWatchProgress();
         sendJson(res, 200, { ok: true, cancelled: true });

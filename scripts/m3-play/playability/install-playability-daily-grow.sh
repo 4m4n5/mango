@@ -46,7 +46,6 @@ cat >"$TIMER_PATH" <<'EOF'
 Description=mango playability daily quick grow timer
 
 [Timer]
-OnBootSec=20min
 OnCalendar=*-*-* 15:00:00
 Persistent=true
 

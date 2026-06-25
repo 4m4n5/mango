@@ -25,6 +25,19 @@ Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
 
 **Rule:** Push dedup, junk keywords, debrid order, and row limits **upstream** into AIOStreams. Keep probe-time policy, lab quality cap, and auto-play tiers in **catalog-service**.
 
+### Couch activity and maintenance boundary
+
+Silent maintenance depends on a shared activity marker at
+`~/.cache/mango/couch-activity.json`. Pad input, launcher activity, voice
+turns, mpv play/stop, and playback progress writes update only timestamp,
+source, hint, and pid. Maintenance checks the marker before disruptive phases
+and writes operator JSON when deferred; no TV surface shows grow/debug state.
+
+Display anti-sleep is part of couch mode: X11 DPMS and screensaver blanking are
+disabled, and controller input wakes the display through
+`scripts/lib/mango-display-wake.sh`. Launcher focus is restored only when mpv is
+not active.
+
 ### Playability layer
 
 `playability.db` has two related but distinct surfaces:
@@ -182,6 +195,8 @@ See [STATUS.md](STATUS.md#gates).
 |--------|------|-------|
 | `GET` | `/api/health` | launcher, chromium, pad |
 | `GET` | `/api/info` | hostname, IP, ports |
+| `POST` | `/api/activity/touch` | localhost-only couch activity timestamp |
+| `POST` | `/api/perf` | localhost-only launcher timing log |
 | `POST` | `/api/launch/launcher` | Home · debounced 2 s |
 | `POST` | `/api/voice/command` | Orchestrator → launcher dispatch |
 | `GET` | `/api/voice/commands` | Launcher poll |

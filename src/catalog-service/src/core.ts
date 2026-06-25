@@ -104,8 +104,11 @@ import {
 } from './live-stream-verify.js';
 import {
   readLiveRailsDiskCache,
+  readLiveRailsDiskCacheSync,
   writeLiveRailsDiskCache,
   liveRailsDiskCacheFresh,
+  liveRailsDiskCacheNonEmpty,
+  liveRailsDiskCacheSummary,
 } from './live-rails-cache.js';
 
 const LIVE_TAB_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -571,6 +574,7 @@ export class CatalogCore {
     payload: TabRailItemsResponse;
     expiresAt: number;
   } | null = null;
+  private liveLastRebuildError: string | null = null;
   private liveChannelCatalogCache: {
     channels: TaggedLiveChannel[];
     expiresAt: number;
@@ -683,6 +687,8 @@ export class CatalogCore {
   }
 
   health(): Record<string, unknown> {
+    const liveDiskCache = readLiveRailsDiskCacheSync();
+    const liveCache = liveRailsDiskCacheSummary(liveDiskCache);
     return {
       ok: true,
       core: this.coreStatus.ready ? 'ready' : 'not_ready',
@@ -694,6 +700,18 @@ export class CatalogCore {
       rails_ready: this.railConfigError === null,
       live_rails: this.liveRailConfig ? this.liveRailConfig.rails.length : 0,
       live_ready: this.liveRailConfigError === null,
+      live: {
+        ready: this.liveRailConfigError === null,
+        config_error: this.liveRailConfigError?.message ?? null,
+        sources: this.liveRailConfig?.sources.map((source) => ({
+          addon: source.addon,
+          catalog: source.catalog,
+          pages: source.pages,
+        })) ?? [],
+        cache: liveCache,
+        stale_fallback_available: liveCache.non_empty,
+        last_rebuild_error: this.liveLastRebuildError,
+      },
       rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
     };
   }
@@ -1089,21 +1107,33 @@ export class CatalogCore {
     }
 
     const started = Date.now();
-    const config = this.requireLiveRailConfig();
-    const tagged = await this.fetchTaggedLiveChannels(config);
-    const byRail = partitionChannelsBySportRails(tagged, config.rails);
+    let config: LiveRailConfig;
+    let responses: RailItemsResponse[] = [];
+    try {
+      config = this.requireLiveRailConfig();
+      const tagged = await this.fetchTaggedLiveChannels(config);
+      const byRail = partitionChannelsBySportRails(tagged, config.rails);
 
-    const responses: RailItemsResponse[] = [];
-    for (const rail of config.rails) {
-      const matched = (byRail.get(rail.id) || []) as TaggedLiveChannel[];
-      if (matched.length === 0) {
-        continue;
+      for (const rail of config.rails) {
+        const matched = (byRail.get(rail.id) || []) as TaggedLiveChannel[];
+        if (matched.length === 0) {
+          continue;
+        }
+        const verified = await this.verifyRailChannels(rail, matched, config);
+        if (verified.length === 0) {
+          continue;
+        }
+        responses.push(await this.buildLiveRailItemsResponse(rail, verified, started));
       }
-      const verified = await this.verifyRailChannels(rail, matched, config);
-      if (verified.length === 0) {
-        continue;
+      this.liveLastRebuildError = null;
+    } catch (error) {
+      this.liveLastRebuildError = error instanceof Error ? error.message : String(error);
+      const fallback = this.liveTabRailItemsCache?.payload
+        || (diskPayload && liveRailsDiskCacheNonEmpty(diskCache) ? diskPayload : null);
+      if (fallback && fallback.rails.length > 0) {
+        return { ...fallback, cached: true, stale: true };
       }
-      responses.push(await this.buildLiveRailItemsResponse(rail, verified, started));
+      throw error;
     }
 
     const pinnedRail = await this.buildPinnedRail('live');
@@ -1114,8 +1144,9 @@ export class CatalogCore {
     if (responses.length === 0) {
       const staleMemory = this.liveTabRailItemsCache?.payload;
       const fallback = staleMemory
-        || (diskPayload && diskPayload.rails.length > 0 ? diskPayload : null);
+        || (diskPayload && liveRailsDiskCacheNonEmpty(diskCache) ? diskPayload : null);
       if (fallback && fallback.rails.length > 0) {
+        this.liveLastRebuildError = 'live rebuild returned no non-empty rails';
         return { ...fallback, cached: true, stale: true };
       }
       this.liveTabRailItemsCache = null;

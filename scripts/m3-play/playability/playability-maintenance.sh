@@ -21,6 +21,7 @@
 #   MANGO_SOURCE_HITRATE_QUICK_PER_SOURCE=1    probes/source for quick grow preflight (default 1)
 #   MANGO_SOURCE_HITRATE_NIGHTLY_PER_SOURCE=3  probes/source before nightly grow phase (default 3)
 #   MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC  pause between stale and grow (default 45)
+#   MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY=1  debug/operator override for idle gate
 
 set -euo pipefail
 
@@ -116,6 +117,58 @@ resolve_grow_preset_early
 
 grow_state() {
   python3 "$REPO_DIR/scripts/diag/grow_run_state.py" "$@"
+}
+
+couch_activity_status() {
+  bash "$REPO_DIR/scripts/lib/couch-activity.sh" status 2>/dev/null \
+    || printf '{"ok":true,"idle":true,"age_sec":999999999,"source":"unknown","hint":""}\n'
+}
+
+couch_is_idle() {
+  [[ "${MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY:-0}" == "1" ]] && return 0
+  bash "$REPO_DIR/scripts/lib/couch-activity.sh" is-idle >/dev/null 2>&1
+}
+
+write_deferred_report() {
+  local phase="$1"
+  local status_json payload
+  status_json="$(couch_activity_status)"
+  payload="${OPS_DIR}/refresh-${RUN_ID}-deferred.json"
+  python3 - "$payload" "$MODE" "$MANGO_GROW_PRESET" "$RUN_ID" "$phase" "$status_json" <<'PY'
+import json
+import sys
+from datetime import datetime, timezone
+
+path, mode, preset, run_id, phase, status_raw = sys.argv[1:]
+activity = json.loads(status_raw)
+partial = phase not in {"initial", "pre_stop_launcher"}
+payload = {
+    "ok": False,
+    "run_id": run_id,
+    "mode": mode,
+    "preset": preset,
+    "stage": phase,
+    "failure_category": "couch_active_deferred",
+    "deferred": True,
+    "partial": partial,
+    "activity": activity,
+    "finished_at": datetime.now(timezone.utc).isoformat(),
+    "repair_suggestion": "Run explicit catch-up after the couch has been idle, or set MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY=1 for an operator-forced maintenance window.",
+}
+with open(path, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, indent=2)
+PY
+  grow_state set --phase deferred \
+    --message "deferred: couch active" \
+    --mode "$MODE" --preset "$MANGO_GROW_PRESET" --run-id "$RUN_ID" \
+    --log "maintenance deferred phase=$phase couch active"
+  python3 "$REPO_DIR/scripts/diag/ops-write-run.py" \
+    --kind playability_maintenance \
+    --run-id "$RUN_ID" \
+    --source playability-maintenance \
+    --write-report \
+    --summary "maintenance deferred phase=$phase couch active" \
+    --payload-file "$payload" || true
 }
 
 # shellcheck source=../../lib/catalog-service-stack.sh
@@ -402,6 +455,14 @@ LOCK_RELEASED=0
 
 cd "$REPO_DIR"
 
+if ! couch_is_idle; then
+  echo "maintenance deferred: couch active"
+  write_deferred_report initial
+  flock -u 200 >/dev/null 2>&1 || true
+  exec 200>&- || true
+  exit 0
+fi
+
 preflight_native_deps() {
   if ! node -e "require('./src/catalog-service/node_modules/better-sqlite3')" >/dev/null 2>&1; then
     echo "rebuilding better-sqlite3 for this platform"
@@ -445,6 +506,13 @@ write_grow_baseline_if_needed() {
 }
 
 if pgrep -f 'chromium.*127.0.0.1:3000|firefox.*127.0.0.1:3000' >/dev/null 2>&1; then
+  if ! couch_is_idle; then
+    echo "maintenance deferred before stopping launcher: couch active"
+    write_deferred_report pre_stop_launcher
+    release_maintenance_lock
+    trap - EXIT
+    exit 0
+  fi
   echo "stopping launcher browser"
   pkill -f 'chromium.*127.0.0.1:3000' >/dev/null 2>&1 || true
   pkill -f 'firefox.*127.0.0.1:3000' >/dev/null 2>&1 || true
@@ -452,6 +520,12 @@ if pgrep -f 'chromium.*127.0.0.1:3000|firefox.*127.0.0.1:3000' >/dev/null 2>&1; 
 fi
 
 if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+  if ! couch_is_idle; then
+    echo "maintenance deferred before stopping catalog: couch active"
+    write_deferred_report pre_stop_catalog
+    release_maintenance_lock
+    exit 0
+  fi
   if [[ "$MODE" == "grow" ]]; then
     run_source_hitrate_preflight quick "${MANGO_SOURCE_HITRATE_FORCE:-0}"
   fi
@@ -514,22 +588,29 @@ if [[ "$MODE" == "nightly" ]]; then
     echo "phase cooldown: ${PHASE_COOLDOWN_SEC}s (AIOStreams stream rate-limit window)"
     sleep "$PHASE_COOLDOWN_SEC"
   fi
-  echo "== phase 2: grow pass (preset=$MANGO_GROW_PRESET) =="
-  grow_state set --phase preflight \
-    --message "starting catalog for nightly hit-rate preflight" \
-    --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
-    --log "nightly grow: hit-rate preflight before grow phase"
-  MANGO_CATALOG=1 start_catalog_service_only \
-    || grow_state log "warn: catalog start for hitrate failed — using cached report"
-  run_source_hitrate_preflight nightly "${MANGO_SOURCE_HITRATE_FORCE:-0}"
-  stop_catalog_service_only
-  write_grow_baseline_if_needed grow
-  grow_state set --phase grow --message "grow refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
-  REFRESH_JSON="$(run_refresh grow 2>&1)"
-  REFRESH_RC=$?
-  echo "$REFRESH_JSON"
-  if [[ "$STALE_RC" -ne 0 && "$REFRESH_RC" -eq 0 ]]; then
-    REFRESH_RC=$STALE_RC
+  if ! couch_is_idle; then
+    echo "nightly grow phase deferred: couch active"
+    write_deferred_report nightly_grow_phase
+    REFRESH_JSON="$STALE_JSON"
+    REFRESH_RC=0
+  else
+    echo "== phase 2: grow pass (preset=$MANGO_GROW_PRESET) =="
+    grow_state set --phase preflight \
+      --message "starting catalog for nightly hit-rate preflight" \
+      --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
+      --log "nightly grow: hit-rate preflight before grow phase"
+    MANGO_CATALOG=1 start_catalog_service_only \
+      || grow_state log "warn: catalog start for hitrate failed — using cached report"
+    run_source_hitrate_preflight nightly "${MANGO_SOURCE_HITRATE_FORCE:-0}"
+    stop_catalog_service_only
+    write_grow_baseline_if_needed grow
+    grow_state set --phase grow --message "grow refresh in progress" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
+    REFRESH_JSON="$(run_refresh grow 2>&1)"
+    REFRESH_RC=$?
+    echo "$REFRESH_JSON"
+    if [[ "$STALE_RC" -ne 0 && "$REFRESH_RC" -eq 0 ]]; then
+      REFRESH_RC=$STALE_RC
+    fi
   fi
 else
   if [[ "$MODE" == "grow" ]]; then

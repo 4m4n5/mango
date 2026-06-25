@@ -34,6 +34,8 @@ REPO = _HOME / "mango"
 LAUNCHER_SH = REPO / "scripts/launch-launcher.sh"
 MPV_IPC_SH = REPO / "scripts/m2-catalog/service/mpv-ipc.sh"
 MPV_STOP_SH = REPO / "scripts/m2-catalog/service/mpv-stop.sh"
+DISPLAY_WAKE_SH = REPO / "scripts/lib/mango-display-wake.sh"
+COUCH_ACTIVITY_SH = REPO / "scripts/lib/couch-activity.sh"
 
 BTN_B = 304
 BTN_Y = 308
@@ -45,6 +47,7 @@ HOME_BUTTONS = {316, 311}
 BT_MAC = "E4:17:D8:EB:00:44"
 RECONNECT_SLEEP_SEC = 0.75
 DEVICE_WAIT_SEC = 45.0
+DISPLAY_WAKE_THROTTLE_SEC = 3.0
 
 
 class DeviceNotFoundError(Exception):
@@ -53,6 +56,7 @@ class DeviceNotFoundError(Exception):
 DIAG_SESSION = os.environ.get("MANGO_DIAG_SESSION", "")
 PAD_DEBUG = os.environ.get("MANGO_PAD_DEBUG") == "1"
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": str(_HOME)}
+_last_display_wake_at = 0.0
 
 
 def diag_event(kind: str, **fields: str) -> None:
@@ -89,6 +93,36 @@ def popen_tv_user(argv: list[str], *, extra_env: dict[str, str] | None = None) -
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+
+
+def run_tv_user(argv: list[str], *, timeout: float = 2.0) -> None:
+    try:
+        subprocess.run(
+            as_tv_user(argv),
+            env=_env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+
+def touch_couch_activity(hint: str) -> None:
+    if COUCH_ACTIVITY_SH.is_file():
+        run_tv_user(["bash", str(COUCH_ACTIVITY_SH), "touch", "pad", hint], timeout=1.0)
+
+
+def wake_display_for_input(hint: str) -> None:
+    global _last_display_wake_at
+    touch_couch_activity(hint)
+    now = time.monotonic()
+    if now - _last_display_wake_at < DISPLAY_WAKE_THROTTLE_SEC:
+        return
+    _last_display_wake_at = now
+    if DISPLAY_WAKE_SH.is_file():
+        run_tv_user(["bash", str(DISPLAY_WAKE_SH), "--focus-launcher-if-idle"], timeout=2.0)
 
 
 def _xdotool(*args: str) -> subprocess.CompletedProcess[str]:
@@ -455,6 +489,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
         if now - last.get(action, 0) < DEBOUNCE_SEC:
             return
         last[action] = now
+        wake_display_for_input(action)
         fn()
 
     try:

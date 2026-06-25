@@ -28,6 +28,8 @@ REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 LAUNCHER_DIST: Final = REPO_ROOT / "src" / "launcher" / "dist"
 LOG_DIR: Final = Path.home() / ".cache" / "mango"
 LOG_SCRIPT: Final = REPO_ROOT / "scripts" / "lib" / "mango-log.sh"
+ACTIVITY_STATE: Final = Path(os.environ.get("MANGO_COUCH_ACTIVITY_STATE", str(LOG_DIR / "couch-activity.json")))
+PERF_LOG: Final = LOG_DIR / "launcher-perf.jsonl"
 CATALOG_UPSTREAM: Final = os.environ.get("MANGO_CATALOG_UPSTREAM", "http://127.0.0.1:3020")
 CATALOG_PROXY_TIMEOUT_SEC: Final = 60
 
@@ -72,6 +74,42 @@ def mango_log(event: str, **fields: str) -> None:
     args = [str(LOG_SCRIPT), event]
     args.extend(f"{key}={value}" for key, value in fields.items())
     subprocess.run(args, check=False, capture_output=True)
+
+
+def _safe_field(value: object, limit: int = 96) -> str:
+    return str(value or "")[:limit]
+
+
+def touch_couch_activity(source: str, hint: str = "") -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    ACTIVITY_STATE.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "ts": int(time.time() * 1000),
+        "source": _safe_field(source, 64),
+        "hint": _safe_field(hint, 96),
+        "pid": os.getpid(),
+    }
+    tmp = ACTIVITY_STATE.with_suffix(ACTIVITY_STATE.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+    tmp.replace(ACTIVITY_STATE)
+
+
+def append_perf_event(payload: dict[str, object]) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    row = {
+        "server_ts": int(time.time() * 1000),
+        "event": _safe_field(payload.get("event"), 64),
+        "tab": _safe_field(payload.get("tab"), 32),
+        "key": _safe_field(payload.get("key"), 160),
+        "state": _safe_field(payload.get("state"), 32),
+        "duration_ms": payload.get("duration_ms"),
+        "rows": payload.get("rows"),
+        "rails": payload.get("rails"),
+        "items": payload.get("items"),
+        "reshuffle": payload.get("reshuffle"),
+    }
+    with PERF_LOG.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(row, separators=(",", ":")) + "\n")
 
 
 def _client_is_local(handler: BaseHTTPRequestHandler) -> bool:
@@ -256,6 +294,30 @@ class MangoUiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
+        if path == "/api/activity/touch":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "activity is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            payload = self._read_json_body()
+            touch_couch_activity(
+                _safe_field(payload.get("source"), 64) or "launcher",
+                _safe_field(payload.get("hint"), 96),
+            )
+            self._write_json({"ok": True})
+            return
+        if path == "/api/perf":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "perf logs are localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            append_perf_event(self._read_json_body())
+            self._write_json({"ok": True})
+            return
         if path == "/api/voice/command":
             if not _client_is_local(self):
                 self._write_json(
@@ -426,6 +488,15 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(data)
+
+    def _read_json_body(self) -> dict[str, object]:
+        length = int(self.headers.get("content-length") or "0")
+        raw = self.rfile.read(length) if length > 0 else b"{}"
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
 
     def _proxy_catalog(self, method: str) -> None:
         parsed = urlparse(self.path)

@@ -5,15 +5,36 @@ export class FocusGrid {
   private rowIndex = 0;
   private colIndex = 0;
   private onFocus?: (element: HTMLElement) => void;
+  private pendingScroll = 0;
 
   constructor(onFocus?: (element: HTMLElement) => void) {
     this.onFocus = onFocus;
   }
 
-  setRows(rows: HTMLElement[][]): void {
+  setRows(
+    rows: HTMLElement[][],
+    options: {
+      preferredKey?: string;
+      fallbackPosition?: { row: number; col: number };
+    } = {},
+  ): void {
     this.rows = rows.filter((row) => row.length > 0);
-    this.rowIndex = 0;
-    this.colIndex = 0;
+    if (this.rows.length === 0) {
+      this.rowIndex = 0;
+      this.colIndex = 0;
+      return;
+    }
+    const preferred = options.preferredKey ? this.findKey(options.preferredKey) : null;
+    if (preferred) {
+      this.rowIndex = preferred.row;
+      this.colIndex = preferred.col;
+    } else if (options.fallbackPosition) {
+      this.rowIndex = clamp(options.fallbackPosition.row, 0, this.rows.length - 1);
+      this.colIndex = clamp(options.fallbackPosition.col, 0, this.currentRow().length - 1);
+    } else {
+      this.rowIndex = clamp(this.rowIndex, 0, this.rows.length - 1);
+      this.colIndex = clamp(this.colIndex, 0, this.currentRow().length - 1);
+    }
     this.applyFocus();
   }
 
@@ -48,6 +69,10 @@ export class FocusGrid {
     return row[this.colIndex] ?? null;
   }
 
+  get position(): { row: number; col: number } {
+    return { row: this.rowIndex, col: this.colIndex };
+  }
+
   setPosition(row: number, col: number): void {
     if (this.rows.length === 0) {
       return;
@@ -65,13 +90,29 @@ export class FocusGrid {
     return this.rows[this.rowIndex] ?? [];
   }
 
+  private findKey(key: string): { row: number; col: number } | null {
+    for (let row = 0; row < this.rows.length; row += 1) {
+      const col = this.rows[row].findIndex((element) => element.dataset.focusKey === key);
+      if (col >= 0) {
+        return { row, col };
+      }
+    }
+    return null;
+  }
+
   private applyFocus(): void {
     const target = this.focused;
     if (target === null) {
       return;
     }
     target.focus({ preventScroll: true });
-    target.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+    if (this.pendingScroll !== 0) {
+      window.cancelAnimationFrame(this.pendingScroll);
+    }
+    this.pendingScroll = window.requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
+      this.pendingScroll = 0;
+    });
     this.onFocus?.(target);
   }
 }

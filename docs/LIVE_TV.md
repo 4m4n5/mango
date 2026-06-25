@@ -85,7 +85,7 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 |----------|--------|
 | Tab | **movies · series · live** — L/R shoulders or browse bar |
 | Refresh / ↻ | Live tab **does not** pass `reshuffle=1` (avoids NexoTV rate limits) |
-| Cache | Memory + disk `~/.cache/mango/live-rails-cache.json` (30 min TTL); stale fallback if rebuild empty |
+| Cache | Memory + disk `~/.cache/mango/live-rails-cache.json`; any non-empty stale disk cache may be served indefinitely if rebuild fails or returns empty |
 | Play | Detail → **watch live** · `POST /play` with `live: true` |
 | Ordering | Paid (AREA69) channels sort before free per rail |
 
@@ -128,6 +128,24 @@ cd ~/mango/deploy/nexotv && docker compose restart
 cd ~/mango/deploy/nexotv-free && docker compose restart
 ```
 
+### Health-only diagnostics
+
+`/health` exposes operator-only Live diagnostics without probing `/stream` or
+reshuffling Live: config readiness, source addon names, disk cache path, cache
+age/freshness, stale fallback availability, per-rail counts, and last rebuild
+error.
+
+```bash
+bash scripts/live/live-diagnostics.sh
+bash scripts/live/live-diagnostics.sh --json
+bash scripts/live/gate-live-diagnostics.sh
+MANGO_LIVE_REQUIRE_STALE_FALLBACK=1 bash scripts/live/gate-live-diagnostics.sh
+```
+
+The cache contract is conservative: a non-empty stale Live cache is better than
+an empty Live tab. Rebuilds that fail or produce no non-empty rails must not
+overwrite a previously usable cache.
+
 ---
 
 ## Known coverage (2026-06)
@@ -148,7 +166,8 @@ Paid cricket may require more catalog pages or provider-side genre browsing — 
 ```bash
 MANGO_LIVE_PROBE=1 bash scripts/live/probe-live-catalog.sh
 MANGO_LIVE_GATE=1 MANGO_LIVE_PLAY=1 bash scripts/live/gate-live-iptv.sh
-curl -s http://127.0.0.1:3020/health | python3 -m json.tool   # live_rails: 3
+bash scripts/live/gate-live-diagnostics.sh
+curl -s http://127.0.0.1:3020/health | python3 -m json.tool   # includes live diagnostics
 curl -s 'http://127.0.0.1:3020/rails/items?tab=live' | python3 -c "import json,sys;d=json.load(sys.stdin);print([(r['label'],len(r.get('items')or[])) for r in d.get('rails',[])])"
 ```
 

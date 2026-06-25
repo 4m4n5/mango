@@ -36,9 +36,14 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 
 if $STOP; then
   exec bash "$SCRIPT_DIR/mpv-stop.sh"
+fi
+
+if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
+  bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv play >/dev/null 2>&1 || true
 fi
 
 [[ -n "$URL" ]] || usage
@@ -153,6 +158,9 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
       if playback_is_real "${PT:-0}"; then
         END_MS="$(now_ms)"
         echo "PASS: ttff_ms=$((END_MS - START_MS))"
+        if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
+          bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv playing >/dev/null 2>&1 || true
+        fi
         if $PROBE; then
           MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
         fi

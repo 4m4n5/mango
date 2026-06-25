@@ -47,7 +47,6 @@ cat >"$TIMER_PATH" <<'EOF'
 Description=mango playability indexer timer
 
 [Timer]
-OnBootSec=5min
 OnCalendar=*-*-* 03:00:00
 Persistent=true
 

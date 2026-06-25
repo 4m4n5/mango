@@ -14,6 +14,10 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
+  bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv stop >/dev/null 2>&1 || true
+fi
+
 if [[ "${MANGO_MPV_STOP_NO_CANCEL:-0}" != "1" ]]; then
   mkdir -p "$(dirname "$PLAY_CANCEL_FILE")"
   date +%s%3N >"$PLAY_CANCEL_FILE" 2>/dev/null || date +%s >"$PLAY_CANCEL_FILE"

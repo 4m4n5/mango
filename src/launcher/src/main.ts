@@ -8,6 +8,8 @@ import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
 import { fetchPinnedIds } from "./pins";
+import { logPerf } from "./perf";
+import { touchCouchActivity } from "./activity";
 import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 
 const homeView = mustGet<HTMLElement>("home-view");
@@ -48,8 +50,13 @@ let pinnedKeys = new Set<string>();
 const tabCatalogCache = new Map<BrowseTab, ContentRail[]>();
 const tabCatalogPrefetching = new Set<BrowseTab>();
 let liveCatalogSessionCached = false;
+let catalogRequestSeq = 0;
+let livePrefetchStarted = false;
+const tabFocusKeys = new Map<BrowseTab, string>();
+const tabFocusPositions = new Map<BrowseTab, { row: number; col: number }>();
 
 const focusGrid = new FocusGrid((element) => {
+  const started = performance.now();
   element.classList.add("focused");
   for (const row of focusGridRows) {
     for (const item of row) {
@@ -58,6 +65,20 @@ const focusGrid = new FocusGrid((element) => {
       }
     }
   }
+  if (!detail.isOpen && !inSettings && !homeView.classList.contains("hidden")) {
+    const key = element.dataset.focusKey;
+    if (key) {
+      tabFocusKeys.set(activeBrowseTab, key);
+    }
+    tabFocusPositions.set(activeBrowseTab, focusGrid.position);
+  }
+  logPerf("focus", {
+    tab: activeBrowseTab,
+    key: element.dataset.focusKey,
+    row: focusGrid.position.row,
+    col: focusGrid.position.col,
+    duration_ms: Math.round(performance.now() - started),
+  });
 });
 
 let focusGridRows: HTMLElement[][] = [];
@@ -107,14 +128,20 @@ const detail = new DetailController(
 init();
 
 function init(): void {
+  libraryRefreshBtn.dataset.focusKey = "browse:shuffle";
   renderHome();
+  touchCouchActivity("launcher", "init");
 
   backButton.addEventListener("click", showHome);
   libraryRefreshBtn.addEventListener("click", () => void libraryRefresh());
   document.addEventListener("keydown", handleKeydown);
+  document.addEventListener("click", () => touchCouchActivity("launcher", "click"), { capture: true });
   window.addEventListener("mango:library-refresh", () => void libraryRefresh({ quiet: true }));
   void loadInfo();
   void loadCatalog();
+  window.requestAnimationFrame(() => {
+    window.setTimeout(() => prefetchCatalogTab("live", { allowLive: true }), 750);
+  });
   startVoiceHud();
   startVoiceCommands(resolveVoiceWsUrls(), {
     onHome: showHome,
@@ -145,6 +172,7 @@ function init(): void {
 }
 
 function renderHome(): void {
+  const started = performance.now();
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
   const showShuffle = activeBrowseTab !== "live";
   libraryRefreshBtn.hidden = !showShuffle;
@@ -161,7 +189,10 @@ function renderHome(): void {
       pinnedKeys,
     }, catalogState),
   ];
-  focusGrid.setRows(focusGridRows);
+  focusGrid.setRows(focusGridRows, {
+    preferredKey: tabFocusKeys.get(activeBrowseTab),
+    fallbackPosition: tabFocusPositions.get(activeBrowseTab),
+  });
   if (focusBrowseTabOnRender) {
     focusBrowseTabOnRender = false;
     const tabIndex = BROWSE_TAB_ORDER.indexOf(activeBrowseTab);
@@ -169,6 +200,12 @@ function renderHome(): void {
       focusGrid.setPosition(0, tabIndex);
     }
   }
+  logPerf("render_home", {
+    tab: activeBrowseTab,
+    rows: focusGridRows.length,
+    state: catalogState.status,
+    duration_ms: Math.round(performance.now() - started),
+  });
 }
 
 function handleBrowseTabChange(tab: BrowseTab): void {
@@ -195,6 +232,7 @@ function cycleBrowseTab(delta: number): void {
 }
 
 function handleKeydown(event: KeyboardEvent): void {
+  touchCouchActivity("launcher", `key:${event.key}`);
   if (nextEpisodePrompt.isOpen) {
     if (event.key === "Escape" || event.key === "Backspace") {
       event.preventDefault();
@@ -441,27 +479,33 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
 }
 
 async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void> {
+  const requestSeq = ++catalogRequestSeq;
+  const requestedTab = activeBrowseTab;
+  const started = performance.now();
   if (catalogRetryTimer !== undefined) {
     window.clearTimeout(catalogRetryTimer);
     catalogRetryTimer = undefined;
   }
-  const reshuffle = Boolean(options.reshuffle && activeBrowseTab !== "live");
+  const reshuffle = Boolean(options.reshuffle && requestedTab !== "live");
   if (reshuffle) {
-    tabCatalogCache.delete(activeBrowseTab);
+    tabCatalogCache.delete(requestedTab);
     setStatus("refreshing…");
   }
 
-  if (activeBrowseTab === "live" && liveCatalogSessionCached) {
+  if (requestedTab === "live" && liveCatalogSessionCached) {
     const frozen = tabCatalogCache.get("live");
     if (frozen && frozen.length > 0) {
       pinnedKeys = await fetchPinnedIds("live").catch(() => new Set<string>());
+      if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
+        return;
+      }
       catalogState = { status: "ready", rails: frozen };
       renderHome();
       return;
     }
   }
 
-  const cachedRails = !reshuffle ? tabCatalogCache.get(activeBrowseTab) : undefined;
+  const cachedRails = !reshuffle ? tabCatalogCache.get(requestedTab) : undefined;
   if (cachedRails && cachedRails.length > 0) {
     catalogState = { status: "ready", rails: cachedRails };
     renderHome();
@@ -472,12 +516,19 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
 
   try {
     const [rails, pins] = await Promise.all([
-      loadCatalogRails(activeBrowseTab, { reshuffle }),
-      fetchPinnedIds(activeBrowseTab).catch(() => new Set<string>()),
+      loadCatalogRails(requestedTab, { reshuffle }),
+      fetchPinnedIds(requestedTab).catch(() => new Set<string>()),
     ]);
+    if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
+      logPerf("catalog_stale_response", {
+        tab: requestedTab,
+        duration_ms: Math.round(performance.now() - started),
+      });
+      return;
+    }
     pinnedKeys = pins;
-    tabCatalogCache.set(activeBrowseTab, rails);
-    if (activeBrowseTab === "live") {
+    tabCatalogCache.set(requestedTab, rails);
+    if (requestedTab === "live") {
       liveCatalogSessionCached = true;
     }
     catalogState = { status: "ready", rails };
@@ -490,12 +541,22 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
       : "catalog loaded with no posters");
     if (!reshuffle) {
       for (const tab of BROWSE_TAB_ORDER) {
-        if (tab !== activeBrowseTab && tab !== "live") {
+        if (tab !== requestedTab && tab !== "live") {
           prefetchCatalogTab(tab);
         }
       }
     }
+    logPerf("catalog_fetch", {
+      tab: requestedTab,
+      rails: rails.length,
+      items: itemCount,
+      reshuffle,
+      duration_ms: Math.round(performance.now() - started),
+    });
   } catch (error) {
+    if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
+      return;
+    }
     if (!cachedRails?.length) {
       catalogState = {
         status: "error",
@@ -507,6 +568,11 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     catalogRetryTimer = window.setTimeout(() => {
       void loadCatalog();
     }, 5000);
+    logPerf("catalog_error", {
+      tab: requestedTab,
+      reshuffle,
+      duration_ms: Math.round(performance.now() - started),
+    });
   }
 }
 
@@ -525,16 +591,40 @@ function catalogRetryStatus(error: unknown, reshuffle: boolean): string {
   return "catalog is reconnecting…";
 }
 
-function prefetchCatalogTab(tab: BrowseTab): void {
-  if (tab === "live" || tab === activeBrowseTab || tabCatalogCache.has(tab) || tabCatalogPrefetching.has(tab)) {
+function prefetchCatalogTab(tab: BrowseTab, options: { allowLive?: boolean } = {}): void {
+  if (
+    (!options.allowLive && tab === "live")
+    || tab === activeBrowseTab
+    || tabCatalogCache.has(tab)
+    || tabCatalogPrefetching.has(tab)
+    || (tab === "live" && livePrefetchStarted)
+  ) {
     return;
   }
+  if (tab === "live") {
+    livePrefetchStarted = true;
+  }
+  const started = performance.now();
   tabCatalogPrefetching.add(tab);
   void loadCatalogRails(tab)
     .then((rails) => {
       tabCatalogCache.set(tab, rails);
+      if (tab === "live" && rails.length > 0) {
+        liveCatalogSessionCached = true;
+      }
+      logPerf("catalog_prefetch", {
+        tab,
+        rails: rails.length,
+        items: rails.reduce((total, rail) => total + rail.cards.length, 0),
+        duration_ms: Math.round(performance.now() - started),
+      });
     })
-    .catch(() => undefined)
+    .catch(() => {
+      logPerf("catalog_prefetch_error", {
+        tab,
+        duration_ms: Math.round(performance.now() - started),
+      });
+    })
     .finally(() => {
       tabCatalogPrefetching.delete(tab);
     });

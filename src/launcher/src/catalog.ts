@@ -155,17 +155,23 @@ export async function loadCatalogRails(
   try {
     const batch = await fetchJson<TabRailItemsResponse>(
       `/api/catalog/rails/items?tab=${encodeURIComponent(tab)}${reshuffle}`,
+      undefined,
+      12000,
     );
     return batch.rails.map(mapRailItems);
   } catch {
     // Fallback for older catalog-service builds without tab batch allocation.
     const summary = await fetchJson<RailSummaryResponse>(
       `/api/catalog/rails?tab=${encodeURIComponent(tab)}`,
+      undefined,
+      12000,
     );
     const rails: ContentRail[] = [];
     for (const rail of summary.rails) {
       const data = await fetchJson<RailItemsResponse>(
         `/api/catalog/rails/${encodeURIComponent(rail.id)}/items`,
+        undefined,
+        12000,
       );
       rails.push(mapRailItems({ ...data, label: data.label || rail.label }));
     }
@@ -176,22 +182,28 @@ export async function loadCatalogRails(
 export async function loadMeta(card: ContentCard): Promise<CatalogMeta> {
   return fetchJson<CatalogMeta>(
     `/api/catalog/meta/${encodeURIComponent(card.type)}/${encodeURIComponent(card.id)}`,
+    undefined,
+    12000,
   );
 }
 
 export async function loadSeriesEpisodes(bareId: string): Promise<SeriesEpisodesResponse> {
   return fetchJson<SeriesEpisodesResponse>(
     `/api/catalog/series/${encodeURIComponent(bareId)}/episodes`,
+    undefined,
+    12000,
   );
 }
 
 export async function loadNextPrompt(): Promise<NextPromptResponse> {
-  return fetchJson<NextPromptResponse>("/api/catalog/play/next-prompt");
+  return fetchJson<NextPromptResponse>("/api/catalog/play/next-prompt", undefined, 5000);
 }
 
 export async function loadStreamsForId(type: string, id: string): Promise<StreamsResult> {
   return fetchJson<StreamsResult>(
     `/api/catalog/stream/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,
+    undefined,
+    15000,
   );
 }
 
@@ -210,10 +222,20 @@ async function fetchWithTimeout(
   timeoutMs: number,
 ): Promise<Response> {
   const controller = new AbortController();
+  const sourceSignal = init.signal;
+  const abortFromSource = (): void => controller.abort();
+  if (sourceSignal) {
+    if (sourceSignal.aborted) {
+      controller.abort();
+    } else {
+      sourceSignal.addEventListener("abort", abortFromSource, { once: true });
+    }
+  }
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } finally {
+    sourceSignal?.removeEventListener("abort", abortFromSource);
     window.clearTimeout(timeout);
   }
 }
@@ -270,17 +292,20 @@ export async function playCard(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
     signal: options.signal,
-  });
+  }, 95000);
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+async function fetchJson<T>(url: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
+  const requestInit = {
     ...init,
     headers: {
       accept: "application/json",
       ...(init?.headers || {}),
     },
-  });
+  };
+  const response = timeoutMs
+    ? await fetchWithTimeout(url, requestInit, timeoutMs)
+    : await fetch(url, requestInit);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 499) {

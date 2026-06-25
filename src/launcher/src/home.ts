@@ -1,6 +1,6 @@
 import type { AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
-import { applyRailLayout, observeRailLayouts } from "./layout";
+import { applyRailLayout } from "./layout";
 
 export interface HomeCallbacks {
   onContentSelect: (card: ContentCard, railLabel: string) => void;
@@ -40,6 +40,7 @@ export function buildBrowseTabs(
     button.type = "button";
     button.className = `browse-tab${tab.id === activeTab ? " browse-tab--active" : ""}`;
     button.dataset.tab = tab.id;
+    button.dataset.focusKey = `browse:${tab.id}`;
     button.textContent = tab.label;
     button.addEventListener("click", () => {
       if (tab.id !== activeTab) {
@@ -65,10 +66,7 @@ export function buildHomeRails(
   rows.push(...appendCatalogSections(container, callbacks, catalogState, options));
 
   if (catalogState.status === "ready") {
-    window.requestAnimationFrame(() => {
-      observeRailLayouts(container);
-      options.onLayoutApplied?.();
-    });
+    window.requestAnimationFrame(() => options.onLayoutApplied?.());
   }
 
   const appsSection = document.createElement("section");
@@ -86,7 +84,7 @@ export function buildHomeRails(
 
   const appItems: HTMLElement[] = [];
   for (const app of DEFAULT_APP_CARDS) {
-    const button = createAppCard(app, callbacks);
+  const button = createAppCard(app, callbacks);
     appsTrack.appendChild(button);
     appItems.push(button);
   }
@@ -140,7 +138,7 @@ function appendCatalogSections(
 
     const items: HTMLElement[] = [];
     for (const card of rail.cards) {
-      const button = createPosterCard(card, rail.label, callbacks, options.pinnedKeys);
+      const button = createPosterCard(card, rail, callbacks, options.pinnedKeys);
       track.appendChild(button);
       items.push(button);
     }
@@ -184,13 +182,14 @@ function createCatalogMessage(
 
 function createPosterCard(
   card: ContentCard,
-  railLabel: string,
+  rail: ContentRail,
   callbacks: HomeCallbacks,
   pinnedKeys: Set<string> = new Set(),
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "card card--poster";
+  button.dataset.focusKey = `rail:${rail.id}:${card.type}:${card.id}`;
   if (pinnedKeys.has(`${card.type}:${card.id}`)) {
     button.classList.add("card--pinned");
   }
@@ -229,7 +228,7 @@ function createPosterCard(
     progress.style.setProperty("--progress", `${Math.round(card.progressPct * 100)}%`);
     button.append(progress);
   }
-  button.addEventListener("click", () => callbacks.onContentSelect(card, railLabel));
+  button.addEventListener("click", () => callbacks.onContentSelect(card, rail.label));
   return button;
 }
 
@@ -238,6 +237,7 @@ function createAppCard(app: AppCard, callbacks: HomeCallbacks): HTMLButtonElemen
   button.type = "button";
   button.className = "card card--app";
   button.dataset.action = app.action;
+  button.dataset.focusKey = `app:${app.action}`;
   button.setAttribute("role", "listitem");
   button.setAttribute("aria-label", app.title);
 

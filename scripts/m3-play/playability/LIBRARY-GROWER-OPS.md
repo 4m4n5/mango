@@ -61,6 +61,20 @@ serving: `MANGO_CATALOG_FETCH_TIMEOUT_MS` defaults to `8000` and
 forensics; do not let normal grows spend the full rail wall inside catalog
 fetches before verification starts.
 
+Maintenance is idle-gated before disruptive phases. If
+`~/.cache/mango/couch-activity.json` is younger than the idle threshold
+(default 30 minutes), `playability-maintenance.sh` writes an `ok:false`
+`couch_active_deferred` refresh report and exits cleanly, or skips the nightly
+grow phase after finishing non-disruptive stale/report work. Check it with:
+
+```bash
+bash scripts/diag/couch-activity-status.sh
+bash scripts/m3-play/playability/playability-catch-up.sh nightly
+```
+
+The playability systemd timers intentionally do not use `OnBootSec`; post-reboot
+catch-up is explicit operator action.
+
 Grow reports include a bounded `candidate_audit` sample per rail
 (`MANGO_GROW_CANDIDATE_AUDIT_LIMIT`, default 80). Each entry records the
 candidate's original/normalized ID, source, title/year, action, stage, and

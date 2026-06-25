@@ -15,6 +15,9 @@ The grow system is implemented as a best-effort, couch-silent maintenance workfl
 - Grow uses a staged work DB. Completed publishable runs publish even when some rails miss the `+20` target; failed, aborted, or crashed runs write structured diagnostics and leave the previous stable rail snapshot visible.
 - Finalization attaches verified orphans to best-fit rails or anchors and caps unpinned cross-rail membership. Pins do not consume the unpinned cap, so a pinned title can still appear in two other strong thematic rails.
 - Remaining hardening focus is source quality and repeatability: `series-reality-casual` and `series-india-picks` currently struggle to meet `+20` in one run from the configured sources.
+- Maintenance is idle-gated. Recent pad, launcher, voice, mpv, or progress
+  activity writes a structured `deferred` report and prevents disruptive
+  stop/probe/publish phases from touching the couch session.
 
 ---
 
@@ -132,6 +135,7 @@ catalogs, duplicates, unresolved IDs, and theme-rejected broad charts.
 | Overnight | ~4 h | `overnight-playability-grow.sh --detach` |
 | Manual grow | — | `playability-grow.sh --mode grow --detach` |
 | Run control | operator | `grow-run-control.sh start/status/watch/assess/abort` |
+| Explicit catch-up | operator | `playability-catch-up.sh nightly\|grow\|stale` |
 
 **Presets:** `quick` (10 min wall) · `nightly` (90 min) — see [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md)
 
@@ -153,6 +157,26 @@ titles, duplicate candidate pressure, wasted candidate ratio, and retheme
 finalization results when present. During an active staged grow, status reads
 the isolated work DB and labels it as `staged work DB`; couch-visible rails
 switch only after a completed publishable run.
+
+### Idle-gated maintenance
+
+The activity file is `~/.cache/mango/couch-activity.json` and stores only
+timestamp, source, hint, and pid. The default idle threshold is 30 minutes.
+
+```bash
+bash scripts/diag/couch-activity-status.sh
+bash scripts/lib/couch-activity.sh is-idle
+```
+
+`playability-maintenance.sh` checks this before stopping launcher/catalog and
+again before the disruptive grow phase in nightly mode. If activity appears,
+the report is written with `ok:false`, `failure_category:
+couch_active_deferred`, `deferred:true`, and an operator repair suggestion.
+Debug/operator override: `MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY=1`.
+
+The systemd playability timers intentionally omit `OnBootSec` so a reboot does
+not immediately stop a newly active couch session. Use the explicit catch-up
+script after verifying the couch is idle.
 
 ---
 

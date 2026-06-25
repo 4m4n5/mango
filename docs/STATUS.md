@@ -45,6 +45,7 @@ What works today, what is still being hardened, and how to verify it.
 | Browse UX | Verified-only thin rails · empty hidden |
 | Thematic rails | `rail-theme-gate` on grow/link/verify · profiles in `rail-theme-profiles.yaml` |
 | Pool retheme | Manual repair plus grow orphan/overlap finalization |
+| Couch reliability | Launcher fetch/focus timing logs · Live stale-cache fallback · idle-gated maintenance · X11 anti-sleep/wake |
 
 **Detail:** [PLAYABILITY.md](PLAYABILITY.md)
 
@@ -90,7 +91,8 @@ Status: `python3 scripts/diag/playability-status.py` · grow monitor: `grow_moni
 
 ## Live TV (opt-in)
 
-NexoTV Docker · sport rails · mpv `--live` · excluded from gate-lite. [LIVE_TV.md](LIVE_TV.md)
+NexoTV Docker · sport rails · stale non-empty cache fallback · health-only
+diagnostics · mpv `--live` · excluded from gate-lite. [LIVE_TV.md](LIVE_TV.md)
 
 ---
 

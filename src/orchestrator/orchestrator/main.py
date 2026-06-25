@@ -7,8 +7,10 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -53,6 +55,24 @@ voice_lock = asyncio.Lock()
 ptt_owner: WebSocket | None = None
 listening_timeout_task: asyncio.Task[None] | None = None
 voice_epoch = 0
+
+
+def touch_couch_activity(hint: str) -> None:
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "mango"
+    path = Path(os.environ.get("MANGO_COUCH_ACTIVITY_STATE", cache_root / "couch-activity.json"))
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "ts": int(time.time() * 1000),
+            "source": "voice",
+            "hint": hint[:96],
+            "pid": os.getpid(),
+        }
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
 
 
 async def broadcast_status() -> None:
@@ -133,6 +153,7 @@ async def handle_client_message(websocket: WebSocket, raw: str) -> None:
             return
         # Allow a new turn while the TV still shows the last reply (overlay != idle).
         bump_voice_epoch()
+        touch_couch_activity("ptt_start")
         ptt_owner = websocket
         session.set_overlay("listening", "listening…")
         await broadcast_status()
@@ -158,6 +179,7 @@ async def handle_client_message(websocket: WebSocket, raw: str) -> None:
             await fail_to_idle("missing microphone audio")
             return
         session.set_overlay("thinking", "queued…")
+        touch_couch_activity("ptt_end")
         await broadcast_status()
         asyncio.create_task(run_voice_pipeline(pcm_b64))
         return
@@ -175,6 +197,7 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
     partial_state = {"text": "", "sent_at": 0.0}
 
     append_event("turn_start", turn_id=turn_id, llm_model=settings.llm_model)
+    touch_couch_activity("turn_start")
 
     def on_llm_delta(text: str) -> None:
         partial_state["text"] = text
@@ -321,6 +344,7 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
             if epoch == voice_epoch and not showing_reply:
                 session.set_overlay("idle", "idle")
                 await broadcast_status()
+            touch_couch_activity("turn_end")
 
 
 async def _hold_reply_then_idle(seconds: int, epoch: int) -> None:

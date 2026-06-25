@@ -36,7 +36,7 @@ bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
 | M3 full | `m3-play/playability/gate-m3-verified-rails.sh`, `m3-play/orchestrator/gate-m3-play.sh` |
 | M4 | `m4-addons/gate-m4-self-hosted.sh` |
 | M5 | `m5-voice/ai/gate-m5-voice.sh`, `gate-m5-ai-catalogs.sh` |
-| Live (opt-in) | `live/gate-live-iptv.sh` — `MANGO_LIVE_GATE=1` |
+| Live (opt-in) | `live/gate-live-iptv.sh` — `MANGO_LIVE_GATE=1`; `live/gate-live-diagnostics.sh` is health-only |
 
 Shared: `lib/gate-common.sh` · `gate-lite-play.sh` · `gate-lite-unit.sh`
 
@@ -89,13 +89,25 @@ diag/            manual diagnostics
 | `m3-play/playability/quick-playability-topup.sh` | ~10 min grow |
 | `m3-play/playability/overnight-playability-grow.sh` | ~4 h loop |
 | `m3-play/playability/playability-maintenance.sh` | Nightly worker |
+| `m3-play/playability/playability-catch-up.sh` | Explicit post-boot/operator catch-up |
 | `diag/playability-status.py` | Pool depth (catalog-service must be up) |
+| `diag/couch-activity-status.sh` | Idle/defer state for maintenance |
 | `diag/grow_monitor.py` | **Grow monitor** — baseline, live status, watch, assess |
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
 | `m3-play/playability/rail-pool-retheme.sh` | Thematic pool prune/relocate (manual) |
 | `m3-play/playability/rail-curation.sh` | Pins / blocks |
 
 Production grow target is `+20` fresh verified titles per active rail. Benchmark runs use `MANGO_GROW_PER_PASS=5`; see [docs/PLAYABILITY.md](../docs/PLAYABILITY.md).
+
+## Live diagnostics
+
+```bash
+bash scripts/live/live-diagnostics.sh
+bash scripts/live/gate-live-diagnostics.sh
+```
+
+These read catalog `/health` only. They do not probe `/stream`, rebuild Live
+rails, or reshuffle couch state.
 
 ## Mac → Pi
 
