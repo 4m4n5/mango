@@ -463,6 +463,46 @@ test('recordSourceGrowOutcome sends catastrophic zero-yield sources to probation
   }
 });
 
+test('recordSourceGrowOutcome keeps scarce verified-yield sources out of hard probation', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
+  const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  try {
+    recordSourceGrowOutcome('series-india-picks', 'series', [
+      {
+        source_key: 'AIOMetadata:mdblist.160359',
+        source_label: 'AIOMetadata/mdblist.160359',
+        content_type: 'series',
+        scanned: 98,
+        fresh_queued: 98,
+        skipped_verified: 0,
+        skipped_recent_failed: 20,
+        linked_verified_seen: 0,
+        requested: 120,
+        returned: 120,
+        catalog_errors: 0,
+        rate_limited: 0,
+        exhausted: false,
+        verified: 1,
+        failed: 97,
+        theme_rejected: 0,
+      },
+    ], { growTargetMet: false, weighted: true, now: Date.now(), elapsedMs: 60_000 });
+    const report = loadSourceGrowReport();
+    assert.ok(report);
+    assert.ok((report.sources[0]?.multiplier ?? 0) > sourceGrowProbationMultiplier());
+    assert.ok((report.sources[0]?.multiplier ?? 0) < 1);
+    assert.equal(report.sources[0]?.probation, false);
+  } finally {
+    if (previousOut === undefined) {
+      delete process.env.MANGO_SOURCE_GROW_OUT;
+    } else {
+      process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('sourceGrowProbationMultiplier is explicit and bounded to 5-10%', () => {
   const prev = process.env.MANGO_GROW_SOURCE_PROBATION_MULTIPLIER;
   try {

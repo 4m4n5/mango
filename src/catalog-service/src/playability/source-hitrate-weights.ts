@@ -482,14 +482,16 @@ function sourceGrowMultiplier(stats: {
     return probation;
   }
   if (
-    streamSamples >= Math.max(20, probationMinSamples)
+    useful <= 0
+    && streamSamples >= Math.max(20, probationMinSamples)
     && stats.verified / Math.max(1, streamSamples) <= 0.03
     && stats.failed / Math.max(1, streamSamples) >= 0.90
   ) {
     return probation;
   }
   if (
-    themeSamples >= Math.max(25, probationMinSamples)
+    useful <= 0
+    && themeSamples >= Math.max(25, probationMinSamples)
     && stats.theme_rejected / Math.max(1, themeSamples) >= 0.90
   ) {
     return probation;

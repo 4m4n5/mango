@@ -1,4 +1,4 @@
-# Rail catalog curation (v2.4)
+# Rail catalog curation (v2.5)
 
 Playability-first picks. **Accumulative pools:** each refresh grows verified depth by `pool_growth_per_refresh` (default 10) up to `pool_max` (120); only confirmed-dead titles are pruned from `rail_pool`.
 
@@ -24,7 +24,7 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 | `movies-quick-watches` | **86934** + **84444** + **69712** + **3885** + **86734** + Cinemeta `year` + **45854** | Streaming movies, stand-up, RT-short/easy picks, and shorts; no classics-heavy overlap |
 | `movies-documentaries` | **128051** + **84677** + **78210** + **2885** + **178241** + **100477** + **34451** + **81741** + demoted **72165** | Broad doc supply plus true-crime depth; 72165 is retained at very low weight after a 0/3 Pi stream probe |
 | `series-global-popular` | Cinemeta `top` + **88303** + **2194** + **88434** + **101882** + demoted **105797** | 88303 probed 3/3 on Pi; 105797 stays as low-weight recovery after 0/3 |
-| `series-india-picks` | Active measured source **160359** (JioHotstar Latest Shows) + probation India OTT/provider lists including Bharat Binge, JioHotstar, Zee5, SonyLiv, Netflix India, and curated Indian web-series pools | Regional OTT series first; broad low-yield Indian lists stay probation until grow outcomes prove verified thematic yield. **165054** is demoted after high theme rejection in benchmark grow |
+| `series-india-picks` | Active measured sources **173530**, **160359**, and **107457** + probation India OTT/provider lists including Bharat Binge, JioHotstar, Zee5, SonyLiv, Netflix India, and curated Indian web-series pools | Runtime grow audits showed these three are the only repeat verified-yield India series sources so far. Broad provider/top-rated lists stay probation because they are mostly no-stream or theme-noisy; **165054** remains demoted after high theme rejection in benchmark grow |
 | `series-classics` | Cinemeta `imdbRating` + **101882** + **3086** + **50087** + **3087** + docuseries depth **128052**/**84403** + demoted **143745** | Anchor plus HBO/BBC/provider/docuseries prestige/cache; limited-series overlap stays low because it is now exhausted on nightly grow |
 | `series-comedy` | Cinemeta `top` + **91224** + **83918** + **3122** + **142679** + **155168** + **49761** | Sitcom and comedy lists expand theme-safe supply beyond generic top shows |
 | `series-miniseries` | **143745** + **50083** + **169800** + **130152** + **147478** + **130153** | Limited-series lists from multiple curators; keep 130153 active but not sole supply |
