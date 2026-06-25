@@ -1349,32 +1349,49 @@ export async function getRailPoolOverlapSummary(options: {
   const maxRailsPerTitle = Math.max(1, Math.floor(options.maxRailsPerTitle ?? 2));
   const topPairs = Math.max(0, Math.floor(options.topPairs ?? 10));
   const now = options.now ?? nowMs();
+  const overrides = await loadRailCurationOverrides();
+  const pinned = new Set(
+    overrides.pins.map((pin) => `${pin.rail_id}:${pin.type}:${pin.id}`),
+  );
   await initPlayabilityDb();
   const db = openDb();
   try {
-    const summary = db.prepare(`
+    const activeRows = db.prepare(`
 WITH active AS (
   SELECT rp.rail_id, rp.type, rp.id
   FROM rail_pool rp
   JOIN titles t ON t.type = rp.type AND t.id = rp.id
   WHERE t.status = 'verified'
-), title_counts AS (
-  SELECT type, id, COUNT(DISTINCT rail_id) AS rails
-  FROM active
-  GROUP BY type, id
 )
-SELECT
-  SUM(CASE WHEN rails > 1 THEN 1 ELSE 0 END) AS overlapped_titles,
-  SUM(CASE WHEN rails > @max_rails THEN 1 ELSE 0 END) AS over_cap_titles,
-  SUM(CASE WHEN rails > @max_rails THEN rails - @max_rails ELSE 0 END) AS overlap_extra_slots,
-  MAX(rails) AS max_rails_per_title
-FROM title_counts;
-`).get({ now, max_rails: maxRailsPerTitle }) as {
-      overlapped_titles: number | null;
-      over_cap_titles: number | null;
-      overlap_extra_slots: number | null;
-      max_rails_per_title: number | null;
-    } | undefined;
+SELECT rail_id, type, id FROM active;
+`).all({ now }) as Array<{ rail_id: string; type: string; id: string }>;
+
+    const titleCounts = new Map<string, { rails: Set<string>; unpinnedRails: Set<string> }>();
+    for (const row of activeRows) {
+      const key = titleKey(row.type, row.id);
+      const bucket = titleCounts.get(key) ?? { rails: new Set<string>(), unpinnedRails: new Set<string>() };
+      bucket.rails.add(row.rail_id);
+      const normalizedId = row.type === 'series' ? (seriesBareId(row.id) ?? row.id) : row.id;
+      if (!pinned.has(`${row.rail_id}:${row.type}:${normalizedId}`)) {
+        bucket.unpinnedRails.add(row.rail_id);
+      }
+      titleCounts.set(key, bucket);
+    }
+
+    let overlappedTitles = 0;
+    let overCapTitles = 0;
+    let overlapExtraSlots = 0;
+    let maxRailsForAnyTitle = 0;
+    for (const counts of titleCounts.values()) {
+      const railCount = counts.rails.size;
+      const unpinnedRailCount = counts.unpinnedRails.size;
+      if (railCount > 1) overlappedTitles += 1;
+      if (unpinnedRailCount > maxRailsPerTitle) {
+        overCapTitles += 1;
+        overlapExtraSlots += unpinnedRailCount - maxRailsPerTitle;
+      }
+      maxRailsForAnyTitle = Math.max(maxRailsForAnyTitle, railCount);
+    }
 
     const pairs = topPairs > 0
       ? db.prepare(`
@@ -1394,10 +1411,10 @@ LIMIT @limit;
       : [];
 
     return {
-      overlapped_titles: Number(summary?.overlapped_titles ?? 0),
-      over_cap_titles: Number(summary?.over_cap_titles ?? 0),
-      overlap_extra_slots: Number(summary?.overlap_extra_slots ?? 0),
-      max_rails_per_title: Number(summary?.max_rails_per_title ?? 0),
+      overlapped_titles: overlappedTitles,
+      over_cap_titles: overCapTitles,
+      overlap_extra_slots: overlapExtraSlots,
+      max_rails_per_title: maxRailsForAnyTitle,
       top_pairs: pairs.map((pair) => ({
         rail_a: pair.rail_a,
         rail_b: pair.rail_b,

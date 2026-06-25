@@ -94,6 +94,9 @@ Defaults when `MANGO_GROW_PRESET` is unset:
 
 - `playability-grow.sh --mode grow` → **quick**
 - `playability-maintenance.sh --mode nightly` → **nightly** (grow phase only)
+- `playability-indexer.ts top-up` / `playability-top-up-rail.sh` → strict
+  **grow** mode by default; use `--mode incremental` only for explicit legacy
+  debugging, not strict thematic repair.
 
 ```bash
 # Daily quick grow (15:00 timer — install once on Pi)
@@ -177,8 +180,10 @@ replace the per-rail fresh quota.
 After every strict successful grow, finalization runs a grow-safe retheme pass:
 active verified orphans are scored against rail themes and attached to best-fit
 rails or anchor fallback, while existing pooled titles use a lightweight
-overlap-only cap. Full metadata retheme remains a manual repair tool; it is not
-run on every grow. Orphan attachments and overlap removals do **not** count
+overlap-only cap. Pins are explicit curation overrides and do not consume the
+two-rail unpinned overlap budget, so a pinned title may still live in two other
+strong matching rails. Full metadata retheme remains a manual repair tool; it is
+not run on every grow. Orphan attachments and overlap removals do **not** count
 toward the fresh quota.
 
 ## Head tombstone advance
@@ -236,6 +241,16 @@ metadata calls or theme relocation:
 ```bash
 bash scripts/m3-play/playability/rail-pool-retheme.sh apply --overlap-only
 ```
+
+For a safe orphan-only repair after an aborted diagnostic/top-up run:
+
+```bash
+bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run --orphans-only
+bash scripts/m3-play/playability/rail-pool-retheme.sh apply --orphans-only
+```
+
+This attaches verified orphans to best-fit rails or anchors without pruning
+existing memberships.
 
 ## SLA section (PR6)
 

@@ -312,7 +312,6 @@ async function refreshAllRailsGrow(
       dryRun: false,
       includeOrphans: true,
       maxRailsPerTitle: 2,
-      minRailPoolCounts: finalMinPoolByRail,
       membershipMode: 'overlap_only',
     });
     const finalStatus = await getPlayabilityStatus(rails.map((rail) => rail.id));

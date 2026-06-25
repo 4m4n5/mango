@@ -11,8 +11,8 @@ function usage(): never {
   console.error([
     'usage:',
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
-    '  playability-indexer.ts top-up --rail <rail-id> [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
-    '  playability-indexer.ts top-up --all [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts top-up --rail <rail-id> [--mode grow|incremental] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts top-up --all [--mode grow|incremental] [--pool-target <n>] [--candidate-limit <n>]',
     '  playability-indexer.ts refresh --all [--mode grow|stale|nightly] [--preset quick|nightly|overnight] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>] [--grow-fail-fast]',
   ].join('\n'));
   process.exit(2);
@@ -167,19 +167,23 @@ async function main(): Promise<void> {
     }
     const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
     const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
+    const topUpMode = readFlag(args, '--mode') ?? 'grow';
+    if (topUpMode !== 'grow' && topUpMode !== 'incremental') {
+      usage();
+    }
 
-    const core = await CatalogCore.create();
+    const core = await CatalogCore.create({ purpose: 'playability_vod' });
     if (all) {
       const rails = [];
       for (const rail of core.browsableRails()) {
-        rails.push(await topUpRail(core, rail.id, { poolTarget, candidateLimit }));
+        rails.push(await topUpRail(core, rail.id, { poolTarget, candidateLimit, mode: topUpMode }));
       }
       await writeJsonAndExit({ ok: true, rails }, 0);
     }
     if (!railId) {
       usage();
     }
-    const result = await topUpRail(core, railId, { poolTarget, candidateLimit });
+    const result = await topUpRail(core, railId, { poolTarget, candidateLimit, mode: topUpMode });
     await writeJsonAndExit(result, 0);
   }
 

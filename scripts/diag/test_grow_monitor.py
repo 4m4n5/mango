@@ -393,6 +393,67 @@ class GrowMonitorTests(unittest.TestCase):
             self.assertEqual(overlap["overlap_extra_slots"], 1)
             self.assertEqual(overlap["max_rails_per_title"], 3)
 
+    def test_overlap_audit_exempts_pinned_memberships_from_cap(self) -> None:
+        old_override = os.environ.get("MANGO_RAIL_CURATION_OVERRIDES")
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                override_path = Path(tmp) / "rail-curation-overrides.yaml"
+                override_path.write_text(
+                    """
+version: 1
+pins:
+  - rail_id: movies-classics
+    type: movie
+    id: shared
+    score: 999
+blocks: []
+""",
+                    encoding="utf-8",
+                )
+                os.environ["MANGO_RAIL_CURATION_OVERRIDES"] = str(override_path)
+                db = Path(tmp) / "playability.db"
+                conn = sqlite3.connect(db)
+                conn.executescript(
+                    """
+                    CREATE TABLE titles (
+                      type TEXT, id TEXT, status TEXT, verified_at INTEGER,
+                      expires_at INTEGER, fail_reason TEXT, best_source TEXT,
+                      cache_status TEXT, debrid_service TEXT, probe_ms INTEGER,
+                      win_url_hash TEXT, win_ladder_step TEXT, updated_at INTEGER,
+                      PRIMARY KEY (type, id)
+                    );
+                    CREATE TABLE rail_pool (
+                      rail_id TEXT, type TEXT, id TEXT, score INTEGER,
+                      ingested_at INTEGER, title TEXT, poster_url TEXT, year TEXT,
+                      PRIMARY KEY (rail_id, type, id)
+                    );
+                    INSERT INTO titles VALUES (
+                      'movie','shared','verified',0,9999999999999,NULL,NULL,NULL,NULL,NULL,NULL,NULL,0
+                    );
+                    INSERT INTO rail_pool VALUES (
+                      'movies-comedy','movie','shared',100,0,NULL,NULL,NULL
+                    );
+                    INSERT INTO rail_pool VALUES (
+                      'movies-comfort','movie','shared',95,0,NULL,NULL,NULL
+                    );
+                    INSERT INTO rail_pool VALUES (
+                      'movies-classics','movie','shared',999,0,NULL,NULL,NULL
+                    );
+                    """,
+                )
+                conn.close()
+
+                overlap = fetch_overlap_summary(db, max_rails_per_title=2)
+                self.assertEqual(overlap["overlapped_titles"], 1)
+                self.assertEqual(overlap["over_cap_titles"], 0)
+                self.assertEqual(overlap["overlap_extra_slots"], 0)
+                self.assertEqual(overlap["max_rails_per_title"], 3)
+        finally:
+            if old_override is None:
+                os.environ.pop("MANGO_RAIL_CURATION_OVERRIDES", None)
+            else:
+                os.environ["MANGO_RAIL_CURATION_OVERRIDES"] = old_override
+
     def test_live_status_clamps_probe_successes_to_pool_growth(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "playability.db"

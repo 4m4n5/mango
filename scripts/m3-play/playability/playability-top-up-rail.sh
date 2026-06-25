@@ -2,7 +2,7 @@
 # Targeted playability top-up for one rail (maintenance window — stops catalog briefly).
 #
 # Usage:
-#   bash scripts/m3-play/playability/playability-top-up-rail.sh movies-india-trending [--pool-target 20]
+#   bash scripts/m3-play/playability/playability-top-up-rail.sh movies-india-trending [--mode grow|incremental] [--pool-target 20]
 
 set -euo pipefail
 
@@ -12,14 +12,20 @@ cd "$REPO_DIR"
 RAIL_ID="${1:-}"
 shift || true
 POOL_TARGET=""
+MODE="${MANGO_TOP_UP_MODE:-grow}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --mode) MODE="${2:-}"; shift 2 ;;
     --pool-target) POOL_TARGET="${2:-}"; shift 2 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
-[[ -n "$RAIL_ID" ]] || { echo "usage: $0 <rail-id> [--pool-target N]" >&2; exit 2; }
+[[ -n "$RAIL_ID" ]] || { echo "usage: $0 <rail-id> [--mode grow|incremental] [--pool-target N]" >&2; exit 2; }
+if [[ "$MODE" != "grow" && "$MODE" != "incremental" ]]; then
+  echo "invalid --mode: $MODE (expected grow or incremental)" >&2
+  exit 2
+fi
 
 # shellcheck source=../../lib/catalog-yaml.sh
 source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
@@ -34,6 +40,7 @@ PY
 export MANGO_PLAYABILITY_PROBE_POOL=1
 export MANGO_MAINTENANCE_MODE=1
 export MANGO_PLAYABILITY_BOOTSTRAP=1
+export MANGO_CATALOG_PURPOSE=playability_vod
 
 restore_couch() {
   bash scripts/m3-play/playability/mpv-probe-pool.sh stop-all >/dev/null 2>&1 || true
@@ -42,7 +49,7 @@ restore_couch() {
     || echo "warn: mango-refresh failed — run manually" >&2
 }
 
-echo "top-up rail=$RAIL_ID probe_ms=$MANGO_PLAYABILITY_PROBE_MS"
+echo "top-up rail=$RAIL_ID mode=$MODE probe_ms=$MANGO_PLAYABILITY_PROBE_MS"
 
 trap restore_couch EXIT
 
@@ -59,7 +66,7 @@ if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
   sleep 1
 fi
 
-ARGS=(top-up --rail "$RAIL_ID" --bootstrap)
+ARGS=(top-up --rail "$RAIL_ID" --mode "$MODE" --bootstrap)
 [[ -n "$POOL_TARGET" ]] && ARGS+=(--pool-target "$POOL_TARGET")
 
 npm --prefix src/catalog-service exec tsx -- scripts/m3-play/playability/playability-indexer.ts "${ARGS[@]}"

@@ -15,6 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover - Pi has PyYAML via catalog scripts
+    yaml = None  # type: ignore[assignment]
+
 # Import SLA helpers from sibling module (scripts/diag is on sys.path when run as script).
 from ops_grow_sla import (  # noqa: E402
     PROGRAM_PASS_RATE,
@@ -34,6 +39,7 @@ SCHEMA_VERSION = 2
 DEFAULT_BASELINE = "grow-baseline.json"
 GROW_INDEXER_PATTERN = "playability-indexer.ts"
 REFRESH_JSON_GLOB = "refresh-playability-*.json"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def cache_dir() -> Path:
@@ -82,6 +88,89 @@ def ops_dir() -> Path:
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _series_bare_id(title_id: str) -> str:
+    return title_id.split(":", 1)[0] if ":" in title_id else title_id
+
+
+def _clean_yaml_scalar(value: Any) -> str:
+    return str(value).strip().strip("'\"")
+
+
+def _fallback_parse_pin_rows(raw: str) -> list[dict[str, str]]:
+    pins: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    in_pins = False
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if not line.startswith((" ", "\t", "-")):
+            if stripped == "pins:":
+                in_pins = True
+                continue
+            if in_pins:
+                break
+        if not in_pins:
+            continue
+        if stripped.startswith("- "):
+            if current:
+                pins.append(current)
+            current = {}
+            rest = stripped[2:].strip()
+            if ":" in rest:
+                key, value = rest.split(":", 1)
+                current[key.strip()] = _clean_yaml_scalar(value)
+            continue
+        if current is not None and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            current[key.strip()] = _clean_yaml_scalar(value)
+    if current:
+        pins.append(current)
+    return pins
+
+
+def _rail_curation_override_paths() -> list[Path]:
+    paths: list[Path] = []
+    env = os.environ.get("MANGO_RAIL_CURATION_OVERRIDES")
+    if env:
+        paths.append(Path(env).expanduser())
+    paths.append(Path("/etc/mango/rail-curation-overrides.yaml"))
+    paths.append(REPO_ROOT / "config" / "rail-curation-overrides.example.yaml")
+    return paths
+
+
+def _load_pinned_memberships() -> set[tuple[str, str, str]]:
+    override_path = next((path for path in _rail_curation_override_paths() if path.is_file()), None)
+    if override_path is None:
+        return set()
+    try:
+        raw = override_path.read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    pin_rows: list[dict[str, Any]]
+    if yaml is not None:
+        try:
+            data = yaml.safe_load(raw) or {}
+            raw_pins = data.get("pins") if isinstance(data, dict) else []
+            pin_rows = [row for row in raw_pins if isinstance(row, dict)]
+        except Exception:
+            pin_rows = _fallback_parse_pin_rows(raw)
+    else:
+        pin_rows = _fallback_parse_pin_rows(raw)
+
+    pins: set[tuple[str, str, str]] = set()
+    for pin in pin_rows:
+        rail_id = _clean_yaml_scalar(pin.get("rail_id", ""))
+        title_type = _clean_yaml_scalar(pin.get("type", ""))
+        title_id = _clean_yaml_scalar(pin.get("id", ""))
+        if not rail_id or not title_type or not title_id:
+            continue
+        if title_type == "series":
+            title_id = _series_bare_id(title_id)
+        pins.add((rail_id, title_type, title_id))
+    return pins
 
 
 def _process_line_pid(line: str) -> int | None:
@@ -612,30 +701,21 @@ def fetch_overlap_summary(
         return empty
 
     active_at = now_ms if now_ms is not None else _now_ms()
+    pinned = _load_pinned_memberships()
     conn = sqlite3.connect(path)
     try:
         try:
-            row = conn.execute(
+            active_rows = conn.execute(
                 """
                 WITH active AS (
                   SELECT rp.rail_id, rp.type, rp.id
                   FROM rail_pool rp
                   JOIN titles t ON t.type = rp.type AND t.id = rp.id
                   WHERE t.status = 'verified'
-                ), title_counts AS (
-                  SELECT type, id, COUNT(DISTINCT rail_id) AS rails
-                  FROM active
-                  GROUP BY type, id
                 )
-                SELECT
-                  SUM(CASE WHEN rails > 1 THEN 1 ELSE 0 END),
-                  SUM(CASE WHEN rails > ? THEN 1 ELSE 0 END),
-                  SUM(CASE WHEN rails > ? THEN rails - ? ELSE 0 END),
-                  MAX(rails)
-                FROM title_counts
+                SELECT rail_id, type, id FROM active
                 """,
-                (max_rails_per_title, max_rails_per_title, max_rails_per_title),
-            ).fetchone()
+            ).fetchall()
             pair_rows = conn.execute(
                 """
                 WITH active AS (
@@ -658,11 +738,37 @@ def fetch_overlap_summary(
     finally:
         conn.close()
 
+    title_counts: dict[tuple[str, str], dict[str, set[str]]] = {}
+    for rail_id, title_type, title_id in active_rows:
+        key = (str(title_type), str(title_id))
+        bucket = title_counts.setdefault(key, {"rails": set(), "unpinned_rails": set()})
+        rail = str(rail_id)
+        item_type = str(title_type)
+        item_id = str(title_id)
+        bucket["rails"].add(rail)
+        normalized_id = _series_bare_id(item_id) if item_type == "series" else item_id
+        if (rail, item_type, normalized_id) not in pinned:
+            bucket["unpinned_rails"].add(rail)
+
+    overlapped_titles = 0
+    over_cap_titles = 0
+    overlap_extra_slots = 0
+    max_rails_for_any_title = 0
+    for counts in title_counts.values():
+        rail_count = len(counts["rails"])
+        unpinned_count = len(counts["unpinned_rails"])
+        if rail_count > 1:
+            overlapped_titles += 1
+        if unpinned_count > max_rails_per_title:
+            over_cap_titles += 1
+            overlap_extra_slots += unpinned_count - max_rails_per_title
+        max_rails_for_any_title = max(max_rails_for_any_title, rail_count)
+
     return {
-        "overlapped_titles": int(row[0] or 0) if row else 0,
-        "over_cap_titles": int(row[1] or 0) if row else 0,
-        "overlap_extra_slots": int(row[2] or 0) if row else 0,
-        "max_rails_per_title": int(row[3] or 0) if row else 0,
+        "overlapped_titles": overlapped_titles,
+        "over_cap_titles": over_cap_titles,
+        "overlap_extra_slots": overlap_extra_slots,
+        "max_rails_per_title": max_rails_for_any_title,
         "top_pairs": [
             {
                 "rail_a": str(left),

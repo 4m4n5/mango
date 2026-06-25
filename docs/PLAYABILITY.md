@@ -58,6 +58,7 @@ bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run --rail series-real
 bash scripts/m3-play/playability/rail-pool-retheme.sh apply          # preserve titles → best-fit or anchor
 bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run --include-orphans --limit 200
 bash scripts/m3-play/playability/rail-pool-retheme.sh apply --include-orphans   # all verified titles → best-fit or anchor
+bash scripts/m3-play/playability/rail-pool-retheme.sh apply --orphans-only      # attach orphans; do not prune/retitle current pools
 bash scripts/m3-play/playability/rail-pool-retheme.sh apply --overlap-only      # cap rail overlap without metadata retheme
 bash scripts/m3-play/playability/rail-pool-retheme.sh recover         # orphans → anchor rails
 ```
@@ -65,9 +66,11 @@ bash scripts/m3-play/playability/rail-pool-retheme.sh recover         # orphans 
 Apply clears affected rail sessions. `--include-orphans` extends the same theme
 scoring to active verified titles that are not in any rail; use `--limit` for
 manual off-hours batches when addon meta limits are tight. Pins and curation
-overrides are preserved. `--overlap-only` is the grow-safe lightweight repair:
-it enforces the overlap cap from current pool scores without metadata calls or
-theme relocation.
+overrides are preserved and do not consume the unpinned overlap budget. A pinned
+title may still appear in up to two other matching rails. `--orphans-only`
+repairs orphaned verified titles without changing existing memberships.
+`--overlap-only` is the grow-safe lightweight repair: it enforces the unpinned
+overlap cap from current pool scores without metadata calls or theme relocation.
 
 ---
 
@@ -171,6 +174,7 @@ Grow negative memory is runtime-only:
 - Catastrophic zero-yield or near-zero-yield runtime source outcomes fall to the 5-10% probation floor so weak sources can recover without burning the rail window.
 - Monitor state is written to `~/.cache/mango/grow-run-state.json`; it is operator-only and not shown on TV.
 - Strict successful grow finalization attaches verified orphans and prunes unpinned overlap above two rails per title without full-library metadata rescoring. Failed or short grows keep the previous stable couch sessions visible.
+- Manual `playability-indexer top-up` and `playability-top-up-rail.sh` default to strict grow mode with playability VOD boot. Legacy incremental top-up is debug-only via `--mode incremental`; it can verify globally playable titles that do not fit the target rail and should not be used for strict thematic repair.
 
 If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_category`, and `repair_suggestions`; use `python3 scripts/diag/grow_monitor.py assess --refresh-json <file>`.
 

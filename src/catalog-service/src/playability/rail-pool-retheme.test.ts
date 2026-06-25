@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import test from 'node:test';
 import type { Meta, PlayableRail } from '../core.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
-import { listOrphanVerifiedPoolTitles, listRailIdsContainingTitle, upsertRailPoolTitle } from './db.js';
+import {
+  getRailPoolOverlapSummary,
+  listOrphanVerifiedPoolTitles,
+  listRailIdsContainingTitle,
+  upsertRailPoolTitle,
+} from './db.js';
 import { rethemeRailPools, type RethemeCore } from './rail-pool-retheme.js';
 
 const ENV = { ...process.env };
@@ -229,6 +234,46 @@ test('retheme orphan target selection avoids rails rejected by exclude tags', as
   assert.equal(action.reason, 'orphan_best_fit');
 });
 
+test('retheme skip mode attaches orphans without pruning existing memberships', async () => {
+  const core = await setupRethemeTest({
+    'movie:tt-comedy-orphan-skip': {
+      id: 'tt-comedy-orphan-skip',
+      type: 'movie',
+      name: 'A Funny Comfort Orphan',
+      genre: 'Comedy',
+      description: 'A warm comedy built around laughs.',
+    } as Meta,
+  });
+  await verifyTitle('movie', 'tt-overlap-skip');
+  for (const railId of ['movies-comedy', 'movies-comfort', 'movies-classics']) {
+    await upsertRailPoolTitle({
+      rail_id: railId,
+      type: 'movie',
+      id: 'tt-overlap-skip',
+      score: 80,
+      title: 'Existing Overlap',
+    });
+  }
+  await verifyTitle('movie', 'tt-comedy-orphan-skip');
+
+  const result = await rethemeRailPools(core, {
+    dryRun: false,
+    includeOrphans: true,
+    membershipMode: 'skip',
+    maxRailsPerTitle: 2,
+  });
+
+  assert.equal(result.membership_mode, 'skip');
+  assert.equal(result.attached, 1);
+  assert.equal(result.overlap_removed, 0);
+  assert.deepEqual((await listRailIdsContainingTitle('movie', 'tt-overlap-skip')).sort(), [
+    'movies-classics',
+    'movies-comedy',
+    'movies-comfort',
+  ]);
+  assert.deepEqual(await listRailIdsContainingTitle('movie', 'tt-comedy-orphan-skip'), ['movies-comedy']);
+});
+
 test('retheme caps unpinned overlap to strongest rails', async () => {
   const core = await setupRethemeTest({
     'movie:tt-overlap': {
@@ -305,7 +350,7 @@ test('retheme overlap-only mode caps overlap without metadata fetches', async ()
   assert.deepEqual(rails.sort(), ['movies-comedy', 'movies-comfort']);
 });
 
-test('retheme overlap cap preserves pinned memberships', async () => {
+test('retheme overlap cap exempts pinned memberships from rail budget', async () => {
   const core = await setupRethemeTest({
     'movie:tt-pinned-overlap': {
       id: 'tt-pinned-overlap',
@@ -338,15 +383,18 @@ blocks: []
   const result = await rethemeRailPools(core, {
     dryRun: false,
     includeOrphans: true,
-    maxRailsPerTitle: 1,
+    maxRailsPerTitle: 2,
   });
   const rails = await listRailIdsContainingTitle('movie', 'tt-pinned-overlap');
+  const overlap = await getRailPoolOverlapSummary({ maxRailsPerTitle: 2 });
 
-  assert.equal(result.overlap_removed, 2);
-  assert.deepEqual(rails, ['movies-classics']);
+  assert.equal(result.overlap_removed, 0);
+  assert.deepEqual(rails.sort(), ['movies-classics', 'movies-comedy', 'movies-comfort']);
+  assert.equal(overlap.over_cap_titles, 0);
+  assert.equal(overlap.max_rails_per_title, 3);
 });
 
-test('retheme overlap-only mode counts pinned memberships against cap', async () => {
+test('retheme overlap-only mode exempts pinned memberships from rail budget', async () => {
   const core = await setupRethemeTest({});
   await writeFile(process.env.MANGO_RAIL_CURATION_OVERRIDES!, `
 version: 1
@@ -379,60 +427,11 @@ blocks: []
     membershipMode: 'overlap_only',
   });
   const rails = await listRailIdsContainingTitle('movie', 'tt-pinned-overlap-lightweight');
+  const overlap = await getRailPoolOverlapSummary({ maxRailsPerTitle: 2 });
 
   assert.equal(result.membership_mode, 'overlap_only');
-  assert.equal(result.overlap_removed, 1);
-  assert.deepEqual(rails.sort(), ['movies-classics', 'movies-comfort']);
-});
-
-test('retheme overlap-only mode protects rail minimum counts before score', async () => {
-  const core = await setupRethemeTest({});
-  await writeFile(process.env.MANGO_RAIL_CURATION_OVERRIDES!, `
-version: 1
-pins:
-  - rail_id: movies-classics
-    type: movie
-    id: tt-protected-overlap
-    score: 999
-blocks: []
-`, 'utf8');
-  await verifyTitle('movie', 'tt-protected-overlap');
-  await upsertRailPoolTitle({
-    rail_id: 'movies-comedy',
-    type: 'movie',
-    id: 'tt-protected-overlap',
-    score: 10,
-    title: 'Protected Comedy',
-  });
-  await upsertRailPoolTitle({
-    rail_id: 'movies-comfort',
-    type: 'movie',
-    id: 'tt-protected-overlap',
-    score: 900,
-    title: 'Protected Comedy',
-  });
-  await upsertRailPoolTitle({
-    rail_id: 'movies-classics',
-    type: 'movie',
-    id: 'tt-protected-overlap',
-    score: 999,
-    title: 'Protected Comedy',
-  });
-
-  const result = await rethemeRailPools(core, {
-    dryRun: false,
-    includeOrphans: false,
-    maxRailsPerTitle: 2,
-    membershipMode: 'overlap_only',
-    minRailPoolCounts: new Map([['movies-comedy', 1]]),
-  });
-  const rails = await listRailIdsContainingTitle('movie', 'tt-protected-overlap');
-
-  assert.equal(result.overlap_removed, 1);
-  assert.deepEqual(rails.sort(), ['movies-classics', 'movies-comedy']);
-  assert.ok(result.actions.some((action) => (
-    action.action === 'remove'
-    && action.rail_id === 'movies-comfort'
-    && action.reason === 'overlap_cap'
-  )));
+  assert.equal(result.overlap_removed, 0);
+  assert.deepEqual(rails.sort(), ['movies-classics', 'movies-comedy', 'movies-comfort']);
+  assert.equal(overlap.over_cap_titles, 0);
+  assert.equal(overlap.max_rails_per_title, 3);
 });

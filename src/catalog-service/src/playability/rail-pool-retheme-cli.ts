@@ -7,11 +7,12 @@ import { rethemeRailPools } from './rail-pool-retheme.js';
 function usage(): never {
   console.error(`usage:
   rail-pool-retheme recover
-  rail-pool-retheme dry-run [--rail <id>] [--include-orphans] [--limit <n>] [--overlap-only] [--no-meta] [--no-preserve]
-  rail-pool-retheme apply [--rail <id>] [--include-orphans] [--limit <n>] [--overlap-only] [--no-meta] [--no-preserve]
+  rail-pool-retheme dry-run [--rail <id>] [--include-orphans|--orphans-only] [--limit <n>] [--overlap-only] [--no-meta] [--no-preserve]
+  rail-pool-retheme apply [--rail <id>] [--include-orphans|--orphans-only] [--limit <n>] [--overlap-only] [--no-meta] [--no-preserve]
 
   dry-run (default): score pool memberships; print summary + sample actions
   --include-orphans: also attach active verified titles with no rail_pool row to best-fit rail
+  --orphans-only: attach active verified titles with no rail_pool row; skip membership retheme/overlap
   --limit: cap orphan attachments when --include-orphans is set
   --max-rails-per-title: cap unpinned cross-rail membership (default 2)
   --overlap-only: cap rail overlap without metadata fetches or theme relocation
@@ -78,16 +79,21 @@ async function main(): Promise<void> {
   }
 
   const dryRun = command === 'dry-run';
+  const orphansOnly = process.argv.includes('--orphans-only');
   const core = await CatalogCore.create();
   const result = await rethemeRailPools(core, {
     dryRun,
     withMeta: !process.argv.includes('--no-meta'),
     preserveTitles: !process.argv.includes('--no-preserve'),
     railFilter: argValue('--rail'),
-    includeOrphans: process.argv.includes('--include-orphans'),
+    includeOrphans: orphansOnly || process.argv.includes('--include-orphans'),
     orphanLimit: argNumber('--limit'),
     maxRailsPerTitle: argNumber('--max-rails-per-title'),
-    membershipMode: process.argv.includes('--overlap-only') ? 'overlap_only' : 'full',
+    membershipMode: orphansOnly
+      ? 'skip'
+      : process.argv.includes('--overlap-only')
+        ? 'overlap_only'
+        : 'full',
   });
 
   console.log(JSON.stringify({
