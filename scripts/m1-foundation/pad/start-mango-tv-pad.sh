@@ -38,15 +38,21 @@ pro_controller_present() {
 import evdev
 from evdev import ecodes
 required_keys = {304, 308}
-required_abs = {ecodes.ABS_X, ecodes.ABS_Y}
+stick_abs = {ecodes.ABS_X, ecodes.ABS_Y}
+hat_abs = {ecodes.ABS_HAT0X, ecodes.ABS_HAT0Y}
 for path in evdev.list_devices():
     dev = evdev.InputDevice(path)
     if dev.name != "Pro Controller":
         continue
     caps = dev.capabilities()
     keys = set(caps.get(ecodes.EV_KEY, []))
-    abs_axes = set(caps.get(ecodes.EV_ABS, []))
-    if required_keys.issubset(keys) and required_abs.issubset(abs_axes):
+    abs_axes = {
+        item[0] if isinstance(item, tuple) else item
+        for item in caps.get(ecodes.EV_ABS, [])
+    }
+    if required_keys.issubset(keys) and (
+        stick_abs.issubset(abs_axes) or hat_abs.issubset(abs_axes)
+    ):
         raise SystemExit(0)
 raise SystemExit(1)
 PY

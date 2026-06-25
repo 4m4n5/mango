@@ -318,15 +318,21 @@ def route_face(app: str, action: str) -> None:
 
 def find_pro_controller() -> evdev.InputDevice:
     required_keys = {BTN_B, BTN_Y}
-    required_abs = {ecodes.ABS_X, ecodes.ABS_Y}
+    stick_abs = {ecodes.ABS_X, ecodes.ABS_Y}
+    hat_abs = {ecodes.ABS_HAT0X, ecodes.ABS_HAT0Y}
     for path in evdev.list_devices():
         dev = evdev.InputDevice(path)
         if dev.name != "Pro Controller":
             continue
         caps = dev.capabilities()
         keys = set(caps.get(ecodes.EV_KEY, []))
-        abs_axes = set(caps.get(ecodes.EV_ABS, []))
-        if required_keys.issubset(keys) and required_abs.issubset(abs_axes):
+        abs_axes = {
+            item[0] if isinstance(item, tuple) else item
+            for item in caps.get(ecodes.EV_ABS, [])
+        }
+        if required_keys.issubset(keys) and (
+            stick_abs.issubset(abs_axes) or hat_abs.issubset(abs_axes)
+        ):
             return dev
     raise DeviceNotFoundError(
         "Pro Controller not found — press any button on the Micro to wake Bluetooth"
@@ -383,15 +389,17 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
         for event in dev.read_loop():
             app = foreground_app()
             if event.type == ecodes.EV_ABS:
-                if event.code == ecodes.ABS_X:
-                    if event.value <= -THRESH:
+                if event.code in (ecodes.ABS_X, ecodes.ABS_HAT0X):
+                    threshold = 1 if event.code == ecodes.ABS_HAT0X else THRESH
+                    if event.value <= -threshold:
                         debounced(f"{app}-left", lambda: route_dpad(app, "left"))
-                    elif event.value >= THRESH:
+                    elif event.value >= threshold:
                         debounced(f"{app}-right", lambda: route_dpad(app, "right"))
-                elif event.code == ecodes.ABS_Y:
-                    if event.value <= -THRESH:
+                elif event.code in (ecodes.ABS_Y, ecodes.ABS_HAT0Y):
+                    threshold = 1 if event.code == ecodes.ABS_HAT0Y else THRESH
+                    if event.value <= -threshold:
                         debounced(f"{app}-up", lambda: route_dpad(app, "up"))
-                    elif event.value >= THRESH:
+                    elif event.value >= threshold:
                         debounced(f"{app}-down", lambda: route_dpad(app, "down"))
             elif event.type == ecodes.EV_KEY and event.value == 1:
                 diag_event(
