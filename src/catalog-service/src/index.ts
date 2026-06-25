@@ -301,9 +301,9 @@ async function handlePlay(
     ? { ...profileHint, ...pickerHint }
     : profileHint;
 
-  const resolved = await core.resolveForPlay(body.type, playId, overrides);
-
+  let resolved: Awaited<ReturnType<CatalogCore['resolveForPlay']>> | null = null;
   try {
+    resolved = await core.resolveForPlay(body.type, playId, overrides);
     const playback = await playWithLadder(resolved.streams, resolved.filters, {
       contentType: body.type,
       filterContext: resolved.filterContext,
@@ -404,10 +404,14 @@ async function handlePlay(
       }
       error.details = {
         ...(error.details || {}),
-        filters: {
-          applied: resolved.filters,
-          play_ladder: resolved.filters.play_ladder.map((step) => step.step),
-        },
+        ...(resolved
+          ? {
+            filters: {
+              applied: resolved.filters,
+              play_ladder: resolved.filters.play_ladder.map((step) => step.step),
+            },
+          }
+          : {}),
       };
     }
     throw error;
