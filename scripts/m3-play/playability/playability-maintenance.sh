@@ -453,7 +453,7 @@ fi
 
 if curl -sf --max-time 2 http://127.0.0.1:3020/health >/dev/null 2>&1; then
   if [[ "$MODE" == "grow" ]]; then
-    run_source_hitrate_preflight quick 0
+    run_source_hitrate_preflight quick "${MANGO_SOURCE_HITRATE_FORCE:-0}"
   fi
   echo "stopping catalog-service (exclusive indexer)"
   stop_catalog_service_only

@@ -20,6 +20,11 @@ from source_hitrate_preflight import (
 
 
 class SourceHitratePreflightTests(unittest.TestCase):
+    def test_grow_mode_maintenance_forwards_force_env(self) -> None:
+        script = Path("scripts/m3-play/playability/playability-maintenance.sh")
+        text = script.read_text(encoding="utf-8")
+        self.assertIn('run_source_hitrate_preflight quick "${MANGO_SOURCE_HITRATE_FORCE:-0}"', text)
+
     def test_per_source_for_preset(self) -> None:
         self.assertEqual(per_source_for_preset("quick"), 1)
         self.assertEqual(per_source_for_preset("nightly"), 3)
