@@ -7,13 +7,14 @@ import { rethemeRailPools } from './rail-pool-retheme.js';
 function usage(): never {
   console.error(`usage:
   rail-pool-retheme recover
-  rail-pool-retheme dry-run [--rail <id>] [--include-orphans] [--limit <n>] [--no-meta] [--no-preserve]
-  rail-pool-retheme apply [--rail <id>] [--include-orphans] [--limit <n>] [--no-meta] [--no-preserve]
+  rail-pool-retheme dry-run [--rail <id>] [--include-orphans] [--limit <n>] [--overlap-only] [--no-meta] [--no-preserve]
+  rail-pool-retheme apply [--rail <id>] [--include-orphans] [--limit <n>] [--overlap-only] [--no-meta] [--no-preserve]
 
   dry-run (default): score pool memberships; print summary + sample actions
   --include-orphans: also attach active verified titles with no rail_pool row to best-fit rail
   --limit: cap orphan attachments when --include-orphans is set
   --max-rails-per-title: cap unpinned cross-rail membership (default 2)
+  --overlap-only: cap rail overlap without metadata fetches or theme relocation
   apply: move mismatches to best-fit rail; titles land on anchor rail if no strong fit
   --rail: limit to one rail id
   --no-meta: title/pool fields only (faster; weaker signals)
@@ -86,12 +87,14 @@ async function main(): Promise<void> {
     includeOrphans: process.argv.includes('--include-orphans'),
     orphanLimit: argNumber('--limit'),
     maxRailsPerTitle: argNumber('--max-rails-per-title'),
+    membershipMode: process.argv.includes('--overlap-only') ? 'overlap_only' : 'full',
   });
 
   console.log(JSON.stringify({
     ok: result.ok,
     dry_run: result.dry_run,
     include_orphans: result.include_orphans,
+    membership_mode: result.membership_mode,
     max_rails_per_title: result.max_rails_per_title,
     memberships_scanned: result.memberships_scanned,
     orphans_scanned: result.orphans_scanned,

@@ -58,13 +58,16 @@ bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run --rail series-real
 bash scripts/m3-play/playability/rail-pool-retheme.sh apply          # preserve titles → best-fit or anchor
 bash scripts/m3-play/playability/rail-pool-retheme.sh dry-run --include-orphans --limit 200
 bash scripts/m3-play/playability/rail-pool-retheme.sh apply --include-orphans   # all verified titles → best-fit or anchor
+bash scripts/m3-play/playability/rail-pool-retheme.sh apply --overlap-only      # cap rail overlap without metadata retheme
 bash scripts/m3-play/playability/rail-pool-retheme.sh recover         # orphans → anchor rails
 ```
 
 Apply clears affected rail sessions. `--include-orphans` extends the same theme
 scoring to active verified titles that are not in any rail; use `--limit` for
 manual off-hours batches when addon meta limits are tight. Pins and curation
-overrides are preserved.
+overrides are preserved. `--overlap-only` is the grow-safe lightweight repair:
+it enforces the overlap cap from current pool scores without metadata calls or
+theme relocation.
 
 ---
 

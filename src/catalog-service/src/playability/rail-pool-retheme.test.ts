@@ -342,7 +342,45 @@ blocks: []
   });
   const rails = await listRailIdsContainingTitle('movie', 'tt-pinned-overlap');
 
+  assert.equal(result.overlap_removed, 2);
+  assert.deepEqual(rails, ['movies-classics']);
+});
+
+test('retheme overlap-only mode counts pinned memberships against cap', async () => {
+  const core = await setupRethemeTest({});
+  await writeFile(process.env.MANGO_RAIL_CURATION_OVERRIDES!, `
+version: 1
+pins:
+  - rail_id: movies-classics
+    type: movie
+    id: tt-pinned-overlap-lightweight
+    score: 999
+blocks: []
+`, 'utf8');
+  await verifyTitle('movie', 'tt-pinned-overlap-lightweight');
+  for (const [railId, score] of [
+    ['movies-comedy', 88],
+    ['movies-comfort', 92],
+    ['movies-classics', 999],
+  ] as const) {
+    await upsertRailPoolTitle({
+      rail_id: railId,
+      type: 'movie',
+      id: 'tt-pinned-overlap-lightweight',
+      score,
+      title: 'Pinned Lightweight Comedy',
+    });
+  }
+
+  const result = await rethemeRailPools(core, {
+    dryRun: false,
+    includeOrphans: false,
+    maxRailsPerTitle: 2,
+    membershipMode: 'overlap_only',
+  });
+  const rails = await listRailIdsContainingTitle('movie', 'tt-pinned-overlap-lightweight');
+
+  assert.equal(result.membership_mode, 'overlap_only');
   assert.equal(result.overlap_removed, 1);
-  assert.ok(rails.includes('movies-classics'));
-  assert.equal(rails.length, 2);
+  assert.deepEqual(rails.sort(), ['movies-classics', 'movies-comfort']);
 });

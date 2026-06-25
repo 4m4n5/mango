@@ -230,6 +230,13 @@ The audit reports rail-specific verified/min, theme reject rate, unresolved-ID
 rate, no-stream rejection rate, duplicate pressure, cursor depth, and
 probation/recovery state.
 
+For a manual overlap repair that matches strict-grow finalization without
+metadata calls or theme relocation:
+
+```bash
+bash scripts/m3-play/playability/rail-pool-retheme.sh apply --overlap-only
+```
+
 ## SLA section (PR6)
 
 The **Library Grower SLA** block summarizes the latest **grow** phase per browse rail.

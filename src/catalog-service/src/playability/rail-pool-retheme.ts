@@ -147,6 +147,10 @@ function maxRailsPerTitleOption(raw: number | undefined): number {
   return value;
 }
 
+function unpinnedRailCapacity(maxRailsPerTitle: number, pinnedCount: number): number {
+  return Math.max(0, maxRailsPerTitle - pinnedCount);
+}
+
 async function fetchMetaCached(
   core: RethemeCore,
   type: string,
@@ -301,13 +305,14 @@ export async function rethemeRailPools(
       const { type, id } = parseMembershipKey(titleKey);
       const pinnedRows = rows.filter((row) => pinned.has(pinKey(row.rail_id, type, id)));
       const unpinnedRows = rows.filter((row) => !pinned.has(pinKey(row.rail_id, type, id)));
+      const unpinnedCapacity = unpinnedRailCapacity(maxRailsPerTitle, pinnedRows.length);
       const allowed = new Set(
         [...unpinnedRows]
           .sort((a, b) => (
             (b.score ?? 0) - (a.score ?? 0)
             || a.rail_id.localeCompare(b.rail_id)
           ))
-          .slice(0, maxRailsPerTitle)
+          .slice(0, unpinnedCapacity)
           .map((row) => row.rail_id),
       );
       for (const row of pinnedRows) {
@@ -416,7 +421,11 @@ export async function rethemeRailPools(
     }
 
     const unpinnedKept = decisions.filter((decision) => !decision.remove && !decision.pinned);
-    if (unpinnedKept.length > maxRailsPerTitle) {
+    const unpinnedCapacity = unpinnedRailCapacity(
+      maxRailsPerTitle,
+      decisions.filter((decision) => !decision.remove && decision.pinned).length,
+    );
+    if (unpinnedKept.length > unpinnedCapacity) {
       const allowed = new Set(
         [...unpinnedKept]
           .sort((a, b) => {
@@ -425,7 +434,7 @@ export async function rethemeRailPools(
             return (b.score + bTargetBoost) - (a.score + aTargetBoost)
               || b.row.rail_id.localeCompare(a.row.rail_id);
           })
-          .slice(0, maxRailsPerTitle)
+          .slice(0, unpinnedCapacity)
           .map((decision) => decision.row.rail_id),
       );
       for (const decision of unpinnedKept) {
