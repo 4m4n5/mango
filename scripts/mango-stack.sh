@@ -49,6 +49,11 @@ stop_orphan_indexer() {
   pkill -f 'tsx.*m3-play/playability' 2>/dev/null || true
 }
 
+catalog_unit_enabled() {
+  command -v systemctl >/dev/null 2>&1 \
+    && systemctl --user is-enabled mango-catalog.service >/dev/null 2>&1
+}
+
 # shellcheck source=lib/catalog-yaml.sh
 source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
 # shellcheck source=lib/catalog-service-stack.sh
@@ -57,6 +62,20 @@ source "$REPO_DIR/scripts/lib/catalog-service-stack.sh"
 start_catalog_service() {
   [[ "${MANGO_CATALOG:-0}" == "1" ]] || return 0
   mkdir -p "$CACHE_DIR"
+  if catalog_unit_enabled; then
+    systemctl --user start mango-catalog.service || true
+    for _ in $(seq 1 120); do
+      if catalog_service_healthy; then
+        catalog_service_recover_pid_file "$CATALOG_PID" >/dev/null 2>&1 || true
+        echo "catalog-service ready (:$(catalog_service_port), systemd)"
+        return 0
+      fi
+      sleep 0.5
+    done
+    echo "catalog-service systemd unit did not become healthy" >&2
+    systemctl --user status mango-catalog.service --no-pager -l >&2 || true
+    return 1
+  fi
   if [[ ! -f src/catalog-service/dist/index.js ]]; then
     echo "catalog-service dist missing; run: cd src/catalog-service && npm ci && npm run build" >&2
     return 1
@@ -118,6 +137,9 @@ start_playability_topup() {
 }
 
 stop_catalog_service() {
+  if catalog_unit_enabled; then
+    systemctl --user stop mango-catalog.service 2>/dev/null || true
+  fi
   if [[ -f "$CATALOG_PID" ]]; then
     kill "$(cat "$CATALOG_PID")" 2>/dev/null || true
     sleep 0.3
