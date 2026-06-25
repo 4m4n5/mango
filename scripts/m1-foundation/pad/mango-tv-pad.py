@@ -102,12 +102,48 @@ def _xdotool(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _window_class(wid: str) -> str:
+    result = _xdotool("getwindowclassname", wid)
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip().lower()
+    try:
+        result = subprocess.run(
+            ["xprop", "-id", wid, "WM_CLASS"],
+            env=_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return ""
+    return result.stdout.strip().lower()
+
+
+def _window_process(wid: str) -> str:
+    pid = _xdotool("getwindowpid", wid).stdout.strip()
+    if not pid.isdigit():
+        return ""
+    try:
+        result = subprocess.run(
+            ["ps", "-p", pid, "-o", "comm="],
+            env=_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return ""
+    return result.stdout.strip().lower()
+
+
 def active_window_meta() -> tuple[str, str]:
     wid = _xdotool("getactivewindow").stdout.strip()
     if not wid or wid == "0":
         return "", ""
     name = _xdotool("getwindowname", wid).stdout.strip()
-    klass = _xdotool("getwindowclassname", wid).stdout.strip()
+    klass = _window_class(wid)
     return name.lower(), klass.lower()
 
 
@@ -126,13 +162,16 @@ def _launcher_window_ids() -> list[str]:
 
 def _is_launcher_window(wid: str) -> bool:
     name = _xdotool("getwindowname", wid).stdout.strip().lower()
-    klass = _xdotool("getwindowclassname", wid).stdout.strip().lower()
+    klass = _window_class(wid)
+    process = _window_process(wid)
     if "selection owner" in name or "tooltip" in name:
         return False
     if "mango-launcher" in klass:
         return True
-    # Firefox fallback exposes the kiosk window as Navigator/firefox.
-    return "mango" in name and ("firefox" in klass or "navigator" in klass)
+    browser_blob = f"{klass} {process}"
+    return "mango" in name and any(
+        token in browser_blob for token in ("firefox", "navigator", "chromium", "chrome")
+    )
 
 
 def is_launcher_focused() -> bool:
@@ -149,7 +188,7 @@ def is_mpv_focused() -> bool:
     name = _xdotool("getwindowname", wid).stdout.strip().lower()
     if "mpv" in name:
         return True
-    klass = _xdotool("getwindowclassname", wid).stdout.strip().lower()
+    klass = _window_class(wid)
     if "mpv" in klass:
         return True
     return wid in _mpv_window_ids()
@@ -185,7 +224,7 @@ def find_best_wid(class_hint: str, name_hint: str) -> str | None:
     for wid in result.stdout.split():
         name = _xdotool("getwindowname", wid).stdout.strip()
         if name_hint.lower() not in name.lower():
-            if class_hint.lower() not in (_xdotool("getwindowclassname", wid).stdout.strip().lower()):
+            if class_hint.lower() not in _window_class(wid):
                 continue
         if "selection owner" in name.lower() or "tooltip" in name.lower():
             continue
