@@ -105,3 +105,33 @@ test('recordGrowRunState preserves benchmark grow_per_pass', async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test('recordGrowRunState does not preserve benchmark grow_per_pass across run ids', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-grow-state-'));
+  process.env.XDG_CACHE_HOME = dir;
+  process.env.MANGO_OPS_RUN_ID = 'benchmark-run';
+  process.env.MANGO_GROW_PER_PASS = '5';
+  try {
+    recordGrowRunState({
+      phase: 'grow',
+      message: 'benchmark grow',
+    });
+
+    process.env.MANGO_OPS_RUN_ID = 'production-run';
+    delete process.env.MANGO_GROW_PER_PASS;
+    recordGrowRunState({
+      phase: 'grow',
+      rail_id: 'series-miniseries',
+      grow_target: 20,
+      fresh_verified: 0,
+      message: 'production grow',
+    });
+
+    const state = JSON.parse(await readFile(growRunStatePath(), 'utf8')) as Record<string, unknown>;
+    assert.equal(state.run_id, 'production-run');
+    assert.equal(Object.prototype.hasOwnProperty.call(state, 'grow_per_pass'), false);
+    assert.equal(state.grow_target, 20);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

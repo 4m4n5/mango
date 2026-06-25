@@ -789,6 +789,12 @@ export async function growRail(
         allowExistingVerifiedLinks,
       });
 
+      heartbeat(`grow ${rail.id}: verifying ${linked.verifyQueue.length} candidates`, {
+        stage: 'verify',
+        loop: growLoops,
+        verify_queue_size: linked.verifyQueue.length,
+        linked_existing_batch: linked.linked_existing,
+      });
       const processed = await processVerifyQueue({
         core,
         queue: linked.verifyQueue,
@@ -802,10 +808,12 @@ export async function growRail(
 
       const iterationAttempts = processed.verified + processed.failed;
       attempts += iterationAttempts;
-      heartbeat(`grow ${rail.id}: verifying candidates`, {
+      heartbeat(`grow ${rail.id}: verified candidate batch`, {
         stage: 'verify',
         loop: growLoops,
         verify_queue_size: linked.verifyQueue.length,
+        verified_batch: processed.verified,
+        failed_batch: processed.failed,
       });
 
       totalLinked += linked.linked_existing;

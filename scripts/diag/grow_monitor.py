@@ -429,7 +429,7 @@ def _normalize_baseline(raw: dict[str, Any]) -> dict[str, Any]:
         for key, value in raw.items():
             if key.startswith("_") or key in {
                 "ts", "verified_pool", "schema_version", "created_at_ms", "grow_rail_ids",
-                "unique_verified", "grow_per_pass",
+                "unique_verified", "grow_per_pass", "run_id",
             }:
                 continue
             if isinstance(value, int):
@@ -446,6 +446,8 @@ def _normalize_baseline(raw: dict[str, Any]) -> dict[str, Any]:
     }
     if raw.get("unique_verified") is not None:
         out["unique_verified"] = int(raw["unique_verified"])
+    if raw.get("run_id") is not None:
+        out["run_id"] = str(raw["run_id"])
     if raw.get("grow_per_pass") is not None:
         try:
             grow_per_pass = int(raw["grow_per_pass"])
@@ -482,6 +484,9 @@ def write_baseline(db: Path | None = None) -> dict[str, Any]:
         "unique_verified": unique_verified,
         "rails": rails,
     }
+    run_id = os.environ.get("MANGO_OPS_RUN_ID")
+    if run_id:
+        baseline["run_id"] = run_id
     grow_per_pass = os.environ.get("MANGO_GROW_PER_PASS")
     if grow_per_pass:
         try:
@@ -781,18 +786,19 @@ def _grow_target_override(
     baseline: dict[str, Any],
     grow_state: dict[str, Any],
 ) -> int | None:
-    for source in (baseline, grow_state.get("run_state") or {}):
-        if not isinstance(source, dict):
-            continue
-        raw = source.get("grow_per_pass")
-        if raw is None:
-            continue
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            continue
-        if value > 0:
-            return value
+    # The benchmark override is captured in the baseline at run start. Do not
+    # trust grow-run-state here: it is a rolling progress file and can outlive
+    # the benchmark run that originally wrote grow_per_pass.
+    del grow_state
+    raw = baseline.get("grow_per_pass")
+    if raw is None:
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return None
+    if value > 0:
+        return value
     return None
 
 

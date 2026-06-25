@@ -69,12 +69,16 @@ export function recordGrowRunState(update: GrowRunStateUpdate, options: { log?: 
   try {
     mkdirSync(dirname(path), { recursive: true });
     const previous = loadPreviousState(path);
+    const runId = update.run_id ?? process.env.MANGO_OPS_RUN_ID ?? previous.run_id;
+    const sameRun = runId !== undefined && previous.run_id === runId;
     const state = {
       ...update,
-      run_id: update.run_id ?? process.env.MANGO_OPS_RUN_ID ?? previous.run_id,
+      run_id: runId,
       mode: update.mode ?? process.env.MANGO_PLAYABILITY_REFRESH_MODE ?? previous.mode,
       preset: update.preset ?? process.env.MANGO_GROW_PRESET ?? previous.preset,
-      grow_per_pass: update.grow_per_pass ?? envPositiveInt('MANGO_GROW_PER_PASS') ?? previous.grow_per_pass,
+      grow_per_pass: update.grow_per_pass
+        ?? envPositiveInt('MANGO_GROW_PER_PASS')
+        ?? (sameRun ? previous.grow_per_pass : undefined),
       updated_at: update.updated_at ?? new Date().toISOString(),
     };
     writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`, 'utf8');

@@ -33,7 +33,7 @@ from grow_monitor import (
     load_baseline,
     write_baseline,
 )
-from ops_grow_sla import list_grow_rail_ids
+from ops_grow_sla import RailPlayabilityConfig, list_grow_rail_ids
 
 
 class GrowMonitorTests(unittest.TestCase):
@@ -265,6 +265,89 @@ class GrowMonitorTests(unittest.TestCase):
             self.assertEqual(status["rails_met_target"], 1)
             self.assertTrue(status["rails"][0]["grow_target_met"])
             self.assertIn("staged work DB", format_live_status(status))
+
+    def test_active_run_state_grow_per_pass_does_not_override_production_baseline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cache = root / "cache"
+            mango_cache = cache / "mango"
+            mango_cache.mkdir(parents=True)
+            work_db = mango_cache / "playability-work-production-run.db"
+            conn = sqlite3.connect(work_db)
+            conn.executescript(
+                """
+                CREATE TABLE titles (
+                  type TEXT, id TEXT, status TEXT, verified_at INTEGER,
+                  expires_at INTEGER, fail_reason TEXT, best_source TEXT,
+                  cache_status TEXT, debrid_service TEXT, probe_ms INTEGER,
+                  win_url_hash TEXT, win_ladder_step TEXT, updated_at INTEGER,
+                  PRIMARY KEY (type, id)
+                );
+                CREATE TABLE rail_pool (
+                  rail_id TEXT, type TEXT, id TEXT, score INTEGER,
+                  ingested_at INTEGER, title TEXT, poster_url TEXT, year TEXT,
+                  PRIMARY KEY (rail_id, type, id)
+                );
+                CREATE TABLE verify_log (
+                  started_at INTEGER, rail_id TEXT, type TEXT, id_value TEXT,
+                  stage TEXT, ms INTEGER, outcome TEXT
+                );
+                """
+            )
+            for index in range(5):
+                conn.execute(
+                    "INSERT INTO titles VALUES ('movie', ?, 'verified', 0, 9999999999999, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0)",
+                    (f"tt-prod-{index}",),
+                )
+                conn.execute(
+                    "INSERT INTO rail_pool VALUES ('movies-global-popular', 'movie', ?, 100, 0, NULL, NULL, NULL)",
+                    (f"tt-prod-{index}",),
+                )
+                conn.execute(
+                    "INSERT INTO verify_log VALUES (2000, 'movies-global-popular', 'movie', ?, 'verify', 1, 'verified')",
+                    (f"tt-prod-{index}",),
+                )
+            conn.commit()
+            conn.close()
+
+            old_env = os.environ.copy()
+            os.environ["XDG_CACHE_HOME"] = str(cache)
+            try:
+                with patch("grow_monitor.detect_grow_state", return_value={
+                    "running": True,
+                    "phase": "grow",
+                    "run_state": {
+                        "run_id": "production-run",
+                        "phase": "grow",
+                        "grow_per_pass": 5,
+                        "grow_target": 20,
+                    },
+                }):
+                    baseline = {
+                        "schema_version": 2,
+                        "created_at_ms": 1000,
+                        "verified_pool": 0,
+                        "unique_verified": 0,
+                        "grow_rail_ids": ["movies-global-popular"],
+                        "rails": {"movies-global-popular": 0},
+                    }
+                    status = build_live_status(
+                        baseline,
+                        catalog={
+                            "movies-global-popular": RailPlayabilityConfig(
+                                display_limit=9,
+                                grow_per_pass=20,
+                                pool_target=20,
+                            ),
+                        },
+                    )
+            finally:
+                os.environ.clear()
+                os.environ.update(old_env)
+
+            self.assertEqual(status["db_source"], "staged_work")
+            self.assertEqual(status["rails"][0]["grow_target"], 20)
+            self.assertFalse(status["rails"][0]["grow_target_met"])
 
     def test_orphan_and_overlap_audit_counts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
