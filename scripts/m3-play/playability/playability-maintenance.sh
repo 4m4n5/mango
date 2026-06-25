@@ -242,6 +242,24 @@ print(f"stage DB: synced {rewound} cursor rewind(s) to live DB")
 PY
 }
 
+sqlite_publish_failed_grow_memory() {
+  local work_db="$1"
+  local live_db="$2"
+  local since_ms="$3"
+  local now_ms="$4"
+  if [[ ! -f "$work_db" || ! -f "$live_db" ]]; then
+    return 0
+  fi
+  local summary
+  summary="$(python3 "$REPO_DIR/scripts/diag/merge_failed_grow_memory.py" \
+    --work-db "$work_db" \
+    --live-db "$live_db" \
+    --since-ms "$since_ms" \
+    --now-ms "$now_ms")" || return 0
+  echo "stage DB: merged failed grow memory: $summary"
+  grow_state log "stage DB: merged failed grow memory: $summary"
+}
+
 cleanup_work_playability_db() {
   if [[ -n "$WORK_PLAYABILITY_DB" ]]; then
     rm -f "$WORK_PLAYABILITY_DB" "$WORK_PLAYABILITY_DB-wal" "$WORK_PLAYABILITY_DB-shm"
@@ -297,6 +315,7 @@ publish_or_discard_staged_db() {
     grow_state log "stage DB: published strict successful grow"
   else
     sqlite_publish_cursor_rewinds "$WORK_PLAYABILITY_DB" "$LIVE_PLAYABILITY_DB" || true
+    sqlite_publish_failed_grow_memory "$WORK_PLAYABILITY_DB" "$LIVE_PLAYABILITY_DB" "$START_MS" "$END_MS" || true
     echo "stage DB: discarding failed or partial grow DB; live library unchanged"
     grow_state log "stage DB: discarded failed or partial grow DB"
   fi
