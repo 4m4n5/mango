@@ -18,6 +18,8 @@ Env:
   MANGO_SOURCE_TARGET_RATE   goal for summary warning (default 0.80)
   MANGO_SOURCE_MIN_RATE      fail exit if any active source below (default 0.50)
   MANGO_SOURCE_HITRATE_OUT   report path (default ~/.cache/mango/source-hitrate/latest.json)
+  MANGO_SOURCE_HITRATE_SOURCE_KEYS comma-separated source keys to probe (default all)
+  MANGO_SOURCE_HITRATE_MERGE_CACHE 1 = merge probed rows into existing OUT report
 """
 
 from __future__ import annotations
@@ -61,6 +63,12 @@ OUT_PATH = Path(
 MPV_STOP = ["bash", "scripts/m2-catalog/service/mpv-stop.sh"]
 EXPORT_JSON = Path(os.environ.get("MANGO_AIOMETADATA_EXPORT", ""))
 PROBE_EXPORT = os.environ.get("MANGO_SOURCE_PROBE_EXPORT", "0") == "1"
+FILTER_SOURCE_KEYS = {
+    key.strip()
+    for key in os.environ.get("MANGO_SOURCE_HITRATE_SOURCE_KEYS", "").split(",")
+    if key.strip()
+}
+MERGE_CACHE = os.environ.get("MANGO_SOURCE_HITRATE_MERGE_CACHE", "0") == "1"
 CINEMETA_CATALOG_ROOT = os.environ.get(
     "MANGO_CINEMETA_CATALOG_ROOT",
     "https://cinemeta-catalogs.strem.io/top/catalog",
@@ -193,6 +201,79 @@ def load_export_catalog_sources() -> dict[str, SourceRef]:
     return sources
 
 
+def source_row_key(row: dict) -> str | None:
+    source_key = row.get("source_key")
+    if source_key:
+        return str(source_key)
+    addon = row.get("addon")
+    catalog = row.get("catalog")
+    content_type = row.get("content_type")
+    if addon and catalog and content_type:
+        return f"{addon}|{catalog}|{content_type}"
+    return None
+
+
+def summary_from_source_rows(rows: list[dict]) -> dict:
+    sampled = sum(int(row.get("sampled") or 0) for row in rows)
+    stream_ok = sum(int(row.get("stream_ok") or 0) for row in rows)
+    play_ok = sum(int(row.get("play_ok") or 0) for row in rows)
+    return {
+        "sources": len(rows),
+        "sampled": sampled,
+        "stream_ok": stream_ok,
+        "stream_rate": stream_ok / sampled if sampled else 0,
+        "play_ok": play_ok,
+        "play_rate": play_ok / sampled if sampled else 0,
+    }
+
+
+def merge_with_cached_report(
+    report: dict,
+    configured_keys: set[str],
+    probed_keys: set[str],
+) -> dict:
+    if not MERGE_CACHE or not OUT_PATH.is_file():
+        return report
+    try:
+        previous = json.loads(OUT_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return report
+
+    previous_sources = {
+        key: row
+        for row in previous.get("sources") or []
+        if isinstance(row, dict)
+        for key in [source_row_key(row)]
+        if key
+    }
+    current_sources = {
+        key: row
+        for row in report.get("sources") or []
+        if isinstance(row, dict)
+        for key in [source_row_key(row)]
+        if key
+    }
+    merged_sources = [
+        current_sources.get(key) or previous_sources[key]
+        for key in sorted(configured_keys)
+        if key in current_sources or key in previous_sources
+    ]
+
+    previous_picks = [
+        pick for pick in previous.get("picks") or []
+        if isinstance(pick, dict) and str(pick.get("source_key") or "") not in probed_keys
+    ]
+    report["sources"] = merged_sources
+    report["picks"] = previous_picks + list(report.get("picks") or [])
+    report["summary"] = summary_from_source_rows(merged_sources)
+    report["incremental"] = {
+        "merged_cache": True,
+        "configured_sources": len(configured_keys),
+        "probed_sources": len(probed_keys),
+    }
+    return report
+
+
 def load_sources_from_yaml() -> dict[str, SourceRef]:
     data = yaml.safe_load(CATALOG_YAML.read_text(encoding="utf-8"))
     sources: dict[str, SourceRef] = {}
@@ -311,6 +392,17 @@ def main() -> int:
     else:
         sources = load_sources_from_yaml()
         print("mode: active rails")
+    configured_keys = set(sources)
+    if FILTER_SOURCE_KEYS:
+        missing = sorted(FILTER_SOURCE_KEYS - configured_keys)
+        if missing:
+            print(f"warn: {len(missing)} requested source keys not in catalog config")
+        sources = {
+            key: source
+            for key, source in sources.items()
+            if key in FILTER_SOURCE_KEYS
+        }
+        print(f"mode: filtered sources ({len(sources)}/{len(configured_keys)})")
     rng = random.Random(SEED)
 
     print("========== mango source hit-rate ==========")
@@ -464,6 +556,11 @@ def main() -> int:
         ],
         "picks": all_picks,
     }
+    report = merge_with_cached_report(
+        report,
+        configured_keys,
+        {stats.source_key for stats in all_stats},
+    )
 
     OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUT_PATH.write_text(json.dumps(report, indent=2), encoding="utf-8")

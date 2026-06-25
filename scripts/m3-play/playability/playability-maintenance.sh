@@ -345,12 +345,14 @@ run_source_hitrate_preflight() {
     return 0
   fi
 
-  local plan_json decision reason per_source source_total
+  local plan_json decision reason per_source source_total probe_sources merge_cache
   plan_json="$(python3 "$REPO_DIR/scripts/diag/source_hitrate_preflight.py" plan --preset "$preset" "${force_args[@]}")"
   decision="$(python3 -c "import json,sys; print(json.load(sys.stdin)['decision'])" <<<"$plan_json")"
   reason="$(python3 -c "import json,sys; print(json.load(sys.stdin)['reason'])" <<<"$plan_json")"
   per_source="$(python3 -c "import json,sys; print(json.load(sys.stdin)['per_source'])" <<<"$plan_json")"
-  source_total="$(python3 -c "import json,sys; print(json.load(sys.stdin).get('source_total') or 0)" <<<"$plan_json")"
+  source_total="$(python3 -c "import json,sys; data=json.load(sys.stdin); print(data.get('probe_total') or data.get('source_total') or 0)" <<<"$plan_json")"
+  probe_sources="$(python3 -c "import json,sys; print(','.join(json.load(sys.stdin).get('probe_sources') or []))" <<<"$plan_json")"
+  merge_cache="$(python3 -c "import json,sys; print('1' if json.load(sys.stdin).get('merge_cache') else '0')" <<<"$plan_json")"
 
   if [[ "$decision" == "skip" ]]; then
     grow_state set --phase preflight --message "using cached hit-rate ($reason)" \
@@ -371,11 +373,15 @@ run_source_hitrate_preflight() {
   if [[ "${MANGO_GROW_LOG_WRAPPED:-0}" == "1" ]]; then
     PYTHONUNBUFFERED=1 \
       MANGO_SOURCE_HITRATE_PER_SOURCE="$per_source" \
+      MANGO_SOURCE_HITRATE_SOURCE_KEYS="$probe_sources" \
+      MANGO_SOURCE_HITRATE_MERGE_CACHE="$merge_cache" \
       python3 "$REPO_DIR/scripts/diag/source-hitrate.py" 2>&1 \
       || true
   else
     PYTHONUNBUFFERED=1 \
       MANGO_SOURCE_HITRATE_PER_SOURCE="$per_source" \
+      MANGO_SOURCE_HITRATE_SOURCE_KEYS="$probe_sources" \
+      MANGO_SOURCE_HITRATE_MERGE_CACHE="$merge_cache" \
       python3 "$REPO_DIR/scripts/diag/source-hitrate.py" 2>&1 \
       | tee -a "${CACHE_DIR}/playability-grow.log" \
       || true

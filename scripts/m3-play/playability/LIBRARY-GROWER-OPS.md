@@ -106,6 +106,8 @@ bash scripts/m3-play/playability/install-playability-timer.sh
 
 - Skips preflight when `~/.cache/mango/source-hitrate/latest.json` is **< 24h** old (uses cached weights).
 - Otherwise runs a **1 probe/source** sample while catalog is still up.
+- If the cached report is fresh but missing newly configured sources, probes only
+  those missing source keys and merges them back into the cached report.
 - Progress appears in `playability-grow.log` and `grow_monitor.py status` (`phase: preflight`).
 
 **Nightly grow** (timer phase 2, after stale + cooldown):

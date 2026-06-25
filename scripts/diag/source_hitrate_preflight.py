@@ -162,14 +162,26 @@ def cmd_info(args: argparse.Namespace) -> int:
 def cmd_plan(args: argparse.Namespace) -> int:
     skip, reason = should_skip_preflight(args.preset, force=args.force)
     configured = configured_source_keys()
+    missing = missing_report_sources()
+    age = report_age_hours()
+    incremental = (
+        not skip
+        and not args.force
+        and bool(missing)
+        and age is not None
+        and age <= FRESH_HOURS
+    )
     print(json.dumps({
         "decision": "skip" if skip else "run",
         "reason": reason,
         "per_source": per_source_for_preset(args.preset),
         "source_total": len(configured),
+        "probe_total": len(missing) if incremental else len(configured),
         "preset": args.preset,
         "force": args.force,
-        "missing_sources": missing_report_sources(),
+        "missing_sources": missing,
+        "probe_sources": missing if incremental else [],
+        "merge_cache": incremental,
     }))
     return 0
 
