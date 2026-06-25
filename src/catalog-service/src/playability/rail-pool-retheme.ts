@@ -151,6 +151,16 @@ function unpinnedRailCapacity(maxRailsPerTitle: number, pinnedCount: number): nu
   return Math.max(0, maxRailsPerTitle - pinnedCount);
 }
 
+function railProtectionBoost(
+  railId: string,
+  railPoolCounts: Map<string, number>,
+  minRailPoolCounts: Map<string, number>,
+): number {
+  const minCount = minRailPoolCounts.get(railId);
+  if (minCount === undefined) return 0;
+  return (railPoolCounts.get(railId) ?? 0) <= minCount ? 1_000_000 : 0;
+}
+
 async function fetchMetaCached(
   core: RethemeCore,
   type: string,
@@ -247,6 +257,7 @@ export async function rethemeRailPools(
     includeOrphans?: boolean;
     orphanLimit?: number;
     maxRailsPerTitle?: number;
+    minRailPoolCounts?: Map<string, number>;
     metaConcurrency?: number;
     membershipMode?: 'full' | 'overlap_only' | 'skip';
   } = {},
@@ -261,6 +272,7 @@ export async function rethemeRailPools(
     : null;
   const maxRailsPerTitle = maxRailsPerTitleOption(options.maxRailsPerTitle);
   const membershipMode = options.membershipMode ?? 'full';
+  const minRailPoolCounts = options.minRailPoolCounts ?? new Map<string, number>();
 
   const [profiles, overrides, memberships] = await Promise.all([
     loadRailThemeProfiles(),
@@ -283,6 +295,12 @@ export async function rethemeRailPools(
     const bucket = byTitle.get(key) ?? [];
     bucket.push(row);
     byTitle.set(key, bucket);
+  }
+  const railPoolCounts = new Map<string, number>();
+  for (const rows of byTitle.values()) {
+    for (const row of rows) {
+      railPoolCounts.set(row.rail_id, (railPoolCounts.get(row.rail_id) ?? 0) + 1);
+    }
   }
 
   const metaCache = new Map<string, Meta | null>();
@@ -309,7 +327,8 @@ export async function rethemeRailPools(
       const allowed = new Set(
         [...unpinnedRows]
           .sort((a, b) => (
-            (b.score ?? 0) - (a.score ?? 0)
+            ((b.score ?? 0) + railProtectionBoost(b.rail_id, railPoolCounts, minRailPoolCounts))
+            - ((a.score ?? 0) + railProtectionBoost(a.rail_id, railPoolCounts, minRailPoolCounts))
             || a.rail_id.localeCompare(b.rail_id)
           ))
           .slice(0, unpinnedCapacity)
@@ -351,6 +370,7 @@ export async function rethemeRailPools(
         if (!dryRun) {
           await deleteRailPoolTitle(row.rail_id, type, id);
         }
+        railPoolCounts.set(row.rail_id, Math.max(0, (railPoolCounts.get(row.rail_id) ?? 0) - 1));
       }
     }
   } else if (membershipMode === 'full') {
@@ -431,7 +451,10 @@ export async function rethemeRailPools(
           .sort((a, b) => {
             const aTargetBoost = a.row.rail_id === targetRail ? 10_000 : 0;
             const bTargetBoost = b.row.rail_id === targetRail ? 10_000 : 0;
-            return (b.score + bTargetBoost) - (a.score + aTargetBoost)
+            const aProtectionBoost = railProtectionBoost(a.row.rail_id, railPoolCounts, minRailPoolCounts);
+            const bProtectionBoost = railProtectionBoost(b.row.rail_id, railPoolCounts, minRailPoolCounts);
+            return (b.score + bTargetBoost + bProtectionBoost)
+              - (a.score + aTargetBoost + aProtectionBoost)
               || b.row.rail_id.localeCompare(a.row.rail_id);
           })
           .slice(0, unpinnedCapacity)
@@ -509,6 +532,7 @@ export async function rethemeRailPools(
       if (!dryRun) {
         await deleteRailPoolTitle(decision.row.rail_id, type, id);
       }
+      railPoolCounts.set(decision.row.rail_id, Math.max(0, (railPoolCounts.get(decision.row.rail_id) ?? 0) - 1));
     }
   }
   }

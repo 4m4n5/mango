@@ -384,3 +384,55 @@ blocks: []
   assert.equal(result.overlap_removed, 1);
   assert.deepEqual(rails.sort(), ['movies-classics', 'movies-comfort']);
 });
+
+test('retheme overlap-only mode protects rail minimum counts before score', async () => {
+  const core = await setupRethemeTest({});
+  await writeFile(process.env.MANGO_RAIL_CURATION_OVERRIDES!, `
+version: 1
+pins:
+  - rail_id: movies-classics
+    type: movie
+    id: tt-protected-overlap
+    score: 999
+blocks: []
+`, 'utf8');
+  await verifyTitle('movie', 'tt-protected-overlap');
+  await upsertRailPoolTitle({
+    rail_id: 'movies-comedy',
+    type: 'movie',
+    id: 'tt-protected-overlap',
+    score: 10,
+    title: 'Protected Comedy',
+  });
+  await upsertRailPoolTitle({
+    rail_id: 'movies-comfort',
+    type: 'movie',
+    id: 'tt-protected-overlap',
+    score: 900,
+    title: 'Protected Comedy',
+  });
+  await upsertRailPoolTitle({
+    rail_id: 'movies-classics',
+    type: 'movie',
+    id: 'tt-protected-overlap',
+    score: 999,
+    title: 'Protected Comedy',
+  });
+
+  const result = await rethemeRailPools(core, {
+    dryRun: false,
+    includeOrphans: false,
+    maxRailsPerTitle: 2,
+    membershipMode: 'overlap_only',
+    minRailPoolCounts: new Map([['movies-comedy', 1]]),
+  });
+  const rails = await listRailIdsContainingTitle('movie', 'tt-protected-overlap');
+
+  assert.equal(result.overlap_removed, 1);
+  assert.deepEqual(rails.sort(), ['movies-classics', 'movies-comedy']);
+  assert.ok(result.actions.some((action) => (
+    action.action === 'remove'
+    && action.rail_id === 'movies-comfort'
+    && action.reason === 'overlap_cap'
+  )));
+});

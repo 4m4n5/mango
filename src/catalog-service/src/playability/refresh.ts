@@ -294,6 +294,11 @@ async function refreshAllRailsGrow(
   }
 
   const strictOk = railSummaries.every((rail) => rail.ok && (!requireGrowTarget || rail.grow_target_met === true));
+  const finalMinPoolByRail = new Map<string, number>();
+  for (const rail of railSummaries) {
+    const beforePool = verifiedPoolByRail.get(rail.rail_id) ?? 0;
+    finalMinPoolByRail.set(rail.rail_id, beforePool + (rail.grow_target ?? 0));
+  }
   let rethemeFinalization: RethemePoolsResult | undefined;
   let finalizationOk = true;
   if (strictOk && process.env.MANGO_GROW_FINAL_RETHEME !== '0') {
@@ -307,18 +312,19 @@ async function refreshAllRailsGrow(
       dryRun: false,
       includeOrphans: true,
       maxRailsPerTitle: 2,
+      minRailPoolCounts: finalMinPoolByRail,
       membershipMode: 'overlap_only',
     });
     const finalStatus = await getPlayabilityStatus(rails.map((rail) => rail.id));
-    const minByRail = new Map(rails.map((rail) => [rail.id, rail.playability.min_display]));
+    const finalOverlap = await getRailPoolOverlapSummary({ maxRailsPerTitle: 2 });
     finalizationOk = finalStatus.rails.every((rail) => (
-      rail.verified_pool >= (minByRail.get(rail.rail_id) ?? 0)
-    ));
+      rail.verified_pool >= (finalMinPoolByRail.get(rail.rail_id) ?? 0)
+    )) && finalOverlap.over_cap_titles === 0;
     recordGrowRunState({
       phase: 'publish',
       message: finalizationOk
         ? 'strict grow finalization complete'
-        : 'strict grow finalization left a rail below min_display',
+        : 'strict grow finalization left a rail below grow target or overlap cap',
       mode,
       preset: process.env.MANGO_GROW_PRESET,
       ok: finalizationOk,
@@ -336,7 +342,7 @@ async function refreshAllRailsGrow(
     .flatMap((rail) => rail.repair_suggestions ?? [])
     .filter((suggestion, index, all) => all.indexOf(suggestion) === index),
     ...(!finalizationOk
-      ? ['Review retheme finalization: orphan/overlap cleanup left one or more rails below min_display; do not publish couch sessions until rail depth is repaired.']
+      ? ['Review retheme finalization: orphan/overlap cleanup left one or more rails below grow target or overlap cap; do not publish couch sessions until rail depth is repaired.']
       : []),
   ];
   const refreshResult: RefreshAllResult = {
