@@ -2,7 +2,7 @@
 
 **Branch:** `feat/native-experience` · **Plan:** [ROADMAP.md](ROADMAP.md) · **Couch:** [COUCH_TEST.md](COUCH_TEST.md)
 
-What works today, how to verify it, and what's next.
+What works today, what is still being hardened, and how to verify it.
 
 ---
 
@@ -12,9 +12,9 @@ What works today, how to verify it, and what's next.
 |-----------|--------|----------|
 | M1 Foundation | ✓ | `mango-stack.sh` · pad · gates |
 | M2 Browse | ✓ | Movies / Series / Live tabs |
-| M3 Play | ✓ | mpv · picker · episodes · playability |
+| M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
-| M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5 next |
+| M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5 pending |
 | M6 Ship | — | Library · YouTube · 4K · TV UX · wizard |
 
 ---
@@ -41,7 +41,7 @@ What works today, how to verify it, and what's next.
 | Stream picker | `GET /stream/{type}/{id}` · `display_label` rows |
 | Continue | `progress.db` · mpv position watcher |
 | Episodes | Season list · per-episode streams · next-up overlay |
-| Playability | `playability.db` verified pools · thematic theme gate · grow jobs |
+| Playability | `playability.db` verified pools · strict thematic grow jobs |
 | Browse UX | Verified-only thin rails · empty hidden |
 | Thematic rails | `rail-theme-gate` on grow/link/verify · profiles in `rail-theme-profiles.yaml` |
 | Pool retheme | Manual repair plus strict-grow orphan/overlap finalization |
@@ -60,6 +60,18 @@ What works today, how to verify it, and what's next.
 Status: `python3 scripts/diag/playability-status.py` · grow monitor: `grow_monitor.py status`
 
 **Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`, 3 plays/rail)
+
+### Library grow current state
+
+| Area | Current implementation |
+|------|------------------------|
+| Success contract | Every active browse/AI rail must hit fresh `new_to_rail_verified >= grow_per_pass` (`20` in YAML; `MANGO_GROW_PER_PASS=5` only for benchmarks) |
+| Couch publish | Grow writes an isolated work DB and publishes only after strict success; failed/partial grows keep the previous visible rail snapshot |
+| Hygiene | Strict success attaches verified orphans, caps unpinned overlap, and preserves pins/curation overrides |
+| Negative memory | Recent theme/no-stream/title-mismatch/unresolved-ID misses are tombstoned per rail to avoid re-probing the same bad candidates |
+| Diagnostics | `grow_monitor.py`, structured refresh JSON, candidate audit samples, source-grow weights, and `source-grow-audit.py` expose failure causes |
+
+**Known hardening gap:** the pipeline is wired correctly enough for targeted repair and benchmark iteration, but sustained unattended full `+20` nightly reliability is still under validation. India-series growth remains the clearest source-quality/ID-resolution risk: many fresh catalog rows are off-theme, TMDB-only/unresolved, duplicate-heavy, or no-stream despite strong-looking catalogs. See [PLAYABILITY.md](PLAYABILITY.md) and [catalog-rail-curation.md](../config/catalog-rail-curation.md).
 
 ---
 
@@ -121,17 +133,18 @@ Full detail: [VOICE.md](VOICE.md)
 
 ---
 
-## Next priorities
+## Open priorities
 
 | # | Item | Milestone |
 |---|------|-----------|
-| 1 | Living librarian (memory + policy) | M5 |
-| 2 | M5.5 AI companion UX ship bar | M5 |
-| 3 | Library sync + write-back | M6.1 |
-| 4 | YouTube yt-dlp rail | M6.2 |
-| 5 | 4K HDR TV + soundbar profile | M6.3 |
-| 6 | TV UI/UX ship polish | M6.5 |
-| 7 | First-boot wizard | M6.4 |
+| 1 | Prove repeated unattended strict grow passes; improve India-series source yield | M3 hardening |
+| 2 | Living librarian (memory + policy) | M5 |
+| 3 | M5.5 AI companion UX ship bar | M5 |
+| 4 | Library sync + write-back | M6.1 |
+| 5 | YouTube yt-dlp rail | M6.2 |
+| 6 | 4K HDR TV + soundbar profile | M6.3 |
+| 7 | TV UI/UX ship polish | M6.5 |
+| 8 | First-boot wizard | M6.4 |
 
 ---
 
@@ -141,7 +154,7 @@ Full detail: [VOICE.md](VOICE.md)
 |------|------|
 | **`gate-lite.sh`** | Default deploy (~2 min) — M1–M4 + M2–M3 + M5 (if voice) + 2-play smoke |
 | `pi-pre-couch-gate.sh` | Mac wrapper |
-| `MANGO_GATE_FULL=1` | Full gate (~5–8 min) — holistic M1/M4 + **3 plays/rail** + N3a |
+| `MANGO_GATE_FULL=1` | Full gate (~5–8 min) — holistic M1/M4 + **3 plays/rail** + play orchestrator |
 | `gate-m4-self-hosted.sh` | Self-hosted addon corpus |
 | `gate-live-iptv.sh` | Opt-in live only |
 

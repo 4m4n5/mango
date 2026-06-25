@@ -127,6 +127,15 @@ Phone: `https://<pi-ip>:3001` · Verify: `verify-voice-ready.sh` · Gate: `gate-
 
 ---
 
+## Open items
+
+| Item | Milestone | Notes |
+|------|-----------|-------|
+| Companion UX ship bar | M5.5 | Make phone/chat/HUD feel like a product, not a debug console |
+| Voice search success writes library | M5/M6 | If user-requested playback verifies a searched title, attach it to best-fit thematic rail |
+| TTS over living-room audio | M6.3 | Requires TV/soundbar path and ducking validation |
+| Voice play / transport controls | M6+ | Deferred; current contract is voice opens, pad plays |
+
 ## Deferred (M6+)
 
 - Piper TTS on TV / soundbar (M6.3)

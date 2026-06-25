@@ -20,7 +20,6 @@ cd src/launcher && npm install && npm run build
 
 ```bash
 bash scripts/mango-stack.sh restart
-# N1 when ready:
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 ```
 

@@ -19,15 +19,22 @@ Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
 | **AIOStreams** (`:3035`) | Aggregate indexers + debrid, dedup, SEL, formatter | Lab 1080p cap, mpv probe, auto-play |
 | **AIOMetadata** (`:3036`) | mdblist catalog adapters | Stream resolve |
 | **catalog-service** | Rails YAML, play orchestrator, stream metadata, playability, voice `/voice/*` | Indexer credentials, debrid keys |
-
-### Playability layer
-
-Verified pools in `playability.db` feed browse rails. **Theme gate** (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on every pool write during grow/link/verify. Manual **pool retheme** prunes legacy mismatches. See [PLAYABILITY.md](PLAYABILITY.md).
 | **Launcher** | Browse UI, detail, picker, voice command poll | Stream ranking (trust upstream + filters) |
 | **mpv** | Decode + render | Catalog metadata |
 | **orchestrator** | STT · LLM · launcher dispatch | Catalog data · mpv IPC |
 
 **Rule:** Push dedup, junk keywords, debrid order, and row limits **upstream** into AIOStreams. Keep probe-time policy, lab quality cap, and auto-play tiers in **catalog-service**.
+
+### Playability layer
+
+`playability.db` has two related but distinct surfaces:
+
+| Surface | Role |
+|---------|------|
+| `titles` | Global verified/failed state and TTLs for unique playable titles |
+| `rail_pool` | Thematic per-rail membership used by couch-visible browse sessions |
+
+The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on grow/link/verify pool writes. Strict grow runs operate on an isolated work DB and publish the live DB only after every active rail reaches its fresh quota; failed or partial runs preserve the previous couch snapshot. Finalization attaches verified orphans and caps unpinned overlap without full metadata retheme. See [PLAYABILITY.md](PLAYABILITY.md).
 
 ---
 
@@ -149,7 +156,7 @@ mango does **not** reindex torrents. It runs the same protocol Stremio uses.
 
 Chromium is **UI only** — never decode 4K in the browser. mpv owns playback.
 
-| Phase | Display | Notes |
+| Milestone | Display | Notes |
 |-------|---------|-------|
 | M1–M5 (lab) | 1080p monitor · headphones | `max_quality: 1080p` in filters |
 | M6 (ship) | 4K TV · soundbar eARC | mpv 4K profile · relax filters |

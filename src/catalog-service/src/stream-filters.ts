@@ -33,7 +33,7 @@ export type StreamFilterConfig = {
   exclude_uncached_debrid: boolean;
   /** Also drop debrid streams when cache status is unknown (stricter). */
   strict_unknown_cache: boolean;
-  /** Drop streams above this resolution (helps Pi until N7). */
+  /** Drop streams above this resolution (helps Pi until M6.3 target-TV validation). */
   max_quality: QualityCap | null;
   /** Drop REMUX / Blu-ray remux style releases. */
   exclude_remux: boolean;

@@ -27,7 +27,7 @@ AIOStreams is the **stream aggregation + hygiene** layer. mango `catalog-service
 | Title mismatch (London.Files) | Optional TMDB title match | **Yes** `streamMatchesMetaTitle` |
 | mpv probe, playability DB, verified hints | No | **Yes** |
 | Auto-play tiers, wall clock, uncached TB fallback | **No** (disable AIOStreams autoPlay) | **Yes** |
-| Catalogs / mdblist rails | No (use AIOLists) | YAML rails |
+| Catalogs / mdblist rails | No (use AIOMetadata) | YAML rails |
 
 **Rule:** Push **dedup, junk keywords, cache policy, debrid ranking, and row limits** upstream into AIOStreams. Keep **probe-time policy, lab quality cap, and couch auto-play** in mango.
 
@@ -60,7 +60,7 @@ AIOStreams v2.30 configure menu sections and how mango should use each.
 |------|----------------|----------------------|
 | Service list order | Dedup winner + sort priority when service is a sort key | **TorBox → Real-Debrid → Easynews** (locked) |
 | Enable/disable per provider | Turns sources on | TB, RD, Easynews **ON**; all other debrid/usenet **OFF** |
-| RPDB key (services footer) | Posters for catalog addons inside AIOStreams | **Skip** — posters from Cinemeta / AIOLists |
+| RPDB key (services footer) | Posters for catalog addons inside AIOStreams | **Skip** — posters from Cinemeta / AIOMetadata |
 | Service Wrap | Routes marketplace addons through your debrid | **ON** |
 | Reconfigure Service | Re-wrap after credential change | Off unless rotating keys |
 | Processing Services | Which services process wrapped streams | Default (TorBox + RD) |
@@ -77,7 +77,7 @@ AIOStreams v2.30 configure menu sections and how mango should use each.
 | **Torrentio** (marketplace) | Installed, **resources: stream only**, timeout ~7 s |
 | Other built-ins (Comet, MediaFusion, Prowlarr, …) | **OFF** V1 — fewer moving parts |
 | Custom addon URLs | **None** V1 |
-| Catalogues (inside AIOStreams) | **OFF / not used** — mango uses Cinemeta + AIOLists |
+| Catalogues (inside AIOStreams) | **OFF / not used** — mango uses Cinemeta + AIOMetadata |
 | **Groups** | **Use** — see [Groups](#groups-conditional-fetch) |
 | Addon timeout | 7–10 s (Pi maintenance tolerates longer than couch) |
 
@@ -309,7 +309,7 @@ flowchart LR
 | **Sort `language`** | Early in global sort | Hindi dub rows surface when user picks Hindi |
 | **Conjunctive result limits** | service 2 × resolution 2 × group 1 | ~6–8 **distinct** rows — ideal picker cardinality (not 40 duplicates) |
 | **`hideErrors: true`** | ON | AI never sees `[❌]` placeholder rows |
-| **`posterService: none`** | ON | Posters from Cinemeta/AIOLists — one poster pipeline |
+| **`posterService: none`** | ON | Posters from Cinemeta/AIOMetadata — one poster pipeline |
 | **No resolution cap upstream** | Keep 2160p/REMUX in AIOStreams | M6.3: drop `max_quality` in mango only |
 | **SEL ranked + excluded** | TB boost, RD WEBRip block | Policy in one place; AI reads outcomes, not rules |
 
@@ -355,7 +355,7 @@ maps to `{ "preferred_language": "Hindi" }`.
 
 ### stremio-export (required for diversity)
 
-Keep **only** Cinemeta, AIOStreams, AIOLists in `/etc/mango/stremio-export.json`. Standalone Torrentio TB/RD duplicates indexer work and collapses unique names (measured: 20 streams → 2 unique labels).
+Keep **only** Cinemeta, AIOStreams, and AIOMetadata in `/etc/mango/stremio-export.json`. Standalone Torrentio TB/RD duplicates indexer work and collapses unique names (measured: 20 streams → 2 unique labels).
 
 ### When M6.3 ships
 

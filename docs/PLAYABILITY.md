@@ -6,6 +6,18 @@ How mango builds and maintains **verified play pools** per browse rail, keeps ti
 
 ---
 
+## Current state
+
+The grow system is implemented as a strict, couch-silent maintenance workflow:
+
+- Production YAML keeps `grow_per_pass: 20`; benchmark iterations may set `MANGO_GROW_PER_PASS=5`.
+- A successful grow requires every active browse/AI rail to add fresh `new_to_rail_verified` titles; global unique growth, orphan repair, and existing verified links are metrics only.
+- Grow uses a staged work DB. Couch-visible rails publish only after strict success; failed or aborted runs write structured diagnostics and leave the previous stable rail snapshot visible.
+- Strict finalization attaches verified orphans to best-fit rails or anchors and caps unpinned cross-rail membership. Pins do not consume the unpinned cap, so a pinned title can still appear in two other strong thematic rails.
+- Remaining hardening focus is source quality and repeatability: India-series catalogs still produce many duplicate, no-stream, unresolved-ID, or theme-rejected candidates.
+
+---
+
 ## Model
 
 | Store | Path (Pi) | Role |
@@ -187,7 +199,7 @@ If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_cat
 | `gate-lite-play.sh` | 1 movie + 1 series smoke |
 | `gate-m3-verified-rails.sh` | **3/rail** when `MANGO_GATE_FULL=1` (override: `MANGO_N3C_GATE_MAX_PER_RAIL`) |
 
-Full gate still runs M1 · M4 self-hosted · N3a orchestrator — holistic without exhaustive per-rail play.
+Full gate still runs M1 · M4 self-hosted · play orchestrator checks — holistic without exhaustive per-rail play.
 
 ```bash
 bash scripts/pi-deploy.sh --fast --gate
@@ -195,3 +207,15 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 ```
 
 PR regression (not gate-lite): `bash scripts/m3-play/playability/gate-m3-library-grow.sh`
+
+---
+
+## Open items
+
+| Item | Why it matters |
+|------|----------------|
+| Prove repeated unattended full `+20` grows | Target state is a constantly growing library without manual repair |
+| Improve India-series source yield | Current catalogs are thematically useful but often no-stream, duplicate-heavy, or unresolved to IMDb |
+| Promote/demote sources from measured grow outcomes | Runtime weights should keep healthy catalogs hot and weak catalogs on small probation budgets |
+| Keep diagnostics compact | Operators need exact stage/source/reason without exposing grow/debug status on TV |
+| Revisit full retheme cadence | Full metadata retheme is useful but can trigger many meta calls; default grow should stay lightweight |

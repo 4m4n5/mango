@@ -29,6 +29,12 @@ bash scripts/pi-deploy.sh --fast
 bash scripts/pi-deploy.sh --fast --gate
 ```
 
+If LAN DNS/IPv4 is down, set `MANGO_SSH_HOST` for the wrapper instead of copying files by hand:
+
+```bash
+MANGO_SSH_HOST='aman@<pi-address>' bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/mango-stack.sh status'
+```
+
 **After reboot** (press pad button if BT is slow):
 
 ```bash
@@ -80,9 +86,13 @@ bash scripts/m2-catalog/service/check-m2-prereqs.sh
 | Pad dead | `pgrep -af mango-tv-pad` · reboot pad (Pro Controller mode) |
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
 | Empty rails | `curl localhost:3020/health` · playability status script |
+| Grow seems hung | `python3 scripts/diag/grow_monitor.py status --verbose` · inspect stage/source before killing |
+| Orphans or overlap drift | `rail-pool-retheme.sh dry-run --orphans-only` or `--overlap-only`; see [PLAYABILITY.md](PLAYABILITY.md) |
 | Chromium duplicate | `bash scripts/mango-kill-strays.sh` |
 
 Logs: `~/.cache/mango/mango.log` · `journalctl --user -u mango-stack` (if systemd)
+
+Grow operator state: `~/.cache/mango/grow-run-state.json`, `~/.cache/mango/ops/refresh-*.json`, `~/.cache/mango/source-grow/latest.json`.
 
 ---
 
@@ -95,7 +105,7 @@ Not started at idle. Opt-in only:
 | Stremio desktop | `MANGO_FALLBACK_STREMIO=1` |
 | Kodi YouTube | `MANGO_LEGACY_YOUTUBE=1` |
 
-See [reference/kodi-youtube-fallback.md](reference/kodi-youtube-fallback.md).
+Fallback apps are not part of normal gate-lite; use them only when explicitly diagnosing a native playback gap.
 
 ---
 

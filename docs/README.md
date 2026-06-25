@@ -9,7 +9,7 @@
 | I want to… | Read |
 |------------|------|
 | Understand the product | [VISION.md](VISION.md) |
-| See what's shipped and what's next | [ROADMAP.md](ROADMAP.md) · [STATUS.md](STATUS.md) |
+| See what is shipped, hardening, and planned | [STATUS.md](STATUS.md) · [ROADMAP.md](ROADMAP.md) |
 | Understand the stack | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | Operate the Pi | [OPS.md](OPS.md) · [DEPLOY.md](DEPLOY.md) |
 | Run couch tests | [COUCH_TEST.md](COUCH_TEST.md) |
@@ -34,7 +34,9 @@
 | M3 Play | ✓ |
 | M4 Addons | ✓ |
 | M5 Voice + AI | ◐ |
-| M6 Ship | next |
+| M6 Ship | planned |
+
+M3 playability/grow is functional but still in production hardening: strict `+20`/rail semantics, staged publish, orphan repair, and source diagnostics are implemented; sustained full-grow reliability is the active hardening lane. Detail: [PLAYABILITY.md](PLAYABILITY.md).
 
 Detail: [ROADMAP.md](ROADMAP.md)
 
@@ -47,7 +49,6 @@ Detail: [ROADMAP.md](ROADMAP.md)
 | [reference/addon-stack.md](reference/addon-stack.md) | Self-hosted addons |
 | [reference/aiostreams-profile.md](reference/aiostreams-profile.md) | AIOStreams profile |
 | [reference/elfhosted.md](reference/elfhosted.md) | Optional cloud hosting |
-| [reference/kodi-youtube-fallback.md](reference/kodi-youtube-fallback.md) | Legacy Kodi YouTube |
 
 ---
 
@@ -59,6 +60,19 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # full (~5–8 min, 3 play
 ```
 
 Live IPTV gates are opt-in. See [PLAYABILITY.md](PLAYABILITY.md) for grow/monitor.
+
+---
+
+## Doc ownership
+
+| Source of truth | Owns |
+|-----------------|------|
+| [VISION.md](VISION.md) | UX north star and product invariants |
+| [ROADMAP.md](ROADMAP.md) | Milestone structure and planned work |
+| [STATUS.md](STATUS.md) | Current implementation state, known gaps, gates |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime boundaries and API contracts |
+| [PLAYABILITY.md](PLAYABILITY.md) | Verified library, grow SLA, theme/orphan/overlap behavior |
+| [OPS.md](OPS.md) / [DEPLOY.md](DEPLOY.md) | Pi operation and git-only deployment |
 
 ---
 

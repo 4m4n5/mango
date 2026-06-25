@@ -12,9 +12,10 @@ Replaces self-hosted **AIOLists** on port **3036**. Catalog ids use
 
 ## Headless import (mango rail catalogs)
 
-Your configure export has many catalogs; mango only needs the **11 mdblist lists**
-referenced in `config/catalog.example.yaml`. Import pulls those from the export and
-drops TMDB/MAL/IndiaStreams extras (lighter on the Pi).
+Your configure export has many catalogs; mango imports only catalog ids referenced by
+`config/aiometadata-rail-catalogs.json` and `config/catalog.example.yaml`.
+That set now includes mdblist pools, IndiaStreams custom ids, and Bharat Binge
+regional catalogs used by strict thematic grow.
 
 ```bash
 # Mac → Pi
@@ -48,8 +49,9 @@ In **MDBList Integration**, add each custom list from
 `scripts/m4-addons/map-mdblist-catalogs.md`. AIOMetadata assigns catalog ids
 as `mdblist.<numeric-id>` (e.g. list `88302` → `mdblist.88302`).
 
-You do **not** need TMDB/TVDB/Trakt for mango's N3d V1 rails — only the mdblist
-lists in the mapping table. TMDB key is still required by the addon.
+You do **not** need unrelated TMDB/TVDB/Trakt catalogs for mango rails. Keep the
+active mdblist/custom catalog set in sync with `config/aiometadata-rail-catalogs.json`.
+TMDB key is still required by the addon.
 
 ## Export manifest
 
@@ -87,7 +89,7 @@ curl -sf "${BASE}/catalog/movie/mdblist.88302.json" | jq '.metas | length'
 # expect ≥ 1 when MDBList key is valid
 ```
 
-## Locked settings (Pi — mango N3d V1)
+## Locked settings (Pi)
 
 | Setting | Value |
 |---------|-------|

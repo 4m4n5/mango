@@ -54,6 +54,21 @@ Locked choices. Update when changing behavior.
 
 ---
 
+## M3 — Verified library and grow
+
+| Topic | Choice |
+|-------|--------|
+| Visible rails | Serve only verified `rail_pool` titles; hidden/empty rails are acceptable when underfilled |
+| Grow success | Strict all-active-rails pass; `12/13` is a failure |
+| Fresh quota | `grow_per_pass` new-to-rail probe-verified titles; links/orphans/reshuffles do not count |
+| Publish | Staged work DB publishes only after strict success |
+| Orphans | Attach active verified orphans to best-fit thematic rail or anchor fallback |
+| Overlap | Cap unpinned memberships; pins do not consume the unpinned cap |
+| Runtime source weights | Cache/state only; never auto-edit catalog YAML or theme profiles |
+| TV visibility | No couch-facing grow/progress/debug UI |
+
+---
+
 ## M5 — Voice
 
 | Topic | Choice |

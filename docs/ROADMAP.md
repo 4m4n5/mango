@@ -14,14 +14,14 @@ M2 Browse         ████████████████████  
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
 M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 ship bar
-M6 Ship           ░░░░░░░░░░░░░░░░░░░░  next — library · YouTube · 4K · TV UX · wizard
+M6 Ship           ░░░░░░░░░░░░░░░░░░░░  planned — library sync · YouTube · 4K · TV UX · wizard
 ```
 
 | Milestone | Outcome | Status |
 |-----------|---------|--------|
 | **M1** Foundation | Pi stack · pad · launcher kiosk · voice shell · gates | ✓ |
 | **M2** Browse | Catalog rails · Movies / Series / Live · 9-up grid | ✓ |
-| **M3** Play | mpv orchestrator · picker · episodes · playability | ✓ |
+| **M3** Play | mpv orchestrator · picker · episodes · playability/grow | ✓ hardening |
 | **M4** Addons | Self-hosted AIOStreams + AIOMetadata | ✓ |
 | **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · companion UX ship bar | ◐ |
 | **M6** Ship | Library · YouTube · 4K HDR · TV UI/UX polish · plug-and-play | planned |
@@ -81,10 +81,12 @@ Pi 5 · X11 + Openbox
 | Continue watching | `progress.db` + mpv position watcher |
 | Episode picker | Per-episode streams · next-up overlay · cancel-on-Y |
 | Playability index | Verified pools · quick/nightly/overnight grow · unique-library tracking |
-| Thematic rails | Theme gate on pool writes · India/reality/quick-watch profiles · optional retheme |
+| Thematic rails | Theme gate on pool writes · orphan repair · overlap caps · optional full retheme |
 | Browse UX | Verified-only thin rails · empty hidden · rate-limit safe |
 
 **Detail:** [PLAYABILITY.md](PLAYABILITY.md)
+
+**Current hardening state:** strict fresh `+20` per active rail is the production contract. The system now has staged work DB publishing, VOD-only grow boot, structured failed-run JSON, 7-day grow rejection memory, source circuits, source-grow audits, orphan-only retheme, and pinned overlap semantics. It is not declared production-done until repeated full `+20` grows pass without manual repair, especially on India-series supply.
 
 **Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`, 3 plays/rail)
 
@@ -135,7 +137,7 @@ Half the north star is *ask in mango*. Infrastructure can pass gates while the c
 
 ---
 
-## M6 — Ship (next)
+## M6 — Ship (planned)
 
 Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented hardware upgrade path).
 
@@ -209,6 +211,8 @@ Details: [STATUS.md](STATUS.md#gates) · [ARCHITECTURE.md](ARCHITECTURE.md#gates
 | yt-dlp breakage | Pin version; Kodi emergency fallback |
 | Companion feels dumb despite tools | M5.5 capability review + couch corpus |
 | TV reads as dev UI at ship | M6.5 polish before merge |
+| Grow passes but specific rails starve | Source-grow audit, probation weights, stronger same-theme sources |
+| Verified orphans/overlap drift | Strict publish finalization + orphan-only/overlap-only repair |
 
 ---
 

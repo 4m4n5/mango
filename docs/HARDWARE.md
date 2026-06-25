@@ -16,7 +16,7 @@
 | **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | `max_quality: 1080p` in `/etc/mango/catalog-filters.json` |
 | **mpv** | 4K HEVC profile · visible-picture gate | `v4l2m2m-copy` · 1080p smoke passed |
 
-**North star unchanged:** Pi 5 8GB is the V1 platform. M6.3 proves 4K on your TV; if hardware limits block SOTA (DV/REMUX, HDMI bandwidth), we document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
+**North star unchanged:** Pi 5 8GB is the V1 platform. M6.3 proves 4K on the target TV; if hardware limits block the desired playback bar (DV/REMUX, HDMI bandwidth), document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
 
 ### Addon hosting (catalog + streams)
 

@@ -85,6 +85,7 @@ diag/            manual diagnostics
 
 | Script | Role |
 |--------|------|
+| `m3-play/playability/grow-run-control.sh` | Start/status/watch/assess/abort grow runs |
 | `m3-play/playability/quick-playability-topup.sh` | ~10 min grow |
 | `m3-play/playability/overnight-playability-grow.sh` | ~4 h loop |
 | `m3-play/playability/playability-maintenance.sh` | Nightly worker |
@@ -93,6 +94,8 @@ diag/            manual diagnostics
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
 | `m3-play/playability/rail-pool-retheme.sh` | Thematic pool prune/relocate (manual) |
 | `m3-play/playability/rail-curation.sh` | Pins / blocks |
+
+Production grow target is `+20` fresh verified titles per active rail. Benchmark runs use `MANGO_GROW_PER_PASS=5`; see [docs/PLAYABILITY.md](../docs/PLAYABILITY.md).
 
 ## Mac → Pi
 

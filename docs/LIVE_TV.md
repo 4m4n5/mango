@@ -154,7 +154,7 @@ curl -s 'http://127.0.0.1:3020/rails/items?tab=live' | python3 -c "import json,s
 
 ---
 
-## Next
+## Open items
 
 - Paid cricket: deeper AREA69 catalog scan or genre-specific fetch
 - Optional `verify_streams: true` when NexoTV limits are raised

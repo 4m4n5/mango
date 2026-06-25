@@ -63,11 +63,12 @@ bash scripts/pi-pre-couch-gate.sh
 
 **Catalog rails:** required movie/series anchors must have items; optional rails may warn when pool empty.
 
-## Rails v2.2 (discover)
+## Rails (discover)
 
-- **Movies:** global popular, **indian cinema** (`recmov`+`popmov`), classics, quick-watches, comedy, documentaries
-- **Series:** global popular, **india picks** (`trendingtv`+Cinemeta), classics, miniseries, light & casual, comedy
-- **Session dedup:** two-phase reserve (floor 8) + anchor-first top-up — see `session-select.ts`
+- **Movies:** global popular, indian cinema, classics, quick-watches, comedy, documentaries
+- **Series:** global popular, india picks, classics, miniseries, reality TV, comedy
+- **Session dedup:** verified rail sessions from `playability.db` — see `session-select.ts`
+- **Strict grow:** every active rail targets fresh `+20` new-to-rail verified titles; benchmark override is `MANGO_GROW_PER_PASS=5`
 - **Curation:** `bash scripts/m3-play/playability/rail-curation.sh` for pins (e.g. India's Got Latent on `series-comedy`)
 
 ## Maintenance
@@ -91,6 +92,6 @@ bash scripts/pi-deploy.sh --gate
 
 | Item | Status |
 |------|--------|
-| `series-reality-casual` session rows | Optional rail — may show 0 items when Cinemeta pools overlap tab dedup |
+| Sustained full grow proof | Re-run monitored `+20` grow after source changes; short rails need source-grow audit evidence |
+| India-series source yield | Current hardest source-quality area; many catalog rows are no-stream, duplicate, unresolved, or off-theme |
 | AIOStreams `groups` | Operator S9 — configure UI if stream picker grouping needed |
-| **M3** play orchestrator | Shipped — launcher → mpv |

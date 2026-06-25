@@ -1,8 +1,8 @@
-# Rail catalog curation (v2.5)
+# Rail catalog curation (current)
 
-Playability-first picks. **Accumulative pools:** each refresh grows verified depth by `pool_growth_per_refresh` (default 10) up to `pool_max` (120); only confirmed-dead titles are pruned from `rail_pool`.
+Playability-first picks. Production grow targets fresh **new-to-rail verified** additions (`grow_per_pass: 20`) while preserving existing verified pools; only confirmed-dead titles are pruned from `rail_pool`.
 
-After each fill: `source-hitrate.py` → tune → re-import → `fill-playability-db.sh` (never use `MANGO_FILL_PURGE_POOLS=1` unless resetting).
+After each grow: `source-grow-audit.py` and `source-hitrate.py` inform source weights and future curation. Runtime weights are cache-only; do not auto-edit YAML/theme profiles from a grow run. Never use purge/reset flags unless intentionally rebuilding the library.
 
 ## Hit-rate principles
 
@@ -13,7 +13,7 @@ After each fill: `source-hitrate.py` → tune → re-import → `fill-playabilit
 5. **Session dedup** — niche/optional rails **last** in yaml (allocate tab session slots first).
 6. **Optional rails** — `min_display: 12` so fill does not block on hard-to-probe catalogs.
 
-## Rail -> source map (v2.4)
+## Rail -> source map
 
 | Rail | Sources | Rationale |
 |------|---------|-----------|

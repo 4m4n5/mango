@@ -2,7 +2,7 @@
 
 HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
 
-**Status:** N1–N3d + Track B + Live TV on `feat/native-experience`.
+**Status:** M2–M4 shipped, M3 playability/grow hardening active, optional Live TV on `feat/native-experience`.
 
 ## Config (Pi)
 
@@ -33,7 +33,13 @@ Templates: [`config/stremio-export.example.json`](../../config/stremio-export.ex
 | `POST /play` | Resolve (if needed) + mpv fullscreen — bare series id resumes latest episode |
 | `GET /playability/status` | Pool depth + maintenance counters |
 
-Rails: `addon_catalog` and `composite_list` (weighted mdblist/Cinemeta blends). Tab session allocation dedupes titles across rails (`session-select.ts`).
+Rails: `addon_catalog` and `composite_list` (weighted mdblist/Cinemeta blends). Verified browse pools live in `playability.db`; tab session allocation dedupes titles across rails (`session-select.ts`).
+
+Playability grow contract:
+
+- Fresh target is `grow_per_pass` per active rail (`20` in production YAML).
+- Work happens in a staged DB and publishes only after strict success.
+- Orphan repair, overlap caps, rejection tombstones, runtime source weights, and source diagnostics are operator-only surfaces. See [`docs/PLAYABILITY.md`](../../docs/PLAYABILITY.md).
 
 ### Stream filters (uncached debrid)
 
@@ -49,7 +55,7 @@ sudo cp config/catalog-filters.example.json /etc/mango/catalog-filters.json
 |-------|---------|---------|
 | `exclude_uncached_debrid` | `true` | Drop debrid streams AIOStreams marks uncached |
 | `strict_unknown_cache` | `false` | Also drop debrid when cache status unknown |
-| `max_quality` | `1080p` | Skip 4K REMUX on 1080p TV (until N7) |
+| `max_quality` | `1080p` | Skip 4K REMUX on 1080p lab display until M6.3 ship profile |
 | `exclude_remux` | `true` | Skip Blu-ray REMUX |
 | `stream_display_limit` | `8` | Keep picker rows scannable |
 

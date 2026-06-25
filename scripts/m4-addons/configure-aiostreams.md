@@ -72,7 +72,7 @@ Configured via configure UI; credentials in `~/.config/mango/aiostreams.credenti
 | Uncached (RD/debrid) | Excluded per-provider | Avoid “still downloading” on debrid |
 | Keyword filters | Junk only (cam/ts/scr) | No remux/WEB-DL/DV exclusions here |
 
-**mango downstream** caps at 1080p in `catalog-filters.example.json` until N7 OLED
+**mango downstream** caps at 1080p in `catalog-filters.example.json` until the M6.3 target-TV profile
 (`max_quality`, `exclude_remux`). AIOStreams stays uncapped.
 
 ### mango stream policy (catalog-service)
@@ -80,7 +80,7 @@ Configured via configure UI; credentials in `~/.config/mango/aiostreams.credenti
 Separate from AIOStreams UI — `config/catalog-filters.example.json`:
 
 - AIOStreams-only stream tiers: cached TorBox → cached TorBox/Real-Debrid → TorBox cached-or-unknown
-- Lab cap: `max_quality: 1080p`, `exclude_remux` until N7 OLED
+- Lab cap: `max_quality: 1080p`, `exclude_remux` until M6.3 target-TV validation
 - `preferred_language` is a soft rank boost; `language` is a hard filter
 - Stream evaluation corpus: `config/stream-gate-fixtures.json` (6 titles)
 

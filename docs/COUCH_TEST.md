@@ -12,6 +12,7 @@ Run gate on Mac before handing off to the TV. Live IPTV is opt-in — not in gat
 bash scripts/pi-deploy.sh --fast --gate   # pull, build, gate-lite
 bash scripts/diag/series-episodes.sh --sample   # on Pi — episode meta + stream probes
 python3 scripts/diag/playability-status.py   # pool depth
+python3 scripts/diag/grow_monitor.py status  # latest grow health; operator-only
 ```
 
 ---
@@ -55,6 +56,18 @@ python3 scripts/diag/playability-status.py   # pool depth
 | # | Action | Pass? |
 |---|--------|-------|
 | 14 | **Refresh library** (~5s reshuffle) | |
+
+## Library grow health (operator)
+
+Do not show grow/debug status on TV. Check this from SSH before claiming library maintenance is healthy.
+
+| # | Check | Pass? |
+|---|-------|-------|
+| G1 | `grow_monitor.py assess` selects the newest run artifact, including failures | |
+| G2 | Orphan count is zero after successful grow or orphan-only repair | |
+| G3 | No title exceeds the overlap cap except curation/pin semantics | |
+| G4 | Failed/partial grow did not publish staged rail pools to couch | |
+| G5 | Source-grow audit explains any short rail with concrete reasons | |
 
 ---
 
