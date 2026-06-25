@@ -79,12 +79,12 @@ start_catalog_service() {
   rm -f "$CATALOG_PID"
   catalog_service_kill_port_listener
   (
-    cd src/catalog-service
+    cd "$REPO_DIR"
     exec setsid env \
       MANGO_REPO_DIR="$REPO_DIR" \
       MANGO_CATALOG_YAML="$catalog_yaml" \
       MANGO_CATALOG_FILTERS="$catalog_filters" \
-      node dist/index.js
+      bash scripts/m2-catalog/service/run-catalog-service.sh
   ) </dev/null >"$CATALOG_LOG" 2>&1 &
   echo $! >"$CATALOG_PID"
 
@@ -164,8 +164,8 @@ stop_stack() {
 
 status_stack() {
   echo "mango: commit=$(git rev-parse --short HEAD 2>/dev/null || echo unknown) voice=${MANGO_VOICE:-0} catalog=${MANGO_CATALOG:-0}"
-  if [[ -f "$CATALOG_PID" ]] && kill -0 "$(cat "$CATALOG_PID")" 2>/dev/null \
-    && curl -sf --max-time 2 "$(catalog_service_url)/health" >/tmp/mango-catalog-health.json 2>/dev/null; then
+  if curl -sf --max-time 2 "$(catalog_service_url)/health" >/tmp/mango-catalog-health.json 2>/dev/null; then
+    catalog_service_recover_pid_file "$CATALOG_PID" >/dev/null 2>&1 || true
     echo "catalog: $(tr -d '\n' </tmp/mango-catalog-health.json)"
   else
     rm -f "$CATALOG_PID"

@@ -112,21 +112,34 @@ def active_window_meta() -> tuple[str, str]:
 
 
 def _launcher_window_ids() -> list[str]:
-    result = _xdotool("search", "--class", "mango-launcher")
-    if result.returncode != 0 or not result.stdout.strip():
-        return []
-    return result.stdout.split()
+    ids: list[str] = []
+    for args in (
+        ("--class", "mango-launcher"),
+        ("--class", "firefox"),
+        ("--name", "mango"),
+    ):
+        result = _xdotool("search", *args)
+        if result.returncode == 0 and result.stdout.strip():
+            ids.extend(result.stdout.split())
+    return list(dict.fromkeys(ids))
+
+
+def _is_launcher_window(wid: str) -> bool:
+    name = _xdotool("getwindowname", wid).stdout.strip().lower()
+    klass = _xdotool("getwindowclassname", wid).stdout.strip().lower()
+    if "selection owner" in name or "tooltip" in name:
+        return False
+    if "mango-launcher" in klass:
+        return True
+    # Firefox fallback exposes the kiosk window as Navigator/firefox.
+    return "mango" in name and ("firefox" in klass or "navigator" in klass)
 
 
 def is_launcher_focused() -> bool:
-    """Chromium kiosk reports title 'mango' but xdotool class is often empty."""
     wid = _xdotool("getactivewindow").stdout.strip()
     if not wid or wid == "0":
         return False
-    name = _xdotool("getwindowname", wid).stdout.strip().lower()
-    if name in ("mango", "mango launcher"):
-        return True
-    return wid in _launcher_window_ids()
+    return _is_launcher_window(wid)
 
 
 def is_mpv_focused() -> bool:
@@ -190,6 +203,26 @@ def find_best_wid(class_hint: str, name_hint: str) -> str | None:
     return best_wid
 
 
+def find_launcher_wid() -> str | None:
+    best_wid: str | None = None
+    best_area = 0
+    for wid in _launcher_window_ids():
+        if not _is_launcher_window(wid):
+            continue
+        geom = _xdotool("getwindowgeometry", "--shell", wid).stdout
+        width = height = 0
+        for line in geom.splitlines():
+            if line.startswith("WIDTH="):
+                width = int(line.split("=", 1)[1])
+            elif line.startswith("HEIGHT="):
+                height = int(line.split("=", 1)[1])
+        area = width * height
+        if area > best_area:
+            best_area = area
+            best_wid = wid
+    return best_wid
+
+
 def send_key_to_wid(wid: str, symbol: str, *, activate: bool = True) -> None:
     if activate:
         active = _xdotool("getactivewindow").stdout.strip()
@@ -199,10 +232,10 @@ def send_key_to_wid(wid: str, symbol: str, *, activate: bool = True) -> None:
 
 
 def send_key_launcher(symbol: str) -> None:
-    wid = find_best_wid("mango-launcher", "mango")
+    wid = find_launcher_wid()
     if not wid:
         return
-    # Route keys without raising Chromium — overlay HUD must stay visible but not eat input.
+    # Route keys without raising the browser; the HUD must stay visible but not eat input.
     send_key_to_wid(wid, symbol, activate=False)
 
 
@@ -227,7 +260,7 @@ def launcher_surface_active() -> bool:
 
 
 def send_launcher_key(symbol: str) -> None:
-    wid = find_best_wid("mango-launcher", "mango")
+    wid = find_launcher_wid()
     if wid:
         _xdotool("windowactivate", "--sync", wid)
     send_key_launcher(symbol)
@@ -278,7 +311,7 @@ def go_home() -> None:
             active_class=klass,
             action="focus_launcher",
         )
-        wid = find_best_wid("mango-launcher", "mango")
+        wid = find_launcher_wid()
         if wid:
             _xdotool("windowactivate", "--sync", wid)
         return

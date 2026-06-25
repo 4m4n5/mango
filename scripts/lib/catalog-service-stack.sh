@@ -103,14 +103,17 @@ start_catalog_service_only() {
   catalog_service_kill_port_listener
 
   (
-    cd "$repo_dir/src/catalog-service"
-    MANGO_REPO_DIR="$repo_dir" MANGO_CATALOG_YAML="$catalog_yaml" MANGO_CATALOG_FILTERS="$catalog_filters" \
-      node dist/index.js
-  ) >"$catalog_log" 2>&1 &
+    cd "$repo_dir"
+    exec setsid env \
+      MANGO_REPO_DIR="$repo_dir" \
+      MANGO_CATALOG_YAML="$catalog_yaml" \
+      MANGO_CATALOG_FILTERS="$catalog_filters" \
+      bash scripts/m2-catalog/service/run-catalog-service.sh
+  ) </dev/null >"$catalog_log" 2>&1 &
   echo $! >"$pid_file"
 
   local i
-  for i in $(seq 1 40); do
+  for i in $(seq 1 120); do
     if catalog_service_healthy; then
       echo "catalog-service ready (:$(catalog_service_port))"
       return 0
@@ -120,7 +123,7 @@ start_catalog_service_only() {
       tail -20 "$catalog_log" >&2 || true
       return 1
     fi
-    sleep 0.25
+    sleep 0.5
   done
   echo "catalog-service did not become healthy" >&2
   return 1

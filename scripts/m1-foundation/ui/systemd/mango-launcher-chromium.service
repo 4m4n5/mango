@@ -1,8 +1,8 @@
 [Unit]
 Description=mango launcher Chromium kiosk
-After=mango-ui-server.service network-online.target
+After=mango-ui-server.service mango-catalog.service network-online.target
 PartOf=graphical-session.target
-Wants=mango-ui-server.service
+Wants=mango-ui-server.service mango-catalog.service
 
 [Service]
 Type=simple
