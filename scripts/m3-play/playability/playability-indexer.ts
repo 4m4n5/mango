@@ -11,8 +11,8 @@ function usage(): never {
   console.error([
     'usage:',
     '  playability-indexer.ts verify --type <movie|series> --id <id>',
-    '  playability-indexer.ts top-up --rail <rail-id> [--mode grow|incremental] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>]',
-    '  playability-indexer.ts top-up --all [--mode grow|incremental] [--pool-target <n>] [--candidate-limit <n>]',
+    '  playability-indexer.ts top-up --rail <rail-id> [--mode grow|incremental] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>]',
+    '  playability-indexer.ts top-up --all [--mode grow|incremental] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>]',
     '  playability-indexer.ts refresh --all [--mode grow|stale|nightly] [--preset quick|nightly|overnight] [--bootstrap] [--pool-target <n>] [--candidate-limit <n>] [--grow-wall-ms <n>] [--grow-max-attempts <n>] [--grow-fail-fast]',
   ].join('\n'));
   process.exit(2);
@@ -167,23 +167,34 @@ async function main(): Promise<void> {
     }
     const poolTarget = readPositiveIntegerFlag(args, '--pool-target');
     const candidateLimit = readPositiveIntegerFlag(args, '--candidate-limit');
+    const growWallMs = readPositiveIntegerFlag(args, '--grow-wall-ms')
+      ?? readPositiveIntegerEnv('MANGO_GROW_WALL_MS');
+    const growMaxAttempts = readPositiveIntegerFlag(args, '--grow-max-attempts')
+      ?? readPositiveIntegerEnv('MANGO_GROW_MAX_ATTEMPTS');
     const topUpMode = readFlag(args, '--mode') ?? 'grow';
     if (topUpMode !== 'grow' && topUpMode !== 'incremental') {
       usage();
     }
+    const topUpOptions = {
+      poolTarget,
+      candidateLimit,
+      mode: topUpMode,
+      wallMs: growWallMs,
+      maxAttempts: growMaxAttempts,
+    };
 
     const core = await CatalogCore.create({ purpose: 'playability_vod' });
     if (all) {
       const rails = [];
       for (const rail of core.browsableRails()) {
-        rails.push(await topUpRail(core, rail.id, { poolTarget, candidateLimit, mode: topUpMode }));
+        rails.push(await topUpRail(core, rail.id, topUpOptions));
       }
       await writeJsonAndExit({ ok: true, rails }, 0);
     }
     if (!railId) {
       usage();
     }
-    const result = await topUpRail(core, railId, { poolTarget, candidateLimit, mode: topUpMode });
+    const result = await topUpRail(core, railId, topUpOptions);
     await writeJsonAndExit(result, 0);
   }
 
