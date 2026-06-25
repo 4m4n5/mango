@@ -105,6 +105,28 @@ def fallback_payload(args: argparse.Namespace, raw: str) -> dict[str, Any]:
     return payload
 
 
+def enrich_payload(payload: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    state = load_state(Path(args.state_path) if args.state_path else None)
+    started_at = int(args.start_ms or 0)
+    finished_at = int(args.end_ms or 0)
+
+    if args.run_id and not payload.get("run_id"):
+        payload["run_id"] = args.run_id
+    if args.mode and not payload.get("mode"):
+        payload["mode"] = args.mode
+    if not payload.get("stage"):
+        payload["stage"] = state.get("stage") or state.get("phase") or "completion_report"
+    if started_at and not payload.get("started_at"):
+        payload["started_at"] = started_at
+    if finished_at and not payload.get("finished_at"):
+        payload["finished_at"] = finished_at
+    if not payload.get("maintenance_rc"):
+        payload["maintenance_rc"] = int(args.rc or 0)
+    if state and not payload.get("grow_state"):
+        payload["grow_state"] = state
+    return payload
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", required=True)
@@ -122,6 +144,8 @@ def main() -> int:
     if payload is None:
         payload = fallback_payload(args, raw)
         kind = "fallback"
+    else:
+        payload = enrich_payload(payload, args)
     Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(kind)
     return 0

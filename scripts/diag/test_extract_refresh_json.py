@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from extract_refresh_json import extract_refresh_payload, fallback_payload
+from extract_refresh_json import enrich_payload, extract_refresh_payload, fallback_payload
 
 
 class ExtractRefreshJsonTests(unittest.TestCase):
@@ -94,6 +94,39 @@ class ExtractRefreshJsonTests(unittest.TestCase):
         self.assertEqual(payload["rail_id"], "series-india-picks")
         self.assertEqual(payload["fresh_verified"], 1)
         self.assertIn("Do not use older refresh JSON", payload["repair_suggestions"][1])
+
+    def test_enriches_extracted_payload_with_maintenance_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "grow-run-state.json"
+            state_path.write_text(
+                json.dumps({"stage": "strict_grow_sla", "rail_id": "series-india-picks"}),
+                encoding="utf-8",
+            )
+            args = argparse.Namespace(
+                mode="grow",
+                run_id="playability-20260624-183852",
+                start_ms=1000,
+                end_ms=2500,
+                rc=1,
+                state_path=str(state_path),
+            )
+
+            payload = enrich_payload(
+                {
+                    "ok": False,
+                    "failure_category": "rail_grow_target_shortfall",
+                    "rails": [],
+                },
+                args,
+            )
+
+        self.assertEqual(payload["run_id"], "playability-20260624-183852")
+        self.assertEqual(payload["mode"], "grow")
+        self.assertEqual(payload["stage"], "strict_grow_sla")
+        self.assertEqual(payload["started_at"], 1000)
+        self.assertEqual(payload["finished_at"], 2500)
+        self.assertEqual(payload["maintenance_rc"], 1)
+        self.assertEqual(payload["grow_state"]["rail_id"], "series-india-picks")
 
 
 if __name__ == "__main__":
