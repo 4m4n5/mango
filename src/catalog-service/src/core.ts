@@ -124,6 +124,8 @@ type TaggedLiveChannel = LiveChannelMeta & {
 
 type ResolveStreamOptions = {
   seriesCrossProbeLimit?: number;
+  zeroStreamRetryAttempts?: number;
+  zeroStreamRetryDelayMs?: number;
 };
 
 function seriesCrossProbeLimit(options?: ResolveStreamOptions): number {
@@ -262,6 +264,25 @@ const RAIL_ITEMS_CACHE_TTL_MS = Number(process.env.MANGO_RAIL_ITEMS_CACHE_TTL_MS
 const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 6);
 const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 0);
 const STREAM_RESOLVE_BUDGET_MS = Number(process.env.MANGO_STREAM_RESOLVE_BUDGET_MS || 12000);
+
+function boundedInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.floor(parsed)));
+}
+
+const STREAM_ZERO_RETRY_ATTEMPTS = boundedInt(
+  process.env.MANGO_STREAM_ZERO_RETRY_ATTEMPTS,
+  1,
+  0,
+  3,
+);
+const STREAM_ZERO_RETRY_DELAY_MS = boundedInt(
+  process.env.MANGO_STREAM_ZERO_RETRY_DELAY_MS,
+  1500,
+  0,
+  10000,
+);
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -1497,7 +1518,10 @@ export class CatalogCore {
     errors?: string[];
   }> {
     const streamId = normalizeSeriesVerifyId(type, id);
-    const raw = await this.resolveRawStreams(type, streamId);
+    const raw = await this.resolveRawStreams(type, streamId, {
+      zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
+      zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
+    });
 
     if (raw.streams.length === 0) {
       throw new CatalogError(
@@ -1651,7 +1675,7 @@ export class CatalogCore {
     id: string,
     options: ResolveStreamOptions = {},
   ): Promise<RawStreamResolution> {
-    const primary = await this.rawStreams(type, id);
+    const primary = await this.rawStreams(type, id, options);
     if (type !== 'series') {
       return primary;
     }
@@ -1694,7 +1718,7 @@ export class CatalogCore {
 
     const crossProbeLimit = seriesCrossProbeLimit(options);
     if (streams.length === 0 && crossProbeLimit > 0) {
-      const probed = await this.resolveMainEpisodeCrossProbe(episodeId, parsed, crossProbeLimit);
+      const probed = await this.resolveMainEpisodeCrossProbe(episodeId, parsed, crossProbeLimit, options);
       resolveMs += probed.resolveMs;
       errors.push(...probed.errors);
       streams = probed.streams;
@@ -1721,6 +1745,7 @@ export class CatalogCore {
     episodeId: string,
     parsed: ParsedSeriesEpisodeId,
     limit = 24,
+    options: ResolveStreamOptions = {},
   ): Promise<RawStreamResolution> {
     const errors: string[] = [];
     let resolveMs = 0;
@@ -1730,7 +1755,7 @@ export class CatalogCore {
       if (probeId === episodeId) {
         continue;
       }
-      const probe = await this.rawStreams('series', probeId);
+      const probe = await this.rawStreams('series', probeId, options);
       resolveMs += probe.resolveMs;
       errors.push(...probe.errors, `main cross-probe ${probeId}`);
       collected.push(
@@ -1828,7 +1853,7 @@ export class CatalogCore {
         break;
       }
       probesUsed += 1;
-      const probe = await this.rawStreams('series', probeId);
+      const probe = await this.rawStreams('series', probeId, options);
       resolveMs += probe.resolveMs;
       errors.push(...probe.errors, `bonus indexer probe ${probeId}`);
       const aliasStreams = pickBonusStreamsFromCandidates(
@@ -1861,7 +1886,7 @@ export class CatalogCore {
           break;
         }
         probesUsed += 1;
-        const probe = await this.rawStreams('series', probeId);
+        const probe = await this.rawStreams('series', probeId, options);
         resolveMs += probe.resolveMs;
         errors.push(...probe.errors, `bonus ${tier} probe ${probeId}`);
         collected.push(
@@ -1922,7 +1947,11 @@ export class CatalogCore {
     return listEpisodeCrossProbeIds(bareId, videos, target, excludeId, limit);
   }
 
-  private async rawStreams(type: string, id: string): Promise<RawStreamResolution> {
+  private async rawStreams(
+    type: string,
+    id: string,
+    options: ResolveStreamOptions = {},
+  ): Promise<RawStreamResolution> {
     const key = `${type}:${id}`;
     const cached = this.streamCache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
@@ -1947,23 +1976,43 @@ export class CatalogCore {
       this.streamNegativeCache.delete(key);
     }
 
-    const started = Date.now();
-    const streamAddons = this.addons.filter((addon) => supportsResource(addon.manifest, 'stream', type));
-    const settled = await Promise.allSettled(
-      streamAddons.map((addon) => this.fetchAddonStreams(addon, type, id)),
-    );
+    const retryAttempts = boundedInt(options.zeroStreamRetryAttempts, 0, 0, 3);
+    const retryDelayMs = boundedInt(options.zeroStreamRetryDelayMs, 0, 0, 10000);
+    const overallStarted = Date.now();
+    let streams: Stream[] = [];
+    let errors: string[] = [];
 
-    const streams: Stream[] = [];
-    const errors: string[] = [];
-    for (const result of settled) {
-      if (result.status === 'fulfilled') {
-        streams.push(...result.value.streams);
-      } else {
-        errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+    for (let attempt = 0; attempt <= retryAttempts; attempt += 1) {
+      const streamAddons = this.addons.filter((addon) => supportsResource(addon.manifest, 'stream', type));
+      const settled = await Promise.allSettled(
+        streamAddons.map((addon) => this.fetchAddonStreams(addon, type, id)),
+      );
+
+      streams = [];
+      errors = [];
+      for (const result of settled) {
+        if (result.status === 'fulfilled') {
+          streams.push(...result.value.streams);
+        } else {
+          errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+        }
+      }
+
+      if (streams.length > 0 || attempt >= retryAttempts) {
+        break;
+      }
+      if (retryDelayMs > 0) {
+        await delay(retryDelayMs);
       }
     }
 
-    const resolveMs = Date.now() - started;
+    const resolveMs = Date.now() - overallStarted;
+    if (streams.length === 0 && retryAttempts > 0) {
+      errors = [
+        ...errors,
+        `zero streams after ${retryAttempts + 1} attempts`,
+      ];
+    }
     if (streams.length > 0 && hasCacheableStream(streams)) {
       this.streamNegativeCache.delete(key);
       this.streamCache.set(key, {

@@ -137,6 +137,8 @@ Grow reads the report and scales composite/AI catalog source weights (`MANGO_GRO
 
 Demoted sources keep a probation path: the weighted allocator still reserves at least one fetch slot per configured source, and multipliers are clamped to a small floor (`MANGO_GROW_SOURCE_PROBATION_MULTIPLIER`, default 0.08). Catastrophic zero-yield sources drop to probation after bounded evidence (`MANGO_GROW_SOURCE_PROBATION_MIN_SAMPLES`, default 12). Nonzero but unsustainable sources also drop to probation when they have enough stream samples but do not clear the verified-yield floor (`MANGO_GROW_SOURCE_MIN_VERIFY_RATE`, default 0.05). If a rail previously met target under weighted selection and later regresses, the runtime multipliers for that rail's touched sources reset to neutral.
 
+`GET /stream` display/gate resolves retry an empty stream response once by default (`MANGO_STREAM_ZERO_RETRY_ATTEMPTS=1`, `MANGO_STREAM_ZERO_RETRY_DELAY_MS=1500`) because AIOStreams can return HTTP 200 with zero streams while an upstream fetcher is briefly rate-limited. Playability verification does not inherit that retry by default; the grow loop keeps efficiency and records repeated misses through tombstones/source weights.
+
 Disable: `MANGO_SOURCE_HITRATE_PREFLIGHT=0` and/or `MANGO_GROW_HITRATE_WEIGHTS=0`.
 
 Monitor phase file: `~/.cache/mango/grow-run-state.json` (also appended to `playability-grow.log`).
