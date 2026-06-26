@@ -373,8 +373,12 @@ ON CONFLICT(item_key) DO UPDATE SET
 export function unsaveLibraryItem(input: { source?: string; type: string; id: string }): boolean {
   const db = ensureDb();
   const key = libraryItemKey(input.source, input.type, input.id);
-  const result = db.prepare('DELETE FROM saved_items WHERE item_key = ?').run(key);
-  return result.changes > 0;
+  const transaction = db.transaction(() => {
+    const result = db.prepare('DELETE FROM saved_items WHERE item_key = ?').run(key);
+    cleanupUnreferencedLibraryItem(db, key);
+    return result.changes > 0;
+  });
+  return transaction();
 }
 
 export function listSavedLibraryItems(tab?: CatalogTab, limit = 100): SavedLibraryItem[] {
@@ -679,8 +683,30 @@ WHERE lc.context_id = ?;
 
 export function clearLibraryContext(): number {
   const db = ensureDb();
-  const result = db.prepare('DELETE FROM library_context WHERE context_id = ?').run(LIBRARY_CONTEXT_ID);
-  return result.changes;
+  const transaction = db.transaction(() => {
+    const existing = db.prepare('SELECT item_key FROM library_context WHERE context_id = ?')
+      .get(LIBRARY_CONTEXT_ID) as { item_key: string } | undefined;
+    const result = db.prepare('DELETE FROM library_context WHERE context_id = ?').run(LIBRARY_CONTEXT_ID);
+    if (existing) {
+      cleanupUnreferencedLibraryItem(db, existing.item_key);
+    }
+    return result.changes;
+  });
+  return transaction();
+}
+
+function cleanupUnreferencedLibraryItem(db: Database.Database, itemKey: string): void {
+  const row = db.prepare(`
+SELECT
+  (SELECT COUNT(*) FROM saved_items WHERE item_key = @item_key)
+  + (SELECT COUNT(*) FROM watch_state WHERE item_key = @item_key)
+  + (SELECT COUNT(*) FROM watch_history WHERE item_key = @item_key)
+  + (SELECT COUNT(*) FROM library_context WHERE item_key = @item_key)
+  AS ref_count;
+`).get({ item_key: itemKey }) as { ref_count: number } | undefined;
+  if ((row?.ref_count ?? 0) === 0) {
+    db.prepare('DELETE FROM library_items WHERE item_key = ?').run(itemKey);
+  }
 }
 
 function importLegacyPinsOnce(db: Database.Database): void {

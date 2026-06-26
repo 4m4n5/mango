@@ -82,6 +82,36 @@ test('saved upsert and delete are idempotent', () => withTempLibrary(() => {
   assert.equal(getLibraryState({ type: 'movie', id: 'tt0111161' }).saved, false);
 }));
 
+test('unsave prunes unreferenced metadata but keeps watched metadata', () => withTempLibrary((dir) => {
+  saveLibraryItem({ source: 'gate', type: 'movie', id: 'tt0000001', title: 'Gate' });
+  assert.equal(unsaveLibraryItem({ source: 'gate', type: 'movie', id: 'tt0000001' }), true);
+
+  let db = new Database(join(dir, 'library.db'));
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM library_items WHERE source = 'gate'")
+      .get() as { count: number }).count,
+    0,
+  );
+  db.close();
+
+  saveLibraryItem({ type: 'movie', id: 'tt0111161', title: 'Watched' });
+  recordLibraryWatch({
+    type: 'movie',
+    id: 'tt0111161',
+    position_sec: 10,
+    duration_sec: 100,
+  });
+  assert.equal(unsaveLibraryItem({ type: 'movie', id: 'tt0111161' }), true);
+
+  db = new Database(join(dir, 'library.db'));
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM library_items WHERE id = 'tt0111161'")
+      .get() as { count: number }).count,
+    1,
+  );
+  db.close();
+}));
+
 test('legacy user-pins import runs once into Saved rows', () => withTempLibrary((dir) => {
   writeFileSync(
     join(dir, 'user-pins.json'),
@@ -135,4 +165,3 @@ test('watch history is indefinite and finished state uses 90 percent cutoff', ()
   assert.equal(state.finished_at, 2000);
   assert.equal(state.latest_watch?.progress_pct, 0.9);
 }));
-

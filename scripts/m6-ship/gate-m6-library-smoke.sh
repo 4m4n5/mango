@@ -31,12 +31,12 @@ json_delete() {
 }
 
 cleanup() {
-  json_delete "/library/saved" "{\"source\":\"$SOURCE\",\"type\":\"$TYPE\",\"id\":\"$ID\"}" >/dev/null 2>&1 || true
   if [[ -n "${PREVIOUS_CONTEXT:-}" ]]; then
     json_post "/library/context" "$PREVIOUS_CONTEXT" >/dev/null 2>&1 || true
   else
     json_delete "/library/context" "{}" >/dev/null 2>&1 || true
   fi
+  json_delete "/library/saved" "{\"source\":\"$SOURCE\",\"type\":\"$TYPE\",\"id\":\"$ID\"}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
