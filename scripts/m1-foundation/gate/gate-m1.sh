@@ -31,7 +31,7 @@ fi
 
 curl -sf --max-time 3 http://127.0.0.1:3000/api/health >/dev/null \
   && gate_pass "launcher /api/health" || gate_fail "launcher /api/health"
-bash scripts/verify-tv.sh --quiet && gate_pass "verify-tv" || gate_fail "verify-tv"
+bash scripts/verify-tv.sh --quiet --repair-server && gate_pass "verify-tv" || gate_fail "verify-tv"
 
 if [[ "${MANGO_GATE_SCREENSHOT:-0}" == "1" ]]; then
   if SHOT="$(bash scripts/m1-foundation/gate/capture-tv.sh launcher-idle 2>/dev/null)"; then

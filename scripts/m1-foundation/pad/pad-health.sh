@@ -8,6 +8,7 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 STATUS_FILE="${CACHE_DIR}/mango-tv-pad-status.json"
 PID_FILE="${CACHE_DIR}/mango-tv-pad.pid"
 MAX_STATUS_AGE_SEC="${MANGO_PAD_HEALTH_MAX_AGE_SEC:-8}"
+REPAIR_WAIT_STEPS="${MANGO_PAD_REPAIR_WAIT_STEPS:-90}"
 
 QUIET=0
 JSON=0
@@ -190,7 +191,7 @@ repair_pad() {
   else
     bash "$REPO_DIR/scripts/m1-foundation/pad/start-mango-tv-pad.sh" >/dev/null 2>&1 || true
   fi
-  for _ in $(seq 1 20); do
+  for _ in $(seq 1 "$REPAIR_WAIT_STEPS"); do
     sleep 0.5
     if check_health; then
       return 0

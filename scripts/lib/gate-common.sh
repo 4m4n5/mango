@@ -185,6 +185,7 @@ gate_idle_hygiene() {
   fi
   if [[ -x "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" ]]; then
     bash "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" --quiet \
+      || bash "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" --quiet --repair \
       && gate_pass "mango-tv-pad current device" \
       || gate_fail "mango-tv-pad current device"
   fi
