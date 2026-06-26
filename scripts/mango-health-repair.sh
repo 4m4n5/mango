@@ -27,6 +27,11 @@ if ! flock -n 9; then
   [[ "$QUIET" == "1" ]] || echo "health-repair: already running"
   exit 0
 fi
+cleanup_lock() {
+  flock -u 9 2>/dev/null || true
+  rm -f "$LOCK_FILE"
+}
+trap cleanup_lock EXIT
 
 if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
   # shellcheck disable=SC1091
