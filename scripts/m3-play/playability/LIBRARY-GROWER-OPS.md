@@ -34,7 +34,14 @@ Mac → Pi:
 ```bash
 bash scripts/pi-exec.sh 'cd ~/mango && python3 scripts/diag/grow_monitor.py status'
 bash scripts/m3-play/playability/playability-grow.sh --status
+bash scripts/m3-play/playability/monitor-grow-poll.sh --interval 90 --max 30
 ```
+
+`monitor-grow-poll.sh` is a Mac-side long-run helper: it repeatedly calls the
+Pi through `scripts/pi-exec.sh`, appends status and recent overnight log output
+to `~/.cache/mango/grow-poll-mac.log`, and stops when the grow/indexer process
+is gone. Use it when a grow is running for many minutes and the operator wants
+a durable terminal log without opening a persistent SSH shell.
 
 Controller entrypoint:
 

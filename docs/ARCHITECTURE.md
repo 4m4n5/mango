@@ -10,15 +10,15 @@ Stack layers, foreground contract, and API boundaries. Policy lives here — not
 
 ```
 Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
-                              ↓
-                         mpv play orchestrator
+                              ├→ Mango library state
+                              └→ mpv play orchestrator
 ```
 
 | Layer | Owns | Does not own |
 |-------|------|----------------|
 | **AIOStreams** (`:3035`) | Aggregate indexers + debrid, dedup, SEL, formatter | Lab 1080p cap, mpv probe, auto-play |
 | **AIOMetadata** (`:3036`) | mdblist catalog adapters | Stream resolve |
-| **catalog-service** | Rails YAML, play orchestrator, stream metadata, playability, voice `/voice/*` | Indexer credentials, debrid keys |
+| **catalog-service** | Rails YAML, Mango library state, play orchestrator, stream metadata, playability, voice `/voice/*` | Indexer credentials, debrid keys |
 | **Launcher** | Browse UI, detail, picker, voice command poll | Stream ranking (trust upstream + filters) |
 | **mpv** | Decode + render | Catalog metadata |
 | **orchestrator** | STT · LLM · launcher dispatch | Catalog data · mpv IPC |
@@ -55,6 +55,10 @@ after 4K decode/display gates prove it reliable.
 
 The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on grow/link/verify pool writes. Grow runs operate on an isolated work DB and publish the live DB after a completed publishable run; per-rail `+20` shortfalls are operator warnings by default, while failed or aborted runs preserve the previous couch snapshot. Finalization attaches verified orphans and caps unpinned overlap without full metadata retheme. See [PLAYABILITY.md](PLAYABILITY.md).
 
+### Mango library state
+
+Mango is the user-library source of truth. `progress.db` owns resume today; M6.1 extends that with Mango-owned saved/watchlist, history, finished, hidden/blocked, and taste/profile state. `/etc/mango/stremio-export.json` remains an addon-manifest graph only, not a Stremio user-library sync source.
+
 ---
 
 ## Module graph
@@ -80,7 +84,7 @@ The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml`
 
 ```
 src/launcher/           TV UI + voice-hud.ts + voice-commands.ts
-src/catalog-service/    Stremio-core bridge · play · playability · AI catalogs
+src/catalog-service/    Stremio-compatible bridge · Mango library · play · playability · AI catalogs
 src/mango-ui-server/    serve.py — static + health + launch API + catalog proxy
 src/orchestrator/       voice hub (FastAPI)
 src/companion/          phone PWA
@@ -148,7 +152,7 @@ Phone companion (:3001) ──WSS──► orchestrator (:8765)
 Launcher voice-hud ◄── WS loopback :8766
 ```
 
-**Rule:** Voice opens detail only — playback stays on pad **B**. No `mango_play` in manifest.
+**Rule:** Voice opens detail/results only — playback stays on pad **B**. No `mango_play` or `play_youtube` in manifest.
 
 Detail: [VOICE.md](VOICE.md)
 
@@ -162,7 +166,7 @@ Meta (Cinemeta) →  poster, plot, seasons
 Stream (via AIOStreams) →  playable URLs
 ```
 
-mango does **not** reindex torrents. It runs the same protocol Stremio uses.
+mango does **not** reindex torrents. It runs the same protocol Stremio uses for addon catalogs, metadata, and streams; Mango-owned library/progress state stays separate.
 
 ---
 

@@ -162,7 +162,7 @@ Not started at idle. Opt-in only:
 | App | Env |
 |-----|-----|
 | Stremio desktop | `MANGO_FALLBACK_STREMIO=1` |
-| Kodi YouTube | `MANGO_LEGACY_YOUTUBE=1` |
+| Legacy Kodi YouTube | `MANGO_LEGACY_YOUTUBE=1` |
 
 Fallback apps are not part of normal gate-lite; use them only when explicitly diagnosing a native playback gap.
 

@@ -13,10 +13,10 @@
 |-------|-----------|
 | **TV UI** | Chromium launcher — browse rails, search, detail |
 | **Catalog / streams** | `catalog-service` + self-hosted addons (Cinemeta, AIOStreams, AIOMetadata, optional NexoTV live) |
-| **Library** | `playability.db` verified titles + strict thematic rail pools + background grow jobs |
+| **Library** | Mango-owned state: `playability.db` verified titles, `progress.db` resume, saved/history/finished planned in M6.1 |
 | **Player** | **mpv** fullscreen — VOD + live (`--live`) |
 | **Voice** | Phone PTT → orchestrator → launcher detail open |
-| **Fallback** | Stremio desktop / Kodi YouTube — hidden, opt-in only |
+| **Fallback** | Stremio desktop / legacy Kodi YouTube — hidden, opt-in only |
 
 North star: *ask or browse in mango · watch in mpv · never wonder which app you're in.*
 
@@ -76,7 +76,7 @@ scripts/
   MILESTONES.md       layout map
 src/
   launcher/           TV UI shell
-  catalog-service/    Stremio-core bridge
+  catalog-service/    Stremio-compatible addon bridge + Mango library state
   orchestrator/       voice hub
   companion/          phone PWA
 config/               examples → /etc/mango/ on Pi

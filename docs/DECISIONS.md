@@ -9,7 +9,7 @@ Locked choices. Update when changing behavior.
 | TV navigation | 8BitDo Micro Bluetooth |
 | UI stack | Vite + vanilla TypeScript |
 | Branch | `feat/native-experience` |
-| Product direction | mango-owned TV-first UX; Stremio/Kodi = fallback engines |
+| Product direction | Mango-owned TV-first UX and user library; Stremio/Kodi = fallback engines |
 
 ---
 
@@ -49,7 +49,7 @@ Locked choices. Update when changing behavior.
 | Topic | Choice |
 |-------|--------|
 | Catalog service | `:3020` · `@stremio/stremio-core-web` |
-| Addon graph | `/etc/mango/stremio-export.json` |
+| Addon graph | `/etc/mango/stremio-export.json` contains manifests only, not user-library sync |
 | Player | **mpv** fullscreen — not Stremio/Kodi chrome |
 | Self-hosted addons | AIOStreams `:3035` · AIOMetadata `:3036` |
 | Live TV | NexoTV · `catalog-live.yaml` · opt-in gates ([LIVE_TV.md](LIVE_TV.md)) |
@@ -93,8 +93,9 @@ Locked choices. Update when changing behavior.
 
 | Topic | Choice |
 |-------|--------|
-| Library | Stremio export + mango progress merge |
-| YouTube | yt-dlp → mpv |
+| Library | Mango-owned progress, saved/watchlist, history, finished, hidden/blocked, taste/profile state |
+| Stremio sync | None. Optional one-time operator import can exist later, but no ongoing Stremio library sync or write-back |
+| YouTube | `yt-dlp` → mpv; native rail/search/detail; voice opens, pad **B** plays |
 | 4K | Ship profile on target TV; relax filters in `catalog-filters.json` |
 | Deploy | `install.sh` wizard — no SSH for household setup |
 

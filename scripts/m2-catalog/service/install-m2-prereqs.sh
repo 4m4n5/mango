@@ -31,7 +31,7 @@ fi
 
 echo
 echo "=== next steps ==="
-echo "1. Stremio addons → /etc/mango/stremio-export.json"
+echo "1. Addon manifests → /etc/mango/stremio-export.json (not user-library sync)"
 echo "     bash scripts/m2-catalog/service/setup-stremio-export.sh --from-local"
 echo "     # or manual export: setup-stremio-export.sh /path/to/export.json"
 echo "2. bash scripts/m2-catalog/service/spike-mpv-http.sh"

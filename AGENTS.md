@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-**Branch:** `feat/native-experience` — native TV home. **Shipped through M4 + most of M5** (browse · play · addons · voice librarian · AI catalog slots). **Active hardening:** M3 verified-library grow repeatability. **Next:** M5 completion (living librarian + **M5.5 companion UX ship bar**) · **M6 ship** (library sync · YouTube · 4K · **M6.5 TV UX** · wizard).
+**Branch:** `feat/native-experience` — native TV home. **Shipped through M4 + most of M5** (browse · play · addons · voice librarian · AI catalog slots). **Active hardening:** M3 verified-library grow repeatability. **Next:** M5 completion (living librarian + **M5.5 voice safety contract**) · **M6 ship** (Mango-owned library · YouTube · 4K · post-YouTube **M6.5 unified UX** · wizard).
 
 ## Read first
 

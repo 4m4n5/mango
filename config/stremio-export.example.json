@@ -1,5 +1,5 @@
 {
-  "_comment": "Paste from Stremio: Settings → Export. Copy to /etc/mango/stremio-export.json on Pi. Never commit real export.",
+  "_comment": "Addon manifest graph only, not Mango user-library sync. Copy to /etc/mango/stremio-export.json on Pi. Never commit real export.",
   "addons": [
     {
       "name": "Cinemeta",

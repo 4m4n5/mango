@@ -22,6 +22,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 |-----------|---------|
 | **Legit metadata** | Posters and titles from Cinemeta / TMDB — no mock rails in production |
 | **Stremio-compatible graph** | Rails and AI catalogs use the same addon protocol as Stremio |
+| **Mango owns the library** | Continue, saved, history, finished, hidden/blocked, and taste state live in Mango — not Stremio sync |
 | **mpv is the player** | Movies, series, live IPTV, and (future) YouTube play in mpv — not Stremio/Kodi chrome |
 | **AI catalogs are real** | Named, persistent home rails (max 3 per tab) — not ephemeral toasts |
 | **Verified rails stay quiet** | Background grow can work for hours, but couch rails switch only after a completed publishable maintenance run |
@@ -37,11 +38,11 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 
 | Topic | Decision |
 |-------|----------|
-| Catalog source | Stremio library + YAML rails + AI catalog slots |
+| Catalog source | YAML rails + AI catalog slots + Mango-owned library state, backed by the Stremio addon protocol |
 | Addon runtime | `stremio-core` in `catalog-service` |
 | Minimum addons | Cinemeta + self-hosted **AIOStreams** + **AIOMetadata** |
 | Debrid | Real Debrid + TorBox — configured in AIOStreams UI |
-| Stremio import | Export file at `/etc/mango/stremio-export.json` |
+| Addon manifest config | `/etc/mango/stremio-export.json` contains addon manifests only; it is not a user-library sync source |
 | Rail config | `config/catalog.yaml` on Pi (git-managed examples in repo) |
 | Regional V1 | India / Bollywood rails required |
 | Search | Verified library + Cinemeta external fallback |
@@ -62,18 +63,20 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 
 | Topic | Decision |
 |-------|----------|
-| Continue rail | Stremio library first, then mango `progress.db` resume |
+| Continue rail | Mango `progress.db` resume first, then Mango saved/in-progress library items |
 | Resume source of truth | mango progress DB (mpv position watcher) |
 | Verified library | `playability.db` active verified titles; thematic `rail_pool` memberships |
+| User library | Mango-owned saved/watchlist, history, finished, hidden/blocked, and taste/profile state (**M6.1**) |
 | Library grow | Best-effort fresh `+20` new-to-rail verified target per active rail; shortfalls publish usable verified work with operator warnings |
 | Grow visibility | Operator-only reports; no TV debug/progress surface |
-| Finished watching | Write back to Stremio library when possible (**M6**) |
+| Finished watching | Store in Mango progress/library state; no Stremio write-back |
 
 ### Voice & AI
 
 | Topic | Decision |
 |-------|----------|
 | Voice role | Browse + open librarian — no voice play |
+| YouTube voice role | Open YouTube results/detail after M6.2; pad **B** still starts playback |
 | STT | Deepgram `nova-3` · Hinglish (`multi` + hi/en fallback) |
 | TTS | Off until **M6** soundbar/TV path validated |
 | AI catalogs | Voice-created slots on home · overflow handling (replace / pin / merge) |
@@ -93,14 +96,14 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | Home rails show real Cinemeta/TMDB posters | No mocks |
 | Play from configured rail | mpv, no Stremio UI |
 | Verified library grows | Active rails gain fresh verified thematic titles, shortfalls are visible to operators, and verified work is not discarded when a rail misses target |
-| Continue rail order | Stremio library → local resume |
+| Continue rail source | Mango progress/library state only |
 | Stream exhaustion | Auto-retry → hidden Stremio |
 | **⌂** from mpv | Home < 300 ms |
 | Voice creates AI catalog | Persists across reboot |
 | Companion discover query | No TV jump; clarifying chat (M5.5) |
 | Companion clear open | Detail on TV; phone/TV agree (M5.5) |
 | 4K title on ship TV | Visible picture + reliable audio (**M6**) |
-| TV browse at 3 m | Legible focus, stable rails, couch-safe errors (**M6.5**) |
+| TV + companion browse at 3 m | Legible focus, stable rails, YouTube included, couch-safe errors, coherent phone/HUD copy (**M6.5**) |
 | First boot | `install.sh` wizard → couch-ready without SSH (**M6**) |
 
 ---

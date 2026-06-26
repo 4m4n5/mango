@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# N5a voice tools gate — manifest + search smoke (no LLM API, no play).
+# M5 voice tools gate — manifest + search smoke (no LLM API, no play).
 # Usage: bash scripts/m5-voice/ai/gate-m5-voice.sh
 
 set -euo pipefail
@@ -14,7 +14,7 @@ FAIL=0
 ok() { echo "  PASS: $*"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL: $*"; FAIL=$((FAIL + 1)); }
 
-echo "=== N5 voice tools gate $(date -Iseconds) ==="
+echo "=== M5 voice tools gate $(date -Iseconds) ==="
 echo "catalog: $CATALOG"
 echo
 
@@ -27,7 +27,7 @@ else
 fi
 
 TOOLS_JSON="$(curl -sf --max-time 10 "$CATALOG/voice/tools" || true)"
-if [[ -n "$TOOLS_JSON" ]] && echo "$TOOLS_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; names={t["name"] for t in d["tools"]}; assert "mango_open_title" in names and "mango_search" in names and "mango_play" not in names' 2>/dev/null; then
+if [[ -n "$TOOLS_JSON" ]] && echo "$TOOLS_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; names={t["name"] for t in d["tools"]}; assert "mango_open_title" in names and "mango_search" in names and not {"mango_play","mango_play_continue","play_youtube","mango_play_youtube"} & names' 2>/dev/null; then
   ok voice-tools-manifest
 else
   bad voice-tools-manifest

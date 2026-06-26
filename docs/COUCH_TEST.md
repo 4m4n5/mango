@@ -83,9 +83,9 @@ Do not show grow/debug status on TV. Check this from SSH before claiming library
 
 ---
 
-## Voice companion (M5.5)
+## Voice companion (M5.5a safety, M5.5b polish)
 
-Requires `MANGO_VOICE=1`. Full spec: [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
+Requires `MANGO_VOICE=1`. M5.5a verifies the voice contract now; final phone/HUD polish is re-run after native YouTube. Full spec: [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
 
 | # | Action | Pass? |
 |---|--------|-------|
@@ -99,9 +99,9 @@ Requires `MANGO_VOICE=1`. Full spec: [tasks/m5-companion-ux-ship.md](tasks/m5-co
 
 ---
 
-## TV UI/UX ship polish (M6.5)
+## Unified TV/companion UX ship polish (M6.5)
 
-Manual sign-off after M6 feature slices. Spec: [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md)
+Manual sign-off after Mango Library, YouTube, and 4K feature slices. Spec: [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md)
 
 | # | Action | Pass? |
 |---|--------|-------|
@@ -111,5 +111,6 @@ Manual sign-off after M6 feature slices. Spec: [tasks/m6-tv-ux-ship.md](tasks/m6
 | U4 | Tab vs shuffle visually distinct (active vs amber outline) | |
 | U5 | Play failure shows couch copy — no API/mpv stderr | |
 | U6 | Empty rail hidden or graceful — no full-screen error | |
-| U7 | Continue rail order correct (library → resume) | |
+| U7 | Continue rail uses Mango progress/library state only | |
 | U8 | ⌂ from mpv — home <300 ms perceived | |
+| U9 | YouTube rail/search/detail follows the same focus, HUD, and pad-play rules | |

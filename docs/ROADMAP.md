@@ -13,8 +13,8 @@ M1 Foundation     ████████████████████  
 M2 Browse         ████████████████████  shipped
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
-M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 ship bar
-M6 Ship           ░░░░░░░░░░░░░░░░░░░░  planned — library sync · YouTube · 4K · TV UX · wizard
+M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 voice safety contract
+M6 Ship           ░░░░░░░░░░░░░░░░░░░░  planned — Mango library · YouTube · 4K · unified UX · wizard
 ```
 
 | Milestone | Outcome | Status |
@@ -23,8 +23,8 @@ M6 Ship           ░░░░░░░░░░░░░░░░░░░░  
 | **M2** Browse | Catalog rails · Movies / Series / Live · 9-up grid | ✓ |
 | **M3** Play | mpv orchestrator · picker · episodes · playability/grow | ✓ hardening |
 | **M4** Addons | Self-hosted AIOStreams + AIOMetadata | ✓ |
-| **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · companion UX ship bar | ◐ |
-| **M6** Ship | Library · YouTube · 4K HDR · TV UI/UX polish · plug-and-play | planned |
+| **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · voice safety contract | ◐ |
+| **M6** Ship | Mango-owned library · YouTube · 4K HDR · unified TV/companion UX · plug-and-play | planned |
 
 ---
 
@@ -114,24 +114,22 @@ Pi 5 · X11 + Openbox
 | AI catalog slots | ✓ | Max 3/tab · voice CRUD · playability pools |
 | Living librarian | ◐ | Profile · journal · conversation policy · reflection |
 | AI catalog bootstrap | ✓ | Compose · reserve · async bootstrap |
-| **M5.5 Companion UX ship bar** | — | Capability review + phone/HUD polish — **M5 merge blocker** |
+| **M5.5 Voice safety contract** | — | Capability review + open/clarify gates — **M5 merge blocker**; final companion/HUD polish after YouTube |
 
-### M5.5 — AI companion UX ship bar
+### M5.5 — AI companion contract + UX split
 
-Half the north star is *ask in mango*. Infrastructure can pass gates while the companion still feels like a debug console. **M5.5** makes the living librarian ship-ready across phone, orchestrator, and TV HUD.
+Half the north star is *ask in mango*. The implementation is split so Mango does not polish the companion twice: **M5.5a** locks the voice safety contract before more surfaces land, and **M5.5b** finishes phone/HUD polish after native YouTube exists.
 
 | Area | Work |
 |------|------|
-| Capability review | Full `mango_*` tool audit · Hinglish corpus · persona/policy alignment |
-| Agent quality | Discover / open / curate / memory lanes · ordinals · no false TV opens |
-| Phone companion | PTT · tool transparency · proactive opt-in · memory summary |
-| TV voice HUD | Ephemeral card · safe area · opt-in proactive (≤1/day) |
-| Coherence | Phone/TV agreement · `tv_seq` ack · async catalog copy |
-| Acceptance | Couch C-V1–C-V8 · `gate-m5-companion-couch.sh` · opt-in LLM integration |
+| **M5.5a contract** | Full `mango_*` tool audit · Hinglish corpus · discover/open/curate/memory lanes · ordinals · no false TV opens |
+| **M5.5a coherence** | Phone/TV agreement · `tv_seq` ack · async catalog copy · mock + opt-in LLM corpus gates |
+| **M5.5b polish** | Phone tool transparency · proactive opt-in · memory summary · launcher HUD safe area, copy, and dwell |
+| Acceptance | C-V1–C-V8 safety now; post-YouTube companion/HUD pass before M6.5 merge |
 
 **Spec:** [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
 
-**M5 complete when:** living librarian infrastructure **and** M5.5 ship bar both pass.
+**M5 complete when:** living librarian infrastructure **and** M5.5a voice safety contract both pass. M5.5b polish is part of the post-YouTube M6.5 ship bar.
 
 **Detail:** [VOICE.md](VOICE.md) · **Gate:** `scripts/m5-voice/ai/gate-m5-voice.sh`
 
@@ -141,18 +139,20 @@ Half the north star is *ask in mango*. Infrastructure can pass gates while the c
 
 Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented hardware upgrade path).
 
-### M6.1 — Library sync
+### M6.1 — Mango-owned library
 
-- Stremio export import as source of truth for library rail
-- Merge Continue: Stremio library → mango resume
-- Finished → write-back to Stremio library (best-effort)
-- Progress backup on exit / cron
+- Mango is the user-library source of truth: saved/watchlist, history, finished, hidden/blocked, and taste/profile hooks
+- Continue rail comes from Mango state: `progress.db` resume first, then saved/in-progress library items
+- Verified titles remain in `playability.db` / `rail_pool`; user library state attaches to verified IDs when possible
+- Stremio export remains addon-manifest config only; no Stremio library sync or write-back
+- Back up Mango progress + library state on exit / cron
 
 ### M6.2 — YouTube
 
-- yt-dlp resolve → mpv play
-- Dedicated YouTube rail · voice `play_youtube`
-- Deprecate Kodi YouTube tile when gate passes
+- `yt-dlp` resolve → mpv play
+- Dedicated YouTube rail/search/detail with Mango-owned history/resume where practical
+- Voice opens YouTube results/detail; pad **B** starts playback under the same voice contract
+- Deprecate legacy Kodi YouTube fallback when the native gate passes
 
 ### M6.3 — 4K HDR living room
 
@@ -167,11 +167,11 @@ Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented ha
 | Filters | Relax lab `max_quality` / `exclude_remux` on ship profile only |
 | Gate | 4K smoke — **picture-visible** assert |
 
-### M6.5 — TV UI/UX ship polish
+### M6.5 — Unified TV/companion UX ship polish
 
-Functional gates ≠ ship quality. Polishes the **10-foot launcher** for 3 m viewing — type, focus, safe area, couch-safe copy, latency feel.
+Functional gates ≠ ship quality. After Mango Library, native YouTube, and 4K ship surfaces exist, polish the **10-foot launcher + companion/HUD flow** for 3 m viewing — type, focus, safe area, couch-safe copy, latency feel, and voice coherence across Movies, Series, Live, and YouTube.
 
-**Spec:** [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · **Acceptance:** COUCH_TEST U1–U8 · `gate-m6-ux-smoke.sh`
+**Spec:** [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · **Acceptance:** COUCH_TEST U1–U9 · `gate-m6-ux-smoke.sh`
 
 ### M6.4 — Plug-and-play
 
@@ -179,7 +179,7 @@ Functional gates ≠ ship quality. Polishes the **10-foot launcher** for 3 m vie
 - Merge to `main` (requires M6.5 sign-off)
 - Optional: NVMe / USB DAC — [HARDWARE.md](HARDWARE.md)
 
-**Ship order:** M6.1 → M6.2 → M6.3 → **M6.5** → M6.4 wizard → merge.
+**Ship order:** M5.5a → M6.1 Mango Library → M6.2 YouTube → M6.3 4K → M5.5b/**M6.5** unified UX → M6.4 wizard → merge.
 
 ### Live TV (shipped · opt-in)
 
@@ -209,8 +209,9 @@ Details: [STATUS.md](STATUS.md#gates) · [ARCHITECTURE.md](ARCHITECTURE.md#gates
 | Refocus fail → wallpaper | Always restore launcher |
 | RAM: Chromium + mpv + voice | One Chromium; mpv exits on ⌂ |
 | yt-dlp breakage | Pin version; Kodi emergency fallback |
-| Companion feels dumb despite tools | M5.5 capability review + couch corpus |
-| TV reads as dev UI at ship | M6.5 polish before merge |
+| Companion feels dumb despite tools | M5.5a safety corpus now; M5.5b polish after YouTube |
+| TV reads as dev UI at ship | M6.5 unified polish before merge |
+| Stremio becomes product source of truth again | Keep `/etc/mango/stremio-export.json` to addon manifests only; Mango owns user library state |
 | Grow passes but specific rails starve | Source-grow audit, probation weights, stronger same-theme playable sources |
 | Verified orphans/overlap drift | Strict publish finalization + orphan-only/overlap-only repair |
 

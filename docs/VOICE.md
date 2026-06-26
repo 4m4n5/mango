@@ -2,7 +2,7 @@
 
 **Milestone:** M5 · **Rule:** Voice **opens** titles — pad **B** plays. No `mango_play`.
 
-**M5 complete when:** living librarian infrastructure + [M5.5 companion UX ship bar](tasks/m5-companion-ux-ship.md) both pass.
+**M5 complete when:** living librarian infrastructure + [M5.5a voice safety contract](tasks/m5-companion-ux-ship.md) both pass. Final companion/HUD polish moves after native YouTube so the UX pass covers all first-class surfaces.
 
 ---
 
@@ -53,7 +53,7 @@ Phone PTT → search → **open detail on TV**.
 
 `mango_search` · `mango_open_title` · `mango_navigate` · AI catalog CRUD · profile/memory tools when voice enabled.
 
-**Non-goals:** `mango_play` · pause · volume.
+**Non-goals:** `mango_play` · `play_youtube` / `mango_play_youtube` · pause · volume.
 
 ### TV command path
 
@@ -80,9 +80,9 @@ Gates: `gate-m5-conversation-policy.sh` · `gate-m5-companion-memory.sh` · gard
 
 ---
 
-## M5.5 — companion UX ship bar
+## M5.5 — companion contract + post-YouTube polish
 
-Infrastructure ≠ ship quality. See [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md).
+M5.5a locks the safety contract now: discover does not jump the TV, clear opens wait for `tv_seq`, ambiguous requests stay on phone, and playback remains pad-only. M5.5b finishes phone/HUD polish after M6.2 YouTube. See [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md).
 
 ---
 
@@ -131,8 +131,10 @@ Phone: `https://<pi-ip>:3001` · Verify: `verify-voice-ready.sh` · Gate: `gate-
 
 | Item | Milestone | Notes |
 |------|-----------|-------|
-| Companion UX ship bar | M5.5 | Make phone/chat/HUD feel like a product, not a debug console |
-| Voice search success writes library | M5/M6 | If user-requested playback verifies a searched title, attach it to best-fit thematic rail |
+| Voice safety contract | M5.5a | Tool/persona audit, no false opens, `tv_seq` acks, corpus gates |
+| Post-YouTube companion/HUD polish | M5.5b / M6.5 | Make phone/chat/HUD feel like one product across Movies, Series, Live, and YouTube |
+| Voice search success writes Mango library | M6.1 | If user-requested playback verifies a searched title, attach it to Mango library state and best-fit thematic rail |
+| YouTube voice discovery/open | M6.2 | Voice opens YouTube result/detail; pad **B** starts playback |
 | TTS over living-room audio | M6.3 | Requires TV/soundbar path and ducking validation |
 | Voice play / transport controls | M6+ | Deferred; current contract is voice opens, pad plays |
 

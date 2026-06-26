@@ -94,6 +94,7 @@ diag/            manual diagnostics
 | `diag/couch-activity-status.sh` | Idle/defer state for maintenance |
 | `diag/grow_monitor.py` | **Grow monitor** — baseline, live status, watch, assess |
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
+| `m3-play/playability/monitor-grow-poll.sh` | Mac-side Pi polling log for long grow runs |
 | `m3-play/playability/rail-pool-retheme.sh` | Thematic pool prune/relocate (manual) |
 | `m3-play/playability/rail-curation.sh` | Pins / blocks |
 

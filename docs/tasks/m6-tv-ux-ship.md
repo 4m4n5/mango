@@ -1,7 +1,7 @@
-# M6.5 — TV UI/UX ship polish
+# M6.5 — Unified TV/companion UX ship polish
 
 **Milestone:** M6 (Ship) · **Blocks:** merge to `main` / household handoff  
-**Depends on:** M2–M4 browse/play ✓ · M6.1–M6.3 (polish on **final** feature surfaces)  
+**Depends on:** M2–M4 browse/play ✓ · M6.1 Mango Library · M6.2 YouTube · M6.3 4K · M5.5b companion/HUD polish
 **Partner skill:** `$ux-design-expert` (visual system) · `$mango-tv-box-expert` (10-ft focus)
 
 ---
@@ -10,7 +10,7 @@
 
 Functional gates prove rails play and pad routes work. **Ship quality** is whether a household perceives mango as a **world-class TV box** at 3 m — not a Chromium kiosk with posters.
 
-Vision: **couch-first · content forward · never wonder which app you're in.** M6.5 polishes **launcher + detail + picker + overlays** — type, focus, density, motion, error states — on the ship stack (library rail, YouTube, 4K profile).
+Vision: **couch-first · content forward · never wonder which app you're in.** M6.5 polishes **launcher + detail + picker + voice HUD + companion coherence** — type, focus, density, motion, error states — on the ship stack (Mango-owned library, native YouTube, 4K profile).
 
 **Merge blocker** alongside M6.4 wizard and 4K smoke — not optional frosting.
 
@@ -30,7 +30,7 @@ Home rails · browse bar (tabs + shuffle) · detail (play → streams → episod
 
 ### 3. States & copy
 
-Loading skeletons · empty rails hidden · play failure couch copy · no raw API/addon errors · offline retry · Continue rail order visible.
+Loading skeletons · empty rails hidden · play failure couch copy · no raw API/addon errors · offline retry · Mango-owned Continue/source labels visible.
 
 ### 4. Motion & latency
 
@@ -38,7 +38,7 @@ Loading skeletons · empty rails hidden · play failure couch copy · no raw API
 
 ### 5. Ship order
 
-M6.1 library → M6.2 YouTube → M6.3 4K → **M6.5 polish** → M6.4 wizard (ships polished UI) → merge.
+M6.1 Mango Library → M6.2 YouTube → M6.3 4K → M5.5b/**M6.5 polish** → M6.4 wizard (ships polished UI) → merge.
 
 ### 6. Acceptance
 
@@ -50,11 +50,10 @@ Extend **`COUCH_TEST.md`** with UX walkthrough U1–U12 · **`gate-m6-ux-smoke.s
 
 ## Out of scope
 
-Launcher framework rewrite · Wayland · fallback app chrome · companion phone (M5.5) · store marketing assets.
+Launcher framework rewrite · Wayland · fallback app chrome · store marketing assets.
 
 ---
 
 ## M6 merge requires
 
-M6.1 · M6.2 (or documented defer) · M6.3 4K smoke · **M6.5** this doc · M6.4 wizard.
-
+M6.1 Mango Library · M6.2 native YouTube · M6.3 4K smoke · M5.5b/**M6.5** this doc · M6.4 wizard.

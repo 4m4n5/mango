@@ -105,10 +105,10 @@ async def execute_tool(
             await asyncio.to_thread(catalog_tools.tool_append_session_notes, settings, bullet_text)
         )
 
-    if name in {"mango_play", "mango_play_continue"}:
+    if name in {"mango_play", "mango_play_continue", "play_youtube", "mango_play_youtube"}:
         return _compact({
             "ok": False,
-            "error": "voice cannot start playback — use mango_open_title after search",
+            "error": "voice cannot start playback — open the detail/result and use pad B",
         })
 
     if name == "mango_now_playing":

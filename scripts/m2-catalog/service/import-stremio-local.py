@@ -5,6 +5,7 @@ The logged-in Stremio desktop syncs addon descriptors into leveldb under
 ~/.local/share/Smart Code ltd/Stremio/QtWebEngine/Default/Local Storage/leveldb
 
 Output shape matches config/stremio-export.example.json for catalog-service.
+This imports addon descriptors only; Mango user-library state is owned by Mango.
 Secrets (RD/TorBox keys embedded in Torrentio URLs) stay in the export file only.
 """
 

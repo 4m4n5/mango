@@ -14,8 +14,8 @@
 | Operate the Pi | [OPS.md](OPS.md) · [DEPLOY.md](DEPLOY.md) |
 | Run couch tests | [COUCH_TEST.md](COUCH_TEST.md) |
 | Playability · grow · thematic rails | [PLAYABILITY.md](PLAYABILITY.md) |
-| M5.5 companion UX ship bar | [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) |
-| M6.5 TV UX polish | [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) |
+| M5.5 voice contract + companion UX split | [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) |
+| M6.5 post-YouTube unified UX polish | [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) |
 | Set up voice | [VOICE.md](VOICE.md) |
 | Set up live TV | [LIVE_TV.md](LIVE_TV.md) |
 | Gamepad | [HARDWARE.md](HARDWARE.md) |

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Install / validate Stremio export for catalog-service.
+# Install / validate addon manifests for catalog-service.
+# This file is an addon graph only; Mango does not sync user library state from Stremio.
 #
-# Stremio desktop: Settings → Export → save JSON file.
+# Optional source: Stremio desktop Settings → Export → save JSON file.
 # Then on Pi:
 #   bash scripts/m2-catalog/service/setup-stremio-export.sh ~/Downloads/stremio-export.json
 #
@@ -16,7 +17,7 @@ EXAMPLE="${MANGO_REPO_DIR:-$HOME/mango}/config/stremio-export.example.json"
 usage() {
   cat <<EOF
 usage:
-  $0 <path-to-export.json>   # copy to $DEST
+  $0 <path-to-export.json>   # normalize addon manifests to $DEST
   $0 --from-local             # read addons from logged-in Stremio on this Pi
   $0 --check                 # validate existing $DEST
   $0 --help
@@ -24,13 +25,13 @@ usage:
 Auto-import (Pi, Stremio already logged in):
   bash $0 --from-local
 
-Manual export from Stremio desktop (secrets file only — not repo deploy; see docs/DEPLOY.md):
+Manual addon export from Stremio desktop (secrets file only — not repo deploy; see docs/DEPLOY.md):
   1. Open Stremio → ⚙ Settings → Export
   2. Save the JSON file
   3. scp export.json mango:/tmp/stremio-export.json   # /etc/mango secret, not git
   4. bash $0 /tmp/stremio-export.json
 
-Never commit the real export. Template: config/stremio-export.example.json
+Never commit the real export. This is not Mango user-library sync. Template: config/stremio-export.example.json
 EOF
 }
 

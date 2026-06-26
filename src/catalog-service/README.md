@@ -8,13 +8,14 @@ HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
 
 | Path | Purpose |
 |------|---------|
-| `/etc/mango/stremio-export.json` | Addon manifests (Cinemeta, AIOStreams, AIOMetadata) |
+| `/etc/mango/stremio-export.json` | Addon manifests only (Cinemeta, AIOStreams, AIOMetadata); not user-library sync |
 | `/etc/mango/catalog.yaml` | Home rails (copy from `config/catalog.example.yaml`) |
 | `/etc/mango/catalog-filters.json` | Stream filters (uncached debrid, max quality) |
 | `/etc/mango/playability.db` | Verified pools + tab session allocation |
 | `/etc/mango/rail-curation-overrides.yaml` | Optional pins/blocks per rail |
 | `/etc/mango/catalog-live.yaml` | Live sport rails (optional; repo example fallback) |
 | `/etc/mango/progress.db` | mpv resume (Continue rail) |
+| `/etc/mango/library.db` | Mango-owned saved/history/finished state (planned M6.1) |
 | `/etc/mango/config.yaml` | Debrid / household keys |
 
 Templates: [`config/stremio-export.example.json`](../../config/stremio-export.example.json) · [`config/catalog.example.yaml`](../../config/catalog.example.yaml) · [`config/catalog-filters.example.json`](../../config/catalog-filters.example.json)

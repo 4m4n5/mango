@@ -14,8 +14,8 @@ What works today, what is still being hardened, and how to verify it.
 | M2 Browse | ✓ | Movies / Series / Live tabs |
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
-| M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5 pending |
-| M6 Ship | — | Library · YouTube · 4K · TV UX · wizard |
+| M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5a voice contract pending |
+| M6 Ship | — | Mango library · YouTube · 4K · unified UX · wizard |
 
 ---
 
@@ -128,9 +128,9 @@ Profile · journal · conversation policy · reflection.
 
 Compose · reserve · async bootstrap. E2E: `MANGO_AI_CATALOG_BOOTSTRAP_E2E=1` on gate.
 
-### M5.5 — Companion UX ship bar —
+### M5.5 — Companion UX split —
 
-Capability review + phone/HUD polish. **M5 merge blocker.** [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
+M5.5a locks the voice safety contract before new surfaces: no false opens, `tv_seq` acks, tool manifest/persona alignment, and couch corpus gates. M5.5b final phone/HUD polish moves after native YouTube so one UX pass covers Movies, Series, Live, and YouTube. [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
 
 Full detail: [VOICE.md](VOICE.md)
 
@@ -142,11 +142,11 @@ Full detail: [VOICE.md](VOICE.md)
 |---|------|-----------|
 | 1 | Prove repeated unattended best-effort grows and improve `+20` target hit rate with stronger playable sources for reality and India-series rails | M3 hardening |
 | 2 | Living librarian (memory + policy) | M5 |
-| 3 | M5.5 AI companion UX ship bar | M5 |
-| 4 | Library sync + write-back | M6.1 |
-| 5 | YouTube yt-dlp rail | M6.2 |
+| 3 | M5.5a AI companion voice safety contract | M5 |
+| 4 | Mango-owned library state | M6.1 |
+| 5 | YouTube yt-dlp rail/search/detail | M6.2 |
 | 6 | 4K HDR TV + soundbar profile | M6.3 |
-| 7 | TV UI/UX ship polish | M6.5 |
+| 7 | M5.5b + M6.5 unified companion/TV UX polish after YouTube | M6.5 |
 | 8 | First-boot wizard | M6.4 |
 
 ---
@@ -188,6 +188,7 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 | `config/catalog-live.example.yaml` | `/etc/mango/catalog-live.yaml` | Live rails |
 | — | `/etc/mango/playability.db` | Verified pools |
 | — | `/etc/mango/progress.db` | mpv resume |
+| — | `/etc/mango/library.db` | Mango-owned saved/history/finished state (planned M6.1) |
 | — | `/etc/mango/ai-catalogs/` | AI catalog slots |
 
 Deploy sync: `scripts/lib/sync-etc-mango-config.sh`
@@ -203,6 +204,7 @@ Deploy sync: `scripts/lib/sync-etc-mango-config.sh`
 | `rsync` repo to Pi | Git push + pull only |
 | Shawshank-only stream gates | Misses India/Hindi/series |
 | Voice `mango_play` | Pad **B** owns playback |
+| Voice `play_youtube` / `mango_play_youtube` | YouTube follows the same voice-open, pad-play contract |
 
 ---
 

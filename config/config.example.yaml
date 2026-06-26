@@ -56,7 +56,7 @@ stt:
 audio:
   input_mode: phone_websocket  # phone streams mic over LAN; no USB mic required
   max_utterance_seconds: 30
-  tts_enabled: false  # N7: enable when 4K TV + soundbar validated; N1–N6: headphones for mpv audio
+  tts_enabled: false  # M6.3: enable when 4K TV + soundbar validated; earlier milestones use HUD/phone text
   # Dev lab: Pi 5 has no 3.5 mm jack — monitor HDMI out, USB DAC, or BT (scripts/audio/)
   overlay_reply_seconds: 10  # TV reply dwell before dismiss (phone keeps history)
   piper_voice: en_US-lessac-medium
@@ -102,7 +102,7 @@ catalog:
   filters_file: /etc/mango/catalog-filters.json
   # exclude_uncached_debrid: true   # skip RD/TB not cached on debrid (default)
   # strict_unknown_cache: false     # also drop debrid when cache unknown
-  # max_quality: 1080p              # Pi-friendly cap until N7 4K
+  # max_quality: 1080p              # Pi-friendly cap until M6.3 4K
   # exclude_remux: true             # skip Blu-ray REMUX picks
   # Runtime override: GET /stream/...?include_uncached=1 or POST /play body
 
@@ -113,7 +113,7 @@ orchestrator:
   ssl_certfile: null  # or /home/aman/.config/mango/certs/mango-companion.pem
   ssl_keyfile: null   # or /home/aman/.config/mango/certs/mango-companion-key.pem
   local_ws_port: 8766  # plain WS on loopback for launcher TV HUD (mkcert not trusted in kiosk)
-  voice_tools_enabled: true  # N5a: browse/search/open via Anthropic tools — no voice play
+  voice_tools_enabled: true  # M5: browse/search/open via LLM tools — no voice play
   max_tool_rounds: 6
   catalog_upstream: http://127.0.0.1:3020
   launcher_ui_upstream: http://127.0.0.1:3000  # HTTP voice commands → TV Chromium
