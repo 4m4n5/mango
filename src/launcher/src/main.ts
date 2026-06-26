@@ -375,6 +375,9 @@ function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseT
 function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
   return (async () => {
     nextEpisodePrompt.dismiss();
+    if (detail.isOpen) {
+      detail.hide();
+    }
     await stopPlaybackForVoice();
     inSettings = false;
     settingsView.classList.add("hidden");
