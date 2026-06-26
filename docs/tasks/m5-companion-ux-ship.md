@@ -39,7 +39,7 @@ mango's north star is **plug-and-play AI TV box** — *ask or browse in mango, w
 | Discover lane | Vague recs → chat/clarify; **never** search literal question as title |
 | Open lane | Clear title → search → single winner → `tv_seq` ack; multi-hit → list, no open |
 | Ordinals | "doosra wala" after list opens correct hit |
-| Curate lane | AI catalog suggest+confirm; overflow (replace/pin/merge) explained once on phone |
+| Curate lane | AI catalog suggest+confirm; overflow (replace/merge) explained once on phone; no AI write to Saved |
 | Memory lane | "what do you know about me?" → readable summary, not yaml dump |
 | Now-playing | Inject mpv context when active; don't hallucinate playback state |
 | Reflection | Post-PTT light reflect + nightly consolidate — non-blocking |

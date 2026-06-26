@@ -8,6 +8,7 @@ import {
   isContinueEligible,
   progressTitleKey,
 } from './keys.js';
+import { resetLibraryDbForTests } from '../library/db.js';
 import { initProgressDb, listContinueItems, resetProgressDbForTests, upsertWatchProgress } from './db.js';
 import { resetWatchWatcherForTests } from './watcher.js';
 
@@ -31,7 +32,10 @@ test('continueSubtitle formats episode progress', () => {
 test('listContinueItems returns multiple titles', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-progress-'));
   process.env.MANGO_PROGRESS_DB_PATH = join(dir, 'progress.db');
+  process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
+  process.env.MANGO_USER_PINS_PATH = join(dir, 'user-pins.json');
   resetProgressDbForTests();
+  resetLibraryDbForTests();
   resetWatchWatcherForTests();
   await initProgressDb();
 
@@ -74,4 +78,7 @@ test('listContinueItems returns multiple titles', async () => {
 
   rmSync(dir, { recursive: true, force: true });
   delete process.env.MANGO_PROGRESS_DB_PATH;
+  delete process.env.MANGO_LIBRARY_DB_PATH;
+  delete process.env.MANGO_USER_PINS_PATH;
+  resetLibraryDbForTests();
 });

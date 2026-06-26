@@ -10,7 +10,7 @@ export interface HomeCallbacks {
 export interface HomeOptions {
   browseTab?: BrowseTab;
   onBrowseTabChange?: (tab: BrowseTab) => void;
-  pinnedKeys?: Set<string>;
+  savedKeys?: Set<string>;
   onLayoutApplied?: () => void;
 }
 
@@ -138,7 +138,7 @@ function appendCatalogSections(
 
     const items: HTMLElement[] = [];
     for (const card of rail.cards) {
-      const button = createPosterCard(card, rail, callbacks, options.pinnedKeys);
+      const button = createPosterCard(card, rail, callbacks, options.savedKeys);
       track.appendChild(button);
       items.push(button);
     }
@@ -184,14 +184,14 @@ function createPosterCard(
   card: ContentCard,
   rail: ContentRail,
   callbacks: HomeCallbacks,
-  pinnedKeys: Set<string> = new Set(),
+  savedKeys: Set<string> = new Set(),
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "card card--poster";
   button.dataset.focusKey = `rail:${rail.id}:${card.type}:${card.id}`;
-  if (pinnedKeys.has(`${card.type}:${card.id}`)) {
-    button.classList.add("card--pinned");
+  if (savedKeys.has(`${card.type}:${card.id}`)) {
+    button.classList.add("card--saved");
   }
   button.setAttribute("role", "listitem");
   button.setAttribute("aria-label", `${card.title}, ${card.subtitle}`);

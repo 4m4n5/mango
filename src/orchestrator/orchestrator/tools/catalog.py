@@ -210,6 +210,26 @@ def tool_now_playing(settings: OrchestratorSettings) -> dict[str, Any]:
     return _request_json(settings, "GET", "/voice/now-playing", timeout=10.0)
 
 
+def tool_save_title(settings: OrchestratorSettings, body: dict[str, Any]) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "POST",
+        "/library/saved",
+        body={**body, "saved_by": "voice"},
+        timeout=15.0,
+    )
+
+
+def tool_unsave_title(settings: OrchestratorSettings, body: dict[str, Any]) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "DELETE",
+        "/library/saved",
+        body=body,
+        timeout=15.0,
+    )
+
+
 def tool_continue_target(settings: OrchestratorSettings, tab: str | None = None) -> dict[str, Any]:
     params = {"tab": tab} if tab else None
     return _request_json(settings, "GET", "/voice/continue", params=params, timeout=10.0)

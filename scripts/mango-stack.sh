@@ -151,6 +151,12 @@ stop_catalog_service() {
   catalog_service_kill_port_listener
 }
 
+backup_library_state_on_stop() {
+  [[ "${MANGO_STATE_BACKUP_ON_STOP:-1}" == "1" ]] || return 0
+  [[ -x "$REPO_DIR/scripts/m6-ship/backup-library-state.sh" ]] || return 0
+  bash "$REPO_DIR/scripts/m6-ship/backup-library-state.sh" --quiet 2>/dev/null || true
+}
+
 start_stack() {
   bash "$REPO_DIR/scripts/mango-kill-strays.sh" 2>/dev/null || true
   bash "$REPO_DIR/scripts/lib/stop-input-remapper.sh" 2>/dev/null || true
@@ -183,6 +189,7 @@ stop_stack() {
   fi
   bash scripts/m1-foundation/ui/stop-mango-ui.sh 2>/dev/null || true
   stop_idle_media
+  backup_library_state_on_stop
 }
 
 status_stack() {

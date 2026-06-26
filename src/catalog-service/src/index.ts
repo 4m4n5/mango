@@ -11,6 +11,20 @@ import { playabilityVerifyTtlMs } from './playability/config.js';
 import { shouldInvalidatePlayabilityAfterPlayError } from './playability/play-failure-policy.js';
 import { assignVerifiedTitleToBestRail } from './playability/rail-pool-retheme.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
+import {
+  clearLibraryContext,
+  getLibraryContext,
+  getLibraryState,
+  initLibraryDb,
+  libraryTabForType,
+  listSavedLibraryItems,
+  listWatchHistory,
+  recordLibraryWatch,
+  saveLibraryItem,
+  setLibraryContext,
+  unsaveLibraryItem,
+  type LibraryItemInput,
+} from './library/db.js';
 import { resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
 import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
 import {
@@ -80,6 +94,11 @@ const BODY_LIMIT = 64 * 1024;
 type PlayBody = StreamFilterOverrides & {
   type?: string;
   id?: string;
+  title?: string;
+  poster?: string;
+  year?: string | number;
+  description?: string;
+  tab?: string;
   rail_id?: string;
   reason?: string;
   url?: string;
@@ -98,6 +117,92 @@ type PlayBody = StreamFilterOverrides & {
   preset?: string;
   detach?: boolean;
 };
+
+function normalizeForExactMatch(value: string): string {
+  return value.toLowerCase().trim().replace(/^the\s+/i, '').replace(/\s+/g, ' ');
+}
+
+function libraryItemFromRecord(body: Record<string, unknown>): LibraryItemInput | null {
+  if (typeof body.type !== 'string' || typeof body.id !== 'string') {
+    return null;
+  }
+  return {
+    source: typeof body.source === 'string' ? body.source : undefined,
+    type: body.type,
+    id: body.id,
+    title: typeof body.title === 'string' ? body.title : undefined,
+    poster: typeof body.poster === 'string' ? body.poster : undefined,
+    year: typeof body.year === 'string' || typeof body.year === 'number' ? body.year : undefined,
+    description: typeof body.description === 'string' ? body.description : undefined,
+    tab: parseCatalogTab(typeof body.tab === 'string' ? body.tab : null) ?? null,
+  };
+}
+
+async function resolveLibraryTarget(
+  body: Record<string, unknown>,
+): Promise<LibraryItemInput> {
+  const direct = libraryItemFromRecord(body);
+  if (direct) {
+    return direct;
+  }
+
+  if (body.current === true || body.current_context === true) {
+    const current = getLibraryContext();
+    if (!current) {
+      throw new CatalogError(404, 'no current TV title to save');
+    }
+    return {
+      source: current.source,
+      type: current.type,
+      id: current.id,
+      title: current.title,
+      poster: current.poster,
+      tab: current.tab,
+    };
+  }
+
+  if (typeof body.title === 'string' && body.title.trim()) {
+    const title = body.title.trim();
+    const type = typeof body.type === 'string' ? body.type.trim().toLowerCase() : null;
+    const hits = await searchVerifiedLibrary(title, 12);
+    const exact = hits.filter((hit) => {
+      if (type && hit.type !== type) {
+        return false;
+      }
+      return normalizeForExactMatch(hit.title) === normalizeForExactMatch(title);
+    });
+    if (exact.length !== 1) {
+      throw new CatalogError(
+        exact.length === 0 ? 404 : 409,
+        exact.length === 0
+          ? `no exact Mango library match for: ${title}`
+          : `multiple exact Mango library matches for: ${title}`,
+      );
+    }
+    const hit = exact[0];
+    return {
+      type: hit.type,
+      id: hit.id,
+      title: hit.title,
+      poster: hit.poster,
+      tab: hit.tab,
+    };
+  }
+
+  throw new CatalogError(400, 'library target requires {type,id}, {current:true}, or exact {title}');
+}
+
+function savedPayload(tab: ReturnType<typeof parseCatalogTab>, limit: number): {
+  ok: true;
+  tab?: string;
+  saved: ReturnType<typeof listSavedLibraryItems>;
+} {
+  return {
+    ok: true,
+    ...(tab ? { tab } : {}),
+    saved: listSavedLibraryItems(tab, Number.isFinite(limit) ? limit : 100),
+  };
+}
 
 function playPickHint(preferUrl: string | undefined): import('./stream-filters.js').VerifiedStreamHint | undefined {
   if (!preferUrl || !/^https?:\/\//i.test(preferUrl)) {
@@ -240,6 +345,25 @@ async function handlePlay(
       throw new CatalogError(502, 'no_playable_stream');
     }
     const playback = await playUrl(streamUrl, 90000, { live: true, playEpoch });
+    try {
+      recordLibraryWatch({
+        type: body.type,
+        id: body.id,
+        title: body.title,
+        poster: body.poster,
+        year: body.year,
+        description: body.description,
+        tab: parseCatalogTab(body.tab) ?? 'live',
+        event: 'play',
+        watched_at: Date.now(),
+      });
+    } catch (error) {
+      console.warn(
+        `library live history failed type=${body.type} id=${body.id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
     return {
       ok: playback.ok,
       live: true,
@@ -419,6 +543,7 @@ async function handlePlay(
 }
 
 async function main(): Promise<void> {
+  initLibraryDb();
   await initProgressDb();
   const core = await CatalogCore.create();
   const server = http.createServer((req, res) => {
@@ -467,6 +592,113 @@ async function main(): Promise<void> {
         });
         core.clearRailItemsCache();
         sendJson(res, 200, { ok: true, removed });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'state') {
+        const current = url.searchParams.get('current') === '1'
+          || url.searchParams.get('current') === 'true';
+        if (current) {
+          const context = getLibraryContext();
+          if (!context) {
+            sendJson(res, 200, { ok: true, current: null, state: null });
+            return;
+          }
+          sendJson(res, 200, {
+            ok: true,
+            current: context,
+            state: getLibraryState({
+              source: context.source,
+              type: context.type,
+              id: context.id,
+            }),
+          });
+          return;
+        }
+        const type = url.searchParams.get('type')?.trim() ?? '';
+        const id = url.searchParams.get('id')?.trim() ?? '';
+        if (!type || !id) {
+          throw new CatalogError(400, 'GET /library/state requires type and id, or current=true');
+        }
+        sendJson(res, 200, {
+          ok: true,
+          state: getLibraryState({
+            source: url.searchParams.get('source') || undefined,
+            type,
+            id,
+          }),
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'saved') {
+        const tab = parseCatalogTab(url.searchParams.get('tab'));
+        const limit = Number(url.searchParams.get('limit') || 100);
+        sendJson(res, 200, savedPayload(tab, limit));
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'saved') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const target = await resolveLibraryTarget(body);
+        const saved = saveLibraryItem({
+          ...target,
+          saved_by: typeof body.saved_by === 'string' ? body.saved_by : 'user',
+        });
+        core.clearRailItemsCache();
+        sendJson(res, 200, {
+          ok: true,
+          saved,
+          state: getLibraryState({ source: saved.source, type: saved.type, id: saved.id }),
+        });
+        return;
+      }
+
+      if (req.method === 'DELETE' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'saved') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const target = await resolveLibraryTarget(body);
+        const removed = unsaveLibraryItem({
+          source: target.source,
+          type: target.type,
+          id: target.id,
+        });
+        core.clearRailItemsCache();
+        sendJson(res, 200, { ok: true, removed, target });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'history') {
+        const limit = Number(url.searchParams.get('limit') || 50);
+        sendJson(res, 200, {
+          ok: true,
+          history: listWatchHistory(Number.isFinite(limit) ? limit : 50),
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'context') {
+        sendJson(res, 200, { ok: true, context: getLibraryContext() });
+        return;
+      }
+
+      if (req.method === 'DELETE' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'context') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'library context is localhost-only');
+        }
+        sendJson(res, 200, { ok: true, removed: clearLibraryContext() });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'context') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'library context is localhost-only');
+        }
+        const body = await readBody(req) as Record<string, unknown>;
+        const target = libraryItemFromRecord(body);
+        if (!target) {
+          throw new CatalogError(400, 'POST /library/context requires { type, id }');
+        }
+        sendJson(res, 200, { ok: true, context: setLibraryContext(target) });
         return;
       }
 
@@ -655,13 +887,11 @@ async function main(): Promise<void> {
             ? body.llm_hints as CreateAiCatalogInput['llm_hints']
             : undefined,
           overflow_action: body.overflow_action === 'replace'
-            || body.overflow_action === 'pin_titles'
             || body.overflow_action === 'merge'
             ? body.overflow_action
             : undefined,
           replace_slot_id: typeof body.replace_slot_id === 'string' ? body.replace_slot_id : undefined,
           merge_into_slot_id: typeof body.merge_into_slot_id === 'string' ? body.merge_into_slot_id : undefined,
-          pin_titles: Array.isArray(body.pin_titles) ? body.pin_titles as AiSeedTitle[] : undefined,
         });
         if (!result.ok) {
           sendJson(res, 409, { ok: false, error: result.error, overflow_options: result.overflow_options });

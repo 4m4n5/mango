@@ -13,7 +13,7 @@
 |-------|-----------|
 | **TV UI** | Chromium launcher — browse rails, search, detail |
 | **Catalog / streams** | `catalog-service` + self-hosted addons (Cinemeta, AIOStreams, AIOMetadata, optional NexoTV live) |
-| **Library** | Mango-owned state: `playability.db` verified titles, `progress.db` resume, saved/history/finished planned in M6.1 |
+| **Library** | Mango-owned state: `playability.db` verified titles, `progress.db` resume, `library.db` Saved/history/finished |
 | **Player** | **mpv** fullscreen — VOD + live (`--live`) |
 | **Voice** | Phone PTT → orchestrator → launcher detail open |
 | **Fallback** | Stremio desktop / legacy Kodi YouTube — hidden, opt-in only |

@@ -7,7 +7,7 @@ import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, t
 import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
-import { fetchPinnedIds } from "./pins";
+import { fetchSavedIds } from "./saved";
 import { logPerf } from "./perf";
 import { touchCouchActivity } from "./activity";
 import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
@@ -23,7 +23,7 @@ const detailTitle = mustGet<HTMLElement>("detail-title");
 const detailMeta = mustGet<HTMLElement>("detail-meta");
 const detailDescription = mustGet<HTMLElement>("detail-description");
 const detailPlay = mustGet<HTMLButtonElement>("detail-play");
-const detailPin = mustGet<HTMLButtonElement>("detail-pin");
+const detailSave = mustGet<HTMLButtonElement>("detail-save");
 const detailBack = mustGet<HTMLButtonElement>("detail-back");
 const detailStreams = mustGet<HTMLElement>("detail-streams");
 const detailStreamList = mustGet<HTMLElement>("detail-stream-list");
@@ -46,7 +46,7 @@ let activeBrowseTab: BrowseTab = "movies";
 let catalogState: CatalogState = { status: "loading" };
 let catalogRetryTimer: number | undefined;
 let libraryRefreshInFlight = false;
-let pinnedKeys = new Set<string>();
+let savedKeys = new Set<string>();
 const tabCatalogCache = new Map<BrowseTab, ContentRail[]>();
 const tabCatalogPrefetching = new Set<BrowseTab>();
 let liveCatalogSessionCached = false;
@@ -107,7 +107,7 @@ const detail = new DetailController(
   detailMeta,
   detailDescription,
   detailPlay,
-  detailPin,
+  detailSave,
   detailBack,
   detailStreams,
   detailStreamList,
@@ -116,7 +116,7 @@ const detail = new DetailController(
   {
     onClose: restoreHomeFromDetail,
     onStatus: setStatus,
-    onPinsChanged: () => void reloadPinsAndCatalog(),
+    onSavedChanged: () => void reloadSavedAndCatalog(),
     onNextEpisodePrompt: (hint, card) => {
       nextEpisodePrompt.show(hint, card);
       nextPromptFocusIndex = 0;
@@ -186,7 +186,7 @@ function renderHome(): void {
       ...homeOptions,
       browseTab: activeBrowseTab,
       onBrowseTabChange: handleBrowseTabChange,
-      pinnedKeys,
+      savedKeys,
     }, catalogState),
   ];
   focusGrid.setRows(focusGridRows, {
@@ -369,7 +369,7 @@ function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseT
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
   const browseTab = tab ?? activeBrowseTab;
-  detail.show(card, railLabel, browseTab, pinnedKeys.has(`${card.type}:${card.id}`));
+  detail.show(card, railLabel, browseTab, savedKeys.has(`${card.type}:${card.id}`));
 }
 
 function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
@@ -384,7 +384,7 @@ function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
     homeView.classList.add("hidden");
     activeBrowseTab = tab;
     setStatus(`Opening ${card.title}…`);
-    detail.show(card, "voice", tab, pinnedKeys.has(`${card.type}:${card.id}`));
+    detail.show(card, "voice", tab, savedKeys.has(`${card.type}:${card.id}`));
   })();
 }
 
@@ -441,11 +441,15 @@ function restoreHomeFromDetail(): void {
   setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
 }
 
-async function reloadPinsAndCatalog(): Promise<void> {
+async function reloadSavedAndCatalog(): Promise<void> {
   try {
-    pinnedKeys = await fetchPinnedIds(activeBrowseTab);
+    savedKeys = await fetchSavedIds(activeBrowseTab);
   } catch {
-    pinnedKeys = new Set();
+    savedKeys = new Set();
+  }
+  tabCatalogCache.delete(activeBrowseTab);
+  if (activeBrowseTab === "live") {
+    liveCatalogSessionCached = false;
   }
   await loadCatalog();
 }
@@ -498,7 +502,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
   if (requestedTab === "live" && liveCatalogSessionCached) {
     const frozen = tabCatalogCache.get("live");
     if (frozen && frozen.length > 0) {
-      pinnedKeys = await fetchPinnedIds("live").catch(() => new Set<string>());
+      savedKeys = await fetchSavedIds("live").catch(() => new Set<string>());
       if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
         return;
       }
@@ -518,9 +522,9 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
   }
 
   try {
-    const [rails, pins] = await Promise.all([
+    const [rails, saved] = await Promise.all([
       loadCatalogRails(requestedTab, { reshuffle }),
-      fetchPinnedIds(requestedTab).catch(() => new Set<string>()),
+      fetchSavedIds(requestedTab).catch(() => new Set<string>()),
     ]);
     if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
       logPerf("catalog_stale_response", {
@@ -529,7 +533,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
       });
       return;
     }
-    pinnedKeys = pins;
+    savedKeys = saved;
     tabCatalogCache.set(requestedTab, rails);
     if (requestedTab === "live") {
       liveCatalogSessionCached = true;

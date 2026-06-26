@@ -34,9 +34,9 @@
 | M3 Play | ✓ |
 | M4 Addons | ✓ |
 | M5 Voice + AI | ◐ |
-| M6 Ship | planned |
+| M6 Ship | ◐ M6.1 library core shipped |
 
-M3 playability/grow is functional but still in production hardening: strict `+20`/rail semantics, staged publish, orphan repair, and source diagnostics are implemented; sustained full-grow reliability is the active hardening lane. Detail: [PLAYABILITY.md](PLAYABILITY.md).
+M3 playability/grow is functional but still in production hardening: strict `+20`/rail semantics, staged publish, orphan repair, and source diagnostics are implemented; sustained full-grow reliability is the active hardening lane. M6.1 Mango-owned Saved/history/finished state is implemented in `library.db`; YouTube, 4K, unified UX polish, and the wizard remain the M6 ship work. Detail: [PLAYABILITY.md](PLAYABILITY.md) and [STATUS.md](STATUS.md).
 
 Detail: [ROADMAP.md](ROADMAP.md)
 

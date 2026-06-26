@@ -6,6 +6,8 @@ test('buildVoiceToolManifest exposes browse-only voice tools (no play)', () => {
   const manifest = buildVoiceToolManifest();
   const names = manifest.tools.map((tool) => tool.name);
   assert.ok(names.includes('mango_open_title'));
+  assert.ok(names.includes('mango_save_title'));
+  assert.ok(names.includes('mango_unsave_title'));
   assert.ok(names.includes('mango_search'));
   assert.ok(names.includes('mango_navigate'));
   assert.ok(names.includes('mango_library_overview'));
@@ -22,4 +24,7 @@ test('buildVoiceToolManifest exposes browse-only voice tools (no play)', () => {
   assert.equal(openTitle?.layer, 'launcher');
   const refresh = manifest.tools.find((tool) => tool.name === 'mango_playability_refresh');
   assert.equal(refresh?.requires_confirm, undefined);
+  const createAi = manifest.tools.find((tool) => tool.name === 'mango_create_ai_catalog');
+  const overflow = createAi?.input_schema.properties.overflow_action as { enum?: string[] } | undefined;
+  assert.deepEqual(overflow?.enum, ['replace', 'merge']);
 });

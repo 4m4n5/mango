@@ -15,7 +15,7 @@ What works today, what is still being hardened, and how to verify it.
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
 | M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5a voice contract pending |
-| M6 Ship | — | Mango library · YouTube · 4K · unified UX · wizard |
+| M6 Ship | ◐ | M6.1 Mango library core shipped · YouTube, 4K, unified UX, wizard pending |
 
 ---
 
@@ -136,6 +136,30 @@ Full detail: [VOICE.md](VOICE.md)
 
 ---
 
+## M6.1 — Mango-owned library core ✓
+
+Mango now owns durable local user-library state. Stremio remains an addon
+protocol/manifest graph only; there is no Stremio user-library sync or write-back.
+
+| Area | Current implementation |
+|------|------------------------|
+| Storage | `/etc/mango/library.db` SQLite with WAL, migrations, source-aware item keys, and dormant hidden/blocked fields |
+| Saved | Explicit only; detail Save/Unsave writes `saved_items`; playback never auto-saves |
+| Migration | Existing `~/.config/mango/user-pins.json` imports once into Saved; `/pins` remains a compatibility wrapper over Saved |
+| Rails | Continue remains `progress.db`; Saved appears immediately after Continue and before discovery rails when non-empty |
+| History | mpv progress writes and live play starts mirror into indefinite library history; VOD finished uses the existing 90% cutoff |
+| Voice | `mango_save_title` and `mango_unsave_title` support current context, exact type/id, or exact resolved title; they never start playback |
+| Library context | Launcher publishes current detail context to catalog-service for voice Save/Unsave; librarian context reads Saved/history only |
+| Backup | `mango-stack.sh stop/restart` runs WAL-safe backups of `progress.db` and `library.db`; operators can also run `scripts/m6-ship/backup-library-state.sh` |
+| AI catalogs | Overflow is replace/merge only; AI automation cannot write to Saved |
+| YouTube readiness | Schema is source-aware, but M6.1 adds no YouTube behavior |
+
+Primary routes: `GET /library/state`, `GET/POST/DELETE /library/saved`,
+`GET /library/history`, `GET/POST/DELETE /library/context`, plus Saved-backed
+`GET/POST/DELETE /pins` compatibility.
+
+---
+
 ## Open priorities
 
 | # | Item | Milestone |
@@ -143,11 +167,10 @@ Full detail: [VOICE.md](VOICE.md)
 | 1 | Prove repeated unattended best-effort grows and improve `+20` target hit rate with stronger playable sources for reality and India-series rails | M3 hardening |
 | 2 | Living librarian (memory + policy) | M5 |
 | 3 | M5.5a AI companion voice safety contract | M5 |
-| 4 | Mango-owned library state | M6.1 |
-| 5 | YouTube yt-dlp rail/search/detail | M6.2 |
-| 6 | 4K HDR TV + soundbar profile | M6.3 |
-| 7 | M5.5b + M6.5 unified companion/TV UX polish after YouTube | M6.5 |
-| 8 | First-boot wizard | M6.4 |
+| 4 | YouTube yt-dlp rail/search/detail | M6.2 |
+| 5 | 4K HDR TV + soundbar profile | M6.3 |
+| 6 | M5.5b + M6.5 unified companion/TV UX polish after YouTube | M6.5 |
+| 7 | First-boot wizard | M6.4 |
 
 ---
 
@@ -188,7 +211,7 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 | `config/catalog-live.example.yaml` | `/etc/mango/catalog-live.yaml` | Live rails |
 | — | `/etc/mango/playability.db` | Verified pools |
 | — | `/etc/mango/progress.db` | mpv resume |
-| — | `/etc/mango/library.db` | Mango-owned saved/history/finished state (planned M6.1) |
+| — | `/etc/mango/library.db` | Mango-owned Saved/history/finished state |
 | — | `/etc/mango/ai-catalogs/` | AI catalog slots |
 
 Deploy sync: `scripts/lib/sync-etc-mango-config.sh`

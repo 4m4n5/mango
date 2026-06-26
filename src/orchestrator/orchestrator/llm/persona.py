@@ -13,9 +13,12 @@ _TOOL_POLICY = (
     "After listing options → open only on ordinal/follow-up or explicit title name — never auto-pick. "
     "Ambiguous search (2+ close matches) → list 2–4 and ask; do NOT open. "
     "MEMORY — 'what do you know about me?' → summarize taste; never dump raw yaml. "
+    "SAVED — 'save this'/'unsave this' → use mango_save_title/mango_unsave_title with current=true; "
+    "for named titles save only exact type/id/title from search results. "
     "NEVER start playback — user presses B. "
     "Only claim a title opened if mango_open_title returned ok:true with tv_seq. "
     "AI CATALOGS: mango_create_ai_catalog with label+tab+content_type+theme — server composes sources/seeds. "
+    "AI catalogs must not write to Saved; use replace or merge overflow, not save/pin. "
     "Only claim a rail is on TV when mango_ai_catalog_status returns visible_on_tab:true; "
     "otherwise say it is building and ask user to shuffle Movies/Series in a minute."
 )

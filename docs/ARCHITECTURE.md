@@ -57,7 +57,16 @@ The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml`
 
 ### Mango library state
 
-Mango is the user-library source of truth. `progress.db` owns resume today; M6.1 extends that with Mango-owned saved/watchlist, history, finished, hidden/blocked, and taste/profile state. `/etc/mango/stremio-export.json` remains an addon-manifest graph only, not a Stremio user-library sync source.
+Mango is the user-library source of truth. `progress.db` remains the M6.1
+Continue/resume source for compatibility, while `/etc/mango/library.db` owns
+explicit Saved rows, automatic history, finished state, current TV context, and
+dormant hidden/blocked fields. Playback updates Continue/history but never
+auto-saves. Existing user-facing Pins import once into Saved; `/pins` stays as
+a compatibility API over Saved. Internal playability rail-curation pins remain
+operator policy and are not user library state.
+
+`/etc/mango/stremio-export.json` remains an addon-manifest graph only, not a
+Stremio user-library sync source.
 
 ---
 
@@ -141,6 +150,23 @@ Enriched fields: `display_label`, `release_group`, `encode`, `size_gb`, `languag
 
 `POST /play` — orchestrator with ladder tiers · optional `{ url }` from picker.
 
+## Library API
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/library/state` | Saved/latest/finished state for `type` + `id`, or `current=true` |
+| `GET` | `/library/saved` | Saved rows, optional `tab` and `limit` |
+| `POST` | `/library/saved` | Explicit Save by user/voice; accepts type/id/title/poster/tab/source |
+| `DELETE` | `/library/saved` | Explicit Unsave by type/id/source |
+| `GET` | `/library/history` | Read-only recent history |
+| `GET` | `/library/context` | Current launcher detail context |
+| `POST` | `/library/context` | Localhost launcher update for current-context voice tools |
+| `DELETE` | `/library/context` | Localhost cleanup/restore hook for gates |
+
+`GET/POST/DELETE /pins` remains for compatibility and delegates to Saved. There
+is no public hide/unhide API in M6.1; hidden fields are schema-only for the
+later UX pass.
+
 ---
 
 ## Voice stack (M5)
@@ -152,7 +178,9 @@ Phone companion (:3001) ──WSS──► orchestrator (:8765)
 Launcher voice-hud ◄── WS loopback :8766
 ```
 
-**Rule:** Voice opens detail/results only — playback stays on pad **B**. No `mango_play` or `play_youtube` in manifest.
+**Rule:** Voice opens detail/results and can Save/Unsave explicit library state
+only — playback stays on pad **B**. No `mango_play` or `play_youtube` in
+manifest.
 
 Detail: [VOICE.md](VOICE.md)
 

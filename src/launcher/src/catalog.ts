@@ -266,6 +266,11 @@ export async function playCard(
   const body: {
     type: string;
     id: string;
+    title?: string;
+    poster?: string;
+    year?: string | number;
+    description?: string;
+    tab?: string;
     rail_id?: string;
     prefer_url?: string;
     start_sec?: number;
@@ -273,6 +278,10 @@ export async function playCard(
   } = {
     type: card.type,
     id: playId,
+    title: card.title,
+    poster: card.posterUrl,
+    year: card.year,
+    description: card.description,
   };
   if (card.type === "tv") {
     body.live = true;

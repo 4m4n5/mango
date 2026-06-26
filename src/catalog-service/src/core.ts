@@ -67,6 +67,11 @@ import { resolvePosterFromMeta, metahubPosterUrl, normalizePosterUrl } from './p
 import { CONTINUE_RAIL_ID } from './progress/config.js';
 import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
 import {
+  LIBRARY_SAVED_RAIL_ID,
+  listSavedLibraryItems,
+  type SavedLibraryItem,
+} from './library/db.js';
+import {
   assembleSeriesEpisodes,
   applyEpisodePlayability,
   episodeStreamRoleForId,
@@ -84,7 +89,6 @@ import {
   type BonusStreamMatchTier,
   type ParsedSeriesEpisodeId,
 } from './bonus-stream-resolve.js';
-import { listUserPins } from './user-pins.js';
 import { loadAiCatalogRails } from './ai-catalogs/store.js';
 import { AiCatalogListSource } from './ai-catalogs/list-source.js';
 import type { AiCatalogRail } from './ai-catalogs/types.js';
@@ -139,7 +143,7 @@ function seriesCrossProbeLimit(options?: ResolveStreamOptions): number {
   return Math.max(0, Math.min(24, Math.floor(raw)));
 }
 
-export const PINNED_RAIL_ID = 'pinned';
+export const SAVED_RAIL_ID = LIBRARY_SAVED_RAIL_ID;
 
 export { CatalogError } from './catalog-errors.js';
 
@@ -237,6 +241,22 @@ export type TabRailItemsResponse = {
   cached?: boolean;
   stale?: boolean;
 };
+
+export function mergeUserStateRails(
+  discoveryRails: RailItemsResponse[],
+  continueRail: RailItemsResponse,
+  savedRail: RailItemsResponse,
+): RailItemsResponse[] {
+  const visibleRails = discoveryRails.filter((rail) => rail.items.length > 0);
+  const prefix: RailItemsResponse[] = [];
+  if (continueRail.items.length > 0) {
+    prefix.push(continueRail);
+  }
+  if (savedRail.items.length > 0) {
+    prefix.push(savedRail);
+  }
+  return [...prefix, ...visibleRails];
+}
 
 type Addon = {
   name: string;
@@ -1219,9 +1239,9 @@ export class CatalogCore {
       throw error;
     }
 
-    const pinnedRail = await this.buildPinnedRail('live');
-    if (pinnedRail.items.length > 0) {
-      responses.unshift(pinnedRail);
+    const savedRail = await this.buildSavedRail('live');
+    if (savedRail.items.length > 0) {
+      responses.unshift(savedRail);
     }
 
     if (responses.length === 0) {
@@ -1256,19 +1276,19 @@ export class CatalogCore {
       .filter((id) => id !== rail.id);
   }
 
-  private async buildPinnedRail(tab: CatalogTab): Promise<RailItemsResponse> {
+  private async buildSavedRail(tab: CatalogTab): Promise<RailItemsResponse> {
     const started = Date.now();
-    const pins = await listUserPins(tab);
+    const savedItems = listSavedLibraryItems(tab);
     const items = await mapInBatches(
-      pins,
+      savedItems,
       RAIL_META_CONCURRENCY,
-      async (pin) => this.resolvePinnedRailItem(pin),
+      async (item) => this.resolveSavedRailItem(item),
       RAIL_META_STAGGER_MS,
     );
 
     return {
-      rail_id: PINNED_RAIL_ID,
-      label: 'pinned',
+      rail_id: SAVED_RAIL_ID,
+      label: 'saved',
       items,
       resolve_ms: Date.now() - started,
       skipped: 0,
@@ -1397,7 +1417,7 @@ export class CatalogCore {
       stableRatio: reshuffle ? 0.15 : undefined,
     });
 
-    const [railResponses, continueRail, pinnedRail] = await Promise.all([
+    const [railResponses, continueRail, savedRail] = await Promise.all([
       Promise.all(
         rails.map(async (rail) => {
           const session = sessions.get(rail.id);
@@ -1414,19 +1434,11 @@ export class CatalogCore {
         }),
       ),
       this.buildContinueRail(tab),
-      this.buildPinnedRail(tab),
+      this.buildSavedRail(tab),
     ]);
 
     const responses = railResponses.filter((rail): rail is RailItemsResponse => rail !== null);
-    const visibleRails = responses.filter((rail) => rail.items.length > 0);
-    if (continueRail.items.length > 0) {
-      visibleRails.unshift(continueRail);
-    }
-    if (pinnedRail.items.length > 0) {
-      const continueIndex = visibleRails.findIndex((rail) => rail.rail_id === CONTINUE_RAIL_ID);
-      const insertAt = continueIndex >= 0 ? continueIndex + 1 : 0;
-      visibleRails.splice(insertAt, 0, pinnedRail);
-    }
+    const visibleRails = mergeUserStateRails(responses, continueRail, savedRail);
 
     const payload: TabRailItemsResponse = {
       tab,
@@ -2206,24 +2218,26 @@ export class CatalogCore {
     }
   }
 
-  private async resolvePinnedRailItem(
-    pin: Awaited<ReturnType<typeof listUserPins>>[number],
+  private async resolveSavedRailItem(
+    item: SavedLibraryItem,
   ): Promise<RailItem> {
-    const title = pin.title?.trim();
-    const poster = normalizePosterUrl(pin.poster) ?? metahubPosterUrl(pin.id);
+    const title = item.title?.trim();
+    const poster = normalizePosterUrl(item.poster) ?? metahubPosterUrl(item.id);
     if (title && poster) {
       return {
-        id: pin.id,
-        type: pin.type,
+        id: item.id,
+        type: item.type,
         title,
-        subtitle: pin.type,
+        subtitle: item.year ?? item.type,
         poster,
-        source: 'pinned',
+        year: item.year ?? undefined,
+        description: item.description ?? undefined,
+        source: 'saved',
       };
     }
 
     try {
-      const meta = await this.metaCached(pin.type, pin.id);
+      const meta = await this.metaCached(item.type, item.id);
       if (isBlockedCatalogMeta(meta)) {
         throw new Error('blocked meta');
       }
@@ -2231,26 +2245,28 @@ export class CatalogCore {
       const resolvedTitle = (typeof meta.name === 'string' && meta.name.trim() !== '' ? meta.name : null)
         || (typeof meta.title === 'string' && meta.title.trim() !== '' ? meta.title : null)
         || title
-        || pin.id;
+        || item.id;
       const year = metaYear(meta);
       return {
-        id: pin.id,
-        type: pin.type,
+        id: item.id,
+        type: item.type,
         title: resolvedTitle,
-        subtitle: year ? String(year) : pin.type,
+        subtitle: year ? String(year) : item.type,
         poster: resolvedPoster,
         year,
         description: typeof meta.description === 'string' ? meta.description : undefined,
-        source: 'pinned',
+        source: 'saved',
       };
     } catch {
       return {
-        id: pin.id,
-        type: pin.type,
-        title: title || pin.id,
-        subtitle: pin.type,
+        id: item.id,
+        type: item.type,
+        title: title || item.id,
+        subtitle: item.year ?? item.type,
         poster: poster || '',
-        source: 'pinned',
+        year: item.year ?? undefined,
+        description: item.description ?? undefined,
+        source: 'saved',
       };
     }
   }

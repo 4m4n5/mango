@@ -2,6 +2,12 @@ import {
   listVerifiedLibraryCatalogRows,
   type VerifiedLibraryCatalogRow,
 } from '../playability/db.js';
+import {
+  listSavedLibraryItems,
+  listWatchHistory,
+  type SavedLibraryItem,
+  type WatchHistoryRow,
+} from '../library/db.js';
 import type { CatalogTab } from '../rails.js';
 
 export type LibraryTitle = {
@@ -55,10 +61,22 @@ export function aggregateLibraryRows(
 export async function buildLibraryCatalog(
   railLabels: Map<string, string>,
   limit = 500,
-): Promise<{ ok: true; count: number; titles: LibraryTitle[] }> {
+): Promise<{
+  ok: true;
+  count: number;
+  titles: LibraryTitle[];
+  saved: SavedLibraryItem[];
+  history: WatchHistoryRow[];
+}> {
   const rows = await listVerifiedLibraryCatalogRows(limit);
   const titles = aggregateLibraryRows(rows, railLabels);
-  return { ok: true, count: titles.length, titles };
+  return {
+    ok: true,
+    count: titles.length,
+    titles,
+    saved: listSavedLibraryItems(undefined, 50),
+    history: listWatchHistory(25),
+  };
 }
 
 export function buildLibraryOverview(
@@ -67,6 +85,8 @@ export function buildLibraryOverview(
 ): {
   ok: true;
   verified_count: number;
+  saved_count: number;
+  recent_history: Array<{ title: string | null; type: string; id: string; progress_pct: number; event: string }>;
   rails: Array<{ rail_id: string; label: string; count: number; sample: string[] }>;
 } {
   const counts = new Map<string, number>();
@@ -89,5 +109,19 @@ export function buildLibraryOverview(
       sample: samples.get(rail_id) ?? [],
     }))
     .sort((left, right) => left.label.localeCompare(right.label));
-  return { ok: true, verified_count: titles.length, rails };
+  const saved = listSavedLibraryItems(undefined, 50);
+  const history = listWatchHistory(10);
+  return {
+    ok: true,
+    verified_count: titles.length,
+    saved_count: saved.length,
+    recent_history: history.map((row) => ({
+      title: row.title,
+      type: row.type,
+      id: row.id,
+      progress_pct: row.progress_pct,
+      event: row.event,
+    })),
+    rails,
+  };
 }

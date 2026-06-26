@@ -86,15 +86,18 @@ Locked choices. Update when changing behavior.
 | TV HUD | `voice-hud.ts` in launcher — only default TV voice surface |
 | Multi-turn PTT | Allowed while reply visible |
 | Reply dwell | `overlay_reply_seconds: 10` |
+| Saved tools | Save/Unsave current context or exact title only; no voice play, hide, or auto-save |
 
 ---
 
-## M6 — Ship (planned)
+## M6 — Ship
 
 | Topic | Choice |
 |-------|--------|
-| Library | Mango-owned progress, saved/watchlist, history, finished, hidden/blocked, taste/profile state |
-| Stremio sync | None. Optional one-time operator import can exist later, but no ongoing Stremio library sync or write-back |
+| Library | Mango-owned `library.db` for explicit Saved, history, finished, dormant hidden/blocked fields, and taste/profile hooks; `progress.db` remains M6.1 Continue/resume source |
+| Saved | Explicit only; playback never auto-saves; existing user-facing Pins import once into Saved |
+| Stremio sync | None. No Stremio user-library sync or write-back |
+| AI catalog automation | Must not write to Saved; overflow policy is replace/merge only |
 | YouTube | `yt-dlp` → mpv; native rail/search/detail; voice opens, pad **B** plays |
 | 4K | Ship profile on target TV; relax filters in `catalog-filters.json` |
 | Deploy | `install.sh` wizard — no SSH for household setup |

@@ -13,6 +13,7 @@ bash scripts/pi-deploy.sh --fast --gate   # pull, build, gate-lite
 bash scripts/diag/series-episodes.sh --sample   # on Pi — episode meta + stream probes
 python3 scripts/diag/playability-status.py   # pool depth
 python3 scripts/diag/grow_monitor.py status  # latest grow health; operator-only
+bash scripts/m6-ship/gate-m6-library-smoke.sh # Saved/current-context smoke
 ```
 
 ---
@@ -49,13 +50,21 @@ python3 scripts/diag/grow_monitor.py status  # latest grow health; operator-only
 | 12 | **Continue** rail resumes if entries exist | |
 | 13 | **⌂** always returns home | |
 
+## Saved library (M6.1)
+
+| # | Action | Pass? |
+|---|--------|-------|
+| 14 | Detail → **Save**; **Saved** rail appears immediately after Continue | |
+| 15 | Detail → **Unsave**; item disappears from Saved after refresh/navigation | |
+| 16 | Live channel → **Save**; appears in Saved/history but has no resume semantics | |
+
 ---
 
 ## Settings (optional)
 
 | # | Action | Pass? |
 |---|--------|-------|
-| 14 | **Refresh library** (~5s reshuffle) | |
+| 17 | **Refresh library** (~5s reshuffle) | |
 
 ## Library grow health (operator)
 
@@ -96,6 +105,7 @@ Requires `MANGO_VOICE=1`. M5.5a verifies the voice contract now; final phone/HUD
 | V5 | "What do you know about me?" — readable summary on phone | |
 | V6 | Voice HUD dismisses within ~12 s; tiles unobstructed | |
 | V7 | Proactive off (default) — no unsolicited TV suggestions | |
+| V8 | "Save this" on an open detail updates Saved; no playback starts | |
 
 ---
 

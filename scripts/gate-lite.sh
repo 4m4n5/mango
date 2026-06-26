@@ -34,6 +34,8 @@ fi
 curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
   && gate_pass "catalog /health" || { gate_fail "catalog /health"; exit 1; }
 
+run_step "M6.1 library smoke" bash scripts/m6-ship/gate-m6-library-smoke.sh
+
 if [[ "${MANGO_SELF_HOSTED_ADDONS:-0}" == "1" || -f /etc/mango/aiostreams.enabled ]]; then
   run_step "M4 addons prereqs" bash scripts/m4-addons/check-m4-prereqs.sh
   run_step "M4 streams" bash scripts/m4-addons/gate-m4-streams.sh

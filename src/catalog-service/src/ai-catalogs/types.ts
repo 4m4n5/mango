@@ -56,6 +56,6 @@ export type AiCatalogRail = {
 export type AiCatalogOverflowOptions = {
   tab: CatalogTab;
   replaceable_slots: Array<{ slot_id: string; label: string }>;
-  pin_merge_candidates: AiSeedTitle[];
+  merge_candidates: AiSeedTitle[];
   merge_target_slots: Array<{ slot_id: string; label: string }>;
 };

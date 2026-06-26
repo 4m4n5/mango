@@ -578,7 +578,7 @@ class MangoUiHandler(BaseHTTPRequestHandler):
 
         body = None
         headers = {"accept": "application/json"}
-        if method == "POST":
+        if method in {"POST", "DELETE"}:
             length = int(self.headers.get("content-length") or "0")
             body = self.rfile.read(length) if length > 0 else b"{}"
             headers["content-type"] = self.headers.get("content-type", "application/json")

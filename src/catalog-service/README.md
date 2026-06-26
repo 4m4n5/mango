@@ -2,7 +2,7 @@
 
 HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
 
-**Status:** M2–M4 shipped, M3 playability/grow hardening active, optional Live TV on `feat/native-experience`.
+**Status:** M2–M4, M6.1 library core, and optional Live TV shipped on `feat/native-experience`; M3 playability/grow hardening remains active.
 
 ## Config (Pi)
 
@@ -15,7 +15,7 @@ HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
 | `/etc/mango/rail-curation-overrides.yaml` | Optional pins/blocks per rail |
 | `/etc/mango/catalog-live.yaml` | Live sport rails (optional; repo example fallback) |
 | `/etc/mango/progress.db` | mpv resume (Continue rail) |
-| `/etc/mango/library.db` | Mango-owned saved/history/finished state (planned M6.1) |
+| `/etc/mango/library.db` | Mango-owned Saved/history/finished state |
 | `/etc/mango/config.yaml` | Debrid / household keys |
 
 Templates: [`config/stremio-export.example.json`](../../config/stremio-export.example.json) · [`config/catalog.example.yaml`](../../config/catalog.example.yaml) · [`config/catalog-filters.example.json`](../../config/catalog-filters.example.json)
@@ -33,6 +33,11 @@ Templates: [`config/stremio-export.example.json`](../../config/stremio-export.ex
 | `GET /stream/:type/:id` | Resolved streams (filtered + ranked) |
 | `POST /play` | Resolve (if needed) + mpv fullscreen — bare series id resumes latest episode |
 | `GET /playability/status` | Pool depth + maintenance counters |
+| `GET /library/state` | Saved/latest/finished state for a title or `current=true` |
+| `GET/POST/DELETE /library/saved` | First-class Saved APIs |
+| `GET /library/history` | Read-only watch history |
+| `GET/POST/DELETE /library/context` | Current TV detail context for voice Save/Unsave and gate cleanup |
+| `GET/POST/DELETE /pins` | Compatibility wrapper over Saved |
 
 Rails: `addon_catalog` and `composite_list` (weighted mdblist/Cinemeta blends). Verified browse pools live in `playability.db`; tab session allocation dedupes titles across rails (`session-select.ts`).
 
@@ -41,6 +46,15 @@ Playability grow contract:
 - Fresh target is `grow_per_pass` per active rail (`20` in production YAML).
 - Work happens in a staged DB and publishes after a completed publishable run; target shortfalls are operator warnings unless `MANGO_GROW_REQUIRE_TARGET=1`.
 - Orphan repair, overlap caps, rejection tombstones, runtime source weights, and source diagnostics are operator-only surfaces. See [`docs/PLAYABILITY.md`](../../docs/PLAYABILITY.md).
+
+Library contract:
+
+- Saved is explicit user state; playback updates Continue/history but never auto-saves.
+- Existing `~/.config/mango/user-pins.json` imports once into `library.db`; new code should use `/library/saved`.
+- `progress.db` remains the Continue/resume source in M6.1; progress writes mirror history/finished into `library.db`.
+- `scripts/m6-ship/backup-library-state.sh` backs up `progress.db` and `library.db` with SQLite's online backup API.
+- Hidden/blocked fields are schema-only in M6.1. Do not add public hide/unhide behavior before the UX pass.
+- AI catalog automation must not write to Saved; overflow is replace/merge only.
 
 ### Stream filters (uncached debrid)
 

@@ -114,6 +114,26 @@ async def execute_tool(
     if name == "mango_now_playing":
         return _compact(await asyncio.to_thread(catalog_tools.tool_now_playing, settings))
 
+    if name == "mango_save_title":
+        if not tool_input.get("current") and not (
+            isinstance(tool_input.get("type"), str)
+            and isinstance(tool_input.get("id"), str)
+        ) and not isinstance(tool_input.get("title"), str):
+            return _compact({"ok": False, "error": "save requires current=true, type/id, or exact title"})
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_save_title, settings, dict(tool_input))
+        )
+
+    if name == "mango_unsave_title":
+        if not tool_input.get("current") and not (
+            isinstance(tool_input.get("type"), str)
+            and isinstance(tool_input.get("id"), str)
+        ) and not isinstance(tool_input.get("title"), str):
+            return _compact({"ok": False, "error": "unsave requires current=true, type/id, or exact title"})
+        return _compact(
+            await asyncio.to_thread(catalog_tools.tool_unsave_title, settings, dict(tool_input))
+        )
+
     if name == "mango_library_shuffle":
         return _compact(await asyncio.to_thread(catalog_tools.tool_library_shuffle, settings))
 
@@ -239,6 +259,14 @@ def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
         return "Saving session notes"
     if name == "mango_open_title":
         return f"Opening {tool_input.get('title', 'title')}"
+    if name == "mango_save_title":
+        if tool_input.get("current"):
+            return "Saving current title"
+        return f"Saving {tool_input.get('title') or tool_input.get('id') or 'title'}"
+    if name == "mango_unsave_title":
+        if tool_input.get("current"):
+            return "Removing current title from Saved"
+        return f"Removing {tool_input.get('title') or tool_input.get('id') or 'title'} from Saved"
     if name == "mango_now_playing":
         return "Checking now playing"
     if name == "mango_library_shuffle":

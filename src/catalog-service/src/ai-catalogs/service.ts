@@ -1,5 +1,4 @@
 import type { CatalogSourceRef, CatalogTab } from '../rails.js';
-import { addUserPin } from '../user-pins.js';
 import type { CatalogCore } from '../core.js';
 import { CatalogError } from '../catalog-errors.js';
 import { topUpRail } from '../playability/top-up.js';
@@ -40,10 +39,9 @@ export type CreateAiCatalogInput = {
   seed_titles?: AiSeedTitle[];
   sources?: CatalogSourceRef[];
   llm_hints?: AiCatalogLlmHints;
-  overflow_action?: 'replace' | 'pin_titles' | 'merge';
+  overflow_action?: 'replace' | 'merge';
   replace_slot_id?: string;
   merge_into_slot_id?: string;
-  pin_titles?: AiSeedTitle[];
 };
 
 function bareSlotId(value: string): string {
@@ -86,7 +84,7 @@ export function buildOverflowOptions(
   return {
     tab,
     replaceable_slots: existing.map((slot) => ({ slot_id: slot.slot_id, label: slot.label })),
-    pin_merge_candidates: seedTitles,
+    merge_candidates: seedTitles,
     merge_target_slots: existing.map((slot) => ({ slot_id: slot.slot_id, label: slot.label })),
   };
 }
@@ -104,21 +102,6 @@ export async function listAiCatalogSummaries(): Promise<AiCatalogSummary[]> {
     llm_hints: slot.llm_hints ?? {},
     created_at: (slot as AiCatalogSlotFile & { created_at?: string }).created_at,
   }));
-}
-
-async function pinTitles(tab: CatalogTab, titles: AiSeedTitle[]): Promise<number> {
-  let pinned = 0;
-  for (const title of titles) {
-    await addUserPin({
-      tab,
-      type: title.type,
-      id: title.id,
-      title: title.title,
-      poster: title.poster,
-    });
-    pinned += 1;
-  }
-  return pinned;
 }
 
 function mergeSourceRefs(
@@ -185,28 +168,6 @@ export async function createAiCatalog(
         ok: false,
         error: 'tab_full',
         overflow_options: buildOverflowOptions(tab, existing, seedTitles),
-      };
-    }
-
-    if (action === 'pin_titles') {
-      const toPin = input.pin_titles?.length ? input.pin_titles : seedTitles;
-      if (toPin.length === 0) {
-        throw new CatalogError(400, 'pin_titles overflow requires titles to pin');
-      }
-      const pinned = await pinTitles(tab, toPin);
-      core.clearRailItemsCache();
-      return {
-        ok: true,
-        slot: {
-          slot_id: '',
-          rail_id: '',
-          tab,
-          label: 'pinned overflow',
-          content_type: input.content_type,
-          seed_count: 0,
-          source_count: 0,
-          llm_hints: { topup_suggestions: [`pinned ${pinned} title(s) instead of new catalog`] },
-        },
       };
     }
 

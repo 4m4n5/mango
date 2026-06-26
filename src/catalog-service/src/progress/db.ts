@@ -17,6 +17,7 @@ import {
   progressTabForType,
   progressTitleKey,
 } from './keys.js';
+import { recordLibraryWatch } from '../library/db.js';
 
 export type WatchProgressRecord = {
   progress_key: string;
@@ -105,15 +106,33 @@ export function upsertWatchProgress(input: {
   const pct = progressPct(position, duration);
   const key = progressTitleKey(input.type, input.play_id);
   const now = Date.now();
+  const titleId = input.type === 'series'
+    ? (input.id.includes(':') ? input.id.split(':')[0] : input.id)
+    : input.id;
+
+  try {
+    recordLibraryWatch({
+      type: input.type,
+      id: titleId,
+      play_id: input.play_id,
+      title: input.title,
+      poster: input.poster,
+      position_sec: position,
+      duration_sec: duration,
+      watched_at: now,
+    });
+  } catch (error) {
+    console.warn(
+      `library progress mirror failed type=${input.type} id=${input.play_id}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
 
   if (!isContinueEligible(position, duration)) {
     openDb().prepare('DELETE FROM watch_progress WHERE progress_key = ?').run(key);
     return null;
   }
-
-  const titleId = input.type === 'series'
-    ? (input.id.includes(':') ? input.id.split(':')[0] : input.id)
-    : input.id;
 
   openDb().prepare(`
 INSERT INTO watch_progress (

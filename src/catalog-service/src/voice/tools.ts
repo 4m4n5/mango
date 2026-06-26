@@ -142,6 +142,39 @@ export function buildVoiceToolManifest(): {
       },
     },
     {
+      name: 'mango_save_title',
+      description:
+        'Save a Mango title to the user Saved rail. Use current=true for "save this" when a title is open on TV, or pass exact type/id/title from search results. Exact title text may be used only when it resolves to one verified Mango library title. Never starts playback.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          current: { type: 'boolean', description: 'Save the current title open on the TV detail page' },
+          type: { type: 'string', enum: ['movie', 'series', 'tv'] },
+          id: { type: 'string', description: 'Stremio/Mango id from search results' },
+          title: { type: 'string', description: 'Exact title from search results or exact Mango library title' },
+          poster: { type: 'string', description: 'Poster URL from search results' },
+          tab: { type: 'string', enum: ['movies', 'series', 'live'] },
+        },
+      },
+    },
+    {
+      name: 'mango_unsave_title',
+      description:
+        'Remove a Mango title from the user Saved rail. Use current=true for "unsave this" when a title is open on TV, or pass exact type/id/title. Never hides titles and never starts/stops playback.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          current: { type: 'boolean', description: 'Unsave the current title open on the TV detail page' },
+          type: { type: 'string', enum: ['movie', 'series', 'tv'] },
+          id: { type: 'string', description: 'Stremio/Mango id from search results' },
+          title: { type: 'string', description: 'Exact title from search results or exact Mango library title' },
+          tab: { type: 'string', enum: ['movies', 'series', 'live'] },
+        },
+      },
+    },
+    {
       name: 'mango_now_playing',
       description: 'Report what is currently playing on the TV, if anything. Read-only — does not control playback.',
       layer: 'catalog',
@@ -201,12 +234,11 @@ export function buildVoiceToolManifest(): {
           },
           overflow_action: {
             type: 'string',
-            enum: ['replace', 'pin_titles', 'merge'],
-            description: 'Only when tab is full (4th catalog)',
+            enum: ['replace', 'merge'],
+            description: 'Only when tab is full (4th catalog). Never saves titles to the user Saved rail.',
           },
           replace_slot_id: { type: 'string' },
           merge_into_slot_id: { type: 'string' },
-          pin_titles: { type: 'array', description: 'Titles to pin when overflow_action=pin_titles' },
         },
         required: ['label', 'tab', 'content_type'],
       },

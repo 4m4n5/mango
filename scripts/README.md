@@ -36,6 +36,7 @@ bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
 | M3 full | `m3-play/playability/gate-m3-verified-rails.sh`, `m3-play/orchestrator/gate-m3-play.sh` |
 | M4 | `m4-addons/gate-m4-self-hosted.sh` |
 | M5 | `m5-voice/ai/gate-m5-voice.sh`, `gate-m5-ai-catalogs.sh` |
+| M6.1 | `m6-ship/gate-m6-library-smoke.sh` |
 | Live (opt-in) | `live/gate-live-iptv.sh` — `MANGO_LIVE_GATE=1`; `live/gate-live-diagnostics.sh` is health-only |
 
 Shared: `lib/gate-common.sh` · `gate-lite-play.sh` · `gate-lite-unit.sh`
@@ -60,6 +61,7 @@ m2-catalog/      service (mpv, catalog API) · browse · rails
 m3-play/         detail · orchestrator · playability
 m4-addons/       AIOStreams · AIOMetadata · mdblist pipeline
 m5-voice/        stack (orchestrator, companion) · ai (voice tools, catalogs)
+m6-ship/         Mango library gate/backup · future ship gates
 live/            NexoTV IPTV (excluded from gate-lite)
 lib/             shared helpers · milestone-paths.sh
 diag/            manual diagnostics
@@ -93,6 +95,13 @@ diag/            manual diagnostics
 | `diag/playability-status.py` | Pool depth (catalog-service must be up) |
 | `diag/couch-activity-status.sh` | Idle/defer state for maintenance |
 | `diag/grow_monitor.py` | **Grow monitor** — baseline, live status, watch, assess |
+
+## M6.1 library ops
+
+| Script | Role |
+|--------|------|
+| `m6-ship/gate-m6-library-smoke.sh` | Quick Saved/current-context API smoke; included in gate-lite |
+| `m6-ship/backup-library-state.sh` | WAL-safe backup of `progress.db` and `library.db`; `mango-stack.sh stop/restart` runs it by default |
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
 | `m3-play/playability/monitor-grow-poll.sh` | Mac-side Pi polling log for long grow runs |
 | `m3-play/playability/rail-pool-retheme.sh` | Thematic pool prune/relocate (manual) |

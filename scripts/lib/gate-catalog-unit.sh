@@ -16,6 +16,8 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/play-ladder.test.js \
     dist/play-orchestrator.test.js \
     dist/preflight-playback.test.js \
+    dist/library/db.test.js \
+    dist/user-pins.test.js \
     dist/progress/progress.test.js \
     dist/progress/next-prompt.test.js \
     dist/episodes.test.js \
@@ -23,6 +25,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/bonus-stream-resolve.test.js \
     dist/voice/search.test.js \
     dist/voice/tools.test.js \
+    dist/core-library-rails.test.js \
     dist/ai-catalogs/store.test.js \
     dist/ai-catalogs/list-source.test.js \
     dist/stream-filters.test.js

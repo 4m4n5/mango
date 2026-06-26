@@ -14,7 +14,7 @@ M2 Browse         ████████████████████  
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
 M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 voice safety contract
-M6 Ship           ░░░░░░░░░░░░░░░░░░░░  planned — Mango library · YouTube · 4K · unified UX · wizard
+M6 Ship           ████░░░░░░░░░░░░░░░░  in progress — M6.1 library core landed; YouTube · 4K · unified UX · wizard pending
 ```
 
 | Milestone | Outcome | Status |
@@ -24,7 +24,7 @@ M6 Ship           ░░░░░░░░░░░░░░░░░░░░  
 | **M3** Play | mpv orchestrator · picker · episodes · playability/grow | ✓ hardening |
 | **M4** Addons | Self-hosted AIOStreams + AIOMetadata | ✓ |
 | **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · voice safety contract | ◐ |
-| **M6** Ship | Mango-owned library · YouTube · 4K HDR · unified TV/companion UX · plug-and-play | planned |
+| **M6** Ship | Mango-owned library · YouTube · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 shipped |
 
 ---
 
@@ -135,17 +135,20 @@ Half the north star is *ask in mango*. The implementation is split so Mango does
 
 ---
 
-## M6 — Ship (planned)
+## M6 — Ship (in progress)
 
 Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented hardware upgrade path).
 
-### M6.1 — Mango-owned library
+### M6.1 — Mango-owned library ✓
 
-- Mango is the user-library source of truth: saved/watchlist, history, finished, hidden/blocked, and taste/profile hooks
-- Continue rail comes from Mango state: `progress.db` resume first, then saved/in-progress library items
-- Verified titles remain in `playability.db` / `rail_pool`; user library state attaches to verified IDs when possible
+- Mango is the user-library source of truth: explicit **Saved**, automatic watch history, finished state, dormant hidden/blocked fields, and taste/profile hooks
+- `library.db` is durable local SQLite at `/etc/mango/library.db`, source-aware for future YouTube; `progress.db` remains the Continue/resume source in M6.1 and mirrors history/finished into the library
+- The launcher shows **Saved** immediately after Continue, detail exposes Save/Unsave, and existing user-facing Pins import once into Saved; internal rail-curation pins remain operator-only playability policy
+- `/library/state`, `/library/saved`, `/library/history`, and `/library/context` are first-class APIs; `/pins` remains a Saved-backed compatibility wrapper
+- Voice exposes `mango_save_title` / `mango_unsave_title` for current context or exact title, without playback or hide/unhide
+- AI/catalog automation cannot write to Saved; AI catalog overflow is replace/merge only
 - Stremio export remains addon-manifest config only; no Stremio library sync or write-back
-- Back up Mango progress + library state on exit / cron
+- Back up Mango progress + library state on stack stop/restart via `scripts/m6-ship/backup-library-state.sh`; cron/timers can call the same script
 
 ### M6.2 — YouTube
 

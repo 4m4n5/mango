@@ -63,10 +63,10 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 
 | Topic | Decision |
 |-------|----------|
-| Continue rail | Mango `progress.db` resume first, then Mango saved/in-progress library items |
+| Continue rail | Mango `progress.db` resume state; Saved is a separate rail immediately after Continue |
 | Resume source of truth | mango progress DB (mpv position watcher) |
 | Verified library | `playability.db` active verified titles; thematic `rail_pool` memberships |
-| User library | Mango-owned saved/watchlist, history, finished, hidden/blocked, and taste/profile state (**M6.1**) |
+| User library | Mango-owned `library.db`: explicit Saved, automatic history, finished, dormant hidden/blocked fields, and taste/profile hooks |
 | Library grow | Best-effort fresh `+20` new-to-rail verified target per active rail; shortfalls publish usable verified work with operator warnings |
 | Grow visibility | Operator-only reports; no TV debug/progress surface |
 | Finished watching | Store in Mango progress/library state; no Stremio write-back |
@@ -79,7 +79,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | YouTube voice role | Open YouTube results/detail after M6.2; pad **B** still starts playback |
 | STT | Deepgram `nova-3` · Hinglish (`multi` + hi/en fallback) |
 | TTS | Off until **M6** soundbar/TV path validated |
-| AI catalogs | Voice-created slots on home · overflow handling (replace / pin / merge) |
+| AI catalogs | Voice-created slots on home · overflow handling (replace / merge); automation never writes to Saved |
 
 ### Household
 

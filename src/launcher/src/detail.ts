@@ -12,13 +12,13 @@ import {
   type NextPromptResponse,
 } from "./catalog";
 import type { ContentCard, BrowseTab } from "./types";
-import { pinCard, unpinCard } from "./pins";
+import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 
 export interface DetailCallbacks {
   onClose: () => void;
   onStatus: (message: string) => void;
-  onPinsChanged?: () => void;
+  onSavedChanged?: () => void;
   onNextEpisodePrompt?: (hint: NextPromptResponse, card: ContentCard) => void;
 }
 
@@ -39,7 +39,7 @@ export class DetailController {
   private selectedEpisodeId: string | null = null;
   private nextPromptPollTimer: number | undefined;
   private browseTab: BrowseTab = "movies";
-  private pinned = false;
+  private saved = false;
 
   constructor(
     private readonly view: HTMLElement,
@@ -49,7 +49,7 @@ export class DetailController {
     private readonly meta: HTMLElement,
     private readonly description: HTMLElement,
     private readonly playButton: HTMLButtonElement,
-    private readonly pinButton: HTMLButtonElement,
+    private readonly saveButton: HTMLButtonElement,
     private readonly backButton: HTMLButtonElement,
     private readonly streamsWrap: HTMLElement,
     private readonly streamList: HTMLElement,
@@ -58,7 +58,7 @@ export class DetailController {
     private readonly callbacks: DetailCallbacks,
   ) {
     this.playButton.addEventListener("click", () => void this.play());
-    this.pinButton.addEventListener("click", () => void this.togglePin());
+    this.saveButton.addEventListener("click", () => void this.toggleSaved());
     this.backButton.addEventListener("click", () => this.hide());
   }
 
@@ -83,7 +83,7 @@ export class DetailController {
     this.streamsPending = false;
     void cancelPlay();
     this.playButton.disabled = false;
-    this.pinButton.disabled = false;
+    this.saveButton.disabled = false;
     this.backButton.disabled = false;
     for (const button of this.streamButtons) {
       button.disabled = false;
@@ -98,10 +98,10 @@ export class DetailController {
     );
   }
 
-  show(card: ContentCard, railLabel: string, tab: BrowseTab, pinned = false): void {
+  show(card: ContentCard, railLabel: string, tab: BrowseTab, saved = false): void {
     this.card = card;
     this.browseTab = tab;
-    this.pinned = pinned;
+    this.saved = saved;
     this.focusIndex = 0;
     this.streams = [];
     this.streamButtons = [];
@@ -120,9 +120,10 @@ export class DetailController {
     bindPosterImage(this.poster, card.title);
     this.poster.alt = "";
     this.view.classList.remove("hidden");
-    this.updatePinButton();
+    this.updateSaveButton();
     this.updatePlayButtonLabel();
     this.applyFocus();
+    void publishCurrentLibraryContext(tab, card).catch(() => undefined);
     const isLive = card.type === "tv" || tab === "live";
     this.callbacks.onStatus(isLive ? "B to watch live. Y to go back." : "B to play. Y to go back.");
     void this.loadFullMeta(card);
@@ -344,7 +345,7 @@ export class DetailController {
   private focusables(): HTMLElement[] {
     return [
       this.playButton,
-      this.pinButton,
+      this.saveButton,
       this.backButton,
       ...this.listFocusables,
       ...this.streamButtons,
@@ -421,9 +422,9 @@ export class DetailController {
     }
   }
 
-  private updatePinButton(): void {
-    this.pinButton.textContent = this.pinned ? "unpin" : "pin";
-    this.pinButton.setAttribute("aria-pressed", this.pinned ? "true" : "false");
+  private updateSaveButton(): void {
+    this.saveButton.textContent = this.saved ? "unsave" : "save";
+    this.saveButton.setAttribute("aria-pressed", this.saved ? "true" : "false");
   }
 
   private updatePlayButtonLabel(): void {
@@ -442,29 +443,29 @@ export class DetailController {
     this.playButton.textContent = hasResume ? "resume" : "play";
   }
 
-  private async togglePin(): Promise<void> {
+  private async toggleSaved(): Promise<void> {
     const card = this.card;
     if (!card) {
       return;
     }
-    this.pinButton.disabled = true;
+    this.saveButton.disabled = true;
     try {
-      if (this.pinned) {
-        await unpinCard(this.browseTab, card);
-        this.pinned = false;
-        this.callbacks.onStatus("removed from pinned.");
+      if (this.saved) {
+        await unsaveCard(card);
+        this.saved = false;
+        this.callbacks.onStatus("removed from saved.");
       } else {
-        await pinCard(this.browseTab, card);
-        this.pinned = true;
-        this.callbacks.onStatus("pinned — find it in your pinned rail.");
+        await saveCard(this.browseTab, card);
+        this.saved = true;
+        this.callbacks.onStatus("saved — find it in your Saved rail.");
       }
-      this.updatePinButton();
-      this.callbacks.onPinsChanged?.();
+      this.updateSaveButton();
+      this.callbacks.onSavedChanged?.();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "could not update pin";
+      const message = error instanceof Error ? error.message : "could not update saved";
       this.callbacks.onStatus(message);
     } finally {
-      this.pinButton.disabled = false;
+      this.saveButton.disabled = false;
     }
   }
 

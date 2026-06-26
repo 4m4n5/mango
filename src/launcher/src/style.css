@@ -281,7 +281,7 @@ button {
     linear-gradient(145deg, rgba(33, 42, 44, 0.92), #0a1014);
 }
 
-.card--poster.card--pinned::after {
+.card--poster.card--saved::after {
   content: "★";
   position: absolute;
   top: 0.55rem;
