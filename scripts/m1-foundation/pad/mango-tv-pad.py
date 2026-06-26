@@ -199,6 +199,21 @@ def _window_cmdline(wid: str) -> str:
     return result.stdout.strip().lower()
 
 
+def _window_xwininfo(wid: str) -> str:
+    try:
+        result = subprocess.run(
+            ["xwininfo", "-id", wid],
+            env=_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return ""
+    return result.stdout
+
+
 def active_window_meta() -> tuple[str, str]:
     wid = _xdotool("getactivewindow").stdout.strip()
     if not wid or wid == "0":
@@ -247,11 +262,16 @@ def _is_launcher_window(wid: str) -> bool:
     klass = _window_class(wid)
     process = _window_process(wid)
     cmdline = _window_cmdline(wid)
+    xwininfo = _window_xwininfo(wid)
     if "selection owner" in name or "tooltip" in name:
         return False
     if "/overlay/" in cmdline or "mango-overlay" in klass:
         return False
     if f"127.0.0.1:{LAUNCHER_PORT}/" not in cmdline:
+        return False
+    if "Map State: IsViewable" not in xwininfo:
+        return False
+    if "Class: InputOutput" not in xwininfo:
         return False
     if "mango-launcher" in klass and process in {"chromium", "chrome", "chromium-browser"}:
         return True
@@ -431,9 +451,10 @@ def go_home() -> None:
             active_class=klass,
             action="focus_launcher",
         )
-        wid = find_launcher_wid()
-        if wid:
-            _xdotool("windowactivate", "--sync", wid)
+        if not is_launcher_focused():
+            wid = find_launcher_wid()
+            if wid:
+                _xdotool("windowactivate", wid)
         return
     diag_event("home_press", foreground=app, active_name=name, active_class=klass)
     if app == "mpv":

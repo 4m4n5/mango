@@ -29,6 +29,18 @@ launcher_window_cmdline() {
   ps -p "$pid" -o args= 2>/dev/null | tr '[:upper:]' '[:lower:]'
 }
 
+launcher_window_xwininfo() {
+  xwininfo -id "$1" 2>/dev/null || true
+}
+
+launcher_window_is_viewable() {
+  launcher_window_xwininfo "$1" | grep -q 'Map State: IsViewable'
+}
+
+launcher_window_is_input_output() {
+  launcher_window_xwininfo "$1" | grep -q 'Class: InputOutput'
+}
+
 launcher_window_area() {
   local width height
   width=0
@@ -58,6 +70,8 @@ launcher_window_is_match() {
   [[ "$class_blob" != *"mango-overlay"* ]] || return 1
   [[ "$name" != *"selection owner"* ]] || return 1
   [[ "$name" != *"tooltip"* ]] || return 1
+  launcher_window_is_viewable "$wid" || return 1
+  launcher_window_is_input_output "$wid" || return 1
 
   if [[ "$class_blob" == *"mango-launcher"* ]]; then
     return 0
