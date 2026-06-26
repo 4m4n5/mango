@@ -17,6 +17,7 @@ import os
 import pwd
 import re
 import select
+import signal
 import subprocess
 import sys
 import time
@@ -55,6 +56,8 @@ HOME_BUTTONS = {316, 311}
 BT_MAC = "E4:17:D8:EB:00:44"
 RECONNECT_SLEEP_SEC = 0.75
 DEVICE_WAIT_SEC = 45.0
+BT_CONNECT_INTERVAL_SEC = 8.0
+BT_CONNECT_TIMEOUT_SEC = 6.0
 DISPLAY_WAKE_THROTTLE_SEC = 3.0
 STATUS_HEARTBEAT_SEC = 2.0
 
@@ -66,6 +69,7 @@ DIAG_SESSION = os.environ.get("MANGO_DIAG_SESSION", "")
 PAD_DEBUG = os.environ.get("MANGO_PAD_DEBUG") == "1"
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": str(_HOME)}
 _last_display_wake_at = 0.0
+_last_bt_connect_at = 0.0
 
 
 def diag_event(kind: str, **fields: str) -> None:
@@ -596,15 +600,43 @@ def current_pro_controller_path() -> str | None:
         release_device(dev)
 
 
+def _run_bluetoothctl(args: list[str], *, timeout: float) -> subprocess.CompletedProcess[str] | None:
+    try:
+        proc = subprocess.Popen(
+            ["bluetoothctl", *args],
+            env=_env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            start_new_session=True,
+        )
+    except OSError:
+        return None
+    try:
+        stdout, _ = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            proc.kill()
+        stdout, _ = proc.communicate()
+    return subprocess.CompletedProcess(["bluetoothctl", *args], proc.returncode, stdout, "")
+
+
+def bluetooth_connected() -> bool:
+    result = _run_bluetoothctl(["info", BT_MAC], timeout=2.0)
+    return result is not None and "Connected: yes" in (result.stdout or "")
+
+
 def try_bluetooth_connect() -> None:
-    subprocess.run(
-        ["bluetoothctl", "connect", BT_MAC],
-        env=_env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        check=False,
-        timeout=8,
-    )
+    global _last_bt_connect_at
+    now = time.monotonic()
+    if now - _last_bt_connect_at < BT_CONNECT_INTERVAL_SEC:
+        return
+    _last_bt_connect_at = now
+    if bluetooth_connected():
+        return
+    _run_bluetoothctl(["connect", BT_MAC], timeout=BT_CONNECT_TIMEOUT_SEC)
 
 
 def wait_for_device() -> evdev.InputDevice:

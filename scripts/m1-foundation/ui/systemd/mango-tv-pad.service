@@ -11,9 +11,13 @@ Environment=HOME=/home/aman
 Environment=USER=aman
 Environment=SUDO_USER=aman
 ExecStartPre=-/bin/rm -f /home/aman/.cache/mango/mango-tv-pad.pid /home/aman/.cache/mango/mango-tv-pad-status.json
+ExecStartPre=-/bin/sh -c '/usr/bin/pkill -f "bluetoothctl connect E4:17:D8:EB:00:44" || true'
 ExecStartPre=-/usr/bin/sudo -n /usr/bin/systemctl stop input-remapper
 ExecStartPre=-/usr/bin/sudo -n /usr/bin/pkill -f input-remapper-reader-service
 ExecStart=/usr/bin/sudo -n /home/aman/mango/scripts/m1-foundation/pad/run-mango-tv-pad.sh
+ExecStopPost=-/bin/sh -c '/usr/bin/pkill -f "bluetoothctl connect E4:17:D8:EB:00:44" || true'
+KillMode=control-group
+TimeoutStopSec=5
 Restart=always
 RestartSec=2
 

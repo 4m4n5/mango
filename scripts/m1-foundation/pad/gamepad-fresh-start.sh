@@ -39,10 +39,7 @@ PY
 }
 
 bt_connect() {
-  bluetoothctl <<EOF
-power on
-connect ${BT_MAC}
-EOF
+  MANGO_GAMEPAD_BT_MAC="$BT_MAC" bash "$SCRIPT_DIR/connect-gamepad.sh"
 }
 
 wait_for_input_device() {

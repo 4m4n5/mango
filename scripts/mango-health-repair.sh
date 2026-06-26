@@ -69,6 +69,7 @@ kill_safe_strays() {
   pkill -f 'gate-m3-verified' 2>/dev/null || true
   pkill -f 'curl.*127.0.0.1:3020/play' 2>/dev/null || true
   pkill -f 'node --input-type=module -e.*CatalogCore' 2>/dev/null || true
+  pkill -f '[b]luetoothctl connect E4:17:D8:EB:00:44' 2>/dev/null || true
 }
 
 catalog_expected() {
@@ -158,7 +159,8 @@ kill_safe_strays
 
 if ! bash scripts/m1-foundation/pad/pad-health.sh --quiet; then
   repair_note restart_pad "pad_health"
-  bash scripts/m1-foundation/pad/pad-health.sh --quiet --repair \
+  MANGO_PAD_REPAIR_WAIT_STEPS="${MANGO_PAD_REPAIR_WAIT_STEPS:-24}" \
+    bash scripts/m1-foundation/pad/pad-health.sh --quiet --repair \
     || fail_note pad "repair_failed"
 fi
 

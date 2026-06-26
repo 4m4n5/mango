@@ -51,9 +51,7 @@ udevadm trigger --subsystem-match=input --action=add 2>/dev/null || true
 echo "=== Bluetooth trust + auto-connect ==="
 systemctl enable bluetooth 2>/dev/null || true
 systemctl start bluetooth 2>/dev/null || true
-bluetoothctl power on 2>/dev/null || true
-bluetoothctl trust "$BT_MAC" 2>/dev/null || true
-bluetoothctl connect "$BT_MAC" 2>/dev/null || true
+MANGO_GAMEPAD_BT_MAC="$BT_MAC" bash "${SCRIPT_DIR}/connect-gamepad.sh" 2>/dev/null || true
 
 mkdir -p "${HOME_DIR}/.config/systemd/user"
 install -m 0644 -o "$USER_NAME" -g "$USER_NAME" "$UNIT_SRC" "$UNIT_DST"
