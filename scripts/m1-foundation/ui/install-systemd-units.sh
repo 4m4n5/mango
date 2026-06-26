@@ -12,16 +12,19 @@ UNIT_DST="${HOME}/.config/systemd/user"
 
 mkdir -p "$UNIT_DST" "${HOME}/.cache/mango"
 
-for unit in mango-ui-server.service mango-catalog.service mango-watchdog.service mango-watchdog.timer mango-launcher-chromium.service; do
+for unit in mango-ui-server.service mango-catalog.service mango-watchdog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service; do
   install -m 0644 "$UNIT_SRC/$unit" "$UNIT_DST/$unit"
 done
 
 chmod +x "$REPO_DIR/scripts/m1-foundation/ui/start-mango-launcher-chromium.sh"
+chmod +x "$REPO_DIR/scripts/m1-foundation/pad/run-mango-tv-pad.sh"
+chmod +x "$REPO_DIR/scripts/m1-foundation/pad/pad-health.sh"
 chmod +x "$REPO_DIR/scripts/m2-catalog/service/run-catalog-service.sh"
+chmod +x "$REPO_DIR/scripts/mango-health-repair.sh"
 
 systemctl --user daemon-reload
-systemctl --user enable mango-ui-server.service mango-catalog.service mango-watchdog.timer mango-launcher-chromium.service
-systemctl --user start mango-ui-server.service mango-catalog.service mango-watchdog.timer
+systemctl --user enable mango-ui-server.service mango-catalog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service
+systemctl --user start mango-ui-server.service mango-catalog.service mango-watchdog.timer mango-tv-pad.service
 
 if ! loginctl show-user "$USER" -p Linger 2>/dev/null | grep -q yes; then
   echo "! Tip: enable linger so user units survive logout:"
@@ -31,4 +34,5 @@ fi
 echo "✓ systemd user units installed"
 systemctl --user status mango-ui-server.service --no-pager -l | head -8 || true
 systemctl --user status mango-catalog.service --no-pager -l | head -8 || true
+systemctl --user status mango-tv-pad.service --no-pager -l | head -8 || true
 systemctl --user list-timers mango-watchdog.timer --no-pager || true

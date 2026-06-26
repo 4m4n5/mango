@@ -183,6 +183,11 @@ gate_idle_hygiene() {
   else
     gate_pass "single pad owner"
   fi
+  if [[ -x "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" ]]; then
+    bash "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" --quiet \
+      && gate_pass "mango-tv-pad current device" \
+      || gate_fail "mango-tv-pad current device"
+  fi
   if [[ "${mem_mb:-0}" -ge 2500 ]]; then
     gate_pass "mem available ${mem_mb} MB"
   else

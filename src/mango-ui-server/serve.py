@@ -28,6 +28,7 @@ REPO_ROOT: Final = Path(__file__).resolve().parents[2]
 LAUNCHER_DIST: Final = REPO_ROOT / "src" / "launcher" / "dist"
 LOG_DIR: Final = Path.home() / ".cache" / "mango"
 LOG_SCRIPT: Final = REPO_ROOT / "scripts" / "lib" / "mango-log.sh"
+PAD_HEALTH_SCRIPT: Final = REPO_ROOT / "scripts" / "m1-foundation" / "pad" / "pad-health.sh"
 ACTIVITY_STATE: Final = Path(os.environ.get("MANGO_COUCH_ACTIVITY_STATE", str(LOG_DIR / "couch-activity.json")))
 PERF_LOG: Final = LOG_DIR / "launcher-perf.jsonl"
 CATALOG_UPSTREAM: Final = os.environ.get("MANGO_CATALOG_UPSTREAM", "http://127.0.0.1:3020")
@@ -66,6 +67,26 @@ def run_check(cmd: list[str]) -> bool:
         return subprocess.run(cmd, capture_output=True, check=False).returncode == 0
     except OSError:
         return False
+
+
+def run_json(cmd: list[str], timeout: float = 2.0) -> dict[str, object]:
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    if result.returncode != 0 and not result.stdout.strip():
+        return {}
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def mango_log(event: str, **fields: str) -> None:
@@ -223,15 +244,23 @@ def collect_health(port: int) -> dict[str, object]:
     )
     firefox_ok = run_check(["pgrep", "-f", f"firefox.*127.0.0.1:{port}/"])
     browser_ok = chromium_ok or firefox_ok
-    tv_pad = run_check(["pgrep", "-f", "mango-tv-pad.py"])
+    pad_health = (
+        run_json(["bash", str(PAD_HEALTH_SCRIPT), "--json", "--quiet"], timeout=3.0)
+        if PAD_HEALTH_SCRIPT.is_file()
+        else {}
+    )
+    tv_pad = bool(pad_health.get("ok")) or run_check(["pgrep", "-f", "mango-tv-pad.py"])
+    tv_pad_ready = bool(pad_health.get("ok")) if pad_health else tv_pad
     remapper = "unknown"
-    if tv_pad:
+    if tv_pad_ready:
         remapper = "tv_pad"
     elif run_check(["systemctl", "is-active", "--quiet", "input-remapper"]):
         remapper = "active"
     elif run_check(["systemctl", "is-active", "input-remapper"]):
         remapper = "inactive"
     openbox = "active" if run_check(["pgrep", "-x", "openbox"]) else "inactive"
+    catalog_expected = os.environ.get("MANGO_CATALOG", "1").strip() != "0"
+    catalog_health = collect_catalog_health() if catalog_expected else {"ok": True}
 
     input_ok = remapper in ("active", "tv_pad")
     checks = {
@@ -240,11 +269,51 @@ def collect_health(port: int) -> dict[str, object]:
         "chromium": browser_ok,
         "firefox": firefox_ok,
         "input_remapper": remapper,
-        "tv_pad": tv_pad,
+        "tv_pad": tv_pad_ready,
+        "tv_pad_reason": str(pad_health.get("reason", "")) if pad_health else "",
+        "tv_pad_device": str(pad_health.get("current_device_path", "")) if pad_health else "",
+        "catalog": bool(catalog_health.get("ok")),
+        "catalog_core": str(catalog_health.get("core", "")),
+        "catalog_rails_ready": bool(catalog_health.get("rails_ready", False)),
+        "catalog_live_ready": bool(catalog_health.get("live_ready", True)),
         "openbox": openbox,
     }
-    ok = launcher_ok and browser_ok and input_ok and openbox == "active"
+    ok = (
+        launcher_ok
+        and browser_ok
+        and input_ok
+        and tv_pad_ready
+        and bool(catalog_health.get("ok"))
+        and openbox == "active"
+    )
     return {"ok": ok, "checks": checks}
+
+
+def collect_catalog_health() -> dict[str, object]:
+    try:
+        request = Request(f"{CATALOG_UPSTREAM.rstrip('/')}/health", method="GET")
+        with urlopen(request, timeout=3) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except Exception:
+        return {"ok": False, "core": "down", "rails_ready": False, "live_ready": False}
+    if not isinstance(data, dict):
+        return {"ok": False, "core": "invalid", "rails_ready": False, "live_ready": False}
+    live = data.get("live")
+    live_ready = bool(data.get("live_ready", True))
+    if isinstance(live, dict) and "ready" in live:
+        live_ready = live_ready and bool(live.get("ready"))
+    ready = (
+        bool(data.get("ok"))
+        and data.get("core") == "ready"
+        and bool(data.get("rails_ready"))
+        and live_ready
+    )
+    return {
+        "ok": ready,
+        "core": str(data.get("core", "")),
+        "rails_ready": bool(data.get("rails_ready")),
+        "live_ready": live_ready,
+    }
 
 
 class MangoUiHandler(BaseHTTPRequestHandler):

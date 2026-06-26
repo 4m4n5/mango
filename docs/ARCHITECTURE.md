@@ -85,6 +85,7 @@ src/mango-ui-server/    serve.py — static + health + launch API + catalog prox
 src/orchestrator/       voice hub (FastAPI)
 src/companion/          phone PWA
 scripts/mango-stack.sh  native base stack supervisor
+scripts/mango-health-repair.sh  watchdog repair: stale locks · pad · catalog · launcher
 ```
 
 ---
@@ -114,6 +115,7 @@ Pad layout: [HARDWARE.md](HARDWARE.md)
 - Wallpaper/desktop with no launcher after Home
 - More than one Chromium at idle
 - Stremio or Kodi running at idle after `mango-stack.sh start`
+- Launcher up while catalog rails/live readiness or the current pad event owner is unhealthy
 - Second orchestrator listener on `:8766`
 
 Fallback env: `MANGO_FALLBACK_STREMIO=1` · `MANGO_LEGACY_YOUTUBE=1`

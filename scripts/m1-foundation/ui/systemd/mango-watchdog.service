@@ -1,5 +1,7 @@
 [Unit]
 Description=mango TV health watchdog
+Wants=mango-ui-server.service mango-catalog.service mango-launcher-chromium.service mango-tv-pad.service
+After=mango-ui-server.service mango-catalog.service mango-launcher-chromium.service mango-tv-pad.service
 
 [Service]
 Type=oneshot
@@ -7,4 +9,4 @@ Environment=HOME=%h
 Environment=MANGO_REPO_DIR=%h/mango
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=%h/.Xauthority
-ExecStart=%h/mango/scripts/verify-tv.sh --quiet --repair-server
+ExecStart=%h/mango/scripts/mango-health-repair.sh --quiet

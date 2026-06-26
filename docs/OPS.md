@@ -125,9 +125,9 @@ bash scripts/m2-catalog/service/check-m2-prereqs.sh
 | Symptom | Check |
 |---------|-------|
 | Desktop wallpaper after ⌂ | `bash scripts/launch-launcher.sh` · see [ARCHITECTURE.md](ARCHITECTURE.md) foreground |
-| Pad dead | `pgrep -af mango-tv-pad` · reboot pad (Pro Controller mode) |
+| Pad dead | `bash scripts/m1-foundation/pad/pad-health.sh --repair` · reboot pad in Pro Controller mode if no event appears |
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
-| Empty rails | `curl localhost:3020/health` · playability status script |
+| Empty rails | `bash scripts/mango-health-repair.sh` · `curl localhost:3020/health` · playability status script |
 | Live tab empty after source error | `bash scripts/live/live-diagnostics.sh` · stale cache should remain available |
 | Grow seems hung | `python3 scripts/diag/grow_monitor.py status --verbose` · inspect stage/source before killing |
 | Maintenance did not run | `bash scripts/diag/couch-activity-status.sh` · check deferred JSON in `~/.cache/mango/ops/` |
@@ -135,6 +135,12 @@ bash scripts/m2-catalog/service/check-m2-prereqs.sh
 | Chromium duplicate | `bash scripts/mango-kill-strays.sh` |
 
 Logs: `~/.cache/mango/mango.log` · `journalctl --user -u mango-stack` (if systemd)
+
+Watchdog repair is narrow: it clears stale locks and known maintenance/debug
+strays, repairs the current pad event owner, restarts catalog-service when
+rails/live readiness fails, and restarts launcher units only when UI health is
+still bad. Use `bash scripts/mango-stack.sh restart` for a deliberate clean
+full-stack reset.
 
 Grow operator state: `~/.cache/mango/grow-run-state.json`, `~/.cache/mango/ops/refresh-*.json`, `~/.cache/mango/source-grow/latest.json`.
 

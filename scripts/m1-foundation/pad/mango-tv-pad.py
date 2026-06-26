@@ -12,8 +12,11 @@ See docs/HARDWARE.md
 from __future__ import annotations
 
 import json
+import errno
 import os
+import pwd
 import re
+import select
 import subprocess
 import sys
 import time
@@ -32,6 +35,9 @@ XAUTHORITY = os.environ.get("XAUTHORITY", str(_HOME / ".Xauthority"))
 THRESH = int(32767 * 0.8)
 DEBOUNCE_SEC = 0.12
 REPO = _HOME / "mango"
+CACHE_DIR = _HOME / ".cache" / "mango"
+PID_PATH = CACHE_DIR / "mango-tv-pad.pid"
+STATUS_PATH = CACHE_DIR / "mango-tv-pad-status.json"
 LAUNCHER_SH = REPO / "scripts/launch-launcher.sh"
 MPV_IPC_SH = REPO / "scripts/m2-catalog/service/mpv-ipc.sh"
 MPV_STOP_SH = REPO / "scripts/m2-catalog/service/mpv-stop.sh"
@@ -50,6 +56,7 @@ BT_MAC = "E4:17:D8:EB:00:44"
 RECONNECT_SLEEP_SEC = 0.75
 DEVICE_WAIT_SEC = 45.0
 DISPLAY_WAKE_THROTTLE_SEC = 3.0
+STATUS_HEARTBEAT_SEC = 2.0
 
 
 class DeviceNotFoundError(Exception):
@@ -78,6 +85,71 @@ def diag_event(kind: str, **fields: str) -> None:
                 fh.write(line + "\n")
         except OSError:
             pass
+
+
+def _tv_user_ids() -> tuple[int, int] | None:
+    if _TV_USER in ("", "root"):
+        return None
+    try:
+        entry = pwd.getpwnam(_TV_USER)
+    except KeyError:
+        return None
+    return entry.pw_uid, entry.pw_gid
+
+
+def _write_owner_file(path: Path, text: str, *, mode: int = 0o644) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.chmod(tmp, mode)
+        ids = _tv_user_ids()
+        if ids is not None and os.geteuid() == 0:
+            os.chown(tmp, ids[0], ids[1])
+        tmp.replace(path)
+        os.chmod(path, mode)
+        if ids is not None and os.geteuid() == 0:
+            os.chown(path, ids[0], ids[1])
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def write_pid_file() -> None:
+    _write_owner_file(PID_PATH, f"{os.getpid()}\n")
+
+
+def _device_payload(dev: evdev.InputDevice | None) -> dict[str, object]:
+    if dev is None:
+        return {}
+    return {
+        "device_path": dev.path,
+        "device_name": dev.name,
+        "device_uniq": getattr(dev, "uniq", "") or "",
+        "device_phys": getattr(dev, "phys", "") or "",
+    }
+
+
+def write_status(
+    state: str,
+    dev: evdev.InputDevice | None = None,
+    *,
+    last_event_at: float = 0.0,
+    last_action: str = "",
+) -> None:
+    now = time.time()
+    payload: dict[str, object] = {
+        "ok": state == "running",
+        "state": state,
+        "pid": os.getpid(),
+        "updated_at": now,
+        "last_event_at": last_event_at,
+        "last_action": last_action,
+    }
+    payload.update(_device_payload(dev))
+    _write_owner_file(STATUS_PATH, json.dumps(payload, separators=(",", ":")) + "\n")
 
 
 def as_tv_user(argv: list[str]) -> list[str]:
@@ -513,6 +585,17 @@ def find_pro_controller() -> evdev.InputDevice:
     )
 
 
+def current_pro_controller_path() -> str | None:
+    try:
+        dev = find_pro_controller()
+    except DeviceNotFoundError:
+        return None
+    try:
+        return dev.path
+    finally:
+        release_device(dev)
+
+
 def try_bluetooth_connect() -> None:
     subprocess.run(
         ["bluetoothctl", "connect", BT_MAC],
@@ -551,6 +634,8 @@ def release_device(dev: evdev.InputDevice | None) -> None:
 def run_pad_session(dev: evdev.InputDevice) -> None:
     dev.grab()
     last: dict[str, float] = {}
+    last_event_at = 0.0
+    write_status("running", dev, last_event_at=last_event_at, last_action="grabbed")
 
     def debounced(action: str, fn) -> None:
         now = time.monotonic()
@@ -560,48 +645,86 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
         wake_display_for_input(action)
         fn()
 
+    def heartbeat() -> bool:
+        current_path = current_pro_controller_path()
+        if current_path and current_path != dev.path:
+            print(
+                f"mango-tv-pad: controller moved {dev.path} -> {current_path}, will reconnect",
+                flush=True,
+            )
+            write_status(
+                "reconnecting",
+                dev,
+                last_event_at=last_event_at,
+                last_action=f"stale_device:{current_path}",
+            )
+            return False
+        write_status("running", dev, last_event_at=last_event_at, last_action="heartbeat")
+        return True
+
     try:
-        for event in dev.read_loop():
-            app = foreground_app()
-            if event.type == ecodes.EV_ABS:
-                if event.code in (ecodes.ABS_X, ecodes.ABS_HAT0X):
-                    threshold = 1 if event.code == ecodes.ABS_HAT0X else THRESH
-                    if event.value <= -threshold:
-                        debounced(f"{app}-left", lambda: route_dpad(app, "left"))
-                    elif event.value >= threshold:
-                        debounced(f"{app}-right", lambda: route_dpad(app, "right"))
-                elif event.code in (ecodes.ABS_Y, ecodes.ABS_HAT0Y):
-                    threshold = 1 if event.code == ecodes.ABS_HAT0Y else THRESH
-                    if event.value <= -threshold:
-                        debounced(f"{app}-up", lambda: route_dpad(app, "up"))
-                    elif event.value >= threshold:
-                        debounced(f"{app}-down", lambda: route_dpad(app, "down"))
-            elif event.type == ecodes.EV_KEY and event.value == 1:
-                diag_event(
-                    "ev_key",
-                    code=str(event.code),
-                    foreground=app,
+        while True:
+            ready, _, _ = select.select([dev.fd], [], [], STATUS_HEARTBEAT_SEC)
+            if not ready:
+                if not heartbeat():
+                    return
+                continue
+            for event in dev.read():
+                last_event_at = time.time()
+                write_status(
+                    "running",
+                    dev,
+                    last_event_at=last_event_at,
+                    last_action=f"event:{event.type}:{event.code}",
                 )
-                if event.code == BTN_B:
-                    debounced(f"{app}-select", lambda: route_face(app, "select"))
-                elif event.code == BTN_Y:
-                    debounced(f"{app}-back", lambda: route_face(app, "back"))
-                elif event.code == BTN_SHUFFLE:
-                    debounced("shuffle", refresh_launcher_library)
-                elif app == "launcher" and event.code == BTN_TL:
-                    debounced("tab-prev", lambda: switch_launcher_tab(-1))
-                elif app == "launcher" and event.code == BTN_TR:
-                    debounced("tab-next", lambda: switch_launcher_tab(1))
-                elif event.code in HOME_BUTTONS:
-                    debounced("home", go_home)
+                app = foreground_app()
+                if event.type == ecodes.EV_ABS:
+                    if event.code in (ecodes.ABS_X, ecodes.ABS_HAT0X):
+                        threshold = 1 if event.code == ecodes.ABS_HAT0X else THRESH
+                        if event.value <= -threshold:
+                            debounced(f"{app}-left", lambda: route_dpad(app, "left"))
+                        elif event.value >= threshold:
+                            debounced(f"{app}-right", lambda: route_dpad(app, "right"))
+                    elif event.code in (ecodes.ABS_Y, ecodes.ABS_HAT0Y):
+                        threshold = 1 if event.code == ecodes.ABS_HAT0Y else THRESH
+                        if event.value <= -threshold:
+                            debounced(f"{app}-up", lambda: route_dpad(app, "up"))
+                        elif event.value >= threshold:
+                            debounced(f"{app}-down", lambda: route_dpad(app, "down"))
+                elif event.type == ecodes.EV_KEY and event.value == 1:
+                    diag_event(
+                        "ev_key",
+                        code=str(event.code),
+                        foreground=app,
+                    )
+                    if event.code == BTN_B:
+                        debounced(f"{app}-select", lambda: route_face(app, "select"))
+                    elif event.code == BTN_Y:
+                        debounced(f"{app}-back", lambda: route_face(app, "back"))
+                    elif event.code == BTN_SHUFFLE:
+                        debounced("shuffle", refresh_launcher_library)
+                    elif app == "launcher" and event.code == BTN_TL:
+                        debounced("tab-prev", lambda: switch_launcher_tab(-1))
+                    elif app == "launcher" and event.code == BTN_TR:
+                        debounced("tab-next", lambda: switch_launcher_tab(1))
+                    elif event.code in HOME_BUTTONS:
+                        debounced("home", go_home)
     except OSError as exc:
-        if exc.errno == 19:  # ENODEV — Bluetooth dropped
+        if exc.errno in (errno.ENODEV, errno.EIO):
             print("mango-tv-pad: device disconnected, will reconnect", flush=True)
+            write_status(
+                "reconnecting",
+                dev,
+                last_event_at=last_event_at,
+                last_action=f"oserror:{exc.errno}",
+            )
             return
         raise
 
 
 def main() -> None:
+    write_pid_file()
+    write_status("starting", last_action="boot")
     print("mango-tv-pad: router ready (wake pad with any button)", flush=True)
     while True:
         dev: evdev.InputDevice | None = None
@@ -611,11 +734,14 @@ def main() -> None:
             run_pad_session(dev)
         except KeyboardInterrupt:
             release_device(dev)
+            write_status("stopped", dev, last_action="keyboard_interrupt")
             break
         except DeviceNotFoundError as exc:
             print(f"mango-tv-pad: {exc}", flush=True)
+            write_status("waiting", dev, last_action="device_not_found")
         except Exception as exc:  # noqa: BLE001 — keep router alive for TV
             print(f"mango-tv-pad: error: {exc}", flush=True)
+            write_status("error", dev, last_action=type(exc).__name__)
         finally:
             release_device(dev)
         time.sleep(RECONNECT_SLEEP_SEC)

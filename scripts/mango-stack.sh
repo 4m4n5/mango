@@ -166,6 +166,7 @@ start_stack() {
     curl -sf --max-time 3 "$(catalog_service_url)/health" >/dev/null \
       || { echo "catalog-service unhealthy after start" >&2; return 1; }
   fi
+  bash scripts/m1-foundation/pad/pad-health.sh --quiet --repair 2>/dev/null || true
 }
 
 stop_stack() {
@@ -197,6 +198,13 @@ status_stack() {
     && echo "launcher: up" || echo "launcher: down"
   launcher_browser_running \
     && echo "launcher browser: up" || echo "launcher browser: down"
+  if [[ -x scripts/m1-foundation/pad/pad-health.sh ]]; then
+    if bash scripts/m1-foundation/pad/pad-health.sh --quiet; then
+      echo "pad: ok"
+    else
+      echo "pad: unhealthy — bash scripts/m1-foundation/pad/pad-health.sh --repair"
+    fi
+  fi
   pgrep -f 'playability-indexer' >/dev/null 2>&1 \
     && echo "indexer: running (competes with mpv)" || true
   if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
