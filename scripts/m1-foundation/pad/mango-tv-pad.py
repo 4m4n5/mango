@@ -635,8 +635,11 @@ def try_bluetooth_connect() -> None:
         return
     _last_bt_connect_at = now
     if bluetooth_connected():
+        write_status("waiting", last_action="bt_connected_waiting_for_event")
         return
+    write_status("waiting", last_action="bt_connect_attempt")
     _run_bluetoothctl(["connect", BT_MAC], timeout=BT_CONNECT_TIMEOUT_SEC)
+    write_status("waiting", last_action="bt_connect_returned")
 
 
 def wait_for_device() -> evdev.InputDevice:
@@ -645,6 +648,7 @@ def wait_for_device() -> evdev.InputDevice:
         try:
             return find_pro_controller()
         except DeviceNotFoundError:
+            write_status("waiting", last_action="device_scan")
             try_bluetooth_connect()
             time.sleep(RECONNECT_SLEEP_SEC)
     raise DeviceNotFoundError("timed out waiting for Pro Controller")

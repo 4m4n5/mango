@@ -8,6 +8,7 @@ CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 STATUS_FILE="${CACHE_DIR}/mango-tv-pad-status.json"
 PID_FILE="${CACHE_DIR}/mango-tv-pad.pid"
 MAX_STATUS_AGE_SEC="${MANGO_PAD_HEALTH_MAX_AGE_SEC:-8}"
+MAX_WAITING_STATUS_AGE_SEC="${MANGO_PAD_WAITING_MAX_AGE_SEC:-20}"
 REPAIR_WAIT_STEPS="${MANGO_PAD_REPAIR_WAIT_STEPS:-24}"
 BT_MAC="${MANGO_GAMEPAD_BT_MAC:-E4:17:D8:EB:00:44}"
 
@@ -74,7 +75,7 @@ input_remapper_active() {
 }
 
 cleanup_bt_connect() {
-  pkill -f "[b]luetoothctl connect ${BT_MAC}" 2>/dev/null || true
+  pkill -f "^bluetoothctl connect ${BT_MAC}$" 2>/dev/null || true
 }
 
 load_status_exports() {
@@ -139,10 +140,6 @@ check_health() {
   CURRENT_PATH="$(current_controller_path 2>/dev/null || true)"
   PIDS="$(pad_pids)"
 
-  if [[ -z "$CURRENT_PATH" ]]; then
-    REASON="controller_event_missing"
-    return 1
-  fi
   if [[ -z "$PIDS" ]]; then
     REASON="pad_process_missing"
     return 1
@@ -161,15 +158,6 @@ check_health() {
     REASON="status_pid_mismatch"
     return 1
   fi
-  if [[ "${STATUS_PATH:-}" != "$CURRENT_PATH" ]]; then
-    REASON="stale_device:${STATUS_PATH:-missing}->${CURRENT_PATH}"
-    return 1
-  fi
-  if [[ "${STATUS_STATE:-}" != "running" ]]; then
-    REASON="status_state:${STATUS_STATE:-missing}"
-    return 1
-  fi
-
   now="$(date +%s)"
   updated="$(python3 - "${STATUS_UPDATED_AT:-0}" <<'PY'
 import sys
@@ -180,6 +168,31 @@ except Exception:
 PY
 )"
   age=$(( now - updated ))
+
+  if [[ -z "$CURRENT_PATH" ]]; then
+    case "${STATUS_STATE:-}" in
+      starting | waiting | reconnecting)
+        if (( age <= MAX_WAITING_STATUS_AGE_SEC )); then
+          REASON="waiting_for_controller"
+          return 0
+        fi
+        REASON="waiting_status_stale:${age}s"
+        return 1
+        ;;
+      *)
+        REASON="controller_event_missing"
+        return 1
+        ;;
+    esac
+  fi
+  if [[ "${STATUS_PATH:-}" != "$CURRENT_PATH" ]]; then
+    REASON="stale_device:${STATUS_PATH:-missing}->${CURRENT_PATH}"
+    return 1
+  fi
+  if [[ "${STATUS_STATE:-}" != "running" ]]; then
+    REASON="status_state:${STATUS_STATE:-missing}"
+    return 1
+  fi
   if (( age > MAX_STATUS_AGE_SEC )); then
     REASON="status_stale:${age}s"
     return 1
@@ -212,7 +225,11 @@ PIDS=""
 REASON="ok"
 
 if check_health; then
-  say "pad-health: ok (${CURRENT_PATH})"
+  if [[ "$REASON" == "waiting_for_controller" ]]; then
+    say "pad-health: waiting for controller (router alive)"
+  else
+    say "pad-health: ok (${CURRENT_PATH})"
+  fi
   [[ "$JSON" == "1" ]] && json_result 1 "$REASON" "$CURRENT_PATH" "$PIDS"
   exit 0
 fi

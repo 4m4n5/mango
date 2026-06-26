@@ -184,10 +184,44 @@ gate_idle_hygiene() {
     gate_pass "single pad owner"
   fi
   if [[ -x "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" ]]; then
-    bash "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" --quiet \
-      || bash "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" --quiet --repair \
-      && gate_pass "mango-tv-pad current device" \
-      || gate_fail "mango-tv-pad current device"
+    local pad_json pad_eval pad_ok pad_reason
+    pad_json="$(bash "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" --quiet --json 2>/dev/null || true)"
+    pad_eval="$(python3 - "$pad_json" <<'PY'
+import json
+import shlex
+import sys
+try:
+    data = json.loads(sys.argv[1] or "{}")
+except Exception:
+    data = {}
+print(f"pad_ok={shlex.quote('1' if data.get('ok') else '0')}")
+print(f"pad_reason={shlex.quote(str(data.get('reason') or ''))}")
+PY
+)"
+    eval "$pad_eval"
+    if [[ "${pad_ok:-0}" != "1" ]]; then
+      pad_json="$(bash "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" --quiet --repair --json 2>/dev/null || true)"
+      pad_eval="$(python3 - "$pad_json" <<'PY'
+import json
+import shlex
+import sys
+try:
+    data = json.loads(sys.argv[1] or "{}")
+except Exception:
+    data = {}
+print(f"pad_ok={shlex.quote('1' if data.get('ok') else '0')}")
+print(f"pad_reason={shlex.quote(str(data.get('reason') or ''))}")
+PY
+)"
+      eval "$pad_eval"
+    fi
+    if [[ "${pad_ok:-0}" == "1" && "${pad_reason:-}" == "waiting_for_controller" ]]; then
+      gate_pass "mango-tv-pad waiting for controller"
+    elif [[ "${pad_ok:-0}" == "1" ]]; then
+      gate_pass "mango-tv-pad current device"
+    else
+      gate_fail "mango-tv-pad current device"
+    fi
   fi
   if [[ "${mem_mb:-0}" -ge 2500 ]]; then
     gate_pass "mem available ${mem_mb} MB"

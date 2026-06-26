@@ -126,6 +126,11 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 Bluetooth may show **Connected** before Linux registers the pad. **Press any button** on the Micro.
 
+If the Micro is powered off, Mango keeps `mango-tv-pad.py` running and retries
+Bluetooth in the background. `pad-health: waiting for controller` is expected in
+that state; wake the controller and it should grab the new `Pro Controller`
+event node without a stack restart.
+
 **One-time setup** (auto-recover after this):
 
 ```bash

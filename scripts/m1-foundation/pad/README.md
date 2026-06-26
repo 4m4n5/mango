@@ -34,4 +34,8 @@ Run on the Pi from `~/mango`. Full context: [docs/OPS.md](../../../docs/OPS.md).
 
 ## Gamepad (locked)
 
+When the controller is off, `mango-tv-pad.py` stays alive and reports
+`waiting_for_controller`; this is healthy because the router is still polling
+Bluetooth and will grab the event node after wake.
+
 See [docs/HARDWARE.md](../../../docs/HARDWARE.md) · [AGENTS.md](../../../AGENTS.md).

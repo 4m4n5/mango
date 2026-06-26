@@ -125,7 +125,8 @@ bash scripts/m2-catalog/service/check-m2-prereqs.sh
 | Symptom | Check |
 |---------|-------|
 | Desktop wallpaper after ⌂ | `bash scripts/launch-launcher.sh` · see [ARCHITECTURE.md](ARCHITECTURE.md) foreground |
-| Pad dead | `bash scripts/m1-foundation/pad/pad-health.sh --repair` · reboot pad in Pro Controller mode if no event appears |
+| Pad waiting | `pad-health: waiting for controller` means Mango is alive and polling; turn on / press any button on the Micro |
+| Pad dead | `bash scripts/m1-foundation/pad/pad-health.sh --repair` · reboot pad in Pro Controller mode if no event appears after wake |
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
 | Empty rails | `bash scripts/mango-health-repair.sh` · `curl localhost:3020/health` · playability status script |
 | Live tab empty after source error | `bash scripts/live/live-diagnostics.sh` · stale cache should remain available |

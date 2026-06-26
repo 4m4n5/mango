@@ -199,7 +199,25 @@ status_stack() {
   launcher_browser_running \
     && echo "launcher browser: up" || echo "launcher browser: down"
   if [[ -x scripts/m1-foundation/pad/pad-health.sh ]]; then
-    if bash scripts/m1-foundation/pad/pad-health.sh --quiet; then
+    PAD_JSON="$(bash scripts/m1-foundation/pad/pad-health.sh --quiet --json 2>/dev/null || true)"
+    PAD_STATUS="$(python3 - "$PAD_JSON" <<'PY'
+import json
+import sys
+try:
+    data = json.loads(sys.argv[1] or "{}")
+except Exception:
+    data = {}
+if data.get("ok") and data.get("reason") == "waiting_for_controller":
+    print("waiting")
+elif data.get("ok"):
+    print("ok")
+else:
+    print("fail")
+PY
+)"
+    if [[ "$PAD_STATUS" == "waiting" ]]; then
+      echo "pad: waiting for controller (router alive)"
+    elif [[ "$PAD_STATUS" == "ok" ]]; then
       echo "pad: ok"
     else
       echo "pad: unhealthy — bash scripts/m1-foundation/pad/pad-health.sh --repair"
