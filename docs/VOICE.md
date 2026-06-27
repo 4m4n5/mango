@@ -31,6 +31,7 @@ Launcher :3000                └───────────────�
 | STT | Deepgram `nova-3` · `multi` · Hinglish keyterms |
 | LLM | Tool loop with librarian persona |
 | TTS | Off until M6.3 soundbar/TV path validated |
+| Companion catalog calls | HTTPS companion proxies same-origin `/api/catalog/*` to catalog-service so phone browser fetches avoid CORS/mixed-content failures |
 
 ---
 

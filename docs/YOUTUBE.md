@@ -79,6 +79,8 @@ detail lists but are not Saved entities in M6.2.
 - Video detail supports Play, Save/Unsave, Not Interested, Back.
 - Channel/playlist detail opens a D-pad list of videos.
 - Not Interested removes the card from rails immediately and persists a local downrank/exclusion.
+- Companion account connect uses the HTTPS companion same-origin `/api/catalog/*`
+  proxy; direct browser calls to `:3020` are not required.
 
 ---
 
