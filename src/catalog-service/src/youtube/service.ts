@@ -125,6 +125,10 @@ function filterNotInterested<T extends YoutubeItem>(items: T[]): T[] {
   return items.filter((item) => item.kind !== 'video' || !blocked.has(item.id));
 }
 
+function shouldShowLiveInRail(railId: string): boolean {
+  return railId === 'live_now' || railId === 'history';
+}
+
 function uniqueVideos(items: YoutubeItem[]): YoutubeItem[] {
   const seen = new Set<string>();
   const output: YoutubeItem[] = [];
@@ -174,7 +178,8 @@ function railFromItems(railId: string, items: YoutubeItem[], reason: string): Yo
 
 function cachedRail(railId: string, limit = 40): YoutubeRail {
   const refresh = youtubeRefreshStatus();
-  const items = filterNotInterested(listYoutubeRailItems(railId, limit));
+  const items = filterNotInterested(listYoutubeRailItems(railId, limit))
+    .filter((item) => shouldShowLiveInRail(railId) || !isLiveVideo(item));
   const stale = refresh.last_success_at !== null
     && refresh.last_success_at < nowMs() - loadYoutubeConfig().stale_after_ms;
   return {

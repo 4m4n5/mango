@@ -98,3 +98,21 @@ test('for you rail excludes live videos', () => withTempState(async () => {
   assert.ok(forYou.items.some((item) => item.id === 'NormalVideo'));
   assert.ok(!forYou.items.some((item) => item.id === 'LiveVideo'));
 }));
+
+test('cached discovery rails keep live videos in live now only', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', [
+    { item: sampleVideo('PopularNormal'), score: 1, reason: 'test' },
+    { item: sampleVideo('PopularLive', 'live'), score: 0.9, reason: 'test' },
+  ]);
+  replaceYoutubeRailItems('live_now', [
+    { item: sampleVideo('LiveNow', 'live'), score: 1, reason: 'test' },
+  ]);
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const popular = response.rails.find((rail) => rail.rail_id === 'popular');
+  const liveNow = response.rails.find((rail) => rail.rail_id === 'live_now');
+  assert.ok(popular);
+  assert.ok(liveNow);
+  assert.deepEqual(popular.items.map((item) => item.id), ['PopularNormal']);
+  assert.deepEqual(liveNow.items.map((item) => item.id), ['LiveNow']);
+}));
