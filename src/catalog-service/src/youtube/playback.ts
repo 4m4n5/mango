@@ -6,13 +6,38 @@ export type YoutubeResolvedPlayback = {
   url: string;
   audio_url?: string;
   resolve_ms: number;
+  format: string;
 };
 
 function youtubeWatchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 }
 
-function classifyYtDlpError(text: string): { status: number; message: string } {
+export function ytDlpFormatCandidates(configured: string): string[] {
+  return [
+    configured,
+    'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
+    'bv*[height<=1080]+ba/b[height<=1080]/b',
+    'best*[height<=1080]/best*',
+    'best[height<=1080]/best',
+    'best',
+  ]
+    .map((format) => format.trim())
+    .filter(Boolean)
+    .filter((format, index, formats) => formats.indexOf(format) === index);
+}
+
+function requestedFormatUnavailable(text: string): boolean {
+  return /requested format is not available/i.test(text);
+}
+
+export function classifyYtDlpError(text: string): { status: number; message: string } {
+  if (requestedFormatUnavailable(text)) {
+    return {
+      status: 502,
+      message: 'YouTube playback format unavailable — try another YouTube video',
+    };
+  }
   if (/429|too many requests|captcha|not a bot|sign in to confirm/i.test(text)) {
     return {
       status: 429,
@@ -62,45 +87,68 @@ export async function resolveYoutubePlayback(
     });
   }
   const started = Date.now();
-  const args = [
-    '--no-playlist',
-    '--no-warnings',
-    '-f',
-    config.yt_dlp_format,
-    '-g',
-  ];
-  if (config.yt_dlp_cookies) {
-    args.push('--cookies', config.yt_dlp_cookies);
-  }
-  if (config.yt_dlp_cookies_from_browser) {
-    args.push('--cookies-from-browser', config.yt_dlp_cookies_from_browser);
-  }
-  args.push(youtubeWatchUrl(videoId));
-  const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
-    execFile(config.yt_dlp_command, args, {
-      timeout: timeoutMs,
-      maxBuffer: 1024 * 1024,
-    }, (error, stdout, stderr) => {
-      if (error) {
-        const detail = `${stderr || stdout || error.message}`.trim();
-        const classified = classifyYtDlpError(detail);
-        reject(new CatalogError(classified.status, classified.message, { yt_dlp: detail }, {
-          couchMessage: classified.message,
-        }));
-        return;
+  let lastFormatError = '';
+  for (const format of ytDlpFormatCandidates(config.yt_dlp_format)) {
+    const args = [
+      '--no-playlist',
+      '--no-warnings',
+      '-f',
+      format,
+      '-g',
+    ];
+    if (config.yt_dlp_cookies) {
+      args.push('--cookies', config.yt_dlp_cookies);
+    }
+    if (config.yt_dlp_cookies_from_browser) {
+      args.push('--cookies-from-browser', config.yt_dlp_cookies_from_browser);
+    }
+    args.push(youtubeWatchUrl(videoId));
+    const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+      execFile(config.yt_dlp_command, args, {
+        timeout: timeoutMs,
+        maxBuffer: 1024 * 1024,
+      }, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`${stderr || stdout || error.message}`.trim()));
+          return;
+        }
+        resolve({ stdout, stderr });
+      });
+    }).catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (requestedFormatUnavailable(detail)) {
+        lastFormatError = detail;
+        return null;
       }
-      resolve({ stdout, stderr });
+      const classified = classifyYtDlpError(detail);
+      throw new CatalogError(classified.status, classified.message, { yt_dlp: detail }, {
+        couchMessage: classified.message,
+      });
     });
-  });
-  const resolved = parseYtDlpResolvedUrls(stdout);
-  if (!resolved) {
-    const classified = classifyYtDlpError(stderr || stdout);
-    throw new CatalogError(classified.status, classified.message, { yt_dlp: stderr || stdout }, {
+    if (!result) {
+      continue;
+    }
+    const { stdout, stderr } = result;
+    const resolved = parseYtDlpResolvedUrls(stdout);
+    if (resolved) {
+      return {
+        ...resolved,
+        resolve_ms: Date.now() - started,
+        format,
+      };
+    }
+    const detail = stderr || stdout;
+    if (requestedFormatUnavailable(detail)) {
+      lastFormatError = detail;
+      continue;
+    }
+    const classified = classifyYtDlpError(detail);
+    throw new CatalogError(classified.status, classified.message, { yt_dlp: detail }, {
       couchMessage: classified.message,
     });
   }
-  return {
-    ...resolved,
-    resolve_ms: Date.now() - started,
-  };
+  const classified = classifyYtDlpError(lastFormatError || 'yt-dlp returned no playable URLs');
+  throw new CatalogError(classified.status, classified.message, { yt_dlp: lastFormatError }, {
+    couchMessage: classified.message,
+  });
 }

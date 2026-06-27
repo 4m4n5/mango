@@ -95,6 +95,7 @@ export interface PlayResult {
     quality?: string;
     display_label?: string;
     resolve_ms?: number;
+    format?: string;
   };
   error?: string;
 }

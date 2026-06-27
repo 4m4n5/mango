@@ -69,6 +69,7 @@ bash scripts/lib/sync-etc-mango-config.sh || true
 bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh || true
 bash scripts/m5-voice/ai/sync-companion-example.sh || true
 bash scripts/m4-addons/ensure-bharat-binge-export.sh || true
+bash scripts/m6-ship/ensure-youtube-yt-dlp.sh || true
 if [[ -f ~/.config/mango/voice.env ]]; then
   # shellcheck disable=SC1091
   source ~/.config/mango/voice.env

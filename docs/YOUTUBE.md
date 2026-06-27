@@ -24,7 +24,7 @@ Launcher YouTube tab
 | `youtube.db` | Cached videos/channels/playlists, rail membership, refresh/quota counters, auth sessions |
 | `library.db` | YouTube Saved videos, watch history, finished state, current context, Not Interested feedback |
 | YouTube Data API | Metadata/search/subscriptions only |
-| `yt-dlp -> mpv` | Playback resolution/rendering; no Data API quota use |
+| `yt-dlp -> mpv` | Playback resolution/rendering via the Mango wrapper; no Data API quota use |
 
 `youtube.db` is rebuildable. `library.db` is durable household state.
 
@@ -42,11 +42,18 @@ All live credentials are operator-owned under `/etc/mango`; never commit them.
 | `/etc/mango/youtube.db` | Rebuildable YouTube cache |
 | `/etc/mango/library.db` | Durable Saved/history/feedback |
 | `/etc/mango/youtube-cookies.txt` | Optional `yt-dlp` cookies file |
+| `~/.local/share/mango/ytdlp-venv/` | User-owned updatable `yt-dlp` venv for playback resolution |
 
 Repo-safe examples:
 
 - `config/config.example.yaml`
 - `config/youtube-oauth-client.example.json`
+
+`scripts/pi-deploy.sh` runs `scripts/m6-ship/ensure-youtube-yt-dlp.sh` to keep
+`yt-dlp` fresh in the user venv. The catalog calls
+`scripts/m6-ship/youtube-yt-dlp.sh`, which prefers that venv and only falls back
+to system `yt-dlp` if the venv is absent. This is intentional: YouTube playback
+extraction changes faster than Debian packages.
 
 ---
 
@@ -79,6 +86,7 @@ detail lists but are not Saved entities in M6.2.
 - Video detail supports Play, Save/Unsave, Not Interested, Back.
 - Channel/playlist detail opens a D-pad list of videos.
 - Not Interested removes the card from rails immediately and persists a local downrank/exclusion.
+- Live videos are kept in Live Now instead of dominating For You / Because You Watched.
 - Companion account connect uses the HTTPS companion same-origin `/api/catalog/*`
   proxy; direct browser calls to `:3020` are not required.
 
@@ -120,8 +128,8 @@ bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 ```
 
-The smoke gate skips API search when no API key is configured and skips
-playback unless `MANGO_YOUTUBE_PLAY=1`.
+The smoke gate verifies the configured `yt-dlp` command, skips API search when
+no API key is configured, and skips playback unless `MANGO_YOUTUBE_PLAY=1`.
 
 ---
 

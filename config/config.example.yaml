@@ -118,7 +118,7 @@ youtube:
   exclude_shorts: true
   stale_after_hours: 24
   playback:
-    yt_dlp_command: yt-dlp
+    yt_dlp_command: scripts/m6-ship/youtube-yt-dlp.sh
     yt_dlp_format: bestvideo[height<=1080]+bestaudio/best[height<=1080]/best
     # Optional when the operator wants Premium/account cookies available to yt-dlp.
     # cookies_file: /etc/mango/youtube-cookies.txt

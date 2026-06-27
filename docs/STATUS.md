@@ -174,7 +174,7 @@ Implementation is present; credentialed Pi smoke is pending. See [YOUTUBE.md](YO
 | API | `/youtube/state`, auth start/poll/disconnect, refresh, rails, grouped search, detail, not-interested, play |
 | Rails | Saved, History, For You, New From Subscriptions, Fresh Finds, Because You Watched, Live Now, Popular; stale cache remains visible |
 | Launcher | YouTube tab after Live; videos play/save, channels/playlists open video lists, Not Interested removes cards |
-| Playback | `yt-dlp -g -f bestvideo[height<=1080]+bestaudio/best[height<=1080]/best` resolves video/audio URLs; mpv plays them and writes local history/progress as YouTube source |
+| Playback | Mango wrapper `scripts/m6-ship/youtube-yt-dlp.sh` resolves video/audio URLs with fallback format selectors; deploy refreshes an isolated user `yt-dlp` venv; mpv plays them and writes local history/progress as YouTube source |
 | Voice | `mango_youtube_search` and `mango_open_youtube`; Save/Unsave supports current/exact YouTube video; no voice playback |
 | Fallback | Legacy Kodi YouTube is emergency-only with `MANGO_LEGACY_YOUTUBE=1` |
 
@@ -189,6 +189,8 @@ PYTHONPATH=src/orchestrator python3 -m unittest discover -s src/orchestrator/tes
 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 ```
+
+The YouTube smoke verifies the configured `yt-dlp` command before API/detail checks.
 
 ---
 

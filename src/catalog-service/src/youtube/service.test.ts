@@ -8,7 +8,7 @@ import { replaceYoutubeRailItems, resetYoutubeDbForTests } from './db.js';
 import { YoutubeService } from './service.js';
 import type { YoutubeItem, YoutubeRail } from './types.js';
 
-function sampleVideo(id: string): YoutubeItem {
+function sampleVideo(id: string, liveStatus: YoutubeItem['live_status'] = 'none'): YoutubeItem {
   return {
     id,
     kind: 'video',
@@ -20,7 +20,7 @@ function sampleVideo(id: string): YoutubeItem {
     channel_title: 'Channel One',
     published_at: '2026-06-01T00:00:00Z',
     duration_sec: 600,
-    live_status: 'none',
+    live_status: liveStatus,
     playlist_id: null,
     updated_at: 1000,
   };
@@ -84,4 +84,17 @@ test('search falls back to local cache when API key is absent', () => withTempSt
   };
   assert.equal(response.cached_only, true);
   assert.deepEqual(response.groups.videos.map((item) => item.id), ['LocalOnly']);
+}));
+
+test('for you rail excludes live videos', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', [
+    { item: sampleVideo('NormalVideo'), score: 1, reason: 'test' },
+    { item: sampleVideo('LiveVideo', 'live'), score: 0.9, reason: 'test' },
+  ]);
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const forYou = response.rails.find((rail) => rail.rail_id === 'for_you');
+  assert.ok(forYou);
+  assert.ok(forYou.items.some((item) => item.id === 'NormalVideo'));
+  assert.ok(!forYou.items.some((item) => item.id === 'LiveVideo'));
 }));

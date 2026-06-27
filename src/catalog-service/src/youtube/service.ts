@@ -138,6 +138,14 @@ function uniqueVideos(items: YoutubeItem[]): YoutubeItem[] {
   return output;
 }
 
+function isLiveVideo(item: YoutubeItem): boolean {
+  return item.live_status === 'live';
+}
+
+function nonLiveVideos(items: YoutubeItem[]): YoutubeItem[] {
+  return items.filter((item) => !isLiveVideo(item));
+}
+
 function recencyScore(item: YoutubeItem): number {
   const published = item.published_at ? Date.parse(item.published_at) : item.updated_at;
   if (!Number.isFinite(published)) {
@@ -226,12 +234,13 @@ function rankForYou(limit = 40): YoutubeItem[] {
   }
   return listYoutubeItems('video', 300)
     .filter((item) => !blocked.has(item.id))
+    .filter((item) => !isLiveVideo(item))
     .map((item) => {
       const channel = item.channel_id || item.channel_title || '';
       const affinity = channel ? (channelWeights.get(channel) ?? 0) : 0;
       return {
         item,
-        score: recencyScore(item) + Math.min(2, affinity * 0.35) + (item.live_status === 'live' ? 0.3 : 0),
+        score: recencyScore(item) + Math.min(2, affinity * 0.35),
       };
     })
     .sort((a, b) => b.score - a.score)
@@ -339,7 +348,7 @@ export class YoutubeService {
           playlists: [],
         }))),
       );
-      const becauseWatched = uniqueVideos(watchedGroups.flatMap((group) => group.videos));
+      const becauseWatched = nonLiveVideos(uniqueVideos(watchedGroups.flatMap((group) => group.videos)));
       replaceYoutubeRailItems('because_you_watched', becauseWatched.map((item, index) => ({
         item,
         score: 1 - index * 0.01,
@@ -531,6 +540,15 @@ export class YoutubeService {
       playEpoch,
       minDurationSec: live ? 1 : 1,
       audioUrl: resolved.audio_url,
+    }).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new CatalogError(502, live ? 'YouTube live playback did not start' : 'YouTube playback did not start', {
+        mpv: message,
+      }, {
+        couchMessage: live
+          ? 'YouTube live playback did not start — try another live video'
+          : 'YouTube playback did not start — try another video',
+      });
     });
     recordLibraryWatch({
       ...itemToLibraryInput(item),
@@ -558,6 +576,7 @@ export class YoutubeService {
         source: 'youtube',
         display_label: live ? 'YouTube live' : 'YouTube',
         resolve_ms: resolved.resolve_ms,
+        format: resolved.format,
       },
     };
   }

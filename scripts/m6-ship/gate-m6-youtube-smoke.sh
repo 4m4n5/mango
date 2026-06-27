@@ -33,6 +33,21 @@ assert payload.get("enabled") is True
 assert isinstance(payload.get("cache"), dict)
 PY
 
+yt_dlp_command="$(
+  python3 - "$state_json" <<'PY'
+import json
+import sys
+payload = json.loads(sys.argv[1])
+print(((payload.get("configured") or {}).get("yt_dlp_command")) or "")
+PY
+)"
+if [[ -n "$yt_dlp_command" ]]; then
+  if [[ "$yt_dlp_command" == */* && "$yt_dlp_command" != /* ]]; then
+    yt_dlp_command="./$yt_dlp_command"
+  fi
+  timeout 15 "$yt_dlp_command" --version >/dev/null
+fi
+
 rails_json="$(curl_json "/youtube/rails" 20)"
 python3 - "$rails_json" <<'PY'
 import json

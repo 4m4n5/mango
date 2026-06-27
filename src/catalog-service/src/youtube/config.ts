@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 
@@ -23,6 +23,7 @@ export type YoutubeConfig = {
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(moduleDir, '../../../..');
+const defaultYtDlpCommand = resolve(repoRoot, 'scripts/m6-ship/youtube-yt-dlp.sh');
 
 function readYamlConfig(): Record<string, unknown> {
   const configPath = process.env.MANGO_CONFIG || '/etc/mango/config.yaml';
@@ -55,6 +56,14 @@ function readSecret(path: string): string | null {
   } catch {
     return null;
   }
+}
+
+function commandPath(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed || !trimmed.includes('/') || isAbsolute(trimmed)) {
+    return trimmed;
+  }
+  return resolve(repoRoot, trimmed);
 }
 
 function positiveInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -97,9 +106,9 @@ export function loadYoutubeConfig(): YoutubeConfig {
       ? false
       : Boolean(youtube.exclude_shorts ?? true),
     stale_after_ms: positiveInt(youtube.stale_after_hours, 24, 1, 24 * 30) * 60 * 60 * 1000,
-    yt_dlp_command: process.env.MANGO_YTDLP_COMMAND
+    yt_dlp_command: commandPath(process.env.MANGO_YTDLP_COMMAND
       || optionalString(playback.yt_dlp_command)
-      || 'yt-dlp',
+      || defaultYtDlpCommand),
     yt_dlp_format: process.env.MANGO_YTDLP_FORMAT
       || optionalString(playback.yt_dlp_format)
       || 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',

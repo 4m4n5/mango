@@ -121,6 +121,10 @@ If `git pull --ff-only` fails on Pi:
 | `src/launcher/node_modules` | `npm ci` on Pi after pull |
 | Whole `~/mango` | `git pull` |
 
+YouTube playback resolver: `bash scripts/m6-ship/ensure-youtube-yt-dlp.sh`
+installs/updates an isolated user venv under `~/.local/share/mango/ytdlp-venv`.
+This is allowed operator-owned runtime state; do not commit or copy it.
+
 ---
 
 ## Quick reference
