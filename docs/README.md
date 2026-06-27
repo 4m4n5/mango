@@ -35,9 +35,9 @@
 | M3 Play | ✓ |
 | M4 Addons | ✓ |
 | M5 Voice + AI | ◐ |
-| M6 Ship | ◐ M6.1 library core shipped · M6.2 YouTube implemented, Pi smoke pending |
+| M6 Ship | ◐ M6.1 library core shipped · M6.2 YouTube implemented and deploy-gated |
 
-M3 playability/grow is functional but still in production hardening: strict `+20`/rail semantics, staged publish, orphan repair, and source diagnostics are implemented; sustained full-grow reliability is the active hardening lane. M6.1 Mango-owned Saved/history/finished state is implemented in `library.db`; M6.2 native YouTube code is implemented with credential/playback smoke pending; 4K, unified UX polish, and the wizard remain M6 ship work. Detail: [PLAYABILITY.md](PLAYABILITY.md), [YOUTUBE.md](YOUTUBE.md), and [STATUS.md](STATUS.md).
+M3 playability/grow is functional but still in production hardening: strict `+20`/rail semantics, staged publish, orphan repair, and source diagnostics are implemented; sustained full-grow reliability is the active hardening lane. M6.1 Mango-owned Saved/history/finished state is implemented in `library.db`; M6.2 native YouTube is implemented and must pass Pi smoke after deploys; 4K, unified UX polish, and the wizard remain M6 ship work. Detail: [PLAYABILITY.md](PLAYABILITY.md), [YOUTUBE.md](YOUTUBE.md), and [STATUS.md](STATUS.md).
 
 Detail: [ROADMAP.md](ROADMAP.md)
 

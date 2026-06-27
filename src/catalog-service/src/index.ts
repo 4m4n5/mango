@@ -783,7 +783,9 @@ async function main(): Promise<void> {
         }
 
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'rails') {
-          sendJson(res, 200, await youtube.rails());
+          const reshuffle = url.searchParams.get('reshuffle') === '1'
+            || url.searchParams.get('reshuffle') === 'true';
+          sendJson(res, 200, await youtube.rails({ reshuffle }));
           return;
         }
 

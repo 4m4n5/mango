@@ -15,7 +15,7 @@ What works today, what is still being hardened, and how to verify it.
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
 | M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5a voice contract pending |
-| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube implemented with Pi smoke pending · 4K, unified UX, wizard pending |
+| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube implemented and deploy-gated · 4K, unified UX, wizard pending |
 
 ---
 
@@ -23,7 +23,7 @@ What works today, what is still being hardened, and how to verify it.
 
 | Feature | Detail |
 |---------|--------|
-| Tabs | Movies · Series · Live · YouTube (L/R shoulders; YouTube M6.2 smoke pending) |
+| Tabs | Movies · Series · Live · YouTube (L/R shoulders; YouTube M6.2 gate required after deploy) |
 | Grid | 9-up posters · ↻ shuffle (pad `317`) |
 | Rails | YAML + AI catalog slots + Continue |
 | Service | `catalog-service :3020` · `GET /rails` |
@@ -163,7 +163,7 @@ Primary routes: `GET /library/state`, `GET/POST/DELETE /library/saved`,
 
 ## M6.2 — Native YouTube ◐
 
-Implementation is present; credentialed Pi smoke is pending. See [YOUTUBE.md](YOUTUBE.md).
+Implementation is present and deploy-gated; credentialed Pi smoke remains required before couch sign-off. See [YOUTUBE.md](YOUTUBE.md).
 
 | Area | Current implementation |
 |------|------------------------|
@@ -172,8 +172,8 @@ Implementation is present; credentialed Pi smoke is pending. See [YOUTUBE.md](YO
 | Config | `/etc/mango/youtube-api.key`, `/etc/mango/youtube-oauth-client.json`, `/etc/mango/youtube-auth.json`, optional cookies; examples only in repo |
 | Auth | Companion starts/polls Google device-code OAuth and disconnects local token; token file is written `0600` |
 | API | `/youtube/state`, auth start/poll/disconnect, refresh, rails, grouped search, detail, not-interested, play |
-| Rails | Saved, History, For You, New From Subscriptions, Fresh Finds, Because You Watched, Live Now, Popular; stale cache remains visible |
-| Launcher | YouTube tab after Live; videos play/save, channels/playlists open video lists, Not Interested removes cards |
+| Rails | 9-up Saved, History, For You, New From Subscriptions, Fresh Finds, Because You Watched, Live Now, Popular; stale cache remains visible |
+| Launcher | YouTube tab after Live; shuffle re-samples cached discovery rails; videos play/save, channels/playlists open video lists, Not Interested removes cards |
 | Playback | Mango wrapper `scripts/m6-ship/youtube-yt-dlp.sh` resolves video/audio URLs with fallback format selectors; deploy refreshes an isolated user `yt-dlp` venv; mpv plays them and writes local history/progress as YouTube source |
 | Voice | `mango_youtube_search` and `mango_open_youtube`; Save/Unsave supports current/exact YouTube video; no voice playback |
 | Fallback | Legacy Kodi YouTube is emergency-only with `MANGO_LEGACY_YOUTUBE=1` |

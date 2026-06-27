@@ -32,6 +32,30 @@ import type { YoutubeItem, YoutubeItemKind, YoutubeRail, YoutubeRailItem, Youtub
 const YOUTUBE_SOURCE = 'youtube';
 const YOUTUBE_TAB = 'youtube';
 const YOUTUBE_VIDEO_TYPE = 'youtube_video';
+const YOUTUBE_RAIL_LIMIT = 9;
+const YOUTUBE_RAIL_POOL_LIMIT = 60;
+const SHUFFLEABLE_YOUTUBE_RAILS = new Set([
+  'for_you',
+  'new_from_subscriptions',
+  'fresh_finds',
+  'because_you_watched',
+  'live_now',
+  'popular',
+]);
+const TITLE_TOKEN_STOPWORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'from',
+  'this',
+  'that',
+  'live',
+  'official',
+  'video',
+  'episode',
+  'full',
+]);
 
 const RAIL_LABELS: Record<string, string> = {
   saved: 'Saved',
@@ -55,6 +79,10 @@ type RefreshResult = {
   ok: boolean;
   refresh: ReturnType<typeof youtubeRefreshStatus>;
   error?: string;
+};
+
+type YoutubeRailsOptions = {
+  reshuffle?: boolean;
 };
 
 function nowMs(): number {
@@ -150,6 +178,80 @@ function nonLiveVideos(items: YoutubeItem[]): YoutubeItem[] {
   return items.filter((item) => !isLiveVideo(item));
 }
 
+function shuffled<T>(items: T[]): T[] {
+  const output = [...items];
+  for (let index = output.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    [output[index], output[swap]] = [output[swap], output[index]];
+  }
+  return output;
+}
+
+function railWindow<T extends YoutubeItem>(railId: string, items: T[], options: YoutubeRailsOptions = {}): T[] {
+  const windowed = options.reshuffle && SHUFFLEABLE_YOUTUBE_RAILS.has(railId)
+    ? shuffled(items)
+    : items;
+  return windowed.slice(0, YOUTUBE_RAIL_LIMIT);
+}
+
+function titleTokens(item: YoutubeItem | { title?: string | null }): Set<string> {
+  const title = item.title || '';
+  return new Set(
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, ' ')
+      .split(/\s+/)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3 && !TITLE_TOKEN_STOPWORDS.has(token)),
+  );
+}
+
+function tokenOverlapScore(left: Set<string>, right: Set<string>): number {
+  if (left.size === 0 || right.size === 0) {
+    return 0;
+  }
+  let overlap = 0;
+  for (const token of left) {
+    if (right.has(token)) {
+      overlap += 1;
+    }
+  }
+  return overlap / Math.max(1, Math.min(left.size, right.size));
+}
+
+function recentWatchedYoutubeItems(limit = 6): YoutubeItem[] {
+  const seen = new Set<string>();
+  const output: YoutubeItem[] = [];
+  for (const row of listWatchHistory(limit * 4)) {
+    if (row.source !== YOUTUBE_SOURCE || row.type !== YOUTUBE_VIDEO_TYPE || seen.has(row.id)) {
+      continue;
+    }
+    seen.add(row.id);
+    const cached = getYoutubeItem('video', row.id) || {
+      id: row.id,
+      kind: 'video' as const,
+      title: row.title || row.id,
+      subtitle: 'YouTube',
+      description: null,
+      thumbnail: row.poster || null,
+      channel_id: null,
+      channel_title: null,
+      published_at: null,
+      duration_sec: null,
+      live_status: 'none' as const,
+      playlist_id: null,
+      updated_at: row.watched_at,
+    };
+    if (!isLiveVideo(cached)) {
+      output.push(cached);
+    }
+    if (output.length >= limit) {
+      break;
+    }
+  }
+  return output;
+}
+
 function recencyScore(item: YoutubeItem): number {
   const published = item.published_at ? Date.parse(item.published_at) : item.updated_at;
   if (!Number.isFinite(published)) {
@@ -176,10 +278,11 @@ function railFromItems(railId: string, items: YoutubeItem[], reason: string): Yo
   };
 }
 
-function cachedRail(railId: string, limit = 40): YoutubeRail {
+function cachedRail(railId: string, options: YoutubeRailsOptions = {}): YoutubeRail {
   const refresh = youtubeRefreshStatus();
-  const items = filterNotInterested(listYoutubeRailItems(railId, limit))
+  const candidates = filterNotInterested(listYoutubeRailItems(railId, YOUTUBE_RAIL_POOL_LIMIT))
     .filter((item) => shouldShowLiveInRail(railId) || !isLiveVideo(item));
+  const items = railWindow(railId, candidates, options);
   const stale = refresh.last_success_at !== null
     && refresh.last_success_at < nowMs() - loadYoutubeConfig().stale_after_ms;
   return {
@@ -191,7 +294,7 @@ function cachedRail(railId: string, limit = 40): YoutubeRail {
   };
 }
 
-function savedRail(limit = 40): YoutubeRail {
+function savedRail(limit = YOUTUBE_RAIL_LIMIT): YoutubeRail {
   const saved = listSavedLibraryItems(YOUTUBE_TAB, limit)
     .filter((item) => item.source === YOUTUBE_SOURCE && item.type === YOUTUBE_VIDEO_TYPE)
     .map((item) => libraryItemToYoutube(item))
@@ -205,7 +308,7 @@ function savedRail(limit = 40): YoutubeRail {
   };
 }
 
-function historyRail(limit = 40): YoutubeRail {
+function historyRail(limit = YOUTUBE_RAIL_LIMIT): YoutubeRail {
   const seen = new Set<string>();
   const items = listWatchHistory(limit * 3)
     .filter((item) => item.source === YOUTUBE_SOURCE && item.type === YOUTUBE_VIDEO_TYPE)
@@ -226,7 +329,7 @@ function historyRail(limit = 40): YoutubeRail {
   };
 }
 
-function rankForYou(limit = 40): YoutubeItem[] {
+function rankForYou(limit = YOUTUBE_RAIL_POOL_LIMIT): YoutubeItem[] {
   const blocked = notInterestedIds();
   const history = listWatchHistory(200).filter((row) => row.source === YOUTUBE_SOURCE);
   const channelWeights = new Map<string, number>();
@@ -248,6 +351,38 @@ function rankForYou(limit = 40): YoutubeItem[] {
         score: recencyScore(item) + Math.min(2, affinity * 0.35),
       };
     })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((entry) => entry.item);
+}
+
+function rankBecauseYouWatchedFromCache(limit = YOUTUBE_RAIL_POOL_LIMIT): YoutubeItem[] {
+  const watched = recentWatchedYoutubeItems(6);
+  if (watched.length === 0) {
+    return [];
+  }
+  const blocked = notInterestedIds();
+  const watchedIds = new Set(watched.map((item) => item.id));
+  const watchedTokens = watched.map((item) => titleTokens(item));
+  return listYoutubeItems('video', 500)
+    .filter((item) => !watchedIds.has(item.id))
+    .filter((item) => !blocked.has(item.id))
+    .filter((item) => !isLiveVideo(item))
+    .map((item) => {
+      const candidateTokens = titleTokens(item);
+      let score = recencyScore(item) * 0.25;
+      watched.forEach((source, index) => {
+        const weight = 1 / (index + 1);
+        if (source.channel_id && item.channel_id && source.channel_id === item.channel_id) {
+          score += 4 * weight;
+        } else if (source.channel_title && item.channel_title && source.channel_title === item.channel_title) {
+          score += 2.5 * weight;
+        }
+        score += tokenOverlapScore(watchedTokens[index], candidateTokens) * 2 * weight;
+      });
+      return { item, score };
+    })
+    .filter((entry) => entry.score > 0.2)
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map((entry) => entry.item);
@@ -300,6 +435,45 @@ export class YoutubeService {
     return { ok: true, auth: youtubeAuthSummary(this.config) };
   }
 
+  private async refreshBecauseYouWatchedFromApi(): Promise<void> {
+    if (!this.config.api_key) {
+      return;
+    }
+    const watched = recentWatchedYoutubeItems(4);
+    if (watched.length === 0) {
+      replaceYoutubeRailItems('because_you_watched', []);
+      return;
+    }
+    const queries: string[] = [];
+    for (const item of watched) {
+      if (item.channel_title) {
+        queries.push(item.channel_title);
+      }
+      const tokens = [...titleTokens(item)].slice(0, 5);
+      if (tokens.length > 0) {
+        queries.push(tokens.join(' '));
+      }
+    }
+    const uniqueQueries = [...new Set(queries.map((query) => query.trim()).filter(Boolean))].slice(0, 6);
+    const watchedIds = new Set(watched.map((item) => item.id));
+    const groups = await Promise.all(
+      uniqueQueries.map((query) => this.api.search(query, { limit: 8 }).catch(() => ({
+        videos: [],
+        channels: [],
+        playlists: [],
+      }))),
+    );
+    const apiCandidates = nonLiveVideos(uniqueVideos(groups.flatMap((group) => group.videos)))
+      .filter((item) => !watchedIds.has(item.id));
+    const rankedCache = rankBecauseYouWatchedFromCache(YOUTUBE_RAIL_POOL_LIMIT);
+    const merged = uniqueVideos([...rankedCache, ...apiCandidates]).slice(0, YOUTUBE_RAIL_POOL_LIMIT);
+    replaceYoutubeRailItems('because_you_watched', merged.map((item, index) => ({
+      item,
+      score: 1 - index * 0.01,
+      reason: 'based on watch history',
+    })));
+  }
+
   async refresh(reason = 'manual'): Promise<RefreshResult> {
     if (!this.config.enabled) {
       return { ok: false, error: 'YouTube is disabled', refresh: youtubeRefreshStatus() };
@@ -340,25 +514,7 @@ export class YoutubeService {
         reason: 'live now',
       })));
 
-      const recentHistory = listWatchHistory(20)
-        .filter((row) => row.source === YOUTUBE_SOURCE && row.type === YOUTUBE_VIDEO_TYPE);
-      const watchedQueries = recentHistory
-        .map((row) => getYoutubeItem('video', row.id)?.channel_title || row.title || '')
-        .filter(Boolean)
-        .slice(0, 4);
-      const watchedGroups = await Promise.all(
-        watchedQueries.map((query) => this.api.search(query, { limit: 8 }).catch(() => ({
-          videos: [],
-          channels: [],
-          playlists: [],
-        }))),
-      );
-      const becauseWatched = nonLiveVideos(uniqueVideos(watchedGroups.flatMap((group) => group.videos)));
-      replaceYoutubeRailItems('because_you_watched', becauseWatched.map((item, index) => ({
-        item,
-        score: 1 - index * 0.01,
-        reason: 'based on watch history',
-      })));
+      await this.refreshBecauseYouWatchedFromApi();
 
       const token = await youtubeAccessToken(this.config).catch(() => null);
       if (token) {
@@ -375,7 +531,7 @@ export class YoutubeService {
         })));
       }
 
-      const forYou = rankForYou(40);
+      const forYou = rankForYou(YOUTUBE_RAIL_POOL_LIMIT);
       replaceYoutubeRailItems('for_you', forYou.map((item, index) => ({
         item,
         score: 1 - index * 0.01,
@@ -392,12 +548,12 @@ export class YoutubeService {
     }
   }
 
-  async rails(): Promise<Record<string, unknown>> {
+  async rails(options: YoutubeRailsOptions = {}): Promise<Record<string, unknown>> {
     const cache = youtubeCacheSummary();
     if (this.config.enabled && this.config.api_key && cache.videos === 0) {
       await this.refresh('first_run').catch(() => undefined);
     }
-    const forYouItems = rankForYou(40);
+    const forYouItems = rankForYou(YOUTUBE_RAIL_POOL_LIMIT);
     if (forYouItems.length > 0) {
       replaceYoutubeRailItems('for_you', forYouItems.map((item, index) => ({
         item,
@@ -405,15 +561,24 @@ export class YoutubeService {
         reason: 'local Mango ranker',
       })));
     }
+    const hasWatchedYoutube = recentWatchedYoutubeItems(1).length > 0;
+    if (hasWatchedYoutube) {
+      const becauseItems = rankBecauseYouWatchedFromCache(YOUTUBE_RAIL_POOL_LIMIT);
+      replaceYoutubeRailItems('because_you_watched', becauseItems.map((item, index) => ({
+        item,
+        score: 1 - index * 0.01,
+        reason: 'based on watch history',
+      })));
+    }
     const rails: YoutubeRail[] = [
       savedRail(),
       historyRail(),
-      cachedRail('for_you'),
-      cachedRail('new_from_subscriptions'),
-      cachedRail('fresh_finds'),
-      cachedRail('because_you_watched'),
-      cachedRail('live_now'),
-      cachedRail('popular'),
+      cachedRail('for_you', options),
+      cachedRail('new_from_subscriptions', options),
+      cachedRail('fresh_finds', options),
+      cachedRail('because_you_watched', options),
+      cachedRail('live_now', options),
+      cachedRail('popular', options),
     ].filter((rail) => rail.items.length > 0 || rail.rail_id === 'fresh_finds' || rail.rail_id === 'popular');
     return {
       ok: true,
@@ -562,6 +727,9 @@ export class YoutubeService {
       position_sec: 0,
       event: 'play',
       watched_at: nowMs(),
+    });
+    void this.refreshBecauseYouWatchedFromApi().catch((error) => {
+      setYoutubeState('last_because_you_watched_error', error instanceof Error ? error.message : String(error));
     });
     await startWatchSessionFromPlay({
       source: YOUTUBE_SOURCE,

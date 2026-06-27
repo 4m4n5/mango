@@ -12,6 +12,7 @@ import {
   type SeriesEpisodesResponse,
   type SeriesEpisodeRow,
   type NextPromptResponse,
+  type PlayResult,
 } from "./catalog";
 import type { ContentCard, BrowseTab } from "./types";
 import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
@@ -21,6 +22,7 @@ export interface DetailCallbacks {
   onClose: () => void;
   onStatus: (message: string) => void;
   onSavedChanged?: () => void;
+  onPlayed?: (card: ContentCard, result: PlayResult) => void;
   onNextEpisodePrompt?: (hint: NextPromptResponse, card: ContentCard) => void;
 }
 
@@ -295,6 +297,7 @@ export class DetailController {
       const label = result.stream?.display_label || result.stream?.quality;
       const quality = label ? ` · ${label}` : "";
       this.callbacks.onStatus(`playing${quality}. ⌂ returns home.`);
+      this.callbacks.onPlayed?.(card, result);
       if (card.type === "series") {
         this.startNextPromptPoll();
       }

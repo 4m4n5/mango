@@ -14,7 +14,7 @@ M2 Browse         ████████████████████  
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
 M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 voice safety contract
-M6 Ship           ███████░░░░░░░░░░░░░  in progress — M6.1 library core landed; M6.2 YouTube implemented, Pi smoke pending; 4K · UX · wizard pending
+M6 Ship           ███████░░░░░░░░░░░░░  in progress — M6.1 library core landed; M6.2 YouTube implemented and deploy-gated; 4K · UX · wizard pending
 ```
 
 | Milestone | Outcome | Status |
@@ -152,11 +152,11 @@ Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented ha
 
 ### M6.2 — Native YouTube ◐
 
-Implementation is in repo; Pi credential/network/playback smoke is required before couch sign-off. Detail: [YOUTUBE.md](YOUTUBE.md).
+Implementation is in repo and deploy-gated; Pi credential/network/playback smoke is required before couch sign-off. Detail: [YOUTUBE.md](YOUTUBE.md).
 
 - `catalog-service/src/youtube/` owns config, `youtube.db`, API client, OAuth device flow, refresh/cache, recommender rails, search/detail, Not Interested, and `yt-dlp -> mpv` playback
 - `/etc/mango/youtube.db` is rebuildable cache; `/etc/mango/library.db` remains durable user state with `source="youtube"` Saved/history/feedback
-- Launcher tab order is **Movies · TV Shows · Live · YouTube**; videos play/save, channels/playlists open video lists, stale cache stays visible
+- Launcher tab order is **Movies · TV Shows · Live · YouTube**; rails are 9-up, shuffle re-samples cached discovery rails, videos play/save, channels/playlists open video lists, stale cache stays visible
 - Companion has YouTube account connect/disconnect via Google device OAuth; tokens are stored operator-owned at `/etc/mango/youtube-auth.json` with `0600`
 - Voice tools add YouTube search/open/save/unsave under the same rule: voice opens, pad **B** plays
 - Legacy Kodi YouTube remains emergency-only behind `MANGO_LEGACY_YOUTUBE=1` until the native Pi gate passes

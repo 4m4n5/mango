@@ -228,7 +228,8 @@ export async function loadCatalogRails(
   options: { reshuffle?: boolean } = {},
 ): Promise<ContentRail[]> {
   if (tab === "youtube") {
-    const data = await fetchJson<YoutubeRailResponse>("/api/catalog/youtube/rails", undefined, 15000);
+    const reshuffle = options.reshuffle ? "?reshuffle=1" : "";
+    const data = await fetchJson<YoutubeRailResponse>(`/api/catalog/youtube/rails${reshuffle}`, undefined, 15000);
     return mapYoutubeRails(data);
   }
   const reshuffle = tab !== "live" && options.reshuffle ? "&reshuffle=1" : "";

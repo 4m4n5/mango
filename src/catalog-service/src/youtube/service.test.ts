@@ -3,21 +3,26 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { resetLibraryDbForTests } from '../library/db.js';
+import { recordLibraryWatch, resetLibraryDbForTests } from '../library/db.js';
 import { replaceYoutubeRailItems, resetYoutubeDbForTests } from './db.js';
 import { YoutubeService } from './service.js';
 import type { YoutubeItem, YoutubeRail } from './types.js';
 
-function sampleVideo(id: string, liveStatus: YoutubeItem['live_status'] = 'none'): YoutubeItem {
+function sampleVideo(
+  id: string,
+  liveStatus: YoutubeItem['live_status'] = 'none',
+  channelId = 'channel-1',
+  title = `Video ${id}`,
+): YoutubeItem {
   return {
     id,
     kind: 'video',
-    title: `Video ${id}`,
+    title,
     subtitle: 'Channel',
     description: 'A cached YouTube video',
     thumbnail: null,
-    channel_id: 'channel-1',
-    channel_title: 'Channel One',
+    channel_id: channelId,
+    channel_title: `Channel ${channelId}`,
     published_at: '2026-06-01T00:00:00Z',
     duration_sec: 600,
     live_status: liveStatus,
@@ -115,4 +120,51 @@ test('cached discovery rails keep live videos in live now only', () => withTempS
   assert.ok(liveNow);
   assert.deepEqual(popular.items.map((item) => item.id), ['PopularNormal']);
   assert.deepEqual(liveNow.items.map((item) => item.id), ['LiveNow']);
+}));
+
+test('YouTube rails return at most nine cards', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', Array.from({ length: 14 }, (_, index) => ({
+    item: sampleVideo(`Popular${index}`),
+    score: 1 - index * 0.01,
+    reason: 'test',
+  })));
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  for (const rail of response.rails) {
+    assert.ok(rail.items.length <= 9, `${rail.rail_id} has ${rail.items.length} items`);
+  }
+  const popular = response.rails.find((rail) => rail.rail_id === 'popular');
+  assert.equal(popular?.items.length, 9);
+}));
+
+test('because you watched follows the latest watched YouTube video from cache', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', [
+    { item: sampleVideo('WatchOld', 'none', 'old-channel', 'Old documentary'), score: 1, reason: 'test' },
+    { item: sampleVideo('OldCandidate', 'none', 'old-channel', 'Another old documentary'), score: 0.9, reason: 'test' },
+    { item: sampleVideo('WatchNew', 'none', 'new-channel', 'New cooking tour'), score: 0.8, reason: 'test' },
+    { item: sampleVideo('NewCandidate', 'none', 'new-channel', 'Another cooking tour'), score: 0.7, reason: 'test' },
+  ]);
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'WatchOld',
+    title: 'Old documentary',
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 1000,
+  });
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'WatchNew',
+    title: 'New cooking tour',
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 2000,
+  });
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const because = response.rails.find((rail) => rail.rail_id === 'because_you_watched');
+  assert.ok(because);
+  assert.equal(because.items[0]?.id, 'NewCandidate');
 }));

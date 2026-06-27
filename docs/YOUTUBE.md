@@ -1,6 +1,6 @@
 # mango — native YouTube
 
-**Milestone:** M6.2 · **Status:** implementation landed; Pi credential/playback smoke required before couch sign-off.
+**Milestone:** M6.2 · **Status:** implemented and deploy-gated; Pi credential/playback smoke required before couch sign-off.
 
 Mango treats YouTube as a first-class content source while preserving the voice
 safety contract: voice can search/open/save, but playback starts only when the
@@ -66,7 +66,8 @@ extraction changes faster than Debian packages.
 | `GET` | `/youtube/auth/poll?session_id=` | Poll OAuth completion |
 | `POST` | `/youtube/auth/disconnect` | Remove local auth token |
 | `POST` | `/youtube/refresh` | Refresh metadata/cache |
-| `GET` | `/youtube/rails` | Saved, History, For You, subscriptions, Fresh Finds, Live Now, Popular |
+| `GET` | `/youtube/rails` | 9-up Saved, History, For You, subscriptions, Fresh Finds, Because You Watched, Live Now, Popular |
+| `GET` | `/youtube/rails?reshuffle=1` | Re-sample cached discovery rails for the launcher shuffle button |
 | `GET` | `/youtube/search?q=` | Grouped Videos / Channels / Playlists |
 | `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |
 | `POST` | `/youtube/not-interested` | Exclude from YouTube rails via local feedback |
@@ -80,15 +81,30 @@ detail lists but are not Saved entities in M6.2.
 ## Launcher behavior
 
 - Browse tabs are **Movies · TV Shows · Live · YouTube**.
+- YouTube rails are capped at 9 cards, matching Movies/TV Shows.
 - YouTube rails keep stale cached results visible with refresh status.
+- The shuffle button is available on YouTube and re-samples cached discovery rails.
 - First-run with credentials fills Fresh Finds and Popular instead of showing an empty tab.
 - Search returns grouped Videos / Channels / Playlists.
 - Video detail supports Play, Save/Unsave, Not Interested, Back.
 - Channel/playlist detail opens a D-pad list of videos.
 - Not Interested removes the card from rails immediately and persists a local downrank/exclusion.
 - Live videos are kept in Live Now instead of dominating For You / Because You Watched.
+- For You is a Mango local ranker over cached non-live videos, weighted by recency
+  and local channel affinity from watch history.
+- Because You Watched is rebuilt from the latest local YouTube watch history on
+  rail load, and after playback it opportunistically tops up candidates through
+  Data API searches based on recent channels/title tokens.
 - Companion account connect uses the HTTPS companion same-origin `/api/catalog/*`
   proxy; direct browser calls to `:3020` are not required.
+
+## Recommendation constraints
+
+Mango does not currently expose an exact "native YouTube home" rail. The official
+YouTube Data API no longer provides `search.list relatedToVideoId`, and the
+`activities.list home` parameter is deprecated. A literal native-home rail would
+need an unofficial/scraping path and must be added as an explicit experimental
+operator opt-in, separate from the supported official API cache.
 
 ---
 
@@ -141,5 +157,9 @@ no API key is configured, and skips playback unless `MANGO_YOUTUBE_PLAY=1`.
   <https://developers.google.com/youtube/v3/determine_quota_cost>
 - YouTube search API:
   <https://developers.google.com/youtube/v3/docs/search/list>
+- YouTube Data API revision history:
+  <https://developers.google.com/youtube/v3/revision_history>
+- YouTube activities API:
+  <https://developers.google.com/youtube/v3/docs/activities/list>
 - `yt-dlp` FAQ:
   <https://github.com/yt-dlp/yt-dlp/wiki/FAQ>

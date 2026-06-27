@@ -68,11 +68,13 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 | # | Action | Pass? |
 |---|--------|-------|
 | 17 | YouTube tab loads cached Fresh Finds/Popular or stale rails without full-screen error | |
-| 18 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
-| 19 | Open a YouTube video → detail shows Play / Save / Not Interested; **B** starts mpv | |
-| 20 | Open a channel/playlist → detail shows a D-pad video list; Save is disabled | |
-| 21 | Not Interested removes the card from YouTube rails after refresh/navigation | |
-| 22 | "Save this" on an open YouTube video updates Saved; no voice playback starts | |
+| 18 | YouTube rails show at most 9 cards; **↻ shuffle** changes discovery cards | |
+| 19 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
+| 20 | Open a YouTube video → detail shows Play / Save / Not Interested; **B** starts mpv | |
+| 21 | After playing a second YouTube video, Because You Watched follows the newer watch history | |
+| 22 | Open a channel/playlist → detail shows a D-pad video list; Save is disabled | |
+| 23 | Not Interested removes the card from YouTube rails after refresh/navigation | |
+| 24 | "Save this" on an open YouTube video updates Saved; no voice playback starts | |
 
 ---
 
@@ -80,7 +82,7 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 
 | # | Action | Pass? |
 |---|--------|-------|
-| 23 | **Refresh library** (~5s reshuffle) | |
+| 25 | **Refresh library** (~5s reshuffle) | |
 
 ## Library grow health (operator)
 

@@ -53,6 +53,7 @@ const tabCatalogPrefetching = new Set<BrowseTab>();
 let liveCatalogSessionCached = false;
 let catalogRequestSeq = 0;
 let livePrefetchStarted = false;
+let youtubeCatalogDirty = false;
 const tabFocusKeys = new Map<BrowseTab, string>();
 const tabFocusPositions = new Map<BrowseTab, { row: number; col: number }>();
 
@@ -119,6 +120,12 @@ const detail = new DetailController(
     onClose: restoreHomeFromDetail,
     onStatus: setStatus,
     onSavedChanged: () => void reloadSavedAndCatalog(),
+    onPlayed: (card) => {
+      if (card.source === "youtube" || card.type.startsWith("youtube_")) {
+        tabCatalogCache.delete("youtube");
+        youtubeCatalogDirty = true;
+      }
+    },
     onNextEpisodePrompt: (hint, card) => {
       nextEpisodePrompt.show(hint, card);
       nextPromptFocusIndex = 0;
@@ -176,7 +183,7 @@ function init(): void {
 function renderHome(): void {
   const started = performance.now();
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
-  const showShuffle = activeBrowseTab !== "live" && activeBrowseTab !== "youtube";
+  const showShuffle = activeBrowseTab !== "live";
   libraryRefreshBtn.hidden = !showShuffle;
   const browseChrome = showShuffle ? [...tabButtons, libraryRefreshBtn] : tabButtons;
   focusGridRows = [
@@ -441,6 +448,10 @@ function restoreHomeFromDetail(): void {
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
   setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
+  if (youtubeCatalogDirty && activeBrowseTab === "youtube") {
+    youtubeCatalogDirty = false;
+    void loadCatalog();
+  }
 }
 
 async function reloadSavedAndCatalog(): Promise<void> {
@@ -495,7 +506,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     window.clearTimeout(catalogRetryTimer);
     catalogRetryTimer = undefined;
   }
-  const reshuffle = Boolean(options.reshuffle && requestedTab !== "live" && requestedTab !== "youtube");
+  const reshuffle = Boolean(options.reshuffle && requestedTab !== "live");
   if (reshuffle) {
     tabCatalogCache.delete(requestedTab);
     setStatus("refreshing…");
