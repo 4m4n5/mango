@@ -74,6 +74,21 @@ async def execute_tool(
             )
         )
 
+    if name == "mango_youtube_search":
+        query = tool_input.get("query")
+        if not isinstance(query, str) or not query.strip():
+            return _compact({"ok": False, "error": "query required"})
+        limit = tool_input.get("limit", 5)
+        limit_value = int(limit) if isinstance(limit, (int, float)) else 5
+        return _compact(
+            await asyncio.to_thread(
+                catalog_tools.tool_youtube_search,
+                settings,
+                query.strip(),
+                limit_value,
+            )
+        )
+
     if name == "mango_read_librarian_notes":
         return _compact(await asyncio.to_thread(catalog_tools.tool_read_librarian_notes, settings))
 
@@ -202,7 +217,7 @@ async def execute_tool(
             await asyncio.to_thread(catalog_tools.tool_ai_catalog_status, settings, slot_id.strip())
         )
 
-    if name in {"mango_navigate", "mango_open_title"}:
+    if name in {"mango_navigate", "mango_open_title", "mango_open_youtube"}:
         try:
             command = build_launcher_command(name, tool_input)
         except LauncherCommandError as exc:
@@ -210,7 +225,7 @@ async def execute_tool(
         tv_seq: int | None = None
         if dispatch_launcher is not None:
             tv_seq = await dispatch_launcher(command)
-        if tv_seq is None and name == "mango_open_title":
+        if tv_seq is None and name in {"mango_open_title", "mango_open_youtube"}:
             from orchestrator.tools.launcher_dispatch import post_launcher_command
 
             try:
@@ -245,6 +260,8 @@ def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
         return "Browsing verified library"
     if name == "mango_search_external":
         return f"Searching outside library for {tool_input.get('query', '…')}"
+    if name == "mango_youtube_search":
+        return f"Searching YouTube for {tool_input.get('query', '…')}"
     if name == "mango_read_librarian_notes":
         return "Reading librarian notes"
     if name == "mango_update_librarian_notes":
@@ -259,6 +276,8 @@ def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
         return "Saving session notes"
     if name == "mango_open_title":
         return f"Opening {tool_input.get('title', 'title')}"
+    if name == "mango_open_youtube":
+        return f"Opening YouTube {tool_input.get('title', 'result')}"
     if name == "mango_save_title":
         if tool_input.get("current"):
             return "Saving current title"
@@ -285,7 +304,7 @@ def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
         return f"Refreshing AI catalog pool {tool_input.get('slot_id', '…')}"
     if name == "mango_ai_catalog_status":
         return f"Checking AI catalog {tool_input.get('slot_id', '…')}"
-    if name in {"mango_navigate", "mango_open_title"}:
+    if name in {"mango_navigate", "mango_open_title", "mango_open_youtube"}:
         try:
             command = build_launcher_command(name, tool_input)
             return summarize_launcher_command(command)

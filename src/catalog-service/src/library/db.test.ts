@@ -9,10 +9,12 @@ import {
   initLibraryDb,
   libraryItemKey,
   listSavedLibraryItems,
+  listLibraryFeedback,
   listWatchHistory,
   recordLibraryWatch,
   resetLibraryDbForTests,
   saveLibraryItem,
+  setLibraryFeedback,
   unsaveLibraryItem,
 } from './db.js';
 
@@ -42,6 +44,7 @@ function withTempLibrary<T>(fn: (dir: string) => T | Promise<T>): Promise<T> | T
 
 test('libraryItemKey is source-aware and collapses series episodes', () => {
   assert.equal(libraryItemKey('mango', 'series', 'tt123:1:2'), 'mango:series:tt123');
+  assert.equal(libraryItemKey('youtube', 'youtube_video', 'AbC_123-XyZ'), 'youtube:youtube_video:AbC_123-XyZ');
   assert.notEqual(
     libraryItemKey('mango', 'movie', 'tt0111161'),
     libraryItemKey('youtube', 'movie', 'tt0111161'),
@@ -55,10 +58,29 @@ test('initLibraryDb creates WAL schema and migration row', () => withTempLibrary
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM library_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2]);
   } finally {
     db.close();
   }
+}));
+
+test('library feedback stores local source-aware negative signals', () => withTempLibrary(() => {
+  const feedback = setLibraryFeedback({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'abc123',
+    title: 'Nope',
+    tab: 'youtube',
+    feedback: 'not_interested',
+    reason: 'user',
+    created_at: 3000,
+  });
+  assert.equal(feedback.source, 'youtube');
+  assert.equal(feedback.type, 'youtube_video');
+  assert.equal(feedback.feedback, 'not_interested');
+  const rows = listLibraryFeedback('not_interested', 'youtube');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.id, 'abc123');
 }));
 
 test('saved upsert and delete are idempotent', () => withTempLibrary(() => {

@@ -18,7 +18,7 @@ Canonical paths aligned with [docs/ROADMAP.md](../docs/ROADMAP.md) milestones **
 | **M4** Addons | `m4-addons/` | AIOStreams · AIOMetadata |
 | **M5** Voice + AI | `m5-voice/stack/` | Orchestrator · companion |
 | | `m5-voice/ai/` | Voice tools · AI catalog gates · M5.5a safety contract |
-| **M6** Ship | `m6-ship/` | Mango library smoke · local state backup · future YouTube/UX gates |
+| **M6** Ship | `m6-ship/` | Mango library smoke · local state backup · YouTube smoke · future UX gates |
 | **Live** (opt-in) | `live/` | NexoTV IPTV |
 
 ## Gates (default deploy)
@@ -45,7 +45,7 @@ Full gate play sample: `gate-m3-verified-rails.sh` (3/rail) · `gate-m3-play.sh`
 |------|--------|
 | M6.1 Mango-owned library | `m6-ship/gate-m6-library-smoke.sh` |
 | M6.1 state backup | `m6-ship/backup-library-state.sh` |
-| M6.2 native YouTube | `m6-ship/gate-m6-youtube-smoke.sh` (planned) |
+| M6.2 native YouTube | `m6-ship/gate-m6-youtube-smoke.sh` |
 | M6.5 unified UX | `m6-ship/gate-m6-ux-smoke.sh` (planned) |
 
 ## Daily stack

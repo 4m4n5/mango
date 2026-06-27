@@ -1,6 +1,7 @@
 import type { BrowseTab, ContentCard } from "./types";
 
 export interface SavedRecord {
+  source?: string;
   tab: BrowseTab;
   type: string;
   id: string;
@@ -13,7 +14,7 @@ export async function fetchSavedIds(tab: BrowseTab): Promise<Set<string>> {
   const data = await fetchJson<{ saved: SavedRecord[] }>(
     `/api/catalog/library/saved?tab=${encodeURIComponent(tab)}`,
   );
-  return new Set((data.saved || []).map((item) => `${item.type}:${item.id}`));
+  return new Set((data.saved || []).map(savedKey));
 }
 
 export async function saveCard(tab: BrowseTab, card: ContentCard): Promise<void> {
@@ -29,6 +30,7 @@ export async function unsaveCard(card: ContentCard): Promise<void> {
     method: "DELETE",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
+      source: librarySourceForCard(card),
       type: card.type,
       id: card.id,
     }),
@@ -45,6 +47,7 @@ export async function publishCurrentLibraryContext(tab: BrowseTab, card: Content
 
 function cardPayload(tab: BrowseTab, card: ContentCard): Record<string, unknown> {
   return {
+    source: librarySourceForCard(card),
     tab,
     type: card.type,
     id: card.id,
@@ -53,6 +56,18 @@ function cardPayload(tab: BrowseTab, card: ContentCard): Record<string, unknown>
     year: card.year,
     description: card.description,
   };
+}
+
+export function cardSavedKey(card: ContentCard): string {
+  return `${librarySourceForCard(card)}:${card.type}:${card.id}`;
+}
+
+function savedKey(item: SavedRecord): string {
+  return `${item.source || "mango"}:${item.type}:${item.id}`;
+}
+
+function librarySourceForCard(card: ContentCard): string {
+  return card.source === "youtube" ? "youtube" : "mango";
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {

@@ -7,7 +7,7 @@ import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, t
 import { buildSettingsRefresh, settingsFocusables } from "./settings";
 import { startVoiceHud } from "./voice-hud";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
-import { fetchSavedIds } from "./saved";
+import { cardSavedKey, fetchSavedIds } from "./saved";
 import { logPerf } from "./perf";
 import { touchCouchActivity } from "./activity";
 import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
@@ -24,6 +24,7 @@ const detailMeta = mustGet<HTMLElement>("detail-meta");
 const detailDescription = mustGet<HTMLElement>("detail-description");
 const detailPlay = mustGet<HTMLButtonElement>("detail-play");
 const detailSave = mustGet<HTMLButtonElement>("detail-save");
+const detailNotInterested = mustGet<HTMLButtonElement>("detail-not-interested");
 const detailBack = mustGet<HTMLButtonElement>("detail-back");
 const detailStreams = mustGet<HTMLElement>("detail-streams");
 const detailStreamList = mustGet<HTMLElement>("detail-stream-list");
@@ -108,6 +109,7 @@ const detail = new DetailController(
   detailDescription,
   detailPlay,
   detailSave,
+  detailNotInterested,
   detailBack,
   detailStreams,
   detailStreamList,
@@ -174,7 +176,7 @@ function init(): void {
 function renderHome(): void {
   const started = performance.now();
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
-  const showShuffle = activeBrowseTab !== "live";
+  const showShuffle = activeBrowseTab !== "live" && activeBrowseTab !== "youtube";
   libraryRefreshBtn.hidden = !showShuffle;
   const browseChrome = showShuffle ? [...tabButtons, libraryRefreshBtn] : tabButtons;
   focusGridRows = [
@@ -369,7 +371,7 @@ function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseT
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
   const browseTab = tab ?? activeBrowseTab;
-  detail.show(card, railLabel, browseTab, savedKeys.has(`${card.type}:${card.id}`));
+  detail.show(card, railLabel, browseTab, savedKeys.has(cardSavedKey(card)));
 }
 
 function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
@@ -384,7 +386,7 @@ function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
     homeView.classList.add("hidden");
     activeBrowseTab = tab;
     setStatus(`Opening ${card.title}…`);
-    detail.show(card, "voice", tab, savedKeys.has(`${card.type}:${card.id}`));
+    detail.show(card, "voice", tab, savedKeys.has(cardSavedKey(card)));
   })();
 }
 
@@ -448,7 +450,7 @@ async function reloadSavedAndCatalog(): Promise<void> {
     savedKeys = new Set();
   }
   tabCatalogCache.delete(activeBrowseTab);
-  if (activeBrowseTab === "live") {
+  if (activeBrowseTab === "live" || activeBrowseTab === "youtube") {
     liveCatalogSessionCached = false;
   }
   await loadCatalog();
@@ -460,7 +462,7 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
   }
   if (activeBrowseTab === "live") {
     if (!options.quiet) {
-      setStatus("live channels stay fixed — shuffle movies & tv shows only.");
+      setStatus("this tab refreshes from its own source.");
     }
     return;
   }
@@ -493,7 +495,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     window.clearTimeout(catalogRetryTimer);
     catalogRetryTimer = undefined;
   }
-  const reshuffle = Boolean(options.reshuffle && requestedTab !== "live");
+  const reshuffle = Boolean(options.reshuffle && requestedTab !== "live" && requestedTab !== "youtube");
   if (reshuffle) {
     tabCatalogCache.delete(requestedTab);
     setStatus("refreshing…");

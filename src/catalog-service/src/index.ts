@@ -25,6 +25,9 @@ import {
   unsaveLibraryItem,
   type LibraryItemInput,
 } from './library/db.js';
+import { searchCachedYoutubeItems } from './youtube/db.js';
+import { YoutubeService } from './youtube/service.js';
+import type { YoutubeItemKind } from './youtube/types.js';
 import { resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
 import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
 import {
@@ -163,6 +166,32 @@ async function resolveLibraryTarget(
 
   if (typeof body.title === 'string' && body.title.trim()) {
     const title = body.title.trim();
+    if (body.source === 'youtube') {
+      const hits = searchCachedYoutubeItems(title, 12).filter((hit) => {
+        if (hit.kind !== 'video') {
+          return false;
+        }
+        return normalizeForExactMatch(hit.title) === normalizeForExactMatch(title);
+      });
+      if (hits.length !== 1) {
+        throw new CatalogError(
+          hits.length === 0 ? 404 : 409,
+          hits.length === 0
+            ? `no exact YouTube cache match for: ${title}`
+            : `multiple exact YouTube cache matches for: ${title}`,
+        );
+      }
+      const hit = hits[0];
+      return {
+        source: 'youtube',
+        type: 'youtube_video',
+        id: hit.id,
+        title: hit.title,
+        poster: hit.thumbnail,
+        description: hit.description,
+        tab: 'youtube',
+      };
+    }
     const type = typeof body.type === 'string' ? body.type.trim().toLowerCase() : null;
     const hits = await searchVerifiedLibrary(title, 12);
     const exact = hits.filter((hit) => {
@@ -190,6 +219,21 @@ async function resolveLibraryTarget(
   }
 
   throw new CatalogError(400, 'library target requires {type,id}, {current:true}, or exact {title}');
+}
+
+function assertSaveAllowed(target: LibraryItemInput): void {
+  if (target.source === 'youtube' && target.type !== 'youtube_video') {
+    throw new CatalogError(400, 'only YouTube videos can be saved', undefined, {
+      couchMessage: 'only YouTube videos can be saved',
+    });
+  }
+}
+
+function parseYoutubeKind(value: string | null): YoutubeItemKind {
+  if (value === 'channel' || value === 'playlist') {
+    return value;
+  }
+  return 'video';
 }
 
 function savedPayload(tab: ReturnType<typeof parseCatalogTab>, limit: number): {
@@ -546,6 +590,7 @@ async function main(): Promise<void> {
   initLibraryDb();
   await initProgressDb();
   const core = await CatalogCore.create();
+  const youtube = new YoutubeService();
   const server = http.createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url || '/', `http://${HOST}:${PORT}`);
@@ -641,6 +686,7 @@ async function main(): Promise<void> {
       if (req.method === 'POST' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'saved') {
         const body = await readBody(req) as Record<string, unknown>;
         const target = await resolveLibraryTarget(body);
+        assertSaveAllowed(target);
         const saved = saveLibraryItem({
           ...target,
           saved_by: typeof body.saved_by === 'string' ? body.saved_by : 'user',
@@ -700,6 +746,85 @@ async function main(): Promise<void> {
         }
         sendJson(res, 200, { ok: true, context: setLibraryContext(target) });
         return;
+      }
+
+      if (parts.length >= 1 && parts[0] === 'youtube') {
+        if (req.method === 'GET' && parts.length === 2 && parts[1] === 'state') {
+          sendJson(res, 200, youtube.state());
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 3 && parts[1] === 'auth' && parts[2] === 'start') {
+          sendJson(res, 200, await youtube.startAuth());
+          return;
+        }
+
+        if (req.method === 'GET' && parts.length === 3 && parts[1] === 'auth' && parts[2] === 'poll') {
+          const sessionId = url.searchParams.get('session_id')?.trim() ?? '';
+          if (!sessionId) {
+            throw new CatalogError(400, 'GET /youtube/auth/poll requires session_id');
+          }
+          sendJson(res, 200, await youtube.pollAuth(sessionId));
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 3 && parts[1] === 'auth' && parts[2] === 'disconnect') {
+          sendJson(res, 200, youtube.disconnectAuth());
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 2 && parts[1] === 'refresh') {
+          const body = await readBody(req) as Record<string, unknown>;
+          const reason = typeof body.reason === 'string' && body.reason.trim()
+            ? body.reason.trim()
+            : 'manual';
+          sendJson(res, 200, await youtube.refresh(reason));
+          return;
+        }
+
+        if (req.method === 'GET' && parts.length === 2 && parts[1] === 'rails') {
+          sendJson(res, 200, await youtube.rails());
+          return;
+        }
+
+        if (req.method === 'GET' && parts.length === 2 && parts[1] === 'search') {
+          const query = url.searchParams.get('q')?.trim() ?? '';
+          const limit = Number(url.searchParams.get('limit') || 25);
+          sendJson(res, 200, await youtube.search(query, Number.isFinite(limit) ? limit : 25));
+          return;
+        }
+
+        if (req.method === 'GET' && parts.length === 2 && parts[1] === 'detail') {
+          const kind = parseYoutubeKind(url.searchParams.get('kind'));
+          const id = url.searchParams.get('id')?.trim() ?? '';
+          if (!id) {
+            throw new CatalogError(400, 'GET /youtube/detail requires id');
+          }
+          sendJson(res, 200, await youtube.detail(kind, id));
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 2 && parts[1] === 'not-interested') {
+          const body = await readBody(req) as Record<string, unknown>;
+          sendJson(res, 200, youtube.notInterested({
+            kind: typeof body.kind === 'string' ? body.kind : undefined,
+            id: typeof body.id === 'string' ? body.id : undefined,
+            title: typeof body.title === 'string' ? body.title : undefined,
+            reason: typeof body.reason === 'string' ? body.reason : null,
+          }));
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 2 && parts[1] === 'play') {
+          const body = await readBody(req) as Record<string, unknown>;
+          touchCouchActivity('catalog', 'youtube_play');
+          sendJson(res, 200, await youtube.play({
+            id: typeof body.id === 'string' ? body.id : undefined,
+            title: typeof body.title === 'string' ? body.title : undefined,
+            poster: typeof body.poster === 'string' ? body.poster : undefined,
+          }));
+          return;
+        }
       }
 
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'tools') {

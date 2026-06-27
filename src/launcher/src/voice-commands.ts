@@ -19,6 +19,7 @@ type LauncherCommandMessage = {
   action?: string;
   tab?: string;
   content_type?: string;
+  source?: string;
   id?: string;
   title?: string;
   poster?: string;
@@ -32,7 +33,7 @@ type VoiceCommandsResponse = {
 };
 
 function parseBrowseTab(value: string | undefined): BrowseTab | null {
-  if (value === "movies" || value === "series" || value === "live") {
+  if (value === "movies" || value === "series" || value === "live" || value === "youtube") {
     return value;
   }
   return null;
@@ -45,6 +46,9 @@ function tabFromContentType(contentType: string | undefined): BrowseTab {
   }
   if (normalized === "channel") {
     return "live";
+  }
+  if (normalized.startsWith("youtube_")) {
+    return "youtube";
   }
   return "movies";
 }
@@ -59,6 +63,9 @@ function normalizeContentType(value: string | undefined): string | null {
   }
   if (normalized === "channel") {
     return "tv";
+  }
+  if (normalized === "youtube_video" || normalized === "youtube_channel" || normalized === "youtube_playlist") {
+    return normalized;
   }
   return normalized || null;
 }
@@ -79,7 +86,14 @@ function cardFromCommand(message: LauncherCommandMessage): { card: ContentCard |
       title: message.title?.trim() || id,
       subtitle: "",
       posterUrl: resolveCardPosterUrl({ id, posterUrl: message.poster?.trim() }),
-      source: "voice",
+      source: message.source?.trim() || (contentType.startsWith("youtube_") ? "youtube" : "voice"),
+      kind: contentType === "youtube_channel"
+        ? "channel"
+        : contentType === "youtube_playlist"
+          ? "playlist"
+          : contentType === "youtube_video"
+            ? "video"
+            : undefined,
     },
     reason: "",
   };

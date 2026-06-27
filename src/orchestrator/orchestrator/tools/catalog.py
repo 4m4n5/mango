@@ -144,6 +144,20 @@ def tool_search_external(
     )
 
 
+def tool_youtube_search(
+    settings: OrchestratorSettings,
+    query: str,
+    limit: int = 5,
+) -> dict[str, Any]:
+    return _request_json(
+        settings,
+        "GET",
+        "/youtube/search",
+        params={"q": query, "limit": max(1, min(limit, 12))},
+        timeout=30.0,
+    )
+
+
 def tool_read_librarian_notes(settings: OrchestratorSettings) -> dict[str, Any]:
     return _request_json(settings, "GET", "/voice/library/notes", timeout=10.0)
 

@@ -69,6 +69,20 @@ export function buildVoiceToolManifest(): {
       },
     },
     {
+      name: 'mango_youtube_search',
+      description:
+        'Search YouTube videos/channels/playlists through Mango. Use for YouTube discovery only. Return options or open a result; never starts playback.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'YouTube search query' },
+          limit: { type: 'integer', description: 'Max results per group (default 5)' },
+        },
+        required: ['query'],
+      },
+    },
+    {
       name: 'mango_read_librarian_notes',
       description: 'Read persistent notes about the library — themes, prior recommendations, user taste. Avoid re-deriving the same analysis each session.',
       layer: 'catalog',
@@ -142,6 +156,24 @@ export function buildVoiceToolManifest(): {
       },
     },
     {
+      name: 'mango_open_youtube',
+      description:
+        'Open a YouTube video, channel, or playlist result on the TV detail page. Videos can be played with pad B; channels/playlists open a list of videos. Never starts playback.',
+      layer: 'launcher',
+      input_schema: {
+        type: 'object',
+        properties: {
+          type: { type: 'string', enum: ['youtube_video', 'youtube_channel', 'youtube_playlist'] },
+          id: { type: 'string', description: 'YouTube video/channel/playlist id from mango_youtube_search' },
+          title: { type: 'string', description: 'Display title from YouTube search' },
+          poster: { type: 'string', description: 'Thumbnail URL from YouTube search' },
+          source: { type: 'string', enum: ['youtube'] },
+          tab: { type: 'string', enum: ['youtube'] },
+        },
+        required: ['type', 'id', 'title'],
+      },
+    },
+    {
       name: 'mango_save_title',
       description:
         'Save a Mango title to the user Saved rail. Use current=true for "save this" when a title is open on TV, or pass exact type/id/title from search results. Exact title text may be used only when it resolves to one verified Mango library title. Never starts playback.',
@@ -150,11 +182,12 @@ export function buildVoiceToolManifest(): {
         type: 'object',
         properties: {
           current: { type: 'boolean', description: 'Save the current title open on the TV detail page' },
-          type: { type: 'string', enum: ['movie', 'series', 'tv'] },
+          type: { type: 'string', enum: ['movie', 'series', 'tv', 'youtube_video'] },
           id: { type: 'string', description: 'Stremio/Mango id from search results' },
           title: { type: 'string', description: 'Exact title from search results or exact Mango library title' },
           poster: { type: 'string', description: 'Poster URL from search results' },
-          tab: { type: 'string', enum: ['movies', 'series', 'live'] },
+          source: { type: 'string', enum: ['mango', 'youtube'] },
+          tab: { type: 'string', enum: ['movies', 'series', 'live', 'youtube'] },
         },
       },
     },
@@ -167,10 +200,11 @@ export function buildVoiceToolManifest(): {
         type: 'object',
         properties: {
           current: { type: 'boolean', description: 'Unsave the current title open on the TV detail page' },
-          type: { type: 'string', enum: ['movie', 'series', 'tv'] },
+          type: { type: 'string', enum: ['movie', 'series', 'tv', 'youtube_video'] },
           id: { type: 'string', description: 'Stremio/Mango id from search results' },
           title: { type: 'string', description: 'Exact title from search results or exact Mango library title' },
-          tab: { type: 'string', enum: ['movies', 'series', 'live'] },
+          source: { type: 'string', enum: ['mango', 'youtube'] },
+          tab: { type: 'string', enum: ['movies', 'series', 'live', 'youtube'] },
         },
       },
     },

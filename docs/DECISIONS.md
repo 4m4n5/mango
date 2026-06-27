@@ -98,7 +98,10 @@ Locked choices. Update when changing behavior.
 | Saved | Explicit only; playback never auto-saves; existing user-facing Pins import once into Saved |
 | Stremio sync | None. No Stremio user-library sync or write-back |
 | AI catalog automation | Must not write to Saved; overflow policy is replace/merge only |
-| YouTube | `yt-dlp` → mpv; native rail/search/detail; voice opens, pad **B** plays |
+| YouTube | First-class native tab; official API for metadata/search/subscriptions, `yt-dlp` → mpv for playback; voice opens, pad **B** plays |
+| YouTube storage | `/etc/mango/youtube.db` is rebuildable cache; durable Saved/history/Not Interested lives in `library.db` with `source="youtube"` |
+| YouTube auth/secrets | API key, OAuth client, token, and optional cookies are operator-owned `/etc/mango/*`; no repo secrets |
+| YouTube save policy | Videos only; channels/playlists open lists and are not Saved entities in M6.2 |
 | 4K | Ship profile on target TV; relax filters in `catalog-filters.json` |
 | Deploy | `install.sh` wizard — no SSH for household setup |
 

@@ -14,6 +14,7 @@ bash scripts/diag/series-episodes.sh --sample   # on Pi — episode meta + strea
 python3 scripts/diag/playability-status.py   # pool depth
 python3 scripts/diag/grow_monitor.py status  # latest grow health; operator-only
 bash scripts/m6-ship/gate-m6-library-smoke.sh # Saved/current-context smoke
+bash scripts/m6-ship/gate-m6-youtube-smoke.sh # YouTube state/rails/search/detail
 ```
 
 ---
@@ -60,11 +61,26 @@ bash scripts/m6-ship/gate-m6-library-smoke.sh # Saved/current-context smoke
 
 ---
 
+## Native YouTube (M6.2)
+
+Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY=1` for automated playback smoke. Full ops: [YOUTUBE.md](YOUTUBE.md).
+
+| # | Action | Pass? |
+|---|--------|-------|
+| 17 | YouTube tab loads cached Fresh Finds/Popular or stale rails without full-screen error | |
+| 18 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
+| 19 | Open a YouTube video → detail shows Play / Save / Not Interested; **B** starts mpv | |
+| 20 | Open a channel/playlist → detail shows a D-pad video list; Save is disabled | |
+| 21 | Not Interested removes the card from YouTube rails after refresh/navigation | |
+| 22 | "Save this" on an open YouTube video updates Saved; no voice playback starts | |
+
+---
+
 ## Settings (optional)
 
 | # | Action | Pass? |
 |---|--------|-------|
-| 17 | **Refresh library** (~5s reshuffle) | |
+| 23 | **Refresh library** (~5s reshuffle) | |
 
 ## Library grow health (operator)
 

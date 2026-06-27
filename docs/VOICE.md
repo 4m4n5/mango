@@ -50,10 +50,19 @@ Phone PTT → search → **open detail on TV**.
 | `GET /voice/now-playing` | mpv snapshot |
 | `GET /library/saved` / `GET /library/history` | Read-only Saved/history context |
 | `POST /library/saved` / `DELETE /library/saved` | Explicit Save/Unsave tools |
+| `GET /youtube/search?q=` | Grouped YouTube videos/channels/playlists |
+| `GET /youtube/detail?kind=&id=` | YouTube result/detail context |
 
 ### Tools (summary)
 
-`mango_search` · `mango_open_title` · `mango_navigate` · `mango_save_title` · `mango_unsave_title` · AI catalog CRUD · profile/memory tools when voice enabled.
+`mango_search` · `mango_open_title` · `mango_youtube_search` · `mango_open_youtube` · `mango_navigate` · `mango_save_title` · `mango_unsave_title` · AI catalog CRUD · profile/memory tools when voice enabled.
+
+YouTube-specific rules:
+
+- `mango_youtube_search` searches videos/channels/playlists.
+- `mango_open_youtube` opens a result on TV; videos can be played with pad **B**, channels/playlists open video lists.
+- `mango_save_title` / `mango_unsave_title` can mutate only YouTube videos, never channels/playlists.
+- Ambiguous YouTube searches list options and ask; they do not auto-open.
 
 **Non-goals:** `mango_play` · `play_youtube` / `mango_play_youtube` · hide/unhide · pause · volume.
 
@@ -135,8 +144,7 @@ Phone: `https://<pi-ip>:3001` · Verify: `verify-voice-ready.sh` · Gate: `gate-
 |------|-----------|-------|
 | Voice safety contract | M5.5a | Tool/persona audit, no false opens, `tv_seq` acks, corpus gates |
 | Post-YouTube companion/HUD polish | M5.5b / M6.5 | Make phone/chat/HUD feel like one product across Movies, Series, Live, and YouTube |
-| YouTube-aware Save/Unsave context | M6.2 | Current-context and exact-title Save/Unsave should cover native YouTube once that surface exists |
-| YouTube voice discovery/open | M6.2 | Voice opens YouTube result/detail; pad **B** starts playback |
+| YouTube Pi voice smoke | M6.2 | Local tools are wired; deploy with API key/OAuth and verify search/open/save current YouTube video |
 | TTS over living-room audio | M6.3 | Requires TV/soundbar path and ducking validation |
 | Voice play / transport controls | M6+ | Deferred; current contract is voice opens, pad plays |
 

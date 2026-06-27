@@ -46,7 +46,7 @@ bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh
 
 ## Daily use
 
-1. TV shows **mango launcher** (Movies / Series / Live tabs)
+1. TV shows **mango launcher** (Movies / Series / Live / YouTube tabs)
 2. **B** select · **Y** back · **⌂** home · D-pad navigate
 3. Phone **PTT** when `MANGO_VOICE=1` — HUD on launcher
 4. **B** on detail → mpv fullscreen · **⌂** returns home
@@ -118,6 +118,23 @@ When catalog enabled:
 bash scripts/m2-catalog/service/check-m2-prereqs.sh
 ```
 
+When YouTube enabled:
+
+```bash
+bash scripts/m6-ship/gate-m6-youtube-smoke.sh
+MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
+```
+
+YouTube setup uses operator-owned files:
+
+```bash
+sudo install -m 0600 /path/to/youtube-api.key /etc/mango/youtube-api.key
+sudo install -m 0600 /path/to/youtube-oauth-client.json /etc/mango/youtube-oauth-client.json
+```
+
+Then open the companion and use the YouTube connect panel. Full details:
+[YOUTUBE.md](YOUTUBE.md).
+
 ---
 
 ## Troubleshooting
@@ -128,6 +145,9 @@ bash scripts/m2-catalog/service/check-m2-prereqs.sh
 | Pad waiting | `pad-health: waiting for controller` means Mango is alive and polling; turn on / press any button on the Micro |
 | Pad dead | `bash scripts/m1-foundation/pad/pad-health.sh --repair` · reboot pad in Pro Controller mode if no event appears after wake |
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
+| YouTube tab empty | `curl localhost:3020/youtube/state` · configure `/etc/mango/youtube-api.key` · run `bash scripts/m6-ship/gate-m6-youtube-smoke.sh` |
+| YouTube account not connected | Companion → YouTube connect · verify `/etc/mango/youtube-oauth-client.json` and `/etc/mango/youtube-auth.json` permissions |
+| YouTube playback 403/429/CAPTCHA | Update `yt-dlp`; reconnect account/cookies; pick another video; metadata cache should remain visible |
 | Empty rails | `bash scripts/mango-health-repair.sh` · `curl localhost:3020/health` · playability status script |
 | Live tab empty after source error | `bash scripts/live/live-diagnostics.sh` · stale cache should remain available |
 | Grow seems hung | `python3 scripts/diag/grow_monitor.py status --verbose` · inspect stage/source before killing |

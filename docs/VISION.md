@@ -23,7 +23,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | **Legit metadata** | Posters and titles from Cinemeta / TMDB — no mock rails in production |
 | **Stremio-compatible graph** | Rails and AI catalogs use the same addon protocol as Stremio |
 | **Mango owns the library** | Continue, saved, history, finished, hidden/blocked, and taste state live in Mango — not Stremio sync |
-| **mpv is the player** | Movies, series, live IPTV, and (future) YouTube play in mpv — not Stremio/Kodi chrome |
+| **mpv is the player** | Movies, series, live IPTV, and native YouTube play in mpv — not Stremio/Kodi chrome |
 | **AI catalogs are real** | Named, persistent home rails (max 3 per tab) — not ephemeral toasts |
 | **Verified rails stay quiet** | Background grow can work for hours, but couch rails switch only after a completed publishable maintenance run |
 | **Stremio desktop is insurance** | Installed, hidden; opens only when mango stream/play exhausts retries |

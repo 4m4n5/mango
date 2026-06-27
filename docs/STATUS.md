@@ -15,7 +15,7 @@ What works today, what is still being hardened, and how to verify it.
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
 | M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5a voice contract pending |
-| M6 Ship | ◐ | M6.1 Mango library core shipped · YouTube, 4K, unified UX, wizard pending |
+| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube implemented with Pi smoke pending · 4K, unified UX, wizard pending |
 
 ---
 
@@ -23,7 +23,7 @@ What works today, what is still being hardened, and how to verify it.
 
 | Feature | Detail |
 |---------|--------|
-| Tabs | Movies · Series · Live (L/R shoulders) |
+| Tabs | Movies · Series · Live · YouTube (L/R shoulders; YouTube M6.2 smoke pending) |
 | Grid | 9-up posters · ↻ shuffle (pad `317`) |
 | Rails | YAML + AI catalog slots + Continue |
 | Service | `catalog-service :3020` · `GET /rails` |
@@ -111,6 +111,7 @@ Phone PTT → Hinglish STT → LLM tools → **open detail on TV**. User presses
 | `POST /voice/library/notes` | Librarian taste notes |
 
 Tools include `mango_search` · `mango_open_title` · `mango_navigate` — **no `mango_play`**.
+M6.2 adds `mango_youtube_search` and `mango_open_youtube`; voice still never starts playback.
 
 **Gate:** `bash scripts/m5-voice/ai/gate-m5-voice.sh` (gate-lite when `MANGO_VOICE=1`)
 
@@ -152,11 +153,42 @@ protocol/manifest graph only; there is no Stremio user-library sync or write-bac
 | Library context | Launcher publishes current detail context to catalog-service for voice Save/Unsave; librarian context reads Saved/history only |
 | Backup | `mango-stack.sh stop/restart` runs WAL-safe backups of `progress.db` and `library.db`; operators can also run `scripts/m6-ship/backup-library-state.sh` |
 | AI catalogs | Overflow is replace/merge only; AI automation cannot write to Saved |
-| YouTube readiness | Schema is source-aware, but M6.1 adds no YouTube behavior |
+| YouTube readiness | Schema is source-aware and is used by M6.2 native YouTube; M6.1 itself added no YouTube behavior |
 
 Primary routes: `GET /library/state`, `GET/POST/DELETE /library/saved`,
 `GET /library/history`, `GET/POST/DELETE /library/context`, plus Saved-backed
 `GET/POST/DELETE /pins` compatibility.
+
+---
+
+## M6.2 — Native YouTube ◐
+
+Implementation is present; credentialed Pi smoke is pending. See [YOUTUBE.md](YOUTUBE.md).
+
+| Area | Current implementation |
+|------|------------------------|
+| Storage | `/etc/mango/youtube.db` rebuildable SQLite cache with WAL, rail membership, refresh/quota state, and OAuth auth sessions |
+| User state | `/etc/mango/library.db` durable `source="youtube"` Saved videos, history, current context, and Not Interested feedback |
+| Config | `/etc/mango/youtube-api.key`, `/etc/mango/youtube-oauth-client.json`, `/etc/mango/youtube-auth.json`, optional cookies; examples only in repo |
+| Auth | Companion starts/polls Google device-code OAuth and disconnects local token; token file is written `0600` |
+| API | `/youtube/state`, auth start/poll/disconnect, refresh, rails, grouped search, detail, not-interested, play |
+| Rails | Saved, History, For You, New From Subscriptions, Fresh Finds, Because You Watched, Live Now, Popular; stale cache remains visible |
+| Launcher | YouTube tab after Live; videos play/save, channels/playlists open video lists, Not Interested removes cards |
+| Playback | `yt-dlp -g -f best[height<=1080]/best` resolves a video URL; mpv plays it and writes local history/progress as YouTube source |
+| Voice | `mango_youtube_search` and `mango_open_youtube`; Save/Unsave supports current/exact YouTube video; no voice playback |
+| Fallback | Legacy Kodi YouTube is emergency-only with `MANGO_LEGACY_YOUTUBE=1` |
+
+Gates:
+
+```bash
+cd src/catalog-service && npm run test:gate
+cd src/catalog-service && npm test
+cd src/launcher && npm run build
+cd src/companion && npm run build
+PYTHONPATH=src/orchestrator python3 -m unittest discover -s src/orchestrator/tests
+bash scripts/m6-ship/gate-m6-youtube-smoke.sh
+MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
+```
 
 ---
 
@@ -167,7 +199,7 @@ Primary routes: `GET /library/state`, `GET/POST/DELETE /library/saved`,
 | 1 | Prove repeated unattended best-effort grows and improve `+20` target hit rate with stronger playable sources for reality and India-series rails | M3 hardening |
 | 2 | Living librarian (memory + policy) | M5 |
 | 3 | M5.5a AI companion voice safety contract | M5 |
-| 4 | YouTube yt-dlp rail/search/detail | M6.2 |
+| 4 | Run/deploy M6.2 YouTube Pi smoke with operator API key/OAuth/yt-dlp, then remove normal Kodi YouTube access | M6.2 |
 | 5 | 4K HDR TV + soundbar profile | M6.3 |
 | 6 | M5.5b + M6.5 unified companion/TV UX polish after YouTube | M6.5 |
 | 7 | First-boot wizard | M6.4 |
@@ -183,6 +215,7 @@ Primary routes: `GET /library/state`, `GET/POST/DELETE /library/saved`,
 | `MANGO_GATE_FULL=1` | Full gate (~5–8 min) — holistic M1/M4 + **3 plays/rail** + play orchestrator |
 | `gate-m4-self-hosted.sh` | Self-hosted addon corpus |
 | `gate-live-iptv.sh` | Opt-in live only |
+| `gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail and optional playback |
 
 ```bash
 bash scripts/pi-exec-gate.sh
@@ -209,6 +242,10 @@ MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 | `config/rail-theme-profiles.yaml` | repo (or `MANGO_RAIL_THEME_PROFILES`) | Thematic fit for grow + retheme |
 | `config/rail-curation-overrides.example.yaml` | `/etc/mango/rail-curation-overrides.yaml` | Pins / blocks |
 | `config/catalog-live.example.yaml` | `/etc/mango/catalog-live.yaml` | Live rails |
+| `config/youtube-oauth-client.example.json` | `/etc/mango/youtube-oauth-client.json` | Google OAuth client example |
+| — | `/etc/mango/youtube-api.key` | YouTube Data API key |
+| — | `/etc/mango/youtube-auth.json` | YouTube OAuth token, local `0600` |
+| — | `/etc/mango/youtube.db` | Rebuildable YouTube metadata/cache |
 | — | `/etc/mango/playability.db` | Verified pools |
 | — | `/etc/mango/progress.db` | mpv resume |
 | — | `/etc/mango/library.db` | Mango-owned Saved/history/finished state |

@@ -14,7 +14,7 @@ M2 Browse         ████████████████████  
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
 M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 voice safety contract
-M6 Ship           ████░░░░░░░░░░░░░░░░  in progress — M6.1 library core landed; YouTube · 4K · unified UX · wizard pending
+M6 Ship           ███████░░░░░░░░░░░░░  in progress — M6.1 library core landed; M6.2 YouTube implemented, Pi smoke pending; 4K · UX · wizard pending
 ```
 
 | Milestone | Outcome | Status |
@@ -24,7 +24,7 @@ M6 Ship           ████░░░░░░░░░░░░░░░░  
 | **M3** Play | mpv orchestrator · picker · episodes · playability/grow | ✓ hardening |
 | **M4** Addons | Self-hosted AIOStreams + AIOMetadata | ✓ |
 | **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · voice safety contract | ◐ |
-| **M6** Ship | Mango-owned library · YouTube · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 shipped |
+| **M6** Ship | Mango-owned library · YouTube · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 shipped · M6.2 implemented |
 
 ---
 
@@ -142,7 +142,7 @@ Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented ha
 ### M6.1 — Mango-owned library ✓
 
 - Mango is the user-library source of truth: explicit **Saved**, automatic watch history, finished state, dormant hidden/blocked fields, and taste/profile hooks
-- `library.db` is durable local SQLite at `/etc/mango/library.db`, source-aware for future YouTube; `progress.db` remains the Continue/resume source in M6.1 and mirrors history/finished into the library
+- `library.db` is durable local SQLite at `/etc/mango/library.db`, source-aware for YouTube and future sources; `progress.db` remains the Continue/resume source in M6.1 and mirrors history/finished into the library
 - The launcher shows **Saved** immediately after Continue, detail exposes Save/Unsave, and existing user-facing Pins import once into Saved; internal rail-curation pins remain operator-only playability policy
 - `/library/state`, `/library/saved`, `/library/history`, and `/library/context` are first-class APIs; `/pins` remains a Saved-backed compatibility wrapper
 - Voice exposes `mango_save_title` / `mango_unsave_title` for current context or exact title, without playback or hide/unhide
@@ -150,12 +150,18 @@ Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented ha
 - Stremio export remains addon-manifest config only; no Stremio library sync or write-back
 - Back up Mango progress + library state on stack stop/restart via `scripts/m6-ship/backup-library-state.sh`; cron/timers can call the same script
 
-### M6.2 — YouTube
+### M6.2 — Native YouTube ◐
 
-- `yt-dlp` resolve → mpv play
-- Dedicated YouTube rail/search/detail with Mango-owned history/resume where practical
-- Voice opens YouTube results/detail; pad **B** starts playback under the same voice contract
-- Deprecate legacy Kodi YouTube fallback when the native gate passes
+Implementation is in repo; Pi credential/network/playback smoke is required before couch sign-off. Detail: [YOUTUBE.md](YOUTUBE.md).
+
+- `catalog-service/src/youtube/` owns config, `youtube.db`, API client, OAuth device flow, refresh/cache, recommender rails, search/detail, Not Interested, and `yt-dlp -> mpv` playback
+- `/etc/mango/youtube.db` is rebuildable cache; `/etc/mango/library.db` remains durable user state with `source="youtube"` Saved/history/feedback
+- Launcher tab order is **Movies · TV Shows · Live · YouTube**; videos play/save, channels/playlists open video lists, stale cache stays visible
+- Companion has YouTube account connect/disconnect via Google device OAuth; tokens are stored operator-owned at `/etc/mango/youtube-auth.json` with `0600`
+- Voice tools add YouTube search/open/save/unsave under the same rule: voice opens, pad **B** plays
+- Legacy Kodi YouTube remains emergency-only behind `MANGO_LEGACY_YOUTUBE=1` until the native Pi gate passes
+
+**Gate:** `scripts/m6-ship/gate-m6-youtube-smoke.sh` (`MANGO_YOUTUBE_PLAY=1` for playback smoke).
 
 ### M6.3 — 4K HDR living room
 
@@ -182,7 +188,7 @@ Functional gates ≠ ship quality. After Mango Library, native YouTube, and 4K s
 - Merge to `main` (requires M6.5 sign-off)
 - Optional: NVMe / USB DAC — [HARDWARE.md](HARDWARE.md)
 
-**Ship order:** M5.5a → M6.1 Mango Library → M6.2 YouTube → M6.3 4K → M5.5b/**M6.5** unified UX → M6.4 wizard → merge.
+**Ship order:** M5.5a → M6.1 Mango Library → M6.2 YouTube Pi smoke/sign-off → M6.3 4K → M5.5b/**M6.5** unified UX → M6.4 wizard → merge.
 
 ### Live TV (shipped · opt-in)
 
@@ -211,7 +217,8 @@ Details: [STATUS.md](STATUS.md#gates) · [ARCHITECTURE.md](ARCHITECTURE.md#gates
 | Phone mic on HTTP | mkcert HTTPS companion |
 | Refocus fail → wallpaper | Always restore launcher |
 | RAM: Chromium + mpv + voice | One Chromium; mpv exits on ⌂ |
-| yt-dlp breakage | Pin version; Kodi emergency fallback |
+| yt-dlp breakage | Clean couch-safe errors; pin/update yt-dlp; Kodi emergency fallback behind `MANGO_LEGACY_YOUTUBE=1` |
+| YouTube API quota/auth failures | Keep stale cached rails visible; API quota affects metadata/search/refresh only, not cached `yt-dlp -> mpv` playback |
 | Companion feels dumb despite tools | M5.5a safety corpus now; M5.5b polish after YouTube |
 | TV reads as dev UI at ship | M6.5 unified polish before merge |
 | Stremio becomes product source of truth again | Keep `/etc/mango/stremio-export.json` to addon manifests only; Mango owns user library state |

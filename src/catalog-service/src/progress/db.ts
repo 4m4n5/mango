@@ -93,6 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_watch_progress_type ON watch_progress(type, updat
 }
 
 export function upsertWatchProgress(input: {
+  source?: string | null;
   type: string;
   id: string;
   play_id: string;
@@ -100,6 +101,7 @@ export function upsertWatchProgress(input: {
   poster?: string | null;
   position_sec: number;
   duration_sec: number;
+  tab?: CatalogTab | null;
 }): WatchProgressRecord | null {
   const position = Math.max(0, input.position_sec);
   const duration = Math.max(0, input.duration_sec);
@@ -112,6 +114,7 @@ export function upsertWatchProgress(input: {
 
   try {
     recordLibraryWatch({
+      source: input.source ?? undefined,
       type: input.type,
       id: titleId,
       play_id: input.play_id,
@@ -119,6 +122,7 @@ export function upsertWatchProgress(input: {
       poster: input.poster,
       position_sec: position,
       duration_sec: duration,
+      tab: input.tab ?? undefined,
       watched_at: now,
     });
   } catch (error) {

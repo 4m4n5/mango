@@ -6,7 +6,7 @@ export interface ApiInfo {
 }
 
 export type TileAction = "settings";
-export type BrowseTab = "movies" | "series" | "live";
+export type BrowseTab = "movies" | "series" | "live" | "youtube";
 
 export type RefreshLevelId =
   | "shuffle_rails"
@@ -31,6 +31,9 @@ export interface ContentCard {
   year?: number | string;
   description?: string;
   source?: string;
+  kind?: "video" | "channel" | "playlist";
+  liveStatus?: "none" | "live" | "upcoming" | "completed";
+  detailItems?: ContentCard[];
   railId?: string;
   /** Stremio play id — episode id when resuming series. */
   playId?: string;

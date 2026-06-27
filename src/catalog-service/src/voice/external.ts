@@ -1,9 +1,11 @@
 import type { CatalogCore } from '../core.js';
 import { isBlockedCatalogMeta } from '../catalog-errors.js';
 import { getTitlePlayability, queueTitleForVoiceIngest } from '../playability/db.js';
-import { loadRailConfig, type CatalogTab } from '../rails.js';
+import { loadRailConfig } from '../rails.js';
 import { metahubPosterUrl } from '../poster.js';
 import { scoreTitleMatch } from './search.js';
+
+type MangoBrowseTab = 'movies' | 'series' | 'live';
 
 export type ExternalSearchHit = {
   type: string;
@@ -11,14 +13,14 @@ export type ExternalSearchHit = {
   title: string;
   year?: string;
   poster?: string;
-  tab: CatalogTab;
+  tab: MangoBrowseTab;
   score: number;
   in_library: boolean;
   library_status?: string;
   queued_for_verify: boolean;
 };
 
-function tabForType(type: string): CatalogTab {
+function tabForType(type: string): MangoBrowseTab {
   if (type.trim().toLowerCase() === 'series') {
     return 'series';
   }
@@ -44,7 +46,7 @@ function metaYear(meta: Record<string, unknown>): string | undefined {
   return match?.[0];
 }
 
-async function defaultRailIdForTab(tab: CatalogTab): Promise<string> {
+async function defaultRailIdForTab(tab: MangoBrowseTab): Promise<string> {
   const config = await loadRailConfig();
   const rail = config.rails.find(
     (entry) => entry.enabled !== false && 'tab' in entry && entry.tab === tab,

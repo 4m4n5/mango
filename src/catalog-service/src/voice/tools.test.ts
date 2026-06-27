@@ -12,6 +12,8 @@ test('buildVoiceToolManifest exposes browse-only voice tools (no play)', () => {
   assert.ok(names.includes('mango_navigate'));
   assert.ok(names.includes('mango_library_overview'));
   assert.ok(names.includes('mango_search_external'));
+  assert.ok(names.includes('mango_youtube_search'));
+  assert.ok(names.includes('mango_open_youtube'));
   assert.ok(names.includes('mango_list_ai_catalogs'));
   assert.ok(names.includes('mango_create_ai_catalog'));
   assert.ok(names.includes('mango_read_profile'));
@@ -22,6 +24,10 @@ test('buildVoiceToolManifest exposes browse-only voice tools (no play)', () => {
   assert.ok(!names.includes('mango_play_youtube'));
   const openTitle = manifest.tools.find((tool) => tool.name === 'mango_open_title');
   assert.equal(openTitle?.layer, 'launcher');
+  const openYoutube = manifest.tools.find((tool) => tool.name === 'mango_open_youtube');
+  assert.equal(openYoutube?.layer, 'launcher');
+  const youtubeSearch = manifest.tools.find((tool) => tool.name === 'mango_youtube_search');
+  assert.equal(youtubeSearch?.layer, 'catalog');
   const refresh = manifest.tools.find((tool) => tool.name === 'mango_playability_refresh');
   assert.equal(refresh?.requires_confirm, undefined);
   const createAi = manifest.tools.find((tool) => tool.name === 'mango_create_ai_catalog');

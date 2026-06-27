@@ -3,9 +3,9 @@ import { parse as parseYaml } from 'yaml';
 
 export type RailType = 'addon_catalog' | 'composite_list' | 'stremio_library' | 'tmdb_list' | 'static_ids';
 
-export type CatalogTab = 'movies' | 'series' | 'live';
+export type CatalogTab = 'movies' | 'series' | 'live' | 'youtube';
 
-const CATALOG_TABS = new Set<CatalogTab>(['movies', 'series', 'live']);
+const CATALOG_TABS = new Set<CatalogTab>(['movies', 'series', 'live', 'youtube']);
 
 export type RailPlayabilityConfig = {
   display_limit: number;

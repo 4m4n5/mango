@@ -10,7 +10,7 @@ class LauncherCommandError(RuntimeError):
 
 
 def build_launcher_command(name: str, tool_input: dict[str, Any]) -> dict[str, Any]:
-    if name == "mango_open_title":
+    if name in {"mango_open_title", "mango_open_youtube"}:
         return _open_title_command(tool_input)
 
     if name != "mango_navigate":
@@ -52,12 +52,18 @@ def _open_title_command(tool_input: dict[str, Any]) -> dict[str, Any]:
         "id": content_id,
         "title": title.strip(),
     }
+    source = tool_input.get("source")
+    if isinstance(source, str) and source.strip():
+        payload["source"] = source.strip()
     tab = tool_input.get("tab")
     if isinstance(tab, str) and tab.strip():
         payload["tab"] = tab.strip()
     else:
         normalized = content_type.strip().lower()
-        if normalized in {"series", "tv"}:
+        if normalized.startswith("youtube_"):
+            payload["tab"] = "youtube"
+            payload["source"] = "youtube"
+        elif normalized in {"series", "tv"}:
             payload["tab"] = "series"
         elif normalized == "movie":
             payload["tab"] = "movies"

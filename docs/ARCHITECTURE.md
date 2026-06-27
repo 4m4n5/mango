@@ -11,6 +11,7 @@ Stack layers, foreground contract, and API boundaries. Policy lives here — not
 ```
 Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
                               ├→ Mango library state
+                              ├→ YouTube API/cache
                               └→ mpv play orchestrator
 ```
 
@@ -18,7 +19,7 @@ Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
 |-------|------|----------------|
 | **AIOStreams** (`:3035`) | Aggregate indexers + debrid, dedup, SEL, formatter | Lab 1080p cap, mpv probe, auto-play |
 | **AIOMetadata** (`:3036`) | mdblist catalog adapters | Stream resolve |
-| **catalog-service** | Rails YAML, Mango library state, play orchestrator, stream metadata, playability, voice `/voice/*` | Indexer credentials, debrid keys |
+| **catalog-service** | Rails YAML, Mango library state, YouTube cache/API, play orchestrator, stream metadata, playability, voice `/voice/*` | Indexer credentials, debrid keys, Google secrets |
 | **Launcher** | Browse UI, detail, picker, voice command poll | Stream ranking (trust upstream + filters) |
 | **mpv** | Decode + render | Catalog metadata |
 | **orchestrator** | STT · LLM · launcher dispatch | Catalog data · mpv IPC |
@@ -68,6 +69,20 @@ operator policy and are not user library state.
 `/etc/mango/stremio-export.json` remains an addon-manifest graph only, not a
 Stremio user-library sync source.
 
+### YouTube cache and user state
+
+Native YouTube is a first-class source but not a second user library. The
+rebuildable `/etc/mango/youtube.db` caches YouTube metadata, rail membership,
+refresh/quota state, and temporary OAuth sessions. Durable user state stays in
+`/etc/mango/library.db` with `source="youtube"` for Saved videos, history,
+finished state, current detail context, and local Not Interested feedback.
+
+The YouTube Data API is used for metadata/search/subscription refresh only.
+Playback resolves through `yt-dlp -> mpv`; API quota does not govern cached
+playback, but `yt-dlp` failures such as 403/429/CAPTCHA are surfaced as
+couch-safe playback errors. Channels and playlists open detail lists; only
+videos can be Saved in M6.2.
+
 ---
 
 ## Module graph
@@ -93,7 +108,7 @@ Stremio user-library sync source.
 
 ```
 src/launcher/           TV UI + voice-hud.ts + voice-commands.ts
-src/catalog-service/    Stremio-compatible bridge · Mango library · play · playability · AI catalogs
+src/catalog-service/    Stremio-compatible bridge · Mango library · YouTube · play · playability · AI catalogs
 src/mango-ui-server/    serve.py — static + health + launch API + catalog proxy
 src/orchestrator/       voice hub (FastAPI)
 src/companion/          phone PWA
@@ -167,6 +182,23 @@ Enriched fields: `display_label`, `release_group`, `encode`, `size_gb`, `languag
 is no public hide/unhide API in M6.1; hidden fields are schema-only for the
 later UX pass.
 
+## YouTube API
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/youtube/state` | Enabled/configured/auth/cache/refresh state |
+| `POST` | `/youtube/auth/start` | Start Google device-code OAuth |
+| `GET` | `/youtube/auth/poll?session_id=` | Poll companion-first OAuth completion |
+| `POST` | `/youtube/auth/disconnect` | Remove local auth token |
+| `POST` | `/youtube/refresh` | Fill/update cache and recommender rails |
+| `GET` | `/youtube/rails` | YouTube tab rails with stale-cache status |
+| `GET` | `/youtube/search?q=` | Grouped videos/channels/playlists |
+| `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |
+| `POST` | `/youtube/not-interested` | Persistent local feedback; excludes rails |
+| `POST` | `/youtube/play` | `yt-dlp -> mpv`; writes YouTube history/progress |
+
+Detail: [YOUTUBE.md](YOUTUBE.md).
+
 ---
 
 ## Voice stack (M5)
@@ -180,7 +212,8 @@ Launcher voice-hud ◄── WS loopback :8766
 
 **Rule:** Voice opens detail/results and can Save/Unsave explicit library state
 only — playback stays on pad **B**. No `mango_play` or `play_youtube` in
-manifest.
+manifest. YouTube uses `mango_youtube_search` + `mango_open_youtube` under the
+same contract.
 
 Detail: [VOICE.md](VOICE.md)
 
@@ -224,6 +257,7 @@ Chromium is **UI only** — never decode 4K in the browser. mpv owns playback.
 | `MANGO_GATE_FULL=1` | Full gate (~5–8 min, 3 plays/rail) |
 | `gate-m4-self-hosted.sh` | Self-hosted addons |
 | `gate-live-iptv.sh` | Opt-in live only |
+| `gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail and optional playback |
 
 See [STATUS.md](STATUS.md#gates).
 

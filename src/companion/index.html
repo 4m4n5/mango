@@ -12,6 +12,20 @@
         <h1>mango</h1>
         <p id="status">connecting…</p>
       </header>
+      <section class="youtube-auth" aria-label="YouTube account">
+        <div>
+          <h2>YouTube</h2>
+          <p id="youtube-status">checking…</p>
+        </div>
+        <div class="youtube-actions">
+          <button id="youtube-auth-start" type="button">connect</button>
+          <button id="youtube-auth-disconnect" type="button">disconnect</button>
+        </div>
+        <div id="youtube-auth-code" class="youtube-code" hidden>
+          <p>Open <a id="youtube-auth-link" href="#" target="_blank" rel="noreferrer">Google device login</a></p>
+          <strong id="youtube-user-code"></strong>
+        </div>
+      </section>
       <section id="chat" class="chat-log" aria-live="polite" aria-label="chat"></section>
       <p id="error" class="error" hidden></p>
       <button id="ptt" type="button" aria-label="hold to talk">hold</button>

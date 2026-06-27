@@ -106,6 +106,24 @@ catalog:
   # exclude_remux: true             # skip Blu-ray REMUX picks
   # Runtime override: GET /stream/...?include_uncached=1 or POST /play body
 
+youtube:
+  enabled: true
+  db_path: /etc/mango/youtube.db
+  api_key_file: /etc/mango/youtube-api.key
+  oauth_client_file: /etc/mango/youtube-oauth-client.json
+  auth_token_file: /etc/mango/youtube-auth.json
+  region_code: US
+  relevance_language: en
+  max_results: 25
+  exclude_shorts: true
+  stale_after_hours: 24
+  playback:
+    yt_dlp_command: yt-dlp
+    yt_dlp_format: best[height<=1080]/best
+    # Optional when the operator wants Premium/account cookies available to yt-dlp.
+    # cookies_file: /etc/mango/youtube-cookies.txt
+    # cookies_from_browser: chromium
+
 orchestrator:
   # Use 0.0.0.0 + TLS on Pi so the HTTPS phone companion can connect via WSS.
   host: 0.0.0.0

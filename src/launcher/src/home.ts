@@ -1,6 +1,7 @@
 import type { AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { applyRailLayout } from "./layout";
+import { cardSavedKey } from "./saved";
 
 export interface HomeCallbacks {
   onContentSelect: (card: ContentCard, railLabel: string) => void;
@@ -23,7 +24,7 @@ const DEFAULT_APP_CARDS: AppCard[] = [
   { id: "settings", action: "settings", kicker: "System", title: "Settings" },
 ];
 
-export const BROWSE_TAB_ORDER: BrowseTab[] = ["movies", "series", "live"];
+export const BROWSE_TAB_ORDER: BrowseTab[] = ["movies", "series", "live", "youtube"];
 
 export function buildBrowseTabs(
   container: HTMLElement,
@@ -190,7 +191,7 @@ function createPosterCard(
   button.type = "button";
   button.className = "card card--poster";
   button.dataset.focusKey = `rail:${rail.id}:${card.type}:${card.id}`;
-  if (savedKeys.has(`${card.type}:${card.id}`)) {
+  if (savedKeys.has(cardSavedKey(card))) {
     button.classList.add("card--saved");
   }
   button.setAttribute("role", "listitem");

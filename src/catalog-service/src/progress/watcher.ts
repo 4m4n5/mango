@@ -1,13 +1,16 @@
 import { getMpvPlaybackState, isMpvActive } from '../mpv.js';
 import { notePlaybackExit } from './next-prompt.js';
 import { upsertWatchProgress } from './db.js';
+import type { CatalogTab } from '../rails.js';
 
 export type ActiveWatchSession = {
+  source?: string | null;
   type: string;
   title_id: string;
   play_id: string;
   title?: string | null;
   poster?: string | null;
+  tab?: CatalogTab | null;
 };
 
 let activeSession: ActiveWatchSession | null = null;
@@ -36,6 +39,7 @@ function persistSessionProgress(
     duration_sec,
   };
   upsertWatchProgress({
+    source: session.source,
     type: session.type,
     id: session.title_id,
     play_id: session.play_id,
@@ -43,6 +47,7 @@ function persistSessionProgress(
     poster: session.poster,
     position_sec,
     duration_sec,
+    tab: session.tab,
   });
 }
 
@@ -118,19 +123,23 @@ export function resetWatchWatcherForTests(): void {
 }
 
 export async function startWatchSessionFromPlay(input: {
+  source?: string | null;
   type: string;
   id: string;
   title?: string | null;
   poster?: string | null;
+  tab?: CatalogTab | null;
 }): Promise<void> {
   const titleId = input.type === 'series' && input.id.includes(':')
     ? input.id.split(':')[0]
     : input.id;
   await handoffWatchSession({
+    source: input.source,
     type: input.type,
     title_id: titleId,
     play_id: input.id,
     title: input.title,
     poster: input.poster,
+    tab: input.tab,
   });
 }

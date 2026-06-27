@@ -13,5 +13,8 @@ export function couchSafeCatalogMessage(message: string): string {
   if (lower.includes('http 5') || lower.includes('http 429')) {
     return 'catalog temporarily unavailable';
   }
+  if (lower.includes('youtube')) {
+    return message;
+  }
   return 'catalog unavailable';
 }

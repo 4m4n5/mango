@@ -40,6 +40,38 @@ interface TabRailItemsResponse {
   resolve_ms?: number;
 }
 
+interface YoutubeItem {
+  id: string;
+  kind: "video" | "channel" | "playlist";
+  title: string;
+  subtitle: string;
+  description?: string | null;
+  thumbnail?: string | null;
+  channel_title?: string | null;
+  duration_sec?: number | null;
+  live_status?: "none" | "live" | "upcoming" | "completed";
+  published_at?: string | null;
+}
+
+interface YoutubeRailResponse {
+  rails: Array<{
+    rail_id: string;
+    label: string;
+    items: YoutubeItem[];
+    cached?: boolean;
+    stale?: boolean;
+  }>;
+  refresh?: {
+    last_error?: string | null;
+    last_success_at?: number | null;
+  };
+}
+
+export interface YoutubeDetailResponse {
+  item: YoutubeItem;
+  items: YoutubeItem[];
+}
+
 export interface CatalogMeta {
   id: string;
   type: string;
@@ -147,10 +179,57 @@ function mapRailItems(data: RailItemsResponse): ContentRail {
   };
 }
 
+function youtubeType(item: YoutubeItem): string {
+  if (item.kind === "video") {
+    return "youtube_video";
+  }
+  if (item.kind === "channel") {
+    return "youtube_channel";
+  }
+  return "youtube_playlist";
+}
+
+function youtubeSubtitle(item: YoutubeItem): string {
+  if (item.live_status === "live") {
+    return `${item.channel_title || item.subtitle || "YouTube"} · live`;
+  }
+  if (item.kind === "video") {
+    return item.channel_title || item.subtitle || "YouTube";
+  }
+  return item.kind;
+}
+
+function mapYoutubeItem(item: YoutubeItem, railId?: string): ContentCard {
+  return {
+    id: item.id,
+    type: youtubeType(item),
+    title: item.title,
+    subtitle: youtubeSubtitle(item),
+    posterUrl: item.thumbnail || "",
+    description: item.description || undefined,
+    source: "youtube",
+    kind: item.kind,
+    liveStatus: item.live_status || "none",
+    railId,
+  };
+}
+
+function mapYoutubeRails(data: YoutubeRailResponse): ContentRail[] {
+  return data.rails.map((rail) => ({
+    id: rail.rail_id,
+    label: rail.stale ? `${rail.label} · stale` : rail.label,
+    cards: rail.items.map((item) => mapYoutubeItem(item, rail.rail_id)),
+  }));
+}
+
 export async function loadCatalogRails(
   tab: BrowseTab = "movies",
   options: { reshuffle?: boolean } = {},
 ): Promise<ContentRail[]> {
+  if (tab === "youtube") {
+    const data = await fetchJson<YoutubeRailResponse>("/api/catalog/youtube/rails", undefined, 15000);
+    return mapYoutubeRails(data);
+  }
   const reshuffle = tab !== "live" && options.reshuffle ? "&reshuffle=1" : "";
   try {
     const batch = await fetchJson<TabRailItemsResponse>(
@@ -180,11 +259,46 @@ export async function loadCatalogRails(
 }
 
 export async function loadMeta(card: ContentCard): Promise<CatalogMeta> {
+  if (card.source === "youtube" || card.type.startsWith("youtube_")) {
+    const kind = card.kind || youtubeKindFromType(card.type);
+    const detail = await loadYoutubeDetail(card.id, kind);
+    const item = detail.item;
+    return {
+      id: item.id,
+      type: youtubeType(item),
+      name: item.title,
+      title: item.title,
+      poster: item.thumbnail || undefined,
+      description: item.description || undefined,
+      runtime: item.live_status === "live" ? "live" : undefined,
+      releaseInfo: item.channel_title || item.subtitle,
+    };
+  }
   return fetchJson<CatalogMeta>(
     `/api/catalog/meta/${encodeURIComponent(card.type)}/${encodeURIComponent(card.id)}`,
     undefined,
     12000,
   );
+}
+
+export async function loadYoutubeDetail(
+  id: string,
+  kind: YoutubeItem["kind"] = "video",
+): Promise<YoutubeDetailResponse> {
+  const data = await fetchJson<YoutubeDetailResponse>(
+    `/api/catalog/youtube/detail?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`,
+    undefined,
+    15000,
+  );
+  return {
+    item: data.item,
+    items: (data.items || []),
+  };
+}
+
+export async function loadYoutubeDetailCards(card: ContentCard): Promise<ContentCard[]> {
+  const detail = await loadYoutubeDetail(card.id, card.kind || youtubeKindFromType(card.type));
+  return detail.items.map((item) => mapYoutubeItem(item, `youtube:${card.kind || "detail"}:${card.id}`));
 }
 
 export async function loadSeriesEpisodes(bareId: string): Promise<SeriesEpisodesResponse> {
@@ -208,6 +322,9 @@ export async function loadStreamsForId(type: string, id: string): Promise<Stream
 }
 
 export async function loadStreams(card: ContentCard, episodeId?: string): Promise<StreamsResult> {
+  if (card.source === "youtube" || card.type.startsWith("youtube_")) {
+    return { streams: [] };
+  }
   const streamId = episodeId || card.playId || card.id;
   return loadStreamsForId(card.type, streamId);
 }
@@ -262,6 +379,18 @@ export async function playCard(
   card: ContentCard,
   options: { signal?: AbortSignal; preferUrl?: string; startSec?: number; episodeId?: string } = {},
 ): Promise<PlayResult> {
+  if (card.source === "youtube" || card.type === "youtube_video") {
+    return fetchJson<PlayResult>("/api/catalog/youtube/play", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: card.id,
+        title: card.title,
+        poster: card.posterUrl,
+      }),
+      signal: options.signal,
+    }, 95000);
+  }
   const playId = options.episodeId || card.playId || card.id;
   const body: {
     type: string;
@@ -302,6 +431,28 @@ export async function playCard(
     body: JSON.stringify(body),
     signal: options.signal,
   }, 95000);
+}
+
+export async function notInterestedYoutubeCard(card: ContentCard): Promise<void> {
+  await fetchJson("/api/catalog/youtube/not-interested", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      kind: card.kind || youtubeKindFromType(card.type),
+      id: card.id,
+      title: card.title,
+    }),
+  }, 8000);
+}
+
+function youtubeKindFromType(type: string): YoutubeItem["kind"] {
+  if (type === "youtube_channel") {
+    return "channel";
+  }
+  if (type === "youtube_playlist") {
+    return "playlist";
+  }
+  return "video";
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit, timeoutMs?: number): Promise<T> {

@@ -14,12 +14,19 @@ const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
 const pttBtn = document.getElementById("ptt");
 const chatEl = document.getElementById("chat");
+const youtubeStatusEl = document.getElementById("youtube-status");
+const youtubeStartBtn = document.getElementById("youtube-auth-start");
+const youtubeDisconnectBtn = document.getElementById("youtube-auth-disconnect");
+const youtubeCodeEl = document.getElementById("youtube-auth-code");
+const youtubeLinkEl = document.getElementById("youtube-auth-link");
+const youtubeUserCodeEl = document.getElementById("youtube-user-code");
 const wsUrl = resolveWsUrl();
 
 let socket: WebSocket | null = null;
 let reconnectTimer: number | undefined;
 let pttActive = false;
 let maxUtteranceTimer: number | undefined;
+let youtubePollTimer: number | undefined;
 
 let mediaStream: MediaStream | null = null;
 let audioContext: AudioContext | null = null;
@@ -29,6 +36,7 @@ let sampleRate = 48_000;
 let chunks: Float32Array[] = [];
 
 connect();
+void loadYoutubeState();
 
 function resolveWsUrl(): string {
   const env = import.meta.env as Record<string, string | undefined>;
@@ -101,6 +109,127 @@ function setError(text: string): void {
   if (errorEl !== null) {
     errorEl.textContent = text;
     errorEl.toggleAttribute("hidden", text.length === 0);
+  }
+}
+
+function setYoutubeStatus(text: string): void {
+  if (youtubeStatusEl !== null) {
+    youtubeStatusEl.textContent = text;
+  }
+}
+
+function showYoutubeCode(payload: {
+  user_code?: string;
+  verification_url?: string;
+  verification_url_complete?: string;
+}): void {
+  if (youtubeCodeEl !== null) {
+    youtubeCodeEl.toggleAttribute("hidden", !payload.user_code);
+  }
+  if (youtubeUserCodeEl !== null) {
+    youtubeUserCodeEl.textContent = payload.user_code ?? "";
+  }
+  if (youtubeLinkEl instanceof HTMLAnchorElement) {
+    const href = payload.verification_url_complete || payload.verification_url || "#";
+    youtubeLinkEl.href = href;
+    youtubeLinkEl.textContent = payload.verification_url || "Google device login";
+  }
+}
+
+async function catalogFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api/catalog${path}`, {
+    ...init,
+    headers: {
+      accept: "application/json",
+      ...(init?.headers || {}),
+    },
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof (data as { error?: string }).error === "string"
+      ? (data as { error: string }).error
+      : `HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return data as T;
+}
+
+async function loadYoutubeState(): Promise<void> {
+  try {
+    const state = await catalogFetch<{
+      configured?: { api_key?: boolean; oauth_client?: boolean };
+      auth?: { authenticated?: boolean; configured?: boolean };
+      refresh?: { last_error?: string | null };
+    }>("/youtube/state");
+    if (state.auth?.authenticated) {
+      setYoutubeStatus("connected");
+    } else if (!state.auth?.configured) {
+      setYoutubeStatus("OAuth client missing on Pi");
+    } else if (!state.configured?.api_key) {
+      setYoutubeStatus("API key missing on Pi");
+    } else if (state.refresh?.last_error) {
+      setYoutubeStatus(`needs attention: ${state.refresh.last_error}`);
+    } else {
+      setYoutubeStatus("not connected");
+    }
+  } catch {
+    setYoutubeStatus("YouTube status unavailable");
+  }
+}
+
+async function startYoutubeAuth(): Promise<void> {
+  window.clearInterval(youtubePollTimer);
+  try {
+    const started = await catalogFetch<{
+      session_id: string;
+      user_code: string;
+      verification_url: string;
+      verification_url_complete?: string;
+      interval_sec?: number;
+    }>("/youtube/auth/start", { method: "POST" });
+    showYoutubeCode(started);
+    setYoutubeStatus("waiting for Google login…");
+    const pollMs = Math.max(1000, (started.interval_sec ?? 5) * 1000);
+    youtubePollTimer = window.setInterval(() => {
+      void pollYoutubeAuth(started.session_id);
+    }, pollMs);
+    void pollYoutubeAuth(started.session_id);
+  } catch (error) {
+    setYoutubeStatus(error instanceof Error ? error.message : "could not start YouTube auth");
+  }
+}
+
+async function pollYoutubeAuth(sessionId: string): Promise<void> {
+  try {
+    const poll = await catalogFetch<{ status?: string; interval_sec?: number }>(
+      `/youtube/auth/poll?session_id=${encodeURIComponent(sessionId)}`,
+    );
+    if (poll.status === "authenticated") {
+      window.clearInterval(youtubePollTimer);
+      showYoutubeCode({});
+      setYoutubeStatus("connected");
+      return;
+    }
+    if (poll.status === "expired") {
+      window.clearInterval(youtubePollTimer);
+      setYoutubeStatus("code expired — connect again");
+      return;
+    }
+    setYoutubeStatus(poll.status === "slow_down" ? "waiting — Google asked us to slow down" : "waiting for Google login…");
+  } catch (error) {
+    window.clearInterval(youtubePollTimer);
+    setYoutubeStatus(error instanceof Error ? error.message : "YouTube auth failed");
+  }
+}
+
+async function disconnectYoutube(): Promise<void> {
+  window.clearInterval(youtubePollTimer);
+  try {
+    await catalogFetch("/youtube/auth/disconnect", { method: "POST" });
+    showYoutubeCode({});
+    setYoutubeStatus("not connected");
+  } catch (error) {
+    setYoutubeStatus(error instanceof Error ? error.message : "could not disconnect YouTube");
   }
 }
 
@@ -354,5 +483,17 @@ if (pttBtn instanceof HTMLButtonElement) {
   });
   pttBtn.addEventListener("lostpointercapture", () => {
     void endPtt();
+  });
+}
+
+if (youtubeStartBtn instanceof HTMLButtonElement) {
+  youtubeStartBtn.addEventListener("click", () => {
+    void startYoutubeAuth();
+  });
+}
+
+if (youtubeDisconnectBtn instanceof HTMLButtonElement) {
+  youtubeDisconnectBtn.addEventListener("click", () => {
+    void disconnectYoutube();
   });
 }

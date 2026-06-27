@@ -17,6 +17,7 @@
 | M5.5 voice contract + companion UX split | [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) |
 | M6.5 post-YouTube unified UX polish | [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) |
 | Set up voice | [VOICE.md](VOICE.md) |
+| Set up native YouTube | [YOUTUBE.md](YOUTUBE.md) |
 | Set up live TV | [LIVE_TV.md](LIVE_TV.md) |
 | Gamepad | [HARDWARE.md](HARDWARE.md) |
 | Locked choices | [DECISIONS.md](DECISIONS.md) |
@@ -34,9 +35,9 @@
 | M3 Play | ✓ |
 | M4 Addons | ✓ |
 | M5 Voice + AI | ◐ |
-| M6 Ship | ◐ M6.1 library core shipped |
+| M6 Ship | ◐ M6.1 library core shipped · M6.2 YouTube implemented, Pi smoke pending |
 
-M3 playability/grow is functional but still in production hardening: strict `+20`/rail semantics, staged publish, orphan repair, and source diagnostics are implemented; sustained full-grow reliability is the active hardening lane. M6.1 Mango-owned Saved/history/finished state is implemented in `library.db`; YouTube, 4K, unified UX polish, and the wizard remain the M6 ship work. Detail: [PLAYABILITY.md](PLAYABILITY.md) and [STATUS.md](STATUS.md).
+M3 playability/grow is functional but still in production hardening: strict `+20`/rail semantics, staged publish, orphan repair, and source diagnostics are implemented; sustained full-grow reliability is the active hardening lane. M6.1 Mango-owned Saved/history/finished state is implemented in `library.db`; M6.2 native YouTube code is implemented with credential/playback smoke pending; 4K, unified UX polish, and the wizard remain M6 ship work. Detail: [PLAYABILITY.md](PLAYABILITY.md), [YOUTUBE.md](YOUTUBE.md), and [STATUS.md](STATUS.md).
 
 Detail: [ROADMAP.md](ROADMAP.md)
 

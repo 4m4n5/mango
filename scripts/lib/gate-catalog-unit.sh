@@ -25,6 +25,8 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/bonus-stream-resolve.test.js \
     dist/voice/search.test.js \
     dist/voice/tools.test.js \
+    dist/youtube/db.test.js \
+    dist/youtube/service.test.js \
     dist/core-library-rails.test.js \
     dist/ai-catalogs/store.test.js \
     dist/ai-catalogs/list-source.test.js \

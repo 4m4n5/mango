@@ -59,6 +59,17 @@ export type LibraryState = {
   block_reason: string | null;
 };
 
+export type LibraryFeedbackRow = {
+  source: string;
+  item_key: string;
+  type: string;
+  id: string;
+  feedback: string;
+  reason: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
 export type WatchState = {
   play_id: string | null;
   position_sec: number;
@@ -129,6 +140,8 @@ type StateRow = {
   block_reason: string | null;
 };
 
+type FeedbackRow = LibraryFeedbackRow;
+
 let dbSingleton: Database.Database | null = null;
 let initialized = false;
 
@@ -170,6 +183,9 @@ export function normalizeLibraryType(type: string): string {
 
 function normalizeLibraryId(type: string, id: string): string {
   const trimmed = id.trim();
+  if (normalizeLibraryType(type).startsWith('youtube_')) {
+    return trimmed;
+  }
   if (normalizeLibraryType(type) === 'series') {
     return (seriesBareId(trimmed) ?? trimmed).toLowerCase();
   }
@@ -181,7 +197,7 @@ export function libraryItemKey(source: string | undefined, type: string, id: str
 }
 
 export function libraryTabForType(type: string, fallback?: CatalogTab | null): CatalogTab {
-  if (fallback === 'movies' || fallback === 'series' || fallback === 'live') {
+  if (fallback === 'movies' || fallback === 'series' || fallback === 'live' || fallback === 'youtube') {
     return fallback;
   }
   const normalized = normalizeLibraryType(type);
@@ -286,6 +302,29 @@ CREATE INDEX IF NOT EXISTS idx_watch_state_last_watched ON watch_state(last_watc
   db.prepare(`
 INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (1, ?)
 `).run(nowMs());
+  applyLibraryMigrations(db);
+}
+
+function applyLibraryMigrations(db: Database.Database): void {
+  const migrated = new Set(
+    (db.prepare('SELECT version FROM library_migrations').all() as Array<{ version: number }>)
+      .map((row) => row.version),
+  );
+  if (!migrated.has(2)) {
+    db.exec(`
+CREATE TABLE IF NOT EXISTS library_feedback (
+  item_key TEXT NOT NULL REFERENCES library_items(item_key) ON DELETE CASCADE,
+  feedback TEXT NOT NULL,
+  reason TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(item_key, feedback)
+);
+CREATE INDEX IF NOT EXISTS idx_library_feedback_feedback ON library_feedback(feedback, updated_at DESC);
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (2, ?)')
+      .run(nowMs());
+  }
 }
 
 function ensureDb(): Database.Database {
@@ -610,6 +649,80 @@ WHERE wh.history_id = ?;
     throw new Error(`watch history missing after insert: ${historyId}`);
   }
   return row;
+}
+
+export function setLibraryFeedback(input: LibraryItemInput & {
+  feedback: string;
+  reason?: string | null;
+  created_at?: number;
+}): LibraryFeedbackRow {
+  const db = ensureDb();
+  const timestamp = input.created_at ?? nowMs();
+  const feedback = input.feedback.trim().toLowerCase();
+  if (!feedback) {
+    throw new Error('library feedback requires feedback');
+  }
+  const transaction = db.transaction(() => {
+    const itemKey = upsertLibraryItem(db, input, timestamp);
+    db.prepare(`
+INSERT INTO library_feedback (item_key, feedback, reason, created_at, updated_at)
+VALUES (@item_key, @feedback, @reason, @created_at, @updated_at)
+ON CONFLICT(item_key, feedback) DO UPDATE SET
+  reason = COALESCE(excluded.reason, library_feedback.reason),
+  updated_at = excluded.updated_at;
+`).run({
+      item_key: itemKey,
+      feedback,
+      reason: input.reason?.trim() || null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    });
+    return itemKey;
+  });
+  const itemKey = transaction();
+  const row = db.prepare(`
+SELECT
+  li.source,
+  li.item_key,
+  li.type,
+  li.id,
+  lf.feedback,
+  lf.reason,
+  lf.created_at,
+  lf.updated_at
+FROM library_feedback lf
+JOIN library_items li ON li.item_key = lf.item_key
+WHERE lf.item_key = ? AND lf.feedback = ?;
+`).get(itemKey, feedback) as FeedbackRow | undefined;
+  if (!row) {
+    throw new Error(`library feedback missing after upsert: ${itemKey}`);
+  }
+  return row;
+}
+
+export function listLibraryFeedback(feedback: string, source?: string): LibraryFeedbackRow[] {
+  const db = ensureDb();
+  const normalizedFeedback = feedback.trim().toLowerCase();
+  const normalizedSource = source ? normalizeSource(source) : null;
+  return db.prepare(`
+SELECT
+  li.source,
+  li.item_key,
+  li.type,
+  li.id,
+  lf.feedback,
+  lf.reason,
+  lf.created_at,
+  lf.updated_at
+FROM library_feedback lf
+JOIN library_items li ON li.item_key = lf.item_key
+WHERE lf.feedback = @feedback
+  AND (@source IS NULL OR li.source = @source)
+ORDER BY lf.updated_at DESC;
+`).all({
+    feedback: normalizedFeedback,
+    source: normalizedSource,
+  }) as FeedbackRow[];
 }
 
 export function listWatchHistory(limit = 50): WatchHistoryRow[] {
