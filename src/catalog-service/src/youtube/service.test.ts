@@ -31,6 +31,8 @@ function withTempState<T>(fn: () => T | Promise<T>): Promise<T> | T {
   process.env.MANGO_YOUTUBE_DB_PATH = join(dir, 'youtube.db');
   process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
   process.env.MANGO_USER_PINS_PATH = join(dir, 'user-pins.json');
+  process.env.MANGO_YOUTUBE_API_KEY_FILE = join(dir, 'missing-youtube-api.key');
+  process.env.MANGO_YOUTUBE_OAUTH_CLIENT_FILE = join(dir, 'missing-youtube-oauth-client.json');
   delete process.env.MANGO_YOUTUBE_API_KEY;
   resetYoutubeDbForTests();
   resetLibraryDbForTests();
@@ -40,6 +42,8 @@ function withTempState<T>(fn: () => T | Promise<T>): Promise<T> | T {
     delete process.env.MANGO_YOUTUBE_DB_PATH;
     delete process.env.MANGO_LIBRARY_DB_PATH;
     delete process.env.MANGO_USER_PINS_PATH;
+    delete process.env.MANGO_YOUTUBE_API_KEY_FILE;
+    delete process.env.MANGO_YOUTUBE_OAUTH_CLIENT_FILE;
     delete process.env.MANGO_YOUTUBE_API_KEY;
     rmSync(dir, { recursive: true, force: true });
   };
