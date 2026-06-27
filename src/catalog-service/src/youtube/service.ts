@@ -222,7 +222,7 @@ function tokenOverlapScore(left: Set<string>, right: Set<string>): number {
 function recentWatchedYoutubeItems(limit = 6): YoutubeItem[] {
   const seen = new Set<string>();
   const output: YoutubeItem[] = [];
-  for (const row of listWatchHistory(limit * 4)) {
+  for (const row of listWatchHistory(Math.max(50, limit * 12))) {
     if (row.source !== YOUTUBE_SOURCE || row.type !== YOUTUBE_VIDEO_TYPE || seen.has(row.id)) {
       continue;
     }

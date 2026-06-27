@@ -168,3 +168,36 @@ test('because you watched follows the latest watched YouTube video from cache', 
   assert.ok(because);
   assert.equal(because.items[0]?.id, 'NewCandidate');
 }));
+
+test('because you watched scans past repeated live history to find a non-live seed', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', [
+    { item: sampleVideo('LiveSeed', 'live', 'live-channel', 'lofi radio live'), score: 1, reason: 'test' },
+    { item: sampleVideo('WatchNew', 'none', 'new-channel', 'New cooking tour'), score: 0.9, reason: 'test' },
+    { item: sampleVideo('NewCandidate', 'none', 'new-channel', 'Another cooking tour'), score: 0.8, reason: 'test' },
+  ]);
+  for (let index = 0; index < 8; index += 1) {
+    recordLibraryWatch({
+      source: 'youtube',
+      type: 'youtube_video',
+      id: 'LiveSeed',
+      title: 'lofi radio live',
+      tab: 'youtube',
+      event: 'play',
+      watched_at: 2000 + index,
+    });
+  }
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'WatchNew',
+    title: 'New cooking tour',
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 1000,
+  });
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const because = response.rails.find((rail) => rail.rail_id === 'because_you_watched');
+  assert.ok(because);
+  assert.equal(because.items[0]?.id, 'NewCandidate');
+}));
