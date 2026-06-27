@@ -102,7 +102,7 @@ export function loadYoutubeConfig(): YoutubeConfig {
       || 'yt-dlp',
     yt_dlp_format: process.env.MANGO_YTDLP_FORMAT
       || optionalString(playback.yt_dlp_format)
-      || 'best[height<=1080]/best',
+      || 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
     yt_dlp_cookies: process.env.MANGO_YTDLP_COOKIES
       || optionalString(playback.cookies_file),
     yt_dlp_cookies_from_browser: process.env.MANGO_YTDLP_COOKIES_FROM_BROWSER

@@ -119,7 +119,7 @@ youtube:
   stale_after_hours: 24
   playback:
     yt_dlp_command: yt-dlp
-    yt_dlp_format: best[height<=1080]/best
+    yt_dlp_format: bestvideo[height<=1080]+bestaudio/best[height<=1080]/best
     # Optional when the operator wants Premium/account cookies available to yt-dlp.
     # cookies_file: /etc/mango/youtube-cookies.txt
     # cookies_from_browser: chromium

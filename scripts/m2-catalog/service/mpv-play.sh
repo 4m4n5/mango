@@ -10,11 +10,12 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 usage() {
-  echo "usage: $0 --url <http-url> [--probe] [--live] [--timeout-ms 4000] [--min-duration-sec 600] | --stop" >&2
+  echo "usage: $0 --url <http-url> [--audio-url <http-url>] [--probe] [--live] [--timeout-ms 4000] [--min-duration-sec 600] | --stop" >&2
   exit 2
 }
 
 URL=""
+AUDIO_URL=""
 STOP=false
 PROBE=false
 LIVE=false
@@ -25,6 +26,7 @@ START_SEC=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="${2:-}"; shift 2 ;;
+    --audio-url) AUDIO_URL="${2:-}"; shift 2 ;;
     --stop) STOP=true; shift ;;
     --probe) PROBE=true; shift ;;
     --live) LIVE=true; shift ;;
@@ -140,6 +142,9 @@ else
   if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
     mpv_args+=(--start="$START_SEC")
   fi
+fi
+if [[ -n "$AUDIO_URL" ]]; then
+  mpv_args+=(--audio-file="$AUDIO_URL")
 fi
 
 mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 &

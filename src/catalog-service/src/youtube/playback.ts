@@ -4,6 +4,7 @@ import type { YoutubeConfig } from './config.js';
 
 export type YoutubeResolvedPlayback = {
   url: string;
+  audio_url?: string;
   resolve_ms: number;
 };
 
@@ -33,6 +34,20 @@ function classifyYtDlpError(text: string): { status: number; message: string } {
   return {
     status: 502,
     message: 'YouTube playback could not be resolved',
+  };
+}
+
+export function parseYtDlpResolvedUrls(output: string): { url: string; audio_url?: string } | null {
+  const urls = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^https?:\/\//i.test(line));
+  if (urls.length === 0) {
+    return null;
+  }
+  return {
+    url: urls[0],
+    audio_url: urls[1],
   };
 }
 
@@ -77,18 +92,15 @@ export async function resolveYoutubePlayback(
       resolve({ stdout, stderr });
     });
   });
-  const urls = stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => /^https?:\/\//i.test(line));
-  if (urls.length === 0) {
+  const resolved = parseYtDlpResolvedUrls(stdout);
+  if (!resolved) {
     const classified = classifyYtDlpError(stderr || stdout);
     throw new CatalogError(classified.status, classified.message, { yt_dlp: stderr || stdout }, {
       couchMessage: classified.message,
     });
   }
   return {
-    url: urls[0],
+    ...resolved,
     resolve_ms: Date.now() - started,
   };
 }

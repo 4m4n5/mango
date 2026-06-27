@@ -530,6 +530,7 @@ export class YoutubeService {
       live,
       playEpoch,
       minDurationSec: live ? 1 : 1,
+      audioUrl: resolved.audio_url,
     });
     recordLibraryWatch({
       ...itemToLibraryInput(item),
