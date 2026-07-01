@@ -15,4 +15,8 @@ case "$MODE" in
     ;;
 esac
 
+if [[ "$MODE" == "nightly" ]]; then
+  exec bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly
+fi
+
 exec bash scripts/m3-play/playability/playability-maintenance.sh --mode "$MODE"

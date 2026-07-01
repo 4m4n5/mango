@@ -50,7 +50,7 @@ case "$RESOLVED" in
     exec bash scripts/m3-play/playability/playability-grow.sh --mode grow --preset quick --detach
     ;;
   grow_nightly)
-    exec bash scripts/m3-play/playability/playability-grow.sh --mode nightly --preset nightly --detach
+    exec bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly --detach
     ;;
   grow_overnight)
     exec bash scripts/m3-play/playability/overnight-playability-grow.sh --detach

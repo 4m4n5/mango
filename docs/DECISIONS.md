@@ -101,7 +101,9 @@ Locked choices. Update when changing behavior.
 | YouTube | First-class native tab; official API for metadata/search/subscriptions, `yt-dlp` → mpv for playback; voice opens, pad **B** plays |
 | YouTube storage | `/etc/mango/youtube.db` is rebuildable cache; durable Saved/history/Not Interested lives in `library.db` with `source="youtube"` |
 | YouTube auth/secrets | API key, OAuth client, token, and optional cookies are operator-owned `/etc/mango/*`; no repo secrets |
-| YouTube save policy | Videos only; channels/playlists open lists and are not Saved entities in M6.2 |
+| YouTube save policy | Videos only; channels/playlists open lists and are not Saved entities in M6.2; Saved videos remain in Saved until explicit Unsave |
+| YouTube history policy | History is Mango-local only; default shows latest 9 unique videos watched in Mango, shuffle samples 9 random videos from the full local YouTube watch set |
+| YouTube For You policy | Mango-owned reservoir in `youtube.db`; long-watch optimized, medium-first, no Shorts/live/watched videos, 5 familiar + 3 discovery + 1 wildcard, 7-day exposure cooldown |
 | YouTube native recommendations | Exact native YouTube home/recommended feed is not available through supported Data API routes; any raw-feed experiment must be explicit opt-in and isolated from Mango-owned recommender rails |
 | 4K | Ship profile on target TV; relax filters in `catalog-filters.json` |
 | Deploy | `install.sh` wizard — no SSH for household setup |

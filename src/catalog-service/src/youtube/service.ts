@@ -6,6 +6,7 @@ import {
   getLibraryState,
   listLibraryFeedback,
   listSavedLibraryItems,
+  listUniqueWatchHistory,
   listWatchHistory,
   recordLibraryWatch,
   setLibraryFeedback,
@@ -16,15 +17,20 @@ import { clearYoutubeAuth, pollYoutubeDeviceAuth, startYoutubeDeviceAuth, youtub
 import { loadYoutubeConfig, type YoutubeConfig } from './config.js';
 import {
   getYoutubeItem,
+  getYoutubeState,
   initYoutubeDb,
+  listForYouCandidates,
   listYoutubeItems,
   listYoutubeRailItems,
+  noteForYouExposures,
   replaceYoutubeRailItems,
   searchCachedYoutubeItems,
   setYoutubeState,
+  upsertForYouCandidates,
   upsertYoutubeItems,
   youtubeCacheSummary,
   youtubeRefreshStatus,
+  type YoutubeForYouCandidate,
 } from './db.js';
 import { resolveYoutubePlayback } from './playback.js';
 import type { YoutubeItem, YoutubeItemKind, YoutubeRail, YoutubeRailItem, YoutubeSearchGroups } from './types.js';
@@ -34,6 +40,14 @@ const YOUTUBE_TAB = 'youtube';
 const YOUTUBE_VIDEO_TYPE = 'youtube_video';
 const YOUTUBE_RAIL_LIMIT = 9;
 const YOUTUBE_RAIL_POOL_LIMIT = 60;
+const FOR_YOU_RESERVOIR_TARGET = 1000;
+const FOR_YOU_EXPOSURE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+const FOR_YOU_SEARCH_HISTORY_LIMIT = 20;
+const FOR_YOU_LANE_QUOTAS: Record<ForYouLane, number> = {
+  familiar: 5,
+  discovery: 3,
+  wildcard: 1,
+};
 const SHUFFLEABLE_YOUTUBE_RAILS = new Set([
   'for_you',
   'new_from_subscriptions',
@@ -83,6 +97,30 @@ type RefreshResult = {
 
 type YoutubeRailsOptions = {
   reshuffle?: boolean;
+};
+
+type ForYouLane = 'familiar' | 'discovery' | 'wildcard';
+type ForYouSource = 'history' | 'saved' | 'subscription' | 'discovery' | 'popular' | 'wildcard';
+
+type RecentYoutubeSearch = {
+  query: string;
+  searched_at: number;
+};
+
+type TasteProfile = {
+  watchedIds: Set<string>;
+  savedIds: Set<string>;
+  positiveChannels: Map<string, number>;
+  positiveTokens: Map<string, number>;
+  negativeIds: Set<string>;
+  negativeChannels: Map<string, number>;
+  negativeTokens: Map<string, number>;
+  recentSearches: RecentYoutubeSearch[];
+};
+
+type ScoredForYouCandidate = YoutubeForYouCandidate & {
+  score: number;
+  score_breakdown: Record<string, number | string>;
 };
 
 function nowMs(): number {
@@ -261,6 +299,445 @@ function recencyScore(item: YoutubeItem): number {
   return Math.max(0, 1 - ageDays / 180);
 }
 
+function isShortLikeVideo(item: YoutubeItem): boolean {
+  if (item.duration_sec !== null && item.duration_sec <= 60) return true;
+  return /(^|\s)#shorts?\b/i.test(`${item.title} ${item.description || ''}`);
+}
+
+function addWeight(map: Map<string, number>, key: string | null | undefined, weight: number): void {
+  const normalized = key?.trim();
+  if (!normalized) return;
+  map.set(normalized, (map.get(normalized) ?? 0) + weight);
+}
+
+function addTokenWeights(map: Map<string, number>, item: YoutubeItem | { title?: string | null }, weight: number): void {
+  for (const token of titleTokens(item)) {
+    addWeight(map, token, weight);
+  }
+}
+
+function recentYoutubeSearches(): RecentYoutubeSearch[] {
+  return getYoutubeState<RecentYoutubeSearch[]>('recent_searches', [])
+    .filter((entry) => typeof entry.query === 'string' && Number.isFinite(entry.searched_at))
+    .slice(0, FOR_YOU_SEARCH_HISTORY_LIMIT);
+}
+
+function recordRecentYoutubeSearch(query: string): void {
+  const normalized = query.trim();
+  if (!normalized) return;
+  const deduped = recentYoutubeSearches().filter(
+    (entry) => entry.query.toLowerCase() !== normalized.toLowerCase(),
+  );
+  setYoutubeState('recent_searches', [
+    { query: normalized, searched_at: nowMs() },
+    ...deduped,
+  ].slice(0, FOR_YOU_SEARCH_HISTORY_LIMIT));
+}
+
+function cachedVideoFromLibrary(item: { id: string; title?: string | null; poster?: string | null }): YoutubeItem {
+  return getYoutubeItem('video', item.id) || {
+    id: item.id,
+    kind: 'video',
+    title: item.title || item.id,
+    subtitle: 'YouTube',
+    description: null,
+    thumbnail: item.poster || null,
+    channel_id: null,
+    channel_title: null,
+    published_at: null,
+    duration_sec: null,
+    live_status: 'none',
+    playlist_id: null,
+    updated_at: nowMs(),
+  };
+}
+
+function buildTasteProfile(): TasteProfile {
+  const profile: TasteProfile = {
+    watchedIds: new Set(),
+    savedIds: new Set(),
+    positiveChannels: new Map(),
+    positiveTokens: new Map(),
+    negativeIds: new Set(),
+    negativeChannels: new Map(),
+    negativeTokens: new Map(),
+    recentSearches: recentYoutubeSearches(),
+  };
+
+  const history = listUniqueWatchHistory({
+    source: YOUTUBE_SOURCE,
+    type: YOUTUBE_VIDEO_TYPE,
+    limit: 500,
+  });
+  for (const row of history) {
+    profile.watchedIds.add(row.id);
+    const item = cachedVideoFromLibrary(row);
+    addWeight(profile.positiveChannels, item.channel_id || item.channel_title, 1);
+    addTokenWeights(profile.positiveTokens, item, 0.75);
+  }
+
+  const saved = listSavedLibraryItems(YOUTUBE_TAB, 200)
+    .filter((item) => item.source === YOUTUBE_SOURCE && item.type === YOUTUBE_VIDEO_TYPE);
+  for (const row of saved) {
+    profile.savedIds.add(row.id);
+    const item = cachedVideoFromLibrary(row);
+    addWeight(profile.positiveChannels, item.channel_id || item.channel_title, 1.5);
+    addTokenWeights(profile.positiveTokens, item, 1.25);
+  }
+
+  for (const entry of profile.recentSearches) {
+    const ageDays = Math.max(0, (nowMs() - entry.searched_at) / 86_400_000);
+    const weight = Math.max(0, 1 - ageDays / 7);
+    if (weight > 0) {
+      addTokenWeights(profile.positiveTokens, { title: entry.query }, weight * 0.5);
+    }
+  }
+
+  for (const row of listLibraryFeedback('not_interested', YOUTUBE_SOURCE)) {
+    if (row.type !== YOUTUBE_VIDEO_TYPE) continue;
+    profile.negativeIds.add(row.id);
+    const item = getYoutubeItem('video', row.id) || { title: row.id };
+    if ('channel_id' in item) {
+      addWeight(profile.negativeChannels, item.channel_id || item.channel_title, 1);
+    }
+    addTokenWeights(profile.negativeTokens, item, 0.8);
+  }
+  return profile;
+}
+
+function weightedTokenScore(tokens: Set<string>, weights: Map<string, number>, cap: number): number {
+  let score = 0;
+  for (const token of tokens) {
+    score += weights.get(token) ?? 0;
+  }
+  return Math.min(cap, score);
+}
+
+function channelAffinity(item: YoutubeItem, profile: TasteProfile): number {
+  const channel = item.channel_id || item.channel_title || '';
+  return channel ? Math.min(2, profile.positiveChannels.get(channel) ?? 0) : 0;
+}
+
+function tokenAffinity(item: YoutubeItem, profile: TasteProfile): number {
+  return weightedTokenScore(titleTokens(item), profile.positiveTokens, 3);
+}
+
+function negativeSimilarity(item: YoutubeItem, profile: TasteProfile): number {
+  const channel = item.channel_id || item.channel_title || '';
+  const channelPenalty = channel ? Math.min(1.5, profile.negativeChannels.get(channel) ?? 0) : 0;
+  return channelPenalty + weightedTokenScore(titleTokens(item), profile.negativeTokens, 1.5);
+}
+
+function durationFitScore(item: YoutubeItem): number {
+  const duration = item.duration_sec;
+  if (duration === null || duration <= 0) return 0.45;
+  const minutes = duration / 60;
+  if (minutes >= 8 && minutes <= 45) return 1;
+  if (minutes > 45 && minutes <= 90) return 0.65;
+  if (minutes >= 2 && minutes < 8) return 0.35;
+  return 0.2;
+}
+
+function metadataQualityScore(item: YoutubeItem): number {
+  let score = 0;
+  if (item.thumbnail) score += 0.3;
+  if (item.description) score += 0.2;
+  if (item.duration_sec !== null) score += 0.3;
+  if (item.channel_id || item.channel_title) score += 0.2;
+  return score;
+}
+
+function topicCluster(item: YoutubeItem): string {
+  const tokens = [...titleTokens(item)].slice(0, 2);
+  if (tokens.length > 0) return tokens.join(':');
+  return item.channel_id || item.channel_title || item.id;
+}
+
+function sourceWeight(source: ForYouSource): number {
+  if (source === 'saved') return 1.2;
+  if (source === 'history') return 1.05;
+  if (source === 'subscription') return 0.45;
+  if (source === 'discovery') return 0.35;
+  if (source === 'popular') return 0.12;
+  return 0.08;
+}
+
+function forYouSourceHints(): Map<string, ForYouSource> {
+  const hints = new Map<string, ForYouSource>();
+  for (const item of listYoutubeRailItems('popular', FOR_YOU_RESERVOIR_TARGET)) {
+    hints.set(item.id, 'popular');
+  }
+  for (const item of listYoutubeRailItems('fresh_finds', FOR_YOU_RESERVOIR_TARGET)) {
+    hints.set(item.id, 'discovery');
+  }
+  for (const item of listYoutubeRailItems('because_you_watched', FOR_YOU_RESERVOIR_TARGET)) {
+    hints.set(item.id, 'history');
+  }
+  for (const item of listYoutubeRailItems('new_from_subscriptions', FOR_YOU_RESERVOIR_TARGET)) {
+    hints.set(item.id, 'subscription');
+  }
+  return hints;
+}
+
+function chooseForYouSource(item: YoutubeItem, profile: TasteProfile, hints: Map<string, ForYouSource>): ForYouSource {
+  if (profile.savedIds.has(item.id)) return 'saved';
+  const affinity = channelAffinity(item, profile) + tokenAffinity(item, profile);
+  if (affinity >= 0.75) return 'history';
+  const hinted = hints.get(item.id);
+  if (hinted) return hinted;
+  if (affinity >= 0.25) return 'discovery';
+  return 'wildcard';
+}
+
+function chooseForYouLane(item: YoutubeItem, source: ForYouSource, profile: TasteProfile): ForYouLane {
+  if (source === 'saved' || source === 'history' || source === 'subscription') {
+    return 'familiar';
+  }
+  if (source === 'discovery') {
+    return 'discovery';
+  }
+  const affinity = channelAffinity(item, profile) + tokenAffinity(item, profile);
+  if (source === 'popular' && affinity < 0.25) return 'wildcard';
+  return affinity >= 0.25 ? 'discovery' : 'wildcard';
+}
+
+function scoreForYouItem(
+  item: YoutubeItem,
+  source: ForYouSource,
+  profile: TasteProfile,
+  stats: Pick<YoutubeForYouCandidate, 'exposure_count' | 'ignore_count' | 'quick_stop_count'> = {
+    exposure_count: 0,
+    ignore_count: 0,
+    quick_stop_count: 0,
+  },
+): { score: number; breakdown: Record<string, number | string> } {
+  const channel = channelAffinity(item, profile) * 0.45;
+  const topic = tokenAffinity(item, profile) * 0.55;
+  const sourceBoost = sourceWeight(source);
+  const freshness = recencyScore(item) * 0.55;
+  const duration = durationFitScore(item) * 0.8;
+  const quality = metadataQualityScore(item) * 0.35;
+  const negative = negativeSimilarity(item, profile) * 0.9;
+  const exposure = Math.min(1.25, stats.exposure_count * 0.06 + stats.ignore_count * 0.04);
+  const quickStop = Math.min(0.7, stats.quick_stop_count * 0.18);
+  const raw = 1 + channel + topic + sourceBoost + freshness + duration + quality
+    - negative - exposure - quickStop;
+  const score = Math.max(0.01, raw);
+  return {
+    score,
+    breakdown: {
+      channel,
+      topic,
+      source,
+      source_boost: sourceBoost,
+      freshness,
+      duration,
+      quality,
+      negative,
+      exposure,
+      quick_stop: quickStop,
+      final: score,
+    },
+  };
+}
+
+function isEligibleForYouCandidate(
+  candidate: YoutubeForYouCandidate,
+  profile: TasteProfile,
+  allowRecentExposure: boolean,
+): boolean {
+  if (candidate.kind !== 'video') return false;
+  if (profile.watchedIds.has(candidate.id)) return false;
+  if (profile.negativeIds.has(candidate.id)) return false;
+  if (isLiveVideo(candidate)) return false;
+  if (isShortLikeVideo(candidate)) return false;
+  if (
+    !allowRecentExposure
+    && candidate.last_recommended_at !== null
+    && nowMs() - candidate.last_recommended_at < FOR_YOU_EXPOSURE_COOLDOWN_MS
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function buildForYouReservoir(): void {
+  const profile = buildTasteProfile();
+  const hints = forYouSourceHints();
+  const scored = listYoutubeItems('video', FOR_YOU_RESERVOIR_TARGET * 2)
+    .filter((item) => !profile.watchedIds.has(item.id))
+    .filter((item) => !profile.negativeIds.has(item.id))
+    .filter((item) => !isLiveVideo(item))
+    .filter((item) => !isShortLikeVideo(item))
+    .map((item) => {
+      const source = chooseForYouSource(item, profile, hints);
+      const { score, breakdown } = scoreForYouItem(item, source, profile);
+      return {
+        item,
+        lane: chooseForYouLane(item, source, profile),
+        source,
+        source_weight: sourceWeight(source),
+        topic_cluster: topicCluster(item),
+        score,
+        score_breakdown: breakdown,
+        reason: `for_you:${source}`,
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, FOR_YOU_RESERVOIR_TARGET);
+  upsertForYouCandidates(scored);
+}
+
+function topProfileTokens(profile: TasteProfile, limit: number): string[] {
+  return [...profile.positiveTokens.entries()]
+    .sort((left, right) => right[1] - left[1])
+    .map(([token]) => token)
+    .slice(0, limit);
+}
+
+function forYouDiscoveryQueries(): string[] {
+  const profile = buildTasteProfile();
+  const queries: string[] = [];
+  for (const search of profile.recentSearches.slice(0, 3)) {
+    queries.push(search.query);
+  }
+  const tokens = topProfileTokens(profile, 8);
+  for (let index = 0; index < tokens.length - 1; index += 2) {
+    queries.push(`${tokens[index]} ${tokens[index + 1]}`);
+  }
+  queries.push(...FRESH_FIND_QUERIES);
+  return [...new Set(queries.map((query) => query.trim()).filter(Boolean))].slice(0, 4);
+}
+
+function samplingWeight(candidate: ScoredForYouCandidate, reshuffle: boolean): number {
+  return Math.max(0.01, reshuffle ? candidate.score : candidate.score * candidate.score);
+}
+
+function canUseForYouCandidate(
+  candidate: ScoredForYouCandidate,
+  selected: ScoredForYouCandidate[],
+  channelCounts: Map<string, number>,
+  topicCounts: Map<string, number>,
+): boolean {
+  if (selected.some((item) => item.id === candidate.id)) return false;
+  const channel = candidate.channel_id || candidate.channel_title || candidate.id;
+  if ((channelCounts.get(channel) ?? 0) >= 1) return false;
+  const cluster = candidate.topic_cluster || candidate.id;
+  if ((topicCounts.get(cluster) ?? 0) >= 2) return false;
+  return true;
+}
+
+function weightedPickForYou(
+  candidates: ScoredForYouCandidate[],
+  reshuffle: boolean,
+): ScoredForYouCandidate | null {
+  const total = candidates.reduce((sum, item) => sum + samplingWeight(item, reshuffle), 0);
+  if (total <= 0) return candidates[0] || null;
+  let cursor = Math.random() * total;
+  for (const candidate of candidates) {
+    cursor -= samplingWeight(candidate, reshuffle);
+    if (cursor <= 0) return candidate;
+  }
+  return candidates[candidates.length - 1] || null;
+}
+
+function addForYouSelection(
+  pool: ScoredForYouCandidate[],
+  selected: ScoredForYouCandidate[],
+  count: number,
+  reshuffle: boolean,
+  channelCounts: Map<string, number>,
+  topicCounts: Map<string, number>,
+): void {
+  while (selected.length < YOUTUBE_RAIL_LIMIT && count > 0) {
+    const eligible = pool.filter((candidate) => (
+      canUseForYouCandidate(candidate, selected, channelCounts, topicCounts)
+    ));
+    if (eligible.length === 0) return;
+    const picked = weightedPickForYou(eligible, reshuffle);
+    if (!picked) return;
+    selected.push(picked);
+    const channel = picked.channel_id || picked.channel_title || picked.id;
+    const cluster = picked.topic_cluster || picked.id;
+    channelCounts.set(channel, (channelCounts.get(channel) ?? 0) + 1);
+    topicCounts.set(cluster, (topicCounts.get(cluster) ?? 0) + 1);
+    count -= 1;
+  }
+}
+
+function sampleForYouCandidates(
+  candidates: ScoredForYouCandidate[],
+  options: YoutubeRailsOptions,
+): ScoredForYouCandidate[] {
+  const selected: ScoredForYouCandidate[] = [];
+  const channelCounts = new Map<string, number>();
+  const topicCounts = new Map<string, number>();
+  for (const lane of ['familiar', 'discovery', 'wildcard'] as ForYouLane[]) {
+    addForYouSelection(
+      candidates.filter((candidate) => candidate.lane === lane),
+      selected,
+      FOR_YOU_LANE_QUOTAS[lane],
+      Boolean(options.reshuffle),
+      channelCounts,
+      topicCounts,
+    );
+  }
+  addForYouSelection(
+    candidates,
+    selected,
+    YOUTUBE_RAIL_LIMIT - selected.length,
+    Boolean(options.reshuffle),
+    channelCounts,
+    topicCounts,
+  );
+  return selected;
+}
+
+function forYouRail(options: YoutubeRailsOptions = {}): YoutubeRail {
+  buildForYouReservoir();
+  const refresh = youtubeRefreshStatus();
+  const profile = buildTasteProfile();
+  const scoreCandidates = (allowRecentExposure: boolean) => listForYouCandidates(FOR_YOU_RESERVOIR_TARGET)
+    .filter((candidate) => isEligibleForYouCandidate(candidate, profile, allowRecentExposure))
+    .map((candidate): ScoredForYouCandidate => {
+      const source = (candidate.source || 'wildcard') as ForYouSource;
+      const { score, breakdown } = scoreForYouItem(candidate, source, profile, candidate);
+      return {
+        ...candidate,
+        score,
+        score_breakdown: breakdown,
+      };
+    })
+    .sort((left, right) => right.score - left.score);
+  let candidates = scoreCandidates(false);
+  if (candidates.length < YOUTUBE_RAIL_LIMIT) {
+    setYoutubeState('for_you_needs_expansion', { at: nowMs(), eligible: candidates.length });
+    candidates = scoreCandidates(true);
+  }
+  const selected = sampleForYouCandidates(candidates, options);
+  if (selected.length > 0) {
+    replaceYoutubeRailItems('for_you', selected.map((item, index) => ({
+      item,
+      score: item.score,
+      reason: `for_you:${item.source}:${index + 1}`,
+    })));
+    noteForYouExposures(selected.map((item) => item.id));
+  }
+  const stale = refresh.last_success_at !== null
+    && refresh.last_success_at < nowMs() - loadYoutubeConfig().stale_after_ms;
+  return {
+    rail_id: 'for_you',
+    label: RAIL_LABELS.for_you,
+    items: selected.map((item) => ({
+      ...item,
+      reason: item.reason,
+      score: item.score,
+    })),
+    cached: selected.length > 0,
+    stale,
+  };
+}
+
 function railFromItems(railId: string, items: YoutubeItem[], reason: string): YoutubeRail {
   const refresh = youtubeRefreshStatus();
   const stale = refresh.last_success_at !== null
@@ -302,58 +779,28 @@ function savedRail(limit = YOUTUBE_RAIL_LIMIT): YoutubeRail {
   return {
     rail_id: 'saved',
     label: RAIL_LABELS.saved,
-    items: filterNotInterested(saved),
+    items: saved,
     cached: saved.length > 0,
     stale: false,
   };
 }
 
-function historyRail(limit = YOUTUBE_RAIL_LIMIT): YoutubeRail {
-  const seen = new Set<string>();
-  const items = listWatchHistory(limit * 3)
-    .filter((item) => item.source === YOUTUBE_SOURCE && item.type === YOUTUBE_VIDEO_TYPE)
-    .filter((item) => {
-      if (seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    })
+function historyRail(options: YoutubeRailsOptions = {}, limit = YOUTUBE_RAIL_LIMIT): YoutubeRail {
+  const history = listUniqueWatchHistory({
+    source: YOUTUBE_SOURCE,
+    type: YOUTUBE_VIDEO_TYPE,
+  });
+  const items = (options.reshuffle ? shuffled(history) : history)
     .slice(0, limit)
     .map((item) => libraryItemToYoutube(item))
     .filter((item): item is YoutubeRailItem => item !== null);
   return {
     rail_id: 'history',
     label: RAIL_LABELS.history,
-    items: filterNotInterested(items),
+    items,
     cached: items.length > 0,
     stale: false,
   };
-}
-
-function rankForYou(limit = YOUTUBE_RAIL_POOL_LIMIT): YoutubeItem[] {
-  const blocked = notInterestedIds();
-  const history = listWatchHistory(200).filter((row) => row.source === YOUTUBE_SOURCE);
-  const channelWeights = new Map<string, number>();
-  for (const row of history) {
-    const cached = getYoutubeItem('video', row.id);
-    const channel = cached?.channel_id || cached?.channel_title;
-    if (channel) {
-      channelWeights.set(channel, (channelWeights.get(channel) ?? 0) + 1);
-    }
-  }
-  return listYoutubeItems('video', 300)
-    .filter((item) => !blocked.has(item.id))
-    .filter((item) => !isLiveVideo(item))
-    .map((item) => {
-      const channel = item.channel_id || item.channel_title || '';
-      const affinity = channel ? (channelWeights.get(channel) ?? 0) : 0;
-      return {
-        item,
-        score: recencyScore(item) + Math.min(2, affinity * 0.35),
-      };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((entry) => entry.item);
 }
 
 function rankBecauseYouWatchedFromCache(limit = YOUTUBE_RAIL_POOL_LIMIT): YoutubeItem[] {
@@ -474,6 +921,23 @@ export class YoutubeService {
     })));
   }
 
+  private async expandForYouDiscoveryFromApi(): Promise<void> {
+    if (!this.config.api_key) {
+      return;
+    }
+    const queries = forYouDiscoveryQueries();
+    if (queries.length === 0) {
+      return;
+    }
+    await Promise.all(
+      queries.map((query) => this.api.search(query, { limit: 8 }).catch(() => ({
+        videos: [],
+        channels: [],
+        playlists: [],
+      }))),
+    );
+  }
+
   async refresh(reason = 'manual'): Promise<RefreshResult> {
     if (!this.config.enabled) {
       return { ok: false, error: 'YouTube is disabled', refresh: youtubeRefreshStatus() };
@@ -531,12 +995,8 @@ export class YoutubeService {
         })));
       }
 
-      const forYou = rankForYou(YOUTUBE_RAIL_POOL_LIMIT);
-      replaceYoutubeRailItems('for_you', forYou.map((item, index) => ({
-        item,
-        score: 1 - index * 0.01,
-        reason: 'local Mango ranker',
-      })));
+      await this.expandForYouDiscoveryFromApi();
+      buildForYouReservoir();
 
       setYoutubeState('last_success_at', nowMs());
       setYoutubeState('last_error', null);
@@ -553,14 +1013,6 @@ export class YoutubeService {
     if (this.config.enabled && this.config.api_key && cache.videos === 0) {
       await this.refresh('first_run').catch(() => undefined);
     }
-    const forYouItems = rankForYou(YOUTUBE_RAIL_POOL_LIMIT);
-    if (forYouItems.length > 0) {
-      replaceYoutubeRailItems('for_you', forYouItems.map((item, index) => ({
-        item,
-        score: 1 - index * 0.01,
-        reason: 'local Mango ranker',
-      })));
-    }
     const hasWatchedYoutube = recentWatchedYoutubeItems(1).length > 0;
     if (hasWatchedYoutube) {
       const becauseItems = rankBecauseYouWatchedFromCache(YOUTUBE_RAIL_POOL_LIMIT);
@@ -572,8 +1024,8 @@ export class YoutubeService {
     }
     const rails: YoutubeRail[] = [
       savedRail(),
-      historyRail(),
-      cachedRail('for_you', options),
+      historyRail(options),
+      forYouRail(options),
       cachedRail('new_from_subscriptions', options),
       cachedRail('fresh_finds', options),
       cachedRail('because_you_watched', options),
@@ -599,6 +1051,7 @@ export class YoutubeService {
     const groups = this.config.api_key
       ? await this.api.search(normalized, { limit: Math.max(1, Math.min(50, limit)) })
       : groupCachedSearch(normalized, Math.max(1, Math.min(50, limit)));
+    recordRecentYoutubeSearch(normalized);
     return {
       ok: true,
       query: normalized,
@@ -728,6 +1181,7 @@ export class YoutubeService {
       event: 'play',
       watched_at: nowMs(),
     });
+    buildForYouReservoir();
     void this.refreshBecauseYouWatchedFromApi().catch((error) => {
       setYoutubeState('last_because_you_watched_error', error instanceof Error ? error.message : String(error));
     });

@@ -12,7 +12,7 @@ mkdir -p "$UNIT_DIR"
 
 cat >"$SERVICE_PATH" <<EOF
 [Unit]
-Description=mango playability maintenance refresh
+Description=mango nightly library and YouTube refresh
 After=default.target
 
 [Service]
@@ -39,7 +39,8 @@ Environment=MANGO_GROW_SOURCE_ADVANCE_PAGES=25
 Environment=MANGO_PLAYABILITY_GROW_INGEST_BATCH=80
 Environment=MANGO_PLAYABILITY_MAX_INGEST_SCAN=2400
 Environment=MANGO_GROW_NO_STREAM_RETRY_MS=604800000
-ExecStart=/usr/bin/bash $REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh --mode nightly
+Environment=MANGO_NIGHTLY_YOUTUBE_REFRESH=1
+ExecStart=/usr/bin/bash $REPO_DIR/scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly
 EOF
 
 cat >"$TIMER_PATH" <<'EOF'

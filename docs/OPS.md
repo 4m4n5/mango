@@ -148,10 +148,11 @@ Then open the companion and use the YouTube connect panel. Full details:
 | YouTube tab empty | `curl localhost:3020/youtube/state` · configure `/etc/mango/youtube-api.key` · run `bash scripts/m6-ship/gate-m6-youtube-smoke.sh` |
 | YouTube account not connected | Companion → YouTube connect · verify `/etc/mango/youtube-oauth-client.json` and `/etc/mango/youtube-auth.json` permissions |
 | YouTube playback 403/429/CAPTCHA | Update `yt-dlp`; reconnect account/cookies; pick another video; metadata cache should remain visible |
+| YouTube recommendations stale | `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator` · check `~/.cache/mango/nightly-library-refresh.log` and `curl localhost:3020/youtube/state` |
 | Empty rails | `bash scripts/mango-health-repair.sh` · `curl localhost:3020/health` · playability status script |
 | Live tab empty after source error | `bash scripts/live/live-diagnostics.sh` · stale cache should remain available |
 | Grow seems hung | `python3 scripts/diag/grow_monitor.py status --verbose` · inspect stage/source before killing |
-| Maintenance did not run | `bash scripts/diag/couch-activity-status.sh` · check deferred JSON in `~/.cache/mango/ops/` |
+| Maintenance did not run | `bash scripts/diag/couch-activity-status.sh` · check deferred JSON in `~/.cache/mango/ops/` and `~/.cache/mango/nightly-library-refresh.log` |
 | Orphans or overlap drift | `rail-pool-retheme.sh dry-run --orphans-only` or `--overlap-only`; see [PLAYABILITY.md](PLAYABILITY.md) |
 | Chromium duplicate | `bash scripts/mango-kill-strays.sh` |
 

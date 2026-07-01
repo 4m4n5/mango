@@ -749,6 +749,61 @@ LIMIT @limit;
 `).all({ limit: Math.max(1, Math.min(500, limit)) }) as WatchHistoryRow[];
 }
 
+export function listUniqueWatchHistory(options: {
+  source?: string | null;
+  type?: string | null;
+  limit?: number | null;
+} = {}): WatchHistoryRow[] {
+  const db = ensureDb();
+  const params: Record<string, string | number> = {};
+  const clauses = [];
+  if (options.source) {
+    clauses.push('wh.source = @source');
+    params.source = normalizeSource(options.source);
+  }
+  if (options.type) {
+    clauses.push('wh.type = @type');
+    params.type = normalizeLibraryType(options.type);
+  }
+  clauses.push(`
+NOT EXISTS (
+  SELECT 1
+  FROM watch_history newer
+  WHERE newer.item_key = wh.item_key
+    AND (
+      newer.watched_at > wh.watched_at
+      OR (newer.watched_at = wh.watched_at AND newer.history_id > wh.history_id)
+    )
+)`);
+  const limitSql = typeof options.limit === 'number' && Number.isFinite(options.limit)
+    ? 'LIMIT @limit'
+    : '';
+  if (limitSql) {
+    params.limit = Math.max(1, Math.min(5000, Math.floor(options.limit || 1)));
+  }
+  return db.prepare(`
+SELECT
+  wh.history_id,
+  wh.source,
+  wh.item_key,
+  wh.type,
+  wh.id,
+  wh.play_id,
+  COALESCE(wh.title, li.title) AS title,
+  COALESCE(wh.poster, li.poster) AS poster,
+  wh.position_sec,
+  wh.duration_sec,
+  wh.progress_pct,
+  wh.event,
+  wh.watched_at
+FROM watch_history wh
+JOIN library_items li ON li.item_key = wh.item_key
+WHERE ${clauses.join('\n  AND ')}
+ORDER BY wh.watched_at DESC, wh.history_id DESC
+${limitSql};
+`).all(params) as WatchHistoryRow[];
+}
+
 export function setLibraryContext(input: LibraryItemInput): LibraryContext {
   const db = ensureDb();
   const updatedAt = nowMs();

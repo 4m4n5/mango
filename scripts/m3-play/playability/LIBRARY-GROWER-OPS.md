@@ -126,9 +126,16 @@ bash scripts/m3-play/playability/install-playability-daily-grow.sh
 # Manual quick grow
 bash scripts/m3-play/playability/playability-grow.sh --mode grow --preset quick --detach
 
-# Full backfill (nightly timer at 03:00 — stale then grow)
+# Full backfill (nightly timer at 03:00 — stale then grow, then YouTube refresh)
 bash scripts/m3-play/playability/install-playability-timer.sh
 ```
+
+The 03:00 timer uses `nightly-library-refresh.sh`: movie/TV playability
+maintenance runs first, then `scripts/m6-ship/youtube-refresh-cache.sh` refreshes
+native YouTube rails and the For You reservoir. The steps are independent:
+YouTube still runs after playability quota/source errors, while the final
+systemd service status remains non-zero if either side failed. Set
+`MANGO_NIGHTLY_YOUTUBE_REFRESH=0` only for operator debugging.
 
 ## Source hit-rate weights
 

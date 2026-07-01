@@ -11,6 +11,7 @@ import {
   listSavedLibraryItems,
   listLibraryFeedback,
   listWatchHistory,
+  listUniqueWatchHistory,
   recordLibraryWatch,
   resetLibraryDbForTests,
   saveLibraryItem,
@@ -186,4 +187,43 @@ test('watch history is indefinite and finished state uses 90 percent cutoff', ()
   assert.equal(state.finished, true);
   assert.equal(state.finished_at, 2000);
   assert.equal(state.latest_watch?.progress_pct, 0.9);
+}));
+
+test('unique watch history returns latest row per source-aware item', () => withTempLibrary(() => {
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'VideoA',
+    title: 'Video A old',
+    tab: 'youtube',
+    watched_at: 1000,
+  });
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'VideoA',
+    title: 'Video A latest',
+    tab: 'youtube',
+    watched_at: 2000,
+  });
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'VideoB',
+    title: 'Video B',
+    tab: 'youtube',
+    watched_at: 3000,
+  });
+  recordLibraryWatch({
+    source: 'mango',
+    type: 'movie',
+    id: 'tt0111161',
+    title: 'Shawshank',
+    tab: 'movies',
+    watched_at: 4000,
+  });
+
+  const history = listUniqueWatchHistory({ source: 'youtube', type: 'youtube_video' });
+  assert.deepEqual(history.map((row) => row.id), ['VideoB', 'VideoA']);
+  assert.equal(history[1]?.title, 'Video A latest');
 }));

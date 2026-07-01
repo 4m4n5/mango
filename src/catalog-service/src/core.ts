@@ -1288,7 +1288,7 @@ export class CatalogCore {
 
     return {
       rail_id: SAVED_RAIL_ID,
-      label: 'saved',
+      label: 'Saved',
       items,
       resolve_ms: Date.now() - started,
       skipped: 0,

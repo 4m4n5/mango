@@ -7,9 +7,13 @@ import test from 'node:test';
 import {
   getYoutubeItem,
   initYoutubeDb,
+  listForYouCandidates,
   listYoutubeRailItems,
+  noteForYouExposures,
   replaceYoutubeRailItems,
   resetYoutubeDbForTests,
+  setForYouCandidateStats,
+  upsertForYouCandidates,
   youtubeCacheSummary,
 } from './db.js';
 import type { YoutubeItem } from './types.js';
@@ -61,7 +65,7 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2]);
   } finally {
     db.close();
   }
@@ -73,4 +77,32 @@ test('rail replacement upserts cached items and keeps case-sensitive ids', () =>
   assert.equal(getYoutubeItem('video', 'AbC_123-XyZ')?.id, 'AbC_123-XyZ');
   assert.equal(listYoutubeRailItems('popular').length, 1);
   assert.deepEqual(youtubeCacheSummary().rail_ids, ['popular']);
+}));
+
+test('for you reservoir stores source, score breakdown, and exposure state', () => withTempYoutube(() => {
+  const item = sampleItem('Candidate1');
+  upsertForYouCandidates([{
+    item,
+    lane: 'familiar',
+    source: 'history',
+    source_weight: 1.05,
+    topic_cluster: 'deep:dive',
+    score: 3.2,
+    score_breakdown: { channel: 1, topic: 0.7 },
+    reason: 'for_you:history',
+  }]);
+  let candidates = listForYouCandidates();
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.source, 'history');
+  assert.equal(candidates[0]?.lane, 'familiar');
+  assert.deepEqual(candidates[0]?.score_breakdown, { channel: 1, topic: 0.7 });
+  assert.equal(candidates[0]?.exposure_count, 0);
+
+  noteForYouExposures(['Candidate1'], 5000);
+  setForYouCandidateStats('Candidate1', { quick_stop_count: 2 });
+  candidates = listForYouCandidates();
+  assert.equal(candidates[0]?.last_recommended_at, 5000);
+  assert.equal(candidates[0]?.exposure_count, 1);
+  assert.equal(candidates[0]?.ignore_count, 1);
+  assert.equal(candidates[0]?.quick_stop_count, 2);
 }));

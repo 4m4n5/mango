@@ -67,14 +67,43 @@ extraction changes faster than Debian packages.
 | `POST` | `/youtube/auth/disconnect` | Remove local auth token |
 | `POST` | `/youtube/refresh` | Refresh metadata/cache |
 | `GET` | `/youtube/rails` | 9-up Saved, History, For You, subscriptions, Fresh Finds, Because You Watched, Live Now, Popular |
-| `GET` | `/youtube/rails?reshuffle=1` | Re-sample cached discovery rails for the launcher shuffle button |
+| `GET` | `/youtube/rails?reshuffle=1` | Re-sample History from Mango-local watched videos and cached discovery rails for the launcher shuffle button |
 | `GET` | `/youtube/search?q=` | Grouped Videos / Channels / Playlists |
 | `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |
 | `POST` | `/youtube/not-interested` | Exclude from YouTube rails via local feedback |
 | `POST` | `/youtube/play` | Resolve video with `yt-dlp`, start mpv, write local history |
 
 Compatibility rule: only YouTube videos can be Saved. Channels/playlists open
-detail lists but are not Saved entities in M6.2.
+detail lists but are not Saved entities in M6.2. Saved videos remain in the
+Saved rail until explicit Unsave; Not Interested only affects discovery rails.
+
+## Scheduled refresh
+
+The native YouTube cache is refreshed by the nightly library wrapper after the
+movie/TV playability maintenance attempt:
+
+```bash
+bash scripts/m3-play/playability/install-playability-timer.sh
+```
+
+That installs `mango-playability-indexer.timer` for 03:00. The service runs
+`nightly-library-refresh.sh --mode nightly --preset nightly`, which executes
+playability stale+grow first and then calls `POST /youtube/refresh` through
+`scripts/m6-ship/youtube-refresh-cache.sh`. The YouTube step still runs when
+playability returns a quota/source/error failure, but it is skipped if another
+playability maintenance lock is still active so cache refreshes do not overlap
+the indexer.
+
+Manual equivalents:
+
+```bash
+bash scripts/m3-play/playability/playability-catch-up.sh nightly
+bash scripts/m6-ship/youtube-refresh-cache.sh --reason manual
+```
+
+Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
+`MANGO_YOUTUBE_REFRESH_CACHE=0` skips the refresh helper, and
+`MANGO_YOUTUBE_REFRESH_TIMEOUT_SEC` controls the endpoint timeout.
 
 ---
 
@@ -83,15 +112,21 @@ detail lists but are not Saved entities in M6.2.
 - Browse tabs are **Movies · TV Shows · Live · YouTube**.
 - YouTube rails are capped at 9 cards, matching Movies/TV Shows.
 - YouTube rails keep stale cached results visible with refresh status.
-- The shuffle button is available on YouTube and re-samples cached discovery rails.
+- History is Mango-local only: the latest view shows 9 unique YouTube videos
+  watched in Mango, and shuffle samples 9 random videos from the full local
+  YouTube watch set.
+- The shuffle button is available on YouTube and re-samples History, For You,
+  and cached discovery rails.
 - First-run with credentials fills Fresh Finds and Popular instead of showing an empty tab.
 - Search returns grouped Videos / Channels / Playlists.
 - Video detail supports Play, Save/Unsave, Not Interested, Back.
 - Channel/playlist detail opens a D-pad list of videos.
-- Not Interested removes the card from rails immediately and persists a local downrank/exclusion.
+- Not Interested removes the card from discovery rails and persists a local downrank/exclusion.
 - Live videos are kept in Live Now instead of dominating For You / Because You Watched.
-- For You is a Mango local ranker over cached non-live videos, weighted by recency
-  and local channel affinity from watch history.
+- For You is served from a rebuildable local reservoir in `youtube.db`: Mango
+  watches/Saved are strongest, subscriptions are light, topic discovery broadens
+  the pool, Popular is fallback only, and each render samples a diverse 9-card
+  set with 7-day exposure cooldown.
 - Because You Watched is rebuilt from the latest local YouTube watch history on
   rail load, and after playback it opportunistically tops up candidates through
   Data API searches based on recent channels/title tokens.

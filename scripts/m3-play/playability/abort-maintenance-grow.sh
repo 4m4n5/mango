@@ -27,9 +27,11 @@ stop_pidfile() {
 }
 
 stop_pidfile "$CACHE_DIR/playability-grow.pid"
+stop_pidfile "$CACHE_DIR/nightly-library-refresh.pid"
 stop_pidfile "$CACHE_DIR/overnight-fill.pid"
 
 pkill -f '[p]layability-grow.sh' 2>/dev/null || true
+pkill -f '[n]ightly-library-refresh.sh' 2>/dev/null || true
 pkill -f '[p]layability-indexer.ts' 2>/dev/null || true
 pkill -f '[p]layability-maintenance.sh' 2>/dev/null || true
 pkill -f '[o]vernight-playability-grow.sh' 2>/dev/null || true

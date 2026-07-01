@@ -3,10 +3,38 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { recordLibraryWatch, resetLibraryDbForTests } from '../library/db.js';
-import { replaceYoutubeRailItems, resetYoutubeDbForTests } from './db.js';
+import { recordLibraryWatch, resetLibraryDbForTests, saveLibraryItem } from '../library/db.js';
+import {
+  replaceYoutubeRailItems,
+  resetYoutubeDbForTests,
+  setForYouCandidateStats,
+  upsertForYouCandidates,
+} from './db.js';
 import { YoutubeService } from './service.js';
 import type { YoutubeItem, YoutubeRail } from './types.js';
+
+const TOPIC_WORDS = [
+  'alpha',
+  'bravo',
+  'charlie',
+  'delta',
+  'echo',
+  'foxtrot',
+  'golf',
+  'hotel',
+  'india',
+  'juliet',
+  'kilo',
+  'lima',
+  'mango',
+  'nectar',
+  'orchid',
+  'papaya',
+  'quartz',
+  'rocket',
+  'saffron',
+  'tango',
+];
 
 function sampleVideo(
   id: string,
@@ -78,6 +106,29 @@ test('not interested removes cached video from YouTube rails', () => withTempSta
   assert.deepEqual(popular.items.map((item) => item.id), ['KeepMe']);
 }));
 
+test('saved YouTube videos stay in Saved until explicitly unsaved', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', [
+    { item: sampleVideo('KeepMe'), score: 1, reason: 'test' },
+    { item: sampleVideo('SavedVideo'), score: 0.9, reason: 'test' },
+  ]);
+  saveLibraryItem({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'SavedVideo',
+    title: 'Saved video',
+    tab: 'youtube',
+  });
+  const service = new YoutubeService();
+  service.notInterested({ kind: 'video', id: 'SavedVideo', reason: 'user' });
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const saved = response.rails.find((rail) => rail.rail_id === 'saved');
+  const popular = response.rails.find((rail) => rail.rail_id === 'popular');
+  assert.ok(saved);
+  assert.deepEqual(saved.items.map((item) => item.id), ['SavedVideo']);
+  assert.ok(popular);
+  assert.deepEqual(popular.items.map((item) => item.id), ['KeepMe']);
+}));
+
 test('search falls back to local cache when API key is absent', () => withTempState(async () => {
   replaceYoutubeRailItems('popular', [
     { item: sampleVideo('LocalOnly'), score: 1, reason: 'test' },
@@ -135,6 +186,185 @@ test('YouTube rails return at most nine cards', () => withTempState(async () => 
   }
   const popular = response.rails.find((rail) => rail.rail_id === 'popular');
   assert.equal(popular?.items.length, 9);
+}));
+
+test('for you excludes watched shorts live not interested and recent exposures', () => withTempState(async () => {
+  const candidates = [
+    sampleVideo('WatchedVideo', 'none', 'watched-channel', 'Watched topic'),
+    { ...sampleVideo('ShortVideo', 'none', 'short-channel', 'Short topic'), duration_sec: 45 },
+    sampleVideo('LiveVideo', 'live', 'live-channel', 'Live topic'),
+    sampleVideo('BlockedVideo', 'none', 'blocked-channel', 'Blocked topic'),
+    sampleVideo('RecentExposure', 'none', 'recent-channel', 'Recent topic'),
+    ...Array.from({ length: 9 }, (_, index) => (
+      sampleVideo(`Eligible${index}`, 'none', `eligible-channel-${index}`, `Eligible ${TOPIC_WORDS[index]}`)
+    )),
+  ];
+  replaceYoutubeRailItems('popular', candidates.map((item, index) => ({
+    item,
+    score: 1 - index * 0.01,
+    reason: 'test',
+  })));
+  upsertForYouCandidates([{
+    item: sampleVideo('RecentExposure', 'none', 'recent-channel', 'Recent topic'),
+    lane: 'wildcard',
+    source: 'popular',
+    source_weight: 0.12,
+    topic_cluster: 'recent:topic',
+    score: 10,
+    reason: 'test',
+  }]);
+  setForYouCandidateStats('RecentExposure', { last_recommended_at: Date.now() });
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'WatchedVideo',
+    title: 'Watched topic',
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 1000,
+  });
+  const service = new YoutubeService();
+  service.notInterested({ kind: 'video', id: 'BlockedVideo', reason: 'user' });
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const forYou = response.rails.find((rail) => rail.rail_id === 'for_you');
+  assert.ok(forYou);
+  const ids = forYou.items.map((item) => item.id);
+  assert.equal(ids.length, 9);
+  assert.ok(!ids.includes('WatchedVideo'));
+  assert.ok(!ids.includes('ShortVideo'));
+  assert.ok(!ids.includes('LiveVideo'));
+  assert.ok(!ids.includes('BlockedVideo'));
+  assert.ok(!ids.includes('RecentExposure'));
+}));
+
+test('for you samples the locked familiar discovery wildcard mix', () => withTempState(async () => {
+  replaceYoutubeRailItems('new_from_subscriptions', Array.from({ length: 6 }, (_, index) => ({
+    item: sampleVideo(`Sub${index}`, 'none', `sub-channel-${index}`, `Subscription ${TOPIC_WORDS[index]}`),
+    score: 1 - index * 0.01,
+    reason: 'subscription',
+  })));
+  replaceYoutubeRailItems('fresh_finds', Array.from({ length: 4 }, (_, index) => ({
+    item: sampleVideo(`Fresh${index}`, 'none', `fresh-channel-${index}`, `Fresh ${TOPIC_WORDS[index + 6]}`),
+    score: 1 - index * 0.01,
+    reason: 'fresh',
+  })));
+  replaceYoutubeRailItems('popular', Array.from({ length: 4 }, (_, index) => ({
+    item: sampleVideo(`Wild${index}`, 'none', `wild-channel-${index}`, `Wildcard ${TOPIC_WORDS[index + 10]}`),
+    score: 1 - index * 0.01,
+    reason: 'popular',
+  })));
+  const service = new YoutubeService();
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const forYou = response.rails.find((rail) => rail.rail_id === 'for_you');
+  assert.ok(forYou);
+  const ids = forYou.items.map((item) => item.id);
+  assert.equal(ids.length, 9);
+  assert.equal(ids.filter((id) => id.startsWith('Sub')).length, 5);
+  assert.equal(ids.filter((id) => id.startsWith('Fresh')).length, 3);
+  assert.equal(ids.filter((id) => id.startsWith('Wild')).length, 1);
+}));
+
+test('for you enforces channel and topic diversity', () => withTempState(async () => {
+  const sameChannel = Array.from({ length: 4 }, (_, index) => (
+    sampleVideo(`SameChannel${index}`, 'none', 'same-channel', `Shared topic ${index}`)
+  ));
+  const sameTopic = Array.from({ length: 4 }, (_, index) => (
+    sampleVideo(`SameTopic${index}`, 'none', `topic-channel-${index}`, 'Deep dive mango')
+  ));
+  const filler = Array.from({ length: 9 }, (_, index) => (
+    sampleVideo(`Filler${index}`, 'none', `filler-channel-${index}`, `Unique ${TOPIC_WORDS[index]}`)
+  ));
+  replaceYoutubeRailItems('popular', [...sameChannel, ...sameTopic, ...filler].map((item, index) => ({
+    item,
+    score: 1 - index * 0.01,
+    reason: 'test',
+  })));
+  const service = new YoutubeService();
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const forYou = response.rails.find((rail) => rail.rail_id === 'for_you');
+  assert.ok(forYou);
+  assert.equal(forYou.items.length, 9);
+  assert.ok(forYou.items.filter((item) => item.channel_id === 'same-channel').length <= 1);
+  assert.ok(forYou.items.filter((item) => item.title === 'Deep dive mango').length <= 2);
+}));
+
+test('for you reshuffle avoids recently exposed cards when reservoir is deep enough', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', Array.from({ length: 18 }, (_, index) => ({
+    item: sampleVideo(`Shuffle${index}`, 'none', `shuffle-channel-${index}`, `Shuffle ${TOPIC_WORDS[index]}`),
+    score: 1 - index * 0.01,
+    reason: 'test',
+  })));
+  const service = new YoutubeService();
+  const first = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const firstForYou = first.rails.find((rail) => rail.rail_id === 'for_you');
+  assert.ok(firstForYou);
+  assert.equal(firstForYou.items.length, 9);
+  const second = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const secondForYou = second.rails.find((rail) => rail.rail_id === 'for_you');
+  assert.ok(secondForYou);
+  assert.equal(secondForYou.items.length, 9);
+  const firstIds = new Set(firstForYou.items.map((item) => item.id));
+  assert.equal(secondForYou.items.some((item) => firstIds.has(item.id)), false);
+}));
+
+test('history rail shows latest nine Mango-local YouTube videos', () => withTempState(async () => {
+  for (let index = 0; index < 12; index += 1) {
+    recordLibraryWatch({
+      source: 'youtube',
+      type: 'youtube_video',
+      id: `History${index}`,
+      title: `History video ${index}`,
+      tab: 'youtube',
+      event: 'play',
+      watched_at: 1000 + index,
+    });
+  }
+  recordLibraryWatch({
+    source: 'mango',
+    type: 'movie',
+    id: 'tt0111161',
+    title: 'Shawshank',
+    tab: 'movies',
+    event: 'play',
+    watched_at: 5000,
+  });
+  const service = new YoutubeService();
+  service.notInterested({ kind: 'video', id: 'History11', reason: 'user' });
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const history = response.rails.find((rail) => rail.rail_id === 'history');
+  assert.ok(history);
+  assert.deepEqual(
+    history.items.map((item) => item.id),
+    ['History11', 'History10', 'History9', 'History8', 'History7', 'History6', 'History5', 'History4', 'History3'],
+  );
+}));
+
+test('history rail reshuffle samples from all Mango-local YouTube history', () => withTempState(async () => {
+  for (let index = 0; index < 12; index += 1) {
+    recordLibraryWatch({
+      source: 'youtube',
+      type: 'youtube_video',
+      id: `History${index}`,
+      title: `History video ${index}`,
+      tab: 'youtube',
+      event: 'play',
+      watched_at: 1000 + index,
+    });
+  }
+  const service = new YoutubeService();
+  const originalRandom = Math.random;
+  Math.random = () => 0;
+  try {
+    const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+    const history = response.rails.find((rail) => rail.rail_id === 'history');
+    assert.ok(history);
+    const ids = history.items.map((item) => item.id);
+    assert.equal(ids.length, 9);
+    assert.equal(new Set(ids).size, 9);
+    assert.ok(ids.includes('History2'), `expected reshuffle to reach beyond the latest nine: ${ids.join(', ')}`);
+  } finally {
+    Math.random = originalRandom;
+  }
 }));
 
 test('because you watched follows the latest watched YouTube video from cache', () => withTempState(async () => {

@@ -97,7 +97,7 @@ export const REFRESH_LEVELS: RefreshLevel[] = [
     estimated_label: '~2–4 h total',
     blocks_couch: true,
     llm_hint: 'Default nightly mode. Stale pass then additive grow; never replaces verified titles. Prefer Pi timer at 3am.',
-    script: 'playability-grow.sh --mode nightly --preset nightly --detach',
+    script: 'nightly-library-refresh.sh --mode nightly --preset nightly --detach',
     detach_supported: true,
     grow_preset: 'nightly',
   },
@@ -302,6 +302,9 @@ async function playabilityJobBusy(): Promise<boolean> {
   if (await pidFileRunning('playability-grow.pid')) {
     return true;
   }
+  if (await pidFileRunning('nightly-library-refresh.pid')) {
+    return true;
+  }
   return false;
 }
 
@@ -310,8 +313,8 @@ export type StartRefreshResult =
   | { ok: true; level: RefreshLevelId; mode: 'background'; pid: number }
   | { ok: false; error: string; busy?: boolean };
 
-function spawnDetached(args: string[]): { pid: number } {
-  const script = path.join(repoDir(), 'scripts/m3-play/playability/playability-grow.sh');
+function spawnDetached(args: string[], scriptName = 'playability-grow.sh'): { pid: number } {
+  const script = path.join(repoDir(), 'scripts/m3-play/playability', scriptName);
   const child = spawn('bash', [script, ...args], {
     cwd: repoDir(),
     detached: true,
@@ -381,7 +384,9 @@ export async function startRefreshJob(options: {
   if (options.detach) {
     args.push('--detach');
   }
-  const { pid } = spawnDetached(args);
+  const { pid } = mode === 'nightly'
+    ? spawnDetached(args, 'nightly-library-refresh.sh')
+    : spawnDetached(args);
 
   const level: RefreshLevelId =
     mode === 'stale' ? 'stale_refresh'
