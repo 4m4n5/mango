@@ -23,7 +23,14 @@ type VideoItem = {
   id?: string;
   snippet?: Snippet;
   contentDetails?: { duration?: string };
-  liveStreamingDetails?: unknown;
+  liveStreamingDetails?: LiveStreamingDetails;
+};
+
+type LiveStreamingDetails = {
+  scheduledStartTime?: string;
+  actualStartTime?: string;
+  actualEndTime?: string;
+  concurrentViewers?: string;
 };
 
 type ChannelItem = {
@@ -82,6 +89,13 @@ function liveStatus(value: string | undefined): YoutubeLiveStatus {
   if (value === 'live' || value === 'upcoming') return value;
   if (value === 'none') return 'none';
   return 'none';
+}
+
+function videoLiveStatus(snippet?: Snippet, details?: LiveStreamingDetails): YoutubeLiveStatus {
+  if (details?.actualEndTime) return 'completed';
+  if (details?.actualStartTime) return 'live';
+  if (details?.scheduledStartTime) return 'upcoming';
+  return liveStatus(snippet?.liveBroadcastContent);
 }
 
 function kindFromSearch(item: SearchItem): YoutubeItemKind | null {
@@ -226,7 +240,7 @@ export class YoutubeApiClient {
       const duration = parseYoutubeDurationSec(entry.contentDetails?.duration);
       return itemFromSnippet('video', id, entry.snippet, {
         duration_sec: duration,
-        live_status: entry.liveStreamingDetails ? 'live' : liveStatus(entry.snippet?.liveBroadcastContent),
+        live_status: videoLiveStatus(entry.snippet, entry.liveStreamingDetails),
       });
     }).filter((entry) => entry.id);
     const filtered = this.config.exclude_shorts ? items.filter((item) => !isShortLike(item)) : items;
@@ -243,7 +257,7 @@ export class YoutubeApiClient {
     }) as { items?: VideoItem[] };
     const items = (payload.items || []).map((entry) => itemFromSnippet('video', entry.id || '', entry.snippet, {
       duration_sec: parseYoutubeDurationSec(entry.contentDetails?.duration),
-      live_status: entry.liveStreamingDetails ? 'live' : liveStatus(entry.snippet?.liveBroadcastContent),
+      live_status: videoLiveStatus(entry.snippet, entry.liveStreamingDetails),
     })).filter((entry) => entry.id);
     const filtered = this.config.exclude_shorts ? items.filter((item) => !isShortLike(item)) : items;
     upsertYoutubeItems(filtered);

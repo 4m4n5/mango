@@ -209,6 +209,60 @@ test('search forwards Fresh Finds video filters and records quota', () => withAp
   assert.equal(youtubeRefreshStatus().quota_used_today, 2);
 }));
 
+test('videos maps live streaming details to live, completed, and upcoming', () => withApiTest(async (config) => {
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    assert.ok(url.pathname.endsWith('/videos'));
+    return jsonResponse({
+      items: [{
+        id: 'live-video',
+        snippet: {
+          title: 'Currently Live',
+          channelId: 'channel-live',
+          channelTitle: 'Live Channel',
+          publishedAt: '2026-07-01T00:00:00Z',
+          liveBroadcastContent: 'live',
+        },
+        contentDetails: { duration: 'PT2M' },
+        liveStreamingDetails: { actualStartTime: '2026-07-01T01:00:00Z' },
+      }, {
+        id: 'completed-video',
+        snippet: {
+          title: 'Completed Live',
+          channelId: 'channel-completed',
+          channelTitle: 'Completed Channel',
+          publishedAt: '2026-07-01T00:00:00Z',
+          liveBroadcastContent: 'none',
+        },
+        contentDetails: { duration: 'PT45M' },
+        liveStreamingDetails: {
+          actualStartTime: '2026-07-01T01:00:00Z',
+          actualEndTime: '2026-07-01T01:45:00Z',
+        },
+      }, {
+        id: 'upcoming-video',
+        snippet: {
+          title: 'Upcoming Live',
+          channelId: 'channel-upcoming',
+          channelTitle: 'Upcoming Channel',
+          publishedAt: '2026-07-01T00:00:00Z',
+          liveBroadcastContent: 'upcoming',
+        },
+        contentDetails: { duration: 'PT2M' },
+        liveStreamingDetails: { scheduledStartTime: '2026-07-02T01:00:00Z' },
+      }],
+    });
+  }) as typeof fetch;
+
+  const api = new YoutubeApiClient(config);
+  const videos = await api.videos(['live-video', 'completed-video', 'upcoming-video']);
+  assert.deepEqual(videos.map((video) => [video.id, video.live_status]), [
+    ['live-video', 'live'],
+    ['completed-video', 'completed'],
+    ['upcoming-video', 'upcoming'],
+  ]);
+}));
+
 test('channelStats returns creator statistics and handles hidden subscribers', () => withApiTest(async (config) => {
   let captured: URL | null = null;
   globalThis.fetch = (async (input: string | URL | Request) => {
