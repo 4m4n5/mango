@@ -132,6 +132,27 @@ CREATE TABLE IF NOT EXISTS youtube_fresh_find_candidates (
   FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS youtube_because_you_watched_candidates (
+  kind TEXT NOT NULL DEFAULT 'video',
+  id TEXT NOT NULL,
+  seed_video_id TEXT NOT NULL,
+  seed_watched_at INTEGER NOT NULL DEFAULT 0,
+  relation_type TEXT NOT NULL,
+  query TEXT NOT NULL DEFAULT '',
+  topic_cluster TEXT NOT NULL DEFAULT '',
+  score REAL NOT NULL DEFAULT 0,
+  score_breakdown TEXT NOT NULL DEFAULT '{}',
+  reason TEXT,
+  last_recommended_at INTEGER,
+  exposure_count INTEGER NOT NULL DEFAULT 0,
+  ignore_count INTEGER NOT NULL DEFAULT 0,
+  quick_stop_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(seed_video_id, kind, id),
+  FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_youtube_items_updated ON youtube_items(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_items_channel ON youtube_items(channel_id, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_rail_added ON youtube_rail_items(rail_id, score DESC, added_at DESC);
@@ -141,12 +162,17 @@ CREATE INDEX IF NOT EXISTS idx_youtube_for_you_exposure ON youtube_for_you_candi
 CREATE INDEX IF NOT EXISTS idx_youtube_fresh_find_score ON youtube_fresh_find_candidates(score DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_fresh_find_bucket ON youtube_fresh_find_candidates(source_bucket, score DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_fresh_find_exposure ON youtube_fresh_find_candidates(last_recommended_at);
+CREATE INDEX IF NOT EXISTS idx_youtube_because_seed_score ON youtube_because_you_watched_candidates(seed_video_id, score DESC, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_youtube_because_relation ON youtube_because_you_watched_candidates(relation_type, score DESC);
+CREATE INDEX IF NOT EXISTS idx_youtube_because_exposure ON youtube_because_you_watched_candidates(last_recommended_at);
 `);
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (1, ?)')
     .run(nowMs());
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (2, ?)')
     .run(nowMs());
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (3, ?)')
+    .run(nowMs());
+  db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (4, ?)')
     .run(nowMs());
 }
 
@@ -596,6 +622,160 @@ WHERE rowid NOT IN (
   LIMIT @limit
 );
 `).run({ limit: Math.max(1, Math.min(2000, limit)) });
+}
+
+export type YoutubeBecauseYouWatchedCandidateInput = {
+  item: YoutubeItem;
+  seed_video_id: string;
+  seed_watched_at: number;
+  relation_type: string;
+  query: string;
+  topic_cluster: string;
+  score: number;
+  score_breakdown?: Record<string, unknown>;
+  reason?: string | null;
+};
+
+export type YoutubeBecauseYouWatchedCandidate = YoutubeRailItem & {
+  seed_video_id: string;
+  seed_watched_at: number;
+  relation_type: string;
+  query: string;
+  topic_cluster: string;
+  score_breakdown: Record<string, unknown>;
+  last_recommended_at: number | null;
+  exposure_count: number;
+  ignore_count: number;
+  quick_stop_count: number;
+};
+
+export function upsertBecauseYouWatchedCandidates(candidates: YoutubeBecauseYouWatchedCandidateInput[]): void {
+  if (candidates.length === 0) return;
+  const db = ensureDb();
+  const timestamp = nowMs();
+  upsertYoutubeItems(candidates.map((entry) => entry.item));
+  const stmt = db.prepare(`
+INSERT INTO youtube_because_you_watched_candidates (
+  kind, id, seed_video_id, seed_watched_at, relation_type, query, topic_cluster,
+  score, score_breakdown, reason, created_at, updated_at
+) VALUES (
+  @kind, @id, @seed_video_id, @seed_watched_at, @relation_type, @query, @topic_cluster,
+  @score, @score_breakdown, @reason, @created_at, @updated_at
+)
+ON CONFLICT(seed_video_id, kind, id) DO UPDATE SET
+  seed_watched_at = excluded.seed_watched_at,
+  relation_type = excluded.relation_type,
+  query = excluded.query,
+  topic_cluster = excluded.topic_cluster,
+  score = excluded.score,
+  score_breakdown = excluded.score_breakdown,
+  reason = excluded.reason,
+  updated_at = excluded.updated_at;
+`);
+  const tx = db.transaction(() => {
+    for (const candidate of candidates) {
+      stmt.run({
+        kind: normalizeKind(candidate.item.kind),
+        id: candidate.item.id,
+        seed_video_id: candidate.seed_video_id,
+        seed_watched_at: candidate.seed_watched_at,
+        relation_type: candidate.relation_type,
+        query: candidate.query,
+        topic_cluster: candidate.topic_cluster,
+        score: candidate.score,
+        score_breakdown: JSON.stringify(candidate.score_breakdown || {}),
+        reason: candidate.reason ?? null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+    }
+  });
+  tx();
+}
+
+export function listBecauseYouWatchedCandidates(seedVideoId: string, limit = 300): YoutubeBecauseYouWatchedCandidate[] {
+  const rows = ensureDb().prepare(`
+SELECT
+  yi.id, yi.kind, yi.title, yi.subtitle, yi.description, yi.thumbnail, yi.channel_id,
+  yi.channel_title, yi.published_at, yi.duration_sec, yi.live_status, yi.playlist_id,
+  yi.updated_at, byw.score, byw.reason, byw.seed_video_id, byw.seed_watched_at,
+  byw.relation_type, byw.query, byw.topic_cluster, byw.score_breakdown,
+  byw.last_recommended_at, byw.exposure_count, byw.ignore_count, byw.quick_stop_count
+FROM youtube_because_you_watched_candidates byw
+JOIN youtube_items yi ON yi.kind = byw.kind AND yi.id = byw.id
+WHERE byw.seed_video_id = @seed_video_id
+ORDER BY byw.score DESC, byw.updated_at DESC
+LIMIT @limit;
+`).all({
+    seed_video_id: seedVideoId,
+    limit: Math.max(1, Math.min(2000, limit)),
+  }) as Array<YoutubeBecauseYouWatchedCandidate & { score_breakdown: string }>;
+  return rows.map((row) => ({
+    ...row,
+    score_breakdown: parseBreakdown(row.score_breakdown),
+  }));
+}
+
+export function noteBecauseYouWatchedExposures(seedVideoId: string, ids: string[], at = nowMs()): void {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return;
+  const db = ensureDb();
+  const stmt = db.prepare(`
+UPDATE youtube_because_you_watched_candidates
+SET last_recommended_at = @at,
+    exposure_count = exposure_count + 1,
+    ignore_count = ignore_count + 1,
+    updated_at = @at
+WHERE seed_video_id = @seed_video_id AND kind = 'video' AND id = @id;
+`);
+  const tx = db.transaction(() => {
+    for (const id of unique) {
+      stmt.run({ seed_video_id: seedVideoId, id, at });
+    }
+  });
+  tx();
+}
+
+export function setBecauseYouWatchedCandidateStats(
+  seedVideoId: string,
+  id: string,
+  stats: Partial<Pick<YoutubeBecauseYouWatchedCandidate, 'last_recommended_at' | 'exposure_count' | 'ignore_count' | 'quick_stop_count'>>,
+): void {
+  const current = ensureDb().prepare(`
+SELECT last_recommended_at, exposure_count, ignore_count, quick_stop_count
+FROM youtube_because_you_watched_candidates
+WHERE seed_video_id = @seed_video_id AND kind = 'video' AND id = @id;
+`).get({ seed_video_id: seedVideoId, id }) as Pick<YoutubeBecauseYouWatchedCandidate, 'last_recommended_at' | 'exposure_count' | 'ignore_count' | 'quick_stop_count'> | undefined;
+  if (!current) return;
+  ensureDb().prepare(`
+UPDATE youtube_because_you_watched_candidates
+SET last_recommended_at = @last_recommended_at,
+    exposure_count = @exposure_count,
+    ignore_count = @ignore_count,
+    quick_stop_count = @quick_stop_count,
+    updated_at = @updated_at
+WHERE seed_video_id = @seed_video_id AND kind = 'video' AND id = @id;
+`).run({
+    seed_video_id: seedVideoId,
+    id,
+    last_recommended_at: stats.last_recommended_at !== undefined ? stats.last_recommended_at : current.last_recommended_at,
+    exposure_count: stats.exposure_count !== undefined ? stats.exposure_count : current.exposure_count,
+    ignore_count: stats.ignore_count !== undefined ? stats.ignore_count : current.ignore_count,
+    quick_stop_count: stats.quick_stop_count !== undefined ? stats.quick_stop_count : current.quick_stop_count,
+    updated_at: nowMs(),
+  });
+}
+
+export function pruneBecauseYouWatchedCandidates(limit = 600): void {
+  ensureDb().prepare(`
+DELETE FROM youtube_because_you_watched_candidates
+WHERE rowid NOT IN (
+  SELECT rowid
+  FROM youtube_because_you_watched_candidates
+  ORDER BY seed_watched_at DESC, score DESC, updated_at DESC
+  LIMIT @limit
+);
+`).run({ limit: Math.max(1, Math.min(5000, limit)) });
 }
 
 export function setYoutubeState(key: string, value: unknown): void {

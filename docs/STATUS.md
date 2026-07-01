@@ -167,14 +167,14 @@ Implementation is present and deploy-gated; credentialed Pi smoke remains requir
 
 | Area | Current implementation |
 |------|------------------------|
-| Storage | `/etc/mango/youtube.db` rebuildable SQLite cache with WAL, rail membership, refresh/quota state, and OAuth auth sessions |
+| Storage | `/etc/mango/youtube.db` rebuildable SQLite cache with WAL, rail membership, recommender/rail reservoirs, refresh/quota state, and OAuth auth sessions |
 | User state | `/etc/mango/library.db` durable `source="youtube"` Saved videos, history, current context, and Not Interested feedback; Saved videos remain until explicit Unsave |
 | Config | `/etc/mango/youtube-api.key`, `/etc/mango/youtube-oauth-client.json`, `/etc/mango/youtube-auth.json`, optional cookies; examples only in repo |
 | Auth | Companion starts/polls Google device-code OAuth and disconnects local token; token file is written `0600` |
 | API | `/youtube/state`, auth start/poll/disconnect, refresh, rails, grouped search, detail, not-interested, play |
-| Rails | 9-up Saved, Mango-local History, reservoir-backed For You, diverse unwatched New From Subscriptions inbox, reservoir-backed Fresh Finds broad discovery, Because You Watched, Live Now, Popular; stale cache remains visible |
-| Refresh | Nightly 03:00 playability timer runs movie/TV stale+grow first, then independently refreshes YouTube cache, For You reservoir, and Fresh Finds reservoir through `/youtube/refresh` |
-| Launcher | YouTube tab after Live; shuffle re-samples Mango-local History, For You, Fresh Finds, and cached discovery rails without couch-time API calls; videos play/save, channels/playlists open video lists, Not Interested removes discovery cards |
+| Rails | 9-up Saved, Mango-local History, reservoir-backed For You, diverse unwatched New From Subscriptions inbox, reservoir-backed Fresh Finds broad discovery, seed-scoped Because You Watched, Live Now, Popular; stale cache remains visible |
+| Refresh | Nightly 03:00 playability timer runs movie/TV stale+grow first, then independently refreshes YouTube cache plus For You, Fresh Finds, and Because You Watched reservoirs through `/youtube/refresh` |
+| Launcher | YouTube tab after Live; shuffle re-samples Mango-local History, For You, Fresh Finds, Because You Watched, and cached discovery rails without couch-time API calls; videos play/save, channels/playlists open video lists, Not Interested removes discovery cards |
 | Playback | Mango wrapper `scripts/m6-ship/youtube-yt-dlp.sh` resolves video/audio URLs with fallback format selectors; deploy refreshes an isolated user `yt-dlp` venv; mpv plays them and writes local history/progress as YouTube source |
 | Voice | `mango_youtube_search` and `mango_open_youtube`; Save/Unsave supports current/exact YouTube video; no voice playback |
 | Fallback | Legacy Kodi YouTube is emergency-only with `MANGO_LEGACY_YOUTUBE=1` |

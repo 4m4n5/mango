@@ -68,10 +68,10 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 | # | Action | Pass? |
 |---|--------|-------|
 | 17 | YouTube tab loads cached Fresh Finds/Popular or stale rails without full-screen error; empty Fresh Finds is hidden | |
-| 18 | YouTube rails show at most 9 cards; **↻ shuffle** changes Fresh Finds/For You discovery cards without blocking on refresh | |
+| 18 | YouTube rails show at most 9 cards; **↻ shuffle** changes Fresh Finds/For You/Because You Watched cached cards without blocking on refresh | |
 | 19 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
 | 20 | Open a YouTube video → detail shows Play / Save / Not Interested; **B** starts mpv | |
-| 21 | After playing a second YouTube video, Because You Watched follows the newer watch history | |
+| 21 | After playing a second meaningful YouTube VOD, Because You Watched follows that newer seed and shows cached non-live/non-Short follow-ups | |
 | 22 | Open a channel/playlist → detail shows a D-pad video list; Save is disabled | |
 | 23 | Not Interested removes the card from YouTube rails after refresh/navigation | |
 | 24 | "Save this" on an open YouTube video updates Saved; no voice playback starts | |

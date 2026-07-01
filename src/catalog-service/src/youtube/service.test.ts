@@ -7,8 +7,10 @@ import { recordLibraryWatch, resetLibraryDbForTests, saveLibraryItem } from '../
 import {
   replaceYoutubeRailItems,
   resetYoutubeDbForTests,
+  setBecauseYouWatchedCandidateStats,
   setFreshFindCandidateStats,
   setForYouCandidateStats,
+  upsertBecauseYouWatchedCandidates,
   upsertFreshFindCandidates,
   upsertForYouCandidates,
 } from './db.js';
@@ -75,6 +77,29 @@ function upsertFreshCandidates(items: Array<{
     score: entry.score ?? (1 - index * 0.001),
     score_breakdown: { test: true },
     reason: `fresh_find:${entry.bucket || 'quality_fresh'}`,
+  })));
+}
+
+function upsertBecauseCandidates(
+  seed: YoutubeItem,
+  seedWatchedAt: number,
+  items: Array<{
+    item: YoutubeItem;
+    relation?: 'same_channel' | 'same_topic' | 'deeper_dive' | 'wildcard';
+    topic?: string;
+    score?: number;
+  }>,
+): void {
+  upsertBecauseYouWatchedCandidates(items.map((entry, index) => ({
+    item: entry.item,
+    seed_video_id: seed.id,
+    seed_watched_at: seedWatchedAt,
+    relation_type: entry.relation || 'same_topic',
+    query: entry.relation || 'same_topic',
+    topic_cluster: entry.topic || entry.item.title.toLowerCase().replace(/[^a-z0-9]+/g, ':'),
+    score: entry.score ?? (1 - index * 0.001),
+    score_breakdown: { test: true },
+    reason: `because_you_watched:${entry.relation || 'same_topic'}`,
   })));
 }
 
@@ -765,4 +790,204 @@ test('because you watched scans past repeated live history to find a non-live se
   const because = response.rails.find((rail) => rail.rail_id === 'because_you_watched');
   assert.ok(because);
   assert.equal(because.items[0]?.id, 'NewCandidate');
+}));
+
+test('because you watched failed refresh keeps cached seed reservoir visible', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  const seed = sampleVideo('SeedStale', 'none', 'seed-stale-channel', 'Stale cooking tour');
+  replaceYoutubeRailItems('popular', [{ item: seed, score: 1, reason: 'seed' }]);
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: seed.id,
+    title: seed.title,
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 5000,
+  });
+  upsertBecauseCandidates(seed, 5000, Array.from({ length: 9 }, (_, index) => ({
+    item: sampleVideo(`BecauseStale${index}`, 'none', `because-stale-${index}`, `Stale cooking follow up ${TOPIC_WORDS[index]}`),
+    relation: index < 3 ? 'same_topic' : index < 6 ? 'deeper_dive' : 'wildcard',
+    topic: `stale-because-${index}`,
+  })));
+  globalThis.fetch = (async () => apiErrorResponse('quota exceeded')) as typeof fetch;
+
+  const service = new YoutubeService();
+  const refresh = await service.refresh('test_failure');
+  assert.equal(refresh.ok, false);
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.every((item) => item.id.startsWith('BecauseStale')));
+}));
+
+test('because you watched excludes watched saved live shorts blocked low signal recent exposure and short duration', () => withTempState(async () => {
+  const seed = sampleVideo('BecauseSeed', 'none', 'seed-channel', 'Travel food documentary');
+  replaceYoutubeRailItems('popular', [{ item: seed, score: 1, reason: 'seed' }]);
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: seed.id,
+    title: seed.title,
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 5000,
+  });
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'BecauseWatched',
+    title: 'Watched follow up',
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 4000,
+  });
+  saveLibraryItem({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'BecauseSaved',
+    title: 'Saved follow up',
+    tab: 'youtube',
+  });
+  const candidates = [
+    sampleVideo('BecauseWatched', 'none', 'watched-channel', 'Watched follow up'),
+    sampleVideo('BecauseSaved', 'none', 'saved-channel', 'Saved follow up'),
+    sampleVideo('BecauseLive', 'live', 'live-channel', 'Live follow up'),
+    { ...sampleVideo('BecauseShort', 'none', 'short-channel', 'Short follow up'), duration_sec: 45 },
+    { ...sampleVideo('BecauseUnderEight', 'none', 'under-eight-channel', 'Under eight follow up'), duration_sec: 300 },
+    sampleVideo('BecauseLowSignal', 'none', 'low-signal-channel', 'SSC MTS result cutoff follow up'),
+    sampleVideo('BecauseBlocked', 'none', 'blocked-channel', 'Blocked follow up'),
+    sampleVideo('BecauseRecent', 'none', 'recent-channel', 'Recent follow up'),
+    ...Array.from({ length: 9 }, (_, index) => (
+      sampleVideo(`BecauseEligible${index}`, 'none', `because-eligible-${index}`, `Travel food follow up ${TOPIC_WORDS[index]}`)
+    )),
+  ];
+  upsertBecauseCandidates(seed, 5000, candidates.map((item, index) => ({
+    item,
+    relation: index % 3 === 0 ? 'same_topic' : index % 3 === 1 ? 'deeper_dive' : 'wildcard',
+    topic: `because-filter-${index}`,
+  })));
+  setBecauseYouWatchedCandidateStats(seed.id, 'BecauseRecent', { last_recommended_at: Date.now() });
+  const service = new YoutubeService();
+  service.notInterested({ kind: 'video', id: 'BecauseBlocked', reason: 'user' });
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
+  assert.ok(rail);
+  const ids = rail.items.map((item) => item.id);
+  assert.equal(ids.length, 9);
+  assert.ok(!ids.includes('BecauseWatched'));
+  assert.ok(!ids.includes('BecauseSaved'));
+  assert.ok(!ids.includes('BecauseLive'));
+  assert.ok(!ids.includes('BecauseShort'));
+  assert.ok(!ids.includes('BecauseUnderEight'));
+  assert.ok(!ids.includes('BecauseLowSignal'));
+  assert.ok(!ids.includes('BecauseBlocked'));
+  assert.ok(!ids.includes('BecauseRecent'));
+}));
+
+test('because you watched enforces channel and topic diversity before relaxing', () => withTempState(async () => {
+  const seed = sampleVideo('BecauseDiversitySeed', 'none', 'seed-channel', 'Mango topic documentary');
+  replaceYoutubeRailItems('popular', [{ item: seed, score: 1, reason: 'seed' }]);
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: seed.id,
+    title: seed.title,
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 5000,
+  });
+  const sameChannel = Array.from({ length: 4 }, (_, index) => (
+    sampleVideo(`BecauseSameChannel${index}`, 'none', 'same-channel', `Mango channel follow up ${index}`)
+  ));
+  const sameTopic = Array.from({ length: 4 }, (_, index) => (
+    sampleVideo(`BecauseSameTopic${index}`, 'none', `topic-channel-${index}`, `Mango shared topic ${index}`)
+  ));
+  const filler = Array.from({ length: 9 }, (_, index) => (
+    sampleVideo(`BecauseFiller${index}`, 'none', `because-filler-${index}`, `Distinct ${TOPIC_WORDS[index]}`)
+  ));
+  upsertBecauseCandidates(seed, 5000, [
+    ...sameChannel.map((item) => ({ item, relation: 'same_channel' as const, topic: `same-channel-${item.id}` })),
+    ...sameTopic.map((item) => ({ item, relation: 'same_topic' as const, topic: 'shared-topic' })),
+    ...filler.map((item, index) => ({ item, relation: 'wildcard' as const, topic: `filler-topic-${index}` })),
+  ]);
+  const service = new YoutubeService();
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.filter((item) => item.channel_id === 'same-channel').length <= 2);
+  assert.ok(rail.items.filter((item) => item.title.startsWith('Mango shared topic')).length <= 2);
+}));
+
+test('because you watched reshuffle avoids recently exposed cached follow-ups when deep enough', () => withTempState(async () => {
+  const seed = sampleVideo('BecauseShuffleSeed', 'none', 'seed-channel', 'Shuffle cooking travel');
+  replaceYoutubeRailItems('popular', [{ item: seed, score: 1, reason: 'seed' }]);
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: seed.id,
+    title: seed.title,
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 5000,
+  });
+  upsertBecauseCandidates(seed, 5000, Array.from({ length: 18 }, (_, index) => ({
+    item: sampleVideo(`BecauseShuffle${index}`, 'none', `because-shuffle-${index}`, `Shuffle cooking travel ${TOPIC_WORDS[index % TOPIC_WORDS.length]}`),
+    relation: index % 4 === 0
+      ? 'same_channel'
+      : index % 4 === 1
+        ? 'same_topic'
+        : index % 4 === 2
+          ? 'deeper_dive'
+          : 'wildcard',
+    topic: `because-shuffle-${index}`,
+  })));
+  const service = new YoutubeService();
+  const first = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const firstRail = first.rails.find((entry) => entry.rail_id === 'because_you_watched');
+  assert.ok(firstRail);
+  assert.equal(firstRail.items.length, 9);
+  const second = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const secondRail = second.rails.find((entry) => entry.rail_id === 'because_you_watched');
+  assert.ok(secondRail);
+  assert.equal(secondRail.items.length, 9);
+  const firstIds = new Set(firstRail.items.map((item) => item.id));
+  assert.equal(secondRail.items.some((item) => firstIds.has(item.id)), false);
+}));
+
+test('because you watched relaxes recent exposure and duration only when thin', () => withTempState(async () => {
+  const seed = sampleVideo('BecauseThinSeed', 'none', 'seed-channel', 'Thin cooking travel');
+  replaceYoutubeRailItems('popular', [{ item: seed, score: 1, reason: 'seed' }]);
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: seed.id,
+    title: seed.title,
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 5000,
+  });
+  const rows = [
+    ...Array.from({ length: 7 }, (_, index) => (
+      sampleVideo(`BecauseThin${index}`, 'none', `because-thin-${index}`, `Thin cooking travel ${TOPIC_WORDS[index]}`)
+    )),
+    sampleVideo('BecauseRecentFallback', 'none', 'because-thin-recent', 'Recent fallback cooking'),
+    { ...sampleVideo('BecauseShortDurationFallback', 'none', 'because-thin-short', 'Short duration fallback cooking'), duration_sec: 300 },
+  ];
+  upsertBecauseCandidates(seed, 5000, rows.map((item, index) => ({
+    item,
+    relation: index < 3 ? 'same_topic' : 'wildcard',
+    topic: `because-thin-${index}`,
+  })));
+  setBecauseYouWatchedCandidateStats(seed.id, 'BecauseRecentFallback', { last_recommended_at: Date.now() });
+  const service = new YoutubeService();
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 9);
+  const ids = rail.items.map((item) => item.id);
+  assert.ok(ids.includes('BecauseRecentFallback'));
+  assert.ok(ids.includes('BecauseShortDurationFallback'));
 }));

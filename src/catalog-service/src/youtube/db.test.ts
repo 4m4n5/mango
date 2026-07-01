@@ -5,21 +5,25 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import test from 'node:test';
 import {
-	  getYoutubeItem,
-	  initYoutubeDb,
-	  listFreshFindCandidates,
-	  listForYouCandidates,
-	  listYoutubeRailItems,
-	  noteFreshFindExposures,
-	  noteForYouExposures,
-	  replaceYoutubeRailItems,
-	  resetYoutubeDbForTests,
-	  setFreshFindCandidateStats,
-	  setForYouCandidateStats,
-	  upsertFreshFindCandidates,
-	  upsertForYouCandidates,
-	  youtubeCacheSummary,
-	} from './db.js';
+  getYoutubeItem,
+  initYoutubeDb,
+  listBecauseYouWatchedCandidates,
+  listFreshFindCandidates,
+  listForYouCandidates,
+  listYoutubeRailItems,
+  noteBecauseYouWatchedExposures,
+  noteFreshFindExposures,
+  noteForYouExposures,
+  replaceYoutubeRailItems,
+  resetYoutubeDbForTests,
+  setBecauseYouWatchedCandidateStats,
+  setFreshFindCandidateStats,
+  setForYouCandidateStats,
+  upsertBecauseYouWatchedCandidates,
+  upsertFreshFindCandidates,
+  upsertForYouCandidates,
+  youtubeCacheSummary,
+} from './db.js';
 import type { YoutubeItem } from './types.js';
 
 function sampleItem(id: string): YoutubeItem {
@@ -66,13 +70,13 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
   initYoutubeDb();
   const db = new Database(join(dir, 'youtube.db'));
   try {
-	    const mode = db.pragma('journal_mode', { simple: true });
-	    assert.equal(String(mode).toLowerCase(), 'wal');
-	    const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
-	    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3]);
-	  } finally {
-	    db.close();
-	  }
+    const mode = db.pragma('journal_mode', { simple: true });
+    assert.equal(String(mode).toLowerCase(), 'wal');
+    const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
+    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4]);
+  } finally {
+    db.close();
+  }
 }));
 
 test('rail replacement upserts cached items and keeps case-sensitive ids', () => withTempYoutube(() => {
@@ -108,8 +112,8 @@ test('for you reservoir stores source, score breakdown, and exposure state', () 
   assert.equal(candidates[0]?.last_recommended_at, 5000);
   assert.equal(candidates[0]?.exposure_count, 1);
   assert.equal(candidates[0]?.ignore_count, 1);
-	  assert.equal(candidates[0]?.quick_stop_count, 2);
-	}));
+  assert.equal(candidates[0]?.quick_stop_count, 2);
+}));
 
 test('fresh finds reservoir stores source bucket, stats, and exposure state', () => withTempYoutube(() => {
   const item = sampleItem('FreshCandidate1');
@@ -139,4 +143,48 @@ test('fresh finds reservoir stores source bucket, stats, and exposure state', ()
   assert.equal(candidates[0]?.exposure_count, 1);
   assert.equal(candidates[0]?.ignore_count, 1);
   assert.equal(candidates[0]?.quick_stop_count, 1);
+}));
+
+test('because you watched reservoir is seed-scoped and tracks exposure state', () => withTempYoutube(() => {
+  const item = sampleItem('FollowUpCandidate1');
+  upsertBecauseYouWatchedCandidates([{
+    item,
+    seed_video_id: 'SeedVideo1',
+    seed_watched_at: 7000,
+    relation_type: 'same_topic',
+    query: 'seed topic explained',
+    topic_cluster: 'seed:topic',
+    score: 3.4,
+    score_breakdown: { seed: 1, topic: 0.9 },
+    reason: 'because_you_watched:same_topic',
+  }, {
+    item,
+    seed_video_id: 'SeedVideo2',
+    seed_watched_at: 8000,
+    relation_type: 'wildcard',
+    query: 'adjacent topic',
+    topic_cluster: 'adjacent:topic',
+    score: 1.2,
+    score_breakdown: { wildcard: 1 },
+    reason: 'because_you_watched:wildcard',
+  }]);
+
+  let seedOne = listBecauseYouWatchedCandidates('SeedVideo1');
+  const seedTwo = listBecauseYouWatchedCandidates('SeedVideo2');
+  assert.equal(seedOne.length, 1);
+  assert.equal(seedTwo.length, 1);
+  assert.equal(seedOne[0]?.relation_type, 'same_topic');
+  assert.equal(seedTwo[0]?.relation_type, 'wildcard');
+  assert.deepEqual(seedOne[0]?.score_breakdown, { seed: 1, topic: 0.9 });
+
+  noteBecauseYouWatchedExposures('SeedVideo1', ['FollowUpCandidate1'], 9000);
+  setBecauseYouWatchedCandidateStats('SeedVideo1', 'FollowUpCandidate1', { quick_stop_count: 2 });
+  seedOne = listBecauseYouWatchedCandidates('SeedVideo1');
+  const unchangedSeedTwo = listBecauseYouWatchedCandidates('SeedVideo2');
+  assert.equal(seedOne[0]?.last_recommended_at, 9000);
+  assert.equal(seedOne[0]?.exposure_count, 1);
+  assert.equal(seedOne[0]?.ignore_count, 1);
+  assert.equal(seedOne[0]?.quick_stop_count, 2);
+  assert.equal(unchangedSeedTwo[0]?.last_recommended_at, null);
+  assert.equal(unchangedSeedTwo[0]?.exposure_count, 0);
 }));

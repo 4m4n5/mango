@@ -19,21 +19,26 @@ import {
   getYoutubeItem,
   getYoutubeState,
   initYoutubeDb,
+  listBecauseYouWatchedCandidates,
   listFreshFindCandidates,
   listForYouCandidates,
   listYoutubeItems,
   listYoutubeRailItems,
+  noteBecauseYouWatchedExposures,
   noteFreshFindExposures,
   noteForYouExposures,
+  pruneBecauseYouWatchedCandidates,
   pruneFreshFindCandidates,
   replaceYoutubeRailItems,
   searchCachedYoutubeItems,
   setYoutubeState,
+  upsertBecauseYouWatchedCandidates,
   upsertFreshFindCandidates,
   upsertForYouCandidates,
   upsertYoutubeItems,
   youtubeCacheSummary,
   youtubeRefreshStatus,
+  type YoutubeBecauseYouWatchedCandidate,
   type YoutubeFreshFindCandidate,
   type YoutubeForYouCandidate,
 } from './db.js';
@@ -57,6 +62,10 @@ const FRESH_FIND_POOL_TARGET = 300;
 const FRESH_FIND_SEARCH_BUDGET = 24;
 const FRESH_FIND_MIN_DURATION_SEC = 8 * 60;
 const FRESH_FIND_EXPOSURE_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
+const BECAUSE_YOU_WATCHED_POOL_TARGET = 240;
+const BECAUSE_YOU_WATCHED_SEARCH_BUDGET = 6;
+const BECAUSE_YOU_WATCHED_MIN_DURATION_SEC = 8 * 60;
+const BECAUSE_YOU_WATCHED_EXPOSURE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const FOR_YOU_LANE_QUOTAS: Record<ForYouLane, number> = {
   familiar: 5,
   discovery: 3,
@@ -67,6 +76,12 @@ const FRESH_FIND_BUCKET_QUOTAS: Record<FreshFindBucket, number> = {
   quality_fresh: 3,
   emerging_creator: 1,
   zeitgeist_light: 1,
+  wildcard: 1,
+};
+const BECAUSE_YOU_WATCHED_RELATION_QUOTAS: Record<BecauseYouWatchedRelation, number> = {
+  same_channel: 3,
+  same_topic: 3,
+  deeper_dive: 2,
   wildcard: 1,
 };
 const SHUFFLEABLE_YOUTUBE_RAILS = new Set([
@@ -116,10 +131,16 @@ type YoutubeRailsOptions = {
 type ForYouLane = 'familiar' | 'discovery' | 'wildcard';
 type ForYouSource = 'history' | 'saved' | 'subscription' | 'discovery' | 'popular' | 'wildcard';
 type FreshFindBucket = 'quality_fresh' | 'taste_adjacent' | 'emerging_creator' | 'zeitgeist_light' | 'wildcard';
+type BecauseYouWatchedRelation = 'same_channel' | 'same_topic' | 'deeper_dive' | 'wildcard';
 
 type RecentYoutubeSearch = {
   query: string;
   searched_at: number;
+};
+
+type RecentWatchedYoutubeItem = {
+  item: YoutubeItem;
+  watched_at: number;
 };
 
 type TasteProfile = {
@@ -143,6 +164,12 @@ type ScoredFreshFindCandidate = YoutubeFreshFindCandidate & {
   score_breakdown: Record<string, number | string>;
 };
 
+type ScoredBecauseYouWatchedCandidate = YoutubeBecauseYouWatchedCandidate & {
+  score: number;
+  relation_type: BecauseYouWatchedRelation;
+  score_breakdown: Record<string, number | string>;
+};
+
 type FreshFindQuerySpec = {
   query: string;
   source_bucket: FreshFindBucket;
@@ -154,9 +181,25 @@ type FreshFindQuerySpec = {
   topicId?: string;
 };
 
+type BecauseYouWatchedQuerySpec = {
+  query: string;
+  relation_type: BecauseYouWatchedRelation;
+  order: 'date' | 'relevance' | 'viewCount';
+  limit: number;
+  channelId?: string;
+  publishedAfterDays?: number;
+  videoDuration?: 'medium' | 'long';
+};
+
 type FreshFindEligibilityOptions = {
   allowRecentExposure: boolean;
   allowSavedOrSubscribed: boolean;
+  allowShortDuration: boolean;
+};
+
+type BecauseYouWatchedEligibilityOptions = {
+  allowRecentExposure: boolean;
+  allowSaved: boolean;
   allowShortDuration: boolean;
 };
 
@@ -320,9 +363,9 @@ function tokenOverlapScore(left: Set<string>, right: Set<string>): number {
   return overlap / Math.max(1, Math.min(left.size, right.size));
 }
 
-function recentWatchedYoutubeItems(limit = 6): YoutubeItem[] {
+function recentWatchedYoutubeRecords(limit = 6): RecentWatchedYoutubeItem[] {
   const seen = new Set<string>();
-  const output: YoutubeItem[] = [];
+  const output: RecentWatchedYoutubeItem[] = [];
   for (const row of listWatchHistory(Math.max(50, limit * 12))) {
     if (row.source !== YOUTUBE_SOURCE || row.type !== YOUTUBE_VIDEO_TYPE || seen.has(row.id)) {
       continue;
@@ -344,7 +387,7 @@ function recentWatchedYoutubeItems(limit = 6): YoutubeItem[] {
       updated_at: row.watched_at,
     };
     if (!isLiveVideo(cached)) {
-      output.push(cached);
+      output.push({ item: cached, watched_at: row.watched_at });
     }
     if (output.length >= limit) {
       break;
@@ -609,13 +652,17 @@ function metadataQualityScore(item: YoutubeItem): number {
   return score;
 }
 
-function isLowSignalFreshFind(item: YoutubeItem): boolean {
+function isLowSignalYoutubeRecommendation(item: YoutubeItem): boolean {
   const text = `${item.title} ${item.description || ''}`.toLowerCase();
   return [
     /\b(admit card|answer key|cut[ -]?off|exam result|exam notification|sarkari|vacancy)\b/,
     /\b(ssc|neet|jee|upsc|mts)\b.*\b(result|cut[ -]?off|answer key)\b/,
     /\b(result|cut[ -]?off|answer key)\b.*\b(ssc|neet|jee|upsc|mts)\b/,
   ].some((pattern) => pattern.test(text));
+}
+
+function isLowSignalFreshFind(item: YoutubeItem): boolean {
+  return isLowSignalYoutubeRecommendation(item);
 }
 
 function isFreshFindDurationEligible(item: YoutubeItem, allowShortDuration: boolean): boolean {
@@ -1293,36 +1340,377 @@ function historyRail(options: YoutubeRailsOptions = {}, limit = YOUTUBE_RAIL_LIM
   };
 }
 
-function rankBecauseYouWatchedFromCache(limit = YOUTUBE_RAIL_POOL_LIMIT): YoutubeItem[] {
-  const watched = recentWatchedYoutubeItems(6);
-  if (watched.length === 0) {
-    return [];
-  }
-  const blocked = notInterestedIds();
-  const watchedIds = new Set(watched.map((item) => item.id));
-  const watchedTokens = watched.map((item) => titleTokens(item));
-  return listYoutubeItems('video', 500)
-    .filter((item) => !watchedIds.has(item.id))
-    .filter((item) => !blocked.has(item.id))
+function isBecauseDurationEligible(item: YoutubeItem, allowShortDuration: boolean): boolean {
+  if (allowShortDuration) return true;
+  if (item.duration_sec === null || item.duration_sec <= 0) return true;
+  return item.duration_sec >= BECAUSE_YOU_WATCHED_MIN_DURATION_SEC;
+}
+
+function isSameChannel(left: YoutubeItem, right: YoutubeItem): boolean {
+  return Boolean(
+    (left.channel_id && right.channel_id && left.channel_id === right.channel_id)
+    || (left.channel_title && right.channel_title && left.channel_title === right.channel_title),
+  );
+}
+
+function latestBecauseYouWatchedSeed(limit = 24): RecentWatchedYoutubeItem | null {
+  const records = recentWatchedYoutubeRecords(limit);
+  if (records.length === 0) return null;
+  const meaningful = records.find(({ item }) => (
+    !isLiveVideo(item)
+    && !isShortLikeVideo(item)
+    && !isLowSignalYoutubeRecommendation(item)
+  ));
+  return meaningful || records.find(({ item }) => !isLiveVideo(item) && !isShortLikeVideo(item)) || records[0] || null;
+}
+
+function becauseRelationForItem(item: YoutubeItem, seed: YoutubeItem): BecauseYouWatchedRelation | null {
+  if (item.id === seed.id) return null;
+  if (isSameChannel(item, seed)) return 'same_channel';
+  const overlap = tokenOverlapScore(titleTokens(seed), titleTokens(item));
+  const text = `${item.title} ${item.description || ''}`.toLowerCase();
+  const deepDive = /\b(documentary|explained|analysis|interview|deep dive|history|lecture|breakdown|essay)\b/.test(text)
+    || (item.duration_sec !== null && item.duration_sec >= 45 * 60);
+  if (overlap >= 0.45) return 'same_topic';
+  if (overlap >= 0.22 && deepDive) return 'deeper_dive';
+  if (overlap >= 0.15) return 'wildcard';
+  return null;
+}
+
+function becauseRelationWeight(relation: BecauseYouWatchedRelation): number {
+  if (relation === 'same_channel') return 1.35;
+  if (relation === 'same_topic') return 1.1;
+  if (relation === 'deeper_dive') return 0.85;
+  return 0.35;
+}
+
+function scoreBecauseYouWatchedItem(
+  item: YoutubeItem,
+  seed: YoutubeItem,
+  relation: BecauseYouWatchedRelation,
+  profile: TasteProfile,
+  stats: Pick<YoutubeBecauseYouWatchedCandidate, 'exposure_count' | 'ignore_count' | 'quick_stop_count'> = {
+    exposure_count: 0,
+    ignore_count: 0,
+    quick_stop_count: 0,
+  },
+): { score: number; breakdown: Record<string, number | string> } {
+  const seedOverlap = tokenOverlapScore(titleTokens(seed), titleTokens(item)) * 1.55;
+  const relationBoost = becauseRelationWeight(relation);
+  const sameChannel = relation === 'same_channel' ? 1.15 : 0;
+  const taste = (tokenAffinity(item, profile) * 0.18) + (channelAffinity(item, profile) * 0.12);
+  const freshness = recencyScore(item) * 0.35;
+  const duration = durationFitScore(item) * 0.65;
+  const quality = metadataQualityScore(item) * 0.3;
+  const negative = negativeSimilarity(item, profile) * 0.9;
+  const exposure = Math.min(1.4, stats.exposure_count * 0.08 + stats.ignore_count * 0.08);
+  const quickStop = Math.min(0.7, stats.quick_stop_count * 0.18);
+  const raw = 1 + relationBoost + sameChannel + seedOverlap + taste + freshness + duration + quality
+    - negative - exposure - quickStop;
+  const score = Math.max(0.01, raw);
+  return {
+    score,
+    breakdown: {
+      relation,
+      relation_boost: relationBoost,
+      same_channel: sameChannel,
+      seed_overlap: seedOverlap,
+      taste,
+      freshness,
+      duration,
+      quality,
+      negative,
+      exposure,
+      quick_stop: quickStop,
+      final: score,
+    },
+  };
+}
+
+function buildBecauseYouWatchedCandidatesFromCache(seedRecord: RecentWatchedYoutubeItem): void {
+  const seed = seedRecord.item;
+  const profile = buildTasteProfile();
+  const existing = new Map(
+    listBecauseYouWatchedCandidates(seed.id, BECAUSE_YOU_WATCHED_POOL_TARGET)
+      .map((candidate) => [candidate.id, candidate]),
+  );
+  const candidates = uniqueVideos([
+    ...listYoutubeRailItems('new_from_subscriptions', BECAUSE_YOU_WATCHED_POOL_TARGET),
+    ...listYoutubeRailItems('fresh_finds', BECAUSE_YOU_WATCHED_POOL_TARGET),
+    ...listYoutubeRailItems('popular', BECAUSE_YOU_WATCHED_POOL_TARGET),
+    ...listYoutubeItems('video', BECAUSE_YOU_WATCHED_POOL_TARGET * 4),
+  ])
+    .filter((item) => !profile.watchedIds.has(item.id))
+    .filter((item) => !profile.negativeIds.has(item.id))
     .filter((item) => !isLiveVideo(item))
+    .filter((item) => !isShortLikeVideo(item))
+    .filter((item) => !isLowSignalYoutubeRecommendation(item))
     .map((item) => {
-      const candidateTokens = titleTokens(item);
-      let score = recencyScore(item) * 0.25;
-      watched.forEach((source, index) => {
-        const weight = 1 / (index + 1);
-        if (source.channel_id && item.channel_id && source.channel_id === item.channel_id) {
-          score += 4 * weight;
-        } else if (source.channel_title && item.channel_title && source.channel_title === item.channel_title) {
-          score += 2.5 * weight;
-        }
-        score += tokenOverlapScore(watchedTokens[index], candidateTokens) * 2 * weight;
-      });
-      return { item, score };
+      const relation = becauseRelationForItem(item, seed);
+      if (!relation) return null;
+      const previous = existing.get(item.id);
+      const { score, breakdown } = scoreBecauseYouWatchedItem(item, seed, relation, profile, previous);
+      return {
+        item,
+        seed_video_id: seed.id,
+        seed_watched_at: seedRecord.watched_at,
+        relation_type: relation,
+        query: 'cache',
+        topic_cluster: topicCluster(item),
+        score,
+        score_breakdown: breakdown,
+        reason: `because_you_watched:${relation}:cache`,
+      };
     })
-    .filter((entry) => entry.score > 0.2)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((entry) => entry.item);
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, BECAUSE_YOU_WATCHED_POOL_TARGET);
+  upsertBecauseYouWatchedCandidates(candidates);
+}
+
+function becauseYouWatchedQuerySpecs(seed: YoutubeItem): BecauseYouWatchedQuerySpec[] {
+  const tokens = [...titleTokens(seed)].slice(0, 5);
+  const topicQuery = tokens.join(' ');
+  const specs: BecauseYouWatchedQuerySpec[] = [];
+  if (seed.channel_id) {
+    specs.push({
+      query: topicQuery,
+      relation_type: 'same_channel',
+      channelId: seed.channel_id,
+      order: 'date',
+      limit: 8,
+      publishedAfterDays: 365,
+      videoDuration: 'medium',
+    });
+  } else if (seed.channel_title) {
+    specs.push({
+      query: `${seed.channel_title} ${topicQuery}`.trim(),
+      relation_type: 'same_channel',
+      order: 'date',
+      limit: 8,
+      publishedAfterDays: 365,
+      videoDuration: 'medium',
+    });
+  }
+  if (topicQuery) {
+    specs.push(
+      { query: `${topicQuery} explained`, relation_type: 'same_topic', order: 'relevance', limit: 8, publishedAfterDays: 540, videoDuration: 'medium' },
+      { query: `${topicQuery} documentary`, relation_type: 'deeper_dive', order: 'relevance', limit: 8, publishedAfterDays: 900, videoDuration: 'long' },
+      { query: `${topicQuery} analysis`, relation_type: 'deeper_dive', order: 'relevance', limit: 8, publishedAfterDays: 540, videoDuration: 'medium' },
+      { query: `${topicQuery} story`, relation_type: 'wildcard', order: 'relevance', limit: 8, publishedAfterDays: 900, videoDuration: 'medium' },
+    );
+  }
+  return specs
+    .filter((spec, index, all) => all.findIndex((entry) => (
+      entry.query === spec.query && entry.channelId === spec.channelId && entry.relation_type === spec.relation_type
+    )) === index)
+    .slice(0, BECAUSE_YOU_WATCHED_SEARCH_BUDGET);
+}
+
+function isEligibleBecauseYouWatchedCandidate(
+  candidate: YoutubeBecauseYouWatchedCandidate,
+  profile: TasteProfile,
+  options: BecauseYouWatchedEligibilityOptions,
+): boolean {
+  if (candidate.kind !== 'video') return false;
+  if (profile.watchedIds.has(candidate.id)) return false;
+  if (profile.negativeIds.has(candidate.id)) return false;
+  if (!options.allowSaved && profile.savedIds.has(candidate.id)) return false;
+  if (isLiveVideo(candidate)) return false;
+  if (isShortLikeVideo(candidate)) return false;
+  if (isLowSignalYoutubeRecommendation(candidate)) return false;
+  if (!isBecauseDurationEligible(candidate, options.allowShortDuration)) return false;
+  if (
+    !options.allowRecentExposure
+    && candidate.last_recommended_at !== null
+    && nowMs() - candidate.last_recommended_at < BECAUSE_YOU_WATCHED_EXPOSURE_COOLDOWN_MS
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function samplingWeightBecause(candidate: ScoredBecauseYouWatchedCandidate, reshuffle: boolean): number {
+  return Math.max(0.01, reshuffle ? candidate.score : candidate.score * candidate.score);
+}
+
+function canUseBecauseYouWatchedCandidate(
+  candidate: ScoredBecauseYouWatchedCandidate,
+  selected: ScoredBecauseYouWatchedCandidate[],
+  channelCounts: Map<string, number>,
+  topicCounts: Map<string, number>,
+  maxPerChannel: number,
+  maxPerTopic: number,
+): boolean {
+  if (selected.some((item) => item.id === candidate.id)) return false;
+  const channel = candidate.channel_id || candidate.channel_title || candidate.id;
+  if ((channelCounts.get(channel) ?? 0) >= maxPerChannel) return false;
+  const cluster = candidate.topic_cluster || candidate.id;
+  if ((topicCounts.get(cluster) ?? 0) >= maxPerTopic) return false;
+  return true;
+}
+
+function weightedPickBecause(
+  candidates: ScoredBecauseYouWatchedCandidate[],
+  reshuffle: boolean,
+): ScoredBecauseYouWatchedCandidate | null {
+  const total = candidates.reduce((sum, item) => sum + samplingWeightBecause(item, reshuffle), 0);
+  if (total <= 0) return candidates[0] || null;
+  let cursor = Math.random() * total;
+  for (const candidate of candidates) {
+    cursor -= samplingWeightBecause(candidate, reshuffle);
+    if (cursor <= 0) return candidate;
+  }
+  return candidates[candidates.length - 1] || null;
+}
+
+function addBecauseYouWatchedSelection(
+  pool: ScoredBecauseYouWatchedCandidate[],
+  selected: ScoredBecauseYouWatchedCandidate[],
+  count: number,
+  reshuffle: boolean,
+  channelCounts: Map<string, number>,
+  topicCounts: Map<string, number>,
+  maxPerChannel: number,
+  maxPerTopic: number,
+): void {
+  while (selected.length < YOUTUBE_RAIL_LIMIT && count > 0) {
+    const eligible = pool.filter((candidate) => (
+      canUseBecauseYouWatchedCandidate(candidate, selected, channelCounts, topicCounts, maxPerChannel, maxPerTopic)
+    ));
+    if (eligible.length === 0) return;
+    const picked = weightedPickBecause(eligible, reshuffle);
+    if (!picked) return;
+    selected.push(picked);
+    const channel = picked.channel_id || picked.channel_title || picked.id;
+    const cluster = picked.topic_cluster || picked.id;
+    channelCounts.set(channel, (channelCounts.get(channel) ?? 0) + 1);
+    topicCounts.set(cluster, (topicCounts.get(cluster) ?? 0) + 1);
+    count -= 1;
+  }
+}
+
+function sampleBecauseYouWatchedCandidates(
+  candidates: ScoredBecauseYouWatchedCandidate[],
+  options: YoutubeRailsOptions,
+  maxPerChannel: number,
+  maxPerTopic: number,
+): ScoredBecauseYouWatchedCandidate[] {
+  const selected: ScoredBecauseYouWatchedCandidate[] = [];
+  const channelCounts = new Map<string, number>();
+  const topicCounts = new Map<string, number>();
+  for (const relation of ['same_channel', 'same_topic', 'deeper_dive', 'wildcard'] as BecauseYouWatchedRelation[]) {
+    addBecauseYouWatchedSelection(
+      candidates.filter((candidate) => candidate.relation_type === relation),
+      selected,
+      BECAUSE_YOU_WATCHED_RELATION_QUOTAS[relation],
+      Boolean(options.reshuffle),
+      channelCounts,
+      topicCounts,
+      maxPerChannel,
+      maxPerTopic,
+    );
+  }
+  addBecauseYouWatchedSelection(
+    candidates,
+    selected,
+    YOUTUBE_RAIL_LIMIT - selected.length,
+    Boolean(options.reshuffle),
+    channelCounts,
+    topicCounts,
+    maxPerChannel,
+    maxPerTopic,
+  );
+  return selected;
+}
+
+function becauseYouWatchedRail(options: YoutubeRailsOptions = {}): YoutubeRail {
+  const seed = latestBecauseYouWatchedSeed();
+  if (!seed) {
+    replaceYoutubeRailItems('because_you_watched', []);
+    return {
+      rail_id: 'because_you_watched',
+      label: RAIL_LABELS.because_you_watched,
+      items: [],
+      cached: false,
+      stale: false,
+    };
+  }
+  buildBecauseYouWatchedCandidatesFromCache(seed);
+  const refresh = youtubeRefreshStatus();
+  const profile = buildTasteProfile();
+  const scoreCandidates = (
+    allowRecentExposure: boolean,
+    allowSaved: boolean,
+    allowShortDuration: boolean,
+  ) => (
+    listBecauseYouWatchedCandidates(seed.item.id, BECAUSE_YOU_WATCHED_POOL_TARGET)
+      .filter((candidate) => isEligibleBecauseYouWatchedCandidate(candidate, profile, {
+        allowRecentExposure,
+        allowSaved,
+        allowShortDuration,
+      }))
+      .map((candidate): ScoredBecauseYouWatchedCandidate => {
+        const relation = (candidate.relation_type || 'wildcard') as BecauseYouWatchedRelation;
+        const { score, breakdown } = scoreBecauseYouWatchedItem(candidate, seed.item, relation, profile, candidate);
+        return {
+          ...candidate,
+          relation_type: relation,
+          score,
+          score_breakdown: breakdown,
+        };
+      })
+      .sort((left, right) => right.score - left.score)
+  );
+  let candidates = scoreCandidates(false, false, false);
+  if (candidates.length < YOUTUBE_RAIL_LIMIT) {
+    candidates = scoreCandidates(false, true, false);
+  }
+  if (candidates.length < YOUTUBE_RAIL_LIMIT) {
+    setYoutubeState('because_you_watched_needs_expansion', {
+      at: nowMs(),
+      seed_video_id: seed.item.id,
+      eligible: candidates.length,
+    });
+    candidates = scoreCandidates(true, true, false);
+  }
+  if (candidates.length < YOUTUBE_RAIL_LIMIT) {
+    candidates = scoreCandidates(true, true, true);
+  }
+  let selected = sampleBecauseYouWatchedCandidates(candidates, options, 2, 2);
+  if (selected.length < YOUTUBE_RAIL_LIMIT) {
+    selected = sampleBecauseYouWatchedCandidates(candidates, options, 3, 3);
+  }
+  if (selected.length < YOUTUBE_RAIL_LIMIT) {
+    selected = sampleBecauseYouWatchedCandidates(candidates, options, YOUTUBE_RAIL_LIMIT, YOUTUBE_RAIL_LIMIT);
+  }
+  if (selected.length > 0) {
+    replaceYoutubeRailItems('because_you_watched', selected.map((item, index) => ({
+      item,
+      score: item.score,
+      reason: `because_you_watched:${item.relation_type}:${index + 1}`,
+    })));
+    noteBecauseYouWatchedExposures(seed.item.id, selected.map((item) => item.id));
+  }
+  const stale = refresh.last_success_at !== null
+    && refresh.last_success_at < nowMs() - loadYoutubeConfig().stale_after_ms;
+  setYoutubeState('because_you_watched_active_seed', {
+    id: seed.item.id,
+    title: seed.item.title,
+    watched_at: seed.watched_at,
+    selected: selected.length,
+  });
+  return {
+    rail_id: 'because_you_watched',
+    label: RAIL_LABELS.because_you_watched,
+    items: selected.map((item) => ({
+      ...item,
+      reason: item.reason,
+      score: item.score,
+    })),
+    cached: selected.length > 0,
+    stale,
+  };
 }
 
 function groupCachedSearch(query: string, limit: number): YoutubeSearchGroups {
@@ -1376,39 +1764,83 @@ export class YoutubeService {
     if (!this.config.api_key) {
       return;
     }
-    const watched = recentWatchedYoutubeItems(4);
-    if (watched.length === 0) {
+    const seed = latestBecauseYouWatchedSeed();
+    if (!seed) {
       replaceYoutubeRailItems('because_you_watched', []);
+      setYoutubeState('because_you_watched_last_refresh_count', 0);
       return;
     }
-    const queries: string[] = [];
-    for (const item of watched) {
-      if (item.channel_title) {
-        queries.push(item.channel_title);
-      }
-      const tokens = [...titleTokens(item)].slice(0, 5);
-      if (tokens.length > 0) {
-        queries.push(tokens.join(' '));
+    buildBecauseYouWatchedCandidatesFromCache(seed);
+    const specs = becauseYouWatchedQuerySpecs(seed.item);
+    if (specs.length === 0) {
+      return;
+    }
+    const groups = await Promise.all(
+      specs.map(async (spec) => ({
+        spec,
+        groups: await this.api.search(spec.query, {
+          limit: spec.limit,
+          order: spec.order,
+          type: 'video',
+          channelId: spec.channelId,
+          publishedAfter: spec.publishedAfterDays ? rfc3339DaysAgo(spec.publishedAfterDays) : undefined,
+          videoDuration: spec.videoDuration,
+          safeSearch: 'moderate',
+        }).catch(() => ({ videos: [], channels: [], playlists: [] })),
+      })),
+    );
+    const specPriority: Record<BecauseYouWatchedRelation, number> = {
+      same_channel: 4,
+      same_topic: 3,
+      deeper_dive: 2,
+      wildcard: 1,
+    };
+    const byId = new Map<string, { item: YoutubeItem; spec: BecauseYouWatchedQuerySpec }>();
+    for (const entry of groups) {
+      for (const item of entry.groups.videos) {
+        const current = byId.get(item.id);
+        if (!current || specPriority[entry.spec.relation_type] > specPriority[current.spec.relation_type]) {
+          byId.set(item.id, { item, spec: entry.spec });
+        }
       }
     }
-    const uniqueQueries = [...new Set(queries.map((query) => query.trim()).filter(Boolean))].slice(0, 6);
-    const watchedIds = new Set(watched.map((item) => item.id));
-    const groups = await Promise.all(
-      uniqueQueries.map((query) => this.api.search(query, { limit: 8 }).catch(() => ({
-        videos: [],
-        channels: [],
-        playlists: [],
-      }))),
+    const profile = buildTasteProfile();
+    const existing = new Map(
+      listBecauseYouWatchedCandidates(seed.item.id, BECAUSE_YOU_WATCHED_POOL_TARGET)
+        .map((candidate) => [candidate.id, candidate]),
     );
-    const apiCandidates = nonLiveVideos(uniqueVideos(groups.flatMap((group) => group.videos)))
-      .filter((item) => !watchedIds.has(item.id));
-    const rankedCache = rankBecauseYouWatchedFromCache(YOUTUBE_RAIL_POOL_LIMIT);
-    const merged = uniqueVideos([...rankedCache, ...apiCandidates]).slice(0, YOUTUBE_RAIL_POOL_LIMIT);
-    replaceYoutubeRailItems('because_you_watched', merged.map((item, index) => ({
+    const scored = [...byId.values()]
+      .map(({ item, spec }) => {
+        if (profile.watchedIds.has(item.id)) return null;
+        if (profile.negativeIds.has(item.id)) return null;
+        if (isLiveVideo(item) || isShortLikeVideo(item) || isLowSignalYoutubeRecommendation(item)) return null;
+        const relation = becauseRelationForItem(item, seed.item) || spec.relation_type;
+        const previous = existing.get(item.id);
+        const { score, breakdown } = scoreBecauseYouWatchedItem(item, seed.item, relation, profile, previous);
+        return {
+          item,
+          seed_video_id: seed.item.id,
+          seed_watched_at: seed.watched_at,
+          relation_type: relation,
+          query: spec.query || 'channel',
+          topic_cluster: topicCluster(item),
+          score,
+          score_breakdown: breakdown,
+          reason: `because_you_watched:${relation}`,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, BECAUSE_YOU_WATCHED_POOL_TARGET);
+    upsertBecauseYouWatchedCandidates(scored);
+    pruneBecauseYouWatchedCandidates(BECAUSE_YOU_WATCHED_POOL_TARGET);
+    const visible = listBecauseYouWatchedCandidates(seed.item.id, YOUTUBE_RAIL_POOL_LIMIT);
+    replaceYoutubeRailItems('because_you_watched', visible.map((item, index) => ({
       item,
-      score: 1 - index * 0.01,
-      reason: 'based on watch history',
+      score: item.score,
+      reason: `because_you_watched:${item.relation_type}:${index + 1}`,
     })));
+    setYoutubeState('because_you_watched_last_refresh_count', scored.length);
   }
 
   private async expandForYouDiscoveryFromApi(): Promise<void> {
@@ -1609,25 +2041,16 @@ export class YoutubeService {
     if (this.config.enabled && this.config.api_key && cache.videos === 0) {
       await this.refresh('first_run').catch(() => undefined);
     }
-    const hasWatchedYoutube = recentWatchedYoutubeItems(1).length > 0;
-    if (hasWatchedYoutube) {
-      const becauseItems = rankBecauseYouWatchedFromCache(YOUTUBE_RAIL_POOL_LIMIT);
-      replaceYoutubeRailItems('because_you_watched', becauseItems.map((item, index) => ({
-        item,
-        score: 1 - index * 0.01,
-        reason: 'based on watch history',
-      })));
-    }
     const rails: YoutubeRail[] = [
       savedRail(),
       historyRail(options),
-	      forYouRail(options),
-	      subscriptionRail(options),
-	      freshFindRail(options),
-	      cachedRail('because_you_watched', options),
-	      cachedRail('live_now', options),
-	      cachedRail('popular', options),
-	    ].filter((rail) => rail.items.length > 0 || rail.rail_id === 'popular');
+      forYouRail(options),
+      subscriptionRail(options),
+      freshFindRail(options),
+      becauseYouWatchedRail(options),
+      cachedRail('live_now', options),
+      cachedRail('popular', options),
+    ].filter((rail) => rail.items.length > 0 || rail.rail_id === 'popular');
     return {
       ok: true,
       tab: YOUTUBE_TAB,

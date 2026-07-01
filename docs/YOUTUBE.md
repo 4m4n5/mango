@@ -21,7 +21,7 @@ Launcher YouTube tab
 
 | Layer | Owns |
 |-------|------|
-| `youtube.db` | Cached videos/channels/playlists, rail membership, recommender/Fresh Finds reservoirs, refresh/quota counters, auth sessions |
+| `youtube.db` | Cached videos/channels/playlists, rail membership, recommender/rail reservoirs, refresh/quota counters, auth sessions |
 | `library.db` | YouTube Saved videos, watch history, finished state, current context, Not Interested feedback |
 | YouTube Data API | Metadata/search/subscriptions only |
 | `yt-dlp -> mpv` | Playback resolution/rendering via the Mango wrapper; no Data API quota use |
@@ -89,7 +89,9 @@ bash scripts/m3-play/playability/install-playability-timer.sh
 That installs `mango-playability-indexer.timer` for 03:00. The service runs
 `nightly-library-refresh.sh --mode nightly --preset nightly`, which executes
 playability stale+grow first and then calls `POST /youtube/refresh` through
-`scripts/m6-ship/youtube-refresh-cache.sh`. The YouTube step still runs when
+`scripts/m6-ship/youtube-refresh-cache.sh`. That refresh updates cached metadata
+plus the For You, Fresh Finds, and Because You Watched reservoirs. The YouTube
+step still runs when
 playability returns a quota/source/error failure, but it is skipped if another
 playability maintenance lock is still active so cache refreshes do not overlap
 the indexer.
@@ -139,9 +141,13 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
   YouTube videos, Not Interested, live videos, Shorts, and recent Fresh Finds
   exposure, then prefers unseen channels outside Saved and subscriptions when
   at least 9 alternatives exist.
-- Because You Watched is rebuilt from the latest local YouTube watch history on
-  rail load, and after playback it opportunistically tops up candidates through
-  Data API searches based on recent channels/title tokens.
+- Because You Watched is a seed-scoped session-continuity rail. It follows the
+  latest meaningful Mango-local YouTube watch, stores follow-up candidates in a
+  rebuildable `youtube.db` reservoir, filters watched/live/Shorts/Not Interested
+  and low-signal videos, and samples a diverse 9-card row from same-channel,
+  same-topic, deeper-dive, and wildcard follow-ups. Shuffle never calls YouTube.
+  Playback and manual/nightly refresh opportunistically top up this reservoir
+  with bounded official Data API searches.
 - Companion account connect uses the HTTPS companion same-origin `/api/catalog/*`
   proxy; direct browser calls to `:3020` are not required.
 
