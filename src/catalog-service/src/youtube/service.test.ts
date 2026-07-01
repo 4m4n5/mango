@@ -360,6 +360,54 @@ test('live now quota refresh falls back to existing reservoir', () => withTempSt
   assert.ok(liveNow.items.every((item) => item.id.startsWith('LiveStale')));
 }));
 
+test('live now revalidates cached candidates before cache fallback', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  upsertLiveCandidates([
+    { item: sampleVideo('CachedEndedLive', 'live', 'cached-ended', 'Past premiere') },
+    { item: sampleVideo('CachedActuallyLive', 'live', 'cached-live', 'Current live event') },
+  ]);
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    if (url.pathname.endsWith('/videos') && url.searchParams.has('id')) {
+      return new Response(JSON.stringify({
+        items: [{
+          id: 'CachedEndedLive',
+          snippet: {
+            title: 'Past premiere',
+            channelId: 'cached-ended',
+            channelTitle: 'Cached Ended',
+            publishedAt: '2026-07-01T00:00:00Z',
+            liveBroadcastContent: 'none',
+          },
+          contentDetails: { duration: 'PT30M' },
+          liveStreamingDetails: { actualStartTime: '2026-07-01T01:00:00Z' },
+        }, {
+          id: 'CachedActuallyLive',
+          snippet: {
+            title: 'Current live event',
+            channelId: 'cached-live',
+            channelTitle: 'Cached Live',
+            publishedAt: '2026-07-01T00:00:00Z',
+            liveBroadcastContent: 'live',
+          },
+          contentDetails: { duration: 'PT2M' },
+          liveStreamingDetails: { actualStartTime: '2026-07-01T01:00:00Z' },
+        }],
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return apiErrorResponse('quota exceeded');
+  }) as typeof fetch;
+
+  const service = new YoutubeService();
+  const refresh = await service.refresh('test_live_revalidate');
+  assert.equal(refresh.ok, true);
+  assert.ok(refresh.refresh.phase_results.some((phase) => phase.phase === 'live_now' && phase.ok));
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const liveNow = response.rails.find((rail) => rail.rail_id === 'live_now');
+  assert.ok(liveNow);
+  assert.deepEqual(liveNow.items.map((item) => item.id), ['CachedActuallyLive']);
+}));
+
 test('YouTube rails return at most nine cards', () => withTempState(async () => {
   replaceYoutubeRailItems('popular', Array.from({ length: 14 }, (_, index) => ({
     item: sampleVideo(`Popular${index}`),

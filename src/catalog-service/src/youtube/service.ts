@@ -1122,6 +1122,20 @@ function buildLiveNowCandidatesFromCache(): number {
   return scored.length;
 }
 
+function liveNowCacheRevalidationIds(timestamp = nowMs()): string[] {
+  return [...new Set(uniqueVideos([
+    ...listLiveNowCandidates(LIVE_NOW_POOL_TARGET)
+      .filter((item) => item.expires_at > timestamp || item.updated_at + LIVE_NOW_TTL_MS > timestamp),
+    ...listYoutubeRailItems('live_now', LIVE_NOW_POOL_TARGET),
+    ...listYoutubeRailItems('popular', LIVE_NOW_POOL_TARGET),
+    ...listYoutubeItems('video', LIVE_NOW_POOL_TARGET * 8)
+      .filter((item) => item.updated_at + LIVE_NOW_TTL_MS > timestamp),
+  ])
+    .filter((item) => item.live_status === 'live')
+    .map((item) => item.id))]
+    .slice(0, 150);
+}
+
 function seedLiveNowCandidatesFromLegacyRail(): void {
   if (listLiveNowCandidates(1).length > 0) {
     return;
@@ -2272,6 +2286,15 @@ export class YoutubeService {
   private async refreshLiveNowFromApi(): Promise<void> {
     const specs = liveNowQuerySpecs();
     const timestamp = nowMs();
+    const revalidationIds = liveNowCacheRevalidationIds(timestamp);
+    let revalidationError: string | null = null;
+    if (revalidationIds.length > 0) {
+      try {
+        await this.api.videos(revalidationIds);
+      } catch (error) {
+        revalidationError = error instanceof Error ? error.message : String(error);
+      }
+    }
     const cachedCount = buildLiveNowCandidatesFromCache();
     const results = await Promise.all(specs.map(async (spec) => {
       try {
@@ -2356,6 +2379,8 @@ export class YoutubeService {
     setYoutubeState('live_now_last_success_at', timestamp);
     setYoutubeState('live_now_last_refresh_count', scored.length || cachedCount);
     setYoutubeState('live_now_last_refresh_source', scored.length > 0 ? 'search' : cachedCount > 0 ? 'cache' : 'empty');
+    setYoutubeState('live_now_last_revalidation_count', revalidationError ? 0 : revalidationIds.length);
+    setYoutubeState('live_now_last_revalidation_error', revalidationError);
     setYoutubeState('live_now_last_partial_failures', results
       .filter((entry) => !entry.ok)
       .map((entry) => ({ lane: entry.spec.source_lane, query: entry.spec.query, error: entry.error })));
