@@ -6,6 +6,7 @@ set -euo pipefail
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 LOCK_FILE="${CACHE_DIR}/mango-health-repair.lock"
+PLAYABILITY_LOCK_FILE="${CACHE_DIR}/playability-maintenance.lock"
 QUIET=0
 
 while [[ $# -gt 0 ]]; do
@@ -70,6 +71,16 @@ kill_safe_strays() {
   pkill -f 'curl.*127.0.0.1:3020/play' 2>/dev/null || true
   pkill -f 'node --input-type=module -e.*CatalogCore' 2>/dev/null || true
   pkill -f '[b]luetoothctl connect E4:17:D8:EB:00:44' 2>/dev/null || true
+}
+
+playability_maintenance_active() {
+  pgrep -f '[p]layability-maintenance.sh|[n]ightly-library-refresh.sh|[o]vernight-playability-grow.sh' >/dev/null 2>&1 \
+    && return 0
+  [[ -f "$PLAYABILITY_LOCK_FILE" ]] || return 1
+  (
+    exec 8>"$PLAYABILITY_LOCK_FILE"
+    ! flock -n 8
+  )
 }
 
 catalog_expected() {
@@ -155,6 +166,13 @@ repair_ui() {
 }
 
 bash scripts/lib/stale-flock-cleanup.sh >/dev/null 2>&1 || true
+
+if playability_maintenance_active; then
+  mango_log health_repair status=skipped reason=playability_maintenance_active
+  say "health-repair: skipped playability maintenance active"
+  exit 0
+fi
+
 kill_safe_strays
 
 if ! bash scripts/m1-foundation/pad/pad-health.sh --quiet; then

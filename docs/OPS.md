@@ -163,6 +163,9 @@ strays, repairs the current pad event owner, restarts catalog-service when
 rails/live readiness fails, and restarts launcher units only when UI health is
 still bad. Use `bash scripts/mango-stack.sh restart` for a deliberate clean
 full-stack reset.
+During playability maintenance, the watchdog must skip repair entirely while the
+maintenance lock/process is active; otherwise it can kill the indexer and abort
+the staged grow.
 
 Grow operator state: `~/.cache/mango/grow-run-state.json`, `~/.cache/mango/ops/refresh-*.json`, `~/.cache/mango/source-grow/latest.json`.
 
