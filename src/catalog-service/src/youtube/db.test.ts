@@ -11,21 +11,25 @@ import {
   listFreshFindCandidates,
   listForYouCandidates,
   listLiveNowCandidates,
+  listPopularCandidates,
   listYoutubeRailItems,
   noteBecauseYouWatchedExposures,
   noteFreshFindExposures,
   noteForYouExposures,
   noteLiveNowExposures,
+  notePopularExposures,
   replaceYoutubeRailItems,
   resetYoutubeDbForTests,
   setBecauseYouWatchedCandidateStats,
   setFreshFindCandidateStats,
   setForYouCandidateStats,
   setLiveNowCandidateStats,
+  setPopularCandidateStats,
   upsertBecauseYouWatchedCandidates,
   upsertFreshFindCandidates,
   upsertForYouCandidates,
   upsertLiveNowCandidates,
+  upsertPopularCandidates,
   youtubeCacheSummary,
 } from './db.js';
 import type { YoutubeItem } from './types.js';
@@ -77,7 +81,7 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6]);
   } finally {
     db.close();
   }
@@ -178,6 +182,35 @@ test('live now reservoir stores lane, ttl, and exposure state', () => withTempYo
   assert.equal(candidates[0]?.exposure_count, 1);
   assert.equal(candidates[0]?.ignore_count, 1);
   assert.equal(candidates[0]?.quick_stop_count, 3);
+}));
+
+test('popular reservoir stores region, category, and exposure state', () => withTempYoutube(() => {
+  const item = sampleItem('PopularCandidate1');
+  upsertPopularCandidates([{
+    item,
+    source_region: 'IN',
+    category_id: '24',
+    category_label: 'entertainment',
+    topic_cluster: 'popular:entertainment',
+    score: 2.9,
+    score_breakdown: { rank: 1, region: 'IN' },
+    reason: 'popular:entertainment:IN',
+  }]);
+  let candidates = listPopularCandidates();
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.source_region, 'IN');
+  assert.equal(candidates[0]?.category_id, '24');
+  assert.equal(candidates[0]?.category_label, 'entertainment');
+  assert.deepEqual(candidates[0]?.score_breakdown, { rank: 1, region: 'IN' });
+  assert.equal(candidates[0]?.exposure_count, 0);
+
+  notePopularExposures(['PopularCandidate1'], 7000);
+  setPopularCandidateStats('PopularCandidate1', { quick_stop_count: 4 });
+  candidates = listPopularCandidates();
+  assert.equal(candidates[0]?.last_recommended_at, 7000);
+  assert.equal(candidates[0]?.exposure_count, 1);
+  assert.equal(candidates[0]?.ignore_count, 1);
+  assert.equal(candidates[0]?.quick_stop_count, 4);
 }));
 
 test('because you watched reservoir is seed-scoped and tracks exposure state', () => withTempYoutube(() => {

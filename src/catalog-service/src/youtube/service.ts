@@ -23,15 +23,18 @@ import {
   listFreshFindCandidates,
   listForYouCandidates,
   listLiveNowCandidates,
+  listPopularCandidates,
   listYoutubeItems,
   listYoutubeRailItems,
   noteBecauseYouWatchedExposures,
   noteFreshFindExposures,
   noteForYouExposures,
   noteLiveNowExposures,
+  notePopularExposures,
   pruneBecauseYouWatchedCandidates,
   pruneFreshFindCandidates,
   pruneLiveNowCandidates,
+  prunePopularCandidates,
   replaceYoutubeRailItems,
   searchCachedYoutubeItems,
   setYoutubeState,
@@ -39,6 +42,7 @@ import {
   upsertFreshFindCandidates,
   upsertForYouCandidates,
   upsertLiveNowCandidates,
+  upsertPopularCandidates,
   upsertYoutubeItems,
   youtubeCacheSummary,
   youtubeRefreshStatus,
@@ -46,6 +50,7 @@ import {
   type YoutubeFreshFindCandidate,
   type YoutubeForYouCandidate,
   type YoutubeLiveNowCandidate,
+  type YoutubePopularCandidate,
 } from './db.js';
 import { resolveYoutubePlayback } from './playback.js';
 import type {
@@ -85,6 +90,9 @@ const LIVE_NOW_TTL_MS = 2 * 60 * 60 * 1000;
 const LIVE_NOW_REFRESH_STALE_MS = 90 * 60 * 1000;
 const LIVE_NOW_OPPORTUNISTIC_THROTTLE_MS = 15 * 60 * 1000;
 const LIVE_NOW_EXPOSURE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const POPULAR_POOL_TARGET = 300;
+const POPULAR_FETCH_LIMIT = 24;
+const POPULAR_EXPOSURE_COOLDOWN_MS = 48 * 60 * 60 * 1000;
 const FOR_YOU_LANE_QUOTAS: Record<ForYouLane, number> = {
   familiar: 5,
   discovery: 3,
@@ -207,6 +215,11 @@ type ScoredLiveNowCandidate = YoutubeLiveNowCandidate & {
   score_breakdown: Record<string, number | string>;
 };
 
+type ScoredPopularCandidate = YoutubePopularCandidate & {
+  score: number;
+  score_breakdown: Record<string, number | string>;
+};
+
 type LiveNowQuerySpec = {
   source_lane: LiveNowLane;
   query: string;
@@ -214,6 +227,17 @@ type LiveNowQuerySpec = {
   limit: number;
   source_weight: number;
   channelId?: string;
+};
+
+type PopularCategorySpec = {
+  category_id: string;
+  category_label: string;
+  fetch_limit: number;
+  source_weight: number;
+};
+
+type PopularQuerySpec = PopularCategorySpec & {
+  source_region: string;
 };
 
 let liveNowRefreshInFlight: Promise<void> | null = null;
@@ -257,6 +281,11 @@ type BecauseYouWatchedEligibilityOptions = {
   allowShortDuration: boolean;
 };
 
+type PopularEligibilityOptions = {
+  allowRecentExposure: boolean;
+  allowSavedOrSubscribed: boolean;
+};
+
 const BASE_FRESH_FIND_QUERY_SPECS: FreshFindQuerySpec[] = [
   { query: 'documentary essay', source_bucket: 'quality_fresh', order: 'date', limit: 8, publishedAfterDays: 45, videoDuration: 'long', videoDefinition: 'high', topicId: '/m/01k8wb' },
   { query: 'technology deep dive', source_bucket: 'quality_fresh', order: 'date', limit: 8, publishedAfterDays: 60, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/07c1v' },
@@ -277,6 +306,30 @@ const BASE_FRESH_FIND_QUERY_SPECS: FreshFindQuerySpec[] = [
   { query: 'unexpected history documentary', source_bucket: 'wildcard', order: 'relevance', limit: 8, publishedAfterDays: 180, videoDuration: 'long', videoDefinition: 'high', topicId: '/m/01k8wb' },
   { query: 'creative engineering project', source_bucket: 'wildcard', order: 'relevance', limit: 8, publishedAfterDays: 180, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/03glg' },
 ];
+
+const POPULAR_CATEGORY_SPECS: PopularCategorySpec[] = [
+  { category_id: '0', category_label: 'all', fetch_limit: 36, source_weight: 1.2 },
+  { category_id: '24', category_label: 'entertainment', fetch_limit: POPULAR_FETCH_LIMIT, source_weight: 1.05 },
+  { category_id: '10', category_label: 'music', fetch_limit: POPULAR_FETCH_LIMIT, source_weight: 1 },
+  { category_id: '20', category_label: 'gaming', fetch_limit: POPULAR_FETCH_LIMIT, source_weight: 0.95 },
+  { category_id: '17', category_label: 'sports', fetch_limit: POPULAR_FETCH_LIMIT, source_weight: 0.95 },
+  { category_id: '27', category_label: 'education', fetch_limit: POPULAR_FETCH_LIMIT, source_weight: 0.95 },
+  { category_id: '23', category_label: 'comedy', fetch_limit: POPULAR_FETCH_LIMIT, source_weight: 0.95 },
+  { category_id: '19', category_label: 'travel_culture', fetch_limit: POPULAR_FETCH_LIMIT, source_weight: 0.9 },
+  { category_id: '28', category_label: 'science_tech', fetch_limit: POPULAR_FETCH_LIMIT, source_weight: 0.9 },
+];
+
+const POPULAR_CATEGORY_QUOTAS = new Map<string, number>([
+  ['all', 2],
+  ['entertainment', 1],
+  ['music', 1],
+  ['gaming', 1],
+  ['sports', 1],
+  ['education', 1],
+  ['comedy', 1],
+  ['travel_culture', 1],
+  ['science_tech', 1],
+]);
 
 function nowMs(): number {
   return Date.now();
@@ -1409,6 +1462,298 @@ function liveNowQuerySpecs(): LiveNowQuerySpec[] {
   ].slice(0, LIVE_NOW_SEARCH_BUDGET);
 }
 
+function popularRegions(config: YoutubeConfig): string[] {
+  return [...new Set([
+    config.region_code,
+    'IN',
+    'US',
+  ]
+    .map((region) => region.trim().toUpperCase())
+    .filter(Boolean))]
+    .slice(0, 3);
+}
+
+function popularQuerySpecs(config: YoutubeConfig): PopularQuerySpec[] {
+  return popularRegions(config).flatMap((sourceRegion) => (
+    POPULAR_CATEGORY_SPECS.map((spec) => ({
+      ...spec,
+      source_region: sourceRegion,
+    }))
+  ));
+}
+
+function popularCategoryQuota(category: string): number {
+  return POPULAR_CATEGORY_QUOTAS.get(category) ?? 1;
+}
+
+function scorePopularItem(
+  item: YoutubeItem,
+  spec: PopularQuerySpec,
+  stats: Pick<YoutubePopularCandidate, 'exposure_count' | 'ignore_count' | 'quick_stop_count'> = {
+    exposure_count: 0,
+    ignore_count: 0,
+    quick_stop_count: 0,
+  },
+  chartRank = 0,
+): { score: number; breakdown: Record<string, number | string> } {
+  const rank = Math.max(0, 1 - chartRank / 50) * 1.25;
+  const source = spec.source_weight;
+  const freshness = recencyScore(item) * 0.35;
+  const duration = durationFitScore(item) * 0.22;
+  const quality = metadataQualityScore(item) * 0.32;
+  const exposure = Math.min(1.2, stats.exposure_count * 0.08 + stats.ignore_count * 0.08);
+  const quickStop = Math.min(0.7, stats.quick_stop_count * 0.2);
+  const raw = 1 + rank + source + freshness + duration + quality - exposure - quickStop;
+  const score = Math.max(0.01, raw);
+  return {
+    score,
+    breakdown: {
+      region: spec.source_region,
+      category: spec.category_label,
+      rank,
+      source,
+      freshness,
+      duration,
+      quality,
+      exposure,
+      quick_stop: quickStop,
+      final: score,
+    },
+  };
+}
+
+function seedPopularCandidatesFromLegacyRail(): void {
+  if (listPopularCandidates(1).length > 0) {
+    return;
+  }
+  const legacy = listYoutubeRailItems('popular', POPULAR_POOL_TARGET)
+    .filter((item) => item.kind === 'video')
+    .filter((item) => !isLiveVideo(item))
+    .filter((item) => !isShortLikeVideo(item));
+  if (legacy.length === 0) {
+    return;
+  }
+  upsertPopularCandidates(legacy.map((item, index) => ({
+    item,
+    source_region: 'legacy',
+    category_id: '0',
+    category_label: 'all',
+    topic_cluster: topicCluster(item),
+    score: item.score || (1 - index * 0.001),
+    score_breakdown: { source: 'legacy', final: item.score || (1 - index * 0.001) },
+    reason: 'popular:legacy',
+  })));
+}
+
+function isEligiblePopularCandidate(
+  candidate: YoutubePopularCandidate,
+  profile: TasteProfile,
+  subscribed: Set<string>,
+  options: PopularEligibilityOptions,
+): boolean {
+  if (candidate.kind !== 'video') return false;
+  if (profile.watchedIds.has(candidate.id)) return false;
+  if (profile.negativeIds.has(candidate.id)) return false;
+  if (isLiveVideo(candidate)) return false;
+  if (isShortLikeVideo(candidate)) return false;
+  if (isLowSignalYoutubeRecommendation(candidate)) return false;
+  if (!options.allowSavedOrSubscribed && profile.savedIds.has(candidate.id)) return false;
+  if (!options.allowSavedOrSubscribed && isSubscribedChannel(candidate, subscribed)) return false;
+  if (
+    !options.allowRecentExposure
+    && candidate.last_recommended_at !== null
+    && nowMs() - candidate.last_recommended_at < POPULAR_EXPOSURE_COOLDOWN_MS
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function samplingWeightPopular(candidate: ScoredPopularCandidate, reshuffle: boolean): number {
+  return Math.max(0.01, reshuffle ? candidate.score : candidate.score * candidate.score);
+}
+
+function canUsePopularCandidate(
+  candidate: ScoredPopularCandidate,
+  selected: ScoredPopularCandidate[],
+  channelCounts: Map<string, number>,
+  topicCounts: Map<string, number>,
+  categoryCounts: Map<string, number>,
+  maxPerChannel: number,
+  maxPerTopic: number,
+  maxPerCategory: number,
+): boolean {
+  if (selected.some((item) => item.id === candidate.id)) return false;
+  const channel = candidate.channel_id || candidate.channel_title || candidate.id;
+  if ((channelCounts.get(channel) ?? 0) >= maxPerChannel) return false;
+  const cluster = candidate.topic_cluster || candidate.id;
+  if ((topicCounts.get(cluster) ?? 0) >= maxPerTopic) return false;
+  const category = candidate.category_label || 'all';
+  if ((categoryCounts.get(category) ?? 0) >= maxPerCategory) return false;
+  return true;
+}
+
+function weightedPickPopular(
+  candidates: ScoredPopularCandidate[],
+  reshuffle: boolean,
+): ScoredPopularCandidate | null {
+  if (!reshuffle) {
+    return candidates[0] || null;
+  }
+  const total = candidates.reduce((sum, item) => sum + samplingWeightPopular(item, true), 0);
+  if (total <= 0) return candidates[0] || null;
+  let cursor = Math.random() * total;
+  for (const candidate of candidates) {
+    cursor -= samplingWeightPopular(candidate, true);
+    if (cursor <= 0) return candidate;
+  }
+  return candidates[candidates.length - 1] || null;
+}
+
+function addPopularSelection(
+  pool: ScoredPopularCandidate[],
+  selected: ScoredPopularCandidate[],
+  count: number,
+  reshuffle: boolean,
+  channelCounts: Map<string, number>,
+  topicCounts: Map<string, number>,
+  categoryCounts: Map<string, number>,
+  maxPerChannel: number,
+  maxPerTopic: number,
+  maxPerCategory: number,
+): void {
+  while (selected.length < YOUTUBE_RAIL_LIMIT && count > 0) {
+    const eligible = pool.filter((candidate) => (
+      canUsePopularCandidate(
+        candidate,
+        selected,
+        channelCounts,
+        topicCounts,
+        categoryCounts,
+        maxPerChannel,
+        maxPerTopic,
+        maxPerCategory,
+      )
+    ));
+    if (eligible.length === 0) return;
+    const picked = weightedPickPopular(eligible, reshuffle);
+    if (!picked) return;
+    selected.push(picked);
+    const channel = picked.channel_id || picked.channel_title || picked.id;
+    const cluster = picked.topic_cluster || picked.id;
+    const category = picked.category_label || 'all';
+    channelCounts.set(channel, (channelCounts.get(channel) ?? 0) + 1);
+    topicCounts.set(cluster, (topicCounts.get(cluster) ?? 0) + 1);
+    categoryCounts.set(category, (categoryCounts.get(category) ?? 0) + 1);
+    count -= 1;
+  }
+}
+
+function samplePopularCandidates(
+  candidates: ScoredPopularCandidate[],
+  options: YoutubeRailsOptions,
+  maxPerChannel: number,
+  maxPerTopic: number,
+  maxPerCategory: number,
+): ScoredPopularCandidate[] {
+  const selected: ScoredPopularCandidate[] = [];
+  const channelCounts = new Map<string, number>();
+  const topicCounts = new Map<string, number>();
+  const categoryCounts = new Map<string, number>();
+  for (const spec of POPULAR_CATEGORY_SPECS) {
+    addPopularSelection(
+      candidates.filter((candidate) => candidate.category_label === spec.category_label),
+      selected,
+      popularCategoryQuota(spec.category_label),
+      Boolean(options.reshuffle),
+      channelCounts,
+      topicCounts,
+      categoryCounts,
+      maxPerChannel,
+      maxPerTopic,
+      maxPerCategory,
+    );
+  }
+  addPopularSelection(
+    candidates,
+    selected,
+    YOUTUBE_RAIL_LIMIT - selected.length,
+    Boolean(options.reshuffle),
+    channelCounts,
+    topicCounts,
+    categoryCounts,
+    maxPerChannel,
+    maxPerTopic,
+    maxPerCategory,
+  );
+  return selected;
+}
+
+function popularRail(options: YoutubeRailsOptions = {}): YoutubeRail {
+  seedPopularCandidatesFromLegacyRail();
+  const refresh = youtubeRefreshStatus();
+  const profile = buildTasteProfile();
+  const subscribed = subscribedChannelKeys();
+  const scoreCandidates = (
+    allowRecentExposure: boolean,
+    allowSavedOrSubscribed: boolean,
+  ) => (
+    listPopularCandidates(POPULAR_POOL_TARGET)
+      .filter((candidate) => isEligiblePopularCandidate(candidate, profile, subscribed, {
+        allowRecentExposure,
+        allowSavedOrSubscribed,
+      }))
+      .map((candidate): ScoredPopularCandidate => {
+        const spec: PopularQuerySpec = {
+          source_region: candidate.source_region || 'cache',
+          category_id: candidate.category_id || '0',
+          category_label: candidate.category_label || 'all',
+          fetch_limit: POPULAR_FETCH_LIMIT,
+          source_weight: candidate.category_label === 'all' ? 1.2 : 1,
+        };
+        const { score, breakdown } = scorePopularItem(candidate, spec, candidate);
+        return { ...candidate, score, score_breakdown: breakdown };
+      })
+      .sort((left, right) => right.score - left.score)
+  );
+  let candidates = scoreCandidates(false, false);
+  if (candidates.length < YOUTUBE_RAIL_LIMIT) {
+    candidates = scoreCandidates(false, true);
+  }
+  if (candidates.length < YOUTUBE_RAIL_LIMIT) {
+    setYoutubeState('popular_needs_expansion', { at: nowMs(), eligible: candidates.length });
+    candidates = scoreCandidates(true, true);
+  }
+  let selected = samplePopularCandidates(candidates, options, 1, 2, 2);
+  if (selected.length < YOUTUBE_RAIL_LIMIT) {
+    selected = samplePopularCandidates(candidates, options, 2, 3, 3);
+  }
+  if (selected.length < YOUTUBE_RAIL_LIMIT) {
+    selected = samplePopularCandidates(candidates, options, YOUTUBE_RAIL_LIMIT, YOUTUBE_RAIL_LIMIT, YOUTUBE_RAIL_LIMIT);
+  }
+  if (selected.length > 0) {
+    replaceYoutubeRailItems('popular', selected.map((item, index) => ({
+      item,
+      score: item.score,
+      reason: `popular:${item.category_label}:${item.source_region}:${index + 1}`,
+    })));
+    notePopularExposures(selected.map((item) => item.id));
+  }
+  const stale = refresh.last_success_at !== null
+    && refresh.last_success_at < nowMs() - loadYoutubeConfig().stale_after_ms;
+  return {
+    rail_id: 'popular',
+    label: RAIL_LABELS.popular,
+    items: selected.map((item) => ({
+      ...item,
+      reason: item.reason,
+      score: item.score,
+    })),
+    cached: selected.length > 0,
+    stale,
+  };
+}
+
 function seedFreshFindCandidatesFromLegacyRail(): void {
   if (listFreshFindCandidates(1).length > 0) {
     return;
@@ -2274,13 +2619,88 @@ export class YoutubeService {
   }
 
   private async refreshPopularFromApi(): Promise<void> {
-    const popular = await this.api.popular(36);
-    replaceYoutubeRailItems('popular', popular.map((item, index) => ({
-      item,
-      score: 1 - index * 0.01,
-      reason: 'trending fallback',
-    })));
-    setYoutubeState('popular_last_refresh_count', popular.length);
+    const specs = popularQuerySpecs(this.config);
+    const existing = new Map(listPopularCandidates(POPULAR_POOL_TARGET).map((item) => [item.id, item]));
+    const results = await Promise.all(specs.map(async (spec) => {
+      try {
+        const videos = await this.api.popular(spec.fetch_limit, {
+          regionCode: spec.source_region,
+          videoCategoryId: spec.category_id === '0' ? undefined : spec.category_id,
+        });
+        return { ok: true as const, spec, videos, error: null };
+      } catch (error) {
+        return {
+          ok: false as const,
+          spec,
+          videos: [] as YoutubeItem[],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }));
+    const byId = new Map<string, {
+      item: YoutubeItem;
+      spec: PopularQuerySpec;
+      score: number;
+      breakdown: Record<string, number | string>;
+      rank: number;
+    }>();
+    for (const result of results.filter((entry) => entry.ok)) {
+      result.videos.forEach((item, index) => {
+        if (item.kind !== 'video') return;
+        if (isLiveVideo(item)) return;
+        if (isShortLikeVideo(item)) return;
+        if (isLowSignalYoutubeRecommendation(item)) return;
+        const previous = existing.get(item.id);
+        const { score, breakdown } = scorePopularItem(item, result.spec, previous, index);
+        const current = byId.get(item.id);
+        if (!current || score > current.score) {
+          byId.set(item.id, {
+            item,
+            spec: result.spec,
+            score,
+            breakdown,
+            rank: index,
+          });
+        }
+      });
+    }
+    const scored = [...byId.values()]
+      .sort((left, right) => right.score - left.score)
+      .slice(0, POPULAR_POOL_TARGET)
+      .map(({ item, spec, score, breakdown, rank }) => ({
+        item,
+        source_region: spec.source_region,
+        category_id: spec.category_id,
+        category_label: spec.category_label,
+        topic_cluster: topicCluster(item),
+        score,
+        score_breakdown: { ...breakdown, chart_rank: rank },
+        reason: `popular:${spec.category_label}:${spec.source_region}`,
+      }));
+    if (scored.length > 0) {
+      upsertPopularCandidates(scored);
+      prunePopularCandidates(POPULAR_POOL_TARGET);
+      const cache = listPopularCandidates(YOUTUBE_RAIL_POOL_LIMIT);
+      replaceYoutubeRailItems('popular', cache.map((item, index) => ({
+        item,
+        score: item.score,
+        reason: `popular:${item.category_label}:${item.source_region}:${index + 1}`,
+      })));
+    } else if (existing.size === 0) {
+      const failures = results
+        .filter((entry) => !entry.ok)
+        .map((entry) => `${entry.spec.source_region}/${entry.spec.category_label}: ${entry.error || 'failed'}`);
+      throw new CatalogError(502, `Popular refresh failed: ${failures.join('; ') || 'no videos returned'}`);
+    }
+    setYoutubeState('popular_last_refresh_count', scored.length);
+    setYoutubeState('popular_last_regions', popularRegions(this.config));
+    setYoutubeState('popular_last_partial_failures', results
+      .filter((entry) => !entry.ok)
+      .map((entry) => ({
+        region: entry.spec.source_region,
+        category: entry.spec.category_label,
+        error: entry.error,
+      })));
   }
 
   private async refreshLiveNowFromApi(): Promise<void> {
@@ -2715,8 +3135,8 @@ export class YoutubeService {
       freshFindRail(options),
       becauseYouWatchedRail(options),
       liveNowRail(options),
-      cachedRail('popular', options),
-    ].filter((rail) => rail.items.length > 0 || rail.rail_id === 'popular');
+      popularRail(options),
+    ].filter((rail) => rail.items.length > 0);
     return {
       ok: true,
       tab: YOUTUBE_TAB,

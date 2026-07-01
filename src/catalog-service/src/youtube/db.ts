@@ -181,6 +181,26 @@ CREATE TABLE IF NOT EXISTS youtube_live_now_candidates (
   FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS youtube_popular_candidates (
+  kind TEXT NOT NULL DEFAULT 'video',
+  id TEXT NOT NULL,
+  source_region TEXT NOT NULL,
+  category_id TEXT NOT NULL DEFAULT '0',
+  category_label TEXT NOT NULL DEFAULT 'all',
+  topic_cluster TEXT NOT NULL DEFAULT '',
+  score REAL NOT NULL DEFAULT 0,
+  score_breakdown TEXT NOT NULL DEFAULT '{}',
+  reason TEXT,
+  last_recommended_at INTEGER,
+  exposure_count INTEGER NOT NULL DEFAULT 0,
+  ignore_count INTEGER NOT NULL DEFAULT 0,
+  quick_stop_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(kind, id),
+  FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_youtube_items_updated ON youtube_items(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_items_channel ON youtube_items(channel_id, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_rail_added ON youtube_rail_items(rail_id, score DESC, added_at DESC);
@@ -197,6 +217,10 @@ CREATE INDEX IF NOT EXISTS idx_youtube_live_now_score ON youtube_live_now_candid
 CREATE INDEX IF NOT EXISTS idx_youtube_live_now_lane ON youtube_live_now_candidates(source_lane, score DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_live_now_expiry ON youtube_live_now_candidates(expires_at);
 CREATE INDEX IF NOT EXISTS idx_youtube_live_now_exposure ON youtube_live_now_candidates(last_recommended_at);
+CREATE INDEX IF NOT EXISTS idx_youtube_popular_score ON youtube_popular_candidates(score DESC, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_youtube_popular_region ON youtube_popular_candidates(source_region, score DESC);
+CREATE INDEX IF NOT EXISTS idx_youtube_popular_category ON youtube_popular_candidates(category_label, score DESC);
+CREATE INDEX IF NOT EXISTS idx_youtube_popular_exposure ON youtube_popular_candidates(last_recommended_at);
 `);
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (1, ?)')
     .run(nowMs());
@@ -207,6 +231,8 @@ CREATE INDEX IF NOT EXISTS idx_youtube_live_now_exposure ON youtube_live_now_can
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (4, ?)')
     .run(nowMs());
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (5, ?)')
+    .run(nowMs());
+  db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (6, ?)')
     .run(nowMs());
 }
 
@@ -978,6 +1004,151 @@ WHERE rowid NOT IN (
   SELECT rowid
   FROM youtube_live_now_candidates
   ORDER BY expires_at DESC, score DESC, updated_at DESC
+  LIMIT @limit
+);
+`).run({ limit: Math.max(1, Math.min(2000, limit)) });
+}
+
+export type YoutubePopularCandidateInput = {
+  item: YoutubeItem;
+  source_region: string;
+  category_id: string;
+  category_label: string;
+  topic_cluster: string;
+  score: number;
+  score_breakdown?: Record<string, unknown>;
+  reason?: string | null;
+};
+
+export type YoutubePopularCandidate = YoutubeRailItem & {
+  source_region: string;
+  category_id: string;
+  category_label: string;
+  topic_cluster: string;
+  score_breakdown: Record<string, unknown>;
+  last_recommended_at: number | null;
+  exposure_count: number;
+  ignore_count: number;
+  quick_stop_count: number;
+};
+
+export function upsertPopularCandidates(candidates: YoutubePopularCandidateInput[]): void {
+  if (candidates.length === 0) return;
+  const db = ensureDb();
+  const timestamp = nowMs();
+  upsertYoutubeItems(candidates.map((entry) => entry.item));
+  const stmt = db.prepare(`
+INSERT INTO youtube_popular_candidates (
+  kind, id, source_region, category_id, category_label, topic_cluster,
+  score, score_breakdown, reason, created_at, updated_at
+) VALUES (
+  @kind, @id, @source_region, @category_id, @category_label, @topic_cluster,
+  @score, @score_breakdown, @reason, @created_at, @updated_at
+)
+ON CONFLICT(kind, id) DO UPDATE SET
+  source_region = excluded.source_region,
+  category_id = excluded.category_id,
+  category_label = excluded.category_label,
+  topic_cluster = excluded.topic_cluster,
+  score = excluded.score,
+  score_breakdown = excluded.score_breakdown,
+  reason = excluded.reason,
+  updated_at = excluded.updated_at;
+`);
+  const tx = db.transaction(() => {
+    for (const candidate of candidates) {
+      stmt.run({
+        kind: normalizeKind(candidate.item.kind),
+        id: candidate.item.id,
+        source_region: candidate.source_region,
+        category_id: candidate.category_id,
+        category_label: candidate.category_label,
+        topic_cluster: candidate.topic_cluster,
+        score: candidate.score,
+        score_breakdown: JSON.stringify(candidate.score_breakdown || {}),
+        reason: candidate.reason ?? null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+    }
+  });
+  tx();
+}
+
+export function listPopularCandidates(limit = 300): YoutubePopularCandidate[] {
+  const rows = ensureDb().prepare(`
+SELECT
+  yi.id, yi.kind, yi.title, yi.subtitle, yi.description, yi.thumbnail, yi.channel_id,
+  yi.channel_title, yi.published_at, yi.duration_sec, yi.live_status, yi.playlist_id,
+  yi.updated_at, pc.score, pc.reason, pc.source_region, pc.category_id,
+  pc.category_label, pc.topic_cluster, pc.score_breakdown, pc.last_recommended_at,
+  pc.exposure_count, pc.ignore_count, pc.quick_stop_count
+FROM youtube_popular_candidates pc
+JOIN youtube_items yi ON yi.kind = pc.kind AND yi.id = pc.id
+ORDER BY pc.score DESC, pc.updated_at DESC
+LIMIT @limit;
+`).all({ limit: Math.max(1, Math.min(2000, limit)) }) as Array<YoutubePopularCandidate & { score_breakdown: string }>;
+  return rows.map((row) => ({
+    ...row,
+    score_breakdown: parseBreakdown(row.score_breakdown),
+  }));
+}
+
+export function notePopularExposures(ids: string[], at = nowMs()): void {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return;
+  const db = ensureDb();
+  const stmt = db.prepare(`
+UPDATE youtube_popular_candidates
+SET last_recommended_at = @at,
+    exposure_count = exposure_count + 1,
+    ignore_count = ignore_count + 1,
+    updated_at = @at
+WHERE kind = 'video' AND id = @id;
+`);
+  const tx = db.transaction(() => {
+    for (const id of unique) {
+      stmt.run({ id, at });
+    }
+  });
+  tx();
+}
+
+export function setPopularCandidateStats(
+  id: string,
+  stats: Partial<Pick<YoutubePopularCandidate, 'last_recommended_at' | 'exposure_count' | 'ignore_count' | 'quick_stop_count'>>,
+): void {
+  const current = ensureDb().prepare(`
+SELECT last_recommended_at, exposure_count, ignore_count, quick_stop_count
+FROM youtube_popular_candidates
+WHERE kind = 'video' AND id = ?;
+`).get(id) as Pick<YoutubePopularCandidate, 'last_recommended_at' | 'exposure_count' | 'ignore_count' | 'quick_stop_count'> | undefined;
+  if (!current) return;
+  ensureDb().prepare(`
+UPDATE youtube_popular_candidates
+SET last_recommended_at = @last_recommended_at,
+    exposure_count = @exposure_count,
+    ignore_count = @ignore_count,
+    quick_stop_count = @quick_stop_count,
+    updated_at = @updated_at
+WHERE kind = 'video' AND id = @id;
+`).run({
+    id,
+    last_recommended_at: stats.last_recommended_at !== undefined ? stats.last_recommended_at : current.last_recommended_at,
+    exposure_count: stats.exposure_count !== undefined ? stats.exposure_count : current.exposure_count,
+    ignore_count: stats.ignore_count !== undefined ? stats.ignore_count : current.ignore_count,
+    quick_stop_count: stats.quick_stop_count !== undefined ? stats.quick_stop_count : current.quick_stop_count,
+    updated_at: nowMs(),
+  });
+}
+
+export function prunePopularCandidates(limit = 300): void {
+  ensureDb().prepare(`
+DELETE FROM youtube_popular_candidates
+WHERE rowid NOT IN (
+  SELECT rowid
+  FROM youtube_popular_candidates
+  ORDER BY score DESC, updated_at DESC
   LIMIT @limit
 );
 `).run({ limit: Math.max(1, Math.min(2000, limit)) });

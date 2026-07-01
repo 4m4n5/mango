@@ -253,12 +253,16 @@ export class YoutubeApiClient {
     return filtered;
   }
 
-  async popular(limit = 25): Promise<YoutubeItem[]> {
+  async popular(limit = 25, options: {
+    regionCode?: string;
+    videoCategoryId?: string;
+  } = {}): Promise<YoutubeItem[]> {
     const payload = await this.request('videos', {
       part: 'snippet,contentDetails,liveStreamingDetails',
       chart: 'mostPopular',
       maxResults: Math.min(limit, 50),
-      regionCode: this.config.region_code,
+      regionCode: options.regionCode || this.config.region_code,
+      videoCategoryId: options.videoCategoryId,
     }) as { items?: VideoItem[] };
     const items = (payload.items || []).map((entry) => itemFromSnippet('video', entry.id || '', entry.snippet, {
       duration_sec: parseYoutubeDurationSec(entry.contentDetails?.duration),

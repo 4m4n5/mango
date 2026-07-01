@@ -154,6 +154,38 @@ test('playlistItems paginates uploads and enriches videos without search', () =>
   assert.deepEqual(paths, ['playlistItems', 'playlistItems', 'videos']);
 }));
 
+test('popular forwards mostPopular region and category filters', () => withApiTest(async (config) => {
+  let captured: URL | null = null;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    captured = url;
+    assert.ok(url.pathname.endsWith('/videos'));
+    return jsonResponse({
+      items: [{
+        id: 'popular-1',
+        snippet: {
+          title: 'Popular video',
+          channelId: 'channel-1',
+          channelTitle: 'Popular Channel',
+          publishedAt: '2026-07-01T00:00:00Z',
+        },
+        contentDetails: { duration: 'PT10M' },
+      }],
+    });
+  }) as typeof fetch;
+
+  const api = new YoutubeApiClient(config);
+  const videos = await api.popular(12, { regionCode: 'IN', videoCategoryId: '24' });
+  assert.deepEqual(videos.map((video) => video.id), ['popular-1']);
+  assert.ok(captured);
+  const capturedUrl = captured as URL;
+  assert.equal(capturedUrl.searchParams.get('chart'), 'mostPopular');
+  assert.equal(capturedUrl.searchParams.get('regionCode'), 'IN');
+  assert.equal(capturedUrl.searchParams.get('videoCategoryId'), '24');
+  assert.equal(capturedUrl.searchParams.get('maxResults'), '12');
+  assert.equal(youtubeRefreshStatus().quota_used_today, 1);
+}));
+
 test('search forwards Fresh Finds video filters and records quota', () => withApiTest(async (config) => {
   const calls: URL[] = [];
   globalThis.fetch = (async (input: string | URL | Request) => {

@@ -11,10 +11,12 @@ import {
   setFreshFindCandidateStats,
   setForYouCandidateStats,
   setLiveNowCandidateStats,
+  setPopularCandidateStats,
   upsertBecauseYouWatchedCandidates,
   upsertFreshFindCandidates,
   upsertForYouCandidates,
   upsertLiveNowCandidates,
+  upsertPopularCandidates,
 } from './db.js';
 import { YoutubeService } from './service.js';
 import type { YoutubeItem, YoutubeRail } from './types.js';
@@ -101,6 +103,26 @@ function upsertLiveCandidates(items: Array<{
     reason: `live_now:${entry.lane || 'news_events'}`,
     last_verified_at: entry.verifiedAt ?? now,
     expires_at: entry.expiresAt ?? (now + 2 * 60 * 60 * 1000),
+  })));
+}
+
+function upsertPopularCandidatesForTest(items: Array<{
+  item: YoutubeItem;
+  region?: string;
+  categoryId?: string;
+  category?: string;
+  topic?: string;
+  score?: number;
+}>): void {
+  upsertPopularCandidates(items.map((entry, index) => ({
+    item: entry.item,
+    source_region: entry.region || (index % 2 === 0 ? 'US' : 'IN'),
+    category_id: entry.categoryId || '0',
+    category_label: entry.category || 'all',
+    topic_cluster: entry.topic || entry.item.title.toLowerCase().replace(/[^a-z0-9]+/g, ':'),
+    score: entry.score ?? (1 - index * 0.001),
+    score_breakdown: { test: true },
+    reason: `popular:${entry.category || 'all'}`,
   })));
 }
 
@@ -421,6 +443,114 @@ test('YouTube rails return at most nine cards', () => withTempState(async () => 
   }
   const popular = response.rails.find((rail) => rail.rail_id === 'popular');
   assert.equal(popular?.items.length, 9);
+}));
+
+test('popular rail excludes watched saved subscribed live shorts blocked low signal and recent exposure', () => withTempState(async () => {
+  replaceYoutubeRailItems('new_from_subscriptions', [
+    { item: sampleVideo('PopularSubReference', 'none', 'popular-subscribed', 'Subscribed reference'), score: 1, reason: 'subscription' },
+  ]);
+  const eligibleCategories = ['all', 'entertainment', 'music', 'gaming', 'sports', 'education', 'comedy', 'travel_culture', 'science_tech'];
+  const candidates = [
+    sampleVideo('PopularWatched', 'none', 'popular-watched', 'Watched popular'),
+    sampleVideo('PopularSaved', 'none', 'popular-saved', 'Saved popular'),
+    sampleVideo('PopularSubscribed', 'none', 'popular-subscribed', 'Subscribed popular'),
+    sampleVideo('PopularLive', 'live', 'popular-live', 'Live popular'),
+    { ...sampleVideo('PopularShort', 'none', 'popular-short', 'Short popular'), duration_sec: 45 },
+    sampleVideo('PopularLowSignal', 'none', 'popular-low-signal', 'SSC MTS result cutoff popular'),
+    sampleVideo('PopularBlocked', 'none', 'popular-blocked', 'Blocked popular'),
+    sampleVideo('PopularRecent', 'none', 'popular-recent', 'Recent popular'),
+    ...eligibleCategories.map((category, index) => (
+      sampleVideo(`PopularEligible${index}`, 'none', `popular-eligible-${index}`, `Popular eligible ${TOPIC_WORDS[index]}`)
+    )),
+  ];
+  upsertPopularCandidatesForTest(candidates.map((item, index) => ({
+    item,
+    category: index >= 8 ? eligibleCategories[index - 8] : 'all',
+    categoryId: index >= 8 ? String(index - 8) : '0',
+    topic: `popular-filter-${index}`,
+  })));
+  setPopularCandidateStats('PopularRecent', { last_recommended_at: Date.now() });
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'PopularWatched',
+    title: 'Watched popular',
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 1000,
+  });
+  saveLibraryItem({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'PopularSaved',
+    title: 'Saved popular',
+    tab: 'youtube',
+  });
+  const service = new YoutubeService();
+  service.notInterested({ kind: 'video', id: 'PopularBlocked', reason: 'user' });
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'popular');
+  assert.ok(rail);
+  const ids = rail.items.map((item) => item.id);
+  assert.equal(ids.length, 9);
+  assert.ok(!ids.includes('PopularWatched'));
+  assert.ok(!ids.includes('PopularSaved'));
+  assert.ok(!ids.includes('PopularSubscribed'));
+  assert.ok(!ids.includes('PopularLive'));
+  assert.ok(!ids.includes('PopularShort'));
+  assert.ok(!ids.includes('PopularLowSignal'));
+  assert.ok(!ids.includes('PopularBlocked'));
+  assert.ok(!ids.includes('PopularRecent'));
+  assert.ok(ids.every((id) => id.startsWith('PopularEligible')));
+  assert.equal(new Set(rail.items.map((item) => item.channel_id)).size, 9);
+}));
+
+test('popular rail reshuffle samples cached reservoir only and avoids recent exposure', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return apiErrorResponse('should not fetch on shuffle');
+  }) as typeof fetch;
+  const categories = ['all', 'entertainment', 'music', 'gaming', 'sports', 'education', 'comedy', 'travel_culture', 'science_tech'];
+  upsertPopularCandidatesForTest(Array.from({ length: 18 }, (_, index) => ({
+    item: sampleVideo(`PopularShuffle${index}`, 'none', `popular-shuffle-${index}`, `Popular shuffle ${TOPIC_WORDS[index % TOPIC_WORDS.length]}`),
+    category: categories[index % categories.length],
+    categoryId: String(index % categories.length),
+    topic: `popular-shuffle-${index}`,
+    score: 1 - index * 0.001,
+  })));
+  const service = new YoutubeService();
+  const first = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const firstRail = first.rails.find((entry) => entry.rail_id === 'popular');
+  assert.ok(firstRail);
+  assert.equal(firstRail.items.length, 9);
+  const second = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const secondRail = second.rails.find((entry) => entry.rail_id === 'popular');
+  assert.ok(secondRail);
+  assert.equal(secondRail.items.length, 9);
+  const firstIds = new Set(firstRail.items.map((item) => item.id));
+  assert.equal(secondRail.items.some((item) => firstIds.has(item.id)), false);
+  assert.equal(fetchCalls, 0);
+}));
+
+test('popular refresh failure keeps existing reservoir visible', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  upsertPopularCandidatesForTest(Array.from({ length: 9 }, (_, index) => ({
+    item: sampleVideo(`PopularStale${index}`, 'none', `popular-stale-${index}`, `Popular stale ${TOPIC_WORDS[index]}`),
+    category: index === 0 ? 'all' : 'entertainment',
+  })));
+  globalThis.fetch = (async () => apiErrorResponse('quota exceeded')) as typeof fetch;
+
+  const service = new YoutubeService();
+  const refresh = await service.refresh('test_popular_failure');
+  assert.equal(refresh.ok, true);
+  assert.ok(refresh.refresh.phase_results.some((phase) => phase.phase === 'popular' && phase.ok));
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'popular');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.every((item) => item.id.startsWith('PopularStale')));
 }));
 
 test('fresh finds is hidden when empty', () => withTempState(async () => {

@@ -154,6 +154,15 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
   filters Not Interested, Shorts, non-live/ended streams, and low-signal 24/7
   loop/camera/radio-style cards, then renders a diverse 9-card row with a
   6-hour exposure cooldown.
+- Popular on YouTube is Mango's neutral chart baseline, not another personal
+  recommender. Refresh builds a rebuildable reservoir from official
+  `videos.list(chart=mostPopular)` calls across the configured region plus
+  India/US and broad categories; this uses the cheap `videos.list` quota bucket,
+  not the scarce `search.list` bucket. Couch shuffle samples a diverse cached
+  9-card row with a 48-hour exposure cooldown and never calls YouTube APIs.
+- Popular filters watched Mango YouTube videos, Not Interested, live videos,
+  Shorts, low-signal cards, and prefers excluding Saved/subscribed videos when
+  at least 9 alternatives exist.
 - For You is served from a rebuildable local reservoir in `youtube.db`: Mango
   watches/Saved are strongest, subscriptions are light, topic discovery broadens
   the pool, Popular is fallback only, and each render samples a diverse 9-card
@@ -192,6 +201,11 @@ metadata only, scored locally. Refresh spends a bounded discovery budget
 manual/nightly refresh, then serves stale cached results if a later refresh
 fails. The TV UI does not show reason labels; score breakdowns and source
 buckets stay internal for diagnostics.
+
+Popular uses the official `videos.list` most-popular chart only. It is the
+low-quota broad-trending complement to the personalized and discovery rails:
+region/category diversity is cached at refresh time, while watched/Saved/history
+state only cleans up the rendered row.
 
 ---
 
