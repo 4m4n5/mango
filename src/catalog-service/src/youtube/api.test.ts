@@ -240,6 +240,17 @@ test('videos maps live streaming details to live, completed, and upcoming', () =
           actualEndTime: '2026-07-01T01:45:00Z',
         },
       }, {
+        id: 'ended-without-end-time',
+        snippet: {
+          title: 'Ended Without End Time',
+          channelId: 'channel-ended',
+          channelTitle: 'Ended Channel',
+          publishedAt: '2026-07-01T00:00:00Z',
+          liveBroadcastContent: 'none',
+        },
+        contentDetails: { duration: 'PT30M' },
+        liveStreamingDetails: { actualStartTime: '2026-07-01T01:00:00Z' },
+      }, {
         id: 'upcoming-video',
         snippet: {
           title: 'Upcoming Live',
@@ -259,6 +270,7 @@ test('videos maps live streaming details to live, completed, and upcoming', () =
   assert.deepEqual(videos.map((video) => [video.id, video.live_status]), [
     ['live-video', 'live'],
     ['completed-video', 'completed'],
+    ['ended-without-end-time', 'completed'],
     ['upcoming-video', 'upcoming'],
   ]);
 }));

@@ -93,9 +93,14 @@ function liveStatus(value: string | undefined): YoutubeLiveStatus {
 
 function videoLiveStatus(snippet?: Snippet, details?: LiveStreamingDetails): YoutubeLiveStatus {
   if (details?.actualEndTime) return 'completed';
-  if (details?.actualStartTime) return 'live';
+  const snippetStatus = liveStatus(snippet?.liveBroadcastContent);
+  if (snippetStatus === 'live' || snippetStatus === 'upcoming') return snippetStatus;
+  if (snippetStatus === 'none') {
+    return details?.actualStartTime || details?.scheduledStartTime ? 'completed' : 'none';
+  }
+  if (details?.actualStartTime) return details.concurrentViewers ? 'live' : 'completed';
   if (details?.scheduledStartTime) return 'upcoming';
-  return liveStatus(snippet?.liveBroadcastContent);
+  return 'none';
 }
 
 function kindFromSearch(item: SearchItem): YoutubeItemKind | null {
