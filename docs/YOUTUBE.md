@@ -147,9 +147,11 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
   latest meaningful Mango-local YouTube watch, stores follow-up candidates in a
   rebuildable `youtube.db` reservoir, filters watched/live/Shorts/Not Interested
   and low-signal videos, and samples a diverse 9-card row from same-channel,
-  same-topic, deeper-dive, and wildcard follow-ups. Shuffle never calls YouTube.
-  Playback and manual/nightly refresh opportunistically top up this reservoir
-  with bounded official Data API searches.
+  same-topic, deeper-dive, and wildcard follow-ups. Same-channel contributes a
+  familiar anchor, but the rendered row keeps max-one creator when enough
+  distinct creators exist. Shuffle never calls YouTube. Playback and
+  manual/nightly refresh opportunistically top up this reservoir with bounded
+  official Data API searches.
 - Companion account connect uses the HTTPS companion same-origin `/api/catalog/*`
   proxy; direct browser calls to `:3020` are not required.
 

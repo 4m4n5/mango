@@ -79,10 +79,10 @@ const FRESH_FIND_BUCKET_QUOTAS: Record<FreshFindBucket, number> = {
   wildcard: 1,
 };
 const BECAUSE_YOU_WATCHED_RELATION_QUOTAS: Record<BecauseYouWatchedRelation, number> = {
-  same_channel: 3,
+  same_channel: 1,
   same_topic: 3,
-  deeper_dive: 2,
-  wildcard: 1,
+  deeper_dive: 3,
+  wildcard: 2,
 };
 const SHUFFLEABLE_YOUTUBE_RAILS = new Set([
   'for_you',
@@ -1543,11 +1543,23 @@ function canUseBecauseYouWatchedCandidate(
   maxPerTopic: number,
 ): boolean {
   if (selected.some((item) => item.id === candidate.id)) return false;
-  const channel = candidate.channel_id || candidate.channel_title || candidate.id;
+  const channel = becauseCandidateChannel(candidate);
   if ((channelCounts.get(channel) ?? 0) >= maxPerChannel) return false;
-  const cluster = candidate.topic_cluster || candidate.id;
+  const cluster = becauseCandidateTopic(candidate);
   if ((topicCounts.get(cluster) ?? 0) >= maxPerTopic) return false;
   return true;
+}
+
+function becauseCandidateChannel(candidate: YoutubeItem): string {
+  return candidate.channel_id || candidate.channel_title || candidate.id;
+}
+
+function becauseCandidateTopic(candidate: ScoredBecauseYouWatchedCandidate): string {
+  return candidate.topic_cluster || candidate.id;
+}
+
+function distinctBecauseChannels(candidates: ScoredBecauseYouWatchedCandidate[]): number {
+  return new Set(candidates.map(becauseCandidateChannel)).size;
 }
 
 function weightedPickBecause(
@@ -1582,8 +1594,8 @@ function addBecauseYouWatchedSelection(
     const picked = weightedPickBecause(eligible, reshuffle);
     if (!picked) return;
     selected.push(picked);
-    const channel = picked.channel_id || picked.channel_title || picked.id;
-    const cluster = picked.topic_cluster || picked.id;
+    const channel = becauseCandidateChannel(picked);
+    const cluster = becauseCandidateTopic(picked);
     channelCounts.set(channel, (channelCounts.get(channel) ?? 0) + 1);
     topicCounts.set(cluster, (topicCounts.get(cluster) ?? 0) + 1);
     count -= 1;
@@ -1677,11 +1689,18 @@ function becauseYouWatchedRail(options: YoutubeRailsOptions = {}): YoutubeRail {
   if (candidates.length < YOUTUBE_RAIL_LIMIT) {
     candidates = scoreCandidates(true, true, true);
   }
-  let selected = sampleBecauseYouWatchedCandidates(candidates, options, 2, 2);
+  const strictChannelLimit = distinctBecauseChannels(candidates) >= YOUTUBE_RAIL_LIMIT ? 1 : 2;
+  let selected = sampleBecauseYouWatchedCandidates(candidates, options, strictChannelLimit, 2);
   if (selected.length < YOUTUBE_RAIL_LIMIT) {
-    selected = sampleBecauseYouWatchedCandidates(candidates, options, 3, 3);
+    selected = sampleBecauseYouWatchedCandidates(candidates, options, strictChannelLimit, 3);
   }
   if (selected.length < YOUTUBE_RAIL_LIMIT) {
+    selected = sampleBecauseYouWatchedCandidates(candidates, options, strictChannelLimit, YOUTUBE_RAIL_LIMIT);
+  }
+  if (selected.length < YOUTUBE_RAIL_LIMIT && strictChannelLimit > 1) {
+    selected = sampleBecauseYouWatchedCandidates(candidates, options, 3, YOUTUBE_RAIL_LIMIT);
+  }
+  if (selected.length < YOUTUBE_RAIL_LIMIT && strictChannelLimit > 1) {
     selected = sampleBecauseYouWatchedCandidates(candidates, options, YOUTUBE_RAIL_LIMIT, YOUTUBE_RAIL_LIMIT);
   }
   if (selected.length > 0) {

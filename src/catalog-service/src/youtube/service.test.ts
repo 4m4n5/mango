@@ -954,7 +954,7 @@ test('because you watched enforces channel and topic diversity before relaxing',
   const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
   assert.ok(rail);
   assert.equal(rail.items.length, 9);
-  assert.ok(rail.items.filter((item) => item.channel_id === 'same-channel').length <= 2);
+  assert.ok(rail.items.filter((item) => item.channel_id === 'same-channel').length <= 1);
   assert.ok(rail.items.filter((item) => item.title.startsWith('Mango shared topic')).length <= 2);
 }));
 

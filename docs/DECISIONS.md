@@ -105,7 +105,7 @@ Locked choices. Update when changing behavior.
 | YouTube history policy | History is Mango-local only; default shows latest 9 unique videos watched in Mango, shuffle samples 9 random videos from the full local YouTube watch set |
 | YouTube For You policy | Mango-owned reservoir in `youtube.db`; long-watch optimized, medium-first, no Shorts/live/watched videos, 5 familiar + 3 discovery + 1 wildcard, 7-day exposure cooldown |
 | YouTube Fresh Finds policy | Mango-owned broad-discovery reservoir in `youtube.db`; official-API refresh only, no couch-time API calls, no watched/Not Interested/live/Shorts, prefer non-Saved/non-subscribed alternatives, 14-day exposure cooldown |
-| YouTube Because You Watched policy | Seed-scoped reservoir in `youtube.db` based on latest meaningful Mango-local YouTube watch; same-channel/same-topic/deeper-dive/wildcard follow-ups; no watched/live/Shorts/Not Interested cards; shuffle is cache-only |
+| YouTube Because You Watched policy | Seed-scoped reservoir in `youtube.db` based on latest meaningful Mango-local YouTube watch; one same-channel anchor plus same-topic/deeper-dive/wildcard follow-ups; max-one creator when enough distinct creators exist; no watched/live/Shorts/Not Interested cards; shuffle is cache-only |
 | YouTube native recommendations | Exact native YouTube home/recommended feed is not available through supported Data API routes; any raw-feed experiment must be explicit opt-in and isolated from Mango-owned recommender rails |
 | 4K | Ship profile on target TV; relax filters in `catalog-filters.json` |
 | Deploy | `install.sh` wizard — no SSH for household setup |
