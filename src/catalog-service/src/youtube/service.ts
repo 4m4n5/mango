@@ -12,24 +12,29 @@ import {
   setLibraryFeedback,
   type LibraryItemInput,
 } from '../library/db.js';
-import { YoutubeApiClient } from './api.js';
+import { YoutubeApiClient, type YoutubeChannelStats } from './api.js';
 import { clearYoutubeAuth, pollYoutubeDeviceAuth, startYoutubeDeviceAuth, youtubeAccessToken, youtubeAuthSummary } from './auth.js';
 import { loadYoutubeConfig, type YoutubeConfig } from './config.js';
 import {
   getYoutubeItem,
   getYoutubeState,
   initYoutubeDb,
+  listFreshFindCandidates,
   listForYouCandidates,
   listYoutubeItems,
   listYoutubeRailItems,
+  noteFreshFindExposures,
   noteForYouExposures,
+  pruneFreshFindCandidates,
   replaceYoutubeRailItems,
   searchCachedYoutubeItems,
   setYoutubeState,
+  upsertFreshFindCandidates,
   upsertForYouCandidates,
   upsertYoutubeItems,
   youtubeCacheSummary,
   youtubeRefreshStatus,
+  type YoutubeFreshFindCandidate,
   type YoutubeForYouCandidate,
 } from './db.js';
 import { resolveYoutubePlayback } from './playback.js';
@@ -48,9 +53,19 @@ const SUBSCRIPTION_RAIL_POOL_LIMIT = 160;
 const FOR_YOU_RESERVOIR_TARGET = 1000;
 const FOR_YOU_EXPOSURE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const FOR_YOU_SEARCH_HISTORY_LIMIT = 20;
+const FRESH_FIND_POOL_TARGET = 300;
+const FRESH_FIND_SEARCH_BUDGET = 24;
+const FRESH_FIND_EXPOSURE_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
 const FOR_YOU_LANE_QUOTAS: Record<ForYouLane, number> = {
   familiar: 5,
   discovery: 3,
+  wildcard: 1,
+};
+const FRESH_FIND_BUCKET_QUOTAS: Record<FreshFindBucket, number> = {
+  taste_adjacent: 3,
+  quality_fresh: 3,
+  emerging_creator: 1,
+  zeitgeist_light: 1,
   wildcard: 1,
 };
 const SHUFFLEABLE_YOUTUBE_RAILS = new Set([
@@ -87,13 +102,6 @@ const RAIL_LABELS: Record<string, string> = {
   popular: 'Popular on YouTube',
 };
 
-const FRESH_FIND_QUERIES = [
-  'documentary essay',
-  'technology deep dive',
-  'travel food culture',
-  'live music performance',
-];
-
 type RefreshResult = {
   ok: boolean;
   refresh: ReturnType<typeof youtubeRefreshStatus>;
@@ -106,6 +114,7 @@ type YoutubeRailsOptions = {
 
 type ForYouLane = 'familiar' | 'discovery' | 'wildcard';
 type ForYouSource = 'history' | 'saved' | 'subscription' | 'discovery' | 'popular' | 'wildcard';
+type FreshFindBucket = 'quality_fresh' | 'taste_adjacent' | 'emerging_creator' | 'zeitgeist_light' | 'wildcard';
 
 type RecentYoutubeSearch = {
   query: string;
@@ -127,6 +136,43 @@ type ScoredForYouCandidate = YoutubeForYouCandidate & {
   score: number;
   score_breakdown: Record<string, number | string>;
 };
+
+type ScoredFreshFindCandidate = YoutubeFreshFindCandidate & {
+  score: number;
+  score_breakdown: Record<string, number | string>;
+};
+
+type FreshFindQuerySpec = {
+  query: string;
+  source_bucket: FreshFindBucket;
+  order: 'date' | 'relevance' | 'viewCount';
+  limit: number;
+  publishedAfterDays?: number;
+  videoDuration?: 'medium' | 'long';
+  videoDefinition?: 'high';
+  topicId?: string;
+};
+
+const BASE_FRESH_FIND_QUERY_SPECS: FreshFindQuerySpec[] = [
+  { query: 'documentary essay', source_bucket: 'quality_fresh', order: 'date', limit: 8, publishedAfterDays: 45, videoDuration: 'long', videoDefinition: 'high', topicId: '/m/01k8wb' },
+  { query: 'technology deep dive', source_bucket: 'quality_fresh', order: 'date', limit: 8, publishedAfterDays: 60, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/07c1v' },
+  { query: 'science explained', source_bucket: 'quality_fresh', order: 'relevance', limit: 8, publishedAfterDays: 90, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/01k8wb' },
+  { query: 'film video essay', source_bucket: 'quality_fresh', order: 'date', limit: 8, publishedAfterDays: 90, videoDuration: 'long', videoDefinition: 'high', topicId: '/m/02vxn' },
+  { query: 'food travel culture', source_bucket: 'quality_fresh', order: 'date', limit: 8, publishedAfterDays: 90, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/02wbm' },
+  { query: 'longform interview', source_bucket: 'quality_fresh', order: 'relevance', limit: 8, publishedAfterDays: 120, videoDuration: 'long', videoDefinition: 'high' },
+  { query: 'standup comedy storytelling', source_bucket: 'quality_fresh', order: 'date', limit: 8, publishedAfterDays: 90, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/09kqc' },
+  { query: 'live music performance -live', source_bucket: 'quality_fresh', order: 'date', limit: 8, publishedAfterDays: 120, videoDuration: 'long', videoDefinition: 'high', topicId: '/m/04rlf' },
+  { query: 'independent documentary', source_bucket: 'emerging_creator', order: 'date', limit: 8, publishedAfterDays: 45, videoDuration: 'medium', videoDefinition: 'high' },
+  { query: 'small channel science explained', source_bucket: 'emerging_creator', order: 'date', limit: 8, publishedAfterDays: 60, videoDuration: 'medium', videoDefinition: 'high' },
+  { query: 'independent filmmaker essay', source_bucket: 'emerging_creator', order: 'date', limit: 8, publishedAfterDays: 90, videoDuration: 'medium', videoDefinition: 'high' },
+  { query: 'new creator travel story', source_bucket: 'emerging_creator', order: 'date', limit: 8, publishedAfterDays: 60, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/07bxq' },
+  { query: 'technology news explained', source_bucket: 'zeitgeist_light', order: 'date', limit: 8, publishedAfterDays: 21, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/07c1v' },
+  { query: 'movie trailer analysis', source_bucket: 'zeitgeist_light', order: 'date', limit: 8, publishedAfterDays: 30, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/02vxn' },
+  { query: 'cricket analysis', source_bucket: 'zeitgeist_light', order: 'date', limit: 8, publishedAfterDays: 21, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/09xp_' },
+  { query: 'india culture explained', source_bucket: 'zeitgeist_light', order: 'date', limit: 8, publishedAfterDays: 45, videoDuration: 'medium', videoDefinition: 'high' },
+  { query: 'unexpected history documentary', source_bucket: 'wildcard', order: 'relevance', limit: 8, publishedAfterDays: 180, videoDuration: 'long', videoDefinition: 'high', topicId: '/m/01k8wb' },
+  { query: 'creative engineering project', source_bucket: 'wildcard', order: 'relevance', limit: 8, publishedAfterDays: 180, videoDuration: 'medium', videoDefinition: 'high', topicId: '/m/03glg' },
+];
 
 function nowMs(): number {
   return Date.now();
@@ -714,8 +760,311 @@ function forYouDiscoveryQueries(): string[] {
   for (let index = 0; index < tokens.length - 1; index += 2) {
     queries.push(`${tokens[index]} ${tokens[index + 1]}`);
   }
-  queries.push(...FRESH_FIND_QUERIES);
+  queries.push(...BASE_FRESH_FIND_QUERY_SPECS.map((spec) => spec.query));
   return [...new Set(queries.map((query) => query.trim()).filter(Boolean))].slice(0, 4);
+}
+
+function rfc3339DaysAgo(days: number): string {
+  return new Date(nowMs() - days * 86_400_000).toISOString();
+}
+
+function freshFindQuerySpecs(profile: TasteProfile): FreshFindQuerySpec[] {
+  const tasteSpecs: FreshFindQuerySpec[] = [];
+  const tokens = topProfileTokens(profile, 12);
+  for (let index = 0; index < tokens.length - 1; index += 2) {
+    tasteSpecs.push({
+      query: `${tokens[index]} ${tokens[index + 1]} explained`,
+      source_bucket: 'taste_adjacent',
+      order: index % 4 === 0 ? 'relevance' : 'date',
+      limit: 8,
+      publishedAfterDays: 120,
+      videoDuration: index % 3 === 0 ? 'long' : 'medium',
+      videoDefinition: 'high',
+    });
+  }
+  return [...tasteSpecs, ...BASE_FRESH_FIND_QUERY_SPECS]
+    .filter((spec, index, all) => all.findIndex((entry) => entry.query === spec.query) === index)
+    .slice(0, FRESH_FIND_SEARCH_BUDGET);
+}
+
+function freshBucketWeight(bucket: FreshFindBucket): number {
+  if (bucket === 'taste_adjacent') return 0.65;
+  if (bucket === 'quality_fresh') return 0.55;
+  if (bucket === 'emerging_creator') return 0.45;
+  if (bucket === 'zeitgeist_light') return 0.35;
+  return 0.22;
+}
+
+function creatorSizeScore(stats: YoutubeChannelStats | null | undefined): number {
+  if (!stats || stats.hidden_subscriber_count || stats.subscriber_count === null) {
+    return 0.12;
+  }
+  const subscribers = stats.subscriber_count;
+  if (subscribers <= 500_000) return 0.45;
+  if (subscribers <= 2_000_000) return 0.25;
+  if (subscribers >= 10_000_000) return -0.12;
+  return 0.08;
+}
+
+function freshNoveltyScore(item: YoutubeItem, profile: TasteProfile): number {
+  const channel = item.channel_id || item.channel_title || '';
+  const channelKnown = channel ? profile.positiveChannels.has(channel) : false;
+  const topic = tokenAffinity(item, profile);
+  if (!channelKnown && topic > 0) return 0.5;
+  if (!channelKnown) return 0.35;
+  return 0.05;
+}
+
+function scoreFreshFindItem(
+  item: YoutubeItem,
+  bucket: FreshFindBucket,
+  profile: TasteProfile,
+  stats: Pick<YoutubeFreshFindCandidate, 'exposure_count' | 'ignore_count' | 'quick_stop_count'> = {
+    exposure_count: 0,
+    ignore_count: 0,
+    quick_stop_count: 0,
+  },
+  creatorStats?: YoutubeChannelStats | null,
+): { score: number; breakdown: Record<string, number | string> } {
+  const freshness = recencyScore(item) * 0.95;
+  const duration = durationFitScore(item) * 0.75;
+  const quality = metadataQualityScore(item) * 0.5;
+  const taste = tokenAffinity(item, profile) * 0.22;
+  const novelty = freshNoveltyScore(item, profile);
+  const source = freshBucketWeight(bucket);
+  const creator = creatorSizeScore(creatorStats);
+  const negative = negativeSimilarity(item, profile) * 0.95;
+  const exposure = Math.min(1.5, stats.exposure_count * 0.08 + stats.ignore_count * 0.08);
+  const quickStop = Math.min(0.8, stats.quick_stop_count * 0.2);
+  const raw = 1 + freshness + duration + quality + taste + novelty + source + creator
+    - negative - exposure - quickStop;
+  const score = Math.max(0.01, raw);
+  return {
+    score,
+    breakdown: {
+      bucket,
+      freshness,
+      duration,
+      quality,
+      taste,
+      novelty,
+      source,
+      creator,
+      negative,
+      exposure,
+      quick_stop: quickStop,
+      final: score,
+    },
+  };
+}
+
+function subscribedChannelKeys(): Set<string> {
+  const keys = new Set<string>();
+  for (const item of listYoutubeRailItems('new_from_subscriptions', SUBSCRIPTION_RAIL_POOL_LIMIT)) {
+    if (item.channel_id) keys.add(`id:${item.channel_id}`);
+    if (item.channel_title) keys.add(`title:${item.channel_title}`);
+  }
+  return keys;
+}
+
+function isSubscribedChannel(item: YoutubeItem, subscribed: Set<string>): boolean {
+  return Boolean(
+    (item.channel_id && subscribed.has(`id:${item.channel_id}`))
+    || (item.channel_title && subscribed.has(`title:${item.channel_title}`)),
+  );
+}
+
+function seedFreshFindCandidatesFromLegacyRail(): void {
+  if (listFreshFindCandidates(1).length > 0) {
+    return;
+  }
+  const legacy = listYoutubeRailItems('fresh_finds', FRESH_FIND_POOL_TARGET);
+  if (legacy.length === 0) {
+    return;
+  }
+  upsertFreshFindCandidates(legacy.map((item, index) => ({
+    item,
+    source_bucket: 'quality_fresh',
+    query: 'legacy',
+    topic_cluster: topicCluster(item),
+    score: item.score || (1 - index * 0.001),
+    score_breakdown: { source: 'legacy', final: item.score || (1 - index * 0.001) },
+    reason: 'fresh_find:legacy',
+  })));
+}
+
+function isEligibleFreshFindCandidate(
+  candidate: YoutubeFreshFindCandidate,
+  profile: TasteProfile,
+  subscribed: Set<string>,
+  options: { allowRecentExposure: boolean; allowSavedOrSubscribed: boolean },
+): boolean {
+  if (candidate.kind !== 'video') return false;
+  if (profile.watchedIds.has(candidate.id)) return false;
+  if (profile.negativeIds.has(candidate.id)) return false;
+  if (isLiveVideo(candidate)) return false;
+  if (isShortLikeVideo(candidate)) return false;
+  if (!options.allowSavedOrSubscribed && profile.savedIds.has(candidate.id)) return false;
+  if (!options.allowSavedOrSubscribed && isSubscribedChannel(candidate, subscribed)) return false;
+  if (
+    !options.allowRecentExposure
+    && candidate.last_recommended_at !== null
+    && nowMs() - candidate.last_recommended_at < FRESH_FIND_EXPOSURE_COOLDOWN_MS
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function samplingWeightFresh(candidate: ScoredFreshFindCandidate, reshuffle: boolean): number {
+  return Math.max(0.01, reshuffle ? candidate.score : candidate.score * candidate.score);
+}
+
+function canUseFreshFindCandidate(
+  candidate: ScoredFreshFindCandidate,
+  selected: ScoredFreshFindCandidate[],
+  channelCounts: Map<string, number>,
+  topicCounts: Map<string, number>,
+  maxPerChannel: number,
+  maxPerTopic: number,
+): boolean {
+  if (selected.some((item) => item.id === candidate.id)) return false;
+  const channel = candidate.channel_id || candidate.channel_title || candidate.id;
+  if ((channelCounts.get(channel) ?? 0) >= maxPerChannel) return false;
+  const cluster = candidate.topic_cluster || candidate.id;
+  if ((topicCounts.get(cluster) ?? 0) >= maxPerTopic) return false;
+  return true;
+}
+
+function weightedPickFreshFind(
+  candidates: ScoredFreshFindCandidate[],
+  reshuffle: boolean,
+): ScoredFreshFindCandidate | null {
+  const total = candidates.reduce((sum, item) => sum + samplingWeightFresh(item, reshuffle), 0);
+  if (total <= 0) return candidates[0] || null;
+  let cursor = Math.random() * total;
+  for (const candidate of candidates) {
+    cursor -= samplingWeightFresh(candidate, reshuffle);
+    if (cursor <= 0) return candidate;
+  }
+  return candidates[candidates.length - 1] || null;
+}
+
+function addFreshFindSelection(
+  pool: ScoredFreshFindCandidate[],
+  selected: ScoredFreshFindCandidate[],
+  count: number,
+  reshuffle: boolean,
+  channelCounts: Map<string, number>,
+  topicCounts: Map<string, number>,
+  maxPerChannel: number,
+  maxPerTopic: number,
+): void {
+  while (selected.length < YOUTUBE_RAIL_LIMIT && count > 0) {
+    const eligible = pool.filter((candidate) => (
+      canUseFreshFindCandidate(candidate, selected, channelCounts, topicCounts, maxPerChannel, maxPerTopic)
+    ));
+    if (eligible.length === 0) return;
+    const picked = weightedPickFreshFind(eligible, reshuffle);
+    if (!picked) return;
+    selected.push(picked);
+    const channel = picked.channel_id || picked.channel_title || picked.id;
+    const cluster = picked.topic_cluster || picked.id;
+    channelCounts.set(channel, (channelCounts.get(channel) ?? 0) + 1);
+    topicCounts.set(cluster, (topicCounts.get(cluster) ?? 0) + 1);
+    count -= 1;
+  }
+}
+
+function sampleFreshFindCandidates(
+  candidates: ScoredFreshFindCandidate[],
+  options: YoutubeRailsOptions,
+  maxPerChannel: number,
+  maxPerTopic: number,
+): ScoredFreshFindCandidate[] {
+  const selected: ScoredFreshFindCandidate[] = [];
+  const channelCounts = new Map<string, number>();
+  const topicCounts = new Map<string, number>();
+  for (const bucket of ['taste_adjacent', 'quality_fresh', 'emerging_creator', 'zeitgeist_light', 'wildcard'] as FreshFindBucket[]) {
+    addFreshFindSelection(
+      candidates.filter((candidate) => candidate.source_bucket === bucket),
+      selected,
+      FRESH_FIND_BUCKET_QUOTAS[bucket],
+      Boolean(options.reshuffle),
+      channelCounts,
+      topicCounts,
+      maxPerChannel,
+      maxPerTopic,
+    );
+  }
+  addFreshFindSelection(
+    candidates,
+    selected,
+    YOUTUBE_RAIL_LIMIT - selected.length,
+    Boolean(options.reshuffle),
+    channelCounts,
+    topicCounts,
+    maxPerChannel,
+    maxPerTopic,
+  );
+  return selected;
+}
+
+function freshFindRail(options: YoutubeRailsOptions = {}): YoutubeRail {
+  seedFreshFindCandidatesFromLegacyRail();
+  const refresh = youtubeRefreshStatus();
+  const profile = buildTasteProfile();
+  const subscribed = subscribedChannelKeys();
+  const scoreCandidates = (allowRecentExposure: boolean, allowSavedOrSubscribed: boolean) => (
+    listFreshFindCandidates(FRESH_FIND_POOL_TARGET)
+      .filter((candidate) => isEligibleFreshFindCandidate(candidate, profile, subscribed, {
+        allowRecentExposure,
+        allowSavedOrSubscribed,
+      }))
+      .map((candidate): ScoredFreshFindCandidate => {
+        const bucket = (candidate.source_bucket || 'wildcard') as FreshFindBucket;
+        const { score, breakdown } = scoreFreshFindItem(candidate, bucket, profile, candidate, {
+          subscriber_count: candidate.creator_subscriber_count,
+          video_count: candidate.creator_video_count,
+          view_count: null,
+          hidden_subscriber_count: candidate.creator_subscriber_count === null,
+        });
+        return { ...candidate, score, score_breakdown: breakdown };
+      })
+      .sort((left, right) => right.score - left.score)
+  );
+  let candidates = scoreCandidates(false, false);
+  if (candidates.length < YOUTUBE_RAIL_LIMIT) {
+    candidates = scoreCandidates(false, true);
+  }
+  if (candidates.length < YOUTUBE_RAIL_LIMIT) {
+    candidates = scoreCandidates(true, true);
+  }
+  let selected = sampleFreshFindCandidates(candidates, options, 1, 2);
+  if (selected.length < YOUTUBE_RAIL_LIMIT) {
+    selected = sampleFreshFindCandidates(candidates, options, 2, 3);
+  }
+  if (selected.length > 0) {
+    replaceYoutubeRailItems('fresh_finds', selected.map((item, index) => ({
+      item,
+      score: item.score,
+      reason: `fresh_find:${item.source_bucket}:${index + 1}`,
+    })));
+    noteFreshFindExposures(selected.map((item) => item.id));
+  }
+  const stale = refresh.last_success_at !== null
+    && refresh.last_success_at < nowMs() - loadYoutubeConfig().stale_after_ms;
+  return {
+    rail_id: 'fresh_finds',
+    label: RAIL_LABELS.fresh_finds,
+    items: selected.map((item) => ({
+      ...item,
+      reason: item.reason,
+      score: item.score,
+    })),
+    cached: selected.length > 0,
+    stale,
+  };
 }
 
 function samplingWeight(candidate: ScoredForYouCandidate, reshuffle: boolean): number {
@@ -1047,6 +1396,94 @@ export class YoutubeService {
     );
   }
 
+  private async refreshFreshFindsFromApi(): Promise<void> {
+    if (!this.config.api_key) {
+      return;
+    }
+    const profile = buildTasteProfile();
+    const specs = freshFindQuerySpecs(profile);
+    if (specs.length === 0) {
+      return;
+    }
+    const groups = await Promise.all(
+      specs.map(async (spec) => ({
+        spec,
+        groups: await this.api.search(spec.query, {
+          limit: spec.limit,
+          order: spec.order,
+          type: 'video',
+          publishedAfter: spec.publishedAfterDays ? rfc3339DaysAgo(spec.publishedAfterDays) : undefined,
+          videoDuration: spec.videoDuration,
+          videoDefinition: spec.videoDefinition,
+          topicId: spec.topicId,
+          safeSearch: 'moderate',
+        }).catch(() => ({ videos: [], channels: [], playlists: [] })),
+      })),
+    );
+    const byId = new Map<string, { item: YoutubeItem; spec: FreshFindQuerySpec }>();
+    const bucketPriority: Record<FreshFindBucket, number> = {
+      taste_adjacent: 5,
+      quality_fresh: 4,
+      emerging_creator: 3,
+      zeitgeist_light: 2,
+      wildcard: 1,
+    };
+    for (const entry of groups) {
+      for (const item of entry.groups.videos) {
+        const current = byId.get(item.id);
+        if (!current || bucketPriority[entry.spec.source_bucket] > bucketPriority[current.spec.source_bucket]) {
+          byId.set(item.id, { item, spec: entry.spec });
+        }
+      }
+    }
+    const items = [...byId.values()]
+      .map((entry) => entry.item)
+      .filter((item) => item.kind === 'video')
+      .filter((item) => !profile.watchedIds.has(item.id))
+      .filter((item) => !profile.negativeIds.has(item.id))
+      .filter((item) => !isLiveVideo(item))
+      .filter((item) => !isShortLikeVideo(item));
+    if (items.length === 0) {
+      return;
+    }
+    const channelIds = [...new Set(items.map((item) => item.channel_id).filter((id): id is string => Boolean(id)))];
+    const channelStats = await this.api.channelStats(channelIds).catch(() => new Map<string, YoutubeChannelStats>());
+    const existing = new Map(listFreshFindCandidates(FRESH_FIND_POOL_TARGET).map((item) => [item.id, item]));
+    const scored = items.map((item) => {
+      const spec = byId.get(item.id)?.spec || {
+        query: '',
+        source_bucket: 'wildcard',
+        order: 'relevance',
+        limit: 8,
+      } satisfies FreshFindQuerySpec;
+      const stats = channelStats.get(item.channel_id || '');
+      const previous = existing.get(item.id);
+      const { score, breakdown } = scoreFreshFindItem(item, spec.source_bucket, profile, previous, stats);
+      return {
+        item,
+        source_bucket: spec.source_bucket,
+        query: spec.query,
+        topic_cluster: topicCluster(item),
+        score,
+        score_breakdown: breakdown,
+        reason: `fresh_find:${spec.source_bucket}`,
+        creator_subscriber_count: stats?.subscriber_count ?? null,
+        creator_video_count: stats?.video_count ?? null,
+      };
+    })
+      .sort((left, right) => right.score - left.score)
+      .slice(0, FRESH_FIND_POOL_TARGET);
+    upsertFreshFindCandidates(scored);
+    pruneFreshFindCandidates(FRESH_FIND_POOL_TARGET);
+    const cache = listFreshFindCandidates(YOUTUBE_RAIL_POOL_LIMIT);
+    replaceYoutubeRailItems('fresh_finds', cache.map((item, index) => ({
+      item,
+      score: item.score,
+      reason: `fresh_find:${item.source_bucket}:${index + 1}`,
+    })));
+    setYoutubeState('fresh_finds_last_refresh_count', scored.length);
+  }
+
   private async refreshSubscriptionsFromApi(token: string): Promise<void> {
     const subscriptions = await this.api.subscriptions(
       token,
@@ -1104,19 +1541,7 @@ export class YoutubeService {
         reason: 'trending fallback',
       })));
 
-      const freshGroups = await Promise.all(
-        FRESH_FIND_QUERIES.map((query) => this.api.search(query, { limit: 10 }).catch(() => ({
-          videos: [],
-          channels: [],
-          playlists: [],
-        }))),
-      );
-      const fresh = uniqueVideos(freshGroups.flatMap((group) => group.videos));
-      replaceYoutubeRailItems('fresh_finds', fresh.map((item, index) => ({
-        item,
-        score: 1 - index * 0.01,
-        reason: 'fresh broad discovery',
-      })));
+      await this.refreshFreshFindsFromApi();
 
       const liveGroups = await this.api.search('news|music|gaming', { limit: 25, eventType: 'live' })
         .catch(() => ({ videos: [], channels: [], playlists: [] }));
@@ -1163,13 +1588,13 @@ export class YoutubeService {
     const rails: YoutubeRail[] = [
       savedRail(),
       historyRail(options),
-      forYouRail(options),
-      subscriptionRail(options),
-      cachedRail('fresh_finds', options),
-      cachedRail('because_you_watched', options),
-      cachedRail('live_now', options),
-      cachedRail('popular', options),
-    ].filter((rail) => rail.items.length > 0 || rail.rail_id === 'fresh_finds' || rail.rail_id === 'popular');
+	      forYouRail(options),
+	      subscriptionRail(options),
+	      freshFindRail(options),
+	      cachedRail('because_you_watched', options),
+	      cachedRail('live_now', options),
+	      cachedRail('popular', options),
+	    ].filter((rail) => rail.items.length > 0 || rail.rail_id === 'popular');
     return {
       ok: true,
       tab: YOUTUBE_TAB,

@@ -34,9 +34,22 @@ type ChannelItem = {
       uploads?: string;
     };
   };
+  statistics?: {
+    subscriberCount?: string;
+    videoCount?: string;
+    viewCount?: string;
+    hiddenSubscriberCount?: boolean;
+  };
 };
 
 export type YoutubeSubscriptionOrder = 'alphabetical' | 'relevance' | 'unread';
+
+export type YoutubeChannelStats = {
+  subscriber_count: number | null;
+  video_count: number | null;
+  view_count: number | null;
+  hidden_subscriber_count: boolean;
+};
 
 function requireApiKey(config: YoutubeConfig): string {
   if (!config.api_key) {
@@ -116,6 +129,11 @@ function isShortLike(item: YoutubeItem): boolean {
   return /(^|\s)#shorts?\b/i.test(`${item.title} ${item.description || ''}`);
 }
 
+function nullableNumber(value: string | undefined): number | null {
+  const parsed = Number(value || Number.NaN);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export class YoutubeApiClient {
   constructor(private readonly config: YoutubeConfig) {}
 
@@ -149,18 +167,34 @@ export class YoutubeApiClient {
     channelId?: string;
     order?: 'date' | 'relevance' | 'viewCount';
     type?: 'video' | 'channel' | 'playlist';
+    publishedAfter?: string;
+    videoDuration?: 'any' | 'long' | 'medium' | 'short';
+    videoDefinition?: 'any' | 'high' | 'standard';
+    topicId?: string;
+    safeSearch?: 'moderate' | 'none' | 'strict';
   } = {}): Promise<YoutubeSearchGroups> {
+    const type = options.eventType
+      || options.publishedAfter
+      || options.videoDuration
+      || options.videoDefinition
+      || options.topicId
+      ? 'video'
+      : options.type;
     const payload = await this.request('search', {
       part: 'snippet',
       q: query,
       maxResults: Math.min(options.limit ?? this.config.max_results, 50),
       regionCode: this.config.region_code,
       relevanceLanguage: this.config.relevance_language,
-      safeSearch: 'none',
-      type: options.eventType ? 'video' : options.type,
+      safeSearch: options.safeSearch ?? 'none',
+      type,
       eventType: options.eventType,
       channelId: options.channelId,
       order: options.order,
+      publishedAfter: options.publishedAfter,
+      videoDuration: options.videoDuration,
+      videoDefinition: options.videoDefinition,
+      topicId: options.topicId,
     }) as { items?: SearchItem[] };
     const items = (payload.items || [])
       .map((entry) => {
@@ -297,6 +331,40 @@ export class YoutubeApiClient {
       upsertYoutubeItems(channels.map((entry) => entry.item));
       for (const entry of channels) {
         result.set(entry.item.id, entry.uploads);
+      }
+    }
+    return result;
+  }
+
+  async channelStats(channelIds: string[], token?: string): Promise<Map<string, YoutubeChannelStats>> {
+    const result = new Map<string, YoutubeChannelStats>();
+    const unique = [...new Set(channelIds.filter(Boolean))];
+    for (let index = 0; index < unique.length; index += 50) {
+      const chunk = unique.slice(index, index + 50);
+      const payload = await this.request('channels', {
+        part: 'snippet,statistics',
+        id: chunk.join(','),
+      }, token) as { items?: ChannelItem[] };
+      const channels = (payload.items || [])
+        .map((entry): { item: YoutubeItem; stats: YoutubeChannelStats } | null => {
+          const id = entry.id || '';
+          if (!id) return null;
+          const stats = entry.statistics || {};
+          const parsedStats: YoutubeChannelStats = {
+            subscriber_count: stats.hiddenSubscriberCount ? null : nullableNumber(stats.subscriberCount),
+            video_count: nullableNumber(stats.videoCount),
+            view_count: nullableNumber(stats.viewCount),
+            hidden_subscriber_count: Boolean(stats.hiddenSubscriberCount),
+          };
+          return {
+            item: itemFromSnippet('channel', id, entry.snippet),
+            stats: parsedStats,
+          };
+        })
+        .filter((entry): entry is { item: YoutubeItem; stats: YoutubeChannelStats } => entry !== null);
+      upsertYoutubeItems(channels.map((entry) => entry.item));
+      for (const entry of channels) {
+        result.set(entry.item.id, entry.stats);
       }
     }
     return result;

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { YoutubeApiClient } from './api.js';
-import { resetYoutubeDbForTests } from './db.js';
+import { resetYoutubeDbForTests, youtubeRefreshStatus } from './db.js';
 import type { YoutubeConfig } from './config.js';
 
 function testConfig(dbPath: string): YoutubeConfig {
@@ -152,4 +152,97 @@ test('playlistItems paginates uploads and enriches videos without search', () =>
   const videos = await api.playlistItems('uploads-1', 2, 'token');
   assert.deepEqual(videos.map((video) => video.id), ['video-1', 'video-2']);
   assert.deepEqual(paths, ['playlistItems', 'playlistItems', 'videos']);
+}));
+
+test('search forwards Fresh Finds video filters and records quota', () => withApiTest(async (config) => {
+  const calls: URL[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    calls.push(url);
+    if (url.pathname.endsWith('/search')) {
+      return jsonResponse({
+        items: [{
+          id: { kind: 'youtube#video', videoId: 'fresh-1' },
+          snippet: {
+            title: 'Fresh science explained',
+            channelId: 'channel-1',
+            channelTitle: 'Fresh Channel',
+            publishedAt: '2026-07-01T00:00:00Z',
+          },
+        }],
+      });
+    }
+    assert.ok(url.pathname.endsWith('/videos'));
+    return jsonResponse({
+      items: [{
+        id: 'fresh-1',
+        snippet: {
+          title: 'Fresh science explained',
+          channelId: 'channel-1',
+          channelTitle: 'Fresh Channel',
+          publishedAt: '2026-07-01T00:00:00Z',
+        },
+        contentDetails: { duration: 'PT12M' },
+      }],
+    });
+  }) as typeof fetch;
+
+  const api = new YoutubeApiClient(config);
+  const groups = await api.search('science explained', {
+    limit: 7,
+    order: 'date',
+    publishedAfter: '2026-06-01T00:00:00.000Z',
+    videoDuration: 'medium',
+    videoDefinition: 'high',
+    topicId: '/m/01k8wb',
+    safeSearch: 'moderate',
+  });
+  assert.deepEqual(groups.videos.map((video) => video.id), ['fresh-1']);
+  const search = calls[0] as URL;
+  assert.ok(search.pathname.endsWith('/search'));
+  assert.equal(search.searchParams.get('type'), 'video');
+  assert.equal(search.searchParams.get('publishedAfter'), '2026-06-01T00:00:00.000Z');
+  assert.equal(search.searchParams.get('videoDuration'), 'medium');
+  assert.equal(search.searchParams.get('videoDefinition'), 'high');
+  assert.equal(search.searchParams.get('topicId'), '/m/01k8wb');
+  assert.equal(search.searchParams.get('safeSearch'), 'moderate');
+  assert.equal(youtubeRefreshStatus().quota_used_today, 2);
+}));
+
+test('channelStats returns creator statistics and handles hidden subscribers', () => withApiTest(async (config) => {
+  let captured: URL | null = null;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(input instanceof Request ? input.url : String(input));
+    captured = url;
+    assert.ok(url.pathname.endsWith('/channels'));
+    return jsonResponse({
+      items: [{
+        id: 'channel-1',
+        snippet: { title: 'Channel One' },
+        statistics: {
+          subscriberCount: '120000',
+          videoCount: '80',
+          viewCount: '9000000',
+        },
+      }, {
+        id: 'channel-2',
+        snippet: { title: 'Channel Two' },
+        statistics: {
+          hiddenSubscriberCount: true,
+          videoCount: '12',
+        },
+      }],
+    });
+  }) as typeof fetch;
+
+  const api = new YoutubeApiClient(config);
+  const stats = await api.channelStats(['channel-1', 'channel-2']);
+  assert.ok(captured);
+  const capturedUrl = captured as URL;
+  assert.equal(capturedUrl.searchParams.get('part'), 'snippet,statistics');
+  assert.equal(stats.get('channel-1')?.subscriber_count, 120000);
+  assert.equal(stats.get('channel-1')?.video_count, 80);
+  assert.equal(stats.get('channel-1')?.view_count, 9000000);
+  assert.equal(stats.get('channel-2')?.subscriber_count, null);
+  assert.equal(stats.get('channel-2')?.hidden_subscriber_count, true);
 }));

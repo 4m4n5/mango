@@ -7,7 +7,9 @@ import { recordLibraryWatch, resetLibraryDbForTests, saveLibraryItem } from '../
 import {
   replaceYoutubeRailItems,
   resetYoutubeDbForTests,
+  setFreshFindCandidateStats,
   setForYouCandidateStats,
+  upsertFreshFindCandidates,
   upsertForYouCandidates,
 } from './db.js';
 import { YoutubeService } from './service.js';
@@ -59,8 +61,33 @@ function sampleVideo(
   };
 }
 
+function upsertFreshCandidates(items: Array<{
+  item: YoutubeItem;
+  bucket?: 'quality_fresh' | 'taste_adjacent' | 'emerging_creator' | 'zeitgeist_light' | 'wildcard';
+  topic?: string;
+  score?: number;
+}>): void {
+  upsertFreshFindCandidates(items.map((entry, index) => ({
+    item: entry.item,
+    source_bucket: entry.bucket || 'quality_fresh',
+    query: entry.bucket || 'quality_fresh',
+    topic_cluster: entry.topic || entry.item.title.toLowerCase().replace(/[^a-z0-9]+/g, ':'),
+    score: entry.score ?? (1 - index * 0.001),
+    score_breakdown: { test: true },
+    reason: `fresh_find:${entry.bucket || 'quality_fresh'}`,
+  })));
+}
+
+function apiErrorResponse(message = 'quota exceeded'): Response {
+  return new Response(JSON.stringify({ error: { message } }), {
+    status: 403,
+    headers: { 'content-type': 'application/json' },
+  });
+}
+
 function withTempState<T>(fn: () => T | Promise<T>): Promise<T> | T {
   const dir = mkdtempSync(join(tmpdir(), 'mango-youtube-service-'));
+  const originalFetch = globalThis.fetch;
   process.env.MANGO_YOUTUBE_DB_PATH = join(dir, 'youtube.db');
   process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
   process.env.MANGO_USER_PINS_PATH = join(dir, 'user-pins.json');
@@ -70,6 +97,7 @@ function withTempState<T>(fn: () => T | Promise<T>): Promise<T> | T {
   resetYoutubeDbForTests();
   resetLibraryDbForTests();
   const cleanup = () => {
+    globalThis.fetch = originalFetch;
     resetYoutubeDbForTests();
     resetLibraryDbForTests();
     delete process.env.MANGO_YOUTUBE_DB_PATH;
@@ -186,6 +214,176 @@ test('YouTube rails return at most nine cards', () => withTempState(async () => 
   }
   const popular = response.rails.find((rail) => rail.rail_id === 'popular');
   assert.equal(popular?.items.length, 9);
+}));
+
+test('fresh finds is hidden when empty', () => withTempState(async () => {
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  assert.equal(response.rails.some((rail) => rail.rail_id === 'fresh_finds'), false);
+}));
+
+test('fresh finds failed refresh keeps existing cached pool visible', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  upsertFreshCandidates(Array.from({ length: 9 }, (_, index) => ({
+    item: sampleVideo(`FreshStale${index}`, 'none', `fresh-stale-${index}`, `Stale ${TOPIC_WORDS[index]}`),
+    bucket: index < 3
+      ? 'taste_adjacent'
+      : index < 6
+        ? 'quality_fresh'
+        : 'emerging_creator',
+    topic: `stale-topic-${index}`,
+  })));
+  globalThis.fetch = (async () => apiErrorResponse('quota exceeded')) as typeof fetch;
+
+  const service = new YoutubeService();
+  const refresh = await service.refresh('test_failure');
+  assert.equal(refresh.ok, false);
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.every((item) => item.id.startsWith('FreshStale')));
+}));
+
+test('fresh finds excludes watched saved subscribed live shorts blocked and recent exposure', () => withTempState(async () => {
+  replaceYoutubeRailItems('new_from_subscriptions', [
+    { item: sampleVideo('SubReference', 'none', 'subscribed-channel', 'Subscribed reference'), score: 1, reason: 'subscription' },
+  ]);
+  const candidates = [
+    sampleVideo('FreshWatched', 'none', 'watched-channel', 'Watched fresh'),
+    sampleVideo('FreshSaved', 'none', 'saved-channel', 'Saved fresh'),
+    sampleVideo('FreshSubscribed', 'none', 'subscribed-channel', 'Subscribed fresh'),
+    sampleVideo('FreshLive', 'live', 'live-channel', 'Live fresh'),
+    { ...sampleVideo('FreshShort', 'none', 'short-channel', 'Short fresh'), duration_sec: 45 },
+    sampleVideo('FreshBlocked', 'none', 'blocked-channel', 'Blocked fresh'),
+    sampleVideo('FreshRecent', 'none', 'recent-channel', 'Recent fresh'),
+    ...Array.from({ length: 9 }, (_, index) => (
+      sampleVideo(`FreshEligible${index}`, 'none', `fresh-channel-${index}`, `Fresh eligible ${TOPIC_WORDS[index]}`)
+    )),
+  ];
+  upsertFreshCandidates(candidates.map((item, index) => ({
+    item,
+    bucket: index % 3 === 0 ? 'taste_adjacent' : 'quality_fresh',
+    topic: `topic-${index}`,
+  })));
+  setFreshFindCandidateStats('FreshRecent', { last_recommended_at: Date.now() });
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'FreshWatched',
+    title: 'Watched fresh',
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 1000,
+  });
+  saveLibraryItem({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'FreshSaved',
+    title: 'Saved fresh',
+    tab: 'youtube',
+  });
+  const service = new YoutubeService();
+  service.notInterested({ kind: 'video', id: 'FreshBlocked', reason: 'user' });
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
+  assert.ok(rail);
+  const ids = rail.items.map((item) => item.id);
+  assert.equal(ids.length, 9);
+  assert.ok(!ids.includes('FreshWatched'));
+  assert.ok(!ids.includes('FreshSaved'));
+  assert.ok(!ids.includes('FreshSubscribed'));
+  assert.ok(!ids.includes('FreshLive'));
+  assert.ok(!ids.includes('FreshShort'));
+  assert.ok(!ids.includes('FreshBlocked'));
+  assert.ok(!ids.includes('FreshRecent'));
+  const channelCounts = new Map<string, number>();
+  for (const item of rail.items) {
+    channelCounts.set(item.channel_id || item.id, (channelCounts.get(item.channel_id || item.id) ?? 0) + 1);
+  }
+  assert.ok([...channelCounts.values()].every((count) => count <= 1));
+}));
+
+test('fresh finds relaxes saved subscribed and exposure filters only when thin', () => withTempState(async () => {
+  replaceYoutubeRailItems('new_from_subscriptions', [
+    { item: sampleVideo('SubReference', 'none', 'thin-subscribed', 'Thin subscribed reference'), score: 1, reason: 'subscription' },
+  ]);
+  const rows = [
+    ...Array.from({ length: 7 }, (_, index) => (
+      sampleVideo(`FreshThin${index}`, 'none', `thin-channel-${index}`, `Thin ${TOPIC_WORDS[index]}`)
+    )),
+    sampleVideo('FreshSavedFallback', 'none', 'thin-saved', 'Saved fallback'),
+    sampleVideo('FreshSubscribedFallback', 'none', 'thin-subscribed', 'Subscribed fallback'),
+    sampleVideo('FreshRecentFallback', 'none', 'thin-recent', 'Recent fallback'),
+  ];
+  upsertFreshCandidates(rows.map((item, index) => ({
+    item,
+    bucket: index < 3 ? 'taste_adjacent' : 'quality_fresh',
+    topic: `thin-topic-${index}`,
+  })));
+  saveLibraryItem({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'FreshSavedFallback',
+    title: 'Saved fallback',
+    tab: 'youtube',
+  });
+  setFreshFindCandidateStats('FreshRecentFallback', { last_recommended_at: Date.now() });
+  const service = new YoutubeService();
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 9);
+  const ids = rail.items.map((item) => item.id);
+  assert.ok(ids.includes('FreshSavedFallback'));
+  assert.ok(ids.includes('FreshSubscribedFallback'));
+  assert.ok(!ids.includes('FreshRecentFallback'));
+}));
+
+test('fresh finds relaxes recent exposure when still thin', () => withTempState(async () => {
+  const rows = [
+    ...Array.from({ length: 8 }, (_, index) => (
+      sampleVideo(`FreshRecentThin${index}`, 'none', `recent-thin-${index}`, `Recent thin ${TOPIC_WORDS[index]}`)
+    )),
+    sampleVideo('FreshRecentOnlyFallback', 'none', 'recent-thin-fallback', 'Recent only fallback'),
+  ];
+  upsertFreshCandidates(rows.map((item, index) => ({
+    item,
+    bucket: index < 3 ? 'taste_adjacent' : 'quality_fresh',
+    topic: `recent-thin-topic-${index}`,
+  })));
+  setFreshFindCandidateStats('FreshRecentOnlyFallback', { last_recommended_at: Date.now() });
+  const service = new YoutubeService();
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.some((item) => item.id === 'FreshRecentOnlyFallback'));
+}));
+
+test('fresh finds reshuffle uses exposure cooldown to show a different cached set', () => withTempState(async () => {
+  upsertFreshCandidates(Array.from({ length: 18 }, (_, index) => ({
+    item: sampleVideo(`FreshShuffle${index}`, 'none', `fresh-shuffle-${index}`, `Shuffle ${TOPIC_WORDS[index % TOPIC_WORDS.length]}`),
+    bucket: index % 4 === 0
+      ? 'taste_adjacent'
+      : index % 4 === 1
+        ? 'quality_fresh'
+        : index % 4 === 2
+          ? 'emerging_creator'
+          : 'zeitgeist_light',
+    topic: `shuffle-topic-${index}`,
+  })));
+  const service = new YoutubeService();
+  const first = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const firstRail = first.rails.find((entry) => entry.rail_id === 'fresh_finds');
+  assert.ok(firstRail);
+  assert.equal(firstRail.items.length, 9);
+  const second = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const secondRail = second.rails.find((entry) => entry.rail_id === 'fresh_finds');
+  assert.ok(secondRail);
+  assert.equal(secondRail.items.length, 9);
+  const firstIds = new Set(firstRail.items.map((item) => item.id));
+  assert.equal(secondRail.items.some((item) => firstIds.has(item.id)), false);
 }));
 
 test('new from subscriptions is an unwatched diverse creator inbox', () => withTempState(async () => {

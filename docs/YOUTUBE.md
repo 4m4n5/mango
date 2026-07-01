@@ -21,7 +21,7 @@ Launcher YouTube tab
 
 | Layer | Owns |
 |-------|------|
-| `youtube.db` | Cached videos/channels/playlists, rail membership, refresh/quota counters, auth sessions |
+| `youtube.db` | Cached videos/channels/playlists, rail membership, recommender/Fresh Finds reservoirs, refresh/quota counters, auth sessions |
 | `library.db` | YouTube Saved videos, watch history, finished state, current context, Not Interested feedback |
 | YouTube Data API | Metadata/search/subscriptions only |
 | `yt-dlp -> mpv` | Playback resolution/rendering via the Mango wrapper; no Data API quota use |
@@ -131,6 +131,14 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
   watches/Saved are strongest, subscriptions are light, topic discovery broadens
   the pool, Popular is fallback only, and each render samples a diverse 9-card
   set with 7-day exposure cooldown.
+- Fresh Finds is the broad-discovery rail, not a second For You: refresh builds
+  a rebuildable candidate pool from quality-fresh, taste-adjacent,
+  emerging-creator, zeitgeist-light, and wildcard official-API searches; couch
+  shuffle samples a fresh 9-card set from that cache and never calls YouTube.
+- Fresh Finds hides when empty. When populated, it filters watched Mango
+  YouTube videos, Not Interested, live videos, Shorts, and recent Fresh Finds
+  exposure, then prefers unseen channels outside Saved and subscriptions when
+  at least 9 alternatives exist.
 - Because You Watched is rebuilt from the latest local YouTube watch history on
   rail load, and after playback it opportunistically tops up candidates through
   Data API searches based on recent channels/title tokens.
@@ -144,6 +152,13 @@ YouTube Data API no longer provides `search.list relatedToVideoId`, and the
 `activities.list home` parameter is deprecated. A literal native-home rail would
 need an unofficial/scraping path and must be added as an explicit experimental
 operator opt-in, separate from the supported official API cache.
+
+Fresh Finds uses the same supported boundary: official YouTube search/detail
+metadata only, scored locally. Refresh spends a bounded discovery budget
+(`search.list` plus batched `videos.list` and optional `channels.list`) during
+manual/nightly refresh, then serves stale cached results if a later refresh
+fails. The TV UI does not show reason labels; score breakdowns and source
+buckets stay internal for diagnostics.
 
 ---
 

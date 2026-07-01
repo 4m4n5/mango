@@ -73,9 +73,10 @@ Stremio user-library sync source.
 
 Native YouTube is a first-class source but not a second user library. The
 rebuildable `/etc/mango/youtube.db` caches YouTube metadata, rail membership,
-refresh/quota state, and temporary OAuth sessions. Durable user state stays in
-`/etc/mango/library.db` with `source="youtube"` for Saved videos, history,
-finished state, current detail context, and local Not Interested feedback.
+recommender reservoirs, refresh/quota state, and temporary OAuth sessions.
+Durable user state stays in `/etc/mango/library.db` with `source="youtube"` for
+Saved videos, history, finished state, current detail context, and local Not
+Interested feedback.
 
 The YouTube Data API is used for metadata/search/subscription refresh only.
 Playback resolves through `yt-dlp -> mpv`; API quota does not govern cached

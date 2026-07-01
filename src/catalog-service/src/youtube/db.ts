@@ -111,16 +111,42 @@ CREATE TABLE IF NOT EXISTS youtube_for_you_candidates (
   FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS youtube_fresh_find_candidates (
+  kind TEXT NOT NULL DEFAULT 'video',
+  id TEXT NOT NULL,
+  source_bucket TEXT NOT NULL,
+  query TEXT NOT NULL DEFAULT '',
+  topic_cluster TEXT NOT NULL DEFAULT '',
+  score REAL NOT NULL DEFAULT 0,
+  score_breakdown TEXT NOT NULL DEFAULT '{}',
+  reason TEXT,
+  creator_subscriber_count INTEGER,
+  creator_video_count INTEGER,
+  last_recommended_at INTEGER,
+  exposure_count INTEGER NOT NULL DEFAULT 0,
+  ignore_count INTEGER NOT NULL DEFAULT 0,
+  quick_stop_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(kind, id),
+  FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_youtube_items_updated ON youtube_items(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_items_channel ON youtube_items(channel_id, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_rail_added ON youtube_rail_items(rail_id, score DESC, added_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_for_you_score ON youtube_for_you_candidates(score DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_for_you_lane ON youtube_for_you_candidates(lane, score DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_for_you_exposure ON youtube_for_you_candidates(last_recommended_at);
+CREATE INDEX IF NOT EXISTS idx_youtube_fresh_find_score ON youtube_fresh_find_candidates(score DESC, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_youtube_fresh_find_bucket ON youtube_fresh_find_candidates(source_bucket, score DESC);
+CREATE INDEX IF NOT EXISTS idx_youtube_fresh_find_exposure ON youtube_fresh_find_candidates(last_recommended_at);
 `);
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (1, ?)')
     .run(nowMs());
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (2, ?)')
+    .run(nowMs());
+  db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (3, ?)')
     .run(nowMs());
 }
 
@@ -421,6 +447,155 @@ WHERE kind = 'video' AND id = @id;
     quick_stop_count: stats.quick_stop_count !== undefined ? stats.quick_stop_count : current.quick_stop_count,
     updated_at: nowMs(),
   });
+}
+
+export type YoutubeFreshFindCandidateInput = {
+  item: YoutubeItem;
+  source_bucket: string;
+  query: string;
+  topic_cluster: string;
+  score: number;
+  score_breakdown?: Record<string, unknown>;
+  reason?: string | null;
+  creator_subscriber_count?: number | null;
+  creator_video_count?: number | null;
+};
+
+export type YoutubeFreshFindCandidate = YoutubeRailItem & {
+  source_bucket: string;
+  query: string;
+  topic_cluster: string;
+  score_breakdown: Record<string, unknown>;
+  creator_subscriber_count: number | null;
+  creator_video_count: number | null;
+  last_recommended_at: number | null;
+  exposure_count: number;
+  ignore_count: number;
+  quick_stop_count: number;
+};
+
+export function upsertFreshFindCandidates(candidates: YoutubeFreshFindCandidateInput[]): void {
+  if (candidates.length === 0) return;
+  const db = ensureDb();
+  const timestamp = nowMs();
+  upsertYoutubeItems(candidates.map((entry) => entry.item));
+  const stmt = db.prepare(`
+INSERT INTO youtube_fresh_find_candidates (
+  kind, id, source_bucket, query, topic_cluster, score, score_breakdown, reason,
+  creator_subscriber_count, creator_video_count, created_at, updated_at
+) VALUES (
+  @kind, @id, @source_bucket, @query, @topic_cluster, @score, @score_breakdown, @reason,
+  @creator_subscriber_count, @creator_video_count, @created_at, @updated_at
+)
+ON CONFLICT(kind, id) DO UPDATE SET
+  source_bucket = excluded.source_bucket,
+  query = excluded.query,
+  topic_cluster = excluded.topic_cluster,
+  score = excluded.score,
+  score_breakdown = excluded.score_breakdown,
+  reason = excluded.reason,
+  creator_subscriber_count = excluded.creator_subscriber_count,
+  creator_video_count = excluded.creator_video_count,
+  updated_at = excluded.updated_at;
+`);
+  const tx = db.transaction(() => {
+    for (const candidate of candidates) {
+      stmt.run({
+        kind: normalizeKind(candidate.item.kind),
+        id: candidate.item.id,
+        source_bucket: candidate.source_bucket,
+        query: candidate.query,
+        topic_cluster: candidate.topic_cluster,
+        score: candidate.score,
+        score_breakdown: JSON.stringify(candidate.score_breakdown || {}),
+        reason: candidate.reason ?? null,
+        creator_subscriber_count: candidate.creator_subscriber_count ?? null,
+        creator_video_count: candidate.creator_video_count ?? null,
+        created_at: timestamp,
+        updated_at: timestamp,
+      });
+    }
+  });
+  tx();
+}
+
+export function listFreshFindCandidates(limit = 300): YoutubeFreshFindCandidate[] {
+  const rows = ensureDb().prepare(`
+SELECT
+  yi.id, yi.kind, yi.title, yi.subtitle, yi.description, yi.thumbnail, yi.channel_id,
+  yi.channel_title, yi.published_at, yi.duration_sec, yi.live_status, yi.playlist_id,
+  yi.updated_at, ff.score, ff.reason, ff.source_bucket, ff.query, ff.topic_cluster,
+  ff.score_breakdown, ff.creator_subscriber_count, ff.creator_video_count,
+  ff.last_recommended_at, ff.exposure_count, ff.ignore_count, ff.quick_stop_count
+FROM youtube_fresh_find_candidates ff
+JOIN youtube_items yi ON yi.kind = ff.kind AND yi.id = ff.id
+ORDER BY ff.score DESC, ff.updated_at DESC
+LIMIT @limit;
+`).all({ limit: Math.max(1, Math.min(2000, limit)) }) as Array<YoutubeFreshFindCandidate & { score_breakdown: string }>;
+  return rows.map((row) => ({
+    ...row,
+    score_breakdown: parseBreakdown(row.score_breakdown),
+  }));
+}
+
+export function noteFreshFindExposures(ids: string[], at = nowMs()): void {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return;
+  const db = ensureDb();
+  const stmt = db.prepare(`
+UPDATE youtube_fresh_find_candidates
+SET last_recommended_at = @at,
+    exposure_count = exposure_count + 1,
+    ignore_count = ignore_count + 1,
+    updated_at = @at
+WHERE kind = 'video' AND id = @id;
+`);
+  const tx = db.transaction(() => {
+    for (const id of unique) {
+      stmt.run({ id, at });
+    }
+  });
+  tx();
+}
+
+export function setFreshFindCandidateStats(
+  id: string,
+  stats: Partial<Pick<YoutubeFreshFindCandidate, 'last_recommended_at' | 'exposure_count' | 'ignore_count' | 'quick_stop_count'>>,
+): void {
+  const current = ensureDb().prepare(`
+SELECT last_recommended_at, exposure_count, ignore_count, quick_stop_count
+FROM youtube_fresh_find_candidates
+WHERE kind = 'video' AND id = ?;
+`).get(id) as Pick<YoutubeFreshFindCandidate, 'last_recommended_at' | 'exposure_count' | 'ignore_count' | 'quick_stop_count'> | undefined;
+  if (!current) return;
+  ensureDb().prepare(`
+UPDATE youtube_fresh_find_candidates
+SET last_recommended_at = @last_recommended_at,
+    exposure_count = @exposure_count,
+    ignore_count = @ignore_count,
+    quick_stop_count = @quick_stop_count,
+    updated_at = @updated_at
+WHERE kind = 'video' AND id = @id;
+`).run({
+    id,
+    last_recommended_at: stats.last_recommended_at !== undefined ? stats.last_recommended_at : current.last_recommended_at,
+    exposure_count: stats.exposure_count !== undefined ? stats.exposure_count : current.exposure_count,
+    ignore_count: stats.ignore_count !== undefined ? stats.ignore_count : current.ignore_count,
+    quick_stop_count: stats.quick_stop_count !== undefined ? stats.quick_stop_count : current.quick_stop_count,
+    updated_at: nowMs(),
+  });
+}
+
+export function pruneFreshFindCandidates(limit = 300): void {
+  ensureDb().prepare(`
+DELETE FROM youtube_fresh_find_candidates
+WHERE rowid NOT IN (
+  SELECT rowid
+  FROM youtube_fresh_find_candidates
+  ORDER BY score DESC, updated_at DESC
+  LIMIT @limit
+);
+`).run({ limit: Math.max(1, Math.min(2000, limit)) });
 }
 
 export function setYoutubeState(key: string, value: unknown): void {
