@@ -26,6 +26,18 @@ type VideoItem = {
   liveStreamingDetails?: unknown;
 };
 
+type ChannelItem = {
+  id?: string;
+  snippet?: Snippet;
+  contentDetails?: {
+    relatedPlaylists?: {
+      uploads?: string;
+    };
+  };
+};
+
+export type YoutubeSubscriptionOrder = 'alphabetical' | 'relevance' | 'unread';
+
 function requireApiKey(config: YoutubeConfig): string {
   if (!config.api_key) {
     throw new CatalogError(503, 'YouTube API key is not configured');
@@ -205,15 +217,27 @@ export class YoutubeApiClient {
   }
 
   async playlistItems(playlistId: string, limit = 25, token?: string): Promise<YoutubeItem[]> {
-    const payload = await this.request('playlistItems', {
-      part: 'snippet,contentDetails',
-      playlistId,
-      maxResults: Math.min(limit, 50),
-    }, token) as { items?: Array<{ snippet?: Snippet; contentDetails?: { videoId?: string } }> };
-    const videoIds = (payload.items || [])
-      .map((entry) => entry.contentDetails?.videoId || entry.snippet?.resourceId?.videoId || '')
-      .filter(Boolean);
-    return this.videos(videoIds);
+    const videoIds: string[] = [];
+    let pageToken: string | undefined;
+    while (videoIds.length < limit) {
+      const payload = await this.request('playlistItems', {
+        part: 'snippet,contentDetails',
+        playlistId,
+        maxResults: Math.min(limit - videoIds.length, 50),
+        pageToken,
+      }, token) as {
+        items?: Array<{ snippet?: Snippet; contentDetails?: { videoId?: string } }>;
+        nextPageToken?: string;
+      };
+      videoIds.push(...(payload.items || [])
+        .map((entry) => entry.contentDetails?.videoId || entry.snippet?.resourceId?.videoId || '')
+        .filter(Boolean));
+      pageToken = payload.nextPageToken;
+      if (!pageToken) {
+        break;
+      }
+    }
+    return this.videos(videoIds.slice(0, limit));
   }
 
   async channelVideos(channelId: string, limit = 25): Promise<YoutubeItem[]> {
@@ -226,20 +250,56 @@ export class YoutubeApiClient {
     return groups.videos;
   }
 
-  async subscriptions(token: string, limit = 25): Promise<YoutubeItem[]> {
-    const payload = await this.request('subscriptions', {
-      part: 'snippet',
-      mine: 'true',
-      maxResults: Math.min(limit, 50),
-    }, token) as { items?: Array<{ snippet?: Snippet }> };
-    const channels = (payload.items || [])
-      .map((entry) => {
-        const id = entry.snippet?.resourceId?.channelId || entry.snippet?.channelId || '';
-        return id ? itemFromSnippet('channel', id, entry.snippet) : null;
-      })
-      .filter((entry): entry is YoutubeItem => entry !== null);
+  async subscriptions(token: string, limit = 25, order: YoutubeSubscriptionOrder = 'unread'): Promise<YoutubeItem[]> {
+    const channels: YoutubeItem[] = [];
+    let pageToken: string | undefined;
+    while (channels.length < limit) {
+      const payload = await this.request('subscriptions', {
+        part: 'snippet',
+        mine: 'true',
+        maxResults: Math.min(limit - channels.length, 50),
+        order,
+        pageToken,
+      }, token) as { items?: Array<{ snippet?: Snippet }>; nextPageToken?: string };
+      channels.push(...(payload.items || [])
+        .map((entry) => {
+          const id = entry.snippet?.resourceId?.channelId || entry.snippet?.channelId || '';
+          return id ? itemFromSnippet('channel', id, entry.snippet) : null;
+        })
+        .filter((entry): entry is YoutubeItem => entry !== null));
+      pageToken = payload.nextPageToken;
+      if (!pageToken) {
+        break;
+      }
+    }
     upsertYoutubeItems(channels);
-    return channels;
+    return channels.slice(0, limit);
+  }
+
+  async channelUploadPlaylists(channelIds: string[], token?: string): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+    const unique = [...new Set(channelIds.filter(Boolean))];
+    for (let index = 0; index < unique.length; index += 50) {
+      const chunk = unique.slice(index, index + 50);
+      const payload = await this.request('channels', {
+        part: 'snippet,contentDetails',
+        id: chunk.join(','),
+      }, token) as { items?: ChannelItem[] };
+      const channels = (payload.items || [])
+        .map((entry) => {
+          const id = entry.id || '';
+          const uploads = entry.contentDetails?.relatedPlaylists?.uploads || '';
+          return id && uploads
+            ? { item: itemFromSnippet('channel', id, entry.snippet), uploads }
+            : null;
+        })
+        .filter((entry): entry is { item: YoutubeItem; uploads: string } => entry !== null);
+      upsertYoutubeItems(channels.map((entry) => entry.item));
+      for (const entry of channels) {
+        result.set(entry.item.id, entry.uploads);
+      }
+    }
+    return result;
   }
 
   private async enrichVideos(videos: YoutubeItem[]): Promise<YoutubeItem[]> {

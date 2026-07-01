@@ -188,6 +188,113 @@ test('YouTube rails return at most nine cards', () => withTempState(async () => 
   assert.equal(popular?.items.length, 9);
 }));
 
+test('new from subscriptions is an unwatched diverse creator inbox', () => withTempState(async () => {
+  const rows = [
+    sampleVideo('SubWatched', 'none', 'sub-a', 'Already watched'),
+    sampleVideo('SubSaved', 'none', 'sub-b', 'Already saved'),
+    sampleVideo('SubLive', 'live', 'sub-c', 'Live upload'),
+    { ...sampleVideo('SubShort', 'none', 'sub-d', 'Short upload'), duration_sec: 45 },
+    sampleVideo('SubBlocked', 'none', 'sub-e', 'Blocked upload'),
+    sampleVideo('SubA1', 'none', 'sub-a', 'Fresh A one'),
+    sampleVideo('SubA2', 'none', 'sub-a', 'Fresh A two'),
+    sampleVideo('SubB1', 'none', 'sub-b', 'Fresh B one'),
+    sampleVideo('SubC1', 'none', 'sub-c', 'Fresh C one'),
+    sampleVideo('SubD1', 'none', 'sub-d', 'Fresh D one'),
+    sampleVideo('SubE1', 'none', 'sub-e', 'Fresh E one'),
+    sampleVideo('SubF1', 'none', 'sub-f', 'Fresh F one'),
+    sampleVideo('SubG1', 'none', 'sub-g', 'Fresh G one'),
+    sampleVideo('SubH1', 'none', 'sub-h', 'Fresh H one'),
+    sampleVideo('SubI1', 'none', 'sub-i', 'Fresh I one'),
+    sampleVideo('SubJ1', 'none', 'sub-j', 'Fresh J one'),
+  ];
+  replaceYoutubeRailItems('new_from_subscriptions', rows.map((item, index) => ({
+    item,
+    score: 1 - index * 0.01,
+    reason: 'subscription',
+  })));
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'SubWatched',
+    title: 'Already watched',
+    tab: 'youtube',
+    event: 'play',
+    watched_at: 1000,
+  });
+  saveLibraryItem({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'SubSaved',
+    title: 'Already saved',
+    tab: 'youtube',
+  });
+  const service = new YoutubeService();
+  service.notInterested({ kind: 'video', id: 'SubBlocked', reason: 'user' });
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'new_from_subscriptions');
+  assert.ok(rail);
+  const ids = rail.items.map((item) => item.id);
+  assert.equal(ids.length, 9);
+  assert.ok(!ids.includes('SubWatched'));
+  assert.ok(!ids.includes('SubSaved'));
+  assert.ok(!ids.includes('SubLive'));
+  assert.ok(!ids.includes('SubShort'));
+  assert.ok(!ids.includes('SubBlocked'));
+  const channelCounts = new Map<string, number>();
+  for (const item of rail.items) {
+    channelCounts.set(item.channel_id || item.id, (channelCounts.get(item.channel_id || item.id) ?? 0) + 1);
+  }
+  assert.ok([...channelCounts.values()].every((count) => count <= 1));
+}));
+
+test('new from subscriptions relaxes saved exclusion only when needed', () => withTempState(async () => {
+  const rows = [
+    ...Array.from({ length: 8 }, (_, index) => (
+      sampleVideo(`SubThin${index}`, 'none', `thin-${index}`, `Thin ${index}`)
+    )),
+    sampleVideo('SubSavedFallback', 'none', 'thin-saved', 'Saved fallback'),
+  ];
+  replaceYoutubeRailItems('new_from_subscriptions', rows.map((item, index) => ({
+    item,
+    score: 1 - index * 0.01,
+    reason: 'subscription',
+  })));
+  saveLibraryItem({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'SubSavedFallback',
+    title: 'Saved fallback',
+    tab: 'youtube',
+  });
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'new_from_subscriptions');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.some((item) => item.id === 'SubSavedFallback'));
+}));
+
+test('new from subscriptions relaxes channel diversity to max two when thin', () => withTempState(async () => {
+  const rows = Array.from({ length: 12 }, (_, index) => (
+    sampleVideo(`SubChannel${index}`, 'none', `thin-channel-${index % 3}`, `Channel ${index}`)
+  ));
+  replaceYoutubeRailItems('new_from_subscriptions', rows.map((item, index) => ({
+    item,
+    score: 1 - index * 0.01,
+    reason: 'subscription',
+  })));
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'new_from_subscriptions');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 6);
+  const channelCounts = new Map<string, number>();
+  for (const item of rail.items) {
+    channelCounts.set(item.channel_id || item.id, (channelCounts.get(item.channel_id || item.id) ?? 0) + 1);
+  }
+  assert.ok([...channelCounts.values()].every((count) => count <= 2));
+}));
+
 test('for you excludes watched shorts live not interested and recent exposures', () => withTempState(async () => {
   const candidates = [
     sampleVideo('WatchedVideo', 'none', 'watched-channel', 'Watched topic'),

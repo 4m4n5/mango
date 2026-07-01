@@ -40,6 +40,11 @@ const YOUTUBE_TAB = 'youtube';
 const YOUTUBE_VIDEO_TYPE = 'youtube_video';
 const YOUTUBE_RAIL_LIMIT = 9;
 const YOUTUBE_RAIL_POOL_LIMIT = 60;
+const SUBSCRIPTION_CHANNEL_SCAN_LIMIT = 50;
+const SUBSCRIPTION_CHANNELS_PER_REFRESH = 24;
+const SUBSCRIPTION_ACTIVE_CHANNELS_PER_REFRESH = 12;
+const SUBSCRIPTION_VIDEOS_PER_CHANNEL = 8;
+const SUBSCRIPTION_RAIL_POOL_LIMIT = 160;
 const FOR_YOU_RESERVOIR_TARGET = 1000;
 const FOR_YOU_EXPOSURE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const FOR_YOU_SEARCH_HISTORY_LIMIT = 20;
@@ -232,6 +237,11 @@ function railWindow<T extends YoutubeItem>(railId: string, items: T[], options: 
   return windowed.slice(0, YOUTUBE_RAIL_LIMIT);
 }
 
+function publishedOrUpdatedMs(item: YoutubeItem): number {
+  const published = item.published_at ? Date.parse(item.published_at) : Number.NaN;
+  return Number.isFinite(published) ? published : item.updated_at;
+}
+
 function titleTokens(item: YoutubeItem | { title?: string | null }): Set<string> {
   const title = item.title || '';
   return new Set(
@@ -403,6 +413,105 @@ function buildTasteProfile(): TasteProfile {
     addTokenWeights(profile.negativeTokens, item, 0.8);
   }
   return profile;
+}
+
+function selectSubscriptionRefreshChannels(subscriptions: YoutubeItem[]): {
+  channels: YoutubeItem[];
+  nextCursor: number;
+} {
+  if (subscriptions.length === 0) {
+    return { channels: [], nextCursor: 0 };
+  }
+  const currentCursor = getYoutubeState<number>('subscription_refresh_cursor', 0);
+  const active = subscriptions.slice(0, Math.min(SUBSCRIPTION_ACTIVE_CHANNELS_PER_REFRESH, subscriptions.length));
+  const rotationSource = subscriptions.length > active.length
+    ? subscriptions.slice(active.length)
+    : subscriptions;
+  const cursor = rotationSource.length > 0
+    ? Math.max(0, currentCursor) % rotationSource.length
+    : 0;
+  const rotated = [
+    ...rotationSource.slice(cursor),
+    ...rotationSource.slice(0, cursor),
+  ];
+  const seen = new Set<string>();
+  const channels: YoutubeItem[] = [];
+  for (const channel of [...active, ...rotated]) {
+    if (seen.has(channel.id)) {
+      continue;
+    }
+    seen.add(channel.id);
+    channels.push(channel);
+    if (channels.length >= SUBSCRIPTION_CHANNELS_PER_REFRESH) {
+      break;
+    }
+  }
+  const rotationStep = Math.max(1, SUBSCRIPTION_CHANNELS_PER_REFRESH - active.length);
+  const nextCursor = rotationSource.length > 0
+    ? (cursor + rotationStep) % rotationSource.length
+    : 0;
+  return { channels, nextCursor };
+}
+
+function subscriptionEligibleItems<T extends YoutubeItem>(items: T[], profile: TasteProfile): T[] {
+  return filterNotInterested(items)
+    .filter((item) => item.kind === 'video')
+    .filter((item) => !profile.watchedIds.has(item.id))
+    .filter((item) => !isLiveVideo(item))
+    .filter((item) => !isShortLikeVideo(item));
+}
+
+function sortSubscriptionItems(items: YoutubeItem[]): YoutubeItem[] {
+  return [...items].sort((a, b) => {
+    const publishedDelta = publishedOrUpdatedMs(b) - publishedOrUpdatedMs(a);
+    if (publishedDelta !== 0) {
+      return publishedDelta;
+    }
+    return a.id.localeCompare(b.id);
+  });
+}
+
+function selectDiverseByChannel<T extends YoutubeItem>(items: T[], limit: number, maxPerChannel: number): T[] {
+  const selected: T[] = [];
+  const channelCounts = new Map<string, number>();
+  for (const item of items) {
+    const channel = item.channel_id || item.channel_title || item.id;
+    const count = channelCounts.get(channel) ?? 0;
+    if (count >= maxPerChannel) {
+      continue;
+    }
+    selected.push(item);
+    channelCounts.set(channel, count + 1);
+    if (selected.length >= limit) {
+      break;
+    }
+  }
+  return selected;
+}
+
+function subscriptionRail(options: YoutubeRailsOptions = {}): YoutubeRail {
+  const refresh = youtubeRefreshStatus();
+  const profile = buildTasteProfile();
+  const candidates = subscriptionEligibleItems(
+    listYoutubeRailItems('new_from_subscriptions', SUBSCRIPTION_RAIL_POOL_LIMIT),
+    profile,
+  );
+  const withoutSaved = candidates.filter((item) => !profile.savedIds.has(item.id));
+  const pool = withoutSaved.length >= YOUTUBE_RAIL_LIMIT ? withoutSaved : candidates;
+  const ordered = options.reshuffle ? shuffled(pool) : pool;
+  let items = selectDiverseByChannel(ordered, YOUTUBE_RAIL_LIMIT, 1);
+  if (items.length < YOUTUBE_RAIL_LIMIT) {
+    items = selectDiverseByChannel(ordered, YOUTUBE_RAIL_LIMIT, 2);
+  }
+  const stale = refresh.last_success_at !== null
+    && refresh.last_success_at < nowMs() - loadYoutubeConfig().stale_after_ms;
+  return {
+    rail_id: 'new_from_subscriptions',
+    label: RAIL_LABELS.new_from_subscriptions,
+    items,
+    cached: items.length > 0,
+    stale,
+  };
 }
 
 function weightedTokenScore(tokens: Set<string>, weights: Map<string, number>, cap: number): number {
@@ -938,6 +1047,45 @@ export class YoutubeService {
     );
   }
 
+  private async refreshSubscriptionsFromApi(token: string): Promise<void> {
+    const subscriptions = await this.api.subscriptions(
+      token,
+      SUBSCRIPTION_CHANNEL_SCAN_LIMIT,
+      'unread',
+    ).catch(() => []);
+    if (subscriptions.length === 0) {
+      return;
+    }
+
+    const { channels, nextCursor } = selectSubscriptionRefreshChannels(subscriptions);
+    setYoutubeState('subscription_refresh_cursor', nextCursor);
+    const uploadPlaylists = await this.api.channelUploadPlaylists(
+      channels.map((channel) => channel.id),
+      token,
+    ).catch(() => new Map<string, string>());
+
+    const fetched = (
+      await Promise.all(channels.map((channel) => {
+        const playlistId = uploadPlaylists.get(channel.id);
+        if (!playlistId) {
+          return Promise.resolve([] as YoutubeItem[]);
+        }
+        return this.api.playlistItems(playlistId, SUBSCRIPTION_VIDEOS_PER_CHANNEL, token)
+          .catch(() => [] as YoutubeItem[]);
+      }))
+    ).flat();
+
+    const profile = buildTasteProfile();
+    const existing = listYoutubeRailItems('new_from_subscriptions', SUBSCRIPTION_RAIL_POOL_LIMIT);
+    const merged = sortSubscriptionItems(uniqueVideos([...fetched, ...existing]));
+    const eligible = subscriptionEligibleItems(merged, profile).slice(0, SUBSCRIPTION_RAIL_POOL_LIMIT);
+    replaceYoutubeRailItems('new_from_subscriptions', eligible.map((item, index) => ({
+      item,
+      score: 1 - index * 0.001,
+      reason: 'subscription upload',
+    })));
+  }
+
   async refresh(reason = 'manual'): Promise<RefreshResult> {
     if (!this.config.enabled) {
       return { ok: false, error: 'YouTube is disabled', refresh: youtubeRefreshStatus() };
@@ -982,17 +1130,7 @@ export class YoutubeService {
 
       const token = await youtubeAccessToken(this.config).catch(() => null);
       if (token) {
-        const subscriptions = await this.api.subscriptions(token, 20).catch(() => []);
-        const subscriptionVideos = (
-          await Promise.all(subscriptions.slice(0, 8).map((channel) => (
-            this.api.channelVideos(channel.id, 5).catch(() => [])
-          )))
-        ).flat();
-        replaceYoutubeRailItems('new_from_subscriptions', uniqueVideos(subscriptionVideos).map((item, index) => ({
-          item,
-          score: 1 - index * 0.01,
-          reason: 'subscription upload',
-        })));
+        await this.refreshSubscriptionsFromApi(token);
       }
 
       await this.expandForYouDiscoveryFromApi();
@@ -1026,7 +1164,7 @@ export class YoutubeService {
       savedRail(),
       historyRail(options),
       forYouRail(options),
-      cachedRail('new_from_subscriptions', options),
+      subscriptionRail(options),
       cachedRail('fresh_finds', options),
       cachedRail('because_you_watched', options),
       cachedRail('live_now', options),
