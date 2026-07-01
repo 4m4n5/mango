@@ -83,11 +83,23 @@ if payload.get("ok") is not True:
     raise SystemExit(1)
 
 last_success = refresh.get("last_success_at") or "unknown"
-quota = refresh.get("quota") or {}
-quota_used = quota.get("used")
-quota_limit = quota.get("limit")
-quota_text = ""
-if quota_used is not None and quota_limit is not None:
-    quota_text = f" quota={quota_used}/{quota_limit}"
-print(f"youtube refresh: complete last_success_at={last_success}{quota_text}")
+quota_used = refresh.get("quota_used_today")
+quota_reset = refresh.get("quota_reset_day")
+quota_text = f" quota_used_today={quota_used}" if quota_used is not None else ""
+if quota_text and quota_reset:
+    quota_text = f"{quota_text} reset_day={quota_reset}"
+phases = payload.get("phases") or refresh.get("phase_results") or []
+failed = [phase for phase in phases if phase.get("ok") is not True]
+phase_text = ""
+if phases:
+    phase_text = " phases=" + ",".join(
+        f"{phase.get('phase')}:{'ok' if phase.get('ok') is True else 'fail'}"
+        for phase in phases
+    )
+print(f"youtube refresh: complete last_success_at={last_success}{quota_text}{phase_text}")
+for phase in failed:
+    print(
+        f"youtube refresh: warning phase {phase.get('phase')} failed: {phase.get('error') or 'unknown'}",
+        file=sys.stderr,
+    )
 PY

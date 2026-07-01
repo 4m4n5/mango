@@ -2,7 +2,14 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
 import { loadYoutubeConfig } from './config.js';
-import type { YoutubeItem, YoutubeItemKind, YoutubeLiveStatus, YoutubeRailItem, YoutubeRefreshStatus } from './types.js';
+import type {
+  YoutubeItem,
+  YoutubeItemKind,
+  YoutubeLiveStatus,
+  YoutubeRailItem,
+  YoutubeRefreshPhaseResult,
+  YoutubeRefreshStatus,
+} from './types.js';
 
 let dbSingleton: Database.Database | null = null;
 let initialized = false;
@@ -841,6 +848,7 @@ export function youtubeRefreshStatus(): YoutubeRefreshStatus {
     last_success_at: getYoutubeState<number | null>('last_success_at', null),
     last_error: getYoutubeState<string | null>('last_error', null),
     last_reason: getYoutubeState<string | null>('last_reason', null),
+    phase_results: getYoutubeState<YoutubeRefreshPhaseResult[]>('last_phase_results', []),
     quota_used_today: quota.day === todayPacific() ? quota.units : 0,
     quota_reset_day: todayPacific(),
   };

@@ -131,10 +131,13 @@ bash scripts/m3-play/playability/install-playability-timer.sh
 ```
 
 The 03:00 timer uses `nightly-library-refresh.sh`: movie/TV playability
-maintenance runs first, then `scripts/m6-ship/youtube-refresh-cache.sh` refreshes
-native YouTube rails and the For You reservoir. The steps are independent:
-YouTube still runs after playability quota/source errors, while the final
-systemd service status remains non-zero if either side failed. Set
+maintenance runs first, then `scripts/m6-ship/youtube-refresh-cache.sh` calls
+the phase-isolated native YouTube refresh for Popular, subscriptions, Fresh
+Finds, Live Now, Because You Watched, and For You. The steps are independent:
+YouTube still runs after playability quota/source errors, and a single YouTube
+rail/API phase failure records a partial refresh without clearing stale cached
+rails. The final systemd service status remains non-zero only when playability
+fails or the YouTube refresh cannot complete any useful phase. Set
 `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` only for operator debugging.
 
 ## Source hit-rate weights

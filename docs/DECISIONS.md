@@ -103,6 +103,7 @@ Locked choices. Update when changing behavior.
 | YouTube auth/secrets | API key, OAuth client, token, and optional cookies are operator-owned `/etc/mango/*`; no repo secrets |
 | YouTube save policy | Videos only; channels/playlists open lists and are not Saved entities in M6.2; Saved videos remain in Saved until explicit Unsave |
 | YouTube history policy | History is Mango-local only; default shows latest 9 unique videos watched in Mango, shuffle samples 9 random videos from the full local YouTube watch set |
+| YouTube refresh policy | One nightly/manual coordinator refreshes all YouTube cache phases; each phase is isolated and stale cached rails remain visible when a phase fails |
 | YouTube For You policy | Mango-owned reservoir in `youtube.db`; long-watch optimized, medium-first, no Shorts/live/watched videos, 5 familiar + 3 discovery + 1 wildcard, 7-day exposure cooldown |
 | YouTube Fresh Finds policy | Mango-owned broad-discovery reservoir in `youtube.db`; official-API refresh only, no couch-time API calls, no watched/Not Interested/live/Shorts, prefer non-Saved/non-subscribed alternatives, 14-day exposure cooldown |
 | YouTube Because You Watched policy | Seed-scoped reservoir in `youtube.db` based on latest meaningful Mango-local YouTube watch; one same-channel anchor plus same-topic/deeper-dive/wildcard follow-ups; max-one creator when enough distinct creators exist; no watched/live/Shorts/Not Interested cards; shuffle is cache-only |

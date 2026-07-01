@@ -299,7 +299,10 @@ test('fresh finds failed refresh keeps existing cached pool visible', () => with
 
   const service = new YoutubeService();
   const refresh = await service.refresh('test_failure');
-  assert.equal(refresh.ok, false);
+  assert.equal(refresh.ok, true);
+  assert.match(refresh.refresh.last_error || '', /partial refresh/);
+  assert.ok(refresh.refresh.phase_results.some((phase) => phase.phase === 'popular' && !phase.ok));
+  assert.ok(refresh.refresh.phase_results.some((phase) => phase.phase === 'for_you_reservoir' && phase.ok));
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
   assert.ok(rail);
@@ -851,7 +854,10 @@ test('because you watched failed refresh keeps cached seed reservoir visible', (
 
   const service = new YoutubeService();
   const refresh = await service.refresh('test_failure');
-  assert.equal(refresh.ok, false);
+  assert.equal(refresh.ok, true);
+  assert.match(refresh.refresh.last_error || '', /partial refresh/);
+  assert.ok(refresh.refresh.phase_results.some((phase) => phase.phase === 'popular' && !phase.ok));
+  assert.ok(refresh.refresh.phase_results.some((phase) => phase.phase === 'because_you_watched' && phase.ok));
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
   assert.ok(rail);

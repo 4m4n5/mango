@@ -89,17 +89,24 @@ bash scripts/m3-play/playability/install-playability-timer.sh
 That installs `mango-playability-indexer.timer` for 03:00. The service runs
 `nightly-library-refresh.sh --mode nightly --preset nightly`, which executes
 playability stale+grow first and then calls `POST /youtube/refresh` through
-`scripts/m6-ship/youtube-refresh-cache.sh`. That refresh updates cached metadata
-plus the For You, Fresh Finds, and Because You Watched reservoirs. The YouTube
-step still runs when
-playability returns a quota/source/error failure, but it is skipped if another
-playability maintenance lock is still active so cache refreshes do not overlap
-the indexer.
+`scripts/m6-ship/youtube-refresh-cache.sh`. This is also the preferred manual
+"run everything" workflow: one command refreshes movie/TV library state and then
+YouTube.
+
+`/youtube/refresh` is a phase-isolated coordinator. It updates `popular`,
+`subscriptions`, `fresh_finds`, `live_now`, `because_you_watched`,
+`for_you_discovery`, then rebuilds `for_you_reservoir`. A phase failure is
+recorded in `/youtube/state.refresh.phase_results` and as a partial
+`last_error`, but it does not abort the remaining phases or clear existing
+cached rails. The YouTube step still runs when playability returns a
+quota/source/error failure, but it is skipped if another playability
+maintenance lock is still active so cache refreshes do not overlap the indexer.
 
 Manual equivalents:
 
 ```bash
 bash scripts/m3-play/playability/playability-catch-up.sh nightly
+bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly
 bash scripts/m6-ship/youtube-refresh-cache.sh --reason manual
 ```
 

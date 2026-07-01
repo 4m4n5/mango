@@ -37,11 +37,21 @@ export type YoutubeSearchGroups = {
   playlists: YoutubeItem[];
 };
 
+export type YoutubeRefreshPhaseResult = {
+  phase: string;
+  ok: boolean;
+  started_at: number;
+  ended_at: number;
+  duration_ms: number;
+  error?: string;
+};
+
 export type YoutubeRefreshStatus = {
   last_refresh_at: number | null;
   last_success_at: number | null;
   last_error: string | null;
   last_reason: string | null;
+  phase_results: YoutubeRefreshPhaseResult[];
   quota_used_today: number;
   quota_reset_day: string;
 };

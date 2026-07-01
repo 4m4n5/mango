@@ -43,7 +43,14 @@ import {
   type YoutubeForYouCandidate,
 } from './db.js';
 import { resolveYoutubePlayback } from './playback.js';
-import type { YoutubeItem, YoutubeItemKind, YoutubeRail, YoutubeRailItem, YoutubeSearchGroups } from './types.js';
+import type {
+  YoutubeItem,
+  YoutubeItemKind,
+  YoutubeRail,
+  YoutubeRailItem,
+  YoutubeRefreshPhaseResult,
+  YoutubeSearchGroups,
+} from './types.js';
 
 const YOUTUBE_SOURCE = 'youtube';
 const YOUTUBE_TAB = 'youtube';
@@ -121,6 +128,7 @@ const RAIL_LABELS: Record<string, string> = {
 type RefreshResult = {
   ok: boolean;
   refresh: ReturnType<typeof youtubeRefreshStatus>;
+  phases?: YoutubeRefreshPhaseResult[];
   error?: string;
 };
 
@@ -132,6 +140,14 @@ type ForYouLane = 'familiar' | 'discovery' | 'wildcard';
 type ForYouSource = 'history' | 'saved' | 'subscription' | 'discovery' | 'popular' | 'wildcard';
 type FreshFindBucket = 'quality_fresh' | 'taste_adjacent' | 'emerging_creator' | 'zeitgeist_light' | 'wildcard';
 type BecauseYouWatchedRelation = 'same_channel' | 'same_topic' | 'deeper_dive' | 'wildcard';
+type YoutubeRefreshPhase =
+  | 'popular'
+  | 'subscriptions'
+  | 'fresh_finds'
+  | 'live_now'
+  | 'because_you_watched'
+  | 'for_you_discovery'
+  | 'for_you_reservoir';
 
 type RecentYoutubeSearch = {
   query: string;
@@ -1779,6 +1795,72 @@ export class YoutubeService {
     return { ok: true, auth: youtubeAuthSummary(this.config) };
   }
 
+  private async runRefreshPhase(
+    phase: YoutubeRefreshPhase,
+    fn: () => Promise<void> | void,
+  ): Promise<YoutubeRefreshPhaseResult> {
+    const started = nowMs();
+    try {
+      await fn();
+      const ended = nowMs();
+      return {
+        phase,
+        ok: true,
+        started_at: started,
+        ended_at: ended,
+        duration_ms: ended - started,
+      };
+    } catch (error) {
+      const ended = nowMs();
+      return {
+        phase,
+        ok: false,
+        started_at: started,
+        ended_at: ended,
+        duration_ms: ended - started,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async refreshPopularFromApi(): Promise<void> {
+    const popular = await this.api.popular(36);
+    replaceYoutubeRailItems('popular', popular.map((item, index) => ({
+      item,
+      score: 1 - index * 0.01,
+      reason: 'trending fallback',
+    })));
+    setYoutubeState('popular_last_refresh_count', popular.length);
+  }
+
+  private async refreshLiveNowFromApi(): Promise<void> {
+    const liveGroups = await this.api.search('news|music|gaming', { limit: 25, eventType: 'live' });
+    replaceYoutubeRailItems('live_now', liveGroups.videos.map((item, index) => ({
+      item,
+      score: 1 - index * 0.01,
+      reason: 'live now',
+    })));
+    setYoutubeState('live_now_last_refresh_count', liveGroups.videos.length);
+  }
+
+  private async refreshSubscriptionsIfAuthorized(): Promise<void> {
+    const token = await youtubeAccessToken(this.config).catch(() => null);
+    if (!token) {
+      setYoutubeState('subscriptions_last_refresh_count', 0);
+      setYoutubeState('subscriptions_last_refresh_skipped', {
+        at: nowMs(),
+        reason: 'not_authenticated',
+      });
+      return;
+    }
+    await this.refreshSubscriptionsFromApi(token);
+  }
+
+  private rebuildForYouReservoir(): void {
+    buildForYouReservoir();
+    setYoutubeState('for_you_last_refresh_count', listForYouCandidates(FOR_YOU_RESERVOIR_TARGET).length);
+  }
+
   private async refreshBecauseYouWatchedFromApi(): Promise<void> {
     if (!this.config.api_key) {
       return;
@@ -2017,42 +2099,33 @@ export class YoutubeService {
     }
     setYoutubeState('last_refresh_at', nowMs());
     setYoutubeState('last_reason', reason);
-    try {
-      const popular = await this.api.popular(36);
-      replaceYoutubeRailItems('popular', popular.map((item, index) => ({
-        item,
-        score: 1 - index * 0.01,
-        reason: 'trending fallback',
-      })));
-
-      await this.refreshFreshFindsFromApi();
-
-      const liveGroups = await this.api.search('news|music|gaming', { limit: 25, eventType: 'live' })
-        .catch(() => ({ videos: [], channels: [], playlists: [] }));
-      replaceYoutubeRailItems('live_now', liveGroups.videos.map((item, index) => ({
-        item,
-        score: 1 - index * 0.01,
-        reason: 'live now',
-      })));
-
-      await this.refreshBecauseYouWatchedFromApi();
-
-      const token = await youtubeAccessToken(this.config).catch(() => null);
-      if (token) {
-        await this.refreshSubscriptionsFromApi(token);
-      }
-
-      await this.expandForYouDiscoveryFromApi();
-      buildForYouReservoir();
-
-      setYoutubeState('last_success_at', nowMs());
-      setYoutubeState('last_error', null);
-      return { ok: true, refresh: youtubeRefreshStatus() };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setYoutubeState('last_error', message);
-      return { ok: false, error: message, refresh: youtubeRefreshStatus() };
+    const phases: YoutubeRefreshPhaseResult[] = [];
+    for (const [phase, fn] of [
+      ['popular', () => this.refreshPopularFromApi()],
+      ['subscriptions', () => this.refreshSubscriptionsIfAuthorized()],
+      ['fresh_finds', () => this.refreshFreshFindsFromApi()],
+      ['live_now', () => this.refreshLiveNowFromApi()],
+      ['because_you_watched', () => this.refreshBecauseYouWatchedFromApi()],
+      ['for_you_discovery', () => this.expandForYouDiscoveryFromApi()],
+      ['for_you_reservoir', () => this.rebuildForYouReservoir()],
+    ] as Array<[YoutubeRefreshPhase, () => Promise<void> | void]>) {
+      phases.push(await this.runRefreshPhase(phase, fn));
     }
+    setYoutubeState('last_phase_results', phases);
+    const failed = phases.filter((phase) => !phase.ok);
+    const succeeded = phases.some((phase) => phase.ok);
+    if (succeeded) {
+      setYoutubeState('last_success_at', nowMs());
+      setYoutubeState('last_error', failed.length > 0
+        ? `partial refresh: ${failed.map((phase) => `${phase.phase}: ${phase.error || 'failed'}`).join('; ')}`
+        : null);
+      return { ok: true, refresh: youtubeRefreshStatus(), phases };
+    }
+    const message = failed.length > 0
+      ? `YouTube refresh failed: ${failed.map((phase) => `${phase.phase}: ${phase.error || 'failed'}`).join('; ')}`
+      : 'YouTube refresh failed: no phases ran';
+    setYoutubeState('last_error', message);
+    return { ok: false, error: message, refresh: youtubeRefreshStatus(), phases };
   }
 
   async rails(options: YoutubeRailsOptions = {}): Promise<Record<string, unknown>> {
