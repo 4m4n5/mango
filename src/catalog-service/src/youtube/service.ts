@@ -55,6 +55,7 @@ const FOR_YOU_EXPOSURE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const FOR_YOU_SEARCH_HISTORY_LIMIT = 20;
 const FRESH_FIND_POOL_TARGET = 300;
 const FRESH_FIND_SEARCH_BUDGET = 24;
+const FRESH_FIND_MIN_DURATION_SEC = 8 * 60;
 const FRESH_FIND_EXPOSURE_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
 const FOR_YOU_LANE_QUOTAS: Record<ForYouLane, number> = {
   familiar: 5,
@@ -151,6 +152,12 @@ type FreshFindQuerySpec = {
   videoDuration?: 'medium' | 'long';
   videoDefinition?: 'high';
   topicId?: string;
+};
+
+type FreshFindEligibilityOptions = {
+  allowRecentExposure: boolean;
+  allowSavedOrSubscribed: boolean;
+  allowShortDuration: boolean;
 };
 
 const BASE_FRESH_FIND_QUERY_SPECS: FreshFindQuerySpec[] = [
@@ -602,6 +609,21 @@ function metadataQualityScore(item: YoutubeItem): number {
   return score;
 }
 
+function isLowSignalFreshFind(item: YoutubeItem): boolean {
+  const text = `${item.title} ${item.description || ''}`.toLowerCase();
+  return [
+    /\b(admit card|answer key|cut[ -]?off|exam result|exam notification|sarkari|vacancy)\b/,
+    /\b(ssc|neet|jee|upsc|mts)\b.*\b(result|cut[ -]?off|answer key)\b/,
+    /\b(result|cut[ -]?off|answer key)\b.*\b(ssc|neet|jee|upsc|mts)\b/,
+  ].some((pattern) => pattern.test(text));
+}
+
+function isFreshFindDurationEligible(item: YoutubeItem, allowShortDuration: boolean): boolean {
+  if (allowShortDuration) return true;
+  if (item.duration_sec === null || item.duration_sec <= 0) return true;
+  return item.duration_sec >= FRESH_FIND_MIN_DURATION_SEC;
+}
+
 function topicCluster(item: YoutubeItem): string {
   const tokens = [...titleTokens(item)].slice(0, 2);
   if (tokens.length > 0) return tokens.join(':');
@@ -897,13 +919,15 @@ function isEligibleFreshFindCandidate(
   candidate: YoutubeFreshFindCandidate,
   profile: TasteProfile,
   subscribed: Set<string>,
-  options: { allowRecentExposure: boolean; allowSavedOrSubscribed: boolean },
+  options: FreshFindEligibilityOptions,
 ): boolean {
   if (candidate.kind !== 'video') return false;
   if (profile.watchedIds.has(candidate.id)) return false;
   if (profile.negativeIds.has(candidate.id)) return false;
   if (isLiveVideo(candidate)) return false;
   if (isShortLikeVideo(candidate)) return false;
+  if (isLowSignalFreshFind(candidate)) return false;
+  if (!isFreshFindDurationEligible(candidate, options.allowShortDuration)) return false;
   if (!options.allowSavedOrSubscribed && profile.savedIds.has(candidate.id)) return false;
   if (!options.allowSavedOrSubscribed && isSubscribedChannel(candidate, subscribed)) return false;
   if (
@@ -1015,11 +1039,16 @@ function freshFindRail(options: YoutubeRailsOptions = {}): YoutubeRail {
   const refresh = youtubeRefreshStatus();
   const profile = buildTasteProfile();
   const subscribed = subscribedChannelKeys();
-  const scoreCandidates = (allowRecentExposure: boolean, allowSavedOrSubscribed: boolean) => (
+  const scoreCandidates = (
+    allowRecentExposure: boolean,
+    allowSavedOrSubscribed: boolean,
+    allowShortDuration: boolean,
+  ) => (
     listFreshFindCandidates(FRESH_FIND_POOL_TARGET)
       .filter((candidate) => isEligibleFreshFindCandidate(candidate, profile, subscribed, {
         allowRecentExposure,
         allowSavedOrSubscribed,
+        allowShortDuration,
       }))
       .map((candidate): ScoredFreshFindCandidate => {
         const bucket = (candidate.source_bucket || 'wildcard') as FreshFindBucket;
@@ -1033,12 +1062,15 @@ function freshFindRail(options: YoutubeRailsOptions = {}): YoutubeRail {
       })
       .sort((left, right) => right.score - left.score)
   );
-  let candidates = scoreCandidates(false, false);
+  let candidates = scoreCandidates(false, false, false);
   if (candidates.length < YOUTUBE_RAIL_LIMIT) {
-    candidates = scoreCandidates(false, true);
+    candidates = scoreCandidates(false, true, false);
   }
   if (candidates.length < YOUTUBE_RAIL_LIMIT) {
-    candidates = scoreCandidates(true, true);
+    candidates = scoreCandidates(true, true, false);
+  }
+  if (candidates.length < YOUTUBE_RAIL_LIMIT) {
+    candidates = scoreCandidates(true, true, true);
   }
   let selected = sampleFreshFindCandidates(candidates, options, 1, 2);
   if (selected.length < YOUTUBE_RAIL_LIMIT) {
@@ -1442,7 +1474,8 @@ export class YoutubeService {
       .filter((item) => !profile.watchedIds.has(item.id))
       .filter((item) => !profile.negativeIds.has(item.id))
       .filter((item) => !isLiveVideo(item))
-      .filter((item) => !isShortLikeVideo(item));
+      .filter((item) => !isShortLikeVideo(item))
+      .filter((item) => !isLowSignalFreshFind(item));
     if (items.length === 0) {
       return;
     }

@@ -255,6 +255,8 @@ test('fresh finds excludes watched saved subscribed live shorts blocked and rece
     sampleVideo('FreshSubscribed', 'none', 'subscribed-channel', 'Subscribed fresh'),
     sampleVideo('FreshLive', 'live', 'live-channel', 'Live fresh'),
     { ...sampleVideo('FreshShort', 'none', 'short-channel', 'Short fresh'), duration_sec: 45 },
+    { ...sampleVideo('FreshUnderEight', 'none', 'under-eight-channel', 'Short-form official video'), duration_sec: 300 },
+    sampleVideo('FreshLowSignal', 'none', 'low-signal-channel', 'SSC MTS result 2025 cutoff today'),
     sampleVideo('FreshBlocked', 'none', 'blocked-channel', 'Blocked fresh'),
     sampleVideo('FreshRecent', 'none', 'recent-channel', 'Recent fresh'),
     ...Array.from({ length: 9 }, (_, index) => (
@@ -295,6 +297,8 @@ test('fresh finds excludes watched saved subscribed live shorts blocked and rece
   assert.ok(!ids.includes('FreshSubscribed'));
   assert.ok(!ids.includes('FreshLive'));
   assert.ok(!ids.includes('FreshShort'));
+  assert.ok(!ids.includes('FreshUnderEight'));
+  assert.ok(!ids.includes('FreshLowSignal'));
   assert.ok(!ids.includes('FreshBlocked'));
   assert.ok(!ids.includes('FreshRecent'));
   const channelCounts = new Map<string, number>();
@@ -359,6 +363,32 @@ test('fresh finds relaxes recent exposure when still thin', () => withTempState(
   assert.ok(rail);
   assert.equal(rail.items.length, 9);
   assert.ok(rail.items.some((item) => item.id === 'FreshRecentOnlyFallback'));
+}));
+
+test('fresh finds relaxes sub-eight-minute filter only when thin', () => withTempState(async () => {
+  const longRows: Array<{
+    item: YoutubeItem;
+    bucket: 'taste_adjacent' | 'quality_fresh';
+    topic: string;
+  }> = Array.from({ length: 8 }, (_, index) => ({
+    item: sampleVideo(`FreshLongThin${index}`, 'none', `long-thin-${index}`, `Long thin ${TOPIC_WORDS[index]}`),
+    bucket: index < 3 ? 'taste_adjacent' : 'quality_fresh',
+    topic: `long-thin-topic-${index}`,
+  }));
+  upsertFreshCandidates([
+    ...longRows,
+    {
+      item: { ...sampleVideo('FreshShortFallback', 'none', 'short-fallback', 'Short fallback'), duration_sec: 300 },
+      bucket: 'wildcard',
+      topic: 'short-fallback-topic',
+    },
+  ]);
+  const service = new YoutubeService();
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
+  assert.ok(rail);
+  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.some((item) => item.id === 'FreshShortFallback'));
 }));
 
 test('fresh finds reshuffle uses exposure cooldown to show a different cached set', () => withTempState(async () => {
