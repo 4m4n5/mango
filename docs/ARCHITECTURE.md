@@ -29,10 +29,11 @@ Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
 ### Couch activity and maintenance boundary
 
 Silent maintenance depends on a shared activity marker at
-`~/.cache/mango/couch-activity.json`. Pad input, launcher activity, voice
-turns, mpv play/stop, and playback progress writes update only timestamp,
-source, hint, and pid. Maintenance checks the marker before disruptive phases
-and writes operator JSON when deferred; no TV surface shows grow/debug state.
+`~/.cache/mango/couch-activity.json`. Real couch activity means pad input,
+launcher key/clicks, voice turns, mpv play/stop, and playback progress; launcher
+process startup alone is not activity. Maintenance checks the marker before
+disruptive phases and writes operator JSON when deferred; no TV surface shows
+grow/debug state.
 
 Display anti-sleep is part of couch mode: X11 DPMS and screensaver blanking are
 disabled, and controller input wakes the display through

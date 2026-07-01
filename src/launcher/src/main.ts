@@ -139,7 +139,6 @@ init();
 function init(): void {
   libraryRefreshBtn.dataset.focusKey = "browse:shuffle";
   renderHome();
-  touchCouchActivity("launcher", "init");
 
   backButton.addEventListener("click", showHome);
   libraryRefreshBtn.addEventListener("click", () => void libraryRefresh());

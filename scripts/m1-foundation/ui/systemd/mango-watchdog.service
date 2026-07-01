@@ -1,7 +1,8 @@
 [Unit]
 Description=mango TV health watchdog
-Wants=mango-ui-server.service mango-catalog.service mango-launcher-chromium.service mango-tv-pad.service
-After=mango-ui-server.service mango-catalog.service mango-launcher-chromium.service mango-tv-pad.service
+# Do not add Wants=/Requires= for launcher/catalog here. systemd starts wanted
+# units before ExecStart, which can synthesize launcher activity during grow.
+# mango-health-repair.sh owns repair decisions after checking maintenance locks.
 
 [Service]
 Type=oneshot

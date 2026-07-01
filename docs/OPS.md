@@ -72,8 +72,10 @@ bash scripts/lib/couch-activity.sh touch operator inspect
 ```
 
 Pad input, launcher key/clicks, voice turns, mpv play/stop, and progress flushes
-update the activity file. Maintenance uses a 30 minute idle threshold by
-default (`MANGO_COUCH_IDLE_SEC` for tests only).
+update the activity file. Launcher process startup does not count as user
+activity: Mango may be on overnight and still run grow when no one has actively
+used it recently. Maintenance uses a 30 minute idle threshold by default
+(`MANGO_COUCH_IDLE_SEC` for tests only).
 
 When couch mode starts, Mango disables X11 DPMS/screensaver blanking. Controller
 input also runs the display wake helper, throttled to a few seconds:
@@ -164,8 +166,9 @@ rails/live readiness fails, and restarts launcher units only when UI health is
 still bad. Use `bash scripts/mango-stack.sh restart` for a deliberate clean
 full-stack reset.
 During playability maintenance, the watchdog must skip repair entirely while the
-maintenance lock/process is active; otherwise it can kill the indexer and abort
-the staged grow.
+maintenance lock/process is active; the watchdog systemd service must not
+`Wants=` launcher/catalog units because systemd starts wanted units before the
+repair script can check the maintenance lock.
 
 Grow operator state: `~/.cache/mango/grow-run-state.json`, `~/.cache/mango/ops/refresh-*.json`, `~/.cache/mango/source-grow/latest.json`.
 

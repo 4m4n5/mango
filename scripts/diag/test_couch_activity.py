@@ -8,6 +8,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 ACTIVITY = REPO / "scripts" / "lib" / "couch-activity.sh"
+WATCHDOG_UNIT = REPO / "scripts" / "m1-foundation" / "ui" / "systemd" / "mango-watchdog.service"
+LAUNCHER_MAIN = REPO / "src" / "launcher" / "src" / "main.ts"
 
 
 class CouchActivityTests(unittest.TestCase):
@@ -57,6 +59,13 @@ class CouchActivityTests(unittest.TestCase):
 
             idle = self.run_activity("is-idle", env=env)
             self.assertEqual(idle.returncode, 0)
+
+    def test_startup_does_not_synthesize_couch_activity(self):
+        unit = WATCHDOG_UNIT.read_text(encoding="utf-8")
+        launcher = LAUNCHER_MAIN.read_text(encoding="utf-8")
+
+        self.assertNotRegex(unit, r"(?m)^(Wants|Requires)=")
+        self.assertNotIn('touchCouchActivity("launcher", "init")', launcher)
 
 
 if __name__ == "__main__":
