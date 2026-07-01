@@ -103,9 +103,9 @@ function upsertBecauseCandidates(
   })));
 }
 
-function apiErrorResponse(message = 'quota exceeded'): Response {
+function apiErrorResponse(message = 'quota exceeded', status = 403): Response {
   return new Response(JSON.stringify({ error: { message } }), {
-    status: 403,
+    status,
     headers: { 'content-type': 'application/json' },
   });
 }
@@ -193,6 +193,23 @@ test('search falls back to local cache when API key is absent', () => withTempSt
   };
   assert.equal(response.cached_only, true);
   assert.deepEqual(response.groups.videos.map((item) => item.id), ['LocalOnly']);
+}));
+
+test('search falls back to local cache when YouTube API quota fails', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  replaceYoutubeRailItems('popular', [
+    { item: sampleVideo('LocalQuotaFallback', 'none', 'quota-channel', 'Local quota fallback'), score: 1, reason: 'test' },
+  ]);
+  globalThis.fetch = (async () => apiErrorResponse('quota exceeded', 429)) as typeof fetch;
+  const service = new YoutubeService();
+  const response = await service.search('local quota', 5) as {
+    cached_only: boolean;
+    api_error: string | null;
+    groups: { videos: YoutubeItem[] };
+  };
+  assert.equal(response.cached_only, true);
+  assert.match(response.api_error || '', /quota exceeded/);
+  assert.deepEqual(response.groups.videos.map((item) => item.id), ['LocalQuotaFallback']);
 }));
 
 test('for you rail excludes live videos', () => withTempState(async () => {

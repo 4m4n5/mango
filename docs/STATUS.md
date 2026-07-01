@@ -171,7 +171,7 @@ Implementation is present and deploy-gated; credentialed Pi smoke remains requir
 | User state | `/etc/mango/library.db` durable `source="youtube"` Saved videos, history, current context, and Not Interested feedback; Saved videos remain until explicit Unsave |
 | Config | `/etc/mango/youtube-api.key`, `/etc/mango/youtube-oauth-client.json`, `/etc/mango/youtube-auth.json`, optional cookies; examples only in repo |
 | Auth | Companion starts/polls Google device-code OAuth and disconnects local token; token file is written `0600` |
-| API | `/youtube/state`, auth start/poll/disconnect, refresh, rails, grouped search, detail, not-interested, play |
+| API | `/youtube/state`, auth start/poll/disconnect, refresh, rails, grouped search with cached fallback on quota/rate limits, detail, not-interested, play |
 | Rails | 9-up Saved, Mango-local History, reservoir-backed For You, diverse unwatched New From Subscriptions inbox, reservoir-backed Fresh Finds broad discovery, seed-scoped Because You Watched, Live Now, Popular; stale cache remains visible |
 | Refresh | Nightly 03:00 playability timer runs movie/TV stale+grow first, then independently refreshes YouTube cache plus For You, Fresh Finds, and Because You Watched reservoirs through `/youtube/refresh` |
 | Launcher | YouTube tab after Live; shuffle re-samples Mango-local History, For You, Fresh Finds, Because You Watched, and cached discovery rails without couch-time API calls; videos play/save, channels/playlists open video lists, Not Interested removes discovery cards |

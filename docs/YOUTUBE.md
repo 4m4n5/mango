@@ -120,6 +120,8 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
 - The shuffle button is available on YouTube and re-samples History, For You,
   and cached discovery rails.
 - First-run with credentials fills Fresh Finds and Popular instead of showing an empty tab.
+- Search normally uses the Data API when configured, but falls back to cached
+  metadata with a couch-safe response when quota/rate limits make the API fail.
 - New From Subscriptions is a creator-following inbox: refresh uses OAuth
   subscriptions ordered by activity, rotates through subscribed channels over
   time, fetches uploads through channel upload playlists instead of `search`,

@@ -2067,16 +2067,30 @@ export class YoutubeService {
         couchMessage: 'type something to search YouTube',
       });
     }
-    const groups = this.config.api_key
-      ? await this.api.search(normalized, { limit: Math.max(1, Math.min(50, limit)) })
-      : groupCachedSearch(normalized, Math.max(1, Math.min(50, limit)));
+    const searchLimit = Math.max(1, Math.min(50, limit));
+    let cachedOnly = !this.config.api_key;
+    let apiError: string | null = null;
+    let groups: YoutubeSearchGroups;
+    if (this.config.api_key) {
+      try {
+        groups = await this.api.search(normalized, { limit: searchLimit });
+      } catch (error) {
+        apiError = error instanceof Error ? error.message : String(error);
+        setYoutubeState('last_search_error', { query: normalized, error: apiError, at: nowMs() });
+        groups = groupCachedSearch(normalized, searchLimit);
+        cachedOnly = true;
+      }
+    } else {
+      groups = groupCachedSearch(normalized, searchLimit);
+    }
     recordRecentYoutubeSearch(normalized);
     return {
       ok: true,
       query: normalized,
       groups,
       refresh: youtubeRefreshStatus(),
-      cached_only: !this.config.api_key,
+      cached_only: cachedOnly,
+      api_error: apiError,
     };
   }
 
