@@ -102,6 +102,13 @@ cached rails. The YouTube step still runs when playability returns a
 quota/source/error failure, but it is skipped if another playability
 maintenance lock is still active so cache refreshes do not overlap the indexer.
 
+`live_now` is the time-sensitive exception to the long stale-cache posture:
+Mango keeps a short-TTL live reservoir and hides expired live candidates instead
+of showing day-old "live" cards. Normal `/youtube/refresh` refreshes it, and a
+non-shuffle YouTube tab load can trigger a throttled background live-only
+refresh when the reservoir is older than about 90 minutes. Shuffle never calls
+YouTube APIs.
+
 Manual equivalents:
 
 ```bash
@@ -120,12 +127,13 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
 
 - Browse tabs are **Movies · TV Shows · Live · YouTube**.
 - YouTube rails are capped at 9 cards, matching Movies/TV Shows.
-- YouTube rails keep stale cached results visible with refresh status.
+- YouTube VOD discovery rails keep stale cached results visible with refresh
+  status; Live Now uses a short live TTL and hides expired streams.
 - History is Mango-local only: the latest view shows 9 unique YouTube videos
   watched in Mango, and shuffle samples 9 random videos from the full local
   YouTube watch set.
 - The shuffle button is available on YouTube and re-samples History, For You,
-  and cached discovery rails.
+  and cached discovery rails without couch-time API calls.
 - First-run with credentials fills Fresh Finds and Popular instead of showing an empty tab.
 - Search normally uses the Data API when configured, but falls back to cached
   metadata with a couch-safe response when quota/rate limits make the API fail.
@@ -138,6 +146,12 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
 - Channel/playlist detail opens a D-pad list of videos.
 - Not Interested removes the card from discovery rails and persists a local downrank/exclusion.
 - Live videos are kept in Live Now instead of dominating For You / Because You Watched.
+- Live Now is Mango's "worth watching live right now" rail: refresh builds a
+  rebuildable short-TTL reservoir from subscribed-channel live probes plus
+  official live searches across news/events, sports, music/performance, gaming,
+  culture/talks, and wildcard lanes. It filters Not Interested, Shorts,
+  non-live/ended streams, and low-signal 24/7 loop/camera/radio-style cards,
+  then renders a diverse 9-card row with a 6-hour exposure cooldown.
 - For You is served from a rebuildable local reservoir in `youtube.db`: Mango
   watches/Saved are strongest, subscriptions are light, topic discovery broadens
   the pool, Popular is fallback only, and each render samples a diverse 9-card

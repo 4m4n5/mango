@@ -10,9 +10,11 @@ import {
   setBecauseYouWatchedCandidateStats,
   setFreshFindCandidateStats,
   setForYouCandidateStats,
+  setLiveNowCandidateStats,
   upsertBecauseYouWatchedCandidates,
   upsertFreshFindCandidates,
   upsertForYouCandidates,
+  upsertLiveNowCandidates,
 } from './db.js';
 import { YoutubeService } from './service.js';
 import type { YoutubeItem, YoutubeRail } from './types.js';
@@ -77,6 +79,28 @@ function upsertFreshCandidates(items: Array<{
     score: entry.score ?? (1 - index * 0.001),
     score_breakdown: { test: true },
     reason: `fresh_find:${entry.bucket || 'quality_fresh'}`,
+  })));
+}
+
+function upsertLiveCandidates(items: Array<{
+  item: YoutubeItem;
+  lane?: 'subscription_live' | 'news_events' | 'sports' | 'music_performance' | 'gaming' | 'culture_talks' | 'wildcard';
+  topic?: string;
+  score?: number;
+  verifiedAt?: number;
+  expiresAt?: number;
+}>): void {
+  const now = Date.now();
+  upsertLiveNowCandidates(items.map((entry, index) => ({
+    item: { ...entry.item, live_status: entry.item.live_status === 'live' ? 'live' : entry.item.live_status },
+    source_lane: entry.lane || 'news_events',
+    query: entry.lane || 'news_events',
+    topic_cluster: entry.topic || entry.item.title.toLowerCase().replace(/[^a-z0-9]+/g, ':'),
+    score: entry.score ?? (1 - index * 0.001),
+    score_breakdown: { test: true },
+    reason: `live_now:${entry.lane || 'news_events'}`,
+    last_verified_at: entry.verifiedAt ?? now,
+    expires_at: entry.expiresAt ?? (now + 2 * 60 * 60 * 1000),
   })));
 }
 
@@ -250,8 +274,8 @@ test('cached discovery rails keep live videos in live now only', () => withTempS
     { item: sampleVideo('PopularNormal'), score: 1, reason: 'test' },
     { item: sampleVideo('PopularLive', 'live'), score: 0.9, reason: 'test' },
   ]);
-  replaceYoutubeRailItems('live_now', [
-    { item: sampleVideo('LiveNow', 'live'), score: 1, reason: 'test' },
+  upsertLiveCandidates([
+    { item: sampleVideo('LiveNow', 'live'), lane: 'news_events', score: 1 },
   ]);
   const service = new YoutubeService();
   const response = await service.rails() as { rails: YoutubeRail[] };
@@ -261,6 +285,79 @@ test('cached discovery rails keep live videos in live now only', () => withTempS
   assert.ok(liveNow);
   assert.deepEqual(popular.items.map((item) => item.id), ['PopularNormal']);
   assert.deepEqual(liveNow.items.map((item) => item.id), ['LiveNow']);
+}));
+
+test('live now filters stale, non-live, loop, and not-interested candidates', () => withTempState(async () => {
+  const expiredAt = Date.now() - 1000;
+  upsertLiveCandidates([
+    { item: sampleVideo('LiveKeep', 'live', 'live-keep', 'Breaking news live'), lane: 'news_events', score: 1 },
+    { item: sampleVideo('LiveExpired', 'live', 'live-expired', 'Expired live'), lane: 'news_events', score: 0.9, expiresAt: expiredAt },
+    { item: sampleVideo('LiveLoop', 'live', 'live-loop', 'lofi hip hop radio 24/7'), lane: 'music_performance', score: 0.8 },
+    { item: sampleVideo('LiveBlocked', 'live', 'live-blocked', 'Blocked live'), lane: 'sports', score: 0.7 },
+    { item: sampleVideo('NotActuallyLive', 'none', 'not-live', 'Normal video'), lane: 'wildcard', score: 0.6 },
+  ]);
+  const service = new YoutubeService();
+  service.notInterested({ kind: 'video', id: 'LiveBlocked', reason: 'user' });
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const liveNow = response.rails.find((rail) => rail.rail_id === 'live_now');
+  assert.ok(liveNow);
+  assert.deepEqual(liveNow.items.map((item) => item.id), ['LiveKeep']);
+}));
+
+test('live now returns nine diverse live cards and reshuffle samples cache only', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return apiErrorResponse('should not fetch on shuffle');
+  }) as typeof fetch;
+  const lanes = ['news_events', 'sports', 'music_performance', 'gaming', 'culture_talks', 'wildcard'] as const;
+  upsertLiveCandidates(Array.from({ length: 14 }, (_, index) => ({
+    item: sampleVideo(`LiveDiverse${index}`, 'live', `live-channel-${index}`, `Live ${TOPIC_WORDS[index]} event`),
+    lane: lanes[index % lanes.length],
+    score: 1 - index * 0.001,
+  })));
+  const service = new YoutubeService();
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const liveNow = response.rails.find((rail) => rail.rail_id === 'live_now');
+  assert.ok(liveNow);
+  assert.equal(liveNow.items.length, 9);
+  assert.equal(new Set(liveNow.items.map((item) => item.channel_id)).size, 9);
+  assert.equal(fetchCalls, 0);
+}));
+
+test('live now suppresses recently exposed cards when enough alternatives exist', () => withTempState(async () => {
+  upsertLiveCandidates(Array.from({ length: 10 }, (_, index) => ({
+    item: sampleVideo(`LiveExposure${index}`, 'live', `exposure-channel-${index}`, `Live exposure ${TOPIC_WORDS[index]}`),
+    lane: index === 0 ? 'news_events' : 'wildcard',
+    score: 1 - index * 0.001,
+  })));
+  setLiveNowCandidateStats('LiveExposure0', { last_recommended_at: Date.now(), exposure_count: 3, ignore_count: 3 });
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const liveNow = response.rails.find((rail) => rail.rail_id === 'live_now');
+  assert.ok(liveNow);
+  assert.equal(liveNow.items.length, 9);
+  assert.ok(!liveNow.items.some((item) => item.id === 'LiveExposure0'));
+}));
+
+test('live now failed refresh keeps existing reservoir visible', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  upsertLiveCandidates(Array.from({ length: 9 }, (_, index) => ({
+    item: sampleVideo(`LiveStale${index}`, 'live', `live-stale-${index}`, `Stale live ${TOPIC_WORDS[index]}`),
+    lane: index < 3 ? 'news_events' : 'wildcard',
+  })));
+  globalThis.fetch = (async () => apiErrorResponse('quota exceeded')) as typeof fetch;
+
+  const service = new YoutubeService();
+  const refresh = await service.refresh('test_live_failure');
+  assert.equal(refresh.ok, true);
+  assert.ok(refresh.refresh.phase_results.some((phase) => phase.phase === 'live_now' && !phase.ok));
+  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const liveNow = response.rails.find((rail) => rail.rail_id === 'live_now');
+  assert.ok(liveNow);
+  assert.equal(liveNow.items.length, 9);
+  assert.ok(liveNow.items.every((item) => item.id.startsWith('LiveStale')));
 }));
 
 test('YouTube rails return at most nine cards', () => withTempState(async () => {
