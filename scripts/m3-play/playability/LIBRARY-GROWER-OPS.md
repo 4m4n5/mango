@@ -120,13 +120,10 @@ Defaults when `MANGO_GROW_PRESET` is unset:
   not thematic repair.
 
 ```bash
-# Daily quick grow (15:00 timer — install once on Pi)
-bash scripts/m3-play/playability/install-playability-daily-grow.sh
-
-# Manual quick grow
+# Manual quick grow (operator-triggered only; no separate daily timer)
 bash scripts/m3-play/playability/playability-grow.sh --mode grow --preset quick --detach
 
-# Full backfill (nightly timer at 03:00 — stale then grow, then YouTube refresh)
+# Combined nightly timer at 03:00 — stale then grow, then YouTube refresh
 bash scripts/m3-play/playability/install-playability-timer.sh
 ```
 
@@ -139,6 +136,10 @@ rail/API phase failure records a partial refresh without clearing stale cached
 rails. The final systemd service status remains non-zero only when playability
 fails or the YouTube refresh cannot complete any useful phase. Set
 `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` only for operator debugging.
+
+The legacy `mango-playability-daily-grow.timer` 15:00 quick-grow path is retired;
+the installer above disables/removes it so all scheduled library and YouTube
+refreshes run through one nightly workflow.
 
 ## Source hit-rate weights
 

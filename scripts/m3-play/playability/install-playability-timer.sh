@@ -7,8 +7,16 @@ REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 SERVICE_PATH="$UNIT_DIR/mango-playability-indexer.service"
 TIMER_PATH="$UNIT_DIR/mango-playability-indexer.timer"
+LEGACY_DAILY_GROW_SERVICE="$UNIT_DIR/mango-playability-daily-grow.service"
+LEGACY_DAILY_GROW_TIMER="$UNIT_DIR/mango-playability-daily-grow.timer"
 
 mkdir -p "$UNIT_DIR"
+
+# Keep scheduled library maintenance single-path: movie/TV playability first,
+# then YouTube refresh. The old 15:00 quick-grow timer skipped YouTube and made
+# operator state harder to reason about.
+systemctl --user disable --now mango-playability-daily-grow.timer >/dev/null 2>&1 || true
+rm -f "$LEGACY_DAILY_GROW_SERVICE" "$LEGACY_DAILY_GROW_TIMER"
 
 cat >"$SERVICE_PATH" <<EOF
 [Unit]
