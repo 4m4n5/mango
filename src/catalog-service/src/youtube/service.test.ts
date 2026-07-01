@@ -195,6 +195,26 @@ test('search falls back to local cache when API key is absent', () => withTempSt
   assert.deepEqual(response.groups.videos.map((item) => item.id), ['LocalOnly']);
 }));
 
+test('cached search token-matches multi-word queries across metadata', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', [
+    {
+      item: {
+        ...sampleVideo('CachedLofiLive', 'live', 'lofi-channel', 'lofi hip hop radio'),
+        description: '24/7 live beats for focus',
+      },
+      score: 1,
+      reason: 'test',
+    },
+  ]);
+  const service = new YoutubeService();
+  const response = await service.search('lofi live', 5) as {
+    cached_only: boolean;
+    groups: { videos: YoutubeItem[] };
+  };
+  assert.equal(response.cached_only, true);
+  assert.deepEqual(response.groups.videos.map((item) => item.id), ['CachedLofiLive']);
+}));
+
 test('search falls back to local cache when YouTube API quota fails', () => withTempState(async () => {
   process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
   replaceYoutubeRailItems('popular', [

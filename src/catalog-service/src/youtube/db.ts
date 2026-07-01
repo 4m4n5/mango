@@ -266,18 +266,40 @@ LIMIT @limit;
 }
 
 export function searchCachedYoutubeItems(query: string, limit = 25): YoutubeItem[] {
-  const like = `%${query.trim().toLowerCase()}%`;
+  const normalized = query.trim().toLowerCase();
+  const like = `%${normalized}%`;
   if (like === '%%') {
     return listYoutubeItems(null, limit);
   }
-  return ensureDb().prepare(`
+  const boundedLimit = Math.max(1, Math.min(100, limit));
+  const exactRows = ensureDb().prepare(`
 SELECT id, kind, title, subtitle, description, thumbnail, channel_id, channel_title,
   published_at, duration_sec, live_status, playlist_id, updated_at
 FROM youtube_items
-WHERE lower(title) LIKE @like OR lower(COALESCE(channel_title, '')) LIKE @like
+WHERE lower(title) LIKE @like
+  OR lower(COALESCE(channel_title, '')) LIKE @like
+  OR lower(COALESCE(description, '')) LIKE @like
 ORDER BY updated_at DESC
 LIMIT @limit;
-`).all({ like, limit: Math.max(1, Math.min(100, limit)) }) as YoutubeItem[];
+`).all({ like, limit: boundedLimit }) as YoutubeItem[];
+  if (exactRows.length > 0) {
+    return exactRows;
+  }
+  const tokens = normalized
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3)
+    .slice(0, 5);
+  if (tokens.length <= 1) {
+    return exactRows;
+  }
+  return listYoutubeItems(null, 2000)
+    .filter((item) => {
+      const haystack = `${item.title} ${item.channel_title || ''} ${item.description || ''} ${item.live_status}`.toLowerCase();
+      return tokens.every((token) => haystack.includes(token));
+    })
+    .slice(0, boundedLimit);
 }
 
 export function replaceYoutubeRailItems(
