@@ -54,9 +54,9 @@ What works today, what is still being hardened, and how to verify it.
 | Job | UI label | Script |
 |-----|----------|--------|
 | Reshuffle | Refresh library | inline |
-| ~10 min | Quick top-up | `quick-playability-topup.sh --detach` |
-| ~45 min | Nightly pass | `playability-maintenance.sh --mode nightly` |
-| ~4 h | Overnight grow | `overnight-playability-grow.sh --detach` |
+| ~8 min | Quick top-up | `quick-playability-topup.sh --detach` |
+| ~60–90 min total | Nightly pass | `playability-maintenance.sh --mode nightly` |
+| ~4 h loop | Overnight grow | `overnight-playability-grow.sh --detach` |
 
 Status: `python3 scripts/diag/playability-status.py` · grow monitor: `grow_monitor.py status`
 

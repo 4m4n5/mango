@@ -130,14 +130,14 @@ catalogs, duplicates, unresolved IDs, and theme-rejected broad charts.
 | Job | UI label | Command |
 |-----|----------|---------|
 | Reshuffle | Refresh library | launcher inline |
-| Quick top-up | ~10 min | `quick-playability-topup.sh --detach` |
-| Nightly | ~45 min | `playability-maintenance.sh --mode nightly` |
-| Overnight | ~4 h | `overnight-playability-grow.sh --detach` |
+| Quick top-up | ~8 min | `quick-playability-topup.sh --detach` |
+| Nightly | ~60–90 min total | `playability-maintenance.sh --mode nightly` |
+| Overnight | ~4 h loop | `overnight-playability-grow.sh --detach` |
 | Manual grow | — | `playability-grow.sh --mode grow --detach` |
 | Run control | operator | `grow-run-control.sh start/status/watch/assess/abort` |
 | Explicit catch-up | operator | `playability-catch-up.sh nightly\|grow\|stale` |
 
-**Presets:** `quick` (10 min wall) · `nightly` (90 min) — see [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md)
+**Presets:** `quick` (8 min / 100 attempts per rail) · `nightly` (25 min / 250 attempts per rail) · `overnight` (45 min / 400 attempts per rail chunk) — see [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md)
 
 **Grow target:** fresh **new-to-rail probe-verified** titles per rail (`+20` default). Existing verified links, orphan reattachments, and pool reshuffles do **not** satisfy the target. Anchor rails are included by default; the old anchor diet is opt-in only (`MANGO_GROW_ANCHOR_DIET=1`). By default, target misses are warnings and usable verified work still publishes; set `MANGO_GROW_REQUIRE_TARGET=1` for strict proof runs.
 

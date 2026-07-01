@@ -103,8 +103,9 @@ hang signal.
 
 | Preset | Wall | Max probes | Use |
 |--------|------|------------|-----|
-| `quick` | 10 min | 200 | Daily `--mode grow`, manual top-up |
-| `nightly` | 90 min | 500 | Nightly timer phase 2 (stale + grow) |
+| `quick` | 8 min | 100 | Manual top-up / short away-time grow |
+| `nightly` | 25 min | 250 | Nightly timer phase 2 (stale + grow) |
+| `overnight` | 45 min | 400 | Per-rail budget inside the 4h overnight loop |
 
 The `benchmark` controller command still uses the `quick` preset, but overrides
 per-rail wall/probe budgets through `MANGO_GROW_WALL_MS` and

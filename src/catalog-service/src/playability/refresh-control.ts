@@ -50,6 +50,8 @@ const LEGACY_LEVEL_ALIASES: Record<LegacyRefreshLevelId, RefreshLevelId> = {
   overnight_grow: 'grow_overnight',
 };
 
+const OVERNIGHT_LOOP_ESTIMATE_SEC = 4 * 60 * 60;
+
 export const REFRESH_LEVELS: RefreshLevel[] = [
   {
     id: 'shuffle_rails',
@@ -66,12 +68,12 @@ export const REFRESH_LEVELS: RefreshLevel[] = [
   {
     id: 'grow_quick',
     label: 'Quick grow',
-    description: 'Short grow pass — ~10 min wall, up to 200 probe attempts per rail.',
+    description: 'Short grow pass — ~8 min wall, up to 100 probe attempts per rail.',
     category: 'quick',
     estimated_sec: Math.round(GROW_PRESETS.quick.wall_ms / 1000),
-    estimated_label: '~10 min',
+    estimated_label: '~8 min',
     blocks_couch: true,
-    llm_hint: 'Use when the user steps away for ~10 minutes. Paginated ingest; couch restores on exit.',
+    llm_hint: 'Use when the user steps away for ~8 minutes. Paginated ingest; couch restores on exit.',
     script: 'playability-grow.sh --mode grow --preset quick --detach',
     detach_supported: true,
     grow_preset: 'quick',
@@ -91,10 +93,10 @@ export const REFRESH_LEVELS: RefreshLevel[] = [
   {
     id: 'grow_nightly',
     label: 'Nightly grow',
-    description: 'Stale refresh all rails, then grow pass — ~90 min wall per rail (~2–4 h total). Runs detached.',
+    description: 'Stale refresh all rails, then grow pass — ~25 min wall and 250 probe attempts per rail. Runs detached.',
     category: 'standard',
     estimated_sec: Math.round(GROW_PRESETS.nightly.wall_ms / 1000) * 3,
-    estimated_label: '~2–4 h total',
+    estimated_label: '~60–90 min total',
     blocks_couch: true,
     llm_hint: 'Default nightly mode. Stale pass then additive grow; never replaces verified titles. Prefer Pi timer at 3am.',
     script: 'nightly-library-refresh.sh --mode nightly --preset nightly --detach',
@@ -104,9 +106,9 @@ export const REFRESH_LEVELS: RefreshLevel[] = [
   {
     id: 'grow_overnight',
     label: 'Overnight grow',
-    description: 'Loop grow chunks for up to 4 hours — max library depth while you sleep.',
+    description: 'Loop grow chunks for up to 4 hours — each rail caps at ~45 min or 400 probe attempts per chunk.',
     category: 'overnight',
-    estimated_sec: Math.round(GROW_PRESETS.overnight.wall_ms / 1000),
+    estimated_sec: OVERNIGHT_LOOP_ESTIMATE_SEC,
     estimated_label: '~4 hours',
     blocks_couch: true,
     llm_hint: 'Use when away for hours. Runs detached; couch restores when complete or stalled.',

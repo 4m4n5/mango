@@ -30,10 +30,14 @@ test('listRefreshLevels exposes LLM hints and estimates', () => {
   const nightly = getRefreshLevel('grow_nightly');
   assert.ok(nightly?.blocks_couch);
   assert.ok(nightly!.estimated_sec > shuffle!.estimated_sec);
+  assert.equal(nightly?.description.includes('~25 min wall'), true);
+  assert.equal(nightly?.estimated_label, '~60–90 min total');
   assert.equal(nightly?.script, 'nightly-library-refresh.sh --mode nightly --preset nightly --detach');
   const overnight = getRefreshLevel('grow_overnight');
   assert.ok(overnight);
   assert.equal(overnight?.category, 'overnight');
+  assert.equal(overnight?.description.includes('400 probe attempts'), true);
+  assert.equal(overnight?.estimated_label, '~4 hours');
 });
 
 test('buildLlmRefreshToolManifest exposes actionable levels for voice tools', () => {

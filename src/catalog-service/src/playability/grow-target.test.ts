@@ -70,7 +70,7 @@ test('resolveGrowPreset defaults to nightly for maintenance, quick for grow mode
     process.env.MANGO_PLAYABILITY_REFRESH_MODE = 'grow';
     assert.equal(defaultGrowPresetId(), 'quick');
     assert.equal(resolveGrowPreset().wall_ms, GROW_PRESETS.quick.wall_ms);
-    assert.equal(resolveGrowPreset('quick').max_attempts, 200);
+    assert.equal(resolveGrowPreset('quick').max_attempts, 100);
   } finally {
     if (previousPreset !== undefined) {
       process.env.MANGO_GROW_PRESET = previousPreset;
@@ -83,6 +83,12 @@ test('resolveGrowPreset defaults to nightly for maintenance, quick for grow mode
       delete process.env.MANGO_PLAYABILITY_REFRESH_MODE;
     }
   }
+});
+
+test('grow presets keep bounded per-rail wall and attempt limits', () => {
+  assert.deepEqual(GROW_PRESETS.quick, { wall_ms: 8 * 60 * 1000, max_attempts: 100 });
+  assert.deepEqual(GROW_PRESETS.nightly, { wall_ms: 25 * 60 * 1000, max_attempts: 250 });
+  assert.deepEqual(GROW_PRESETS.overnight, { wall_ms: 45 * 60 * 1000, max_attempts: 400 });
 });
 
 test('normalizeRefreshMode maps deprecated full and growth to grow', () => {

@@ -9,9 +9,9 @@ export type GrowPreset = {
 };
 
 export const GROW_PRESETS: Record<GrowPresetId, GrowPreset> = {
-  quick: { wall_ms: 10 * 60 * 1000, max_attempts: 200 },
-  nightly: { wall_ms: 90 * 60 * 1000, max_attempts: 500 },
-  overnight: { wall_ms: 4 * 60 * 60 * 1000, max_attempts: 800 },
+  quick: { wall_ms: 8 * 60 * 1000, max_attempts: 100 },
+  nightly: { wall_ms: 25 * 60 * 1000, max_attempts: 250 },
+  overnight: { wall_ms: 45 * 60 * 1000, max_attempts: 400 },
 };
 
 function growPerPassOverride(yamlValue: number): number {

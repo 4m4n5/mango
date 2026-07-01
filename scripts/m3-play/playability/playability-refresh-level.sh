@@ -6,9 +6,9 @@
 # Levels:
 #   shuffle_rails   — instant reshuffle (inline, no shell grow)
 #   stale_refresh   — stale re-probe
-#   grow_quick      — grow pass, quick preset (~10 min)
+#   grow_quick      — grow pass, quick preset (~8 min)
 #   grow_nightly    — nightly sequence (stale → grow)
-#   grow_overnight  — grow pass, overnight preset (~4 h)
+#   grow_overnight  — grow pass, overnight loop (~4 h; 45 min/rail chunks)
 #
 # Legacy aliases: quick_topup, topup_low_rails, full_maintenance, growth_pass, overnight_grow
 

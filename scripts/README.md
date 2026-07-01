@@ -88,7 +88,7 @@ diag/            manual diagnostics
 | Script | Role |
 |--------|------|
 | `m3-play/playability/grow-run-control.sh` | Start/status/watch/assess/abort grow runs |
-| `m3-play/playability/quick-playability-topup.sh` | ~10 min grow |
+| `m3-play/playability/quick-playability-topup.sh` | ~8 min grow |
 | `m3-play/playability/overnight-playability-grow.sh` | ~4 h loop |
 | `m3-play/playability/playability-maintenance.sh` | Nightly worker |
 | `m3-play/playability/playability-catch-up.sh` | Explicit post-boot/operator catch-up |
