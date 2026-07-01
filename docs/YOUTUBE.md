@@ -104,7 +104,8 @@ maintenance lock is still active so cache refreshes do not overlap the indexer.
 
 `live_now` is the time-sensitive exception to the long stale-cache posture:
 Mango keeps a short-TTL live reservoir and hides expired live candidates instead
-of showing day-old "live" cards. Normal `/youtube/refresh` refreshes it, and a
+of showing day-old "live" cards. Normal `/youtube/refresh` refreshes it, first
+from still-fresh cached live metadata and then from bounded live searches. A
 non-shuffle YouTube tab load can trigger a throttled background live-only
 refresh when the reservoir is older than about 90 minutes. Shuffle never calls
 YouTube APIs.
@@ -147,11 +148,12 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
 - Not Interested removes the card from discovery rails and persists a local downrank/exclusion.
 - Live videos are kept in Live Now instead of dominating For You / Because You Watched.
 - Live Now is Mango's "worth watching live right now" rail: refresh builds a
-  rebuildable short-TTL reservoir from subscribed-channel live probes plus
-  official live searches across news/events, sports, music/performance, gaming,
-  culture/talks, and wildcard lanes. It filters Not Interested, Shorts,
-  non-live/ended streams, and low-signal 24/7 loop/camera/radio-style cards,
-  then renders a diverse 9-card row with a 6-hour exposure cooldown.
+  rebuildable short-TTL reservoir from still-fresh cached live metadata,
+  subscribed-channel live probes, and official live searches across news/events,
+  sports, music/performance, gaming, culture/talks, and wildcard lanes. It
+  filters Not Interested, Shorts, non-live/ended streams, and low-signal 24/7
+  loop/camera/radio-style cards, then renders a diverse 9-card row with a
+  6-hour exposure cooldown.
 - For You is served from a rebuildable local reservoir in `youtube.db`: Mango
   watches/Saved are strongest, subscriptions are light, topic discovery broadens
   the pool, Popular is fallback only, and each render samples a diverse 9-card

@@ -1057,6 +1057,71 @@ function scoreLiveNowItem(
   };
 }
 
+function liveNowLaneForItem(item: YoutubeItem, subscribed: Set<string>): LiveNowLane {
+  if (isSubscribedChannel(item, subscribed)) return 'subscription_live';
+  const text = `${item.title} ${item.description || ''} ${item.channel_title || ''}`.toLowerCase();
+  if (/\b(cricket|football|soccer|basketball|tennis|f1|formula 1|sports?|match|game)\b/.test(text)) {
+    return 'sports';
+  }
+  if (/\b(concert|music|festival|performance|dj|band|artist)\b/.test(text)) {
+    return 'music_performance';
+  }
+  if (/\b(gaming|esports?|gameplay|streamer)\b/.test(text)) {
+    return 'gaming';
+  }
+  if (/\b(interview|podcast|talk show|debate|panel|lecture)\b/.test(text)) {
+    return 'culture_talks';
+  }
+  if (/\b(news|breaking|live event|election|weather|space|science|technology)\b/.test(text)) {
+    return 'news_events';
+  }
+  return 'wildcard';
+}
+
+function buildLiveNowCandidatesFromCache(): number {
+  const timestamp = nowMs();
+  const profile = buildTasteProfile();
+  const subscribed = subscribedChannelKeys();
+  const existing = new Map(listLiveNowCandidates(LIVE_NOW_POOL_TARGET).map((item) => [item.id, item]));
+  const scored = uniqueVideos([
+    ...listLiveNowCandidates(LIVE_NOW_POOL_TARGET)
+      .filter((item) => item.expires_at > timestamp)
+      .map((item) => ({ ...item, updated_at: Math.max(item.updated_at, item.last_verified_at) })),
+    ...listYoutubeRailItems('live_now', LIVE_NOW_POOL_TARGET),
+    ...listYoutubeRailItems('popular', LIVE_NOW_POOL_TARGET),
+    ...listYoutubeItems('video', LIVE_NOW_POOL_TARGET * 8),
+  ])
+    .filter((item) => item.live_status === 'live')
+    .filter((item) => item.updated_at + LIVE_NOW_TTL_MS > timestamp)
+    .filter((item) => !profile.negativeIds.has(item.id))
+    .filter((item) => !isShortLikeVideo(item))
+    .filter((item) => !isLowSignalLiveNow(item))
+    .map((item) => {
+      const lane = liveNowLaneForItem(item, subscribed);
+      const previous = existing.get(item.id);
+      const { score, breakdown } = scoreLiveNowItem(item, lane, profile, previous, 0.6);
+      return {
+        item,
+        source_lane: lane,
+        query: 'cache',
+        topic_cluster: topicCluster(item),
+        score,
+        score_breakdown: { ...breakdown, source: 'cache' },
+        reason: `live_now:${lane}:cache`,
+        last_verified_at: item.updated_at,
+        expires_at: item.updated_at + LIVE_NOW_TTL_MS,
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, LIVE_NOW_POOL_TARGET);
+  if (scored.length === 0) {
+    return 0;
+  }
+  upsertLiveNowCandidates(scored);
+  pruneLiveNowCandidates(LIVE_NOW_POOL_TARGET);
+  return scored.length;
+}
+
 function seedLiveNowCandidatesFromLegacyRail(): void {
   if (listLiveNowCandidates(1).length > 0) {
     return;
@@ -1204,6 +1269,11 @@ function sampleLiveNowCandidates(
 
 function liveNowRail(options: YoutubeRailsOptions = {}): YoutubeRail {
   seedLiveNowCandidatesFromLegacyRail();
+  const usable = listLiveNowCandidates(YOUTUBE_RAIL_LIMIT)
+    .filter((candidate) => candidate.live_status === 'live' && candidate.expires_at > nowMs());
+  if (usable.length < YOUTUBE_RAIL_LIMIT) {
+    buildLiveNowCandidatesFromCache();
+  }
   const profile = buildTasteProfile();
   const scoreCandidates = (allowRecentExposure: boolean) => (
     listLiveNowCandidates(LIVE_NOW_POOL_TARGET)
@@ -2202,6 +2272,7 @@ export class YoutubeService {
   private async refreshLiveNowFromApi(): Promise<void> {
     const specs = liveNowQuerySpecs();
     const timestamp = nowMs();
+    const cachedCount = buildLiveNowCandidatesFromCache();
     const results = await Promise.all(specs.map(async (spec) => {
       try {
         const groups = await this.api.search(spec.query, {
@@ -2222,7 +2293,7 @@ export class YoutubeService {
         };
       }
     }));
-    if (results.length > 0 && results.every((entry) => !entry.ok)) {
+    if (results.length > 0 && results.every((entry) => !entry.ok) && cachedCount === 0) {
       throw new CatalogError(502, `Live Now refresh failed: ${results.map((entry) => entry.error || entry.spec.source_lane).join('; ')}`);
     }
     const byId = new Map<string, { item: YoutubeItem; spec: LiveNowQuerySpec; rank: number }>();
@@ -2271,11 +2342,20 @@ export class YoutubeService {
         score: item.score,
         reason: `live_now:${item.source_lane}:${index + 1}`,
       })));
+    } else if (cachedCount > 0) {
+      const cache = listLiveNowCandidates(YOUTUBE_RAIL_POOL_LIMIT)
+        .filter((item) => item.live_status === 'live' && item.expires_at > timestamp);
+      replaceYoutubeRailItems('live_now', cache.map((item, index) => ({
+        item,
+        score: item.score,
+        reason: `live_now:${item.source_lane}:cache:${index + 1}`,
+      })));
     } else {
       replaceYoutubeRailItems('live_now', []);
     }
     setYoutubeState('live_now_last_success_at', timestamp);
-    setYoutubeState('live_now_last_refresh_count', scored.length);
+    setYoutubeState('live_now_last_refresh_count', scored.length || cachedCount);
+    setYoutubeState('live_now_last_refresh_source', scored.length > 0 ? 'search' : cachedCount > 0 ? 'cache' : 'empty');
     setYoutubeState('live_now_last_partial_failures', results
       .filter((entry) => !entry.ok)
       .map((entry) => ({ lane: entry.spec.source_lane, query: entry.spec.query, error: entry.error })));

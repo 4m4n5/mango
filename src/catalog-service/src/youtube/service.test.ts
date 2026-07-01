@@ -341,7 +341,7 @@ test('live now suppresses recently exposed cards when enough alternatives exist'
   assert.ok(!liveNow.items.some((item) => item.id === 'LiveExposure0'));
 }));
 
-test('live now failed refresh keeps existing reservoir visible', () => withTempState(async () => {
+test('live now quota refresh falls back to existing reservoir', () => withTempState(async () => {
   process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
   upsertLiveCandidates(Array.from({ length: 9 }, (_, index) => ({
     item: sampleVideo(`LiveStale${index}`, 'live', `live-stale-${index}`, `Stale live ${TOPIC_WORDS[index]}`),
@@ -352,7 +352,7 @@ test('live now failed refresh keeps existing reservoir visible', () => withTempS
   const service = new YoutubeService();
   const refresh = await service.refresh('test_live_failure');
   assert.equal(refresh.ok, true);
-  assert.ok(refresh.refresh.phase_results.some((phase) => phase.phase === 'live_now' && !phase.ok));
+  assert.ok(refresh.refresh.phase_results.some((phase) => phase.phase === 'live_now' && phase.ok));
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const liveNow = response.rails.find((rail) => rail.rail_id === 'live_now');
   assert.ok(liveNow);
