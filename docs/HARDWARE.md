@@ -13,8 +13,8 @@
 | **Vision** | World-class **4K AI-first TV box** — native browse, voice, mpv playback | Same software path; validate on desk before living room |
 | **Display** | **4K TV** · HDMI 2.0/2.1 · tuned mode + EDID | Launcher forced to **1920×1080@60** for smooth couch UI |
 | **Audio** | **Soundbar** (HDMI eARC/ARC or optical) · Piper TTS on TV | **No soundbar yet** — headphones for couch/dev audio |
-| **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | Default `max_quality: 1080p`; Stage 2 opt-in profile prefers cached 2160p HDR10/HDR10+ |
-| **mpv** | 4K HEVC profile · visible-picture gate | `v4l2m2m-copy` · 1080p smoke passed · 4K/HDR profile gate added |
+| **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | Default `max_quality: 1080p`; Stage 2 opt-in profile prefers cached 2160p HEVC/x265 HDR10/HDR10+ |
+| **mpv** | 4K HEVC profile · visible-picture gate | `hwdec=drm` · 1080p smoke passed · 4K/HDR profile gate added |
 
 **North star unchanged:** Pi 5 8GB is the V1 platform. M6.3 proves 4K on the target TV; if hardware limits block the desired playback bar (DV/REMUX, HDMI bandwidth), document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
 

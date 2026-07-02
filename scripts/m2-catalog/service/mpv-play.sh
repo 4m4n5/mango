@@ -111,7 +111,7 @@ detect_hwdec() {
     return
   fi
   if grep -qi 'raspberry pi' /proc/device-tree/model 2>/dev/null; then
-    printf '%s\n' "v4l2m2m-copy"
+    printf '%s\n' "drm"
     return
   fi
   printf '%s\n' "auto-safe"

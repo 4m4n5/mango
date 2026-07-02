@@ -179,7 +179,8 @@ Live, voice, process, lock, and couch-idle state into Green/Yellow/Red.
 
 ### M6.3 — 4K HDR living room
 
-**Dev lab:** Pi 5 + X11 + `hwdec=auto-safe` blanks on REMUX/DV/10-bit HEVC — validated on 1080p monitor.
+**Dev lab:** Pi 5 + X11 + `hwdec=drm` is the verified 4K HEVC path; stale
+`v4l2m2m-copy` falls back to software decode on the current Pi/mpv build.
 **Stage 2 approach:** keep Chromium at `1920x1080@60`, apply a reversible
 4K/HDR catalog profile for mpv only, then validate EDID/audio/picture on the
 target TV before relaxing further stream risk.
