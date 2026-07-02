@@ -111,7 +111,7 @@ detect_hwdec() {
     return
   fi
   if grep -qi 'raspberry pi' /proc/device-tree/model 2>/dev/null; then
-    printf '%s\n' "drm"
+    printf '%s\n' "drm-copy"
     return
   fi
   printf '%s\n' "auto-safe"
@@ -129,19 +129,19 @@ detect_audio_args() {
   fi
 
   if [[ -n "$configured_ao" ]]; then
-    printf '%s\0%s\0' "--ao" "$configured_ao"
+    printf '%s\0' "--ao=${configured_ao}"
   fi
   if [[ -n "$configured_device" ]]; then
-    printf '%s\0%s\0' "--audio-device" "$configured_device"
+    printf '%s\0' "--audio-device=${configured_device}"
     return
   fi
 
   default_sink="$(pactl get-default-sink 2>/dev/null || true)"
   if [[ "$default_sink" == "auto_null" ]] \
     && aplay -L 2>/dev/null | grep -q '^hdmi:CARD=vc4hdmi0,DEV=0$'; then
-    printf '%s\0%s\0%s\0%s\0' \
-      "--ao" "alsa" \
-      "--audio-device" "alsa/hdmi:CARD=vc4hdmi0,DEV=0"
+    printf '%s\0%s\0' \
+      "--ao=alsa" \
+      "--audio-device=alsa/hdmi:CARD=vc4hdmi0,DEV=0"
   fi
 }
 
@@ -164,6 +164,8 @@ if ! $PROBE; then
   for ((i = 0; i < ${#audio_args[@]}; i++)); do
     if [[ "${audio_args[$i]}" == "--audio-device" && $((i + 1)) -lt ${#audio_args[@]} ]]; then
       audio_label="${audio_args[$((i + 1))]}"
+    elif [[ "${audio_args[$i]}" == --audio-device=* ]]; then
+      audio_label="${audio_args[$i]#--audio-device=}"
     fi
   done
 fi

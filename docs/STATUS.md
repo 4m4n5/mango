@@ -227,7 +227,7 @@ launcher stays `1920x1080@60`; only mpv playback targets `3840x2160@60`.
 |------|------------------------|
 | Stream policy | `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HEVC/x265 HDR10/HDR10+ candidates, keeps REMUX excluded, and retains 1080p cached fallback |
 | Runtime apply | `scripts/m6-ship/apply-4k-hdr-profile.sh apply|revert|status` writes `~/.config/mango/voice.env` and restarts Mango |
-| Decode path | Stage 2 pins `MANGO_MPV_HWDEC=drm`; `v4l2m2m-copy` falls back to software decode on the current Pi/mpv build |
+| Decode path | Stage 2 pins `MANGO_MPV_HWDEC=drm-copy`; `v4l2m2m-copy` falls back to software decode and zero-copy `drm` logs DRM PRIME mapping failures on the current Pi/mpv build |
 | Display split | `mango-display-mode.sh` keeps launcher at 1080p60 and lets mpv attempt 4K60 only during playback; if the requested 4K60 mode is missing, playback falls back to 1080p60 instead of 4K30 |
 | Gate | `scripts/m6-ship/gate-m6-4k-hdr-profile.sh` checks profile, catalog health, display EDID, reliability state, memory, disk, load, temp, and throttling |
 | Resource proof | `scripts/diag/pi-resource-snapshot.sh` records memory/disk/load/top RSS before deciding whether the spare SSD is needed |

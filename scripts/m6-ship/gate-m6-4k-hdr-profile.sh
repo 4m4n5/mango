@@ -60,9 +60,9 @@ fi
   && gate_pass "mpv display fallback is 1920x1080@60" \
   || gate_fail "mpv display fallback not pinned to 1920x1080@60"
 
-[[ "${MANGO_MPV_HWDEC:-}" == "drm" ]] \
-  && gate_pass "mpv hardware decode pinned to drm" \
-  || gate_fail "mpv hardware decode not pinned to drm"
+[[ "${MANGO_MPV_HWDEC:-}" == "drm-copy" ]] \
+  && gate_pass "mpv hardware decode pinned to drm-copy" \
+  || gate_fail "mpv hardware decode not pinned to drm-copy"
 
 if command -v xrandr >/dev/null 2>&1; then
   output="$(xrandr --query 2>/dev/null | awk '/ connected/{print $1; exit}')"

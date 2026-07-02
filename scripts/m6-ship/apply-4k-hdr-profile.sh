@@ -105,7 +105,7 @@ case "$cmd" in
     append_env MANGO_MPV_DISPLAY_RATE_STRICT "1"
     append_env MANGO_MPV_DISPLAY_FALLBACK_MODE "1920x1080"
     append_env MANGO_MPV_DISPLAY_FALLBACK_RATE "60"
-    append_env MANGO_MPV_HWDEC "drm"
+    append_env MANGO_MPV_HWDEC "drm-copy"
     append_env MANGO_PREFERRED_HDR_TAGS "HDR10+,HDR10,HDR"
     append_env MANGO_PREFERRED_VIDEO_CODECS "hevc,x265,h265"
     restart_stack
