@@ -145,7 +145,7 @@ Phone: `https://<pi-ip>:3001` · Verify: `verify-voice-ready.sh` · Gate: `gate-
 |------|-----------|-------|
 | Voice safety contract | M5.5a | Tool/persona audit, no false opens, `tv_seq` acks, corpus gates |
 | Post-YouTube companion/HUD polish | M5.5b / M6.5 | Make phone/chat/HUD feel like one product across Movies, Series, Live, and YouTube |
-| YouTube Pi voice smoke | M6.2 | Local tools are wired; deploy with API key/OAuth and verify search/open/save current YouTube video |
+| YouTube voice smoke | M6.2 | Covered by native YouTube Pi smoke and the voice-open, pad-play contract; keep in the M5.5a corpus for regression coverage |
 | TTS over living-room audio | M6.3 | Requires TV/soundbar path and ducking validation |
 | Voice play / transport controls | M6+ | Deferred; current contract is voice opens, pad plays |
 

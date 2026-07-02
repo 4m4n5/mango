@@ -3,13 +3,24 @@ import {
   startRefreshLevel,
   type RefreshLevel,
 } from "./refresh";
+import {
+  fetchReliabilityState,
+  runReliabilityAction,
+  type ReliabilityAction,
+  type ReliabilityActionId,
+  type ReliabilityComponent,
+  type ReliabilityLevel,
+  type ReliabilityState,
+} from "./reliability";
 import type { RefreshLevelId } from "./types";
 
-export function buildSettingsRefresh(
+export async function buildSettingsRefresh(
   container: HTMLElement,
   onStatus: (message: string) => void,
-): void {
+): Promise<void> {
   container.replaceChildren();
+
+  await buildReliabilityCenter(container, onStatus);
 
   const heading = document.createElement("h2");
   heading.className = "settings-heading";
@@ -21,19 +32,146 @@ export function buildSettingsRefresh(
 
   container.append(heading, intro);
 
-  void fetchRefreshLevels()
-    .then((levels) => {
-      container.append(createShuffleButton(onStatus));
-      appendLevelGroup(container, "Quick", levels.filter((level) => level.category === "quick"), onStatus);
-      appendLevelGroup(container, "Standard", levels.filter((level) => level.category === "standard"), onStatus);
-      appendLevelGroup(container, "Overnight", levels.filter((level) => level.category === "overnight"), onStatus);
-    })
-    .catch(() => {
-      const fallback = document.createElement("p");
-      fallback.className = "settings-note";
-      fallback.textContent = "Refresh options unavailable — catalog-service may be starting.";
-      container.append(fallback);
+  try {
+    const levels = await fetchRefreshLevels();
+    container.append(createShuffleButton(onStatus));
+    appendLevelGroup(container, "Quick", levels.filter((level) => level.category === "quick"), onStatus);
+    appendLevelGroup(container, "Standard", levels.filter((level) => level.category === "standard"), onStatus);
+    appendLevelGroup(container, "Overnight", levels.filter((level) => level.category === "overnight"), onStatus);
+  } catch {
+    const fallback = document.createElement("p");
+    fallback.className = "settings-note";
+    fallback.textContent = "Refresh options unavailable — catalog-service may be starting.";
+    container.append(fallback);
+  }
+}
+
+async function buildReliabilityCenter(
+  container: HTMLElement,
+  onStatus: (message: string) => void,
+): Promise<void> {
+  const heading = document.createElement("h2");
+  heading.className = "settings-heading";
+  heading.textContent = "Reliability Center";
+  container.append(heading);
+
+  try {
+    const state = await fetchReliabilityState();
+    container.append(createReliabilitySummary(state));
+    const grid = document.createElement("div");
+    grid.className = "reliability-grid";
+    for (const component of state.components) {
+      grid.append(createReliabilityCard(component));
+    }
+    container.append(grid);
+    container.append(createReliabilityActions(state.actions, onStatus, () => {
+      void buildSettingsRefresh(container, onStatus);
+    }));
+  } catch {
+    const fallback = document.createElement("p");
+    fallback.className = "settings-note";
+    fallback.textContent = "Reliability status unavailable — catalog-service may be starting.";
+    container.append(fallback);
+  }
+}
+
+function createReliabilitySummary(state: ReliabilityState): HTMLElement {
+  const panel = document.createElement("div");
+  panel.className = `reliability-summary reliability-summary--${state.status}`;
+
+  const status = document.createElement("span");
+  status.className = "reliability-status";
+  status.textContent = state.status;
+
+  const copy = document.createElement("span");
+  copy.className = "reliability-copy";
+  const idle = state.idle.idle ? "idle" : `active ${state.idle.age_sec}s ago`;
+  copy.textContent = `${state.summary} Last proof: ${state.last_proof?.status ?? "none"}. Couch: ${idle}.`;
+
+  panel.append(status, copy);
+  return panel;
+}
+
+function createReliabilityCard(component: ReliabilityComponent): HTMLElement {
+  const card = document.createElement("div");
+  card.className = `reliability-card reliability-card--${component.status}`;
+
+  const title = document.createElement("span");
+  title.className = "reliability-card-title";
+  title.textContent = component.label;
+
+  const summary = document.createElement("span");
+  summary.className = "reliability-card-summary";
+  summary.textContent = component.summary;
+
+  card.append(title, summary);
+  return card;
+}
+
+function createReliabilityActions(
+  actions: ReliabilityAction[],
+  onStatus: (message: string) => void,
+  onDone: () => void,
+): HTMLElement {
+  const group = document.createElement("div");
+  group.className = "settings-actions-row";
+  const order: ReliabilityActionId[] = ["repair", "proof", "stack_restart", "refresh"];
+  for (const actionId of order) {
+    const action = actions.find((entry) => entry.id === actionId);
+    if (!action) {
+      continue;
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `settings-action settings-action--reliability settings-action--${action.destructive ? "standard" : "quick"}`;
+    button.dataset.settingsFocus = "true";
+    button.disabled = !action.enabled;
+    const meta = action.requires_idle ? "idle only" : "safe anytime";
+    button.append(actionSpan("settings-action-title", action.label));
+    button.append(actionSpan("settings-action-meta", action.enabled ? meta : action.reason || meta));
+    button.addEventListener("click", () => {
+      void runReliabilityButton(action.id, button, onStatus, onDone);
     });
+    group.append(button);
+  }
+  return group;
+}
+
+function actionSpan(className: string, text: string): HTMLSpanElement {
+  const span = document.createElement("span");
+  span.className = className;
+  span.textContent = text;
+  return span;
+}
+
+async function runReliabilityButton(
+  action: ReliabilityActionId,
+  button: HTMLButtonElement,
+  onStatus: (message: string) => void,
+  onDone: () => void,
+): Promise<void> {
+  if (button.disabled) {
+    return;
+  }
+  button.disabled = true;
+  onStatus(action === "proof" ? "running proof…" : `starting ${action.replace(/_/g, " ")}…`);
+  try {
+    const result = await runReliabilityAction(action);
+    onStatus(result.pid ? `${result.message} (pid ${result.pid})` : result.message);
+    window.setTimeout(onDone, action === "proof" ? 400 : 1800);
+  } catch (error) {
+    onStatus(error instanceof Error ? error.message : "reliability action failed");
+  } finally {
+    window.setTimeout(() => {
+      button.disabled = false;
+    }, 3000);
+  }
+}
+
+export function reliabilityBadgeText(status: ReliabilityLevel): string {
+  if (status === "red") return "Needs repair";
+  if (status === "yellow") return "Check health";
+  return "";
 }
 
 function appendLevelGroup(

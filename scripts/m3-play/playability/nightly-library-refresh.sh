@@ -135,6 +135,17 @@ else
 fi
 
 echo "nightly library refresh: complete playability_rc=$PLAYABILITY_RC youtube_rc=$YOUTUBE_RC"
-if [[ "$PLAYABILITY_RC" -ne 0 || "$YOUTUBE_RC" -ne 0 ]]; then
+PROOF_RC=0
+if [[ "${MANGO_NIGHTLY_RELIABILITY_PROOF:-1}" == "1" ]]; then
+  bash "$REPO_DIR/scripts/m6-ship/reliability-proof.sh" \
+    --reason "nightly_after_playability_${MODE}" \
+    --playability-rc "$PLAYABILITY_RC" \
+    --youtube-rc "$YOUTUBE_RC" \
+    || PROOF_RC=$?
+else
+  echo "nightly library refresh: reliability proof skipped (MANGO_NIGHTLY_RELIABILITY_PROOF=${MANGO_NIGHTLY_RELIABILITY_PROOF:-})"
+fi
+echo "nightly library refresh: proof_rc=$PROOF_RC"
+if [[ "$PLAYABILITY_RC" -ne 0 || "$YOUTUBE_RC" -ne 0 || "$PROOF_RC" -ne 0 ]]; then
   exit 1
 fi

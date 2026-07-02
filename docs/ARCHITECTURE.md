@@ -85,6 +85,13 @@ playback, but `yt-dlp` failures such as 403/429/CAPTCHA are surfaced as
 couch-safe playback errors. Channels and playlists open detail lists; only
 videos can be Saved in M6.2.
 
+YouTube rail reservoirs are intentionally few and rebuildable: For You targets
+1,000 candidates; Fresh Finds and Popular target 300 each; Because You Watched
+targets 240 per latest meaningful seed; Live Now targets 120 short-TTL live
+candidates; New From Subscriptions keeps up to 160 unwatched upload candidates.
+`GET /youtube/rails?reshuffle=1` samples from those caches plus Mango-local
+History and does not call YouTube at couch time.
+
 ---
 
 ## Module graph
@@ -117,6 +124,30 @@ src/companion/          phone PWA
 scripts/mango-stack.sh  native base stack supervisor
 scripts/mango-health-repair.sh  watchdog repair: stale locks · pad · catalog · launcher
 ```
+
+### Reliability Center
+
+`catalog-service` owns the Reliability Center because it can see catalog,
+playability, YouTube, and runtime health in one place. The launcher only renders
+Settings cards and proxies `/api/catalog/reliability/*`.
+
+Reliability state is computed on demand from catalog `/health`, launcher
+`/api/health`, pad health, couch activity, process counts, stale lock checks,
+playability status, YouTube state, and optional voice health. Proof records are
+append-only JSONL under `/etc/mango/reliability/proofs.jsonl` and are pruned to
+30 days.
+
+The status model is Green/Yellow/Red:
+
+| Status | Contract |
+|--------|----------|
+| `green` | Ready for couch use |
+| `yellow` | Usable but needs attention or proof is stale/partial |
+| `red` | Couch path is broken or maintenance is blocked |
+
+Mutating Reliability APIs are localhost-only. Safe repair is intentionally
+narrow and delegates to `scripts/mango-health-repair.sh`; it never rebuilds DBs
+or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
 
 ---
 
@@ -201,6 +232,19 @@ later UX pass.
 
 Detail: [YOUTUBE.md](YOUTUBE.md).
 
+## Reliability API
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/reliability/state` | Current Green/Yellow/Red state, component cards, action availability, latest proof |
+| `GET` | `/reliability/proofs` | Recent 30-day local proof records |
+| `POST` | `/reliability/proof/run` | Localhost-only proof write |
+| `POST` | `/reliability/repair` | Localhost-only safe repair when idle |
+| `POST` | `/reliability/stack/restart` | Localhost-only detached stack restart when idle |
+| `POST` | `/reliability/refresh/run` | Localhost-only detached nightly movie/TV + YouTube refresh when idle |
+
+Detail: [RELIABILITY.md](RELIABILITY.md).
+
 ---
 
 ## Voice stack (M5)
@@ -260,6 +304,7 @@ Chromium is **UI only** — never decode 4K in the browser. mpv owns playback.
 | `gate-m4-self-hosted.sh` | Self-hosted addons |
 | `gate-live-iptv.sh` | Opt-in live only |
 | `gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail and optional playback |
+| `gate-m6-reliability-proof.sh` | Reliability Center proof; fails red, warns yellow |
 
 See [STATUS.md](STATUS.md#gates).
 
@@ -271,6 +316,7 @@ See [STATUS.md](STATUS.md#gates).
 |--------|------|-------|
 | `GET` | `/api/health` | launcher, chromium, pad |
 | `GET` | `/api/info` | hostname, IP, ports |
+| `*` | `/api/catalog/reliability/*` | Proxy → Reliability Center in `:3020` |
 | `POST` | `/api/activity/touch` | localhost-only couch activity timestamp |
 | `POST` | `/api/perf` | localhost-only launcher timing log |
 | `POST` | `/api/launch/launcher` | Home · debounced 2 s |

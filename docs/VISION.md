@@ -2,7 +2,7 @@
 
 **Platform:** Raspberry Pi 5 (8 GB) · Pi OS Desktop · X11 + Openbox  
 **Branch:** `feat/native-experience`  
-**Status:** Core TV stack shipped · library grow and companion UX hardening in progress
+**Status:** Core TV stack, native YouTube, and Reliability Center shipped · library grow, rail quality, and companion UX hardening in progress
 
 ---
 
@@ -26,6 +26,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | **mpv is the player** | Movies, series, live IPTV, and native YouTube play in mpv — not Stremio/Kodi chrome |
 | **AI catalogs are real** | Named, persistent home rails (max 3 per tab) — not ephemeral toasts |
 | **Verified rails stay quiet** | Background grow can work for hours, but couch rails switch only after a completed publishable maintenance run |
+| **Proof before handoff** | Agents and operators use Reliability Center/nightly proof before claiming the box is couch-ready |
 | **Stremio desktop is insurance** | Installed, hidden; opens only when mango stream/play exhausts retries |
 | **Couch-first** | 3 m / 10 ft · D-pad only · sub-300 ms home from mpv |
 | **Voice opens, pad plays** | Phone finds and opens titles; **B** on the remote starts playback |
@@ -76,7 +77,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | Topic | Decision |
 |-------|----------|
 | Voice role | Browse + open librarian — no voice play |
-| YouTube voice role | Open YouTube results/detail after M6.2; pad **B** still starts playback |
+| YouTube voice role | Open YouTube results/detail; pad **B** still starts playback |
 | STT | Deepgram `nova-3` · Hinglish (`multi` + hi/en fallback) |
 | TTS | Off until **M6** soundbar/TV path validated |
 | AI catalogs | Voice-created slots on home · overflow handling (replace / merge); automation never writes to Saved |

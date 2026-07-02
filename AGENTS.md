@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-**Branch:** `feat/native-experience` — native TV home. **Shipped through M4 + most of M5 + M6.1 library core** (browse · play · addons · voice librarian · AI catalog slots · Saved/history). **Active hardening:** M3 verified-library grow repeatability. **Next:** M5 completion (living librarian + **M5.5 voice safety contract**) · **M6 ship** (YouTube · 4K · post-YouTube **M6.5 unified UX** · wizard).
+**Branch:** `feat/native-experience` — native TV home. **Shipped through M4 + most of M5 + M6.2 native YouTube + Reliability Center** (browse · play · addons · voice librarian · AI catalog slots · Saved/history · YouTube · nightly proof). **Active hardening:** repeated unattended proof, M3 verified-library grow repeatability, and YouTube rail quality. **Next:** M5 completion (living librarian + **M5.5 voice safety contract**) · **M6 ship** (4K · post-YouTube **M6.5 unified UX** · wizard).
 
 ## Read first
 
@@ -16,6 +16,7 @@
 | [**`docs/PLAYABILITY.md`**](docs/PLAYABILITY.md) | **Playability · grow · thematic rails** |
 | [**`docs/OPS.md`**](docs/OPS.md) | **Pi ops** — bring-up, gamepad, troubleshooting |
 | [**`docs/DEPLOY.md`**](docs/DEPLOY.md) | **Pi deploy — git only, never rsync** |
+| [`docs/RELIABILITY.md`](docs/RELIABILITY.md) | Reliability Center · nightly proof |
 | [`docs/VOICE.md`](docs/VOICE.md) | Voice pipeline (M5) |
 | [`docs/LIVE_TV.md`](docs/LIVE_TV.md) | Live IPTV (opt-in gates) |
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | Pad diagram |
@@ -39,7 +40,7 @@
 
 ## Pi deploy (mandatory — git only, never rsync)
 
-`aman@10.0.0.174` · SSH `mango` · `~/mango` · **Full runbook:** [`docs/DEPLOY.md`](docs/DEPLOY.md)
+`aman@10.0.0.174` · SSH `mango` primary, `mango-mdns` fallback via `mango.local` · `~/mango` · **Full runbook:** [`docs/DEPLOY.md`](docs/DEPLOY.md)
 
 **Never `rsync`, `scp`, or hand-copy repo files to the Pi.** Mac is source of truth via git push; Pi updates via git pull only.
 

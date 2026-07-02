@@ -4,7 +4,7 @@
 
 | | |
 |--|--|
-| **Host** | SSH `mango` → `aman@10.0.0.174` |
+| **Host** | SSH `mango` → `aman@10.0.0.174` primary; `MANGO_SSH_HOST=mango-mdns` fallback via `mango.local` |
 | **Repo** | `~/mango` · [github.com/4m4n5/mango](https://github.com/4m4n5/mango) |
 | **Branch** | `feat/native-experience` (native stack) |
 
@@ -66,6 +66,18 @@ bash scripts/pi-deploy.sh --full          # always npm ci (deps / first boot)
 bash scripts/pi-deploy.sh --full --gate   # full + gate (release handoff)
 ```
 
+If the `mango` static-IP alias times out but mDNS resolves the Pi, keep the
+same git-only flow and point wrappers at the fallback alias:
+
+```bash
+MANGO_SSH_HOST=mango-mdns bash scripts/pi-deploy.sh --fast --gate
+MANGO_SSH_HOST=mango-mdns bash scripts/pi-exec.sh 'cd ~/mango && git rev-parse --short HEAD'
+```
+
+The fallback alias should resolve `mango.local` as user `aman` with the Mango
+SSH key. It is a transport fallback only; it does not change the deploy rule:
+commit/push on Mac, `git pull` on Pi, never `rsync`/`scp` repo files.
+
 Fast path uses `scripts/lib/pi-npm-deps.sh` (SHA-256 of each `package-lock.json` under `~/.cache/mango/`).
 
 Or on Pi (manual fast path):
@@ -96,6 +108,8 @@ bash scripts/pi-pre-couch-gate.sh
 bash scripts/m4-addons/gate-m4-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=1
 bash scripts/m3-play/playability/gate-m3-verified-rails.sh
 bash scripts/m5-voice/stack/verify-voice-ready.sh      # when MANGO_VOICE=1
+bash scripts/m6-ship/gate-m6-youtube-smoke.sh          # after YouTube/API/launcher rail changes
+bash scripts/m6-ship/gate-m6-reliability-proof.sh      # final couch-readiness proof
 ```
 
 **Do not hand off** after Mac-only tests. Gates must pass **on the Pi**.

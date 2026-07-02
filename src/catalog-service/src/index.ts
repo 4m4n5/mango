@@ -28,6 +28,7 @@ import {
 import { searchCachedYoutubeItems } from './youtube/db.js';
 import { YoutubeService } from './youtube/service.js';
 import type { YoutubeItemKind } from './youtube/types.js';
+import { ReliabilityService } from './reliability/service.js';
 import { resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
 import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
 import {
@@ -591,6 +592,11 @@ async function main(): Promise<void> {
   await initProgressDb();
   const core = await CatalogCore.create();
   const youtube = new YoutubeService();
+  const reliability = new ReliabilityService({
+    catalogHealth: () => core.health(),
+    playabilityStatus: () => core.playabilityStatus(),
+    youtubeState: () => youtube.state(),
+  });
   const server = http.createServer((req, res) => {
     void (async () => {
       const url = new URL(req.url || '/', `http://${HOST}:${PORT}`);
@@ -1145,6 +1151,64 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 1 && parts[0] === 'health') {
         sendJson(res, 200, core.health());
         return;
+      }
+
+      if (parts.length >= 1 && parts[0] === 'reliability') {
+        if (req.method === 'GET' && parts.length === 2 && parts[1] === 'state') {
+          sendJson(res, 200, await reliability.state());
+          return;
+        }
+
+        if (req.method === 'GET' && parts.length === 2 && parts[1] === 'proofs') {
+          const limit = Number(url.searchParams.get('limit') || 20);
+          sendJson(res, 200, {
+            ok: true,
+            proofs: reliability.proofs(Number.isFinite(limit) ? limit : 20),
+          });
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 3 && parts[1] === 'proof' && parts[2] === 'run') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'reliability proof is localhost-only');
+          }
+          const body = await readBody(req) as Record<string, unknown>;
+          const reason = typeof body.reason === 'string' && body.reason.trim()
+            ? body.reason.trim()
+            : 'manual';
+          const metadata = body.metadata && typeof body.metadata === 'object' && !Array.isArray(body.metadata)
+            ? body.metadata as Record<string, unknown>
+            : {};
+          sendJson(res, 200, await reliability.runProof(reason, metadata));
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 2 && parts[1] === 'repair') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'reliability repair is localhost-only');
+          }
+          const result = await reliability.repair();
+          sendJson(res, result.ok ? 202 : 409, result);
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 3 && parts[1] === 'stack' && parts[2] === 'restart') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'stack restart is localhost-only');
+          }
+          const result = await reliability.restartStack();
+          sendJson(res, result.ok ? 202 : 409, result);
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 3 && parts[1] === 'refresh' && parts[2] === 'run') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'reliability refresh is localhost-only');
+          }
+          const result = await reliability.runRefresh();
+          sendJson(res, result.ok ? 202 : 409, result);
+          return;
+        }
       }
 
       if (req.method === 'GET' && parts.length === 1 && parts[0] === 'rails') {

@@ -37,6 +37,8 @@ bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
 | M4 | `m4-addons/gate-m4-self-hosted.sh` |
 | M5 | `m5-voice/ai/gate-m5-voice.sh`, `gate-m5-ai-catalogs.sh` |
 | M6.1 | `m6-ship/gate-m6-library-smoke.sh` |
+| M6.2 | `m6-ship/gate-m6-youtube-smoke.sh` — run after YouTube/API/launcher rail changes; playback only with `MANGO_YOUTUBE_PLAY=1` |
+| M6 hardening | `m6-ship/gate-m6-reliability-proof.sh` — run after deploy; fails red, warns yellow |
 | Live (opt-in) | `live/gate-live-iptv.sh` — `MANGO_LIVE_GATE=1`; `live/gate-live-diagnostics.sh` is health-only |
 
 Shared: `lib/gate-common.sh` · `gate-lite-play.sh` · `gate-lite-unit.sh`
@@ -61,7 +63,7 @@ m2-catalog/      service (mpv, catalog API) · browse · rails
 m3-play/         detail · orchestrator · playability
 m4-addons/       AIOStreams · AIOMetadata · mdblist pipeline
 m5-voice/        stack (orchestrator, companion) · ai (voice tools, catalogs)
-m6-ship/         Mango library gate/backup · future ship gates
+m6-ship/         Mango library gate/backup · native YouTube smoke · future UX gates
 live/            NexoTV IPTV (excluded from gate-lite)
 lib/             shared helpers · milestone-paths.sh
 diag/            manual diagnostics
@@ -96,11 +98,14 @@ diag/            manual diagnostics
 | `diag/couch-activity-status.sh` | Idle/defer state for maintenance |
 | `diag/grow_monitor.py` | **Grow monitor** — baseline, live status, watch, assess |
 
-## M6.1 library ops
+## M6 ship ops
 
 | Script | Role |
 |--------|------|
 | `m6-ship/gate-m6-library-smoke.sh` | Quick Saved/current-context API smoke; included in gate-lite |
+| `m6-ship/gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail smoke; `yt-dlp` command check by default, playback only with `MANGO_YOUTUBE_PLAY=1` |
+| `m6-ship/reliability-proof.sh` | Record one Reliability Center proof through catalog-service |
+| `m6-ship/gate-m6-reliability-proof.sh` | Pi gate for Green/Yellow/Red couch readiness |
 | `m6-ship/backup-library-state.sh` | WAL-safe backup of `progress.db` and `library.db`; `mango-stack.sh stop/restart` runs it by default |
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
 | `m3-play/playability/monitor-grow-poll.sh` | Mac-side Pi polling log for long grow runs |

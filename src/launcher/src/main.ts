@@ -4,7 +4,8 @@ import { loadCatalogRails, stopPlaybackForVoice } from "./catalog";
 import { DetailController } from "./detail";
 import { NextEpisodePrompt } from "./next-prompt";
 import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, type HomeOptions } from "./home";
-import { buildSettingsRefresh, settingsFocusables } from "./settings";
+import { buildSettingsRefresh, reliabilityBadgeText, settingsFocusables } from "./settings";
+import { fetchReliabilityState } from "./reliability";
 import { startVoiceHud } from "./voice-hud";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
 import { cardSavedKey, fetchSavedIds } from "./saved";
@@ -85,6 +86,7 @@ const focusGrid = new FocusGrid((element) => {
 
 let focusGridRows: HTMLElement[][] = [];
 let focusBrowseTabOnRender = false;
+let reliabilityBadgeTimer: number | undefined;
 
 let nextPromptFocusIndex = 0;
 
@@ -214,6 +216,7 @@ function renderHome(): void {
     state: catalogState.status,
     duration_ms: Math.round(performance.now() - started),
   });
+  scheduleReliabilityBadge();
 }
 
 function handleBrowseTabChange(tab: BrowseTab): void {
@@ -408,9 +411,40 @@ function showSettings(): void {
   homeView.classList.add("hidden");
   settingsView.classList.remove("hidden");
   backButton.dataset.settingsFocus = "true";
-  buildSettingsRefresh(settingsRefreshEl, setStatus);
   const items = settingsFocusables(settingsView);
   focusSettingsItem(items, 0);
+  void buildSettingsRefresh(settingsRefreshEl, setStatus).finally(() => {
+    const refreshed = settingsFocusables(settingsView);
+    focusSettingsItem(refreshed, Math.min(settingsFocusIndex, Math.max(0, refreshed.length - 1)));
+    scheduleReliabilityBadge();
+  });
+}
+
+function scheduleReliabilityBadge(): void {
+  if (reliabilityBadgeTimer !== undefined) {
+    return;
+  }
+  reliabilityBadgeTimer = window.setTimeout(() => {
+    reliabilityBadgeTimer = undefined;
+    void refreshReliabilityBadge();
+  }, 500);
+}
+
+async function refreshReliabilityBadge(): Promise<void> {
+  const badge = document.querySelector<HTMLElement>("[data-settings-health]");
+  if (!badge) {
+    return;
+  }
+  try {
+    const state = await fetchReliabilityState();
+    const text = reliabilityBadgeText(state.status);
+    badge.textContent = text;
+    badge.classList.toggle("hidden", text.length === 0);
+    badge.dataset.status = state.status;
+  } catch {
+    badge.classList.add("hidden");
+    badge.textContent = "";
+  }
 }
 
 function focusSettingsItem(items: HTMLElement[], index: number): void {

@@ -71,6 +71,9 @@ Locked choices. Update when changing behavior.
 | Runtime source weights | Cache/state only; never auto-edit catalog YAML or theme profiles |
 | TV visibility | No couch-facing grow/progress/debug UI |
 | Timers | No couch-disruptive `OnBootSec`; post-boot maintenance catch-up is explicit operator action |
+| Reliability Center | Operator-facing Settings/API surface; home stays quiet except a degraded Settings badge |
+| Nightly proof | Availability-oriented Green/Yellow/Red proof after movie/TV and YouTube refresh; rail `+20` shortfalls are yellow unless the visible pool is unusable |
+| Repair policy | Safe repair only: stale locks, safe strays, pad, catalog, launcher. No automatic DB rebuilds, cache clears, or destructive repairs |
 
 ---
 
@@ -105,9 +108,12 @@ Locked choices. Update when changing behavior.
 | YouTube history policy | History is Mango-local only; default shows latest 9 unique videos watched in Mango, shuffle samples 9 random videos from the full local YouTube watch set |
 | YouTube refresh policy | One nightly/manual coordinator refreshes all YouTube cache phases; each phase is isolated and stale cached rails remain visible when a phase fails |
 | YouTube For You policy | Mango-owned reservoir in `youtube.db`; long-watch optimized, medium-first, no Shorts/live/watched videos, 5 familiar + 3 discovery + 1 wildcard, 7-day exposure cooldown |
+| YouTube New From Subscriptions policy | OAuth subscription inbox, not a second recommender; upload-playlist based refresh avoids `search.list`, rotates subscribed channels, and renders unwatched non-live/non-Short videos with channel diversity |
 | YouTube Fresh Finds policy | Mango-owned broad-discovery reservoir in `youtube.db`; official-API refresh only, no couch-time API calls, no watched/Not Interested/live/Shorts, prefer non-Saved/non-subscribed alternatives, 14-day exposure cooldown |
 | YouTube Because You Watched policy | Seed-scoped reservoir in `youtube.db` based on latest meaningful Mango-local YouTube watch; one same-channel anchor plus same-topic/deeper-dive/wildcard follow-ups; max-one creator when enough distinct creators exist; no watched/live/Shorts/Not Interested cards; shuffle is cache-only |
+| YouTube Live Now policy | Short-TTL live reservoir in `youtube.db`; official live metadata/search only, hides expired live cards, filters low-signal 24/7/camera/radio loops, and never spills live cards into VOD recommendation rails |
 | YouTube Popular policy | Neutral broad-trending reservoir in `youtube.db` built from official `videos.list(chart=mostPopular)` across configured region plus India/US and broad categories; no search quota, no couch-time API calls, no watched/Not Interested/live/Shorts, prefer non-Saved/non-subscribed alternatives, 48-hour exposure cooldown |
+| YouTube quota policy | Couch shuffle and playback use local caches/`yt-dlp`; Data API quota is spent only by metadata/search/subscription refresh and explicit search/detail calls |
 | YouTube native recommendations | Exact native YouTube home/recommended feed is not available through supported Data API routes; any raw-feed experiment must be explicit opt-in and isolated from Mango-owned recommender rails |
 | 4K | Ship profile on target TV; relax filters in `catalog-filters.json` |
 | Deploy | `install.sh` wizard — no SSH for household setup |

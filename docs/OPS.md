@@ -1,6 +1,6 @@
 # mango — Pi operations
 
-**Pi:** `aman@10.0.0.174` · SSH `mango` · `~/mango` · **Branch:** `feat/native-experience`
+**Pi:** `aman@10.0.0.174` · SSH `mango` primary, `mango-mdns` fallback via `mango.local` · `~/mango` · **Branch:** `feat/native-experience`
 
 | | |
 |--|--|
@@ -29,11 +29,17 @@ bash scripts/pi-deploy.sh --fast
 bash scripts/pi-deploy.sh --fast --gate
 ```
 
-If LAN DNS/IPv4 is down, set `MANGO_SSH_HOST` for the wrapper instead of copying files by hand:
+If the static IP alias times out but mDNS works, use the `mango-mdns` SSH alias
+for `aman@mango.local` and keep using the same git-only wrappers:
 
 ```bash
-MANGO_SSH_HOST='aman@<pi-address>' bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/mango-stack.sh status'
+MANGO_SSH_HOST=mango-mdns bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/mango-stack.sh status'
+MANGO_SSH_HOST=mango-mdns bash scripts/pi-deploy.sh --fast --gate
 ```
+
+If that alias does not exist on the Mac, add it to `~/.ssh/config` with the
+Mango key and `HostName mango.local`. Do not `scp`, `rsync`, or hand-copy repo
+files as an SSH workaround.
 
 **After reboot** (press pad button if BT is slow):
 
@@ -127,6 +133,14 @@ bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 ```
 
+Reliability proof:
+
+```bash
+curl -s http://127.0.0.1:3020/reliability/state | python3 -m json.tool
+bash scripts/m6-ship/reliability-proof.sh --reason operator
+bash scripts/m6-ship/gate-m6-reliability-proof.sh
+```
+
 YouTube setup uses operator-owned files:
 
 ```bash
@@ -150,7 +164,10 @@ Then open the companion and use the YouTube connect panel. Full details:
 | YouTube tab empty | `curl localhost:3020/youtube/state` · configure `/etc/mango/youtube-api.key` · run `bash scripts/m6-ship/gate-m6-youtube-smoke.sh` |
 | YouTube account not connected | Companion → YouTube connect · verify `/etc/mango/youtube-oauth-client.json` and `/etc/mango/youtube-auth.json` permissions |
 | YouTube playback 403/429/CAPTCHA | Update `yt-dlp`; reconnect account/cookies; pick another video; metadata cache should remain visible |
-| YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator`; then check `curl localhost:3020/youtube/state` |
+| YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator`; then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |
+| YouTube Live Now partial error | Check `refresh.phase_results.live_now`; Search Queries quota can exhaust while cached VOD rails and Popular still work because Popular uses `videos.list` |
+| Reliability badge yellow/red | Open Settings → Reliability Center; or `curl localhost:3020/reliability/state` |
+| Nightly proof missing/stale | `bash scripts/m6-ship/reliability-proof.sh --reason operator` · inspect `/etc/mango/reliability/proofs.jsonl` |
 | Empty rails | `bash scripts/mango-health-repair.sh` · `curl localhost:3020/health` · playability status script |
 | Live tab empty after source error | `bash scripts/live/live-diagnostics.sh` · stale cache should remain available |
 | Grow seems hung | `python3 scripts/diag/grow_monitor.py status --verbose` · inspect stage/source before killing |
@@ -171,6 +188,7 @@ maintenance lock/process is active; the watchdog systemd service must not
 repair script can check the maintenance lock.
 
 Grow operator state: `~/.cache/mango/grow-run-state.json`, `~/.cache/mango/ops/refresh-*.json`, `~/.cache/mango/source-grow/latest.json`.
+Reliability proof state: `/etc/mango/reliability/proofs.jsonl`.
 
 Playability timers do not run a couch-disruptive `OnBootSec` catch-up by
 default. After a reboot, use the explicit operator catch-up only when the couch

@@ -14,6 +14,7 @@
 | **TV UI** | Chromium launcher — browse rails, search, detail |
 | **Catalog / streams** | `catalog-service` + self-hosted addons (Cinemeta, AIOStreams, AIOMetadata, optional NexoTV live) |
 | **Library** | Mango-owned state: `playability.db` verified titles, `progress.db` resume, `library.db` Saved/history/finished |
+| **Reliability** | Settings/API Reliability Center with 30-day local nightly proof |
 | **Player** | **mpv** fullscreen — VOD + live (`--live`) |
 | **Voice** | Phone PTT → orchestrator → launcher detail open |
 | **Fallback** | Stremio desktop / legacy Kodi YouTube — hidden, opt-in only |
@@ -34,7 +35,7 @@ bash scripts/m1-foundation/gate/gate-m1.sh             # base stack gate
 
 After reboot: `bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh`
 
-**SSH:** `mango` → `aman@10.0.0.174` · **Branch:** `feat/native-experience`
+**SSH:** `mango` → `aman@10.0.0.174` primary; use `MANGO_SSH_HOST=mango-mdns` if mDNS (`mango.local`) is the reachable path · **Branch:** `feat/native-experience`
 
 ---
 
@@ -46,6 +47,7 @@ After reboot: `bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh`
 | [VISION.md](docs/VISION.md) | Product vision + locked decisions |
 | [ROADMAP.md](docs/ROADMAP.md) | Milestones **M1–M6** |
 | [STATUS.md](docs/STATUS.md) | Shipped features · current hardening gaps · gates |
+| [RELIABILITY.md](docs/RELIABILITY.md) | Reliability Center · nightly proof · safe repair |
 | [PLAYABILITY.md](docs/PLAYABILITY.md) | Verified library · grow · thematic rails |
 | [LIVE_TV.md](docs/LIVE_TV.md) | Live IPTV |
 | [OPS.md](docs/OPS.md) | Pi ops, gamepad, troubleshooting |

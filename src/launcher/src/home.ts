@@ -251,6 +251,12 @@ function createAppCard(app: AppCard, callbacks: HomeCallbacks): HTMLButtonElemen
   title.textContent = app.title;
 
   button.append(kicker, title);
+  if (app.action === "settings") {
+    const badge = document.createElement("span");
+    badge.className = "card-health-badge hidden";
+    badge.dataset.settingsHealth = "true";
+    button.append(badge);
+  }
   button.addEventListener("click", () => callbacks.onAppSelect(app));
   return button;
 }

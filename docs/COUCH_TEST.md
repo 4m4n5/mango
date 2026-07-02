@@ -67,14 +67,16 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 
 | # | Action | Pass? |
 |---|--------|-------|
-| 17 | YouTube tab loads cached Fresh Finds/Popular or stale rails without full-screen error; empty Fresh Finds is hidden | |
-| 18 | YouTube rails show at most 9 cards; **↻ shuffle** changes Fresh Finds/For You/Because You Watched cached cards without blocking on refresh | |
+| 17 | YouTube tab loads cached rails without full-screen error; empty Fresh Finds or expired Live Now is hidden instead of showing stale live cards | |
+| 18 | YouTube rails show at most 9 cards; **↻ shuffle** changes History/For You/New From Subscriptions/Fresh Finds/Because You Watched/Live Now/Popular without blocking on refresh | |
 | 19 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
 | 20 | Open a YouTube video → detail shows Play / Save / Not Interested; **B** starts mpv | |
 | 21 | After playing a second meaningful YouTube VOD, Because You Watched follows that newer seed and shows cached non-live/non-Short follow-ups | |
 | 22 | Open a channel/playlist → detail shows a D-pad video list; Save is disabled | |
 | 23 | Not Interested removes the card from YouTube rails after refresh/navigation | |
 | 24 | "Save this" on an open YouTube video updates Saved; no voice playback starts | |
+| 25 | Popular shows a neutral 9-card non-live/non-Short row and reshuffles without spending search quota | |
+| 26 | Live Now, when populated, contains currently live items only; if search quota is exhausted, cached VOD rails still work | |
 
 ---
 
@@ -82,7 +84,10 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 
 | # | Action | Pass? |
 |---|--------|-------|
-| 25 | **Refresh library** (~5s reshuffle) | |
+| 27 | Settings → Reliability Center opens with D-pad focus, large status cards, and Back returns home | |
+| 28 | Reliability Center shows Green/Yellow/Red summary and component cards without dense debug text | |
+| 29 | `Run proof now` records a proof; Repair/Restart/Refresh are disabled when Mango is active and enabled when idle | |
+| 30 | **Refresh library** (~5s reshuffle) | |
 
 ## Library grow health (operator)
 
@@ -95,6 +100,7 @@ Do not show grow/debug status on TV. Check this from SSH before claiming library
 | G3 | No title exceeds the overlap cap except curation/pin semantics | |
 | G4 | Failed/partial grow did not publish staged rail pools to couch | |
 | G5 | Source-grow audit explains any short rail with concrete reasons | |
+| G6 | `bash scripts/m6-ship/gate-m6-reliability-proof.sh` exits 0 unless Reliability Center is red | |
 
 ---
 

@@ -15,7 +15,7 @@ What works today, what is still being hardened, and how to verify it.
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
 | M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5a voice contract pending |
-| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube implemented and deploy-gated · 4K, unified UX, wizard pending |
+| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube deployed and Pi-gated · Reliability Center implemented · 4K, unified UX, wizard pending |
 
 ---
 
@@ -23,7 +23,7 @@ What works today, what is still being hardened, and how to verify it.
 
 | Feature | Detail |
 |---------|--------|
-| Tabs | Movies · Series · Live · YouTube (L/R shoulders; YouTube M6.2 gate required after deploy) |
+| Tabs | Movies · Series · Live · YouTube (L/R shoulders; native YouTube is Pi-gated and has an explicit M6.2 smoke after YouTube changes) |
 | Grid | 9-up posters · ↻ shuffle (pad `317`) |
 | Rails | YAML + AI catalog slots + Continue |
 | Service | `catalog-service :3020` · `GET /rails` |
@@ -161,9 +161,13 @@ Primary routes: `GET /library/state`, `GET/POST/DELETE /library/saved`,
 
 ---
 
-## M6.2 — Native YouTube ◐
+## M6.2 — Native YouTube ✓ hardening
 
-Implementation is present and deploy-gated; credentialed Pi smoke remains required before couch sign-off. See [YOUTUBE.md](YOUTUBE.md).
+Native YouTube is implemented, deployed, and Pi-gated on the couch stack. See [YOUTUBE.md](YOUTUBE.md).
+
+Latest Pi evidence as of 2026-07-01: commit `b74bc6b` passed `pi-deploy --fast --gate`,
+`scripts/m6-ship/gate-m6-youtube-smoke.sh`, and a direct Popular rail probe
+showing 9 unique non-live/non-Short cards with cache-only reshuffle.
 
 | Area | Current implementation |
 |------|------------------------|
@@ -174,7 +178,7 @@ Implementation is present and deploy-gated; credentialed Pi smoke remains requir
 | API | `/youtube/state`, auth start/poll/disconnect, refresh, rails, grouped search with cached fallback on quota/rate limits, detail, not-interested, play |
 | Rails | 9-up Saved, Mango-local History, reservoir-backed For You, diverse unwatched New From Subscriptions inbox, reservoir-backed Fresh Finds broad discovery, seed-scoped Because You Watched, short-TTL reservoir-backed Live Now, neutral reservoir-backed Popular; VOD stale cache remains visible |
 | Refresh | Nightly 03:00 playability timer runs movie/TV stale+grow first, then independently runs phase-isolated `/youtube/refresh` for Popular, subscriptions, Fresh Finds, Live Now, Because You Watched, and For You; Popular uses cheap `videos.list` most-popular region/category charts, Live Now uses fresh cached live metadata before bounded live searches, and non-shuffle tab loads can trigger throttled background live-only refresh when stale |
-| Launcher | YouTube tab after Live; shuffle re-samples Mango-local History, For You, Fresh Finds, Because You Watched, Live Now, and cached discovery rails without couch-time API calls; videos play/save, channels/playlists open video lists, Not Interested removes discovery cards |
+| Launcher | YouTube tab after Live; shuffle re-samples Mango-local History, For You, New From Subscriptions, Fresh Finds, Because You Watched, Live Now, and Popular without couch-time API calls; videos play/save, channels/playlists open video lists, Not Interested removes discovery cards |
 | Playback | Mango wrapper `scripts/m6-ship/youtube-yt-dlp.sh` resolves video/audio URLs with fallback format selectors; deploy refreshes an isolated user `yt-dlp` venv; mpv plays them and writes local history/progress as YouTube source |
 | Voice | `mango_youtube_search` and `mango_open_youtube`; Save/Unsave supports current/exact YouTube video; no voice playback |
 | Fallback | Legacy Kodi YouTube is emergency-only with `MANGO_LEGACY_YOUTUBE=1` |
@@ -191,7 +195,26 @@ bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 ```
 
-The YouTube smoke verifies the configured `yt-dlp` command before API/detail checks.
+The default YouTube smoke verifies state, rails, configured `yt-dlp`, API-backed search/detail when an API key is present, and skips playback unless `MANGO_YOUTUBE_PLAY=1`.
+
+---
+
+## Reliability Center / nightly proof ✓
+
+Reliability Center is the operator-facing proof surface in Settings and
+catalog-service. It records whether Mango is ready for couch use and whether the
+last unattended refresh proved the stack.
+
+| Area | Current implementation |
+|------|------------------------|
+| API | `/reliability/state`, `/reliability/proofs`, proof run, safe repair, stack restart, refresh run |
+| UI | Settings shows Green/Yellow/Red summary, component cards, and safe actions; home only shows a quiet Settings badge when degraded |
+| Proof ledger | `/etc/mango/reliability/proofs.jsonl`, local-only, 30-day retention |
+| Nightly chain | `nightly-library-refresh.sh` runs movie/TV, then YouTube independently, then records reliability proof with branch return codes |
+| Repair | Delegates to `mango-health-repair.sh --quiet`; no DB rebuilds, cache clears, or destructive repairs |
+| Gate | `scripts/m6-ship/gate-m6-reliability-proof.sh` fails red, warns yellow |
+
+Detail: [RELIABILITY.md](RELIABILITY.md).
 
 ---
 
@@ -199,10 +222,10 @@ The YouTube smoke verifies the configured `yt-dlp` command before API/detail che
 
 | # | Item | Milestone |
 |---|------|-----------|
-| 1 | Prove repeated unattended best-effort grows and improve `+20` target hit rate with stronger playable sources for reality and India-series rails | M3 hardening |
+| 1 | Monitor repeated unattended nightly proof and improve `+20` target hit rate with stronger playable sources for reality and India-series rails | M3 hardening |
 | 2 | Living librarian (memory + policy) | M5 |
 | 3 | M5.5a AI companion voice safety contract | M5 |
-| 4 | Run/deploy M6.2 YouTube Pi smoke with operator API key/OAuth/yt-dlp, then remove normal Kodi YouTube access | M6.2 |
+| 4 | Continue YouTube rail-quality hardening and monitor quota/live-refresh behavior as usage grows | M6.2 hardening |
 | 5 | 4K HDR TV + soundbar profile | M6.3 |
 | 6 | M5.5b + M6.5 unified companion/TV UX polish after YouTube | M6.5 |
 | 7 | First-boot wizard | M6.4 |
@@ -219,11 +242,13 @@ The YouTube smoke verifies the configured `yt-dlp` command before API/detail che
 | `gate-m4-self-hosted.sh` | Self-hosted addon corpus |
 | `gate-live-iptv.sh` | Opt-in live only |
 | `gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail and optional playback |
+| `gate-m6-reliability-proof.sh` | Reliability Center proof; fails red and warns yellow |
 
 ```bash
 bash scripts/pi-exec-gate.sh
 bash scripts/pi-deploy.sh --fast --gate
 MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
+bash scripts/m6-ship/gate-m6-reliability-proof.sh
 ```
 
 ### catalog-service tests
