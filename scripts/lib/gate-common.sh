@@ -55,10 +55,10 @@ gate_check_mpv_playing() {
   local quiet="${2:-0}"
   for _ in $(seq 1 15); do
     local reply playback_time
-    reply="$(bash scripts/m2-catalog/service/mpv-ipc.sh get_property playback-time 2>/dev/null || true)"
-    playback_time="$(printf '%s' "$reply" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("data") or 0)' 2>/dev/null || echo 0)"
+    reply="$(curl -sf --max-time 2 http://127.0.0.1:3020/voice/now-playing 2>/dev/null || true)"
+    playback_time="$(printf '%s' "$reply" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("position_sec") or 0 if data.get("active") else 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${playback_time:-0}') > 0 else 1)" 2>/dev/null; then
-      gate_pass "$label mpv playing"
+      gate_pass "$label playback active"
       return 0
     fi
     sleep 0.2
@@ -66,7 +66,7 @@ gate_check_mpv_playing() {
   if [[ "$quiet" == "1" ]]; then
     return 1
   fi
-  gate_fail "$label mpv playback-time > 0"
+  gate_fail "$label playback position > 0"
   return 1
 }
 
