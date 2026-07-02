@@ -114,6 +114,63 @@ test('preferred_language boosts matching streams without excluding non-matches',
   assert.equal(result.meta.excluded.language_mismatch, 0);
 });
 
+test('preferred_hdr_tags boosts HDR-capable 2160p streams without requiring HDR', () => {
+  const sdr: Stream = {
+    url: 'https://example.test/sdr.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const hdr: Stream = {
+    url: 'https://example.test/hdr.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC HDR10',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const result = filterStreamsForPlay(
+    [sdr, hdr],
+    {
+      ...testConfig({ max_quality: '2160p' }),
+      preferred_quality: '2160p',
+      preferred_hdr_tags: ['hdr10', 'hdr'],
+    },
+  );
+  assert.equal(result.streams.length, 2);
+  assert.equal(result.streams[0]?.url, hdr.url);
+});
+
+test('preferred_hdr_tags does not boost DV-only streams unless configured', () => {
+  const hdr10: Stream = {
+    url: 'https://example.test/hdr10.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC HDR10',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const dv: Stream = {
+    url: 'https://example.test/dv.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC DV',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const result = filterStreamsForPlay(
+    [dv, hdr10],
+    {
+      ...testConfig({ max_quality: '2160p' }),
+      preferred_quality: '2160p',
+      preferred_hdr_tags: ['hdr10', 'hdr'],
+    },
+  );
+  assert.equal(result.streams[0]?.url, hdr10.url);
+});
+
 test('hard_language excludes non-matching streams', () => {
   const result = filterStreamsForPlay(
     [englishStream, hindiStream],

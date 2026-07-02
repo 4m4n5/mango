@@ -221,6 +221,7 @@ export async function demoteVerifyIfDrifted(
     {
       strict_unknown_cache: prepared.resolved.filters.strict_unknown_cache,
       preferred_quality: prepared.resolved.filters.preferred_quality,
+      preferred_hdr_tags: prepared.resolved.filters.preferred_hdr_tags,
       max_candidates: prepared.resolved.filters.auto_play_max_attempts,
       include_uncached: false,
     },
@@ -276,6 +277,7 @@ export async function prepareVerifyTitle(
       {
         strict_unknown_cache: resolved.filters.strict_unknown_cache,
         preferred_quality: resolved.filters.preferred_quality,
+        preferred_hdr_tags: resolved.filters.preferred_hdr_tags,
         max_candidates: resolved.filters.auto_play_max_attempts,
         include_uncached: false,
       },

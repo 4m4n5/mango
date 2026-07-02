@@ -55,6 +55,8 @@ export type StreamFilterConfig = {
   auto_play_uncached_probe_ms: number;
   /** Couch preferred quality target (ladder step 1). */
   preferred_quality: QualityCap;
+  /** Optional HDR tag preference for 4K TV validation profiles. Empty means no HDR boost. */
+  preferred_hdr_tags: string[];
   /** Ordered play preference ladder — see play-ladder.ts */
   play_ladder: import('./play-ladder.js').PlayLadderStep[];
   /** Ordered automatic Play tiers (legacy — derived from ladder when empty). */
@@ -338,8 +340,40 @@ function parseStringList(value: unknown, fallback: string[]): string[] {
   return items.length > 0 ? items : fallback;
 }
 
+function parseEnvStringList(value: string | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function streamHaystack(stream: Stream): string {
   return `${stream.title || ''} ${stream.description || ''} ${stream.name || ''}`.toLowerCase();
+}
+
+function streamHdrTags(stream: Stream): string[] {
+  const enriched = ensureEnrichedStream(stream);
+  if (Array.isArray(enriched.hdr_tags)) {
+    return enriched.hdr_tags
+      .filter((tag): tag is string => typeof tag === 'string' && tag.trim() !== '')
+      .map((tag) => tag.trim().toLowerCase());
+  }
+  return [];
+}
+
+function streamMatchesPreferredHdr(stream: Stream, preferredTags: string[]): boolean {
+  if (preferredTags.length === 0) return false;
+  const normalizedPreferred = preferredTags.map((tag) => tag.trim().toLowerCase()).filter(Boolean);
+  const tags = streamHdrTags(stream);
+  if (tags.some((tag) => normalizedPreferred.includes(tag))) {
+    return true;
+  }
+  const haystack = streamHaystack(stream);
+  return normalizedPreferred.some((tag) => {
+    const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`\\b${escaped}\\b`, 'i').test(haystack);
+  });
 }
 
 function languageHaystack(stream: Stream): string {
@@ -660,11 +694,16 @@ export function streamPlayScore(
 
   const quality = streamQuality(stream);
   if (quality === '1080p') score += 30;
+  else if (quality === '2160p') score += config.preferred_quality === '2160p' ? 35 : 10;
   else if (quality === '720p') score += 15;
   else if (quality === '480p') score += 5;
 
   if (config.max_quality && quality) {
     score -= qualityRank(stream, config.max_quality);
+  }
+
+  if (streamMatchesPreferredHdr(stream, config.preferred_hdr_tags)) {
+    score += 160;
   }
 
   if (options.preferred_language && streamMatchesLanguage(stream, options.preferred_language)) {
@@ -724,6 +763,7 @@ export function defaultFilterConfig(): StreamFilterConfig {
     auto_play_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_PROBE_MS, 8000, 500, 20000),
     auto_play_uncached_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_UNCACHED_PROBE_MS, 25000, 5000, 45000),
     preferred_quality: parseQualityCap(process.env.MANGO_PREFERRED_QUALITY) ?? '1080p',
+    preferred_hdr_tags: parseEnvStringList(process.env.MANGO_PREFERRED_HDR_TAGS),
     play_ladder: defaultPlayLadder(),
     auto_play_tiers: defaultAutoPlayTiers(),
     exclude_error_streams: true,
@@ -773,6 +813,9 @@ export async function loadFilterConfig(
     if (raw.preferred_quality !== undefined) {
       base.preferred_quality = parseQualityCap(raw.preferred_quality) ?? base.preferred_quality;
     }
+    if (raw.preferred_hdr_tags !== undefined) {
+      base.preferred_hdr_tags = parseStringList(raw.preferred_hdr_tags, base.preferred_hdr_tags);
+    }
     if (raw.play_ladder !== undefined) {
       base.play_ladder = parsePlayLadder(raw.play_ladder);
     }
@@ -820,6 +863,7 @@ export function mergeFilterConfig(
     auto_play_probe_ms: base.auto_play_probe_ms,
     auto_play_uncached_probe_ms: base.auto_play_uncached_probe_ms,
     preferred_quality: base.preferred_quality,
+    preferred_hdr_tags: base.preferred_hdr_tags,
     play_ladder: base.play_ladder,
     auto_play_tiers: base.auto_play_tiers,
     exclude_error_streams: base.exclude_error_streams,

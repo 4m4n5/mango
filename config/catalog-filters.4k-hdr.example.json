@@ -1,0 +1,55 @@
+{
+  "_profile": "m6.3-4k-hdr-stage2",
+  "_notes": [
+    "For target-TV validation only. Keeps launcher at 1080p and lets mpv own 4K playback.",
+    "Stage 2 prefers 2160p HDR10/HDR10+ capable WEB-DL/HEVC style streams while excluding REMUX and leaving DV-only streams unboosted."
+  ],
+  "exclude_uncached_debrid": true,
+  "strict_unknown_cache": true,
+  "max_quality": "2160p",
+  "preferred_quality": "2160p",
+  "preferred_hdr_tags": ["HDR10+", "HDR10", "HDR"],
+  "exclude_remux": true,
+  "include_uncached": false,
+  "exclude_error_streams": true,
+  "uncached_torbox_fallback": false,
+  "rd_safe_unknown_fallback": false,
+  "stream_display_limit": 8,
+  "auto_play_max_attempts": 8,
+  "auto_play_wall_ms": 90000,
+  "auto_play_probe_ms": 10000,
+  "auto_play_uncached_probe_ms": 25000,
+  "play_ladder": [
+    {
+      "step": "2160p_hdr_cached",
+      "max_quality": "2160p",
+      "exclude_remux": true,
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "2160p_cached",
+      "max_quality": "2160p",
+      "exclude_remux": true,
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "1080p_cached_fallback",
+      "max_quality": "1080p",
+      "exclude_remux": true,
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    }
+  ],
+  "auto_play_tiers": [
+    {
+      "addons": ["AIOStreams"],
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"]
+    }
+  ]
+}

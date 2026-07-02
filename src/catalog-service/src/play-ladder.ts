@@ -216,6 +216,7 @@ export function filterStreamsForLadderStep(
     strict_unknown_cache?: boolean;
     hard_language?: string | null;
     preferred_quality?: QualityCap | null;
+    preferred_hdr_tags?: string[];
     verified_hint?: VerifiedStreamHint;
   } = {},
 ): Stream[] {
@@ -251,6 +252,7 @@ export function filterStreamsForLadderStep(
     auto_play_probe_ms: 8000,
     auto_play_uncached_probe_ms: 25000,
     preferred_quality: options.preferred_quality ?? '1080p',
+    preferred_hdr_tags: options.preferred_hdr_tags ?? [],
     play_ladder: [],
     auto_play_tiers: [],
     include_uncached: step.require_cache !== 'cached',
@@ -282,6 +284,7 @@ export function expandPlayLadder(
     strict_unknown_cache?: boolean;
     hard_language?: string | null;
     preferred_quality?: QualityCap | null;
+    preferred_hdr_tags?: string[];
     verified_hint?: VerifiedStreamHint;
     max_candidates?: number;
     include_uncached?: boolean;
@@ -330,6 +333,12 @@ export function couchStatusForLadderStep(step: string): string {
       return 'trying alternate 1080p release…';
     case '2160p_encode':
       return 'trying higher-quality encode…';
+    case '2160p_hdr_cached':
+      return 'trying 4K HDR-preferred stream…';
+    case '2160p_cached':
+      return 'trying alternate 4K stream…';
+    case '1080p_cached_fallback':
+      return 'trying 1080p fallback…';
     case 'last_resort':
       return 'trying alternate release…';
     default:

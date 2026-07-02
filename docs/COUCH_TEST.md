@@ -134,6 +134,29 @@ Requires `MANGO_VOICE=1`. M5.5a verifies the voice contract now; final phone/HUD
 
 ---
 
+## 4K/HDR Stage 2 target-TV validation (M6.3)
+
+Run after applying the Stage 2 profile and moving the Pi to the 4K TV path.
+Launcher must remain lightweight; only mpv playback should attempt 4K output.
+
+```bash
+cd ~/mango
+MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+bash scripts/diag/pi-resource-snapshot.sh
+```
+
+| # | Action | Pass? |
+|---|--------|-------|
+| K1 | Gate sees connected display advertising `3840x2160@60` | |
+| K2 | Launcher is readable and smooth at `1920x1080@60` on the TV | |
+| K3 | Play a known verified movie with a 2160p HDR candidate; picture is visible within normal play budget | |
+| K4 | **Y** exits mpv and returns to the exact launcher tab/focus state | |
+| K5 | **B** resumes/plays another 1080p fallback title if 4K candidate fails | |
+| K6 | Soundbar/TV sink plays audio; no TTS until sink is validated | |
+| K7 | Resource snapshot shows no critical memory, disk, temp, or throttling issue | |
+
+---
+
 ## Unified TV/companion UX ship polish (M6.5)
 
 Manual sign-off after Mango Library, YouTube, and 4K feature slices. Spec: [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md)

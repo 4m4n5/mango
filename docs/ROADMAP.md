@@ -14,7 +14,7 @@ M2 Browse         ████████████████████  
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
 M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 voice safety contract
-M6 Ship           ████████░░░░░░░░░░░░  in progress — M6.1 library core · M6.2 YouTube · Reliability Center landed; 4K · UX · wizard pending
+M6 Ship           ████████░░░░░░░░░░░░  in progress — M6.1 library core · M6.2 YouTube · Reliability Center landed; 4K Stage 2 validation · UX · wizard pending
 ```
 
 | Milestone | Outcome | Status |
@@ -24,7 +24,7 @@ M6 Ship           ████████░░░░░░░░░░░░  
 | **M3** Play | mpv orchestrator · picker · episodes · playability/grow | ✓ hardening |
 | **M4** Addons | Self-hosted AIOStreams + AIOMetadata | ✓ |
 | **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · voice safety contract | ◐ |
-| **M6** Ship | Mango-owned library · YouTube · Reliability Center · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 shipped · M6.2 Pi-gated · Reliability Center implemented |
+| **M6** Ship | Mango-owned library · YouTube · Reliability Center · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 shipped · M6.2 Pi-gated · Reliability Center implemented · 4K Stage 2 in validation |
 
 ---
 
@@ -180,15 +180,26 @@ Live, voice, process, lock, and couch-idle state into Green/Yellow/Red.
 ### M6.3 — 4K HDR living room
 
 **Dev lab:** Pi 5 + X11 + `hwdec=auto-safe` blanks on REMUX/DV/10-bit HEVC — validated on 1080p monitor.
+**Stage 2 approach:** keep Chromium at `1920x1080@60`, apply a reversible
+4K/HDR catalog profile for mpv only, then validate EDID/audio/picture on the
+target TV before relaxing further stream risk.
 
 | Area | Work |
 |------|------|
 | Physical | 4K TV + soundbar (HDMI eARC) |
-| HDMI | 4K mode · EDID verification |
-| mpv profile | `v4l2m2m-copy` · `--gpu-context=x11egl` · stream rank for WEB-DL 4K |
+| HDMI | 4K mode · EDID verification · `MANGO_4K_REQUIRE_TV=1` gate on target TV |
+| mpv profile | `v4l2m2m-copy` · 2160p playback display mode · stream rank for cached WEB-DL 4K HDR10/HDR10+ |
 | Audio | Default sink = TV/bar · Piper TTS smoke |
-| Filters | Relax lab `max_quality` / `exclude_remux` on ship profile only |
-| Gate | 4K smoke — **picture-visible** assert |
+| Filters | Stage 2 `catalog-filters.4k-hdr.example.json` keeps REMUX excluded and retains 1080p fallback |
+| Gate | `gate-m6-4k-hdr-profile.sh` now; next gate adds **picture-visible** and soundbar assert on TV |
+
+**Current Stage 2 commands:**
+
+```bash
+bash scripts/m6-ship/apply-4k-hdr-profile.sh apply
+bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+```
 
 ### M6.5 — Unified TV/companion UX ship polish
 

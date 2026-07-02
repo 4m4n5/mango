@@ -109,7 +109,56 @@ MANGO_LAUNCHER_DISPLAY_MODE=3840x2160 MANGO_LAUNCHER_DISPLAY_RATE=60 \
 ```
 
 This display mode does not change stream filters. 4K stream/playback policy
-stays in `/etc/mango/catalog-filters.json` and the mpv profile.
+stays in catalog filters and the mpv profile.
+
+### 4K/HDR Stage 2
+
+Stage 2 keeps Chromium lightweight at `1920x1080@60` and enables 4K only for
+fullscreen mpv playback. The profile is reversible and writes only user-owned
+runtime config under `~/.config/mango`.
+
+```bash
+cd ~/mango
+bash scripts/m6-ship/apply-4k-hdr-profile.sh apply
+bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+bash scripts/diag/pi-resource-snapshot.sh
+```
+
+On a 1080p lab monitor the 4K gate may warn that the display does not advertise
+`3840x2160@60`. After the Pi is connected to the target TV, rerun it as a hard
+gate:
+
+```bash
+MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+```
+
+Rollback:
+
+```bash
+bash scripts/m6-ship/apply-4k-hdr-profile.sh revert
+```
+
+Safe transfer to the 4K TV:
+
+```bash
+cd ~/mango
+bash scripts/mango-stack.sh stop
+sync
+sudo shutdown -h now
+```
+
+Wait until SSH drops and the Pi storage/activity LED is idle before unplugging
+power. Move the Pi, connect HDMI to the TV or soundbar/TV path, then connect
+power. After boot, press a controller button and run:
+
+```bash
+cd ~/mango
+bash scripts/mango-stack.sh restart
+MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+bash scripts/audio/list-sinks.sh
+```
+
+Keep Piper/TTS disabled until the TV/soundbar sink is explicitly validated.
 
 ---
 
@@ -142,6 +191,14 @@ bash scripts/m6-ship/reliability-proof.sh --reason operator
 bash scripts/m6-ship/gate-m6-reliability-proof.sh
 ```
 
+4K/HDR Stage 2:
+
+```bash
+bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+bash scripts/diag/pi-resource-snapshot.sh
+```
+
 YouTube setup uses operator-owned files:
 
 ```bash
@@ -168,6 +225,9 @@ Then open the companion and use the YouTube connect panel. Full details:
 | YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator`; then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |
 | YouTube Live Now partial error | Check `refresh.phase_results.live_now`; Search Queries quota can exhaust while cached VOD rails and Popular still work because Popular uses `videos.list` |
 | Reliability badge yellow/red | Open Settings → Reliability Center; or `curl localhost:3020/reliability/state` |
+| 4K gate warns on desk monitor | Expected unless the connected display advertises `3840x2160@60`; use `MANGO_4K_REQUIRE_TV=1` only on the target TV |
+| 4K playback blank/unstable | `bash scripts/m6-ship/apply-4k-hdr-profile.sh revert` · keep launcher at 1080p60 · retry with 1080p policy |
+| Soundbar silent | `bash scripts/audio/list-sinks.sh` · set HDMI/TV/bar sink with `scripts/audio/set-default-sink.sh` |
 | Nightly proof missing/stale | `bash scripts/m6-ship/reliability-proof.sh --reason operator` · inspect `/etc/mango/reliability/proofs.jsonl` |
 | Empty rails | `bash scripts/mango-health-repair.sh` · `curl localhost:3020/health` · playability status script |
 | Live tab empty after source error | `bash scripts/live/live-diagnostics.sh` · stale cache should remain available |

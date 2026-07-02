@@ -49,7 +49,12 @@ async function verifyPin(
       prepared.resolved.streams,
       prepared.resolved.filters.play_ladder,
       prepared.resolved.filterContext,
-      { max_candidates: prepared.resolved.filters.auto_play_max_attempts },
+      {
+        strict_unknown_cache: prepared.resolved.filters.strict_unknown_cache,
+        preferred_quality: prepared.resolved.filters.preferred_quality,
+        preferred_hdr_tags: prepared.resolved.filters.preferred_hdr_tags,
+        max_candidates: prepared.resolved.filters.auto_play_max_attempts,
+      },
     ).length;
     if (streamCount === 0) {
       return {

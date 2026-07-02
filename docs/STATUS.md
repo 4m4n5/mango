@@ -15,7 +15,7 @@ What works today, what is still being hardened, and how to verify it.
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
 | M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5a voice contract pending |
-| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube deployed and Pi-gated · Reliability Center implemented · 4K, unified UX, wizard pending |
+| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube deployed and Pi-gated · Reliability Center implemented · 4K Stage 2 profile/gate in validation · unified UX, wizard pending |
 
 ---
 
@@ -218,6 +218,24 @@ Detail: [RELIABILITY.md](RELIABILITY.md).
 
 ---
 
+## M6.3 — 4K/HDR Stage 2 validation ◐
+
+Mango now has an opt-in Stage 2 playback profile for target-TV validation. The
+launcher stays `1920x1080@60`; only mpv playback targets `3840x2160@60`.
+
+| Area | Current implementation |
+|------|------------------------|
+| Stream policy | `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HDR10/HDR10+ candidates, keeps REMUX excluded, and retains 1080p cached fallback |
+| Runtime apply | `scripts/m6-ship/apply-4k-hdr-profile.sh apply|revert|status` writes `~/.config/mango/voice.env` and restarts Mango |
+| Display split | `mango-display-mode.sh` keeps launcher at 1080p60 and lets mpv attempt 4K60 only during playback |
+| Gate | `scripts/m6-ship/gate-m6-4k-hdr-profile.sh` checks profile, catalog health, display EDID, reliability state, memory, disk, load, temp, and throttling |
+| Resource proof | `scripts/diag/pi-resource-snapshot.sh` records memory/disk/load/top RSS before deciding whether the spare SSD is needed |
+
+The desk monitor gate may warn on missing `3840x2160@60`; on the target TV run
+`MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh`.
+
+---
+
 ## Open priorities
 
 | # | Item | Milestone |
@@ -226,7 +244,7 @@ Detail: [RELIABILITY.md](RELIABILITY.md).
 | 2 | Living librarian (memory + policy) | M5 |
 | 3 | M5.5a AI companion voice safety contract | M5 |
 | 4 | Continue YouTube rail-quality hardening and monitor quota/live-refresh behavior as usage grows | M6.2 hardening |
-| 5 | 4K HDR TV + soundbar profile | M6.3 |
+| 5 | Finish 4K HDR TV + soundbar validation on target TV, including visible-picture and audio sink couch proof | M6.3 |
 | 6 | M5.5b + M6.5 unified companion/TV UX polish after YouTube | M6.5 |
 | 7 | First-boot wizard | M6.4 |
 
@@ -243,12 +261,14 @@ Detail: [RELIABILITY.md](RELIABILITY.md).
 | `gate-live-iptv.sh` | Opt-in live only |
 | `gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail and optional playback |
 | `gate-m6-reliability-proof.sh` | Reliability Center proof; fails red and warns yellow |
+| `gate-m6-4k-hdr-profile.sh` | M6.3 Stage 2 profile/display/resource gate |
 
 ```bash
 bash scripts/pi-exec-gate.sh
 bash scripts/pi-deploy.sh --fast --gate
 MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
 bash scripts/m6-ship/gate-m6-reliability-proof.sh
+bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 ```
 
 ### catalog-service tests
@@ -266,6 +286,7 @@ bash scripts/m6-ship/gate-m6-reliability-proof.sh
 |--------------|---------|---------|
 | `config/stremio-export.example.json` | `/etc/mango/stremio-export.json` | Addon graph |
 | `config/catalog-filters.example.json` | `/etc/mango/catalog-filters.json` | Play ladder |
+| `config/catalog-filters.4k-hdr.example.json` | `~/.config/mango/catalog-filters.4k-hdr.json` via apply script | M6.3 Stage 2 4K/HDR validation profile |
 | `config/catalog.example.yaml` | `/etc/mango/catalog.yaml` | Browse rails |
 | `config/rail-theme-profiles.yaml` | repo (or `MANGO_RAIL_THEME_PROFILES`) | Thematic fit for grow + retheme |
 | `config/rail-curation-overrides.example.yaml` | `/etc/mango/rail-curation-overrides.yaml` | Pins / blocks |

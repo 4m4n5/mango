@@ -146,6 +146,7 @@ export async function probeWithLadder(
   }, {
     strict_unknown_cache: config.strict_unknown_cache,
     preferred_quality: config.preferred_quality,
+    preferred_hdr_tags: config.preferred_hdr_tags,
     verified_hint: options.verified_hint,
     max_candidates: options.max_candidates ?? config.auto_play_max_attempts,
     include_uncached: options.include_uncached,
@@ -226,6 +227,7 @@ export async function playWithLadder(
   }, {
     strict_unknown_cache: config.strict_unknown_cache,
     preferred_quality: config.preferred_quality,
+    preferred_hdr_tags: config.preferred_hdr_tags,
     verified_hint: options.verified_hint,
     max_candidates: config.auto_play_max_attempts,
     prefer_ladder_step: options.verified_hint?.win_ladder_step ?? null,

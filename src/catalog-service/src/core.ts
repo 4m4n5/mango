@@ -1703,6 +1703,7 @@ export class CatalogCore {
     const candidates = expandPlayLadder(enriched, config.play_ladder, filterContext, {
       strict_unknown_cache: config.strict_unknown_cache,
       preferred_quality: config.preferred_quality,
+      preferred_hdr_tags: config.preferred_hdr_tags,
       hard_language: config.hard_language,
       max_candidates: config.stream_display_limit,
     });

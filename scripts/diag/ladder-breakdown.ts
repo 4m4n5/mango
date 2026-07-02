@@ -25,6 +25,7 @@ async function main(): Promise<void> {
       filterStreamsForLadderStep(resolved.streams, step, ctx, {
         strict_unknown_cache: strict,
         preferred_quality: resolved.filters.preferred_quality,
+        preferred_hdr_tags: resolved.filters.preferred_hdr_tags,
       }).length,
     ]),
   );
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
   const candidates = expandPlayLadder(resolved.streams, ladder, ctx, {
     strict_unknown_cache: strict,
     preferred_quality: resolved.filters.preferred_quality,
+    preferred_hdr_tags: resolved.filters.preferred_hdr_tags,
     max_candidates: resolved.filters.auto_play_max_attempts,
   });
 

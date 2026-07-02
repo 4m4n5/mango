@@ -6,15 +6,15 @@
 
 ---
 
-## Product target vs dev lab (2026-06)
+## Product target vs dev lab (2026-07)
 
 | | **Target (M6.3 ship)** | **Dev lab today (M1–M5)** |
 |--|----------------------|---------------------------|
 | **Vision** | World-class **4K AI-first TV box** — native browse, voice, mpv playback | Same software path; validate on desk before living room |
 | **Display** | **4K TV** · HDMI 2.0/2.1 · tuned mode + EDID | Launcher forced to **1920×1080@60** for smooth couch UI |
 | **Audio** | **Soundbar** (HDMI eARC/ARC or optical) · Piper TTS on TV | **No soundbar yet** — headphones for couch/dev audio |
-| **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | `max_quality: 1080p` in `/etc/mango/catalog-filters.json` |
-| **mpv** | 4K HEVC profile · visible-picture gate | `v4l2m2m-copy` · 1080p smoke passed |
+| **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | Default `max_quality: 1080p`; Stage 2 opt-in profile prefers cached 2160p HDR10/HDR10+ |
+| **mpv** | 4K HEVC profile · visible-picture gate | `v4l2m2m-copy` · 1080p smoke passed · 4K/HDR profile gate added |
 
 **North star unchanged:** Pi 5 8GB is the V1 platform. M6.3 proves 4K on the target TV; if hardware limits block the desired playback bar (DV/REMUX, HDMI bandwidth), document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
 
@@ -63,11 +63,46 @@ Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`). Stack reapplie
 
 ---
 
-## Display (current)
+## Display and 4K/HDR Stage 2
 
 - **Launcher:** `1920x1080@60` through `scripts/lib/mango-display-mode.sh`
-- **Playback:** mpv owns fullscreen playback; 4K stream/output validation remains M6.3 work
-- **Later (M6.3):** 4K TV + soundbar — `raspi-config` / `kmsprint` / mpv profile in [ROADMAP.md](ROADMAP.md) §M6.3
+- **Playback:** mpv owns fullscreen playback and may switch to `3840x2160@60`
+- **Policy:** stream quality/HDR preference lives in catalog filters, not Chromium
+- **Stage 2 profile:** `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HDR10/HDR10+ WEB-DL style streams, keeps REMUX excluded, and leaves 1080p cached fallback available
+
+Pi apply/revert:
+
+```bash
+cd ~/mango
+bash scripts/m6-ship/apply-4k-hdr-profile.sh apply
+bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+
+# after moving to the 4K TV, require EDID to advertise 3840x2160@60
+MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+
+# if the TV path is unstable
+bash scripts/m6-ship/apply-4k-hdr-profile.sh revert
+```
+
+The profile writes user-owned runtime config under `~/.config/mango`; it does
+not mutate `/etc/mango/*.db`, YouTube cache, or playability data. `mpv-stop.sh`
+returns the launcher to `1920x1080@60` after playback.
+
+### SSD decision rule
+
+Do not install the spare 128GB SSD just because Stage 2 exists. Install it if
+resource snapshots show one of these repeatedly:
+
+- Root filesystem above 85% used, or `/etc/mango` caches leaving little growth headroom.
+- Swap usage or memory pressure during 4K playback/grow.
+- High I/O wait, slow boot, or slow SQLite/cache writes during nightly grow.
+- SD-card reliability concerns after sustained unattended refreshes.
+
+Check current headroom:
+
+```bash
+bash scripts/diag/pi-resource-snapshot.sh
+```
 
 ---
 
