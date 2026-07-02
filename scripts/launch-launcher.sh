@@ -36,6 +36,17 @@ fi
 LOCK_DIR="${HOME}/.cache/mango"
 LOCK_FILE="${LOCK_DIR}/launch-launcher.lock"
 mkdir -p "$LOCK_DIR"
+LOCK_HELD=0
+
+cleanup_lock() {
+  if [[ "$LOCK_HELD" == "1" ]]; then
+    flock -u 9 2>/dev/null || true
+    exec 9>&- 2>/dev/null || true
+    rm -f "$LOCK_FILE" 2>/dev/null || true
+    LOCK_HELD=0
+  fi
+}
+trap cleanup_lock EXIT
 
 # Stop orphaned media focus loops (they steal focus back after ⌂).
 pkill -f 'bash.*focus-kodi.sh' 2>/dev/null || true
@@ -48,6 +59,7 @@ if ! flock -n 9; then
   echo "launch-launcher busy" >&2
   exit 1
 fi
+LOCK_HELD=1
 
 launcher_already_focused() {
   command -v xdotool >/dev/null 2>&1 || return 1
@@ -56,8 +68,7 @@ launcher_already_focused() {
 
 if launcher_already_focused; then
   bash "$REPO_DIR/scripts/lib/present-launcher.sh" --quick 2>/dev/null || true
-  flock -u 9
-  exec 9>&-
+  cleanup_lock
   END_TS=$(date +%s%3N 2>/dev/null || date +%s)
   DURATION_MS=$((END_TS - START_TS))
   mango_log launch_launcher status=ok mode=noop "duration_ms=$DURATION_MS"
@@ -92,8 +103,7 @@ fi
 bash "$REPO_DIR/scripts/lib/mango-cursor.sh" hide 2>/dev/null || true
 
 # Release flock before any subprocess — never let reader-service inherit fd 9.
-flock -u 9
-exec 9>&-
+cleanup_lock
 
 # One pad owner: ensure router after home (no sync input-remapper handoff).
 if [[ "${MANGO_SKIP_REMAPPER:-}" != "1" ]]; then
