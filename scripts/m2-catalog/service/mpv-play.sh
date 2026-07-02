@@ -364,6 +364,9 @@ PY
     --play-and-exit
     --no-qt-privacy-ask
     --no-qt-error-dialogs
+    "--short-jump-size=${MANGO_VLC_SEEK_STEP_SEC:-10}"
+    "--medium-jump-size=${MANGO_VLC_BIG_SEEK_STEP_SEC:-120}"
+    "--long-jump-size=${MANGO_VLC_LONG_SEEK_STEP_SEC:-300}"
     "${vlc_audio_args[@]}"
   )
   if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then

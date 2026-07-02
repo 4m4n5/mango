@@ -53,6 +53,20 @@ PLAYER_STATE_PATH = Path(
     os.environ.get("MANGO_PLAYER_STATE_PATH", str(CACHE_DIR / "player-state.json"))
 )
 VLC_SEEK_STEP_SEC = int(os.environ.get("MANGO_VLC_SEEK_STEP_SEC", "10"))
+VLC_SEEK_FAST_STEP_SEC = int(os.environ.get("MANGO_VLC_SEEK_FAST_STEP_SEC", "30"))
+VLC_SEEK_BIG_STEP_SEC = int(os.environ.get("MANGO_VLC_SEEK_BIG_STEP_SEC", "120"))
+VLC_SEEK_LONG_STEP_SEC = int(os.environ.get("MANGO_VLC_SEEK_LONG_STEP_SEC", "300"))
+VLC_SHOULDER_SEEK_STEP_SEC = int(
+    os.environ.get("MANGO_VLC_SHOULDER_SEEK_STEP_SEC", str(VLC_SEEK_BIG_STEP_SEC))
+)
+VLC_HOLD_SEEK_DELAY_SEC = float(os.environ.get("MANGO_VLC_HOLD_SEEK_DELAY_SEC", "0.45"))
+VLC_HOLD_SEEK_REPEAT_SEC = float(os.environ.get("MANGO_VLC_HOLD_SEEK_REPEAT_SEC", "0.55"))
+VLC_HOLD_SEEK_FAST_AFTER_SEC = float(
+    os.environ.get("MANGO_VLC_HOLD_SEEK_FAST_AFTER_SEC", "1.5")
+)
+VLC_HOLD_SEEK_BIG_AFTER_SEC = float(
+    os.environ.get("MANGO_VLC_HOLD_SEEK_BIG_AFTER_SEC", "3.5")
+)
 
 BTN_B = 304
 BTN_X = 307
@@ -445,6 +459,34 @@ def send_key_vlc(symbol: str) -> None:
     _xdotool("key", "--clearmodifiers", symbol)
 
 
+def _vlc_seek_key_for_step(direction: str, seconds: int) -> str | None:
+    arrow = "Left" if direction == "left" else "Right"
+    if seconds == VLC_SEEK_LONG_STEP_SEC:
+        return f"ctrl+alt+{arrow}"
+    if seconds == VLC_SEEK_BIG_STEP_SEC:
+        return f"ctrl+{arrow}"
+    if seconds == VLC_SEEK_STEP_SEC:
+        return arrow
+    return None
+
+
+def route_vlc_seek(direction: str, seconds: int) -> None:
+    if direction not in {"left", "right"} or seconds <= 0:
+        return
+    signed_seconds = -seconds if direction == "left" else seconds
+    key = _vlc_seek_key_for_step(direction, seconds)
+    if key is not None:
+        send_key_vlc(key)
+    else:
+        arrow = "Left" if direction == "left" else "Right"
+        repeats = max(1, round(seconds / max(1, VLC_SEEK_STEP_SEC)))
+        for _ in range(repeats):
+            send_key_vlc(arrow)
+            time.sleep(0.015)
+    update_vlc_state(seek_delta_sec=signed_seconds)
+    show_playback_osd(direction)
+
+
 def _vlc_running() -> bool:
     for name in ("vlc", "cvlc"):
         result = subprocess.run(
@@ -710,14 +752,21 @@ def route_dpad(app: str, direction: str) -> None:
     if app == "mpv":
         send_mpv_ipc("keypress", symbol.upper())
     elif app == "vlc":
-        send_key_vlc(symbol)
-        if direction == "left":
-            update_vlc_state(seek_delta_sec=-VLC_SEEK_STEP_SEC)
-        elif direction == "right":
-            update_vlc_state(seek_delta_sec=VLC_SEEK_STEP_SEC)
-        show_playback_osd(direction)
+        if direction in {"left", "right"}:
+            route_vlc_seek(direction, VLC_SEEK_STEP_SEC)
+        else:
+            send_key_vlc(symbol)
+            show_playback_osd(direction)
     elif app == "launcher":
         send_key_launcher(symbol)
+
+
+def route_playback_shoulder(app: str, direction: str) -> None:
+    if app == "vlc":
+        route_vlc_seek(direction, VLC_SHOULDER_SEEK_STEP_SEC)
+    elif app == "mpv":
+        seconds = -VLC_SHOULDER_SEEK_STEP_SEC if direction == "left" else VLC_SHOULDER_SEEK_STEP_SEC
+        send_mpv_ipc("seek", str(seconds))
 
 
 def route_face(app: str, action: str) -> None:
@@ -848,6 +897,8 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
     dev.grab()
     last: dict[str, float] = {}
     last_event_at = 0.0
+    last_heartbeat_at = time.monotonic()
+    hold_seek: dict[str, object] = {}
     write_status("running", dev, last_event_at=last_event_at, last_action="grabbed")
 
     def debounced(action: str, fn) -> None:
@@ -875,12 +926,69 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
         write_status("running", dev, last_event_at=last_event_at, last_action="heartbeat")
         return True
 
+    def stop_seek_hold() -> None:
+        hold_seek.clear()
+
+    def held_seek_step(held_for_sec: float) -> int:
+        if held_for_sec >= VLC_HOLD_SEEK_BIG_AFTER_SEC:
+            return VLC_SEEK_BIG_STEP_SEC
+        if held_for_sec >= VLC_HOLD_SEEK_FAST_AFTER_SEC:
+            return VLC_SEEK_FAST_STEP_SEC
+        return VLC_SEEK_STEP_SEC
+
+    def start_or_update_seek_hold(app: str, direction: str) -> None:
+        if app != "vlc":
+            stop_seek_hold()
+            debounced(f"{app}-{direction}", lambda: route_dpad(app, direction))
+            return
+        now = time.monotonic()
+        if hold_seek.get("direction") == direction:
+            return
+        wake_display_for_input(f"{app}-{direction}")
+        route_vlc_seek(direction, VLC_SEEK_STEP_SEC)
+        hold_seek.update(
+            {
+                "direction": direction,
+                "started_at": now,
+                "next_at": now + VLC_HOLD_SEEK_DELAY_SEC,
+            }
+        )
+
+    def process_seek_hold() -> None:
+        if not hold_seek:
+            return
+        if foreground_app() != "vlc":
+            stop_seek_hold()
+            return
+        now = time.monotonic()
+        next_at = float(hold_seek.get("next_at") or 0.0)
+        if now < next_at:
+            return
+        direction = str(hold_seek.get("direction") or "")
+        if direction not in {"left", "right"}:
+            stop_seek_hold()
+            return
+        held_for = now - float(hold_seek.get("started_at") or now)
+        route_vlc_seek(direction, held_seek_step(held_for))
+        hold_seek["next_at"] = now + VLC_HOLD_SEEK_REPEAT_SEC
+
+    def select_timeout() -> float:
+        timeout = STATUS_HEARTBEAT_SEC
+        if hold_seek:
+            next_at = float(hold_seek.get("next_at") or 0.0)
+            timeout = min(timeout, max(0.0, next_at - time.monotonic()))
+        return timeout
+
     try:
         while True:
-            ready, _, _ = select.select([dev.fd], [], [], STATUS_HEARTBEAT_SEC)
+            ready, _, _ = select.select([dev.fd], [], [], select_timeout())
             if not ready:
-                if not heartbeat():
-                    return
+                process_seek_hold()
+                now = time.monotonic()
+                if now - last_heartbeat_at >= STATUS_HEARTBEAT_SEC:
+                    if not heartbeat():
+                        return
+                    last_heartbeat_at = now
                 continue
             for event in dev.read():
                 last_event_at = time.time()
@@ -895,11 +1003,14 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                     if event.code in (ecodes.ABS_X, ecodes.ABS_HAT0X):
                         threshold = 1 if event.code == ecodes.ABS_HAT0X else THRESH
                         if event.value <= -threshold:
-                            debounced(f"{app}-left", lambda: route_dpad(app, "left"))
+                            start_or_update_seek_hold(app, "left")
                         elif event.value >= threshold:
-                            debounced(f"{app}-right", lambda: route_dpad(app, "right"))
+                            start_or_update_seek_hold(app, "right")
+                        else:
+                            stop_seek_hold()
                     elif event.code in (ecodes.ABS_Y, ecodes.ABS_HAT0Y):
                         threshold = 1 if event.code == ecodes.ABS_HAT0Y else THRESH
+                        stop_seek_hold()
                         if event.value <= -threshold:
                             debounced(f"{app}-up", lambda: route_dpad(app, "up"))
                         elif event.value >= threshold:
@@ -920,6 +1031,10 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                         debounced("volume-down", lambda: adjust_volume(-VOLUME_STEP_PERCENT))
                     elif event.code == BTN_PLUS:
                         debounced("volume-up", lambda: adjust_volume(VOLUME_STEP_PERCENT))
+                    elif app in {"mpv", "vlc"} and event.code == BTN_TL:
+                        debounced(f"{app}-seek-big-back", lambda: route_playback_shoulder(app, "left"))
+                    elif app in {"mpv", "vlc"} and event.code == BTN_TR:
+                        debounced(f"{app}-seek-big-forward", lambda: route_playback_shoulder(app, "right"))
                     elif app == "launcher" and event.code == BTN_TL:
                         debounced("tab-prev", lambda: switch_launcher_tab(-1))
                     elif app == "launcher" and event.code == BTN_TR:

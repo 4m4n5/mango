@@ -163,7 +163,7 @@ or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
 | State | Visible | Hidden | Input owner | ⌂ behavior |
 |-------|---------|--------|-------------|------------|
 | `launcher` | Chromium mango UI | playback stopped | `mango-tv-pad.py` | noop / present launcher |
-| `playback` | mpv or VLC fullscreen + transient OSD | launcher below or stopped | pad → player controls + stop/home routing | stop playback → launcher <300 ms |
+| `playback` | mpv or VLC fullscreen + transient OSD | launcher below or stopped | pad → player controls, accelerated seek, stop/home routing | stop playback → launcher <300 ms |
 | `fallback_stremio` | Stremio player | launcher below | pad → Stremio | present launcher |
 
 ### Input routing
@@ -173,6 +173,10 @@ or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
 | `launcher` | select | back / settings | noop |
 | `playback` | play/pause + show progress | stop → launcher | stop → launcher |
 | `fallback_stremio` | select | Escape | launcher |
+
+During VLC playback, D-pad `←/→` stays precise at the short seek step, holding
+`←/→` repeats with acceleration, and playback-only `L/R` performs the large seek
+step without changing launcher tab semantics.
 
 Pad layout: [HARDWARE.md](HARDWARE.md)
 

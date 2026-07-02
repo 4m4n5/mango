@@ -154,12 +154,13 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | **−** | `314` | **Volume down** |
 | **+** | `315` | **Volume up** |
 | **Bottom-left center button** | `317` | Unused in current couch mapping |
-| **L** shoulder | `310` | **Prev browse tab** (launcher) |
-| **R** shoulder | `311` | **Next browse tab** (launcher); home fallback in apps |
+| **L** shoulder | `310` | **Prev browse tab** (launcher); playback large seek back |
+| **R** shoulder | `311` | **Next browse tab** (launcher); playback large seek forward |
 | **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
 
 **D-pad** → navigate. During VLC playback, **←/→** seek and show the progress
-bar.
+bar; holding **←/→** accelerates seek, while playback-only **L/R** jumps by the
+large seek step.
 
 > Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. `A` remains intentionally unmapped; `X` is reserved for shuffle.
 
