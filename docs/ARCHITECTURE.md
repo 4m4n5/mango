@@ -160,8 +160,8 @@ or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
 
 | State | Visible | Hidden | Input owner | ⌂ behavior |
 |-------|---------|--------|-------------|------------|
-| `launcher` | Chromium mango UI | mpv stopped | `mango-tv-pad.py` | noop / present launcher |
-| `mpv` | mpv fullscreen | launcher below | pad → mpv IPC | stop mpv → launcher <300 ms |
+| `launcher` | Chromium mango UI | playback stopped | `mango-tv-pad.py` | noop / present launcher |
+| `playback` | mpv or VLC fullscreen | launcher below or stopped | pad → player stop/home routing | stop playback → launcher <300 ms |
 | `fallback_stremio` | Stremio player | launcher below | pad → Stremio | present launcher |
 
 ### Input routing
@@ -169,7 +169,7 @@ or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
 | Foreground | B (`304`) | Y (`308`) | Home (`316`/`311`) |
 |------------|-----------|-----------|---------------------|
 | `launcher` | select | back / settings | noop |
-| `mpv` | play/pause | stop → launcher | stop → launcher |
+| `playback` | play/pause where supported | stop → launcher | stop → launcher |
 | `fallback_stremio` | select | Escape | launcher |
 
 Pad layout: [HARDWARE.md](HARDWARE.md)

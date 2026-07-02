@@ -3,7 +3,7 @@
 
 Routes by foreground surface:
   Launcher — arrow keys + Return
-  mpv      — arrow keys + space/back via IPC
+  playback — mpv IPC or VLC foreground stop/home routing
 
 Home (316/311) runs launch-launcher.sh or mpv-stop — never keyboard chords.
 See docs/HARDWARE.md
@@ -390,6 +390,32 @@ def is_mpv_focused() -> bool:
     return wid in _mpv_window_ids()
 
 
+def is_vlc_focused() -> bool:
+    wid = _xdotool("getactivewindow").stdout.strip()
+    if not wid or wid == "0":
+        return False
+    name = _window_name(wid)
+    klass = _window_class(wid)
+    process = _window_process(wid)
+    cmdline = _window_cmdline(wid)
+    blob = f"{name} {klass} {process} {cmdline}"
+    return "vlc" in blob
+
+
+def _vlc_running() -> bool:
+    for name in ("vlc", "cvlc"):
+        result = subprocess.run(
+            ["pgrep", "-x", name],
+            env=_env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        if result.returncode == 0:
+            return True
+    return False
+
+
 def _mpv_window_ids() -> list[str]:
     result = _xdotool("search", "--class", "mpv")
     if result.returncode != 0 or not result.stdout.strip():
@@ -402,12 +428,16 @@ def foreground_app() -> str:
     blob = f"{name} {klass}"
     if is_mpv_focused() or "mpv" in blob:
         return "mpv"
+    if is_vlc_focused() or "vlc" in blob:
+        return "vlc"
     if "mango-overlay" in klass or "mango overlay" in name:
         return "launcher"
     if "mango-launcher" in blob or "mango launcher" in name:
         return "launcher"
     if is_launcher_focused():
         return "launcher"
+    if _vlc_running():
+        return "vlc"
     return "other"
 
 
@@ -570,8 +600,8 @@ def go_home() -> None:
                 _xdotool("windowactivate", wid)
         return
     diag_event("home_press", foreground=app, active_name=name, active_class=klass)
-    if app == "mpv":
-        print("mango-tv-pad: home -> mpv-stop.sh + launcher", flush=True)
+    if app in {"mpv", "vlc"}:
+        print(f"mango-tv-pad: home -> mpv-stop.sh + launcher ({app})", flush=True)
         stop_mpv_home()
         return
     print("mango-tv-pad: home -> launch-launcher.sh", flush=True)
@@ -585,6 +615,8 @@ def route_dpad(app: str, direction: str) -> None:
     symbol = {"left": "Left", "right": "Right", "up": "Up", "down": "Down"}[direction]
     if app == "mpv":
         send_mpv_ipc("keypress", symbol.upper())
+    elif app == "vlc":
+        _xdotool("key", "--clearmodifiers", symbol)
     elif app == "launcher":
         send_key_launcher(symbol)
 
@@ -594,10 +626,12 @@ def route_face(app: str, action: str) -> None:
         symbol = "Return"
         if app == "mpv":
             send_mpv_ipc("keypress", "SPACE")
+        elif app == "vlc":
+            _xdotool("key", "--clearmodifiers", "space")
         elif app == "launcher":
             send_key_launcher(symbol)
     elif action == "back":
-        if app == "mpv":
+        if app in {"mpv", "vlc"}:
             stop_mpv_home()
         elif app == "launcher":
             send_key_launcher("BackSpace")

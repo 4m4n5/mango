@@ -35,7 +35,7 @@ Pi 5 · X11 + Openbox
 ├── mango-stack.sh              start/stop base stack
 ├── serve.py :3000              launcher static + API
 ├── Chromium kiosk              mango-launcher (one instance at idle)
-├── mango-tv-pad.py             pad: launcher · mpv · fallback
+├── mango-tv-pad.py             pad: launcher · playback · fallback
 ├── catalog-service :3020       stremio-core · rails · play · voice tools
 │   └── Reliability Center      Settings/API proof · safe repair · nightly ledger
 ├── mpv                         primary player

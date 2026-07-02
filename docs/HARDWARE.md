@@ -2,7 +2,9 @@
 
 **Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone
 
-> **Native branch:** pad routes to **launcher** and **mpv** only. See [ARCHITECTURE.md](ARCHITECTURE.md).
+> **Native branch:** pad routes to **launcher** and the active playback foreground
+> (mpv-compatible stop path, VLC on the target-TV profile). See
+> [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -135,7 +137,7 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 | Label | Position | Linux evdev | Action |
 |-------|----------|-------------|--------|
-| **Y** | left | `308` (BTN_WEST) | **Back** (in-app / mpv quit → launcher) |
+| **Y** | left | `308` (BTN_WEST) | **Back** (in-app / playback stop → launcher) |
 | **X** | top | `307` (BTN_NORTH) | **Shuffle / refresh rail set** (launcher) |
 | **A** | right | `305` (BTN_EAST) | — |
 | **B** | bottom | `304` (BTN_SOUTH) | **Select** |
@@ -166,7 +168,7 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 | Surface | Method |
 |---------|--------|
-| **Launcher + mpv** | **`mango-tv-pad.py`** — single pad owner |
+| **Launcher + playback** | **`mango-tv-pad.py`** — single pad owner |
 
 ### After reboot or pad drop
 
