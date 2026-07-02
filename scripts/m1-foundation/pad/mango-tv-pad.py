@@ -45,9 +45,14 @@ STATUS_PATH = CACHE_DIR / "mango-tv-pad-status.json"
 LAUNCHER_SH = REPO / "scripts/launch-launcher.sh"
 MPV_IPC_SH = REPO / "scripts/m2-catalog/service/mpv-ipc.sh"
 MPV_STOP_SH = REPO / "scripts/m2-catalog/service/mpv-stop.sh"
+PLAYBACK_OSD_PY = REPO / "scripts/m2-catalog/service/playback-osd.py"
 DISPLAY_WAKE_SH = REPO / "scripts/lib/mango-display-wake.sh"
 COUCH_ACTIVITY_SH = REPO / "scripts/lib/couch-activity.sh"
 LAUNCHER_PORT = os.environ.get("MANGO_LAUNCHER_PORT", "3000")
+PLAYER_STATE_PATH = Path(
+    os.environ.get("MANGO_PLAYER_STATE_PATH", str(CACHE_DIR / "player-state.json"))
+)
+VLC_SEEK_STEP_SEC = int(os.environ.get("MANGO_VLC_SEEK_STEP_SEC", "10"))
 
 BTN_B = 304
 BTN_X = 307
@@ -402,6 +407,44 @@ def is_vlc_focused() -> bool:
     return "vlc" in blob
 
 
+def _vlc_window_ids() -> list[str]:
+    ids: list[str] = []
+    for args in (("--class", "vlc"), ("--name", "VLC media player")):
+        result = _xdotool("search", *args)
+        if result.returncode == 0 and result.stdout.strip():
+            ids.extend(result.stdout.split())
+    return list(dict.fromkeys(ids))
+
+
+def find_vlc_wid() -> str | None:
+    best_wid: str | None = None
+    best_area = 0
+    for wid in _vlc_window_ids():
+        name = _window_name(wid)
+        if "selection owner" in name.lower() or "tooltip" in name.lower():
+            continue
+        geom = _xdotool("getwindowgeometry", "--shell", wid).stdout
+        width = height = 0
+        for line in geom.splitlines():
+            if line.startswith("WIDTH="):
+                width = int(line.split("=", 1)[1])
+            elif line.startswith("HEIGHT="):
+                height = int(line.split("=", 1)[1])
+        area = width * height
+        if area > best_area:
+            best_area = area
+            best_wid = wid
+    return best_wid
+
+
+def send_key_vlc(symbol: str) -> None:
+    wid = find_vlc_wid()
+    if wid:
+        send_key_to_wid(wid, symbol, activate=True)
+        return
+    _xdotool("key", "--clearmodifiers", symbol)
+
+
 def _vlc_running() -> bool:
     for name in ("vlc", "cvlc"):
         result = subprocess.run(
@@ -510,6 +553,57 @@ def send_mpv_ipc(command: str, arg: str = "") -> None:
     popen_tv_user(argv)
 
 
+def show_playback_osd(reason: str) -> None:
+    if not PLAYBACK_OSD_PY.is_file():
+        return
+    popen_tv_user(["python3", str(PLAYBACK_OSD_PY), "--show", reason])
+
+
+def _vlc_position_from_state(state: dict[str, object], now_ms: int) -> float:
+    start_sec = max(0.0, float(state.get("start_sec") or 0))
+    if bool(state.get("paused")):
+        return start_sec
+    started_at_ms = float(state.get("started_at_ms") or now_ms)
+    return start_sec + max(0.0, (now_ms - started_at_ms) / 1000.0)
+
+
+def update_vlc_state(*, seek_delta_sec: int = 0, toggle_pause: bool = False) -> None:
+    try:
+        state = json.loads(PLAYER_STATE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    if state.get("backend") != "vlc":
+        return
+    now_ms = int(time.time() * 1000)
+    duration_sec = max(0.0, float(state.get("duration_sec") or 0))
+    position = _vlc_position_from_state(state, now_ms)
+    if seek_delta_sec:
+        position += seek_delta_sec
+    position = max(0.0, min(duration_sec, position) if duration_sec > 0 else position)
+
+    if toggle_pause:
+        paused = not bool(state.get("paused"))
+        state["paused"] = paused
+        state["start_sec"] = position
+        state["started_at_ms"] = now_ms
+        if paused:
+            state["paused_at_ms"] = now_ms
+        else:
+            state.pop("paused_at_ms", None)
+    elif seek_delta_sec:
+        state["start_sec"] = position
+        state["started_at_ms"] = now_ms
+    else:
+        return
+
+    try:
+        tmp = PLAYER_STATE_PATH.with_name(f".{PLAYER_STATE_PATH.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(state, separators=(",", ":")), encoding="utf-8")
+        tmp.replace(PLAYER_STATE_PATH)
+    except OSError:
+        pass
+
+
 def stop_mpv_home() -> None:
     popen_tv_user(
         ["bash", str(MPV_STOP_SH)],
@@ -616,7 +710,12 @@ def route_dpad(app: str, direction: str) -> None:
     if app == "mpv":
         send_mpv_ipc("keypress", symbol.upper())
     elif app == "vlc":
-        _xdotool("key", "--clearmodifiers", symbol)
+        send_key_vlc(symbol)
+        if direction == "left":
+            update_vlc_state(seek_delta_sec=-VLC_SEEK_STEP_SEC)
+        elif direction == "right":
+            update_vlc_state(seek_delta_sec=VLC_SEEK_STEP_SEC)
+        show_playback_osd(direction)
     elif app == "launcher":
         send_key_launcher(symbol)
 
@@ -627,7 +726,9 @@ def route_face(app: str, action: str) -> None:
         if app == "mpv":
             send_mpv_ipc("keypress", "SPACE")
         elif app == "vlc":
-            _xdotool("key", "--clearmodifiers", "space")
+            send_key_vlc("space")
+            update_vlc_state(toggle_pause=True)
+            show_playback_osd("pause")
         elif app == "launcher":
             send_key_launcher(symbol)
     elif action == "back":

@@ -9,6 +9,8 @@ VLC_LOG="${MANGO_VLC_LOG:-${HOME}/.cache/mango/vlc-play.log}"
 VLC_PID_FILE="${MANGO_VLC_PID_FILE:-${HOME}/.cache/mango/vlc.pid}"
 PLAYER_STATE_FILE="${MANGO_PLAYER_STATE_PATH:-${HOME}/.cache/mango/player-state.json}"
 VLC_PLAYLIST="${MANGO_VLC_PLAYLIST:-${HOME}/.cache/mango/vlc-play.m3u}"
+PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playback-osd.pid}"
+PLAYBACK_OSD_LOG="${MANGO_PLAYBACK_OSD_LOG:-${HOME}/.cache/mango/playback-osd.log}"
 PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epoch}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
@@ -266,16 +268,39 @@ start_vlc_exit_monitor() {
     state="$3"
     pid_file="$4"
     playlist="$5"
+    osd_pid_file="$6"
     while kill -0 "$pid" 2>/dev/null; do
       sleep 1
     done
     if [[ -f "$state" ]] && grep -q "\"pid\":$pid" "$state" 2>/dev/null; then
       curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
+      if [[ -f "$osd_pid_file" ]]; then
+        kill "$(cat "$osd_pid_file")" 2>/dev/null || true
+        rm -f "$osd_pid_file"
+      fi
       rm -f "$state" "$pid_file" "$playlist"
       bash "$repo/scripts/lib/mango-display-mode.sh" launcher >/dev/null 2>&1 || true
       systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
     fi
-  ' bash "$pid" "$REPO_DIR" "$PLAYER_STATE_FILE" "$VLC_PID_FILE" "$VLC_PLAYLIST" >/dev/null 2>&1 &
+  ' bash "$pid" "$REPO_DIR" "$PLAYER_STATE_FILE" "$VLC_PID_FILE" "$VLC_PLAYLIST" "$PLAYBACK_OSD_PID_FILE" >/dev/null 2>&1 &
+}
+
+start_playback_osd() {
+  local osd_py="$SCRIPT_DIR/playback-osd.py"
+  [[ "${MANGO_PLAYBACK_OSD:-1}" != "0" ]] || return 0
+  [[ -x "$osd_py" ]] || return 0
+  mkdir -p "$(dirname "$PLAYBACK_OSD_PID_FILE")" "$(dirname "$PLAYBACK_OSD_LOG")"
+  if [[ -f "$PLAYBACK_OSD_PID_FILE" ]] && kill -0 "$(cat "$PLAYBACK_OSD_PID_FILE")" 2>/dev/null; then
+    python3 "$osd_py" --show start >/dev/null 2>&1 || true
+    return 0
+  fi
+  rm -f "$PLAYBACK_OSD_PID_FILE"
+  setsid env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" HOME="$HOME" \
+    MANGO_PLAYER_STATE_PATH="$PLAYER_STATE_FILE" \
+    MANGO_PLAYBACK_OSD_PID_FILE="$PLAYBACK_OSD_PID_FILE" \
+    python3 "$osd_py" --run >>"$PLAYBACK_OSD_LOG" 2>&1 < /dev/null &
+  echo "$!" >"$PLAYBACK_OSD_PID_FILE"
+  python3 "$osd_py" --show start >/dev/null 2>&1 || true
 }
 
 play_with_vlc() {
@@ -353,6 +378,7 @@ PY
   echo "$vlc_pid" >"$VLC_PID_FILE"
   write_vlc_state "$vlc_pid" "${video_duration:-0}"
   start_vlc_exit_monitor "$vlc_pid"
+  start_playback_osd
 
   while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     if play_cancelled; then

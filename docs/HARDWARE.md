@@ -140,7 +140,7 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | **Y** | left | `308` (BTN_WEST) | **Back** (in-app / playback stop → launcher) |
 | **X** | top | `307` (BTN_NORTH) | **Shuffle / refresh rail set** (launcher) |
 | **A** | right | `305` (BTN_EAST) | — |
-| **B** | bottom | `304` (BTN_SOUTH) | **Select** |
+| **B** | bottom | `304` (BTN_SOUTH) | **Select** / playback pause-play + progress bar |
 
 ### Center buttons (between D-pad and face cluster)
 
@@ -158,7 +158,8 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | **R** shoulder | `311` | **Next browse tab** (launcher); home fallback in apps |
 | **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
 
-**D-pad** → navigate (arrow keys).
+**D-pad** → navigate. During VLC playback, **←/→** seek and show the progress
+bar.
 
 > Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. `A` remains intentionally unmapped; `X` is reserved for shuffle.
 

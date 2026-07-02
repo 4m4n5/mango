@@ -231,6 +231,7 @@ mode before fullscreen playback and returns to the launcher mode after stop.
 | Decode/presentation path | Real couch playback uses one backend for all resolutions: `MANGO_PLAYBACK_BACKEND=vlc`, VLC DRM hardware decode, launcher stopped while fullscreen, and `xcompmgr` disabled to prevent tearing |
 | Display split | `mango-display-mode.sh` keeps launcher at 1080p60; `mpv-play.sh` remains the compatibility entrypoint, probes source width/height/FPS with `ffprobe`, then selects EDID-supported source-matched 4K/1080 modes before VLC playback |
 | Frame pacing | Stage 2 enables source refresh matching; target-TV validation showed VLC at 3840x2160@23.98 with smooth motion, sharp picture, working AAC audio, and no visible tearing once `xcompmgr` was disabled |
+| Playback OSD | VLC starts `playback-osd.py`, a lightweight X11 progress bar shown at playback start and when the controller pauses or seeks |
 | Gate | `scripts/m6-ship/gate-m6-4k-hdr-profile.sh` checks profile, catalog health, display EDID, reliability state, memory, disk, load, temp, and throttling |
 | Resource proof | `scripts/diag/pi-resource-snapshot.sh` records memory/disk/load/top RSS before deciding whether the spare SSD is needed |
 | Audio fallback | If PipeWire exposes only `Dummy Output`, VLC routes directly to HDMI0 with `hdmi:CARD=vc4hdmi0,DEV=0` while TTS stays disabled |

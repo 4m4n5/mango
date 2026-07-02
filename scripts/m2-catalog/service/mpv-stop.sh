@@ -11,6 +11,8 @@ PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epo
 VLC_PID_FILE="${MANGO_VLC_PID_FILE:-${HOME}/.cache/mango/vlc.pid}"
 PLAYER_STATE_FILE="${MANGO_PLAYER_STATE_PATH:-${HOME}/.cache/mango/player-state.json}"
 VLC_PLAYLIST="${MANGO_VLC_PLAYLIST:-${HOME}/.cache/mango/vlc-play.m3u}"
+PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playback-osd.pid}"
+PLAYBACK_OSD_TRIGGER="${MANGO_PLAYBACK_OSD_TRIGGER:-${HOME}/.cache/mango/playback-osd.show}"
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
@@ -46,6 +48,7 @@ vlc_running() {
 
 stop_vlc() {
   if ! vlc_running; then
+    stop_playback_osd
     rm -f "$VLC_PID_FILE" "$PLAYER_STATE_FILE" "$VLC_PLAYLIST"
     return 0
   fi
@@ -59,7 +62,17 @@ stop_vlc() {
   if [[ -f "$VLC_PID_FILE" ]]; then
     kill -9 "$(cat "$VLC_PID_FILE")" 2>/dev/null || true
   fi
+  stop_playback_osd
   rm -f "$VLC_PID_FILE" "$PLAYER_STATE_FILE" "$VLC_PLAYLIST"
+}
+
+stop_playback_osd() {
+  if [[ -f "$PLAYBACK_OSD_PID_FILE" ]]; then
+    kill "$(cat "$PLAYBACK_OSD_PID_FILE")" 2>/dev/null || true
+    sleep 0.1
+    kill -9 "$(cat "$PLAYBACK_OSD_PID_FILE")" 2>/dev/null || true
+  fi
+  rm -f "$PLAYBACK_OSD_PID_FILE" "$PLAYBACK_OSD_TRIGGER"
 }
 
 if [[ -S "$SOCKET" ]]; then

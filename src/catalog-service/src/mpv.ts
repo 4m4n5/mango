@@ -129,6 +129,7 @@ async function vlcPlaybackState(): Promise<{
       started_at_ms?: unknown;
       start_sec?: unknown;
       duration_sec?: unknown;
+      paused?: unknown;
     };
     if (state.backend !== 'vlc') return null;
     const pid = Number(state.pid);
@@ -141,7 +142,8 @@ async function vlcPlaybackState(): Promise<{
     const startedAtMs = Number(state.started_at_ms);
     const startSec = Math.max(0, Number(state.start_sec ?? 0));
     const durationSec = Math.max(0, Number(state.duration_sec ?? 0));
-    const elapsedSec = Number.isFinite(startedAtMs)
+    const paused = Boolean(state.paused);
+    const elapsedSec = !paused && Number.isFinite(startedAtMs)
       ? Math.max(0, (Date.now() - startedAtMs) / 1000)
       : 0;
     return {

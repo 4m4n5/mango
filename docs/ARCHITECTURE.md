@@ -47,7 +47,9 @@ compatibility entrypoint remains `mpv-play.sh`, but target-TV couch playback can
 use `MANGO_PLAYBACK_BACKEND=vlc` for every resolution. In that mode Mango stops
 the Chromium launcher while fullscreen video is active, disables `xcompmgr` to
 avoid tearing, source-matches the TV display mode, and returns to the launcher
-mode on stop.
+mode on stop. VLC playback starts a lightweight X11 Mango playback OSD for a
+couch-readable progress bar; the pad triggers it on pause/play and seek actions
+without bringing back the retired Chromium overlay.
 
 ### Playability layer
 
@@ -161,7 +163,7 @@ or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
 | State | Visible | Hidden | Input owner | ⌂ behavior |
 |-------|---------|--------|-------------|------------|
 | `launcher` | Chromium mango UI | playback stopped | `mango-tv-pad.py` | noop / present launcher |
-| `playback` | mpv or VLC fullscreen | launcher below or stopped | pad → player stop/home routing | stop playback → launcher <300 ms |
+| `playback` | mpv or VLC fullscreen + transient OSD | launcher below or stopped | pad → player controls + stop/home routing | stop playback → launcher <300 ms |
 | `fallback_stremio` | Stremio player | launcher below | pad → Stremio | present launcher |
 
 ### Input routing
@@ -169,7 +171,7 @@ or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
 | Foreground | B (`304`) | Y (`308`) | Home (`316`/`311`) |
 |------------|-----------|-----------|---------------------|
 | `launcher` | select | back / settings | noop |
-| `playback` | play/pause where supported | stop → launcher | stop → launcher |
+| `playback` | play/pause + show progress | stop → launcher | stop → launcher |
 | `fallback_stremio` | select | Escape | launcher |
 
 Pad layout: [HARDWARE.md](HARDWARE.md)
