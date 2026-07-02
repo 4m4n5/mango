@@ -33,18 +33,6 @@ launch_home_once() {
   fi
 }
 
-trigger_library_refresh() {
-  curl -sf --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/playability/session/reshuffle" \
-    >/dev/null 2>&1 || true
-  if command -v xdotool >/dev/null 2>&1; then
-    local wid
-    wid="$(find_launcher_wid 2>/dev/null || true)"
-    if [[ -n "$wid" ]]; then
-      xdotool key --window "$wid" F5 >/dev/null 2>&1 || true
-    fi
-  fi
-}
-
 if [[ -S "$SOCKET" ]]; then
   curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
   if command -v timeout >/dev/null 2>&1; then
@@ -64,9 +52,5 @@ if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
 fi
 
 launch_home_once
-
-if [[ "${GO_HOME}" == "1" ]]; then
-  trigger_library_refresh
-fi
 
 exit 0

@@ -8,7 +8,7 @@ import {
   titleKey,
   buildTabSessionSelections,
 } from './session-select.js';
-import { seriesBareId } from './ids.js';
+import { canonicalTitleId, isSeriesRailGateId, seriesBareId } from './ids.js';
 import {
   injectPinnedSessionItems,
   loadRailCurationOverrides,
@@ -20,7 +20,7 @@ import { effectiveDisplayLimit } from './pool-growth.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 export type PlayabilityRailStatus = {
   rail_id: string;
@@ -227,6 +227,16 @@ function dbPath(): string {
   return process.env.MANGO_PLAYABILITY_DB || DEFAULT_DB_PATH;
 }
 
+function canonicalBrowseId(type: string, id: string): string {
+  return canonicalTitleId(type, id);
+}
+
+function shouldMirrorSeriesGateRecord(type: string, id: string): boolean {
+  return type === 'series'
+    && isSeriesRailGateId(id)
+    && canonicalBrowseId(type, id) !== id;
+}
+
 function openDb(): Database.Database {
   return new Database(dbPath());
 }
@@ -254,7 +264,7 @@ FROM rail_session rs
 WHERE rs.session_id = ?
   AND rs.rail_id IN (${placeholders});
 `).all(sessionId, ...siblingRailIds) as RecentRow[];
-  return new Set(rows.map((row) => titleKey(row.type, row.id)));
+  return new Set(rows.map((row) => titleKey(row.type, canonicalBrowseId(row.type, row.id))));
 }
 
 function readRailPool(
@@ -334,7 +344,7 @@ WHERE rail_id = @rail_id AND shown_at >= @cooldown_cutoff;
     rail_id: railId,
     cooldown_cutoff: cooldownCutoff,
   }) as RecentRow[];
-  return new Set(recentRows.map((row) => titleKey(row.type, row.id)));
+  return new Set(recentRows.map((row) => titleKey(row.type, canonicalBrowseId(row.type, row.id))));
 }
 
 function writeRailSessionRows(
@@ -360,12 +370,13 @@ VALUES (@rail_id, @type, @id, @slot, @mix_bucket, @session_id, @created_at);
 INSERT INTO recently_shown (rail_id, type, id, shown_at)
 VALUES (@rail_id, @type, @id, @shown_at)
 ON CONFLICT(rail_id, type, id) DO UPDATE SET shown_at = excluded.shown_at;
-`);
+  `);
   for (const row of rows) {
+    const canonicalId = canonicalBrowseId(row.type, row.id);
     insertSession.run({
       rail_id: row.rail_id,
       type: row.type,
-      id: row.id,
+      id: canonicalId,
       slot: row.slot,
       mix_bucket: row.mix_bucket,
       session_id: row.session_id,
@@ -374,7 +385,7 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET shown_at = excluded.shown_at;
     upsertRecent.run({
       rail_id: row.rail_id,
       type: row.type,
-      id: row.id,
+      id: canonicalId,
       shown_at: now,
     });
   }
@@ -493,9 +504,6 @@ CREATE INDEX IF NOT EXISTS idx_recently_shown_rail_time ON recently_shown(rail_i
 CREATE INDEX IF NOT EXISTS idx_verify_log_started ON verify_log(started_at);
 CREATE INDEX IF NOT EXISTS idx_playability_triggers_open ON playability_triggers(handled_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_rail_candidate_rejections_active ON rail_candidate_rejections(rail_id, expires_at);
-
-INSERT OR IGNORE INTO playability_migrations(version, applied_at)
-VALUES (${SCHEMA_VERSION}, ${nowMs()});
 `);
     applySchemaMigrations(db);
   } finally {
@@ -504,6 +512,9 @@ VALUES (${SCHEMA_VERSION}, ${nowMs()});
 }
 
 function applySchemaMigrations(db: Database.Database): void {
+  const appliedVersion = Number(
+    (db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM playability_migrations').get() as { version?: number } | undefined)?.version ?? 0,
+  );
   const columns = db.prepare('PRAGMA table_info(titles)').all() as Array<{ name: string }>;
   if (!columns.some((column) => column.name === 'win_ladder_step')) {
     db.exec('ALTER TABLE titles ADD COLUMN win_ladder_step TEXT');
@@ -571,6 +582,126 @@ CREATE INDEX IF NOT EXISTS idx_rail_candidate_rejections_active
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (6, @applied_at);
 `).run({ applied_at: nowMs() });
+  if (appliedVersion < 7) {
+    repairSeriesBrowseCanonicalization(db);
+  }
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (7, @applied_at);
+`).run({ applied_at: nowMs() });
+}
+
+function repairSeriesBrowseCanonicalization(db: Database.Database): void {
+  const seriesTitleRows = db.prepare(`
+SELECT
+  type,
+  id,
+  status,
+  verified_at,
+  expires_at,
+  fail_reason,
+  best_source,
+  cache_status,
+  debrid_service,
+  probe_ms,
+  win_url_hash,
+  win_ladder_step,
+  updated_at
+FROM titles
+WHERE type = 'series'
+  AND instr(id, char(58)) > 0;
+`).all() as Array<{
+    type: string;
+    id: string;
+    status: PlayabilityVerifyRecord['status'];
+    verified_at: number | null;
+    expires_at: number | null;
+    fail_reason: string | null;
+    best_source: string | null;
+    cache_status: string | null;
+    debrid_service: string | null;
+    probe_ms: number | null;
+    win_url_hash: string | null;
+    win_ladder_step: string | null;
+    updated_at: number;
+  }>;
+  const upsertTitle = db.prepare(`
+INSERT INTO titles (
+  type, id, status, verified_at, expires_at, fail_reason, best_source,
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
+) VALUES (
+  @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @updated_at
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  status = excluded.status,
+  verified_at = excluded.verified_at,
+  expires_at = excluded.expires_at,
+  fail_reason = excluded.fail_reason,
+  best_source = excluded.best_source,
+  cache_status = excluded.cache_status,
+  debrid_service = excluded.debrid_service,
+  probe_ms = excluded.probe_ms,
+  win_url_hash = excluded.win_url_hash,
+  win_ladder_step = excluded.win_ladder_step,
+  updated_at = excluded.updated_at;
+`);
+  for (const row of seriesTitleRows) {
+    if (!shouldMirrorSeriesGateRecord(row.type, row.id)) {
+      continue;
+    }
+    upsertTitle.run({
+      ...row,
+      id: canonicalBrowseId(row.type, row.id),
+    });
+  }
+
+  const poolRows = db.prepare(`
+SELECT rail_id, type, id, score, ingested_at, title, poster_url, year
+FROM rail_pool
+WHERE type = 'series';
+`).all() as Array<{
+    rail_id: string;
+    type: string;
+    id: string;
+    score: number;
+    ingested_at: number;
+    title: string | null;
+    poster_url: string | null;
+    year: string | null;
+  }>;
+  if (poolRows.length > 0) {
+    const merged = new Map<string, typeof poolRows[number]>();
+    for (const row of poolRows) {
+      const canonicalId = canonicalBrowseId(row.type, row.id);
+      const key = `${row.rail_id}:${row.type}:${canonicalId}`;
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, { ...row, id: canonicalId });
+        continue;
+      }
+      merged.set(key, {
+        ...existing,
+        id: canonicalId,
+        score: Math.max(existing.score, row.score),
+        ingested_at: Math.max(existing.ingested_at, row.ingested_at),
+        title: existing.title ?? row.title,
+        poster_url: existing.poster_url ?? row.poster_url,
+        year: existing.year ?? row.year,
+      });
+    }
+    db.prepare(`DELETE FROM rail_pool WHERE type = 'series';`).run();
+    const insertPool = db.prepare(`
+INSERT INTO rail_pool (rail_id, type, id, score, ingested_at, title, poster_url, year)
+VALUES (@rail_id, @type, @id, @score, @ingested_at, @title, @poster_url, @year);
+`);
+    for (const row of merged.values()) {
+      insertPool.run(row);
+    }
+  }
+
+  db.prepare(`DELETE FROM rail_session WHERE type = 'series';`).run();
+  db.prepare(`DELETE FROM recently_shown WHERE type = 'series';`).run();
 }
 
 export async function getRailIngestOffsetsBulk(railIds: string[]): Promise<Map<string, number>> {
@@ -1054,6 +1185,43 @@ ON CONFLICT(type, id) DO UPDATE SET
         win_ladder_step: record.win_ladder_step ?? null,
         updated_at: timestamp,
       });
+      if (shouldMirrorSeriesGateRecord(record.type, record.id)) {
+        db.prepare(`
+INSERT INTO titles (
+  type, id, status, verified_at, expires_at, fail_reason, best_source,
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
+) VALUES (
+  @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @updated_at
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  status = excluded.status,
+  verified_at = excluded.verified_at,
+  expires_at = excluded.expires_at,
+  fail_reason = excluded.fail_reason,
+  best_source = excluded.best_source,
+  cache_status = excluded.cache_status,
+  debrid_service = excluded.debrid_service,
+  probe_ms = excluded.probe_ms,
+  win_url_hash = excluded.win_url_hash,
+  win_ladder_step = excluded.win_ladder_step,
+  updated_at = excluded.updated_at;
+`).run({
+          type: record.type,
+          id: canonicalBrowseId(record.type, record.id),
+          status: record.status,
+          verified_at: verifiedAt,
+          expires_at: expiresAt,
+          fail_reason: record.fail_reason ?? null,
+          best_source: record.best_source ?? null,
+          cache_status: record.cache_status ?? null,
+          debrid_service: record.debrid_service ?? null,
+          probe_ms: record.probe_ms ?? null,
+          win_url_hash: record.win_url_hash ?? null,
+          win_ladder_step: record.win_ladder_step ?? null,
+          updated_at: timestamp,
+        });
+      }
 
       db.prepare(`
 INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
@@ -1191,7 +1359,7 @@ WHERE rail_id IN (${placeholders});
 `).all(params) as Array<{ rail_id: string; type: string; id: string }>;
     for (const row of rows) {
       const keys = result.get(row.rail_id) ?? new Set<string>();
-      keys.add(titleKey(row.type, row.id));
+      keys.add(titleKey(row.type, canonicalBrowseId(row.type, row.id)));
       result.set(row.rail_id, keys);
     }
     return result;
@@ -1238,7 +1406,7 @@ SELECT type, id
 FROM rail_pool
 WHERE rail_id = @rail_id;
 `).all({ rail_id: railId }) as RailPoolKeyRow[];
-    return new Set(rows.map((row) => `${row.type}:${row.id}`));
+    return new Set(rows.map((row) => `${row.type}:${canonicalBrowseId(row.type, row.id)}`));
   } finally {
     db.close();
   }
@@ -1312,6 +1480,7 @@ SELECT t.type, t.id, (
 ) AS display_title
 FROM titles t
 WHERE t.status = 'verified'
+  AND (t.type != 'series' OR instr(t.id, char(58)) = 0)
   AND NOT EXISTS (
     SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id
   );
@@ -1331,6 +1500,7 @@ export async function countOrphanVerifiedPoolTitles(
 SELECT COUNT(*) AS c
 FROM titles t
 WHERE t.status = 'verified'
+  AND (t.type != 'series' OR instr(t.id, char(58)) = 0)
   AND NOT EXISTS (
     SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id
   );
@@ -1457,7 +1627,7 @@ export async function deleteRailPoolTitle(
     db.prepare(`
 DELETE FROM rail_pool
 WHERE rail_id = @rail_id AND type = @type AND id = @id;
-`).run({ rail_id: railId, type, id });
+`).run({ rail_id: railId, type, id: canonicalBrowseId(type, id) });
   } finally {
     db.close();
   }
@@ -1474,7 +1644,7 @@ export async function listRailIdsContainingTitle(
 SELECT DISTINCT rail_id
 FROM rail_pool
 WHERE type = @type AND id = @id;
-`).all({ type, id }) as Array<{ rail_id: string }>;
+`).all({ type, id: canonicalBrowseId(type, id) }) as Array<{ rail_id: string }>;
     return rows.map((row) => row.rail_id);
   } finally {
     db.close();
@@ -1561,7 +1731,7 @@ function toRailSessionPoolItem(
   return {
     rail_id: railId,
     type: item.type,
-    id: item.id,
+    id: canonicalBrowseId(item.type, item.id),
     score: full?.score ?? item.score ?? 0,
     mix_bucket: item.mix_bucket ?? 'stable',
     slot,
@@ -1623,7 +1793,7 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
 `).run({
       rail_id: entry.rail_id,
       type: entry.type,
-      id: entry.id,
+      id: canonicalBrowseId(entry.type, entry.id),
       score: entry.score,
       ingested_at: nowMs(),
       title: entry.title ?? null,
@@ -1699,6 +1869,7 @@ SELECT
 FROM titles t
 WHERE t.status = 'verified'
   AND t.type = @content_type
+  AND (t.type != 'series' OR instr(t.id, char(58)) = 0)
   AND NOT EXISTS (
     SELECT 1
     FROM rail_pool rp2
@@ -1772,7 +1943,7 @@ ON CONFLICT(type, id) DO UPDATE SET
   updated_at = @updated_at;
 `).run({
       type: input.type,
-      id: input.id,
+      id: canonicalBrowseId(input.type, input.id),
       updated_at: now,
     });
   } finally {
@@ -1782,7 +1953,7 @@ ON CONFLICT(type, id) DO UPDATE SET
   await upsertRailPoolTitle({
     rail_id: input.rail_id,
     type: input.type,
-    id: input.id,
+    id: canonicalBrowseId(input.type, input.id),
     score: 0,
     title: input.title,
     poster_url: input.poster_url ?? undefined,

@@ -90,7 +90,7 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | Label | Position | Linux evdev | Action |
 |-------|----------|-------------|--------|
 | **Y** | left | `308` (BTN_WEST) | **Back** (in-app / mpv quit → launcher) |
-| **X** | top | `307` (BTN_NORTH) | — |
+| **X** | top | `307` (BTN_NORTH) | **Shuffle / refresh rail set** (launcher) |
 | **A** | right | `305` (BTN_EAST) | — |
 | **B** | bottom | `304` (BTN_SOUTH) | **Select** |
 
@@ -98,21 +98,21 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 ```
   [−]  [+]
-  [↻]  [⌂]    ← shuffle = left bottom (evdev 317); home = right bottom (316, fallback 311)
+  [317] [⌂]   ← 317 bottom-left currently unused in couch mode; home = right bottom (316, fallback 311)
 ```
 
 | Label | evdev | Action |
 |-------|-------|--------|
-| **−** | `314` | — |
-| **+** | `315` | — |
-| **↻ shuffle** (left, below −/+) | `317` | **Reshuffle library** (launcher) |
+| **−** | `314` | **Volume down** |
+| **+** | `315` | **Volume up** |
+| **Bottom-left center button** | `317` | Unused in current couch mapping |
 | **L** shoulder | `310` | **Prev browse tab** (launcher) |
 | **R** shoulder | `311` | **Next browse tab** (launcher); home fallback in apps |
 | **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
 
 **D-pad** → navigate (arrow keys).
 
-> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. A and X are intentionally unmapped.
+> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. `A` remains intentionally unmapped; `X` is reserved for shuffle.
 
 > **Quirk:** In Switch BT mode Linux reports the **D-pad as ABS_X/ABS_Y** (not hat axes). `evtest` shows `ABS_X` on left/right — normal.
 
@@ -129,7 +129,8 @@ Bluetooth may show **Connected** before Linux registers the pad. **Press any but
 If the Micro is powered off, Mango keeps `mango-tv-pad.py` running and retries
 Bluetooth in the background. `pad-health: waiting for controller` is expected in
 that state; wake the controller and it should grab the new `Pro Controller`
-event node without a stack restart.
+event node without a stack restart. The wait state is indefinite now; Mango no
+longer gives up after a short reconnect window.
 
 **One-time setup** (auto-recover after this):
 

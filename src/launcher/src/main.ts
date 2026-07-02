@@ -50,6 +50,7 @@ let catalogRetryTimer: number | undefined;
 let libraryRefreshInFlight = false;
 let savedKeys = new Set<string>();
 const tabCatalogCache = new Map<BrowseTab, ContentRail[]>();
+const tabSavedCache = new Map<BrowseTab, Set<string>>();
 const tabCatalogPrefetching = new Set<BrowseTab>();
 let liveCatalogSessionCached = false;
 let catalogRequestSeq = 0;
@@ -224,6 +225,9 @@ function handleBrowseTabChange(tab: BrowseTab): void {
     return;
   }
   activeBrowseTab = tab;
+  if (showCachedCatalog(tab)) {
+    return;
+  }
   void loadCatalog();
 }
 
@@ -493,6 +497,7 @@ async function reloadSavedAndCatalog(): Promise<void> {
   } catch {
     savedKeys = new Set();
   }
+  tabSavedCache.set(activeBrowseTab, savedKeys);
   tabCatalogCache.delete(activeBrowseTab);
   if (activeBrowseTab === "live" || activeBrowseTab === "youtube") {
     liveCatalogSessionCached = false;
@@ -535,10 +540,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
   const requestSeq = ++catalogRequestSeq;
   const requestedTab = activeBrowseTab;
   const started = performance.now();
-  if (catalogRetryTimer !== undefined) {
-    window.clearTimeout(catalogRetryTimer);
-    catalogRetryTimer = undefined;
-  }
+  clearCatalogRetryTimer();
   const reshuffle = Boolean(options.reshuffle && requestedTab !== "live");
   if (reshuffle) {
     tabCatalogCache.delete(requestedTab);
@@ -549,6 +551,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     const frozen = tabCatalogCache.get("live");
     if (frozen && frozen.length > 0) {
       savedKeys = await fetchSavedIds("live").catch(() => new Set<string>());
+      tabSavedCache.set("live", savedKeys);
       if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
         return;
       }
@@ -581,6 +584,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     }
     savedKeys = saved;
     tabCatalogCache.set(requestedTab, rails);
+    tabSavedCache.set(requestedTab, saved);
     if (requestedTab === "live") {
       liveCatalogSessionCached = true;
     }
@@ -659,9 +663,13 @@ function prefetchCatalogTab(tab: BrowseTab, options: { allowLive?: boolean } = {
   }
   const started = performance.now();
   tabCatalogPrefetching.add(tab);
-  void loadCatalogRails(tab)
-    .then((rails) => {
+  void Promise.all([
+    loadCatalogRails(tab),
+    fetchSavedIds(tab).catch(() => new Set<string>()),
+  ])
+    .then(([rails, saved]) => {
       tabCatalogCache.set(tab, rails);
+      tabSavedCache.set(tab, saved);
       if (tab === "live" && rails.length > 0) {
         liveCatalogSessionCached = true;
       }
@@ -681,6 +689,27 @@ function prefetchCatalogTab(tab: BrowseTab, options: { allowLive?: boolean } = {
     .finally(() => {
       tabCatalogPrefetching.delete(tab);
     });
+}
+
+function showCachedCatalog(tab: BrowseTab): boolean {
+  const cachedRails = tabCatalogCache.get(tab);
+  if (!cachedRails || cachedRails.length === 0) {
+    return false;
+  }
+  clearCatalogRetryTimer();
+  activeBrowseTab = tab;
+  savedKeys = tabSavedCache.get(tab) || new Set<string>();
+  catalogState = { status: "ready", rails: cachedRails };
+  renderHome();
+  return true;
+}
+
+function clearCatalogRetryTimer(): void {
+  if (catalogRetryTimer === undefined) {
+    return;
+  }
+  window.clearTimeout(catalogRetryTimer);
+  catalogRetryTimer = undefined;
 }
 
 async function loadInfo(): Promise<void> {

@@ -25,7 +25,7 @@ bash scripts/m6-ship/gate-m6-youtube-smoke.sh # YouTube state/rails/search/detai
 |---|--------|-------|
 | 1 | **Movies** tab loads 9-up poster grid | |
 | 2 | **L/R shoulders** switch Movies ↔ Series ↔ Live | |
-| 3 | **↻ shuffle** (pad `317`) — new titles, no rate-limit text | |
+| 3 | **X shuffle** (pad `307`) — new titles, no rate-limit text | |
 | 4 | **Series** tab — rails populated | |
 
 ---
@@ -48,6 +48,7 @@ bash scripts/m6-ship/gate-m6-youtube-smoke.sh # YouTube state/rails/search/detai
 | # | Action | Pass? |
 |---|--------|-------|
 | 11 | Movie → detail → **Play** → mpv ≤90s | |
+| 11a | From mpv, **Y** returns to the same launcher state: same tab, same title/detail context, no reshuffle/reset to Movies | |
 | 12 | **Continue** rail resumes if entries exist | |
 | 13 | **⌂** always returns home | |
 
@@ -68,7 +69,7 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 | # | Action | Pass? |
 |---|--------|-------|
 | 17 | YouTube tab loads cached rails without full-screen error; empty Fresh Finds or expired Live Now is hidden instead of showing stale live cards | |
-| 18 | YouTube rails show at most 9 cards; **↻ shuffle** changes History/For You/New From Subscriptions/Fresh Finds/Because You Watched/Live Now/Popular without blocking on refresh | |
+| 18 | YouTube rails show at most 9 cards; **X shuffle** changes History/For You/New From Subscriptions/Fresh Finds/Because You Watched/Live Now/Popular without blocking on refresh | |
 | 19 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
 | 20 | Open a YouTube video → detail shows Play / Save / Not Interested; **B** starts mpv | |
 | 21 | After playing a second meaningful YouTube VOD, Because You Watched follows that newer seed and shows cached non-live/non-Short follow-ups | |
@@ -111,7 +112,7 @@ Do not show grow/debug status on TV. Check this from SSH before claiming library
 | Empty episode list | `curl localhost:3020/series/tt12004706/episodes` |
 | No streams on episode | ladder play still works on **B**; row greys after probe |
 | Next prompt missing | exit ≥50%; `GET /play/next-prompt` after mpv stop |
-| Pad wrong button | [`docs/HARDWARE.md`](HARDWARE.md) — B=`304`, Y=`308`, shuffle=`317` |
+| Pad wrong button | [`docs/HARDWARE.md`](HARDWARE.md) — B=`304`, Y=`308`, X shuffle=`307`, −/+=`314`/`315` |
 
 
 ---

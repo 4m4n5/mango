@@ -24,7 +24,7 @@ What works today, what is still being hardened, and how to verify it.
 | Feature | Detail |
 |---------|--------|
 | Tabs | Movies · Series · Live · YouTube (L/R shoulders; native YouTube is Pi-gated and has an explicit M6.2 smoke after YouTube changes) |
-| Grid | 9-up posters · ↻ shuffle (pad `317`) |
+| Grid | 9-up posters · `X` shuffle (pad `307`) |
 | Rails | YAML + AI catalog slots + Continue |
 | Service | `catalog-service :3020` · `GET /rails` |
 | Proxy | `serve.py` → `/api/catalog/*` |

@@ -86,7 +86,7 @@ Live IPTV (NexoTV) is **excluded** from deploy gates — opt in: `MANGO_LIVE_GAT
 
 ## Gamepad (locked)
 
-8BitDo Micro · **B**=`304` select · **Y**=`308` back · **L**=`310` tab − · **R**=`311` tab + · **↻**=`317` shuffle · **⌂**=`316` home
+8BitDo Micro · **B**=`304` select · **Y**=`308` back · **X**=`307` shuffle · **−/+**=`314`/`315` volume · **L**=`310` tab − · **R**=`311` tab + · **⌂**=`316` home
 
 | Surface | Input |
 |---------|--------|

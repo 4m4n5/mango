@@ -66,7 +66,7 @@ Pi 5 · X11 + Openbox
 - `catalog-service` on `:3020` with `@stremio/stremio-core-web`
 - `config/catalog.yaml` rails — addon catalogs, mdblist, Cinemeta charts
 - Launcher tabs: **Movies · Series · Live**
-- 9-up poster grid · L/R tab shoulders · ↻ shuffle
+- 9-up poster grid · L/R tab shoulders · X shuffle
 - `GET /rails` · proxy via `serve.py` `/api/catalog/*`
 
 **Gate:** `scripts/m2-catalog/browse/gate-m2-browse.sh`

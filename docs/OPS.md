@@ -62,8 +62,9 @@ bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh
 | D-pad | Move focus |
 | B (`304`) | Select / play |
 | Y (`308`) | Back |
+| X (`307`) | Shuffle rail |
+| − / + (`314` / `315`) | Volume down / up |
 | L/R (`310`/`311`) | Tab − / + |
-| ↻ (`317`) | Shuffle rail |
 | ⌂ (`316`) | Home |
 
 ### Couch activity and display
@@ -158,7 +159,7 @@ Then open the companion and use the YouTube connect panel. Full details:
 | Symptom | Check |
 |---------|-------|
 | Desktop wallpaper after ⌂ | `bash scripts/launch-launcher.sh` · see [ARCHITECTURE.md](ARCHITECTURE.md) foreground |
-| Pad waiting | `pad-health: waiting for controller` means Mango is alive and polling; turn on / press any button on the Micro |
+| Pad waiting | `pad-health: waiting for controller` means Mango is alive and polling indefinitely; turn on / press any button on the Micro |
 | Pad dead | `bash scripts/m1-foundation/pad/pad-health.sh --repair` · reboot pad in Pro Controller mode if no event appears after wake |
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
 | YouTube tab empty | `curl localhost:3020/youtube/state` · configure `/etc/mango/youtube-api.key` · run `bash scripts/m6-ship/gate-m6-youtube-smoke.sh` |

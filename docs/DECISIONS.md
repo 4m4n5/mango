@@ -18,7 +18,7 @@ Locked choices. Update when changing behavior.
 | Topic | Choice |
 |-------|--------|
 | Layout | **Y · X · A · B** clockwise from left ([HARDWARE.md](HARDWARE.md)) |
-| Select / back | **B**=`304` · **Y**=`308` · **L**=`310` tab − · **R**=`311` tab + · **↻**=`317` shuffle |
+| Select / back | **B**=`304` · **Y**=`308` · **X**=`307` shuffle · **−/+**=`314`/`315` volume · **L**=`310` tab − · **R**=`311` tab + |
 | Home | `316`/`311` → `launch-launcher.sh` (`mango-tv-pad.py`) |
 | Pad owner | **`mango-tv-pad.py`** — launcher + mpv |
 | Fallback | `input-remapper` only if pad fails to grab |

@@ -18,6 +18,7 @@ import pwd
 import re
 import select
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -35,6 +36,8 @@ _HOME = Path(f"/home/{_TV_USER}") if _TV_USER not in ("", "root") else Path.home
 XAUTHORITY = os.environ.get("XAUTHORITY", str(_HOME / ".Xauthority"))
 THRESH = int(32767 * 0.8)
 DEBOUNCE_SEC = 0.12
+VOLUME_STEP_PERCENT = 5
+WAIT_LOG_INTERVAL_SEC = float(os.environ.get("MANGO_PAD_WAIT_LOG_INTERVAL_SEC", "45.0"))
 REPO = _HOME / "mango"
 CACHE_DIR = _HOME / ".cache" / "mango"
 PID_PATH = CACHE_DIR / "mango-tv-pad.pid"
@@ -47,17 +50,17 @@ COUCH_ACTIVITY_SH = REPO / "scripts/lib/couch-activity.sh"
 LAUNCHER_PORT = os.environ.get("MANGO_LAUNCHER_PORT", "3000")
 
 BTN_B = 304
+BTN_X = 307
 BTN_Y = 308
 BTN_MINUS = 314
+BTN_PLUS = 315
 BTN_TL = 310  # L shoulder — prev browse tab (launcher)
 BTN_TR = 311  # R shoulder — next browse tab (launcher); home fallback elsewhere
-BTN_SHUFFLE = 317  # BTN_THUMBL — bottom-left grid, left of ⌂ (Switch capture)
 HOME_BUTTONS = {316, 311}
 BT_MAC = "E4:17:D8:EB:00:44"
 RECONNECT_SLEEP_SEC = 0.75
-DEVICE_WAIT_SEC = 45.0
-BT_CONNECT_INTERVAL_SEC = 8.0
-BT_CONNECT_TIMEOUT_SEC = 6.0
+BT_CONNECT_INTERVAL_SEC = float(os.environ.get("MANGO_PAD_CONNECT_INTERVAL_SEC", "4.0"))
+BT_CONNECT_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_CONNECT_TIMEOUT_SEC", "12.0"))
 DISPLAY_WAKE_THROTTLE_SEC = 3.0
 STATUS_HEARTBEAT_SEC = 2.0
 
@@ -162,22 +165,34 @@ def as_tv_user(argv: list[str]) -> list[str]:
     return argv
 
 
-def popen_tv_user(argv: list[str], *, extra_env: dict[str, str] | None = None) -> None:
+def _tv_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
     env = {**_env, **(extra_env or {})}
+    ids = _tv_user_ids()
+    if ids is not None:
+        env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{ids[0]}")
+    return env
+
+
+def popen_tv_user(argv: list[str], *, extra_env: dict[str, str] | None = None) -> None:
     subprocess.Popen(
         as_tv_user(argv),
-        env=env,
+        env=_tv_env(extra_env),
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
 
 
-def run_tv_user(argv: list[str], *, timeout: float = 2.0) -> None:
+def run_tv_user(
+    argv: list[str],
+    *,
+    timeout: float = 2.0,
+    extra_env: dict[str, str] | None = None,
+) -> None:
     try:
         subprocess.run(
             as_tv_user(argv),
-            env=_env,
+            env=_tv_env(extra_env),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
@@ -516,6 +531,22 @@ def refresh_launcher_library() -> None:
     reshuffle_launcher_rails()
 
 
+def adjust_volume(delta_percent: int) -> None:
+    if delta_percent == 0:
+        return
+    delta = f"{abs(delta_percent)}%"
+    if shutil.which("pactl"):
+        change = f"+{delta}" if delta_percent > 0 else f"-{delta}"
+        run_tv_user(["pactl", "set-sink-volume", "@DEFAULT_SINK@", change], timeout=2.0)
+        return
+    if shutil.which("wpctl"):
+        suffix = "+" if delta_percent > 0 else "-"
+        run_tv_user(
+            ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{delta}{suffix}"],
+            timeout=2.0,
+        )
+
+
 def go_home() -> None:
     name, klass = active_window_meta()
     app = foreground_app()
@@ -634,6 +665,8 @@ def try_bluetooth_connect() -> None:
     if now - _last_bt_connect_at < BT_CONNECT_INTERVAL_SEC:
         return
     _last_bt_connect_at = now
+    _run_bluetoothctl(["power", "on"], timeout=2.0)
+    _run_bluetoothctl(["trust", BT_MAC], timeout=2.0)
     if bluetooth_connected():
         write_status("waiting", last_action="bt_connected_waiting_for_event")
         return
@@ -643,15 +676,18 @@ def try_bluetooth_connect() -> None:
 
 
 def wait_for_device() -> evdev.InputDevice:
-    deadline = time.monotonic() + DEVICE_WAIT_SEC
-    while time.monotonic() < deadline:
+    last_wait_log_at = 0.0
+    while True:
         try:
             return find_pro_controller()
         except DeviceNotFoundError:
             write_status("waiting", last_action="device_scan")
+            now = time.monotonic()
+            if now - last_wait_log_at >= WAIT_LOG_INTERVAL_SEC:
+                print("mango-tv-pad: waiting for Pro Controller (background reconnect active)", flush=True)
+                last_wait_log_at = now
             try_bluetooth_connect()
             time.sleep(RECONNECT_SLEEP_SEC)
-    raise DeviceNotFoundError("timed out waiting for Pro Controller")
 
 
 def release_device(dev: evdev.InputDevice | None) -> None:
@@ -737,8 +773,12 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                         debounced(f"{app}-select", lambda: route_face(app, "select"))
                     elif event.code == BTN_Y:
                         debounced(f"{app}-back", lambda: route_face(app, "back"))
-                    elif event.code == BTN_SHUFFLE:
+                    elif event.code == BTN_X:
                         debounced("shuffle", refresh_launcher_library)
+                    elif event.code == BTN_MINUS:
+                        debounced("volume-down", lambda: adjust_volume(-VOLUME_STEP_PERCENT))
+                    elif event.code == BTN_PLUS:
+                        debounced("volume-up", lambda: adjust_volume(VOLUME_STEP_PERCENT))
                     elif app == "launcher" and event.code == BTN_TL:
                         debounced("tab-prev", lambda: switch_launcher_tab(-1))
                     elif app == "launcher" and event.code == BTN_TR:

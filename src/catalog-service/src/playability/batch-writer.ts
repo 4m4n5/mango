@@ -6,6 +6,7 @@ import {
   type PlayabilityVerifyRecord,
   type RailPoolEntry,
 } from './db.js';
+import { canonicalTitleId, isSeriesRailGateId } from './ids.js';
 
 function dbPath(): string {
   return process.env.MANGO_PLAYABILITY_DB || '/etc/mango/playability.db';
@@ -17,6 +18,16 @@ function openDb(): Database.Database {
 
 function nowMs(): number {
   return Date.now();
+}
+
+function canonicalBrowseId(type: string, id: string): string {
+  return canonicalTitleId(type, id);
+}
+
+function shouldMirrorSeriesGateRecord(type: string, id: string): boolean {
+  return type === 'series'
+    && isSeriesRailGateId(id)
+    && canonicalBrowseId(type, id) !== id;
 }
 
 export class PlayabilityBatchWriter {
@@ -103,6 +114,23 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
             win_ladder_step: record.win_ladder_step ?? null,
             updated_at: timestamp,
           });
+          if (shouldMirrorSeriesGateRecord(record.type, record.id)) {
+            upsertTitle.run({
+              type: record.type,
+              id: canonicalBrowseId(record.type, record.id),
+              status: record.status,
+              verified_at: verifiedAt,
+              expires_at: expiresAt,
+              fail_reason: record.fail_reason ?? null,
+              best_source: record.best_source ?? null,
+              cache_status: record.cache_status ?? null,
+              debrid_service: record.debrid_service ?? null,
+              probe_ms: record.probe_ms ?? null,
+              win_url_hash: record.win_url_hash ?? null,
+              win_ladder_step: record.win_ladder_step ?? null,
+              updated_at: timestamp,
+            });
+          }
           insertLog.run({
             started_at: timestamp,
             rail_id: record.rail_id ?? null,
@@ -118,7 +146,7 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
           upsertPool.run({
             rail_id: entry.rail_id,
             type: entry.type,
-            id: entry.id,
+            id: canonicalBrowseId(entry.type, entry.id),
             score: entry.score,
             ingested_at: timestamp,
             title: entry.title ?? null,

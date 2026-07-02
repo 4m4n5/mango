@@ -3,12 +3,16 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import Database from 'better-sqlite3';
 
 import {
   getOrCreateRailSession,
+  getRailPoolTitleKeys,
   getRailPlayabilityStatus,
   getTitlePlayability,
   invalidateTitle,
+  initPlayabilityDb,
+  listLinkableVerifiedForRail,
   quarantineLegacyBackgroundUncachedVerifiedTitles,
   recordVerifyResult,
   upsertRailPoolTitle,
@@ -192,5 +196,101 @@ test('legacy background uncached quarantine preserves play-backed verified title
       displayLimit: 9,
     });
     assert.deepEqual(after.items.map((item) => item.id).sort(), ['tt-bg-cached', 'tt-play-uncached']);
+  });
+});
+
+test('series browse ids are canonicalized and representative verify status mirrors to bare ids', async () => {
+  await withTempDb(async () => {
+    await recordVerifyResult({
+      type: 'series',
+      id: 'tt33094114:1:1',
+      status: 'verified',
+      expires_at: Date.now() + 60_000,
+    });
+    await upsertRailPoolTitle({
+      rail_id: 'series-global-popular',
+      type: 'series',
+      id: 'tt33094114:1:1',
+      score: 100,
+      title: "India's Got Latent",
+    });
+
+    const mirrored = await getTitlePlayability('series', 'tt33094114');
+    assert.equal(mirrored?.status, 'verified');
+
+    const keys = await getRailPoolTitleKeys('series-global-popular');
+    assert.deepEqual([...keys], ['series:tt33094114']);
+
+    const session = await getOrCreateRailSession({
+      railId: 'series-global-popular',
+      sessionId: 'session-1',
+      displayLimit: 9,
+    });
+    assert.deepEqual(session.items.map((item) => item.id), ['tt33094114']);
+
+    const linked = await listLinkableVerifiedForRail('series-classics', 'series', 10);
+    assert.equal(linked.some((item) => item.id === 'tt33094114:1:1'), false);
+    assert.equal(linked.some((item) => item.id === 'tt33094114'), true);
+  });
+});
+
+test('initPlayabilityDb repairs legacy series episode ids in pool and sessions', async () => {
+  await withTempDb(async () => {
+    await initPlayabilityDb();
+    const db = new Database(process.env.MANGO_PLAYABILITY_DB as string);
+    const now = Date.now();
+    try {
+      db.prepare('DELETE FROM playability_migrations WHERE version = 7').run();
+      db.prepare(`
+INSERT INTO titles (
+  type, id, status, verified_at, expires_at, fail_reason, best_source,
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
+) VALUES (
+  'series', 'tt35077054:1:1', 'verified', @verified_at, @expires_at, NULL, 'AIOStreams',
+  'cached', 'torbox', 1000, 'hash-1', 'ideal', @updated_at
+)
+`).run({
+        verified_at: now,
+        expires_at: now + 60_000,
+        updated_at: now,
+      });
+      db.prepare(`
+INSERT INTO rail_pool (rail_id, type, id, score, ingested_at, title, poster_url, year)
+VALUES ('series-global-popular', 'series', 'tt35077054:1:1', 100, @ingested_at, NULL, NULL, NULL)
+`).run({ ingested_at: now });
+      db.prepare(`
+INSERT INTO rail_session (rail_id, type, id, slot, mix_bucket, session_id, created_at)
+VALUES ('series-global-popular', 'series', 'tt35077054:1:1', 0, 'fresh', 'legacy-session', @created_at)
+`).run({ created_at: now });
+      db.prepare(`
+INSERT INTO recently_shown (rail_id, type, id, shown_at)
+VALUES ('series-global-popular', 'series', 'tt35077054:1:1', @shown_at)
+`).run({ shown_at: now });
+    } finally {
+      db.close();
+    }
+
+    await initPlayabilityDb();
+
+    const keys = await getRailPoolTitleKeys('series-global-popular');
+    assert.deepEqual([...keys], ['series:tt35077054']);
+
+    const mirrored = await getTitlePlayability('series', 'tt35077054');
+    assert.equal(mirrored?.status, 'verified');
+
+    const repairedDb = new Database(process.env.MANGO_PLAYABILITY_DB as string, { readonly: true });
+    try {
+      const poolIds = repairedDb.prepare(`
+SELECT id FROM rail_pool WHERE rail_id = 'series-global-popular' AND type = 'series' ORDER BY id
+`).all() as Array<{ id: string }>;
+      assert.deepEqual(poolIds.map((row) => row.id), ['tt35077054']);
+
+      const sessionIds = repairedDb.prepare(`
+SELECT id FROM rail_session WHERE rail_id = 'series-global-popular' AND type = 'series'
+`).all() as Array<{ id: string }>;
+      assert.equal(sessionIds.length, 0);
+    } finally {
+      repairedDb.close();
+    }
   });
 });
