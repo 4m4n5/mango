@@ -38,7 +38,7 @@ remove_env_keys() {
   mkdir -p "$CONFIG_DIR"
   touch "$VOICE_ENV"
   out="$(mktemp)"
-  grep -vE '^export (MANGO_CATALOG_FILTERS|MANGO_LAUNCHER_DISPLAY_MODE|MANGO_LAUNCHER_DISPLAY_RATE|MANGO_MPV_DISPLAY_MODE|MANGO_MPV_DISPLAY_RATE|MANGO_PREFERRED_HDR_TAGS)=' \
+  grep -vE '^export (MANGO_CATALOG_FILTERS|MANGO_LAUNCHER_DISPLAY_MODE|MANGO_LAUNCHER_DISPLAY_RATE|MANGO_MPV_DISPLAY_MODE|MANGO_MPV_DISPLAY_RATE|MANGO_MPV_DISPLAY_RATE_STRICT|MANGO_MPV_DISPLAY_FALLBACK_MODE|MANGO_MPV_DISPLAY_FALLBACK_RATE|MANGO_PREFERRED_HDR_TAGS|MANGO_PREFERRED_VIDEO_CODECS)=' \
     "$VOICE_ENV" >"$out" || true
   mv "$out" "$VOICE_ENV"
   chmod 600 "$VOICE_ENV" 2>/dev/null || true
@@ -59,7 +59,7 @@ restart_stack() {
 status() {
   echo "voice_env=$VOICE_ENV"
   if [[ -f "$VOICE_ENV" ]]; then
-    grep -E '^export (MANGO_CATALOG_FILTERS|MANGO_LAUNCHER_DISPLAY_MODE|MANGO_LAUNCHER_DISPLAY_RATE|MANGO_MPV_DISPLAY_MODE|MANGO_MPV_DISPLAY_RATE|MANGO_PREFERRED_HDR_TAGS)=' \
+    grep -E '^export (MANGO_CATALOG_FILTERS|MANGO_LAUNCHER_DISPLAY_MODE|MANGO_LAUNCHER_DISPLAY_RATE|MANGO_MPV_DISPLAY_MODE|MANGO_MPV_DISPLAY_RATE|MANGO_MPV_DISPLAY_RATE_STRICT|MANGO_MPV_DISPLAY_FALLBACK_MODE|MANGO_MPV_DISPLAY_FALLBACK_RATE|MANGO_PREFERRED_HDR_TAGS|MANGO_PREFERRED_VIDEO_CODECS)=' \
       "$VOICE_ENV" || true
   else
     echo "voice_env_missing"
@@ -74,6 +74,7 @@ print(json.dumps({
   "max_quality": data.get("max_quality"),
   "preferred_quality": data.get("preferred_quality"),
   "preferred_hdr_tags": data.get("preferred_hdr_tags"),
+  "preferred_video_codecs": data.get("preferred_video_codecs"),
   "exclude_remux": data.get("exclude_remux"),
   "include_uncached": data.get("include_uncached"),
 }, sort_keys=True))
@@ -101,7 +102,11 @@ case "$cmd" in
     append_env MANGO_LAUNCHER_DISPLAY_RATE "60"
     append_env MANGO_MPV_DISPLAY_MODE "3840x2160"
     append_env MANGO_MPV_DISPLAY_RATE "60"
+    append_env MANGO_MPV_DISPLAY_RATE_STRICT "1"
+    append_env MANGO_MPV_DISPLAY_FALLBACK_MODE "1920x1080"
+    append_env MANGO_MPV_DISPLAY_FALLBACK_RATE "60"
     append_env MANGO_PREFERRED_HDR_TAGS "HDR10+,HDR10,HDR"
+    append_env MANGO_PREFERRED_VIDEO_CODECS "hevc,x265,h265"
     restart_stack
     status
     ;;

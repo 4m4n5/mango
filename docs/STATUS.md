@@ -225,11 +225,12 @@ launcher stays `1920x1080@60`; only mpv playback targets `3840x2160@60`.
 
 | Area | Current implementation |
 |------|------------------------|
-| Stream policy | `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HDR10/HDR10+ candidates, keeps REMUX excluded, and retains 1080p cached fallback |
+| Stream policy | `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HEVC/x265 HDR10/HDR10+ candidates, keeps REMUX excluded, and retains 1080p cached fallback |
 | Runtime apply | `scripts/m6-ship/apply-4k-hdr-profile.sh apply|revert|status` writes `~/.config/mango/voice.env` and restarts Mango |
-| Display split | `mango-display-mode.sh` keeps launcher at 1080p60 and lets mpv attempt 4K60 only during playback |
+| Display split | `mango-display-mode.sh` keeps launcher at 1080p60 and lets mpv attempt 4K60 only during playback; if the requested 4K60 mode is missing, playback falls back to 1080p60 instead of 4K30 |
 | Gate | `scripts/m6-ship/gate-m6-4k-hdr-profile.sh` checks profile, catalog health, display EDID, reliability state, memory, disk, load, temp, and throttling |
 | Resource proof | `scripts/diag/pi-resource-snapshot.sh` records memory/disk/load/top RSS before deciding whether the spare SSD is needed |
+| Audio fallback | If PipeWire exposes only `Dummy Output`, mpv can route directly to HDMI0 with `alsa/hdmi:CARD=vc4hdmi0,DEV=0` while TTS stays disabled |
 
 The desk monitor gate may warn on missing `3840x2160@60`; on the target TV run
 `MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh`.

@@ -21,3 +21,4 @@ aplay -l 2>/dev/null || true
 echo
 echo "Tip: Pi 5 has no 3.5 mm jack — use monitor headphone out, USB DAC, or Bluetooth."
 echo "Set sink: bash scripts/audio/set-default-sink.sh <sink-name-or-id>"
+echo "Direct mpv HDMI fallback: bash scripts/audio/set-default-sink.sh 'alsa/hdmi:CARD=vc4hdmi0,DEV=0'"

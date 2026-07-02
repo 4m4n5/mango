@@ -2,13 +2,14 @@
   "_profile": "m6.3-4k-hdr-stage2",
   "_notes": [
     "For target-TV validation only. Keeps launcher at 1080p and lets mpv own 4K playback.",
-    "Stage 2 prefers 2160p HDR10/HDR10+ capable WEB-DL/HEVC style streams while excluding REMUX and leaving DV-only streams unboosted."
+    "Stage 2 prefers 2160p HDR10/HDR10+ capable HEVC/x265 streams while excluding REMUX and leaving DV-only streams unboosted."
   ],
   "exclude_uncached_debrid": true,
   "strict_unknown_cache": true,
   "max_quality": "2160p",
   "preferred_quality": "2160p",
   "preferred_hdr_tags": ["HDR10+", "HDR10", "HDR"],
+  "preferred_video_codecs": ["hevc", "x265", "h265"],
   "exclude_remux": true,
   "include_uncached": false,
   "exclude_error_streams": true,

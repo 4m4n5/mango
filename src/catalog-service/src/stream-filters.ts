@@ -57,6 +57,8 @@ export type StreamFilterConfig = {
   preferred_quality: QualityCap;
   /** Optional HDR tag preference for 4K TV validation profiles. Empty means no HDR boost. */
   preferred_hdr_tags: string[];
+  /** Optional codec preference. For Pi 5 4K, HEVC/x265 should outrank software-decoded codecs. */
+  preferred_video_codecs: string[];
   /** Ordered play preference ladder — see play-ladder.ts */
   play_ladder: import('./play-ladder.js').PlayLadderStep[];
   /** Ordered automatic Play tiers (legacy — derived from ladder when empty). */
@@ -374,6 +376,38 @@ function streamMatchesPreferredHdr(stream: Stream, preferredTags: string[]): boo
     const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return new RegExp(`\\b${escaped}\\b`, 'i').test(haystack);
   });
+}
+
+function streamMatchesVideoCodec(stream: Stream, codec: string): boolean {
+  const normalized = codec.trim().toLowerCase();
+  if (!normalized) return false;
+  const enriched = ensureEnrichedStream(stream);
+  const haystack = `${streamHaystack(enriched)} ${enriched.encode || ''}`.toLowerCase();
+  switch (normalized) {
+    case 'hevc':
+    case 'h265':
+    case 'h.265':
+    case 'x265':
+      return /\b(hevc|h\.?265|x265)\b/i.test(haystack);
+    case 'h264':
+    case 'h.264':
+    case 'x264':
+    case 'avc':
+      return /\b(avc|h\.?264|x264)\b/i.test(haystack);
+    case 'av1':
+      return /\bav1\b/i.test(haystack);
+    case 'vp9':
+      return /\bvp9\b/i.test(haystack);
+    default: {
+      const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`\\b${escaped}\\b`, 'i').test(haystack);
+    }
+  }
+}
+
+function streamMatchesPreferredVideoCodec(stream: Stream, preferredCodecs: string[]): boolean {
+  if (preferredCodecs.length === 0) return false;
+  return preferredCodecs.some((codec) => streamMatchesVideoCodec(stream, codec));
 }
 
 function languageHaystack(stream: Stream): string {
@@ -706,6 +740,12 @@ export function streamPlayScore(
     score += 160;
   }
 
+  if (streamMatchesPreferredVideoCodec(stream, config.preferred_video_codecs)) {
+    score += quality === '2160p' ? 180 : 80;
+  } else if (quality === '2160p' && config.preferred_video_codecs.length > 0) {
+    score -= 120;
+  }
+
   if (options.preferred_language && streamMatchesLanguage(stream, options.preferred_language)) {
     score += 200;
   }
@@ -764,6 +804,7 @@ export function defaultFilterConfig(): StreamFilterConfig {
     auto_play_uncached_probe_ms: positiveInteger(process.env.MANGO_AUTO_PLAY_UNCACHED_PROBE_MS, 25000, 5000, 45000),
     preferred_quality: parseQualityCap(process.env.MANGO_PREFERRED_QUALITY) ?? '1080p',
     preferred_hdr_tags: parseEnvStringList(process.env.MANGO_PREFERRED_HDR_TAGS),
+    preferred_video_codecs: parseEnvStringList(process.env.MANGO_PREFERRED_VIDEO_CODECS),
     play_ladder: defaultPlayLadder(),
     auto_play_tiers: defaultAutoPlayTiers(),
     exclude_error_streams: true,
@@ -816,6 +857,9 @@ export async function loadFilterConfig(
     if (raw.preferred_hdr_tags !== undefined) {
       base.preferred_hdr_tags = parseStringList(raw.preferred_hdr_tags, base.preferred_hdr_tags);
     }
+    if (raw.preferred_video_codecs !== undefined) {
+      base.preferred_video_codecs = parseStringList(raw.preferred_video_codecs, base.preferred_video_codecs);
+    }
     if (raw.play_ladder !== undefined) {
       base.play_ladder = parsePlayLadder(raw.play_ladder);
     }
@@ -864,6 +908,7 @@ export function mergeFilterConfig(
     auto_play_uncached_probe_ms: base.auto_play_uncached_probe_ms,
     preferred_quality: base.preferred_quality,
     preferred_hdr_tags: base.preferred_hdr_tags,
+    preferred_video_codecs: base.preferred_video_codecs,
     play_ladder: base.play_ladder,
     auto_play_tiers: base.auto_play_tiers,
     exclude_error_streams: base.exclude_error_streams,

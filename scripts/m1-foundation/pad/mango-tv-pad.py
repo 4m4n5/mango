@@ -534,6 +534,12 @@ def refresh_launcher_library() -> None:
 def adjust_volume(delta_percent: int) -> None:
     if delta_percent == 0:
         return
+    if foreground_app() == "mpv":
+        popen_tv_user(
+            ["bash", str(MPV_IPC_SH), "add", "volume", str(delta_percent)],
+            timeout=2.0,
+        )
+        return
     delta = f"{abs(delta_percent)}%"
     if shutil.which("pactl"):
         change = f"+{delta}" if delta_percent > 0 else f"-{delta}"

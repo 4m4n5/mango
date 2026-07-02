@@ -53,6 +53,7 @@ async function verifyPin(
         strict_unknown_cache: prepared.resolved.filters.strict_unknown_cache,
         preferred_quality: prepared.resolved.filters.preferred_quality,
         preferred_hdr_tags: prepared.resolved.filters.preferred_hdr_tags,
+        preferred_video_codecs: prepared.resolved.filters.preferred_video_codecs,
         max_candidates: prepared.resolved.filters.auto_play_max_attempts,
       },
     ).length;

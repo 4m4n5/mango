@@ -188,8 +188,8 @@ target TV before relaxing further stream risk.
 |------|------|
 | Physical | 4K TV + soundbar (HDMI eARC) |
 | HDMI | 4K mode · EDID verification · `MANGO_4K_REQUIRE_TV=1` gate on target TV |
-| mpv profile | `v4l2m2m-copy` · 2160p playback display mode · stream rank for cached WEB-DL 4K HDR10/HDR10+ |
-| Audio | Default sink = TV/bar · Piper TTS smoke |
+| mpv profile | 2160p playback display request with 1080p60 fallback · stream rank for cached HEVC/x265 WEB-DL 4K HDR10/HDR10+ |
+| Audio | Default sink = TV/bar, with direct ALSA HDMI fallback when PipeWire is dummy-only · Piper TTS smoke after sink validation |
 | Filters | Stage 2 `catalog-filters.4k-hdr.example.json` keeps REMUX excluded and retains 1080p fallback |
 | Gate | `gate-m6-4k-hdr-profile.sh` now; next gate adds **picture-visible** and soundbar assert on TV |
 

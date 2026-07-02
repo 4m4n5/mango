@@ -1704,6 +1704,7 @@ export class CatalogCore {
       strict_unknown_cache: config.strict_unknown_cache,
       preferred_quality: config.preferred_quality,
       preferred_hdr_tags: config.preferred_hdr_tags,
+      preferred_video_codecs: config.preferred_video_codecs,
       hard_language: config.hard_language,
       max_candidates: config.stream_display_limit,
     });

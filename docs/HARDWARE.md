@@ -57,7 +57,16 @@ bash scripts/audio/pair-bt-headphones.sh <MAC>      # pair by MAC
 bash scripts/audio/set-default-sink.sh <sink-name>  # mpv + system audio follow
 ```
 
-Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`). Stack reapplies on restart.
+If PipeWire only exposes `Dummy Output` but `aplay -l` shows `vc4-hdmi-0`,
+route mpv directly to HDMI0:
+
+```bash
+bash scripts/audio/set-default-sink.sh 'alsa/hdmi:CARD=vc4hdmi0,DEV=0'
+```
+
+Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`; direct mpv
+routes also save `MANGO_MPV_AO` / `MANGO_MPV_AUDIO_DEVICE`). Stack reapplies on
+restart.
 
 **TTS (Piper):** stays off until soundbar/TV audio path is validated (`audio.tts_enabled: false`). Voice replies on launcher HUD + phone until then.
 
@@ -67,8 +76,10 @@ Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`). Stack reapplie
 
 - **Launcher:** `1920x1080@60` through `scripts/lib/mango-display-mode.sh`
 - **Playback:** mpv owns fullscreen playback and may switch to `3840x2160@60`
+  only when the TV path advertises that mode; otherwise it falls back to
+  `1920x1080@60` instead of silently using 4K30
 - **Policy:** stream quality/HDR preference lives in catalog filters, not Chromium
-- **Stage 2 profile:** `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HDR10/HDR10+ WEB-DL style streams, keeps REMUX excluded, and leaves 1080p cached fallback available
+- **Stage 2 profile:** `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HEVC/x265 HDR10/HDR10+ WEB-DL style streams, keeps REMUX excluded, and leaves 1080p cached fallback available
 
 Pi apply/revert:
 

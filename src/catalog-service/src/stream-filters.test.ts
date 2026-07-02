@@ -171,6 +171,35 @@ test('preferred_hdr_tags does not boost DV-only streams unless configured', () =
   assert.equal(result.streams[0]?.url, hdr10.url);
 });
 
+test('preferred_video_codecs boosts 2160p HEVC over CPU-hostile AVC', () => {
+  const avc: Stream = {
+    url: 'https://example.test/avc.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p AVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const hevc: Stream = {
+    url: 'https://example.test/hevc.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p',
+    title: '[TB⚡] Torrentio 2160p',
+    description: 'WEB-DL 2160p HEVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const result = filterStreamsForPlay(
+    [avc, hevc],
+    {
+      ...testConfig({ max_quality: '2160p' }),
+      preferred_quality: '2160p',
+      preferred_video_codecs: ['hevc', 'x265', 'h265'],
+    },
+  );
+  assert.equal(result.streams.length, 2);
+  assert.equal(result.streams[0]?.url, hevc.url);
+});
+
 test('hard_language excludes non-matching streams', () => {
   const result = filterStreamsForPlay(
     [englishStream, hindiStream],

@@ -32,6 +32,8 @@ assert data.get("exclude_remux") is True, data.get("exclude_remux")
 assert data.get("include_uncached") is False, data.get("include_uncached")
 tags = [str(v).lower() for v in data.get("preferred_hdr_tags") or []]
 assert any(tag in tags for tag in ("hdr10+", "hdr10", "hdr")), tags
+codecs = [str(v).lower() for v in data.get("preferred_video_codecs") or []]
+assert any(codec in codecs for codec in ("hevc", "x265", "h265")), codecs
 steps = data.get("play_ladder") or []
 assert any((step or {}).get("max_quality") == "2160p" for step in steps), steps
 PY
@@ -51,6 +53,12 @@ fi
   && [[ "${MANGO_MPV_DISPLAY_RATE:-}" == "60" ]] \
   && gate_pass "mpv playback targets 3840x2160@60" \
   || gate_fail "mpv playback mode not 3840x2160@60"
+
+[[ "${MANGO_MPV_DISPLAY_RATE_STRICT:-}" == "1" ]] \
+  && [[ "${MANGO_MPV_DISPLAY_FALLBACK_MODE:-}" == "1920x1080" ]] \
+  && [[ "${MANGO_MPV_DISPLAY_FALLBACK_RATE:-}" == "60" ]] \
+  && gate_pass "mpv display fallback is 1920x1080@60" \
+  || gate_fail "mpv display fallback not pinned to 1920x1080@60"
 
 if command -v xrandr >/dev/null 2>&1; then
   output="$(xrandr --query 2>/dev/null | awk '/ connected/{print $1; exit}')"

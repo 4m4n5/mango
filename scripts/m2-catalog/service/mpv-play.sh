@@ -39,6 +39,11 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
+AUDIO_ENV="${HOME}/.config/mango/audio.env"
+if [[ -f "$AUDIO_ENV" ]]; then
+  # shellcheck disable=SC1090
+  source "$AUDIO_ENV"
+fi
 
 if $STOP; then
   exec bash "$SCRIPT_DIR/mpv-stop.sh"
@@ -112,6 +117,34 @@ detect_hwdec() {
   printf '%s\n' "auto-safe"
 }
 
+detect_audio_args() {
+  local configured_device="${MANGO_MPV_AUDIO_DEVICE:-}"
+  local configured_ao="${MANGO_MPV_AO:-}"
+  local saved_sink="${MANGO_AUDIO_SINK:-}"
+  local default_sink=""
+
+  if [[ -z "$configured_device" && "$saved_sink" == alsa/* ]]; then
+    configured_device="$saved_sink"
+    configured_ao="${configured_ao:-alsa}"
+  fi
+
+  if [[ -n "$configured_ao" ]]; then
+    printf '%s\0%s\0' "--ao" "$configured_ao"
+  fi
+  if [[ -n "$configured_device" ]]; then
+    printf '%s\0%s\0' "--audio-device" "$configured_device"
+    return
+  fi
+
+  default_sink="$(pactl get-default-sink 2>/dev/null || true)"
+  if [[ "$default_sink" == "auto_null" ]] \
+    && aplay -L 2>/dev/null | grep -q '^hdmi:CARD=vc4hdmi0,DEV=0$'; then
+    printf '%s\0%s\0%s\0%s\0' \
+      "--ao" "alsa" \
+      "--audio-device" "alsa/hdmi:CARD=vc4hdmi0,DEV=0"
+  fi
+}
+
 mkdir -p "$(dirname "$SOCKET")"
 mkdir -p "$(dirname "$MPV_LOG")"
 MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_NO_DISPLAY=1 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
@@ -122,7 +155,19 @@ MODE="play"
 if $PROBE; then
   MODE="probe"
 fi
-echo "mpv-play: $URL_LABEL mode=$MODE live=$LIVE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC"
+audio_label="default"
+audio_args=()
+if ! $PROBE; then
+  while IFS= read -r -d '' arg; do
+    audio_args+=("$arg")
+  done < <(detect_audio_args)
+  for ((i = 0; i < ${#audio_args[@]}; i++)); do
+    if [[ "${audio_args[$i]}" == "--audio-device" && $((i + 1)) -lt ${#audio_args[@]} ]]; then
+      audio_label="${audio_args[$((i + 1))]}"
+    fi
+  done
+fi
+echo "mpv-play: $URL_LABEL mode=$MODE live=$LIVE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC audio=${audio_label}"
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 
@@ -138,7 +183,7 @@ if $PROBE; then
   mpv_args+=(--vo=null --ao=null --really-quiet)
 else
   bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
-  mpv_args+=(--fs)
+  mpv_args+=(--fs "${audio_args[@]}")
   if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
     mpv_args+=(--start="$START_SEC")
   fi

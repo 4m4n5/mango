@@ -217,6 +217,7 @@ export function filterStreamsForLadderStep(
     hard_language?: string | null;
     preferred_quality?: QualityCap | null;
     preferred_hdr_tags?: string[];
+    preferred_video_codecs?: string[];
     verified_hint?: VerifiedStreamHint;
   } = {},
 ): Stream[] {
@@ -253,6 +254,7 @@ export function filterStreamsForLadderStep(
     auto_play_uncached_probe_ms: 25000,
     preferred_quality: options.preferred_quality ?? '1080p',
     preferred_hdr_tags: options.preferred_hdr_tags ?? [],
+    preferred_video_codecs: options.preferred_video_codecs ?? [],
     play_ladder: [],
     auto_play_tiers: [],
     include_uncached: step.require_cache !== 'cached',
@@ -285,6 +287,7 @@ export function expandPlayLadder(
     hard_language?: string | null;
     preferred_quality?: QualityCap | null;
     preferred_hdr_tags?: string[];
+    preferred_video_codecs?: string[];
     verified_hint?: VerifiedStreamHint;
     max_candidates?: number;
     include_uncached?: boolean;

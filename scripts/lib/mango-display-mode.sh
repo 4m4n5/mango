@@ -89,6 +89,9 @@ apply_mode() {
   local label="$1"
   local mode="$2"
   local rate="$3"
+  local strict_rate="${4:-0}"
+  local fallback_mode="${5:-}"
+  local fallback_rate="${6:-}"
   local output attempts attempt
 
   [[ "${MANGO_DISPLAY_MODE_DISABLE:-0}" != "1" ]] || {
@@ -138,6 +141,12 @@ apply_mode() {
       fi
     fi
 
+    if [[ -n "$rate" && "$strict_rate" == "1" ]]; then
+      log "${label}: rate unavailable output=${output} mode=${mode}@${rate} current=$(current_mode "$output") attempt=${attempt}/${attempts}"
+      sleep 0.5
+      continue
+    fi
+
     if xrandr --output "$output" --mode "$mode" >/dev/null 2>&1; then
       log "${label}: applied output=${output} mode=${mode} current=$(current_mode "$output") attempt=${attempt}/${attempts}"
       return 0
@@ -148,6 +157,11 @@ apply_mode() {
   done
 
   log "${label}: gave up mode=${mode}@${rate:-auto}"
+  if [[ -n "$fallback_mode" ]]; then
+    log "${label}: applying fallback mode=${fallback_mode}@${fallback_rate:-auto}"
+    apply_mode "${label}-fallback" "$fallback_mode" "$fallback_rate" "0" "" ""
+    return 0
+  fi
   return 0
 }
 
@@ -157,13 +171,19 @@ case "$cmd" in
     apply_mode \
       launcher \
       "${MANGO_LAUNCHER_DISPLAY_MODE:-${MANGO_DISPLAY_MODE:-1920x1080}}" \
-      "${MANGO_LAUNCHER_DISPLAY_RATE:-${MANGO_DISPLAY_RATE:-60}}"
+      "${MANGO_LAUNCHER_DISPLAY_RATE:-${MANGO_DISPLAY_RATE:-60}}" \
+      "0" \
+      "" \
+      ""
     ;;
   playback)
     apply_mode \
       playback \
       "${MANGO_MPV_DISPLAY_MODE:-${MANGO_PLAYBACK_DISPLAY_MODE:-keep}}" \
-      "${MANGO_MPV_DISPLAY_RATE:-${MANGO_PLAYBACK_DISPLAY_RATE:-60}}"
+      "${MANGO_MPV_DISPLAY_RATE:-${MANGO_PLAYBACK_DISPLAY_RATE:-60}}" \
+      "${MANGO_MPV_DISPLAY_RATE_STRICT:-1}" \
+      "${MANGO_MPV_DISPLAY_FALLBACK_MODE:-${MANGO_LAUNCHER_DISPLAY_MODE:-1920x1080}}" \
+      "${MANGO_MPV_DISPLAY_FALLBACK_RATE:-${MANGO_LAUNCHER_DISPLAY_RATE:-60}}"
     ;;
   status)
     if command -v xrandr >/dev/null 2>&1; then
