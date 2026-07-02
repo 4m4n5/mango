@@ -1153,6 +1153,12 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'rails' && parts[1] === 'continue') {
+        const tab = parseCatalogTab(url.searchParams.get('tab')) ?? 'movies';
+        sendJson(res, 200, await core.continueRailItems(tab));
+        return;
+      }
+
       if (parts.length >= 1 && parts[0] === 'reliability') {
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'state') {
           sendJson(res, 200, await reliability.state());

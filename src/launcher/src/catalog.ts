@@ -260,6 +260,15 @@ export async function loadCatalogRails(
   }
 }
 
+export async function loadContinueRail(tab: BrowseTab): Promise<ContentRail> {
+  const data = await fetchJson<RailItemsResponse>(
+    `/api/catalog/rails/continue?tab=${encodeURIComponent(tab)}`,
+    undefined,
+    5000,
+  );
+  return mapRailItems(data);
+}
+
 export async function loadMeta(card: ContentCard): Promise<CatalogMeta> {
   if (card.source === "youtube" || card.type.startsWith("youtube_")) {
     const kind = card.kind || youtubeKindFromType(card.type);
@@ -364,6 +373,14 @@ export async function cancelPlay(): Promise<void> {
     await fetchWithTimeout("/api/catalog/play-cancel", { method: "POST" }, 2500);
   } catch {
     // best-effort — mpv-stop on pad also bumps cancel epoch
+  }
+}
+
+export async function flushProgress(): Promise<void> {
+  try {
+    await fetchWithTimeout("/api/catalog/progress/flush", { method: "POST" }, 5000);
+  } catch {
+    // best-effort — mpv-stop already flushes on stop
   }
 }
 

@@ -1,6 +1,6 @@
 import "./style.css";
 import { FocusGrid } from "./focus";
-import { loadCatalogRails, stopPlaybackForVoice } from "./catalog";
+import { flushProgress, loadCatalogRails, loadContinueRail, stopPlaybackForVoice } from "./catalog";
 import { DetailController } from "./detail";
 import { NextEpisodePrompt } from "./next-prompt";
 import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, type HomeOptions } from "./home";
@@ -12,6 +12,9 @@ import { cardSavedKey, fetchSavedIds } from "./saved";
 import { logPerf } from "./perf";
 import { touchCouchActivity } from "./activity";
 import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
+
+const CONTINUE_RAIL_ID = "continue-watching";
+const SAVED_RAIL_ID = "saved";
 
 const homeView = mustGet<HTMLElement>("home-view");
 const browseTabsEl = mustGet<HTMLElement>("browse-tabs");
@@ -51,11 +54,11 @@ let libraryRefreshInFlight = false;
 let savedKeys = new Set<string>();
 const tabCatalogCache = new Map<BrowseTab, ContentRail[]>();
 const tabSavedCache = new Map<BrowseTab, Set<string>>();
-const tabCatalogPrefetching = new Set<BrowseTab>();
 let liveCatalogSessionCached = false;
 let catalogRequestSeq = 0;
-let livePrefetchStarted = false;
 let youtubeCatalogDirty = false;
+let pendingContinueRefreshTab: BrowseTab | null = null;
+let continueRefreshInFlight = false;
 const tabFocusKeys = new Map<BrowseTab, string>();
 const tabFocusPositions = new Map<BrowseTab, { row: number; col: number }>();
 
@@ -127,6 +130,10 @@ const detail = new DetailController(
       if (card.source === "youtube" || card.type.startsWith("youtube_")) {
         tabCatalogCache.delete("youtube");
         youtubeCatalogDirty = true;
+        return;
+      }
+      if (activeBrowseTab === "movies" || activeBrowseTab === "series") {
+        pendingContinueRefreshTab = activeBrowseTab;
       }
     },
     onNextEpisodePrompt: (hint, card) => {
@@ -147,12 +154,15 @@ function init(): void {
   libraryRefreshBtn.addEventListener("click", () => void libraryRefresh());
   document.addEventListener("keydown", handleKeydown);
   document.addEventListener("click", () => touchCouchActivity("launcher", "click"), { capture: true });
+  window.addEventListener("focus", () => void handlePlaybackReturn());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      void handlePlaybackReturn();
+    }
+  });
   window.addEventListener("mango:library-refresh", () => void libraryRefresh({ quiet: true }));
   void loadInfo();
   void loadCatalog();
-  window.requestAnimationFrame(() => {
-    window.setTimeout(() => prefetchCatalogTab("live", { allowLive: true }), 750);
-  });
   startVoiceHud();
   startVoiceCommands(resolveVoiceWsUrls(), {
     onHome: showHome,
@@ -596,13 +606,6 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
         ? "updated — keep browsing."
         : "D-pad to browse. L/R shoulders switch tabs. B to select."
       : "catalog loaded with no posters");
-    if (!reshuffle) {
-      for (const tab of BROWSE_TAB_ORDER) {
-        if (tab !== requestedTab && tab !== "live") {
-          prefetchCatalogTab(tab);
-        }
-      }
-    }
     logPerf("catalog_fetch", {
       tab: requestedTab,
       rails: rails.length,
@@ -633,6 +636,58 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
   }
 }
 
+async function handlePlaybackReturn(): Promise<void> {
+  const tab = pendingContinueRefreshTab;
+  if (!tab || continueRefreshInFlight || document.visibilityState === "hidden") {
+    return;
+  }
+  continueRefreshInFlight = true;
+  pendingContinueRefreshTab = null;
+  try {
+    await flushProgress();
+    await refreshContinueRail(tab);
+  } catch {
+    pendingContinueRefreshTab = tab;
+  } finally {
+    continueRefreshInFlight = false;
+  }
+}
+
+async function refreshContinueRail(tab: BrowseTab): Promise<void> {
+  if (tab !== "movies" && tab !== "series") {
+    return;
+  }
+  const nextContinueRail = await loadContinueRail(tab);
+  const currentRails = tab === activeBrowseTab && catalogState.status === "ready"
+    ? catalogState.rails
+    : tabCatalogCache.get(tab);
+  if (!currentRails) {
+    return;
+  }
+  const nextRails = replaceContinueRail(currentRails, nextContinueRail);
+  tabCatalogCache.set(tab, nextRails);
+  if (tab === activeBrowseTab) {
+    catalogState = { status: "ready", rails: nextRails };
+    if (!detail.isOpen && !inSettings && !homeView.classList.contains("hidden")) {
+      renderHome();
+    }
+  }
+}
+
+function replaceContinueRail(rails: ContentRail[], continueRail: ContentRail): ContentRail[] {
+  const withoutContinue = rails.filter((rail) => rail.id !== CONTINUE_RAIL_ID);
+  if (continueRail.cards.length === 0) {
+    return withoutContinue;
+  }
+  const savedIndex = withoutContinue.findIndex((rail) => rail.id === SAVED_RAIL_ID);
+  const insertIndex = savedIndex >= 0 ? savedIndex : 0;
+  return [
+    ...withoutContinue.slice(0, insertIndex),
+    continueRail,
+    ...withoutContinue.slice(insertIndex),
+  ];
+}
+
 function catalogRetryStatus(error: unknown, reshuffle: boolean): string {
   const message = error instanceof Error ? error.message : "catalog unavailable";
   const lower = message.toLowerCase();
@@ -646,49 +701,6 @@ function catalogRetryStatus(error: unknown, reshuffle: boolean): string {
     return "refreshing…";
   }
   return "catalog is reconnecting…";
-}
-
-function prefetchCatalogTab(tab: BrowseTab, options: { allowLive?: boolean } = {}): void {
-  if (
-    (!options.allowLive && tab === "live")
-    || tab === activeBrowseTab
-    || tabCatalogCache.has(tab)
-    || tabCatalogPrefetching.has(tab)
-    || (tab === "live" && livePrefetchStarted)
-  ) {
-    return;
-  }
-  if (tab === "live") {
-    livePrefetchStarted = true;
-  }
-  const started = performance.now();
-  tabCatalogPrefetching.add(tab);
-  void Promise.all([
-    loadCatalogRails(tab),
-    fetchSavedIds(tab).catch(() => new Set<string>()),
-  ])
-    .then(([rails, saved]) => {
-      tabCatalogCache.set(tab, rails);
-      tabSavedCache.set(tab, saved);
-      if (tab === "live" && rails.length > 0) {
-        liveCatalogSessionCached = true;
-      }
-      logPerf("catalog_prefetch", {
-        tab,
-        rails: rails.length,
-        items: rails.reduce((total, rail) => total + rail.cards.length, 0),
-        duration_ms: Math.round(performance.now() - started),
-      });
-    })
-    .catch(() => {
-      logPerf("catalog_prefetch_error", {
-        tab,
-        duration_ms: Math.round(performance.now() - started),
-      });
-    })
-    .finally(() => {
-      tabCatalogPrefetching.delete(tab);
-    });
 }
 
 function showCachedCatalog(tab: BrowseTab): boolean {

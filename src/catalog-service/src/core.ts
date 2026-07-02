@@ -1332,6 +1332,10 @@ export class CatalogCore {
     };
   }
 
+  async continueRailItems(tab: CatalogTab): Promise<RailItemsResponse> {
+    return this.buildContinueRail(tab);
+  }
+
   private async buildRailItemsResponse(
     rail: PlayableRail,
     session: RailSessionSnapshot,
