@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M6.3 Stage 2 4K/HDR readiness gate. Safe on a 1080p lab monitor by default.
+# M6.3 Stage 2 target-TV readiness gate. Safe source-matched 1080p by default.
 
 set -uo pipefail
 
@@ -9,11 +9,11 @@ cd "$REPO_DIR" || exit 1
 # shellcheck source=../lib/gate-common.sh
 source "$REPO_DIR/scripts/lib/gate-common.sh"
 mango_gate_init
-gate_header "M6.3 Stage 2 4K/HDR Profile"
+gate_header "M6.3 Stage 2 Target-TV Profile"
 
 CATALOG="${MANGO_CATALOG_URL:-http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}}"
 PROFILE="${MANGO_CATALOG_FILTERS:-}"
-REQUIRE_TV="${MANGO_4K_REQUIRE_TV:-0}"
+REQUIRE_4K_FILM="${MANGO_REQUIRE_4K_FILM:-0}"
 
 if [[ -n "$PROFILE" && -f "$PROFILE" ]]; then
   gate_pass "catalog filters profile exists"
@@ -26,21 +26,19 @@ if [[ -n "$PROFILE" && -f "$PROFILE" ]]; then
 import json
 import sys
 data = json.load(open(sys.argv[1], encoding="utf-8"))
-assert data.get("max_quality") == "2160p", data.get("max_quality")
-assert data.get("preferred_quality") == "2160p", data.get("preferred_quality")
+assert data.get("max_quality") == "1080p", data.get("max_quality")
+assert data.get("preferred_quality") == "1080p", data.get("preferred_quality")
 assert data.get("exclude_remux") is True, data.get("exclude_remux")
 assert data.get("include_uncached") is False, data.get("include_uncached")
-tags = [str(v).lower() for v in data.get("preferred_hdr_tags") or []]
-assert any(tag in tags for tag in ("hdr10+", "hdr10", "hdr")), tags
 codecs = [str(v).lower() for v in data.get("preferred_video_codecs") or []]
 assert any(codec in codecs for codec in ("hevc", "x265", "h265")), codecs
 steps = data.get("play_ladder") or []
-assert any((step or {}).get("max_quality") == "2160p" for step in steps), steps
+assert steps and all((step or {}).get("max_quality") == "1080p" for step in steps), steps
 PY
   then
-    gate_pass "4K/HDR stream policy"
+    gate_pass "target-TV safe stream policy"
   else
-    gate_fail "4K/HDR stream policy invalid"
+    gate_fail "target-TV safe stream policy invalid"
   fi
 fi
 
@@ -49,10 +47,10 @@ fi
   && gate_pass "launcher pinned to 1920x1080@60" \
   || gate_fail "launcher display not pinned to 1920x1080@60"
 
-[[ "${MANGO_MPV_DISPLAY_MODE:-}" == "3840x2160" ]] \
+[[ "${MANGO_MPV_DISPLAY_MODE:-}" == "1920x1080" ]] \
   && [[ "${MANGO_MPV_DISPLAY_RATE:-}" == "60" ]] \
-  && gate_pass "mpv playback targets 3840x2160@60" \
-  || gate_fail "mpv playback mode not 3840x2160@60"
+  && gate_pass "mpv unknown-source fallback is 1920x1080@60" \
+  || gate_fail "mpv unknown-source fallback not 1920x1080@60"
 
 [[ "${MANGO_MPV_DISPLAY_RATE_STRICT:-}" == "1" ]] \
   && [[ "${MANGO_MPV_DISPLAY_FALLBACK_MODE:-}" == "1920x1080" ]] \
@@ -68,9 +66,13 @@ fi
   && gate_pass "mpv source refresh matching enabled" \
   || gate_fail "mpv source refresh matching disabled"
 
-[[ "${MANGO_MPV_VIDEO_SYNC:-}" == "display-resample" ]] \
-  && gate_pass "mpv display-resample pacing enabled" \
-  || gate_fail "mpv display-resample pacing not enabled"
+[[ "${MANGO_MPV_MATCH_4K_MODE:-}" == "1920x1080" ]] \
+  && gate_pass "mpv 4K source output capped to 1080p safe mode" \
+  || gate_fail "mpv 4K source output not capped to 1080p safe mode"
+
+[[ "${MANGO_MPV_VIDEO_SYNC:-}" == "audio" ]] \
+  && gate_pass "mpv robust audio-sync pacing enabled" \
+  || gate_fail "mpv robust audio-sync pacing not enabled"
 
 [[ "${MANGO_MPV_INTERPOLATION:-}" == "no" ]] \
   && gate_pass "mpv interpolation disabled for native cadence" \
@@ -84,20 +86,37 @@ if command -v xrandr >/dev/null 2>&1; then
     if xrandr --query 2>/dev/null | awk -v out="$output" '
       $1 == out && $2 == "connected" { in_output=1; next }
       in_output && /^[A-Za-z0-9-]+ connected/ { exit }
-      in_output && $1 == "3840x2160" {
+      in_output && $1 == "1920x1080" {
         for (i = 2; i <= NF; i++) {
           rate=$i
           gsub(/[*+]/, "", rate)
-          if (int(rate + 0.5) == 60) found=1
+          if (rate + 0 >= 23.9 && rate + 0 <= 24.1) found=1
         }
       }
       END { exit found ? 0 : 1 }
     '; then
-      gate_pass "connected display advertises 3840x2160@60"
-    elif [[ "$REQUIRE_TV" == "1" ]]; then
-      gate_fail "connected display does not advertise 3840x2160@60"
+      gate_pass "connected display advertises 1080p film cadence"
     else
-      gate_warn "connected display does not advertise 3840x2160@60 on this monitor"
+      gate_fail "connected display does not advertise 1080p 23.98/24"
+    fi
+
+    if xrandr --query 2>/dev/null | awk -v out="$output" '
+      $1 == out && $2 == "connected" { in_output=1; next }
+      in_output && /^[A-Za-z0-9-]+ connected/ { exit }
+      in_output && $1 == "3840x2160" {
+        for (i = 2; i <= NF; i++) {
+          rate=$i
+          gsub(/[*+]/, "", rate)
+          if (rate + 0 >= 23.9 && rate + 0 <= 24.1) found=1
+        }
+      }
+      END { exit found ? 0 : 1 }
+    '; then
+      gate_pass "connected display advertises 4K film cadence (experimental)"
+    elif [[ "$REQUIRE_4K_FILM" == "1" ]]; then
+      gate_fail "connected display does not advertise 4K 23.98/24"
+    else
+      gate_warn "connected display does not advertise 4K film cadence"
     fi
   else
     gate_fail "no connected xrandr output"

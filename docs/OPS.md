@@ -111,11 +111,11 @@ MANGO_LAUNCHER_DISPLAY_MODE=3840x2160 MANGO_LAUNCHER_DISPLAY_RATE=60 \
 This display mode does not change stream filters. 4K stream/playback policy
 stays in catalog filters and the mpv profile.
 
-### 4K/HDR Stage 2
+### Target-TV Stage 2
 
-Stage 2 keeps Chromium lightweight at `1920x1080@60` and enables 4K only for
-fullscreen mpv playback. The profile is reversible and writes only user-owned
-runtime config under `~/.config/mango`.
+Stage 2 keeps Chromium lightweight at `1920x1080@60` and enables source-matched
+1080p mpv playback for the TV. The profile is reversible and writes only
+user-owned runtime config under `~/.config/mango`.
 
 ```bash
 cd ~/mango
@@ -124,20 +124,12 @@ bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 bash scripts/diag/pi-resource-snapshot.sh
 ```
 
-On a 1080p lab monitor the 4K gate may warn that the display does not advertise
-`3840x2160@60`. After the Pi is connected to the target TV, rerun it as a hard
-gate:
-
-```bash
-MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
-```
-
-If the TV/soundbar path only advertises `3840x2160@30`, Mango must not use that
-as the couch fallback. The Stage 2 wrapper requests 4K60 for mpv, but falls back
-to `1920x1080@60` when the requested refresh is unavailable. Fix the HDMI path
-before requiring 4K: use a direct HDMI 2.0/2.1 TV input, enable the TV's
+If the TV/soundbar path only advertises unstable 4K modes, Mango must not use
+them as the couch fallback. The Stage 2 wrapper keeps mpv on source-matched
+1080p until a visible-picture 4K gate passes. Fix the HDMI path before
+requiring 4K: use a direct HDMI 2.0/2.1 TV input, enable the TV's
 enhanced/deep-color input mode for that exact port, or bypass the soundbar until
-`xrandr` lists `3840x2160 60.00`.
+`xrandr` lists stable 4K film modes and the visible-picture test passes.
 
 Rollback:
 
@@ -161,7 +153,7 @@ power. After boot, press a controller button and run:
 ```bash
 cd ~/mango
 bash scripts/mango-stack.sh restart
-MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 bash scripts/audio/list-sinks.sh
 ```
 
@@ -206,11 +198,10 @@ bash scripts/m6-ship/reliability-proof.sh --reason operator
 bash scripts/m6-ship/gate-m6-reliability-proof.sh
 ```
 
-4K/HDR Stage 2:
+Target-TV Stage 2:
 
 ```bash
 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
-MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 bash scripts/diag/pi-resource-snapshot.sh
 ```
 
@@ -241,9 +232,8 @@ Then open the companion and use the YouTube connect panel. Full details:
 | YouTube Live Now partial error | Check `refresh.phase_results.live_now`; Search Queries quota can exhaust while cached VOD rails and Popular still work because Popular uses `videos.list` |
 | Reliability badge yellow/red | Open Settings → Reliability Center; or `curl localhost:3020/reliability/state` |
 | No TV output after moving Pi | SSH in and force the safe launcher mode: `DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority xrandr --output HDMI-1 --mode 1920x1080 --rate 60`; then `bash scripts/launch-launcher.sh` |
-| 4K gate warns on desk monitor | Expected unless the connected display advertises `3840x2160@60`; use `MANGO_4K_REQUIRE_TV=1` only on the target TV |
-| TV only advertises 4K30 | Keep Mango fallback at `1920x1080@60`; use a direct HDMI 2.0/2.1 TV input, enable the TV's enhanced/deep-color HDMI mode, or bypass the soundbar until `xrandr` shows `3840x2160 60.00` |
-| 4K playback blank/unstable | `bash scripts/m6-ship/apply-4k-hdr-profile.sh revert` · keep launcher at 1080p60 · retry with 1080p policy |
+| Target-TV gate fails film cadence | Keep Mango fallback at `1920x1080@60`; verify `xrandr` exposes `1920x1080 23.98/24.00` |
+| 4K playback blue/unstable | Keep the safe Stage 2 profile applied; 4K stream/output is experimental until a visible-picture gate passes |
 | Soundbar silent | `bash scripts/audio/list-sinks.sh` · set HDMI/TV/bar sink with `scripts/audio/set-default-sink.sh`; if PipeWire shows only Dummy Output, use `scripts/audio/set-default-sink.sh 'alsa/hdmi:CARD=vc4hdmi0,DEV=0'` |
 | Nightly proof missing/stale | `bash scripts/m6-ship/reliability-proof.sh --reason operator` · inspect `/etc/mango/reliability/proofs.jsonl` |
 | Empty rails | `bash scripts/mango-health-repair.sh` · `curl localhost:3020/health` · playability status script |

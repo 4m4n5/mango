@@ -1,14 +1,14 @@
 {
-  "_profile": "m6.3-4k-hdr-stage2",
+  "_profile": "m6.3-tv-safe-stage2",
   "_notes": [
-    "For target-TV validation only. Keeps launcher at 1080p and lets mpv own 4K playback.",
-    "Stage 2 prefers 2160p HDR10/HDR10+ capable HEVC/x265 streams while excluding REMUX and leaving DV-only streams unboosted."
+    "Target-TV safe profile after 4K visible-picture tests: launcher stays 1080p60 and playback uses source-matched 1080p modes.",
+    "4K streams remain an experimental catalog/mpv policy until the Pi path has smooth visible 4K video, not just audio or mpv counters."
   ],
   "exclude_uncached_debrid": true,
   "strict_unknown_cache": true,
-  "max_quality": "2160p",
-  "preferred_quality": "2160p",
-  "preferred_hdr_tags": ["HDR10+", "HDR10", "HDR"],
+  "max_quality": "1080p",
+  "preferred_quality": "1080p",
+  "preferred_hdr_tags": [],
   "preferred_video_codecs": ["hevc", "x265", "h265"],
   "exclude_remux": true,
   "include_uncached": false,
@@ -22,16 +22,8 @@
   "auto_play_uncached_probe_ms": 25000,
   "play_ladder": [
     {
-      "step": "2160p_hdr_cached",
-      "max_quality": "2160p",
-      "exclude_remux": true,
-      "require_cache": "cached",
-      "debrid_services": ["torbox", "realdebrid"],
-      "addons": ["AIOStreams"]
-    },
-    {
-      "step": "2160p_cached",
-      "max_quality": "2160p",
+      "step": "1080p_hevc_cached",
+      "max_quality": "1080p",
       "exclude_remux": true,
       "require_cache": "cached",
       "debrid_services": ["torbox", "realdebrid"],
@@ -42,6 +34,14 @@
       "max_quality": "1080p",
       "exclude_remux": true,
       "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "1080p_uncached_fallback",
+      "max_quality": "1080p",
+      "exclude_remux": true,
+      "require_cache": "cached_or_uncached",
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]
     }

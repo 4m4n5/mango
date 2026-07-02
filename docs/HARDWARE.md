@@ -13,10 +13,10 @@
 | **Vision** | World-class **4K AI-first TV box** — native browse, voice, mpv playback | Same software path; validate on desk before living room |
 | **Display** | **4K TV** · HDMI 2.0/2.1 · tuned mode + EDID | Launcher forced to **1920×1080@60** for smooth couch UI |
 | **Audio** | **Soundbar** (HDMI eARC/ARC or optical) · Piper TTS on TV | **No soundbar yet** — headphones for couch/dev audio |
-| **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | Default `max_quality: 1080p`; Stage 2 opt-in profile prefers cached 2160p HEVC/x265 HDR10/HDR10+ |
-| **mpv** | 4K HEVC profile · visible-picture gate | `hwdec=drm-copy` · 1080p smoke passed · 4K/HDR profile gate added |
+| **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | Default `max_quality: 1080p`; Stage 2 couch profile stays 1080p after 4K visible-picture failures |
+| **mpv** | 4K HEVC profile · visible-picture gate | `hwdec=drm-copy` · source-matched 1080p smoke passed · 4K remains experimental |
 
-**North star unchanged:** Pi 5 8GB is the V1 platform. M6.3 proves 4K on the target TV; if hardware limits block the desired playback bar (DV/REMUX, HDMI bandwidth), document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
+**North star unchanged:** Pi 5 8GB is the V1 platform. M6.3 validates target-TV playback fidelity first; 4K reopens only after a visible-picture gate proves smooth video. If hardware limits block the desired playback bar (DV/REMUX, HDMI bandwidth), document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
 
 ### Addon hosting (catalog + streams)
 
@@ -72,16 +72,17 @@ restart.
 
 ---
 
-## Display and 4K/HDR Stage 2
+## Display and Target-TV Stage 2
 
 - **Launcher:** `1920x1080@60` through `scripts/lib/mango-display-mode.sh`
-- **Playback:** mpv owns fullscreen playback and switches to the highest
-  source-matched EDID mode the TV advertises. Film/TV cadence is preferred over
-  forced 60 Hz: 4K movies use `3840x2160@23.98/24/25/29.97/30` when supported,
-  1080p movies use matching 1080p film/TV rates, and unsupported high-FPS 4K
-  falls back to matched 1080p instead of juddery 4K30.
+- **Playback:** mpv owns fullscreen playback and switches to source-matched
+  EDID modes. The couch-safe default uses 1080p streams and matching film/TV
+  rates such as `1920x1080@23.98/24/25/29.97/30`, then restores launcher
+  `1920x1080@60`.
 - **Policy:** stream quality/HDR preference lives in catalog filters, not Chromium
-- **Stage 2 profile:** `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HEVC/x265 HDR10/HDR10+ WEB-DL style streams, keeps REMUX excluded, and leaves 1080p cached fallback available
+- **Stage 2 profile:** `config/catalog-filters.4k-hdr.example.json` is currently
+  a target-TV safe profile: cached 1080p HEVC/x265 preferred, REMUX excluded,
+  4K stream/output kept experimental until visible 4K video is smooth.
 
 Pi apply/revert:
 
@@ -89,9 +90,6 @@ Pi apply/revert:
 cd ~/mango
 bash scripts/m6-ship/apply-4k-hdr-profile.sh apply
 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
-
-# after moving to the 4K TV, require EDID to advertise 3840x2160@60
-MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 
 # if the TV path is unstable
 bash scripts/m6-ship/apply-4k-hdr-profile.sh revert

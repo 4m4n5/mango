@@ -177,31 +177,30 @@ Live, voice, process, lock, and couch-idle state into Green/Yellow/Red.
 
 **Gate:** `scripts/m6-ship/gate-m6-reliability-proof.sh` · Detail: [RELIABILITY.md](RELIABILITY.md).
 
-### M6.3 — 4K HDR living room
+### M6.3 — target-TV playback fidelity
 
-**Dev lab:** Pi 5 + X11 + `hwdec=drm-copy` is the verified 4K HEVC path; stale
-`v4l2m2m-copy` falls back to software decode and zero-copy `drm` hits DRM PRIME
-surface mapping failures on the current Pi/mpv build.
+**Target-TV finding:** Pi 5 + X11 can decode 4K HEVC, but current visible couch
+playback is not yet 4K-safe: `drm-copy` stutters/slows on 4K sources and
+zero-copy `drm` can show blue screen with audio. Source-matched 1080p is the
+current couch-safe fidelity target.
 **Stage 2 approach:** keep Chromium at `1920x1080@60`, apply a reversible
-4K/HDR catalog profile for mpv only, match playback output to source FPS using
-EDID modes, then validate audio/picture on the target TV before relaxing
-further stream risk.
+target-TV profile for mpv only, match playback output to source FPS using EDID
+modes, then re-open 4K only after visible 4K video is smooth.
 
 | Area | Work |
 |------|------|
 | Physical | 4K TV + soundbar (HDMI eARC) |
-| HDMI | 4K mode · EDID verification · `MANGO_4K_REQUIRE_TV=1` gate on target TV |
-| mpv profile | Source-matched playback modes with 1080p60 launcher restore · stream rank for cached HEVC/x265 WEB-DL 4K HDR10/HDR10+ |
+| HDMI | EDID verification · source-matched 1080p film/TV modes on target TV |
+| mpv profile | Source-matched 1080p playback modes with 1080p60 launcher restore · 4K held experimental |
 | Audio | Default sink = TV/bar, with direct ALSA HDMI fallback when PipeWire is dummy-only · Piper TTS smoke after sink validation |
-| Filters | Stage 2 `catalog-filters.4k-hdr.example.json` keeps REMUX excluded and retains 1080p fallback |
-| Gate | `gate-m6-4k-hdr-profile.sh` now; next gate adds **picture-visible** and soundbar assert on TV |
+| Filters | Stage 2 `catalog-filters.4k-hdr.example.json` currently caps couch playback to 1080p, keeps REMUX excluded, and prefers HEVC/x265 |
+| Gate | `gate-m6-4k-hdr-profile.sh` now; next 4K gate must add **picture-visible** and soundbar assert on TV |
 
 **Current Stage 2 commands:**
 
 ```bash
 bash scripts/m6-ship/apply-4k-hdr-profile.sh apply
 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
-MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 ```
 
 ### M6.5 — Unified TV/companion UX ship polish

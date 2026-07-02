@@ -134,24 +134,25 @@ Requires `MANGO_VOICE=1`. M5.5a verifies the voice contract now; final phone/HUD
 
 ---
 
-## 4K/HDR Stage 2 target-TV validation (M6.3)
+## Target-TV Stage 2 playback validation (M6.3)
 
 Run after applying the Stage 2 profile and moving the Pi to the 4K TV path.
-Launcher must remain lightweight; only mpv playback should attempt 4K output.
+Launcher must remain lightweight; mpv should use source-matched 1080p output
+until a separate visible-picture 4K gate passes.
 
 ```bash
 cd ~/mango
-MANGO_4K_REQUIRE_TV=1 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
+bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 bash scripts/diag/pi-resource-snapshot.sh
 ```
 
 | # | Action | Pass? |
 |---|--------|-------|
-| K1 | Gate sees connected display advertising `3840x2160@60` | |
+| K1 | Gate sees connected display advertising 1080p film cadence (`23.98/24`) | |
 | K2 | Launcher is readable and smooth at `1920x1080@60` on the TV | |
-| K3 | Play a known verified movie with a 2160p HDR candidate; picture is visible within normal play budget | |
+| K3 | Play a known verified movie; picture is visible and smooth within normal play budget | |
 | K4 | **Y** exits mpv and returns to the exact launcher tab/focus state | |
-| K5 | **B** resumes/plays another 1080p fallback title if 4K candidate fails | |
+| K5 | **B** resumes/plays another 1080p title if the first candidate fails | |
 | K6 | Soundbar/TV sink plays audio; no TTS until sink is validated | |
 | K7 | Resource snapshot shows no critical memory, disk, temp, or throttling issue | |
 
