@@ -183,14 +183,15 @@ Live, voice, process, lock, and couch-idle state into Green/Yellow/Red.
 `v4l2m2m-copy` falls back to software decode and zero-copy `drm` hits DRM PRIME
 surface mapping failures on the current Pi/mpv build.
 **Stage 2 approach:** keep Chromium at `1920x1080@60`, apply a reversible
-4K/HDR catalog profile for mpv only, then validate EDID/audio/picture on the
-target TV before relaxing further stream risk.
+4K/HDR catalog profile for mpv only, match playback output to source FPS using
+EDID modes, then validate audio/picture on the target TV before relaxing
+further stream risk.
 
 | Area | Work |
 |------|------|
 | Physical | 4K TV + soundbar (HDMI eARC) |
 | HDMI | 4K mode · EDID verification · `MANGO_4K_REQUIRE_TV=1` gate on target TV |
-| mpv profile | 2160p playback display request with 1080p60 fallback · stream rank for cached HEVC/x265 WEB-DL 4K HDR10/HDR10+ |
+| mpv profile | Source-matched playback modes with 1080p60 launcher restore · stream rank for cached HEVC/x265 WEB-DL 4K HDR10/HDR10+ |
 | Audio | Default sink = TV/bar, with direct ALSA HDMI fallback when PipeWire is dummy-only · Piper TTS smoke after sink validation |
 | Filters | Stage 2 `catalog-filters.4k-hdr.example.json` keeps REMUX excluded and retains 1080p fallback |
 | Gate | `gate-m6-4k-hdr-profile.sh` now; next gate adds **picture-visible** and soundbar assert on TV |

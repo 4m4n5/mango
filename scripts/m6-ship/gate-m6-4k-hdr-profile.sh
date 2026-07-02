@@ -64,6 +64,18 @@ fi
   && gate_pass "mpv hardware decode pinned to drm-copy" \
   || gate_fail "mpv hardware decode not pinned to drm-copy"
 
+[[ "${MANGO_MPV_MATCH_REFRESH:-}" == "1" ]] \
+  && gate_pass "mpv source refresh matching enabled" \
+  || gate_fail "mpv source refresh matching disabled"
+
+[[ "${MANGO_MPV_VIDEO_SYNC:-}" == "display-resample" ]] \
+  && gate_pass "mpv display-resample pacing enabled" \
+  || gate_fail "mpv display-resample pacing not enabled"
+
+[[ "${MANGO_MPV_INTERPOLATION:-}" == "no" ]] \
+  && gate_pass "mpv interpolation disabled for native cadence" \
+  || gate_fail "mpv interpolation not pinned off"
+
 if command -v xrandr >/dev/null 2>&1; then
   output="$(xrandr --query 2>/dev/null | awk '/ connected/{print $1; exit}')"
   if [[ -n "${output:-}" ]]; then

@@ -11,7 +11,7 @@ LOG_FILE="${LOG_DIR}/display-mode.log"
 mkdir -p "$LOG_DIR"
 
 usage() {
-  echo "usage: $0 launcher|playback|status" >&2
+  echo "usage: $0 launcher|playback|playback-auto <width> <height> <fps>|status" >&2
   exit 2
 }
 
@@ -83,6 +83,142 @@ rate_available() {
     }
     END { exit found ? 0 : 1 }
   '
+}
+
+rates_for_mode() {
+  local output="$1"
+  local mode="$2"
+  xrandr --query 2>/dev/null | awk -v out="$output" -v mode="$mode" '
+    $1 == out && $2 == "connected" { in_output=1; next }
+    in_output && /^[A-Za-z0-9-]+ connected/ { exit }
+    in_output && $1 == mode {
+      for (i = 2; i <= NF; i++) {
+        clean=$i
+        gsub(/[*+]/, "", clean)
+        if (clean ~ /^[0-9]+(\.[0-9]+)?$/) print clean
+      }
+    }
+  '
+}
+
+best_rate_for_fps() {
+  local output="$1"
+  local mode="$2"
+  local fps="$3"
+  local rates
+  rates="$(rates_for_mode "$output" "$mode" | tr '\n' ' ')"
+  [[ -n "$rates" && -n "$fps" ]] || return 1
+  python3 - "$fps" "$rates" <<'PY'
+import math
+import sys
+
+try:
+    target = float(sys.argv[1])
+except ValueError:
+    raise SystemExit(1)
+
+rates = []
+for token in " ".join(sys.argv[2:]).split():
+    try:
+        rates.append((token, float(token)))
+    except ValueError:
+        pass
+
+if target <= 0 or not rates:
+    raise SystemExit(1)
+
+best = None
+for label, rate in rates:
+    diff = abs(rate - target)
+    score = None
+    # Prefer exact film/TV refresh modes: 23.976 -> 23.98, 24 -> 24.00, etc.
+    if diff <= 0.08:
+        score = diff
+    else:
+        ratio = rate / target
+        nearest = round(ratio)
+        # Fall back to clean multiples only when no direct mode exists.
+        if 2 <= nearest <= 5 and abs(ratio - nearest) <= 0.015:
+            score = 10 + abs(ratio - nearest) + nearest / 100.0
+    if score is None:
+        continue
+    if best is None or score < best[0]:
+        best = (score, label)
+
+if best is None:
+    raise SystemExit(1)
+print(best[1])
+PY
+}
+
+playback_auto_modes() {
+  local width="$1"
+  local height="$2"
+  local mode_4k="${MANGO_MPV_MATCH_4K_MODE:-3840x2160}"
+  local mode_hd="${MANGO_MPV_MATCH_HD_MODE:-1920x1080}"
+  if [[ "$width" =~ ^[0-9]+$ && "$height" =~ ^[0-9]+$ ]] \
+    && { [[ "$width" -ge 3000 ]] || [[ "$height" -ge 1600 ]]; }; then
+    printf '%s\n%s\n' "$mode_4k" "$mode_hd"
+  else
+    printf '%s\n%s\n' "$mode_hd" "$mode_4k"
+  fi
+}
+
+apply_playback_auto() {
+  local width="$1"
+  local height="$2"
+  local fps="$3"
+  local output mode rate
+
+  if [[ "${MANGO_MPV_MATCH_REFRESH:-1}" == "0" ]]; then
+    log "playback-auto: disabled source=${width}x${height}@${fps}"
+    apply_mode \
+      playback \
+      "${MANGO_MPV_DISPLAY_MODE:-${MANGO_PLAYBACK_DISPLAY_MODE:-keep}}" \
+      "${MANGO_MPV_DISPLAY_RATE:-${MANGO_PLAYBACK_DISPLAY_RATE:-60}}" \
+      "${MANGO_MPV_DISPLAY_RATE_STRICT:-1}" \
+      "${MANGO_MPV_DISPLAY_FALLBACK_MODE:-${MANGO_LAUNCHER_DISPLAY_MODE:-1920x1080}}" \
+      "${MANGO_MPV_DISPLAY_FALLBACK_RATE:-${MANGO_LAUNCHER_DISPLAY_RATE:-60}}"
+    return 0
+  fi
+
+  output="$(connected_output)"
+  if [[ -z "${output:-}" || -z "${fps:-}" || "$fps" == "0" ]]; then
+    log "playback-auto: missing data output=${output:-none} source=${width}x${height}@${fps:-unknown}"
+    apply_mode \
+      playback \
+      "${MANGO_MPV_DISPLAY_MODE:-${MANGO_PLAYBACK_DISPLAY_MODE:-keep}}" \
+      "${MANGO_MPV_DISPLAY_RATE:-${MANGO_PLAYBACK_DISPLAY_RATE:-60}}" \
+      "${MANGO_MPV_DISPLAY_RATE_STRICT:-1}" \
+      "${MANGO_MPV_DISPLAY_FALLBACK_MODE:-${MANGO_LAUNCHER_DISPLAY_MODE:-1920x1080}}" \
+      "${MANGO_MPV_DISPLAY_FALLBACK_RATE:-${MANGO_LAUNCHER_DISPLAY_RATE:-60}}"
+    return 0
+  fi
+
+  while IFS= read -r mode; do
+    [[ -n "$mode" ]] || continue
+    mode_available "$output" "$mode" || continue
+    rate="$(best_rate_for_fps "$output" "$mode" "$fps" 2>/dev/null || true)"
+    [[ -n "$rate" ]] || continue
+    log "playback-auto: matched source=${width}x${height}@${fps} output=${output} mode=${mode}@${rate}"
+    apply_mode \
+      playback-match \
+      "$mode" \
+      "$rate" \
+      "1" \
+      "${MANGO_MPV_DISPLAY_FALLBACK_MODE:-${MANGO_LAUNCHER_DISPLAY_MODE:-1920x1080}}" \
+      "${MANGO_MPV_DISPLAY_FALLBACK_RATE:-${MANGO_LAUNCHER_DISPLAY_RATE:-60}}"
+    return 0
+  done < <(playback_auto_modes "$width" "$height")
+
+  log "playback-auto: no matched mode source=${width}x${height}@${fps} output=${output} fallback=${MANGO_MPV_DISPLAY_FALLBACK_MODE:-${MANGO_LAUNCHER_DISPLAY_MODE:-1920x1080}}@${MANGO_MPV_DISPLAY_FALLBACK_RATE:-${MANGO_LAUNCHER_DISPLAY_RATE:-60}}"
+  apply_mode \
+    playback-fallback \
+    "${MANGO_MPV_DISPLAY_FALLBACK_MODE:-${MANGO_LAUNCHER_DISPLAY_MODE:-1920x1080}}" \
+    "${MANGO_MPV_DISPLAY_FALLBACK_RATE:-${MANGO_LAUNCHER_DISPLAY_RATE:-60}}" \
+    "0" \
+    "" \
+    ""
 }
 
 apply_mode() {
@@ -184,6 +320,10 @@ case "$cmd" in
       "${MANGO_MPV_DISPLAY_RATE_STRICT:-1}" \
       "${MANGO_MPV_DISPLAY_FALLBACK_MODE:-${MANGO_LAUNCHER_DISPLAY_MODE:-1920x1080}}" \
       "${MANGO_MPV_DISPLAY_FALLBACK_RATE:-${MANGO_LAUNCHER_DISPLAY_RATE:-60}}"
+    ;;
+  playback-auto)
+    [[ $# -eq 4 ]] || usage
+    apply_playback_auto "$2" "$3" "$4"
     ;;
   status)
     if command -v xrandr >/dev/null 2>&1; then

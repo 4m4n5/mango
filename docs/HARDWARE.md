@@ -75,9 +75,11 @@ restart.
 ## Display and 4K/HDR Stage 2
 
 - **Launcher:** `1920x1080@60` through `scripts/lib/mango-display-mode.sh`
-- **Playback:** mpv owns fullscreen playback and may switch to `3840x2160@60`
-  only when the TV path advertises that mode; otherwise it falls back to
-  `1920x1080@60` instead of silently using 4K30
+- **Playback:** mpv owns fullscreen playback and switches to the highest
+  source-matched EDID mode the TV advertises. Film/TV cadence is preferred over
+  forced 60 Hz: 4K movies use `3840x2160@23.98/24/25/29.97/30` when supported,
+  1080p movies use matching 1080p film/TV rates, and unsupported high-FPS 4K
+  falls back to matched 1080p instead of juddery 4K30.
 - **Policy:** stream quality/HDR preference lives in catalog filters, not Chromium
 - **Stage 2 profile:** `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HEVC/x265 HDR10/HDR10+ WEB-DL style streams, keeps REMUX excluded, and leaves 1080p cached fallback available
 

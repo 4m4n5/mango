@@ -221,14 +221,16 @@ Detail: [RELIABILITY.md](RELIABILITY.md).
 ## M6.3 — 4K/HDR Stage 2 validation ◐
 
 Mango now has an opt-in Stage 2 playback profile for target-TV validation. The
-launcher stays `1920x1080@60`; only mpv playback targets `3840x2160@60`.
+launcher stays `1920x1080@60`; mpv playback switches to a source-matched TV
+mode before fullscreen playback and returns to the launcher mode after stop.
 
 | Area | Current implementation |
 |------|------------------------|
 | Stream policy | `config/catalog-filters.4k-hdr.example.json` prefers cached 2160p HEVC/x265 HDR10/HDR10+ candidates, keeps REMUX excluded, and retains 1080p cached fallback |
 | Runtime apply | `scripts/m6-ship/apply-4k-hdr-profile.sh apply|revert|status` writes `~/.config/mango/voice.env` and restarts Mango |
 | Decode path | Stage 2 pins `MANGO_MPV_HWDEC=drm-copy`; `v4l2m2m-copy` falls back to software decode and zero-copy `drm` logs DRM PRIME mapping failures on the current Pi/mpv build |
-| Display split | `mango-display-mode.sh` keeps launcher at 1080p60 and lets mpv attempt 4K60 only during playback; if the requested 4K60 mode is missing, playback falls back to 1080p60 instead of 4K30 |
+| Display split | `mango-display-mode.sh` keeps launcher at 1080p60; `mpv-play.sh` probes source width/height/FPS with `ffprobe` and selects the highest EDID-supported source-matched mode before playback |
+| Frame pacing | Stage 2 enables `MANGO_MPV_MATCH_REFRESH=1`, `MANGO_MPV_VIDEO_SYNC=display-resample`, and `MANGO_MPV_INTERPOLATION=no` so native film cadence is preserved instead of 24 fps being forced through 60 Hz |
 | Gate | `scripts/m6-ship/gate-m6-4k-hdr-profile.sh` checks profile, catalog health, display EDID, reliability state, memory, disk, load, temp, and throttling |
 | Resource proof | `scripts/diag/pi-resource-snapshot.sh` records memory/disk/load/top RSS before deciding whether the spare SSD is needed |
 | Audio fallback | If PipeWire exposes only `Dummy Output`, mpv can route directly to HDMI0 with `alsa/hdmi:CARD=vc4hdmi0,DEV=0` while TTS stays disabled |

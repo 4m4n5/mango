@@ -117,6 +117,61 @@ detect_hwdec() {
   printf '%s\n' "auto-safe"
 }
 
+detect_video_profile() {
+  local probe_timeout="${MANGO_MPV_FFPROBE_TIMEOUT_SEC:-12}"
+  local probe_json
+  command -v ffprobe >/dev/null 2>&1 || return 1
+  if command -v timeout >/dev/null 2>&1; then
+    probe_json="$(timeout "${probe_timeout}s" ffprobe \
+      -v error \
+      -select_streams v:0 \
+      -show_entries stream=width,height,avg_frame_rate,r_frame_rate \
+      -of json \
+      "$URL" 2>/dev/null || true)"
+  else
+    probe_json="$(ffprobe \
+      -v error \
+      -select_streams v:0 \
+      -show_entries stream=width,height,avg_frame_rate,r_frame_rate \
+      -of json \
+      "$URL" 2>/dev/null || true)"
+  fi
+  [[ -n "$probe_json" ]] || return 1
+  python3 -c '
+import json
+import sys
+from fractions import Fraction
+
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+
+streams = data.get("streams") or []
+if not streams:
+    raise SystemExit(1)
+stream = streams[0]
+
+def parse_rate(value):
+    if not value or value == "0/0":
+        return 0.0
+    try:
+        return float(Fraction(value))
+    except Exception:
+        try:
+            return float(value)
+        except Exception:
+            return 0.0
+
+width = int(stream.get("width") or 0)
+height = int(stream.get("height") or 0)
+fps = parse_rate(stream.get("avg_frame_rate")) or parse_rate(stream.get("r_frame_rate"))
+if width <= 0 or height <= 0 or fps <= 0:
+    raise SystemExit(1)
+print(f"{width} {height} {fps:.3f}")
+' <<<"$probe_json"
+}
+
 detect_audio_args() {
   local configured_device="${MANGO_MPV_AUDIO_DEVICE:-}"
   local configured_ao="${MANGO_MPV_AO:-}"
@@ -157,6 +212,10 @@ if $PROBE; then
 fi
 audio_label="default"
 audio_args=()
+video_label="unknown"
+video_width=""
+video_height=""
+video_fps=""
 if ! $PROBE; then
   while IFS= read -r -d '' arg; do
     audio_args+=("$arg")
@@ -168,8 +227,14 @@ if ! $PROBE; then
       audio_label="${audio_args[$i]#--audio-device=}"
     fi
   done
+  if ! $LIVE && [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]]; then
+    if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
+      read -r video_width video_height video_fps <<<"$profile"
+      video_label="${video_width}x${video_height}@${video_fps}"
+    fi
+  fi
 fi
-echo "mpv-play: $URL_LABEL mode=$MODE live=$LIVE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC audio=${audio_label}"
+echo "mpv-play: $URL_LABEL mode=$MODE live=$LIVE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC audio=${audio_label} video=${video_label}"
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 
@@ -184,8 +249,18 @@ if $PROBE; then
   # Indexer/gate probes must not seize the TV fullscreen.
   mpv_args+=(--vo=null --ao=null --really-quiet)
 else
-  bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
+  if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
+    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback-auto "$video_width" "$video_height" "$video_fps" 2>/dev/null || true
+  else
+    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
+  fi
   mpv_args+=(--fs "${audio_args[@]}")
+  if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
+    mpv_args+=("--video-sync=${MANGO_MPV_VIDEO_SYNC:-display-resample}")
+  fi
+  if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
+    mpv_args+=("--interpolation=${MANGO_MPV_INTERPOLATION:-no}")
+  fi
   if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
     mpv_args+=(--start="$START_SEC")
   fi
