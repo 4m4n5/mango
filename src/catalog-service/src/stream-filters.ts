@@ -529,7 +529,7 @@ export function streamQuality(stream: Stream): QualityCap | null {
   return match ? parseQualityCap(match[1]) : null;
 }
 
-function effectiveQualityRank(stream: Stream): number | null {
+export function effectiveStreamQualityRank(stream: Stream): number | null {
   if (/\b1440p\b/i.test(streamHaystack(stream))) return 1440;
   const quality = streamQuality(stream);
   return quality ? QUALITY_ORDER[quality] : null;
@@ -777,14 +777,14 @@ export function streamMatchesVerifiedHint(stream: Stream, verifiedHint?: Verifie
 
 function qualityBelowMin(stream: Stream, min: QualityCap | null | undefined): boolean {
   if (!min) return false;
-  const rank = effectiveQualityRank(stream);
+  const rank = effectiveStreamQualityRank(stream);
   if (rank === null) return false;
   return rank < QUALITY_ORDER[min];
 }
 
 function qualityExceedsCap(stream: Stream, cap: QualityCap | null): boolean {
   if (!cap) return false;
-  const rank = effectiveQualityRank(stream);
+  const rank = effectiveStreamQualityRank(stream);
   if (rank === null) return false;
   return rank > QUALITY_ORDER[cap];
 }

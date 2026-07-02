@@ -41,6 +41,22 @@ test('streamMatchesLadderStep rejects uncached streams on ideal step', () => {
   assert.equal(streamMatchesLadderStep(uncached, ideal), false);
 });
 
+test('streamMatchesLadderStep rejects 1440p when capped to 1080p', () => {
+  const safe1080 = {
+    ...defaultPlayLadder()[0],
+    max_quality: '1080p' as const,
+  };
+  const highResolution = stream({
+    url: 'https://example.test/1440p.mkv',
+    name: '[TB⚡] Torrentio 1440p',
+    title: '[TB⚡] Torrentio 1440p',
+    description: 'WEB-DL HEVC 1440p',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1440p' },
+  });
+
+  assert.equal(streamMatchesLadderStep(highResolution, safe1080), false);
+});
+
 test('expandPlayLadder walks steps after ideal failures', () => {
   const ladder = defaultPlayLadder();
   const streams = [

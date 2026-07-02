@@ -15,7 +15,7 @@ import {
   streamPassesIntegrity,
   streamMatchesVerifiedHint,
   streamPlayScore,
-  streamQuality,
+  effectiveStreamQualityRank,
   type QualityCap,
   type StreamFilterContext,
   type VerifiedStreamHint,
@@ -142,10 +142,10 @@ export function parsePlayLadder(raw: unknown): PlayLadderStep[] {
 
 function qualityExceedsCap(stream: Stream, cap: QualityCap | null): boolean {
   if (!cap) return false;
-  const quality = streamQuality(stream);
-  if (!quality) return false;
   const order: Record<QualityCap, number> = { '480p': 480, '720p': 720, '1080p': 1080, '2160p': 2160 };
-  return order[quality] > order[cap];
+  const rank = effectiveStreamQualityRank(stream);
+  if (rank === null) return false;
+  return rank > order[cap];
 }
 
 function cacheMatchesRequirement(
