@@ -226,17 +226,17 @@ mode before fullscreen playback and returns to the launcher mode after stop.
 
 | Area | Current implementation |
 |------|------------------------|
-| Stream policy | `config/catalog-filters.4k-hdr.example.json` is currently target-TV safe: cached 1080p HEVC/x265 preferred, REMUX excluded, 4K stream selection disabled by default |
+| Stream policy | `config/catalog-filters.4k-hdr.example.json` now allows cached 4K HEVC/x265 first, excludes REMUX, and falls back to cached 1080p |
 | Runtime apply | `scripts/m6-ship/apply-4k-hdr-profile.sh apply|revert|status` writes `~/.config/mango/voice.env` and restarts Mango |
-| Decode path | Stage 2 pins `MANGO_MPV_HWDEC=drm-copy`; zero-copy `drm` can report clean counters but produced blue screen on the target TV |
-| Display split | `mango-display-mode.sh` keeps launcher at 1080p60; `mpv-play.sh` probes source width/height/FPS with `ffprobe` and selects EDID-supported source-matched 1080p modes before playback |
-| Frame pacing | Stage 2 enables `MANGO_MPV_MATCH_REFRESH=1`, `MANGO_MPV_VIDEO_SYNC=audio`, and `MANGO_MPV_INTERPOLATION=no`; 1080p23.98 test held zero frame drops |
+| Decode/presentation path | Real couch playback uses one backend for all resolutions: `MANGO_PLAYBACK_BACKEND=vlc`, VLC DRM hardware decode, launcher stopped while fullscreen, and `xcompmgr` disabled to prevent tearing |
+| Display split | `mango-display-mode.sh` keeps launcher at 1080p60; `mpv-play.sh` remains the compatibility entrypoint, probes source width/height/FPS with `ffprobe`, then selects EDID-supported source-matched 4K/1080 modes before VLC playback |
+| Frame pacing | Stage 2 enables source refresh matching; target-TV validation showed VLC at 3840x2160@23.98 with smooth motion, sharp picture, working AAC audio, and no visible tearing once `xcompmgr` was disabled |
 | Gate | `scripts/m6-ship/gate-m6-4k-hdr-profile.sh` checks profile, catalog health, display EDID, reliability state, memory, disk, load, temp, and throttling |
 | Resource proof | `scripts/diag/pi-resource-snapshot.sh` records memory/disk/load/top RSS before deciding whether the spare SSD is needed |
-| Audio fallback | If PipeWire exposes only `Dummy Output`, mpv can route directly to HDMI0 with `alsa/hdmi:CARD=vc4hdmi0,DEV=0` while TTS stays disabled |
+| Audio fallback | If PipeWire exposes only `Dummy Output`, VLC routes directly to HDMI0 with `hdmi:CARD=vc4hdmi0,DEV=0` while TTS stays disabled |
 
-4K remains experimental until the visible-picture gate proves smooth real video,
-not just audio or mpv counters.
+4K is still a target-TV profile rather than the default development profile, but
+the validated couch path is now VLC for both 1080p and 4K playback.
 
 ---
 

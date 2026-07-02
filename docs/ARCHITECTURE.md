@@ -42,9 +42,12 @@ not active.
 
 Launcher display mode is separate from playback stream policy. Couch mode
 applies a lightweight launcher mode through `scripts/lib/mango-display-mode.sh`;
-the default is `1920x1080@60` so browse/focus stays smooth on the Pi. mpv owns
-playback and may later opt into its own display mode via `MANGO_MPV_DISPLAY_*`
-after 4K decode/display gates prove it reliable.
+the default is `1920x1080@60` so browse/focus stays smooth on the Pi. The
+compatibility entrypoint remains `mpv-play.sh`, but target-TV couch playback can
+use `MANGO_PLAYBACK_BACKEND=vlc` for every resolution. In that mode Mango stops
+the Chromium launcher while fullscreen video is active, disables `xcompmgr` to
+avoid tearing, source-matches the TV display mode, and returns to the launcher
+mode on stop.
 
 ### Playability layer
 

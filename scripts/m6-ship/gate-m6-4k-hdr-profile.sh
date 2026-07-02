@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M6.3 Stage 2 target-TV readiness gate. Safe source-matched 1080p by default.
+# M6.3 Stage 2 target-TV readiness gate. Unified VLC couch playback.
 
 set -uo pipefail
 
@@ -26,19 +26,22 @@ if [[ -n "$PROFILE" && -f "$PROFILE" ]]; then
 import json
 import sys
 data = json.load(open(sys.argv[1], encoding="utf-8"))
-assert data.get("max_quality") == "1080p", data.get("max_quality")
-assert data.get("preferred_quality") == "1080p", data.get("preferred_quality")
+assert data.get("max_quality") in ("4k", "2160p"), data.get("max_quality")
+assert data.get("preferred_quality") in ("4k", "2160p"), data.get("preferred_quality")
 assert data.get("exclude_remux") is True, data.get("exclude_remux")
 assert data.get("include_uncached") is False, data.get("include_uncached")
 codecs = [str(v).lower() for v in data.get("preferred_video_codecs") or []]
 assert any(codec in codecs for codec in ("hevc", "x265", "h265")), codecs
 steps = data.get("play_ladder") or []
-assert steps and all((step or {}).get("max_quality") == "1080p" for step in steps), steps
+assert steps and steps[0].get("step") == "4k_hevc_cached", steps
+assert steps[0].get("max_quality") == "2160p", steps[0]
+assert steps[0].get("min_quality") == "2160p", steps[0]
+assert any((step or {}).get("max_quality") == "1080p" for step in steps[1:]), steps
 PY
   then
-    gate_pass "target-TV safe stream policy"
+    gate_pass "target-TV 4K stream policy"
   else
-    gate_fail "target-TV safe stream policy invalid"
+    gate_fail "target-TV 4K stream policy invalid"
   fi
 fi
 
@@ -66,9 +69,9 @@ fi
   && gate_pass "mpv source refresh matching enabled" \
   || gate_fail "mpv source refresh matching disabled"
 
-[[ "${MANGO_MPV_MATCH_4K_MODE:-}" == "1920x1080" ]] \
-  && gate_pass "mpv 4K source output capped to 1080p safe mode" \
-  || gate_fail "mpv 4K source output not capped to 1080p safe mode"
+[[ "${MANGO_MPV_MATCH_4K_MODE:-}" == "3840x2160" ]] \
+  && gate_pass "4K source output maps to 3840x2160" \
+  || gate_fail "4K source output not mapped to 3840x2160"
 
 [[ "${MANGO_MPV_VIDEO_SYNC:-}" == "audio" ]] \
   && gate_pass "mpv robust audio-sync pacing enabled" \
@@ -77,6 +80,22 @@ fi
 [[ "${MANGO_MPV_INTERPOLATION:-}" == "no" ]] \
   && gate_pass "mpv interpolation disabled for native cadence" \
   || gate_fail "mpv interpolation not pinned off"
+
+[[ "${MANGO_PLAYBACK_BACKEND:-}" == "vlc" ]] \
+  && gate_pass "couch playback backend is unified VLC" \
+  || gate_fail "couch playback backend is not VLC"
+
+[[ "${MANGO_VLC_DISABLE_XCOMPMGR:-}" == "1" ]] \
+  && gate_pass "VLC playback disables xcompmgr to prevent tearing" \
+  || gate_fail "VLC playback does not disable xcompmgr"
+
+[[ "${MANGO_VLC_STOP_LAUNCHER:-}" == "1" ]] \
+  && gate_pass "VLC playback stops launcher surface while fullscreen" \
+  || gate_fail "VLC playback does not stop launcher surface"
+
+command -v cvlc >/dev/null 2>&1 \
+  && gate_pass "cvlc installed" \
+  || gate_fail "cvlc missing"
 
 if command -v xrandr >/dev/null 2>&1; then
   output="$(xrandr --query 2>/dev/null | awk '/ connected/{print $1; exit}')"

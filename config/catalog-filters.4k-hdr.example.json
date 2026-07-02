@@ -1,13 +1,13 @@
 {
-  "_profile": "m6.3-tv-safe-stage2",
+  "_profile": "m6.3-tv-vlc-4k-stage2",
   "_notes": [
-    "Target-TV safe profile after 4K visible-picture tests: launcher stays 1080p60 and playback uses source-matched 1080p modes.",
-    "4K streams remain an experimental catalog/mpv policy until the Pi path has smooth visible 4K video, not just audio or mpv counters."
+    "Target-TV profile after Samsung Input Signal Plus and VLC DRM playback validation: launcher stays 1080p60 and couch playback uses a single VLC backend for all resolutions.",
+    "Prefer cached HEVC/x265 streams, exclude REMUX, and allow 4K before falling back to 1080p."
   ],
   "exclude_uncached_debrid": true,
   "strict_unknown_cache": true,
-  "max_quality": "1080p",
-  "preferred_quality": "1080p",
+  "max_quality": "4k",
+  "preferred_quality": "4k",
   "preferred_hdr_tags": [],
   "preferred_video_codecs": ["hevc", "x265", "h265"],
   "exclude_remux": true,
@@ -21,6 +21,15 @@
   "auto_play_probe_ms": 10000,
   "auto_play_uncached_probe_ms": 25000,
   "play_ladder": [
+    {
+      "step": "4k_hevc_cached",
+      "max_quality": "2160p",
+      "min_quality": "2160p",
+      "exclude_remux": true,
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
     {
       "step": "1080p_hevc_cached",
       "max_quality": "1080p",

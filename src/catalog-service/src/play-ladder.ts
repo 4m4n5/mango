@@ -27,6 +27,7 @@ export type PlayLadderStep = {
   /** Stable id stored in playability.db (e.g. ideal, 2160p_encode). */
   step: string;
   max_quality: QualityCap | null;
+  min_quality?: QualityCap | null;
   exclude_remux: boolean;
   require_cache: PlayLadderCacheRequirement;
   debrid_services?: string[];
@@ -128,6 +129,7 @@ export function parsePlayLadder(raw: unknown): PlayLadderStep[] {
     parsed.push({
       step,
       max_quality: parseQuality(row.max_quality) ?? '1080p',
+      min_quality: parseQuality(row.min_quality),
       exclude_remux: row.exclude_remux !== false,
       require_cache: parseCacheRequirement(row.require_cache),
       debrid_services: Array.isArray(row.debrid_services)
@@ -146,6 +148,14 @@ function qualityExceedsCap(stream: Stream, cap: QualityCap | null): boolean {
   const rank = effectiveStreamQualityRank(stream);
   if (rank === null) return false;
   return rank > order[cap];
+}
+
+function qualityBelowMin(stream: Stream, min: QualityCap | null | undefined): boolean {
+  if (!min) return false;
+  const order: Record<QualityCap, number> = { '480p': 480, '720p': 720, '1080p': 1080, '2160p': 2160 };
+  const rank = effectiveStreamQualityRank(stream);
+  if (rank === null) return false;
+  return rank < order[min];
 }
 
 function cacheMatchesRequirement(
@@ -185,6 +195,7 @@ export function streamMatchesLadderStep(
   if (!sourceMatches(enriched, step.addons ?? DEFAULT_ADDONS)) return false;
   if (step.exclude_remux && isRemux(enriched)) return false;
   if (qualityExceedsCap(enriched, step.max_quality)) return false;
+  if (qualityBelowMin(enriched, step.min_quality)) return false;
   if (isLowQualityRelease(enriched)) return false;
   if (isErrorStream(enriched)) return false;
 

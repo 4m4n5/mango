@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -112,6 +112,49 @@ function mpvSocketPath(): string {
   return process.env.MANGO_MPV_SOCKET || `${home}/.cache/mango/mpv.sock`;
 }
 
+function playerStatePath(): string {
+  const home = process.env.HOME || '/home/aman';
+  return process.env.MANGO_PLAYER_STATE_PATH || `${home}/.cache/mango/player-state.json`;
+}
+
+async function vlcPlaybackState(): Promise<{
+  position_sec: number;
+  duration_sec: number;
+} | null> {
+  try {
+    const raw = await readFile(playerStatePath(), 'utf8');
+    const state = JSON.parse(raw) as {
+      backend?: string;
+      pid?: unknown;
+      started_at_ms?: unknown;
+      start_sec?: unknown;
+      duration_sec?: unknown;
+    };
+    if (state.backend !== 'vlc') return null;
+    const pid = Number(state.pid);
+    if (!Number.isInteger(pid) || pid <= 0) return null;
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return null;
+    }
+    const startedAtMs = Number(state.started_at_ms);
+    const startSec = Math.max(0, Number(state.start_sec ?? 0));
+    const durationSec = Math.max(0, Number(state.duration_sec ?? 0));
+    const elapsedSec = Number.isFinite(startedAtMs)
+      ? Math.max(0, (Date.now() - startedAtMs) / 1000)
+      : 0;
+    return {
+      position_sec: durationSec > 0
+        ? Math.min(durationSec, startSec + elapsedSec)
+        : startSec + elapsedSec,
+      duration_sec: durationSec,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function mpvIpcProperty(property: string): Promise<number | null> {
   const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-ipc.sh');
   try {
@@ -142,7 +185,7 @@ export async function isMpvActive(): Promise<boolean> {
     await access(mpvSocketPath());
     return true;
   } catch {
-    return false;
+    return (await vlcPlaybackState()) !== null;
   }
 }
 
@@ -150,16 +193,18 @@ export async function getMpvPlaybackState(): Promise<{
   position_sec: number;
   duration_sec: number;
 } | null> {
-  if (!(await isMpvActive())) {
-    return null;
+  try {
+    await access(mpvSocketPath());
+    const position = await mpvIpcProperty('playback-time');
+    const duration = await mpvIpcProperty('duration');
+    if (position !== null && duration !== null) {
+      return {
+        position_sec: Math.max(0, position),
+        duration_sec: Math.max(0, duration),
+      };
+    }
+  } catch {
+    // Fall through to the VLC compatibility state below.
   }
-  const position = await mpvIpcProperty('playback-time');
-  const duration = await mpvIpcProperty('duration');
-  if (position === null || duration === null) {
-    return null;
-  }
-  return {
-    position_sec: Math.max(0, position),
-    duration_sec: Math.max(0, duration),
-  };
+  return vlcPlaybackState();
 }

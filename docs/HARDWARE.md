@@ -58,15 +58,15 @@ bash scripts/audio/set-default-sink.sh <sink-name>  # mpv + system audio follow
 ```
 
 If PipeWire only exposes `Dummy Output` but `aplay -l` shows `vc4-hdmi-0`,
-route mpv directly to HDMI0:
+route playback directly to HDMI0:
 
 ```bash
 bash scripts/audio/set-default-sink.sh 'alsa/hdmi:CARD=vc4hdmi0,DEV=0'
 ```
 
-Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`; direct mpv
-routes also save `MANGO_MPV_AO` / `MANGO_MPV_AUDIO_DEVICE`). Stack reapplies on
-restart.
+Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`; direct routes
+also save `MANGO_MPV_AO` / `MANGO_MPV_AUDIO_DEVICE`; VLC maps the same ALSA
+sink to `MANGO_VLC_ALSA_DEVICE`). Stack reapplies on restart.
 
 **TTS (Piper):** stays off until soundbar/TV audio path is validated (`audio.tts_enabled: false`). Voice replies on launcher HUD + phone until then.
 

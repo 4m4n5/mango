@@ -57,6 +57,28 @@ test('streamMatchesLadderStep rejects 1440p when capped to 1080p', () => {
   assert.equal(streamMatchesLadderStep(highResolution, safe1080), false);
 });
 
+test('streamMatchesLadderStep honors min_quality for 4k-only steps', () => {
+  const fourKOnly = {
+    ...defaultPlayLadder()[0],
+    step: '4k_hevc_cached',
+    max_quality: '2160p' as const,
+    min_quality: '2160p' as const,
+  };
+  const hd = stream({
+    url: 'https://example.test/1080p.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const uhd = stream({
+    url: 'https://example.test/2160p.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+
+  assert.equal(streamMatchesLadderStep(hd, fourKOnly), false);
+  assert.equal(streamMatchesLadderStep(uhd, fourKOnly), true);
+});
+
 test('expandPlayLadder walks steps after ideal failures', () => {
   const ladder = defaultPlayLadder();
   const streams = [
