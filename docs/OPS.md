@@ -225,7 +225,9 @@ Then open the companion and use the YouTube connect panel. Full details:
 | YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator`; then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |
 | YouTube Live Now partial error | Check `refresh.phase_results.live_now`; Search Queries quota can exhaust while cached VOD rails and Popular still work because Popular uses `videos.list` |
 | Reliability badge yellow/red | Open Settings → Reliability Center; or `curl localhost:3020/reliability/state` |
+| No TV output after moving Pi | SSH in and force the safe launcher mode: `DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority xrandr --output HDMI-1 --mode 1920x1080 --rate 60`; then `bash scripts/launch-launcher.sh` |
 | 4K gate warns on desk monitor | Expected unless the connected display advertises `3840x2160@60`; use `MANGO_4K_REQUIRE_TV=1` only on the target TV |
+| TV only advertises 4K30 | Use a direct HDMI 2.0/2.1 TV input, enable the TV's enhanced/deep-color HDMI mode, or bypass the soundbar until `xrandr` shows `3840x2160 60.00` |
 | 4K playback blank/unstable | `bash scripts/m6-ship/apply-4k-hdr-profile.sh revert` · keep launcher at 1080p60 · retry with 1080p policy |
 | Soundbar silent | `bash scripts/audio/list-sinks.sh` · set HDMI/TV/bar sink with `scripts/audio/set-default-sink.sh` |
 | Nightly proof missing/stale | `bash scripts/m6-ship/reliability-proof.sh --reason operator` · inspect `/etc/mango/reliability/proofs.jsonl` |

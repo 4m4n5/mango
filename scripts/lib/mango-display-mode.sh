@@ -30,7 +30,16 @@ connected_output() {
 current_mode() {
   local output="$1"
   xrandr --query 2>/dev/null | awk -v out="$output" '
-    $1 == out && $2 == "connected" { in_output=1; next }
+    $1 == out && $2 == "connected" {
+      in_output=1
+      for (i = 3; i <= NF; i++) {
+        if ($i ~ /^[0-9]+x[0-9]+\+/) {
+          split($i, current, "+")
+          fallback=current[1]
+        }
+      }
+      next
+    }
     in_output && /^[A-Za-z0-9-]+ connected/ { exit }
     in_output && /\*/ {
       for (i = 1; i <= NF; i++) {
@@ -38,10 +47,12 @@ current_mode() {
           rate=$i
           gsub(/[*+]/, "", rate)
           print $1 "@" rate
+          printed=1
           exit
         }
       }
     }
+    END { if (fallback && !printed) print fallback }
   '
 }
 
@@ -78,7 +89,7 @@ apply_mode() {
   local label="$1"
   local mode="$2"
   local rate="$3"
-  local output
+  local output attempts attempt
 
   [[ "${MANGO_DISPLAY_MODE_DISABLE:-0}" != "1" ]] || {
     log "${label}: skipped disabled"
@@ -89,37 +100,54 @@ apply_mode() {
     return 0
   }
 
-  output="$(connected_output)"
-  if [[ -z "$output" ]]; then
-    log "${label}: skipped no connected output"
-    return 0
+  attempts="${MANGO_DISPLAY_MODE_ATTEMPTS:-}"
+  if [[ -z "$attempts" ]]; then
+    if [[ "$label" == "launcher" ]]; then
+      attempts=8
+    else
+      attempts=1
+    fi
   fi
 
   case "$mode" in
     "" | keep | off | none)
+      output="$(connected_output)"
       log "${label}: keep output=${output} current=$(current_mode "$output")"
       return 0
       ;;
   esac
 
-  if ! mode_available "$output" "$mode"; then
-    log "${label}: unavailable output=${output} mode=${mode} current=$(current_mode "$output")"
-    return 0
-  fi
+  for attempt in $(seq 1 "$attempts"); do
+    output="$(connected_output)"
+    if [[ -z "$output" ]]; then
+      log "${label}: no connected output attempt=${attempt}/${attempts}"
+      sleep 0.5
+      continue
+    fi
 
-  if [[ -n "$rate" ]] && rate_available "$output" "$mode" "$rate"; then
-    if xrandr --output "$output" --mode "$mode" --rate "$rate" >/dev/null 2>&1; then
-      log "${label}: applied output=${output} mode=${mode}@${rate}"
+    if ! mode_available "$output" "$mode"; then
+      log "${label}: unavailable output=${output} mode=${mode} current=$(current_mode "$output") attempt=${attempt}/${attempts}"
+      sleep 0.5
+      continue
+    fi
+
+    if [[ -n "$rate" ]] && rate_available "$output" "$mode" "$rate"; then
+      if xrandr --output "$output" --mode "$mode" --rate "$rate" >/dev/null 2>&1; then
+        log "${label}: applied output=${output} mode=${mode}@${rate} attempt=${attempt}/${attempts}"
+        return 0
+      fi
+    fi
+
+    if xrandr --output "$output" --mode "$mode" >/dev/null 2>&1; then
+      log "${label}: applied output=${output} mode=${mode} current=$(current_mode "$output") attempt=${attempt}/${attempts}"
       return 0
     fi
-  fi
 
-  if xrandr --output "$output" --mode "$mode" >/dev/null 2>&1; then
-    log "${label}: applied output=${output} mode=${mode} current=$(current_mode "$output")"
-    return 0
-  fi
+    log "${label}: failed output=${output} mode=${mode}@${rate:-auto} current=$(current_mode "$output") attempt=${attempt}/${attempts}"
+    sleep 0.5
+  done
 
-  log "${label}: failed output=${output} mode=${mode}@${rate:-auto} current=$(current_mode "$output")"
+  log "${label}: gave up mode=${mode}@${rate:-auto}"
   return 0
 }
 
