@@ -284,11 +284,13 @@ const META_RATE_LIMIT_BACKOFF_MS = Number(process.env.MANGO_META_RATE_LIMIT_BACK
 const STREAM_CACHE_TTL_MS = Number(process.env.MANGO_STREAM_CACHE_TTL_MS || 10 * 60 * 1000);
 const STREAM_NEGATIVE_CACHE_MS = Number(process.env.MANGO_STREAM_NEGATIVE_CACHE_MS || 90 * 1000);
 const RAIL_ITEMS_CACHE_TTL_MS = Number(process.env.MANGO_RAIL_ITEMS_CACHE_TTL_MS || 45 * 60 * 1000);
-// Auto-rotate the browse session roughly once per day so the home rails re-pick
-// from the verified pool (surfacing newly-grown titles) while staying stable within a day.
-// 0 disables age-based rotation (manual shuffle / restart / play-failure still rotate).
+// Age-based backstop for browse-session rotation. The primary daily refresh is the
+// nightly post-grow reshuffle (~03:00); this only fires if a grow is skipped so the
+// home never goes stale for more than ~a day. Set just above the 24h grow cadence so
+// it does NOT double-rotate on top of the nightly reshuffle. 0 disables age-based rotation
+// (manual shuffle / restart / play-failure still rotate).
 const PLAYABILITY_SESSION_MAX_AGE_MS = Number(
-  process.env.MANGO_PLAYABILITY_SESSION_MAX_AGE_MS || 20 * 60 * 60 * 1000,
+  process.env.MANGO_PLAYABILITY_SESSION_MAX_AGE_MS || 26 * 60 * 60 * 1000,
 );
 const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 6);
 const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 0);
