@@ -46,7 +46,10 @@ WantedBy=timers.target
 EOF
 
 systemctl --user daemon-reload
-systemctl --user enable --now mango-companion-nightly.timer
+systemctl --user enable mango-companion-nightly.timer
+# Restart (not just enable --now) so an already-active timer picks up the
+# new OnCalendar / RandomizedDelaySec on re-install.
+systemctl --user restart mango-companion-nightly.timer
 systemctl --user list-timers mango-companion-nightly.timer --no-pager
 
 echo "Companion nightly timer installed — 05:30 daily (after playability grow ~04:56)"
