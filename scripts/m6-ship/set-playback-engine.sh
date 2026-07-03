@@ -1,16 +1,27 @@
 #!/usr/bin/env bash
-# Switch Mango's couch playback engine for on-TV A/B testing.
+# Switch Mango's couch playback experience for on-TV A/B testing.
 #
-#   mpv  -> lightweight unified engine on the Pi 5 hardware path:
-#           OpenGL (ES) render, auto-safe hwdec (HEVC zero-copy / H.264
-#           software), profile=fast, display-resample, and the tear-free
-#           foreground (kill xcompmgr + stop the Chromium launcher during
-#           fullscreen, restore on exit). True-position IPC seek via the pad.
-#   vlc  -> the previous M6.3 target-TV baseline (drm-copy, audio sync).
+#   mpv       -> lightweight unified engine on the Pi 5 hardware path:
+#                OpenGL (ES) render, auto-safe hwdec (HEVC zero-copy / H.264
+#                software), profile=fast, display-resample, and the tear-free
+#                foreground (kill xcompmgr + stop the Chromium launcher during
+#                fullscreen, restore on exit). Stream policy: 4k-hdr (HEVC,
+#                cached, no REMUX). The proven smooth baseline.
+#   mpv-hifi  -> same tear-free engine tuned for maximum fidelity: gpu-next
+#                tone-mapping (correct HDR->SDR colors under X11), a large
+#                demuxer cache for high-bitrate/REMUX HTTP streams, and
+#                multichannel HDMI audio (auto-safe). Stream policy: 4k-hifi
+#                (allows cached 4K HEVC REMUX/high-bitrate; require_hevc locks
+#                every >1080p step to HEVC so nothing software-decodes/stutters).
+#   vlc       -> the previous M6.3 target-TV baseline (drm-copy, audio sync),
+#                4k-hdr stream policy.
 #
-# This only rewrites the engine-selection env keys in voice.env; the 4K/HDR
-# stream + display profile from apply-4k-hdr-profile.sh is left intact. Re-run
-# apply-4k-hdr-profile.sh only if you want to reset the whole Stage 2 profile.
+# This owns the engine + render + stream-policy env keys in voice.env. The
+# display-mode/audio-device base from apply-4k-hdr-profile.sh (launcher 1080p60,
+# 4K match mode, HDMI audio) is left intact. NOTE: this also (re)points
+# MANGO_CATALOG_FILTERS per experience, so switching back to `mpv`/`vlc`
+# restores the 4k-hdr policy. Re-run apply-4k-hdr-profile.sh only to reset the
+# whole display/audio base.
 
 set -euo pipefail
 
@@ -18,16 +29,18 @@ REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 CONFIG_DIR="${MANGO_CONFIG_DIR:-$HOME/.config/mango}"
 VOICE_ENV="${CONFIG_DIR}/voice.env"
 
-# Engine-selection keys this script owns (removed before each apply).
-ENGINE_KEYS='MANGO_PLAYBACK_BACKEND|MANGO_MPV_HWDEC|MANGO_MPV_VIDEO_SYNC|MANGO_MPV_INTERPOLATION|MANGO_MPV_VO|MANGO_MPV_GPU_API|MANGO_MPV_OPENGL_ES|MANGO_MPV_PROFILE|MANGO_MPV_STOP_LAUNCHER|MANGO_MPV_DISABLE_XCOMPMGR'
+# Experience-selection keys this script owns (removed before each apply).
+ENGINE_KEYS='MANGO_PLAYBACK_BACKEND|MANGO_MPV_HWDEC|MANGO_MPV_VIDEO_SYNC|MANGO_MPV_INTERPOLATION|MANGO_MPV_VO|MANGO_MPV_GPU_API|MANGO_MPV_OPENGL_ES|MANGO_MPV_PROFILE|MANGO_MPV_STOP_LAUNCHER|MANGO_MPV_DISABLE_XCOMPMGR|MANGO_MPV_TONE_MAPPING|MANGO_MPV_CACHE|MANGO_MPV_DEMUXER_MAX_BYTES|MANGO_MPV_DEMUXER_MAX_BACK_BYTES|MANGO_MPV_READAHEAD_SECS|MANGO_MPV_AUDIO_CHANNELS|MANGO_CATALOG_FILTERS'
 
 usage() {
   cat >&2 <<'EOF'
-usage: set-playback-engine.sh mpv|vlc|status [--no-restart]
+usage: set-playback-engine.sh mpv|mpv-hifi|vlc|status [--no-restart]
 
-mpv       lightweight unified mpv on the Pi 5 hardware path (tear-free foreground)
-vlc       previous target-TV VLC baseline
-status    print current engine env + display status
+mpv       lightweight unified mpv, smooth baseline (4k-hdr: HEVC/cached/no-remux)
+mpv-hifi  mpv tuned for fidelity: gpu-next tone-map + big cache + 5.1 audio,
+          4k-hifi stream policy (cached 4K HEVC REMUX/high-bitrate, HEVC-locked)
+vlc       previous target-TV VLC baseline (4k-hdr)
+status    print current experience env + stream policy + display status
 EOF
   exit 2
 }
@@ -58,6 +71,20 @@ append_env() {
   printf 'export %s=%q\n' "$1" "$2" >>"$VOICE_ENV"
 }
 
+# Install a catalog-filters profile from config/ into CONFIG_DIR and echo the
+# installed path. $1 = short name (e.g. 4k-hdr, 4k-hifi).
+ensure_filters() {
+  local name="$1"
+  local src="${REPO_DIR}/config/catalog-filters.${name}.example.json"
+  local dst="${CONFIG_DIR}/catalog-filters.${name}.json"
+  mkdir -p "$CONFIG_DIR"
+  if [[ -f "$src" ]]; then
+    cp "$src" "$dst"
+    chmod 600 "$dst" 2>/dev/null || true
+  fi
+  printf '%s\n' "$dst"
+}
+
 restart_stack() {
   [[ "$restart" == "1" ]] || return 0
   cd "$REPO_DIR"
@@ -67,7 +94,7 @@ restart_stack() {
 status() {
   echo "voice_env=$VOICE_ENV"
   if [[ -f "$VOICE_ENV" ]]; then
-    grep -E "^export (${ENGINE_KEYS})=" "$VOICE_ENV" || echo "(no engine overrides -> default backend: mpv)"
+    grep -E "^export (${ENGINE_KEYS})=" "$VOICE_ENV" || echo "(no experience overrides -> default backend: mpv)"
   else
     echo "voice_env_missing"
   fi
@@ -89,6 +116,38 @@ case "$cmd" in
     append_env MANGO_MPV_INTERPOLATION "no"
     append_env MANGO_MPV_STOP_LAUNCHER "1"
     append_env MANGO_MPV_DISABLE_XCOMPMGR "1"
+    append_env MANGO_CATALOG_FILTERS "$(ensure_filters 4k-hdr)"
+    restart_stack
+    status
+    ;;
+  mpv-hifi)
+    remove_engine_keys
+    append_env MANGO_PLAYBACK_BACKEND "mpv"
+    append_env MANGO_MPV_HWDEC "auto-safe"
+    # gpu-next (libplacebo) gives the most coherent HDR->SDR tone-mapping. Force
+    # the OpenGL backend so it never picks the mpv 0.40 Vulkan default (vc4
+    # libplacebo DRM-modifier mismatch blue-screens). If gpu-next ever glitches
+    # on the Pi, flip MANGO_MPV_VO to "gpu" in voice.env — everything else holds.
+    append_env MANGO_MPV_VO "gpu-next"
+    append_env MANGO_MPV_GPU_API "opengl"
+    append_env MANGO_MPV_OPENGL_ES "yes"
+    # profile=fast keeps GPU load low (cheap scalers, static HDR peak) so 4K
+    # HEVC REMUX stays smooth; tone-mapping still applies on top of it.
+    append_env MANGO_MPV_PROFILE "fast"
+    append_env MANGO_MPV_VIDEO_SYNC "display-resample"
+    append_env MANGO_MPV_INTERPOLATION "no"
+    append_env MANGO_MPV_TONE_MAPPING "bt.2390"
+    # Absorb network jitter on 60-100 Mbps REMUX served over HTTP from debrid.
+    append_env MANGO_MPV_CACHE "yes"
+    append_env MANGO_MPV_DEMUXER_MAX_BYTES "512MiB"
+    append_env MANGO_MPV_DEMUXER_MAX_BACK_BYTES "128MiB"
+    append_env MANGO_MPV_READAHEAD_SECS "30"
+    # auto-safe negotiates 5.1 LPCM when the TV/receiver EDID advertises it,
+    # stereo downmix otherwise (never breaks stereo-only displays).
+    append_env MANGO_MPV_AUDIO_CHANNELS "auto-safe"
+    append_env MANGO_MPV_STOP_LAUNCHER "1"
+    append_env MANGO_MPV_DISABLE_XCOMPMGR "1"
+    append_env MANGO_CATALOG_FILTERS "$(ensure_filters 4k-hifi)"
     restart_stack
     status
     ;;
@@ -98,6 +157,7 @@ case "$cmd" in
     append_env MANGO_MPV_HWDEC "drm-copy"
     append_env MANGO_MPV_VIDEO_SYNC "audio"
     append_env MANGO_MPV_INTERPOLATION "no"
+    append_env MANGO_CATALOG_FILTERS "$(ensure_filters 4k-hdr)"
     restart_stack
     status
     ;;

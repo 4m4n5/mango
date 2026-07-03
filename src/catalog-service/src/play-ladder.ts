@@ -15,6 +15,7 @@ import {
   streamPassesIntegrity,
   streamMatchesVerifiedHint,
   streamPlayScore,
+  streamIsHevc,
   effectiveStreamQualityRank,
   type QualityCap,
   type StreamFilterContext,
@@ -29,6 +30,8 @@ export type PlayLadderStep = {
   max_quality: QualityCap | null;
   min_quality?: QualityCap | null;
   exclude_remux: boolean;
+  /** Require HEVC for streams above 1080p (Pi 5 has no >1080p software-smooth path). */
+  require_hevc?: boolean;
   require_cache: PlayLadderCacheRequirement;
   debrid_services?: string[];
   /** Allow RD unknown-cache BluRay/x265 at this step only. */
@@ -85,6 +88,7 @@ export function defaultPlayLadder(): PlayLadderStep[] {
       step: '2160p_encode',
       max_quality: '2160p',
       exclude_remux: true,
+      require_hevc: true,
       require_cache: 'cached_or_uncached',
       debrid_services: ['torbox', 'realdebrid'],
       addons: DEFAULT_ADDONS,
@@ -93,6 +97,7 @@ export function defaultPlayLadder(): PlayLadderStep[] {
       step: 'last_resort',
       max_quality: '2160p',
       exclude_remux: false,
+      require_hevc: true,
       require_cache: 'any',
       debrid_services: ['torbox', 'realdebrid'],
       rd_safe_unknown: true,
@@ -131,6 +136,7 @@ export function parsePlayLadder(raw: unknown): PlayLadderStep[] {
       max_quality: parseQuality(row.max_quality) ?? '1080p',
       min_quality: parseQuality(row.min_quality),
       exclude_remux: row.exclude_remux !== false,
+      require_hevc: row.require_hevc === true,
       require_cache: parseCacheRequirement(row.require_cache),
       debrid_services: Array.isArray(row.debrid_services)
         ? row.debrid_services.map(String)
@@ -196,6 +202,13 @@ export function streamMatchesLadderStep(
   if (step.exclude_remux && isRemux(enriched)) return false;
   if (qualityExceedsCap(enriched, step.max_quality)) return false;
   if (qualityBelowMin(enriched, step.min_quality)) return false;
+  if (step.require_hevc) {
+    // Pi 5 hardware-decodes HEVC only. Above 1080p, a non-HEVC stream would
+    // fall back to software decode (stutter), so drop it and let the ladder
+    // continue to a 1080p (any-codec) step instead.
+    const rank = effectiveStreamQualityRank(enriched);
+    if (rank !== null && rank > 1080 && !streamIsHevc(enriched)) return false;
+  }
   if (isLowQualityRelease(enriched)) return false;
   if (isErrorStream(enriched)) return false;
 

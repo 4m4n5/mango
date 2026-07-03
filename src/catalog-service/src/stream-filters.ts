@@ -410,6 +410,15 @@ function streamMatchesPreferredVideoCodec(stream: Stream, preferredCodecs: strin
   return preferredCodecs.some((codec) => streamMatchesVideoCodec(stream, codec));
 }
 
+/**
+ * True when a stream is HEVC/H.265/x265 — the only codec the Pi 5 (BCM2712)
+ * decodes in hardware. Used as a hard guard so 4K auto-play never lands on a
+ * software-decoded (H.264/AV1/VP9) stream that would stutter.
+ */
+export function streamIsHevc(stream: Stream): boolean {
+  return streamMatchesVideoCodec(stream, 'hevc');
+}
+
 function languageHaystack(stream: Stream): string {
   const raw = `${stream.title || ''}\n${stream.description || ''}\n${stream.name || ''}`;
   return textWithoutSubtitleLines(raw).toLowerCase();

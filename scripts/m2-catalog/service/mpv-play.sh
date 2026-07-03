@@ -537,6 +537,35 @@ else
   if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
     mpv_args+=("--interpolation=${MANGO_MPV_INTERPOLATION:-no}")
   fi
+  # HDR tone-mapping curve (SDR output only — X11 has no HDR passthrough; the
+  # Pi 5 stack tone-maps HDR10/HLG down to SDR). Unset -> mpv default. gpu-next
+  # gives the most coherent tone-mapping, so the hifi engine pairs this with
+  # --vo=gpu-next.
+  if [[ -n "${MANGO_MPV_TONE_MAPPING:-}" ]]; then
+    mpv_args+=("--tone-mapping=${MANGO_MPV_TONE_MAPPING}")
+  fi
+  # High-bitrate/REMUX demuxer cache. mpv defaults to ~1s readahead, which
+  # rebuffers on 60-100 Mbps 4K REMUX served over HTTP from debrid. A larger
+  # forward/back cache absorbs network jitter without touching decode. All
+  # opt-in so the smooth baseline keeps mpv's low-memory default.
+  if [[ -n "${MANGO_MPV_CACHE:-}" ]]; then
+    mpv_args+=("--cache=${MANGO_MPV_CACHE}")
+  fi
+  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BYTES:-}" ]]; then
+    mpv_args+=("--demuxer-max-bytes=${MANGO_MPV_DEMUXER_MAX_BYTES}")
+  fi
+  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BACK_BYTES:-}" ]]; then
+    mpv_args+=("--demuxer-max-back-bytes=${MANGO_MPV_DEMUXER_MAX_BACK_BYTES}")
+  fi
+  if [[ -n "${MANGO_MPV_READAHEAD_SECS:-}" ]]; then
+    mpv_args+=("--demuxer-readahead-secs=${MANGO_MPV_READAHEAD_SECS}")
+  fi
+  # Multichannel HDMI audio for REMUX soundtracks. auto-safe negotiates the
+  # channel layout the TV/receiver reports over HDMI EDID (5.1 when supported,
+  # stereo downmix otherwise) so it never breaks stereo-only displays.
+  if [[ -n "${MANGO_MPV_AUDIO_CHANNELS:-}" ]]; then
+    mpv_args+=("--audio-channels=${MANGO_MPV_AUDIO_CHANNELS}")
+  fi
   if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
     mpv_args+=(--start="$START_SEC")
   fi

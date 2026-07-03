@@ -79,6 +79,65 @@ test('streamMatchesLadderStep honors min_quality for 4k-only steps', () => {
   assert.equal(streamMatchesLadderStep(uhd, fourKOnly), true);
 });
 
+test('streamMatchesLadderStep rejects non-HEVC above 1080p when require_hevc is set', () => {
+  const fourKHevcOnly = {
+    ...defaultPlayLadder()[0],
+    step: '4k_hevc_remux_cached',
+    max_quality: '2160p' as const,
+    min_quality: '2160p' as const,
+    exclude_remux: false,
+    require_hevc: true,
+  };
+  const uhdHevc = stream({
+    url: 'https://example.test/2160p-hevc.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p REMUX HEVC BL+RPU HDR10',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const uhdAv1 = stream({
+    url: 'https://example.test/2160p-av1.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p WEB-DL AV1 10bit',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const uhdH264 = stream({
+    url: 'https://example.test/2160p-h264.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p REMUX AVC h264',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+
+  assert.equal(streamMatchesLadderStep(uhdHevc, fourKHevcOnly), true);
+  assert.equal(streamMatchesLadderStep(uhdAv1, fourKHevcOnly), false);
+  assert.equal(streamMatchesLadderStep(uhdH264, fourKHevcOnly), false);
+});
+
+test('streamMatchesLadderStep allows non-HEVC at 1080p even when require_hevc is set', () => {
+  const step = {
+    ...defaultPlayLadder()[0],
+    step: '1080p_any_codec',
+    max_quality: '1080p' as const,
+    require_hevc: true,
+  };
+  const hd264 = stream({
+    url: 'https://example.test/1080p-h264.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: '1080p BluRay x264',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+
+  assert.equal(streamMatchesLadderStep(hd264, step), true);
+});
+
+test('parsePlayLadder reads require_hevc flag', () => {
+  const ladder = parsePlayLadder([
+    { step: 'four_k', max_quality: '2160p', require_hevc: true, require_cache: 'cached' },
+    { step: 'ten_eighty', max_quality: '1080p', require_cache: 'cached' },
+  ]);
+  assert.equal(ladder[0]?.require_hevc, true);
+  assert.equal(ladder[1]?.require_hevc, false);
+});
+
 test('expandPlayLadder walks steps after ideal failures', () => {
   const ladder = defaultPlayLadder();
   const streams = [
