@@ -127,6 +127,18 @@ launcher_browser_running() {
   pgrep -f "chromium.*mango-launcher.*127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/|firefox.*127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/" >/dev/null 2>&1
 }
 
+playback_active() {
+  # Couch playback (mpv or VLC) intentionally stops the Chromium launcher for a
+  # tear-free fullscreen. In that state a "missing" launcher is expected, not a
+  # fault — repairing it would restart Chromium on top of the video (focus
+  # steals back to the launcher while audio keeps playing). mpv-stop.sh / the
+  # mpv exit monitor restore the launcher when playback actually ends.
+  pgrep -x mpv >/dev/null 2>&1 && return 0
+  pgrep -x vlc >/dev/null 2>&1 && return 0
+  pgrep -x cvlc >/dev/null 2>&1 && return 0
+  return 1
+}
+
 launcher_health_ok() {
   local body
   body="$(curl -sf --max-time 4 "http://127.0.0.1:${MANGO_LAUNCHER_PORT:-3000}/api/health" 2>/dev/null || true)"
@@ -186,7 +198,10 @@ if catalog_expected; then
   catalog_ready || repair_catalog "catalog_health" || fail_note catalog "repair_failed"
 fi
 
-if ! launcher_health_ok || ! launcher_browser_running; then
+if playback_active; then
+  mango_log health_repair status=skipped check=launcher reason=playback_active
+  say "health-repair: launcher repair skipped (playback active)"
+elif ! launcher_health_ok || ! launcher_browser_running; then
   repair_ui "ui_health" || fail_note launcher "repair_failed"
 fi
 
