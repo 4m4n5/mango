@@ -182,6 +182,60 @@ test('selectRailSessionItems deprioritizes recent titles in stable slots', () =>
   assert.deepEqual(selected.map((item) => item.id), ['tt2', 'tt3', 'tt4']);
 });
 
+test('selectRailSessionItems reserves fresh slots for newest-verified titles', () => {
+  const now = 1_000_000_000_000;
+  const day = 24 * 60 * 60 * 1000;
+  const railPool = [
+    { type: 'movie', id: 'anchor1', score: 100, verified_at: now - 30 * day },
+    { type: 'movie', id: 'anchor2', score: 90, verified_at: now - 30 * day },
+    { type: 'movie', id: 'anchor3', score: 80, verified_at: now - 30 * day },
+    { type: 'movie', id: 'anchor4', score: 70, verified_at: now - 30 * day },
+    { type: 'movie', id: 'anchor5', score: 60, verified_at: now - 30 * day },
+    { type: 'movie', id: 'old-tail', score: 50, verified_at: now - 30 * day },
+    { type: 'movie', id: 'fresh-new', score: 10, verified_at: now - 1 * day },
+  ];
+  const selected = selectRailSessionItems(railPool, {
+    displayLimit: 6,
+    recentKeys: new Set(),
+    occupiedKeys: new Set(),
+    shuffleFn: (items) => items,
+    now,
+    recencyReserve: 1,
+    recencyWindowMs: 3 * day,
+  });
+  const ids = selected.map((item) => item.id);
+  // stableTarget = ceil(6 * 0.7) = 5 → high-score anchors keep the stable slots.
+  assert.deepEqual(ids.slice(0, 5), ['anchor1', 'anchor2', 'anchor3', 'anchor4', 'anchor5']);
+  assert.equal(selected[0]?.mix_bucket, 'stable');
+  // the single fresh slot surfaces the newest-verified arrival despite its low score.
+  assert.equal(ids[5], 'fresh-new');
+  assert.equal(selected[5]?.mix_bucket, 'fresh');
+});
+
+test('selectRailSessionItems recency reserve disabled falls back to shuffle order', () => {
+  const now = 1_000_000_000_000;
+  const day = 24 * 60 * 60 * 1000;
+  const railPool = [
+    { type: 'movie', id: 'anchor1', score: 100, verified_at: now - 30 * day },
+    { type: 'movie', id: 'anchor2', score: 90, verified_at: now - 30 * day },
+    { type: 'movie', id: 'anchor3', score: 80, verified_at: now - 30 * day },
+    { type: 'movie', id: 'anchor4', score: 70, verified_at: now - 30 * day },
+    { type: 'movie', id: 'anchor5', score: 60, verified_at: now - 30 * day },
+    { type: 'movie', id: 'old-tail', score: 50, verified_at: now - 30 * day },
+    { type: 'movie', id: 'fresh-new', score: 10, verified_at: now - 1 * day },
+  ];
+  const selected = selectRailSessionItems(railPool, {
+    displayLimit: 6,
+    recentKeys: new Set(),
+    occupiedKeys: new Set(),
+    shuffleFn: (items) => items,
+    now,
+    recencyReserve: 0,
+  });
+  // With no reserve, the fresh slot follows pool/shuffle order (old-tail), not recency.
+  assert.equal(selected.map((item) => item.id)[5], 'old-tail');
+});
+
 test('tabSessionsHaveDuplicateTitles detects cross-rail dupes', () => {
   const sessions = new Map([
     ['rail-a', [{ type: 'movie', id: 'tt1' }]],

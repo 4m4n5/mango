@@ -284,6 +284,12 @@ const META_RATE_LIMIT_BACKOFF_MS = Number(process.env.MANGO_META_RATE_LIMIT_BACK
 const STREAM_CACHE_TTL_MS = Number(process.env.MANGO_STREAM_CACHE_TTL_MS || 10 * 60 * 1000);
 const STREAM_NEGATIVE_CACHE_MS = Number(process.env.MANGO_STREAM_NEGATIVE_CACHE_MS || 90 * 1000);
 const RAIL_ITEMS_CACHE_TTL_MS = Number(process.env.MANGO_RAIL_ITEMS_CACHE_TTL_MS || 45 * 60 * 1000);
+// Auto-rotate the browse session roughly once per day so the home rails re-pick
+// from the verified pool (surfacing newly-grown titles) while staying stable within a day.
+// 0 disables age-based rotation (manual shuffle / restart / play-failure still rotate).
+const PLAYABILITY_SESSION_MAX_AGE_MS = Number(
+  process.env.MANGO_PLAYABILITY_SESSION_MAX_AGE_MS || 20 * 60 * 60 * 1000,
+);
 const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 6);
 const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 0);
 const STREAM_RESOLVE_BUDGET_MS = Number(process.env.MANGO_STREAM_RESOLVE_BUDGET_MS || 12000);
@@ -683,6 +689,7 @@ export class CatalogCore {
     expiresAt: number;
   } | null = null;
   private playabilitySessionId = process.env.MANGO_PLAYABILITY_SESSION_ID || randomUUID();
+  private playabilitySessionStartedAt = Date.now();
   private aiCatalogRails: AiCatalogRail[] = [];
 
   private constructor(
@@ -947,6 +954,7 @@ export class CatalogCore {
   /** New session id — reshuffle rails from latest verified pool (no indexer). */
   reshufflePlayabilitySession(): string {
     this.playabilitySessionId = randomUUID();
+    this.playabilitySessionStartedAt = Date.now();
     this.railItemsCache.clear();
     this.tabRailItemsCache.clear();
     this.liveTabRailItemsCache = null;
@@ -1394,6 +1402,14 @@ export class CatalogCore {
     }
     const reshuffle = Boolean(options.reshuffle);
     if (reshuffle) {
+      this.reshufflePlayabilitySession();
+    } else if (
+      PLAYABILITY_SESSION_MAX_AGE_MS > 0
+      && Date.now() - this.playabilitySessionStartedAt >= PLAYABILITY_SESSION_MAX_AGE_MS
+    ) {
+      // Session has aged past a day — rotate so the home re-picks from the pool
+      // (new titles surface). Uses the normal stable ratio, not the aggressive
+      // manual-shuffle ratio, so the daily refresh stays gentle.
       this.reshufflePlayabilitySession();
     }
 

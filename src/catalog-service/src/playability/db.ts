@@ -2153,6 +2153,12 @@ WHERE rail_id = @rail_id AND session_id = @session_id;
 DELETE FROM recently_shown
 WHERE shown_at < @prune_before;
 `).run({ prune_before: now - 14 * 24 * 60 * 60 * 1000 });
+      // Daily session rotation creates a fresh session_id each day; drop stale
+      // session rows so rail_session does not grow unbounded.
+      db.prepare(`
+DELETE FROM rail_session
+WHERE created_at < @prune_before;
+`).run({ prune_before: now - 2 * 24 * 60 * 60 * 1000 });
     });
     transaction();
     return snapshots;
@@ -2222,6 +2228,12 @@ export async function getOrCreateRailSession(
 DELETE FROM recently_shown
 WHERE shown_at < @prune_before;
 `).run({ prune_before: now - 14 * 24 * 60 * 60 * 1000 });
+      // Daily session rotation creates a fresh session_id each day; drop stale
+      // session rows so rail_session does not grow unbounded.
+      db.prepare(`
+DELETE FROM rail_session
+WHERE created_at < @prune_before;
+`).run({ prune_before: now - 2 * 24 * 60 * 60 * 1000 });
     });
     transaction();
 

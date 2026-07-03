@@ -2,6 +2,29 @@ export function titleKey(type: string, id: string): string {
   return `${type}:${id}`;
 }
 
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+/** Fresh slots reserved for the newest-verified titles so grown content surfaces. */
+export const SESSION_RECENCY_RESERVE = Math.max(0, envInt('MANGO_SESSION_RECENCY_RESERVE', 2));
+
+/** A title counts as a "new arrival" eligible for the recency reserve within this window (ms). */
+export const SESSION_RECENCY_WINDOW_MS = Math.max(
+  0,
+  envInt('MANGO_SESSION_RECENCY_WINDOW_MS', 3 * 24 * 60 * 60 * 1000),
+);
+
+function verifiedAtOf(item: unknown): number {
+  const value = (item as { verified_at?: number | null }).verified_at;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 /** Anchor rails (first N in yaml) reserve slots before niche reverse pass. */
 export const TAB_SESSION_ANCHOR_RAIL_COUNT = 3;
 
@@ -117,6 +140,9 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     occupiedKeys: Set<string>;
     shuffleFn?: (items: T[]) => T[];
     stableRatio?: number;
+    now?: number;
+    recencyReserve?: number;
+    recencyWindowMs?: number;
   },
 ): SessionSelectedItem<T>[] {
   const {
@@ -125,6 +151,9 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     occupiedKeys,
     shuffleFn = defaultShuffle,
     stableRatio = 0.7,
+    now = Date.now(),
+    recencyReserve = SESSION_RECENCY_RESERVE,
+    recencyWindowMs = SESSION_RECENCY_WINDOW_MS,
   } = options;
 
   const blocked = (item: T): boolean => occupiedKeys.has(titleKey(item.type, item.id));
@@ -134,8 +163,26 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     .filter((item) => !recentKeys.has(titleKey(item.type, item.id)))
     .slice(0, stableTarget);
   const chosen = new Map(stable.map((item) => [titleKey(item.type, item.id), item]));
-  const fresh = shuffleFn(available.filter((item) => !chosen.has(titleKey(item.type, item.id))))
-    .slice(0, Math.max(0, displayLimit - stable.length));
+  const freshPool = available.filter((item) => !chosen.has(titleKey(item.type, item.id)));
+  const freshSlots = Math.max(0, displayLimit - stable.length);
+
+  // Reserve a bounded number of fresh slots for the newest-verified titles so
+  // freshly-grown content surfaces instead of sinking below the static score order.
+  // Stable anchors are left untouched to preserve the curated top of the rail.
+  const recencyPicks = recencyReserve > 0 && recencyWindowMs > 0
+    ? freshPool
+      .filter((item) => {
+        const verifiedAt = verifiedAtOf(item);
+        return verifiedAt > 0 && now - verifiedAt <= recencyWindowMs;
+      })
+      .sort((a, b) => verifiedAtOf(b) - verifiedAtOf(a))
+      .slice(0, Math.min(recencyReserve, freshSlots))
+    : [];
+  const recencyKeys = new Set(recencyPicks.map((item) => titleKey(item.type, item.id)));
+  const shuffled = shuffleFn(
+    freshPool.filter((item) => !recencyKeys.has(titleKey(item.type, item.id))),
+  ).slice(0, Math.max(0, freshSlots - recencyPicks.length));
+  const fresh = [...recencyPicks, ...shuffled];
 
   return [
     ...stable.map((item) => ({ ...item, mix_bucket: 'stable' as const })),

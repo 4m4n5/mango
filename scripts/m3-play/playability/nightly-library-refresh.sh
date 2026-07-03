@@ -117,6 +117,18 @@ PLAYABILITY_RC=0
 bash "$REPO_DIR/scripts/m3-play/playability/playability-maintenance.sh" --mode "$MODE" || PLAYABILITY_RC=$?
 echo "nightly library refresh: playability_rc=$PLAYABILITY_RC"
 
+# Rotate the browse session so the home rails re-pick from the freshly-grown pool
+# and new titles surface right away. Daily auto-rotation also covers this, but the
+# post-grow nudge makes new content visible the same night. Non-fatal.
+if [[ "${MANGO_NIGHTLY_SESSION_RESHUFFLE:-1}" == "1" ]]; then
+  CATALOG_URL="http://${MANGO_CATALOG_HOST:-127.0.0.1}:${MANGO_CATALOG_PORT:-3020}"
+  if curl -fsS -m 10 -X POST "${CATALOG_URL}/playability/session/reshuffle" >/dev/null 2>&1; then
+    echo "nightly library refresh: browse session reshuffled (new titles surfaced)"
+  else
+    echo "nightly library refresh: session reshuffle skipped (catalog-service unreachable)" >&2
+  fi
+fi
+
 playability_lock_busy() (
   exec 201>"$LOCK_FILE"
   ! flock -n 201
