@@ -135,6 +135,16 @@ else
 fi
 
 echo "nightly library refresh: complete playability_rc=$PLAYABILITY_RC youtube_rc=$YOUTUBE_RC"
+
+# Playability + YouTube phases are done here; any *.lock file still on disk
+# with no live flock holder is a crash leftover from a prior aborted run
+# (e.g. the STATUS.md rc=143 SIGTERM case). Clear those before the proof so
+# a stale lock file cannot red-stamp an otherwise-successful grow.
+if [[ -f "$REPO_DIR/scripts/lib/stale-flock-cleanup.sh" ]]; then
+  echo "nightly library refresh: pre-proof stale-flock cleanup"
+  bash "$REPO_DIR/scripts/lib/stale-flock-cleanup.sh" || true
+fi
+
 PROOF_RC=0
 if [[ "${MANGO_NIGHTLY_RELIABILITY_PROOF:-1}" == "1" ]]; then
   bash "$REPO_DIR/scripts/m6-ship/reliability-proof.sh" \

@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Install companion nightly consolidate timer (04:30 PDT — after playability at 03:00).
+# Install companion nightly consolidate timer.
+#
+# Schedule: 05:30 local — this is comfortably after the playability indexer
+# (03:00, ~2h runtime → ~04:56 finish). Prior 04:30 slot overlapped the tail
+# of the grow and caused transient consolidate/gardener API failures under
+# catalog contention; a small RandomizedDelaySec avoids tight-second collisions
+# if the grow slips slightly on heavy nights. The script itself also gates on
+# the playability maintenance lock as a belt-and-braces safeguard.
 
 set -euo pipefail
 
@@ -13,7 +20,7 @@ mkdir -p "$UNIT_DIR"
 cat >"$SERVICE_PATH" <<EOF
 [Unit]
 Description=mango companion nightly consolidate
-After=default.target
+After=default.target mango-playability-indexer.service
 
 [Service]
 Type=oneshot
@@ -30,7 +37,8 @@ cat >"$TIMER_PATH" <<'EOF'
 Description=mango companion nightly timer
 
 [Timer]
-OnCalendar=*-*-* 04:30:00
+OnCalendar=*-*-* 05:30:00
+RandomizedDelaySec=5min
 Persistent=true
 
 [Install]
@@ -41,4 +49,4 @@ systemctl --user daemon-reload
 systemctl --user enable --now mango-companion-nightly.timer
 systemctl --user list-timers mango-companion-nightly.timer --no-pager
 
-echo "Companion nightly timer installed — 04:30 daily (after playability 03:00)"
+echo "Companion nightly timer installed — 05:30 daily (after playability grow ~04:56)"
