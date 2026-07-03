@@ -94,7 +94,11 @@ if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
   bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" launcher 2>/dev/null || true
 fi
 
-if [[ "${MANGO_PLAYBACK_BACKEND:-mpv}" == "vlc" ]]; then
+# Restore the Chromium launcher on a real stop for either backend (couch mpv
+# now stops it for a tear-free foreground, same as VLC). Starting an already
+# running unit is a no-op, so this is safe when the launcher was never stopped.
+# Probe / pre-play cleanup passes MANGO_MPV_STOP_NO_DISPLAY=1 and is excluded.
+if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
   systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
 fi
 launch_home_once

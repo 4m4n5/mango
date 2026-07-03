@@ -116,8 +116,13 @@ detect_hwdec() {
     printf '%s\n' "$MANGO_MPV_HWDEC"
     return
   fi
+  # Pi 5 (BCM2712) has a hardware HEVC decoder but no H.264 block. auto-safe
+  # gives HEVC zero-copy drm-prime and cleanly falls back to software for
+  # H.264/AV1 — unlike drm-copy, which copies every frame back and stutters at
+  # 4K, and unlike forcing hwdec=drm, which cannot map software yuv420p frames
+  # (the "blue screen with audio" failure). See docs/PLAYABILITY.md playback.
   if grep -qi 'raspberry pi' /proc/device-tree/model 2>/dev/null; then
-    printf '%s\n' "drm-copy"
+    printf '%s\n' "auto-safe"
     return
   fi
   printf '%s\n' "auto-safe"
@@ -283,6 +288,31 @@ start_vlc_exit_monitor() {
       systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
     fi
   ' bash "$pid" "$REPO_DIR" "$PLAYER_STATE_FILE" "$VLC_PID_FILE" "$VLC_PLAYLIST" "$PLAYBACK_OSD_PID_FILE" >/dev/null 2>&1 &
+}
+
+start_mpv_exit_monitor() {
+  # When couch mpv stops the launcher for a tear-free foreground, a natural
+  # end-of-file has nothing to bring the launcher back. Mirror the VLC monitor:
+  # watch the mpv pid and, if it is still the current play, restore the
+  # launcher display mode + Chromium kiosk. An explicit --stop clears mpv.pid
+  # first, so this no-ops in that case (mpv-stop.sh handles restore instead).
+  local pid="$1"
+  local pidfile="${HOME}/.cache/mango/mpv.pid"
+  setsid bash -c '
+    pid="$1"
+    repo="$2"
+    pidfile="$3"
+    while kill -0 "$pid" 2>/dev/null; do
+      sleep 1
+    done
+    if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
+      curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
+      rm -f "$pidfile"
+      bash "$repo/scripts/lib/mango-display-mode.sh" launcher >/dev/null 2>&1 || true
+      systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
+      bash "$repo/scripts/launch-launcher.sh" >/dev/null 2>&1 || true
+    fi
+  ' bash "$pid" "$REPO_DIR" "$pidfile" >/dev/null 2>&1 &
 }
 
 start_playback_osd() {
@@ -471,12 +501,36 @@ if $PROBE; then
   # Indexer/gate probes must not seize the TV fullscreen.
   mpv_args+=(--vo=null --ao=null --really-quiet)
 else
+  # Couch playback foreground contract: kill the X compositor and free the GPU
+  # by stopping the Chromium launcher, matching the conditions under which
+  # fullscreen video is tear-free on the Pi. Both are opt-in (the engine toggle
+  # sets them) so the default mpv path keeps its historical "cover the
+  # launcher" behavior in dev/gate environments.
+  if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
+    pkill -x xcompmgr 2>/dev/null || true
+  fi
+  if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
+    systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
+  fi
   if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
     bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback-auto "$video_width" "$video_height" "$video_fps" 2>/dev/null || true
   else
     bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
   fi
   mpv_args+=(--fs "${audio_args[@]}")
+  # Pi 5 tear-free render path: OpenGL (ES) avoids the mpv 0.40 Vulkan default
+  # whose libplacebo DRM-modifier mismatch blue-screens on vc4; profile=fast
+  # keeps GPU load low enough for 4K HEVC. All env-overridable for A/B testing.
+  mpv_args+=("--vo=${MANGO_MPV_VO:-gpu}")
+  if [[ -n "${MANGO_MPV_GPU_API:-opengl}" ]]; then
+    mpv_args+=("--gpu-api=${MANGO_MPV_GPU_API:-opengl}")
+  fi
+  case "${MANGO_MPV_OPENGL_ES:-yes}" in
+    1 | yes | true) mpv_args+=(--opengl-es=yes) ;;
+  esac
+  if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
+    mpv_args+=("--profile=${MANGO_MPV_PROFILE:-fast}")
+  fi
   if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
     mpv_args+=("--video-sync=${MANGO_MPV_VIDEO_SYNC:-display-resample}")
   fi
@@ -494,6 +548,9 @@ fi
 mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 &
 MPV_PID=$!
 echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
+if ! $PROBE && [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
+  start_mpv_exit_monitor "$MPV_PID"
+fi
 
 while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
   if play_cancelled; then
