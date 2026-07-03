@@ -1,8 +1,9 @@
 {
-  "_profile": "m6.4-tv-mpv-4k-hifi",
+  "_profile": "m6.5-tv-mpv-4k-sdr-hifi",
   "_notes": [
     "High-fidelity couch profile for the tuned mpv engine (set-playback-engine.sh mpv-hifi).",
-    "Allows 4K HEVC REMUX / high-bitrate cached streams for maximum image fidelity.",
+    "4K SDR hi-fi: prefers high-bitrate SDR 4K (HEVC REMUX/encode) for native-4K fidelity that stays smooth on the X11/Pi 5 stack.",
+    "exclude_hdr on the 4K steps drops HDR above 1080p: X11 cannot output HDR, so a 4K HDR frame would be GPU tone-mapped to SDR every frame and the Pi 5 cannot sustain that at 4K (heavy stutter). HDR titles fall through to a 1080p step, where tone-mapping is cheap.",
     "require_hevc locks every >1080p step to HEVC — the only codec the Pi 5 decodes in hardware — so a 4K H.264/AV1/VP9 release never auto-plays and stutters; such titles fall through to a 1080p (any-codec) step instead.",
     "REMUX is confined to the 4K steps; 1080p stays on efficient encodes to avoid high-bitrate AVC software-decode load.",
     "Cached-only (include_uncached=false) so debrid serves the high bitrate fast enough to avoid rebuffering."
@@ -25,21 +26,23 @@
   "auto_play_uncached_probe_ms": 25000,
   "play_ladder": [
     {
-      "step": "4k_hevc_remux_cached",
+      "step": "4k_sdr_remux_cached",
       "max_quality": "2160p",
       "min_quality": "2160p",
       "exclude_remux": false,
       "require_hevc": true,
+      "exclude_hdr": true,
       "require_cache": "cached",
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]
     },
     {
-      "step": "4k_hevc_cached",
+      "step": "4k_sdr_cached",
       "max_quality": "2160p",
       "min_quality": "2160p",
       "exclude_remux": true,
       "require_hevc": true,
+      "exclude_hdr": true,
       "require_cache": "cached",
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]

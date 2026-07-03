@@ -138,6 +138,50 @@ test('parsePlayLadder reads require_hevc flag', () => {
   assert.equal(ladder[1]?.require_hevc, false);
 });
 
+test('streamMatchesLadderStep drops HDR above 1080p when exclude_hdr is set', () => {
+  const sdr4kStep = {
+    ...defaultPlayLadder()[0],
+    step: '4k_sdr_cached',
+    max_quality: '2160p' as const,
+    min_quality: '2160p' as const,
+    exclude_remux: false,
+    require_hevc: true,
+    exclude_hdr: true,
+  };
+  const uhdSdr = stream({
+    url: 'https://example.test/2160p-sdr.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p REMUX HEVC SDR',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const uhdHdr = stream({
+    url: 'https://example.test/2160p-hdr.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p REMUX HEVC HDR10 DV',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+
+  assert.equal(streamMatchesLadderStep(uhdSdr, sdr4kStep), true);
+  assert.equal(streamMatchesLadderStep(uhdHdr, sdr4kStep), false);
+});
+
+test('streamMatchesLadderStep allows HDR at 1080p even when exclude_hdr is set', () => {
+  const step = {
+    ...defaultPlayLadder()[0],
+    step: '1080p_hdr_ok',
+    max_quality: '1080p' as const,
+    exclude_hdr: true,
+  };
+  const hdHdr = stream({
+    url: 'https://example.test/1080p-hdr.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: '1080p BluRay x265 HDR10',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+
+  assert.equal(streamMatchesLadderStep(hdHdr, step), true);
+});
+
 test('expandPlayLadder walks steps after ideal failures', () => {
   const ladder = defaultPlayLadder();
   const streams = [

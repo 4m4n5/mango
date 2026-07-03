@@ -7,12 +7,14 @@
 #                foreground (kill xcompmgr + stop the Chromium launcher during
 #                fullscreen, restore on exit). Stream policy: 4k-hdr (HEVC,
 #                cached, no REMUX). The proven smooth baseline.
-#   mpv-hifi  -> same tear-free engine tuned for maximum fidelity: gpu-next
-#                tone-mapping (correct HDR->SDR colors under X11), a large
-#                demuxer cache for high-bitrate/REMUX HTTP streams, and
-#                multichannel HDMI audio (auto-safe). Stream policy: 4k-hifi
-#                (allows cached 4K HEVC REMUX/high-bitrate; require_hevc locks
-#                every >1080p step to HEVC so nothing software-decodes/stutters).
+#   mpv-hifi  -> same tear-free engine tuned for 4K SDR fidelity: a large
+#                demuxer cache for high-bitrate/REMUX HTTP streams, cheap HDR->SDR
+#                tone-mapping (only hit at 1080p fallback), and multichannel HDMI
+#                audio (auto-safe). Stream policy: 4k-hifi = 4K SDR hi-fi —
+#                cached high-bitrate SDR 4K (HEVC REMUX/encode), require_hevc +
+#                exclude_hdr on the 4K steps so 4K stays HW-decodable and never
+#                GPU-tone-maps (X11 can't output HDR; 4K HDR tone-map stutters).
+#                HDR titles fall through to a 1080p step.
 #   vlc       -> the previous M6.3 target-TV baseline (drm-copy, audio sync),
 #                4k-hdr stream policy.
 #
@@ -37,8 +39,8 @@ usage() {
 usage: set-playback-engine.sh mpv|mpv-hifi|vlc|status [--no-restart]
 
 mpv       lightweight unified mpv, smooth baseline (4k-hdr: HEVC/cached/no-remux)
-mpv-hifi  mpv tuned for fidelity: gpu-next tone-map + big cache + 5.1 audio,
-          4k-hifi stream policy (cached 4K HEVC REMUX/high-bitrate, HEVC-locked)
+mpv-hifi  mpv tuned for 4K SDR fidelity: big cache + 5.1 audio, 4k-hifi policy
+          (cached high-bitrate SDR 4K HEVC REMUX; HDR falls through to 1080p)
 vlc       previous target-TV VLC baseline (4k-hdr)
 status    print current experience env + stream policy + display status
 EOF

@@ -378,6 +378,20 @@ function streamMatchesPreferredHdr(stream: Stream, preferredTags: string[]): boo
   });
 }
 
+const HDR_HAYSTACK_RE = /\b(hdr10\+?|hdr|dolby[\s.]?vision|dovi|dv|hlg|pq|st\.?2084|bt\.?2020)\b/i;
+
+/**
+ * True when a stream carries HDR (HDR10/HDR10+/Dolby Vision/HLG). Used to keep
+ * HDR off the 4K auto-play steps on the X11 stack: X11 cannot output HDR, so a
+ * 4K HDR frame must be GPU tone-mapped to SDR every frame, which the Pi 5 cannot
+ * sustain at 4K (heavy stutter). SDR 4K plays smoothly; 1080p HDR tone-maps
+ * cheaply, so HDR titles fall through to a 1080p step instead.
+ */
+export function streamIsHdr(stream: Stream): boolean {
+  if (streamHdrTags(stream).length > 0) return true;
+  return HDR_HAYSTACK_RE.test(streamHaystack(stream));
+}
+
 function streamMatchesVideoCodec(stream: Stream, codec: string): boolean {
   const normalized = codec.trim().toLowerCase();
   if (!normalized) return false;

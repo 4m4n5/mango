@@ -16,6 +16,7 @@ import {
   streamMatchesVerifiedHint,
   streamPlayScore,
   streamIsHevc,
+  streamIsHdr,
   effectiveStreamQualityRank,
   type QualityCap,
   type StreamFilterContext,
@@ -32,6 +33,8 @@ export type PlayLadderStep = {
   exclude_remux: boolean;
   /** Require HEVC for streams above 1080p (Pi 5 has no >1080p software-smooth path). */
   require_hevc?: boolean;
+  /** Drop HDR streams above 1080p (X11 can't output HDR; 4K HDR tone-map stutters). */
+  exclude_hdr?: boolean;
   require_cache: PlayLadderCacheRequirement;
   debrid_services?: string[];
   /** Allow RD unknown-cache BluRay/x265 at this step only. */
@@ -137,6 +140,7 @@ export function parsePlayLadder(raw: unknown): PlayLadderStep[] {
       min_quality: parseQuality(row.min_quality),
       exclude_remux: row.exclude_remux !== false,
       require_hevc: row.require_hevc === true,
+      exclude_hdr: row.exclude_hdr === true,
       require_cache: parseCacheRequirement(row.require_cache),
       debrid_services: Array.isArray(row.debrid_services)
         ? row.debrid_services.map(String)
@@ -202,12 +206,17 @@ export function streamMatchesLadderStep(
   if (step.exclude_remux && isRemux(enriched)) return false;
   if (qualityExceedsCap(enriched, step.max_quality)) return false;
   if (qualityBelowMin(enriched, step.min_quality)) return false;
-  if (step.require_hevc) {
+  if (step.require_hevc || step.exclude_hdr) {
+    const rank = effectiveStreamQualityRank(enriched);
+    const above1080 = rank !== null && rank > 1080;
     // Pi 5 hardware-decodes HEVC only. Above 1080p, a non-HEVC stream would
     // fall back to software decode (stutter), so drop it and let the ladder
     // continue to a 1080p (any-codec) step instead.
-    const rank = effectiveStreamQualityRank(enriched);
-    if (rank !== null && rank > 1080 && !streamIsHevc(enriched)) return false;
+    if (above1080 && step.require_hevc && !streamIsHevc(enriched)) return false;
+    // X11 can't output HDR, so 4K HDR would be GPU tone-mapped to SDR every
+    // frame — the Pi 5 can't sustain that at 4K. Drop HDR above 1080p so the
+    // title falls through to a 1080p step (cheap tone-map) or an SDR 4K stream.
+    if (above1080 && step.exclude_hdr && streamIsHdr(enriched)) return false;
   }
   if (isLowQualityRelease(enriched)) return false;
   if (isErrorStream(enriched)) return false;
