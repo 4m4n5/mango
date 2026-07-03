@@ -124,11 +124,12 @@ case "$cmd" in
     remove_engine_keys
     append_env MANGO_PLAYBACK_BACKEND "mpv"
     append_env MANGO_MPV_HWDEC "auto-safe"
-    # gpu-next (libplacebo) gives the most coherent HDR->SDR tone-mapping. Force
-    # the OpenGL backend so it never picks the mpv 0.40 Vulkan default (vc4
-    # libplacebo DRM-modifier mismatch blue-screens). If gpu-next ever glitches
-    # on the Pi, flip MANGO_MPV_VO to "gpu" in voice.env — everything else holds.
-    append_env MANGO_MPV_VO "gpu-next"
+    # Use the shader-based `gpu` VO, NOT `gpu-next`. Verified 2026-07-02 on the
+    # Pi: gpu-next (libplacebo) blue-screens on vc4 even with --gpu-api=opengl
+    # (audio plays, video is a solid blue frame). The `gpu` VO still performs
+    # HDR->SDR tone-mapping via --tone-mapping below, so we keep the fidelity
+    # win on the proven-smooth render path.
+    append_env MANGO_MPV_VO "gpu"
     append_env MANGO_MPV_GPU_API "opengl"
     append_env MANGO_MPV_OPENGL_ES "yes"
     # profile=fast keeps GPU load low (cheap scalers, static HDR peak) so 4K
