@@ -14,19 +14,23 @@ M2 Browse         ████████████████████  
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
 M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 voice safety contract
-M6 Ship           ████████░░░░░░░░░░░░  in progress — M6.1 library core · M6.2 YouTube · Reliability Center landed; 4K Stage 2 validation · UX · wizard pending
+M6 Ship           ████████░░░░░░░░░░░░  in progress — M6.1 library core · M6.2 YouTube · Reliability Center · efficiency/perf hardening (Tiers 1-4) landed; 4K Stage 2 validation · UX · wizard pending
 ```
 
-| Milestone | Outcome | Status |
-|-----------|---------|--------|
-| **M1** Foundation | Pi stack · pad · launcher kiosk · voice shell · gates | ✓ |
-| **M2** Browse | Catalog rails · Movies / Series / Live · 9-up grid | ✓ |
-| **M3** Play | mpv orchestrator · picker · episodes · playability/grow | ✓ hardening |
-| **M4** Addons | Self-hosted AIOStreams + AIOMetadata | ✓ |
-| **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · voice safety contract | ◐ |
-| **M6** Ship | Mango-owned library · YouTube · Reliability Center · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 shipped · M6.2 Pi-gated · Reliability Center implemented · 4K Stage 2 in validation |
+
+| Milestone         | Outcome                                                                                               | Status                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| **M1** Foundation | Pi stack · pad · launcher kiosk · voice shell · gates                                                 | ✓                                                                                          |
+| **M2** Browse     | Catalog rails · Movies / Series / Live · 9-up grid                                                    | ✓                                                                                          |
+| **M3** Play       | mpv orchestrator · picker · episodes · playability/grow                                               | ✓ hardening                                                                                |
+| **M4** Addons     | Self-hosted AIOStreams + AIOMetadata                                                                  | ✓                                                                                          |
+| **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · voice safety contract                              | ◐                                                                                          |
+| **M6** Ship       | Mango-owned library · YouTube · Reliability Center · efficiency/perf hardening · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 shipped · M6.2 Pi-gated · Reliability Center implemented · efficiency/perf Tiers 1-4 shipped · 4K Stage 2 in validation |
+
 
 ---
+
+
 
 ## Stack
 
@@ -49,6 +53,8 @@ Pi 5 · X11 + Openbox
 
 ---
 
+
+
 ## M1 — Foundation ✓
 
 - X11 + Openbox Pi bring-up · 8BitDo pad · Chromium kiosk
@@ -60,6 +66,8 @@ Pi 5 · X11 + Openbox
 **Ops:** [OPS.md](OPS.md) · **Pad:** [HARDWARE.md](HARDWARE.md)
 
 ---
+
+
 
 ## M2 — Browse ✓
 
@@ -73,17 +81,21 @@ Pi 5 · X11 + Openbox
 
 ---
 
+
+
 ## M3 — Play ✓
 
-| Capability | Notes |
-|------------|-------|
-| Play ladder | `catalog-filters.json` tiers · parallel resolve · 90 s wall |
-| Stream picker | `GET /stream` enriched rows |
-| Continue watching | `progress.db` + mpv position watcher |
-| Episode picker | Per-episode streams · next-up overlay · cancel-on-Y |
-| Playability index | Verified pools · quick/nightly/overnight grow · unique-library tracking |
-| Thematic rails | Theme gate on pool writes · orphan repair · overlap caps · optional full retheme |
-| Browse UX | Verified-only thin rails · empty hidden · rate-limit safe |
+
+| Capability        | Notes                                                                            |
+| ----------------- | -------------------------------------------------------------------------------- |
+| Play ladder       | `catalog-filters.json` tiers · parallel resolve · 90 s wall                      |
+| Stream picker     | `GET /stream` enriched rows                                                      |
+| Continue watching | `progress.db` + mpv position watcher                                             |
+| Episode picker    | Per-episode streams · next-up overlay · cancel-on-Y                              |
+| Playability index | Verified pools · quick/nightly/overnight grow · unique-library tracking          |
+| Thematic rails    | Theme gate on pool writes · orphan repair · overlap caps · optional full retheme |
+| Browse UX         | Verified-only thin rails · empty hidden · rate-limit safe                        |
+
 
 **Detail:** [PLAYABILITY.md](PLAYABILITY.md)
 
@@ -94,6 +106,8 @@ Pi 5 · X11 + Openbox
 **Couch:** [COUCH_TEST.md](COUCH_TEST.md)
 
 ---
+
+
 
 ## M4 — Self-hosted addons ✓
 
@@ -107,26 +121,34 @@ Pi 5 · X11 + Openbox
 
 ---
 
+
+
 ## M5 — Voice + AI ◐
 
-| Slice | Status | Notes |
-|-------|--------|-------|
-| Voice librarian | ✓ | Search · open detail · Hinglish STT |
-| AI catalog slots | ✓ | Max 3/tab · voice CRUD · playability pools |
-| Living librarian | ◐ | Profile · journal · conversation policy · reflection |
-| AI catalog bootstrap | ✓ | Compose · reserve · async bootstrap |
-| **M5.5 Voice safety contract** | — | Capability review + open/clarify gates — **M5 merge blocker**; final companion/HUD polish after YouTube |
+
+| Slice                          | Status | Notes                                                                                                   |
+| ------------------------------ | ------ | ------------------------------------------------------------------------------------------------------- |
+| Voice librarian                | ✓      | Search · open detail · Hinglish STT                                                                     |
+| AI catalog slots               | ✓      | Max 3/tab · voice CRUD · playability pools                                                              |
+| Living librarian               | ◐      | Profile · journal · conversation policy · reflection                                                    |
+| AI catalog bootstrap           | ✓      | Compose · reserve · async bootstrap                                                                     |
+| **M5.5 Voice safety contract** | —      | Capability review + open/clarify gates — **M5 merge blocker**; final companion/HUD polish after YouTube |
+
+
+
 
 ### M5.5 — AI companion contract + UX split
 
 Half the north star is *ask in mango*. The implementation is split so Mango does not polish the companion twice: **M5.5a** locks the voice safety contract before more surfaces land, and **M5.5b** finishes phone/HUD polish after native YouTube exists.
 
-| Area | Work |
-|------|------|
-| **M5.5a contract** | Full `mango_*` tool audit · Hinglish corpus · discover/open/curate/memory lanes · ordinals · no false TV opens |
-| **M5.5a coherence** | Phone/TV agreement · `tv_seq` ack · async catalog copy · mock + opt-in LLM corpus gates |
-| **M5.5b polish** | Phone tool transparency · proactive opt-in · memory summary · launcher HUD safe area, copy, and dwell |
-| Acceptance | C-V1–C-V8 safety now; post-YouTube companion/HUD pass before M6.5 merge |
+
+| Area                | Work                                                                                                           |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- |
+| **M5.5a contract**  | Full `mango_`* tool audit · Hinglish corpus · discover/open/curate/memory lanes · ordinals · no false TV opens |
+| **M5.5a coherence** | Phone/TV agreement · `tv_seq` ack · async catalog copy · mock + opt-in LLM corpus gates                        |
+| **M5.5b polish**    | Phone tool transparency · proactive opt-in · memory summary · launcher HUD safe area, copy, and dwell          |
+| Acceptance          | C-V1–C-V8 safety now; post-YouTube companion/HUD pass before M6.5 merge                                        |
+
 
 **Spec:** [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
 
@@ -135,6 +157,8 @@ Half the north star is *ask in mango*. The implementation is split so Mango does
 **Detail:** [VOICE.md](VOICE.md) · **Gate:** `scripts/m5-voice/ai/gate-m5-voice.sh`
 
 ---
+
+
 
 ## M6 — Ship (in progress)
 
@@ -150,6 +174,8 @@ Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented ha
 - AI/catalog automation cannot write to Saved; AI catalog overflow is replace/merge only
 - Stremio export remains addon-manifest config only; no Stremio library sync or write-back
 - Back up Mango progress + library state on stack stop/restart via `scripts/m6-ship/backup-library-state.sh`; cron/timers can call the same script
+
+
 
 ### M6.2 — Native YouTube ✓ hardening
 
@@ -177,6 +203,17 @@ Live, voice, process, lock, and couch-idle state into Green/Yellow/Red.
 
 **Gate:** `scripts/m6-ship/gate-m6-reliability-proof.sh` · Detail: [RELIABILITY.md](RELIABILITY.md).
 
+### M6 hardening — Efficiency & performance (Tiers 1-4) ✓
+
+A repo-wide efficiency audit shipped and is Pi-proven: DB/cache overhead, perceived input/render latency, voice idle cost, and resource-guard safety.
+
+| Tier                          | Focus                | Shipped                                                                                                                                                                             |
+| ------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1** Efficiency               | DB + cache overhead   | Playability DB singleton · YouTube rails TTL cache · nightly WAL checkpoint (`checkpoint-wal-dbs.sh`)                                                                              |
+| **2** Perceived latency        | Input/render feel     | D-pad single-window-resolution + cache in `mango-tv-pad.py` · launcher per-tab DOM cache (no full rebuild) · UI server HTTP/1.1 keep-alive + static asset caching                 |
+| **3** Idle cost                | Voice delivery        | Fixed 150 ms HTTP poll → long-poll (`threading.Condition` in `serve.py`, `AbortController` in the frontend); idle load ~6.7 req/s → ~0.04 req/s                                   |
+| **4** Resource guards & safety | Contention protection | `cgroup_enable=memory` at boot (`cmdline.txt`) · systemd `MemoryMax`/`MemoryHigh`/`TasksMax` for `mango-launcher-chromium` (1536M/2048M) and `mango-catalog` (768M/1280M) · `CPUWeight=60` on catalog so foreground UI wins under contention |
+
 ### M6.3 — target-TV playback fidelity
 
 **Target-TV finding:** Pi 5 + X11 can decode 4K HEVC, but current visible couch
@@ -187,14 +224,16 @@ current couch-safe fidelity target.
 target-TV profile for mpv only, match playback output to source FPS using EDID
 modes, then re-open 4K only after visible 4K video is smooth.
 
-| Area | Work |
-|------|------|
-| Physical | 4K TV + soundbar (HDMI eARC) |
-| HDMI | EDID verification · source-matched 1080p film/TV modes on target TV |
-| mpv profile | Source-matched 1080p playback modes with 1080p60 launcher restore · 4K held experimental |
-| Audio | Default sink = TV/bar, with direct ALSA HDMI fallback when PipeWire is dummy-only · Piper TTS smoke after sink validation |
-| Filters | Stage 2 `catalog-filters.4k-hdr.example.json` currently caps couch playback to 1080p, keeps REMUX excluded, and prefers HEVC/x265 |
-| Gate | `gate-m6-4k-hdr-profile.sh` now; next 4K gate must add **picture-visible** and soundbar assert on TV |
+
+| Area        | Work                                                                                                                              |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Physical    | 4K TV + soundbar (HDMI eARC)                                                                                                      |
+| HDMI        | EDID verification · source-matched 1080p film/TV modes on target TV                                                               |
+| mpv profile | Source-matched 1080p playback modes with 1080p60 launcher restore · 4K held experimental                                          |
+| Audio       | Default sink = TV/bar, with direct ALSA HDMI fallback when PipeWire is dummy-only · Piper TTS smoke after sink validation         |
+| Filters     | Stage 2 `catalog-filters.4k-hdr.example.json` currently caps couch playback to 1080p, keeps REMUX excluded, and prefers HEVC/x265 |
+| Gate        | `gate-m6-4k-hdr-profile.sh` now; next 4K gate must add **picture-visible** and soundbar assert on TV                              |
+
 
 **Current Stage 2 commands:**
 
@@ -202,6 +241,8 @@ modes, then re-open 4K only after visible 4K video is smooth.
 bash scripts/m6-ship/apply-4k-hdr-profile.sh apply
 bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 ```
+
+
 
 ### M6.5 — Unified TV/companion UX ship polish
 
@@ -223,66 +264,83 @@ NexoTV · sport rails · excluded from default gate. [LIVE_TV.md](LIVE_TV.md)
 
 ---
 
+
+
 ## Gates
 
-| Command | When |
-|---------|------|
-| `bash scripts/pi-exec-gate.sh` | **Default** before couch (gate-lite) |
-| `bash scripts/pi-deploy.sh --fast --gate` | After push — deploy + gate-lite |
-| `MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh` | Release — full gate (3 plays/rail, ~5–8 min) |
-| `MANGO_LIVE_GATE=1 bash scripts/live/gate-live-iptv.sh` | Live IPTV only |
-| `bash scripts/m6-ship/gate-m6-reliability-proof.sh` | Reliability Center proof; fails red, warns yellow |
+
+| Command                                                 | When                                              |
+| ------------------------------------------------------- | ------------------------------------------------- |
+| `bash scripts/pi-exec-gate.sh`                          | **Default** before couch (gate-lite)              |
+| `bash scripts/pi-deploy.sh --fast --gate`               | After push — deploy + gate-lite                   |
+| `MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh`   | Release — full gate (3 plays/rail, ~5–8 min)      |
+| `MANGO_LIVE_GATE=1 bash scripts/live/gate-live-iptv.sh` | Live IPTV only                                    |
+| `bash scripts/m6-ship/gate-m6-reliability-proof.sh`     | Reliability Center proof; fails red, warns yellow |
+
 
 Details: [STATUS.md](STATUS.md#gates) · [ARCHITECTURE.md](ARCHITECTURE.md#gates)
 
 ---
 
+
+
 ## Risk register
 
-| Risk | Mitigation |
-|------|------------|
-| 4K HEVC/DV on Pi 5 X11 | Ship profile + stream rank; document limits |
-| Phone mic on HTTP | mkcert HTTPS companion |
-| Refocus fail → wallpaper | Always restore launcher |
-| RAM: Chromium + mpv + voice | One Chromium; mpv exits on ⌂ |
-| yt-dlp breakage | Clean couch-safe errors; pin/update yt-dlp; Kodi emergency fallback behind `MANGO_LEGACY_YOUTUBE=1` |
-| YouTube API quota/auth failures | Keep stale cached rails visible; API quota affects metadata/search/refresh only, not cached `yt-dlp -> mpv` playback |
-| Companion feels dumb despite tools | M5.5a safety corpus now; M5.5b polish after YouTube |
-| TV reads as dev UI at ship | M6.5 unified polish before merge |
-| Stremio becomes product source of truth again | Keep `/etc/mango/stremio-export.json` to addon manifests only; Mango owns user library state |
-| Grow passes but specific rails starve | Source-grow audit, probation weights, stronger same-theme playable sources |
-| Verified orphans/overlap drift | Strict publish finalization + orphan-only/overlap-only repair |
-| Hidden nightly failures | Reliability proof ledger + Settings/API status before couch handoff |
+
+| Risk                                          | Mitigation                                                                                                           |
+| --------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| 4K HEVC/DV on Pi 5 X11                        | Ship profile + stream rank; document limits                                                                          |
+| Phone mic on HTTP                             | mkcert HTTPS companion                                                                                               |
+| Refocus fail → wallpaper                      | Always restore launcher                                                                                              |
+| RAM: Chromium + mpv + voice                   | One Chromium; mpv exits on ⌂                                                                                         |
+| yt-dlp breakage                               | Clean couch-safe errors; pin/update yt-dlp; Kodi emergency fallback behind `MANGO_LEGACY_YOUTUBE=1`                  |
+| YouTube API quota/auth failures               | Keep stale cached rails visible; API quota affects metadata/search/refresh only, not cached `yt-dlp -> mpv` playback |
+| Companion feels dumb despite tools            | M5.5a safety corpus now; M5.5b polish after YouTube                                                                  |
+| TV reads as dev UI at ship                    | M6.5 unified polish before merge                                                                                     |
+| Stremio becomes product source of truth again | Keep `/etc/mango/stremio-export.json` to addon manifests only; Mango owns user library state                         |
+| Grow passes but specific rails starve         | Source-grow audit, probation weights, stronger same-theme playable sources                                           |
+| Verified orphans/overlap drift                | Strict publish finalization + orphan-only/overlap-only repair                                                        |
+| Hidden nightly failures                       | Reliability proof ledger + Settings/API status before couch handoff                                                  |
+
 
 ---
+
+
 
 ## References
 
-| Doc | Use |
-|-----|-----|
-| [VISION.md](VISION.md) | Product principles |
-| [STATUS.md](STATUS.md) | Shipped inventory · config |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Layers · APIs |
-| [RELIABILITY.md](RELIABILITY.md) | Reliability Center · nightly proof |
-| [DEPLOY.md](DEPLOY.md) | Pi deploy (git only) |
-| [archive/](archive/) | Historical docs |
+
+| Doc                                | Use                                |
+| ---------------------------------- | ---------------------------------- |
+| [VISION.md](VISION.md)             | Product principles                 |
+| [STATUS.md](STATUS.md)             | Shipped inventory · config         |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | Layers · APIs                      |
+| [RELIABILITY.md](RELIABILITY.md)   | Reliability Center · nightly proof |
+| [DEPLOY.md](DEPLOY.md)             | Pi deploy (git only)               |
+| [archive/](archive/)               | Historical docs                    |
+
 
 ---
+
+
 
 ## Appendix — legacy names
 
 Git history and some script paths still use older labels. **Do not use these in new docs or milestones.**
 
-| Legacy | Milestone |
-|--------|-----------|
-| Phase 0–2 | M1 |
-| N0 | M1 (foundation reset) |
-| N1 | M2 (catalog + mpv) |
-| N2, N2b | M2 (browse UI) |
-| N3a, N3b, N3e, Track B | M3 |
-| N3c | M3 (playability) |
-| N3d | M4 |
-| N4 | M6.1 |
-| N5a–N5d | M5 slices (see STATUS) |
-| N6 | M6.2 |
-| N7 | M6.3 |
+
+| Legacy                 | Milestone              |
+| ---------------------- | ---------------------- |
+| Phase 0–2              | M1                     |
+| N0                     | M1 (foundation reset)  |
+| N1                     | M2 (catalog + mpv)     |
+| N2, N2b                | M2 (browse UI)         |
+| N3a, N3b, N3e, Track B | M3                     |
+| N3c                    | M3 (playability)       |
+| N3d                    | M4                     |
+| N4                     | M6.1                   |
+| N5a–N5d                | M5 slices (see STATUS) |
+| N6                     | M6.2                   |
+| N7                     | M6.3                   |
+
+

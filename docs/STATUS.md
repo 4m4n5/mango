@@ -15,7 +15,7 @@ What works today, what is still being hardened, and how to verify it.
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
 | M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5a voice contract pending |
-| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube deployed and Pi-gated · Reliability Center implemented · 4K Stage 2 profile/gate in validation · unified UX, wizard pending |
+| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube deployed and Pi-gated · Reliability Center implemented · efficiency/perf hardening (Tiers 1-4) shipped and Pi-proven · 4K Stage 2 profile/gate in validation · unified UX, wizard pending |
 
 ---
 
@@ -72,6 +72,7 @@ Status: `python3 scripts/diag/playability-status.py` · grow monitor: `grow_moni
 | Negative memory | Recent theme/no-stream/title-mismatch/unresolved-ID misses are tombstoned per rail to avoid re-probing the same bad candidates |
 | Source control | Runtime-only source weights demote zero-yield and near-zero-yield catalogs into the 5-10% probation budget; catalog YAML is never auto-edited |
 | Diagnostics | `grow_monitor.py`, structured refresh JSON, candidate audit samples, source-grow weights, and `source-grow-audit.py` expose failure causes |
+| Regional content yield | Popular South-Indian regional lists added to `movies-india-trending`; MediaFusion India-regional trial kit added; `india-regional-yield.sh` probe bash-parsing bug fixed |
 
 **Known hardening gap:** the pipeline is wired correctly enough for targeted repair and benchmark iteration, but sustained unattended full `+20` target completion is still blocked by source yield on thin rails. On 2026-06-25, an earlier Pi grow published `+280` unique verified titles. The scheduled 03:00 nightly later staged `+3` stale re-verifications but was aborted with rc `143`, so the work DB was discarded and the live DB stayed at `1054` unique verified titles with `0` orphans. Source audits still show the hardest thin rails are `series-reality-casual` and `series-india-picks`; their samples are mostly no-stream, duplicate-heavy, unresolved-ID, or theme-rejected. See [PLAYABILITY.md](PLAYABILITY.md), [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md), and [catalog-rail-curation.md](../config/catalog-rail-curation.md).
 
@@ -218,6 +219,21 @@ Detail: [RELIABILITY.md](RELIABILITY.md).
 
 ---
 
+## M6 hardening — Efficiency & performance (Tiers 1-4) ✓
+
+A repo-wide efficiency audit shipped and is Pi-proven across four tiers: DB/cache
+overhead, perceived input/render latency, voice idle cost, and resource-guard
+safety.
+
+| Tier | Focus | Current implementation |
+|------|-------|-------------------------|
+| 1 — Efficiency | DB + cache overhead | Playability DB is a singleton; YouTube rails have a TTL cache; nightly WAL checkpoint script (`checkpoint-wal-dbs.sh`) |
+| 2 — Perceived latency | Input/render feel | D-pad input resolves in a single window with caching in `mango-tv-pad.py`; launcher reuses per-tab DOM instead of full rebuilds; UI server serves HTTP/1.1 keep-alive with static asset caching |
+| 3 — Idle cost | Voice command delivery | Fixed 150 ms HTTP poll replaced with an HTTP long-poll (`threading.Condition` in `serve.py`, `AbortController` on the frontend); idle load dropped from ~6.7 req/s to ~0.04 req/s |
+| 4 — Resource guards & safety | Contention protection | Memory cgroup v2 controller enabled at boot (`cgroup_enable=memory` in `cmdline.txt`); systemd `MemoryMax`/`MemoryHigh`/`TasksMax` for `mango-launcher-chromium` (1536M/2048M) and `mango-catalog` (768M/1280M); `CPUWeight=60` on catalog so foreground UI wins under contention |
+
+---
+
 ## M6.3 — target-TV playback validation ◐
 
 Mango now has an opt-in Stage 2 playback profile for target-TV validation. The
@@ -243,14 +259,16 @@ the validated couch path is now VLC for both 1080p and 4K playback.
 
 ## Open priorities
 
+Efficiency & performance audit (Tiers 1-4 — DB/cache efficiency, perceived latency, voice idle cost, resource guards) is shipped and Pi-proven; it is no longer an open item. Remaining priorities:
+
 | # | Item | Milestone |
 |---|------|-----------|
-| 1 | Monitor repeated unattended nightly proof and improve `+20` target hit rate with stronger playable sources for reality and India-series rails | M3 hardening |
-| 2 | Living librarian (memory + policy) | M5 |
-| 3 | M5.5a AI companion voice safety contract | M5 |
-| 4 | Continue YouTube rail-quality hardening and monitor quota/live-refresh behavior as usage grows | M6.2 hardening |
-| 5 | Finish 4K HDR TV + soundbar validation on target TV, including visible-picture and audio sink couch proof | M6.3 |
-| 6 | M5.5b + M6.5 unified companion/TV UX polish after YouTube | M6.5 |
+| 1 | Living librarian (memory + policy) | M5 |
+| 2 | M5.5a AI companion voice safety contract | M5 |
+| 3 | M5.5b + M6.5 unified companion/TV UX polish after YouTube | M6.5 |
+| 4 | Monitor repeated unattended nightly proof and improve `+20` target hit rate with stronger playable sources for reality and India-series rails | M3 hardening |
+| 5 | Continue YouTube rail-quality hardening and monitor quota/live-refresh behavior as usage grows | M6.2 hardening |
+| 6 | Finish 4K HDR TV + soundbar validation on target TV, including visible-picture and audio sink couch proof | M6.3 |
 | 7 | First-boot wizard | M6.4 |
 
 ---

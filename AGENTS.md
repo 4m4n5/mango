@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-**Branch:** `feat/native-experience` — native TV home. **Shipped through M4 + most of M5 + M6.2 native YouTube + Reliability Center** (browse · play · addons · voice librarian · AI catalog slots · Saved/history · YouTube · nightly proof). **Active hardening:** repeated unattended proof, M3 verified-library grow repeatability, and YouTube rail quality. **Next:** M5 completion (living librarian + **M5.5 voice safety contract**) · **M6 ship** (4K · post-YouTube **M6.5 unified UX** · wizard).
+**Branch:** `feat/native-experience` — native TV home. **Shipped through M4 + most of M5 + M6.2 native YouTube + Reliability Center + M6 efficiency/perf hardening (Tiers 1–4)** (browse · play · addons · voice librarian · AI catalog slots · Saved/history · YouTube · nightly proof · latency/idle/resource guards). **Active hardening:** repeated unattended proof, M3 verified-library grow repeatability, and YouTube rail quality. **Next:** M5 completion (living librarian + **M5.5 voice safety contract**) · **M6 ship** (post-YouTube **M6.5 unified UX** · 4K · wizard).
 
 ## Read first
 
