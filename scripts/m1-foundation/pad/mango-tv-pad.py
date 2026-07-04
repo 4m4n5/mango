@@ -367,11 +367,9 @@ def _launcher_window_ids() -> list[str]:
     return list(dict.fromkeys(ids))
 
 
-def _is_launcher_window(wid: str) -> bool:
-    name = _window_name(wid)
-    klass = _window_class(wid)
-    process = _window_process(wid)
-    cmdline = _window_cmdline(wid)
+def _is_launcher_window_from_parts(
+    wid: str, *, name: str, klass: str, process: str, cmdline: str
+) -> bool:
     xwininfo = _window_xwininfo(wid)
     if "selection owner" in name or "tooltip" in name:
         return False
@@ -387,6 +385,16 @@ def _is_launcher_window(wid: str) -> bool:
         return True
     browser_blob = f"{klass} {process} {cmdline}"
     return "firefox" in browser_blob or "navigator" in browser_blob
+
+
+def _is_launcher_window(wid: str) -> bool:
+    return _is_launcher_window_from_parts(
+        wid,
+        name=_window_name(wid),
+        klass=_window_class(wid),
+        process=_window_process(wid),
+        cmdline=_window_cmdline(wid),
+    )
 
 
 def is_launcher_focused() -> bool:
@@ -508,19 +516,64 @@ def _mpv_window_ids() -> list[str]:
     return result.stdout.split()
 
 
+_FOREGROUND_CACHE_TTL_SEC = 0.15
+_foreground_cache: dict[str, object] = {"value": None, "expires_at": 0.0}
+
+
+def invalidate_foreground_cache() -> None:
+    """Drop any memoized foreground_app() result.
+
+    Call after any action that could change the active window (windowactivate,
+    launching the launcher, stopping mpv, etc.) and at the start of every
+    input-event dispatch so a stale cache can never mis-route the next press.
+    """
+
+    _foreground_cache["value"] = None
+    _foreground_cache["expires_at"] = 0.0
+
+
 def foreground_app() -> str:
-    name, klass = active_window_meta()
+    now = time.monotonic()
+    cached = _foreground_cache["value"]
+    if cached is not None and now < float(_foreground_cache["expires_at"]):
+        return str(cached)
+    value = _resolve_foreground_app()
+    _foreground_cache["value"] = value
+    _foreground_cache["expires_at"] = now + _FOREGROUND_CACHE_TTL_SEC
+    return value
+
+
+def _resolve_foreground_app() -> str:
+    wid = _xdotool("getactivewindow").stdout.strip()
+    if not wid or wid == "0":
+        if _vlc_running():
+            return "vlc"
+        return "other"
+
+    name = _window_name(wid)
+    klass = _window_class(wid)
     blob = f"{name} {klass}"
-    if is_mpv_focused() or "mpv" in blob:
+
+    if "mpv" in blob or wid in _mpv_window_ids():
         return "mpv"
-    if is_vlc_focused() or "vlc" in blob:
+
+    if "vlc" in blob:
         return "vlc"
+    process = _window_process(wid)
+    cmdline = _window_cmdline(wid)
+    if "vlc" in process or "vlc" in cmdline:
+        return "vlc"
+
     if "mango-overlay" in klass or "mango overlay" in name:
         return "launcher"
     if "mango-launcher" in blob or "mango launcher" in name:
         return "launcher"
-    if is_launcher_focused():
+
+    if _is_launcher_window_from_parts(
+        wid, name=name, klass=klass, process=process, cmdline=cmdline
+    ):
         return "launcher"
+
     if _vlc_running():
         return "vlc"
     return "other"
@@ -578,6 +631,7 @@ def send_key_to_wid(wid: str, symbol: str, *, activate: bool = True) -> None:
         active = _xdotool("getactivewindow").stdout.strip()
         if active != wid:
             _xdotool("windowactivate", wid)
+            invalidate_foreground_cache()
     _xdotool("key", "--clearmodifiers", "--window", wid, symbol)
 
 
@@ -651,6 +705,7 @@ def stop_mpv_home() -> None:
         ["bash", str(MPV_STOP_SH)],
         extra_env={"MANGO_MPV_STOP_HOME": "1", "MANGO_SKIP_REMAPPER": "1"},
     )
+    invalidate_foreground_cache()
 
 
 def launcher_surface_active() -> bool:
@@ -734,6 +789,7 @@ def go_home() -> None:
             wid = find_launcher_wid()
             if wid:
                 _xdotool("windowactivate", wid)
+                invalidate_foreground_cache()
         return
     diag_event("home_press", foreground=app, active_name=name, active_class=klass)
     if app in {"mpv", "vlc"}:
@@ -745,6 +801,7 @@ def go_home() -> None:
         ["bash", str(LAUNCHER_SH)],
         extra_env={"MANGO_SKIP_PAD_STOP": "1", "MANGO_SKIP_REMAPPER": "1"},
     )
+    invalidate_foreground_cache()
 
 
 def route_dpad(app: str, direction: str) -> None:
@@ -957,6 +1014,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
     def process_seek_hold() -> None:
         if not hold_seek:
             return
+        invalidate_foreground_cache()
         if foreground_app() != "vlc":
             stop_seek_hold()
             return
@@ -998,6 +1056,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                     last_event_at=last_event_at,
                     last_action=f"event:{event.type}:{event.code}",
                 )
+                invalidate_foreground_cache()
                 app = foreground_app()
                 if event.type == ecodes.EV_ABS:
                     if event.code in (ecodes.ABS_X, ecodes.ABS_HAT0X):

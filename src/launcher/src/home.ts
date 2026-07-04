@@ -64,37 +64,65 @@ export function buildHomeRails(
 
   const rows: HTMLElement[][] = [];
 
-  rows.push(...appendCatalogSections(container, callbacks, catalogState, options));
+  rows.push(...buildCatalogRails(container, callbacks, options, catalogState));
 
+  const apps = buildAppsRail(callbacks);
+  container.appendChild(apps.section);
+  rows.push(apps.row);
+
+  return rows;
+}
+
+/**
+ * Builds catalog rail sections into `container` (which the caller owns and is
+ * expected to have cleared beforehand) and returns the focus rows for the
+ * built posters. Emits the onLayoutApplied callback on next frame when the
+ * catalog is ready. Split out from buildHomeRails so the launcher can cache
+ * per-tab catalog DOM independently of the shared apps rail.
+ */
+export function buildCatalogRails(
+  container: HTMLElement,
+  callbacks: HomeCallbacks,
+  options: HomeOptions,
+  catalogState: CatalogState,
+): HTMLElement[][] {
+  const rows = appendCatalogSections(container, callbacks, catalogState, options);
   if (catalogState.status === "ready") {
     window.requestAnimationFrame(() => options.onLayoutApplied?.());
   }
+  return rows;
+}
 
-  const appsSection = document.createElement("section");
-  appsSection.className = "rail rail--apps";
-  appsSection.dataset.railId = "apps";
+/**
+ * Builds the shared apps rail (currently a single Settings tile with the
+ * reliability badge). Callers are expected to build this once and reuse the
+ * DOM across tab switches; the reliability badge is refreshed in place via
+ * a document-scoped querySelector, so keeping a single instance in the DOM
+ * avoids stale-badge selection ambiguity.
+ */
+export function buildAppsRail(callbacks: HomeCallbacks): { section: HTMLElement; row: HTMLElement[] } {
+  const section = document.createElement("section");
+  section.className = "rail rail--apps";
+  section.dataset.railId = "apps";
 
-  const appsHeading = document.createElement("h2");
-  appsHeading.className = "rail-title";
-  appsHeading.textContent = "Apps";
-  appsSection.appendChild(appsHeading);
+  const heading = document.createElement("h2");
+  heading.className = "rail-title";
+  heading.textContent = "Apps";
+  section.appendChild(heading);
 
-  const appsTrack = document.createElement("div");
-  appsTrack.className = "rail-track rail-track--apps";
-  appsTrack.setAttribute("role", "list");
+  const track = document.createElement("div");
+  track.className = "rail-track rail-track--apps";
+  track.setAttribute("role", "list");
 
-  const appItems: HTMLElement[] = [];
+  const row: HTMLElement[] = [];
   for (const app of DEFAULT_APP_CARDS) {
-  const button = createAppCard(app, callbacks);
-    appsTrack.appendChild(button);
-    appItems.push(button);
+    const button = createAppCard(app, callbacks);
+    track.appendChild(button);
+    row.push(button);
   }
 
-  appsSection.appendChild(appsTrack);
-  container.appendChild(appsSection);
-  rows.push(appItems);
-
-  return rows;
+  section.appendChild(track);
+  return { section, row };
 }
 
 function appendCatalogSections(

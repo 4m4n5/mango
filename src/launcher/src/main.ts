@@ -3,7 +3,14 @@ import { FocusGrid } from "./focus";
 import { flushProgress, loadCatalogRails, loadContinueRail, stopPlaybackForVoice } from "./catalog";
 import { DetailController } from "./detail";
 import { NextEpisodePrompt } from "./next-prompt";
-import { buildHomeRails, buildBrowseTabs, BROWSE_TAB_ORDER, type CatalogState, type HomeOptions } from "./home";
+import {
+  buildAppsRail,
+  buildBrowseTabs,
+  buildCatalogRails,
+  BROWSE_TAB_ORDER,
+  type CatalogState,
+  type HomeOptions,
+} from "./home";
 import { buildSettingsRefresh, reliabilityBadgeText, settingsFocusables } from "./settings";
 import { fetchReliabilityState } from "./reliability";
 import { startVoiceHud } from "./voice-hud";
@@ -61,6 +68,21 @@ let pendingContinueRefreshTab: BrowseTab | null = null;
 let continueRefreshInFlight = false;
 const tabFocusKeys = new Map<BrowseTab, string>();
 const tabFocusPositions = new Map<BrowseTab, { row: number; col: number }>();
+
+// Per-tab cache of built catalog DOM + focus rows. Keyed by tab, validated by
+// identity of the ContentRail[] and savedKeys Set — a genuine catalog refresh,
+// reshuffle, continue-rail update, or saved add/remove all produce a fresh
+// reference and therefore invalidate the cache. Loading/error states never
+// populate this cache. Bounded by BROWSE_TAB_ORDER.length (4).
+interface TabRenderEntry {
+  railsRef: ContentRail[];
+  savedRef: Set<string>;
+  container: HTMLElement;
+  rows: HTMLElement[][];
+}
+const tabRenderCache = new Map<BrowseTab, TabRenderEntry>();
+let appsSection: HTMLElement | null = null;
+let appsRow: HTMLElement[] = [];
 
 const focusGrid = new FocusGrid((element) => {
   const started = performance.now();
@@ -198,18 +220,10 @@ function renderHome(): void {
   const showShuffle = activeBrowseTab !== "live";
   libraryRefreshBtn.hidden = !showShuffle;
   const browseChrome = showShuffle ? [...tabButtons, libraryRefreshBtn] : tabButtons;
-  focusGridRows = [
-    browseChrome,
-    ...buildHomeRails(railsEl, {
-      onContentSelect: handleContentSelect,
-      onAppSelect: handleAppSelect,
-    }, {
-      ...homeOptions,
-      browseTab: activeBrowseTab,
-      onBrowseTabChange: handleBrowseTabChange,
-      savedKeys,
-    }, catalogState),
-  ];
+  ensureAppsSection();
+  const { container: activeContainer, rows: catalogRows, reused } = renderActiveTabCatalog();
+  mountRailsView(activeContainer);
+  focusGridRows = [browseChrome, ...catalogRows, appsRow];
   focusGrid.setRows(focusGridRows, {
     preferredKey: tabFocusKeys.get(activeBrowseTab),
     fallbackPosition: tabFocusPositions.get(activeBrowseTab),
@@ -225,9 +239,95 @@ function renderHome(): void {
     tab: activeBrowseTab,
     rows: focusGridRows.length,
     state: catalogState.status,
+    cache: reused ? "hit" : "miss",
     duration_ms: Math.round(performance.now() - started),
   });
   scheduleReliabilityBadge();
+}
+
+function ensureAppsSection(): void {
+  if (appsSection) {
+    return;
+  }
+  const built = buildAppsRail({
+    onContentSelect: handleContentSelect,
+    onAppSelect: handleAppSelect,
+  });
+  appsSection = built.section;
+  appsRow = built.row;
+}
+
+interface ActiveTabRender {
+  container: HTMLElement;
+  rows: HTMLElement[][];
+  reused: boolean;
+}
+
+function renderActiveTabCatalog(): ActiveTabRender {
+  // Loading/error states are never cached — always render fresh into a
+  // throwaway container so a stale posters DOM never leaks into these states.
+  if (catalogState.status !== "ready") {
+    tabRenderCache.delete(activeBrowseTab);
+    const container = document.createElement("div");
+    container.className = "rails__tab";
+    container.dataset.tab = activeBrowseTab;
+    const rows = buildCatalogRails(container, {
+      onContentSelect: handleContentSelect,
+      onAppSelect: handleAppSelect,
+    }, buildHomeOptions(), catalogState);
+    return { container, rows, reused: false };
+  }
+
+  const cached = tabRenderCache.get(activeBrowseTab);
+  if (cached && cached.railsRef === catalogState.rails && cached.savedRef === savedKeys) {
+    return { container: cached.container, rows: cached.rows, reused: true };
+  }
+
+  const container = document.createElement("div");
+  container.className = "rails__tab";
+  container.dataset.tab = activeBrowseTab;
+  const rows = buildCatalogRails(container, {
+    onContentSelect: handleContentSelect,
+    onAppSelect: handleAppSelect,
+  }, buildHomeOptions(), catalogState);
+  tabRenderCache.set(activeBrowseTab, {
+    railsRef: catalogState.rails,
+    savedRef: savedKeys,
+    container,
+    rows,
+  });
+  return { container, rows, reused: false };
+}
+
+function buildHomeOptions(): HomeOptions {
+  return {
+    ...homeOptions,
+    browseTab: activeBrowseTab,
+    onBrowseTabChange: handleBrowseTabChange,
+    savedKeys,
+  };
+}
+
+// Ensures `railsEl` shows exactly [activeContainer, appsSection]. Any other
+// cached tab containers currently attached are detached (they stay alive in
+// tabRenderCache for reuse). No-op writes when the DOM is already correct so
+// same-tab re-renders (cache hit) don't churn.
+function mountRailsView(activeContainer: HTMLElement): void {
+  for (let i = railsEl.childNodes.length - 1; i >= 0; i -= 1) {
+    const child = railsEl.childNodes[i];
+    if (child === appsSection || child === activeContainer) {
+      continue;
+    }
+    railsEl.removeChild(child);
+  }
+  if (activeContainer.parentNode !== railsEl) {
+    railsEl.insertBefore(activeContainer, appsSection);
+  }
+  if (appsSection) {
+    if (appsSection.parentNode !== railsEl || appsSection !== railsEl.lastChild) {
+      railsEl.appendChild(appsSection);
+    }
+  }
 }
 
 function handleBrowseTabChange(tab: BrowseTab): void {

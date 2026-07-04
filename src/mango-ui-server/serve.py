@@ -318,6 +318,11 @@ def collect_catalog_health() -> dict[str, object]:
 
 class MangoUiHandler(BaseHTTPRequestHandler):
     server_version = "mango-ui-server/0.1"
+    # HTTP/1.1 keep-alive: every response path in this handler sets an accurate
+    # Content-Length (JSON senders, static file success, proxy success/HTTPError)
+    # or funnels through send_error which stdlib-guarantees Connection: close +
+    # Content-Length. Do not lower this without re-auditing framing.
+    protocol_version = "HTTP/1.1"
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -531,9 +536,10 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         if request_path in ("", "/"):
             request_path = default_file
         request_path = unquote(request_path)
+        root_resolved = root.resolve()
         target = (root / request_path).resolve()
         try:
-            target.relative_to(root.resolve())
+            target.relative_to(root_resolved)
         except ValueError:
             self.send_error(HTTPStatus.FORBIDDEN)
             return
@@ -542,10 +548,22 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             return
         content_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         data = target.read_bytes()
+        # Vite emits fingerprinted files under `assets/` (JS/CSS/fonts/images with
+        # a content hash in the filename). Those are safe to cache forever; a new
+        # build produces new filenames. Everything else (index.html, root-level
+        # files) stays no-store so a fresh build is picked up immediately.
+        try:
+            rel_parts = target.relative_to(root_resolved).parts
+        except ValueError:
+            rel_parts = ()
+        is_hashed_asset = len(rel_parts) >= 2 and rel_parts[0] == "assets"
+        cache_control = (
+            "public, max-age=31536000, immutable" if is_hashed_asset else "no-store"
+        )
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache_control)
         self.end_headers()
         self.wfile.write(data)
 
