@@ -20,6 +20,7 @@
 | Set up voice | [VOICE.md](VOICE.md) |
 | Set up native YouTube | [YOUTUBE.md](YOUTUBE.md) |
 | Set up live TV | [LIVE_TV.md](LIVE_TV.md) |
+| Overhaul the AI layer (audit + plan) | [AI_LAYER.md](AI_LAYER.md) |
 | Gamepad | [HARDWARE.md](HARDWARE.md) |
 | Locked choices | [DECISIONS.md](DECISIONS.md) |
 
