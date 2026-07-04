@@ -145,6 +145,7 @@ function libraryItemFromRecord(body: Record<string, unknown>): LibraryItemInput 
 
 async function resolveLibraryTarget(
   body: Record<string, unknown>,
+  core?: CatalogCore,
 ): Promise<LibraryItemInput> {
   const direct = libraryItemFromRecord(body);
   if (direct) {
@@ -195,7 +196,7 @@ async function resolveLibraryTarget(
       };
     }
     const type = typeof body.type === 'string' ? body.type.trim().toLowerCase() : null;
-    const hits = await searchVerifiedLibrary(title, 12);
+    const hits = await searchVerifiedLibrary(title, 12, core);
     const exact = hits.filter((hit) => {
       if (type && hit.type !== type) {
         return false;
@@ -701,7 +702,7 @@ async function main(): Promise<void> {
 
       if (req.method === 'POST' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'saved') {
         const body = await readBody(req) as Record<string, unknown>;
-        const target = await resolveLibraryTarget(body);
+        const target = await resolveLibraryTarget(body, core);
         assertSaveAllowed(target);
         const saved = saveLibraryItem({
           ...target,
@@ -721,7 +722,7 @@ async function main(): Promise<void> {
 
       if (req.method === 'DELETE' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'saved') {
         const body = await readBody(req) as Record<string, unknown>;
-        const target = await resolveLibraryTarget(body);
+        const target = await resolveLibraryTarget(body, core);
         const removed = unsaveLibraryItem({
           source: target.source,
           type: target.type,
@@ -1002,7 +1003,7 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'search') {
         const query = url.searchParams.get('q')?.trim() ?? '';
         const limit = Number(url.searchParams.get('limit') || 8);
-        const results = await searchVerifiedLibrary(query, Number.isFinite(limit) ? limit : 8);
+        const results = await searchVerifiedLibrary(query, Number.isFinite(limit) ? limit : 8, core);
         sendJson(res, 200, { ok: true, query, results });
         return;
       }

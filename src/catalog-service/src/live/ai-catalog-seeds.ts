@@ -58,13 +58,24 @@ function emptyPlayabilityStatus(railId: string): PlayabilityRailStatus {
 }
 
 export function collectLiveChannelsFromCache(): LiveChannelMeta[] {
+  return collectLiveSearchEntriesFromCache().map((entry) => entry.meta);
+}
+
+export type LiveSearchEntry = {
+  meta: LiveChannelMeta;
+  context?: string;
+};
+
+export function collectLiveSearchEntriesFromCache(): LiveSearchEntry[] {
   const diskCache = readLiveRailsDiskCacheSync();
   if (!diskCache || !Array.isArray(diskCache.payload.rails)) {
     return [];
   }
   const seen = new Set<string>();
-  const channels: LiveChannelMeta[] = [];
+  const entries: LiveSearchEntry[] = [];
   for (const rail of diskCache.payload.rails) {
+    const railLabel = (rail as { label?: unknown }).label;
+    const railText = typeof railLabel === 'string' && railLabel.trim() ? railLabel.trim() : '';
     const railItems = (rail as { items?: unknown }).items;
     if (!Array.isArray(railItems)) {
       continue;
@@ -75,10 +86,10 @@ export function collectLiveChannelsFromCache(): LiveChannelMeta[] {
         continue;
       }
       seen.add(item.id);
-      channels.push(item);
+      entries.push({ meta: item, context: railText || undefined });
     }
   }
-  return channels;
+  return entries;
 }
 
 export async function searchLiveChannelSeeds(query: string, limit = 12): Promise<AiSeedTitle[]> {

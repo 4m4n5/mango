@@ -1224,6 +1224,17 @@ export class CatalogCore {
     };
   }
 
+  async listLiveChannelsForVoiceSearch(): Promise<LiveChannelMeta[]> {
+    if (!this.liveRailConfig) {
+      return [];
+    }
+    try {
+      return await this.fetchTaggedLiveChannels(this.liveRailConfig);
+    } catch {
+      return [];
+    }
+  }
+
   async liveTabRailItems(_options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
     const cached = this.liveTabRailItemsCache;
     if (cached && cached.expiresAt > Date.now()) {

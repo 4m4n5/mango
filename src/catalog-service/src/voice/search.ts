@@ -1,5 +1,6 @@
 import { searchVerifiedRailPoolTitles } from '../playability/db.js';
 import { metahubPosterUrl, normalizePosterUrl } from '../poster.js';
+import type { CatalogCore } from '../core.js';
 import { searchLiveChannels } from './live-search.js';
 
 export type VoiceSearchHit = {
@@ -57,6 +58,7 @@ function tabForType(type: string): VoiceSearchHit['tab'] {
 export async function searchVerifiedLibrary(
   query: string,
   limit = 8,
+  core?: CatalogCore,
 ): Promise<VoiceSearchHit[]> {
   const trimmed = query.trim();
   if (trimmed.length < 2) {
@@ -93,7 +95,7 @@ export async function searchVerifiedLibrary(
     });
   }
 
-  const liveHits = await searchLiveChannels(trimmed, limit);
+  const liveHits = await searchLiveChannels(trimmed, limit, core);
   const merged = [...hits, ...liveHits];
   merged.sort((left, right) => {
     if (right.score !== left.score) {

@@ -25,7 +25,9 @@ export function buildVoiceToolManifest(): {
     {
       name: 'mango_search',
       description:
-        'Search verified mango library by normalized title or keywords. Do NOT pass the user\'s full vague question (e.g. "good hindi movies") — use title names or extracted keywords after clarifying discover intent.',
+        'Search the mango library by title or keywords — verified movies/series plus live IPTV channels (AREA69, free sports, news, cartoons). '
+        + 'For live TV use channel names or category words (cartoons, cricket, nickelodeon, news). '
+        + 'Do NOT pass the user\'s full vague question (e.g. "good hindi movies") — use title names or extracted keywords after clarifying discover intent.',
       layer: 'catalog',
       input_schema: {
         type: 'object',
@@ -141,7 +143,9 @@ export function buildVoiceToolManifest(): {
     {
       name: 'mango_open_title',
       description:
-        'Open a title on the TV detail page (works from home, detail, or settings — replaces the current title in place). Use only when intent is clear: explicit open/kholo, unambiguous single search match, or ordinal/follow-up after listing options. Never starts playback; user presses B to play.',
+        'Open a title on the TV detail page (works from home, detail, or settings — replaces the current title in place). '
+        + 'Use for movies, series, and live TV (type tv, tab live from mango_search). '
+        + 'Use only when intent is clear: explicit open/kholo, unambiguous single search match, or ordinal/follow-up after listing options. Never starts playback; user presses B to play.',
       layer: 'launcher',
       input_schema: {
         type: 'object',

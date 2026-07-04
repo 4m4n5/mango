@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { searchLiveChannels } from './live-search.js';
+import { searchLiveChannels, rankLiveChannelEntries } from './live-search.js';
 
 function withTempLiveCache<T>(fn: () => T | Promise<T>): Promise<T> | T {
   const dir = mkdtempSync(join(tmpdir(), 'mango-live-voice-'));
@@ -92,3 +92,14 @@ test('searchLiveChannels returns empty for short queries', async () => withTempL
   const hits = await searchLiveChannels('c', 5);
   assert.equal(hits.length, 0);
 }));
+
+test('rankLiveChannelEntries matches rail label context', () => {
+  const hits = rankLiveChannelEntries(
+    [{ meta: { id: 'nick', name: 'Nickelodeon', title: 'Nickelodeon' }, context: 'cartoons' }],
+    'cartoons',
+    5,
+  );
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0].id, 'nick');
+  assert.ok(hits[0].score > 0);
+});
