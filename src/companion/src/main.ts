@@ -34,9 +34,11 @@ const TARGET_SAMPLE_RATE = 16_000;
 const MAX_UTTERANCE_MS = 30_000;
 
 const statusEl = document.getElementById("status");
+const statusDotEl = document.getElementById("status-dot");
 const errorEl = document.getElementById("error");
 const pttBtn = document.getElementById("ptt");
 const chatEl = document.getElementById("chat");
+const chatEmptyEl = document.getElementById("chat-empty");
 const composerForm = document.getElementById("composer");
 const composerInput = document.getElementById("composer-input") as HTMLTextAreaElement | null;
 const composerSubmit = composerForm?.querySelector("button[type='submit']");
@@ -93,7 +95,7 @@ function connect(): void {
   socket.addEventListener("open", () => {
     connected = true;
     updateComposerState();
-    setStatus("connected");
+    setConnectionState("idle", "connected");
     setError("");
   });
   socket.addEventListener("message", (event: MessageEvent<string>) => {
@@ -102,7 +104,7 @@ function connect(): void {
   socket.addEventListener("close", () => {
     connected = false;
     updateComposerState();
-    setStatus("disconnected");
+    setConnectionState("connecting", "disconnected");
     reconnectTimer = window.setTimeout(connect, 2000);
   });
   socket.addEventListener("error", () => {
@@ -124,9 +126,12 @@ function handleServerMessage(raw: string): void {
     const msg = JSON.parse(raw) as ServerMessage;
     if (msg.type === "status") {
       const state = (msg.state ?? "").trim();
-      setStatus((msg.text ?? msg.state ?? "").trim());
-      voiceBusy = state === "listening" || state === "thinking";
+      setConnectionState(state, (msg.text ?? msg.state ?? "").trim());
+      voiceBusy = state === "listening" || state === "thinking" || state === "speaking";
       updateComposerState();
+      if (pttBtn instanceof HTMLButtonElement) {
+        pttBtn.classList.toggle("active", state === "listening");
+      }
       if (state === "idle") {
         mirrorTool = "—";
         renderMirror();
@@ -164,16 +169,62 @@ function handleServerMessage(raw: string): void {
   }
 }
 
-function setStatus(text: string): void {
-  if (statusEl !== null) {
-    statusEl.textContent = text;
+function humanizeStatus(state: string, text: string): string {
+  const normalized = `${state} ${text}`.toLowerCase();
+  if (!connected) {
+    return "Reconnecting…";
   }
+  if (state === "listening" || normalized.includes("listening")) {
+    return "Listening…";
+  }
+  if (state === "thinking" || normalized.includes("thinking") || normalized.includes("transcrib")) {
+    return "Thinking…";
+  }
+  if (state === "speaking") {
+    return "Speaking…";
+  }
+  if (text === "connected" || state === "idle") {
+    return "Ready";
+  }
+  return text.trim() || "Ready";
+}
+
+function setConnectionState(state: string, text: string): void {
+  const label = humanizeStatus(state, text);
+  if (statusEl !== null) {
+    statusEl.textContent = label;
+  }
+  if (statusDotEl !== null) {
+    if (!connected) {
+      statusDotEl.dataset.state = "connecting";
+    } else if (state === "listening" || state === "thinking" || state === "speaking") {
+      statusDotEl.dataset.state = "busy";
+    } else {
+      statusDotEl.dataset.state = "ready";
+    }
+  }
+}
+
+function setStatus(text: string): void {
+  setConnectionState("", text);
+}
+
+function syncChatEmpty(): void {
+  if (chatEmptyEl === null || chatEl === null) {
+    return;
+  }
+  chatEmptyEl.hidden = chatEl.querySelector(".message") !== null;
 }
 
 function setError(text: string): void {
   if (errorEl !== null) {
     errorEl.textContent = text;
     errorEl.toggleAttribute("hidden", text.length === 0);
+  }
+  if (statusDotEl !== null && text.length > 0) {
+    statusDotEl.dataset.state = "error";
+  } else if (statusDotEl !== null && connected) {
+    statusDotEl.dataset.state = voiceBusy ? "busy" : "ready";
   }
 }
 
@@ -399,12 +450,13 @@ function appendToolCard(text: string, phase: string): void {
   item.className = `message tool tool--${phase}`;
   const roleEl = document.createElement("span");
   roleEl.className = "role";
-  roleEl.textContent = phase === "done" ? "done" : "tool";
+  roleEl.textContent = phase === "done" ? "Done" : "Working";
   const textEl = document.createElement("p");
   textEl.textContent = display;
   item.append(roleEl, textEl);
   chatEl.append(item);
   chatEl.scrollTop = chatEl.scrollHeight;
+  syncChatEmpty();
 }
 
 function appendChat(role: ChatRole, text: string): void {
@@ -421,12 +473,13 @@ function appendChat(role: ChatRole, text: string): void {
   }
   const roleEl = document.createElement("span");
   roleEl.className = "role";
-  roleEl.textContent = role === "user" ? "you" : "mango";
+  roleEl.textContent = role === "user" ? "You" : "Mango";
   const textEl = document.createElement("p");
   textEl.textContent = text;
   item.append(roleEl, textEl);
   chatEl.append(item);
   chatEl.scrollTop = chatEl.scrollHeight;
+  syncChatEmpty();
 }
 
 function upsertAssistantPartial(text: string): void {
@@ -440,7 +493,7 @@ function upsertAssistantPartial(text: string): void {
     item.dataset.partial = "true";
     const roleEl = document.createElement("span");
     roleEl.className = "role";
-    roleEl.textContent = "mango";
+    roleEl.textContent = "Mango";
     const textEl = document.createElement("p");
     item.append(roleEl, textEl);
     chatEl.append(item);
@@ -451,6 +504,7 @@ function upsertAssistantPartial(text: string): void {
   }
   item.dataset.partial = "true";
   chatEl.scrollTop = chatEl.scrollHeight;
+  syncChatEmpty();
 }
 
 function send(msg: Record<string, string>): boolean {
