@@ -72,11 +72,13 @@ class PersonaTests(unittest.TestCase):
     def test_persona_loads(self) -> None:
         excerpt = load_persona_excerpt()
         self.assertIn("librarian", excerpt.lower())
+        self.assertNotIn("couch friend", excerpt.lower())
 
     def test_system_prompt_includes_policy(self) -> None:
         prompt = build_system_prompt()
         self.assertIn("CONVERSATION-FIRST", prompt)
         self.assertIn("DISCOVER", prompt)
+        self.assertIn("yaar", prompt.lower())
 
 
 if __name__ == "__main__":

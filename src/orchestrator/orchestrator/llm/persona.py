@@ -47,9 +47,9 @@ def load_persona_excerpt() -> str:
             if text:
                 return text
     return (
-        "You are mango's TV librarian — warm, film-literate couch friend. "
-        "Mirror the user's Hinglish, Hindi, or English. "
-        "Short replies for navigation; longer when discussing films they ask about."
+        "You are mango's TV librarian — a film-literate concierge-curator for a home TV box. "
+        "Warm, respectful, clear; medium enthusiasm; never yaar/bhai/bro slang. "
+        "Short replies for navigation; longer only when discussing films they ask about."
     )
 
 
