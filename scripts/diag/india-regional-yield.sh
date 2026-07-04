@@ -39,6 +39,24 @@ BASELINE="${MANGO_INDIA_PROBE_BASELINE:-}"
 [[ -f "$PROBE_FILE" ]] || { echo "probe file not found: $PROBE_FILE" >&2; exit 2; }
 curl -sf --max-time 5 "$CATALOG/health" >/dev/null || { echo "catalog down at $CATALOG" >&2; exit 1; }
 
+TMP="${TMPDIR:-/tmp}/mango-india-yield-$$"
+mkdir -p "$TMP"
+trap 'rm -rf "$TMP"' EXIT
+
+# stdin JSON -> "kept resolve_ms top_source cache" (single line, space-separated)
+cat >"$TMP/parse.py" <<'PY'
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("0 - - -"); sys.exit(0)
+streams = d.get("streams") or []
+filt = d.get("filters") or {}
+kept = filt.get("kept", len(streams))
+top = streams[0] if streams else {}
+print(kept, d.get("resolve_ms", "-"), (top.get("source") or "-"), (top.get("cache_status") or "-"))
+PY
+
 printf 'id\ttype\tkept\tresolve_ms\ttop_source\tcache\n' >"$OUT"
 
 total=0
@@ -55,21 +73,10 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   [[ -z "$id" ]] && continue
   total=$((total + 1))
 
-  json="$(curl -sf --max-time "$TIMEOUT" "$CATALOG/stream/${type}/${id}" 2>/dev/null || echo '')"
-  read -r kept resolve_ms top_source cache < <(
-    echo "$json" | python3 - <<'PY' 2>/dev/null || echo "0 - - -"
-import json, sys
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    print("0 - - -"); raise SystemExit
-streams = d.get("streams") or []
-filt = d.get("filters") or {}
-kept = filt.get("kept", len(streams))
-top = streams[0] if streams else {}
-print(kept, d.get("resolve_ms", "-"), (top.get("source") or "-"), (top.get("cache_status") or "-"))
-PY
-  )
+  json="$(curl -sf --max-time "$TIMEOUT" "$CATALOG/stream/${type}/${id}" 2>/dev/null || true)"
+  out="$(printf '%s' "$json" | python3 "$TMP/parse.py" 2>/dev/null || true)"
+  [[ -z "$out" ]] && out="0 - - -"
+  read -r kept resolve_ms top_source cache <<<"$out"
   kept="${kept:-0}"
   [[ "$kept" =~ ^[0-9]+$ ]] || kept=0
   if [[ "$kept" -ge 1 ]]; then hits=$((hits + 1)); fi
@@ -78,29 +85,31 @@ PY
 done <"$PROBE_FILE"
 
 rate=0
-if [[ "$total" -gt 0 ]]; then rate=$(python3 -c "print(round(100*$hits/$total,1))"); fi
+if [[ "$total" -gt 0 ]]; then rate="$(python3 -c "print(round(100*$hits/$total,1))")"; fi
 echo
 echo "== summary ($LABEL): $hits/$total returned >=1 stream = ${rate}% =="
 echo "   report: $OUT"
 
 if [[ -n "$BASELINE" && -f "$BASELINE" ]]; then
-  base_rate=$(python3 - "$BASELINE" <<'PY'
+  base_rate="$(python3 - "$BASELINE" <<'PY'
 import sys
-tot=hit=0
+tot = hit = 0
 with open(sys.argv[1]) as f:
     next(f, None)
     for ln in f:
         p = ln.rstrip("\n").split("\t")
-        if len(p) < 3: continue
+        if len(p) < 3:
+            continue
         tot += 1
         try:
-            if int(p[2]) >= 1: hit += 1
+            if int(p[2]) >= 1:
+                hit += 1
         except ValueError:
             pass
-print(round(100*hit/tot,1) if tot else 0.0)
+print(round(100 * hit / tot, 1) if tot else 0.0)
 PY
-  )
-  delta=$(python3 -c "print(round($rate-$base_rate,1))")
+)"
+  delta="$(python3 -c "print(round($rate-$base_rate,1))")"
   echo "== delta vs baseline ($BASELINE): ${base_rate}% -> ${rate}% = ${delta}pp =="
   echo "   GO bar: rate >= 60% AND delta >= +30pp"
 fi
