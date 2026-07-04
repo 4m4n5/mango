@@ -24,22 +24,23 @@
         </div>
       </header>
 
-      <details class="panel panel--setup">
-        <summary class="panel-summary">
-          <span>YouTube</span>
-          <span id="youtube-status" class="panel-summary-meta">checking…</span>
-        </summary>
-        <div class="panel-body setup-body">
+      <div class="app-scroll">
+      <section class="panel youtube-panel" aria-label="YouTube account">
+        <div class="youtube-head">
+          <div>
+            <h2 class="panel-title panel-title--inline">YouTube</h2>
+            <p id="youtube-status" class="youtube-status">checking…</p>
+          </div>
           <div class="setup-actions">
             <button id="youtube-auth-start" class="btn btn--secondary" type="button">Connect</button>
             <button id="youtube-auth-disconnect" class="btn btn--ghost" type="button">Disconnect</button>
           </div>
-          <div id="youtube-auth-code" class="youtube-code" hidden>
-            <p>Open <a id="youtube-auth-link" href="#" target="_blank" rel="noreferrer">Google device login</a></p>
-            <strong id="youtube-user-code"></strong>
-          </div>
         </div>
-      </details>
+        <div id="youtube-auth-code" class="youtube-code" hidden>
+          <p>Open <a id="youtube-auth-link" href="#" target="_blank" rel="noreferrer">Google device login</a></p>
+          <strong id="youtube-user-code"></strong>
+        </div>
+      </section>
 
       <section id="mirror" class="panel mirror-panel" aria-label="TV mirror">
         <div class="panel-head">
@@ -73,6 +74,7 @@
           <p class="chat-empty-copy">Hold the mic to speak, or use the composer below. Voice opens on TV — press B to play.</p>
         </div>
       </section>
+      </div>
 
       <footer class="bottom-dock">
         <p id="error" class="error-banner" hidden role="alert"></p>
@@ -96,8 +98,8 @@
             <span class="ptt-ring" aria-hidden="true"></span>
             <span class="ptt-label">Hold to talk</span>
           </button>
-          <p class="dock-hint">Mic requires HTTPS on your phone</p>
         </div>
+        <p class="dock-hint">Mic requires HTTPS on your phone</p>
       </footer>
     </main>
     <script type="module" src="/src/main.ts"></script>
