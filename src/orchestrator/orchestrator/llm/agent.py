@@ -50,6 +50,7 @@ async def generate_agent_reply(
     on_delta: DeltaCallback | None = None,
     dispatch_launcher: LauncherDispatch | None = None,
     on_tool_event: ToolEventCallback | None = None,
+    tv_state: dict[str, Any] | None = None,
 ) -> str:
     if os.environ.get("MANGO_LLM_MOCK") == "1":
         return _mock_reply(messages, on_delta=on_delta)
@@ -71,7 +72,7 @@ async def generate_agent_reply(
     last_open_title = ""
     user_text = _last_user_text(messages)
     nav_intent = user_wants_title_navigation(user_text)
-    system_prompt = await _build_system_prompt(settings)
+    system_prompt = await _build_system_prompt(settings, tv_state=tv_state)
 
     if nav_intent and dispatch_launcher is not None and is_followup_pick_only(user_text):
         contextual = pick_hit_from_utterance(user_text, browse.all_hits())
@@ -348,7 +349,11 @@ def _parse_search_results(result: str) -> list[dict[str, Any]]:
     return hits
 
 
-async def _build_system_prompt(settings: OrchestratorSettings) -> str:
+async def _build_system_prompt(
+    settings: OrchestratorSettings,
+    *,
+    tv_state: dict[str, Any] | None = None,
+) -> str:
     prompt = build_system_prompt()
     try:
         summary_payload = await asyncio.to_thread(
@@ -367,7 +372,61 @@ async def _build_system_prompt(settings: OrchestratorSettings) -> str:
                 prompt = f"{prompt}\n\n" + "\n\n".join(blocks)
     except Exception:
         logger.debug("companion summary unavailable for prompt inject", exc_info=True)
+
+    try:
+        context_payload = await asyncio.to_thread(catalog_tools.tool_ai_context, settings)
+        tv_block = _format_tv_context_block(context_payload, tv_state)
+        if tv_block:
+            prompt = f"{prompt}\n\n{tv_block}"
+    except Exception:
+        logger.debug("tv context unavailable for prompt inject", exc_info=True)
     return prompt
+
+
+def _format_tv_context_block(
+    context_payload: dict[str, Any] | None,
+    tv_state: dict[str, Any] | None,
+) -> str | None:
+    """Compact, token-cheap "what's on the TV right now" line for the system prompt."""
+    if not isinstance(context_payload, dict) or context_payload.get("ok") is not True:
+        return None
+
+    segments: list[str] = []
+
+    now_playing = context_payload.get("now_playing")
+    if isinstance(now_playing, dict) and now_playing.get("active") and now_playing.get("title"):
+        title = now_playing.get("title")
+        progress_pct = now_playing.get("progress_pct")
+        if isinstance(progress_pct, (int, float)):
+            segments.append(f'now playing "{title}" ({int(progress_pct)}%)')
+        else:
+            segments.append(f'now playing "{title}"')
+    else:
+        segments.append("nothing playing")
+
+    last_nav_tab = tv_state.get("last_nav_tab") if isinstance(tv_state, dict) else None
+    if isinstance(last_nav_tab, str) and last_nav_tab.strip():
+        segments.append(f"current tab: {last_nav_tab.strip()}")
+
+    rails_by_tab = context_payload.get("ai_rails_by_tab")
+    if isinstance(rails_by_tab, dict):
+        rail_segments: list[str] = []
+        for tab, rails in rails_by_tab.items():
+            if not isinstance(rails, list) or not rails:
+                continue
+            labels = [
+                str(rail.get("label")).strip()
+                for rail in rails
+                if isinstance(rail, dict) and str(rail.get("label", "")).strip()
+            ]
+            if labels:
+                rail_segments.append(f"{tab}[{', '.join(labels)}]")
+        if rail_segments:
+            segments.append("active AI rails: " + ", ".join(rail_segments))
+
+    if not segments:
+        return None
+    return "TV CONTEXT: " + " | ".join(segments)
 
 
 def open_title_block_reason(

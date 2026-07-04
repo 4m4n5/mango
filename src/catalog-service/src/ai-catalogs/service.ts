@@ -1,13 +1,12 @@
 import type { CatalogSourceRef, CatalogTab } from '../rails.js';
 import type { CatalogCore } from '../core.js';
 import { CatalogError } from '../catalog-errors.js';
-import { topUpRail } from '../playability/top-up.js';
+import { getAdapterForTab } from './adapters/registry.js';
 import {
   deleteAiCatalogSlot,
   loadAiCatalogSlots,
   readAiCatalogSlot,
   slotsForTab,
-  tabHasCapacity,
   writeAiCatalogSlot,
 } from './store.js';
 import { mergeSeedLists } from './list-source.js';
@@ -160,8 +159,9 @@ export async function createAiCatalog(
   const seedTitles = input.seed_titles ?? [];
   const sources = input.sources ?? [];
   const existing = slotsForTab(await loadAiCatalogSlots(), tab);
+  const adapter = getAdapterForTab(tab);
 
-  if (!tabHasCapacity(existing, tab)) {
+  if (existing.length >= adapter.maxCapacity(tab)) {
     const action = input.overflow_action;
     if (!action) {
       return {
@@ -323,7 +323,7 @@ export async function refreshAiCatalog(
     throw new CatalogError(500, `expected ai catalog rail: ${railId}`);
   }
   await applyAiCatalogTopUpHints(rail);
-  const result = await topUpRail(core, railId);
+  const result = await getAdapterForTab(slot.tab).topUp(core, railId);
   await clearAppliedTopUpHints(railId);
   core.clearRailItemsCache(railId);
   return {

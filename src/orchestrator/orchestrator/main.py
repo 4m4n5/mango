@@ -266,6 +266,7 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
                     seq = await asyncio.to_thread(post_launcher_command, settings, command)
                 except Exception as exc:
                     logger.warning("launcher HTTP dispatch failed: %s", exc)
+                session.record_dispatched_command(command)
                 payload = {**command, "seq": seq} if seq is not None else command
                 await broadcast(payload)
                 return seq
@@ -282,6 +283,10 @@ async def run_voice_pipeline(pcm_b64: str) -> None:
                         on_delta=on_llm_delta,
                         dispatch_launcher=dispatch_launcher,
                         on_tool_event=on_tool_event,
+                        tv_state={
+                            "last_nav_tab": session.last_nav_tab,
+                            "last_open": session.last_open,
+                        },
                     )
                 else:
                     reply = await asyncio.to_thread(

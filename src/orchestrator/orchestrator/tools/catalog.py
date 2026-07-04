@@ -224,6 +224,10 @@ def tool_now_playing(settings: OrchestratorSettings) -> dict[str, Any]:
     return _request_json(settings, "GET", "/voice/now-playing", timeout=10.0)
 
 
+def tool_ai_context(settings: OrchestratorSettings) -> dict[str, Any]:
+    return _request_json(settings, "GET", "/ai/context", timeout=10.0)
+
+
 def tool_save_title(settings: OrchestratorSettings, body: dict[str, Any]) -> dict[str, Any]:
     return _request_json(
         settings,

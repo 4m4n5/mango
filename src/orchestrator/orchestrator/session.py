@@ -38,6 +38,8 @@ class SessionState:
     overlay_text: str = "idle"
     messages: list[ChatMessage] = field(default_factory=list)
     voice_browse: VoiceBrowseContext = field(default_factory=VoiceBrowseContext)
+    last_nav_tab: str | None = None
+    last_open: dict[str, Any] | None = None
 
     def set_overlay(self, state: OverlayState, text: str | None = None) -> None:
         self.overlay_state = state
@@ -47,6 +49,23 @@ class SessionState:
         message = ChatMessage(role=role, text=text.strip())
         self.messages.append(message)
         return message
+
+    def record_dispatched_command(self, command: dict[str, Any]) -> None:
+        """Track last-dispatched TV nav/open state for the voice "TV context" prompt block."""
+        action = command.get("action")
+        if action == "tab":
+            tab = command.get("tab")
+            if isinstance(tab, str) and tab:
+                self.last_nav_tab = tab
+        elif action == "open_detail":
+            tab = command.get("tab")
+            self.last_open = {
+                "title": command.get("title"),
+                "type": command.get("content_type"),
+                "tab": tab,
+            }
+            if isinstance(tab, str) and tab:
+                self.last_nav_tab = tab
 
     def provider_messages(self, *, max_turns: int | None = None) -> list[dict[str, str]]:
         """LLM API shape — Anthropic/OpenAI expect ``content``, not ``text``."""

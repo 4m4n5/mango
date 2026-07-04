@@ -60,6 +60,7 @@ import {
 } from './stream-filters.js';
 import { searchVerifiedLibrary } from './voice/search.js';
 import { buildContinuePlayTarget, buildNowPlayingResponse } from './voice/now-playing.js';
+import { buildAiContextResponse } from './voice/ai-context.js';
 import { buildVoiceToolManifest } from './voice/tools.js';
 import { buildLibraryCatalog, buildLibraryOverview } from './voice/library.js';
 import { readLibrarianNotes, writeLibrarianNotes } from './voice/librarian-notes.js';
@@ -1151,6 +1152,11 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'continue') {
         const tab = parseCatalogTab(url.searchParams.get('tab'));
         sendJson(res, 200, buildContinuePlayTarget(tab));
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'ai' && parts[1] === 'context') {
+        sendJson(res, 200, await buildAiContextResponse());
         return;
       }
 

@@ -3,9 +3,9 @@ import type { CatalogTab } from '../rails.js';
 import type { CatalogCore } from '../core.js';
 import { DEFAULT_PLAYABILITY_CONFIG } from '../rails.js';
 import { getRailPlayabilityStatus } from '../playability/db.js';
-import { topUpRail } from '../playability/top-up.js';
+import { getAdapterForTab } from './adapters/registry.js';
 import { ensureCatalogsActive } from './catalog-activate.js';
-import { resolveAiCatalogPlan, type ComposeInput } from './compose.js';
+import type { ComposeInput } from './compose.js';
 import {
   createAiCatalog,
   refreshAiCatalog,
@@ -65,13 +65,13 @@ async function checkVisibleOnTab(
   };
 }
 
-async function runTopUpRound(core: CatalogCore, railId: string): Promise<boolean> {
+async function runTopUpRound(core: CatalogCore, tab: CatalogTab, railId: string): Promise<boolean> {
   const rail = core.browsableRail(railId);
   if (rail.type === 'ai_catalog') {
     await applyAiCatalogTopUpHints(rail);
     await core.reloadAiCatalogRails();
   }
-  const result = await topUpRail(core, railId);
+  const result = await getAdapterForTab(tab).topUp(core, railId);
   await clearAppliedTopUpHints(railId);
   core.clearRailItemsCache(railId);
   return result.ok;
@@ -147,7 +147,7 @@ export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise
         return job;
       }
 
-      const toppedUp = await runTopUpRound(core, job.rail_id);
+      const toppedUp = await runTopUpRound(core, job.tab, job.rail_id);
       if (toppedUp) {
         const after = await checkVisibleOnTab(core, job.tab, job.rail_id);
         job.displayed = after.displayed;
@@ -165,7 +165,7 @@ export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise
         break;
       }
       fallbackLevel += 1;
-      const plan = await resolveAiCatalogPlan(
+      const plan = await getAdapterForTab(slot.tab).resolvePlan(
         {
           label: slot.label,
           tab: slot.tab,
@@ -301,7 +301,7 @@ export async function composeCreateInput(
     return input;
   }
 
-  const plan = await resolveAiCatalogPlan(
+  const plan = await getAdapterForTab(input.tab).resolvePlan(
     {
       label: input.label,
       tab: input.tab,
