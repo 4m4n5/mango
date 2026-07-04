@@ -54,7 +54,16 @@ const youtubeDisconnectBtn = document.getElementById("youtube-auth-disconnect");
 const youtubeCodeEl = document.getElementById("youtube-auth-code");
 const youtubeLinkEl = document.getElementById("youtube-auth-link");
 const youtubeUserCodeEl = document.getElementById("youtube-user-code");
+const toggleYoutubeBtn = document.getElementById("toggle-youtube");
+const toggleMirrorBtn = document.getElementById("toggle-mirror");
+const youtubePanelEl = document.getElementById("youtube-panel");
+const mirrorPanelEl = document.getElementById("mirror");
+const youtubeChipMetaEl = document.getElementById("youtube-chip-meta");
+const mirrorChipMetaEl = document.getElementById("mirror-chip-meta");
 const wsUrl = resolveWsUrl();
+
+let youtubeChipMeta = "…";
+let mirrorPlayingSummary = "—";
 
 let socket: WebSocket | null = null;
 let reconnectTimer: number | undefined;
@@ -78,6 +87,47 @@ let chunks: Float32Array[] = [];
 connect();
 void loadYoutubeState();
 startMirrorPoll();
+wirePanelToggles();
+renderMirror();
+
+function wirePanelToggles(): void {
+  if (toggleYoutubeBtn instanceof HTMLButtonElement && youtubePanelEl !== null) {
+    toggleYoutubeBtn.addEventListener("click", () => {
+      toggleDrawer(toggleYoutubeBtn, youtubePanelEl);
+    });
+  }
+  if (toggleMirrorBtn instanceof HTMLButtonElement && mirrorPanelEl !== null) {
+    toggleMirrorBtn.addEventListener("click", () => {
+      toggleDrawer(toggleMirrorBtn, mirrorPanelEl);
+    });
+  }
+}
+
+function toggleDrawer(button: HTMLButtonElement, panel: HTMLElement): void {
+  const open = button.getAttribute("aria-expanded") === "true";
+  if (open) {
+    panel.setAttribute("hidden", "");
+    button.setAttribute("aria-expanded", "false");
+    return;
+  }
+  panel.removeAttribute("hidden");
+  button.setAttribute("aria-expanded", "true");
+}
+
+function openYoutubePanel(): void {
+  if (toggleYoutubeBtn instanceof HTMLButtonElement && youtubePanelEl !== null) {
+    youtubePanelEl.removeAttribute("hidden");
+    toggleYoutubeBtn.setAttribute("aria-expanded", "true");
+  }
+}
+
+function truncateMeta(text: string, max = 28): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= max) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, max - 1)}…`;
+}
 
 function resolveWsUrl(): string {
   const env = import.meta.env as Record<string, string | undefined>;
@@ -266,6 +316,11 @@ function renderMirror(): void {
   if (mirrorToolEl !== null) {
     mirrorToolEl.textContent = mirrorTool;
   }
+  if (mirrorChipMetaEl !== null) {
+    const parts = [mirrorTab !== "—" ? mirrorTab : "", mirrorPlayingSummary !== "—" ? mirrorPlayingSummary : ""]
+      .filter((part) => part.length > 0);
+    mirrorChipMetaEl.textContent = parts.length > 0 ? truncateMeta(parts.join(" · ")) : "Idle";
+  }
 }
 
 function startMirrorPoll(): void {
@@ -289,10 +344,14 @@ async function refreshMirrorPlaying(): Promise<void> {
     if (mirrorPlayingEl !== null) {
       mirrorPlayingEl.textContent = playing;
     }
+    mirrorPlayingSummary = playing;
+    renderMirror();
   } catch {
     if (mirrorPlayingEl !== null) {
       mirrorPlayingEl.textContent = "—";
     }
+    mirrorPlayingSummary = "—";
+    renderMirror();
   }
 }
 
@@ -322,6 +381,10 @@ function setYoutubeStatus(text: string): void {
   if (youtubeStatusEl !== null) {
     youtubeStatusEl.textContent = text;
   }
+  youtubeChipMeta = truncateMeta(text);
+  if (youtubeChipMetaEl !== null) {
+    youtubeChipMetaEl.textContent = youtubeChipMeta;
+  }
 }
 
 function showYoutubeCode(payload: {
@@ -331,6 +394,9 @@ function showYoutubeCode(payload: {
 }): void {
   if (youtubeCodeEl !== null) {
     youtubeCodeEl.toggleAttribute("hidden", !payload.user_code);
+  }
+  if (payload.user_code) {
+    openYoutubePanel();
   }
   if (youtubeUserCodeEl !== null) {
     youtubeUserCodeEl.textContent = payload.user_code ?? "";

@@ -70,16 +70,76 @@ body {
   overflow: hidden;
 }
 
-.app-scroll {
+.app-scroll,
+.chat-stage {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  padding-bottom: 0.35rem;
+  overflow: hidden;
+}
+
+.context-bar {
+  display: flex;
+  gap: 0.45rem;
+  flex-shrink: 0;
+  padding: 0 1rem 0.5rem;
+}
+
+.context-chip {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: var(--touch-min);
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.1rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 250, 240, 0.04);
+  color: var(--text-primary);
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+
+.context-chip[aria-expanded="true"] {
+  border-color: rgba(255, 122, 61, 0.35);
+  background: var(--accent-soft);
+}
+
+.context-chip-label {
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+}
+
+.context-chip-meta {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 550;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.context-chip[aria-expanded="true"] .context-chip-meta {
+  color: var(--text-secondary);
+}
+
+.drawer {
+  flex-shrink: 0;
+  max-height: min(38vh, 16rem);
+  margin: 0 1rem 0.45rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.drawer[hidden] {
+  display: none;
 }
 
 .top-bar {
@@ -187,7 +247,6 @@ body {
 }
 
 .panel {
-  margin: 0 1rem;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
@@ -362,13 +421,16 @@ body {
 }
 
 .chat-log {
-  flex: 1 0 auto;
-  min-height: 8rem;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  margin: 0 1rem;
-  padding: 0.35rem 0.1rem 0.75rem;
+  margin: 0;
+  padding: 0.25rem 1rem 0.5rem;
   scroll-behavior: smooth;
 }
 

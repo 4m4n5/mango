@@ -24,56 +24,79 @@
         </div>
       </header>
 
-      <div class="app-scroll">
-      <section class="panel youtube-panel" aria-label="YouTube account">
-        <div class="youtube-head">
-          <div>
-            <h2 class="panel-title panel-title--inline">YouTube</h2>
-            <p id="youtube-status" class="youtube-status">checking…</p>
-          </div>
-          <div class="setup-actions">
-            <button id="youtube-auth-start" class="btn btn--secondary" type="button">Connect</button>
-            <button id="youtube-auth-disconnect" class="btn btn--ghost" type="button">Disconnect</button>
-          </div>
+      <div class="chat-stage">
+        <div class="context-bar" role="toolbar" aria-label="Companion panels">
+          <button
+            id="toggle-youtube"
+            class="context-chip"
+            type="button"
+            aria-expanded="false"
+            aria-controls="youtube-panel"
+          >
+            <span class="context-chip-label">YouTube</span>
+            <span id="youtube-chip-meta" class="context-chip-meta">…</span>
+          </button>
+          <button
+            id="toggle-mirror"
+            class="context-chip"
+            type="button"
+            aria-expanded="false"
+            aria-controls="mirror"
+          >
+            <span class="context-chip-label">On TV</span>
+            <span id="mirror-chip-meta" class="context-chip-meta">—</span>
+          </button>
         </div>
-        <div id="youtube-auth-code" class="youtube-code" hidden>
-          <p>Open <a id="youtube-auth-link" href="#" target="_blank" rel="noreferrer">Google device login</a></p>
-          <strong id="youtube-user-code"></strong>
-        </div>
-      </section>
 
-      <section id="mirror" class="panel mirror-panel" aria-label="TV mirror">
-        <div class="panel-head">
-          <h2 class="panel-title">On TV</h2>
-          <button id="memory-toggle" type="button" class="btn btn--chip">Memory</button>
-        </div>
-        <div class="mirror-grid">
-          <article class="mirror-stat">
-            <span class="mirror-label">Tab</span>
-            <span id="mirror-tab" class="mirror-value">—</span>
-          </article>
-          <article class="mirror-stat">
-            <span class="mirror-label">Open</span>
-            <span id="mirror-open" class="mirror-value">—</span>
-          </article>
-          <article class="mirror-stat">
-            <span class="mirror-label">Playing</span>
-            <span id="mirror-playing" class="mirror-value">—</span>
-          </article>
-          <article class="mirror-stat">
-            <span class="mirror-label">Tool</span>
-            <span id="mirror-tool" class="mirror-value">—</span>
-          </article>
-        </div>
-        <pre id="memory-panel" class="memory-panel" hidden></pre>
-      </section>
+        <section id="youtube-panel" class="panel drawer youtube-panel" aria-label="YouTube account" hidden>
+          <div class="youtube-head">
+            <div>
+              <h2 class="panel-title panel-title--inline">YouTube</h2>
+              <p id="youtube-status" class="youtube-status">checking…</p>
+            </div>
+            <div class="setup-actions">
+              <button id="youtube-auth-start" class="btn btn--secondary" type="button">Connect</button>
+              <button id="youtube-auth-disconnect" class="btn btn--ghost" type="button">Disconnect</button>
+            </div>
+          </div>
+          <div id="youtube-auth-code" class="youtube-code" hidden>
+            <p>Open <a id="youtube-auth-link" href="#" target="_blank" rel="noreferrer">Google device login</a></p>
+            <strong id="youtube-user-code"></strong>
+          </div>
+        </section>
 
-      <section id="chat" class="chat-log" aria-live="polite" aria-label="Chat">
-        <div id="chat-empty" class="chat-empty">
-          <p class="chat-empty-title">Talk or type to mango</p>
-          <p class="chat-empty-copy">Hold the mic to speak, or use the composer below. Voice opens on TV — press B to play.</p>
-        </div>
-      </section>
+        <section id="mirror" class="panel drawer mirror-panel" aria-label="TV mirror" hidden>
+          <div class="panel-head">
+            <h2 class="panel-title">On TV</h2>
+            <button id="memory-toggle" type="button" class="btn btn--chip">Memory</button>
+          </div>
+          <div class="mirror-grid">
+            <article class="mirror-stat">
+              <span class="mirror-label">Tab</span>
+              <span id="mirror-tab" class="mirror-value">—</span>
+            </article>
+            <article class="mirror-stat">
+              <span class="mirror-label">Open</span>
+              <span id="mirror-open" class="mirror-value">—</span>
+            </article>
+            <article class="mirror-stat">
+              <span class="mirror-label">Playing</span>
+              <span id="mirror-playing" class="mirror-value">—</span>
+            </article>
+            <article class="mirror-stat">
+              <span class="mirror-label">Tool</span>
+              <span id="mirror-tool" class="mirror-value">—</span>
+            </article>
+          </div>
+          <pre id="memory-panel" class="memory-panel" hidden></pre>
+        </section>
+
+        <section id="chat" class="chat-log" aria-live="polite" aria-label="Chat">
+          <div id="chat-empty" class="chat-empty">
+            <p class="chat-empty-title">Talk or type to mango</p>
+            <p class="chat-empty-copy">Hold to talk or send a message below. Voice opens on TV — press B to play.</p>
+          </div>
+        </section>
       </div>
 
       <footer class="bottom-dock">
