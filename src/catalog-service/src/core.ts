@@ -114,6 +114,7 @@ import {
   liveRailsDiskCacheNonEmpty,
   liveRailsDiskCacheSummary,
 } from './live-rails-cache.js';
+import { buildLiveAiCatalogRails } from './live/ai-catalog-rails.js';
 
 const LIVE_TAB_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -798,6 +799,27 @@ export class CatalogCore {
     this.clearRailItemsCache();
   }
 
+  invalidateLiveTabRailCache(): void {
+    this.liveTabRailItemsCache = null;
+  }
+
+  /** AI live rails are slot-driven — merge on every response so cache hits stay current. */
+  private async withLiveAiCatalogRails(
+    payload: TabRailItemsResponse,
+    extra: { cached?: boolean; stale?: boolean } = {},
+  ): Promise<TabRailItemsResponse> {
+    const aiRails = await buildLiveAiCatalogRails();
+    if (aiRails.length === 0) {
+      return { ...payload, ...extra };
+    }
+    const existing = new Set(payload.rails.map((rail) => rail.rail_id));
+    const merged = [
+      ...payload.rails,
+      ...aiRails.filter((rail) => !existing.has(rail.rail_id)),
+    ];
+    return { ...payload, rails: merged, ...extra };
+  }
+
   health(): Record<string, unknown> {
     const liveDiskCache = readLiveRailsDiskCacheSync();
     const liveCache = liveRailsDiskCacheSummary(liveDiskCache);
@@ -1205,7 +1227,7 @@ export class CatalogCore {
   async liveTabRailItems(_options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
     const cached = this.liveTabRailItemsCache;
     if (cached && cached.expiresAt > Date.now()) {
-      return { ...cached.payload, cached: true };
+      return this.withLiveAiCatalogRails(cached.payload, { cached: true });
     }
 
     const diskCache = await readLiveRailsDiskCache();
@@ -1216,7 +1238,7 @@ export class CatalogCore {
         payload,
         expiresAt: diskCache.expires_at,
       };
-      return { ...payload, cached: true };
+      return this.withLiveAiCatalogRails(payload, { cached: true });
     }
 
     const started = Date.now();
@@ -1244,7 +1266,7 @@ export class CatalogCore {
       const fallback = this.liveTabRailItemsCache?.payload
         || (diskPayload && liveRailsDiskCacheNonEmpty(diskCache) ? diskPayload : null);
       if (fallback && fallback.rails.length > 0) {
-        return { ...fallback, cached: true, stale: true };
+        return this.withLiveAiCatalogRails(fallback, { cached: true, stale: true });
       }
       throw error;
     }
@@ -1260,10 +1282,12 @@ export class CatalogCore {
         || (diskPayload && liveRailsDiskCacheNonEmpty(diskCache) ? diskPayload : null);
       if (fallback && fallback.rails.length > 0) {
         this.liveLastRebuildError = 'live rebuild returned no non-empty rails';
-        return { ...fallback, cached: true, stale: true };
+        return this.withLiveAiCatalogRails(fallback, { cached: true, stale: true });
       }
       this.liveTabRailItemsCache = null;
-      return { tab: 'live', rails: [], resolve_ms: Date.now() - started };
+      return this.withLiveAiCatalogRails(
+        { tab: 'live', rails: [], resolve_ms: Date.now() - started },
+      );
     }
 
     const payload: TabRailItemsResponse = {
@@ -1277,7 +1301,7 @@ export class CatalogCore {
       { ...payload, tab: 'live' },
       Math.ceil((expiresAt - Date.now()) / 1000),
     ).catch(() => undefined);
-    return payload;
+    return this.withLiveAiCatalogRails(payload);
   }
 
   private siblingRailIds(rail: PlayableRail): string[] {

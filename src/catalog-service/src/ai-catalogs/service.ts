@@ -2,6 +2,7 @@ import type { CatalogSourceRef, CatalogTab } from '../rails.js';
 import type { CatalogCore } from '../core.js';
 import { CatalogError } from '../catalog-errors.js';
 import { invalidateYoutubeDiscoveryRailsCache } from '../youtube/service.js';
+import { invalidateLiveTabRailCache } from '../live/cache.js';
 import { getAdapterForTab } from './adapters/registry.js';
 import {
   deleteAiCatalogSlot,
@@ -35,7 +36,7 @@ export type AiCatalogSummary = {
 export type CreateAiCatalogInput = {
   label: string;
   tab: CatalogTab;
-  content_type: 'movie' | 'series' | 'youtube_video';
+  content_type: 'movie' | 'series' | 'youtube_video' | 'tv';
   seed_titles?: AiSeedTitle[];
   sources?: CatalogSourceRef[];
   llm_hints?: AiCatalogLlmHints;
@@ -164,8 +165,11 @@ export async function createAiCatalog(
   if (tab === 'youtube' && contentType !== 'youtube_video') {
     throw new CatalogError(400, 'youtube tab requires content_type youtube_video');
   }
-  if (tab === 'live') {
-    throw new CatalogError(400, 'ai catalog tab does not support live yet');
+  if (tab === 'live' && contentType !== 'tv') {
+    throw new CatalogError(400, 'live tab requires content_type tv');
+  }
+  if (contentType === 'tv' && tab !== 'live') {
+    throw new CatalogError(400, 'tv content_type requires live tab');
   }
   const seedTitles = input.seed_titles ?? [];
   const sources = input.sources ?? [];
@@ -195,6 +199,9 @@ export async function createAiCatalog(
       await core.reloadAiCatalogRails();
       if (merged.tab === 'youtube') {
         invalidateYoutubeDiscoveryRailsCache();
+      }
+      if (merged.tab === 'live') {
+        invalidateLiveTabRailCache(core);
       }
       return {
         ok: true,
@@ -240,6 +247,9 @@ export async function createAiCatalog(
   await core.reloadAiCatalogRails();
   if (tab === 'youtube') {
     invalidateYoutubeDiscoveryRailsCache();
+  }
+  if (tab === 'live') {
+    invalidateLiveTabRailCache(core);
   }
   return {
     ok: true,
@@ -303,6 +313,9 @@ export async function updateAiCatalog(
   if (slot.tab === 'youtube') {
     invalidateYoutubeDiscoveryRailsCache();
   }
+  if (slot.tab === 'live') {
+    invalidateLiveTabRailCache(core);
+  }
   return {
     slot_id: slot.slot_id,
     rail_id: railIdForSlot(slot.slot_id),
@@ -328,6 +341,9 @@ export async function deleteAiCatalog(
     if (existing?.tab === 'youtube') {
       invalidateYoutubeDiscoveryRailsCache();
     }
+    if (existing?.tab === 'live') {
+      invalidateLiveTabRailCache(core);
+    }
   }
   return removed;
 }
@@ -352,6 +368,9 @@ export async function refreshAiCatalog(
   core.clearRailItemsCache(railId);
   if (slot.tab === 'youtube') {
     invalidateYoutubeDiscoveryRailsCache();
+  }
+  if (slot.tab === 'live') {
+    invalidateLiveTabRailCache(core);
   }
   return {
     ok: result.ok,

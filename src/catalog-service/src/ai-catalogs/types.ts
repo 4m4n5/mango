@@ -30,7 +30,7 @@ export type AiCatalogSlotFile = {
   slot_id: string;
   tab: CatalogTab;
   label: string;
-  content_type: 'movie' | 'series' | 'youtube_video';
+  content_type: 'movie' | 'series' | 'youtube_video' | 'tv';
   enabled: boolean;
   created_at?: string;
   sources?: CatalogSourceRef[];

@@ -62,7 +62,7 @@ async function checkVisibleOnTab(
   tab: CatalogTab,
   railId: string,
 ): Promise<{ visible: boolean; displayed: number }> {
-  if (tab === 'youtube') {
+  if (tab === 'youtube' || tab === 'live') {
     const slot = await readAiCatalogSlot(bareSlotId(railId));
     const displayed = slot?.seed_titles?.length ?? 0;
     return {
@@ -188,7 +188,7 @@ export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise
         searchLibrary: searchVerifiedLibrary,
         minFallbackLevel: fallbackLevel,
       };
-      if (slot.tab !== 'youtube') {
+      if (slot.tab !== 'youtube' && slot.tab !== 'live') {
         composeDeps.searchExternal = async (query, limit = 8) => {
           const response = await searchExternalTitles(core, query, {
             type: slot.content_type as 'movie' | 'series',
@@ -326,7 +326,7 @@ export async function composeCreateInput(
   const composeDeps: ComposeDeps = {
     searchLibrary: searchVerifiedLibrary,
   };
-  if (input.tab !== 'youtube') {
+  if (input.tab !== 'youtube' && input.tab !== 'live') {
     composeDeps.searchExternal = async (query, limit = 8) => {
       const response = await searchExternalTitles(core, query, {
         type: input.content_type as 'movie' | 'series',

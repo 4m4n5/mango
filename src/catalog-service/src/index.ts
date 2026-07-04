@@ -410,6 +410,15 @@ async function handlePlay(
         }`,
       );
     }
+    if (playback.ok) {
+      await startWatchSessionFromPlay({
+        type: 'tv',
+        id: body.id,
+        title: body.title ?? null,
+        poster: body.poster ?? null,
+        tab: 'live',
+      });
+    }
     return {
       ok: playback.ok,
       live: true,
@@ -1009,10 +1018,10 @@ async function main(): Promise<void> {
         }
         const body = await readBody(req) as Record<string, unknown>;
         const tab = parseCatalogTab(typeof body.tab === 'string' ? body.tab : null);
-        const contentType = body.content_type === 'movie' || body.content_type === 'series' || body.content_type === 'youtube_video'
+        const contentType = body.content_type === 'movie' || body.content_type === 'series' || body.content_type === 'youtube_video' || body.content_type === 'tv'
           ? body.content_type
           : null;
-        if (!tab || tab === 'live' || !contentType || typeof body.label !== 'string' || !body.label.trim()) {
+        if (!tab || !contentType || typeof body.label !== 'string' || !body.label.trim()) {
           throw new CatalogError(400, 'POST /voice/ai-catalogs requires { label, tab, content_type }');
         }
         const theme = typeof body.theme === 'string' ? body.theme.trim() : undefined;

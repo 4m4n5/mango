@@ -13,7 +13,7 @@ import {
 export type ComposeInput = {
   label: string;
   tab: CatalogTab;
-  content_type: 'movie' | 'series' | 'youtube_video';
+  content_type: 'movie' | 'series' | 'youtube_video' | 'tv';
   theme?: string;
   seed_hints?: AiSeedTitle[];
 };

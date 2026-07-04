@@ -78,12 +78,12 @@ class CreateAiCatalogValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_tab_rejected(self) -> None:
         result = await execute_tool(
             "mango_create_ai_catalog",
-            {"label": "Cooking", "tab": "live", "content_type": "movie"},
+            {"label": "Cooking", "tab": "games", "content_type": "movie"},
             self._settings(),
         )
         payload = json.loads(result)
         self.assertFalse(payload["ok"])
-        self.assertEqual(payload["error"], "tab must be movies, series, or youtube")
+        self.assertEqual(payload["error"], "tab must be movies, series, youtube, or live")
 
     async def test_invalid_content_type_rejected(self) -> None:
         result = await execute_tool(
@@ -93,7 +93,40 @@ class CreateAiCatalogValidationTests(unittest.IsolatedAsyncioTestCase):
         )
         payload = json.loads(result)
         self.assertFalse(payload["ok"])
-        self.assertEqual(payload["error"], "content_type must be movie, series, or youtube_video")
+        self.assertEqual(payload["error"], "content_type must be movie, series, youtube_video, or tv")
+
+    async def test_live_tab_requires_tv_content_type(self) -> None:
+        result = await execute_tool(
+            "mango_create_ai_catalog",
+            {"label": "News", "tab": "live", "content_type": "movie"},
+            self._settings(),
+        )
+        payload = json.loads(result)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "live tab requires tv content_type")
+
+    async def test_tv_content_type_requires_live_tab(self) -> None:
+        result = await execute_tool(
+            "mango_create_ai_catalog",
+            {"label": "News", "tab": "movies", "content_type": "tv"},
+            self._settings(),
+        )
+        payload = json.loads(result)
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"], "tv content_type requires live tab")
+
+    async def test_live_tab_accepts_tv_content_type(self) -> None:
+        with patch(
+            "orchestrator.tools.catalog.tool_create_ai_catalog",
+            return_value={"ok": True, "catalog": {"slot_id": "news"}},
+        ):
+            result = await execute_tool(
+                "mango_create_ai_catalog",
+                {"label": "News", "tab": "live", "content_type": "tv"},
+                self._settings(),
+            )
+        payload = json.loads(result)
+        self.assertTrue(payload["ok"])
 
 
 if __name__ == "__main__":

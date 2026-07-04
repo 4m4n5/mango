@@ -175,12 +175,16 @@ async def execute_tool(
         content_type = tool_input.get("content_type")
         if not isinstance(label, str) or not label.strip():
             return _compact({"ok": False, "error": "label required"})
-        if tab not in {"movies", "series", "youtube"}:
-            return _compact({"ok": False, "error": "tab must be movies, series, or youtube"})
-        if content_type not in {"movie", "series", "youtube_video"}:
-            return _compact({"ok": False, "error": "content_type must be movie, series, or youtube_video"})
+        if tab not in {"movies", "series", "youtube", "live"}:
+            return _compact({"ok": False, "error": "tab must be movies, series, youtube, or live"})
+        if content_type not in {"movie", "series", "youtube_video", "tv"}:
+            return _compact({"ok": False, "error": "content_type must be movie, series, youtube_video, or tv"})
         if tab == "youtube" and content_type != "youtube_video":
             return _compact({"ok": False, "error": "youtube tab requires youtube_video content_type"})
+        if tab == "live" and content_type != "tv":
+            return _compact({"ok": False, "error": "live tab requires tv content_type"})
+        if content_type == "tv" and tab != "live":
+            return _compact({"ok": False, "error": "tv content_type requires live tab"})
         body = dict(tool_input)
         return _compact(
             await asyncio.to_thread(catalog_tools.tool_create_ai_catalog, settings, body)

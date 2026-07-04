@@ -252,16 +252,17 @@ export function buildVoiceToolManifest(): {
       name: 'mango_create_ai_catalog',
       description:
         'Create a voice-managed AI catalog rail. Server composes mdblist sources + thematic seeds for movies/series, '
-        + 'or YouTube video seeds for tab=youtube. Returns bootstrap job — poll mango_ai_catalog_status until '
-        + 'visible_on_tab before claiming TV visibility. When tab already has 3 catalogs, response includes overflow_options.',
+        + 'YouTube video seeds for tab=youtube, or live TV channel seeds for tab=live. Returns bootstrap job — poll '
+        + 'mango_ai_catalog_status until visible_on_tab before claiming TV visibility. When tab already has 3 catalogs, '
+        + 'response includes overflow_options.',
       layer: 'catalog',
       input_schema: {
         type: 'object',
         properties: {
           label: { type: 'string', description: 'Short rail label' },
-          tab: { type: 'string', enum: ['movies', 'series', 'youtube'] },
-          content_type: { type: 'string', enum: ['movie', 'series', 'youtube_video'] },
-          theme: { type: 'string', description: 'Thematic intent e.g. horror movies, hindi comedy, cooking tutorials' },
+          tab: { type: 'string', enum: ['movies', 'series', 'youtube', 'live'] },
+          content_type: { type: 'string', enum: ['movie', 'series', 'youtube_video', 'tv'] },
+          theme: { type: 'string', description: 'Thematic intent e.g. horror movies, hindi comedy, cooking tutorials, live news' },
           llm_hints: {
             type: 'object',
             description: 'Optional theme/prompt override',

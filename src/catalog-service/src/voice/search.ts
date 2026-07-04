@@ -1,5 +1,6 @@
 import { searchVerifiedRailPoolTitles } from '../playability/db.js';
 import { metahubPosterUrl, normalizePosterUrl } from '../poster.js';
+import { searchLiveChannels } from './live-search.js';
 
 export type VoiceSearchHit = {
   type: string;
@@ -92,11 +93,13 @@ export async function searchVerifiedLibrary(
     });
   }
 
-  hits.sort((left, right) => {
+  const liveHits = await searchLiveChannels(trimmed, limit);
+  const merged = [...hits, ...liveHits];
+  merged.sort((left, right) => {
     if (right.score !== left.score) {
       return right.score - left.score;
     }
     return left.title.localeCompare(right.title);
   });
-  return hits.slice(0, Math.max(1, limit));
+  return merged.slice(0, Math.max(1, limit));
 }

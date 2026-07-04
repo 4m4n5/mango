@@ -49,17 +49,18 @@ function readSlot(value: unknown, filePath: string): AiCatalogSlotFile {
   const record = asRecord(value, filePath);
   const slot_id = readString(record, 'slot_id', filePath);
   const tab = readString(record, 'tab', filePath) as CatalogTab;
-  if (tab !== 'movies' && tab !== 'series' && tab !== 'youtube') {
-    throw new Error(`${filePath}.tab must be movies, series, or youtube`);
+  if (tab !== 'movies' && tab !== 'series' && tab !== 'youtube' && tab !== 'live') {
+    throw new Error(`${filePath}.tab must be movies, series, youtube, or live`);
   }
   const content_type = readString(record, 'content_type', filePath);
-  if (content_type !== 'movie' && content_type !== 'series' && content_type !== 'youtube_video') {
-    throw new Error(`${filePath}.content_type must be movie, series, or youtube_video`);
+  if (content_type !== 'movie' && content_type !== 'series' && content_type !== 'youtube_video' && content_type !== 'tv') {
+    throw new Error(`${filePath}.content_type must be movie, series, youtube_video, or tv`);
   }
   if (
     (tab === 'movies' && content_type !== 'movie')
     || (tab === 'series' && content_type !== 'series')
     || (tab === 'youtube' && content_type !== 'youtube_video')
+    || (tab === 'live' && content_type !== 'tv')
   ) {
     throw new Error(`${filePath} tab/content_type mismatch: ${tab}/${content_type}`);
   }
@@ -110,7 +111,7 @@ function readSlot(value: unknown, filePath: string): AiCatalogSlotFile {
     label: typeof record.label === 'string' && record.label.trim()
       ? record.label.trim()
       : slot_id.replace(/-/g, ' '),
-    content_type: content_type as 'movie' | 'series' | 'youtube_video',
+    content_type: content_type as 'movie' | 'series' | 'youtube_video' | 'tv',
     enabled: record.enabled !== false,
     sources,
     seed_titles,
