@@ -85,6 +85,11 @@ rails:
       - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.recmov, weight: 0.01 }
       - { addon: AIOMetadata, catalog: custom.in_rdata_indiastreams.movie.popmov, weight: 0.01 }
       - { addon: AIOMetadata, catalog: mdblist.49761, weight: 0.01 }
+      # Popular South-Indian regional lists (probed 67-100% stream hit-rate) — diversify beyond Bollywood/Hindi
+      - { addon: AIOMetadata, catalog: mdblist.44881, weight: 0.10 }
+      - { addon: AIOMetadata, catalog: mdblist.15960, weight: 0.07 }
+      - { addon: AIOMetadata, catalog: mdblist.56447, weight: 0.06 }
+      - { addon: AIOMetadata, catalog: mdblist.142371, weight: 0.06 }
     playability:
       display_limit: 9
       min_display: 6
