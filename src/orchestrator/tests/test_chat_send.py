@@ -171,6 +171,7 @@ class TextPipelineTests(unittest.IsolatedAsyncioTestCase):
         mock_generate.assert_called_once()
         mock_chat.assert_awaited()
         mock_error.assert_not_awaited()
+        self.assertEqual(session.overlay_state, "idle")
         self.assertEqual(len(session.messages), 2)
         self.assertEqual(session.messages[0].role, "user")
         self.assertEqual(session.messages[0].text, "hello")

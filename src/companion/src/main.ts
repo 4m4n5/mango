@@ -177,7 +177,7 @@ function handleServerMessage(raw: string): void {
     if (msg.type === "status") {
       const state = (msg.state ?? "").trim();
       setConnectionState(state, (msg.text ?? msg.state ?? "").trim());
-      voiceBusy = state === "listening" || state === "thinking" || state === "speaking";
+      voiceBusy = state === "listening" || state === "thinking";
       updateComposerState();
       if (pttBtn instanceof HTMLButtonElement) {
         pttBtn.classList.toggle("active", state === "listening");

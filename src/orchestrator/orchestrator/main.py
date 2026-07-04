@@ -454,26 +454,20 @@ async def run_agent_turn(
 
         if epoch != voice_epoch:
             return False
-        if input_mode == "voice":
-            if settings.tts_enabled:
-                if settings.tts_async:
-                    asyncio.create_task(_speak_async(reply, settings))
-                else:
-                    session.set_overlay("speaking", reply)
-                    await broadcast_status()
-                    with voice_stage("tts"):
-                        await asyncio.to_thread(speak_reply, reply, settings)
+        if settings.tts_enabled and input_mode == "voice":
+            if settings.tts_async:
+                asyncio.create_task(_speak_async(reply, settings))
             else:
                 session.set_overlay("speaking", reply)
                 await broadcast_status()
-                showing_reply = True
-                asyncio.create_task(_hold_reply_then_idle(settings.overlay_reply_seconds, epoch))
+                with voice_stage("tts"):
+                    await asyncio.to_thread(speak_reply, reply, settings)
+                session.set_overlay("idle", "idle")
+                await broadcast_status()
         else:
-            session.set_overlay("speaking", reply)
+            session.set_overlay("idle", "idle")
             await broadcast_status()
-            showing_reply = True
-            asyncio.create_task(_hold_reply_then_idle(settings.overlay_reply_seconds, epoch))
-        return showing_reply
+        return False
     except Exception as exc:
         if pump_task is not None:
             pump_task.cancel()
