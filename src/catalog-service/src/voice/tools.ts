@@ -71,7 +71,7 @@ export function buildVoiceToolManifest(): {
     {
       name: 'mango_youtube_search',
       description:
-        'Search YouTube videos/channels/playlists through Mango. Use for YouTube discovery only. Return options or open a result; never starts playback.',
+        'Search YouTube videos/channels/playlists through Mango. Subscriptions are read-only; this tool only searches/discovers. Return options or open a result; never starts playback.',
       layer: 'catalog',
       input_schema: {
         type: 'object',
@@ -251,17 +251,17 @@ export function buildVoiceToolManifest(): {
     {
       name: 'mango_create_ai_catalog',
       description:
-        'Create a voice-managed AI catalog rail. Server composes mdblist sources + thematic seeds from theme. '
-        + 'Returns bootstrap job — poll mango_ai_catalog_status until visible_on_tab before claiming TV visibility. '
-        + 'When tab already has 3 catalogs, response includes overflow_options.',
+        'Create a voice-managed AI catalog rail. Server composes mdblist sources + thematic seeds for movies/series, '
+        + 'or YouTube video seeds for tab=youtube. Returns bootstrap job — poll mango_ai_catalog_status until '
+        + 'visible_on_tab before claiming TV visibility. When tab already has 3 catalogs, response includes overflow_options.',
       layer: 'catalog',
       input_schema: {
         type: 'object',
         properties: {
           label: { type: 'string', description: 'Short rail label' },
-          tab: { type: 'string', enum: ['movies', 'series'] },
-          content_type: { type: 'string', enum: ['movie', 'series'] },
-          theme: { type: 'string', description: 'Thematic intent e.g. horror movies, hindi comedy' },
+          tab: { type: 'string', enum: ['movies', 'series', 'youtube'] },
+          content_type: { type: 'string', enum: ['movie', 'series', 'youtube_video'] },
+          theme: { type: 'string', description: 'Thematic intent e.g. horror movies, hindi comedy, cooking tutorials' },
           llm_hints: {
             type: 'object',
             description: 'Optional theme/prompt override',

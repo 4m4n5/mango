@@ -13,7 +13,7 @@ import {
 export type ComposeInput = {
   label: string;
   tab: CatalogTab;
-  content_type: 'movie' | 'series';
+  content_type: 'movie' | 'series' | 'youtube_video';
   theme?: string;
   seed_hints?: AiSeedTitle[];
 };
@@ -231,6 +231,10 @@ export async function resolveAiCatalogPlan(
   input: ComposeInput,
   deps: ComposeDeps,
 ): Promise<ComposePlan> {
+  if (input.content_type !== 'movie' && input.content_type !== 'series') {
+    throw new Error(`resolveAiCatalogPlan does not support content_type: ${input.content_type}`);
+  }
+  const contentType = input.content_type;
   const inventory = deps.inventory ?? loadMdbListInventory();
   const reserveIds = deps.reserveIds ?? reserveCatalogIds(loadAiCatalogReserve());
   const deployedIds = deployedCatalogIds(inventory);
@@ -241,7 +245,7 @@ export async function resolveAiCatalogPlan(
   const { sources, catalogs_to_activate, thematic_score } = pickSources(
     inventory,
     intentTags,
-    input.content_type,
+    contentType,
     reserveIds,
     deployedIds,
     fallbackLevel,
@@ -249,10 +253,10 @@ export async function resolveAiCatalogPlan(
 
   const query = input.theme?.trim() || input.label.trim();
   const libraryHits = await deps.searchLibrary(query, 12);
-  let seeds = hitsToSeeds(libraryHits, input.content_type);
+  let seeds = hitsToSeeds(libraryHits, contentType);
   if (seeds.length < 3 && deps.searchExternal) {
     const externalHits = await deps.searchExternal(query, 8);
-    seeds = [...seeds, ...hitsToSeeds(externalHits, input.content_type)];
+    seeds = [...seeds, ...hitsToSeeds(externalHits, contentType)];
   }
   if (input.seed_hints?.length) {
     seeds = [...input.seed_hints, ...seeds];

@@ -5,7 +5,7 @@ import { DEFAULT_PLAYABILITY_CONFIG } from '../rails.js';
 import { getRailPlayabilityStatus } from '../playability/db.js';
 import { getAdapterForTab } from './adapters/registry.js';
 import { ensureCatalogsActive } from './catalog-activate.js';
-import type { ComposeInput } from './compose.js';
+import type { ComposeDeps, ComposeInput } from './compose.js';
 import {
   createAiCatalog,
   refreshAiCatalog,
@@ -47,6 +47,12 @@ function railIdForSlot(slotId: string): string {
   return `${AI_CATALOG_RAIL_PREFIX}${slotId}`;
 }
 
+function bareSlotId(railId: string): string {
+  return railId.startsWith(AI_CATALOG_RAIL_PREFIX)
+    ? railId.slice(AI_CATALOG_RAIL_PREFIX.length)
+    : railId;
+}
+
 function minDisplay(): number {
   return DEFAULT_PLAYABILITY_CONFIG.min_display;
 }
@@ -56,6 +62,14 @@ async function checkVisibleOnTab(
   tab: CatalogTab,
   railId: string,
 ): Promise<{ visible: boolean; displayed: number }> {
+  if (tab === 'youtube') {
+    const slot = await readAiCatalogSlot(bareSlotId(railId));
+    const displayed = slot?.seed_titles?.length ?? 0;
+    return {
+      visible: displayed >= minDisplay(),
+      displayed,
+    };
+  }
   const batch = await core.tabRailItems(tab, { reshuffle: true });
   const rail = batch.rails.find((entry) => entry.rail_id === railId);
   const displayed = rail?.items.length ?? 0;
@@ -133,8 +147,13 @@ export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise
 
     let fallbackLevel = job.fallback_level;
     while (Date.now() < deadline) {
-      const pool = await getRailPlayabilityStatus(job.rail_id);
-      job.verified_pool = pool.verified_pool;
+      if (slot.tab === 'youtube') {
+        const youtubeSlot = await readAiCatalogSlot(job.slot_id);
+        job.verified_pool = youtubeSlot?.seed_titles?.length ?? 0;
+      } else {
+        const pool = await getRailPlayabilityStatus(job.rail_id);
+        job.verified_pool = pool.verified_pool;
+      }
 
       const visibility = await checkVisibleOnTab(core, job.tab, job.rail_id);
       job.displayed = visibility.displayed;
@@ -165,6 +184,20 @@ export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise
         break;
       }
       fallbackLevel += 1;
+      const composeDeps: ComposeDeps = {
+        searchLibrary: searchVerifiedLibrary,
+        minFallbackLevel: fallbackLevel,
+      };
+      if (slot.tab !== 'youtube') {
+        composeDeps.searchExternal = async (query, limit = 8) => {
+          const response = await searchExternalTitles(core, query, {
+            type: slot.content_type as 'movie' | 'series',
+            limit,
+            queue_missing: true,
+          });
+          return response.results;
+        };
+      }
       const plan = await getAdapterForTab(slot.tab).resolvePlan(
         {
           label: slot.label,
@@ -173,18 +206,7 @@ export async function runBootstrapJob(core: CatalogCore, jobId: string): Promise
           theme: slot.llm_hints?.theme,
           seed_hints: slot.seed_titles,
         },
-        {
-          searchLibrary: searchVerifiedLibrary,
-          searchExternal: async (query, limit = 8) => {
-            const response = await searchExternalTitles(core, query, {
-              type: slot.content_type,
-              limit,
-              queue_missing: true,
-            });
-            return response.results;
-          },
-          minFallbackLevel: fallbackLevel,
-        },
+        composeDeps,
       );
       await updateAiCatalog(core, {
         slot_id: job.slot_id,
@@ -301,6 +323,20 @@ export async function composeCreateInput(
     return input;
   }
 
+  const composeDeps: ComposeDeps = {
+    searchLibrary: searchVerifiedLibrary,
+  };
+  if (input.tab !== 'youtube') {
+    composeDeps.searchExternal = async (query, limit = 8) => {
+      const response = await searchExternalTitles(core, query, {
+        type: input.content_type as 'movie' | 'series',
+        limit,
+        queue_missing: true,
+      });
+      return response.results;
+    };
+  }
+
   const plan = await getAdapterForTab(input.tab).resolvePlan(
     {
       label: input.label,
@@ -309,17 +345,7 @@ export async function composeCreateInput(
       theme,
       seed_hints: input.seed_titles,
     },
-    {
-      searchLibrary: searchVerifiedLibrary,
-      searchExternal: async (query, limit = 8) => {
-        const response = await searchExternalTitles(core, query, {
-          type: input.content_type,
-          limit,
-          queue_missing: true,
-        });
-        return response.results;
-      },
-    },
+    composeDeps,
   );
 
   return {
@@ -366,10 +392,11 @@ export async function migrateSlotIfEmpty(core: CatalogCore, slotId: string): Pro
   if (!slot) {
     return false;
   }
-  const railId = railIdForSlot(slotId);
-  const pool = await getRailPlayabilityStatus(railId);
+  const isYoutube = slot.tab === 'youtube';
   const needsCompose = (slot.seed_titles?.length ?? 0) === 0 && (slot.sources?.length ?? 0) === 0;
-  const needsPool = pool.verified_pool < minDisplay();
+  const needsPool = isYoutube
+    ? (slot.seed_titles?.length ?? 0) < minDisplay()
+    : (await getRailPlayabilityStatus(railIdForSlot(slotId))).verified_pool < minDisplay();
   if (!needsCompose && !needsPool) {
     return false;
   }

@@ -1,4 +1,5 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import {
@@ -128,6 +129,15 @@ export function applyFamiliarityStage(profile: CompanionProfile): CompanionProfi
 export async function readProfile(): Promise<CompanionProfile> {
   try {
     const raw = await readFile(profilePath(), 'utf8');
+    return normalizeProfile(parseYaml(raw));
+  } catch {
+    return defaultProfile();
+  }
+}
+
+export function readProfileSync(): CompanionProfile {
+  try {
+    const raw = readFileSync(profilePath(), 'utf8');
     return normalizeProfile(parseYaml(raw));
   } catch {
     return defaultProfile();

@@ -53,6 +53,7 @@ import {
   type YoutubePopularCandidate,
 } from './db.js';
 import { resolveYoutubePlayback } from './playback.js';
+import { readProfileSync } from '../companion/profile.js';
 import type {
   YoutubeItem,
   YoutubeItemKind,
@@ -61,6 +62,7 @@ import type {
   YoutubeRefreshPhaseResult,
   YoutubeSearchGroups,
 } from './types.js';
+import { buildYoutubeAiCatalogRails } from './ai-catalog-rails.js';
 
 const YOUTUBE_SOURCE = 'youtube';
 const YOUTUBE_TAB = 'youtube';
@@ -614,6 +616,39 @@ function buildTasteProfile(): TasteProfile {
     if (weight > 0) {
       addTokenWeights(profile.positiveTokens, { title: entry.query }, weight * 0.5);
     }
+  }
+
+  const companion = readProfileSync();
+  for (const love of companion.taste.loves) {
+    addTokenWeights(profile.positiveTokens, { title: love }, 1);
+  }
+  for (const avoid of companion.taste.avoids) {
+    addTokenWeights(profile.negativeTokens, { title: avoid }, 1);
+  }
+  for (const ref of companion.taste.title_loves) {
+    if (ref.type !== YOUTUBE_VIDEO_TYPE) continue;
+    profile.savedIds.add(ref.id);
+    const item = getYoutubeItem('video', ref.id);
+    if (item) {
+      addWeight(profile.positiveChannels, item.channel_id || item.channel_title, 1);
+      addTokenWeights(profile.positiveTokens, item, 1);
+    } else if (ref.title) {
+      addTokenWeights(profile.positiveTokens, { title: ref.title }, 1);
+    }
+  }
+  for (const ref of companion.taste.title_avoids) {
+    if (ref.type !== YOUTUBE_VIDEO_TYPE) continue;
+    profile.negativeIds.add(ref.id);
+    const item = getYoutubeItem('video', ref.id);
+    if (item) {
+      addWeight(profile.negativeChannels, item.channel_id || item.channel_title, 1);
+      addTokenWeights(profile.negativeTokens, item, 1);
+    } else if (ref.title) {
+      addTokenWeights(profile.negativeTokens, { title: ref.title }, 1);
+    }
+  }
+  for (const note of (companion.session_notes ?? []).slice(-3)) {
+    addTokenWeights(profile.positiveTokens, { title: note }, 0.4);
   }
 
   for (const row of listLibraryFeedback('not_interested', YOUTUBE_SOURCE)) {
@@ -2570,6 +2605,12 @@ function groupCachedSearch(query: string, limit: number): YoutubeSearchGroups {
   };
 }
 
+let activeYoutubeService: YoutubeService | null = null;
+
+export function invalidateYoutubeDiscoveryRailsCache(): void {
+  activeYoutubeService?.invalidateRailsCache();
+}
+
 export class YoutubeService {
   private readonly config: YoutubeConfig;
   private readonly api: YoutubeApiClient;
@@ -2585,6 +2626,7 @@ export class YoutubeService {
     this.config = config;
     this.api = new YoutubeApiClient(config);
     initYoutubeDb();
+    activeYoutubeService = this;
   }
 
   invalidateRailsCache(): void {
@@ -3184,7 +3226,8 @@ export class YoutubeService {
       };
     }
 
-    const rails: YoutubeRail[] = [...savedHistoryRails, ...discoveryRails]
+    const aiCatalogRails = await buildYoutubeAiCatalogRails();
+    const rails: YoutubeRail[] = [...savedHistoryRails, ...discoveryRails, ...aiCatalogRails]
       .filter((rail) => rail.items.length > 0);
     return {
       ok: true,

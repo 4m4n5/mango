@@ -1009,7 +1009,7 @@ async function main(): Promise<void> {
         }
         const body = await readBody(req) as Record<string, unknown>;
         const tab = parseCatalogTab(typeof body.tab === 'string' ? body.tab : null);
-        const contentType = body.content_type === 'movie' || body.content_type === 'series'
+        const contentType = body.content_type === 'movie' || body.content_type === 'series' || body.content_type === 'youtube_video'
           ? body.content_type
           : null;
         if (!tab || tab === 'live' || !contentType || typeof body.label !== 'string' || !body.label.trim()) {

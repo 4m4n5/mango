@@ -52,6 +52,9 @@ export async function tryGrowComposeEscalation(
   if (!slot) {
     return { applied: false, reason: 'compose_failed' };
   }
+  if (slot.tab === 'youtube') {
+    return { applied: false, reason: 'unchanged' };
+  }
 
   const currentLevel = slot.llm_hints?.compose_fallback_level ?? 0;
   const nextLevel = nextComposeFallbackLevel(currentLevel);
@@ -73,7 +76,7 @@ export async function tryGrowComposeEscalation(
         searchLibrary: searchVerifiedLibrary,
         searchExternal: async (query, limit = 8) => {
           const response = await searchExternalTitles(core, query, {
-            type: slot.content_type,
+            type: slot.content_type as 'movie' | 'series',
             limit,
             queue_missing: true,
           });

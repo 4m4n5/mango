@@ -1,6 +1,7 @@
 import type { CatalogSourceRef, CatalogTab } from '../rails.js';
 import type { CatalogCore } from '../core.js';
 import { CatalogError } from '../catalog-errors.js';
+import { invalidateYoutubeDiscoveryRailsCache } from '../youtube/service.js';
 import { getAdapterForTab } from './adapters/registry.js';
 import {
   deleteAiCatalogSlot,
@@ -34,7 +35,7 @@ export type AiCatalogSummary = {
 export type CreateAiCatalogInput = {
   label: string;
   tab: CatalogTab;
-  content_type: 'movie' | 'series';
+  content_type: 'movie' | 'series' | 'youtube_video';
   seed_titles?: AiSeedTitle[];
   sources?: CatalogSourceRef[];
   llm_hints?: AiCatalogLlmHints;
@@ -153,8 +154,18 @@ export async function createAiCatalog(
   overflow_options: AiCatalogOverflowOptions;
 }> {
   const tab = input.tab;
-  if (tab !== 'movies' && tab !== 'series') {
-    throw new CatalogError(400, 'ai catalog tab must be movies or series');
+  const contentType = input.content_type;
+  if (tab === 'movies' && contentType !== 'movie') {
+    throw new CatalogError(400, 'movies tab requires content_type movie');
+  }
+  if (tab === 'series' && contentType !== 'series') {
+    throw new CatalogError(400, 'series tab requires content_type series');
+  }
+  if (tab === 'youtube' && contentType !== 'youtube_video') {
+    throw new CatalogError(400, 'youtube tab requires content_type youtube_video');
+  }
+  if (tab === 'live') {
+    throw new CatalogError(400, 'ai catalog tab does not support live yet');
   }
   const seedTitles = input.seed_titles ?? [];
   const sources = input.sources ?? [];
@@ -182,6 +193,9 @@ export async function createAiCatalog(
         llm_hints: input.llm_hints,
       });
       await core.reloadAiCatalogRails();
+      if (merged.tab === 'youtube') {
+        invalidateYoutubeDiscoveryRailsCache();
+      }
       return {
         ok: true,
         slot: {
@@ -224,6 +238,9 @@ export async function createAiCatalog(
   } as AiCatalogSlotFile & { created_at: string });
 
   await core.reloadAiCatalogRails();
+  if (tab === 'youtube') {
+    invalidateYoutubeDiscoveryRailsCache();
+  }
   return {
     ok: true,
     slot: {
@@ -283,6 +300,9 @@ export async function updateAiCatalog(
   });
 
   await core.reloadAiCatalogRails();
+  if (slot.tab === 'youtube') {
+    invalidateYoutubeDiscoveryRailsCache();
+  }
   return {
     slot_id: slot.slot_id,
     rail_id: railIdForSlot(slot.slot_id),
@@ -300,10 +320,14 @@ export async function deleteAiCatalog(
   slotIdInput: string,
 ): Promise<boolean> {
   const slotId = bareSlotId(slotIdInput);
+  const existing = await readAiCatalogSlot(slotId);
   const removed = await deleteAiCatalogSlot(slotId);
   if (removed) {
     await core.reloadAiCatalogRails();
     core.clearRailItemsCache();
+    if (existing?.tab === 'youtube') {
+      invalidateYoutubeDiscoveryRailsCache();
+    }
   }
   return removed;
 }
@@ -326,6 +350,9 @@ export async function refreshAiCatalog(
   const result = await getAdapterForTab(slot.tab).topUp(core, railId);
   await clearAppliedTopUpHints(railId);
   core.clearRailItemsCache(railId);
+  if (slot.tab === 'youtube') {
+    invalidateYoutubeDiscoveryRailsCache();
+  }
   return {
     ok: result.ok,
     rail_id: railId,

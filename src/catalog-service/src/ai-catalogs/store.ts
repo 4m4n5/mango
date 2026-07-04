@@ -49,12 +49,19 @@ function readSlot(value: unknown, filePath: string): AiCatalogSlotFile {
   const record = asRecord(value, filePath);
   const slot_id = readString(record, 'slot_id', filePath);
   const tab = readString(record, 'tab', filePath) as CatalogTab;
-  if (tab !== 'movies' && tab !== 'series') {
-    throw new Error(`${filePath}.tab must be movies or series`);
+  if (tab !== 'movies' && tab !== 'series' && tab !== 'youtube') {
+    throw new Error(`${filePath}.tab must be movies, series, or youtube`);
   }
   const content_type = readString(record, 'content_type', filePath);
-  if (content_type !== 'movie' && content_type !== 'series') {
-    throw new Error(`${filePath}.content_type must be movie or series`);
+  if (content_type !== 'movie' && content_type !== 'series' && content_type !== 'youtube_video') {
+    throw new Error(`${filePath}.content_type must be movie, series, or youtube_video`);
+  }
+  if (
+    (tab === 'movies' && content_type !== 'movie')
+    || (tab === 'series' && content_type !== 'series')
+    || (tab === 'youtube' && content_type !== 'youtube_video')
+  ) {
+    throw new Error(`${filePath} tab/content_type mismatch: ${tab}/${content_type}`);
   }
   const version = Number(record.version ?? 1);
   if (!Number.isInteger(version) || version < 1) {
@@ -103,7 +110,7 @@ function readSlot(value: unknown, filePath: string): AiCatalogSlotFile {
     label: typeof record.label === 'string' && record.label.trim()
       ? record.label.trim()
       : slot_id.replace(/-/g, ' '),
-    content_type: content_type as 'movie' | 'series',
+    content_type: content_type as 'movie' | 'series' | 'youtube_video',
     enabled: record.enabled !== false,
     sources,
     seed_titles,
