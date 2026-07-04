@@ -1085,6 +1085,18 @@ h1 {
   color: #e8fff0;
 }
 
+.voice-line.tool .voice-tag {
+  color: #ffb86a;
+}
+
+.voice-line.tool .voice-text {
+  color: #ffe8cc;
+}
+
+.voice-line.tool[data-active="true"] .voice-text {
+  opacity: 0.92;
+}
+
 .voice-hint {
   display: none;
 }

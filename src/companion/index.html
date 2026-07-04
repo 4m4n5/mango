@@ -26,7 +26,31 @@
           <strong id="youtube-user-code"></strong>
         </div>
       </section>
+      <section id="mirror" class="mirror-strip" aria-label="TV mirror">
+        <div class="mirror-row">
+          <span class="mirror-label">tab</span>
+          <span id="mirror-tab" class="mirror-value">—</span>
+        </div>
+        <div class="mirror-row">
+          <span class="mirror-label">open</span>
+          <span id="mirror-open" class="mirror-value">—</span>
+        </div>
+        <div class="mirror-row">
+          <span class="mirror-label">playing</span>
+          <span id="mirror-playing" class="mirror-value">—</span>
+        </div>
+        <div class="mirror-row">
+          <span class="mirror-label">tool</span>
+          <span id="mirror-tool" class="mirror-value">—</span>
+        </div>
+        <button id="memory-toggle" type="button" class="memory-toggle">memory</button>
+        <pre id="memory-panel" class="memory-panel" hidden></pre>
+      </section>
       <section id="chat" class="chat-log" aria-live="polite" aria-label="chat"></section>
+      <form id="composer" class="composer">
+        <textarea id="composer-input" rows="2" maxlength="500" placeholder="type to mango…"></textarea>
+        <button type="submit">send</button>
+      </form>
       <p id="error" class="error" hidden></p>
       <button id="ptt" type="button" aria-label="hold to talk">hold</button>
       <p class="hint">HTTPS required for phone mic</p>

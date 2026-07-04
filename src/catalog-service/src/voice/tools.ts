@@ -343,7 +343,7 @@ export function buildVoiceToolManifest(): {
             type: 'string',
             enum: ['home', 'back', 'settings', 'tab'],
           },
-          tab: { type: 'string', enum: ['movies', 'series', 'live'] },
+          tab: { type: 'string', enum: ['movies', 'series', 'youtube', 'live'] },
         },
         required: ['action'],
       },

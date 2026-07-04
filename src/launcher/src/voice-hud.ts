@@ -6,7 +6,8 @@
 type VoiceMessage =
   | { type: "status"; state?: string; text?: string }
   | { type: "chat"; role?: string; text?: string; partial?: boolean }
-  | { type: "error"; message?: string };
+  | { type: "error"; message?: string }
+  | { type: "tool"; phase?: string; name?: string; summary?: string };
 
 type VoiceHudElements = {
   card: HTMLElement;
@@ -16,6 +17,8 @@ type VoiceHudElements = {
   userText: HTMLElement | null;
   replyLine: HTMLElement | null;
   replyText: HTMLElement | null;
+  toolLine: HTMLElement | null;
+  toolText: HTMLElement | null;
 };
 
 const ACTIVE_STATES = new Set(["listening", "thinking", "speaking"]);
@@ -33,6 +36,8 @@ export function startVoiceHud(): void {
     userText: document.getElementById("voice-user-text"),
     replyLine: document.getElementById("voice-reply-line"),
     replyText: document.getElementById("voice-reply-text"),
+    toolLine: document.getElementById("voice-tool-line"),
+    toolText: document.getElementById("voice-tool-text"),
   });
 }
 
@@ -61,6 +66,7 @@ function connectVoiceHud(wsUrls: string[], els: VoiceHudElements): void {
     window.clearTimeout(errorDismissTimer);
     showUser(els, "");
     showReply(els, "", false);
+    showTool(els, "", false);
     els.card.dataset.state = "idle";
     els.card.dataset.visible = "false";
     els.card.setAttribute("aria-hidden", "true");
@@ -159,6 +165,13 @@ function connectVoiceHud(wsUrls: string[], els: VoiceHudElements): void {
         showReply(els, message, false);
         showActive("speaking", "mango");
         errorDismissTimer = window.setTimeout(dismiss, 4000);
+        return;
+      }
+      if (msg.type === "tool") {
+        const summary = msg.summary ?? msg.name ?? "working…";
+        showActive("thinking", summary);
+        showTool(els, summary, msg.phase !== "done");
+        return;
       }
     } catch {
       dismiss();
@@ -195,5 +208,15 @@ function showReply(els: VoiceHudElements, text: string, partial: boolean): void 
   }
   if (els.replyLine !== null) {
     els.replyLine.hidden = text.trim().length === 0;
+  }
+}
+
+function showTool(els: VoiceHudElements, text: string, active: boolean): void {
+  if (els.toolText !== null) {
+    els.toolText.textContent = text;
+  }
+  if (els.toolLine !== null) {
+    els.toolLine.hidden = text.trim().length === 0;
+    els.toolLine.dataset.active = active ? "true" : "false";
   }
 }

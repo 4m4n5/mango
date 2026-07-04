@@ -5,7 +5,30 @@ type ServerMessage =
   | { type: "status"; state?: string; text?: string }
   | { type: "chat"; role?: ChatRole; text?: string; partial?: boolean }
   | { type: "error"; message?: string }
-  | { type: "tool"; phase?: string; name?: string; summary?: string };
+  | { type: "tool"; phase?: string; name?: string; summary?: string }
+  | {
+      type: "launcher_command";
+      action?: string;
+      tab?: string;
+      title?: string;
+      content_type?: string;
+    };
+
+type AiContextResponse = {
+  ok?: boolean;
+  now_playing?: {
+    active?: boolean;
+    title?: string | null;
+    message?: string;
+  };
+};
+
+type CompanionSummaryResponse = {
+  ok?: boolean;
+  summary?: string;
+  compiled_excerpt?: string;
+  familiarity?: Record<string, unknown>;
+};
 
 const TARGET_SAMPLE_RATE = 16_000;
 const MAX_UTTERANCE_MS = 30_000;
@@ -14,6 +37,15 @@ const statusEl = document.getElementById("status");
 const errorEl = document.getElementById("error");
 const pttBtn = document.getElementById("ptt");
 const chatEl = document.getElementById("chat");
+const composerForm = document.getElementById("composer");
+const composerInput = document.getElementById("composer-input") as HTMLTextAreaElement | null;
+const composerSubmit = composerForm?.querySelector("button[type='submit']");
+const mirrorTabEl = document.getElementById("mirror-tab");
+const mirrorOpenEl = document.getElementById("mirror-open");
+const mirrorPlayingEl = document.getElementById("mirror-playing");
+const mirrorToolEl = document.getElementById("mirror-tool");
+const memoryToggle = document.getElementById("memory-toggle");
+const memoryPanel = document.getElementById("memory-panel");
 const youtubeStatusEl = document.getElementById("youtube-status");
 const youtubeStartBtn = document.getElementById("youtube-auth-start");
 const youtubeDisconnectBtn = document.getElementById("youtube-auth-disconnect");
@@ -27,6 +59,12 @@ let reconnectTimer: number | undefined;
 let pttActive = false;
 let maxUtteranceTimer: number | undefined;
 let youtubePollTimer: number | undefined;
+let connected = false;
+let voiceBusy = false;
+let mirrorPollTimer: number | undefined;
+let mirrorTab = "—";
+let mirrorOpen = "—";
+let mirrorTool = "—";
 
 let mediaStream: MediaStream | null = null;
 let audioContext: AudioContext | null = null;
@@ -37,6 +75,7 @@ let chunks: Float32Array[] = [];
 
 connect();
 void loadYoutubeState();
+startMirrorPoll();
 
 function resolveWsUrl(): string {
   const env = import.meta.env as Record<string, string | undefined>;
@@ -52,6 +91,8 @@ function connect(): void {
   window.clearTimeout(reconnectTimer);
   socket = new WebSocket(wsUrl);
   socket.addEventListener("open", () => {
+    connected = true;
+    updateComposerState();
     setStatus("connected");
     setError("");
   });
@@ -59,6 +100,8 @@ function connect(): void {
     handleServerMessage(event.data);
   });
   socket.addEventListener("close", () => {
+    connected = false;
+    updateComposerState();
     setStatus("disconnected");
     reconnectTimer = window.setTimeout(connect, 2000);
   });
@@ -68,12 +111,26 @@ function connect(): void {
   });
 }
 
+function updateComposerState(): void {
+  const disabled = !connected || voiceBusy;
+  composerInput?.toggleAttribute("disabled", disabled);
+  if (composerSubmit instanceof HTMLButtonElement) {
+    composerSubmit.disabled = disabled;
+  }
+}
+
 function handleServerMessage(raw: string): void {
   try {
     const msg = JSON.parse(raw) as ServerMessage;
     if (msg.type === "status") {
       const state = (msg.state ?? "").trim();
       setStatus((msg.text ?? msg.state ?? "").trim());
+      voiceBusy = state === "listening" || state === "thinking";
+      updateComposerState();
+      if (state === "idle") {
+        mirrorTool = "—";
+        renderMirror();
+      }
       if (state === "idle" || state === "listening") {
         setError("");
       }
@@ -92,7 +149,15 @@ function handleServerMessage(raw: string): void {
       return;
     }
     if (msg.type === "tool") {
-      appendToolCard(msg.summary ?? msg.name ?? "working…", msg.phase ?? "start");
+      const summary = msg.summary ?? msg.name ?? "working…";
+      mirrorTool = summary;
+      renderMirror();
+      appendToolCard(summary, msg.phase ?? "start");
+      return;
+    }
+    if (msg.type === "launcher_command") {
+      applyLauncherMirror(msg);
+      return;
     }
   } catch {
     setStatus(raw.trim());
@@ -109,6 +174,96 @@ function setError(text: string): void {
   if (errorEl !== null) {
     errorEl.textContent = text;
     errorEl.toggleAttribute("hidden", text.length === 0);
+  }
+}
+
+function formatTabLabel(tab: string): string {
+  const labels: Record<string, string> = {
+    movies: "Movies",
+    series: "Series",
+    youtube: "YouTube",
+    live: "Live",
+  };
+  return labels[tab] ?? tab;
+}
+
+function applyLauncherMirror(msg: Extract<ServerMessage, { type: "launcher_command" }>): void {
+  const action = (msg.action ?? "").trim();
+  if (action === "tab" && typeof msg.tab === "string" && msg.tab.length > 0) {
+    mirrorTab = formatTabLabel(msg.tab);
+  } else if (action === "open_detail") {
+    const title = typeof msg.title === "string" ? msg.title.trim() : "";
+    if (title.length > 0) {
+      mirrorOpen = title;
+    }
+    if (typeof msg.tab === "string" && msg.tab.length > 0) {
+      mirrorTab = formatTabLabel(msg.tab);
+    }
+  } else if (action === "home") {
+    mirrorOpen = "—";
+  }
+  renderMirror();
+}
+
+function renderMirror(): void {
+  if (mirrorTabEl !== null) {
+    mirrorTabEl.textContent = mirrorTab;
+  }
+  if (mirrorOpenEl !== null) {
+    mirrorOpenEl.textContent = mirrorOpen;
+  }
+  if (mirrorToolEl !== null) {
+    mirrorToolEl.textContent = mirrorTool;
+  }
+}
+
+function startMirrorPoll(): void {
+  window.clearInterval(mirrorPollTimer);
+  void refreshMirrorPlaying();
+  mirrorPollTimer = window.setInterval(() => {
+    void refreshMirrorPlaying();
+  }, 5000);
+}
+
+async function refreshMirrorPlaying(): Promise<void> {
+  try {
+    const ctx = await catalogFetch<AiContextResponse>("/ai/context");
+    const np = ctx.now_playing;
+    let playing = "—";
+    if (np?.active && typeof np.title === "string" && np.title.trim().length > 0) {
+      playing = np.title.trim();
+    } else if (typeof np?.message === "string" && np.message.trim().length > 0) {
+      playing = np.message.trim();
+    }
+    if (mirrorPlayingEl !== null) {
+      mirrorPlayingEl.textContent = playing;
+    }
+  } catch {
+    if (mirrorPlayingEl !== null) {
+      mirrorPlayingEl.textContent = "—";
+    }
+  }
+}
+
+async function toggleMemoryPanel(): Promise<void> {
+  if (memoryPanel === null) {
+    return;
+  }
+  const showing = !memoryPanel.hasAttribute("hidden");
+  if (showing) {
+    memoryPanel.setAttribute("hidden", "");
+    return;
+  }
+  memoryPanel.textContent = "loading…";
+  memoryPanel.removeAttribute("hidden");
+  try {
+    const data = await catalogFetch<CompanionSummaryResponse>("/voice/companion/summary");
+    const parts = [data.summary, data.compiled_excerpt].filter(
+      (part): part is string => typeof part === "string" && part.trim().length > 0,
+    );
+    memoryPanel.textContent = parts.length > 0 ? parts.join("\n\n") : "mango has no saved notes yet";
+  } catch (error) {
+    memoryPanel.textContent = error instanceof Error ? error.message : "memory unavailable";
   }
 }
 
@@ -495,5 +650,32 @@ if (youtubeStartBtn instanceof HTMLButtonElement) {
 if (youtubeDisconnectBtn instanceof HTMLButtonElement) {
   youtubeDisconnectBtn.addEventListener("click", () => {
     void disconnectYoutube();
+  });
+}
+
+if (memoryToggle instanceof HTMLButtonElement) {
+  memoryToggle.addEventListener("click", () => {
+    void toggleMemoryPanel();
+  });
+}
+
+if (composerForm instanceof HTMLFormElement && composerInput instanceof HTMLTextAreaElement) {
+  composerForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = composerInput.value.trim();
+    if (text.length === 0) {
+      return;
+    }
+    if (send({ type: "chat_send", text })) {
+      composerInput.value = "";
+      composerInput.focus();
+    }
+  });
+
+  composerInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      composerForm.requestSubmit();
+    }
   });
 }

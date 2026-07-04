@@ -1,0 +1,58 @@
+[
+  {
+    "id": "discover-hindi-movies",
+    "utterance": "good hindi movies",
+    "expect": "discover",
+    "tab": "movies",
+    "note": "Must chat/clarify — never open a random title"
+  },
+  {
+    "id": "discover-youtube-f1",
+    "utterance": "what are some F1 highlights on YouTube",
+    "expect": "discover",
+    "tab": "youtube",
+    "note": "Suggest or clarify — no auto-open"
+  },
+  {
+    "id": "discover-live-cricket",
+    "utterance": "good cricket channels",
+    "expect": "discover",
+    "tab": "live",
+    "note": "Ambiguous live intent — list or clarify first"
+  },
+  {
+    "id": "clear-open-movie",
+    "utterance": "open Shawshank Redemption",
+    "expect": "open",
+    "tab": "movies",
+    "note": "Single winner → open detail, press B to play"
+  },
+  {
+    "id": "clear-open-youtube",
+    "utterance": "open that F1 video on YouTube",
+    "expect": "open",
+    "tab": "youtube",
+    "note": "Requires prior search context or clear title"
+  },
+  {
+    "id": "navigate-youtube-tab",
+    "utterance": "switch to YouTube tab",
+    "expect": "navigate",
+    "tab": "youtube",
+    "tool": "mango_navigate",
+    "note": "mango_navigate action=tab tab=youtube"
+  },
+  {
+    "id": "navigate-live-tab",
+    "utterance": "live TV dikhao",
+    "expect": "navigate",
+    "tab": "live",
+    "tool": "mango_navigate"
+  },
+  {
+    "id": "memory-summary",
+    "utterance": "what do you know about me",
+    "expect": "memory",
+    "note": "Readable summary — no raw yaml dump"
+  }
+]

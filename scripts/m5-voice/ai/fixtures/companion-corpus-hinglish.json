@@ -1,0 +1,39 @@
+[
+  {
+    "id": "hinglish-discover-light",
+    "utterance": "kuch light de",
+    "expect": "discover",
+    "tab": "movies"
+  },
+  {
+    "id": "hinglish-open-kholo",
+    "utterance": "Toy Story kholo",
+    "expect": "open",
+    "tab": "movies"
+  },
+  {
+    "id": "hinglish-ordinal",
+    "utterance": "doosra wala",
+    "expect": "open",
+    "note": "Follow-up pick after list — opens second hit"
+  },
+  {
+    "id": "hinglish-youtube-search",
+    "utterance": "kya dekhu F1 YouTube pe",
+    "expect": "discover",
+    "tab": "youtube"
+  },
+  {
+    "id": "hinglish-live-cricket",
+    "utterance": "kya dekhu cricket live pe",
+    "expect": "discover",
+    "tab": "live"
+  },
+  {
+    "id": "hinglish-navigate-series",
+    "utterance": "series tab pe le chalo",
+    "expect": "navigate",
+    "tab": "series",
+    "tool": "mango_navigate"
+  }
+]

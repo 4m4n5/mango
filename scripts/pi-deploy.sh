@@ -77,9 +77,11 @@ fi
 if [[ $(printf '%q' "$FAST") == "1" ]]; then
   bash scripts/lib/pi-npm-deps.sh build src/catalog-service
   bash scripts/lib/pi-npm-deps.sh build src/launcher
+  bash scripts/lib/pi-npm-deps.sh build src/companion
 else
   cd src/catalog-service && npm ci --silent && npm run build
   cd ~/mango/src/launcher && npm ci --silent && npm run build
+  cd ~/mango/src/companion && npm ci --silent && npm run build
 fi
 cd ~/mango
 bash scripts/m1-foundation/ui/install-systemd-units.sh || true
