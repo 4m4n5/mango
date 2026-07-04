@@ -204,18 +204,40 @@ async function postVoiceAck(
 function startVoiceCommandPoll(
   applyCommand: (command: LauncherCommandMessage) => Promise<{ ok: boolean; reason: string }>,
 ): () => void {
+  const WAIT_SECONDS = 25;
   let lastSeq = 0;
   let stopped = false;
   let pollTimer: number | undefined;
   let pollInFlight = false;
+  let currentController: AbortController | null = null;
+
+  const scheduleNext = (delayMs: number): void => {
+    if (stopped) {
+      return;
+    }
+    pollTimer = window.setTimeout(() => void poll(), delayMs);
+  };
 
   const poll = async (): Promise<void> => {
     if (stopped || pollInFlight) {
       return;
     }
     pollInFlight = true;
+    let ok = false;
+    const controller = new AbortController();
+    currentController = controller;
+    const abortTimer = window.setTimeout(() => {
+      try {
+        controller.abort();
+      } catch {
+        // controller already aborted
+      }
+    }, WAIT_SECONDS * 1000 + 5000);
     try {
-      const response = await fetch(`/api/voice/commands?after=${lastSeq}`, { cache: "no-store" });
+      const response = await fetch(
+        `/api/voice/commands?after=${lastSeq}&wait=${WAIT_SECONDS}`,
+        { cache: "no-store", signal: controller.signal },
+      );
       if (!response.ok) {
         return;
       }
@@ -234,19 +256,35 @@ function startVoiceCommandPoll(
       if ((payload.commands ?? []).length === 0 && typeof payload.latest_seq === "number" && payload.latest_seq > lastSeq) {
         lastSeq = payload.latest_seq;
       }
+      ok = true;
     } catch {
-      // launcher UI server may restart briefly
+      // launcher UI server may restart briefly, or fetch was aborted
     } finally {
+      window.clearTimeout(abortTimer);
+      if (currentController === controller) {
+        currentController = null;
+      }
       pollInFlight = false;
+      scheduleNext(ok ? 50 : 1500);
     }
   };
 
   void poll();
-  pollTimer = window.setInterval(() => void poll(), 150);
 
   return () => {
     stopped = true;
-    window.clearInterval(pollTimer);
+    if (pollTimer !== undefined) {
+      window.clearTimeout(pollTimer);
+      pollTimer = undefined;
+    }
+    if (currentController !== null) {
+      try {
+        currentController.abort();
+      } catch {
+        // controller may already be aborted
+      }
+      currentController = null;
+    }
   };
 }
 

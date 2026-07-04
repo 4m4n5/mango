@@ -42,6 +42,7 @@ LAUNCH_DEBOUNCE_SEC: Final = 2.0
 _last_launch_at: dict[str, float] = {}
 
 _voice_lock: Final = threading.Lock()
+_voice_cond: Final = threading.Condition(_voice_lock)
 _voice_commands: Final = deque[dict[str, object]](maxlen=64)
 VOICE_COMMAND_TTL_SEC: Final = 45.0
 VOICE_SEQ_FILE: Final = LOG_DIR / "voice-command-seq"
@@ -141,11 +142,12 @@ def _client_is_local(handler: BaseHTTPRequestHandler) -> bool:
 def enqueue_voice_command(command: dict[str, object]) -> int:
     global _voice_command_seq, _last_voice_ack
     action = str(command.get("action", ""))
-    with _voice_lock:
+    with _voice_cond:
         _voice_command_seq += 1
         seq = _voice_command_seq
         entry = {"seq": seq, "issued_at": time.time(), **command}
         _voice_commands.append(entry)
+        _voice_cond.notify_all()
     with _voice_ack_lock:
         _last_voice_ack = {
             "ok": False,
@@ -173,28 +175,53 @@ def _prune_expired_voice_commands(now: float | None = None) -> None:
     _voice_commands.extend(fresh)
 
 
+def _drain_pending_locked(after: int) -> list[dict[str, object]]:
+    """Drain pending commands with seq > after. Assumes _voice_lock is held."""
+    pending = [
+        entry
+        for entry in list(_voice_commands)
+        if int(entry.get("seq", 0)) > after
+    ]
+    pending_seqs = {int(entry.get("seq", 0)) for entry in pending}
+    kept = deque(
+        (
+            entry
+            for entry in _voice_commands
+            if int(entry.get("seq", 0)) not in pending_seqs
+        ),
+        maxlen=_voice_commands.maxlen,
+    )
+    _voice_commands.clear()
+    _voice_commands.extend(kept)
+    return pending
+
+
 def drain_voice_commands(after: int) -> tuple[list[dict[str, object]], int]:
     """Return pending commands once — never replay on later polls."""
-    now = time.time()
-    with _voice_lock:
-        _prune_expired_voice_commands(now)
-        pending = [
-            entry
-            for entry in list(_voice_commands)
-            if int(entry.get("seq", 0)) > after
-        ]
-        pending_seqs = {int(entry.get("seq", 0)) for entry in pending}
-        kept = deque(
-            (
-                entry
-                for entry in _voice_commands
-                if int(entry.get("seq", 0)) not in pending_seqs
-            ),
-            maxlen=_voice_commands.maxlen,
-        )
-        _voice_commands.clear()
-        _voice_commands.extend(kept)
-        return pending, _voice_command_seq
+    with _voice_cond:
+        _prune_expired_voice_commands(time.time())
+        return _drain_pending_locked(after), _voice_command_seq
+
+
+def wait_and_drain_voice_commands(
+    after: int, timeout: float
+) -> tuple[list[dict[str, object]], int]:
+    """Long-poll variant: park up to ``timeout`` seconds waiting for new commands.
+
+    Returns as soon as pending commands exist (drain-once), or on timeout with
+    ``([], latest_seq)``. Mutually exclusive with all other _voice_lock users.
+    """
+    deadline = time.monotonic() + timeout
+    with _voice_cond:
+        while True:
+            _prune_expired_voice_commands(time.time())
+            pending = _drain_pending_locked(after)
+            if pending:
+                return pending, _voice_command_seq
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return [], _voice_command_seq
+            _voice_cond.wait(remaining)
 
 
 _voice_ack_lock: Final = threading.Lock()
@@ -344,12 +371,21 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/voice/commands":
             parsed = urlparse(self.path)
-            after_values = parse_qs(parsed.query).get("after", ["0"])
+            query = parse_qs(parsed.query)
+            after_values = query.get("after", ["0"])
             try:
                 after = max(0, int(after_values[0]))
             except (ValueError, IndexError):
                 after = 0
-            commands, latest_seq = drain_voice_commands(after)
+            wait_values = query.get("wait", [""])
+            try:
+                wait = max(0.0, min(30.0, float(wait_values[0])))
+            except (ValueError, IndexError):
+                wait = 0.0
+            if wait > 0:
+                commands, latest_seq = wait_and_drain_voice_commands(after, wait)
+            else:
+                commands, latest_seq = drain_voice_commands(after)
             self._write_json({"ok": True, "latest_seq": latest_seq, "commands": commands})
             return
         if path == "/api/voice/state":
