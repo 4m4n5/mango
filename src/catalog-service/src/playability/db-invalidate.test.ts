@@ -15,6 +15,7 @@ import {
   listLinkableVerifiedForRail,
   quarantineLegacyBackgroundUncachedVerifiedTitles,
   recordVerifyResult,
+  resetPlayabilityDbForTests,
   upsertRailPoolTitle,
 } from './db.js';
 
@@ -22,9 +23,11 @@ async function withTempDb(fn: () => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'mango-playability-db-'));
   const oldDb = process.env.MANGO_PLAYABILITY_DB;
   process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
   try {
     await fn();
   } finally {
+    resetPlayabilityDbForTests();
     if (oldDb === undefined) {
       delete process.env.MANGO_PLAYABILITY_DB;
     } else {
@@ -270,6 +273,7 @@ VALUES ('series-global-popular', 'series', 'tt35077054:1:1', @shown_at)
       db.close();
     }
 
+    resetPlayabilityDbForTests();
     await initPlayabilityDb();
 
     const keys = await getRailPoolTitleKeys('series-global-popular');

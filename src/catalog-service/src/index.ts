@@ -698,6 +698,9 @@ async function main(): Promise<void> {
           saved_by: typeof body.saved_by === 'string' ? body.saved_by : 'user',
         });
         core.clearRailItemsCache();
+        if (saved.source === 'youtube') {
+          youtube.invalidateRailsCache();
+        }
         sendJson(res, 200, {
           ok: true,
           saved,
@@ -715,6 +718,9 @@ async function main(): Promise<void> {
           id: target.id,
         });
         core.clearRailItemsCache();
+        if (target.source === 'youtube') {
+          youtube.invalidateRailsCache();
+        }
         sendJson(res, 200, { ok: true, removed, target });
         return;
       }

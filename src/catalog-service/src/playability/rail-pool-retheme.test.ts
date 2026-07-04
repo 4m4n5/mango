@@ -9,13 +9,19 @@ import {
   getRailPoolOverlapSummary,
   listOrphanVerifiedPoolTitles,
   listRailIdsContainingTitle,
+  resetPlayabilityDbForTests,
   upsertRailPoolTitle,
 } from './db.js';
 import { rethemeRailPools, type RethemeCore } from './rail-pool-retheme.js';
 
 const ENV = { ...process.env };
 
+test.beforeEach(() => {
+  resetPlayabilityDbForTests();
+});
+
 test.afterEach(() => {
+  resetPlayabilityDbForTests();
   process.env = { ...ENV };
 });
 

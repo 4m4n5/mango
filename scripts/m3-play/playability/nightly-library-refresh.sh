@@ -148,6 +148,13 @@ fi
 
 echo "nightly library refresh: complete playability_rc=$PLAYABILITY_RC youtube_rc=$YOUTUBE_RC"
 
+# Reclaim -wal disk after the write-heavy YouTube pass. Best-effort and non-fatal:
+# a TRUNCATE checkpoint is a no-op if the live service is mid-write. playability.db
+# is already checkpointed on staged publish; this covers library/progress/youtube.
+if [[ "${MANGO_NIGHTLY_WAL_CHECKPOINT:-1}" == "1" ]]; then
+  bash "$REPO_DIR/scripts/lib/checkpoint-wal-dbs.sh" || true
+fi
+
 # Playability + YouTube phases are done here; any *.lock file still on disk
 # with no live flock holder is a crash leftover from a prior aborted run
 # (e.g. the STATUS.md rc=143 SIGTERM case). Clear those before the proof so

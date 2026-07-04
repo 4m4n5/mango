@@ -237,8 +237,38 @@ function shouldMirrorSeriesGateRecord(type: string, id: string): boolean {
     && canonicalBrowseId(type, id) !== id;
 }
 
+let dbSingleton: Database.Database | null = null;
+let schemaInitialized = false;
+
 function openDb(): Database.Database {
-  return new Database(dbPath());
+  if (!dbSingleton) {
+    const db = new Database(dbPath());
+    db.pragma('journal_mode = WAL');
+    db.pragma('foreign_keys = ON');
+    db.pragma('busy_timeout = 5000');
+    db.pragma('synchronous = NORMAL');
+    db.pragma('cache_size = -16000');
+    db.pragma('temp_store = MEMORY');
+    db.pragma('mmap_size = 134217728');
+    dbSingleton = db;
+  }
+  return dbSingleton;
+}
+
+/** Accessor for other modules (e.g. batch-writer) that must share the singleton. */
+export function getPlayabilityDb(): Database.Database {
+  return openDb();
+}
+
+/** Test-only: close the shared handle and reset the init-once flag so a fresh
+ * `MANGO_PLAYABILITY_DB` path takes effect on the next call. Never call from
+ * production code — the connection must live for the process lifetime. */
+export function resetPlayabilityDbForTests(): void {
+  if (dbSingleton) {
+    dbSingleton.close();
+    dbSingleton = null;
+  }
+  schemaInitialized = false;
 }
 
 function nowMs(): number {
@@ -406,10 +436,10 @@ function emptyRailStatus(railId: string): PlayabilityRailStatus {
 export async function initPlayabilityDb(): Promise<void> {
   await mkdir(dirname(dbPath()), { recursive: true });
   const db = openDb();
-  try {
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    db.exec(`
+  if (schemaInitialized) {
+    return;
+  }
+  db.exec(`
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 
@@ -504,11 +534,29 @@ CREATE INDEX IF NOT EXISTS idx_recently_shown_rail_time ON recently_shown(rail_i
 CREATE INDEX IF NOT EXISTS idx_verify_log_started ON verify_log(started_at);
 CREATE INDEX IF NOT EXISTS idx_playability_triggers_open ON playability_triggers(handled_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_rail_candidate_rejections_active ON rail_candidate_rejections(rail_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_rail_pool_type_id ON rail_pool(type, id);
+CREATE INDEX IF NOT EXISTS idx_verify_log_lookup ON verify_log(type, id_value, started_at DESC);
 `);
-    applySchemaMigrations(db);
-  } finally {
-    db.close();
-  }
+  applySchemaMigrations(db);
+  prunePlayabilityMaintenance();
+  schemaInitialized = true;
+}
+
+/** Deletes off-browse-path bloat. Called once at init, never per request. */
+export function prunePlayabilityMaintenance(now: number = nowMs()): number {
+  const db = openDb();
+  const fourteenDaysAgo = now - 14 * 24 * 60 * 60 * 1000;
+  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+  let deleted = 0;
+  const transaction = db.transaction(() => {
+    deleted += db.prepare('DELETE FROM verify_log WHERE started_at < ?').run(fourteenDaysAgo).changes;
+    deleted += db.prepare(
+      'DELETE FROM playability_triggers WHERE handled_at IS NOT NULL AND created_at < ?',
+    ).run(sevenDaysAgo).changes;
+    deleted += db.prepare('DELETE FROM rail_candidate_rejections WHERE expires_at < ?').run(now).changes;
+  });
+  transaction();
+  return deleted;
 }
 
 function applySchemaMigrations(db: Database.Database): void {
@@ -711,44 +759,36 @@ export async function getRailIngestOffsetsBulk(railIds: string[]): Promise<Map<s
   }
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const placeholders = railIds.map((_, index) => `@rail_${index}`).join(', ');
-    const params: Record<string, string> = {};
-    railIds.forEach((railId, index) => {
-      params[`rail_${index}`] = railId;
-    });
-    const rows = db.prepare(`
+  const placeholders = railIds.map((_, index) => `@rail_${index}`).join(', ');
+  const params: Record<string, string> = {};
+  railIds.forEach((railId, index) => {
+    params[`rail_${index}`] = railId;
+  });
+  const rows = db.prepare(`
 SELECT rail_id, catalog_offset
 FROM rail_ingest_state
 WHERE rail_id IN (${placeholders});
 `).all(params) as Array<{ rail_id: string; catalog_offset: number }>;
-    for (const row of rows) {
-      result.set(row.rail_id, row.catalog_offset);
-    }
-    return result;
-  } finally {
-    db.close();
+  for (const row of rows) {
+    result.set(row.rail_id, row.catalog_offset);
   }
+  return result;
 }
 
 export async function setRailIngestOffset(railId: string, catalogOffset: number): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    db.prepare(`
+  db.prepare(`
 INSERT INTO rail_ingest_state (rail_id, catalog_offset, updated_at)
 VALUES (@rail_id, @catalog_offset, @updated_at)
 ON CONFLICT(rail_id) DO UPDATE SET
   catalog_offset = excluded.catalog_offset,
   updated_at = excluded.updated_at;
 `).run({
-      rail_id: railId,
-      catalog_offset: Math.max(0, catalogOffset),
-      updated_at: nowMs(),
-    });
-  } finally {
-    db.close();
-  }
+    rail_id: railId,
+    catalog_offset: Math.max(0, catalogOffset),
+    updated_at: nowMs(),
+  });
 }
 
 export async function getRailSourceIngestOffsetsBulk(
@@ -761,24 +801,20 @@ export async function getRailSourceIngestOffsetsBulk(
   }
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const placeholders = sourceKeys.map((_, index) => `@source_${index}`).join(', ');
-    const params: Record<string, string> = { rail_id: railId };
-    sourceKeys.forEach((sourceKey, index) => {
-      params[`source_${index}`] = sourceKey;
-    });
-    const rows = db.prepare(`
+  const placeholders = sourceKeys.map((_, index) => `@source_${index}`).join(', ');
+  const params: Record<string, string> = { rail_id: railId };
+  sourceKeys.forEach((sourceKey, index) => {
+    params[`source_${index}`] = sourceKey;
+  });
+  const rows = db.prepare(`
 SELECT source_key, catalog_offset
 FROM rail_source_ingest_state
 WHERE rail_id = @rail_id AND source_key IN (${placeholders});
 `).all(params) as Array<{ source_key: string; catalog_offset: number }>;
-    for (const row of rows) {
-      result.set(row.source_key, row.catalog_offset);
-    }
-    return result;
-  } finally {
-    db.close();
+  for (const row of rows) {
+    result.set(row.source_key, row.catalog_offset);
   }
+  return result;
 }
 
 export async function setRailSourceIngestOffsetsBulk(
@@ -790,25 +826,21 @@ export async function setRailSourceIngestOffsetsBulk(
   }
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const stmt = db.prepare(`
+  const stmt = db.prepare(`
 INSERT INTO rail_source_ingest_state (rail_id, source_key, catalog_offset, updated_at)
 VALUES (@rail_id, @source_key, @catalog_offset, @updated_at)
 ON CONFLICT(rail_id, source_key) DO UPDATE SET
   catalog_offset = excluded.catalog_offset,
   updated_at = excluded.updated_at;
 `);
-    const updatedAt = nowMs();
-    for (const [sourceKey, catalogOffset] of offsets.entries()) {
-      stmt.run({
-        rail_id: railId,
-        source_key: sourceKey,
-        catalog_offset: Math.max(0, catalogOffset),
-        updated_at: updatedAt,
-      });
-    }
-  } finally {
-    db.close();
+  const updatedAt = nowMs();
+  for (const [sourceKey, catalogOffset] of offsets.entries()) {
+    stmt.run({
+      rail_id: railId,
+      source_key: sourceKey,
+      catalog_offset: Math.max(0, catalogOffset),
+      updated_at: updatedAt,
+    });
   }
 }
 
@@ -816,21 +848,17 @@ ON CONFLICT(rail_id, source_key) DO UPDATE SET
 export async function resetRailIngestCursors(railId: string): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    db.prepare('DELETE FROM rail_source_ingest_state WHERE rail_id = @rail_id').run({ rail_id: railId });
-    db.prepare(`
+  db.prepare('DELETE FROM rail_source_ingest_state WHERE rail_id = @rail_id').run({ rail_id: railId });
+  db.prepare(`
 INSERT INTO rail_ingest_state (rail_id, catalog_offset, updated_at)
 VALUES (@rail_id, 0, @updated_at)
 ON CONFLICT(rail_id) DO UPDATE SET
   catalog_offset = 0,
   updated_at = excluded.updated_at;
 `).run({
-      rail_id: railId,
-      updated_at: nowMs(),
-    });
-  } finally {
-    db.close();
-  }
+    rail_id: railId,
+    updated_at: nowMs(),
+  });
 }
 
 /** Seed per-source cursors from legacy rail_ingest_state when missing. */
@@ -858,16 +886,12 @@ export async function ensureRailSourceIngestOffsets(
 export async function getUniqueVerifiedLibraryCount(now = nowMs()): Promise<number> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const row = db.prepare(`
+  const row = db.prepare(`
 SELECT COUNT(*) AS c
 FROM titles
 WHERE status = 'verified';
 `).get({ now }) as { c: number } | undefined;
-    return toNumber(row?.c);
-  } finally {
-    db.close();
-  }
+  return toNumber(row?.c);
 }
 
 export async function recordRailCandidateRejections(
@@ -880,12 +904,11 @@ export async function recordRailCandidateRejections(
   }
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const unique = new Map<string, RailCandidateRejectionRecord>();
-    for (const record of activeRecords) {
-      unique.set(`${record.rail_id}:${titleKey(record.type, record.id)}`, record);
-    }
-    const stmt = db.prepare(`
+  const unique = new Map<string, RailCandidateRejectionRecord>();
+  for (const record of activeRecords) {
+    unique.set(`${record.rail_id}:${titleKey(record.type, record.id)}`, record);
+  }
+  const stmt = db.prepare(`
 INSERT INTO rail_candidate_rejections (
   rail_id, type, id, reason, source_key, run_id, created_at, expires_at, details
 ) VALUES (
@@ -899,26 +922,23 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
   expires_at = MAX(rail_candidate_rejections.expires_at, excluded.expires_at),
   details = COALESCE(excluded.details, rail_candidate_rejections.details);
 `);
-    const transaction = db.transaction(() => {
-      for (const record of unique.values()) {
-        stmt.run({
-          rail_id: record.rail_id,
-          type: record.type,
-          id: record.id,
-          reason: record.reason,
-          source_key: record.source_key ?? null,
-          run_id: record.run_id ?? null,
-          created_at: now,
-          expires_at: record.expires_at,
-          details: record.details ?? null,
-        });
-      }
-    });
-    transaction();
-    return unique.size;
-  } finally {
-    db.close();
-  }
+  const transaction = db.transaction(() => {
+    for (const record of unique.values()) {
+      stmt.run({
+        rail_id: record.rail_id,
+        type: record.type,
+        id: record.id,
+        reason: record.reason,
+        source_key: record.source_key ?? null,
+        run_id: record.run_id ?? null,
+        created_at: now,
+        expires_at: record.expires_at,
+        details: record.details ?? null,
+      });
+    }
+  });
+  transaction();
+  return unique.size;
 }
 
 export async function getActiveRailCandidateRejectionKeys(
@@ -932,36 +952,32 @@ export async function getActiveRailCandidateRejectionKeys(
   }
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const unique = new Map<string, { type: string; id: string }>();
-    for (const key of keys) {
-      unique.set(titleKey(key.type, key.id), key);
-    }
-    const values = [...unique.values()];
-    const chunkSize = 200;
-    for (let offset = 0; offset < values.length; offset += chunkSize) {
-      const chunk = values.slice(offset, offset + chunkSize);
-      const placeholders = chunk.map((_, index) => `( @type_${index}, @id_${index} )`).join(', ');
-      const params: Record<string, string | number> = { rail_id: railId, now };
-      chunk.forEach((entry, index) => {
-        params[`type_${index}`] = entry.type;
-        params[`id_${index}`] = entry.id;
-      });
-      const rows = db.prepare(`
+  const unique = new Map<string, { type: string; id: string }>();
+  for (const key of keys) {
+    unique.set(titleKey(key.type, key.id), key);
+  }
+  const values = [...unique.values()];
+  const chunkSize = 200;
+  for (let offset = 0; offset < values.length; offset += chunkSize) {
+    const chunk = values.slice(offset, offset + chunkSize);
+    const placeholders = chunk.map((_, index) => `( @type_${index}, @id_${index} )`).join(', ');
+    const params: Record<string, string | number> = { rail_id: railId, now };
+    chunk.forEach((entry, index) => {
+      params[`type_${index}`] = entry.type;
+      params[`id_${index}`] = entry.id;
+    });
+    const rows = db.prepare(`
 SELECT type, id
 FROM rail_candidate_rejections
 WHERE rail_id = @rail_id
   AND expires_at > @now
   AND (type, id) IN ( VALUES ${placeholders} );
 `).all(params) as RailPoolKeyRow[];
-      for (const row of rows) {
-        result.add(titleKey(row.type, row.id));
-      }
+    for (const row of rows) {
+      result.add(titleKey(row.type, row.id));
     }
-    return result;
-  } finally {
-    db.close();
   }
+  return result;
 }
 
 export async function listActiveRailCandidateRejections(
@@ -970,30 +986,22 @@ export async function listActiveRailCandidateRejections(
 ): Promise<RailCandidateRejectionRow[]> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    return db.prepare(`
+  return db.prepare(`
 SELECT rail_id, type, id, reason, source_key, run_id, created_at, expires_at, details
 FROM rail_candidate_rejections
 WHERE rail_id = @rail_id AND expires_at > @now
 ORDER BY expires_at DESC, type, id;
 `).all({ rail_id: railId, now }) as RailCandidateRejectionRow[];
-  } finally {
-    db.close();
-  }
 }
 
 export async function clearExpiredRailCandidateRejections(now = nowMs()): Promise<number> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const result = db.prepare(`
+  const result = db.prepare(`
 DELETE FROM rail_candidate_rejections
 WHERE expires_at <= @now;
 `).run({ now });
-    return result.changes;
-  } finally {
-    db.close();
-  }
+  return result.changes;
 }
 
 type LegacyUncachedVerifiedRow = {
@@ -1030,14 +1038,13 @@ export async function quarantineLegacyBackgroundUncachedVerifiedTitles(
 ): Promise<LegacyUncachedQuarantineResult> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const transaction = db.transaction(() => {
-      const rows = listLegacyBackgroundUncachedVerifiedRows(db);
-      if (rows.length === 0) {
-        return { titles: 0, rail_pool: 0, rail_session: 0 };
-      }
+  const transaction = db.transaction(() => {
+    const rows = listLegacyBackgroundUncachedVerifiedRows(db);
+    if (rows.length === 0) {
+      return { titles: 0, rail_pool: 0, rail_session: 0 };
+    }
 
-      const updateTitle = db.prepare(`
+    const updateTitle = db.prepare(`
 UPDATE titles
 SET status = 'failed',
     verified_at = NULL,
@@ -1046,43 +1053,39 @@ SET status = 'failed',
     updated_at = @updated_at
 WHERE type = @type AND id = @id AND status = 'verified' AND cache_status = 'uncached';
 `);
-      const deletePool = db.prepare(`
+    const deletePool = db.prepare(`
 DELETE FROM rail_pool
 WHERE type = @type AND id = @id;
 `);
-      const deleteSession = db.prepare(`
+    const deleteSession = db.prepare(`
 DELETE FROM rail_session
 WHERE type = @type AND id = @id;
 `);
-      const logRow = db.prepare(`
+    const logRow = db.prepare(`
 INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
 VALUES (@started_at, NULL, @type, @id, 'quarantine', 0, 'uncached_verify_legacy');
 `);
 
-      let titles = 0;
-      let railPool = 0;
-      let railSession = 0;
-      for (const row of rows) {
-        titles += updateTitle.run({ ...row, updated_at: now }).changes;
-        railPool += deletePool.run(row).changes;
-        railSession += deleteSession.run(row).changes;
-        logRow.run({ ...row, started_at: now });
-      }
+    let titles = 0;
+    let railPool = 0;
+    let railSession = 0;
+    for (const row of rows) {
+      titles += updateTitle.run({ ...row, updated_at: now }).changes;
+      railPool += deletePool.run(row).changes;
+      railSession += deleteSession.run(row).changes;
+      logRow.run({ ...row, started_at: now });
+    }
 
-      return { titles, rail_pool: railPool, rail_session: railSession };
-    });
-    return transaction();
-  } finally {
-    db.close();
-  }
+    return { titles, rail_pool: railPool, rail_session: railSession };
+  });
+  return transaction();
 }
 
 export async function getPlayabilityStatus(railIds: string[]): Promise<PlayabilityStatus> {
   await initPlayabilityDb();
   const now = nowMs();
   const db = openDb();
-  try {
-    const rows = db.prepare(`
+  const rows = db.prepare(`
 SELECT
   rp.rail_id AS rail_id,
   COUNT(*) AS pool_depth,
@@ -1096,47 +1099,44 @@ LEFT JOIN titles t ON t.type = rp.type AND t.id = rp.id
 GROUP BY rp.rail_id
 ORDER BY rp.rail_id;
 `).all() as StatusRow[];
-    const lastRun = db.prepare(`
+  const lastRun = db.prepare(`
 SELECT MAX(started_at) AS last_indexer_run_at
 FROM verify_log;
 `).all() as IndexerRow[];
 
-    const byRail = new Map(rows.map((row) => [row.rail_id, row]));
-    const allRailIds = [...new Set([...railIds, ...rows.map((row) => row.rail_id)])].sort();
-    const rails = allRailIds.map((railId) => {
-      const row = byRail.get(railId);
-      if (!row) return emptyRailStatus(railId);
-      return {
-        rail_id: railId,
-        pool_depth: toNumber(row.pool_depth),
-        verified_pool: toNumber(row.verified_pool),
-        pending: toNumber(row.pending),
-        stale: toNumber(row.stale),
-        failed: toNumber(row.failed),
-        last_verified_at: row.last_verified_at ?? null,
-      };
-    });
-
+  const byRail = new Map(rows.map((row) => [row.rail_id, row]));
+  const allRailIds = [...new Set([...railIds, ...rows.map((row) => row.rail_id)])].sort();
+  const rails = allRailIds.map((railId) => {
+    const row = byRail.get(railId);
+    if (!row) return emptyRailStatus(railId);
     return {
-      ok: true,
-      db_path: dbPath(),
-      schema_version: SCHEMA_VERSION,
-      rails,
-      totals: rails.reduce(
-        (totals, rail) => ({
-          pool_depth: totals.pool_depth + rail.pool_depth,
-          verified_pool: totals.verified_pool + rail.verified_pool,
-          pending: totals.pending + rail.pending,
-          stale: totals.stale + rail.stale,
-          failed: totals.failed + rail.failed,
-        }),
-        { pool_depth: 0, verified_pool: 0, pending: 0, stale: 0, failed: 0 },
-      ),
-      last_indexer_run_at: lastRun[0]?.last_indexer_run_at ?? null,
+      rail_id: railId,
+      pool_depth: toNumber(row.pool_depth),
+      verified_pool: toNumber(row.verified_pool),
+      pending: toNumber(row.pending),
+      stale: toNumber(row.stale),
+      failed: toNumber(row.failed),
+      last_verified_at: row.last_verified_at ?? null,
     };
-  } finally {
-    db.close();
-  }
+  });
+
+  return {
+    ok: true,
+    db_path: dbPath(),
+    schema_version: SCHEMA_VERSION,
+    rails,
+    totals: rails.reduce(
+      (totals, rail) => ({
+        pool_depth: totals.pool_depth + rail.pool_depth,
+        verified_pool: totals.verified_pool + rail.verified_pool,
+        pending: totals.pending + rail.pending,
+        stale: totals.stale + rail.stale,
+        failed: totals.failed + rail.failed,
+      }),
+      { pool_depth: 0, verified_pool: 0, pending: 0, stale: 0, failed: 0 },
+    ),
+    last_indexer_run_at: lastRun[0]?.last_indexer_run_at ?? null,
+  };
 }
 
 export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promise<void> {
@@ -1148,8 +1148,43 @@ export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promi
     ? record.expires_at ?? timestamp + DEFAULT_VERIFY_TTL_MS
     : record.expires_at ?? null;
 
-  try {
-    const transaction = db.transaction(() => {
+  const transaction = db.transaction(() => {
+    db.prepare(`
+INSERT INTO titles (
+  type, id, status, verified_at, expires_at, fail_reason, best_source,
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
+) VALUES (
+  @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @updated_at
+)
+ON CONFLICT(type, id) DO UPDATE SET
+  status = excluded.status,
+  verified_at = excluded.verified_at,
+  expires_at = excluded.expires_at,
+  fail_reason = excluded.fail_reason,
+  best_source = excluded.best_source,
+  cache_status = excluded.cache_status,
+  debrid_service = excluded.debrid_service,
+  probe_ms = excluded.probe_ms,
+  win_url_hash = excluded.win_url_hash,
+  win_ladder_step = excluded.win_ladder_step,
+  updated_at = excluded.updated_at;
+`).run({
+      type: record.type,
+      id: record.id,
+      status: record.status,
+      verified_at: verifiedAt,
+      expires_at: expiresAt,
+      fail_reason: record.fail_reason ?? null,
+      best_source: record.best_source ?? null,
+      cache_status: record.cache_status ?? null,
+      debrid_service: record.debrid_service ?? null,
+      probe_ms: record.probe_ms ?? null,
+      win_url_hash: record.win_url_hash ?? null,
+      win_ladder_step: record.win_ladder_step ?? null,
+      updated_at: timestamp,
+    });
+    if (shouldMirrorSeriesGateRecord(record.type, record.id)) {
       db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
@@ -1172,7 +1207,7 @@ ON CONFLICT(type, id) DO UPDATE SET
   updated_at = excluded.updated_at;
 `).run({
         type: record.type,
-        id: record.id,
+        id: canonicalBrowseId(record.type, record.id),
         status: record.status,
         verified_at: verifiedAt,
         expires_at: expiresAt,
@@ -1185,61 +1220,22 @@ ON CONFLICT(type, id) DO UPDATE SET
         win_ladder_step: record.win_ladder_step ?? null,
         updated_at: timestamp,
       });
-      if (shouldMirrorSeriesGateRecord(record.type, record.id)) {
-        db.prepare(`
-INSERT INTO titles (
-  type, id, status, verified_at, expires_at, fail_reason, best_source,
-  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
-) VALUES (
-  @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
-  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @updated_at
-)
-ON CONFLICT(type, id) DO UPDATE SET
-  status = excluded.status,
-  verified_at = excluded.verified_at,
-  expires_at = excluded.expires_at,
-  fail_reason = excluded.fail_reason,
-  best_source = excluded.best_source,
-  cache_status = excluded.cache_status,
-  debrid_service = excluded.debrid_service,
-  probe_ms = excluded.probe_ms,
-  win_url_hash = excluded.win_url_hash,
-  win_ladder_step = excluded.win_ladder_step,
-  updated_at = excluded.updated_at;
-`).run({
-          type: record.type,
-          id: canonicalBrowseId(record.type, record.id),
-          status: record.status,
-          verified_at: verifiedAt,
-          expires_at: expiresAt,
-          fail_reason: record.fail_reason ?? null,
-          best_source: record.best_source ?? null,
-          cache_status: record.cache_status ?? null,
-          debrid_service: record.debrid_service ?? null,
-          probe_ms: record.probe_ms ?? null,
-          win_url_hash: record.win_url_hash ?? null,
-          win_ladder_step: record.win_ladder_step ?? null,
-          updated_at: timestamp,
-        });
-      }
+    }
 
-      db.prepare(`
+    db.prepare(`
 INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
 VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
 `).run({
-        started_at: timestamp,
-        rail_id: record.rail_id ?? null,
-        type: record.type,
-        id_value: record.id,
-        stage: record.stage ?? 'verify',
-        ms: record.probe_ms ?? 0,
-        outcome: record.outcome ?? record.status,
-      });
+      started_at: timestamp,
+      rail_id: record.rail_id ?? null,
+      type: record.type,
+      id_value: record.id,
+      stage: record.stage ?? 'verify',
+      ms: record.probe_ms ?? 0,
+      outcome: record.outcome ?? record.status,
     });
-    transaction();
-  } finally {
-    db.close();
-  }
+  });
+  transaction();
 }
 
 export async function getRailPlayabilityStatus(railId: string): Promise<PlayabilityRailStatus> {
@@ -1265,41 +1261,36 @@ export async function getTitlesPlayabilityBulk(
 
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const unique = new Map<string, { type: string; id: string }>();
-    for (const key of keys) {
-      unique.set(titleKey(key.type, key.id), key);
-    }
-    const values = [...unique.values()];
-    const chunkSize = 200;
-    for (let offset = 0; offset < values.length; offset += chunkSize) {
-      const chunk = values.slice(offset, offset + chunkSize);
-      const placeholders = chunk.map((_, index) => `( @type_${index}, @id_${index} )`).join(', ');
-      const params: Record<string, string> = {};
-      chunk.forEach((entry, index) => {
-        params[`type_${index}`] = entry.type;
-        params[`id_${index}`] = entry.id;
-      });
-      const rows = db.prepare(`
+  const unique = new Map<string, { type: string; id: string }>();
+  for (const key of keys) {
+    unique.set(titleKey(key.type, key.id), key);
+  }
+  const values = [...unique.values()];
+  const chunkSize = 200;
+  for (let offset = 0; offset < values.length; offset += chunkSize) {
+    const chunk = values.slice(offset, offset + chunkSize);
+    const placeholders = chunk.map((_, index) => `( @type_${index}, @id_${index} )`).join(', ');
+    const params: Record<string, string> = {};
+    chunk.forEach((entry, index) => {
+      params[`type_${index}`] = entry.type;
+      params[`id_${index}`] = entry.id;
+    });
+    const rows = db.prepare(`
 SELECT type, id, status, fail_reason, expires_at, updated_at
 FROM titles
 WHERE (type, id) IN ( VALUES ${placeholders} );
 `).all(params) as TitleRow[];
-      for (const row of rows) {
-        result.set(titleKey(row.type, row.id), row);
-      }
+    for (const row of rows) {
+      result.set(titleKey(row.type, row.id), row);
     }
-    return result;
-  } finally {
-    db.close();
   }
+  return result;
 }
 
 export async function getStaleTitlesForRefresh(): Promise<Array<{ type: string; id: string; rail_id: string | null }>> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    return db.prepare(`
+  return db.prepare(`
 SELECT DISTINCT
   t.type,
   t.id,
@@ -1323,9 +1314,6 @@ SELECT DISTINCT
 FROM titles t
 WHERE t.status = 'stale';
 `).all() as Array<{ type: string; id: string; rail_id: string | null }>;
-  } finally {
-    db.close();
-  }
 }
 
 export async function getStaleTitlesInPools(): Promise<Array<{ type: string; id: string }>> {
@@ -1346,26 +1334,22 @@ export async function getRailPoolTitleKeysBulk(
 
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const placeholders = railIds.map((_, index) => `@rail_${index}`).join(', ');
-    const params: Record<string, string> = {};
-    railIds.forEach((railId, index) => {
-      params[`rail_${index}`] = railId;
-    });
-    const rows = db.prepare(`
+  const placeholders = railIds.map((_, index) => `@rail_${index}`).join(', ');
+  const params: Record<string, string> = {};
+  railIds.forEach((railId, index) => {
+    params[`rail_${index}`] = railId;
+  });
+  const rows = db.prepare(`
 SELECT rail_id, type, id
 FROM rail_pool
 WHERE rail_id IN (${placeholders});
 `).all(params) as Array<{ rail_id: string; type: string; id: string }>;
-    for (const row of rows) {
-      const keys = result.get(row.rail_id) ?? new Set<string>();
-      keys.add(titleKey(row.type, canonicalBrowseId(row.type, row.id)));
-      result.set(row.rail_id, keys);
-    }
-    return result;
-  } finally {
-    db.close();
+  for (const row of rows) {
+    const keys = result.get(row.rail_id) ?? new Set<string>();
+    keys.add(titleKey(row.type, canonicalBrowseId(row.type, row.id)));
+    result.set(row.rail_id, keys);
   }
+  return result;
 }
 
 export async function getTitleVerifyProfile(
@@ -1374,42 +1358,34 @@ export async function getTitleVerifyProfile(
 ): Promise<TitleVerifyProfile | null> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const row = db.prepare(`
+  const row = db.prepare(`
 SELECT type, id, status, best_source, cache_status, debrid_service, win_url_hash, win_ladder_step, probe_ms, expires_at
 FROM titles
 WHERE type = @type AND id = @id;
 `).get({ type, id }) as {
-      type: string;
-      id: string;
-      status: TitleVerifyProfile['status'];
-      best_source: string | null;
-      cache_status: string | null;
-      debrid_service: string | null;
-      win_url_hash: string | null;
-      win_ladder_step: string | null;
-      probe_ms: number | null;
-      expires_at: number | null;
-    } | undefined;
-    return row ?? null;
-  } finally {
-    db.close();
-  }
+    type: string;
+    id: string;
+    status: TitleVerifyProfile['status'];
+    best_source: string | null;
+    cache_status: string | null;
+    debrid_service: string | null;
+    win_url_hash: string | null;
+    win_ladder_step: string | null;
+    probe_ms: number | null;
+    expires_at: number | null;
+  } | undefined;
+  return row ?? null;
 }
 
 export async function getRailPoolTitleKeys(railId: string): Promise<Set<string>> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const rows = db.prepare(`
+  const rows = db.prepare(`
 SELECT type, id
 FROM rail_pool
 WHERE rail_id = @rail_id;
 `).all({ rail_id: railId }) as RailPoolKeyRow[];
-    return new Set(rows.map((row) => `${row.type}:${canonicalBrowseId(row.type, row.id)}`));
-  } finally {
-    db.close();
-  }
+  return new Set(rows.map((row) => `${row.type}:${canonicalBrowseId(row.type, row.id)}`));
 }
 
 export type RailPoolMembership = {
@@ -1440,8 +1416,7 @@ export async function listVerifiedPoolMemberships(
 ): Promise<RailPoolMembership[]> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    return db.prepare(`
+  return db.prepare(`
 SELECT
   rp.rail_id,
   rp.type,
@@ -1454,9 +1429,6 @@ JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE t.status = 'verified'
 ORDER BY rp.rail_id, rp.score DESC;
 `).all({ now }) as RailPoolMembership[];
-  } finally {
-    db.close();
-  }
 }
 
 type OrphanVerifiedRow = {
@@ -1471,8 +1443,7 @@ export async function listOrphanVerifiedPoolTitles(
 ): Promise<OrphanVerifiedRow[]> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    return db.prepare(`
+  return db.prepare(`
 SELECT t.type, t.id, (
   SELECT rp.title FROM rail_pool rp
   WHERE rp.type = t.type AND rp.id = t.id
@@ -1485,9 +1456,6 @@ WHERE t.status = 'verified'
     SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id
   );
 `).all({ now }) as OrphanVerifiedRow[];
-  } finally {
-    db.close();
-  }
 }
 
 export async function countOrphanVerifiedPoolTitles(
@@ -1495,8 +1463,7 @@ export async function countOrphanVerifiedPoolTitles(
 ): Promise<number> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const row = db.prepare(`
+  const row = db.prepare(`
 SELECT COUNT(*) AS c
 FROM titles t
 WHERE t.status = 'verified'
@@ -1505,10 +1472,7 @@ WHERE t.status = 'verified'
     SELECT 1 FROM rail_pool rp WHERE rp.type = t.type AND rp.id = t.id
   );
 `).get({ now }) as { c: number } | undefined;
-    return Number(row?.c ?? 0);
-  } finally {
-    db.close();
-  }
+  return Number(row?.c ?? 0);
 }
 
 export async function getRailPoolOverlapSummary(options: {
@@ -1525,8 +1489,7 @@ export async function getRailPoolOverlapSummary(options: {
   );
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const activeRows = db.prepare(`
+  const activeRows = db.prepare(`
 WITH active AS (
   SELECT rp.rail_id, rp.type, rp.id
   FROM rail_pool rp
@@ -1536,35 +1499,35 @@ WITH active AS (
 SELECT rail_id, type, id FROM active;
 `).all({ now }) as Array<{ rail_id: string; type: string; id: string }>;
 
-    const titleCounts = new Map<string, { rails: Set<string>; unpinnedRails: Set<string> }>();
-    for (const row of activeRows) {
-      const key = titleKey(row.type, row.id);
-      const bucket = titleCounts.get(key) ?? { rails: new Set<string>(), unpinnedRails: new Set<string>() };
-      bucket.rails.add(row.rail_id);
-      const normalizedId = row.type === 'series' ? (seriesBareId(row.id) ?? row.id) : row.id;
-      if (!pinned.has(`${row.rail_id}:${row.type}:${normalizedId}`)) {
-        bucket.unpinnedRails.add(row.rail_id);
-      }
-      titleCounts.set(key, bucket);
+  const titleCounts = new Map<string, { rails: Set<string>; unpinnedRails: Set<string> }>();
+  for (const row of activeRows) {
+    const key = titleKey(row.type, row.id);
+    const bucket = titleCounts.get(key) ?? { rails: new Set<string>(), unpinnedRails: new Set<string>() };
+    bucket.rails.add(row.rail_id);
+    const normalizedId = row.type === 'series' ? (seriesBareId(row.id) ?? row.id) : row.id;
+    if (!pinned.has(`${row.rail_id}:${row.type}:${normalizedId}`)) {
+      bucket.unpinnedRails.add(row.rail_id);
     }
+    titleCounts.set(key, bucket);
+  }
 
-    let overlappedTitles = 0;
-    let overCapTitles = 0;
-    let overlapExtraSlots = 0;
-    let maxRailsForAnyTitle = 0;
-    for (const counts of titleCounts.values()) {
-      const railCount = counts.rails.size;
-      const unpinnedRailCount = counts.unpinnedRails.size;
-      if (railCount > 1) overlappedTitles += 1;
-      if (unpinnedRailCount > maxRailsPerTitle) {
-        overCapTitles += 1;
-        overlapExtraSlots += unpinnedRailCount - maxRailsPerTitle;
-      }
-      maxRailsForAnyTitle = Math.max(maxRailsForAnyTitle, railCount);
+  let overlappedTitles = 0;
+  let overCapTitles = 0;
+  let overlapExtraSlots = 0;
+  let maxRailsForAnyTitle = 0;
+  for (const counts of titleCounts.values()) {
+    const railCount = counts.rails.size;
+    const unpinnedRailCount = counts.unpinnedRails.size;
+    if (railCount > 1) overlappedTitles += 1;
+    if (unpinnedRailCount > maxRailsPerTitle) {
+      overCapTitles += 1;
+      overlapExtraSlots += unpinnedRailCount - maxRailsPerTitle;
     }
+    maxRailsForAnyTitle = Math.max(maxRailsForAnyTitle, railCount);
+  }
 
-    const pairs = topPairs > 0
-      ? db.prepare(`
+  const pairs = topPairs > 0
+    ? db.prepare(`
 WITH active AS (
   SELECT rp.rail_id, rp.type, rp.id
   FROM rail_pool rp
@@ -1578,22 +1541,19 @@ GROUP BY a.rail_id, b.rail_id
 ORDER BY shared_titles DESC, rail_a, rail_b
 LIMIT @limit;
 `).all({ now, limit: topPairs }) as RailPoolOverlapPair[]
-      : [];
+    : [];
 
-    return {
-      overlapped_titles: overlappedTitles,
-      over_cap_titles: overCapTitles,
-      overlap_extra_slots: overlapExtraSlots,
-      max_rails_per_title: maxRailsForAnyTitle,
-      top_pairs: pairs.map((pair) => ({
-        rail_a: pair.rail_a,
-        rail_b: pair.rail_b,
-        shared_titles: Number(pair.shared_titles),
-      })),
-    };
-  } finally {
-    db.close();
-  }
+  return {
+    overlapped_titles: overlappedTitles,
+    over_cap_titles: overCapTitles,
+    overlap_extra_slots: overlapExtraSlots,
+    max_rails_per_title: maxRailsForAnyTitle,
+    top_pairs: pairs.map((pair) => ({
+      rail_a: pair.rail_a,
+      rail_b: pair.rail_b,
+      shared_titles: Number(pair.shared_titles),
+    })),
+  };
 }
 
 export async function recoverOrphanVerifiedPoolTitles(
@@ -1623,14 +1583,10 @@ export async function deleteRailPoolTitle(
 ): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    db.prepare(`
+  db.prepare(`
 DELETE FROM rail_pool
 WHERE rail_id = @rail_id AND type = @type AND id = @id;
 `).run({ rail_id: railId, type, id: canonicalBrowseId(type, id) });
-  } finally {
-    db.close();
-  }
 }
 
 export async function listRailIdsContainingTitle(
@@ -1639,29 +1595,21 @@ export async function listRailIdsContainingTitle(
 ): Promise<string[]> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const rows = db.prepare(`
+  const rows = db.prepare(`
 SELECT DISTINCT rail_id
 FROM rail_pool
 WHERE type = @type AND id = @id;
 `).all({ type, id: canonicalBrowseId(type, id) }) as Array<{ rail_id: string }>;
-    return rows.map((row) => row.rail_id);
-  } finally {
-    db.close();
-  }
+  return rows.map((row) => row.rail_id);
 }
 
 export async function clearRailSessions(railIds: string[]): Promise<void> {
   if (railIds.length === 0) return;
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const stmt = db.prepare('DELETE FROM rail_session WHERE rail_id = ?;');
-    for (const railId of railIds) {
-      stmt.run(railId);
-    }
-  } finally {
-    db.close();
+  const stmt = db.prepare('DELETE FROM rail_session WHERE rail_id = ?;');
+  for (const railId of railIds) {
+    stmt.run(railId);
   }
 }
 
@@ -1676,9 +1624,8 @@ export async function countVerifiedRailPoolByRailIds(
   }
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const placeholders = railIds.map(() => '?').join(', ');
-    const rows = db.prepare(`
+  const placeholders = railIds.map(() => '?').join(', ');
+  const rows = db.prepare(`
 SELECT rp.rail_id, COUNT(*) AS c
 FROM rail_pool rp
 JOIN titles t ON t.type = rp.type AND t.id = rp.id
@@ -1686,11 +1633,8 @@ WHERE rp.rail_id IN (${placeholders})
   AND t.status = 'verified'
 GROUP BY rp.rail_id;
 `).all(...railIds) as Array<{ rail_id: string; c: number }>;
-    for (const row of rows) {
-      counts.set(row.rail_id, row.c);
-    }
-  } finally {
-    db.close();
+  for (const row of rows) {
+    counts.set(row.rail_id, row.c);
   }
   return counts;
 }
@@ -1701,16 +1645,12 @@ export async function deleteRailPoolForRailIds(railIds: string[]): Promise<numbe
   }
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const placeholders = railIds.map(() => '?').join(', ');
-    const result = db.prepare(`
+  const placeholders = railIds.map(() => '?').join(', ');
+  const result = db.prepare(`
 DELETE FROM rail_pool
 WHERE rail_id IN (${placeholders});
 `).run(...railIds);
-    return result.changes;
-  } finally {
-    db.close();
-  }
+  return result.changes;
 }
 
 function curatedPool(
@@ -1762,8 +1702,7 @@ export async function pruneNonPlayableFromRailPools(_now: number = nowMs()): Pro
   const quarantined = await quarantineLegacyBackgroundUncachedVerifiedTitles(_now);
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const result = db.prepare(`
+  const result = db.prepare(`
 DELETE FROM rail_pool
 WHERE EXISTS (
   SELECT 1 FROM titles t
@@ -1771,17 +1710,13 @@ WHERE EXISTS (
     AND t.status = 'failed'
 );
 `).run();
-    return quarantined.rail_pool + result.changes;
-  } finally {
-    db.close();
-  }
+  return quarantined.rail_pool + result.changes;
 }
 
 export async function upsertRailPoolTitle(entry: RailPoolEntry): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    db.prepare(`
+  db.prepare(`
 INSERT INTO rail_pool (rail_id, type, id, score, ingested_at, title, poster_url, year)
 VALUES (@rail_id, @type, @id, @score, @ingested_at, @title, @poster_url, @year)
 ON CONFLICT(rail_id, type, id) DO UPDATE SET
@@ -1791,18 +1726,15 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
   poster_url = COALESCE(excluded.poster_url, rail_pool.poster_url),
   year = COALESCE(excluded.year, rail_pool.year);
 `).run({
-      rail_id: entry.rail_id,
-      type: entry.type,
-      id: canonicalBrowseId(entry.type, entry.id),
-      score: entry.score,
-      ingested_at: nowMs(),
-      title: entry.title ?? null,
-      poster_url: entry.poster_url ?? null,
-      year: entry.year ?? null,
-    });
-  } finally {
-    db.close();
-  }
+    rail_id: entry.rail_id,
+    type: entry.type,
+    id: canonicalBrowseId(entry.type, entry.id),
+    score: entry.score,
+    ingested_at: nowMs(),
+    title: entry.title ?? null,
+    poster_url: entry.poster_url ?? null,
+    year: entry.year ?? null,
+  });
 }
 
 export type RailPoolDisplayRow = {
@@ -1840,8 +1772,7 @@ export async function listLinkableVerifiedForRail(
 ): Promise<LinkableVerifiedCandidateRow[]> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    return db.prepare(`
+  return db.prepare(`
 SELECT
   t.type,
   t.id,
@@ -1882,14 +1813,11 @@ WHERE t.status = 'verified'
 ORDER BY t.verified_at DESC
 LIMIT @limit;
 `).all({
-      rail_id: railId,
-      content_type: contentType,
-      now,
-      limit: Math.max(1, limit),
-    }) as LinkableVerifiedCandidateRow[];
-  } finally {
-    db.close();
-  }
+    rail_id: railId,
+    content_type: contentType,
+    now,
+    limit: Math.max(1, limit),
+  }) as LinkableVerifiedCandidateRow[];
 }
 
 export async function listVerifiedLibraryCatalogRows(
@@ -1897,8 +1825,7 @@ export async function listVerifiedLibraryCatalogRows(
 ): Promise<VerifiedLibraryCatalogRow[]> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    return db.prepare(`
+  return db.prepare(`
 SELECT
   rp.rail_id,
   rp.type,
@@ -1914,9 +1841,6 @@ WHERE t.status = 'verified'
 ORDER BY rp.title ASC
 LIMIT @limit;
 `).all({ limit: Math.max(1, limit) }) as VerifiedLibraryCatalogRow[];
-  } finally {
-    db.close();
-  }
 }
 
 export async function queueTitleForVoiceIngest(input: {
@@ -1930,8 +1854,7 @@ export async function queueTitleForVoiceIngest(input: {
   await initPlayabilityDb();
   const db = openDb();
   const now = nowMs();
-  try {
-    db.prepare(`
+  db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
   cache_status, debrid_service, probe_ms, win_url_hash, updated_at
@@ -1942,13 +1865,10 @@ ON CONFLICT(type, id) DO UPDATE SET
   status = CASE WHEN titles.status = 'verified' THEN titles.status ELSE 'pending' END,
   updated_at = @updated_at;
 `).run({
-      type: input.type,
-      id: canonicalBrowseId(input.type, input.id),
-      updated_at: now,
-    });
-  } finally {
-    db.close();
-  }
+    type: input.type,
+    id: canonicalBrowseId(input.type, input.id),
+    updated_at: now,
+  });
 
   await upsertRailPoolTitle({
     rail_id: input.rail_id,
@@ -1979,9 +1899,8 @@ export async function searchVerifiedRailPoolTitles(
   }
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    const like = `%${trimmed.toLowerCase()}%`;
-    return db.prepare(`
+  const like = `%${trimmed.toLowerCase()}%`;
+  return db.prepare(`
 SELECT DISTINCT
   rp.type,
   rp.id,
@@ -1996,25 +1915,18 @@ WHERE t.status = 'verified'
   AND lower(rp.title) LIKE @like
 LIMIT @limit;
 `).all({ like, limit: Math.max(1, limit) }) as VerifiedRailPoolSearchRow[];
-  } finally {
-    db.close();
-  }
 }
 
 export async function listRailPoolMissingDisplay(limit: number): Promise<RailPoolDisplayRow[]> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    return db.prepare(`
+  return db.prepare(`
 SELECT DISTINCT rail_id, type, id
 FROM rail_pool
 WHERE COALESCE(TRIM(title), '') = ''
    OR COALESCE(TRIM(poster_url), '') = ''
 LIMIT @limit;
 `).all({ limit: Math.max(1, limit) }) as RailPoolDisplayRow[];
-  } finally {
-    db.close();
-  }
 }
 
 export async function patchRailPoolDisplay(
@@ -2025,8 +1937,7 @@ export async function patchRailPoolDisplay(
 ): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    db.prepare(`
+  db.prepare(`
 UPDATE rail_pool
 SET
   title = COALESCE(@title, title),
@@ -2034,16 +1945,13 @@ SET
   year = COALESCE(@year, year)
 WHERE rail_id = @rail_id AND type = @type AND id = @id;
 `).run({
-      rail_id: railId,
-      type,
-      id,
-      title: patch.title ?? null,
-      poster_url: patch.poster_url ?? null,
-      year: patch.year ?? null,
-    });
-  } finally {
-    db.close();
-  }
+    rail_id: railId,
+    type,
+    id,
+    title: patch.title ?? null,
+    poster_url: patch.poster_url ?? null,
+    year: patch.year ?? null,
+  });
 }
 
 export async function allocateTabRailSessions(
@@ -2056,115 +1964,111 @@ export async function allocateTabRailSessions(
   const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
   const snapshots = new Map<string, RailSessionSnapshot>();
 
-  try {
-    const existingByRail = new Map<string, RailSessionPoolItem[]>();
-    const curatedPools = new Map<string, ReturnType<typeof readRailPool>>();
-    const poolSizes = new Map<string, number>();
-    let canReuseExisting = options.rails.length > 0 && !options.forceReshuffle;
+  const existingByRail = new Map<string, RailSessionPoolItem[]>();
+  const curatedPools = new Map<string, ReturnType<typeof readRailPool>>();
+  const poolSizes = new Map<string, number>();
+  let canReuseExisting = options.rails.length > 0 && !options.forceReshuffle;
 
+  for (const rail of options.rails) {
+    const pool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides);
+    curatedPools.set(rail.railId, pool);
+    poolSizes.set(rail.railId, pool.length);
+    const displayLimit = resolveRailDisplayLimit(rail, pool.length);
+    const existing = readExistingRailSession(db, rail.railId, options.sessionId, now);
+    existingByRail.set(rail.railId, existing);
+    const targetSessionSize = Math.min(displayLimit, pool.length);
+    if (existing.length < targetSessionSize) {
+      canReuseExisting = false;
+    }
+  }
+
+  if (canReuseExisting && !tabSessionsHaveDuplicateTitles(existingByRail)) {
     for (const rail of options.rails) {
-      const pool = curatedPool(readRailPool(db, rail.railId, now), rail.railId, overrides);
-      curatedPools.set(rail.railId, pool);
-      poolSizes.set(rail.railId, pool.length);
-      const displayLimit = resolveRailDisplayLimit(rail, pool.length);
-      const existing = readExistingRailSession(db, rail.railId, options.sessionId, now);
-      existingByRail.set(rail.railId, existing);
-      const targetSessionSize = Math.min(displayLimit, pool.length);
-      if (existing.length < targetSessionSize) {
-        canReuseExisting = false;
-      }
+      const existing = existingByRail.get(rail.railId) ?? [];
+      snapshots.set(rail.railId, {
+        rail_id: rail.railId,
+        session_id: options.sessionId,
+        items: existing,
+        verified_pool: poolSizes.get(rail.railId) ?? 0,
+      });
     }
+    return snapshots;
+  }
 
-    if (canReuseExisting && !tabSessionsHaveDuplicateTitles(existingByRail)) {
-      for (const rail of options.rails) {
-        const existing = existingByRail.get(rail.railId) ?? [];
-        snapshots.set(rail.railId, {
-          rail_id: rail.railId,
-          session_id: options.sessionId,
-          items: existing,
-          verified_pool: poolSizes.get(rail.railId) ?? 0,
-        });
-      }
-      return snapshots;
-    }
-
-    const transaction = db.transaction(() => {
-      for (const rail of options.rails) {
-        db.prepare(`
+  const transaction = db.transaction(() => {
+    for (const rail of options.rails) {
+      db.prepare(`
 DELETE FROM rail_session
 WHERE rail_id = @rail_id AND session_id = @session_id;
 `).run({
-          rail_id: rail.railId,
-          session_id: options.sessionId,
-        });
-      }
+        rail_id: rail.railId,
+        session_id: options.sessionId,
+      });
+    }
 
-      const pools = curatedPools;
-      const recentKeysByRail = new Map<string, Set<string>>();
-      for (const rail of options.rails) {
-        recentKeysByRail.set(rail.railId, readRecentRailKeys(db, rail.railId, cooldownCutoff));
-      }
+    const pools = curatedPools;
+    const recentKeysByRail = new Map<string, Set<string>>();
+    for (const rail of options.rails) {
+      recentKeysByRail.set(rail.railId, readRecentRailKeys(db, rail.railId, cooldownCutoff));
+    }
 
-      const tabSelections = buildTabSessionSelections(
-        options.rails.map((rail) => {
-          const pool = pools.get(rail.railId) ?? [];
-          const displayLimit = resolveRailDisplayLimit(rail, pool.length);
-          return {
-            railId: rail.railId,
-            displayLimit,
-            minDisplay: Math.max(1, rail.minDisplay),
-          };
-        }),
-        pools,
-        recentKeysByRail,
-        {
-          stableRatio: options.stableRatio,
-        },
-      );
-
-      for (const rail of options.rails) {
+    const tabSelections = buildTabSessionSelections(
+      options.rails.map((rail) => {
         const pool = pools.get(rail.railId) ?? [];
         const displayLimit = resolveRailDisplayLimit(rail, pool.length);
-        const selected = injectPinnedSessionItems(
-          tabSelections.get(rail.railId) ?? [],
-          pool,
-          rail.railId,
-          overrides,
+        return {
+          railId: rail.railId,
           displayLimit,
-        );
-        const poolByKey = new Map(pool.map((item) => [titleKey(item.type, item.id), item]));
-        const rows = selected.map((item, slot) => toRailSessionPoolItem(
-          rail.railId,
-          options.sessionId,
-          item,
-          poolByKey.get(titleKey(item.type, item.id)),
-          slot,
-        ));
-        writeRailSessionRows(db, rail.railId, options.sessionId, rows, now);
-        snapshots.set(rail.railId, {
-          rail_id: rail.railId,
-          session_id: options.sessionId,
-          items: rows,
-          verified_pool: pool.length,
-        });
-      }
+          minDisplay: Math.max(1, rail.minDisplay),
+        };
+      }),
+      pools,
+      recentKeysByRail,
+      {
+        stableRatio: options.stableRatio,
+      },
+    );
 
-      db.prepare(`
+    for (const rail of options.rails) {
+      const pool = pools.get(rail.railId) ?? [];
+      const displayLimit = resolveRailDisplayLimit(rail, pool.length);
+      const selected = injectPinnedSessionItems(
+        tabSelections.get(rail.railId) ?? [],
+        pool,
+        rail.railId,
+        overrides,
+        displayLimit,
+      );
+      const poolByKey = new Map(pool.map((item) => [titleKey(item.type, item.id), item]));
+      const rows = selected.map((item, slot) => toRailSessionPoolItem(
+        rail.railId,
+        options.sessionId,
+        item,
+        poolByKey.get(titleKey(item.type, item.id)),
+        slot,
+      ));
+      writeRailSessionRows(db, rail.railId, options.sessionId, rows, now);
+      snapshots.set(rail.railId, {
+        rail_id: rail.railId,
+        session_id: options.sessionId,
+        items: rows,
+        verified_pool: pool.length,
+      });
+    }
+
+    db.prepare(`
 DELETE FROM recently_shown
 WHERE shown_at < @prune_before;
 `).run({ prune_before: now - 14 * 24 * 60 * 60 * 1000 });
-      // Daily session rotation creates a fresh session_id each day; drop stale
-      // session rows so rail_session does not grow unbounded.
-      db.prepare(`
+    // Daily session rotation creates a fresh session_id each day; drop stale
+    // session rows so rail_session does not grow unbounded.
+    db.prepare(`
 DELETE FROM rail_session
 WHERE created_at < @prune_before;
 `).run({ prune_before: now - 2 * 24 * 60 * 60 * 1000 });
-    });
-    transaction();
-    return snapshots;
-  } finally {
-    db.close();
-  }
+  });
+  transaction();
+  return snapshots;
 }
 
 export async function getOrCreateRailSession(
@@ -2177,98 +2081,90 @@ export async function getOrCreateRailSession(
   const cooldownCutoff = now - 7 * 24 * 60 * 60 * 1000;
   const siblingRailIds = options.siblingRailIds ?? [];
 
-  try {
-    const pool = curatedPool(readRailPool(db, options.railId, now), options.railId, overrides);
-    const displayLimit = resolveRailDisplayLimit(options, pool.length);
-    const existing = readExistingRailSession(db, options.railId, options.sessionId, now);
-    const siblingOccupied = readSiblingSessionOccupiedKeys(db, options.sessionId, siblingRailIds);
-    const targetSessionSize = Math.min(displayLimit, pool.length);
+  const pool = curatedPool(readRailPool(db, options.railId, now), options.railId, overrides);
+  const displayLimit = resolveRailDisplayLimit(options, pool.length);
+  const existing = readExistingRailSession(db, options.railId, options.sessionId, now);
+  const siblingOccupied = readSiblingSessionOccupiedKeys(db, options.sessionId, siblingRailIds);
+  const targetSessionSize = Math.min(displayLimit, pool.length);
 
-    if (
-      existing.length > 0
-      && existing.length >= targetSessionSize
-      && !sessionItemsConflictWithOccupied(existing, siblingOccupied)
-    ) {
-      return {
-        rail_id: options.railId,
-        session_id: options.sessionId,
-        items: existing,
-        verified_pool: pool.length,
-      };
-    }
-
-    const recent = readRecentRailKeys(db, options.railId, cooldownCutoff);
-    const selectWithOccupied = (occupiedKeys: Set<string>): RailPoolRow[] => injectPinnedSessionItems(
-      selectRailSessionItems(pool, {
-        displayLimit,
-        recentKeys: recent,
-        occupiedKeys,
-      }),
-      pool,
-      options.railId,
-      overrides,
-      displayLimit,
-    );
-    let selected = selectWithOccupied(siblingOccupied);
-    if (selected.length === 0 && pool.length > 0 && siblingOccupied.size > 0) {
-      selected = selectWithOccupied(new Set());
-    }
-    const poolByKey = new Map(pool.map((item) => [titleKey(item.type, item.id), item]));
-    const rows = selected.map((item, slot) => toRailSessionPoolItem(
-      options.railId,
-      options.sessionId,
-      item,
-      poolByKey.get(titleKey(item.type, item.id)),
-      slot,
-    ));
-
-    const transaction = db.transaction(() => {
-      writeRailSessionRows(db, options.railId, options.sessionId, rows, now);
-      db.prepare(`
-DELETE FROM recently_shown
-WHERE shown_at < @prune_before;
-`).run({ prune_before: now - 14 * 24 * 60 * 60 * 1000 });
-      // Daily session rotation creates a fresh session_id each day; drop stale
-      // session rows so rail_session does not grow unbounded.
-      db.prepare(`
-DELETE FROM rail_session
-WHERE created_at < @prune_before;
-`).run({ prune_before: now - 2 * 24 * 60 * 60 * 1000 });
-    });
-    transaction();
-
+  if (
+    existing.length > 0
+    && existing.length >= targetSessionSize
+    && !sessionItemsConflictWithOccupied(existing, siblingOccupied)
+  ) {
     return {
       rail_id: options.railId,
       session_id: options.sessionId,
-      items: rows,
+      items: existing,
       verified_pool: pool.length,
     };
-  } finally {
-    db.close();
   }
+
+  const recent = readRecentRailKeys(db, options.railId, cooldownCutoff);
+  const selectWithOccupied = (occupiedKeys: Set<string>): RailPoolRow[] => injectPinnedSessionItems(
+    selectRailSessionItems(pool, {
+      displayLimit,
+      recentKeys: recent,
+      occupiedKeys,
+    }),
+    pool,
+    options.railId,
+    overrides,
+    displayLimit,
+  );
+  let selected = selectWithOccupied(siblingOccupied);
+  if (selected.length === 0 && pool.length > 0 && siblingOccupied.size > 0) {
+    selected = selectWithOccupied(new Set());
+  }
+  const poolByKey = new Map(pool.map((item) => [titleKey(item.type, item.id), item]));
+  const rows = selected.map((item, slot) => toRailSessionPoolItem(
+    options.railId,
+    options.sessionId,
+    item,
+    poolByKey.get(titleKey(item.type, item.id)),
+    slot,
+  ));
+
+  const transaction = db.transaction(() => {
+    writeRailSessionRows(db, options.railId, options.sessionId, rows, now);
+    db.prepare(`
+DELETE FROM recently_shown
+WHERE shown_at < @prune_before;
+`).run({ prune_before: now - 14 * 24 * 60 * 60 * 1000 });
+    // Daily session rotation creates a fresh session_id each day; drop stale
+    // session rows so rail_session does not grow unbounded.
+    db.prepare(`
+DELETE FROM rail_session
+WHERE created_at < @prune_before;
+`).run({ prune_before: now - 2 * 24 * 60 * 60 * 1000 });
+  });
+  transaction();
+
+  return {
+    rail_id: options.railId,
+    session_id: options.sessionId,
+    items: rows,
+    verified_pool: pool.length,
+  };
 }
 
 export async function enqueuePlayabilityTrigger(record: PlayabilityTriggerRecord): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
-  try {
-    db.prepare(`
+  db.prepare(`
 INSERT INTO playability_triggers (
   created_at, trigger_type, rail_id, type, id_value, reason, handled_at
 ) VALUES (
   @created_at, @trigger_type, @rail_id, @type, @id_value, @reason, NULL
 );
 `).run({
-      created_at: nowMs(),
-      trigger_type: record.trigger_type,
-      rail_id: record.rail_id ?? null,
-      type: record.type ?? null,
-      id_value: record.id ?? null,
-      reason: record.reason ?? null,
-    });
-  } finally {
-    db.close();
-  }
+    created_at: nowMs(),
+    trigger_type: record.trigger_type,
+    rail_id: record.rail_id ?? null,
+    type: record.type ?? null,
+    id_value: record.id ?? null,
+    reason: record.reason ?? null,
+  });
 }
 
 export async function invalidateTitle(record: {
@@ -2284,9 +2180,8 @@ export async function invalidateTitle(record: {
   const timestamp = nowMs();
   const status = record.reason === 'play_failure' ? 'failed' : 'stale';
   const confirmedFailure = status === 'failed';
-  try {
-    const transaction = db.transaction(() => {
-      db.prepare(`
+  const transaction = db.transaction(() => {
+    db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
   cache_status, debrid_service, probe_ms, win_url_hash, updated_at
@@ -2299,52 +2194,49 @@ ON CONFLICT(type, id) DO UPDATE SET
   fail_reason = @reason,
   updated_at = @updated_at;
 `).run({
-        type: record.type,
-        id: record.id,
-        status,
-        reason: record.reason ?? 'invalidated',
-        updated_at: timestamp,
-      });
+      type: record.type,
+      id: record.id,
+      status,
+      reason: record.reason ?? 'invalidated',
+      updated_at: timestamp,
+    });
 
-      if (confirmedFailure) {
-        db.prepare(`
+    if (confirmedFailure) {
+      db.prepare(`
 DELETE FROM rail_pool
 WHERE type = @type AND id = @id;
 `).run({
-          type: record.type,
-          id: record.id,
-        });
-      }
+        type: record.type,
+        id: record.id,
+      });
+    }
 
-      if (!record.preserve_session) {
-        const sessionWhere = record.rail_id && !confirmedFailure
-          ? 'rail_id = @rail_id AND type = @type AND id = @id'
-          : 'type = @type AND id = @id';
-        db.prepare(`
+    if (!record.preserve_session) {
+      const sessionWhere = record.rail_id && !confirmedFailure
+        ? 'rail_id = @rail_id AND type = @type AND id = @id'
+        : 'type = @type AND id = @id';
+      db.prepare(`
 DELETE FROM rail_session
 WHERE ${sessionWhere};
 `).run({
-          rail_id: record.rail_id ?? null,
-          type: record.type,
-          id: record.id,
-        });
-      }
+        rail_id: record.rail_id ?? null,
+        type: record.type,
+        id: record.id,
+      });
+    }
 
-      db.prepare(`
+    db.prepare(`
 INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
 VALUES (@started_at, @rail_id, @type, @id_value, 'invalidate', 0, @outcome);
 `).run({
-        started_at: timestamp,
-        rail_id: record.rail_id ?? null,
-        type: record.type,
-        id_value: record.id,
-        outcome: record.reason ?? 'invalidated',
-      });
+      started_at: timestamp,
+      rail_id: record.rail_id ?? null,
+      type: record.type,
+      id_value: record.id,
+      outcome: record.reason ?? 'invalidated',
     });
-    transaction();
-  } finally {
-    db.close();
-  }
+  });
+  transaction();
   await enqueuePlayabilityTrigger({
     trigger_type: record.reason === 'play_failure' ? 'play_failure' : 'stale',
     rail_id: record.rail_id ?? null,

@@ -67,6 +67,16 @@ const YOUTUBE_TAB = 'youtube';
 const YOUTUBE_VIDEO_TYPE = 'youtube_video';
 const YOUTUBE_RAIL_LIMIT = 9;
 const YOUTUBE_RAIL_POOL_LIMIT = 60;
+// TTL for the assembled /youtube/rails discovery payload (For You / New From
+// Subscriptions / Fresh Finds / Because You Watched / Live Now / Popular).
+// Shorter than movies/series because YouTube rails also carry user-state
+// (Not-Interested). Saved/History rails are excluded from this cache and
+// assembled fresh on every request so save/unsave/watch is reflected
+// immediately. The cache is invalidated on not-interested, save/unsave, play,
+// and after a refresh completes.
+const YOUTUBE_RAILS_CACHE_TTL_MS = Number(
+  process.env.MANGO_YOUTUBE_RAILS_CACHE_TTL_MS || 60_000,
+);
 const SUBSCRIPTION_CHANNEL_SCAN_LIMIT = 50;
 const SUBSCRIPTION_CHANNELS_PER_REFRESH = 24;
 const SUBSCRIPTION_ACTIVE_CHANNELS_PER_REFRESH = 12;
@@ -2042,7 +2052,15 @@ function sampleForYouCandidates(
 }
 
 function forYouRail(options: YoutubeRailsOptions = {}): YoutubeRail {
-  buildForYouReservoir();
+  // Lazy init: only rebuild the For-You reservoir on the read path if it is
+  // currently empty (first-ever GET after startup or a fresh install). The
+  // normal refresh cycle owns keeping the reservoir current
+  // (`rebuildForYouReservoir` runs as the final phase of `refresh()`), and
+  // `play()` also rebuilds after each watch. Rebuilding on every plain GET
+  // was the primary cause of the ~269ms /youtube/rails latency.
+  if (listForYouCandidates(1).length === 0) {
+    buildForYouReservoir();
+  }
   const refresh = youtubeRefreshStatus();
   const profile = buildTasteProfile();
   const scoreCandidates = (allowRecentExposure: boolean) => listForYouCandidates(FOR_YOU_RESERVOIR_TARGET)
@@ -2555,11 +2573,22 @@ function groupCachedSearch(query: string, limit: number): YoutubeSearchGroups {
 export class YoutubeService {
   private readonly config: YoutubeConfig;
   private readonly api: YoutubeApiClient;
+  // TTL cache of the discovery portion of /youtube/rails. Saved and History
+  // are NOT cached here; they are assembled fresh on every request so
+  // save/unsave/watch mutations are reflected immediately.
+  private discoveryRailsCache: {
+    rails: YoutubeRail[];
+    expiresAt: number;
+  } | null = null;
 
   constructor(config = loadYoutubeConfig()) {
     this.config = config;
     this.api = new YoutubeApiClient(config);
     initYoutubeDb();
+  }
+
+  invalidateRailsCache(): void {
+    this.discoveryRailsCache = null;
   }
 
   state(): Record<string, unknown> {
@@ -3075,6 +3104,9 @@ export class YoutubeService {
       phases.push(await this.runRefreshPhase(phase, fn));
     }
     setYoutubeState('last_phase_results', phases);
+    // Any refresh phase may have mutated underlying rail candidates; drop the
+    // cached discovery payload so the next GET recomputes from fresh state.
+    this.invalidateRailsCache();
     const failed = phases.filter((phase) => !phase.ok);
     const succeeded = phases.some((phase) => phase.ok);
     if (succeeded) {
@@ -3127,16 +3159,33 @@ export class YoutubeService {
     if (!options.reshuffle) {
       this.scheduleLiveNowRefreshIfDue();
     }
-    const rails: YoutubeRail[] = [
-      savedRail(),
-      historyRail(options),
-      forYouRail(options),
-      subscriptionRail(options),
-      freshFindRail(options),
-      becauseYouWatchedRail(options),
-      liveNowRail(options),
-      popularRail(options),
-    ].filter((rail) => rail.items.length > 0);
+
+    // Saved/History are DELIBERATELY assembled fresh on every request so
+    // save/unsave/watch mutations show up immediately without needing cache
+    // invalidation from the HTTP layer.
+    const savedHistoryRails: YoutubeRail[] = [savedRail(), historyRail(options)];
+
+    let discoveryRails: YoutubeRail[];
+    const cached = this.discoveryRailsCache;
+    if (!options.reshuffle && cached && cached.expiresAt > Date.now()) {
+      discoveryRails = cached.rails;
+    } else {
+      discoveryRails = [
+        forYouRail(options),
+        subscriptionRail(options),
+        freshFindRail(options),
+        becauseYouWatchedRail(options),
+        liveNowRail(options),
+        popularRail(options),
+      ];
+      this.discoveryRailsCache = {
+        rails: discoveryRails,
+        expiresAt: Date.now() + YOUTUBE_RAILS_CACHE_TTL_MS,
+      };
+    }
+
+    const rails: YoutubeRail[] = [...savedHistoryRails, ...discoveryRails]
+      .filter((rail) => rail.items.length > 0);
     return {
       ok: true,
       tab: YOUTUBE_TAB,
@@ -3241,6 +3290,7 @@ export class YoutubeService {
       feedback: 'not_interested',
       reason: input.reason ?? null,
     });
+    this.invalidateRailsCache();
     return { ok: true, feedback };
   }
 
@@ -3301,6 +3351,7 @@ export class YoutubeService {
       watched_at: nowMs(),
     });
     buildForYouReservoir();
+    this.invalidateRailsCache();
     void this.refreshBecauseYouWatchedFromApi().catch((error) => {
       setYoutubeState('last_because_you_watched_error', error instanceof Error ? error.message : String(error));
     });

@@ -879,15 +879,20 @@ test('for you excludes watched shorts live not interested and recent exposures',
     score: 1 - index * 0.01,
     reason: 'test',
   })));
-  upsertForYouCandidates([{
-    item: sampleVideo('RecentExposure', 'none', 'recent-channel', 'Recent topic'),
-    lane: 'wildcard',
-    source: 'popular',
-    source_weight: 0.12,
-    topic_cluster: 'recent:topic',
-    score: 10,
+  // Seed the For-You reservoir directly. Previously the read path scanned
+  // youtube_items on every GET and derived the reservoir on demand; now the
+  // reservoir is rebuilt only during /youtube/refresh (or lazily once when
+  // empty), so tests exercising the eligibility filters have to populate the
+  // reservoir explicitly, mirroring what a refresh would do.
+  upsertForYouCandidates(candidates.map((item, index) => ({
+    item,
+    lane: 'familiar',
+    source: 'history',
+    source_weight: 0.55,
+    topic_cluster: item.title.toLowerCase().replace(/[^a-z0-9]+/g, ':'),
+    score: 1 - index * 0.01,
     reason: 'test',
-  }]);
+  })));
   setForYouCandidateStats('RecentExposure', { last_recommended_at: Date.now() });
   recordLibraryWatch({
     source: 'youtube',
@@ -1308,4 +1313,74 @@ test('because you watched relaxes recent exposure and duration only when thin', 
   const ids = rail.items.map((item) => item.id);
   assert.ok(ids.includes('BecauseRecentFallback'));
   assert.ok(ids.includes('BecauseShortDurationFallback'));
+}));
+
+test('rails payload is served from cache within TTL', () => withTempState(async () => {
+  upsertPopularCandidatesForTest([
+    { item: sampleVideo('PopCacheFirst'), score: 1 },
+  ]);
+  const service = new YoutubeService();
+  const first = await service.rails() as { rails: YoutubeRail[] };
+  const firstPopular = first.rails.find((rail) => rail.rail_id === 'popular');
+  assert.ok(firstPopular);
+  assert.deepEqual(firstPopular.items.map((item) => item.id), ['PopCacheFirst']);
+  // Mutate the underlying popular pool with a much higher-scored entry. If the
+  // second call recomputed, PopCacheHigher would appear (and outrank
+  // PopCacheFirst). It must not, because the payload is cached.
+  upsertPopularCandidatesForTest([
+    { item: sampleVideo('PopCacheHigher'), score: 100 },
+  ]);
+  const second = await service.rails() as { rails: YoutubeRail[] };
+  const secondPopular = second.rails.find((rail) => rail.rail_id === 'popular');
+  assert.ok(secondPopular);
+  assert.deepEqual(secondPopular.items.map((item) => item.id), ['PopCacheFirst']);
+}));
+
+test('rails reshuffle bypasses the payload cache', () => withTempState(async () => {
+  upsertPopularCandidatesForTest([{ item: sampleVideo('PopReshuffleBase'), score: 1 }]);
+  const service = new YoutubeService();
+  await service.rails();
+  upsertPopularCandidatesForTest([{ item: sampleVideo('PopReshuffleExtra'), score: 100 }]);
+  const shuffled = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  const popular = shuffled.rails.find((rail) => rail.rail_id === 'popular');
+  assert.ok(popular);
+  assert.ok(popular.items.some((item) => item.id === 'PopReshuffleExtra'));
+}));
+
+test('not interested invalidates the cached rails payload', () => withTempState(async () => {
+  upsertPopularCandidatesForTest([
+    { item: sampleVideo('PopKeepAfterNI'), score: 1 },
+    { item: sampleVideo('PopDropAfterNI'), score: 0.9 },
+  ]);
+  const service = new YoutubeService();
+  const first = await service.rails() as { rails: YoutubeRail[] };
+  const firstPop = first.rails.find((rail) => rail.rail_id === 'popular');
+  assert.ok(firstPop);
+  assert.deepEqual(
+    firstPop.items.map((item) => item.id).sort(),
+    ['PopDropAfterNI', 'PopKeepAfterNI'],
+  );
+  service.notInterested({ kind: 'video', id: 'PopDropAfterNI', reason: 'user' });
+  const second = await service.rails() as { rails: YoutubeRail[] };
+  const secondPop = second.rails.find((rail) => rail.rail_id === 'popular');
+  assert.ok(secondPop);
+  assert.deepEqual(secondPop.items.map((item) => item.id), ['PopKeepAfterNI']);
+}));
+
+test('for you reservoir is not rebuilt on cached repeat GET', () => withTempState(async () => {
+  upsertPopularCandidatesForTest([
+    { item: sampleVideo('ResSeed'), score: 1 },
+  ]);
+  const service = new YoutubeService();
+  await service.rails();
+  // A second popular candidate is added AFTER the reservoir has been lazily
+  // built. Because the payload cache is served, the discovery rails must not
+  // recompute — the new item must NOT appear in For You.
+  upsertPopularCandidatesForTest([
+    { item: sampleVideo('ResNew'), score: 100 },
+  ]);
+  const second = await service.rails() as { rails: YoutubeRail[] };
+  const forYou = second.rails.find((rail) => rail.rail_id === 'for_you');
+  assert.ok(forYou);
+  assert.ok(!forYou.items.some((item) => item.id === 'ResNew'));
 }));

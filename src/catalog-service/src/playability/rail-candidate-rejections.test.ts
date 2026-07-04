@@ -8,11 +8,17 @@ import {
   getActiveRailCandidateRejectionKeys,
   listActiveRailCandidateRejections,
   recordRailCandidateRejections,
+  resetPlayabilityDbForTests,
 } from './db.js';
 
 const ENV = { ...process.env };
 
+test.beforeEach(() => {
+  resetPlayabilityDbForTests();
+});
+
 test.afterEach(async () => {
+  resetPlayabilityDbForTests();
   const dbPath = process.env.MANGO_PLAYABILITY_DB;
   process.env = { ...ENV };
   if (dbPath?.includes('mango-rejections-')) {

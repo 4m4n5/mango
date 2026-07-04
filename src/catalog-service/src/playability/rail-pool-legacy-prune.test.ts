@@ -4,12 +4,17 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { PlayabilityBatchWriter } from './batch-writer.js';
-import { countVerifiedRailPoolByRailIds } from './db.js';
+import { countVerifiedRailPoolByRailIds, resetPlayabilityDbForTests } from './db.js';
 import { pruneLegacyPoolRails } from './rail-pool-legacy-prune.js';
 
 const ENV = { ...process.env };
 
+test.beforeEach(() => {
+  resetPlayabilityDbForTests();
+});
+
 test.afterEach(() => {
+  resetPlayabilityDbForTests();
   process.env = { ...ENV };
 });
 
