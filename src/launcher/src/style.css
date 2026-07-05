@@ -112,6 +112,7 @@ button {
 
 .browse-shuffle {
   flex: 0 0 auto;
+  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -298,15 +299,15 @@ button {
   width: min(860px, 100%);
   min-height: 8rem;
   padding: 1.4rem 1.6rem;
-  background: rgba(20, 24, 28, 0.82);
-  border: 2px solid rgba(255, 255, 255, 0.1);
-  border-radius: 16px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
 }
 
 .empty-state-title {
   margin: 0;
   color: var(--text-primary);
-  font-size: 2.2rem;
+  font-size: var(--text-title);
   font-weight: 900;
   line-height: 1.1;
 }
@@ -314,7 +315,7 @@ button {
 .empty-state-body {
   margin: 0.6rem 0 0;
   color: var(--text-secondary);
-  font-size: 1.2rem;
+  font-size: var(--text-caption);
   font-weight: 700;
 }
 
@@ -323,9 +324,9 @@ button {
   margin: 0;
   padding: 1.2rem 1.4rem;
   color: var(--text-secondary);
-  background: rgba(20, 24, 28, 0.74);
-  border: 2px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
   font-size: 1.1rem;
   font-weight: 800;
 }
@@ -452,6 +453,8 @@ button {
   flex-direction: column;
   justify-content: flex-end;
   gap: 0.5rem;
+  border-radius: var(--radius-panel);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
 }
 
 .card.focused,
@@ -505,7 +508,7 @@ button {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 4px;
+  height: 3px;
   background: rgba(255, 255, 255, 0.14);
   z-index: 2;
 }
@@ -548,7 +551,12 @@ button {
 }
 
 .card--app .card-title {
-  font-size: 1.9rem;
+  font-size: calc(var(--text-title) - 4px);
+}
+
+.card--app .card-kicker {
+  font-size: var(--text-caption);
+  text-transform: lowercase;
 }
 
 .status {
@@ -603,17 +611,18 @@ h1 {
 
 .settings-heading {
   margin: 2rem 0 0.5rem;
-  font-size: 2rem;
-  font-weight: 600;
+  font-size: var(--text-title);
+  font-weight: 700;
+  text-transform: none;
   color: var(--text-primary);
 }
 
 .settings-subheading {
   margin: 0.75rem 0 0;
-  font-size: 0.85rem;
+  font-size: calc(var(--text-caption) - 2px);
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-transform: none;
   color: var(--text-muted);
 }
 
@@ -656,17 +665,24 @@ h1 {
   background: var(--accent-soft);
 }
 
+.settings-action--quick,
+.settings-action--standard,
+.settings-action--overnight {
+  border: 2px solid var(--border-subtle);
+  background: rgba(255, 255, 255, 0.04);
+  border-left-width: 4px;
+}
+
 .settings-action--quick {
-  border-color: rgba(56, 189, 248, 0.35);
+  border-left-color: rgba(56, 189, 248, 0.65);
 }
 
 .settings-action--standard {
-  border-color: rgba(232, 160, 32, 0.35);
+  border-left-color: var(--accent);
 }
 
 .settings-action--overnight {
-  border-color: rgba(167, 139, 250, 0.4);
-  background: rgba(167, 139, 250, 0.08);
+  border-left-color: rgba(167, 139, 250, 0.65);
 }
 
 .settings-action:disabled {
@@ -815,6 +831,8 @@ h1 {
 }
 
 .detail:not(.hidden) ~ .shell-status,
+.settings:not(.hidden) ~ .shell-status,
+.next-prompt:not(.hidden) ~ .shell-status,
 .shell:has(.voice-hud[data-visible="true"]) .shell-status {
   opacity: 0;
   visibility: hidden;
@@ -902,10 +920,10 @@ h1 {
 .detail-streams-label {
   margin: 0 0 0.8rem;
   color: var(--text-muted);
-  font-size: 1rem;
-  font-weight: 900;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: none;
 }
 
 .detail-episode-list {
@@ -920,10 +938,10 @@ h1 {
   margin: 1.2rem 0 0.4rem;
   padding: 0.55rem 0.75rem;
   color: var(--text-secondary);
-  font-size: 1.1rem;
+  font-size: var(--text-caption);
   font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  text-transform: none;
   text-align: left;
   background: rgba(255, 255, 255, 0.04);
   border: 2px solid var(--border-subtle);
@@ -988,11 +1006,11 @@ h1 {
 .next-prompt {
   position: fixed;
   inset: 0;
-  z-index: 18;
+  z-index: 45;
   display: grid;
   place-items: center;
   padding: 8vh 7vw;
-  background: rgba(5, 6, 8, 0.82);
+  background: var(--bg-overlay);
 }
 
 .next-prompt.hidden {
@@ -1002,10 +1020,21 @@ h1 {
 .next-prompt-card {
   width: min(42rem, 100%);
   padding: 2rem 2.2rem;
-  background: linear-gradient(160deg, rgba(18, 24, 28, 0.98), rgba(8, 10, 12, 0.98));
-  border: 3px solid var(--border-strong);
-  border-radius: 18px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-strong);
+  border-radius: var(--radius-panel);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.55);
+}
+
+.next-prompt .eyebrow {
+  text-transform: none;
+  font-size: var(--text-caption);
+}
+
+#next-prompt-title {
+  font-size: clamp(2rem, 3vw, var(--text-display));
+  line-height: 1.08;
+  margin: 0;
 }
 
 .next-prompt-meta {
@@ -1024,8 +1053,8 @@ h1 {
 .detail-meta {
   margin: 1rem 0 0;
   color: var(--text-secondary);
-  font-size: 1.35rem;
-  font-weight: 800;
+  font-size: var(--text-caption);
+  font-weight: 600;
 }
 
 .detail-description {
@@ -1145,6 +1174,22 @@ h1 {
   scrollbar-width: none;
 }
 
+.settings .masthead .eyebrow,
+.settings .eyebrow {
+  text-transform: none;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.settings .masthead h1,
+#settings-view h1 {
+  font-size: clamp(2rem, 3vw, var(--text-display));
+  line-height: 1.08;
+  max-width: 54rem;
+  text-transform: lowercase;
+}
+
 .card--poster .poster-fallback,
 .detail-poster-wrap .poster-fallback {
   position: absolute;
@@ -1162,6 +1207,12 @@ h1 {
   pointer-events: none;
 }
 
+.card--poster .poster-fallback {
+  text-transform: none;
+  letter-spacing: 0.04em;
+  font-size: clamp(1.4rem, 4vw, 2.4rem);
+}
+
 .poster-image--missing {
   opacity: 0;
 }
@@ -1177,8 +1228,10 @@ h1 {
   text-transform: lowercase;
 }
 
+.back-button.focused,
 .back-button:focus-visible {
   outline: none;
+  transform: scale(var(--focus-scale-control));
   box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
@@ -1193,23 +1246,25 @@ h1 {
 .info-list div {
   min-height: 7rem;
   padding: 1.4rem;
-  background: rgba(255, 255, 255, 0.08);
-  border: 2px solid rgba(255, 255, 255, 0.12);
-  border-radius: 18px;
+  background: var(--bg-elevated);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
 }
 
 .info-list dt {
   color: var(--text-muted);
-  font-size: 1.2rem;
-  font-weight: 800;
-  text-transform: uppercase;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
 }
 
 .info-list dd {
   margin: 0.8rem 0 0;
   overflow-wrap: anywhere;
-  font-size: 2.2rem;
-  font-weight: 900;
+  font-size: var(--text-body);
+  font-weight: 800;
+  color: var(--text-primary);
 }
 
 .voice-hud {
@@ -1223,7 +1278,7 @@ h1 {
   overflow-x: hidden;
   padding: 16px 20px 18px;
   background: rgba(5, 8, 10, 0.9);
-  border: 2px solid var(--border-strong);
+  border: 1px solid var(--border-strong);
   border-radius: 22px;
   box-shadow: 0 18px 56px rgba(0, 0, 0, 0.5);
   z-index: 40;
@@ -1295,7 +1350,7 @@ h1 {
 }
 
 .voice-text {
-  font-size: 1.65rem;
+  font-size: 24px;
   font-weight: 800;
   line-height: 1.28;
   color: var(--text-primary);

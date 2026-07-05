@@ -21,7 +21,7 @@ export type CatalogState =
   | { status: "error"; message: string };
 
 const DEFAULT_APP_CARDS: AppCard[] = [
-  { id: "settings", action: "settings", kicker: "System", title: "Settings" },
+  { id: "settings", action: "settings", kicker: "system", title: "settings" },
 ];
 
 export const BROWSE_TAB_ORDER: BrowseTab[] = ["movies", "series", "live", "youtube"];
@@ -132,7 +132,7 @@ function appendCatalogSections(
   options: HomeOptions,
 ): HTMLElement[][] {
   if (catalogState.status === "loading") {
-    container.appendChild(createCatalogMessage("catalog", "loading", "loading catalog…", "posters will appear here when the Pi responds."));
+    container.appendChild(createCatalogMessage("catalog", "loading", "Loading catalog…", "posters will appear here when the Pi responds."));
     return [];
   }
 
@@ -191,7 +191,7 @@ function createCatalogMessage(
 
   const heading = document.createElement("h2");
   heading.className = "rail-title";
-  heading.textContent = headingText;
+  heading.textContent = formatRailLabel(headingText);
 
   const panel = document.createElement("div");
   panel.className = "empty-state";
@@ -209,7 +209,7 @@ function createCatalogMessage(
   return section;
 }
 
-function formatRailLabel(label: string): string {
+export function formatRailLabel(label: string): string {
   const trimmed = label.trim();
   if (!trimmed) {
     return trimmed;
@@ -218,9 +218,12 @@ function formatRailLabel(label: string): string {
 }
 
 function isLandscapeCard(card: ContentCard, browseTab?: BrowseTab): boolean {
-  return browseTab === "youtube"
+  return browseTab === "live"
+    || browseTab === "youtube"
     || card.source === "youtube"
-    || card.type.startsWith("youtube_");
+    || card.type === "tv"
+    || card.type.startsWith("youtube_")
+    || Boolean(card.liveStatus);
 }
 
 function shouldShowLivePill(card: ContentCard, browseTab?: BrowseTab): boolean {

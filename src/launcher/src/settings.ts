@@ -35,9 +35,9 @@ export async function buildSettingsRefresh(
   try {
     const levels = await fetchRefreshLevels();
     container.append(createShuffleButton(onStatus));
-    appendLevelGroup(container, "Quick", levels.filter((level) => level.category === "quick"), onStatus);
-    appendLevelGroup(container, "Standard", levels.filter((level) => level.category === "standard"), onStatus);
-    appendLevelGroup(container, "Overnight", levels.filter((level) => level.category === "overnight"), onStatus);
+    appendLevelGroup(container, "quick", levels.filter((level) => level.category === "quick"), onStatus);
+    appendLevelGroup(container, "standard", levels.filter((level) => level.category === "standard"), onStatus);
+    appendLevelGroup(container, "overnight", levels.filter((level) => level.category === "overnight"), onStatus);
   } catch {
     const fallback = document.createElement("p");
     fallback.className = "settings-note";
@@ -52,7 +52,7 @@ async function buildReliabilityCenter(
 ): Promise<void> {
   const heading = document.createElement("h2");
   heading.className = "settings-heading";
-  heading.textContent = "Reliability Center";
+  heading.textContent = "Reliability center";
   container.append(heading);
 
   try {
@@ -169,8 +169,8 @@ async function runReliabilityButton(
 }
 
 export function reliabilityBadgeText(status: ReliabilityLevel): string {
-  if (status === "red") return "Needs repair";
-  if (status === "yellow") return "Check health";
+  if (status === "red") return "needs repair";
+  if (status === "yellow") return "check health";
   return "";
 }
 
@@ -197,7 +197,7 @@ function createShuffleButton(onStatus: (message: string) => void): HTMLButtonEle
   button.type = "button";
   button.className = "settings-action settings-action--primary settings-action--instant";
   button.dataset.settingsFocus = "true";
-  button.innerHTML = "<span class=\"settings-action-title\">Refresh library</span><span class=\"settings-action-meta\">~5 sec · diverse re-pick · TV stays on</span>";
+  button.innerHTML = "<span class=\"settings-action-title\">refresh library</span><span class=\"settings-action-meta\">~5 sec · diverse re-pick · TV stays on</span>";
   button.addEventListener("click", () => {
     void runRefresh("shuffle_rails", onStatus, button);
   });
