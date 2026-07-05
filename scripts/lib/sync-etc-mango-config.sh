@@ -24,4 +24,5 @@ sync_one() {
 
 sync_one "$REPO_DIR/config/catalog-filters.example.json" /etc/mango/catalog-filters.json catalog-filters
 sync_one "$REPO_DIR/config/catalog.example.yaml" /etc/mango/catalog.yaml catalog.yaml
+python3 "$REPO_DIR/scripts/m5-voice/ai/sync-orchestrator-llm-config.py" || true
 bash "$REPO_DIR/scripts/m5-voice/ai/sync-companion-example.sh" || true

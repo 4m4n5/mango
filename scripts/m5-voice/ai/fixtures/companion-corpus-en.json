@@ -35,6 +35,20 @@
     "note": "Requires prior search context or clear title"
   },
   {
+    "id": "clear-open-live-cricket",
+    "utterance": "open cricket channel on live",
+    "expect": "open",
+    "tab": "live",
+    "note": "Live IPTV channel — mango_open_title type tv tab live"
+  },
+  {
+    "id": "clear-open-live-cartoon",
+    "utterance": "put on cartoon channel",
+    "expect": "open",
+    "tab": "live",
+    "note": "Category + open verb — search then open"
+  },
+  {
     "id": "navigate-youtube-tab",
     "utterance": "switch to YouTube tab",
     "expect": "navigate",

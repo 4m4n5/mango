@@ -75,6 +75,20 @@ class CompanionCorpusTests(unittest.TestCase):
         self.assertGreaterEqual(len(rows), 1)
         self.assertEqual(rows[0].get("tool"), "mango_navigate")
 
+    def test_en_live_open_cases(self) -> None:
+        rows = [
+            row
+            for row in _load_corpus("companion-corpus-en.json")
+            if row.get("expect") == "open" and row.get("tab") == "live"
+        ]
+        self.assertGreaterEqual(len(rows), 1)
+        for row in rows:
+            utterance = str(row["utterance"])
+            self.assertTrue(
+                user_wants_open_detail(utterance) or user_wants_title_navigation(utterance),
+                f"{row['id']}: expected live open intent",
+            )
+
 
 class NavigateToolSchemaTests(unittest.TestCase):
     def test_mango_navigate_includes_youtube_tab(self) -> None:

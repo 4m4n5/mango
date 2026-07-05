@@ -12,6 +12,13 @@
     "tab": "movies"
   },
   {
+    "id": "hinglish-open-live-cricket",
+    "utterance": "cricket channel laga do",
+    "expect": "open",
+    "tab": "live",
+    "note": "Clear live open — search then mango_open_title"
+  },
+  {
     "id": "hinglish-ordinal",
     "utterance": "doosra wala",
     "expect": "open",

@@ -54,10 +54,13 @@ raw = yaml.safe_load(p.read_text()) or {}
 print(int((raw.get("llm") or {}).get("max_tokens") or 0))
 PY
 )"
-if [[ "${MAX_TOKENS:-0}" -ge 192 ]]; then
+if [[ "${MAX_TOKENS:-0}" -ge 1024 ]]; then
   ok "llm-max-tokens ($MAX_TOKENS)"
+elif [[ "${MAX_TOKENS:-0}" -ge 192 ]]; then
+  wrn "llm-max-tokens ($MAX_TOKENS) — run sync-orchestrator-llm-config.py (need >= 1024 for live channel opens)"
+  bad "llm-max-tokens below 1024 ($MAX_TOKENS)"
 else
-  bad "llm-max-tokens too low ($MAX_TOKENS) — voice tools need >= 192 on Pi"
+  bad "llm-max-tokens too low ($MAX_TOKENS) — voice tools need >= 1024 on Pi"
 fi
 if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
   # shellcheck disable=SC1091

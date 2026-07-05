@@ -22,6 +22,8 @@ type VoiceHudElements = {
 };
 
 const ACTIVE_STATES = new Set(["listening", "thinking", "speaking"]);
+/** Wall-clock cap — dismiss even if orchestrator never sends idle (M5.5b HUD safe area). */
+const MAX_VISIBLE_MS = 12_000;
 
 export function startVoiceHud(): void {
   const card = document.getElementById("voice-hud");
@@ -60,10 +62,22 @@ function resolveVoiceWsUrls(): string[] {
 function connectVoiceHud(wsUrls: string[], els: VoiceHudElements): void {
   let reconnectTimer: number | undefined;
   let errorDismissTimer: number | undefined;
+  let maxVisibleTimer: number | undefined;
   let urlIndex = 0;
+
+  const clearMaxVisibleTimer = (): void => {
+    window.clearTimeout(maxVisibleTimer);
+    maxVisibleTimer = undefined;
+  };
+
+  const armMaxVisibleTimer = (): void => {
+    clearMaxVisibleTimer();
+    maxVisibleTimer = window.setTimeout(dismiss, MAX_VISIBLE_MS);
+  };
 
   const dismiss = (): void => {
     window.clearTimeout(errorDismissTimer);
+    clearMaxVisibleTimer();
     showUser(els, "");
     showReply(els, "", false);
     showTool(els, "", false);
@@ -80,6 +94,7 @@ function connectVoiceHud(wsUrls: string[], els: VoiceHudElements): void {
 
   const showActive = (state: string, label: string): void => {
     window.clearTimeout(errorDismissTimer);
+    armMaxVisibleTimer();
     els.card.dataset.visible = "true";
     els.card.setAttribute("aria-hidden", "false");
     els.card.dataset.state = state;

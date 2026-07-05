@@ -23,6 +23,7 @@ from orchestrator.audio.piper_tts import speak_reply
 from orchestrator.audio.stt import transcribe_detailed
 from orchestrator.config import load_settings
 from orchestrator.companion_reflect import reflect_after_turn
+from orchestrator.couch_safe import couch_safe_error_message
 from orchestrator.llm.agent import generate_agent_reply, voice_tools_enabled
 from orchestrator.llm.provider import generate_reply
 from orchestrator.session import ChatMessage, SessionState
@@ -88,7 +89,7 @@ async def broadcast_chat(message: ChatMessage, *, partial: bool = False) -> None
 
 
 async def broadcast_error(message: str) -> None:
-    await broadcast({"type": "error", "message": message})
+    await broadcast({"type": "error", "message": couch_safe_error_message(message)})
 
 
 async def broadcast(payload: dict[str, Any]) -> None:

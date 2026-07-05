@@ -58,6 +58,7 @@ if [[ "${MANGO_VOICE:-}" == "1" ]]; then
   run_step "M5 companion memory" bash scripts/m5-voice/ai/gate-m5-companion-memory.sh
   run_step "M5 gardener" bash scripts/m5-voice/ai/gate-m5-gardener.sh
   run_step "M5 LLM policy" bash scripts/m5-voice/ai/gate-m5-companion-llm-policy.sh
+  run_step "M5 companion couch" bash scripts/m5-voice/ai/gate-m5-companion-couch.sh
 fi
 
 gate_finish "gate-lite" || exit 1

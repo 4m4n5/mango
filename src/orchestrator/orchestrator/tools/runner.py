@@ -259,7 +259,7 @@ async def execute_tool(
 
 def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
     if name == "mango_search":
-        return f"Searching library for {tool_input.get('query', '…')}"
+        return f"Searching mango for {tool_input.get('query', '…')}"
     if name == "mango_library_overview":
         return "Reading library overview"
     if name == "mango_library_browse":
