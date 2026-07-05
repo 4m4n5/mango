@@ -171,7 +171,7 @@ function appendCatalogSections(
       track.appendChild(button);
       items.push(button);
     }
-    applyRailLayout(track);
+    applyRailLayout(track, isLandscapeCard(rail.cards[0], options.browseTab));
     section.appendChild(track);
     container.appendChild(section);
     rows.push(items);

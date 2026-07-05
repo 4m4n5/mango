@@ -159,6 +159,7 @@ button {
 }
 
 .browse-tab {
+  flex-shrink: 0;
   appearance: none;
   border: 2px solid var(--border-subtle);
   border-radius: var(--radius-control);
@@ -204,8 +205,9 @@ button {
   flex-direction: column;
   gap: var(--rail-gap);
   min-height: 0;
-  overflow-x: visible;
   overflow-y: auto;
+  overflow-x: clip;
+  padding-bottom: 2.75rem;
   scrollbar-width: none;
 }
 
@@ -217,7 +219,8 @@ button {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: calc(0.85rem + var(--focus-gutter) * 0.45);
+  padding-block: calc(var(--focus-gutter) * 0.25);
   min-height: 0;
 }
 
@@ -263,8 +266,8 @@ button {
 
   .card.focused,
   .card:focus-visible,
-  .card--landscape.focused .poster-frame,
-  .card--landscape:focus-visible .poster-frame,
+  .card--landscape.focused,
+  .card--landscape:focus-visible,
   .browse-tab.focused,
   .browse-shuffle.focused,
   .detail-button.focused {
@@ -279,9 +282,10 @@ button {
 .rail-track:not(.rail-track--posters) {
   display: flex;
   gap: 1.4vw;
-  overflow-x: auto;
-  overflow-y: hidden;
-  padding: 0.4rem 0.2rem 0.8rem;
+  overflow: visible;
+  padding: var(--focus-gutter);
+  margin: calc(-1 * var(--focus-gutter));
+  width: calc(100% + 2 * var(--focus-gutter));
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
 }
@@ -363,7 +367,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  padding: 0;
+  padding: var(--focus-gutter);
+  margin: calc(-1 * var(--focus-gutter));
   overflow: visible;
   background: transparent;
   border: none;
@@ -396,12 +401,12 @@ button {
     0 0 0 var(--focus-ring) var(--accent),
     0 0 var(--focus-glow) var(--accent-glow),
     0 16px 40px rgba(0, 0, 0, 0.45);
-  transform: scale(var(--focus-scale-poster));
 }
 
 .card--landscape.focused,
 .card--landscape:focus-visible {
-  transform: none;
+  z-index: 2;
+  transform: scale(var(--focus-scale-poster));
   box-shadow: none;
   border: none;
 }
@@ -458,12 +463,13 @@ button {
     0 0 0 var(--focus-ring) var(--accent),
     0 0 var(--focus-glow) var(--accent-glow),
     0 18px 48px rgba(0, 0, 0, 0.5);
-  transform: scale(var(--focus-scale-poster)) perspective(900px) rotateX(2deg);
+  transform: scale(var(--focus-scale-poster));
 }
 
 .card--landscape.focused,
 .card--landscape:focus-visible {
-  transform: none;
+  box-shadow: none;
+  border: none;
 }
 
 .poster-image {
@@ -571,6 +577,20 @@ h1 {
   font-size: 5.4rem;
   line-height: 0.98;
   letter-spacing: 0;
+}
+
+.detail-copy #detail-title {
+  font-size: clamp(2.25rem, 3.4vw, var(--text-display));
+  line-height: 1.08;
+  max-width: 54rem;
+  overflow-wrap: anywhere;
+}
+
+.detail-copy .eyebrow {
+  text-transform: none;
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .status,
@@ -794,10 +814,16 @@ h1 {
   font-size: var(--text-caption);
 }
 
+.detail:not(.hidden) ~ .shell-status,
+.shell:has(.voice-hud[data-visible="true"]) .shell-status {
+  opacity: 0;
+  visibility: hidden;
+}
+
 .detail {
   position: fixed;
   inset: 0;
-  z-index: 12;
+  z-index: 35;
   display: grid;
   grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
   gap: 3rem;
@@ -1017,7 +1043,9 @@ h1 {
 
 .detail-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
+  row-gap: 0.75rem;
   margin-top: 2.2rem;
 }
 
@@ -1190,14 +1218,15 @@ h1 {
   bottom: max(5vh, calc(env(safe-area-inset-bottom, 0px) + 1.25rem));
   transform: translateX(-50%) translateY(0);
   width: min(700px, calc(100vw - 2 * max(7vw, env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px))));
-  max-height: min(32vh, 280px);
-  overflow: hidden;
+  max-height: min(34vh, 300px);
+  overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px 20px 18px;
   background: rgba(5, 8, 10, 0.9);
   border: 2px solid var(--border-strong);
   border-radius: 22px;
   box-shadow: 0 18px 56px rgba(0, 0, 0, 0.5);
-  z-index: 20;
+  z-index: 40;
   opacity: 1;
   pointer-events: none;
   transition:
@@ -1269,7 +1298,7 @@ h1 {
   font-size: 1.65rem;
   font-weight: 800;
   line-height: 1.28;
-  color: #fffef2;
+  color: var(--text-primary);
   overflow-wrap: anywhere;
 }
 
@@ -1290,19 +1319,19 @@ h1 {
 }
 
 .voice-line.user .voice-text {
-  color: #ffe082;
+  color: var(--accent);
 }
 
 .voice-line.reply .voice-text {
-  color: #e8fff0;
+  color: var(--text-primary);
 }
 
 .voice-line.tool .voice-tag {
-  color: #ffb86a;
+  color: var(--accent);
 }
 
 .voice-line.tool .voice-text {
-  color: #ffe8cc;
+  color: var(--text-secondary);
 }
 
 .voice-line.tool[data-active="true"] .voice-text {
