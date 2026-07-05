@@ -320,13 +320,20 @@ function mountRailsView(activeContainer: HTMLElement): void {
     }
     railsEl.removeChild(child);
   }
-  if (activeContainer.parentNode !== railsEl) {
-    railsEl.insertBefore(activeContainer, appsSection);
+  // appsSection must be in railsEl before insertBefore(activeContainer, appsSection).
+  // On first mount it is only created by ensureAppsSection(), not yet attached.
+  if (appsSection && appsSection.parentNode !== railsEl) {
+    railsEl.appendChild(appsSection);
   }
-  if (appsSection) {
-    if (appsSection.parentNode !== railsEl || appsSection !== railsEl.lastChild) {
-      railsEl.appendChild(appsSection);
+  if (activeContainer.parentNode !== railsEl) {
+    if (appsSection && appsSection.parentNode === railsEl) {
+      railsEl.insertBefore(activeContainer, appsSection);
+    } else {
+      railsEl.appendChild(activeContainer);
     }
+  }
+  if (appsSection && appsSection.parentNode === railsEl && appsSection !== railsEl.lastChild) {
+    railsEl.appendChild(appsSection);
   }
 }
 
