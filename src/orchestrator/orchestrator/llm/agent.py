@@ -283,36 +283,54 @@ def _tool_result_ok(result: str) -> bool | None:
 
 
 def _guard_open_claims(reply: str, open_confirmed: bool) -> str:
-    if open_confirmed:
+    """Rewrite only *false completed-open* claims when no open was confirmed.
+
+    The guard exists to stop the assistant asserting a title is already open or
+    playing on the TV when ``mango_open_title`` never confirmed. It must NOT fire
+    on legitimate replies that merely mention finding a title, offer to open one,
+    ask which channel to pick, or list options — those are correct behaviors when
+    nothing was opened. Only assertive, completed-state claims are rewritten.
+    """
+    if open_confirmed or not reply.strip():
         return reply
     lowered = reply.lower()
-    claims_open = any(
+
+    # Offers and clarifying questions never assert a completed open — leave them.
+    if "?" in reply or any(
         phrase in lowered
         for phrase in (
-            "press b",
+            "kholun",
+            "kholoon",
+            "khol du",
+            "khol doon",
+            "want me to open",
+            "should i open",
+            "shall i open",
+            "which one",
+            "kaunsa",
+            "kaun sa",
+            "konsa",
+        )
+    ):
+        return reply
+
+    # Only assertive, completed open/playback claims are false when unconfirmed.
+    claims_completed_open = any(
+        phrase in lowered
+        for phrase in (
             "opened",
-            "opening",
-            "open kar",
             "khol diya",
-            "khol raha",
-            "khol deta",
-            "khol dunga",
-            "khol deti",
-            "detail page",
-            "play kar",
-            "mil gaya",
-            "found it",
-            "found ",
+            "khol di ",
+            "khol diye",
+            "detail page pe",
+            "detail pe khol",
             "dikha diya",
-            "tv pe",
-            "going to open",
-            "i'll open",
-            "let me open",
-            "switching to",
-            "switch kar",
+            "press b",
+            "now playing on",
+            "ab tv pe chal",
         )
     )
-    if not claims_open:
+    if not claims_completed_open:
         return reply
     return (
         "TV pe title switch nahi hua — ek baar aur try karte hain. "

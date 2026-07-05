@@ -3,7 +3,7 @@
 llm:
   provider: anthropic  # anthropic | openai
   model: claude-sonnet-4-6  # sonnet = best Hinglish + tool use; haiku = faster/cheaper
-  max_tokens: 192  # voice tools need slightly longer replies
+  max_tokens: 1024  # must exceed a full tool_use turn — open payloads echo long ids + poster URLs; 192 truncated live-channel opens → empty replies
   history_turns: 3  # user+assistant pairs kept for context
   api_key_file: /etc/mango/llm.key
 
