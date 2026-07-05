@@ -114,10 +114,12 @@ def run(*, dry_run: bool = False) -> int:
         _http_json(settings, "POST", "/voice/companion/profile", body=patch)
 
     if isinstance(compiled_addendum, str) and compiled_addendum.strip():
-        notes_resp = _http_json(settings, "GET", "/voice/library/notes")
-        existing = notes_resp.get("notes") if isinstance(notes_resp, dict) else ""
-        merged = f"{existing}\n\n{compiled_addendum.strip()}".strip()
-        _http_json(settings, "POST", "/voice/library/notes", body={"notes": merged[-4000:]})
+        _http_json(
+            settings,
+            "POST",
+            "/voice/companion/session-notes",
+            body={"bullets": [compiled_addendum.strip()[:800]]},
+        )
 
     if isinstance(catalog_hints, list):
         catalogs_resp = _http_json(settings, "GET", "/voice/ai-catalogs")

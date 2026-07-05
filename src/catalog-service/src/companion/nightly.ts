@@ -1,6 +1,6 @@
 import { applyCompanionGardener, type GardenerResult } from './gardener.js';
 import { applyFamiliarityStage, readProfile, writeProfile } from './profile.js';
-import { listJournalEvents } from './journal.js';
+import { listJournalEvents, rollUpJournalEvents } from './journal.js';
 import { writeCompiledNotes } from './compile-notes.js';
 import { appendJournalEvent } from './journal.js';
 
@@ -21,6 +21,7 @@ export async function runCompanionNightly(options: NightlyOptions = {}): Promise
   let ruleResult = { events: 0, stage: 'stranger' };
 
   if (phases.includes('rule')) {
+    const rollup = rollUpJournalEvents();
     const profile = applyFamiliarityStage(await readProfile());
     await writeProfile(profile);
     const events = listJournalEvents(200);
@@ -29,6 +30,7 @@ export async function runCompanionNightly(options: NightlyOptions = {}): Promise
       event_count: events.length,
       stage: profile.familiarity.stage,
       phase: 'rule',
+      journal_pruned: rollup.pruned,
     });
     if (process.env.MANGO_OPS_LOG_CONSOLIDATE !== '0') {
       const { recordCompanionOps } = await import('../ops/record.js');

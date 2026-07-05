@@ -212,12 +212,16 @@ Run in order after every deployable slice:
 - [x] Wired into `pi-pre-couch-gate.sh` on `feat/native-experience`
 - [ ] COUCH_TEST U1/U4/U5/U6 manual on Pi
 
-### Phase 5 — Living librarian full memory (parallel days 1–14, ~20%)
+### Phase 5 — Living librarian full memory ✓ (ship pending Pi verify)
 
-- mpv/progress → journal `play_completed` → `completed_watches`
-- Reconcile `/voice/library/notes` → compiled-notes delegation
-- 90-day journal rollup/prune job
-- Tests + `gate-m5-companion-memory.sh` extension
+- [x] mpv/progress → journal `play_started` / `play_completed` / `play_abandoned` via `watch-signals.ts`
+- [x] First `play_completed` per `content_key` bumps `familiarity.completed_watches` + compiled notes
+- [x] Nightly LLM addendum POSTs `/voice/companion/session-notes` (not raw `/voice/library/notes`)
+- [x] `rollUpJournalEvents()` — 90-day rollup summary + prune (nightly rule phase)
+- [x] `journalHasPlayCompleted()` for dedupe
+- [x] `watch-signals.test.ts` + journal rollup tests; gate-m5-companion-memory extended (22 pass)
+- [ ] Pi deploy + L1 memory gate on device
+- [ ] COUCH_TEST memory/familiarity manual (post comprehensive couch pass)
 
 **Out of scope (confirmed):** proactive UI/push · global typography · M6.4 wizard · M6.3 4K sign-off · M3 grow tuning
 

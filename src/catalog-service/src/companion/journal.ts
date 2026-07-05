@@ -65,6 +65,65 @@ export function listJournalEvents(limit = 50): JournalEvent[] {
   }));
 }
 
+/** True if this title was already logged as a completed watch. */
+export function journalHasPlayCompleted(contentKey: string): boolean {
+  const db = getDb();
+  const row = db.prepare(
+    `SELECT 1 AS found FROM journal_events
+     WHERE event_type = 'play_completed'
+       AND json_extract(payload, '$.content_key') = ?
+     LIMIT 1`,
+  ).get(contentKey) as { found: number } | undefined;
+  return Boolean(row?.found);
+}
+
+const JOURNAL_RETENTION_DAYS = 90;
+const JOURNAL_PRESERVE_TYPES = new Set([
+  'nightly_consolidate',
+  'journal_rollup',
+  'catalog_gardener',
+  'profile_patch',
+]);
+
+/** Roll up and prune raw journal events older than retention window (default 90d). */
+export function rollUpJournalEvents(retentionDays = JOURNAL_RETENTION_DAYS): {
+  pruned: number;
+  rolled_up: Record<string, number>;
+} {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - retentionDays * 86_400_000).toISOString();
+  const rows = db.prepare(
+    `SELECT event_type, COUNT(*) AS count FROM journal_events
+     WHERE created_at < ?
+       AND event_type NOT IN ('nightly_consolidate', 'journal_rollup', 'catalog_gardener', 'profile_patch')
+     GROUP BY event_type`,
+  ).all(cutoff) as Array<{ event_type: string; count: number }>;
+
+  const rolled_up: Record<string, number> = {};
+  for (const row of rows) {
+    if (row.count > 0) {
+      rolled_up[row.event_type] = row.count;
+    }
+  }
+
+  if (Object.keys(rolled_up).length > 0) {
+    appendJournalEvent('journal_rollup', {
+      cutoff,
+      retention_days: retentionDays,
+      counts: rolled_up,
+    });
+  }
+
+  const placeholders = [...JOURNAL_PRESERVE_TYPES].map(() => '?').join(', ');
+  const result = db.prepare(
+    `DELETE FROM journal_events
+     WHERE created_at < ?
+       AND event_type NOT IN (${placeholders}, 'journal_rollup')`,
+  ).run(cutoff, ...JOURNAL_PRESERVE_TYPES);
+
+  return { pruned: Number(result.changes), rolled_up };
+}
+
 export function resetJournalForTests(): void {
   if (dbInstance) {
     dbInstance.close();

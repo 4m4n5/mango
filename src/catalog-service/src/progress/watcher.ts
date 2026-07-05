@@ -1,6 +1,7 @@
 import { getMpvPlaybackState, isMpvActive } from '../mpv.js';
 import { notePlaybackExit } from './next-prompt.js';
 import { upsertWatchProgress } from './db.js';
+import { recordPlaybackExit, recordPlayStarted } from '../companion/watch-signals.js';
 import type { CatalogTab } from '../rails.js';
 
 export type ActiveWatchSession = {
@@ -74,6 +75,7 @@ export async function flushWatchProgress(): Promise<boolean> {
   if (playback && playback.duration_sec > 0) {
     persistSessionProgress(session, playback.position_sec, playback.duration_sec);
     notePlaybackExit(session, playback.position_sec, playback.duration_sec);
+    void recordPlaybackExit(session, playback.position_sec, playback.duration_sec).catch(() => undefined);
   } else if (
     lastSnapshot
     && sessionKey(lastSnapshot.session) === sessionKey(session)
@@ -84,6 +86,7 @@ export async function flushWatchProgress(): Promise<boolean> {
       lastSnapshot.duration_sec,
     );
     notePlaybackExit(session, lastSnapshot.position_sec, lastSnapshot.duration_sec);
+    void recordPlaybackExit(session, lastSnapshot.position_sec, lastSnapshot.duration_sec).catch(() => undefined);
   }
 
   const stillActive = await isMpvActive();
@@ -134,6 +137,15 @@ export async function startWatchSessionFromPlay(input: {
     ? input.id.split(':')[0]
     : input.id;
   await handoffWatchSession({
+    source: input.source,
+    type: input.type,
+    title_id: titleId,
+    play_id: input.id,
+    title: input.title,
+    poster: input.poster,
+    tab: input.tab,
+  });
+  recordPlayStarted({
     source: input.source,
     type: input.type,
     title_id: titleId,
