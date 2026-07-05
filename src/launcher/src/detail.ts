@@ -132,6 +132,11 @@ export class DetailController {
     this.poster.src = resolveCardPosterUrl(card, "large");
     bindPosterImage(this.poster, card.title);
     this.poster.alt = "";
+    const backdrop = this.view.querySelector<HTMLImageElement>("#detail-backdrop-image");
+    if (backdrop) {
+      backdrop.src = resolveCardPosterUrl(card, "large");
+      bindPosterImage(backdrop, "");
+    }
     this.view.classList.remove("hidden");
     this.notInterestedButton.hidden = tab !== "youtube" && card.source !== "youtube";
     this.updateSaveButton();

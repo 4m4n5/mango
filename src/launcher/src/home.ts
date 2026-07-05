@@ -107,7 +107,7 @@ export function buildAppsRail(callbacks: HomeCallbacks): { section: HTMLElement;
 
   const heading = document.createElement("h2");
   heading.className = "rail-title";
-  heading.textContent = "Apps";
+  heading.textContent = "apps";
   section.appendChild(heading);
 
   const track = document.createElement("div");
@@ -149,7 +149,7 @@ function appendCatalogSections(
 
     const heading = document.createElement("h2");
     heading.className = "rail-title";
-    heading.textContent = rail.label;
+    heading.textContent = formatRailLabel(rail.label);
     section.appendChild(heading);
 
     if (rail.cards.length === 0) {
@@ -167,7 +167,7 @@ function appendCatalogSections(
 
     const items: HTMLElement[] = [];
     for (const card of rail.cards) {
-      const button = createPosterCard(card, rail, callbacks, options.savedKeys);
+      const button = createPosterCard(card, rail, callbacks, options);
       track.appendChild(button);
       items.push(button);
     }
@@ -209,15 +209,35 @@ function createCatalogMessage(
   return section;
 }
 
+function formatRailLabel(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) {
+    return trimmed;
+  }
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
+}
+
+function isLandscapeCard(card: ContentCard, browseTab?: BrowseTab): boolean {
+  return browseTab === "youtube"
+    || card.source === "youtube"
+    || card.type.startsWith("youtube_");
+}
+
+function shouldShowLivePill(card: ContentCard, browseTab?: BrowseTab): boolean {
+  return card.liveStatus === "live" || (browseTab === "live" && card.type === "tv");
+}
+
 function createPosterCard(
   card: ContentCard,
   rail: ContentRail,
   callbacks: HomeCallbacks,
-  savedKeys: Set<string> = new Set(),
+  options: HomeOptions = {},
 ): HTMLButtonElement {
+  const savedKeys = options.savedKeys ?? new Set<string>();
+  const landscape = isLandscapeCard(card, options.browseTab);
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "card card--poster";
+  button.className = `card card--poster${landscape ? " card--landscape" : " card--portrait"}`;
   button.dataset.focusKey = `rail:${rail.id}:${card.type}:${card.id}`;
   if (savedKeys.has(cardSavedKey(card))) {
     button.classList.add("card--saved");
@@ -233,13 +253,6 @@ function createPosterCard(
   poster.src = resolveCardPosterUrl(card);
   bindPosterImage(poster, card.title);
 
-  const shade = document.createElement("span");
-  shade.className = "poster-shade";
-  shade.setAttribute("aria-hidden", "true");
-
-  const content = document.createElement("span");
-  content.className = "poster-content";
-
   const title = document.createElement("span");
   title.className = "card-title";
   title.textContent = card.title;
@@ -248,9 +261,37 @@ function createPosterCard(
   subtitle.className = "card-subtitle";
   subtitle.textContent = card.subtitle;
 
+  const content = document.createElement("span");
+  content.className = "poster-content";
   content.append(title, subtitle);
-  button.append(poster, shade, content);
-  if (card.progressPct !== undefined && card.progressPct > 0) {
+
+  if (landscape) {
+    const frame = document.createElement("span");
+    frame.className = "poster-frame";
+    frame.append(poster);
+    if (card.progressPct !== undefined && card.progressPct > 0) {
+      const progress = document.createElement("span");
+      progress.className = "poster-progress";
+      progress.setAttribute("aria-hidden", "true");
+      progress.style.setProperty("--progress", `${Math.round(card.progressPct * 100)}%`);
+      frame.append(progress);
+    }
+    button.append(frame, content);
+  } else {
+    const shade = document.createElement("span");
+    shade.className = "poster-shade";
+    shade.setAttribute("aria-hidden", "true");
+    button.append(poster, shade, content);
+  }
+
+  if (shouldShowLivePill(card, options.browseTab)) {
+    const pill = document.createElement("span");
+    pill.className = "card-live-pill";
+    pill.textContent = "live";
+    pill.setAttribute("aria-hidden", "true");
+    button.append(pill);
+  }
+  if (!landscape && card.progressPct !== undefined && card.progressPct > 0) {
     const progress = document.createElement("span");
     progress.className = "poster-progress";
     progress.setAttribute("aria-hidden", "true");

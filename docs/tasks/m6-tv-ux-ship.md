@@ -1,8 +1,21 @@
 # M6.5 — Unified TV/companion UX ship polish
 
 **Milestone:** M6 (Ship) · **Blocks:** merge to `main` / household handoff  
-**Depends on:** M2–M4 browse/play ✓ · M6.1 Mango Library · M6.2 YouTube · M6.3 4K · M5.5b companion/HUD polish
+**Depends on:** M2–M4 browse/play ✓ · M6.1 Mango Library ✓ · M6.2 YouTube ✓ · M6.3 4K ◐ · M5.5b round code ✓  
 **Partner skill:** `$ux-design-expert` (visual system) · `$mango-tv-box-expert` (10-ft focus)
+
+---
+
+## Shipped (round code, 2026-07-05)
+
+| Area | Status |
+|------|--------|
+| Detail 2D FocusGrid | Actions L/R · episodes/streams U/D |
+| HUD safe-area CSS | `env(safe-area-inset-*)` · max-height cap |
+| `gate-m6-ux-smoke.sh` | 9/9 on Pi · wired into `pi-pre-couch-gate.sh` |
+| YouTube AI 9-card cap | Gate-isolated AI catalog dir |
+
+**Remaining:** manual COUCH_TEST U1–U9. Round: [round-m55b-m65-scope.md](round-m55b-m65-scope.md) · Pi: `8eeb239`
 
 ---
 
@@ -20,7 +33,11 @@ Vision: **couch-first · content forward · never wonder which app you're in.** 
 
 ### 1. 10-foot visual system
 
-Type scale at ~3 m · focus vs selected vs idle · ~5% safe area · stable poster card size before load · leanback density · brand consistency across home/detail/settings/HUD chrome.
+Type scale at ~3 m · focus vs selected vs idle · safe area · stable poster card size before load · leanback density · brand consistency across home/detail/settings/HUD chrome.
+
+**Full spec:** [m6-visual-system-spec.md](m6-visual-system-spec.md) — Cinema Dark tokens, focus physics, platform standards (Apple TV / Android TV / Netflix 2025), P0 focus-halo fix.
+
+**P0 known bug:** poster focus ring clipped by `.rail-track--posters { overflow: hidden }` — fix in Phase 0 before couch sign-off.
 
 ### 2. D-pad navigation audit
 

@@ -5,14 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>mango</title>
   </head>
-  <body style="margin:0;background:#050608">
+  <body style="margin:0;background:#07080a">
     <main id="app" class="shell" aria-label="mango">
       <section id="home-view" class="view home">
-        <header class="masthead masthead--compact">
-          <p class="eyebrow">mango</p>
-          <h1>What do you want to watch?</h1>
-        </header>
         <div class="browse-bar">
+          <p class="browse-brand" aria-hidden="true">mango</p>
           <nav id="browse-tabs" class="browse-tabs" aria-label="Browse tabs"></nav>
           <button id="library-refresh" class="browse-shuffle" type="button" aria-label="Shuffle library">
             <span class="browse-shuffle-icon" aria-hidden="true">↻</span>
@@ -23,6 +20,9 @@
       </section>
 
       <section id="detail-view" class="view detail hidden" aria-label="Title detail">
+        <div class="detail-backdrop" aria-hidden="true">
+          <img id="detail-backdrop-image" class="detail-backdrop-image" alt="" />
+        </div>
         <div class="detail-poster-wrap">
           <img id="detail-poster" class="detail-poster" alt="" />
         </div>
@@ -81,7 +81,7 @@
       </aside>
 
       <section id="settings-view" class="view settings hidden" aria-label="Settings">
-        <button id="back-button" class="back-button" type="button">Back</button>
+        <button id="back-button" class="back-button" type="button">back</button>
         <header class="masthead">
           <p class="eyebrow">settings</p>
           <h1>Pi connection</h1>

@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
+REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
 cd "$REPO_DIR" || exit 1
 
 # shellcheck source=../lib/gate-common.sh
@@ -57,11 +57,14 @@ required = (
     'id="detail-play"',
     'id="detail-episode-list"',
     'class="voice-hud"',
+    'class="browse-brand"',
     'data-visible="false"',
 )
 missing = [token for token in required if token not in html]
 if missing:
     raise SystemExit(f"missing: {', '.join(missing)}")
+if "What do you want to watch?" in html:
+    raise SystemExit("home masthead prompt must be removed")
 PY
 fi
 
@@ -99,6 +102,10 @@ required = (
     ".detail-episode.focused",
     ".voice-hud",
     "safe-area-inset-bottom",
+    "--focus-gutter",
+    "overflow:visible",
+    ".browse-brand",
+    ".card--landscape",
 )
 missing = [token for token in required if token not in css]
 if missing:
