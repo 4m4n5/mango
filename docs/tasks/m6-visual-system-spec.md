@@ -298,14 +298,16 @@ See questionnaire outcomes — implemented in Phase 0+ pass:
 
 ---
 
-| Phase | Scope | Exit |
-|-------|-------|------|
-| **0 — Focus fix** | `overflow: visible`, focus gutter, unified `.focus-ring` utility class | U1 couch: halo never clipped on edge posters |
-| **1 — Tokens** | CSS variables in `style.css`; swap colors/type | ux-smoke gate green |
-| **2 — Chrome diet** | Remove body gradients; shrink/remove home masthead; rail label sentence case | Visual review @ 3 m |
-| **3 — Components** | Poster, tabs, detail, settings unified | COUCH_TEST U1–U9 |
-| **4 — Polish** | Detail backdrop blur, unfocused dim, tab transitions | Ship candidate |
-| **5 — Optional** | Hero row, parallax, focus tick sound | Post-merge |
+| Phase | Scope | Exit | Status |
+|-------|-------|------|--------|
+| **0 — Focus fix** | `overflow: visible`, focus gutter, unified focus ring | U1 couch: halo never clipped on edge posters | ✓ shipped `a731a67` — 1080p Pi capture confirms ring unclipped col 1–9 |
+| **1 — Tokens** | CSS variables in `style.css`; swap colors/type | ux-smoke gate green | ✓ shipped `a731a67` — ux-smoke PASS |
+| **2 — Chrome diet** | Remove masthead prompt for wordmark; rail label sentence case; vignette | Visual review @ 3 m | ✓ shipped `a731a67` — Pi capture: sentence-case rails, compact wordmark |
+| **3 — Components** | Poster, tabs, detail, episodes/streams/settings/reliability unified on token ring | COUCH_TEST U1–U9 | ✓ shipped `d5b85d4` — zero legacy colors remain |
+| **4 — Polish** | Detail backdrop blur, unfocused dim, motion + reduced-motion | Ship candidate | ✓ shipped `d5b85d4` — Pi capture: blurred backdrop, sibling dim |
+| **5 — Optional** | Hero row, parallax, focus tick sound | Post-merge | Deferred |
+
+**Verification (2026-07-05, Pi framebuffer @ 1920×1080, commit `d5b85d4`):** home, focused card, detail, and youtube surfaces captured via `scrot` on the Pi — all pass the world-class bar. ux-smoke gate on Pi: PASS (0 warnings). Comprehensive couch sign-off deferred to end of pass per plan.
 
 **Files:** `src/launcher/src/style.css` (primary) · `index.html` (font preload) · `gate-m6-ux-smoke.sh` (assert focus gutter CSS)
 
