@@ -17,6 +17,7 @@ import {
 import type { ContentCard, BrowseTab } from "./types";
 import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
+import { formatRailLabel } from "./home";
 import { FocusGrid } from "./focus";
 
 export interface DetailCallbacks {
@@ -125,7 +126,7 @@ export class DetailController {
     this.streamsWrap.hidden = true;
     this.episodesWrap.hidden = true;
     this.setListLabel("episodes");
-    this.eyebrow.textContent = railLabel;
+    this.eyebrow.textContent = formatRailLabel(railLabel);
     this.title.textContent = card.title;
     this.meta.textContent = card.subtitle;
     this.description.textContent = card.description || "loading details…";

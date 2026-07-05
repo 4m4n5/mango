@@ -576,7 +576,8 @@ button {
   color: var(--accent);
   font-size: 1.45rem;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
+  letter-spacing: 0.04em;
 }
 
 h1 {
@@ -1200,8 +1201,8 @@ h1 {
   color: var(--text-primary);
   font-size: clamp(2rem, 8vw, 3.4rem);
   font-weight: 900;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-transform: none;
   background:
     linear-gradient(145deg, rgba(33, 42, 44, 0.92), var(--bg-base));
   pointer-events: none;
