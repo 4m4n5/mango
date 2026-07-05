@@ -205,11 +205,12 @@ Run in order after every deployable slice:
 - [x] Season headers + disabled episode skip preserved in `listFocusables`
 - [ ] COUCH_TEST #5–10, U2 on Pi
 
-### Phase 4 — HUD + launcher polish (days 10–14)
+### Phase 4 — HUD + launcher polish ✓ (ship pending Pi couch verify)
 
-- HUD safe-area couch verify (screenshot on Pi)
-- Create `gate-m6-ux-smoke.sh` (DOM, focus classes, pad alive, no stderr)
-- U1/U4/U5/U6 spot fixes only if couch verify fails
+- [x] HUD safe-area CSS (`env(safe-area-inset-*)`, max-height cap, horizontal inset)
+- [x] `scripts/m6-ship/gate-m6-ux-smoke.sh` — dist HTML/CSS/JS contracts, source checks, pad alive
+- [x] Wired into `pi-pre-couch-gate.sh` on `feat/native-experience`
+- [ ] COUCH_TEST U1/U4/U5/U6 manual on Pi
 
 ### Phase 5 — Living librarian full memory (parallel days 1–14, ~20%)
 

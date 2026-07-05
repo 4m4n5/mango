@@ -307,6 +307,7 @@ Efficiency & performance audit (Tiers 1-4 — DB/cache efficiency, perceived lat
 | `gate-m4-self-hosted.sh` | Self-hosted addon corpus |
 | `gate-live-iptv.sh` | Opt-in live only |
 | `gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail and optional playback |
+| `gate-m6-ux-smoke.sh` | M6.5 focus/HUD DOM+CSS contracts; detail FocusGrid bundle; pad alive |
 | `gate-m6-reliability-proof.sh` | Reliability Center proof; fails red and warns yellow |
 | `gate-m6-4k-hdr-profile.sh` | M6.3 Stage 2 profile/display/resource gate |
 

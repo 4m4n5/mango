@@ -73,6 +73,7 @@ if [[ "$BRANCH" == "feat/native-experience" ]]; then
     exit $?
   fi
   bash scripts/gate-lite.sh
+  bash scripts/m6-ship/gate-m6-ux-smoke.sh
   echo "PRE-COUCH: PASS"
   exit 0
 fi

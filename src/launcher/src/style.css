@@ -977,9 +977,11 @@ h1 {
 .voice-hud {
   position: fixed;
   left: 50%;
-  bottom: 4vh;
+  bottom: max(5vh, calc(env(safe-area-inset-bottom, 0px) + 1.25rem));
   transform: translateX(-50%) translateY(0);
-  width: min(700px, 86vw);
+  width: min(700px, calc(100vw - 2 * max(7vw, env(safe-area-inset-left, 0px), env(safe-area-inset-right, 0px))));
+  max-height: min(32vh, 280px);
+  overflow: hidden;
   padding: 16px 20px 18px;
   background: rgba(5, 8, 10, 0.9);
   border: 2px solid rgba(255, 249, 196, 0.38);

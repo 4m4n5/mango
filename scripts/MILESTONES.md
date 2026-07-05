@@ -46,7 +46,7 @@ Full gate play sample: `gate-m3-verified-rails.sh` (3/rail) · `gate-m3-play.sh`
 | M6.1 Mango-owned library | `m6-ship/gate-m6-library-smoke.sh` |
 | M6.1 state backup | `m6-ship/backup-library-state.sh` |
 | M6.2 native YouTube | `m6-ship/gate-m6-youtube-smoke.sh` |
-| M6.5 unified UX | `m6-ship/gate-m6-ux-smoke.sh` (planned) |
+| M6.5 unified UX | `m6-ship/gate-m6-ux-smoke.sh` |
 
 ## Daily stack
 
