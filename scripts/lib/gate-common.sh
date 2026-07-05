@@ -2,7 +2,7 @@
 # Shared gate helpers — source from phase gate scripts (do not execute directly).
 
 mango_gate_init() {
-  REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
+  REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
   cd "$REPO_DIR"
   export DISPLAY="${DISPLAY:-:0}"
   export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
