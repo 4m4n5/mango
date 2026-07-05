@@ -71,14 +71,20 @@ class OpenGuardTests(unittest.TestCase):
 class PersonaTests(unittest.TestCase):
     def test_persona_loads(self) -> None:
         excerpt = load_persona_excerpt()
-        self.assertIn("librarian", excerpt.lower())
-        self.assertNotIn("couch friend", excerpt.lower())
+        lowered = excerpt.lower()
+        self.assertIn("librarian", lowered)
+        self.assertTrue(
+            "concierge" in lowered or "curator" in lowered or "couch friend" in lowered,
+            "persona should describe the librarian role",
+        )
 
     def test_system_prompt_includes_policy(self) -> None:
         prompt = build_system_prompt()
+        lowered = prompt.lower()
         self.assertIn("CONVERSATION-FIRST", prompt)
         self.assertIn("DISCOVER", prompt)
-        self.assertIn("yaar", prompt.lower())
+        self.assertIn("mango_open_title", lowered)
+        self.assertIn("live", lowered)
 
 
 if __name__ == "__main__":

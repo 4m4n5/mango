@@ -7,6 +7,9 @@ set -euo pipefail
 REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
 cd "$REPO_DIR"
 
+# Persona tests must use repo example — Pi /etc/mango/companion may lag git.
+export MANGO_COMPANION_DIR="$REPO_DIR/config/companion.example"
+
 if [[ ! -d src/orchestrator/.venv ]]; then
   echo "FAIL: orchestrator venv missing — run scripts/m5-voice/stack/ensure-orchestrator-venv.sh" >&2
   exit 1
