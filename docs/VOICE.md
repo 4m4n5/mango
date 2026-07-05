@@ -2,7 +2,7 @@
 
 **Milestone:** M5 · **Rule:** Voice/text **opens** titles — pad **B** plays. No `mango_play`.
 
-**M5 complete when:** living librarian infrastructure passes gates. M5.5a safety corpus/gates shipped; M5.5b final polish is M6.5.
+**M5 complete when:** living librarian infrastructure passes gates **and** couch memory checks (M1–M3) pass. M5.5a safety corpus/gates shipped; M5.5b round code shipped — manual COUCH_TEST V1–V12 closes the bar.
 
 ---
 
@@ -125,7 +125,7 @@ bash scripts/mango-stack.sh restart
 
 Phone: `https://<pi-ip>:3001`
 
-**Gates:** `gate-m5-voice.sh` · `gate-m5-companion-couch.sh`
+**Gates:** `gate-m5-voice.sh` · `gate-m5-companion-couch.sh` · `gate-m5-companion-memory.sh`
 
 ---
 
@@ -133,8 +133,7 @@ Phone: `https://<pi-ip>:3001`
 
 | Item | Milestone |
 |------|-----------|
-| Living librarian hardening | M5 |
-| Final companion/HUD polish across 4 tabs | M5.5b / M6.5 |
+| Comprehensive couch sign-off (V1–V12, U1–U9, M1–M3) | M5.5b / M6.5 |
 | Piper TTS on TV/soundbar | M6.3 |
 | Voice play/transport | M6+ deferred |
 

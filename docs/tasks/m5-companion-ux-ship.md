@@ -1,7 +1,7 @@
 # M5.5 — AI companion contract + post-YouTube UX
 
-**Milestone:** M5 (Voice + AI) for safety contract; M6.5 for final polish · **Blocks:** M6 ship merge
-**Depends on:** M5 voice librarian ✓ · AI catalogs ✓ · bootstrap ✓ · **Phase 3 companion ✓** · living librarian ◐  
+**Milestone:** M5 (Voice + AI) for safety contract; M6.5 for final polish · **Blocks:** M6 ship merge  
+**Depends on:** M5 voice librarian ✓ · AI catalogs ✓ · bootstrap ✓ · **Phase 3 companion ✓** · living librarian memory ✓  
 **Partner skill:** `$ux-design-expert` (phone surfaces) · `$mango-tv-box-expert` (TV HUD + couch acceptance)
 
 ---
@@ -10,7 +10,22 @@
 
 mango's north star is **plug-and-play AI TV box** — *ask or browse in mango, watch in mpv*. The companion is half of that promise. Infrastructure (STT, tools, memory store, AI catalogs) can pass gates while the **felt experience** still fails: dumb discover→open, opaque tool cards, no proactive opt-in, TV HUD that fights the launcher, or phone/TV surfaces that disagree.
 
-**M5.5 is split deliberately.** M5.5a corpus + automated gate shipped with Phase 3. M5.5b is final cross-surface polish (M6.5).
+**M5.5 is split deliberately.** M5.5a corpus + automated gate shipped with Phase 3. M5.5b round code shipped 2026-07-05; **couch sign-off** (COUCH_TEST V1–V12) is the remaining bar.
+
+---
+
+## Shipped (M5.5b round, 2026-07-05)
+
+| Area | Status |
+|------|--------|
+| Structured ambiguous picks | Numbered tappable rows · `pick_select` WS · `pick_options.py` |
+| HUD 12s wall-clock dismiss | ✓ |
+| Couch-safe orchestrator errors | `couch_safe_error_message` before phone/HUD |
+| Companion-couch in gate-lite | ✓ when `MANGO_VOICE=1` |
+| Live clear-open corpus | EN + Hinglish fixtures |
+| LLM `max_tokens=1024` deploy sync | ✓ |
+
+Round detail: [round-m55b-m65-scope.md](round-m55b-m65-scope.md) · Pi: `8eeb239`
 
 ---
 
@@ -119,6 +134,6 @@ Voice play/pause · `play_youtube` / `mango_play_youtube` · TV Piper TTS (M6.3)
 
 ## M5 complete when
 
-1. **Living librarian** memory + conversation infrastructure  
+1. **Living librarian** memory + conversation infrastructure ✓ (gates + couch M1–M3)  
 2. **M5.5a** corpus + automated gate ✓ (opt-in LLM integration before sign-off)  
-3. **M5.5b** M6.5 merge requirement — final 4-tab polish
+3. **M5.5b** COUCH_TEST V1–V12 manual pass — **pending**

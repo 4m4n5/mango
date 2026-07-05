@@ -1,16 +1,13 @@
-> **Audit artifact** — read-only pass, 2026-07-05. Not a spec; cross-check against
-> [`docs/STATUS.md`](../STATUS.md) / [`docs/VOICE.md`](../VOICE.md) / [`docs/ROADMAP.md`](../ROADMAP.md)
-> before acting. Superseded spec: [`docs/archive/tasks/phase-n5c-living-librarian.md`](../archive/tasks/phase-n5c-living-librarian.md).
+> **Audit artifact** — read-only pass, 2026-07-05. **Phase 5 gaps closed** same day
+> (`watch-signals.ts`, journal rollup, compiled-notes path) — see
+> [round-m55b-m65-scope.md](round-m55b-m65-scope.md) · Pi `8eeb239`. Not a spec;
+> cross-check [`docs/STATUS.md`](../STATUS.md) before acting.
 
 # Living librarian (M5 / N5c) — completion audit
 
-**Verdict:** far more shipped than the `◐` badge in STATUS/ROADMAP/VOICE implies. Core
-memory system, reflection (light + nightly LLM), gardener, and conversation-policy
-hardening are all **implemented and gate-covered**. The `◐` mostly reflects deferred
-sub-phases (N5c.2–.5: proactive push, phone memory editor UI, TV TTS) and the fact
-that live gate runs / Pi couch regression (R1–R8) aren't re-confirmed in docs since
-the last edit. No `test_agent_open_policy.py` file exists by that name, but its
-scope is covered inside `test_open_intent_discover.py` / `test_voice_nav.py`.
+**Verdict (updated 2026-07-05):** memory hardening complete in code and gates.
+Watch signals → `completed_watches`, 90-day journal rollup, and notes reconciliation
+are shipped. **Remaining bar:** couch checks M1–M3 in [COUCH_TEST.md](../COUCH_TEST.md).
 
 ---
 

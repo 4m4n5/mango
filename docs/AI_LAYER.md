@@ -22,7 +22,7 @@ The AI companion should make mango feel like a next-gen AI TV box — look up ti
 | What's-on-now/EPG | n/a | n/a | ~ Live Now rail | ✓ now-playing after pad B; EPG deferred |
 | Subscriptions/channels | n/a | n/a | read-only | n/a |
 
-*Phases 0–3 shipped on `feat/native-experience` (Pi commit `0331c6c` as of 2026-07-04).*
+*Phases 0–3 shipped on `feat/native-experience`. M5.5b/M6.5 round code shipped Pi `8eeb239` (2026-07-05).*
 
 Structural facts:
 
@@ -71,7 +71,7 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | Memory model | Good schema/weak ingestion | Profile rich but reflect/gardener are regex + token-overlap |
 | AI catalog pipeline | Good bones | Async bootstrap + playability works |
 | Compose intelligence | Needs overhaul | Keyword table ≠ conversational vibe |
-| Companion UX | Chat-first phone UI; mirror/tool chips; not production-final until M6.5 |
+| Companion UX | Round shipped — structured picks · HUD safe-area · chat-first phone; couch sign-off pending |
 | TV command transport | Excellent | Long-poll + seq + ack — keep |
 | Cross-surface state | Missing | No shared "what's on TV" context |
 
@@ -155,6 +155,18 @@ Each phase ends with Pi deploy + gate + couch proof.
 **Defaults:** Enter sends · Shift+Enter newline · ~500 char max · text and voice share reflect/session-notes path.
 
 **Couch gate:** `bash scripts/m5-voice/ai/gate-m5-companion-couch.sh` · opt-in LLM: `MANGO_VOICE_LLM_INTEGRATION=1`
+
+### M5.5b / M6.5 round (2026-07-05) ✓ code
+
+| Deliverable | Status |
+|-------------|--------|
+| Structured pick cards + `pick_select` | ✓ |
+| Detail 2D FocusGrid | ✓ |
+| HUD safe-area + ux-smoke gate | ✓ |
+| Living librarian watch signals + journal rollup | ✓ |
+| YouTube AI rail 9-cap | ✓ |
+
+Manual COUCH_TEST V1–V12 + U1–U9 pending. Detail: [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md)
 
 ---
 

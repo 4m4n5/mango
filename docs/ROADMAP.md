@@ -13,8 +13,8 @@ M1 Foundation     ████████████████████  
 M2 Browse         ████████████████████  shipped
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
-M5 Voice + AI     ██████████████████░░  Phase 3 companion shipped · M5.5a safety corpus/gates · living librarian pending
-M6 Ship           ████████░░░░░░░░░░░░  in progress — M6.1 library core · M6.2 YouTube · Reliability Center · efficiency/perf hardening (Tiers 1-4) landed; 4K Stage 2 validation · UX · wizard pending
+M5 Voice + AI     ███████████████████░  Phase 3 ✓ · M5.5a ✓ · M5.5b round code ✓ · living librarian memory ✓ · couch sign-off pending
+M6 Ship           ██████████████░░░░░░  M6.1–M6.2 ✓ · Reliability ✓ · efficiency Tiers 1–4 ✓ · M6.5 round code ✓ · 4K validation · wizard pending
 ```
 
 
@@ -24,8 +24,8 @@ M6 Ship           ████████░░░░░░░░░░░░  
 | **M2** Browse     | Catalog rails · Movies / Series / Live · 9-up grid                                                    | ✓                                                                                          |
 | **M3** Play       | mpv orchestrator · picker · episodes · playability/grow                                               | ✓ hardening                                                                                |
 | **M4** Addons     | Self-hosted AIOStreams + AIOMetadata                                                                  | ✓                                                                                          |
-| **M5** Voice + AI | Phone librarian · AI catalogs · Phase 3 companion · living librarian · voice safety contract | ◐ Phase 3 ✓ · M5.5a corpus ✓ · living librarian ◐ |
-| **M6** Ship       | Mango-owned library · YouTube · Reliability Center · efficiency/perf hardening · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 shipped · M6.2 Pi-gated · Reliability Center implemented · efficiency/perf Tiers 1-4 shipped · 4K Stage 2 in validation |
+| **M5** Voice + AI | Phone librarian · AI catalogs · Phase 3 companion · living librarian · voice safety contract | ◐ Phase 3 ✓ · M5.5a ✓ · M5.5b round code ✓ · living librarian memory ✓ · couch pending |
+| **M6** Ship       | Mango-owned library · YouTube · Reliability Center · efficiency/perf hardening · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 ✓ · M6.2 Pi-gated ✓ · Reliability ✓ · Tiers 1–4 ✓ · M6.5 round code ✓ · 4K Stage 2 · wizard pending |
 
 
 ---
@@ -130,7 +130,7 @@ Pi 5 · X11 + Openbox
 | ------------------------------ | ------ | ------------------------------------------------------------------------------------------------------- |
 | Voice librarian                | ✓      | Search · open detail · Hinglish STT                                                                     |
 | AI catalog slots               | ✓      | Max 3/tab · voice CRUD · playability pools                                                              |
-| Living librarian               | ◐      | Profile · journal · conversation policy · reflection                                                    |
+| Living librarian               | ✓      | Profile · journal · watch signals → `completed_watches` · 90d rollup · compiled-notes path · memory gate (22 tests) |
 | AI catalog bootstrap           | ✓      | Compose · reserve · async bootstrap                                                                     |
 | **M5.5 Voice safety contract** | —      | Capability review + open/clarify gates — **M5 merge blocker**; final companion/HUD polish after YouTube |
 
@@ -146,13 +146,13 @@ Half the north star is *ask in mango*. The implementation is split so Mango does
 | ------------------- | -------------------------------------------------------------------------------------------------------------- |
 | **M5.5a contract**  | Full `mango_`* tool audit · Hinglish corpus · discover/open/curate/memory lanes · ordinals · no false TV opens |
 | **M5.5a coherence** | Phone/TV agreement · `tv_seq` ack · async catalog copy · mock + opt-in LLM corpus gates                        |
-| **M5.5b polish**    | Phone tool transparency · proactive opt-in · memory summary · launcher HUD safe area, copy, and dwell          |
-| Acceptance          | C-V1–C-V8 safety now; post-YouTube companion/HUD pass before M6.5 merge                                        |
+| **M5.5b polish**    | Structured pick cards · HUD safe area + 12s dismiss · couch-safe errors · companion-couch in gate-lite — **code ✓, couch pending** |
+| Acceptance          | C-V1–C-V8 safety ✓; COUCH_TEST V1–V12 + U1–U9 before M6.4 / merge                                        |
 
 
 **Spec:** [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
 
-**M5 complete when:** living librarian infrastructure **and** M5.5a voice safety contract both pass. M5.5b polish is part of the post-YouTube M6.5 ship bar.
+**M5 complete when:** living librarian infrastructure **and** M5.5a voice safety contract both pass gates; **couch sign-off** on memory/familiarity closes the M5 bar. M5.5b polish code is shipped; manual COUCH_TEST is the remaining gate before merge prep.
 
 **Detail:** [VOICE.md](VOICE.md) · **Gate:** `scripts/m5-voice/ai/gate-m5-voice.sh`
 
@@ -244,11 +244,11 @@ bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 
 
 
-### M6.5 — Unified TV/companion UX ship polish
+### M6.5 — Unified TV/companion UX ship polish ◐
 
-Functional gates ≠ ship quality. After Mango Library, native YouTube, and 4K ship surfaces exist, polish the **10-foot launcher + companion/HUD flow** for 3 m viewing — type, focus, safe area, couch-safe copy, latency feel, and voice coherence across Movies, Series, Live, and YouTube.
+Functional gates ≠ ship quality. **Round code shipped 2026-07-05** (`8eeb239`): detail 2D FocusGrid · HUD safe-area · structured companion picks · `gate-m6-ux-smoke.sh`. **Remaining:** manual COUCH_TEST U1–U9 + voice V1–V12.
 
-**Spec:** [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · **Acceptance:** COUCH_TEST U1–U9 · `gate-m6-ux-smoke.sh`
+**Spec:** [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · **Round:** [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md) · **Acceptance:** COUCH_TEST U1–U9 · `gate-m6-ux-smoke.sh`
 
 ### M6.4 — Plug-and-play
 

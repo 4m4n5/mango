@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-**Branch:** `feat/native-experience` — native TV home. **Shipped:** M1–M4 · voice librarian · AI catalogs · M6.1 library · M6.2 YouTube · Reliability Center · efficiency/perf (Tiers 1–4) · **Phase 3 AI companion** (text + voice chat, mirror, HUD tools, live search, safety corpus). **Active:** living librarian hardening · M3 grow repeatability · YouTube rail quality. **Next:** M5.5b/M6.5 unified UX polish · M6.3 4K · M6.4 wizard.
+**Branch:** `feat/native-experience` — native TV home. **Shipped:** M1–M4 · voice librarian · AI catalogs · M6.1 library · M6.2 YouTube · Reliability Center · efficiency/perf (Tiers 1–4) · **Phase 3 AI companion** · **M5.5b/M6.5 round** (structured picks, detail FocusGrid, HUD safe-area, ux-smoke gate, living librarian memory). **Active:** comprehensive couch sign-off · M3 grow repeatability · YouTube rail quality. **Next:** M6.4 wizard · M6.3 4K TV validation · merge to `main`.
 
 ## Read first
 

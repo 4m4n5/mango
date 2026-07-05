@@ -1,8 +1,8 @@
 # Round scope — M5.5b + M6.5 unified ship polish
 
-**Branch:** `feat/native-experience` · **Started:** 2026-07-05  
+**Branch:** `feat/native-experience` · **Started:** 2026-07-05 · **Code complete:** 2026-07-05 (`8eeb239`)  
 **North star:** *Ask or browse in mango. Watch in mpv. Never wonder which app you're in.*  
-**Merge bar:** M5.5b + M6.5 + living librarian sign-off → M6.4 wizard → `main`
+**Merge bar:** COUCH_TEST V1–V12 + U1–U9 sign-off → M6.4 wizard → `main`
 
 Supporting audits: `_audit-living-librarian-gap.md` (written). Companion/launcher/gates audits in this doc §2–4.
 
@@ -36,21 +36,21 @@ Supporting audits: `_audit-living-librarian-gap.md` (written). Companion/launche
 | Chat/tool cards, streaming partials | ✓ | — |
 | Tool human summaries (`runner.py`) | ✓ | Improve live/YT copy |
 | HUD state machine + 4s error dwell | ✓ | — |
-| HUD ≤12s wall-clock dismiss | ✗ | **P0** — stuck card blocks browse |
-| HUD leanback safe area | ? | **P0** — couch verify |
-| Ambiguous pick UI (2–4 options) | partial (prose only) | **P1** — design fork |
-| Proactive opt-in toggle + HUD push | ✗ (schema only) | **P2** — design fork (defer?) |
-| Error scrub (no API keys upstream) | unknown | **P1** |
+| HUD ≤12s wall-clock dismiss | ✓ | — |
+| HUD leanback safe area | ✓ (CSS) | Couch verify U4/U6 |
+| Ambiguous pick UI (2–4 options) | ✓ structured cards | Couch verify V3/V9 |
+| Proactive opt-in toggle + HUD push | ✗ (schema only) | **P2** — deferred |
+| Error scrub (no API keys upstream) | ✓ | — |
 | CA trust hint | ✗ | **P2** |
 | Memory panel (chat-triggered summary) | ✓ | Polish copy |
-| Cross-tab open/ack parity in corpus | partial | **P1** |
+| Cross-tab open/ack parity in corpus | partial | **P1** — couch pass |
 
 ### M6.5 — Launcher UX
 
 | Item | Status | Priority |
 |------|--------|----------|
 | U1 focus visible (amber ring) | ✓ | Verify at 3m |
-| U2 detail/settings focus | warn (1D traversal) | **P1** — design fork |
+| U2 detail/settings focus | ✓ 2D FocusGrid | Couch verify |
 | U3 poster aspect-ratio stability | ✓ | — |
 | U4 tab vs shuffle distinct | ✓ | — |
 | U5 play failure couch copy | ✓ | Extend audit |
@@ -58,8 +58,8 @@ Supporting audits: `_audit-living-librarian-gap.md` (written). Companion/launche
 | U7 Continue/Saved Mango-only | ✓ | — |
 | U8 ⌂ <300ms | ✓ (pad path) | Re-verify |
 | U9 YouTube pad-play rules | ✓ | — |
-| Typography at 3m | warn (small base rem) | **P1** — design fork |
-| `gate-m6-ux-smoke.sh` | **missing** | **P0** — create |
+| Typography at 3m | warn (small base rem) | **No global bump** — verify U1 first |
+| `gate-m6-ux-smoke.sh` | ✓ | In `pi-pre-couch-gate.sh` |
 
 ### Living librarian (M5 completion)
 
@@ -67,9 +67,9 @@ Supporting audits: `_audit-living-librarian-gap.md` (written). Companion/launche
 |------|--------|----------|
 | Profile/journal/reflect/gardener | ✓ | — |
 | Nightly LLM consolidate | ✓ | — |
-| Watch signals → journal/familiarity | ✗ | **P1** if in round |
-| Journal 90-day rollup | ✗ | **P2** |
-| Legacy notes vs compiled-notes | drift risk | **P2** |
+| Watch signals → journal/familiarity | ✓ | `watch-signals.ts` + watcher hook |
+| Journal 90-day rollup | ✓ | `rollUpJournalEvents()` in nightly |
+| Legacy notes vs compiled-notes | ✓ | LLM addendum → session-notes; GET delegates compiled |
 | Proactive (N5c.2) | deferred | design fork |
 
 ---
@@ -181,8 +181,6 @@ Run in order after every deployable slice:
 - [x] Tool summary: "Searching mango for …"
 - [x] Gate uses repo persona via `MANGO_COMPANION_DIR` (Pi /etc lag safe)
 
-**Next:** Phase 3 — detail 2D FocusGrid
-
 ### Phase 1.5 — YouTube AI rail 9-up ✓
 
 - [x] Cap AI YouTube catalog rails at 9 (`constants.ts` + `ai-catalog-rails.ts`)
@@ -220,7 +218,7 @@ Run in order after every deployable slice:
 - [x] `rollUpJournalEvents()` — 90-day rollup summary + prune (nightly rule phase)
 - [x] `journalHasPlayCompleted()` for dedupe
 - [x] `watch-signals.test.ts` + journal rollup tests; gate-m5-companion-memory extended (22 pass)
-- [ ] Pi deploy + L1 memory gate on device
+- [x] Pi deploy + L1 memory gate on device (`8eeb239` — 22/22 memory · 163/163 catalog · 9/9 ux-smoke)
 - [ ] COUCH_TEST memory/familiarity manual (post comprehensive couch pass)
 
 **Out of scope (confirmed):** proactive UI/push · global typography · M6.4 wizard · M6.3 4K sign-off · M3 grow tuning
@@ -229,9 +227,9 @@ Run in order after every deployable slice:
 
 ## 7. Acceptance (round done when)
 
-- [ ] All design questions locked in this doc (§5)
-- [ ] L0–L3 gates green on Pi at `feat/native-experience` HEAD
-- [ ] L4 ux-smoke exists and passes
+- [x] All design questions locked in this doc (§5)
+- [x] L0–L3 gates green on Pi at `feat/native-experience` HEAD (`8eeb239`)
+- [x] L4 ux-smoke exists and passes (9/9)
 - [ ] COUCH_TEST V1–V12 + U1–U9 signed off (manual log in COUCH_TEST or session note)
 - [ ] No P0 voice/HUD regressions (live open, empty rails, stuck HUD)
-- [ ] STATUS.md updated for M5.5b/M6.5 progress
+- [x] STATUS.md updated for M5.5b/M6.5 progress

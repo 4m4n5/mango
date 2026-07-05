@@ -14,8 +14,8 @@ What works today, what is still being hardened, and how to verify it.
 | M2 Browse | ✓ | Movies / Series / Live tabs |
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
-| M5 Voice + AI | ◐ | Phase 3 companion ✓ · Phases 0–2 ✓ · living librarian ◐ · M5.5b polish pending |
-| M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube deployed and Pi-gated · Reliability Center implemented · efficiency/perf hardening (Tiers 1-4) shipped and Pi-proven · 4K Stage 2 profile/gate in validation · unified UX, wizard pending |
+| M5 Voice + AI | ◐ | Phase 3 ✓ · M5.5a corpus ✓ · **M5.5b round code ✓** · living librarian memory ✓ · couch sign-off pending |
+| M6 Ship | ◐ | M6.1 ✓ · M6.2 Pi-gated ✓ · Reliability Center ✓ · efficiency/perf Tiers 1–4 ✓ · **M6.5 round code ✓** · 4K Stage 2 validation · wizard pending |
 
 ---
 
@@ -146,18 +146,28 @@ Max **3 slots per tab** (movies · series · youtube · live) · voice CRUD + ov
 
 **Gate:** `bash scripts/m5-voice/ai/gate-m5-ai-catalogs.sh`
 
-### Living librarian ◐
+### Living librarian ✓ (2026-07-05)
 
-Profile · journal · conversation policy · reflection.
+Profile · journal · conversation policy · reflection · gardener · nightly consolidate.
+
+| Area | Implementation |
+|------|----------------|
+| Watch signals | `watch-signals.ts` — mpv progress → journal `play_started` / `play_completed` / `play_abandoned` |
+| Familiarity | First `play_completed` per `content_key` bumps `completed_watches`; stage reapplied; compiled notes rewritten |
+| Journal hygiene | `rollUpJournalEvents(90)` in nightly rule phase — summary event + prune raw events older than 90 days |
+| Notes path | GET `/voice/library/notes` prefers compiled notes; nightly LLM addendum POSTs `/voice/companion/session-notes` |
+| Gates | `gate-m5-companion-memory.sh` — 22 unit tests incl. watch-signals + journal rollup |
+
+**Pi evidence:** commit `8eeb239` — companion-memory 22/22 · catalog 163/163 · ux-smoke 9/9.
 
 ### M5.5 — Companion UX split ◐
 
 | Track | Status |
 |-------|--------|
 | **M5.5a** safety contract | Corpus + automated gate shipped · full LLM integration opt-in (`MANGO_VOICE_LLM_INTEGRATION=1`) |
-| **M5.5b** polish | Chat-first companion landed · final cross-tab HUD/phone pass remains M6.5 |
+| **M5.5b** polish | **Round code shipped** — structured pick cards · HUD 12s dismiss · couch-safe errors · companion-couch in gate-lite · manual V1–V12 pending |
 
-[tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
+Round scope: [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md) · [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
 
 Full detail: [VOICE.md](VOICE.md)
 
@@ -282,18 +292,35 @@ the validated couch path is now VLC for both 1080p and 4K playback.
 
 ---
 
+## M6.5 — Unified TV/companion UX ◐
+
+**Code shipped** in the M5.5b/M6.5 round (2026-07-05); **merge bar** is manual couch sign-off (COUCH_TEST U1–U9 + voice V1–V12).
+
+| Area | Shipped |
+|------|---------|
+| Detail navigation | 2D `FocusGrid` — actions L/R · episodes/streams U/D |
+| Voice HUD | Safe-area CSS (`env(safe-area-inset-*)`) · max-height cap · 12s wall-clock dismiss |
+| Companion picks | Numbered tappable rows · `pick_select` WS (no LLM round-trip) |
+| YouTube AI rails | 9-card cap · gate isolates `MANGO_AI_CATALOGS_DIR` |
+| Automated gate | `gate-m6-ux-smoke.sh` in `pi-pre-couch-gate.sh` on `feat/native-experience` |
+
+**Pi evidence:** commit `8eeb239` — ux-smoke 9/9 PASS.
+
+Spec: [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · Round: [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md)
+
+---
+
 ## Open priorities
 
 Efficiency & performance audit (Tiers 1-4 — DB/cache efficiency, perceived latency, voice idle cost, resource guards) is shipped and Pi-proven; it is no longer an open item. Remaining priorities:
 
 | # | Item | Milestone |
 |---|------|-----------|
-| 1 | Living librarian (memory + policy hardening) | M5 |
-| 2 | M5.5b + M6.5 unified companion/TV UX polish | M6.5 |
-| 3 | Monitor unattended nightly proof + M3 `+20` grow hit rate | M3 |
-| 4 | YouTube rail quality + quota/live-refresh monitoring | M6.2 |
-| 5 | 4K HDR TV + soundbar validation on target TV | M6.3 |
-| 6 | First-boot wizard | M6.4 |
+| 1 | **Comprehensive couch sign-off** — COUCH_TEST V1–V12 + U1–U9 + memory/familiarity | M5.5b / M6.5 |
+| 2 | Monitor unattended nightly proof + M3 `+20` grow hit rate | M3 |
+| 3 | YouTube rail quality + quota/live-refresh monitoring | M6.2 |
+| 4 | 4K HDR TV + soundbar validation on target TV | M6.3 |
+| 5 | First-boot wizard | M6.4 |
 
 ---
 
@@ -307,6 +334,7 @@ Efficiency & performance audit (Tiers 1-4 — DB/cache efficiency, perceived lat
 | `gate-m4-self-hosted.sh` | Self-hosted addon corpus |
 | `gate-live-iptv.sh` | Opt-in live only |
 | `gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail and optional playback |
+| `gate-m5-companion-memory.sh` | Living librarian profile/journal/watch-signals/rollup (22 tests) |
 | `gate-m6-ux-smoke.sh` | M6.5 focus/HUD DOM+CSS contracts; detail FocusGrid bundle; pad alive |
 | `gate-m6-reliability-proof.sh` | Reliability Center proof; fails red and warns yellow |
 | `gate-m6-4k-hdr-profile.sh` | M6.3 Stage 2 profile/display/resource gate |

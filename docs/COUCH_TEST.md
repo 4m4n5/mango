@@ -1,6 +1,6 @@
 # Couch test checklist
 
-**Branch:** `feat/native-experience` · **Gate:** `bash scripts/pi-exec-gate.sh` (gate-lite ~2 min)
+**Branch:** `feat/native-experience` · **Pi HEAD:** `8eeb239` (2026-07-05) · **Gate:** `bash scripts/pi-exec-gate.sh` (gate-lite ~2 min) + ux-smoke on feat branch
 
 Run gate on Mac before handing off to the TV. Live IPTV is opt-in — not in gate-lite.
 
@@ -15,6 +15,8 @@ python3 scripts/diag/playability-status.py   # pool depth
 python3 scripts/diag/grow_monitor.py status  # latest grow health; operator-only
 bash scripts/m6-ship/gate-m6-library-smoke.sh # Saved/current-context smoke
 bash scripts/m6-ship/gate-m6-youtube-smoke.sh # YouTube state/rails/search/detail
+bash scripts/m6-ship/gate-m6-ux-smoke.sh      # M6.5 HUD/focus contracts
+bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch signals
 ```
 
 ---
@@ -117,15 +119,15 @@ Do not show grow/debug status on TV. Check this from SSH before claiming library
 
 ---
 
-## Voice companion (Phase 3 + M5.5)
+## Voice companion (Phase 3 + M5.5b round)
 
-Requires `MANGO_VOICE=1`. Phase 3 companion is shipped; M5.5b polish re-run before M6.5 merge. Spec: [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) · [AI_LAYER.md](AI_LAYER.md)
+Requires `MANGO_VOICE=1`. **Round code shipped** (`8eeb239`); comprehensive manual pass is the merge gate. Spec: [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md) · [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) · [AI_LAYER.md](AI_LAYER.md)
 
 | # | Action | Pass? |
 |---|--------|-------|
 | V1 | PTT "good Hindi movies" — **no TV jump**; clarifying or chat on phone | |
 | V2 | PTT or text "Panchayat kholo" — detail on TV ≤8 s; phone confirms open | |
-| V3 | Ambiguous title — list on phone; **no open** until explicit pick | |
+| V3 | Ambiguous title — **numbered tappable pick rows** on phone; tap opens; no open until pick | |
 | V4 | Create AI catalog — confirm once; rail appears after bootstrap | |
 | V5 | "What do you know about me?" — readable summary on phone | |
 | V6 | Voice HUD dismisses; tiles unobstructed | |
@@ -166,12 +168,14 @@ bash scripts/diag/pi-resource-snapshot.sh
 
 ## Unified TV/companion UX ship polish (M6.5)
 
-Manual sign-off after Mango Library, YouTube, and 4K feature slices. Spec: [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md)
+Manual sign-off after automated gates. **Code shipped** in M5.5b/M6.5 round. Spec: [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md)
+
+Automated: `bash scripts/m6-ship/gate-m6-ux-smoke.sh` (also in `pi-pre-couch-gate.sh` on `feat/native-experience`)
 
 | # | Action | Pass? |
 |---|--------|-------|
 | U1 | Focus visible on every tile at 3 m | |
-| U2 | D-pad: no focus trap in detail → episodes → streams | |
+| U2 | D-pad detail: **2D FocusGrid** — actions L/R · episodes/streams U/D; no focus trap | |
 | U3 | Poster grid stable — no jump when images load | |
 | U4 | Tab vs shuffle visually distinct (active vs amber outline) | |
 | U5 | Play failure shows couch copy — no API/mpv stderr | |
@@ -179,3 +183,15 @@ Manual sign-off after Mango Library, YouTube, and 4K feature slices. Spec: [task
 | U7 | Continue rail uses Mango progress/library state only | |
 | U8 | ⌂ from mpv — home <300 ms perceived | |
 | U9 | YouTube rail/search/detail follows the same focus, HUD, and pad-play rules | |
+
+---
+
+## Living librarian memory (Phase 5)
+
+Optional but recommended during the comprehensive pass. Requires finishing a VOD title to ≥90% progress.
+
+| # | Action | Pass? |
+|---|--------|-------|
+| M1 | Watch a movie to ~90%+ — exit mpv; no errors in catalog logs | |
+| M2 | Ask "what do you know about me?" — summary reflects increased familiarity / completed watch | |
+| M3 | Re-watch same title to completion — `completed_watches` does not double-count (companion or profile read) | |
