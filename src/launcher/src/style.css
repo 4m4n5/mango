@@ -130,7 +130,6 @@ button {
     border-color var(--dur-focus-in) var(--ease-out),
     background var(--dur-focus-in) var(--ease-out),
     color var(--dur-focus-in) var(--ease-out),
-    transform var(--dur-focus-in) var(--ease-out),
     box-shadow var(--dur-focus-in) var(--ease-out),
     opacity var(--dur-focus-in) var(--ease-out);
 }
@@ -141,7 +140,6 @@ button {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--text-primary);
-  transform: scale(var(--focus-scale-control));
   box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
@@ -175,7 +173,6 @@ button {
     border-color var(--dur-focus-in) var(--ease-out),
     background var(--dur-focus-in) var(--ease-out),
     color var(--dur-focus-in) var(--ease-out),
-    transform var(--dur-focus-in) var(--ease-out),
     box-shadow var(--dur-focus-in) var(--ease-out);
 }
 
@@ -185,7 +182,6 @@ button {
   border-color: var(--accent);
   color: var(--text-primary);
   background: var(--accent-soft);
-  transform: scale(var(--focus-scale-control));
   box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
@@ -209,6 +205,8 @@ button {
   overflow-y: auto;
   overflow-x: clip;
   padding-bottom: 2.75rem;
+  padding-inline: var(--focus-gutter);
+  margin-inline: calc(-1 * var(--focus-gutter));
   scrollbar-width: none;
 }
 
@@ -243,10 +241,6 @@ button {
   margin: calc(-1 * var(--focus-gutter));
   width: calc(100% + 2 * var(--focus-gutter));
   scroll-snap-type: none;
-}
-
-.rail-track--posters:has(.card.focused) .card:not(.focused) {
-  opacity: 0.88;
 }
 
 .rails--refreshing {
@@ -343,10 +337,8 @@ button {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
   scroll-snap-align: start;
   transition:
-    transform var(--dur-focus-in) var(--ease-out),
     border-color var(--dur-focus-out) var(--ease-out),
-    box-shadow var(--dur-focus-in) var(--ease-out),
-    opacity var(--dur-focus-out) var(--ease-out);
+    box-shadow var(--dur-focus-in) var(--ease-out);
 }
 
 .card--poster {
@@ -385,7 +377,6 @@ button {
   border: 2px solid var(--border-subtle);
   background: var(--bg-elevated);
   transition:
-    transform var(--dur-focus-in) var(--ease-out),
     box-shadow var(--dur-focus-in) var(--ease-out),
     border-color var(--dur-focus-out) var(--ease-out);
 }
@@ -407,7 +398,6 @@ button {
 .card--landscape.focused,
 .card--landscape:focus-visible {
   z-index: 2;
-  transform: scale(var(--focus-scale-poster));
   box-shadow: none;
   border: none;
 }
@@ -466,7 +456,6 @@ button {
     0 0 0 var(--focus-ring) var(--accent),
     0 0 var(--focus-glow) var(--accent-glow),
     0 18px 48px rgba(0, 0, 0, 0.5);
-  transform: scale(var(--focus-scale-poster));
 }
 
 .card--landscape.focused,
@@ -648,7 +637,6 @@ h1 {
   color: var(--text-primary);
   text-align: left;
   transition:
-    transform var(--dur-focus-in) var(--ease-out),
     box-shadow var(--dur-focus-in) var(--ease-out),
     border-color var(--dur-focus-out) var(--ease-out);
 }
@@ -657,7 +645,6 @@ h1 {
 .settings-action:focus-visible {
   outline: none;
   border-color: var(--accent);
-  transform: scale(var(--focus-scale-control));
   box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
@@ -910,6 +897,8 @@ h1 {
   max-width: 58rem;
   max-height: 88vh;
   overflow-y: auto;
+  padding: var(--focus-gutter);
+  margin: calc(-1 * var(--focus-gutter));
   scrollbar-width: none;
 }
 
@@ -1091,7 +1080,6 @@ h1 {
   font-weight: 700;
   text-transform: lowercase;
   transition:
-    transform var(--dur-focus-in) var(--ease-out),
     box-shadow var(--dur-focus-in) var(--ease-out),
     border-color var(--dur-focus-in) var(--ease-out);
 }
@@ -1106,7 +1094,6 @@ h1 {
 .detail-button:focus-visible {
   outline: none;
   border-color: var(--accent);
-  transform: scale(var(--focus-scale-control));
   box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
@@ -1124,7 +1111,12 @@ h1 {
   gap: 0.45rem;
   max-height: 14rem;
   overflow-y: auto;
-  padding-right: 0.25rem;
+  padding-right: 0;
+  scrollbar-width: none;
+}
+
+.detail-stream-list::-webkit-scrollbar {
+  display: none;
 }
 
 .detail-stream {
@@ -1232,7 +1224,6 @@ h1 {
 .back-button.focused,
 .back-button:focus-visible {
   outline: none;
-  transform: scale(var(--focus-scale-control));
   box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 

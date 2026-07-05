@@ -1,6 +1,6 @@
 import type { AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
-import { applyRailLayout } from "./layout";
+import { applyRailLayout, RAIL_COLUMNS, RAIL_COLUMNS_LANDSCAPE } from "./layout";
 import { cardSavedKey } from "./saved";
 
 export interface HomeCallbacks {
@@ -171,10 +171,17 @@ function appendCatalogSections(
       track.appendChild(button);
       items.push(button);
     }
-    applyRailLayout(track, isLandscapeCard(rail.cards[0], options.browseTab));
+    const landscape = isLandscapeCard(rail.cards[0], options.browseTab);
+    applyRailLayout(track, landscape);
     section.appendChild(track);
     container.appendChild(section);
-    rows.push(items);
+    // Split the rail into visual rows matching the CSS grid column count so
+    // that a rail wrapping onto multiple rows is navigable with Down/Up, not
+    // only by holding Right through every card.
+    const cols = landscape ? RAIL_COLUMNS_LANDSCAPE : RAIL_COLUMNS;
+    for (let i = 0; i < items.length; i += cols) {
+      rows.push(items.slice(i, i + cols));
+    }
   }
   return rows;
 }

@@ -295,6 +295,14 @@ const PLAYABILITY_SESSION_MAX_AGE_MS = Number(
 );
 const RAIL_META_CONCURRENCY = Number(process.env.MANGO_RAIL_META_CONCURRENCY || 6);
 const RAIL_META_STAGGER_MS = Number(process.env.MANGO_RAIL_META_STAGGER_MS || 0);
+const META_WARM_CONCURRENCY = boundedInt(
+  process.env.MANGO_META_WARM_CONCURRENCY,
+  4,
+  1,
+  8,
+);
+const META_WARM_ENABLED = process.env.MANGO_META_WARM_DISABLE !== '1'
+  && process.env.NODE_ENV !== 'test';
 const STREAM_RESOLVE_BUDGET_MS = Number(process.env.MANGO_STREAM_RESOLVE_BUDGET_MS || 12000);
 
 function boundedInt(value: unknown, fallback: number, min: number, max: number): number {
@@ -1433,6 +1441,34 @@ export class CatalogCore {
     };
   }
 
+  private warmMetaCacheForRailItems(items: Array<{ type: string; id: string }>): void {
+    if (!META_WARM_ENABLED) {
+      return;
+    }
+    const seen = new Set<string>();
+    const warmTargets = items.filter((item) => {
+      if (item.type !== 'movie' && item.type !== 'series') {
+        return false;
+      }
+      const key = `${item.type}:${item.id}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+    if (warmTargets.length === 0) {
+      return;
+    }
+    void mapInBatches(
+      warmTargets,
+      META_WARM_CONCURRENCY,
+      async (item) => {
+        await this.metaCached(item.type, item.id).catch(() => undefined);
+      },
+    ).catch(() => undefined);
+  }
+
   async tabRailItems(tab: CatalogTab, options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
     if (tab === 'live') {
       return this.liveTabRailItems();
@@ -1457,6 +1493,12 @@ export class CatalogCore {
       && cachedTab.expiresAt > Date.now()
       && cachedTab.payload.rails.every((rail) => rail.playability?.low_water !== true)
     ) {
+      this.warmMetaCacheForRailItems(
+        cachedTab.payload.rails.flatMap((rail) => rail.items.map((item) => ({
+          type: item.type,
+          id: item.id,
+        }))),
+      );
       return { ...cachedTab.payload, cached: true };
     }
 
@@ -1471,7 +1513,7 @@ export class CatalogCore {
         playability: rail.playability,
       })),
       forceReshuffle: reshuffle,
-      stableRatio: reshuffle ? 0.15 : undefined,
+      stableRatio: reshuffle ? 0 : undefined,
     });
 
     const [railResponses, continueRail, savedRail] = await Promise.all([
@@ -1506,6 +1548,12 @@ export class CatalogCore {
       payload,
       expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
     });
+    this.warmMetaCacheForRailItems(
+      visibleRails.flatMap((rail) => rail.items.map((item) => ({
+        type: item.type,
+        id: item.id,
+      }))),
+    );
     return payload;
   }
 
@@ -1867,7 +1915,7 @@ export class CatalogCore {
     });
   }
 
-  private async metaCached(type: string, id: string): Promise<Meta> {
+  async metaCached(type: string, id: string): Promise<Meta> {
     const key = `${type}:${id}`;
     const cached = this.metaCache.get(key);
     if (cached && cached.expiresAt > Date.now()) {

@@ -1408,7 +1408,7 @@ async function main(): Promise<void> {
         const contentType = parts[1];
         const contentId = parts[2];
         try {
-          const meta = await core.meta(contentType, contentId);
+          const meta = await core.metaCached(contentType, contentId);
           sendJson(res, 200, enrichMetaForLauncher(meta, contentId));
         } catch (error) {
           const stub = stubMetaForLauncher(contentType, contentId);

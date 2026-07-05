@@ -11,18 +11,53 @@ function envInt(name: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-/** Fresh slots reserved for the newest-verified titles so grown content surfaces. */
-export const SESSION_RECENCY_RESERVE = Math.max(0, envInt('MANGO_SESSION_RECENCY_RESERVE', 2));
-
-/** A title counts as a "new arrival" eligible for the recency reserve within this window (ms). */
-export const SESSION_RECENCY_WINDOW_MS = Math.max(
-  0,
-  envInt('MANGO_SESSION_RECENCY_WINDOW_MS', 3 * 24 * 60 * 60 * 1000),
-);
+const DAY_MS = 24 * 60 * 60 * 1000;
+const RECENT_WEIGHT_3D_MULTIPLIER = 3.0;
+const RECENT_WEIGHT_7D_MULTIPLIER = 2.0;
+const RECENT_WEIGHT_30D_MULTIPLIER = 1.3;
+const BASE_RECENCY_WEIGHT_MULTIPLIER = 1.0;
 
 function verifiedAtOf(item: unknown): number {
   const value = (item as { verified_at?: number | null }).verified_at;
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function recencyWeight(item: unknown, now: number): number {
+  const verifiedAt = verifiedAtOf(item);
+  if (verifiedAt <= 0) {
+    return BASE_RECENCY_WEIGHT_MULTIPLIER;
+  }
+  const ageMs = Math.max(0, now - verifiedAt);
+  if (ageMs <= 3 * DAY_MS) {
+    return RECENT_WEIGHT_3D_MULTIPLIER;
+  }
+  if (ageMs <= 7 * DAY_MS) {
+    return RECENT_WEIGHT_7D_MULTIPLIER;
+  }
+  if (ageMs <= 30 * DAY_MS) {
+    return RECENT_WEIGHT_30D_MULTIPLIER;
+  }
+  return BASE_RECENCY_WEIGHT_MULTIPLIER;
+}
+
+function weightedSampleWithoutReplacement<T>(
+  items: T[],
+  limit: number,
+  now: number,
+  rng: () => number,
+): T[] {
+  if (limit <= 0 || items.length === 0) {
+    return [];
+  }
+  const ranked = items.map((item) => {
+    const weight = Math.max(BASE_RECENCY_WEIGHT_MULTIPLIER, recencyWeight(item, now));
+    const roll = Math.max(Number.MIN_VALUE, rng());
+    // Efraimidis-Spirakis weighted permutation key; lower keys rank first.
+    const key = -Math.log(roll) / weight;
+    return { item, key };
+  });
+  ranked.sort((left, right) => left.key - right.key);
+  return ranked.slice(0, Math.min(limit, ranked.length)).map((entry) => entry.item);
 }
 
 /** Anchor rails (first N in yaml) reserve slots before niche reverse pass. */
@@ -55,6 +90,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
     anchorRailCount?: number;
     shuffleFn?: (items: T[]) => T[];
     stableRatio?: number;
+    rng?: () => number;
   } = {},
 ): Map<string, SessionSelectedItem<T>[]> {
   const floor = options.reserveFloor ?? TAB_SESSION_RESERVE_FLOOR;
@@ -64,6 +100,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
     railsInYamlOrder.length,
   );
   const shuffleFn = options.shuffleFn;
+  const rng = options.rng;
   const tabOccupied = new Set<string>();
   const selections = new Map<string, SessionSelectedItem<T>[]>();
 
@@ -76,6 +113,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
       occupiedKeys: tabOccupied,
       shuffleFn,
       stableRatio,
+      rng,
     });
     const existing = selections.get(rail.railId) ?? [];
     const merged = [...existing, ...picked].slice(0, reserve);
@@ -107,6 +145,7 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
       occupiedKeys: tabOccupied,
       shuffleFn,
       stableRatio,
+      rng,
     });
     const merged = [...existing, ...extra].slice(0, rail.displayLimit);
     selections.set(rail.railId, merged);
@@ -141,8 +180,7 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     shuffleFn?: (items: T[]) => T[];
     stableRatio?: number;
     now?: number;
-    recencyReserve?: number;
-    recencyWindowMs?: number;
+    rng?: () => number;
   },
 ): SessionSelectedItem<T>[] {
   const {
@@ -152,8 +190,7 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     shuffleFn = defaultShuffle,
     stableRatio = 0.7,
     now = Date.now(),
-    recencyReserve = SESSION_RECENCY_RESERVE,
-    recencyWindowMs = SESSION_RECENCY_WINDOW_MS,
+    rng = Math.random,
   } = options;
 
   const blocked = (item: T): boolean => occupiedKeys.has(titleKey(item.type, item.id));
@@ -165,24 +202,7 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
   const chosen = new Map(stable.map((item) => [titleKey(item.type, item.id), item]));
   const freshPool = available.filter((item) => !chosen.has(titleKey(item.type, item.id)));
   const freshSlots = Math.max(0, displayLimit - stable.length);
-
-  // Reserve a bounded number of fresh slots for the newest-verified titles so
-  // freshly-grown content surfaces instead of sinking below the static score order.
-  // Stable anchors are left untouched to preserve the curated top of the rail.
-  const recencyPicks = recencyReserve > 0 && recencyWindowMs > 0
-    ? freshPool
-      .filter((item) => {
-        const verifiedAt = verifiedAtOf(item);
-        return verifiedAt > 0 && now - verifiedAt <= recencyWindowMs;
-      })
-      .sort((a, b) => verifiedAtOf(b) - verifiedAtOf(a))
-      .slice(0, Math.min(recencyReserve, freshSlots))
-    : [];
-  const recencyKeys = new Set(recencyPicks.map((item) => titleKey(item.type, item.id)));
-  const shuffled = shuffleFn(
-    freshPool.filter((item) => !recencyKeys.has(titleKey(item.type, item.id))),
-  ).slice(0, Math.max(0, freshSlots - recencyPicks.length));
-  const fresh = [...recencyPicks, ...shuffled];
+  const fresh = weightedSampleWithoutReplacement(freshPool, freshSlots, now, rng);
 
   return [
     ...stable.map((item) => ({ ...item, mix_bucket: 'stable' as const })),

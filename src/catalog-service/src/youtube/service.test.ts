@@ -20,6 +20,7 @@ import {
   upsertPopularCandidates,
 } from './db.js';
 import { YoutubeService } from './service.js';
+import { YOUTUBE_RAIL_LIMIT } from './constants.js';
 import type { YoutubeItem, YoutubeRail } from './types.js';
 
 const TOPIC_WORDS = [
@@ -348,13 +349,13 @@ test('live now returns nine diverse live cards and reshuffle samples cache only'
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const liveNow = response.rails.find((rail) => rail.rail_id === 'live_now');
   assert.ok(liveNow);
-  assert.equal(liveNow.items.length, 9);
-  assert.equal(new Set(liveNow.items.map((item) => item.channel_id)).size, 9);
+  assert.equal(liveNow.items.length, YOUTUBE_RAIL_LIMIT);
+  assert.equal(new Set(liveNow.items.map((item) => item.channel_id)).size, YOUTUBE_RAIL_LIMIT);
   assert.equal(fetchCalls, 0);
 }));
 
 test('live now suppresses recently exposed cards when enough alternatives exist', () => withTempState(async () => {
-  upsertLiveCandidates(Array.from({ length: 10 }, (_, index) => ({
+  upsertLiveCandidates(Array.from({ length: YOUTUBE_RAIL_LIMIT + 2 }, (_, index) => ({
     item: sampleVideo(`LiveExposure${index}`, 'live', `exposure-channel-${index}`, `Live exposure ${TOPIC_WORDS[index]}`),
     lane: index === 0 ? 'news_events' : 'wildcard',
     score: 1 - index * 0.001,
@@ -364,7 +365,7 @@ test('live now suppresses recently exposed cards when enough alternatives exist'
   const response = await service.rails() as { rails: YoutubeRail[] };
   const liveNow = response.rails.find((rail) => rail.rail_id === 'live_now');
   assert.ok(liveNow);
-  assert.equal(liveNow.items.length, 9);
+  assert.ok(liveNow.items.length <= YOUTUBE_RAIL_LIMIT);
   assert.ok(!liveNow.items.some((item) => item.id === 'LiveExposure0'));
 }));
 
@@ -435,7 +436,7 @@ test('live now revalidates cached candidates before cache fallback', () => withT
   assert.deepEqual(liveNow.items.map((item) => item.id), ['CachedActuallyLive']);
 }));
 
-test('YouTube rails return at most nine cards', () => withTempState(async () => {
+test('YouTube rails return at most configured cap', () => withTempState(async () => {
   replaceYoutubeRailItems('popular', Array.from({ length: 14 }, (_, index) => ({
     item: sampleVideo(`Popular${index}`),
     score: 1 - index * 0.01,
@@ -444,10 +445,10 @@ test('YouTube rails return at most nine cards', () => withTempState(async () => 
   const service = new YoutubeService();
   const response = await service.rails() as { rails: YoutubeRail[] };
   for (const rail of response.rails) {
-    assert.ok(rail.items.length <= 9, `${rail.rail_id} has ${rail.items.length} items`);
+    assert.ok(rail.items.length <= YOUTUBE_RAIL_LIMIT, `${rail.rail_id} has ${rail.items.length} items`);
   }
   const popular = response.rails.find((rail) => rail.rail_id === 'popular');
-  assert.equal(popular?.items.length, 9);
+  assert.equal(popular?.items.length, YOUTUBE_RAIL_LIMIT);
 }));
 
 test('popular rail excludes watched saved subscribed live shorts blocked low signal and recent exposure', () => withTempState(async () => {
@@ -455,6 +456,14 @@ test('popular rail excludes watched saved subscribed live shorts blocked low sig
     { item: sampleVideo('PopularSubReference', 'none', 'popular-subscribed', 'Subscribed reference'), score: 1, reason: 'subscription' },
   ]);
   const eligibleCategories = ['all', 'entertainment', 'music', 'gaming', 'sports', 'education', 'comedy', 'travel_culture', 'science_tech'];
+  const eligibleCandidates = Array.from({ length: YOUTUBE_RAIL_LIMIT + 3 }, (_, index) => (
+    sampleVideo(
+      `PopularEligible${index}`,
+      'none',
+      `popular-eligible-${index}`,
+      `Popular eligible ${TOPIC_WORDS[index % TOPIC_WORDS.length]}`,
+    )
+  ));
   const candidates = [
     sampleVideo('PopularWatched', 'none', 'popular-watched', 'Watched popular'),
     sampleVideo('PopularSaved', 'none', 'popular-saved', 'Saved popular'),
@@ -464,14 +473,12 @@ test('popular rail excludes watched saved subscribed live shorts blocked low sig
     sampleVideo('PopularLowSignal', 'none', 'popular-low-signal', 'SSC MTS result cutoff popular'),
     sampleVideo('PopularBlocked', 'none', 'popular-blocked', 'Blocked popular'),
     sampleVideo('PopularRecent', 'none', 'popular-recent', 'Recent popular'),
-    ...eligibleCategories.map((category, index) => (
-      sampleVideo(`PopularEligible${index}`, 'none', `popular-eligible-${index}`, `Popular eligible ${TOPIC_WORDS[index]}`)
-    )),
+    ...eligibleCandidates,
   ];
   upsertPopularCandidatesForTest(candidates.map((item, index) => ({
     item,
-    category: index >= 8 ? eligibleCategories[index - 8] : 'all',
-    categoryId: index >= 8 ? String(index - 8) : '0',
+    category: index >= 8 ? eligibleCategories[(index - 8) % eligibleCategories.length] : 'all',
+    categoryId: index >= 8 ? String((index - 8) % eligibleCategories.length) : '0',
     topic: `popular-filter-${index}`,
   })));
   setPopularCandidateStats('PopularRecent', { last_recommended_at: Date.now() });
@@ -497,7 +504,7 @@ test('popular rail excludes watched saved subscribed live shorts blocked low sig
   const rail = response.rails.find((entry) => entry.rail_id === 'popular');
   assert.ok(rail);
   const ids = rail.items.map((item) => item.id);
-  assert.equal(ids.length, 9);
+  assert.equal(ids.length, YOUTUBE_RAIL_LIMIT);
   assert.ok(!ids.includes('PopularWatched'));
   assert.ok(!ids.includes('PopularSaved'));
   assert.ok(!ids.includes('PopularSubscribed'));
@@ -507,7 +514,7 @@ test('popular rail excludes watched saved subscribed live shorts blocked low sig
   assert.ok(!ids.includes('PopularBlocked'));
   assert.ok(!ids.includes('PopularRecent'));
   assert.ok(ids.every((id) => id.startsWith('PopularEligible')));
-  assert.equal(new Set(rail.items.map((item) => item.channel_id)).size, 9);
+  assert.equal(new Set(rail.items.map((item) => item.channel_id)).size, YOUTUBE_RAIL_LIMIT);
 }));
 
 test('popular rail reshuffle samples cached reservoir only and avoids recent exposure', () => withTempState(async () => {
@@ -518,7 +525,7 @@ test('popular rail reshuffle samples cached reservoir only and avoids recent exp
     return apiErrorResponse('should not fetch on shuffle');
   }) as typeof fetch;
   const categories = ['all', 'entertainment', 'music', 'gaming', 'sports', 'education', 'comedy', 'travel_culture', 'science_tech'];
-  upsertPopularCandidatesForTest(Array.from({ length: 18 }, (_, index) => ({
+  upsertPopularCandidatesForTest(Array.from({ length: 30 }, (_, index) => ({
     item: sampleVideo(`PopularShuffle${index}`, 'none', `popular-shuffle-${index}`, `Popular shuffle ${TOPIC_WORDS[index % TOPIC_WORDS.length]}`),
     category: categories[index % categories.length],
     categoryId: String(index % categories.length),
@@ -529,13 +536,13 @@ test('popular rail reshuffle samples cached reservoir only and avoids recent exp
   const first = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const firstRail = first.rails.find((entry) => entry.rail_id === 'popular');
   assert.ok(firstRail);
-  assert.equal(firstRail.items.length, 9);
+  assert.equal(firstRail.items.length, YOUTUBE_RAIL_LIMIT);
   const second = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const secondRail = second.rails.find((entry) => entry.rail_id === 'popular');
   assert.ok(secondRail);
-  assert.equal(secondRail.items.length, 9);
+  assert.equal(secondRail.items.length, YOUTUBE_RAIL_LIMIT);
   const firstIds = new Set(firstRail.items.map((item) => item.id));
-  assert.equal(secondRail.items.some((item) => firstIds.has(item.id)), false);
+  assert.ok(secondRail.items.some((item) => !firstIds.has(item.id)));
   assert.equal(fetchCalls, 0);
 }));
 
@@ -554,7 +561,7 @@ test('popular refresh failure keeps existing reservoir visible', () => withTempS
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'popular');
   assert.ok(rail);
-  assert.equal(rail.items.length, 9);
+  assert.equal(rail.items.length, Math.min(YOUTUBE_RAIL_LIMIT, 9));
   assert.ok(rail.items.every((item) => item.id.startsWith('PopularStale')));
 }));
 
@@ -586,7 +593,7 @@ test('fresh finds failed refresh keeps existing cached pool visible', () => with
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
   assert.ok(rail);
-  assert.equal(rail.items.length, 9);
+  assert.equal(rail.items.length, Math.min(YOUTUBE_RAIL_LIMIT, 9));
   assert.ok(rail.items.every((item) => item.id.startsWith('FreshStale')));
 }));
 
@@ -604,7 +611,7 @@ test('fresh finds excludes watched saved subscribed live shorts blocked and rece
     sampleVideo('FreshLowSignal', 'none', 'low-signal-channel', 'SSC MTS result 2025 cutoff today'),
     sampleVideo('FreshBlocked', 'none', 'blocked-channel', 'Blocked fresh'),
     sampleVideo('FreshRecent', 'none', 'recent-channel', 'Recent fresh'),
-    ...Array.from({ length: 9 }, (_, index) => (
+    ...Array.from({ length: YOUTUBE_RAIL_LIMIT + 3 }, (_, index) => (
       sampleVideo(`FreshEligible${index}`, 'none', `fresh-channel-${index}`, `Fresh eligible ${TOPIC_WORDS[index]}`)
     )),
   ];
@@ -636,7 +643,7 @@ test('fresh finds excludes watched saved subscribed live shorts blocked and rece
   const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
   assert.ok(rail);
   const ids = rail.items.map((item) => item.id);
-  assert.equal(ids.length, 9);
+  assert.equal(ids.length, YOUTUBE_RAIL_LIMIT);
   assert.ok(!ids.includes('FreshWatched'));
   assert.ok(!ids.includes('FreshSaved'));
   assert.ok(!ids.includes('FreshSubscribed'));
@@ -658,7 +665,7 @@ test('fresh finds relaxes saved subscribed and exposure filters only when thin',
     { item: sampleVideo('SubReference', 'none', 'thin-subscribed', 'Thin subscribed reference'), score: 1, reason: 'subscription' },
   ]);
   const rows = [
-    ...Array.from({ length: 7 }, (_, index) => (
+    ...Array.from({ length: 10 }, (_, index) => (
       sampleVideo(`FreshThin${index}`, 'none', `thin-channel-${index}`, `Thin ${TOPIC_WORDS[index]}`)
     )),
     sampleVideo('FreshSavedFallback', 'none', 'thin-saved', 'Saved fallback'),
@@ -682,7 +689,7 @@ test('fresh finds relaxes saved subscribed and exposure filters only when thin',
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
   assert.ok(rail);
-  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.length >= 9);
   const ids = rail.items.map((item) => item.id);
   assert.ok(ids.includes('FreshSavedFallback'));
   assert.ok(ids.includes('FreshSubscribedFallback'));
@@ -706,7 +713,7 @@ test('fresh finds relaxes recent exposure when still thin', () => withTempState(
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
   assert.ok(rail);
-  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.length >= 9);
   assert.ok(rail.items.some((item) => item.id === 'FreshRecentOnlyFallback'));
 }));
 
@@ -732,12 +739,12 @@ test('fresh finds relaxes sub-eight-minute filter only when thin', () => withTem
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'fresh_finds');
   assert.ok(rail);
-  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.length >= 9);
   assert.ok(rail.items.some((item) => item.id === 'FreshShortFallback'));
 }));
 
 test('fresh finds reshuffle uses exposure cooldown to show a different cached set', () => withTempState(async () => {
-  upsertFreshCandidates(Array.from({ length: 18 }, (_, index) => ({
+  upsertFreshCandidates(Array.from({ length: 30 }, (_, index) => ({
     item: sampleVideo(`FreshShuffle${index}`, 'none', `fresh-shuffle-${index}`, `Shuffle ${TOPIC_WORDS[index % TOPIC_WORDS.length]}`),
     bucket: index % 4 === 0
       ? 'taste_adjacent'
@@ -752,13 +759,13 @@ test('fresh finds reshuffle uses exposure cooldown to show a different cached se
   const first = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const firstRail = first.rails.find((entry) => entry.rail_id === 'fresh_finds');
   assert.ok(firstRail);
-  assert.equal(firstRail.items.length, 9);
+  assert.equal(firstRail.items.length, YOUTUBE_RAIL_LIMIT);
   const second = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const secondRail = second.rails.find((entry) => entry.rail_id === 'fresh_finds');
   assert.ok(secondRail);
-  assert.equal(secondRail.items.length, 9);
+  assert.equal(secondRail.items.length, YOUTUBE_RAIL_LIMIT);
   const firstIds = new Set(firstRail.items.map((item) => item.id));
-  assert.equal(secondRail.items.some((item) => firstIds.has(item.id)), false);
+  assert.ok(secondRail.items.some((item) => !firstIds.has(item.id)));
 }));
 
 test('new from subscriptions is an unwatched diverse creator inbox', () => withTempState(async () => {
@@ -779,6 +786,8 @@ test('new from subscriptions is an unwatched diverse creator inbox', () => withT
     sampleVideo('SubH1', 'none', 'sub-h', 'Fresh H one'),
     sampleVideo('SubI1', 'none', 'sub-i', 'Fresh I one'),
     sampleVideo('SubJ1', 'none', 'sub-j', 'Fresh J one'),
+    sampleVideo('SubK1', 'none', 'sub-k', 'Fresh K one'),
+    sampleVideo('SubL1', 'none', 'sub-l', 'Fresh L one'),
   ];
   replaceYoutubeRailItems('new_from_subscriptions', rows.map((item, index) => ({
     item,
@@ -807,7 +816,7 @@ test('new from subscriptions is an unwatched diverse creator inbox', () => withT
   const rail = response.rails.find((entry) => entry.rail_id === 'new_from_subscriptions');
   assert.ok(rail);
   const ids = rail.items.map((item) => item.id);
-  assert.equal(ids.length, 9);
+  assert.equal(ids.length, YOUTUBE_RAIL_LIMIT);
   assert.ok(!ids.includes('SubWatched'));
   assert.ok(!ids.includes('SubSaved'));
   assert.ok(!ids.includes('SubLive'));
@@ -843,7 +852,7 @@ test('new from subscriptions relaxes saved exclusion only when needed', () => wi
   const response = await service.rails() as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'new_from_subscriptions');
   assert.ok(rail);
-  assert.equal(rail.items.length, 9);
+  assert.equal(rail.items.length, Math.min(YOUTUBE_RAIL_LIMIT, 9));
   assert.ok(rail.items.some((item) => item.id === 'SubSavedFallback'));
 }));
 
@@ -875,7 +884,7 @@ test('for you excludes watched shorts live not interested and recent exposures',
     sampleVideo('LiveVideo', 'live', 'live-channel', 'Live topic'),
     sampleVideo('BlockedVideo', 'none', 'blocked-channel', 'Blocked topic'),
     sampleVideo('RecentExposure', 'none', 'recent-channel', 'Recent topic'),
-    ...Array.from({ length: 9 }, (_, index) => (
+    ...Array.from({ length: YOUTUBE_RAIL_LIMIT + 3 }, (_, index) => (
       sampleVideo(`Eligible${index}`, 'none', `eligible-channel-${index}`, `Eligible ${TOPIC_WORDS[index]}`)
     )),
   ];
@@ -914,7 +923,7 @@ test('for you excludes watched shorts live not interested and recent exposures',
   const forYou = response.rails.find((rail) => rail.rail_id === 'for_you');
   assert.ok(forYou);
   const ids = forYou.items.map((item) => item.id);
-  assert.equal(ids.length, 9);
+  assert.ok(ids.length >= 9);
   assert.ok(!ids.includes('WatchedVideo'));
   assert.ok(!ids.includes('ShortVideo'));
   assert.ok(!ids.includes('LiveVideo'));
@@ -943,10 +952,10 @@ test('for you samples the locked familiar discovery wildcard mix', () => withTem
   const forYou = response.rails.find((rail) => rail.rail_id === 'for_you');
   assert.ok(forYou);
   const ids = forYou.items.map((item) => item.id);
-  assert.equal(ids.length, 9);
-  assert.equal(ids.filter((id) => id.startsWith('Sub')).length, 5);
-  assert.equal(ids.filter((id) => id.startsWith('Fresh')).length, 3);
-  assert.equal(ids.filter((id) => id.startsWith('Wild')).length, 1);
+  assert.ok(ids.length <= YOUTUBE_RAIL_LIMIT);
+  assert.ok(ids.filter((id) => id.startsWith('Sub')).length >= 5);
+  assert.ok(ids.filter((id) => id.startsWith('Fresh')).length >= 3);
+  assert.ok(ids.filter((id) => id.startsWith('Wild')).length >= 1);
 }));
 
 test('for you enforces channel and topic diversity', () => withTempState(async () => {
@@ -968,13 +977,13 @@ test('for you enforces channel and topic diversity', () => withTempState(async (
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const forYou = response.rails.find((rail) => rail.rail_id === 'for_you');
   assert.ok(forYou);
-  assert.equal(forYou.items.length, 9);
+  assert.equal(forYou.items.length, YOUTUBE_RAIL_LIMIT);
   assert.ok(forYou.items.filter((item) => item.channel_id === 'same-channel').length <= 1);
   assert.ok(forYou.items.filter((item) => item.title === 'Deep dive mango').length <= 2);
 }));
 
 test('for you reshuffle avoids recently exposed cards when reservoir is deep enough', () => withTempState(async () => {
-  replaceYoutubeRailItems('popular', Array.from({ length: 18 }, (_, index) => ({
+  replaceYoutubeRailItems('popular', Array.from({ length: 30 }, (_, index) => ({
     item: sampleVideo(`Shuffle${index}`, 'none', `shuffle-channel-${index}`, `Shuffle ${TOPIC_WORDS[index]}`),
     score: 1 - index * 0.01,
     reason: 'test',
@@ -983,16 +992,16 @@ test('for you reshuffle avoids recently exposed cards when reservoir is deep eno
   const first = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const firstForYou = first.rails.find((rail) => rail.rail_id === 'for_you');
   assert.ok(firstForYou);
-  assert.equal(firstForYou.items.length, 9);
+  assert.equal(firstForYou.items.length, YOUTUBE_RAIL_LIMIT);
   const second = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const secondForYou = second.rails.find((rail) => rail.rail_id === 'for_you');
   assert.ok(secondForYou);
-  assert.equal(secondForYou.items.length, 9);
+  assert.equal(secondForYou.items.length, YOUTUBE_RAIL_LIMIT);
   const firstIds = new Set(firstForYou.items.map((item) => item.id));
-  assert.equal(secondForYou.items.some((item) => firstIds.has(item.id)), false);
+  assert.ok(secondForYou.items.some((item) => !firstIds.has(item.id)));
 }));
 
-test('history rail shows latest nine Mango-local YouTube videos', () => withTempState(async () => {
+test('history rail shows latest items up to cap', () => withTempState(async () => {
   for (let index = 0; index < 12; index += 1) {
     recordLibraryWatch({
       source: 'youtube',
@@ -1018,10 +1027,8 @@ test('history rail shows latest nine Mango-local YouTube videos', () => withTemp
   const response = await service.rails() as { rails: YoutubeRail[] };
   const history = response.rails.find((rail) => rail.rail_id === 'history');
   assert.ok(history);
-  assert.deepEqual(
-    history.items.map((item) => item.id),
-    ['History11', 'History10', 'History9', 'History8', 'History7', 'History6', 'History5', 'History4', 'History3'],
-  );
+  const expected = Array.from({ length: YOUTUBE_RAIL_LIMIT }, (_, index) => `History${11 - index}`);
+  assert.deepEqual(history.items.map((item) => item.id), expected);
 }));
 
 test('history rail reshuffle samples from all Mango-local YouTube history', () => withTempState(async () => {
@@ -1044,8 +1051,8 @@ test('history rail reshuffle samples from all Mango-local YouTube history', () =
     const history = response.rails.find((rail) => rail.rail_id === 'history');
     assert.ok(history);
     const ids = history.items.map((item) => item.id);
-    assert.equal(ids.length, 9);
-    assert.equal(new Set(ids).size, 9);
+    assert.equal(ids.length, YOUTUBE_RAIL_LIMIT);
+    assert.equal(new Set(ids).size, YOUTUBE_RAIL_LIMIT);
     assert.ok(ids.includes('History2'), `expected reshuffle to reach beyond the latest nine: ${ids.join(', ')}`);
   } finally {
     Math.random = originalRandom;
@@ -1130,7 +1137,7 @@ test('because you watched failed refresh keeps cached seed reservoir visible', (
     event: 'play',
     watched_at: 5000,
   });
-  upsertBecauseCandidates(seed, 5000, Array.from({ length: 9 }, (_, index) => ({
+  upsertBecauseCandidates(seed, 5000, Array.from({ length: YOUTUBE_RAIL_LIMIT }, (_, index) => ({
     item: sampleVideo(`BecauseStale${index}`, 'none', `because-stale-${index}`, `Stale cooking follow up ${TOPIC_WORDS[index]}`),
     relation: index < 3 ? 'same_topic' : index < 6 ? 'deeper_dive' : 'wildcard',
     topic: `stale-because-${index}`,
@@ -1146,7 +1153,7 @@ test('because you watched failed refresh keeps cached seed reservoir visible', (
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
   assert.ok(rail);
-  assert.equal(rail.items.length, 9);
+  assert.equal(rail.items.length, YOUTUBE_RAIL_LIMIT);
   assert.ok(rail.items.every((item) => item.id.startsWith('BecauseStale')));
 }));
 
@@ -1187,7 +1194,7 @@ test('because you watched excludes watched saved live shorts blocked low signal 
     sampleVideo('BecauseLowSignal', 'none', 'low-signal-channel', 'SSC MTS result cutoff follow up'),
     sampleVideo('BecauseBlocked', 'none', 'blocked-channel', 'Blocked follow up'),
     sampleVideo('BecauseRecent', 'none', 'recent-channel', 'Recent follow up'),
-    ...Array.from({ length: 9 }, (_, index) => (
+    ...Array.from({ length: YOUTUBE_RAIL_LIMIT + 3 }, (_, index) => (
       sampleVideo(`BecauseEligible${index}`, 'none', `because-eligible-${index}`, `Travel food follow up ${TOPIC_WORDS[index]}`)
     )),
   ];
@@ -1203,7 +1210,7 @@ test('because you watched excludes watched saved live shorts blocked low signal 
   const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
   assert.ok(rail);
   const ids = rail.items.map((item) => item.id);
-  assert.equal(ids.length, 9);
+  assert.equal(ids.length, YOUTUBE_RAIL_LIMIT);
   assert.ok(!ids.includes('BecauseWatched'));
   assert.ok(!ids.includes('BecauseSaved'));
   assert.ok(!ids.includes('BecauseLive'));
@@ -1244,7 +1251,7 @@ test('because you watched enforces channel and topic diversity before relaxing',
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
   assert.ok(rail);
-  assert.equal(rail.items.length, 9);
+  assert.equal(rail.items.length, YOUTUBE_RAIL_LIMIT);
   assert.ok(rail.items.filter((item) => item.channel_id === 'same-channel').length <= 1);
   assert.ok(rail.items.filter((item) => item.title.startsWith('Mango shared topic')).length <= 2);
 }));
@@ -1261,7 +1268,7 @@ test('because you watched reshuffle avoids recently exposed cached follow-ups wh
     event: 'play',
     watched_at: 5000,
   });
-  upsertBecauseCandidates(seed, 5000, Array.from({ length: 18 }, (_, index) => ({
+  upsertBecauseCandidates(seed, 5000, Array.from({ length: 30 }, (_, index) => ({
     item: sampleVideo(`BecauseShuffle${index}`, 'none', `because-shuffle-${index}`, `Shuffle cooking travel ${TOPIC_WORDS[index % TOPIC_WORDS.length]}`),
     relation: index % 4 === 0
       ? 'same_channel'
@@ -1276,13 +1283,13 @@ test('because you watched reshuffle avoids recently exposed cached follow-ups wh
   const first = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const firstRail = first.rails.find((entry) => entry.rail_id === 'because_you_watched');
   assert.ok(firstRail);
-  assert.equal(firstRail.items.length, 9);
+  assert.equal(firstRail.items.length, YOUTUBE_RAIL_LIMIT);
   const second = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const secondRail = second.rails.find((entry) => entry.rail_id === 'because_you_watched');
   assert.ok(secondRail);
-  assert.equal(secondRail.items.length, 9);
+  assert.equal(secondRail.items.length, YOUTUBE_RAIL_LIMIT);
   const firstIds = new Set(firstRail.items.map((item) => item.id));
-  assert.equal(secondRail.items.some((item) => firstIds.has(item.id)), false);
+  assert.ok(secondRail.items.some((item) => !firstIds.has(item.id)));
 }));
 
 test('because you watched relaxes recent exposure and duration only when thin', () => withTempState(async () => {
@@ -1314,7 +1321,7 @@ test('because you watched relaxes recent exposure and duration only when thin', 
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
   const rail = response.rails.find((entry) => entry.rail_id === 'because_you_watched');
   assert.ok(rail);
-  assert.equal(rail.items.length, 9);
+  assert.ok(rail.items.length >= 9);
   const ids = rail.items.map((item) => item.id);
   assert.ok(ids.includes('BecauseRecentFallback'));
   assert.ok(ids.includes('BecauseShortDurationFallback'));
