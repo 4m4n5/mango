@@ -198,12 +198,12 @@ Run in order after every deployable slice:
 - [x] `test_pick_options` in companion-couch gate
 - [ ] COUCH_TEST V3/V9 manual on Pi
 
-### Phase 3 — Detail 2D FocusGrid (days 6–12) ⚠️ highest risk
+### Phase 3 — Detail 2D FocusGrid ✓ (ship pending Pi couch verify)
 
-- Extend `FocusGrid` (or sibling) to detail layout: actions column | episodes | streams
-- Replace 1D `detail.moveFocus(±1)` in `main.ts` with spatial grid
-- Pad regression: episodes grey-row skip, season headers, YouTube detail lists
-- COUCH_TEST #5–10, U2
+- [x] `DetailController` uses shared `FocusGrid` — row 0 actions (L/R), episodes/streams rows (U/D)
+- [x] `main.ts` detail pad: Up/Down = row, Left/Right = col (matches home rails)
+- [x] Season headers + disabled episode skip preserved in `listFocusables`
+- [ ] COUCH_TEST #5–10, U2 on Pi
 
 ### Phase 4 — HUD + launcher polish (days 10–14)
 

@@ -400,14 +400,24 @@ function handleKeydown(event: KeyboardEvent): void {
       detail.hide();
       return;
     }
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+    if (event.key === "ArrowDown") {
       event.preventDefault();
-      detail.moveFocus(1);
+      detail.moveRow(1);
       return;
     }
-    if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    if (event.key === "ArrowUp") {
       event.preventDefault();
-      detail.moveFocus(-1);
+      detail.moveRow(-1);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      detail.moveCol(1);
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      detail.moveCol(-1);
       return;
     }
     if (event.key === "Enter" || event.key === " ") {

@@ -17,6 +17,7 @@ import {
 import type { ContentCard, BrowseTab } from "./types";
 import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
+import { FocusGrid } from "./focus";
 
 export interface DetailCallbacks {
   onClose: () => void;
@@ -28,7 +29,7 @@ export interface DetailCallbacks {
 
 export class DetailController {
   private card: ContentCard | null = null;
-  private focusIndex = 0;
+  private readonly focusGrid = new FocusGrid((element) => this.onGridFocused(element));
   private playToken = 0;
   private playAbort: AbortController | null = null;
   private streams: CatalogStream[] = [];
@@ -114,7 +115,6 @@ export class DetailController {
     this.card = card;
     this.browseTab = tab;
     this.saved = saved;
-    this.focusIndex = 0;
     this.streams = [];
     this.streamButtons = [];
     this.seriesEpisodes = null;
@@ -189,38 +189,33 @@ export class DetailController {
     this.callbacks.onClose();
   }
 
-  moveFocus(delta: number): void {
+  moveRow(delta: number): void {
     if (!this.isOpen) {
       return;
     }
-    const controls = this.focusables();
-    if (controls.length === 0) {
+    this.focusGrid.moveRow(delta);
+  }
+
+  moveCol(delta: number): void {
+    if (!this.isOpen) {
       return;
     }
-    let next = this.focusIndex;
-    for (let step = 0; step < controls.length; step += 1) {
-      next = Math.min(Math.max(next + delta, 0), controls.length - 1);
-      if (!(controls[next] as HTMLButtonElement).disabled) {
-        break;
-      }
-      if (next === 0 && delta < 0) {
-        break;
-      }
-      if (next === controls.length - 1 && delta > 0) {
-        break;
-      }
-    }
-    this.focusIndex = next;
-    void this.onFocusChanged(controls[this.focusIndex]);
-    this.applyFocus();
+    this.focusGrid.moveCol(delta);
   }
 
   activate(): void {
     if (!this.isOpen) {
       return;
     }
-    const target = this.focusables()[this.focusIndex];
-    target?.click();
+    const target = this.focusGrid.focused;
+    if (target instanceof HTMLButtonElement && !target.disabled) {
+      target.click();
+    }
+  }
+
+  /** @deprecated Use moveRow/moveCol */
+  moveFocus(delta: number): void {
+    this.moveRow(delta);
   }
 
   async play(preferUrl?: string): Promise<void> {
@@ -377,16 +372,89 @@ export class DetailController {
     return undefined;
   }
 
-  private focusables(): HTMLElement[] {
-    const controls = [
+  private actionButtons(): HTMLButtonElement[] {
+    return [
       this.playButton,
       this.saveButton,
       this.notInterestedButton,
       this.backButton,
+    ].filter((control): control is HTMLButtonElement => !control.hidden);
+  }
+
+  private isFocusableEnabled(element: HTMLElement): boolean {
+    if (element.hidden) {
+      return false;
+    }
+    if (element instanceof HTMLButtonElement && element.disabled) {
+      return false;
+    }
+    return true;
+  }
+
+  private buildFocusRows(): HTMLElement[][] {
+    const rows: HTMLElement[][] = [];
+    const actions = this.actionButtons().filter((button) => this.isFocusableEnabled(button));
+    if (actions.length > 0) {
+      rows.push(actions);
+    }
+    for (const item of this.listFocusables) {
+      if (this.isFocusableEnabled(item)) {
+        rows.push([item]);
+      }
+    }
+    for (const stream of this.streamButtons) {
+      if (this.isFocusableEnabled(stream)) {
+        rows.push([stream]);
+      }
+    }
+    return rows;
+  }
+
+  private findInRows(rows: HTMLElement[][], element: HTMLElement): { row: number; col: number } | null {
+    for (let row = 0; row < rows.length; row += 1) {
+      const col = rows[row].indexOf(element);
+      if (col >= 0) {
+        return { row, col };
+      }
+    }
+    return null;
+  }
+
+  private focusElement(element: HTMLElement): void {
+    const rows = this.buildFocusRows();
+    const position = this.findInRows(rows, element);
+    if (!position) {
+      return;
+    }
+    this.focusGrid.setRows(rows, { fallbackPosition: position });
+  }
+
+  private onGridFocused(element: HTMLElement): void {
+    for (const control of this.allFocusableElements()) {
+      control.classList.toggle("focused", control === element);
+    }
+    void this.onFocusChanged(element);
+  }
+
+  private allFocusableElements(): HTMLElement[] {
+    return [
+      ...this.actionButtons(),
       ...this.listFocusables,
       ...this.streamButtons,
     ];
-    return controls.filter((control) => !control.hidden);
+  }
+
+  private refreshFocusGrid(): void {
+    const previous = this.focusGrid.focused;
+    const rows = this.buildFocusRows();
+    const fallback = previous ? this.findInRows(rows, previous) : null;
+    this.focusGrid.setRows(rows, {
+      fallbackPosition: fallback ?? { row: 0, col: 0 },
+    });
+  }
+
+  private applyFocus(): void {
+    this.refreshFocusGrid();
   }
 
   private episodeButtons(): HTMLButtonElement[] {
@@ -414,10 +482,6 @@ export class DetailController {
       }
     }
     this.listFocusables = next;
-    const controls = this.focusables();
-    if (this.focusIndex >= controls.length) {
-      this.focusIndex = Math.max(controls.length - 1, 0);
-    }
   }
 
   private jumpToSeason(season: number): void {
@@ -433,14 +497,8 @@ export class DetailController {
     if (!button) {
       return;
     }
-    const controls = this.focusables();
-    const index = controls.indexOf(button);
-    if (index < 0) {
-      return;
-    }
-    this.focusIndex = index;
+    this.focusElement(button);
     void this.selectEpisode(targetEpisode);
-    this.applyFocus();
   }
 
   private setEpisodeHasStreams(episodeId: string, hasStreams: boolean): void {
@@ -452,10 +510,9 @@ export class DetailController {
     button.classList.toggle("detail-episode--disabled", !hasStreams);
     button.setAttribute("aria-disabled", hasStreams ? "false" : "true");
     this.rebuildListFocusables();
-    const controls = this.focusables();
-    const current = controls[this.focusIndex];
+    const current = this.focusGrid.focused;
     if (current instanceof HTMLButtonElement && current.disabled) {
-      this.moveFocus(1);
+      this.moveRow(1);
     }
   }
 
@@ -718,8 +775,11 @@ export class DetailController {
     this.rebuildListFocusables();
     const scrollTarget = this.episodeList.querySelector<HTMLElement>("[data-scroll-target='true']");
     scrollTarget?.scrollIntoView({ block: "nearest", behavior: "instant" });
-    this.focusIndex = Math.min(this.focusIndex, this.focusables().length - 1);
-    this.applyFocus();
+    if (scrollTarget instanceof HTMLElement) {
+      this.focusElement(scrollTarget);
+    } else {
+      this.applyFocus();
+    }
   }
 
   private async activateEpisode(episode: SeriesEpisodeRow): Promise<void> {
@@ -822,7 +882,6 @@ export class DetailController {
     this.streamButtons = [];
     if (this.streams.length === 0) {
       this.streamsWrap.hidden = true;
-      this.focusIndex = Math.min(this.focusIndex, this.focusables().length - 1);
       this.applyFocus();
       return;
     }
@@ -843,7 +902,6 @@ export class DetailController {
       this.streamList.append(button);
       this.streamButtons.push(button);
     }
-    this.focusIndex = Math.min(this.focusIndex, this.focusables().length - 1);
     this.applyFocus();
   }
 
@@ -876,26 +934,6 @@ export class DetailController {
         }
       }
     }
-  }
-
-  private applyFocus(): void {
-    const controls = this.focusables();
-    if (controls.length === 0) {
-      return;
-    }
-    if (this.focusIndex >= controls.length) {
-      this.focusIndex = controls.length - 1;
-    }
-    if ((controls[this.focusIndex] as HTMLButtonElement).disabled) {
-      const nextEnabled = controls.findIndex((control) => !(control as HTMLButtonElement).disabled);
-      this.focusIndex = Math.max(0, nextEnabled);
-    }
-    for (const [index, control] of controls.entries()) {
-      control.classList.toggle("focused", index === this.focusIndex);
-    }
-    const target = controls[this.focusIndex];
-    target?.focus({ preventScroll: true });
-    target?.scrollIntoView({ block: "nearest", behavior: "instant" });
   }
 
   private startNextPromptPoll(): void {
