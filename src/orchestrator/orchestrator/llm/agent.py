@@ -18,6 +18,7 @@ from orchestrator.llm.open_intent import (
 )
 from orchestrator.llm.persona import build_system_prompt
 from orchestrator.llm.provider import DeltaCallback, _clean_reply, _read_api_key
+from orchestrator.pick_options import enrich_tool_event
 from orchestrator.session import VoiceBrowseContext
 from orchestrator.tools import catalog as catalog_tools
 from orchestrator.tools.runner import execute_tool, tool_summary
@@ -182,7 +183,7 @@ async def generate_agent_reply(
                 hits = _parse_search_results(result)
                 browse.remember_library(hits)
 
-            if name == "mango_search_external":
+            if name in {"mango_search_external", "mango_youtube_search"}:
                 hits = _parse_search_results(result)
                 browse.remember_external(hits)
 
@@ -195,7 +196,9 @@ async def generate_agent_reply(
 
             if on_tool_event is not None:
                 await on_tool_event(
-                    {"type": "tool", "phase": "done", "name": name, "summary": summary, "result": result}
+                    enrich_tool_event(
+                        {"type": "tool", "phase": "done", "name": name, "summary": summary, "result": result}
+                    )
                 )
             log_tool(
                 phase="done",

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -158,12 +159,15 @@ function apiErrorResponse(message = 'quota exceeded', status = 403): Response {
 
 function withTempState<T>(fn: () => T | Promise<T>): Promise<T> | T {
   const dir = mkdtempSync(join(tmpdir(), 'mango-youtube-service-'));
+  const aiCatalogDir = join(dir, 'ai-catalogs');
+  mkdirSync(join(aiCatalogDir, 'slots'), { recursive: true });
   const originalFetch = globalThis.fetch;
   process.env.MANGO_YOUTUBE_DB_PATH = join(dir, 'youtube.db');
   process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
   process.env.MANGO_USER_PINS_PATH = join(dir, 'user-pins.json');
   process.env.MANGO_YOUTUBE_API_KEY_FILE = join(dir, 'missing-youtube-api.key');
   process.env.MANGO_YOUTUBE_OAUTH_CLIENT_FILE = join(dir, 'missing-youtube-oauth-client.json');
+  process.env.MANGO_AI_CATALOGS_DIR = aiCatalogDir;
   delete process.env.MANGO_YOUTUBE_API_KEY;
   resetYoutubeDbForTests();
   resetLibraryDbForTests();
@@ -177,6 +181,7 @@ function withTempState<T>(fn: () => T | Promise<T>): Promise<T> | T {
     delete process.env.MANGO_YOUTUBE_API_KEY_FILE;
     delete process.env.MANGO_YOUTUBE_OAUTH_CLIENT_FILE;
     delete process.env.MANGO_YOUTUBE_API_KEY;
+    delete process.env.MANGO_AI_CATALOGS_DIR;
     rmSync(dir, { recursive: true, force: true });
   };
   try {

@@ -29,6 +29,7 @@ echo "== companion couch gate (mock) =="
     tests.test_guard_open_claims \
     tests.test_couch_safe \
     tests.test_tool_summary \
+    tests.test_pick_options \
     -v
 )
 

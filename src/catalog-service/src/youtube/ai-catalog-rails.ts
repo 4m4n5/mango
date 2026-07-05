@@ -1,9 +1,8 @@
 import { loadAiCatalogSlots, slotsForTab } from '../ai-catalogs/store.js';
 import type { AiCatalogSlotFile } from '../ai-catalogs/types.js';
+import { YOUTUBE_AI_SEED_POOL, YOUTUBE_RAIL_LIMIT } from './constants.js';
 import { getYoutubeItem } from './db.js';
 import type { YoutubeRail, YoutubeRailItem } from './types.js';
-
-const YOUTUBE_AI_RAIL_LIMIT = 20;
 
 function seedToRailItem(seed: { id: string; title?: string; poster?: string }): YoutubeRailItem | null {
   const cached = getYoutubeItem('video', seed.id);
@@ -38,7 +37,7 @@ export async function buildYoutubeAiCatalogRails(): Promise<YoutubeRail[]> {
   for (const slot of slots) {
     const seeds = (slot.seed_titles ?? [])
       .filter((seed) => seed.type === 'youtube_video')
-      .slice(0, YOUTUBE_AI_RAIL_LIMIT);
+      .slice(0, YOUTUBE_AI_SEED_POOL);
     const items: YoutubeRailItem[] = [];
     for (const seed of seeds) {
       const item = seedToRailItem(seed);
@@ -46,11 +45,12 @@ export async function buildYoutubeAiCatalogRails(): Promise<YoutubeRail[]> {
         items.push(item);
       }
     }
-    if (items.length > 0) {
+    const visible = items.slice(0, YOUTUBE_RAIL_LIMIT);
+    if (visible.length > 0) {
       rails.push({
         rail_id: `ai-${slot.slot_id}`,
         label: slot.label,
-        items,
+        items: visible,
         cached: true,
         stale: false,
       });

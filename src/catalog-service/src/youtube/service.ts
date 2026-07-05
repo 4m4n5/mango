@@ -63,11 +63,11 @@ import type {
   YoutubeSearchGroups,
 } from './types.js';
 import { buildYoutubeAiCatalogRails } from './ai-catalog-rails.js';
+import { YOUTUBE_RAIL_LIMIT } from './constants.js';
 
 const YOUTUBE_SOURCE = 'youtube';
 const YOUTUBE_TAB = 'youtube';
 const YOUTUBE_VIDEO_TYPE = 'youtube_video';
-const YOUTUBE_RAIL_LIMIT = 9;
 const YOUTUBE_RAIL_POOL_LIMIT = 60;
 // TTL for the assembled /youtube/rails discovery payload (For You / New From
 // Subscriptions / Fresh Finds / Because You Watched / Live Now / Popular).

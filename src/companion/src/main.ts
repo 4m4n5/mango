@@ -1,11 +1,24 @@
 import "./style.css";
 
 type ChatRole = "user" | "assistant";
+type PickOption = {
+  n: number;
+  title: string;
+  tab?: string;
+  type?: string;
+  year?: string;
+};
 type ServerMessage =
   | { type: "status"; state?: string; text?: string }
   | { type: "chat"; role?: ChatRole; text?: string; partial?: boolean }
   | { type: "error"; message?: string }
-  | { type: "tool"; phase?: string; name?: string; summary?: string }
+  | {
+      type: "tool";
+      phase?: string;
+      name?: string;
+      summary?: string;
+      options?: PickOption[];
+    }
   | {
       type: "launcher_command";
       action?: string;
@@ -208,6 +221,9 @@ function handleServerMessage(raw: string): void {
       mirrorTool = summary;
       renderMirror();
       appendToolCard(summary, msg.phase ?? "start");
+      if (msg.phase === "done" && Array.isArray(msg.options) && msg.options.length >= 2) {
+        appendPickCards(msg.options);
+      }
       return;
     }
     if (msg.type === "launcher_command") {
@@ -525,6 +541,79 @@ function appendToolCard(text: string, phase: string): void {
   syncChatEmpty();
 }
 
+function formatPickMeta(option: PickOption): string {
+  const tabLabels: Record<string, string> = {
+    movies: "Movies",
+    series: "Series",
+    youtube: "YouTube",
+    live: "Live",
+  };
+  const parts: string[] = [];
+  if (typeof option.tab === "string" && option.tab.length > 0) {
+    parts.push(tabLabels[option.tab] ?? option.tab);
+  } else if (typeof option.type === "string" && option.type.startsWith("youtube_")) {
+    parts.push("YouTube");
+  }
+  if (typeof option.year === "string" && option.year.length > 0) {
+    parts.push(option.year);
+  }
+  return parts.join(" · ");
+}
+
+function appendPickCards(options: PickOption[]): void {
+  if (chatEl === null || options.length < 2) {
+    return;
+  }
+  chatEl.querySelector(".message.pick-card")?.remove();
+  const item = document.createElement("article");
+  item.className = "message pick-card";
+  const roleEl = document.createElement("span");
+  roleEl.className = "role";
+  roleEl.textContent = "Pick one";
+  const list = document.createElement("div");
+  list.className = "pick-list";
+  list.setAttribute("role", "list");
+  for (const option of options) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "pick-row";
+    row.setAttribute("role", "listitem");
+    row.dataset.pickN = String(option.n);
+    const badge = document.createElement("span");
+    badge.className = "pick-badge";
+    badge.textContent = String(option.n);
+    const body = document.createElement("span");
+    body.className = "pick-body";
+    const titleEl = document.createElement("span");
+    titleEl.className = "pick-title";
+    titleEl.textContent = option.title;
+    body.append(titleEl);
+    const meta = formatPickMeta(option);
+    if (meta.length > 0) {
+      const metaEl = document.createElement("span");
+      metaEl.className = "pick-meta";
+      metaEl.textContent = meta;
+      body.append(metaEl);
+    }
+    row.append(badge, body);
+    row.addEventListener("click", () => {
+      if (voiceBusy || !connected) {
+        setError("voice is busy");
+        return;
+      }
+      if (send({ type: "pick_select", n: option.n })) {
+        appendChat("user", option.title);
+        setError("");
+      }
+    });
+    list.append(row);
+  }
+  item.append(roleEl, list);
+  chatEl.append(item);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  syncChatEmpty();
+}
+
 function appendChat(role: ChatRole, text: string): void {
   if (chatEl === null) {
     return;
@@ -573,7 +662,7 @@ function upsertAssistantPartial(text: string): void {
   syncChatEmpty();
 }
 
-function send(msg: Record<string, string>): boolean {
+function send(msg: Record<string, unknown>): boolean {
   if (socket?.readyState !== WebSocket.OPEN) {
     setError("not connected to mango");
     return false;

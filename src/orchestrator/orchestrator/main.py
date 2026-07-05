@@ -26,7 +26,15 @@ from orchestrator.companion_reflect import reflect_after_turn
 from orchestrator.couch_safe import couch_safe_error_message
 from orchestrator.llm.agent import generate_agent_reply, voice_tools_enabled
 from orchestrator.llm.provider import generate_reply
+from orchestrator.pick_options import (
+    enrich_tool_event,
+    open_tool_for_hit,
+    pick_hit_at_index,
+    tool_result_open_confirmed,
+)
 from orchestrator.session import ChatMessage, SessionState
+from orchestrator.tools.runner import execute_tool, tool_summary
+from orchestrator.tools.voice_nav import hit_to_open_input
 from orchestrator.timing import voice_stage
 from orchestrator.voice_log import (
     TurnTimer,
@@ -205,6 +213,19 @@ async def handle_client_message(websocket: WebSocket, raw: str) -> None:
         await broadcast_status()
         asyncio.create_task(run_text_pipeline(text, epoch))
         return
+    if msg_type == "pick_select":
+        if ptt_owner is not None or voice_lock.locked():
+            await broadcast_error("voice is busy")
+            return
+        n = msg.get("n")
+        if not isinstance(n, int) or n < 1 or n > 4:
+            await broadcast_error("invalid pick")
+            return
+        epoch = bump_voice_epoch()
+        session.set_overlay("thinking", "opening…")
+        await broadcast_status()
+        asyncio.create_task(run_pick_pipeline(n, epoch))
+        return
     if msg_type == "ping":
         await broadcast_status()
 
@@ -241,6 +262,92 @@ async def run_text_pipeline(text: str, epoch: int) -> None:
             reset_turn_timer(timer_token)
             reset_turn_id(turn_token)
             if epoch == voice_epoch and not showing_reply:
+                session.set_overlay("idle", "idle")
+                await broadcast_status()
+            touch_couch_activity("turn_end")
+
+
+async def run_pick_pipeline(n: int, epoch: int) -> None:
+    """Open a numbered search pick from companion without a full LLM turn."""
+    settings = load_settings()
+    turn_id = new_turn_id()
+    turn_token = set_turn_id(turn_id)
+    turn_timer = TurnTimer()
+    timer_token = set_turn_timer(turn_timer)
+
+    append_event("pick_start", turn_id=turn_id, pick=n)
+    touch_couch_activity("pick_start")
+
+    async with voice_lock:
+        try:
+            if epoch != voice_epoch:
+                return
+            hits = session.voice_browse.all_hits()
+            hit = pick_hit_at_index(hits, n)
+            if hit is None:
+                await broadcast_error("pick expired — search again")
+                return
+
+            async def dispatch_launcher(command: dict[str, Any]) -> int | None:
+                seq: int | None = None
+                try:
+                    from orchestrator.tools.launcher_dispatch import post_launcher_command
+
+                    seq = await asyncio.to_thread(post_launcher_command, settings, command)
+                except Exception as exc:
+                    logger.warning("launcher HTTP dispatch failed: %s", exc)
+                session.record_dispatched_command(command)
+                payload = {**command, "seq": seq} if seq is not None else command
+                await broadcast(payload)
+                return seq
+
+            tool_name = open_tool_for_hit(hit)
+            try:
+                tool_input = hit_to_open_input(hit)
+            except ValueError:
+                await broadcast_error("pick could not be opened")
+                return
+            title = str(tool_input.get("title", "")).strip()
+            summary = tool_summary(tool_name, tool_input)
+            await broadcast(
+                {"type": "tool", "phase": "start", "name": tool_name, "summary": summary}
+            )
+            result = await execute_tool(
+                tool_name,
+                tool_input,
+                settings,
+                dispatch_launcher=dispatch_launcher,
+            )
+            await broadcast(
+                enrich_tool_event(
+                    {
+                        "type": "tool",
+                        "phase": "done",
+                        "name": tool_name,
+                        "summary": summary,
+                        "result": result,
+                    }
+                )
+            )
+            if tool_result_open_confirmed(result):
+                reply = f"{title or 'title'} detail pe khula — B dabao play ke liye."
+            else:
+                reply = couch_safe_error_message("could not open that pick")
+            assistant_message = session.add_message("assistant", reply)
+            append_event("pick_done", turn_id=turn_id, title=title, ok=tool_result_open_confirmed(result))
+            await broadcast_chat(assistant_message)
+            if epoch == voice_epoch:
+                session.set_overlay("idle", "idle")
+                await broadcast_status()
+        except Exception as exc:
+            if epoch == voice_epoch:
+                append_event("pick_error", turn_id=turn_id, error=str(exc))
+                await broadcast_error(couch_safe_error_message(str(exc)))
+        finally:
+            append_event("turn_done", turn_id=turn_id, stages=turn_timer.as_dict())
+            reset_turn_timer(timer_token)
+            reset_turn_id(turn_token)
+            if epoch == voice_epoch:
                 session.set_overlay("idle", "idle")
                 await broadcast_status()
             touch_couch_activity("turn_end")

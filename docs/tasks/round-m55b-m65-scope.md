@@ -171,21 +171,32 @@ Run in order after every deployable slice:
 
 ## 6. Revised workstreams (post-decisions)
 
-### Phase 1 — Gates & voice foundation (days 1–3)
+### Phase 1 — Gates & voice foundation (days 1–3) ✓ shipped `e3a1a57`
 
-- Add `gate-m5-companion-couch.sh` + `test_guard_open_claims` to gate-lite (`MANGO_VOICE=1`)
-- HUD 12s wall-clock dismiss safety net
-- Orchestrator error scrub before phone/HUD
-- Extend corpus: live/YouTube clear-open fixtures
-- Deploy config sync for `max_tokens: 1024`
-- Tool summary copy: "Searching mango…" not "library only" for live
+- [x] Add `gate-m5-companion-couch.sh` + guard/couch_safe/tool_summary tests to gate-lite
+- [x] HUD 12s wall-clock dismiss safety net
+- [x] Orchestrator `couch_safe_error_message` before phone/HUD
+- [x] Extend corpus: live clear-open fixtures (EN + Hinglish)
+- [x] `sync-orchestrator-llm-config.py` on deploy; verify-voice-ready requires 1024
+- [x] Tool summary: "Searching mango for …"
+- [x] Gate uses repo persona via `MANGO_COMPANION_DIR` (Pi /etc lag safe)
 
-### Phase 2 — Companion structured picks (days 3–6)
+**Next:** Phase 3 — detail 2D FocusGrid
 
-- Parse/detect search-result lists in assistant replies OR structured tool payload
-- Render numbered pick cards in `src/companion/` (tap + ordinal voice follow-up)
-- Unit tests for pick card render + selection dispatch
-- COUCH_TEST V3/V9 validation
+### Phase 1.5 — YouTube AI rail 9-up ✓
+
+- [x] Cap AI YouTube catalog rails at 9 (`constants.ts` + `ai-catalog-rails.ts`)
+- [x] Isolate `MANGO_AI_CATALOGS_DIR` in `withTempState` (gate no longer hits Pi live slots)
+- [x] `npm run test:gate` green (163 pass)
+
+### Phase 2 — Companion structured picks ✓ (ship pending Pi verify)
+
+- [x] Orchestrator `pick_options.py` — enrich search tool events with `options[]` (2–4 hits)
+- [x] `pick_select` WS message — direct open from browse context (no LLM round-trip)
+- [x] Companion numbered tappable pick rows + styles
+- [x] `mango_youtube_search` remembers hits in `voice_browse`
+- [x] `test_pick_options` in companion-couch gate
+- [ ] COUCH_TEST V3/V9 manual on Pi
 
 ### Phase 3 — Detail 2D FocusGrid (days 6–12) ⚠️ highest risk
 
