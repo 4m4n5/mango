@@ -86,6 +86,7 @@ Locked choices. Update when changing behavior.
 | Voice role | Browse + open librarian — **no voice play** |
 | STT | Deepgram `nova-3` + `multi` + keyterms |
 | TTS | Off until M6.3 soundbar/TV validated |
+| Companion replies | Text-only on phone; idle immediately after reply (no speaking lock) |
 | TV HUD | `voice-hud.ts` in launcher — only default TV voice surface |
 | Multi-turn PTT | Allowed while reply visible |
 | Reply dwell | `overlay_reply_seconds: 10` |

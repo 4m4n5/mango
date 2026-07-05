@@ -1,7 +1,7 @@
 # M5.5 — AI companion contract + post-YouTube UX
 
 **Milestone:** M5 (Voice + AI) for safety contract; M6.5 for final polish · **Blocks:** M6 ship merge
-**Depends on:** M5 voice librarian ✓ · AI catalogs ✓ · bootstrap ✓ · living librarian (memory + conversation policy) ◐  
+**Depends on:** M5 voice librarian ✓ · AI catalogs ✓ · bootstrap ✓ · **Phase 3 companion ✓** · living librarian ◐  
 **Partner skill:** `$ux-design-expert` (phone surfaces) · `$mango-tv-box-expert` (TV HUD + couch acceptance)
 
 ---
@@ -10,9 +10,23 @@
 
 mango's north star is **plug-and-play AI TV box** — *ask or browse in mango, watch in mpv*. The companion is half of that promise. Infrastructure (STT, tools, memory store, AI catalogs) can pass gates while the **felt experience** still fails: dumb discover→open, opaque tool cards, no proactive opt-in, TV HUD that fights the launcher, or phone/TV surfaces that disagree.
 
-**M5.5 is split deliberately.** M5.5a is the explicit voice safety contract before more surfaces land. M5.5b is the final cross-surface companion/HUD polish after native YouTube, so Mango validates one coherent UX across Movies, Series, Live, and YouTube.
+**M5.5 is split deliberately.** M5.5a corpus + automated gate shipped with Phase 3. M5.5b is final cross-surface polish (M6.5).
 
-**Invariant (unchanged):** voice **opens** detail; pad **B** plays. No `mango_play`.
+---
+
+## Shipped (Phase 3 + companion polish, 2026-07)
+
+| Area | Status |
+|------|--------|
+| Text input (`chat_send`) | ✓ |
+| Chat-first phone UI + collapsible YouTube/On TV | ✓ |
+| Rich mirror (`/ai/context` + tool status) | ✓ |
+| HUD tool action line | ✓ |
+| Text-only replies (no TTS lock) | ✓ |
+| Full-catalog live search in `mango_search` | ✓ |
+| EN + Hinglish safety corpus | ✓ |
+| `gate-m5-companion-couch.sh` | ✓ |
+| Concierge persona + live-TV tool policy | ✓ |
 
 ---
 
@@ -106,5 +120,5 @@ Voice play/pause · `play_youtube` / `mango_play_youtube` · TV Piper TTS (M6.3)
 ## M5 complete when
 
 1. **Living librarian** memory + conversation infrastructure  
-2. **M5.5a** this doc — capability review + voice safety contract (C-V1–C-V8)
-3. **M5.5b** remains an M6.5 merge requirement after native YouTube
+2. **M5.5a** corpus + automated gate ✓ (opt-in LLM integration before sign-off)  
+3. **M5.5b** M6.5 merge requirement — final 4-tab polish

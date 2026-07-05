@@ -13,7 +13,7 @@ M1 Foundation     ████████████████████  
 M2 Browse         ████████████████████  shipped
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
-M5 Voice + AI     █████████████████░░░  in progress — living librarian + M5.5 voice safety contract
+M5 Voice + AI     ██████████████████░░  Phase 3 companion shipped · M5.5a safety corpus/gates · living librarian pending
 M6 Ship           ████████░░░░░░░░░░░░  in progress — M6.1 library core · M6.2 YouTube · Reliability Center · efficiency/perf hardening (Tiers 1-4) landed; 4K Stage 2 validation · UX · wizard pending
 ```
 
@@ -24,7 +24,7 @@ M6 Ship           ████████░░░░░░░░░░░░  
 | **M2** Browse     | Catalog rails · Movies / Series / Live · 9-up grid                                                    | ✓                                                                                          |
 | **M3** Play       | mpv orchestrator · picker · episodes · playability/grow                                               | ✓ hardening                                                                                |
 | **M4** Addons     | Self-hosted AIOStreams + AIOMetadata                                                                  | ✓                                                                                          |
-| **M5** Voice + AI | Phone librarian · AI catalogs · living librarian · voice safety contract                              | ◐                                                                                          |
+| **M5** Voice + AI | Phone librarian · AI catalogs · Phase 3 companion · living librarian · voice safety contract | ◐ Phase 3 ✓ · M5.5a corpus ✓ · living librarian ◐ |
 | **M6** Ship       | Mango-owned library · YouTube · Reliability Center · efficiency/perf hardening · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 shipped · M6.2 Pi-gated · Reliability Center implemented · efficiency/perf Tiers 1-4 shipped · 4K Stage 2 in validation |
 
 

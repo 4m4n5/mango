@@ -1,8 +1,8 @@
 # mango — voice pipeline
 
-**Milestone:** M5 · **Rule:** Voice **opens** titles — pad **B** plays. No `mango_play`.
+**Milestone:** M5 · **Rule:** Voice/text **opens** titles — pad **B** plays. No `mango_play`.
 
-**M5 complete when:** living librarian infrastructure + [M5.5a voice safety contract](tasks/m5-companion-ux-ship.md) both pass. Final companion/HUD polish moves after native YouTube so the UX pass covers all first-class surfaces.
+**M5 complete when:** living librarian infrastructure passes gates. M5.5a safety corpus/gates shipped; M5.5b final polish is M6.5.
 
 ---
 
@@ -11,8 +11,8 @@
 ```
 Phone :3001 HTTPS              Pi
 ┌─────────────────┐           ┌─────────────────────────────────────┐
-│ companion PWA   │──WSS:8765▶│ orchestrator — Deepgram STT → LLM   │
-│ PTT + chat      │           │ tools → catalog-service + launcher   │
+│ companion PWA   │──WSS:8765▶│ orchestrator — STT (voice) → LLM    │
+│ text + PTT      │           │ tools → catalog-service + launcher   │
 └─────────────────┘           │ loopback WS :8766 → launcher HUD      │
 Launcher :3000                └─────────────────────────────────────┘
 │ voice-hud.ts    │──WS:8766─▶
@@ -28,44 +28,49 @@ Launcher :3000                └───────────────�
 
 | Component | Notes |
 |-----------|-------|
-| STT | Deepgram `nova-3` · `multi` · Hinglish keyterms |
-| LLM | Tool loop with librarian persona |
-| TTS | Off until M6.3 soundbar/TV path validated |
-| Companion catalog calls | HTTPS companion proxies same-origin `/api/catalog/*` to catalog-service so phone browser fetches avoid CORS/mixed-content failures |
+| STT | Deepgram `nova-3` · `multi` · voice/PTT only |
+| LLM | Tool loop · concierge-curator persona |
+| TTS | **Off** — replies are text bubbles; idle immediately after reply |
+| Companion | Chat-first UI · collapsible YouTube/On TV · composer + PTT |
+
+---
+
+## Input modes
+
+| Mode | Path |
+|------|------|
+| **Voice** | `ptt_start` / `ptt_end` + PCM → STT → shared agent turn |
+| **Text** | `chat_send` → shared agent turn (no STT/TTS) |
+
+Both share tools, policy, conversation thread, and TV dispatch. Composer blocks only during `listening` / `thinking`, not after reply.
 
 ---
 
 ## Voice librarian
 
-Phone PTT → search → **open detail on TV**.
+Search → **open detail on TV** (movies · series · live · YouTube).
 
 ### Catalog routes (`:3020`)
 
 | Route | Purpose |
 |-------|---------|
 | `GET /voice/tools` | Tool manifest |
-| `GET /voice/search?q=` | Verified library |
+| `GET /voice/search?q=` | Verified VOD **+ full live IPTV catalog** |
 | `GET /voice/library` | Full browse list |
 | `GET /voice/search/external?q=` | Cinemeta fallback |
+| `GET /voice/ai/context` | Mirror: tab · open · now playing |
 | `POST /voice/library/notes` | Taste notes |
-| `GET /voice/now-playing` | mpv snapshot |
-| `GET /library/saved` / `GET /library/history` | Read-only Saved/history context |
-| `POST /library/saved` / `DELETE /library/saved` | Explicit Save/Unsave tools |
-| `GET /youtube/search?q=` | Grouped YouTube videos/channels/playlists |
-| `GET /youtube/detail?kind=&id=` | YouTube result/detail context |
+| `GET /youtube/search?q=` | YouTube videos/channels/playlists |
 
 ### Tools (summary)
 
-`mango_search` · `mango_open_title` · `mango_youtube_search` · `mango_open_youtube` · `mango_navigate` · `mango_save_title` · `mango_unsave_title` · AI catalog CRUD · profile/memory tools when voice enabled.
+`mango_search` · `mango_open_title` · `mango_youtube_search` · `mango_open_youtube` · `mango_navigate` · save/unsave · AI catalog CRUD · profile/memory.
 
-YouTube-specific rules:
+**Live TV:** `mango_search` with keywords (`cartoons`, `cricket`, `nickelodeon`) → results with `type: tv`, `tab: live` → `mango_open_title`. Searches all NexoTV sources (AREA69 + free + news + cartoons), not just browse rails.
 
-- `mango_youtube_search` searches videos/channels/playlists.
-- `mango_open_youtube` opens a result on TV; videos can be played with pad **B**, channels/playlists open video lists.
-- `mango_save_title` / `mango_unsave_title` can mutate only YouTube videos, never channels/playlists.
-- Ambiguous YouTube searches list options and ask; they do not auto-open.
+**YouTube:** search → open on TV; save/unsave videos only; no auto-open on ambiguous hits.
 
-**Non-goals:** `mango_play` · `play_youtube` / `mango_play_youtube` · hide/unhide · pause · volume.
+**Non-goals:** `mango_play` · voice playback · hide/unhide · volume.
 
 ### TV command path
 
@@ -75,7 +80,7 @@ YouTube-specific rules:
 
 ---
 
-## Living librarian (in progress)
+## Living librarian ◐
 
 Profile + companion memory when `MANGO_VOICE=1`:
 
@@ -88,38 +93,22 @@ Profile + companion memory when `MANGO_VOICE=1`:
 
 Post-PTT reflection → `POST /voice/companion/reflect`.
 
-Gates: `gate-m5-conversation-policy.sh` · `gate-m5-companion-memory.sh` · gardener · LLM policy.
-
----
-
-## M5.5 — companion contract + post-YouTube polish
-
-M5.5a locks the safety contract now: discover does not jump the TV, clear opens wait for `tv_seq`, ambiguous requests stay on phone, and playback remains pad-only. M5.5b finishes phone/HUD polish after M6.2 YouTube. See [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md).
-
 ---
 
 ## Protocol
 
-`ptt_start` · `ptt_end` + `pcm_b64` (16 kHz mono) · `ptt_cancel` · `ping` → `status` · `chat` · `error`
+`ptt_start` · `ptt_end` + `pcm_b64` · `ptt_cancel` · `chat_send` · `ping` → `status` · `chat` · `tool` · `error`
 
 ---
 
 ## Config
 
-`/etc/mango/config.yaml` from `config/config.example.yaml`
-
 | Setting | Default |
 |---------|---------|
-| `stt.model` | `nova-3` |
-| `stt.language` | `multi` |
 | `audio.tts_enabled` | `false` |
-| `audio.overlay_reply_seconds` | `10` |
-
-| Env | Use |
-|-----|-----|
-| `MANGO_VOICE=1` | Enable on stack start |
-| `MANGO_ORCH_TLS=1` | WSS on `:8765` |
-| `MANGO_LLM_MOCK=1` | Dev without API keys |
+| `MANGO_VOICE=1` | Enable stack |
+| `MANGO_COMPANION_DIR` | Persona from repo (`config/companion.example/`) |
+| `MANGO_TTS_DISABLED=1` | Skip Piper (recommended on Pi) |
 
 Secrets: `/etc/mango/llm.key` · `stt.key`
 
@@ -130,32 +119,27 @@ Secrets: `/etc/mango/llm.key` · `stt.key`
 ```bash
 cd ~/mango && git pull
 bash scripts/m5-voice/stack/setup-mkcert.sh
-bash scripts/m5-voice/stack/install-voice-deps.sh
 bash scripts/m5-voice/stack/install-orchestrator-deps.sh
 bash scripts/mango-stack.sh restart
 ```
 
-Phone: `https://<pi-ip>:3001` · Verify: `verify-voice-ready.sh` · Gate: `gate-m5-voice.sh`
+Phone: `https://<pi-ip>:3001`
+
+**Gates:** `gate-m5-voice.sh` · `gate-m5-companion-couch.sh`
 
 ---
 
 ## Open items
 
-| Item | Milestone | Notes |
-|------|-----------|-------|
-| Voice safety contract | M5.5a | Tool/persona audit, no false opens, `tv_seq` acks, corpus gates |
-| Post-YouTube companion/HUD polish | M5.5b / M6.5 | Make phone/chat/HUD feel like one product across Movies, Series, Live, and YouTube |
-| YouTube voice smoke | M6.2 | Covered by native YouTube Pi smoke and the voice-open, pad-play contract; keep in the M5.5a corpus for regression coverage |
-| TTS over living-room audio | M6.3 | Requires TV/soundbar path and ducking validation |
-| Voice play / transport controls | M6+ | Deferred; current contract is voice opens, pad plays |
-
-## Deferred (M6+)
-
-- Piper TTS on TV / soundbar (M6.3)
-- Voice play / transport controls
+| Item | Milestone |
+|------|-----------|
+| Living librarian hardening | M5 |
+| Final companion/HUD polish across 4 tabs | M5.5b / M6.5 |
+| Piper TTS on TV/soundbar | M6.3 |
+| Voice play/transport | M6+ deferred |
 
 ---
 
 ## References
 
-[STATUS.md](STATUS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [DECISIONS.md](DECISIONS.md)
+[AI_LAYER.md](AI_LAYER.md) · [STATUS.md](STATUS.md) · [ARCHITECTURE.md](ARCHITECTURE.md) · [LIVE_TV.md](LIVE_TV.md)

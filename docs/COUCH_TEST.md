@@ -117,20 +117,26 @@ Do not show grow/debug status on TV. Check this from SSH before claiming library
 
 ---
 
-## Voice companion (M5.5a safety, M5.5b polish)
+## Voice companion (Phase 3 + M5.5)
 
-Requires `MANGO_VOICE=1`. M5.5a verifies the voice contract now; final phone/HUD polish is re-run after native YouTube. Full spec: [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
+Requires `MANGO_VOICE=1`. Phase 3 companion is shipped; M5.5b polish re-run before M6.5 merge. Spec: [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) · [AI_LAYER.md](AI_LAYER.md)
 
 | # | Action | Pass? |
 |---|--------|-------|
 | V1 | PTT "good Hindi movies" — **no TV jump**; clarifying or chat on phone | |
-| V2 | PTT "Panchayat kholo" — detail on TV ≤8 s; phone confirms open | |
+| V2 | PTT or text "Panchayat kholo" — detail on TV ≤8 s; phone confirms open | |
 | V3 | Ambiguous title — list on phone; **no open** until explicit pick | |
 | V4 | Create AI catalog — confirm once; rail appears after bootstrap | |
 | V5 | "What do you know about me?" — readable summary on phone | |
-| V6 | Voice HUD dismisses within ~12 s; tiles unobstructed | |
+| V6 | Voice HUD dismisses; tiles unobstructed | |
 | V7 | Proactive off (default) — no unsolicited TV suggestions | |
-| V8 | "Save this" on an open detail updates Saved; no playback starts | |
+| V8 | "Save this" on open detail updates Saved; no playback starts | |
+| V9 | Text "find live cartoons" — lists IPTV channels; can open one on TV | |
+| V10 | Text follow-up while idle — composer not blocked after mango reply | |
+| V11 | YouTube / On TV chips expand on tap; chat fills screen when collapsed | |
+| V12 | Navigate all four tabs via voice/text (`movies`, `series`, `live`, `youtube`) | |
+
+Automated: `bash scripts/m5-voice/ai/gate-m5-companion-couch.sh`
 
 ---
 

@@ -260,17 +260,14 @@ Detail: [RELIABILITY.md](RELIABILITY.md).
 
 ```
 Phone companion (:3001) ──WSS──► orchestrator (:8765)
-                                      ├─► catalog-service /voice/*
+     text chat_send │ PTT           ├─► catalog-service /voice/*
                                       └─► launcher POST /api/voice/command
 Launcher voice-hud ◄── WS loopback :8766
 ```
 
-**Rule:** Voice opens detail/results and can Save/Unsave explicit library state
-only — playback stays on pad **B**. No `mango_play` or `play_youtube` in
-manifest. YouTube uses `mango_youtube_search` + `mango_open_youtube` under the
-same contract.
+**Rule:** Voice/text opens detail — pad **B** plays. Replies are text-only on phone (TTS off). Live channels found via `GET /voice/search?q=` across all NexoTV sources.
 
-Detail: [VOICE.md](VOICE.md)
+Detail: [VOICE.md](VOICE.md) · [AI_LAYER.md](AI_LAYER.md)
 
 ---
 

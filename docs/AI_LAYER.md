@@ -22,7 +22,7 @@ The AI companion should make mango feel like a next-gen AI TV box — look up ti
 | What's-on-now/EPG | n/a | n/a | ~ Live Now rail | ✓ now-playing after pad B; EPG deferred |
 | Subscriptions/channels | n/a | n/a | read-only | n/a |
 
-*Phases 0–2 shipped on `feat/native-experience`. Phase 3 adds text input, mirror, HUD, safety.*
+*Phases 0–3 shipped on `feat/native-experience` (Pi commit `0331c6c` as of 2026-07-04).*
 
 Structural facts:
 
@@ -71,7 +71,7 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | Memory model | Good schema/weak ingestion | Profile rich but reflect/gardener are regex + token-overlap |
 | AI catalog pipeline | Good bones | Async bootstrap + playability works |
 | Compose intelligence | Needs overhaul | Keyword table ≠ conversational vibe |
-| Companion UX | Underbuilt | Conversation-only, blind to TV |
+| Companion UX | Chat-first phone UI; mirror/tool chips; not production-final until M6.5 |
 | TV command transport | Excellent | Long-poll + seq + ack — keep |
 | Cross-surface state | Missing | No shared "what's on TV" context |
 
@@ -120,7 +120,7 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 |----------|--------|
 | Sequencing | YouTube first, then Live |
 | Live playback contract | Voice opens, pad B plays — Live included, no voice-tune exception |
-| Live depth | Full: channel search/open + AI-composed live rails + now-playing; EPG deferred |
+| Live depth | Full: **full-catalog** channel search via `mango_search` + open; AI-composed live rails; now-playing; EPG deferred |
 | YouTube rail model | Both — steer existing recommender with profile+seeds AND allow custom YT rails |
 | YouTube subscriptions | Read-only for v1; surface/open, no write |
 | Rail-creation architecture | Generalize ONE tab-agnostic AI-rail engine with per-tab source adapters: mdblist/Cinemeta for VOD, YouTube API for YT, NexoTV for Live |
@@ -135,21 +135,38 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | 0 — Spine | Refactor movies/series `compose.ts` + `bootstrap.ts` + `topUpRail` into a tab-agnostic AI-rail engine with per-tab source adapters (VOD adapter = existing behavior, regression-gated to zero change for movies/series); add unified `GET /ai/context` snapshot (current tab, open detail, now-playing incl. live channel, across all four tabs) injected into the agent each turn |
 | 1 — YouTube AI (first) | YouTube source adapter → custom YT rails via the engine (`mango_create_ai_catalog` gains `tab: youtube`); recommender steering (profile taste + conversation seeds into For You/discovery); personalization (loves/avoids bias YT seeds); subscriptions read-only; phone/HUD reflect YT rail creation + open |
 | 2 — Live AI | Live source adapter → AI-composed live rails (keyword/source over NexoTV, feasible today); channel search + open ("put on cricket" opens channel, pad B tunes); now-playing-live awareness; EPG deferred |
-| 3 — Cross-surface + safety + text | Phone text input (shared agent path); rich companion mirror; TV HUD tool cards (4 tabs); M5.5a safety corpus + `gate-m5-companion-couch.sh`; fix `mango_navigate` → youtube tab |
+| 3 — Cross-surface + safety + text | ✓ **Shipped** — see below |
 
 Each phase ends with Pi deploy + gate + couch proof.
 
 ---
 
-## Phase 3 — locked decisions (2026-07-04)
+## Phase 3 — shipped (2026-07-04)
+
+| Sub | Status | Delivered |
+|-----|--------|-----------|
+| **3a Text** | ✓ | `chat_send` WS · shared `run_agent_turn` · companion composer |
+| **3b Mirror** | ✓ | `/ai/context` poll · collapsible YouTube/On TV chips · tool status |
+| **3c HUD + navigate** | ✓ | Launcher tool action line · `mango_navigate` includes `youtube` tab |
+| **3d Safety** | ✓ | EN + Hinglish corpus · `gate-m5-companion-couch.sh` · persona live-TV policy |
+
+**Companion UX (post-3):** chat-first phone layout · text-only replies (no TTS / no speaking lock) · full NexoTV live search in `mango_search`.
+
+**Defaults:** Enter sends · Shift+Enter newline · ~500 char max · text and voice share reflect/session-notes path.
+
+**Couch gate:** `bash scripts/m5-voice/ai/gate-m5-companion-couch.sh` · opt-in LLM: `MANGO_VOICE_LLM_INTEGRATION=1`
+
+---
+
+## Phase 3 — locked decisions (reference)
 
 | Decision | Choice |
 |----------|--------|
 | Text pipeline | Shared agent path — text skips STT; same tools, policy, TV dispatch, conversation thread as voice |
 | Phone text UX | Persistent composer bar + send below chat; PTT remains |
-| Text → TV feedback | Full parity — HUD thinking/speaking, tool cards on phone, same open/ack rules |
-| Text TTS | None — reply on phone; TV HUD shows final reply briefly |
-| Companion mirror | Rich — header strip: current tab · open title · now playing · active tool status; tool cards all 4 tabs |
+| Text → TV feedback | HUD tool line + phone tool cards; no speaking dwell blocking next message |
+| Text TTS | None — text bubble on phone; idle immediately after reply (Piper off until M6.3) |
+| Companion mirror | Rich — collapsible YouTube/On TV chips · chat log · tab/open/playing/tool status |
 | Room state source | Hybrid (Phase 0) — server last nav/open + now playing; pad-only navigation still blind until launcher instrumentation |
 | Safety gate | Automated mock gate + expanded corpus; full LLM integration opt-in (`MANGO_VOICE_LLM_INTEGRATION=1`) |
 | Scope | Full — text + mirror + HUD + safety + `mango_navigate` youtube tab; proactive HUD stays off/default |

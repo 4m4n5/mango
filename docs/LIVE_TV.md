@@ -85,7 +85,8 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 |----------|--------|
 | Tab | **movies · series · live** — L/R shoulders or browse bar |
 | Refresh / ↻ | Live tab **does not** pass `reshuffle=1` (avoids NexoTV rate limits) |
-| Cache | Memory + disk `~/.cache/mango/live-rails-cache.json`; any non-empty stale disk cache may be served indefinitely if rebuild fails or returns empty |
+| Voice search | `GET /voice/search?q=` — full IPTV catalog (AREA69 + free + news + cartoons), not just browse rails |
+| Cache | Memory + disk `~/.cache/mango/live-rails-cache.json`; stale non-empty cache served if rebuild fails |
 | Play | Detail → **watch live** · `POST /play` with `live: true` |
 | Ordering | Paid (AREA69) channels sort before free per rail |
 

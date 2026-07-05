@@ -14,7 +14,7 @@ What works today, what is still being hardened, and how to verify it.
 | M2 Browse | ✓ | Movies / Series / Live tabs |
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
-| M5 Voice + AI | ◐ | Librarian + AI catalogs shipped · living librarian + M5.5a voice contract pending |
+| M5 Voice + AI | ◐ | Phase 3 companion ✓ · Phases 0–2 ✓ · living librarian ◐ · M5.5b polish pending |
 | M6 Ship | ◐ | M6.1 Mango library core shipped · M6.2 YouTube deployed and Pi-gated · Reliability Center implemented · efficiency/perf hardening (Tiers 1-4) shipped and Pi-proven · 4K Stage 2 profile/gate in validation · unified UX, wizard pending |
 
 ---
@@ -101,24 +101,48 @@ diagnostics · mpv `--live` · excluded from gate-lite. [LIVE_TV.md](LIVE_TV.md)
 
 ### Voice librarian ✓
 
-Phone PTT → Hinglish STT → LLM tools → **open detail on TV**. User presses **B** to play.
+Phone PTT or text → Hinglish STT (voice only) → LLM tools → **open detail on TV**. User presses **B** to play. Replies are **text-only** on the phone (no TTS, no speaking-state lock).
 
 | Route | Purpose |
 |-------|---------|
 | `GET /voice/tools` | Tool manifest |
-| `GET /voice/search?q=` | Verified library search |
+| `GET /voice/search?q=` | Verified movies/series **+ full live IPTV catalog** (AREA69, free, news, cartoons) |
 | `GET /voice/library` | Browse verified list |
 | `GET /voice/search/external?q=` | Cinemeta fallback |
+| `GET /voice/ai/context` | Tab · open title · now playing (companion mirror) |
 | `POST /voice/library/notes` | Librarian taste notes |
 
-Tools include `mango_search` · `mango_open_title` · `mango_navigate` — **no `mango_play`**.
-M6.2 adds `mango_youtube_search` and `mango_open_youtube`; voice still never starts playback.
+Tools: `mango_search` · `mango_open_title` · `mango_youtube_search` · `mango_open_youtube` · `mango_navigate` · AI catalog CRUD · save/unsave · profile/memory — **no `mango_play`**.
 
-**Gate:** `bash scripts/m5-voice/ai/gate-m5-voice.sh` (gate-lite when `MANGO_VOICE=1`)
+**Gate:** `bash scripts/m5-voice/ai/gate-m5-voice.sh` · `bash scripts/m5-voice/ai/gate-m5-companion-couch.sh`
+
+### AI layer Phases 0–3 ✓
+
+| Phase | Shipped |
+|-------|---------|
+| 0 — Spine | Tab-agnostic AI-rail engine · `GET /ai/context` |
+| 1 — YouTube AI | Custom YT rails · recommender steering · voice YT tools |
+| 2 — Live AI | Live adapter · channel search/open · now-playing flag |
+| 3 — Companion | Text `chat_send` · rich mirror · HUD tool cards · safety corpus · chat-first phone UI |
+
+Detail: [AI_LAYER.md](AI_LAYER.md)
+
+### Phase 3 companion (2026-07) ✓
+
+| Area | Implementation |
+|------|----------------|
+| Text input | Orchestrator `chat_send` · shared `run_agent_turn` · companion composer (Enter send, 500 char max) |
+| Phone UX | Chat-first layout · collapsible YouTube / On TV drawers · bottom composer + PTT |
+| Mirror | Polls `/ai/context` + launcher WS for tab, open title, playing, tool status |
+| TV HUD | Tool action line on launcher voice card |
+| Replies | Text bubble only — idle immediately after reply (no Piper, no composer block on "speaking") |
+| Live search | `mango_search` queries full NexoTV catalog (~600+ channels), not just curated live rails |
+| Persona | Concierge-curator tone via `MANGO_COMPANION_DIR` · live-TV tool policy in persona |
+| Safety | EN + Hinglish corpus · `gate-m5-companion-couch.sh` |
 
 ### AI catalog slots ✓
 
-Max **3 slots per tab** · `/etc/mango/ai-catalogs/slots/` · voice CRUD + overflow.
+Max **3 slots per tab** (movies · series · youtube · live) · voice CRUD + overflow.
 
 **Gate:** `bash scripts/m5-voice/ai/gate-m5-ai-catalogs.sh`
 
@@ -126,13 +150,14 @@ Max **3 slots per tab** · `/etc/mango/ai-catalogs/slots/` · voice CRUD + overf
 
 Profile · journal · conversation policy · reflection.
 
-### AI catalog bootstrap ✓
+### M5.5 — Companion UX split ◐
 
-Compose · reserve · async bootstrap. E2E: `MANGO_AI_CATALOG_BOOTSTRAP_E2E=1` on gate.
+| Track | Status |
+|-------|--------|
+| **M5.5a** safety contract | Corpus + automated gate shipped · full LLM integration opt-in (`MANGO_VOICE_LLM_INTEGRATION=1`) |
+| **M5.5b** polish | Chat-first companion landed · final cross-tab HUD/phone pass remains M6.5 |
 
-### M5.5 — Companion UX split —
-
-M5.5a locks the voice safety contract before new surfaces: no false opens, `tv_seq` acks, tool manifest/persona alignment, and couch corpus gates. M5.5b final phone/HUD polish moves after native YouTube so one UX pass covers Movies, Series, Live, and YouTube. [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
+[tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
 
 Full detail: [VOICE.md](VOICE.md)
 
@@ -263,13 +288,12 @@ Efficiency & performance audit (Tiers 1-4 — DB/cache efficiency, perceived lat
 
 | # | Item | Milestone |
 |---|------|-----------|
-| 1 | Living librarian (memory + policy) | M5 |
-| 2 | M5.5a AI companion voice safety contract | M5 |
-| 3 | M5.5b + M6.5 unified companion/TV UX polish after YouTube | M6.5 |
-| 4 | Monitor repeated unattended nightly proof and improve `+20` target hit rate with stronger playable sources for reality and India-series rails | M3 hardening |
-| 5 | Continue YouTube rail-quality hardening and monitor quota/live-refresh behavior as usage grows | M6.2 hardening |
-| 6 | Finish 4K HDR TV + soundbar validation on target TV, including visible-picture and audio sink couch proof | M6.3 |
-| 7 | First-boot wizard | M6.4 |
+| 1 | Living librarian (memory + policy hardening) | M5 |
+| 2 | M5.5b + M6.5 unified companion/TV UX polish | M6.5 |
+| 3 | Monitor unattended nightly proof + M3 `+20` grow hit rate | M3 |
+| 4 | YouTube rail quality + quota/live-refresh monitoring | M6.2 |
+| 5 | 4K HDR TV + soundbar validation on target TV | M6.3 |
+| 6 | First-boot wizard | M6.4 |
 
 ---
 
