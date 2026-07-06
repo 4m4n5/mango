@@ -738,7 +738,7 @@ else
     foreground_handoff
   fi
 fi
-mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 &
+setsid mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 < /dev/null &
 MPV_PID=$!
 echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
 

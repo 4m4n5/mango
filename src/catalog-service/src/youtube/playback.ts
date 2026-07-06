@@ -20,6 +20,7 @@ function youtubeWatchUrl(videoId: string): string {
 export function ytDlpFormatCandidates(configured: string): string[] {
   return [
     configured,
+    'best[height<=1080]/best',
     'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best',
     'bv*[height<=1080]+ba/b[height<=1080]/b',
     'best*[height<=1080]/best*',
