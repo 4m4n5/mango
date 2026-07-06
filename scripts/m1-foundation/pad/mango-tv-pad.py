@@ -36,6 +36,8 @@ _HOME = Path(f"/home/{_TV_USER}") if _TV_USER not in ("", "root") else Path.home
 XAUTHORITY = os.environ.get("XAUTHORITY", str(_HOME / ".Xauthority"))
 THRESH = int(32767 * 0.8)
 DEBOUNCE_SEC = 0.12
+DPAD_DEBOUNCE_SEC = float(os.environ.get("MANGO_PAD_DPAD_DEBOUNCE_SEC", "0.05"))
+LAUNCHER_WID_TTL_SEC = float(os.environ.get("MANGO_PAD_LAUNCHER_WID_TTL_SEC", "2.0"))
 VOLUME_STEP_PERCENT = 5
 WAIT_LOG_INTERVAL_SEC = float(os.environ.get("MANGO_PAD_WAIT_LOG_INTERVAL_SEC", "45.0"))
 REPO = _HOME / "mango"
@@ -485,18 +487,26 @@ def _playback_session_active() -> bool:
 
 _FOREGROUND_CACHE_TTL_SEC = 0.15
 _foreground_cache: dict[str, object] = {"value": None, "expires_at": 0.0}
+_launcher_wid_cache: dict[str, object] = {"wid": None, "expires_at": 0.0}
+
+
+def invalidate_launcher_wid_cache() -> None:
+    _launcher_wid_cache["wid"] = None
+    _launcher_wid_cache["expires_at"] = 0.0
 
 
 def invalidate_foreground_cache() -> None:
-    """Drop any memoized foreground_app() result.
+    """Drop memoized foreground_app() and launcher window id caches.
 
-    Call after any action that could change the active window (windowactivate,
-    launching the launcher, stopping mpv, etc.) and at the start of every
-    input-event dispatch so a stale cache can never mis-route the next press.
+    Call after actions that change the active window (windowactivate,
+    launching the launcher, stopping mpv) and from process_seek_hold during
+    playback seek-hold so routing stays fresh. Not called on every evdev
+    dispatch — browse hot path relies on TTL caches instead.
     """
 
     _foreground_cache["value"] = None
     _foreground_cache["expires_at"] = 0.0
+    invalidate_launcher_wid_cache()
 
 
 def foreground_app() -> str:
@@ -590,6 +600,21 @@ def find_launcher_wid() -> str | None:
     return best_wid
 
 
+def get_launcher_wid(*, force: bool = False) -> str | None:
+    now = time.monotonic()
+    if not force:
+        cached_wid = _launcher_wid_cache["wid"]
+        if cached_wid is not None and now < float(_launcher_wid_cache["expires_at"]):
+            return str(cached_wid)
+    wid = find_launcher_wid()
+    if wid:
+        _launcher_wid_cache["wid"] = wid
+        _launcher_wid_cache["expires_at"] = now + LAUNCHER_WID_TTL_SEC
+    else:
+        invalidate_launcher_wid_cache()
+    return wid
+
+
 def send_key_to_wid(wid: str, symbol: str, *, activate: bool = True) -> None:
     if activate:
         active = _xdotool("getactivewindow").stdout.strip()
@@ -600,10 +625,13 @@ def send_key_to_wid(wid: str, symbol: str, *, activate: bool = True) -> None:
 
 
 def send_key_launcher(symbol: str) -> None:
-    wid = find_launcher_wid()
+    wid = get_launcher_wid()
     if not wid:
         return
-    send_key_to_wid(wid, symbol, activate=True)
+    if foreground_app() == "launcher":
+        send_key_to_wid(wid, symbol, activate=False)
+    else:
+        send_key_to_wid(wid, symbol, activate=True)
 
 
 def send_mpv_ipc(command: str, arg: str = "", mode: str = "") -> None:
@@ -1001,9 +1029,10 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
     hold_seek: dict[str, object] = {}
     write_status("running", dev, last_event_at=last_event_at, last_action="grabbed")
 
-    def debounced(action: str, fn) -> None:
+    def debounced(action: str, fn, *, debounce_sec: float | None = None) -> None:
+        interval = DEBOUNCE_SEC if debounce_sec is None else debounce_sec
         now = time.monotonic()
-        if now - last.get(action, 0) < DEBOUNCE_SEC:
+        if now - last.get(action, 0) < interval:
             return
         last[action] = now
         wake_display_for_input(action)
@@ -1039,7 +1068,11 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
     def start_or_update_seek_hold(app: str, direction: str) -> None:
         if not _playback_app(app):
             stop_seek_hold()
-            debounced(f"{app}-{direction}", lambda: route_dpad(app, direction))
+            debounced(
+                f"{app}-{direction}",
+                lambda: route_dpad(app, direction),
+                debounce_sec=DPAD_DEBOUNCE_SEC,
+            )
             return
         now = time.monotonic()
         if hold_seek.get("direction") == direction:
@@ -1095,13 +1128,6 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                 continue
             for event in dev.read():
                 last_event_at = time.time()
-                write_status(
-                    "running",
-                    dev,
-                    last_event_at=last_event_at,
-                    last_action=f"event:{event.type}:{event.code}",
-                )
-                invalidate_foreground_cache()
                 app = routing_app()
                 if event.type == ecodes.EV_ABS:
                     if event.code in (ecodes.ABS_X, ecodes.ABS_HAT0X):
@@ -1127,9 +1153,17 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                                     lambda: route_playback_subtitle(app, "next"),
                                 )
                         elif event.value <= -threshold:
-                            debounced(f"{app}-up", lambda: route_dpad(app, "up"))
+                            debounced(
+                                f"{app}-up",
+                                lambda: route_dpad(app, "up"),
+                                debounce_sec=DPAD_DEBOUNCE_SEC,
+                            )
                         elif event.value >= threshold:
-                            debounced(f"{app}-down", lambda: route_dpad(app, "down"))
+                            debounced(
+                                f"{app}-down",
+                                lambda: route_dpad(app, "down"),
+                                debounce_sec=DPAD_DEBOUNCE_SEC,
+                            )
                 elif event.type == ecodes.EV_KEY and event.value == 1:
                     diag_event(
                         "ev_key",

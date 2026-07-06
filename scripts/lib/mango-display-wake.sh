@@ -22,7 +22,6 @@ fi
 
 if [[ "$FOCUS_IDLE" == "1" ]] && ! pgrep -x mpv >/dev/null 2>&1; then
   SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-  bash "$SCRIPT_DIR/mango-display-mode.sh" ensure-launcher >/dev/null 2>&1 || true
   bash "$SCRIPT_DIR/present-launcher.sh" --quick >/dev/null 2>&1 \
     || bash "$SCRIPT_DIR/present-launcher.sh" >/dev/null 2>&1 \
     || true
