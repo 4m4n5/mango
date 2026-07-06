@@ -95,8 +95,9 @@ export async function probeUrl(
   timeoutMs: number,
   minDurationSec?: number,
   playEpoch?: number,
+  startSec?: number,
 ): Promise<PlayResult> {
-  return runMpv(url, { probe: true, timeoutMs, minDurationSec, playEpoch });
+  return runMpv(url, { probe: true, timeoutMs, minDurationSec, playEpoch, startSec });
 }
 
 export async function playUrl(

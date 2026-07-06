@@ -4,6 +4,7 @@ import type { Stream } from './core.js';
 import {
   defaultPlayLadder,
   expandPlayLadder,
+  injectPreferredPlayCandidate,
   parsePlayLadder,
   streamMatchesLadderStep,
 } from './play-ladder.js';
@@ -252,4 +253,22 @@ test('expandPlayLadder prefers picker win_url_hash on ideal step', () => {
 
   assert.equal(ranked[0]?.stream.url, picked.url);
   assert.equal(ranked[0]?.ladder_step, 'ideal');
+});
+
+test('injectPreferredPlayCandidate forces a picker URL ahead of ladder expansion', () => {
+  const picked = stream({
+    url: 'https://example.test/picked-4k.mkv',
+    name: '[TB⚡] Torrentio 2160p',
+    description: '2160p REMUX HEVC SDR',
+    ladder_step: '4k_sdr_remux_cached',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const ranked = injectPreferredPlayCandidate(
+    [picked],
+    [],
+    picked.url,
+  );
+  assert.equal(ranked.length, 1);
+  assert.equal(ranked[0]?.ladder_step, '4k_sdr_remux_cached');
+  assert.equal(ranked[0]?.stream.url, picked.url);
 });

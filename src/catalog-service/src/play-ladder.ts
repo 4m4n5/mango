@@ -15,6 +15,7 @@ import {
   streamPassesIntegrity,
   streamMatchesVerifiedHint,
   streamPlayScore,
+  streamUrlHash,
   streamIsHevc,
   streamIsHdr,
   effectiveStreamQualityRank,
@@ -359,6 +360,27 @@ export function expandPlayLadder(
   return ranked.slice(0, max);
 }
 
+/** Ensure an explicit picker URL is attempted even when ladder filters hid it from expansion. */
+export function injectPreferredPlayCandidate(
+  streams: Stream[],
+  candidates: LadderCandidate[],
+  preferUrl?: string,
+): LadderCandidate[] {
+  if (!preferUrl || !/^https?:\/\//i.test(preferUrl)) {
+    return candidates;
+  }
+  const hash = streamUrlHash(preferUrl);
+  const match = streams.find((stream) => streamUrlHash(stream.url) === hash);
+  if (!match) {
+    return candidates;
+  }
+  const ladderStep = typeof match.ladder_step === 'string' && match.ladder_step.trim() !== ''
+    ? match.ladder_step.trim()
+    : 'picker';
+  const rest = candidates.filter((candidate) => streamUrlHash(candidate.stream.url) !== hash);
+  return [{ stream: match, ladder_step: ladderStep }, ...rest];
+}
+
 export function couchStatusForLadderStep(step: string): string {
   switch (step) {
     case 'ideal':
@@ -373,6 +395,14 @@ export function couchStatusForLadderStep(step: string): string {
       return 'trying 4K HDR-preferred stream…';
     case '2160p_cached':
       return 'trying alternate 4K stream…';
+    case '4k_sdr_remux_cached':
+      return 'starting 4K stream…';
+    case '4k_sdr_cached':
+      return 'trying alternate 4K encode…';
+    case '1080p_hevc_cached':
+      return 'trying 1080p HEVC stream…';
+    case 'picker':
+      return 'starting selected stream…';
     case '1080p_cached_fallback':
       return 'trying 1080p fallback…';
     case 'last_resort':

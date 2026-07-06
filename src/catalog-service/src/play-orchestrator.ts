@@ -4,6 +4,7 @@ import { preflightPlaybackUrl } from './preflight-playback.js';
 import {
   couchStatusForLadderStep,
   expandPlayLadder,
+  injectPreferredPlayCandidate,
   type LadderCandidate,
   type PlayLadderStep,
 } from './play-ladder.js';
@@ -214,6 +215,7 @@ export async function playWithLadder(
     preflight?: typeof preflightPlaybackUrl;
     onLadderStep?: (step: string, label: string) => void;
     startSec?: number;
+    preferUrl?: string;
   } = {},
 ): Promise<PlayOrchestratorResult> {
   const started = Date.now();
@@ -223,17 +225,21 @@ export async function playWithLadder(
   const preflight = options.preflight ?? preflightPlaybackUrl;
   const ladder = options.ladder ?? config.play_ladder;
   const deadline = started + wallMs;
-  const candidates = expandPlayLadder(streams, ladder, options.filterContext ?? {
-    contentType: options.contentType,
-  }, {
-    strict_unknown_cache: config.strict_unknown_cache,
-    preferred_quality: config.preferred_quality,
-    preferred_hdr_tags: config.preferred_hdr_tags,
-    preferred_video_codecs: config.preferred_video_codecs,
-    verified_hint: options.verified_hint,
-    max_candidates: config.auto_play_max_attempts,
-    prefer_ladder_step: options.verified_hint?.win_ladder_step ?? null,
-  });
+  const candidates = injectPreferredPlayCandidate(
+    streams,
+    expandPlayLadder(streams, ladder, options.filterContext ?? {
+      contentType: options.contentType,
+    }, {
+      strict_unknown_cache: config.strict_unknown_cache,
+      preferred_quality: config.preferred_quality,
+      preferred_hdr_tags: config.preferred_hdr_tags,
+      preferred_video_codecs: config.preferred_video_codecs,
+      verified_hint: options.verified_hint,
+      max_candidates: config.auto_play_max_attempts,
+      prefer_ladder_step: options.verified_hint?.win_ladder_step ?? null,
+    }),
+    options.preferUrl,
+  );
   const minDurationSec = options.contentType === 'series' ? 600 : 600;
   const attempts: PlayAttempt[] = [];
   let lastStep = '';
@@ -283,7 +289,13 @@ export async function playWithLadder(
         }
         if (!skipProbe) {
           const probeBudget = probeBudgetForCandidate(candidate, config, remainingBeforeProbe);
-          const probeResult = await probe(candidate.stream.url, probeBudget, undefined, options.playEpoch);
+          const probeResult = await probe(
+            candidate.stream.url,
+            probeBudget,
+            undefined,
+            options.playEpoch,
+            options.startSec,
+          );
           observedProbeMs = probeResult.ttff_ms;
           if (options.playEpoch !== undefined) {
             await assertPlayEpoch(options.playEpoch);

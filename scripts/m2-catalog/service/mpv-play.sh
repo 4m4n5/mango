@@ -403,8 +403,7 @@ append_mpv_buffer_args() {
   fi
 }
 
-enable_mpv_display() {
-  $DISPLAY_ENABLED && return 0
+enable_mpv_display_once() {
   command -v socat >/dev/null 2>&1 || return 1
   [[ -S "$SOCKET" ]] || return 1
   printf '{"command":["set_property","vo","%s"]}\n' "${MANGO_MPV_VO:-gpu}" | socat - "$SOCKET" >/dev/null 2>&1 || return 1
@@ -445,8 +444,35 @@ enable_mpv_display() {
   if [[ -n "$device" ]]; then
     printf '{"command":["set_property","audio-device","%s"]}\n' "$device" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
-  DISPLAY_ENABLED=true
   return 0
+}
+
+enable_mpv_display() {
+  $DISPLAY_ENABLED && return 0
+  local attempt
+  for attempt in 1 2 3; do
+    if enable_mpv_display_once; then
+      DISPLAY_ENABLED=true
+      return 0
+    fi
+    sleep 0.15
+  done
+  return 1
+}
+
+mpv_vo_ready_timeout_ms() {
+  local width height
+  width="${video_width:-}"
+  height="$(mpv_property height 2>/dev/null || true)"
+  if [[ -n "$width" && "$width" =~ ^[0-9]+$ && "$width" -ge 3000 ]]; then
+    printf '%s\n' 1200
+    return 0
+  fi
+  if [[ -n "$height" && "$height" =~ ^[0-9]+$ && "$height" -ge 1600 ]]; then
+    printf '%s\n' 1200
+    return 0
+  fi
+  printf '%s\n' 400
 }
 
 wait_mpv_vo_ready() {
@@ -756,7 +782,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
             MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
             exit 1
           fi
-          wait_mpv_vo_ready 400
+          wait_mpv_vo_ready "$(mpv_vo_ready_timeout_ms)"
         fi
         raise_mpv_window
         foreground_handoff

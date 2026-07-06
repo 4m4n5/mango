@@ -108,6 +108,7 @@ export interface CatalogStream {
   quality?: string;
   languages?: string[];
   source?: string;
+  ladder_step?: string;
 }
 
 export interface SeriesEpisodeRow {
@@ -466,7 +467,7 @@ export async function stopPlaybackForVoice(): Promise<void> {
 
 export async function playCard(
   card: ContentCard,
-  options: { signal?: AbortSignal; preferUrl?: string; startSec?: number; episodeId?: string } = {},
+  options: { signal?: AbortSignal; preferUrl?: string; preferLadderStep?: string; startSec?: number; episodeId?: string } = {},
 ): Promise<PlayResult> {
   if (card.source === "youtube" || card.type === "youtube_video") {
     return fetchJson<PlayResult>("/api/catalog/youtube/play", {
@@ -491,6 +492,7 @@ export async function playCard(
     tab?: string;
     rail_id?: string;
     prefer_url?: string;
+    prefer_ladder_step?: string;
     start_sec?: number;
     live?: boolean;
   } = {
@@ -509,6 +511,9 @@ export async function playCard(
   }
   if (options.preferUrl) {
     body.prefer_url = options.preferUrl;
+  }
+  if (options.preferLadderStep) {
+    body.prefer_ladder_step = options.preferLadderStep;
   }
   const startSec = options.startSec ?? card.resumeSec;
   if (typeof startSec === 'number' && startSec > 0) {

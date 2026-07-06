@@ -247,7 +247,7 @@ export class DetailController {
     this.moveRow(delta);
   }
 
-  async play(preferUrl?: string): Promise<void> {
+  async play(preferUrl?: string, preferLadderStep?: string): Promise<void> {
     const card = this.card;
     if (!card) {
       return;
@@ -312,6 +312,7 @@ export class DetailController {
       const result = await playCard(card, {
         signal: abort.signal,
         preferUrl,
+        preferLadderStep,
         startSec,
         episodeId: card.type === "series" ? episodeId : undefined,
       });
@@ -1056,7 +1057,7 @@ export class DetailController {
       audio.className = "detail-stream-audio";
       audio.textContent = streamAudioLabel(stream);
       button.append(label, audio);
-      button.addEventListener("click", () => void this.play(stream.url));
+      button.addEventListener("click", () => void this.play(stream.url, stream.ladder_step));
       this.streamList.append(button);
       this.streamButtons.push(button);
     }

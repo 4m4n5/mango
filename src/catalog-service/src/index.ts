@@ -107,8 +107,10 @@ type PlayBody = StreamFilterOverrides & {
   rail_id?: string;
   reason?: string;
   url?: string;
-  /** Picker row — prefer this stream in the play ladder (ideal step first). */
+  /** Picker row — prefer this stream in the play ladder. */
   prefer_url?: string;
+  /** Ladder step from GET /stream (e.g. 4k_sdr_remux_cached); avoids legacy ideal hint. */
+  prefer_ladder_step?: string;
   /** Resume playback at this position (seconds). */
   start_sec?: number;
   /** Lookup saved progress for {type,id} and resume. */
@@ -251,14 +253,21 @@ function savedPayload(tab: ReturnType<typeof parseCatalogTab>, limit: number): {
   };
 }
 
-function playPickHint(preferUrl: string | undefined): import('./stream-filters.js').VerifiedStreamHint | undefined {
+function playPickHint(
+  preferUrl: string | undefined,
+  preferLadderStep?: string | null,
+): import('./stream-filters.js').VerifiedStreamHint | undefined {
   if (!preferUrl || !/^https?:\/\//i.test(preferUrl)) {
     return undefined;
   }
-  return {
+  const hint: import('./stream-filters.js').VerifiedStreamHint = {
     win_url_hash: streamUrlHash(preferUrl),
-    win_ladder_step: 'ideal',
   };
+  const step = typeof preferLadderStep === 'string' ? preferLadderStep.trim() : '';
+  if (step) {
+    hint.win_ladder_step = step;
+  }
+  return hint;
 }
 
 function filterOverridesFromBody(body: PlayBody): StreamFilterOverrides {
@@ -498,7 +507,7 @@ async function handlePlay(
       probe_ms: profile.probe_ms,
     }
     : undefined;
-  const pickerHint = playPickHint(body.prefer_url);
+  const pickerHint = playPickHint(body.prefer_url, body.prefer_ladder_step);
   const verifiedHint = pickerHint
     ? { ...profileHint, ...pickerHint }
     : profileHint;
@@ -512,6 +521,7 @@ async function handlePlay(
       verified_hint: verifiedHint,
       playEpoch,
       startSec,
+      preferUrl: body.prefer_url,
     });
 
     if (usePlayabilityIndex) {

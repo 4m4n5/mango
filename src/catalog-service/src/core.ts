@@ -315,7 +315,7 @@ function boundedInt(value: unknown, fallback: number, min: number, max: number):
 
 const STREAM_ZERO_RETRY_ATTEMPTS = boundedInt(
   process.env.MANGO_STREAM_ZERO_RETRY_ATTEMPTS,
-  0,
+  1,
   0,
   3,
 );
@@ -1757,7 +1757,11 @@ export class CatalogCore {
     errors?: string[];
   }> {
     const streamId = normalizeSeriesVerifyId(type, id);
-    const raw = await this.resolveRawStreams(type, streamId, couchResolveOptions(options));
+    const raw = await this.resolveRawStreams(type, streamId, couchResolveOptions({
+      zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
+      zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
+      ...options,
+    }));
     if (raw.streams.length === 0) {
       if (hasStreamResolveInfrastructureErrors(raw.errors)) {
         throw new CatalogError(
