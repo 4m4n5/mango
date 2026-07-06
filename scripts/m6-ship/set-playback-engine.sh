@@ -36,12 +36,11 @@ ENGINE_KEYS='MANGO_PLAYBACK_BACKEND|MANGO_MPV_HWDEC|MANGO_MPV_VIDEO_SYNC|MANGO_M
 
 usage() {
   cat >&2 <<'EOF'
-usage: set-playback-engine.sh mpv|mpv-hifi|vlc|status [--no-restart]
+usage: set-playback-engine.sh mpv|mpv-hifi|status [--no-restart]
 
 mpv       lightweight unified mpv, smooth baseline (4k-hdr: HEVC/cached/no-remux)
 mpv-hifi  mpv tuned for 4K SDR fidelity: big cache + 5.1 audio, 4k-hifi policy
           (cached high-bitrate SDR 4K HEVC REMUX; HDR falls through to 1080p)
-vlc       previous target-TV VLC baseline (4k-hdr)
 status    print current experience env + stream policy + display status
 EOF
   exit 2
@@ -168,16 +167,6 @@ case "$cmd" in
     # stop launcher / disable compositor only after real playback begins.
     append_env MANGO_MPV_DEFER_FOREGROUND "1"
     append_env MANGO_CATALOG_FILTERS "$(ensure_filters 4k-hifi)"
-    restart_stack
-    status
-    ;;
-  vlc)
-    remove_engine_keys
-    append_env MANGO_PLAYBACK_BACKEND "vlc"
-    append_env MANGO_MPV_HWDEC "drm-copy"
-    append_env MANGO_MPV_VIDEO_SYNC "audio"
-    append_env MANGO_MPV_INTERPOLATION "no"
-    append_env MANGO_CATALOG_FILTERS "$(ensure_filters 4k-hdr)"
     restart_stack
     status
     ;;

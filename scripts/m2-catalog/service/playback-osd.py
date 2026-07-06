@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""X11 playback OSD — times, progress, subtitles (mpv + VLC couch path)."""
+"""X11 playback OSD — times, progress, subtitles (mpv couch path)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from typing import Any
 HOME = Path(os.environ.get("HOME") or "/home/aman")
 REPO = Path(os.environ.get("MANGO_REPO_DIR", HOME / "mango"))
 CACHE_DIR = HOME / ".cache" / "mango"
-STATE_PATH = Path(os.environ.get("MANGO_PLAYER_STATE_PATH", CACHE_DIR / "player-state.json"))
 MPV_SOCKET = Path(os.environ.get("MANGO_MPV_SOCKET", CACHE_DIR / "mpv.sock"))
 MPV_IPC_SH = Path(
     os.environ.get("MANGO_MPV_IPC_SH", REPO / "scripts/m2-catalog/service/mpv-ipc.sh")
@@ -79,51 +78,35 @@ def _mpv_active() -> bool:
     return False
 
 
-def _load_vlc_state() -> dict[str, object] | None:
-    try:
-        state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
-    except Exception:
+def _playback_snapshot() -> tuple[float, float, bool] | None:
+    if not _mpv_active():
         return None
-    pid = int(float(state.get("pid") or 0))
-    if state.get("backend") != "vlc" or not _pid_alive(pid):
+    position = _mpv_ipc_property("playback-time")
+    duration = _mpv_ipc_property("duration")
+    paused = _mpv_ipc_property("pause")
+    if position is None:
         return None
-    return state
+    pos = max(0.0, float(position))
+    dur = max(0.0, float(duration or 0))
+    is_paused = paused in (True, "yes", 1)
+    if dur > 0:
+        pos = min(dur, pos)
+    return pos, dur, is_paused
 
 
-def _vlc_position(state: dict[str, object]) -> tuple[float, float, bool]:
-    now_ms = int(time.time() * 1000)
-    start_sec = max(0.0, float(state.get("start_sec") or 0))
-    duration_sec = max(0.0, float(state.get("duration_sec") or 0))
-    paused = bool(state.get("paused"))
-    if paused:
-        position = start_sec
-    else:
-        started_at_ms = float(state.get("started_at_ms") or now_ms)
-        position = start_sec + max(0.0, (now_ms - started_at_ms) / 1000.0)
-    if duration_sec > 0:
-        position = min(duration_sec, position)
-    return max(0.0, position), duration_sec, paused
+def _subtitle_snapshot() -> tuple[bool, str]:
+    visible = _mpv_ipc_property("sub-visibility")
+    sid = _mpv_ipc_property("sid")
+    if visible in (False, "no", 0) or not _track_id_active(sid):
+        return False, "Off"
+    tracks = _mpv_ipc_property("track-list")
+    return True, _track_label_from_list(tracks, sid, "sub", empty_label="Off")
 
 
-def _playback_snapshot() -> tuple[float, float, bool, str] | None:
-    if _mpv_active():
-        position = _mpv_ipc_property("playback-time")
-        duration = _mpv_ipc_property("duration")
-        paused = _mpv_ipc_property("pause")
-        if position is None:
-            return None
-        pos = max(0.0, float(position))
-        dur = max(0.0, float(duration or 0))
-        is_paused = paused in (True, "yes", 1)
-        if dur > 0:
-            pos = min(dur, pos)
-        return pos, dur, is_paused, "mpv"
-
-    state = _load_vlc_state()
-    if state is not None:
-        pos, dur, is_paused = _vlc_position(state)
-        return pos, dur, is_paused, "vlc"
-    return None
+def _audio_snapshot() -> str:
+    aid = _mpv_ipc_property("aid")
+    tracks = _mpv_ipc_property("track-list")
+    return _track_label_from_list(tracks, aid, "audio", empty_label="Default")
 
 
 def _track_label_from_list(
@@ -180,25 +163,6 @@ def _track_id_active(track_id: object) -> bool:
     if isinstance(track_id, (int, float)):
         return int(track_id) > 0
     return False
-
-
-def _subtitle_snapshot(backend: str) -> tuple[bool, str]:
-    if backend != "mpv":
-        return False, "VLC · press X to cycle"
-    visible = _mpv_ipc_property("sub-visibility")
-    sid = _mpv_ipc_property("sid")
-    if visible in (False, "no", 0) or not _track_id_active(sid):
-        return False, "Off"
-    tracks = _mpv_ipc_property("track-list")
-    return True, _track_label_from_list(tracks, sid, "sub", empty_label="Off")
-
-
-def _audio_snapshot(backend: str) -> str:
-    if backend != "mpv":
-        return "VLC · press A"
-    aid = _mpv_ipc_property("aid")
-    tracks = _mpv_ipc_property("track-list")
-    return _track_label_from_list(tracks, aid, "audio", empty_label="Default")
 
 
 def _format_time(seconds: float) -> str:
@@ -258,12 +222,11 @@ def run() -> int:
         position: float,
         duration: float,
         paused: bool,
-        backend: str,
     ) -> None:
         pct = 0.0 if duration <= 0 else max(0.0, min(1.0, position / duration))
         remaining = max(0.0, duration - position) if duration > 0 else 0.0
-        subs_on, subs_label = _subtitle_snapshot(backend)
-        audio_label = _audio_snapshot(backend)
+        subs_on, subs_label = _subtitle_snapshot()
+        audio_label = _audio_snapshot()
         canvas.delete("all")
 
         pad_x = 34
@@ -374,7 +337,7 @@ def run() -> int:
             root.destroy()
             return
 
-        position, duration, paused, backend = snapshot
+        position, duration, paused = snapshot
 
         try:
             trigger_mtime = TRIGGER_PATH.stat().st_mtime
@@ -388,7 +351,7 @@ def run() -> int:
 
         if visible:
             width, height = layout()
-            draw(width, height, position, duration, paused, backend)
+            draw(width, height, position, duration, paused)
             if hidden:
                 root.deiconify()
                 hidden = False

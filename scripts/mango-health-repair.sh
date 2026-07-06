@@ -128,14 +128,10 @@ launcher_browser_running() {
 }
 
 playback_active() {
-  # Couch playback (mpv or VLC) intentionally stops the Chromium launcher for a
-  # tear-free fullscreen. In that state a "missing" launcher is expected, not a
-  # fault — repairing it would restart Chromium on top of the video (focus
-  # steals back to the launcher while audio keeps playing). mpv-stop.sh / the
-  # mpv exit monitor restore the launcher when playback actually ends.
+  # Couch playback intentionally stops the Chromium launcher for a tear-free
+  # fullscreen. In that state a "missing" launcher is expected, not a fault.
+  [[ -f "${HOME}/.cache/mango/playback-active" ]] && return 0
   pgrep -x mpv >/dev/null 2>&1 && return 0
-  pgrep -x vlc >/dev/null 2>&1 && return 0
-  pgrep -x cvlc >/dev/null 2>&1 && return 0
   return 1
 }
 

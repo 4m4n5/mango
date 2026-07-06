@@ -3,7 +3,7 @@
 
 Routes by foreground surface:
   Launcher — arrow keys + Return
-  playback — mpv IPC or VLC foreground stop/home routing
+  playback — mpv IPC (including during GPU-defer while launcher is still focused)
 
 Home (316/311) runs launch-launcher.sh or mpv-stop — never keyboard chords.
 See docs/HARDWARE.md
@@ -49,26 +49,50 @@ PLAYBACK_OSD_PY = REPO / "scripts/m2-catalog/service/playback-osd.py"
 DISPLAY_WAKE_SH = REPO / "scripts/lib/mango-display-wake.sh"
 COUCH_ACTIVITY_SH = REPO / "scripts/lib/couch-activity.sh"
 LAUNCHER_PORT = os.environ.get("MANGO_LAUNCHER_PORT", "3000")
-PLAYER_STATE_PATH = Path(
-    os.environ.get("MANGO_PLAYER_STATE_PATH", str(CACHE_DIR / "player-state.json"))
+PLAYBACK_ACTIVE_FILE = Path(
+    os.environ.get("MANGO_PLAYBACK_ACTIVE_FILE", str(CACHE_DIR / "playback-active"))
 )
-VLC_SEEK_STEP_SEC = int(os.environ.get("MANGO_VLC_SEEK_STEP_SEC", "10"))
-VLC_SEEK_FAST_STEP_SEC = int(os.environ.get("MANGO_VLC_SEEK_FAST_STEP_SEC", "30"))
-VLC_SEEK_BIG_STEP_SEC = int(os.environ.get("MANGO_VLC_SEEK_BIG_STEP_SEC", "120"))
-VLC_SEEK_LONG_STEP_SEC = int(os.environ.get("MANGO_VLC_SEEK_LONG_STEP_SEC", "300"))
-VLC_SHOULDER_SEEK_STEP_SEC = int(
-    os.environ.get("MANGO_VLC_SHOULDER_SEEK_STEP_SEC", str(VLC_SEEK_BIG_STEP_SEC))
+MPV_SOCKET_PATH = Path(os.environ.get("MANGO_MPV_SOCKET", str(CACHE_DIR / "mpv.sock")))
+PLAYBACK_SEEK_STEP_SEC = int(
+    os.environ.get("MANGO_PLAYBACK_SEEK_STEP_SEC", os.environ.get("MANGO_VLC_SEEK_STEP_SEC", "10"))
 )
-VLC_HOLD_SEEK_DELAY_SEC = float(os.environ.get("MANGO_VLC_HOLD_SEEK_DELAY_SEC", "0.45"))
-VLC_HOLD_SEEK_REPEAT_SEC = float(os.environ.get("MANGO_VLC_HOLD_SEEK_REPEAT_SEC", "0.55"))
-VLC_HOLD_SEEK_FAST_AFTER_SEC = float(
-    os.environ.get("MANGO_VLC_HOLD_SEEK_FAST_AFTER_SEC", "1.5")
+PLAYBACK_SEEK_FAST_STEP_SEC = int(
+    os.environ.get(
+        "MANGO_PLAYBACK_SEEK_FAST_STEP_SEC",
+        os.environ.get("MANGO_VLC_SEEK_FAST_STEP_SEC", "30"),
+    )
 )
-VLC_HOLD_SEEK_BIG_AFTER_SEC = float(
-    os.environ.get("MANGO_VLC_HOLD_SEEK_BIG_AFTER_SEC", "3.5")
+PLAYBACK_SEEK_BIG_STEP_SEC = int(
+    os.environ.get(
+        "MANGO_PLAYBACK_SEEK_BIG_STEP_SEC",
+        os.environ.get("MANGO_VLC_SEEK_BIG_STEP_SEC", "120"),
+    )
 )
-# Shared couch playback seek tuning (mpv + vlc).
-PLAYBACK_APPS = frozenset({"mpv", "vlc"})
+PLAYBACK_SHOULDER_SEEK_STEP_SEC = int(
+    os.environ.get(
+        "MANGO_PLAYBACK_SHOULDER_SEEK_STEP_SEC",
+        os.environ.get("MANGO_VLC_SHOULDER_SEEK_STEP_SEC", str(PLAYBACK_SEEK_BIG_STEP_SEC)),
+    )
+)
+PLAYBACK_HOLD_SEEK_DELAY_SEC = float(
+    os.environ.get("MANGO_PLAYBACK_HOLD_SEEK_DELAY_SEC", os.environ.get("MANGO_VLC_HOLD_SEEK_DELAY_SEC", "0.45"))
+)
+PLAYBACK_HOLD_SEEK_REPEAT_SEC = float(
+    os.environ.get("MANGO_PLAYBACK_HOLD_SEEK_REPEAT_SEC", os.environ.get("MANGO_VLC_HOLD_SEEK_REPEAT_SEC", "0.55"))
+)
+PLAYBACK_HOLD_SEEK_FAST_AFTER_SEC = float(
+    os.environ.get(
+        "MANGO_PLAYBACK_HOLD_SEEK_FAST_AFTER_SEC",
+        os.environ.get("MANGO_VLC_HOLD_SEEK_FAST_AFTER_SEC", "1.5"),
+    )
+)
+PLAYBACK_HOLD_SEEK_BIG_AFTER_SEC = float(
+    os.environ.get(
+        "MANGO_PLAYBACK_HOLD_SEEK_BIG_AFTER_SEC",
+        os.environ.get("MANGO_VLC_HOLD_SEEK_BIG_AFTER_SEC", "3.5"),
+    )
+)
+PLAYBACK_APPS = frozenset({"mpv"})
 
 
 def _playback_app(app: str) -> bool:
@@ -424,84 +448,6 @@ def is_mpv_focused() -> bool:
     return wid in _mpv_window_ids()
 
 
-def is_vlc_focused() -> bool:
-    wid = _xdotool("getactivewindow").stdout.strip()
-    if not wid or wid == "0":
-        return False
-    name = _window_name(wid)
-    klass = _window_class(wid)
-    process = _window_process(wid)
-    cmdline = _window_cmdline(wid)
-    blob = f"{name} {klass} {process} {cmdline}"
-    return "vlc" in blob
-
-
-def _vlc_window_ids() -> list[str]:
-    ids: list[str] = []
-    for args in (("--class", "vlc"), ("--name", "VLC media player")):
-        result = _xdotool("search", *args)
-        if result.returncode == 0 and result.stdout.strip():
-            ids.extend(result.stdout.split())
-    return list(dict.fromkeys(ids))
-
-
-def find_vlc_wid() -> str | None:
-    best_wid: str | None = None
-    best_area = 0
-    for wid in _vlc_window_ids():
-        name = _window_name(wid)
-        if "selection owner" in name.lower() or "tooltip" in name.lower():
-            continue
-        geom = _xdotool("getwindowgeometry", "--shell", wid).stdout
-        width = height = 0
-        for line in geom.splitlines():
-            if line.startswith("WIDTH="):
-                width = int(line.split("=", 1)[1])
-            elif line.startswith("HEIGHT="):
-                height = int(line.split("=", 1)[1])
-        area = width * height
-        if area > best_area:
-            best_area = area
-            best_wid = wid
-    return best_wid
-
-
-def send_key_vlc(symbol: str) -> None:
-    wid = find_vlc_wid()
-    if wid:
-        send_key_to_wid(wid, symbol, activate=True)
-        return
-    _xdotool("key", "--clearmodifiers", symbol)
-
-
-def _vlc_seek_key_for_step(direction: str, seconds: int) -> str | None:
-    arrow = "Left" if direction == "left" else "Right"
-    if seconds == VLC_SEEK_LONG_STEP_SEC:
-        return f"ctrl+alt+{arrow}"
-    if seconds == VLC_SEEK_BIG_STEP_SEC:
-        return f"ctrl+{arrow}"
-    if seconds == VLC_SEEK_STEP_SEC:
-        return arrow
-    return None
-
-
-def route_vlc_seek(direction: str, seconds: int) -> None:
-    if direction not in {"left", "right"} or seconds <= 0:
-        return
-    signed_seconds = -seconds if direction == "left" else seconds
-    key = _vlc_seek_key_for_step(direction, seconds)
-    if key is not None:
-        send_key_vlc(key)
-    else:
-        arrow = "Left" if direction == "left" else "Right"
-        repeats = max(1, round(seconds / max(1, VLC_SEEK_STEP_SEC)))
-        for _ in range(repeats):
-            send_key_vlc(arrow)
-            time.sleep(0.015)
-    update_vlc_state(seek_delta_sec=signed_seconds)
-    show_playback_osd(direction)
-
-
 def route_mpv_seek(direction: str, seconds: int) -> None:
     if direction not in {"left", "right"} or seconds <= 0:
         return
@@ -511,24 +457,8 @@ def route_mpv_seek(direction: str, seconds: int) -> None:
 
 
 def route_playback_seek(app: str, direction: str, seconds: int) -> None:
-    if app == "vlc":
-        route_vlc_seek(direction, seconds)
-    elif app == "mpv":
+    if app == "mpv":
         route_mpv_seek(direction, seconds)
-
-
-def _vlc_running() -> bool:
-    for name in ("vlc", "cvlc"):
-        result = subprocess.run(
-            ["pgrep", "-x", name],
-            env=_env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        if result.returncode == 0:
-            return True
-    return False
 
 
 def _mpv_window_ids() -> list[str]:
@@ -536,6 +466,21 @@ def _mpv_window_ids() -> list[str]:
     if result.returncode != 0 or not result.stdout.strip():
         return []
     return result.stdout.split()
+
+
+def _playback_session_active() -> bool:
+    if PLAYBACK_ACTIVE_FILE.is_file():
+        return True
+    if MPV_SOCKET_PATH.is_socket():
+        return True
+    result = subprocess.run(
+        ["pgrep", "-x", "mpv"],
+        env=_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 _FOREGROUND_CACHE_TTL_SEC = 0.15
@@ -565,11 +510,15 @@ def foreground_app() -> str:
     return value
 
 
+def routing_app() -> str:
+    if _playback_session_active():
+        return "mpv"
+    return foreground_app()
+
+
 def _resolve_foreground_app() -> str:
     wid = _xdotool("getactivewindow").stdout.strip()
     if not wid or wid == "0":
-        if _vlc_running():
-            return "vlc"
         return "other"
 
     name = _window_name(wid)
@@ -579,25 +528,18 @@ def _resolve_foreground_app() -> str:
     if "mpv" in blob or wid in _mpv_window_ids():
         return "mpv"
 
-    if "vlc" in blob:
-        return "vlc"
-    process = _window_process(wid)
-    cmdline = _window_cmdline(wid)
-    if "vlc" in process or "vlc" in cmdline:
-        return "vlc"
-
     if "mango-overlay" in klass or "mango overlay" in name:
         return "launcher"
     if "mango-launcher" in blob or "mango launcher" in name:
         return "launcher"
 
+    process = _window_process(wid)
+    cmdline = _window_cmdline(wid)
     if _is_launcher_window_from_parts(
         wid, name=name, klass=klass, process=process, cmdline=cmdline
     ):
         return "launcher"
 
-    if _vlc_running():
-        return "vlc"
     return "other"
 
 
@@ -768,55 +710,9 @@ def ensure_playback_osd_daemon() -> None:
         ["python3", str(PLAYBACK_OSD_PY), "--run"],
         extra_env={
             "MANGO_REPO_DIR": str(REPO),
-            "MANGO_PLAYER_STATE_PATH": str(PLAYER_STATE_PATH),
             "MANGO_PLAYBACK_OSD_PID_FILE": str(PLAYBACK_OSD_PID_FILE),
         },
     )
-
-
-def _vlc_position_from_state(state: dict[str, object], now_ms: int) -> float:
-    start_sec = max(0.0, float(state.get("start_sec") or 0))
-    if bool(state.get("paused")):
-        return start_sec
-    started_at_ms = float(state.get("started_at_ms") or now_ms)
-    return start_sec + max(0.0, (now_ms - started_at_ms) / 1000.0)
-
-
-def update_vlc_state(*, seek_delta_sec: int = 0, toggle_pause: bool = False) -> None:
-    try:
-        state = json.loads(PLAYER_STATE_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return
-    if state.get("backend") != "vlc":
-        return
-    now_ms = int(time.time() * 1000)
-    duration_sec = max(0.0, float(state.get("duration_sec") or 0))
-    position = _vlc_position_from_state(state, now_ms)
-    if seek_delta_sec:
-        position += seek_delta_sec
-    position = max(0.0, min(duration_sec, position) if duration_sec > 0 else position)
-
-    if toggle_pause:
-        paused = not bool(state.get("paused"))
-        state["paused"] = paused
-        state["start_sec"] = position
-        state["started_at_ms"] = now_ms
-        if paused:
-            state["paused_at_ms"] = now_ms
-        else:
-            state.pop("paused_at_ms", None)
-    elif seek_delta_sec:
-        state["start_sec"] = position
-        state["started_at_ms"] = now_ms
-    else:
-        return
-
-    try:
-        tmp = PLAYER_STATE_PATH.with_name(f".{PLAYER_STATE_PATH.name}.{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(state, separators=(",", ":")), encoding="utf-8")
-        tmp.replace(PLAYER_STATE_PATH)
-    except OSError:
-        pass
 
 
 def stop_mpv_home() -> None:
@@ -874,7 +770,7 @@ def refresh_launcher_library() -> None:
 def adjust_volume(delta_percent: int) -> None:
     if delta_percent == 0:
         return
-    if foreground_app() == "mpv":
+    if routing_app() == "mpv":
         popen_tv_user(["bash", str(MPV_IPC_SH), "add", "volume", str(delta_percent)])
         show_playback_osd("volume")
         return
@@ -893,7 +789,7 @@ def adjust_volume(delta_percent: int) -> None:
 
 def go_home() -> None:
     name, klass = active_window_meta()
-    app = foreground_app()
+    app = routing_app()
     if app == "launcher":
         diag_event(
             "home_press",
@@ -909,8 +805,8 @@ def go_home() -> None:
                 invalidate_foreground_cache()
         return
     diag_event("home_press", foreground=app, active_name=name, active_class=klass)
-    if app in {"mpv", "vlc"}:
-        print(f"mango-tv-pad: home -> mpv-stop.sh + launcher ({app})", flush=True)
+    if app == "mpv":
+        print("mango-tv-pad: home -> mpv-stop.sh + launcher (mpv)", flush=True)
         stop_mpv_home()
         return
     print("mango-tv-pad: home -> launch-launcher.sh", flush=True)
@@ -922,48 +818,43 @@ def go_home() -> None:
 
 
 def route_playback_subtitle(app: str, action: str) -> None:
-    if app == "mpv":
-        if action == "toggle":
-            if _mpv_subs_showing():
-                send_mpv_ipc("set_property", "sid", "no")
-                send_mpv_ipc("set_property", "sub-visibility", "no")
-            else:
-                send_mpv_ipc("set_property", "sub-visibility", "yes")
-                # sub-visibility alone does not select a track; sid=auto only
-                # picks forced subs — cycle up from off to the first real track.
-                send_mpv_ipc("cycle", "sub", "up")
-        elif action == "prev":
-            send_mpv_ipc("set_property", "sub-visibility", "yes")
-            send_mpv_ipc("cycle", "sub", "down")
+    if app != "mpv":
+        return
+    if action == "toggle":
+        if _mpv_subs_showing():
+            send_mpv_ipc("set_property", "sid", "no")
+            send_mpv_ipc("set_property", "sub-visibility", "no")
         else:
             send_mpv_ipc("set_property", "sub-visibility", "yes")
             send_mpv_ipc("cycle", "sub", "up")
-    elif app == "vlc":
-        # VLC couch path: v cycles subtitle tracks (no clean prev/back key).
-        send_key_vlc("v")
+    elif action == "prev":
+        send_mpv_ipc("set_property", "sub-visibility", "yes")
+        send_mpv_ipc("cycle", "sub", "down")
+    else:
+        send_mpv_ipc("set_property", "sub-visibility", "yes")
+        send_mpv_ipc("cycle", "sub", "up")
     show_playback_osd("subs")
 
 
 def route_playback_audio(app: str) -> None:
-    if app == "mpv":
-        audio_ids = _mpv_audio_track_ids()
-        if not audio_ids:
-            show_playback_osd("audio")
-            return
-        current = mpv_ipc_data("aid")
-        current_id: int | None = None
-        if _mpv_track_id_active(current):
-            try:
-                current_id = int(current)  # type: ignore[arg-type]
-            except (TypeError, ValueError):
-                current_id = None
-        if current_id not in audio_ids:
-            next_id = audio_ids[0]
-        else:
-            next_id = audio_ids[(audio_ids.index(current_id) + 1) % len(audio_ids)]
-        send_mpv_ipc("set_property", "aid", str(next_id))
-    elif app == "vlc":
-        send_key_vlc("b")
+    if app != "mpv":
+        return
+    audio_ids = _mpv_audio_track_ids()
+    if not audio_ids:
+        show_playback_osd("audio")
+        return
+    current = mpv_ipc_data("aid")
+    current_id: int | None = None
+    if _mpv_track_id_active(current):
+        try:
+            current_id = int(current)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            current_id = None
+    if current_id not in audio_ids:
+        next_id = audio_ids[0]
+    else:
+        next_id = audio_ids[(audio_ids.index(current_id) + 1) % len(audio_ids)]
+    send_mpv_ipc("set_property", "aid", str(next_id))
     show_playback_osd("audio")
 
 
@@ -971,37 +862,26 @@ def route_dpad(app: str, direction: str) -> None:
     symbol = {"left": "Left", "right": "Right", "up": "Up", "down": "Down"}[direction]
     if app == "mpv":
         if direction in {"left", "right"}:
-            route_mpv_seek(direction, VLC_SEEK_STEP_SEC)
+            route_mpv_seek(direction, PLAYBACK_SEEK_STEP_SEC)
         else:
             send_mpv_ipc("keypress", symbol.upper())
-    elif app == "vlc":
-        if direction in {"left", "right"}:
-            route_vlc_seek(direction, VLC_SEEK_STEP_SEC)
-        else:
-            send_key_vlc(symbol)
-            show_playback_osd(direction)
     elif app == "launcher":
         send_key_launcher(symbol)
 
 
 def route_playback_shoulder(app: str, direction: str) -> None:
-    route_playback_seek(app, direction, VLC_SHOULDER_SEEK_STEP_SEC)
+    route_playback_seek(app, direction, PLAYBACK_SHOULDER_SEEK_STEP_SEC)
 
 
 def route_face(app: str, action: str) -> None:
     if action == "select":
-        symbol = "Return"
         if app == "mpv":
             send_mpv_ipc("keypress", "SPACE")
             show_playback_osd("pause")
-        elif app == "vlc":
-            send_key_vlc("space")
-            update_vlc_state(toggle_pause=True)
-            show_playback_osd("pause")
         elif app == "launcher":
-            send_key_launcher(symbol)
+            send_key_launcher("Return")
     elif action == "back":
-        if app in {"mpv", "vlc"}:
+        if app == "mpv":
             stop_mpv_home()
         elif app == "launcher":
             send_key_launcher("BackSpace")
@@ -1150,11 +1030,11 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
         hold_seek.clear()
 
     def held_seek_step(held_for_sec: float) -> int:
-        if held_for_sec >= VLC_HOLD_SEEK_BIG_AFTER_SEC:
-            return VLC_SEEK_BIG_STEP_SEC
-        if held_for_sec >= VLC_HOLD_SEEK_FAST_AFTER_SEC:
-            return VLC_SEEK_FAST_STEP_SEC
-        return VLC_SEEK_STEP_SEC
+        if held_for_sec >= PLAYBACK_HOLD_SEEK_BIG_AFTER_SEC:
+            return PLAYBACK_SEEK_BIG_STEP_SEC
+        if held_for_sec >= PLAYBACK_HOLD_SEEK_FAST_AFTER_SEC:
+            return PLAYBACK_SEEK_FAST_STEP_SEC
+        return PLAYBACK_SEEK_STEP_SEC
 
     def start_or_update_seek_hold(app: str, direction: str) -> None:
         if not _playback_app(app):
@@ -1165,13 +1045,13 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
         if hold_seek.get("direction") == direction:
             return
         wake_display_for_input(f"{app}-{direction}")
-        route_playback_seek(app, direction, VLC_SEEK_STEP_SEC)
+        route_playback_seek(app, direction, PLAYBACK_SEEK_STEP_SEC)
         hold_seek.update(
             {
                 "app": app,
                 "direction": direction,
                 "started_at": now,
-                "next_at": now + VLC_HOLD_SEEK_DELAY_SEC,
+                "next_at": now + PLAYBACK_HOLD_SEEK_DELAY_SEC,
             }
         )
 
@@ -1180,7 +1060,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
             return
         invalidate_foreground_cache()
         hold_app = str(hold_seek.get("app") or "")
-        if foreground_app() != hold_app or not _playback_app(hold_app):
+        if routing_app() != hold_app or not _playback_app(hold_app):
             stop_seek_hold()
             return
         now = time.monotonic()
@@ -1193,7 +1073,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
             return
         held_for = now - float(hold_seek.get("started_at") or now)
         route_playback_seek(hold_app, direction, held_seek_step(held_for))
-        hold_seek["next_at"] = now + VLC_HOLD_SEEK_REPEAT_SEC
+        hold_seek["next_at"] = now + PLAYBACK_HOLD_SEEK_REPEAT_SEC
 
     def select_timeout() -> float:
         timeout = STATUS_HEARTBEAT_SEC
@@ -1222,7 +1102,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                     last_action=f"event:{event.type}:{event.code}",
                 )
                 invalidate_foreground_cache()
-                app = foreground_app()
+                app = routing_app()
                 if event.type == ecodes.EV_ABS:
                     if event.code in (ecodes.ABS_X, ecodes.ABS_HAT0X):
                         threshold = 1 if event.code == ecodes.ABS_HAT0X else THRESH
@@ -1277,9 +1157,9 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                         debounced("volume-down", lambda: adjust_volume(-VOLUME_STEP_PERCENT))
                     elif event.code == BTN_PLUS:
                         debounced("volume-up", lambda: adjust_volume(VOLUME_STEP_PERCENT))
-                    elif app in {"mpv", "vlc"} and event.code == BTN_TL:
+                    elif app == "mpv" and event.code == BTN_TL:
                         debounced(f"{app}-seek-big-back", lambda: route_playback_shoulder(app, "left"))
-                    elif app in {"mpv", "vlc"} and event.code == BTN_TR:
+                    elif app == "mpv" and event.code == BTN_TR:
                         debounced(f"{app}-seek-big-forward", lambda: route_playback_shoulder(app, "right"))
                     elif app == "launcher" and event.code == BTN_TL:
                         debounced("tab-prev", lambda: switch_launcher_tab(-1))

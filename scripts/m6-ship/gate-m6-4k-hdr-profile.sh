@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M6.3 Stage 2 target-TV readiness gate. Unified VLC couch playback.
+# M6 couch playback profile gate — mpv-only ship path.
 
 set -uo pipefail
 
@@ -9,7 +9,7 @@ cd "$REPO_DIR" || exit 1
 # shellcheck source=../lib/gate-common.sh
 source "$REPO_DIR/scripts/lib/gate-common.sh"
 mango_gate_init
-gate_header "M6.3 Stage 2 Target-TV Profile"
+gate_header "M6 mpv-hifi couch profile"
 
 CATALOG="${MANGO_CATALOG_URL:-http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}}"
 PROFILE="${MANGO_CATALOG_FILTERS:-}"
@@ -61,9 +61,9 @@ fi
   && gate_pass "mpv display fallback is 1920x1080@60" \
   || gate_fail "mpv display fallback not pinned to 1920x1080@60"
 
-[[ "${MANGO_MPV_HWDEC:-}" == "drm-copy" ]] \
-  && gate_pass "mpv hardware decode pinned to drm-copy" \
-  || gate_fail "mpv hardware decode not pinned to drm-copy"
+[[ "${MANGO_MPV_HWDEC:-}" == "auto-safe" ]] \
+  && gate_pass "mpv hardware decode pinned to auto-safe" \
+  || gate_fail "mpv hardware decode not pinned to auto-safe"
 
 [[ "${MANGO_MPV_MATCH_REFRESH:-}" == "1" ]] \
   && gate_pass "mpv source refresh matching enabled" \
@@ -81,21 +81,21 @@ fi
   && gate_pass "mpv interpolation disabled for native cadence" \
   || gate_fail "mpv interpolation not pinned off"
 
-[[ "${MANGO_PLAYBACK_BACKEND:-}" == "vlc" ]] \
-  && gate_pass "couch playback backend is unified VLC" \
-  || gate_fail "couch playback backend is not VLC"
+command -v mpv >/dev/null 2>&1 \
+  && gate_pass "mpv installed" \
+  || gate_fail "mpv missing"
 
-[[ "${MANGO_VLC_DISABLE_XCOMPMGR:-}" == "1" ]] \
-  && gate_pass "VLC playback disables xcompmgr to prevent tearing" \
-  || gate_fail "VLC playback does not disable xcompmgr"
+[[ "${MANGO_MPV_DISABLE_XCOMPMGR:-}" == "1" ]] \
+  && gate_pass "mpv playback disables xcompmgr to prevent tearing" \
+  || gate_fail "mpv playback does not disable xcompmgr"
 
-[[ "${MANGO_VLC_STOP_LAUNCHER:-}" == "1" ]] \
-  && gate_pass "VLC playback stops launcher surface while fullscreen" \
-  || gate_fail "VLC playback does not stop launcher surface"
+[[ "${MANGO_MPV_STOP_LAUNCHER:-}" == "1" ]] \
+  && gate_pass "mpv playback stops launcher surface while fullscreen" \
+  || gate_fail "mpv playback does not stop launcher surface"
 
-command -v cvlc >/dev/null 2>&1 \
-  && gate_pass "cvlc installed" \
-  || gate_fail "cvlc missing"
+[[ "${MANGO_MPV_DEFER_FOREGROUND:-}" == "1" ]] \
+  && gate_pass "mpv deferred foreground handoff enabled" \
+  || gate_fail "mpv deferred foreground handoff disabled"
 
 if command -v xrandr >/dev/null 2>&1; then
   output="$(xrandr --query 2>/dev/null | awk '/ connected/{print $1; exit}')"

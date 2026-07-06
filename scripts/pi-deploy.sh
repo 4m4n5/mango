@@ -90,8 +90,13 @@ if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
 fi
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null; then
-  systemctl --user restart mango-launcher-chromium.service || true
-  sleep 2
+  PLAYBACK_ACTIVE_FILE="\${HOME}/.cache/mango/playback-active"
+  if [[ -f "\$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
+    echo "pi-deploy: skip launcher restart (playback active)"
+  else
+    systemctl --user restart mango-launcher-chromium.service || true
+    sleep 2
+  fi
 fi
 if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
   python3 scripts/m5-voice/ai/sync-hinglish-stt-config.py || true

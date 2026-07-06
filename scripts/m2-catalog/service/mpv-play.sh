@@ -5,10 +5,6 @@ set -euo pipefail
 
 SOCKET="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
 MPV_LOG="${MANGO_MPV_LOG:-${HOME}/.cache/mango/mpv-play.log}"
-VLC_LOG="${MANGO_VLC_LOG:-${HOME}/.cache/mango/vlc-play.log}"
-VLC_PID_FILE="${MANGO_VLC_PID_FILE:-${HOME}/.cache/mango/vlc.pid}"
-PLAYER_STATE_FILE="${MANGO_PLAYER_STATE_PATH:-${HOME}/.cache/mango/player-state.json}"
-VLC_PLAYLIST="${MANGO_VLC_PLAYLIST:-${HOME}/.cache/mango/vlc-play.m3u}"
 PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playback-osd.pid}"
 PLAYBACK_OSD_LOG="${MANGO_PLAYBACK_OSD_LOG:-${HOME}/.cache/mango/playback-osd.log}"
 PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epoch}"
@@ -358,87 +354,12 @@ detect_audio_args() {
   fi
 }
 
-detect_vlc_audio_args() {
-  local configured_device="${MANGO_VLC_ALSA_DEVICE:-${MANGO_VLC_AUDIO_DEVICE:-}}"
-  local configured_aout="${MANGO_VLC_AOUT:-alsa}"
-  local saved_sink="${MANGO_AUDIO_SINK:-}"
-  local mpv_device="${MANGO_MPV_AUDIO_DEVICE:-}"
-
-  if [[ -z "$configured_device" && "$saved_sink" == alsa/* ]]; then
-    configured_device="${saved_sink#alsa/}"
-  fi
-  if [[ -z "$configured_device" && "$mpv_device" == alsa/* ]]; then
-    configured_device="${mpv_device#alsa/}"
-  fi
-  if [[ -z "$configured_device" ]] \
-    && aplay -L 2>/dev/null | grep -q '^hdmi:CARD=vc4hdmi0,DEV=0$'; then
-    configured_device="hdmi:CARD=vc4hdmi0,DEV=0"
-  fi
-
-  if [[ -n "$configured_aout" ]]; then
-    printf '%s\0' "--aout=${configured_aout}"
-  fi
-  if [[ -n "$configured_device" ]]; then
-    printf '%s\0' "--alsa-audio-device=${configured_device}"
-  fi
-  printf '%s\0' "--no-spdif"
-}
-
-write_vlc_state() {
-  local pid="$1"
-  local duration="$2"
-  local start_sec="${START_SEC:-0}"
-  local now
-  now="$(now_ms)"
-  mkdir -p "$(dirname "$PLAYER_STATE_FILE")"
-  python3 - "$PLAYER_STATE_FILE" "$pid" "$now" "${start_sec:-0}" "${duration:-0}" <<'PY'
-import json
-import sys
-
-path, pid, started_at_ms, start_sec, duration_sec = sys.argv[1:]
-payload = {
-    "backend": "vlc",
-    "pid": int(pid),
-    "started_at_ms": int(float(started_at_ms)),
-    "start_sec": max(0.0, float(start_sec or 0)),
-    "duration_sec": max(0.0, float(duration_sec or 0)),
-}
-with open(path, "w", encoding="utf-8") as fh:
-    json.dump(payload, fh, separators=(",", ":"))
-PY
-}
-
-start_vlc_exit_monitor() {
-  local pid="$1"
-  setsid bash -c '
-    pid="$1"
-    repo="$2"
-    state="$3"
-    pid_file="$4"
-    playlist="$5"
-    osd_pid_file="$6"
-    while kill -0 "$pid" 2>/dev/null; do
-      sleep 1
-    done
-    if [[ -f "$state" ]] && grep -q "\"pid\":$pid" "$state" 2>/dev/null; then
-      curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
-      if [[ -f "$osd_pid_file" ]]; then
-        kill "$(cat "$osd_pid_file")" 2>/dev/null || true
-        rm -f "$osd_pid_file"
-      fi
-      rm -f "$state" "$pid_file" "$playlist" "${HOME}/.cache/mango/playback-active"
-      bash "$repo/scripts/lib/mango-display-mode.sh" launcher >/dev/null 2>&1 || true
-      systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
-    fi
-  ' bash "$pid" "$REPO_DIR" "$PLAYER_STATE_FILE" "$VLC_PID_FILE" "$VLC_PLAYLIST" "$PLAYBACK_OSD_PID_FILE" >/dev/null 2>&1 &
-}
-
 start_mpv_exit_monitor() {
   # When couch mpv stops the launcher for a tear-free foreground, a natural
-  # end-of-file has nothing to bring the launcher back. Mirror the VLC monitor:
-  # watch the mpv pid and, if it is still the current play, restore the
-  # launcher display mode + Chromium kiosk. An explicit --stop clears mpv.pid
-  # first, so this no-ops in that case (mpv-stop.sh handles restore instead).
+  # end-of-file has nothing to bring the launcher back. Watch the mpv pid and,
+  # if it is still the current play, restore launcher display + Chromium kiosk.
+  # An explicit --stop clears mpv.pid first, so this no-ops (mpv-stop.sh handles
+  # restore instead).
   local pid="$1"
   local pidfile="${HOME}/.cache/mango/mpv.pid"
   setsid bash -c '
@@ -724,7 +645,6 @@ ensure_playback_osd() {
   rm -f "$PLAYBACK_OSD_PID_FILE"
   setsid env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" HOME="$HOME" \
     MANGO_REPO_DIR="$REPO_DIR" \
-    MANGO_PLAYER_STATE_PATH="$PLAYER_STATE_FILE" \
     MANGO_PLAYBACK_OSD_PID_FILE="$PLAYBACK_OSD_PID_FILE" \
     python3 "$osd_py" --run >>"$PLAYBACK_OSD_LOG" 2>&1 < /dev/null &
   echo "$!" >"$PLAYBACK_OSD_PID_FILE"
@@ -732,116 +652,6 @@ ensure_playback_osd() {
 
 start_playback_osd() {
   ensure_playback_osd
-}
-
-play_with_vlc() {
-  local backend="vlc"
-  local vlc_bin
-  local vlc_pid
-  local started_alive_ms
-  local vlc_audio_args=()
-  local vlc_args=()
-  vlc_bin="$(command -v cvlc || command -v vlc || true)"
-  if [[ -z "$vlc_bin" ]]; then
-    echo "FAIL: vlc backend selected but cvlc/vlc is unavailable" >&2
-    exit 1
-  fi
-  if [[ -n "$AUDIO_URL" ]]; then
-    # VLC supports input slaves, but Mango has not validated split A/V streams
-    # on the couch path. Keep those rare cases on mpv until explicitly proven.
-    echo "FAIL: vlc backend does not support validated split audio streams" >&2
-    exit 1
-  fi
-  if [[ "${video_duration:-0}" != "0" && "$LIVE" == "false" ]]; then
-    local min_duration="$MIN_DURATION_SEC"
-    if ! python3 - "$video_duration" "$min_duration" <<'PY'
-import sys
-duration = float(sys.argv[1] or 0)
-minimum = float(sys.argv[2] or 0)
-raise SystemExit(0 if duration <= 0 or duration >= minimum else 1)
-PY
-    then
-      echo "FAIL: debrid_status_clip duration=${video_duration}" >&2
-      exit 1
-    fi
-  fi
-
-  while IFS= read -r -d '' arg; do
-    vlc_audio_args+=("$arg")
-  done < <(detect_vlc_audio_args)
-
-  mkdir -p "$(dirname "$VLC_LOG")"
-  mkdir -p "$(dirname "$VLC_PID_FILE")"
-  printf '#EXTM3U\n%s\n' "$URL" >"$VLC_PLAYLIST"
-  chmod 600 "$VLC_PLAYLIST" 2>/dev/null || true
-
-  if [[ "${MANGO_VLC_DISABLE_XCOMPMGR:-1}" == "1" ]]; then
-    pkill -x xcompmgr 2>/dev/null || true
-  fi
-  if [[ "${MANGO_VLC_STOP_LAUNCHER:-1}" == "1" ]]; then
-    systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
-  fi
-
-  if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
-    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback-auto "$video_width" "$video_height" "$video_fps" 2>/dev/null || true
-  else
-    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
-  fi
-
-  vlc_args=(
-    --fullscreen
-    --no-video-title-show
-    --no-osd
-    --play-and-exit
-    --no-qt-privacy-ask
-    --no-qt-error-dialogs
-    "--short-jump-size=${MANGO_VLC_SEEK_STEP_SEC:-10}"
-    "--medium-jump-size=${MANGO_VLC_BIG_SEEK_STEP_SEC:-120}"
-    "--long-jump-size=${MANGO_VLC_LONG_SEEK_STEP_SEC:-300}"
-    "${vlc_audio_args[@]}"
-  )
-  if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
-    vlc_args+=(--start-time "$START_SEC")
-  fi
-
-  : >"$VLC_LOG"
-  setsid env vblank_mode="${MANGO_VLC_VBLANK_MODE:-1}" \
-    MESA_GL_SYNC_TO_VBLANK="${MANGO_VLC_MESA_GL_SYNC_TO_VBLANK:-1}" \
-    "$vlc_bin" "${vlc_args[@]}" "$VLC_PLAYLIST" >>"$VLC_LOG" 2>&1 < /dev/null &
-  vlc_pid=$!
-  echo "$vlc_pid" >"$VLC_PID_FILE"
-  write_vlc_state "$vlc_pid" "${video_duration:-0}"
-  start_vlc_exit_monitor "$vlc_pid"
-  start_playback_osd
-
-  while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
-    if play_cancelled; then
-      echo "FAIL: play cancelled" >&2
-      MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-      exit 1
-    fi
-    if ! kill -0 "$vlc_pid" 2>/dev/null; then
-      break
-    fi
-    started_alive_ms=$(( $(now_ms) - START_MS ))
-    if [[ "$started_alive_ms" -ge "${MANGO_VLC_TTFF_ASSUME_MS:-2500}" ]]; then
-      END_MS="$(now_ms)"
-      echo "PASS: ttff_ms=$((END_MS - START_MS)) backend=${backend}"
-      if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
-        bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch vlc playing >/dev/null 2>&1 || true
-      fi
-      exit 0
-    fi
-    sleep 0.2
-  done
-
-  if tail -40 "$VLC_LOG" 2>/dev/null | grep -qiE 'copyright infringement|removed from.*debrid|file was removed'; then
-    echo "FAIL: debrid_copyright_block" >&2
-  else
-    echo "FAIL: vlc did not start playback within ${TIMEOUT_MS}ms" >&2
-  fi
-  MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-  exit 1
 }
 
 mkdir -p "$(dirname "$SOCKET")"
@@ -880,35 +690,21 @@ if ! $PROBE; then
     fi
   fi
 fi
-PLAYBACK_BACKEND="${MANGO_PLAYBACK_BACKEND:-mpv}"
-if $PROBE; then
-  PLAYBACK_BACKEND="mpv"
-fi
 DEFER_FOREGROUND_DEFAULT=0
 if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
   DEFER_FOREGROUND_DEFAULT=1
 fi
 DEFER_FOREGROUND="${MANGO_MPV_DEFER_FOREGROUND:-$DEFER_FOREGROUND_DEFAULT}"
-if $PROBE || [[ "$PLAYBACK_BACKEND" == "vlc" ]]; then
+if $PROBE; then
   DEFER_FOREGROUND=0
 fi
-if [[ "$PLAYBACK_BACKEND" == "vlc" ]] && ! $LIVE && [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]]; then
-  if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
-    read -r video_width video_height video_fps video_duration <<<"$profile"
-    video_label="${video_width}x${video_height}@${video_fps}"
-  fi
-fi
-echo "mpv-play: $URL_LABEL mode=$MODE backend=$PLAYBACK_BACKEND live=$LIVE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC audio=${audio_label} video=${video_label}"
+echo "mpv-play: $URL_LABEL mode=$MODE backend=mpv live=$LIVE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC audio=${audio_label} video=${video_label}"
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 HANDOFF_DONE=false
 DISPLAY_ENABLED=false
 NULL_BUFFER=false
 GPU_DEFER=false
-
-if [[ "$PLAYBACK_BACKEND" == "vlc" ]]; then
-  play_with_vlc
-fi
 
 mpv_args=()
 if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]]; then
