@@ -620,12 +620,9 @@ append_mpv_play_args() {
     args_ref+=(--vo=null --ao=null --really-quiet)
   else
     args_ref+=(--fs "${audio_args[@]}")
-    if [[ -z "$AUDIO_URL" ]]; then
-      # --focus-on-open=no + --audio-file in a background session makes mpv exit
-      # immediately on Pi; keep focus defer only for single-stream plays.
-      args_ref+=(--focus-on-open=no)
-    fi
-  append_mpv_render_args "$1"
+    # Do not pass --focus-on-open=no on the Pi GPU fullscreen path: mpv exits
+    # immediately (even without --audio-file). Split A/V uses vo=null buffer instead.
+    append_mpv_render_args "$1"
     if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
       args_ref+=(--start="$START_SEC")
     fi

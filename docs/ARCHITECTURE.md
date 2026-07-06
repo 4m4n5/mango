@@ -53,12 +53,11 @@ without bringing back the retired Chromium overlay.
 
 **Deferred foreground handoff.** When `MANGO_MPV_DEFER_FOREGROUND=1` (default
 when `MANGO_MPV_STOP_LAUNCHER=1`, set by `mpv`/`mpv-hifi` profiles), `mpv-play.sh`
-keeps the Chromium launcher visible while mpv buffers. Single-stream VOD uses the
-real GPU VO from spawn (`--focus-on-open=no`) so 4K REMUX never suffers a mid-play
-`vo=null`→GPU reinit; split A/V (YouTube `--audio-file`) keeps the null-VO buffer
-path. Handoff waits until `demuxer-cache-duration` meets a ladder-aware threshold
-(18s for 4K REMUX) before stopping the launcher, disabling `xcompmgr`, and
-source-matching the display mode. The mpv exit monitor restores launcher mode
+keeps the Chromium launcher visible while mpv buffers on the real GPU VO from spawn
+(no `vo=null`→GPU reinit for single-stream VOD). Split A/V (YouTube `--audio-file`)
+keeps the null-VO buffer path. Handoff waits until `demuxer-cache-duration` meets a
+ladder-aware threshold (18s for 4K REMUX) before stopping the launcher, disabling
+`xcompmgr`, and source-matching the display mode. The mpv exit monitor restores launcher mode
 after playback ends.
 
 ### Playability layer
