@@ -126,6 +126,79 @@ is_youtube_stream() {
   return 1
 }
 
+is_4k_ladder_step() {
+  case "${MANGO_PLAY_LADDER_STEP:-}" in
+    4k_*|*2160*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+mpv_width_ge_4k() {
+  local width="$1"
+  [[ "$width" =~ ^[0-9]+$ && "$width" -ge 3000 ]]
+}
+
+expects_4k_playback() {
+  is_4k_ladder_step && return 0
+  mpv_width_ge_4k "${video_width:-}" && return 0
+  mpv_width_ge_4k "$(mpv_property width 2>/dev/null || echo 0)" && return 0
+  return 1
+}
+
+handoff_min_cache_secs() {
+  if expects_4k_playback; then
+    printf '%s\n' "${MANGO_MPV_4K_HANDOFF_CACHE_SECS:-18}"
+    return 0
+  fi
+  printf '%s\n' "${MANGO_MPV_HANDOFF_CACHE_SECS:-3}"
+}
+
+demuxer_cache_ready() {
+  local min_secs="${1:-3}"
+  local cache
+  cache="$(mpv_property demuxer-cache-duration 2>/dev/null || echo 0)"
+  python3 - "$cache" "$min_secs" <<'PY'
+import sys
+cache = float(sys.argv[1] or 0)
+minimum = float(sys.argv[2] or 0)
+raise SystemExit(0 if cache >= minimum else 1)
+PY
+}
+
+handoff_cache_wait_exceeded() {
+  local ceiling_ms
+  if expects_4k_playback; then
+    ceiling_ms="${MANGO_MPV_4K_HANDOFF_CACHE_WAIT_MS:-45000}"
+  else
+    ceiling_ms="${MANGO_MPV_HANDOFF_CACHE_WAIT_MS:-12000}"
+  fi
+  [[ "$ceiling_ms" =~ ^[0-9]+$ ]] || ceiling_ms=45000
+  (( $(now_ms) - START_MS >= ceiling_ms ))
+}
+
+playback_handoff_ready() {
+  local min_cache
+  min_cache="$(handoff_min_cache_secs)"
+  demuxer_cache_ready "$min_cache" || handoff_cache_wait_exceeded
+}
+
+apply_4k_video_sync() {
+  command -v socat >/dev/null 2>&1 || return 0
+  [[ -S "$SOCKET" ]] || return 0
+  local width sync_4k
+  width="$(mpv_property width 2>/dev/null || echo 0)"
+  sync_4k="${MANGO_MPV_VIDEO_SYNC_4K:-audio}"
+  if [[ -n "${sync_4k}" ]] && mpv_width_ge_4k "$width"; then
+    printf '{"command":["set_property","video-sync","%s"]}\n' "$sync_4k" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  fi
+}
+
+needs_vo_null_buffer() {
+  # Split A/V (--audio-file) cannot use background GPU defer on Pi; keep the
+  # null-VO buffer path only for that case.
+  [[ -n "${AUDIO_URL:-}" ]]
+}
+
 detect_hwdec() {
   if [[ -n "${MANGO_MPV_HWDEC:-}" ]]; then
     printf '%s\n' "$MANGO_MPV_HWDEC"
@@ -362,6 +435,9 @@ append_mpv_cache_args() {
   if [[ -n "${MANGO_MPV_CACHE:-}" ]]; then
     args_ref+=(--cache="${MANGO_MPV_CACHE}")
   fi
+  if [[ -n "${MANGO_MPV_CACHE_PAUSE:-}" ]]; then
+    args_ref+=(--cache-pause="${MANGO_MPV_CACHE_PAUSE}")
+  fi
   if [[ -n "${MANGO_MPV_DEMUXER_MAX_BYTES:-}" ]]; then
     args_ref+=(--demuxer-max-bytes="${MANGO_MPV_DEMUXER_MAX_BYTES}")
   fi
@@ -389,7 +465,11 @@ append_mpv_render_args() {
     args_ref+=("--profile=${MANGO_MPV_PROFILE:-fast}")
   fi
   if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
-    args_ref+=("--video-sync=${MANGO_MPV_VIDEO_SYNC:-display-resample}")
+    if is_4k_ladder_step && [[ -n "${MANGO_MPV_VIDEO_SYNC_4K:-}" ]]; then
+      args_ref+=("--video-sync=${MANGO_MPV_VIDEO_SYNC_4K}")
+    else
+      args_ref+=("--video-sync=${MANGO_MPV_VIDEO_SYNC:-display-resample}")
+    fi
   fi
   if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
     args_ref+=("--interpolation=${MANGO_MPV_INTERPOLATION:-no}")
@@ -471,12 +551,7 @@ enable_mpv_display_once() {
   if [[ -n "$device" ]]; then
     printf '{"command":["set_property","audio-device","%s"]}\n' "$device" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
-  local width sync_4k
-  width="$(mpv_property width 2>/dev/null || echo 0)"
-  sync_4k="${MANGO_MPV_VIDEO_SYNC_4K:-display-vdrop}"
-  if [[ -n "${sync_4k}" && "$width" =~ ^[0-9]+$ && "$width" -ge 3000 ]]; then
-    printf '{"command":["set_property","video-sync","%s"]}\n' "$sync_4k" | socat - "$SOCKET" >/dev/null 2>&1 || true
-  fi
+  apply_4k_video_sync
   return 0
 }
 
@@ -781,6 +856,7 @@ DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 HANDOFF_DONE=false
 DISPLAY_ENABLED=false
 NULL_BUFFER=false
+GPU_DEFER=false
 
 if [[ "$PLAYBACK_BACKEND" == "vlc" ]]; then
   play_with_vlc
@@ -788,8 +864,18 @@ fi
 
 mpv_args=()
 if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]]; then
-  append_mpv_buffer_args mpv_args
-  NULL_BUFFER=true
+  if needs_vo_null_buffer; then
+    append_mpv_buffer_args mpv_args
+    NULL_BUFFER=true
+  else
+    # Single-stream VOD (movies/series): decode on the real GPU VO from the
+    # start so we never reinitialize the render pipeline mid-play — the main
+    # source of sustained 4K REMUX stutter on Pi. Launcher stays on top until
+    # the demuxer has headroom, then we hand off foreground.
+    append_mpv_play_args mpv_args
+    DISPLAY_ENABLED=true
+    GPU_DEFER=true
+  fi
 else
   append_mpv_play_args mpv_args
   DISPLAY_ENABLED=true
@@ -812,16 +898,20 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
       if ! $PROBE && ! $HANDOFF_DONE; then
-        if $NULL_BUFFER; then
-          if ! enable_mpv_display; then
-            echo "FAIL: mpv display enable failed" >&2
-            MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-            exit 1
+        if playback_handoff_ready; then
+          if $NULL_BUFFER; then
+            if ! enable_mpv_display; then
+              echo "FAIL: mpv display enable failed" >&2
+              MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+              exit 1
+            fi
+            wait_mpv_vo_ready "$(mpv_vo_ready_timeout_ms)"
+          elif $GPU_DEFER; then
+            apply_4k_video_sync
           fi
-          wait_mpv_vo_ready "$(mpv_vo_ready_timeout_ms)"
+          raise_mpv_window
+          foreground_handoff
         fi
-        raise_mpv_window
-        foreground_handoff
       fi
       if playback_is_real "${PT:-0}"; then
         END_MS="$(now_ms)"

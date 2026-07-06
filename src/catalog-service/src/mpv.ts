@@ -35,6 +35,7 @@ async function runMpv(
     playEpoch?: number;
     startSec?: number;
     audioUrl?: string;
+    ladderStep?: string;
   },
 ): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-play.sh');
@@ -66,6 +67,9 @@ async function runMpv(
   const env = displayEnv();
   if (options.playEpoch !== undefined) {
     env.MANGO_PLAY_EPOCH = String(options.playEpoch);
+  }
+  if (options.ladderStep) {
+    env.MANGO_PLAY_LADDER_STEP = options.ladderStep;
   }
   const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolvePromise, reject) => {
     execFile('bash', args, {
@@ -109,6 +113,7 @@ export async function playUrl(
     startSec?: number;
     live?: boolean;
     audioUrl?: string;
+    ladderStep?: string;
   } = {},
 ): Promise<PlayResult> {
   return runMpv(url, {
@@ -119,6 +124,7 @@ export async function playUrl(
     startSec: options.startSec,
     live: options.live,
     audioUrl: options.audioUrl,
+    ladderStep: options.ladderStep,
   });
 }
 

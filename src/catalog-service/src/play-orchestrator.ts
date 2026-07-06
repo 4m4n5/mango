@@ -317,6 +317,7 @@ export async function playWithLadder(
         playEpoch: options.playEpoch,
         minDurationSec,
         startSec: options.startSec,
+        ladderStep: candidate.ladder_step,
       });
       const attempt: PlayAttempt = {
         ...base,

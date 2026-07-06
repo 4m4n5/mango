@@ -32,7 +32,7 @@ CONFIG_DIR="${MANGO_CONFIG_DIR:-$HOME/.config/mango}"
 VOICE_ENV="${CONFIG_DIR}/voice.env"
 
 # Experience-selection keys this script owns (removed before each apply).
-ENGINE_KEYS='MANGO_PLAYBACK_BACKEND|MANGO_MPV_HWDEC|MANGO_MPV_VIDEO_SYNC|MANGO_MPV_VIDEO_SYNC_4K|MANGO_MPV_INTERPOLATION|MANGO_MPV_VO|MANGO_MPV_GPU_API|MANGO_MPV_OPENGL_ES|MANGO_MPV_PROFILE|MANGO_MPV_STOP_LAUNCHER|MANGO_MPV_DISABLE_XCOMPMGR|MANGO_MPV_DEFER_FOREGROUND|MANGO_MPV_TONE_MAPPING|MANGO_MPV_CACHE|MANGO_MPV_DEMUXER_MAX_BYTES|MANGO_MPV_DEMUXER_MAX_BACK_BYTES|MANGO_MPV_READAHEAD_SECS|MANGO_MPV_AUDIO_CHANNELS|MANGO_CATALOG_FILTERS'
+ENGINE_KEYS='MANGO_PLAYBACK_BACKEND|MANGO_MPV_HWDEC|MANGO_MPV_VIDEO_SYNC|MANGO_MPV_VIDEO_SYNC_4K|MANGO_MPV_INTERPOLATION|MANGO_MPV_VO|MANGO_MPV_GPU_API|MANGO_MPV_OPENGL_ES|MANGO_MPV_PROFILE|MANGO_MPV_STOP_LAUNCHER|MANGO_MPV_DISABLE_XCOMPMGR|MANGO_MPV_DEFER_FOREGROUND|MANGO_MPV_TONE_MAPPING|MANGO_MPV_CACHE|MANGO_MPV_CACHE_PAUSE|MANGO_MPV_DEMUXER_MAX_BYTES|MANGO_MPV_DEMUXER_MAX_BACK_BYTES|MANGO_MPV_READAHEAD_SECS|MANGO_MPV_HANDOFF_CACHE_SECS|MANGO_MPV_4K_HANDOFF_CACHE_SECS|MANGO_MPV_HANDOFF_CACHE_WAIT_MS|MANGO_MPV_4K_HANDOFF_CACHE_WAIT_MS|MANGO_MPV_AUDIO_CHANNELS|MANGO_CATALOG_FILTERS'
 
 usage() {
   cat >&2 <<'EOF'
@@ -141,15 +141,24 @@ case "$cmd" in
     # profile=fast keeps GPU load low (cheap scalers, static HDR peak) so 4K
     # HEVC REMUX stays smooth; tone-mapping still applies on top of it.
     append_env MANGO_MPV_PROFILE "fast"
+    # audio sync at 4K matches the proven-smooth VLC target-TV path; display
+    # resample stays on HD where it is cheap.
     append_env MANGO_MPV_VIDEO_SYNC "display-resample"
-    append_env MANGO_MPV_VIDEO_SYNC_4K "display-vdrop"
+    append_env MANGO_MPV_VIDEO_SYNC_4K "audio"
     append_env MANGO_MPV_INTERPOLATION "no"
     append_env MANGO_MPV_TONE_MAPPING "bt.2390"
     # Absorb network jitter on 60-100 Mbps REMUX served over HTTP from debrid.
     append_env MANGO_MPV_CACHE "yes"
+    append_env MANGO_MPV_CACHE_PAUSE "yes"
     append_env MANGO_MPV_DEMUXER_MAX_BYTES "512MiB"
     append_env MANGO_MPV_DEMUXER_MAX_BACK_BYTES "128MiB"
-    append_env MANGO_MPV_READAHEAD_SECS "45"
+    append_env MANGO_MPV_READAHEAD_SECS "60"
+    # Hold the launcher until the demuxer has headroom — avoids visible stutter
+    # on the first seconds after handoff on high-bitrate 4K REMUX.
+    append_env MANGO_MPV_HANDOFF_CACHE_SECS "3"
+    append_env MANGO_MPV_4K_HANDOFF_CACHE_SECS "18"
+    append_env MANGO_MPV_HANDOFF_CACHE_WAIT_MS "12000"
+    append_env MANGO_MPV_4K_HANDOFF_CACHE_WAIT_MS "45000"
     # auto-safe negotiates 5.1 LPCM when the TV/receiver EDID advertises it,
     # stereo downmix otherwise (never breaks stereo-only displays).
     append_env MANGO_MPV_AUDIO_CHANNELS "auto-safe"
