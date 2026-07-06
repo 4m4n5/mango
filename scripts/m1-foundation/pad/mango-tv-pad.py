@@ -707,8 +707,28 @@ def _mpv_track_id_active(track_id: object) -> bool:
         except ValueError:
             return lowered == "auto"
     if isinstance(track_id, (int, float)):
-        return int(track_id) >= 0
+        return int(track_id) > 0
     return False
+
+
+def _mpv_audio_track_ids() -> list[int]:
+    tracks = mpv_ipc_data("track-list")
+    if not isinstance(tracks, list):
+        return []
+    ids: list[int] = []
+    for track in tracks:
+        if not isinstance(track, dict) or track.get("type") != "audio":
+            continue
+        if track.get("invalid"):
+            continue
+        try:
+            track_id = int(track.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if track_id <= 0:
+            continue
+        ids.append(track_id)
+    return sorted(set(ids))
 
 
 def _mpv_subs_showing() -> bool:
@@ -926,7 +946,22 @@ def route_playback_subtitle(app: str, action: str) -> None:
 
 def route_playback_audio(app: str) -> None:
     if app == "mpv":
-        send_mpv_ipc("cycle", "audio")
+        audio_ids = _mpv_audio_track_ids()
+        if not audio_ids:
+            show_playback_osd("audio")
+            return
+        current = mpv_ipc_data("aid")
+        current_id: int | None = None
+        if _mpv_track_id_active(current):
+            try:
+                current_id = int(current)  # type: ignore[arg-type]
+            except (TypeError, ValueError):
+                current_id = None
+        if current_id not in audio_ids:
+            next_id = audio_ids[0]
+        else:
+            next_id = audio_ids[(audio_ids.index(current_id) + 1) % len(audio_ids)]
+        send_mpv_ipc("set_property", "aid", str(next_id))
     elif app == "vlc":
         send_key_vlc("b")
     show_playback_osd("audio")

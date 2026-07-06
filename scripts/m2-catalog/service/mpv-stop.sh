@@ -13,6 +13,7 @@ PLAYER_STATE_FILE="${MANGO_PLAYER_STATE_PATH:-${HOME}/.cache/mango/player-state.
 VLC_PLAYLIST="${MANGO_VLC_PLAYLIST:-${HOME}/.cache/mango/vlc-play.m3u}"
 PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playback-osd.pid}"
 PLAYBACK_OSD_TRIGGER="${MANGO_PLAYBACK_OSD_TRIGGER:-${HOME}/.cache/mango/playback-osd.show}"
+PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
 
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
@@ -87,7 +88,7 @@ if [[ -S "$SOCKET" ]]; then
 fi
 
 pkill -x mpv 2>/dev/null || true
-rm -f "${HOME}/.cache/mango/mpv.pid" "$SOCKET"
+rm -f "${HOME}/.cache/mango/mpv.pid" "$SOCKET" "$PLAYBACK_ACTIVE_FILE"
 stop_vlc
 
 if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then

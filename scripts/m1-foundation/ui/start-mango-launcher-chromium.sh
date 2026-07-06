@@ -12,6 +12,11 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 mkdir -p "$LOG_DIR"
+PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${LOG_DIR}/playback-active}"
+if [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
+  echo "launcher browser: deferred (playback active)" >>"$LOG_DIR/mango-launcher-chromium.log"
+  exit 0
+fi
 bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" launcher 2>/dev/null || true
 
 if [[ -x /usr/lib/chromium/chromium ]]; then

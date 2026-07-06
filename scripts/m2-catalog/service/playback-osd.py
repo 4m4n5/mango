@@ -178,7 +178,7 @@ def _track_id_active(track_id: object) -> bool:
         except ValueError:
             return lowered == "auto"
     if isinstance(track_id, (int, float)):
-        return int(track_id) >= 0
+        return int(track_id) > 0
     return False
 
 

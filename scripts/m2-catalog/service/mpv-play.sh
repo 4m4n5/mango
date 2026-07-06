@@ -12,6 +12,7 @@ VLC_PLAYLIST="${MANGO_VLC_PLAYLIST:-${HOME}/.cache/mango/vlc-play.m3u}"
 PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playback-osd.pid}"
 PLAYBACK_OSD_LOG="${MANGO_PLAYBACK_OSD_LOG:-${HOME}/.cache/mango/playback-osd.log}"
 PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epoch}"
+PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
@@ -190,7 +191,34 @@ apply_4k_video_sync() {
   sync_4k="${MANGO_MPV_VIDEO_SYNC_4K:-audio}"
   if [[ -n "${sync_4k}" ]] && mpv_width_ge_4k "$width"; then
     printf '{"command":["set_property","video-sync","%s"]}\n' "$sync_4k" | socat - "$SOCKET" >/dev/null 2>&1 || true
+    return 0
   fi
+  return 1
+}
+
+resolve_playback_video_profile() {
+  local attempt profile
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if profile="$(detect_video_profile_mpv 2>/dev/null || true)" && [[ -n "$profile" ]]; then
+      printf '%s\n' "$profile"
+      return 0
+    fi
+    if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
+      printf '%s\n' "$profile"
+      return 0
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
+mark_playback_active() {
+  mkdir -p "$(dirname "$PLAYBACK_ACTIVE_FILE")"
+  : >"$PLAYBACK_ACTIVE_FILE"
+}
+
+clear_playback_active() {
+  rm -f "$PLAYBACK_ACTIVE_FILE"
 }
 
 needs_vo_null_buffer() {
@@ -398,7 +426,7 @@ start_vlc_exit_monitor() {
         kill "$(cat "$osd_pid_file")" 2>/dev/null || true
         rm -f "$osd_pid_file"
       fi
-      rm -f "$state" "$pid_file" "$playlist"
+      rm -f "$state" "$pid_file" "$playlist" "${HOME}/.cache/mango/playback-active"
       bash "$repo/scripts/lib/mango-display-mode.sh" launcher >/dev/null 2>&1 || true
       systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
     fi
@@ -422,7 +450,7 @@ start_mpv_exit_monitor() {
     done
     if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
       curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
-      rm -f "$pidfile"
+      rm -f "$pidfile" "${HOME}/.cache/mango/playback-active"
       bash "$repo/scripts/lib/mango-display-mode.sh" launcher >/dev/null 2>&1 || true
       systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
       bash "$repo/scripts/launch-launcher.sh" >/dev/null 2>&1 || true
@@ -465,11 +493,13 @@ append_mpv_render_args() {
     args_ref+=("--profile=${MANGO_MPV_PROFILE:-fast}")
   fi
   if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
-    if is_4k_ladder_step && [[ -n "${MANGO_MPV_VIDEO_SYNC_4K:-}" ]]; then
-      args_ref+=("--video-sync=${MANGO_MPV_VIDEO_SYNC_4K}")
-    else
-      args_ref+=("--video-sync=${MANGO_MPV_VIDEO_SYNC:-display-resample}")
+    local sync="${MANGO_MPV_VIDEO_SYNC:-display-resample}"
+    if [[ -n "${MANGO_MPV_VIDEO_SYNC_4K:-}" ]] && {
+      is_4k_ladder_step || mpv_width_ge_4k "${video_width:-}"
+    }; then
+      sync="${MANGO_MPV_VIDEO_SYNC_4K}"
     fi
+    args_ref+=("--video-sync=${sync}")
   fi
   if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
     args_ref+=("--interpolation=${MANGO_MPV_INTERPOLATION:-no}")
@@ -652,16 +682,14 @@ raise_mpv_window() {
 
 foreground_handoff() {
   $HANDOFF_DONE && return 0
+  mark_playback_active
   if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
     systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
   fi
   if ! $LIVE \
     && [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]] \
     && { [[ -z "$video_width" ]] || [[ -z "$video_height" ]] || [[ -z "$video_fps" ]]; }; then
-    if profile="$(detect_video_profile_mpv 2>/dev/null || true)" && [[ -n "$profile" ]]; then
-      read -r video_width video_height video_fps video_duration <<<"$profile"
-      video_label="${video_width}x${video_height}@${video_fps}"
-    elif profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
+    if profile="$(resolve_playback_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
       read -r video_width video_height video_fps video_duration <<<"$profile"
       video_label="${video_width}x${video_height}@${video_fps}"
     fi
@@ -671,6 +699,7 @@ foreground_handoff() {
   else
     bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
   fi
+  apply_4k_video_sync || true
   if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
     pkill -x xcompmgr 2>/dev/null || true
   fi
@@ -817,6 +846,7 @@ PY
 
 mkdir -p "$(dirname "$SOCKET")"
 mkdir -p "$(dirname "$MPV_LOG")"
+mark_playback_active
 MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_NO_DISPLAY=1 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
 
 URL_LABEL="$(python3 -c 'from urllib.parse import urlparse; import sys; u=urlparse(sys.argv[1]); print(f"{u.scheme}://{u.netloc}/<redacted>")' "$URL" 2>/dev/null || echo "http(s)://<redacted>")"
@@ -843,6 +873,12 @@ if ! $PROBE; then
       audio_label="${audio_args[$i]#--audio-device=}"
     fi
   done
+  if [[ -z "$video_width" || -z "$video_height" || -z "$video_fps" ]]; then
+    if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
+      read -r video_width video_height video_fps video_duration <<<"$profile"
+      video_label="${video_width}x${video_height}@${video_fps}"
+    fi
+  fi
 fi
 PLAYBACK_BACKEND="${MANGO_PLAYBACK_BACKEND:-mpv}"
 if $PROBE; then

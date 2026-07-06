@@ -19,6 +19,17 @@ log() {
   printf '%s %s\n' "$(date -Iseconds)" "$*" >>"$LOG_FILE"
 }
 
+playback_active_sentinel() {
+  [[ -f "${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}" ]]
+}
+
+mpv_playback_active() {
+  playback_active_sentinel && return 0
+  local socket="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
+  [[ -S "$socket" ]] || return 1
+  pgrep -x mpv >/dev/null 2>&1
+}
+
 connected_output() {
   if [[ -n "${MANGO_DISPLAY_OUTPUT:-}" ]]; then
     printf '%s\n' "$MANGO_DISPLAY_OUTPUT"
@@ -304,6 +315,10 @@ apply_mode() {
 cmd="${1:-}"
 case "$cmd" in
   launcher)
+    if mpv_playback_active; then
+      log "launcher: skipped playback active"
+      return 0
+    fi
     apply_mode \
       launcher \
       "${MANGO_LAUNCHER_DISPLAY_MODE:-${MANGO_DISPLAY_MODE:-1920x1080}}" \
