@@ -855,6 +855,19 @@ def go_home() -> None:
     invalidate_foreground_cache()
 
 
+def route_playback_subtitle(app: str, action: str) -> None:
+    if app == "mpv":
+        if action == "toggle":
+            send_mpv_ipc("cycle", "sub-visibility")
+        elif action == "prev":
+            send_mpv_ipc("cycle", "sub", "down")
+        else:
+            send_mpv_ipc("cycle", "sub", "up")
+    elif app == "vlc":
+        send_key_vlc("v")
+    show_playback_osd("subs")
+
+
 def route_dpad(app: str, direction: str) -> None:
     symbol = {"left": "Left", "right": "Right", "up": "Up", "down": "Down"}[direction]
     if app == "mpv":
@@ -1123,7 +1136,18 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                     elif event.code in (ecodes.ABS_Y, ecodes.ABS_HAT0Y):
                         threshold = 1 if event.code == ecodes.ABS_HAT0Y else THRESH
                         stop_seek_hold()
-                        if event.value <= -threshold:
+                        if _playback_app(app):
+                            if event.value <= -threshold:
+                                debounced(
+                                    f"{app}-sub-prev",
+                                    lambda: route_playback_subtitle(app, "prev"),
+                                )
+                            elif event.value >= threshold:
+                                debounced(
+                                    f"{app}-sub-next",
+                                    lambda: route_playback_subtitle(app, "next"),
+                                )
+                        elif event.value <= -threshold:
                             debounced(f"{app}-up", lambda: route_dpad(app, "up"))
                         elif event.value >= threshold:
                             debounced(f"{app}-down", lambda: route_dpad(app, "down"))
@@ -1138,7 +1162,13 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                     elif event.code == BTN_Y:
                         debounced(f"{app}-back", lambda: route_face(app, "back"))
                     elif event.code == BTN_X:
-                        debounced("shuffle", refresh_launcher_library)
+                        if _playback_app(app):
+                            debounced(
+                                f"{app}-subs-toggle",
+                                lambda: route_playback_subtitle(app, "toggle"),
+                            )
+                        else:
+                            debounced("shuffle", refresh_launcher_library)
                     elif event.code == BTN_MINUS:
                         debounced("volume-down", lambda: adjust_volume(-VOLUME_STEP_PERCENT))
                     elif event.code == BTN_PLUS:

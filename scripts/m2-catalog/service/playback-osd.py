@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal X11 playback HUD — elapsed time, time remaining, thin progress."""
+"""X11 playback OSD — times, progress, subtitles (mpv + VLC couch path)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 
 HOME = Path(os.environ.get("HOME") or "/home/aman")
@@ -23,7 +24,7 @@ MPV_IPC_SH = Path(
 )
 TRIGGER_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_TRIGGER", CACHE_DIR / "playback-osd.show"))
 PID_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_PID_FILE", CACHE_DIR / "playback-osd.pid"))
-VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "5.0"))
+VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "7.0"))
 POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_POLL_MS", "250"))
 
 
@@ -46,7 +47,7 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _mpv_ipc_property(name: str) -> object | None:
+def _mpv_ipc_property(name: str) -> Any:
     if not MPV_SOCKET.is_socket() or not MPV_IPC_SH.is_file():
         return None
     try:
@@ -74,8 +75,7 @@ def _mpv_active() -> bool:
     if isinstance(pid, (int, float)) and _pid_alive(int(pid)):
         return True
     if MPV_SOCKET.is_socket():
-        time_pos = _mpv_ipc_property("playback-time")
-        return time_pos is not None
+        return _mpv_ipc_property("playback-time") is not None
     return False
 
 
@@ -105,7 +105,7 @@ def _vlc_position(state: dict[str, object]) -> tuple[float, float, bool]:
     return max(0.0, position), duration_sec, paused
 
 
-def _playback_snapshot() -> tuple[float, float, bool] | None:
+def _playback_snapshot() -> tuple[float, float, bool, str] | None:
     if _mpv_active():
         position = _mpv_ipc_property("playback-time")
         duration = _mpv_ipc_property("duration")
@@ -117,12 +117,48 @@ def _playback_snapshot() -> tuple[float, float, bool] | None:
         is_paused = paused in (True, "yes", 1)
         if dur > 0:
             pos = min(dur, pos)
-        return pos, dur, is_paused
+        return pos, dur, is_paused, "mpv"
 
     state = _load_vlc_state()
     if state is not None:
-        return _vlc_position(state)
+        pos, dur, is_paused = _vlc_position(state)
+        return pos, dur, is_paused, "vlc"
     return None
+
+
+def _subtitle_snapshot(backend: str) -> tuple[bool, str]:
+    if backend != "mpv":
+        return False, "VLC · press X to cycle"
+    visible = _mpv_ipc_property("sub-visibility")
+    sid = _mpv_ipc_property("sid")
+    if visible in (False, "no", 0):
+        return False, "Off"
+    try:
+        sid_num = int(sid)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False, "Off"
+    if sid_num < 0:
+        return False, "Off"
+
+    tracks = _mpv_ipc_property("track-list")
+    if not isinstance(tracks, list):
+        return True, f"Track {sid_num}"
+
+    for track in tracks:
+        if not isinstance(track, dict) or track.get("type") != "sub":
+            continue
+        if track.get("id") != sid_num:
+            continue
+        lang = str(track.get("lang") or "").strip()
+        title = str(track.get("title") or track.get("external-filename") or "").strip()
+        if title and lang and lang.lower() not in title.lower():
+            return True, f"{title} ({lang.upper()})"
+        if title:
+            return True, title
+        if lang:
+            return True, lang.upper()
+        return True, f"Track {sid_num}"
+    return True, f"Track {sid_num}"
 
 
 def _format_time(seconds: float) -> str:
@@ -153,81 +189,122 @@ def run() -> int:
     hidden = True
 
     root = tk.Tk(className="mango-playback-osd")
-    root.title("mango playback")
+    root.title("mango playback osd")
     root.overrideredirect(True)
-    root.configure(bg="#040404")
+    root.configure(bg="#060807")
     root.attributes("-topmost", True)
     try:
-        root.attributes("-alpha", float(os.environ.get("MANGO_PLAYBACK_OSD_ALPHA", "0.82")))
+        root.attributes("-alpha", float(os.environ.get("MANGO_PLAYBACK_OSD_ALPHA", "0.92")))
     except tk.TclError:
         pass
 
-    canvas = tk.Canvas(root, highlightthickness=0, bg="#040404")
+    canvas = tk.Canvas(root, highlightthickness=0, bg="#060807")
     canvas.pack(fill="both", expand=True)
 
     def layout() -> tuple[int, int]:
         root.update_idletasks()
         screen_w = max(1280, root.winfo_screenwidth())
         screen_h = max(720, root.winfo_screenheight())
-        width = min(1600, max(640, int(screen_w * 0.42)))
-        height = 52
+        width = min(2200, max(900, int(screen_w * 0.64)))
+        height = 118
         x = max(0, int((screen_w - width) / 2))
-        y = max(0, screen_h - height - max(28, int(screen_h * 0.04)))
+        y = max(0, screen_h - height - max(34, int(screen_h * 0.035)))
         root.geometry(f"{width}x{height}+{x}+{y}")
         return width, height
 
-    def draw(width: int, height: int, position: float, duration: float, paused: bool) -> None:
+    def draw(
+        width: int,
+        height: int,
+        position: float,
+        duration: float,
+        paused: bool,
+        backend: str,
+    ) -> None:
         pct = 0.0 if duration <= 0 else max(0.0, min(1.0, position / duration))
         remaining = max(0.0, duration - position) if duration > 0 else 0.0
+        subs_on, subs_label = _subtitle_snapshot(backend)
         canvas.delete("all")
 
-        pad_x = 18
-        track_h = 3
-        track_y = height - 10
+        pad_x = 34
+        track_y = height - 38
         track_w = width - pad_x * 2
+        track_h = 10
 
-        elapsed_color = "#f4efe3" if not paused else "#c9c2b4"
-        remain_color = "#a89f8c" if not paused else "#8f8778"
+        elapsed_color = "#f7f1df" if not paused else "#c9c2b4"
+        remain_color = "#d7c6a0" if not paused else "#a89f8c"
+        status_color = "#c5bca5"
 
         elapsed = _format_time(position)
-        if duration > 0:
-            remain_label = f"-{_format_time(remaining)}"
-        else:
-            remain_label = "LIVE"
+        remain_label = f"-{_format_time(remaining)}" if duration > 0 else "LIVE"
+        subs_state = "On" if subs_on else "Off"
 
         canvas.create_text(
             pad_x,
-            18,
+            24,
             anchor="w",
             fill=elapsed_color,
-            font=("DejaVu Sans", 17, "bold"),
+            font=("DejaVu Sans", 21, "bold"),
             text=elapsed,
         )
         canvas.create_text(
             width - pad_x,
-            18,
+            24,
             anchor="e",
             fill=remain_color,
-            font=("DejaVu Sans", 17),
+            font=("DejaVu Sans", 19),
             text=remain_label,
+        )
+        canvas.create_text(
+            pad_x,
+            48,
+            anchor="w",
+            fill=status_color,
+            font=("DejaVu Sans", 15),
+            text=f"Subtitles: {subs_state}",
+        )
+        canvas.create_text(
+            width - pad_x,
+            48,
+            anchor="e",
+            fill=status_color,
+            font=("DejaVu Sans", 15),
+            text=f"Language: {subs_label}",
         )
         canvas.create_rectangle(
             pad_x,
             track_y,
             pad_x + track_w,
             track_y + track_h,
-            fill="#3a3630",
+            fill="#514b3d",
             outline="",
         )
-        if pct > 0:
+        fill_w = max(0, int(track_w * pct))
+        if fill_w > 0:
             canvas.create_rectangle(
                 pad_x,
                 track_y,
-                pad_x + max(1, int(track_w * pct)),
+                pad_x + fill_w,
                 track_y + track_h,
-                fill="#d4a24a" if not paused else "#8a7a5c",
+                fill="#ffb84c" if not paused else "#8a7a5c",
                 outline="",
             )
+        thumb_x = pad_x + fill_w
+        canvas.create_oval(
+            thumb_x - 9,
+            track_y - 6,
+            thumb_x + 9,
+            track_y + track_h + 6,
+            fill="#ffe1a3" if not paused else "#b8a88a",
+            outline="",
+        )
+        canvas.create_text(
+            pad_x,
+            height - 12,
+            anchor="w",
+            fill="#c5bca5",
+            font=("DejaVu Sans", 13),
+            text="B pause/play   ←/→ seek   X subs on/off   ↑/↓ language   Y back",
+        )
 
     def tick() -> None:
         nonlocal hidden, last_trigger_mtime, show_until
@@ -240,7 +317,7 @@ def run() -> int:
             root.destroy()
             return
 
-        position, duration, paused = snapshot
+        position, duration, paused, backend = snapshot
 
         try:
             trigger_mtime = TRIGGER_PATH.stat().st_mtime
@@ -254,7 +331,7 @@ def run() -> int:
 
         if visible:
             width, height = layout()
-            draw(width, height, position, duration, paused)
+            draw(width, height, position, duration, paused, backend)
             if hidden:
                 root.deiconify()
                 hidden = False
@@ -283,7 +360,7 @@ def run() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", action="store_true", help="run the OSD window loop")
-    parser.add_argument("--show", metavar="REASON", help="pulse the OSD briefly")
+    parser.add_argument("--show", metavar="REASON", help="show the OSD briefly")
     args = parser.parse_args()
     if args.show:
         return show(args.show)

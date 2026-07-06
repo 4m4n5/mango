@@ -159,8 +159,9 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
 
 **D-pad** → navigate. During playback, **←/→** skip ±10s and show the progress
-HUD; holding **←/→** accelerates seek (10s → 30s → 120s), while playback-only
-**L/R** jumps by the large seek step (120s default).
+HUD; holding **←/→** accelerates seek (10s → 30s → 120s). **↑/↓** cycle subtitle
+language; **X** toggles subtitles on/off. Playback-only **L/R** jumps by the large
+seek step (120s default).
 
 > Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. `A` remains intentionally unmapped; `X` is reserved for shuffle.
 
