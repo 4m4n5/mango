@@ -893,7 +893,8 @@ h1 {
 }
 
 .detail:has(.detail-related:not(.hidden)) .detail-main {
-  justify-content: space-between;
+  justify-content: center;
+  gap: clamp(1.15rem, 2.8vh, 1.75rem);
 }
 
 .detail:not(:has(.detail-related:not(.hidden))) .detail-main {
