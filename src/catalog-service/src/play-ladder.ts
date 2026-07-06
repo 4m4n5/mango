@@ -395,8 +395,6 @@ export function couchStatusForLadderStep(step: string): string {
       return 'trying 4K HDR-preferred stream…';
     case '2160p_cached':
       return 'trying alternate 4K stream…';
-    case '4k_hdr_remux_cached':
-      return 'starting 4K HDR stream…';
     case '4k_sdr_remux_cached':
       return 'starting 4K stream…';
     case '4k_sdr_cached':

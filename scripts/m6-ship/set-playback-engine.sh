@@ -146,7 +146,7 @@ case "$cmd" in
     append_env MANGO_MPV_VIDEO_SYNC "display-resample"
     append_env MANGO_MPV_VIDEO_SYNC_4K "audio"
     append_env MANGO_MPV_INTERPOLATION "no"
-    append_env MANGO_MPV_TONE_MAPPING "clip"
+    append_env MANGO_MPV_TONE_MAPPING "bt.2390"
     # Absorb network jitter on 60-100 Mbps REMUX served over HTTP from debrid.
     append_env MANGO_MPV_CACHE "yes"
     append_env MANGO_MPV_CACHE_PAUSE "yes"

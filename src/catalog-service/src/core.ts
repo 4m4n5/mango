@@ -1847,6 +1847,7 @@ export class CatalogCore {
       preferred_video_codecs: config.preferred_video_codecs,
       hard_language: config.hard_language,
       max_candidates: config.stream_display_limit,
+      include_uncached: config.include_uncached,
     });
 
     let streams: Stream[];
@@ -1875,26 +1876,28 @@ export class CatalogCore {
         },
       };
     } else {
-      const filtered = filterStreamsForPlay(enriched, config, filterContext);
-      if (filtered.streams.length === 0) {
-        if (streamsAreOnlyErrorPlaceholders(enriched)) {
-          throw new CatalogError(
-            502,
-            `stream resolve returned only addon error streams for ${type}/${streamId}`,
-            { errors: raw.errors, resolve_ms: raw.resolveMs, filters: filtered.meta },
-            { couchMessage: errorPlaceholderCouchMessage(enriched) },
-          );
-        }
-        return {
-          streams: [],
-          resolve_ms: raw.cached ? 0 : raw.resolveMs,
-          cached: raw.cached,
-          filters: filtered.meta,
-          errors: raw.errors.length > 0 ? raw.errors : undefined,
-        };
+      if (streamsAreOnlyErrorPlaceholders(enriched)) {
+        throw new CatalogError(
+          502,
+          `stream resolve returned only addon error streams for ${type}/${streamId}`,
+          { errors: raw.errors, resolve_ms: raw.resolveMs },
+          { couchMessage: errorPlaceholderCouchMessage(enriched) },
+        );
       }
-      streams = filtered.streams;
-      meta = filtered.meta;
+      // Picker must match playability: only show streams the ladder can play.
+      // Do not fall back to filterStreamsForPlay (which would surface Pi-incompatible
+      // HDR 4K releases that auto-play cannot use).
+      return {
+        streams: [],
+        resolve_ms: raw.cached ? 0 : raw.resolveMs,
+        cached: raw.cached,
+        filters: {
+          ...emptyStreamFilterMeta(config),
+          total: raw.streams.length,
+          kept: 0,
+        },
+        errors: raw.errors.length > 0 ? raw.errors : undefined,
+      };
     }
 
     return {

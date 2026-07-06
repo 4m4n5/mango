@@ -183,6 +183,36 @@ test('streamMatchesLadderStep allows HDR at 1080p even when exclude_hdr is set',
   assert.equal(streamMatchesLadderStep(hdHdr, step), true);
 });
 
+test('expandPlayLadder returns empty when only HDR 4K streams exist on SDR-only ladder', () => {
+  const ladder = parsePlayLadder([
+    {
+      step: '4k_sdr_remux_cached',
+      max_quality: '2160p',
+      min_quality: '2160p',
+      exclude_remux: false,
+      require_hevc: true,
+      exclude_hdr: true,
+      require_cache: 'cached',
+    },
+    {
+      step: '1080p_uncached_fallback',
+      max_quality: '1080p',
+      exclude_remux: true,
+      require_cache: 'cached_or_uncached',
+    },
+  ]);
+  const hdrRemux = stream({
+    url: 'https://example.test/dark-knight.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p BluRay HEVC DV HDR10 REMUX',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const ranked = expandPlayLadder([hdrRemux], ladder, { contentType: 'movie' }, {
+    strict_unknown_cache: true,
+  });
+  assert.equal(ranked.length, 0);
+});
+
 test('expandPlayLadder walks steps after ideal failures', () => {
   const ladder = defaultPlayLadder();
   const streams = [
