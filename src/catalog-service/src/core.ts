@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import {
   filterAndRankStreams,
+  filterStreamsForPlay,
   enrichStreamMetadata,
   hasCacheableStream,
   loadFilterConfig,
@@ -15,7 +16,7 @@ import {
 import {
   defaultPlayLadder,
   enrichStreams,
-  selectLadderPlayableStreams,
+  expandPlayLadder,
 } from './play-ladder.js';
 import {
   enabledBrowsableRails,
@@ -1839,7 +1840,7 @@ export class CatalogCore {
 
     const filterContext = await this.buildStreamFilterContext(type, id);
     const enriched = enrichStreams(raw.streams);
-    const candidates = selectLadderPlayableStreams(enriched, config.play_ladder, filterContext, {
+    const candidates = expandPlayLadder(enriched, config.play_ladder, filterContext, {
       strict_unknown_cache: config.strict_unknown_cache,
       preferred_quality: config.preferred_quality,
       preferred_hdr_tags: config.preferred_hdr_tags,

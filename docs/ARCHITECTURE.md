@@ -215,9 +215,7 @@ Fallback env: `MANGO_FALLBACK_STREMIO=1` · `MANGO_LEGACY_YOUTUBE=1`
 
 Enriched fields: `display_label`, `release_group`, `encode`, `size_gb`, `languages`, `debrid_service`, `cache_status`.
 
-**Picker = play ladder.** `GET /stream` returns only streams that pass `play_ladder` (same gate as `POST /play`). Pi-incompatible releases (e.g. HDR 4K, non-HEVC above 1080p, uncached high-bitrate) never appear in the side list.
-
-`POST /play` — orchestrator walks the same ladder · optional `{ prefer_url }` reorders within ladder-qualified candidates only.
+`POST /play` — orchestrator with ladder tiers · optional `{ url }` from picker.
 
 ## Library API
 

@@ -285,41 +285,20 @@ test('expandPlayLadder prefers picker win_url_hash on ideal step', () => {
   assert.equal(ranked[0]?.ladder_step, 'ideal');
 });
 
-test('injectPreferredPlayCandidate moves a ladder-qualified picker URL to the front', () => {
+test('injectPreferredPlayCandidate forces a picker URL ahead of ladder expansion', () => {
   const picked = stream({
     url: 'https://example.test/picked-4k.mkv',
     name: '[TB⚡] Torrentio 2160p',
     description: '2160p REMUX HEVC SDR',
-    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
-  });
-  const other = stream({
-    url: 'https://example.test/other.mkv',
-    name: '[TB⚡] Torrentio 2160p',
-    description: '2160p encode HEVC SDR',
+    ladder_step: '4k_sdr_remux_cached',
     behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
   });
   const ranked = injectPreferredPlayCandidate(
-    [
-      { stream: other, ladder_step: '4k_sdr_cached' },
-      { stream: picked, ladder_step: '4k_sdr_remux_cached' },
-    ],
+    [picked],
+    [],
     picked.url,
   );
-  assert.equal(ranked.length, 2);
+  assert.equal(ranked.length, 1);
   assert.equal(ranked[0]?.ladder_step, '4k_sdr_remux_cached');
   assert.equal(ranked[0]?.stream.url, picked.url);
-});
-
-test('injectPreferredPlayCandidate ignores picker URLs that are not ladder-playable', () => {
-  const playable = stream({
-    url: 'https://example.test/playable.mkv',
-    name: '[TB⚡] Torrentio 1080p',
-    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
-  });
-  const ranked = injectPreferredPlayCandidate(
-    [{ stream: playable, ladder_step: '1080p_hevc_cached' }],
-    'https://example.test/hdr-4k-remux.mkv',
-  );
-  assert.equal(ranked.length, 1);
-  assert.equal(ranked[0]?.stream.url, playable.url);
 });

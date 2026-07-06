@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small X11 playback progress OSD for Mango's VLC couch path."""
+"""Minimal X11 playback HUD — elapsed time, time remaining, thin progress."""
 
 from __future__ import annotations
 
@@ -7,17 +7,23 @@ import argparse
 import json
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
 
 
 HOME = Path(os.environ.get("HOME") or "/home/aman")
+REPO = Path(os.environ.get("MANGO_REPO_DIR", HOME / "mango"))
 CACHE_DIR = HOME / ".cache" / "mango"
 STATE_PATH = Path(os.environ.get("MANGO_PLAYER_STATE_PATH", CACHE_DIR / "player-state.json"))
+MPV_SOCKET = Path(os.environ.get("MANGO_MPV_SOCKET", CACHE_DIR / "mpv.sock"))
+MPV_IPC_SH = Path(
+    os.environ.get("MANGO_MPV_IPC_SH", REPO / "scripts/m2-catalog/service/mpv-ipc.sh")
+)
 TRIGGER_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_TRIGGER", CACHE_DIR / "playback-osd.show"))
 PID_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_PID_FILE", CACHE_DIR / "playback-osd.pid"))
-VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "7.0"))
+VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "5.0"))
 POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_POLL_MS", "250"))
 
 
@@ -40,7 +46,40 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def _load_state() -> dict[str, object] | None:
+def _mpv_ipc_property(name: str) -> object | None:
+    if not MPV_SOCKET.is_socket() or not MPV_IPC_SH.is_file():
+        return None
+    try:
+        result = subprocess.run(
+            ["bash", str(MPV_IPC_SH), "get_property", name],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+            env={**os.environ, "HOME": str(HOME)},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    return payload.get("data")
+
+
+def _mpv_active() -> bool:
+    pid = _mpv_ipc_property("pid")
+    if isinstance(pid, (int, float)) and _pid_alive(int(pid)):
+        return True
+    if MPV_SOCKET.is_socket():
+        time_pos = _mpv_ipc_property("playback-time")
+        return time_pos is not None
+    return False
+
+
+def _load_vlc_state() -> dict[str, object] | None:
     try:
         state = json.loads(STATE_PATH.read_text(encoding="utf-8"))
     except Exception:
@@ -51,7 +90,7 @@ def _load_state() -> dict[str, object] | None:
     return state
 
 
-def _current_position(state: dict[str, object]) -> tuple[float, float, bool]:
+def _vlc_position(state: dict[str, object]) -> tuple[float, float, bool]:
     now_ms = int(time.time() * 1000)
     start_sec = max(0.0, float(state.get("start_sec") or 0))
     duration_sec = max(0.0, float(state.get("duration_sec") or 0))
@@ -64,6 +103,26 @@ def _current_position(state: dict[str, object]) -> tuple[float, float, bool]:
     if duration_sec > 0:
         position = min(duration_sec, position)
     return max(0.0, position), duration_sec, paused
+
+
+def _playback_snapshot() -> tuple[float, float, bool] | None:
+    if _mpv_active():
+        position = _mpv_ipc_property("playback-time")
+        duration = _mpv_ipc_property("duration")
+        paused = _mpv_ipc_property("pause")
+        if position is None:
+            return None
+        pos = max(0.0, float(position))
+        dur = max(0.0, float(duration or 0))
+        is_paused = paused in (True, "yes", 1)
+        if dur > 0:
+            pos = min(dur, pos)
+        return pos, dur, is_paused
+
+    state = _load_vlc_state()
+    if state is not None:
+        return _vlc_position(state)
+    return None
 
 
 def _format_time(seconds: float) -> str:
@@ -84,112 +143,104 @@ def show(reason: str) -> int:
 def run() -> int:
     try:
         import tkinter as tk
-    except Exception as exc:  # pragma: no cover - runtime package check
+    except Exception as exc:  # pragma: no cover
         print(f"playback-osd: tkinter unavailable: {exc}", file=sys.stderr)
         return 1
 
     _write_owner_file(PID_PATH, f"{os.getpid()}\n", 0o644)
-    show_until = time.time() + VISIBLE_SEC
+    show_until = 0.0
     last_trigger_mtime = 0.0
     hidden = True
 
     root = tk.Tk(className="mango-playback-osd")
-    root.title("mango playback osd")
+    root.title("mango playback")
     root.overrideredirect(True)
-    root.configure(bg="#060807")
+    root.configure(bg="#040404")
     root.attributes("-topmost", True)
     try:
-        root.attributes("-alpha", float(os.environ.get("MANGO_PLAYBACK_OSD_ALPHA", "0.92")))
+        root.attributes("-alpha", float(os.environ.get("MANGO_PLAYBACK_OSD_ALPHA", "0.82")))
     except tk.TclError:
         pass
 
-    canvas = tk.Canvas(root, highlightthickness=0, bg="#060807")
+    canvas = tk.Canvas(root, highlightthickness=0, bg="#040404")
     canvas.pack(fill="both", expand=True)
 
     def layout() -> tuple[int, int]:
         root.update_idletasks()
         screen_w = max(1280, root.winfo_screenwidth())
         screen_h = max(720, root.winfo_screenheight())
-        width = min(2200, max(900, int(screen_w * 0.64)))
-        height = 104
+        width = min(1600, max(640, int(screen_w * 0.42)))
+        height = 52
         x = max(0, int((screen_w - width) / 2))
-        y = max(0, screen_h - height - max(34, int(screen_h * 0.035)))
+        y = max(0, screen_h - height - max(28, int(screen_h * 0.04)))
         root.geometry(f"{width}x{height}+{x}+{y}")
         return width, height
 
-    def draw(width: int, height: int, state: dict[str, object]) -> None:
-        position, duration, paused = _current_position(state)
+    def draw(width: int, height: int, position: float, duration: float, paused: bool) -> None:
         pct = 0.0 if duration <= 0 else max(0.0, min(1.0, position / duration))
+        remaining = max(0.0, duration - position) if duration > 0 else 0.0
         canvas.delete("all")
-        pad_x = 34
-        track_y = height - 38
+
+        pad_x = 18
+        track_h = 3
+        track_y = height - 10
         track_w = width - pad_x * 2
-        track_h = 10
-        title = "Paused" if paused else "Playing"
+
+        elapsed_color = "#f4efe3" if not paused else "#c9c2b4"
+        remain_color = "#a89f8c" if not paused else "#8f8778"
+
+        elapsed = _format_time(position)
         if duration > 0:
-            time_label = f"{_format_time(position)} / {_format_time(duration)}"
+            remain_label = f"-{_format_time(remaining)}"
         else:
-            time_label = f"{_format_time(position)} / LIVE"
+            remain_label = "LIVE"
+
         canvas.create_text(
             pad_x,
-            28,
+            18,
             anchor="w",
-            fill="#f7f1df",
-            font=("DejaVu Sans", 21, "bold"),
-            text=title,
+            fill=elapsed_color,
+            font=("DejaVu Sans", 17, "bold"),
+            text=elapsed,
         )
         canvas.create_text(
             width - pad_x,
-            28,
+            18,
             anchor="e",
-            fill="#d7c6a0",
-            font=("DejaVu Sans", 19),
-            text=time_label,
+            fill=remain_color,
+            font=("DejaVu Sans", 17),
+            text=remain_label,
         )
         canvas.create_rectangle(
             pad_x,
             track_y,
             pad_x + track_w,
             track_y + track_h,
-            fill="#514b3d",
+            fill="#3a3630",
             outline="",
         )
-        canvas.create_rectangle(
-            pad_x,
-            track_y,
-            pad_x + int(track_w * pct),
-            track_y + track_h,
-            fill="#ffb84c",
-            outline="",
-        )
-        thumb_x = pad_x + int(track_w * pct)
-        canvas.create_oval(
-            thumb_x - 9,
-            track_y - 6,
-            thumb_x + 9,
-            track_y + track_h + 6,
-            fill="#ffe1a3",
-            outline="",
-        )
-        canvas.create_text(
-            pad_x,
-            height - 14,
-            anchor="w",
-            fill="#c5bca5",
-            font=("DejaVu Sans", 13),
-            text="B pause/play   ←/→ seek   Y back",
-        )
+        if pct > 0:
+            canvas.create_rectangle(
+                pad_x,
+                track_y,
+                pad_x + max(1, int(track_w * pct)),
+                track_y + track_h,
+                fill="#d4a24a" if not paused else "#8a7a5c",
+                outline="",
+            )
 
     def tick() -> None:
         nonlocal hidden, last_trigger_mtime, show_until
-        state = _load_state()
-        if state is None:
+        snapshot = _playback_snapshot()
+        if snapshot is None:
             try:
                 PID_PATH.unlink()
             except OSError:
                 pass
             root.destroy()
             return
+
+        position, duration, paused = snapshot
 
         try:
             trigger_mtime = TRIGGER_PATH.stat().st_mtime
@@ -199,10 +250,11 @@ def run() -> int:
             last_trigger_mtime = trigger_mtime
             show_until = time.time() + VISIBLE_SEC
 
-        visible = time.time() <= show_until
+        visible = show_until > 0 and time.time() <= show_until
+
         if visible:
             width, height = layout()
-            draw(width, height, state)
+            draw(width, height, position, duration, paused)
             if hidden:
                 root.deiconify()
                 hidden = False
@@ -231,7 +283,7 @@ def run() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", action="store_true", help="run the OSD window loop")
-    parser.add_argument("--show", metavar="REASON", help="show the OSD briefly")
+    parser.add_argument("--show", metavar="REASON", help="pulse the OSD briefly")
     args = parser.parse_args()
     if args.show:
         return show(args.show)

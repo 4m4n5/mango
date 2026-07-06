@@ -68,7 +68,7 @@ test('playWithLadder skips nfo sidecars and reaches a later ladder step', async 
     '[TB⚡] Torrentio 2160p',
   );
   good.description = '2160p HEVC encode';
-  good.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|true|2160p' };
+  good.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|false|2160p' };
 
   const result = await playWithLadder([bad, good], testConfig(), {
     preflight: async (url) => (url.includes('bad') ? 'nfo' : 'video'),

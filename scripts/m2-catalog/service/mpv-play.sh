@@ -672,25 +672,31 @@ foreground_handoff() {
     start_mpv_exit_monitor "$MPV_PID"
   fi
   HANDOFF_DONE=true
+  if ! $PROBE; then
+    ensure_playback_osd
+  fi
   echo "handoff: ready_ms=$(( $(now_ms) - START_MS ))" >&2
 }
 
-start_playback_osd() {
+ensure_playback_osd() {
   local osd_py="$SCRIPT_DIR/playback-osd.py"
   [[ "${MANGO_PLAYBACK_OSD:-1}" != "0" ]] || return 0
   [[ -x "$osd_py" ]] || return 0
   mkdir -p "$(dirname "$PLAYBACK_OSD_PID_FILE")" "$(dirname "$PLAYBACK_OSD_LOG")"
   if [[ -f "$PLAYBACK_OSD_PID_FILE" ]] && kill -0 "$(cat "$PLAYBACK_OSD_PID_FILE")" 2>/dev/null; then
-    python3 "$osd_py" --show start >/dev/null 2>&1 || true
     return 0
   fi
   rm -f "$PLAYBACK_OSD_PID_FILE"
   setsid env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" HOME="$HOME" \
+    MANGO_REPO_DIR="$REPO_DIR" \
     MANGO_PLAYER_STATE_PATH="$PLAYER_STATE_FILE" \
     MANGO_PLAYBACK_OSD_PID_FILE="$PLAYBACK_OSD_PID_FILE" \
     python3 "$osd_py" --run >>"$PLAYBACK_OSD_LOG" 2>&1 < /dev/null &
   echo "$!" >"$PLAYBACK_OSD_PID_FILE"
-  python3 "$osd_py" --show start >/dev/null 2>&1 || true
+}
+
+start_playback_osd() {
+  ensure_playback_osd
 }
 
 play_with_vlc() {

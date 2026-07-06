@@ -158,9 +158,9 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | **R** shoulder | `311` | **Next browse tab** (launcher); playback large seek forward |
 | **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
 
-**D-pad** → navigate. During VLC playback, **←/→** seek and show the progress
-bar; holding **←/→** accelerates seek, while playback-only **L/R** jumps by the
-large seek step.
+**D-pad** → navigate. During playback, **←/→** skip ±10s and show the progress
+HUD; holding **←/→** accelerates seek (10s → 30s → 120s), while playback-only
+**L/R** jumps by the large seek step (120s default).
 
 > Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. `A` remains intentionally unmapped; `X` is reserved for shuffle.
 

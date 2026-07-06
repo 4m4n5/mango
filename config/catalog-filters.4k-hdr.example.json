@@ -1,8 +1,8 @@
 {
   "_profile": "m6.3-tv-vlc-4k-stage2",
   "_notes": [
-    "Target-TV profile: cached HEVC/x265, Pi-safe 4K (SDR + HW HEVC only), no REMUX.",
-    "GET /stream picker and POST /play share the same play_ladder gate."
+    "Target-TV profile after Samsung Input Signal Plus and VLC DRM playback validation: launcher stays 1080p60 and couch playback uses a single VLC backend for all resolutions.",
+    "Prefer cached HEVC/x265 streams, exclude REMUX, and allow 4K before falling back to 1080p."
   ],
   "exclude_uncached_debrid": true,
   "strict_unknown_cache": true,
@@ -22,12 +22,10 @@
   "auto_play_uncached_probe_ms": 25000,
   "play_ladder": [
     {
-      "step": "4k_sdr_cached",
+      "step": "4k_hevc_cached",
       "max_quality": "2160p",
       "min_quality": "2160p",
       "exclude_remux": true,
-      "require_hevc": true,
-      "exclude_hdr": true,
       "require_cache": "cached",
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]
@@ -45,6 +43,14 @@
       "max_quality": "1080p",
       "exclude_remux": true,
       "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "1080p_uncached_fallback",
+      "max_quality": "1080p",
+      "exclude_remux": true,
+      "require_cache": "cached_or_uncached",
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]
     }

@@ -67,6 +67,12 @@ VLC_HOLD_SEEK_FAST_AFTER_SEC = float(
 VLC_HOLD_SEEK_BIG_AFTER_SEC = float(
     os.environ.get("MANGO_VLC_HOLD_SEEK_BIG_AFTER_SEC", "3.5")
 )
+# Shared couch playback seek tuning (mpv + vlc).
+PLAYBACK_APPS = frozenset({"mpv", "vlc"})
+
+
+def _playback_app(app: str) -> bool:
+    return app in PLAYBACK_APPS
 
 BTN_B = 304
 BTN_X = 307
@@ -495,6 +501,21 @@ def route_vlc_seek(direction: str, seconds: int) -> None:
     show_playback_osd(direction)
 
 
+def route_mpv_seek(direction: str, seconds: int) -> None:
+    if direction not in {"left", "right"} or seconds <= 0:
+        return
+    signed_seconds = -seconds if direction == "left" else seconds
+    send_mpv_ipc("seek", str(signed_seconds), "relative")
+    show_playback_osd(direction)
+
+
+def route_playback_seek(app: str, direction: str, seconds: int) -> None:
+    if app == "vlc":
+        route_vlc_seek(direction, seconds)
+    elif app == "mpv":
+        route_mpv_seek(direction, seconds)
+
+
 def _vlc_running() -> bool:
     for name in ("vlc", "cvlc"):
         result = subprocess.run(
@@ -642,17 +663,49 @@ def send_key_launcher(symbol: str) -> None:
     send_key_to_wid(wid, symbol, activate=True)
 
 
-def send_mpv_ipc(command: str, arg: str = "") -> None:
+def send_mpv_ipc(command: str, arg: str = "", mode: str = "") -> None:
     argv = ["bash", str(MPV_IPC_SH), command]
     if arg:
         argv.append(arg)
+    if mode:
+        argv.append(mode)
     popen_tv_user(argv)
+
+
+PLAYBACK_OSD_PID_FILE = Path(
+    os.environ.get("MANGO_PLAYBACK_OSD_PID_FILE", str(CACHE_DIR / "playback-osd.pid"))
+)
 
 
 def show_playback_osd(reason: str) -> None:
     if not PLAYBACK_OSD_PY.is_file():
         return
+    ensure_playback_osd_daemon()
     popen_tv_user(["python3", str(PLAYBACK_OSD_PY), "--show", reason])
+
+
+def ensure_playback_osd_daemon() -> None:
+    if not PLAYBACK_OSD_PY.is_file():
+        return
+    if PLAYBACK_OSD_PID_FILE.is_file():
+        try:
+            pid = int(PLAYBACK_OSD_PID_FILE.read_text(encoding="utf-8").strip() or "0")
+        except ValueError:
+            pid = 0
+        if pid > 0:
+            try:
+                os.kill(pid, 0)
+                return
+            except OSError:
+                pass
+    popen_tv_user(
+        ["python3", str(PLAYBACK_OSD_PY), "--run"],
+        extra_env={
+            "MANGO_REPO_DIR": str(REPO),
+            "MANGO_PLAYER_STATE_PATH": str(PLAYER_STATE_PATH),
+            "MANGO_PLAYBACK_OSD_PID_FILE": str(PLAYBACK_OSD_PID_FILE),
+        },
+    )
 
 
 def _vlc_position_from_state(state: dict[str, object], now_ms: int) -> float:
@@ -756,10 +809,8 @@ def adjust_volume(delta_percent: int) -> None:
     if delta_percent == 0:
         return
     if foreground_app() == "mpv":
-        popen_tv_user(
-            ["bash", str(MPV_IPC_SH), "add", "volume", str(delta_percent)],
-            timeout=2.0,
-        )
+        popen_tv_user(["bash", str(MPV_IPC_SH), "add", "volume", str(delta_percent)])
+        show_playback_osd("volume")
         return
     delta = f"{abs(delta_percent)}%"
     if shutil.which("pactl"):
@@ -807,7 +858,10 @@ def go_home() -> None:
 def route_dpad(app: str, direction: str) -> None:
     symbol = {"left": "Left", "right": "Right", "up": "Up", "down": "Down"}[direction]
     if app == "mpv":
-        send_mpv_ipc("keypress", symbol.upper())
+        if direction in {"left", "right"}:
+            route_mpv_seek(direction, VLC_SEEK_STEP_SEC)
+        else:
+            send_mpv_ipc("keypress", symbol.upper())
     elif app == "vlc":
         if direction in {"left", "right"}:
             route_vlc_seek(direction, VLC_SEEK_STEP_SEC)
@@ -819,11 +873,7 @@ def route_dpad(app: str, direction: str) -> None:
 
 
 def route_playback_shoulder(app: str, direction: str) -> None:
-    if app == "vlc":
-        route_vlc_seek(direction, VLC_SHOULDER_SEEK_STEP_SEC)
-    elif app == "mpv":
-        seconds = -VLC_SHOULDER_SEEK_STEP_SEC if direction == "left" else VLC_SHOULDER_SEEK_STEP_SEC
-        send_mpv_ipc("seek", str(seconds))
+    route_playback_seek(app, direction, VLC_SHOULDER_SEEK_STEP_SEC)
 
 
 def route_face(app: str, action: str) -> None:
@@ -831,6 +881,7 @@ def route_face(app: str, action: str) -> None:
         symbol = "Return"
         if app == "mpv":
             send_mpv_ipc("keypress", "SPACE")
+            show_playback_osd("pause")
         elif app == "vlc":
             send_key_vlc("space")
             update_vlc_state(toggle_pause=True)
@@ -994,7 +1045,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
         return VLC_SEEK_STEP_SEC
 
     def start_or_update_seek_hold(app: str, direction: str) -> None:
-        if app != "vlc":
+        if not _playback_app(app):
             stop_seek_hold()
             debounced(f"{app}-{direction}", lambda: route_dpad(app, direction))
             return
@@ -1002,9 +1053,10 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
         if hold_seek.get("direction") == direction:
             return
         wake_display_for_input(f"{app}-{direction}")
-        route_vlc_seek(direction, VLC_SEEK_STEP_SEC)
+        route_playback_seek(app, direction, VLC_SEEK_STEP_SEC)
         hold_seek.update(
             {
+                "app": app,
                 "direction": direction,
                 "started_at": now,
                 "next_at": now + VLC_HOLD_SEEK_DELAY_SEC,
@@ -1015,7 +1067,8 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
         if not hold_seek:
             return
         invalidate_foreground_cache()
-        if foreground_app() != "vlc":
+        hold_app = str(hold_seek.get("app") or "")
+        if foreground_app() != hold_app or not _playback_app(hold_app):
             stop_seek_hold()
             return
         now = time.monotonic()
@@ -1027,7 +1080,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
             stop_seek_hold()
             return
         held_for = now - float(hold_seek.get("started_at") or now)
-        route_vlc_seek(direction, held_seek_step(held_for))
+        route_playback_seek(hold_app, direction, held_seek_step(held_for))
         hold_seek["next_at"] = now + VLC_HOLD_SEEK_REPEAT_SEC
 
     def select_timeout() -> float:
