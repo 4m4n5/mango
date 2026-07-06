@@ -315,6 +315,22 @@ start_mpv_exit_monitor() {
   ' bash "$pid" "$REPO_DIR" "$pidfile" >/dev/null 2>&1 &
 }
 
+append_mpv_cache_args() {
+  local -n args_ref="$1"
+  if [[ -n "${MANGO_MPV_CACHE:-}" ]]; then
+    args_ref+=(--cache="${MANGO_MPV_CACHE}")
+  fi
+  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BYTES:-}" ]]; then
+    args_ref+=(--demuxer-max-bytes="${MANGO_MPV_DEMUXER_MAX_BYTES}")
+  fi
+  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BACK_BYTES:-}" ]]; then
+    args_ref+=(--demuxer-max-back-bytes="${MANGO_MPV_DEMUXER_MAX_BACK_BYTES}")
+  fi
+  if [[ -n "${MANGO_MPV_READAHEAD_SECS:-}" ]]; then
+    args_ref+=(--demuxer-readahead-secs="${MANGO_MPV_READAHEAD_SECS}")
+  fi
+}
+
 append_mpv_render_args() {
   local -n args_ref="$1"
   # Pi 5 tear-free render path: OpenGL (ES) avoids the mpv 0.40 Vulkan default
@@ -343,28 +359,79 @@ append_mpv_render_args() {
   if [[ -n "${MANGO_MPV_TONE_MAPPING:-}" ]]; then
     args_ref+=("--tone-mapping=${MANGO_MPV_TONE_MAPPING}")
   fi
-  # High-bitrate/REMUX demuxer cache. mpv defaults to ~1s readahead, which
-  # rebuffers on 60-100 Mbps 4K REMUX served over HTTP from debrid. A larger
-  # forward/back cache absorbs network jitter without touching decode. All
-  # opt-in so the smooth baseline keeps mpv's low-memory default.
-  if [[ -n "${MANGO_MPV_CACHE:-}" ]]; then
-    args_ref+=("--cache=${MANGO_MPV_CACHE}")
-  fi
-  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BYTES:-}" ]]; then
-    args_ref+=("--demuxer-max-bytes=${MANGO_MPV_DEMUXER_MAX_BYTES}")
-  fi
-  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BACK_BYTES:-}" ]]; then
-    args_ref+=("--demuxer-max-back-bytes=${MANGO_MPV_DEMUXER_MAX_BACK_BYTES}")
-  fi
-  if [[ -n "${MANGO_MPV_READAHEAD_SECS:-}" ]]; then
-    args_ref+=("--demuxer-readahead-secs=${MANGO_MPV_READAHEAD_SECS}")
-  fi
+  append_mpv_cache_args "$1"
   # Multichannel HDMI audio for REMUX soundtracks. auto-safe negotiates the
   # channel layout the TV/receiver reports over HDMI EDID (5.1 when supported,
   # stereo downmix otherwise) so it never breaks stereo-only displays.
   if [[ -n "${MANGO_MPV_AUDIO_CHANNELS:-}" ]]; then
     args_ref+=("--audio-channels=${MANGO_MPV_AUDIO_CHANNELS}")
   fi
+}
+
+append_mpv_buffer_args() {
+  local -n args_ref="$1"
+  args_ref+=(
+    --idle=no
+    --keep-open=no
+    --no-terminal
+    --hwdec="$HWDEC"
+    --input-ipc-server="$SOCKET"
+    --vo=null
+    --ao=null
+  )
+  append_mpv_cache_args "$1"
+  if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
+    args_ref+=(--start="$START_SEC")
+  fi
+  if [[ -n "$AUDIO_URL" ]]; then
+    args_ref+=(--audio-file="$AUDIO_URL")
+  fi
+}
+
+enable_mpv_display() {
+  $DISPLAY_ENABLED && return 0
+  command -v socat >/dev/null 2>&1 || return 1
+  [[ -S "$SOCKET" ]] || return 1
+  printf '{"command":["set_property","vo","%s"]}\n' "${MANGO_MPV_VO:-gpu}" | socat - "$SOCKET" >/dev/null 2>&1 || return 1
+  if [[ -n "${MANGO_MPV_GPU_API:-opengl}" ]]; then
+    printf '{"command":["set_property","gpu-api","%s"]}\n' "${MANGO_MPV_GPU_API}" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  fi
+  case "${MANGO_MPV_OPENGL_ES:-yes}" in
+    1 | yes | true)
+      printf '%s\n' '{"command":["set_property","opengl-es",true]}' | socat - "$SOCKET" >/dev/null 2>&1 || true
+      ;;
+  esac
+  if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
+    printf '{"command":["set_property","profile","%s"]}\n' "${MANGO_MPV_PROFILE}" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
+    printf '{"command":["set_property","video-sync","%s"]}\n' "${MANGO_MPV_VIDEO_SYNC}" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
+    printf '{"command":["set_property","interpolation","%s"]}\n' "${MANGO_MPV_INTERPOLATION}" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  fi
+  printf '%s\n' '{"command":["set_property","fullscreen",true]}' | socat - "$SOCKET" >/dev/null 2>&1 || return 1
+  local ao="" device="" pending_device=false
+  for arg in "${audio_args[@]}"; do
+    if $pending_device; then
+      device="$arg"
+      pending_device=false
+      continue
+    fi
+    case "$arg" in
+      --ao=*) ao="${arg#--ao=}" ;;
+      --audio-device=*) device="${arg#--audio-device=}" ;;
+      --audio-device) pending_device=true ;;
+    esac
+  done
+  if [[ -n "$ao" ]]; then
+    printf '{"command":["set_property","ao","%s"]}\n' "$ao" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$device" ]]; then
+    printf '{"command":["set_property","audio-device","%s"]}\n' "$device" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  fi
+  DISPLAY_ENABLED=true
+  return 0
 }
 
 append_mpv_play_args() {
@@ -598,15 +665,20 @@ echo "mpv-play: $URL_LABEL mode=$MODE backend=$PLAYBACK_BACKEND live=$LIVE timeo
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 HANDOFF_DONE=false
+DISPLAY_ENABLED=false
 
 if [[ "$PLAYBACK_BACKEND" == "vlc" ]]; then
   play_with_vlc
 fi
 
 mpv_args=()
-append_mpv_play_args mpv_args
-if ! $PROBE && [[ "$DEFER_FOREGROUND" != "1" ]]; then
-  foreground_handoff
+if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]]; then
+  append_mpv_buffer_args mpv_args
+else
+  append_mpv_play_args mpv_args
+  if ! $PROBE && [[ "$DEFER_FOREGROUND" != "1" ]]; then
+    foreground_handoff
+  fi
 fi
 mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 &
 MPV_PID=$!
@@ -624,6 +696,9 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
       if ! $PROBE && ! $HANDOFF_DONE; then
         foreground_handoff
+        if [[ "$DEFER_FOREGROUND" == "1" ]]; then
+          enable_mpv_display || true
+        fi
       fi
       if playback_is_real "${PT:-0}"; then
         END_MS="$(now_ms)"

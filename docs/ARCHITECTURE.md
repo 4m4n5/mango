@@ -53,13 +53,11 @@ without bringing back the retired Chromium overlay.
 
 **Deferred foreground handoff.** When `MANGO_MPV_DEFER_FOREGROUND=1` (default
 when `MANGO_MPV_STOP_LAUNCHER=1`, set by `mpv`/`mpv-hifi` profiles), `mpv-play.sh`
-starts mpv against the stream URL while Chromium detail remains visible. mpv is
-configured with `--focus-on-open=no`, so it can buffer/decode in the background
-without stealing focus. The foreground handoff (stop launcher, disable
-`xcompmgr`, source-match display mode) is deferred until playback is verified as
-real (`playback-time > 0` and `playback_is_real`). At that point Mango performs
-one direct switch to fullscreen video and starts the mpv exit monitor to restore
-launcher mode after playback ends.
+buffers the stream with `vo=null` while Chromium detail remains visible (avoids
+Pi GPU contention with the launcher). Once `playback-time > 0`, it stops the
+launcher, disables `xcompmgr`, source-matches the display mode, and switches
+mpv to fullscreen GPU output — one direct cut to video. The mpv exit monitor
+restores launcher mode after playback ends.
 
 ### Playability layer
 
