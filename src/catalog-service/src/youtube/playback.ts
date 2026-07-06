@@ -9,8 +9,9 @@ export type YoutubeResolvedPlayback = {
   format: string;
 };
 
-const YOUTUBE_PLAYBACK_CACHE_TTL_MS = 300_000;
+const YOUTUBE_PLAYBACK_CACHE_TTL_MS = 45_000;
 const youtubePlaybackCache = new Map<string, { resolved: YoutubeResolvedPlayback; expires_at: number }>();
+const youtubePlaybackInflight = new Map<string, Promise<YoutubeResolvedPlayback>>();
 
 function youtubeWatchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
@@ -98,6 +99,23 @@ export async function resolveYoutubePlayback(
   if (cached && cached.expires_at <= now) {
     youtubePlaybackCache.delete(normalizedVideoId);
   }
+  const inflight = youtubePlaybackInflight.get(normalizedVideoId);
+  if (inflight) {
+    return inflight;
+  }
+  const resolvePromise = resolveYoutubePlaybackFresh(config, normalizedVideoId, timeoutMs)
+    .finally(() => {
+      youtubePlaybackInflight.delete(normalizedVideoId);
+    });
+  youtubePlaybackInflight.set(normalizedVideoId, resolvePromise);
+  return resolvePromise;
+}
+
+async function resolveYoutubePlaybackFresh(
+  config: YoutubeConfig,
+  normalizedVideoId: string,
+  timeoutMs = 30000,
+): Promise<YoutubeResolvedPlayback> {
   const started = Date.now();
   let lastFormatError = '';
   for (const format of ytDlpFormatCandidates(config.yt_dlp_format)) {

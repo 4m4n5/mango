@@ -78,6 +78,14 @@ playback_is_real() {
   local playback_time="$1"
   local duration
   local min_duration="$MIN_DURATION_SEC"
+  if is_youtube_stream && ! $LIVE && ! $PROBE; then
+    python3 - "$playback_time" <<'PY'
+import sys
+playback = float(sys.argv[1] or 0)
+raise SystemExit(0 if playback >= 0.3 else 1)
+PY
+    return $?
+  fi
   if $LIVE; then
     python3 - "$playback_time" <<'PY'
 import sys
@@ -109,6 +117,13 @@ play_cancelled() {
   [[ -n "${MANGO_PLAY_EPOCH:-}" ]] || return 1
   [[ -f "$PLAY_CANCEL_FILE" ]] || return 1
   [[ "$(tr -d '[:space:]' <"$PLAY_CANCEL_FILE" 2>/dev/null || true)" != "$MANGO_PLAY_EPOCH" ]]
+}
+
+is_youtube_stream() {
+  [[ "$URL" == *"googlevideo.com"* ]] && return 0
+  [[ "$URL" == *"youtube.com"* ]] && return 0
+  [[ -n "${AUDIO_URL:-}" && "$AUDIO_URL" == *"googlevideo.com"* ]] && return 0
+  return 1
 }
 
 detect_hwdec() {
@@ -394,7 +409,7 @@ enable_mpv_display() {
   [[ -S "$SOCKET" ]] || return 1
   printf '{"command":["set_property","vo","%s"]}\n' "${MANGO_MPV_VO:-gpu}" | socat - "$SOCKET" >/dev/null 2>&1 || return 1
   if [[ -n "${MANGO_MPV_GPU_API:-opengl}" ]]; then
-    printf '{"command":["set_property","gpu-api","%s"]}\n' "${MANGO_MPV_GPU_API}" | socat - "$SOCKET" >/dev/null 2>&1 || true
+    printf '{"command":["set_property","gpu-api","%s"]}\n' "${MANGO_MPV_GPU_API:-opengl}" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
   case "${MANGO_MPV_OPENGL_ES:-yes}" in
     1 | yes | true)
@@ -402,13 +417,13 @@ enable_mpv_display() {
       ;;
   esac
   if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
-    printf '{"command":["set_property","profile","%s"]}\n' "${MANGO_MPV_PROFILE}" | socat - "$SOCKET" >/dev/null 2>&1 || true
+    printf '{"command":["set_property","profile","%s"]}\n' "${MANGO_MPV_PROFILE:-fast}" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
   if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
-    printf '{"command":["set_property","video-sync","%s"]}\n' "${MANGO_MPV_VIDEO_SYNC}" | socat - "$SOCKET" >/dev/null 2>&1 || true
+    printf '{"command":["set_property","video-sync","%s"]}\n' "${MANGO_MPV_VIDEO_SYNC:-display-resample}" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
   if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
-    printf '{"command":["set_property","interpolation","%s"]}\n' "${MANGO_MPV_INTERPOLATION}" | socat - "$SOCKET" >/dev/null 2>&1 || true
+    printf '{"command":["set_property","interpolation","%s"]}\n' "${MANGO_MPV_INTERPOLATION:-no}" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
   printf '%s\n' '{"command":["set_property","fullscreen",true]}' | socat - "$SOCKET" >/dev/null 2>&1 || return 1
   local ao="" device="" pending_device=false
@@ -698,6 +713,7 @@ START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 HANDOFF_DONE=false
 DISPLAY_ENABLED=false
+NULL_BUFFER=false
 
 if [[ "$PLAYBACK_BACKEND" == "vlc" ]]; then
   play_with_vlc
@@ -705,9 +721,19 @@ fi
 
 mpv_args=()
 if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]]; then
-  append_mpv_buffer_args mpv_args
+  if is_youtube_stream; then
+    # YouTube (often split video+audio via --audio-file) decodes reliably with
+    # the real VO/AO from the start; vo=null + IPC display switch can leave
+    # external audio detached on the Pi.
+    append_mpv_play_args mpv_args
+    DISPLAY_ENABLED=true
+  else
+    append_mpv_buffer_args mpv_args
+    NULL_BUFFER=true
+  fi
 else
   append_mpv_play_args mpv_args
+  DISPLAY_ENABLED=true
   if ! $PROBE && [[ "$DEFER_FOREGROUND" != "1" ]]; then
     foreground_handoff
   fi
@@ -727,11 +753,15 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
       if ! $PROBE && ! $HANDOFF_DONE; then
-        if [[ "$DEFER_FOREGROUND" == "1" ]]; then
-          enable_mpv_display || true
+        if $NULL_BUFFER; then
+          if ! enable_mpv_display; then
+            echo "FAIL: mpv display enable failed" >&2
+            MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+            exit 1
+          fi
           wait_mpv_vo_ready 400
-          raise_mpv_window
         fi
+        raise_mpv_window
         foreground_handoff
       fi
       if playback_is_real "${PT:-0}"; then
