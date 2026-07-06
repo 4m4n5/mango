@@ -827,26 +827,17 @@ h1 {
   position: fixed;
   inset: 0;
   z-index: 35;
+  height: 100%;
   display: grid;
   grid-template-columns: clamp(170px, 15vw, 240px) minmax(0, 1fr) auto;
-  grid-template-areas:
-    "poster copy side"
-    "related related related";
-  row-gap: var(--space-stack-lg);
+  grid-template-areas: "poster copy side";
   column-gap: clamp(2rem, 4vw, 3.5rem);
   align-items: start;
-  align-content: start;
+  align-content: stretch;
   padding: var(--safe-y) var(--safe-x);
-  overflow-y: auto;
-  overflow-x: clip;
-  scroll-padding: var(--focus-gutter);
-  scrollbar-width: none;
+  overflow: hidden;
   background: var(--bg-overlay);
   animation: detail-enter 220ms var(--ease-out);
-}
-
-.detail::-webkit-scrollbar {
-  display: none;
 }
 
 @keyframes detail-enter {
@@ -915,17 +906,27 @@ h1 {
   gap: var(--space-stack);
   width: 100%;
   max-width: none;
+  min-height: 0;
   overflow: visible;
   padding: var(--focus-gutter);
   margin: calc(-1 * var(--focus-gutter));
 }
 
+.detail:has(.detail-related:not(.hidden)) .detail-poster-wrap,
+.detail:has(.detail-related:not(.hidden)) .detail-copy {
+  padding-bottom: clamp(12rem, 22vh, 16rem);
+}
+
 .detail-related {
-  grid-area: related;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
   min-height: 0;
   overflow: visible;
-  padding-inline: var(--focus-gutter);
-  margin-inline: calc(-1 * var(--focus-gutter));
+  padding: var(--space-stack-lg) var(--safe-x) var(--safe-y);
+  background: linear-gradient(to top, var(--bg-overlay) 85%, rgba(7, 8, 10, 0.72) 100%);
 }
 
 .detail-related.hidden {
@@ -940,12 +941,13 @@ h1 {
 }
 
 .detail-related-label {
+  display: block;
   margin: 0;
   padding-left: 0.85rem;
   border-left: var(--rail-accent-width) solid var(--accent);
-  color: var(--text-primary);
+  color: var(--text-secondary);
   font-size: var(--text-control);
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
@@ -989,12 +991,22 @@ h1 {
 .detail-side {
   grid-area: side;
   position: relative;
-  z-index: 1;
+  z-index: 2;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
   gap: var(--space-stack-lg);
   width: clamp(300px, 26vw, 420px);
-  overflow: visible;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: clip;
+  scrollbar-width: none;
+}
+
+.detail-side::-webkit-scrollbar {
+  display: none;
 }
 
 .detail-side:not(:has(> :not([hidden]))) {
@@ -1479,7 +1491,11 @@ h1 {
   .detail {
     grid-template-columns: 10rem minmax(0, 1fr) auto;
     column-gap: 1.5rem;
-    row-gap: var(--space-stack-lg);
+  }
+
+  .detail:has(.detail-related:not(.hidden)) .detail-poster-wrap,
+  .detail:has(.detail-related:not(.hidden)) .detail-copy {
+    padding-bottom: clamp(10rem, 18vh, 14rem);
   }
 
   .detail-side {
