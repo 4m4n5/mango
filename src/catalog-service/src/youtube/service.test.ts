@@ -1442,3 +1442,26 @@ test('freshStart clears YouTube watch history and personalization reservoirs', (
   const response = await service.rails() as { rails: YoutubeRail[] };
   assert.equal(response.rails.some((rail) => rail.rail_id === 'history'), false);
 }));
+
+test('railRelated samples pool titles outside the home exclude set', () => withTempState(async () => {
+  const pool = Array.from({ length: 20 }, (_, index) => ({
+    item: sampleVideo(`Pool${index}`),
+    score: 1 - index * 0.01,
+    reason: 'test',
+  }));
+  replaceYoutubeRailItems('popular', pool);
+  upsertPopularCandidatesForTest(pool.map((entry, index) => ({
+    item: entry.item,
+    score: 1 - index * 0.01,
+  })));
+  const service = new YoutubeService();
+  const exclude = Array.from({ length: 12 }, (_, index) => ({
+    type: 'youtube_video',
+    id: `Pool${index}`,
+  }));
+  const response = await service.railRelated('popular', exclude, 8) as { items: YoutubeItem[] };
+  assert.equal(response.items.length, 8);
+  for (const item of response.items) {
+    assert.ok(Number(item.id.replace('Pool', '')) >= 12);
+  }
+}));

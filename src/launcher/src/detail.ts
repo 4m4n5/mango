@@ -4,6 +4,7 @@ import {
   loadSeriesEpisodes,
   loadYoutubeDetailCards,
   loadNextPrompt,
+  loadRailRelatedCards,
   playCard,
   cancelPlay,
   notInterestedYoutubeCard,
@@ -18,6 +19,8 @@ import type { ContentCard, BrowseTab } from "./types";
 import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel } from "./home";
+
+const RELATED_DISPLAY_LIMIT = 8;
 
 export interface DetailCallbacks {
   onClose: () => void;
@@ -47,6 +50,8 @@ export class DetailController {
   private browseTab: BrowseTab = "movies";
   private saved = false;
   private relatedButtons: HTMLButtonElement[] = [];
+  private homeVisibleCards: ContentCard[] = [];
+  private relatedLoadToken = 0;
 
   constructor(
     private readonly view: HTMLElement,
@@ -121,11 +126,12 @@ export class DetailController {
     railLabel: string,
     tab: BrowseTab,
     saved = false,
-    related: ContentCard[] = [],
+    homeVisible: ContentCard[] = [],
   ): void {
     this.card = card;
     this.browseTab = tab;
     this.saved = saved;
+    this.homeVisibleCards = homeVisible;
     this.streams = [];
     this.streamButtons = [];
     this.seriesEpisodes = null;
@@ -138,7 +144,8 @@ export class DetailController {
     this.episodesWrap.hidden = true;
     this.setListLabel("episodes");
     this.eyebrow.textContent = formatRailLabel(railLabel);
-    this.renderRelated(related, railLabel, tab);
+    this.renderRelated([], railLabel, tab);
+    void this.loadRelated(card, railLabel, tab);
     this.title.textContent = card.title;
     this.meta.textContent = card.subtitle;
     this.description.textContent = card.description || "loading details…";
@@ -206,6 +213,8 @@ export class DetailController {
     this.relatedTrack.replaceChildren();
     this.relatedButtons = [];
     this.relatedWrap.classList.add("hidden");
+    this.homeVisibleCards = [];
+    this.relatedLoadToken += 1;
     this.view.classList.add("hidden");
     this.callbacks.onClose();
   }
@@ -514,13 +523,31 @@ export class DetailController {
     this.focusEl(keep ?? play ?? focusables[0]);
   }
 
+  private async loadRelated(card: ContentCard, railLabel: string, tab: BrowseTab): Promise<void> {
+    const token = this.relatedLoadToken + 1;
+    this.relatedLoadToken = token;
+    try {
+      const related = await loadRailRelatedCards(card, this.homeVisibleCards, tab, RELATED_DISPLAY_LIMIT);
+      if (token !== this.relatedLoadToken || this.card?.id !== card.id || this.card?.type !== card.type) {
+        return;
+      }
+      this.renderRelated(related, railLabel, tab);
+      this.applyFocus();
+    } catch {
+      if (token !== this.relatedLoadToken) {
+        return;
+      }
+      this.renderRelated([], railLabel, tab);
+    }
+  }
+
   private renderRelated(related: ContentCard[], railLabel: string, tab: BrowseTab): void {
     this.relatedTrack.replaceChildren();
     this.relatedButtons = [];
     const card = this.card;
     const siblings = related
       .filter((sibling) => !card || sibling.id !== card.id || sibling.type !== card.type)
-      .slice(0, 6);
+      .slice(0, RELATED_DISPLAY_LIMIT);
     if (siblings.length === 0) {
       this.relatedWrap.classList.add("hidden");
       return;
@@ -538,7 +565,7 @@ export class DetailController {
       }
     }
     for (const sibling of siblings) {
-      const button = this.createRelatedCard(sibling, railLabel, tab, related);
+      const button = this.createRelatedCard(sibling, railLabel, tab);
       this.relatedTrack.append(button);
       this.relatedButtons.push(button);
     }
@@ -549,7 +576,6 @@ export class DetailController {
     sibling: ContentCard,
     railLabel: string,
     tab: BrowseTab,
-    related: ContentCard[],
   ): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
@@ -585,7 +611,7 @@ export class DetailController {
 
     button.addEventListener("click", () => {
       const saved = this.callbacks.isSaved?.(sibling) ?? false;
-      this.show(sibling, railLabel, tab, saved, related);
+      this.show(sibling, railLabel, tab, saved, this.homeVisibleCards);
     });
     return button;
   }

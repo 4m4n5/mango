@@ -37,6 +37,7 @@ import {
   getTitlesPlayabilityBulk,
   listRailPoolMissingDisplay,
   patchRailPoolDisplay,
+  pickRailRelatedFromPool,
   type PlayabilityStatus,
   type RailSessionPoolItem,
   type RailSessionSnapshot,
@@ -57,6 +58,7 @@ import {
   shouldSkipTitleFilter,
 } from './playability/rail-overrides.js';
 import { normalizeSeriesVerifyId, seriesBareId } from './playability/ids.js';
+import { titleKey } from './playability/session-select.js';
 import {
   CatalogError,
   couchSafeCatalogMessage,
@@ -1588,6 +1590,39 @@ export class CatalogCore {
       };
     }
     return payload;
+  }
+
+  async railRelated(
+    railId: string,
+    exclude: Array<{ type: string; id: string }>,
+    limit = 8,
+  ): Promise<RailItemsResponse> {
+    const rail = this.browsableRail(railId);
+    const excludeKeys = new Set(exclude.map((item) => titleKey(item.type, item.id)));
+    const poolRows = await pickRailRelatedFromPool(railId, excludeKeys, limit);
+    const items: RailItem[] = poolRows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      title: row.title || row.id,
+      subtitle: row.year ? String(row.year) : row.type,
+      poster: row.poster_url || '',
+      year: row.year ?? undefined,
+      source: row.best_source || '',
+    }));
+    return {
+      rail_id: rail.id,
+      label: rail.label,
+      items,
+      resolve_ms: 0,
+      skipped: 0,
+      playability: {
+        displayed: items.length,
+        verified_pool: poolRows.length,
+        pending: 0,
+        low_water: false,
+        session_id: '',
+      },
+    };
   }
 
   async meta(type: string, id: string): Promise<Meta> {

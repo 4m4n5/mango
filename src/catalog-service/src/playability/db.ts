@@ -2148,6 +2148,33 @@ WHERE created_at < @prune_before;
   };
 }
 
+function shufflePoolRows<T>(items: T[]): T[] {
+  const output = [...items];
+  for (let index = output.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    [output[index], output[swap]] = [output[swap], output[index]];
+  }
+  return output;
+}
+
+/** Random verified pool picks for detail related shelf — excludes home-visible titles. */
+export async function pickRailRelatedFromPool(
+  railId: string,
+  excludeKeys: ReadonlySet<string>,
+  limit: number,
+): Promise<RailPoolRow[]> {
+  await initPlayabilityDb();
+  const overrides = await loadRailCurationOverrides();
+  const db = openDb();
+  const now = nowMs();
+  const pool = curatedPool(readRailPool(db, railId, now), railId, overrides);
+  const candidates = pool.filter((item) => !excludeKeys.has(titleKey(item.type, item.id)));
+  if (candidates.length === 0) {
+    return [];
+  }
+  return shufflePoolRows(candidates).slice(0, Math.max(1, limit));
+}
+
 export async function enqueuePlayabilityTrigger(record: PlayabilityTriggerRecord): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();

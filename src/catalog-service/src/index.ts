@@ -314,6 +314,28 @@ function isLocalRequest(req: http.IncomingMessage): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
+function parseTitleExcludeQuery(raw: string | null): Array<{ type: string; id: string }> {
+  if (!raw?.trim()) {
+    return [];
+  }
+  const refs: Array<{ type: string; id: string }> = [];
+  for (const part of raw.split(',')) {
+    const trimmed = part.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const separator = trimmed.indexOf(':');
+    if (separator <= 0 || separator >= trimmed.length - 1) {
+      continue;
+    }
+    refs.push({
+      type: trimmed.slice(0, separator),
+      id: trimmed.slice(separator + 1),
+    });
+  }
+  return refs;
+}
+
 async function readBody(req: http.IncomingMessage): Promise<PlayBody> {
   const chunks: Buffer[] = [];
   let total = 0;
@@ -819,6 +841,21 @@ async function main(): Promise<void> {
           const reshuffle = url.searchParams.get('reshuffle') === '1'
             || url.searchParams.get('reshuffle') === 'true';
           sendJson(res, 200, await youtube.rails({ reshuffle }));
+          return;
+        }
+
+        if (req.method === 'GET' && parts.length === 2 && parts[1] === 'related') {
+          const railId = url.searchParams.get('rail_id')?.trim() ?? '';
+          if (!railId) {
+            throw new CatalogError(400, 'GET /youtube/related requires rail_id');
+          }
+          const exclude = parseTitleExcludeQuery(url.searchParams.get('exclude'));
+          const limit = Number(url.searchParams.get('limit') || 8);
+          sendJson(res, 200, await youtube.railRelated(
+            railId,
+            exclude,
+            Number.isFinite(limit) ? limit : 8,
+          ));
           return;
         }
 
@@ -1411,6 +1448,17 @@ async function main(): Promise<void> {
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'rails' && parts[2] === 'items') {
         sendJson(res, 200, await core.railItems(parts[1]));
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'rails' && parts[2] === 'related') {
+        const exclude = parseTitleExcludeQuery(url.searchParams.get('exclude'));
+        const limit = Number(url.searchParams.get('limit') || 8);
+        sendJson(res, 200, await core.railRelated(
+          parts[1],
+          exclude,
+          Number.isFinite(limit) ? limit : 8,
+        ));
         return;
       }
 

@@ -223,6 +223,76 @@ function mapYoutubeRails(data: YoutubeRailResponse): ContentRail[] {
   }));
 }
 
+function cardRefKey(card: Pick<ContentCard, "type" | "id">): string {
+  return `${card.type}:${card.id}`;
+}
+
+function shuffleCards(cards: ContentCard[]): ContentCard[] {
+  const output = [...cards];
+  for (let index = output.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    [output[index], output[swap]] = [output[swap], output[index]];
+  }
+  return output;
+}
+
+function buildExcludeParam(homeVisible: ContentCard[], card: ContentCard): string {
+  const keys = new Set<string>();
+  keys.add(cardRefKey(card));
+  for (const visible of homeVisible) {
+    keys.add(cardRefKey(visible));
+  }
+  return [...keys].join(",");
+}
+
+function pickRelatedFallback(
+  homeVisible: ContentCard[],
+  card: ContentCard,
+  limit: number,
+): ContentCard[] {
+  const exclude = new Set([cardRefKey(card)]);
+  return shuffleCards(homeVisible.filter((sibling) => !exclude.has(cardRefKey(sibling)))).slice(0, limit);
+}
+
+export async function loadRailRelatedCards(
+  card: ContentCard,
+  homeVisible: ContentCard[],
+  tab: BrowseTab,
+  limit = 8,
+): Promise<ContentCard[]> {
+  const railId = card.railId;
+  if (!railId) {
+    return pickRelatedFallback(homeVisible, card, limit);
+  }
+  const exclude = buildExcludeParam(homeVisible, card);
+  try {
+    if (tab === "youtube" || card.source === "youtube") {
+      const data = await fetchJson<{ items: YoutubeItem[] }>(
+        `/api/catalog/youtube/related?rail_id=${encodeURIComponent(railId)}&exclude=${encodeURIComponent(exclude)}&limit=${limit}`,
+        undefined,
+        8000,
+      );
+      const mapped = data.items.map((item) => mapYoutubeItem(item, railId));
+      if (mapped.length > 0) {
+        return mapped;
+      }
+    } else {
+      const data = await fetchJson<RailItemsResponse>(
+        `/api/catalog/rails/${encodeURIComponent(railId)}/related?exclude=${encodeURIComponent(exclude)}&limit=${limit}`,
+        undefined,
+        8000,
+      );
+      const mapped = mapRailItems(data).cards;
+      if (mapped.length > 0) {
+        return mapped;
+      }
+    }
+  } catch {
+    // fall through to local shuffle
+  }
+  return pickRelatedFallback(homeVisible, card, limit);
+}
+
 export async function loadCatalogRails(
   tab: BrowseTab = "movies",
   options: { reshuffle?: boolean } = {},

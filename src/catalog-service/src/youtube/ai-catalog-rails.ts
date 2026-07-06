@@ -1,4 +1,4 @@
-import { loadAiCatalogSlots, slotsForTab } from '../ai-catalogs/store.js';
+import { loadAiCatalogSlots, readAiCatalogSlot, slotsForTab } from '../ai-catalogs/store.js';
 import type { AiCatalogSlotFile } from '../ai-catalogs/types.js';
 import { YOUTUBE_AI_SEED_POOL, YOUTUBE_RAIL_LIMIT } from './constants.js';
 import { getYoutubeItem } from './db.js';
@@ -57,4 +57,25 @@ export async function buildYoutubeAiCatalogRails(): Promise<YoutubeRail[]> {
     }
   }
   return rails;
+}
+
+/** Full AI-catalog seed pool for detail related picks (beyond the home rail window). */
+export async function youtubeAiCatalogPoolItems(railId: string): Promise<YoutubeRailItem[]> {
+  if (!railId.startsWith('ai-')) {
+    return [];
+  }
+  const slot = await readAiCatalogSlot(railId.slice(3));
+  if (!slot) {
+    return [];
+  }
+  const items: YoutubeRailItem[] = [];
+  for (const seed of (slot.seed_titles ?? [])
+    .filter((entry) => entry.type === 'youtube_video')
+    .slice(0, YOUTUBE_AI_SEED_POOL)) {
+    const item = seedToRailItem(seed);
+    if (item) {
+      items.push(item);
+    }
+  }
+  return items;
 }

@@ -67,7 +67,7 @@ import type {
   YoutubeRefreshPhaseResult,
   YoutubeSearchGroups,
 } from './types.js';
-import { buildYoutubeAiCatalogRails } from './ai-catalog-rails.js';
+import { buildYoutubeAiCatalogRails, youtubeAiCatalogPoolItems } from './ai-catalog-rails.js';
 import { YOUTUBE_RAIL_LIMIT } from './constants.js';
 
 const YOUTUBE_SOURCE = 'youtube';
@@ -448,6 +448,42 @@ function shuffled<T>(items: T[]): T[] {
     [output[index], output[swap]] = [output[swap], output[index]];
   }
   return output;
+}
+
+type TitleRef = { type: string; id: string };
+
+function titleRefKey(ref: TitleRef): string {
+  return `${ref.type}:${ref.id}`;
+}
+
+function youtubeContentType(item: YoutubeItem): string {
+  if (item.kind === 'channel') {
+    return 'youtube_channel';
+  }
+  if (item.kind === 'playlist') {
+    return 'youtube_playlist';
+  }
+  return 'youtube_video';
+}
+
+async function listYoutubeRailPoolItems(railId: string): Promise<YoutubeRailItem[]> {
+  const poolLimit = railId === 'new_from_subscriptions' ? SUBSCRIPTION_RAIL_POOL_LIMIT : YOUTUBE_RAIL_POOL_LIMIT;
+  if (railId === 'for_you') {
+    return listForYouCandidates(poolLimit);
+  }
+  if (railId === 'fresh_finds') {
+    return listFreshFindCandidates(poolLimit);
+  }
+  if (railId === 'live_now') {
+    return listLiveNowCandidates(poolLimit);
+  }
+  if (railId === 'popular') {
+    return listPopularCandidates(poolLimit);
+  }
+  if (railId.startsWith('ai-')) {
+    return youtubeAiCatalogPoolItems(railId);
+  }
+  return listYoutubeRailItems(railId, poolLimit);
 }
 
 function railWindow<T extends YoutubeItem>(railId: string, items: T[], options: YoutubeRailsOptions = {}): T[] {
@@ -3225,6 +3261,26 @@ export class YoutubeService {
       refresh: refresh.refresh,
       phases: refresh.phases,
       error: refresh.error,
+    };
+  }
+
+  async railRelated(
+    railId: string,
+    exclude: TitleRef[],
+    limit = 8,
+  ): Promise<Record<string, unknown>> {
+    const excludeKeys = new Set(exclude.map(titleRefKey));
+    const pool = await listYoutubeRailPoolItems(railId);
+    const picked = shuffled(
+      filterNotInterested(pool).filter((item) => !excludeKeys.has(titleRefKey({
+        type: youtubeContentType(item),
+        id: item.id,
+      }))),
+    ).slice(0, Math.max(1, Math.min(limit, 24)));
+    return {
+      ok: true,
+      rail_id: railId,
+      items: picked,
     };
   }
 

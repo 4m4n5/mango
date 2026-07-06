@@ -511,7 +511,7 @@ function activateFocused(): void {
   focused.click();
 }
 
-function findRailSiblings(card: ContentCard): ContentCard[] {
+function findRailVisible(card: ContentCard): ContentCard[] {
   if (catalogState.status !== "ready") {
     return [];
   }
@@ -529,7 +529,7 @@ function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseT
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
   const browseTab = tab ?? activeBrowseTab;
-  detail.show(card, railLabel, browseTab, savedKeys.has(cardSavedKey(card)), findRailSiblings(card));
+  detail.show(card, railLabel, browseTab, savedKeys.has(cardSavedKey(card)), findRailVisible(card));
 }
 
 function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
