@@ -93,7 +93,7 @@ export type StreamFilterMeta = {
   quality_relaxed?: boolean;
   /** Ladder step used for GET /stream display filtering. */
   play_ladder_step?: string;
-  /** GET /stream rows follow expandPlayLadder play order (not ideal-only). */
+  /** GET /stream rows are ladder-playable only (same gate as POST /play). */
   play_ladder_preview?: boolean;
   excluded: {
     uncached_debrid: number;

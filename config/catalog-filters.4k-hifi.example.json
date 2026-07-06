@@ -6,7 +6,8 @@
     "exclude_hdr on the 4K steps drops HDR above 1080p: X11 cannot output HDR, so a 4K HDR frame would be GPU tone-mapped to SDR every frame and the Pi 5 cannot sustain that at 4K (heavy stutter). HDR titles fall through to a 1080p step, where tone-mapping is cheap.",
     "require_hevc locks every >1080p step to HEVC — the only codec the Pi 5 decodes in hardware — so a 4K H.264/AV1/VP9 release never auto-plays and stutters; such titles fall through to a 1080p (any-codec) step instead.",
     "REMUX is confined to the 4K steps; 1080p stays on efficient encodes to avoid high-bitrate AVC software-decode load.",
-    "Cached-only (include_uncached=false) so debrid serves the high bitrate fast enough to avoid rebuffering."
+    "Cached-only on every step so debrid serves high bitrates without rebuffer stutter.",
+    "GET /stream picker and POST /play share the same play_ladder gate — only ladder-qualified streams appear."
   ],
   "exclude_uncached_debrid": true,
   "strict_unknown_cache": true,
@@ -60,14 +61,6 @@
       "max_quality": "1080p",
       "exclude_remux": true,
       "require_cache": "cached",
-      "debrid_services": ["torbox", "realdebrid"],
-      "addons": ["AIOStreams"]
-    },
-    {
-      "step": "1080p_uncached_fallback",
-      "max_quality": "1080p",
-      "exclude_remux": true,
-      "require_cache": "cached_or_uncached",
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]
     }

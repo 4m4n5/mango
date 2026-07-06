@@ -360,9 +360,18 @@ export function expandPlayLadder(
   return ranked.slice(0, max);
 }
 
-/** Ensure an explicit picker URL is attempted even when ladder filters hid it from expansion. */
-export function injectPreferredPlayCandidate(
+/** Single gate for couch picker + auto-play: only ladder-qualified streams. */
+export function selectLadderPlayableStreams(
   streams: Stream[],
+  ladder: PlayLadderStep[],
+  context: StreamFilterContext = {},
+  options: Parameters<typeof expandPlayLadder>[3] = {},
+): LadderCandidate[] {
+  return expandPlayLadder(streams, ladder, context, options);
+}
+
+/** Move an explicit picker choice to the front when it is already ladder-playable. */
+export function injectPreferredPlayCandidate(
   candidates: LadderCandidate[],
   preferUrl?: string,
 ): LadderCandidate[] {
@@ -370,15 +379,12 @@ export function injectPreferredPlayCandidate(
     return candidates;
   }
   const hash = streamUrlHash(preferUrl);
-  const match = streams.find((stream) => streamUrlHash(stream.url) === hash);
-  if (!match) {
+  const preferred = candidates.find((candidate) => streamUrlHash(candidate.stream.url) === hash);
+  if (!preferred) {
     return candidates;
   }
-  const ladderStep = typeof match.ladder_step === 'string' && match.ladder_step.trim() !== ''
-    ? match.ladder_step.trim()
-    : 'picker';
   const rest = candidates.filter((candidate) => streamUrlHash(candidate.stream.url) !== hash);
-  return [{ stream: match, ladder_step: ladderStep }, ...rest];
+  return [preferred, ...rest];
 }
 
 export function couchStatusForLadderStep(step: string): string {

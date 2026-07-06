@@ -226,7 +226,6 @@ export async function playWithLadder(
   const ladder = options.ladder ?? config.play_ladder;
   const deadline = started + wallMs;
   const candidates = injectPreferredPlayCandidate(
-    streams,
     expandPlayLadder(streams, ladder, options.filterContext ?? {
       contentType: options.contentType,
     }, {
@@ -236,6 +235,7 @@ export async function playWithLadder(
       preferred_video_codecs: config.preferred_video_codecs,
       verified_hint: options.verified_hint,
       max_candidates: config.auto_play_max_attempts,
+      include_uncached: config.include_uncached,
       prefer_ladder_step: options.verified_hint?.win_ladder_step ?? null,
     }),
     options.preferUrl,
