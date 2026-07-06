@@ -70,7 +70,7 @@ button {
 .shell {
   width: 100vw;
   height: 100vh;
-  padding: var(--safe-y) var(--safe-x) calc(var(--safe-y) + 48px);
+  padding: var(--safe-y) var(--safe-x);
 }
 
 .view {
@@ -204,7 +204,9 @@ button {
   min-height: 0;
   overflow-y: auto;
   overflow-x: clip;
-  padding-bottom: 2.75rem;
+  padding-block-start: var(--focus-gutter);
+  padding-block-end: calc(var(--focus-gutter) + 2.75rem);
+  margin-block: calc(-1 * var(--focus-gutter));
   padding-inline: var(--focus-gutter);
   margin-inline: calc(-1 * var(--focus-gutter));
   scrollbar-width: none;
@@ -219,7 +221,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: calc(0.85rem + var(--focus-gutter) * 0.45);
-  padding-block: calc(var(--focus-gutter) * 0.25);
+  padding-block: calc(var(--focus-gutter) * 0.4);
   min-height: 0;
 }
 
@@ -548,10 +550,6 @@ button {
   text-transform: lowercase;
 }
 
-.status {
-  flex-shrink: 0;
-}
-
 .hidden {
   display: none;
 }
@@ -580,7 +578,7 @@ h1 {
 .detail-copy #detail-title {
   font-size: clamp(2.25rem, 3.4vw, var(--text-display));
   line-height: 1.08;
-  max-width: 54rem;
+  max-width: none;
   overflow-wrap: anywhere;
 }
 
@@ -591,7 +589,6 @@ h1 {
   letter-spacing: 0.04em;
 }
 
-.status,
 .settings-note {
   min-height: 2rem;
   margin: 0;
@@ -806,35 +803,16 @@ h1 {
   color: #fecaca;
 }
 
-.shell-status {
-  position: fixed;
-  left: var(--safe-x);
-  right: var(--safe-x);
-  bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
-  z-index: 30;
-  min-height: 2.2rem;
-  pointer-events: none;
-  color: var(--text-secondary);
-  font-size: var(--text-caption);
-}
-
-.detail:not(.hidden) ~ .shell-status,
-.settings:not(.hidden) ~ .shell-status,
-.next-prompt:not(.hidden) ~ .shell-status,
-.shell:has(.voice-hud[data-visible="true"]) .shell-status {
-  opacity: 0;
-  visibility: hidden;
-}
-
 .detail {
   position: fixed;
   inset: 0;
   z-index: 35;
   display: grid;
-  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
-  gap: 3rem;
-  align-items: center;
-  padding: var(--safe-y) var(--safe-x) calc(var(--safe-y) + 48px);
+  grid-template-columns: clamp(220px, 20vw, 300px) minmax(0, 1fr);
+  gap: clamp(2.5rem, 5vw, 5rem);
+  align-items: start;
+  align-content: start;
+  padding: calc(var(--safe-y) + 1.5rem) var(--safe-x) var(--safe-y);
   background: var(--bg-overlay);
   animation: detail-enter 220ms var(--ease-out);
 }
@@ -878,7 +856,7 @@ h1 {
 
 .detail-poster-wrap {
   width: 100%;
-  max-width: 320px;
+  max-width: none;
   aspect-ratio: 2 / 3;
   overflow: hidden;
   border: 2px solid var(--border-strong);
@@ -894,7 +872,8 @@ h1 {
 }
 
 .detail-copy {
-  max-width: 58rem;
+  width: 100%;
+  max-width: none;
   max-height: 88vh;
   overflow-y: auto;
   padding: var(--focus-gutter);
@@ -1041,22 +1020,23 @@ h1 {
 }
 
 .detail-meta {
-  margin: 1rem 0 0;
+  margin: 1.25rem 0 0;
   color: var(--text-secondary);
   font-size: var(--text-caption);
   font-weight: 600;
 }
 
 .detail-description {
-  max-width: 54rem;
-  margin: 1.6rem 0 0;
+  width: 100%;
+  max-width: none;
+  margin: 1.75rem 0 0;
   color: var(--text-secondary);
   font-size: var(--text-body);
   font-weight: 600;
   line-height: 1.42;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 5;
   overflow: hidden;
 }
 
@@ -1156,6 +1136,36 @@ h1 {
 
 .detail-stream:disabled {
   opacity: 0.55;
+}
+
+@media (min-width: 1100px) {
+  .detail-stream-list {
+    max-height: none;
+  }
+
+  .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    column-gap: 2.5rem;
+  }
+
+  .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) > .eyebrow,
+  .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) > #detail-title,
+  .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) > #detail-meta,
+  .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) > #detail-description,
+  .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) > .detail-actions {
+    grid-column: 1 / -1;
+  }
+
+  .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) > #detail-streams {
+    grid-column: 1;
+    margin-top: 1.6rem;
+  }
+
+  .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) > #detail-episodes {
+    grid-column: 2;
+    margin-top: 1.6rem;
+  }
 }
 
 .settings {
@@ -1358,10 +1368,6 @@ h1 {
   .detail {
     grid-template-columns: 11rem minmax(0, 1fr);
     gap: 2rem;
-  }
-
-  .shell-status {
-    padding-right: 0;
   }
 }
 

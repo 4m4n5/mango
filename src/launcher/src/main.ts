@@ -48,7 +48,6 @@ const nextPromptPlay = mustGet<HTMLButtonElement>("next-prompt-play");
 const nextPromptDismiss = mustGet<HTMLButtonElement>("next-prompt-dismiss");
 const settingsView = mustGet<HTMLElement>("settings-view");
 const settingsRefreshEl = mustGet<HTMLElement>("settings-refresh");
-const statusEl = mustGet<HTMLElement>("status");
 const backButton = mustGet<HTMLButtonElement>("back-button");
 
 let inSettings = false;
@@ -860,9 +859,7 @@ async function loadInfo(): Promise<void> {
   }
 }
 
-function setStatus(message: string): void {
-  statusEl.textContent = message;
-}
+function setStatus(_message: string): void {}
 
 function setText(id: string, value: string): void {
   mustGet<HTMLElement>(id).textContent = value;
