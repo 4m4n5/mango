@@ -85,17 +85,15 @@ interface TabRenderEntry {
 const tabRenderCache = new Map<BrowseTab, TabRenderEntry>();
 let appsSection: HTMLElement | null = null;
 let appsRow: HTMLElement[] = [];
+let focusedBrowseElement: HTMLElement | null = null;
 
 const focusGrid = new FocusGrid((element) => {
   const started = performance.now();
-  element.classList.add("focused");
-  for (const row of focusGridRows) {
-    for (const item of row) {
-      if (item !== element) {
-        item.classList.remove("focused");
-      }
-    }
+  if (focusedBrowseElement !== null && focusedBrowseElement !== element) {
+    focusedBrowseElement.classList.remove("focused");
   }
+  element.classList.add("focused");
+  focusedBrowseElement = element;
   if (!detail.isOpen && !inSettings && !homeView.classList.contains("hidden")) {
     const key = element.dataset.focusKey;
     if (key) {

@@ -42,8 +42,9 @@
   --radius-control: 999px;
   --radius-panel: 16px;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
-  --dur-focus-in: 180ms;
-  --dur-focus-out: 120ms;
+  /* Instant D-pad focus snap — animated rings read as input lag at 3 m. */
+  --dur-focus-in: 0ms;
+  --dur-focus-out: 0ms;
 }
 
 * {

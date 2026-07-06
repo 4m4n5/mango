@@ -115,6 +115,12 @@ BT_CONNECT_INTERVAL_SEC = float(os.environ.get("MANGO_PAD_CONNECT_INTERVAL_SEC",
 BT_CONNECT_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_CONNECT_TIMEOUT_SEC", "12.0"))
 DISPLAY_WAKE_THROTTLE_SEC = 3.0
 STATUS_HEARTBEAT_SEC = 2.0
+FOREGROUND_LAUNCHER_TTL_SEC = float(
+    os.environ.get("MANGO_PAD_FOREGROUND_LAUNCHER_TTL_SEC", "2.0")
+)
+COUCH_ACTIVITY_THROTTLE_SEC = float(
+    os.environ.get("MANGO_PAD_COUCH_ACTIVITY_THROTTLE_SEC", "0.5")
+)
 
 
 class DeviceNotFoundError(Exception):
@@ -125,6 +131,7 @@ PAD_DEBUG = os.environ.get("MANGO_PAD_DEBUG") == "1"
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": str(_HOME)}
 _last_display_wake_at = 0.0
 _last_bt_connect_at = 0.0
+_last_couch_activity_at = 0.0
 
 
 def diag_event(kind: str, **fields: str) -> None:
@@ -255,8 +262,38 @@ def run_tv_user(
 
 
 def touch_couch_activity(hint: str) -> None:
-    if COUCH_ACTIVITY_SH.is_file():
-        run_tv_user(["bash", str(COUCH_ACTIVITY_SH), "touch", "pad", hint], timeout=1.0)
+    global _last_couch_activity_at
+    if not COUCH_ACTIVITY_SH.is_file():
+        return
+    now = time.monotonic()
+    if now - _last_couch_activity_at < COUCH_ACTIVITY_THROTTLE_SEC:
+        return
+    _last_couch_activity_at = now
+    popen_tv_user(["bash", str(COUCH_ACTIVITY_SH), "touch", "pad", hint])
+
+
+def _wake_display_xset() -> None:
+    if not shutil.which("xset"):
+        return
+    for args in (
+        ["-dpms"],
+        ["s", "off"],
+        ["s", "noblank"],
+        ["s", "0", "0"],
+        ["dpms", "force", "on"],
+        ["s", "reset"],
+    ):
+        try:
+            subprocess.run(
+                ["xset", *args],
+                env=_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=0.5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
 
 def wake_display_for_input(hint: str) -> None:
@@ -266,8 +303,7 @@ def wake_display_for_input(hint: str) -> None:
     if now - _last_display_wake_at < DISPLAY_WAKE_THROTTLE_SEC:
         return
     _last_display_wake_at = now
-    if DISPLAY_WAKE_SH.is_file():
-        run_tv_user(["bash", str(DISPLAY_WAKE_SH), "--focus-launcher-if-idle"], timeout=2.0)
+    _wake_display_xset()
 
 
 def _xdotool(*args: str) -> subprocess.CompletedProcess[str]:
@@ -516,7 +552,8 @@ def foreground_app() -> str:
         return str(cached)
     value = _resolve_foreground_app()
     _foreground_cache["value"] = value
-    _foreground_cache["expires_at"] = now + _FOREGROUND_CACHE_TTL_SEC
+    ttl = FOREGROUND_LAUNCHER_TTL_SEC if value == "launcher" else _FOREGROUND_CACHE_TTL_SEC
+    _foreground_cache["expires_at"] = now + ttl
     return value
 
 
@@ -624,11 +661,11 @@ def send_key_to_wid(wid: str, symbol: str, *, activate: bool = True) -> None:
     _xdotool("key", "--clearmodifiers", "--window", wid, symbol)
 
 
-def send_key_launcher(symbol: str) -> None:
+def send_key_launcher(symbol: str, *, app: str | None = None) -> None:
     wid = get_launcher_wid()
     if not wid:
         return
-    if foreground_app() == "launcher":
+    if app == "launcher" or (app is None and routing_app() == "launcher"):
         send_key_to_wid(wid, symbol, activate=False)
     else:
         send_key_to_wid(wid, symbol, activate=True)
@@ -758,7 +795,7 @@ def launcher_surface_active() -> bool:
 
 
 def send_launcher_key(symbol: str) -> None:
-    send_key_launcher(symbol)
+    send_key_launcher(symbol, app="launcher")
 
 
 def switch_launcher_tab(delta: int) -> None:
@@ -894,7 +931,7 @@ def route_dpad(app: str, direction: str) -> None:
         else:
             send_mpv_ipc("keypress", symbol.upper())
     elif app == "launcher":
-        send_key_launcher(symbol)
+        send_key_launcher(symbol, app=app)
 
 
 def route_playback_shoulder(app: str, direction: str) -> None:
@@ -907,12 +944,12 @@ def route_face(app: str, action: str) -> None:
             send_mpv_ipc("keypress", "SPACE")
             show_playback_osd("pause")
         elif app == "launcher":
-            send_key_launcher("Return")
+            send_key_launcher("Return", app=app)
     elif action == "back":
         if app == "mpv":
             stop_mpv_home()
         elif app == "launcher":
-            send_key_launcher("BackSpace")
+            send_key_launcher("BackSpace", app=app)
 
 
 def find_pro_controller() -> evdev.InputDevice:
