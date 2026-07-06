@@ -849,6 +849,26 @@ WHERE lc.context_id = ?;
   return row ?? null;
 }
 
+export function clearWatchHistoryForSource(source: string): number {
+  const db = ensureDb();
+  const prefix = `${normalizeSource(source)}:%`;
+  return db.prepare('DELETE FROM watch_history WHERE item_key LIKE ?').run(prefix).changes;
+}
+
+export function clearLibraryFeedbackForSource(feedback: string, source: string): number {
+  const db = ensureDb();
+  const normalizedFeedback = feedback.trim().toLowerCase();
+  const normalizedSource = normalizeSource(source);
+  return db.prepare(`
+DELETE FROM library_feedback
+WHERE feedback = @feedback
+  AND item_key IN (SELECT item_key FROM library_items WHERE source = @source);
+`).run({
+    feedback: normalizedFeedback,
+    source: normalizedSource,
+  }).changes;
+}
+
 export function clearLibraryContext(): number {
   const db = ensureDb();
   const transaction = db.transaction(() => {

@@ -3,6 +3,8 @@ import { playUrl } from '../mpv.js';
 import { bumpPlayEpoch } from '../play-cancel.js';
 import { startWatchSessionFromPlay } from '../progress/watcher.js';
 import {
+  clearLibraryFeedbackForSource,
+  clearWatchHistoryForSource,
   getLibraryState,
   listLibraryFeedback,
   listSavedLibraryItems,
@@ -12,6 +14,7 @@ import {
   setLibraryFeedback,
   type LibraryItemInput,
 } from '../library/db.js';
+import { deleteAiCatalogSlot, loadAiCatalogSlots, slotsForTab } from '../ai-catalogs/store.js';
 import { YoutubeApiClient, type YoutubeChannelStats } from './api.js';
 import { clearYoutubeAuth, pollYoutubeDeviceAuth, startYoutubeDeviceAuth, youtubeAccessToken, youtubeAuthSummary } from './auth.js';
 import { loadYoutubeConfig, type YoutubeConfig } from './config.js';
@@ -35,6 +38,8 @@ import {
   pruneFreshFindCandidates,
   pruneLiveNowCandidates,
   prunePopularCandidates,
+  clearYoutubePersonalizationReservoirs,
+  deleteYoutubeState,
   replaceYoutubeRailItems,
   searchCachedYoutubeItems,
   setYoutubeState,
@@ -158,12 +163,12 @@ const TITLE_TOKEN_STOPWORDS = new Set([
 const RAIL_LABELS: Record<string, string> = {
   saved: 'Saved',
   history: 'History',
-  for_you: 'For You',
-  new_from_subscriptions: 'New From Subscriptions',
-  fresh_finds: 'Fresh Finds',
-  because_you_watched: 'Because You Watched',
-  live_now: 'Live Now',
-  popular: 'Popular on YouTube',
+  for_you: 'For you',
+  new_from_subscriptions: 'From your subscriptions',
+  fresh_finds: 'Fresh finds',
+  because_you_watched: 'Because you watched',
+  live_now: 'Live now',
+  popular: 'Popular on youtube',
 };
 
 type RefreshResult = {
@@ -3193,6 +3198,36 @@ export class YoutubeService {
       });
   }
 
+  async freshStart(): Promise<Record<string, unknown>> {
+    const aiSlots = slotsForTab(await loadAiCatalogSlots(), YOUTUBE_TAB);
+    let aiCatalogsRemoved = 0;
+    for (const slot of aiSlots) {
+      if (await deleteAiCatalogSlot(slot.slot_id)) {
+        aiCatalogsRemoved += 1;
+      }
+    }
+
+    const cleared = {
+      watch_history: clearWatchHistoryForSource(YOUTUBE_SOURCE),
+      not_interested: clearLibraryFeedbackForSource('not_interested', YOUTUBE_SOURCE),
+      ai_catalogs: aiCatalogsRemoved,
+      reservoirs: clearYoutubePersonalizationReservoirs(),
+    };
+
+    deleteYoutubeState('recent_searches');
+    deleteYoutubeState('for_you_needs_expansion');
+    this.invalidateRailsCache();
+
+    const refresh = await this.refresh('fresh_start');
+    return {
+      ok: refresh.ok,
+      cleared,
+      refresh: refresh.refresh,
+      phases: refresh.phases,
+      error: refresh.error,
+    };
+  }
+
   async rails(options: YoutubeRailsOptions = {}): Promise<Record<string, unknown>> {
     const cache = youtubeCacheSummary();
     if (this.config.enabled && this.config.api_key && cache.videos === 0) {
@@ -3202,11 +3237,8 @@ export class YoutubeService {
       this.scheduleLiveNowRefreshIfDue();
     }
 
-    // Saved/History are DELIBERATELY assembled fresh on every request so
-    // save/unsave/watch mutations show up immediately without needing cache
-    // invalidation from the HTTP layer.
-    const savedHistoryRails: YoutubeRail[] = [savedRail(), historyRail(options)];
-
+    // History (and Saved when present) are assembled fresh on every request so
+    // save/unsave/watch mutations show up immediately without cache invalidation.
     let discoveryRails: YoutubeRail[];
     const cached = this.discoveryRailsCache;
     if (!options.reshuffle && cached && cached.expiresAt > Date.now()) {
@@ -3215,9 +3247,9 @@ export class YoutubeService {
       discoveryRails = [
         forYouRail(options),
         subscriptionRail(options),
-        freshFindRail(options),
-        becauseYouWatchedRail(options),
         liveNowRail(options),
+        becauseYouWatchedRail(options),
+        freshFindRail(options),
         popularRail(options),
       ];
       this.discoveryRailsCache = {
@@ -3226,9 +3258,26 @@ export class YoutubeService {
       };
     }
 
+    const [
+      forYou,
+      subscriptions,
+      liveNow,
+      becauseYouWatched,
+      freshFinds,
+      popular,
+    ] = discoveryRails;
     const aiCatalogRails = await buildYoutubeAiCatalogRails();
-    const rails: YoutubeRail[] = [...savedHistoryRails, ...discoveryRails, ...aiCatalogRails]
-      .filter((rail) => rail.items.length > 0);
+    const rails: YoutubeRail[] = [
+      forYou,
+      subscriptions,
+      ...aiCatalogRails,
+      liveNow,
+      becauseYouWatched,
+      freshFinds,
+      popular,
+      historyRail(options),
+      savedRail(),
+    ].filter((rail) => rail.items.length > 0);
     return {
       ok: true,
       tab: YOUTUBE_TAB,

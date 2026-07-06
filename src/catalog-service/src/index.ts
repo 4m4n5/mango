@@ -805,6 +805,16 @@ async function main(): Promise<void> {
           return;
         }
 
+        if (req.method === 'POST' && parts.length === 2 && parts[1] === 'fresh-start') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'YouTube fresh-start is localhost-only');
+          }
+          const result = await youtube.freshStart();
+          await core.reloadAiCatalogRails();
+          sendJson(res, 200, result);
+          return;
+        }
+
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'rails') {
           const reshuffle = url.searchParams.get('reshuffle') === '1'
             || url.searchParams.get('reshuffle') === 'true';

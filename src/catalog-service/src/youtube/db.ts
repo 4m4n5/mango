@@ -1166,6 +1166,43 @@ export function deleteYoutubeState(key: string): void {
   ensureDb().prepare('DELETE FROM youtube_state WHERE key = ?').run(key);
 }
 
+const PERSONALIZATION_CANDIDATE_TABLES = [
+  'youtube_for_you_candidates',
+  'youtube_fresh_find_candidates',
+  'youtube_because_you_watched_candidates',
+  'youtube_live_now_candidates',
+  'youtube_popular_candidates',
+] as const;
+
+const PERSONALIZATION_RAIL_IDS = [
+  'for_you',
+  'fresh_finds',
+  'because_you_watched',
+  'live_now',
+  'popular',
+] as const;
+
+export function clearYoutubePersonalizationReservoirs(): {
+  candidates_cleared: number;
+  rails_cleared: number;
+} {
+  const db = ensureDb();
+  return db.transaction(() => {
+    let candidatesCleared = 0;
+    for (const table of PERSONALIZATION_CANDIDATE_TABLES) {
+      candidatesCleared += db.prepare(`DELETE FROM ${table}`).run().changes;
+    }
+    let railsCleared = 0;
+    for (const railId of PERSONALIZATION_RAIL_IDS) {
+      railsCleared += db.prepare('DELETE FROM youtube_rail_items WHERE rail_id = ?').run(railId).changes;
+    }
+    return {
+      candidates_cleared: candidatesCleared,
+      rails_cleared: railsCleared,
+    };
+  })();
+}
+
 export function getYoutubeState<T>(key: string, fallback: T): T {
   const row = ensureDb().prepare('SELECT value FROM youtube_state WHERE key = ?')
     .get(key) as { value: string } | undefined;

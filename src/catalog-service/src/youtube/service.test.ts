@@ -1396,3 +1396,49 @@ test('for you reservoir is not rebuilt on cached repeat GET', () => withTempStat
   assert.ok(forYou);
   assert.ok(!forYou.items.some((item) => item.id === 'ResNew'));
 }));
+
+test('YouTube rails follow the canonical tab order', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', [{ item: sampleVideo('Pop'), score: 1, reason: 'test' }]);
+  replaceYoutubeRailItems('new_from_subscriptions', [{ item: sampleVideo('Sub'), score: 1, reason: 'test' }]);
+  upsertPopularCandidatesForTest([{ item: sampleVideo('Pop'), score: 1 }]);
+  const service = new YoutubeService();
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  const railIds = response.rails.map((rail) => rail.rail_id);
+  const forYouIdx = railIds.indexOf('for_you');
+  const subIdx = railIds.indexOf('new_from_subscriptions');
+  const liveIdx = railIds.indexOf('live_now');
+  const becauseIdx = railIds.indexOf('because_you_watched');
+  const freshIdx = railIds.indexOf('fresh_finds');
+  const popularIdx = railIds.indexOf('popular');
+  const historyIdx = railIds.indexOf('history');
+  assert.ok(forYouIdx >= 0);
+  assert.ok(subIdx > forYouIdx);
+  if (liveIdx >= 0) assert.ok(liveIdx > subIdx);
+  if (becauseIdx >= 0 && liveIdx >= 0) assert.ok(becauseIdx > liveIdx);
+  if (freshIdx >= 0 && becauseIdx >= 0) assert.ok(freshIdx > becauseIdx);
+  if (popularIdx >= 0 && freshIdx >= 0) assert.ok(popularIdx > freshIdx);
+  if (historyIdx >= 0 && popularIdx >= 0) assert.ok(historyIdx > popularIdx);
+}));
+
+test('freshStart clears YouTube watch history and personalization reservoirs', () => withTempState(async () => {
+  replaceYoutubeRailItems('popular', [{ item: sampleVideo('Pop'), score: 1, reason: 'test' }]);
+  upsertPopularCandidatesForTest([{ item: sampleVideo('Pop'), score: 1 }]);
+  recordLibraryWatch({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'WatchedOnce',
+    title: 'Watched once',
+    tab: 'youtube',
+    position_sec: 120,
+    duration_sec: 600,
+  });
+  const service = new YoutubeService();
+  const result = await service.freshStart() as {
+    ok: boolean;
+    cleared: { watch_history: number; reservoirs: { candidates_cleared: number } };
+  };
+  assert.equal(result.cleared.watch_history, 1);
+  assert.ok(result.cleared.reservoirs.candidates_cleared > 0);
+  const response = await service.rails() as { rails: YoutubeRail[] };
+  assert.equal(response.rails.some((rail) => rail.rail_id === 'history'), false);
+}));
