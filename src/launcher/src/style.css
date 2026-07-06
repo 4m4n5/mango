@@ -217,7 +217,10 @@ button {
   padding-block-end: calc(var(--focus-gutter) * 2 + 2.5rem);
   padding-inline: var(--focus-gutter);
   margin-inline: calc(-1 * var(--focus-gutter));
-  scroll-padding-block: var(--focus-gutter);
+  /* Keep the first rail's header clear of the tab bar when its card is
+     focused — the scroll-into-view must not tuck the label under the tabs. */
+  scroll-padding-block-start: 3.25rem;
+  scroll-padding-block-end: var(--focus-gutter);
   scrollbar-width: none;
 }
 
