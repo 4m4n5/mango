@@ -20,6 +20,8 @@ fi
 export MANGO_SKIP_OVERLAY=1
 export MANGO_FAST_UI="${MANGO_FAST_UI:-1}"
 
+bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" ensure-launcher 2>/dev/null || true
+
 # shellcheck source=lib/mango-log.sh
 source "$REPO_DIR/scripts/lib/mango-log.sh"
 if [[ -f "$REPO_DIR/scripts/diag/lib/diag-log.sh" ]]; then

@@ -9,6 +9,11 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 source "$SCRIPT_DIR/launcher-window.sh"
 
+PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
+if [[ ! -f "$PLAYBACK_ACTIVE_FILE" ]] && ! pgrep -x mpv >/dev/null 2>&1; then
+  bash "$SCRIPT_DIR/mango-display-mode.sh" ensure-launcher 2>/dev/null || true
+fi
+
 launcher_is_tv_sized() {
   local wid=$1 screen_w screen_h
   command -v xdotool >/dev/null 2>&1 || return 1

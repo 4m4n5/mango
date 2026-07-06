@@ -42,14 +42,14 @@ not active.
 
 Launcher display mode is separate from playback stream policy. Couch mode
 applies a lightweight launcher mode through `scripts/lib/mango-display-mode.sh`;
-the default is `1920x1080@60` so browse/focus stays smooth on the Pi. The
-compatibility entrypoint remains `mpv-play.sh`, but target-TV couch playback can
-use `MANGO_PLAYBACK_BACKEND=vlc` for every resolution. In that mode Mango stops
-the Chromium launcher while fullscreen video is active, disables `xcompmgr` to
-avoid tearing, source-matches the TV display mode, and returns to the launcher
-mode on stop. VLC playback starts a lightweight X11 Mango playback OSD for a
-couch-readable progress bar; the pad triggers it on pause/play and seek actions
-without bringing back the retired Chromium overlay.
+the default is `1920x1080@60` so browse/focus stays smooth on the Pi. mpv is
+the sole couch playback engine (`mpv-play.sh`). During fullscreen playback Mango
+stops the Chromium launcher, disables `xcompmgr` to avoid tearing, source-matches
+the TV display mode to the stream, and restores `1920x1080@60` on stop through
+`ensure-launcher` on every launcher entry path (`launch-launcher.sh`,
+`present-launcher.sh`, `mpv-stop.sh`, stack boot, deploy). A lightweight X11
+playback OSD (`playback-osd.py`) shows progress on pause/seek; the pad drives
+mpv via IPC without a Chromium overlay.
 
 **Deferred foreground handoff.** When `MANGO_MPV_DEFER_FOREGROUND=1` (default
 when `MANGO_MPV_STOP_LAUNCHER=1`, set by `mpv`/`mpv-hifi` profiles), `mpv-play.sh`
@@ -172,7 +172,7 @@ or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
 | State | Visible | Hidden | Input owner | ⌂ behavior |
 |-------|---------|--------|-------------|------------|
 | `launcher` | Chromium mango UI | playback stopped | `mango-tv-pad.py` | noop / present launcher |
-| `playback` | mpv or VLC fullscreen + transient OSD | launcher below or stopped | pad → player controls, accelerated seek, stop/home routing | stop playback → launcher <300 ms |
+| `playback` | mpv fullscreen + transient OSD | launcher below or stopped | pad → mpv IPC, accelerated seek, stop/home routing | stop playback → launcher <300 ms |
 | `fallback_stremio` | Stremio player | launcher below | pad → Stremio | present launcher |
 
 ### Input routing
@@ -183,7 +183,7 @@ or clears caches. Detail: [RELIABILITY.md](RELIABILITY.md).
 | `playback` | play/pause + show progress | stop → launcher | stop → launcher |
 | `fallback_stremio` | select | Escape | launcher |
 
-During VLC playback, D-pad `←/→` stays precise at the short seek step, holding
+During mpv playback, D-pad `←/→` stays precise at the short seek step, holding
 `←/→` repeats with acceleration, and playback-only `L/R` performs the large seek
 step without changing launcher tab semantics.
 

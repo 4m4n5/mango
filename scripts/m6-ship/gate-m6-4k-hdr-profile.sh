@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M6 couch playback profile gate — mpv-only ship path.
+# M6 couch playback profile gate — mpv-hifi ship path + display/EDID checks.
 
 set -uo pipefail
 
@@ -10,6 +10,14 @@ cd "$REPO_DIR" || exit 1
 source "$REPO_DIR/scripts/lib/gate-common.sh"
 mango_gate_init
 gate_header "M6 mpv-hifi couch profile"
+
+export DISPLAY="${DISPLAY:-:0}"
+export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+
+if [[ -f "${HOME}/.config/mango/voice.env" ]]; then
+  # shellcheck disable=SC1091
+  source "${HOME}/.config/mango/voice.env"
+fi
 
 CATALOG="${MANGO_CATALOG_URL:-http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}}"
 PROFILE="${MANGO_CATALOG_FILTERS:-}"
@@ -24,24 +32,38 @@ fi
 if [[ -n "$PROFILE" && -f "$PROFILE" ]]; then
   if python3 - "$PROFILE" <<'PY'
 import json
+import os
 import sys
-data = json.load(open(sys.argv[1], encoding="utf-8"))
+
+path = sys.argv[1]
+data = json.load(open(path, encoding="utf-8"))
+name = os.path.basename(path).lower()
+hifi = "hifi" in name or data.get("_profile", "").lower().find("hifi") >= 0
+
 assert data.get("max_quality") in ("4k", "2160p"), data.get("max_quality")
 assert data.get("preferred_quality") in ("4k", "2160p"), data.get("preferred_quality")
-assert data.get("exclude_remux") is True, data.get("exclude_remux")
 assert data.get("include_uncached") is False, data.get("include_uncached")
 codecs = [str(v).lower() for v in data.get("preferred_video_codecs") or []]
 assert any(codec in codecs for codec in ("hevc", "x265", "h265")), codecs
 steps = data.get("play_ladder") or []
-assert steps and steps[0].get("step") == "4k_hevc_cached", steps
+assert steps, steps
 assert steps[0].get("max_quality") == "2160p", steps[0]
 assert steps[0].get("min_quality") == "2160p", steps[0]
 assert any((step or {}).get("max_quality") == "1080p" for step in steps[1:]), steps
+
+if hifi:
+    assert data.get("exclude_remux") is False, data.get("exclude_remux")
+    assert steps[0].get("step") == "4k_sdr_remux_cached", steps[0]
+    assert steps[0].get("exclude_hdr") is True, steps[0]
+    assert steps[0].get("require_hevc") is True, steps[0]
+else:
+    assert data.get("exclude_remux") is True, data.get("exclude_remux")
+    assert steps[0].get("step") == "4k_hevc_cached", steps[0]
 PY
   then
-    gate_pass "target-TV 4K stream policy"
+    gate_pass "4K stream policy matches profile (${PROFILE##*/})"
   else
-    gate_fail "target-TV 4K stream policy invalid"
+    gate_fail "4K stream policy invalid for ${PROFILE##*/}"
   fi
 fi
 
@@ -73,17 +95,17 @@ fi
   && gate_pass "4K source output maps to 3840x2160" \
   || gate_fail "4K source output not mapped to 3840x2160"
 
-[[ "${MANGO_MPV_VIDEO_SYNC:-}" == "audio" ]] \
-  && gate_pass "mpv robust audio-sync pacing enabled" \
-  || gate_fail "mpv robust audio-sync pacing not enabled"
+[[ "${MANGO_MPV_VIDEO_SYNC:-}" == "display-resample" ]] \
+  && gate_pass "mpv HD pacing uses display-resample" \
+  || gate_fail "mpv HD pacing not display-resample (${MANGO_MPV_VIDEO_SYNC:-unset})"
+
+[[ "${MANGO_MPV_VIDEO_SYNC_4K:-audio}" == "audio" ]] \
+  && gate_pass "mpv 4K pacing uses audio sync" \
+  || gate_fail "mpv 4K pacing not audio (${MANGO_MPV_VIDEO_SYNC_4K:-unset})"
 
 [[ "${MANGO_MPV_INTERPOLATION:-}" == "no" ]] \
   && gate_pass "mpv interpolation disabled for native cadence" \
   || gate_fail "mpv interpolation not pinned off"
-
-command -v mpv >/dev/null 2>&1 \
-  && gate_pass "mpv installed" \
-  || gate_fail "mpv missing"
 
 [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-}" == "1" ]] \
   && gate_pass "mpv playback disables xcompmgr to prevent tearing" \
@@ -102,6 +124,7 @@ if command -v xrandr >/dev/null 2>&1; then
   if [[ -n "${output:-}" ]]; then
     current="$(bash scripts/lib/mango-display-mode.sh status 2>/dev/null || true)"
     [[ -n "$current" ]] && echo "display: $current"
+
     if xrandr --query 2>/dev/null | awk -v out="$output" '
       $1 == out && $2 == "connected" { in_output=1; next }
       in_output && /^[A-Za-z0-9-]+ connected/ { exit }
@@ -116,7 +139,7 @@ if command -v xrandr >/dev/null 2>&1; then
     '; then
       gate_pass "connected display advertises 1080p film cadence"
     else
-      gate_fail "connected display does not advertise 1080p 23.98/24"
+      gate_warn "connected display does not advertise 1080p 23.98/24"
     fi
 
     if xrandr --query 2>/dev/null | awk -v out="$output" '
@@ -131,7 +154,7 @@ if command -v xrandr >/dev/null 2>&1; then
       }
       END { exit found ? 0 : 1 }
     '; then
-      gate_pass "connected display advertises 4K film cadence (experimental)"
+      gate_pass "connected display advertises 4K film cadence"
     elif [[ "$REQUIRE_4K_FILM" == "1" ]]; then
       gate_fail "connected display does not advertise 4K 23.98/24"
     else

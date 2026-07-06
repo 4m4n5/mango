@@ -15,15 +15,11 @@
 #                exclude_hdr on the 4K steps so 4K stays HW-decodable and never
 #                GPU-tone-maps (X11 can't output HDR; 4K HDR tone-map stutters).
 #                HDR titles fall through to a 1080p step.
-#   vlc       -> the previous M6.3 target-TV baseline (drm-copy, audio sync),
-#                4k-hdr stream policy.
 #
 # This owns the engine + render + stream-policy env keys in voice.env. The
 # display-mode/audio-device base from apply-4k-hdr-profile.sh (launcher 1080p60,
 # 4K match mode, HDMI audio) is left intact. NOTE: this also (re)points
-# MANGO_CATALOG_FILTERS per experience, so switching back to `mpv`/`vlc`
-# restores the 4k-hdr policy. Re-run apply-4k-hdr-profile.sh only to reset the
-# whole display/audio base.
+# MANGO_CATALOG_FILTERS per experience.
 
 set -euo pipefail
 

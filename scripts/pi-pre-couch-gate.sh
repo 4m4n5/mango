@@ -74,6 +74,8 @@ if [[ "$BRANCH" == "feat/native-experience" ]]; then
   fi
   bash scripts/gate-lite.sh
   bash scripts/m6-ship/gate-m6-ux-smoke.sh
+  bash scripts/m6-ship/gate-m6-playback-ssot.sh
+  bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
   echo "PRE-COUCH: PASS"
   exit 0
 fi

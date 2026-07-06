@@ -21,6 +21,8 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../../lib/launcher-window.sh
 source "$REPO_DIR/scripts/lib/launcher-window.sh"
+# shellcheck source=../../lib/mango-playback-env.sh
+source "$REPO_DIR/scripts/lib/mango-playback-env.sh"
 
 if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
   bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv stop >/dev/null 2>&1 || true
@@ -65,7 +67,8 @@ rm -f "${HOME}/.cache/mango/mpv.pid" "$SOCKET" "$PLAYBACK_ACTIVE_FILE" \
   "$LEGACY_VLC_PID_FILE" "$LEGACY_PLAYER_STATE" "$LEGACY_VLC_PLAYLIST"
 
 if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
-  bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" launcher 2>/dev/null || true
+  sleep "${MANGO_DISPLAY_LAUNCHER_SETTLE_SEC:-0.35}"
+  bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" ensure-launcher 2>/dev/null || true
 fi
 
 # Restore the Chromium launcher on a real stop (couch mpv stops it for a

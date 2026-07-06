@@ -111,6 +111,9 @@ MANGO_LAUNCHER_DISPLAY_MODE=3840x2160 MANGO_LAUNCHER_DISPLAY_RATE=60 \
 This display mode does not change stream filters. 4K stream/playback policy
 stays in catalog filters and the mpv profile.
 
+`ensure-launcher` (alias `launcher`) is called on stack boot, home, present,
+stop, deploy, and display-wake so browse never drifts to 4K HDMI by accident.
+
 ### Target-TV Stage 2
 
 Stage 2 keeps Chromium lightweight at `1920x1080@60` and enables source-matched

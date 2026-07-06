@@ -40,6 +40,8 @@ bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
 | M6.2 | `m6-ship/gate-m6-youtube-smoke.sh` — run after YouTube/API/launcher rail changes; playback only with `MANGO_YOUTUBE_PLAY=1` |
 | M6.5 | `m6-ship/gate-m6-ux-smoke.sh` — launcher focus/HUD DOM+CSS contracts; in pre-couch on `feat/native-experience` |
 | M6 hardening | `m6-ship/gate-m6-reliability-proof.sh` — run after deploy; fails red, warns yellow |
+| M6 playback SSOT | `m6-ship/gate-m6-playback-ssot.sh` — mpv-only, 1080p browse invariant; in pre-couch on `feat/native-experience` |
+| M6 couch profile | `m6-ship/gate-m6-4k-hdr-profile.sh` — mpv-hifi profile, EDID, resources |
 | Live (opt-in) | `live/gate-live-iptv.sh` — `MANGO_LIVE_GATE=1`; `live/gate-live-diagnostics.sh` is health-only |
 
 Shared: `lib/gate-common.sh` · `gate-lite-play.sh` · `gate-lite-unit.sh`
@@ -108,6 +110,8 @@ diag/            manual diagnostics
 | `m6-ship/gate-m6-ux-smoke.sh` | M6.5 UX contracts — focus CSS, HUD safe-area, detail FocusGrid bundle, pad alive |
 | `m6-ship/reliability-proof.sh` | Record one Reliability Center proof through catalog-service |
 | `m6-ship/gate-m6-reliability-proof.sh` | Pi gate for Green/Yellow/Red couch readiness |
+| `m6-ship/gate-m6-playback-ssot.sh` | mpv-only + idle 1080p browse enforcement |
+| `m6-ship/gate-m6-4k-hdr-profile.sh` | mpv-hifi profile, display EDID, resources |
 | `m6-ship/backup-library-state.sh` | WAL-safe backup of `progress.db` and `library.db`; `mango-stack.sh stop/restart` runs it by default |
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
 | `m3-play/playability/monitor-grow-poll.sh` | Mac-side Pi polling log for long grow runs |

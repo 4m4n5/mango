@@ -372,7 +372,8 @@ start_mpv_exit_monitor() {
     if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
       curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
       rm -f "$pidfile" "${HOME}/.cache/mango/playback-active"
-      bash "$repo/scripts/lib/mango-display-mode.sh" launcher >/dev/null 2>&1 || true
+      sleep "${MANGO_DISPLAY_LAUNCHER_SETTLE_SEC:-0.35}"
+      bash "$repo/scripts/lib/mango-display-mode.sh" ensure-launcher >/dev/null 2>&1 || true
       systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
       bash "$repo/scripts/launch-launcher.sh" >/dev/null 2>&1 || true
     fi

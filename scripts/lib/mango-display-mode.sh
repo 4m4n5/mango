@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
 # Apply Mango couch display modes without changing stream selection policy.
+# Browse is always 1080p@60; mpv source-matches on play. See docs/ARCHITECTURE.md.
 
 set -euo pipefail
 
-export DISPLAY="${DISPLAY:-:0}"
-export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=mango-playback-env.sh
+source "$SCRIPT_DIR/mango-playback-env.sh"
 
 LOG_DIR="${HOME}/.cache/mango"
 LOG_FILE="${LOG_DIR}/display-mode.log"
 mkdir -p "$LOG_DIR"
 
 usage() {
-  echo "usage: $0 launcher|playback|playback-auto <width> <height> <fps>|status" >&2
+  echo "usage: $0 launcher|ensure-launcher|playback|playback-auto <width> <height> <fps>|status" >&2
   exit 2
 }
 
@@ -312,20 +314,61 @@ apply_mode() {
   return 0
 }
 
+current_mode_width() {
+  local output mode
+  output="$(connected_output)"
+  [[ -n "${output:-}" ]] || return 1
+  mode="$(current_mode "$output")"
+  [[ -n "$mode" ]] || return 1
+  printf '%s\n' "${mode%%@*}" | awk -Fx '{print $1}'
+}
+
+ensure_launcher_display() {
+  local mode rate width attempts settle
+
+  if mpv_playback_active; then
+    log "launcher: skipped playback active"
+    return 0
+  fi
+
+  mode="${MANGO_LAUNCHER_DISPLAY_MODE:-${MANGO_DISPLAY_MODE:-1920x1080}}"
+  rate="${MANGO_LAUNCHER_DISPLAY_RATE:-${MANGO_DISPLAY_RATE:-60}}"
+  attempts="${MANGO_DISPLAY_MODE_ATTEMPTS:-}"
+  if [[ -z "$attempts" ]]; then
+    width="$(current_mode_width 2>/dev/null || true)"
+    if [[ -n "$width" && "$width" -ge 3000 ]]; then
+      attempts=12
+    else
+      attempts=8
+    fi
+  fi
+
+  settle="${MANGO_DISPLAY_LAUNCHER_SETTLE_SEC:-}"
+  if [[ -z "$settle" ]]; then
+    width="$(current_mode_width 2>/dev/null || true)"
+    if [[ -n "$width" && "$width" -ge 3000 ]]; then
+      settle="0.35"
+    else
+      settle="0"
+    fi
+  fi
+  if [[ "$settle" != "0" ]]; then
+    sleep "$settle"
+  fi
+
+  MANGO_DISPLAY_MODE_ATTEMPTS="$attempts" apply_mode \
+    launcher \
+    "$mode" \
+    "$rate" \
+    "0" \
+    "" \
+    ""
+}
+
 cmd="${1:-}"
 case "$cmd" in
-  launcher)
-    if mpv_playback_active; then
-      log "launcher: skipped playback active"
-      return 0
-    fi
-    apply_mode \
-      launcher \
-      "${MANGO_LAUNCHER_DISPLAY_MODE:-${MANGO_DISPLAY_MODE:-1920x1080}}" \
-      "${MANGO_LAUNCHER_DISPLAY_RATE:-${MANGO_DISPLAY_RATE:-60}}" \
-      "0" \
-      "" \
-      ""
+  launcher | ensure-launcher)
+    ensure_launcher_display
     ;;
   playback)
     apply_mode \

@@ -94,6 +94,7 @@ if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null; then
   if [[ -f "\$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
     echo "pi-deploy: skip launcher restart (playback active)"
   else
+    bash scripts/lib/mango-display-mode.sh ensure-launcher 2>/dev/null || true
     systemctl --user restart mango-launcher-chromium.service || true
     sleep 2
   fi

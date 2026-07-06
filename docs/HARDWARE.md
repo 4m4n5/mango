@@ -2,9 +2,8 @@
 
 **Have:** Pi 5 8GB CanaKit · 128GB SD · **8BitDo Micro** (Bluetooth) · phone
 
-> **Native branch:** pad routes to **launcher** and the active playback foreground
-> (mpv-compatible stop path, VLC on the target-TV profile). See
-> [ARCHITECTURE.md](ARCHITECTURE.md).
+> **Native branch:** pad routes to **launcher** and mpv during active playback.
+> See [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
@@ -67,8 +66,7 @@ bash scripts/audio/set-default-sink.sh 'alsa/hdmi:CARD=vc4hdmi0,DEV=0'
 ```
 
 Saved sink: `~/.config/mango/audio.env` (`MANGO_AUDIO_SINK=…`; direct routes
-also save `MANGO_MPV_AO` / `MANGO_MPV_AUDIO_DEVICE`; VLC maps the same ALSA
-sink to `MANGO_VLC_ALSA_DEVICE`). Stack reapplies on restart.
+also save `MANGO_MPV_AO` / `MANGO_MPV_AUDIO_DEVICE`). Stack reapplies on restart.
 
 **TTS (Piper):** stays off until soundbar/TV audio path is validated (`audio.tts_enabled: false`). Voice replies on launcher HUD + phone until then.
 
@@ -82,9 +80,10 @@ sink to `MANGO_VLC_ALSA_DEVICE`). Stack reapplies on restart.
   rates such as `1920x1080@23.98/24/25/29.97/30`, then restores launcher
   `1920x1080@60`.
 - **Policy:** stream quality/HDR preference lives in catalog filters, not Chromium
-- **Stage 2 profile:** `config/catalog-filters.4k-hdr.example.json` is currently
-  a target-TV safe profile: cached 1080p HEVC/x265 preferred, REMUX excluded,
-  4K stream/output kept experimental until visible 4K video is smooth.
+- **Stage 2 profile:** `apply-4k-hdr-profile.sh` sets display/audio base;
+  `set-playback-engine.sh mpv-hifi` installs the ship stream policy
+  (`catalog-filters.4k-hifi.json`). Browse is always `1920x1080@60` — never 4K
+  Chromium (Pi GPU budget). 4K is mpv playback only.
 
 Pi apply/revert:
 

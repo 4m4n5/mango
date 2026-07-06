@@ -269,26 +269,25 @@ safety.
 
 ---
 
-## M6.3 — target-TV playback validation ◐
+## M6.3 — target-TV playback (mpv-hifi) ◐
 
-Mango now has an opt-in Stage 2 playback profile for target-TV validation. The
-launcher stays `1920x1080@60`; mpv playback switches to a source-matched TV
-mode before fullscreen playback and returns to the launcher mode after stop.
+Mango ships a unified **mpv-only** couch playback path. Browse stays
+`1920x1080@60`; mpv source-matches the TV on play and `ensure-launcher` restores
+1080p browse on every stop/home/deploy path.
 
 | Area | Current implementation |
 |------|------------------------|
-| Stream policy | `config/catalog-filters.4k-hdr.example.json` now allows cached 4K HEVC/x265 first, excludes REMUX, and falls back to cached 1080p |
-| Runtime apply | `scripts/m6-ship/apply-4k-hdr-profile.sh apply|revert|status` writes `~/.config/mango/voice.env` and restarts Mango |
-| Decode/presentation path | Real couch playback uses one backend for all resolutions: `MANGO_PLAYBACK_BACKEND=vlc`, VLC DRM hardware decode, launcher stopped while fullscreen, and `xcompmgr` disabled to prevent tearing |
-| Display split | `mango-display-mode.sh` keeps launcher at 1080p60; `mpv-play.sh` remains the compatibility entrypoint, probes source width/height/FPS with `ffprobe`, then selects EDID-supported source-matched 4K/1080 modes before VLC playback |
-| Frame pacing | Stage 2 enables source refresh matching; target-TV validation showed VLC at 3840x2160@23.98 with smooth motion, sharp picture, working AAC audio, and no visible tearing once `xcompmgr` was disabled |
-| Playback OSD/input | VLC starts `playback-osd.py`, a lightweight X11 progress bar shown at playback start and when the controller pauses or seeks. Playback `←/→` keeps precise short skips, hold accelerates seeking, and playback-only `L/R` performs large jumps. |
-| Gate | `scripts/m6-ship/gate-m6-4k-hdr-profile.sh` checks profile, catalog health, display EDID, reliability state, memory, disk, load, temp, and throttling |
-| Resource proof | `scripts/diag/pi-resource-snapshot.sh` records memory/disk/load/top RSS before deciding whether the spare SSD is needed |
-| Audio fallback | If PipeWire exposes only `Dummy Output`, VLC routes directly to HDMI0 with `hdmi:CARD=vc4hdmi0,DEV=0` while TTS stays disabled |
+| Stream policy (ship) | `config/catalog-filters.4k-hifi.example.json` — cached 4K SDR HEVC REMUX first, HDR excluded above 1080p, 1080p fallbacks |
+| Stream policy (baseline) | `config/catalog-filters.4k-hdr.example.json` — cached 4K HEVC, no REMUX |
+| Engine switch | `scripts/m6-ship/set-playback-engine.sh mpv\|mpv-hifi\|status` |
+| Display/audio base | `scripts/m6-ship/apply-4k-hdr-profile.sh apply\|revert\|status` — launcher 1080p60, mpv 4K match, HDMI audio |
+| Decode/presentation | mpv `gpu` VO, `hwdec=auto-safe`, deferred foreground, launcher stopped during fullscreen, `xcompmgr` off |
+| Display enforcement | `mango-display-mode.sh ensure-launcher` on stack boot, home, present, stop, deploy, display-wake |
+| Playback OSD/input | `playback-osd.py` on pause/seek; pad → mpv IPC |
+| Gates | `gate-m6-playback-ssot.sh` (mpv-only + idle 1080p browse) · `gate-m6-4k-hdr-profile.sh` (profile + EDID + resources) |
 
-4K is still a target-TV profile rather than the default development profile, but
-the validated couch path is now VLC for both 1080p and 4K playback.
+4K stream quality is owned by catalog filters + mpv ladder — never by Chromium
+resolution.
 
 ---
 
