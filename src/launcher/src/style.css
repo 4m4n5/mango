@@ -1143,6 +1143,7 @@ h1 {
     max-height: none;
   }
 
+  /* Series: streams left, episodes right beneath the hero block */
   .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1165,6 +1166,29 @@ h1 {
   .detail-copy:has(#detail-streams:not([hidden])):has(#detail-episodes:not([hidden])) > #detail-episodes {
     grid-column: 2;
     margin-top: 1.6rem;
+  }
+
+  /* Movies: narrative left, streams fill the right column beside the hero block */
+  .detail-copy:has(#detail-streams:not([hidden])):not(:has(#detail-episodes:not([hidden]))) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 38%);
+    column-gap: 2.5rem;
+    align-items: start;
+  }
+
+  .detail-copy:has(#detail-streams:not([hidden])):not(:has(#detail-episodes:not([hidden]))) > .eyebrow,
+  .detail-copy:has(#detail-streams:not([hidden])):not(:has(#detail-episodes:not([hidden]))) > #detail-title,
+  .detail-copy:has(#detail-streams:not([hidden])):not(:has(#detail-episodes:not([hidden]))) > #detail-meta,
+  .detail-copy:has(#detail-streams:not([hidden])):not(:has(#detail-episodes:not([hidden]))) > #detail-description,
+  .detail-copy:has(#detail-streams:not([hidden])):not(:has(#detail-episodes:not([hidden]))) > .detail-actions {
+    grid-column: 1;
+  }
+
+  .detail-copy:has(#detail-streams:not([hidden])):not(:has(#detail-episodes:not([hidden]))) > #detail-streams {
+    grid-column: 2;
+    grid-row: 1 / span 6;
+    margin-top: 0;
+    align-self: start;
   }
 }
 
