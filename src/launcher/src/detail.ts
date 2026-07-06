@@ -26,6 +26,7 @@ export interface DetailCallbacks {
   onSavedChanged?: () => void;
   onPlayed?: (card: ContentCard, result: PlayResult) => void;
   onNextEpisodePrompt?: (hint: NextPromptResponse, card: ContentCard) => void;
+  isSaved?: (card: ContentCard) => boolean;
 }
 
 export class DetailController {
@@ -46,6 +47,7 @@ export class DetailController {
   private nextPromptPollTimer: number | undefined;
   private browseTab: BrowseTab = "movies";
   private saved = false;
+  private relatedButtons: HTMLButtonElement[] = [];
 
   constructor(
     private readonly view: HTMLElement,
@@ -62,6 +64,9 @@ export class DetailController {
     private readonly streamList: HTMLElement,
     private readonly episodesWrap: HTMLElement,
     private readonly episodeList: HTMLElement,
+    private readonly relatedWrap: HTMLElement,
+    private readonly relatedTrack: HTMLElement,
+    private readonly relatedLabel: HTMLElement,
     private readonly callbacks: DetailCallbacks,
   ) {
     this.playButton.addEventListener("click", () => void this.play());
@@ -112,7 +117,13 @@ export class DetailController {
     );
   }
 
-  show(card: ContentCard, railLabel: string, tab: BrowseTab, saved = false): void {
+  show(
+    card: ContentCard,
+    railLabel: string,
+    tab: BrowseTab,
+    saved = false,
+    related: ContentCard[] = [],
+  ): void {
     this.card = card;
     this.browseTab = tab;
     this.saved = saved;
@@ -127,6 +138,7 @@ export class DetailController {
     this.episodesWrap.hidden = true;
     this.setListLabel("episodes");
     this.eyebrow.textContent = formatRailLabel(railLabel);
+    this.renderRelated(related, railLabel, tab);
     this.title.textContent = card.title;
     this.meta.textContent = card.subtitle;
     this.description.textContent = card.description || "loading details…";
@@ -191,6 +203,9 @@ export class DetailController {
     this.episodeList.replaceChildren();
     this.streamsWrap.hidden = true;
     this.episodesWrap.hidden = true;
+    this.relatedTrack.replaceChildren();
+    this.relatedButtons = [];
+    this.relatedWrap.classList.add("hidden");
     this.view.classList.add("hidden");
     this.callbacks.onClose();
   }
@@ -413,6 +428,10 @@ export class DetailController {
         rows.push([stream]);
       }
     }
+    const related = this.relatedButtons.filter((button) => this.isFocusableEnabled(button));
+    if (related.length > 0) {
+      rows.push(related);
+    }
     return rows;
   }
 
@@ -447,6 +466,7 @@ export class DetailController {
       ...this.actionButtons(),
       ...this.listFocusables,
       ...this.streamButtons,
+      ...this.relatedButtons,
     ];
   }
 
@@ -461,6 +481,73 @@ export class DetailController {
 
   private applyFocus(): void {
     this.refreshFocusGrid();
+  }
+
+  private renderRelated(related: ContentCard[], railLabel: string, tab: BrowseTab): void {
+    this.relatedTrack.replaceChildren();
+    this.relatedButtons = [];
+    const card = this.card;
+    const siblings = related
+      .filter((sibling) => !card || sibling.id !== card.id || sibling.type !== card.type)
+      .slice(0, 6);
+    if (siblings.length === 0) {
+      this.relatedWrap.classList.add("hidden");
+      return;
+    }
+    this.relatedLabel.textContent = railLabel.trim().toLowerCase() === "voice"
+      ? "more like this"
+      : `more in ${formatRailLabel(railLabel).toLowerCase()}`;
+    for (const sibling of siblings) {
+      const button = this.createRelatedCard(sibling, railLabel, tab, related);
+      this.relatedTrack.append(button);
+      this.relatedButtons.push(button);
+    }
+    this.relatedWrap.classList.remove("hidden");
+  }
+
+  private createRelatedCard(
+    sibling: ContentCard,
+    railLabel: string,
+    tab: BrowseTab,
+    related: ContentCard[],
+  ): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "card card--poster card--portrait card--related";
+    button.dataset.focusKey = `detail:related:${sibling.type}:${sibling.id}`;
+    button.setAttribute("role", "listitem");
+    button.setAttribute("aria-label", `${sibling.title}, ${sibling.subtitle}`);
+
+    const poster = document.createElement("img");
+    poster.className = "poster-image";
+    poster.alt = "";
+    poster.loading = "lazy";
+    poster.decoding = "async";
+    poster.src = resolveCardPosterUrl(sibling);
+    bindPosterImage(poster, sibling.title);
+
+    const title = document.createElement("span");
+    title.className = "card-title";
+    title.textContent = sibling.title;
+
+    const subtitle = document.createElement("span");
+    subtitle.className = "card-subtitle";
+    subtitle.textContent = sibling.subtitle;
+
+    const content = document.createElement("span");
+    content.className = "poster-content";
+    content.append(title, subtitle);
+
+    const shade = document.createElement("span");
+    shade.className = "poster-shade";
+    shade.setAttribute("aria-hidden", "true");
+    button.append(poster, shade, content);
+
+    button.addEventListener("click", () => {
+      const saved = this.callbacks.isSaved?.(sibling) ?? false;
+      this.show(sibling, railLabel, tab, saved, related);
+    });
+    return button;
   }
 
   private episodeButtons(): HTMLButtonElement[] {

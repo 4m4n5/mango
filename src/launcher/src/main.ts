@@ -41,6 +41,9 @@ const detailStreams = mustGet<HTMLElement>("detail-streams");
 const detailStreamList = mustGet<HTMLElement>("detail-stream-list");
 const detailEpisodes = mustGet<HTMLElement>("detail-episodes");
 const detailEpisodeList = mustGet<HTMLElement>("detail-episode-list");
+const detailRelated = mustGet<HTMLElement>("detail-related");
+const detailRelatedTrack = mustGet<HTMLElement>("detail-related-track");
+const detailRelatedLabel = mustGet<HTMLElement>("detail-related-label");
 const nextPromptView = mustGet<HTMLElement>("next-episode-prompt");
 const nextPromptTitle = mustGet<HTMLElement>("next-prompt-title");
 const nextPromptMeta = mustGet<HTMLElement>("next-prompt-meta");
@@ -143,10 +146,14 @@ const detail = new DetailController(
   detailStreamList,
   detailEpisodes,
   detailEpisodeList,
+  detailRelated,
+  detailRelatedTrack,
+  detailRelatedLabel,
   {
     onClose: restoreHomeFromDetail,
     onStatus: setStatus,
     onSavedChanged: () => void reloadSavedAndCatalog(),
+    isSaved: (card) => savedKeys.has(cardSavedKey(card)),
     onPlayed: (card) => {
       if (card.source === "youtube" || card.type.startsWith("youtube_")) {
         tabCatalogCache.delete("youtube");
@@ -504,13 +511,25 @@ function activateFocused(): void {
   focused.click();
 }
 
+function findRailSiblings(card: ContentCard): ContentCard[] {
+  if (catalogState.status !== "ready") {
+    return [];
+  }
+  for (const rail of catalogState.rails) {
+    if (rail.cards.some((c) => c.id === card.id && c.type === card.type)) {
+      return rail.cards;
+    }
+  }
+  return [];
+}
+
 function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseTab): void {
   inSettings = false;
   nextEpisodePrompt.dismiss();
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
   const browseTab = tab ?? activeBrowseTab;
-  detail.show(card, railLabel, browseTab, savedKeys.has(cardSavedKey(card)));
+  detail.show(card, railLabel, browseTab, savedKeys.has(cardSavedKey(card)), findRailSiblings(card));
 }
 
 function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
@@ -525,7 +544,7 @@ function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
     homeView.classList.add("hidden");
     activeBrowseTab = tab;
     setStatus(`Opening ${card.title}…`);
-    detail.show(card, "voice", tab, savedKeys.has(cardSavedKey(card)));
+    detail.show(card, "voice", tab, savedKeys.has(cardSavedKey(card)), []);
   })();
 }
 
