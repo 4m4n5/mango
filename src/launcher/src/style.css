@@ -830,36 +830,19 @@ h1 {
   z-index: 35;
   height: 100%;
   display: grid;
-  grid-template-columns: clamp(160px, 14vw, 220px) minmax(0, 1fr) clamp(280px, 24vw, 380px);
-  grid-template-rows: auto;
-  grid-template-areas: "poster copy side";
+  grid-template-columns: minmax(0, 1fr) clamp(280px, 24vw, 380px);
+  grid-template-areas: "main side";
   column-gap: clamp(1.75rem, 3.5vw, 3rem);
-  row-gap: 0;
-  align-items: start;
-  align-content: start;
+  align-items: stretch;
   padding: var(--safe-y) var(--safe-x);
   overflow: hidden;
   background: var(--bg-overlay);
   animation: detail-enter 220ms var(--ease-out);
 }
 
-.detail:has(.detail-related:not(.hidden)) {
-  grid-template-rows: auto auto;
-  grid-template-areas:
-    "poster copy side"
-    "related related side";
-  row-gap: var(--detail-related-gap);
-}
-
 .detail:not(:has(.detail-side > :not([hidden]))) {
-  grid-template-columns: clamp(160px, 14vw, 220px) minmax(0, 1fr);
-  grid-template-areas: "poster copy";
-}
-
-.detail:not(:has(.detail-side > :not([hidden]))):has(.detail-related:not(.hidden)) {
-  grid-template-areas:
-    "poster copy"
-    "related related";
+  grid-template-columns: 1fr;
+  grid-template-areas: "main";
 }
 
 @keyframes detail-enter {
@@ -899,12 +882,44 @@ h1 {
   z-index: 1;
 }
 
+.detail-main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.detail:has(.detail-related:not(.hidden)) .detail-main {
+  justify-content: space-between;
+}
+
+.detail:not(:has(.detail-related:not(.hidden))) .detail-main {
+  justify-content: center;
+}
+
+.detail-hero {
+  display: grid;
+  grid-template-columns: clamp(160px, 14vw, 220px) minmax(0, 1fr);
+  column-gap: clamp(1.75rem, 3.5vw, 3rem);
+  flex: 0 1 auto;
+  min-height: 0;
+  align-content: center;
+  align-items: center;
+}
+
+.detail:has(.detail-related:not(.hidden)) .detail-hero {
+  align-content: start;
+  align-items: start;
+}
+
 .detail-poster-wrap {
-  grid-area: poster;
-  align-self: start;
+  align-self: center;
   width: 100%;
   max-width: none;
-  max-height: min(52vh, 420px);
+  max-height: min(56vh, 440px);
   height: auto;
   aspect-ratio: 2 / 3;
   overflow: hidden;
@@ -915,7 +930,8 @@ h1 {
 }
 
 .detail:has(.detail-related:not(.hidden)) .detail-poster-wrap {
-  max-height: min(46vh, 360px);
+  align-self: start;
+  max-height: min(50vh, 400px);
 }
 
 .detail-poster {
@@ -925,7 +941,6 @@ h1 {
 }
 
 .detail-copy {
-  grid-area: copy;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -933,10 +948,15 @@ h1 {
   width: 100%;
   max-width: none;
   min-height: 0;
-  align-self: start;
+  align-self: center;
   overflow: visible;
   padding: var(--focus-gutter);
   margin: calc(-1 * var(--focus-gutter));
+}
+
+.detail:has(.detail-related:not(.hidden)) .detail-copy {
+  align-self: start;
+  padding-top: 0.15rem;
 }
 
 .detail:has(.detail-related:not(.hidden)) .detail-description {
@@ -944,13 +964,11 @@ h1 {
 }
 
 .detail-related {
-  grid-area: related;
+  flex: 0 0 auto;
   position: relative;
   z-index: 1;
   min-height: 0;
   overflow: visible;
-  padding: 0;
-  margin: 0;
 }
 
 .detail-related.hidden {
@@ -998,7 +1016,7 @@ h1 {
 .detail-related-track .card--poster {
   flex: 0 0 auto;
   aspect-ratio: 2 / 3;
-  width: clamp(128px, 11vw, 158px);
+  width: clamp(136px, 12vw, 168px);
   height: auto;
   max-width: none;
 }
@@ -1014,7 +1032,6 @@ h1 {
 
 .detail-side {
   grid-area: side;
-  grid-row: 1 / -1;
   position: relative;
   z-index: 2;
   align-self: stretch;
@@ -1029,10 +1046,6 @@ h1 {
   overflow-y: auto;
   overflow-x: clip;
   scrollbar-width: none;
-}
-
-.detail:not(:has(.detail-related:not(.hidden))) .detail-side {
-  grid-row: 1;
 }
 
 .detail-side::-webkit-scrollbar {
@@ -1519,20 +1532,21 @@ h1 {
   }
 
   .detail {
-    grid-template-columns: 10rem minmax(0, 1fr) clamp(240px, 30vw, 340px);
+    grid-template-columns: minmax(0, 1fr) clamp(240px, 30vw, 340px);
     column-gap: 1.5rem;
   }
 
-  .detail:not(:has(.detail-side > :not([hidden]))) {
+  .detail-hero {
     grid-template-columns: 10rem minmax(0, 1fr);
+    column-gap: 1.5rem;
   }
 
   .detail:has(.detail-related:not(.hidden)) .detail-poster-wrap {
-    max-height: min(40vh, 300px);
+    max-height: min(44vh, 320px);
   }
 
   .detail-related-track .card--poster {
-    width: clamp(112px, 14vw, 140px);
+    width: clamp(120px, 14vw, 148px);
   }
 }
 

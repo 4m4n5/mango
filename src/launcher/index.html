@@ -23,19 +23,30 @@
         <div class="detail-backdrop" aria-hidden="true">
           <img id="detail-backdrop-image" class="detail-backdrop-image" alt="" />
         </div>
-        <div class="detail-poster-wrap">
-          <img id="detail-poster" class="detail-poster" alt="" />
-        </div>
-        <div class="detail-copy">
-          <p id="detail-eyebrow" class="eyebrow">catalog</p>
-          <h1 id="detail-title">title</h1>
-          <p id="detail-meta" class="detail-meta">movie</p>
-          <p id="detail-description" class="detail-description">loading details…</p>
-          <div class="detail-actions">
-            <button id="detail-play" class="detail-button detail-button--primary" type="button">play</button>
-            <button id="detail-save" class="detail-button" type="button">save</button>
-            <button id="detail-not-interested" class="detail-button" type="button" hidden>not interested</button>
-            <button id="detail-back" class="detail-button" type="button">back</button>
+        <div class="detail-main">
+          <div class="detail-hero">
+            <div class="detail-poster-wrap">
+              <img id="detail-poster" class="detail-poster" alt="" />
+            </div>
+            <div class="detail-copy">
+              <p id="detail-eyebrow" class="eyebrow">catalog</p>
+              <h1 id="detail-title">title</h1>
+              <p id="detail-meta" class="detail-meta">movie</p>
+              <p id="detail-description" class="detail-description">loading details…</p>
+              <div class="detail-actions">
+                <button id="detail-play" class="detail-button detail-button--primary" type="button">play</button>
+                <button id="detail-save" class="detail-button" type="button">save</button>
+                <button id="detail-not-interested" class="detail-button" type="button" hidden>not interested</button>
+                <button id="detail-back" class="detail-button" type="button">back</button>
+              </div>
+            </div>
+          </div>
+          <div id="detail-related" class="detail-related hidden" aria-label="Related titles">
+            <div class="detail-related-head">
+              <p id="detail-related-label" class="detail-related-label" role="heading" aria-level="2">related titles</p>
+              <p id="detail-related-context" class="detail-related-context" hidden></p>
+            </div>
+            <div id="detail-related-track" class="detail-related-track" role="list"></div>
           </div>
         </div>
         <div class="detail-side">
@@ -47,13 +58,6 @@
             <p class="detail-episodes-label">episodes</p>
             <div id="detail-episode-list" class="detail-episode-list"></div>
           </div>
-        </div>
-        <div id="detail-related" class="detail-related hidden" aria-label="Related titles">
-          <div class="detail-related-head">
-            <p id="detail-related-label" class="detail-related-label" role="heading" aria-level="2">related titles</p>
-            <p id="detail-related-context" class="detail-related-context" hidden></p>
-          </div>
-          <div id="detail-related-track" class="detail-related-track" role="list"></div>
         </div>
       </section>
 
