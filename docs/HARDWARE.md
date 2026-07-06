@@ -138,8 +138,8 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | Label | Position | Linux evdev | Action |
 |-------|----------|-------------|--------|
 | **Y** | left | `308` (BTN_WEST) | **Back** (in-app / playback stop → launcher) |
-| **X** | top | `307` (BTN_NORTH) | **Shuffle / refresh rail set** (launcher) |
-| **A** | right | `305` (BTN_EAST) | — |
+| **X** | top | `307` (BTN_NORTH) | **Shuffle** (launcher); **subs on/off** (playback) |
+| **A** | right | `305` (BTN_EAST) | **Cycle audio track** (playback) |
 | **B** | bottom | `304` (BTN_SOUTH) | **Select** / playback pause-play + progress bar |
 
 ### Center buttons (between D-pad and face cluster)
@@ -160,10 +160,10 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 **D-pad** → navigate. During playback, **←/→** skip ±10s and show the progress
 HUD; holding **←/→** accelerates seek (10s → 30s → 120s). **↑/↓** cycle subtitle
-language; **X** toggles subtitles on/off. Playback-only **L/R** jumps by the large
+language; **X** toggles subtitles on/off; **A** cycles the audio track. Playback-only **L/R** jumps by the large
 seek step (120s default).
 
-> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. `A` remains intentionally unmapped; `X` is reserved for shuffle.
+> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. **A** is audio during playback; **X** is shuffle on the launcher.
 
 > **Quirk:** In Switch BT mode Linux reports the **D-pad as ABS_X/ABS_Y** (not hat axes). `evtest` shows `ABS_X` on left/right — normal.
 

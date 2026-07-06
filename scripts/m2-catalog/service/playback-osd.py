@@ -126,39 +126,79 @@ def _playback_snapshot() -> tuple[float, float, bool, str] | None:
     return None
 
 
+def _track_label_from_list(
+    tracks: object,
+    track_id: object,
+    track_type: str,
+    *,
+    empty_label: str,
+) -> str:
+    if not _track_id_active(track_id):
+        return empty_label
+    try:
+        track_num = int(track_id)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return empty_label
+    if track_num < 0:
+        return empty_label
+    if not isinstance(tracks, list):
+        return f"Track {track_num}"
+
+    for track in tracks:
+        if not isinstance(track, dict) or track.get("type") != track_type:
+            continue
+        if track.get("id") != track_num:
+            continue
+        lang = str(track.get("lang") or "").strip()
+        title = str(track.get("title") or track.get("external-filename") or "").strip()
+        codec = str(track.get("codec") or "").strip()
+        if title and lang and lang.lower() not in title.lower():
+            label = f"{title} ({lang.upper()})"
+        elif title:
+            label = title
+        elif lang:
+            label = lang.upper()
+        else:
+            label = f"Track {track_num}"
+        if track_type == "audio" and codec and codec.lower() not in label.lower():
+            label = f"{label} · {codec.upper()}"
+        return label
+    return f"Track {track_num}"
+
+
+def _track_id_active(track_id: object) -> bool:
+    if track_id is None:
+        return False
+    if isinstance(track_id, str):
+        lowered = track_id.strip().lower()
+        if lowered in {"", "no", "null"}:
+            return False
+        try:
+            track_id = int(track_id)
+        except ValueError:
+            return lowered == "auto"
+    if isinstance(track_id, (int, float)):
+        return int(track_id) >= 0
+    return False
+
+
 def _subtitle_snapshot(backend: str) -> tuple[bool, str]:
     if backend != "mpv":
         return False, "VLC · press X to cycle"
     visible = _mpv_ipc_property("sub-visibility")
     sid = _mpv_ipc_property("sid")
-    if visible in (False, "no", 0):
+    if visible in (False, "no", 0) or not _track_id_active(sid):
         return False, "Off"
-    try:
-        sid_num = int(sid)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return False, "Off"
-    if sid_num < 0:
-        return False, "Off"
-
     tracks = _mpv_ipc_property("track-list")
-    if not isinstance(tracks, list):
-        return True, f"Track {sid_num}"
+    return True, _track_label_from_list(tracks, sid, "sub", empty_label="Off")
 
-    for track in tracks:
-        if not isinstance(track, dict) or track.get("type") != "sub":
-            continue
-        if track.get("id") != sid_num:
-            continue
-        lang = str(track.get("lang") or "").strip()
-        title = str(track.get("title") or track.get("external-filename") or "").strip()
-        if title and lang and lang.lower() not in title.lower():
-            return True, f"{title} ({lang.upper()})"
-        if title:
-            return True, title
-        if lang:
-            return True, lang.upper()
-        return True, f"Track {sid_num}"
-    return True, f"Track {sid_num}"
+
+def _audio_snapshot(backend: str) -> str:
+    if backend != "mpv":
+        return "VLC · press A"
+    aid = _mpv_ipc_property("aid")
+    tracks = _mpv_ipc_property("track-list")
+    return _track_label_from_list(tracks, aid, "audio", empty_label="Default")
 
 
 def _format_time(seconds: float) -> str:
@@ -206,7 +246,7 @@ def run() -> int:
         screen_w = max(1280, root.winfo_screenwidth())
         screen_h = max(720, root.winfo_screenheight())
         width = min(2200, max(900, int(screen_w * 0.64)))
-        height = 118
+        height = 138
         x = max(0, int((screen_w - width) / 2))
         y = max(0, screen_h - height - max(34, int(screen_h * 0.035)))
         root.geometry(f"{width}x{height}+{x}+{y}")
@@ -223,6 +263,7 @@ def run() -> int:
         pct = 0.0 if duration <= 0 else max(0.0, min(1.0, position / duration))
         remaining = max(0.0, duration - position) if duration > 0 else 0.0
         subs_on, subs_label = _subtitle_snapshot(backend)
+        audio_label = _audio_snapshot(backend)
         canvas.delete("all")
 
         pad_x = 34
@@ -268,7 +309,23 @@ def run() -> int:
             anchor="e",
             fill=status_color,
             font=("DejaVu Sans", 15),
-            text=f"Language: {subs_label}",
+            text=f"Sub: {subs_label}",
+        )
+        canvas.create_text(
+            pad_x,
+            70,
+            anchor="w",
+            fill=status_color,
+            font=("DejaVu Sans", 15),
+            text="Audio:",
+        )
+        canvas.create_text(
+            width - pad_x,
+            70,
+            anchor="e",
+            fill=status_color,
+            font=("DejaVu Sans", 15),
+            text=audio_label,
         )
         canvas.create_rectangle(
             pad_x,
@@ -303,7 +360,7 @@ def run() -> int:
             anchor="w",
             fill="#c5bca5",
             font=("DejaVu Sans", 13),
-            text="B pause/play   ←/→ seek   X subs on/off   ↑/↓ language   Y back",
+            text="B pause   ←/→ seek   X subs   ↑/↓ sub lang   A audio   Y back",
         )
 
     def tick() -> None:

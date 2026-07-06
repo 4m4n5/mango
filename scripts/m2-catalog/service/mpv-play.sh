@@ -620,6 +620,15 @@ append_mpv_play_args() {
     args_ref+=(--vo=null --ao=null --really-quiet)
   else
     args_ref+=(--fs "${audio_args[@]}")
+    # Subs off at start; pad X/↑/↓ selects tracks. sub-auto=all so cycle sub
+    # can reach any embedded track (default fuzzy only exposes forced subs).
+    args_ref+=(
+      --sub-visibility=no
+      --sid=no
+      --sub-auto=all
+      --blend-subtitles=yes
+      --sub-font-size="${MANGO_MPV_SUB_FONT_SIZE:-52}"
+    )
     # Do not pass --focus-on-open=no on the Pi GPU fullscreen path: mpv exits
     # immediately (even without --audio-file). Split A/V uses vo=null buffer instead.
     append_mpv_render_args "$1"

@@ -75,6 +75,7 @@ def _playback_app(app: str) -> bool:
     return app in PLAYBACK_APPS
 
 BTN_B = 304
+BTN_A = 305
 BTN_X = 307
 BTN_Y = 308
 BTN_MINUS = 314
@@ -672,6 +673,51 @@ def send_mpv_ipc(command: str, arg: str = "", mode: str = "") -> None:
     popen_tv_user(argv)
 
 
+def mpv_ipc_data(property_name: str) -> object | None:
+    try:
+        result = subprocess.run(
+            as_tv_user(["bash", str(MPV_IPC_SH), "get_property", property_name]),
+            env=_tv_env(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+            timeout=2.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    return payload.get("data")
+
+
+def _mpv_track_id_active(track_id: object) -> bool:
+    if track_id is None:
+        return False
+    if isinstance(track_id, str):
+        lowered = track_id.strip().lower()
+        if lowered in {"", "no", "null"}:
+            return False
+        try:
+            track_id = int(track_id)
+        except ValueError:
+            return lowered == "auto"
+    if isinstance(track_id, (int, float)):
+        return int(track_id) >= 0
+    return False
+
+
+def _mpv_subs_showing() -> bool:
+    visible = mpv_ipc_data("sub-visibility")
+    if visible in (False, "no", 0):
+        return False
+    return _mpv_track_id_active(mpv_ipc_data("sid"))
+
+
 PLAYBACK_OSD_PID_FILE = Path(
     os.environ.get("MANGO_PLAYBACK_OSD_PID_FILE", str(CACHE_DIR / "playback-osd.pid"))
 )
@@ -858,14 +904,32 @@ def go_home() -> None:
 def route_playback_subtitle(app: str, action: str) -> None:
     if app == "mpv":
         if action == "toggle":
-            send_mpv_ipc("cycle", "sub-visibility")
+            if _mpv_subs_showing():
+                send_mpv_ipc("set_property", "sid", "no")
+                send_mpv_ipc("set_property", "sub-visibility", "no")
+            else:
+                send_mpv_ipc("set_property", "sub-visibility", "yes")
+                # sub-visibility alone does not select a track; sid=auto only
+                # picks forced subs — cycle up from off to the first real track.
+                send_mpv_ipc("cycle", "sub", "up")
         elif action == "prev":
+            send_mpv_ipc("set_property", "sub-visibility", "yes")
             send_mpv_ipc("cycle", "sub", "down")
         else:
+            send_mpv_ipc("set_property", "sub-visibility", "yes")
             send_mpv_ipc("cycle", "sub", "up")
     elif app == "vlc":
+        # VLC couch path: v cycles subtitle tracks (no clean prev/back key).
         send_key_vlc("v")
     show_playback_osd("subs")
+
+
+def route_playback_audio(app: str) -> None:
+    if app == "mpv":
+        send_mpv_ipc("cycle", "audio")
+    elif app == "vlc":
+        send_key_vlc("b")
+    show_playback_osd("audio")
 
 
 def route_dpad(app: str, direction: str) -> None:
@@ -1169,6 +1233,11 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                             )
                         else:
                             debounced("shuffle", refresh_launcher_library)
+                    elif event.code == BTN_A and _playback_app(app):
+                        debounced(
+                            f"{app}-audio-cycle",
+                            lambda: route_playback_audio(app),
+                        )
                     elif event.code == BTN_MINUS:
                         debounced("volume-down", lambda: adjust_volume(-VOLUME_STEP_PERCENT))
                     elif event.code == BTN_PLUS:
