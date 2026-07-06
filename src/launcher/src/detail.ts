@@ -18,7 +18,6 @@ import type { ContentCard, BrowseTab } from "./types";
 import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel } from "./home";
-import { FocusGrid } from "./focus";
 
 export interface DetailCallbacks {
   onClose: () => void;
@@ -31,7 +30,7 @@ export interface DetailCallbacks {
 
 export class DetailController {
   private card: ContentCard | null = null;
-  private readonly focusGrid = new FocusGrid((element) => this.onGridFocused(element));
+  private focusedEl: HTMLElement | null = null;
   private playToken = 0;
   private playAbort: AbortController | null = null;
   private streams: CatalogStream[] = [];
@@ -132,6 +131,7 @@ export class DetailController {
     this.seriesEpisodes = null;
     this.listFocusables = [];
     this.selectedEpisodeId = null;
+    this.focusedEl = null;
     this.streamList.replaceChildren();
     this.episodeList.replaceChildren();
     this.streamsWrap.hidden = true;
@@ -214,23 +214,22 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
-    this.focusGrid.moveRow(delta);
+    this.navigate(delta > 0 ? "down" : "up");
   }
 
   moveCol(delta: number): void {
     if (!this.isOpen) {
       return;
     }
-    this.focusGrid.moveCol(delta);
+    this.navigate(delta > 0 ? "right" : "left");
   }
 
   activate(): void {
     if (!this.isOpen) {
       return;
     }
-    const target = this.focusGrid.focused;
-    if (target instanceof HTMLButtonElement && !target.disabled) {
-      target.click();
+    if (this.focusedEl instanceof HTMLButtonElement && !this.focusedEl.disabled) {
+      this.focusedEl.click();
     }
   }
 
@@ -412,46 +411,8 @@ export class DetailController {
     return true;
   }
 
-  private buildFocusRows(): HTMLElement[][] {
-    const rows: HTMLElement[][] = [];
-    const actions = this.actionButtons().filter((button) => this.isFocusableEnabled(button));
-    if (actions.length > 0) {
-      rows.push(actions);
-    }
-    const related = this.relatedButtons.filter((button) => this.isFocusableEnabled(button));
-    if (related.length > 0) {
-      rows.push(related);
-    }
-    for (const item of this.listFocusables) {
-      if (this.isFocusableEnabled(item)) {
-        rows.push([item]);
-      }
-    }
-    for (const stream of this.streamButtons) {
-      if (this.isFocusableEnabled(stream)) {
-        rows.push([stream]);
-      }
-    }
-    return rows;
-  }
-
-  private findInRows(rows: HTMLElement[][], element: HTMLElement): { row: number; col: number } | null {
-    for (let row = 0; row < rows.length; row += 1) {
-      const col = rows[row].indexOf(element);
-      if (col >= 0) {
-        return { row, col };
-      }
-    }
-    return null;
-  }
-
   private focusElement(element: HTMLElement): void {
-    const rows = this.buildFocusRows();
-    const position = this.findInRows(rows, element);
-    if (!position) {
-      return;
-    }
-    this.focusGrid.setRows(rows, { fallbackPosition: position });
+    this.focusEl(element);
   }
 
   private onGridFocused(element: HTMLElement): void {
@@ -470,17 +431,87 @@ export class DetailController {
     ];
   }
 
-  private refreshFocusGrid(): void {
-    const previous = this.focusGrid.focused;
-    const rows = this.buildFocusRows();
-    const fallback = previous ? this.findInRows(rows, previous) : null;
-    this.focusGrid.setRows(rows, {
-      fallbackPosition: fallback ?? { row: 0, col: 0 },
-    });
+  private enabledFocusables(): HTMLElement[] {
+    return this.allFocusableElements().filter((el) => this.isFocusableEnabled(el));
+  }
+
+  private focusEl(el: HTMLElement): void {
+    this.focusedEl = el;
+    el.focus({ preventScroll: true });
+    requestAnimationFrame(() => el.scrollIntoView({ block: "nearest", inline: "nearest" }));
+    this.onGridFocused(el);
+  }
+
+  private navigate(direction: "up" | "down" | "left" | "right"): void {
+    const current = this.focusedEl;
+    if (!current) {
+      return;
+    }
+    const curRect = current.getBoundingClientRect();
+    const ccx = curRect.left + curRect.width / 2;
+    const ccy = curRect.top + curRect.height / 2;
+    const eps = 2;
+    const horizontal = direction === "left" || direction === "right";
+    let best: HTMLElement | null = null;
+    let bestScore = Infinity;
+    for (const candidate of this.enabledFocusables()) {
+      if (candidate === current) {
+        continue;
+      }
+      const rect = candidate.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      let keep: boolean;
+      switch (direction) {
+        case "right":
+          keep = cx > ccx + eps;
+          break;
+        case "left":
+          keep = cx < ccx - eps;
+          break;
+        case "down":
+          keep = cy > ccy + eps;
+          break;
+        case "up":
+        default:
+          keep = cy < ccy - eps;
+          break;
+      }
+      if (!keep) {
+        continue;
+      }
+      let primary: number;
+      let secondary: number;
+      let beamAligned: boolean;
+      if (horizontal) {
+        primary = Math.abs(cx - ccx);
+        secondary = Math.abs(cy - ccy);
+        beamAligned = rect.bottom > curRect.top && rect.top < curRect.bottom;
+      } else {
+        primary = Math.abs(cy - ccy);
+        secondary = Math.abs(cx - ccx);
+        beamAligned = rect.right > curRect.left && rect.left < curRect.right;
+      }
+      const score = primary + secondary * 2 + (beamAligned ? 0 : 1_000_000);
+      if (score < bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+    if (best) {
+      this.focusEl(best);
+    }
   }
 
   private applyFocus(): void {
-    this.refreshFocusGrid();
+    const focusables = this.enabledFocusables();
+    if (focusables.length === 0) {
+      this.focusedEl = null;
+      return;
+    }
+    const keep = this.focusedEl && focusables.includes(this.focusedEl) ? this.focusedEl : null;
+    const play = !this.playButton.hidden && !this.playButton.disabled ? this.playButton : null;
+    this.focusEl(keep ?? play ?? focusables[0]);
   }
 
   private renderRelated(related: ContentCard[], railLabel: string, tab: BrowseTab): void {
@@ -612,9 +643,8 @@ export class DetailController {
     button.classList.toggle("detail-episode--disabled", !hasStreams);
     button.setAttribute("aria-disabled", hasStreams ? "false" : "true");
     this.rebuildListFocusables();
-    const current = this.focusGrid.focused;
-    if (current instanceof HTMLButtonElement && current.disabled) {
-      this.moveRow(1);
+    if (!this.focusedEl || !this.isFocusableEnabled(this.focusedEl)) {
+      this.applyFocus();
     }
   }
 

@@ -275,6 +275,16 @@ function createPosterCard(
   content.className = "poster-content";
   content.append(title, subtitle);
 
+  const livePill = shouldShowLivePill(card, options.browseTab)
+    ? (() => {
+        const pill = document.createElement("span");
+        pill.className = "card-live-pill";
+        pill.textContent = "live";
+        pill.setAttribute("aria-hidden", "true");
+        return pill;
+      })()
+    : null;
+
   if (landscape) {
     const frame = document.createElement("span");
     frame.className = "poster-frame";
@@ -286,20 +296,18 @@ function createPosterCard(
       progress.style.setProperty("--progress", `${Math.round(card.progressPct * 100)}%`);
       frame.append(progress);
     }
+    if (livePill) {
+      frame.append(livePill);
+    }
     button.append(frame, content);
   } else {
     const shade = document.createElement("span");
     shade.className = "poster-shade";
     shade.setAttribute("aria-hidden", "true");
     button.append(poster, shade, content);
-  }
-
-  if (shouldShowLivePill(card, options.browseTab)) {
-    const pill = document.createElement("span");
-    pill.className = "card-live-pill";
-    pill.textContent = "live";
-    pill.setAttribute("aria-hidden", "true");
-    button.append(pill);
+    if (livePill) {
+      button.append(livePill);
+    }
   }
   if (!landscape && card.progressPct !== undefined && card.progressPct > 0) {
     const progress = document.createElement("span");

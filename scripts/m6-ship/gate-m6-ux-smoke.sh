@@ -34,12 +34,12 @@ focus = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
 
 if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
-if "FocusGrid" not in detail:
-    raise SystemExit("detail.ts missing FocusGrid")
 if "moveRow" not in detail or "moveCol" not in detail:
     raise SystemExit("detail.ts missing 2D moveRow/moveCol")
+if "getBoundingClientRect" not in detail:
+    raise SystemExit("detail.ts missing geometry-based spatial focus (getBoundingClientRect)")
 if "class FocusGrid" not in focus:
-    raise SystemExit("focus.ts missing FocusGrid class")
+    raise SystemExit("focus.ts missing FocusGrid class (home rails)")
 PY
 
 if [[ -f "$DIST/index.html" ]]; then
@@ -143,7 +143,7 @@ import pathlib
 import sys
 
 js = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-required = ("FocusGrid", "moveRow", "moveCol")
+required = ("moveRow", "moveCol")
 missing = [token for token in required if token not in js]
 if missing:
     raise SystemExit(f"missing JS: {', '.join(missing)}")
