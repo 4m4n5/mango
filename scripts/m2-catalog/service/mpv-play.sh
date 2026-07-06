@@ -434,6 +434,29 @@ enable_mpv_display() {
   return 0
 }
 
+wait_mpv_vo_ready() {
+  local timeout_ms="${1:-400}"
+  local started
+  started="$(now_ms)"
+  while (( $(now_ms) - started < timeout_ms )); do
+    if [[ -S "$SOCKET" ]]; then
+      local reply ready
+      reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property vo-configured 2>/dev/null || true)"
+      ready="$(printf '%s' "$reply" | python3 -c 'import json,sys
+try:
+  data=json.load(sys.stdin).get("data")
+  print("1" if data in (True, "yes", 1) else "0")
+except Exception:
+  print("0")' 2>/dev/null || echo 0)"
+      if [[ "$ready" == "1" ]]; then
+        return 0
+      fi
+    fi
+    sleep 0.025
+  done
+  return 0
+}
+
 append_mpv_play_args() {
   local -n args_ref="$1"
   args_ref+=(
@@ -695,10 +718,11 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
       if ! $PROBE && ! $HANDOFF_DONE; then
-        foreground_handoff
         if [[ "$DEFER_FOREGROUND" == "1" ]]; then
           enable_mpv_display || true
+          wait_mpv_vo_ready 400
         fi
+        foreground_handoff
       fi
       if playback_is_real "${PT:-0}"; then
         END_MS="$(now_ms)"
