@@ -380,8 +380,8 @@ append_mpv_play_args() {
     # Indexer/gate probes must not seize the TV fullscreen.
     args_ref+=(--vo=null --ao=null --really-quiet)
   else
-    args_ref+=(--fs --focus-on-open=no "${audio_args[@]}")
-    append_mpv_render_args args_ref
+  args_ref+=(--fs --focus-on-open=no "${audio_args[@]}")
+  append_mpv_render_args "$1"
     if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
       args_ref+=(--start="$START_SEC")
     fi
