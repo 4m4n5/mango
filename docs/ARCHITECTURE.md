@@ -51,6 +51,20 @@ mode on stop. VLC playback starts a lightweight X11 Mango playback OSD for a
 couch-readable progress bar; the pad triggers it on pause/play and seek actions
 without bringing back the retired Chromium overlay.
 
+**Seamless play handoff (poster-cover).** When `MANGO_MPV_POSTER_COVER=1`
+(default; set by the `mpv`/`mpv-hifi` engines) the mpv play path in `mpv-play.sh`
+never exposes the desktop between the launcher and the first video frame. It
+spawns mpv fullscreen (`--idle=once --force-window=yes --image-display-duration=inf`)
+showing the title **poster** *first* — while the Chromium launcher is still up —
+then, once the mpv window is confirmed, stops the launcher / disables `xcompmgr` /
+source-matches the display mode *behind the poster*, and finally `loadfile`s the
+resolved stream into the same window (per-file `start`/`audio-file` options carry
+resume + split audio). The strict tear-free contract holds: video only decodes
+after the launcher is stopped. `--idle=once` makes mpv exit at EOF so the exit
+monitor restores the launcher as before. The poster URL is threaded from the
+launcher through `POST /play` → `playUrl`/`playWithLadder` → `mpv-play.sh --poster`.
+Set `MANGO_MPV_POSTER_COVER=0` to fall back to the direct spawn.
+
 ### Playability layer
 
 `playability.db` has two related but distinct surfaces:

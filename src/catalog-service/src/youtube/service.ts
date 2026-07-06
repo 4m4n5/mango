@@ -3480,6 +3480,7 @@ export class YoutubeService {
       playEpoch,
       minDurationSec: live ? 1 : 1,
       audioUrl: resolved.audio_url,
+      poster: item.thumbnail ?? undefined,
     }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       throw new CatalogError(502, live ? 'YouTube live playback did not start' : 'YouTube playback did not start', {

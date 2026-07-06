@@ -381,7 +381,7 @@ async function handlePlay(
     const startSec = typeof body.start_sec === 'number' && body.start_sec > 0
       ? body.start_sec
       : undefined;
-    const playback = await playUrl(playUrlValue, 90000, { startSec });
+    const playback = await playUrl(playUrlValue, 90000, { startSec, poster: body.poster });
     if (body.type && body.id) {
       await attachWatchSession(core, body.type, body.id);
     }
@@ -413,7 +413,7 @@ async function handlePlay(
     if (!streamUrl) {
       throw new CatalogError(502, 'no_playable_stream');
     }
-    const playback = await playUrl(streamUrl, 90000, { live: true, playEpoch });
+    const playback = await playUrl(streamUrl, 90000, { live: true, playEpoch, poster: body.poster });
     try {
       recordLibraryWatch({
         type: body.type,
@@ -512,6 +512,7 @@ async function handlePlay(
       verified_hint: verifiedHint,
       playEpoch,
       startSec,
+      poster: body.poster,
     });
 
     if (usePlayabilityIndex) {

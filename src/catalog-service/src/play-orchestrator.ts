@@ -214,6 +214,7 @@ export async function playWithLadder(
     preflight?: typeof preflightPlaybackUrl;
     onLadderStep?: (step: string, label: string) => void;
     startSec?: number;
+    poster?: string;
   } = {},
 ): Promise<PlayOrchestratorResult> {
   const started = Date.now();
@@ -305,6 +306,7 @@ export async function playWithLadder(
         playEpoch: options.playEpoch,
         minDurationSec,
         startSec: options.startSec,
+        poster: options.poster,
       });
       const attempt: PlayAttempt = {
         ...base,

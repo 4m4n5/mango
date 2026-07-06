@@ -27,7 +27,16 @@ function displayEnv(): NodeJS.ProcessEnv {
 
 async function runMpv(
   url: string,
-  options: { probe: boolean; live?: boolean; timeoutMs: number; minDurationSec?: number; playEpoch?: number; startSec?: number; audioUrl?: string },
+  options: {
+    probe: boolean;
+    live?: boolean;
+    timeoutMs: number;
+    minDurationSec?: number;
+    playEpoch?: number;
+    startSec?: number;
+    audioUrl?: string;
+    poster?: string;
+  },
 ): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-play.sh');
   const started = Date.now();
@@ -43,6 +52,9 @@ async function runMpv(
   }
   if (options.audioUrl) {
     args.push('--audio-url', options.audioUrl);
+  }
+  if (options.poster) {
+    args.push('--poster', options.poster);
   }
   if (options.probe) {
     args.push('--probe');
@@ -94,7 +106,14 @@ export async function probeUrl(
 export async function playUrl(
   url: string,
   timeoutMs = 90000,
-  options: { minDurationSec?: number; playEpoch?: number; startSec?: number; live?: boolean; audioUrl?: string } = {},
+  options: {
+    minDurationSec?: number;
+    playEpoch?: number;
+    startSec?: number;
+    live?: boolean;
+    audioUrl?: string;
+    poster?: string;
+  } = {},
 ): Promise<PlayResult> {
   return runMpv(url, {
     probe: false,
@@ -104,6 +123,7 @@ export async function playUrl(
     startSec: options.startSec,
     live: options.live,
     audioUrl: options.audioUrl,
+    poster: options.poster,
   });
 }
 
