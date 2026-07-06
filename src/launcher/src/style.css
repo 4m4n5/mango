@@ -82,7 +82,8 @@ button {
 
 .home {
   justify-content: flex-start;
-  gap: 1.25rem;
+  /* Room for top-rail focus glow below the tab bar — must exceed focus-gutter */
+  gap: calc(var(--focus-gutter) + 1.25rem);
 }
 
 .browse-bar {
@@ -204,11 +205,13 @@ button {
   min-height: 0;
   overflow-y: auto;
   overflow-x: clip;
-  padding-block-start: var(--focus-gutter);
-  padding-block-end: calc(var(--focus-gutter) + 2.75rem);
-  margin-block: calc(-1 * var(--focus-gutter));
+  /* Vertical gutter lives inside the scrollport only — no negative margin-block
+     (that pulled the scrollport under the tab bar and clipped top/bottom focus). */
+  padding-block-start: calc(var(--focus-gutter) + 0.5rem);
+  padding-block-end: calc(var(--focus-gutter) * 2 + 2.5rem);
   padding-inline: var(--focus-gutter);
   margin-inline: calc(-1 * var(--focus-gutter));
+  scroll-padding-block: var(--focus-gutter);
   scrollbar-width: none;
 }
 
@@ -221,7 +224,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: calc(0.85rem + var(--focus-gutter) * 0.45);
-  padding-block: calc(var(--focus-gutter) * 0.4);
+  padding-block: calc(var(--focus-gutter) * 0.55);
   min-height: 0;
 }
 
