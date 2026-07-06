@@ -57,6 +57,7 @@ test('playWithLadder reuses verified probe for matching hash and ladder step', a
 
   assert.equal(probeCalls, 0);
   assert.equal(result.win_ladder_step, 'ideal');
+  assert.equal(result.probe_ms, 3210);
   assert.equal(result.attempts[0]?.probe_reused, true);
   assert.ok(playTimeout > 80000);
 });
@@ -68,7 +69,7 @@ test('playWithLadder skips nfo sidecars and reaches a later ladder step', async 
     '[TB⚡] Torrentio 2160p',
   );
   good.description = '2160p HEVC encode';
-  good.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|false|2160p' };
+  good.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|true|2160p' };
 
   const result = await playWithLadder([bad, good], testConfig(), {
     preflight: async (url) => (url.includes('bad') ? 'nfo' : 'video'),
@@ -77,6 +78,7 @@ test('playWithLadder skips nfo sidecars and reaches a later ladder step', async 
   });
 
   assert.equal(result.ok, true);
+  assert.equal(result.probe_ms, 500);
   assert.equal(result.attempts.length, 2);
   assert.equal(result.attempts[0]?.ok, false);
   assert.match(result.attempts[0]?.error || '', /debrid_nfo_sidecar/);

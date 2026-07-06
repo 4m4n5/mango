@@ -38,6 +38,7 @@ export type PlayAttempt = {
 export type PlayOrchestratorResult = {
   ok: true;
   ttff_ms: number;
+  probe_ms: number;
   total_ms: number;
   attempts: PlayAttempt[];
   stream: Record<string, unknown>;
@@ -225,6 +226,7 @@ export async function playWithLadder(
   const preflight = options.preflight ?? preflightPlaybackUrl;
   const ladder = options.ladder ?? config.play_ladder;
   const deadline = started + wallMs;
+  const preferLadderStep = options.verified_hint?.win_ladder_step ?? null;
   const candidates = injectPreferredPlayCandidate(
     streams,
     expandPlayLadder(streams, ladder, options.filterContext ?? {
@@ -236,9 +238,10 @@ export async function playWithLadder(
       preferred_video_codecs: config.preferred_video_codecs,
       verified_hint: options.verified_hint,
       max_candidates: config.auto_play_max_attempts,
-      prefer_ladder_step: options.verified_hint?.win_ladder_step ?? null,
+      prefer_ladder_step: preferLadderStep,
     }),
     options.preferUrl,
+    preferLadderStep,
   );
   const minDurationSec = options.contentType === 'series' ? 600 : 600;
   const attempts: PlayAttempt[] = [];
@@ -331,6 +334,7 @@ export async function playWithLadder(
       return {
         ok: true,
         ttff_ms: playback.ttff_ms,
+        probe_ms: observedProbeMs ?? 0,
         total_ms: Date.now() - started,
         attempts,
         stream: streamMeta(candidate.stream, candidate.ladder_step),

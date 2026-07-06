@@ -365,6 +365,7 @@ export function injectPreferredPlayCandidate(
   streams: Stream[],
   candidates: LadderCandidate[],
   preferUrl?: string,
+  preferLadderStep?: string | null,
 ): LadderCandidate[] {
   if (!preferUrl || !/^https?:\/\//i.test(preferUrl)) {
     return candidates;
@@ -374,9 +375,11 @@ export function injectPreferredPlayCandidate(
   if (!match) {
     return candidates;
   }
-  const ladderStep = typeof match.ladder_step === 'string' && match.ladder_step.trim() !== ''
-    ? match.ladder_step.trim()
-    : 'picker';
+  const expanded = candidates.find((candidate) => streamUrlHash(candidate.stream.url) === hash);
+  const preferStep = typeof preferLadderStep === 'string' ? preferLadderStep.trim() : '';
+  const fromMatch = typeof match.ladder_step === 'string' ? match.ladder_step.trim() : '';
+  const fromExpanded = typeof expanded?.ladder_step === 'string' ? expanded.ladder_step.trim() : '';
+  const ladderStep = fromExpanded || fromMatch || preferStep || 'picker';
   const rest = candidates.filter((candidate) => streamUrlHash(candidate.stream.url) !== hash);
   return [{ stream: match, ladder_step: ladderStep }, ...rest];
 }

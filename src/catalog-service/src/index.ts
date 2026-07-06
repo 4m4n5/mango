@@ -533,7 +533,7 @@ async function handlePlay(
         best_source: typeof playback.stream.source === 'string' ? playback.stream.source : null,
         cache_status: typeof playback.stream.cache_status === 'string' ? playback.stream.cache_status : null,
         debrid_service: typeof playback.stream.debrid_service === 'string' ? playback.stream.debrid_service : null,
-        probe_ms: playback.ttff_ms,
+        probe_ms: playback.probe_ms,
         win_url_hash: playback.win_url_hash,
         win_ladder_step: playback.win_ladder_step,
         expires_at: Date.now() + playabilityVerifyTtlMs(),

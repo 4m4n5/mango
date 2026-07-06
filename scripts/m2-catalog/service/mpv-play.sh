@@ -633,7 +633,7 @@ except Exception:
     fi
     sleep 0.025
   done
-  return 0
+  return 1
 }
 
 append_mpv_play_args() {
@@ -953,7 +953,11 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
               MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
               exit 1
             fi
-            wait_mpv_vo_ready "$(mpv_vo_ready_timeout_ms)"
+            if ! wait_mpv_vo_ready "$(mpv_vo_ready_timeout_ms)"; then
+              echo "FAIL: mpv vo not ready after display enable" >&2
+              MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+              exit 1
+            fi
           elif $GPU_DEFER; then
             apply_4k_video_sync
           fi

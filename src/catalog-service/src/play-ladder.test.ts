@@ -302,3 +302,32 @@ test('injectPreferredPlayCandidate forces a picker URL ahead of ladder expansion
   assert.equal(ranked[0]?.ladder_step, '4k_sdr_remux_cached');
   assert.equal(ranked[0]?.stream.url, picked.url);
 });
+
+test('injectPreferredPlayCandidate uses expanded ladder step when resolve streams omit ladder_step', () => {
+  const picked = stream({
+    url: 'https://example.test/picked-4k.mkv',
+    name: '[TB⚡] Torrentio 2160p',
+    description: '2160p WEBRip HEVC SDR',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const expanded = expandPlayLadder([picked], defaultPlayLadder(), { contentType: 'movie' }, {
+    max_candidates: 4,
+  });
+  const expandedStep = expanded.find((c) => c.stream.url === picked.url)?.ladder_step;
+  assert.ok(expandedStep && expandedStep !== 'picker');
+
+  const ranked = injectPreferredPlayCandidate([picked], expanded, picked.url);
+  assert.equal(ranked[0]?.ladder_step, expandedStep);
+  assert.notEqual(ranked[0]?.ladder_step, 'picker');
+});
+
+test('injectPreferredPlayCandidate prefers explicit prefer_ladder_step over picker fallback', () => {
+  const picked = stream({
+    url: 'https://example.test/picked-4k.mkv',
+    name: '[TB⚡] Torrentio 2160p',
+    description: '2160p WEBRip HEVC SDR',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const ranked = injectPreferredPlayCandidate([picked], [], picked.url, '2160p_encode');
+  assert.equal(ranked[0]?.ladder_step, '2160p_encode');
+});
