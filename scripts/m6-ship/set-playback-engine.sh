@@ -32,7 +32,7 @@ CONFIG_DIR="${MANGO_CONFIG_DIR:-$HOME/.config/mango}"
 VOICE_ENV="${CONFIG_DIR}/voice.env"
 
 # Experience-selection keys this script owns (removed before each apply).
-ENGINE_KEYS='MANGO_PLAYBACK_BACKEND|MANGO_MPV_HWDEC|MANGO_MPV_VIDEO_SYNC|MANGO_MPV_INTERPOLATION|MANGO_MPV_VO|MANGO_MPV_GPU_API|MANGO_MPV_OPENGL_ES|MANGO_MPV_PROFILE|MANGO_MPV_STOP_LAUNCHER|MANGO_MPV_DISABLE_XCOMPMGR|MANGO_MPV_POSTER_COVER|MANGO_MPV_TONE_MAPPING|MANGO_MPV_CACHE|MANGO_MPV_DEMUXER_MAX_BYTES|MANGO_MPV_DEMUXER_MAX_BACK_BYTES|MANGO_MPV_READAHEAD_SECS|MANGO_MPV_AUDIO_CHANNELS|MANGO_CATALOG_FILTERS'
+ENGINE_KEYS='MANGO_PLAYBACK_BACKEND|MANGO_MPV_HWDEC|MANGO_MPV_VIDEO_SYNC|MANGO_MPV_INTERPOLATION|MANGO_MPV_VO|MANGO_MPV_GPU_API|MANGO_MPV_OPENGL_ES|MANGO_MPV_PROFILE|MANGO_MPV_STOP_LAUNCHER|MANGO_MPV_DISABLE_XCOMPMGR|MANGO_MPV_DEFER_FOREGROUND|MANGO_MPV_TONE_MAPPING|MANGO_MPV_CACHE|MANGO_MPV_DEMUXER_MAX_BYTES|MANGO_MPV_DEMUXER_MAX_BACK_BYTES|MANGO_MPV_READAHEAD_SECS|MANGO_MPV_AUDIO_CHANNELS|MANGO_CATALOG_FILTERS'
 
 usage() {
   cat >&2 <<'EOF'
@@ -118,10 +118,9 @@ case "$cmd" in
     append_env MANGO_MPV_INTERPOLATION "no"
     append_env MANGO_MPV_STOP_LAUNCHER "1"
     append_env MANGO_MPV_DISABLE_XCOMPMGR "1"
-    # Seamless handoff: show the title poster fullscreen in mpv BEFORE stopping
-    # the launcher, then loadfile the stream into the same window — no desktop
-    # flash between launcher and video. Set 0 to fall back to the direct spawn.
-    append_env MANGO_MPV_POSTER_COVER "1"
+    # Deferred foreground handoff: keep launcher visible while mpv buffers, then
+    # stop launcher / disable compositor only after real playback begins.
+    append_env MANGO_MPV_DEFER_FOREGROUND "1"
     append_env MANGO_CATALOG_FILTERS "$(ensure_filters 4k-hdr)"
     restart_stack
     status
@@ -154,8 +153,9 @@ case "$cmd" in
     append_env MANGO_MPV_AUDIO_CHANNELS "auto-safe"
     append_env MANGO_MPV_STOP_LAUNCHER "1"
     append_env MANGO_MPV_DISABLE_XCOMPMGR "1"
-    # Seamless handoff: poster-cover the launcher->video transition (see `mpv`).
-    append_env MANGO_MPV_POSTER_COVER "1"
+    # Deferred foreground handoff: keep launcher visible while mpv buffers, then
+    # stop launcher / disable compositor only after real playback begins.
+    append_env MANGO_MPV_DEFER_FOREGROUND "1"
     append_env MANGO_CATALOG_FILTERS "$(ensure_filters 4k-hifi)"
     restart_stack
     status

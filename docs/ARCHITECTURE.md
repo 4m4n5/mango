@@ -51,19 +51,15 @@ mode on stop. VLC playback starts a lightweight X11 Mango playback OSD for a
 couch-readable progress bar; the pad triggers it on pause/play and seek actions
 without bringing back the retired Chromium overlay.
 
-**Seamless play handoff (poster-cover).** When `MANGO_MPV_POSTER_COVER=1`
-(default; set by the `mpv`/`mpv-hifi` engines) the mpv play path in `mpv-play.sh`
-never exposes the desktop between the launcher and the first video frame. It
-spawns mpv fullscreen (`--idle=once --force-window=yes --image-display-duration=inf`)
-showing the title **poster** *first* — while the Chromium launcher is still up —
-then, once the mpv window is confirmed, stops the launcher / disables `xcompmgr` /
-source-matches the display mode *behind the poster*, and finally `loadfile`s the
-resolved stream into the same window (per-file `start`/`audio-file` options carry
-resume + split audio). The strict tear-free contract holds: video only decodes
-after the launcher is stopped. `--idle=once` makes mpv exit at EOF so the exit
-monitor restores the launcher as before. The poster URL is threaded from the
-launcher through `POST /play` → `playUrl`/`playWithLadder` → `mpv-play.sh --poster`.
-Set `MANGO_MPV_POSTER_COVER=0` to fall back to the direct spawn.
+**Deferred foreground handoff.** When `MANGO_MPV_DEFER_FOREGROUND=1` (default
+when `MANGO_MPV_STOP_LAUNCHER=1`, set by `mpv`/`mpv-hifi` profiles), `mpv-play.sh`
+starts mpv against the stream URL while Chromium detail remains visible. mpv is
+configured with `--focus-on-open=no`, so it can buffer/decode in the background
+without stealing focus. The foreground handoff (stop launcher, disable
+`xcompmgr`, source-match display mode) is deferred until playback is verified as
+real (`playback-time > 0` and `playback_is_real`). At that point Mango performs
+one direct switch to fullscreen video and starts the mpv exit monitor to restore
+launcher mode after playback ends.
 
 ### Playability layer
 

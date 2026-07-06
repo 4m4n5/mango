@@ -9,6 +9,9 @@ export type YoutubeResolvedPlayback = {
   format: string;
 };
 
+const YOUTUBE_PLAYBACK_CACHE_TTL_MS = 300_000;
+const youtubePlaybackCache = new Map<string, { resolved: YoutubeResolvedPlayback; expires_at: number }>();
+
 function youtubeWatchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 }
@@ -81,10 +84,19 @@ export async function resolveYoutubePlayback(
   videoId: string,
   timeoutMs = 30000,
 ): Promise<YoutubeResolvedPlayback> {
-  if (!videoId.trim()) {
+  const normalizedVideoId = videoId.trim();
+  if (!normalizedVideoId) {
     throw new CatalogError(400, 'YouTube video id is required', undefined, {
       couchMessage: 'YouTube video id is missing',
     });
+  }
+  const now = Date.now();
+  const cached = youtubePlaybackCache.get(normalizedVideoId);
+  if (cached && cached.expires_at > now) {
+    return cached.resolved;
+  }
+  if (cached && cached.expires_at <= now) {
+    youtubePlaybackCache.delete(normalizedVideoId);
   }
   const started = Date.now();
   let lastFormatError = '';
@@ -102,7 +114,7 @@ export async function resolveYoutubePlayback(
     if (config.yt_dlp_cookies_from_browser) {
       args.push('--cookies-from-browser', config.yt_dlp_cookies_from_browser);
     }
-    args.push(youtubeWatchUrl(videoId));
+    args.push(youtubeWatchUrl(normalizedVideoId));
     const result = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
       execFile(config.yt_dlp_command, args, {
         timeout: timeoutMs,
@@ -131,11 +143,16 @@ export async function resolveYoutubePlayback(
     const { stdout, stderr } = result;
     const resolved = parseYtDlpResolvedUrls(stdout);
     if (resolved) {
-      return {
+      const payload = {
         ...resolved,
         resolve_ms: Date.now() - started,
         format,
       };
+      youtubePlaybackCache.set(normalizedVideoId, {
+        resolved: payload,
+        expires_at: Date.now() + YOUTUBE_PLAYBACK_CACHE_TTL_MS,
+      });
+      return payload;
     }
     const detail = stderr || stdout;
     if (requestedFormatUnavailable(detail)) {
@@ -151,4 +168,11 @@ export async function resolveYoutubePlayback(
   throw new CatalogError(classified.status, classified.message, { yt_dlp: lastFormatError }, {
     couchMessage: classified.message,
   });
+}
+
+export async function warmYoutubePlaybackCache(
+  config: YoutubeConfig,
+  videoId: string,
+): Promise<void> {
+  await resolveYoutubePlayback(config, videoId);
 }

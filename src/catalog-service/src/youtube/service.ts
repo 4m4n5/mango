@@ -57,7 +57,7 @@ import {
   type YoutubeLiveNowCandidate,
   type YoutubePopularCandidate,
 } from './db.js';
-import { resolveYoutubePlayback } from './playback.js';
+import { resolveYoutubePlayback, warmYoutubePlaybackCache } from './playback.js';
 import { readProfileSync } from '../companion/profile.js';
 import type {
   YoutubeItem,
@@ -3407,6 +3407,9 @@ export class YoutubeService {
       });
     }
     upsertYoutubeItems([item, ...items]);
+    if (kind === 'video') {
+      void warmYoutubePlaybackCache(this.config, id).catch(() => undefined);
+    }
     return {
       ok: true,
       item,
@@ -3480,7 +3483,6 @@ export class YoutubeService {
       playEpoch,
       minDurationSec: live ? 1 : 1,
       audioUrl: resolved.audio_url,
-      poster: item.thumbnail ?? undefined,
     }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       throw new CatalogError(502, live ? 'YouTube live playback did not start' : 'YouTube playback did not start', {

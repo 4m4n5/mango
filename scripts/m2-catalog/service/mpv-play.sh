@@ -16,13 +16,12 @@ export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 usage() {
-  echo "usage: $0 --url <http-url> [--audio-url <http-url>] [--poster <http-url>] [--probe] [--live] [--timeout-ms 4000] [--min-duration-sec 600] | --stop" >&2
+  echo "usage: $0 --url <http-url> [--audio-url <http-url>] [--probe] [--live] [--timeout-ms 4000] [--min-duration-sec 600] | --stop" >&2
   exit 2
 }
 
 URL=""
 AUDIO_URL=""
-POSTER=""
 STOP=false
 PROBE=false
 LIVE=false
@@ -34,7 +33,6 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --url) URL="${2:-}"; shift 2 ;;
     --audio-url) AUDIO_URL="${2:-}"; shift 2 ;;
-    --poster) POSTER="${2:-}"; shift 2 ;;
     --stop) STOP=true; shift ;;
     --probe) PROBE=true; shift ;;
     --live) LIVE=true; shift ;;
@@ -74,44 +72,6 @@ mpv_property() {
   local reply
   reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property "$property" 2>/dev/null || true)"
   python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' <<<"$reply" 2>/dev/null || echo 0
-}
-
-wait_for_mpv_window() {
-  local timeout_ms="${1:-2000}"
-  local started
-  started="$(now_ms)"
-  while (( $(now_ms) - started < timeout_ms )); do
-    if ! kill -0 "$MPV_PID" 2>/dev/null; then
-      return 1
-    fi
-    if [[ -S "$SOCKET" ]] && bash "$SCRIPT_DIR/mpv-ipc.sh" get_property mpv-version >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 0.05
-  done
-  return 1
-}
-
-mpv_loadfile() {
-  local payload
-  command -v socat >/dev/null 2>&1 || return 1
-  payload="$(python3 - "$URL" "${START_SEC:-}" "$AUDIO_URL" <<'PY'
-import json
-import sys
-
-url = sys.argv[1]
-start_raw = sys.argv[2]
-audio_url = sys.argv[3]
-options = {}
-if start_raw and start_raw.isdigit() and int(start_raw) > 0:
-    options["start"] = start_raw
-if audio_url:
-    options["audio-file"] = audio_url
-cmd = ["loadfile", url, "replace", 0, options]
-print(json.dumps({"command": cmd}, separators=(",", ":")))
-PY
-)"
-  printf '%s\n' "$payload" | socat - "$SOCKET" >/dev/null 2>&1
 }
 
 playback_is_real() {
@@ -355,6 +315,110 @@ start_mpv_exit_monitor() {
   ' bash "$pid" "$REPO_DIR" "$pidfile" >/dev/null 2>&1 &
 }
 
+append_mpv_render_args() {
+  local -n args_ref="$1"
+  # Pi 5 tear-free render path: OpenGL (ES) avoids the mpv 0.40 Vulkan default
+  # whose libplacebo DRM-modifier mismatch blue-screens on vc4; profile=fast
+  # keeps GPU load low enough for 4K HEVC. All env-overridable for A/B testing.
+  args_ref+=("--vo=${MANGO_MPV_VO:-gpu}")
+  if [[ -n "${MANGO_MPV_GPU_API:-opengl}" ]]; then
+    args_ref+=("--gpu-api=${MANGO_MPV_GPU_API:-opengl}")
+  fi
+  case "${MANGO_MPV_OPENGL_ES:-yes}" in
+    1 | yes | true) args_ref+=(--opengl-es=yes) ;;
+  esac
+  if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
+    args_ref+=("--profile=${MANGO_MPV_PROFILE:-fast}")
+  fi
+  if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
+    args_ref+=("--video-sync=${MANGO_MPV_VIDEO_SYNC:-display-resample}")
+  fi
+  if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
+    args_ref+=("--interpolation=${MANGO_MPV_INTERPOLATION:-no}")
+  fi
+  # HDR tone-mapping curve (SDR output only — X11 has no HDR passthrough; the
+  # Pi 5 stack tone-maps HDR10/HLG down to SDR). Unset -> mpv default. gpu-next
+  # gives the most coherent tone-mapping, so the hifi engine pairs this with
+  # --vo=gpu-next.
+  if [[ -n "${MANGO_MPV_TONE_MAPPING:-}" ]]; then
+    args_ref+=("--tone-mapping=${MANGO_MPV_TONE_MAPPING}")
+  fi
+  # High-bitrate/REMUX demuxer cache. mpv defaults to ~1s readahead, which
+  # rebuffers on 60-100 Mbps 4K REMUX served over HTTP from debrid. A larger
+  # forward/back cache absorbs network jitter without touching decode. All
+  # opt-in so the smooth baseline keeps mpv's low-memory default.
+  if [[ -n "${MANGO_MPV_CACHE:-}" ]]; then
+    args_ref+=("--cache=${MANGO_MPV_CACHE}")
+  fi
+  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BYTES:-}" ]]; then
+    args_ref+=("--demuxer-max-bytes=${MANGO_MPV_DEMUXER_MAX_BYTES}")
+  fi
+  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BACK_BYTES:-}" ]]; then
+    args_ref+=("--demuxer-max-back-bytes=${MANGO_MPV_DEMUXER_MAX_BACK_BYTES}")
+  fi
+  if [[ -n "${MANGO_MPV_READAHEAD_SECS:-}" ]]; then
+    args_ref+=("--demuxer-readahead-secs=${MANGO_MPV_READAHEAD_SECS}")
+  fi
+  # Multichannel HDMI audio for REMUX soundtracks. auto-safe negotiates the
+  # channel layout the TV/receiver reports over HDMI EDID (5.1 when supported,
+  # stereo downmix otherwise) so it never breaks stereo-only displays.
+  if [[ -n "${MANGO_MPV_AUDIO_CHANNELS:-}" ]]; then
+    args_ref+=("--audio-channels=${MANGO_MPV_AUDIO_CHANNELS}")
+  fi
+}
+
+append_mpv_play_args() {
+  local -n args_ref="$1"
+  args_ref+=(
+    --idle=no
+    --keep-open=no
+    --no-terminal
+    --hwdec="$HWDEC"
+    --input-ipc-server="$SOCKET"
+  )
+  if $PROBE; then
+    # Indexer/gate probes must not seize the TV fullscreen.
+    args_ref+=(--vo=null --ao=null --really-quiet)
+  else
+    args_ref+=(--fs --focus-on-open=no "${audio_args[@]}")
+    append_mpv_render_args args_ref
+    if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
+      args_ref+=(--start="$START_SEC")
+    fi
+  fi
+  if [[ -n "$AUDIO_URL" ]]; then
+    args_ref+=(--audio-file="$AUDIO_URL")
+  fi
+}
+
+foreground_handoff() {
+  $HANDOFF_DONE && return 0
+  if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
+    pkill -x xcompmgr 2>/dev/null || true
+  fi
+  if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
+    systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
+  fi
+  if ! $LIVE \
+    && [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]] \
+    && { [[ -z "$video_width" ]] || [[ -z "$video_height" ]] || [[ -z "$video_fps" ]]; }; then
+    if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
+      read -r video_width video_height video_fps video_duration <<<"$profile"
+      video_label="${video_width}x${video_height}@${video_fps}"
+    fi
+  fi
+  if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
+    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback-auto "$video_width" "$video_height" "$video_fps" 2>/dev/null || true
+  else
+    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
+  fi
+  if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" && -n "${MPV_PID:-}" ]]; then
+    start_mpv_exit_monitor "$MPV_PID"
+  fi
+  HANDOFF_DONE=true
+  echo "handoff: ready_ms=$(( $(now_ms) - START_MS ))" >&2
+}
+
 start_playback_osd() {
   local osd_py="$SCRIPT_DIR/playback-osd.py"
   [[ "${MANGO_PLAYBACK_OSD:-1}" != "0" ]] || return 0
@@ -511,216 +575,42 @@ if ! $PROBE; then
       audio_label="${audio_args[$i]#--audio-device=}"
     fi
   done
-  if ! $LIVE && [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]]; then
-    if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
-      read -r video_width video_height video_fps video_duration <<<"$profile"
-      video_label="${video_width}x${video_height}@${video_fps}"
-    fi
-  fi
 fi
 PLAYBACK_BACKEND="${MANGO_PLAYBACK_BACKEND:-mpv}"
 if $PROBE; then
   PLAYBACK_BACKEND="mpv"
 fi
+DEFER_FOREGROUND_DEFAULT=0
+if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
+  DEFER_FOREGROUND_DEFAULT=1
+fi
+DEFER_FOREGROUND="${MANGO_MPV_DEFER_FOREGROUND:-$DEFER_FOREGROUND_DEFAULT}"
+if $PROBE || [[ "$PLAYBACK_BACKEND" == "vlc" ]]; then
+  DEFER_FOREGROUND=0
+fi
+if [[ "$PLAYBACK_BACKEND" == "vlc" ]] && ! $LIVE && [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]]; then
+  if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
+    read -r video_width video_height video_fps video_duration <<<"$profile"
+    video_label="${video_width}x${video_height}@${video_fps}"
+  fi
+fi
 echo "mpv-play: $URL_LABEL mode=$MODE backend=$PLAYBACK_BACKEND live=$LIVE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC audio=${audio_label} video=${video_label}"
 START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
+HANDOFF_DONE=false
 
 if [[ "$PLAYBACK_BACKEND" == "vlc" ]]; then
   play_with_vlc
 fi
 
-POSTER_COVER_ACTIVE=false
-HANDOFF_POSTER_MS=0
-HANDOFF_STOP_MS=0
-HANDOFF_MODE_MS=0
-HANDOFF_LOADFILE_MS=0
-
-if $PROBE || [[ "${MANGO_MPV_POSTER_COVER:-1}" == "0" ]]; then
-  mpv_args=(
-    --idle=no
-    --keep-open=no
-    --no-terminal
-    --hwdec="$HWDEC"
-    --input-ipc-server="$SOCKET"
-  )
-  if $PROBE; then
-    # Indexer/gate probes must not seize the TV fullscreen.
-    mpv_args+=(--vo=null --ao=null --really-quiet)
-  else
-    # Couch playback foreground contract: kill the X compositor and free the GPU
-    # by stopping the Chromium launcher, matching the conditions under which
-    # fullscreen video is tear-free on the Pi. Both are opt-in (the engine toggle
-    # sets them) so the default mpv path keeps its historical "cover the
-    # launcher" behavior in dev/gate environments.
-    if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
-      pkill -x xcompmgr 2>/dev/null || true
-    fi
-    if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
-      systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
-    fi
-    if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
-      bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback-auto "$video_width" "$video_height" "$video_fps" 2>/dev/null || true
-    else
-      bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
-    fi
-    mpv_args+=(--fs "${audio_args[@]}")
-    # Pi 5 tear-free render path: OpenGL (ES) avoids the mpv 0.40 Vulkan default
-    # whose libplacebo DRM-modifier mismatch blue-screens on vc4; profile=fast
-    # keeps GPU load low enough for 4K HEVC. All env-overridable for A/B testing.
-    mpv_args+=("--vo=${MANGO_MPV_VO:-gpu}")
-    if [[ -n "${MANGO_MPV_GPU_API:-opengl}" ]]; then
-      mpv_args+=("--gpu-api=${MANGO_MPV_GPU_API:-opengl}")
-    fi
-    case "${MANGO_MPV_OPENGL_ES:-yes}" in
-      1 | yes | true) mpv_args+=(--opengl-es=yes) ;;
-    esac
-    if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
-      mpv_args+=("--profile=${MANGO_MPV_PROFILE:-fast}")
-    fi
-    if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
-      mpv_args+=("--video-sync=${MANGO_MPV_VIDEO_SYNC:-display-resample}")
-    fi
-    if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
-      mpv_args+=("--interpolation=${MANGO_MPV_INTERPOLATION:-no}")
-    fi
-    # HDR tone-mapping curve (SDR output only — X11 has no HDR passthrough; the
-    # Pi 5 stack tone-maps HDR10/HLG down to SDR). Unset -> mpv default. gpu-next
-    # gives the most coherent tone-mapping, so the hifi engine pairs this with
-    # --vo=gpu-next.
-    if [[ -n "${MANGO_MPV_TONE_MAPPING:-}" ]]; then
-      mpv_args+=("--tone-mapping=${MANGO_MPV_TONE_MAPPING}")
-    fi
-    # High-bitrate/REMUX demuxer cache. mpv defaults to ~1s readahead, which
-    # rebuffers on 60-100 Mbps 4K REMUX served over HTTP from debrid. A larger
-    # forward/back cache absorbs network jitter without touching decode. All
-    # opt-in so the smooth baseline keeps mpv's low-memory default.
-    if [[ -n "${MANGO_MPV_CACHE:-}" ]]; then
-      mpv_args+=("--cache=${MANGO_MPV_CACHE}")
-    fi
-    if [[ -n "${MANGO_MPV_DEMUXER_MAX_BYTES:-}" ]]; then
-      mpv_args+=("--demuxer-max-bytes=${MANGO_MPV_DEMUXER_MAX_BYTES}")
-    fi
-    if [[ -n "${MANGO_MPV_DEMUXER_MAX_BACK_BYTES:-}" ]]; then
-      mpv_args+=("--demuxer-max-back-bytes=${MANGO_MPV_DEMUXER_MAX_BACK_BYTES}")
-    fi
-    if [[ -n "${MANGO_MPV_READAHEAD_SECS:-}" ]]; then
-      mpv_args+=("--demuxer-readahead-secs=${MANGO_MPV_READAHEAD_SECS}")
-    fi
-    # Multichannel HDMI audio for REMUX soundtracks. auto-safe negotiates the
-    # channel layout the TV/receiver reports over HDMI EDID (5.1 when supported,
-    # stereo downmix otherwise) so it never breaks stereo-only displays.
-    if [[ -n "${MANGO_MPV_AUDIO_CHANNELS:-}" ]]; then
-      mpv_args+=("--audio-channels=${MANGO_MPV_AUDIO_CHANNELS}")
-    fi
-    if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
-      mpv_args+=(--start="$START_SEC")
-    fi
-  fi
-  if [[ -n "$AUDIO_URL" ]]; then
-    mpv_args+=(--audio-file="$AUDIO_URL")
-  fi
-
-  mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 &
-  MPV_PID=$!
-  echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
-  if ! $PROBE && [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
-    start_mpv_exit_monitor "$MPV_PID"
-  fi
-else
-  POSTER_COVER_ACTIVE=true
-  mpv_args=(
-    --idle=once
-    --force-window=yes
-    --image-display-duration=inf
-    --no-terminal
-    --hwdec="$HWDEC"
-    --input-ipc-server="$SOCKET"
-    --fs
-    "${audio_args[@]}"
-  )
-  # Pi 5 tear-free render path: OpenGL (ES) avoids the mpv 0.40 Vulkan default
-  # whose libplacebo DRM-modifier mismatch blue-screens on vc4; profile=fast
-  # keeps GPU load low enough for 4K HEVC. All env-overridable for A/B testing.
-  mpv_args+=("--vo=${MANGO_MPV_VO:-gpu}")
-  if [[ -n "${MANGO_MPV_GPU_API:-opengl}" ]]; then
-    mpv_args+=("--gpu-api=${MANGO_MPV_GPU_API:-opengl}")
-  fi
-  case "${MANGO_MPV_OPENGL_ES:-yes}" in
-    1 | yes | true) mpv_args+=(--opengl-es=yes) ;;
-  esac
-  if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
-    mpv_args+=("--profile=${MANGO_MPV_PROFILE:-fast}")
-  fi
-  if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
-    mpv_args+=("--video-sync=${MANGO_MPV_VIDEO_SYNC:-display-resample}")
-  fi
-  if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
-    mpv_args+=("--interpolation=${MANGO_MPV_INTERPOLATION:-no}")
-  fi
-  # HDR tone-mapping curve (SDR output only — X11 has no HDR passthrough; the
-  # Pi 5 stack tone-maps HDR10/HLG down to SDR). Unset -> mpv default. gpu-next
-  # gives the most coherent tone-mapping, so the hifi engine pairs this with
-  # --vo=gpu-next.
-  if [[ -n "${MANGO_MPV_TONE_MAPPING:-}" ]]; then
-    mpv_args+=("--tone-mapping=${MANGO_MPV_TONE_MAPPING}")
-  fi
-  # High-bitrate/REMUX demuxer cache. mpv defaults to ~1s readahead, which
-  # rebuffers on 60-100 Mbps 4K REMUX served over HTTP from debrid. A larger
-  # forward/back cache absorbs network jitter without touching decode. All
-  # opt-in so the smooth baseline keeps mpv's low-memory default.
-  if [[ -n "${MANGO_MPV_CACHE:-}" ]]; then
-    mpv_args+=("--cache=${MANGO_MPV_CACHE}")
-  fi
-  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BYTES:-}" ]]; then
-    mpv_args+=("--demuxer-max-bytes=${MANGO_MPV_DEMUXER_MAX_BYTES}")
-  fi
-  if [[ -n "${MANGO_MPV_DEMUXER_MAX_BACK_BYTES:-}" ]]; then
-    mpv_args+=("--demuxer-max-back-bytes=${MANGO_MPV_DEMUXER_MAX_BACK_BYTES}")
-  fi
-  if [[ -n "${MANGO_MPV_READAHEAD_SECS:-}" ]]; then
-    mpv_args+=("--demuxer-readahead-secs=${MANGO_MPV_READAHEAD_SECS}")
-  fi
-  # Multichannel HDMI audio for REMUX soundtracks. auto-safe negotiates the
-  # channel layout the TV/receiver reports over HDMI EDID (5.1 when supported,
-  # stereo downmix otherwise) so it never breaks stereo-only displays.
-  if [[ -n "${MANGO_MPV_AUDIO_CHANNELS:-}" ]]; then
-    mpv_args+=("--audio-channels=${MANGO_MPV_AUDIO_CHANNELS}")
-  fi
-  # NOTE: verify on Pi that --idle=once exits naturally at content EOF.
-  mpv "${mpv_args[@]}" ${POSTER:+"$POSTER"} >>"$MPV_LOG" 2>&1 &
-  MPV_PID=$!
-  echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
-  if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
-    start_mpv_exit_monitor "$MPV_PID"
-  fi
-  if ! wait_for_mpv_window 2000; then
-    echo "FAIL: mpv window did not appear" >&2
-    MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-    exit 1
-  fi
-  HANDOFF_POSTER_MS="$(now_ms)"
-  HANDOFF_STOP_MS="$HANDOFF_POSTER_MS"
-  if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
-    pkill -x xcompmgr 2>/dev/null || true
-  fi
-  if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
-    systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
-    HANDOFF_STOP_MS="$(now_ms)"
-  fi
-  if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
-    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback-auto "$video_width" "$video_height" "$video_fps" 2>/dev/null || true
-  else
-    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
-  fi
-  HANDOFF_MODE_MS="$(now_ms)"
-  if ! mpv_loadfile; then
-    echo "FAIL: mpv loadfile failed" >&2
-    MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-    exit 1
-  fi
-  HANDOFF_LOADFILE_MS="$(now_ms)"
+mpv_args=()
+append_mpv_play_args mpv_args
+if ! $PROBE && [[ "$DEFER_FOREGROUND" != "1" ]]; then
+  foreground_handoff
 fi
+mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 &
+MPV_PID=$!
+echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
 
 while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
   if play_cancelled; then
@@ -732,11 +622,11 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     REPLY="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property playback-time 2>/dev/null || true)"
     PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
+      if ! $PROBE && ! $HANDOFF_DONE; then
+        foreground_handoff
+      fi
       if playback_is_real "${PT:-0}"; then
         END_MS="$(now_ms)"
-        if $POSTER_COVER_ACTIVE; then
-          echo "handoff: poster_ms=$((HANDOFF_POSTER_MS - START_MS)) stop_ms=$((HANDOFF_STOP_MS - START_MS)) mode_ms=$((HANDOFF_MODE_MS - START_MS)) loadfile_ms=$((HANDOFF_LOADFILE_MS - START_MS)) ttff_ms=$((END_MS - START_MS))" >&2
-        fi
         echo "PASS: ttff_ms=$((END_MS - START_MS))"
         if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
           bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv playing >/dev/null 2>&1 || true
