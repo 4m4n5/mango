@@ -418,6 +418,10 @@ export class DetailController {
     if (actions.length > 0) {
       rows.push(actions);
     }
+    const related = this.relatedButtons.filter((button) => this.isFocusableEnabled(button));
+    if (related.length > 0) {
+      rows.push(related);
+    }
     for (const item of this.listFocusables) {
       if (this.isFocusableEnabled(item)) {
         rows.push([item]);
@@ -427,10 +431,6 @@ export class DetailController {
       if (this.isFocusableEnabled(stream)) {
         rows.push([stream]);
       }
-    }
-    const related = this.relatedButtons.filter((button) => this.isFocusableEnabled(button));
-    if (related.length > 0) {
-      rows.push(related);
     }
     return rows;
   }
@@ -494,9 +494,18 @@ export class DetailController {
       this.relatedWrap.classList.add("hidden");
       return;
     }
-    this.relatedLabel.textContent = railLabel.trim().toLowerCase() === "voice"
-      ? "more like this"
-      : `more in ${formatRailLabel(railLabel).toLowerCase()}`;
+    this.relatedLabel.textContent = "related titles";
+    const contextEl = this.relatedWrap.querySelector<HTMLElement>("#detail-related-context");
+    const context = formatRailLabel(railLabel).toLowerCase();
+    if (contextEl) {
+      if (railLabel.trim().toLowerCase() === "voice" || !context) {
+        contextEl.hidden = true;
+        contextEl.textContent = "";
+      } else {
+        contextEl.hidden = false;
+        contextEl.textContent = `from ${context}`;
+      }
+    }
     for (const sibling of siblings) {
       const button = this.createRelatedCard(sibling, railLabel, tab, related);
       this.relatedTrack.append(button);

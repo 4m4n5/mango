@@ -37,18 +37,21 @@
             <button id="detail-not-interested" class="detail-button" type="button" hidden>not interested</button>
             <button id="detail-back" class="detail-button" type="button">back</button>
           </div>
-          <div id="detail-streams" class="detail-streams" hidden aria-label="Streams">
-            <p class="detail-streams-label">streams</p>
-            <div id="detail-stream-list" class="detail-stream-list"></div>
-          </div>
-          <div id="detail-episodes" class="detail-episodes" hidden aria-label="Episodes">
-            <p class="detail-episodes-label">episodes</p>
-            <div id="detail-episode-list" class="detail-episode-list"></div>
-          </div>
         </div>
-        <div id="detail-related" class="detail-related hidden" aria-label="More in this row">
-          <p id="detail-related-label" class="detail-related-label">more in this row</p>
+        <div id="detail-related" class="detail-related hidden" aria-label="Related titles">
+          <div class="detail-related-head">
+            <p id="detail-related-label" class="detail-related-label">related titles</p>
+            <p id="detail-related-context" class="detail-related-context" hidden></p>
+          </div>
           <div id="detail-related-track" class="detail-related-track" role="list"></div>
+        </div>
+        <div id="detail-streams" class="detail-panels detail-streams hidden" aria-label="Streams">
+          <p class="detail-streams-label">streams</p>
+          <div id="detail-stream-list" class="detail-stream-list"></div>
+        </div>
+        <div id="detail-episodes" class="detail-panels detail-episodes hidden" aria-label="Episodes">
+          <p class="detail-episodes-label">episodes</p>
+          <div id="detail-episode-list" class="detail-episode-list"></div>
         </div>
       </section>
 
