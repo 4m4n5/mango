@@ -481,11 +481,17 @@ append_mpv_play_args() {
   fi
 }
 
+raise_mpv_window() {
+  local wid
+  wid="$(mpv_property wid)"
+  if [[ -n "$wid" && "$wid" != "0" ]] && command -v xdotool >/dev/null 2>&1; then
+    xdotool windowmap --sync "$wid" 2>/dev/null || true
+    xdotool windowraise "$wid" 2>/dev/null || true
+  fi
+}
+
 foreground_handoff() {
   $HANDOFF_DONE && return 0
-  if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
-    pkill -x xcompmgr 2>/dev/null || true
-  fi
   if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
     systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
   fi
@@ -501,6 +507,9 @@ foreground_handoff() {
     bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback-auto "$video_width" "$video_height" "$video_fps" 2>/dev/null || true
   else
     bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
+  fi
+  if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
+    pkill -x xcompmgr 2>/dev/null || true
   fi
   if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" && -n "${MPV_PID:-}" ]]; then
     start_mpv_exit_monitor "$MPV_PID"
@@ -721,6 +730,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
         if [[ "$DEFER_FOREGROUND" == "1" ]]; then
           enable_mpv_display || true
           wait_mpv_vo_ready 400
+          raise_mpv_window
         fi
         foreground_handoff
       fi
