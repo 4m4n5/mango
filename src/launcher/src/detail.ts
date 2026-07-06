@@ -20,7 +20,7 @@ import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel } from "./home";
 
-const RELATED_DISPLAY_LIMIT = 8;
+const RELATED_DISPLAY_LIMIT = 7;
 
 export interface DetailCallbacks {
   onClose: () => void;

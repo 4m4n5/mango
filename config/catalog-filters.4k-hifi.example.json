@@ -26,10 +26,10 @@
   "auto_play_uncached_probe_ms": 25000,
   "play_ladder": [
     {
-      "step": "4k_sdr_remux_cached",
+      "step": "4k_sdr_cached",
       "max_quality": "2160p",
       "min_quality": "2160p",
-      "exclude_remux": false,
+      "exclude_remux": true,
       "require_hevc": true,
       "exclude_hdr": true,
       "require_cache": "cached",
@@ -37,10 +37,10 @@
       "addons": ["AIOStreams"]
     },
     {
-      "step": "4k_sdr_cached",
+      "step": "4k_sdr_remux_cached",
       "max_quality": "2160p",
       "min_quality": "2160p",
-      "exclude_remux": true,
+      "exclude_remux": false,
       "require_hevc": true,
       "exclude_hdr": true,
       "require_cache": "cached",

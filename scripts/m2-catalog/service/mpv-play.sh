@@ -202,6 +202,33 @@ print(f"{width} {height} {fps:.3f} {duration:.3f}")
 ' <<<"$probe_json"
 }
 
+detect_video_profile_mpv() {
+  [[ -S "$SOCKET" ]] || return 1
+  local width height fps duration reply
+  width="$(mpv_property width)"
+  height="$(mpv_property height)"
+  fps="$(mpv_property container-fps)"
+  if python3 -c "import sys; sys.exit(0 if float('${fps:-0}') > 0 else 1)" 2>/dev/null; then
+    :
+  else
+    fps="$(mpv_property estimated-vf-fps)"
+  fi
+  duration="$(mpv_property duration)"
+  python3 - "$width" "$height" "$fps" "$duration" <<'PY'
+import sys
+try:
+    width = int(float(sys.argv[1] or 0))
+    height = int(float(sys.argv[2] or 0))
+    fps = float(sys.argv[3] or 0)
+    duration = float(sys.argv[4] or 0)
+except ValueError:
+    raise SystemExit(1)
+if width <= 0 or height <= 0 or fps <= 0:
+    raise SystemExit(1)
+print(f"{width} {height} {fps:.3f} {duration:.3f}")
+PY
+}
+
 detect_audio_args() {
   local configured_device="${MANGO_MPV_AUDIO_DEVICE:-}"
   local configured_ao="${MANGO_MPV_AO:-}"
@@ -444,6 +471,12 @@ enable_mpv_display_once() {
   if [[ -n "$device" ]]; then
     printf '{"command":["set_property","audio-device","%s"]}\n' "$device" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
+  local width sync_4k
+  width="$(mpv_property width 2>/dev/null || echo 0)"
+  sync_4k="${MANGO_MPV_VIDEO_SYNC_4K:-display-vdrop}"
+  if [[ -n "${sync_4k}" && "$width" =~ ^[0-9]+$ && "$width" -ge 3000 ]]; then
+    printf '{"command":["set_property","video-sync","%s"]}\n' "$sync_4k" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  fi
   return 0
 }
 
@@ -544,7 +577,10 @@ foreground_handoff() {
   if ! $LIVE \
     && [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]] \
     && { [[ -z "$video_width" ]] || [[ -z "$video_height" ]] || [[ -z "$video_fps" ]]; }; then
-    if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
+    if profile="$(detect_video_profile_mpv 2>/dev/null || true)" && [[ -n "$profile" ]]; then
+      read -r video_width video_height video_fps video_duration <<<"$profile"
+      video_label="${video_width}x${video_height}@${video_fps}"
+    elif profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
       read -r video_width video_height video_fps video_duration <<<"$profile"
       video_label="${video_width}x${video_height}@${video_fps}"
     fi

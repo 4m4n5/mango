@@ -513,6 +513,12 @@ button {
   padding: 1rem 1rem 1.1rem;
 }
 
+/* ui-flags.ts MINIMAL_VOD_POSTER_LABELS — remove class hook to revert */
+.card--poster-minimal .poster-content,
+.card--poster-minimal .poster-shade {
+  display: none;
+}
+
 .poster-progress {
   position: absolute;
   left: 0;

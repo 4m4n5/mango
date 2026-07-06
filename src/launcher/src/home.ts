@@ -2,6 +2,7 @@ import type { AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { applyRailLayout, RAIL_COLUMNS, RAIL_COLUMNS_LANDSCAPE } from "./layout";
 import { cardSavedKey } from "./saved";
+import { MINIMAL_VOD_POSTER_LABELS } from "./ui-flags";
 
 export interface HomeCallbacks {
   onContentSelect: (card: ContentCard, railLabel: string) => void;
@@ -248,6 +249,13 @@ function createPosterCard(
   const button = document.createElement("button");
   button.type = "button";
   button.className = `card card--poster${landscape ? " card--landscape" : " card--portrait"}`;
+  if (
+    MINIMAL_VOD_POSTER_LABELS
+    && !landscape
+    && (options.browseTab === "movies" || options.browseTab === "series")
+  ) {
+    button.classList.add("card--poster-minimal");
+  }
   button.dataset.focusKey = `rail:${rail.id}:${card.type}:${card.id}`;
   if (savedKeys.has(cardSavedKey(card))) {
     button.classList.add("card--saved");
