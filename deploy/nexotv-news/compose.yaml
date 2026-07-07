@@ -8,6 +8,8 @@ services:
       - "127.0.0.1:7002:7000"
     env_file:
       - .env
+    environment:
+      TOKEN_RATE_LIMIT_MAX: "300"
     volumes:
       - "${MANGO_NEXOTV_NEWS_DATA_DIR:-/home/aman/.local/share/mango/nexotv-news/data}:/app/data"
     healthcheck:
