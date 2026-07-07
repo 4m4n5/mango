@@ -22,7 +22,7 @@ import { playabilityPlayFailureRetryMs } from './config.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 export type PlayabilityRailStatus = {
   rail_id: string;
@@ -79,6 +79,7 @@ export type TitleVerifyProfile = {
   type: string;
   id: string;
   status: 'verified' | 'failed' | 'pending' | 'stale';
+  first_verified_at: number | null;
   best_source: string | null;
   cache_status: string | null;
   debrid_service: string | null;
@@ -356,6 +357,7 @@ CREATE TABLE IF NOT EXISTS titles (
   id TEXT NOT NULL,
   status TEXT NOT NULL CHECK (status IN ('verified', 'failed', 'pending', 'stale')),
   verified_at INTEGER,
+  first_verified_at INTEGER,
   expires_at INTEGER,
   fail_reason TEXT,
   best_source TEXT,
@@ -676,6 +678,9 @@ function applySchemaMigrations(db: Database.Database): void {
   if (!columns.some((column) => column.name === 'win_ladder_step')) {
     db.exec('ALTER TABLE titles ADD COLUMN win_ladder_step TEXT');
   }
+  if (!columns.some((column) => column.name === 'first_verified_at')) {
+    db.exec('ALTER TABLE titles ADD COLUMN first_verified_at INTEGER');
+  }
   const poolColumns = db.prepare('PRAGMA table_info(rail_pool)').all() as Array<{ name: string }>;
   if (!poolColumns.some((column) => column.name === 'title')) {
     db.exec('ALTER TABLE rail_pool ADD COLUMN title TEXT');
@@ -789,6 +794,34 @@ CREATE INDEX IF NOT EXISTS idx_source_grow_weights_rail ON source_grow_weights(r
   db.prepare(`
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (8, @applied_at);
+`).run({ applied_at: nowMs() });
+  db.prepare(`
+UPDATE titles AS t
+SET first_verified_at = COALESCE(
+  (
+    SELECT MIN(v.started_at)
+    FROM verify_log v
+    WHERE v.type = t.type
+      AND v.id_value = t.id
+      AND v.outcome = 'verified'
+  ),
+  CASE WHEN t.status = 'verified' THEN t.updated_at ELSE NULL END
+)
+WHERE t.first_verified_at IS NULL
+  AND (
+    t.status = 'verified'
+    OR EXISTS (
+      SELECT 1
+      FROM verify_log v
+      WHERE v.type = t.type
+        AND v.id_value = t.id
+        AND v.outcome = 'verified'
+    )
+  );
+`).run();
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (9, @applied_at);
 `).run({ applied_at: nowMs() });
 }
 
@@ -1402,6 +1435,7 @@ export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promi
   const db = openDb();
   const timestamp = nowMs();
   const verifiedAt = record.status === 'verified' ? timestamp : null;
+  const firstVerifiedAt = record.status === 'verified' ? timestamp : null;
   const expiresAt = record.status === 'verified'
     ? record.expires_at ?? timestamp + DEFAULT_VERIFY_TTL_MS
     : record.expires_at ?? null;
@@ -1410,10 +1444,10 @@ export async function recordVerifyResult(record: PlayabilityVerifyRecord): Promi
     db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
-  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, first_verified_at, updated_at
 ) VALUES (
   @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
-  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @updated_at
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @first_verified_at, @updated_at
 )
 ON CONFLICT(type, id) DO UPDATE SET
   status = excluded.status,
@@ -1426,6 +1460,10 @@ ON CONFLICT(type, id) DO UPDATE SET
   probe_ms = excluded.probe_ms,
   win_url_hash = excluded.win_url_hash,
   win_ladder_step = excluded.win_ladder_step,
+  first_verified_at = CASE
+    WHEN titles.first_verified_at IS NULL AND excluded.status = 'verified' THEN excluded.first_verified_at
+    ELSE titles.first_verified_at
+  END,
   updated_at = excluded.updated_at;
 `).run({
       type: record.type,
@@ -1440,16 +1478,17 @@ ON CONFLICT(type, id) DO UPDATE SET
       probe_ms: record.probe_ms ?? null,
       win_url_hash: record.win_url_hash ?? null,
       win_ladder_step: record.win_ladder_step ?? null,
+      first_verified_at: firstVerifiedAt,
       updated_at: timestamp,
     });
     if (shouldMirrorSeriesGateRecord(record.type, record.id)) {
       db.prepare(`
 INSERT INTO titles (
   type, id, status, verified_at, expires_at, fail_reason, best_source,
-  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, updated_at
+  cache_status, debrid_service, probe_ms, win_url_hash, win_ladder_step, first_verified_at, updated_at
 ) VALUES (
   @type, @id, @status, @verified_at, @expires_at, @fail_reason, @best_source,
-  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @updated_at
+  @cache_status, @debrid_service, @probe_ms, @win_url_hash, @win_ladder_step, @first_verified_at, @updated_at
 )
 ON CONFLICT(type, id) DO UPDATE SET
   status = excluded.status,
@@ -1462,6 +1501,10 @@ ON CONFLICT(type, id) DO UPDATE SET
   probe_ms = excluded.probe_ms,
   win_url_hash = excluded.win_url_hash,
   win_ladder_step = excluded.win_ladder_step,
+  first_verified_at = CASE
+    WHEN titles.first_verified_at IS NULL AND excluded.status = 'verified' THEN excluded.first_verified_at
+    ELSE titles.first_verified_at
+  END,
   updated_at = excluded.updated_at;
 `).run({
         type: record.type,
@@ -1476,6 +1519,7 @@ ON CONFLICT(type, id) DO UPDATE SET
         probe_ms: record.probe_ms ?? null,
         win_url_hash: record.win_url_hash ?? null,
         win_ladder_step: record.win_ladder_step ?? null,
+        first_verified_at: firstVerifiedAt,
         updated_at: timestamp,
       });
     }
@@ -1657,13 +1701,25 @@ export async function getTitleVerifyProfile(
   await initPlayabilityDb();
   const db = openDb();
   const row = db.prepare(`
-SELECT type, id, status, best_source, cache_status, debrid_service, win_url_hash, win_ladder_step, probe_ms, expires_at
+SELECT
+  type,
+  id,
+  status,
+  first_verified_at,
+  best_source,
+  cache_status,
+  debrid_service,
+  win_url_hash,
+  win_ladder_step,
+  probe_ms,
+  expires_at
 FROM titles
 WHERE type = @type AND id = @id;
 `).get({ type, id }) as {
     type: string;
     id: string;
     status: TitleVerifyProfile['status'];
+    first_verified_at: number | null;
     best_source: string | null;
     cache_status: string | null;
     debrid_service: string | null;

@@ -5,17 +5,16 @@
  * module load).
  */
 
-export type PlayabilityStatusValue = 'verified' | 'failed' | 'pending' | 'stale';
-
 /**
  * True when this play is the first to promote a title into the verified
- * library — i.e. its pre-play verify status was failed/pending/stale/absent.
+ * library — i.e. no prior verification was ever recorded (`first_verified_at`
+ * was absent before this play).
  * `usePlayabilityIndex` mirrors index.ts's own gate (series episodes outside
  * the rail-gate path skip the playability index entirely).
  */
 export function isFirstTimeVerifiedPromotion(
   usePlayabilityIndex: boolean,
-  previousStatus: PlayabilityStatusValue | null | undefined,
+  hasBeenVerifiedBefore: boolean,
 ): boolean {
-  return usePlayabilityIndex && previousStatus !== 'verified';
+  return usePlayabilityIndex && !hasBeenVerifiedBefore;
 }

@@ -10,6 +10,7 @@ import {
   getRailPoolTitleKeys,
   getRailPlayabilityStatus,
   getTitlePlayability,
+  getTitleVerifyProfile,
   invalidateTitle,
   initPlayabilityDb,
   listLinkableVerifiedForRail,
@@ -296,5 +297,53 @@ SELECT id FROM rail_session WHERE rail_id = 'series-global-popular' AND type = '
     } finally {
       repairedDb.close();
     }
+  });
+});
+
+test('first_verified_at is set once and preserved across drift demotion/re-promotion', async () => {
+  await withTempDb(async () => {
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt-first-verified',
+      status: 'verified',
+      expires_at: Date.now() + 60_000,
+      stage: 'play',
+      outcome: 'verified',
+    });
+    const firstProfile = await getTitleVerifyProfile('movie', 'tt-first-verified');
+    assert.equal(typeof firstProfile?.first_verified_at, 'number');
+    const firstVerifiedAt = firstProfile?.first_verified_at ?? null;
+    assert.notEqual(firstVerifiedAt, null);
+
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt-first-verified',
+      status: 'verified',
+      expires_at: Date.now() + 60_000,
+      stage: 'play',
+      outcome: 'verified',
+    });
+    const secondProfile = await getTitleVerifyProfile('movie', 'tt-first-verified');
+    assert.equal(secondProfile?.first_verified_at ?? null, firstVerifiedAt);
+
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt-first-verified',
+      status: 'stale',
+      fail_reason: 'verify_drift',
+      stage: 'verify',
+      outcome: 'verify_drift',
+    });
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt-first-verified',
+      status: 'verified',
+      expires_at: Date.now() + 60_000,
+      stage: 'play',
+      outcome: 'verified',
+    });
+    const repromotedProfile = await getTitleVerifyProfile('movie', 'tt-first-verified');
+    assert.equal(repromotedProfile?.status, 'verified');
+    assert.equal(repromotedProfile?.first_verified_at ?? null, firstVerifiedAt);
   });
 });

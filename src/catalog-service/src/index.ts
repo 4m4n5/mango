@@ -552,7 +552,10 @@ async function handlePlay(
       preferUrl: body.prefer_url,
     });
 
-    const firstTimeVerified = isFirstTimeVerifiedPromotion(usePlayabilityIndex, profile?.status);
+    const firstTimeVerified = isFirstTimeVerifiedPromotion(
+      usePlayabilityIndex,
+      typeof profile?.first_verified_at === 'number',
+    );
     if (usePlayabilityIndex) {
       await recordVerifyResult({
         type: body.type,
