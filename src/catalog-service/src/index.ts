@@ -62,7 +62,7 @@ import {
   removeUserPin,
 } from './user-pins.js';
 import { streamUrlHash, isErrorStream } from './stream-filters.js';
-import { isBlockedLiveStreamUrl } from './live-stream-verify.js';
+import { isBlockedLiveStreamUrl, probeStreamReachability } from './live-stream-verify.js';
 import {
   parseFilterOverridesFromQuery,
   type StreamFilterOverrides,
@@ -439,16 +439,40 @@ async function handlePlay(
     const started = Date.now();
     const playEpoch = await bumpPlayEpoch();
     const resolved = await core.resolveForPlay(body.type, body.id, overrides);
-    const stream = resolved.streams.find((candidate) => {
+    const candidates = resolved.streams.filter((candidate) => {
       const url = candidate.url;
       return typeof url === 'string'
         && url.trim() !== ''
         && !isBlockedLiveStreamUrl(url)
         && !isErrorStream(candidate);
-    }) || resolved.streams[0];
-    const streamUrl = typeof stream?.url === 'string' ? stream.url : '';
-    if (!streamUrl) {
+    });
+    if (candidates.length === 0) {
       throw new CatalogError(502, 'no_playable_stream');
+    }
+    // Fail fast on unreachable live hosts: probe each candidate and pick the
+    // first that delivers bytes. Free IPTV-org hosts are often geo-blocked from
+    // the Pi; without this probe mpv hangs for its full 90s playback-start
+    // timeout before the UI reports "no playback". AREA69 (max_connections=1)
+    // is safe — the probe destroys its socket before mpv opens its connection.
+    const probeTimeoutMs = Number(process.env.MANGO_LIVE_PROBE_TIMEOUT_MS ?? 5000);
+    let streamUrl = '';
+    let chosenCandidate: { url: string; source?: unknown } | undefined;
+    const probeErrors: string[] = [];
+    for (const candidate of candidates) {
+      const url = candidate.url as string;
+      const reachable = await probeStreamReachability(url, probeTimeoutMs);
+      if (reachable) {
+        streamUrl = url;
+        chosenCandidate = candidate;
+        break;
+      }
+      probeErrors.push(`unreachable: ${url.slice(0, 80)}`);
+    }
+    if (!streamUrl) {
+      throw new CatalogError(502, 'no_reachable_live_stream', {
+        candidate_count: candidates.length,
+        probes: probeErrors,
+      });
     }
     const playback = await playUrl(streamUrl, 90000, { live: true, playEpoch });
     try {
@@ -488,7 +512,7 @@ async function handlePlay(
       play_id: body.id,
       stream: {
         url: streamUrl,
-        source: typeof stream.source === 'string' ? stream.source : undefined,
+        source: typeof chosenCandidate?.source === 'string' ? chosenCandidate.source : undefined,
         display_label: 'live',
         resolve_ms: resolved.resolve_ms,
         cached: resolved.cached,

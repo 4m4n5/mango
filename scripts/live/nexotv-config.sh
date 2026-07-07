@@ -233,22 +233,29 @@ apply_area69() {
 
   nexotv_health_ok || die "NexoTV down at $BASE_URL — run: bash scripts/live/install-nexotv.sh"
 
+  # NexoTV's Xtream provider has no category filter and OOMs on AREA69's ~55k
+  # streams, so we curate a sports+news+cartoons M3U from the Xtream API and feed
+  # it to NexoTV's M3U provider instead. NexoTV only accepts HTTP(S) m3uUrl, so
+  # serve the data dir over localhost HTTP (never commit the creds-embedded M3U).
+  bash "$SCRIPT_DIR/install-nexotv-m3u-http.sh" >/dev/null
+
+  local data_dir m3u_path m3u_port
+  data_dir="${MANGO_NEXOTV_DATA_DIR:-$HOME/.local/share/mango/nexotv/data}"
+  m3u_path="$data_dir/live-area69-curated.m3u"
+  m3u_port="${MANGO_NEXOTV_M3U_PORT:-7010}"
+  python3 "$SCRIPT_DIR/build-curated-area69-m3u.py" --creds "$creds" --out "$m3u_path"
+
   local tmp out token manifest_url mode
   tmp="$(mktemp)"
   python3 - "$tmp" <<PY
-import json, os
+import json
 cfg = {
-    "provider": "xtream",
-    "xtreamUrl": os.environ["XTREAM_URL"].strip(),
-    "xtreamUsername": os.environ["XTREAM_USER"].strip(),
-    "xtreamPassword": os.environ["XTREAM_PASS"].strip(),
-    "enableEpg": True,
+    "provider": "m3u",
+    "m3uUrl": "http://127.0.0.1:${m3u_port}/live-area69-curated.m3u",
+    "enableEpg": False,
     "reformatLogos": True,
     "catalogName": "mango Live TV",
 }
-epg = os.environ.get("EPG_URL", "").strip()
-if epg:
-    cfg["epgUrl"] = epg
 json.dump(cfg, open("$tmp", "w", encoding="utf-8"))
 PY
 
@@ -260,14 +267,14 @@ PY
 
   mkdir -p "$(dirname "$CREDS")"
   cat >"$CREDS" <<EOF
-# mango NexoTV — AREA69 $(date -Iseconds)
-NEXOTV_PROFILE_ID='area69-xtream'
+# mango NexoTV — AREA69 curated M3U $(date -Iseconds)
+NEXOTV_PROFILE_ID='area69-m3u'
 NEXOTV_TOKEN='$token'
 NEXOTV_MANIFEST_URL='$manifest_url'
 NEXOTV_TOKEN_MODE='$mode'
 EOF
   chmod 600 "$CREDS"
-  echo "applied AREA69 Xtream profile (token mode: $mode)"
+  echo "applied AREA69 curated M3U profile (token mode: $mode)"
   echo "manifest: $manifest_url"
 }
 

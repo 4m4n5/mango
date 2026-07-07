@@ -1,5 +1,7 @@
 import { buildLiveCatalogUrl, type LiveChannelMeta } from './live-rails.js';
 import { isBlockedCatalogText } from './catalog-errors.js';
+import { get as httpGet } from 'node:http';
+import { get as httpsGet } from 'node:https';
 
 export function isBlockedLiveStreamUrl(url: string): boolean {
   const trimmed = url.trim();
@@ -7,6 +9,56 @@ export function isBlockedLiveStreamUrl(url: string): boolean {
     return true;
   }
   return /example\.com|ratelimit|rate\s*limit|too many/i.test(trimmed);
+}
+
+/**
+ * Quick reachability probe for a live stream URL. Opens a GET, waits for the
+ * first byte, then destroys the socket immediately. Returns true if the host
+ * is reachable and starts delivering data within the timeout.
+ *
+ * This exists so /play fails fast (~5s) when a free IPTV-org host is
+ * geo-blocked from the Pi instead of hanging for mpv's 90s playback-start
+ * timeout. Safe for AREA69's max_connections=1 because the probe destroys its
+ * socket before mpv opens its own connection.
+ */
+export function probeStreamReachability(url: string, timeoutMs = 5000): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (isBlockedLiveStreamUrl(url)) {
+      resolve(false);
+      return;
+    }
+    const lib = url.startsWith('https:') ? httpsGet : httpGet;
+    let settled = false;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try {
+        req.destroy();
+      } catch {
+        /* ignore */
+      }
+      resolve(ok);
+    };
+    const req = lib(
+      url,
+      { headers: { 'User-Agent': 'mango-live-probe', Range: 'bytes=0-65535' } },
+      (res) => {
+        if (res.statusCode !== undefined && (res.statusCode < 200 || res.statusCode >= 400)) {
+          res.destroy();
+          finish(false);
+          return;
+        }
+        res.once('data', () => {
+          res.destroy();
+          finish(true);
+        });
+        res.on('error', () => finish(false));
+      },
+    );
+    req.on('error', () => finish(false));
+    const timer = setTimeout(() => finish(false), timeoutMs);
+  });
 }
 
 export function isBlockedLiveChannel(channel: LiveChannelMeta): boolean {
