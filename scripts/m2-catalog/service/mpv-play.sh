@@ -399,8 +399,36 @@ append_mpv_cache_args() {
   fi
 }
 
+# Live IPTV (MPEG-TS) has irregular timestamps; display-resample tears on Pi.
+resolve_video_sync() {
+  if $LIVE; then
+    printf '%s\n' "${MANGO_MPV_VIDEO_SYNC_LIVE:-display-vdrop}"
+    return
+  fi
+  local sync="${MANGO_MPV_VIDEO_SYNC:-display-resample}"
+  if [[ -n "${MANGO_MPV_VIDEO_SYNC_4K:-}" ]] && {
+    is_4k_ladder_step || mpv_width_ge_4k "${video_width:-}"
+  }; then
+    sync="${MANGO_MPV_VIDEO_SYNC_4K}"
+  fi
+  printf '%s\n' "$sync"
+}
+
+append_mpv_live_args() {
+  local -n args_ref="$1"
+  $LIVE || return 0
+  case "${MANGO_MPV_LIVE_CACHE:-yes}" in
+    0 | no | false) return 0 ;;
+  esac
+  args_ref+=(--cache=yes)
+  args_ref+=(--cache-secs="${MANGO_MPV_LIVE_CACHE_SECS:-2}")
+  args_ref+=(--cache-pause=yes)
+  args_ref+=(--demuxer-readahead-secs="${MANGO_MPV_LIVE_READAHEAD_SECS:-1}")
+}
+
 append_mpv_render_args() {
   local -n args_ref="$1"
+  local sync
   # Pi 5 tear-free render path: OpenGL (ES) avoids the mpv 0.40 Vulkan default
   # whose libplacebo DRM-modifier mismatch blue-screens on vc4; profile=fast
   # keeps GPU load low enough for 4K HEVC. All env-overridable for A/B testing.
@@ -414,13 +442,8 @@ append_mpv_render_args() {
   if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
     args_ref+=("--profile=${MANGO_MPV_PROFILE:-fast}")
   fi
-  if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
-    local sync="${MANGO_MPV_VIDEO_SYNC:-display-resample}"
-    if [[ -n "${MANGO_MPV_VIDEO_SYNC_4K:-}" ]] && {
-      is_4k_ladder_step || mpv_width_ge_4k "${video_width:-}"
-    }; then
-      sync="${MANGO_MPV_VIDEO_SYNC_4K}"
-    fi
+  sync="$(resolve_video_sync)"
+  if [[ -n "$sync" ]]; then
     args_ref+=("--video-sync=${sync}")
   fi
   if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
@@ -440,6 +463,7 @@ append_mpv_render_args() {
   if [[ -n "${MANGO_MPV_AUDIO_CHANNELS:-}" ]]; then
     args_ref+=("--audio-channels=${MANGO_MPV_AUDIO_CHANNELS}")
   fi
+  append_mpv_live_args "$1"
 }
 
 append_mpv_buffer_args() {
@@ -477,8 +501,10 @@ enable_mpv_display_once() {
   if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
     printf '{"command":["set_property","profile","%s"]}\n' "${MANGO_MPV_PROFILE:-fast}" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
-  if [[ -n "${MANGO_MPV_VIDEO_SYNC:-display-resample}" ]]; then
-    printf '{"command":["set_property","video-sync","%s"]}\n' "${MANGO_MPV_VIDEO_SYNC:-display-resample}" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  local sync
+  sync="$(resolve_video_sync)"
+  if [[ -n "$sync" ]]; then
+    printf '{"command":["set_property","video-sync","%s"]}\n' "$sync" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
   if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
     printf '{"command":["set_property","interpolation","%s"]}\n' "${MANGO_MPV_INTERPOLATION:-no}" | socat - "$SOCKET" >/dev/null 2>&1 || true
@@ -755,7 +781,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
               MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
               exit 1
             fi
-          elif $GPU_DEFER; then
+          elif $GPU_DEFER && ! $LIVE; then
             apply_4k_video_sync
           fi
           raise_mpv_window
