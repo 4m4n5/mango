@@ -12,7 +12,7 @@ sources:
     label: AREA69
     catalog: iptv_channels
     catalog_type: tv
-    pages: 3
+    pages: 1
   - addon: mango Live Free
     label: free
     catalog: iptv_channels
@@ -34,8 +34,20 @@ rails:
     label: cricket
     limit: 7
     source_fill:
+      - addon: mango Live TV
+        limit: 5
+        keywords:
+          - willow cricket
+          - sky sports cricket
+          - fox cricket
+          - supersport cricket
+          - sportsmax cricket
+        exclude_keywords:
+          - 24/7
+          - replay
+          - banana
       - addon: mango Live Free
-        limit: 7
+        limit: 2
         keywords:
           - star sports 1
           - star sports 2
@@ -61,6 +73,10 @@ rails:
         limit: 9
         keywords:
           - world cup
+          - uefa
+          - premier league
+          - bundesliga
+          - fifa
         exclude_keywords:
           - prime
           - tubi
@@ -68,6 +84,8 @@ rails:
           - news
           - crime
           - movie
+          - 24/7
+          - replay
     keywords:
       - football
     exclude_keywords:
@@ -84,12 +102,17 @@ rails:
     limit: 7
     source_fill:
       - addon: mango Live TV
-        limit: 2
+        limit: 3
         keywords:
+          - sky sports f1
+          - dazn f1
+          - formula 1
+          - apple tv f1
           - f1 tv
-          - nascar
         exclude_keywords:
           - tubi
+          - 24/7
+          - replay
       - addon: mango Live Free
         limit: 5
         keywords:
