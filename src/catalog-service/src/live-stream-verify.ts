@@ -44,7 +44,14 @@ export function probeStreamReachability(url: string, timeoutMs = 5000): Promise<
       url,
       { headers: { 'User-Agent': 'mango-live-probe', Range: 'bytes=0-65535' } },
       (res) => {
-        if (res.statusCode !== undefined && (res.statusCode < 200 || res.statusCode >= 400)) {
+        const code = res.statusCode ?? 0;
+        // Xtream live URLs often 302 to CDN with an empty body; treat redirect as reachable.
+        if (code >= 300 && code < 400) {
+          res.resume();
+          finish(true);
+          return;
+        }
+        if (code < 200 || code >= 400) {
           res.destroy();
           finish(false);
           return;
