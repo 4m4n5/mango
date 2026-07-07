@@ -99,7 +99,7 @@ chromium_pi_flags=()
 if [[ "${MANGO_CHROMIUM_DISABLE_GPU:-0}" == "1" ]]; then
   chromium_pi_flags+=(--disable-gpu --disable-gpu-compositing)
 elif [[ "$(uname -m)" == aarch64 ]] || [[ "$(uname -m)" == arm* ]]; then
-  chromium_pi_flags+=(--enable-gpu-rasterization --ignore-gpu-blocklist)
+  chromium_pi_flags+=(--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy)
 fi
 
 write_firefox_profile() {

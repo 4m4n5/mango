@@ -184,4 +184,44 @@ if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
   fi
 fi
 
+if [[ "${MANGO_PAD_NAV_API:-0}" == "1" ]]; then
+  PAD_NAV_OUT="/tmp/mango-gate-pad-nav-$$.json"
+  PAD_NAV_SEQ=0
+  PAD_NAV_LATEST=0
+
+  HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
+    -X POST "$LAUNCHER/api/pad/nav" \
+    -H "content-type: application/json" \
+    -d '{"type":"pad_nav","action":"move","direction":"down"}' 2>/dev/null || true)"
+  if [[ "$HTTP_CODE" == "200" ]] \
+    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and isinstance(d.get("seq"), int)' "$PAD_NAV_OUT" 2>/dev/null; then
+    PAD_NAV_SEQ="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("seq"))' "$PAD_NAV_OUT")"
+    gate_pass "pad-nav POST /api/pad/nav seq=$PAD_NAV_SEQ"
+  else
+    gate_fail "pad-nav POST /api/pad/nav"
+  fi
+
+  HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
+    "$LAUNCHER/api/pad/nav?after=0&wait=1" 2>/dev/null || true)"
+  if [[ "$HTTP_CODE" == "200" ]] \
+    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and isinstance(d.get("latest_seq"), int) and d.get("latest_seq",0) >= int(sys.argv[2]) and isinstance(d.get("commands"), list) and any(c.get("action")=="move" for c in d.get("commands",[]))' "$PAD_NAV_OUT" "$PAD_NAV_SEQ" 2>/dev/null; then
+    PAD_NAV_LATEST="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("latest_seq"))' "$PAD_NAV_OUT")"
+    gate_pass "pad-nav GET /api/pad/nav latest_seq=$PAD_NAV_LATEST"
+  else
+    gate_fail "pad-nav GET /api/pad/nav"
+  fi
+
+  HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
+    -X POST "$LAUNCHER/api/pad/ack" \
+    -H "content-type: application/json" \
+    -d "{\"last_seq\": $PAD_NAV_LATEST}" 2>/dev/null || true)"
+  if [[ "$HTTP_CODE" == "200" ]]; then
+    gate_pass "pad-nav POST /api/pad/ack"
+  else
+    gate_fail "pad-nav POST /api/pad/ack"
+  fi
+
+  rm -f "$PAD_NAV_OUT"
+fi
+
 gate_finish "gate-m6-ux-smoke" || exit 1

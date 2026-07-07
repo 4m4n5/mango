@@ -15,6 +15,7 @@ import { buildSettingsRefresh, reliabilityBadgeText, settingsFocusables } from "
 import { fetchReliabilityState } from "./reliability";
 import { startVoiceHud } from "./voice-hud";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
+import { startPadNavPoll } from "./pad-nav";
 import { cardSavedKey, fetchSavedIds } from "./saved";
 import { logPerf } from "./perf";
 import { touchCouchActivity } from "./activity";
@@ -215,6 +216,52 @@ function init(): void {
       handleBrowseTabChange(tab);
     },
     onOpenDetail: (card, tab) => openVoiceDetail(card, tab),
+  });
+  startPadNavPoll({
+    isNextPromptOpen: () => nextEpisodePrompt.isOpen,
+    nextPromptSelect: () => nextEpisodePrompt.activateFocused(nextPromptFocusIndex),
+    nextPromptBack: () => nextEpisodePrompt.dismiss(),
+    nextPromptMove: (delta) => {
+      nextPromptFocusIndex = nextEpisodePrompt.moveFocus(delta, nextPromptFocusIndex);
+      nextEpisodePrompt.applyFocus(nextPromptFocusIndex);
+    },
+
+    isDetailOpen: () => detail.isOpen,
+    detailMoveRow: (delta) => detail.moveRow(delta),
+    detailMoveCol: (delta) => detail.moveCol(delta),
+    detailSelect: () => detail.activate(),
+    detailBack: () => {
+      if (detail.isResolving()) {
+        detail.cancelResolve();
+        return;
+      }
+      detail.hide();
+    },
+
+    isInSettings: () => inSettings,
+    settingsMove: (direction) => {
+      const items = settingsFocusables(settingsView);
+      if (items.length === 0) {
+        return;
+      }
+      if (direction === "down" || direction === "right") {
+        focusSettingsItem(items, settingsFocusIndex + 1);
+      } else if (direction === "up" || direction === "left") {
+        focusSettingsItem(items, settingsFocusIndex - 1);
+      }
+    },
+    settingsSelect: () => {
+      const items = settingsFocusables(settingsView);
+      items[settingsFocusIndex]?.click();
+    },
+    settingsBack: () => showHome(),
+
+    homeMoveRow: (delta) => focusGrid.moveRow(delta),
+    homeMoveCol: (delta) => focusGrid.moveCol(delta),
+    homeSelect: () => activateFocused(),
+    homeBack: () => {},
+    homeTab: (delta) => cycleBrowseTab(delta),
+    homeShuffle: () => void libraryRefresh(),
   });
 }
 

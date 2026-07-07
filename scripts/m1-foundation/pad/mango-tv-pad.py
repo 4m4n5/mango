@@ -22,6 +22,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 try:
@@ -128,6 +130,8 @@ class DeviceNotFoundError(Exception):
 
 DIAG_SESSION = os.environ.get("MANGO_DIAG_SESSION", "")
 PAD_DEBUG = os.environ.get("MANGO_PAD_DEBUG") == "1"
+PAD_NAV_API_ENABLED = os.environ.get("MANGO_PAD_NAV_API", "0") == "1"
+PAD_NAV_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_NAV_TIMEOUT_SEC", "0.15"))
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": str(_HOME)}
 _last_display_wake_at = 0.0
 _last_bt_connect_at = 0.0
@@ -213,6 +217,7 @@ def write_status(
         "updated_at": now,
         "last_event_at": last_event_at,
         "last_action": last_action,
+        "pad_nav_api": PAD_NAV_API_ENABLED,
     }
     payload.update(_device_payload(dev))
     _write_owner_file(STATUS_PATH, json.dumps(payload, separators=(",", ":")) + "\n")
@@ -671,6 +676,62 @@ def send_key_launcher(symbol: str, *, app: str | None = None) -> None:
         send_key_to_wid(wid, symbol, activate=True)
 
 
+def send_pad_nav(action: str, direction: str | None = None, delta: int | None = None) -> bool:
+    payload: dict[str, object] = {
+        "type": "pad_nav",
+        "action": action,
+        "direction": direction,
+        "delta": delta,
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    req = urllib.request.Request(
+        f"http://127.0.0.1:{LAUNCHER_PORT}/api/pad/nav",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=PAD_NAV_TIMEOUT_SEC) as resp:
+            if getattr(resp, "status", None) != 200:
+                if PAD_DEBUG:
+                    print(
+                        f"mango-tv-pad: pad-nav non-200 action={action} status={getattr(resp, 'status', 'unknown')}",
+                        flush=True,
+                    )
+                return False
+            raw = resp.read().decode("utf-8")
+        parsed = json.loads(raw)
+        ok = parsed.get("ok") is True if isinstance(parsed, dict) else False
+        if not ok and PAD_DEBUG:
+            print(f"mango-tv-pad: pad-nav bad body action={action}", flush=True)
+        return ok
+    except (
+        urllib.error.URLError,
+        urllib.error.HTTPError,
+        TimeoutError,
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+    ) as exc:
+        if PAD_DEBUG:
+            print(f"mango-tv-pad: pad-nav failed action={action} err={type(exc).__name__}", flush=True)
+        return False
+
+
+def launcher_send_nav_or_key(
+    symbol: str,
+    *,
+    app: str | None = None,
+    action: str | None = None,
+    direction: str | None = None,
+    delta: int | None = None,
+) -> None:
+    if PAD_NAV_API_ENABLED and routing_app() == "launcher" and action is not None:
+        if send_pad_nav(action, direction=direction, delta=delta):
+            return
+    send_key_launcher(symbol, app=app)
+
+
 def send_mpv_ipc(command: str, arg: str = "", mode: str = "") -> None:
     argv = ["bash", str(MPV_IPC_SH), command]
     if arg:
@@ -802,7 +863,12 @@ def switch_launcher_tab(delta: int) -> None:
     if not launcher_surface_active():
         return
     diag_event("tab_switch", foreground=foreground_app(), delta=str(delta))
-    send_launcher_key("F7" if delta > 0 else "F6")
+    launcher_send_nav_or_key(
+        symbol="F7" if delta > 0 else "F6",
+        app="launcher",
+        action="tab",
+        delta=1 if delta > 0 else -1,
+    )
 
 
 def reshuffle_launcher_rails() -> None:
@@ -822,7 +888,11 @@ def reshuffle_launcher_rails() -> None:
         timeout=5,
         check=False,
     )
-    send_launcher_key("F5")
+    launcher_send_nav_or_key(
+        symbol="F5",
+        app="launcher",
+        action="shuffle",
+    )
 
 
 def refresh_launcher_library() -> None:
@@ -931,7 +1001,12 @@ def route_dpad(app: str, direction: str) -> None:
         else:
             send_mpv_ipc("keypress", symbol.upper())
     elif app == "launcher":
-        send_key_launcher(symbol, app=app)
+        launcher_send_nav_or_key(
+            symbol=symbol,
+            app=app,
+            action="move",
+            direction=direction,
+        )
 
 
 def route_playback_shoulder(app: str, direction: str) -> None:
@@ -944,12 +1019,20 @@ def route_face(app: str, action: str) -> None:
             send_mpv_ipc("keypress", "SPACE")
             show_playback_osd("pause")
         elif app == "launcher":
-            send_key_launcher("Return", app=app)
+            launcher_send_nav_or_key(
+                symbol="Return",
+                app=app,
+                action="select",
+            )
     elif action == "back":
         if app == "mpv":
             stop_mpv_home()
         elif app == "launcher":
-            send_key_launcher("BackSpace", app=app)
+            launcher_send_nav_or_key(
+                symbol="BackSpace",
+                app=app,
+                action="back",
+            )
 
 
 def find_pro_controller() -> evdev.InputDevice:

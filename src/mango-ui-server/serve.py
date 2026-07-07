@@ -264,6 +264,110 @@ def record_voice_ack(payload: dict[str, object]) -> dict[str, object]:
         return dict(_last_voice_ack)
 
 
+_pad_nav_lock: Final = threading.Lock()
+_pad_nav_cond: Final = threading.Condition(_pad_nav_lock)
+_pad_nav_commands: Final = deque[dict[str, object]](maxlen=64)
+PAD_NAV_TTL_SEC: Final = 45.0
+PAD_NAV_SEQ_FILE: Final = LOG_DIR / "pad-nav-seq"
+
+
+def _load_persisted_pad_nav_seq() -> int:
+    try:
+        return max(0, int(PAD_NAV_SEQ_FILE.read_text(encoding="utf-8").strip()))
+    except (OSError, ValueError):
+        return 0
+
+
+def _persist_pad_nav_seq(seq: int) -> None:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    PAD_NAV_SEQ_FILE.write_text(f"{seq}\n", encoding="utf-8")
+
+
+_pad_nav_seq: int = _load_persisted_pad_nav_seq()
+
+
+def enqueue_pad_nav_command(command: dict[str, object]) -> int:
+    global _pad_nav_seq
+    action = str(command.get("action", ""))
+    with _pad_nav_cond:
+        _pad_nav_seq += 1
+        seq = _pad_nav_seq
+        entry = {"seq": seq, "issued_at": time.time(), **command}
+        _pad_nav_commands.append(entry)
+        _pad_nav_cond.notify_all()
+    _persist_pad_nav_seq(seq)
+    mango_log("pad_nav_command", seq=str(seq), action=action)
+    return seq
+
+
+def _prune_expired_pad_nav_commands(now: float | None = None) -> None:
+    cutoff = (now or time.time()) - PAD_NAV_TTL_SEC
+    fresh = deque(
+        (
+            entry
+            for entry in _pad_nav_commands
+            if float(entry.get("issued_at", 0)) >= cutoff
+        ),
+        maxlen=_pad_nav_commands.maxlen,
+    )
+    _pad_nav_commands.clear()
+    _pad_nav_commands.extend(fresh)
+
+
+def _drain_pad_nav_pending_locked(after: int) -> list[dict[str, object]]:
+    """Drain pending pad nav commands with seq > after. Assumes _pad_nav_lock is held."""
+    pending = [
+        entry
+        for entry in list(_pad_nav_commands)
+        if int(entry.get("seq", 0)) > after
+    ]
+    pending_seqs = {int(entry.get("seq", 0)) for entry in pending}
+    kept = deque(
+        (
+            entry
+            for entry in _pad_nav_commands
+            if int(entry.get("seq", 0)) not in pending_seqs
+        ),
+        maxlen=_pad_nav_commands.maxlen,
+    )
+    _pad_nav_commands.clear()
+    _pad_nav_commands.extend(kept)
+    return pending
+
+
+def drain_pad_nav_commands(after: int) -> tuple[list[dict[str, object]], int]:
+    """Return pending pad nav commands once — never replay on later polls."""
+    with _pad_nav_cond:
+        _prune_expired_pad_nav_commands(time.time())
+        return _drain_pad_nav_pending_locked(after), _pad_nav_seq
+
+
+def wait_and_drain_pad_nav_commands(
+    after: int, timeout: float
+) -> tuple[list[dict[str, object]], int]:
+    """Long-poll variant for pad nav: park up to ``timeout`` seconds waiting for new commands.
+
+    Returns as soon as pending commands exist (drain-once), or on timeout with
+    ``([], latest_seq)``. Mutually exclusive with all other _pad_nav_lock users.
+    """
+    deadline = time.monotonic() + timeout
+    with _pad_nav_cond:
+        while True:
+            _prune_expired_pad_nav_commands(time.time())
+            pending = _drain_pad_nav_pending_locked(after)
+            if pending:
+                return pending, _pad_nav_seq
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return [], _pad_nav_seq
+            _pad_nav_cond.wait(remaining)
+
+
+def latest_pad_nav_seq() -> int:
+    with _pad_nav_lock:
+        return _pad_nav_seq
+
+
 def collect_health(port: int) -> dict[str, object]:
     launcher_ok = (LAUNCHER_DIST / "index.html").is_file()
     chromium_ok = run_check(
@@ -394,6 +498,25 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         if path == "/api/voice/ack":
             self._write_json({"ok": True, **read_voice_ack()})
             return
+        if path == "/api/pad/nav":
+            parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+            after_values = query.get("after", ["0"])
+            try:
+                after = max(0, int(after_values[0]))
+            except (ValueError, IndexError):
+                after = 0
+            wait_values = query.get("wait", ["25"])
+            try:
+                wait = max(0.0, min(30.0, float(wait_values[0])))
+            except (ValueError, IndexError):
+                wait = 25.0
+            if wait > 0:
+                commands, latest_seq = wait_and_drain_pad_nav_commands(after, wait)
+            else:
+                commands, latest_seq = drain_pad_nav_commands(after)
+            self._write_json({"ok": True, "latest_seq": latest_seq, "commands": commands})
+            return
         if path.startswith("/overlay/"):
             self._write_json(
                 {"ok": False, "error": "overlay deprecated; use launcher HUD"},
@@ -479,6 +602,83 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                 return
             ack = record_voice_ack(payload)
             self._write_json({"ok": True, **ack})
+            return
+        if path == "/api/pad/nav":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "pad nav is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            length = int(self.headers.get("content-length") or "0")
+            raw = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                self._write_json(
+                    {"ok": False, "error": "invalid json"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if not isinstance(payload, dict) or payload.get("type") != "pad_nav":
+                self._write_json(
+                    {"ok": False, "error": "expected pad_nav payload"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            action = str(payload.get("action", ""))
+            valid_actions = {"move", "select", "back", "tab", "shuffle"}
+            if action not in valid_actions:
+                self._write_json(
+                    {"ok": False, "error": f"unknown action: {action}"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            direction = payload.get("direction")
+            if action == "move":
+                if direction not in {"up", "down", "left", "right"}:
+                    self._write_json(
+                        {"ok": False, "error": "direction required for move"},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+            else:
+                direction = None
+            delta = payload.get("delta", 1)
+            if action == "tab":
+                if delta not in {-1, 1}:
+                    self._write_json(
+                        {"ok": False, "error": "delta must be -1 or +1"},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+            else:
+                delta = None
+            command = {
+                "type": "pad_nav",
+                "action": action,
+                "direction": direction,
+                "delta": delta,
+            }
+            seq = enqueue_pad_nav_command(command)
+            self._write_json({"ok": True, "seq": seq})
+            return
+        if path == "/api/pad/ack":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "pad nav ack is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            payload = self._read_json_body()
+            if not isinstance(payload, dict):
+                self._write_json(
+                    {"ok": False, "error": "expected object"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+            # No-op beyond acknowledging; launcher uses this for replay safety.
+            self._write_json({"ok": True})
             return
         if path.startswith("/api/catalog/"):
             self._proxy_catalog("POST")

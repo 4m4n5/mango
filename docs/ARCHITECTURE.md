@@ -187,6 +187,25 @@ During mpv playback, D-pad `←/→` stays precise at the short seek step, holdi
 `←/→` repeats with acceleration, and playback-only `L/R` performs the large seek
 step without changing launcher tab semantics.
 
+### Launcher D-pad transport (pad-nav API)
+
+When `MANGO_PAD_NAV_API=1`, launcher D-pad/face/tab/shuffle events take a
+localhost HTTP path instead of synthetic keyboard events:
+
+```
+pad evdev → routing_app (cached) → POST /api/pad/nav {action,direction,delta}
+serve.py → pad-nav queue (separate from voice; deque + Condition + persisted seq)
+launcher → GET /api/pad/nav?after=&wait=25 long-poll → handlePadNav → FocusGrid / detail / settings / next-prompt
+```
+
+The launcher owns surface + focus state; the pad sends directional intents only.
+`handlePadNav` mirrors `handleKeydown`'s priority chain (next-prompt → detail →
+settings → home) so the pad-nav and xdotool-fallback paths are behaviorally
+identical. On any HTTP failure (connection refused, timeout, non-200) the pad
+falls back to the existing `xdotool key --window <wid>` path, so a down UI server
+never breaks navigation. The mpv path is unchanged (IPC). The pad-nav smoke probe
+in `gate-m6-ux-smoke.sh` runs only when `MANGO_PAD_NAV_API=1`.
+
 Pad layout: [HARDWARE.md](HARDWARE.md)
 
 ### Must never happen
@@ -302,6 +321,10 @@ mango does **not** reindex torrents. It runs the same protocol Stremio uses for 
 | Node (companion + catalog) | when voice / catalog on |
 
 Chromium is **UI only** — never decode 4K in the browser. mpv owns playback.
+On Pi 5, Chromium runs with GPU rasterization (`--enable-gpu-rasterization
+--ignore-gpu-blocklist --enable-zero-copy`, gated by `MANGO_CHROMIUM_DISABLE_GPU`;
+default `0`) to keep focus-move repaints fast at 1080p60. Roll back to software
+compositing by setting `MANGO_CHROMIUM_DISABLE_GPU=1` in the systemd unit.
 
 | Milestone | Display | Notes |
 |-------|---------|-------|

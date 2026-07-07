@@ -67,6 +67,29 @@ bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh
 | L/R (`310`/`311`) | Tab − / + |
 | ⌂ (`316`) | Home |
 
+### Pad + Chromium tuning (D-pad latency)
+
+D-pad browse latency was tuned in three tiers (A: pad hot path, B: periodic-lag
+fix, C: GPU rasterization + pad-nav API). Relevant env vars:
+
+| Env var | Default | Effect |
+|---------|---------|--------|
+| `MANGO_PAD_DPAD_DEBOUNCE_SEC` | `0.05` | D-pad debounce (vs `0.12` for face buttons) |
+| `MANGO_PAD_LAUNCHER_WID_TTL_SEC` | `2.0` | Cache TTL for launcher window-id lookup |
+| `MANGO_PAD_FOREGROUND_LAUNCHER_TTL_SEC` | `2.0` | Cache TTL for "foreground is launcher" |
+| `MANGO_PAD_COUCH_ACTIVITY_THROTTLE_SEC` | `0.5` | Throttle for async couch-activity touches |
+| `MANGO_PAD_NAV_API` | `0` | `1` = pad POSTs nav to `/api/pad/nav` instead of xdotool keys (xdotool fallback on any HTTP failure) |
+| `MANGO_PAD_NAV_TIMEOUT_SEC` | `0.15` | HTTP timeout for pad-nav POST before fallback |
+| `MANGO_CHROMIUM_DISABLE_GPU` | `0` | `1` = force software compositing (rollback for GPU rasterization regressions) |
+
+To enable the pad-nav API on the Pi, set `MANGO_PAD_NAV_API=1` in the pad
+service environment (`scripts/m1-foundation/ui/systemd/mango-tv-pad.service` or
+the stack env) and restart the pad. The `gate-m6-ux-smoke.sh` pad-nav probe runs
+only when this is `1`. Verify Chromium GPU rasterization on the Pi via
+`chrome://gpu` (launch Chromium briefly with `--remote-debugging-port=9222` and
+open the URL from a host browser); "Hardware accelerated" should appear under
+Rasterization.
+
 ### Couch activity and display
 
 Mango couch mode is silent: no maintenance, grow, or debug status is shown on

@@ -269,6 +269,18 @@ safety.
 
 ---
 
+## D-pad browse latency (Tiers A–C) ✓
+
+A three-tier pass cut launcher D-pad input-to-photon latency on the browse path.
+
+| Tier | Focus | Current implementation |
+|------|-------|------------------------|
+| A — Pad hot path | Cut per-press work | `get_launcher_wid()` cache (2s TTL); stop invalidating foreground cache on every evdev event; fast launcher key (`activate=False` when launcher focused); `write_status` only on heartbeat/state transitions; `DPAD_DEBOUNCE_SEC=0.05` vs `0.12` for face buttons; removed `ensure-launcher` from display-wake |
+| B — Periodic lag + launcher feel | Kill the ~every-4th-click spike | Async/throttled couch-activity (`popen`, 0.5s throttle); display wake = inline `xset` only from pad (no present-launcher on D-pad); launcher foreground cache TTL → 2s; `send_key_launcher(symbol, app=app)`; `logPerf` off by default; O(1) focus class toggle; instant focus-ring CSS (`--dur-focus-in/out: 0ms`) |
+| C — GPU rasterization + pad-nav API | Snappier repaints + direct focus | Pi 5 Chromium GPU rasterization on by default (`--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy`, `MANGO_CHROMIUM_DISABLE_GPU=0`); opt-in pad → launcher focus API (`MANGO_PAD_NAV_API=1`) — pad POSTs directional intents to `/api/pad/nav`, launcher long-polls and applies focus directly to FocusGrid, xdotool fallback on any HTTP failure |
+
+---
+
 ## M6.3 — target-TV playback (mpv-hifi) ◐
 
 Mango ships a unified **mpv-only** couch playback path. Browse stays
