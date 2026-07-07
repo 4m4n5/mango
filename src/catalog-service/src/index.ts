@@ -4,12 +4,21 @@ import { couchPlayFailureMessage } from './catalog-errors.js';
 import { playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { bumpPlayEpoch, PlayCancelledError } from './play-cancel.js';
-import { invalidateTitle, getTitleVerifyProfile, recordVerifyResult } from './playability/db.js';
+import {
+  enqueuePlayabilityTrigger,
+  invalidateTitle,
+  getTitlePlayability,
+  getTitleVerifyProfile,
+  recordVerifyResult,
+} from './playability/db.js';
+import { startTriggerConsumerBackgroundTick } from './playability/trigger-consumer.js';
 import { demoteVerifyIfDrifted } from './playability/verify.js';
 import { isSeriesRailGateId, seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
 import { shouldInvalidatePlayabilityAfterPlayError } from './playability/play-failure-policy.js';
 import { assignVerifiedTitleToBestRail } from './playability/rail-pool-retheme.js';
+import { isFirstTimeVerifiedPromotion } from './play-verify-state.js';
+import { deriveLibraryVerifyState } from './voice/external.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
 import {
   clearLibraryContext,
@@ -375,6 +384,25 @@ async function attachWatchSession(core: CatalogCore, type: string, playId: strin
   }
 }
 
+/** Additive verify-state for the detail/meta page — mirrors voice search's in_library/queued_for_verify shape. */
+async function withVerifyStateForLauncher(
+  meta: Record<string, unknown>,
+  contentType: string,
+  contentId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const playability = await getTitlePlayability(contentType, contentId);
+    const { inLibrary, alreadyQueued } = deriveLibraryVerifyState(playability?.status);
+    return {
+      ...meta,
+      in_library: inLibrary,
+      queued_for_verify: alreadyQueued,
+    };
+  } catch {
+    return meta;
+  }
+}
+
 async function handlePlay(
   core: CatalogCore,
   body: PlayBody,
@@ -524,6 +552,7 @@ async function handlePlay(
       preferUrl: body.prefer_url,
     });
 
+    const firstTimeVerified = isFirstTimeVerifiedPromotion(usePlayabilityIndex, profile?.status);
     if (usePlayabilityIndex) {
       await recordVerifyResult({
         type: body.type,
@@ -579,6 +608,7 @@ async function handlePlay(
         applied: resolved.filters,
         play_ladder: resolved.filters.play_ladder.map((step) => step.step),
       },
+      ...(firstTimeVerified ? { first_time_verified: true } : {}),
     };
   } catch (error) {
     if (error instanceof PlayCancelledError) {
@@ -603,6 +633,21 @@ async function handlePlay(
         console.warn(
           `playability invalidate failed type=${body.type} id=${body.id}: ${
             invalidateError instanceof Error ? invalidateError.message : String(invalidateError)
+          }`,
+        );
+      });
+      // H2: fast-lane re-verify trigger, drained ahead of voice_request by the H1 consumer and
+      // the nightly failed-reverify phase — additive to the invalidate above, never blocks it.
+      await enqueuePlayabilityTrigger({
+        trigger_type: 'play_failure_reverify',
+        rail_id: body.rail_id,
+        type: body.type,
+        id: playId,
+        reason: 'play_failure',
+      }).catch((enqueueError) => {
+        console.warn(
+          `playability fast-lane enqueue failed type=${body.type} id=${body.id}: ${
+            enqueueError instanceof Error ? enqueueError.message : String(enqueueError)
           }`,
         );
       });
@@ -635,6 +680,8 @@ async function main(): Promise<void> {
   initLibraryDb();
   await initProgressDb();
   const core = await CatalogCore.create();
+  // H1(b): no-ops unless MANGO_TRIGGER_CONSUMER=1 — bounded, idle-gated, debounced (couch safety).
+  startTriggerConsumerBackgroundTick(core);
   const youtube = new YoutubeService();
   const reliability = new ReliabilityService({
     catalogHealth: () => core.health(),
@@ -1478,11 +1525,11 @@ async function main(): Promise<void> {
         const contentId = parts[2];
         try {
           const meta = await core.metaCached(contentType, contentId);
-          sendJson(res, 200, enrichMetaForLauncher(meta, contentId));
+          sendJson(res, 200, await withVerifyStateForLauncher(enrichMetaForLauncher(meta, contentId), contentType, contentId));
         } catch (error) {
           const stub = stubMetaForLauncher(contentType, contentId);
           if (stub) {
-            sendJson(res, 200, stub);
+            sendJson(res, 200, await withVerifyStateForLauncher(stub, contentType, contentId));
             return;
           }
           throw error;

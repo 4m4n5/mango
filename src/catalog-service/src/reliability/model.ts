@@ -1,12 +1,74 @@
 import type {
+  RailGrowthNight,
   ReliabilityAction,
   ReliabilityComponent,
   ReliabilityFacts,
   ReliabilityLevel,
   ReliabilityState,
+  StarvingRail,
 } from './types.js';
 
 const PROOF_STALE_MS = 36 * 60 * 60 * 1000;
+
+/**
+ * Walk nightly grow-refresh history chronologically and track, per rail, how
+ * many consecutive nights running up to the latest recorded night it missed
+ * its grow target. A met night resets the streak to zero for that rail.
+ */
+export function computeStarvingRails(history: RailGrowthNight[]): StarvingRail[] {
+  const sorted = [...history].sort((left, right) => left.generated_at - right.generated_at);
+  const perRail = new Map<string, { misses: number; last_yield: number; grow_target: number; last_checked_at: number }>();
+  for (const night of sorted) {
+    for (const rail of night.rails) {
+      perRail.set(rail.rail_id, {
+        misses: rail.grow_target_met ? 0 : (perRail.get(rail.rail_id)?.misses ?? 0) + 1,
+        last_yield: rail.new_to_rail_verified,
+        grow_target: rail.grow_target,
+        last_checked_at: night.generated_at,
+      });
+    }
+  }
+  return Array.from(perRail.entries())
+    .filter(([, info]) => info.misses > 0)
+    .map(([rail_id, info]) => ({
+      rail_id,
+      nights_missed: info.misses,
+      last_yield: info.last_yield,
+      grow_target: info.grow_target,
+      last_checked_at: info.last_checked_at,
+    }))
+    .sort((left, right) => right.nights_missed - left.nights_missed || left.rail_id.localeCompare(right.rail_id));
+}
+
+type PlayabilityRefreshFailure = {
+  failed: boolean;
+  reason: string;
+};
+
+/**
+ * The last nightly proof's metadata carries playability_rc/playability_ok/
+ * failure_category (when the caller supplies them — see
+ * scripts/m6-ship/reliability-proof.sh). Historically this was recorded but
+ * never consulted here, so a failed nightly grow could leave the couch-facing
+ * state green. This never escalates past yellow: a stuck grow starves the
+ * library, but it is not a couch-down event.
+ */
+function playabilityRefreshFailure(metadata: Record<string, unknown> | undefined): PlayabilityRefreshFailure {
+  if (!metadata) return { failed: false, reason: '' };
+  const rc = metadata.playability_rc;
+  const rcFailed = typeof rc === 'number' && Number.isFinite(rc) && rc !== 0;
+  const okFailed = metadata.playability_ok === false;
+  const category = metadata.failure_category;
+  const categoryFailed = typeof category === 'string' && category.length > 0;
+  if (!rcFailed && !okFailed && !categoryFailed) {
+    return { failed: false, reason: '' };
+  }
+  const parts: string[] = [];
+  if (rcFailed) parts.push(`playability_rc=${rc}`);
+  if (okFailed) parts.push('playability ok=false');
+  if (categoryFailed) parts.push(`failure_category=${String(category)}`);
+  return { failed: true, reason: parts.join(', ') };
+}
 
 function worst(left: ReliabilityLevel, right: ReliabilityLevel): ReliabilityLevel {
   if (left === 'red' || right === 'red') return 'red';
@@ -141,20 +203,43 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
 
   let proofStatus: ReliabilityLevel = 'yellow';
   let proofSummary = 'no nightly proof recorded yet';
+  let proofDetail: string | undefined;
   if (facts.last_proof) {
     const ageMs = facts.generated_at - facts.last_proof.generated_at;
+    const playabilityFailure = playabilityRefreshFailure(facts.last_proof.metadata);
     if (ageMs > PROOF_STALE_MS) {
       proofStatus = 'yellow';
       proofSummary = 'last nightly proof is stale';
     } else if (facts.last_proof.status === 'red') {
       proofStatus = 'yellow';
       proofSummary = 'last nightly proof failed; current state decides couch availability';
+    } else if (playabilityFailure.failed) {
+      proofStatus = 'yellow';
+      proofSummary = 'last nightly playability refresh had a problem; library growth may be stalled';
+      proofDetail = playabilityFailure.reason;
     } else {
       proofStatus = facts.last_proof.status;
       proofSummary = `last proof was ${facts.last_proof.status}`;
     }
   }
-  components.push(component('proof', 'Last Nightly Proof', proofStatus, proofSummary));
+  components.push(component('proof', 'Last Nightly Proof', proofStatus, proofSummary, proofDetail));
+
+  const starvingRails = computeStarvingRails(facts.rail_growth.history)
+    .filter((rail) => rail.nights_missed >= facts.rail_growth.threshold_nights);
+  const railGrowthStatus: ReliabilityLevel = starvingRails.length > 0 ? 'yellow' : 'green';
+  components.push(component(
+    'rail_growth',
+    'Rail Growth',
+    railGrowthStatus,
+    railGrowthStatus === 'green'
+      ? 'active rails are meeting their nightly grow targets'
+      : `${starvingRails.length} rail(s) missed grow target for ${facts.rail_growth.threshold_nights}+ nights`,
+    starvingRails.length > 0
+      ? starvingRails
+        .map((rail) => `${rail.rail_id}: missed ${rail.nights_missed}n (last +${rail.last_yield}/${rail.grow_target})`)
+        .join('; ')
+      : undefined,
+  ));
 
   let status: ReliabilityLevel = 'green';
   for (const entry of components) {

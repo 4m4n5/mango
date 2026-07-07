@@ -32,6 +32,7 @@
               <p id="detail-eyebrow" class="eyebrow">catalog</p>
               <h1 id="detail-title">title</h1>
               <p id="detail-meta" class="detail-meta">movie</p>
+              <p id="detail-verify-badge" class="verify-badge" hidden></p>
               <p id="detail-description" class="detail-description">loading details…</p>
               <div class="detail-actions">
                 <button id="detail-play" class="detail-button detail-button--primary" type="button">play</button>
@@ -72,6 +73,8 @@
           </div>
         </div>
       </section>
+
+      <div id="toast" class="toast" data-visible="false" aria-live="polite" aria-hidden="true"></div>
 
       <aside id="voice-hud" class="voice-hud" data-state="idle" data-visible="false" aria-label="mango voice" aria-hidden="true">
         <header class="voice-hud-head">

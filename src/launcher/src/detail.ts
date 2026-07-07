@@ -59,6 +59,7 @@ export class DetailController {
     private readonly eyebrow: HTMLElement,
     private readonly title: HTMLElement,
     private readonly meta: HTMLElement,
+    private readonly verifyBadge: HTMLElement,
     private readonly description: HTMLElement,
     private readonly playButton: HTMLButtonElement,
     private readonly saveButton: HTMLButtonElement,
@@ -148,6 +149,7 @@ export class DetailController {
     void this.loadRelated(card, railLabel, tab);
     this.title.textContent = card.title;
     this.meta.textContent = card.subtitle;
+    this.updateVerifyBadge(card.inLibrary, card.queuedForVerify);
     this.description.textContent = card.description || "loading details…";
     this.poster.src = resolveCardPosterUrl(card, "large");
     bindPosterImage(this.poster, card.title);
@@ -213,6 +215,7 @@ export class DetailController {
     this.relatedTrack.replaceChildren();
     this.relatedButtons = [];
     this.relatedWrap.classList.add("hidden");
+    this.updateVerifyBadge(undefined, undefined);
     this.homeVisibleCards = [];
     this.relatedLoadToken += 1;
     this.view.classList.add("hidden");
@@ -699,6 +702,25 @@ export class DetailController {
     return card.type === "youtube_video" || card.kind === "video";
   }
 
+  /** Renders the in_library / queued_for_verify chip — undefined/false hides it. */
+  private updateVerifyBadge(inLibrary: boolean | undefined, queuedForVerify: boolean | undefined): void {
+    if (inLibrary) {
+      this.verifyBadge.hidden = false;
+      this.verifyBadge.textContent = "in library";
+      this.verifyBadge.dataset.state = "in_library";
+      return;
+    }
+    if (queuedForVerify) {
+      this.verifyBadge.hidden = false;
+      this.verifyBadge.textContent = "queued";
+      this.verifyBadge.dataset.state = "queued";
+      return;
+    }
+    this.verifyBadge.hidden = true;
+    this.verifyBadge.textContent = "";
+    delete this.verifyBadge.dataset.state;
+  }
+
   private setListLabel(label: string): void {
     const labelEl = this.episodesWrap.querySelector<HTMLElement>(".detail-episodes-label");
     if (labelEl) {
@@ -1072,6 +1094,7 @@ export class DetailController {
       }
       this.title.textContent = meta.name || meta.title || card.title;
       this.meta.textContent = detailMetaLine(meta, card);
+      this.updateVerifyBadge(meta.in_library, meta.queued_for_verify);
       this.description.textContent = meta.description || card.description || "no synopsis available";
       if (meta.poster) {
         this.poster.src = meta.poster;

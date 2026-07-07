@@ -2,9 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   playabilityFailedRetryMsForReason,
+  playabilityPlayFailureRetryMs,
   playabilityRailRejectionTtlMsForReason,
   playabilitySeriesCrossProbeLimit,
   playabilityVerifyTtlMs,
+  triggerConsumerBatchLimit,
+  triggerConsumerCooldownMs,
+  triggerConsumerEnabled,
+  triggerConsumerMaintenanceBatchLimit,
 } from './config.js';
 
 const ENV = { ...process.env };
@@ -80,4 +85,39 @@ test('playabilityVerifyTtlMs defaults to a long recheck window', () => {
   assert.equal(playabilityVerifyTtlMs(), 30 * 24 * 60 * 60 * 1000);
   process.env.MANGO_PLAYABILITY_TTL_MS = String(180 * 24 * 60 * 60 * 1000);
   assert.equal(playabilityVerifyTtlMs(), 180 * 24 * 60 * 60 * 1000);
+});
+
+test('Q2: play_failure gets a short dedicated retry window, distinct from the 7d no_stream tombstone', () => {
+  delete process.env.MANGO_PLAYABILITY_BOOTSTRAP;
+  delete process.env.MANGO_PLAY_FAILURE_RETRY_HOURS;
+  assert.equal(playabilityPlayFailureRetryMs(), 60 * 60 * 1000);
+  assert.equal(playabilityFailedRetryMsForReason('play_failure'), 60 * 60 * 1000);
+  assert.equal(playabilityFailedRetryMsForReason('no_stream'), 7 * 24 * 60 * 60 * 1000);
+});
+
+test('Q2: MANGO_PLAY_FAILURE_RETRY_HOURS overrides the play_failure window', () => {
+  process.env.MANGO_PLAY_FAILURE_RETRY_HOURS = '2';
+  assert.equal(playabilityPlayFailureRetryMs(), 2 * 60 * 60 * 1000);
+  assert.equal(playabilityFailedRetryMsForReason('play_failure'), 2 * 60 * 60 * 1000);
+});
+
+test('Q2: play_failure retries immediately during bootstrap, matching other reasons', () => {
+  process.env.MANGO_PLAYABILITY_BOOTSTRAP = '1';
+  assert.equal(playabilityFailedRetryMsForReason('play_failure'), 0);
+});
+
+test('H1: trigger consumer config is off by default and bounded when configured', () => {
+  delete process.env.MANGO_TRIGGER_CONSUMER;
+  delete process.env.MANGO_TRIGGER_CONSUMER_BATCH;
+  delete process.env.MANGO_TRIGGER_CONSUMER_MAINTENANCE_BATCH;
+  delete process.env.MANGO_TRIGGER_CONSUMER_COOLDOWN_MS;
+  assert.equal(triggerConsumerEnabled(), false);
+  assert.equal(triggerConsumerBatchLimit(), 10);
+  assert.equal(triggerConsumerMaintenanceBatchLimit(), 200);
+  assert.equal(triggerConsumerCooldownMs(), 5 * 60 * 1000);
+
+  process.env.MANGO_TRIGGER_CONSUMER = '1';
+  process.env.MANGO_TRIGGER_CONSUMER_BATCH = '9999';
+  assert.equal(triggerConsumerEnabled(), true);
+  assert.equal(triggerConsumerBatchLimit(), 100);
 });

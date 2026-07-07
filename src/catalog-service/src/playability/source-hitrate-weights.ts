@@ -1,12 +1,19 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { ListSource } from './list-source.js';
 import { CompositeListSource } from './list-source.js';
 import { AiCatalogListSource } from '../ai-catalogs/list-source.js';
 import { catalogSourceKey } from './source-cursors.js';
 import type { SourceIngestStats } from './candidate-ingest.js';
 import { playabilityGrowSourceMinVerifyRate } from './config.js';
+import {
+  listSourceGrowRailOutcomes,
+  listSourceGrowWeights,
+  replaceSourceGrowWeights,
+  type SourceGrowRailOutcomeRecord,
+  type SourceGrowWeightRecord,
+} from './db.js';
 
 export type SourceHitrateEntry = {
   source_key: string;
@@ -62,6 +69,7 @@ const DEFAULT_PROBATION_MULTIPLIER = 0.08;
 const MAX_MULTIPLIER = 2.0;
 const GROW_DECAY = 0.70;
 const DEFAULT_GROW_PROBATION_MIN_SAMPLES = 12;
+const sourceGrowMigrationAttemptedKeys = new Set<string>();
 
 export function growHitrateWeightsEnabled(): boolean {
   return process.env.MANGO_GROW_HITRATE_WEIGHTS !== '0';
@@ -150,20 +158,18 @@ export function loadSourceGrowReport(now = Date.now()): SourceGrowReport | null 
   if (!growHitrateWeightsEnabled()) {
     return null;
   }
-  try {
-    const raw = readFileSync(sourceGrowReportPath(), 'utf8');
-    const report = JSON.parse(raw) as SourceGrowReport;
-    if (!Array.isArray(report.sources)) {
-      return null;
-    }
-    const maxAge = sourceHitrateMaxAgeMs();
-    if (reportIsExpired(report.ts, now, maxAge)) {
-      return null;
-    }
-    return report;
-  } catch {
+  maybeMigrateSourceGrowJsonToDb();
+  const weights = listSourceGrowWeights();
+  const outcomes = listSourceGrowRailOutcomes();
+  if (weights.length === 0 && outcomes.length === 0) {
     return null;
   }
+  const report = sourceGrowReportFromDbRows(weights, outcomes);
+  const maxAge = sourceHitrateMaxAgeMs();
+  if (reportIsExpired(report.ts, now, maxAge)) {
+    return null;
+  }
+  return report;
 }
 
 /** Map catalogSourceKey (addon:catalog) → weight multiplier from stream hit-rate. */
@@ -383,13 +389,162 @@ export function recordSourceGrowOutcome(
       },
     },
   };
-  try {
-    const path = sourceGrowReportPath();
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  } catch {
-    // Runtime source weights are advisory; grow must not fail because cache writes fail.
+  persistSourceGrowReportToDb(report);
+}
+
+function sourceGrowMigrationKey(): string {
+  const db = process.env.MANGO_PLAYABILITY_DB?.trim() || '/etc/mango/playability.db';
+  return `${db}::${sourceGrowReportPath()}`;
+}
+
+function maybeMigrateSourceGrowJsonToDb(): void {
+  const key = sourceGrowMigrationKey();
+  if (sourceGrowMigrationAttemptedKeys.has(key)) {
+    return;
   }
+  sourceGrowMigrationAttemptedKeys.add(key);
+  const weights = listSourceGrowWeights();
+  const outcomes = listSourceGrowRailOutcomes();
+  if (weights.length > 0 || outcomes.length > 0) {
+    return;
+  }
+  try {
+    const raw = readFileSync(sourceGrowReportPath(), 'utf8');
+    const report = JSON.parse(raw) as SourceGrowReport;
+    if (!Array.isArray(report.sources)) {
+      return;
+    }
+    persistSourceGrowReportToDb(report);
+  } catch {
+    // Best effort migration only; DB remains authoritative once populated.
+  }
+}
+
+function sourceGrowReportFromDbRows(
+  rows: SourceGrowWeightRecord[],
+  outcomes: SourceGrowRailOutcomeRecord[],
+): SourceGrowReport {
+  const global: SourceGrowEntry[] = [];
+  const byRail = new Map<string, SourceGrowEntry[]>();
+  let latestTs = 0;
+  for (const row of rows) {
+    const entry: SourceGrowEntry = {
+      source_key: row.source_key,
+      source_label: row.source_label,
+      content_type: row.content_type,
+      scanned: Math.round(row.scanned),
+      fresh_queued: Math.round(row.fresh_queued),
+      skipped_verified: Math.round(row.skipped_verified),
+      skipped_recent_failed: Math.round(row.skipped_recent_failed),
+      linked_verified_seen: Math.round(row.linked_verified_seen),
+      requested: Math.round(row.requested),
+      returned: Math.round(row.returned),
+      catalog_errors: Math.round(row.catalog_errors),
+      rate_limited: Math.round(row.rate_limited),
+      exhausted: Boolean(row.exhausted),
+      verified: Math.round(row.verified),
+      failed: Math.round(row.failed),
+      theme_rejected: Math.round(row.theme_rejected),
+      unresolved_external_id: Math.round(row.unresolved_external_id),
+      runs: Math.round(row.runs),
+      multiplier: row.multiplier,
+      probation: Boolean(row.probation),
+      probation_multiplier: row.probation_multiplier,
+      elapsed_ms: Math.round(row.elapsed_ms),
+      last_ts: row.last_ts,
+      rollback_reason: row.rollback_reason ?? undefined,
+    };
+    latestTs = Math.max(latestTs, row.last_ts, row.updated_at);
+    if (!row.rail_id) {
+      global.push(entry);
+      continue;
+    }
+    const existing = byRail.get(row.rail_id) ?? [];
+    existing.push({ ...entry, rail_id: row.rail_id });
+    byRail.set(row.rail_id, existing);
+  }
+  const railOutcomes = outcomes.reduce<NonNullable<SourceGrowReport['rail_outcomes']>>((acc, outcome) => {
+    latestTs = Math.max(latestTs, outcome.last_ts, outcome.updated_at);
+    acc[outcome.rail_id] = {
+      target_met: Boolean(outcome.target_met),
+      weighted: Boolean(outcome.weighted),
+      last_ts: outcome.last_ts,
+    };
+    return acc;
+  }, {});
+  return {
+    ts: latestTs || Date.now(),
+    sources: global.sort((a, b) => a.source_key.localeCompare(b.source_key)),
+    rail_sources: byRail.size > 0
+      ? [...byRail.entries()].reduce<Record<string, SourceGrowEntry[]>>((acc, [railId, entries]) => {
+        acc[railId] = entries.sort((a, b) => a.source_key.localeCompare(b.source_key));
+        return acc;
+      }, {})
+      : undefined,
+    rail_outcomes: Object.keys(railOutcomes).length > 0 ? railOutcomes : undefined,
+  };
+}
+
+function persistSourceGrowReportToDb(report: SourceGrowReport): void {
+  try {
+    const updatedAt = report.ts;
+    const weights: SourceGrowWeightRecord[] = [];
+    for (const entry of report.sources) {
+      weights.push(sourceGrowEntryToDbRecord(entry, null, updatedAt));
+    }
+    for (const [railId, entries] of Object.entries(report.rail_sources ?? {})) {
+      for (const entry of entries) {
+        weights.push(sourceGrowEntryToDbRecord(entry, railId, updatedAt));
+      }
+    }
+    const outcomes: SourceGrowRailOutcomeRecord[] = Object.entries(report.rail_outcomes ?? {}).map(
+      ([railId, outcome]) => ({
+        rail_id: railId,
+        target_met: outcome.target_met,
+        weighted: outcome.weighted,
+        last_ts: outcome.last_ts,
+        updated_at: updatedAt,
+      }),
+    );
+    replaceSourceGrowWeights(weights, outcomes);
+  } catch {
+    // Runtime source weights are advisory; grow must not fail because DB writes fail.
+  }
+}
+
+function sourceGrowEntryToDbRecord(
+  entry: SourceGrowEntry,
+  railId: string | null,
+  updatedAt: number,
+): SourceGrowWeightRecord {
+  return {
+    source_key: entry.source_key,
+    rail_id: railId,
+    source_label: entry.source_label,
+    content_type: entry.content_type,
+    scanned: entry.scanned,
+    fresh_queued: entry.fresh_queued,
+    skipped_verified: entry.skipped_verified,
+    skipped_recent_failed: entry.skipped_recent_failed,
+    linked_verified_seen: entry.linked_verified_seen,
+    requested: entry.requested,
+    returned: entry.returned,
+    catalog_errors: entry.catalog_errors,
+    rate_limited: entry.rate_limited,
+    exhausted: entry.exhausted,
+    verified: entry.verified,
+    failed: entry.failed,
+    theme_rejected: entry.theme_rejected,
+    unresolved_external_id: entry.unresolved_external_id ?? 0,
+    runs: entry.runs,
+    multiplier: entry.multiplier,
+    probation: Boolean(entry.probation),
+    probation_multiplier: entry.probation_multiplier ?? sourceGrowProbationMultiplier(),
+    elapsed_ms: entry.elapsed_ms ?? 0,
+    last_ts: entry.last_ts,
+    rollback_reason: entry.rollback_reason ?? null,
+    updated_at: updatedAt,
+  };
 }
 
 function mergeGrowStats(

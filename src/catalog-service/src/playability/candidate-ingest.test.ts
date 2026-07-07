@@ -368,6 +368,39 @@ test('ingestPaginatedCandidates skips recent no_stream without explicit bypass',
   assert.equal(result.candidates.length, 0);
 });
 
+test('Q2: isRecentFailedTitle clears play_failure well before the generic no_stream tombstone', () => {
+  const ENV = { ...process.env };
+  delete process.env.MANGO_PLAYABILITY_BOOTSTRAP;
+  delete process.env.MANGO_PLAY_FAILURE_RETRY_HOURS;
+  try {
+    const now = Date.now();
+    const twoHoursAgo = now - 2 * 60 * 60 * 1000;
+
+    // A couch play_failure from two hours ago has cleared its short (1h default) window —
+    // re-eligible for the skip-recent-failed gate.
+    assert.equal(isRecentFailedTitle({
+      type: 'movie',
+      id: 'couch-fail',
+      status: 'failed',
+      fail_reason: 'play_failure',
+      expires_at: null,
+      updated_at: twoHoursAgo,
+    }, now), false);
+
+    // The same age, but a generic no_stream tombstone (7d default) is still recent.
+    assert.equal(isRecentFailedTitle({
+      type: 'movie',
+      id: 'no-stream-fail',
+      status: 'failed',
+      fail_reason: 'no_stream',
+      expires_at: null,
+      updated_at: twoHoursAgo,
+    }, now), true);
+  } finally {
+    process.env = ENV;
+  }
+});
+
 test('isRecentFailedTitle respects retry window', () => {
   const now = Date.now();
   assert.equal(isRecentFailedTitle({

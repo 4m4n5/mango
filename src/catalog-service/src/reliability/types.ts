@@ -19,6 +19,31 @@ export type ReliabilityAction = {
   reason?: string;
 };
 
+export type RailGrowthNightRail = {
+  rail_id: string;
+  grow_target: number;
+  new_to_rail_verified: number;
+  grow_target_met: boolean;
+};
+
+export type RailGrowthNight = {
+  generated_at: number;
+  rails: RailGrowthNightRail[];
+};
+
+export type RailGrowthFacts = {
+  threshold_nights: number;
+  history: RailGrowthNight[];
+};
+
+export type StarvingRail = {
+  rail_id: string;
+  nights_missed: number;
+  last_yield: number;
+  grow_target: number;
+  last_checked_at: number;
+};
+
 export type ReliabilityProofRecord = {
   proof_id: string;
   reason: string;
@@ -115,5 +140,6 @@ export type ReliabilityFacts = {
     busy: boolean;
     stale_locks: string[];
   };
+  rail_growth: RailGrowthFacts;
   last_proof: ReliabilityProofRecord | null;
 };

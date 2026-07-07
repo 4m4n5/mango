@@ -3,6 +3,7 @@ import test from 'node:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { resetPlayabilityDbForTests } from './db.js';
 import {
   buildHitrateMultipliers,
   buildRailSourceGrowMultipliers,
@@ -220,8 +221,11 @@ test('loadHitrateMultipliersForContentType lets grow demotions cap optimistic he
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-combined-'));
   const previousHitrateOut = process.env.MANGO_SOURCE_HITRATE_OUT;
   const previousGrowOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
   process.env.MANGO_SOURCE_HITRATE_OUT = join(dir, 'source-hitrate.json');
   process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'source-grow.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
   try {
     writeFileSync(process.env.MANGO_SOURCE_HITRATE_OUT, JSON.stringify({
       ts: 1_782_300_000,
@@ -276,6 +280,7 @@ test('loadHitrateMultipliersForContentType lets grow demotions cap optimistic he
     assert.ok(multipliers);
     assert.equal(multipliers.get('AIOMetadata:mdblist.181302'), sourceGrowProbationMultiplier());
   } finally {
+    resetPlayabilityDbForTests();
     if (previousHitrateOut === undefined) {
       delete process.env.MANGO_SOURCE_HITRATE_OUT;
     } else {
@@ -285,6 +290,11 @@ test('loadHitrateMultipliersForContentType lets grow demotions cap optimistic he
       delete process.env.MANGO_SOURCE_GROW_OUT;
     } else {
       process.env.MANGO_SOURCE_GROW_OUT = previousGrowOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
     }
     rmSync(dir, { recursive: true, force: true });
   }
@@ -355,7 +365,10 @@ test('buildSourceGrowMultipliers applies rail-specific source outcomes over glob
 test('recordSourceGrowOutcome writes runtime cache and rolls back weighted regressions', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
   const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
   process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
   try {
     recordSourceGrowOutcome('movies-test', 'movie', [
       {
@@ -411,10 +424,16 @@ test('recordSourceGrowOutcome writes runtime cache and rolls back weighted regre
     assert.equal(report.rail_sources?.['movies-test']?.[0]?.multiplier, 1);
     assert.match(report.rail_sources?.['movies-test']?.[0]?.rollback_reason ?? '', /regressed/);
   } finally {
+    resetPlayabilityDbForTests();
     if (previousOut === undefined) {
       delete process.env.MANGO_SOURCE_GROW_OUT;
     } else {
       process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
     }
     rmSync(dir, { recursive: true, force: true });
   }
@@ -423,7 +442,10 @@ test('recordSourceGrowOutcome writes runtime cache and rolls back weighted regre
 test('recordSourceGrowOutcome sends catastrophic zero-yield sources to probation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
   const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
   process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
   try {
     recordSourceGrowOutcome('series-india-picks', 'series', [
       {
@@ -454,10 +476,16 @@ test('recordSourceGrowOutcome sends catastrophic zero-yield sources to probation
       sourceGrowProbationMultiplier(),
     );
   } finally {
+    resetPlayabilityDbForTests();
     if (previousOut === undefined) {
       delete process.env.MANGO_SOURCE_GROW_OUT;
     } else {
       process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
     }
     rmSync(dir, { recursive: true, force: true });
   }
@@ -466,7 +494,10 @@ test('recordSourceGrowOutcome sends catastrophic zero-yield sources to probation
 test('recordSourceGrowOutcome sends unresolved external-id sources to probation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
   const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
   process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
   try {
     recordSourceGrowOutcome('series-india-picks', 'series', [
       {
@@ -495,10 +526,16 @@ test('recordSourceGrowOutcome sends unresolved external-id sources to probation'
     assert.equal(report.sources[0]?.probation, true);
     assert.equal(report.sources[0]?.unresolved_external_id, 40);
   } finally {
+    resetPlayabilityDbForTests();
     if (previousOut === undefined) {
       delete process.env.MANGO_SOURCE_GROW_OUT;
     } else {
       process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
     }
     rmSync(dir, { recursive: true, force: true });
   }
@@ -507,7 +544,10 @@ test('recordSourceGrowOutcome sends unresolved external-id sources to probation'
 test('recordSourceGrowOutcome does not let linked existing titles mask zero fresh yield', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
   const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
   process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
   try {
     recordSourceGrowOutcome('series-india-picks', 'series', [
       {
@@ -534,10 +574,16 @@ test('recordSourceGrowOutcome does not let linked existing titles mask zero fres
     assert.equal(report.sources[0]?.multiplier, sourceGrowProbationMultiplier());
     assert.equal(report.sources[0]?.probation, true);
   } finally {
+    resetPlayabilityDbForTests();
     if (previousOut === undefined) {
       delete process.env.MANGO_SOURCE_GROW_OUT;
     } else {
       process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
     }
     rmSync(dir, { recursive: true, force: true });
   }
@@ -546,7 +592,10 @@ test('recordSourceGrowOutcome does not let linked existing titles mask zero fres
 test('recordSourceGrowOutcome sends unsustainably low verified-yield sources to probation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-'));
   const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
   process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
   try {
     recordSourceGrowOutcome('series-india-picks', 'series', [
       {
@@ -573,10 +622,246 @@ test('recordSourceGrowOutcome sends unsustainably low verified-yield sources to 
     assert.equal(report.sources[0]?.multiplier, sourceGrowProbationMultiplier());
     assert.equal(report.sources[0]?.probation, true);
   } finally {
+    resetPlayabilityDbForTests();
     if (previousOut === undefined) {
       delete process.env.MANGO_SOURCE_GROW_OUT;
     } else {
       process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('source grow weights persist across DB reload', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-persist-'));
+  const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
+  process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
+  try {
+    recordSourceGrowOutcome('movies-test', 'movie', [
+      {
+        source_key: 'AIOMetadata:persist',
+        source_label: 'AIOMetadata/persist',
+        content_type: 'movie',
+        scanned: 10,
+        fresh_queued: 10,
+        skipped_verified: 0,
+        skipped_recent_failed: 0,
+        linked_verified_seen: 0,
+        requested: 10,
+        returned: 10,
+        catalog_errors: 0,
+        rate_limited: 0,
+        exhausted: false,
+        verified: 6,
+        failed: 1,
+        theme_rejected: 0,
+      },
+    ], { growTargetMet: true, weighted: true, now: 1234, elapsedMs: 2_000 });
+    const first = loadSourceGrowReport(1234);
+    assert.ok(first);
+    resetPlayabilityDbForTests();
+    const second = loadSourceGrowReport(1234);
+    assert.deepEqual(second, first);
+  } finally {
+    resetPlayabilityDbForTests();
+    if (previousOut === undefined) {
+      delete process.env.MANGO_SOURCE_GROW_OUT;
+    } else {
+      process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('recordSourceGrowOutcome applies 0.70 decay on repeated runs', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-decay-'));
+  const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
+  process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
+  try {
+    const stats = {
+      source_key: 'AIOMetadata:decay',
+      source_label: 'AIOMetadata/decay',
+      content_type: 'movie' as const,
+      scanned: 10,
+      fresh_queued: 10,
+      skipped_verified: 0,
+      skipped_recent_failed: 0,
+      linked_verified_seen: 0,
+      requested: 10,
+      returned: 10,
+      catalog_errors: 0,
+      rate_limited: 0,
+      exhausted: false,
+      verified: 2,
+      failed: 1,
+      theme_rejected: 0,
+    };
+    recordSourceGrowOutcome('movies-test', 'movie', [stats], { growTargetMet: true, weighted: true, now: 1000, elapsedMs: 100 });
+    recordSourceGrowOutcome('movies-test', 'movie', [stats], { growTargetMet: true, weighted: true, now: 2000, elapsedMs: 100 });
+    const report = loadSourceGrowReport(2000);
+    assert.ok(report);
+    assert.equal(report.sources[0]?.fresh_queued, 17);
+    assert.equal(report.sources[0]?.verified, 3);
+    assert.equal(report.sources[0]?.failed, 2);
+  } finally {
+    resetPlayabilityDbForTests();
+    if (previousOut === undefined) {
+      delete process.env.MANGO_SOURCE_GROW_OUT;
+    } else {
+      process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('recordSourceGrowOutcome enforces probation floor multiplier', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-floor-'));
+  const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
+  process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
+  try {
+    recordSourceGrowOutcome('series-india-picks', 'series', [
+      {
+        source_key: 'AIOMetadata:floor',
+        source_label: 'AIOMetadata/floor',
+        content_type: 'series',
+        scanned: 120,
+        fresh_queued: 120,
+        skipped_verified: 0,
+        skipped_recent_failed: 0,
+        linked_verified_seen: 0,
+        requested: 120,
+        returned: 120,
+        catalog_errors: 0,
+        rate_limited: 0,
+        exhausted: true,
+        verified: 0,
+        failed: 100,
+        theme_rejected: 10,
+      },
+    ], { growTargetMet: false, weighted: true, now: 3000, elapsedMs: 1000 });
+    const report = loadSourceGrowReport(3000);
+    assert.ok(report);
+    assert.equal(report.sources[0]?.multiplier, sourceGrowProbationMultiplier());
+    assert.equal(report.sources[0]?.probation, true);
+  } finally {
+    resetPlayabilityDbForTests();
+    if (previousOut === undefined) {
+      delete process.env.MANGO_SOURCE_GROW_OUT;
+    } else {
+      process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('source grow migrates legacy json once then uses DB', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-source-grow-migrate-'));
+  const previousOut = process.env.MANGO_SOURCE_GROW_OUT;
+  const previousDbPath = process.env.MANGO_PLAYABILITY_DB;
+  process.env.MANGO_SOURCE_GROW_OUT = join(dir, 'latest.json');
+  process.env.MANGO_PLAYABILITY_DB = join(dir, 'playability.db');
+  resetPlayabilityDbForTests();
+  try {
+    writeFileSync(process.env.MANGO_SOURCE_GROW_OUT, JSON.stringify({
+      ts: 4000,
+      sources: [
+        {
+          source_key: 'AIOMetadata:legacy-a',
+          source_label: 'AIOMetadata/legacy-a',
+          content_type: 'movie',
+          scanned: 10,
+          fresh_queued: 10,
+          skipped_verified: 0,
+          skipped_recent_failed: 0,
+          linked_verified_seen: 0,
+          requested: 10,
+          returned: 10,
+          catalog_errors: 0,
+          rate_limited: 0,
+          exhausted: false,
+          verified: 3,
+          failed: 1,
+          theme_rejected: 0,
+          runs: 1,
+          multiplier: 1.2,
+          last_ts: 4000,
+        },
+      ],
+    }), 'utf8');
+    const first = loadSourceGrowReport(4000);
+    assert.ok(first);
+    assert.equal(first.sources[0]?.source_key, 'AIOMetadata:legacy-a');
+
+    writeFileSync(process.env.MANGO_SOURCE_GROW_OUT, JSON.stringify({
+      ts: 5000,
+      sources: [
+        {
+          source_key: 'AIOMetadata:legacy-b',
+          source_label: 'AIOMetadata/legacy-b',
+          content_type: 'movie',
+          scanned: 10,
+          fresh_queued: 10,
+          skipped_verified: 0,
+          skipped_recent_failed: 0,
+          linked_verified_seen: 0,
+          requested: 10,
+          returned: 10,
+          catalog_errors: 0,
+          rate_limited: 0,
+          exhausted: false,
+          verified: 9,
+          failed: 0,
+          theme_rejected: 0,
+          runs: 1,
+          multiplier: 1.9,
+          last_ts: 5000,
+        },
+      ],
+    }), 'utf8');
+    resetPlayabilityDbForTests();
+    const second = loadSourceGrowReport(5000);
+    assert.ok(second);
+    assert.equal(second.sources[0]?.source_key, 'AIOMetadata:legacy-a');
+  } finally {
+    resetPlayabilityDbForTests();
+    if (previousOut === undefined) {
+      delete process.env.MANGO_SOURCE_GROW_OUT;
+    } else {
+      process.env.MANGO_SOURCE_GROW_OUT = previousOut;
+    }
+    if (previousDbPath === undefined) {
+      delete process.env.MANGO_PLAYABILITY_DB;
+    } else {
+      process.env.MANGO_PLAYABILITY_DB = previousDbPath;
     }
     rmSync(dir, { recursive: true, force: true });
   }

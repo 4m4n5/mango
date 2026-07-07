@@ -24,6 +24,9 @@ type LauncherCommandMessage = {
   title?: string;
   poster?: string;
   seq?: number;
+  /** Verify-state carried through from voice search, when the orchestrator sends it. */
+  in_library?: boolean;
+  queued_for_verify?: boolean;
 };
 
 type VoiceCommandsResponse = {
@@ -94,6 +97,8 @@ function cardFromCommand(message: LauncherCommandMessage): { card: ContentCard |
           : contentType === "youtube_video"
             ? "video"
             : undefined,
+      inLibrary: message.in_library,
+      queuedForVerify: message.queued_for_verify,
     },
     reason: "",
   };

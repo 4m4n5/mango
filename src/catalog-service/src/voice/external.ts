@@ -20,6 +20,19 @@ export type ExternalSearchHit = {
   queued_for_verify: boolean;
 };
 
+/**
+ * Derives the couch-facing in_library / queued_for_verify signal from the
+ * playability index status. `queued_for_verify` covers both a title already
+ * sitting in 'pending' (queued by an earlier search) and one queued during
+ * this call — the caller sets `queuedThisCall` once it actually enqueues.
+ */
+export function deriveLibraryVerifyState(
+  status: 'verified' | 'failed' | 'pending' | 'stale' | undefined,
+): { inLibrary: boolean; alreadyQueued: boolean } {
+  const inLibrary = status === 'verified';
+  return { inLibrary, alreadyQueued: !inLibrary && status === 'pending' };
+}
+
 function tabForType(type: string): MangoBrowseTab {
   if (type.trim().toLowerCase() === 'series') {
     return 'series';
@@ -93,9 +106,9 @@ export async function searchExternalTitles(
       seen.add(key);
 
       const playability = await getTitlePlayability(contentType, bareId);
-      const inLibrary = playability?.status === 'verified';
-      let queued = false;
-      if (!inLibrary && options.queue_missing) {
+      const { inLibrary, alreadyQueued } = deriveLibraryVerifyState(playability?.status);
+      let queued = alreadyQueued;
+      if (!inLibrary && !queued && options.queue_missing) {
         const tab = tabForType(contentType);
         const railId = await defaultRailIdForTab(tab);
         await queueTitleForVoiceIngest({

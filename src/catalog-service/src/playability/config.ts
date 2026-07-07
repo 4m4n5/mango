@@ -84,6 +84,16 @@ export function playabilityFailedRetryMs(): number {
   return positiveDurationMs(process.env.MANGO_PLAYABILITY_FAILED_RETRY_MS, 24 * 60 * 60 * 1000, 60_000, 7 * 24 * 60 * 60 * 1000);
 }
 
+/**
+ * Q2: play_failure (couch-confirmed playback failure) gets its own short retry window,
+ * distinct from the ~7d no_stream/title_mismatch tombstone — a couch failure must be
+ * re-eligible well before the next nightly grow, not sit behind the generic window.
+ */
+export function playabilityPlayFailureRetryMs(): number {
+  const hours = boundedFloat(process.env.MANGO_PLAY_FAILURE_RETRY_HOURS, 1, 0, 7 * 24);
+  return Math.round(hours * 60 * 60 * 1000);
+}
+
 export function playabilityFailedRetryMsForReason(reason?: string | null): number {
   if (playabilityBootstrapFill()) {
     // Bootstrap re-probes titles poisoned by prior bad runs (e.g. probe argv bug).
@@ -97,6 +107,8 @@ export function playabilityFailedRetryMsForReason(reason?: string | null): numbe
         0,
         24 * 60 * 60 * 1000,
       );
+    case 'play_failure':
+      return playabilityPlayFailureRetryMs();
     case 'no_stream':
     case 'title_mismatch':
       if (isPlayabilityGrowPass()) {
@@ -335,6 +347,31 @@ export function playabilityGrowSourceCatalogErrorLimit(): number {
 /** Bounded per-rail candidate audit samples included in grow reports. */
 export function playabilityGrowCandidateAuditLimit(): number {
   return boundedInt(process.env.MANGO_GROW_CANDIDATE_AUDIT_LIMIT, 80, 0, 500);
+}
+
+/** H1: master switch for the live in-process trigger-consumer background tick. Off by default (couch safety). */
+export function triggerConsumerEnabled(): boolean {
+  return process.env.MANGO_TRIGGER_CONSUMER === '1';
+}
+
+/** Bounded rows drained per background-tick call (couch-safety — small and rate-limited). */
+export function triggerConsumerBatchLimit(): number {
+  return boundedInt(process.env.MANGO_TRIGGER_CONSUMER_BATCH, 10, 1, 100);
+}
+
+/** Bounded rows drained per nightly-maintenance-chain call (no couch latency concern — larger). */
+export function triggerConsumerMaintenanceBatchLimit(): number {
+  return boundedInt(process.env.MANGO_TRIGGER_CONSUMER_MAINTENANCE_BATCH, 200, 1, 2000);
+}
+
+/** Debounce between background-tick drains. */
+export function triggerConsumerCooldownMs(): number {
+  return positiveDurationMs(process.env.MANGO_TRIGGER_CONSUMER_COOLDOWN_MS, 5 * 60 * 1000, 30_000, 60 * 60 * 1000);
+}
+
+/** Couch idle threshold (seconds) before the background tick is allowed to run. */
+export function triggerConsumerIdleSec(): number {
+  return boundedInt(process.env.MANGO_TRIGGER_CONSUMER_IDLE_SEC, 1800, 30, 24 * 60 * 60);
 }
 
 export function isPlayabilityGrowthMode(mode?: string): boolean {

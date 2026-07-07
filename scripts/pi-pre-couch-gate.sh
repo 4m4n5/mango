@@ -74,6 +74,16 @@ if [[ "$BRANCH" == "feat/native-experience" ]]; then
   fi
   bash scripts/gate-lite.sh
   bash scripts/m6-ship/gate-m6-ux-smoke.sh
+  if [[ "${MANGO_GATE_SKIP_RELIABILITY:-0}" == "1" ]]; then
+    echo "WARN: reliability proof skipped (MANGO_GATE_SKIP_RELIABILITY=1)" >&2
+  else
+    bash scripts/m6-ship/gate-m6-reliability-proof.sh
+  fi
+  if [[ "${MANGO_GATE_SKIP_YOUTUBE:-0}" == "1" ]]; then
+    echo "WARN: YouTube smoke skipped (MANGO_GATE_SKIP_YOUTUBE=1)" >&2
+  else
+    bash scripts/m6-ship/gate-m6-youtube-smoke.sh
+  fi
   bash scripts/m6-ship/gate-m6-playback-ssot.sh
   bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
   echo "PRE-COUCH: PASS"

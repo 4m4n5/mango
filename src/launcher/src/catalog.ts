@@ -82,6 +82,9 @@ export interface CatalogMeta {
   description?: string;
   releaseInfo?: string;
   runtime?: string;
+  /** Verify-state — additive fields from the catalog meta endpoint. */
+  in_library?: boolean;
+  queued_for_verify?: boolean;
 }
 
 export interface PlayResult {
@@ -98,6 +101,8 @@ export interface PlayResult {
     format?: string;
   };
   error?: string;
+  /** True on the play that first promotes a title to the verified library. */
+  first_time_verified?: boolean;
 }
 
 export interface CatalogStream {

@@ -1,18 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import http from 'node:http';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { PlayabilityStatus } from '../playability/db.js';
 import { startRefreshJob } from '../playability/refresh-control.js';
-import { evaluateReliability } from './model.js';
+import { computeStarvingRails, evaluateReliability } from './model.js';
 import {
   appendReliabilityProof,
   latestReliabilityProof,
   listReliabilityProofs,
 } from './store.js';
 import type {
+  RailGrowthNight,
   ReliabilityFacts,
   ReliabilityProofRecord,
   ReliabilityState,
@@ -50,6 +51,15 @@ function cacheDir(): string {
 
 function couchActivityPath(): string {
   return process.env.MANGO_COUCH_ACTIVITY_STATE || join(cacheDir(), 'couch-activity.json');
+}
+
+function opsDir(): string {
+  return join(cacheDir(), 'ops');
+}
+
+function railMissNightsThreshold(): number {
+  const parsed = Number(process.env.MANGO_RAIL_MISS_NIGHTS || 3);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 3;
 }
 
 function idleAfterSec(): number {
@@ -311,6 +321,77 @@ function processFacts(): ReliabilityFacts['processes'] {
   };
 }
 
+const REFRESH_JSON_MAX_FILES = 120;
+
+function refreshJsonFileNames(dir: string): string[] {
+  try {
+    return readdirSync(dir).filter((name) => (
+      name.startsWith('refresh-playability-') && name.endsWith('.json') && !name.endsWith('-deferred.json')
+    ));
+  } catch {
+    return [];
+  }
+}
+
+function refreshPayloadTimestamp(dir: string, name: string, payload: Record<string, unknown>): number {
+  const finished = safeNumber(payload.finished_at, 0);
+  if (finished > 0) return finished;
+  const started = safeNumber(payload.started_at, 0);
+  if (started > 0) return started;
+  try {
+    return statSync(join(dir, name)).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+function refreshPayloadRailNight(payload: Record<string, unknown>): RailGrowthNight['rails'] {
+  const mode = payload.mode;
+  if (mode !== undefined && mode !== 'grow' && mode !== 'nightly') return [];
+  const rails = Array.isArray(payload.rails) ? payload.rails : [];
+  return rails
+    .filter((row): row is Record<string, unknown> => (
+      !!row && typeof row === 'object' && typeof (row as Record<string, unknown>).rail_id === 'string'
+    ))
+    .map((row) => {
+      const growTarget = safeNumber(row.grow_target, 20);
+      const freshVerified = safeNumber(
+        row.new_to_rail_verified ?? row.fresh_verified ?? row.probe_verified,
+        0,
+      );
+      const met = typeof row.grow_target_met === 'boolean' ? row.grow_target_met : freshVerified >= growTarget;
+      return {
+        rail_id: safeString(row.rail_id),
+        grow_target: growTarget,
+        new_to_rail_verified: freshVerified,
+        grow_target_met: met,
+      };
+    });
+}
+
+/** Reads nightly/grow refresh JSON (scripts/diag/extract_refresh_json.py output) into per-night rail rows. */
+function railGrowthHistory(): RailGrowthNight[] {
+  const dir = opsDir();
+  const names = refreshJsonFileNames(dir).slice(-REFRESH_JSON_MAX_FILES);
+  const nights: RailGrowthNight[] = [];
+  for (const name of names) {
+    let payload: Record<string, unknown>;
+    try {
+      payload = JSON.parse(readFileSync(join(dir, name), 'utf8')) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const rails = refreshPayloadRailNight(payload);
+    if (rails.length === 0) continue;
+    nights.push({ generated_at: refreshPayloadTimestamp(dir, name, payload), rails });
+  }
+  return nights;
+}
+
+function railGrowthFacts(): ReliabilityFacts['rail_growth'] {
+  return { threshold_nights: railMissNightsThreshold(), history: railGrowthHistory() };
+}
+
 function runDetached(script: string, args: string[]): number {
   const child = spawn('bash', [script, ...args], {
     cwd: repoDir(),
@@ -328,7 +409,7 @@ function runDetached(script: string, args: string[]): number {
 export class ReliabilityService {
   constructor(private readonly options: ReliabilityServiceOptions) {}
 
-  async state(): Promise<ReliabilityState> {
+  private async gatherFacts(): Promise<ReliabilityFacts> {
     const [idle, launcher, playability] = await Promise.all([
       readCouchIdle(),
       launcherHealth(),
@@ -346,7 +427,7 @@ export class ReliabilityService {
     if ('error' in playability && playability.error) {
       playabilityInfo.error = playability.error;
     }
-    const facts: ReliabilityFacts = {
+    return {
       generated_at: nowMs(),
       commit: gitCommit(),
       idle,
@@ -361,9 +442,13 @@ export class ReliabilityService {
         busy: maintenanceBusy(),
         stale_locks: staleLocks(),
       },
+      rail_growth: railGrowthFacts(),
       last_proof: latestReliabilityProof(),
     };
-    return evaluateReliability(facts);
+  }
+
+  async state(): Promise<ReliabilityState> {
+    return evaluateReliability(await this.gatherFacts());
   }
 
   proofs(limit = 20): ReliabilityProofRecord[] {
@@ -375,7 +460,22 @@ export class ReliabilityService {
     proof: ReliabilityProofRecord;
     state: ReliabilityState;
   }> {
-    const state = await this.state();
+    const facts = await this.gatherFacts();
+    const state = evaluateReliability(facts);
+    const starvingRails = computeStarvingRails(facts.rail_growth.history)
+      .filter((rail) => rail.nights_missed >= facts.rail_growth.threshold_nights);
+    // Operator-only digest of starving rails, attached automatically so it is
+    // never lost even if the caller (e.g. the nightly proof shell hop) does
+    // not know about rail-growth tracking. Never surfaced on the TV.
+    const mergedMetadata: Record<string, unknown> = { ...metadata };
+    if (starvingRails.length > 0) {
+      mergedMetadata.starving_rails = starvingRails.map((rail) => ({
+        rail_id: rail.rail_id,
+        nights_missed: rail.nights_missed,
+        last_yield: rail.last_yield,
+        grow_target: rail.grow_target,
+      }));
+    }
     const record: ReliabilityProofRecord = {
       proof_id: randomUUID(),
       reason,
@@ -386,7 +486,7 @@ export class ReliabilityService {
       generated_at_iso: state.generated_at_iso,
       commit: state.commit,
       idle: state.idle.idle,
-      metadata,
+      metadata: mergedMetadata,
       components: state.components,
     };
     appendReliabilityProof(record);

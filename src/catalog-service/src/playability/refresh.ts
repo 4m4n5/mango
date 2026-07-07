@@ -8,13 +8,16 @@ import {
   getRailPoolOverlapSummary,
   getRailIngestOffsetsBulk,
   getRailPoolTitleKeysBulk,
+  getPlayFailureTitlesForReverify,
   getStaleTitlesForRefresh,
   getTitlesPlayabilityBulk,
   pruneNonPlayableFromRailPools,
   setRailIngestOffset,
+  sweepExpiredVerified,
   type PlayabilityRailStatus,
   type RailPoolOverlapSummary,
 } from './db.js';
+import { drainTriggers, type DrainTriggersResult } from './trigger-consumer.js';
 import {
   ingestPaginatedCandidates,
   type IngestCandidatesStats,
@@ -37,6 +40,7 @@ import {
   playabilityGrowRequireTarget,
   playabilityIngestPageSize,
   playabilityMaxIngestScan,
+  triggerConsumerMaintenanceBatchLimit,
 } from './config.js';
 import {
   effectiveCandidateLimit,
@@ -175,6 +179,10 @@ export type RefreshAllResult = {
   overlap_before?: RailPoolOverlapSummary;
   overlap_after?: RailPoolOverlapSummary;
   retheme_finalization?: Omit<RethemePoolsResult, 'actions'>;
+  /** H3: expires_at<=now verified rows demoted to stale at the start of this refresh (diagnostics). */
+  swept_expired?: number;
+  /** H1: playability_triggers drained at the start of this refresh (nightly maintenance chain). */
+  trigger_drain?: DrainTriggersResult;
   rails: RefreshRailSummary[];
 };
 
@@ -509,14 +517,30 @@ async function refreshAllRailsGrow(
   return refreshResult;
 }
 
+/**
+ * H1/H3: run once at the start of every refreshAllRails call (the sole entry point the nightly
+ * maintenance chain's indexer CLI invokes for both its stale and grow phases). Sweeping expired
+ * verified rows first means freshly-staled rows are picked up by the same run's stale phase;
+ * draining triggers first means already re-verified titles don't get redundantly re-queued below.
+ */
+async function runNightlyChainStartHooks(
+  core: CatalogCore,
+): Promise<{ swept_expired: number; trigger_drain: DrainTriggersResult }> {
+  const sweepResult = await sweepExpiredVerified();
+  const triggerDrain = await drainTriggers(core, { limit: triggerConsumerMaintenanceBatchLimit() });
+  return { swept_expired: sweepResult.swept, trigger_drain: triggerDrain };
+}
+
 export async function refreshAllRails(
   core: CatalogCore,
   options: RefreshAllOptions = {},
 ): Promise<RefreshAllResult> {
+  const { swept_expired: sweptExpired, trigger_drain: triggerDrain } = await runNightlyChainStartHooks(core);
   const mode = normalizeRefreshMode(options.mode);
   const bootstrap = options.bootstrap ?? playabilityBootstrapFill();
   if (isGrowRefreshMode(mode, bootstrap)) {
-    return refreshAllRailsGrow(core, { ...options, mode });
+    const growResult = await refreshAllRailsGrow(core, { ...options, mode });
+    return { ...growResult, swept_expired: sweptExpired, trigger_drain: triggerDrain };
   }
 
   const startedAt = Date.now();
@@ -616,6 +640,23 @@ export async function refreshAllRails(
         railId: title.rail_id ?? railIds[0] ?? 'unknown',
         index: 0,
         candidate: { id: title.id, type: title.type, source: 'stale_pool' },
+      }]);
+    }
+  }
+
+  // Q2: play_failure rows past their short retry window are force-reprobed here (via staleKeys)
+  // even though they're status='failed', not 'stale' — this is the guarantee that a couch play
+  // failure is re-verified on the next nightly stale phase regardless of rail pool capacity or
+  // whether the title resurfaces in a curated source-list scan.
+  const playFailureReverifyTitles = mode === 'stale' ? await getPlayFailureTitlesForReverify() : [];
+  for (const title of playFailureReverifyTitles) {
+    const key = candidateKey(title);
+    staleKeys.add(key);
+    if (!refsByKey.has(key)) {
+      refsByKey.set(key, [{
+        railId: title.rail_id ?? railIds[0] ?? 'unknown',
+        index: 0,
+        candidate: { id: title.id, type: title.type, source: 'play_failure_reverify' },
       }]);
     }
   }
@@ -765,6 +806,8 @@ export async function refreshAllRails(
     pruned_pool_entries: prunedPoolEntries,
     ingest_fresh_queued: ingestFreshQueued,
     ingest_scanned: ingestScanned,
+    swept_expired: sweptExpired,
+    trigger_drain: triggerDrain,
     rails: railSummaries,
   };
 

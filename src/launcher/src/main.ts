@@ -14,6 +14,7 @@ import {
 import { buildSettingsRefresh, reliabilityBadgeText, settingsFocusables } from "./settings";
 import { fetchReliabilityState } from "./reliability";
 import { startVoiceHud } from "./voice-hud";
+import { showToast } from "./toast";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
 import { startPadNavPoll } from "./pad-nav";
 import { cardSavedKey, fetchSavedIds } from "./saved";
@@ -33,6 +34,7 @@ const detailPoster = mustGet<HTMLImageElement>("detail-poster");
 const detailEyebrow = mustGet<HTMLElement>("detail-eyebrow");
 const detailTitle = mustGet<HTMLElement>("detail-title");
 const detailMeta = mustGet<HTMLElement>("detail-meta");
+const detailVerifyBadge = mustGet<HTMLElement>("detail-verify-badge");
 const detailDescription = mustGet<HTMLElement>("detail-description");
 const detailPlay = mustGet<HTMLButtonElement>("detail-play");
 const detailSave = mustGet<HTMLButtonElement>("detail-save");
@@ -136,6 +138,7 @@ const detail = new DetailController(
   detailEyebrow,
   detailTitle,
   detailMeta,
+  detailVerifyBadge,
   detailDescription,
   detailPlay,
   detailSave,
@@ -153,7 +156,10 @@ const detail = new DetailController(
     onStatus: setStatus,
     onSavedChanged: () => void reloadSavedAndCatalog(),
     isSaved: (card) => savedKeys.has(cardSavedKey(card)),
-    onPlayed: (card) => {
+    onPlayed: (card, result) => {
+      if (result.first_time_verified) {
+        showToast("added to library");
+      }
       if (card.source === "youtube" || card.type.startsWith("youtube_")) {
         tabCatalogCache.delete("youtube");
         youtubeCatalogDirty = true;

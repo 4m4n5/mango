@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
@@ -17,10 +18,11 @@ import {
 } from './rail-overrides.js';
 import type { RailPlayabilityConfig } from '../rails.js';
 import { effectiveDisplayLimit } from './pool-growth.js';
+import { playabilityPlayFailureRetryMs } from './config.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 export type PlayabilityRailStatus = {
   rail_id: string;
@@ -155,12 +157,34 @@ export type TabRailSessionAllocateOptions = {
   stableRatio?: number;
 };
 
+export type PlayabilityTriggerType =
+  | 'pool_low'
+  | 'display_low'
+  | 'stale'
+  | 'config_change'
+  | 'play_failure'
+  /** H2: fast-lane re-verify enqueued alongside invalidateTitle(reason=play_failure) — drained first (H1). */
+  | 'play_failure_reverify'
+  | 'scheduled'
+  | 'voice_request';
+
 export type PlayabilityTriggerRecord = {
-  trigger_type: 'pool_low' | 'display_low' | 'stale' | 'config_change' | 'play_failure' | 'scheduled' | 'voice_request';
+  trigger_type: PlayabilityTriggerType;
   rail_id?: string | null;
   type?: string | null;
   id?: string | null;
   reason?: string | null;
+};
+
+export type PlayabilityTriggerRow = {
+  id: number;
+  created_at: number;
+  trigger_type: PlayabilityTriggerType;
+  rail_id: string | null;
+  type: string | null;
+  id_value: string | null;
+  reason: string | null;
+  handled_at: number | null;
 };
 
 type StatusRow = {
@@ -223,6 +247,43 @@ type RailCandidateRejectionRow = {
   details: string | null;
 };
 
+export type SourceGrowWeightRecord = {
+  source_key: string;
+  rail_id: string | null;
+  source_label: string;
+  content_type: string;
+  scanned: number;
+  fresh_queued: number;
+  skipped_verified: number;
+  skipped_recent_failed: number;
+  linked_verified_seen: number;
+  requested: number;
+  returned: number;
+  catalog_errors: number;
+  rate_limited: number;
+  exhausted: boolean;
+  verified: number;
+  failed: number;
+  theme_rejected: number;
+  unresolved_external_id: number;
+  runs: number;
+  multiplier: number;
+  probation: boolean;
+  probation_multiplier: number;
+  elapsed_ms: number;
+  last_ts: number;
+  rollback_reason: string | null;
+  updated_at: number;
+};
+
+export type SourceGrowRailOutcomeRecord = {
+  rail_id: string;
+  target_met: boolean;
+  weighted: boolean;
+  last_ts: number;
+  updated_at: number;
+};
+
 function dbPath(): string {
   return process.env.MANGO_PLAYABILITY_DB || DEFAULT_DB_PATH;
 }
@@ -273,6 +334,155 @@ export function resetPlayabilityDbForTests(): void {
 
 function nowMs(): number {
   return Date.now();
+}
+
+function ensurePlayabilitySchemaInitialized(): void {
+  mkdirSync(dirname(dbPath()), { recursive: true });
+  const db = openDb();
+  if (schemaInitialized) {
+    return;
+  }
+  db.exec(`
+PRAGMA journal_mode=WAL;
+PRAGMA foreign_keys=ON;
+
+CREATE TABLE IF NOT EXISTS playability_migrations (
+  version INTEGER PRIMARY KEY,
+  applied_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS titles (
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('verified', 'failed', 'pending', 'stale')),
+  verified_at INTEGER,
+  expires_at INTEGER,
+  fail_reason TEXT,
+  best_source TEXT,
+  cache_status TEXT,
+  debrid_service TEXT,
+  probe_ms INTEGER,
+  win_url_hash TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (type, id)
+);
+
+CREATE TABLE IF NOT EXISTS rail_pool (
+  rail_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  score REAL NOT NULL DEFAULT 0,
+  ingested_at INTEGER NOT NULL,
+  PRIMARY KEY (rail_id, type, id)
+);
+
+CREATE TABLE IF NOT EXISTS rail_session (
+  rail_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  slot INTEGER NOT NULL,
+  mix_bucket TEXT NOT NULL CHECK (mix_bucket IN ('stable', 'fresh')),
+  session_id TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (rail_id, session_id, slot)
+);
+
+CREATE TABLE IF NOT EXISTS recently_shown (
+  rail_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  shown_at INTEGER NOT NULL,
+  PRIMARY KEY (rail_id, type, id)
+);
+
+CREATE TABLE IF NOT EXISTS verify_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  started_at INTEGER NOT NULL,
+  rail_id TEXT,
+  type TEXT NOT NULL,
+  id_value TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  ms INTEGER NOT NULL DEFAULT 0,
+  outcome TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS playability_triggers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at INTEGER NOT NULL,
+  trigger_type TEXT NOT NULL,
+  rail_id TEXT,
+  type TEXT,
+  id_value TEXT,
+  reason TEXT,
+  handled_at INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS rail_candidate_rejections (
+  rail_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  source_key TEXT,
+  run_id TEXT,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  details TEXT,
+  PRIMARY KEY (rail_id, type, id)
+);
+
+CREATE TABLE IF NOT EXISTS source_grow_weights (
+  source_key TEXT NOT NULL,
+  rail_id TEXT NOT NULL DEFAULT '',
+  source_label TEXT NOT NULL DEFAULT '',
+  content_type TEXT NOT NULL,
+  scanned REAL NOT NULL DEFAULT 0,
+  fresh_queued REAL NOT NULL DEFAULT 0,
+  skipped_verified REAL NOT NULL DEFAULT 0,
+  skipped_recent_failed REAL NOT NULL DEFAULT 0,
+  linked_verified_seen REAL NOT NULL DEFAULT 0,
+  requested REAL NOT NULL DEFAULT 0,
+  returned REAL NOT NULL DEFAULT 0,
+  catalog_errors REAL NOT NULL DEFAULT 0,
+  rate_limited REAL NOT NULL DEFAULT 0,
+  exhausted INTEGER NOT NULL DEFAULT 0,
+  verified REAL NOT NULL DEFAULT 0,
+  failed REAL NOT NULL DEFAULT 0,
+  theme_rejected REAL NOT NULL DEFAULT 0,
+  unresolved_external_id REAL NOT NULL DEFAULT 0,
+  runs INTEGER NOT NULL DEFAULT 0,
+  multiplier REAL NOT NULL DEFAULT 1,
+  probation INTEGER NOT NULL DEFAULT 0,
+  probation_multiplier REAL NOT NULL DEFAULT 0.08,
+  elapsed_ms REAL NOT NULL DEFAULT 0,
+  last_ts INTEGER NOT NULL,
+  rollback_reason TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (source_key, rail_id)
+);
+
+CREATE TABLE IF NOT EXISTS source_grow_rail_outcomes (
+  rail_id TEXT PRIMARY KEY,
+  target_met INTEGER NOT NULL,
+  weighted INTEGER NOT NULL,
+  last_ts INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_titles_status_expires ON titles(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_rail_pool_rail_score ON rail_pool(rail_id, score DESC);
+CREATE INDEX IF NOT EXISTS idx_rail_session_session ON rail_session(session_id, rail_id, slot);
+CREATE INDEX IF NOT EXISTS idx_recently_shown_rail_time ON recently_shown(rail_id, shown_at);
+CREATE INDEX IF NOT EXISTS idx_verify_log_started ON verify_log(started_at);
+CREATE INDEX IF NOT EXISTS idx_playability_triggers_open ON playability_triggers(handled_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_rail_candidate_rejections_active ON rail_candidate_rejections(rail_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_rail_pool_type_id ON rail_pool(type, id);
+CREATE INDEX IF NOT EXISTS idx_verify_log_lookup ON verify_log(type, id_value, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_source_grow_weights_updated ON source_grow_weights(updated_at);
+CREATE INDEX IF NOT EXISTS idx_source_grow_weights_rail ON source_grow_weights(rail_id, updated_at);
+`);
+  applySchemaMigrations(db);
+  prunePlayabilityMaintenance();
+  schemaInitialized = true;
 }
 
 function toNumber(value: number | null | undefined): number {
@@ -435,111 +645,7 @@ function emptyRailStatus(railId: string): PlayabilityRailStatus {
 
 export async function initPlayabilityDb(): Promise<void> {
   await mkdir(dirname(dbPath()), { recursive: true });
-  const db = openDb();
-  if (schemaInitialized) {
-    return;
-  }
-  db.exec(`
-PRAGMA journal_mode=WAL;
-PRAGMA foreign_keys=ON;
-
-CREATE TABLE IF NOT EXISTS playability_migrations (
-  version INTEGER PRIMARY KEY,
-  applied_at INTEGER NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS titles (
-  type TEXT NOT NULL,
-  id TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('verified', 'failed', 'pending', 'stale')),
-  verified_at INTEGER,
-  expires_at INTEGER,
-  fail_reason TEXT,
-  best_source TEXT,
-  cache_status TEXT,
-  debrid_service TEXT,
-  probe_ms INTEGER,
-  win_url_hash TEXT,
-  updated_at INTEGER NOT NULL,
-  PRIMARY KEY (type, id)
-);
-
-CREATE TABLE IF NOT EXISTS rail_pool (
-  rail_id TEXT NOT NULL,
-  type TEXT NOT NULL,
-  id TEXT NOT NULL,
-  score REAL NOT NULL DEFAULT 0,
-  ingested_at INTEGER NOT NULL,
-  PRIMARY KEY (rail_id, type, id)
-);
-
-CREATE TABLE IF NOT EXISTS rail_session (
-  rail_id TEXT NOT NULL,
-  type TEXT NOT NULL,
-  id TEXT NOT NULL,
-  slot INTEGER NOT NULL,
-  mix_bucket TEXT NOT NULL CHECK (mix_bucket IN ('stable', 'fresh')),
-  session_id TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY (rail_id, session_id, slot)
-);
-
-CREATE TABLE IF NOT EXISTS recently_shown (
-  rail_id TEXT NOT NULL,
-  type TEXT NOT NULL,
-  id TEXT NOT NULL,
-  shown_at INTEGER NOT NULL,
-  PRIMARY KEY (rail_id, type, id)
-);
-
-CREATE TABLE IF NOT EXISTS verify_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  started_at INTEGER NOT NULL,
-  rail_id TEXT,
-  type TEXT NOT NULL,
-  id_value TEXT NOT NULL,
-  stage TEXT NOT NULL,
-  ms INTEGER NOT NULL DEFAULT 0,
-  outcome TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS playability_triggers (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  created_at INTEGER NOT NULL,
-  trigger_type TEXT NOT NULL,
-  rail_id TEXT,
-  type TEXT,
-  id_value TEXT,
-  reason TEXT,
-  handled_at INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS rail_candidate_rejections (
-  rail_id TEXT NOT NULL,
-  type TEXT NOT NULL,
-  id TEXT NOT NULL,
-  reason TEXT NOT NULL,
-  source_key TEXT,
-  run_id TEXT,
-  created_at INTEGER NOT NULL,
-  expires_at INTEGER NOT NULL,
-  details TEXT,
-  PRIMARY KEY (rail_id, type, id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_titles_status_expires ON titles(status, expires_at);
-CREATE INDEX IF NOT EXISTS idx_rail_pool_rail_score ON rail_pool(rail_id, score DESC);
-CREATE INDEX IF NOT EXISTS idx_rail_session_session ON rail_session(session_id, rail_id, slot);
-CREATE INDEX IF NOT EXISTS idx_recently_shown_rail_time ON recently_shown(rail_id, shown_at);
-CREATE INDEX IF NOT EXISTS idx_verify_log_started ON verify_log(started_at);
-CREATE INDEX IF NOT EXISTS idx_playability_triggers_open ON playability_triggers(handled_at, created_at);
-CREATE INDEX IF NOT EXISTS idx_rail_candidate_rejections_active ON rail_candidate_rejections(rail_id, expires_at);
-CREATE INDEX IF NOT EXISTS idx_rail_pool_type_id ON rail_pool(type, id);
-CREATE INDEX IF NOT EXISTS idx_verify_log_lookup ON verify_log(type, id_value, started_at DESC);
-`);
-  applySchemaMigrations(db);
-  prunePlayabilityMaintenance();
-  schemaInitialized = true;
+  ensurePlayabilitySchemaInitialized();
 }
 
 /** Deletes off-browse-path bloat. Called once at init, never per request. */
@@ -562,6 +668,9 @@ export function prunePlayabilityMaintenance(now: number = nowMs()): number {
 function applySchemaMigrations(db: Database.Database): void {
   const appliedVersion = Number(
     (db.prepare('SELECT COALESCE(MAX(version), 0) AS version FROM playability_migrations').get() as { version?: number } | undefined)?.version ?? 0,
+  );
+  const hasVersion7 = Boolean(
+    db.prepare('SELECT 1 FROM playability_migrations WHERE version = 7 LIMIT 1').get(),
   );
   const columns = db.prepare('PRAGMA table_info(titles)').all() as Array<{ name: string }>;
   if (!columns.some((column) => column.name === 'win_ladder_step')) {
@@ -630,13 +739,162 @@ CREATE INDEX IF NOT EXISTS idx_rail_candidate_rejections_active
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (6, @applied_at);
 `).run({ applied_at: nowMs() });
-  if (appliedVersion < 7) {
+  if (!hasVersion7 || appliedVersion < 7) {
     repairSeriesBrowseCanonicalization(db);
   }
   db.prepare(`
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (7, @applied_at);
 `).run({ applied_at: nowMs() });
+  db.exec(`
+CREATE TABLE IF NOT EXISTS source_grow_weights (
+  source_key TEXT NOT NULL,
+  rail_id TEXT NOT NULL DEFAULT '',
+  source_label TEXT NOT NULL DEFAULT '',
+  content_type TEXT NOT NULL,
+  scanned REAL NOT NULL DEFAULT 0,
+  fresh_queued REAL NOT NULL DEFAULT 0,
+  skipped_verified REAL NOT NULL DEFAULT 0,
+  skipped_recent_failed REAL NOT NULL DEFAULT 0,
+  linked_verified_seen REAL NOT NULL DEFAULT 0,
+  requested REAL NOT NULL DEFAULT 0,
+  returned REAL NOT NULL DEFAULT 0,
+  catalog_errors REAL NOT NULL DEFAULT 0,
+  rate_limited REAL NOT NULL DEFAULT 0,
+  exhausted INTEGER NOT NULL DEFAULT 0,
+  verified REAL NOT NULL DEFAULT 0,
+  failed REAL NOT NULL DEFAULT 0,
+  theme_rejected REAL NOT NULL DEFAULT 0,
+  unresolved_external_id REAL NOT NULL DEFAULT 0,
+  runs INTEGER NOT NULL DEFAULT 0,
+  multiplier REAL NOT NULL DEFAULT 1,
+  probation INTEGER NOT NULL DEFAULT 0,
+  probation_multiplier REAL NOT NULL DEFAULT 0.08,
+  elapsed_ms REAL NOT NULL DEFAULT 0,
+  last_ts INTEGER NOT NULL,
+  rollback_reason TEXT,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (source_key, rail_id)
+);
+CREATE TABLE IF NOT EXISTS source_grow_rail_outcomes (
+  rail_id TEXT PRIMARY KEY,
+  target_met INTEGER NOT NULL,
+  weighted INTEGER NOT NULL,
+  last_ts INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_source_grow_weights_updated ON source_grow_weights(updated_at);
+CREATE INDEX IF NOT EXISTS idx_source_grow_weights_rail ON source_grow_weights(rail_id, updated_at);
+`);
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (8, @applied_at);
+`).run({ applied_at: nowMs() });
+}
+
+export function listSourceGrowWeights(): SourceGrowWeightRecord[] {
+  ensurePlayabilitySchemaInitialized();
+  const db = openDb();
+  return db.prepare(`
+SELECT
+  source_key,
+  NULLIF(rail_id, '') AS rail_id,
+  source_label,
+  content_type,
+  scanned,
+  fresh_queued,
+  skipped_verified,
+  skipped_recent_failed,
+  linked_verified_seen,
+  requested,
+  returned,
+  catalog_errors,
+  rate_limited,
+  exhausted,
+  verified,
+  failed,
+  theme_rejected,
+  unresolved_external_id,
+  runs,
+  multiplier,
+  probation,
+  probation_multiplier,
+  elapsed_ms,
+  last_ts,
+  rollback_reason,
+  updated_at
+FROM source_grow_weights
+ORDER BY rail_id, source_key;
+`).all() as SourceGrowWeightRecord[];
+}
+
+export function listSourceGrowRailOutcomes(): SourceGrowRailOutcomeRecord[] {
+  ensurePlayabilitySchemaInitialized();
+  const db = openDb();
+  return db.prepare(`
+SELECT rail_id, target_met, weighted, last_ts, updated_at
+FROM source_grow_rail_outcomes
+ORDER BY rail_id;
+`).all() as SourceGrowRailOutcomeRecord[];
+}
+
+export function replaceSourceGrowWeights(
+  weights: SourceGrowWeightRecord[],
+  outcomes: SourceGrowRailOutcomeRecord[],
+): void {
+  ensurePlayabilitySchemaInitialized();
+  const db = openDb();
+  const deleteWeights = db.prepare('DELETE FROM source_grow_weights');
+  const deleteOutcomes = db.prepare('DELETE FROM source_grow_rail_outcomes');
+  const insertWeight = db.prepare(`
+INSERT INTO source_grow_weights (
+  source_key, rail_id, source_label, content_type, scanned, fresh_queued,
+  skipped_verified, skipped_recent_failed, linked_verified_seen, requested, returned,
+  catalog_errors, rate_limited, exhausted, verified, failed, theme_rejected,
+  unresolved_external_id, runs, multiplier, probation, probation_multiplier,
+  elapsed_ms, last_ts, rollback_reason, updated_at
+) VALUES (
+  @source_key, @rail_id, @source_label, @content_type, @scanned, @fresh_queued,
+  @skipped_verified, @skipped_recent_failed, @linked_verified_seen, @requested, @returned,
+  @catalog_errors, @rate_limited, @exhausted, @verified, @failed, @theme_rejected,
+  @unresolved_external_id, @runs, @multiplier, @probation, @probation_multiplier,
+  @elapsed_ms, @last_ts, @rollback_reason, @updated_at
+);
+`);
+  const insertOutcome = db.prepare(`
+INSERT INTO source_grow_rail_outcomes (
+  rail_id, target_met, weighted, last_ts, updated_at
+) VALUES (
+  @rail_id, @target_met, @weighted, @last_ts, @updated_at
+);
+`);
+  const transaction = db.transaction(() => {
+    deleteWeights.run();
+    deleteOutcomes.run();
+    for (const weight of weights) {
+      insertWeight.run({
+        ...weight,
+        rail_id: weight.rail_id ?? '',
+        exhausted: weight.exhausted ? 1 : 0,
+        probation: weight.probation ? 1 : 0,
+      });
+    }
+    for (const outcome of outcomes) {
+      insertOutcome.run({
+        ...outcome,
+        target_met: outcome.target_met ? 1 : 0,
+        weighted: outcome.weighted ? 1 : 0,
+      });
+    }
+  });
+  transaction();
+}
+
+export function clearSourceGrowWeights(): void {
+  ensurePlayabilitySchemaInitialized();
+  const db = openDb();
+  db.prepare('DELETE FROM source_grow_weights').run();
+  db.prepare('DELETE FROM source_grow_rail_outcomes').run();
 }
 
 function repairSeriesBrowseCanonicalization(db: Database.Database): void {
@@ -1319,6 +1577,46 @@ WHERE t.status = 'stale';
 export async function getStaleTitlesInPools(): Promise<Array<{ type: string; id: string }>> {
   const rows = await getStaleTitlesForRefresh();
   return rows.map(({ type, id }) => ({ type, id }));
+}
+
+/**
+ * Q2: play_failure-tombstoned titles whose short dedicated retry window has elapsed.
+ * These must be picked up by the nightly stale-reverify phase even when they never
+ * resurface in a curated source-list scan (candidate-ingest only guards re-ingestion,
+ * it never actively re-queues a title that already dropped out of every rail pool).
+ */
+export async function getPlayFailureTitlesForReverify(
+  now: number = nowMs(),
+): Promise<Array<{ type: string; id: string; rail_id: string | null }>> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const cutoff = now - playabilityPlayFailureRetryMs();
+  return db.prepare(`
+SELECT DISTINCT
+  t.type,
+  t.id,
+  COALESCE(
+    (
+      SELECT rp.rail_id
+      FROM rail_pool rp
+      WHERE rp.type = t.type AND rp.id = t.id
+      LIMIT 1
+    ),
+    (
+      SELECT vl.rail_id
+      FROM verify_log vl
+      WHERE vl.type = t.type
+        AND vl.id_value = t.id
+        AND vl.rail_id IS NOT NULL
+      ORDER BY vl.started_at DESC
+      LIMIT 1
+    )
+  ) AS rail_id
+FROM titles t
+WHERE t.status = 'failed'
+  AND t.fail_reason = 'play_failure'
+  AND t.updated_at <= @cutoff;
+`).all({ cutoff }) as Array<{ type: string; id: string; rail_id: string | null }>;
 }
 
 export async function getRailPoolTitleKeysBulk(
@@ -2192,6 +2490,96 @@ INSERT INTO playability_triggers (
     id_value: record.id ?? null,
     reason: record.reason ?? null,
   });
+}
+
+/**
+ * H1/H2: unhandled playability_triggers, prioritized so play_failure_reverify (couch fast-lane)
+ * drains before everything else — including voice_request — per row created_at within each tier.
+ */
+export async function listUnhandledPlayabilityTriggers(
+  limit: number,
+): Promise<PlayabilityTriggerRow[]> {
+  await initPlayabilityDb();
+  const db = openDb();
+  return db.prepare(`
+SELECT id, created_at, trigger_type, rail_id, type, id_value, reason, handled_at
+FROM playability_triggers
+WHERE handled_at IS NULL
+ORDER BY
+  CASE WHEN trigger_type = 'play_failure_reverify' THEN 0 ELSE 1 END,
+  created_at ASC,
+  id ASC
+LIMIT @limit;
+`).all({ limit: Math.max(1, limit) }) as PlayabilityTriggerRow[];
+}
+
+/** Marks drained trigger rows handled (success OR failure) so the queue never grows unbounded. */
+export async function markPlayabilityTriggersHandled(
+  ids: number[],
+  now: number = nowMs(),
+): Promise<number> {
+  if (ids.length === 0) {
+    return 0;
+  }
+  await initPlayabilityDb();
+  const db = openDb();
+  const stmt = db.prepare(`
+UPDATE playability_triggers SET handled_at = @now WHERE id = @id AND handled_at IS NULL;
+`);
+  const transaction = db.transaction(() => {
+    let changed = 0;
+    for (const id of ids) {
+      changed += stmt.run({ id, now }).changes;
+    }
+    return changed;
+  });
+  return transaction();
+}
+
+export type SweepExpiredVerifiedResult = {
+  swept: number;
+};
+
+/**
+ * H3: enforces expires_at as a real visibility/freshness cutoff — verified rows whose TTL has
+ * lapsed are demoted to stale so the nightly stale-reverify phase re-probes them. Idempotent
+ * (a row already swept no longer matches status='verified') and bounded to the expired set.
+ */
+export async function sweepExpiredVerified(
+  now: number = nowMs(),
+): Promise<SweepExpiredVerifiedResult> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const transaction = db.transaction(() => {
+    const rows = db.prepare(`
+SELECT type, id
+FROM titles
+WHERE status = 'verified' AND expires_at IS NOT NULL AND expires_at <= @now;
+`).all({ now }) as Array<{ type: string; id: string }>;
+    if (rows.length === 0) {
+      return 0;
+    }
+    const updateStmt = db.prepare(`
+UPDATE titles
+SET status = 'stale', updated_at = @now
+WHERE type = @type AND id = @id AND status = 'verified' AND expires_at IS NOT NULL AND expires_at <= @now;
+`);
+    const logStmt = db.prepare(`
+INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
+VALUES (@started_at, NULL, @type, @id, 'sweep', 0, 'expired_stale');
+`);
+    let swept = 0;
+    for (const row of rows) {
+      const changes = updateStmt.run({ ...row, now }).changes;
+      if (changes > 0) {
+        swept += changes;
+        logStmt.run({ ...row, started_at: now });
+      }
+    }
+    return swept;
+  });
+  const swept = transaction();
+  return { swept };
 }
 
 export async function invalidateTitle(record: {

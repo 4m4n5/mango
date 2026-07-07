@@ -44,6 +44,9 @@ export type IngestCandidatesResult = IngestCandidatesStats & {
   candidates: CandidateMeta[];
 };
 
+/** Q2: reason tag couch play failures are tombstoned under — see playabilityPlayFailureRetryMs. */
+export const PLAY_FAILURE_REASON = 'play_failure';
+
 export function isRecentFailedTitle(
   title: TitlePlayabilityRecord | undefined,
   now: number,
@@ -56,6 +59,8 @@ export function isRecentFailedTitle(
   if (options?.bypassReasons?.has(reason)) {
     return false;
   }
+  // play_failure uses its own short window (Q2) so a couch failure clears the skip-recent-failed
+  // gate well before the generic no_stream/title_mismatch tombstone (~7d) would allow a retry.
   return title.updated_at > now - playabilityFailedRetryMsForReason(title.fail_reason);
 }
 

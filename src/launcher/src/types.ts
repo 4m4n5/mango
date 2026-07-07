@@ -39,6 +39,9 @@ export interface ContentCard {
   playId?: string;
   resumeSec?: number;
   progressPct?: number;
+  /** Verify-state surfaced from voice search / detail meta — additive, optional. */
+  inLibrary?: boolean;
+  queuedForVerify?: boolean;
 }
 
 export interface ContentRail {

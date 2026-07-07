@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { evaluateReliability } from './model.js';
-import type { ReliabilityFacts } from './types.js';
+import { computeStarvingRails, evaluateReliability } from './model.js';
+import type { RailGrowthNight, ReliabilityFacts, ReliabilityProofRecord } from './types.js';
 
 function baseFacts(): ReliabilityFacts {
   const now = Date.now();
@@ -71,8 +71,34 @@ function baseFacts(): ReliabilityFacts {
       busy: false,
       stale_locks: [],
     },
+    rail_growth: {
+      threshold_nights: 3,
+      history: [],
+    },
     last_proof: null,
   };
+}
+
+function proofRecord(overrides: Partial<ReliabilityProofRecord> = {}): ReliabilityProofRecord {
+  const now = Date.now();
+  return {
+    proof_id: 'proof-1',
+    reason: 'nightly_after_playability_nightly',
+    status: 'green',
+    ok: true,
+    summary: 'ok',
+    generated_at: now - 60 * 60 * 1000,
+    generated_at_iso: new Date(now - 60 * 60 * 1000).toISOString(),
+    commit: 'abc123',
+    idle: true,
+    metadata: {},
+    components: [],
+    ...overrides,
+  };
+}
+
+function nightlyNight(generatedAt: number, rails: RailGrowthNight['rails']): RailGrowthNight {
+  return { generated_at: generatedAt, rails };
 }
 
 test('green state enables safe actions when couch is idle', () => {
@@ -118,4 +144,93 @@ test('active couch disables disruptive actions but keeps proof available', () =>
   assert.equal(state.actions.find((action) => action.id === 'repair')?.enabled, false);
   assert.equal(state.actions.find((action) => action.id === 'refresh')?.enabled, false);
   assert.equal(state.actions.find((action) => action.id === 'proof')?.enabled, true);
+});
+
+// H7-a: playability_rc (and related fields) in the last nightly proof's
+// metadata used to be ignored entirely — a failed nightly grow could leave
+// the couch-facing state green.
+
+test('a failed nightly playability refresh (nonzero playability_rc) turns the proof component yellow', () => {
+  const facts = baseFacts();
+  facts.last_proof = proofRecord({ status: 'green', metadata: { playability_rc: 1 } });
+  const state = evaluateReliability(facts);
+  assert.equal(state.status, 'yellow');
+  const proof = state.components.find((entry) => entry.id === 'proof');
+  assert.equal(proof?.status, 'yellow');
+  assert.match(proof?.summary ?? '', /playability refresh/);
+  assert.match(proof?.detail ?? '', /playability_rc=1/);
+});
+
+test('playability_ok:false or a failure_category also escalate the proof component to yellow', () => {
+  const okFalseFacts = baseFacts();
+  okFalseFacts.last_proof = proofRecord({ status: 'green', metadata: { playability_ok: false } });
+  const okFalseState = evaluateReliability(okFalseFacts);
+  assert.equal(okFalseState.components.find((entry) => entry.id === 'proof')?.status, 'yellow');
+
+  const categoryFacts = baseFacts();
+  categoryFacts.last_proof = proofRecord({ status: 'green', metadata: { failure_category: 'grow_aborted' } });
+  const categoryState = evaluateReliability(categoryFacts);
+  assert.equal(categoryState.components.find((entry) => entry.id === 'proof')?.status, 'yellow');
+  // Grow/library failures never escalate to red — that's reserved for actual
+  // playback/catalog-down.
+  assert.equal(categoryState.status, 'yellow');
+  assert.equal(categoryState.ok, true);
+});
+
+test('a healthy last proof (zero rc, no failure_category) stays green', () => {
+  const facts = baseFacts();
+  facts.last_proof = proofRecord({ status: 'green', metadata: { playability_rc: 0, youtube_rc: 0 } });
+  const state = evaluateReliability(facts);
+  assert.equal(state.components.find((entry) => entry.id === 'proof')?.status, 'green');
+});
+
+// Q3: sustained rail-target misses escalate to yellow via a dedicated
+// Rail Growth component; a single miss (or a miss followed by a met night)
+// must not trip the threshold.
+
+test('computeStarvingRails resets a rail streak once it meets its target again', () => {
+  const history: RailGrowthNight[] = [
+    nightlyNight(1_000, [{ rail_id: 'movies-india-thriller', grow_target: 20, new_to_rail_verified: 2, grow_target_met: false }]),
+    nightlyNight(2_000, [{ rail_id: 'movies-india-thriller', grow_target: 20, new_to_rail_verified: 3, grow_target_met: false }]),
+    nightlyNight(3_000, [{ rail_id: 'movies-india-thriller', grow_target: 20, new_to_rail_verified: 21, grow_target_met: true }]),
+  ];
+  const starving = computeStarvingRails(history);
+  assert.deepEqual(starving, []);
+});
+
+test('a rail missing its +20 target for 3 consecutive nights turns Rail Growth yellow (default N=3)', () => {
+  const facts = baseFacts();
+  facts.rail_growth.history = [
+    nightlyNight(1_000, [{ rail_id: 'series-anime-picks', grow_target: 20, new_to_rail_verified: 4, grow_target_met: false }]),
+    nightlyNight(2_000, [{ rail_id: 'series-anime-picks', grow_target: 20, new_to_rail_verified: 1, grow_target_met: false }]),
+    nightlyNight(3_000, [{ rail_id: 'series-anime-picks', grow_target: 20, new_to_rail_verified: 0, grow_target_met: false }]),
+  ];
+  const state = evaluateReliability(facts);
+  const railGrowth = state.components.find((entry) => entry.id === 'rail_growth');
+  assert.equal(railGrowth?.status, 'yellow');
+  assert.match(railGrowth?.detail ?? '', /series-anime-picks: missed 3n/);
+  assert.equal(state.status, 'yellow');
+  // A missed grow target is never a couch-down event.
+  assert.equal(state.ok, true);
+});
+
+test('a rail missing its target for only 2 nights (below default N=3) stays green', () => {
+  const facts = baseFacts();
+  facts.rail_growth.history = [
+    nightlyNight(1_000, [{ rail_id: 'series-anime-picks', grow_target: 20, new_to_rail_verified: 4, grow_target_met: false }]),
+    nightlyNight(2_000, [{ rail_id: 'series-anime-picks', grow_target: 20, new_to_rail_verified: 1, grow_target_met: false }]),
+  ];
+  const state = evaluateReliability(facts);
+  assert.equal(state.components.find((entry) => entry.id === 'rail_growth')?.status, 'green');
+});
+
+test('rail-miss threshold is configurable via facts.rail_growth.threshold_nights', () => {
+  const facts = baseFacts();
+  facts.rail_growth.threshold_nights = 2;
+  facts.rail_growth.history = [
+    nightlyNight(1_000, [{ rail_id: 'movies-korean-drama', grow_target: 20, new_to_rail_verified: 0, grow_target_met: false }]),
+    nightlyNight(2_000, [{ rail_id: 'movies-korean-drama', grow_target: 20, new_to_rail_verified: 0, grow_target_met: false }]),
+  ];
+  const state = evaluateReliability(facts);
+  assert.equal(state.components.find((entry) => entry.id === 'rail_growth')?.status, 'yellow');
 });

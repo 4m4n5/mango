@@ -7,6 +7,8 @@ REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 SERVICE_PATH="$UNIT_DIR/mango-playability-indexer.service"
 TIMER_PATH="$UNIT_DIR/mango-playability-indexer.timer"
+CATCHUP_SERVICE_PATH="$UNIT_DIR/mango-playability-catchup-watch.service"
+CATCHUP_TIMER_PATH="$UNIT_DIR/mango-playability-catchup-watch.timer"
 LEGACY_DAILY_GROW_SERVICE="$UNIT_DIR/mango-playability-daily-grow.service"
 LEGACY_DAILY_GROW_TIMER="$UNIT_DIR/mango-playability-daily-grow.timer"
 
@@ -26,6 +28,8 @@ After=default.target
 [Service]
 Type=oneshot
 WorkingDirectory=$REPO_DIR
+# Nightly grow can run 60-90m; killing it discards the staged work DB.
+TimeoutStartSec=infinity
 Environment=MANGO_REPO_DIR=$REPO_DIR
 Environment=MANGO_MAINTENANCE_MODE=1
 Environment=MANGO_PLAYABILITY_REFRESH_MODE=nightly
@@ -63,6 +67,35 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
+cat >"$CATCHUP_SERVICE_PATH" <<EOF
+[Unit]
+Description=mango playability catch-up watcher
+After=default.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$REPO_DIR
+Environment=MANGO_REPO_DIR=$REPO_DIR
+Environment=MANGO_MAINTENANCE_MODE=1
+Environment=MANGO_PLAYABILITY_REFRESH_MODE=nightly
+Environment=MANGO_GROW_PRESET=nightly
+ExecStart=/usr/bin/bash $REPO_DIR/scripts/m3-play/playability/playability-catchup-watch.sh
+EOF
+
+cat >"$CATCHUP_TIMER_PATH" <<'EOF'
+[Unit]
+Description=mango playability catch-up watcher timer
+
+[Timer]
+OnCalendar=*-*-* 09,11,13,15,17,19,21:00:00
+Persistent=false
+
+[Install]
+WantedBy=timers.target
+EOF
+
 systemctl --user daemon-reload
 systemctl --user enable --now mango-playability-indexer.timer
+systemctl --user enable --now mango-playability-catchup-watch.timer
 systemctl --user list-timers mango-playability-indexer.timer --no-pager
+systemctl --user list-timers mango-playability-catchup-watch.timer --no-pager
