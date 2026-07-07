@@ -198,38 +198,47 @@ def open_title(hit: dict) -> None:
     print(f"PASS: ack seq={seq} title={hit['title']} (launcher foreground, mpv stopped)")
 
 
-# If either query is unset, pick verified library movies from the served rails
-# whose titles actually resolve via /voice/search — robust to (a) any one title
-# being invalidated by upstream debrid flakiness and (b) short/odd titles that
-# don't match the verified-library search (e.g. "RRR").
-if not query_a or not query_b:
+def _pick_two_distinct_movie_hits() -> list[dict]:
+    """Auto-pick two distinct verified movie hits — robust to any one title
+    being invalidated by upstream debrid flakiness and to short/odd titles that
+    don't match /voice/search (which returns movies + series + live + ai-catalog
+    hits, so hits[0] isn't always the movie). Used only when the query envs are
+    unset."""
     _rails = fetch_json(f"{catalog}/rails/items?tab=movies").get("rails", [])
-    _picks: list[str] = []
+    _picks: list[dict] = []
     _seen_ids: set[str] = set()
     for _rail in _rails:
         for _item in _rail.get("items") or []:
-            if _item.get("type") != "movie" or not _item.get("title") or _item.get("id") in _seen_ids:
+            if _item.get("type") != "movie" or not _item.get("title"):
                 continue
             _q = urllib.parse.quote(_item["title"])
             try:
-                _hits = fetch_json(f"{catalog}/voice/search?q={_q}&limit=3").get("results") or []
+                _hits = fetch_json(f"{catalog}/voice/search?q={_q}&limit=5").get("results") or []
             except Exception:
                 _hits = []
-            if not _hits:
-                continue
-            _seen_ids.add(_item["id"])
-            _picks.append(_item["title"])
+            for _h in _hits:
+                if _h.get("type") == "movie" and _h.get("id") and _h["id"] not in _seen_ids:
+                    _seen_ids.add(_h["id"])
+                    _picks.append({
+                        "type": _h["type"],
+                        "id": _h["id"],
+                        "title": _h["title"],
+                        "tab": _h.get("tab") or "movies",
+                    })
+                    break
             if len(_picks) >= 2:
-                break
-        if len(_picks) >= 2:
-            break
-    if not query_a and _picks:
-        query_a = _picks[0]
-    if not query_b and len(_picks) >= 2:
-        query_b = _picks[1]
+                return _picks
+    return _picks
 
-hit_a = resolve_hit(query_a)
-hit_b = resolve_hit(query_b)
+
+if query_a and query_b:
+    hit_a = resolve_hit(query_a)
+    hit_b = resolve_hit(query_b)
+else:
+    _picks = _pick_two_distinct_movie_hits()
+    if len(_picks) < 2:
+        raise SystemExit("FAIL: could not auto-pick two distinct verified movie hits")
+    hit_a, hit_b = _picks[0], _picks[1]
 if hit_a["id"] == hit_b["id"]:
     raise SystemExit(f"FAIL: switch test needs two distinct titles (both resolved to {hit_a['id']})")
 
