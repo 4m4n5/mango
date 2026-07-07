@@ -311,6 +311,68 @@ export function filterStreamsForLadderStep(
   return kept;
 }
 
+/**
+ * Max consecutive candidates from the same debrid service allowed in the
+ * expanded ladder. Early default-ladder steps (ideal, 1080p_uncached,
+ * 1080p_remux) are TB-only, so a flaky TorBox can otherwise burn the entire
+ * `auto_play_max_attempts` budget on TB before a later, RD-inclusive step is
+ * ever reached. Interleaving guarantees a secondary service gets attempt
+ * slots within the budget without changing per-step quality ranking.
+ */
+const MAX_CONSECUTIVE_SAME_SERVICE = 3;
+
+/**
+ * Reorders candidates so no more than `maxRun` consecutive entries share the
+ * same debrid service, promoting the earliest available different-service
+ * candidate ahead of the run when one exists. Quality order *within* a
+ * service is always preserved — this only interleaves *across* services.
+ * No-ops when zero or one distinct service is present.
+ */
+function diversifyLadderCandidatesByService(
+  candidates: LadderCandidate[],
+  maxRun: number,
+): LadderCandidate[] {
+  if (candidates.length <= 1) return candidates.slice();
+
+  const serviceOf = (candidate: LadderCandidate): string => debridServiceId(candidate.stream) ?? '__none__';
+  const distinctServices = new Set(candidates.map(serviceOf));
+  if (distinctServices.size <= 1) return candidates.slice();
+
+  const remaining = candidates.slice();
+  const result: LadderCandidate[] = [];
+  let lastService: string | undefined;
+  let runLength = 0;
+
+  while (remaining.length > 0) {
+    const next = remaining[0]!;
+    const nextService = serviceOf(next);
+
+    if (nextService === lastService && runLength >= maxRun) {
+      const swapIndex = remaining.findIndex((candidate, idx) => idx > 0 && serviceOf(candidate) !== lastService);
+      if (swapIndex > 0) {
+        const [promoted] = remaining.splice(swapIndex, 1);
+        result.push(promoted!);
+        lastService = serviceOf(promoted!);
+        runLength = 1;
+        continue;
+      }
+      // No alternative service left in the remaining ladder — fall through
+      // and keep walking the same-service run rather than starving it.
+    }
+
+    remaining.shift();
+    result.push(next);
+    if (nextService === lastService) {
+      runLength += 1;
+    } else {
+      lastService = nextService;
+      runLength = 1;
+    }
+  }
+
+  return result;
+}
+
 /** Ordered play candidates across ladder steps — deduped by URL, capped globally. */
 export function expandPlayLadder(
   streams: Stream[],
@@ -331,9 +393,8 @@ export function expandPlayLadder(
 ): LadderCandidate[] {
   const max = options.max_candidates ?? 12;
   const seen = new Set<string>();
-  const ranked: LadderCandidate[] = [];
 
-  const pushStep = (step: PlayLadderStep): void => {
+  const pushStep = (step: PlayLadderStep, target: LadderCandidate[]): void => {
     const stepStreams = filterStreamsForLadderStep(streams, step, context, options);
     for (const stream of stepStreams) {
       if (options.include_uncached === false && parseDebridCacheStatus(stream) === 'uncached') {
@@ -341,23 +402,32 @@ export function expandPlayLadder(
       }
       if (seen.has(stream.url)) continue;
       seen.add(stream.url);
-      ranked.push({ stream, ladder_step: step.step });
-      if (ranked.length >= max) return;
+      target.push({ stream, ladder_step: step.step });
     }
   };
 
+  // The verify-hint "preferred step" candidate is an explicit continuation
+  // pick, not a fresh ranking — keep it pinned first and out of the
+  // service-diversification pass below.
+  const preferredCandidates: LadderCandidate[] = [];
   if (options.prefer_ladder_step) {
     const preferred = ladder.find((step) => step.step === options.prefer_ladder_step);
-    if (preferred) pushStep(preferred);
+    if (preferred) pushStep(preferred, preferredCandidates);
   }
 
+  // Collect every matching candidate across all remaining steps (not just
+  // the first `max`) so a later, RD-inclusive step's candidates are
+  // available to interleave into the budget rather than being starved by
+  // early TB-only steps filling `ranked` first.
+  const restCandidates: LadderCandidate[] = [];
   for (const step of ladder) {
-    if (ranked.length >= max) break;
     if (step.step === options.prefer_ladder_step) continue;
-    pushStep(step);
+    pushStep(step, restCandidates);
   }
 
-  return ranked.slice(0, max);
+  const diversifiedRest = diversifyLadderCandidatesByService(restCandidates, MAX_CONSECUTIVE_SAME_SERVICE);
+
+  return [...preferredCandidates, ...diversifiedRest].slice(0, max);
 }
 
 /** Ensure an explicit picker URL is attempted even when ladder filters hid it from expansion. */

@@ -37,8 +37,56 @@ export function isRateLimitedStreamUrl(url: string): boolean {
   return RATE_LIMIT_URL_RE.test(url);
 }
 
-export function couchPlayFailureMessage(attempts: Array<{ error?: string }> | undefined): string {
-  const errors = (attempts || []).map((attempt) => attempt.error || '').join(' ');
+type CouchPlayFailureAttempt = {
+  error?: string;
+  debrid_service?: unknown;
+};
+
+type CouchPlayFailureContext = {
+  candidates?: number;
+};
+
+function normalizeDebridService(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+}
+
+export function couchPlayFailureMessage(
+  attempts: CouchPlayFailureAttempt[] | undefined,
+  context: CouchPlayFailureContext = {},
+): string {
+  const list = attempts || [];
+  if (context.candidates === 0 || list.length === 0) {
+    return 'no streams found for this title';
+  }
+  const errors = list.map((attempt) => attempt.error || '').join(' ');
+  const services = new Set(
+    list
+      .map((attempt) => normalizeDebridService(attempt.debrid_service))
+      .filter((service): service is string => Boolean(service)),
+  );
+  const triedTorbox = [...services].some((service) => service.includes('torbox'));
+  const triedRealDebrid = [...services].some((service) => service.includes('real') || service === 'rd');
+  const triedBothPrimaryDebrid = triedTorbox && triedRealDebrid;
+  const transientPattern = /debrid_nfo_sidecar|debrid_playback_unreadable|debrid_status_clip/i;
+  const nfoPattern = /debrid_nfo_sidecar|debrid_playback_unreadable/i;
+  const attemptErrors = list.map((attempt) => attempt.error).filter((value): value is string => Boolean(value));
+  const allTorboxNfo = attemptErrors.length > 0 && attemptErrors.every((error) => nfoPattern.test(error));
+  const hasTorboxNfo = attemptErrors.some((error) => nfoPattern.test(error));
+  const allTransient = attemptErrors.length > 0 && attemptErrors.every((error) => transientPattern.test(error));
+  if (triedTorbox && !triedRealDebrid && allTorboxNfo) {
+    return 'stream not ready on TorBox — try again in a few minutes';
+  }
+  if (triedBothPrimaryDebrid) {
+    return "couldn't find a ready stream right now — try again in a few minutes";
+  }
+  if (allTransient) {
+    return 'streams are still preparing — try again in a few minutes';
+  }
+  if (hasTorboxNfo && !triedRealDebrid) {
+    return 'stream not ready on TorBox — try again in a few minutes';
+  }
   if (!errors.trim()) {
     return 'no streams found for this title';
   }

@@ -55,6 +55,10 @@ test('failedLadderReason classifies zero-candidate ladder failures as no_stream'
   assert.equal(failedLadderReason({ attempts: [], candidate_count: 0 }), 'no_stream');
   assert.equal(failedLadderReason({ attempts: [], candidate_count: 2 }), 'probe_failed');
   assert.equal(
+    failedLadderReason({ attempts: [{ error: 'debrid_nfo_sidecar' }], candidate_count: 2 }),
+    'transient_upstream',
+  );
+  assert.equal(
     failedLadderReason({ attempts: [{ error: '429 Too Many Requests' }], candidate_count: 2 }),
     'rate_limited',
   );

@@ -6,9 +6,22 @@ import { shouldInvalidatePlayabilityAfterPlayError } from './play-failure-policy
 test('play failure invalidates when stream attempts were probed', () => {
   assert.equal(shouldInvalidatePlayabilityAfterPlayError({
     isNoPlayableStream: true,
-    attempts: [{ ok: false }],
+    attempts: [{ ok: false, error: 'mpv exited before playback started' }],
     candidates: 4,
   }), true);
+});
+
+test('play failure does not invalidate transient TorBox sidecar mismatches', () => {
+  assert.equal(shouldInvalidatePlayabilityAfterPlayError({
+    isNoPlayableStream: true,
+    attempts: [{ ok: false, error: 'debrid_nfo_sidecar' }],
+    candidates: 2,
+  }), false);
+  assert.equal(shouldInvalidatePlayabilityAfterPlayError({
+    isNoPlayableStream: true,
+    attempts: [{ ok: false, error: 'debrid_playback_unreadable' }],
+    candidates: 2,
+  }), false);
 });
 
 test('play failure invalidates zero-candidate no_playable_stream', () => {

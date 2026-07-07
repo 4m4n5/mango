@@ -611,7 +611,8 @@ async function handlePlay(
     if (error instanceof CatalogError) {
       if (error.message === 'no_playable_stream') {
         error.couchMessage = couchPlayFailureMessage(
-          details?.attempts as Array<{ error?: string }> | undefined,
+          details?.attempts as Array<{ error?: string; debrid_service?: unknown }> | undefined,
+          { candidates: details?.candidates },
         );
       }
       error.details = {

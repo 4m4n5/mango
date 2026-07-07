@@ -8,7 +8,7 @@ import {
   parsePlayLadder,
   streamMatchesLadderStep,
 } from './play-ladder.js';
-import { streamUrlHash } from './stream-filters.js';
+import { debridServiceId, streamUrlHash } from './stream-filters.js';
 
 function stream(partial: Partial<Stream> & { url: string }): Stream {
   return {
@@ -235,6 +235,101 @@ test('expandPlayLadder walks steps after ideal failures', () => {
 
   assert.ok(ranked.some((item) => item.ladder_step === 'ideal'));
   assert.ok(ranked.some((item) => item.ladder_step === '2160p_encode'));
+});
+
+test('expandPlayLadder interleaves debrid services so flaky TorBox cannot starve RD within the attempt budget', () => {
+  const ladder = defaultPlayLadder();
+  // 8 TB streams eligible on the TB-only "ideal" step — enough alone to
+  // exhaust an 8-attempt budget before the RD-inclusive "2160p_encode" step
+  // is ever reached without service diversification.
+  const tbStreams = Array.from({ length: 8 }, (_, i) => stream({
+    url: `https://example.test/tb-${i + 1}.mkv`,
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: i === 0 ? '1080p WEB-DL HDR10' : '1080p WEB-DL',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  }));
+  // 4 RD streams that only become eligible at the "2160p_encode" step.
+  const rdStreams = Array.from({ length: 4 }, (_, i) => stream({
+    url: `https://example.test/rd-${i + 1}.mkv`,
+    name: '[RD☁️⚡] Torrentio 2160p',
+    description: '2160p WEB-DL HEVC x265',
+    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|true|2160p' },
+  }));
+
+  const ranked = expandPlayLadder([...tbStreams, ...rdStreams], ladder, { contentType: 'movie' }, {
+    max_candidates: 8,
+    preferred_hdr_tags: ['hdr10'],
+  });
+
+  assert.equal(ranked.length, 8);
+  const rdCount = ranked.filter((candidate) => debridServiceId(candidate.stream) === 'realdebrid').length;
+  assert.ok(rdCount >= 2, `expected at least 2 RD candidates within the first 8, got ${rdCount}`);
+});
+
+test('expandPlayLadder does not reorder candidates when only one debrid service is present', () => {
+  const ladder = defaultPlayLadder();
+  const streams = [
+    stream({
+      url: 'https://example.test/tb-a.mkv',
+      name: '[TB☁️⚡] Torrentio 1080p',
+      description: '1080p WEB-DL',
+      behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+    }),
+    stream({
+      url: 'https://example.test/tb-b.mkv',
+      name: '[TB☁️⚡] Torrentio 1080p',
+      description: '1080p WEB-DL',
+      behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+    }),
+    stream({
+      url: 'https://example.test/tb-c.mkv',
+      name: '[TB⚡] Torrentio 2160p',
+      description: '2160p HEVC encode',
+      behaviorHints: { bingeGroup: 'aiostreams|torbox|false|2160p' },
+    }),
+  ];
+
+  const ranked = expandPlayLadder(streams, ladder, { contentType: 'movie' }, { max_candidates: 6 });
+
+  assert.deepEqual(ranked.map((candidate) => candidate.stream.url), [
+    'https://example.test/tb-a.mkv',
+    'https://example.test/tb-b.mkv',
+    'https://example.test/tb-c.mkv',
+  ]);
+  assert.ok(ranked.every((candidate) => debridServiceId(candidate.stream) === 'torbox'));
+});
+
+test('expandPlayLadder preserves within-service quality ranking after diversification', () => {
+  const ladder = defaultPlayLadder();
+  const tbStreams = Array.from({ length: 8 }, (_, i) => stream({
+    url: `https://example.test/tb-${i + 1}.mkv`,
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: i === 0 ? '1080p WEB-DL HDR10' : '1080p WEB-DL',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  }));
+  const rdStreams = Array.from({ length: 4 }, (_, i) => stream({
+    url: `https://example.test/rd-${i + 1}.mkv`,
+    name: '[RD☁️⚡] Torrentio 2160p',
+    description: '2160p WEB-DL HEVC x265',
+    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|true|2160p' },
+  }));
+
+  const ranked = expandPlayLadder([...tbStreams, ...rdStreams], ladder, { contentType: 'movie' }, {
+    max_candidates: 12,
+    preferred_hdr_tags: ['hdr10'],
+  });
+
+  const tbOrder = ranked
+    .filter((candidate) => debridServiceId(candidate.stream) === 'torbox')
+    .map((candidate) => candidate.stream.url);
+  const rdOrder = ranked
+    .filter((candidate) => debridServiceId(candidate.stream) === 'realdebrid')
+    .map((candidate) => candidate.stream.url);
+
+  // tb-1 carries the HDR bonus so it ranks best; the rest are tied and keep
+  // their original relative order. Diversification must not disturb this.
+  assert.deepEqual(tbOrder, tbStreams.map((s) => s.url));
+  assert.deepEqual(rdOrder, rdStreams.map((s) => s.url));
 });
 
 test('expandPlayLadder can exclude uncached candidates for durable verification', () => {

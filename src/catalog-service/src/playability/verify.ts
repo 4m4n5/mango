@@ -90,7 +90,7 @@ function cleanError(error: unknown): string {
 function failReason(error: unknown): string {
   const message = cleanError(error).toLowerCase();
   if (message.includes('debrid_nfo') || message.includes('debrid_playback_unreadable')) {
-    return 'bad_stream';
+    return 'transient_upstream';
   }
   if (
     message.includes('rate_limit')

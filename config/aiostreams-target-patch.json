@@ -1,5 +1,5 @@
 {
-  "_comment": "Target AIOStreams userData patch — merge via scripts/m4-addons/aiostreams-config.sh apply",
+  "_comment": "Target AIOStreams userData patch — merge via scripts/m4-addons/aiostreams-config.sh apply. Debrid services (TorBox + RealDebrid) are configured via the AIOStreams UI on the Pi with real API keys; this patch intentionally omits the `services` array so apply never overwrites live keys with placeholders. This patch only carries file-selection + sort improvements to reduce NFO-sidecar picks.",
   "deduplicator": {
     "enabled": true,
     "keys": ["infoHash", "smartDetect", "filename"],
@@ -23,7 +23,10 @@
     "dvdscr",
     "dvd-scr",
     "workprint",
-    "sample"
+    "sample",
+    ".nfo",
+    ".txt",
+    "sidecar"
   ],
   "preferredResolutions": [
     "2160p", "1440p", "1080p", "720p", "576p", "480p", "360p", "240p", "144p", "Unknown"
@@ -73,6 +76,7 @@
       { "key": "language", "direction": "desc" },
       { "key": "resolution", "direction": "desc" },
       { "key": "quality", "direction": "desc" },
+      { "key": "size", "direction": "desc" },
       { "key": "streamExpressionScore", "direction": "desc" },
       { "key": "regexPatterns", "direction": "desc" }
     ]

@@ -33,8 +33,35 @@ test('isAddonRateLimitMessage still matches HTTP-style errors', () => {
   assert.equal(isAddonRateLimitMessage('catalog ok'), false);
 });
 
-test('couchPlayFailureMessage treats exhausted titles as title-level failures', () => {
-  assert.equal(couchPlayFailureMessage([]), 'no streams found for this title');
+test('couchPlayFailureMessage differentiates debrid transient and exhausted cases', () => {
+  assert.equal(couchPlayFailureMessage([], { candidates: 0 }), 'no streams found for this title');
+  assert.equal(
+    couchPlayFailureMessage(
+      [{ error: 'debrid_nfo_sidecar', debrid_service: 'torbox' }],
+      { candidates: 3 },
+    ),
+    'stream not ready on TorBox — try again in a few minutes',
+  );
+  assert.equal(
+    couchPlayFailureMessage(
+      [
+        { error: 'debrid_nfo_sidecar', debrid_service: 'torbox' },
+        { error: 'debrid_status_clip', debrid_service: 'realdebrid' },
+      ],
+      { candidates: 4 },
+    ),
+    "couldn't find a ready stream right now — try again in a few minutes",
+  );
+  assert.equal(
+    couchPlayFailureMessage(
+      [
+        { error: 'debrid_playback_unreadable', debrid_service: 'torbox' },
+        { error: 'debrid_status_clip', debrid_service: 'torbox' },
+      ],
+      { candidates: 2 },
+    ),
+    'streams are still preparing — try again in a few minutes',
+  );
   assert.equal(
     couchPlayFailureMessage([{ error: 'mpv exited before playback started' }]),
     'stream did not start — try another option',
