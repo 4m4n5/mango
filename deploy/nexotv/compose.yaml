@@ -8,6 +8,10 @@ services:
       - "127.0.0.1:7000:7000"
     env_file:
       - .env
+    environment:
+      # Required for curated AREA69 M3U served from localhost :7010 (NexoTV SSRF
+      # blocks 127.0.0.1/private IPs unless this is set).
+      ALLOW_LOCAL_URLS: "true"
     volumes:
       - "${MANGO_NEXOTV_DATA_DIR:-/home/aman/.local/share/mango/nexotv/data}:/app/data"
     healthcheck:
