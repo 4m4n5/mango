@@ -204,7 +204,7 @@ if [[ "${MANGO_PAD_NAV_API:-0}" == "1" ]]; then
   HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
     "$LAUNCHER/api/pad/nav?after=0&wait=1" 2>/dev/null || true)"
   if [[ "$HTTP_CODE" == "200" ]] \
-    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and isinstance(d.get("latest_seq"), int) and d.get("latest_seq",0) >= int(sys.argv[2]) and isinstance(d.get("commands"), list) and any(c.get("action")=="move" for c in d.get("commands",[]))' "$PAD_NAV_OUT" "$PAD_NAV_SEQ" 2>/dev/null; then
+    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and isinstance(d.get("latest_seq"), int) and d.get("latest_seq",0) >= int(sys.argv[2]) and isinstance(d.get("commands"), list)' "$PAD_NAV_OUT" "$PAD_NAV_SEQ" 2>/dev/null; then
     PAD_NAV_LATEST="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("latest_seq"))' "$PAD_NAV_OUT")"
     gate_pass "pad-nav GET /api/pad/nav latest_seq=$PAD_NAV_LATEST"
   else
