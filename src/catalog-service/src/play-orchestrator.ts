@@ -281,15 +281,20 @@ export async function playWithLadder(
       let observedProbeMs = reusableProbeMs;
       let probeReused = false;
       const skipProbe = shouldSkipProbe(candidate);
+      // The byte-sniff must always run for a fresh candidate URL, even when a
+      // verified hint lets us reuse its probe timing — a matching hint proves
+      // the *ladder step* played before, not that today's URL still serves
+      // real video (e.g. TorBox can silently swap a cached slot to an .nfo
+      // sidecar). Only the probe *measurement* is safe to skip on reuse.
+      const preflightBudget = Math.min(2500, remainingBeforeProbe);
+      const sniff = await preflight(candidate.stream.url, preflightBudget);
+      if (sniff === 'nfo') {
+        throw new Error('debrid_nfo_sidecar');
+      }
+      if (sniff === 'error' && parseDebridCacheStatus(candidate.stream) === 'cached') {
+        throw new Error('debrid_playback_unreadable');
+      }
       if (!observedProbeMs) {
-        const preflightBudget = Math.min(2500, remainingBeforeProbe);
-        const sniff = await preflight(candidate.stream.url, preflightBudget);
-        if (sniff === 'nfo') {
-          throw new Error('debrid_nfo_sidecar');
-        }
-        if (sniff === 'error' && parseDebridCacheStatus(candidate.stream) === 'cached') {
-          throw new Error('debrid_playback_unreadable');
-        }
         if (!skipProbe) {
           const probeBudget = probeBudgetForCandidate(candidate, config, remainingBeforeProbe);
           const probeResult = await probe(

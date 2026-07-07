@@ -62,6 +62,87 @@ test('playWithLadder reuses verified probe for matching hash and ladder step', a
   assert.ok(playTimeout > 80000);
 });
 
+test('playWithLadder still runs the byte-sniff and rejects unreadable bytes even when a verified hint would reuse the probe', async () => {
+  const stream = candidate('https://example.test/verified.mp4');
+  let probeCalls = 0;
+  let playCalls = 0;
+
+  await assert.rejects(
+    playWithLadder([stream], testConfig(), {
+      verified_hint: {
+        best_source: 'AIOStreams',
+        cache_status: 'cached',
+        debrid_service: 'torbox',
+        win_url_hash: streamUrlHash(stream.url),
+        win_ladder_step: 'ideal',
+        probe_ms: 3210,
+      },
+      preflight: async () => 'error',
+      probe: async () => {
+        probeCalls += 1;
+        throw new Error('probe should not run');
+      },
+      play: async () => {
+        playCalls += 1;
+        return { ok: true, ttff_ms: 812 };
+      },
+    }),
+  );
+
+  assert.equal(probeCalls, 0);
+  assert.equal(playCalls, 0);
+});
+
+test('playWithLadder still runs the byte-sniff and rejects nfo sidecars even when a verified hint would reuse the probe', async () => {
+  const stream = candidate('https://example.test/verified.mp4');
+  let playCalls = 0;
+
+  const error = await playWithLadder([stream], testConfig(), {
+    verified_hint: {
+      best_source: 'AIOStreams',
+      cache_status: 'cached',
+      debrid_service: 'torbox',
+      win_url_hash: streamUrlHash(stream.url),
+      win_ladder_step: 'ideal',
+      probe_ms: 3210,
+    },
+    preflight: async () => 'nfo',
+    probe: async () => ({ ok: true, ttff_ms: 500 }),
+    play: async () => {
+      playCalls += 1;
+      return { ok: true, ttff_ms: 812 };
+    },
+  }).catch((err) => err);
+
+  assert.equal(playCalls, 0);
+  assert.ok(error instanceof Error);
+  const attempts = (error as { details?: { attempts?: Array<{ error?: string }> } }).details?.attempts ?? [];
+  assert.match(attempts[0]?.error || '', /debrid_nfo_sidecar/);
+});
+
+test('playWithLadder surfaces mpv-play\'s real, sanitized failure reason instead of invocation params', async () => {
+  const stream = candidate('https://example.test/movie.mkv?token=super-secret');
+
+  const error = await playWithLadder([stream], testConfig(), {
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 500 }),
+    play: async () => {
+      throw new Error(
+        'mpv-play failed: HTTP error 403 for https://example.test/movie.mkv?token=super-secret',
+      );
+    },
+  }).catch((err) => err);
+
+  assert.ok(error instanceof Error);
+  const attempts = (error as { details?: { attempts?: Array<{ error?: string }> } }).details?.attempts ?? [];
+  const attemptError = attempts[0]?.error || '';
+  assert.match(attemptError, /mpv-play failed: HTTP error 403/);
+  assert.doesNotMatch(attemptError, /mode=play/);
+  assert.doesNotMatch(attemptError, /timeout_ms=/);
+  assert.doesNotMatch(attemptError, /token=super-secret/);
+  assert.match(attemptError, /http\(s\):\/\/<redacted>/);
+});
+
 test('playWithLadder skips nfo sidecars and reaches a later ladder step', async () => {
   const bad = candidate('https://example.test/bad.mkv');
   const good = candidate(

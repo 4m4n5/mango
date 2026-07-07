@@ -15,6 +15,47 @@ function repoDir(): string {
   return process.env.MANGO_REPO_DIR || defaultRepoDir;
 }
 
+/**
+ * mpv-play.sh writes a "FAIL: <reason>" line to stderr for every known
+ * failure mode (cancelled, display-enable, short clip, copyright block, or
+ * the generic "did not start playback" timeout). Node only ever sees the
+ * wrapper's own stdout/stderr — mpv's own log lives in mpv-play.log on disk —
+ * so the FAIL line is the most specific reason available here. Never fall
+ * back to the invocation header line ("mpv-play: <url> mode=... ..."), which
+ * is just the logged command params, not an error.
+ */
+export function extractMpvFailureReason(
+  stdout: string,
+  stderr: string,
+  exitCode?: number | string | null,
+): string {
+  const lines = (text: string) => text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const stderrLines = lines(stderr);
+  const stdoutLines = lines(stdout);
+
+  const failLine = [...stderrLines, ...stdoutLines].find((line) => /^FAIL:/i.test(line));
+  if (failLine) {
+    return failLine.replace(/^FAIL:\s*/i, '').trim();
+  }
+
+  const isHeaderLine = (line: string) => line.startsWith('mpv-play:') || line.startsWith('handoff:');
+  const meaningfulStderr = stderrLines.filter((line) => !isHeaderLine(line));
+  if (meaningfulStderr.length > 0) {
+    return meaningfulStderr[meaningfulStderr.length - 1];
+  }
+
+  const meaningfulStdout = stdoutLines.filter((line) => !isHeaderLine(line));
+  if (meaningfulStdout.length > 0) {
+    return meaningfulStdout[meaningfulStdout.length - 1];
+  }
+
+  return `no error detail captured (exit ${exitCode ?? 'unknown'})`;
+}
+
 function displayEnv(): NodeJS.ProcessEnv {
   const home = process.env.HOME || '/home/aman';
   return {
@@ -79,8 +120,8 @@ async function runMpv(
       maxBuffer: 1024 * 1024,
     }, (error, stdout, stderr) => {
       if (error) {
-        const message = `${stderr || stdout}`.trim();
-        reject(new Error(message || `mpv-play failed with exit ${error.code ?? 'unknown'}`));
+        const reason = extractMpvFailureReason(stdout, stderr, error.code ?? undefined);
+        reject(new Error(`mpv-play failed: ${reason}`));
         return;
       }
       resolvePromise({ stdout, stderr });

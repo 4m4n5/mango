@@ -9,6 +9,12 @@ function looksLikeVideo(buf: Buffer): boolean {
   if (buf.length >= 8 && buf.slice(4, 8).toString('ascii') === 'ftyp') {
     return true;
   }
+  if (buf.length >= 1 && buf[0] === 0x47) {
+    return true;
+  }
+  if (buf.length >= 4 && buf[0] === 0x00 && buf[1] === 0x00 && buf[2] === 0x01 && buf[3] >= 0xba) {
+    return true;
+  }
   return false;
 }
 
