@@ -28,7 +28,28 @@ from orchestrator.tools.launcher_dispatch import post_launcher_command
 from orchestrator.tools.runner import execute_tool
 from orchestrator.tools.voice_nav import pick_auto_open_hit
 
-QUERY = os.environ.get("MANGO_VOICE_TEST_QUERY", "Shawshank")
+QUERY = os.environ.get("MANGO_VOICE_TEST_QUERY", "")
+CATALOG_URL = os.environ.get("MANGO_CATALOG_UPSTREAM", "http://127.0.0.1:3020")
+
+
+def _pick_verified_movie_title() -> str:
+    # Pick a verified library movie from the served rails — robust to any one
+    # title being invalidated by upstream debrid flakiness (the gate tests the
+    # search→open path, not a specific title).
+    import json
+    import urllib.request
+
+    with urllib.request.urlopen(f"{CATALOG_URL}/rails/items?tab=movies", timeout=10) as resp:
+        data = json.load(resp)
+    for rail in data.get("rails", []):
+        for item in rail.get("items") or []:
+            if item.get("type") == "movie" and item.get("title"):
+                return item["title"]
+    raise SystemExit("FAIL: no verified movie titles in served rails")
+
+
+if not QUERY:
+    QUERY = _pick_verified_movie_title()
 
 
 async def dispatch(command: dict) -> int | None:

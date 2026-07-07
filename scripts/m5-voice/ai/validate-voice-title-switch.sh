@@ -16,8 +16,8 @@ LAUNCHER_PORT="${MANGO_LAUNCHER_PORT:-3000}"
 CATALOG="${MANGO_CATALOG_UPSTREAM:-http://127.0.0.1:3020}"
 BASE="http://127.0.0.1:${LAUNCHER_PORT}"
 WAIT_SEC="${MANGO_VOICE_ACK_WAIT_SEC:-12}"
-QUERY_A="${MANGO_VOICE_SWITCH_QUERY_A:-Shawshank}"
-QUERY_B="${MANGO_VOICE_SWITCH_QUERY_B:-Godfather}"
+QUERY_A="${MANGO_VOICE_SWITCH_QUERY_A:-}"
+QUERY_B="${MANGO_VOICE_SWITCH_QUERY_B:-}"
 
 if ! curl -sf --max-time 3 "${BASE}/api/health" >/dev/null; then
   echo "FAIL: launcher /api/health down"
@@ -58,8 +58,8 @@ import urllib.request
 base = os.environ.get("BASE", "http://127.0.0.1:3000")
 catalog = os.environ.get("CATALOG", "http://127.0.0.1:3020")
 wait_sec = float(os.environ.get("WAIT_SEC", "14"))
-query_a = os.environ.get("QUERY_A", "Shawshank")
-query_b = os.environ.get("QUERY_B", "Godfather")
+query_a = os.environ.get("QUERY_A", "")
+query_b = os.environ.get("QUERY_B", "")
 
 
 def fetch_json(url: str) -> dict:
@@ -197,6 +197,27 @@ def open_title(hit: dict) -> None:
         )
     print(f"PASS: ack seq={seq} title={hit['title']} (launcher foreground, mpv stopped)")
 
+
+# If either query is unset, pick verified library movies from the served rails
+# — robust to any one title being invalidated by upstream debrid flakiness.
+if not query_a or not query_b:
+    _rails = fetch_json(f"{catalog}/rails/items?tab=movies").get("rails", [])
+    _picks: list[str] = []
+    _seen: set[str] = set()
+    for _rail in _rails:
+        for _item in _rail.get("items") or []:
+            _title = _item.get("title")
+            if _item.get("type") == "movie" and _title and _title not in _seen:
+                _seen.add(_title)
+                _picks.append(_title)
+                if len(_picks) >= 2:
+                    break
+        if len(_picks) >= 2:
+            break
+    if not query_a and _picks:
+        query_a = _picks[0]
+    if not query_b and len(_picks) >= 2:
+        query_b = _picks[1]
 
 hit_a = resolve_hit(query_a)
 hit_b = resolve_hit(query_b)
