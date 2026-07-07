@@ -12,7 +12,7 @@ mango_gate_init
 TMP_DIR="${TMPDIR:-/tmp}/mango-gate-lite"
 mkdir -p "$TMP_DIR"
 
-MOVIE_ID="${MANGO_GATE_LITE_MOVIE_ID:-tt0111161}"
+MOVIE_ID="${MANGO_GATE_LITE_MOVIE_ID:-}"
 SERIES_ID="${MANGO_GATE_LITE_SERIES_ID:-tt0903747:1:1}"
 SUPPLEMENTAL_CHECK_ID="${MANGO_GATE_LITE_STREAM_MOVIE_ID:-tt32916440}"
 MAX_TOTAL_MS="${MANGO_GATE_LITE_MAX_TOTAL_MS:-90000}"
@@ -25,6 +25,35 @@ sleep 0.5
 
 curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
   && gate_pass "catalog /health" || { gate_fail "catalog /health"; exit 1; }
+
+# When unset, pick a verified movie that resolves to a playable stream — robust
+# to any one title's cached debrid slot going bad (e.g. TorBox serving an
+# unplayable/NFO sidecar for a specific title). The retry logic in
+# gate_post_play handles transient flakiness for the picked title.
+if [[ -z "$MOVIE_ID" ]]; then
+  MOVIE_ID="$(python3 - <<'PY'
+import json, urllib.request
+d = json.load(urllib.request.urlopen("http://127.0.0.1:3020/rails/items?tab=movies", timeout=10))
+for rail in d.get("rails", []):
+    for item in rail.get("items") or []:
+        if item.get("type") != "movie" or not item.get("id"):
+            continue
+        try:
+            s = json.load(urllib.request.urlopen(f"http://127.0.0.1:3020/stream/movie/{item['id']}", timeout=20))
+            if s.get("streams"):
+                print(item["id"]); break
+        except Exception:
+            continue
+    else:
+        continue
+    break
+PY
+)"
+  if [[ -z "$MOVIE_ID" ]]; then
+    gate_fail "no verified movie resolves to a playable stream"
+    exit 1
+  fi
+fi
 
 STREAM_JSON="$TMP_DIR/stream-${SUPPLEMENTAL_CHECK_ID}.json"
 if curl -sf --max-time 45 "http://127.0.0.1:3020/stream/movie/${SUPPLEMENTAL_CHECK_ID}" >"$STREAM_JSON"; then
