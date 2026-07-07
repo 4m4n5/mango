@@ -33,19 +33,30 @@ CATALOG_URL = os.environ.get("MANGO_CATALOG_UPSTREAM", "http://127.0.0.1:3020")
 
 
 def _pick_verified_movie_title() -> str:
-    # Pick a verified library movie from the served rails — robust to any one
-    # title being invalidated by upstream debrid flakiness (the gate tests the
-    # search→open path, not a specific title).
+    # Pick a verified library movie from the served rails whose title actually
+    # resolves via /voice/search — robust to (a) any one title being
+    # invalidated by upstream debrid flakiness and (b) short/odd titles that
+    # don't match the verified-library search (e.g. "RRR"). The gate tests the
+    # search→open path, not a specific title.
     import json
+    import urllib.parse
     import urllib.request
 
     with urllib.request.urlopen(f"{CATALOG_URL}/rails/items?tab=movies", timeout=10) as resp:
         data = json.load(resp)
     for rail in data.get("rails", []):
         for item in rail.get("items") or []:
-            if item.get("type") == "movie" and item.get("title"):
-                return item["title"]
-    raise SystemExit("FAIL: no verified movie titles in served rails")
+            if item.get("type") != "movie" or not item.get("title"):
+                continue
+            title = item["title"]
+            q = urllib.parse.quote(title)
+            try:
+                with urllib.request.urlopen(f"{CATALOG_URL}/voice/search?q={q}&limit=3", timeout=8) as r:
+                    if json.load(r).get("results"):
+                        return title
+            except Exception:
+                continue
+    raise SystemExit("FAIL: no verified movie titles resolve via /voice/search")
 
 
 if not QUERY:

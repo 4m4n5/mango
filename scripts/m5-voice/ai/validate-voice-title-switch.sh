@@ -199,19 +199,28 @@ def open_title(hit: dict) -> None:
 
 
 # If either query is unset, pick verified library movies from the served rails
-# — robust to any one title being invalidated by upstream debrid flakiness.
+# whose titles actually resolve via /voice/search — robust to (a) any one title
+# being invalidated by upstream debrid flakiness and (b) short/odd titles that
+# don't match the verified-library search (e.g. "RRR").
 if not query_a or not query_b:
     _rails = fetch_json(f"{catalog}/rails/items?tab=movies").get("rails", [])
     _picks: list[str] = []
-    _seen: set[str] = set()
+    _seen_ids: set[str] = set()
     for _rail in _rails:
         for _item in _rail.get("items") or []:
-            _title = _item.get("title")
-            if _item.get("type") == "movie" and _title and _title not in _seen:
-                _seen.add(_title)
-                _picks.append(_title)
-                if len(_picks) >= 2:
-                    break
+            if _item.get("type") != "movie" or not _item.get("title") or _item.get("id") in _seen_ids:
+                continue
+            _q = urllib.parse.quote(_item["title"])
+            try:
+                _hits = fetch_json(f"{catalog}/voice/search?q={_q}&limit=3").get("results") or []
+            except Exception:
+                _hits = []
+            if not _hits:
+                continue
+            _seen_ids.add(_item["id"])
+            _picks.append(_item["title"])
+            if len(_picks) >= 2:
+                break
         if len(_picks) >= 2:
             break
     if not query_a and _picks:
