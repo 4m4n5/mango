@@ -162,7 +162,8 @@ export type GrowFailureCategory =
   | 'theme_rejected'
   | 'low_stream_hit_rate'
   | 'same_theme_fallback_exhausted'
-  | 'time_budget_exceeded';
+  | 'time_budget_exceeded'
+  | 'skipped_no_sources';
 
 export type GrowRailOptions = {
   preset?: GrowPresetId;
@@ -1062,6 +1063,7 @@ function repairSuggestionsForFailure(
     low_stream_hit_rate: `Probe source hit-rate and demote low-yield catalogs at runtime${suffix}; do not satisfy quota with unverified links.`,
     same_theme_fallback_exhausted: `Add broader same-theme fallback sources for ${railId}${suffix}; avoid cross-theme fills.`,
     time_budget_exceeded: `Increase grow window or reduce slow sources for ${railId}${suffix}; current run hit wall/attempt budget.`,
+    skipped_no_sources: `Rail ${railId} has 0 resolvable catalog sources; add/replace sources before next grow.`,
   };
   return [suggestions[category]];
 }

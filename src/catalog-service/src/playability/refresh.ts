@@ -74,6 +74,10 @@ export type RefreshAllOptions = {
   growWallMs?: number;
   growMaxAttempts?: number;
   growFailFast?: boolean;
+  /** Injectable for tests — defaults to the real growRail. */
+  growFn?: typeof growRail;
+  /** Injectable for tests — defaults to runNightlyChainStartHooks. */
+  hooksRunner?: (core: CatalogCore) => Promise<{ swept_expired: number; trigger_drain: DrainTriggersResult }>;
 };
 
 function growFailFastEnabled(option?: boolean): boolean {
@@ -305,8 +309,9 @@ async function refreshAllRailsGrow(
   const uniqueVerifiedBefore = await getUniqueVerifiedLibraryCount();
   const orphanTotalBefore = await countOrphanVerifiedPoolTitles();
   const overlapBefore = await getRailPoolOverlapSummary({ maxRailsPerTitle: 2 });
-  const browsable = core.browsableRails();
+  const browsable = core.growableRails();
   const status = await getPlayabilityStatus(browsable.map((rail) => rail.id));
+  const statusByRail = new Map(status.rails.map((rail) => [rail.rail_id, rail]));
   const verifiedPoolByRail = new Map(
     status.rails.map((rail) => [rail.rail_id, rail.verified_pool]),
   );
@@ -316,14 +321,61 @@ async function refreshAllRailsGrow(
   process.env.MANGO_PLAYABILITY_GROW_PASS = '1';
   const requireGrowTarget = playabilityGrowRequireTarget();
   const failFast = growFailFastEnabled(options.growFailFast);
+  const growFn = options.growFn ?? growRail;
 
   try {
     for (const rail of rails) {
-      const growResult = await growRail(core, rail.id, {
-        preset: options.growPreset,
-        wallMs: options.growWallMs ?? preset.wall_ms,
-        maxAttempts: options.growMaxAttempts ?? preset.max_attempts,
-      });
+      let growResult: Awaited<ReturnType<typeof growRail>>;
+      try {
+        growResult = await growFn(core, rail.id, {
+          preset: options.growPreset,
+          wallMs: options.growWallMs ?? preset.wall_ms,
+          maxAttempts: options.growMaxAttempts ?? preset.max_attempts,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (/no available catalog sources/.test(message)) {
+          // Defense-in-depth: a single sourceless ai_catalog rail (e.g. a live
+          // tab channel that slipped past growableRails()) must not abort the
+          // whole refresh. listSourceForRail throws CatalogError(503) outside
+          // growRail's own try block, so we catch it here and record a skip.
+          console.warn(`grow: skipping rail ${rail.id}: no available catalog sources`);
+          const skippedStatus = statusByRail.get(rail.id) ?? {
+            rail_id: rail.id,
+            pool_depth: 0,
+            verified_pool: 0,
+            pending: 0,
+            stale: 0,
+            failed: 0,
+            last_verified_at: null,
+          };
+          railSummaries.push({
+            rail_id: rail.id,
+            label: rail.label,
+            ok: false,
+            before: skippedStatus,
+            after: skippedStatus,
+            candidate_limit: 0,
+            pool_target: rail.playability.pool_target,
+            fresh_verified: 0,
+            grow_target_met: false,
+            min_display: rail.playability.min_display,
+            candidates_seen: 0,
+            linked_existing: 0,
+            verified: 0,
+            failed: 0,
+            skipped_existing: 0,
+            skipped_recent_failed: 0,
+            exhausted: false,
+            failure_category: 'skipped_no_sources',
+            repair_suggestions: [
+              `Rail ${rail.id} has 0 resolvable catalog sources; add/replace sources before next grow.`,
+            ],
+          });
+          continue;
+        }
+        throw error;
+      }
       railSummaries.push(growResultToRailSummary(growResult));
       const railPublishable = growRailMeetsPublishFloor(growResult);
       if (
@@ -522,8 +574,11 @@ async function refreshAllRailsGrow(
  * maintenance chain's indexer CLI invokes for both its stale and grow phases). Sweeping expired
  * verified rows first means freshly-staled rows are picked up by the same run's stale phase;
  * draining triggers first means already re-verified titles don't get redundantly re-queued below.
+ *
+ * Exported so the `maintenance-hooks` indexer subcommand can run these against the LIVE DB
+ * before the maintenance script stages the work DB — see playability-maintenance.sh.
  */
-async function runNightlyChainStartHooks(
+export async function runNightlyChainStartHooks(
   core: CatalogCore,
 ): Promise<{ swept_expired: number; trigger_drain: DrainTriggersResult }> {
   const sweepResult = await sweepExpiredVerified();
@@ -535,7 +590,26 @@ export async function refreshAllRails(
   core: CatalogCore,
   options: RefreshAllOptions = {},
 ): Promise<RefreshAllResult> {
-  const { swept_expired: sweptExpired, trigger_drain: triggerDrain } = await runNightlyChainStartHooks(core);
+  // When the maintenance script runs H1/H3/H5 hooks against the LIVE DB pre-stage
+  // (MANGO_MAINTENANCE_HOOKS_PRESTAGE=1), skip running them again here against the
+  // staged work DB — otherwise the hook effects (drained triggers, swept-stale, H5
+  // rows) would be discarded with the work DB on a failed grow. The pre-stage run
+  // persists them to the live DB regardless of grow outcome.
+  const hooksRunner = options.hooksRunner ?? runNightlyChainStartHooks;
+  const hooksResult = process.env.MANGO_MAINTENANCE_HOOKS_PRESTAGE === '1'
+    ? {
+        swept_expired: 0,
+        trigger_drain: {
+          drained: 0,
+          verified: 0,
+          failed: 0,
+          promoted: 0,
+          by_trigger_type: {},
+        } satisfies DrainTriggersResult,
+      }
+    : await hooksRunner(core);
+  const sweptExpired = hooksResult.swept_expired;
+  const triggerDrain = hooksResult.trigger_drain;
   const mode = normalizeRefreshMode(options.mode);
   const bootstrap = options.bootstrap ?? playabilityBootstrapFill();
   if (isGrowRefreshMode(mode, bootstrap)) {
@@ -545,7 +619,7 @@ export async function refreshAllRails(
 
   const startedAt = Date.now();
   const uniqueVerifiedBefore = await getUniqueVerifiedLibraryCount();
-  const rails = core.browsableRails();
+  const rails = core.growableRails();
   const railIds = rails.map((rail) => rail.id);
   const status = await getPlayabilityStatus(railIds);
   const { railVerifiedCounts, railPoolTargets, railMinDisplays } = railMapsFromRails(

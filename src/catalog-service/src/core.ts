@@ -899,6 +899,18 @@ export class CatalogCore {
     return [...this.aiCatalogRails, ...enabledBrowsableRails(this.requireRailConfig())];
   }
 
+  /**
+   * VOD grow probes via TorBox/AIOStreams; live (IPTV) and youtube tabs have their
+   * own verify paths and no VOD catalog sources. Excluding them here keeps the
+   * nightly grow from aborting on `listSourceForRail` 503 for sourceless ai_catalog
+   * rails (e.g. ai-cricket-channels).
+   */
+  growableRails(): PlayableRail[] {
+    return this.browsableRails().filter(
+      (rail) => rail.tab !== 'live' && rail.tab !== 'youtube',
+    );
+  }
+
   private browsableRailsForTab(tab: CatalogTab): PlayableRail[] {
     const ai = this.aiCatalogRails.filter((rail) => rail.tab === tab);
     return [...ai, ...enabledBrowsableRailsForTab(this.requireRailConfig(), tab)];

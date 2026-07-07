@@ -556,6 +556,46 @@ export MANGO_PLAYABILITY_MAX_INGEST_SCAN="${MANGO_PLAYABILITY_MAX_INGEST_SCAN:-2
 export MANGO_GROW_NO_STREAM_RETRY_MS="${MANGO_GROW_NO_STREAM_RETRY_MS:-604800000}"
 PHASE_COOLDOWN_SEC="${MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC:-45}"
 
+# H1/H3/H5 hooks must persist to the LIVE DB regardless of grow success/failure.
+# Run them BEFORE stage_playability_db_if_needed points MANGO_PLAYABILITY_DB at
+# the work DB. The indexer boots its own CatalogCore (no catalog service needed),
+# mirroring the refresh command. MANGO_MAINTENANCE_HOOKS_PRESTAGE=1 tells
+# refreshAllRails not to re-run these hooks inside the work DB.
+run_maintenance_hooks_prestage() {
+  if [[ "$MODE" != "grow" && "$MODE" != "nightly" ]]; then
+    return 0
+  fi
+  if [[ "${MANGO_MAINTENANCE_HOOKS_PRESTAGE:-1}" == "0" ]]; then
+    return 0
+  fi
+  echo "== maintenance hooks (live DB) =="
+  grow_state set --phase maintenance_hooks \
+    --message "running H1/H3/H5 hooks against live DB" \
+    --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
+    --log "maintenance hooks: pre-stage sweep/drain/migrate on live DB"
+  set_live_playability_db_env
+  local hooks_rc=0
+  set +e
+  MANGO_MAINTENANCE_HOOKS_PRESTAGE=1 \
+    MANGO_PLAYABILITY_DB="$LIVE_PLAYABILITY_DB" \
+    npm --prefix src/catalog-service exec tsx -- \
+    scripts/m3-play/playability/playability-indexer.ts maintenance-hooks 2>&1
+  hooks_rc=$?
+  set -e
+  if [[ "$hooks_rc" -ne 0 ]]; then
+    echo "warn: maintenance-hooks rc=$hooks_rc — continuing; hooks will retry next run" >&2
+    grow_state log "maintenance hooks: warn rc=$hooks_rc (continuing — grow still runs)"
+  fi
+  # Persist the prestage flag into the parent shell so the subsequent refresh
+  # invocation (run_refresh -> playability-indexer.ts refresh) sees it and skips
+  # re-running H1/H3 hooks inside the staged work DB. The refresh command's own
+  # env inheritance picks this up; stage_playability_db_if_needed will override
+  # MANGO_PLAYABILITY_DB to point at the work DB.
+  export MANGO_MAINTENANCE_HOOKS_PRESTAGE=1
+}
+
+run_maintenance_hooks_prestage
+
 stage_playability_db_if_needed
 
 run_refresh() {
