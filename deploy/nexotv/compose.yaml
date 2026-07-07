@@ -4,8 +4,10 @@ services:
     container_name: mango-nexotv
     restart: unless-stopped
     mem_limit: 768m
-    ports:
-      - "127.0.0.1:7000:7000"
+    # Host network so NexoTV can fetch the curated AREA69 M3U from the Pi-local
+    # HTTP server on 127.0.0.1:7010 (bridge-network containers cannot reach host
+    # loopback). Listens on PORT from .env (default 7000).
+    network_mode: host
     env_file:
       - .env
     environment:
