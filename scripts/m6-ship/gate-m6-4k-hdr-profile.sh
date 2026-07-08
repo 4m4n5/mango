@@ -119,6 +119,18 @@ fi
   && gate_pass "mpv deferred foreground handoff enabled" \
   || gate_fail "mpv deferred foreground handoff disabled"
 
+[[ "${MANGO_MPV_VOD_SWAPINTERVAL:-1}" == "1" ]] \
+  && gate_pass "mpv VOD swap interval pinned for tear-free X11" \
+  || gate_warn "mpv VOD swap interval not 1 (${MANGO_MPV_VOD_SWAPINTERVAL:-unset})"
+
+if [[ -f /etc/mango/catalog-filters.json && -n "${MANGO_CATALOG_FILTERS:-}" && -f "${MANGO_CATALOG_FILTERS}" ]]; then
+  if cmp -s "${MANGO_CATALOG_FILTERS}" /etc/mango/catalog-filters.json; then
+    gate_pass "/etc/mango/catalog-filters.json matches active profile"
+  else
+    gate_fail "/etc/mango/catalog-filters.json drifted from ${MANGO_CATALOG_FILTERS}"
+  fi
+fi
+
 if command -v xrandr >/dev/null 2>&1; then
   output="$(xrandr --query 2>/dev/null | awk '/ connected/{print $1; exit}')"
   if [[ -n "${output:-}" ]]; then

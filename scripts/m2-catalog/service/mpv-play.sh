@@ -472,6 +472,12 @@ append_mpv_render_args() {
     args_ref+=("--audio-channels=${MANGO_MPV_AUDIO_CHANNELS}")
   fi
   append_mpv_live_args "$1"
+  if ! $LIVE; then
+    case "${MANGO_MPV_VOD_SWAPINTERVAL:-1}" in
+      0 | no | false) ;;
+      *) args_ref+=(--opengl-swapinterval="${MANGO_MPV_VOD_SWAPINTERVAL:-1}") ;;
+    esac
+  fi
 }
 
 append_mpv_buffer_args() {

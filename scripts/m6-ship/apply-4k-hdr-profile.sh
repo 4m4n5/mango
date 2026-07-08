@@ -115,12 +115,19 @@ case "$cmd" in
     append_env MANGO_MPV_DISABLE_XCOMPMGR "1"
     append_env MANGO_MPV_DEFER_FOREGROUND "1"
     append_env MANGO_PREFERRED_VIDEO_CODECS "hevc,x265,h265"
+    # shellcheck source=../lib/catalog-yaml.sh
+    source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
+    sync_catalog_filters_etc || true
     restart_stack
     status
     ;;
   revert)
     remove_env_keys
     rm -f "$PROFILE_DST"
+    # shellcheck source=../lib/catalog-yaml.sh
+    source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
+    unset MANGO_CATALOG_FILTERS
+    sync_catalog_filters_etc "$REPO_DIR/config/catalog-filters.example.json" || true
     restart_stack
     status
     ;;
