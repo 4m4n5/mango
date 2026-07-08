@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { isBlockedLiveChannel } from './live-stream-verify.js';
-import { sortLiveChannelsByQuality } from './live/quality-rank.js';
+import { dedupeLiveChannelsByTitle, sortLiveChannelsByQuality } from './live/quality-rank.js';
 
 export type LiveSourceFill = {
   addon: string;
@@ -21,6 +21,8 @@ export type LiveSportRail = {
   limit: number;
   include_genres?: string[];
   exclude_keywords?: string[];
+  /** When false, keep every quality variant (e.g. World Cup PPV feeds). Default true. */
+  dedupe_titles?: boolean;
   /** Fill slots per addon in order (e.g. Indian news first, then US national). */
   source_fill?: LiveSourceFill[];
 };
@@ -172,6 +174,7 @@ function readLiveSportRail(record: Record<string, unknown>, index: number): Live
     limit: readPositiveInt(record, 'limit', context, 20),
     include_genres: readOptionalStringArray(record, 'include_genres'),
     exclude_keywords: readOptionalStringArray(record, 'exclude_keywords'),
+    dedupe_titles: record.dedupe_titles === false ? false : undefined,
     source_fill: readSourceFill(record, context),
   };
 }
@@ -435,6 +438,17 @@ export function matchChannelsToRail(
     assignedIds.add(channel.id);
   }
   return ordered;
+}
+
+export function finalizeLiveRailListing<T extends LiveChannelMeta>(
+  channels: T[],
+  rail: Pick<LiveSportRail, 'limit' | 'dedupe_titles'>,
+): T[] {
+  const sorted = sortLiveChannelsByQuality(channels);
+  const listed = rail.dedupe_titles === false
+    ? sorted
+    : dedupeLiveChannelsByTitle(sorted);
+  return listed.slice(0, rail.limit);
 }
 
 export function partitionChannelsBySportRails(

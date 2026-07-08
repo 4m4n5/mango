@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   channelSubtitle,
+  finalizeLiveRailListing,
   keywordPattern,
   matchAllChannelsToRail,
   matchChannelsToRail,
@@ -213,4 +214,70 @@ test('live-rails prefers EPG text for subtitles', () => {
     releaseInfo: 'Liverpool vs Arsenal — 1st half',
     genre: 'sports',
   })), 'Liverpool vs Arsenal — 1st half');
+});
+
+test('live-rails world cup rail claims fifa channels before soccer rail', () => {
+  const rails: LiveSportRail[] = [
+    {
+      id: 'live-world-cup',
+      label: 'world cup',
+      keywords: ['world cup', 'fifa', 'copa mundial', 'mundial'],
+      limit: 10,
+    },
+    {
+      id: 'live-football',
+      label: 'soccer',
+      keywords: ['uefa', 'premier league', 'bein sports'],
+      exclude_keywords: ['world cup', 'fifa', 'copa mundial', 'mundial'],
+      limit: 10,
+    },
+  ];
+  const channels = [
+    channel({ id: 'wc1', name: 'World Cup 01 : Netherlands vs Sweden' }),
+    channel({ id: 'wc2', name: 'FIFA+ Live | Copa Mundial' }),
+    channel({ id: 'pl', name: 'Sky Sports Premier League HD' }),
+    channel({ id: 'bein', name: 'beIN Sports 1 HD' }),
+  ];
+  const byRail = partitionChannelsBySportRails(channels, rails);
+  assert.deepEqual(
+    byRail.get('live-world-cup')?.map((item) => item.id).sort(),
+    ['wc1', 'wc2'],
+  );
+  assert.deepEqual(
+    byRail.get('live-football')?.map((item) => item.id).sort(),
+    ['bein', 'pl'],
+  );
+});
+
+test('live-rails finalize keeps all quality variants when dedupe_titles is false', () => {
+  const rail: LiveSportRail = {
+    id: 'live-world-cup',
+    label: 'world cup',
+    keywords: ['world cup'],
+    limit: 4,
+    dedupe_titles: false,
+  };
+  const channels = [
+    channel({ id: '8k', name: 'Live | World Cup Final | 8K EXCLUSIVE' }),
+    channel({ id: '4k', name: 'Live | World Cup Final | 4K UHD' }),
+    channel({ id: 'hd', name: 'Live | World Cup Final | HD' }),
+  ];
+  const listed = finalizeLiveRailListing(channels, rail);
+  assert.deepEqual(listed.map((item) => item.id), ['8k', '4k', 'hd']);
+});
+
+test('live-rails finalize dedupes identical titles by default', () => {
+  const rail: LiveSportRail = {
+    id: 'live-football',
+    label: 'soccer',
+    keywords: ['world cup'],
+    limit: 4,
+  };
+  const channels = [
+    channel({ id: '8k', name: 'World Cup 01 : Netherlands vs Sweden' }),
+    channel({ id: '4k', name: 'World Cup 01 : Netherlands vs Sweden' }),
+    channel({ id: 'other', name: 'World Cup 02 : France vs Spain' }),
+  ];
+  const listed = finalizeLiveRailListing(channels, rail);
+  assert.deepEqual(listed.map((item) => item.id), ['8k', 'other']);
 });

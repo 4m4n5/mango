@@ -97,6 +97,7 @@ import type { AiCatalogRail } from './ai-catalogs/types.js';
 import {
   channelSubtitle,
   fetchLiveCatalogChannels,
+  finalizeLiveRailListing,
   loadLiveRailConfig,
   partitionChannelsBySportRails,
   type LiveChannelMeta,
@@ -117,7 +118,6 @@ import {
   liveRailsDiskCacheSummary,
 } from './live-rails-cache.js';
 import { buildLiveAiCatalogRails } from './live/ai-catalog-rails.js';
-import { dedupeLiveChannelsByTitle, sortLiveChannelsByQuality } from './live/quality-rank.js';
 import {
   isArea69ChannelId,
   listArea69TaggedChannels,
@@ -1182,6 +1182,20 @@ export class CatalogCore {
     });
   }
 
+  private finalizeLiveRailChannels<T extends LiveChannelMeta & {
+    source_addon: string;
+    source_label?: string;
+  }>(
+    channels: T[],
+    rail: LiveSportRail,
+  ): VerifiedLiveChannel[] {
+    return finalizeLiveRailListing(channels, rail).map((channel) => ({
+      ...channel,
+      source_addon: channel.source_addon,
+      source_label: channel.source_label,
+    }));
+  }
+
   private async verifyRailChannels(
     rail: LiveSportRail,
     candidates: TaggedLiveChannel[],
@@ -1191,13 +1205,7 @@ export class CatalogCore {
       ? candidates
       : this.orderLiveCandidates(candidates, config);
     if (!config.verify_streams || ordered.length === 0) {
-      return dedupeLiveChannelsByTitle(sortLiveChannelsByQuality(ordered))
-        .slice(0, rail.limit)
-        .map((channel) => ({
-        ...channel,
-        source_addon: channel.source_addon,
-        source_label: channel.source_label,
-      }));
+      return this.finalizeLiveRailChannels(ordered, rail);
     }
 
     const bySource = new Map<string, TaggedLiveChannel[]>();
@@ -1233,7 +1241,7 @@ export class CatalogCore {
       verified.push(...next);
     }
     if (verified.length > 0) {
-      return dedupeLiveChannelsByTitle(sortLiveChannelsByQuality(verified)).slice(0, rail.limit);
+      return this.finalizeLiveRailChannels(verified, rail);
     }
     // NexoTV rate limits stream resolves — still surface free legal channels for browse.
     const freeFallback = ordered

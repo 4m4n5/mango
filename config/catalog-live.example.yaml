@@ -31,6 +31,68 @@ sources:
     pages: 1
 
 rails:
+  - id: live-world-cup
+    label: world cup
+    limit: 120
+    dedupe_titles: false
+    source_fill:
+      - addon: mango Live Free
+        limit: 12
+        keywords:
+          - fifa
+      - addon: mango Live TV
+        limit: 108
+        keywords:
+          - world cup
+          - fifa world cup
+          - copa mundial
+          - copa do mundo
+          - copa mundial de la fifa
+          - mundial de la fifa
+          - todo el mundial
+          - world cup tonight
+          - world cup today
+          - tsn at the world cup
+          - dieciseisavos
+          - octavos de final
+          - cuartos de final
+          - semifinal
+          - bein sports max
+        exclude_keywords:
+          - soccer ppv
+          - national pool
+          - pool championship
+          - phillies at
+          - marlins at
+          - mariners at
+          - goodwood
+          - road racing
+          - nfl
+          - baseball
+          - mlb
+          - cricket
+    keywords:
+      - world cup
+      - fifa
+      - copa mundial
+      - copa do mundo
+      - mundial
+    exclude_keywords:
+      - replay
+      - 24/7
+      - soccer ppv
+      - national pool
+      - pool championship
+      - phillies at
+      - marlins at
+      - mariners at
+      - goodwood
+      - road racing
+      - nfl
+      - baseball
+      - mlb
+      - cricket
+
   - id: live-cricket
     label: cricket
     limit: 48
@@ -70,21 +132,16 @@ rails:
       - baseball
 
   - id: live-football
-    label: soccer & world cup
-    limit: 80
+    label: soccer
+    limit: 60
     source_fill:
       - addon: mango Live Free
-        limit: 10
+        limit: 8
         keywords:
-          - fifa
           - bein sports
       - addon: mango Live TV
-        limit: 70
+        limit: 52
         keywords:
-          - world cup
-          - fifa
-          - copa mundial
-          - copa do mundo
           - uefa
           - premier league
           - bundesliga
@@ -93,7 +150,6 @@ rails:
           - champions league
           - ligue 1
           - mls
-          - mundial
           - bein sports
           - dazn
           - sky sports football
@@ -160,17 +216,14 @@ rails:
           - goodwood
           - road racing
     keywords:
-      - fifa
-      - world cup
-      - copa mundial
-      - copa do mundo
-      - mundial
       - uefa
       - premier league
       - bundesliga
       - la liga
       - serie a
       - champions league
+      - ligue 1
+      - mls
     exclude_keywords:
       - replay
       - 24/7
@@ -178,6 +231,11 @@ rails:
       - handball
       - combat
       - pluto
+      - world cup
+      - fifa
+      - copa mundial
+      - copa do mundo
+      - mundial
       - soccer ppv
       - national pool
       - pool championship
