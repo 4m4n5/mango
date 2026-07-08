@@ -94,6 +94,21 @@ def _playback_snapshot() -> tuple[float, float, bool] | None:
     return pos, dur, is_paused
 
 
+def _video_snapshot() -> str:
+    width = _mpv_ipc_property("width")
+    height = _mpv_ipc_property("height")
+    codec = _mpv_ipc_property("video-codec")
+    hwdec = _mpv_ipc_property("hwdec-current")
+    parts: list[str] = []
+    if isinstance(width, (int, float)) and isinstance(height, (int, float)) and width > 0 and height > 0:
+        parts.append(f"{int(width)}×{int(height)}")
+    if isinstance(codec, str) and codec.strip():
+        parts.append(codec.strip().upper())
+    if isinstance(hwdec, str) and hwdec.strip() and hwdec.strip() != "no":
+        parts.append(f"hw:{hwdec.strip()}")
+    return " · ".join(parts) if parts else "—"
+
+
 def _subtitle_snapshot() -> tuple[bool, str]:
     visible = _mpv_ipc_property("sub-visibility")
     sid = _mpv_ipc_property("sid")
@@ -210,7 +225,7 @@ def run() -> int:
         screen_w = max(1280, root.winfo_screenwidth())
         screen_h = max(720, root.winfo_screenheight())
         width = min(2200, max(900, int(screen_w * 0.64)))
-        height = 138
+        height = 156
         x = max(0, int((screen_w - width) / 2))
         y = max(0, screen_h - height - max(34, int(screen_h * 0.035)))
         root.geometry(f"{width}x{height}+{x}+{y}")
@@ -227,10 +242,11 @@ def run() -> int:
         remaining = max(0.0, duration - position) if duration > 0 else 0.0
         subs_on, subs_label = _subtitle_snapshot()
         audio_label = _audio_snapshot()
+        video_label = _video_snapshot()
         canvas.delete("all")
 
         pad_x = 34
-        track_y = height - 38
+        track_y = height - 40
         track_w = width - pad_x * 2
         track_h = 10
 
@@ -280,15 +296,18 @@ def run() -> int:
             anchor="w",
             fill=status_color,
             font=("DejaVu Sans", 15),
-            text="Audio:",
+            text=f"Audio: {audio_label}",
         )
+        video_color = "#9fd4a8" if any(
+            token in video_label for token in ("3840", "2160", "4096")
+        ) else status_color
         canvas.create_text(
-            width - pad_x,
-            70,
-            anchor="e",
-            fill=status_color,
-            font=("DejaVu Sans", 15),
-            text=audio_label,
+            pad_x,
+            92,
+            anchor="w",
+            fill=video_color,
+            font=("DejaVu Sans", 14),
+            text=f"Video: {video_label}",
         )
         canvas.create_rectangle(
             pad_x,
