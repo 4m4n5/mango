@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -44,6 +45,11 @@ DISPLAY_ENSURE_INTERVAL_SEC = float(
 DISPLAY_SNAPSHOT_TTL_SEC = float(
     os.environ.get("MANGO_PLAYBACK_OSD_DISPLAY_TTL_SEC", "2.0")
 )
+# Fixed 10-foot overlay geometry — independent of stream/decode resolution and
+# independent of whether X11 is 1080p or 4K (same pixel footprint every time).
+OSD_WIDTH = int(os.environ.get("MANGO_PLAYBACK_OSD_WIDTH", "1280"))
+OSD_HEIGHT = int(os.environ.get("MANGO_PLAYBACK_OSD_HEIGHT", "172"))
+OSD_MARGIN_BOTTOM = int(os.environ.get("MANGO_PLAYBACK_OSD_MARGIN_BOTTOM", "48"))
 
 
 def _write_owner_file(path: Path, text: str, mode: int = 0o644) -> None:
@@ -262,6 +268,58 @@ def _format_time(seconds: float) -> str:
     return f"{minutes}:{sec:02d}"
 
 
+def _x11_env() -> dict[str, str]:
+    env = {**os.environ, "HOME": str(HOME)}
+    env.setdefault("DISPLAY", ":0")
+    env.setdefault("XAUTHORITY", str(HOME / ".Xauthority"))
+    return env
+
+
+def _x11_display_size() -> tuple[int, int]:
+    """Actual X11 desktop pixels (xdotool), not tkinter winfo — reliable on Pi."""
+    if shutil.which("xdotool"):
+        try:
+            result = subprocess.run(
+                ["xdotool", "getdisplaygeometry"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+                env=_x11_env(),
+            )
+            if result.returncode == 0:
+                parts = result.stdout.strip().split()
+                if len(parts) >= 2:
+                    w, h = int(parts[0]), int(parts[1])
+                    if w > 0 and h > 0:
+                        return w, h
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            pass
+    return 1920, 1080
+
+
+def _pin_x11_window(wid: int, x: int, y: int, width: int, height: int) -> None:
+    if wid <= 0 or not shutil.which("xdotool"):
+        return
+    env = _x11_env()
+    subprocess.run(
+        ["xdotool", "windowmove", str(wid), str(x), str(y)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=2,
+        check=False,
+        env=env,
+    )
+    subprocess.run(
+        ["xdotool", "windowsize", str(wid), str(width), str(height)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=2,
+        check=False,
+        env=env,
+    )
+
+
 def show(reason: str) -> int:
     payload = {"ts": time.time(), "reason": reason}
     _write_owner_file(TRIGGER_PATH, json.dumps(payload, separators=(",", ":")) + "\n", 0o644)
@@ -280,6 +338,7 @@ def run() -> int:
     last_trigger_mtime = 0.0
     last_display_ensure_at = 0.0
     hidden = True
+    layout_applied = False
 
     root = tk.Tk(className="mango-playback-osd")
     root.title("mango playback osd")
@@ -295,14 +354,14 @@ def run() -> int:
     canvas.pack(fill="both", expand=True)
 
     def layout() -> tuple[int, int]:
+        width = max(640, OSD_WIDTH)
+        height = max(120, OSD_HEIGHT)
+        screen_w, screen_h = _x11_display_size()
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, screen_h - height - max(24, OSD_MARGIN_BOTTOM))
         root.update_idletasks()
-        screen_w = max(1280, root.winfo_screenwidth())
-        screen_h = max(720, root.winfo_screenheight())
-        width = min(2200, max(900, int(screen_w * 0.64)))
-        height = 172
-        x = max(0, int((screen_w - width) / 2))
-        y = max(0, screen_h - height - max(34, int(screen_h * 0.035)))
         root.geometry(f"{width}x{height}+{x}+{y}")
+        _pin_x11_window(int(root.winfo_id()), x, y, width, height)
         return width, height
 
     def draw(
@@ -432,15 +491,17 @@ def run() -> int:
         )
 
     def tick() -> None:
-        nonlocal hidden, last_trigger_mtime, show_until, last_display_ensure_at
+        nonlocal hidden, last_trigger_mtime, show_until, last_display_ensure_at, layout_applied
 
         try:
             trigger_mtime = TRIGGER_PATH.stat().st_mtime
         except OSError:
             trigger_mtime = 0.0
-        if trigger_mtime > last_trigger_mtime:
+        trigger_fired = trigger_mtime > last_trigger_mtime
+        if trigger_fired:
             last_trigger_mtime = trigger_mtime
             show_until = time.time() + VISIBLE_SEC
+            layout_applied = False
 
         visible = show_until > 0 and time.time() <= show_until
 
@@ -460,6 +521,7 @@ def run() -> int:
             if not hidden:
                 root.withdraw()
                 hidden = True
+                layout_applied = False
             root.after(HIDDEN_POLL_MS, tick)
             return
 
@@ -473,11 +535,14 @@ def run() -> int:
             return
 
         position, duration, paused = snapshot
-        width, height = layout()
-        draw(width, height, position, duration, paused)
+        width, height = OSD_WIDTH, OSD_HEIGHT
+        if not layout_applied or hidden:
+            width, height = layout()
+            layout_applied = True
         if hidden:
             root.deiconify()
             hidden = False
+        draw(width, height, position, duration, paused)
         root.lift()
         root.after(POLL_MS, tick)
 
