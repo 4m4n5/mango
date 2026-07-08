@@ -1157,8 +1157,22 @@ h1 {
   background: var(--accent-soft);
 }
 
-.detail-episode--disabled {
-  opacity: 0.38;
+.detail-episode--disabled,
+.detail-episode--no-streams {
+  opacity: 0.55;
+}
+
+.detail-episode-stream-badge {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.detail-episode--has-streams .detail-episode-stream-badge {
+  display: none;
 }
 
 .detail-episode.focused,
