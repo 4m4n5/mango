@@ -50,6 +50,8 @@ LAUNCHER_SH = REPO / "scripts/launch-launcher.sh"
 MPV_IPC_SH = REPO / "scripts/m2-catalog/service/mpv-ipc.sh"
 MPV_STOP_SH = REPO / "scripts/m2-catalog/service/mpv-stop.sh"
 PLAYBACK_OSD_PY = REPO / "scripts/m2-catalog/service/playback-osd.py"
+PLAYBACK_DISPLAY_ENSURE_SH = REPO / "scripts/lib/mango-playback-display-ensure.sh"
+DISPLAY_MODE_SH = REPO / "scripts/lib/mango-display-mode.sh"
 DISPLAY_WAKE_SH = REPO / "scripts/lib/mango-display-wake.sh"
 COUCH_ACTIVITY_SH = REPO / "scripts/lib/couch-activity.sh"
 LAUNCHER_PORT = os.environ.get("MANGO_LAUNCHER_PORT", "3000")
@@ -818,6 +820,17 @@ def show_playback_osd(reason: str) -> None:
     popen_tv_user(["python3", str(PLAYBACK_OSD_PY), "--show", reason])
 
 
+def reassert_playback_display() -> None:
+    if not PLAYBACK_DISPLAY_ENSURE_SH.is_file():
+        return
+    popen_tv_user(["bash", str(PLAYBACK_DISPLAY_ENSURE_SH)])
+
+
+def mpv_is_paused() -> bool:
+    paused = mpv_ipc_data("pause")
+    return paused in (True, "yes", 1)
+
+
 def ensure_playback_osd_daemon() -> None:
     if not PLAYBACK_OSD_PY.is_file():
         return
@@ -1016,8 +1029,10 @@ def route_playback_shoulder(app: str, direction: str) -> None:
 def route_face(app: str, action: str) -> None:
     if action == "select":
         if app == "mpv":
+            resuming = mpv_is_paused()
             send_mpv_ipc("keypress", "SPACE")
-            show_playback_osd("pause")
+            reassert_playback_display()
+            show_playback_osd("resume" if resuming else "pause")
         elif app == "launcher":
             launcher_send_nav_or_key(
                 symbol="Return",

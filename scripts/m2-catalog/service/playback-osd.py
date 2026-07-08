@@ -21,10 +21,22 @@ MPV_SOCKET = Path(os.environ.get("MANGO_MPV_SOCKET", CACHE_DIR / "mpv.sock"))
 MPV_IPC_SH = Path(
     os.environ.get("MANGO_MPV_IPC_SH", REPO / "scripts/m2-catalog/service/mpv-ipc.sh")
 )
+DISPLAY_MODE_SH = Path(
+    os.environ.get("MANGO_DISPLAY_MODE_SH", REPO / "scripts/lib/mango-display-mode.sh")
+)
+DISPLAY_ENSURE_SH = Path(
+    os.environ.get(
+        "MANGO_PLAYBACK_DISPLAY_ENSURE_SH",
+        REPO / "scripts/lib/mango-playback-display-ensure.sh",
+    )
+)
 TRIGGER_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_TRIGGER", CACHE_DIR / "playback-osd.show"))
 PID_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_PID_FILE", CACHE_DIR / "playback-osd.pid"))
 VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "7.0"))
 POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_POLL_MS", "250"))
+DISPLAY_ENSURE_INTERVAL_SEC = float(
+    os.environ.get("MANGO_PLAYBACK_DISPLAY_ENSURE_INTERVAL_SEC", "5.0")
+)
 
 
 def _write_owner_file(path: Path, text: str, mode: int = 0o644) -> None:
@@ -107,6 +119,54 @@ def _video_snapshot() -> str:
     if isinstance(hwdec, str) and hwdec.strip() and hwdec.strip() != "no":
         parts.append(f"hw:{hwdec.strip()}")
     return " · ".join(parts) if parts else "—"
+
+
+def _display_snapshot() -> str:
+    if not DISPLAY_MODE_SH.is_file():
+        return "—"
+    try:
+        result = subprocess.run(
+            ["bash", str(DISPLAY_MODE_SH), "status"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+            env={**os.environ, "HOME": str(HOME)},
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return "—"
+    line = (result.stdout or "").strip().splitlines()
+    if not line:
+        return "—"
+    parts = line[0].split()
+    if len(parts) < 2:
+        return "—"
+    mode = parts[1]
+    return mode if "x" in mode else "—"
+
+
+def _maybe_ensure_playback_display(last_ensure_at: float) -> float:
+    now = time.time()
+    if now - last_ensure_at < DISPLAY_ENSURE_INTERVAL_SEC:
+        return last_ensure_at
+    if not DISPLAY_ENSURE_SH.is_file():
+        return now
+    width = _mpv_ipc_property("width")
+    height = _mpv_ipc_property("height")
+    if not (
+        isinstance(width, (int, float))
+        and isinstance(height, (int, float))
+        and (int(width) >= 3000 or int(height) >= 1600)
+    ):
+        return now
+    subprocess.Popen(
+        ["bash", str(DISPLAY_ENSURE_SH)],
+        env={**os.environ, "HOME": str(HOME), "DISPLAY": os.environ.get("DISPLAY", ":0")},
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    return now
 
 
 def _subtitle_snapshot() -> tuple[bool, str]:
@@ -205,6 +265,7 @@ def run() -> int:
     _write_owner_file(PID_PATH, f"{os.getpid()}\n", 0o644)
     show_until = 0.0
     last_trigger_mtime = 0.0
+    last_display_ensure_at = 0.0
     hidden = True
 
     root = tk.Tk(className="mango-playback-osd")
@@ -225,7 +286,7 @@ def run() -> int:
         screen_w = max(1280, root.winfo_screenwidth())
         screen_h = max(720, root.winfo_screenheight())
         width = min(2200, max(900, int(screen_w * 0.64)))
-        height = 156
+        height = 172
         x = max(0, int((screen_w - width) / 2))
         y = max(0, screen_h - height - max(34, int(screen_h * 0.035)))
         root.geometry(f"{width}x{height}+{x}+{y}")
@@ -243,6 +304,7 @@ def run() -> int:
         subs_on, subs_label = _subtitle_snapshot()
         audio_label = _audio_snapshot()
         video_label = _video_snapshot()
+        display_label = _display_snapshot()
         canvas.delete("all")
 
         pad_x = 34
@@ -309,6 +371,17 @@ def run() -> int:
             font=("DejaVu Sans", 14),
             text=f"Video: {video_label}",
         )
+        display_color = "#9fd4a8" if any(
+            token in display_label for token in ("3840", "2160", "4096")
+        ) else "#d4a09f" if "1920" in display_label else status_color
+        canvas.create_text(
+            pad_x,
+            114,
+            anchor="w",
+            fill=display_color,
+            font=("DejaVu Sans", 14),
+            text=f"Display: {display_label}",
+        )
         canvas.create_rectangle(
             pad_x,
             track_y,
@@ -346,7 +419,7 @@ def run() -> int:
         )
 
     def tick() -> None:
-        nonlocal hidden, last_trigger_mtime, show_until
+        nonlocal hidden, last_trigger_mtime, show_until, last_display_ensure_at
         snapshot = _playback_snapshot()
         if snapshot is None:
             try:
@@ -357,6 +430,7 @@ def run() -> int:
             return
 
         position, duration, paused = snapshot
+        last_display_ensure_at = _maybe_ensure_playback_display(last_display_ensure_at)
 
         try:
             trigger_mtime = TRIGGER_PATH.stat().st_mtime

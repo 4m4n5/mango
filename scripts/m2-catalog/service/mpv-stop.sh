@@ -63,8 +63,11 @@ fi
 
 pkill -x mpv 2>/dev/null || true
 stop_playback_osd
-rm -f "${HOME}/.cache/mango/mpv.pid" "$SOCKET" "$PLAYBACK_ACTIVE_FILE" \
+rm -f "${HOME}/.cache/mango/mpv.pid" "$SOCKET" \
   "$LEGACY_VLC_PID_FILE" "$LEGACY_PLAYER_STATE" "$LEGACY_VLC_PLAYLIST"
+if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
+  rm -f "$PLAYBACK_ACTIVE_FILE"
+fi
 
 if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
   sleep "${MANGO_DISPLAY_LAUNCHER_SETTLE_SEC:-0.35}"
