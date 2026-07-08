@@ -384,7 +384,6 @@ start_mpv_exit_monitor() {
     if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
       curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
       rm -f "$pidfile" "${HOME}/.cache/mango/playback-active"
-      MANGO_MPV_STOP_HOME=1 bash "$repo/scripts/lib/restore-launcher-after-playback.sh" prepare
       MANGO_MPV_STOP_HOME=1 bash "$repo/scripts/lib/restore-launcher-after-playback.sh" finish
     fi
   ' bash "$pid" "$REPO_DIR" "$pidfile" >/dev/null 2>&1 &

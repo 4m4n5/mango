@@ -10,7 +10,18 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 source "$SCRIPT_DIR/launcher-window.sh"
 
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
-if [[ ! -f "$PLAYBACK_ACTIVE_FILE" ]] && ! pgrep -x mpv >/dev/null 2>&1; then
+
+launcher_display_is_browse() {
+  local current_w policy_mode policy_w
+  policy_mode="${MANGO_LAUNCHER_DISPLAY_MODE:-1920x1080}"
+  policy_w="${policy_mode%%x*}"
+  [[ "$policy_w" =~ ^[0-9]+$ ]] || policy_w=1920
+  current_w="$(bash "$SCRIPT_DIR/mango-display-mode.sh" status 2>/dev/null | awk '{print $2}' | awk -Fx '{print $1}' || true)"
+  [[ -n "$current_w" && "$current_w" =~ ^[0-9]+$ ]] || return 0
+  (( current_w <= policy_w + 80 ))
+}
+
+if [[ ! -f "$PLAYBACK_ACTIVE_FILE" ]] && ! pgrep -x mpv >/dev/null 2>&1 && ! launcher_display_is_browse; then
   bash "$SCRIPT_DIR/mango-display-mode.sh" ensure-launcher 2>/dev/null || true
 fi
 

@@ -2,8 +2,8 @@
 # SSOT: show and focus the launcher after mpv playback ends.
 #
 # Usage:
-#   restore-launcher-after-playback.sh prepare  # map/present launcher before mpv teardown
-#   restore-launcher-after-playback.sh finish   # xrandr + focus after mpv is gone
+#   restore-launcher-after-playback.sh prepare  # legacy no-op (kept for callers)
+#   restore-launcher-after-playback.sh finish   # 1080p xrandr, then show launcher
 #
 # Env:
 #   MANGO_MPV_STOP_HOME=1  run launch-launcher (pad home path)
@@ -26,8 +26,6 @@ source "$REPO_DIR/scripts/lib/launcher-window.sh"
 source "$REPO_DIR/scripts/lib/launcher-power.sh"
 
 ensure_launcher_browser() {
-  # Thaw first: playback froze the cgroup to keep the GPU clear. Thawing resumes
-  # the existing process with its JS state intact — no cold start, no flash.
   launcher_thaw
   if pgrep -f "$(launcher_browser_pattern)" >/dev/null 2>&1; then
     return 0
@@ -63,13 +61,16 @@ focus_launcher_home() {
 }
 
 cmd_prepare() {
-  show_launcher_surface
-  present_launcher_ready || true
+  # Do not thaw/show/present here. After 4K playback HDMI is still at film cadence;
+  # revealing the launcher first caused a 4K flash before finish downscaled to 1080p.
+  :
 }
 
 cmd_finish() {
   rm -f "$PLAYBACK_ACTIVE_FILE"
+  # Restore browse mode before the launcher becomes visible.
   bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" ensure-launcher 2>/dev/null || true
+  launcher_thaw
   show_launcher_surface
   present_launcher_ready || true
   focus_launcher_home
