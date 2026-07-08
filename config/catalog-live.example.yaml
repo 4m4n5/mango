@@ -93,7 +93,7 @@ rails:
           - champions league
           - ligue 1
           - mls
-          - soccer
+          - mundial
           - bein sports
           - dazn
           - sky sports football
@@ -114,6 +114,9 @@ rails:
           - movie
           - 24/7
           - replay
+          - soccer ppv
+          - national pool
+          - pool championship
           - nfl
           - american football
           - college football
@@ -138,15 +141,13 @@ rails:
           - indycar
           - nascar
           - motogp
-          - astros
-          - yankees
-          - cubs
-          - dodgers
-          - braves
-          - nationals
-          - necbl
-          - at orioles
+          - phillies at
+          - marlins at
+          - mariners at
+          - at reds
+          - at nationals
           - at rays
+          - at orioles
           - at pirates
           - at mets
           - at rockies
@@ -155,11 +156,13 @@ rails:
           - at white sox
           - at dodgers
           - at brewers
+          - rise at
     keywords:
-      - soccer
       - fifa
       - world cup
       - copa mundial
+      - copa do mundo
+      - mundial
       - uefa
       - premier league
       - bundesliga
@@ -173,7 +176,14 @@ rails:
       - handball
       - combat
       - pluto
-      - nfl
+      - soccer ppv
+      - national pool
+      - pool championship
+      - phillies at
+      - marlins at
+      - mariners at
+      - at reds
+      - rise at
       - american football
       - college football
       - super bowl
