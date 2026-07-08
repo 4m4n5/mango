@@ -621,7 +621,7 @@ append_mpv_play_args() {
     args_ref+=(--vo=null --ao=null --really-quiet)
   else
     args_ref+=(--fs "${audio_args[@]}")
-    # Subs off at start; pad X/↑/↓ selects tracks. sub-auto=all so cycle sub
+    # Subs off at start; pad X/•/↑ for subs/OSD. sub-auto=all so cycle sub
     # can reach any embedded track (default fuzzy only exposes forced subs).
     args_ref+=(
       --sub-visibility=no

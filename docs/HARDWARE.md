@@ -145,21 +145,22 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 ```
   [−]  [+]
-  [317] [⌂]   ← 317 bottom-left currently unused in couch mode; home = right bottom (316, fallback 311)
+  [317] [⌂]   ← 317 = sub lang cycle during playback; home = right bottom (316, fallback 311)
 ```
 
 | Label | evdev | Action |
 |-------|-------|--------|
 | **−** | `314` | **Volume down** |
 | **+** | `315` | **Volume up** |
-| **Bottom-left center button** | `317` | Unused in current couch mapping |
+| **Bottom-left center button** | `317` | **Cycle subtitle language** (playback); unused on launcher |
 | **L** shoulder | `310` | **Prev browse tab** (launcher); playback large seek back |
 | **R** shoulder | `311` | **Next browse tab** (launcher); playback large seek forward |
 | **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
 
 **D-pad** → navigate. During playback, **←/→** skip ±10s and show the progress
-HUD; holding **←/→** accelerates seek (10s → 30s → 120s). **↑/↓** cycle subtitle
-language; **X** toggles subtitles on/off; **A** cycles the audio track. Playback-only **L/R** jumps by the large
+HUD; holding **←/→** accelerates seek (10s → 30s → 120s). **↑** shows the
+playback HUD only. **•** (center, `317`) cycles subtitle language; **X** toggles
+subtitles on/off; **A** cycles the audio track. Playback-only **L/R** jumps by the large
 seek step (120s default).
 
 > Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. **A** is audio during playback; **X** is shuffle on the launcher.

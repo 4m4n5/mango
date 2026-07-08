@@ -112,6 +112,7 @@ BTN_MINUS = 314
 BTN_PLUS = 315
 BTN_TL = 310  # L shoulder — prev browse tab (launcher)
 BTN_TR = 311  # R shoulder — next browse tab (launcher); home fallback elsewhere
+BTN_CENTER = 317  # bottom-left center — unused on launcher; sub lang during playback
 HOME_BUTTONS = {316, 311}
 BT_MAC = "E4:17:D8:EB:00:44"
 RECONNECT_SLEEP_SEC = 0.75
@@ -1279,13 +1280,8 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                         if _playback_app(app):
                             if event.value <= -threshold:
                                 debounced(
-                                    f"{app}-sub-prev",
-                                    lambda: route_playback_subtitle(app, "prev"),
-                                )
-                            elif event.value >= threshold:
-                                debounced(
-                                    f"{app}-sub-next",
-                                    lambda: route_playback_subtitle(app, "next"),
+                                    f"{app}-osd",
+                                    lambda: show_playback_osd("show"),
                                 )
                         elif event.value <= -threshold:
                             debounced(
@@ -1321,6 +1317,11 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                         debounced(
                             f"{app}-audio-cycle",
                             lambda: route_playback_audio(app),
+                        )
+                    elif event.code == BTN_CENTER and _playback_app(app):
+                        debounced(
+                            f"{app}-sub-next",
+                            lambda: route_playback_subtitle(app, "next"),
                         )
                     elif event.code == BTN_MINUS:
                         debounced("volume-down", lambda: adjust_volume(-VOLUME_STEP_PERCENT))

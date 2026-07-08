@@ -8,7 +8,7 @@ export MANGO_BTN_BACK_FACE=308       # Y — left — in-app back only
 
 # Center grid (typical Switch layout on Micro):
 #   [− 314]  [+ 315]
-#   [317 ]  [316]  ← bottom-left currently unused; home = bottom-right (MODE)
+#   [317 ]  [316]  ← 317 = sub lang cycle during playback; home = bottom-right (MODE)
 export MANGO_BTN_MINUS=314           # BTN_SELECT — volume down
 export MANGO_BTN_PLUS=315            # BTN_START — volume up
 export MANGO_BTN_SHUFFLE=307         # BTN_NORTH — X face button

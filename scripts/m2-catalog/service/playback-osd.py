@@ -330,14 +330,7 @@ def _pin_x11_window(wid: int, x: int, y: int, width: int, height: int) -> None:
         check=False,
         env=env,
     )
-    subprocess.run(
-        ["xdotool", "windowsize", str(wid), str(width), str(height)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=2,
-        check=False,
-        env=env,
-    )
+    # Size comes from tk geometry — xdotool windowsize can desync the canvas on Pi.
 
 
 def show(reason: str) -> int:
@@ -383,6 +376,9 @@ def run() -> int:
         root.update_idletasks()
         root.geometry(f"{width}x{height}+{x}+{y}")
         root.update_idletasks()
+        canvas.configure(width=width, height=height)
+        canvas.config(scrollregion=(0, 0, width, height))
+        root.update_idletasks()
         _pin_x11_window(int(root.winfo_id()), x, y, width, height)
         nonlocal last_layout_screen
         last_layout_screen = (screen_w, screen_h)
@@ -405,6 +401,8 @@ def run() -> int:
         audio_label = _audio_snapshot()
         video_label = _video_snapshot()
         display_label = _display_snapshot()
+        canvas.configure(width=width, height=height)
+        canvas.config(scrollregion=(0, 0, width, height))
         canvas.delete("all")
 
         pad_x = 34
@@ -515,7 +513,7 @@ def run() -> int:
             anchor="w",
             fill="#c5bca5",
             font=("DejaVu Sans", 13),
-            text="B pause   ←/→ seek   X subs   ↑/↓ sub lang   A audio   Y back",
+            text="B pause   ←/→ seek   X subs   • sub lang   ↑ osd   A audio   Y back",
         )
 
     def tick() -> None:
@@ -565,15 +563,18 @@ def run() -> int:
             root.deiconify()
             hidden = False
             layout_applied = False
-        width, height = OSD_WIDTH, OSD_HEIGHT
-        if needs_layout_refresh():
+        if trigger_fired or not layout_applied or needs_layout_refresh():
             width, height = layout()
             layout_applied = True
+        else:
+            width, height = OSD_WIDTH, OSD_HEIGHT
         last_display_ensure_at = _maybe_ensure_playback_display(last_display_ensure_at)
         if needs_layout_refresh():
             width, height = layout()
             layout_applied = True
         draw(width, height, position, duration, paused)
+        canvas.update_idletasks()
+        root.update_idletasks()
         root.lift()
         root.after(POLL_MS, tick)
 
