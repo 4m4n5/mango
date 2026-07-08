@@ -1051,6 +1051,9 @@ h1 {
   height: 100%;
   max-height: 100%;
   min-height: 0;
+  /* Inset scrollport so stream/episode focus rings (same as home cards) are
+     not clipped on the left/right rail edge. */
+  padding-inline: var(--focus-gutter);
   overflow-y: auto;
   overflow-x: clip;
   scrollbar-width: none;
@@ -1066,8 +1069,6 @@ h1 {
 
 .detail-panels {
   overflow: visible;
-  padding: var(--focus-gutter);
-  margin: calc(-1 * var(--focus-gutter));
 }
 
 .detail-panels[hidden] {
@@ -1091,10 +1092,6 @@ h1 {
   flex-direction: column;
   gap: 0.55rem;
   overflow: visible;
-  padding: var(--focus-gutter);
-  margin: calc(-1 * var(--focus-gutter));
-  width: calc(100% + 2 * var(--focus-gutter));
-  max-width: none;
 }
 
 .detail-season-header {
@@ -1120,8 +1117,13 @@ h1 {
 .detail-season-header.focused,
 .detail-season-header:focus-visible {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  border-color: transparent;
+  position: relative;
+  z-index: 2;
+  box-shadow:
+    0 0 0 var(--focus-ring) var(--accent),
+    0 0 var(--focus-glow) var(--accent-glow),
+    0 18px 48px rgba(0, 0, 0, 0.5);
 }
 
 .detail-episode {
@@ -1138,6 +1140,9 @@ h1 {
   border-radius: 12px;
   font-size: 1.15rem;
   font-weight: 700;
+  transition:
+    border-color var(--dur-focus-out) var(--ease-out),
+    box-shadow var(--dur-focus-in) var(--ease-out);
 }
 
 .detail-episode-label {
@@ -1178,8 +1183,18 @@ h1 {
 .detail-episode.focused,
 .detail-episode:focus-visible {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  border-color: transparent;
+  position: relative;
+  z-index: 2;
+  box-shadow:
+    0 0 0 var(--focus-ring) var(--accent),
+    0 0 var(--focus-glow) var(--accent-glow),
+    0 18px 48px rgba(0, 0, 0, 0.5);
+}
+
+.detail-episode--selected.focused,
+.detail-episode--selected:focus-visible {
+  background: var(--accent-soft);
 }
 
 .next-prompt {
@@ -1385,10 +1400,6 @@ h1 {
   flex-direction: column;
   gap: 0.45rem;
   overflow: visible;
-  padding: var(--focus-gutter);
-  margin: calc(-1 * var(--focus-gutter));
-  width: calc(100% + 2 * var(--focus-gutter));
-  max-width: none;
   scrollbar-width: none;
 }
 
@@ -1403,11 +1414,14 @@ h1 {
   gap: 0.15rem;
   width: 100%;
   padding: 0.65rem 0.85rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--bg-elevated);
   color: var(--text-secondary);
   text-align: left;
+  transition:
+    border-color var(--dur-focus-out) var(--ease-out),
+    box-shadow var(--dur-focus-in) var(--ease-out);
 }
 
 .detail-stream-label {
@@ -1427,10 +1441,13 @@ h1 {
 .detail-stream.focused,
 .detail-stream:focus-visible {
   outline: none;
+  border-color: transparent;
   position: relative;
   z-index: 2;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow:
+    0 0 0 var(--focus-ring) var(--accent),
+    0 0 var(--focus-glow) var(--accent-glow),
+    0 18px 48px rgba(0, 0, 0, 0.5);
 }
 
 .detail-stream:disabled {
