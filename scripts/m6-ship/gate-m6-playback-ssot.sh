@@ -79,6 +79,20 @@ command -v mpv >/dev/null 2>&1 \
   && gate_pass "mpv hides launcher surface during fullscreen" \
   || gate_fail "mpv does not hide launcher during fullscreen (expected mango-window.sh hide)"
 
+grep -q 'launcher_freeze' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'launcher_thaw' scripts/lib/restore-launcher-after-playback.sh \
+  && gate_pass "launcher cgroup frozen during playback (GPU clear for mpv)" \
+  || gate_fail "launcher freeze/thaw not wired (expected launcher_freeze on play, launcher_thaw on restore)"
+
+if [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
+  gate_warn "playback active — skip launcher freezer capability probe"
+else
+  can_freeze="$(systemctl --user show mango-launcher-chromium.service -p CanFreeze --value 2>/dev/null || echo unknown)"
+  [[ "$can_freeze" == "yes" ]] \
+    && gate_pass "launcher unit supports cgroup freeze" \
+    || gate_warn "launcher unit CanFreeze=${can_freeze} (falls back to stop)"
+fi
+
 [[ "${MANGO_MPV_DEFER_FOREGROUND:-}" == "1" ]] \
   && gate_pass "mpv deferred foreground handoff enabled" \
   || gate_fail "mpv deferred foreground handoff disabled"

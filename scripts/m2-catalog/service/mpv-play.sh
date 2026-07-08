@@ -42,6 +42,8 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
+# shellcheck source=../../lib/launcher-power.sh
+source "$REPO_DIR/scripts/lib/launcher-power.sh"
 AUDIO_ENV="${HOME}/.config/mango/audio.env"
 if [[ -f "$AUDIO_ENV" ]]; then
   # shellcheck disable=SC1090
@@ -644,8 +646,11 @@ foreground_handoff() {
   $HANDOFF_DONE && return 0
   mark_playback_active
   if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
+    # Unmap the launcher window, then freeze its cgroup so a hidden Chromium
+    # cannot contend for the GPU (4K frame drops). Freezing preserves JS state
+    # for a seamless return; fall back to stopping the service if unavailable.
     if bash "$REPO_DIR/scripts/lib/mango-window.sh" hide 2>/dev/null; then
-      :
+      launcher_freeze || true
     else
       systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
     fi

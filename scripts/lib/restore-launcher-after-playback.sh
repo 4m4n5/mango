@@ -22,8 +22,13 @@ MAX_ATTEMPTS="${MANGO_LAUNCHER_RESTORE_ATTEMPTS:-60}"
 
 # shellcheck source=launcher-window.sh
 source "$REPO_DIR/scripts/lib/launcher-window.sh"
+# shellcheck source=launcher-power.sh
+source "$REPO_DIR/scripts/lib/launcher-power.sh"
 
 ensure_launcher_browser() {
+  # Thaw first: playback froze the cgroup to keep the GPU clear. Thawing resumes
+  # the existing process with its JS state intact — no cold start, no flash.
+  launcher_thaw
   if pgrep -f "$(launcher_browser_pattern)" >/dev/null 2>&1; then
     return 0
   fi

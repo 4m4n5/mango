@@ -43,6 +43,8 @@ fi
 source "$REPO_DIR/scripts/lib/mango-log.sh" 2>/dev/null || mango_log() { :; }
 # shellcheck source=lib/catalog-service-stack.sh
 source "$REPO_DIR/scripts/lib/catalog-service-stack.sh"
+# shellcheck source=lib/launcher-power.sh
+source "$REPO_DIR/scripts/lib/launcher-power.sh" 2>/dev/null || true
 
 say() {
   [[ "$QUIET" == "1" ]] || echo "$*"
@@ -190,15 +192,27 @@ if ! bash scripts/m1-foundation/pad/pad-health.sh --quiet; then
     || fail_note pad "repair_failed"
 fi
 
-if catalog_expected; then
-  catalog_ready || repair_catalog "catalog_health" || fail_note catalog "repair_failed"
-fi
-
 if playback_active; then
-  mango_log health_repair status=skipped check=launcher reason=playback_active
-  say "health-repair: launcher repair skipped (playback active)"
-elif ! launcher_health_ok || ! launcher_browser_running; then
-  repair_ui "ui_health" || fail_note launcher "repair_failed"
+  # Mid-stream: never restart catalog (node restart stutters playback) or the
+  # launcher (it is intentionally hidden + frozen for a tear-free GPU).
+  mango_log health_repair status=skipped check=catalog,launcher reason=playback_active
+  say "health-repair: catalog + launcher repair skipped (playback active)"
+else
+  if catalog_expected; then
+    catalog_ready || repair_catalog "catalog_health" || fail_note catalog "repair_failed"
+  fi
+
+  # Safety: if a prior playback left the launcher frozen, thaw it so browse is
+  # never stuck on a stale/black surface.
+  if declare -F launcher_thaw >/dev/null 2>&1 \
+    && [[ "$(systemctl --user show "${MANGO_LAUNCHER_UNIT:-mango-launcher-chromium.service}" -p FreezerState --value 2>/dev/null)" == "frozen" ]]; then
+    repair_note thaw_launcher "frozen_outside_playback"
+    launcher_thaw
+  fi
+
+  if ! launcher_health_ok || ! launcher_browser_running; then
+    repair_ui "ui_health" || fail_note launcher "repair_failed"
+  fi
 fi
 
 if (( fail_count > 0 )); then
