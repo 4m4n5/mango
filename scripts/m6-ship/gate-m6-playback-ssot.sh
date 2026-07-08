@@ -91,8 +91,8 @@ grep -q 'mango-browse-display.sh' scripts/lib/restore-launcher-after-playback.sh
   || gate_fail "browse-before-show restore contract not wired"
 
 grep -q 'teardown_mpv' scripts/m2-catalog/service/mpv-stop.sh \
-  && grep -q 'restore-launcher-after-playback.sh" finish' scripts/m2-catalog/service/mpv-stop.sh \
-  && ! grep -q 'restore-launcher-after-playback.sh" prepare' scripts/m2-catalog/service/mpv-stop.sh \
+  && grep -E 'restore-launcher-after-playback\.sh" finish|\$RESTORE_SH" finish' scripts/m2-catalog/service/mpv-stop.sh \
+  && ! grep -E 'restore-launcher-after-playback\.sh" prepare|\$RESTORE_SH" prepare' scripts/m2-catalog/service/mpv-stop.sh \
   && ! grep -q 'restore-launcher-after-playback.sh" prepare' scripts/m2-catalog/service/mpv-play.sh \
   && gate_pass "mpv stop uses teardown-then-finish restore (no pre-show at 4K)" \
   || gate_fail "mpv stop restore order invalid (expected teardown → finish only)"
