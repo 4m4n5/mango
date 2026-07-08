@@ -66,7 +66,10 @@ teardown_mpv() {
 }
 
 if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
-  # Black-screen-first restore: mpv gone → browse HDMI → reveal launcher once.
+  # Black-screen-first restore: hide desktop chrome + paint root black BEFORE
+  # tearing down mpv, so the instant mpv unmaps the exposed surface is pure
+  # black (no lxpanel/wallpaper flash). Then browse HDMI → reveal launcher.
+  bash "$REPO_DIR/scripts/lib/mango-desktop.sh" hide 2>/dev/null || true
   teardown_mpv
   rm -f "$PLAYBACK_ACTIVE_FILE"
   MANGO_MPV_STOP_HOME="$GO_HOME" bash "$RESTORE_SH" finish

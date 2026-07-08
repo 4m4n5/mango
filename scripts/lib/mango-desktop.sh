@@ -22,6 +22,12 @@ hide_lxpanel() {
   fi
   # lxpanel respawns child windows; stop the daemon for clean TV fullscreen.
   pkill -x lxpanel 2>/dev/null || true
+  # Paint the X root black so any exposure between fullscreen windows (mpv
+  # unmap → xrandr → launcher paint) reveals only black — no wallpaper flash.
+  # Idempotent, ~2 ms; kiosk keeps this black permanently.
+  if command -v xsetroot >/dev/null 2>&1; then
+    xsetroot -solid black 2>/dev/null || true
+  fi
 }
 
 show_lxpanel() {

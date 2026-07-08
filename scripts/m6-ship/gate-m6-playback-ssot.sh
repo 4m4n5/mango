@@ -102,6 +102,21 @@ grep -q 'hide_desktop_chrome' scripts/lib/restore-launcher-after-playback.sh \
   && gate_pass "desktop chrome hidden during browse restore transition" \
   || gate_fail "desktop chrome not hidden during browse restore"
 
+# Desktop chrome must be hidden BEFORE mpv teardown, so the frame that
+# uncovers when mpv unmaps is pure black — no lxpanel/wallpaper flash.
+_hide_line="$(grep -n 'mango-desktop\.sh.*hide' scripts/m2-catalog/service/mpv-stop.sh | head -1 | cut -d: -f1 || true)"
+_teardown_call_line="$(grep -n '^[[:space:]]*teardown_mpv[[:space:]]*$' scripts/m2-catalog/service/mpv-stop.sh | head -1 | cut -d: -f1 || true)"
+if [[ -n "${_hide_line:-}" && -n "${_teardown_call_line:-}" && "${_hide_line}" -lt "${_teardown_call_line}" ]]; then
+  gate_pass "desktop chrome hidden before mpv teardown (no wallpaper flash)"
+else
+  gate_fail "mpv-stop.sh must hide desktop chrome BEFORE teardown_mpv (hide=${_hide_line:-?} teardown=${_teardown_call_line:-?})"
+fi
+unset _hide_line _teardown_call_line
+
+grep -q 'xsetroot -solid black' scripts/lib/mango-desktop.sh \
+  && gate_pass "X root painted black on chrome hide (exposure = black)" \
+  || gate_fail "mango-desktop.sh hide must paint X root black (xsetroot -solid black)"
+
 if [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
   gate_warn "playback active — skip launcher freezer capability probe"
 else

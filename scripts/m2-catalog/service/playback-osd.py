@@ -319,18 +319,17 @@ def _x11_display_size() -> tuple[int, int]:
 
 
 def _pin_x11_window(wid: int, x: int, y: int, width: int, height: int) -> None:
-    if wid <= 0 or not shutil.which("xdotool"):
-        return
-    env = _x11_env()
-    subprocess.run(
-        ["xdotool", "windowmove", str(wid), str(x), str(y)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        timeout=2,
-        check=False,
-        env=env,
-    )
-    # Size comes from tk geometry — xdotool windowsize can desync the canvas on Pi.
+    """No-op: tk's overrideredirect(True) + root.geometry() owns size and position.
+
+    Historical xdotool pins caused two failure modes on Pi:
+      * windowsize desynced the tk canvas from the outer frame → text painted
+        outside the visible region ("black patch" bug).
+      * windowmove targeted root.winfo_id(), which is the inner tk child on
+        override-redirect roots — moving it double-offset the canvas below the
+        1080p viewport ("invisible OSD" bug).
+    Keep the helper as a stub so callers stay in place, but do nothing.
+    """
+    return
 
 
 def show(reason: str) -> int:
@@ -373,20 +372,21 @@ def run() -> int:
         screen_w, screen_h = _x11_display_size()
         x = max(0, (screen_w - width) // 2)
         y = max(0, screen_h - height - max(24, OSD_MARGIN_BOTTOM))
-        root.update_idletasks()
+        # Single authoritative geometry call — tk owns size + position on the
+        # override-redirect root; canvas fills via pack(fill=both, expand=True).
         root.geometry(f"{width}x{height}+{x}+{y}")
         root.update_idletasks()
         canvas.configure(width=width, height=height)
         canvas.config(scrollregion=(0, 0, width, height))
         root.update_idletasks()
-        _pin_x11_window(int(root.winfo_id()), x, y, width, height)
         nonlocal last_layout_screen
         last_layout_screen = (screen_w, screen_h)
         return width, height
 
-    def needs_layout_refresh() -> bool:
-        screen = _x11_display_size()
-        return not layout_applied or last_layout_screen != screen
+    def display_size_changed() -> bool:
+        # Cheap-ish: cached xrandr status via DISPLAY_SNAPSHOT_TTL_SEC. Only used
+        # after a show trigger — no per-tick xrandr churn during idle playback.
+        return last_layout_screen is not None and last_layout_screen != _x11_display_size()
 
     def draw(
         width: int,
@@ -401,8 +401,6 @@ def run() -> int:
         audio_label = _audio_snapshot()
         video_label = _video_snapshot()
         display_label = _display_snapshot()
-        canvas.configure(width=width, height=height)
-        canvas.config(scrollregion=(0, 0, width, height))
         canvas.delete("all")
 
         pad_x = 34
@@ -563,18 +561,15 @@ def run() -> int:
             root.deiconify()
             hidden = False
             layout_applied = False
-        if trigger_fired or not layout_applied or needs_layout_refresh():
+        if trigger_fired or not layout_applied:
             width, height = layout()
             layout_applied = True
+        elif display_size_changed():
+            width, height = layout()
         else:
             width, height = OSD_WIDTH, OSD_HEIGHT
         last_display_ensure_at = _maybe_ensure_playback_display(last_display_ensure_at)
-        if needs_layout_refresh():
-            width, height = layout()
-            layout_applied = True
         draw(width, height, position, duration, paused)
-        canvas.update_idletasks()
-        root.update_idletasks()
         root.lift()
         root.after(POLL_MS, tick)
 
