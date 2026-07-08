@@ -10,6 +10,7 @@ PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epo
 PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playback-osd.pid}"
 PLAYBACK_OSD_TRIGGER="${MANGO_PLAYBACK_OSD_TRIGGER:-${HOME}/.cache/mango/playback-osd.show}"
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
+PLAYBACK_DISPLAY_MATCHED_FILE="${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${HOME}/.cache/mango/playback-display-matched}"
 LEGACY_VLC_PID_FILE="${MANGO_VLC_PID_FILE:-${HOME}/.cache/mango/vlc.pid}"
 LEGACY_PLAYER_STATE="${MANGO_PLAYER_STATE_PATH:-${HOME}/.cache/mango/player-state.json}"
 LEGACY_VLC_PLAYLIST="${MANGO_VLC_PLAYLIST:-${HOME}/.cache/mango/vlc-play.m3u}"
@@ -39,6 +40,10 @@ stop_playback_osd() {
     sleep 0.1
     kill -9 "$(cat "$PLAYBACK_OSD_PID_FILE")" 2>/dev/null || true
   fi
+  if pgrep -f 'playback-osd\.py --run' >/dev/null 2>&1; then
+    pkill -f 'playback-osd\.py --run' 2>/dev/null || true
+    sleep 0.1
+  fi
   rm -f "$PLAYBACK_OSD_PID_FILE" "$PLAYBACK_OSD_TRIGGER"
 }
 
@@ -56,7 +61,8 @@ teardown_mpv() {
   pkill -x mpv 2>/dev/null || true
   stop_playback_osd
   rm -f "${HOME}/.cache/mango/mpv.pid" "$SOCKET" \
-    "$LEGACY_VLC_PID_FILE" "$LEGACY_PLAYER_STATE" "$LEGACY_VLC_PLAYLIST"
+    "$LEGACY_VLC_PID_FILE" "$LEGACY_PLAYER_STATE" "$LEGACY_VLC_PLAYLIST" \
+    "$PLAYBACK_DISPLAY_MATCHED_FILE"
 }
 
 if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then

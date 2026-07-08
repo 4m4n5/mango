@@ -9,6 +9,7 @@ PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playb
 PLAYBACK_OSD_LOG="${MANGO_PLAYBACK_OSD_LOG:-${HOME}/.cache/mango/playback-osd.log}"
 PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epoch}"
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
+PLAYBACK_DISPLAY_MATCHED_FILE="${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${HOME}/.cache/mango/playback-display-matched}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
@@ -186,12 +187,20 @@ apply_4k_video_sync() {
   [[ -S "$SOCKET" ]] || return 0
   local width sync_4k
   width="$(mpv_property width 2>/dev/null || echo 0)"
-  sync_4k="${MANGO_MPV_VIDEO_SYNC_4K:-audio}"
+  sync_4k="$(resolve_4k_video_sync_value)"
   if [[ -n "${sync_4k}" ]] && mpv_width_ge_4k "$width"; then
     printf '{"command":["set_property","video-sync","%s"]}\n' "$sync_4k" | socat - "$SOCKET" >/dev/null 2>&1 || true
     return 0
   fi
   return 1
+}
+
+resolve_4k_video_sync_value() {
+  if [[ -f "$PLAYBACK_DISPLAY_MATCHED_FILE" ]]; then
+    printf '%s\n' "${MANGO_MPV_VIDEO_SYNC_4K_MATCHED:-audio}"
+  else
+    printf '%s\n' "${MANGO_MPV_VIDEO_SYNC_4K:-display-vdrop}"
+  fi
 }
 
 resolve_playback_video_profile() {
@@ -212,6 +221,7 @@ resolve_playback_video_profile() {
 
 mark_playback_active() {
   mkdir -p "$(dirname "$PLAYBACK_ACTIVE_FILE")"
+  rm -f "$PLAYBACK_DISPLAY_MATCHED_FILE"
   : >"$PLAYBACK_ACTIVE_FILE"
 }
 
@@ -406,10 +416,10 @@ resolve_video_sync() {
     return
   fi
   local sync="${MANGO_MPV_VIDEO_SYNC:-display-resample}"
-  if [[ -n "${MANGO_MPV_VIDEO_SYNC_4K:-}" ]] && {
+  if {
     is_4k_ladder_step || mpv_width_ge_4k "${video_width:-}"
   }; then
-    sync="${MANGO_MPV_VIDEO_SYNC_4K}"
+    sync="$(resolve_4k_video_sync_value)"
   fi
   printf '%s\n' "$sync"
 }
@@ -687,8 +697,16 @@ ensure_playback_osd() {
   [[ "${MANGO_PLAYBACK_OSD:-1}" != "0" ]] || return 0
   [[ -x "$osd_py" ]] || return 0
   mkdir -p "$(dirname "$PLAYBACK_OSD_PID_FILE")" "$(dirname "$PLAYBACK_OSD_LOG")"
-  if [[ -f "$PLAYBACK_OSD_PID_FILE" ]] && kill -0 "$(cat "$PLAYBACK_OSD_PID_FILE")" 2>/dev/null; then
-    return 0
+  if [[ -f "$PLAYBACK_OSD_PID_FILE" ]]; then
+    local osd_pid
+    osd_pid="$(cat "$PLAYBACK_OSD_PID_FILE" 2>/dev/null || true)"
+    if [[ -n "$osd_pid" ]] && kill -0 "$osd_pid" 2>/dev/null; then
+      return 0
+    fi
+  fi
+  if pgrep -f 'playback-osd\.py --run' >/dev/null 2>&1; then
+    pkill -f 'playback-osd\.py --run' 2>/dev/null || true
+    sleep 0.1
   fi
   rm -f "$PLAYBACK_OSD_PID_FILE"
   setsid env DISPLAY="$DISPLAY" XAUTHORITY="$XAUTHORITY" HOME="$HOME" \

@@ -100,8 +100,11 @@ fi
   || gate_fail "mpv HD pacing not display-resample (${MANGO_MPV_VIDEO_SYNC:-unset})"
 
 [[ "${MANGO_MPV_VIDEO_SYNC_4K:-display-vdrop}" == "display-vdrop" ]] \
-  && gate_pass "mpv 4K pacing uses display-vdrop (vsync-locked, frame-drop)" \
-  || gate_fail "mpv 4K pacing not display-vdrop (${MANGO_MPV_VIDEO_SYNC_4K:-unset})"
+  && [[ "${MANGO_MPV_VIDEO_SYNC_4K_MATCHED:-audio}" == "audio" ]] \
+  && grep -q 'resolve_4k_video_sync_value' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'playback-display-matched' scripts/lib/mango-display-mode.sh \
+  && gate_pass "mpv 4K pacing: audio when refresh matched, display-vdrop fallback" \
+  || gate_fail "mpv 4K conditional sync not wired (4K=${MANGO_MPV_VIDEO_SYNC_4K:-unset} matched=${MANGO_MPV_VIDEO_SYNC_4K_MATCHED:-unset})"
 
 [[ "${MANGO_MPV_INTERPOLATION:-}" == "no" ]] \
   && gate_pass "mpv interpolation disabled for native cadence" \

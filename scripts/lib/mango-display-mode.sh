@@ -10,7 +10,33 @@ source "$SCRIPT_DIR/mango-playback-env.sh"
 
 LOG_DIR="${HOME}/.cache/mango"
 LOG_FILE="${LOG_DIR}/display-mode.log"
+PLAYBACK_DISPLAY_MATCHED_FILE="${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${LOG_DIR}/playback-display-matched}"
 mkdir -p "$LOG_DIR"
+
+playback_display_matched_file() {
+  printf '%s\n' "$PLAYBACK_DISPLAY_MATCHED_FILE"
+}
+
+mark_playback_display_matched() {
+  mkdir -p "$(dirname "$PLAYBACK_DISPLAY_MATCHED_FILE")"
+  : >"$PLAYBACK_DISPLAY_MATCHED_FILE"
+}
+
+clear_playback_display_matched() {
+  rm -f "$PLAYBACK_DISPLAY_MATCHED_FILE"
+}
+
+sync_playback_display_matched_marker() {
+  local label="$1"
+  case "$label" in
+    playback-match)
+      mark_playback_display_matched
+      ;;
+    launcher | launcher-fallback | playback | playback-fallback | playback-match-fallback | *-fallback)
+      clear_playback_display_matched
+      ;;
+  esac
+}
 
 usage() {
   echo "usage: $0 launcher|ensure-launcher|playback|playback-auto <width> <height> <fps>|status" >&2
@@ -286,6 +312,7 @@ apply_mode() {
     if [[ -n "$rate" ]] && rate_available "$output" "$mode" "$rate"; then
       if xrandr --output "$output" --mode "$mode" --rate "$rate" >/dev/null 2>&1; then
         log "${label}: applied output=${output} mode=${mode}@${rate} attempt=${attempt}/${attempts}"
+        sync_playback_display_matched_marker "$label"
         return 0
       fi
     fi
@@ -298,6 +325,7 @@ apply_mode() {
 
     if xrandr --output "$output" --mode "$mode" >/dev/null 2>&1; then
       log "${label}: applied output=${output} mode=${mode} current=$(current_mode "$output") attempt=${attempt}/${attempts}"
+      sync_playback_display_matched_marker "$label"
       return 0
     fi
 

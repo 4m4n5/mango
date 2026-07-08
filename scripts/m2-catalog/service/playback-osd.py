@@ -505,8 +505,6 @@ def run() -> int:
 
         visible = show_until > 0 and time.time() <= show_until
 
-        last_display_ensure_at = _maybe_ensure_playback_display(last_display_ensure_at)
-
         if not visible:
             # Steady-state playback: overlay hidden. Keep overhead minimal — one
             # cheap liveness probe, slow poll, no draw/xrandr. This is the path
@@ -542,6 +540,7 @@ def run() -> int:
         if hidden:
             root.deiconify()
             hidden = False
+        last_display_ensure_at = _maybe_ensure_playback_display(last_display_ensure_at)
         draw(width, height, position, duration, paused)
         root.lift()
         root.after(POLL_MS, tick)

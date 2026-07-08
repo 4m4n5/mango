@@ -109,9 +109,9 @@ case "$cmd" in
     append_env MANGO_MPV_MATCH_REFRESH "1"
     append_env MANGO_MPV_MATCH_4K_MODE "3840x2160"
     append_env MANGO_MPV_VIDEO_SYNC "display-resample"
-    # 4K locks to display vsync + frame-drop (never audio resample) — A/B-verified
-    # smoothest on this Pi 5 + X11 path. See set-playback-engine.sh mpv-hifi.
+    # 4K: audio when playback-auto matched film refresh; display-vdrop on 60 Hz fallback.
     append_env MANGO_MPV_VIDEO_SYNC_4K "display-vdrop"
+    append_env MANGO_MPV_VIDEO_SYNC_4K_MATCHED "audio"
     append_env MANGO_MPV_INTERPOLATION "no"
     append_env MANGO_MPV_STOP_LAUNCHER "1"
     append_env MANGO_MPV_DISABLE_XCOMPMGR "1"
