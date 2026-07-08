@@ -117,7 +117,7 @@ import {
   liveRailsDiskCacheNonEmpty,
   liveRailsDiskCacheSummary,
 } from './live-rails-cache.js';
-import { buildLiveAiCatalogRails } from './live/ai-catalog-rails.js';
+import { applyLiveAiCatalogRails } from './live/ai-catalog-rails.js';
 import {
   isArea69ChannelId,
   listArea69TaggedChannels,
@@ -825,16 +825,8 @@ export class CatalogCore {
     payload: TabRailItemsResponse,
     extra: { cached?: boolean; stale?: boolean } = {},
   ): Promise<TabRailItemsResponse> {
-    const aiRails = await buildLiveAiCatalogRails();
-    if (aiRails.length === 0) {
-      return { ...payload, ...extra };
-    }
-    const existing = new Set(payload.rails.map((rail) => rail.rail_id));
-    const merged = [
-      ...payload.rails,
-      ...aiRails.filter((rail) => !existing.has(rail.rail_id)),
-    ];
-    return { ...payload, rails: merged, ...extra };
+    const merged = await applyLiveAiCatalogRails(payload);
+    return { ...merged, ...extra };
   }
 
   health(): Record<string, unknown> {

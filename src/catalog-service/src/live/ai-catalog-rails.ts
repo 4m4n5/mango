@@ -1,8 +1,13 @@
 import { loadAiCatalogSlots, slotsForTab } from '../ai-catalogs/store.js';
 import type { AiCatalogSlotFile, AiSeedTitle } from '../ai-catalogs/types.js';
-import type { RailItem, RailItemsResponse } from '../core.js';
+import type { RailItem, RailItemsResponse, TabRailItemsResponse } from '../core.js';
 
 const LIVE_AI_RAIL_LIMIT = 20;
+
+/** Live AI slots merged into yaml sport rails instead of separate ai-* rows. */
+export const LIVE_AI_MERGE_TARGETS: Readonly<Record<string, string>> = {
+  'cricket-channels': 'live-cricket',
+};
 
 function seedToRailItem(seed: AiSeedTitle): RailItem | null {
   if (!seed.title) {
@@ -18,20 +23,35 @@ function seedToRailItem(seed: AiSeedTitle): RailItem | null {
   };
 }
 
+function itemsFromSlot(slot: AiCatalogSlotFile): RailItem[] {
+  const items: RailItem[] = [];
+  for (const seed of (slot.seed_titles ?? []).filter((entry) => entry.type === 'tv').slice(0, LIVE_AI_RAIL_LIMIT)) {
+    const item = seedToRailItem(seed);
+    if (item) {
+      items.push(item);
+    }
+  }
+  return items;
+}
+
+function playabilityForItems(items: RailItem[]) {
+  return {
+    displayed: items.length,
+    verified_pool: items.length,
+    pending: 0,
+    low_water: false,
+    session_id: 'live',
+  };
+}
+
 export async function buildLiveAiCatalogRails(): Promise<RailItemsResponse[]> {
   const slots = slotsForTab(await loadAiCatalogSlots(), 'live');
   const rails: RailItemsResponse[] = [];
   for (const slot of slots) {
-    const seeds = (slot.seed_titles ?? [])
-      .filter((seed) => seed.type === 'tv')
-      .slice(0, LIVE_AI_RAIL_LIMIT);
-    const items: RailItem[] = [];
-    for (const seed of seeds) {
-      const item = seedToRailItem(seed);
-      if (item) {
-        items.push(item);
-      }
+    if (LIVE_AI_MERGE_TARGETS[slot.slot_id]) {
+      continue;
     }
+    const items = itemsFromSlot(slot);
     if (items.length > 0) {
       rails.push({
         rail_id: `ai-${slot.slot_id}`,
@@ -39,15 +59,68 @@ export async function buildLiveAiCatalogRails(): Promise<RailItemsResponse[]> {
         items,
         resolve_ms: 0,
         skipped: 0,
-        playability: {
-          displayed: items.length,
-          verified_pool: items.length,
-          pending: 0,
-          low_water: false,
-          session_id: 'live',
-        },
+        playability: playabilityForItems(items),
       });
     }
   }
   return rails;
+}
+
+function mergeItemsIntoRail(rail: RailItemsResponse, extras: RailItem[]): RailItemsResponse {
+  if (extras.length === 0) {
+    return rail;
+  }
+  const seen = new Set(rail.items.map((item) => item.id));
+  const merged = [...rail.items];
+  for (const item of extras) {
+    if (seen.has(item.id)) {
+      continue;
+    }
+    seen.add(item.id);
+    merged.push(item);
+  }
+  if (merged.length === rail.items.length) {
+    return rail;
+  }
+  return {
+    ...rail,
+    items: merged,
+    playability: playabilityForItems(merged),
+  };
+}
+
+export async function applyLiveAiCatalogRails(
+  payload: TabRailItemsResponse,
+): Promise<TabRailItemsResponse> {
+  const slots = slotsForTab(await loadAiCatalogSlots(), 'live');
+  const mergeByTarget = new Map<string, RailItem[]>();
+  for (const slot of slots) {
+    const targetRailId = LIVE_AI_MERGE_TARGETS[slot.slot_id];
+    if (!targetRailId) {
+      continue;
+    }
+    const items = itemsFromSlot(slot);
+    if (items.length === 0) {
+      continue;
+    }
+    const bucket = mergeByTarget.get(targetRailId) || [];
+    bucket.push(...items);
+    mergeByTarget.set(targetRailId, bucket);
+  }
+
+  let rails = payload.rails.map((rail) => {
+    const extras = mergeByTarget.get(rail.rail_id);
+    return extras?.length ? mergeItemsIntoRail(rail, extras) : rail;
+  });
+
+  const aiRails = await buildLiveAiCatalogRails();
+  if (aiRails.length > 0) {
+    const existing = new Set(rails.map((rail) => rail.rail_id));
+    rails = [...rails, ...aiRails.filter((rail) => !existing.has(rail.rail_id))];
+  }
+
+  if (mergeByTarget.size === 0 && aiRails.length === 0) {
+    return payload;
+  }
+  return { ...payload, rails };
 }
