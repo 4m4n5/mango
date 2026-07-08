@@ -34,8 +34,15 @@ TRIGGER_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_TRIGGER", CACHE_DIR / "pl
 PID_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_PID_FILE", CACHE_DIR / "playback-osd.pid"))
 VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "7.0"))
 POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_POLL_MS", "250"))
+# When the overlay is hidden (steady-state playback), poll slowly: just enough
+# to notice a show-trigger and detect that mpv exited. Keeps IPC/xrandr off the
+# GPU's back during smooth 4K playback.
+HIDDEN_POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_HIDDEN_POLL_MS", "1000"))
 DISPLAY_ENSURE_INTERVAL_SEC = float(
-    os.environ.get("MANGO_PLAYBACK_DISPLAY_ENSURE_INTERVAL_SEC", "5.0")
+    os.environ.get("MANGO_PLAYBACK_DISPLAY_ENSURE_INTERVAL_SEC", "15.0")
+)
+DISPLAY_SNAPSHOT_TTL_SEC = float(
+    os.environ.get("MANGO_PLAYBACK_OSD_DISPLAY_TTL_SEC", "2.0")
 )
 
 
@@ -121,28 +128,34 @@ def _video_snapshot() -> str:
     return " · ".join(parts) if parts else "—"
 
 
+_display_cache: dict[str, object] = {"ts": 0.0, "value": "—"}
+
+
 def _display_snapshot() -> str:
-    if not DISPLAY_MODE_SH.is_file():
-        return "—"
-    try:
-        result = subprocess.run(
-            ["bash", str(DISPLAY_MODE_SH), "status"],
-            capture_output=True,
-            text=True,
-            timeout=2,
-            check=False,
-            env={**os.environ, "HOME": str(HOME)},
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return "—"
-    line = (result.stdout or "").strip().splitlines()
-    if not line:
-        return "—"
-    parts = line[0].split()
-    if len(parts) < 2:
-        return "—"
-    mode = parts[1]
-    return mode if "x" in mode else "—"
+    now = time.time()
+    if now - float(_display_cache["ts"]) < DISPLAY_SNAPSHOT_TTL_SEC:
+        return str(_display_cache["value"])
+    value = "—"
+    if DISPLAY_MODE_SH.is_file():
+        try:
+            result = subprocess.run(
+                ["bash", str(DISPLAY_MODE_SH), "status"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+                env={**os.environ, "HOME": str(HOME)},
+            )
+            line = (result.stdout or "").strip().splitlines()
+            if line:
+                parts = line[0].split()
+                if len(parts) >= 2 and "x" in parts[1]:
+                    value = parts[1]
+        except (OSError, subprocess.TimeoutExpired):
+            value = "—"
+    _display_cache["ts"] = now
+    _display_cache["value"] = value
+    return value
 
 
 def _maybe_ensure_playback_display(last_ensure_at: float) -> float:
@@ -420,17 +433,6 @@ def run() -> int:
 
     def tick() -> None:
         nonlocal hidden, last_trigger_mtime, show_until, last_display_ensure_at
-        snapshot = _playback_snapshot()
-        if snapshot is None:
-            try:
-                PID_PATH.unlink()
-            except OSError:
-                pass
-            root.destroy()
-            return
-
-        position, duration, paused = snapshot
-        last_display_ensure_at = _maybe_ensure_playback_display(last_display_ensure_at)
 
         try:
             trigger_mtime = TRIGGER_PATH.stat().st_mtime
@@ -442,17 +444,41 @@ def run() -> int:
 
         visible = show_until > 0 and time.time() <= show_until
 
-        if visible:
-            width, height = layout()
-            draw(width, height, position, duration, paused)
-            if hidden:
-                root.deiconify()
-                hidden = False
-            root.lift()
-        elif not hidden:
-            root.withdraw()
-            hidden = True
+        last_display_ensure_at = _maybe_ensure_playback_display(last_display_ensure_at)
 
+        if not visible:
+            # Steady-state playback: overlay hidden. Keep overhead minimal — one
+            # cheap liveness probe, slow poll, no draw/xrandr. This is the path
+            # that runs 99% of a movie, so it must not compete with mpv's GPU.
+            if not _mpv_active():
+                try:
+                    PID_PATH.unlink()
+                except OSError:
+                    pass
+                root.destroy()
+                return
+            if not hidden:
+                root.withdraw()
+                hidden = True
+            root.after(HIDDEN_POLL_MS, tick)
+            return
+
+        snapshot = _playback_snapshot()
+        if snapshot is None:
+            try:
+                PID_PATH.unlink()
+            except OSError:
+                pass
+            root.destroy()
+            return
+
+        position, duration, paused = snapshot
+        width, height = layout()
+        draw(width, height, position, duration, paused)
+        if hidden:
+            root.deiconify()
+            hidden = False
+        root.lift()
         root.after(POLL_MS, tick)
 
     def cleanup(*_: object) -> None:
