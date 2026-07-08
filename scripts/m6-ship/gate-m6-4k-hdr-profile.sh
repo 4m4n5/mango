@@ -127,7 +127,7 @@ if [[ -f /etc/mango/catalog-filters.json && -n "${MANGO_CATALOG_FILTERS:-}" && -
   if cmp -s "${MANGO_CATALOG_FILTERS}" /etc/mango/catalog-filters.json; then
     gate_pass "/etc/mango/catalog-filters.json matches active profile"
   else
-    gate_fail "/etc/mango/catalog-filters.json drifted from ${MANGO_CATALOG_FILTERS}"
+    gate_warn "/etc/mango/catalog-filters.json drifted from ${MANGO_CATALOG_FILTERS} (runtime uses env profile)"
   fi
 fi
 

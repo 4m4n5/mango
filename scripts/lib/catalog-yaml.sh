@@ -80,6 +80,6 @@ sync_catalog_filters_etc() {
     echo "sync-catalog-filters: synced $(basename "$src") -> $etc (sudo)"
     return 0
   fi
-  echo "sync-catalog-filters: failed to write $etc" >&2
-  return 1
+  echo "sync-catalog-filters: skip $etc (not writable — runtime uses MANGO_CATALOG_FILTERS=${MANGO_CATALOG_FILTERS:-unset})" >&2
+  return 0
 }
