@@ -1087,6 +1087,67 @@ h1 {
   text-transform: lowercase;
 }
 
+.detail-season-list {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.55rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  margin: 0 0 0.75rem;
+  padding: var(--focus-gutter);
+  margin-inline: calc(-1 * var(--focus-gutter));
+  scrollbar-width: none;
+}
+
+.detail-season-list[hidden] {
+  display: none;
+}
+
+.detail-season-list::-webkit-scrollbar {
+  display: none;
+}
+
+.detail-season-chip {
+  flex: 0 0 auto;
+  padding: 0.55rem 0.85rem;
+  color: var(--text-secondary);
+  text-align: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  font-size: var(--text-caption);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  transition:
+    border-color var(--dur-focus-out) var(--ease-out),
+    box-shadow var(--dur-focus-in) var(--ease-out),
+    background var(--dur-focus-in) var(--ease-out);
+}
+
+.detail-season-chip--active {
+  border-color: var(--border-strong);
+  background: var(--tab-active-fill);
+  color: var(--text-primary);
+}
+
+.detail-season-chip.focused,
+.detail-season-chip:focus-visible {
+  outline: none;
+  border-color: transparent;
+  position: relative;
+  z-index: 2;
+  box-shadow:
+    0 0 0 var(--focus-ring) var(--accent),
+    0 0 var(--focus-glow) var(--accent-glow),
+    0 12px 32px rgba(0, 0, 0, 0.42);
+}
+
+.detail-season-chip--active.focused,
+.detail-season-chip--active:focus-visible {
+  background: var(--accent-soft);
+}
+
 .detail-episode-list {
   display: flex;
   flex-direction: column;

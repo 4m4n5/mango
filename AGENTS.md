@@ -44,6 +44,8 @@
 
 **Never `rsync`, `scp`, or hand-copy repo files to the Pi.** Mac is source of truth via git push; Pi updates via git pull only.
 
+**Split machine:** if this Mac cannot SSH to the Pi (e.g. work laptop), commit + push here; deploy from the home Mac on the Pi LAN — [`docs/DEPLOY-SPLIT-MACHINE.md`](docs/DEPLOY-SPLIT-MACHINE.md).
+
 ### Agent loop
 
 | Step | Where | Action |

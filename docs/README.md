@@ -11,7 +11,7 @@
 | Understand the product | [VISION.md](VISION.md) |
 | See what is shipped, hardening, and planned | [STATUS.md](STATUS.md) · [ROADMAP.md](ROADMAP.md) |
 | Understand the stack | [ARCHITECTURE.md](ARCHITECTURE.md) |
-| Operate the Pi | [OPS.md](OPS.md) · [DEPLOY.md](DEPLOY.md) |
+| Operate the Pi | [OPS.md](OPS.md) · [DEPLOY.md](DEPLOY.md) · [DEPLOY-SPLIT-MACHINE.md](DEPLOY-SPLIT-MACHINE.md) (work Mac pushes, home Mac deploys) |
 | Check reliability / nightly proof | [RELIABILITY.md](RELIABILITY.md) |
 | Run couch tests | [COUCH_TEST.md](COUCH_TEST.md) |
 | Playability · grow · thematic rails | [PLAYABILITY.md](PLAYABILITY.md) |

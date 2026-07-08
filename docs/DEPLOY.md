@@ -7,6 +7,7 @@
 | **Host** | SSH `mango` → `aman@10.0.0.174` primary; `MANGO_SSH_HOST=mango-mdns` fallback via `mango.local` |
 | **Repo** | `~/mango` · [github.com/4m4n5/mango](https://github.com/4m4n5/mango) |
 | **Branch** | `feat/native-experience` (native stack) |
+| **Split machine** | Work Mac: push only · Home Mac (Pi LAN): deploy — [`DEPLOY-SPLIT-MACHINE.md`](DEPLOY-SPLIT-MACHINE.md) |
 
 ---
 

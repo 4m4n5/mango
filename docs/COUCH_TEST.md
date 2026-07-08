@@ -37,8 +37,9 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch s
 | # | Action | Pass? |
 |---|--------|-------|
 | 5 | Open **Panchayat** (or Breaking Bad) → episode list below actions | |
-| 6 | D-pad **down** into list — **streams strip updates** per focused episode | |
-| 7 | Focus **Season 2** header → **B** jumps to first S2 episode | |
+| 6 | D-pad **down** into episodes — **active season only**; streams strip **does not** update on focus | |
+| 7 | **L/R** on season chip or episode row **changes season** (multi-season); chip row hidden when one season | |
+| 7a | **B** on focused episode loads streams + plays; **Play** from actions row = global resume | |
 | 8 | Grey rows (no streams) are **skipped** by D-pad | |
 | 9 | **Play / Resume** starts mpv; **Y** returns to detail | |
 | 10 | Watch **≥50%** → **Y** → **next episode** overlay; **B** plays next, **Y** dismisses | |
