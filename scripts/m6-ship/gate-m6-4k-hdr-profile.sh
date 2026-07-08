@@ -99,9 +99,9 @@ fi
   && gate_pass "mpv HD pacing uses display-resample" \
   || gate_fail "mpv HD pacing not display-resample (${MANGO_MPV_VIDEO_SYNC:-unset})"
 
-[[ "${MANGO_MPV_VIDEO_SYNC_4K:-audio}" == "audio" ]] \
-  && gate_pass "mpv 4K pacing uses audio sync" \
-  || gate_fail "mpv 4K pacing not audio (${MANGO_MPV_VIDEO_SYNC_4K:-unset})"
+[[ "${MANGO_MPV_VIDEO_SYNC_4K:-display-vdrop}" == "display-vdrop" ]] \
+  && gate_pass "mpv 4K pacing uses display-vdrop (vsync-locked, frame-drop)" \
+  || gate_fail "mpv 4K pacing not display-vdrop (${MANGO_MPV_VIDEO_SYNC_4K:-unset})"
 
 [[ "${MANGO_MPV_INTERPOLATION:-}" == "no" ]] \
   && gate_pass "mpv interpolation disabled for native cadence" \

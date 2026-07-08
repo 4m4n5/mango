@@ -149,10 +149,13 @@ case "$cmd" in
     # profile=fast keeps GPU load low (cheap scalers, static HDR peak) so 4K
     # HEVC REMUX stays smooth; tone-mapping still applies on top of it.
     append_env MANGO_MPV_PROFILE "fast"
-    # audio sync at 4K matches the proven-smooth VLC target-TV path; display
-    # resample stays on HD where it is cheap.
+    # video-sync at 4K: empirically A/B-tested on the Pi (Dune 2160p23.976 on a
+    # 3840x2160@23.976 mode). display-vdrop dropped ~0.53 frames/s vs ~0.93 for
+    # audio and ~0.96 for display-resample — it locks to the display vsync and
+    # drops (never resamples audio) when the X11 present path slips, which is the
+    # smoothest option on this Pi 5 + X11 stack. HD stays on cheap display-resample.
     append_env MANGO_MPV_VIDEO_SYNC "display-resample"
-    append_env MANGO_MPV_VIDEO_SYNC_4K "audio"
+    append_env MANGO_MPV_VIDEO_SYNC_4K "display-vdrop"
     append_env MANGO_MPV_VIDEO_SYNC_LIVE "audio"
     append_env MANGO_MPV_VOD_SWAPINTERVAL "1"
     append_env MANGO_MPV_LIVE_CACHE_SECS "4"
