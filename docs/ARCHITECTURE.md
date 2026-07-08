@@ -46,8 +46,10 @@ the default is `1920x1080@60` so browse/focus stays smooth on the Pi. mpv is
 the sole couch playback engine (`mpv-play.sh`). During fullscreen playback Mango
 stops the Chromium launcher, disables `xcompmgr` to avoid tearing, source-matches
 the TV display mode to the stream, and restores `1920x1080@60` on stop through
-`ensure-launcher` on every launcher entry path (`launch-launcher.sh`,
-`present-launcher.sh`, `mpv-stop.sh`, stack boot, deploy). A lightweight X11
+`scripts/lib/restore-launcher-after-playback.sh` (black-screen-first: HDMI
+downscale while the launcher stays hidden, then one reveal at browse geometry).
+Shared helpers live in `scripts/lib/mango-browse-display.sh`; `ensure-launcher`
+also runs on stack boot, home, present, deploy. A lightweight X11
 playback OSD (`playback-osd.py`) shows progress on pause/seek; the pad drives
 mpv via IPC without a Chromium overlay.
 
@@ -57,8 +59,9 @@ keeps the Chromium launcher visible while mpv buffers on the real GPU VO from sp
 (no `vo=null`→GPU reinit for single-stream VOD). Split A/V (YouTube `--audio-file`)
 keeps the null-VO buffer path. Handoff waits until `demuxer-cache-duration` meets a
 ladder-aware threshold (18s for 4K REMUX) before stopping the launcher, disabling
-`xcompmgr`, and source-matching the display mode. The mpv exit monitor restores launcher mode
-after playback ends.
+`xcompmgr`, and source-matching the display mode. The mpv exit monitor calls
+`restore-launcher-after-playback.sh finish` after playback ends (same
+black-screen-first contract as pad stop).
 
 ### Playability layer
 

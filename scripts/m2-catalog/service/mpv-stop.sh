@@ -66,6 +66,7 @@ teardown_mpv() {
 }
 
 if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
+  # Black-screen-first restore: mpv gone → browse HDMI → reveal launcher once.
   teardown_mpv
   rm -f "$PLAYBACK_ACTIVE_FILE"
   MANGO_MPV_STOP_HOME="$GO_HOME" bash "$RESTORE_SH" finish

@@ -62,6 +62,9 @@ show_mango_shell() {
   local script_dir wid
 
   script_dir="$SCRIPT_DIR"
+  # shellcheck source=mango-browse-display.sh
+  source "$script_dir/mango-browse-display.sh"
+  require_browse_display_before_launcher_reveal
 
   wmctrl -x -r mango-launcher -b remove,hidden 2>/dev/null || true
   wmctrl -r "mango launcher" -b remove,hidden 2>/dev/null || true

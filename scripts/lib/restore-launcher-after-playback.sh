@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# SSOT: show and focus the launcher after mpv playback ends.
+# SSOT: restore browse launcher after mpv playback ends.
+#
+# Contract (black-screen-first — no 4K launcher flash):
+#   1. Caller tears down mpv and clears playback-active before invoking finish.
+#   2. finish restores HDMI to browse mode while the launcher stays hidden.
+#   3. finish thaws the frozen launcher cgroup, then maps/shows at browse geometry.
 #
 # Usage:
-#   restore-launcher-after-playback.sh prepare  # legacy no-op (kept for callers)
-#   restore-launcher-after-playback.sh finish   # 1080p xrandr, then show launcher
+#   restore-launcher-after-playback.sh finish
 #
 # Env:
 #   MANGO_MPV_STOP_HOME=1  run launch-launcher (pad home path)
@@ -24,9 +28,10 @@ MAX_ATTEMPTS="${MANGO_LAUNCHER_RESTORE_ATTEMPTS:-60}"
 source "$REPO_DIR/scripts/lib/launcher-window.sh"
 # shellcheck source=launcher-power.sh
 source "$REPO_DIR/scripts/lib/launcher-power.sh"
+# shellcheck source=mango-browse-display.sh
+source "$REPO_DIR/scripts/lib/mango-browse-display.sh"
 
 ensure_launcher_browser() {
-  launcher_thaw
   if pgrep -f "$(launcher_browser_pattern)" >/dev/null 2>&1; then
     return 0
   fi
@@ -34,6 +39,7 @@ ensure_launcher_browser() {
 }
 
 show_launcher_surface() {
+  require_browse_display_before_launcher_reveal
   ensure_launcher_browser
   bash "$REPO_DIR/scripts/lib/mango-window.sh" show 2>/dev/null || true
 }
@@ -41,7 +47,7 @@ show_launcher_surface() {
 present_launcher_ready() {
   local attempt wid
   for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
-    ensure_launcher_browser
+    launcher_thaw
     show_launcher_surface
     wid="$(find_launcher_wid 2>/dev/null || true)"
     if [[ -n "$wid" ]]; then
@@ -60,28 +66,30 @@ focus_launcher_home() {
   bash "$REPO_DIR/scripts/launch-launcher.sh" >/dev/null 2>&1 &
 }
 
-cmd_prepare() {
-  # Do not thaw/show/present here. After 4K playback HDMI is still at film cadence;
-  # revealing the launcher first caused a 4K flash before finish downscaled to 1080p.
-  :
+phase_restore_browse_hdmi() {
+  rm -f "$PLAYBACK_ACTIVE_FILE"
+  require_browse_display_before_launcher_reveal
+}
+
+phase_reveal_launcher_at_browse() {
+  present_launcher_ready || true
 }
 
 cmd_finish() {
-  rm -f "$PLAYBACK_ACTIVE_FILE"
-  # Restore browse mode before the launcher becomes visible.
-  bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" ensure-launcher 2>/dev/null || true
-  launcher_thaw
-  show_launcher_surface
-  present_launcher_ready || true
+  phase_restore_browse_hdmi
+  phase_reveal_launcher_at_browse
   focus_launcher_home
   bash "$REPO_DIR/scripts/lib/mango-cursor.sh" hide 2>/dev/null || true
 }
 
 case "${1:-finish}" in
-  prepare) cmd_prepare ;;
   finish|full) cmd_finish ;;
+  prepare)
+    echo "restore-launcher-after-playback: prepare is removed — caller must teardown mpv, then run finish" >&2
+    exit 2
+    ;;
   *)
-    echo "usage: $0 prepare|finish|full" >&2
+    echo "usage: $0 finish" >&2
     exit 2
     ;;
 esac

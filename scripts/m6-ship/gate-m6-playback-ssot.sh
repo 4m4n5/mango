@@ -84,6 +84,23 @@ grep -q 'launcher_freeze' scripts/m2-catalog/service/mpv-play.sh \
   && gate_pass "launcher cgroup frozen during playback (GPU clear for mpv)" \
   || gate_fail "launcher freeze/thaw not wired (expected launcher_freeze on play, launcher_thaw on restore)"
 
+grep -q 'mango-browse-display.sh' scripts/lib/restore-launcher-after-playback.sh \
+  && grep -q 'require_browse_display_before_launcher_reveal' scripts/lib/restore-launcher-after-playback.sh \
+  && grep -q 'require_browse_display_before_launcher_reveal' scripts/lib/mango-window.sh \
+  && gate_pass "browse HDMI restored before launcher reveal (black-screen-first)" \
+  || gate_fail "browse-before-show restore contract not wired"
+
+grep -q 'teardown_mpv' scripts/m2-catalog/service/mpv-stop.sh \
+  && grep -q 'restore-launcher-after-playback.sh" finish' scripts/m2-catalog/service/mpv-stop.sh \
+  && ! grep -q 'restore-launcher-after-playback.sh" prepare' scripts/m2-catalog/service/mpv-stop.sh \
+  && ! grep -q 'restore-launcher-after-playback.sh" prepare' scripts/m2-catalog/service/mpv-play.sh \
+  && gate_pass "mpv stop uses teardown-then-finish restore (no pre-show at 4K)" \
+  || gate_fail "mpv stop restore order invalid (expected teardown → finish only)"
+
+grep -q 'prepare is removed' scripts/lib/restore-launcher-after-playback.sh \
+  && gate_pass "legacy prepare restore step removed" \
+  || gate_fail "restore prepare step should be removed/disabled"
+
 if [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
   gate_warn "playback active — skip launcher freezer capability probe"
 else
