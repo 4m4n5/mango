@@ -70,7 +70,7 @@ rails:
       - baseball
 
   - id: live-football
-    label: football & soccer
+    label: soccer & world cup
     limit: 80
     source_fill:
       - addon: mango Live Free
@@ -78,15 +78,13 @@ rails:
         keywords:
           - fifa
           - bein sports
-          - star sports
       - addon: mango Live TV
         limit: 70
         keywords:
           - world cup
           - fifa
           - copa mundial
-          - soccer ppv
-          - football ppv
+          - copa do mundo
           - uefa
           - premier league
           - bundesliga
@@ -95,11 +93,18 @@ rails:
           - champions league
           - ligue 1
           - mls
+          - soccer
           - bein sports
           - dazn
           - sky sports football
+          - sky sports premier
+          - sky sports main event
           - tnt sports
           - supersport football
+          - supersport soccer
+          - fox soccer
+          - telemundo
+          - telefe futbol
         exclude_keywords:
           - prime video
           - tubi
@@ -109,34 +114,96 @@ rails:
           - movie
           - 24/7
           - replay
+          - nfl
+          - american football
+          - college football
+          - super bowl
+          - ncaa
+          - nfl network
+          - fox nfl
+          - monday night football
+          - red zone
           - baseball
           - mlb
           - nba
-          - nfl
+          - nhl
+          - hockey
+          - basketball
+          - cricket
+          - rugby
+          - golf
+          - tennis
+          - pool championship
+          - billiard
+          - indycar
+          - nascar
+          - motogp
+          - astros
+          - yankees
+          - cubs
+          - dodgers
+          - braves
+          - nationals
+          - necbl
+          - at orioles
+          - at rays
+          - at pirates
+          - at mets
+          - at rockies
+          - at angels
+          - at tigers
+          - at white sox
+          - at dodgers
+          - at brewers
     keywords:
-      - football
       - soccer
       - fifa
       - world cup
+      - copa mundial
+      - uefa
+      - premier league
+      - bundesliga
+      - la liga
+      - serie a
+      - champions league
     exclude_keywords:
       - replay
       - 24/7
       - darts
       - handball
       - combat
-      - storm football
       - pluto
+      - nfl
+      - american football
+      - college football
+      - super bowl
+      - ncaa
+      - nfl network
+      - fox nfl
+      - monday night football
+      - red zone
       - baseball
       - mlb
+      - nba
+      - nhl
+      - hockey
+      - basketball
+      - cricket
+      - rugby
+      - golf
+      - tennis
+      - pool championship
+      - billiard
+      - indycar
+      - nascar
+      - motogp
       - astros
       - yankees
       - cubs
       - dodgers
       - braves
       - nationals
-      - indycar
       - necbl
-      - pool championship
       - at orioles
       - at rays
       - at pirates
@@ -147,8 +214,8 @@ rails:
       - at white sox
 
   - id: live-racing
-    label: racing
-    limit: 32
+    label: formula 1
+    limit: 24
     source_fill:
       - addon: mango Live TV
         limit: 24
@@ -161,31 +228,48 @@ rails:
           - apple tv f1
           - f1 tv
           - viaplay f1
-          - motorsport
-          - motogp
-          - nascar
-          - indycar
+          - canal+ formula
+          - canal+ f1
+          - ant1+ formula
         exclude_keywords:
           - tubi
           - 24/7
           - replay
           - horse
-      - addon: mango Live Free
-        limit: 8
-        keywords:
-          - fanduel racing
+          - nascar
+          - indycar
+          - motogp
+          - moto gp
+          - rally
           - floracing
-          - rally tv
+          - fanduel
           - sky racing
+          - nhra
+          - drag
+          - motocross
+          - superbike
     keywords:
-      - racing
       - f1
       - formula 1
+      - formula one
+      - sky sports f1
     exclude_keywords:
       - replay
       - 24/7
       - news
       - horse
+      - nascar
+      - indycar
+      - motogp
+      - moto gp
+      - rally
+      - floracing
+      - fanduel
+      - sky racing
+      - nhra
+      - drag
+      - motocross
+      - superbike
 
   - id: live-news
     label: news

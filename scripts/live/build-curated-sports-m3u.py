@@ -26,13 +26,6 @@ PICKS: list[tuple[str, list[str]]] = [
         "FIFA+",
         "beIN Sports USA",
     ]),
-    ("Racing", [
-        "FanDuel Racing",
-        "FloRacing 24/7",
-        "Rally TV",
-        "Sky Racing 1",
-        "Sky Racing 2",
-    ]),
 ]
 
 SOURCES = [
@@ -76,7 +69,7 @@ def main() -> int:
 
     lines = [
         "#EXTM3U",
-        "# mango curated sports — cricket, football (FIFA/intl), racing",
+        "# mango curated sports — cricket + soccer (FIFA/intl); F1 via AREA69 live tab",
         "# Sources: https://github.com/iptv-org/iptv",
     ]
     missing: list[str] = []
