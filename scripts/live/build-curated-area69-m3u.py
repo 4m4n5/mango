@@ -142,13 +142,51 @@ def pick_streams(streams: Iterable[dict]) -> list[tuple[str, str, str, str, str]
     return picked
 
 
+def build_search_index(streams: Iterable[dict]) -> list[dict]:
+    """Return full-catalog search entries (noise/event rows filtered out)."""
+    entries: list[dict] = []
+    for s in streams:
+        sid = str(s.get("stream_id") or "").strip()
+        name = clean_name(s.get("name") or "")
+        if not sid or not name:
+            continue
+        if EVENT_RE.search(name) or NOISE_RE.match(name) or name.startswith("("):
+            continue
+        entry: dict[str, str] = {
+            "stream_id": sid,
+            "name": name,
+            "category_id": str(s.get("category_id") or ""),
+        }
+        logo = s.get("stream_icon") or ""
+        if logo:
+            entry["logo"] = logo
+        entries.append(entry)
+    return entries
+
+
+def write_json_atomic(path: str, data: object) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, ensure_ascii=False, separators=(",", ":"))
+        fh.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--creds", default=DEFAULT_CREDS, help="area69.credentials path")
     ap.add_argument("--out", default=DEFAULT_OUT, help="output M3U path")
+    ap.add_argument(
+        "--index-out",
+        default=None,
+        help="search index JSON path (default: dirname(--out)/area69-live-search.json)",
+    )
     ap.add_argument("--timeout", type=int, default=45, help="per-API-call timeout (s)")
     ap.add_argument("--show", action="store_true", help="print picked channels to stderr")
     args = ap.parse_args()
+    index_out = args.index_out or os.path.join(os.path.dirname(args.out), "area69-live-search.json")
 
     base, user, pw = load_creds(args.creds)
     base = base.rstrip("/")
@@ -185,6 +223,19 @@ def main() -> int:
     os.chmod(tmp, 0o600)
     os.replace(tmp, args.out)
     print(f"wrote {len(picked)} channels to {args.out} (mode 0600)", file=sys.stderr)
+
+    index_entries = build_search_index(streams)
+    write_json_atomic(
+        index_out,
+        {
+            "version": 1,
+            "built_at": int(time.time() * 1000),
+            "source": "area69",
+            "stream_count": len(index_entries),
+            "entries": index_entries,
+        },
+    )
+    print(f"wrote {len(index_entries)} entries to {index_out}", file=sys.stderr)
     return 0
 
 

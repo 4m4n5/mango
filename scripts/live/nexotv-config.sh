@@ -243,7 +243,8 @@ apply_area69() {
   data_dir="${MANGO_NEXOTV_DATA_DIR:-$HOME/.local/share/mango/nexotv/data}"
   m3u_path="$data_dir/live-area69-curated.m3u"
   m3u_port="${MANGO_NEXOTV_M3U_PORT:-7010}"
-  python3 "$SCRIPT_DIR/build-curated-area69-m3u.py" --creds "$creds" --out "$m3u_path"
+  python3 "$SCRIPT_DIR/build-curated-area69-m3u.py" --creds "$creds" --out "$m3u_path" \
+    --index-out "$data_dir/area69-live-search.json"
 
   local tmp out token manifest_url mode
   tmp="$(mktemp)"

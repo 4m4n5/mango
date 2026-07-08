@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { clearArea69SearchIndexCache } from '../live/area69.js';
 import { searchLiveChannels, rankLiveChannelEntries } from './live-search.js';
 
 function withTempLiveCache<T>(fn: () => T | Promise<T>): Promise<T> | T {
@@ -103,3 +104,28 @@ test('rankLiveChannelEntries matches rail label context', () => {
   assert.equal(hits[0].id, 'nick');
   assert.ok(hits[0].score > 0);
 });
+
+test('searchLiveChannels merges AREA69 hits and dedupes curated title matches', async () => withTempLiveCache(async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-live-voice-area69-'));
+  const indexPath = join(dir, 'area69-live-search.json');
+  process.env.MANGO_AREA69_SEARCH_INDEX = indexPath;
+  clearArea69SearchIndexCache();
+  writeFileSync(indexPath, JSON.stringify({
+    version: 1,
+    entries: [
+      { stream_id: '9001', name: 'ESPN' },
+      { stream_id: '9002', name: 'ESPN 2' },
+    ],
+  }), 'utf8');
+  try {
+    const hits = await searchLiveChannels('espn', 5);
+    const ids = hits.map((hit) => hit.id);
+    assert.ok(ids.includes('espn'));
+    assert.ok(ids.includes('area69:9002'));
+    assert.equal(ids.includes('area69:9001'), false);
+  } finally {
+    clearArea69SearchIndexCache();
+    delete process.env.MANGO_AREA69_SEARCH_INDEX;
+    rmSync(dir, { recursive: true, force: true });
+  }
+}));

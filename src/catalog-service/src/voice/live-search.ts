@@ -1,4 +1,5 @@
 import { collectLiveSearchEntriesFromCache } from '../live/ai-catalog-seeds.js';
+import { searchArea69Index } from '../live/area69.js';
 import type { CatalogCore } from '../core.js';
 import { searchableChannelText, type LiveChannelMeta } from '../live-rails.js';
 import { scoreTitleMatch, type VoiceSearchHit } from './search.js';
@@ -14,6 +15,10 @@ function buildLiveSearchText(entry: LiveSearchEntry): string {
     parts.push(entry.context.trim());
   }
   return parts.join(' ');
+}
+
+function normalizeLiveTitle(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
 export function rankLiveChannelEntries(
@@ -92,6 +97,27 @@ export async function searchLiveChannels(
       // NexoTV rate limits or live config missing — disk cache still works.
     }
   }
-
-  return rankLiveChannelEntries([...byId.values()], trimmed, limit);
+  const ranked = rankLiveChannelEntries([...byId.values()], trimmed, limit);
+  const knownTitles = new Set<string>();
+  for (const entry of byId.values()) {
+    knownTitles.add(
+      normalizeLiveTitle(entry.meta.name || entry.meta.title || entry.meta.id),
+    );
+  }
+  const merged = [...ranked];
+  for (const hit of await searchArea69Index(trimmed, limit)) {
+    const normalized = normalizeLiveTitle(hit.title);
+    if (knownTitles.has(normalized)) {
+      continue;
+    }
+    knownTitles.add(normalized);
+    merged.push(hit);
+  }
+  merged.sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    return left.title.localeCompare(right.title);
+  });
+  return merged.slice(0, Math.max(1, limit));
 }

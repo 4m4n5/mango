@@ -117,6 +117,11 @@ import {
   liveRailsDiskCacheSummary,
 } from './live-rails-cache.js';
 import { buildLiveAiCatalogRails } from './live/ai-catalog-rails.js';
+import {
+  isArea69ChannelId,
+  parseArea69StreamId,
+  resolveArea69Streams,
+} from './live/area69.js';
 
 const LIVE_TAB_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -2305,6 +2310,33 @@ export class CatalogCore {
     }
     if (negativeUntil) {
       this.streamNegativeCache.delete(key);
+    }
+
+    if (type === 'tv' && isArea69ChannelId(id)) {
+      const streamId = parseArea69StreamId(id);
+      if (!streamId) {
+        return {
+          streams: [],
+          errors: ['area69 stream resolve failed: invalid channel id'],
+          resolveMs: 0,
+          cached: false,
+        };
+      }
+      const started = Date.now();
+      const streams = await resolveArea69Streams(streamId);
+      const resolveMs = Date.now() - started;
+      const errors = streams.length > 0
+        ? []
+        : ['area69 stream resolve failed: missing credentials or stream unavailable'];
+      if (hasCacheableStream(streams)) {
+        this.streamCache.set(key, {
+          streams,
+          errors,
+          resolveMs,
+          expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
+        });
+      }
+      return { streams, errors, resolveMs, cached: false };
     }
 
     const retryAttempts = boundedInt(options.zeroStreamRetryAttempts, 0, 0, 3);
