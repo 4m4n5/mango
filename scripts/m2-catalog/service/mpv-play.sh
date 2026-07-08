@@ -372,10 +372,8 @@ start_mpv_exit_monitor() {
     if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
       curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
       rm -f "$pidfile" "${HOME}/.cache/mango/playback-active"
-      sleep "${MANGO_DISPLAY_LAUNCHER_SETTLE_SEC:-0.35}"
-      bash "$repo/scripts/lib/mango-display-mode.sh" ensure-launcher >/dev/null 2>&1 || true
-      systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
-      bash "$repo/scripts/launch-launcher.sh" >/dev/null 2>&1 || true
+      MANGO_MPV_STOP_HOME=1 bash "$repo/scripts/lib/restore-launcher-after-playback.sh" prepare
+      MANGO_MPV_STOP_HOME=1 bash "$repo/scripts/lib/restore-launcher-after-playback.sh" finish
     fi
   ' bash "$pid" "$REPO_DIR" "$pidfile" >/dev/null 2>&1 &
 }
@@ -646,7 +644,11 @@ foreground_handoff() {
   $HANDOFF_DONE && return 0
   mark_playback_active
   if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
-    systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
+    if bash "$REPO_DIR/scripts/lib/mango-window.sh" hide 2>/dev/null; then
+      :
+    else
+      systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
+    fi
   fi
   if ! $LIVE \
     && [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]] \

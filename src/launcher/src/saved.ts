@@ -37,6 +37,26 @@ export async function unsaveCard(card: ContentCard): Promise<void> {
   });
 }
 
+export interface LibraryContextRecord {
+  source: string;
+  type: string;
+  id: string;
+  title: string;
+  poster: string | null;
+  tab: BrowseTab;
+}
+
+export async function fetchLibraryContext(): Promise<LibraryContextRecord | null> {
+  try {
+    const data = await fetchJson<{ ok: boolean; context: LibraryContextRecord | null }>(
+      "/api/catalog/library/context",
+    );
+    return data.context ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function publishCurrentLibraryContext(tab: BrowseTab, card: ContentCard): Promise<void> {
   await fetchJson("/api/catalog/library/context", {
     method: "POST",

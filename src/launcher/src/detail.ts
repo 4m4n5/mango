@@ -17,6 +17,7 @@ import {
 } from "./catalog";
 import type { ContentCard, BrowseTab } from "./types";
 import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
+import { savePlaybackReturnSnapshot, clearPlaybackReturnSnapshot } from "./playback-return";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel } from "./home";
 
@@ -58,6 +59,8 @@ export class DetailController {
   private relatedButtons: HTMLButtonElement[] = [];
   private homeVisibleCards: ContentCard[] = [];
   private relatedLoadToken = 0;
+  /** Restored after playback when series episode was playing. */
+  private pendingEpisodeRestore: string | null = null;
 
   constructor(
     private readonly view: HTMLElement,
@@ -94,6 +97,35 @@ export class DetailController {
   /** True while play resolve or stream list fetch is in flight — Y cancels instead of closing. */
   isResolving(): boolean {
     return this.resolvingPlay || this.streamsPending;
+  }
+
+  focusPlayButton(): void {
+    for (const control of this.allFocusableElements()) {
+      control.classList.remove("focused");
+    }
+    this.playButton.classList.add("focused");
+    this.playButton.focus({ preventScroll: true });
+    this.focusedEl = this.playButton;
+  }
+
+  focusAfterPlaybackReturn(): void {
+    this.clearPlayBusy();
+    this.hideStatus();
+    this.updatePlayButtonLabel();
+    this.focusPlayButton();
+  }
+
+  restoreAfterPlayback(
+    card: ContentCard,
+    railLabel: string,
+    tab: BrowseTab,
+    saved = false,
+    homeVisible: ContentCard[] = [],
+    episodeId?: string,
+  ): void {
+    this.pendingEpisodeRestore = episodeId ?? null;
+    this.show(card, railLabel, tab, saved, homeVisible);
+    window.setTimeout(() => this.focusPlayButton(), 0);
   }
 
   cancelResolve(): void {
@@ -259,6 +291,8 @@ export class DetailController {
     this.playAbort = null;
     void cancelPlay();
     this.card = null;
+    this.pendingEpisodeRestore = null;
+    clearPlaybackReturnSnapshot();
     this.streams = [];
     this.streamButtons = [];
     this.seriesEpisodes = null;
@@ -333,6 +367,7 @@ export class DetailController {
     const abort = new AbortController();
     this.playAbort = abort;
     this.resolvingPlay = true;
+    savePlaybackReturnSnapshot(this.browseTab, card, this.playEpisodeId());
     this.publishStatus(
       startSec
         ? "resuming…"
@@ -973,14 +1008,23 @@ export class DetailController {
       this.seriesEpisodes = episodes;
       this.renderEpisodes(episodes);
       this.updatePlayButtonLabel();
-      const initialEpisode = episodes.resume?.episode_id
-        || episodes.default_episode_id
-        || null;
-      if (initialEpisode) {
-        this.selectedEpisodeId = initialEpisode;
-        this.focusedEpisodeId = initialEpisode;
-        void this.loadStreamList(card, initialEpisode);
-        this.prefetchAdjacentEpisodes(card, initialEpisode);
+      const restoreEpisode = this.pendingEpisodeRestore;
+      if (restoreEpisode) {
+        this.pendingEpisodeRestore = null;
+        this.selectedEpisodeId = restoreEpisode;
+        this.focusedEpisodeId = restoreEpisode;
+        void this.loadStreamList(card, restoreEpisode, { quiet: true });
+        this.prefetchAdjacentEpisodes(card, restoreEpisode);
+      } else {
+        const initialEpisode = episodes.resume?.episode_id
+          || episodes.default_episode_id
+          || null;
+        if (initialEpisode) {
+          this.selectedEpisodeId = initialEpisode;
+          this.focusedEpisodeId = initialEpisode;
+          void this.loadStreamList(card, initialEpisode);
+          this.prefetchAdjacentEpisodes(card, initialEpisode);
+        }
       }
     } catch {
       if (this.episodesLoadToken !== token || !this.card || this.card.id !== card.id) {

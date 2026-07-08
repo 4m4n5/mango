@@ -1,6 +1,6 @@
 import "./style.css";
 import { FocusGrid } from "./focus";
-import { flushProgress, loadCatalogRails, loadContinueRail, stopPlaybackForVoice } from "./catalog";
+import { flushProgress, loadCatalogRails, loadContinueRail, loadMeta, stopPlaybackForVoice } from "./catalog";
 import { DetailController } from "./detail";
 import { NextEpisodePrompt } from "./next-prompt";
 import {
@@ -18,6 +18,13 @@ import { showToast } from "./toast";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
 import { startPadNavPoll } from "./pad-nav";
 import { cardSavedKey, fetchSavedIds } from "./saved";
+import {
+  cardFromPlaybackSnapshot,
+  clearPlaybackReturnSnapshot,
+  readPlaybackReturnFromContext,
+  readPlaybackReturnSnapshot,
+  type PlaybackReturnSnapshot,
+} from "./playback-return";
 import { logPerf } from "./perf";
 import { touchCouchActivity } from "./activity";
 import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
@@ -72,6 +79,7 @@ let catalogRequestSeq = 0;
 let youtubeCatalogDirty = false;
 let pendingContinueRefreshTab: BrowseTab | null = null;
 let continueRefreshInFlight = false;
+let playbackReturnInFlight = false;
 const tabFocusKeys = new Map<BrowseTab, string>();
 const tabFocusPositions = new Map<BrowseTab, { row: number; col: number }>();
 
@@ -198,6 +206,7 @@ function init(): void {
   window.addEventListener("mango:library-refresh", () => void libraryRefresh({ quiet: true }));
   void loadInfo();
   void loadCatalog();
+  void tryRestorePlaybackReturnOnBoot();
   startVoiceHud();
   startVoiceCommands(resolveVoiceWsUrls(), {
     onHome: showHome,
@@ -673,6 +682,7 @@ function showHome(): void {
   settingsView.classList.add("hidden");
   detailView.classList.add("hidden");
   homeView.classList.remove("hidden");
+  clearPlaybackReturnSnapshot();
   focusGrid.restoreFocus();
   setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
 }
@@ -825,6 +835,8 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
 }
 
 async function handlePlaybackReturn(): Promise<void> {
+  await restorePlaybackSurfaceIfNeeded();
+
   const tab = pendingContinueRefreshTab;
   if (!tab || continueRefreshInFlight || document.visibilityState === "hidden") {
     return;
@@ -839,6 +851,100 @@ async function handlePlaybackReturn(): Promise<void> {
   } finally {
     continueRefreshInFlight = false;
   }
+}
+
+async function tryRestorePlaybackReturnOnBoot(): Promise<void> {
+  if (!readPlaybackReturnSnapshot()) {
+    return;
+  }
+  await restorePlaybackSurfaceIfNeeded();
+}
+
+async function restorePlaybackSurfaceIfNeeded(): Promise<void> {
+  if (playbackReturnInFlight || inSettings || nextEpisodePrompt.isOpen) {
+    return;
+  }
+  playbackReturnInFlight = true;
+  try {
+    if (detail.isOpen) {
+      detail.focusAfterPlaybackReturn();
+      clearPlaybackReturnSnapshot();
+      return;
+    }
+
+    const snapshot =
+      readPlaybackReturnSnapshot()
+      ?? await readPlaybackReturnFromContext();
+    if (!snapshot) {
+      return;
+    }
+
+    if (snapshot.returnSurface === "tab_home") {
+      restoreLiveTabHome(snapshot.tab);
+      return;
+    }
+
+    await restoreDetailFromSnapshot(snapshot);
+  } finally {
+    playbackReturnInFlight = false;
+  }
+}
+
+function restoreLiveTabHome(tab: BrowseTab): void {
+  clearPlaybackReturnSnapshot();
+  inSettings = false;
+  nextEpisodePrompt.dismiss();
+  if (detail.isOpen) {
+    detail.hide();
+  }
+  activeBrowseTab = tab;
+  buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
+  homeView.classList.remove("hidden");
+  settingsView.classList.add("hidden");
+  detailView.classList.add("hidden");
+  if (!showCachedCatalog(tab)) {
+    void loadCatalog();
+  } else {
+    renderHome();
+  }
+  focusGrid.restoreFocus();
+}
+
+async function restoreDetailFromSnapshot(snapshot: PlaybackReturnSnapshot): Promise<void> {
+  const card = cardFromPlaybackSnapshot(snapshot);
+  activeBrowseTab = snapshot.tab;
+  buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
+  inSettings = false;
+  nextEpisodePrompt.dismiss();
+  homeView.classList.add("hidden");
+  settingsView.classList.add("hidden");
+  try {
+    const meta = await loadMeta(card);
+    if (meta.description) {
+      card.description = meta.description;
+    }
+    if (meta.year !== undefined) {
+      card.year = meta.year;
+    }
+    const subtitle = meta.releaseInfo || (meta.runtime ? String(meta.runtime) : "");
+    if (subtitle) {
+      card.subtitle = subtitle;
+    }
+    if (meta.poster) {
+      card.posterUrl = meta.poster;
+    }
+  } catch {
+    // snapshot card is enough to reopen detail
+  }
+  detail.restoreAfterPlayback(
+    card,
+    "continue",
+    snapshot.tab,
+    savedKeys.has(cardSavedKey(card)),
+    [],
+    snapshot.episodeId,
+  );
+  clearPlaybackReturnSnapshot();
 }
 
 async function refreshContinueRail(tab: BrowseTab): Promise<void> {

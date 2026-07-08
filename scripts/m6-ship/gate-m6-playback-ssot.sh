@@ -75,8 +75,9 @@ command -v mpv >/dev/null 2>&1 \
   || gate_fail "mpv missing"
 
 [[ "${MANGO_MPV_STOP_LAUNCHER:-}" == "1" ]] \
-  && gate_pass "mpv stops launcher during fullscreen" \
-  || gate_fail "mpv does not stop launcher during fullscreen"
+  && grep -q 'mango-window.sh" hide' scripts/m2-catalog/service/mpv-play.sh \
+  && gate_pass "mpv hides launcher surface during fullscreen" \
+  || gate_fail "mpv does not hide launcher during fullscreen (expected mango-window.sh hide)"
 
 [[ "${MANGO_MPV_DEFER_FOREGROUND:-}" == "1" ]] \
   && gate_pass "mpv deferred foreground handoff enabled" \

@@ -112,8 +112,9 @@ fi
   || gate_fail "mpv playback does not disable xcompmgr"
 
 [[ "${MANGO_MPV_STOP_LAUNCHER:-}" == "1" ]] \
-  && gate_pass "mpv playback stops launcher surface while fullscreen" \
-  || gate_fail "mpv playback does not stop launcher surface"
+  && grep -q 'mango-window.sh" hide' scripts/m2-catalog/service/mpv-play.sh \
+  && gate_pass "mpv playback hides launcher surface while fullscreen" \
+  || gate_fail "mpv playback does not hide launcher surface"
 
 [[ "${MANGO_MPV_DEFER_FOREGROUND:-}" == "1" ]] \
   && gate_pass "mpv deferred foreground handoff enabled" \
