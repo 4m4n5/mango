@@ -54,3 +54,22 @@ export function sortLiveChannelsByQuality<T extends LiveChannelMeta>(channels: T
     })
     .map(({ channel }) => channel);
 }
+
+function normalizeLiveTitleKey(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** Keep the first (highest-quality) row per normalized title. */
+export function dedupeLiveChannelsByTitle<T extends LiveChannelMeta>(channels: T[]): T[] {
+  const seen = new Set<string>();
+  const deduped: T[] = [];
+  for (const channel of channels) {
+    const key = normalizeLiveTitleKey(channel.name || channel.title || channel.id);
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    deduped.push(channel);
+  }
+  return deduped;
+}

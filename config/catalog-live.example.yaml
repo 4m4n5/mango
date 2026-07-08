@@ -128,6 +128,23 @@ rails:
       - pluto
       - baseball
       - mlb
+      - astros
+      - yankees
+      - cubs
+      - dodgers
+      - braves
+      - nationals
+      - indycar
+      - necbl
+      - pool championship
+      - at orioles
+      - at rays
+      - at pirates
+      - at mets
+      - at rockies
+      - at angels
+      - at tigers
+      - at white sox
 
   - id: live-racing
     label: racing
