@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { isBlockedLiveChannel } from './live-stream-verify.js';
+import { sortLiveChannelsByQuality } from './live/quality-rank.js';
 
 export type LiveSourceFill = {
   addon: string;
@@ -428,12 +429,12 @@ export function matchChannelsToRail(
       continue;
     }
     matches.push(channel);
-    assignedIds.add(channel.id);
-    if (matches.length >= rail.limit) {
-      break;
-    }
   }
-  return matches;
+  const ordered = sortLiveChannelsByQuality(matches).slice(0, rail.limit);
+  for (const channel of ordered) {
+    assignedIds.add(channel.id);
+  }
+  return ordered;
 }
 
 export function partitionChannelsBySportRails(

@@ -201,6 +201,39 @@ export function buildArea69StreamUrl(creds: Area69Credentials, streamId: string)
   return `${creds.url}/live/${creds.user}/${creds.pass}/${streamId}.ts`;
 }
 
+export type Area69TaggedChannel = {
+  id: string;
+  name: string;
+  title: string;
+  poster?: string;
+  source_addon: string;
+  source_label: string;
+  source_manifest: string;
+  source_catalog_type: string;
+};
+
+/** Map AREA69 search-index rows into the live-rails channel pool (play via area69:{id}). */
+export function area69EntryToTaggedChannel(entry: Area69SearchEntry): Area69TaggedChannel {
+  return {
+    id: formatArea69ChannelId(entry.stream_id),
+    name: entry.name,
+    title: entry.name,
+    poster: entry.logo,
+    source_addon: 'mango Live TV',
+    source_label: 'AREA69',
+    source_manifest: 'area69-search-index',
+    source_catalog_type: 'tv',
+  };
+}
+
+export async function listArea69TaggedChannels(): Promise<Area69TaggedChannel[]> {
+  const index = await loadArea69SearchIndex();
+  if (!index?.entries.length) {
+    return [];
+  }
+  return index.entries.map(area69EntryToTaggedChannel);
+}
+
 /**
  * Resolve a bare AREA69 stream_id (no `area69:` prefix) to candidate playable
  * streams, built directly from local Xtream credentials — no network calls,

@@ -69,7 +69,7 @@ test('live-rails matches national news without local affiliates', () => {
   ];
   const assigned = new Set<string>();
   const matches = matchChannelsToRail(channels, rail, assigned);
-  assert.deepEqual(matches.map((item) => item.id), ['1', '3']);
+  assert.deepEqual(matches.map((item) => item.id), ['3', '1']);
 });
 
 test('live-rails matches mixed racing channels', () => {
@@ -87,7 +87,7 @@ test('live-rails matches mixed racing channels', () => {
   ];
   const assigned = new Set<string>();
   const matches = matchChannelsToRail(channels, rail, assigned);
-  assert.deepEqual(matches.map((item) => item.id), ['1', '2', '3']);
+  assert.deepEqual(matches.map((item) => item.id), ['3', '1', '2']);
 });
 
 test('live-rails hindi english news excludes regional language variants', () => {
@@ -181,6 +181,23 @@ test('live-rails source_fill prefers Indian news before US paid affiliates', () 
   const assigned = new Set<string>();
   const matches = matchChannelsWithSourceFill(channels, rail, assigned);
   assert.deepEqual(matches.map((item) => item.id), ['in1', 'in2', 'us1', 'us3']);
+});
+
+test('live-rails keyword matches sort by quality before limit', () => {
+  const rail: LiveSportRail = {
+    id: 'live-football',
+    label: 'football',
+    keywords: ['world cup'],
+    limit: 2,
+  };
+  const channels = [
+    channel({ id: 'sd', name: 'World Cup Today HD' }),
+    channel({ id: '8k', name: 'Live | World Cup Final | 8K EXCLUSIVE' }),
+    channel({ id: '4k', name: 'Live | World Cup Final | 4K UHD' }),
+  ];
+  const assigned = new Set<string>();
+  const matches = matchChannelsToRail(channels, rail, assigned);
+  assert.deepEqual(matches.map((item) => item.id), ['8k', '4k']);
 });
 
 test('live-rails prefers EPG text for subtitles', () => {

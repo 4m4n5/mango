@@ -399,10 +399,10 @@ append_mpv_cache_args() {
   fi
 }
 
-# Live IPTV (MPEG-TS) has irregular timestamps; display-resample tears on Pi.
+# Live IPTV (MPEG-TS) has irregular timestamps; audio master + vsync reduces tearing on Pi.
 resolve_video_sync() {
   if $LIVE; then
-    printf '%s\n' "${MANGO_MPV_VIDEO_SYNC_LIVE:-display-vdrop}"
+    printf '%s\n' "${MANGO_MPV_VIDEO_SYNC_LIVE:-audio}"
     return
   fi
   local sync="${MANGO_MPV_VIDEO_SYNC:-display-resample}"
@@ -421,9 +421,17 @@ append_mpv_live_args() {
     0 | no | false) return 0 ;;
   esac
   args_ref+=(--cache=yes)
-  args_ref+=(--cache-secs="${MANGO_MPV_LIVE_CACHE_SECS:-2}")
+  args_ref+=(--cache-secs="${MANGO_MPV_LIVE_CACHE_SECS:-4}")
   args_ref+=(--cache-pause=yes)
-  args_ref+=(--demuxer-readahead-secs="${MANGO_MPV_LIVE_READAHEAD_SECS:-1}")
+  args_ref+=(--demuxer-readahead-secs="${MANGO_MPV_LIVE_READAHEAD_SECS:-2}")
+  args_ref+=(--video-latency-hacks=yes)
+  case "${MANGO_MPV_LIVE_SWAPINTERVAL:-1}" in
+    0 | no | false) ;;
+    *) args_ref+=(--opengl-swapinterval="${MANGO_MPV_LIVE_SWAPINTERVAL:-1}") ;;
+  esac
+  if [[ -n "${MANGO_MPV_LIVE_FRAMEDROP:-vo}" ]]; then
+    args_ref+=(--framedrop="${MANGO_MPV_LIVE_FRAMEDROP:-vo}")
+  fi
 }
 
 append_mpv_render_args() {

@@ -1,6 +1,7 @@
 # mango live TV rails — copy to /etc/mango/catalog-live.yaml on the Pi
 #
 # Curated free sports via mango Live Free M3U; AREA69 paid for live PPV events.
+# AREA69 full-catalog rows (incl. FIFA World Cup live PPV) merge from area69-live-search.json.
 # verify_streams: false avoids NexoTV /stream/ rate limits; disk cache at ~/.cache/mango/
 
 version: 2
@@ -32,25 +33,32 @@ sources:
 rails:
   - id: live-cricket
     label: cricket
-    limit: 7
+    limit: 48
     source_fill:
       - addon: mango Live TV
-        limit: 5
+        limit: 40
         keywords:
-          - willow cricket
+          - cricket
+          - ipl
+          - willow
+          - star sports
           - sky sports cricket
           - fox cricket
           - supersport cricket
           - sportsmax cricket
+          - test match
+          - t20
+          - ashes
         exclude_keywords:
           - 24/7
           - replay
           - banana
+          - baseball
+          - soccer
       - addon: mango Live Free
-        limit: 2
+        limit: 8
         keywords:
-          - star sports 1
-          - star sports 2
+          - star sports
           - willow
           - dd sports
           - cricket gold
@@ -59,26 +67,41 @@ rails:
     exclude_keywords:
       - replay
       - 24/7
+      - baseball
 
   - id: live-football
     label: football & soccer
-    limit: 12
+    limit: 80
     source_fill:
       - addon: mango Live Free
-        limit: 3
+        limit: 10
         keywords:
           - fifa
-          - bein sports usa
+          - bein sports
+          - star sports
       - addon: mango Live TV
-        limit: 9
+        limit: 70
         keywords:
           - world cup
+          - fifa
+          - copa mundial
+          - soccer ppv
+          - football ppv
           - uefa
           - premier league
           - bundesliga
-          - fifa
+          - la liga
+          - serie a
+          - champions league
+          - ligue 1
+          - mls
+          - bein sports
+          - dazn
+          - sky sports football
+          - tnt sports
+          - supersport football
         exclude_keywords:
-          - prime
+          - prime video
           - tubi
           - sitcom
           - news
@@ -86,8 +109,15 @@ rails:
           - movie
           - 24/7
           - replay
+          - baseball
+          - mlb
+          - nba
+          - nfl
     keywords:
       - football
+      - soccer
+      - fifa
+      - world cup
     exclude_keywords:
       - replay
       - 24/7
@@ -96,37 +126,49 @@ rails:
       - combat
       - storm football
       - pluto
+      - baseball
+      - mlb
 
   - id: live-racing
     label: racing
-    limit: 7
+    limit: 32
     source_fill:
       - addon: mango Live TV
-        limit: 3
+        limit: 24
         keywords:
+          - f1
+          - formula 1
+          - formula one
           - sky sports f1
           - dazn f1
-          - formula 1
           - apple tv f1
           - f1 tv
+          - viaplay f1
+          - motorsport
+          - motogp
+          - nascar
+          - indycar
         exclude_keywords:
           - tubi
           - 24/7
           - replay
+          - horse
       - addon: mango Live Free
-        limit: 5
+        limit: 8
         keywords:
           - fanduel racing
           - floracing
           - rally tv
-          - sky racing 1
-          - sky racing 2
+          - sky racing
     keywords:
       - racing
+      - f1
+      - formula 1
     exclude_keywords:
       - replay
       - 24/7
       - news
+      - horse
 
   - id: live-news
     label: news

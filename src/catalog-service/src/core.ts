@@ -117,8 +117,10 @@ import {
   liveRailsDiskCacheSummary,
 } from './live-rails-cache.js';
 import { buildLiveAiCatalogRails } from './live/ai-catalog-rails.js';
+import { sortLiveChannelsByQuality } from './live/quality-rank.js';
 import {
   isArea69ChannelId,
+  listArea69TaggedChannels,
   parseArea69StreamId,
   resolveArea69Streams,
 } from './live/area69.js';
@@ -1153,6 +1155,14 @@ export class CatalogCore {
         });
       }
     }
+    const seenIds = new Set(tagged.map((channel) => channel.id));
+    for (const channel of await listArea69TaggedChannels()) {
+      if (seenIds.has(channel.id)) {
+        continue;
+      }
+      seenIds.add(channel.id);
+      tagged.push(channel);
+    }
     this.liveChannelCatalogCache = {
       channels: tagged,
       expiresAt: Date.now() + ttlMs,
@@ -1181,7 +1191,7 @@ export class CatalogCore {
       ? candidates
       : this.orderLiveCandidates(candidates, config);
     if (!config.verify_streams || ordered.length === 0) {
-      return ordered.slice(0, rail.limit).map((channel) => ({
+      return sortLiveChannelsByQuality(ordered).slice(0, rail.limit).map((channel) => ({
         ...channel,
         source_addon: channel.source_addon,
         source_label: channel.source_label,
@@ -1221,7 +1231,7 @@ export class CatalogCore {
       verified.push(...next);
     }
     if (verified.length > 0) {
-      return verified.slice(0, rail.limit);
+      return sortLiveChannelsByQuality(verified).slice(0, rail.limit);
     }
     // NexoTV rate limits stream resolves — still surface free legal channels for browse.
     const freeFallback = ordered
