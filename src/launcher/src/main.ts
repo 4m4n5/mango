@@ -47,7 +47,6 @@ const detailPlay = mustGet<HTMLButtonElement>("detail-play");
 const detailSave = mustGet<HTMLButtonElement>("detail-save");
 const detailNotInterested = mustGet<HTMLButtonElement>("detail-not-interested");
 const detailBack = mustGet<HTMLButtonElement>("detail-back");
-const detailStatus = mustGet<HTMLElement>("detail-status");
 const detailStreams = mustGet<HTMLElement>("detail-streams");
 const detailStreamList = mustGet<HTMLElement>("detail-stream-list");
 const detailEpisodes = mustGet<HTMLElement>("detail-episodes");
@@ -153,7 +152,6 @@ const detail = new DetailController(
   detailSave,
   detailNotInterested,
   detailBack,
-  detailStatus,
   detailStreams,
   detailStreamList,
   detailEpisodes,

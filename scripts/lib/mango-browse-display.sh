@@ -50,6 +50,10 @@ ensure_browse_display() {
   "$DISPLAY_MODE_SH" ensure-launcher 2>/dev/null || true
 }
 
+hide_desktop_chrome() {
+  bash "$SCRIPT_DIR/mango-desktop.sh" hide 2>/dev/null || true
+}
+
 ensure_browse_display_when_idle() {
   playback_surface_active && return 0
   browse_display_is_active && return 0

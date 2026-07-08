@@ -35,12 +35,14 @@
               <p id="detail-verify-badge" class="verify-badge" hidden></p>
               <p id="detail-description" class="detail-description">loading details…</p>
               <div class="detail-actions">
-                <button id="detail-play" class="detail-button detail-button--primary" type="button">play</button>
+                <button id="detail-play" class="detail-button detail-button--primary" type="button">
+                  <span class="detail-button-spinner" aria-hidden="true"></span>
+                  <span class="detail-button-label">play</span>
+                </button>
                 <button id="detail-save" class="detail-button" type="button">save</button>
                 <button id="detail-not-interested" class="detail-button" type="button" hidden>not interested</button>
                 <button id="detail-back" class="detail-button" type="button">back</button>
               </div>
-              <p id="detail-status" class="detail-status" hidden aria-live="polite"></p>
             </div>
           </div>
           <div id="detail-related" class="detail-related hidden" aria-label="Related titles">

@@ -276,7 +276,27 @@ def _x11_env() -> dict[str, str]:
 
 
 def _x11_display_size() -> tuple[int, int]:
-    """Actual X11 desktop pixels (xdotool), not tkinter winfo — reliable on Pi."""
+    """Actual X11 desktop pixels — prefer xrandr mode over xdotool (stale after mode switch)."""
+    if DISPLAY_MODE_SH.is_file():
+        try:
+            result = subprocess.run(
+                ["bash", str(DISPLAY_MODE_SH), "status"],
+                capture_output=True,
+                text=True,
+                timeout=2,
+                check=False,
+                env=_x11_env(),
+            )
+            if result.returncode == 0:
+                mode = result.stdout.strip().split(maxsplit=1)[-1]
+                size = mode.split("@", 1)[0]
+                if "x" in size:
+                    w_str, h_str = size.split("x", 1)
+                    w, h = int(w_str), int(h_str)
+                    if w > 0 and h > 0:
+                        return w, h
+        except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
+            pass
     if shutil.which("xdotool"):
         try:
             result = subprocess.run(
@@ -339,6 +359,7 @@ def run() -> int:
     last_display_ensure_at = 0.0
     hidden = True
     layout_applied = False
+    last_layout_screen: tuple[int, int] | None = None
 
     root = tk.Tk(className="mango-playback-osd")
     root.title("mango playback osd")
@@ -361,8 +382,15 @@ def run() -> int:
         y = max(0, screen_h - height - max(24, OSD_MARGIN_BOTTOM))
         root.update_idletasks()
         root.geometry(f"{width}x{height}+{x}+{y}")
+        root.update_idletasks()
         _pin_x11_window(int(root.winfo_id()), x, y, width, height)
+        nonlocal last_layout_screen
+        last_layout_screen = (screen_w, screen_h)
         return width, height
+
+    def needs_layout_refresh() -> bool:
+        screen = _x11_display_size()
+        return not layout_applied or last_layout_screen != screen
 
     def draw(
         width: int,
@@ -533,14 +561,18 @@ def run() -> int:
             return
 
         position, duration, paused = snapshot
-        width, height = OSD_WIDTH, OSD_HEIGHT
-        if not layout_applied or hidden:
-            width, height = layout()
-            layout_applied = True
         if hidden:
             root.deiconify()
             hidden = False
+            layout_applied = False
+        width, height = OSD_WIDTH, OSD_HEIGHT
+        if needs_layout_refresh():
+            width, height = layout()
+            layout_applied = True
         last_display_ensure_at = _maybe_ensure_playback_display(last_display_ensure_at)
+        if needs_layout_refresh():
+            width, height = layout()
+            layout_applied = True
         draw(width, height, position, duration, paused)
         root.lift()
         root.after(POLL_MS, tick)

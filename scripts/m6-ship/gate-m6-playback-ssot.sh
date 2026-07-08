@@ -97,9 +97,10 @@ grep -q 'teardown_mpv' scripts/m2-catalog/service/mpv-stop.sh \
   && gate_pass "mpv stop uses teardown-then-finish restore (no pre-show at 4K)" \
   || gate_fail "mpv stop restore order invalid (expected teardown → finish only)"
 
-grep -q 'prepare is removed' scripts/lib/restore-launcher-after-playback.sh \
-  && gate_pass "legacy prepare restore step removed" \
-  || gate_fail "restore prepare step should be removed/disabled"
+grep -q 'hide_desktop_chrome' scripts/lib/restore-launcher-after-playback.sh \
+  && grep -q 'hide_desktop_chrome' scripts/lib/mango-browse-display.sh \
+  && gate_pass "desktop chrome hidden during browse restore transition" \
+  || gate_fail "desktop chrome not hidden during browse restore"
 
 if [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
   gate_warn "playback active — skip launcher freezer capability probe"

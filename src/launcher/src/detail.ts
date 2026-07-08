@@ -20,6 +20,7 @@ import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
 import { savePlaybackReturnSnapshot, clearPlaybackReturnSnapshot } from "./playback-return";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel } from "./home";
+import { showToast } from "./toast";
 
 const RELATED_DISPLAY_LIMIT = 7;
 /** Idle dwell before background stream prefetch while browsing episodes. */
@@ -74,7 +75,6 @@ export class DetailController {
     private readonly saveButton: HTMLButtonElement,
     private readonly notInterestedButton: HTMLButtonElement,
     private readonly backButton: HTMLButtonElement,
-    private readonly statusEl: HTMLElement,
     private readonly streamsWrap: HTMLElement,
     private readonly streamList: HTMLElement,
     private readonly episodesWrap: HTMLElement,
@@ -110,7 +110,6 @@ export class DetailController {
 
   focusAfterPlaybackReturn(): void {
     this.clearPlayBusy();
-    this.hideStatus();
     this.updatePlayButtonLabel();
     this.focusPlayButton();
   }
@@ -139,7 +138,6 @@ export class DetailController {
     this.resolvingPlay = false;
     this.streamsPending = false;
     this.clearPlayBusy();
-    this.hideStatus();
     void cancelPlay();
     this.playButton.disabled = false;
     this.saveButton.disabled = false;
@@ -151,52 +149,26 @@ export class DetailController {
     for (const button of this.episodeButtons()) {
       button.disabled = false;
     }
-    const card = this.card;
-    const isLive = card?.type === "tv" || this.browseTab === "live";
-    const isYoutube = this.isYoutubeCard(card);
-    this.publishStatus(
-      isLive
-        ? "B to watch live. Y to go back."
-        : isYoutube
-          ? "B to play YouTube. Y to go back."
-          : "B to play. Y to go back.",
-    );
   }
 
-  private publishStatus(message: string, options: { hold?: boolean } = {}): void {
-    this.callbacks.onStatus(message);
+  private playLabelEl(): HTMLElement {
+    return this.playButton.querySelector(".detail-button-label") ?? this.playButton;
+  }
+
+  private setPlayButtonText(text: string): void {
+    this.playLabelEl().textContent = text;
+  }
+
+  /** Play-resolve progress lives in the play button label only. */
+  private publishPlayProgress(message: string): void {
     if (this.resolvingPlay) {
-      this.showStatus(message);
       this.setPlayBusyLabel(message);
-      return;
     }
-    if (this.streamsPending && /^loading/i.test(message)) {
-      this.showStatus(message);
-      return;
-    }
-    if (options.hold) {
-      this.showStatus(message);
-    }
-  }
-
-  private showStatus(message: string): void {
-    const trimmed = message.trim();
-    if (!trimmed) {
-      this.hideStatus();
-      return;
-    }
-    this.statusEl.hidden = false;
-    this.statusEl.textContent = trimmed;
-  }
-
-  private hideStatus(): void {
-    this.statusEl.hidden = true;
-    this.statusEl.textContent = "";
   }
 
   private setPlayBusyLabel(message: string): void {
     this.playButton.classList.add("detail-button--busy");
-    this.playButton.textContent = message;
+    this.setPlayButtonText(message);
   }
 
   private clearPlayBusy(): void {
@@ -246,7 +218,6 @@ export class DetailController {
     }
     this.view.classList.remove("hidden");
     this.notInterestedButton.hidden = tab !== "youtube" && card.source !== "youtube";
-    this.hideStatus();
     this.updateSaveButton();
     this.updatePlayButtonLabel();
     this.applyFocus();
@@ -254,15 +225,6 @@ export class DetailController {
     const isLive = card.type === "tv" || tab === "live";
     const isYoutube = this.isYoutubeCard(card);
     const playable = this.canPlayCard(card);
-    this.publishStatus(
-      isLive
-        ? "B to watch live. Y to go back."
-        : isYoutube && !playable
-          ? "choose a video. Y to go back."
-          : isYoutube
-            ? "B to play YouTube. Y to go back."
-            : "B to play. Y to go back.",
-    );
     void this.loadFullMeta(card);
     if (isYoutube && !playable) {
       void this.loadYoutubeList(card);
@@ -286,7 +248,6 @@ export class DetailController {
     this.resolvingPlay = false;
     this.streamsPending = false;
     this.clearPlayBusy();
-    this.hideStatus();
     this.playAbort?.abort();
     this.playAbort = null;
     void cancelPlay();
@@ -350,7 +311,6 @@ export class DetailController {
       return;
     }
     if (!this.canPlayCard(card)) {
-      this.publishStatus("choose a video first.");
       return;
     }
     const episodeId = this.playEpisodeId();
@@ -368,7 +328,7 @@ export class DetailController {
     this.playAbort = abort;
     this.resolvingPlay = true;
     savePlaybackReturnSnapshot(this.browseTab, card, this.playEpisodeId());
-    this.publishStatus(
+    this.publishPlayProgress(
       startSec
         ? "resuming…"
         : this.isYoutubeCard(card)
@@ -381,7 +341,7 @@ export class DetailController {
     );
     const startingTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
-        this.publishStatus(
+        this.publishPlayProgress(
           this.isYoutubeCard(card)
             ? "resolving YouTube…"
             : card.type === "tv" || this.browseTab === "live"
@@ -395,7 +355,7 @@ export class DetailController {
         if (this.isYoutubeCard(card) || card.type === "tv" || this.browseTab === "live") {
           return;
         }
-        this.publishStatus("trying alternate release…");
+        this.publishPlayProgress("trying alternate release…");
       }
     }, 20000);
     const cachingTimer = window.setTimeout(() => {
@@ -403,10 +363,9 @@ export class DetailController {
         if (this.isYoutubeCard(card) || card.type === "tv" || this.browseTab === "live") {
           return;
         }
-        this.publishStatus("caching stream on TorBox…");
+        this.publishPlayProgress("caching stream on TorBox…");
       }
     }, 10000);
-    let playFailed = false;
     try {
       const result = await playCard(card, {
         signal: abort.signal,
@@ -419,8 +378,7 @@ export class DetailController {
         return;
       }
       const label = result.stream?.display_label || result.stream?.quality;
-      const quality = label ? ` · ${label}` : "";
-      this.publishStatus(`playing${quality}. ⌂ returns home.`);
+      void label;
       this.callbacks.onPlayed?.(card, result);
       if (card.type === "series") {
         this.startNextPromptPoll();
@@ -433,12 +391,10 @@ export class DetailController {
         return;
       }
       const message = error instanceof Error ? error.message : "couldn't start playback. try another title.";
-      playFailed = true;
-      this.publishStatus(
+      showToast(
         message && !message.startsWith("HTTP ")
           ? message
           : "couldn't start playback. try another title.",
-        { hold: true },
       );
     } finally {
       if (this.playAbort === abort) {
@@ -449,9 +405,6 @@ export class DetailController {
       window.clearTimeout(alternateTimer);
       window.clearTimeout(cachingTimer);
       this.clearPlayBusy();
-      if (!playFailed) {
-        this.hideStatus();
-      }
       this.playButton.disabled = false;
       for (const button of this.streamButtons) {
         button.disabled = false;
@@ -929,24 +882,24 @@ export class DetailController {
       return;
     }
     if (!this.canPlayCard(card)) {
-      this.playButton.textContent = "select video";
+      this.setPlayButtonText("select video");
       this.playButton.disabled = true;
       return;
     }
     this.playButton.disabled = false;
     const isLive = card.type === "tv" || this.browseTab === "live";
     if (this.isYoutubeCard(card)) {
-      this.playButton.textContent = card.liveStatus === "live" ? "watch live" : "play";
+      this.setPlayButtonText(card.liveStatus === "live" ? "watch live" : "play");
       return;
     }
     if (isLive) {
-      this.playButton.textContent = "watch live";
+      this.setPlayButtonText("watch live");
       return;
     }
     const hasResume = Boolean(card.resumeSec)
       || Boolean(this.seriesEpisodes?.resume)
       || Boolean(card.playId?.includes(":"));
-    this.playButton.textContent = hasResume ? "resume" : "play";
+    this.setPlayButtonText(hasResume ? "resume" : "play");
   }
 
   private async toggleSaved(): Promise<void> {
@@ -955,7 +908,7 @@ export class DetailController {
       return;
     }
     if (!this.canSaveCard(card)) {
-      this.publishStatus("only YouTube videos can be saved.");
+      showToast("only YouTube videos can be saved.");
       return;
     }
     this.saveButton.disabled = true;
@@ -963,17 +916,17 @@ export class DetailController {
       if (this.saved) {
         await unsaveCard(card);
         this.saved = false;
-        this.publishStatus("removed from saved.");
+        showToast("removed from saved.");
       } else {
         await saveCard(this.browseTab, card);
         this.saved = true;
-        this.publishStatus("saved — find it in your Saved rail.");
+        showToast("saved — find it in your Saved rail.");
       }
       this.updateSaveButton();
       this.callbacks.onSavedChanged?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : "could not update saved";
-      this.publishStatus(message);
+      showToast(message);
     } finally {
       this.saveButton.disabled = !this.canSaveCard(this.card);
     }
@@ -987,12 +940,12 @@ export class DetailController {
     this.notInterestedButton.disabled = true;
     try {
       await notInterestedYoutubeCard(card);
-      this.publishStatus("removed from YouTube recommendations.");
+      showToast("removed from YouTube recommendations.");
       this.hide();
       this.callbacks.onSavedChanged?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : "could not update YouTube recommendations";
-      this.publishStatus(message);
+      showToast(message);
     } finally {
       this.notInterestedButton.disabled = false;
     }
@@ -1041,18 +994,12 @@ export class DetailController {
     this.episodesWrap.hidden = false;
     this.setListLabel("videos");
     this.episodeList.replaceChildren();
-    this.publishStatus("loading YouTube videos…");
     try {
       const cards = await loadYoutubeDetailCards(card);
       if (this.episodesLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
       }
       this.renderYoutubeList(cards);
-      this.publishStatus(
-        cards.length > 0
-          ? "choose a video. Y to go back."
-          : "no videos found here yet.",
-      );
     } catch {
       if (this.episodesLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
@@ -1060,7 +1007,6 @@ export class DetailController {
       this.episodeList.replaceChildren();
       this.listFocusables = [];
       this.episodesWrap.hidden = true;
-      this.publishStatus("YouTube list unavailable.");
       this.applyFocus();
     }
   }
@@ -1170,12 +1116,10 @@ export class DetailController {
 
   private async activateEpisode(episode: SeriesEpisodeRow): Promise<void> {
     if (episode.playable === false) {
-      this.publishStatus("no streams for this episode.");
       return;
     }
     const cached = this.episodeStreamCache.get(episode.id);
     if (cached !== undefined && cached.length === 0) {
-      this.publishStatus("no streams for this episode.");
       return;
     }
     await this.selectEpisode(episode);
@@ -1188,7 +1132,6 @@ export class DetailController {
       return;
     }
     if (episode.playable === false) {
-      this.publishStatus("no streams for this episode.");
       return;
     }
     await this.selectEpisodeStreams(card, episode.id);
@@ -1206,14 +1149,6 @@ export class DetailController {
       this.streams = cached;
       this.setEpisodeStreamBadge(episodeId, cached.length > 0);
       this.renderStreams();
-      if (!options.quiet && this.card?.id === card.id && !this.resolvingPlay) {
-        const count = cached.length;
-        this.publishStatus(
-          count > 0
-            ? `${count} stream${count === 1 ? "" : "s"} ready. B to play. Y to go back.`
-            : "no streams found for this episode.",
-        );
-      }
       return;
     }
     await this.loadStreamList(card, episodeId, options);
@@ -1235,16 +1170,14 @@ export class DetailController {
     }
     this.focusedEpisodeId = episodeId;
     const episode = this.findEpisode(episodeId);
-    if (episode) {
-      this.publishStatus(`${episodeRowLabel(episode)} — B to play`);
-    }
+    void episode;
     this.scheduleEpisodeDwell(episodeId);
   }
 
   private async loadStreamList(
     card: ContentCard,
     episodeId?: string,
-    options: { quiet?: boolean } = {},
+    _options: { quiet?: boolean } = {},
   ): Promise<void> {
     if (episodeId && this.episodeStreamCache.has(episodeId)) {
       const cached = this.episodeStreamCache.get(episodeId)!;
@@ -1255,9 +1188,6 @@ export class DetailController {
     }
     const token = ++this.streamsLoadToken;
     this.streamsPending = true;
-    if (this.card?.id === card.id && !options.quiet) {
-      this.publishStatus("loading streams…");
-    }
     try {
       const result = await loadStreams(card, episodeId);
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
@@ -1269,14 +1199,6 @@ export class DetailController {
         this.setEpisodeStreamBadge(episodeId, result.streams.length > 0);
       }
       this.renderStreams();
-      if (this.card?.id === card.id && !this.resolvingPlay && !options.quiet) {
-        const count = result.streams.length;
-        this.publishStatus(
-          count > 0
-            ? `${count} stream${count === 1 ? "" : "s"} ready. B to play. Y to go back.`
-            : "no streams found for this title.",
-        );
-      }
     } catch {
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
@@ -1290,9 +1212,6 @@ export class DetailController {
     } finally {
       if (this.streamsLoadToken === token) {
         this.streamsPending = false;
-        if (!this.resolvingPlay) {
-          this.hideStatus();
-        }
       }
     }
   }

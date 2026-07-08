@@ -11,6 +11,7 @@ source "$SCRIPT_DIR/launcher-window.sh"
 # shellcheck source=mango-browse-display.sh
 source "$SCRIPT_DIR/mango-browse-display.sh"
 
+hide_desktop_chrome
 ensure_browse_display_when_idle
 
 launcher_is_tv_sized() {
