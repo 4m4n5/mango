@@ -559,6 +559,16 @@ export class DetailController {
     // not land on a season chip that happens to sit up-and-left — so exclude the
     // in-rail list items (season chips + episodes) as horizontal targets here.
     const fromEpisode = current.classList.contains("detail-episode");
+    // Left from an episode escapes the right rail straight to the action column
+    // (play/save/back) rather than the spatially-closest related-title poster —
+    // "press left on an episode → focus the buttons on the left" (issue 3).
+    if (direction === "left" && fromEpisode) {
+      const action = this.actionButtons().find((button) => this.isFocusableEnabled(button));
+      if (action) {
+        this.focusEl(action);
+        return;
+      }
+    }
     let best: HTMLElement | null = null;
     let bestScore = Infinity;
     for (const candidate of this.enabledFocusables()) {
