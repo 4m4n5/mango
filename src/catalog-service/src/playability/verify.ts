@@ -180,6 +180,17 @@ async function recordFailure(
     return 'preserved';
   }
 
+  // Couch play-first: do not overwrite a couch demotion (stale/play_miss) with
+  // background failed unless this is an explicit force reprobe.
+  if (
+    !staleReprobe
+    && existing?.status === 'stale'
+    && existing.fail_reason === 'play_miss'
+    && isConfirmedPlaybackFailure(reason)
+  ) {
+    return 'preserved';
+  }
+
   const status = isConfirmedPlaybackFailure(reason) && !isInfrastructureFailure(reason)
     ? 'failed'
     : 'stale';

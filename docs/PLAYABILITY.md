@@ -35,6 +35,28 @@ The grow system is implemented as a best-effort, couch-silent maintenance workfl
 
 ---
 
+## Couch play-first policy
+
+Couch `POST /play` prefers quality, then **plays any integrity-safe stream** before erroring. Browse rails, grow ingest, and background verify still use the preference ladder only — the obligation floor is **play-path only**.
+
+| Phase | Behavior |
+|-------|----------|
+| **A — Preference ladder** | Existing `play_ladder` steps (cache / HEVC / quality / debrid caps) |
+| **B — Obligation floor** | After Phase A exhausts: every remaining stream that passes integrity filters (title match, no supplemental/series-pack/error placeholders, **no cam/ts**). No cache/HEVC/quality caps. Cap: `MANGO_PLAY_OBLIGATION_MAX_ATTEMPTS` (default 6), still within `auto_play_wall_ms` |
+| **Inline reverify** | On zero-stream resolve (or playing a `failed`/`stale`/`play_miss` title): one `forceReprobe` verify + relaxed resolve before giving up |
+
+**Library demotion (gradual, not instant tombstone):**
+
+| Couch outcome | DB effect |
+|---------------|-----------|
+| Transient / zero-stream / opaque mpv | Enqueue `play_failure_reverify` only — no status change |
+| First obligation-floor exhaustion | `demoteTitle(play_miss)` → `stale`, **keep `rail_pool`**, preserve session |
+| Second exhaustion within 24h after `play_miss` | `invalidateTitle(play_failure)` → `failed`, purge pools, reshuffle session |
+
+Recovery: inline reverify on play, targeted `drainTriggersForTitle`, nightly stale reverify + grow. Background verify must not overwrite a couch `play_miss` demotion with `failed` unless `forceReprobe`.
+
+---
+
 ## Thematic rails (shipped)
 
 Two mechanisms share one profile file:
@@ -234,7 +256,7 @@ If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_cat
 
 | Gate | Plays |
 |------|--------|
-| `gate-lite-play.sh` | 1 movie + 1 series smoke |
+| `gate-lite-play.sh` | 1 movie + 1 series smoke (attempt budget 18 = ladder + obligation floor) |
 | `gate-m3-verified-rails.sh` | **3/rail** when `MANGO_GATE_FULL=1` (override: `MANGO_N3C_GATE_MAX_PER_RAIL`) |
 
 Full gate still runs M1 · M4 self-hosted · play orchestrator checks — holistic without exhaustive per-rail play.

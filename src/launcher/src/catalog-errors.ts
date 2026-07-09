@@ -1,7 +1,12 @@
 /** Couch-safe catalog copy for launcher — mirrors catalog-service policy. */
 
 const RATE_LIMIT_RE = /rate\s*limit|too many requests|429/i;
+const RAW_INFRA_RE = /HTTP\s*[45]\d\d|fetch failed|ECONN|socket|AIOStreams:|Cinemeta:/i;
 
+/**
+ * Browse/meta sanitizer — collapses raw addon/infra text.
+ * Play endpoints should use {@link playErrorMessage} instead (server already couch-safe).
+ */
 export function couchSafeCatalogMessage(message: string): string {
   const lower = message.toLowerCase();
   if (RATE_LIMIT_RE.test(lower)) {
@@ -16,5 +21,24 @@ export function couchSafeCatalogMessage(message: string): string {
   if (lower.includes('http 5') || lower.includes('http 429')) {
     return 'catalog temporarily unavailable';
   }
-  return 'catalog unavailable';
+  return 'catalog temporarily unavailable';
+}
+
+/**
+ * Play-path error: trust server couchMessage when present.
+ * Only re-sanitize when the payload looks like raw infra text.
+ */
+export function playErrorMessage(message: string): string {
+  const trimmed = message.trim();
+  if (!trimmed) {
+    return 'catalog temporarily unavailable';
+  }
+  if (RAW_INFRA_RE.test(trimmed)) {
+    return couchSafeCatalogMessage(trimmed);
+  }
+  return trimmed;
+}
+
+export function playTimeoutMessage(): string {
+  return 'catalog timed out — try again';
 }

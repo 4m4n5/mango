@@ -236,7 +236,7 @@ Fallback env: `MANGO_FALLBACK_STREMIO=1` · `MANGO_LEGACY_YOUTUBE=1`
 
 Enriched fields: `display_label`, `release_group`, `encode`, `size_gb`, `languages`, `debrid_service`, `cache_status`.
 
-`POST /play` — orchestrator with ladder tiers · optional `{ url }` from picker.
+`POST /play` — two-phase orchestrator: preference ladder (Phase A), then integrity-only obligation floor (Phase B); optional `{ url }` from picker. See [PLAYABILITY.md](PLAYABILITY.md) play-first policy.
 
 ## Library API
 

@@ -454,6 +454,80 @@ export function injectPreferredPlayCandidate(
   return [{ stream: match, ladder_step: ladderStep }, ...rest];
 }
 
+export const OBLIGATION_FLOOR_STEP = 'obligation_floor';
+
+/**
+ * Couch play Phase B — integrity-safe streams with no ladder quality/cache/codec caps.
+ * Excludes cam/ts, supplemental, wrong-title, error placeholders. Used only after
+ * preference ladder exhaustion so any playable source gets a chance before 502.
+ */
+export function expandObligationFloor(
+  streams: Stream[],
+  context: StreamFilterContext = {},
+  options: {
+    excludeUrls?: Set<string>;
+    maxCandidates?: number;
+  } = {},
+): LadderCandidate[] {
+  const max = options.maxCandidates ?? 6;
+  const exclude = options.excludeUrls ?? new Set<string>();
+  const kept: Stream[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of streams) {
+    const stream = ensureEnriched(raw);
+    if (!stream.url || exclude.has(stream.url) || seen.has(stream.url)) continue;
+    if (!streamPassesIntegrity(stream, context)) continue;
+    if (isSeriesPackForMovie(stream, context.contentType)) continue;
+    if (isSupplementalRelease(stream, context.contentType)) continue;
+    if (isErrorStream(stream)) continue;
+    if (isLowQualityRelease(stream)) continue;
+
+    seen.add(stream.url);
+    kept.push({
+      ...stream,
+      debrid_service: debridServiceId(stream) ?? undefined,
+      cache_status: parseDebridCacheStatus(stream),
+    });
+  }
+
+  const scoreConfig = {
+    exclude_uncached_debrid: false,
+    strict_unknown_cache: false,
+    max_quality: null,
+    exclude_remux: false,
+    exclude_error_streams: true,
+    stream_display_limit: 99,
+    uncached_torbox_fallback: true,
+    rd_safe_unknown_fallback: true,
+    auto_play_max_attempts: 99,
+    auto_play_wall_ms: 90000,
+    auto_play_probe_ms: 8000,
+    auto_play_uncached_probe_ms: 25000,
+    preferred_quality: '1080p' as QualityCap,
+    preferred_hdr_tags: [] as string[],
+    preferred_video_codecs: [] as string[],
+    play_ladder: [],
+    auto_play_tiers: [],
+    include_uncached: true,
+  } as import('./stream-filters.js').StreamFilterConfig & { include_uncached: boolean };
+
+  kept.sort((left, right) => streamPlayScore(right, scoreConfig) - streamPlayScore(left, scoreConfig));
+
+  return kept.slice(0, max).map((stream) => ({
+    stream,
+    ladder_step: OBLIGATION_FLOOR_STEP,
+  }));
+}
+
+export function playObligationMaxAttempts(): number {
+  const raw = process.env.MANGO_PLAY_OBLIGATION_MAX_ATTEMPTS;
+  if (raw === undefined || raw === '') return 6;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 6;
+  return Math.max(1, Math.min(20, Math.floor(parsed)));
+}
+
 export function couchStatusForLadderStep(step: string): string {
   switch (step) {
     case 'ideal':
@@ -478,8 +552,12 @@ export function couchStatusForLadderStep(step: string): string {
       return 'starting selected stream…';
     case '1080p_cached_fallback':
       return 'trying 1080p fallback…';
+    case '1080p_uncached_fallback':
+      return 'caching stream on TorBox…';
     case 'last_resort':
       return 'trying alternate release…';
+    case OBLIGATION_FLOOR_STEP:
+      return 'trying another source…';
     default:
       return 'finding stream…';
   }

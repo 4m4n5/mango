@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Stream } from './core.js';
 import {
   defaultPlayLadder,
+  expandObligationFloor,
   expandPlayLadder,
   injectPreferredPlayCandidate,
   parsePlayLadder,
@@ -425,4 +426,46 @@ test('injectPreferredPlayCandidate prefers explicit prefer_ladder_step over pick
   });
   const ranked = injectPreferredPlayCandidate([picked], [], picked.url, '2160p_encode');
   assert.equal(ranked[0]?.ladder_step, '2160p_encode');
+});
+
+test('expandObligationFloor keeps integrity-safe streams without ladder cache/codec caps', () => {
+  const uncached = stream({
+    url: 'https://example.test/uncached-x264.mkv',
+    name: '[RD⚡] Torrentio 720p',
+    description: 'WEBRip 720p x264',
+    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+  });
+  const cam = stream({
+    url: 'https://example.test/cam.mkv',
+    name: '[TB⚡] CAM 480p',
+    description: 'CAMRip telesync',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|false|480p' },
+  });
+  const ranked = expandObligationFloor([uncached, cam], { contentType: 'movie' }, {
+    maxCandidates: 6,
+  });
+  assert.equal(ranked.length, 1);
+  assert.equal(ranked[0]?.stream.url, uncached.url);
+  assert.equal(ranked[0]?.ladder_step, 'obligation_floor');
+});
+
+test('expandObligationFloor excludes URLs already attempted in Phase A', () => {
+  const first = stream({
+    url: 'https://example.test/first.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: 'WEB-DL 1080p',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const second = stream({
+    url: 'https://example.test/second.mkv',
+    name: '[RD⚡] Torrentio 720p',
+    description: 'WEBRip 720p x264',
+    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+  });
+  const ranked = expandObligationFloor([first, second], { contentType: 'movie' }, {
+    excludeUrls: new Set([first.url]),
+    maxCandidates: 6,
+  });
+  assert.equal(ranked.length, 1);
+  assert.equal(ranked[0]?.stream.url, second.url);
 });

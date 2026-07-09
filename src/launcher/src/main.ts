@@ -818,7 +818,7 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
     if (!cachedRails?.length) {
       catalogState = {
         status: "error",
-        message: error instanceof Error ? error.message : "catalog unavailable",
+        message: error instanceof Error ? error.message : "catalog temporarily unavailable",
       };
       renderHome();
     }
@@ -983,7 +983,7 @@ function replaceContinueRail(rails: ContentRail[], continueRail: ContentRail): C
 }
 
 function catalogRetryStatus(error: unknown, reshuffle: boolean): string {
-  const message = error instanceof Error ? error.message : "catalog unavailable";
+  const message = error instanceof Error ? error.message : "catalog temporarily unavailable";
   const lower = message.toLowerCase();
   if (lower.includes("temporarily unavailable") || lower.includes("catalog unavailable")) {
     return "catalog temporarily unavailable — retrying…";

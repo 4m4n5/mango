@@ -1,5 +1,5 @@
 import type { ContentCard, ContentRail } from "./types";
-import { couchSafeCatalogMessage } from "./catalog-errors";
+import { couchSafeCatalogMessage, playErrorMessage, playTimeoutMessage } from "./catalog-errors";
 import type { BrowseTab } from "./types";
 
 interface RailSummaryResponse {
@@ -475,7 +475,7 @@ export async function playCard(
   options: { signal?: AbortSignal; preferUrl?: string; preferLadderStep?: string; startSec?: number; episodeId?: string } = {},
 ): Promise<PlayResult> {
   if (card.source === "youtube" || card.type === "youtube_video") {
-    return fetchJson<PlayResult>("/api/catalog/youtube/play", {
+    return fetchPlayJson<PlayResult>("/api/catalog/youtube/play", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -524,7 +524,7 @@ export async function playCard(
   if (typeof startSec === 'number' && startSec > 0) {
     body.start_sec = startSec;
   }
-  return fetchJson<PlayResult>("/api/catalog/play", {
+  return fetchPlayJson<PlayResult>("/api/catalog/play", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -562,16 +562,66 @@ async function fetchJson<T>(url: string, init?: RequestInit, timeoutMs?: number)
       ...(init?.headers || {}),
     },
   };
-  const response = timeoutMs
-    ? await fetchWithTimeout(url, requestInit, timeoutMs)
-    : await fetch(url, requestInit);
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    if (response.status === 499) {
-      throw new Error("play cancelled");
+  try {
+    const response = timeoutMs
+      ? await fetchWithTimeout(url, requestInit, timeoutMs)
+      : await fetch(url, requestInit);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 499) {
+        throw new Error("play cancelled");
+      }
+      const raw = typeof data.error === "string" ? data.error : `HTTP ${response.status}`;
+      throw new Error(couchSafeCatalogMessage(raw));
     }
-    const raw = typeof data.error === "string" ? data.error : `HTTP ${response.status}`;
-    throw new Error(couchSafeCatalogMessage(raw));
+    return data as T;
+  } catch (error) {
+    if (error instanceof Error && error.message === "play cancelled") {
+      throw error;
+    }
+    if (isAbortError(error)) {
+      throw new Error(playTimeoutMessage());
+    }
+    throw error;
   }
-  return data as T;
+}
+
+/** Play endpoints: server already sends couchMessage — pass through unless raw infra. */
+async function fetchPlayJson<T>(url: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
+  const requestInit = {
+    ...init,
+    headers: {
+      accept: "application/json",
+      ...(init?.headers || {}),
+    },
+  };
+  try {
+    const response = timeoutMs
+      ? await fetchWithTimeout(url, requestInit, timeoutMs)
+      : await fetch(url, requestInit);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 499) {
+        throw new Error("play cancelled");
+      }
+      const raw = typeof data.error === "string" ? data.error : `HTTP ${response.status}`;
+      throw new Error(playErrorMessage(raw));
+    }
+    return data as T;
+  } catch (error) {
+    if (error instanceof Error && error.message === "play cancelled") {
+      throw error;
+    }
+    if (isAbortError(error)) {
+      throw new Error(playTimeoutMessage());
+    }
+    throw error;
+  }
+}
+
+function isAbortError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  return error.name === "AbortError" || /aborted|AbortError/i.test(error.message);
 }

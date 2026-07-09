@@ -123,6 +123,64 @@ export async function drainTriggers(
   return result;
 }
 
+/**
+ * Synchronous single-title drain for couch play recovery — does not require
+ * MANGO_TRIGGER_CONSUMER. Verifies + promotes the title once.
+ */
+export async function drainTriggersForTitle(
+  core: CatalogCore,
+  options: {
+    type: string;
+    id: string;
+    railId?: string | null;
+    verify?: typeof verifyTitle;
+    promote?: typeof assignVerifiedTitleToBestRail;
+  },
+): Promise<DrainTriggersResult> {
+  const verify = options.verify ?? verifyTitle;
+  const promote = options.promote ?? assignVerifiedTitleToBestRail;
+  const result: DrainTriggersResult = {
+    drained: 1,
+    verified: 0,
+    failed: 0,
+    promoted: 0,
+    by_trigger_type: { play_failure_reverify: 1 },
+  };
+  try {
+    const verifyResult = await verify(core, options.type, options.id, {
+      railId: options.railId ?? null,
+      forceReprobe: true,
+    });
+    if (verifyResult.status === 'verified') {
+      result.verified = 1;
+      try {
+        await promote(core, {
+          type: options.type,
+          id: options.id,
+          preferredRailId: options.railId ?? null,
+        });
+        result.promoted = 1;
+      } catch (assignError) {
+        console.warn(
+          `drainTriggersForTitle: rail assign failed type=${options.type} id=${options.id}: ${
+            assignError instanceof Error ? assignError.message : String(assignError)
+          }`,
+        );
+      }
+    } else {
+      result.failed = 1;
+    }
+  } catch (verifyError) {
+    result.failed = 1;
+    console.warn(
+      `drainTriggersForTitle: verify failed type=${options.type} id=${options.id}: ${
+        verifyError instanceof Error ? verifyError.message : String(verifyError)
+      }`,
+    );
+  }
+  return result;
+}
+
 function couchActivityStatePath(): string {
   return process.env.MANGO_COUCH_ACTIVITY_STATE
     || join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'mango/couch-activity.json');

@@ -2638,6 +2638,23 @@ VALUES (@started_at, NULL, @type, @id, 'sweep', 0, 'expired_stale');
   return { swept };
 }
 
+/**
+ * First couch miss after obligation-floor exhaustion — demote to stale/play_miss.
+ * Keeps rail_pool membership and session posters (preserve_session).
+ */
+export async function demoteTitle(record: {
+  rail_id?: string | null;
+  type: string;
+  id: string;
+  reason?: string | null;
+}): Promise<void> {
+  await invalidateTitle({
+    ...record,
+    reason: record.reason ?? 'play_miss',
+    preserve_session: true,
+  });
+}
+
 export async function invalidateTitle(record: {
   rail_id?: string | null;
   type: string;
@@ -2649,8 +2666,11 @@ export async function invalidateTitle(record: {
   await initPlayabilityDb();
   const db = openDb();
   const timestamp = nowMs();
-  const status = record.reason === 'play_failure' ? 'failed' : 'stale';
+  const reason = record.reason ?? 'invalidated';
+  // play_miss is a soft demotion (stale, keep pool). Only play_failure purges.
+  const status = reason === 'play_failure' ? 'failed' : 'stale';
   const confirmedFailure = status === 'failed';
+  const preserveSession = record.preserve_session === true || reason === 'play_miss';
   const transaction = db.transaction(() => {
     db.prepare(`
 INSERT INTO titles (
@@ -2668,7 +2688,7 @@ ON CONFLICT(type, id) DO UPDATE SET
       type: record.type,
       id: record.id,
       status,
-      reason: record.reason ?? 'invalidated',
+      reason,
       updated_at: timestamp,
     });
 
@@ -2682,7 +2702,7 @@ WHERE type = @type AND id = @id;
       });
     }
 
-    if (!record.preserve_session) {
+    if (!preserveSession) {
       const sessionWhere = record.rail_id && !confirmedFailure
         ? 'rail_id = @rail_id AND type = @type AND id = @id'
         : 'type = @type AND id = @id';
@@ -2704,15 +2724,15 @@ VALUES (@started_at, @rail_id, @type, @id_value, 'invalidate', 0, @outcome);
       rail_id: record.rail_id ?? null,
       type: record.type,
       id_value: record.id,
-      outcome: record.reason ?? 'invalidated',
+      outcome: reason,
     });
   });
   transaction();
   await enqueuePlayabilityTrigger({
-    trigger_type: record.reason === 'play_failure' ? 'play_failure' : 'stale',
+    trigger_type: reason === 'play_failure' ? 'play_failure' : 'stale',
     rail_id: record.rail_id ?? null,
     type: record.type,
     id: record.id,
-    reason: record.reason ?? 'invalidated',
+    reason,
   });
 }

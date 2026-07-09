@@ -55,6 +55,7 @@ Locked choices. Update when changing behavior.
 | Live TV | NexoTV · `catalog-live.yaml` · opt-in gates ([LIVE_TV.md](LIVE_TV.md)) |
 | Live cache | Never replace a non-empty Live cache with empty rebuild output; stale non-empty cache may serve indefinitely |
 | Lab quality cap | `max_quality: 1080p` until M6.3 ship profile |
+| Couch play authority | Play-first: Phase A preference ladder, then Phase B integrity-only obligation floor; first miss demotes to `stale`/`play_miss` (keep pool); `failed` + pool purge only after sustained miss within 24h; browse/verify stay ladder-only ([PLAYABILITY.md](PLAYABILITY.md)) |
 
 ---
 

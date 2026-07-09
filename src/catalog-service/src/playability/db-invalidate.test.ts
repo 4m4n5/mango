@@ -6,6 +6,7 @@ import test from 'node:test';
 import Database from 'better-sqlite3';
 
 import {
+  demoteTitle,
   getOrCreateRailSession,
   getRailPoolTitleKeys,
   getRailPlayabilityStatus,
@@ -77,6 +78,50 @@ test('stale invalidation remains published until confirmed failure', async () =>
       displayLimit: 9,
     });
     assert.deepEqual(session.items.map((item) => item.id), ['tt-stale-visible']);
+  });
+});
+
+test('play_miss demotion keeps rail_pool and session posters', async () => {
+  await withTempDb(async () => {
+    await recordVerifyResult({
+      type: 'movie',
+      id: 'tt-play-miss',
+      status: 'verified',
+      expires_at: Date.now() + 60_000,
+    });
+    await addVerifiedPoolTitle('movies-india-trending', 'tt-play-miss');
+    await addVerifiedPoolTitle('ai-horror', 'tt-play-miss');
+
+    const before = await getOrCreateRailSession({
+      railId: 'movies-india-trending',
+      sessionId: 'session-1',
+      displayLimit: 9,
+    });
+    assert.equal(before.items.length, 1);
+
+    await demoteTitle({
+      rail_id: 'movies-india-trending',
+      type: 'movie',
+      id: 'tt-play-miss',
+      reason: 'play_miss',
+    });
+
+    const title = await getTitlePlayability('movie', 'tt-play-miss');
+    assert.equal(title?.status, 'stale');
+    assert.equal(title?.fail_reason, 'play_miss');
+
+    const indiaStatus = await getRailPlayabilityStatus('movies-india-trending');
+    const horrorStatus = await getRailPlayabilityStatus('ai-horror');
+    assert.equal(indiaStatus.pool_depth, 1);
+    assert.equal(horrorStatus.pool_depth, 1);
+    assert.equal(indiaStatus.stale, 1);
+
+    const after = await getOrCreateRailSession({
+      railId: 'movies-india-trending',
+      sessionId: 'session-1',
+      displayLimit: 9,
+    });
+    assert.deepEqual(after.items.map((item) => item.id), ['tt-play-miss']);
   });
 });
 

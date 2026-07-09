@@ -70,6 +70,16 @@
       "require_cache": "cached_or_uncached",
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]
+    },
+    {
+      "step": "last_resort",
+      "max_quality": "2160p",
+      "exclude_remux": false,
+      "require_hevc": false,
+      "require_cache": "any",
+      "debrid_services": ["torbox", "realdebrid"],
+      "rd_safe_unknown": true,
+      "addons": ["AIOStreams"]
     }
   ],
   "auto_play_tiers": [

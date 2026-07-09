@@ -5,17 +5,24 @@ import { playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { bumpPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import {
+  demoteTitle,
   enqueuePlayabilityTrigger,
   invalidateTitle,
   getTitlePlayability,
   getTitleVerifyProfile,
   recordVerifyResult,
 } from './playability/db.js';
-import { startTriggerConsumerBackgroundTick } from './playability/trigger-consumer.js';
-import { demoteVerifyIfDrifted } from './playability/verify.js';
+import {
+  drainTriggersForTitle,
+  startTriggerConsumerBackgroundTick,
+} from './playability/trigger-consumer.js';
+import { demoteVerifyIfDrifted, verifyTitle } from './playability/verify.js';
 import { isSeriesRailGateId, seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
-import { shouldInvalidatePlayabilityAfterPlayError } from './playability/play-failure-policy.js';
+import {
+  shouldConfirmPlayFailure,
+  shouldDemoteAfterPlayError,
+} from './playability/play-failure-policy.js';
 import { assignVerifiedTitleToBestRail } from './playability/rail-pool-retheme.js';
 import { isFirstTimeVerifiedPromotion } from './play-verify-state.js';
 import { deriveLibraryVerifyState } from './voice/external.js';
@@ -565,8 +572,55 @@ async function handlePlay(
     : profileHint;
 
   let resolved: Awaited<ReturnType<CatalogCore['resolveForPlay']>> | null = null;
+  let inlineReverifyUsed = false;
   try {
-    resolved = await core.resolveForPlay(body.type, playId, overrides);
+    // Soft recovery for failed/stale titles before resolve (Continue Watching path).
+    if (usePlayabilityIndex) {
+      const prior = await getTitlePlayability(body.type, playId).catch(() => null);
+      if (prior && (prior.status === 'failed' || prior.status === 'stale' || prior.fail_reason === 'play_miss')) {
+        await drainTriggersForTitle(core, {
+          type: body.type,
+          id: playId,
+          railId: body.rail_id ?? null,
+        }).catch(() => undefined);
+      }
+    }
+
+    try {
+      resolved = await core.resolveForPlay(body.type, playId, overrides);
+    } catch (resolveError) {
+      const zeroStream = resolveError instanceof CatalogError
+        && resolveError.message === 'no_playable_stream'
+        && (resolveError.details as { candidates?: number } | undefined)?.candidates === 0;
+      if (!zeroStream || !usePlayabilityIndex || inlineReverifyUsed) {
+        throw resolveError;
+      }
+      inlineReverifyUsed = true;
+      const reverify = await verifyTitle(core, body.type, playId, {
+        railId: body.rail_id ?? null,
+        forceReprobe: true,
+      }).catch((reverifyError) => {
+        console.warn(
+          `inline reverify failed type=${body.type} id=${playId}: ${
+            reverifyError instanceof Error ? reverifyError.message : String(reverifyError)
+          }`,
+        );
+        return null;
+      });
+      if (reverify?.status !== 'verified') {
+        throw resolveError;
+      }
+      await assignVerifiedTitleToBestRail(core, {
+        type: body.type,
+        id: playId,
+        preferredRailId: body.rail_id ?? null,
+      }).catch(() => undefined);
+      resolved = await core.resolveForPlay(body.type, playId, {
+        ...overrides,
+        strict_unknown_cache: false,
+      });
+    }
+
     const playback = await playWithLadder(resolved.streams, resolved.filters, {
       contentType: body.type,
       filterContext: resolved.filterContext,
@@ -642,35 +696,66 @@ async function handlePlay(
       throw new CatalogError(499, 'play cancelled');
     }
     const details = error instanceof CatalogError
-      ? (error.details as { attempts?: unknown[]; candidates?: number } | undefined)
+      ? (error.details as {
+        attempts?: unknown[];
+        candidates?: number;
+        obligation_floor_ran?: boolean;
+      } | undefined)
       : undefined;
     const attempts = details?.attempts;
-    const confirmedPlayFailure = shouldInvalidatePlayabilityAfterPlayError({
-      isNoPlayableStream: error instanceof CatalogError && error.message === 'no_playable_stream',
-      attempts,
-      candidates: details?.candidates,
-    });
-    if (confirmedPlayFailure && usePlayabilityIndex) {
-      await invalidateTitle({
-        rail_id: body.rail_id,
-        type: body.type,
-        id: playId,
-        reason: 'play_failure',
-      }).catch((invalidateError) => {
-        console.warn(
-          `playability invalidate failed type=${body.type} id=${body.id}: ${
-            invalidateError instanceof Error ? invalidateError.message : String(invalidateError)
-          }`,
-        );
-      });
-      // H2: fast-lane re-verify trigger, drained ahead of voice_request by the H1 consumer and
-      // the nightly failed-reverify phase — additive to the invalidate above, never blocks it.
+    const obligationFloorRan = details?.obligation_floor_ran === true;
+    const isNoPlayableStream = error instanceof CatalogError && error.message === 'no_playable_stream';
+
+    if (usePlayabilityIndex && isNoPlayableStream) {
+      const prior = await getTitlePlayability(body.type, playId).catch(() => null);
+      const policyInput = {
+        isNoPlayableStream: true,
+        attempts,
+        candidates: details?.candidates,
+        obligationFloorRan,
+        priorFailReason: prior?.fail_reason ?? null,
+        priorUpdatedAt: prior?.updated_at ?? null,
+        nowMs: Date.now(),
+      };
+      const confirmFailure = shouldConfirmPlayFailure(policyInput);
+      const demote = !confirmFailure && shouldDemoteAfterPlayError(policyInput);
+
+      if (confirmFailure) {
+        await invalidateTitle({
+          rail_id: body.rail_id,
+          type: body.type,
+          id: playId,
+          reason: 'play_failure',
+        }).catch((invalidateError) => {
+          console.warn(
+            `playability invalidate failed type=${body.type} id=${body.id}: ${
+              invalidateError instanceof Error ? invalidateError.message : String(invalidateError)
+            }`,
+          );
+        });
+        core.reshufflePlayabilitySession();
+      } else if (demote) {
+        await demoteTitle({
+          rail_id: body.rail_id,
+          type: body.type,
+          id: playId,
+          reason: 'play_miss',
+        }).catch((demoteError) => {
+          console.warn(
+            `playability demote failed type=${body.type} id=${body.id}: ${
+              demoteError instanceof Error ? demoteError.message : String(demoteError)
+            }`,
+          );
+        });
+      }
+
+      // Always enqueue fast-lane reverify on couch miss (even transient) so nightly/inline can recover.
       await enqueuePlayabilityTrigger({
         trigger_type: 'play_failure_reverify',
         rail_id: body.rail_id,
         type: body.type,
         id: playId,
-        reason: 'play_failure',
+        reason: confirmFailure ? 'play_failure' : demote ? 'play_miss' : 'play_retry',
       }).catch((enqueueError) => {
         console.warn(
           `playability fast-lane enqueue failed type=${body.type} id=${body.id}: ${
@@ -678,7 +763,6 @@ async function handlePlay(
           }`,
         );
       });
-      core.reshufflePlayabilitySession();
     }
     if (error instanceof CatalogError) {
       if (error.message === 'no_playable_stream') {
