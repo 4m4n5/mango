@@ -218,6 +218,11 @@ serve.py → pad-nav queue (separate from voice; deque + Condition + persisted s
 launcher → GET /api/pad/nav?after=&wait=25 long-poll → handlePadNav → FocusGrid / detail / settings / next-prompt
 ```
 
+Pad-nav is **peek-by-seq** (not drain-once). Every localhost long-poller sees
+the same pending commands for its `after` cursor; entries expire via TTL /
+maxlen only. Drain-once previously let a second poller (SSH tunnel + Cursor
+browser, curl probe) steal presses so the TV Chromium registered them randomly.
+
 The launcher owns surface + focus state; the pad sends directional intents only.
 `handlePadNav` mirrors `handleKeydown`'s priority chain (next-prompt → detail →
 settings → home) so the pad-nav and xdotool-fallback paths are behaviorally

@@ -314,32 +314,26 @@ def _prune_expired_pad_nav_commands(now: float | None = None) -> None:
     _pad_nav_commands.extend(fresh)
 
 
-def _drain_pad_nav_pending_locked(after: int) -> list[dict[str, object]]:
-    """Drain pending pad nav commands with seq > after. Assumes _pad_nav_lock is held."""
-    pending = [
+def _peek_pad_nav_pending_locked(after: int) -> list[dict[str, object]]:
+    """Return pad nav commands with seq > after without removing them.
+
+    Pad nav must be peek-based (not drain-once). A second localhost poller
+    (SSH tunnel + Cursor browser, second Chromium tab, curl probe) used to
+    steal the only copy of each command — the TV Chromium then saw empty
+    polls and advanced past the seq, so couch presses registered randomly.
+    """
+    return [
         entry
         for entry in list(_pad_nav_commands)
         if int(entry.get("seq", 0)) > after
     ]
-    pending_seqs = {int(entry.get("seq", 0)) for entry in pending}
-    kept = deque(
-        (
-            entry
-            for entry in _pad_nav_commands
-            if int(entry.get("seq", 0)) not in pending_seqs
-        ),
-        maxlen=_pad_nav_commands.maxlen,
-    )
-    _pad_nav_commands.clear()
-    _pad_nav_commands.extend(kept)
-    return pending
 
 
 def drain_pad_nav_commands(after: int) -> tuple[list[dict[str, object]], int]:
-    """Return pending pad nav commands once — never replay on later polls."""
+    """Return pending pad nav commands with seq > after (non-destructive peek)."""
     with _pad_nav_cond:
         _prune_expired_pad_nav_commands(time.time())
-        return _drain_pad_nav_pending_locked(after), _pad_nav_seq
+        return _peek_pad_nav_pending_locked(after), _pad_nav_seq
 
 
 def wait_and_drain_pad_nav_commands(
@@ -347,20 +341,33 @@ def wait_and_drain_pad_nav_commands(
 ) -> tuple[list[dict[str, object]], int]:
     """Long-poll variant for pad nav: park up to ``timeout`` seconds waiting for new commands.
 
-    Returns as soon as pending commands exist (drain-once), or on timeout with
-    ``([], latest_seq)``. Mutually exclusive with all other _pad_nav_lock users.
+    Returns as soon as pending commands exist (peek, leave in queue), or on
+    timeout with ``([], latest_seq)``. Entries leave via TTL / maxlen only —
+    never via a competing poller or ack (ack is non-destructive).
     """
     deadline = time.monotonic() + timeout
     with _pad_nav_cond:
         while True:
             _prune_expired_pad_nav_commands(time.time())
-            pending = _drain_pad_nav_pending_locked(after)
+            pending = _peek_pad_nav_pending_locked(after)
             if pending:
                 return pending, _pad_nav_seq
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return [], _pad_nav_seq
             _pad_nav_cond.wait(remaining)
+
+
+def ack_pad_nav_commands(last_seq: int) -> int:
+    """Record couch progress only — do not drop queue entries.
+
+    A second localhost poller (SSH tunnel browser) used to POST ack and
+    delete commands the TV Chromium had not yet read. Queue entries expire
+    via TTL / maxlen; each client skips already-applied seqs with ``after``.
+    """
+    del last_seq  # accepted for API compatibility / future telemetry
+    with _pad_nav_lock:
+        return _pad_nav_seq
 
 
 def latest_pad_nav_seq() -> int:
@@ -677,8 +684,14 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                     HTTPStatus.BAD_REQUEST,
                 )
                 return
-            # No-op beyond acknowledging; launcher uses this for replay safety.
-            self._write_json({"ok": True})
+            try:
+                last_seq = max(0, int(payload.get("last_seq", 0) or 0))
+            except (TypeError, ValueError):
+                last_seq = 0
+            # Non-destructive: queue is peek-based so a second localhost
+            # poller cannot starve the TV Chromium of pad presses.
+            latest = ack_pad_nav_commands(last_seq)
+            self._write_json({"ok": True, "latest_seq": latest, "acked_through": last_seq})
             return
         if path.startswith("/api/catalog/"):
             self._proxy_catalog("POST")

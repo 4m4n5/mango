@@ -184,16 +184,21 @@ export function startPadNavPoll(handlers: PadNavHandlers): () => void {
       if (typeof payload.latest_seq === "number" && payload.latest_seq < lastSeq) {
         lastSeq = payload.latest_seq;
       }
-      for (const command of payload.commands ?? []) {
+      const batch = payload.commands ?? [];
+      for (const command of batch) {
+        if (typeof command.seq === "number" && command.seq <= lastSeq) {
+          continue;
+        }
         handlePadNav(command, handlers);
         if (typeof command.seq === "number" && command.seq > lastSeq) {
           lastSeq = command.seq;
         }
       }
-      if ((payload.commands ?? []).length === 0 && typeof payload.latest_seq === "number" && payload.latest_seq > lastSeq) {
-        lastSeq = payload.latest_seq;
+      // Never advance lastSeq on an empty batch just because latest_seq moved —
+      // that used to skip presses another localhost poller had already drained.
+      if (batch.length > 0) {
+        void postPadAck(lastSeq);
       }
-      void postPadAck(lastSeq);
       ok = true;
     } catch {
       // launcher UI server may restart briefly, or fetch was aborted
