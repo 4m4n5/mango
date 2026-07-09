@@ -811,9 +811,16 @@ PLAYBACK_OSD_TRIGGER = Path(
     os.environ.get("MANGO_PLAYBACK_OSD_TRIGGER", str(CACHE_DIR / "playback-osd.show"))
 )
 PLAYBACK_OSD_VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "4.0"))
+# Default HUD backend is the in-mpv Lua overlay (no external window → no 4K
+# present stutter). "tk" restores the legacy Tkinter overlay for A/B only.
+PLAYBACK_OSD_BACKEND = os.environ.get("MANGO_PLAYBACK_OSD_BACKEND", "lua")
 
 
 def show_playback_osd(reason: str) -> None:
+    if PLAYBACK_OSD_BACKEND == "lua":
+        # HUD is rendered inside mpv; trigger it over the IPC socket.
+        send_mpv_ipc("script-message", "mango-hud-show", reason)
+        return
     if not PLAYBACK_OSD_PY.is_file():
         return
     ensure_playback_osd_daemon()

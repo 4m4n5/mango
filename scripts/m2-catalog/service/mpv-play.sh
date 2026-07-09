@@ -454,6 +454,23 @@ append_mpv_live_args() {
   fi
 }
 
+append_mpv_hud_args() {
+  local -n args_ref="$1"
+  [[ "${MANGO_PLAYBACK_OSD:-1}" != "0" ]] || return 0
+  [[ "${MANGO_PLAYBACK_OSD_BACKEND:-lua}" == "lua" ]] || return 0
+  local hud_lua="$SCRIPT_DIR/mango-hud.lua"
+  [[ -f "$hud_lua" ]] || return 0
+  # In-mpv HUD (libass overlay): one window keeps mpv's fullscreen page-flip path
+  # intact — no external overlay window to force recompositing and stutter 4K
+  # present. Disable the mouse OSC and the native seek bar so nothing else draws
+  # over the frame; the pad triggers our HUD via `script-message mango-hud-show`.
+  args_ref+=(
+    --script="$hud_lua"
+    --osc=no
+    --osd-bar=no
+  )
+}
+
 append_mpv_render_args() {
   local -n args_ref="$1"
   local sync
@@ -511,6 +528,7 @@ append_mpv_buffer_args() {
     --vo=null
     --ao=null
   )
+  append_mpv_hud_args "$1"
   append_mpv_cache_args "$1"
   if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
     args_ref+=(--start="$START_SEC")
@@ -647,6 +665,7 @@ append_mpv_play_args() {
     # Do not pass --focus-on-open=no on the Pi GPU fullscreen path: mpv exits
     # immediately (even without --audio-file). Split A/V uses vo=null buffer instead.
     append_mpv_render_args "$1"
+    append_mpv_hud_args "$1"
     if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
       args_ref+=(--start="$START_SEC")
     fi
@@ -753,6 +772,14 @@ foreground_handoff() {
 ensure_playback_osd() {
   local osd_py="$SCRIPT_DIR/playback-osd.py"
   [[ "${MANGO_PLAYBACK_OSD:-1}" != "0" ]] || return 0
+  # Default HUD is the in-mpv Lua overlay (loaded via --script in the mpv args);
+  # it needs no external daemon. Ensure no legacy Tk overlay lingers — a separate
+  # window over fullscreen mpv would break page-flip and stutter present.
+  if [[ "${MANGO_PLAYBACK_OSD_BACKEND:-lua}" != "tk" ]]; then
+    pkill -f 'playback-osd\.py --run' 2>/dev/null || true
+    rm -f "$PLAYBACK_OSD_PID_FILE" 2>/dev/null || true
+    return 0
+  fi
   [[ -x "$osd_py" ]] || return 0
   mkdir -p "$(dirname "$PLAYBACK_OSD_PID_FILE")" "$(dirname "$PLAYBACK_OSD_LOG")"
   if [[ -f "$PLAYBACK_OSD_PID_FILE" ]]; then

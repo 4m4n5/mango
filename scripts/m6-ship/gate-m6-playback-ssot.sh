@@ -166,6 +166,18 @@ else
 fi
 unset _ff_match_line _ff_enable_line
 
+# Playback HUD must render inside mpv (libass overlay), not as a separate X11
+# window over fullscreen mpv. On the Pi (Openbox, no compositor) an overlay
+# window breaks mpv's unredirected page-flip path and stutters 4K present while
+# the HUD is visible.
+if [[ -f scripts/m2-catalog/service/mango-hud.lua ]] \
+  && grep -q 'append_mpv_hud_args' scripts/m2-catalog/service/mpv-play.sh \
+  && grep -q 'mango-hud\.lua' scripts/m2-catalog/service/mpv-play.sh; then
+  gate_pass "playback HUD rendered in-mpv (no overlay window over fullscreen)"
+else
+  gate_fail "playback HUD must render in-mpv via mango-hud.lua (--script), not a separate window"
+fi
+
 # EOF / natural end must use the same stop path as pad ⌂ (not restore finish alone).
 grep -q 'mpv-stop\.sh' scripts/m2-catalog/service/mpv-play.sh \
   && awk '/^start_mpv_exit_monitor\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh | grep -q 'mpv-stop\.sh' \
