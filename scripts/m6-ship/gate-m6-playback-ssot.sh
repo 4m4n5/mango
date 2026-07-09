@@ -159,6 +159,19 @@ grep -q 'mpv-stop\.sh' scripts/m2-catalog/service/mpv-play.sh \
   && gate_pass "mpv exit monitor routes through mpv-stop.sh (EOF = pad stop)" \
   || gate_fail "mpv exit monitor must call mpv-stop.sh (not restore finish alone)"
 
+# Deferred handoff: PASS/exit must wait until hide→black→HDMI match completes.
+# Otherwise 4K remux can decode on a stuck 1080p panel (full stutter).
+if awk '
+  /if playback_is_real/ { in_block=1 }
+  in_block && /DEFER_FOREGROUND/ && /HANDOFF_DONE/ { found=1 }
+  in_block && /exit 0/ { exit }
+  END { exit found ? 0 : 1 }
+' scripts/m2-catalog/service/mpv-play.sh; then
+  gate_pass "deferred play waits for HDMI handoff before PASS/exit"
+else
+  gate_fail "mpv-play must not PASS/exit before deferred foreground handoff (4K stutter risk)"
+fi
+
 if grep -q '_maybe_ensure_playback_display' scripts/m2-catalog/service/playback-osd.py; then
   gate_fail "playback-osd must not call display-ensure (HDMI SSOT)"
 else

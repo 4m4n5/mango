@@ -67,9 +67,11 @@ keeps the Chromium launcher visible while mpv buffers on the real GPU VO from sp
 (no `vo=null`→GPU reinit for single-stream VOD). Split A/V (YouTube `--audio-file`)
 keeps the null-VO buffer path. Handoff waits until `demuxer-cache-duration` meets
 a ladder-aware threshold (18s for 4K REMUX), then runs hide → black → HDMI match
-→ raise mpv (never match while the launcher is mapped). The mpv exit monitor
-calls `mpv-stop.sh` on natural EOF (same black-screen-first path as pad ⌂).
-Prove true 4K during play with `scripts/diag/playback-4k-proof.sh`.
+→ raise mpv (never match while the launcher is mapped). `mpv-play` must not
+PASS/exit until that handoff completes — otherwise Node returns while HDMI is
+still 1080p and 4K decode stutters. The mpv exit monitor calls `mpv-stop.sh` on
+natural EOF (same black-screen-first path as pad ⌂). Prove true 4K during play
+with `scripts/diag/playback-4k-proof.sh`.
 
 ### Playability layer
 
