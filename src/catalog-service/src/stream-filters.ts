@@ -95,6 +95,8 @@ export type StreamFilterMeta = {
   play_ladder_step?: string;
   /** GET /stream rows follow expandPlayLadder play order (not ideal-only). */
   play_ladder_preview?: boolean;
+  /** GET /stream fell back to obligation-floor rows (Phase A empty). */
+  obligation_floor_preview?: boolean;
   excluded: {
     uncached_debrid: number;
     unknown_cache_debrid: number;

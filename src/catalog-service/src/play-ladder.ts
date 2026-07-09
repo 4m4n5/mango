@@ -528,6 +528,41 @@ export function playObligationMaxAttempts(): number {
   return Math.max(1, Math.min(20, Math.floor(parsed)));
 }
 
+export type DisplayStreamSource = 'preference_ladder' | 'obligation_floor' | 'empty';
+
+/**
+ * GET /stream picker selection: Phase A ladder first; only if empty, pull
+ * obligation-floor candidates (integrity-safe, not ladder-verified).
+ */
+export function selectDisplayStreamCandidates(
+  streams: Stream[],
+  ladder: PlayLadderStep[],
+  context: StreamFilterContext = {},
+  options: {
+    strict_unknown_cache?: boolean;
+    hard_language?: string | null;
+    preferred_quality?: QualityCap | null;
+    preferred_hdr_tags?: string[];
+    preferred_video_codecs?: string[];
+    max_candidates?: number;
+    include_uncached?: boolean;
+  } = {},
+): { candidates: LadderCandidate[]; source: DisplayStreamSource } {
+  const max = options.max_candidates ?? 12;
+  const preference = expandPlayLadder(streams, ladder, context, {
+    ...options,
+    max_candidates: max,
+  });
+  if (preference.length > 0) {
+    return { candidates: preference, source: 'preference_ladder' };
+  }
+  const floor = expandObligationFloor(streams, context, { maxCandidates: max });
+  if (floor.length > 0) {
+    return { candidates: floor, source: 'obligation_floor' };
+  }
+  return { candidates: [], source: 'empty' };
+}
+
 export function couchStatusForLadderStep(step: string): string {
   switch (step) {
     case 'ideal':

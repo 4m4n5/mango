@@ -16,7 +16,8 @@ import {
 import {
   defaultPlayLadder,
   enrichStreams,
-  expandPlayLadder,
+  OBLIGATION_FLOOR_STEP,
+  selectDisplayStreamCandidates,
 } from './play-ladder.js';
 import {
   enabledBrowsableRails,
@@ -1869,42 +1870,22 @@ export class CatalogCore {
 
     const filterContext = await this.buildStreamFilterContext(type, id);
     const enriched = enrichStreams(raw.streams);
-    const candidates = expandPlayLadder(enriched, config.play_ladder, filterContext, {
-      strict_unknown_cache: config.strict_unknown_cache,
-      preferred_quality: config.preferred_quality,
-      preferred_hdr_tags: config.preferred_hdr_tags,
-      preferred_video_codecs: config.preferred_video_codecs,
-      hard_language: config.hard_language,
-      max_candidates: config.stream_display_limit,
-      include_uncached: config.include_uncached,
-    });
+    const { candidates, source } = selectDisplayStreamCandidates(
+      enriched,
+      config.play_ladder,
+      filterContext,
+      {
+        strict_unknown_cache: config.strict_unknown_cache,
+        preferred_quality: config.preferred_quality,
+        preferred_hdr_tags: config.preferred_hdr_tags,
+        preferred_video_codecs: config.preferred_video_codecs,
+        hard_language: config.hard_language,
+        max_candidates: config.stream_display_limit,
+        include_uncached: config.include_uncached,
+      },
+    );
 
-    let streams: Stream[];
-    let meta: StreamFilterMeta;
-
-    if (candidates.length > 0) {
-      streams = candidates.map((candidate) => ({
-        ...candidate.stream,
-        ladder_step: candidate.ladder_step,
-      }));
-      meta = {
-        applied: config,
-        total: raw.streams.length,
-        kept: candidates.length,
-        play_ladder_step: 'preview',
-        play_ladder_preview: true,
-        excluded: {
-          uncached_debrid: 0,
-          unknown_cache_debrid: 0,
-          above_max_quality: 0,
-          remux: 0,
-          error_stream: 0,
-          title_mismatch: 0,
-          series_pack_for_movie: 0,
-          language_mismatch: 0,
-        },
-      };
-    } else {
+    if (candidates.length === 0) {
       if (streamsAreOnlyErrorPlaceholders(enriched)) {
         throw new CatalogError(
           502,
@@ -1913,9 +1894,6 @@ export class CatalogCore {
           { couchMessage: errorPlaceholderCouchMessage(enriched) },
         );
       }
-      // Picker must match playability: only show streams the ladder can play.
-      // Do not fall back to filterStreamsForPlay (which would surface Pi-incompatible
-      // HDR 4K releases that auto-play cannot use).
       return {
         streams: [],
         resolve_ms: raw.cached ? 0 : raw.resolveMs,
@@ -1928,6 +1906,37 @@ export class CatalogCore {
         errors: raw.errors.length > 0 ? raw.errors : undefined,
       };
     }
+
+    const fromFloor = source === 'obligation_floor';
+    const streams = candidates.map((candidate) => ({
+      ...candidate.stream,
+      ladder_step: candidate.ladder_step,
+      // Side-list only: mark floor rows so the launcher can show "unverified".
+      ...(fromFloor
+        ? {
+          unverified: true,
+          play_ladder_step: OBLIGATION_FLOOR_STEP,
+        }
+        : {}),
+    }));
+    const meta: StreamFilterMeta = {
+      applied: config,
+      total: raw.streams.length,
+      kept: candidates.length,
+      play_ladder_step: fromFloor ? OBLIGATION_FLOOR_STEP : 'preview',
+      play_ladder_preview: !fromFloor,
+      obligation_floor_preview: fromFloor || undefined,
+      excluded: {
+        uncached_debrid: 0,
+        unknown_cache_debrid: 0,
+        above_max_quality: 0,
+        remux: 0,
+        error_stream: 0,
+        title_mismatch: 0,
+        series_pack_for_movie: 0,
+        language_mismatch: 0,
+      },
+    };
 
     return {
       streams,

@@ -1275,6 +1275,11 @@ export class DetailController {
     this.streamButtons = [];
     if (this.streams.length === 0) {
       this.streamsWrap.hidden = true;
+      this.streamsWrap.classList.remove("detail-streams--unverified");
+      const streamsLabel = this.streamsWrap.querySelector(".detail-streams-label");
+      if (streamsLabel) {
+        streamsLabel.textContent = "streams";
+      }
       if (!keepEpisodeFocus) {
         this.applyFocus();
       }
@@ -1282,16 +1287,27 @@ export class DetailController {
     }
 
     this.streamsWrap.hidden = false;
+    const floorOnly = this.streams.every(
+      (stream) => stream.unverified === true || stream.ladder_step === "obligation_floor",
+    );
+    this.streamsWrap.classList.toggle("detail-streams--unverified", floorOnly);
+    const streamsLabel = this.streamsWrap.querySelector(".detail-streams-label");
+    if (streamsLabel) {
+      streamsLabel.textContent = floorOnly ? "streams · unverified" : "streams";
+    }
     for (const stream of this.streams) {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "detail-stream";
+      const unverified = stream.unverified === true || stream.ladder_step === "obligation_floor";
+      button.className = unverified ? "detail-stream detail-stream--unverified" : "detail-stream";
       const label = document.createElement("span");
       label.className = "detail-stream-label";
       label.textContent = streamPrimaryLabel(stream);
       const audio = document.createElement("span");
       audio.className = "detail-stream-audio";
-      audio.textContent = streamAudioLabel(stream);
+      audio.textContent = unverified
+        ? `${streamAudioLabel(stream)} · unverified`
+        : streamAudioLabel(stream);
       button.append(label, audio);
       button.addEventListener("click", () => void this.play(stream.url, stream.ladder_step));
       this.streamList.append(button);

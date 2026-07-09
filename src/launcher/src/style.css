@@ -1499,6 +1499,22 @@ h1 {
   text-transform: lowercase;
 }
 
+.detail-streams--unverified .detail-streams-label {
+  color: var(--text-muted);
+  border-left-color: var(--border-subtle);
+}
+
+.detail-stream--unverified {
+  opacity: 0.78;
+  border-style: dashed;
+  background: transparent;
+}
+
+.detail-stream--unverified .detail-stream-label {
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
 .detail-stream.focused,
 .detail-stream:focus-visible {
   outline: none;

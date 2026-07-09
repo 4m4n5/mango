@@ -7,6 +7,7 @@ import {
   expandPlayLadder,
   injectPreferredPlayCandidate,
   parsePlayLadder,
+  selectDisplayStreamCandidates,
   streamMatchesLadderStep,
 } from './play-ladder.js';
 import { debridServiceId, streamUrlHash } from './stream-filters.js';
@@ -468,4 +469,84 @@ test('expandObligationFloor excludes URLs already attempted in Phase A', () => {
   });
   assert.equal(ranked.length, 1);
   assert.equal(ranked[0]?.stream.url, second.url);
+});
+
+test('selectDisplayStreamCandidates uses preference ladder when Phase A has matches', () => {
+  const cached = stream({
+    url: 'https://example.test/cached-1080.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: 'WEB-DL 1080p',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const floorOnly = stream({
+    url: 'https://example.test/floor-720.mkv',
+    name: '[RD⚡] Torrentio 720p',
+    description: 'WEBRip 720p x264',
+    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+  });
+  const preferenceOnly = [{
+    step: '1080p_cached',
+    max_quality: '1080p' as const,
+    min_quality: '1080p' as const,
+    exclude_remux: true,
+    require_cache: 'cached' as const,
+    debrid_services: ['torbox', 'realdebrid'],
+    addons: ['AIOStreams'],
+  }];
+  const selected = selectDisplayStreamCandidates(
+    [cached, floorOnly],
+    preferenceOnly,
+    { contentType: 'movie' },
+    { max_candidates: 6 },
+  );
+  assert.equal(selected.source, 'preference_ladder');
+  assert.equal(selected.candidates.length, 1);
+  assert.equal(selected.candidates[0]?.stream.url, cached.url);
+  assert.notEqual(selected.candidates[0]?.ladder_step, 'obligation_floor');
+});
+
+test('selectDisplayStreamCandidates falls back to obligation floor only when Phase A is empty', () => {
+  const floorOnly = stream({
+    url: 'https://example.test/floor-only.mkv',
+    name: '[RD⚡] Torrentio 720p',
+    description: 'WEBRip 720p x264',
+    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+  });
+  const preferenceOnly = [{
+    step: '1080p_hevc_cached',
+    max_quality: '1080p' as const,
+    min_quality: '1080p' as const,
+    exclude_remux: true,
+    require_hevc: true,
+    require_cache: 'cached' as const,
+    debrid_services: ['torbox', 'realdebrid'],
+    addons: ['AIOStreams'],
+  }];
+  const selected = selectDisplayStreamCandidates(
+    [floorOnly],
+    preferenceOnly,
+    { contentType: 'movie' },
+    { max_candidates: 6, include_uncached: false },
+  );
+  assert.equal(selected.source, 'obligation_floor');
+  assert.equal(selected.candidates.length, 1);
+  assert.equal(selected.candidates[0]?.ladder_step, 'obligation_floor');
+  assert.equal(selected.candidates[0]?.stream.url, floorOnly.url);
+});
+
+test('selectDisplayStreamCandidates stays empty when neither phase has integrity-safe streams', () => {
+  const cam = stream({
+    url: 'https://example.test/cam-only.mkv',
+    name: '[TB⚡] CAM 480p',
+    description: 'CAMRip telesync',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|false|480p' },
+  });
+  const selected = selectDisplayStreamCandidates(
+    [cam],
+    defaultPlayLadder(),
+    { contentType: 'movie' },
+    { max_candidates: 6 },
+  );
+  assert.equal(selected.source, 'empty');
+  assert.equal(selected.candidates.length, 0);
 });

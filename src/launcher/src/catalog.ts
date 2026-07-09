@@ -114,6 +114,8 @@ export interface CatalogStream {
   languages?: string[];
   source?: string;
   ladder_step?: string;
+  /** True when side list fell back to obligation-floor (not ladder-verified). */
+  unverified?: boolean;
 }
 
 export interface SeriesEpisodeRow {
