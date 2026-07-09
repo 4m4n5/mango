@@ -554,10 +554,23 @@ export class DetailController {
     const ccy = curRect.top + curRect.height / 2;
     const eps = 2;
     const horizontal = direction === "left" || direction === "right";
+    // Episodes are a vertical list inside the right rail. Horizontal moves from
+    // an episode should cross OUT to the left column (action buttons / related),
+    // not land on a season chip that happens to sit up-and-left — so exclude the
+    // in-rail list items (season chips + episodes) as horizontal targets here.
+    const fromEpisode = current.classList.contains("detail-episode");
     let best: HTMLElement | null = null;
     let bestScore = Infinity;
     for (const candidate of this.enabledFocusables()) {
       if (candidate === current) {
+        continue;
+      }
+      if (
+        horizontal
+        && fromEpisode
+        && (candidate.classList.contains("detail-episode")
+          || candidate.classList.contains("detail-season-chip"))
+      ) {
         continue;
       }
       const rect = candidate.getBoundingClientRect();
@@ -1506,11 +1519,13 @@ const STREAM_LANG_CODES: Record<string, string> = {
 
 function streamResolutionLabel(stream: CatalogStream): string {
   const haystack = `${stream.resolution ?? ""} ${stream.quality ?? ""} ${stream.display_label ?? ""}`.toLowerCase();
-  if (/\b(2160|4k|uhd)\b/.test(haystack)) return "4K";
-  if (/\b(1440|2k)\b/.test(haystack)) return "1440p";
-  if (/\b1080\b/.test(haystack)) return "1080p";
-  if (/\b720\b/.test(haystack)) return "720p";
-  if (/\b(480|576|sd)\b/.test(haystack)) return "SD";
+  // Match resolution digits that may carry a trailing p/i (e.g. "2160p") — a
+  // plain \b after the digits fails there. Require a non-digit (or edge) before.
+  if (/(^|\D)(2160|4320)/.test(haystack) || /\b(4k|uhd)\b/.test(haystack)) return "4K";
+  if (/(^|\D)1440/.test(haystack) || /\b2k\b/.test(haystack)) return "1440p";
+  if (/(^|\D)1080/.test(haystack)) return "1080p";
+  if (/(^|\D)720/.test(haystack)) return "720p";
+  if (/(^|\D)(480|576)/.test(haystack) || /\bsd\b/.test(haystack)) return "SD";
   return "auto";
 }
 
