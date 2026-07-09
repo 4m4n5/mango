@@ -467,6 +467,7 @@ export function expandObligationFloor(
   options: {
     excludeUrls?: Set<string>;
     maxCandidates?: number;
+    hard_language?: string | null;
   } = {},
 ): LadderCandidate[] {
   const max = options.maxCandidates ?? 6;
@@ -482,6 +483,7 @@ export function expandObligationFloor(
     if (isSupplementalRelease(stream, context.contentType)) continue;
     if (isErrorStream(stream)) continue;
     if (isLowQualityRelease(stream)) continue;
+    if (options.hard_language && !streamMatchesLanguage(stream, options.hard_language)) continue;
 
     seen.add(stream.url);
     kept.push({
@@ -556,7 +558,10 @@ export function selectDisplayStreamCandidates(
   if (preference.length > 0) {
     return { candidates: preference, source: 'preference_ladder' };
   }
-  const floor = expandObligationFloor(streams, context, { maxCandidates: max });
+  const floor = expandObligationFloor(streams, context, {
+    maxCandidates: max,
+    hard_language: options.hard_language,
+  });
   if (floor.length > 0) {
     return { candidates: floor, source: 'obligation_floor' };
   }
