@@ -51,8 +51,10 @@ present_launcher_ready() {
     show_launcher_surface
     wid="$(find_launcher_wid 2>/dev/null || true)"
     if [[ -n "$wid" ]]; then
-      if bash "$REPO_DIR/scripts/lib/present-launcher.sh" --quick 2>/dev/null \
-        || bash "$REPO_DIR/scripts/lib/present-launcher.sh" 2>/dev/null; then
+      # Always full present after playback — never --quick. Hide shrinks Chromium
+      # siblings to ~1x1/200x200; --quick can latch onto a stale large wid and
+      # leave the visible surface tiny (couch lag / broken navigation).
+      if bash "$REPO_DIR/scripts/lib/present-launcher.sh" 2>/dev/null; then
         return 0
       fi
     fi
