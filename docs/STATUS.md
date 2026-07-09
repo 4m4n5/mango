@@ -296,7 +296,8 @@ Mango ships a unified **mpv-only** couch playback path. Browse stays
 | Decode/presentation | mpv `gpu` VO, `hwdec=auto-safe`, deferred foreground, launcher stopped during fullscreen, `xcompmgr` off |
 | Display enforcement | `mango-display-mode.sh ensure-launcher` on stack boot, home, present, stop, deploy, display-wake |
 | Playback OSD/input | `playback-osd.py` on pause/seek; pad → mpv IPC |
-| Gates | `gate-m6-playback-ssot.sh` (mpv-only + idle 1080p browse) · `gate-m6-4k-hdr-profile.sh` (profile + EDID + resources) |
+| 4K+audio smoothness | `--blend-subtitles=no` default (`MANGO_MPV_BLEND_SUBTITLES`); `yes` caused ~2.5 drops/s with audio on Pi 5 — Pi-proven 0 drops/s with eac3 4K |
+| Gates | `gate-m6-playback-ssot.sh` (mpv-only + idle 1080p browse + blend default) · `gate-m6-4k-hdr-profile.sh` · `playback-smoothness-probe.sh` |
 
 4K stream quality is owned by catalog filters + mpv ladder — never by Chromium
 resolution.
