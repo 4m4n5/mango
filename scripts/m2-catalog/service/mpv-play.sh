@@ -628,11 +628,14 @@ append_mpv_play_args() {
     args_ref+=(--fs "${audio_args[@]}")
     # Subs off at start; pad X/•/↑ for subs/OSD. sub-auto=all so cycle sub
     # can reach any embedded track (default fuzzy only exposes forced subs).
+    # blend-subtitles=yes stalls 4K present when audio is decoded (~2.5 drops/s
+    # on Pi 5 / X11 EGL); ASS overlay path is fine. Override with
+    # MANGO_MPV_BLEND_SUBTITLES=yes only for A/B.
     args_ref+=(
       --sub-visibility=no
       --sid=no
       --sub-auto=all
-      --blend-subtitles=yes
+      --blend-subtitles="${MANGO_MPV_BLEND_SUBTITLES:-no}"
       --sub-font-size="${MANGO_MPV_SUB_FONT_SIZE:-52}"
     )
     # Do not pass --focus-on-open=no on the Pi GPU fullscreen path: mpv exits

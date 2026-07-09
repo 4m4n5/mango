@@ -142,7 +142,10 @@ match while Chromium is still mapped. The playback OSD and pad never call
 `MANGO_PLAYBACK_DISPLAY_ENSURE=1`). OSD defaults to 4s visible, scales to a
 constant physical size (1080p reference), redraws ~1 Hz, and TTL-caches meta
 IPC. Pad **↑** is the sole subtitle control (show-first, then force-on + cycle);
-**A** is show-first for audio. During a 4K play, prove HDMI + decode path with:
+**A** is show-first for audio. 4K+audio smoothness requires `--blend-subtitles=no`
+(default in `mpv-play.sh`); `blend-subtitles=yes` causes sustained ~2.5 frame
+drops/s on Pi 5 even with healthy cache and audio on. Probe with
+`scripts/diag/playback-smoothness-probe.sh`. During a 4K play, prove HDMI + decode path with:
 
 ```bash
 bash scripts/diag/playback-4k-proof.sh

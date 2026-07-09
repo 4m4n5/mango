@@ -188,6 +188,14 @@ grep -q 'MANGO_PLAYBACK_DISPLAY_ENSURE' scripts/lib/mango-playback-display-ensur
   && gate_pass "display-ensure gated behind MANGO_PLAYBACK_DISPLAY_ENSURE" \
   || gate_fail "display-ensure missing operator gate"
 
+# blend-subtitles=yes stalls 4K present when audio is on (~2.5 drops/s on Pi 5).
+# Default must be no (ASS overlay); MANGO_MPV_BLEND_SUBTITLES remains overridable.
+if grep -q 'blend-subtitles="${MANGO_MPV_BLEND_SUBTITLES:-no}"' scripts/m2-catalog/service/mpv-play.sh; then
+  gate_pass "mpv blend-subtitles defaults to no (4K+audio smooth path)"
+else
+  gate_fail "mpv-play must default --blend-subtitles to no (yes stalls 4K present with audio)"
+fi
+
 # ↑ sole subtitle control; X/• must not route playback subs.
 grep -q 'route_playback_up' scripts/m1-foundation/pad/mango-tv-pad.py \
   && gate_pass "pad ↑ owns show-first subtitle control" \

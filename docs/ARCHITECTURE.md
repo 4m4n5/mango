@@ -60,6 +60,9 @@ reference), defaults to a 4s visible window, redraws sparsely (~1 Hz), and keeps
 meta IPC / panel-size probes behind TTL caches so visible ticks stay cheap. The
 pad drives mpv via IPC without a Chromium overlay. **↑** is the sole subtitle
 control (show-first, then force-on + cycle); **A** is show-first for audio.
+`--blend-subtitles` defaults to **no** (ASS overlay): `yes` stalls 4K present
+when audio is decoded (~2.5 drops/s on Pi 5 / X11 EGL). Override only for A/B
+via `MANGO_MPV_BLEND_SUBTITLES`.
 
 **Deferred foreground handoff.** When `MANGO_MPV_DEFER_FOREGROUND=1` (default
 when `MANGO_MPV_STOP_LAUNCHER=1`, set by `mpv`/`mpv-hifi` profiles), `mpv-play.sh`
