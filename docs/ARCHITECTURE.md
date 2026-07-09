@@ -45,21 +45,29 @@ applies a lightweight launcher mode through `scripts/lib/mango-display-mode.sh`;
 the default is `1920x1080@60` so browse/focus stays smooth on the Pi. mpv is
 the sole couch playback engine (`mpv-play.sh`). During fullscreen playback Mango
 stops the Chromium launcher, disables `xcompmgr` to avoid tearing, source-matches
-the TV display mode to the stream, and restores `1920x1080@60` on stop through
+the TV display mode to the stream **before first reveal** when the video profile
+is known (accept a short blank), and restores `1920x1080@60` on stop through
 `scripts/lib/restore-launcher-after-playback.sh` (black-screen-first: HDMI
 downscale while the launcher stays hidden, then one reveal at browse geometry).
 Shared helpers live in `scripts/lib/mango-browse-display.sh`; `ensure-launcher`
-also runs on stack boot, home, present, deploy. A lightweight X11
-playback OSD (`playback-osd.py`) shows progress on pause/seek; the pad drives
-mpv via IPC without a Chromium overlay.
+also runs on stack boot, home, present, deploy. HDMI mode during a play session
+is owned only by `mpv-play` start/stop — the playback OSD and pad must never call
+`playback-auto` / display-ensure. A lightweight X11 playback OSD
+(`playback-osd.py`) shows progress on pause/seek/↑; it scales to a constant
+physical footprint (1080p reference), defaults to a 4s visible window, and
+redraws sparsely (~1 Hz). The pad drives mpv via IPC without a Chromium overlay.
+**↑** is the sole subtitle control (show-first, then force-on + cycle); **A** is
+show-first for audio.
 
 **Deferred foreground handoff.** When `MANGO_MPV_DEFER_FOREGROUND=1` (default
 when `MANGO_MPV_STOP_LAUNCHER=1`, set by `mpv`/`mpv-hifi` profiles), `mpv-play.sh`
 keeps the Chromium launcher visible while mpv buffers on the real GPU VO from spawn
 (no `vo=null`→GPU reinit for single-stream VOD). Split A/V (YouTube `--audio-file`)
-keeps the null-VO buffer path. Handoff waits until `demuxer-cache-duration` meets a
-ladder-aware threshold (18s for 4K REMUX) before stopping the launcher, disabling
-`xcompmgr`, and source-matching the display mode. The mpv exit monitor calls
+keeps the null-VO buffer path. When ffprobe already knows width/height/fps,
+`playback-auto` runs before spawn so the first revealed frame is already matched.
+Handoff waits until `demuxer-cache-duration` meets a ladder-aware threshold (18s
+for 4K REMUX) before stopping the launcher and disabling `xcompmgr`; it skips a
+second HDMI switch when the session is already matched. The mpv exit monitor calls
 `restore-launcher-after-playback.sh finish` after playback ends (same
 black-screen-first contract as pad stop).
 

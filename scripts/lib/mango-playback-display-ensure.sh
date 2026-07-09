@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Re-apply source-matched display mode during couch playback (4K drift guard).
-# mpv may still decode 3840-wide while X11 fell back to 1080p launcher mode.
+# Operator/debug only: re-apply source-matched display mode during playback.
+# Couch path must NOT call this — HDMI matching is owned by mpv-play start/stop.
+# Enable explicitly: MANGO_PLAYBACK_DISPLAY_ENSURE=1
 
 set -euo pipefail
 
@@ -8,6 +9,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 # shellcheck source=mango-playback-env.sh
 source "$SCRIPT_DIR/mango-playback-env.sh"
+
+if [[ "${MANGO_PLAYBACK_DISPLAY_ENSURE:-0}" != "1" ]]; then
+  exit 0
+fi
 
 SOCKET="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
 MPV_IPC_SH="${MANGO_MPV_IPC_SH:-$REPO_DIR/scripts/m2-catalog/service/mpv-ipc.sh}"

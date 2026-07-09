@@ -50,7 +50,6 @@ LAUNCHER_SH = REPO / "scripts/launch-launcher.sh"
 MPV_IPC_SH = REPO / "scripts/m2-catalog/service/mpv-ipc.sh"
 MPV_STOP_SH = REPO / "scripts/m2-catalog/service/mpv-stop.sh"
 PLAYBACK_OSD_PY = REPO / "scripts/m2-catalog/service/playback-osd.py"
-PLAYBACK_DISPLAY_ENSURE_SH = REPO / "scripts/lib/mango-playback-display-ensure.sh"
 DISPLAY_MODE_SH = REPO / "scripts/lib/mango-display-mode.sh"
 DISPLAY_WAKE_SH = REPO / "scripts/lib/mango-display-wake.sh"
 COUCH_ACTIVITY_SH = REPO / "scripts/lib/couch-activity.sh"
@@ -112,7 +111,7 @@ BTN_MINUS = 314
 BTN_PLUS = 315
 BTN_TL = 310  # L shoulder — prev browse tab (launcher)
 BTN_TR = 311  # R shoulder — next browse tab (launcher); home fallback elsewhere
-BTN_CENTER = 317  # bottom-left center — unused on launcher; sub lang during playback
+BTN_CENTER = 317  # bottom-left center — unused on launcher; no playback subtitle role
 HOME_BUTTONS = {316, 311}
 BT_MAC = "E4:17:D8:EB:00:44"
 RECONNECT_SLEEP_SEC = 0.75
@@ -802,16 +801,16 @@ def _mpv_audio_track_ids() -> list[int]:
     return sorted(set(ids))
 
 
-def _mpv_subs_showing() -> bool:
-    visible = mpv_ipc_data("sub-visibility")
-    if visible in (False, "no", 0):
-        return False
-    return _mpv_track_id_active(mpv_ipc_data("sid"))
-
-
 PLAYBACK_OSD_PID_FILE = Path(
     os.environ.get("MANGO_PLAYBACK_OSD_PID_FILE", str(CACHE_DIR / "playback-osd.pid"))
 )
+PLAYBACK_OSD_VISIBLE_FILE = Path(
+    os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_FILE", str(CACHE_DIR / "playback-osd.visible"))
+)
+PLAYBACK_OSD_TRIGGER = Path(
+    os.environ.get("MANGO_PLAYBACK_OSD_TRIGGER", str(CACHE_DIR / "playback-osd.show"))
+)
+PLAYBACK_OSD_VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "4.0"))
 
 
 def show_playback_osd(reason: str) -> None:
@@ -821,10 +820,26 @@ def show_playback_osd(reason: str) -> None:
     popen_tv_user(["python3", str(PLAYBACK_OSD_PY), "--show", reason])
 
 
-def reassert_playback_display() -> None:
-    if not PLAYBACK_DISPLAY_ENSURE_SH.is_file():
-        return
-    popen_tv_user(["bash", str(PLAYBACK_DISPLAY_ENSURE_SH)])
+def playback_osd_is_visible() -> bool:
+    """True when the playback HUD is currently shown (show-first gate)."""
+    if PLAYBACK_OSD_VISIBLE_FILE.is_file():
+        try:
+            payload = json.loads(PLAYBACK_OSD_VISIBLE_FILE.read_text(encoding="utf-8"))
+            if isinstance(payload, dict) and payload.get("visible") is True:
+                ts = float(payload.get("ts") or 0)
+                visible_sec = float(payload.get("visible_sec") or PLAYBACK_OSD_VISIBLE_SEC)
+                if ts > 0 and (time.time() - ts) <= max(visible_sec, PLAYBACK_OSD_VISIBLE_SEC) + 0.5:
+                    return True
+                if ts <= 0:
+                    return True
+        except (OSError, ValueError, json.JSONDecodeError, TypeError):
+            pass
+    # Fallback: recent show trigger within visible window.
+    try:
+        age = time.time() - PLAYBACK_OSD_TRIGGER.stat().st_mtime
+        return 0 <= age <= PLAYBACK_OSD_VISIBLE_SEC
+    except OSError:
+        return False
 
 
 def mpv_is_paused() -> bool:
@@ -966,27 +981,24 @@ def go_home() -> None:
     invalidate_foreground_cache()
 
 
-def route_playback_subtitle(app: str, action: str) -> None:
+def route_playback_up(app: str) -> None:
+    """↑ sole subtitle control: show-first, then force-on + cycle languages."""
     if app != "mpv":
         return
-    if action == "toggle":
-        if _mpv_subs_showing():
-            send_mpv_ipc("set_property", "sid", "no")
-            send_mpv_ipc("set_property", "sub-visibility", "no")
-        else:
-            send_mpv_ipc("set_property", "sub-visibility", "yes")
-            send_mpv_ipc("cycle", "sub", "up")
-    elif action == "prev":
-        send_mpv_ipc("set_property", "sub-visibility", "yes")
-        send_mpv_ipc("cycle", "sub", "down")
-    else:
-        send_mpv_ipc("set_property", "sub-visibility", "yes")
-        send_mpv_ipc("cycle", "sub", "up")
+    if not playback_osd_is_visible():
+        show_playback_osd("show")
+        return
+    send_mpv_ipc("set_property", "sub-visibility", "yes")
+    send_mpv_ipc("cycle", "sub", "up")
     show_playback_osd("subs")
 
 
 def route_playback_audio(app: str) -> None:
+    """A show-first: first press shows HUD; while visible, cycle audio."""
     if app != "mpv":
+        return
+    if not playback_osd_is_visible():
+        show_playback_osd("show")
         return
     audio_ids = _mpv_audio_track_ids()
     if not audio_ids:
@@ -1032,7 +1044,7 @@ def route_face(app: str, action: str) -> None:
         if app == "mpv":
             resuming = mpv_is_paused()
             send_mpv_ipc("keypress", "SPACE")
-            reassert_playback_display()
+            # HDMI mode is owned by mpv-play start/stop — never reassert on pause.
             show_playback_osd("resume" if resuming else "pause")
         elif app == "launcher":
             launcher_send_nav_or_key(
@@ -1280,8 +1292,8 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                         if _playback_app(app):
                             if event.value <= -threshold:
                                 debounced(
-                                    f"{app}-osd",
-                                    lambda: show_playback_osd("show"),
+                                    f"{app}-osd-up",
+                                    lambda: route_playback_up(app),
                                 )
                         elif event.value <= -threshold:
                             debounced(
@@ -1306,12 +1318,8 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                     elif event.code == BTN_Y:
                         debounced(f"{app}-back", lambda: route_face(app, "back"))
                     elif event.code == BTN_X:
-                        if _playback_app(app):
-                            debounced(
-                                f"{app}-subs-toggle",
-                                lambda: route_playback_subtitle(app, "toggle"),
-                            )
-                        else:
+                        # Playback: no subtitle role (↑ owns subs). Launcher: shuffle.
+                        if not _playback_app(app):
                             debounced("shuffle", refresh_launcher_library)
                     elif event.code == BTN_A and _playback_app(app):
                         debounced(
@@ -1319,10 +1327,8 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                             lambda: route_playback_audio(app),
                         )
                     elif event.code == BTN_CENTER and _playback_app(app):
-                        debounced(
-                            f"{app}-sub-next",
-                            lambda: route_playback_subtitle(app, "next"),
-                        )
+                        # No playback subtitle role — ↑ is sole subtitle control.
+                        pass
                     elif event.code == BTN_MINUS:
                         debounced("volume-down", lambda: adjust_volume(-VOLUME_STEP_PERCENT))
                     elif event.code == BTN_PLUS:

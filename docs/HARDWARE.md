@@ -137,33 +137,34 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | Label | Position | Linux evdev | Action |
 |-------|----------|-------------|--------|
 | **Y** | left | `308` (BTN_WEST) | **Back** (in-app / playback stop → launcher) |
-| **X** | top | `307` (BTN_NORTH) | **Shuffle** (launcher); **subs on/off** (playback) |
-| **A** | right | `305` (BTN_EAST) | **Cycle audio track** (playback) |
+| **X** | top | `307` (BTN_NORTH) | **Shuffle** (launcher); unused during playback |
+| **A** | right | `305` (BTN_EAST) | **Show HUD** then **cycle audio** while HUD visible (playback) |
 | **B** | bottom | `304` (BTN_SOUTH) | **Select** / playback pause-play + progress bar |
 
 ### Center buttons (between D-pad and face cluster)
 
 ```
   [−]  [+]
-  [317] [⌂]   ← 317 = sub lang cycle during playback; home = right bottom (316, fallback 311)
+  [317] [⌂]   ← 317 unused during playback; home = right bottom (316, fallback 311)
 ```
 
 | Label | evdev | Action |
 |-------|-------|--------|
 | **−** | `314` | **Volume down** |
 | **+** | `315` | **Volume up** |
-| **Bottom-left center button** | `317` | **Cycle subtitle language** (playback); unused on launcher |
+| **Bottom-left center button** | `317` | Unused (playback + launcher) |
 | **L** shoulder | `310` | **Prev browse tab** (launcher); playback large seek back |
 | **R** shoulder | `311` | **Next browse tab** (launcher); playback large seek forward |
 | **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
 
 **D-pad** → navigate. During playback, **←/→** skip ±10s and show the progress
-HUD; holding **←/→** accelerates seek (10s → 30s → 120s). **↑** shows the
-playback HUD only. **•** (center, `317`) cycles subtitle language; **X** toggles
-subtitles on/off; **A** cycles the audio track. Playback-only **L/R** jumps by the large
-seek step (120s default).
+HUD; holding **←/→** accelerates seek (10s → 30s → 120s). **↑** is the sole
+subtitle control: first press shows the playback HUD only; while the HUD is
+visible, further ↑ presses force subtitles on and cycle languages. **A** is
+show-first for audio (first press shows HUD; while visible, cycles audio).
+Playback-only **L/R** jumps by the large seek step (120s default).
 
-> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. **A** is audio during playback; **X** is shuffle on the launcher.
+> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. **A** is audio during playback (show-first); **X** is shuffle on the launcher only.
 
 > **Quirk:** In Switch BT mode Linux reports the **D-pad as ABS_X/ABS_Y** (not hat axes). `evtest` shows `ABS_X` on left/right — normal.
 

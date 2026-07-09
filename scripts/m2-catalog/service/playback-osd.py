@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""X11 playback OSD — times, progress, subtitles (mpv couch path)."""
+"""X11 playback OSD — times, progress, subtitles (mpv couch path).
+
+Presentation-only: never mutates HDMI mode. Geometry scales to the panel so the
+HUD keeps a constant physical footprint (1080p reference) at 1080p and 4K.
+"""
 
 from __future__ import annotations
 
@@ -25,31 +29,25 @@ MPV_IPC_SH = Path(
 DISPLAY_MODE_SH = Path(
     os.environ.get("MANGO_DISPLAY_MODE_SH", REPO / "scripts/lib/mango-display-mode.sh")
 )
-DISPLAY_ENSURE_SH = Path(
-    os.environ.get(
-        "MANGO_PLAYBACK_DISPLAY_ENSURE_SH",
-        REPO / "scripts/lib/mango-playback-display-ensure.sh",
-    )
-)
 TRIGGER_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_TRIGGER", CACHE_DIR / "playback-osd.show"))
 PID_PATH = Path(os.environ.get("MANGO_PLAYBACK_OSD_PID_FILE", CACHE_DIR / "playback-osd.pid"))
-VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "7.0"))
-POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_POLL_MS", "250"))
-# When the overlay is hidden (steady-state playback), poll slowly: just enough
-# to notice a show-trigger and detect that mpv exited. Keeps IPC/xrandr off the
-# GPU's back during smooth 4K playback.
-HIDDEN_POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_HIDDEN_POLL_MS", "1000"))
-DISPLAY_ENSURE_INTERVAL_SEC = float(
-    os.environ.get("MANGO_PLAYBACK_DISPLAY_ENSURE_INTERVAL_SEC", "15.0")
+VISIBLE_STATE_PATH = Path(
+    os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_FILE", CACHE_DIR / "playback-osd.visible")
 )
+VISIBLE_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "4.0"))
+# Visible path: ≤1 Hz — progress crawl without competing with mpv's GPU.
+POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_POLL_MS", "1000"))
+# When the overlay is hidden (steady-state playback), poll slowly: just enough
+# to notice a show-trigger and detect that mpv exited.
+HIDDEN_POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_HIDDEN_POLL_MS", "1000"))
 DISPLAY_SNAPSHOT_TTL_SEC = float(
     os.environ.get("MANGO_PLAYBACK_OSD_DISPLAY_TTL_SEC", "2.0")
 )
-# Fixed 10-foot overlay geometry — independent of stream/decode resolution and
-# independent of whether X11 is 1080p or 4K (same pixel footprint every time).
-OSD_WIDTH = int(os.environ.get("MANGO_PLAYBACK_OSD_WIDTH", "1280"))
-OSD_HEIGHT = int(os.environ.get("MANGO_PLAYBACK_OSD_HEIGHT", "172"))
-OSD_MARGIN_BOTTOM = int(os.environ.get("MANGO_PLAYBACK_OSD_MARGIN_BOTTOM", "48"))
+# Reference footprint designed at 1080p; scaled by screen_h / 1080 at runtime.
+OSD_WIDTH_REF = int(os.environ.get("MANGO_PLAYBACK_OSD_WIDTH", "1280"))
+OSD_HEIGHT_REF = int(os.environ.get("MANGO_PLAYBACK_OSD_HEIGHT", "172"))
+OSD_MARGIN_BOTTOM_REF = int(os.environ.get("MANGO_PLAYBACK_OSD_MARGIN_BOTTOM", "48"))
+OSD_SCALE_REF_H = float(os.environ.get("MANGO_PLAYBACK_OSD_SCALE_REF_H", "1080"))
 
 
 def _write_owner_file(path: Path, text: str, mode: int = 0o644) -> None:
@@ -59,6 +57,11 @@ def _write_owner_file(path: Path, text: str, mode: int = 0o644) -> None:
     os.chmod(tmp, mode)
     tmp.replace(path)
     os.chmod(path, mode)
+
+
+def _set_visible_state(visible: bool) -> None:
+    payload = {"visible": bool(visible), "ts": time.time(), "visible_sec": VISIBLE_SEC}
+    _write_owner_file(VISIBLE_STATE_PATH, json.dumps(payload, separators=(",", ":")) + "\n", 0o644)
 
 
 def _pid_alive(pid: int) -> bool:
@@ -162,30 +165,6 @@ def _display_snapshot() -> str:
     _display_cache["ts"] = now
     _display_cache["value"] = value
     return value
-
-
-def _maybe_ensure_playback_display(last_ensure_at: float) -> float:
-    now = time.time()
-    if now - last_ensure_at < DISPLAY_ENSURE_INTERVAL_SEC:
-        return last_ensure_at
-    if not DISPLAY_ENSURE_SH.is_file():
-        return now
-    width = _mpv_ipc_property("width")
-    height = _mpv_ipc_property("height")
-    if not (
-        isinstance(width, (int, float))
-        and isinstance(height, (int, float))
-        and (int(width) >= 3000 or int(height) >= 1600)
-    ):
-        return now
-    subprocess.Popen(
-        ["bash", str(DISPLAY_ENSURE_SH)],
-        env={**os.environ, "HOME": str(HOME), "DISPLAY": os.environ.get("DISPLAY", ":0")},
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    return now
 
 
 def _subtitle_snapshot() -> tuple[bool, str]:
@@ -318,18 +297,38 @@ def _x11_display_size() -> tuple[int, int]:
     return 1920, 1080
 
 
-def _pin_x11_window(wid: int, x: int, y: int, width: int, height: int) -> None:
-    """No-op: tk's overrideredirect(True) + root.geometry() owns size and position.
+def _panel_scale(screen_h: int) -> float:
+    ref = OSD_SCALE_REF_H if OSD_SCALE_REF_H > 0 else 1080.0
+    scale = float(screen_h) / ref
+    return max(1.0, min(2.0, scale))
 
-    Historical xdotool pins caused two failure modes on Pi:
-      * windowsize desynced the tk canvas from the outer frame → text painted
-        outside the visible region ("black patch" bug).
-      * windowmove targeted root.winfo_id(), which is the inner tk child on
-        override-redirect roots — moving it double-offset the canvas below the
-        1080p viewport ("invisible OSD" bug).
-    Keep the helper as a stub so callers stay in place, but do nothing.
-    """
-    return
+
+def _scaled_layout(screen_w: int, screen_h: int) -> dict[str, int]:
+    scale = _panel_scale(screen_h)
+    width = max(640, int(round(OSD_WIDTH_REF * scale)))
+    height = max(120, int(round(OSD_HEIGHT_REF * scale)))
+    margin = max(24, int(round(OSD_MARGIN_BOTTOM_REF * scale)))
+    width = min(width, max(640, screen_w - 40))
+    return {
+        "width": width,
+        "height": height,
+        "margin": margin,
+        "pad_x": max(24, int(round(34 * scale))),
+        "font_elapsed": max(16, int(round(21 * scale))),
+        "font_remain": max(14, int(round(19 * scale))),
+        "font_row": max(12, int(round(15 * scale))),
+        "font_meta": max(11, int(round(14 * scale))),
+        "font_legend": max(10, int(round(13 * scale))),
+        "track_h": max(8, int(round(10 * scale))),
+        "thumb": max(7, int(round(9 * scale))),
+        "row1": max(20, int(round(24 * scale))),
+        "row2": max(40, int(round(48 * scale))),
+        "row3": max(58, int(round(70 * scale))),
+        "row4": max(76, int(round(92 * scale))),
+        "row5": max(94, int(round(114 * scale))),
+        "track_y_from_bottom": max(28, int(round(40 * scale))),
+        "legend_from_bottom": max(10, int(round(12 * scale))),
+    }
 
 
 def show(reason: str) -> int:
@@ -346,12 +345,14 @@ def run() -> int:
         return 1
 
     _write_owner_file(PID_PATH, f"{os.getpid()}\n", 0o644)
+    _set_visible_state(False)
     show_until = 0.0
     last_trigger_mtime = 0.0
-    last_display_ensure_at = 0.0
     hidden = True
     layout_applied = False
     last_layout_screen: tuple[int, int] | None = None
+    last_draw_key: tuple[object, ...] | None = None
+    layout_metrics: dict[str, int] = _scaled_layout(1920, 1080)
 
     root = tk.Tk(className="mango-playback-osd")
     root.title("mango playback osd")
@@ -367,25 +368,22 @@ def run() -> int:
     canvas.pack(fill="both", expand=True)
 
     def layout() -> tuple[int, int]:
-        width = max(640, OSD_WIDTH)
-        height = max(120, OSD_HEIGHT)
+        nonlocal layout_metrics, last_layout_screen
         screen_w, screen_h = _x11_display_size()
+        layout_metrics = _scaled_layout(screen_w, screen_h)
+        width = layout_metrics["width"]
+        height = layout_metrics["height"]
         x = max(0, (screen_w - width) // 2)
-        y = max(0, screen_h - height - max(24, OSD_MARGIN_BOTTOM))
-        # Single authoritative geometry call — tk owns size + position on the
-        # override-redirect root; canvas fills via pack(fill=both, expand=True).
+        y = max(0, screen_h - height - layout_metrics["margin"])
         root.geometry(f"{width}x{height}+{x}+{y}")
         root.update_idletasks()
         canvas.configure(width=width, height=height)
         canvas.config(scrollregion=(0, 0, width, height))
         root.update_idletasks()
-        nonlocal last_layout_screen
         last_layout_screen = (screen_w, screen_h)
         return width, height
 
     def display_size_changed() -> bool:
-        # Cheap-ish: cached xrandr status via DISPLAY_SNAPSHOT_TTL_SEC. Only used
-        # after a show trigger — no per-tick xrandr churn during idle playback.
         return last_layout_screen is not None and last_layout_screen != _x11_display_size()
 
     def draw(
@@ -394,19 +392,41 @@ def run() -> int:
         position: float,
         duration: float,
         paused: bool,
+        *,
+        force: bool,
     ) -> None:
+        nonlocal last_draw_key
         pct = 0.0 if duration <= 0 else max(0.0, min(1.0, position / duration))
         remaining = max(0.0, duration - position) if duration > 0 else 0.0
+        # Bucket position to 1s so we redraw at most once per second unless
+        # pause/subs/audio/display labels change.
+        pos_bucket = int(position)
         subs_on, subs_label = _subtitle_snapshot()
         audio_label = _audio_snapshot()
         video_label = _video_snapshot()
         display_label = _display_snapshot()
+        draw_key = (
+            pos_bucket,
+            int(duration),
+            paused,
+            subs_on,
+            subs_label,
+            audio_label,
+            video_label,
+            display_label,
+            width,
+            height,
+        )
+        if not force and draw_key == last_draw_key:
+            return
+        last_draw_key = draw_key
         canvas.delete("all")
 
-        pad_x = 34
-        track_y = height - 40
+        m = layout_metrics
+        pad_x = m["pad_x"]
+        track_y = height - m["track_y_from_bottom"]
         track_w = width - pad_x * 2
-        track_h = 10
+        track_h = m["track_h"]
 
         elapsed_color = "#f7f1df" if not paused else "#c9c2b4"
         remain_color = "#d7c6a0" if not paused else "#a89f8c"
@@ -418,42 +438,42 @@ def run() -> int:
 
         canvas.create_text(
             pad_x,
-            24,
+            m["row1"],
             anchor="w",
             fill=elapsed_color,
-            font=("DejaVu Sans", 21, "bold"),
+            font=("DejaVu Sans", m["font_elapsed"], "bold"),
             text=elapsed,
         )
         canvas.create_text(
             width - pad_x,
-            24,
+            m["row1"],
             anchor="e",
             fill=remain_color,
-            font=("DejaVu Sans", 19),
+            font=("DejaVu Sans", m["font_remain"]),
             text=remain_label,
         )
         canvas.create_text(
             pad_x,
-            48,
+            m["row2"],
             anchor="w",
             fill=status_color,
-            font=("DejaVu Sans", 15),
+            font=("DejaVu Sans", m["font_row"]),
             text=f"Subtitles: {subs_state}",
         )
         canvas.create_text(
             width - pad_x,
-            48,
+            m["row2"],
             anchor="e",
             fill=status_color,
-            font=("DejaVu Sans", 15),
+            font=("DejaVu Sans", m["font_row"]),
             text=f"Sub: {subs_label}",
         )
         canvas.create_text(
             pad_x,
-            70,
+            m["row3"],
             anchor="w",
             fill=status_color,
-            font=("DejaVu Sans", 15),
+            font=("DejaVu Sans", m["font_row"]),
             text=f"Audio: {audio_label}",
         )
         video_color = "#9fd4a8" if any(
@@ -461,10 +481,10 @@ def run() -> int:
         ) else status_color
         canvas.create_text(
             pad_x,
-            92,
+            m["row4"],
             anchor="w",
             fill=video_color,
-            font=("DejaVu Sans", 14),
+            font=("DejaVu Sans", m["font_meta"]),
             text=f"Video: {video_label}",
         )
         display_color = "#9fd4a8" if any(
@@ -472,10 +492,10 @@ def run() -> int:
         ) else "#d4a09f" if "1920" in display_label else status_color
         canvas.create_text(
             pad_x,
-            114,
+            m["row5"],
             anchor="w",
             fill=display_color,
-            font=("DejaVu Sans", 14),
+            font=("DejaVu Sans", m["font_meta"]),
             text=f"Display: {display_label}",
         )
         canvas.create_rectangle(
@@ -497,25 +517,26 @@ def run() -> int:
                 outline="",
             )
         thumb_x = pad_x + fill_w
+        thumb = m["thumb"]
         canvas.create_oval(
-            thumb_x - 9,
+            thumb_x - thumb,
             track_y - 6,
-            thumb_x + 9,
+            thumb_x + thumb,
             track_y + track_h + 6,
             fill="#ffe1a3" if not paused else "#b8a88a",
             outline="",
         )
         canvas.create_text(
             pad_x,
-            height - 12,
+            height - m["legend_from_bottom"],
             anchor="w",
             fill="#c5bca5",
-            font=("DejaVu Sans", 13),
-            text="B pause   ←/→ seek   X subs   • sub lang   ↑ osd   A audio   Y back",
+            font=("DejaVu Sans", m["font_legend"]),
+            text="B pause   ←/→ seek   ↑ osd/subs   A audio   ± vol   Y back",
         )
 
     def tick() -> None:
-        nonlocal hidden, last_trigger_mtime, show_until, last_display_ensure_at, layout_applied
+        nonlocal hidden, last_trigger_mtime, show_until, layout_applied, last_draw_key
 
         try:
             trigger_mtime = TRIGGER_PATH.stat().st_mtime
@@ -526,16 +547,18 @@ def run() -> int:
             last_trigger_mtime = trigger_mtime
             show_until = time.time() + VISIBLE_SEC
             layout_applied = False
+            last_draw_key = None
 
         visible = show_until > 0 and time.time() <= show_until
 
         if not visible:
-            # Steady-state playback: overlay hidden. Keep overhead minimal — one
-            # cheap liveness probe, slow poll, no draw/xrandr. This is the path
-            # that runs 99% of a movie, so it must not compete with mpv's GPU.
             if not _mpv_active():
                 try:
                     PID_PATH.unlink()
+                except OSError:
+                    pass
+                try:
+                    VISIBLE_STATE_PATH.unlink()
                 except OSError:
                     pass
                 root.destroy()
@@ -544,6 +567,8 @@ def run() -> int:
                 root.withdraw()
                 hidden = True
                 layout_applied = False
+                last_draw_key = None
+                _set_visible_state(False)
             root.after(HIDDEN_POLL_MS, tick)
             return
 
@@ -551,6 +576,10 @@ def run() -> int:
         if snapshot is None:
             try:
                 PID_PATH.unlink()
+            except OSError:
+                pass
+            try:
+                VISIBLE_STATE_PATH.unlink()
             except OSError:
                 pass
             root.destroy()
@@ -561,21 +590,26 @@ def run() -> int:
             root.deiconify()
             hidden = False
             layout_applied = False
-        if trigger_fired or not layout_applied:
+            last_draw_key = None
+            _set_visible_state(True)
+        force_draw = trigger_fired or not layout_applied
+        if trigger_fired or not layout_applied or display_size_changed():
             width, height = layout()
             layout_applied = True
-        elif display_size_changed():
-            width, height = layout()
+            force_draw = True
         else:
-            width, height = OSD_WIDTH, OSD_HEIGHT
-        last_display_ensure_at = _maybe_ensure_playback_display(last_display_ensure_at)
-        draw(width, height, position, duration, paused)
+            width, height = layout_metrics["width"], layout_metrics["height"]
+        draw(width, height, position, duration, paused, force=force_draw)
         root.lift()
         root.after(POLL_MS, tick)
 
     def cleanup(*_: object) -> None:
         try:
             PID_PATH.unlink()
+        except OSError:
+            pass
+        try:
+            VISIBLE_STATE_PATH.unlink()
         except OSError:
             pass
         root.destroy()

@@ -130,4 +130,47 @@ fi
   && gate_pass "mpv deferred foreground handoff enabled" \
   || gate_fail "mpv deferred foreground handoff disabled"
 
+# HDMI SSOT: match at play start; OSD/pad must not call playback-auto / display-ensure.
+grep -q 'pre_match_playback_display' scripts/m2-catalog/service/mpv-play.sh \
+  && gate_pass "mpv-play pre-matches HDMI before reveal" \
+  || gate_fail "mpv-play missing pre_match_playback_display"
+
+if grep -q '_maybe_ensure_playback_display' scripts/m2-catalog/service/playback-osd.py; then
+  gate_fail "playback-osd must not call display-ensure (HDMI SSOT)"
+else
+  gate_pass "playback-osd has no display-ensure side effects"
+fi
+
+if grep -q 'reassert_playback_display' scripts/m1-foundation/pad/mango-tv-pad.py; then
+  gate_fail "pad must not reassert playback display on pause (HDMI SSOT)"
+else
+  gate_pass "pad does not reassert HDMI on pause"
+fi
+
+grep -q 'MANGO_PLAYBACK_DISPLAY_ENSURE' scripts/lib/mango-playback-display-ensure.sh \
+  && gate_pass "display-ensure gated behind MANGO_PLAYBACK_DISPLAY_ENSURE" \
+  || gate_fail "display-ensure missing operator gate"
+
+# ↑ sole subtitle control; X/• must not route playback subs.
+grep -q 'route_playback_up' scripts/m1-foundation/pad/mango-tv-pad.py \
+  && gate_pass "pad ↑ owns show-first subtitle control" \
+  || gate_fail "pad missing route_playback_up"
+
+if grep -qE 'route_playback_subtitle|subs-toggle|sub-next' scripts/m1-foundation/pad/mango-tv-pad.py; then
+  gate_fail "pad still binds X/• to subtitle routes (↑ must be sole control)"
+else
+  gate_pass "pad X/• have no playback subtitle bindings"
+fi
+
+if grep -qE 'VISIBLE_SEC = float\(os\.environ\.get\("MANGO_PLAYBACK_OSD_VISIBLE_SEC", "4\.0"\)\)' \
+  scripts/m2-catalog/service/playback-osd.py; then
+  gate_pass "playback OSD default visible window is 4s"
+else
+  gate_fail "playback OSD visible default is not 4s"
+fi
+
+grep -q '_panel_scale\|_scaled_layout' scripts/m2-catalog/service/playback-osd.py \
+  && gate_pass "playback OSD scales to panel (1080p reference)" \
+  || gate_fail "playback OSD missing panel scale layout"
+
 gate_finish "gate-m6-playback-ssot"

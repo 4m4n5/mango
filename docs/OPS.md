@@ -134,6 +134,14 @@ MANGO_LAUNCHER_DISPLAY_MODE=3840x2160 MANGO_LAUNCHER_DISPLAY_RATE=60 \
 This display mode does not change stream filters. 4K stream/playback policy
 stays in catalog filters and the mpv profile.
 
+**Playback HDMI + OSD contract:** `mpv-play.sh` source-matches HDMI before first
+reveal when the video profile is known. The playback OSD and pad never call
+`playback-auto` / display-ensure during steady play (operator-only:
+`MANGO_PLAYBACK_DISPLAY_ENSURE=1`). OSD defaults to 4s visible, scales to a
+constant physical size (1080p reference), and redraws ~1 Hz. Pad **↑** is the
+sole subtitle control (show-first, then force-on + cycle); **A** is show-first
+for audio.
+
 `ensure-launcher` (alias `launcher`) is called on stack boot, home, present,
 stop, deploy, and display-wake so browse never drifts to 4K HDMI by accident.
 

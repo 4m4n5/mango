@@ -221,6 +221,12 @@ resolve_playback_video_profile() {
 
 mark_playback_active() {
   mkdir -p "$(dirname "$PLAYBACK_ACTIVE_FILE")"
+  : >"$PLAYBACK_ACTIVE_FILE"
+}
+
+begin_playback_session() {
+  # New play session: drop any prior match marker before optional pre-match.
+  mkdir -p "$(dirname "$PLAYBACK_ACTIVE_FILE")"
   rm -f "$PLAYBACK_DISPLAY_MATCHED_FILE"
   : >"$PLAYBACK_ACTIVE_FILE"
 }
@@ -651,6 +657,30 @@ raise_mpv_window() {
   fi
 }
 
+# Apply source-matched HDMI before first reveal when profile is known.
+# Returns 0 when a match was attempted (caller may settle briefly).
+pre_match_playback_display() {
+  local width="${1:-}" height="${2:-}" fps="${3:-}"
+  [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]] || return 1
+  [[ -n "$width" && -n "$height" && -n "$fps" && "$fps" != "0" ]] || return 1
+  if [[ -f "$PLAYBACK_DISPLAY_MATCHED_FILE" ]]; then
+    return 1
+  fi
+  bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback-auto "$width" "$height" "$fps" 2>/dev/null || true
+  [[ -f "$PLAYBACK_DISPLAY_MATCHED_FILE" ]]
+}
+
+settle_after_display_match() {
+  local ms="${MANGO_MPV_DISPLAY_MATCH_SETTLE_MS:-400}"
+  [[ "$ms" =~ ^[0-9]+$ ]] || ms=400
+  (( ms > 0 )) || return 0
+  # Brief blank while the TV finishes HDMI mode switch — prefer correct first frame.
+  python3 - "$ms" <<'PY'
+import sys, time
+time.sleep(max(0, int(sys.argv[1])) / 1000.0)
+PY
+}
+
 foreground_handoff() {
   $HANDOFF_DONE && return 0
   mark_playback_active
@@ -672,10 +702,16 @@ foreground_handoff() {
       video_label="${video_width}x${video_height}@${video_fps}"
     fi
   fi
-  if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
-    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback-auto "$video_width" "$video_height" "$video_fps" 2>/dev/null || true
-  else
-    bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
+  # HDMI SSOT: match once at play start when possible. Skip a second switch if
+  # pre_match already succeeded; never leave matching to OSD/pad.
+  if [[ ! -f "$PLAYBACK_DISPLAY_MATCHED_FILE" ]]; then
+    if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
+      if pre_match_playback_display "$video_width" "$video_height" "$video_fps"; then
+        settle_after_display_match
+      fi
+    else
+      bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
+    fi
   fi
   apply_4k_video_sync || true
   if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
@@ -722,7 +758,7 @@ start_playback_osd() {
 mkdir -p "$(dirname "$SOCKET")"
 mkdir -p "$(dirname "$MPV_LOG")"
 MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_NO_DISPLAY=1 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
-mark_playback_active
+begin_playback_session
 
 URL_LABEL="$(python3 -c 'from urllib.parse import urlparse; import sys; u=urlparse(sys.argv[1]); print(f"{u.scheme}://{u.netloc}/<redacted>")' "$URL" 2>/dev/null || echo "http(s)://<redacted>")"
 HWDEC="$(detect_hwdec)"
@@ -753,6 +789,12 @@ if ! $PROBE; then
       read -r video_width video_height video_fps video_duration <<<"$profile"
       video_label="${video_width}x${video_height}@${video_fps}"
     fi
+  fi
+  # Prefer correct HDMI mode before first reveal (accept short blank on 4K).
+  # begin_playback_session already cleared any stale matched marker.
+  if pre_match_playback_display "${video_width:-}" "${video_height:-}" "${video_fps:-}"; then
+    echo "mpv-play: pre-matched display ${video_label}" >&2
+    settle_after_display_match
   fi
 fi
 DEFER_FOREGROUND_DEFAULT=0
