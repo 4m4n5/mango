@@ -32,6 +32,7 @@ export type PadNavHandlers = {
   isDetailOpen: () => boolean;
   detailMoveRow: (delta: number) => void;
   detailMoveCol: (delta: number) => void;
+  detailChangeSeason: (delta: number) => void;
   detailSelect: () => void;
   detailBack: () => void;
 
@@ -94,6 +95,10 @@ export function handlePadNav(command: PadNavCommand, handlers: PadNavHandlers): 
       handlers.detailSelect();
     } else if (action === "back") {
       handlers.detailBack();
+    } else if (action === "tab" && typeof command.delta === "number") {
+      // Shoulder buttons cycle seasons on the detail page instead of switching
+      // browse tabs (which only applies on the home surface).
+      handlers.detailChangeSeason(command.delta);
     }
     return;
   }

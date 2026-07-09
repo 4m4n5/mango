@@ -1,8 +1,12 @@
 import { nextEpisodeId, type SeriesSeasonBlock } from '../episodes.js';
+import { PROGRESS_CONTINUE_MAX } from './config.js';
 import { progressPct } from './keys.js';
 import type { ActiveWatchSession } from './watcher.js';
 
-export const NEXT_PROMPT_MIN_PCT = 0.5;
+// Only prompt for the next episode once the current one is effectively finished
+// — the same "finished" bar used across the system (Continue/library). Exiting
+// mid-watch must never surface a next-episode prompt.
+export const NEXT_PROMPT_MIN_PCT = PROGRESS_CONTINUE_MAX;
 
 export type PendingNextPrompt = {
   series_id: string;
@@ -42,6 +46,12 @@ export function notePlaybackExit(
   }
   const progress_pct = progressPct(positionSec, durationSec);
   if (progress_pct < NEXT_PROMPT_MIN_PCT) {
+    // Exited before finishing — never prompt. Also drop any stale pending for
+    // this same episode (e.g. it crossed the finish bar on an earlier in-play
+    // flush, then the viewer seeked back and quit mid-watch).
+    if (pendingNextPrompt?.episode_id === session.play_id) {
+      pendingNextPrompt = null;
+    }
     return;
   }
   pendingNextPrompt = {

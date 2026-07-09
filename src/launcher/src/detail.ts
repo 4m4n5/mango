@@ -111,6 +111,7 @@ export class DetailController {
     this.clearPlayBusy();
     this.updatePlayButtonLabel();
     this.focusPlayButton();
+    this.maybePromptNextEpisode();
   }
 
   restoreAfterPlayback(
@@ -124,6 +125,17 @@ export class DetailController {
     this.pendingEpisodeRestore = episodeId ?? null;
     this.show(card, railLabel, tab, saved, homeVisible);
     window.setTimeout(() => this.focusPlayButton(), 0);
+    this.maybePromptNextEpisode();
+  }
+
+  /** On return from playback, check once (briefly) whether the just-watched
+   *  episode finished — the backend only holds a pending prompt when the exit
+   *  was at/after the finish bar, so this never fires on a mid-watch exit. */
+  private maybePromptNextEpisode(): void {
+    if (this.card?.type !== "series" || !this.callbacks.onNextEpisodePrompt) {
+      return;
+    }
+    this.startNextPromptPoll();
   }
 
   cancelResolve(): void {
@@ -291,11 +303,20 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
-    const direction = delta > 0 ? "right" : "left";
-    if (this.tryChangeSeason(direction === "right" ? 1 : -1)) {
+    // D-pad only navigates the page spatially. Seasons are cycled exclusively by
+    // the shoulder buttons (changeSeason) or by clicking a season chip — so
+    // ←/→ on an episode escapes the list (e.g. back to the action buttons)
+    // instead of being trapped cycling seasons.
+    this.navigate(delta > 0 ? "right" : "left");
+  }
+
+  /** Shoulder buttons (L/R) or F6/F7 — cycle seasons while a season chip or any
+   *  episode in the list is focused. No-op elsewhere. */
+  changeSeason(delta: number): void {
+    if (!this.isOpen) {
       return;
     }
-    this.navigate(direction);
+    this.tryChangeSeason(delta);
   }
 
   activate(): void {
@@ -312,7 +333,7 @@ export class DetailController {
     this.moveRow(delta);
   }
 
-  async play(preferUrl?: string, preferLadderStep?: string): Promise<void> {
+  async play(preferUrl?: string, preferLadderStep?: string, episodeIdOverride?: string): Promise<void> {
     const card = this.card;
     if (!card) {
       return;
@@ -320,7 +341,7 @@ export class DetailController {
     if (!this.canPlayCard(card)) {
       return;
     }
-    const episodeId = this.playEpisodeId();
+    const episodeId = episodeIdOverride ?? this.playEpisodeId();
     const startSec = this.playStartSec(episodeId);
     this.playButton.disabled = true;
     for (const button of this.streamButtons) {
@@ -334,7 +355,7 @@ export class DetailController {
     const abort = new AbortController();
     this.playAbort = abort;
     this.resolvingPlay = true;
-    savePlaybackReturnSnapshot(this.browseTab, card, this.playEpisodeId());
+    savePlaybackReturnSnapshot(this.browseTab, card, episodeId);
     this.publishPlayProgress(
       startSec
         ? "resuming…"
@@ -387,9 +408,9 @@ export class DetailController {
       const label = result.stream?.display_label || result.stream?.quality;
       void label;
       this.callbacks.onPlayed?.(card, result);
-      if (card.type === "series") {
-        this.startNextPromptPoll();
-      }
+      // Next-episode prompt is checked on playback RETURN (see
+      // maybePromptNextEpisode) — never mid-play — so it only ever appears after
+      // the episode is finished, not while the viewer is still watching.
     } catch (error) {
       if (abort.signal.aborted || (error instanceof Error && error.message === "play cancelled")) {
         return;
@@ -404,20 +425,26 @@ export class DetailController {
           : "couldn't start playback. try another title.",
       );
     } finally {
-      if (this.playAbort === abort) {
-        this.playAbort = null;
-      }
-      this.resolvingPlay = false;
       window.clearTimeout(startingTimer);
       window.clearTimeout(alternateTimer);
       window.clearTimeout(cachingTimer);
-      this.clearPlayBusy();
-      this.playButton.disabled = false;
-      for (const button of this.streamButtons) {
-        button.disabled = false;
+      if (this.playAbort === abort) {
+        this.playAbort = null;
       }
-      for (const button of this.episodeButtons()) {
-        button.disabled = false;
+      // Only the latest play owns the play button + resolving flag. A play that
+      // was superseded (aborted by a newer resolve, e.g. picking a specific
+      // stream) must NOT clear the busy label — doing so produced the
+      // "progress → idle play/resume → progress again" flip mid-resolve.
+      if (this.playToken === token) {
+        this.resolvingPlay = false;
+        this.clearPlayBusy();
+        this.playButton.disabled = false;
+        for (const button of this.streamButtons) {
+          button.disabled = false;
+        }
+        for (const button of this.episodeButtons()) {
+          button.disabled = false;
+        }
       }
     }
   }
@@ -1187,29 +1214,28 @@ export class DetailController {
     if (episode.playable === false) {
       return;
     }
-    const cached = this.episodeStreamCache.get(episode.id);
-    if (cached !== undefined && cached.length === 0) {
-      return;
-    }
-    await this.selectEpisode(episode);
-    await this.play();
-  }
-
-  private async selectEpisode(episode: SeriesEpisodeRow): Promise<void> {
     const card = this.card;
     if (!card) {
       return;
     }
-    if (episode.playable === false) {
+    const cached = this.episodeStreamCache.get(episode.id);
+    if (cached !== undefined && cached.length === 0) {
       return;
     }
-    await this.selectEpisodeStreams(card, episode.id);
+    this.selectedEpisodeId = episode.id;
+    this.applyEpisodeSelectionVisual(episode.id);
+    // Start playback immediately so the play button shows honest progress right
+    // away (parity with movies). Resolve this episode's streams in parallel and
+    // move focus onto the stream list as options appear.
+    const playPromise = this.play(undefined, undefined, episode.id);
+    void this.selectEpisodeStreams(card, episode.id, { focusStreams: true });
+    await playPromise;
   }
 
   private async selectEpisodeStreams(
     card: ContentCard,
     episodeId: string,
-    options: { quiet?: boolean } = {},
+    options: { quiet?: boolean; focusStreams?: boolean } = {},
   ): Promise<void> {
     this.selectedEpisodeId = episodeId;
     this.applyEpisodeSelectionVisual(episodeId);
@@ -1217,7 +1243,7 @@ export class DetailController {
     if (cached !== undefined) {
       this.streams = cached;
       this.setEpisodeStreamBadge(episodeId, cached.length > 0);
-      this.renderStreams();
+      this.renderStreams({ focusStreams: options.focusStreams });
       return;
     }
     await this.loadStreamList(card, episodeId, options);
@@ -1230,13 +1256,13 @@ export class DetailController {
   private async loadStreamList(
     card: ContentCard,
     episodeId?: string,
-    _options: { quiet?: boolean } = {},
+    options: { quiet?: boolean; focusStreams?: boolean } = {},
   ): Promise<void> {
     if (episodeId && this.episodeStreamCache.has(episodeId)) {
       const cached = this.episodeStreamCache.get(episodeId)!;
       this.streams = cached;
       this.setEpisodeStreamBadge(episodeId, cached.length > 0);
-      this.renderStreams();
+      this.renderStreams({ focusStreams: options.focusStreams });
       return;
     }
     const token = ++this.streamsLoadToken;
@@ -1251,7 +1277,7 @@ export class DetailController {
         this.episodeStreamCache.set(episodeId, result.streams);
         this.setEpisodeStreamBadge(episodeId, result.streams.length > 0);
       }
-      this.renderStreams();
+      this.renderStreams({ focusStreams: options.focusStreams });
     } catch {
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
@@ -1269,7 +1295,7 @@ export class DetailController {
     }
   }
 
-  private renderStreams(): void {
+  private renderStreams(options: { focusStreams?: boolean } = {}): void {
     const keepEpisodeFocus = this.focusedEl?.classList.contains("detail-episode") ?? false;
     this.streamList.replaceChildren();
     this.streamButtons = [];
@@ -1296,26 +1322,65 @@ export class DetailController {
       streamsLabel.textContent = floorOnly ? "streams · unverified" : "streams";
     }
     for (const stream of this.streams) {
-      const button = document.createElement("button");
-      button.type = "button";
-      const unverified = stream.unverified === true || stream.ladder_step === "obligation_floor";
-      button.className = unverified ? "detail-stream detail-stream--unverified" : "detail-stream";
-      const label = document.createElement("span");
-      label.className = "detail-stream-label";
-      label.textContent = streamPrimaryLabel(stream);
-      const audio = document.createElement("span");
-      audio.className = "detail-stream-audio";
-      audio.textContent = unverified
-        ? `${streamAudioLabel(stream)} · unverified`
-        : streamAudioLabel(stream);
-      button.append(label, audio);
-      button.addEventListener("click", () => void this.play(stream.url, stream.ladder_step));
-      this.streamList.append(button);
-      this.streamButtons.push(button);
+      this.streamList.append(this.createStreamButton(stream));
     }
-    if (!keepEpisodeFocus) {
+    if (options.focusStreams && this.streamButtons.length > 0) {
+      // Episode was activated: pull focus onto the resolved stream list so the
+      // couch sees options appear while playback starts.
+      this.focusElement(this.streamButtons[0]);
+    } else if (!keepEpisodeFocus) {
       this.applyFocus();
     }
+  }
+
+  /** Builds one uniform stream bubble: a resolution badge + quality chips + an
+   *  audio/size line. Only couch-relevant info, so every bubble is the same
+   *  shape and height regardless of the raw release name. */
+  private createStreamButton(stream: CatalogStream): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    const unverified = stream.unverified === true || stream.ladder_step === "obligation_floor";
+    button.className = unverified ? "detail-stream detail-stream--unverified" : "detail-stream";
+
+    const primary = document.createElement("span");
+    primary.className = "detail-stream-primary";
+    const res = document.createElement("span");
+    res.className = "detail-stream-res";
+    res.dataset.res = streamResolutionLabel(stream).toLowerCase();
+    res.textContent = streamResolutionLabel(stream);
+    primary.append(res);
+    for (const chip of streamQualityChips(stream)) {
+      const chipEl = document.createElement("span");
+      chipEl.className = `detail-stream-chip detail-stream-chip--${chip.kind}`;
+      chipEl.textContent = chip.text;
+      primary.append(chipEl);
+    }
+
+    const secondary = document.createElement("span");
+    secondary.className = "detail-stream-secondary";
+    const langs = document.createElement("span");
+    langs.className = "detail-stream-langs";
+    langs.textContent = streamLangLabel(stream);
+    secondary.append(langs);
+    const size = streamSizeLabel(stream);
+    if (size) {
+      const sizeEl = document.createElement("span");
+      sizeEl.className = "detail-stream-size";
+      sizeEl.textContent = size;
+      secondary.append(sizeEl);
+    }
+    if (unverified) {
+      const flag = document.createElement("span");
+      flag.className = "detail-stream-flag";
+      flag.textContent = "unverified";
+      secondary.append(flag);
+    }
+
+    button.append(primary, secondary);
+    button.setAttribute("aria-label", streamAriaLabel(stream, unverified));
+    button.addEventListener("click", () => void this.play(stream.url, stream.ladder_step));
+    this.streamButtons.push(button);
+    return button;
   }
 
   private async loadFullMeta(card: ContentCard): Promise<void> {
@@ -1353,13 +1418,17 @@ export class DetailController {
   private startNextPromptPoll(): void {
     this.stopNextPromptPoll();
     let attempts = 0;
+    // Short window: the backend sets the pending prompt during the stop/flush,
+    // so it is already available on return — a few polls just cover the flush
+    // timing race (~9s max), never a long background loop during playback.
+    void this.checkNextPrompt();
     this.nextPromptPollTimer = window.setInterval(() => {
       attempts += 1;
       void this.checkNextPrompt();
-      if (attempts >= 120) {
+      if (attempts >= 12) {
         this.stopNextPromptPoll();
       }
-    }, 1500);
+    }, 750);
   }
 
   private stopNextPromptPoll(): void {
@@ -1414,20 +1483,125 @@ function detailMetaLine(meta: CatalogMeta, card: ContentCard): string {
   return parts.join(" · ") || card.subtitle;
 }
 
-function streamPrimaryLabel(stream: CatalogStream): string {
-  const label = stream.display_label?.trim();
-  if (label) {
-    return label;
-  }
-  return stream.title?.trim() || stream.name?.trim() || stream.quality?.trim() || "stream";
+const STREAM_LANG_CODES: Record<string, string> = {
+  english: "EN",
+  hindi: "HI",
+  japanese: "JA",
+  korean: "KO",
+  french: "FR",
+  german: "DE",
+  spanish: "ES",
+  italian: "IT",
+  portuguese: "PT",
+  russian: "RU",
+  arabic: "AR",
+  tamil: "TA",
+  telugu: "TE",
+  malayalam: "ML",
+  kannada: "KN",
+  bengali: "BN",
+  punjabi: "PA",
+  marathi: "MR",
+};
+
+function streamResolutionLabel(stream: CatalogStream): string {
+  const haystack = `${stream.resolution ?? ""} ${stream.quality ?? ""} ${stream.display_label ?? ""}`.toLowerCase();
+  if (/\b(2160|4k|uhd)\b/.test(haystack)) return "4K";
+  if (/\b(1440|2k)\b/.test(haystack)) return "1440p";
+  if (/\b1080\b/.test(haystack)) return "1080p";
+  if (/\b720\b/.test(haystack)) return "720p";
+  if (/\b(480|576|sd)\b/.test(haystack)) return "SD";
+  return "auto";
 }
 
-function streamAudioLabel(stream: CatalogStream): string {
-  const languages = Array.isArray(stream.languages)
+function streamTierLabel(stream: CatalogStream): string | null {
+  const raw = (stream.release_tier ?? "").toString().trim();
+  if (!raw) return null;
+  const tier = raw.toLowerCase();
+  if (tier.includes("remux")) return "REMUX";
+  if (tier.includes("bluray") || tier.includes("blu-ray") || tier === "bd") return "BluRay";
+  if (tier.includes("web-dl") || tier.includes("webdl")) return "WEB-DL";
+  if (tier.includes("webrip")) return "WEBRip";
+  if (tier.includes("hdtv")) return "HDTV";
+  if (tier.includes("dvd")) return "DVD";
+  if (tier.includes("cam") || tier.includes("telesync")) return "CAM";
+  return raw.toUpperCase().slice(0, 8);
+}
+
+function streamCodecLabel(stream: CatalogStream): string | null {
+  const raw = (stream.encode ?? "").toString().toLowerCase();
+  if (!raw) return null;
+  if (raw.includes("hevc") || raw.includes("265")) return "HEVC";
+  if (raw.includes("av1")) return "AV1";
+  if (raw.includes("avc") || raw.includes("264")) return "H.264";
+  return raw.toUpperCase().slice(0, 6);
+}
+
+function streamHdrLabel(stream: CatalogStream): string | null {
+  const tags = Array.isArray(stream.hdr_tags)
+    ? stream.hdr_tags.map((tag) => String(tag).toLowerCase()).join(" ")
+    : "";
+  if (!tags) return null;
+  if (tags.includes("dv") || tags.includes("dolby")) return "DV";
+  if (tags.includes("hdr10+")) return "HDR10+";
+  if (tags.includes("hdr10")) return "HDR10";
+  if (tags.includes("hlg")) return "HLG";
+  if (tags.includes("hdr")) return "HDR";
+  return null;
+}
+
+function streamQualityChips(stream: CatalogStream): Array<{ kind: string; text: string }> {
+  const chips: Array<{ kind: string; text: string }> = [];
+  const tier = streamTierLabel(stream);
+  if (tier) chips.push({ kind: "tier", text: tier });
+  const codec = streamCodecLabel(stream);
+  if (codec) chips.push({ kind: "codec", text: codec });
+  const hdr = streamHdrLabel(stream);
+  if (hdr) chips.push({ kind: "hdr", text: hdr });
+  if (stream.cache_status === "cached") chips.push({ kind: "cache", text: "cached" });
+  return chips;
+}
+
+function streamLanguageList(stream: CatalogStream): string[] {
+  return Array.isArray(stream.languages)
     ? stream.languages.filter((item) => typeof item === "string" && item.trim() !== "")
     : [];
+}
+
+function streamLangLabel(stream: CatalogStream): string {
+  const languages = streamLanguageList(stream);
   if (languages.length === 0) {
-    return "audio unknown";
+    return "audio n/a";
   }
-  return languages.slice(0, 3).join(" · ");
+  const codes = languages
+    .slice(0, 3)
+    .map((lang) => STREAM_LANG_CODES[lang.toLowerCase()] ?? lang.slice(0, 2).toUpperCase());
+  const extra = languages.length > 3 ? ` +${languages.length - 3}` : "";
+  return codes.join(" · ") + extra;
+}
+
+function streamSizeLabel(stream: CatalogStream): string | null {
+  const gb = typeof stream.size_gb === "number" ? stream.size_gb : undefined;
+  if (gb === undefined || !Number.isFinite(gb) || gb <= 0) {
+    return null;
+  }
+  if (gb < 1) {
+    return `${Math.round(gb * 1000)} MB`;
+  }
+  return `${gb.toFixed(1)} GB`;
+}
+
+function streamAriaLabel(stream: CatalogStream, unverified: boolean): string {
+  const parts = [
+    streamResolutionLabel(stream),
+    ...streamQualityChips(stream).map((chip) => chip.text),
+  ];
+  const languages = streamLanguageList(stream);
+  if (languages.length > 0) {
+    parts.push(`audio ${languages.slice(0, 3).join(", ")}`);
+  }
+  const size = streamSizeLabel(stream);
+  if (size) parts.push(size);
+  if (unverified) parts.push("unverified");
+  return parts.join(", ");
 }

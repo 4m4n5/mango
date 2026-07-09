@@ -236,15 +236,17 @@ clear_playback_active() {
 }
 
 needs_vo_null_buffer() {
-  # Buffer path (spawn vo=null, enable GPU VO only after the HDMI match) is used
-  # whenever the first visible frame must be born on the matched panel:
-  #   - Split A/V (--audio-file, e.g. YouTube DASH) — cannot background-defer.
-  #   - Known-4K single-stream — otherwise a browse-res (1080p) frame shows
-  #     before the match, causing the "video plays → flash → black → 4K" start.
-  [[ -n "${AUDIO_URL:-}" ]] && return 0
-  is_4k_ladder_step && return 0
-  mpv_width_ge_4k "${video_width:-}" && return 0
-  return 1
+  # Buffer path (spawn vo=null, enable GPU VO only after the HDMI match) so the
+  # first visible frame is always born on the matched panel. Used for ALL VOD
+  # (movies, series episodes, YouTube) — otherwise a browse-res (1080p60) frame
+  # shows before the panel refresh-match, producing the "video plays → flash →
+  # black → correct mode" start on every tab (not just 4K).
+  #
+  # Live (IPTV) keeps the immediate GPU VO for fastest tune-in — it renders at
+  # browse res and has no fixed source cadence to refresh-match against, so the
+  # born-on-match buffering only adds latency with no flash to prevent.
+  $LIVE && return 1
+  return 0
 }
 
 detect_hwdec() {

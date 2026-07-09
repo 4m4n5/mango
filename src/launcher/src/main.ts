@@ -246,6 +246,7 @@ function init(): void {
     isDetailOpen: () => detail.isOpen,
     detailMoveRow: (delta) => detail.moveRow(delta),
     detailMoveCol: (delta) => detail.moveCol(delta),
+    detailChangeSeason: (delta) => detail.changeSeason(delta),
     detailSelect: () => detail.activate(),
     detailBack: () => {
       if (detail.isResolving()) {
@@ -486,6 +487,11 @@ function handleKeydown(event: KeyboardEvent): void {
     if (event.key === "ArrowLeft") {
       event.preventDefault();
       detail.moveCol(-1);
+      return;
+    }
+    if (event.key === "F6" || event.key === "F7") {
+      event.preventDefault();
+      detail.changeSeason(event.key === "F7" ? 1 : -1);
       return;
     }
     if (event.key === "Enter" || event.key === " ") {

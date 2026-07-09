@@ -116,6 +116,14 @@ export interface CatalogStream {
   ladder_step?: string;
   /** True when side list fell back to obligation-floor (not ladder-verified). */
   unverified?: boolean;
+  /** Enrichment fields (catalog-service stream-filters) — used for clean bubbles. */
+  resolution?: string;
+  release_tier?: string;
+  encode?: string;
+  hdr_tags?: string[];
+  size_gb?: number;
+  cache_status?: "cached" | "uncached" | "unknown";
+  debrid_service?: string;
 }
 
 export interface SeriesEpisodeRow {
