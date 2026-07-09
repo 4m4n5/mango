@@ -22,7 +22,7 @@ are shipped. **Remaining bar:** couch checks M1–M3 in [COUCH_TEST.md](../COUCH
 | profile.yaml canonical shape | `types.ts` matches spec almost exactly (`familiarity`, `identity`, `taste`, `facts`, `open_questions`, `behavior`) + `session_notes` (not in original spec table but implements "librarian notes append ≤5 bullets/session"). Caps enforced: `TITLE_LOVES_CAP=50`, `SESSION_NOTE_BULLETS_MAX=5`, `REGULAR_SESSIONS=5`, `FRIEND_SESSIONS=20`, `FRIEND_COMPLETED_WATCHES=5` — all match locked defaults. |
 | Journal (SQLite) | `journal.ts` — `better-sqlite3`, `journal_events` table, append/list, `resetJournalForTests`. Event types used in practice: `voice_turn`, `explicit_feedback`, `profile_patch`, `session_notes`, `nightly_consolidate`, `catalog_gardener`. **Not seen:** `tool_call`, `title_opened`, `play_started/completed/abandoned`, `catalog_created/updated` as distinct journal event types from spec table — watch/play signals don't appear to be journaled yet (see gap #1 below). |
 | Light per-PTT reflect | `reflect.ts::processLightReflect` — skips if <3 words and no tool use, regex-extracts love/hate/forget, bumps `familiarity.sessions`, recomputes stage, writes compiled notes. Wired via `POST /voice/companion/reflect`, called from orchestrator `companion_reflect.py::reflect_after_turn` (fire-and-forget `asyncio.create_task` in `main.py` after every tool-using turn). |
-| Nightly deep consolidation | Two-phase: (1) `nightly.ts::runCompanionNightly` — rule-based familiarity/compiled-notes refresh + ops log; (2) `scripts/m5-voice/ai/companion-nightly-llm.py` — **actual Sonnet call** that reads profile+journal+compiled-notes, prompts for `append_facts/loves/avoids/open_questions/compiled_notes_addendum/catalog_hints`, patches profile via HTTP, merges into librarian notes, and updates AI catalog `llm_hints`. Orchestrated end-to-end by `scripts/m5-voice/ai/companion-nightly-consolidate.sh` (rule → optional LLM → gardener → empty-slot migrate), installed via systemd timer at 05:30 (`install-companion-nightly-timer.sh`), gated behind the playability-maintenance lock to avoid overlap. This is **beyond spec** — the archived task doc only asked for a shell script stub. |
+| Nightly deep consolidation | Two-phase: (1) `nightly.ts::runCompanionNightly` — rule-based familiarity/compiled-notes refresh + ops log; (2) `scripts/m5-voice/ai/companion-nightly-llm.py` — **actual Sonnet call** that reads profile+journal+compiled-notes, prompts for `append_facts/loves/avoids/open_questions/compiled_notes_addendum/catalog_hints`, patches profile via HTTP, merges into librarian notes, and updates AI catalog `llm_hints`. Orchestrated end-to-end by `scripts/m5-voice/ai/companion-nightly-consolidate.sh` (rule → optional LLM → gardener → empty-slot migrate), installed via systemd timer at 06:00 (`install-companion-nightly-timer.sh`), gated behind the playability-maintenance lock to avoid overlap. This is **beyond spec** — the archived task doc only asked for a shell script stub. |
 | Gardener (N5c.3, listed as "deferred") | `gardener.ts` — **already implemented**, not deferred. Scores AI catalog slot affinity from taste loves/avoids/facts, assigns `title_loves` into best-matching slot (`add_ids`, capped 5), builds `topup_suggestions`, merges into `llm_hints` without ever touching `remove_ids` (`gardenerHintsAreSafe` explicitly enforces this). Wired via `POST /voice/companion/gardener`, gated by `gate-m5-gardener.sh`. |
 | Compiled notes | `compile-notes.ts` — markdown digest (loves/avoids/title favorites/facts/recent sessions), `compiledNotesExcerpt` truncation helper for prompt injection. |
 | HTTP routes | All present in `src/catalog-service/src/index.ts` (see §3). |
@@ -105,7 +105,7 @@ than routing through `compile-notes.ts`. Worth reconciling (see remaining tasks 
   extraction only — no LLM call in the light path (matches "same Sonnet" being reserved
   for nightly, keeping per-turn cost near zero).
 - **Nightly deep reflect:** cron/systemd-timer driven (`mango-companion-nightly.timer`,
-  05:30 daily, `RandomizedDelaySec=5min`, gated behind the playability-maintenance
+  06:00 daily, `RandomizedDelaySec=5min`, gated behind the playability-maintenance
   flock so it never fights the 03:00 grow job). Three phases in one script:
   rule-consolidate → optional Sonnet LLM consolidate (`MANGO_COMPANION_LLM_NIGHTLY=1`,
   skipped gracefully if no API key or venv) → gardener → empty AI-slot migration.
@@ -133,7 +133,7 @@ PTT/text turn ──▶ orchestrator agent loop ──▶ reply
           ├─ familiarity.sessions += 1 → applyFamiliarityStage()
           └─ writeCompiledNotes()
 
-05:30 daily ──▶ companion-nightly-consolidate.sh
+06:00 daily ──▶ companion-nightly-consolidate.sh
           ├─ Phase 1: POST /voice/companion/consolidate (rule) → journal 'nightly_consolidate'
           ├─ Phase 2: companion-nightly-llm.py (Sonnet) → GET profile+journal+summary
           │            → Anthropic call → parse_consolidation_response()
@@ -146,7 +146,7 @@ PTT/text turn ──▶ orchestrator agent loop ──▶ reply
 Profile writes are **always full-file YAML rewrites** (`writeProfile`) gated through
 `patchProfile()`'s merge logic — there's no optimistic-concurrency/lock, so a light
 reflect and a nightly LLM patch racing on the same second could clobber each other
-(low real-world risk given the 05:30 exclusive window, but worth a comment in code
+(low real-world risk given the 06:00 exclusive window, but worth a comment in code
 if not already addressed elsewhere).
 
 Journal is unbounded SQLite (`listJournalEvents` caps read at 200, but no observed
@@ -202,7 +202,7 @@ Pi. This is the most concrete "not implemented" item under Memory & storage.
 
 - **Concurrency:** should `patchProfile`/`writeProfile` take a file lock, given light
   reflect (per-turn) and nightly LLM consolidate (Sonnet) both call it and could
-  theoretically overlap if a couch session runs past 05:30?
+  theoretically overlap if a couch session runs past 06:00?
 - **Journal event taxonomy:** the shipped code only emits `voice_turn`,
   `explicit_feedback`, `profile_patch`, `session_notes`, `nightly_consolidate`,
   `catalog_gardener` — should the remaining spec'd types (`tool_call`, `title_opened`,

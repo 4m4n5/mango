@@ -93,12 +93,13 @@ movie/TV playability maintenance attempt:
 bash scripts/m3-play/playability/install-playability-timer.sh
 ```
 
-That installs `mango-playability-indexer.timer` for 03:00. The service runs
+That installs `mango-playability-indexer.timer` for **03:00 only**. The service runs
 `nightly-library-refresh.sh --mode nightly --preset nightly`, which executes
 playability stale+grow first and then calls `POST /youtube/refresh` through
 `scripts/m6-ship/youtube-refresh-cache.sh`. This is also the preferred manual
 "run everything" workflow: one command refreshes movie/TV library state and then
-YouTube.
+YouTube. Daytime auto-retry of this chain is retired; use
+`playability-catch-up.sh nightly` when idle after a failed nightly.
 
 `/youtube/refresh` is a phase-isolated coordinator. It updates `popular`,
 `subscriptions`, `fresh_finds`, `live_now`, `because_you_watched`,

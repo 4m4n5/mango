@@ -285,13 +285,22 @@ Grow operator state: `~/.cache/mango/grow-run-state.json`, `~/.cache/mango/ops/r
 Reliability proof state: `/etc/mango/reliability/proofs.jsonl`.
 
 Playability timers do not run a couch-disruptive `OnBootSec` catch-up by
-default. After a reboot, use the explicit operator catch-up only when the couch
-is idle:
+default, and there is no daytime auto-retry timer for failed nightlies. After a
+reboot or a yellow Reliability proof, use the explicit operator catch-up only
+when the couch is idle:
 
 ```bash
 bash scripts/m3-play/playability/playability-catch-up.sh nightly
-systemctl --user list-timers 'mango-playability*'
+systemctl --user list-timers 'mango-playability*' 'mango-companion*'
 ```
+
+Scheduled maintenance (local time):
+
+| Time | Timer | Job |
+|------|-------|-----|
+| 03:00 | `mango-playability-indexer.timer` | Nightly stale → grow → YouTube → proof |
+| 06:00 | `mango-companion-nightly.timer` | Companion consolidate (skips if grow lock held) |
+| every ~3 min | `mango-watchdog.timer` | Narrow health repair |
 
 ---
 

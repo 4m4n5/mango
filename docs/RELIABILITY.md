@@ -65,7 +65,7 @@ but an active couch marker is captured in the proof record.
 
 ## Nightly chain
 
-The 03:00 playability timer still runs one coordinator:
+The **03:00** playability timer runs one coordinator:
 
 ```bash
 bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly
@@ -79,6 +79,17 @@ Order:
 
 The wrapper exits non-zero if movie/TV, YouTube, or proof is red/unreachable.
 Set `MANGO_NIGHTLY_RELIABILITY_PROOF=0` only for targeted diagnosis.
+
+There is no daytime auto-retry of this chain. When proof is yellow after a
+failed/deferred nightly, retry only while idle:
+
+```bash
+bash scripts/m3-play/playability/playability-catch-up.sh nightly
+```
+
+Companion consolidate runs on a separate timer at **06:00**
+(`install-companion-nightly-timer.sh`) and skips if the playability maintenance
+lock is still held.
 
 ---
 

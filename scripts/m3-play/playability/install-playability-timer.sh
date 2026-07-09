@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
-# Install a user systemd timer for nightly playability maintenance (stale → grow).
+# Install the single scheduled library-maintenance timer.
+#
+# Schedule (local time):
+#   03:00  mango-playability-indexer — nightly stale → grow → YouTube → proof
+#
+# Catch-up after a failed/deferred nightly is an explicit operator action:
+#   bash scripts/m3-play/playability/playability-catch-up.sh nightly
+# The old 7×/day mango-playability-catchup-watch.timer is retired (disabled/removed
+# below) so daytime couch hours are not consumed by automatic full-nightly retries.
 
 set -euo pipefail
 
@@ -19,6 +27,22 @@ mkdir -p "$UNIT_DIR"
 # operator state harder to reason about.
 systemctl --user disable --now mango-playability-daily-grow.timer >/dev/null 2>&1 || true
 rm -f "$LEGACY_DAILY_GROW_SERVICE" "$LEGACY_DAILY_GROW_TIMER"
+
+# Retire the daytime catch-up watcher (was 09/11/13/15/17/19/21). Failed nightlies
+# surface via Reliability Center; operators retry with playability-catch-up.sh.
+# Never stop an active catchup oneshot here — that SIGTERMs grow (rc=143) and
+# discards the staged work DB. Disable the timer so it cannot fire again; remove
+# unit files only when the service is idle.
+systemctl --user disable --now mango-playability-catchup-watch.timer >/dev/null 2>&1 || true
+rm -f "$CATCHUP_TIMER_PATH"
+if systemctl --user is-active --quiet mango-playability-catchup-watch.service 2>/dev/null; then
+  echo "warn: mango-playability-catchup-watch.service still active — leaving unit until idle"
+  echo "      after grow finishes: systemctl --user stop mango-playability-catchup-watch.service"
+  echo "      then re-run this installer to remove the leftover service unit"
+else
+  systemctl --user reset-failed mango-playability-catchup-watch.service >/dev/null 2>&1 || true
+  rm -f "$CATCHUP_SERVICE_PATH"
+fi
 
 cat >"$SERVICE_PATH" <<EOF
 [Unit]
@@ -67,35 +91,9 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-cat >"$CATCHUP_SERVICE_PATH" <<EOF
-[Unit]
-Description=mango playability catch-up watcher
-After=default.target
-
-[Service]
-Type=oneshot
-WorkingDirectory=$REPO_DIR
-Environment=MANGO_REPO_DIR=$REPO_DIR
-Environment=MANGO_MAINTENANCE_MODE=1
-Environment=MANGO_PLAYABILITY_REFRESH_MODE=nightly
-Environment=MANGO_GROW_PRESET=nightly
-ExecStart=/usr/bin/bash $REPO_DIR/scripts/m3-play/playability/playability-catchup-watch.sh
-EOF
-
-cat >"$CATCHUP_TIMER_PATH" <<'EOF'
-[Unit]
-Description=mango playability catch-up watcher timer
-
-[Timer]
-OnCalendar=*-*-* 09,11,13,15,17,19,21:00:00
-Persistent=false
-
-[Install]
-WantedBy=timers.target
-EOF
-
 systemctl --user daemon-reload
 systemctl --user enable --now mango-playability-indexer.timer
-systemctl --user enable --now mango-playability-catchup-watch.timer
 systemctl --user list-timers mango-playability-indexer.timer --no-pager
-systemctl --user list-timers mango-playability-catchup-watch.timer --no-pager
+
+echo "Playability timer installed — 03:00 nightly only"
+echo "Catch-up (manual): bash scripts/m3-play/playability/playability-catch-up.sh nightly"

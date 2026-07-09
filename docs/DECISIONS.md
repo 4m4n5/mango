@@ -70,7 +70,8 @@ Locked choices. Update when changing behavior.
 | Overlap | Cap unpinned memberships; pins do not consume the unpinned cap |
 | Runtime source weights | Cache/state only; never auto-edit catalog YAML or theme profiles |
 | TV visibility | No couch-facing grow/progress/debug UI |
-| Timers | No couch-disruptive `OnBootSec`; post-boot maintenance catch-up is explicit operator action |
+| Timers | Single 03:00 nightly library refresh; no couch-disruptive `OnBootSec`; no daytime auto-retry of failed nightlies — catch-up is explicit operator action |
+| Companion nightly | 06:00 consolidate (after grow window); skips if playability maintenance lock is held |
 | Reliability Center | Operator-facing Settings/API surface; home stays quiet except a degraded Settings badge |
 | Nightly proof | Availability-oriented Green/Yellow/Red proof after movie/TV and YouTube refresh; rail `+20` shortfalls are yellow unless the visible pool is unusable |
 | Repair policy | Safe repair only: stale locks, safe strays, pad, catalog, launcher. No automatic DB rebuilds, cache clears, or destructive repairs |

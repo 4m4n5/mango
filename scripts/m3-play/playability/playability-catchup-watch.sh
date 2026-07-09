@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Auto catch-up after an idle-gated deferred or aborted nightly refresh.
+# Optional catch-up decision helper after a deferred or aborted nightly refresh.
+#
+# Not scheduled. The daytime mango-playability-catchup-watch.timer is retired;
+# install-playability-timer.sh disables/removes it. Prefer the explicit operator
+# path when Reliability Center is yellow after a failed nightly:
+#   bash scripts/m3-play/playability/playability-catch-up.sh nightly
+#
+# This script remains for dry-run diagnosis or rare manual auto-decision use.
 
 set -euo pipefail
 

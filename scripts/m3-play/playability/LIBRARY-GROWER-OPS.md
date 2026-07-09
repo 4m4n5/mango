@@ -138,9 +138,19 @@ rails. The final systemd service status remains non-zero only when playability
 fails or the YouTube refresh cannot complete any useful phase. Set
 `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` only for operator debugging.
 
-The legacy `mango-playability-daily-grow.timer` 15:00 quick-grow path is retired;
-the installer above disables/removes it so all scheduled library and YouTube
-refreshes run through one nightly workflow.
+Retired automatic schedules (installer disables/removes them):
+
+- `mango-playability-daily-grow.timer` — old 15:00 quick-grow path
+- `mango-playability-catchup-watch.timer` — old 7×/day daytime full-nightly retry
+
+After a failed or deferred nightly, retry only when the couch is idle:
+
+```bash
+bash scripts/m3-play/playability/playability-catch-up.sh nightly
+```
+
+Companion consolidate is a separate timer at **06:00**
+(`install-companion-nightly-timer.sh`), after the grow window.
 
 ## Source hit-rate weights
 

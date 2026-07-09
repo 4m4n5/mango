@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Nightly companion pipeline — rule → optional Sonnet LLM → gardener → migrate empty AI slots.
-# Timer: bash scripts/m5-voice/ai/install-companion-nightly-timer.sh (05:30 daily)
-# Cron fallback: 30 5 * * * cd ~/mango && bash scripts/m5-voice/ai/companion-nightly-consolidate.sh
+# Timer: bash scripts/m5-voice/ai/install-companion-nightly-timer.sh (06:00 daily)
+# Cron fallback: 0 6 * * * cd ~/mango && bash scripts/m5-voice/ai/companion-nightly-consolidate.sh
 set -uo pipefail
 
 REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "$0")/../../.." && pwd)}"
@@ -19,7 +19,7 @@ cd "$REPO_DIR"
 # --- Overlap guard -----------------------------------------------------------
 # If the playability maintenance lock is still held (grow overran into our
 # window), skip cleanly rather than hammering an already-strained catalog.
-# The timer moves us to 05:30 by default; this is defense in depth.
+# The timer fires at 06:00 by default; this is defense in depth.
 LOCK_FILE="${CACHE_DIR}/playability-maintenance.lock"
 playability_lock_busy() (
   exec 201>"$LOCK_FILE"

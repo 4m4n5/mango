@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Explicit operator catch-up for playability maintenance after a missed timer.
+# Explicit operator catch-up for playability maintenance after a missed/failed
+# nightly. This is the supported retry path (no daytime auto-retry timer).
+#
+# Usage (couch idle):
+#   bash scripts/m3-play/playability/playability-catch-up.sh nightly
 
 set -euo pipefail
 

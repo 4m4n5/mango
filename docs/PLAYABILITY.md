@@ -175,8 +175,10 @@ couch_active_deferred`, `deferred:true`, and an operator repair suggestion.
 Debug/operator override: `MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY=1`.
 
 The systemd playability timers intentionally omit `OnBootSec` so a reboot does
-not immediately stop a newly active couch session. Use the explicit catch-up
-script after verifying the couch is idle.
+not immediately stop a newly active couch session. There is also **no daytime
+auto-retry timer** for failed nightlies — use the explicit catch-up script after
+verifying the couch is idle (and after Reliability Center shows yellow/red for
+playability).
 
 ---
 
