@@ -375,9 +375,9 @@ detect_audio_args() {
 start_mpv_exit_monitor() {
   # When couch mpv stops the launcher for a tear-free foreground, a natural
   # end-of-file has nothing to bring the launcher back. Watch the mpv pid and,
-  # if it is still the current play, restore launcher display + Chromium kiosk.
-  # An explicit --stop clears mpv.pid first, so this no-ops (mpv-stop.sh handles
-  # restore instead).
+  # if it is still the current play, run the same black-screen-first stop path
+  # as pad ⌂ (mpv-stop.sh). An explicit --stop clears mpv.pid first, so this
+  # no-ops (mpv-stop.sh already handled restore).
   local pid="$1"
   local pidfile="${HOME}/.cache/mango/mpv.pid"
   setsid bash -c '
@@ -388,9 +388,8 @@ start_mpv_exit_monitor() {
       sleep 1
     done
     if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
-      curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
-      rm -f "$pidfile" "${HOME}/.cache/mango/playback-active"
-      MANGO_MPV_STOP_HOME=1 bash "$repo/scripts/lib/restore-launcher-after-playback.sh" finish
+      MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_HOME=1 \
+        bash "$repo/scripts/m2-catalog/service/mpv-stop.sh" >/dev/null 2>&1 || true
     fi
   ' bash "$pid" "$REPO_DIR" "$pidfile" >/dev/null 2>&1 &
 }
@@ -684,16 +683,16 @@ PY
 foreground_handoff() {
   $HANDOFF_DONE && return 0
   mark_playback_active
+  # Black-screen-first BEFORE HDMI match: never switch to 4K while the
+  # launcher is still mapped (that caused the 4K-scaled Chromium flash).
   if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
-    # Unmap the launcher window, then freeze its cgroup so a hidden Chromium
-    # cannot contend for the GPU (4K frame drops). Freezing preserves JS state
-    # for a seamless return; fall back to stopping the service if unavailable.
     if bash "$REPO_DIR/scripts/lib/mango-window.sh" hide 2>/dev/null; then
       launcher_freeze || true
     else
       systemctl --user stop mango-launcher-chromium.service 2>/dev/null || true
     fi
   fi
+  bash "$REPO_DIR/scripts/lib/mango-desktop.sh" hide 2>/dev/null || true
   if ! $LIVE \
     && [[ "${MANGO_MPV_MATCH_REFRESH:-1}" != "0" ]] \
     && { [[ -z "$video_width" ]] || [[ -z "$video_height" ]] || [[ -z "$video_fps" ]]; }; then
@@ -702,8 +701,7 @@ foreground_handoff() {
       video_label="${video_width}x${video_height}@${video_fps}"
     fi
   fi
-  # HDMI SSOT: match once at play start when possible. Skip a second switch if
-  # pre_match already succeeded; never leave matching to OSD/pad.
+  # HDMI SSOT: match only after launcher is hidden + root is black.
   if [[ ! -f "$PLAYBACK_DISPLAY_MATCHED_FILE" ]]; then
     if [[ -n "$video_width" && -n "$video_height" && -n "$video_fps" ]]; then
       if pre_match_playback_display "$video_width" "$video_height" "$video_fps"; then
@@ -713,6 +711,7 @@ foreground_handoff() {
       bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
     fi
   fi
+  raise_mpv_window
   apply_4k_video_sync || true
   if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
     pkill -x xcompmgr 2>/dev/null || true
@@ -790,12 +789,8 @@ if ! $PROBE; then
       video_label="${video_width}x${video_height}@${video_fps}"
     fi
   fi
-  # Prefer correct HDMI mode before first reveal (accept short blank on 4K).
-  # begin_playback_session already cleared any stale matched marker.
-  if pre_match_playback_display "${video_width:-}" "${video_height:-}" "${video_fps:-}"; then
-    echo "mpv-play: pre-matched display ${video_label}" >&2
-    settle_after_display_match
-  fi
+  # HDMI match happens in foreground_handoff AFTER launcher hide + black root
+  # (never while Chromium is mapped — that caused the 4K-scaled launcher flash).
 fi
 DEFER_FOREGROUND_DEFAULT=0
 if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
@@ -821,8 +816,9 @@ if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]]; then
   else
     # Single-stream VOD (movies/series): decode on the real GPU VO from the
     # start so we never reinitialize the render pipeline mid-play — the main
-    # source of sustained 4K REMUX stutter on Pi. Launcher stays on top until
-    # the demuxer has headroom, then we hand off foreground.
+    # source of sustained 4K REMUX stutter on Pi. Launcher stays on top at
+    # browse 1080p until demuxer headroom; HDMI match runs only at handoff
+    # after hide+black (no 4K-scaled launcher flash).
     append_mpv_play_args mpv_args
     DISPLAY_ENABLED=true
     GPU_DEFER=true
@@ -864,7 +860,7 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
           elif $GPU_DEFER && ! $LIVE; then
             apply_4k_video_sync
           fi
-          raise_mpv_window
+          # raise_mpv_window runs inside foreground_handoff after HDMI match.
           foreground_handoff
         fi
       fi

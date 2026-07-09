@@ -41,7 +41,11 @@ POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_POLL_MS", "1000"))
 # to notice a show-trigger and detect that mpv exited.
 HIDDEN_POLL_MS = int(os.environ.get("MANGO_PLAYBACK_OSD_HIDDEN_POLL_MS", "1000"))
 DISPLAY_SNAPSHOT_TTL_SEC = float(
-    os.environ.get("MANGO_PLAYBACK_OSD_DISPLAY_TTL_SEC", "2.0")
+    os.environ.get("MANGO_PLAYBACK_OSD_DISPLAY_TTL_SEC", "5.0")
+)
+# Cache panel size so visible ticks do not shell out to xrandr every second.
+DISPLAY_SIZE_TTL_SEC = float(
+    os.environ.get("MANGO_PLAYBACK_OSD_SIZE_TTL_SEC", "5.0")
 )
 # Reference footprint designed at 1080p; scaled by screen_h / 1080 at runtime.
 OSD_WIDTH_REF = int(os.environ.get("MANGO_PLAYBACK_OSD_WIDTH", "1280"))
@@ -107,13 +111,14 @@ def _mpv_active() -> bool:
 
 
 def _playback_snapshot() -> tuple[float, float, bool] | None:
-    if not _mpv_active():
-        return None
+    # Prefer a single property probe over a separate pid liveness round-trip.
     position = _mpv_ipc_property("playback-time")
+    if position is None:
+        if not MPV_SOCKET.is_socket():
+            return None
+        return None
     duration = _mpv_ipc_property("duration")
     paused = _mpv_ipc_property("pause")
-    if position is None:
-        return None
     pos = max(0.0, float(position))
     dur = max(0.0, float(duration or 0))
     is_paused = paused in (True, "yes", 1)
@@ -138,6 +143,15 @@ def _video_snapshot() -> str:
 
 
 _display_cache: dict[str, object] = {"ts": 0.0, "value": "—"}
+_display_size_cache: dict[str, object] = {"ts": 0.0, "size": (1920, 1080)}
+_meta_cache: dict[str, object] = {
+    "ts": 0.0,
+    "subs": (False, "Off"),
+    "audio": "Default",
+    "video": "—",
+    "display": "—",
+}
+META_CACHE_TTL_SEC = float(os.environ.get("MANGO_PLAYBACK_OSD_META_TTL_SEC", "2.0"))
 
 
 def _display_snapshot() -> str:
@@ -165,6 +179,40 @@ def _display_snapshot() -> str:
     _display_cache["ts"] = now
     _display_cache["value"] = value
     return value
+
+
+def _hud_meta(*, force: bool = False) -> tuple[tuple[bool, str], str, str, str]:
+    """Subs/audio/video/display labels — refreshed sparingly, not every tick."""
+    now = time.time()
+    if not force and now - float(_meta_cache["ts"]) < META_CACHE_TTL_SEC:
+        return (
+            _meta_cache["subs"],  # type: ignore[return-value]
+            str(_meta_cache["audio"]),
+            str(_meta_cache["video"]),
+            str(_meta_cache["display"]),
+        )
+    subs = _subtitle_snapshot()
+    audio = _audio_snapshot()
+    video = _video_snapshot()
+    display = _display_snapshot()
+    _meta_cache["ts"] = now
+    _meta_cache["subs"] = subs
+    _meta_cache["audio"] = audio
+    _meta_cache["video"] = video
+    _meta_cache["display"] = display
+    return subs, audio, video, display
+
+
+def _hud_meta_peek() -> tuple[tuple[bool, str], str, str, str] | None:
+    """Return cached HUD meta without IPC, or None if never populated."""
+    if float(_meta_cache["ts"]) <= 0:
+        return None
+    return (
+        _meta_cache["subs"],  # type: ignore[return-value]
+        str(_meta_cache["audio"]),
+        str(_meta_cache["video"]),
+        str(_meta_cache["display"]),
+    )
 
 
 def _subtitle_snapshot() -> tuple[bool, str]:
@@ -254,8 +302,15 @@ def _x11_env() -> dict[str, str]:
     return env
 
 
-def _x11_display_size() -> tuple[int, int]:
+def _x11_display_size(*, force: bool = False) -> tuple[int, int]:
     """Actual X11 desktop pixels — prefer xrandr mode over xdotool (stale after mode switch)."""
+    now = time.time()
+    if not force and now - float(_display_size_cache["ts"]) < DISPLAY_SIZE_TTL_SEC:
+        cached = _display_size_cache["size"]
+        if isinstance(cached, tuple) and len(cached) == 2:
+            return int(cached[0]), int(cached[1])
+
+    size = (1920, 1080)
     if DISPLAY_MODE_SH.is_file():
         try:
             result = subprocess.run(
@@ -268,12 +323,15 @@ def _x11_display_size() -> tuple[int, int]:
             )
             if result.returncode == 0:
                 mode = result.stdout.strip().split(maxsplit=1)[-1]
-                size = mode.split("@", 1)[0]
-                if "x" in size:
-                    w_str, h_str = size.split("x", 1)
+                dims = mode.split("@", 1)[0]
+                if "x" in dims:
+                    w_str, h_str = dims.split("x", 1)
                     w, h = int(w_str), int(h_str)
                     if w > 0 and h > 0:
-                        return w, h
+                        size = (w, h)
+                        _display_size_cache["ts"] = now
+                        _display_size_cache["size"] = size
+                        return size
         except (OSError, subprocess.TimeoutExpired, ValueError, IndexError):
             pass
     if shutil.which("xdotool"):
@@ -291,10 +349,12 @@ def _x11_display_size() -> tuple[int, int]:
                 if len(parts) >= 2:
                     w, h = int(parts[0]), int(parts[1])
                     if w > 0 and h > 0:
-                        return w, h
+                        size = (w, h)
         except (OSError, subprocess.TimeoutExpired, ValueError):
             pass
-    return 1920, 1080
+    _display_size_cache["ts"] = now
+    _display_size_cache["size"] = size
+    return size
 
 
 def _panel_scale(screen_h: int) -> float:
@@ -367,9 +427,9 @@ def run() -> int:
     canvas = tk.Canvas(root, highlightthickness=0, bg="#060807")
     canvas.pack(fill="both", expand=True)
 
-    def layout() -> tuple[int, int]:
+    def layout(*, force_size: bool = False) -> tuple[int, int]:
         nonlocal layout_metrics, last_layout_screen
-        screen_w, screen_h = _x11_display_size()
+        screen_w, screen_h = _x11_display_size(force=force_size)
         layout_metrics = _scaled_layout(screen_w, screen_h)
         width = layout_metrics["width"]
         height = layout_metrics["height"]
@@ -382,9 +442,6 @@ def run() -> int:
         root.update_idletasks()
         last_layout_screen = (screen_w, screen_h)
         return width, height
-
-    def display_size_changed() -> bool:
-        return last_layout_screen is not None and last_layout_screen != _x11_display_size()
 
     def draw(
         width: int,
@@ -399,12 +456,29 @@ def run() -> int:
         pct = 0.0 if duration <= 0 else max(0.0, min(1.0, position / duration))
         remaining = max(0.0, duration - position) if duration > 0 else 0.0
         # Bucket position to 1s so we redraw at most once per second unless
-        # pause/subs/audio/display labels change.
+        # pause/subs/audio/display labels change. Peek cached meta first so a
+        # no-op tick does zero mpv-ipc / xrandr work.
         pos_bucket = int(position)
-        subs_on, subs_label = _subtitle_snapshot()
-        audio_label = _audio_snapshot()
-        video_label = _video_snapshot()
-        display_label = _display_snapshot()
+        peeked = None if force else _hud_meta_peek()
+        if peeked is not None:
+            (subs_on, subs_label), audio_label, video_label, display_label = peeked
+            draw_key = (
+                pos_bucket,
+                int(duration),
+                paused,
+                subs_on,
+                subs_label,
+                audio_label,
+                video_label,
+                display_label,
+                width,
+                height,
+            )
+            if draw_key == last_draw_key:
+                return
+        (subs_on, subs_label), audio_label, video_label, display_label = _hud_meta(
+            force=force
+        )
         draw_key = (
             pos_bucket,
             int(duration),
@@ -586,6 +660,7 @@ def run() -> int:
             return
 
         position, duration, paused = snapshot
+        becoming_visible = hidden
         if hidden:
             root.deiconify()
             hidden = False
@@ -593,14 +668,18 @@ def run() -> int:
             last_draw_key = None
             _set_visible_state(True)
         force_draw = trigger_fired or not layout_applied
-        if trigger_fired or not layout_applied or display_size_changed():
-            width, height = layout()
+        if trigger_fired or not layout_applied:
+            # Force-refresh panel size only when showing / re-laying out —
+            # never shell out to xrandr on every visible tick.
+            width, height = layout(force_size=True)
             layout_applied = True
             force_draw = True
         else:
             width, height = layout_metrics["width"], layout_metrics["height"]
         draw(width, height, position, duration, paused, force=force_draw)
-        root.lift()
+        # lift() only on show — per-tick raise fights mpv for X11 focus/GPU.
+        if becoming_visible or trigger_fired:
+            root.lift()
         root.after(POLL_MS, tick)
 
     def cleanup(*_: object) -> None:

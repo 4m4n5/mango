@@ -15,10 +15,23 @@ hide_lxpanel() {
     for wid in $(xdotool search --classname lxpanel-pi 2>/dev/null); do
       xdotool windowunmap "$wid" 2>/dev/null || true
     done
+    # Pi OS wallpaper is pcmanfm --desktop (above X root). Unmap it so
+    # black-screen-first is real black, not the desktop wallpaper.
+    for wid in $(xdotool search --classname Pcmanfm 2>/dev/null); do
+      xdotool windowunmap "$wid" 2>/dev/null || true
+    done
+    for wid in $(xdotool search --name 'Desktop' 2>/dev/null); do
+      xdotool windowunmap "$wid" 2>/dev/null || true
+    done
   fi
   if command -v wmctrl >/dev/null 2>&1; then
     wmctrl -x -r lxpanel-pi.Lxpanel-pi -b add,hidden 2>/dev/null || true
     wmctrl -r "panel" -b add,hidden 2>/dev/null || true
+    wmctrl -x -r pcmanfm.Pcmanfm -b add,hidden 2>/dev/null || true
+  fi
+  # Prefer turning the desktop off over killing pcmanfm (file-manager may share the process).
+  if command -v pcmanfm >/dev/null 2>&1; then
+    pcmanfm --desktop-off >/dev/null 2>&1 || true
   fi
   # lxpanel respawns child windows; stop the daemon for clean TV fullscreen.
   pkill -x lxpanel 2>/dev/null || true

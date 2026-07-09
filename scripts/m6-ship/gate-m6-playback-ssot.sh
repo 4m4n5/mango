@@ -117,6 +117,11 @@ grep -q 'xsetroot -solid black' scripts/lib/mango-desktop.sh \
   && gate_pass "X root painted black on chrome hide (exposure = black)" \
   || gate_fail "mango-desktop.sh hide must paint X root black (xsetroot -solid black)"
 
+grep -q 'pcmanfm --desktop-off' scripts/lib/mango-desktop.sh \
+  && grep -qE 'Pcmanfm|Desktop' scripts/lib/mango-desktop.sh \
+  && gate_pass "pcmanfm desktop suppressed on chrome hide (no wallpaper flash)" \
+  || gate_fail "mango-desktop.sh hide must suppress pcmanfm desktop (wallpaper flash)"
+
 if [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
   gate_warn "playback active — skip launcher freezer capability probe"
 else
@@ -130,10 +135,29 @@ fi
   && gate_pass "mpv deferred foreground handoff enabled" \
   || gate_fail "mpv deferred foreground handoff disabled"
 
-# HDMI SSOT: match at play start; OSD/pad must not call playback-auto / display-ensure.
+# HDMI SSOT: match only after launcher hide + black root (never while Chromium mapped).
 grep -q 'pre_match_playback_display' scripts/m2-catalog/service/mpv-play.sh \
-  && gate_pass "mpv-play pre-matches HDMI before reveal" \
+  && gate_pass "mpv-play can source-match HDMI before reveal" \
   || gate_fail "mpv-play missing pre_match_playback_display"
+
+_hide_handoff_line="$(grep -n 'mango-desktop\.sh.*hide' scripts/m2-catalog/service/mpv-play.sh | head -1 | cut -d: -f1 || true)"
+_pre_match_call_line="$(grep -n 'pre_match_playback_display' scripts/m2-catalog/service/mpv-play.sh | grep -v '^[[:space:]]*#' | grep -v 'pre_match_playback_display()' | head -1 | cut -d: -f1 || true)"
+# Fallback: first call site inside foreground_handoff (not the function def).
+if [[ -z "${_pre_match_call_line:-}" ]]; then
+  _pre_match_call_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /pre_match_playback_display /{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+fi
+if [[ -n "${_hide_handoff_line:-}" && -n "${_pre_match_call_line:-}" && "${_hide_handoff_line}" -lt "${_pre_match_call_line}" ]]; then
+  gate_pass "HDMI match runs after desktop hide+black (no 4K-scaled launcher flash)"
+else
+  gate_fail "mpv-play must hide desktop before pre_match (hide=${_hide_handoff_line:-?} match=${_pre_match_call_line:-?})"
+fi
+unset _hide_handoff_line _pre_match_call_line
+
+# EOF / natural end must use the same stop path as pad ⌂ (not restore finish alone).
+grep -q 'mpv-stop\.sh' scripts/m2-catalog/service/mpv-play.sh \
+  && awk '/^start_mpv_exit_monitor\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh | grep -q 'mpv-stop\.sh' \
+  && gate_pass "mpv exit monitor routes through mpv-stop.sh (EOF = pad stop)" \
+  || gate_fail "mpv exit monitor must call mpv-stop.sh (not restore finish alone)"
 
 if grep -q '_maybe_ensure_playback_display' scripts/m2-catalog/service/playback-osd.py; then
   gate_fail "playback-osd must not call display-ensure (HDMI SSOT)"
@@ -172,5 +196,13 @@ fi
 grep -q '_panel_scale\|_scaled_layout' scripts/m2-catalog/service/playback-osd.py \
   && gate_pass "playback OSD scales to panel (1080p reference)" \
   || gate_fail "playback OSD missing panel scale layout"
+
+grep -q '_hud_meta\|DISPLAY_SIZE_TTL_SEC' scripts/m2-catalog/service/playback-osd.py \
+  && gate_pass "playback OSD caches meta IPC / display size (cheap visible ticks)" \
+  || gate_fail "playback OSD missing meta/display TTL cache (OSD lag risk)"
+
+[[ -x scripts/diag/playback-4k-proof.sh ]] \
+  && gate_pass "playback-4k-proof.sh present for couch 4K verification" \
+  || gate_fail "scripts/diag/playback-4k-proof.sh missing or not executable"
 
 gate_finish "gate-m6-playback-ssot"
