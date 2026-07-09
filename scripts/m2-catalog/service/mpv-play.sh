@@ -865,15 +865,22 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
         fi
       fi
       if playback_is_real "${PT:-0}"; then
-        END_MS="$(now_ms)"
-        echo "PASS: ttff_ms=$((END_MS - START_MS))"
-        if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
-          bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv playing >/dev/null 2>&1 || true
+        # Deferred couch path: never PASS/exit before hide→black→HDMI match→raise.
+        # Otherwise 4K remux can decode on a stuck 1080p panel (full stutter) and
+        # the exit monitor never starts. Wait until handoff completes (or timeout).
+        if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]] && ! $HANDOFF_DONE; then
+          :
+        else
+          END_MS="$(now_ms)"
+          echo "PASS: ttff_ms=$((END_MS - START_MS))"
+          if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
+            bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv playing >/dev/null 2>&1 || true
+          fi
+          if $PROBE; then
+            MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+          fi
+          exit 0
         fi
-        if $PROBE; then
-          MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-        fi
-        exit 0
       fi
       DUR="$(mpv_property duration)"
       if ! $LIVE; then
