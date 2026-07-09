@@ -153,6 +153,19 @@ else
 fi
 unset _hide_handoff_line _pre_match_call_line
 
+# Buffer path (YouTube split A/V + known-4K): the GPU VO must be enabled AFTER
+# the HDMI match inside foreground_handoff, so the first visible frame is born on
+# the matched panel — never a browse-res frame that flashes on the HDMI switch
+# ("video plays → flash → black → 4K").
+_ff_match_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /pre_match_playback_display /{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+_ff_enable_line="$(awk '/^foreground_handoff\(\)/{p=1} p && /enable_mpv_display/{print NR; exit}' scripts/m2-catalog/service/mpv-play.sh || true)"
+if [[ -n "${_ff_match_line:-}" && -n "${_ff_enable_line:-}" && "${_ff_match_line}" -lt "${_ff_enable_line}" ]]; then
+  gate_pass "buffer-path GPU VO enabled after HDMI match (first frame born on matched panel)"
+else
+  gate_fail "enable_mpv_display must run after pre_match in foreground_handoff (match=${_ff_match_line:-?} enable=${_ff_enable_line:-?})"
+fi
+unset _ff_match_line _ff_enable_line
+
 # EOF / natural end must use the same stop path as pad ⌂ (not restore finish alone).
 grep -q 'mpv-stop\.sh' scripts/m2-catalog/service/mpv-play.sh \
   && awk '/^start_mpv_exit_monitor\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh | grep -q 'mpv-stop\.sh' \

@@ -66,13 +66,17 @@ via `MANGO_MPV_BLEND_SUBTITLES`.
 
 **Deferred foreground handoff.** When `MANGO_MPV_DEFER_FOREGROUND=1` (default
 when `MANGO_MPV_STOP_LAUNCHER=1`, set by `mpv`/`mpv-hifi` profiles), `mpv-play.sh`
-keeps the Chromium launcher visible while mpv buffers on the real GPU VO from spawn
-(no `vo=null`→GPU reinit for single-stream VOD). Split A/V (YouTube `--audio-file`)
-keeps the null-VO buffer path. Handoff waits until `demuxer-cache-duration` meets
-a ladder-aware threshold (18s for 4K REMUX), then runs hide → black → HDMI match
-→ raise mpv (never match while the launcher is mapped). `mpv-play` must not
-PASS/exit until that handoff completes — otherwise Node returns while HDMI is
-still 1080p and 4K decode stutters. The mpv exit monitor calls `mpv-stop.sh` on
+keeps the Chromium launcher visible while mpv buffers. Non-4K single-stream VOD
+buffers on the real GPU VO from spawn; **known-4K single-stream and split A/V
+(YouTube `--audio-file`) use the null-VO buffer path** (`needs_vo_null_buffer`) so
+no browse-res frame is ever shown before the panel is at 4K. Handoff waits until
+`demuxer-cache-duration` meets a ladder-aware threshold (18s for 4K REMUX), then
+runs hide → black → HDMI match → **enable GPU VO on the matched panel (buffer
+path)** → raise mpv (never match while the launcher is mapped). Enabling the VO
+*before* the match is what caused the "video plays → flash → black → 4K" start on
+both debrid 4K and YouTube; the SSOT gate asserts VO-enable-after-match.
+`mpv-play` must not PASS/exit until that handoff completes — otherwise Node
+returns while HDMI is still 1080p and 4K decode stutters. The mpv exit monitor calls `mpv-stop.sh` on
 natural EOF (same black-screen-first path as pad ⌂). Prove true 4K during play
 with `scripts/diag/playback-4k-proof.sh`.
 

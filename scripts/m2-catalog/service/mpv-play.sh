@@ -236,9 +236,15 @@ clear_playback_active() {
 }
 
 needs_vo_null_buffer() {
-  # Split A/V (--audio-file) cannot use background GPU defer on Pi; keep the
-  # null-VO buffer path only for that case.
-  [[ -n "${AUDIO_URL:-}" ]]
+  # Buffer path (spawn vo=null, enable GPU VO only after the HDMI match) is used
+  # whenever the first visible frame must be born on the matched panel:
+  #   - Split A/V (--audio-file, e.g. YouTube DASH) — cannot background-defer.
+  #   - Known-4K single-stream — otherwise a browse-res (1080p) frame shows
+  #     before the match, causing the "video plays → flash → black → 4K" start.
+  [[ -n "${AUDIO_URL:-}" ]] && return 0
+  is_4k_ladder_step && return 0
+  mpv_width_ge_4k "${video_width:-}" && return 0
+  return 1
 }
 
 detect_hwdec() {
@@ -714,6 +720,21 @@ foreground_handoff() {
       bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" playback 2>/dev/null || true
     fi
   fi
+  # Buffer path: bring up the GPU VO only now — the launcher is hidden, the root
+  # is black, and the panel is already at the target (4K) mode — so the first
+  # visible frame is born on the matched panel. Enabling the VO earlier (before
+  # the HDMI match) is what produced the "browse-res video → flash → black → 4K"
+  # start on both debrid 4K and YouTube.
+  if $NULL_BUFFER && ! $DISPLAY_ENABLED; then
+    if ! enable_mpv_display; then
+      echo "FAIL: mpv display enable failed" >&2
+      return 1
+    fi
+    if ! wait_mpv_vo_ready "$(mpv_vo_ready_timeout_ms)"; then
+      echo "FAIL: mpv vo not ready after display enable" >&2
+      return 1
+    fi
+  fi
   raise_mpv_window
   apply_4k_video_sync || true
   if [[ "${MANGO_MPV_DISABLE_XCOMPMGR:-0}" == "1" ]]; then
@@ -849,22 +870,14 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
       if ! $PROBE && ! $HANDOFF_DONE; then
         if playback_handoff_ready; then
-          if $NULL_BUFFER; then
-            if ! enable_mpv_display; then
-              echo "FAIL: mpv display enable failed" >&2
-              MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-              exit 1
-            fi
-            if ! wait_mpv_vo_ready "$(mpv_vo_ready_timeout_ms)"; then
-              echo "FAIL: mpv vo not ready after display enable" >&2
-              MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-              exit 1
-            fi
-          elif $GPU_DEFER && ! $LIVE; then
-            apply_4k_video_sync
+          # foreground_handoff order (buffer path): hide launcher → black root →
+          # HDMI match → enable GPU VO on the matched panel → raise. This keeps
+          # the first visible frame on the 4K panel (no browse-res flash).
+          if ! foreground_handoff; then
+            echo "FAIL: mpv handoff failed" >&2
+            MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+            exit 1
           fi
-          # raise_mpv_window runs inside foreground_handoff after HDMI match.
-          foreground_handoff
         fi
       fi
       if playback_is_real "${PT:-0}"; then
