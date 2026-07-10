@@ -1,4 +1,6 @@
-/** Quick HTTP sniff — TorBox sometimes marks a release cached but serves the .nfo sidecar. */
+/** Quick HTTP sniff — TorBox sometimes marks a release cached but serves the .nfo sidecar.
+ *  MediaFusion (and some debrid proxies) serve HLS playlists — those are playable by mpv
+ *  and must not be treated as unreadable bytes. */
 
 export type PreflightResult = 'video' | 'nfo' | 'error' | 'timeout';
 
@@ -10,7 +12,24 @@ function preflightRangeEnd(): number {
   return Math.min(65535, Math.floor(parsed));
 }
 
+function looksLikeHls(buf: Buffer): boolean {
+  if (buf.length < 7) return false;
+  const head = buf.slice(0, Math.min(buf.length, 16)).toString('utf8').trimStart();
+  return head.startsWith('#EXTM3U');
+}
+
+function contentTypeLooksLikeHls(contentType: string): boolean {
+  return (
+    contentType.includes('mpegurl')
+    || contentType.includes('m3u8')
+    || contentType.includes('application/vnd.apple.mpegurl')
+  );
+}
+
 function looksLikeVideo(buf: Buffer): boolean {
+  if (looksLikeHls(buf)) {
+    return true;
+  }
   if (buf.length >= 4 && buf[0] === 0x1a && buf[1] === 0x45 && buf[2] === 0xdf && buf[3] === 0xa3) {
     return true;
   }
@@ -34,6 +53,7 @@ function looksLikeVideo(buf: Buffer): boolean {
 
 function looksLikeNfo(buf: Buffer): boolean {
   if (buf.length === 0) return false;
+  if (looksLikeHls(buf)) return false;
   const head = buf.slice(0, Math.min(buf.length, 32)).toString('utf8').toLowerCase();
   return head.startsWith('[') || head.includes('[img]') || head.includes('complete name');
 }
@@ -51,6 +71,9 @@ export async function preflightPlaybackUrl(url: string, timeoutMs = 8000): Promi
     });
     const contentType = (response.headers.get('content-type') || '').toLowerCase();
     const buf = Buffer.from(await response.arrayBuffer());
+    if (contentTypeLooksLikeHls(contentType) || looksLikeHls(buf)) {
+      return 'video';
+    }
     if (contentType.includes('nfo') || contentType.includes('text/')) {
       if (looksLikeNfo(buf)) return 'nfo';
       if (!looksLikeVideo(buf)) return 'nfo';

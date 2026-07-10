@@ -114,3 +114,30 @@ test('preflightPlaybackUrl accepts ftyp magic beyond the first 16 bytes', async 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('preflightPlaybackUrl accepts HLS playlists (MediaFusion mpegurl)', async () => {
+  const originalFetch = globalThis.fetch;
+  const playlist = '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:6\n#EXTINF:6.0,\nseg0.ts\n';
+  globalThis.fetch = async () => new Response(playlist, {
+    status: 200,
+    headers: { 'content-type': 'application/vnd.apple.mpegurl; charset=utf-8' },
+  });
+  try {
+    assert.equal(await preflightPlaybackUrl('https://example.test/manifest.m3u8'), 'video');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('preflightPlaybackUrl accepts HLS body even when content-type is octet-stream', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000\nindex.m3u8\n', {
+    status: 200,
+    headers: { 'content-type': 'application/octet-stream' },
+  });
+  try {
+    assert.equal(await preflightPlaybackUrl('https://example.test/master.m3u8'), 'video');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
