@@ -69,6 +69,27 @@ test('streamMatchesBonusEpisodeNumber matches indexer bonus labels', () => {
   assert.equal(streamMatchesBonusEpisodeNumber('igl e07 main episode', 7), false);
 });
 
+test('streamMatchesBonusEpisodeNumber matches Cinemeta S00 identity labels', () => {
+  assert.equal(streamMatchesBonusEpisodeNumber("india's got latent (2024) s00 • e04 av1", 4), true);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl s0e04 web-dl', 4), true);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl s00e10', 10), true);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl s01e04 main', 4), false);
+  assert.equal(streamMatchesBonusEpisodeNumber('igl s00e05', 4), false);
+});
+
+test('pickBonusStreamsFromCandidates keeps S00 identity rows for season-0 episodes', () => {
+  const picked = pickBonusStreamsFromCandidates(
+    [
+      stream('Comet', "📁 India's Got Latent (2024) S00 • E04 🎞️ AV1"),
+      stream('Torrentio', '📁 Igl S01E04 WEB-DL'),
+    ],
+    4,
+    'Bonus EP 3 ft. Avika Gor',
+  );
+  assert.equal(picked.length, 1);
+  assert.ok(/S00/i.test(String(picked[0]?.description ?? '')));
+});
+
 test('streamMatchesBonusEpisodeTitle matches deleted-moments extras', () => {
   const haystack = 'indias got latent deleted moments deepak kalal 1080p';
   assert.equal(

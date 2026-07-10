@@ -192,8 +192,18 @@ export function isSupplementalStream(stream: Stream): boolean {
 export function streamMatchesBonusEpisodeNumber(haystack: string, episode: number): boolean {
   const variants = [String(episode), String(episode).padStart(2, '0')];
   for (const variant of variants) {
-    const pattern = new RegExp(`\\bbonus\\s*(?:e|ep)?\\s*0*${variant}\\b`, 'i');
-    if (pattern.test(haystack)) {
+    // Indexer packs: "Igl Bonus E04", "Bonus EP 3"
+    const bonusLabel = new RegExp(`\\bbonus\\s*(?:e|ep)?\\s*0*${variant}\\b`, 'i');
+    if (bonusLabel.test(haystack)) {
+      return true;
+    }
+    // Cinemeta season-0 identity on the torrent: "S00 • E04", "S0E04", "S00E4"
+    // (primary resolve for tt…:0:N often returns these without the word "bonus").
+    const season0Identity = new RegExp(
+      `\\bs0+\\s*[._\\u2022\\u00b7-]*\\s*e\\s*0*${variant}\\b`,
+      'i',
+    );
+    if (season0Identity.test(haystack)) {
       return true;
     }
   }

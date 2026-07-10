@@ -341,7 +341,8 @@ const STREAM_ZERO_RETRY_DELAY_MS = boundedInt(
 const STREAM_RATE_LIMIT_BACKOFF_MS = Number(
   process.env.MANGO_STREAM_RATE_LIMIT_BACKOFF_MS || 5 * 60 * 1000,
 );
-/** Couch play never cross-probes sibling episodes (was amplifying Torrentio 429s). */
+/** Couch play never scrapes sibling episodes for title-fallback (Torrentio 429s).
+ *  Season-0 bonus still always runs bonusIndexerProbeIds (S0→S{N} same-episode alias). */
 const STREAM_SERIES_CROSS_PROBE_LIMIT = boundedInt(
   process.env.MANGO_STREAM_SERIES_CROSS_PROBE_LIMIT,
   0,
@@ -2233,15 +2234,13 @@ export class CatalogCore {
     const videos = await this.episodeVideosFromMeta(parsed.bare);
     const episodeTitle = await this.episodeTitleFromMeta(parsed.bare, episodeId);
     const crossProbeLimit = seriesCrossProbeLimit(options);
-    if (crossProbeLimit <= 0) {
-      return { streams: [], errors, resolveMs, cached: false };
-    }
     let probesUsed = 0;
 
-    for (const probeId of bonusIndexerProbeIds(episodeId, videos)) {
-      if (probesUsed >= crossProbeLimit) {
-        break;
-      }
+    // Documented S0→S{N} same-episode indexer alias (bonusIndexerProbeIds). Always
+    // allow these few probes on couch — they are not the broad sibling scrape that
+    // MANGO_STREAM_SERIES_CROSS_PROBE_LIMIT=0 was meant to stop (Torrentio 429s).
+    const aliasIds = bonusIndexerProbeIds(episodeId, videos);
+    for (const probeId of aliasIds) {
       probesUsed += 1;
       const probe = await this.rawStreams('series', probeId, options);
       resolveMs += probe.resolveMs;
@@ -2262,6 +2261,14 @@ export class CatalogCore {
       }
     }
 
+    // Broad title-fallback sibling scrape stays gated (default 0 on couch).
+    if (crossProbeLimit <= 0) {
+      if (aliasIds.length === 0) {
+        errors.push('bonus indexer alias unavailable');
+      }
+      return { streams: [], errors, resolveMs, cached: false };
+    }
+
     if (!episodeTitle) {
       errors.push('bonus title fallback: episode title unavailable');
       return { streams: [], errors, resolveMs, cached: false };
@@ -2272,7 +2279,7 @@ export class CatalogCore {
     for (const tier of tiers) {
       const collected: Stream[] = [];
       for (const probeId of probeIds) {
-        if (probesUsed >= crossProbeLimit) {
+        if (probesUsed >= crossProbeLimit + aliasIds.length) {
           break;
         }
         probesUsed += 1;
