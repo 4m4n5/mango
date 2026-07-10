@@ -71,7 +71,6 @@
     {
       "step": "4k_sdr_soft_cached",
       "max_quality": "2160p",
-      "min_quality": "2160p",
       "exclude_remux": true,
       "require_hevc": false,
       "exclude_hdr": true,

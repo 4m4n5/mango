@@ -684,3 +684,52 @@ test('selectDisplayStreamCandidates hides soft 4K when 1080p verified exists', (
   assert.deepEqual(selected.candidates.map((c) => c.stream.url), [hd.url]);
   assert.ok(!selected.candidates.some((c) => c.ladder_step === '4k_sdr_soft_cached'));
 });
+test('unknown-quality MediaFusion row matches soft 4K play step, not verified remux', () => {
+  const mediafusion = stream({
+    url: 'https://example.test/latent-e3.mkv',
+    name: '[TB⚡] MediaFusion',
+    description: "📁 India's Got Latent (2024) S01 • E03\n📦 61.3 GB 🔍 BT4G",
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true' },
+  });
+  const ladder = [
+    {
+      step: '4k_sdr_remux_cached',
+      max_quality: '2160p' as const,
+      min_quality: '2160p' as const,
+      exclude_remux: false,
+      require_hevc: true,
+      exclude_hdr: true,
+      require_cache: 'cached' as const,
+      verified: true,
+      debrid_services: ['torbox', 'realdebrid'],
+      addons: ['AIOStreams'],
+    },
+    {
+      step: '4k_sdr_soft_cached',
+      max_quality: '2160p' as const,
+      exclude_remux: true,
+      require_hevc: false,
+      exclude_hdr: true,
+      require_cache: 'cached' as const,
+      verified: false,
+      debrid_services: ['torbox', 'realdebrid'],
+      addons: ['AIOStreams'],
+    },
+    {
+      step: 'last_resort',
+      max_quality: '2160p' as const,
+      exclude_remux: false,
+      require_hevc: false,
+      require_cache: 'any' as const,
+      verified: false,
+      debrid_services: ['torbox', 'realdebrid'],
+      addons: ['AIOStreams'],
+    },
+  ];
+  const play = expandPlayLadder([mediafusion], ladder, { contentType: 'series' });
+  assert.equal(play[0]?.ladder_step, '4k_sdr_soft_cached');
+  const display = selectDisplayStreamCandidates([mediafusion], ladder, { contentType: 'series' });
+  // Soft is play-only — display falls through to obligation floor.
+  assert.equal(display.source, 'obligation_floor');
+  assert.equal(display.candidates[0]?.ladder_step, 'obligation_floor');
+});

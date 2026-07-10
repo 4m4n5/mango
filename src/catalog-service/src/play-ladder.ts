@@ -214,7 +214,9 @@ function qualityBelowMin(stream: Stream, min: QualityCap | null | undefined): bo
   if (!min) return false;
   const order: Record<QualityCap, number> = { '480p': 480, '720p': 720, '1080p': 1080, '2160p': 2160 };
   const rank = effectiveStreamQualityRank(stream);
-  if (rank === null) return false;
+  // Explicit floors (e.g. 2160p HEVC remux) must not match unknown-quality streams —
+  // otherwise thin MediaFusion rows with no resolution/codec land on verified 4K steps.
+  if (rank === null) return true;
   return rank < order[min];
 }
 
@@ -262,7 +264,11 @@ export function streamMatchesLadderStep(
     // Pi 5 hardware-decodes HEVC only. Above 1080p, a non-HEVC stream would
     // fall back to software decode (stutter), so drop it and let the ladder
     // continue to a 1080p (any-codec) step instead.
-    if (above1080 && step.require_hevc && !streamIsHevc(enriched)) return false;
+    // 4K-only steps (min_quality 2160p) also require proven HEVC when asked —
+    // unknown-codec rows must not satisfy require_hevc.
+    if (step.require_hevc && (above1080 || step.min_quality === '2160p') && !streamIsHevc(enriched)) {
+      return false;
+    }
     // X11 can't output HDR, so 4K HDR would be GPU tone-mapped to SDR every
     // frame — the Pi 5 can't sustain that at 4K. Drop HDR above 1080p so the
     // title falls through to a 1080p step (cheap tone-map) or an SDR 4K stream.
