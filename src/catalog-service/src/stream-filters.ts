@@ -287,7 +287,7 @@ function defaultAutoPlayTiers(): AutoPlayTier[] {
     {
       addons: ['AIOStreams'],
       require_cache: 'cached',
-      debrid_services: ['torbox'],
+      debrid_services: ['torbox', 'realdebrid'],
     },
     {
       addons: ['AIOStreams'],

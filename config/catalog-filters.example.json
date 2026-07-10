@@ -19,7 +19,7 @@
       "max_quality": "1080p",
       "exclude_remux": true,
       "require_cache": "cached",
-      "debrid_services": ["torbox"],
+      "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]
     },
     {
@@ -35,7 +35,7 @@
       "max_quality": "1080p",
       "exclude_remux": false,
       "require_cache": "cached",
-      "debrid_services": ["torbox"],
+      "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]
     },
     {
@@ -60,7 +60,7 @@
     {
       "addons": ["AIOStreams"],
       "require_cache": "cached",
-      "debrid_services": ["torbox"]
+      "debrid_services": ["torbox", "realdebrid"]
     },
     {
       "addons": ["AIOStreams"],

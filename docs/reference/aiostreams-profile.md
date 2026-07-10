@@ -19,7 +19,7 @@ AIOStreams is the **stream aggregation + hygiene** layer. mango `catalog-service
 | Drop cam / ts / scr / hdcam | **Yes** (primary) | Safety net in scoring |
 | Block uncached Real-Debrid | **Yes** (already) | Yes (redundant OK) |
 | Block RD WEBRip / WEB-DL / AMZN | **Yes** (SEL expressions) | No (moved upstream) |
-| TorBox before Real-Debrid | **Yes** (service order + sort + SEL) | Scoring boost only |
+| TorBox before Real-Debrid | **Yes** (service order + sort only — **no** TorBox +250 SEL; that starved unique RD under conjunctive limits) | Soft preference via AIO sort; mango has no brand score |
 | Cap result count (stop 40× “same” row) | **Yes** (result limits) | No |
 | Easynews only when torrents thin | **Yes** (groups) | No |
 | Full upstream quality (2160p REMUX, DV) | **Yes** (no resolution cap) | **No** — `max_quality: 1080p` until M6.3 |
@@ -76,7 +76,7 @@ AIOStreams v2.30 configure menu sections and how mango should use each.
 |------|----------------------|
 | **Torrentio** (marketplace) | Installed, **resources: stream only**, timeout ~7 s, **`useMultipleInstances: false`** (one instance for all debrid services — multi-instance multiplies public Torrentio hits) |
 | **Comet** (marketplace) | **ON** — secondary scraper (stream only, ~7 s, no P2P, remove trash) so couch play is not single-homed on public Torrentio |
-| **MediaFusion** (marketplace) | **HOLD until Share Manifest override is set** — default marketplace MediaFusion resolves to a broken "MediaFusion P2P" endpoint (502/timeout). Re-enable only with a configured [Share Manifest URL](../MEDIAFUSION_TRIAL.md) pasted into **URL (Override)**, `useCachedResultsOnly: true`, stream-only, no catalogs/P2P |
+| **MediaFusion** (marketplace) | **ON** — third scraper (stream only, ~8 s). Wired via a fully-configured ElfHosted TRB+RD [manifest](../MEDIAFUSION_TRIAL.md) pasted into **URL (Override)** (`options.url`, ends in `/manifest.json` so AIO treats it as a self-contained external addon — MediaFusion owns its debrid creds, avoids the old broken default P2P 502). Manifest secret lives at `~/.config/mango/mediafusion.manifest`. Catalogs intentionally not wired (only personal RD-Watchlist catalogs; wiring them would add a redundant direct stream path) |
 | Other built-ins (Prowlarr, …) | **OFF** unless needed |
 | Custom addon URLs | **None** V1 |
 | Catalogues (inside AIOStreams) | **OFF / not used** — mango uses Cinemeta + AIOMetadata |
@@ -313,7 +313,7 @@ flowchart LR
 | **`hideErrors: true`** | ON | AI never sees `[❌]` placeholder rows |
 | **`posterService: none`** | ON | Posters from Cinemeta/AIOMetadata — one poster pipeline |
 | **No resolution cap upstream** | Keep 2160p/REMUX in AIOStreams | M6.3: drop `max_quality` in mango only |
-| **SEL ranked + excluded** | TB boost, RD WEBRip block | Policy in one place; AI reads outcomes, not rules |
+| **SEL ranked + excluded** | BluRay boost + WEBRip penalty; **no TorBox +250** | Soft TB-first via service sort; unique RD must survive result limits |
 
 ### mango API surface (implemented)
 

@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 import type { Stream } from './core.js';
 import { playWithLadder, probeWithLadder } from './play-orchestrator.js';
 import { defaultPlayLadder } from './play-ladder.js';
 import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
+import { clearStreamBadCache } from './stream-bad-cache.js';
+
+beforeEach(() => {
+  clearStreamBadCache();
+});
 
 function testConfig() {
   return mergeFilterConfig({

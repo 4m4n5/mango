@@ -69,7 +69,7 @@ export function defaultPlayLadder(): PlayLadderStep[] {
       max_quality: '1080p',
       exclude_remux: true,
       require_cache: 'cached',
-      debrid_services: ['torbox'],
+      debrid_services: ['torbox', 'realdebrid'],
       addons: DEFAULT_ADDONS,
     },
     {
@@ -77,6 +77,7 @@ export function defaultPlayLadder(): PlayLadderStep[] {
       max_quality: '1080p',
       exclude_remux: true,
       require_cache: 'cached_or_uncached',
+      // Uncached cache-in is TorBox-only (RD uncached excluded upstream).
       debrid_services: ['torbox'],
       addons: DEFAULT_ADDONS,
     },
@@ -85,7 +86,7 @@ export function defaultPlayLadder(): PlayLadderStep[] {
       max_quality: '1080p',
       exclude_remux: false,
       require_cache: 'cached',
-      debrid_services: ['torbox'],
+      debrid_services: ['torbox', 'realdebrid'],
       addons: DEFAULT_ADDONS,
     },
     {

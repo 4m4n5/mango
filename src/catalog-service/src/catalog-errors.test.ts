@@ -63,6 +63,20 @@ test('couchPlayFailureMessage differentiates debrid transient and exhausted case
     'streams are still preparing — try again in a few minutes',
   );
   assert.equal(
+    couchPlayFailureMessage(
+      [{ error: 'debrid_copyright_block', debrid_service: 'realdebrid' }],
+      { candidates: 2 },
+    ),
+    'streams are still preparing — try again in a few minutes',
+  );
+  assert.equal(
+    couchPlayFailureMessage(
+      [{ error: 'mpv-play failed: File was removed due to copyright infringement' }],
+      { candidates: 1 },
+    ),
+    'streams are still preparing — try again in a few minutes',
+  );
+  assert.equal(
     couchPlayFailureMessage([{ error: 'mpv exited before playback started' }]),
     'stream did not start — try another option',
   );

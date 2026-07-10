@@ -69,19 +69,21 @@ export function couchPlayFailureMessage(
   const triedTorbox = [...services].some((service) => service.includes('torbox'));
   const triedRealDebrid = [...services].some((service) => service.includes('real') || service === 'rd');
   const triedBothPrimaryDebrid = triedTorbox && triedRealDebrid;
-  const transientPattern = /debrid_nfo_sidecar|debrid_playback_unreadable|debrid_status_clip/i;
+  const transientPattern = /debrid_nfo_sidecar|debrid_playback_unreadable|debrid_status_clip|debrid_copyright_block|stream_url_bad_cached/i;
   const nfoPattern = /debrid_nfo_sidecar|debrid_playback_unreadable/i;
+  const garbagePattern = /debrid_copyright_block|debrid_status_clip|stream_url_bad_cached/i;
   const attemptErrors = list.map((attempt) => attempt.error).filter((value): value is string => Boolean(value));
   const allTorboxNfo = attemptErrors.length > 0 && attemptErrors.every((error) => nfoPattern.test(error));
   const hasTorboxNfo = attemptErrors.some((error) => nfoPattern.test(error));
   const allTransient = attemptErrors.length > 0 && attemptErrors.every((error) => transientPattern.test(error));
+  const allGarbage = attemptErrors.length > 0 && attemptErrors.every((error) => garbagePattern.test(error) || nfoPattern.test(error));
   if (triedTorbox && !triedRealDebrid && allTorboxNfo) {
     return 'stream not ready on TorBox — try again in a few minutes';
   }
   if (triedBothPrimaryDebrid) {
     return "couldn't find a ready stream right now — try again in a few minutes";
   }
-  if (allTransient) {
+  if (allGarbage || allTransient) {
     return 'streams are still preparing — try again in a few minutes';
   }
   if (hasTorboxNfo && !triedRealDebrid) {
@@ -90,14 +92,17 @@ export function couchPlayFailureMessage(
   if (!errors.trim()) {
     return 'no streams found for this title';
   }
+  if (/debrid_copyright_block|copyright infringement|removed from.*debrid/i.test(errors)) {
+    return 'streams are still preparing — try again in a few minutes';
+  }
   if (/debrid_nfo_sidecar|debrid_playback_unreadable/i.test(errors)) {
     return 'stream not ready on TorBox — try again in a few minutes';
   }
   if (/supplemental_or_short_release/i.test(errors)) {
     return 'no full-length stream found — try another option';
   }
-  if (/debrid_status_clip/i.test(errors)) {
-    return 'stream still caching on TorBox — try again in a few minutes';
+  if (/debrid_status_clip|stream_url_bad_cached/i.test(errors)) {
+    return 'streams are still preparing — try again in a few minutes';
   }
   return 'stream did not start — try another option';
 }

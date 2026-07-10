@@ -1,0 +1,144 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  clearStreamBadCache,
+  isBadStreamError,
+  isStreamUrlBad,
+  markStreamUrlBad,
+  streamBadCacheSize,
+} from './stream-bad-cache.js';
+import { playWithLadder } from './play-orchestrator.js';
+import { defaultPlayLadder } from './play-ladder.js';
+import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
+import type { Stream } from './core.js';
+
+function testConfig() {
+  return mergeFilterConfig({
+    ...defaultFilterConfig(),
+    strict_unknown_cache: false,
+    play_ladder: defaultPlayLadder(),
+    auto_play_wall_ms: 90000,
+    auto_play_probe_ms: 8000,
+    auto_play_max_attempts: 12,
+    stream_display_limit: 8,
+  });
+}
+
+function candidate(url: string, name = '[TB☁️⚡] Torrentio 1080p'): Stream {
+  return {
+    url,
+    source: 'AIOStreams',
+    name,
+    title: name,
+    description: 'WEB-DL 1080p',
+    behaviorHints: {
+      bingeGroup: 'com.aiostreams|torbox|true|1080p',
+    },
+  };
+}
+
+test('isBadStreamError matches copyright / status / nfo taxonomy', () => {
+  assert.equal(isBadStreamError('debrid_copyright_block'), true);
+  assert.equal(isBadStreamError('mpv-play failed: debrid_status_clip duration=12'), true);
+  assert.equal(isBadStreamError('debrid_nfo_sidecar'), true);
+  assert.equal(isBadStreamError('timeout'), false);
+});
+
+test('markStreamUrlBad skips the same hash until TTL expiry', () => {
+  clearStreamBadCache();
+  const hash = streamUrlHash('https://example.test/bad.mp4');
+  markStreamUrlBad(hash, 60_000);
+  assert.equal(isStreamUrlBad(hash), true);
+  assert.equal(isStreamUrlBad(streamUrlHash('https://example.test/good.mp4')), false);
+  assert.equal(streamBadCacheSize(), 1);
+  clearStreamBadCache();
+  assert.equal(streamBadCacheSize(), 0);
+});
+
+test('playWithLadder skips a previously copyright-blocked URL and plays the next candidate', async () => {
+  clearStreamBadCache();
+  const bad = candidate('https://example.test/copyright.mp4');
+  const good = candidate('https://example.test/good.mp4', '[TB☁️⚡] Torrentio 1080p B');
+  let probeUrls: string[] = [];
+  let playUrls: string[] = [];
+
+  const first = await playWithLadder([bad, good], testConfig(), {
+    preflight: async () => 'video',
+    probe: async (url) => {
+      probeUrls.push(url);
+      if (url.includes('copyright')) {
+        throw new Error('debrid_copyright_block');
+      }
+      return { ok: true, ttff_ms: 400 };
+    },
+    play: async (url) => {
+      playUrls.push(url);
+      return { ok: true, ttff_ms: 500 };
+    },
+  });
+
+  assert.equal(first.ok, true);
+  assert.equal(playUrls[0], good.url);
+  assert.ok(first.attempts.some((a) => a.error?.includes('debrid_copyright_block')));
+  assert.equal(isStreamUrlBad(streamUrlHash(bad.url)), true);
+
+  probeUrls = [];
+  playUrls = [];
+  const second = await playWithLadder([bad, good], testConfig(), {
+    preflight: async () => 'video',
+    probe: async (url) => {
+      probeUrls.push(url);
+      return { ok: true, ttff_ms: 400 };
+    },
+    play: async (url) => {
+      playUrls.push(url);
+      return { ok: true, ttff_ms: 500 };
+    },
+  });
+
+  assert.equal(second.ok, true);
+  assert.ok(!probeUrls.includes(bad.url), 'bad URL must not be probed again');
+  assert.equal(playUrls[0], good.url);
+  assert.ok(second.attempts.some((a) => a.error === 'stream_url_bad_cached'));
+  clearStreamBadCache();
+});
+
+test('playWithLadder never skips probe for Real-Debrid even when uncached', async () => {
+  clearStreamBadCache();
+  const rd: Stream = {
+    url: 'https://example.test/rd-uncached.mp4',
+    source: 'AIOStreams',
+    name: '[RD⚡] Torrentio 1080p',
+    title: '[RD⚡] Torrentio 1080p',
+    description: 'BluRay x265',
+    behaviorHints: {
+      bingeGroup: 'com.aiostreams|realdebrid|false|1080p',
+    },
+  };
+  let probeCalls = 0;
+  const config = {
+    ...testConfig(),
+    include_uncached: true,
+  };
+  await playWithLadder([rd], config, {
+    ladder: [
+      {
+        step: 'ideal',
+        max_quality: '1080p',
+        exclude_remux: true,
+        require_cache: 'cached_or_uncached',
+        debrid_services: ['torbox', 'realdebrid'],
+        addons: ['AIOStreams'],
+      },
+    ],
+    preflight: async () => 'video',
+    probe: async () => {
+      probeCalls += 1;
+      return { ok: true, ttff_ms: 300 };
+    },
+    play: async () => ({ ok: true, ttff_ms: 400 }),
+  });
+  assert.equal(probeCalls, 1);
+  clearStreamBadCache();
+});

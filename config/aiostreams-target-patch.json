@@ -1,5 +1,5 @@
 {
-  "_comment": "Target AIOStreams userData patch — merge via scripts/m4-addons/aiostreams-config.sh apply. Debrid services (TorBox + RealDebrid) are configured via the AIOStreams UI on the Pi with real API keys; this patch intentionally omits the `services` array so apply never overwrites live keys with placeholders. This patch only carries file-selection + sort improvements to reduce NFO-sidecar picks.",
+  "_comment": "Target AIOStreams userData patch — merge via scripts/m4-addons/aiostreams-config.sh apply. Debrid services (TorBox + RealDebrid) are configured via the AIOStreams UI on the Pi with real API keys; this patch intentionally omits the `services` array so apply never overwrites live keys with placeholders. Soft TB-first is service order + sort only — do NOT add a TorBox +250 rankedStreamExpression (it fills all conjunctive slots and hides unique RD).",
   "deduplicator": {
     "enabled": true,
     "keys": ["infoHash", "smartDetect", "filename"],
@@ -89,11 +89,6 @@
     "global": 12
   },
   "rankedStreamExpressions": [
-    {
-      "expression": "service(streams, 'torbox')",
-      "score": 250,
-      "enabled": true
-    },
     {
       "expression": "keyword(streams, 'all', 'bluray')",
       "score": 80,

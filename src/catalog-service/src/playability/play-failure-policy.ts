@@ -17,7 +17,7 @@ function isTransientPlayAttemptError(error: unknown): boolean {
   if (typeof error !== 'string') {
     return false;
   }
-  return /debrid_nfo_sidecar|debrid_playback_unreadable|debrid_status_clip|supplemental_or_short_release|no error detail captured|play cancelled|play epoch|PlayCancelledError/i
+  return /debrid_nfo_sidecar|debrid_playback_unreadable|debrid_status_clip|debrid_copyright_block|stream_url_bad_cached|supplemental_or_short_release|no error detail captured|play cancelled|play epoch|PlayCancelledError/i
     .test(error);
 }
 

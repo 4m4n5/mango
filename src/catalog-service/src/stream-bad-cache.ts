@@ -1,0 +1,50 @@
+/**
+ * Session-scoped cache of proven-bad stream URLs (copyright / status clip / NFO).
+ * Keyed by streamUrlHash so we never retry the same garbage URL within TTL,
+ * without blacklisting an entire title (alternate releases stay eligible).
+ */
+
+const DEFAULT_TTL_MS = Number(process.env.MANGO_STREAM_BAD_CACHE_MS || 45 * 60 * 1000);
+
+const BAD_STREAM_ERROR_PATTERN = /debrid_copyright_block|debrid_status_clip|debrid_nfo_sidecar|debrid_playback_unreadable/i;
+
+const badUntilByHash = new Map<string, number>();
+
+export function isBadStreamError(error: unknown): boolean {
+  if (typeof error !== 'string') {
+    return false;
+  }
+  return BAD_STREAM_ERROR_PATTERN.test(error);
+}
+
+export function markStreamUrlBad(urlHash: string, ttlMs = DEFAULT_TTL_MS): void {
+  if (!urlHash) {
+    return;
+  }
+  const ttl = Number.isFinite(ttlMs) && ttlMs > 0 ? ttlMs : DEFAULT_TTL_MS;
+  badUntilByHash.set(urlHash, Date.now() + ttl);
+}
+
+export function isStreamUrlBad(urlHash: string, nowMs = Date.now()): boolean {
+  if (!urlHash) {
+    return false;
+  }
+  const until = badUntilByHash.get(urlHash);
+  if (until === undefined) {
+    return false;
+  }
+  if (until <= nowMs) {
+    badUntilByHash.delete(urlHash);
+    return false;
+  }
+  return true;
+}
+
+/** Test / restart helper — clears the in-process map. */
+export function clearStreamBadCache(): void {
+  badUntilByHash.clear();
+}
+
+export function streamBadCacheSize(): number {
+  return badUntilByHash.size;
+}

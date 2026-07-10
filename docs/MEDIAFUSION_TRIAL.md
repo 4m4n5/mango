@@ -10,15 +10,32 @@
 > language coverage of an existing surface, not a new one. Cached-only is enforced at three layers so it
 > **cannot burn TorBox quota** during nightly grows. Fully reversible in ~2 minutes.
 
-## Current Pi status (HOLD)
+## Current Pi status (ENABLED — stream source only)
 
-Marketplace MediaFusion without a Share Manifest **URL Override** resolves to a broken
-default "MediaFusion P2P" endpoint (502 / 8s timeout on every couch resolve). Until a
-configured Share Manifest is pasted into AIOStreams, MediaFusion is **disabled** on the
-Pi so it cannot burn resolve budget. Comet remains the working secondary scraper.
+MediaFusion is **enabled as a third stream scraper** in AIOStreams alongside Torrentio and
+Comet. It is wired via a fully-configured **ElfHosted TRB+RD manifest** (RD + TorBox baked
+into the manifest), pasted into the AIOStreams MediaFusion preset's **URL (Override)** field
+(`options.url`). Because the override ends in `/manifest.json`, AIOStreams uses it as a
+self-contained external addon and does **not** inject its own userData — MediaFusion owns
+its own debrid creds. This avoids the old broken default "MediaFusion P2P" endpoint (502 /
+8s timeout) that forced the earlier HOLD.
 
-When re-enabling: set `useCachedResultsOnly: true`, paste the Share Manifest into
-**URL (Override)**, keep resources stream-only, then re-run the yield probe below.
+- **Manifest URL (secret — RD+TorBox embedded):** stored Pi-side at
+  `~/.config/mango/mediafusion.manifest` (mode 600). Never committed.
+- **Preset options:** `enabled: true`, `resources: ["stream"]`, `timeout: 8000`,
+  `useMultipleInstances: false`.
+- **Verified (couch path, catalog-service :3020):** contributes ~2 TorBox-cached 4K streams
+  per popular title alongside Comet + Torrentio, **zero MediaFusion errors** in AIO logs.
+
+**Catalogs: intentionally NOT wired.** This manifest exposes only 2 catalogs, both personal
+"RD Watchlist" (movie/series) — not thematic. Registering MediaFusion in mango's
+`stremio-export.json` would also add a redundant direct stream path (duplicate, non-deduped
+streams + extra debrid load), so catalogs are left out; the stream benefit comes entirely
+through AIOStreams' deduped/sorted output.
+
+To re-provision the manifest (rotate creds / change catalogs), update
+`~/.config/mango/mediafusion.manifest` then set the MediaFusion preset `options.url` via the
+AIOStreams API (Basic auth: `uuid:password`; password is the AES-decrypted URL token).
 
 ## Step 0 — Snapshot (reversibility anchor)
 On the Pi (read-only):

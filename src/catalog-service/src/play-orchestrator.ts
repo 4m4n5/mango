@@ -12,6 +12,7 @@ import {
 } from './play-ladder.js';
 import { assertPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import {
+  debridServiceId,
   parseDebridCacheStatus,
   streamMatchesVerifiedHint,
   streamUrlHash,
@@ -19,6 +20,11 @@ import {
   type VerifiedStreamHint,
   isPlausibleFeatureDuration,
 } from './stream-filters.js';
+import {
+  isBadStreamError,
+  isStreamUrlBad,
+  markStreamUrlBad,
+} from './stream-bad-cache.js';
 
 export type PlayOrchestratorConfig = StreamFilterConfig & { include_uncached: boolean };
 
@@ -95,9 +101,22 @@ function probeBudgetForCandidate(
 }
 
 function shouldSkipProbe(candidate: LadderCandidate): boolean {
+  // Never skip probe for debrid VOD — copyright / status-clip / NFO must be
+  // caught with vo=null before visible handoff. Uncached TorBox still probes
+  // with the longer uncached budget.
+  if (debridServiceId(candidate.stream)) {
+    return false;
+  }
   return candidate.ladder_step === '1080p_uncached'
     || candidate.ladder_step === '1080p_uncached_fallback'
     || parseDebridCacheStatus(candidate.stream) === 'uncached';
+}
+
+function rememberBadStream(url: string, error: unknown): void {
+  const cleaned = typeof error === 'string' ? error : cleanError(error);
+  if (isBadStreamError(cleaned)) {
+    markStreamUrlBad(streamUrlHash(url));
+  }
 }
 
 async function assertPlausibleFeatureProbe(options: {
@@ -168,6 +187,16 @@ export async function probeWithLadder(
   for (const [index, candidate] of candidates.entries()) {
     const remaining = deadline - Date.now();
     if (remaining < 500) break;
+    const urlHash = streamUrlHash(candidate.stream.url);
+    if (isStreamUrlBad(urlHash)) {
+      attempts.push({
+        ...attemptBase(index, candidate),
+        ok: false,
+        ms: 0,
+        error: 'stream_url_bad_cached',
+      });
+      continue;
+    }
     const attemptStarted = Date.now();
     const base = attemptBase(index, candidate);
     try {
@@ -195,6 +224,7 @@ export async function probeWithLadder(
         candidate_count: candidates.length,
       };
     } catch (error) {
+      rememberBadStream(candidate.stream.url, error);
       attempts.push({
         ...base,
         ok: false,
@@ -248,6 +278,16 @@ async function attemptCandidates(options: {
 
     const attemptStarted = Date.now();
     const base = attemptBase(index, candidate);
+    const urlHash = streamUrlHash(candidate.stream.url);
+    if (isStreamUrlBad(urlHash)) {
+      attempts.push({
+        ...base,
+        ok: false,
+        ms: 0,
+        error: 'stream_url_bad_cached',
+      });
+      continue;
+    }
     const reusableProbeMs = streamMatchesVerifiedHint(candidate.stream, options.verified_hint)
       && options.verified_hint?.win_ladder_step === candidate.ladder_step
       && options.verified_hint?.probe_ms
@@ -264,6 +304,7 @@ async function attemptCandidates(options: {
       // the *ladder step* played before, not that today's URL still serves
       // real video (e.g. TorBox can silently swap a cached slot to an .nfo
       // sidecar). Only the probe *measurement* is safe to skip on reuse.
+      // Real-Debrid (and all debrid) never skip probe — see shouldSkipProbe.
       const preflightBudget = Math.min(2500, remainingBeforeProbe);
       const sniff = await options.preflight(candidate.stream.url, preflightBudget);
       if (sniff === 'nfo') {
@@ -336,6 +377,7 @@ async function attemptCandidates(options: {
       if (error instanceof PlayCancelledError) {
         throw error;
       }
+      rememberBadStream(candidate.stream.url, error);
       attempts.push({
         ...base,
         ok: false,
