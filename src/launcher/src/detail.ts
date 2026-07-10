@@ -490,8 +490,20 @@ export class DetailController {
     if (!card) {
       return undefined;
     }
-    if (episodeId && this.seriesEpisodes?.resume?.episode_id === episodeId) {
-      return this.seriesEpisodes.resume.position_sec;
+    if (card.type === "series" && episodeId) {
+      // Per-episode resume only — never borrow another episode's timestamp.
+      if (this.seriesEpisodes?.resume?.episode_id === episodeId) {
+        const position = this.seriesEpisodes.resume.position_sec;
+        return typeof position === "number" && position > 0 ? position : undefined;
+      }
+      for (const block of this.seriesEpisodes?.seasons ?? []) {
+        const row = block.episodes.find((episode) => episode.id === episodeId);
+        if (row) {
+          const position = row.position_sec;
+          return typeof position === "number" && position > 0 ? position : undefined;
+        }
+      }
+      return undefined;
     }
     if (!episodeId || episodeId === card.playId) {
       return card.resumeSec;

@@ -125,7 +125,36 @@ test('applyEpisodeProgress marks saved episode row', () => {
   });
   const s2e1 = seasons[1]?.episodes[0];
   assert.equal(s2e1?.progress_pct, 1 / 3);
+  assert.equal(s2e1?.position_sec, 600);
   assert.equal(seasons[0]?.episodes[0]?.progress_pct, null);
+  assert.equal(seasons[0]?.episodes[0]?.position_sec, null);
+});
+
+test('applyEpisodeProgress prefers per-episode watch history over series resume', () => {
+  const { seasons } = normalizeSeriesEpisodes('tt12004706', PANCHAYAT_VIDEOS);
+  applyEpisodeProgress(
+    seasons,
+    {
+      progress_key: 'series:tt12004706',
+      type: 'series',
+      id: 'tt12004706',
+      play_id: 'tt12004706:2:1',
+      title: 'Panchayat',
+      poster: null,
+      position_sec: 900,
+      duration_sec: 1800,
+      progress_pct: 0.5,
+      updated_at: Date.now(),
+    },
+    new Map([
+      ['tt12004706:1:1', { position_sec: 120, duration_sec: 1800, progress_pct: 120 / 1800 }],
+      ['tt12004706:2:1', { position_sec: 900, duration_sec: 1800, progress_pct: 0.5 }],
+    ]),
+  );
+  assert.equal(seasons[0]?.episodes[0]?.position_sec, 120);
+  assert.equal(seasons[0]?.episodes[0]?.progress_pct, 120 / 1800);
+  assert.equal(seasons[1]?.episodes[0]?.position_sec, 900);
+  assert.equal(seasons[0]?.episodes[1]?.position_sec, null);
 });
 
 test('nextEpisodeId walks flat season order', () => {
@@ -175,7 +204,39 @@ test('resolveSeriesPlayTarget defaults bare id to S1E1 without progress', () => 
 test('resolveSeriesPlayTarget keeps explicit episode id', () => {
   const target = resolveSeriesPlayTarget('series', 'tt12004706:2:3', { saved: null });
   assert.equal(target.playId, 'tt12004706:2:3');
+  assert.equal(target.startSec, undefined);
   assert.equal(target.resolved_from, 'explicit');
+});
+
+test('resolveSeriesPlayTarget does not inherit series resume onto another episode', () => {
+  const saved = {
+    progress_key: 'series:tt12004706',
+    type: 'series',
+    id: 'tt12004706',
+    play_id: 'tt12004706:2:1',
+    title: 'Panchayat',
+    poster: null,
+    position_sec: 900,
+    duration_sec: 1800,
+    progress_pct: 0.5,
+    updated_at: Date.now(),
+  };
+  const target = resolveSeriesPlayTarget('series', 'tt12004706:1:2', { saved });
+  assert.equal(target.playId, 'tt12004706:1:2');
+  assert.equal(target.startSec, undefined);
+});
+
+test('resolveSeriesPlayTarget resumes explicit episode from its own history', () => {
+  const target = resolveSeriesPlayTarget('series', 'tt12004706:1:1', {
+    saved: null,
+    episodeSaved: {
+      play_id: 'tt12004706:1:1',
+      position_sec: 240,
+      duration_sec: 1800,
+    },
+  });
+  assert.equal(target.playId, 'tt12004706:1:1');
+  assert.equal(target.startSec, 240);
 });
 
 test('resolveSeriesPlayTarget leaves movies unchanged', () => {

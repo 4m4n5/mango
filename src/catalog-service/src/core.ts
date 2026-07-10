@@ -71,6 +71,7 @@ import { CONTINUE_RAIL_ID } from './progress/config.js';
 import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
 import {
   LIBRARY_SAVED_RAIL_ID,
+  listLatestEpisodeWatchProgress,
   listSavedLibraryItems,
   type SavedLibraryItem,
 } from './library/db.js';
@@ -1729,7 +1730,17 @@ export class CatalogCore {
     }
     const meta = await this.meta('series', normalizedBare);
     const saved = getWatchProgressForTitle('series', normalizedBare);
-    const response = await assembleSeriesEpisodes(normalizedBare, meta, saved);
+    const episodeProgress = new Map(
+      listLatestEpisodeWatchProgress(normalizedBare).map((row) => [
+        row.play_id,
+        {
+          position_sec: row.position_sec,
+          duration_sec: row.duration_sec,
+          progress_pct: row.progress_pct,
+        },
+      ]),
+    );
+    const response = await assembleSeriesEpisodes(normalizedBare, meta, saved, episodeProgress);
     const keys = response.seasons.flatMap((block) => block.episodes.map((row) => ({
       type: 'series',
       id: row.id,

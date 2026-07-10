@@ -5,9 +5,11 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import test from 'node:test';
 import {
+  getLatestEpisodeWatchProgress,
   getLibraryState,
   initLibraryDb,
   libraryItemKey,
+  listLatestEpisodeWatchProgress,
   listSavedLibraryItems,
   listLibraryFeedback,
   listWatchHistory,
@@ -187,6 +189,43 @@ test('watch history is indefinite and finished state uses 90 percent cutoff', ()
   assert.equal(state.finished, true);
   assert.equal(state.finished_at, 2000);
   assert.equal(state.latest_watch?.progress_pct, 0.9);
+}));
+
+test('listLatestEpisodeWatchProgress keeps one row per episode play_id', () => withTempLibrary(() => {
+  recordLibraryWatch({
+    type: 'series',
+    id: 'tt12004706',
+    play_id: 'tt12004706:1:1',
+    title: 'Panchayat',
+    position_sec: 100,
+    duration_sec: 1800,
+    watched_at: 1000,
+  });
+  recordLibraryWatch({
+    type: 'series',
+    id: 'tt12004706',
+    play_id: 'tt12004706:1:1',
+    title: 'Panchayat',
+    position_sec: 240,
+    duration_sec: 1800,
+    watched_at: 2000,
+  });
+  recordLibraryWatch({
+    type: 'series',
+    id: 'tt12004706',
+    play_id: 'tt12004706:1:2',
+    title: 'Panchayat',
+    position_sec: 60,
+    duration_sec: 1800,
+    watched_at: 3000,
+  });
+  const rows = listLatestEpisodeWatchProgress('tt12004706');
+  assert.equal(rows.length, 2);
+  const byId = new Map(rows.map((row) => [row.play_id, row]));
+  assert.equal(byId.get('tt12004706:1:1')?.position_sec, 240);
+  assert.equal(byId.get('tt12004706:1:2')?.position_sec, 60);
+  assert.equal(getLatestEpisodeWatchProgress('tt12004706', 'tt12004706:1:1')?.position_sec, 240);
+  assert.equal(getLatestEpisodeWatchProgress('tt12004706', 'tt12004706:2:9'), null);
 }));
 
 test('unique watch history returns latest row per source-aware item', () => withTempLibrary(() => {

@@ -17,7 +17,7 @@ import {
   startTriggerConsumerBackgroundTick,
 } from './playability/trigger-consumer.js';
 import { demoteVerifyIfDrifted, verifyTitle } from './playability/verify.js';
-import { isSeriesRailGateId, seriesBareId } from './playability/ids.js';
+import { isSeriesEpisodeId, isSeriesRailGateId, seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
 import {
   shouldConfirmPlayFailure,
@@ -29,6 +29,7 @@ import { deriveLibraryVerifyState } from './voice/external.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
 import {
   clearLibraryContext,
+  getLatestEpisodeWatchProgress,
   getLibraryContext,
   getLibraryState,
   initLibraryDb,
@@ -532,8 +533,15 @@ async function handlePlay(
     ? body.start_sec
     : undefined;
   const saved = getWatchProgressForTitle(body.type, body.id);
+  const bareSeriesId = body.type === 'series'
+    ? (seriesBareId(body.id) || body.id)
+    : null;
+  const episodeSaved = body.type === 'series' && isSeriesEpisodeId(body.id) && bareSeriesId
+    ? getLatestEpisodeWatchProgress(bareSeriesId, body.id)
+    : null;
   const playTarget = resolveSeriesPlayTarget(body.type, body.id, {
     saved,
+    episodeSaved,
     resume: body.resume,
     startSec,
   });

@@ -749,6 +749,69 @@ LIMIT @limit;
 `).all({ limit: Math.max(1, Math.min(500, limit)) }) as WatchHistoryRow[];
 }
 
+/** Latest watch_history row per episode play_id for a series (for per-episode resume). */
+export type EpisodeWatchProgress = {
+  play_id: string;
+  position_sec: number;
+  duration_sec: number;
+  progress_pct: number;
+  watched_at: number;
+};
+
+export function listLatestEpisodeWatchProgress(
+  seriesId: string,
+  options: { source?: string | null } = {},
+): EpisodeWatchProgress[] {
+  const db = ensureDb();
+  const itemKey = libraryItemKey(options.source ?? undefined, 'series', seriesId);
+  return db.prepare(`
+SELECT
+  wh.play_id,
+  wh.position_sec,
+  wh.duration_sec,
+  wh.progress_pct,
+  wh.watched_at
+FROM watch_history wh
+WHERE wh.item_key = @item_key
+  AND wh.play_id IS NOT NULL
+  AND wh.play_id != ''
+  AND NOT EXISTS (
+    SELECT 1
+    FROM watch_history newer
+    WHERE newer.item_key = wh.item_key
+      AND newer.play_id = wh.play_id
+      AND (
+        newer.watched_at > wh.watched_at
+        OR (newer.watched_at = wh.watched_at AND newer.history_id > wh.history_id)
+      )
+  )
+ORDER BY wh.watched_at DESC, wh.history_id DESC;
+`).all({ item_key: itemKey }) as EpisodeWatchProgress[];
+}
+
+export function getLatestEpisodeWatchProgress(
+  seriesId: string,
+  episodeId: string,
+  options: { source?: string | null } = {},
+): EpisodeWatchProgress | null {
+  const db = ensureDb();
+  const itemKey = libraryItemKey(options.source ?? undefined, 'series', seriesId);
+  const row = db.prepare(`
+SELECT
+  wh.play_id,
+  wh.position_sec,
+  wh.duration_sec,
+  wh.progress_pct,
+  wh.watched_at
+FROM watch_history wh
+WHERE wh.item_key = @item_key
+  AND wh.play_id = @play_id
+ORDER BY wh.watched_at DESC, wh.history_id DESC
+LIMIT 1;
+`).get({ item_key: itemKey, play_id: episodeId.trim() }) as EpisodeWatchProgress | undefined;
+  return row ?? null;
+}
+
 export function listUniqueWatchHistory(options: {
   source?: string | null;
   type?: string | null;

@@ -16,12 +16,18 @@ export type SeriesPlayTarget = {
   resolved_from: SeriesPlayResolveReason;
 };
 
-/** Map bare series ids to resume episode or S1E1; pass episode ids through. */
+/** Map bare series ids to resume episode or S1E1; pass episode ids through.
+
+ * Explicit episode ids never inherit another episode's timestamp. Per-episode
+ * resume comes from `episodeSaved` (watch history) or an explicit `startSec`.
+ * Bare series ids still resolve to the latest unfinished continue row.
+ */
 export function resolveSeriesPlayTarget(
   type: string,
   id: string,
   options: {
     saved?: WatchProgressRecord | null;
+    episodeSaved?: { play_id: string; position_sec: number; duration_sec: number } | null;
     resume?: boolean;
     startSec?: number;
   } = {},
@@ -37,8 +43,15 @@ export function resolveSeriesPlayTarget(
   const trimmed = id.trim();
   if (isSeriesEpisodeId(trimmed)) {
     let startSec = options.startSec;
-    if (options.resume && options.saved?.play_id === trimmed) {
-      startSec = startSec ?? options.saved.position_sec;
+    if (startSec === undefined) {
+      const episodeSaved = options.episodeSaved;
+      if (
+        episodeSaved
+        && episodeSaved.play_id === trimmed
+        && isContinueEligible(episodeSaved.position_sec, episodeSaved.duration_sec)
+      ) {
+        startSec = episodeSaved.position_sec;
+      }
     }
     return {
       playId: trimmed,

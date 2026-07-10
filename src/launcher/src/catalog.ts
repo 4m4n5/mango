@@ -133,6 +133,8 @@ export interface SeriesEpisodeRow {
   title: string;
   thumbnail?: string;
   progress_pct: number | null;
+  /** Resume position for this episode only (null/absent = start from beginning). */
+  position_sec?: number | null;
   playable?: boolean | null;
 }
 
@@ -530,7 +532,12 @@ export async function playCard(
   if (options.preferLadderStep) {
     body.prefer_ladder_step = options.preferLadderStep;
   }
-  const startSec = options.startSec ?? card.resumeSec;
+  // Series episode clicks must never inherit the series card's resume timestamp
+  // (that belongs to the latest unfinished episode only). Movies / bare-series
+  // play still fall back to card.resumeSec when startSec is omitted.
+  const startSec = options.episodeId
+    ? options.startSec
+    : (options.startSec ?? card.resumeSec);
   if (typeof startSec === 'number' && startSec > 0) {
     body.start_sec = startSec;
   }

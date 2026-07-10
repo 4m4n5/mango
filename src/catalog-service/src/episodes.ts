@@ -22,6 +22,8 @@ export type SeriesEpisodeRow = {
   title: string;
   thumbnail?: string;
   progress_pct: number | null;
+  /** Resume position for this episode only (null = start from beginning). */
+  position_sec: number | null;
   /** null = unknown until stream probe; true/false from playability index when known */
   playable: boolean | null;
 };
@@ -134,6 +136,7 @@ export function normalizeSeriesEpisodes(
       title: (video.title || video.name || `Episode ${episode}`).trim(),
       thumbnail: typeof video.thumbnail === 'string' ? video.thumbnail : undefined,
       progress_pct: null,
+      position_sec: null,
       playable: null,
     };
     if (isBonusBucketEpisode(video)) {
@@ -176,13 +179,21 @@ export function normalizeSeriesEpisodes(
 export function applyEpisodeProgress(
   seasons: SeriesSeasonBlock[],
   saved: WatchProgressRecord | null,
+  episodeProgress: ReadonlyMap<string, { position_sec: number; duration_sec: number; progress_pct: number }> = new Map(),
 ): void {
-  if (!saved?.play_id) {
-    return;
-  }
   for (const block of seasons) {
     for (const row of block.episodes) {
-      if (row.id === saved.play_id) {
+      const perEpisode = episodeProgress.get(row.id);
+      if (perEpisode) {
+        row.position_sec = perEpisode.position_sec;
+        row.progress_pct = perEpisode.progress_pct > 0
+          ? perEpisode.progress_pct
+          : progressPct(perEpisode.position_sec, perEpisode.duration_sec);
+        continue;
+      }
+      // Fallback: series-level continue row still paints the latest unfinished episode.
+      if (saved?.play_id && row.id === saved.play_id) {
+        row.position_sec = saved.position_sec;
         row.progress_pct = progressPct(saved.position_sec, saved.duration_sec);
       }
     }
@@ -264,10 +275,11 @@ export async function assembleSeriesEpisodes(
   bareId: string,
   meta: Meta,
   saved: WatchProgressRecord | null,
+  episodeProgress: ReadonlyMap<string, { position_sec: number; duration_sec: number; progress_pct: number }> = new Map(),
 ): Promise<SeriesEpisodesResponse> {
   const videos = Array.isArray(meta.videos) ? meta.videos as CinemetaVideo[] : [];
   const normalized = normalizeSeriesEpisodes(bareId, videos);
-  applyEpisodeProgress(normalized.seasons, saved);
+  applyEpisodeProgress(normalized.seasons, saved, episodeProgress);
   return buildSeriesEpisodesResponse(
     bareId,
     meta,
