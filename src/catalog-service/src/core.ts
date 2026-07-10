@@ -64,6 +64,7 @@ import {
   couchSafeCatalogMessage,
   isAddonRateLimitMessage,
   isBlockedCatalogMeta,
+  isRateLimitedStreamUrl,
 } from './catalog-errors.js';
 import { classifyPlayError } from './play-error-classify.js';
 import { resolvePosterFromMeta, metahubPosterUrl, normalizePosterUrl } from './poster.js';
@@ -368,9 +369,13 @@ const STREAM_ZERO_RETRY_DELAY_MS = boundedInt(
   10000,
 );
 /** After a stream-addon 429 / rate-limit placeholder, skip re-hitting AIO for this long.
- *  Couch play/detail bypass this; grow/verify still respect it. Default 90s (was 5m). */
+ *  Background verify/grow always respect this. Couch respects a shorter soft window (below). */
 const STREAM_RATE_LIMIT_BACKOFF_MS = Number(
   process.env.MANGO_STREAM_RATE_LIMIT_BACKOFF_MS || 90 * 1000,
+);
+/** Couch soft backoff for confirmed rate-limit only (D3B). Miss still bypasses. */
+const STREAM_USER_RATE_LIMIT_BACKOFF_MS = Number(
+  process.env.MANGO_STREAM_USER_RATE_LIMIT_BACKOFF_MS || 20 * 1000,
 );
 /** Couch play never scrapes sibling episodes for title-fallback (Torrentio 429s).
  *  Season-0 bonus still always runs bonusIndexerProbeIds (S0→S{N} same-episode alias). */
@@ -701,7 +706,7 @@ function streamResolveInfoOnly(error: string): boolean {
 }
 
 const LEGACY_STREAM_RESOLVE_INFRA_RE =
-  /rate[-\s]*limit|too many requests|429|timeout|abort|HTTP 5\d\d|fetch failed|ECONN|socket|public-rate-limit|rate-limit-exceeded/i;
+  /rate[-\s]*limit|too many requests|HTTP\s*429|\b429\b[^\n]{0,40}(?:too many|rate|request|limit)|(?:too many|rate[-\s]*limit)[^\n]{0,40}\b429\b|timeout|abort|HTTP 5\d\d|fetch failed|ECONN|socket|public-rate-limit|rate-limit-exceeded/i;
 
 /**
  * True when resolve notes indicate addon/infra failure (rate-limit, 5xx, timeout)
@@ -736,7 +741,11 @@ function errorPlaceholderCouchMessage(streams: Stream[]): string {
   const text = streams.map((stream) => (
     `${stream.title || ''} ${stream.name || ''} ${stream.description || ''} ${stream.url || ''}`
   )).join(' ');
-  return couchSafeCatalogMessage(text || 'HTTP 502');
+  if (classifyPlayError(text) === 'rate_limited' || streams.some((s) => isRateLimitedStreamUrl(s.url || ''))) {
+    return couchSafeCatalogMessage(text || 'HTTP 429');
+  }
+  // D1A: non-rate-limit placeholders / unusable rows → honest empty, not "busy".
+  return 'no streams found for this title';
 }
 
 export class CatalogCore {
@@ -751,7 +760,11 @@ export class CatalogCore {
    * Short TTL after empty / error-only stream resolves — dampens tap-to-retry storms.
    * Value is expiry ms; reason distinguishes miss vs rate-limit for couch messaging.
    */
-  private readonly streamNegativeCache = new Map<string, { until: number; reason: 'miss' | 'rate_limited' }>();
+  private readonly streamNegativeCache = new Map<string, {
+    until: number;
+    userUntil: number;
+    reason: 'miss' | 'rate_limited';
+  }>();
   /**
    * Single-flight guard: coalesces concurrent identical stream resolves (same
    * type:id) into one in-flight AIO fan-out. Without this, overlapping callers
@@ -1969,6 +1982,8 @@ export class CatalogCore {
         hard_language: config.hard_language,
         max_candidates: config.stream_display_limit,
         include_uncached: config.include_uncached,
+        main_ladder: config.main_ladder,
+        last_resort_ladder: config.last_resort_ladder,
       },
     );
 
@@ -1994,7 +2009,7 @@ export class CatalogCore {
       };
     }
 
-    const fromFloor = source === 'obligation_floor';
+    const fromFloor = source === 'obligation_floor' || source === 'last_resort';
     const streams = candidates.map((candidate) => {
       const unverified = fromFloor || !isVerifiedDisplayStep(candidate.ladder_step);
       return {
@@ -2004,7 +2019,7 @@ export class CatalogCore {
         ...(unverified
           ? {
             unverified: true,
-            play_ladder_step: fromFloor ? OBLIGATION_FLOOR_STEP : candidate.ladder_step,
+            play_ladder_step: source === 'obligation_floor' ? OBLIGATION_FLOOR_STEP : candidate.ladder_step,
           }
           : {}),
       };
@@ -2013,7 +2028,7 @@ export class CatalogCore {
       applied: config,
       total: raw.streams.length,
       kept: candidates.length,
-      play_ladder_step: fromFloor ? OBLIGATION_FLOOR_STEP : 'preview',
+      play_ladder_step: source === 'obligation_floor' ? OBLIGATION_FLOOR_STEP : 'preview',
       play_ladder_preview: !fromFloor,
       obligation_floor_preview: fromFloor || undefined,
       excluded: {
@@ -2433,8 +2448,16 @@ export class CatalogCore {
 
     const negative = this.streamNegativeCache.get(key);
     if (negative && negative.until > Date.now()) {
-      // user = couch play / detail list: bypass miss + rate_limit; background/unset respects cache
+      // user = couch play / detail: bypass miss; soft-respect confirmed rate_limit (D3B)
       if (options.requestClass === 'user') {
+        if (negative.reason === 'rate_limited' && negative.userUntil > Date.now()) {
+          return {
+            streams: [],
+            notes: [resolveNote('infra', 'stream resolve skipped — recent rate-limit (retry shortly)')],
+            resolveMs: 0,
+            cached: true,
+          };
+        }
         this.streamNegativeCache.delete(key);
       } else {
         const skipNote = negative.reason === 'rate_limited'
@@ -2550,19 +2573,23 @@ export class CatalogCore {
         expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
       });
     } else if (streams.length > 0) {
-      // Rate-limit / error placeholders — longer backoff so we don't re-hammer AIO.
+      // Rate-limit placeholders / infra notes → rate_limited backoff; other junk → miss.
       const rateLimited = hasStreamResolveInfrastructureErrors(notes)
-        || streamsAreOnlyErrorPlaceholders(streams);
+        || streams.some((stream) => isRateLimitedStreamUrl(stream.url || ''));
+      const now = Date.now();
       this.streamNegativeCache.set(key, {
-        until: Date.now() + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
+        until: now + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
+        userUntil: now + (rateLimited ? STREAM_USER_RATE_LIMIT_BACKOFF_MS : 0),
         reason: rateLimited ? 'rate_limited' : 'miss',
       });
     } else {
       // True empty (or upstream 429 swallowed as []). Prefer longer backoff when
       // errors look like rate-limit / infra; otherwise short miss dampening.
       const rateLimited = hasStreamResolveInfrastructureErrors(notes);
+      const now = Date.now();
       this.streamNegativeCache.set(key, {
-        until: Date.now() + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
+        until: now + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
+        userUntil: now + (rateLimited ? STREAM_USER_RATE_LIMIT_BACKOFF_MS : 0),
         reason: rateLimited ? 'rate_limited' : 'miss',
       });
     }

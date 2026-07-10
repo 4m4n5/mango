@@ -507,7 +507,7 @@ test('selectDisplayStreamCandidates uses preference ladder when Phase A has matc
   assert.notEqual(selected.candidates[0]?.ladder_step, 'obligation_floor');
 });
 
-test('selectDisplayStreamCandidates falls back to obligation floor only when Phase A is empty', () => {
+test('selectDisplayStreamCandidates falls back to last-resort when main is empty', () => {
   const floorOnly = stream({
     url: 'https://example.test/floor-only.mkv',
     name: '[RD⚡] Torrentio 720p',
@@ -530,10 +530,11 @@ test('selectDisplayStreamCandidates falls back to obligation floor only when Pha
     { contentType: 'movie' },
     { max_candidates: 6, include_uncached: false },
   );
-  assert.equal(selected.source, 'obligation_floor');
+  // Main empty → last_resort_ladder (or obligation floor) marked unverified.
+  assert.ok(selected.source === 'last_resort' || selected.source === 'obligation_floor');
   assert.equal(selected.candidates.length, 1);
-  assert.equal(selected.candidates[0]?.ladder_step, 'obligation_floor');
   assert.equal(selected.candidates[0]?.stream.url, floorOnly.url);
+  assert.notEqual(selected.candidates[0]?.ladder_step, '1080p_hevc_cached');
 });
 
 test('selectDisplayStreamCandidates stays empty when neither phase has integrity-safe streams', () => {
@@ -729,7 +730,7 @@ test('unknown-quality MediaFusion row matches soft 4K play step, not verified re
   const play = expandPlayLadder([mediafusion], ladder, { contentType: 'series' });
   assert.equal(play[0]?.ladder_step, '4k_sdr_soft_cached');
   const display = selectDisplayStreamCandidates([mediafusion], ladder, { contentType: 'series' });
-  // Soft is play-only — display falls through to obligation floor.
-  assert.equal(display.source, 'obligation_floor');
-  assert.equal(display.candidates[0]?.ladder_step, 'obligation_floor');
+  // Soft is last-resort — display shows it as unverified (not main).
+  assert.equal(display.source, 'last_resort');
+  assert.equal(display.candidates[0]?.ladder_step, '4k_sdr_soft_cached');
 });

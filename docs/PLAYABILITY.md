@@ -37,29 +37,39 @@ The grow system is implemented as a best-effort, couch-silent maintenance workfl
 
 ## Couch play-first policy
 
-Couch `POST /play` prefers quality, then **plays any integrity-safe stream** before erroring. Browse rails, grow ingest, and background verify still use the preference ladder only — the obligation floor is **play-path only**.
+Couch `POST /play` uses **two ladders** and three modes:
 
-| Phase | Behavior |
-|-------|----------|
-| **A — Preference ladder** | Full `play_ladder` (verified + play-only steps). Wall budget reserves `MANGO_PLAY_OBLIGATION_MIN_MS` (default 20s) for Phase B |
-| **B — Obligation floor** | After Phase A exhausts: remaining integrity-safe streams not yet attempted. Cap: `MANGO_PLAY_OBLIGATION_MAX_ATTEMPTS` (default 6), within remaining `auto_play_wall_ms` |
+| Ladder | Role |
+|--------|------|
+| **`main_ladder`** | Smooth cached streams (4K HEVC SDR + ≤1080p). Grow/verify + Play priority. Only these write `verified`. |
+| **`last_resort_ladder`** | Soft 4K / uncached / catch-all. Play fallback + unverified side-list when main empty. Never verifies into library. |
+
+| Mode | Entry | Candidates | Library write |
+|------|-------|------------|---------------|
+| **auto** | Play button | main → last-resort → obligation floor | verified only if win ∈ main; else **stale** (`last_resort_play`) |
+| **picker** | Side-list click | exactly one stream | never; fail hides ~30 min by fingerprint |
+| **verify** | grow / `probeWithLadder` | **main only** | verified only on main win |
+
+Legacy single `play_ladder` configs are split by `verified` / display membership on load.
 
 **Smoothness-first ranking (cross-resolution owned by ladder step order):** Prefer HW-smooth streams over marginal soft-decode 4K. The `4k-hifi` profile order is:
 
-1. `4k_sdr_remux_cached` / `4k_sdr_cached` — 4K HEVC cached (verified display)
-2. `1080p_hevc_cached` / `1080p_cached_fallback` — smooth ≤1080p (verified display; 720p included via max_quality)
-3. `4k_sdr_soft_cached` — soft 4K AV1/H.264 (play-only; never verified in the side-list)
-4. `1080p_uncached_fallback` — play-only
-5. `last_resort` — HDR / any-codec catch-all (play-only; never verified display)
-6. Phase B `obligation_floor` — display only when the verified set is empty
+1. `4k_sdr_remux_cached` / `4k_sdr_cached` — 4K HEVC cached (**main**)
+2. `1080p_hevc_cached` / `1080p_cached_fallback` — smooth ≤1080p (**main**)
+3. `4k_sdr_soft_cached` — soft 4K AV1/H.264 (**last-resort**)
+4. `1080p_uncached_fallback` — uncached TorBox (**last-resort**)
+5. `last_resort` — HDR / any-codec catch-all (**last-resort**)
+6. Obligation floor — integrity-safe remainder after last-resort exhaustion
 
-*Within* a resolution, `streamHardwareDecodeSmooth()` (Pi 5: HEVC any-res, else non-HEVC ≤1080p) floats the smooth stream to the top. Nothing is excluded from play — a lone soft/unsupported stream still plays. Override the decode profile per box: `MANGO_HW_DECODE_CODECS` (default `hevc`), `MANGO_HW_SOFT_MAX_QUALITY` (default `1080p`).
+*Within* a resolution, `streamHardwareDecodeSmooth()` (Pi 5: HEVC any-res, else non-HEVC ≤1080p) floats the smooth stream to the top. Nothing is excluded from play — a lone soft/unsupported stream still plays on last-resort. Override the decode profile per box: `MANGO_HW_DECODE_CODECS` (default `hevc`), `MANGO_HW_SOFT_MAX_QUALITY` (default `1080p`).
 
-**Display vs play:** `GET /stream` expands **verified** ladder steps only. Soft 4K, uncached, and `last_resort` stay on the play path. Obligation-floor rows appear in the side-list only when no verified matches exist, and are always marked `unverified`.
+**Display vs play:** `GET /stream` expands **main** first. If empty, expands last-resort (and obligation floor) marked `unverified`.
 
 **Debrid garbage safety (play path):** Prefer TorBox on same-hash ties (AIO dedup + service sort). Keep RD for unique cached releases (ladder steps admit both services; uncached RD stays excluded upstream). Error taxonomy lives in `play-error-classify.ts`: **garbage** (`debrid_copyright_block`, `debrid_status_clip`, `debrid_nfo_sidecar`) is session-blacklisted by `streamUrlHash` (~45 min) and counts toward play-failure demotion; **transient** (`debrid_playback_unreadable`, timeouts, network) is retryable and not bad-cached. Preflight is an NFO-only hard gate — sniff `error`/`timeout` still proceed to mpv probe. Debrid VOD always probes with `vo=null` before visible handoff. Couch errors map garbage failures to generic “streams are still preparing” copy — never surface “copyright infringement”.
 
-**Resolve request class:** Couch play and `GET /stream` use `requestClass: 'user'` (bypass title negative cache). Background verify/grow use `requestClass: 'background'` (respect miss + rate-limit negative cache).
+**Rate-limit honesty:** Bare `429` digits in opaque debrid/MediaFusion URL tokens are **not** rate-limits. Path markers (`rate-limit-exceeded`, `public-rate-limit`) and status-line `HTTP 429` / “too many requests” are. Couch `requestClass: 'user'` bypasses miss negative-cache but soft-respects confirmed rate-limit (~20s, `MANGO_STREAM_USER_RATE_LIMIT_BACKOFF_MS`). Background keeps ~90s backoff.
+
+**Resolve request class:** Couch play and `GET /stream` use `requestClass: 'user'`. Background verify/grow use `requestClass: 'background'`.
 
 | **Inline reverify** | On zero-stream resolve (or playing a `failed`/`stale`/`play_miss` title): one `forceReprobe` verify + relaxed resolve before giving up |
 
@@ -68,7 +78,8 @@ Couch `POST /play` prefers quality, then **plays any integrity-safe stream** bef
 | Couch outcome | DB effect |
 |---------------|-----------|
 | Transient / zero-stream / opaque mpv | Enqueue `play_failure_reverify` only — no status change |
-| First obligation-floor exhaustion | `demoteTitle(play_miss)` → `stale`, **keep `rail_pool`**, preserve session |
+| Last-resort / floor Play success | `demoteTitle(last_resort_play)` → `stale`, **keep `rail_pool`** |
+| First obligation-floor exhaustion (play fail) | `demoteTitle(play_miss)` → `stale`, **keep `rail_pool`**, preserve session |
 | Second exhaustion within 24h after `play_miss` | `invalidateTitle(play_failure)` → `failed`, purge pools, reshuffle session |
 
 Recovery: inline reverify on play, targeted `drainTriggersForTitle`, nightly stale reverify + grow. Background verify must not overwrite a couch `play_miss` demotion with `failed` unless `forceReprobe`.

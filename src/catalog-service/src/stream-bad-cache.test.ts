@@ -9,19 +9,26 @@ import {
   streamBadCacheSize,
 } from './stream-bad-cache.js';
 import { playWithLadder } from './play-orchestrator.js';
-import { defaultPlayLadder } from './play-ladder.js';
+import { defaultPlayLadder, splitLegacyPlayLadder } from './play-ladder.js';
 import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
 import type { Stream } from './core.js';
 
-function testConfig() {
+function testConfig(overrides: Record<string, unknown> = {}) {
+  const play_ladder = (overrides.play_ladder as ReturnType<typeof defaultPlayLadder>)
+    ?? defaultPlayLadder();
+  const split = splitLegacyPlayLadder(play_ladder);
   return mergeFilterConfig({
     ...defaultFilterConfig(),
     strict_unknown_cache: false,
-    play_ladder: defaultPlayLadder(),
     auto_play_wall_ms: 90000,
     auto_play_probe_ms: 8000,
     auto_play_max_attempts: 12,
     stream_display_limit: 8,
+    ...overrides,
+    play_ladder,
+    main_ladder: (overrides.main_ladder as typeof split.main_ladder) ?? split.main_ladder,
+    last_resort_ladder: (overrides.last_resort_ladder as typeof split.last_resort_ladder)
+      ?? split.last_resort_ladder,
   });
 }
 

@@ -6,6 +6,7 @@ import {
   isBlockedCatalogMeta,
   isBlockedCatalogText,
   isAddonRateLimitMessage,
+  isRateLimitedStreamUrl,
 } from './catalog-errors.js';
 
 test('isBlockedCatalogText catches rate-limit copy', () => {
@@ -31,6 +32,16 @@ test('isBlockedCatalogMeta rejects error metas', () => {
 test('isAddonRateLimitMessage still matches HTTP-style errors', () => {
   assert.equal(isAddonRateLimitMessage('HTTP 429'), true);
   assert.equal(isAddonRateLimitMessage('catalog ok'), false);
+});
+
+test('isRateLimitedStreamUrl ignores opaque tokens containing 429 digits', () => {
+  assert.equal(isRateLimitedStreamUrl('https://aio.example/rate-limit-exceeded'), true);
+  assert.equal(
+    isRateLimitedStreamUrl(
+      'https://mediafusion.example/streaming_provider/D-abcRL429w3jsewvts/playback/file.mp4',
+    ),
+    false,
+  );
 });
 
 test('couchPlayFailureMessage differentiates debrid transient and exhausted cases', () => {

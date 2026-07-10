@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test, { beforeEach } from 'node:test';
 import type { Stream } from './core.js';
 import { playWithLadder, probeWithLadder } from './play-orchestrator.js';
-import { defaultPlayLadder } from './play-ladder.js';
+import { defaultPlayLadder, splitLegacyPlayLadder } from './play-ladder.js';
 import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
 import { clearStreamBadCache, isStreamUrlBad } from './stream-bad-cache.js';
 
@@ -10,15 +10,22 @@ beforeEach(() => {
   clearStreamBadCache();
 });
 
-function testConfig() {
+function testConfig(overrides: Record<string, unknown> = {}) {
+  const play_ladder = (overrides.play_ladder as ReturnType<typeof defaultPlayLadder>)
+    ?? defaultPlayLadder();
+  const split = splitLegacyPlayLadder(play_ladder);
   return mergeFilterConfig({
     ...defaultFilterConfig(),
     strict_unknown_cache: false,
-    play_ladder: defaultPlayLadder(),
     auto_play_wall_ms: 90000,
     auto_play_probe_ms: 8000,
     auto_play_max_attempts: 12,
     stream_display_limit: 8,
+    ...overrides,
+    play_ladder,
+    main_ladder: (overrides.main_ladder as typeof split.main_ladder) ?? split.main_ladder,
+    last_resort_ladder: (overrides.last_resort_ladder as typeof split.last_resort_ladder)
+      ?? split.last_resort_ladder,
   });
 }
 
@@ -199,19 +206,24 @@ test('probeWithLadder can reject uncached fallback for durable verification', as
 
 /** Narrow Phase A: cached TorBox only — RD/uncached streams fall to obligation floor. */
 function preferenceOnlyConfig() {
+  const play_ladder = [
+    {
+      step: 'ideal',
+      max_quality: '1080p' as const,
+      exclude_remux: true,
+      require_cache: 'cached' as const,
+      debrid_services: ['torbox'],
+      addons: ['AIOStreams'],
+    },
+  ];
+  const split = splitLegacyPlayLadder(play_ladder);
+  // Empty last-resort so auto mode reaches obligation floor for RD/uncached.
   return mergeFilterConfig({
     ...defaultFilterConfig(),
     strict_unknown_cache: true,
-    play_ladder: [
-      {
-        step: 'ideal',
-        max_quality: '1080p',
-        exclude_remux: true,
-        require_cache: 'cached',
-        debrid_services: ['torbox'],
-        addons: ['AIOStreams'],
-      },
-    ],
+    play_ladder,
+    main_ladder: split.main_ladder,
+    last_resort_ladder: [],
     auto_play_wall_ms: 90000,
     auto_play_probe_ms: 8000,
     auto_play_max_attempts: 4,

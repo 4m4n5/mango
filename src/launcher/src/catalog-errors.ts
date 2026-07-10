@@ -1,6 +1,8 @@
 /** Couch-safe catalog copy for launcher — mirrors catalog-service policy. */
 
-const RATE_LIMIT_RE = /rate\s*limit|too many requests|429/i;
+const RATE_LIMIT_RE =
+  /rate\s*limit|too many requests|ratelimit_error|please wait|http\s*429|\b429\b[^\n]{0,40}(?:too many|rate|request|limit)|(?:too many|rate\s*limit)[^\n]{0,40}\b429\b/i;
+const RATE_LIMIT_URL_RE = /rate-limit-exceeded|public-rate-limit/i;
 const RAW_INFRA_RE = /HTTP\s*[45]\d\d|fetch failed|ECONN|socket|AIOStreams:|Cinemeta:/i;
 
 /**
@@ -9,7 +11,7 @@ const RAW_INFRA_RE = /HTTP\s*[45]\d\d|fetch failed|ECONN|socket|AIOStreams:|Cine
  */
 export function couchSafeCatalogMessage(message: string): string {
   const lower = message.toLowerCase();
-  if (RATE_LIMIT_RE.test(lower)) {
+  if (RATE_LIMIT_URL_RE.test(lower) || RATE_LIMIT_RE.test(lower)) {
     return 'catalog is busy — try again in a moment';
   }
   if (lower.includes('youtube')) {

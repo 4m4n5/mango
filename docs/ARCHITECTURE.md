@@ -24,7 +24,7 @@ Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
 | **mpv** | Decode + render | Catalog metadata |
 | **orchestrator** | STT · LLM · launcher dispatch | Catalog data · mpv IPC |
 
-**Rule:** Push dedup, junk keywords, debrid order, and row limits **upstream** into AIOStreams. Keep probe-time policy, lab quality cap, and the `play_ladder` preference ladder in **catalog-service**.
+**Rule:** Push dedup, junk keywords, debrid order, and row limits **upstream** into AIOStreams. Keep probe-time policy, lab quality cap, and the `main_ladder` / `last_resort_ladder` preference ladders in **catalog-service**.
 
 ### Couch activity and maintenance boundary
 
@@ -258,7 +258,7 @@ Fallback env: `MANGO_FALLBACK_STREMIO=1` · `MANGO_LEGACY_YOUTUBE=1`
 
 Enriched fields: `display_label`, `release_group`, `encode`, `size_gb`, `languages`, `debrid_service`, `cache_status`.
 
-`POST /play` — two-phase orchestrator: preference ladder (Phase A), then integrity-only obligation floor (Phase B); optional `{ url }` from picker. See [PLAYABILITY.md](PLAYABILITY.md) play-first policy.
+`POST /play` — modes `auto` (main → last-resort → obligation floor), `picker` (single stream), `verify` (main only). See [PLAYABILITY.md](PLAYABILITY.md) play-first policy.
 
 ## Library API
 

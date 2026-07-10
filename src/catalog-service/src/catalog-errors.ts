@@ -3,6 +3,7 @@
 import {
   classifyPlayError,
   garbageKind,
+  isRateLimitPlaceholderUrl,
 } from './play-error-classify.js';
 
 /** True when addon text must never appear as a browse title or description. */
@@ -36,7 +37,8 @@ export function isAddonRateLimitMessage(message: string): boolean {
 
 /** AIOStreams may return this placeholder URL when upstream APIs are throttled. */
 export function isRateLimitedStreamUrl(url: string): boolean {
-  return classifyPlayError(url) === 'rate_limited';
+  // Path markers only — never classify opaque debrid tokens that happen to contain "429".
+  return isRateLimitPlaceholderUrl(url);
 }
 
 type CouchPlayFailureAttempt = {

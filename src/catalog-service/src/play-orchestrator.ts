@@ -5,8 +5,11 @@ import {
   couchStatusForLadderStep,
   expandObligationFloor,
   expandPlayLadder,
-  injectPreferredPlayCandidate,
+  isMainLadderStep,
   playObligationMaxAttempts,
+  singlePickerCandidate,
+  splitLegacyPlayLadder,
+  streamReleaseFingerprint,
   type LadderCandidate,
   type PlayLadderStep,
 } from './play-ladder.js';
@@ -28,6 +31,9 @@ import {
 } from './stream-bad-cache.js';
 
 export type PlayOrchestratorConfig = StreamFilterConfig & { include_uncached: boolean };
+
+/** Couch play entry modes — candidate set + post-success policy differ. */
+export type PlayMode = 'auto' | 'picker' | 'verify';
 
 export type PlayAttempt = {
   index: number;
@@ -55,8 +61,12 @@ export type PlayOrchestratorResult = {
   candidate_count: number;
   win_ladder_step: string;
   win_url_hash: string;
+  /** True when win step is on main_ladder (eligible for verified library write). */
+  win_on_main: boolean;
   /** True when Phase B (obligation floor) ran after preference ladder exhaustion. */
   obligation_floor_ran?: boolean;
+  /** Picker mode: fingerprint to hide on failure. */
+  picker_fingerprint?: string;
 };
 
 function streamMeta(stream: Stream, ladderStep: string): Record<string, unknown> {
@@ -115,11 +125,24 @@ function shouldSkipProbe(candidate: LadderCandidate): boolean {
     || parseDebridCacheStatus(candidate.stream) === 'uncached';
 }
 
-function rememberBadStream(url: string, error: unknown): void {
+function rememberBadStream(stream: Stream, error: unknown, fingerprint?: string): void {
   const cleaned = typeof error === 'string' ? error : cleanError(error);
-  if (isBadStreamError(cleaned)) {
-    markStreamUrlBad(streamUrlHash(url));
+  if (isBadStreamError(cleaned) || fingerprint) {
+    const key = fingerprint || streamUrlHash(stream.url);
+    // Picker hard-fail: ~30 min hide; garbage: default bad-cache TTL.
+    const ttl = fingerprint
+      ? Number(process.env.MANGO_PICKER_HIDE_MS || 30 * 60 * 1000)
+      : undefined;
+    markStreamUrlBad(key, ttl);
+    if (fingerprint) {
+      markStreamUrlBad(streamUrlHash(stream.url), ttl);
+    }
   }
+}
+
+function candidateIsBad(candidate: LadderCandidate): boolean {
+  if (isStreamUrlBad(streamUrlHash(candidate.stream.url))) return true;
+  return isStreamUrlBad(streamReleaseFingerprint(candidate.stream));
 }
 
 /** Reserve wall budget so Phase B obligation floor is not starved by Phase A. */
@@ -324,6 +347,7 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
         candidate_count: options.candidateCount,
         win_ladder_step: candidate.ladder_step,
         win_url_hash: streamUrlHash(candidate.stream.url),
+        win_on_main: false,
         ...(options.obligationFloorRan ? { obligation_floor_ran: true } : {}),
       },
     };
@@ -372,7 +396,7 @@ export async function probeWithLadder(
   attempts: PlayAttempt[];
   candidate_count: number;
 }> {
-  const ladder = options.ladder ?? config.play_ladder;
+  const ladder = options.ladder ?? config.main_ladder ?? config.play_ladder;
   const probe = options.probe ?? probeUrl;
   const preflight = options.preflight ?? preflightPlaybackUrl;
   const candidates = expandPlayLadder(streams, ladder, options.filterContext ?? {
@@ -395,8 +419,7 @@ export async function probeWithLadder(
   for (const [index, candidate] of candidates.entries()) {
     const remaining = deadline - Date.now();
     if (remaining < 500) break;
-    const urlHash = streamUrlHash(candidate.stream.url);
-    if (isStreamUrlBad(urlHash)) {
+    if (candidateIsBad(candidate)) {
       attempts.push({
         ...attemptBase(index, candidate),
         ok: false,
@@ -431,7 +454,7 @@ export async function probeWithLadder(
       };
     }
     if (one.kind === 'failure') {
-      rememberBadStream(candidate.stream.url, one.error);
+      rememberBadStream(candidate.stream, one.error);
       attempts.push(one.attempt);
     }
   }
@@ -460,6 +483,8 @@ async function attemptCandidates(options: {
   startSec?: number;
   minDurationSec: number;
   obligationFloorRan?: boolean;
+  /** When set, any failure bad-caches this fingerprint (picker hard-fail). */
+  pickerFingerprint?: string;
 }): Promise<AttemptLoopResult> {
   const attempts: PlayAttempt[] = [];
   let lastStep = '';
@@ -475,8 +500,7 @@ async function attemptCandidates(options: {
       break;
     }
 
-    const urlHash = streamUrlHash(candidate.stream.url);
-    if (isStreamUrlBad(urlHash)) {
+    if (candidateIsBad(candidate)) {
       attempts.push({
         ...attemptBase(index, candidate),
         ok: false,
@@ -528,7 +552,7 @@ async function attemptCandidates(options: {
       isLast
       && isTransientPlayError(cleaned)
       && remainingForRetry > 1500
-      && !isStreamUrlBad(urlHash)
+      && !candidateIsBad(candidate)
     ) {
       attempts.push(one.attempt);
       const retry = await attemptOne({ ...sharedOne, retryPass: true });
@@ -542,13 +566,13 @@ async function attemptCandidates(options: {
         };
       }
       if (retry.kind === 'failure') {
-        rememberBadStream(candidate.stream.url, retry.error);
+        rememberBadStream(candidate.stream, retry.error, options.pickerFingerprint);
         attempts.push(retry.attempt);
       }
       continue;
     }
 
-    rememberBadStream(candidate.stream.url, cleaned);
+    rememberBadStream(candidate.stream, cleaned, options.pickerFingerprint);
     attempts.push(one.attempt);
   }
 
@@ -556,13 +580,16 @@ async function attemptCandidates(options: {
 }
 
 /**
- * Couch play: Phase A preference ladder, then Phase B obligation floor
- * (integrity-safe streams, any quality/cache) before returning no_playable_stream.
+ * Couch play modes:
+ * - auto: main_ladder then last_resort_ladder (+ obligation floor)
+ * - picker: exactly one preferred stream (no fallthrough)
+ * - verify: main_ladder only (via probeWithLadder)
  */
 export async function playWithLadder(
   streams: Stream[],
   config: PlayOrchestratorConfig,
   options: {
+    mode?: PlayMode;
     ladder?: PlayLadderStep[];
     contentType?: string;
     filterContext?: import('./stream-filters.js').StreamFilterContext;
@@ -581,34 +608,22 @@ export async function playWithLadder(
   const probe = options.probe ?? probeUrl;
   const play = options.play ?? playUrl;
   const preflight = options.preflight ?? preflightPlaybackUrl;
-  const ladder = options.ladder ?? config.play_ladder;
+  const mode: PlayMode = options.mode
+    ?? (options.preferUrl ? 'picker' : 'auto');
+  const mainLadder = config.main_ladder ?? config.play_ladder;
+  const lastResortLadder = config.last_resort_ladder ?? [];
   const deadline = started + wallMs;
   const obligationReserve = playObligationReserveMs();
-  const phaseADeadline = Math.max(
+  const mainDeadline = Math.max(
     started + 500,
     deadline - obligationReserve,
   );
   const preferLadderStep = options.verified_hint?.win_ladder_step ?? null;
   const filterContext = options.filterContext ?? { contentType: options.contentType };
-  const phaseA = injectPreferredPlayCandidate(
-    streams,
-    expandPlayLadder(streams, ladder, filterContext, {
-      strict_unknown_cache: config.strict_unknown_cache,
-      preferred_quality: config.preferred_quality,
-      preferred_hdr_tags: config.preferred_hdr_tags,
-      preferred_video_codecs: config.preferred_video_codecs,
-      verified_hint: options.verified_hint,
-      max_candidates: config.auto_play_max_attempts,
-      prefer_ladder_step: preferLadderStep,
-    }),
-    options.preferUrl,
-    preferLadderStep,
-  );
   const minDurationSec = 600;
   const shared = {
     config,
     started,
-    deadline,
     contentType: options.contentType,
     filterContext,
     verified_hint: options.verified_hint,
@@ -621,56 +636,153 @@ export async function playWithLadder(
     minDurationSec,
   };
 
+  const annotate = (result: PlayOrchestratorResult): PlayOrchestratorResult => ({
+    ...result,
+    win_on_main: isMainLadderStep(result.win_ladder_step, mainLadder),
+  });
+
+  // --- picker: single stream only ---
+  if (mode === 'picker') {
+    const picked = singlePickerCandidate(streams, options.preferUrl || '', preferLadderStep);
+    if (!picked) {
+      throw new CatalogError(502, 'no_playable_stream', {
+        attempts: [],
+        total_ms: Date.now() - started,
+        candidates: 0,
+      });
+    }
+    const fingerprint = streamReleaseFingerprint(picked.stream);
+    if (candidateIsBad(picked)) {
+      throw new CatalogError(502, 'no_playable_stream', {
+        attempts: [{
+          ...attemptBase(0, picked),
+          ok: false,
+          ms: 0,
+          error: 'stream_url_bad_cached',
+        }],
+        total_ms: Date.now() - started,
+        candidates: 1,
+        picker_fingerprint: fingerprint,
+      });
+    }
+    const pickerResult = await attemptCandidates({
+      ...shared,
+      deadline,
+      candidates: [picked],
+      attemptOffset: 0,
+      pickerFingerprint: fingerprint,
+    });
+    if (pickerResult.kind === 'success') {
+      return annotate({
+        ...pickerResult.result,
+        candidate_count: 1,
+        picker_fingerprint: fingerprint,
+      });
+    }
+    throw new CatalogError(502, 'no_playable_stream', {
+      attempts: pickerResult.attempts,
+      total_ms: Date.now() - started,
+      candidates: 1,
+      picker_fingerprint: fingerprint,
+    });
+  }
+
+  // --- auto: main then last-resort (+ obligation floor) ---
+  const split = options.ladder
+    ? (() => {
+      const { main_ladder, last_resort_ladder } = splitLegacyPlayLadder(options.ladder);
+      return { main: main_ladder, resort: last_resort_ladder };
+    })()
+    : { main: mainLadder, resort: lastResortLadder };
+
+  const phaseMain = expandPlayLadder(streams, split.main, filterContext, {
+    strict_unknown_cache: config.strict_unknown_cache,
+    preferred_quality: config.preferred_quality,
+    preferred_hdr_tags: config.preferred_hdr_tags,
+    preferred_video_codecs: config.preferred_video_codecs,
+    verified_hint: options.verified_hint,
+    max_candidates: config.auto_play_max_attempts,
+    prefer_ladder_step: preferLadderStep,
+  });
+
   const allAttempts: PlayAttempt[] = [];
   let obligationFloorRan = false;
-  let totalCandidates = phaseA.length;
+  let totalCandidates = phaseMain.length;
 
-  if (phaseA.length > 0) {
-    const phaseAResult = await attemptCandidates({
+  if (phaseMain.length > 0) {
+    const mainResult = await attemptCandidates({
       ...shared,
-      deadline: phaseADeadline,
-      candidates: phaseA,
+      deadline: mainDeadline,
+      candidates: phaseMain,
       attemptOffset: 0,
     });
-    if (phaseAResult.kind === 'success') {
-      return {
-        ...phaseAResult.result,
-        attempts: phaseAResult.result.attempts,
-        candidate_count: phaseA.length,
-      };
+    if (mainResult.kind === 'success') {
+      return annotate({
+        ...mainResult.result,
+        attempts: mainResult.result.attempts,
+        candidate_count: phaseMain.length,
+      });
     }
-    allAttempts.push(...phaseAResult.attempts);
+    allAttempts.push(...mainResult.attempts);
+  }
+
+  const phaseResort = expandPlayLadder(streams, split.resort, filterContext, {
+    strict_unknown_cache: config.strict_unknown_cache,
+    preferred_quality: config.preferred_quality,
+    preferred_hdr_tags: config.preferred_hdr_tags,
+    preferred_video_codecs: config.preferred_video_codecs,
+    max_candidates: config.auto_play_max_attempts,
+    include_uncached: true,
+  }).filter((candidate) => (
+    !allAttempts.some((attempt) => attempt.url && attempt.url === candidate.stream.url)
+  ));
+
+  if (phaseResort.length > 0 && deadline - Date.now() >= 500) {
+    totalCandidates += phaseResort.length;
+    const resortResult = await attemptCandidates({
+      ...shared,
+      deadline,
+      candidates: phaseResort,
+      attemptOffset: allAttempts.length,
+    });
+    if (resortResult.kind === 'success') {
+      return annotate({
+        ...resortResult.result,
+        attempts: [...allAttempts, ...resortResult.result.attempts],
+        candidate_count: totalCandidates,
+      });
+    }
+    allAttempts.push(...resortResult.attempts);
   }
 
   const remainingMs = deadline - Date.now();
   if (remainingMs >= 500) {
-    // Exclude only URLs actually attempted in Phase A — unattempted Phase A
-    // candidates (wall/order starved) stay eligible for the obligation floor.
     const excludeUrls = new Set(
       allAttempts.map((attempt) => attempt.url).filter((url): url is string => Boolean(url)),
     );
-    const phaseB = expandObligationFloor(streams, filterContext, {
+    const phaseFloor = expandObligationFloor(streams, filterContext, {
       excludeUrls,
       maxCandidates: playObligationMaxAttempts(),
     });
-    if (phaseB.length > 0) {
+    if (phaseFloor.length > 0) {
       obligationFloorRan = true;
-      totalCandidates += phaseB.length;
-      const phaseBResult = await attemptCandidates({
+      totalCandidates += phaseFloor.length;
+      const floorResult = await attemptCandidates({
         ...shared,
-        candidates: phaseB,
+        candidates: phaseFloor,
         attemptOffset: allAttempts.length,
         obligationFloorRan: true,
+        deadline,
       });
-      if (phaseBResult.kind === 'success') {
-        return {
-          ...phaseBResult.result,
-          attempts: [...allAttempts, ...phaseBResult.result.attempts],
+      if (floorResult.kind === 'success') {
+        return annotate({
+          ...floorResult.result,
+          attempts: [...allAttempts, ...floorResult.result.attempts],
           candidate_count: totalCandidates,
           obligation_floor_ran: true,
-        };
+        });
       }
-      allAttempts.push(...phaseBResult.attempts);
+      allAttempts.push(...floorResult.attempts);
     }
   }
 

@@ -363,7 +363,7 @@ export async function verifyPreparedTitle(
     prepared.resolved.streams,
     prepared.resolved.filters,
     {
-      ladder: prepared.resolved.filters.play_ladder,
+      ladder: prepared.resolved.filters.main_ladder ?? prepared.resolved.filters.play_ladder,
       contentType: prepared.type,
       filterContext: prepared.resolved.filterContext,
       include_uncached: false,

@@ -7,7 +7,7 @@ import {
   parseFormatterDescription,
   textWithoutSubtitleLines,
 } from './stream-formatter.js';
-import { defaultPlayLadder, parsePlayLadder, type PlayLadderStep } from './play-ladder.js';
+import { defaultPlayLadder, parsePlayLadder, splitLegacyPlayLadder, combinePlayLadders, type PlayLadderStep } from './play-ladder.js';
 
 export type VerifiedStreamHint = {
   best_source?: string | null;
@@ -55,8 +55,12 @@ export type StreamFilterConfig = {
   preferred_hdr_tags: string[];
   /** Optional codec preference. For Pi 5 4K, HEVC/x265 should outrank software-decoded codecs. */
   preferred_video_codecs: string[];
-  /** Ordered play preference ladder — see play-ladder.ts */
+  /** Ordered play preference ladder — combined main + last_resort (compat). */
   play_ladder: import('./play-ladder.js').PlayLadderStep[];
+  /** Smooth-only steps: grow/verify + Play priority + verified display. */
+  main_ladder: import('./play-ladder.js').PlayLadderStep[];
+  /** May stutter: Play fallback + unverified side-list when main empty. */
+  last_resort_ladder: import('./play-ladder.js').PlayLadderStep[];
 };
 
 export type StreamFilterOverrides = {
@@ -807,6 +811,8 @@ export function defaultFilterConfig(): StreamFilterConfig {
     preferred_hdr_tags: parseEnvStringList(process.env.MANGO_PREFERRED_HDR_TAGS),
     preferred_video_codecs: parseEnvStringList(process.env.MANGO_PREFERRED_VIDEO_CODECS),
     play_ladder: defaultPlayLadder(),
+    main_ladder: splitLegacyPlayLadder(defaultPlayLadder()).main_ladder,
+    last_resort_ladder: splitLegacyPlayLadder(defaultPlayLadder()).last_resort_ladder,
     exclude_error_streams: true,
     stream_display_limit: positiveInteger(process.env.MANGO_STREAM_DISPLAY_LIMIT, 8, 3, 20),
   };
@@ -858,8 +864,29 @@ export async function loadFilterConfig(
     if (raw.preferred_video_codecs !== undefined) {
       base.preferred_video_codecs = parseStringList(raw.preferred_video_codecs, base.preferred_video_codecs);
     }
-    if (raw.play_ladder !== undefined) {
+    const rawRecord = raw as Record<string, unknown>;
+    if (rawRecord.main_ladder !== undefined || rawRecord.last_resort_ladder !== undefined) {
+      const main = rawRecord.main_ladder !== undefined
+        ? parsePlayLadder(rawRecord.main_ladder)
+        : undefined;
+      const lastResort = rawRecord.last_resort_ladder !== undefined
+        ? parsePlayLadder(rawRecord.last_resort_ladder)
+        : undefined;
+      if (main) base.main_ladder = main;
+      if (lastResort) base.last_resort_ladder = lastResort;
+      if (!main || !lastResort) {
+        const split = splitLegacyPlayLadder(
+          raw.play_ladder !== undefined ? parsePlayLadder(raw.play_ladder) : base.play_ladder,
+        );
+        if (!main) base.main_ladder = split.main_ladder;
+        if (!lastResort) base.last_resort_ladder = split.last_resort_ladder;
+      }
+      base.play_ladder = combinePlayLadders(base.main_ladder, base.last_resort_ladder);
+    } else if (raw.play_ladder !== undefined) {
       base.play_ladder = parsePlayLadder(raw.play_ladder);
+      const split = splitLegacyPlayLadder(base.play_ladder);
+      base.main_ladder = split.main_ladder;
+      base.last_resort_ladder = split.last_resort_ladder;
     }
     // Legacy pre-ladder keys may still exist on Pi live configs — ignored
     // intentionally (this loader is field-by-field, not strict-schema).
@@ -901,6 +928,8 @@ export function mergeFilterConfig(
     preferred_hdr_tags: base.preferred_hdr_tags,
     preferred_video_codecs: base.preferred_video_codecs,
     play_ladder: base.play_ladder,
+    main_ladder: base.main_ladder,
+    last_resort_ladder: base.last_resort_ladder,
     exclude_error_streams: base.exclude_error_streams,
     stream_display_limit: base.stream_display_limit,
     include_uncached: includeUncached,

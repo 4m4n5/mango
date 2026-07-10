@@ -89,6 +89,63 @@ export function displayLadderFromPlayLadder(ladder: PlayLadderStep[]): PlayLadde
   return ladder.filter((step) => isVerifiedDisplayStep(step));
 }
 
+/** Default main ladder — smooth cached steps only (Q1A / Q2A). */
+export function defaultMainLadder(): PlayLadderStep[] {
+  return defaultPlayLadder().filter((step) => isVerifiedDisplayStep(step));
+}
+
+/** Default last-resort — may stutter; never used for grow verify. */
+export function defaultLastResortLadder(): PlayLadderStep[] {
+  const fromDefault = defaultPlayLadder().filter((step) => !isVerifiedDisplayStep(step));
+  if (fromDefault.length > 0) return fromDefault;
+  return [{
+    step: 'last_resort',
+    max_quality: '2160p',
+    exclude_remux: false,
+    require_hevc: false,
+    require_cache: 'any',
+    debrid_services: ['torbox', 'realdebrid'],
+    rd_safe_unknown: true,
+    addons: DEFAULT_ADDONS,
+    verified: false,
+  }];
+}
+
+/** Split a legacy single play_ladder by verified/display membership. */
+export function splitLegacyPlayLadder(ladder: PlayLadderStep[]): {
+  main_ladder: PlayLadderStep[];
+  last_resort_ladder: PlayLadderStep[];
+} {
+  const main_ladder = ladder.filter((step) => isVerifiedDisplayStep(step));
+  let last_resort_ladder = ladder.filter((step) => !isVerifiedDisplayStep(step));
+  if (main_ladder.length === 0 && last_resort_ladder.length === 0) {
+    return {
+      main_ladder: defaultMainLadder(),
+      last_resort_ladder: defaultLastResortLadder(),
+    };
+  }
+  if (last_resort_ladder.length === 0) {
+    last_resort_ladder = defaultLastResortLadder();
+  }
+  return {
+    main_ladder: main_ladder.length > 0 ? main_ladder : defaultMainLadder(),
+    last_resort_ladder,
+  };
+}
+
+export function combinePlayLadders(
+  main: PlayLadderStep[],
+  lastResort: PlayLadderStep[],
+): PlayLadderStep[] {
+  return [...main, ...lastResort];
+}
+
+export function isMainLadderStep(step: string, mainLadder: PlayLadderStep[]): boolean {
+  const id = step.trim();
+  if (!id || id === 'obligation_floor' || id === 'picker') return false;
+  return mainLadder.some((entry) => entry.step === id);
+}
+
 export type LadderCandidate = {
   stream: Stream;
   ladder_step: string;
@@ -560,35 +617,53 @@ export function playObligationMaxAttempts(): number {
   return Math.max(1, Math.min(20, Math.floor(parsed)));
 }
 
-export type DisplayStreamSource = 'preference_ladder' | 'obligation_floor' | 'empty';
+export type DisplayStreamSource = 'preference_ladder' | 'obligation_floor' | 'last_resort' | 'empty';
+
+export type DisplayLadderOptions = {
+  strict_unknown_cache?: boolean;
+  hard_language?: string | null;
+  preferred_quality?: QualityCap | null;
+  preferred_hdr_tags?: string[];
+  preferred_video_codecs?: string[];
+  max_candidates?: number;
+  include_uncached?: boolean;
+  /** When set, used instead of deriving main from legacy `ladder`. */
+  main_ladder?: PlayLadderStep[];
+  last_resort_ladder?: PlayLadderStep[];
+};
 
 /**
- * GET /stream picker selection: Phase A ladder first; only if empty, pull
- * obligation-floor candidates (integrity-safe, not ladder-verified).
+ * GET /stream picker: main ladder first; if empty, last-resort (+ obligation floor).
+ * Last-resort / floor rows are marked unverified by the caller.
  */
 export function selectDisplayStreamCandidates(
   streams: Stream[],
   ladder: PlayLadderStep[],
   context: StreamFilterContext = {},
-  options: {
-    strict_unknown_cache?: boolean;
-    hard_language?: string | null;
-    preferred_quality?: QualityCap | null;
-    preferred_hdr_tags?: string[];
-    preferred_video_codecs?: string[];
-    max_candidates?: number;
-    include_uncached?: boolean;
-  } = {},
+  options: DisplayLadderOptions = {},
 ): { candidates: LadderCandidate[]; source: DisplayStreamSource } {
   const max = options.max_candidates ?? 12;
-  // Display expands verified steps only — last_resort / soft 4K stay play-path.
-  const preference = expandPlayLadder(streams, displayLadderFromPlayLadder(ladder), context, {
+  const split = splitLegacyPlayLadder(ladder.length > 0 ? ladder : defaultPlayLadder());
+  const main = options.main_ladder ?? split.main_ladder;
+  const lastResort = options.last_resort_ladder ?? split.last_resort_ladder;
+
+  const preference = expandPlayLadder(streams, main, context, {
     ...options,
     max_candidates: max,
   });
   if (preference.length > 0) {
     return { candidates: preference, source: 'preference_ladder' };
   }
+
+  const resort = expandPlayLadder(streams, lastResort, context, {
+    ...options,
+    include_uncached: true,
+    max_candidates: max,
+  });
+  if (resort.length > 0) {
+    return { candidates: resort, source: 'last_resort' };
+  }
+
   const floor = expandObligationFloor(streams, context, {
     maxCandidates: max,
     hard_language: options.hard_language,
@@ -597,6 +672,40 @@ export function selectDisplayStreamCandidates(
     return { candidates: floor, source: 'obligation_floor' };
   }
   return { candidates: [], source: 'empty' };
+}
+
+/** Picker mode: exactly one candidate for the preferred URL (no ladder fallthrough). */
+export function singlePickerCandidate(
+  streams: Stream[],
+  preferUrl: string,
+  preferLadderStep?: string | null,
+): LadderCandidate | null {
+  if (!preferUrl || !/^https?:\/\//i.test(preferUrl)) {
+    return null;
+  }
+  const hash = streamUrlHash(preferUrl);
+  const match = streams.find((stream) => streamUrlHash(stream.url) === hash);
+  if (!match) {
+    return null;
+  }
+  const preferStep = typeof preferLadderStep === 'string' ? preferLadderStep.trim() : '';
+  const fromMatch = typeof match.ladder_step === 'string' ? match.ladder_step.trim() : '';
+  return {
+    stream: match,
+    ladder_step: fromMatch || preferStep || 'picker',
+  };
+}
+
+/** Stable release fingerprint for picker bad-cache (prefer infoHash / bingeGroup over URL). */
+export function streamReleaseFingerprint(stream: Stream): string {
+  const hints = stream.behaviorHints && typeof stream.behaviorHints === 'object'
+    ? stream.behaviorHints as Record<string, unknown>
+    : {};
+  const infoHash = typeof hints.infoHash === 'string' ? hints.infoHash.trim().toLowerCase() : '';
+  if (infoHash) return `ih:${infoHash}`;
+  const binge = typeof hints.bingeGroup === 'string' ? hints.bingeGroup.trim() : '';
+  if (binge) return `bg:${binge}`;
+  return `url:${streamUrlHash(stream.url)}`;
 }
 
 export function couchStatusForLadderStep(step: string): string {

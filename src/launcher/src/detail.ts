@@ -48,6 +48,8 @@ export class DetailController {
   private playToken = 0;
   private playAbort: AbortController | null = null;
   private streams: CatalogStream[] = [];
+  /** Picker hard-fail hide (~30 min) keyed by stream URL. */
+  private hiddenStreamUntil = new Map<string, number>();
   private streamButtons: HTMLButtonElement[] = [];
   private streamsLoadToken = 0;
   private episodesLoadToken = 0;
@@ -430,6 +432,12 @@ export class DetailController {
       // Series: mark the episode retryable so a later click re-runs /play (Phase A+B).
       if (card.type === "series" && episodeId) {
         this.setEpisodeStreamBadge(episodeId, false);
+      }
+      // Q4A: picker hard-fail — hide that stream ~30 min (no ladder fallthrough).
+      if (preferUrl) {
+        this.hiddenStreamUntil.set(preferUrl, Date.now() + 30 * 60 * 1000);
+        this.streams = this.visibleStreams(this.streams);
+        this.renderStreams();
       }
       const message = error instanceof Error ? error.message : "couldn't start playback. try another title.";
       showToast(
@@ -1289,7 +1297,7 @@ export class DetailController {
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
       }
-      this.streams = result.streams;
+      this.streams = this.visibleStreams(result.streams);
       this.renderStreams();
     } catch {
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
@@ -1302,6 +1310,17 @@ export class DetailController {
         this.streamsPending = false;
       }
     }
+  }
+
+  private visibleStreams(streams: CatalogStream[]): CatalogStream[] {
+    const now = Date.now();
+    for (const [url, until] of [...this.hiddenStreamUntil]) {
+      if (until <= now) this.hiddenStreamUntil.delete(url);
+    }
+    return streams.filter((stream) => {
+      const until = this.hiddenStreamUntil.get(stream.url);
+      return until === undefined;
+    });
   }
 
   private renderStreamsFinding(): void {

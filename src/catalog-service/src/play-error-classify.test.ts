@@ -5,6 +5,7 @@ import {
   classifyPlayError,
   garbageKind,
   isGarbagePlayError,
+  isRateLimitPlaceholderUrl,
   isTransientPlayError,
 } from './play-error-classify.js';
 
@@ -19,7 +20,22 @@ test('classifyPlayError maps each class', () => {
 
   assert.equal(classifyPlayError('rate limit exceeded'), 'rate_limited');
   assert.equal(classifyPlayError('HTTP 429 Too Many Requests'), 'rate_limited');
+  assert.equal(classifyPlayError('429 Too Many Requests'), 'rate_limited');
   assert.equal(classifyPlayError('https://aio/rate-limit-exceeded'), 'rate_limited');
+  // Opaque debrid/MF tokens often contain the digits 429 — must NOT trip rate_limited.
+  assert.equal(
+    classifyPlayError(
+      'https://mediafusion.example/streaming_provider/D-abcRL429w3jsewvts/playback/torbox/hash/file.mp4',
+    ),
+    'unknown',
+  );
+  assert.equal(isRateLimitPlaceholderUrl('https://aio/rate-limit-exceeded'), true);
+  assert.equal(
+    isRateLimitPlaceholderUrl(
+      'https://mediafusion.example/streaming_provider/D-abcRL429w3jsewvts/playback/file.mp4',
+    ),
+    false,
+  );
 
   assert.equal(classifyPlayError('no_playable_stream'), 'no_stream');
   assert.equal(classifyPlayError('no HTTP streams for movie/tt1'), 'no_stream');

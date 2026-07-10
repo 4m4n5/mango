@@ -635,10 +635,12 @@ async function handlePlay(
       });
     }
 
+    const playMode = body.prefer_url ? 'picker' as const : 'auto' as const;
     const playback = await playWithLadder(resolved.streams, resolved.filters, {
+      mode: playMode,
       contentType: body.type,
       filterContext: resolved.filterContext,
-      verified_hint: verifiedHint,
+      verified_hint: playMode === 'picker' ? undefined : verifiedHint,
       playEpoch,
       startSec,
       preferUrl: body.prefer_url,
@@ -648,39 +650,55 @@ async function handlePlay(
       usePlayabilityIndex,
       typeof profile?.first_verified_at === 'number',
     );
-    if (usePlayabilityIndex) {
-      await recordVerifyResult({
-        type: body.type,
-        id: playId,
-        status: 'verified',
-        rail_id: body.rail_id ?? null,
-        best_source: typeof playback.stream.source === 'string' ? playback.stream.source : null,
-        cache_status: typeof playback.stream.cache_status === 'string' ? playback.stream.cache_status : null,
-        debrid_service: typeof playback.stream.debrid_service === 'string' ? playback.stream.debrid_service : null,
-        probe_ms: playback.probe_ms,
-        win_url_hash: playback.win_url_hash,
-        win_ladder_step: playback.win_ladder_step,
-        expires_at: Date.now() + playabilityVerifyTtlMs(),
-        stage: 'play',
-        outcome: 'verified',
-      }).catch((writeError) => {
-        console.warn(
-          `playability refresh on play failed type=${body.type} id=${body.id}: ${
-            writeError instanceof Error ? writeError.message : String(writeError)
-          }`,
-        );
-      });
-      await assignVerifiedTitleToBestRail(core, {
-        type: body.type,
-        id: playId,
-        preferredRailId: body.rail_id ?? null,
-      }).catch((assignError) => {
-        console.warn(
-          `playability rail assign on play failed type=${body.type} id=${body.id}: ${
-            assignError instanceof Error ? assignError.message : String(assignError)
-          }`,
-        );
-      });
+    if (usePlayabilityIndex && playMode === 'auto') {
+      if (playback.win_on_main) {
+        await recordVerifyResult({
+          type: body.type,
+          id: playId,
+          status: 'verified',
+          rail_id: body.rail_id ?? null,
+          best_source: typeof playback.stream.source === 'string' ? playback.stream.source : null,
+          cache_status: typeof playback.stream.cache_status === 'string' ? playback.stream.cache_status : null,
+          debrid_service: typeof playback.stream.debrid_service === 'string' ? playback.stream.debrid_service : null,
+          probe_ms: playback.probe_ms,
+          win_url_hash: playback.win_url_hash,
+          win_ladder_step: playback.win_ladder_step,
+          expires_at: Date.now() + playabilityVerifyTtlMs(),
+          stage: 'play',
+          outcome: 'verified',
+        }).catch((writeError) => {
+          console.warn(
+            `playability refresh on play failed type=${body.type} id=${body.id}: ${
+              writeError instanceof Error ? writeError.message : String(writeError)
+            }`,
+          );
+        });
+        await assignVerifiedTitleToBestRail(core, {
+          type: body.type,
+          id: playId,
+          preferredRailId: body.rail_id ?? null,
+        }).catch((assignError) => {
+          console.warn(
+            `playability rail assign on play failed type=${body.type} id=${body.id}: ${
+              assignError instanceof Error ? assignError.message : String(assignError)
+            }`,
+          );
+        });
+      } else {
+        // Q3B: last-resort / floor win → stale (playback-only); keep rail visibility.
+        await demoteTitle({
+          rail_id: body.rail_id ?? null,
+          type: body.type,
+          id: playId,
+          reason: 'last_resort_play',
+        }).catch((demoteError) => {
+          console.warn(
+            `playability stale on last-resort play failed type=${body.type} id=${body.id}: ${
+              demoteError instanceof Error ? demoteError.message : String(demoteError)
+            }`,
+          );
+        });
+      }
     }
 
     await attachWatchSession(core, body.type, playId);
@@ -703,7 +721,7 @@ async function handlePlay(
         applied: resolved.filters,
         play_ladder: resolved.filters.play_ladder.map((step) => step.step),
       },
-      ...(firstTimeVerified ? { first_time_verified: true } : {}),
+      ...(firstTimeVerified && playback.win_on_main ? { first_time_verified: true } : {}),
     };
   } catch (error) {
     if (error instanceof PlayCancelledError) {
