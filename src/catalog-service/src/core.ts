@@ -1837,10 +1837,14 @@ export class CatalogCore {
       contentType: type,
       metaId: id,
     };
+    if (type === 'series') {
+      filterContext.episodeRole = parsedSeasonRole(id);
+    }
     try {
       const meta = await optionalWithBudget(this.metaCached(type, id), STREAM_META_CONTEXT_TIMEOUT_MS);
       if (meta) {
         filterContext = {
+          ...filterContext,
           contentType: type,
           metaId: id,
           metaTitle: typeof meta.name === 'string'

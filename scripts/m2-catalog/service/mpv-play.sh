@@ -604,19 +604,22 @@ mpv_vo_ready_timeout_ms() {
   local width height
   width="${video_width:-}"
   height="$(mpv_property height 2>/dev/null || true)"
+  # After HDMI mode switch the GPU VO can take >1s to configure — especially
+  # soft-decode 4K. Too-short waits caused "played a moment → flash → stream
+  # did not start" on first couch tap (retry often worked once the panel was warm).
   if [[ -n "$width" && "$width" =~ ^[0-9]+$ && "$width" -ge 3000 ]]; then
-    printf '%s\n' 1200
+    printf '%s\n' "${MANGO_MPV_VO_READY_MS_4K:-2500}"
     return 0
   fi
   if [[ -n "$height" && "$height" =~ ^[0-9]+$ && "$height" -ge 1600 ]]; then
-    printf '%s\n' 1200
+    printf '%s\n' "${MANGO_MPV_VO_READY_MS_4K:-2500}"
     return 0
   fi
-  printf '%s\n' 400
+  printf '%s\n' "${MANGO_MPV_VO_READY_MS:-1200}"
 }
 
 wait_mpv_vo_ready() {
-  local timeout_ms="${1:-400}"
+  local timeout_ms="${1:-1200}"
   local started
   started="$(now_ms)"
   while (( $(now_ms) - started < timeout_ms )); do
@@ -632,8 +635,19 @@ except Exception:
       if [[ "$ready" == "1" ]]; then
         return 0
       fi
+      # Fallback: frames are leaving the decoder even if vo-configured lags.
+      reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property estimated-vf-fps 2>/dev/null || true)"
+      ready="$(printf '%s' "$reply" | python3 -c 'import json,sys
+try:
+  data=json.load(sys.stdin).get("data")
+  print("1" if isinstance(data,(int,float)) and float(data) > 0 else "0")
+except Exception:
+  print("0")' 2>/dev/null || echo 0)"
+      if [[ "$ready" == "1" ]]; then
+        return 0
+      fi
     fi
-    sleep 0.025
+    sleep 0.05
   done
   return 1
 }
@@ -747,12 +761,31 @@ foreground_handoff() {
   # the HDMI match) is what produced the "browse-res video → flash → black → 4K"
   # start on both debrid 4K and YouTube.
   if $NULL_BUFFER && ! $DISPLAY_ENABLED; then
-    if ! enable_mpv_display; then
+    local vo_attempt vo_timeout
+    vo_timeout="$(mpv_vo_ready_timeout_ms)"
+    for vo_attempt in 1 2 3; do
+      if ! enable_mpv_display; then
+        echo "WARN: mpv display enable attempt ${vo_attempt} failed" >&2
+        sleep 0.2
+        DISPLAY_ENABLED=false
+        continue
+      fi
+      if wait_mpv_vo_ready "$vo_timeout"; then
+        break
+      fi
+      echo "WARN: mpv vo not ready after display enable (attempt ${vo_attempt}, timeout_ms=${vo_timeout})" >&2
+      # Force another enable cycle — first post-HDMI-switch attempt is flaky.
+      DISPLAY_ENABLED=false
+      sleep 0.25
+      if [[ "$vo_attempt" -eq 3 ]]; then
+        echo "FAIL: mpv vo not ready after display enable" >&2
+        return 1
+      fi
+      # Grow patience on later attempts.
+      vo_timeout=$((vo_timeout + 800))
+    done
+    if ! $DISPLAY_ENABLED; then
       echo "FAIL: mpv display enable failed" >&2
-      return 1
-    fi
-    if ! wait_mpv_vo_ready "$(mpv_vo_ready_timeout_ms)"; then
-      echo "FAIL: mpv vo not ready after display enable" >&2
       return 1
     fi
   fi

@@ -22,6 +22,7 @@ import {
   type StreamFilterConfig,
   type VerifiedStreamHint,
   isPlausibleFeatureDuration,
+  playMinDurationSec,
 } from './stream-filters.js';
 import { isTransientPlayError } from './play-error-classify.js';
 import {
@@ -169,6 +170,7 @@ async function assertPlausibleFeatureProbe(options: {
     probedMinutes,
     options.contentType,
     options.filterContext?.metaRuntimeMinutes,
+    { episodeRole: options.filterContext?.episodeRole },
   )) {
     throw new Error('supplemental_or_short_release');
   }
@@ -620,7 +622,10 @@ export async function playWithLadder(
   );
   const preferLadderStep = options.verified_hint?.win_ladder_step ?? null;
   const filterContext = options.filterContext ?? { contentType: options.contentType };
-  const minDurationSec = 600;
+  const minDurationSec = playMinDurationSec({
+    contentType: options.contentType ?? filterContext.contentType,
+    episodeRole: filterContext.episodeRole,
+  });
   const shared = {
     config,
     started,

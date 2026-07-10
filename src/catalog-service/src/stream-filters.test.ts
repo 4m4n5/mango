@@ -13,6 +13,7 @@ import {
   streamMatchesMetaTitle,
   isSupplementalRelease,
   isPlausibleFeatureDuration,
+  playMinDurationSec,
   parseRuntimeMinutes,
 } from './stream-filters.js';
 
@@ -287,6 +288,18 @@ test('isPlausibleFeatureDuration rejects short probes for movies', () => {
   assert.equal(isPlausibleFeatureDuration(12, 'movie', 150), false);
   assert.equal(isPlausibleFeatureDuration(120, 'movie', 150), true);
   assert.equal(isPlausibleFeatureDuration(45, 'movie', null), true);
+});
+
+test('isPlausibleFeatureDuration allows short bonus clips', () => {
+  assert.equal(isPlausibleFeatureDuration(3, 'series', null, { episodeRole: 'bonus' }), true);
+  assert.equal(isPlausibleFeatureDuration(0.4, 'series', null, { episodeRole: 'bonus' }), false);
+  assert.equal(isPlausibleFeatureDuration(3, 'series', null), false);
+});
+
+test('playMinDurationSec is lower for bonus than main series or movies', () => {
+  assert.equal(playMinDurationSec({ contentType: 'series', episodeRole: 'bonus' }), 30);
+  assert.equal(playMinDurationSec({ contentType: 'series', episodeRole: 'main' }), 120);
+  assert.equal(playMinDurationSec({ contentType: 'movie' }), 600);
 });
 
 test('movie filename integrity rejects mislabeled torrent descriptions', () => {

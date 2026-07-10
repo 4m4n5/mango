@@ -110,6 +110,8 @@ export type StreamFilterContext = {
   metaRuntimeMinutes?: number;
   /** Manual curation — skip title relevance filter for pinned couch titles. */
   skipTitleFilter?: boolean;
+  /** Season-0 / BTS extras — allow short clips (deleted moments, etc.). */
+  episodeRole?: 'main' | 'bonus';
 };
 
 const DEFAULT_FILTERS_PATH = '/etc/mango/catalog-filters.json';
@@ -684,9 +686,14 @@ export function isPlausibleFeatureDuration(
   probedMinutes: number,
   contentType: string | undefined,
   expectedMinutes?: number | null,
+  options: { episodeRole?: 'main' | 'bonus' } = {},
 ): boolean {
   if (!Number.isFinite(probedMinutes) || probedMinutes <= 0) {
     return false;
+  }
+  // Bonus / deleted-moments clips are often 1–8 minutes — never treat as status clips.
+  if (options.episodeRole === 'bonus') {
+    return probedMinutes >= 0.5;
   }
   if (contentType === 'series') {
     return probedMinutes >= 10;
@@ -698,6 +705,25 @@ export function isPlausibleFeatureDuration(
     return probedMinutes >= expectedMinutes * 0.45;
   }
   return true;
+}
+
+/** Couch play min duration (seconds) passed to mpv-play.sh. */
+export function playMinDurationSec(options: {
+  contentType?: string;
+  episodeRole?: 'main' | 'bonus';
+}): number {
+  if (options.episodeRole === 'bonus') {
+    const raw = Number(process.env.MANGO_PLAY_BONUS_MIN_DURATION_SEC || 30);
+    return Number.isFinite(raw) ? Math.max(5, Math.min(600, Math.floor(raw))) : 30;
+  }
+  if (options.contentType === 'series') {
+    // Main episodes: 2 min floor (status clips); full eps are >> this.
+    const raw = Number(process.env.MANGO_PLAY_SERIES_MIN_DURATION_SEC || 120);
+    return Number.isFinite(raw) ? Math.max(30, Math.min(600, Math.floor(raw))) : 120;
+  }
+  // Movies: keep 10 min to reject trailers / status clips.
+  const raw = Number(process.env.MANGO_PLAY_MOVIE_MIN_DURATION_SEC || 600);
+  return Number.isFinite(raw) ? Math.max(60, Math.min(3600, Math.floor(raw))) : 600;
 }
 
 /** Unknown-cache RD BluRay/x265 — last-resort auto-play only. */
