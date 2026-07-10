@@ -121,6 +121,12 @@ function rememberBadStream(url: string, error: unknown): void {
   }
 }
 
+/** Probe/handoff flakes — retry once on the last candidate for thin titles. */
+function isTransientPlayError(error: string): boolean {
+  return /debrid_playback_unreadable|timeout|timed out|vo not ready|did not start playback|play budget exhausted|ECONN|ENOTFOUND|socket|abort|HTTP 5\d\d|fetch failed/i
+    .test(error);
+}
+
 /** Reserve wall budget so Phase B obligation floor is not starved by Phase A. */
 export function playObligationReserveMs(): number {
   const raw = process.env.MANGO_PLAY_OBLIGATION_MIN_MS;
@@ -216,10 +222,7 @@ export async function probeWithLadder(
       const preflightBudget = Math.min(PREFLIGHT_BUDGET_CAP_MS, remaining);
       const sniff = await preflight(candidate.stream.url, preflightBudget);
       if (sniff === 'nfo') throw new Error('debrid_nfo_sidecar');
-      // timeout → proceed to probe (transient debrid latency)
-      if (sniff === 'error' && parseDebridCacheStatus(candidate.stream) === 'cached') {
-        throw new Error('debrid_playback_unreadable');
-      }
+      // timeout / error → proceed to probe (NFO-only hard gate)
       const probeBudget = probeBudgetForCandidate(candidate, config, remaining);
       const probeResult = await probe(candidate.stream.url, probeBudget, undefined, options.playEpoch);
       await assertPlausibleFeatureProbe(options);
@@ -324,10 +327,7 @@ async function attemptCandidates(options: {
       if (sniff === 'nfo') {
         throw new Error('debrid_nfo_sidecar');
       }
-      // timeout → proceed to probe (transient debrid latency; do not bad-cache)
-      if (sniff === 'error' && parseDebridCacheStatus(candidate.stream) === 'cached') {
-        throw new Error('debrid_playback_unreadable');
-      }
+      // timeout / error / unknown → proceed to mpv probe (sniff is NFO-only gate)
       if (!observedProbeMs) {
         if (!skipProbe) {
           const probeBudget = probeBudgetForCandidate(candidate, options.config, remainingBeforeProbe);
@@ -392,12 +392,95 @@ async function attemptCandidates(options: {
       if (error instanceof PlayCancelledError) {
         throw error;
       }
+      const cleaned = cleanError(error);
+      const isLast = relativeIndex === options.candidates.length - 1;
+      const remainingForRetry = options.deadline - Date.now();
+      // Thin titles: one transient retry on the last candidate without bad-cache.
+      if (
+        isLast
+        && isTransientPlayError(cleaned)
+        && remainingForRetry > 1500
+        && !isStreamUrlBad(urlHash)
+      ) {
+        attempts.push({
+          ...base,
+          ok: false,
+          ms: Date.now() - attemptStarted,
+          error: cleaned,
+        });
+        const retryStarted = Date.now();
+        try {
+          if (options.playEpoch !== undefined) {
+            await assertPlayEpoch(options.playEpoch);
+          }
+          const probeBudget = probeBudgetForCandidate(candidate, options.config, remainingForRetry);
+          const probeResult = await options.probe(
+            candidate.stream.url,
+            probeBudget,
+            undefined,
+            options.playEpoch,
+            options.startSec,
+          );
+          if (options.playEpoch !== undefined) {
+            await assertPlayEpoch(options.playEpoch);
+          }
+          await assertPlausibleFeatureProbe({
+            contentType: options.contentType,
+            filterContext: options.filterContext,
+          });
+          const remainingBeforePlay = options.deadline - Date.now();
+          if (remainingBeforePlay < 500) {
+            throw new Error('play budget exhausted after probe');
+          }
+          const playback = await options.play(candidate.stream.url, remainingBeforePlay, {
+            playEpoch: options.playEpoch,
+            minDurationSec: options.minDurationSec,
+            startSec: options.startSec,
+            ladderStep: candidate.ladder_step,
+          });
+          const attempt: PlayAttempt = {
+            ...base,
+            ok: true,
+            ms: Date.now() - retryStarted,
+            probe_ms: probeResult.ttff_ms,
+            ttff_ms: playback.ttff_ms,
+          };
+          attempts.push(attempt);
+          return {
+            kind: 'success',
+            result: {
+              ok: true,
+              ttff_ms: playback.ttff_ms,
+              probe_ms: probeResult.ttff_ms,
+              total_ms: Date.now() - options.started,
+              attempts,
+              stream: streamMeta(candidate.stream, candidate.ladder_step),
+              candidate_count: options.candidates.length,
+              win_ladder_step: candidate.ladder_step,
+              win_url_hash: streamUrlHash(candidate.stream.url),
+              ...(options.obligationFloorRan ? { obligation_floor_ran: true } : {}),
+            },
+          };
+        } catch (retryError) {
+          if (retryError instanceof PlayCancelledError) {
+            throw retryError;
+          }
+          rememberBadStream(candidate.stream.url, retryError);
+          attempts.push({
+            ...base,
+            ok: false,
+            ms: Date.now() - retryStarted,
+            error: cleanError(retryError),
+          });
+          continue;
+        }
+      }
       rememberBadStream(candidate.stream.url, error);
       attempts.push({
         ...base,
         ok: false,
         ms: Date.now() - attemptStarted,
-        error: cleanError(error),
+        error: cleaned,
       });
     }
   }

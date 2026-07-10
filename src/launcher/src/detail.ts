@@ -1282,6 +1282,8 @@ export class DetailController {
     }
     const token = ++this.streamsLoadToken;
     this.streamsPending = true;
+    this.streams = [];
+    this.renderStreamsFinding();
     try {
       const result = await loadStreams(card);
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
@@ -1299,6 +1301,17 @@ export class DetailController {
       if (this.streamsLoadToken === token) {
         this.streamsPending = false;
       }
+    }
+  }
+
+  private renderStreamsFinding(): void {
+    this.streamList.replaceChildren();
+    this.streamButtons = [];
+    this.streamsWrap.hidden = false;
+    this.streamsWrap.classList.remove("detail-streams--unverified");
+    const streamsLabel = this.streamsWrap.querySelector(".detail-streams-label");
+    if (streamsLabel) {
+      streamsLabel.textContent = "streams · finding…";
     }
   }
 

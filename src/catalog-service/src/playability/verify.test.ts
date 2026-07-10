@@ -28,6 +28,7 @@ test('prepareVerifyTitle passes bounded series cross-probe budget and classifies
     seriesCrossProbeLimit: 2,
     zeroStreamRetryAttempts: 1,
     zeroStreamRetryDelayMs: 1200,
+    bypassNegativeCache: false,
   });
 });
 
@@ -48,6 +49,7 @@ test('prepareVerifyTitle does not retry zero-stream resolves outside grow unless
     seriesCrossProbeLimit: 0,
     zeroStreamRetryAttempts: 0,
     zeroStreamRetryDelayMs: 0,
+    bypassNegativeCache: false,
   });
 });
 

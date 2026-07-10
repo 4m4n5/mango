@@ -281,6 +281,7 @@ export async function prepareVerifyTitle(
       seriesCrossProbeLimit: playabilitySeriesCrossProbeLimit(),
       zeroStreamRetryAttempts: playabilityVerifyZeroStreamRetryAttempts(),
       zeroStreamRetryDelayMs: playabilityVerifyZeroStreamRetryDelayMs(),
+      bypassNegativeCache: false,
     });
     const candidates = expandPlayLadder(
       resolved.streams,

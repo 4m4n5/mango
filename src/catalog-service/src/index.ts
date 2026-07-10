@@ -446,7 +446,9 @@ async function handlePlay(
   if (body.type === 'tv' || body.live === true) {
     const started = Date.now();
     const playEpoch = await bumpPlayEpoch();
-    const resolved = await core.resolveForPlay(body.type, body.id, overrides);
+    const resolved = await core.resolveForPlay(body.type, body.id, overrides, {
+      bypassNegativeCache: true,
+    });
     const candidates = resolved.streams.filter((candidate) => {
       const url = candidate.url;
       return typeof url === 'string'
@@ -595,7 +597,9 @@ async function handlePlay(
     }
 
     try {
-      resolved = await core.resolveForPlay(body.type, playId, overrides);
+      resolved = await core.resolveForPlay(body.type, playId, overrides, {
+        bypassNegativeCache: true,
+      });
     } catch (resolveError) {
       const zeroStream = resolveError instanceof CatalogError
         && resolveError.message === 'no_playable_stream'
@@ -626,6 +630,8 @@ async function handlePlay(
       resolved = await core.resolveForPlay(body.type, playId, {
         ...overrides,
         strict_unknown_cache: false,
+      }, {
+        bypassNegativeCache: true,
       });
     }
 

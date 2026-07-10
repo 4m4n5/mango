@@ -70,35 +70,35 @@ test('playWithLadder reuses verified probe for matching hash and ladder step', a
   assert.ok(playTimeout <= 90000);
 });
 
-test('playWithLadder still runs the byte-sniff and rejects unreadable bytes even when a verified hint would reuse the probe', async () => {
+test('playWithLadder proceeds to probe when preflight returns error (NFO-only hard gate)', async () => {
   const stream = candidate('https://example.test/verified.mp4');
   let probeCalls = 0;
   let playCalls = 0;
 
-  await assert.rejects(
-    playWithLadder([stream], testConfig(), {
-      verified_hint: {
-        best_source: 'AIOStreams',
-        cache_status: 'cached',
-        debrid_service: 'torbox',
-        win_url_hash: streamUrlHash(stream.url),
-        win_ladder_step: 'ideal',
-        probe_ms: 3210,
-      },
-      preflight: async () => 'error',
-      probe: async () => {
-        probeCalls += 1;
-        throw new Error('probe should not run');
-      },
-      play: async () => {
-        playCalls += 1;
-        return { ok: true, ttff_ms: 812 };
-      },
-    }),
-  );
+  const result = await playWithLadder([stream], testConfig(), {
+    verified_hint: {
+      best_source: 'AIOStreams',
+      cache_status: 'cached',
+      debrid_service: 'torbox',
+      win_url_hash: streamUrlHash(stream.url),
+      win_ladder_step: 'ideal',
+      probe_ms: 3210,
+    },
+    preflight: async () => 'error',
+    probe: async () => {
+      probeCalls += 1;
+      return { ok: true, ttff_ms: 400 };
+    },
+    play: async () => {
+      playCalls += 1;
+      return { ok: true, ttff_ms: 812 };
+    },
+  });
 
+  assert.equal(result.ok, true);
+  // Verified hint reuses probe timing; sniff error must not block play.
   assert.equal(probeCalls, 0);
-  assert.equal(playCalls, 0);
+  assert.equal(playCalls, 1);
 });
 
 test('playWithLadder still runs the byte-sniff and rejects nfo sidecars even when a verified hint would reuse the probe', async () => {
@@ -316,17 +316,42 @@ test('playWithLadder proceeds to probe when preflight times out', async () => {
   assert.equal(isStreamUrlBad(streamUrlHash(stream.url)), false);
 });
 
-test('playWithLadder does not bad-cache debrid_playback_unreadable', async () => {
+test('playWithLadder proceeds past preflight error to probe (not debrid_playback_unreadable)', async () => {
   const stream = candidate('https://example.test/unreadable.mp4');
+  let probeCalls = 0;
 
-  await assert.rejects(
-    playWithLadder([stream], testConfig(), {
-      preflight: async () => 'error',
-      probe: async () => ({ ok: true, ttff_ms: 400 }),
-      play: async () => ({ ok: true, ttff_ms: 500 }),
-    }),
-  );
+  const result = await playWithLadder([stream], testConfig(), {
+    preflight: async () => 'error',
+    probe: async () => {
+      probeCalls += 1;
+      return { ok: true, ttff_ms: 400 };
+    },
+    play: async () => ({ ok: true, ttff_ms: 500 }),
+  });
 
+  assert.equal(result.ok, true);
+  assert.equal(probeCalls, 1);
+  assert.equal(isStreamUrlBad(streamUrlHash(stream.url)), false);
+});
+
+test('playWithLadder retries once on last-candidate transient probe failure', async () => {
+  const stream = candidate('https://example.test/thin-only.mp4');
+  let probeCalls = 0;
+
+  const result = await playWithLadder([stream], testConfig(), {
+    preflight: async () => 'video',
+    probe: async () => {
+      probeCalls += 1;
+      if (probeCalls === 1) {
+        throw new Error('mpv-play failed: timeout waiting for playback');
+      }
+      return { ok: true, ttff_ms: 350 };
+    },
+    play: async () => ({ ok: true, ttff_ms: 420 }),
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(probeCalls, 2);
   assert.equal(isStreamUrlBad(streamUrlHash(stream.url)), false);
 });
 

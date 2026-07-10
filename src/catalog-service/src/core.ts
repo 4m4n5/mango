@@ -94,6 +94,14 @@ import {
   type BonusStreamMatchTier,
   type ParsedSeriesEpisodeId,
 } from './bonus-stream-resolve.js';
+import {
+  isMediaFusionAddon,
+  loadMediaFusionManifestUrl,
+  MEDIAFUSION_SUPPLEMENT_BUDGET_MS,
+  mediaFusionStreamUrl,
+  mergeUniqueStreams,
+  shouldSupplementThinStreams,
+} from './thin-stream-supplement.js';
 import { loadAiCatalogRails } from './ai-catalogs/store.js';
 import { AiCatalogListSource } from './ai-catalogs/list-source.js';
 import type { AiCatalogRail } from './ai-catalogs/types.js';
@@ -146,6 +154,10 @@ type ResolveStreamOptions = {
   seriesCrossProbeLimit?: number;
   zeroStreamRetryAttempts?: number;
   zeroStreamRetryDelayMs?: number;
+  /** Couch play: ignore miss + rate-limit negative cache (user-initiated). */
+  bypassNegativeCache?: boolean;
+  /** Couch stream list: ignore rate-limit negative cache only. */
+  bypassRateLimitNegativeCache?: boolean;
 };
 
 function seriesCrossProbeLimit(options?: ResolveStreamOptions): number {
@@ -337,9 +349,10 @@ const STREAM_ZERO_RETRY_DELAY_MS = boundedInt(
   0,
   10000,
 );
-/** After a stream-addon 429 / rate-limit placeholder, skip re-hitting AIO for this long. */
+/** After a stream-addon 429 / rate-limit placeholder, skip re-hitting AIO for this long.
+ *  Couch play/detail bypass this; grow/verify still respect it. Default 90s (was 5m). */
 const STREAM_RATE_LIMIT_BACKOFF_MS = Number(
-  process.env.MANGO_STREAM_RATE_LIMIT_BACKOFF_MS || 5 * 60 * 1000,
+  process.env.MANGO_STREAM_RATE_LIMIT_BACKOFF_MS || 90 * 1000,
 );
 /** Couch play never scrapes sibling episodes for title-fallback (Torrentio 429s).
  *  Season-0 bonus still always runs bonusIndexerProbeIds (S0→S{N} same-episode alias). */
@@ -1818,11 +1831,15 @@ export class CatalogCore {
     errors?: string[];
   }> {
     const streamId = normalizeSeriesVerifyId(type, id);
-    const raw = await this.resolveRawStreams(type, streamId, couchResolveOptions({
+    const resolveOptions = couchResolveOptions({
       zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
       zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
       ...options,
-    }));
+    });
+    const [raw, filterContext] = await Promise.all([
+      this.resolveRawStreams(type, streamId, resolveOptions),
+      this.buildStreamFilterContext(type, id),
+    ]);
     if (raw.streams.length === 0) {
       if (hasStreamResolveInfrastructureErrors(raw.errors)) {
         throw new CatalogError(
@@ -1858,7 +1875,7 @@ export class CatalogCore {
       resolve_ms: raw.cached ? 0 : raw.resolveMs,
       cached: raw.cached,
       filters: mergeFilterConfig(this.filterConfig, overrides),
-      filterContext: await this.buildStreamFilterContext(type, id),
+      filterContext,
       errors: raw.errors.length > 0 ? raw.errors : undefined,
     };
   }
@@ -1875,10 +1892,14 @@ export class CatalogCore {
     errors?: string[];
   }> {
     const streamId = normalizeSeriesVerifyId(type, id);
-    const raw = await this.resolveRawStreams(type, streamId, couchResolveOptions({
-      zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
-      zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
-    }));
+    const [raw, filterContext] = await Promise.all([
+      this.resolveRawStreams(type, streamId, couchResolveOptions({
+        zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
+        zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
+        bypassRateLimitNegativeCache: true,
+      })),
+      this.buildStreamFilterContext(type, id),
+    ]);
     const config = mergeFilterConfig(this.filterConfig, overrides);
 
     if (raw.streams.length === 0) {
@@ -1899,7 +1920,6 @@ export class CatalogCore {
       };
     }
 
-    const filterContext = await this.buildStreamFilterContext(type, id);
     const enriched = enrichStreams(raw.streams);
     const { candidates, source } = selectDisplayStreamCandidates(
       enriched,
@@ -2362,17 +2382,23 @@ export class CatalogCore {
 
     const negative = this.streamNegativeCache.get(key);
     if (negative && negative.until > Date.now()) {
-      const skipMsg = negative.reason === 'rate_limited'
-        ? 'stream resolve skipped — recent rate-limit (retry shortly)'
-        : 'stream resolve skipped — recent miss (retry shortly)';
-      return {
-        streams: [],
-        errors: [skipMsg],
-        resolveMs: 0,
-        cached: true,
-      };
+      const bypass = options.bypassNegativeCache
+        || (options.bypassRateLimitNegativeCache && negative.reason === 'rate_limited');
+      if (bypass) {
+        this.streamNegativeCache.delete(key);
+      } else {
+        const skipMsg = negative.reason === 'rate_limited'
+          ? 'stream resolve skipped — recent rate-limit (retry shortly)'
+          : 'stream resolve skipped — recent miss (retry shortly)';
+        return {
+          streams: [],
+          errors: [skipMsg],
+          resolveMs: 0,
+          cached: true,
+        };
+      }
     }
-    if (negative) {
+    if (negative && negative.until <= Date.now()) {
       this.streamNegativeCache.delete(key);
     }
 
@@ -2453,6 +2479,10 @@ export class CatalogCore {
       }
     }
 
+    const supplemented = await this.supplementThinStreams(type, id, streams, errors);
+    streams = supplemented.streams;
+    errors = supplemented.errors;
+
     const resolveMs = Date.now() - overallStarted;
     if (streams.length === 0 && retryAttempts > 0) {
       errors = [
@@ -2486,6 +2516,54 @@ export class CatalogCore {
       });
     }
     return { streams, errors, resolveMs, cached: false };
+  }
+
+  /**
+   * When AIO leaves ≤1 cacheable stream, optionally merge MediaFusion direct
+   * (Pi-local share URL). Skipped when MediaFusion is already a catalog addon.
+   */
+  private async supplementThinStreams(
+    type: string,
+    id: string,
+    streams: Stream[],
+    errors: string[],
+  ): Promise<{ streams: Stream[]; errors: string[] }> {
+    const hasDirectMediaFusion = this.addons.some((addon) => (
+      isMediaFusionAddon(addon.name, addon.manifestUrl)
+    ));
+    if (!shouldSupplementThinStreams(streams, { hasDirectMediaFusion })) {
+      return { streams, errors };
+    }
+    const manifestUrl = await loadMediaFusionManifestUrl();
+    if (!manifestUrl) {
+      return { streams, errors };
+    }
+    try {
+      const result = await fetchJson(
+        mediaFusionStreamUrl(manifestUrl, type, id),
+        MEDIAFUSION_SUPPLEMENT_BUDGET_MS,
+      ) as { streams?: unknown[] };
+      const extra: Stream[] = [];
+      for (const stream of result.streams || []) {
+        const normalized = normalizeStream(stream, 'MediaFusion');
+        if (normalized) extra.push(normalized);
+      }
+      if (extra.length === 0) {
+        return { streams, errors };
+      }
+      return {
+        streams: mergeUniqueStreams(streams, extra),
+        errors: [...errors, `mediafusion thin-supplement +${extra.length}`],
+      };
+    } catch (error) {
+      return {
+        streams,
+        errors: [
+          ...errors,
+          `mediafusion thin-supplement: ${error instanceof Error ? error.message : String(error)}`,
+        ],
+      };
+    }
   }
 
   private async fetchAddonStreams(
