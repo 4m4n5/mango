@@ -51,7 +51,6 @@ export class DetailController {
   private seasonChipButtons: HTMLButtonElement[] = [];
   private activeSeason: number | null = null;
   private selectedEpisodeId: string | null = null;
-  private episodeStreamCache = new Map<string, CatalogStream[]>();
   private nextPromptPollTimer: number | undefined;
   private browseTab: BrowseTab = "movies";
   private saved = false;
@@ -206,7 +205,6 @@ export class DetailController {
     this.activeSeason = null;
     this.selectedEpisodeId = null;
     this.focusedEl = null;
-    this.episodeStreamCache.clear();
     this.streamList.replaceChildren();
     this.seasonList.replaceChildren();
     this.seasonList.hidden = true;
@@ -275,7 +273,6 @@ export class DetailController {
     this.activeSeason = null;
     this.selectedEpisodeId = null;
     this.focusedEl = null;
-    this.episodeStreamCache.clear();
     this.streamList.replaceChildren();
     this.seasonList.replaceChildren();
     this.seasonList.hidden = true;
@@ -407,6 +404,10 @@ export class DetailController {
       }
       const label = result.stream?.display_label || result.stream?.quality;
       void label;
+      // Series: clear any prior "tap to retry" grey once Phase A+B actually started.
+      if (card.type === "series" && episodeId) {
+        this.setEpisodeStreamBadge(episodeId, true);
+      }
       this.callbacks.onPlayed?.(card, result);
       // Next-episode prompt is checked on playback RETURN (see
       // maybePromptNextEpisode) — never mid-play — so it only ever appears after
@@ -417,6 +418,10 @@ export class DetailController {
       }
       if (this.playToken !== token) {
         return;
+      }
+      // Series: mark the episode retryable so a later click re-runs /play (Phase A+B).
+      if (card.type === "series" && episodeId) {
+        this.setEpisodeStreamBadge(episodeId, false);
       }
       const message = error instanceof Error ? error.message : "couldn't start playback. try another title.";
       showToast(
@@ -895,7 +900,7 @@ export class DetailController {
     button.classList.toggle("detail-episode--has-streams", hasStreams);
     const badge = button.querySelector<HTMLElement>(".detail-episode-stream-badge");
     if (badge) {
-      badge.textContent = hasStreams ? "" : "no streams";
+      badge.textContent = hasStreams ? "" : "tap to retry";
       badge.hidden = hasStreams;
     }
   }
@@ -1052,9 +1057,7 @@ export class DetailController {
       }
       this.renderEpisodes(episodes, focusEpisodeId, { autoFocusEpisode: !restoringEpisode });
       this.updatePlayButtonLabel();
-      if (restoringEpisode) {
-        void this.loadStreamList(card, restoringEpisode, { quiet: true });
-      }
+      // Series never shows a stream list — playback resolves via /play (Phase A+B).
     } catch {
       if (this.episodesLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
@@ -1062,7 +1065,7 @@ export class DetailController {
       this.seriesEpisodes = null;
       this.episodesWrap.hidden = true;
       this.seasonList.hidden = true;
-      void this.loadStreamList(card);
+      this.streamsWrap.hidden = true;
     }
   }
 
@@ -1218,10 +1221,11 @@ export class DetailController {
     badge.hidden = true;
 
     button.dataset.episodeId = episode.id;
+    // Backend playability hint only — never block retry. Greyed episodes stay
+    // clickable and re-run /play (Phase A+B) on activate.
     if (episode.playable === false) {
-      this.episodeStreamCache.set(episode.id, []);
       button.classList.add("detail-episode--no-streams");
-      badge.textContent = "no streams";
+      badge.textContent = "tap to retry";
       badge.hidden = false;
     } else if (episode.playable === true) {
       button.classList.add("detail-episode--has-streams");
@@ -1234,82 +1238,42 @@ export class DetailController {
   }
 
   private async activateEpisode(episode: SeriesEpisodeRow): Promise<void> {
-    if (episode.playable === false) {
-      return;
-    }
     const card = this.card;
     if (!card) {
       return;
     }
-    const cached = this.episodeStreamCache.get(episode.id);
-    if (cached !== undefined && cached.length === 0) {
-      return;
-    }
     this.selectedEpisodeId = episode.id;
     this.applyEpisodeSelectionVisual(episode.id);
-    // Start playback immediately so the play button shows honest progress right
-    // away (parity with movies). Resolve this episode's streams in parallel and
-    // move focus onto the stream list as options appear.
-    const playPromise = this.play(undefined, undefined, episode.id);
-    void this.selectEpisodeStreams(card, episode.id, { focusStreams: true });
-    await playPromise;
-  }
-
-  private async selectEpisodeStreams(
-    card: ContentCard,
-    episodeId: string,
-    options: { quiet?: boolean; focusStreams?: boolean } = {},
-  ): Promise<void> {
-    this.selectedEpisodeId = episodeId;
-    this.applyEpisodeSelectionVisual(episodeId);
-    const cached = this.episodeStreamCache.get(episodeId);
-    if (cached !== undefined) {
-      this.streams = cached;
-      this.setEpisodeStreamBadge(episodeId, cached.length > 0);
-      this.renderStreams({ focusStreams: options.focusStreams });
-      return;
-    }
-    await this.loadStreamList(card, episodeId, options);
+    // Series: no stream list. Click (including greyed "tap to retry") always
+    // starts /play so the server re-resolves and runs Phase A + B.
+    await this.play(undefined, undefined, episode.id);
   }
 
   private onEpisodeFocusChanged(_target: HTMLElement | undefined): void {
-    // Streams load on B (activateEpisode) only — no dwell prefetch while browsing.
+    // No dwell prefetch — series play resolves on activate via /play only.
   }
 
-  private async loadStreamList(
-    card: ContentCard,
-    episodeId?: string,
-    options: { quiet?: boolean; focusStreams?: boolean } = {},
-  ): Promise<void> {
-    if (episodeId && this.episodeStreamCache.has(episodeId)) {
-      const cached = this.episodeStreamCache.get(episodeId)!;
-      this.streams = cached;
-      this.setEpisodeStreamBadge(episodeId, cached.length > 0);
-      this.renderStreams({ focusStreams: options.focusStreams });
+  /** Movies only — series never shows a stream list. */
+  private async loadStreamList(card: ContentCard): Promise<void> {
+    if (card.type === "series") {
+      this.streams = [];
+      this.streamsWrap.hidden = true;
       return;
     }
     const token = ++this.streamsLoadToken;
     this.streamsPending = true;
     try {
-      const result = await loadStreams(card, episodeId);
+      const result = await loadStreams(card);
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
       }
       this.streams = result.streams;
-      if (episodeId) {
-        this.episodeStreamCache.set(episodeId, result.streams);
-        this.setEpisodeStreamBadge(episodeId, result.streams.length > 0);
-      }
-      this.renderStreams({ focusStreams: options.focusStreams });
+      this.renderStreams();
     } catch {
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
       }
       this.streams = [];
-      if (episodeId) {
-        this.episodeStreamCache.set(episodeId, []);
-        this.setEpisodeStreamBadge(episodeId, false);
-      }
       this.renderStreams();
     } finally {
       if (this.streamsLoadToken === token) {
@@ -1318,8 +1282,16 @@ export class DetailController {
     }
   }
 
-  private renderStreams(options: { focusStreams?: boolean } = {}): void {
-    const keepEpisodeFocus = this.focusedEl?.classList.contains("detail-episode") ?? false;
+  private renderStreams(): void {
+    // Safety: series detail never surfaces stream bubbles.
+    if (this.card?.type === "series") {
+      this.streams = [];
+      this.streamList.replaceChildren();
+      this.streamButtons = [];
+      this.streamsWrap.hidden = true;
+      this.streamsWrap.classList.remove("detail-streams--unverified");
+      return;
+    }
     this.streamList.replaceChildren();
     this.streamButtons = [];
     if (this.streams.length === 0) {
@@ -1329,9 +1301,7 @@ export class DetailController {
       if (streamsLabel) {
         streamsLabel.textContent = "streams";
       }
-      if (!keepEpisodeFocus) {
-        this.applyFocus();
-      }
+      this.applyFocus();
       return;
     }
 
@@ -1347,13 +1317,7 @@ export class DetailController {
     for (const stream of this.streams) {
       this.streamList.append(this.createStreamButton(stream));
     }
-    if (options.focusStreams && this.streamButtons.length > 0) {
-      // Episode was activated: pull focus onto the resolved stream list so the
-      // couch sees options appear while playback starts.
-      this.focusElement(this.streamButtons[0]);
-    } else if (!keepEpisodeFocus) {
-      this.applyFocus();
-    }
+    this.applyFocus();
   }
 
   /** Builds one uniform stream bubble: a resolution badge + quality chips + an
