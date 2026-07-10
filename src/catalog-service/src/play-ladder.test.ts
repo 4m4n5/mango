@@ -550,3 +550,51 @@ test('selectDisplayStreamCandidates stays empty when neither phase has integrity
   assert.equal(selected.source, 'empty');
   assert.equal(selected.candidates.length, 0);
 });
+
+// Resolution-dominant ranking with a decodability tiebreak: 4K first, HW-decodable
+// (HEVC) before soft-decode (AV1) within the 4K tier, and 4K above 1080p — nothing excluded.
+const HIFI_RANKED_LADDER = [
+  {
+    step: '4k_sdr_cached', max_quality: '2160p' as const, min_quality: '2160p' as const,
+    exclude_remux: true, require_hevc: true, exclude_hdr: true, require_cache: 'cached' as const,
+    debrid_services: ['torbox', 'realdebrid'], addons: ['AIOStreams'],
+  },
+  {
+    step: '4k_sdr_soft_cached', max_quality: '2160p' as const, min_quality: '2160p' as const,
+    exclude_remux: true, require_hevc: false, exclude_hdr: true, require_cache: 'cached' as const,
+    debrid_services: ['torbox', 'realdebrid'], addons: ['AIOStreams'],
+  },
+  {
+    step: '1080p_cached', max_quality: '1080p' as const,
+    exclude_remux: true, require_cache: 'cached' as const,
+    debrid_services: ['torbox', 'realdebrid'], addons: ['AIOStreams'],
+  },
+];
+
+test('hifi ladder ranks 4K HEVC > 4K AV1 > 1080p, excluding nothing', () => {
+  const uhdHevc = stream({
+    url: 'https://example.test/2160p-hevc.mkv', name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p WEB-DL HEVC', behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const uhdAv1 = stream({
+    url: 'https://example.test/2160p-av1.mkv', name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p WEB-DL AV1', behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const hd = stream({
+    url: 'https://example.test/1080p-hevc.mkv', name: '[TB☁️⚡] Torrentio 1080p',
+    description: '1080p WEB-DL HEVC', behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const candidates = expandPlayLadder([hd, uhdAv1, uhdHevc], HIFI_RANKED_LADDER, { contentType: 'series' });
+  assert.deepEqual(candidates.map((c) => c.stream.url), [uhdHevc.url, uhdAv1.url, hd.url]);
+});
+
+test('hifi ladder still plays a title whose only stream is 4K AV1 (no exclusion)', () => {
+  const uhdAv1Only = stream({
+    url: 'https://example.test/only-2160p-av1.mkv', name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p WEB-DL AV1', behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const candidates = expandPlayLadder([uhdAv1Only], HIFI_RANKED_LADDER, { contentType: 'series' });
+  assert.equal(candidates.length, 1);
+  assert.equal(candidates[0]?.stream.url, uhdAv1Only.url);
+  assert.equal(candidates[0]?.ladder_step, '4k_sdr_soft_cached');
+});

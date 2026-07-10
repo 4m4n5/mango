@@ -43,6 +43,8 @@ Couch `POST /play` prefers quality, then **plays any integrity-safe stream** bef
 |-------|----------|
 | **A — Preference ladder** | Existing `play_ladder` steps (cache / HEVC / quality / debrid caps) |
 | **B — Obligation floor** | After Phase A exhausts: every remaining stream that passes integrity filters (title match, no supplemental/series-pack/error placeholders, **no cam/ts**). No cache/HEVC/quality caps. Cap: `MANGO_PLAY_OBLIGATION_MAX_ATTEMPTS` (default 6), still within `auto_play_wall_ms` |
+
+**Ranking preference (resolution-dominant, hardware-decodability tiebreak, nothing excluded):** 4K is always preferred when present. *Cross-resolution* order is owned by ladder step order — the `4k-hifi` profile places HW-decodable 4K HEVC steps first, then a `4k_sdr_soft_cached` step that admits SDR 4K AV1/H.264 **above** the 1080p steps, so a thin title whose only release is 4K AV1 still auto-plays at 4K instead of failing. *Within* a resolution, `streamHardwareDecodeSmooth()` (Pi 5: HEVC any-res, else non-HEVC ≤1080p) floats the smooth stream to the top (4K HEVC over 4K AV1). Nothing is excluded — a lone unsupported stream still plays. Override the decode profile per box: `MANGO_HW_DECODE_CODECS` (default `hevc`), `MANGO_HW_SOFT_MAX_QUALITY` (default `1080p`).
 | **Inline reverify** | On zero-stream resolve (or playing a `failed`/`stale`/`play_miss` title): one `forceReprobe` verify + relaxed resolve before giving up |
 
 **Library demotion (gradual, not instant tombstone):**

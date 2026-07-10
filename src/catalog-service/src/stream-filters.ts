@@ -435,6 +435,42 @@ export function streamIsHevc(stream: Stream): boolean {
   return streamMatchesVideoCodec(stream, 'hevc');
 }
 
+/**
+ * Hardware decode profile — the single source of truth for which streams this
+ * box can decode *smoothly*. Pi 5 (BCM2712) has one hardware video decoder
+ * (HEVC) and soft-decodes everything else; the CPU sustains soft decode only up
+ * to ~1080p (4K H.264/AV1/VP9 stutters). Override per box:
+ *   MANGO_HW_DECODE_CODECS      (default "hevc")   — codecs the SoC decodes in HW at any resolution
+ *   MANGO_HW_SOFT_MAX_QUALITY   (default "1080p")  — highest resolution a non-HW codec still plays smoothly
+ */
+function hardwareDecodeCodecs(): string[] {
+  const raw = parseEnvStringList(process.env.MANGO_HW_DECODE_CODECS);
+  return raw.length > 0 ? raw : ['hevc'];
+}
+
+function hardwareSoftMaxRank(): number {
+  const parsed = parseQualityCap(process.env.MANGO_HW_SOFT_MAX_QUALITY);
+  return parsed ? QUALITY_ORDER[parsed] : QUALITY_ORDER['1080p'];
+}
+
+/**
+ * True when the box can decode this stream at a smooth framerate: a hardware
+ * codec (HEVC) at any resolution, OR any codec at/below the soft-decode ceiling
+ * (1080p). Non-HW codecs above the ceiling (4K AV1/H.264/VP9) return false.
+ * Unknown-resolution streams are treated as smooth (typically ≤1080p web) so we
+ * never demote a stream we cannot prove is a heavy 4K soft-decode. This ranks
+ * (never excludes) — a lone unsupported stream still plays.
+ */
+export function streamHardwareDecodeSmooth(stream: Stream): boolean {
+  const enriched = ensureEnrichedStream(stream);
+  if (hardwareDecodeCodecs().some((codec) => streamMatchesVideoCodec(enriched, codec))) {
+    return true;
+  }
+  const rank = effectiveStreamQualityRank(enriched);
+  if (rank === null) return true;
+  return rank <= hardwareSoftMaxRank();
+}
+
 function languageHaystack(stream: Stream): string {
   const raw = `${stream.title || ''}\n${stream.description || ''}\n${stream.name || ''}`;
   return textWithoutSubtitleLines(raw).toLowerCase();
@@ -767,8 +803,14 @@ export function streamPlayScore(
 
   if (streamMatchesPreferredVideoCodec(stream, config.preferred_video_codecs)) {
     score += quality === '2160p' ? 180 : 80;
-  } else if (quality === '2160p' && config.preferred_video_codecs.length > 0) {
-    score -= 120;
+  }
+
+  // Hardware-decode smoothness tiebreaker. Ranks the HW-decodable option first
+  // *within* a resolution (e.g. 4K HEVC over 4K AV1) so smooth 4K wins whenever
+  // it exists — without excluding the soft-decode stream. Cross-resolution order
+  // ("always prefer 4K") is owned by the play ladder step order, not this score.
+  if (streamHardwareDecodeSmooth(stream)) {
+    score += quality === '2160p' ? 90 : 40;
   }
 
   if (options.preferred_language && streamMatchesLanguage(stream, options.preferred_language)) {

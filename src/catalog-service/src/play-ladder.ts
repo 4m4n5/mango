@@ -506,7 +506,10 @@ export function expandObligationFloor(
     auto_play_wall_ms: 90000,
     auto_play_probe_ms: 8000,
     auto_play_uncached_probe_ms: 25000,
-    preferred_quality: '1080p' as QualityCap,
+    // Phase B is the last resort. Prefer 4K (fidelity-first), and the hardware
+    // decode tiebreaker in streamPlayScore still floats a HW-decodable stream to
+    // the top of a resolution tier — nothing is excluded.
+    preferred_quality: '2160p' as QualityCap,
     preferred_hdr_tags: [] as string[],
     preferred_video_codecs: [] as string[],
     play_ladder: [],

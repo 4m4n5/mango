@@ -10,6 +10,7 @@ import {
   parseDebridCacheStatus,
   parseFilterOverridesFromQuery,
   selectAutoPlayCandidates,
+  streamHardwareDecodeSmooth,
   streamMatchesMetaTitle,
   streamUrlHash,
   isSupplementalRelease,
@@ -198,6 +199,51 @@ test('preferred_video_codecs boosts 2160p HEVC over CPU-hostile AVC', () => {
   );
   assert.equal(result.streams.length, 2);
   assert.equal(result.streams[0]?.url, hevc.url);
+});
+
+test('streamHardwareDecodeSmooth: HEVC any-res smooth, non-HEVC only <=1080p', () => {
+  const hevc4k: Stream = {
+    url: 'https://example.test/hevc4k.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p', title: '[TB⚡] Torrentio 2160p', description: 'WEB-DL 2160p HEVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const av14k: Stream = {
+    url: 'https://example.test/av14k.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p', title: '[TB⚡] Torrentio 2160p', description: 'WEB-DL 2160p AV1',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const avc1080: Stream = {
+    url: 'https://example.test/avc1080.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 1080p', title: '[TB⚡] Torrentio 1080p', description: 'WEB-DL 1080p AVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|1080p' },
+  };
+  const unknownRes: Stream = {
+    url: 'https://example.test/unknown.mkv', source: 'AIOStreams',
+    name: 'Torrentio', title: 'Torrentio', description: 'WEB-DL AV1',
+  };
+  assert.equal(streamHardwareDecodeSmooth(hevc4k), true);
+  assert.equal(streamHardwareDecodeSmooth(av14k), false);
+  assert.equal(streamHardwareDecodeSmooth(avc1080), true);
+  assert.equal(streamHardwareDecodeSmooth(unknownRes), true);
+});
+
+test('hardware-decode tiebreak ranks 4K HEVC over 4K AV1 with no preferred codec set', () => {
+  const av14k: Stream = {
+    url: 'https://example.test/av14k.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p', title: '[TB⚡] Torrentio 2160p', description: 'WEB-DL 2160p AV1',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const hevc4k: Stream = {
+    url: 'https://example.test/hevc4k.mkv', source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 2160p', title: '[TB⚡] Torrentio 2160p', description: 'WEB-DL 2160p HEVC',
+    behaviorHints: { bingeGroup: 'com.aiostreams|torbox|true|2160p' },
+  };
+  const result = filterStreamsForPlay(
+    [av14k, hevc4k],
+    { ...testConfig({ max_quality: '2160p' }), preferred_quality: '2160p', preferred_video_codecs: [] },
+  );
+  assert.equal(result.streams.length, 2);
+  assert.equal(result.streams[0]?.url, hevc4k.url);
 });
 
 test('hard_language excludes non-matching streams', () => {

@@ -45,7 +45,7 @@ test('prepareVerifyTitle does not retry zero-stream resolves outside grow unless
   assert.equal(result.ok, false);
   assert.equal(result.reason, 'no_stream');
   assert.deepEqual(options, {
-    seriesCrossProbeLimit: 1,
+    seriesCrossProbeLimit: 0,
     zeroStreamRetryAttempts: 0,
     zeroStreamRetryDelayMs: 0,
   });

@@ -4,7 +4,8 @@
     "High-fidelity couch profile for the tuned mpv engine (set-playback-engine.sh mpv-hifi).",
     "4K SDR hi-fi: prefers high-bitrate SDR 4K (HEVC REMUX/encode) for native-4K fidelity that stays smooth on the X11/Pi 5 stack.",
     "exclude_hdr on the 4K steps drops HDR above 1080p: X11 cannot output HDR, so a 4K HDR frame would be GPU tone-mapped to SDR every frame and the Pi 5 cannot sustain that at 4K (heavy stutter). HDR titles fall through to a 1080p step, where tone-mapping is cheap.",
-    "require_hevc locks every >1080p step to HEVC — the only codec the Pi 5 decodes in hardware — so a 4K H.264/AV1/VP9 release never auto-plays and stutters; such titles fall through to a 1080p (any-codec) step instead.",
+    "Ranking preference (resolution-dominant, decodability tiebreak, nothing excluded): 4K is always preferred when present. Within the 4K tier the HW-decodable HEVC steps (4k_sdr_remux_cached, 4k_sdr_cached) come first, then 4k_sdr_soft_cached admits SDR 4K AV1/H.264 ABOVE the 1080p steps — so a thin title whose only release is 4K AV1 (e.g. India's Got Latent) still auto-plays at 4K rather than failing, and a title that also has 4K HEVC always gets the smooth one. last_resort remains the final catch-all (HDR/uncached/any codec).",
+    "The Pi 5 soft-decodes 4K AV1/H.264 with CPU headroom (marginal, not a hard wall), so 4k_sdr_soft_cached accepts it. Cross-resolution order is owned here by step order; within-tier HEVC>AV1 is reinforced by the hardware-decode tiebreaker in streamPlayScore.",
     "REMUX is confined to the 4K steps; 1080p stays on efficient encodes to avoid high-bitrate AVC software-decode load.",
     "Cached-only (include_uncached=false) so debrid serves the high bitrate fast enough to avoid rebuffering."
   ],
@@ -42,6 +43,17 @@
       "min_quality": "2160p",
       "exclude_remux": true,
       "require_hevc": true,
+      "exclude_hdr": true,
+      "require_cache": "cached",
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
+      "step": "4k_sdr_soft_cached",
+      "max_quality": "2160p",
+      "min_quality": "2160p",
+      "exclude_remux": true,
+      "require_hevc": false,
       "exclude_hdr": true,
       "require_cache": "cached",
       "debrid_services": ["torbox", "realdebrid"],
