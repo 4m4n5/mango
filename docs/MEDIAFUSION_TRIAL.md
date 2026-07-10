@@ -10,8 +10,15 @@
 > language coverage of an existing surface, not a new one. Cached-only is enforced at three layers so it
 > **cannot burn TorBox quota** during nightly grows. Fully reversible in ~2 minutes.
 
-## Gate (already met)
-Diversity audit confirmed india rails are ~80% Hindi (well past the ≥70% trial gate). Proceed.
+## Current Pi status (HOLD)
+
+Marketplace MediaFusion without a Share Manifest **URL Override** resolves to a broken
+default "MediaFusion P2P" endpoint (502 / 8s timeout on every couch resolve). Until a
+configured Share Manifest is pasted into AIOStreams, MediaFusion is **disabled** on the
+Pi so it cannot burn resolve budget. Comet remains the working secondary scraper.
+
+When re-enabling: set `useCachedResultsOnly: true`, paste the Share Manifest into
+**URL (Override)**, keep resources stream-only, then re-run the yield probe below.
 
 ## Step 0 — Snapshot (reversibility anchor)
 On the Pi (read-only):

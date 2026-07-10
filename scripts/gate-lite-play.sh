@@ -33,22 +33,37 @@ curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
 # unplayable/NFO sidecar for a specific title). The retry logic in
 # gate_post_play handles transient flakiness for the picked title.
 if [[ -z "$MOVIE_ID" ]]; then
+  # Prefer a playability-verified movie so we do not stream-probe the whole
+  # movies tab (that was a Torrentio 429 amplifier during every gate-lite run).
   MOVIE_ID="$(python3 - <<'PY'
-import json, urllib.request
+import json, urllib.request, sqlite3, os
+# 1) playability DB verified movie (canonical path, then cache fallbacks)
+candidates = [
+    os.environ.get("MANGO_PLAYABILITY_DB"),
+    "/etc/mango/playability.db",
+    os.path.expanduser("~/.cache/mango/playability.db"),
+]
+for db in candidates:
+    if not db or not os.path.exists(db) or os.path.getsize(db) == 0:
+        continue
+    try:
+        con = sqlite3.connect(db)
+        row = con.execute(
+            "SELECT id FROM titles WHERE type='movie' AND status='verified' ORDER BY verified_at DESC LIMIT 1"
+        ).fetchone()
+        con.close()
+        if row and row[0]:
+            print(row[0]); raise SystemExit
+    except SystemExit:
+        raise
+    except Exception:
+        continue
+# 2) first movies-tab item (no stream probe) — play will fail loudly if unplayable
 d = json.load(urllib.request.urlopen("http://127.0.0.1:3020/rails/items?tab=movies", timeout=10))
 for rail in d.get("rails", []):
     for item in rail.get("items") or []:
-        if item.get("type") != "movie" or not item.get("id"):
-            continue
-        try:
-            s = json.load(urllib.request.urlopen(f"http://127.0.0.1:3020/stream/movie/{item['id']}", timeout=20))
-            if s.get("streams"):
-                print(item["id"]); break
-        except Exception:
-            continue
-    else:
-        continue
-    break
+        if item.get("type") == "movie" and item.get("id"):
+            print(item["id"]); raise SystemExit
 PY
 )"
   if [[ -z "$MOVIE_ID" ]]; then

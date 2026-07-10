@@ -17,6 +17,7 @@ test('stream resolve classifier keeps provider failures as infrastructure', () =
   assert.equal(hasStreamResolveInfrastructureErrors(['AIOStreams: timeout after 12000ms']), true);
   assert.equal(hasStreamResolveInfrastructureErrors(['AIOMetadata: rate limit exceeded']), true);
   assert.equal(hasStreamResolveInfrastructureErrors(['stream resolve skipped — recent miss (retry shortly)']), false);
+  assert.equal(hasStreamResolveInfrastructureErrors(['stream resolve skipped — recent rate-limit (retry shortly)']), true);
   assert.equal(hasStreamResolveInfrastructureErrors(['stream resolve skipped — recent rate-limit placeholders']), true);
 });
 

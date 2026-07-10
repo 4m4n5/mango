@@ -323,9 +323,10 @@ function boundedInt(value: unknown, fallback: number, min: number, max: number):
   return Math.max(min, Math.min(max, Math.floor(parsed)));
 }
 
+/** Couch path: no empty-stream retry by default (was doubling Torrentio hits). Grow uses its own knobs. */
 const STREAM_ZERO_RETRY_ATTEMPTS = boundedInt(
   process.env.MANGO_STREAM_ZERO_RETRY_ATTEMPTS,
-  1,
+  0,
   0,
   3,
 );
@@ -334,6 +335,10 @@ const STREAM_ZERO_RETRY_DELAY_MS = boundedInt(
   0,
   0,
   10000,
+);
+/** After a stream-addon 429 / rate-limit placeholder, skip re-hitting AIO for this long. */
+const STREAM_RATE_LIMIT_BACKOFF_MS = Number(
+  process.env.MANGO_STREAM_RATE_LIMIT_BACKOFF_MS || 5 * 60 * 1000,
 );
 /** Couch play never cross-probes sibling episodes (was amplifying Torrentio 429s). */
 const STREAM_SERIES_CROSS_PROBE_LIMIT = boundedInt(
@@ -693,8 +698,11 @@ export class CatalogCore {
     resolveMs: number;
     expiresAt: number;
   }>();
-  /** Short TTL after error-only stream resolves — avoids caching poisoned placeholders. */
-  private readonly streamNegativeCache = new Map<string, number>();
+  /**
+   * Short TTL after empty / error-only stream resolves — dampens tap-to-retry storms.
+   * Value is expiry ms; reason distinguishes miss vs rate-limit for couch messaging.
+   */
+  private readonly streamNegativeCache = new Map<string, { until: number; reason: 'miss' | 'rate_limited' }>();
   private readonly railItemsCache = new Map<string, {
     payload: RailItemsResponse;
     expiresAt: number;
@@ -2333,16 +2341,19 @@ export class CatalogCore {
       };
     }
 
-    const negativeUntil = this.streamNegativeCache.get(key);
-    if (negativeUntil && negativeUntil > Date.now()) {
+    const negative = this.streamNegativeCache.get(key);
+    if (negative && negative.until > Date.now()) {
+      const skipMsg = negative.reason === 'rate_limited'
+        ? 'stream resolve skipped — recent rate-limit (retry shortly)'
+        : 'stream resolve skipped — recent miss (retry shortly)';
       return {
         streams: [],
-        errors: ['stream resolve skipped — recent miss (retry shortly)'],
+        errors: [skipMsg],
         resolveMs: 0,
         cached: true,
       };
     }
-    if (negativeUntil) {
+    if (negative) {
       this.streamNegativeCache.delete(key);
     }
 
@@ -2419,12 +2430,21 @@ export class CatalogCore {
         expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
       });
     } else if (streams.length > 0) {
-      // Rate-limit / error placeholders — skip re-hitting addons briefly.
-      this.streamNegativeCache.set(key, Date.now() + STREAM_NEGATIVE_CACHE_MS);
+      // Rate-limit / error placeholders — longer backoff so we don't re-hammer AIO.
+      const rateLimited = hasStreamResolveInfrastructureErrors(errors)
+        || streamsAreOnlyErrorPlaceholders(streams);
+      this.streamNegativeCache.set(key, {
+        until: Date.now() + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
+        reason: rateLimited ? 'rate_limited' : 'miss',
+      });
     } else {
-      // True empty (or upstream 429 swallowed as []) — still dampen rapid
-      // couch retries / tap-to-retry storms against the same episode id.
-      this.streamNegativeCache.set(key, Date.now() + STREAM_NEGATIVE_CACHE_MS);
+      // True empty (or upstream 429 swallowed as []). Prefer longer backoff when
+      // errors look like rate-limit / infra; otherwise short miss dampening.
+      const rateLimited = hasStreamResolveInfrastructureErrors(errors);
+      this.streamNegativeCache.set(key, {
+        until: Date.now() + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
+        reason: rateLimited ? 'rate_limited' : 'miss',
+      });
     }
     return { streams, errors, resolveMs, cached: false };
   }

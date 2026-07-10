@@ -74,9 +74,9 @@ AIOStreams v2.30 configure menu sections and how mango should use each.
 
 | Knob | mango recommendation |
 |------|----------------------|
-| **Torrentio** (marketplace) | Installed, **resources: stream only**, timeout ~7 s |
+| **Torrentio** (marketplace) | Installed, **resources: stream only**, timeout ~7 s, **`useMultipleInstances: false`** (one instance for all debrid services — multi-instance multiplies public Torrentio hits) |
 | **Comet** (marketplace) | **ON** — secondary scraper (stream only, ~7 s, no P2P, remove trash) so couch play is not single-homed on public Torrentio |
-| **MediaFusion** (marketplace) | **ON** — tertiary scraper (stream only, ~8 s, **live search**, no catalogs/P2P) for cold / regional titles |
+| **MediaFusion** (marketplace) | **HOLD until Share Manifest override is set** — default marketplace MediaFusion resolves to a broken "MediaFusion P2P" endpoint (502/timeout). Re-enable only with a configured [Share Manifest URL](../MEDIAFUSION_TRIAL.md) pasted into **URL (Override)**, `useCachedResultsOnly: true`, stream-only, no catalogs/P2P |
 | Other built-ins (Prowlarr, …) | **OFF** unless needed |
 | Custom addon URLs | **None** V1 |
 | Catalogues (inside AIOStreams) | **OFF / not used** — mango uses Cinemeta + AIOMetadata |
