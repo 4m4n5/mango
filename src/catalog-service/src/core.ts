@@ -703,6 +703,14 @@ export class CatalogCore {
    * Value is expiry ms; reason distinguishes miss vs rate-limit for couch messaging.
    */
   private readonly streamNegativeCache = new Map<string, { until: number; reason: 'miss' | 'rate_limited' }>();
+  /**
+   * Single-flight guard: coalesces concurrent identical stream resolves (same
+   * type:id) into one in-flight AIO fan-out. Without this, overlapping callers
+   * (detail /stream + /play, play → drift-verify → inline-reverify, rapid
+   * episode taps, grow + couch on the same title) each miss the not-yet-written
+   * cache and independently hit Torrentio, producing request bursts.
+   */
+  private readonly streamInFlight = new Map<string, Promise<RawStreamResolution>>();
   private readonly railItemsCache = new Map<string, {
     payload: RailItemsResponse;
     expiresAt: number;
@@ -2357,6 +2365,26 @@ export class CatalogCore {
       this.streamNegativeCache.delete(key);
     }
 
+    const inflight = this.streamInFlight.get(key);
+    if (inflight) {
+      // A concurrent identical resolve is already running — join it rather than
+      // firing a second AIO fan-out for the same title in the same window.
+      return inflight;
+    }
+    const resolve = this.performRawStreamResolve(type, id, key, options)
+      .finally(() => {
+        this.streamInFlight.delete(key);
+      });
+    this.streamInFlight.set(key, resolve);
+    return resolve;
+  }
+
+  private async performRawStreamResolve(
+    type: string,
+    id: string,
+    key: string,
+    options: ResolveStreamOptions,
+  ): Promise<RawStreamResolution> {
     if (type === 'tv' && isArea69ChannelId(id)) {
       const streamId = parseArea69StreamId(id);
       if (!streamId) {
