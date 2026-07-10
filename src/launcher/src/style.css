@@ -1152,18 +1152,13 @@ h1 {
   color: var(--text-primary);
 }
 
-/* Clean ring only — no dark drop-shadow (that read as a smudge on light
-   backdrops). Colored accent ring/glow scales with the panel background. */
+/* Match detail action buttons: accent border + ring/glow, no drop-shadow. */
 .detail-season-chip.focused,
 .detail-season-chip:focus-visible {
   outline: none;
-  border-color: transparent;
+  border-color: var(--accent);
   color: var(--text-primary);
-  position: relative;
-  z-index: 2;
-  box-shadow:
-    0 0 0 var(--focus-ring) var(--accent),
-    0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .detail-season-chip--active.focused,
@@ -1201,13 +1196,8 @@ h1 {
 .detail-season-header.focused,
 .detail-season-header:focus-visible {
   outline: none;
-  border-color: transparent;
-  position: relative;
-  z-index: 2;
-  box-shadow:
-    0 0 0 var(--focus-ring) var(--accent),
-    0 0 var(--focus-glow) var(--accent-glow),
-    0 18px 48px rgba(0, 0, 0, 0.5);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .detail-episode {
@@ -1267,13 +1257,8 @@ h1 {
 .detail-episode.focused,
 .detail-episode:focus-visible {
   outline: none;
-  border-color: transparent;
-  position: relative;
-  z-index: 2;
-  box-shadow:
-    0 0 0 var(--focus-ring) var(--accent),
-    0 0 var(--focus-glow) var(--accent-glow),
-    0 18px 48px rgba(0, 0, 0, 0.5);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .detail-episode--selected.focused,
@@ -1608,13 +1593,8 @@ h1 {
 .detail-stream.focused,
 .detail-stream:focus-visible {
   outline: none;
-  border-color: transparent;
-  position: relative;
-  z-index: 2;
-  box-shadow:
-    0 0 0 var(--focus-ring) var(--accent),
-    0 0 var(--focus-glow) var(--accent-glow),
-    0 18px 48px rgba(0, 0, 0, 0.5);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .detail-stream:disabled {
