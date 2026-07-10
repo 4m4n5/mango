@@ -75,7 +75,9 @@ AIOStreams v2.30 configure menu sections and how mango should use each.
 | Knob | mango recommendation |
 |------|----------------------|
 | **Torrentio** (marketplace) | Installed, **resources: stream only**, timeout ~7 s |
-| Other built-ins (Comet, MediaFusion, Prowlarr, …) | **OFF** V1 — fewer moving parts |
+| **Comet** (marketplace) | **ON** — secondary scraper (stream only, ~7 s, no P2P, remove trash) so couch play is not single-homed on public Torrentio |
+| **MediaFusion** (marketplace) | **ON** — tertiary scraper (stream only, ~8 s, **live search**, no catalogs/P2P) for cold / regional titles |
+| Other built-ins (Prowlarr, …) | **OFF** unless needed |
 | Custom addon URLs | **None** V1 |
 | Catalogues (inside AIOStreams) | **OFF / not used** — mango uses Cinemeta + AIOMetadata |
 | **Groups** | **Use** — see [Groups](#groups-conditional-fetch) |

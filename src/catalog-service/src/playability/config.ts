@@ -198,9 +198,9 @@ export function playabilityVerifyMaxCandidates(): number {
   return positiveInt(process.env.MANGO_PLAYABILITY_MAX_CANDIDATES, 3, 1, 5);
 }
 
-/** Maintenance verification is title-level; keep series episode cross-probing bounded. */
+/** Maintenance verification is title-level — never scrape sibling episodes. */
 export function playabilitySeriesCrossProbeLimit(): number {
-  return boundedInt(process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT, 1, 0, 24);
+  return boundedInt(process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT, 0, 0, 24);
 }
 
 export function playabilityVerifyZeroStreamRetryAttempts(): number {

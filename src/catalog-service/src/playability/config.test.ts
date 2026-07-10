@@ -71,9 +71,9 @@ test('playabilityFailedRetryMsForReason retries legacy uncached quarantine immed
   assert.equal(playabilityFailedRetryMsForReason('uncached_verify_legacy'), 60_000);
 });
 
-test('playabilitySeriesCrossProbeLimit defaults to one maintenance fallback probe', () => {
+test('playabilitySeriesCrossProbeLimit defaults to zero (no sibling episode scrapes)', () => {
   delete process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT;
-  assert.equal(playabilitySeriesCrossProbeLimit(), 1);
+  assert.equal(playabilitySeriesCrossProbeLimit(), 0);
   process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT = '0';
   assert.equal(playabilitySeriesCrossProbeLimit(), 0);
   process.env.MANGO_PLAYABILITY_SERIES_CROSS_PROBE_LIMIT = '99';

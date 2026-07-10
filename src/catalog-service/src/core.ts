@@ -150,7 +150,8 @@ type ResolveStreamOptions = {
 function seriesCrossProbeLimit(options?: ResolveStreamOptions): number {
   const raw = options?.seriesCrossProbeLimit;
   if (raw === undefined || !Number.isFinite(raw)) {
-    return 24;
+    // Default off — clicking an episode must only resolve that episode id.
+    return 0;
   }
   return Math.max(0, Math.min(24, Math.floor(raw)));
 }
@@ -334,9 +335,10 @@ const STREAM_ZERO_RETRY_DELAY_MS = boundedInt(
   0,
   10000,
 );
+/** Couch play never cross-probes sibling episodes (was amplifying Torrentio 429s). */
 const STREAM_SERIES_CROSS_PROBE_LIMIT = boundedInt(
   process.env.MANGO_STREAM_SERIES_CROSS_PROBE_LIMIT,
-  2,
+  0,
   0,
   24,
 );
@@ -2335,7 +2337,7 @@ export class CatalogCore {
     if (negativeUntil && negativeUntil > Date.now()) {
       return {
         streams: [],
-        errors: ['stream resolve skipped — recent rate-limit placeholders'],
+        errors: ['stream resolve skipped — recent miss (retry shortly)'],
         resolveMs: 0,
         cached: true,
       };
@@ -2417,6 +2419,11 @@ export class CatalogCore {
         expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
       });
     } else if (streams.length > 0) {
+      // Rate-limit / error placeholders — skip re-hitting addons briefly.
+      this.streamNegativeCache.set(key, Date.now() + STREAM_NEGATIVE_CACHE_MS);
+    } else {
+      // True empty (or upstream 429 swallowed as []) — still dampen rapid
+      // couch retries / tap-to-retry storms against the same episode id.
       this.streamNegativeCache.set(key, Date.now() + STREAM_NEGATIVE_CACHE_MS);
     }
     return { streams, errors, resolveMs, cached: false };
