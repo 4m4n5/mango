@@ -30,6 +30,7 @@ export type PlayOrchestratorConfig = StreamFilterConfig & { include_uncached: bo
 
 export type PlayAttempt = {
   index: number;
+  url?: string;
   ladder_step?: string;
   source?: string;
   quality?: string;
@@ -71,6 +72,7 @@ function streamMeta(stream: Stream, ladderStep: string): Record<string, unknown>
 function attemptBase(index: number, candidate: LadderCandidate): Omit<PlayAttempt, 'ok' | 'ms'> {
   return {
     index,
+    url: candidate.stream.url,
     ladder_step: candidate.ladder_step,
     source: candidate.stream.source,
     quality: candidate.stream.quality,
@@ -118,6 +120,17 @@ function rememberBadStream(url: string, error: unknown): void {
     markStreamUrlBad(streamUrlHash(url));
   }
 }
+
+/** Reserve wall budget so Phase B obligation floor is not starved by Phase A. */
+export function playObligationReserveMs(): number {
+  const raw = process.env.MANGO_PLAY_OBLIGATION_MIN_MS;
+  if (raw === undefined || raw === '') return 20_000;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return 20_000;
+  return Math.max(0, Math.min(60_000, Math.floor(parsed)));
+}
+
+const PREFLIGHT_BUDGET_CAP_MS = 8000;
 
 async function assertPlausibleFeatureProbe(options: {
   contentType?: string;
@@ -200,9 +213,10 @@ export async function probeWithLadder(
     const attemptStarted = Date.now();
     const base = attemptBase(index, candidate);
     try {
-      const preflightBudget = Math.min(2500, remaining);
+      const preflightBudget = Math.min(PREFLIGHT_BUDGET_CAP_MS, remaining);
       const sniff = await preflight(candidate.stream.url, preflightBudget);
       if (sniff === 'nfo') throw new Error('debrid_nfo_sidecar');
+      // timeout → proceed to probe (transient debrid latency)
       if (sniff === 'error' && parseDebridCacheStatus(candidate.stream) === 'cached') {
         throw new Error('debrid_playback_unreadable');
       }
@@ -305,11 +319,12 @@ async function attemptCandidates(options: {
       // real video (e.g. TorBox can silently swap a cached slot to an .nfo
       // sidecar). Only the probe *measurement* is safe to skip on reuse.
       // Real-Debrid (and all debrid) never skip probe — see shouldSkipProbe.
-      const preflightBudget = Math.min(2500, remainingBeforeProbe);
+      const preflightBudget = Math.min(PREFLIGHT_BUDGET_CAP_MS, remainingBeforeProbe);
       const sniff = await options.preflight(candidate.stream.url, preflightBudget);
       if (sniff === 'nfo') {
         throw new Error('debrid_nfo_sidecar');
       }
+      // timeout → proceed to probe (transient debrid latency; do not bad-cache)
       if (sniff === 'error' && parseDebridCacheStatus(candidate.stream) === 'cached') {
         throw new Error('debrid_playback_unreadable');
       }
@@ -418,6 +433,11 @@ export async function playWithLadder(
   const preflight = options.preflight ?? preflightPlaybackUrl;
   const ladder = options.ladder ?? config.play_ladder;
   const deadline = started + wallMs;
+  const obligationReserve = playObligationReserveMs();
+  const phaseADeadline = Math.max(
+    started + 500,
+    deadline - obligationReserve,
+  );
   const preferLadderStep = options.verified_hint?.win_ladder_step ?? null;
   const filterContext = options.filterContext ?? { contentType: options.contentType };
   const phaseA = injectPreferredPlayCandidate(
@@ -458,6 +478,7 @@ export async function playWithLadder(
   if (phaseA.length > 0) {
     const phaseAResult = await attemptCandidates({
       ...shared,
+      deadline: phaseADeadline,
       candidates: phaseA,
       attemptOffset: 0,
     });
@@ -473,7 +494,11 @@ export async function playWithLadder(
 
   const remainingMs = deadline - Date.now();
   if (remainingMs >= 500) {
-    const excludeUrls = new Set(phaseA.map((candidate) => candidate.stream.url));
+    // Exclude only URLs actually attempted in Phase A — unattempted Phase A
+    // candidates (wall/order starved) stay eligible for the obligation floor.
+    const excludeUrls = new Set(
+      allAttempts.map((attempt) => attempt.url).filter((url): url is string => Boolean(url)),
+    );
     const phaseB = expandObligationFloor(streams, filterContext, {
       excludeUrls,
       maxCandidates: playObligationMaxAttempts(),

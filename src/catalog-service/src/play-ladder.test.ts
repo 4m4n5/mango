@@ -3,9 +3,11 @@ import test from 'node:test';
 import type { Stream } from './core.js';
 import {
   defaultPlayLadder,
+  displayLadderFromPlayLadder,
   expandObligationFloor,
   expandPlayLadder,
   injectPreferredPlayCandidate,
+  isVerifiedDisplayStep,
   parsePlayLadder,
   selectDisplayStreamCandidates,
   streamMatchesLadderStep,
@@ -551,27 +553,91 @@ test('selectDisplayStreamCandidates stays empty when neither phase has integrity
   assert.equal(selected.candidates.length, 0);
 });
 
-// Resolution-dominant ranking with a decodability tiebreak: 4K first, HW-decodable
-// (HEVC) before soft-decode (AV1) within the 4K tier, and 4K above 1080p — nothing excluded.
+test('selectDisplayStreamCandidates excludes last_resort when verified smooth streams exist', () => {
+  const smooth = stream({
+    url: 'https://example.test/1080p-hevc.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: 'WEB-DL 1080p HEVC',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const hdrLastResort = stream({
+    url: 'https://example.test/2160p-hdr.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p HDR',
+    description: '2160p BluRay HDR10 HEVC',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const ladder = [
+    {
+      step: '1080p_hevc_cached',
+      max_quality: '1080p' as const,
+      exclude_remux: true,
+      require_cache: 'cached' as const,
+      verified: true,
+      debrid_services: ['torbox', 'realdebrid'],
+      addons: ['AIOStreams'],
+    },
+    {
+      step: 'last_resort',
+      max_quality: '2160p' as const,
+      exclude_remux: false,
+      require_hevc: false,
+      require_cache: 'any' as const,
+      verified: false,
+      debrid_services: ['torbox', 'realdebrid'],
+      addons: ['AIOStreams'],
+    },
+  ];
+  const selected = selectDisplayStreamCandidates(
+    [smooth, hdrLastResort],
+    ladder,
+    { contentType: 'movie' },
+    { max_candidates: 10 },
+  );
+  assert.equal(selected.source, 'preference_ladder');
+  assert.equal(selected.candidates.length, 1);
+  assert.equal(selected.candidates[0]?.stream.url, smooth.url);
+  assert.equal(selected.candidates[0]?.ladder_step, '1080p_hevc_cached');
+});
+
+test('displayLadderFromPlayLadder keeps only verified steps', () => {
+  const ladder = [
+    { step: '4k_sdr_cached', max_quality: '2160p' as const, exclude_remux: true, require_cache: 'cached' as const, verified: true },
+    { step: '4k_sdr_soft_cached', max_quality: '2160p' as const, exclude_remux: true, require_cache: 'cached' as const, verified: false },
+    { step: '1080p_hevc_cached', max_quality: '1080p' as const, exclude_remux: true, require_cache: 'cached' as const, verified: true },
+    { step: 'last_resort', max_quality: '2160p' as const, exclude_remux: false, require_cache: 'any' as const, verified: false },
+  ];
+  assert.deepEqual(
+    displayLadderFromPlayLadder(ladder).map((s) => s.step),
+    ['4k_sdr_cached', '1080p_hevc_cached'],
+  );
+  assert.equal(isVerifiedDisplayStep('last_resort'), false);
+  assert.equal(isVerifiedDisplayStep('4k_sdr_soft_cached'), false);
+  assert.equal(isVerifiedDisplayStep({ step: 'custom', max_quality: '1080p', exclude_remux: true, require_cache: 'cached', verified: false }), false);
+});
+
+// Smoothness-first: 4K HEVC → 1080p smooth → soft 4K AV1. Soft 4K is play fallback, not preferred over 1080p.
 const HIFI_RANKED_LADDER = [
   {
     step: '4k_sdr_cached', max_quality: '2160p' as const, min_quality: '2160p' as const,
     exclude_remux: true, require_hevc: true, exclude_hdr: true, require_cache: 'cached' as const,
-    debrid_services: ['torbox', 'realdebrid'], addons: ['AIOStreams'],
-  },
-  {
-    step: '4k_sdr_soft_cached', max_quality: '2160p' as const, min_quality: '2160p' as const,
-    exclude_remux: true, require_hevc: false, exclude_hdr: true, require_cache: 'cached' as const,
+    verified: true,
     debrid_services: ['torbox', 'realdebrid'], addons: ['AIOStreams'],
   },
   {
     step: '1080p_cached', max_quality: '1080p' as const,
     exclude_remux: true, require_cache: 'cached' as const,
+    verified: true,
+    debrid_services: ['torbox', 'realdebrid'], addons: ['AIOStreams'],
+  },
+  {
+    step: '4k_sdr_soft_cached', max_quality: '2160p' as const, min_quality: '2160p' as const,
+    exclude_remux: true, require_hevc: false, exclude_hdr: true, require_cache: 'cached' as const,
+    verified: false,
     debrid_services: ['torbox', 'realdebrid'], addons: ['AIOStreams'],
   },
 ];
 
-test('hifi ladder ranks 4K HEVC > 4K AV1 > 1080p, excluding nothing', () => {
+test('hifi ladder ranks 4K HEVC > 1080p > 4K AV1 (smoothness-first)', () => {
   const uhdHevc = stream({
     url: 'https://example.test/2160p-hevc.mkv', name: '[TB☁️⚡] Torrentio 2160p',
     description: '2160p WEB-DL HEVC', behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
@@ -585,7 +651,7 @@ test('hifi ladder ranks 4K HEVC > 4K AV1 > 1080p, excluding nothing', () => {
     description: '1080p WEB-DL HEVC', behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
   });
   const candidates = expandPlayLadder([hd, uhdAv1, uhdHevc], HIFI_RANKED_LADDER, { contentType: 'series' });
-  assert.deepEqual(candidates.map((c) => c.stream.url), [uhdHevc.url, uhdAv1.url, hd.url]);
+  assert.deepEqual(candidates.map((c) => c.stream.url), [uhdHevc.url, hd.url, uhdAv1.url]);
 });
 
 test('hifi ladder still plays a title whose only stream is 4K AV1 (no exclusion)', () => {
@@ -597,4 +663,24 @@ test('hifi ladder still plays a title whose only stream is 4K AV1 (no exclusion)
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0]?.stream.url, uhdAv1Only.url);
   assert.equal(candidates[0]?.ladder_step, '4k_sdr_soft_cached');
+});
+
+test('selectDisplayStreamCandidates hides soft 4K when 1080p verified exists', () => {
+  const uhdAv1 = stream({
+    url: 'https://example.test/2160p-av1.mkv', name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p WEB-DL AV1', behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const hd = stream({
+    url: 'https://example.test/1080p-hevc.mkv', name: '[TB☁️⚡] Torrentio 1080p',
+    description: '1080p WEB-DL HEVC', behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const selected = selectDisplayStreamCandidates(
+    [uhdAv1, hd],
+    HIFI_RANKED_LADDER,
+    { contentType: 'series' },
+    { max_candidates: 6 },
+  );
+  assert.equal(selected.source, 'preference_ladder');
+  assert.deepEqual(selected.candidates.map((c) => c.stream.url), [hd.url]);
+  assert.ok(!selected.candidates.some((c) => c.ladder_step === '4k_sdr_soft_cached'));
 });

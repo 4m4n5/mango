@@ -16,6 +16,7 @@ import {
 import {
   defaultPlayLadder,
   enrichStreams,
+  isVerifiedDisplayStep,
   OBLIGATION_FLOOR_STEP,
   selectDisplayStreamCandidates,
 } from './play-ladder.js';
@@ -1937,17 +1938,20 @@ export class CatalogCore {
     }
 
     const fromFloor = source === 'obligation_floor';
-    const streams = candidates.map((candidate) => ({
-      ...candidate.stream,
-      ladder_step: candidate.ladder_step,
-      // Side-list only: mark floor rows so the launcher can show "unverified".
-      ...(fromFloor
-        ? {
-          unverified: true,
-          play_ladder_step: OBLIGATION_FLOOR_STEP,
-        }
-        : {}),
-    }));
+    const streams = candidates.map((candidate) => {
+      const unverified = fromFloor || !isVerifiedDisplayStep(candidate.ladder_step);
+      return {
+        ...candidate.stream,
+        ladder_step: candidate.ladder_step,
+        // Side-list: floor + play-only steps render as "unverified".
+        ...(unverified
+          ? {
+            unverified: true,
+            play_ladder_step: fromFloor ? OBLIGATION_FLOOR_STEP : candidate.ladder_step,
+          }
+          : {}),
+      };
+    });
     const meta: StreamFilterMeta = {
       applied: config,
       total: raw.streams.length,

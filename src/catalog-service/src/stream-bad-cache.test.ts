@@ -42,6 +42,7 @@ test('isBadStreamError matches copyright / status / nfo taxonomy', () => {
   assert.equal(isBadStreamError('debrid_copyright_block'), true);
   assert.equal(isBadStreamError('mpv-play failed: debrid_status_clip duration=12'), true);
   assert.equal(isBadStreamError('debrid_nfo_sidecar'), true);
+  assert.equal(isBadStreamError('debrid_playback_unreadable'), false);
   assert.equal(isBadStreamError('timeout'), false);
 });
 

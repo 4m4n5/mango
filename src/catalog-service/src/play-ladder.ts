@@ -41,7 +41,53 @@ export type PlayLadderStep = {
   /** Allow RD unknown-cache BluRay/x265 at this step only. */
   rd_safe_unknown?: boolean;
   addons?: string[];
+  /**
+   * When true, eligible for the verified side-list (GET /stream).
+   * When false, play-only (soft 4K / last_resort / uncached).
+   * When omitted, inferred from step id defaults.
+   */
+  verified?: boolean;
 };
+
+/** Smooth / couch-trustworthy steps shown as verified in the detail side-list. */
+const VERIFIED_DISPLAY_STEP_IDS = new Set([
+  'ideal',
+  '1080p_remux',
+  '1080p_hevc_cached',
+  '1080p_cached_fallback',
+  '1080p_cached',
+  '4k_sdr_remux_cached',
+  '4k_sdr_cached',
+  '2160p_encode',
+  '2160p_cached',
+  '2160p_hdr_cached',
+]);
+
+/** Play-only / unverified steps — never expand into the verified display ladder. */
+const UNVERIFIED_DISPLAY_STEP_IDS = new Set([
+  'last_resort',
+  '4k_sdr_soft_cached',
+  '1080p_uncached_fallback',
+  '1080p_uncached',
+  'obligation_floor',
+]);
+
+export function isVerifiedDisplayStep(step: PlayLadderStep | string): boolean {
+  if (typeof step === 'string') {
+    if (UNVERIFIED_DISPLAY_STEP_IDS.has(step)) return false;
+    if (VERIFIED_DISPLAY_STEP_IDS.has(step)) return true;
+    // Unknown custom preference steps stay displayable unless marked unverified.
+    return true;
+  }
+  if (step.verified === false) return false;
+  if (step.verified === true) return true;
+  return isVerifiedDisplayStep(step.step);
+}
+
+/** Preference steps eligible for the verified GET /stream side-list. */
+export function displayLadderFromPlayLadder(ladder: PlayLadderStep[]): PlayLadderStep[] {
+  return ladder.filter((step) => isVerifiedDisplayStep(step));
+}
 
 export type LadderCandidate = {
   stream: Stream;
@@ -136,6 +182,7 @@ export function parsePlayLadder(raw: unknown): PlayLadderStep[] {
     const row = item as Record<string, unknown>;
     const step = typeof row.step === 'string' ? row.step.trim() : '';
     if (!step) continue;
+    const verified = row.verified === true ? true : row.verified === false ? false : undefined;
     parsed.push({
       step,
       max_quality: parseQuality(row.max_quality) ?? '1080p',
@@ -149,6 +196,7 @@ export function parsePlayLadder(raw: unknown): PlayLadderStep[] {
         : ['torbox'],
       rd_safe_unknown: row.rd_safe_unknown === true,
       addons: Array.isArray(row.addons) ? row.addons.map(String) : DEFAULT_ADDONS,
+      ...(verified !== undefined ? { verified } : {}),
     });
   }
   return parsed.length > 0 ? parsed : defaultPlayLadder();
@@ -555,7 +603,8 @@ export function selectDisplayStreamCandidates(
   } = {},
 ): { candidates: LadderCandidate[]; source: DisplayStreamSource } {
   const max = options.max_candidates ?? 12;
-  const preference = expandPlayLadder(streams, ladder, context, {
+  // Display expands verified steps only — last_resort / soft 4K stay play-path.
+  const preference = expandPlayLadder(streams, displayLadderFromPlayLadder(ladder), context, {
     ...options,
     max_candidates: max,
   });

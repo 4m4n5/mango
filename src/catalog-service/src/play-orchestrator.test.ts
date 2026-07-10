@@ -4,7 +4,7 @@ import type { Stream } from './core.js';
 import { playWithLadder, probeWithLadder } from './play-orchestrator.js';
 import { defaultPlayLadder } from './play-ladder.js';
 import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
-import { clearStreamBadCache } from './stream-bad-cache.js';
+import { clearStreamBadCache, isStreamUrlBad } from './stream-bad-cache.js';
 
 beforeEach(() => {
   clearStreamBadCache();
@@ -64,7 +64,10 @@ test('playWithLadder reuses verified probe for matching hash and ladder step', a
   assert.equal(result.win_ladder_step, 'ideal');
   assert.equal(result.probe_ms, 3210);
   assert.equal(result.attempts[0]?.probe_reused, true);
-  assert.ok(playTimeout > 80000);
+  // Phase A wall reserves obligation budget (default 20s), so play timeout is
+  // under the full auto_play_wall_ms but still most of the wall.
+  assert.ok(playTimeout > 60000);
+  assert.ok(playTimeout <= 90000);
 });
 
 test('playWithLadder still runs the byte-sniff and rejects unreadable bytes even when a verified hint would reuse the probe', async () => {
@@ -288,4 +291,84 @@ test('playWithLadder obligation floor still runs after verified-hint candidate f
   assert.equal(result.ok, true);
   assert.equal(result.win_ladder_step, 'obligation_floor');
   assert.equal(result.obligation_floor_ran, true);
+});
+
+test('playWithLadder proceeds to probe when preflight times out', async () => {
+  const stream = candidate('https://example.test/slow-preflight.mp4');
+  let probeCalls = 0;
+  let playCalls = 0;
+
+  const result = await playWithLadder([stream], testConfig(), {
+    preflight: async () => 'timeout',
+    probe: async () => {
+      probeCalls += 1;
+      return { ok: true, ttff_ms: 400 };
+    },
+    play: async () => {
+      playCalls += 1;
+      return { ok: true, ttff_ms: 500 };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(probeCalls, 1);
+  assert.equal(playCalls, 1);
+  assert.equal(isStreamUrlBad(streamUrlHash(stream.url)), false);
+});
+
+test('playWithLadder does not bad-cache debrid_playback_unreadable', async () => {
+  const stream = candidate('https://example.test/unreadable.mp4');
+
+  await assert.rejects(
+    playWithLadder([stream], testConfig(), {
+      preflight: async () => 'error',
+      probe: async () => ({ ok: true, ttff_ms: 400 }),
+      play: async () => ({ ok: true, ttff_ms: 500 }),
+    }),
+  );
+
+  assert.equal(isStreamUrlBad(streamUrlHash(stream.url)), false);
+});
+
+test('playWithLadder Phase B keeps unattempted Phase A URLs eligible', async () => {
+  // Two TorBox cached streams match Phase A. First fails; wall is tiny so the
+  // second is never attempted in Phase A. Phase B must still be able to play it
+  // (exclude attempted URLs only).
+  const first = candidate('https://example.test/phase-a-first.mkv');
+  const second = candidate('https://example.test/phase-a-second.mkv', '[TB☁️⚡] Torrentio 1080p B');
+  const prevReserve = process.env.MANGO_PLAY_OBLIGATION_MIN_MS;
+  process.env.MANGO_PLAY_OBLIGATION_MIN_MS = '0';
+  try {
+    const config = mergeFilterConfig({
+      ...testConfig(),
+      auto_play_wall_ms: 2500,
+      auto_play_probe_ms: 2000,
+      auto_play_max_attempts: 8,
+    });
+    const result = await playWithLadder([first, second], config, {
+      preflight: async () => 'video',
+      probe: async (url) => {
+        if (url.includes('phase-a-first')) {
+          // Burn most of the Phase A wall so the second candidate is skipped.
+          await new Promise((r) => setTimeout(r, 1800));
+          throw new Error('mpv-play failed: no error detail captured (exit 1)');
+        }
+        return { ok: true, ttff_ms: 200 };
+      },
+      play: async (url) => {
+        if (url.includes('phase-a-first')) {
+          throw new Error('should not play first');
+        }
+        return { ok: true, ttff_ms: 300 };
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.ok(
+      result.attempts.some((a) => a.url?.includes('phase-a-second') && a.ok),
+      'second URL must play via Phase B after Phase A wall starvation',
+    );
+  } finally {
+    if (prevReserve === undefined) delete process.env.MANGO_PLAY_OBLIGATION_MIN_MS;
+    else process.env.MANGO_PLAY_OBLIGATION_MIN_MS = prevReserve;
+  }
 });

@@ -25,6 +25,14 @@ import { showToast } from "./toast";
 
 const RELATED_DISPLAY_LIMIT = 7;
 
+/** Play-only / floor steps — never styled as verified in the side-list. */
+const UNVERIFIED_STREAM_STEPS = new Set([
+  "obligation_floor",
+  "last_resort",
+  "4k_sdr_soft_cached",
+  "1080p_uncached_fallback",
+]);
+
 export interface DetailCallbacks {
   onClose: () => void;
   onStatus: (message: string) => void;
@@ -1319,7 +1327,9 @@ export class DetailController {
 
     this.streamsWrap.hidden = false;
     const floorOnly = this.streams.every(
-      (stream) => stream.unverified === true || stream.ladder_step === "obligation_floor",
+      (stream) =>
+        stream.unverified === true
+        || UNVERIFIED_STREAM_STEPS.has(stream.ladder_step ?? ""),
     );
     this.streamsWrap.classList.toggle("detail-streams--unverified", floorOnly);
     const streamsLabel = this.streamsWrap.querySelector(".detail-streams-label");
@@ -1338,7 +1348,8 @@ export class DetailController {
   private createStreamButton(stream: CatalogStream): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
-    const unverified = stream.unverified === true || stream.ladder_step === "obligation_floor";
+    const unverified =
+      stream.unverified === true || UNVERIFIED_STREAM_STEPS.has(stream.ladder_step ?? "");
     button.className = unverified ? "detail-stream detail-stream--unverified" : "detail-stream";
 
     const primary = document.createElement("span");
