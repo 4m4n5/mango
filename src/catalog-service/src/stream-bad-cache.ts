@@ -7,9 +7,9 @@
  * cached — thin titles with one stream must remain retryable.
  */
 
-const DEFAULT_TTL_MS = Number(process.env.MANGO_STREAM_BAD_CACHE_MS || 45 * 60 * 1000);
+import { isGarbagePlayError } from './play-error-classify.js';
 
-const BAD_STREAM_ERROR_PATTERN = /debrid_copyright_block|debrid_status_clip|debrid_nfo_sidecar/i;
+const DEFAULT_TTL_MS = Number(process.env.MANGO_STREAM_BAD_CACHE_MS || 45 * 60 * 1000);
 
 const badUntilByHash = new Map<string, number>();
 
@@ -17,7 +17,7 @@ export function isBadStreamError(error: unknown): boolean {
   if (typeof error !== 'string') {
     return false;
   }
-  return BAD_STREAM_ERROR_PATTERN.test(error);
+  return isGarbagePlayError(error);
 }
 
 export function markStreamUrlBad(urlHash: string, ttlMs = DEFAULT_TTL_MS): void {

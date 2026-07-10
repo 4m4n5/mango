@@ -7,22 +7,13 @@ import {
   shouldInvalidatePlayabilityAfterPlayError,
 } from './play-failure-policy.js';
 
-test('transient TorBox sidecar mismatches do not demote', () => {
-  assert.equal(shouldDemoteAfterPlayError({
-    isNoPlayableStream: true,
-    obligationFloorRan: true,
-    attempts: [{ ok: false, error: 'debrid_nfo_sidecar' }],
-    candidates: 2,
-  }), false);
+test('transient unreadable / opaque / cancelled do not demote', () => {
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
     obligationFloorRan: true,
     attempts: [{ ok: false, error: 'debrid_playback_unreadable' }],
     candidates: 2,
   }), false);
-});
-
-test('opaque mpv exit and play cancelled are transient', () => {
   assert.equal(shouldDemoteAfterPlayError({
     isNoPlayableStream: true,
     obligationFloorRan: true,
@@ -35,6 +26,27 @@ test('opaque mpv exit and play cancelled are transient', () => {
     attempts: [{ ok: false, error: 'play cancelled' }],
     candidates: 1,
   }), false);
+});
+
+test('confirmed garbage (nfo / copyright / status_clip) demotes after obligation floor', () => {
+  assert.equal(shouldDemoteAfterPlayError({
+    isNoPlayableStream: true,
+    obligationFloorRan: true,
+    attempts: [{ ok: false, error: 'debrid_nfo_sidecar' }],
+    candidates: 2,
+  }), true);
+  assert.equal(shouldDemoteAfterPlayError({
+    isNoPlayableStream: true,
+    obligationFloorRan: true,
+    attempts: [{ ok: false, error: 'debrid_copyright_block' }],
+    candidates: 2,
+  }), true);
+  assert.equal(shouldDemoteAfterPlayError({
+    isNoPlayableStream: true,
+    obligationFloorRan: true,
+    attempts: [{ ok: false, error: 'debrid_status_clip' }],
+    candidates: 2,
+  }), true);
 });
 
 test('zero-candidate no_playable_stream does not demote or invalidate', () => {

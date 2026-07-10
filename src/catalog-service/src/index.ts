@@ -447,7 +447,7 @@ async function handlePlay(
     const started = Date.now();
     const playEpoch = await bumpPlayEpoch();
     const resolved = await core.resolveForPlay(body.type, body.id, overrides, {
-      bypassNegativeCache: true,
+      requestClass: 'user',
     });
     const candidates = resolved.streams.filter((candidate) => {
       const url = candidate.url;
@@ -598,7 +598,7 @@ async function handlePlay(
 
     try {
       resolved = await core.resolveForPlay(body.type, playId, overrides, {
-        bypassNegativeCache: true,
+        requestClass: 'user',
       });
     } catch (resolveError) {
       const zeroStream = resolveError instanceof CatalogError
@@ -631,7 +631,7 @@ async function handlePlay(
         ...overrides,
         strict_unknown_cache: false,
       }, {
-        bypassNegativeCache: true,
+        requestClass: 'user',
       });
     }
 

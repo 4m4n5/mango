@@ -55,15 +55,6 @@ export function playabilityProbeConcurrency(): number {
   return positiveInt(process.env.MANGO_PLAYABILITY_PROBE_CONCURRENCY, 1, 1, 4);
 }
 
-export function playabilityProbeTimeoutMs(): number {
-  return positiveInt(process.env.MANGO_PLAYABILITY_PROBE_MS, 6000, 2000, 30000);
-}
-
-/** Couch N3a probe budget — verified titles must pass within this window. */
-export function playabilityCouchProbeMs(): number {
-  return positiveInt(process.env.MANGO_AUTO_PLAY_PROBE_MS, 6000, 500, 15000);
-}
-
 export function playabilityBatchDbEnabled(): boolean {
   if (process.env.MANGO_PLAYABILITY_BATCH_DB === '0') return false;
   if (process.env.MANGO_PLAYABILITY_BATCH_DB === '1') return true;
@@ -192,10 +183,6 @@ export function playabilityVerifyMinDurationSec(contentType?: string): number {
     return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC_SERIES, 120, 30, 7200);
   }
   return positiveInt(process.env.MANGO_PLAYABILITY_MIN_DURATION_SEC, 120, 30, 7200);
-}
-
-export function playabilityVerifyMaxCandidates(): number {
-  return positiveInt(process.env.MANGO_PLAYABILITY_MAX_CANDIDATES, 3, 1, 5);
 }
 
 /** Maintenance verification is title-level — never scrape sibling episodes. */

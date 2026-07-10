@@ -19,13 +19,13 @@ export type VerifiedStreamHint = {
 };
 
 export type QualityCap = '480p' | '720p' | '1080p' | '2160p';
-export type AutoPlayCacheRequirement = 'cached' | 'cached_or_unknown' | 'any';
 
-export type AutoPlayTier = {
-  addons: string[];
-  require_cache: AutoPlayCacheRequirement;
-  /** When set, only streams from these debrid hosts (e.g. torbox before realdebrid). */
-  debrid_services?: string[];
+/** Fields `streamPlayScore` actually reads — keep callers from inventing full filter configs. */
+export type StreamPlayScoreConfig = {
+  preferred_quality: QualityCap;
+  max_quality: QualityCap | null;
+  preferred_hdr_tags: string[];
+  preferred_video_codecs: string[];
 };
 
 export type StreamFilterConfig = {
@@ -41,10 +41,6 @@ export type StreamFilterConfig = {
   exclude_error_streams: boolean;
   /** Max streams returned from GET /stream (picker headroom). */
   stream_display_limit: number;
-  /** When no cached streams remain, allow uncached TorBox (not Real-Debrid). */
-  uncached_torbox_fallback: boolean;
-  /** When TorBox fallback is empty, allow unknown-cache RD BluRay/x265 (not WEBRip). */
-  rd_safe_unknown_fallback: boolean;
   /** Max candidate URLs to try during automatic Play. */
   auto_play_max_attempts: number;
   /** Hard wall-clock budget for automatic Play. */
@@ -61,8 +57,6 @@ export type StreamFilterConfig = {
   preferred_video_codecs: string[];
   /** Ordered play preference ladder — see play-ladder.ts */
   play_ladder: import('./play-ladder.js').PlayLadderStep[];
-  /** Ordered automatic Play tiers (legacy — derived from ladder when empty). */
-  auto_play_tiers: AutoPlayTier[];
 };
 
 export type StreamFilterOverrides = {
@@ -81,12 +75,6 @@ export type StreamFilterMeta = {
   applied: StreamFilterConfig & { include_uncached: boolean };
   total: number;
   kept: number;
-  /** Set when strict filters returned 0 streams and uncached TorBox picks were used. */
-  torbox_uncached_fallback?: boolean;
-  /** Set when strict unknown-cache filter emptied results and TorBox unknown picks were used. */
-  torbox_unknown_fallback?: boolean;
-  /** Set when RD unknown-cache BluRay/x265 picks were used as last resort. */
-  rd_safe_unknown_fallback?: boolean;
   /** Set when strict title tokens matched nothing but imdb-id / relaxed pass recovered streams. */
   title_filter_relaxed?: boolean;
   /** Set when couch play retried with 2160p + uncached after 1080p candidates failed. */
@@ -280,60 +268,6 @@ export function isSeriesPackForMovie(stream: Stream, contentType: string | undef
   if (contentType !== 'movie') return false;
   const haystack = streamHaystack(stream);
   return /\b(s\d{1,2}e\d{1,2}|\.s\d{1,2}\.|season\s*\d|complete.*\bs\d{1,2}\b|series)\b/i.test(haystack);
-}
-
-function defaultAutoPlayTiers(): AutoPlayTier[] {
-  return [
-    {
-      addons: ['AIOStreams'],
-      require_cache: 'cached',
-      debrid_services: ['torbox', 'realdebrid'],
-    },
-    {
-      addons: ['AIOStreams'],
-      require_cache: 'cached',
-      debrid_services: ['torbox', 'realdebrid'],
-    },
-    {
-      addons: ['AIOStreams'],
-      require_cache: 'cached_or_unknown',
-      debrid_services: ['torbox'],
-    },
-  ];
-}
-
-function parseAutoPlayRequireCache(value: unknown): AutoPlayCacheRequirement | null {
-  if (value === 'cached' || value === 'cached_or_unknown' || value === 'any') {
-    return value;
-  }
-  return null;
-}
-
-function parseAutoPlayTiers(value: unknown): AutoPlayTier[] {
-  if (!Array.isArray(value)) return defaultAutoPlayTiers();
-  const tiers: AutoPlayTier[] = [];
-  for (const item of value) {
-    if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
-    const record = item as Record<string, unknown>;
-    const addons = Array.isArray(record.addons)
-      ? record.addons
-          .filter((addon): addon is string => typeof addon === 'string' && addon.trim() !== '')
-          .map((addon) => addon.trim())
-      : [];
-    const requireCache = parseAutoPlayRequireCache(record.require_cache);
-    if (addons.length === 0 || !requireCache) continue;
-    const debridServices = Array.isArray(record.debrid_services)
-      ? record.debrid_services
-          .filter((service): service is string => typeof service === 'string' && service.trim() !== '')
-          .map((service) => service.trim().toLowerCase())
-      : undefined;
-    tiers.push({
-      addons,
-      require_cache: requireCache,
-      ...(debridServices && debridServices.length > 0 ? { debrid_services: debridServices } : {}),
-    });
-  }
-  return tiers.length > 0 ? tiers : defaultAutoPlayTiers();
 }
 
 function parseStringList(value: unknown, fallback: string[]): string[] {
@@ -777,7 +711,7 @@ export function isRdSafeUnknownRelease(stream: Stream): boolean {
  */
 export function streamPlayScore(
   stream: Stream,
-  config: StreamFilterConfig & { include_uncached: boolean },
+  config: StreamPlayScoreConfig,
   verifiedHint?: VerifiedStreamHint,
   options: { preferred_language?: string | null } = {},
 ): number {
@@ -873,11 +807,8 @@ export function defaultFilterConfig(): StreamFilterConfig {
     preferred_hdr_tags: parseEnvStringList(process.env.MANGO_PREFERRED_HDR_TAGS),
     preferred_video_codecs: parseEnvStringList(process.env.MANGO_PREFERRED_VIDEO_CODECS),
     play_ladder: defaultPlayLadder(),
-    auto_play_tiers: defaultAutoPlayTiers(),
     exclude_error_streams: true,
     stream_display_limit: positiveInteger(process.env.MANGO_STREAM_DISPLAY_LIMIT, 8, 3, 20),
-    uncached_torbox_fallback: true,
-    rd_safe_unknown_fallback: true,
   };
 }
 
@@ -930,20 +861,13 @@ export async function loadFilterConfig(
     if (raw.play_ladder !== undefined) {
       base.play_ladder = parsePlayLadder(raw.play_ladder);
     }
-    if (raw.auto_play_tiers !== undefined) {
-      base.auto_play_tiers = parseAutoPlayTiers(raw.auto_play_tiers);
-    }
+    // Legacy pre-ladder keys may still exist on Pi live configs — ignored
+    // intentionally (this loader is field-by-field, not strict-schema).
     if (typeof raw.exclude_error_streams === 'boolean') {
       base.exclude_error_streams = raw.exclude_error_streams;
     }
     if (raw.stream_display_limit !== undefined) {
       base.stream_display_limit = positiveInteger(raw.stream_display_limit, base.stream_display_limit, 3, 20);
-    }
-    if (typeof raw.uncached_torbox_fallback === 'boolean') {
-      base.uncached_torbox_fallback = raw.uncached_torbox_fallback;
-    }
-    if (typeof raw.rd_safe_unknown_fallback === 'boolean') {
-      base.rd_safe_unknown_fallback = raw.rd_safe_unknown_fallback;
     }
     if (raw.include_uncached === true) {
       base.exclude_uncached_debrid = false;
@@ -977,11 +901,8 @@ export function mergeFilterConfig(
     preferred_hdr_tags: base.preferred_hdr_tags,
     preferred_video_codecs: base.preferred_video_codecs,
     play_ladder: base.play_ladder,
-    auto_play_tiers: base.auto_play_tiers,
     exclude_error_streams: base.exclude_error_streams,
     stream_display_limit: base.stream_display_limit,
-    uncached_torbox_fallback: base.uncached_torbox_fallback,
-    rd_safe_unknown_fallback: base.rd_safe_unknown_fallback,
     include_uncached: includeUncached,
     hard_language: overrides.hard_language,
     preferred_language: overrides.preferred_language,
@@ -1017,12 +938,6 @@ export function parseFilterOverridesFromQuery(
     overrides.preferred_language = language && language.trim() !== '' ? language.trim() : null;
   }
   return overrides;
-}
-
-function cacheRank(status: ReturnType<typeof parseDebridCacheStatus>): number {
-  if (status === 'cached') return 0;
-  if (status === 'unknown') return 1;
-  return 2;
 }
 
 function qualityRank(stream: Stream, cap: QualityCap | null): number {
@@ -1131,152 +1046,6 @@ function rankKeptStreams(
     - streamPlayScore(left, config, undefined, options));
 }
 
-function buildFallbackStreams(
-  streams: Stream[],
-  config: StreamFilterConfig & { include_uncached: boolean },
-  predicate: (stream: Stream) => boolean,
-  annotate: (stream: Stream) => Stream,
-  context: StreamFilterContext = {},
-  options: { hard_language?: string | null } = {},
-): Stream[] {
-  const kept: Stream[] = [];
-  for (const raw of streams) {
-    const stream = ensureEnrichedStream(raw);
-    if (!predicate(stream)) continue;
-    if (!streamPassesIntegrity(stream, context)) {
-      continue;
-    }
-    if (isSeriesPackForMovie(stream, context.contentType)) continue;
-    if (config.exclude_error_streams && isErrorStream(stream)) continue;
-    if (options.hard_language && !streamMatchesLanguage(stream, options.hard_language)) continue;
-    if (config.exclude_remux && isRemux(stream)) continue;
-    if (qualityExceedsCap(stream, config.max_quality)) continue;
-    kept.push(annotate(stream));
-  }
-  rankKeptStreams(kept, config);
-  return kept;
-}
-
-/** Primary filters; cascade to TorBox uncached then RD safe-unknown when empty. */
-export function filterStreamsForPlay(
-  streams: Stream[],
-  config: StreamFilterConfig & {
-    include_uncached: boolean;
-    hard_language?: string | null;
-    preferred_language?: string | null;
-    min_quality?: QualityCap | null;
-  },
-  context: StreamFilterContext = {},
-): { streams: Stream[]; meta: StreamFilterMeta } {
-  const filterOptions = {
-    hard_language: config.hard_language,
-    preferred_language: config.preferred_language,
-    min_quality: config.min_quality,
-  };
-  const primary = filterAndRankStreams(streams, config, context, filterOptions);
-  if (primary.streams.length > 0 || config.include_uncached) {
-    return primary;
-  }
-
-  if (primary.meta.excluded.title_mismatch > 0 && context.metaTitle) {
-    const relaxed = filterAndRankStreams(streams, config, {
-      ...context,
-      metaTitle: undefined,
-    }, filterOptions);
-    if (relaxed.streams.length > 0) {
-      return {
-        streams: relaxed.streams,
-        meta: {
-          ...relaxed.meta,
-          title_filter_relaxed: true,
-        },
-      };
-    }
-  }
-
-  if (config.uncached_torbox_fallback) {
-    const torboxUncached = buildFallbackStreams(
-      streams,
-      config,
-      (stream) => debridServiceId(stream) === 'torbox' && parseDebridCacheStatus(stream) === 'uncached',
-      (stream) => ({
-        ...stream,
-        debrid_service: 'torbox',
-        cache_status: parseDebridCacheStatus(stream),
-      }),
-      context,
-      filterOptions,
-    ).filter((stream) => !isLowQualityRelease(stream));
-
-    if (torboxUncached.length > 0) {
-      return {
-        streams: torboxUncached,
-        meta: {
-          ...primary.meta,
-          kept: torboxUncached.length,
-          torbox_uncached_fallback: true,
-        },
-      };
-    }
-  }
-
-  if (config.strict_unknown_cache && primary.meta.excluded.unknown_cache_debrid > 0) {
-    const torboxUnknown = buildFallbackStreams(
-      streams,
-      config,
-      (stream) => sourceMatches(stream, ['AIOStreams'])
-        && debridServiceId(stream) === 'torbox'
-        && parseDebridCacheStatus(stream) === 'unknown',
-      (stream) => ({
-        ...stream,
-        debrid_service: 'torbox',
-        cache_status: 'unknown',
-      }),
-      context,
-      filterOptions,
-    ).filter((stream) => !isLowQualityRelease(stream));
-
-    if (torboxUnknown.length > 0) {
-      return {
-        streams: torboxUnknown.slice(0, config.stream_display_limit),
-        meta: {
-          ...primary.meta,
-          kept: Math.min(torboxUnknown.length, config.stream_display_limit),
-          torbox_unknown_fallback: true,
-        },
-      };
-    }
-  }
-
-  if (config.rd_safe_unknown_fallback) {
-    const rdSafe = buildFallbackStreams(
-      streams,
-      config,
-      (stream) => isRdSafeUnknownRelease(stream),
-      (stream) => ({
-        ...stream,
-        debrid_service: 'realdebrid',
-        cache_status: 'unknown',
-      }),
-      context,
-      filterOptions,
-    );
-
-    if (rdSafe.length > 0) {
-      return {
-        streams: rdSafe,
-        meta: {
-          ...primary.meta,
-          kept: rdSafe.length,
-          rd_safe_unknown_fallback: true,
-        },
-      };
-    }
-  }
-
-  return primary;
-}
-
 function normalizeAddonName(name: string): string {
   return name
     .toLowerCase()
@@ -1299,106 +1068,4 @@ function streamCacheStatus(stream: Stream): ReturnType<typeof parseDebridCacheSt
     return explicit;
   }
   return parseDebridCacheStatus(stream);
-}
-
-function cacheAllowed(
-  stream: Stream,
-  requireCache: AutoPlayCacheRequirement,
-  _strictUnknownCache: boolean,
-): boolean {
-  const status = streamCacheStatus(stream);
-  if (requireCache === 'any') return true;
-  if (requireCache === 'cached_or_unknown') {
-    return status === 'cached' || status === 'unknown';
-  }
-  if (requireCache === 'cached') return status === 'cached';
-  if (status === 'cached') return true;
-  return status === 'unknown';
-}
-
-function debridServiceAllowed(stream: Stream, allowed: string[] | undefined): boolean {
-  if (!allowed || allowed.length === 0) return true;
-  const service = debridServiceId(stream);
-  if (!service) return false;
-  return allowed.includes(service);
-}
-
-function autoPlayEligible(
-  stream: Stream,
-  config: StreamFilterConfig & { include_uncached: boolean },
-  options: { allow_uncached_torbox?: boolean } = {},
-): boolean {
-  if (config.exclude_error_streams && isErrorStream(stream)) return false;
-  if (isDebridStream(stream) && streamCacheStatus(stream) === 'uncached') {
-    if (config.include_uncached) {
-      return true;
-    }
-    if (options.allow_uncached_torbox && debridServiceId(stream) === 'torbox') {
-      return true;
-    }
-    return false;
-  }
-  return true;
-}
-
-export function selectAutoPlayCandidates(
-  streams: Stream[],
-  config: StreamFilterConfig & { include_uncached: boolean },
-  options: {
-    allow_uncached_torbox?: boolean;
-    allow_rd_safe_unknown?: boolean;
-    verified_hint?: VerifiedStreamHint;
-  } = {},
-): Stream[] {
-  const eligible = streams.filter((stream) => autoPlayEligible(stream, config, options));
-  const seen = new Set<string>();
-  const ranked: Stream[] = [];
-
-  for (const tier of config.auto_play_tiers) {
-    const phaseStreams = eligible
-      .filter((stream) => !seen.has(stream.url)
-        && sourceMatches(stream, tier.addons)
-        && cacheAllowed(stream, tier.require_cache, config.strict_unknown_cache)
-        && debridServiceAllowed(stream, tier.debrid_services))
-      .sort((left, right) => streamPlayScore(right, config, options.verified_hint)
-        - streamPlayScore(left, config, options.verified_hint));
-    for (const stream of phaseStreams) {
-      seen.add(stream.url);
-      ranked.push(stream);
-    }
-  }
-
-  const fallbackStreams = eligible
-    .filter((stream) => !seen.has(stream.url))
-    .filter((stream) => (
-      options.allow_uncached_torbox === true
-        && debridServiceId(stream) === 'torbox'
-        && streamCacheStatus(stream) === 'uncached'
-        && !isLowQualityRelease(stream)
-    ) || (
-      options.allow_rd_safe_unknown === true
-        && isRdSafeUnknownRelease(stream)
-    ))
-    .sort((left, right) => streamPlayScore(right, config, options.verified_hint)
-      - streamPlayScore(left, config, options.verified_hint));
-  for (const stream of fallbackStreams) {
-    seen.add(stream.url);
-    ranked.push(stream);
-  }
-
-  return diversifyCandidates(ranked, config.auto_play_max_attempts);
-}
-
-/** AIOStreams upstream dedup/limit already diversifies; keep top ranked attempts. */
-function diversifyCandidates(streams: Stream[], max: number): Stream[] {
-  return streams.slice(0, max);
-}
-
-export function pickPlayableStream(
-  streams: Stream[],
-  config: StreamFilterConfig & { include_uncached: boolean },
-  context: StreamFilterContext = {},
-): { stream: Stream | null; meta: StreamFilterMeta } {
-  const { streams: filtered, meta } = filterAndRankStreams(streams, config, context);
-  return { stream: filtered[0] ?? null, meta };
 }

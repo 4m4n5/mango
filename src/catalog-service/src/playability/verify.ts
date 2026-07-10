@@ -1,5 +1,6 @@
 import { CatalogCore, CatalogError, type Stream } from '../core.js';
 import { isRateLimitedStreamUrl } from '../catalog-errors.js';
+import { classifyPlayError, garbageKind } from '../play-error-classify.js';
 import { probeWithLadder } from '../play-orchestrator.js';
 import { expandPlayLadder } from '../play-ladder.js';
 import { streamUrlHash } from '../stream-filters.js';
@@ -88,27 +89,25 @@ function cleanError(error: unknown): string {
 }
 
 function failReason(error: unknown): string {
-  const message = cleanError(error).toLowerCase();
-  if (message.includes('debrid_nfo') || message.includes('debrid_playback_unreadable')) {
+  const message = cleanError(error);
+  const lower = message.toLowerCase();
+  const cls = classifyPlayError(message);
+  const kind = garbageKind(message);
+
+  if (kind === 'nfo' || /debrid_playback_unreadable/i.test(message)) {
     return 'transient_upstream';
   }
-  if (
-    message.includes('rate_limit')
-    || message.includes('rate limit')
-    || message.includes('rate-limited')
-    || message.includes('rate_limited')
-    || message.includes('too many requests')
-    || message.includes('429')
-  ) return 'rate_limited';
-  if (message.includes('debrid_status_clip')) return 'status_clip';
-  if (message.includes('copyright') || message.includes('removed')) return 'copyright';
-  if (message.includes('timeout') || message.includes('within')) return 'timeout';
-  if (
-    message.includes('no streams')
-    || message.includes('no http streams')
-    || message.includes('no_playable')
-  ) return 'no_stream';
-  if (message.includes('title')) return 'title_mismatch';
+  if (cls === 'rate_limited') return 'rate_limited';
+  if (kind === 'status_clip') return 'status_clip';
+  if (kind === 'copyright' || lower.includes('copyright') || lower.includes('removed')) {
+    return 'copyright';
+  }
+  if (cls === 'transient' && (lower.includes('timeout') || lower.includes('within'))) {
+    return 'timeout';
+  }
+  if (cls === 'no_stream') return 'no_stream';
+  // Special case: title mismatch when not already classified.
+  if (cls === 'unknown' && lower.includes('title')) return 'title_mismatch';
   return 'probe_failed';
 }
 
@@ -281,7 +280,7 @@ export async function prepareVerifyTitle(
       seriesCrossProbeLimit: playabilitySeriesCrossProbeLimit(),
       zeroStreamRetryAttempts: playabilityVerifyZeroStreamRetryAttempts(),
       zeroStreamRetryDelayMs: playabilityVerifyZeroStreamRetryDelayMs(),
-      bypassNegativeCache: false,
+      requestClass: 'background',
     });
     const candidates = expandPlayLadder(
       resolved.streams,

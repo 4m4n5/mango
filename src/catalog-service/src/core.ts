@@ -2,8 +2,6 @@ import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import {
-  filterAndRankStreams,
-  filterStreamsForPlay,
   enrichStreamMetadata,
   hasCacheableStream,
   loadFilterConfig,
@@ -67,6 +65,7 @@ import {
   isAddonRateLimitMessage,
   isBlockedCatalogMeta,
 } from './catalog-errors.js';
+import { classifyPlayError } from './play-error-classify.js';
 import { resolvePosterFromMeta, metahubPosterUrl, normalizePosterUrl } from './poster.js';
 import { CONTINUE_RAIL_ID } from './progress/config.js';
 import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
@@ -154,10 +153,8 @@ type ResolveStreamOptions = {
   seriesCrossProbeLimit?: number;
   zeroStreamRetryAttempts?: number;
   zeroStreamRetryDelayMs?: number;
-  /** Couch play: ignore miss + rate-limit negative cache (user-initiated). */
-  bypassNegativeCache?: boolean;
-  /** Couch stream list: ignore rate-limit negative cache only. */
-  bypassRateLimitNegativeCache?: boolean;
+  /** user = couch play / detail stream list; background = verify/grow/drift */
+  requestClass?: 'user' | 'background';
 };
 
 function seriesCrossProbeLimit(options?: ResolveStreamOptions): number {
@@ -290,12 +287,33 @@ type Addon = {
   manifest: Manifest;
 };
 
+export type ResolveNoteKind = 'addon_error' | 'skip' | 'infra' | 'annotation';
+
+export type ResolveNote = {
+  kind: ResolveNoteKind;
+  message: string;
+};
+
 type RawStreamResolution = {
   streams: Stream[];
-  errors: string[];
+  notes: ResolveNote[];
   resolveMs: number;
   cached: boolean;
 };
+
+function resolveNote(kind: ResolveNoteKind, message: string): ResolveNote {
+  return { kind, message };
+}
+
+function resolveNoteMessages(notes: ResolveNote[]): string[] {
+  return notes.map((note) => note.message);
+}
+
+/** Addon fetch failures that should trip infra / rate-limit backoff. */
+function isInfraAddonMessage(message: string): boolean {
+  if (classifyPlayError(message) === 'rate_limited') return true;
+  return /timeout|abort|HTTP 5\d\d|fetch failed|ECONN|socket/i.test(message);
+}
 
 type CoreStatus = {
   version: string;
@@ -682,16 +700,32 @@ function streamResolveInfoOnly(error: string): boolean {
   return /^zero streams after \d+ attempts?$/i.test(error.trim());
 }
 
-export function hasStreamResolveInfrastructureErrors(errors: string[]): boolean {
-  return errors.some((error) => {
-    if (streamResolveInfoOnly(error)) return false;
-    return /rate[-\s]*limit|too many requests|429|timeout|abort|HTTP 5\d\d|fetch failed|ECONN|socket|public-rate-limit|rate-limit-exceeded/i
-      .test(error);
+const LEGACY_STREAM_RESOLVE_INFRA_RE =
+  /rate[-\s]*limit|too many requests|429|timeout|abort|HTTP 5\d\d|fetch failed|ECONN|socket|public-rate-limit|rate-limit-exceeded/i;
+
+/**
+ * True when resolve notes indicate addon/infra failure (rate-limit, 5xx, timeout)
+ * rather than clean title exhaustion. Accepts legacy string[] for transition/tests.
+ */
+export function hasStreamResolveInfrastructureErrors(
+  notes: ResolveNote[] | string[],
+): boolean {
+  if (notes.length === 0) return false;
+  if (typeof notes[0] === 'string') {
+    return (notes as string[]).some((error) => {
+      if (streamResolveInfoOnly(error)) return false;
+      return LEGACY_STREAM_RESOLVE_INFRA_RE.test(error);
+    });
+  }
+  return (notes as ResolveNote[]).some((note) => {
+    if (note.kind === 'infra') return true;
+    if (note.kind === 'addon_error' && isInfraAddonMessage(note.message)) return true;
+    return false;
   });
 }
 
-function streamResolveCouchMessage(errors: string[]): string {
-  return couchSafeCatalogMessage(errors.join('; ') || 'stream resolve failed');
+function streamResolveCouchMessage(notes: ResolveNote[]): string {
+  return couchSafeCatalogMessage(resolveNoteMessages(notes).join('; ') || 'stream resolve failed');
 }
 
 export function streamsAreOnlyErrorPlaceholders(streams: Stream[]): boolean {
@@ -709,7 +743,7 @@ export class CatalogCore {
   private readonly metaCache = new Map<string, { meta?: Meta; expiresAt: number; blocked?: boolean }>();
   private readonly streamCache = new Map<string, {
     streams: Stream[];
-    errors: string[];
+    notes: ResolveNote[];
     resolveMs: number;
     expiresAt: number;
   }>();
@@ -1841,12 +1875,13 @@ export class CatalogCore {
       this.buildStreamFilterContext(type, id),
     ]);
     if (raw.streams.length === 0) {
-      if (hasStreamResolveInfrastructureErrors(raw.errors)) {
+      if (hasStreamResolveInfrastructureErrors(raw.notes)) {
+        const errorMessages = resolveNoteMessages(raw.notes);
         throw new CatalogError(
           502,
-          `stream resolve failed for ${type}/${streamId}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
-          { errors: raw.errors, resolve_ms: raw.resolveMs },
-          { couchMessage: streamResolveCouchMessage(raw.errors) },
+          `stream resolve failed for ${type}/${streamId}${errorMessages.length ? ` (${errorMessages.join('; ')})` : ''}`,
+          { errors: errorMessages, resolve_ms: raw.resolveMs },
+          { couchMessage: streamResolveCouchMessage(raw.notes) },
         );
       }
       throw new CatalogError(
@@ -1855,7 +1890,7 @@ export class CatalogCore {
         {
           attempts: [],
           candidates: 0,
-          errors: raw.errors,
+          errors: resolveNoteMessages(raw.notes),
           resolve_ms: raw.resolveMs,
         },
         { couchMessage: 'no streams found for this title' },
@@ -1866,7 +1901,7 @@ export class CatalogCore {
       throw new CatalogError(
         502,
         `stream resolve returned only addon error streams for ${type}/${streamId}`,
-        { errors: raw.errors, resolve_ms: raw.resolveMs },
+        { errors: resolveNoteMessages(raw.notes), resolve_ms: raw.resolveMs },
         { couchMessage: errorPlaceholderCouchMessage(enriched) },
       );
     }
@@ -1876,7 +1911,7 @@ export class CatalogCore {
       cached: raw.cached,
       filters: mergeFilterConfig(this.filterConfig, overrides),
       filterContext,
-      errors: raw.errors.length > 0 ? raw.errors : undefined,
+      errors: raw.notes.length > 0 ? resolveNoteMessages(raw.notes) : undefined,
     };
   }
 
@@ -1896,19 +1931,20 @@ export class CatalogCore {
       this.resolveRawStreams(type, streamId, couchResolveOptions({
         zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
         zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
-        bypassRateLimitNegativeCache: true,
+        requestClass: 'user',
       })),
       this.buildStreamFilterContext(type, id),
     ]);
     const config = mergeFilterConfig(this.filterConfig, overrides);
 
     if (raw.streams.length === 0) {
-      if (hasStreamResolveInfrastructureErrors(raw.errors)) {
+      if (hasStreamResolveInfrastructureErrors(raw.notes)) {
+        const errorMessages = resolveNoteMessages(raw.notes);
         throw new CatalogError(
           502,
-          `stream resolve failed for ${type}/${streamId}${raw.errors.length ? ` (${raw.errors.join('; ')})` : ''}`,
-          { errors: raw.errors, resolve_ms: raw.resolveMs },
-          { couchMessage: streamResolveCouchMessage(raw.errors) },
+          `stream resolve failed for ${type}/${streamId}${errorMessages.length ? ` (${errorMessages.join('; ')})` : ''}`,
+          { errors: errorMessages, resolve_ms: raw.resolveMs },
+          { couchMessage: streamResolveCouchMessage(raw.notes) },
         );
       }
       return {
@@ -1916,7 +1952,7 @@ export class CatalogCore {
         resolve_ms: raw.cached ? 0 : raw.resolveMs,
         cached: raw.cached,
         filters: emptyStreamFilterMeta(config),
-        errors: raw.errors.length > 0 ? raw.errors : undefined,
+        errors: raw.notes.length > 0 ? resolveNoteMessages(raw.notes) : undefined,
       };
     }
 
@@ -1941,7 +1977,7 @@ export class CatalogCore {
         throw new CatalogError(
           502,
           `stream resolve returned only addon error streams for ${type}/${streamId}`,
-          { errors: raw.errors, resolve_ms: raw.resolveMs },
+          { errors: resolveNoteMessages(raw.notes), resolve_ms: raw.resolveMs },
           { couchMessage: errorPlaceholderCouchMessage(enriched) },
         );
       }
@@ -1954,7 +1990,7 @@ export class CatalogCore {
           total: raw.streams.length,
           kept: 0,
         },
-        errors: raw.errors.length > 0 ? raw.errors : undefined,
+        errors: raw.notes.length > 0 ? resolveNoteMessages(raw.notes) : undefined,
       };
     }
 
@@ -1997,7 +2033,7 @@ export class CatalogCore {
       resolve_ms: raw.cached ? 0 : raw.resolveMs,
       cached: raw.cached,
       filters: meta,
-      errors: raw.errors.length > 0 ? raw.errors : undefined,
+      errors: raw.notes.length > 0 ? resolveNoteMessages(raw.notes) : undefined,
     };
   }
 
@@ -2125,31 +2161,38 @@ export class CatalogCore {
   ): Promise<RawStreamResolution> {
     let streams = pickMainEpisodeStreams(primary.streams, parsed.season, parsed.episode);
     let resolveMs = primary.resolveMs;
-    const errors = [...primary.errors];
+    const notes = [...primary.notes];
+    let usedCrossProbe = false;
 
     const crossProbeLimit = seriesCrossProbeLimit(options);
     if (streams.length === 0 && crossProbeLimit > 0) {
       const probed = await this.resolveMainEpisodeCrossProbe(episodeId, parsed, crossProbeLimit, options);
+      usedCrossProbe = true;
       resolveMs += probed.resolveMs;
-      errors.push(...probed.errors);
+      notes.push(...probed.notes);
       streams = probed.streams;
     }
 
     if (streams.length === 0 && primary.streams.length > 0) {
-      errors.push('main partition empty — keeping indexer pool (mislabel fallback)');
+      notes.push(resolveNote('annotation', 'main partition empty — keeping indexer pool (mislabel fallback)'));
       return {
         streams: primary.streams,
-        errors,
+        notes,
         resolveMs,
         cached: primary.cached,
       };
     }
 
     if (streams.length === 0) {
-      return { streams: [], errors, resolveMs, cached: primary.cached };
+      return { streams: [], notes, resolveMs, cached: primary.cached };
     }
 
-    return { streams, errors, resolveMs, cached: false };
+    return {
+      streams,
+      notes,
+      resolveMs,
+      cached: usedCrossProbe ? false : primary.cached,
+    };
   }
 
   private async resolveMainEpisodeCrossProbe(
@@ -2158,7 +2201,7 @@ export class CatalogCore {
     limit = 24,
     options: ResolveStreamOptions = {},
   ): Promise<RawStreamResolution> {
-    const errors: string[] = [];
+    const notes: ResolveNote[] = [];
     let resolveMs = 0;
     const probeIds = await this.episodeCrossProbeIds(parsed.bare, episodeId, parsed, limit);
     const collected: Stream[] = [];
@@ -2168,7 +2211,7 @@ export class CatalogCore {
       }
       const probe = await this.rawStreams('series', probeId, options);
       resolveMs += probe.resolveMs;
-      errors.push(...probe.errors, `main cross-probe ${probeId}`);
+      notes.push(...probe.notes, resolveNote('annotation', `main cross-probe ${probeId}`));
       collected.push(
         ...pickMainEpisodeStreams(probe.streams, parsed.season, parsed.episode, {
           requireEpisodeLabel: true,
@@ -2180,7 +2223,7 @@ export class CatalogCore {
     }
     return {
       streams: dedupeStreamsByUrl(collected),
-      errors,
+      notes,
       resolveMs,
       cached: false,
     };
@@ -2199,11 +2242,12 @@ export class CatalogCore {
       }
 
       const key = `series:${episodeId}`;
+      const notes = [...primary.notes, ...fallback.notes];
       if (hasCacheableStream(fallback.streams)) {
         this.streamNegativeCache.delete(key);
         this.streamCache.set(key, {
           streams: fallback.streams,
-          errors: [...primary.errors, ...fallback.errors],
+          notes,
           resolveMs: primary.resolveMs + fallback.resolveMs,
           expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
         });
@@ -2211,7 +2255,7 @@ export class CatalogCore {
 
       return {
         streams: fallback.streams,
-        errors: [...primary.errors, ...fallback.errors],
+        notes,
         resolveMs: primary.resolveMs + fallback.resolveMs,
         cached: false,
       };
@@ -2224,12 +2268,14 @@ export class CatalogCore {
       episodeTitle,
     );
     let resolveMs = primary.resolveMs;
-    const errors = [...primary.errors];
+    const notes = [...primary.notes];
+    let usedFallback = false;
 
     if (streams.length === 0) {
       const fallback = await this.resolveBonusEpisodeStreams(episodeId, parsed, options);
+      usedFallback = true;
       resolveMs += fallback.resolveMs;
-      errors.push(...fallback.errors);
+      notes.push(...fallback.notes);
       streams = fallback.streams;
     }
 
@@ -2237,11 +2283,16 @@ export class CatalogCore {
       if (primary.streams.length === 0) {
         return primary;
       }
-      errors.push('bonus partition empty');
-      return { streams: [], errors, resolveMs, cached: primary.cached };
+      notes.push(resolveNote('annotation', 'bonus partition empty'));
+      return { streams: [], notes, resolveMs, cached: primary.cached };
     }
 
-    return { streams, errors, resolveMs, cached: false };
+    return {
+      streams,
+      notes,
+      resolveMs,
+      cached: usedFallback ? false : primary.cached,
+    };
   }
 
   private async resolveBonusEpisodeStreams(
@@ -2249,7 +2300,7 @@ export class CatalogCore {
     parsed: ParsedSeriesEpisodeId,
     options: ResolveStreamOptions,
   ): Promise<RawStreamResolution> {
-    const errors: string[] = [];
+    const notes: ResolveNote[] = [];
     let resolveMs = 0;
     const videos = await this.episodeVideosFromMeta(parsed.bare);
     const episodeTitle = await this.episodeTitleFromMeta(parsed.bare, episodeId);
@@ -2264,7 +2315,7 @@ export class CatalogCore {
       probesUsed += 1;
       const probe = await this.rawStreams('series', probeId, options);
       resolveMs += probe.resolveMs;
-      errors.push(...probe.errors, `bonus indexer probe ${probeId}`);
+      notes.push(...probe.notes, resolveNote('annotation', `bonus indexer probe ${probeId}`));
       const aliasStreams = pickBonusStreamsFromCandidates(
         probe.streams,
         parsed.episode,
@@ -2274,7 +2325,7 @@ export class CatalogCore {
       if (aliasStreams.length > 0) {
         return {
           streams: aliasStreams,
-          errors,
+          notes,
           resolveMs,
           cached: false,
         };
@@ -2284,14 +2335,14 @@ export class CatalogCore {
     // Broad title-fallback sibling scrape stays gated (default 0 on couch).
     if (crossProbeLimit <= 0) {
       if (aliasIds.length === 0) {
-        errors.push('bonus indexer alias unavailable');
+        notes.push(resolveNote('annotation', 'bonus indexer alias unavailable'));
       }
-      return { streams: [], errors, resolveMs, cached: false };
+      return { streams: [], notes, resolveMs, cached: false };
     }
 
     if (!episodeTitle) {
-      errors.push('bonus title fallback: episode title unavailable');
-      return { streams: [], errors, resolveMs, cached: false };
+      notes.push(resolveNote('annotation', 'bonus title fallback: episode title unavailable'));
+      return { streams: [], notes, resolveMs, cached: false };
     }
 
     const probeIds = await this.episodeCrossProbeIds(parsed.bare, episodeId, parsed, crossProbeLimit);
@@ -2305,7 +2356,7 @@ export class CatalogCore {
         probesUsed += 1;
         const probe = await this.rawStreams('series', probeId, options);
         resolveMs += probe.resolveMs;
-        errors.push(...probe.errors, `bonus ${tier} probe ${probeId}`);
+        notes.push(...probe.notes, resolveNote('annotation', `bonus ${tier} probe ${probeId}`));
         collected.push(
           ...pickBonusStreamsFromCandidates(probe.streams, parsed.episode, episodeTitle, tier),
         );
@@ -2315,11 +2366,11 @@ export class CatalogCore {
       }
       const streams = dedupeStreamsByUrl(collected);
       if (streams.length > 0) {
-        return { streams, errors, resolveMs, cached: false };
+        return { streams, notes, resolveMs, cached: false };
       }
     }
 
-    return { streams: [], errors, resolveMs, cached: false };
+    return { streams: [], notes, resolveMs, cached: false };
   }
 
   private async episodeVideosFromMeta(
@@ -2374,7 +2425,7 @@ export class CatalogCore {
     if (cached && cached.expiresAt > Date.now()) {
       return {
         streams: cached.streams,
-        errors: cached.errors,
+        notes: cached.notes,
         resolveMs: cached.resolveMs,
         cached: true,
       };
@@ -2382,17 +2433,16 @@ export class CatalogCore {
 
     const negative = this.streamNegativeCache.get(key);
     if (negative && negative.until > Date.now()) {
-      const bypass = options.bypassNegativeCache
-        || (options.bypassRateLimitNegativeCache && negative.reason === 'rate_limited');
-      if (bypass) {
+      // user = couch play / detail list: bypass miss + rate_limit; background/unset respects cache
+      if (options.requestClass === 'user') {
         this.streamNegativeCache.delete(key);
       } else {
-        const skipMsg = negative.reason === 'rate_limited'
-          ? 'stream resolve skipped — recent rate-limit (retry shortly)'
-          : 'stream resolve skipped — recent miss (retry shortly)';
+        const skipNote = negative.reason === 'rate_limited'
+          ? resolveNote('infra', 'stream resolve skipped — recent rate-limit (retry shortly)')
+          : resolveNote('skip', 'stream resolve skipped — recent miss (retry shortly)');
         return {
           streams: [],
-          errors: [skipMsg],
+          notes: [skipNote],
           resolveMs: 0,
           cached: true,
         };
@@ -2427,7 +2477,7 @@ export class CatalogCore {
       if (!streamId) {
         return {
           streams: [],
-          errors: ['area69 stream resolve failed: invalid channel id'],
+          notes: [resolveNote('addon_error', 'area69 stream resolve failed: invalid channel id')],
           resolveMs: 0,
           cached: false,
         };
@@ -2435,25 +2485,25 @@ export class CatalogCore {
       const started = Date.now();
       const streams = await resolveArea69Streams(streamId);
       const resolveMs = Date.now() - started;
-      const errors = streams.length > 0
+      const notes = streams.length > 0
         ? []
-        : ['area69 stream resolve failed: missing credentials or stream unavailable'];
+        : [resolveNote('addon_error', 'area69 stream resolve failed: missing credentials or stream unavailable')];
       if (hasCacheableStream(streams)) {
         this.streamCache.set(key, {
           streams,
-          errors,
+          notes,
           resolveMs,
           expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
         });
       }
-      return { streams, errors, resolveMs, cached: false };
+      return { streams, notes, resolveMs, cached: false };
     }
 
     const retryAttempts = boundedInt(options.zeroStreamRetryAttempts, 0, 0, 3);
     const retryDelayMs = boundedInt(options.zeroStreamRetryDelayMs, 0, 0, 10000);
     const overallStarted = Date.now();
     let streams: Stream[] = [];
-    let errors: string[] = [];
+    let notes: ResolveNote[] = [];
 
     for (let attempt = 0; attempt <= retryAttempts; attempt += 1) {
       const streamAddons = this.addons.filter((addon) => supportsResource(addon.manifest, 'stream', type));
@@ -2462,12 +2512,13 @@ export class CatalogCore {
       );
 
       streams = [];
-      errors = [];
+      notes = [];
       for (const result of settled) {
         if (result.status === 'fulfilled') {
           streams.push(...result.value.streams);
         } else {
-          errors.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+          const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          notes.push(resolveNote('addon_error', message));
         }
       }
 
@@ -2479,28 +2530,28 @@ export class CatalogCore {
       }
     }
 
-    const supplemented = await this.supplementThinStreams(type, id, streams, errors);
+    const supplemented = await this.supplementThinStreams(type, id, streams, notes);
     streams = supplemented.streams;
-    errors = supplemented.errors;
+    notes = supplemented.notes;
 
     const resolveMs = Date.now() - overallStarted;
     if (streams.length === 0 && retryAttempts > 0) {
-      errors = [
-        ...errors,
-        `zero streams after ${retryAttempts + 1} attempts`,
+      notes = [
+        ...notes,
+        resolveNote('annotation', `zero streams after ${retryAttempts + 1} attempts`),
       ];
     }
     if (streams.length > 0 && hasCacheableStream(streams)) {
       this.streamNegativeCache.delete(key);
       this.streamCache.set(key, {
         streams,
-        errors,
+        notes,
         resolveMs,
         expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
       });
     } else if (streams.length > 0) {
       // Rate-limit / error placeholders — longer backoff so we don't re-hammer AIO.
-      const rateLimited = hasStreamResolveInfrastructureErrors(errors)
+      const rateLimited = hasStreamResolveInfrastructureErrors(notes)
         || streamsAreOnlyErrorPlaceholders(streams);
       this.streamNegativeCache.set(key, {
         until: Date.now() + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
@@ -2509,13 +2560,13 @@ export class CatalogCore {
     } else {
       // True empty (or upstream 429 swallowed as []). Prefer longer backoff when
       // errors look like rate-limit / infra; otherwise short miss dampening.
-      const rateLimited = hasStreamResolveInfrastructureErrors(errors);
+      const rateLimited = hasStreamResolveInfrastructureErrors(notes);
       this.streamNegativeCache.set(key, {
         until: Date.now() + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
         reason: rateLimited ? 'rate_limited' : 'miss',
       });
     }
-    return { streams, errors, resolveMs, cached: false };
+    return { streams, notes, resolveMs, cached: false };
   }
 
   /**
@@ -2526,17 +2577,17 @@ export class CatalogCore {
     type: string,
     id: string,
     streams: Stream[],
-    errors: string[],
-  ): Promise<{ streams: Stream[]; errors: string[] }> {
+    notes: ResolveNote[],
+  ): Promise<{ streams: Stream[]; notes: ResolveNote[] }> {
     const hasDirectMediaFusion = this.addons.some((addon) => (
       isMediaFusionAddon(addon.name, addon.manifestUrl)
     ));
     if (!shouldSupplementThinStreams(streams, { hasDirectMediaFusion })) {
-      return { streams, errors };
+      return { streams, notes };
     }
     const manifestUrl = await loadMediaFusionManifestUrl();
     if (!manifestUrl) {
-      return { streams, errors };
+      return { streams, notes };
     }
     try {
       const result = await fetchJson(
@@ -2549,18 +2600,21 @@ export class CatalogCore {
         if (normalized) extra.push(normalized);
       }
       if (extra.length === 0) {
-        return { streams, errors };
+        return { streams, notes };
       }
       return {
         streams: mergeUniqueStreams(streams, extra),
-        errors: [...errors, `mediafusion thin-supplement +${extra.length}`],
+        notes: [...notes, resolveNote('annotation', `mediafusion thin-supplement +${extra.length}`)],
       };
     } catch (error) {
       return {
         streams,
-        errors: [
-          ...errors,
-          `mediafusion thin-supplement: ${error instanceof Error ? error.message : String(error)}`,
+        notes: [
+          ...notes,
+          resolveNote(
+            'addon_error',
+            `mediafusion thin-supplement: ${error instanceof Error ? error.message : String(error)}`,
+          ),
         ],
       };
     }

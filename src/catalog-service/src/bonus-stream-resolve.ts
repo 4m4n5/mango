@@ -64,19 +64,6 @@ export function bonusIndexerProbeIds(
   );
 }
 
-/** @deprecated Use bonusIndexerProbeIds — first id only. */
-export function bonusIndexerAliasId(episodeId: string): string | null {
-  return bonusIndexerProbeIds(episodeId)[0] ?? null;
-}
-
-export function defaultMainSeasonProbeIds(bareId: string, maxEpisode = 12): string[] {
-  const ids: string[] = [];
-  for (let episode = 1; episode <= maxEpisode; episode += 1) {
-    ids.push(`${bareId}:1:${episode}`);
-  }
-  return ids;
-}
-
 function defaultEpisodeCrossProbeIds(
   bareId: string,
   target: ParsedSeriesEpisodeId,
@@ -161,20 +148,6 @@ export function listEpisodeCrossProbeIds(
     return merged.slice(0, limit);
   }
   return defaultEpisodeCrossProbeIds(bareId, target, excludeId, limit);
-}
-
-/** @deprecated Use listEpisodeCrossProbeIds with a parsed target episode. */
-export function listMainSeasonProbeIds(
-  bareId: string,
-  videos: Array<{ id?: string; season?: number; episode?: number }>,
-  excludeId: string,
-  limit = 16,
-): string[] {
-  const parsed = parseSeriesEpisodeId(excludeId);
-  if (!parsed) {
-    return defaultMainSeasonProbeIds(bareId, Math.min(limit, 12));
-  }
-  return listEpisodeCrossProbeIds(bareId, videos, parsed, excludeId, limit);
 }
 
 export function bonusEpisodeHaystack(stream: Stream): string {

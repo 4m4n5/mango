@@ -6,8 +6,6 @@
   "exclude_remux": true,
   "include_uncached": false,
   "exclude_error_streams": true,
-  "uncached_torbox_fallback": true,
-  "rd_safe_unknown_fallback": true,
   "stream_display_limit": 8,
   "auto_play_max_attempts": 12,
   "auto_play_wall_ms": 90000,
@@ -54,23 +52,6 @@
       "debrid_services": ["torbox", "realdebrid"],
       "rd_safe_unknown": true,
       "addons": ["AIOStreams"]
-    }
-  ],
-  "auto_play_tiers": [
-    {
-      "addons": ["AIOStreams"],
-      "require_cache": "cached",
-      "debrid_services": ["torbox", "realdebrid"]
-    },
-    {
-      "addons": ["AIOStreams"],
-      "require_cache": "cached",
-      "debrid_services": ["torbox", "realdebrid"]
-    },
-    {
-      "addons": ["AIOStreams"],
-      "require_cache": "cached_or_unknown",
-      "debrid_services": ["torbox"]
     }
   ]
 }

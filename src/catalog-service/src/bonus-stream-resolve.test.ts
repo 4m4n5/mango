@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  bonusIndexerAliasId,
   bonusIndexerProbeIds,
   buildBonusTitleTokens,
   dedupeStreamsByUrl,
@@ -29,13 +28,6 @@ test('parseSeriesEpisodeId reads season and episode', () => {
     season: 0,
     episode: 7,
   });
-});
-
-test('bonusIndexerAliasId maps season 0 to season 1 for early bonus rows', () => {
-  assert.equal(bonusIndexerAliasId('tt33094114:0:1'), 'tt33094114:1:1');
-  assert.equal(bonusIndexerAliasId('tt33094114:0:6'), 'tt33094114:1:6');
-  assert.equal(bonusIndexerAliasId('tt33094114:0:7'), 'tt33094114:1:7');
-  assert.equal(bonusIndexerAliasId('tt33094114:1:1'), null);
 });
 
 test('bonusIndexerProbeIds includes each main season for the same episode number', () => {

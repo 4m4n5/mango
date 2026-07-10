@@ -1,13 +1,15 @@
 /** Couch-safe catalog errors — never surface raw addon host messages on TV. */
 
-const RATE_LIMIT_RE = /rate[-\s]*limit|too many requests|429|ratelimit_error|please wait/i;
-const RATE_LIMIT_URL_RE = /rate-limit-exceeded|public-rate-limit/i;
+import {
+  classifyPlayError,
+  garbageKind,
+} from './play-error-classify.js';
 
 /** True when addon text must never appear as a browse title or description. */
 export function isBlockedCatalogText(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  return RATE_LIMIT_RE.test(trimmed);
+  return classifyPlayError(trimmed) === 'rate_limited';
 }
 
 type CatalogMetaLike = {
@@ -29,12 +31,12 @@ export function isBlockedCatalogMeta(meta: CatalogMetaLike): boolean {
 }
 
 export function isAddonRateLimitMessage(message: string): boolean {
-  return RATE_LIMIT_RE.test(message);
+  return classifyPlayError(message) === 'rate_limited';
 }
 
 /** AIOStreams may return this placeholder URL when upstream APIs are throttled. */
 export function isRateLimitedStreamUrl(url: string): boolean {
-  return RATE_LIMIT_URL_RE.test(url);
+  return classifyPlayError(url) === 'rate_limited';
 }
 
 type CouchPlayFailureAttempt = {
@@ -50,6 +52,20 @@ function normalizeDebridService(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase();
   return normalized || null;
+}
+
+/** NFO sidecar or unreadable — couch copy historically grouped these. */
+function isNfoLikeError(error: string): boolean {
+  return garbageKind(error) === 'nfo' || /debrid_playback_unreadable/i.test(error);
+}
+
+/**
+ * Errors that previously mapped to the "streams are still preparing" bucket
+ * (garbage codes + unreadable + bad-cached URL).
+ */
+function isCouchPreparingError(error: string): boolean {
+  if (garbageKind(error)) return true;
+  return /debrid_playback_unreadable|stream_url_bad_cached/i.test(error);
 }
 
 export function couchPlayFailureMessage(
@@ -69,21 +85,17 @@ export function couchPlayFailureMessage(
   const triedTorbox = [...services].some((service) => service.includes('torbox'));
   const triedRealDebrid = [...services].some((service) => service.includes('real') || service === 'rd');
   const triedBothPrimaryDebrid = triedTorbox && triedRealDebrid;
-  const transientPattern = /debrid_nfo_sidecar|debrid_playback_unreadable|debrid_status_clip|debrid_copyright_block|stream_url_bad_cached/i;
-  const nfoPattern = /debrid_nfo_sidecar|debrid_playback_unreadable/i;
-  const garbagePattern = /debrid_copyright_block|debrid_status_clip|stream_url_bad_cached/i;
   const attemptErrors = list.map((attempt) => attempt.error).filter((value): value is string => Boolean(value));
-  const allTorboxNfo = attemptErrors.length > 0 && attemptErrors.every((error) => nfoPattern.test(error));
-  const hasTorboxNfo = attemptErrors.some((error) => nfoPattern.test(error));
-  const allTransient = attemptErrors.length > 0 && attemptErrors.every((error) => transientPattern.test(error));
-  const allGarbage = attemptErrors.length > 0 && attemptErrors.every((error) => garbagePattern.test(error) || nfoPattern.test(error));
+  const allTorboxNfo = attemptErrors.length > 0 && attemptErrors.every((error) => isNfoLikeError(error));
+  const hasTorboxNfo = attemptErrors.some((error) => isNfoLikeError(error));
+  const allPreparing = attemptErrors.length > 0 && attemptErrors.every((error) => isCouchPreparingError(error));
   if (triedTorbox && !triedRealDebrid && allTorboxNfo) {
     return 'stream not ready on TorBox — try again in a few minutes';
   }
   if (triedBothPrimaryDebrid) {
     return "couldn't find a ready stream right now — try again in a few minutes";
   }
-  if (allGarbage || allTransient) {
+  if (allPreparing) {
     return 'streams are still preparing — try again in a few minutes';
   }
   if (hasTorboxNfo && !triedRealDebrid) {
@@ -92,23 +104,26 @@ export function couchPlayFailureMessage(
   if (!errors.trim()) {
     return 'no streams found for this title';
   }
-  if (/debrid_copyright_block|copyright infringement|removed from.*debrid/i.test(errors)) {
+
+  const kind = garbageKind(errors);
+  if (kind === 'copyright' || /copyright infringement|removed from.*debrid/i.test(errors)) {
     return 'streams are still preparing — try again in a few minutes';
   }
-  if (/debrid_nfo_sidecar|debrid_playback_unreadable/i.test(errors)) {
+  if (kind === 'nfo' || /debrid_playback_unreadable/i.test(errors)) {
     return 'stream not ready on TorBox — try again in a few minutes';
   }
-  if (/supplemental_or_short_release/i.test(errors)) {
+  if (classifyPlayError(errors) === 'transient' && /supplemental_or_short_release/i.test(errors)) {
     return 'no full-length stream found — try another option';
   }
-  if (/debrid_status_clip|stream_url_bad_cached/i.test(errors)) {
+  if (kind === 'status_clip' || /stream_url_bad_cached/i.test(errors)) {
     return 'streams are still preparing — try again in a few minutes';
   }
   return 'stream did not start — try another option';
 }
 
 export function couchSafeCatalogMessage(message: string): string {
-  if (isAddonRateLimitMessage(message)) {
+  const cls = classifyPlayError(message);
+  if (cls === 'rate_limited') {
     return 'catalog is busy — try again in a moment';
   }
   if (/HTTP 5\d\d/i.test(message) || /HTTP 429/i.test(message) || /fetch failed|ECONN|socket/i.test(message)) {

@@ -24,7 +24,7 @@ Launcher (:3000)  →  catalog-service (:3020)  →  addons (Stremio protocol)
 | **mpv** | Decode + render | Catalog metadata |
 | **orchestrator** | STT · LLM · launcher dispatch | Catalog data · mpv IPC |
 
-**Rule:** Push dedup, junk keywords, debrid order, and row limits **upstream** into AIOStreams. Keep probe-time policy, lab quality cap, and auto-play tiers in **catalog-service**.
+**Rule:** Push dedup, junk keywords, debrid order, and row limits **upstream** into AIOStreams. Keep probe-time policy, lab quality cap, and the `play_ladder` preference ladder in **catalog-service**.
 
 ### Couch activity and maintenance boundary
 

@@ -329,25 +329,11 @@ export function filterStreamsForLadderStep(
   }
 
   const scoreConfig = {
-    exclude_uncached_debrid: step.require_cache === 'cached',
-    strict_unknown_cache: options.strict_unknown_cache !== false,
     max_quality: step.max_quality,
-    exclude_remux: step.exclude_remux,
-    exclude_error_streams: true,
-    stream_display_limit: 99,
-    uncached_torbox_fallback: false,
-    rd_safe_unknown_fallback: false,
-    auto_play_max_attempts: 99,
-    auto_play_wall_ms: 90000,
-    auto_play_probe_ms: 8000,
-    auto_play_uncached_probe_ms: 25000,
     preferred_quality: options.preferred_quality ?? '1080p',
     preferred_hdr_tags: options.preferred_hdr_tags ?? [],
     preferred_video_codecs: options.preferred_video_codecs ?? [],
-    play_ladder: [],
-    auto_play_tiers: [],
-    include_uncached: step.require_cache !== 'cached',
-  } as import('./stream-filters.js').StreamFilterConfig & { include_uncached: boolean };
+  };
 
   kept.sort((left, right) => streamPlayScore(right, scoreConfig, options.verified_hint, {
     preferred_language: null,
@@ -549,28 +535,14 @@ export function expandObligationFloor(
   }
 
   const scoreConfig = {
-    exclude_uncached_debrid: false,
-    strict_unknown_cache: false,
     max_quality: null,
-    exclude_remux: false,
-    exclude_error_streams: true,
-    stream_display_limit: 99,
-    uncached_torbox_fallback: true,
-    rd_safe_unknown_fallback: true,
-    auto_play_max_attempts: 99,
-    auto_play_wall_ms: 90000,
-    auto_play_probe_ms: 8000,
-    auto_play_uncached_probe_ms: 25000,
     // Phase B is the last resort. Prefer 4K (fidelity-first), and the hardware
     // decode tiebreaker in streamPlayScore still floats a HW-decodable stream to
     // the top of a resolution tier — nothing is excluded.
     preferred_quality: '2160p' as QualityCap,
     preferred_hdr_tags: [] as string[],
     preferred_video_codecs: [] as string[],
-    play_ladder: [],
-    auto_play_tiers: [],
-    include_uncached: true,
-  } as import('./stream-filters.js').StreamFilterConfig & { include_uncached: boolean };
+  };
 
   kept.sort((left, right) => streamPlayScore(right, scoreConfig) - streamPlayScore(left, scoreConfig));
 

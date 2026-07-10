@@ -20,6 +20,7 @@ import {
   type VerifiedStreamHint,
   isPlausibleFeatureDuration,
 } from './stream-filters.js';
+import { isTransientPlayError } from './play-error-classify.js';
 import {
   isBadStreamError,
   isStreamUrlBad,
@@ -121,12 +122,6 @@ function rememberBadStream(url: string, error: unknown): void {
   }
 }
 
-/** Probe/handoff flakes — retry once on the last candidate for thin titles. */
-function isTransientPlayError(error: string): boolean {
-  return /debrid_playback_unreadable|timeout|timed out|vo not ready|did not start playback|play budget exhausted|ECONN|ENOTFOUND|socket|abort|HTTP 5\d\d|fetch failed/i
-    .test(error);
-}
-
 /** Reserve wall budget so Phase B obligation floor is not starved by Phase A. */
 export function playObligationReserveMs(): number {
   const raw = process.env.MANGO_PLAY_OBLIGATION_MIN_MS;
@@ -153,6 +148,200 @@ async function assertPlausibleFeatureProbe(options: {
     options.filterContext?.metaRuntimeMinutes,
   )) {
     throw new Error('supplemental_or_short_release');
+  }
+}
+
+type AttemptOneMode = 'play' | 'probe';
+
+type AttemptOneOptions = {
+  mode: AttemptOneMode;
+  candidate: LadderCandidate;
+  index: number;
+  config: PlayOrchestratorConfig;
+  deadline: number;
+  /** Wall-clock start of the overall play/probe walk — used for total_ms on play success. */
+  started: number;
+  contentType?: string;
+  filterContext?: import('./stream-filters.js').StreamFilterContext;
+  verified_hint?: VerifiedStreamHint;
+  playEpoch?: number;
+  probe: typeof probeUrl;
+  play?: typeof playUrl;
+  preflight: typeof preflightPlaybackUrl;
+  startSec?: number;
+  minDurationSec?: number;
+  obligationFloorRan?: boolean;
+  candidateCount: number;
+  /** When true: skip preflight, skip hint reuse, always probe (thin retry path). */
+  retryPass?: boolean;
+};
+
+type AttemptOneResult =
+  | { kind: 'success'; result: PlayOrchestratorResult }
+  | { kind: 'probe_ok'; stream: Stream; ladder_step: string; probe_ms: number; attempt: PlayAttempt }
+  | { kind: 'failure'; attempt: PlayAttempt; error: string };
+
+/**
+ * Single probe→(play) unit shared by the main attempt loop, last-candidate
+ * thin retry, and probeWithLadder. Bad-cache skip and thin-retry control stay
+ * in the caller.
+ */
+async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult> {
+  const { candidate, index, config, deadline, retryPass = false } = options;
+  const attemptStarted = Date.now();
+  const base = attemptBase(index, candidate);
+  const remainingAtStart = deadline - Date.now();
+
+  try {
+    if (options.playEpoch !== undefined) {
+      await assertPlayEpoch(options.playEpoch);
+    }
+
+    // Hint reuse + shouldSkipProbe only on the normal play pass.
+    let observedProbeMs: number | undefined;
+    let probeReused = false;
+    let skipProbe = false;
+    if (options.mode === 'play' && !retryPass) {
+      const reusableProbeMs = streamMatchesVerifiedHint(candidate.stream, options.verified_hint)
+        && options.verified_hint?.win_ladder_step === candidate.ladder_step
+        && options.verified_hint?.probe_ms
+        && options.verified_hint.probe_ms > 0
+        && options.verified_hint.probe_ms <= config.auto_play_probe_ms
+        ? options.verified_hint.probe_ms
+        : undefined;
+      observedProbeMs = reusableProbeMs;
+      skipProbe = shouldSkipProbe(candidate);
+    }
+
+    // Preflight always runs for normal play and probe mode; never on thin retry.
+    // The byte-sniff must always run for a fresh candidate URL, even when a
+    // verified hint lets us reuse its probe timing — a matching hint proves
+    // the *ladder step* played before, not that today's URL still serves
+    // real video (e.g. TorBox can silently swap a cached slot to an .nfo
+    // sidecar). Only the probe *measurement* is safe to skip on reuse.
+    if (!retryPass) {
+      const preflightBudget = Math.min(PREFLIGHT_BUDGET_CAP_MS, remainingAtStart);
+      const sniff = await options.preflight(candidate.stream.url, preflightBudget);
+      if (sniff === 'nfo') {
+        throw new Error('debrid_nfo_sidecar');
+      }
+      // timeout / error / unknown → proceed to mpv probe (sniff is NFO-only gate)
+    }
+
+    const alwaysProbe = retryPass || options.mode === 'probe';
+    if (alwaysProbe) {
+      const probeBudget = probeBudgetForCandidate(candidate, config, deadline - Date.now());
+      const probeResult = await options.probe(
+        candidate.stream.url,
+        probeBudget,
+        undefined,
+        options.playEpoch,
+        options.mode === 'play' ? options.startSec : undefined,
+      );
+      observedProbeMs = probeResult.ttff_ms;
+      if (options.mode === 'play' && options.playEpoch !== undefined) {
+        await assertPlayEpoch(options.playEpoch);
+      }
+      await assertPlausibleFeatureProbe({
+        contentType: options.contentType,
+        filterContext: options.filterContext,
+      });
+    } else if (!observedProbeMs) {
+      if (!skipProbe) {
+        const probeBudget = probeBudgetForCandidate(candidate, config, remainingAtStart);
+        const probeResult = await options.probe(
+          candidate.stream.url,
+          probeBudget,
+          undefined,
+          options.playEpoch,
+          options.startSec,
+        );
+        observedProbeMs = probeResult.ttff_ms;
+        if (options.playEpoch !== undefined) {
+          await assertPlayEpoch(options.playEpoch);
+        }
+      } else {
+        observedProbeMs = 0;
+      }
+    } else {
+      probeReused = true;
+    }
+
+    if (!alwaysProbe && !skipProbe) {
+      await assertPlausibleFeatureProbe({
+        contentType: options.contentType,
+        filterContext: options.filterContext,
+      });
+    }
+
+    if (options.mode === 'probe') {
+      const attempt: PlayAttempt = {
+        ...base,
+        ok: true,
+        ms: Date.now() - attemptStarted,
+        probe_ms: observedProbeMs,
+      };
+      return {
+        kind: 'probe_ok',
+        stream: candidate.stream,
+        ladder_step: candidate.ladder_step,
+        probe_ms: observedProbeMs ?? 0,
+        attempt,
+      };
+    }
+
+    const remainingBeforePlay = deadline - Date.now();
+    if (remainingBeforePlay < 500) {
+      throw new Error('play budget exhausted after probe');
+    }
+    const play = options.play;
+    if (!play) {
+      throw new Error('play function required for play mode');
+    }
+    const playback = await play(candidate.stream.url, remainingBeforePlay, {
+      playEpoch: options.playEpoch,
+      minDurationSec: options.minDurationSec ?? 600,
+      startSec: options.startSec,
+      ladderStep: candidate.ladder_step,
+    });
+    const attempt: PlayAttempt = {
+      ...base,
+      ok: true,
+      ms: Date.now() - attemptStarted,
+      probe_ms: observedProbeMs,
+      ...(probeReused ? { probe_reused: true } : {}),
+      ttff_ms: playback.ttff_ms,
+    };
+    return {
+      kind: 'success',
+      result: {
+        ok: true,
+        ttff_ms: playback.ttff_ms,
+        probe_ms: observedProbeMs ?? 0,
+        total_ms: Date.now() - options.started,
+        attempts: [attempt],
+        stream: streamMeta(candidate.stream, candidate.ladder_step),
+        candidate_count: options.candidateCount,
+        win_ladder_step: candidate.ladder_step,
+        win_url_hash: streamUrlHash(candidate.stream.url),
+        ...(options.obligationFloorRan ? { obligation_floor_ran: true } : {}),
+      },
+    };
+  } catch (error) {
+    if (error instanceof PlayCancelledError) {
+      throw error;
+    }
+    const cleaned = cleanError(error);
+    return {
+      kind: 'failure',
+      attempt: {
+        ...base,
+        ok: false,
+        ms: Date.now() - attemptStarted,
+        error: cleaned,
+      },
+      error: cleaned,
+    };
   }
 }
 
@@ -216,38 +405,34 @@ export async function probeWithLadder(
       });
       continue;
     }
-    const attemptStarted = Date.now();
-    const base = attemptBase(index, candidate);
-    try {
-      const preflightBudget = Math.min(PREFLIGHT_BUDGET_CAP_MS, remaining);
-      const sniff = await preflight(candidate.stream.url, preflightBudget);
-      if (sniff === 'nfo') throw new Error('debrid_nfo_sidecar');
-      // timeout / error → proceed to probe (NFO-only hard gate)
-      const probeBudget = probeBudgetForCandidate(candidate, config, remaining);
-      const probeResult = await probe(candidate.stream.url, probeBudget, undefined, options.playEpoch);
-      await assertPlausibleFeatureProbe(options);
-      attempts.push({
-        ...base,
-        ok: true,
-        ms: Date.now() - attemptStarted,
-        probe_ms: probeResult.ttff_ms,
-      });
+    const one = await attemptOne({
+      mode: 'probe',
+      candidate,
+      index,
+      config,
+      deadline,
+      started,
+      contentType: options.contentType,
+      filterContext: options.filterContext,
+      playEpoch: options.playEpoch,
+      probe,
+      preflight,
+      candidateCount: candidates.length,
+    });
+    if (one.kind === 'probe_ok') {
+      attempts.push(one.attempt);
       return {
         ok: true,
-        stream: candidate.stream,
-        ladder_step: candidate.ladder_step,
-        probe_ms: probeResult.ttff_ms,
+        stream: one.stream,
+        ladder_step: one.ladder_step,
+        probe_ms: one.probe_ms,
         attempts,
         candidate_count: candidates.length,
       };
-    } catch (error) {
-      rememberBadStream(candidate.stream.url, error);
-      attempts.push({
-        ...base,
-        ok: false,
-        ms: Date.now() - attemptStarted,
-        error: cleanError(error),
-      });
+    }
+    if (one.kind === 'failure') {
+      rememberBadStream(candidate.stream.url, one.error);
+      attempts.push(one.attempt);
     }
   }
 
@@ -285,204 +470,86 @@ async function attemptCandidates(options: {
       lastStep = candidate.ladder_step;
       options.onLadderStep?.(lastStep, couchStatusForLadderStep(lastStep));
     }
-    if (options.playEpoch !== undefined) {
-      await assertPlayEpoch(options.playEpoch);
-    }
     const remainingBeforeProbe = options.deadline - Date.now();
     if (remainingBeforeProbe < 500) {
       break;
     }
 
-    const attemptStarted = Date.now();
-    const base = attemptBase(index, candidate);
     const urlHash = streamUrlHash(candidate.stream.url);
     if (isStreamUrlBad(urlHash)) {
       attempts.push({
-        ...base,
+        ...attemptBase(index, candidate),
         ok: false,
         ms: 0,
         error: 'stream_url_bad_cached',
       });
       continue;
     }
-    const reusableProbeMs = streamMatchesVerifiedHint(candidate.stream, options.verified_hint)
-      && options.verified_hint?.win_ladder_step === candidate.ladder_step
-      && options.verified_hint?.probe_ms
-      && options.verified_hint.probe_ms > 0
-      && options.verified_hint.probe_ms <= options.config.auto_play_probe_ms
-      ? options.verified_hint.probe_ms
-      : undefined;
-    try {
-      let observedProbeMs = reusableProbeMs;
-      let probeReused = false;
-      const skipProbe = shouldSkipProbe(candidate);
-      // The byte-sniff must always run for a fresh candidate URL, even when a
-      // verified hint lets us reuse its probe timing — a matching hint proves
-      // the *ladder step* played before, not that today's URL still serves
-      // real video (e.g. TorBox can silently swap a cached slot to an .nfo
-      // sidecar). Only the probe *measurement* is safe to skip on reuse.
-      // Real-Debrid (and all debrid) never skip probe — see shouldSkipProbe.
-      const preflightBudget = Math.min(PREFLIGHT_BUDGET_CAP_MS, remainingBeforeProbe);
-      const sniff = await options.preflight(candidate.stream.url, preflightBudget);
-      if (sniff === 'nfo') {
-        throw new Error('debrid_nfo_sidecar');
-      }
-      // timeout / error / unknown → proceed to mpv probe (sniff is NFO-only gate)
-      if (!observedProbeMs) {
-        if (!skipProbe) {
-          const probeBudget = probeBudgetForCandidate(candidate, options.config, remainingBeforeProbe);
-          const probeResult = await options.probe(
-            candidate.stream.url,
-            probeBudget,
-            undefined,
-            options.playEpoch,
-            options.startSec,
-          );
-          observedProbeMs = probeResult.ttff_ms;
-          if (options.playEpoch !== undefined) {
-            await assertPlayEpoch(options.playEpoch);
-          }
-        } else {
-          observedProbeMs = 0;
-        }
-      } else {
-        probeReused = true;
-      }
-      if (!skipProbe) {
-        await assertPlausibleFeatureProbe({
-          contentType: options.contentType,
-          filterContext: options.filterContext,
-        });
-      }
-      const remainingBeforePlay = options.deadline - Date.now();
-      if (remainingBeforePlay < 500) {
-        throw new Error('play budget exhausted after probe');
-      }
-      const playback = await options.play(candidate.stream.url, remainingBeforePlay, {
-        playEpoch: options.playEpoch,
-        minDurationSec: options.minDurationSec,
-        startSec: options.startSec,
-        ladderStep: candidate.ladder_step,
-      });
-      const attempt: PlayAttempt = {
-        ...base,
-        ok: true,
-        ms: Date.now() - attemptStarted,
-        probe_ms: observedProbeMs,
-        ...(probeReused ? { probe_reused: true } : {}),
-        ttff_ms: playback.ttff_ms,
-      };
-      attempts.push(attempt);
+
+    const sharedOne = {
+      mode: 'play' as const,
+      candidate,
+      index,
+      config: options.config,
+      deadline: options.deadline,
+      started: options.started,
+      contentType: options.contentType,
+      filterContext: options.filterContext,
+      verified_hint: options.verified_hint,
+      playEpoch: options.playEpoch,
+      probe: options.probe,
+      play: options.play,
+      preflight: options.preflight,
+      startSec: options.startSec,
+      minDurationSec: options.minDurationSec,
+      obligationFloorRan: options.obligationFloorRan,
+      candidateCount: options.candidates.length,
+    };
+
+    const one = await attemptOne(sharedOne);
+    if (one.kind === 'success') {
       return {
         kind: 'success',
         result: {
-          ok: true,
-          ttff_ms: playback.ttff_ms,
-          probe_ms: observedProbeMs ?? 0,
-          total_ms: Date.now() - options.started,
-          attempts,
-          stream: streamMeta(candidate.stream, candidate.ladder_step),
-          candidate_count: options.candidates.length,
-          win_ladder_step: candidate.ladder_step,
-          win_url_hash: streamUrlHash(candidate.stream.url),
-          ...(options.obligationFloorRan ? { obligation_floor_ran: true } : {}),
+          ...one.result,
+          attempts: [...attempts, ...one.result.attempts],
         },
       };
-    } catch (error) {
-      if (error instanceof PlayCancelledError) {
-        throw error;
-      }
-      const cleaned = cleanError(error);
-      const isLast = relativeIndex === options.candidates.length - 1;
-      const remainingForRetry = options.deadline - Date.now();
-      // Thin titles: one transient retry on the last candidate without bad-cache.
-      if (
-        isLast
-        && isTransientPlayError(cleaned)
-        && remainingForRetry > 1500
-        && !isStreamUrlBad(urlHash)
-      ) {
-        attempts.push({
-          ...base,
-          ok: false,
-          ms: Date.now() - attemptStarted,
-          error: cleaned,
-        });
-        const retryStarted = Date.now();
-        try {
-          if (options.playEpoch !== undefined) {
-            await assertPlayEpoch(options.playEpoch);
-          }
-          const probeBudget = probeBudgetForCandidate(candidate, options.config, remainingForRetry);
-          const probeResult = await options.probe(
-            candidate.stream.url,
-            probeBudget,
-            undefined,
-            options.playEpoch,
-            options.startSec,
-          );
-          if (options.playEpoch !== undefined) {
-            await assertPlayEpoch(options.playEpoch);
-          }
-          await assertPlausibleFeatureProbe({
-            contentType: options.contentType,
-            filterContext: options.filterContext,
-          });
-          const remainingBeforePlay = options.deadline - Date.now();
-          if (remainingBeforePlay < 500) {
-            throw new Error('play budget exhausted after probe');
-          }
-          const playback = await options.play(candidate.stream.url, remainingBeforePlay, {
-            playEpoch: options.playEpoch,
-            minDurationSec: options.minDurationSec,
-            startSec: options.startSec,
-            ladderStep: candidate.ladder_step,
-          });
-          const attempt: PlayAttempt = {
-            ...base,
-            ok: true,
-            ms: Date.now() - retryStarted,
-            probe_ms: probeResult.ttff_ms,
-            ttff_ms: playback.ttff_ms,
-          };
-          attempts.push(attempt);
-          return {
-            kind: 'success',
-            result: {
-              ok: true,
-              ttff_ms: playback.ttff_ms,
-              probe_ms: probeResult.ttff_ms,
-              total_ms: Date.now() - options.started,
-              attempts,
-              stream: streamMeta(candidate.stream, candidate.ladder_step),
-              candidate_count: options.candidates.length,
-              win_ladder_step: candidate.ladder_step,
-              win_url_hash: streamUrlHash(candidate.stream.url),
-              ...(options.obligationFloorRan ? { obligation_floor_ran: true } : {}),
-            },
-          };
-        } catch (retryError) {
-          if (retryError instanceof PlayCancelledError) {
-            throw retryError;
-          }
-          rememberBadStream(candidate.stream.url, retryError);
-          attempts.push({
-            ...base,
-            ok: false,
-            ms: Date.now() - retryStarted,
-            error: cleanError(retryError),
-          });
-          continue;
-        }
-      }
-      rememberBadStream(candidate.stream.url, error);
-      attempts.push({
-        ...base,
-        ok: false,
-        ms: Date.now() - attemptStarted,
-        error: cleaned,
-      });
     }
+    if (one.kind !== 'failure') {
+      continue;
+    }
+
+    const cleaned = one.error;
+    const isLast = relativeIndex === options.candidates.length - 1;
+    const remainingForRetry = options.deadline - Date.now();
+    // Thin titles: one transient retry on the last candidate without bad-cache.
+    if (
+      isLast
+      && isTransientPlayError(cleaned)
+      && remainingForRetry > 1500
+      && !isStreamUrlBad(urlHash)
+    ) {
+      attempts.push(one.attempt);
+      const retry = await attemptOne({ ...sharedOne, retryPass: true });
+      if (retry.kind === 'success') {
+        return {
+          kind: 'success',
+          result: {
+            ...retry.result,
+            attempts: [...attempts, ...retry.result.attempts],
+          },
+        };
+      }
+      if (retry.kind === 'failure') {
+        rememberBadStream(candidate.stream.url, retry.error);
+        attempts.push(retry.attempt);
+      }
+      continue;
+    }
+
+    rememberBadStream(candidate.stream.url, cleaned);
+    attempts.push(one.attempt);
   }
 
   return { kind: 'exhausted', attempts };
@@ -537,7 +604,7 @@ export async function playWithLadder(
     options.preferUrl,
     preferLadderStep,
   );
-  const minDurationSec = options.contentType === 'series' ? 600 : 600;
+  const minDurationSec = 600;
   const shared = {
     config,
     started,
@@ -614,8 +681,5 @@ export async function playWithLadder(
     obligation_floor_ran: obligationFloorRan,
   });
 }
-
-/** @deprecated Use playWithLadder — kept for unit tests migrating off legacy API. */
-export const playWithFallback = playWithLadder;
 
 export { couchStatusForLadderStep };

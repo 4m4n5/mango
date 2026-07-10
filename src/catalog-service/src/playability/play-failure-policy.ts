@@ -1,3 +1,8 @@
+import {
+  classifyPlayError,
+  type PlayErrorClass,
+} from '../play-error-classify.js';
+
 export type PlayFailureInvalidationInput = {
   isNoPlayableStream: boolean;
   attempts?: unknown;
@@ -13,12 +18,16 @@ export type PlayFailureInvalidationInput = {
 
 const PLAY_MISS_CONFIRM_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+/** Policy-transient: retryable / non-confirming — does NOT count toward demotion. */
+function isPolicyTransientClass(cls: PlayErrorClass): boolean {
+  return cls === 'transient' || cls === 'cancelled';
+}
+
 function isTransientPlayAttemptError(error: unknown): boolean {
   if (typeof error !== 'string') {
     return false;
   }
-  return /debrid_nfo_sidecar|debrid_playback_unreadable|debrid_status_clip|debrid_copyright_block|stream_url_bad_cached|supplemental_or_short_release|no error detail captured|play cancelled|play epoch|PlayCancelledError/i
-    .test(error);
+  return isPolicyTransientClass(classifyPlayError(error));
 }
 
 function hasNonTransientAttempt(attempts: unknown): boolean {
@@ -36,7 +45,8 @@ function hasNonTransientAttempt(attempts: unknown): boolean {
 
 /**
  * First couch miss after obligation-floor exhaustion → demote (stale/play_miss), not tombstone.
- * Zero-stream resolve and transient mpv/debrid errors never demote or invalidate.
+ * Zero-stream resolve and transient/cancelled errors never demote or invalidate.
+ * Garbage attempts (copyright / status_clip / nfo) are confirmed failures for demotion.
  */
 export function shouldDemoteAfterPlayError(input: PlayFailureInvalidationInput): boolean {
   if (!input.isNoPlayableStream) {
