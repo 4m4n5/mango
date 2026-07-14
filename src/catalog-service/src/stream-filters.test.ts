@@ -271,6 +271,76 @@ test('Indias Got Latent releases pass title relevance filter', () => {
   assert.equal(result.meta.excluded.title_mismatch, 0);
 });
 
+test('Friends rejects Apple TV and other compound "Friends" titles (1+2)', () => {
+  const apple: Stream = {
+    url: 'https://example.test/apple.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 2160p',
+    title: '[TB⚡] Comet 2160p',
+    description: '📁 Your Friends And Neighbors S01 • E01\n🎥 WEB-DL 🎞️ HEVC 📡 Apple TV',
+    behaviorHints: {
+      filename: 'Your Friends and Neighbors S01E01 This Is What Happens 2160p ATVP WEB-DL.mkv',
+    },
+  };
+  const anime: Stream = {
+    url: 'https://example.test/natsume.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 1080p',
+    title: '[TB⚡] Comet 1080p',
+    description: "📁 Natsume's Book Of Friends S01 • E01",
+    behaviorHints: {
+      filename: "[LostYears] Natsume's Book of Friends - S01E01.mkv",
+    },
+  };
+  const smiling: Stream = {
+    url: 'https://example.test/smiling.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 1080p',
+    description: '📁 Smiling Friends S01 • E01',
+    behaviorHints: { filename: 'Smiling Friends S01E01 1080p.mkv' },
+  };
+  const real: Stream = {
+    url: 'https://example.test/friends.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 2160p',
+    description: '📁 Friends S01 • E01\n🎥 BluRay REMUX',
+    behaviorHints: {
+      filename: 'Friends.S01E01.The.One.Where.Monica.Gets.a.Roommate.2160p.mkv',
+    },
+  };
+  const realYear: Stream = {
+    url: 'https://example.test/friends-year.mkv',
+    source: 'AIOStreams',
+    name: '[TB⚡] Comet 2160p',
+    description: '📁 Friends (1994) S01 • E01',
+    behaviorHints: {
+      filename: 'Friends.S01E01.1994.2160p.Max.WEB-DL.mkv',
+    },
+  };
+  assert.equal(streamMatchesMetaTitle(apple, 'Friends', 'tt0108778', { contentType: 'series' }), false);
+  assert.equal(streamMatchesMetaTitle(anime, 'Friends', 'tt0108778', { contentType: 'series' }), false);
+  assert.equal(streamMatchesMetaTitle(smiling, 'Friends', 'tt0108778', { contentType: 'series' }), false);
+  assert.equal(streamMatchesMetaTitle(real, 'Friends', 'tt0108778', { contentType: 'series' }), true);
+  assert.equal(streamMatchesMetaTitle(realYear, 'Friends', 'tt0108778', { contentType: 'series' }), true);
+
+  const ranked = filterAndRankStreams(
+    [apple, anime, smiling, real, realYear],
+    testConfig({ max_quality: '2160p' }),
+    { contentType: 'series', metaTitle: 'Friends', metaId: 'tt0108778:1:1' },
+  );
+  assert.equal(ranked.meta.excluded.title_mismatch, 3);
+  assert.equal(ranked.streams.length, 2);
+  assert.ok(ranked.streams.every((row) => {
+    const hints = row.behaviorHints as { filename?: string } | undefined;
+    return /friends\.s01/i.test(hints?.filename || '');
+  }));
+});
+
+test('single-token titles no longer bypass integrity (fix 1)', () => {
+  const junk = stream('📁 Completely Different Show S01 • E01', 'https://example.test/junk.mkv');
+  assert.equal(streamMatchesMetaTitle(junk, 'Seinfeld', 'tt0098904', { contentType: 'series' }), false);
+});
+
 test('isSupplementalRelease drops BTS and featurette labels for movies', () => {
   assert.equal(isSupplementalRelease(stream('Behind the Scenes', 'https://example.test/bts.mp4'), 'movie'), true);
   assert.equal(isSupplementalRelease(stream('Featurette: Making Of', 'https://example.test/ft.mp4'), 'movie'), true);

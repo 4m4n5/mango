@@ -1874,7 +1874,13 @@ export class CatalogCore {
       filterContext.episodeRole = parsedSeasonRole(id);
     }
     try {
-      const meta = await optionalWithBudget(this.metaCached(type, id), STREAM_META_CONTEXT_TIMEOUT_MS);
+      // Episode ids (tt…:S:E) must resolve series meta by bare imdb id so title
+      // integrity always has metaTitle on couch episode play (fix 4).
+      const metaLookupId = type === 'series' ? (seriesBareId(id) ?? id) : id;
+      const meta = await optionalWithBudget(
+        this.metaCached(type === 'series' ? 'series' : type, metaLookupId),
+        STREAM_META_CONTEXT_TIMEOUT_MS,
+      );
       if (meta) {
         filterContext = {
           ...filterContext,

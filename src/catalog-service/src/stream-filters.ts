@@ -163,13 +163,18 @@ const TITLE_STOP_WORDS = new Set([
   'kill', 'show', 'game', 'world', 'life', 'moon', 'star', 'man', 'men',
 ]);
 
-function metaTitleTokens(metaTitle: string): string[] {
+/** Ordered content tokens for title identity (do not sort — order is the title). */
+export function metaTitleTokensOrdered(metaTitle: string): string[] {
   return metaTitle
     .toLowerCase()
+    .replace(/['']/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .split(/\s+/)
-    .filter((token) => token.length >= 2 && !TITLE_STOP_WORDS.has(token))
-    .sort((left, right) => right.length - left.length);
+    .filter((token) => token.length >= 2 && !TITLE_STOP_WORDS.has(token));
+}
+
+function metaTitleTokens(metaTitle: string): string[] {
+  return [...metaTitleTokensOrdered(metaTitle)].sort((left, right) => right.length - left.length);
 }
 
 function streamFilenameHaystack(stream: Stream): string {
@@ -186,6 +191,146 @@ function streamFilenameHaystack(stream: Stream): string {
 function streamRelevanceHaystack(stream: Stream): string {
   const filename = streamFilenameHaystack(stream);
   return `${streamHaystack(stream)} ${filename}`.trim();
+}
+
+/** Strip season/episode markers and years so the show name remains. */
+function stripReleaseIdentityJunk(value: string): string {
+  return value
+    // No trailing \b after ')' — end-of-string after a paren is not a word boundary.
+    .replace(/\(\d{4}(?:\s*[–\-]\s*\d{4})?\)/g, ' ')
+    .replace(/\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,2}\b.*/i, ' ')
+    .replace(/\bs\d{1,2}e\d{1,2}\b.*/i, ' ')
+    .replace(/\b\d{1,2}\s*x\s*\d{1,2}\b.*/i, ' ')
+    .replace(/\bseason\s*\d+\b.*/i, ' ')
+    .replace(/\b(2160p|1080p|720p|480p|4k|uhd|web-?dl|bluray|remux|hevc|x265|x264|av1|hdr|dovi|atmos)\b.*/i, ' ')
+    .trim();
+}
+
+/**
+ * Best-effort show label from 📁 description line or filename — used for
+ * identity matching so "Your Friends And Neighbors" cannot pass as "Friends".
+ */
+export function extractReleaseShowTitle(stream: Stream): string | null {
+  const description = typeof stream.description === 'string' ? stream.description : '';
+  const folderMatch = description.match(/📁\s*([^\n\r]+)/);
+  if (folderMatch?.[1]) {
+    const cleaned = stripReleaseIdentityJunk(folderMatch[1]);
+    if (cleaned) return cleaned;
+  }
+
+  // Description without emoji: "India's Got Latent S01E01 WEB-DL…"
+  const firstLine = description.split(/\r?\n/)[0]?.trim() || '';
+  if (firstLine && /s\d{1,2}/i.test(firstLine)) {
+    const cleaned = stripReleaseIdentityJunk(firstLine.replace(/^📁\s*/, ''));
+    if (cleaned) return cleaned;
+  }
+
+  const hints = stream.behaviorHints;
+  const filename = hints && typeof hints === 'object' && !Array.isArray(hints)
+    && typeof (hints as Record<string, unknown>).filename === 'string'
+    ? String((hints as Record<string, unknown>).filename)
+    : '';
+  if (filename.trim()) {
+    const cleaned = stripReleaseIdentityJunk(filename.replace(/[._]/g, ' '));
+    if (cleaned) return cleaned;
+  }
+
+  // Last resort: first line of title/name when it looks like a release label.
+  const label = `${stream.title || ''} ${stream.name || ''}`.trim();
+  if (label && /s\d{1,2}/i.test(label)) {
+    const cleaned = stripReleaseIdentityJunk(label);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+/**
+ * Meta title must be the whole release show identity — not a substring of a
+ * longer compound title (fix 1+2). Extra content tokens before/after → reject.
+ */
+export function releaseShowTitleMatchesMeta(
+  releaseTitle: string,
+  metaTitle: string,
+): boolean {
+  const metaTokens = metaTitleTokensOrdered(metaTitle);
+  if (metaTokens.length === 0) {
+    return true;
+  }
+  const releaseTokens = metaTitleTokensOrdered(stripReleaseIdentityJunk(releaseTitle));
+  if (releaseTokens.length === 0) {
+    return false;
+  }
+  if (releaseTokens.length !== metaTokens.length) {
+    return false;
+  }
+  return releaseTokens.every((token, index) => token === metaTokens[index]);
+}
+
+/** Reject London.Files-style false positives for The Kashmir Files. */
+export function streamMatchesMetaTitle(
+  stream: Stream,
+  metaTitle: string,
+  metaId?: string,
+  context?: Pick<StreamFilterContext, 'contentType'>,
+): boolean {
+  const haystack = streamRelevanceHaystack(stream);
+  if (metaId) {
+    const normalized = metaId.toLowerCase();
+    if (haystack.includes(normalized)) return true;
+    if (normalized.startsWith('tt') && normalized.length > 4) {
+      const digits = normalized.slice(2);
+      // Bare IMDB digits only when delimited — avoid accidental short matches.
+      if (new RegExp(`(?:^|[^a-z0-9])${digits}(?:[^a-z0-9]|$)`).test(haystack)) {
+        return true;
+      }
+    }
+  }
+
+  const metaTokens = metaTitleTokensOrdered(metaTitle);
+  // Empty meta → nothing to enforce. Never bypass for single-token titles (1).
+  if (metaTokens.length === 0) {
+    return true;
+  }
+
+  const releaseTitle = extractReleaseShowTitle(stream);
+  if (releaseTitle) {
+    if (!releaseShowTitleMatchesMeta(releaseTitle, metaTitle)) {
+      return false;
+    }
+  } else {
+    // No extractable show label: require meta tokens as a contiguous bounded
+    // phrase in the haystack (not a loose multi-hit anywhere).
+    const phrase = metaTokens.join(' ');
+    const bounded = new RegExp(`(?:^|[^a-z0-9])${phrase.replace(/\s+/g, '[^a-z0-9]+')}(?:[^a-z0-9]|$)`);
+    if (!bounded.test(haystack)) {
+      return false;
+    }
+    // Single-token: reject when another content token sits immediately before
+    // the match (smiling friends / your friends…).
+    if (metaTokens.length === 1) {
+      const token = metaTokens[0]!;
+      const prefixed = new RegExp(`(?:^|[^a-z0-9])[a-z0-9]{2,}[^a-z0-9]+${token}(?:[^a-z0-9]|$)`);
+      if (prefixed.test(haystack)) {
+        return false;
+      }
+    }
+  }
+
+  // Movies: filename must still carry the primary long token (Kashmir Files case).
+  const tokens = metaTitleTokens(metaTitle);
+  const primary = tokens[0];
+  if (
+    context?.contentType === 'movie'
+    && primary
+    && primary.length >= 5
+    && !TITLE_STOP_WORDS.has(primary)
+  ) {
+    const filenameHaystack = streamFilenameHaystack(stream);
+    if (!filenameHaystack.trim() || !filenameHaystack.includes(primary)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** Minimum GB per minute of runtime for long features (catches mislabeled tiny encodes). */
@@ -216,45 +361,6 @@ export function isSuspiciousFeatureSize(
   if (!bytes) return false;
   const minBytes = runtimeMinutes * FEATURE_SIZE_GB_PER_MINUTE * 1_000_000_000;
   return bytes < minBytes;
-}
-
-/** Reject London.Files-style false positives for The Kashmir Files. */
-export function streamMatchesMetaTitle(
-  stream: Stream,
-  metaTitle: string,
-  metaId?: string,
-  context?: Pick<StreamFilterContext, 'contentType'>,
-): boolean {
-  const haystack = streamRelevanceHaystack(stream);
-  if (metaId) {
-    const normalized = metaId.toLowerCase();
-    if (haystack.includes(normalized)) return true;
-    if (normalized.startsWith('tt') && normalized.length > 4) {
-      const digits = normalized.slice(2);
-      if (haystack.includes(digits)) return true;
-    }
-  }
-
-  const tokens = metaTitleTokens(metaTitle);
-  if (tokens.length < 2) return true;
-  const sorted = [...tokens].sort((left, right) => right.length - left.length);
-  const primary = sorted[0];
-  if (
-    context?.contentType === 'movie'
-    && primary
-    && primary.length >= 5
-    && !TITLE_STOP_WORDS.has(primary)
-  ) {
-    const filenameHaystack = streamFilenameHaystack(stream);
-    if (!filenameHaystack.trim() || !filenameHaystack.includes(primary)) {
-      return false;
-    }
-  }
-  if (primary.length >= 5 && !TITLE_STOP_WORDS.has(primary) && haystack.includes(primary)) {
-    return true;
-  }
-  const hits = tokens.filter((token) => haystack.includes(token)).length;
-  return hits >= 2;
 }
 
 export function streamPassesIntegrity(stream: Stream, context: StreamFilterContext): boolean {
