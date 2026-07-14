@@ -12,6 +12,10 @@ test('buildVoiceToolManifest exposes browse-only voice tools (no play)', () => {
   assert.ok(names.includes('mango_navigate'));
   assert.ok(names.includes('mango_library_overview'));
   assert.ok(names.includes('mango_search_external'));
+  const searchExternal = manifest.tools.find((tool) => tool.name === 'mango_search_external');
+  assert.match(searchExternal?.description || '', /mango_search returns no movie\/series/i);
+  const search = manifest.tools.find((tool) => tool.name === 'mango_search');
+  assert.match(search?.description || '', /mango_search_external next/i);
   assert.ok(names.includes('mango_youtube_search'));
   assert.ok(names.includes('mango_open_youtube'));
   assert.ok(names.includes('mango_list_ai_catalogs'));

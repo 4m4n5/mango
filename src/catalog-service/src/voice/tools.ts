@@ -27,6 +27,8 @@ export function buildVoiceToolManifest(): {
       description:
         'Search the mango library by title or keywords — verified movies/series plus live IPTV channels (AREA69, free sports, news, cartoons). '
         + 'For live TV use channel names or category words (cartoons, cricket, nickelodeon, news). '
+        + 'Results with type tv / tab live are IPTV channels only. '
+        + 'If this returns no movie/series hits for a clear show or film title, call mango_search_external next — do not say the title is missing after library-only search. '
         + 'Do NOT pass the user\'s full vague question (e.g. "good hindi movies") — use title names or extracted keywords after clarifying discover intent.',
       layer: 'catalog',
       input_schema: {
@@ -57,7 +59,10 @@ export function buildVoiceToolManifest(): {
     },
     {
       name: 'mango_search_external',
-      description: 'Search Cinemeta for titles outside the verified library. Default queue_missing=false. Use queue_missing=true only when the user wants a title added to the verify pool without opening it on TV.',
+      description:
+        'Search Cinemeta for movies/series outside the verified library (e.g. classic sitcoms like Friends). '
+        + 'Use when mango_search returns no movie/series hits, or only live IPTV channels, for a clear title the user wants. '
+        + 'Default queue_missing=false. Use queue_missing=true only when the user wants a title added to the verify pool without opening it on TV.',
       layer: 'catalog',
       input_schema: {
         type: 'object',

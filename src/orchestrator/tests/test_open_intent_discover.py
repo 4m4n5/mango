@@ -85,6 +85,7 @@ class PersonaTests(unittest.TestCase):
         self.assertIn("DISCOVER", prompt)
         self.assertIn("mango_open_title", lowered)
         self.assertIn("live", lowered)
+        self.assertIn("mango_search_external", lowered)
 
 
 if __name__ == "__main__":

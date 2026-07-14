@@ -55,6 +55,98 @@ function tabForType(type: string): VoiceSearchHit['tab'] {
   return 'movies';
 }
 
+/** True when the query is clearly aimed at live IPTV, not a VOD title. */
+export function isLiveSearchIntent(query: string): boolean {
+  const normalized = normalizeText(query);
+  if (!normalized) {
+    return false;
+  }
+  return /\b(live|iptv|channel|cartoons?|cricket|football|soccer|racing|news|sports?|espn|nick(?:elodeon)?|bbc|cnn|sky|star\s*sports|put\s*on|tune\s*to)\b/i
+    .test(normalized);
+}
+
+/**
+ * IPTV pack / quality labels ("FRIENDS S01 4K", "FRIENDS ᴿᴬᵂ") that falsely
+ * dominate VOD title search for short show names like "Friends".
+ */
+export function isIptvPackStyleTitle(title: string, query: string): boolean {
+  const titleNorm = normalizeText(title);
+  const queryNorm = normalizeText(query);
+  if (!titleNorm || !queryNorm) {
+    return false;
+  }
+  if (titleNorm === queryNorm) {
+    return false;
+  }
+  const queryHasSeason = /\bs\d{1,2}\b/.test(queryNorm);
+  const queryHasQuality = /\b(4k|uhd|raw|hdr)\b/.test(queryNorm);
+  if (/\bs\d{1,2}\b/.test(titleNorm) && !queryHasSeason) {
+    return true;
+  }
+  if (/\b(4k|uhd|raw|hdr)\b/.test(titleNorm) && !queryHasQuality) {
+    return true;
+  }
+  // Superscript RAW / similar ornament markers common on IPTV packs.
+  if (/[ᴿᴬᵂ]/.test(title) && !queryHasQuality) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Merge verified VOD + live hits without letting IPTV pack names crowd out
+ * (or fully replace) movie/series discovery.
+ */
+export function mergeLibraryAndLiveHits(
+  vodHits: VoiceSearchHit[],
+  liveHits: VoiceSearchHit[],
+  query: string,
+  limit: number,
+): VoiceSearchHit[] {
+  const cap = Math.max(1, limit);
+  const liveIntent = isLiveSearchIntent(query);
+  const filteredLive = liveHits.filter((hit) => {
+    if (liveIntent) {
+      return true;
+    }
+    // Non-live intent: only keep exact-ish channel names, never Sxx/4K packs.
+    if (isIptvPackStyleTitle(hit.title, query)) {
+      return false;
+    }
+    return hit.score >= 100 || normalizeText(hit.title) === normalizeText(query);
+  });
+
+  if (liveIntent) {
+    const merged = [...vodHits, ...filteredLive];
+    merged.sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return left.title.localeCompare(right.title);
+    });
+    return merged.slice(0, cap);
+  }
+
+  // Title / open intent: VOD first, then at most two exact live channels.
+  const liveSlots = Math.min(2, Math.max(0, cap - vodHits.length));
+  const liveKept = filteredLive
+    .sort((left, right) => right.score - left.score || left.title.localeCompare(right.title))
+    .slice(0, liveSlots);
+  const merged = [...vodHits, ...liveKept];
+  merged.sort((left, right) => {
+    const leftVod = left.tab !== 'live' ? 1 : 0;
+    const rightVod = right.tab !== 'live' ? 1 : 0;
+    if (rightVod !== leftVod) {
+      return rightVod - leftVod;
+    }
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    return left.title.localeCompare(right.title);
+  });
+  return merged.slice(0, cap);
+}
+
 export async function searchVerifiedLibrary(
   query: string,
   limit = 8,
@@ -96,12 +188,5 @@ export async function searchVerifiedLibrary(
   }
 
   const liveHits = await searchLiveChannels(trimmed, limit, core);
-  const merged = [...hits, ...liveHits];
-  merged.sort((left, right) => {
-    if (right.score !== left.score) {
-      return right.score - left.score;
-    }
-    return left.title.localeCompare(right.title);
-  });
-  return merged.slice(0, Math.max(1, limit));
+  return mergeLibraryAndLiveHits(hits, liveHits, trimmed, Math.max(1, limit));
 }
