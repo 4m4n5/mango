@@ -28,7 +28,9 @@ export function buildVoiceToolManifest(): {
         'Search the mango library by title or keywords — verified movies/series plus live IPTV channels (AREA69, free sports, news, cartoons). '
         + 'For live TV use channel names or category words (cartoons, cricket, nickelodeon, news). '
         + 'Results with type tv / tab live are IPTV channels only. '
-        + 'If this returns no movie/series hits for a clear show or film title, call mango_search_external next — do not say the title is missing after library-only search. '
+        + 'If this returns no movie/series hit whose title equals the query (ignore case), '
+        + 'or only live IPTV channels, call mango_search_external next — do not open a weaker '
+        + '"Friends with…" style startsWith hit when the user asked for the exact title. '
         + 'Do NOT pass the user\'s full vague question (e.g. "good hindi movies") — use title names or extracted keywords after clarifying discover intent.',
       layer: 'catalog',
       input_schema: {
