@@ -100,6 +100,7 @@ import {
   MEDIAFUSION_SUPPLEMENT_BUDGET_MS,
   mediaFusionStreamUrl,
   mergeUniqueStreams,
+  shouldSkipThinSupplementAfterPrimaryTimeout,
   shouldSupplementThinStreams,
 } from './thin-stream-supplement.js';
 import { loadAiCatalogRails } from './ai-catalogs/store.js';
@@ -347,7 +348,20 @@ const META_WARM_CONCURRENCY = boundedInt(
 );
 const META_WARM_ENABLED = process.env.MANGO_META_WARM_DISABLE !== '1'
   && process.env.NODE_ENV !== 'test';
+/** Background verify/grow stream addon budget (default 12s). */
 const STREAM_RESOLVE_BUDGET_MS = Number(process.env.MANGO_STREAM_RESOLVE_BUDGET_MS || 12000);
+/** Couch play / detail stream list budget — popular titles often need ~18–25s. */
+const STREAM_RESOLVE_BUDGET_USER_MS = Number(
+  process.env.MANGO_STREAM_RESOLVE_BUDGET_USER_MS || 30000,
+);
+
+/** Addon fetch timeout for this resolve class (1A). */
+export function streamResolveBudgetMs(requestClass?: 'user' | 'background'): number {
+  if (requestClass === 'user') {
+    return STREAM_RESOLVE_BUDGET_USER_MS;
+  }
+  return STREAM_RESOLVE_BUDGET_MS;
+}
 
 function boundedInt(value: unknown, fallback: number, min: number, max: number): number {
   const parsed = typeof value === 'number' ? value : Number(value);
@@ -711,6 +725,7 @@ const LEGACY_STREAM_RESOLVE_INFRA_RE =
 /**
  * True when resolve notes indicate addon/infra failure (rate-limit, 5xx, timeout)
  * rather than clean title exhaustion. Accepts legacy string[] for transition/tests.
+ * Used for couch "timed out / unavailable" errors — NOT for rate-limit backoff (2A).
  */
 export function hasStreamResolveInfrastructureErrors(
   notes: ResolveNote[] | string[],
@@ -726,6 +741,24 @@ export function hasStreamResolveInfrastructureErrors(
     if (note.kind === 'infra') return true;
     if (note.kind === 'addon_error' && isInfraAddonMessage(note.message)) return true;
     return false;
+  });
+}
+
+/**
+ * Confirmed rate-limit only — timeouts/5xx must not trip busy soft-backoff (2A).
+ */
+export function hasStreamResolveRateLimitErrors(
+  notes: ResolveNote[] | string[],
+): boolean {
+  if (notes.length === 0) return false;
+  if (typeof notes[0] === 'string') {
+    return (notes as string[]).some((error) => classifyPlayError(error) === 'rate_limited');
+  }
+  return (notes as ResolveNote[]).some((note) => {
+    if (note.kind !== 'infra' && note.kind !== 'addon_error') {
+      return false;
+    }
+    return classifyPlayError(note.message) === 'rate_limited';
   });
 }
 
@@ -2535,7 +2568,7 @@ export class CatalogCore {
     for (let attempt = 0; attempt <= retryAttempts; attempt += 1) {
       const streamAddons = this.addons.filter((addon) => supportsResource(addon.manifest, 'stream', type));
       const settled = await Promise.allSettled(
-        streamAddons.map((addon) => this.fetchAddonStreams(addon, type, id)),
+        streamAddons.map((addon) => this.fetchAddonStreams(addon, type, id, options)),
       );
 
       streams = [];
@@ -2577,8 +2610,8 @@ export class CatalogCore {
         expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
       });
     } else if (streams.length > 0) {
-      // Rate-limit placeholders / infra notes → rate_limited backoff; other junk → miss.
-      const rateLimited = hasStreamResolveInfrastructureErrors(notes)
+      // Confirmed rate-limit only → busy backoff. Timeouts/5xx → miss (user retries immediately).
+      const rateLimited = hasStreamResolveRateLimitErrors(notes)
         || streams.some((stream) => isRateLimitedStreamUrl(stream.url || ''));
       const now = Date.now();
       this.streamNegativeCache.set(key, {
@@ -2587,9 +2620,8 @@ export class CatalogCore {
         reason: rateLimited ? 'rate_limited' : 'miss',
       });
     } else {
-      // True empty (or upstream 429 swallowed as []). Prefer longer backoff when
-      // errors look like rate-limit / infra; otherwise short miss dampening.
-      const rateLimited = hasStreamResolveInfrastructureErrors(notes);
+      // True empty. Rate-limit → busy backoff; timeout/infra → miss so couch can retry now.
+      const rateLimited = hasStreamResolveRateLimitErrors(notes);
       const now = Date.now();
       this.streamNegativeCache.set(key, {
         until: now + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
@@ -2615,6 +2647,16 @@ export class CatalogCore {
     ));
     if (!shouldSupplementThinStreams(streams, { hasDirectMediaFusion })) {
       return { streams, notes };
+    }
+    // 3A: primary hard-timeout + empty → skip MF (no extra ~8s dead wait).
+    if (shouldSkipThinSupplementAfterPrimaryTimeout(streams, notes)) {
+      return {
+        streams,
+        notes: [
+          ...notes,
+          resolveNote('annotation', 'mediafusion thin-supplement skipped — primary timed out'),
+        ],
+      };
     }
     const manifestUrl = await loadMediaFusionManifestUrl();
     if (!manifestUrl) {
@@ -2655,11 +2697,12 @@ export class CatalogCore {
     addon: Addon,
     type: string,
     id: string,
+    options: ResolveStreamOptions = {},
   ): Promise<{ streams: Stream[] }> {
     try {
       const result = await fetchJson(
         resourceUrl(addon, 'stream', type, id),
-        STREAM_RESOLVE_BUDGET_MS,
+        streamResolveBudgetMs(options.requestClass),
       ) as { streams?: unknown[] };
       const streams: Stream[] = [];
       for (const stream of result.streams || []) {

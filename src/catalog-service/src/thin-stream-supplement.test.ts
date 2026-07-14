@@ -6,6 +6,8 @@ import {
   isMediaFusionAddon,
   mediaFusionStreamUrl,
   mergeUniqueStreams,
+  notesIndicatePrimaryHardTimeout,
+  shouldSkipThinSupplementAfterPrimaryTimeout,
   shouldSupplementThinStreams,
 } from './thin-stream-supplement.js';
 
@@ -67,4 +69,32 @@ test('mergeUniqueStreams dedupes by URL', () => {
   );
   assert.equal(merged.length, 2);
   assert.equal(merged[1]?.url, 'https://a.test/2');
+});
+
+test('shouldSkipThinSupplementAfterPrimaryTimeout only when empty + hard timeout', () => {
+  assert.equal(
+    shouldSkipThinSupplementAfterPrimaryTimeout(
+      [],
+      [{ message: 'AIOStreams: timeout after 12000ms' }],
+    ),
+    true,
+  );
+  assert.equal(
+    notesIndicatePrimaryHardTimeout([{ message: 'AIOStreams: timeout after 30000ms' }]),
+    true,
+  );
+  assert.equal(
+    shouldSkipThinSupplementAfterPrimaryTimeout(
+      [stream('https://ok.test/v.mkv')],
+      [{ message: 'AIOStreams: timeout after 12000ms' }],
+    ),
+    false,
+  );
+  assert.equal(
+    shouldSkipThinSupplementAfterPrimaryTimeout(
+      [],
+      [{ message: 'AIOStreams: HTTP 502' }],
+    ),
+    false,
+  );
 });

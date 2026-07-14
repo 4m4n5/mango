@@ -19,6 +19,32 @@ export function shouldSupplementThinStreams(
   return countCacheableStreams(streams) <= 1;
 }
 
+/** Primary addon hard-timeout — do not burn another MF budget on an empty pool (3A). */
+const HARD_TIMEOUT_RE = /timeout after \d+ms|\btimed?\s*out\b/i;
+
+export function notesIndicatePrimaryHardTimeout(
+  notes: Array<{ message?: string } | string>,
+): boolean {
+  for (const note of notes) {
+    const message = typeof note === 'string' ? note : (note.message || '');
+    if (HARD_TIMEOUT_RE.test(message)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Skip MediaFusion thin-supplement when primary already hard-timed-out with
+ * nothing cacheable — serial MF only adds dead couch wait.
+ */
+export function shouldSkipThinSupplementAfterPrimaryTimeout(
+  streams: Stream[],
+  notes: Array<{ message?: string } | string>,
+): boolean {
+  return countCacheableStreams(streams) === 0 && notesIndicatePrimaryHardTimeout(notes);
+}
+
 export function isMediaFusionAddon(name: string, manifestUrl: string): boolean {
   return /mediafusion/i.test(name) || /mediafusion/i.test(manifestUrl);
 }

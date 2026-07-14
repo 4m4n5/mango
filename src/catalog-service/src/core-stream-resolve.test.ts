@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import {
   hasStreamResolveInfrastructureErrors,
+  hasStreamResolveRateLimitErrors,
+  streamResolveBudgetMs,
   streamsAreOnlyErrorPlaceholders,
   type ResolveNote,
   type Stream,
@@ -83,4 +85,36 @@ test('stream resolve classifier treats non-cacheable placeholders as infrastruct
       source: 'AIOStreams',
     } as Stream,
   ]), false);
+});
+
+test('rate-limit classifier excludes timeouts (2A — no busy backoff on timeout)', () => {
+  assert.equal(
+    hasStreamResolveRateLimitErrors([note('addon_error', 'AIOStreams: timeout after 12000ms')]),
+    false,
+  );
+  assert.equal(
+    hasStreamResolveRateLimitErrors([note('addon_error', 'AIOStreams: HTTP 502')]),
+    false,
+  );
+  assert.equal(
+    hasStreamResolveRateLimitErrors([note('addon_error', 'AIOMetadata: rate limit exceeded')]),
+    true,
+  );
+  assert.equal(
+    hasStreamResolveRateLimitErrors([
+      note('infra', 'stream resolve skipped — recent rate-limit (retry shortly)'),
+    ]),
+    true,
+  );
+  // Still infra for couch timed-out messaging:
+  assert.equal(
+    hasStreamResolveInfrastructureErrors([note('addon_error', 'AIOStreams: timeout after 12000ms')]),
+    true,
+  );
+});
+
+test('streamResolveBudgetMs is longer for user than background (1A)', () => {
+  assert.equal(streamResolveBudgetMs('background'), 12000);
+  assert.equal(streamResolveBudgetMs(undefined), 12000);
+  assert.equal(streamResolveBudgetMs('user'), 30000);
 });
