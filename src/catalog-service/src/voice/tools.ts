@@ -64,6 +64,8 @@ export function buildVoiceToolManifest(): {
       description:
         'Search Cinemeta for movies/series outside the verified library (e.g. classic sitcoms like Friends). '
         + 'Use when mango_search returns no movie/series hits, or only live IPTV channels, for a clear title the user wants. '
+        + 'in_library true means verified playable; library_status pending means queued for verify; '
+        + 'missing library_status with in_library false is still openable via mango_open_title — never say library failed. '
         + 'Default queue_missing=false. Use queue_missing=true only when the user wants a title added to the verify pool without opening it on TV.',
       layer: 'catalog',
       input_schema: {

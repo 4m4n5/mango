@@ -20,6 +20,8 @@ export type ExternalSearchHit = {
   queued_for_verify: boolean;
 };
 
+export type PlayabilityIndexStatus = 'verified' | 'failed' | 'pending' | 'stale';
+
 /**
  * Derives the couch-facing in_library / queued_for_verify signal from the
  * playability index status. `queued_for_verify` covers both a title already
@@ -27,10 +29,32 @@ export type ExternalSearchHit = {
  * this call — the caller sets `queuedThisCall` once it actually enqueues.
  */
 export function deriveLibraryVerifyState(
-  status: 'verified' | 'failed' | 'pending' | 'stale' | undefined,
+  status: PlayabilityIndexStatus | undefined,
 ): { inLibrary: boolean; alreadyQueued: boolean } {
   const inLibrary = status === 'verified';
   return { inLibrary, alreadyQueued: !inLibrary && status === 'pending' };
+}
+
+/**
+ * Values safe to expose to the companion LLM. Never return raw `failed` /
+ * `stale` — models echo those as "library status failed" and refuse titles
+ * that are still openable via mango_open_title.
+ */
+export function couchFacingLibraryStatus(
+  status: PlayabilityIndexStatus | undefined,
+): 'verified' | 'pending' | undefined {
+  if (status === 'verified' || status === 'pending') {
+    return status;
+  }
+  return undefined;
+}
+
+/** Exact title match (score ≥ 100) that was tombstoned — re-queue for verify. */
+export function shouldRequeueFailedExactMatch(
+  status: PlayabilityIndexStatus | undefined,
+  score: number,
+): boolean {
+  return (status === 'failed' || status === 'stale') && score >= 100;
 }
 
 function tabForType(type: string): MangoBrowseTab {
@@ -105,16 +129,21 @@ export async function searchExternalTitles(
       }
       seen.add(key);
 
+      const title = metaTitle(meta as Record<string, unknown>);
+      const score = scoreTitleMatch(title, trimmed);
       const playability = await getTitlePlayability(contentType, bareId);
       const { inLibrary, alreadyQueued } = deriveLibraryVerifyState(playability?.status);
       let queued = alreadyQueued;
-      if (!inLibrary && !queued && options.queue_missing) {
+      const wantQueue =
+        options.queue_missing
+        || shouldRequeueFailedExactMatch(playability?.status, score);
+      if (!inLibrary && !queued && wantQueue) {
         const tab = tabForType(contentType);
         const railId = await defaultRailIdForTab(tab);
         await queueTitleForVoiceIngest({
           type: contentType,
           id: bareId,
-          title: metaTitle(meta as Record<string, unknown>),
+          title,
           rail_id: railId,
           poster_url: metahubPosterUrl(bareId),
           year: metaYear(meta as Record<string, unknown>) ?? null,
@@ -122,7 +151,12 @@ export async function searchExternalTitles(
         queued = true;
       }
 
-      const title = metaTitle(meta as Record<string, unknown>);
+      // After enqueue, index is pending — report that, never raw failed/stale.
+      const facingStatus: PlayabilityIndexStatus | undefined = inLibrary
+        ? 'verified'
+        : queued
+          ? 'pending'
+          : playability?.status;
       results.push({
         type: contentType,
         id: bareId,
@@ -130,9 +164,9 @@ export async function searchExternalTitles(
         year: metaYear(meta as Record<string, unknown>),
         poster: metahubPosterUrl(bareId) ?? undefined,
         tab: tabForType(contentType),
-        score: scoreTitleMatch(title, trimmed),
+        score,
         in_library: inLibrary,
-        library_status: playability?.status,
+        library_status: couchFacingLibraryStatus(facingStatus),
         queued_for_verify: queued,
       });
     }

@@ -86,6 +86,7 @@ class PersonaTests(unittest.TestCase):
         self.assertIn("mango_open_title", lowered)
         self.assertIn("live", lowered)
         self.assertIn("mango_search_external", lowered)
+        self.assertIn("library status failed", lowered)
 
 
 if __name__ == "__main__":
