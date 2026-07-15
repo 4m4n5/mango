@@ -104,9 +104,16 @@ if [[ "${MANGO_MPV_STOP_NO_DISPLAY:-0}" != "1" ]]; then
   # tearing down mpv, so the instant mpv unmaps the exposed surface is pure
   # black (no lxpanel/wallpaper flash). Then browse HDMI → reveal launcher.
   bash "$REPO_DIR/scripts/lib/mango-desktop.sh" hide 2>/dev/null || true
+  # Capture before teardown clears the matched marker / before xrandr.
+  # shellcheck source=../../lib/mango-browse-display.sh
+  source "$REPO_DIR/scripts/lib/mango-browse-display.sh"
+  LAUNCHER_GPU_RESET=0
+  if browse_restore_needs_launcher_gl_reset; then
+    LAUNCHER_GPU_RESET=1
+  fi
   teardown_mpv
   rm -f "$PLAYBACK_ACTIVE_FILE"
-  MANGO_MPV_STOP_HOME="$GO_HOME" bash "$RESTORE_SH" finish
+  MANGO_MPV_STOP_HOME="$GO_HOME" MANGO_LAUNCHER_GPU_RESET="$LAUNCHER_GPU_RESET" bash "$RESTORE_SH" finish
 else
   teardown_mpv
 fi

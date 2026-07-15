@@ -350,6 +350,8 @@ On Pi 5, Chromium runs with GPU rasterization (`--enable-gpu-rasterization
 --ignore-gpu-blocklist --enable-zero-copy`, gated by `MANGO_CHROMIUM_DISABLE_GPU`;
 default `0`) to keep focus-move repaints fast at 1080p60. Roll back to software
 compositing by setting `MANGO_CHROMIUM_DISABLE_GPU=1` in the systemd unit.
+After a matched 4K play, restore **restarts** the launcher unit (not only thaw)
+so VideoCore EGL is recreated — freeze-through-xrandr otherwise leaves blank posters.
 
 | Milestone | Display | Notes |
 |-------|---------|-------|

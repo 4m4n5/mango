@@ -89,8 +89,10 @@ fi
 
 grep -q 'launcher_freeze' scripts/m2-catalog/service/mpv-play.sh \
   && grep -q 'launcher_thaw' scripts/lib/restore-launcher-after-playback.sh \
-  && gate_pass "launcher cgroup frozen during playback (GPU clear for mpv)" \
-  || gate_fail "launcher freeze/thaw not wired (expected launcher_freeze on play, launcher_thaw on restore)"
+  && grep -q 'launcher_restart_for_clean_gl' scripts/lib/launcher-power.sh \
+  && grep -q 'MANGO_LAUNCHER_GPU_RESET' scripts/m2-catalog/service/mpv-stop.sh \
+  && gate_pass "launcher cgroup frozen during playback; GL reset after matched-mode restore" \
+  || gate_fail "launcher freeze/thaw/GL-reset not wired (freeze on play, thaw or restart on restore)"
 
 grep -q 'mango-browse-display.sh' scripts/lib/restore-launcher-after-playback.sh \
   && grep -q 'ensure_browse_display' scripts/lib/restore-launcher-after-playback.sh \

@@ -8,6 +8,11 @@
 # every launcher process — zero CPU/GPU, same as killing it for smoothness —
 # while preserving in-memory state so restore is instant with no cold start.
 #
+# Mode-switch caveat: freeze-through-xrandr (browse 1080p → matched 4K → back)
+# invalidates the VideoCore EGL context. After a matched-mode restore, callers
+# must restart the launcher unit (see restore-launcher-after-playback.sh) —
+# thaw alone leaves a dead GL context (blank/missing posters).
+#
 # Degrades gracefully: on kernels/units without freezer support, callers fall
 # back to their existing hide/stop path.
 
@@ -34,4 +39,12 @@ launcher_freeze() {
 launcher_thaw() {
   launcher_is_active || return 0
   systemctl --user thaw "$LAUNCHER_UNIT" 2>/dev/null || true
+}
+
+# Cold-start the kiosk after HDMI mode changed under a frozen Chromium.
+# Thaw first so systemd can stop a frozen unit cleanly, then restart.
+launcher_restart_for_clean_gl() {
+  launcher_thaw
+  systemctl --user reset-failed "$LAUNCHER_UNIT" 2>/dev/null || true
+  systemctl --user restart "$LAUNCHER_UNIT" >/dev/null 2>&1 || true
 }

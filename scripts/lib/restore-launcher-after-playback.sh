@@ -4,13 +4,18 @@
 # Contract (black-screen-first — no 4K launcher flash):
 #   1. Caller tears down mpv and clears playback-active before invoking finish.
 #   2. finish restores HDMI to browse mode while the launcher stays hidden.
-#   3. finish thaws the frozen launcher cgroup, then maps/shows at browse geometry.
+#   3. finish reveals the launcher at browse geometry.
+#      - Same-mode play (stayed 1080p): thaw frozen Chromium (fast).
+#      - Matched 4K (or any ≥3k panel): restart Chromium after HDMI restore
+#        so VideoCore EGL is recreated (thaw-after-xrandr leaves blank posters).
 #
 # Usage:
 #   restore-launcher-after-playback.sh finish
 #
 # Env:
 #   MANGO_MPV_STOP_HOME=1  run launch-launcher (pad home path)
+#   MANGO_LAUNCHER_GPU_RESET=1  force Chromium restart (set by mpv-stop when
+#     matched-4K / wide panel was active before teardown)
 
 set -euo pipefail
 
@@ -23,6 +28,7 @@ PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playbac
 GO_HOME="${MANGO_MPV_STOP_HOME:-0}"
 STEP_SEC="${MANGO_LAUNCHER_RESTORE_STEP_SEC:-0.05}"
 MAX_ATTEMPTS="${MANGO_LAUNCHER_RESTORE_ATTEMPTS:-60}"
+GPU_RESET="${MANGO_LAUNCHER_GPU_RESET:-0}"
 
 # shellcheck source=launcher-window.sh
 source "$REPO_DIR/scripts/lib/launcher-window.sh"
@@ -38,6 +44,14 @@ ensure_launcher_browser() {
   systemctl --user start mango-launcher-chromium.service >/dev/null 2>&1 || true
 }
 
+resume_or_recreate_launcher() {
+  if [[ "$GPU_RESET" == "1" ]]; then
+    launcher_restart_for_clean_gl
+    return 0
+  fi
+  launcher_thaw
+}
+
 show_launcher_surface() {
   require_browse_display_before_launcher_reveal
   ensure_launcher_browser
@@ -46,8 +60,8 @@ show_launcher_surface() {
 
 present_launcher_ready() {
   local attempt wid
+  resume_or_recreate_launcher
   for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
-    launcher_thaw
     show_launcher_surface
     wid="$(find_launcher_wid 2>/dev/null || true)"
     if [[ -n "$wid" ]]; then
