@@ -55,9 +55,11 @@ else:
 ' <<<"$reply" 2>/dev/null || echo "—"
 }
 
+# UHD “4K” includes flat 3840x2160 and cinema-scope masters stored as
+# ~3840x1600 (2.40:1) with no letterbox bars in the file.
 is_4k_dim() {
   local w="${1:-0}" h="${2:-0}"
-  python3 -c "import sys; w=int(float(sys.argv[1] or 0)); h=int(float(sys.argv[2] or 0)); sys.exit(0 if (w>=3800 and h>=2100) else 1)" "$w" "$h" 2>/dev/null
+  python3 -c "import sys; w=int(float(sys.argv[1] or 0)); h=int(float(sys.argv[2] or 0)); sys.exit(0 if (w>=3800 and h>=1500) else 1)" "$w" "$h" 2>/dev/null
 }
 
 sample_once() {
