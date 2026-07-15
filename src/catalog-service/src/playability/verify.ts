@@ -2,7 +2,7 @@ import { CatalogCore, CatalogError, type Stream } from '../core.js';
 import { isRateLimitedStreamUrl } from '../catalog-errors.js';
 import { classifyPlayError, garbageKind } from '../play-error-classify.js';
 import { probeWithLadder } from '../play-orchestrator.js';
-import { expandPlayLadder, streamReleaseFingerprint } from '../play-ladder.js';
+import { expandPlayLadder, streamReleaseFingerprint, type LadderCandidate } from '../play-ladder.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
 import {
   playabilitySeriesCrossProbeLimit,
@@ -66,6 +66,7 @@ export type PreparedVerifyTitleResult = {
   resolve_ms: number;
   prepare_ms: number;
   resolved: Awaited<ReturnType<CatalogCore['resolveForPlay']>>;
+  candidates: LadderCandidate[];
 } | {
   type: string;
   id: string;
@@ -317,6 +318,7 @@ export async function prepareVerifyTitle(
       resolve_ms: resolved.resolve_ms,
       prepare_ms: Date.now() - started,
       resolved,
+      candidates,
     };
   } catch (error) {
     const reason = failReason(error);
@@ -366,6 +368,7 @@ export async function verifyPreparedTitle(
       contentType: prepared.type,
       filterContext: prepared.resolved.filterContext,
       include_uncached: false,
+      candidates: prepared.candidates,
       probe: async (url, timeoutMs) => {
         if (isRateLimitedStreamUrl(url)) {
           throw new Error('rate_limited');

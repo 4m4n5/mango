@@ -42,7 +42,7 @@ Couch `POST /play` uses **two ladders** and three modes:
 | Ladder | Role |
 |--------|------|
 | **`main_ladder`** | Smooth cached streams (4K HEVC SDR + ≤1080p). Grow/verify + Play priority. Only these write `verified`. |
-| **`last_resort_ladder`** | Soft 4K / uncached / catch-all. Play fallback + unverified side-list when main empty. Never verifies into library. |
+| **`last_resort_ladder`** | Uncached smooth 1080p / soft 4K / catch-all. Play fallback + unverified side-list when main empty. Never verifies into library. |
 
 | Mode | Entry | Candidates | Library write |
 |------|-------|------------|---------------|
@@ -56,14 +56,18 @@ Legacy single `play_ladder` configs are split by `verified` / display membership
 
 1. `4k_sdr_remux_cached` / `4k_sdr_cached` — 4K HEVC cached (**main**)
 2. `1080p_hevc_cached` / `1080p_cached_fallback` — smooth ≤1080p (**main**)
-3. `4k_sdr_soft_cached` — soft 4K AV1/H.264 (**last-resort**)
-4. `1080p_uncached_fallback` — uncached TorBox (**last-resort**)
+3. `1080p_uncached_fallback` — smooth uncached TorBox (**last-resort**)
+4. `4k_sdr_soft_cached` — soft 4K AV1/H.264 (**last-resort**)
 5. `last_resort` — HDR / any-codec catch-all (**last-resort**)
 6. Obligation floor — integrity-safe remainder after last-resort exhaustion
 
 *Within* a resolution, `streamHardwareDecodeSmooth()` (Pi 5: HEVC any-res, else non-HEVC ≤1080p) floats the smooth stream to the top. Nothing is excluded from play — a lone soft/unsupported stream still plays on last-resort. Override the decode profile per box: `MANGO_HW_DECODE_CODECS` (default `hevc`), `MANGO_HW_SOFT_MAX_QUALITY` (default `1080p`).
 
 **Display vs play:** `GET /stream` expands **main** first. If empty, expands last-resort (and obligation floor) marked `unverified`.
+
+**Slow detail resolves:** the launcher keeps its bounded initial stream-list wait. If that wait expires, it performs an `existing_only=1` late join: catalog-service returns the positive cache or joins the identical in-flight user resolve, but never starts a second provider fan-out. A true empty remains honest (`streams · none found`); a failed late join stays visible as unavailable instead of silently removing the entire stream section. Play keeps its independent full search path.
+
+**4K truth:** the Pi 5 smooth tier is 4K SDR HEVC. A title may have many nominal 4K releases but no smooth 4K choice when those releases are HDR (tone-mapped under the current X11 path) or software-decoded AV1/H.264. Those sources stay in last-resort for coverage, but smooth 1080p TorBox now precedes known-soft 4K so automatic Play does not choose resolution over watchability.
 
 **Debrid garbage safety (play path):** Prefer TorBox on same-hash ties (AIO dedup + service sort). Keep RD for unique cached releases (ladder steps admit both services; uncached RD stays excluded upstream, while uncached TorBox remains a last-resort playback candidate). Error taxonomy lives in `play-error-classify.ts`: **garbage** (`debrid_copyright_block`, `debrid_status_clip`, `debrid_nfo_sidecar`) is session-blacklisted by service-scoped stable release identity plus URL hash (~45 min) and counts toward play-failure demotion; **transient** (`debrid_playback_unreadable`, timeouts, network) is retryable and not release-wide bad-cached. Preflight is an NFO-only hard gate — sniff `error`/`timeout` still proceeds to the bounded mpv probe. Couch errors map garbage failures to generic “streams are still preparing” copy — never surface “copyright infringement”.
 

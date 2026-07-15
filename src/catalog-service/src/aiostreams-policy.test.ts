@@ -19,3 +19,18 @@ test('S3: AIOStreams OR semantics reject an all-debrid uncached exclusion', () =
     excludeUncachedFromStreamTypes: ['debrid'],
   }), /retain uncached TorBox/);
 });
+
+test('W2: target policy rejects persisted global and AND-mode overrides', () => {
+  assert.throws(() => validateAioStreamsTargetPolicy({
+    excludeUncached: true,
+    excludeUncachedMode: 'or',
+    excludeUncachedFromServices: ['realdebrid'],
+    excludeUncachedFromStreamTypes: [],
+  }), /must not exclude every uncached stream/);
+  assert.throws(() => validateAioStreamsTargetPolicy({
+    excludeUncached: false,
+    excludeUncachedMode: 'and',
+    excludeUncachedFromServices: ['realdebrid'],
+    excludeUncachedFromStreamTypes: [],
+  }), /requires OR cache-filter semantics/);
+});

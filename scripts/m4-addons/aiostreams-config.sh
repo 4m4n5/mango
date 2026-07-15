@@ -26,6 +26,36 @@ api_get() {
   curl -sf -u "$AIOSTREAMS_UUID:$AIOSTREAMS_PASSWORD" "$BASE_URL/api/v1/user"
 }
 
+verify_policy() {
+  local tmp
+  tmp="$(mktemp)"
+  trap 'rm -f "$tmp"' RETURN
+  api_get >"$tmp"
+  python3 - "$tmp" <<'PY'
+import json
+import sys
+
+body = json.load(open(sys.argv[1], encoding="utf-8"))
+config = body["data"]["userData"]
+services = {str(value).lower() for value in config.get("excludeUncachedFromServices", [])}
+stream_types = {str(value).lower() for value in config.get("excludeUncachedFromStreamTypes", [])}
+mode = str(config.get("excludeUncachedMode", "or")).lower()
+
+errors = []
+if config.get("excludeUncached") is True:
+    errors.append("global excludeUncached=true removes uncached TorBox")
+if mode != "or":
+    errors.append(f"excludeUncachedMode={mode!r}, expected 'or'")
+if "torbox" in services or "debrid" in stream_types:
+    errors.append("uncached TorBox is excluded")
+if "realdebrid" not in services:
+    errors.append("uncached Real-Debrid is not excluded")
+if errors:
+    raise SystemExit("; ".join(errors))
+print("AIOStreams live uncached policy verified: TorBox retained, Real-Debrid excluded")
+PY
+}
+
 merge_patch() {
   local mode="$1"
   local tmp
@@ -95,13 +125,18 @@ PY
     python3 -m json.tool /tmp/aiostreams-put.json
     echo "applied patch from $PATCH_FILE"
     ;;
+  verify)
+    load_creds
+    verify_policy
+    ;;
   *)
     cat <<EOF
-Usage: $(basename "$0") <get|diff|apply>
+Usage: $(basename "$0") <get|diff|apply|verify>
 
   get    Download full user config (contains secrets — do not commit)
   diff   Show delta vs config/aiostreams-target-patch.json
   apply  Merge patch and PUT /api/v1/user
+  verify Assert the live uncached policy without printing credentials
 
 Env: MANGO_AIOSTREAMS_URL, MANGO_AIOSTREAMS_CREDS, MANGO_AIOSTREAMS_PATCH
 EOF

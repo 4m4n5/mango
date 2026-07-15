@@ -608,15 +608,23 @@ function parseAioStreamsBingeGroupCacheStatus(stream: Stream): 'cached' | 'uncac
   return null;
 }
 
-/** AIOStreams lightgdrive tags when explicit cache metadata is absent. */
+/**
+ * AIOStreams formatter cache tags when explicit cache metadata is absent.
+ *
+ * The configured `lightgdrive` formatter emits `[TB⚡]` / `[TB⏳]` (and the
+ * equivalent RD badges). The built-in Torrentio formatter uses `[RD+]` /
+ * `[RD download]`. Keep both shapes because changing formatter presets must not
+ * silently turn a known uncached stream into `unknown`.
+ */
 function parseAioStreamsNameCacheStatus(stream: Stream): 'cached' | 'uncached' | null {
   const label = `${stream.name || ''} ${stream.title || ''}`;
   if (!/\[(?:TB|RD)/i.test(label)) return null;
-  if (/☁️|✔|⚡/.test(label)) return 'cached';
+  if (/⏳|\bdownload\]/i.test(label)) return 'uncached';
+  if (/☁️|✔|⚡|\+(?:\]|\s)/.test(label)) return 'cached';
   return null;
 }
 
-/** AIOStreams autoplay bingeGroup: addonId|service|cached|resolution|... */
+/** Legacy AIOStreams bingeGroup metadata, then current formatter text. */
 export function parseDebridCacheStatus(stream: Stream): 'cached' | 'uncached' | 'unknown' {
   const fromGroup = parseAioStreamsBingeGroupCacheStatus(stream);
   if (fromGroup) return fromGroup;
@@ -629,6 +637,12 @@ export function parseDebridCacheStatus(stream: Stream): 'cached' | 'uncached' | 
   if (fromName) return fromName;
 
   return 'unknown';
+}
+
+/** Defense in depth for the locked policy: RD uncached never reaches couch play. */
+export function isExcludedUncachedRealDebrid(stream: Stream): boolean {
+  return debridServiceId(stream) === 'realdebrid'
+    && parseDebridCacheStatus(stream) === 'uncached';
 }
 
 export function streamQuality(stream: Stream): QualityCap | null {
@@ -1214,12 +1228,15 @@ export function filterAndRankStreams(
       meta.excluded.above_max_quality += 1;
       continue;
     }
-    if (debrid && config.exclude_uncached_debrid) {
-      if (cacheStatus === 'uncached') {
+    if (debrid) {
+      if (isExcludedUncachedRealDebrid(stream)
+        || (config.exclude_uncached_debrid && cacheStatus === 'uncached')) {
         meta.excluded.uncached_debrid += 1;
         continue;
       }
-      if (cacheStatus === 'unknown' && config.strict_unknown_cache) {
+      if (config.exclude_uncached_debrid
+        && cacheStatus === 'unknown'
+        && config.strict_unknown_cache) {
         meta.excluded.unknown_cache_debrid += 1;
         continue;
       }

@@ -228,7 +228,24 @@ test('probeWithLadder can reject uncached fallback for durable verification', as
   assert.equal(probeCalls, 0);
 });
 
-/** Narrow Phase A: cached TorBox only — RD/uncached streams fall to obligation floor. */
+test('W3: probeWithLadder reuses pre-expanded verification candidates', async () => {
+  const prepared = candidate('https://example.test/pre-expanded.mkv');
+  let probeCalls = 0;
+  const result = await probeWithLadder([], testConfig(), {
+    candidates: [{ stream: prepared, ladder_step: 'ideal' }],
+    preflight: async () => 'video',
+    probe: async (url) => {
+      probeCalls += 1;
+      assert.equal(url, prepared.url);
+      return { ok: true, ttff_ms: 250 };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.candidate_count, 1);
+  assert.equal(probeCalls, 1);
+});
+
+/** Narrow Phase A: cached TorBox only — retained TorBox uncached falls to the floor. */
 function preferenceOnlyConfig() {
   const play_ladder = [
     {
@@ -241,7 +258,7 @@ function preferenceOnlyConfig() {
     },
   ];
   const split = splitLegacyPlayLadder(play_ladder);
-  // Empty last-resort so auto mode reaches obligation floor for RD/uncached.
+  // Empty last-resort so auto mode reaches obligation floor for TorBox uncached.
   return mergeFilterConfig({
     ...defaultFilterConfig(),
     strict_unknown_cache: true,
@@ -256,7 +273,7 @@ function preferenceOnlyConfig() {
 }
 
 test('playWithLadder falls through to obligation floor when preference ladder candidates fail', async () => {
-  // Preference ladder only matches cached TorBox; floor stream is uncached RD
+  // Preference ladder only matches cached TorBox; floor stream is uncached TB
   // so Phase A skips it and Phase B must still play it.
   const ladderOnly = candidate('https://example.test/ladder-hevc.mkv', '[TB☁️⚡] Torrentio 1080p HEVC');
   ladderOnly.description = 'WEB-DL 1080p x265';
@@ -265,10 +282,10 @@ test('playWithLadder falls through to obligation floor when preference ladder ca
   const floorOnly: Stream = {
     url: 'https://example.test/floor-x264.mkv',
     source: 'AIOStreams',
-    name: '[RD⚡] Torrentio 720p',
-    title: '[RD⚡] Torrentio 720p',
+    name: '[TB⏳] Torrentio 720p',
+    title: '[TB⏳] Torrentio 720p',
     description: 'WEBRip 720p x264',
-    behaviorHints: { bingeGroup: 'com.aiostreams|realdebrid|false|720p' },
+    behaviorHints: {},
   };
 
   const result = await playWithLadder([ladderOnly, floorOnly], preferenceOnlyConfig(), {
@@ -300,10 +317,10 @@ test('playWithLadder obligation floor still runs after verified-hint candidate f
   const other: Stream = {
     url: 'https://example.test/other-floor.mkv',
     source: 'AIOStreams',
-    name: '[RD⚡] Torrentio 720p',
-    title: '[RD⚡] Torrentio 720p',
+    name: '[TB⏳] Torrentio 720p',
+    title: '[TB⏳] Torrentio 720p',
     description: 'WEBRip 720p x264',
-    behaviorHints: { bingeGroup: 'com.aiostreams|realdebrid|false|720p' },
+    behaviorHints: {},
   };
 
   const result = await playWithLadder([hinted, other], preferenceOnlyConfig(), {
@@ -432,9 +449,9 @@ test('S5: win_on_main is false for a last-resort outcome', async () => {
   const lastResort: Stream = {
     url: 'https://example.test/last-resort-win.mkv',
     source: 'AIOStreams',
-    name: '[RD⚡] Torrentio 720p',
+    name: '[TB⏳] Torrentio 720p',
     description: '720p WEBRip x264',
-    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+    behaviorHints: {},
   };
   const main = [{
     step: 'main_tb_cached', max_quality: '1080p' as const, exclude_remux: true,
@@ -442,7 +459,7 @@ test('S5: win_on_main is false for a last-resort outcome', async () => {
   }];
   const resort = [{
     step: 'last_resort', max_quality: '2160p' as const, exclude_remux: false,
-    require_cache: 'any' as const, debrid_services: ['realdebrid'], addons: ['AIOStreams'], verified: false,
+    require_cache: 'any' as const, debrid_services: ['torbox'], addons: ['AIOStreams'], verified: false,
   }];
   const result = await playWithLadder([lastResort], testConfig({
     play_ladder: [...main, ...resort],

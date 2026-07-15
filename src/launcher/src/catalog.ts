@@ -1,5 +1,10 @@
 import type { ContentCard, ContentRail } from "./types";
-import { couchSafeCatalogMessage, playErrorMessage, playTimeoutMessage } from "./catalog-errors";
+import {
+  CatalogTimeoutError,
+  couchSafeCatalogMessage,
+  PlayTimeoutError,
+  playErrorMessage,
+} from "./catalog-errors";
 import type { BrowseTab } from "./types";
 
 interface RailSummaryResponse {
@@ -105,6 +110,14 @@ export interface PlayResult {
   first_time_verified?: boolean;
 }
 
+export interface PlayCancelResult {
+  ok: boolean;
+  cancelled: boolean;
+  finished_successfully: boolean;
+  epoch: number;
+  request_id: string | null;
+}
+
 export interface CatalogStream {
   url: string;
   display_label?: string;
@@ -136,6 +149,8 @@ export interface SeriesEpisodeRow {
   /** Resume position for this episode only (null/absent = start from beginning). */
   position_sec?: number | null;
   playable?: boolean | null;
+  playability_status?: string | null;
+  playability_updated_at?: number | null;
 }
 
 export interface SeriesSeasonBlock {
@@ -412,20 +427,29 @@ export async function loadNextPrompt(): Promise<NextPromptResponse> {
   return fetchJson<NextPromptResponse>("/api/catalog/play/next-prompt", undefined, 5000);
 }
 
-export async function loadStreamsForId(type: string, id: string): Promise<StreamsResult> {
+export async function loadStreamsForId(
+  type: string,
+  id: string,
+  options: { existingOnly?: boolean } = {},
+): Promise<StreamsResult> {
+  const query = options.existingOnly ? '?existing_only=1' : '';
   return fetchJson<StreamsResult>(
-    `/api/catalog/stream/${encodeURIComponent(type)}/${encodeURIComponent(id)}`,
+    `/api/catalog/stream/${encodeURIComponent(type)}/${encodeURIComponent(id)}${query}`,
     undefined,
     15000,
   );
 }
 
-export async function loadStreams(card: ContentCard, episodeId?: string): Promise<StreamsResult> {
+export async function loadStreams(
+  card: ContentCard,
+  episodeId?: string,
+  options: { existingOnly?: boolean } = {},
+): Promise<StreamsResult> {
   if (card.source === "youtube" || card.type.startsWith("youtube_")) {
     return { streams: [] };
   }
   const streamId = episodeId || card.playId || card.id;
-  return loadStreamsForId(card.type, streamId);
+  return loadStreamsForId(card.type, streamId, options);
 }
 
 export async function prefetchStreams(card: ContentCard): Promise<void> {
@@ -456,15 +480,19 @@ async function fetchWithTimeout(
   }
 }
 
-export async function cancelPlay(requestId?: string): Promise<void> {
+export async function cancelPlay(requestId?: string): Promise<PlayCancelResult | null> {
   try {
-    await fetchWithTimeout("/api/catalog/play-cancel", {
+    return await fetchWithTimeout("/api/catalog/play-cancel", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(requestId ? { request_id: requestId } : {}),
-    }, 2500);
+    }, 2500).then(async (response) => {
+      if (!response.ok) return null;
+      return await response.json() as PlayCancelResult;
+    });
   } catch {
     // best-effort — mpv-stop on pad also bumps cancel epoch
+    return null;
   }
 }
 
@@ -559,7 +587,10 @@ export async function playCard(
     }, 95000);
   } catch (error) {
     // ID-scoped and idempotent: a late timeout cannot cancel a newer play.
-    await cancelPlay(requestId);
+    const cancellation = await cancelPlay(requestId);
+    if (error instanceof PlayTimeoutError) {
+      throw new PlayTimeoutError(cancellation?.finished_successfully === true);
+    }
     throw error;
   }
 }
@@ -612,7 +643,7 @@ async function fetchJson<T>(url: string, init?: RequestInit, timeoutMs?: number)
       throw error;
     }
     if (isAbortError(error)) {
-      throw new Error(playTimeoutMessage());
+      throw new CatalogTimeoutError();
     }
     throw error;
   }
@@ -645,7 +676,7 @@ async function fetchPlayJson<T>(url: string, init?: RequestInit, timeoutMs?: num
       throw error;
     }
     if (isAbortError(error)) {
-      throw new Error(playTimeoutMessage());
+      throw new PlayTimeoutError();
     }
     throw error;
   }

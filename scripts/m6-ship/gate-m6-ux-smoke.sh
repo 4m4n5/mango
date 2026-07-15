@@ -53,9 +53,21 @@ for false_claim in ("trying alternate release", "caching stream on TorBox"):
 for contract in ("savePlaybackReturnSnapshot", "AbortController", "signal: abort.signal"):
     if contract not in next_prompt:
         raise SystemExit(f"next-prompt.ts missing direct-play return/cancel contract: {contract}")
+if "reconcileEpisodePlayTimeout" not in detail:
+    raise SystemExit("detail.ts missing frozen-launcher play-timeout reconciliation")
+failure_block = detail.split("} catch (error) {", 1)[1].split("} finally {", 1)[0]
+if failure_block.find("reconcileEpisodePlayTimeout") > failure_block.find("setEpisodeStreamBadge(episodeId, false)"):
+    raise SystemExit("detail.ts greys an episode before playback-timeout reconciliation")
 if "function setStatus(_message: string): void {}" in main or "showToast(message)" not in main:
     raise SystemExit("main.ts next-prompt failures are not routed to the existing toast")
 PY
+
+"$REPO_DIR/src/catalog-service/node_modules/.bin/tsx" --test \
+  "$SRC/catalog-errors.test.ts" \
+  "$SRC/playback-reconciliation.test.ts" \
+  "$SRC/stream-list-recovery.test.ts" \
+  && gate_pass "launcher playback timeout reconciliation tests" \
+  || gate_fail "launcher playback timeout reconciliation tests"
 
 if [[ -f "$DIST/index.html" ]]; then
   python3 - "$DIST/index.html" <<'PY' \

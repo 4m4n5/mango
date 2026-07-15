@@ -4,6 +4,7 @@ import { couchPlayFailureMessage } from './catalog-errors.js';
 import { playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { assertPlayEpoch, bumpPlayEpoch, isPlayEpochStale, PlayCancelledError } from './play-cancel.js';
+import { reconcileSuccessfulEpisodePlayability } from './episode-playability-reconcile.js';
 import { createPlayDeadline, remainingPlayBudgetMs, type PlayDeadline } from './play-deadline.js';
 import { emitPlaybackTelemetry } from './playback-telemetry.js';
 import {
@@ -636,6 +637,27 @@ async function handlePlay(
       startedAtMs: deadline.startedAtMs,
     });
 
+    await assertPlayEpoch(playEpoch);
+
+    try {
+      await reconcileSuccessfulEpisodePlayability({
+        contentType: body.type,
+        playId,
+        playMode,
+        usePlayabilityIndex,
+        playEpoch,
+        playback,
+      });
+    } catch (writeError) {
+      if (writeError instanceof PlayCancelledError) {
+        throw writeError;
+      }
+      console.warn(
+        `episode playability refresh on play failed type=${body.type} id=${playId}: ${
+          writeError instanceof Error ? writeError.message : String(writeError)
+        }`,
+      );
+    }
     await assertPlayEpoch(playEpoch);
 
     const firstTimeVerified = isFirstTimeVerifiedPromotion(
@@ -1691,7 +1713,8 @@ async function main(): Promise<void> {
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'stream') {
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
-        sendJson(res, 200, await core.streams(parts[1], parts[2], overrides));
+        const existingOnly = url.searchParams.get('existing_only') === '1';
+        sendJson(res, 200, await core.streams(parts[1], parts[2], overrides, { existingOnly }));
         return;
       }
 
@@ -1717,18 +1740,21 @@ async function main(): Promise<void> {
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
         const requestId = normalizePlayRequestId(body.request_id);
         let requestEpoch: number | undefined;
+        let requestSucceeded = false;
         try {
-          sendJson(res, 200, await handlePlay(
+          const result = await handlePlay(
             core,
             body,
             overrides,
             deadline,
             requestId,
             (epoch) => { requestEpoch = epoch; },
-          ));
+          );
+          requestSucceeded = true;
+          sendJson(res, 200, result);
         } finally {
           if (requestEpoch !== undefined) {
-            finishPlayRequest(requestId, requestEpoch);
+            finishPlayRequest(requestId, requestEpoch, requestSucceeded);
           }
         }
         return;

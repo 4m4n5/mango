@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterVodAddonExports } from './core.js';
+import { filterVodAddonExports, supportsResource } from './core.js';
 import type { LiveRailConfig } from './live-rails.js';
 
 const liveConfig: LiveRailConfig = {
@@ -46,4 +46,27 @@ test('filterVodAddonExports also skips heuristic NexoTV/live exports when config
   ], null);
 
   assert.deepEqual(filtered.map((addon) => addon.name), ['Cinemeta']);
+});
+
+test('W2: VOD filtering keeps standalone stream providers and capability matching queries each type', () => {
+  const filtered = filterVodAddonExports([
+    { name: 'AIOStreams', manifestUrl: 'http://127.0.0.1:3035/u/manifest.json' },
+    { name: 'Torrentio', manifestUrl: 'https://torrentio.example/u/manifest.json' },
+    { name: 'MediaFusion', manifestUrl: 'https://mediafusion.example/u/manifest.json' },
+    { name: 'mango Live TV', manifestUrl: 'http://127.0.0.1:7000/u/manifest.json' },
+  ], liveConfig);
+  assert.deepEqual(
+    filtered.map((addon) => addon.name),
+    ['AIOStreams', 'Torrentio', 'MediaFusion'],
+  );
+
+  const allTypes = { resources: ['stream'] };
+  const vodTypes = { resources: [{ name: 'stream', types: ['movie', 'series'] }] };
+  const metadataOnly = { resources: ['catalog', { name: 'meta', types: ['movie', 'series'] }] };
+  assert.equal(supportsResource(allTypes, 'stream', 'movie'), true);
+  assert.equal(supportsResource(allTypes, 'stream', 'series'), true);
+  assert.equal(supportsResource(vodTypes, 'stream', 'movie'), true);
+  assert.equal(supportsResource(vodTypes, 'stream', 'series'), true);
+  assert.equal(supportsResource(vodTypes, 'stream', 'tv'), false);
+  assert.equal(supportsResource(metadataOnly, 'stream', 'movie'), false);
 });

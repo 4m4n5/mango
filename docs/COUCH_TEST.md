@@ -72,6 +72,93 @@ Do not mark these from work-Mac source checks. Capture the referenced runtime ev
 | HDMI restore | First visible frame appears only after source match; Y/⌂ restores `1920x1080@60` before launcher reveal | |
 | Frame drops | `scripts/diag/playback-4k-proof.sh` records real presented/dropped-frame evidence; never infer a pass from source config | |
 
+### Episode success reconciliation (home Mac/Pi only)
+
+Use an existing failed episode row from the first query; these checks are
+read-only. Open that exact episode from Series detail, press **B**, wait for mpv
+to start, then return with **Y**. Pass means there is no late **catalog timed
+out** toast, the row is not grey/**tap to retry**, and the exact episode row is
+freshly `verified`. A genuine pre-play failure must still show the retry state.
+
+```bash
+sqlite3 ~/.cache/mango/playability.db \
+  "SELECT type,id,status,fail_reason,expires_at,updated_at FROM titles WHERE id LIKE 'tt%:_:_%';"
+
+curl -sf "http://127.0.0.1:3020/series/<bareSeriesId>/episodes" \
+  | jq '.. | .playable? // empty'
+```
+
+| Check | Required evidence | Pass? |
+|---|---|---|
+| Successful non-`:1:1` episode | Before/after SQL row plus episode JSON show the played episode changed from stale `failed` to fresh `verified`/`playable: true`; no late timeout toast or grey row | |
+| Real pre-play failure | Use an unreachable/exhausted episode without starting mpv; timeout/error remains visible and the episode stays retryable, not falsely verified | |
+| Gate episode regression | Bare-series Play and `:1:1` still follow the normal rail-gate promotion/demotion behavior | |
+
+### Stream-source policy and resolve-load confirmation (home Mac/Pi only)
+
+Run these on the Pi after the reviewed tree is deployed. The first command is
+credential-safe: it reads the live AIOStreams user profile but prints no keys.
+Do not infer a pass from the repo patch alone.
+
+```bash
+cd ~/mango
+bash scripts/m4-addons/aiostreams-config.sh verify
+
+curl -sf "http://127.0.0.1:3020/stream/movie/tt0111161?strict_unknown_cache=false" \
+  | jq '[.streams[] | {source,debrid_service,cache_status,display_label,ladder_step}]'
+
+journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
+  | grep '"event":"resolve_flight"' \
+  | grep -E 'background_defer_foreground|background_join_foreground|foreground_bypass_background'
+```
+
+| Check | Required evidence | Pass? |
+|---|---|---|
+| Live AIO policy | `aiostreams-config.sh verify` exits 0 and states TorBox uncached retained / RD uncached excluded | |
+| Real formatter shapes | A title with both services shows TB/RD cached rows as `cached`, an available TB `⏳` row as `uncached`, and no RD `⏳`/`download` row reaches the couch response | |
+| Source coverage | AIOStreams result labels include its configured Torrentio/Comet/MediaFusion sources; if direct MediaFusion is configured, a thin AIO result can be supplemented without duplicate URLs | |
+| Foreground priority | Start a maintenance verify for a title, then open/play the same title; couch resolve does not wait on the background deadline | |
+| Background amplification guard | While a couch resolve for a title is active, same-title background work logs join/defer and does not start a parallel provider fan-out | |
+
+Deferred on the work Mac: the live AIO user profile, generated manifest URL,
+paid-provider results, journal concurrency evidence, and actual provider fan-out
+all exist only on the Pi.
+
+### Popular-title stream-list and smoothness confirmation (home Mac/Pi only)
+
+Reapply the reviewed hifi profile so the repo copy replaces the prior installed
+copy, then restart through the normal git-only deployment path. Do not mark a
+source/config pass from work-Mac code or public-addon results.
+
+```bash
+cd ~/mango
+bash scripts/m6-ship/set-playback-engine.sh mpv-hifi
+
+curl -sf "http://127.0.0.1:3020/stream/movie/tt3659388" \
+  | jq '[.streams[] | {display_label,resolution,encode,hdr_tags,cache_status,debrid_service,ladder_step,unverified}]'
+
+curl -sf "http://127.0.0.1:3020/stream/movie/tt1160419" \
+  | jq '[.streams[] | {display_label,resolution,encode,hdr_tags,cache_status,debrid_service,ladder_step,unverified}]'
+
+journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
+  | grep '"event":"resolve_flight"' \
+  | grep '"flight_result":"join_equivalent"'
+
+bash scripts/diag/playback-4k-proof.sh
+```
+
+| Check | Required evidence | Pass? |
+|---|---|---|
+| The Martian list (`tt3659388`) | Open detail from a cold stream cache. The strip stays on **finding…** through the late join, then shows rows; it never vanishes on the initial UI timeout. If providers truly return none, the visible label says **none found**. | |
+| Dune list (`tt1160419`) | Same behavior; when main is empty, retained last-resort rows are visibly **unverified**, with 1080p TorBox ordered before soft 4K. | |
+| No duplicate scrape | One cold detail open that crosses the first wait produces an equivalent-flight `join` and only one provider fan-out for that title search. | |
+| Smooth auto choice | With both a 1080p TorBox fallback and cached AV1/H.264 4K present, automatic Play attempts `1080p_uncached_fallback` first. Soft 4K remains eligible later in the ladder; coverage is not reduced. | |
+| Real 4K capability | A row is called smooth 4K only when metadata and `playback-4k-proof.sh` show 2160p SDR HEVC hardware decode with acceptable real dropped-frame evidence. HDR/AV1/H.264 4K remains unverified unless target-TV proof says otherwise. | |
+
+Deferred on the work Mac: actual The Martian/Dune provider inventories, debrid
+cache state, the late-join timing/log correlation, mpv decoder selection, and
+presented/dropped-frame evidence.
+
 ## Saved library (M6.1)
 
 | # | Action | Pass? |

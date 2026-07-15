@@ -1,6 +1,7 @@
 export type ResolveMetricCounter =
   | 'flight_join_user'
   | 'flight_join_background'
+  | 'background_defer_foreground'
   | 'foreground_bypass_background'
   | 'provider_fanout_requests'
   | 'provider_fanout_addons'
@@ -11,6 +12,7 @@ export type ResolveMetricCounter =
 const counters: Record<ResolveMetricCounter, number> = {
   flight_join_user: 0,
   flight_join_background: 0,
+  background_defer_foreground: 0,
   foreground_bypass_background: 0,
   provider_fanout_requests: 0,
   provider_fanout_addons: 0,

@@ -21,6 +21,8 @@ import { savePlaybackReturnSnapshot, clearPlaybackReturnSnapshot } from "./playb
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel } from "./home";
 import { showToast } from "./toast";
+import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
+import { recoverTimedOutStreamList } from "./stream-list-recovery";
 
 const RELATED_DISPLAY_LIMIT = 7;
 
@@ -376,6 +378,7 @@ export class DetailController {
       button.disabled = true;
     }
     const token = ++this.playToken;
+    const attemptStartedAt = Date.now();
     this.playAbort?.abort();
     const abort = new AbortController();
     this.playAbort = abort;
@@ -445,6 +448,22 @@ export class DetailController {
         return;
       }
       if (this.playToken !== token) {
+        return;
+      }
+      if (
+        card.type === "series"
+        && episodeId
+        && await reconcileEpisodePlayTimeout(
+          error,
+          episodeId,
+          attemptStartedAt,
+          () => loadSeriesEpisodes(card.id),
+        )
+      ) {
+        if (this.playToken === token && this.card?.id === card.id) {
+          this.setEpisodeStreamBadge(episodeId, true);
+          this.callbacks.onPlayed?.(card, { ok: true });
+        }
         return;
       }
       // Series: mark the episode retryable so a later click re-runs /play (Phase A+B).
@@ -1311,7 +1330,10 @@ export class DetailController {
     this.streams = [];
     this.renderStreamsFinding();
     try {
-      const result = await loadStreams(card);
+      const result = await recoverTimedOutStreamList(
+        () => loadStreams(card),
+        () => loadStreams(card, undefined, { existingOnly: true }),
+      );
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
       }
@@ -1322,7 +1344,7 @@ export class DetailController {
         return;
       }
       this.streams = [];
-      this.renderStreams();
+      this.renderStreamsUnavailable();
     } finally {
       if (this.streamsLoadToken === token) {
         this.streamsPending = false;
@@ -1352,6 +1374,18 @@ export class DetailController {
     }
   }
 
+  private renderStreamsUnavailable(): void {
+    this.streamList.replaceChildren();
+    this.streamButtons = [];
+    this.streamsWrap.hidden = false;
+    this.streamsWrap.classList.remove("detail-streams--unverified");
+    const streamsLabel = this.streamsWrap.querySelector(".detail-streams-label");
+    if (streamsLabel) {
+      streamsLabel.textContent = "streams · unavailable — Play retries";
+    }
+    this.applyFocus();
+  }
+
   private renderStreams(): void {
     // Safety: series detail never surfaces stream bubbles.
     if (this.card?.type === "series") {
@@ -1365,11 +1399,11 @@ export class DetailController {
     this.streamList.replaceChildren();
     this.streamButtons = [];
     if (this.streams.length === 0) {
-      this.streamsWrap.hidden = true;
+      this.streamsWrap.hidden = false;
       this.streamsWrap.classList.remove("detail-streams--unverified");
       const streamsLabel = this.streamsWrap.querySelector(".detail-streams-label");
       if (streamsLabel) {
-        streamsLabel.textContent = "streams";
+        streamsLabel.textContent = "streams · none found";
       }
       this.applyFocus();
       return;

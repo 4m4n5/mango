@@ -51,24 +51,45 @@ function testConfig(overrides = {}) {
   }, overrides);
 }
 
-test('parseDebridCacheStatus reads current AIOStreams cache badges when bingeGroup is missing', () => {
-  const torbox: Stream = {
-    url: 'https://example.test/torbox.mp4',
-    source: 'AIOStreams',
-    name: '[TB⚡] Torrentio 1080p',
-    title: '[TB⚡] Torrentio 1080p',
-  };
-  const realDebrid: Stream = {
-    url: 'https://example.test/rd.mp4',
-    source: 'AIOStreams',
-    name: '[RD✔] Torrentio 1080p',
-    title: '[RD✔] Torrentio 1080p',
-  };
-  assert.equal(parseDebridCacheStatus(torbox), 'cached');
-  assert.equal(parseDebridCacheStatus(realDebrid), 'cached');
+test('W2: parseDebridCacheStatus reads current AIOStreams lightgdrive TB/RD badges', () => {
+  const examples = [
+    ['[TB⚡] Torrentio 1080p', 'cached'],
+    ['[TB⏳] Torrentio 1080p', 'uncached'],
+    ['[RD⚡] MediaFusion 2160p', 'cached'],
+    ['[RD⏳] MediaFusion 2160p', 'uncached'],
+    ['[TB] Comet 720p', 'unknown'],
+    ['[RD] Comet 720p', 'unknown'],
+  ] as const;
+
+  for (const [name, expected] of examples) {
+    const candidate: Stream = {
+      url: `https://example.test/${encodeURIComponent(name)}.mp4`,
+      source: 'AIOStreams',
+      name,
+      title: name,
+    };
+    assert.equal(parseDebridCacheStatus(candidate), expected, name);
+  }
 });
 
-test('parseDebridCacheStatus trusts explicit AIOStreams bingeGroup over display badge', () => {
+test('W2: parseDebridCacheStatus also reads AIOStreams Torrentio formatter cache words', () => {
+  const cached: Stream = {
+    url: 'https://example.test/rd-cached.mp4',
+    source: 'AIOStreams',
+    name: '[RD+] Torrentio 1080p',
+    title: '[RD+] Torrentio 1080p',
+  };
+  const uncached: Stream = {
+    url: 'https://example.test/tb-download.mp4',
+    source: 'AIOStreams',
+    name: '[TB download] Torrentio 1080p',
+    title: '[TB download] Torrentio 1080p',
+  };
+  assert.equal(parseDebridCacheStatus(cached), 'cached');
+  assert.equal(parseDebridCacheStatus(uncached), 'uncached');
+});
+
+test('parseDebridCacheStatus trusts legacy explicit AIOStreams bingeGroup over display badge', () => {
   const uncached: Stream = {
     url: 'https://example.test/explicit-uncached.mp4',
     source: 'AIOStreams',

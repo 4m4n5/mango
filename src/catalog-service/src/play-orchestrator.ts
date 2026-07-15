@@ -400,6 +400,8 @@ export async function probeWithLadder(
     include_uncached?: boolean;
     deadlineAtMs?: number;
     startedAtMs?: number;
+    /** Pre-expanded candidates from prepareVerifyTitle; avoids identical work. */
+    candidates?: LadderCandidate[];
   } = {},
 ): Promise<{
   ok: true;
@@ -416,7 +418,7 @@ export async function probeWithLadder(
   const ladder = options.ladder ?? config.main_ladder ?? config.play_ladder;
   const probe = options.probe ?? probeUrl;
   const preflight = options.preflight ?? preflightPlaybackUrl;
-  const candidates = expandPlayLadder(streams, ladder, options.filterContext ?? {
+  const candidates = options.candidates ?? expandPlayLadder(streams, ladder, options.filterContext ?? {
     contentType: options.contentType,
   }, {
     strict_unknown_cache: config.strict_unknown_cache,

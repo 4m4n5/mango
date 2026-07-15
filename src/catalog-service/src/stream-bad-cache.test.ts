@@ -112,17 +112,15 @@ test('playWithLadder skips a previously copyright-blocked URL and plays the next
   clearStreamBadCache();
 });
 
-test('playWithLadder never skips probe for Real-Debrid even when uncached', async () => {
+test('playWithLadder still probes a safe unknown-cache Real-Debrid fallback', async () => {
   clearStreamBadCache();
   const rd: Stream = {
-    url: 'https://example.test/rd-uncached.mp4',
+    url: 'https://example.test/rd-unknown.mp4',
     source: 'AIOStreams',
-    name: '[RD⚡] Torrentio 1080p',
-    title: '[RD⚡] Torrentio 1080p',
+    name: '[RD] Torrentio 1080p',
+    title: '[RD] Torrentio 1080p',
     description: 'BluRay x265',
-    behaviorHints: {
-      bingeGroup: 'com.aiostreams|realdebrid|false|1080p',
-    },
+    behaviorHints: {},
   };
   let probeCalls = 0;
   const config = {
@@ -135,8 +133,9 @@ test('playWithLadder never skips probe for Real-Debrid even when uncached', asyn
         step: 'ideal',
         max_quality: '1080p',
         exclude_remux: true,
-        require_cache: 'cached_or_uncached',
+        require_cache: 'any',
         debrid_services: ['torbox', 'realdebrid'],
+        rd_safe_unknown: true,
         addons: ['AIOStreams'],
       },
     ],

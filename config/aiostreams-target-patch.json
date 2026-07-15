@@ -10,6 +10,8 @@
     "libraryBehaviour": "prefer",
     "smartDetectRounding": 10
   },
+  "excludeUncached": false,
+  "excludeUncachedMode": "or",
   "excludeUncachedFromServices": ["realdebrid"],
   "excludeUncachedFromStreamTypes": [],
   "excludedQualities": ["CAM", "SCR", "TS", "TC"],

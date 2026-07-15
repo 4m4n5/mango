@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { couchSafeCatalogMessage, playErrorMessage, playTimeoutMessage } from './catalog-errors.js';
+import {
+  CatalogTimeoutError,
+  couchSafeCatalogMessage,
+  PlayTimeoutError,
+  playErrorMessage,
+  playTimeoutMessage,
+} from './catalog-errors.js';
 
 test('playErrorMessage passes through server couch copy', () => {
   assert.equal(
@@ -30,4 +36,6 @@ test('browse sanitizer default matches temporary unavailable', () => {
 
 test('playTimeoutMessage is distinct from browse fallback', () => {
   assert.equal(playTimeoutMessage(), 'catalog timed out — try again');
+  assert.equal(new CatalogTimeoutError().message, playTimeoutMessage());
+  assert.equal(new PlayTimeoutError(true).requestAlreadyFinished, true);
 });

@@ -167,6 +167,8 @@ export type ResolveStreamOptions = {
   requestClass?: 'user' | 'background';
   /** Absolute POST /play deadline shared by every nested resolve stage. */
   deadlineAtMs?: number;
+  /** Join/read existing user work only; never start a new provider fan-out. */
+  existingOnly?: boolean;
 };
 
 function seriesCrossProbeLimit(options?: ResolveStreamOptions): number {
@@ -202,7 +204,7 @@ export type CatalogCoreCreateOptions = {
 
 type ManifestResource = string | { name?: string; types?: string[] };
 
-type Manifest = {
+export type Manifest = {
   name?: string;
   version?: string;
   resources?: ManifestResource[];
@@ -573,7 +575,7 @@ async function fetchJson(url: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<u
   }
 }
 
-function supportsResource(manifest: Manifest, resourceName: string, type: string): boolean {
+export function supportsResource(manifest: Manifest, resourceName: string, type: string): boolean {
   const resources = manifest.resources || [];
   if (resources.length === 0) return false;
 
@@ -2079,6 +2081,7 @@ export class CatalogCore {
     type: string,
     id: string,
     overrides: StreamFilterOverrides = {},
+    options: Pick<ResolveStreamOptions, 'existingOnly'> = {},
   ): Promise<{
     streams: Stream[];
     resolve_ms: number;
@@ -2092,6 +2095,7 @@ export class CatalogCore {
         zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
         zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
         requestClass: 'user',
+        existingOnly: options.existingOnly,
       })),
       this.buildStreamFilterContext(type, id),
     ]);
@@ -2605,6 +2609,28 @@ export class CatalogCore {
       };
     }
 
+    if (options.existingOnly) {
+      const requestClass = options.requestClass ?? 'background';
+      const flightKey = streamFlightKey(key, options);
+      const inflight = this.streamInFlight.get(flightKey);
+      if (inflight) {
+        // Detail-pane timeout recovery must reuse the provider work already in
+        // progress. It is intentionally not allowed to create another fan-out.
+        recordResolveMetric(requestClass === 'user' ? 'flight_join_user' : 'flight_join_background');
+        emitPlaybackTelemetry('resolve_flight', {
+          resolve_request_class: requestClass,
+          flight_result: 'join_equivalent',
+        });
+        return inflight.promise;
+      }
+      return {
+        streams: [],
+        notes: [resolveNote('skip', 'stream resolve unavailable from existing work')],
+        resolveMs: 0,
+        cached: true,
+      };
+    }
+
     const negative = this.streamNegativeCache.get(key);
     if (negative && negative.until > Date.now()) {
       // user = couch play / detail: bypass miss; soft-respect confirmed rate_limit (D3B)
@@ -2660,16 +2686,30 @@ export class CatalogCore {
     if (requestClass === 'background') {
       const foreground = [...this.streamInFlight.values()].find(
         (flight) => flight.baseKey === key
-          && flight.requestClass === 'user'
-          && flight.behaviorKey === behaviorKey,
+          && flight.requestClass === 'user',
       );
       if (foreground) {
-        recordResolveMetric('flight_join_background');
+        if (foreground.behaviorKey === behaviorKey) {
+          recordResolveMetric('flight_join_background');
+          emitPlaybackTelemetry('resolve_flight', {
+            resolve_request_class: requestClass,
+            flight_result: 'background_join_foreground',
+          });
+          return foreground.promise;
+        }
+        // A maintenance resolve may need different retries/cross-probes, so it
+        // cannot inherit the couch result blindly. Wait until the user flight
+        // releases provider capacity, then re-enter with the background's own
+        // behavior and deadline. A cacheable couch result will satisfy that
+        // re-entry without another fan-out; an empty/transient result may retry
+        // only after the couch request is finished.
+        recordResolveMetric('background_defer_foreground');
         emitPlaybackTelemetry('resolve_flight', {
           resolve_request_class: requestClass,
-          flight_result: 'background_join_foreground',
+          flight_result: 'background_defer_foreground',
         });
-        return foreground.promise;
+        await foreground.promise.catch(() => undefined);
+        return this.rawStreams(type, id, options);
       }
     }
     const generation = this.streamInvalidationGeneration.get(key) ?? 0;

@@ -26,6 +26,9 @@ export type SeriesEpisodeRow = {
   position_sec: number | null;
   /** null = unknown until stream probe; true/false from playability index when known */
   playable: boolean | null;
+  /** Additive reconciliation proof for a launcher response lost while frozen. */
+  playability_status?: string | null;
+  playability_updated_at?: number | null;
 };
 
 export type SeriesSeasonBlock = {
@@ -203,16 +206,20 @@ export function applyEpisodeProgress(
 /** Playability index hints — episodes without rows stay null (client stream probe). */
 export function applyEpisodePlayability(
   seasons: SeriesSeasonBlock[],
-  playability: Map<string, { status: string; expires_at: number | null }>,
+  playability: Map<string, { status: string; expires_at: number | null; updated_at?: number }>,
+  now = Date.now(),
 ): void {
-  const now = Date.now();
   for (const block of seasons) {
     for (const row of block.episodes) {
       const record = playability.get(titleKey('series', row.id));
       if (!record) {
         row.playable = null;
+        row.playability_status = null;
+        row.playability_updated_at = null;
         continue;
       }
+      row.playability_status = record.status;
+      row.playability_updated_at = record.updated_at ?? null;
       if (record.status === 'verified' && (record.expires_at ?? 0) > now) {
         row.playable = true;
       } else if (record.status === 'failed') {

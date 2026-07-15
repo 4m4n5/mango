@@ -1,4 +1,6 @@
 export type AioStreamsUncachedPolicy = {
+  excludeUncached?: unknown;
+  excludeUncachedMode?: unknown;
   excludeUncachedFromServices?: unknown;
   excludeUncachedFromStreamTypes?: unknown;
 };
@@ -13,11 +15,18 @@ export function targetPolicyExcludesUncached(
   service: string,
   streamType = 'debrid',
 ): boolean {
+  if (policy.excludeUncached === true) return true;
   return normalizedList(policy.excludeUncachedFromServices).includes(service.toLowerCase())
     || normalizedList(policy.excludeUncachedFromStreamTypes).includes(streamType.toLowerCase());
 }
 
 export function validateAioStreamsTargetPolicy(policy: AioStreamsUncachedPolicy): void {
+  if (policy.excludeUncached === true) {
+    throw new Error('AIOStreams target policy must not exclude every uncached stream');
+  }
+  if (String(policy.excludeUncachedMode ?? 'or').toLowerCase() !== 'or') {
+    throw new Error('AIOStreams target policy requires OR cache-filter semantics');
+  }
   if (targetPolicyExcludesUncached(policy, 'torbox')) {
     throw new Error('AIOStreams target policy must retain uncached TorBox');
   }

@@ -14,6 +14,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/play-deadline.test.js \
     dist/play-cancel.test.js \
     dist/play-request-registry.test.js \
+    dist/episode-playability-reconcile.test.js \
     dist/playback-telemetry.test.js \
     dist/scoped-child.test.js \
     dist/mpv-policy-args.test.js \

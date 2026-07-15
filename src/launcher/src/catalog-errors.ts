@@ -44,3 +44,17 @@ export function playErrorMessage(message: string): string {
 export function playTimeoutMessage(): string {
   return 'catalog timed out — try again';
 }
+
+export class CatalogTimeoutError extends Error {
+  constructor() {
+    super(playTimeoutMessage());
+    this.name = 'CatalogTimeoutError';
+  }
+}
+
+export class PlayTimeoutError extends Error {
+  constructor(readonly requestAlreadyFinished = false) {
+    super(playTimeoutMessage());
+    this.name = 'PlayTimeoutError';
+  }
+}

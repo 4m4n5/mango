@@ -305,9 +305,26 @@ for path in map(pathlib.Path, sys.argv[1:4]):
     if unsafe:
         raise SystemExit(f"{path}: verified 4K without require_hevc: {unsafe}")
 
+hifi = json.loads(pathlib.Path(sys.argv[3]).read_text(encoding="utf-8"))
+hifi_resort = [row.get("step") for row in hifi.get("last_resort_ladder", [])]
+try:
+    smooth_1080 = hifi_resort.index("1080p_uncached_fallback")
+    soft_4k = hifi_resort.index("4k_sdr_soft_cached")
+except ValueError as error:
+    raise SystemExit(f"4k-hifi last-resort missing required step: {error}") from error
+if smooth_1080 > soft_4k:
+    raise SystemExit("4k-hifi must prefer smooth 1080p fallback before soft 4K")
+
 aio = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+if aio.get("excludeUncached") is True:
+    raise SystemExit("AIOStreams patch globally excludes uncached TorBox")
+if str(aio.get("excludeUncachedMode", "or")).lower() != "or":
+    raise SystemExit("AIOStreams patch must pin OR cache-filter semantics")
 if aio.get("excludeUncachedFromStreamTypes"):
     raise SystemExit("AIOStreams patch excludes all uncached debrid before Mango")
+excluded_services = {str(value).lower() for value in aio.get("excludeUncachedFromServices", [])}
+if "torbox" in excluded_services or "realdebrid" not in excluded_services:
+    raise SystemExit("AIOStreams patch must retain TorBox and exclude Real-Debrid uncached")
 
 playability = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8")
 status = pathlib.Path(sys.argv[6]).read_text(encoding="utf-8")

@@ -9,7 +9,8 @@
     "Play auto: main then last_resort (+ obligation floor). Grow/verify: main only. Picker click: single stream, no fallthrough.",
     "Last-resort Play success marks title stale (playback-only) — never refreshes verified.",
     "REMUX is confined to the 4K steps; 1080p stays on efficient encodes to avoid high-bitrate AVC software-decode load.",
-    "Cached-only on main (include_uncached=false); uncached TorBox lives on last_resort only."
+    "Cached-only on main (include_uncached=false); uncached TorBox lives on last_resort only.",
+    "Within last-resort, smooth 1080p TorBox is tried before known-soft 4K; soft/HDR 4K remains available after it so coverage is unchanged."
   ],
   "exclude_uncached_debrid": true,
   "strict_unknown_cache": true,
@@ -71,21 +72,21 @@
   ],
   "last_resort_ladder": [
     {
+      "step": "1080p_uncached_fallback",
+      "max_quality": "1080p",
+      "exclude_remux": true,
+      "require_cache": "cached_or_uncached",
+      "verified": false,
+      "debrid_services": ["torbox", "realdebrid"],
+      "addons": ["AIOStreams"]
+    },
+    {
       "step": "4k_sdr_soft_cached",
       "max_quality": "2160p",
       "exclude_remux": true,
       "require_hevc": false,
       "exclude_hdr": true,
       "require_cache": "cached",
-      "verified": false,
-      "debrid_services": ["torbox", "realdebrid"],
-      "addons": ["AIOStreams"]
-    },
-    {
-      "step": "1080p_uncached_fallback",
-      "max_quality": "1080p",
-      "exclude_remux": true,
-      "require_cache": "cached_or_uncached",
       "verified": false,
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]

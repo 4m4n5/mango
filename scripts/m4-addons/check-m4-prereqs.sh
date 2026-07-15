@@ -101,6 +101,18 @@ PY
   fi
 }
 
+check_aiostreams_policy() {
+  if ! curl -sf --max-time 3 http://127.0.0.1:3035/api/v1/status >/dev/null 2>&1; then
+    warn "AIOStreams live policy check deferred until :3035 is healthy"
+    return 0
+  fi
+  if bash scripts/m4-addons/aiostreams-config.sh verify >/dev/null; then
+    pass "AIOStreams live uncached policy retains TorBox and excludes Real-Debrid"
+  else
+    fail "AIOStreams live uncached policy drift (run aiostreams-config.sh diff/apply)"
+  fi
+}
+
 command -v docker >/dev/null 2>&1 && pass "docker binary" || fail "docker missing"
 if command -v docker >/dev/null 2>&1; then
   if docker info >/dev/null 2>&1; then
@@ -117,6 +129,7 @@ check_config_key_name "torbox|tb_" "TorBox"
 check_config_key_name "real[-_ ]?debrid|rd_" "Real-Debrid"
 check_config_key_name "easynews|usenet" "Easynews"
 check_stremio_export
+check_aiostreams_policy
 
 if [[ "${MANGO_CATALOG:-0}" == "1" ]]; then
   pass "MANGO_CATALOG=1"

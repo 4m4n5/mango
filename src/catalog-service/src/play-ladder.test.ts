@@ -47,6 +47,30 @@ test('streamMatchesLadderStep rejects uncached streams on ideal step', () => {
   assert.equal(streamMatchesLadderStep(uncached, ideal), false);
 });
 
+test('W2: default couch ladder retains uncached TorBox and excludes uncached Real-Debrid', () => {
+  const torbox: Stream = stream({
+    url: 'https://example.test/tb-uncached.mkv',
+    name: '[TB⏳] Torrentio 1080p',
+    description: '1080p WEB-DL',
+    behaviorHints: {},
+  });
+  const realDebrid: Stream = stream({
+    url: 'https://example.test/rd-uncached.mkv',
+    name: '[RD⏳] Torrentio 1080p',
+    description: '1080p WEB-DL',
+    behaviorHints: {},
+  });
+
+  const candidates = expandPlayLadder(
+    [torbox, realDebrid],
+    defaultPlayLadder(),
+    { contentType: 'movie' },
+    { max_candidates: 6 },
+  );
+  assert.deepEqual(candidates.map((candidate) => candidate.stream.url), [torbox.url]);
+  assert.equal(candidates[0]?.ladder_step, '1080p_uncached');
+});
+
 test('streamMatchesLadderStep rejects 1440p when capped to 1080p', () => {
   const safe1080 = {
     ...defaultPlayLadder()[0],
@@ -511,12 +535,12 @@ test('S3: explicit quality/remux overrides produce the same picker and autoplay 
   assert.deepEqual(display.candidates.map((candidate) => candidate.stream.url), [remux4k.url]);
 });
 
-test('expandObligationFloor keeps integrity-safe streams without ladder cache/codec caps', () => {
+test('expandObligationFloor keeps integrity-safe TorBox uncached streams without ladder quality/codec caps', () => {
   const uncached = stream({
     url: 'https://example.test/uncached-x264.mkv',
-    name: '[RD⚡] Torrentio 720p',
+    name: '[TB⏳] Torrentio 720p',
     description: 'WEBRip 720p x264',
-    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+    behaviorHints: {},
   });
   const cam = stream({
     url: 'https://example.test/cam.mkv',
@@ -532,6 +556,23 @@ test('expandObligationFloor keeps integrity-safe streams without ladder cache/co
   assert.equal(ranked[0]?.ladder_step, 'obligation_floor');
 });
 
+test('W2: obligation floor defensively excludes uncached Real-Debrid', () => {
+  const torbox = stream({
+    url: 'https://example.test/tb-floor.mkv',
+    name: '[TB⏳] Torrentio 720p',
+    description: 'WEBRip 720p x264',
+    behaviorHints: {},
+  });
+  const realDebrid = stream({
+    url: 'https://example.test/rd-floor.mkv',
+    name: '[RD⏳] Torrentio 720p',
+    description: 'WEBRip 720p x264',
+    behaviorHints: {},
+  });
+  const ranked = expandObligationFloor([realDebrid, torbox], { contentType: 'movie' });
+  assert.deepEqual(ranked.map((candidate) => candidate.stream.url), [torbox.url]);
+});
+
 test('expandObligationFloor excludes URLs already attempted in Phase A', () => {
   const first = stream({
     url: 'https://example.test/first.mkv',
@@ -541,9 +582,9 @@ test('expandObligationFloor excludes URLs already attempted in Phase A', () => {
   });
   const second = stream({
     url: 'https://example.test/second.mkv',
-    name: '[RD⚡] Torrentio 720p',
+    name: '[TB⏳] Torrentio 720p',
     description: 'WEBRip 720p x264',
-    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+    behaviorHints: {},
   });
   const ranked = expandObligationFloor([first, second], { contentType: 'movie' }, {
     excludeUrls: new Set([first.url]),
@@ -562,9 +603,9 @@ test('selectDisplayStreamCandidates uses preference ladder when Phase A has matc
   });
   const floorOnly = stream({
     url: 'https://example.test/floor-720.mkv',
-    name: '[RD⚡] Torrentio 720p',
+    name: '[TB⏳] Torrentio 720p',
     description: 'WEBRip 720p x264',
-    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+    behaviorHints: {},
   });
   const preferenceOnly = [{
     step: '1080p_cached',
@@ -590,9 +631,9 @@ test('selectDisplayStreamCandidates uses preference ladder when Phase A has matc
 test('selectDisplayStreamCandidates falls back to last-resort when main is empty', () => {
   const floorOnly = stream({
     url: 'https://example.test/floor-only.mkv',
-    name: '[RD⚡] Torrentio 720p',
+    name: '[TB⏳] Torrentio 720p',
     description: 'WEBRip 720p x264',
-    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+    behaviorHints: {},
   });
   const preferenceOnly = [{
     step: '1080p_hevc_cached',
@@ -744,6 +785,44 @@ test('hifi ladder still plays a title whose only stream is 4K AV1 (no exclusion)
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0]?.stream.url, uhdAv1Only.url);
   assert.equal(candidates[0]?.ladder_step, '4k_sdr_soft_cached');
+});
+
+test('hifi last-resort prefers smooth 1080p TorBox before soft 4K without dropping either', () => {
+  const uncached1080 = stream({
+    url: 'https://example.test/1080p-torbox-uncached.mkv',
+    name: '[TB⏳] Torrentio 1080p',
+    description: '1080p WEB-DL HEVC',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|false|1080p' },
+  });
+  const cached4kAv1 = stream({
+    url: 'https://example.test/2160p-av1-cached.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p WEB-DL AV1',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const lastResort = [
+    {
+      step: '1080p_uncached_fallback', max_quality: '1080p' as const,
+      exclude_remux: true, require_cache: 'cached_or_uncached' as const,
+      verified: false,
+      debrid_services: ['torbox', 'realdebrid'], addons: ['AIOStreams'],
+    },
+    {
+      step: '4k_sdr_soft_cached', max_quality: '2160p' as const, min_quality: '2160p' as const,
+      exclude_remux: true, require_hevc: false, exclude_hdr: true, require_cache: 'cached' as const,
+      verified: false,
+      debrid_services: ['torbox', 'realdebrid'], addons: ['AIOStreams'],
+    },
+  ];
+  const candidates = expandPlayLadder(
+    [cached4kAv1, uncached1080],
+    lastResort,
+    { contentType: 'movie' },
+  );
+  assert.deepEqual(candidates.map((candidate) => candidate.stream.url), [
+    uncached1080.url,
+    cached4kAv1.url,
+  ]);
 });
 
 test('selectDisplayStreamCandidates hides soft 4K when 1080p verified exists', () => {

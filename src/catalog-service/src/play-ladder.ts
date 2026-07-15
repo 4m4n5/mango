@@ -4,6 +4,7 @@ import {
   enrichStreamMetadata,
   isDebridStream,
   isErrorStream,
+  isExcludedUncachedRealDebrid,
   isLowQualityRelease,
   isRdSafeUnknownRelease,
   isRemux,
@@ -339,6 +340,7 @@ export function streamMatchesLadderStep(
   const cacheStatus = parseDebridCacheStatus(enriched);
 
   if (debrid) {
+    if (isExcludedUncachedRealDebrid(enriched)) return false;
     if (!debridAllowed(enriched, step.debrid_services)) return false;
     if (!cacheMatchesRequirement(cacheStatus, step.require_cache, options.strict_unknown_cache !== false)) {
       if (step.rd_safe_unknown && isRdSafeUnknownRelease(enriched)) {
@@ -594,6 +596,7 @@ export function expandObligationFloor(
   for (const raw of streams) {
     const stream = ensureEnriched(raw);
     if (!stream.url || exclude.has(stream.url) || seen.has(stream.url)) continue;
+    if (isExcludedUncachedRealDebrid(stream)) continue;
     if (!streamPassesIntegrity(stream, context)) continue;
     if (isSeriesPackForMovie(stream, context.contentType)) continue;
     if (isSupplementalRelease(stream, context.contentType)) continue;

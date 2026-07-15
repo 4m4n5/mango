@@ -11,6 +11,7 @@ test('S2: resolve metrics count joins, bypasses, fan-out, aliases, and rate limi
   resetResolveMetricsForTests();
   recordResolveMetric('flight_join_user');
   recordResolveMetric('flight_join_background', 2);
+  recordResolveMetric('background_defer_foreground');
   recordResolveMetric('foreground_bypass_background');
   recordResolveMetric('alias_probes', 3);
   recordResolveMetric('rate_limit_classifications', 4);
@@ -18,6 +19,7 @@ test('S2: resolve metrics count joins, bypasses, fan-out, aliases, and rate limi
   assert.deepEqual(resolveMetricsSnapshot(), {
     flight_join_user: 1,
     flight_join_background: 2,
+    background_defer_foreground: 1,
     foreground_bypass_background: 1,
     provider_fanout_requests: 1,
     provider_fanout_addons: 5,
