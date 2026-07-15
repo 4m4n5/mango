@@ -160,7 +160,10 @@ async function runMpv(
 
 export function parseMpvSuccessOutput(output: string, fallbackTtffMs: number): PlayResult {
   const ttff = output.match(/ttff_ms=(\d+)/);
-  const duration = output.match(/duration_sec=([0-9]+(?:\.[0-9]+)?)/);
+  // Prefer the PASS line. A naive /duration_sec=/ also matches min_duration_sec=600
+  // from the mpv-play preamble and falsely rejects full-length features as short.
+  const duration = output.match(/PASS:[^\n]*\bduration_sec=([0-9]+(?:\.[0-9]+)?)/)
+    ?? output.match(/(?<!min_)duration_sec=([0-9]+(?:\.[0-9]+)?)/);
   return {
     ok: true,
     ttff_ms: ttff ? Number(ttff[1]) : fallbackTtffMs,

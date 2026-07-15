@@ -42,3 +42,15 @@ test('S4: structured probe output preserves duration before teardown', () => {
     { ok: true, ttff_ms: 321, duration_sec: 720.5 },
   );
 });
+
+test('parseMpvSuccessOutput ignores min_duration_sec preamble (not real duration)', () => {
+  const output = [
+    'mpv-play: http(s)://example.test/<redacted> mode=probe backend=mpv live=false timeout_ms=10000 min_duration_sec=600 hwdec=auto-safe audio=default video=unknown',
+    'PASS: ttff_ms=3982 duration_sec=8552.744 failure_class=none',
+  ].join('\n');
+  assert.deepEqual(parseMpvSuccessOutput(output, 999), {
+    ok: true,
+    ttff_ms: 3982,
+    duration_sec: 8552.744,
+  });
+});
