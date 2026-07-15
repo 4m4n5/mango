@@ -983,8 +983,15 @@ test('for you enforces channel and topic diversity', () => withTempState(async (
 }));
 
 test('for you reshuffle avoids recently exposed cards when reservoir is deep enough', () => withTempState(async () => {
+  // Use modulo so topic clusters stay unique past TOPIC_WORDS.length — otherwise
+  // "Shuffle undefined" collapses maxPerTopic and the rail underfills (flake).
   replaceYoutubeRailItems('popular', Array.from({ length: 30 }, (_, index) => ({
-    item: sampleVideo(`Shuffle${index}`, 'none', `shuffle-channel-${index}`, `Shuffle ${TOPIC_WORDS[index]}`),
+    item: sampleVideo(
+      `Shuffle${index}`,
+      'none',
+      `shuffle-channel-${index}`,
+      `Shuffle ${TOPIC_WORDS[index % TOPIC_WORDS.length]} ${index}`,
+    ),
     score: 1 - index * 0.01,
     reason: 'test',
   })));
