@@ -1,5 +1,5 @@
 import { CatalogError, type Stream } from './core.js';
-import { playUrl, probeUrl, getMpvPlaybackState } from './mpv.js';
+import { playUrl, probeUrl, type PlayResult } from './mpv.js';
 import { preflightPlaybackUrl } from './preflight-playback.js';
 import {
   couchStatusForLadderStep,
@@ -13,25 +13,31 @@ import {
   type LadderCandidate,
   type PlayLadderStep,
 } from './play-ladder.js';
+import { emitPlaybackTelemetry } from './playback-telemetry.js';
 import { assertPlayEpoch, PlayCancelledError } from './play-cancel.js';
 import {
   debridServiceId,
   parseDebridCacheStatus,
-  streamMatchesVerifiedHint,
   streamUrlHash,
   type StreamFilterConfig,
   type VerifiedStreamHint,
   isPlausibleFeatureDuration,
   playMinDurationSec,
 } from './stream-filters.js';
-import { isTransientPlayError } from './play-error-classify.js';
+import { classifyPlayError, isTransientPlayError } from './play-error-classify.js';
 import {
   isBadStreamError,
   isStreamUrlBad,
   markStreamUrlBad,
 } from './stream-bad-cache.js';
 
-export type PlayOrchestratorConfig = StreamFilterConfig & { include_uncached: boolean };
+export type PlayOrchestratorConfig = StreamFilterConfig & {
+  include_uncached: boolean;
+  hard_language?: string | null;
+  preferred_language?: string | null;
+  min_quality?: import('./stream-filters.js').QualityCap | null;
+  request_overrides?: import('./stream-filters.js').StreamFilterOverrides;
+};
 
 /** Couch play entry modes — candidate set + post-success policy differ. */
 export type PlayMode = 'auto' | 'picker' | 'verify';
@@ -47,7 +53,6 @@ export type PlayAttempt = {
   ok: boolean;
   ms: number;
   probe_ms?: number;
-  probe_reused?: boolean;
   ttff_ms?: number;
   error?: string;
 };
@@ -126,18 +131,11 @@ function shouldSkipProbe(candidate: LadderCandidate): boolean {
     || parseDebridCacheStatus(candidate.stream) === 'uncached';
 }
 
-function rememberBadStream(stream: Stream, error: unknown, fingerprint?: string): void {
+function rememberBadStream(stream: Stream, error: unknown): void {
   const cleaned = typeof error === 'string' ? error : cleanError(error);
-  if (isBadStreamError(cleaned) || fingerprint) {
-    const key = fingerprint || streamUrlHash(stream.url);
-    // Picker hard-fail: ~30 min hide; garbage: default bad-cache TTL.
-    const ttl = fingerprint
-      ? Number(process.env.MANGO_PICKER_HIDE_MS || 30 * 60 * 1000)
-      : undefined;
-    markStreamUrlBad(key, ttl);
-    if (fingerprint) {
-      markStreamUrlBad(streamUrlHash(stream.url), ttl);
-    }
+  if (isBadStreamError(cleaned)) {
+    markStreamUrlBad(streamReleaseFingerprint(stream));
+    markStreamUrlBad(streamUrlHash(stream.url));
   }
 }
 
@@ -157,15 +155,14 @@ export function playObligationReserveMs(): number {
 
 const PREFLIGHT_BUDGET_CAP_MS = 8000;
 
-async function assertPlausibleFeatureProbe(options: {
+function assertPlausibleFeatureProbe(result: PlayResult, options: {
   contentType?: string;
   filterContext?: import('./stream-filters.js').StreamFilterContext;
-}): Promise<void> {
-  const playbackState = await getMpvPlaybackState();
-  if (!playbackState || playbackState.duration_sec <= 0) {
+}): void {
+  if (result.duration_sec === undefined || result.duration_sec <= 0) {
     return;
   }
-  const probedMinutes = playbackState.duration_sec / 60;
+  const probedMinutes = result.duration_sec / 60;
   if (!isPlausibleFeatureDuration(
     probedMinutes,
     options.contentType,
@@ -222,19 +219,12 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
       await assertPlayEpoch(options.playEpoch);
     }
 
-    // Hint reuse + shouldSkipProbe only on the normal play pass.
+    // Verified hints rank candidates but never replace a fresh safety probe:
+    // signed URLs can rotate to status clips while retaining release identity.
     let observedProbeMs: number | undefined;
-    let probeReused = false;
+    let structuredProbeResult: PlayResult | undefined;
     let skipProbe = false;
     if (options.mode === 'play' && !retryPass) {
-      const reusableProbeMs = streamMatchesVerifiedHint(candidate.stream, options.verified_hint)
-        && options.verified_hint?.win_ladder_step === candidate.ladder_step
-        && options.verified_hint?.probe_ms
-        && options.verified_hint.probe_ms > 0
-        && options.verified_hint.probe_ms <= config.auto_play_probe_ms
-        ? options.verified_hint.probe_ms
-        : undefined;
-      observedProbeMs = reusableProbeMs;
       skipProbe = shouldSkipProbe(candidate);
     }
 
@@ -262,38 +252,38 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
         undefined,
         options.playEpoch,
         options.mode === 'play' ? options.startSec : undefined,
+        options.mode === 'play' ? 'user' : 'background',
       );
+      structuredProbeResult = probeResult;
       observedProbeMs = probeResult.ttff_ms;
       if (options.mode === 'play' && options.playEpoch !== undefined) {
         await assertPlayEpoch(options.playEpoch);
       }
-      await assertPlausibleFeatureProbe({
+      assertPlausibleFeatureProbe(probeResult, {
         contentType: options.contentType,
         filterContext: options.filterContext,
       });
-    } else if (!observedProbeMs) {
-      if (!skipProbe) {
-        const probeBudget = probeBudgetForCandidate(candidate, config, remainingAtStart);
-        const probeResult = await options.probe(
-          candidate.stream.url,
-          probeBudget,
-          undefined,
-          options.playEpoch,
-          options.startSec,
-        );
-        observedProbeMs = probeResult.ttff_ms;
-        if (options.playEpoch !== undefined) {
-          await assertPlayEpoch(options.playEpoch);
-        }
-      } else {
-        observedProbeMs = 0;
+    } else if (!skipProbe) {
+      const probeBudget = probeBudgetForCandidate(candidate, config, remainingAtStart);
+      const probeResult = await options.probe(
+        candidate.stream.url,
+        probeBudget,
+        undefined,
+        options.playEpoch,
+        options.startSec,
+        options.mode === 'play' ? 'user' : 'background',
+      );
+      structuredProbeResult = probeResult;
+      observedProbeMs = probeResult.ttff_ms;
+      if (options.playEpoch !== undefined) {
+        await assertPlayEpoch(options.playEpoch);
       }
     } else {
-      probeReused = true;
+      observedProbeMs = 0;
     }
 
     if (!alwaysProbe && !skipProbe) {
-      await assertPlausibleFeatureProbe({
+      assertPlausibleFeatureProbe(structuredProbeResult ?? { ok: true, ttff_ms: observedProbeMs ?? 0 }, {
         contentType: options.contentType,
         filterContext: options.filterContext,
       });
@@ -306,6 +296,13 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
         ms: Date.now() - attemptStarted,
         probe_ms: observedProbeMs,
       };
+      emitPlaybackTelemetry('ladder_attempt', {
+        epoch: options.playEpoch,
+        resolve_request_class: 'background',
+        ladder_step: candidate.ladder_step,
+        result_class: 'success',
+        attempt_ms: attempt.ms,
+      });
       return {
         kind: 'probe_ok',
         stream: candidate.stream,
@@ -329,14 +326,23 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
       startSec: options.startSec,
       ladderStep: candidate.ladder_step,
     });
+    if (options.playEpoch !== undefined) {
+      await assertPlayEpoch(options.playEpoch);
+    }
     const attempt: PlayAttempt = {
       ...base,
       ok: true,
       ms: Date.now() - attemptStarted,
       probe_ms: observedProbeMs,
-      ...(probeReused ? { probe_reused: true } : {}),
       ttff_ms: playback.ttff_ms,
     };
+    emitPlaybackTelemetry('ladder_attempt', {
+      epoch: options.playEpoch,
+      resolve_request_class: 'user',
+      ladder_step: candidate.ladder_step,
+      result_class: 'success',
+      attempt_ms: attempt.ms,
+    });
     return {
       kind: 'success',
       result: {
@@ -348,7 +354,7 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
         stream: streamMeta(candidate.stream, candidate.ladder_step),
         candidate_count: options.candidateCount,
         win_ladder_step: candidate.ladder_step,
-        win_url_hash: streamUrlHash(candidate.stream.url),
+        win_url_hash: streamReleaseFingerprint(candidate.stream),
         win_on_main: false,
         ...(options.obligationFloorRan ? { obligation_floor_ran: true } : {}),
       },
@@ -358,6 +364,13 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
       throw error;
     }
     const cleaned = cleanError(error);
+    emitPlaybackTelemetry('ladder_attempt', {
+      epoch: options.playEpoch,
+      resolve_request_class: options.mode === 'play' ? 'user' : 'background',
+      ladder_step: candidate.ladder_step,
+      result_class: classifyPlayError(cleaned),
+      attempt_ms: Date.now() - attemptStarted,
+    });
     return {
       kind: 'failure',
       attempt: {
@@ -385,6 +398,8 @@ export async function probeWithLadder(
     preflight?: typeof preflightPlaybackUrl;
     max_candidates?: number;
     include_uncached?: boolean;
+    deadlineAtMs?: number;
+    startedAtMs?: number;
   } = {},
 ): Promise<{
   ok: true;
@@ -411,12 +426,17 @@ export async function probeWithLadder(
     verified_hint: options.verified_hint,
     max_candidates: options.max_candidates ?? config.auto_play_max_attempts,
     include_uncached: options.include_uncached,
+    hard_language: config.hard_language,
+    preferred_language: config.preferred_language,
+    min_quality: config.request_overrides?.min_quality,
+    max_quality: config.request_overrides?.max_quality,
+    exclude_remux: config.request_overrides?.exclude_remux,
     prefer_ladder_step: options.verified_hint?.win_ladder_step ?? null,
   });
   const attempts: PlayAttempt[] = [];
   const wallMs = config.auto_play_wall_ms;
-  const started = Date.now();
-  const deadline = started + wallMs;
+  const started = options.startedAtMs ?? Date.now();
+  const deadline = Math.min(options.deadlineAtMs ?? Number.POSITIVE_INFINITY, started + wallMs);
 
   for (const [index, candidate] of candidates.entries()) {
     const remaining = deadline - Date.now();
@@ -568,13 +588,13 @@ async function attemptCandidates(options: {
         };
       }
       if (retry.kind === 'failure') {
-        rememberBadStream(candidate.stream, retry.error, options.pickerFingerprint);
+        rememberBadStream(candidate.stream, retry.error);
         attempts.push(retry.attempt);
       }
       continue;
     }
 
-    rememberBadStream(candidate.stream, cleaned, options.pickerFingerprint);
+    rememberBadStream(candidate.stream, cleaned);
     attempts.push(one.attempt);
   }
 
@@ -603,9 +623,12 @@ export async function playWithLadder(
     onLadderStep?: (step: string, label: string) => void;
     startSec?: number;
     preferUrl?: string;
+    preferLadderStep?: string;
+    deadlineAtMs?: number;
+    startedAtMs?: number;
   } = {},
 ): Promise<PlayOrchestratorResult> {
-  const started = Date.now();
+  const started = options.startedAtMs ?? Date.now();
   const wallMs = config.auto_play_wall_ms;
   const probe = options.probe ?? probeUrl;
   const play = options.play ?? playUrl;
@@ -614,13 +637,15 @@ export async function playWithLadder(
     ?? (options.preferUrl ? 'picker' : 'auto');
   const mainLadder = config.main_ladder ?? config.play_ladder;
   const lastResortLadder = config.last_resort_ladder ?? [];
-  const deadline = started + wallMs;
+  const deadline = Math.min(options.deadlineAtMs ?? Number.POSITIVE_INFINITY, started + wallMs);
   const obligationReserve = playObligationReserveMs();
   const mainDeadline = Math.max(
     started + 500,
     deadline - obligationReserve,
   );
-  const preferLadderStep = options.verified_hint?.win_ladder_step ?? null;
+  const preferLadderStep = options.preferLadderStep
+    ?? options.verified_hint?.win_ladder_step
+    ?? null;
   const filterContext = options.filterContext ?? { contentType: options.contentType };
   const minDurationSec = playMinDurationSec({
     contentType: options.contentType ?? filterContext.contentType,
@@ -708,6 +733,11 @@ export async function playWithLadder(
     verified_hint: options.verified_hint,
     max_candidates: config.auto_play_max_attempts,
     prefer_ladder_step: preferLadderStep,
+    hard_language: config.hard_language,
+    preferred_language: config.preferred_language,
+    min_quality: config.request_overrides?.min_quality,
+    max_quality: config.request_overrides?.max_quality,
+    exclude_remux: config.request_overrides?.exclude_remux,
   });
 
   const allAttempts: PlayAttempt[] = [];
@@ -738,6 +768,11 @@ export async function playWithLadder(
     preferred_video_codecs: config.preferred_video_codecs,
     max_candidates: config.auto_play_max_attempts,
     include_uncached: true,
+    hard_language: config.hard_language,
+    preferred_language: config.preferred_language,
+    min_quality: config.request_overrides?.min_quality,
+    max_quality: config.request_overrides?.max_quality,
+    exclude_remux: config.request_overrides?.exclude_remux,
   }).filter((candidate) => (
     !allAttempts.some((attempt) => attempt.url && attempt.url === candidate.stream.url)
   ));
@@ -768,6 +803,11 @@ export async function playWithLadder(
     const phaseFloor = expandObligationFloor(streams, filterContext, {
       excludeUrls,
       maxCandidates: playObligationMaxAttempts(),
+      hard_language: config.hard_language,
+      preferred_language: config.preferred_language,
+      min_quality: config.request_overrides?.min_quality,
+      max_quality: config.request_overrides?.max_quality,
+      exclude_remux: config.request_overrides?.exclude_remux,
     });
     if (phaseFloor.length > 0) {
       obligationFloorRan = true;

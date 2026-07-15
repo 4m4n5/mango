@@ -22,7 +22,7 @@ else
   gate_fail "launcher dist/index.html missing — cd src/launcher && npm run build"
 fi
 
-python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" <<'PY' \
+python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" <<'PY' \
   && gate_pass "launcher source UX contracts" \
   || gate_fail "launcher source UX contracts"
 import pathlib
@@ -31,6 +31,8 @@ import sys
 voice = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 detail = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 focus = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
+main = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")
+next_prompt = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8")
 
 if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
@@ -40,6 +42,19 @@ if "getBoundingClientRect" not in detail:
     raise SystemExit("detail.ts missing geometry-based spatial focus (getBoundingClientRect)")
 if "class FocusGrid" not in focus:
     raise SystemExit("focus.ts missing FocusGrid class (home rails)")
+if "async refreshAfterPlayback" not in detail or "await this.loadEpisodeList(card)" not in detail:
+    raise SystemExit("detail.ts missing in-place playback-return progress refresh")
+refresh = detail.split("async refreshAfterPlayback", 1)[1].split("restoreAfterPlayback", 1)[0]
+if refresh.find("await this.loadEpisodeList(card)") > refresh.find("this.focusPlayButton()"):
+    raise SystemExit("detail.ts must finish episode refresh before restoring Play focus")
+for false_claim in ("trying alternate release", "caching stream on TorBox"):
+    if false_claim in detail:
+        raise SystemExit(f"detail.ts contains unverified slow-resolve claim: {false_claim}")
+for contract in ("savePlaybackReturnSnapshot", "AbortController", "signal: abort.signal"):
+    if contract not in next_prompt:
+        raise SystemExit(f"next-prompt.ts missing direct-play return/cancel contract: {contract}")
+if "function setStatus(_message: string): void {}" in main or "showToast(message)" not in main:
+    raise SystemExit("main.ts next-prompt failures are not routed to the existing toast")
 PY
 
 if [[ -f "$DIST/index.html" ]]; then

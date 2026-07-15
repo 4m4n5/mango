@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { preflightPlaybackUrl } from './preflight-playback.js';
+import { preflightPlaybackUrl, readResponsePrefix } from './preflight-playback.js';
 
 test('preflightPlaybackUrl accepts matroska magic bytes', async () => {
   const originalFetch = globalThis.fetch;
@@ -137,6 +137,56 @@ test('preflightPlaybackUrl accepts HLS body even when content-type is octet-stre
   });
   try {
     assert.equal(await preflightPlaybackUrl('https://example.test/master.m3u8'), 'video');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('S4: a large 200 response that ignores Range is retained only to the byte cap and cancelled', async () => {
+  let produced = 0;
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      produced += 1024;
+      controller.enqueue(new Uint8Array(1024));
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const prefix = await readResponsePrefix(new Response(body, { status: 200 }), 4096);
+  assert.equal(prefix.length, 4096);
+  assert.equal(produced, 4096);
+  assert.equal(cancelled, true);
+});
+
+for (const fixture of [
+  { status: 403, body: '<html><body>forbidden</body></html>', expected: 'http_error' },
+  { status: 429, body: 'too many requests', expected: 'rate_limited' },
+  { status: 500, body: 'upstream exploded', expected: 'server_error' },
+] as const) {
+  test(`S4: HTTP ${fixture.status} text is classified before body type and is not NFO`, async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response(fixture.body, {
+      status: fixture.status,
+      headers: { 'content-type': 'text/html' },
+    });
+    try {
+      assert.equal(await preflightPlaybackUrl('https://example.test/error'), fixture.expected);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+test('S4: generic successful HTML text is not misclassified as NFO', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('<html><body>not a video</body></html>', {
+    status: 200,
+    headers: { 'content-type': 'text/html' },
+  });
+  try {
+    assert.equal(await preflightPlaybackUrl('https://example.test/error.html'), 'error');
   } finally {
     globalThis.fetch = originalFetch;
   }

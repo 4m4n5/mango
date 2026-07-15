@@ -7,10 +7,22 @@ CATALOG_DIR="${1:?catalog-service path}"
 
 (
   cd "$CATALOG_DIR"
-  if [[ ! -f dist/play-ladder.test.js ]]; then
-    npm run build >/dev/null
-  fi
+  # Always clean+rebuild. A renamed/deleted source test must never leave an
+  # orphan dist test executing or let this safety slice trust stale output.
+  npm run build >/dev/null
   node --test \
+    dist/play-deadline.test.js \
+    dist/play-cancel.test.js \
+    dist/play-request-registry.test.js \
+    dist/playback-telemetry.test.js \
+    dist/scoped-child.test.js \
+    dist/mpv-policy-args.test.js \
+    dist/playback-ownership.test.js \
+    dist/stream-flight.test.js \
+    dist/aiostreams-policy.test.js \
+    dist/core-invalidate-streams.test.js \
+    dist/core-stream-resolve.test.js \
+    dist/playability/trigger-consumer.test.js \
     dist/catalog-errors.test.js \
     dist/live-rails.test.js \
     dist/play-ladder.test.js \

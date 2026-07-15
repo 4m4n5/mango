@@ -456,9 +456,13 @@ async function fetchWithTimeout(
   }
 }
 
-export async function cancelPlay(): Promise<void> {
+export async function cancelPlay(requestId?: string): Promise<void> {
   try {
-    await fetchWithTimeout("/api/catalog/play-cancel", { method: "POST" }, 2500);
+    await fetchWithTimeout("/api/catalog/play-cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(requestId ? { request_id: requestId } : {}),
+    }, 2500);
   } catch {
     // best-effort — mpv-stop on pad also bumps cancel epoch
   }
@@ -499,7 +503,11 @@ export async function playCard(
     }, 95000);
   }
   const playId = options.episodeId || card.playId || card.id;
+  const requestId = typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `play-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const body: {
+    request_id: string;
     type: string;
     id: string;
     title?: string;
@@ -513,6 +521,7 @@ export async function playCard(
     start_sec?: number;
     live?: boolean;
   } = {
+    request_id: requestId,
     type: card.type,
     id: playId,
     title: card.title,
@@ -541,12 +550,18 @@ export async function playCard(
   if (typeof startSec === 'number' && startSec > 0) {
     body.start_sec = startSec;
   }
-  return fetchPlayJson<PlayResult>("/api/catalog/play", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal: options.signal,
-  }, 95000);
+  try {
+    return await fetchPlayJson<PlayResult>("/api/catalog/play", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: options.signal,
+    }, 95000);
+  } catch (error) {
+    // ID-scoped and idempotent: a late timeout cannot cancel a newer play.
+    await cancelPlay(requestId);
+    throw error;
+  }
 }
 
 export async function notInterestedYoutubeCard(card: ContentCard): Promise<void> {

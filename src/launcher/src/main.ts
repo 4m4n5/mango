@@ -872,18 +872,26 @@ async function restorePlaybackSurfaceIfNeeded(): Promise<void> {
   }
   playbackReturnInFlight = true;
   try {
+    const savedSnapshot = readPlaybackReturnSnapshot();
     if (detail.isOpen) {
-      detail.focusAfterPlaybackReturn();
+      if (savedSnapshot) {
+        await flushProgress();
+        await detail.refreshAfterPlayback(savedSnapshot.episodeId);
+      } else {
+        detail.focusAfterPlaybackReturn();
+      }
       clearPlaybackReturnSnapshot();
       return;
     }
 
     const snapshot =
-      readPlaybackReturnSnapshot()
+      savedSnapshot
       ?? await readPlaybackReturnFromContext();
     if (!snapshot) {
       return;
     }
+
+    await flushProgress();
 
     if (snapshot.returnSurface === "tab_home") {
       restoreLiveTabHome(snapshot.tab);
@@ -1043,7 +1051,14 @@ async function loadInfo(): Promise<void> {
   }
 }
 
-function setStatus(_message: string): void {}
+function setStatus(message: string): void {
+  // The launcher intentionally has no persistent status strip. Reuse the
+  // existing non-focusable toast for actionable failures while keeping routine
+  // navigation/progress copy on its owning control.
+  if (/couldn|failed|unavailable|timed? out|try again|no playable|not start/i.test(message)) {
+    showToast(message);
+  }
+}
 
 function setText(id: string, value: string): void {
   mustGet<HTMLElement>(id).textContent = value;

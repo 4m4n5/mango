@@ -65,7 +65,7 @@ Legacy single `play_ladder` configs are split by `verified` / display membership
 
 **Display vs play:** `GET /stream` expands **main** first. If empty, expands last-resort (and obligation floor) marked `unverified`.
 
-**Debrid garbage safety (play path):** Prefer TorBox on same-hash ties (AIO dedup + service sort). Keep RD for unique cached releases (ladder steps admit both services; uncached RD stays excluded upstream). Error taxonomy lives in `play-error-classify.ts`: **garbage** (`debrid_copyright_block`, `debrid_status_clip`, `debrid_nfo_sidecar`) is session-blacklisted by `streamUrlHash` (~45 min) and counts toward play-failure demotion; **transient** (`debrid_playback_unreadable`, timeouts, network) is retryable and not bad-cached. Preflight is an NFO-only hard gate — sniff `error`/`timeout` still proceed to mpv probe. Debrid VOD always probes with `vo=null` before visible handoff. Couch errors map garbage failures to generic “streams are still preparing” copy — never surface “copyright infringement”.
+**Debrid garbage safety (play path):** Prefer TorBox on same-hash ties (AIO dedup + service sort). Keep RD for unique cached releases (ladder steps admit both services; uncached RD stays excluded upstream, while uncached TorBox remains a last-resort playback candidate). Error taxonomy lives in `play-error-classify.ts`: **garbage** (`debrid_copyright_block`, `debrid_status_clip`, `debrid_nfo_sidecar`) is session-blacklisted by service-scoped stable release identity plus URL hash (~45 min) and counts toward play-failure demotion; **transient** (`debrid_playback_unreadable`, timeouts, network) is retryable and not release-wide bad-cached. Preflight is an NFO-only hard gate — sniff `error`/`timeout` still proceeds to the bounded mpv probe. Couch errors map garbage failures to generic “streams are still preparing” copy — never surface “copyright infringement”.
 
 **Rate-limit honesty:** Bare `429` digits in opaque debrid/MediaFusion URL tokens are **not** rate-limits. Path markers (`rate-limit-exceeded`, `public-rate-limit`) and status-line `HTTP 429` / “too many requests” are. Couch `requestClass: 'user'` bypasses miss negative-cache but soft-respects confirmed rate-limit (~20s, `MANGO_STREAM_USER_RATE_LIMIT_BACKOFF_MS`). **Timeouts/5xx are not rate-limits** — they do not trip busy soft-backoff (immediate couch retry). Background keeps ~90s backoff for true rate-limits.
 
@@ -73,7 +73,7 @@ Legacy single `play_ladder` configs are split by `verified` / display membership
 
 **Resolve request class:** Couch play and `GET /stream` use `requestClass: 'user'`. Background verify/grow use `requestClass: 'background'`.
 
-| **Inline reverify** | On zero-stream resolve (or playing a `failed`/`stale`/`play_miss` title): one `forceReprobe` verify + relaxed resolve before giving up |
+The couch hot path is deliberately play-first: read an existing verified hint, perform one user-class provider resolve, then walk main → last-resort → obligation floor. Drift/prepare/full verify and trigger draining remain background work; they do not add a second provider resolve before playback.
 
 **Library demotion (gradual, not instant tombstone):**
 
@@ -84,7 +84,9 @@ Legacy single `play_ladder` configs are split by `verified` / display membership
 | First obligation-floor exhaustion (play fail) | `demoteTitle(play_miss)` → `stale`, **keep `rail_pool`**, preserve session |
 | Second exhaustion within 24h after `play_miss` | `invalidateTitle(play_failure)` → `failed`, purge pools, reshuffle session |
 
-Recovery: inline reverify on play, targeted `drainTriggersForTitle`, nightly stale reverify + grow. Background verify must not overwrite a couch `play_miss` demotion with `failed` unless `forceReprobe`.
+Recovery: targeted cache invalidation after confirmed failure, queued/background reverify, and nightly stale reverify + grow. Background verify must not overwrite a couch `play_miss` demotion with `failed` unless `forceReprobe`.
+
+**Deferred `vo=null` scope:** every non-live VOD (movies, series, and YouTube, including split A/V) starts on the null-VO/null-AO buffer path. After the launcher is hidden and the root is black, Mango source-matches HDMI, enables GPU VO plus configured/automatic AO, and reveals mpv. Immediate live playback and deferred VOD share the same hifi tone-map, audio, subtitle, cache, and render policy; only display/audio activation is deferred.
 
 ---
 

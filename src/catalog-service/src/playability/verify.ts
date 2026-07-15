@@ -2,8 +2,7 @@ import { CatalogCore, CatalogError, type Stream } from '../core.js';
 import { isRateLimitedStreamUrl } from '../catalog-errors.js';
 import { classifyPlayError, garbageKind } from '../play-error-classify.js';
 import { probeWithLadder } from '../play-orchestrator.js';
-import { expandPlayLadder } from '../play-ladder.js';
-import { streamUrlHash } from '../stream-filters.js';
+import { expandPlayLadder, streamReleaseFingerprint } from '../play-ladder.js';
 import { PlayabilityBatchWriter } from './batch-writer.js';
 import {
   playabilitySeriesCrossProbeLimit,
@@ -226,7 +225,7 @@ export async function demoteVerifyIfDrifted(
 
   const candidates = expandPlayLadder(
     prepared.resolved.streams,
-    prepared.resolved.filters.play_ladder,
+    prepared.resolved.filters.main_ladder,
     prepared.resolved.filterContext,
     {
       strict_unknown_cache: prepared.resolved.filters.strict_unknown_cache,
@@ -241,7 +240,7 @@ export async function demoteVerifyIfDrifted(
     return 'fresh';
   }
 
-  const topHash = streamUrlHash(candidates[0].stream.url);
+  const topHash = streamReleaseFingerprint(candidates[0].stream);
   if (topHash === existing.win_url_hash) {
     return 'fresh';
   }
@@ -284,7 +283,7 @@ export async function prepareVerifyTitle(
     });
     const candidates = expandPlayLadder(
       resolved.streams,
-      resolved.filters.play_ladder,
+      resolved.filters.main_ladder,
       resolved.filterContext,
       {
         strict_unknown_cache: resolved.filters.strict_unknown_cache,
@@ -392,7 +391,7 @@ export async function verifyPreparedTitle(
       cache_status: typeof stream.cache_status === 'string' ? stream.cache_status : null,
       debrid_service: typeof stream.debrid_service === 'string' ? stream.debrid_service : null,
       probe_ms: ladderResult.probe_ms,
-      win_url_hash: streamUrlHash(stream.url),
+      win_url_hash: streamReleaseFingerprint(stream),
       win_ladder_step: ladderResult.ladder_step,
       expires_at: Date.now() + playabilityVerifyTtlMs(),
       stage: 'verify',

@@ -3,10 +3,12 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import {
   enrichStreamMetadata,
+  filterAndRankStreams,
   hasCacheableStream,
   loadFilterConfig,
   mergeFilterConfig,
   parseRuntimeMinutes,
+  streamPassesIntegrity,
   type StreamFilterMeta,
   type StreamFilterOverrides,
   type StreamFilterContext,
@@ -14,6 +16,8 @@ import {
 import {
   defaultPlayLadder,
   enrichStreams,
+  expandObligationFloor,
+  expandPlayLadder,
   isVerifiedDisplayStep,
   OBLIGATION_FLOOR_STEP,
   selectDisplayStreamCandidates,
@@ -67,7 +71,11 @@ import {
   isRateLimitedStreamUrl,
 } from './catalog-errors.js';
 import { classifyPlayError } from './play-error-classify.js';
+import { capToPlayBudgetMs, remainingPlayBudgetMs } from './play-deadline.js';
+import { recordProviderFanout, recordResolveMetric } from './resolve-metrics.js';
+import { streamFlightBehaviorKey, streamFlightKey } from './stream-flight.js';
 import { resolvePosterFromMeta, metahubPosterUrl, normalizePosterUrl } from './poster.js';
+import { emitPlaybackTelemetry } from './playback-telemetry.js';
 import { CONTINUE_RAIL_ID } from './progress/config.js';
 import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
 import {
@@ -151,12 +159,14 @@ type TaggedLiveChannel = LiveChannelMeta & {
   source_catalog_type: string;
 };
 
-type ResolveStreamOptions = {
+export type ResolveStreamOptions = {
   seriesCrossProbeLimit?: number;
   zeroStreamRetryAttempts?: number;
   zeroStreamRetryDelayMs?: number;
   /** user = couch play / detail stream list; background = verify/grow/drift */
   requestClass?: 'user' | 'background';
+  /** Absolute POST /play deadline shared by every nested resolve stage. */
+  deadlineAtMs?: number;
 };
 
 function seriesCrossProbeLimit(options?: ResolveStreamOptions): number {
@@ -702,6 +712,7 @@ function emptyStreamFilterMeta(config: ReturnType<typeof mergeFilterConfig>): St
     kept: 0,
     play_ladder_step: 'preview',
     play_ladder_preview: true,
+    stages: { raw: 0, integrity_safe: 0, main: 0, last_resort: 0, obligation_floor: 0 },
     excluded: {
       uncached_debrid: 0,
       unknown_cache_debrid: 0,
@@ -711,6 +722,51 @@ function emptyStreamFilterMeta(config: ReturnType<typeof mergeFilterConfig>): St
       title_mismatch: 0,
       series_pack_for_movie: 0,
       language_mismatch: 0,
+    },
+  };
+}
+
+export function displayStreamTelemetry(
+  streams: Stream[],
+  config: ReturnType<typeof mergeFilterConfig>,
+  context: StreamFilterContext,
+): Pick<StreamFilterMeta, 'excluded' | 'stages'> {
+  const diagnostic = filterAndRankStreams(streams, config, context, {
+    hard_language: config.hard_language,
+    preferred_language: config.preferred_language,
+    min_quality: config.request_overrides.min_quality,
+  });
+  const ladderOptions = {
+    strict_unknown_cache: config.strict_unknown_cache,
+    preferred_quality: config.preferred_quality,
+    preferred_hdr_tags: config.preferred_hdr_tags,
+    preferred_video_codecs: config.preferred_video_codecs,
+    hard_language: config.hard_language,
+    preferred_language: config.preferred_language,
+    min_quality: config.request_overrides.min_quality,
+    max_quality: config.request_overrides.max_quality,
+    exclude_remux: config.request_overrides.exclude_remux,
+    include_uncached: config.include_uncached,
+    max_candidates: Math.max(1, streams.length),
+  };
+  const main = expandPlayLadder(streams, config.main_ladder, context, ladderOptions);
+  const lastResort = expandPlayLadder(streams, config.last_resort_ladder, context, ladderOptions);
+  const floor = expandObligationFloor(streams, context, {
+    maxCandidates: Math.max(1, streams.length),
+    hard_language: config.hard_language,
+    preferred_language: config.preferred_language,
+    min_quality: config.request_overrides.min_quality,
+    max_quality: config.request_overrides.max_quality,
+    exclude_remux: config.request_overrides.exclude_remux,
+  });
+  return {
+    excluded: diagnostic.meta.excluded,
+    stages: {
+      raw: streams.length,
+      integrity_safe: streams.filter((stream) => streamPassesIntegrity(stream, context)).length,
+      main: main.length,
+      last_resort: lastResort.length,
+      obligation_floor: floor.length,
     },
   };
 }
@@ -805,7 +861,14 @@ export class CatalogCore {
    * episode taps, grow + couch on the same title) each miss the not-yet-written
    * cache and independently hit Torrentio, producing request bursts.
    */
-  private readonly streamInFlight = new Map<string, Promise<RawStreamResolution>>();
+  private readonly streamInFlight = new Map<string, {
+    baseKey: string;
+    behaviorKey: string;
+    requestClass: 'user' | 'background';
+    promise: Promise<RawStreamResolution>;
+  }>();
+  /** Prevent invalidated in-flight resolves from repopulating stale cache state. */
+  private readonly streamInvalidationGeneration = new Map<string, number>();
   private readonly railItemsCache = new Map<string, {
     payload: RailItemsResponse;
     expiresAt: number;
@@ -933,6 +996,37 @@ export class CatalogCore {
 
   invalidateLiveTabRailCache(): void {
     this.liveTabRailItemsCache = null;
+  }
+
+  /** Clear one title's positive/negative stream state and stale flight handles. */
+  invalidateStreams(type: string, id: string): { positive: number; negative: number; flights: number } {
+    const normalized = normalizeSeriesVerifyId(type, id);
+    const keys = new Set([`${type}:${id}`, `${type}:${normalized}`]);
+    let positive = 0;
+    let negative = 0;
+    let flights = 0;
+    for (const key of keys) {
+      this.streamInvalidationGeneration.set(
+        key,
+        (this.streamInvalidationGeneration.get(key) ?? 0) + 1,
+      );
+      if (this.streamCache.delete(key)) positive += 1;
+      if (this.streamNegativeCache.delete(key)) negative += 1;
+    }
+    for (const [flightKey, flight] of this.streamInFlight) {
+      if (keys.has(flight.baseKey)) {
+        this.streamInFlight.delete(flightKey);
+        flights += 1;
+      }
+    }
+    const result = { positive, negative, flights };
+    emitPlaybackTelemetry('stream_cache_invalidate', {
+      content_type: type,
+      positive_entries: positive,
+      negative_entries: negative,
+      flight_entries: flights,
+    });
+    return result;
   }
 
   /** AI live rails are slot-driven — merge on every response so cache hits stay current. */
@@ -1920,6 +2014,11 @@ export class CatalogCore {
     filterContext: StreamFilterContext;
     errors?: string[];
   }> {
+    if (options.deadlineAtMs !== undefined && remainingPlayBudgetMs(options.deadlineAtMs) <= 0) {
+      throw new CatalogError(504, 'play deadline exceeded', undefined, {
+        couchMessage: 'playback took too long — try again',
+      });
+    }
     const streamId = normalizeSeriesVerifyId(type, id);
     const resolveOptions = couchResolveOptions({
       zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
@@ -1930,6 +2029,11 @@ export class CatalogCore {
       this.resolveRawStreams(type, streamId, resolveOptions),
       this.buildStreamFilterContext(type, id),
     ]);
+    if (options.deadlineAtMs !== undefined && remainingPlayBudgetMs(options.deadlineAtMs) <= 0) {
+      throw new CatalogError(504, 'play deadline exceeded', undefined, {
+        couchMessage: 'playback took too long — try again',
+      });
+    }
     if (raw.streams.length === 0) {
       if (hasStreamResolveInfrastructureErrors(raw.notes)) {
         const errorMessages = resolveNoteMessages(raw.notes);
@@ -2013,6 +2117,7 @@ export class CatalogCore {
     }
 
     const enriched = enrichStreams(raw.streams);
+    const telemetry = displayStreamTelemetry(enriched, config, filterContext);
     const { candidates, source } = selectDisplayStreamCandidates(
       enriched,
       config.play_ladder,
@@ -2023,6 +2128,10 @@ export class CatalogCore {
         preferred_hdr_tags: config.preferred_hdr_tags,
         preferred_video_codecs: config.preferred_video_codecs,
         hard_language: config.hard_language,
+        preferred_language: config.preferred_language,
+        min_quality: config.request_overrides.min_quality,
+        max_quality: config.request_overrides.max_quality,
+        exclude_remux: config.request_overrides.exclude_remux,
         max_candidates: config.stream_display_limit,
         include_uncached: config.include_uncached,
         main_ladder: config.main_ladder,
@@ -2047,6 +2156,7 @@ export class CatalogCore {
           ...emptyStreamFilterMeta(config),
           total: raw.streams.length,
           kept: 0,
+          ...telemetry,
         },
         errors: raw.notes.length > 0 ? resolveNoteMessages(raw.notes) : undefined,
       };
@@ -2074,16 +2184,7 @@ export class CatalogCore {
       play_ladder_step: source === 'obligation_floor' ? OBLIGATION_FLOOR_STEP : 'preview',
       play_ladder_preview: !fromFloor,
       obligation_floor_preview: fromFloor || undefined,
-      excluded: {
-        uncached_debrid: 0,
-        unknown_cache_debrid: 0,
-        above_max_quality: 0,
-        remux: 0,
-        error_stream: 0,
-        title_mismatch: 0,
-        series_pack_for_movie: 0,
-        language_mismatch: 0,
-      },
+      ...telemetry,
     };
 
     return {
@@ -2267,6 +2368,11 @@ export class CatalogCore {
       if (probeId === episodeId) {
         continue;
       }
+      recordResolveMetric('alias_probes');
+      emitPlaybackTelemetry('resolve_alias_probe', {
+        resolve_request_class: options.requestClass ?? 'background',
+        alias_probe_count: 1,
+      });
       const probe = await this.rawStreams('series', probeId, options);
       resolveMs += probe.resolveMs;
       notes.push(...probe.notes, resolveNote('annotation', `main cross-probe ${probeId}`));
@@ -2371,6 +2477,11 @@ export class CatalogCore {
     const aliasIds = bonusIndexerProbeIds(episodeId, videos);
     for (const probeId of aliasIds) {
       probesUsed += 1;
+      recordResolveMetric('alias_probes');
+      emitPlaybackTelemetry('resolve_alias_probe', {
+        resolve_request_class: options.requestClass ?? 'background',
+        alias_probe_count: 1,
+      });
       const probe = await this.rawStreams('series', probeId, options);
       resolveMs += probe.resolveMs;
       notes.push(...probe.notes, resolveNote('annotation', `bonus indexer probe ${probeId}`));
@@ -2412,6 +2523,11 @@ export class CatalogCore {
           break;
         }
         probesUsed += 1;
+        recordResolveMetric('alias_probes');
+        emitPlaybackTelemetry('resolve_alias_probe', {
+          resolve_request_class: options.requestClass ?? 'background',
+          alias_probe_count: 1,
+        });
         const probe = await this.rawStreams('series', probeId, options);
         resolveMs += probe.resolveMs;
         notes.push(...probe.notes, resolveNote('annotation', `bonus ${tier} probe ${probeId}`));
@@ -2518,17 +2634,53 @@ export class CatalogCore {
       this.streamNegativeCache.delete(key);
     }
 
-    const inflight = this.streamInFlight.get(key);
+    const requestClass = options.requestClass ?? 'background';
+    const behaviorKey = streamFlightBehaviorKey(options);
+    const flightKey = streamFlightKey(key, options);
+    const inflight = this.streamInFlight.get(flightKey);
     if (inflight) {
       // A concurrent identical resolve is already running — join it rather than
       // firing a second AIO fan-out for the same title in the same window.
-      return inflight;
-    }
-    const resolve = this.performRawStreamResolve(type, id, key, options)
-      .finally(() => {
-        this.streamInFlight.delete(key);
+      recordResolveMetric(requestClass === 'user' ? 'flight_join_user' : 'flight_join_background');
+      emitPlaybackTelemetry('resolve_flight', {
+        resolve_request_class: requestClass,
+        flight_result: 'join_equivalent',
       });
-    this.streamInFlight.set(key, resolve);
+      return inflight.promise;
+    }
+    if (requestClass === 'user' && [...this.streamInFlight.values()].some(
+      (flight) => flight.baseKey === key && flight.requestClass === 'background',
+    )) {
+      recordResolveMetric('foreground_bypass_background');
+      emitPlaybackTelemetry('resolve_flight', {
+        resolve_request_class: requestClass,
+        flight_result: 'foreground_bypass_background',
+      });
+    }
+    if (requestClass === 'background') {
+      const foreground = [...this.streamInFlight.values()].find(
+        (flight) => flight.baseKey === key
+          && flight.requestClass === 'user'
+          && flight.behaviorKey === behaviorKey,
+      );
+      if (foreground) {
+        recordResolveMetric('flight_join_background');
+        emitPlaybackTelemetry('resolve_flight', {
+          resolve_request_class: requestClass,
+          flight_result: 'background_join_foreground',
+        });
+        return foreground.promise;
+      }
+    }
+    const generation = this.streamInvalidationGeneration.get(key) ?? 0;
+    let resolve: Promise<RawStreamResolution>;
+    resolve = this.performRawStreamResolve(type, id, key, options, generation)
+      .finally(() => {
+        if (this.streamInFlight.get(flightKey)?.promise === resolve) {
+          this.streamInFlight.delete(flightKey);
+        }
+      });
+    this.streamInFlight.set(flightKey, { baseKey: key, behaviorKey, requestClass, promise: resolve });
     return resolve;
   }
 
@@ -2537,7 +2689,11 @@ export class CatalogCore {
     id: string,
     key: string,
     options: ResolveStreamOptions,
+    generation: number,
   ): Promise<RawStreamResolution> {
+    const cacheStillCurrent = (): boolean => (
+      (this.streamInvalidationGeneration.get(key) ?? 0) === generation
+    );
     if (type === 'tv' && isArea69ChannelId(id)) {
       const streamId = parseArea69StreamId(id);
       if (!streamId) {
@@ -2554,7 +2710,7 @@ export class CatalogCore {
       const notes = streams.length > 0
         ? []
         : [resolveNote('addon_error', 'area69 stream resolve failed: missing credentials or stream unavailable')];
-      if (hasCacheableStream(streams)) {
+      if (hasCacheableStream(streams) && cacheStillCurrent()) {
         this.streamCache.set(key, {
           streams,
           notes,
@@ -2573,9 +2729,18 @@ export class CatalogCore {
 
     for (let attempt = 0; attempt <= retryAttempts; attempt += 1) {
       const streamAddons = this.addons.filter((addon) => supportsResource(addon.manifest, 'stream', type));
+      const fanoutStarted = Date.now();
       const settled = await Promise.allSettled(
         streamAddons.map((addon) => this.fetchAddonStreams(addon, type, id, options)),
       );
+      const fanoutMs = Date.now() - fanoutStarted;
+      recordProviderFanout(streamAddons.length, fanoutMs);
+      emitPlaybackTelemetry('provider_fanout', {
+        resolve_request_class: options.requestClass ?? 'background',
+        provider_fanout_count: streamAddons.length,
+        provider_fanout_ms: fanoutMs,
+        retry_attempt: attempt,
+      });
 
       streams = [];
       notes = [];
@@ -2596,7 +2761,7 @@ export class CatalogCore {
       }
     }
 
-    const supplemented = await this.supplementThinStreams(type, id, streams, notes);
+    const supplemented = await this.supplementThinStreams(type, id, streams, notes, options);
     streams = supplemented.streams;
     notes = supplemented.notes;
 
@@ -2607,7 +2772,7 @@ export class CatalogCore {
         resolveNote('annotation', `zero streams after ${retryAttempts + 1} attempts`),
       ];
     }
-    if (streams.length > 0 && hasCacheableStream(streams)) {
+    if (streams.length > 0 && hasCacheableStream(streams) && cacheStillCurrent()) {
       this.streamNegativeCache.delete(key);
       this.streamCache.set(key, {
         streams,
@@ -2615,19 +2780,21 @@ export class CatalogCore {
         resolveMs,
         expiresAt: Date.now() + STREAM_CACHE_TTL_MS,
       });
-    } else if (streams.length > 0) {
+    } else if (streams.length > 0 && cacheStillCurrent()) {
       // Confirmed rate-limit only → busy backoff. Timeouts/5xx → miss (user retries immediately).
       const rateLimited = hasStreamResolveRateLimitErrors(notes)
         || streams.some((stream) => isRateLimitedStreamUrl(stream.url || ''));
+      if (rateLimited) recordResolveMetric('rate_limit_classifications');
       const now = Date.now();
       this.streamNegativeCache.set(key, {
         until: now + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
         userUntil: now + (rateLimited ? STREAM_USER_RATE_LIMIT_BACKOFF_MS : 0),
         reason: rateLimited ? 'rate_limited' : 'miss',
       });
-    } else {
+    } else if (cacheStillCurrent()) {
       // True empty. Rate-limit → busy backoff; timeout/infra → miss so couch can retry now.
       const rateLimited = hasStreamResolveRateLimitErrors(notes);
+      if (rateLimited) recordResolveMetric('rate_limit_classifications');
       const now = Date.now();
       this.streamNegativeCache.set(key, {
         until: now + (rateLimited ? STREAM_RATE_LIMIT_BACKOFF_MS : STREAM_NEGATIVE_CACHE_MS),
@@ -2647,6 +2814,7 @@ export class CatalogCore {
     id: string,
     streams: Stream[],
     notes: ResolveNote[],
+    options: ResolveStreamOptions = {},
   ): Promise<{ streams: Stream[]; notes: ResolveNote[] }> {
     const hasDirectMediaFusion = this.addons.some((addon) => (
       isMediaFusionAddon(addon.name, addon.manifestUrl)
@@ -2669,9 +2837,18 @@ export class CatalogCore {
       return { streams, notes };
     }
     try {
+      const supplementBudget = options.deadlineAtMs === undefined
+        ? MEDIAFUSION_SUPPLEMENT_BUDGET_MS
+        : capToPlayBudgetMs(MEDIAFUSION_SUPPLEMENT_BUDGET_MS, options.deadlineAtMs);
+      if (supplementBudget <= 0) {
+        return {
+          streams,
+          notes: [...notes, resolveNote('annotation', 'mediafusion thin-supplement skipped — play deadline exhausted')],
+        };
+      }
       const result = await fetchJson(
         mediaFusionStreamUrl(manifestUrl, type, id),
-        MEDIAFUSION_SUPPLEMENT_BUDGET_MS,
+        supplementBudget,
       ) as { streams?: unknown[] };
       const extra: Stream[] = [];
       for (const stream of result.streams || []) {
@@ -2706,9 +2883,16 @@ export class CatalogCore {
     options: ResolveStreamOptions = {},
   ): Promise<{ streams: Stream[] }> {
     try {
+      const classBudget = streamResolveBudgetMs(options.requestClass);
+      const fetchBudget = options.deadlineAtMs === undefined
+        ? classBudget
+        : capToPlayBudgetMs(classBudget, options.deadlineAtMs);
+      if (fetchBudget <= 0) {
+        throw new Error('play deadline exceeded');
+      }
       const result = await fetchJson(
         resourceUrl(addon, 'stream', type, id),
-        streamResolveBudgetMs(options.requestClass),
+        fetchBudget,
       ) as { streams?: unknown[] };
       const streams: Stream[] = [];
       for (const stream of result.streams || []) {

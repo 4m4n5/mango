@@ -6,7 +6,6 @@ import {
   loadNextPrompt,
   loadRailRelatedCards,
   playCard,
-  cancelPlay,
   notInterestedYoutubeCard,
   type CatalogMeta,
   type CatalogStream,
@@ -123,6 +122,27 @@ export class DetailController {
     this.maybePromptNextEpisode();
   }
 
+  /** Refresh progress truth in place before restoring couch focus.
+   *
+   * Keeping pendingEpisodeRestore populated makes loadEpisodeList render the
+   * refreshed season/episode without auto-focusing an asynchronously-created
+   * episode button. The existing detail DOM remains mounted throughout.
+   */
+  async refreshAfterPlayback(episodeId?: string): Promise<void> {
+    const card = this.card;
+    this.clearPlayBusy();
+    if (card?.type === "series") {
+      this.pendingEpisodeRestore = episodeId ?? this.selectedEpisodeId;
+      await this.loadEpisodeList(card);
+    }
+    if (this.card !== card) {
+      return;
+    }
+    this.updatePlayButtonLabel();
+    this.focusPlayButton();
+    this.maybePromptNextEpisode();
+  }
+
   restoreAfterPlayback(
     card: ContentCard,
     railLabel: string,
@@ -158,7 +178,6 @@ export class DetailController {
     this.resolvingPlay = false;
     this.streamsPending = false;
     this.clearPlayBusy();
-    void cancelPlay();
     this.playButton.disabled = false;
     this.saveButton.disabled = false;
     this.notInterestedButton.disabled = false;
@@ -271,7 +290,6 @@ export class DetailController {
     this.clearPlayBusy();
     this.playAbort?.abort();
     this.playAbort = null;
-    void cancelPlay();
     this.card = null;
     this.pendingEpisodeRestore = null;
     clearPlaybackReturnSnapshot();
@@ -381,26 +399,26 @@ export class DetailController {
             ? "resolving YouTube…"
             : card.type === "tv" || this.browseTab === "live"
             ? "connecting to channel…"
-            : "trying best match…",
+            : "still finding a playable stream…",
         );
       }
     }, 2000);
-    const alternateTimer = window.setTimeout(() => {
+    const slowResolveTimer = window.setTimeout(() => {
       if (this.playToken === token && this.card?.id === card.id) {
         if (this.isYoutubeCard(card) || card.type === "tv" || this.browseTab === "live") {
           return;
         }
-        this.publishPlayProgress("trying alternate release…");
-      }
-    }, 20000);
-    const cachingTimer = window.setTimeout(() => {
-      if (this.playToken === token && this.card?.id === card.id) {
-        if (this.isYoutubeCard(card) || card.type === "tv" || this.browseTab === "live") {
-          return;
-        }
-        this.publishPlayProgress("caching stream on TorBox…");
+        this.publishPlayProgress("still finding a playable stream…");
       }
     }, 10000);
+    const longResolveTimer = window.setTimeout(() => {
+      if (this.playToken === token && this.card?.id === card.id) {
+        if (this.isYoutubeCard(card) || card.type === "tv" || this.browseTab === "live") {
+          return;
+        }
+        this.publishPlayProgress("this is taking longer than usual…");
+      }
+    }, 20000);
     try {
       const result = await playCard(card, {
         signal: abort.signal,
@@ -447,8 +465,8 @@ export class DetailController {
       );
     } finally {
       window.clearTimeout(startingTimer);
-      window.clearTimeout(alternateTimer);
-      window.clearTimeout(cachingTimer);
+      window.clearTimeout(slowResolveTimer);
+      window.clearTimeout(longResolveTimer);
       if (this.playAbort === abort) {
         this.playAbort = null;
       }

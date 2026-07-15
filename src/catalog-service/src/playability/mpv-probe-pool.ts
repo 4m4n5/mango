@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { PlayResult } from '../mpv.js';
+import { parseMpvSuccessOutput, type PlayResult } from '../mpv.js';
 import { playabilityProbeConcurrency, playabilityUseProbePool } from './config.js';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -101,9 +101,5 @@ export async function probeUrlViaPool(
   });
 
   const output = `${stdout}\n${stderr}`;
-  const parsed = output.match(/ttff_ms=(\d+)/);
-  return {
-    ok: true,
-    ttff_ms: parsed ? Number(parsed[1]) : Date.now() - started,
-  };
+  return parseMpvSuccessOutput(output, Date.now() - started);
 }

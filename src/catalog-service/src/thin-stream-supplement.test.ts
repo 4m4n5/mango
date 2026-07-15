@@ -10,6 +10,7 @@ import {
   shouldSkipThinSupplementAfterPrimaryTimeout,
   shouldSupplementThinStreams,
 } from './thin-stream-supplement.js';
+import { selectDisplayStreamCandidates } from './play-ladder.js';
 
 function stream(url: string, name = 'ok'): Stream {
   return { url, name, source: 'test' };
@@ -97,4 +98,21 @@ test('shouldSkipThinSupplementAfterPrimaryTimeout only when empty + hard timeout
     ),
     false,
   );
+});
+
+test('S3: thin supplement with unknown metadata cannot enter a verified 4K step', () => {
+  const thin = stream('https://mf.test/unknown.mkv', '[TB☁️⚡] MediaFusion');
+  const merged = mergeUniqueStreams([], [thin]);
+  const selected = selectDisplayStreamCandidates(merged, [{
+    step: '4k_verified',
+    max_quality: '2160p',
+    min_quality: '2160p',
+    exclude_remux: false,
+    require_hevc: true,
+    require_cache: 'cached',
+    verified: true,
+    addons: ['test'],
+  }]);
+  assert.notEqual(selected.source, 'preference_ladder');
+  assert.ok(!selected.candidates.some((candidate) => candidate.ladder_step === '4k_verified'));
 });

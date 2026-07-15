@@ -10,6 +10,9 @@ PLAYBACK_OSD_LOG="${MANGO_PLAYBACK_OSD_LOG:-${HOME}/.cache/mango/playback-osd.lo
 PLAY_CANCEL_FILE="${MANGO_PLAY_CANCEL_PATH:-${HOME}/.cache/mango/play-cancel.epoch}"
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
 PLAYBACK_DISPLAY_MATCHED_FILE="${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${HOME}/.cache/mango/playback-display-matched}"
+MPV_PID_FILE="${MANGO_MPV_PID_FILE:-${HOME}/.cache/mango/mpv.pid}"
+PLAYBACK_OWNERSHIP_LOCK="${MANGO_PLAYBACK_OWNERSHIP_LOCK:-${HOME}/.cache/mango/playback-owner.lock.d}"
+REQUEST_CLASS="${MANGO_PLAY_REQUEST_CLASS:-background}"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
@@ -55,17 +58,94 @@ if $STOP; then
   exec bash "$SCRIPT_DIR/mpv-stop.sh"
 fi
 
-if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
-  bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv play >/dev/null 2>&1 || true
-fi
-
 [[ -n "$URL" ]] || usage
 [[ "$TIMEOUT_MS" =~ ^[0-9]+$ ]] || usage
 [[ "$MIN_DURATION_SEC" =~ ^[0-9]+$ ]] || usage
+[[ "$REQUEST_CLASS" == "user" || "$REQUEST_CLASS" == "background" ]] || usage
 
 now_ms() {
   python3 -c 'import time; print(int(time.time()*1000))'
 }
+
+# The script receives only the remaining server budget. Start its one deadline
+# before lock wait, ffprobe, mpv startup, handoff, and playback confirmation.
+START_MS="$(now_ms)"
+DEADLINE_MS=$((START_MS + TIMEOUT_MS))
+
+remaining_budget_ms() {
+  local remaining=$((DEADLINE_MS - $(now_ms)))
+  (( remaining > 0 )) && printf '%s\n' "$remaining" || printf '0\n'
+}
+
+authoritative_playback_active() {
+  local tracked_pid=""
+  if [[ -f "$MPV_PID_FILE" ]]; then
+    tracked_pid="$(tr -dc '0-9' <"$MPV_PID_FILE" 2>/dev/null || true)"
+  fi
+  if [[ -n "$tracked_pid" ]] && kill -0 "$tracked_pid" 2>/dev/null && [[ -S "$SOCKET" ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# Serialize the final active check with mpv replacement. The atomic directory
+# lock works on both macOS source tests and Raspberry Pi without another daemon.
+release_playback_ownership() {
+  local owner=""
+  owner="$(cat "$PLAYBACK_OWNERSHIP_LOCK/owner" 2>/dev/null || true)"
+  if [[ "$owner" == "$$" ]]; then
+    rm -f "$PLAYBACK_OWNERSHIP_LOCK/owner"
+    rmdir "$PLAYBACK_OWNERSHIP_LOCK" 2>/dev/null || true
+  fi
+}
+
+acquire_playback_ownership() {
+  local attempts=1
+  if [[ "$REQUEST_CLASS" == "user" ]]; then
+    local wait_ms="${MANGO_PLAYBACK_OWNERSHIP_WAIT_MS:-15000}"
+    [[ "$wait_ms" =~ ^[0-9]+$ ]] || wait_ms=15000
+    attempts=$((wait_ms / 100 + 1))
+  fi
+  local attempt owner
+  mkdir -p "$(dirname "$PLAYBACK_OWNERSHIP_LOCK")"
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    if mkdir "$PLAYBACK_OWNERSHIP_LOCK" 2>/dev/null; then
+      printf '%s\n' "$$" >"$PLAYBACK_OWNERSHIP_LOCK/owner"
+      trap release_playback_ownership EXIT
+      return 0
+    fi
+    owner="$(cat "$PLAYBACK_OWNERSHIP_LOCK/owner" 2>/dev/null || true)"
+    if [[ -n "$owner" ]] && ! kill -0 "$owner" 2>/dev/null; then
+      rm -f "$PLAYBACK_OWNERSHIP_LOCK/owner"
+      rmdir "$PLAYBACK_OWNERSHIP_LOCK" 2>/dev/null || true
+      continue
+    fi
+    [[ "$REQUEST_CLASS" == "background" ]] && return 1
+    [[ "$(remaining_budget_ms)" -le 100 ]] && return 1
+    sleep 0.1
+  done
+  return 1
+}
+
+if ! acquire_playback_ownership; then
+  if [[ "$REQUEST_CLASS" == "background" ]]; then
+    echo "DEFERRED: foreground_playback_busy"
+    exit 75
+  else
+    echo "FAIL: playback ownership busy" >&2
+    exit 1
+  fi
+fi
+if [[ "$REQUEST_CLASS" == "background" ]]; then
+  if authoritative_playback_active; then
+    echo "DEFERRED: foreground_playback_active"
+    exit 75
+  fi
+else
+  if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
+    bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv play >/dev/null 2>&1 || true
+  fi
+fi
 
 mpv_property() {
   local property="$1"
@@ -268,23 +348,37 @@ detect_hwdec() {
 
 detect_video_profile() {
   local probe_timeout="${MANGO_MPV_FFPROBE_TIMEOUT_SEC:-12}"
-  local probe_json
+  local probe_json probe_timeout_ms remaining_ms
   command -v ffprobe >/dev/null 2>&1 || return 1
-  if command -v timeout >/dev/null 2>&1; then
-    probe_json="$(timeout "${probe_timeout}s" ffprobe \
-      -v error \
-      -select_streams v:0 \
-      -show_entries stream=width,height,avg_frame_rate,r_frame_rate:format=duration \
-      -of json \
-      "$URL" 2>/dev/null || true)"
-  else
-    probe_json="$(ffprobe \
-      -v error \
-      -select_streams v:0 \
-      -show_entries stream=width,height,avg_frame_rate,r_frame_rate:format=duration \
-      -of json \
-      "$URL" 2>/dev/null || true)"
-  fi
+  [[ "$probe_timeout" =~ ^[0-9]+$ ]] || probe_timeout=12
+  remaining_ms="$(remaining_budget_ms)"
+  (( remaining_ms > 0 )) || return 1
+  probe_timeout_ms=$((probe_timeout * 1000))
+  (( probe_timeout_ms > remaining_ms )) && probe_timeout_ms="$remaining_ms"
+  probe_json="$(python3 - "$probe_timeout_ms" "$URL" <<'PY'
+import subprocess
+import sys
+
+timeout_ms = max(1, int(sys.argv[1]))
+url = sys.argv[2]
+try:
+    result = subprocess.run(
+        [
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height,avg_frame_rate,r_frame_rate:format=duration",
+            "-of", "json", url,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=timeout_ms / 1000.0,
+        check=False,
+    )
+except (subprocess.TimeoutExpired, OSError):
+    raise SystemExit(1)
+if result.returncode == 0:
+    sys.stdout.write(result.stdout)
+PY
+)" || true
   [[ -n "$probe_json" ]] || return 1
   python3 -c '
 import json
@@ -387,37 +481,48 @@ start_mpv_exit_monitor() {
   # as pad ⌂ (mpv-stop.sh). An explicit --stop clears mpv.pid first, so this
   # no-ops (mpv-stop.sh already handled restore).
   local pid="$1"
-  local pidfile="${HOME}/.cache/mango/mpv.pid"
+  local pidfile="$MPV_PID_FILE"
+  local expected_epoch="${MANGO_PLAY_EPOCH:-}"
+  local cancel_file="$PLAY_CANCEL_FILE"
   setsid bash -c '
     pid="$1"
     repo="$2"
     pidfile="$3"
+    expected_epoch="$4"
+    cancel_file="$5"
     while kill -0 "$pid" 2>/dev/null; do
-      sleep 1
+      if [[ -n "$expected_epoch" && -f "$cancel_file" ]] \
+        && [[ "$(tr -d "[:space:]" <"$cancel_file" 2>/dev/null || true)" != "$expected_epoch" ]]; then
+        if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
+          MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_HOME=0 \
+            bash "$repo/scripts/m2-catalog/service/mpv-stop.sh" >/dev/null 2>&1 || true
+        fi
+        exit 0
+      fi
+      sleep 0.2
     done
     if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
       MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_HOME=1 \
         bash "$repo/scripts/m2-catalog/service/mpv-stop.sh" >/dev/null 2>&1 || true
     fi
-  ' bash "$pid" "$REPO_DIR" "$pidfile" >/dev/null 2>&1 &
+  ' bash "$pid" "$REPO_DIR" "$pidfile" "$expected_epoch" "$cancel_file" >/dev/null 2>&1 &
 }
 
 append_mpv_cache_args() {
-  local -n args_ref="$1"
   if [[ -n "${MANGO_MPV_CACHE:-}" ]]; then
-    args_ref+=(--cache="${MANGO_MPV_CACHE}")
+    mpv_args+=(--cache="${MANGO_MPV_CACHE}")
   fi
   if [[ -n "${MANGO_MPV_CACHE_PAUSE:-}" ]]; then
-    args_ref+=(--cache-pause="${MANGO_MPV_CACHE_PAUSE}")
+    mpv_args+=(--cache-pause="${MANGO_MPV_CACHE_PAUSE}")
   fi
   if [[ -n "${MANGO_MPV_DEMUXER_MAX_BYTES:-}" ]]; then
-    args_ref+=(--demuxer-max-bytes="${MANGO_MPV_DEMUXER_MAX_BYTES}")
+    mpv_args+=(--demuxer-max-bytes="${MANGO_MPV_DEMUXER_MAX_BYTES}")
   fi
   if [[ -n "${MANGO_MPV_DEMUXER_MAX_BACK_BYTES:-}" ]]; then
-    args_ref+=(--demuxer-max-back-bytes="${MANGO_MPV_DEMUXER_MAX_BACK_BYTES}")
+    mpv_args+=(--demuxer-max-back-bytes="${MANGO_MPV_DEMUXER_MAX_BACK_BYTES}")
   fi
   if [[ -n "${MANGO_MPV_READAHEAD_SECS:-}" ]]; then
-    args_ref+=(--demuxer-readahead-secs="${MANGO_MPV_READAHEAD_SECS}")
+    mpv_args+=(--demuxer-readahead-secs="${MANGO_MPV_READAHEAD_SECS}")
   fi
 }
 
@@ -437,27 +542,25 @@ resolve_video_sync() {
 }
 
 append_mpv_live_args() {
-  local -n args_ref="$1"
   $LIVE || return 0
   case "${MANGO_MPV_LIVE_CACHE:-yes}" in
     0 | no | false) return 0 ;;
   esac
-  args_ref+=(--cache=yes)
-  args_ref+=(--cache-secs="${MANGO_MPV_LIVE_CACHE_SECS:-4}")
-  args_ref+=(--cache-pause=yes)
-  args_ref+=(--demuxer-readahead-secs="${MANGO_MPV_LIVE_READAHEAD_SECS:-2}")
-  args_ref+=(--video-latency-hacks=yes)
+  mpv_args+=(--cache=yes)
+  mpv_args+=(--cache-secs="${MANGO_MPV_LIVE_CACHE_SECS:-4}")
+  mpv_args+=(--cache-pause=yes)
+  mpv_args+=(--demuxer-readahead-secs="${MANGO_MPV_LIVE_READAHEAD_SECS:-2}")
+  mpv_args+=(--video-latency-hacks=yes)
   case "${MANGO_MPV_LIVE_SWAPINTERVAL:-1}" in
     0 | no | false) ;;
-    *) args_ref+=(--opengl-swapinterval="${MANGO_MPV_LIVE_SWAPINTERVAL:-1}") ;;
+    *) mpv_args+=(--opengl-swapinterval="${MANGO_MPV_LIVE_SWAPINTERVAL:-1}") ;;
   esac
   if [[ -n "${MANGO_MPV_LIVE_FRAMEDROP:-vo}" ]]; then
-    args_ref+=(--framedrop="${MANGO_MPV_LIVE_FRAMEDROP:-vo}")
+    mpv_args+=(--framedrop="${MANGO_MPV_LIVE_FRAMEDROP:-vo}")
   fi
 }
 
 append_mpv_hud_args() {
-  local -n args_ref="$1"
   [[ "${MANGO_PLAYBACK_OSD:-1}" != "0" ]] || return 0
   [[ "${MANGO_PLAYBACK_OSD_BACKEND:-lua}" == "lua" ]] || return 0
   local hud_lua="$SCRIPT_DIR/mango-hud.lua"
@@ -466,62 +569,80 @@ append_mpv_hud_args() {
   # intact — no external overlay window to force recompositing and stutter 4K
   # present. Disable the mouse OSC and the native seek bar so nothing else draws
   # over the frame; the pad triggers our HUD via `script-message mango-hud-show`.
-  args_ref+=(
+  mpv_args+=(
     --script="$hud_lua"
     --osc=no
     --osd-bar=no
   )
 }
 
+append_mpv_gpu_startup_args() {
+  if [[ -n "${MANGO_MPV_GPU_API:-opengl}" ]]; then
+    mpv_args+=("--gpu-api=${MANGO_MPV_GPU_API:-opengl}")
+  fi
+  case "${MANGO_MPV_OPENGL_ES:-yes}" in
+    1 | yes | true) mpv_args+=(--opengl-es=yes) ;;
+  esac
+  if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
+    mpv_args+=("--profile=${MANGO_MPV_PROFILE:-fast}")
+  fi
+}
+
+append_mpv_subtitle_startup_args() {
+  mpv_args+=(
+    --sub-visibility=no
+    --sid=no
+    --sub-auto=all
+    --blend-subtitles="${MANGO_MPV_BLEND_SUBTITLES:-no}"
+    --sub-font-size="${MANGO_MPV_SUB_FONT_SIZE:-52}"
+  )
+}
+
+# Non-display-sensitive VOD policy shared by immediate and vo=null deferred
+# startup. Handoff changes only VO/AO/fullscreen and display-sensitive sync.
+append_mpv_vod_startup_policy_args() {
+  if [[ -n "${MANGO_MPV_TONE_MAPPING:-}" ]]; then
+    mpv_args+=("--tone-mapping=${MANGO_MPV_TONE_MAPPING}")
+  fi
+  if [[ -n "${MANGO_MPV_AUDIO_CHANNELS:-}" ]]; then
+    mpv_args+=("--audio-channels=${MANGO_MPV_AUDIO_CHANNELS}")
+  fi
+  append_mpv_subtitle_startup_args
+  append_mpv_cache_args
+  case "${MANGO_MPV_VOD_SWAPINTERVAL:-1}" in
+    0 | no | false) ;;
+    *) mpv_args+=(--opengl-swapinterval="${MANGO_MPV_VOD_SWAPINTERVAL:-1}") ;;
+  esac
+  append_mpv_hud_args
+  if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
+    mpv_args+=(--start="$START_SEC")
+  fi
+}
+
 append_mpv_render_args() {
-  local -n args_ref="$1"
   local sync
   # Pi 5 tear-free render path: OpenGL (ES) avoids the mpv 0.40 Vulkan default
   # whose libplacebo DRM-modifier mismatch blue-screens on vc4; profile=fast
   # keeps GPU load low enough for 4K HEVC. All env-overridable for A/B testing.
-  args_ref+=("--vo=${MANGO_MPV_VO:-gpu}")
-  if [[ -n "${MANGO_MPV_GPU_API:-opengl}" ]]; then
-    args_ref+=("--gpu-api=${MANGO_MPV_GPU_API:-opengl}")
-  fi
-  case "${MANGO_MPV_OPENGL_ES:-yes}" in
-    1 | yes | true) args_ref+=(--opengl-es=yes) ;;
-  esac
-  if [[ -n "${MANGO_MPV_PROFILE:-fast}" ]]; then
-    args_ref+=("--profile=${MANGO_MPV_PROFILE:-fast}")
-  fi
+  mpv_args+=("--vo=${MANGO_MPV_VO:-gpu}")
+  append_mpv_gpu_startup_args
   sync="$(resolve_video_sync)"
   if [[ -n "$sync" ]]; then
-    args_ref+=("--video-sync=${sync}")
+    mpv_args+=("--video-sync=${sync}")
   fi
   if [[ -n "${MANGO_MPV_INTERPOLATION:-no}" ]]; then
-    args_ref+=("--interpolation=${MANGO_MPV_INTERPOLATION:-no}")
+    mpv_args+=("--interpolation=${MANGO_MPV_INTERPOLATION:-no}")
   fi
-  # HDR tone-mapping curve (SDR output only — X11 has no HDR passthrough; the
-  # Pi 5 stack tone-maps HDR10/HLG down to SDR). Unset -> mpv default. gpu-next
-  # gives the most coherent tone-mapping, so the hifi engine pairs this with
-  # --vo=gpu-next.
-  if [[ -n "${MANGO_MPV_TONE_MAPPING:-}" ]]; then
-    args_ref+=("--tone-mapping=${MANGO_MPV_TONE_MAPPING}")
-  fi
-  append_mpv_cache_args "$1"
-  # Multichannel HDMI audio for REMUX soundtracks. auto-safe negotiates the
-  # channel layout the TV/receiver reports over HDMI EDID (5.1 when supported,
-  # stereo downmix otherwise) so it never breaks stereo-only displays.
-  if [[ -n "${MANGO_MPV_AUDIO_CHANNELS:-}" ]]; then
-    args_ref+=("--audio-channels=${MANGO_MPV_AUDIO_CHANNELS}")
-  fi
-  append_mpv_live_args "$1"
   if ! $LIVE; then
-    case "${MANGO_MPV_VOD_SWAPINTERVAL:-1}" in
-      0 | no | false) ;;
-      *) args_ref+=(--opengl-swapinterval="${MANGO_MPV_VOD_SWAPINTERVAL:-1}") ;;
-    esac
+    append_mpv_vod_startup_policy_args
+  else
+    append_mpv_cache_args
+    append_mpv_live_args
   fi
 }
 
 append_mpv_buffer_args() {
-  local -n args_ref="$1"
-  args_ref+=(
+  mpv_args+=(
     --idle=no
     --keep-open=no
     --no-terminal
@@ -530,13 +651,10 @@ append_mpv_buffer_args() {
     --vo=null
     --ao=null
   )
-  append_mpv_hud_args "$1"
-  append_mpv_cache_args "$1"
-  if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
-    args_ref+=(--start="$START_SEC")
-  fi
+  append_mpv_gpu_startup_args
+  append_mpv_vod_startup_policy_args
   if [[ -n "$AUDIO_URL" ]]; then
-    args_ref+=(--audio-file="$AUDIO_URL")
+    mpv_args+=(--audio-file="$AUDIO_URL")
   fi
 }
 
@@ -564,22 +682,24 @@ enable_mpv_display_once() {
     printf '{"command":["set_property","interpolation","%s"]}\n' "${MANGO_MPV_INTERPOLATION:-no}" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
   printf '%s\n' '{"command":["set_property","fullscreen",true]}' | socat - "$SOCKET" >/dev/null 2>&1 || return 1
-  local ao="" device="" pending_device=false
-  for arg in "${audio_args[@]}"; do
-    if $pending_device; then
-      device="$arg"
-      pending_device=false
-      continue
-    fi
-    case "$arg" in
-      --ao=*) ao="${arg#--ao=}" ;;
-      --audio-device=*) device="${arg#--audio-device=}" ;;
-      --audio-device) pending_device=true ;;
-    esac
-  done
-  if [[ -n "$ao" ]]; then
-    printf '{"command":["set_property","ao","%s"]}\n' "$ao" | socat - "$SOCKET" >/dev/null 2>&1 || true
+  # Deferred VOD starts with ao=null. Explicitly restore mpv's automatic AO
+  # selection when no device override exists; otherwise audio remains muted.
+  local ao="${MANGO_MPV_AO:-auto}" device="" pending_device=false
+  if (( ${#audio_args[@]} > 0 )); then
+    for arg in "${audio_args[@]}"; do
+      if $pending_device; then
+        device="$arg"
+        pending_device=false
+        continue
+      fi
+      case "$arg" in
+        --ao=*) ao="${arg#--ao=}" ;;
+        --audio-device=*) device="${arg#--audio-device=}" ;;
+        --audio-device) pending_device=true ;;
+      esac
+    done
   fi
+  printf '{"command":["set_property","ao","%s"]}\n' "$ao" | socat - "$SOCKET" >/dev/null 2>&1 || true
   if [[ -n "$device" ]]; then
     printf '{"command":["set_property","audio-device","%s"]}\n' "$device" | socat - "$SOCKET" >/dev/null 2>&1 || true
   fi
@@ -653,8 +773,7 @@ except Exception:
 }
 
 append_mpv_play_args() {
-  local -n args_ref="$1"
-  args_ref+=(
+  mpv_args+=(
     --idle=no
     --keep-open=no
     --no-terminal
@@ -663,31 +782,30 @@ append_mpv_play_args() {
   )
   if $PROBE; then
     # Indexer/gate probes must not seize the TV fullscreen.
-    args_ref+=(--vo=null --ao=null --really-quiet)
+    mpv_args+=(--vo=null --ao=null --really-quiet)
   else
-    args_ref+=(--fs "${audio_args[@]}")
+    mpv_args+=(--fs)
+    if (( ${#audio_args[@]} > 0 )); then
+      mpv_args+=("${audio_args[@]}")
+    fi
     # Subs off at start; pad X/•/↑ for subs/OSD. sub-auto=all so cycle sub
     # can reach any embedded track (default fuzzy only exposes forced subs).
     # blend-subtitles=yes stalls 4K present when audio is decoded (~2.5 drops/s
     # on Pi 5 / X11 EGL); ASS overlay path is fine. Override with
     # MANGO_MPV_BLEND_SUBTITLES=yes only for A/B.
-    args_ref+=(
-      --sub-visibility=no
-      --sid=no
-      --sub-auto=all
-      --blend-subtitles="${MANGO_MPV_BLEND_SUBTITLES:-no}"
-      --sub-font-size="${MANGO_MPV_SUB_FONT_SIZE:-52}"
-    )
+    if $LIVE; then
+      append_mpv_subtitle_startup_args
+      append_mpv_hud_args
+      if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
+        mpv_args+=(--start="$START_SEC")
+      fi
+    fi
     # Do not pass --focus-on-open=no on the Pi GPU fullscreen path: mpv exits
     # immediately (even without --audio-file). Split A/V uses vo=null buffer instead.
-    append_mpv_render_args "$1"
-    append_mpv_hud_args "$1"
-    if [[ -n "$START_SEC" && "$START_SEC" =~ ^[0-9]+$ && "$START_SEC" -gt 0 ]]; then
-      args_ref+=(--start="$START_SEC")
-    fi
+    append_mpv_render_args
   fi
   if [[ -n "$AUDIO_URL" ]]; then
-    args_ref+=(--audio-file="$AUDIO_URL")
+    mpv_args+=(--audio-file="$AUDIO_URL")
   fi
 }
 
@@ -842,8 +960,13 @@ start_playback_osd() {
 
 mkdir -p "$(dirname "$SOCKET")"
 mkdir -p "$(dirname "$MPV_LOG")"
-MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_NO_DISPLAY=1 bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
-begin_playback_session
+if [[ "$REQUEST_CLASS" == "user" ]]; then
+  MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_NO_DISPLAY=1 \
+    bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
+fi
+if [[ "$REQUEST_CLASS" == "user" ]] && ! $PROBE; then
+  begin_playback_session
+fi
 
 URL_LABEL="$(python3 -c 'from urllib.parse import urlparse; import sys; u=urlparse(sys.argv[1]); print(f"{u.scheme}://{u.netloc}/<redacted>")' "$URL" 2>/dev/null || echo "http(s)://<redacted>")"
 HWDEC="$(detect_hwdec)"
@@ -869,7 +992,8 @@ if ! $PROBE; then
       audio_label="${audio_args[$i]#--audio-device=}"
     fi
   done
-  if [[ -z "$video_width" || -z "$video_height" || -z "$video_fps" ]]; then
+  if [[ "${MANGO_MPV_SKIP_FFPROBE:-0}" != "1" ]] \
+    && [[ -z "$video_width" || -z "$video_height" || -z "$video_fps" ]]; then
     if profile="$(detect_video_profile 2>/dev/null || true)" && [[ -n "$profile" ]]; then
       read -r video_width video_height video_fps video_duration <<<"$profile"
       video_label="${video_width}x${video_height}@${video_fps}"
@@ -877,6 +1001,10 @@ if ! $PROBE; then
   fi
   # HDMI match happens in foreground_handoff AFTER launcher hide + black root
   # (never while Chromium is mapped — that caused the 4K-scaled launcher flash).
+fi
+if (( $(remaining_budget_ms) <= 0 )); then
+  echo "FAIL: play deadline exhausted before mpv startup" >&2
+  exit 1
 fi
 DEFER_FOREGROUND_DEFAULT=0
 if [[ "${MANGO_MPV_STOP_LAUNCHER:-0}" == "1" ]]; then
@@ -887,8 +1015,6 @@ if $PROBE; then
   DEFER_FOREGROUND=0
 fi
 echo "mpv-play: $URL_LABEL mode=$MODE backend=mpv live=$LIVE timeout_ms=$TIMEOUT_MS min_duration_sec=$MIN_DURATION_SEC hwdec=$HWDEC audio=${audio_label} video=${video_label}"
-START_MS="$(now_ms)"
-DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 HANDOFF_DONE=false
 DISPLAY_ENABLED=false
 NULL_BUFFER=false
@@ -897,7 +1023,7 @@ GPU_DEFER=false
 mpv_args=()
 if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]]; then
   if needs_vo_null_buffer; then
-    append_mpv_buffer_args mpv_args
+    append_mpv_buffer_args
     NULL_BUFFER=true
   else
     # Single-stream VOD (movies/series): decode on the real GPU VO from the
@@ -905,20 +1031,29 @@ if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]]; then
     # source of sustained 4K REMUX stutter on Pi. Launcher stays on top at
     # browse 1080p until demuxer headroom; HDMI match runs only at handoff
     # after hide+black (no 4K-scaled launcher flash).
-    append_mpv_play_args mpv_args
+    append_mpv_play_args
     DISPLAY_ENABLED=true
     GPU_DEFER=true
   fi
 else
-  append_mpv_play_args mpv_args
+  append_mpv_play_args
   DISPLAY_ENABLED=true
   if ! $PROBE && [[ "$DEFER_FOREGROUND" != "1" ]]; then
     foreground_handoff
   fi
 fi
-setsid mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 < /dev/null &
+if [[ "${MANGO_MPV_PRINT_ARGS:-0}" == "1" ]]; then
+  printf '%s\n' "${mpv_args[@]}"
+  clear_playback_active
+  exit 0
+fi
+if [[ "${MANGO_MPV_PARENT_SCOPED_GROUP:-0}" == "1" ]]; then
+  mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 < /dev/null &
+else
+  setsid mpv "${mpv_args[@]}" "$URL" >>"$MPV_LOG" 2>&1 < /dev/null &
+fi
 MPV_PID=$!
-echo "$MPV_PID" >"${HOME}/.cache/mango/mpv.pid"
+echo "$MPV_PID" >"$MPV_PID_FILE"
 
 while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
   if play_cancelled; then
@@ -931,6 +1066,11 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
       if ! $PROBE && ! $HANDOFF_DONE; then
+        if play_cancelled; then
+          echo "FAIL: play cancelled" >&2
+          MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+          exit 1
+        fi
         if playback_handoff_ready; then
           # foreground_handoff order (buffer path): hide launcher → black root →
           # HDMI match → enable GPU VO on the matched panel → raise. This keeps
@@ -949,9 +1089,15 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
         if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]] && ! $HANDOFF_DONE; then
           :
         else
+          if play_cancelled; then
+            echo "FAIL: play cancelled" >&2
+            MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+            exit 1
+          fi
           END_MS="$(now_ms)"
-          echo "PASS: ttff_ms=$((END_MS - START_MS))"
-          if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
+          DUR="$(mpv_property duration)"
+          echo "PASS: ttff_ms=$((END_MS - START_MS)) duration_sec=${DUR:-0} failure_class=none"
+          if [[ "$REQUEST_CLASS" == "user" ]] && [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
             bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv playing >/dev/null 2>&1 || true
           fi
           if $PROBE; then

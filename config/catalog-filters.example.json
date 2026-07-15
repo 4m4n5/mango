@@ -40,6 +40,7 @@
       "step": "2160p_encode",
       "max_quality": "2160p",
       "exclude_remux": true,
+      "require_hevc": true,
       "require_cache": "cached_or_uncached",
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]

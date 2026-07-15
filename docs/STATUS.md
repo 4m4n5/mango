@@ -292,6 +292,7 @@ Mango ships a unified **mpv-only** couch playback path. Browse stays
 | Stream policy (ship) | `config/catalog-filters.4k-hifi.example.json` — cached 4K SDR HEVC REMUX first, HDR excluded above 1080p, 1080p fallbacks |
 | Stream policy (baseline) | `config/catalog-filters.4k-hdr.example.json` — cached 4K HEVC, no REMUX |
 | Engine switch | `scripts/m6-ship/set-playback-engine.sh mpv\|mpv-hifi\|status` |
+| Runtime source of truth | `~/.config/mango/voice.env` written by `set-playback-engine.sh`; run `set-playback-engine.sh status` on the Pi before claiming the active profile. `mpv-hifi` is the intended ship profile, not a work-Mac assumption. |
 | Display/audio base | `scripts/m6-ship/apply-4k-hdr-profile.sh apply\|revert\|status` — launcher 1080p60, mpv 4K match, HDMI audio |
 | Decode/presentation | mpv `gpu` VO, `hwdec=auto-safe`, deferred foreground, launcher stopped during fullscreen, `xcompmgr` off |
 | Display enforcement | `mango-display-mode.sh ensure-launcher` on stack boot, home, present, stop, deploy, display-wake |

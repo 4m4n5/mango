@@ -1,10 +1,16 @@
 import type { ContentCard } from "./types";
 import { playCard, type NextPromptResponse } from "./catalog";
+import {
+  clearPlaybackReturnSnapshot,
+  savePlaybackReturnSnapshot,
+  tabForCard,
+} from "./playback-return";
 
 export class NextEpisodePrompt {
   private hint: NextPromptResponse | null = null;
   private card: ContentCard | null = null;
   private playToken = 0;
+  private playAbort: AbortController | null = null;
 
   constructor(
     private readonly root: HTMLElement,
@@ -29,6 +35,8 @@ export class NextEpisodePrompt {
     }
     this.hint = hint;
     this.card = card;
+    this.playButton.disabled = false;
+    this.dismissButton.disabled = false;
     const next = hint.next;
     this.titleEl.textContent = hint.series_name || card.title;
     this.metaEl.textContent = `S${next.season} E${next.episode} · ${next.title}`;
@@ -42,6 +50,15 @@ export class NextEpisodePrompt {
     if (!this.isOpen) {
       return;
     }
+    this.playToken += 1;
+    const cancelledPlay = this.playAbort !== null;
+    this.playAbort?.abort();
+    this.playAbort = null;
+    if (cancelledPlay) {
+      clearPlaybackReturnSnapshot();
+    }
+    this.playButton.disabled = false;
+    this.dismissButton.disabled = false;
     this.hint = null;
     this.card = null;
     this.root.classList.add("hidden");
@@ -82,23 +99,32 @@ export class NextEpisodePrompt {
       return;
     }
     const token = ++this.playToken;
+    this.playAbort?.abort();
+    const abort = new AbortController();
+    this.playAbort = abort;
     this.playButton.disabled = true;
     this.dismissButton.disabled = true;
     this.onStatus("starting next episode…");
+    savePlaybackReturnSnapshot(tabForCard(card, "series"), card, hint.next.id);
     try {
-      await playCard(card, { episodeId: hint.next.id });
+      await playCard(card, { episodeId: hint.next.id, signal: abort.signal });
       if (this.playToken !== token) {
         return;
       }
+      this.playAbort = null;
       this.dismiss();
       this.onStatus("playing next episode. ⌂ returns home.");
     } catch (error) {
-      if (this.playToken !== token) {
+      if (abort.signal.aborted || this.playToken !== token) {
         return;
       }
+      clearPlaybackReturnSnapshot();
       const message = error instanceof Error ? error.message : "couldn't start next episode.";
       this.onStatus(message);
     } finally {
+      if (this.playAbort === abort) {
+        this.playAbort = null;
+      }
       if (this.playToken === token) {
         this.playButton.disabled = false;
         this.dismissButton.disabled = false;

@@ -2,7 +2,14 @@
  *  MediaFusion (and some debrid proxies) serve HLS playlists — those are playable by mpv
  *  and must not be treated as unreadable bytes. */
 
-export type PreflightResult = 'video' | 'nfo' | 'error' | 'timeout';
+export type PreflightResult =
+  | 'video'
+  | 'nfo'
+  | 'error'
+  | 'timeout'
+  | 'rate_limited'
+  | 'server_error'
+  | 'http_error';
 
 function preflightRangeEnd(): number {
   const raw = process.env.MANGO_PREFLIGHT_RANGE_END;
@@ -54,8 +61,34 @@ function looksLikeVideo(buf: Buffer): boolean {
 function looksLikeNfo(buf: Buffer): boolean {
   if (buf.length === 0) return false;
   if (looksLikeHls(buf)) return false;
-  const head = buf.slice(0, Math.min(buf.length, 32)).toString('utf8').toLowerCase();
-  return head.startsWith('[') || head.includes('[img]') || head.includes('complete name');
+  const head = buf.slice(0, Math.min(buf.length, 4096)).toString('utf8').toLowerCase();
+  return /^\s*\[img\]/i.test(head)
+    || /(?:^|\n)general\s*(?:\r?\n|$)[\s\S]{0,512}complete name\s*:/i.test(head)
+    || /complete name\s*:\s*\S+[\s\S]{0,512}(?:format|file size|duration)\s*:/i.test(head);
+}
+
+/** Retain at most maxBytes even when a server ignores Range and returns 200. */
+export async function readResponsePrefix(response: Response, maxBytes: number): Promise<Buffer> {
+  if (!response.body || maxBytes <= 0) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  let done = false;
+  try {
+    while (total < maxBytes) {
+      const next = await reader.read();
+      done = next.done;
+      if (next.done || !next.value) break;
+      const remaining = maxBytes - total;
+      const chunk = Buffer.from(next.value.subarray(0, remaining));
+      chunks.push(chunk);
+      total += chunk.length;
+    }
+  } finally {
+    if (!done) await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks, total);
 }
 
 export async function preflightPlaybackUrl(url: string, timeoutMs = 8000): Promise<PreflightResult> {
@@ -69,14 +102,22 @@ export async function preflightPlaybackUrl(url: string, timeoutMs = 8000): Promi
       redirect: 'follow',
       signal: controller.signal,
     });
+    if (response.status === 429) {
+      await response.body?.cancel().catch(() => undefined);
+      return 'rate_limited';
+    }
+    if (response.status >= 500) {
+      await response.body?.cancel().catch(() => undefined);
+      return 'server_error';
+    }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return 'http_error';
+    }
     const contentType = (response.headers.get('content-type') || '').toLowerCase();
-    const buf = Buffer.from(await response.arrayBuffer());
+    const buf = await readResponsePrefix(response, rangeEnd + 1);
     if (contentTypeLooksLikeHls(contentType) || looksLikeHls(buf)) {
       return 'video';
-    }
-    if (contentType.includes('nfo') || contentType.includes('text/')) {
-      if (looksLikeNfo(buf)) return 'nfo';
-      if (!looksLikeVideo(buf)) return 'nfo';
     }
     if (looksLikeVideo(buf)) return 'video';
     if (looksLikeNfo(buf)) return 'nfo';

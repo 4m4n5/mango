@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { CatalogCore } from '../core.js';
@@ -16,6 +16,8 @@ import {
 } from './db.js';
 import { verifyTitle } from './verify.js';
 import { assignVerifiedTitleToBestRail } from './rail-pool-retheme.js';
+import { emitPlaybackTelemetry } from '../playback-telemetry.js';
+import { recordResolveMetric } from '../resolve-metrics.js';
 
 export type DrainTriggersOptions = {
   limit?: number;
@@ -186,11 +188,41 @@ function couchActivityStatePath(): string {
     || join(process.env.XDG_CACHE_HOME || join(homedir(), '.cache'), 'mango/couch-activity.json');
 }
 
+function playbackStatePath(name: 'active' | 'pid' | 'socket'): string {
+  const cacheDir = process.env.XDG_CACHE_HOME || join(homedir(), '.cache');
+  if (name === 'active') {
+    return process.env.MANGO_PLAYBACK_ACTIVE_FILE || join(cacheDir, 'mango/playback-active');
+  }
+  if (name === 'pid') {
+    return process.env.MANGO_MPV_PID_FILE || join(cacheDir, 'mango/mpv.pid');
+  }
+  return process.env.MANGO_MPV_SOCKET || join(cacheDir, 'mango/mpv.sock');
+}
+
+/** Process/socket-backed ownership is authoritative over an old activity timestamp. */
+export function isPlaybackActiveForTriggerConsumer(): boolean {
+  try {
+    const pid = Number.parseInt(readFileSync(playbackStatePath('pid'), 'utf8').trim(), 10);
+    if (Number.isInteger(pid) && pid > 0) {
+      process.kill(pid, 0);
+      if (statSync(playbackStatePath('socket')).isSocket()) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 /**
  * Read-only mirror of scripts/lib/couch-activity.sh's is-idle check (that script and
  * couch-activity.ts own the state file; this only guards the background tick below).
  */
 export function isCouchIdleForTriggerConsumer(now: number = Date.now()): boolean {
+  if (isPlaybackActiveForTriggerConsumer()) {
+    return false;
+  }
   if (process.env.MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY === '1') {
     return true;
   }
@@ -231,6 +263,11 @@ export function maybeRunTriggerConsumerBackgroundTick(core: CatalogCore): void {
     return;
   }
   if (!isCouchIdleForTriggerConsumer(now)) {
+    recordResolveMetric('ownership_deferrals');
+    emitPlaybackTelemetry('playback_ownership', {
+      resolve_request_class: 'background',
+      ownership_result: 'deferred',
+    });
     return;
   }
   lastBackgroundTickAt = now;

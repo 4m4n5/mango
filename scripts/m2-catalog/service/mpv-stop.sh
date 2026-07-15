@@ -11,6 +11,7 @@ PLAYBACK_OSD_PID_FILE="${MANGO_PLAYBACK_OSD_PID_FILE:-${HOME}/.cache/mango/playb
 PLAYBACK_OSD_TRIGGER="${MANGO_PLAYBACK_OSD_TRIGGER:-${HOME}/.cache/mango/playback-osd.show}"
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
 PLAYBACK_DISPLAY_MATCHED_FILE="${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${HOME}/.cache/mango/playback-display-matched}"
+MPV_PID_FILE="${MANGO_MPV_PID_FILE:-${HOME}/.cache/mango/mpv.pid}"
 LEGACY_VLC_PID_FILE="${MANGO_VLC_PID_FILE:-${HOME}/.cache/mango/vlc.pid}"
 LEGACY_PLAYER_STATE="${MANGO_PLAYER_STATE_PATH:-${HOME}/.cache/mango/player-state.json}"
 LEGACY_VLC_PLAYLIST="${MANGO_VLC_PLAYLIST:-${HOME}/.cache/mango/vlc-play.m3u}"
@@ -47,7 +48,30 @@ stop_playback_osd() {
   rm -f "$PLAYBACK_OSD_PID_FILE" "$PLAYBACK_OSD_TRIGGER"
 }
 
+tracked_pid_is_mango_mpv() {
+  local pid="$1"
+  local command_line=""
+  command_line="$(ps -ww -p "$pid" -o command= 2>/dev/null || true)"
+  [[ "$command_line" == *mpv* && "$command_line" == *"--input-ipc-server=$SOCKET"* ]]
+}
+
+signal_tracked_mpv() {
+  local pid="$1"
+  local signal="$2"
+  local pgid=""
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -dc '0-9' || true)"
+  if [[ "$pgid" == "$pid" ]]; then
+    kill -s "$signal" -- "-$pgid" 2>/dev/null || true
+  else
+    kill -s "$signal" "$pid" 2>/dev/null || true
+  fi
+}
+
 teardown_mpv() {
+  local tracked_pid=""
+  if [[ -f "$MPV_PID_FILE" ]]; then
+    tracked_pid="$(tr -dc '0-9' <"$MPV_PID_FILE" 2>/dev/null || true)"
+  fi
   if [[ -S "$SOCKET" ]]; then
     curl -s --max-time 2 -X POST "http://127.0.0.1:${MANGO_CATALOG_PORT:-3020}/progress/flush" >/dev/null 2>&1 || true
     if command -v timeout >/dev/null 2>&1; then
@@ -58,9 +82,19 @@ teardown_mpv() {
     sleep 0.2
   fi
 
-  pkill -x mpv 2>/dev/null || true
+  if [[ -n "$tracked_pid" ]] \
+    && kill -0 "$tracked_pid" 2>/dev/null \
+    && tracked_pid_is_mango_mpv "$tracked_pid"; then
+    # Standalone launches use setsid (PGID == PID); Node-scoped launches keep
+    # mpv in the wrapper group (PGID != PID). Signal exactly the owned scope.
+    signal_tracked_mpv "$tracked_pid" TERM
+    sleep 0.2
+    if kill -0 "$tracked_pid" 2>/dev/null; then
+      signal_tracked_mpv "$tracked_pid" KILL
+    fi
+  fi
   stop_playback_osd
-  rm -f "${HOME}/.cache/mango/mpv.pid" "$SOCKET" \
+  rm -f "$MPV_PID_FILE" "$SOCKET" \
     "$LEGACY_VLC_PID_FILE" "$LEGACY_PLAYER_STATE" "$LEGACY_VLC_PLAYLIST" \
     "$PLAYBACK_DISPLAY_MATCHED_FILE"
 }

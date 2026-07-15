@@ -89,6 +89,14 @@ export type StreamFilterMeta = {
   play_ladder_preview?: boolean;
   /** GET /stream fell back to obligation-floor rows (Phase A empty). */
   obligation_floor_preview?: boolean;
+  /** Truthful display-ladder population; counts unique candidates per stage. */
+  stages?: {
+    raw: number;
+    integrity_safe: number;
+    main: number;
+    last_resort: number;
+    obligation_floor: number;
+  };
   excluded: {
     uncached_debrid: number;
     unknown_cache_debrid: number;
@@ -909,7 +917,26 @@ export function streamUrlHash(url: string): string {
 
 export function streamMatchesVerifiedHint(stream: Stream, verifiedHint?: VerifiedStreamHint): boolean {
   if (!verifiedHint?.win_url_hash) return false;
-  return streamUrlHash(stream.url) === verifiedHint.win_url_hash;
+  return streamStableIdentity(stream) === verifiedHint.win_url_hash
+    || streamUrlHash(stream.url) === verifiedHint.win_url_hash;
+}
+
+/** Stable release identity scoped to a service; signed URL is fallback only. */
+export function streamStableIdentity(stream: Stream): string {
+  const service = debridServiceId(stream) ?? 'direct';
+  const hints = stream.behaviorHints && typeof stream.behaviorHints === 'object'
+    ? stream.behaviorHints as Record<string, unknown>
+    : {};
+  const infoHash = typeof hints.infoHash === 'string' ? hints.infoHash.trim().toLowerCase() : '';
+  if (infoHash) return `svc:${service}|ih:${infoHash}`;
+  const binge = typeof hints.bingeGroup === 'string' ? hints.bingeGroup.trim() : '';
+  const releaseToken = binge.split('|').slice(4).find((token) => {
+    const normalized = token.trim();
+    return /^(?:[a-f0-9]{40}|[a-f0-9]{64}|[a-z2-7]{32})$/i.test(normalized)
+      || /^urn:btih:(?:[a-f0-9]{40}|[a-z2-7]{32})$/i.test(normalized);
+  });
+  if (releaseToken) return `svc:${service}|bg:${releaseToken.trim().toLowerCase()}`;
+  return `svc:${service}|url:${streamUrlHash(stream.url)}`;
 }
 
 function qualityBelowMin(stream: Stream, min: QualityCap | null | undefined): boolean {
@@ -1034,7 +1061,19 @@ export async function loadFilterConfig(
   } catch {
     // optional file — env defaults apply
   }
+  validateMainLadderPiPolicy(base.main_ladder);
   return base;
+}
+
+/** Every verified/main step admitting 4K must require Pi 5 hardware-decodable HEVC. */
+export function validateMainLadderPiPolicy(mainLadder: PlayLadderStep[]): void {
+  const unsafe = mainLadder.find((step) => (
+    (step.max_quality === null || step.max_quality === '2160p')
+    && step.require_hevc !== true
+  ));
+  if (unsafe) {
+    throw new Error(`unsafe main ladder step ${unsafe.step}: 4K requires require_hevc=true`);
+  }
 }
 
 export function mergeFilterConfig(
@@ -1045,6 +1084,7 @@ export function mergeFilterConfig(
   hard_language?: string | null;
   preferred_language?: string | null;
   min_quality?: QualityCap | null;
+  request_overrides: StreamFilterOverrides;
 } {
   const includeUncached = overrides.include_uncached === true;
   return {
@@ -1068,6 +1108,7 @@ export function mergeFilterConfig(
     hard_language: overrides.hard_language,
     preferred_language: overrides.preferred_language,
     min_quality: overrides.min_quality,
+    request_overrides: { ...overrides },
   };
 }
 

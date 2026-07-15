@@ -1,22 +1,22 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-const CANCEL_PATH = process.env.MANGO_PLAY_CANCEL_PATH
-  || `${process.env.HOME || '/home/aman'}/.cache/mango/play-cancel.epoch`;
-
 let memoryEpoch = 0;
+let epochWriteChain: Promise<void> = Promise.resolve();
 
-async function ensureDir(): Promise<void> {
-  await mkdir(dirname(CANCEL_PATH), { recursive: true });
+function cancelPath(): string {
+  return process.env.MANGO_PLAY_CANCEL_PATH
+    || `${process.env.HOME || '/home/aman'}/.cache/mango/play-cancel.epoch`;
 }
 
 export async function readPlayEpoch(): Promise<number> {
+  await epochWriteChain;
   try {
-    const raw = await readFile(CANCEL_PATH, 'utf8');
+    const raw = await readFile(cancelPath(), 'utf8');
     const parsed = Number(raw.trim());
     if (Number.isFinite(parsed) && parsed > 0) {
-      memoryEpoch = parsed;
-      return parsed;
+      memoryEpoch = Math.max(memoryEpoch, parsed);
+      return memoryEpoch;
     }
   } catch {
     // missing file — use in-process epoch
@@ -26,10 +26,17 @@ export async function readPlayEpoch(): Promise<number> {
 
 /** Invalidate in-flight play attempts (mpv-stop, detail back, new play). */
 export async function bumpPlayEpoch(): Promise<number> {
-  const next = Math.max(memoryEpoch, Date.now());
+  // Date.now() can repeat within the same millisecond. Every new play/cancel
+  // must still supersede the prior request deterministically.
+  const next = Math.max(memoryEpoch + 1, Date.now());
   memoryEpoch = next;
-  await ensureDir();
-  await writeFile(CANCEL_PATH, `${next}\n`, 'utf8');
+  const path = cancelPath();
+  const pendingWrite = epochWriteChain.then(async () => {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, `${next}\n`, 'utf8');
+  });
+  epochWriteChain = pendingWrite.catch(() => undefined);
+  await pendingWrite;
   return next;
 }
 
@@ -48,4 +55,19 @@ export async function assertPlayEpoch(epoch: number): Promise<void> {
   if (await isPlayEpochStale(epoch)) {
     throw new PlayCancelledError();
   }
+}
+
+export async function guardPlayMutation<T>(
+  epoch: number,
+  mutation: () => Promise<T> | T,
+  assertCurrent: (value: number) => Promise<void> = assertPlayEpoch,
+): Promise<T> {
+  await assertCurrent(epoch);
+  return mutation();
+}
+
+export async function resetPlayEpochForTest(epoch = 0): Promise<void> {
+  await epochWriteChain;
+  memoryEpoch = epoch;
+  epochWriteChain = Promise.resolve();
 }

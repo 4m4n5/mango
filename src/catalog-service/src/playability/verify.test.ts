@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { CatalogCore } from '../core.js';
 import { failedLadderReason, prepareVerifyTitle } from './verify.js';
+import { defaultFilterConfig, mergeFilterConfig } from '../stream-filters.js';
 
 const ENV = { ...process.env };
 
@@ -68,4 +69,53 @@ test('failedLadderReason classifies zero-candidate ladder failures as no_stream'
     failedLadderReason({ attempts: [{ error: 'no HTTP streams for series/tt123' }], candidate_count: 2 }),
     'no_stream',
   );
+});
+
+test('S3: prepare verification never accepts a last-resort-only stream', async () => {
+  const main = [{
+    step: 'verified_1080',
+    max_quality: '1080p' as const,
+    min_quality: '1080p' as const,
+    exclude_remux: true,
+    require_cache: 'cached' as const,
+    verified: true,
+    addons: ['AIOStreams'],
+    debrid_services: ['torbox'],
+  }];
+  const resort = [{
+    step: 'last_resort',
+    max_quality: '2160p' as const,
+    exclude_remux: false,
+    require_cache: 'any' as const,
+    verified: false,
+    addons: ['AIOStreams'],
+    debrid_services: ['torbox'],
+  }];
+  const filters = mergeFilterConfig({
+    ...defaultFilterConfig(),
+    play_ladder: [...main, ...resort],
+    main_ladder: main,
+    last_resort_ladder: resort,
+  });
+  const core = {
+    async resolveForPlay() {
+      return {
+        streams: [{
+          url: 'https://example.test/only-last-resort.mkv',
+          source: 'AIOStreams',
+          name: '[TB⚡] Torrentio 720p',
+          description: '720p WEBRip x264',
+          behaviorHints: { bingeGroup: 'aiostreams|torbox|false|720p' },
+        }],
+        resolve_ms: 1,
+        cached: false,
+        filters,
+        filterContext: { contentType: 'movie' },
+      };
+    },
+  } as unknown as CatalogCore;
+
+  const result = await prepareVerifyTitle(core, 'movie', 'tt-last-resort');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'no_stream');
 });

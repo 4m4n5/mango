@@ -11,7 +11,7 @@
     "smartDetectRounding": 10
   },
   "excludeUncachedFromServices": ["realdebrid"],
-  "excludeUncachedFromStreamTypes": ["debrid"],
+  "excludeUncachedFromStreamTypes": [],
   "excludedQualities": ["CAM", "SCR", "TS", "TC"],
   "excludedResolutions": [],
   "excludedVisualTags": ["3D"],

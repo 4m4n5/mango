@@ -54,7 +54,9 @@ else
 fi
 
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
-if [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
+if [[ "${MANGO_GATE_SOURCE_ONLY:-0}" == "1" ]]; then
+  gate_warn "source-only mode — idle HDMI runtime enforcement deferred"
+elif [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
   gate_warn "playback active — skip idle browse display enforcement"
 else
   bash scripts/lib/mango-display-mode.sh ensure-launcher 2>/dev/null || true
@@ -70,9 +72,13 @@ else
   fi
 fi
 
-command -v mpv >/dev/null 2>&1 \
-  && gate_pass "mpv installed" \
-  || gate_fail "mpv missing"
+if command -v mpv >/dev/null 2>&1; then
+  gate_pass "mpv installed"
+elif [[ "${MANGO_GATE_SOURCE_ONLY:-0}" == "1" ]]; then
+  gate_warn "mpv missing (runtime binary deferred in source-only mode)"
+else
+  gate_fail "mpv missing"
+fi
 
 [[ "${MANGO_MPV_STOP_LAUNCHER:-}" == "1" ]] \
   && grep -q 'mango-window.sh" hide' scripts/m2-catalog/service/mpv-play.sh \
@@ -221,6 +227,30 @@ else
   gate_fail "mpv-play must default --blend-subtitles to no (yes stalls 4K present with audio)"
 fi
 
+# Deferred vo=null startup must receive the same non-display-sensitive hifi
+# policy as immediate VOD; handoff changes only display/audio activation.
+if awk '/^append_mpv_buffer_args\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q 'append_mpv_gpu_startup_args' \
+  && awk '/^append_mpv_buffer_args\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q 'append_mpv_vod_startup_policy_args' \
+  && awk '/^append_mpv_render_args\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q 'append_mpv_gpu_startup_args' \
+  && awk '/^append_mpv_render_args\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q 'append_mpv_vod_startup_policy_args'; then
+  gate_pass "immediate and deferred VOD share hifi startup policy"
+else
+  gate_fail "deferred vo=null VOD must share GPU/tone/audio/subtitle/cache startup policy"
+fi
+
+if awk '/^enable_mpv_display_once\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q 'MANGO_MPV_AO:-auto' \
+  && awk '/^enable_mpv_display_once\(\)/,/^}/' scripts/m2-catalog/service/mpv-play.sh \
+    | grep -q '"set_property","ao"'; then
+  gate_pass "deferred VOD handoff restores audio output"
+else
+  gate_fail "deferred vo=null VOD must switch ao from null to configured/auto output"
+fi
+
 # ↑ sole subtitle control; X/• must not route playback subs.
 grep -q 'route_playback_up' scripts/m1-foundation/pad/mango-tv-pad.py \
   && gate_pass "pad ↑ owns show-first subtitle control" \
@@ -250,5 +280,43 @@ grep -q '_hud_meta\|DISPLAY_SIZE_TTL_SEC' scripts/m2-catalog/service/playback-os
 [[ -x scripts/diag/playback-4k-proof.sh ]] \
   && gate_pass "playback-4k-proof.sh present for couch 4K verification" \
   || gate_fail "scripts/diag/playback-4k-proof.sh missing or not executable"
+
+python3 - config/catalog-filters.example.json config/catalog-filters.4k-hdr.example.json \
+  config/catalog-filters.4k-hifi.example.json config/aiostreams-target-patch.json \
+  docs/PLAYABILITY.md docs/STATUS.md <<'PY' \
+  && gate_pass "playback policy examples and docs agree" \
+  || gate_fail "playback policy examples/docs drift"
+import json
+import pathlib
+import sys
+
+unverified_steps = {"last_resort", "4k_sdr_soft_cached", "1080p_uncached_fallback", "1080p_uncached", "obligation_floor"}
+for path in map(pathlib.Path, sys.argv[1:4]):
+    data = json.loads(path.read_text(encoding="utf-8"))
+    main = data.get("main_ladder") or [
+        row for row in data.get("play_ladder", [])
+        if row.get("verified") is not False and row.get("step") not in unverified_steps
+    ]
+    unsafe = [
+        row.get("step")
+        for row in main
+        if row.get("max_quality") in (None, "2160p") and row.get("require_hevc") is not True
+    ]
+    if unsafe:
+        raise SystemExit(f"{path}: verified 4K without require_hevc: {unsafe}")
+
+aio = json.loads(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8"))
+if aio.get("excludeUncachedFromStreamTypes"):
+    raise SystemExit("AIOStreams patch excludes all uncached debrid before Mango")
+
+playability = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8")
+status = pathlib.Path(sys.argv[6]).read_text(encoding="utf-8")
+required = ("uncached TorBox", "service-scoped stable release", "every non-live VOD")
+missing = [token for token in required if token not in playability]
+if missing:
+    raise SystemExit(f"PLAYABILITY.md missing: {missing}")
+if "set-playback-engine.sh status" not in status or "mpv-hifi" not in status:
+    raise SystemExit("STATUS.md missing runtime profile source of truth")
+PY
 
 gate_finish "gate-m6-playback-ssot"

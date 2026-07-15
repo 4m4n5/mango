@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -11,7 +12,36 @@ import {
   listUnhandledPlayabilityTriggers,
   resetPlayabilityDbForTests,
 } from './db.js';
-import { drainTriggers } from './trigger-consumer.js';
+import {
+  drainTriggers,
+  isCouchIdleForTriggerConsumer,
+  isPlaybackActiveForTriggerConsumer,
+} from './trigger-consumer.js';
+
+async function withPlaybackStateEnv(fn: (dir: string) => Promise<void>): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-playback-state-'));
+  const keys = [
+    'MANGO_COUCH_ACTIVITY_STATE',
+    'MANGO_PLAYBACK_ACTIVE_FILE',
+    'MANGO_MPV_PID_FILE',
+    'MANGO_MPV_SOCKET',
+  ] as const;
+  const old = new Map(keys.map((key) => [key, process.env[key]]));
+  process.env.MANGO_COUCH_ACTIVITY_STATE = join(dir, 'couch.json');
+  process.env.MANGO_PLAYBACK_ACTIVE_FILE = join(dir, 'playback-active');
+  process.env.MANGO_MPV_PID_FILE = join(dir, 'mpv.pid');
+  process.env.MANGO_MPV_SOCKET = join(dir, 'mpv.sock');
+  try {
+    await fn(dir);
+  } finally {
+    for (const key of keys) {
+      const value = old.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+}
 
 async function withTempDb(fn: () => Promise<void>): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), 'mango-trigger-consumer-'));
@@ -32,6 +62,53 @@ async function withTempDb(fn: () => Promise<void>): Promise<void> {
 }
 
 const fakeCore = {} as CatalogCore;
+
+test('S2: a live tracked playback process is hard non-idle despite a stale activity timestamp', async () => {
+  await withPlaybackStateEnv(async (dir) => {
+    const server = createServer();
+    await writeFile(join(dir, 'mpv.pid'), `${process.pid}\n`);
+    await writeFile(join(dir, 'playback-active'), '');
+    await new Promise<void>((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(join(dir, 'mpv.sock'), () => resolvePromise());
+    });
+    await writeFile(join(dir, 'couch.json'), JSON.stringify({ ts: Date.now() - 31 * 60_000 }));
+    try {
+      assert.equal(isPlaybackActiveForTriggerConsumer(), true);
+      assert.equal(isCouchIdleForTriggerConsumer(), false);
+    } finally {
+      await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
+    }
+  });
+});
+
+test('S2: a live unrelated PID without the Mango socket is not playback-active', async () => {
+  await withPlaybackStateEnv(async (dir) => {
+    await writeFile(join(dir, 'mpv.pid'), `${process.pid}\n`);
+    await writeFile(join(dir, 'couch.json'), JSON.stringify({ ts: Date.now() - 31 * 60_000 }));
+    assert.equal(isPlaybackActiveForTriggerConsumer(), false);
+    assert.equal(isCouchIdleForTriggerConsumer(), true);
+  });
+});
+
+test('S2: stale playback PID does not permanently block idle maintenance', async () => {
+  await withPlaybackStateEnv(async (dir) => {
+    const server = createServer();
+    await writeFile(join(dir, 'mpv.pid'), '99999999\n');
+    await writeFile(join(dir, 'playback-active'), '');
+    await new Promise<void>((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(join(dir, 'mpv.sock'), () => resolvePromise());
+    });
+    await writeFile(join(dir, 'couch.json'), JSON.stringify({ ts: Date.now() - 31 * 60_000 }));
+    try {
+      assert.equal(isPlaybackActiveForTriggerConsumer(), false);
+      assert.equal(isCouchIdleForTriggerConsumer(), true);
+    } finally {
+      await new Promise<void>((resolvePromise) => server.close(() => resolvePromise()));
+    }
+  });
+});
 
 function verifyResult(type: string, id: string, status: 'verified' | 'failed'): VerifyTitleResult {
   return {

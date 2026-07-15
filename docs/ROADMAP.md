@@ -229,9 +229,9 @@ modes, then re-open 4K only after visible 4K video is smooth.
 | ----------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | Physical    | 4K TV + soundbar (HDMI eARC)                                                                                                      |
 | HDMI        | EDID verification · source-matched 1080p film/TV modes on target TV                                                               |
-| mpv profile | Source-matched 1080p playback modes with 1080p60 launcher restore · 4K held experimental                                          |
+| mpv profile | `mpv-hifi` is the intended ship profile; `set-playback-engine.sh status` is runtime truth · 1080p60 launcher restore · source-matched playback |
 | Audio       | Default sink = TV/bar, with direct ALSA HDMI fallback when PipeWire is dummy-only · Piper TTS smoke after sink validation         |
-| Filters     | Stage 2 `catalog-filters.4k-hdr.example.json` currently caps couch playback to 1080p, keeps REMUX excluded, and prefers HEVC/x265 |
+| Filters     | `4k-hifi` main requires cached 4K SDR HEVC (including REMUX); ≤1080p main fallback, then soft/uncached-TorBox last resort. `4k-hdr` remains the reversible baseline. |
 | Gate        | `gate-m6-4k-hdr-profile.sh` now; next 4K gate must add **picture-visible** and soundbar assert on TV                              |
 
 
@@ -342,5 +342,4 @@ Git history and some script paths still use older labels. **Do not use these in 
 | N5a–N5d                | M5 slices (see STATUS) |
 | N6                     | M6.2                   |
 | N7                     | M6.3                   |
-
 

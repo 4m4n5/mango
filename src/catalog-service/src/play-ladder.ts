@@ -16,6 +16,7 @@ import {
   streamMatchesVerifiedHint,
   streamPlayScore,
   streamUrlHash,
+  streamStableIdentity,
   streamIsHevc,
   streamIsHdr,
   effectiveStreamQualityRank,
@@ -365,6 +366,10 @@ export function filterStreamsForLadderStep(
     preferred_hdr_tags?: string[];
     preferred_video_codecs?: string[];
     verified_hint?: VerifiedStreamHint;
+    preferred_language?: string | null;
+    min_quality?: QualityCap | null;
+    max_quality?: QualityCap | null;
+    exclude_remux?: boolean;
   } = {},
 ): Stream[] {
   const kept: Stream[] = [];
@@ -376,7 +381,12 @@ export function filterStreamsForLadderStep(
     if (isSeriesPackForMovie(stream, context.contentType)) continue;
     if (isSupplementalRelease(stream, context.contentType)) continue;
     if (options.hard_language && !streamMatchesLanguage(stream, options.hard_language)) continue;
-    if (!streamMatchesLadderStep(stream, step, options)) continue;
+    const effectiveStep = options.exclude_remux === undefined
+      ? step
+      : { ...step, exclude_remux: options.exclude_remux };
+    if (!streamMatchesLadderStep(stream, effectiveStep, options)) continue;
+    if (options.min_quality && qualityBelowMin(stream, options.min_quality)) continue;
+    if (options.max_quality !== undefined && qualityExceedsCap(stream, options.max_quality)) continue;
 
     kept.push({
       ...stream,
@@ -393,9 +403,9 @@ export function filterStreamsForLadderStep(
   };
 
   kept.sort((left, right) => streamPlayScore(right, scoreConfig, options.verified_hint, {
-    preferred_language: null,
+    preferred_language: options.preferred_language,
   }) - streamPlayScore(left, scoreConfig, options.verified_hint, {
-    preferred_language: null,
+    preferred_language: options.preferred_language,
   }));
 
   if (options.verified_hint?.win_url_hash) {
@@ -485,6 +495,10 @@ export function expandPlayLadder(
     verified_hint?: VerifiedStreamHint;
     max_candidates?: number;
     include_uncached?: boolean;
+    preferred_language?: string | null;
+    min_quality?: QualityCap | null;
+    max_quality?: QualityCap | null;
+    exclude_remux?: boolean;
     /** When set, prefer candidates from this ladder step (verify hint). */
     prefer_ladder_step?: string | null;
   } = {},
@@ -566,6 +580,10 @@ export function expandObligationFloor(
     excludeUrls?: Set<string>;
     maxCandidates?: number;
     hard_language?: string | null;
+    preferred_language?: string | null;
+    min_quality?: QualityCap | null;
+    max_quality?: QualityCap | null;
+    exclude_remux?: boolean;
   } = {},
 ): LadderCandidate[] {
   const max = options.maxCandidates ?? 6;
@@ -582,6 +600,9 @@ export function expandObligationFloor(
     if (isErrorStream(stream)) continue;
     if (isLowQualityRelease(stream)) continue;
     if (options.hard_language && !streamMatchesLanguage(stream, options.hard_language)) continue;
+    if (options.min_quality && qualityBelowMin(stream, options.min_quality)) continue;
+    if (options.max_quality !== undefined && qualityExceedsCap(stream, options.max_quality)) continue;
+    if (options.exclude_remux === true && isRemux(stream)) continue;
 
     seen.add(stream.url);
     kept.push({
@@ -601,7 +622,11 @@ export function expandObligationFloor(
     preferred_video_codecs: [] as string[],
   };
 
-  kept.sort((left, right) => streamPlayScore(right, scoreConfig) - streamPlayScore(left, scoreConfig));
+  kept.sort((left, right) => streamPlayScore(right, scoreConfig, undefined, {
+    preferred_language: options.preferred_language,
+  }) - streamPlayScore(left, scoreConfig, undefined, {
+    preferred_language: options.preferred_language,
+  }));
 
   return kept.slice(0, max).map((stream) => ({
     stream,
@@ -622,6 +647,10 @@ export type DisplayStreamSource = 'preference_ladder' | 'obligation_floor' | 'la
 export type DisplayLadderOptions = {
   strict_unknown_cache?: boolean;
   hard_language?: string | null;
+  preferred_language?: string | null;
+  min_quality?: QualityCap | null;
+  max_quality?: QualityCap | null;
+  exclude_remux?: boolean;
   preferred_quality?: QualityCap | null;
   preferred_hdr_tags?: string[];
   preferred_video_codecs?: string[];
@@ -667,6 +696,10 @@ export function selectDisplayStreamCandidates(
   const floor = expandObligationFloor(streams, context, {
     maxCandidates: max,
     hard_language: options.hard_language,
+    preferred_language: options.preferred_language,
+    min_quality: options.min_quality,
+    max_quality: options.max_quality,
+    exclude_remux: options.exclude_remux,
   });
   if (floor.length > 0) {
     return { candidates: floor, source: 'obligation_floor' };
@@ -692,20 +725,13 @@ export function singlePickerCandidate(
   const fromMatch = typeof match.ladder_step === 'string' ? match.ladder_step.trim() : '';
   return {
     stream: match,
-    ladder_step: fromMatch || preferStep || 'picker',
+    ladder_step: preferStep || fromMatch || 'picker',
   };
 }
 
 /** Stable release fingerprint for picker bad-cache (prefer infoHash / bingeGroup over URL). */
 export function streamReleaseFingerprint(stream: Stream): string {
-  const hints = stream.behaviorHints && typeof stream.behaviorHints === 'object'
-    ? stream.behaviorHints as Record<string, unknown>
-    : {};
-  const infoHash = typeof hints.infoHash === 'string' ? hints.infoHash.trim().toLowerCase() : '';
-  if (infoHash) return `ih:${infoHash}`;
-  const binge = typeof hints.bingeGroup === 'string' ? hints.bingeGroup.trim() : '';
-  if (binge) return `bg:${binge}`;
-  return `url:${streamUrlHash(stream.url)}`;
+  return streamStableIdentity(stream);
 }
 
 export function couchStatusForLadderStep(step: string): string {
@@ -713,7 +739,7 @@ export function couchStatusForLadderStep(step: string): string {
     case 'ideal':
       return 'trying best match…';
     case '1080p_uncached':
-      return 'caching stream on TorBox…';
+      return 'preparing uncached fallback…';
     case '1080p_remux':
       return 'trying alternate 1080p release…';
     case '2160p_encode':
@@ -733,7 +759,7 @@ export function couchStatusForLadderStep(step: string): string {
     case '1080p_cached_fallback':
       return 'trying 1080p fallback…';
     case '1080p_uncached_fallback':
-      return 'caching stream on TorBox…';
+      return 'preparing uncached fallback…';
     case 'last_resort':
       return 'trying alternate release…';
     case OBLIGATION_FLOOR_STEP:

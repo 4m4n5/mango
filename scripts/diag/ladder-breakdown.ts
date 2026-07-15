@@ -15,11 +15,12 @@ async function main(): Promise<void> {
 
   const core = await CatalogCore.create();
   const resolved = await core.resolveForPlay(type, id);
-  const ladder = resolved.filters.play_ladder;
+  const mainLadder = resolved.filters.main_ladder;
+  const lastResortLadder = resolved.filters.last_resort_ladder;
   const ctx = resolved.filterContext;
   const strict = resolved.filters.strict_unknown_cache !== false;
 
-  const perStep = Object.fromEntries(
+  const countByStep = (ladder: typeof mainLadder) => Object.fromEntries(
     ladder.map((step) => [
       step.step,
       filterStreamsForLadderStep(resolved.streams, step, ctx, {
@@ -30,11 +31,18 @@ async function main(): Promise<void> {
     ]),
   );
 
-  const candidates = expandPlayLadder(resolved.streams, ladder, ctx, {
+  const mainCandidates = expandPlayLadder(resolved.streams, mainLadder, ctx, {
     strict_unknown_cache: strict,
     preferred_quality: resolved.filters.preferred_quality,
     preferred_hdr_tags: resolved.filters.preferred_hdr_tags,
     max_candidates: resolved.filters.auto_play_max_attempts,
+  });
+  const lastResortCandidates = expandPlayLadder(resolved.streams, lastResortLadder, ctx, {
+    strict_unknown_cache: strict,
+    preferred_quality: resolved.filters.preferred_quality,
+    preferred_hdr_tags: resolved.filters.preferred_hdr_tags,
+    max_candidates: resolved.filters.auto_play_max_attempts,
+    include_uncached: true,
   });
 
   const picker = await core.streams(type, id);
@@ -45,9 +53,17 @@ async function main(): Promise<void> {
     metaTitle: ctx.metaTitle,
     metaRuntimeMinutes: ctx.metaRuntimeMinutes,
     raw: resolved.streams.length,
-    per_step: perStep,
-    play_candidates: candidates.length,
-    play_order: candidates.slice(0, 8).map((c) => ({
+    main_per_step: countByStep(mainLadder),
+    last_resort_per_step: countByStep(lastResortLadder),
+    main_candidates: mainCandidates.length,
+    last_resort_candidates: lastResortCandidates.length,
+    main_order: mainCandidates.slice(0, 8).map((c) => ({
+      step: c.ladder_step,
+      label: c.stream.display_label,
+      cache: c.stream.cache_status,
+      filename: (c.stream as { behaviorHints?: { filename?: string } }).behaviorHints?.filename,
+    })),
+    last_resort_order: lastResortCandidates.slice(0, 8).map((c) => ({
       step: c.ladder_step,
       label: c.stream.display_label,
       cache: c.stream.cache_status,

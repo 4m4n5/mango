@@ -10,6 +10,7 @@ import {
   isVerifiedDisplayStep,
   parsePlayLadder,
   selectDisplayStreamCandidates,
+  singlePickerCandidate,
   streamMatchesLadderStep,
 } from './play-ladder.js';
 import { debridServiceId, streamUrlHash } from './stream-filters.js';
@@ -429,6 +430,85 @@ test('injectPreferredPlayCandidate prefers explicit prefer_ladder_step over pick
   });
   const ranked = injectPreferredPlayCandidate([picked], [], picked.url, '2160p_encode');
   assert.equal(ranked[0]?.ladder_step, '2160p_encode');
+});
+
+test('S3: single picker preserves the explicit selected ladder step over stale stream metadata', () => {
+  const picked = stream({
+    url: 'https://example.test/picked-exact.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p HEVC SDR',
+    ladder_step: 'stale_step',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  assert.equal(
+    singlePickerCandidate([picked], picked.url, '4k_sdr_remux_cached')?.ladder_step,
+    '4k_sdr_remux_cached',
+  );
+});
+
+test('S3: hard language applies to main, last resort, and obligation floor', () => {
+  const english = stream({
+    url: 'https://example.test/english-only.mkv',
+    description: '1080p WEB-DL\n🌐 🇬🇧',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|false|1080p' },
+  });
+  const hindi = stream({
+    url: 'https://example.test/hindi.mkv',
+    description: '1080p WEB-DL\n🌐 🇮🇳',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|false|1080p' },
+  });
+  const main = expandPlayLadder([english, hindi], defaultPlayLadder(), {}, { hard_language: 'Hindi' });
+  const floor = expandObligationFloor([english, hindi], {}, { hard_language: 'Hindi' });
+  assert.deepEqual(main.map((candidate) => candidate.stream.url), [hindi.url]);
+  assert.deepEqual(floor.map((candidate) => candidate.stream.url), [hindi.url]);
+});
+
+test('S3: preferred language reorders without excluding other languages', () => {
+  const english = stream({
+    url: 'https://example.test/english-preference.mkv',
+    description: '1080p WEB-DL\n🌐 🇬🇧',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const hindi = stream({
+    url: 'https://example.test/hindi-preference.mkv',
+    description: '1080p WEB-DL\n🌐 🇮🇳',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const ranked = expandPlayLadder([english, hindi], defaultPlayLadder(), {}, {
+    preferred_language: 'Hindi',
+  });
+  assert.equal(ranked.length, 2);
+  assert.equal(ranked[0]?.stream.url, hindi.url);
+});
+
+test('S3: explicit quality/remux overrides produce the same picker and autoplay candidate set', () => {
+  const remux4k = stream({
+    url: 'https://example.test/remux-4k.mkv',
+    name: '[TB☁️⚡] Torrentio 2160p',
+    description: '2160p REMUX HEVC',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|2160p' },
+  });
+  const encode1080 = stream({
+    url: 'https://example.test/encode-1080.mkv',
+    name: '[TB☁️⚡] Torrentio 1080p',
+    description: '1080p WEB-DL HEVC',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p' },
+  });
+  const options = {
+    min_quality: '2160p' as const,
+    max_quality: '2160p' as const,
+    exclude_remux: false,
+    max_candidates: 8,
+  };
+  const autoplay = expandPlayLadder([encode1080, remux4k], defaultPlayLadder(), {}, options);
+  const display = selectDisplayStreamCandidates(
+    [encode1080, remux4k],
+    defaultPlayLadder(),
+    {},
+    options,
+  );
+  assert.deepEqual(autoplay.map((candidate) => candidate.stream.url), [remux4k.url]);
+  assert.deepEqual(display.candidates.map((candidate) => candidate.stream.url), [remux4k.url]);
 });
 
 test('expandObligationFloor keeps integrity-safe streams without ladder cache/codec caps', () => {

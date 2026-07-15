@@ -5,6 +5,8 @@
 set -euo pipefail
 
 SOCKET_DIR="${MANGO_MPV_PROBE_SOCKET_DIR:-${HOME}/.cache/mango/mpv-probe}"
+COUCH_SOCKET="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
+COUCH_PID_FILE="${MANGO_MPV_PID_FILE:-${HOME}/.cache/mango/mpv.pid}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 export DISPLAY="${DISPLAY:-:0}"
 export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
@@ -91,6 +93,14 @@ mpv_property() {
   python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' <<<"$reply" 2>/dev/null || echo 0
 }
 
+foreground_playback_active() {
+  local pid=""
+  if [[ -f "$COUCH_PID_FILE" ]]; then
+    pid="$(tr -dc '0-9' <"$COUCH_PID_FILE" 2>/dev/null || true)"
+  fi
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && [[ -S "$COUCH_SOCKET" ]]
+}
+
 playback_is_real() {
   local playback_time="$1"
   local duration
@@ -118,6 +128,11 @@ restart_worker() {
   bash "$POOL_SCRIPT" restart-worker "$WORKER_ID" >/dev/null 2>&1 || true
 }
 
+if foreground_playback_active; then
+  echo "DEFERRED: foreground_playback_active"
+  exit 75
+fi
+
 bash "$POOL_SCRIPT" ensure --workers "$((WORKER_ID + 1))" >/dev/null
 [[ -S "$SOCKET" ]] || { echo "FAIL: probe socket missing: $SOCKET" >&2; restart_worker; exit 1; }
 
@@ -135,12 +150,18 @@ START_MS="$(now_ms)"
 DEADLINE_MS=$((START_MS + TIMEOUT_MS))
 
 while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
+  if foreground_playback_active; then
+    ipc_command '{"command":["stop"]}' >/dev/null 2>&1 || true
+    echo "DEFERRED: foreground_playback_active"
+    exit 75
+  fi
   drain_events || true
   PT="$(mpv_property playback-time)"
   if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
     if playback_is_real "${PT:-0}"; then
       END_MS="$(now_ms)"
-      echo "PASS: ttff_ms=$((END_MS - START_MS))"
+      DUR="$(mpv_property duration)"
+      echo "PASS: ttff_ms=$((END_MS - START_MS)) duration_sec=${DUR:-0}"
       ipc_command '{"command":["stop"]}' >/dev/null 2>&1 || true
       exit 0
     fi

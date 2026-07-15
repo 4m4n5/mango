@@ -15,6 +15,8 @@ import {
   isPlausibleFeatureDuration,
   playMinDurationSec,
   parseRuntimeMinutes,
+  streamMatchesVerifiedHint,
+  streamStableIdentity,
 } from './stream-filters.js';
 
 function stream(description: string, url: string): Stream {
@@ -83,6 +85,49 @@ test('parseFilterOverridesFromQuery splits hard language from soft preference', 
   const overrides = parseFilterOverridesFromQuery(new URLSearchParams('language=Hindi&preferred_language=English'));
   assert.equal(overrides.hard_language, 'Hindi');
   assert.equal(overrides.preferred_language, 'English');
+});
+
+test('S5: verified identity survives signed URL rotation but not a distinct release', () => {
+  const original = {
+    ...englishStream,
+    url: 'https://example.test/movie.mkv?token=one',
+    behaviorHints: { infoHash: 'abc123', bingeGroup: 'aiostreams|torbox|true|1080p' },
+  };
+  const rotated = { ...original, url: 'https://example.test/movie.mkv?token=two' };
+  const distinct = {
+    ...rotated,
+    behaviorHints: { infoHash: 'different', bingeGroup: 'aiostreams|torbox|true|1080p' },
+  };
+  const hint = { win_url_hash: streamStableIdentity(original) };
+  assert.equal(streamMatchesVerifiedHint(rotated, hint), true);
+  assert.equal(streamMatchesVerifiedHint(distinct, hint), false);
+});
+
+test('S5: generic long binge-group tokens never merge distinct releases', () => {
+  const first = {
+    ...englishStream,
+    url: 'https://example.test/first.mkv?token=one',
+    behaviorHints: { bingeGroup: 'aiostreams|torbox|true|1080p|torrentio' },
+  };
+  const second = {
+    ...first,
+    url: 'https://example.test/second.mkv?token=two',
+  };
+  assert.notEqual(streamStableIdentity(first), streamStableIdentity(second));
+});
+
+test('S5: a hash-bearing binge group survives signed URL rotation', () => {
+  const hash = '0123456789abcdef0123456789abcdef01234567';
+  const original = {
+    ...englishStream,
+    url: 'https://example.test/movie.mkv?token=one',
+    behaviorHints: { bingeGroup: `aiostreams|torbox|true|1080p|${hash}` },
+  };
+  const rotated = {
+    ...original,
+    url: 'https://example.test/movie.mkv?token=two',
+  };
+  assert.equal(streamStableIdentity(original), streamStableIdentity(rotated));
 });
 
 test('preferred_language boosts matching streams without excluding non-matches', () => {

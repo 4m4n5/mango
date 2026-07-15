@@ -39,8 +39,8 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch s
 | 5 | Open **Panchayat** (or Breaking Bad) → episode list below actions | |
 | 6 | D-pad **down** into episodes — **active season only**; streams strip **does not** update on focus | |
 | 7 | **L/R** on season chip or episode row **changes season** (multi-season); chip row hidden when one season | |
-| 7a | **B** on focused episode loads streams + plays; **Play** from actions row = global resume | |
-| 8 | Grey rows (no streams) are **skipped** by D-pad | |
+| 7a | **B** on focused episode resolves and plays immediately; no dwell prefetch or mandatory picker. **Play** from actions row = global resume | |
+| 8 | Grey/unverified rows remain focusable and show **tap to retry**; **B** re-runs the normal main → last-resort → floor play path | |
 | 9 | **Play / Resume** starts mpv; **Y** returns to detail | |
 | 10 | Watch **≥50%** → **Y** → **next episode** overlay; **B** plays next, **Y** dismisses | |
 
@@ -54,6 +54,23 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch s
 | 11a | From mpv, **Y** returns to the same launcher state: same tab, same title/detail context, no reshuffle/reset to Movies | |
 | 12 | **Continue** rail resumes if entries exist | |
 | 13 | **⌂** always returns home | |
+
+## Playback-hardening acceptance (home Mac/Pi only)
+
+Do not mark these from work-Mac source checks. Capture the referenced runtime evidence after the reviewed commit is pushed and deployed once with `--fast --gate`.
+
+| Check | Couch action and required evidence | Pass? |
+|---|---|---|
+| Timeout cancellation | Force/observe a play exceeding the 95 s launcher watchdog; confirm the request ID is cancelled and no ghost mpv starts later | |
+| Hard language | Play a hard-language title; logs/attempt metadata show no wrong-language candidate attempted | |
+| Picker single-shot | Choose one displayed release; the sole attempt has that URL identity and ladder step, with no silent substitution | |
+| Return state | Exit a series episode; same title/season/episode remains, progress and Resume refresh, and focus stays on Play after async rendering | |
+| Long-play ownership | Play for >30 minutes (or approved accelerated equivalent); maintenance defers and does not stop the couch-owned mpv | |
+| 1080p HDR | Play the fixture; effective mpv properties and visible picture confirm the intended 1080p HDR/tone-map path | |
+| 4K SDR HEVC | Play a verified 4K fixture; winning main step is SDR + HEVC and effective decoder/output properties match | |
+| Subtitles/audio | ↑ shows/cycles subtitles; A shows/cycles audio; selected audio/subtitle and channel policy are audible/visible | |
+| HDMI restore | First visible frame appears only after source match; Y/⌂ restores `1920x1080@60` before launcher reveal | |
+| Frame drops | `scripts/diag/playback-4k-proof.sh` records real presented/dropped-frame evidence; never infer a pass from source config | |
 
 ## Saved library (M6.1)
 
@@ -113,7 +130,7 @@ Do not show grow/debug status on TV. Check this from SSH before claiming library
 | Symptom | Check |
 |---------|--------|
 | Empty episode list | `curl localhost:3020/series/tt12004706/episodes` |
-| No streams on episode | ladder play still works on **B**; row greys after probe |
+| No streams on episode | Row greys as **tap to retry** but remains focusable; **B** runs the normal ladder again |
 | Next prompt missing | exit ≥50%; `GET /play/next-prompt` after mpv stop |
 | Pad wrong button | [`docs/HARDWARE.md`](HARDWARE.md) — B=`304`, Y=`308`, X shuffle=`307`, −/+=`314`/`315` |
 

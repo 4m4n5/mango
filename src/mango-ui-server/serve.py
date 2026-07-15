@@ -33,6 +33,7 @@ ACTIVITY_STATE: Final = Path(os.environ.get("MANGO_COUCH_ACTIVITY_STATE", str(LO
 PERF_LOG: Final = LOG_DIR / "launcher-perf.jsonl"
 CATALOG_UPSTREAM: Final = os.environ.get("MANGO_CATALOG_UPSTREAM", "http://127.0.0.1:3020")
 CATALOG_PROXY_TIMEOUT_SEC: Final = 60
+CATALOG_PLAY_PROXY_TIMEOUT_SEC: Final = 90
 
 LAUNCH_SCRIPTS: Final = {
     "/api/launch/launcher": REPO_ROOT / "scripts" / "launch-launcher.sh",
@@ -693,6 +694,12 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             latest = ack_pad_nav_commands(last_seq)
             self._write_json({"ok": True, "latest_seq": latest, "acked_through": last_seq})
             return
+        if path == "/api/catalog/play-cancel" and not _client_is_local(self):
+            self._write_json(
+                {"ok": False, "error": "play cancellation is localhost-only"},
+                HTTPStatus.FORBIDDEN,
+            )
+            return
         if path.startswith("/api/catalog/"):
             self._proxy_catalog("POST")
             return
@@ -851,20 +858,48 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             headers["content-type"] = self.headers.get("content-type", "application/json")
 
         request = Request(upstream_url, data=body, method=method, headers=headers)
+
+        def cancel_timed_out_play() -> None:
+            if method != "POST" or upstream_path != "/play" or not body:
+                return
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                request_id = payload.get("request_id") if isinstance(payload, dict) else None
+                if not isinstance(request_id, str) or not request_id:
+                    return
+                cancel_body = json.dumps({"request_id": request_id}).encode("utf-8")
+                cancel_request = Request(
+                    f"{CATALOG_UPSTREAM.rstrip('/')}/play-cancel",
+                    data=cancel_body,
+                    method="POST",
+                    headers={"content-type": "application/json", "accept": "application/json"},
+                )
+                with urlopen(cancel_request, timeout=2):
+                    pass
+            except (OSError, ValueError, TypeError, URLError, TimeoutError):
+                pass
         try:
-            with urlopen(request, timeout=CATALOG_PROXY_TIMEOUT_SEC) as response:
+            upstream_timeout = (
+                CATALOG_PLAY_PROXY_TIMEOUT_SEC
+                if method == "POST" and upstream_path == "/play"
+                else CATALOG_PROXY_TIMEOUT_SEC
+            )
+            with urlopen(request, timeout=upstream_timeout) as response:
                 data = response.read()
                 status = response.status
         except HTTPError as error:
             data = error.read() or json.dumps({"error": str(error)}).encode("utf-8")
             status = error.code
         except URLError as error:
+            if isinstance(error.reason, TimeoutError):
+                cancel_timed_out_play()
             self._write_json(
                 {"ok": False, "error": f"catalog-service unavailable: {error.reason}"},
                 HTTPStatus.BAD_GATEWAY,
             )
             return
         except TimeoutError:
+            cancel_timed_out_play()
             self._write_json(
                 {"ok": False, "error": "catalog-service timeout"},
                 HTTPStatus.GATEWAY_TIMEOUT,

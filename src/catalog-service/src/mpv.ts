@@ -2,10 +2,16 @@ import { execFile } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { recordResolveMetric } from './resolve-metrics.js';
+import { emitPlaybackTelemetry } from './playback-telemetry.js';
+import { PlayCancelledError } from './play-cancel.js';
+import { runScopedCommand, ScopedChildTimeoutError } from './scoped-child.js';
 
 export type PlayResult = {
   ok: true;
   ttff_ms: number;
+  /** Captured before probe teardown; absent only for legacy pool/script output. */
+  duration_sec?: number;
 };
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -77,6 +83,7 @@ async function runMpv(
     startSec?: number;
     audioUrl?: string;
     ladderStep?: string;
+    requestClass: 'user' | 'background';
   },
 ): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-play.sh');
@@ -106,32 +113,58 @@ async function runMpv(
     }
   }
   const env = displayEnv();
+  env.MANGO_MPV_PARENT_SCOPED_GROUP = '1';
   if (options.playEpoch !== undefined) {
     env.MANGO_PLAY_EPOCH = String(options.playEpoch);
   }
   if (options.ladderStep) {
     env.MANGO_PLAY_LADDER_STEP = options.ladderStep;
   }
-  const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolvePromise, reject) => {
-    execFile('bash', args, {
+  env.MANGO_PLAY_REQUEST_CLASS = options.requestClass;
+  let childResult;
+  try {
+    childResult = await runScopedCommand('bash', args, {
       cwd: repoDir(),
       env,
-      timeout: options.timeoutMs + 5000,
-      maxBuffer: 1024 * 1024,
-    }, (error, stdout, stderr) => {
-      if (error) {
-        const reason = extractMpvFailureReason(stdout, stderr, error.code ?? undefined);
-        reject(new Error(`mpv-play failed: ${reason}`));
-        return;
-      }
-      resolvePromise({ stdout, stderr });
+      timeoutMs: options.timeoutMs + 2000,
+      killGraceMs: 250,
     });
-  });
+  } catch (error) {
+    if (error instanceof ScopedChildTimeoutError) {
+      const reason = extractMpvFailureReason(error.result.stdout, error.result.stderr, error.result.signal);
+      if (/play cancelled|play epoch mismatch/i.test(reason)) {
+        throw new PlayCancelledError();
+      }
+      throw new Error(`mpv-play failed: ${reason || 'play deadline exceeded'}`);
+    }
+    throw error;
+  }
+  const { stdout, stderr, code, signal } = childResult;
+  if (code !== 0) {
+    const reason = extractMpvFailureReason(stdout, stderr, code ?? signal);
+    if (/play cancelled|play epoch mismatch/i.test(reason)) {
+      throw new PlayCancelledError();
+    }
+    if (/foreground_playback_(?:active|busy)|playback ownership busy/i.test(reason)) {
+      recordResolveMetric('ownership_deferrals');
+      emitPlaybackTelemetry('playback_ownership', {
+        resolve_request_class: options.requestClass,
+        ownership_result: 'deferred',
+      });
+    }
+    throw new Error(`mpv-play failed: ${reason}`);
+  }
   const output = `${stdout}\n${stderr}`;
-  const parsed = output.match(/ttff_ms=(\d+)/);
+  return parseMpvSuccessOutput(output, Date.now() - started);
+}
+
+export function parseMpvSuccessOutput(output: string, fallbackTtffMs: number): PlayResult {
+  const ttff = output.match(/ttff_ms=(\d+)/);
+  const duration = output.match(/duration_sec=([0-9]+(?:\.[0-9]+)?)/);
   return {
     ok: true,
-    ttff_ms: parsed ? Number(parsed[1]) : Date.now() - started,
+    ttff_ms: ttff ? Number(ttff[1]) : fallbackTtffMs,
+    ...(duration ? { duration_sec: Number(duration[1]) } : {}),
   };
 }
 
@@ -141,8 +174,16 @@ export async function probeUrl(
   minDurationSec?: number,
   playEpoch?: number,
   startSec?: number,
+  requestClass: 'user' | 'background' = 'background',
 ): Promise<PlayResult> {
-  return runMpv(url, { probe: true, timeoutMs, minDurationSec, playEpoch, startSec });
+  return runMpv(url, {
+    probe: true,
+    timeoutMs,
+    minDurationSec,
+    playEpoch,
+    startSec,
+    requestClass,
+  });
 }
 
 export async function playUrl(
@@ -166,6 +207,7 @@ export async function playUrl(
     live: options.live,
     audioUrl: options.audioUrl,
     ladderStep: options.ladderStep,
+    requestClass: 'user',
   });
 }
 

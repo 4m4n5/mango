@@ -4,11 +4,13 @@ import test from 'node:test';
 import {
   hasStreamResolveInfrastructureErrors,
   hasStreamResolveRateLimitErrors,
+  displayStreamTelemetry,
   streamResolveBudgetMs,
   streamsAreOnlyErrorPlaceholders,
   type ResolveNote,
   type Stream,
 } from './core.js';
+import { defaultFilterConfig, mergeFilterConfig } from './stream-filters.js';
 
 function note(kind: ResolveNote['kind'], message: string): ResolveNote {
   return { kind, message };
@@ -117,4 +119,29 @@ test('streamResolveBudgetMs is longer for user than background (1A)', () => {
   assert.equal(streamResolveBudgetMs('background'), 12000);
   assert.equal(streamResolveBudgetMs(undefined), 12000);
   assert.equal(streamResolveBudgetMs('user'), 30000);
+});
+
+test('S7: display telemetry reports truthful title, HDR/quality, and language stage loss', () => {
+  const config = mergeFilterConfig(defaultFilterConfig(), { hard_language: 'hindi' });
+  const streams: Stream[] = [
+    { url: 'https://example.test/good', title: "India's Got Latent S01E01 1080p Hindi HEVC", description: "📁 India's Got Latent S01E01 1080p Hindi HEVC", source: 'AIOStreams' },
+    { url: 'https://example.test/wrong', title: 'Better Call Saul S01E01 1080p Hindi HEVC', description: '📁 Better Call Saul S01E01 1080p Hindi HEVC', source: 'AIOStreams' },
+    { url: 'https://example.test/hdr', title: "India's Got Latent S01E01 2160p HDR Hindi H264", description: "📁 India's Got Latent S01E01 2160p HDR Hindi H264", source: 'AIOStreams' },
+    { url: 'https://example.test/english', title: "India's Got Latent S01E01 1080p English HEVC", description: "📁 India's Got Latent S01E01 1080p English HEVC", source: 'AIOStreams' },
+  ];
+  const telemetry = displayStreamTelemetry(streams, config, {
+    contentType: 'series',
+    metaTitle: "India's Got Latent",
+    metaId: 'tt33094114:1:1',
+  });
+  assert.equal(telemetry.excluded.title_mismatch, 1);
+  assert.equal(telemetry.excluded.language_mismatch, 1);
+  assert.equal(telemetry.excluded.above_max_quality, 1);
+  assert.deepEqual(telemetry.stages, {
+    raw: 4,
+    integrity_safe: 3,
+    main: 1,
+    last_resort: 1,
+    obligation_floor: 2,
+  });
 });

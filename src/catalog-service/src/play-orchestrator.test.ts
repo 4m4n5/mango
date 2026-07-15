@@ -42,7 +42,7 @@ function candidate(url: string, name = '[TB☁️⚡] Torrentio 1080p'): Stream 
   };
 }
 
-test('playWithLadder reuses verified probe for matching hash and ladder step', async () => {
+test('playWithLadder freshly safety-probes a matching verified hint', async () => {
   const stream = candidate('https://example.test/verified.mp4');
   let probeCalls = 0;
   let playTimeout = 0;
@@ -59,7 +59,7 @@ test('playWithLadder reuses verified probe for matching hash and ladder step', a
     preflight: async () => 'video',
     probe: async () => {
       probeCalls += 1;
-      throw new Error('probe should not run');
+      return { ok: true, ttff_ms: 3210, duration_sec: 5400 };
     },
     play: async (_url, timeoutMs) => {
       playTimeout = timeoutMs ?? 0;
@@ -67,10 +67,9 @@ test('playWithLadder reuses verified probe for matching hash and ladder step', a
     },
   });
 
-  assert.equal(probeCalls, 0);
+  assert.equal(probeCalls, 1);
   assert.equal(result.win_ladder_step, 'ideal');
   assert.equal(result.probe_ms, 3210);
-  assert.equal(result.attempts[0]?.probe_reused, true);
   // Phase A wall reserves obligation budget (default 20s), so play timeout is
   // under the full auto_play_wall_ms but still most of the wall.
   assert.ok(playTimeout > 60000);
@@ -103,12 +102,37 @@ test('playWithLadder proceeds to probe when preflight returns error (NFO-only ha
   });
 
   assert.equal(result.ok, true);
-  // Verified hint reuses probe timing; sniff error must not block play.
-  assert.equal(probeCalls, 0);
+  // Sniff errors are soft, but the fresh safety probe still runs.
+  assert.equal(probeCalls, 1);
   assert.equal(playCalls, 1);
 });
 
-test('playWithLadder still runs the byte-sniff and rejects nfo sidecars even when a verified hint would reuse the probe', async () => {
+test('a matching verified hint cannot bypass the feature-duration guard', async () => {
+  const stream = candidate('https://example.test/rotated-short.mp4');
+  let playCalls = 0;
+  const error = await playWithLadder([stream], testConfig(), {
+    contentType: 'movie',
+    filterContext: { contentType: 'movie', metaRuntimeMinutes: 90 },
+    verified_hint: {
+      win_url_hash: streamUrlHash(stream.url),
+      win_ladder_step: 'ideal',
+      probe_ms: 500,
+    },
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 500, duration_sec: 12 * 60 }),
+    play: async () => {
+      playCalls += 1;
+      return { ok: true, ttff_ms: 812 };
+    },
+  }).catch((err) => err);
+
+  assert.equal(playCalls, 0);
+  assert.ok(error instanceof Error);
+  const attempts = (error as { details?: { attempts?: Array<{ error?: string }> } }).details?.attempts ?? [];
+  assert.match(attempts[0]?.error || '', /supplemental_or_short_release/);
+});
+
+test('playWithLadder rejects nfo sidecars before probing a verified hint', async () => {
   const stream = candidate('https://example.test/verified.mp4');
   let playCalls = 0;
 
@@ -265,6 +289,7 @@ test('playWithLadder falls through to obligation floor when preference ladder ca
 
   assert.equal(result.ok, true);
   assert.equal(result.win_ladder_step, 'obligation_floor');
+  assert.equal(result.win_on_main, false);
   assert.equal(result.obligation_floor_ran, true);
   assert.ok(result.attempts.some((attempt) => attempt.ok === false));
   assert.ok(result.attempts.some((attempt) => attempt.ok === true && attempt.ladder_step === 'obligation_floor'));
@@ -365,6 +390,111 @@ test('playWithLadder retries once on last-candidate transient probe failure', as
   assert.equal(result.ok, true);
   assert.equal(probeCalls, 2);
   assert.equal(isStreamUrlBad(streamUrlHash(stream.url)), false);
+});
+
+test('S3: picker attempts exactly one URL and passes its explicit ladder step to mpv', async () => {
+  const picked = candidate('https://example.test/picker-exact.mkv', '[TB☁️⚡] Torrentio 2160p');
+  picked.description = '2160p REMUX HEVC SDR';
+  picked.ladder_step = 'stale_step';
+  let playCalls = 0;
+  let observedStep = '';
+  const result = await playWithLadder([picked], testConfig(), {
+    mode: 'picker',
+    preferUrl: picked.url,
+    preferLadderStep: '4k_sdr_remux_cached',
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 200 }),
+    play: async (url, _timeout, options) => {
+      playCalls += 1;
+      assert.equal(url, picked.url);
+      observedStep = options?.ladderStep ?? '';
+      return { ok: true, ttff_ms: 300 };
+    },
+  });
+  assert.equal(playCalls, 1);
+  assert.equal(observedStep, '4k_sdr_remux_cached');
+  assert.equal(result.win_ladder_step, '4k_sdr_remux_cached');
+  assert.equal(result.win_on_main, false);
+});
+
+test('S5: win_on_main is true for a main-ladder outcome', async () => {
+  const main = candidate('https://example.test/main-win.mkv');
+  const result = await playWithLadder([main], testConfig(), {
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 100 }),
+    play: async () => ({ ok: true, ttff_ms: 100 }),
+  });
+  assert.equal(result.win_ladder_step, 'ideal');
+  assert.equal(result.win_on_main, true);
+});
+
+test('S5: win_on_main is false for a last-resort outcome', async () => {
+  const lastResort: Stream = {
+    url: 'https://example.test/last-resort-win.mkv',
+    source: 'AIOStreams',
+    name: '[RD⚡] Torrentio 720p',
+    description: '720p WEBRip x264',
+    behaviorHints: { bingeGroup: 'aiostreams|realdebrid|false|720p' },
+  };
+  const main = [{
+    step: 'main_tb_cached', max_quality: '1080p' as const, exclude_remux: true,
+    require_cache: 'cached' as const, debrid_services: ['torbox'], addons: ['AIOStreams'], verified: true,
+  }];
+  const resort = [{
+    step: 'last_resort', max_quality: '2160p' as const, exclude_remux: false,
+    require_cache: 'any' as const, debrid_services: ['realdebrid'], addons: ['AIOStreams'], verified: false,
+  }];
+  const result = await playWithLadder([lastResort], testConfig({
+    play_ladder: [...main, ...resort],
+    main_ladder: main,
+    last_resort_ladder: resort,
+  }), {
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 100 }),
+    play: async () => ({ ok: true, ttff_ms: 100 }),
+  });
+  assert.equal(result.win_ladder_step, 'last_resort');
+  assert.equal(result.win_on_main, false);
+});
+
+test('S4: a 12-minute probe for a 90-minute movie fails before foreground play', async () => {
+  const short = candidate('https://example.test/status-clip.mkv');
+  let playCalls = 0;
+  const error = await playWithLadder([short], testConfig(), {
+    mode: 'picker',
+    preferUrl: short.url,
+    contentType: 'movie',
+    filterContext: { contentType: 'movie', metaRuntimeMinutes: 90 },
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 200, duration_sec: 12 * 60 }),
+    play: async () => {
+      playCalls += 1;
+      return { ok: true, ttff_ms: 300 };
+    },
+  }).catch((caught) => caught);
+  assert.ok(error instanceof Error);
+  assert.equal(playCalls, 0);
+  const attempts = (error as { details?: { attempts?: Array<{ error?: string }> } }).details?.attempts ?? [];
+  assert.match(attempts[0]?.error ?? '', /supplemental_or_short_release/);
+});
+
+test('S4: short bonus-episode duration remains eligible', async () => {
+  const bonus = candidate('https://example.test/bonus-clip.mkv');
+  let playCalls = 0;
+  const result = await playWithLadder([bonus], testConfig(), {
+    mode: 'picker',
+    preferUrl: bonus.url,
+    contentType: 'series',
+    filterContext: { contentType: 'series', episodeRole: 'bonus' },
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 200, duration_sec: 2 * 60 }),
+    play: async () => {
+      playCalls += 1;
+      return { ok: true, ttff_ms: 300 };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(playCalls, 1);
 });
 
 test('playWithLadder Phase B keeps unattempted Phase A URLs eligible', async () => {

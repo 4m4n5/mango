@@ -3,7 +3,15 @@ import { CatalogCore, CatalogError } from './core.js';
 import { couchPlayFailureMessage } from './catalog-errors.js';
 import { playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
-import { bumpPlayEpoch, PlayCancelledError } from './play-cancel.js';
+import { assertPlayEpoch, bumpPlayEpoch, isPlayEpochStale, PlayCancelledError } from './play-cancel.js';
+import { createPlayDeadline, remainingPlayBudgetMs, type PlayDeadline } from './play-deadline.js';
+import { emitPlaybackTelemetry } from './playback-telemetry.js';
+import {
+  cancelPlayRequest,
+  finishPlayRequest,
+  normalizePlayRequestId,
+  registerPlayRequest,
+} from './play-request-registry.js';
 import {
   demoteTitle,
   enqueuePlayabilityTrigger,
@@ -12,11 +20,7 @@ import {
   getTitleVerifyProfile,
   recordVerifyResult,
 } from './playability/db.js';
-import {
-  drainTriggersForTitle,
-  startTriggerConsumerBackgroundTick,
-} from './playability/trigger-consumer.js';
-import { demoteVerifyIfDrifted, verifyTitle } from './playability/verify.js';
+import { startTriggerConsumerBackgroundTick } from './playability/trigger-consumer.js';
 import { isSeriesEpisodeId, isSeriesRailGateId, seriesBareId } from './playability/ids.js';
 import { playabilityVerifyTtlMs } from './playability/config.js';
 import {
@@ -69,7 +73,7 @@ import {
   listUserPins,
   removeUserPin,
 } from './user-pins.js';
-import { streamUrlHash, isErrorStream } from './stream-filters.js';
+import { isErrorStream } from './stream-filters.js';
 import { isBlockedLiveStreamUrl, probeStreamReachability } from './live-stream-verify.js';
 import {
   parseFilterOverridesFromQuery,
@@ -114,6 +118,7 @@ const PORT = Number(process.env.MANGO_CATALOG_PORT || 3020);
 const BODY_LIMIT = 64 * 1024;
 
 type PlayBody = StreamFilterOverrides & {
+  request_id?: string;
   type?: string;
   id?: string;
   title?: string;
@@ -270,23 +275,6 @@ function savedPayload(tab: ReturnType<typeof parseCatalogTab>, limit: number): {
   };
 }
 
-function playPickHint(
-  preferUrl: string | undefined,
-  preferLadderStep?: string | null,
-): import('./stream-filters.js').VerifiedStreamHint | undefined {
-  if (!preferUrl || !/^https?:\/\//i.test(preferUrl)) {
-    return undefined;
-  }
-  const hint: import('./stream-filters.js').VerifiedStreamHint = {
-    win_url_hash: streamUrlHash(preferUrl),
-  };
-  const step = typeof preferLadderStep === 'string' ? preferLadderStep.trim() : '';
-  if (step) {
-    hint.win_ladder_step = step;
-  }
-  return hint;
-}
-
 function filterOverridesFromBody(body: PlayBody): StreamFilterOverrides {
   const overrides: StreamFilterOverrides = {};
   if (body.include_uncached === true) overrides.include_uncached = true;
@@ -327,7 +315,10 @@ function sendError(res: http.ServerResponse, error: unknown): void {
     });
     return;
   }
-  const message = error instanceof Error ? error.message : String(error);
+  if (error instanceof PlayCancelledError) {
+    sendJson(res, 499, { error: 'play cancelled' });
+    return;
+  }
   sendJson(res, 500, { error: 'catalog temporarily unavailable' });
 }
 
@@ -415,6 +406,9 @@ async function handlePlay(
   core: CatalogCore,
   body: PlayBody,
   queryOverrides: StreamFilterOverrides = {},
+  deadline: PlayDeadline = createPlayDeadline(),
+  requestId: string | null = normalizePlayRequestId(body.request_id),
+  onRequestRegistered?: (epoch: number) => void,
 ): Promise<Record<string, unknown>> {
   let playUrlValue = body.url;
 
@@ -422,12 +416,32 @@ async function handlePlay(
     if (!/^https?:\/\//i.test(playUrlValue)) {
       throw new CatalogError(400, 'play url must be http(s)');
     }
-    const started = Date.now();
+    const started = deadline.startedAtMs;
+    const playEpoch = await bumpPlayEpoch();
+    registerPlayRequest(requestId, playEpoch);
+    onRequestRegistered?.(playEpoch);
+    emitPlaybackTelemetry('play_request_start', {
+      request_id: requestId,
+      epoch: playEpoch,
+      total_deadline_ms: deadline.budgetMs,
+      resolve_request_class: 'user',
+    });
     const startSec = typeof body.start_sec === 'number' && body.start_sec > 0
       ? body.start_sec
       : undefined;
-    const playback = await playUrl(playUrlValue, 90000, { startSec });
+    const remainingMs = remainingPlayBudgetMs(deadline);
+    if (remainingMs <= 0) {
+      throw new CatalogError(504, 'play deadline exceeded', undefined, {
+        couchMessage: 'playback took too long — try again',
+      });
+    }
+    const playback = await playUrl(playUrlValue, remainingMs, {
+      startSec,
+      playEpoch,
+    });
+    await assertPlayEpoch(playEpoch);
     if (body.type && body.id) {
+      await assertPlayEpoch(playEpoch);
       await attachWatchSession(core, body.type, body.id);
     }
     return {
@@ -444,10 +458,19 @@ async function handlePlay(
   const overrides = { ...queryOverrides, ...filterOverridesFromBody(body) };
 
   if (body.type === 'tv' || body.live === true) {
-    const started = Date.now();
+    const started = deadline.startedAtMs;
     const playEpoch = await bumpPlayEpoch();
+    registerPlayRequest(requestId, playEpoch);
+    onRequestRegistered?.(playEpoch);
+    emitPlaybackTelemetry('play_request_start', {
+      request_id: requestId,
+      epoch: playEpoch,
+      total_deadline_ms: deadline.budgetMs,
+      resolve_request_class: 'user',
+    });
     const resolved = await core.resolveForPlay(body.type, body.id, overrides, {
       requestClass: 'user',
+      deadlineAtMs: deadline.deadlineAtMs,
     });
     const candidates = resolved.streams.filter((candidate) => {
       const url = candidate.url;
@@ -469,8 +492,14 @@ async function handlePlay(
     let chosenCandidate: { url: string; source?: unknown } | undefined;
     const probeErrors: string[] = [];
     for (const candidate of candidates) {
+      const remainingMs = remainingPlayBudgetMs(deadline);
+      if (remainingMs <= 0) {
+        throw new CatalogError(504, 'play deadline exceeded', undefined, {
+          couchMessage: 'playback took too long — try again',
+        });
+      }
       const url = candidate.url as string;
-      const reachable = await probeStreamReachability(url, probeTimeoutMs);
+      const reachable = await probeStreamReachability(url, Math.min(probeTimeoutMs, remainingMs));
       if (reachable) {
         streamUrl = url;
         chosenCandidate = candidate;
@@ -484,8 +513,16 @@ async function handlePlay(
         probes: probeErrors,
       });
     }
-    const playback = await playUrl(streamUrl, 90000, { live: true, playEpoch });
+    const remainingMs = remainingPlayBudgetMs(deadline);
+    if (remainingMs <= 0) {
+      throw new CatalogError(504, 'play deadline exceeded', undefined, {
+        couchMessage: 'playback took too long — try again',
+      });
+    }
+    const playback = await playUrl(streamUrl, remainingMs, { live: true, playEpoch });
+    await assertPlayEpoch(playEpoch);
     try {
+      await assertPlayEpoch(playEpoch);
       recordLibraryWatch({
         type: body.type,
         id: body.id,
@@ -505,6 +542,7 @@ async function handlePlay(
       );
     }
     if (playback.ok) {
+      await assertPlayEpoch(playEpoch);
       await startWatchSessionFromPlay({
         type: 'tv',
         id: body.id,
@@ -551,17 +589,16 @@ async function handlePlay(
   startSec = playTarget.startSec;
 
   const playEpoch = await bumpPlayEpoch();
+  registerPlayRequest(requestId, playEpoch);
+  onRequestRegistered?.(playEpoch);
+  emitPlaybackTelemetry('play_request_start', {
+    request_id: requestId,
+    epoch: playEpoch,
+    total_deadline_ms: deadline.budgetMs,
+    resolve_request_class: 'user',
+  });
   const now = Date.now();
   const usePlayabilityIndex = body.type !== 'series' || isSeriesRailGateId(playId);
-  if (usePlayabilityIndex) {
-    await demoteVerifyIfDrifted(core, body.type, playId).catch((error) => {
-      console.warn(
-        `verify drift check failed type=${body.type} id=${playId}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      );
-    });
-  }
   const profile = usePlayabilityIndex
     ? await getTitleVerifyProfile(body.type, playId)
     : null;
@@ -576,64 +613,14 @@ async function handlePlay(
       probe_ms: profile.probe_ms,
     }
     : undefined;
-  const pickerHint = playPickHint(body.prefer_url, body.prefer_ladder_step);
-  const verifiedHint = pickerHint
-    ? { ...profileHint, ...pickerHint }
-    : profileHint;
+  const verifiedHint = profileHint;
 
   let resolved: Awaited<ReturnType<CatalogCore['resolveForPlay']>> | null = null;
-  let inlineReverifyUsed = false;
   try {
-    // Soft recovery for failed/stale titles before resolve (Continue Watching path).
-    if (usePlayabilityIndex) {
-      const prior = await getTitlePlayability(body.type, playId).catch(() => null);
-      if (prior && (prior.status === 'failed' || prior.status === 'stale' || prior.fail_reason === 'play_miss')) {
-        await drainTriggersForTitle(core, {
-          type: body.type,
-          id: playId,
-          railId: body.rail_id ?? null,
-        }).catch(() => undefined);
-      }
-    }
-
-    try {
-      resolved = await core.resolveForPlay(body.type, playId, overrides, {
-        requestClass: 'user',
-      });
-    } catch (resolveError) {
-      const zeroStream = resolveError instanceof CatalogError
-        && resolveError.message === 'no_playable_stream'
-        && (resolveError.details as { candidates?: number } | undefined)?.candidates === 0;
-      if (!zeroStream || !usePlayabilityIndex || inlineReverifyUsed) {
-        throw resolveError;
-      }
-      inlineReverifyUsed = true;
-      const reverify = await verifyTitle(core, body.type, playId, {
-        railId: body.rail_id ?? null,
-        forceReprobe: true,
-      }).catch((reverifyError) => {
-        console.warn(
-          `inline reverify failed type=${body.type} id=${playId}: ${
-            reverifyError instanceof Error ? reverifyError.message : String(reverifyError)
-          }`,
-        );
-        return null;
-      });
-      if (reverify?.status !== 'verified') {
-        throw resolveError;
-      }
-      await assignVerifiedTitleToBestRail(core, {
-        type: body.type,
-        id: playId,
-        preferredRailId: body.rail_id ?? null,
-      }).catch(() => undefined);
-      resolved = await core.resolveForPlay(body.type, playId, {
-        ...overrides,
-        strict_unknown_cache: false,
-      }, {
-        requestClass: 'user',
-      });
-    }
+    resolved = await core.resolveForPlay(body.type, playId, overrides, {
+      requestClass: 'user',
+      deadlineAtMs: deadline.deadlineAtMs,
+    });
 
     const playMode = body.prefer_url ? 'picker' as const : 'auto' as const;
     const playback = await playWithLadder(resolved.streams, resolved.filters, {
@@ -644,7 +631,12 @@ async function handlePlay(
       playEpoch,
       startSec,
       preferUrl: body.prefer_url,
+      preferLadderStep: body.prefer_ladder_step,
+      deadlineAtMs: deadline.deadlineAtMs,
+      startedAtMs: deadline.startedAtMs,
     });
+
+    await assertPlayEpoch(playEpoch);
 
     const firstTimeVerified = isFirstTimeVerifiedPromotion(
       usePlayabilityIndex,
@@ -652,6 +644,7 @@ async function handlePlay(
     );
     if (usePlayabilityIndex && playMode === 'auto') {
       if (playback.win_on_main) {
+        await assertPlayEpoch(playEpoch);
         await recordVerifyResult({
           type: body.type,
           id: playId,
@@ -673,6 +666,7 @@ async function handlePlay(
             }`,
           );
         });
+        await assertPlayEpoch(playEpoch);
         await assignVerifiedTitleToBestRail(core, {
           type: body.type,
           id: playId,
@@ -686,6 +680,7 @@ async function handlePlay(
         });
       } else {
         // Q3B: last-resort / floor win → stale (playback-only); keep rail visibility.
+        await assertPlayEpoch(playEpoch);
         await demoteTitle({
           rail_id: body.rail_id ?? null,
           type: body.type,
@@ -701,6 +696,7 @@ async function handlePlay(
       }
     }
 
+    await assertPlayEpoch(playEpoch);
     await attachWatchSession(core, body.type, playId);
 
     return {
@@ -725,6 +721,9 @@ async function handlePlay(
     };
   } catch (error) {
     if (error instanceof PlayCancelledError) {
+      throw new CatalogError(499, 'play cancelled');
+    }
+    if (await isPlayEpochStale(playEpoch)) {
       throw new CatalogError(499, 'play cancelled');
     }
     const details = error instanceof CatalogError
@@ -753,6 +752,8 @@ async function handlePlay(
       const demote = !confirmFailure && shouldDemoteAfterPlayError(policyInput);
 
       if (confirmFailure) {
+        await assertPlayEpoch(playEpoch);
+        core.invalidateStreams(body.type, playId);
         await invalidateTitle({
           rail_id: body.rail_id,
           type: body.type,
@@ -767,6 +768,7 @@ async function handlePlay(
         });
         core.reshufflePlayabilitySession();
       } else if (demote) {
+        await assertPlayEpoch(playEpoch);
         await demoteTitle({
           rail_id: body.rail_id,
           type: body.type,
@@ -781,7 +783,8 @@ async function handlePlay(
         });
       }
 
-      // Always enqueue fast-lane reverify on couch miss (even transient) so nightly/inline can recover.
+      // Always enqueue fast-lane background reverify on couch miss (even transient).
+      await assertPlayEpoch(playEpoch);
       await enqueuePlayabilityTrigger({
         trigger_type: 'play_failure_reverify',
         rail_id: body.rail_id,
@@ -1627,6 +1630,7 @@ async function main(): Promise<void> {
           id: body.id,
           reason: body.reason || 'manual',
         });
+        core.invalidateStreams(body.type, body.id);
         if (body.reason === 'play_failure') {
           core.reshufflePlayabilitySession();
         } else {
@@ -1707,10 +1711,26 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play') {
+        const deadline = createPlayDeadline();
         const body = await readBody(req);
         touchCouchActivity('catalog', 'play');
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
-        sendJson(res, 200, await handlePlay(core, body, overrides));
+        const requestId = normalizePlayRequestId(body.request_id);
+        let requestEpoch: number | undefined;
+        try {
+          sendJson(res, 200, await handlePlay(
+            core,
+            body,
+            overrides,
+            deadline,
+            requestId,
+            (epoch) => { requestEpoch = epoch; },
+          ));
+        } finally {
+          if (requestEpoch !== undefined) {
+            finishPlayRequest(requestId, requestEpoch);
+          }
+        }
         return;
       }
 
@@ -1726,9 +1746,11 @@ async function main(): Promise<void> {
 
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play-cancel') {
         touchCouchActivity('catalog', 'play_cancel');
-        await bumpPlayEpoch();
+        const body = await readBody(req);
+        const requestId = normalizePlayRequestId(body.request_id);
+        const cancelled = await cancelPlayRequest(requestId);
         await flushWatchProgress();
-        sendJson(res, 200, { ok: true, cancelled: true });
+        sendJson(res, 200, { ok: true, ...cancelled, request_id: requestId });
         return;
       }
 

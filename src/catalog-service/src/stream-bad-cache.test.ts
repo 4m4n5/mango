@@ -9,7 +9,7 @@ import {
   streamBadCacheSize,
 } from './stream-bad-cache.js';
 import { playWithLadder } from './play-orchestrator.js';
-import { defaultPlayLadder, splitLegacyPlayLadder } from './play-ladder.js';
+import { defaultPlayLadder, splitLegacyPlayLadder, streamReleaseFingerprint } from './play-ladder.js';
 import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
 import type { Stream } from './core.js';
 
@@ -148,5 +148,70 @@ test('playWithLadder never skips probe for Real-Debrid even when uncached', asyn
     play: async () => ({ ok: true, ttff_ms: 400 }),
   });
   assert.equal(probeCalls, 1);
+  clearStreamBadCache();
+});
+
+test('S5: confirmed NFO follows a stable release across rotated signed URLs', async () => {
+  clearStreamBadCache();
+  const first = candidate('https://example.test/release.mkv?token=one');
+  first.behaviorHints = {
+    infoHash: 'ABC123',
+    bingeGroup: 'aiostreams|torbox|true|1080p',
+  };
+  const rotated = { ...first, url: 'https://example.test/release.mkv?token=two' };
+  await playWithLadder([first], testConfig(), {
+    mode: 'picker',
+    preferUrl: first.url,
+    preflight: async () => 'nfo',
+    probe: async () => ({ ok: true, ttff_ms: 100 }),
+    play: async () => ({ ok: true, ttff_ms: 100 }),
+  }).catch(() => undefined);
+  assert.equal(isStreamUrlBad(streamReleaseFingerprint(rotated)), true);
+  let probeCalls = 0;
+  const error = await playWithLadder([rotated], testConfig(), {
+    mode: 'picker',
+    preferUrl: rotated.url,
+    preflight: async () => 'video',
+    probe: async () => {
+      probeCalls += 1;
+      return { ok: true, ttff_ms: 100 };
+    },
+    play: async () => ({ ok: true, ttff_ms: 100 }),
+  }).catch((caught) => caught);
+  assert.ok(error instanceof Error);
+  assert.equal(probeCalls, 0);
+  clearStreamBadCache();
+});
+
+test('S5: TorBox transient does not hide the same infoHash on Real-Debrid', async () => {
+  clearStreamBadCache();
+  const torbox = candidate('https://example.test/tb-signed.mkv');
+  torbox.behaviorHints = { infoHash: 'samehash', bingeGroup: 'aiostreams|torbox|true|1080p' };
+  await playWithLadder([torbox], testConfig(), {
+    mode: 'picker',
+    preferUrl: torbox.url,
+    preflight: async () => 'video',
+    probe: async () => { throw new Error('timeout waiting for playback'); },
+    play: async () => ({ ok: true, ttff_ms: 100 }),
+  }).catch(() => undefined);
+  assert.equal(isStreamUrlBad(streamReleaseFingerprint(torbox)), false);
+
+  const realDebrid: Stream = {
+    ...candidate('https://example.test/rd-signed.mkv', '[RD☁️⚡] Torrentio 1080p'),
+    behaviorHints: { infoHash: 'samehash', bingeGroup: 'aiostreams|realdebrid|true|1080p' },
+  };
+  let playCalls = 0;
+  const result = await playWithLadder([realDebrid], testConfig(), {
+    mode: 'picker',
+    preferUrl: realDebrid.url,
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 100 }),
+    play: async () => {
+      playCalls += 1;
+      return { ok: true, ttff_ms: 100 };
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.equal(playCalls, 1);
   clearStreamBadCache();
 });
