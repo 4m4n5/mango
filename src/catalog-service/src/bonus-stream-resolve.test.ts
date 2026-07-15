@@ -219,3 +219,10 @@ test('pickMainEpisodeStreams keeps normal series releases', () => {
   assert.equal(kept.length, 1);
   assert.equal(isSupplementalStream(kept[0] ?? stream('', '')), false);
 });
+
+test('Discarded packs are supplemental (not main-episode play)', () => {
+  assert.equal(
+    isSupplementalStream(stream('MediaFusion', '📁 Indias Got Latent Discarded E01')),
+    true,
+  );
+});

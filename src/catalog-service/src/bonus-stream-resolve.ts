@@ -12,9 +12,9 @@ const EPISODE_ID = /^(tt\d+):(\d+):(\d+)$/i;
 const TITLE_STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'episode', 'ep', 'ft', 'feat', 'featuring',
 ]);
-const SUPPLEMENTAL_HAYSTACK_RE = /\b(bonus|deleted|moments|featurette|bts|behind[\s-]?the[\s-]?scenes|extras?)\b/i;
+const SUPPLEMENTAL_HAYSTACK_RE = /\b(bonus|deleted|discarded|moments|featurette|bts|behind[\s-]?the[\s-]?scenes|extras?)\b/i;
 /** Keep aligned with episodes.ts supplemental title routing. */
-const SUPPLEMENTAL_EPISODE_TITLE_RE = /\b(behind the scenes|featurette|inside the episode|trailer|preview|making of|deleted scene|deleted|moments|bonus|extras?|bts)\b/i;
+const SUPPLEMENTAL_EPISODE_TITLE_RE = /\b(behind the scenes|featurette|inside the episode|trailer|preview|making of|deleted scene|deleted|discarded|moments|bonus|extras?|bts)\b/i;
 
 export function parseSeriesEpisodeId(id: string): ParsedSeriesEpisodeId | null {
   const match = id.trim().match(EPISODE_ID);

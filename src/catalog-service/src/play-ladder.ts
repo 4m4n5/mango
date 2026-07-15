@@ -1,4 +1,5 @@
 import type { Stream } from './core.js';
+import { isSupplementalStream } from './bonus-stream-resolve.js';
 import {
   debridServiceId,
   enrichStreamMetadata,
@@ -25,6 +26,20 @@ import {
   type StreamFilterContext,
   type VerifiedStreamHint,
 } from './stream-filters.js';
+
+function rejectSupplementalForMainEpisode(
+  stream: Stream,
+  context: StreamFilterContext,
+): boolean {
+  if (isSupplementalRelease(stream, context.contentType)) {
+    return true;
+  }
+  // Series main episodes must not pick BTS / deleted / discarded packs.
+  if ((context.contentType || '').toLowerCase() === 'series' && context.episodeRole !== 'bonus') {
+    return isSupplementalStream(stream);
+  }
+  return false;
+}
 
 export type PlayLadderCacheRequirement = 'cached' | 'cached_or_uncached' | 'cached_or_unknown' | 'any';
 
@@ -381,7 +396,7 @@ export function filterStreamsForLadderStep(
       continue;
     }
     if (isSeriesPackForMovie(stream, context.contentType)) continue;
-    if (isSupplementalRelease(stream, context.contentType)) continue;
+    if (rejectSupplementalForMainEpisode(stream, context)) continue;
     if (options.hard_language && !streamMatchesLanguage(stream, options.hard_language)) continue;
     const effectiveStep = options.exclude_remux === undefined
       ? step
@@ -599,7 +614,7 @@ export function expandObligationFloor(
     if (isExcludedUncachedRealDebrid(stream)) continue;
     if (!streamPassesIntegrity(stream, context)) continue;
     if (isSeriesPackForMovie(stream, context.contentType)) continue;
-    if (isSupplementalRelease(stream, context.contentType)) continue;
+    if (rejectSupplementalForMainEpisode(stream, context)) continue;
     if (isErrorStream(stream)) continue;
     if (isLowQualityRelease(stream)) continue;
     if (options.hard_language && !streamMatchesLanguage(stream, options.hard_language)) continue;
