@@ -45,7 +45,7 @@ assert data.get("preferred_quality") in ("4k", "2160p"), data.get("preferred_qua
 assert data.get("include_uncached") is False, data.get("include_uncached")
 codecs = [str(v).lower() for v in data.get("preferred_video_codecs") or []]
 assert any(codec in codecs for codec in ("hevc", "x265", "h265")), codecs
-steps = data.get("play_ladder") or []
+steps = data.get("main_ladder") or data.get("play_ladder") or []
 assert steps, steps
 assert steps[0].get("max_quality") == "2160p", steps[0]
 assert steps[0].get("min_quality") == "2160p", steps[0]
@@ -56,6 +56,11 @@ if hifi:
     assert steps[0].get("step") == "4k_sdr_remux_cached", steps[0]
     assert steps[0].get("exclude_hdr") is True, steps[0]
     assert steps[0].get("require_hevc") is True, steps[0]
+    last_resort = data.get("last_resort_ladder") or []
+    assert any((step or {}).get("step") == "1080p_uncached_fallback" for step in last_resort), last_resort
+    soft_idx = next((i for i, step in enumerate(last_resort) if (step or {}).get("step") == "4k_sdr_soft_cached"), -1)
+    uncached_idx = next((i for i, step in enumerate(last_resort) if (step or {}).get("step") == "1080p_uncached_fallback"), -1)
+    assert uncached_idx >= 0 and soft_idx > uncached_idx, last_resort
 else:
     assert data.get("exclude_remux") is True, data.get("exclude_remux")
     assert steps[0].get("step") == "4k_hevc_cached", steps[0]
