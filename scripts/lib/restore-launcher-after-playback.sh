@@ -72,7 +72,9 @@ phase_restore_browse_hdmi() {
   rm -f "$PLAYBACK_ACTIVE_FILE"
   # Keep lxpanel/wallpaper hidden during the xrandr gap so the Pi desktop never flashes.
   hide_desktop_chrome
-  require_browse_display_before_launcher_reveal
+  # Always force browse HDMI here — finish runs only after foreground mpv teardown.
+  # Do not use playback_surface_active guards (probe workers must not skip restore).
+  ensure_browse_display
 }
 
 phase_reveal_launcher_at_browse() {

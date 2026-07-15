@@ -90,8 +90,9 @@ if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
 fi
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 if systemctl --user is-enabled mango-launcher-chromium.service &>/dev/null; then
-  PLAYBACK_ACTIVE_FILE="\${HOME}/.cache/mango/playback-active"
-  if [[ -f "\$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
+  # shellcheck source=/dev/null
+  source scripts/lib/mango-browse-display.sh
+  if playback_surface_active; then
     echo "pi-deploy: skip launcher restart (playback active)"
   else
     bash scripts/lib/mango-display-mode.sh ensure-launcher 2>/dev/null || true

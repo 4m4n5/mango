@@ -54,9 +54,11 @@ else
 fi
 
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
+# shellcheck source=../lib/mango-browse-display.sh
+source scripts/lib/mango-browse-display.sh
 if [[ "${MANGO_GATE_SOURCE_ONLY:-0}" == "1" ]]; then
   gate_warn "source-only mode — idle HDMI runtime enforcement deferred"
-elif [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
+elif playback_surface_active; then
   gate_warn "playback active — skip idle browse display enforcement"
 else
   bash scripts/lib/mango-display-mode.sh ensure-launcher 2>/dev/null || true
@@ -91,8 +93,9 @@ grep -q 'launcher_freeze' scripts/m2-catalog/service/mpv-play.sh \
   || gate_fail "launcher freeze/thaw not wired (expected launcher_freeze on play, launcher_thaw on restore)"
 
 grep -q 'mango-browse-display.sh' scripts/lib/restore-launcher-after-playback.sh \
-  && grep -q 'require_browse_display_before_launcher_reveal' scripts/lib/restore-launcher-after-playback.sh \
+  && grep -q 'ensure_browse_display' scripts/lib/restore-launcher-after-playback.sh \
   && grep -q 'require_browse_display_before_launcher_reveal' scripts/lib/mango-window.sh \
+  && grep -q 'input-ipc-server' scripts/lib/mango-browse-display.sh \
   && gate_pass "browse HDMI restored before launcher reveal (black-screen-first)" \
   || gate_fail "browse-before-show restore contract not wired"
 
@@ -128,7 +131,7 @@ grep -q 'pcmanfm --desktop-off' scripts/lib/mango-desktop.sh \
   && gate_pass "pcmanfm desktop suppressed on chrome hide (no wallpaper flash)" \
   || gate_fail "mango-desktop.sh hide must suppress pcmanfm desktop (wallpaper flash)"
 
-if [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
+if playback_surface_active; then
   gate_warn "playback active — skip launcher freezer capability probe"
 else
   can_freeze="$(systemctl --user show mango-launcher-chromium.service -p CanFreeze --value 2>/dev/null || echo unknown)"

@@ -55,7 +55,8 @@ mpv_playback_active() {
   playback_active_sentinel && return 0
   local socket="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
   [[ -S "$socket" ]] || return 1
-  pgrep -x mpv >/dev/null 2>&1
+  # Foreground player only — ignore idle mpv-probe workers.
+  pgrep -af "mpv.*--input-ipc-server=${socket}" >/dev/null 2>&1
 }
 
 connected_output() {

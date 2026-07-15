@@ -30,7 +30,7 @@ mpv_ipc_property() {
 mpv_playback_active() {
   [[ -f "${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}" ]] && return 0
   [[ -S "$SOCKET" ]] || return 1
-  pgrep -x mpv >/dev/null 2>&1
+  pgrep -af "mpv.*--input-ipc-server=${SOCKET}" >/dev/null 2>&1
 }
 
 current_output_width() {

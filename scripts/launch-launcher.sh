@@ -21,7 +21,9 @@ export MANGO_SKIP_OVERLAY=1
 export MANGO_FAST_UI="${MANGO_FAST_UI:-1}"
 
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
-if [[ ! -f "$PLAYBACK_ACTIVE_FILE" ]] && ! pgrep -x mpv >/dev/null 2>&1; then
+# shellcheck source=lib/mango-browse-display.sh
+source "$REPO_DIR/scripts/lib/mango-browse-display.sh"
+if ! playback_surface_active; then
   bash "$REPO_DIR/scripts/lib/mango-display-mode.sh" ensure-launcher 2>/dev/null || true
 fi
 

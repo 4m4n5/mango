@@ -514,12 +514,15 @@ def _mpv_window_ids() -> list[str]:
 
 
 def _playback_session_active() -> bool:
+    """Foreground couch playback only — idle mpv-probe workers do not count."""
     if PLAYBACK_ACTIVE_FILE.is_file():
         return True
-    if MPV_SOCKET_PATH.is_socket():
-        return True
+    if not MPV_SOCKET_PATH.is_socket():
+        return False
+    # Match the main IPC socket, not probe-*.sock idle workers.
+    needle = f"--input-ipc-server={MPV_SOCKET_PATH}"
     result = subprocess.run(
-        ["pgrep", "-x", "mpv"],
+        ["pgrep", "-af", f"mpv.*{needle}"],
         env=_env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

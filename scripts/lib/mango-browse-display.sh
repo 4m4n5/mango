@@ -33,8 +33,14 @@ browse_display_current_width() {
   printf '%s\n' "$width"
 }
 
+# True only for foreground couch playback — never idle probe workers
+# (mpv-probe/*.sock). Bare `pgrep -x mpv` falsely blocked browse HDMI restore
+# after stop, leaving the launcher mapped at 3840x2160 (tiny UI).
 playback_surface_active() {
-  [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1
+  [[ -f "$PLAYBACK_ACTIVE_FILE" ]] && return 0
+  local socket="${MANGO_MPV_SOCKET:-${HOME}/.cache/mango/mpv.sock}"
+  [[ -S "$socket" ]] || return 1
+  pgrep -af "mpv.*--input-ipc-server=${socket}" >/dev/null 2>&1
 }
 
 browse_display_is_active() {

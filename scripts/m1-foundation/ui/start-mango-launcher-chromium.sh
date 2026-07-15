@@ -13,7 +13,9 @@ export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
 
 mkdir -p "$LOG_DIR"
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${LOG_DIR}/playback-active}"
-if [[ -f "$PLAYBACK_ACTIVE_FILE" ]] || pgrep -x mpv >/dev/null 2>&1; then
+# shellcheck source=../../lib/mango-browse-display.sh
+source "$REPO_DIR/scripts/lib/mango-browse-display.sh"
+if playback_surface_active; then
   echo "launcher browser: deferred (playback active)" >>"$LOG_DIR/mango-launcher-chromium.log"
   exit 0
 fi
