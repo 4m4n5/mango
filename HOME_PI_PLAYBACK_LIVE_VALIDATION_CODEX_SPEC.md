@@ -96,10 +96,10 @@ Workstreams, in dependency order:
 
 ## 2. Repository map and sources of truth
 
-- **Expected home-Mac repo:**
-  `/Users/aman.shrivastava/Documents/personal/projects/mango`
-  (if the clone lives elsewhere, locate the `mango` clone and report its
-  absolute path; do not create a second checkout unnecessarily).
+- **Home-Mac repo:** locate the existing `mango` clone, `cd` to it, and resolve
+  its root with `REPO_ROOT="$(git rev-parse --show-toplevel)"`. All repository
+  paths and commands in this specification are relative to `$REPO_ROOT`; do not
+  create a second checkout unnecessarily.
 - **Pi repo:** `aman@mango:~/mango`; mDNS fallback is `mango-mdns`.
 - **Branch:** `feat/native-experience`.
 - **Entry rules:** `AGENTS.md` and the workspace `../AGENTS.md` if present.
@@ -126,7 +126,8 @@ record the discrepancy rather than guessing.
 ### 3.1 Home-Mac preflight
 
 ```bash
-cd /Users/aman.shrivastava/Documents/personal/projects/mango
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 git branch --show-current
 git status --short --branch --untracked-files=all
 git fetch origin feat/native-experience
@@ -551,13 +552,12 @@ or unsupported by runtime evidence.
 
 ```text
 You are the home-Mac deployment and validation agent for mango. The complete
-contract is in:
-/Users/aman.shrivastava/Documents/personal/projects/mango/HOME_PI_PLAYBACK_LIVE_VALIDATION_CODEX_SPEC.md
-
-Locate the existing mango clone if that exact path differs, then read the spec
-top to bottom before running any command. Work only on feat/native-experience;
-verify the branch and stop if it differs. Pull fast-forward-only, deploy only
-through the repo's git-based Pi scripts, and never rsync/scp/hand-copy repo files.
+contract is in `HOME_PI_PLAYBACK_LIVE_VALIDATION_CODEX_SPEC.md` at the repository
+root. Locate the existing mango clone, cd to its root, then read that file top
+to bottom before running any other command. Work only on
+feat/native-experience; verify the branch and stop if it differs. Pull
+fast-forward-only, deploy only through the repo's git-based Pi scripts, and
+never rsync/scp/hand-copy repo files.
 Run H1 through H6 in order, perform the real Pi and couch checks, diagnose and
 correct failures with tests, commit/push new fixes without amend/force, redeploy,
 and repeat until verified. Never expose secrets or fabricate a pass. Write and
