@@ -22,16 +22,21 @@ its own debrid creds. This avoids the old broken default "MediaFusion P2P" endpo
 
 - **Manifest URL (secret — RD+TorBox embedded):** stored Pi-side at
   `~/.config/mango/mediafusion.manifest` (mode 600). Never committed.
+  Host is currently `mediafusion-dev.elfhosted.com` (ElfHosted TRB+RD share).
 - **Preset options:** `enabled: true`, `resources: ["stream"]`, `timeout: 8000`,
   `useMultipleInstances: false`.
 - **Verified (couch path, catalog-service :3020):** contributes ~2 TorBox-cached 4K streams
   per popular title alongside Comet + Torrentio, **zero MediaFusion errors** in AIO logs.
 
-**Catalogs: intentionally NOT wired.** This manifest exposes only 2 catalogs, both personal
-"RD Watchlist" (movie/series) — not thematic. Registering MediaFusion in mango's
-`stremio-export.json` would also add a redundant direct stream path (duplicate, non-deduped
-streams + extra debrid load), so catalogs are left out; the stream benefit comes entirely
-through AIOStreams' deduped/sorted output.
+**Catalogs: available but NOT wired.** The current share exposes **46 catalogs** (RD
+Watchlist + English/Hindi/Tamil/Telugu/Malayalam/Kannada HD+TCRip+dubbed+old movies,
+matching series, plus Arabic/Bangla/Punjabi, TGx, Prowlarr, Live TV/sports). Sample
+pages return ~100 metas each. Registering MediaFusion in mango's `stremio-export.json`
+would also make it a **direct stream addon** (catalog-service fetches every addon that
+advertises `stream`) — duplicate non-deduped streams + extra debrid/rate-limit load
+alongside AIOStreams. Keep catalogs out until we either (a) add a catalog-only allowlist
+in catalog-service, or (b) decide the India-rail yield gain is worth the duplicate stream
+path. Stream benefit stays entirely through AIOStreams.
 
 To re-provision the manifest (rotate creds / change catalogs), update
 `~/.config/mango/mediafusion.manifest` then set the MediaFusion preset `options.url` via the
