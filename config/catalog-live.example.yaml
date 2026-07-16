@@ -33,15 +33,15 @@ sources:
 rails:
   - id: live-world-cup
     label: world cup
-    limit: 120
-    dedupe_titles: false
+    limit: 8
+    qualification: fifa_mens_world_cup
     source_fill:
       - addon: mango Live Free
-        limit: 12
+        limit: 2
         keywords:
           - fifa
       - addon: mango Live TV
-        limit: 108
+        limit: 8
         keywords:
           - world cup
           - fifa world cup
@@ -95,10 +95,11 @@ rails:
 
   - id: live-cricket
     label: cricket
-    limit: 48
+    limit: 8
+    qualification: india_cricket
     source_fill:
       - addon: mango Live TV
-        limit: 40
+        limit: 8
         keywords:
           - cricket
           - ipl
@@ -111,6 +112,7 @@ rails:
           - test match
           - t20
           - ashes
+          - india
         exclude_keywords:
           - 24/7
           - replay
@@ -126,6 +128,7 @@ rails:
           - cricket gold
     keywords:
       - cricket
+      - india
     exclude_keywords:
       - replay
       - 24/7
@@ -133,14 +136,15 @@ rails:
 
   - id: live-football
     label: soccer
-    limit: 60
+    limit: 8
+    qualification: main_soccer
     source_fill:
       - addon: mango Live Free
         limit: 8
         keywords:
           - bein sports
       - addon: mango Live TV
-        limit: 52
+        limit: 8
         keywords:
           - uefa
           - premier league
@@ -148,6 +152,8 @@ rails:
           - la liga
           - serie a
           - champions league
+          - europa league
+          - uel
           - ligue 1
           - mls
           - bein sports
@@ -287,10 +293,11 @@ rails:
 
   - id: live-racing
     label: formula 1
-    limit: 24
+    limit: 4
+    qualification: f1_standing_allowlist
     source_fill:
       - addon: mango Live TV
-        limit: 24
+        limit: 4
         keywords:
           - f1
           - formula 1
@@ -346,10 +353,18 @@ rails:
   - id: live-news
     label: news
     limit: 12
+    qualification: balanced_news
     source_fill:
       - addon: mango Live News
-        limit: 12
+        limit: 8
         match_all: true
+      - addon: mango Live TV
+        limit: 4
+        keywords:
+          - bbc news
+          - sky news
+          - al jazeera english
+          - nbc news now
     keywords:
       - news
     exclude_keywords:
@@ -358,10 +373,11 @@ rails:
 
   - id: live-cartoons
     label: cartoons
-    limit: 15
+    limit: 8
+    qualification: english_hindi_cartoons
     source_fill:
       - addon: mango Live Cartoons
-        limit: 15
+        limit: 8
         match_all: true
     keywords:
       - kids

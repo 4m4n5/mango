@@ -318,7 +318,7 @@ Phone companion (:3001) ──WSS──► orchestrator (:8765)
 Launcher voice-hud ◄── WS loopback :8766
 ```
 
-**Rule:** Voice/text opens detail — pad **B** plays. Replies are text-only on phone (TTS off). Live channels found via `GET /voice/search?q=` across all NexoTV sources.
+**Rule:** Voice/text opens detail — pad **B** plays. Replies are text-only on phone (TTS off). Live channels use the native Mango/mpv path. `GET /voice/search?tab=live&q=` searches the full configured free-IPTV + AREA69 inventories, applies persistent playback health, and never hands off to another app; browse rails remain separately thin and policy-qualified.
 
 Detail: [VOICE.md](VOICE.md) · [AI_LAYER.md](AI_LAYER.md)
 
@@ -352,6 +352,9 @@ default `0`) to keep focus-move repaints fast at 1080p60. Roll back to software
 compositing by setting `MANGO_CHROMIUM_DISABLE_GPU=1` in the systemd unit.
 After a matched 4K play, restore **restarts** the launcher unit (not only thaw)
 so VideoCore EGL is recreated — freeze-through-xrandr otherwise leaves blank posters.
+The pre-play detail/tab/episode snapshot is therefore stored durably in browser
+local storage (with a session-storage fallback), consumed once on return, and
+expired after six hours; a deliberate Chromium restart must not reset browse to Movies.
 
 | Milestone | Display | Notes |
 |-------|---------|-------|

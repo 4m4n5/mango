@@ -22,7 +22,7 @@ else
   gate_fail "launcher dist/index.html missing — cd src/launcher && npm run build"
 fi
 
-python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" <<'PY' \
+python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" <<'PY' \
   && gate_pass "launcher source UX contracts" \
   || gate_fail "launcher source UX contracts"
 import pathlib
@@ -33,6 +33,7 @@ detail = pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
 focus = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
 main = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")
 next_prompt = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8")
+playback_return = pathlib.Path(sys.argv[6]).read_text(encoding="utf-8")
 
 if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
@@ -45,8 +46,15 @@ if "class FocusGrid" not in focus:
 if "async refreshAfterPlayback" not in detail or "await this.loadEpisodeList(card)" not in detail:
     raise SystemExit("detail.ts missing in-place playback-return progress refresh")
 refresh = detail.split("async refreshAfterPlayback", 1)[1].split("restoreAfterPlayback", 1)[0]
-if refresh.find("await this.loadEpisodeList(card)") > refresh.find("this.focusPlayButton()"):
-    raise SystemExit("detail.ts must finish episode refresh before restoring Play focus")
+if "this.focusEpisodeById(returningEpisodeId)" not in refresh:
+    raise SystemExit("detail.ts playback return does not restore exact episode focus")
+if refresh.find("await this.loadEpisodeList(card)") > refresh.find("this.focusEpisodeById(returningEpisodeId)"):
+    raise SystemExit("detail.ts must finish episode refresh before restoring episode focus")
+if "nextEpisodeFocusTarget" not in detail or "this.pendingEpisodeRestore = focusTarget" not in detail:
+    raise SystemExit("detail.ts missing completion-to-next-episode focus contract")
+for durable_contract in ("localStorage.setItem", "localStorage.getItem", "localStorage.removeItem"):
+    if durable_contract not in playback_return:
+        raise SystemExit(f"playback-return.ts missing restart-safe storage contract: {durable_contract}")
 for false_claim in ("trying alternate release", "caching stream on TorBox"):
     if false_claim in detail:
         raise SystemExit(f"detail.ts contains unverified slow-resolve claim: {false_claim}")
@@ -55,6 +63,8 @@ for contract in ("savePlaybackReturnSnapshot", "AbortController", "signal: abort
         raise SystemExit(f"next-prompt.ts missing direct-play return/cancel contract: {contract}")
 if "reconcileEpisodePlayTimeout" not in detail:
     raise SystemExit("detail.ts missing frozen-launcher play-timeout reconciliation")
+if detail.count("clearPlaybackReturnSnapshot();") < 3:
+    raise SystemExit("detail.ts does not clear durable return state on cancel/failure/hide")
 failure_block = detail.split("} catch (error) {", 1)[1].split("} finally {", 1)[0]
 if failure_block.find("reconcileEpisodePlayTimeout") > failure_block.find("setEpisodeStreamBadge(episodeId, false)"):
     raise SystemExit("detail.ts greys an episode before playback-timeout reconciliation")
@@ -64,10 +74,12 @@ PY
 
 "$REPO_DIR/src/catalog-service/node_modules/.bin/tsx" --test \
   "$SRC/catalog-errors.test.ts" \
+  "$SRC/playback-return.test.ts" \
+  "$SRC/playback-return-focus.test.ts" \
   "$SRC/playback-reconciliation.test.ts" \
   "$SRC/stream-list-recovery.test.ts" \
-  && gate_pass "launcher playback timeout reconciliation tests" \
-  || gate_fail "launcher playback timeout reconciliation tests"
+  && gate_pass "launcher playback return + timeout reconciliation tests" \
+  || gate_fail "launcher playback return + timeout reconciliation tests"
 
 if [[ -f "$DIST/index.html" ]]; then
   python3 - "$DIST/index.html" <<'PY' \

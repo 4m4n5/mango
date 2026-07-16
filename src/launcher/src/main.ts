@@ -179,11 +179,6 @@ const detail = new DetailController(
         pendingContinueRefreshTab = activeBrowseTab;
       }
     },
-    onNextEpisodePrompt: (hint, card) => {
-      nextEpisodePrompt.show(hint, card);
-      nextPromptFocusIndex = 0;
-      nextEpisodePrompt.applyFocus(nextPromptFocusIndex);
-    },
   },
 );
 

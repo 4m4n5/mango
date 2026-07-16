@@ -189,6 +189,20 @@ export async function probeUrl(
   });
 }
 
+/** Headless live-channel playback-start proof; never presents a foreground app. */
+export async function probeLiveUrl(
+  url: string,
+  timeoutMs: number,
+): Promise<PlayResult> {
+  return runMpv(url, {
+    probe: true,
+    live: true,
+    timeoutMs,
+    minDurationSec: 1,
+    requestClass: 'background',
+  });
+}
+
 export async function playUrl(
   url: string,
   timeoutMs = 90000,

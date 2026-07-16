@@ -76,11 +76,13 @@ import {
 } from './user-pins.js';
 import { isErrorStream } from './stream-filters.js';
 import { isBlockedLiveStreamUrl, probeStreamReachability } from './live-stream-verify.js';
+import { playLiveCandidateLadder } from './live/playback-ladder.js';
 import {
   parseFilterOverridesFromQuery,
   type StreamFilterOverrides,
 } from './stream-filters.js';
 import { searchVerifiedLibrary } from './voice/search.js';
+import { searchLiveChannels } from './voice/live-search.js';
 import { buildContinuePlayTarget, buildNowPlayingResponse } from './voice/now-playing.js';
 import { buildAiContextResponse } from './voice/ai-context.js';
 import { buildVoiceToolManifest } from './voice/tools.js';
@@ -372,7 +374,7 @@ async function readBody(req: http.IncomingMessage): Promise<PlayBody> {
 async function attachWatchSession(core: CatalogCore, type: string, playId: string): Promise<void> {
   try {
     const metaId = type === 'series' ? (seriesBareId(playId) || playId) : playId;
-    const meta = await core.meta(type, metaId);
+    const meta = await core.metaCached(type, metaId);
     await startWatchSessionFromPlay({
       type,
       id: playId,
@@ -469,10 +471,11 @@ async function handlePlay(
       total_deadline_ms: deadline.budgetMs,
       resolve_request_class: 'user',
     });
-    const resolved = await core.resolveForPlay(body.type, body.id, overrides, {
-      requestClass: 'user',
-      deadlineAtMs: deadline.deadlineAtMs,
-    });
+    const resolved = await core.resolveLiveForPlay(
+      body.id,
+      body.title,
+      deadline.deadlineAtMs,
+    );
     const candidates = resolved.streams.filter((candidate) => {
       const url = candidate.url;
       return typeof url === 'string'
@@ -483,44 +486,42 @@ async function handlePlay(
     if (candidates.length === 0) {
       throw new CatalogError(502, 'no_playable_stream');
     }
-    // Fail fast on unreachable live hosts: probe each candidate and pick the
-    // first that delivers bytes. Free IPTV-org hosts are often geo-blocked from
-    // the Pi; without this probe mpv hangs for its full 90s playback-start
-    // timeout before the UI reports "no playback". AREA69 (max_connections=1)
-    // is safe — the probe destroys its socket before mpv opens its connection.
+    // Resolve has expanded the logical item into a quality-ordered canonical
+    // variant ladder. Reachability remains a cheap preflight; playback-start
+    // failure now advances to the next qualified variant within one deadline.
     const probeTimeoutMs = Number(process.env.MANGO_LIVE_PROBE_TIMEOUT_MS ?? 5000);
-    let streamUrl = '';
-    let chosenCandidate: { url: string; source?: unknown } | undefined;
-    const probeErrors: string[] = [];
-    for (const candidate of candidates) {
-      const remainingMs = remainingPlayBudgetMs(deadline);
-      if (remainingMs <= 0) {
-        throw new CatalogError(504, 'play deadline exceeded', undefined, {
-          couchMessage: 'playback took too long — try again',
-        });
-      }
-      const url = candidate.url as string;
-      const reachable = await probeStreamReachability(url, Math.min(probeTimeoutMs, remainingMs));
-      if (reachable) {
-        streamUrl = url;
-        chosenCandidate = candidate;
-        break;
-      }
-      probeErrors.push(`unreachable: ${url.slice(0, 80)}`);
-    }
-    if (!streamUrl) {
-      throw new CatalogError(502, 'no_reachable_live_stream', {
+    const ladder = await playLiveCandidateLadder(candidates, body.id, {
+      remainingMs: () => remainingPlayBudgetMs(deadline),
+      probeTimeoutMs,
+      probe: probeStreamReachability,
+      play: async (url, timeoutMs) => {
+        await assertPlayEpoch(playEpoch);
+        const result = await playUrl(url, timeoutMs, { live: true, playEpoch });
+        await assertPlayEpoch(playEpoch);
+        return result;
+      },
+      record: (source, channelId, status, reason) => (
+        core.recordLiveSearchOutcome(source, channelId, status, reason)
+      ),
+      isCancelled: async (error) => (
+        error instanceof PlayCancelledError || await isPlayEpochStale(playEpoch)
+      ),
+    });
+    if (!ladder.candidate || !ladder.playback) {
+      throw new CatalogError(ladder.exhausted ? 504 : 502, ladder.exhausted
+        ? 'play deadline exceeded'
+        : 'live_playback_failed', {
         candidate_count: candidates.length,
-        probes: probeErrors,
+        attempts: ladder.attempts,
+        errors: ladder.errors,
+      }, {
+        couchMessage: ladder.exhausted
+          ? 'playback took too long — try again'
+          : 'live stream unavailable — try again',
       });
     }
-    const remainingMs = remainingPlayBudgetMs(deadline);
-    if (remainingMs <= 0) {
-      throw new CatalogError(504, 'play deadline exceeded', undefined, {
-        couchMessage: 'playback took too long — try again',
-      });
-    }
-    const playback = await playUrl(streamUrl, remainingMs, { live: true, playEpoch });
+    const chosenCandidate = ladder.candidate;
+    const playback = ladder.playback;
     await assertPlayEpoch(playEpoch);
     try {
       await assertPlayEpoch(playEpoch);
@@ -557,10 +558,10 @@ async function handlePlay(
       live: true,
       ttff_ms: playback.ttff_ms,
       total_ms: Date.now() - started,
-      attempts: 1,
+      attempts: ladder.attempts,
       play_id: body.id,
       stream: {
-        url: streamUrl,
+        url: chosenCandidate.url,
         source: typeof chosenCandidate?.source === 'string' ? chosenCandidate.source : undefined,
         display_label: 'live',
         resolve_ms: resolved.resolve_ms,
@@ -621,6 +622,7 @@ async function handlePlay(
     resolved = await core.resolveForPlay(body.type, playId, overrides, {
       requestClass: 'user',
       deadlineAtMs: deadline.deadlineAtMs,
+      identityHint: { title: body.title, year: body.year },
     });
 
     const playMode = body.prefer_url ? 'picker' as const : 'auto' as const;
@@ -1276,7 +1278,13 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'voice' && parts[1] === 'search') {
         const query = url.searchParams.get('q')?.trim() ?? '';
         const limit = Number(url.searchParams.get('limit') || 8);
-        const results = await searchVerifiedLibrary(query, Number.isFinite(limit) ? limit : 8, core);
+        const resultLimit = Number.isFinite(limit) ? limit : 8;
+        const liveOnly = url.searchParams.get('tab') === 'live'
+          || url.searchParams.get('live') === '1'
+          || url.searchParams.get('live') === 'true';
+        const results = liveOnly
+          ? await searchLiveChannels(query, resultLimit, core, { validateUnknown: true })
+          : await searchVerifiedLibrary(query, resultLimit, core);
         sendJson(res, 200, { ok: true, query, results });
         return;
       }
@@ -1714,7 +1722,13 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'stream') {
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
         const existingOnly = url.searchParams.get('existing_only') === '1';
-        sendJson(res, 200, await core.streams(parts[1], parts[2], overrides, { existingOnly }));
+        sendJson(res, 200, await core.streams(parts[1], parts[2], overrides, {
+          existingOnly,
+          identityHint: {
+            title: url.searchParams.get('title') || undefined,
+            year: url.searchParams.get('year') || undefined,
+          },
+        }));
         return;
       }
 

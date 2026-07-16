@@ -23,6 +23,8 @@ test('scoreTitleMatch handles multi-word partial matches', () => {
 test('isLiveSearchIntent detects IPTV-oriented queries', () => {
   assert.equal(isLiveSearchIntent('cartoons'), true);
   assert.equal(isLiveSearchIntent('put on cnn'), true);
+  assert.equal(isLiveSearchIntent('NDTV 24x7'), true);
+  assert.equal(isLiveSearchIntent('La Liga'), true);
   assert.equal(isLiveSearchIntent('friends'), false);
   assert.equal(isLiveSearchIntent('Friends the sitcom'), false);
 });

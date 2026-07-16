@@ -12,10 +12,20 @@ type CachedLiveRailsPayload = {
 };
 
 type LiveRailsDiskCache = {
+  policy_version?: number;
   saved_at: number;
   expires_at: number;
   payload: CachedLiveRailsPayload;
 };
+
+/** Bump when cached rail membership semantics change incompatibly. */
+export const LIVE_RAILS_POLICY_VERSION = 2;
+
+export function liveRailsDiskCacheCompatible(
+  entry: LiveRailsDiskCache | null,
+): entry is LiveRailsDiskCache {
+  return entry !== null && entry.policy_version === LIVE_RAILS_POLICY_VERSION;
+}
 
 export function liveRailsCachePath(): string {
   return process.env.MANGO_LIVE_RAILS_CACHE
@@ -54,6 +64,7 @@ export async function writeLiveRailsDiskCache(
 ): Promise<void> {
   const now = Date.now();
   const entry: LiveRailsDiskCache = {
+    policy_version: LIVE_RAILS_POLICY_VERSION,
     saved_at: now,
     expires_at: now + ttlSec * 1000,
     payload,
@@ -66,18 +77,21 @@ export async function writeLiveRailsDiskCache(
 export function liveRailsDiskCacheFresh(
   entry: LiveRailsDiskCache | null,
 ): entry is LiveRailsDiskCache {
-  return entry !== null && entry.expires_at > Date.now() && entry.payload.rails.length > 0;
+  return liveRailsDiskCacheCompatible(entry)
+    && entry.expires_at > Date.now()
+    && entry.payload.rails.length > 0;
 }
 
 export function liveRailsDiskCacheNonEmpty(
   entry: LiveRailsDiskCache | null,
 ): entry is LiveRailsDiskCache {
-  return entry !== null && entry.payload.rails.length > 0;
+  return liveRailsDiskCacheCompatible(entry) && entry.payload.rails.length > 0;
 }
 
 export function liveRailsDiskCacheSummary(entry: LiveRailsDiskCache | null): {
   path: string;
   present: boolean;
+  compatible: boolean;
   non_empty: boolean;
   fresh: boolean;
   age_sec: number | null;
@@ -98,6 +112,7 @@ export function liveRailsDiskCacheSummary(entry: LiveRailsDiskCache | null): {
   return {
     path: liveRailsCachePath(),
     present: entry !== null,
+    compatible: liveRailsDiskCacheCompatible(entry),
     non_empty: liveRailsDiskCacheNonEmpty(entry),
     fresh: liveRailsDiskCacheFresh(entry),
     age_sec: entry ? Math.max(0, Math.round((now - entry.saved_at) / 1000)) : null,

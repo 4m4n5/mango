@@ -2,16 +2,21 @@
 
 **Status:** Shipped on `feat/native-experience` — **Live** browse tab, sport rails, mpv `--live`.
 
-Wire **NexoTV** (Stremio addon) on the Pi. Paid Xtream (AREA69) + free IPTV-org sports run as **two Docker instances**. `catalog-service` builds sport rails from `catalog-live.yaml`; launcher plays with `{ type: "tv", live: true }`.
+Wire **NexoTV** (Stremio addon) on the Pi. AREA69 and the curated free
+IPTV-org sports, news, and cartoons inventories run as separate local
+instances. `catalog-service` classifies six thin rails from structured channel,
+programme, category, and language fields; launcher playback stays native Mango
+through mpv.
 
 ---
 
 ## Architecture
 
 ```
-NexoTV paid  :7000  ─┐
-                     ├→ stremio-export.json → catalog-service (:3020)
-NexoTV free  :7001  ─┘         ↓
+NexoTV AREA69  :7000 ─┐
+NexoTV free    :7001 ─┤
+NexoTV news    :7002 ─┼→ stremio-export.json → catalog-service (:3020)
+NexoTV cartoons:7003 ─┘         ↓
                     GET /rails/items?tab=live
                                ↓
                     launcher Live tab → POST /play → mpv --live
@@ -22,8 +27,11 @@ NexoTV free  :7001  ─┘         ↓
 | `mango Live TV` | `:7000` | `area69-xtream` (paid) |
 | `mango Live Free` | `:7001` | `iptv-org-sports` (legal free) |
 | `mango Live News` | `:7002` | `iptv-org-news` (India + US + UK) |
+| `mango Live Cartoons` | `:7003` | curated English/Hindi IPTV-org kids |
 
-Rails (5): **cricket**, **football & soccer**, **racing**, **news** — see `config/catalog-live.example.yaml`.
+Rails (6, fixed order): **FIFA World Cup**, **cricket**, **soccer**, **Formula
+1**, **news**, **cartoons**. Empty qualified rails are hidden. See
+`config/catalog-live.example.yaml`.
 
 ---
 
@@ -67,6 +75,13 @@ bash scripts/live/install-nexotv-news.sh
 bash scripts/live/nexotv-config.sh apply-news iptv-org-news
 ```
 
+### Cartoons (IPTV-org — explicit English/Hindi metadata)
+
+```bash
+bash scripts/live/install-nexotv-cartoons.sh
+bash scripts/live/nexotv-config.sh apply-cartoons m3u-cartoons
+```
+
 ### Wire + restart
 
 ```bash
@@ -85,10 +100,12 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 |----------|--------|
 | Tab | **movies · series · live** — L/R shoulders or browse bar |
 | Refresh / ↻ | Live tab **does not** pass `reshuffle=1` (avoids NexoTV rate limits) |
-| Voice search | `GET /voice/search?q=` — full IPTV catalog (AREA69 + free + news + cartoons), not just browse rails |
-| Cache | Memory + disk `~/.cache/mango/live-rails-cache.json`; stale non-empty cache served if rebuild fails |
-| Play | Detail → **watch live** · `POST /play` with `live: true` |
-| Ordering | Paid (AREA69) channels sort before free per rail |
+| Native Live search | `GET /voice/search?tab=live&q=` searches full local AREA69 + free/news/cartoons inventories, independent of rail curation. Ordinary voice Live intent uses the same path. |
+| Search proof | Fresh successful plays/probes return immediately; known failures are suppressed. At most one free and one AREA69 unknown top match validate concurrently for up to 2 s. Slow proof continues asynchronously and is eligible only on a later search. |
+| Cache | Memory + disk `~/.cache/mango/live-rails-cache.json`; only policy-compatible stale non-empty cache may be fallback. Old broad-policy caches are rejected. |
+| Health state | `~/.cache/mango/live-channel-health.json`, operator-owned and credential-safe. Real play/probe success promotes; resolve/reachability/play-start failure demotes until the existing Live cache horizon expires. |
+| Play | Detail → **watch live** · `POST /play` with `live: true`; canonical variants form one quality-ordered ladder and fail over within the existing play deadline. No external app handoff. |
+| Ordering | Eligibility and proof first; then nominal resolution (2160p = 4K, only 4320p/explicit 8K = 8K), English/Hindi, codec, measured health. |
 
 ---
 
@@ -105,9 +122,15 @@ Key flags in `catalog-live.yaml`:
 
 | Field | Shipped value | Why |
 |-------|---------------|-----|
-| `verify_streams` | `false` | Stream probes hit NexoTV `/stream/` rate limit (~60/min) |
+| `verify_streams` | `false` | Avoid broad browse-time NexoTV `/stream/` probing; search performs only bounded playback-start proof |
 | `cache_ttl_sec` | `1800` | Reduce catalog rebuild churn |
-| `sources[].pages` | 6 paid / 4 free | Catalog pagination (100 per page) |
+| `sources[].pages` | `1` in the example | Each local curated inventory is already thin; AREA69 full search comes from its separate versioned index |
+
+Curated M3U profiles enable NexoTV EPG where supported. Standing sports
+channels require a qualifying current programme; exact event feeds require a
+live/current marker and reject replay, studio, preview, ended, and placeholder
+rows. Missing target news/cartoon channels shrink the rail instead of admitting
+generic substitutes.
 
 ---
 
@@ -131,10 +154,10 @@ cd ~/mango/deploy/nexotv-free && docker compose restart
 
 ### Health-only diagnostics
 
-`/health` exposes operator-only Live diagnostics without probing `/stream` or
-reshuffling Live: config readiness, source addon names, disk cache path, cache
-age/freshness, stale fallback availability, per-rail counts, and last rebuild
-error.
+`/health` exposes operator-only Live diagnostics without reshuffling Live:
+config readiness, source addon names, disk cache compatibility and per-rail
+counts, last rebuild error, plus qualified, verified, failed, queued, unknown,
+and stale search candidates.
 
 ```bash
 bash scripts/live/live-diagnostics.sh
@@ -143,22 +166,22 @@ bash scripts/live/gate-live-diagnostics.sh
 MANGO_LIVE_REQUIRE_STALE_FALLBACK=1 bash scripts/live/gate-live-diagnostics.sh
 ```
 
-The cache contract is conservative: a non-empty stale Live cache is better than
-an empty Live tab. Rebuilds that fail or produce no non-empty rails must not
-overwrite a previously usable cache.
+The cache contract is conservative but policy-versioned: a compatible non-empty
+stale Live cache is better than an empty Live tab. An older broad-membership
+cache is incompatible and must not silently return.
 
 ---
 
-## Known coverage (2026-06)
+## Curated membership contract
 
-| Rail | Paid (AREA69) | Free |
-|------|---------------|------|
-| Football & soccer | ✓ PRIME / sport genres | backup |
-| Racing | ✓ F1 / NASCAR (paid) | ✓ Rally, Sky Racing, FloRacing (free) |
-| News | ✓ CNN / NBC / BBC / Bloomberg (paid national) | ✓ Indian + US via `:7002` |
-| Cricket | sparse in AREA69 catalog pages | ✓ Star Sports, Willow-class channels |
-
-Paid cricket may require more catalog pages or provider-side genre browsing — not a launcher bug.
+| Rail | Admission |
+|------|-----------|
+| FIFA World Cup | Current senior men's World Cup match only; no qualifiers, adjacent FIFA events, generic channels, replays, or ended rows |
+| Cricket | Current explicit India participant match; `West Indies` and incidental `Indian` text do not qualify |
+| Soccer | Current Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Champions League, or Europa League match |
+| Formula 1 | Up to four exact F1 TV, Sky Sports F1, DAZN F1, and Viaplay F1 variants only |
+| News | Exact 4 Indian English + 4 Indian Hindi + 4 global English target identities; missing rows are not substituted |
+| Cartoons | Up to eight classics-first target families with positive, exclusively English/Hindi source metadata |
 
 ---
 
@@ -170,13 +193,12 @@ MANGO_LIVE_GATE=1 MANGO_LIVE_PLAY=1 bash scripts/live/gate-live-iptv.sh
 bash scripts/live/gate-live-diagnostics.sh
 curl -s http://127.0.0.1:3020/health | python3 -m json.tool   # includes live diagnostics
 curl -s 'http://127.0.0.1:3020/rails/items?tab=live' | python3 -c "import json,sys;d=json.load(sys.stdin);print([(r['label'],len(r.get('items')or[])) for r in d.get('rails',[])])"
+curl -sG 'http://127.0.0.1:3020/voice/search' --data-urlencode 'tab=live' --data-urlencode 'q=BBC News' | python3 -m json.tool
 ```
 
 ---
 
 ## Open items
 
-- Paid cricket: deeper AREA69 catalog scan or genre-specific fetch
 - Optional `verify_streams: true` when NexoTV limits are raised
-- EPG / “now playing” subtitles from NexoTV `releaseInfo`
-- Voice: `play live cricket` tool (M5, deferred)
+- Runtime confirmation of provider EPG completeness and representative fallback ladders is Pi-only; see `COUCH_TEST.md`

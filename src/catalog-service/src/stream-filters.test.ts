@@ -402,6 +402,120 @@ test('Friends rejects Apple TV and other compound "Friends" titles (1+2)', () =>
   }));
 });
 
+test('same-name series editions use country, start year, and episode title without dropping ambiguous coverage', () => {
+  const release = (filename: string, description = filename): Stream => ({
+    url: `https://example.test/${encodeURIComponent(filename)}.mkv`,
+    source: 'AIOStreams',
+    name: '[TB⚡] Torrentio 1080p',
+    title: '[TB⚡] Torrentio 1080p',
+    description: `📁 ${description}`,
+    behaviorHints: {
+      filename,
+      bingeGroup: 'com.aiostreams|torbox|true|1080p',
+    },
+  });
+  const officeUk = {
+    contentType: 'series',
+    metaTitle: 'The Office',
+    metaId: 'tt0290978:1:1',
+    metaYear: 2001,
+    metaCountry: 'United Kingdom',
+    episodeTitle: 'Downsize',
+  } as const;
+  const correctUk = release('The.Office.U.K.2001.S01E01.Downsize.1080p.BluRay.x265.mkv');
+  const unqualified = release('The.Office.S01E01.1080p.BluRay.x265.mkv');
+  const wrongUs = release(
+    'The.Office.U.S.2005.S01E01.Pilot.1080p.WEB-DL.mkv',
+    'The Office (U.S.) (2005) S01E01 Pilot — tt0290978',
+  );
+  const wrongEpisode = release('The.Office.S01E01.Pilot.1080p.WEB-DL.mkv');
+
+  assert.equal(streamMatchesMetaTitle(correctUk, officeUk.metaTitle, officeUk.metaId, officeUk), true);
+  assert.equal(streamMatchesMetaTitle(unqualified, officeUk.metaTitle, officeUk.metaId, officeUk), true);
+  assert.equal(
+    streamMatchesMetaTitle(wrongUs, officeUk.metaTitle, officeUk.metaId, officeUk),
+    false,
+    'a matching target IMDb id must not bypass an explicit US-edition conflict',
+  );
+  assert.equal(streamMatchesMetaTitle(wrongEpisode, officeUk.metaTitle, officeUk.metaId, officeUk), false);
+
+  const ranked = filterAndRankStreams(
+    [wrongUs, correctUk, wrongEpisode, unqualified],
+    testConfig(),
+    officeUk,
+  );
+  assert.equal(ranked.meta.excluded.title_mismatch, 2);
+  assert.deepEqual(ranked.streams.map((row) => row.url).sort(), [correctUk.url, unqualified.url].sort());
+
+  const correctUs = release('The.Office.U.S.2005.S01E01.Pilot.1080p.WEB-DL.mkv');
+  assert.equal(streamMatchesMetaTitle(
+    correctUs,
+    'The Office',
+    'tt0386676:1:1',
+    {
+      contentType: 'series',
+      metaYear: 2005,
+      metaCountry: 'United States',
+      episodeTitle: 'Pilot',
+    },
+  ), true);
+
+  const pinned = filterAndRankStreams(
+    [wrongUs, correctUk],
+    testConfig(),
+    { ...officeUk, skipTitleFilter: true },
+  );
+  assert.deepEqual(pinned.streams.map((row) => row.url), [correctUk.url]);
+  assert.equal(pinned.meta.excluded.title_mismatch, 1);
+});
+
+test('same-name movie remakes reject an explicit conflicting release year', () => {
+  const dune1984: Stream = {
+    url: 'https://example.test/dune-1984.mkv',
+    source: 'AIOStreams',
+    title: 'Dune 1984 1080p',
+    description: '📁 Dune (1984) 1080p BluRay',
+    behaviorHints: { filename: 'Dune.1984.1080p.BluRay.x265.mkv' },
+  };
+  const dune2021: Stream = {
+    ...dune1984,
+    url: 'https://example.test/dune-2021.mkv',
+    title: 'Dune 2021 1080p',
+    description: '📁 Dune (2021) 1080p BluRay',
+    behaviorHints: { filename: 'Dune.2021.1080p.BluRay.x265.mkv' },
+  };
+  const context = { contentType: 'movie', metaYear: 2021 } as const;
+  assert.equal(streamMatchesMetaTitle(dune1984, 'Dune', 'tt1160419', context), false);
+  assert.equal(streamMatchesMetaTitle(dune2021, 'Dune', 'tt1160419', context), true);
+});
+
+test('country abbreviations that are part of the canonical title stay title tokens', () => {
+  const usMovie: Stream = {
+    url: 'https://example.test/us-2019.mkv',
+    source: 'AIOStreams',
+    title: 'Us 2019 1080p',
+    description: '📁 Us (2019) 1080p BluRay',
+    behaviorHints: { filename: 'Us.2019.1080p.BluRay.x265.mkv' },
+  };
+  assert.equal(streamMatchesMetaTitle(
+    usMovie,
+    'Us',
+    'tt6857112',
+    { contentType: 'movie', metaYear: 2019, metaCountry: 'United States' },
+  ), true);
+});
+
+test('an explicit conflicting IMDb id is rejected even when title meta is unavailable', () => {
+  const wrongId = stream('The Office S01E01 tt0386676 1080p', 'https://example.test/wrong-id.mkv');
+  const ranked = filterAndRankStreams(
+    [wrongId],
+    testConfig(),
+    { contentType: 'series', metaId: 'tt0290978:1:1' },
+  );
+  assert.equal(ranked.streams.length, 0);
+  assert.equal(ranked.meta.excluded.title_mismatch, 1);
+});
+
 test('single-token titles no longer bypass integrity (fix 1)', () => {
   const junk = stream('📁 Completely Different Show S01 • E01', 'https://example.test/junk.mkv');
   assert.equal(streamMatchesMetaTitle(junk, 'Seinfeld', 'tt0098904', { contentType: 'series' }), false);

@@ -14,7 +14,10 @@ Nothing in this round changes provider coverage, fallback depth, dependency vers
 
 - Verified `feat/native-experience` before editing and never switched branches.
 - Baseline tree was clean except for the user-provided untracked `EFFICIENCY_AND_SOURCES_CODEX_SPEC.md`.
-- No commit, push, deploy, SSH, `scripts/pi-*.sh`, dependency install/update, or Pi access was performed.
+- During implementation and local verification, no commit, push, deploy, SSH,
+  `scripts/pi-*.sh`, dependency install/update, or Pi access was performed.
+  The user later explicitly authorized one commit/push plus a tracked home-Mac
+  deployment specification; Pi access and runtime proof remain deferred.
 - No tuned timeout, budget, concurrency, attempt, or TTL default was changed.
 - The locked policy remains: TorBox uncached retained; Real-Debrid uncached excluded (`config/aiostreams-target-patch.json:13-16`, `src/catalog-service/src/aiostreams-policy.ts:23-35`).
 - No credentials or generated Pi manifest data were read or written.
@@ -211,9 +214,152 @@ The optional independent GPT-5.5 diff-review lane did **not** produce a verdict:
 
 Deferred — these checks require the home Mac/Pi: live AIO user profile and generated manifest; RD/TB/Torrentio/Comet/MF responses; actual fan-out/journal concurrency; mpv start/end and cgroup freeze/resume; the before/after playability DB row; and couch visuals/input. None is reported as passed here.
 
-## Reviewer handoff
+## Reviewer and home-Mac handoff
 
-- Review all uncommitted changes on `feat/native-experience`; the spec and this report remain untracked by design.
+- Review the pushed change set on `feat/native-experience`; this report and
+  `HOME_PI_PLAYBACK_LIVE_VALIDATION_CODEX_SPEC.md` are part of the handoff.
 - Re-run the §3 matrix independently from a clean catalog `dist`.
-- After review/commit/push from an authorized machine, use only the git-based split-machine deploy flow, then perform the unchecked Pi rows in `docs/COUCH_TEST.md:75-160`.
+- Follow the tracked home-Mac specification and only the git-based split-machine
+  deploy flow, then perform every unchecked Pi row in `docs/COUCH_TEST.md`.
 - Do not promote this report's local source-only gates into Pi playback claims.
+
+## Follow-up — Native Mango Live curation and playable search
+
+Status: implemented and verified locally on `feat/native-experience`;
+Pi/runtime proof is deferred to the tracked home-Mac handoff. No deploy, SSH,
+`pi-exec`, or `pi-deploy` action was performed on the work Mac. Commit/push was
+performed only after the user explicitly authorized the final handoff.
+
+### Root causes confirmed
+
+1. Live rail admission flattened identity, programme, genre, and description
+   into broad keyword text. Generic multiplexes, adjacent competitions, replay
+   labels, and incidental team words could therefore qualify before ranking.
+2. AREA69's compact-index builder treated every `VS`/date event row as noise.
+   Legitimate current matches disappeared from the full search index together
+   with the placeholders it intended to reject. Neither the index nor rail
+   cache had an incompatibility boundary for the new membership semantics.
+3. NexoTV current-programme/language fields were not fully preserved, curated
+   M3U EPG was disabled, and the cartoon inventory contained unknown/foreign
+   variants. Standing sport channels could not be qualified safely.
+4. Live quality scoring treated 2160p/3840 as the top tier. Search was a title
+   match over local inventories/cache with no persistent real-play health, so
+   known-dead and never-tested rows could surface as if playable.
+5. `/play` selected the first URL that delivered bytes and invoked mpv once. A
+   playback-start failure did not advance to a same-channel/event alternative,
+   and outcomes did not improve later search ordering.
+
+### Implemented policy and data changes
+
+- Added typed optional rail policies for senior men's FIFA World Cup matches,
+  India-participant cricket, the Big Five plus UCL/UEL, four exact F1 brands,
+  the exact 12-channel news target, and English/Hindi-only cartoon families.
+  Qualification uses distinct identity, current programme, category, language,
+  and structured event fields before canonical dedupe and quality ranking.
+- Kept six rails in existing order, capped them at 8/8/8/4/12/8, and retained
+  only the four approved inventories: `mango Live TV` (AREA69), `mango Live
+  Free`, `mango Live News`, and `mango Live Cartoons`. Empty qualified rails are
+  omitted by the existing Live response builder.
+- Enabled EPG for curated free M3U profiles. Rebuilt cartoon curation to join
+  IPTV-org channel-language metadata, reject unknown/mixed foreign variants,
+  select classics first, and emit one stream for at most eight approved
+  families. The checked-in playlist now has seven explicitly English rows;
+  missing families shrink the rail.
+- AREA69 search index v2 retains real current event-shaped rows and safe
+  competition/team/timing metadata while rejecting ended/replay/offline,
+  placeholder, season-pack, and VOD rows. Credential-shaped source and artwork
+  data is never persisted. Legacy v1 indexes now return incompatible/empty
+  until rebuilt. Live rail disk cache policy v2 similarly rejects legacy broad
+  snapshots rather than serving them as stale fallback.
+- Corrected quality tiers: explicit 8K/4320p is top; 4K/UHD/2160p/3840 follows;
+  then 1080p/720p/SD. After eligibility/proof, resolution outranks
+  English/Hindi, codec, and fresh measured health.
+
+### Playable full-catalog search and playback failover
+
+- `GET /voice/search?tab=live&q=...` is an additive live-only form of the
+  existing response contract. It searches the full configured local free-IPTV
+  catalogs plus AREA69's full v2 index, independent of thin browse rails.
+- Added an operator-owned registry at
+  `~/.cache/mango/live-channel-health.json`. Keys are SHA-256 source/id
+  identities; raw channel IDs, sources, URLs, and credentials are not stored.
+  Writes are serialized, atomic, mode 0600, and failure reasons are sanitized.
+  Freshness reuses the existing Live cache horizon—no TTL was added or retuned.
+- Fresh verified results return immediately; fresh failures are suppressed.
+  Search selects at most one unknown free-IPTV and one unknown AREA69 candidate
+  per response, deduplicates in-flight proof, and waits at most the approved
+  2-second response allowance. Unfinished headless-mpv proof stays hidden and
+  continues asynchronously for a later search. Any active Mango playback
+  blocks background validation; AREA69 therefore never spends its one
+  connection beside foreground playback.
+- Canonical same-channel/event variants expose one search/browse leader.
+  `/play` expands the selected logical item into a resolution/language/codec/
+  health-ordered ladder, performs reachability and playback-start attempts, and
+  advances after a failed variant under the unchanged overall play deadline.
+  Successful real plays promote the actual working variant; reachability and
+  play-start failures demote the actual failing variant. One unavailable
+  configured source no longer erases the other Live inventories.
+- `/health.live.search_health` additively reports qualified, verified, failed,
+  queued, unknown, total, and stale counts. Existing API response fields and
+  existing channel IDs remain accepted.
+
+No existing timeout, provider budget, concurrency, cache TTL, NexoTV verify
+rate, or play deadline was changed. `verify_streams: false` remains unchanged;
+the only new numeric behavior is the explicitly approved hard 2-second Live
+search response allowance. No source coverage was reduced outside the approved
+rail curation: full-catalog native search still sees all four allowed local
+inventories.
+
+### Tests added
+
+- Classifier fixtures cover FIFA qualifiers/replays/ended/adjacent events,
+  India versus West Indies/incidental `Indian`, every approved soccer
+  competition, EPG-only standing proof, generic broadcaster rejection, exact
+  F1/news allowlists, and English/Hindi cartoon evidence.
+- Config/rail tests cover the exact four-source restriction, all six policies,
+  2160p versus 4320p, language tie-breaking, canonical one-item-per-event
+  grouping, and incompatible stale-cache rejection.
+- AREA69/Python tests cover legitimate event retention, replay/placeholder/VOD
+  rejection, v2 incompatibility, credential-safe metadata, and compact-M3U
+  standing-channel behavior. Cartoon tests cover language joins, localized
+  feed rejection, classics-first selection, the eight-family cap, and the
+  checked-in playlist.
+- Search/play tests cover persistent health, fresh-failure suppression, the
+  2-second bound, one candidate per inventory class, async completion, queued
+  diagnostics, active-playback AREA69 exclusion, and playback variant failover.
+
+### Final clean local verification
+
+| Exact command | Result |
+|---|---|
+| `git branch --show-current` and `git rev-list --left-right --count HEAD...origin/feat/native-experience` | PASS — `feat/native-experience`; `0 0` after fetch, so no pull/switch was needed |
+| `cd src/catalog-service && npm run build && npm test && npm run test:gate` | PASS — clean build; full 656/656; fast gate 301/301 |
+| `python3 scripts/live/test_build_curated_area69_m3u.py` | PASS — 4/4 |
+| `python3 scripts/live/test_build_curated_cartoons_m3u.py` | PASS — 4/4 |
+| `python3 -m py_compile scripts/live/build-curated-area69-m3u.py scripts/live/test_build_curated_area69_m3u.py scripts/live/build-curated-cartoons-m3u.py scripts/live/test_build_curated_cartoons_m3u.py src/mango-ui-server/serve.py` | PASS |
+| `cd src/launcher && npm run build && bash ../../scripts/m6-ship/gate-m6-ux-smoke.sh` | PASS — 26 modules; 15/15 launcher tests; 2 expected off-Pi warnings |
+| `PYTHONPATH=src/orchestrator python3 -m unittest discover -s src/orchestrator/tests` | PASS — 83/83 |
+| `bash -n scripts/m2-catalog/service/mpv-play.sh scripts/m2-catalog/service/mpv-stop.sh scripts/m3-play/playability/mpv-probe-ipc.sh scripts/lib/couch-activity.sh scripts/m6-ship/gate-m6-playback-ssot.sh` | PASS |
+| `MANGO_REPO_DIR="$PWD" MANGO_GATE_SOURCE_ONLY=1 MANGO_MPV_STOP_LAUNCHER=1 MANGO_MPV_DEFER_FOREGROUND=1 bash scripts/m6-ship/gate-m6-playback-ssot.sh` | PASS — 3 expected off-Pi warnings |
+| `git diff --check` | PASS |
+
+Honest failure record: one preliminary Python unittest command was run from
+`src/catalog-service` with repo-relative paths and failed import; a later
+root-level combined command tried `npm run build` where no root `package.json`
+exists. Both were rerun from the correct directories and were never counted as
+passes. The first fast-gate attempt also had one timing-sensitive
+`scoped-child` assertion miss its child `started` output (299/300); the complete
+656-test suite had passed it, an immediate clean gate rerun passed 300/300, and
+the final clean gate after all edits passed 301/301. The failed attempt is not
+hidden or green.
+
+### Pi-only handoff — deferred
+
+`docs/COUCH_TEST.md` now contains exact home-Mac/Pi steps for rebuilding the
+AREA69 v2 index, applying EPG-enabled free/news/cartoon profiles, clearing the
+legacy Live rail cache, inspecting six-rail membership, timing native
+full-catalog search, verifying that active playback blocks AREA69 proof, checking
+credential-safe health state, and couch-playing a representative fallback
+ladder. Actual AREA69 inventory, NexoTV EPG delivery, provider reachability,
+search latency, single-connection behavior, and mpv playback were not available
+on this work Mac and are explicitly **deferred — home Mac/Pi required**.

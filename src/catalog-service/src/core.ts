@@ -128,6 +128,7 @@ import {
   verifyLiveChannelCandidates,
   type VerifiedLiveChannel,
   isBlockedLiveChannel,
+  resolvePlayableLiveStreamUrl,
 } from './live-stream-verify.js';
 import {
   readLiveRailsDiskCache,
@@ -139,11 +140,27 @@ import {
 } from './live-rails-cache.js';
 import { applyLiveAiCatalogRails } from './live/ai-catalog-rails.js';
 import {
+  readLiveChannelHealthRegistrySync,
+  recordLiveChannelHealth,
+  queryLiveChannelHealthRecord,
+  summarizeLiveChannelHealth,
+  type LiveChannelHealthStatus,
+} from './live/health.js';
+import { canonicalLiveChannelKey } from './live/qualification.js';
+import { compareLiveChannelsByQuality } from './live/quality-rank.js';
+import { liveSearchValidationDecision } from './live/search-validation-policy.js';
+import {
   isArea69ChannelId,
   listArea69TaggedChannels,
   parseArea69StreamId,
   resolveArea69Streams,
 } from './live/area69.js';
+import { probeLiveUrl } from './mpv.js';
+import { isPlaybackActiveForTriggerConsumer } from './playability/trigger-consumer.js';
+import {
+  liveSearchValidationDiagnostics,
+  type LiveSearchEntry,
+} from './voice/live-search.js';
 
 const LIVE_TAB_CACHE_TTL_MS = 5 * 60 * 1000;
 
@@ -157,6 +174,7 @@ type TaggedLiveChannel = LiveChannelMeta & {
   source_addon: string;
   source_label?: string;
   source_catalog_type: string;
+  stream_url?: string;
 };
 
 export type ResolveStreamOptions = {
@@ -169,6 +187,11 @@ export type ResolveStreamOptions = {
   deadlineAtMs?: number;
   /** Join/read existing user work only; never start a new provider fan-out. */
   existingOnly?: boolean;
+  /** Trusted launcher/catalog identity retained when optional meta misses its budget. */
+  identityHint?: {
+    title?: string;
+    year?: string | number;
+  };
 };
 
 function seriesCrossProbeLimit(options?: ResolveStreamOptions): number {
@@ -627,6 +650,35 @@ function metaYear(meta: Meta): number | string | undefined {
   return match?.[0];
 }
 
+function identityYear(value: unknown): number | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const match = String(value).match(/\b((?:19|20)\d{2})\b/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function metaCountry(meta: Meta): string | undefined {
+  for (const value of [meta.country, meta.countries, meta.originCountry]) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (Array.isArray(value)) {
+      const countries = value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()));
+      if (countries.length > 0) return countries.join(', ');
+    }
+  }
+  return undefined;
+}
+
+function metaEpisodeTitle(meta: Meta, episodeId: string): string | undefined {
+  if (!Array.isArray(meta.videos)) return undefined;
+  const episode = meta.videos.find((candidate) => (
+    candidate && typeof candidate === 'object'
+    && (candidate as { id?: unknown }).id === episodeId
+  )) as { title?: unknown; name?: unknown } | undefined;
+  for (const value of [episode?.title, episode?.name]) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
 function previewId(preview: unknown): string | null {
   if (typeof preview !== 'object' || preview === null) return null;
   const id = (preview as { id?: unknown }).id;
@@ -1043,6 +1095,12 @@ export class CatalogCore {
   health(): Record<string, unknown> {
     const liveDiskCache = readLiveRailsDiskCacheSync();
     const liveCache = liveRailsDiskCacheSummary(liveDiskCache);
+    const liveHealth = summarizeLiveChannelHealth(
+      readLiveChannelHealthRegistrySync(),
+      this.liveSearchFreshnessHorizonMs(),
+    );
+    const qualified = Object.values(liveCache.rail_counts)
+      .reduce((count, items) => count + items, 0);
     return {
       ok: true,
       core: this.coreStatus.ready ? 'ready' : 'not_ready',
@@ -1063,6 +1121,11 @@ export class CatalogCore {
           pages: source.pages,
         })) ?? [],
         cache: liveCache,
+        search_health: {
+          qualified,
+          ...liveHealth,
+          ...liveSearchValidationDiagnostics(),
+        },
         stale_fallback_available: liveCache.non_empty,
         last_rebuild_error: this.liveLastRebuildError,
       },
@@ -1346,16 +1409,21 @@ export class CatalogCore {
 
     const tagged: TaggedLiveChannel[] = [];
     for (const source of config.sources) {
-      const addon = this.findAddonByName(source.addon);
-      const channels = await fetchLiveCatalogChannels(addon.manifestUrl, source, fetchJson);
-      for (const channel of channels) {
-        tagged.push({
-          ...channel,
-          source_manifest: addon.manifestUrl,
-          source_addon: source.addon,
-          source_label: source.label,
-          source_catalog_type: source.catalog_type,
-        });
+      try {
+        const addon = this.findAddonByName(source.addon);
+        const channels = await fetchLiveCatalogChannels(addon.manifestUrl, source, fetchJson);
+        for (const channel of channels) {
+          tagged.push({
+            ...channel,
+            source_manifest: addon.manifestUrl,
+            source_addon: source.addon,
+            source_label: source.label,
+            source_catalog_type: source.catalog_type,
+          });
+        }
+      } catch {
+        // One inventory outage must not erase the other free/AREA69 sources.
+        console.warn(`live catalog source unavailable addon=${source.addon}`);
       }
     }
     const seenIds = new Set(tagged.map((channel) => channel.id));
@@ -1482,6 +1550,183 @@ export class CatalogCore {
       return await this.fetchTaggedLiveChannels(this.liveRailConfig);
     } catch {
       return [];
+    }
+  }
+
+  /** Search proof uses the existing Live catalog/cache horizon; it owns no TTL default. */
+  liveSearchFreshnessHorizonMs(): number {
+    return this.liveRailConfig
+      ? liveCatalogCacheTtlMs(this.liveRailConfig)
+      : LIVE_TAB_CACHE_TTL_MS;
+  }
+
+  private async resolveTaggedLiveChannel(
+    channel: TaggedLiveChannel,
+    timeoutMs: number,
+  ): Promise<Stream[]> {
+    let streams: Stream[] = [];
+    if (isArea69ChannelId(channel.id)) {
+      const streamId = parseArea69StreamId(channel.id);
+      streams = streamId ? await resolveArea69Streams(streamId) : [];
+    } else {
+      const url = typeof channel.stream_url === 'string' && channel.stream_url.trim()
+        ? channel.stream_url
+        : await resolvePlayableLiveStreamUrl(
+          channel.source_manifest,
+          channel.source_catalog_type,
+          channel.id,
+          fetchJson,
+          timeoutMs,
+        );
+      if (url) {
+        streams = [{
+          url,
+          title: channel.name || channel.title || channel.id,
+          source: channel.source_addon,
+        }];
+      }
+    }
+    return streams.map((stream) => ({
+      ...stream,
+      live_channel_id: channel.id,
+      live_channel_source: channel.source_addon,
+    }));
+  }
+
+  /** Resolve one logical Live item into its quality-ordered canonical variant ladder. */
+  async resolveLiveForPlay(
+    id: string,
+    title: string | undefined,
+    deadlineAtMs: number,
+  ): Promise<{
+    streams: Stream[];
+    resolve_ms: number;
+    cached: boolean;
+    errors?: string[];
+  }> {
+    const started = Date.now();
+    let tagged: TaggedLiveChannel[] = [];
+    try {
+      tagged = this.liveRailConfig
+        ? await this.fetchTaggedLiveChannels(this.liveRailConfig)
+        : [];
+    } catch {
+      // Direct IDs remain playable when a browse catalog is temporarily down.
+      tagged = [];
+    }
+    const selected = tagged.find((channel) => channel.id === id);
+    if (!selected) {
+      const fallback = await this.resolveForPlay('tv', id, {}, {
+        requestClass: 'user',
+        deadlineAtMs,
+        identityHint: { title },
+      });
+      return {
+        ...fallback,
+        streams: fallback.streams.map((stream) => ({
+          ...stream,
+          live_channel_id: id,
+          live_channel_source: isArea69ChannelId(id)
+            ? 'mango Live TV'
+            : stream.source,
+        })),
+      };
+    }
+
+    const canonical = canonicalLiveChannelKey(selected);
+    const registry = readLiveChannelHealthRegistrySync();
+    const healthRank = (channel: TaggedLiveChannel): number => {
+      const status = queryLiveChannelHealthRecord(
+        registry,
+        channel.source_addon,
+        channel.id,
+        this.liveSearchFreshnessHorizonMs(),
+      ).status;
+      return status === 'verified' ? 2 : status === 'unknown' ? 1 : 0;
+    };
+    const variants = tagged
+      .filter((channel) => canonicalLiveChannelKey(channel) === canonical)
+      .map((channel, index) => ({ channel, index }))
+      .sort((left, right) => (
+        compareLiveChannelsByQuality(left.channel, right.channel)
+        || healthRank(right.channel) - healthRank(left.channel)
+        || left.index - right.index
+      ))
+      .map(({ channel }) => channel);
+    const streams: Stream[] = [];
+    const errors: string[] = [];
+    const seenUrls = new Set<string>();
+    for (const variant of variants) {
+      const remainingMs = remainingPlayBudgetMs(deadlineAtMs);
+      if (remainingMs <= 0) break;
+      try {
+        for (const stream of await this.resolveTaggedLiveChannel(variant, remainingMs)) {
+          if (!seenUrls.has(stream.url)) {
+            seenUrls.add(stream.url);
+            streams.push(stream);
+          }
+        }
+      } catch (error) {
+        errors.push(`${variant.id}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return {
+      streams,
+      resolve_ms: Date.now() - started,
+      cached: false,
+      ...(errors.length > 0 ? { errors } : {}),
+    };
+  }
+
+  async recordLiveSearchOutcome(
+    source: string,
+    channelId: string,
+    status: LiveChannelHealthStatus,
+    reason?: string,
+  ): Promise<void> {
+    try {
+      await recordLiveChannelHealth({ source, channelId, status, reason });
+    } catch {
+      // Operator-owned health state improves future ranking but must never
+      // turn a successful couch playback into a request failure.
+      console.warn('live health persistence failed');
+    }
+  }
+
+  /** Headless playback-start validation for at most the candidates chosen by Live search. */
+  async validateLiveSearchEntry(entry: LiveSearchEntry): Promise<boolean> {
+    // A background mpv probe must never contend with foreground playback;
+    // this is additionally required for AREA69's single-connection account.
+    if (!liveSearchValidationDecision(
+      entry.meta.id,
+      isPlaybackActiveForTriggerConsumer(),
+    ).allowed) {
+      return false;
+    }
+    const tagged = this.liveRailConfig
+      ? await this.fetchTaggedLiveChannels(this.liveRailConfig)
+      : [];
+    const channel = tagged.find((candidate) => candidate.id === entry.meta.id);
+    if (!channel) return false;
+    const timeoutMs = Number(process.env.MANGO_LIVE_PROBE_TIMEOUT_MS ?? 5000);
+    const source = channel.source_addon;
+    try {
+      const streams = await this.resolveTaggedLiveChannel(channel, timeoutMs);
+      if (streams.length === 0) {
+        await this.recordLiveSearchOutcome(source, channel.id, 'failed', 'resolve returned no stream');
+        return false;
+      }
+      await probeLiveUrl(streams[0].url, timeoutMs);
+      await this.recordLiveSearchOutcome(source, channel.id, 'verified');
+      return true;
+    } catch (error) {
+      await this.recordLiveSearchOutcome(
+        source,
+        channel.id,
+        'failed',
+        error instanceof Error ? error.message : String(error),
+      );
+      return false;
     }
   }
 
@@ -1937,7 +2182,7 @@ export class CatalogCore {
     if (!normalizedBare || normalizedBare.toLowerCase() !== trimmed.toLowerCase()) {
       throw new CatalogError(400, 'GET /series/:id/episodes requires bare imdb series id');
     }
-    const meta = await this.meta('series', normalizedBare);
+    const meta = await this.metaCached('series', normalizedBare);
     const saved = getWatchProgressForTitle('series', normalizedBare);
     const episodeProgress = new Map(
       listLatestEpisodeWatchProgress(normalizedBare).map((row) => [
@@ -1961,10 +2206,19 @@ export class CatalogCore {
     return response;
   }
 
-  private async buildStreamFilterContext(type: string, id: string): Promise<StreamFilterContext> {
+  private async buildStreamFilterContext(
+    type: string,
+    id: string,
+    identityHint?: ResolveStreamOptions['identityHint'],
+  ): Promise<StreamFilterContext> {
+    const hintedTitle = typeof identityHint?.title === 'string' && identityHint.title.trim()
+      ? identityHint.title.trim()
+      : undefined;
     let filterContext: StreamFilterContext = {
       contentType: type,
       metaId: id,
+      metaTitle: hintedTitle,
+      metaYear: identityYear(identityHint?.year),
     };
     if (type === 'series') {
       filterContext.episodeRole = parsedSeasonRole(id);
@@ -1986,14 +2240,17 @@ export class CatalogCore {
             ? meta.name
             : typeof meta.title === 'string'
               ? meta.title
-              : undefined,
+              : filterContext.metaTitle,
+          metaYear: identityYear(metaYear(meta)) ?? filterContext.metaYear,
+          metaCountry: metaCountry(meta),
+          episodeTitle: type === 'series' ? metaEpisodeTitle(meta, id) : undefined,
           metaRuntimeMinutes: parseRuntimeMinutes(meta.runtime)
             ?? parseRuntimeMinutes(meta.runtimeMinutes)
             ?? undefined,
         };
       }
     } catch {
-      // title relevance filter skipped when meta unavailable
+      // Retain launcher/catalog identity hints when optional meta is unavailable.
     }
     const curation = await loadRailCurationOverrides();
     if (shouldSkipTitleFilter(type, id, curation)) {
@@ -2029,7 +2286,7 @@ export class CatalogCore {
     });
     const [raw, filterContext] = await Promise.all([
       this.resolveRawStreams(type, streamId, resolveOptions),
-      this.buildStreamFilterContext(type, id),
+      this.buildStreamFilterContext(type, id, options.identityHint),
     ]);
     if (options.deadlineAtMs !== undefined && remainingPlayBudgetMs(options.deadlineAtMs) <= 0) {
       throw new CatalogError(504, 'play deadline exceeded', undefined, {
@@ -2081,7 +2338,7 @@ export class CatalogCore {
     type: string,
     id: string,
     overrides: StreamFilterOverrides = {},
-    options: Pick<ResolveStreamOptions, 'existingOnly'> = {},
+    options: Pick<ResolveStreamOptions, 'existingOnly' | 'identityHint'> = {},
   ): Promise<{
     streams: Stream[];
     resolve_ms: number;
@@ -2097,7 +2354,7 @@ export class CatalogCore {
         requestClass: 'user',
         existingOnly: options.existingOnly,
       })),
-      this.buildStreamFilterContext(type, id),
+      this.buildStreamFilterContext(type, id, options.identityHint),
     ]);
     const config = mergeFilterConfig(this.filterConfig, overrides);
 

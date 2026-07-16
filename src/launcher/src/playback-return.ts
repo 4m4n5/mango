@@ -57,34 +57,60 @@ export function savePlaybackReturnSnapshot(
     returnSurface: playbackReturnSurface(card, tab),
     savedAt: Date.now(),
   };
+  const serialized = JSON.stringify(snapshot);
+  // Matched-4K playback restarts Chromium after restoring the launcher display
+  // mode so EGL is rebuilt cleanly. sessionStorage dies with that tab, while
+  // localStorage survives the intentional browser restart. Keep a session copy
+  // as a fallback for restricted/private browser contexts.
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    localStorage.setItem(STORAGE_KEY, serialized);
+  } catch {
+    // ignore quota errors
+  }
+  try {
+    sessionStorage.setItem(STORAGE_KEY, serialized);
   } catch {
     // ignore quota errors
   }
 }
 
 export function readPlaybackReturnSnapshot(): PlaybackReturnSnapshot | null {
+  const rawSnapshots: Array<string | null> = [];
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return null;
-    }
-    const snapshot = JSON.parse(raw) as PlaybackReturnSnapshot;
-    if (!snapshot?.cardId || !snapshot?.cardType) {
-      return null;
-    }
-    if (Date.now() - snapshot.savedAt > MAX_AGE_MS) {
-      clearPlaybackReturnSnapshot();
-      return null;
-    }
-    return snapshot;
+    rawSnapshots.push(localStorage.getItem(STORAGE_KEY));
   } catch {
-    return null;
+    rawSnapshots.push(null);
   }
+  try {
+    rawSnapshots.push(sessionStorage.getItem(STORAGE_KEY));
+  } catch {
+    rawSnapshots.push(null);
+  }
+  for (const raw of rawSnapshots) {
+    if (!raw) continue;
+    try {
+      const snapshot = JSON.parse(raw) as PlaybackReturnSnapshot;
+      if (!snapshot?.cardId || !snapshot?.cardType || !Number.isFinite(snapshot.savedAt)) {
+        continue;
+      }
+      if (Date.now() - snapshot.savedAt > MAX_AGE_MS) {
+        clearPlaybackReturnSnapshot();
+        return null;
+      }
+      return snapshot;
+    } catch {
+      // Try the other storage copy before giving up.
+    }
+  }
+  return null;
 }
 
 export function clearPlaybackReturnSnapshot(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // ignore
+  }
   try {
     sessionStorage.removeItem(STORAGE_KEY);
   } catch {

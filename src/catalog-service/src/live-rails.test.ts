@@ -4,6 +4,7 @@ import {
   channelSubtitle,
   finalizeLiveRailListing,
   keywordPattern,
+  loadLiveRailConfig,
   matchAllChannelsToRail,
   matchChannelsToRail,
   matchChannelsWithSourceFill,
@@ -23,6 +24,9 @@ function channel(partial: Partial<LiveChannelMeta> & Pick<LiveChannelMeta, 'id' 
     genre: partial.genre,
     poster: partial.poster,
     releaseInfo: partial.releaseInfo,
+    language: partial.language,
+    languages: partial.languages,
+    event: partial.event,
   };
 }
 
@@ -280,4 +284,41 @@ test('live-rails finalize dedupes identical titles by default', () => {
   ];
   const listed = finalizeLiveRailListing(channels, rail);
   assert.deepEqual(listed.map((item) => item.id), ['8k', 'other']);
+});
+
+test('qualified rail rejects standing noise before ranking and keeps one best event variant', () => {
+  const rail: LiveSportRail = {
+    id: 'live-football',
+    label: 'soccer',
+    keywords: ['premier league', 'sky sports'],
+    qualification: 'main_soccer',
+    limit: 4,
+  };
+  const channels = [
+    channel({ id: 'standing', name: 'Sky Sports Main Event 8K' }),
+    channel({ id: 'hd', name: 'LIVE | Arsenal vs Liverpool | Premier League | 1080p' }),
+    channel({ id: '4k', name: 'LIVE | Arsenal vs Liverpool | Premier League | 4K UHD' }),
+    channel({ id: 'mls', name: 'LIVE | Inter Miami vs LAFC | MLS | 8K' }),
+  ];
+  const matches = matchChannelsToRail(channels, rail, new Set<string>());
+  assert.deepEqual(matches.map((item) => item.id), ['4k']);
+});
+
+test('shipped Live config is restricted to four approved inventories and six policy rails', async () => {
+  const path = new URL('../../../config/catalog-live.example.yaml', import.meta.url).pathname;
+  const config = await loadLiveRailConfig(path);
+  assert.deepEqual(config.sources.map((source) => source.addon), [
+    'mango Live TV',
+    'mango Live Free',
+    'mango Live News',
+    'mango Live Cartoons',
+  ]);
+  assert.deepEqual(config.rails.map((rail) => [rail.id, rail.qualification]), [
+    ['live-world-cup', 'fifa_mens_world_cup'],
+    ['live-cricket', 'india_cricket'],
+    ['live-football', 'main_soccer'],
+    ['live-racing', 'f1_standing_allowlist'],
+    ['live-news', 'balanced_news'],
+    ['live-cartoons', 'english_hindi_cartoons'],
+  ]);
 });

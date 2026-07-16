@@ -65,9 +65,32 @@ Legacy single `play_ladder` configs are split by `verified` / display membership
 
 **Display vs play:** `GET /stream` expands **main** first. If empty, expands last-resort (and obligation floor) marked `unverified`.
 
+**Title identity:** play and detail-list filtering start with the requested IMDb
+ID plus launcher title/year, then enrich from cached metadata with origin country
+and the exact episode title. Explicit contradictory IMDb IDs, remake years,
+UK/US edition qualifiers, or episode labels are rejected even for curated pins;
+ambiguous rows with no contradictory evidence remain eligible so coverage is not
+silently reduced. This keeps same-name remakes such as both versions of *The
+Office* separate without requiring provider-specific title hardcoding.
+
 **Slow detail resolves:** the launcher keeps its bounded initial stream-list wait. If that wait expires, it performs an `existing_only=1` late join: catalog-service returns the positive cache or joins the identical in-flight user resolve, but never starts a second provider fan-out. A true empty remains honest (`streams · none found`); a failed late join stays visible as unavailable instead of silently removing the entire stream section. Play keeps its independent full search path.
 
 **4K truth:** the Pi 5 smooth tier is 4K SDR HEVC. A title may have many nominal 4K releases but no smooth 4K choice when those releases are HDR (tone-mapped under the current X11 path) or software-decoded AV1/H.264. Those sources stay in last-resort for coverage, but smooth 1080p TorBox now precedes known-soft 4K so automatic Play does not choose resolution over watchability.
+
+**Native Live curation and search:** Live rails admit candidates by typed event,
+competition, participant, exact-channel, and language policy before dedupe or
+quality ranking. They use only Mango's configured free IPTV inventories and
+AREA69; standing sports channels require current-programme evidence. Full Live
+search remains independent of those thin rails via
+`GET /voice/search?tab=live&q=...`, but returns only fresh playback-proven
+logical channels. Fresh failures are suppressed. Unknown top matches get at
+most one free and one AREA69 headless mpv validation with a hard 2 s response
+allowance; incomplete proof remains hidden and finishes asynchronously. No
+AREA69 validation runs while foreground playback owns mpv. A real `/play`
+success/failure updates operator-owned health, and canonical quality variants
+fail over within the existing overall play deadline. Resolution ranks before
+English/Hindi and codec only after eligibility/proof; 2160p is 4K and only
+explicit 8K/4320p is 8K. See [LIVE_TV.md](LIVE_TV.md).
 
 **Debrid garbage safety (play path):** Prefer TorBox on same-hash ties (AIO dedup + service sort). Keep RD for unique cached releases (ladder steps admit both services; uncached RD stays excluded upstream, while uncached TorBox remains a last-resort playback candidate). Error taxonomy lives in `play-error-classify.ts`: **garbage** (`debrid_copyright_block`, `debrid_status_clip`, `debrid_nfo_sidecar`) is session-blacklisted by service-scoped stable release identity plus URL hash (~45 min) and counts toward play-failure demotion; **transient** (`debrid_playback_unreadable`, timeouts, network) is retryable and not release-wide bad-cached. Preflight is an NFO-only hard gate — sniff `error`/`timeout` still proceeds to the bounded mpv probe. Couch errors map garbage failures to generic “streams are still preparing” copy — never surface “copyright infringement”.
 

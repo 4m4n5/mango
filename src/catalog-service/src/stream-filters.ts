@@ -113,6 +113,12 @@ export type StreamFilterContext = {
   metaTitle?: string;
   /** Stremio/Cinemeta id (e.g. tt0111161) for torrent name matching. */
   metaId?: string;
+  /** Original release/start year used to distinguish same-name remakes. */
+  metaYear?: number;
+  /** Origin country used for explicit edition qualifiers such as UK/US. */
+  metaCountry?: string;
+  /** Expected series episode title (e.g. Downsize, not Pilot). */
+  episodeTitle?: string;
   contentType?: string;
   /** Expected main-feature runtime in minutes (from meta). */
   metaRuntimeMinutes?: number;
@@ -171,11 +177,28 @@ const TITLE_STOP_WORDS = new Set([
   'kill', 'show', 'game', 'world', 'life', 'moon', 'star', 'man', 'men',
 ]);
 
+function normalizeEditionAbbreviations(value: string): string {
+  return value
+    .replace(/\bU[\s._-]*S[\s._-]*A\b\.?/gi, ' USA ')
+    .replace(/\bU[\s._-]*S\b\.?/gi, ' US ')
+    .replace(/\bU[\s._-]*K\b\.?/gi, ' UK ');
+}
+
+function identityWords(value: string): string[] {
+  return normalizeEditionAbbreviations(value)
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
 /** Ordered content tokens for title identity (do not sort — order is the title). */
 export function metaTitleTokensOrdered(metaTitle: string): string[] {
-  return metaTitle
+  return normalizeEditionAbbreviations(metaTitle)
     .toLowerCase()
-    .replace(/['']/g, '')
+    .replace(/['’]/g, '')
     .replace(/[^a-z0-9]+/g, ' ')
     .split(/\s+/)
     .filter((token) => token.length >= 2 && !TITLE_STOP_WORDS.has(token));
@@ -201,11 +224,36 @@ function streamRelevanceHaystack(stream: Stream): string {
   return `${streamHaystack(stream)} ${filename}`.trim();
 }
 
+/** Raw release labels, ordered from the provider's strongest identity field. */
+function streamIdentityLabels(stream: Stream): string[] {
+  const labels: string[] = [];
+  const add = (value: string | undefined): void => {
+    const trimmed = value?.trim();
+    if (trimmed && !labels.includes(trimmed)) labels.push(trimmed);
+  };
+  const description = typeof stream.description === 'string' ? stream.description : '';
+  add(description.match(/📁\s*([^\n\r]+)/)?.[1]);
+  const firstLine = description.split(/\r?\n/)[0]?.replace(/^📁\s*/, '').trim() || '';
+  if (/s\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}/i.test(firstLine)) add(firstLine);
+
+  const hints = stream.behaviorHints;
+  const filename = hints && typeof hints === 'object' && !Array.isArray(hints)
+    && typeof (hints as Record<string, unknown>).filename === 'string'
+    ? String((hints as Record<string, unknown>).filename)
+    : '';
+  add(filename);
+
+  const label = `${stream.title || ''} ${stream.name || ''}`.trim();
+  if (/s\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}/i.test(label)) add(label);
+  return labels;
+}
+
 /** Strip season/episode markers and years so the show name remains. */
 function stripReleaseIdentityJunk(value: string): string {
-  return value
+  return normalizeEditionAbbreviations(value)
     // No trailing \b after ')' — end-of-string after a paren is not a word boundary.
     .replace(/\(\d{4}(?:\s*[–\-]\s*\d{4})?\)/g, ' ')
+    .replace(/\b(?:19|20)\d{2}\b/g, ' ')
     .replace(/\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,2}\b.*/i, ' ')
     .replace(/\bs\d{1,2}e\d{1,2}\b.*/i, ' ')
     .replace(/\b\d{1,2}\s*x\s*\d{1,2}\b.*/i, ' ')
@@ -219,37 +267,132 @@ function stripReleaseIdentityJunk(value: string): string {
  * identity matching so "Your Friends And Neighbors" cannot pass as "Friends".
  */
 export function extractReleaseShowTitle(stream: Stream): string | null {
-  const description = typeof stream.description === 'string' ? stream.description : '';
-  const folderMatch = description.match(/📁\s*([^\n\r]+)/);
-  if (folderMatch?.[1]) {
-    const cleaned = stripReleaseIdentityJunk(folderMatch[1]);
-    if (cleaned) return cleaned;
-  }
-
-  // Description without emoji: "India's Got Latent S01E01 WEB-DL…"
-  const firstLine = description.split(/\r?\n/)[0]?.trim() || '';
-  if (firstLine && /s\d{1,2}/i.test(firstLine)) {
-    const cleaned = stripReleaseIdentityJunk(firstLine.replace(/^📁\s*/, ''));
-    if (cleaned) return cleaned;
-  }
-
-  const hints = stream.behaviorHints;
-  const filename = hints && typeof hints === 'object' && !Array.isArray(hints)
-    && typeof (hints as Record<string, unknown>).filename === 'string'
-    ? String((hints as Record<string, unknown>).filename)
-    : '';
-  if (filename.trim()) {
-    const cleaned = stripReleaseIdentityJunk(filename.replace(/[._]/g, ' '));
-    if (cleaned) return cleaned;
-  }
-
-  // Last resort: first line of title/name when it looks like a release label.
-  const label = `${stream.title || ''} ${stream.name || ''}`.trim();
-  if (label && /s\d{1,2}/i.test(label)) {
-    const cleaned = stripReleaseIdentityJunk(label);
+  for (const label of streamIdentityLabels(stream)) {
+    const cleaned = stripReleaseIdentityJunk(label.replace(/[._]/g, ' '));
     if (cleaned) return cleaned;
   }
   return null;
+}
+
+type Edition = 'uk' | 'us';
+
+function editionForAlias(token: string): Edition | null {
+  if (token === 'uk' || token === 'gb') return 'uk';
+  if (token === 'us' || token === 'usa') return 'us';
+  return null;
+}
+
+function metadataEdition(metaTitle: string, metaCountry?: string): Edition | null {
+  const country = identityWords(metaCountry || '').join(' ');
+  if (/\b(united kingdom|great britain|uk|gb)\b/.test(country)) return 'uk';
+  if (/\b(united states|united states of america|us|usa)\b/.test(country)) return 'us';
+  const titleWords = identityWords(metaTitle);
+  if (titleWords.length > 1) {
+    return editionForAlias(titleWords[titleWords.length - 1] || '');
+  }
+  return null;
+}
+
+function editionTokensForRelease(releaseTitle: string, metaTitle: string): Edition[] {
+  const metaWords = new Set(identityWords(metaTitle));
+  const editions = identityWords(releaseTitle)
+    .filter((token) => !metaWords.has(token))
+    .map(editionForAlias)
+    .filter((edition): edition is Edition => edition !== null);
+  return [...new Set(editions)];
+}
+
+function explicitReleaseYears(stream: Stream): Set<number> {
+  const years = new Set<number>();
+  for (const label of streamIdentityLabels(stream)) {
+    const normalized = normalizeEditionAbbreviations(label);
+    const episodeMarker = normalized.search(/\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b/i);
+    const identityPrefix = episodeMarker >= 0 ? normalized.slice(0, episodeMarker) : normalized;
+    for (const match of identityPrefix.matchAll(/\b((?:19|20)\d{2})\b/g)) {
+      years.add(Number(match[1]));
+    }
+  }
+  return years;
+}
+
+const EPISODE_TECH_TOKEN_RE = /\b(?:19\d{2}|20\d{2}|2160p|1080p|720p|480p|4k|uhd|web(?:-?dl|rip)?|bluray|brrip|hdtv|dvdrip|remux|hevc|x26[45]|h26[45]|av1|hdr10?\+?|hdr|dovi|dv|atmos|aac|eac3|ac3|ddp?\d*|proper|repack|extended|multi|amzn|nf|atvp)\b/i;
+const EPISODE_GENERIC_TOKENS = new Set([
+  'episode', 'episodes', 'complete', 'uncut', 'finale', 'mkv', 'mp4', 'sample',
+]);
+
+function episodeIdentityTokens(value: string): string[] {
+  return identityWords(value)
+    .filter((token) => token.length >= 4 && !EPISODE_GENERIC_TOKENS.has(token));
+}
+
+function candidateEpisodeTitleTokens(stream: Stream): string[][] {
+  const candidates: string[][] = [];
+  for (const label of streamIdentityLabels(stream)) {
+    const normalized = normalizeEditionAbbreviations(label);
+    const marker = normalized.match(/\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b/i);
+    if (!marker || marker.index === undefined) continue;
+    let tail = normalized.slice(marker.index + marker[0].length)
+      .replace(/\.(?:mkv|mp4|avi)$/i, ' ')
+      .replace(/^[\s._\-–—:]+/, ' ');
+    const technical = tail.search(EPISODE_TECH_TOKEN_RE);
+    if (technical >= 0) tail = tail.slice(0, technical);
+    const tokens = episodeIdentityTokens(tail);
+    if (tokens.length > 0 && tokens.length <= 8) candidates.push(tokens);
+  }
+  return candidates;
+}
+
+function streamEpisodeTitleMatches(stream: Stream, expectedTitle?: string): boolean {
+  const expected = episodeIdentityTokens(expectedTitle || '');
+  if (expected.length === 0) return true;
+  const candidates = candidateEpisodeTitleTokens(stream);
+  if (candidates.length === 0) return true;
+  const expectedPhrase = expected.join(' ');
+  return candidates.some((candidate) => candidate.join(' ').includes(expectedPhrase));
+}
+
+function targetImdbIdMatchesStream(stream: Stream, metaId?: string): boolean {
+  const targetImdbId = metaId?.toLowerCase().match(/tt\d{5,10}/)?.[0];
+  if (!targetImdbId) return false;
+  const haystack = streamRelevanceHaystack(stream);
+  if (new Set(haystack.match(/\btt\d{5,10}\b/g) || []).has(targetImdbId)) return true;
+  const digits = targetImdbId.slice(2);
+  return new RegExp(`(?:^|[^a-z0-9])${digits}(?:[^a-z0-9]|$)`).test(haystack);
+}
+
+/** High-confidence identity contradictions that even a curated title pin cannot bypass. */
+export function streamHasExplicitIdentityConflict(
+  stream: Stream,
+  metaTitle: string,
+  metaId?: string,
+  context: Pick<
+    StreamFilterContext,
+    'contentType' | 'metaYear' | 'metaCountry' | 'episodeTitle'
+  > = {},
+): boolean {
+  const haystack = streamRelevanceHaystack(stream);
+  const targetImdbId = metaId?.toLowerCase().match(/tt\d{5,10}/)?.[0];
+  const releaseImdbIds = new Set(haystack.match(/\btt\d{5,10}\b/g) || []);
+  if (targetImdbId && releaseImdbIds.size > 0 && !releaseImdbIds.has(targetImdbId)) {
+    return true;
+  }
+  const targetEdition = metadataEdition(metaTitle, context.metaCountry);
+  if (targetEdition) {
+    for (const label of streamIdentityLabels(stream)) {
+      const releaseLabel = stripReleaseIdentityJunk(label.replace(/[._]/g, ' '));
+      if (editionTokensForRelease(releaseLabel, metaTitle).some((edition) => edition !== targetEdition)) {
+        return true;
+      }
+    }
+  }
+  if (context.metaYear) {
+    const releaseYears = explicitReleaseYears(stream);
+    if (releaseYears.size > 0 && !releaseYears.has(context.metaYear)) {
+      return true;
+    }
+  }
+  return context.contentType === 'series'
+    && !streamEpisodeTitleMatches(stream, context.episodeTitle);
 }
 
 /**
@@ -259,12 +402,29 @@ export function extractReleaseShowTitle(stream: Stream): string | null {
 export function releaseShowTitleMatchesMeta(
   releaseTitle: string,
   metaTitle: string,
+  context: Pick<StreamFilterContext, 'metaCountry'> = {},
 ): boolean {
-  const metaTokens = metaTitleTokensOrdered(metaTitle);
+  const targetEdition = metadataEdition(metaTitle, context.metaCountry);
+  const metaWords = identityWords(metaTitle);
+  const titleCarriesEdition = metaWords.length > 1
+    ? editionForAlias(metaWords[metaWords.length - 1] || '')
+    : null;
+  const metaTokens = metaTitleTokensOrdered(metaTitle)
+    .filter((token) => !titleCarriesEdition || editionForAlias(token) !== titleCarriesEdition);
   if (metaTokens.length === 0) {
     return true;
   }
-  const releaseTokens = metaTitleTokensOrdered(stripReleaseIdentityJunk(releaseTitle));
+  const releaseEditions = editionTokensForRelease(releaseTitle, metaTitle);
+  if (targetEdition && releaseEditions.some((edition) => edition !== targetEdition)) {
+    return false;
+  }
+  const releaseTokens = metaTitleTokensOrdered(stripReleaseIdentityJunk(releaseTitle))
+    .filter((token) => {
+      const edition = editionForAlias(token);
+      if (!edition) return true;
+      if (titleCarriesEdition === edition) return false;
+      return metaWords.includes(token);
+    });
   if (releaseTokens.length === 0) {
     return false;
   }
@@ -279,20 +439,16 @@ export function streamMatchesMetaTitle(
   stream: Stream,
   metaTitle: string,
   metaId?: string,
-  context?: Pick<StreamFilterContext, 'contentType'>,
+  context: Pick<
+    StreamFilterContext,
+    'contentType' | 'metaYear' | 'metaCountry' | 'episodeTitle'
+  > = {},
 ): boolean {
   const haystack = streamRelevanceHaystack(stream);
-  if (metaId) {
-    const normalized = metaId.toLowerCase();
-    if (haystack.includes(normalized)) return true;
-    if (normalized.startsWith('tt') && normalized.length > 4) {
-      const digits = normalized.slice(2);
-      // Bare IMDB digits only when delimited — avoid accidental short matches.
-      if (new RegExp(`(?:^|[^a-z0-9])${digits}(?:[^a-z0-9]|$)`).test(haystack)) {
-        return true;
-      }
-    }
+  if (streamHasExplicitIdentityConflict(stream, metaTitle, metaId, context)) {
+    return false;
   }
+  const targetIdMatched = targetImdbIdMatchesStream(stream, metaId);
 
   const metaTokens = metaTitleTokensOrdered(metaTitle);
   // Empty meta → nothing to enforce. Never bypass for single-token titles (1).
@@ -302,10 +458,10 @@ export function streamMatchesMetaTitle(
 
   const releaseTitle = extractReleaseShowTitle(stream);
   if (releaseTitle) {
-    if (!releaseShowTitleMatchesMeta(releaseTitle, metaTitle)) {
+    if (!releaseShowTitleMatchesMeta(releaseTitle, metaTitle, context)) {
       return false;
     }
-  } else {
+  } else if (!targetIdMatched) {
     // No extractable show label: require meta tokens as a contiguous bounded
     // phrase in the haystack (not a loose multi-hit anywhere).
     const phrase = metaTokens.join(' ');
@@ -332,6 +488,7 @@ export function streamMatchesMetaTitle(
     && primary
     && primary.length >= 5
     && !TITLE_STOP_WORDS.has(primary)
+    && !targetIdMatched
   ) {
     const filenameHaystack = streamFilenameHaystack(stream);
     if (!filenameHaystack.trim() || !filenameHaystack.includes(primary)) {
@@ -372,8 +529,11 @@ export function isSuspiciousFeatureSize(
 }
 
 export function streamPassesIntegrity(stream: Stream, context: StreamFilterContext): boolean {
-  if (context.skipTitleFilter || !context.metaTitle) {
-    return true;
+  if (!context.metaTitle) {
+    return !streamHasExplicitIdentityConflict(stream, '', context.metaId, context);
+  }
+  if (context.skipTitleFilter) {
+    return !streamHasExplicitIdentityConflict(stream, context.metaTitle, context.metaId, context);
   }
   if (!streamMatchesMetaTitle(stream, context.metaTitle, context.metaId, context)) {
     return false;

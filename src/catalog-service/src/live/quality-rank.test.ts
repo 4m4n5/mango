@@ -26,3 +26,22 @@ test('sortLiveChannelsByQuality orders by quality tier', () => {
   assert.equal(sorted[2].id, 'hd');
   assert.equal(sorted[3].id, 'sd');
 });
+
+test('2160p and 3840 are 4K; only explicit 8K or 4320p enters the 8K tier', () => {
+  assert.equal(liveChannelQualityScore('World Cup 2160p'), liveChannelQualityScore('World Cup 4K'));
+  assert.equal(liveChannelQualityScore('World Cup 3840'), liveChannelQualityScore('World Cup UHD'));
+  assert.ok(liveChannelQualityScore('World Cup 4320p') > liveChannelQualityScore('World Cup 2160p'));
+  assert.ok(liveChannelQualityScore('World Cup 8K') > liveChannelQualityScore('World Cup 4K'));
+});
+
+test('resolution outranks commentary, then English or Hindi breaks quality ties', () => {
+  const sorted = sortLiveChannelsByQuality([
+    { id: 'foreign-4k', name: 'Match 4K', languages: ['Spanish'] },
+    { id: 'english-hd', name: 'Match 1080p', languages: ['English'] },
+    { id: 'foreign-hd', name: 'Match 1080p', languages: ['French'] },
+    { id: 'hindi-hd', name: 'Match 1080p', languages: ['Hindi'] },
+  ]);
+  assert.equal(sorted[0].id, 'foreign-4k');
+  assert.deepEqual(sorted.slice(1, 3).map((item) => item.id), ['english-hd', 'hindi-hd']);
+  assert.equal(sorted[3].id, 'foreign-hd');
+});

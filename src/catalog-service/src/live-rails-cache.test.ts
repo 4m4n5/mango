@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 import {
+  LIVE_RAILS_POLICY_VERSION,
+  liveRailsDiskCacheCompatible,
   liveRailsDiskCacheFresh,
   liveRailsDiskCacheNonEmpty,
   liveRailsDiskCacheSummary,
@@ -20,6 +22,7 @@ test('live rails disk cache accepts stale non-empty fallback and reports diagnos
   try {
     const now = Date.now();
     await writeFile(liveRailsCachePath(), JSON.stringify({
+      policy_version: LIVE_RAILS_POLICY_VERSION,
       saved_at: now - 2 * 60 * 60 * 1000,
       expires_at: now - 60 * 1000,
       payload: {
@@ -38,10 +41,39 @@ test('live rails disk cache accepts stale non-empty fallback and reports diagnos
     const summary = liveRailsDiskCacheSummary(entry);
     assert.equal(summary.path, process.env.MANGO_LIVE_RAILS_CACHE);
     assert.equal(summary.present, true);
+    assert.equal(summary.compatible, true);
     assert.equal(summary.non_empty, true);
     assert.equal(summary.fresh, false);
     assert.equal(summary.rail_counts['live-cricket'], 1);
     assert.equal(summary.rail_counts['live-football'], 2);
+  } finally {
+    if (oldPath === undefined) {
+      delete process.env.MANGO_LIVE_RAILS_CACHE;
+    } else {
+      process.env.MANGO_LIVE_RAILS_CACHE = oldPath;
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('live rails disk cache rejects legacy policy payloads as fallback', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-live-cache-'));
+  const oldPath = process.env.MANGO_LIVE_RAILS_CACHE;
+  process.env.MANGO_LIVE_RAILS_CACHE = join(dir, 'live-cache.json');
+  try {
+    await writeFile(liveRailsCachePath(), JSON.stringify({
+      saved_at: Date.now(),
+      expires_at: Date.now() + 60_000,
+      payload: {
+        tab: 'live',
+        rails: [{ rail_id: 'live-world-cup', items: [{ id: 'generic-fifa' }] }],
+      },
+    }), 'utf8');
+    const entry = await readLiveRailsDiskCache();
+    assert.equal(liveRailsDiskCacheCompatible(entry), false);
+    assert.equal(liveRailsDiskCacheFresh(entry), false);
+    assert.equal(liveRailsDiskCacheNonEmpty(entry), false);
+    assert.equal(liveRailsDiskCacheSummary(entry).compatible, false);
   } finally {
     if (oldPath === undefined) {
       delete process.env.MANGO_LIVE_RAILS_CACHE;

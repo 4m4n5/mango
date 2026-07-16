@@ -61,7 +61,7 @@ export function isLiveSearchIntent(query: string): boolean {
   if (!normalized) {
     return false;
   }
-  return /\b(live|iptv|channel|cartoons?|cricket|football|soccer|racing|news|sports?|espn|nick(?:elodeon)?|bbc|cnn|sky|star\s*sports|put\s*on|tune\s*to)\b/i
+  return /\b(live|iptv|channel|cartoons?|cricket|football|soccer|racing|news|sports?|espn|nick(?:elodeon)?|bbc|cnn|sky|star\s*sports|f1|formula\s*1|ndtv|wion|aaj\s+tak|abp\s+news|republic\s+bharat|al\s+jazeera|premier\s+league|la\s+liga|bundesliga|serie\s+a|ligue\s+1|champions\s+league|europa\s+league|put\s*on|tune\s*to)\b/i
     .test(normalized);
 }
 
@@ -187,6 +187,8 @@ export async function searchVerifiedLibrary(
     });
   }
 
-  const liveHits = await searchLiveChannels(trimmed, limit, core);
+  const liveHits = await searchLiveChannels(trimmed, limit, core, {
+    validateUnknown: isLiveSearchIntent(trimmed),
+  });
   return mergeLibraryAndLiveHits(hits, liveHits, trimmed, Math.max(1, limit));
 }

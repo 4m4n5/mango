@@ -4,12 +4,14 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { liveAdapter } from './live.js';
+import { LIVE_RAILS_POLICY_VERSION } from '../../live-rails-cache.js';
 
 function withTempLiveCache<T>(fn: () => T | Promise<T>): Promise<T> | T {
   const dir = mkdtempSync(join(tmpdir(), 'mango-live-'));
   const cachePath = join(dir, 'live-rails-cache.json');
   process.env.MANGO_LIVE_RAILS_CACHE = cachePath;
   const cache = {
+    policy_version: LIVE_RAILS_POLICY_VERSION,
     saved_at: Date.now(),
     expires_at: Date.now() + 60 * 60 * 1000,
     payload: {
@@ -71,7 +73,7 @@ test('liveAdapter resolvePlan returns empty seeds when cache is empty', async ()
   const dir = mkdtempSync(join(tmpdir(), 'mango-live-empty-'));
   const cachePath = join(dir, 'live-rails-cache.json');
   process.env.MANGO_LIVE_RAILS_CACHE = cachePath;
-  writeFileSync(cachePath, JSON.stringify({ saved_at: Date.now(), expires_at: Date.now() + 60 * 60 * 1000, payload: { tab: 'live', rails: [] } }), 'utf8');
+  writeFileSync(cachePath, JSON.stringify({ policy_version: LIVE_RAILS_POLICY_VERSION, saved_at: Date.now(), expires_at: Date.now() + 60 * 60 * 1000, payload: { tab: 'live', rails: [] } }), 'utf8');
   const cleanup = () => {
     delete process.env.MANGO_LIVE_RAILS_CACHE;
     rmSync(dir, { recursive: true, force: true });

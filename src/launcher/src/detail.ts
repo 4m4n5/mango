@@ -39,7 +39,6 @@ export interface DetailCallbacks {
   onStatus: (message: string) => void;
   onSavedChanged?: () => void;
   onPlayed?: (card: ContentCard, result: PlayResult) => void;
-  onNextEpisodePrompt?: (hint: NextPromptResponse, card: ContentCard) => void;
   isSaved?: (card: ContentCard) => boolean;
 }
 
@@ -70,6 +69,8 @@ export class DetailController {
   private relatedLoadToken = 0;
   /** Restored after playback when series episode was playing. */
   private pendingEpisodeRestore: string | null = null;
+  /** Episode whose playback exit initiated the current detail restore. */
+  private playbackReturnEpisodeId: string | null = null;
 
   constructor(
     private readonly view: HTMLElement,
@@ -120,28 +121,33 @@ export class DetailController {
   focusAfterPlaybackReturn(): void {
     this.clearPlayBusy();
     this.updatePlayButtonLabel();
-    this.focusPlayButton();
+    if (!this.selectedEpisodeId || !this.focusEpisodeById(this.selectedEpisodeId)) {
+      this.focusPlayButton();
+    }
     this.maybePromptNextEpisode();
   }
 
   /** Refresh progress truth in place before restoring couch focus.
    *
-   * Keeping pendingEpisodeRestore populated makes loadEpisodeList render the
-   * refreshed season/episode without auto-focusing an asynchronously-created
-   * episode button. The existing detail DOM remains mounted throughout.
+   * Keeping pendingEpisodeRestore populated makes loadEpisodeList render and
+   * focus the exact refreshed episode after its asynchronous DOM rebuild.
    */
   async refreshAfterPlayback(episodeId?: string): Promise<void> {
     const card = this.card;
     this.clearPlayBusy();
+    const returningEpisodeId = episodeId ?? this.selectedEpisodeId;
+    this.playbackReturnEpisodeId = returningEpisodeId ?? null;
     if (card?.type === "series") {
-      this.pendingEpisodeRestore = episodeId ?? this.selectedEpisodeId;
+      this.pendingEpisodeRestore = returningEpisodeId;
       await this.loadEpisodeList(card);
     }
     if (this.card !== card) {
       return;
     }
     this.updatePlayButtonLabel();
-    this.focusPlayButton();
+    if (!returningEpisodeId || !this.focusEpisodeById(returningEpisodeId)) {
+      this.focusPlayButton();
+    }
     this.maybePromptNextEpisode();
   }
 
@@ -155,7 +161,7 @@ export class DetailController {
   ): void {
     this.pendingEpisodeRestore = episodeId ?? null;
     this.show(card, railLabel, tab, saved, homeVisible);
-    window.setTimeout(() => this.focusPlayButton(), 0);
+    this.playbackReturnEpisodeId = episodeId ?? null;
     this.maybePromptNextEpisode();
   }
 
@@ -163,7 +169,7 @@ export class DetailController {
    *  episode finished — the backend only holds a pending prompt when the exit
    *  was at/after the finish bar, so this never fires on a mid-watch exit. */
   private maybePromptNextEpisode(): void {
-    if (this.card?.type !== "series" || !this.callbacks.onNextEpisodePrompt) {
+    if (this.card?.type !== "series") {
       return;
     }
     this.startNextPromptPoll();
@@ -177,6 +183,7 @@ export class DetailController {
     this.streamsLoadToken += 1;
     this.playAbort?.abort();
     this.playAbort = null;
+    clearPlaybackReturnSnapshot();
     this.resolvingPlay = false;
     this.streamsPending = false;
     this.clearPlayBusy();
@@ -294,6 +301,7 @@ export class DetailController {
     this.playAbort = null;
     this.card = null;
     this.pendingEpisodeRestore = null;
+    this.playbackReturnEpisodeId = null;
     clearPlaybackReturnSnapshot();
     this.streams = [];
     this.streamButtons = [];
@@ -445,6 +453,9 @@ export class DetailController {
       // the episode is finished, not while the viewer is still watching.
     } catch (error) {
       if (abort.signal.aborted || (error instanceof Error && error.message === "play cancelled")) {
+        if (this.playToken === token) {
+          clearPlaybackReturnSnapshot();
+        }
         return;
       }
       if (this.playToken !== token) {
@@ -476,6 +487,7 @@ export class DetailController {
         this.streams = this.visibleStreams(this.streams);
         this.renderStreams();
       }
+      clearPlaybackReturnSnapshot();
       const message = error instanceof Error ? error.message : "couldn't start playback. try another title.";
       showToast(
         message && !message.startsWith("HTTP ")
@@ -812,6 +824,26 @@ export class DetailController {
     );
   }
 
+  /** Focus an episode across season boundaries without changing its play state. */
+  private focusEpisodeById(episodeId: string): boolean {
+    const season = this.seasonForEpisodeId(episodeId);
+    if (season === null) {
+      return false;
+    }
+    this.selectedEpisodeId = episodeId;
+    if (season !== this.activeSeason) {
+      this.setActiveSeason(season, { focusEpisodeId: episodeId });
+      return this.focusedEl?.dataset.episodeId === episodeId;
+    }
+    const button = this.episodeButtonForId(episodeId);
+    if (!button) {
+      return false;
+    }
+    this.applyEpisodeSelectionVisual(episodeId);
+    this.focusElement(button);
+    return true;
+  }
+
   private rebuildListFocusables(): void {
     this.listFocusables = [
       ...this.seasonChipButtons,
@@ -1120,7 +1152,7 @@ export class DetailController {
       if (focusEpisodeId) {
         this.selectedEpisodeId = focusEpisodeId;
       }
-      this.renderEpisodes(episodes, focusEpisodeId, { autoFocusEpisode: !restoringEpisode });
+      this.renderEpisodes(episodes, focusEpisodeId);
       this.updatePlayButtonLabel();
       // Series never shows a stream list — playback resolves via /play (Phase A+B).
     } catch {
@@ -1534,7 +1566,7 @@ export class DetailController {
 
   private async checkNextPrompt(): Promise<void> {
     const card = this.card;
-    if (!card || card.type !== "series" || !this.callbacks.onNextEpisodePrompt) {
+    if (!card || card.type !== "series") {
       return;
     }
     try {
@@ -1543,7 +1575,24 @@ export class DetailController {
         return;
       }
       this.stopNextPromptPoll();
-      this.callbacks.onNextEpisodePrompt(hint, card);
+      const focusTarget = nextEpisodeFocusTarget(
+        card.id,
+        this.playbackReturnEpisodeId,
+        hint,
+      );
+      if (!focusTarget) {
+        return;
+      }
+      // On a cold Chromium restart the episode request may still be in flight.
+      // Save the target so loadEpisodeList focuses it when rendering completes;
+      // otherwise shift focus immediately, including across season boundaries.
+      this.pendingEpisodeRestore = focusTarget;
+      if (this.seriesEpisodes) {
+        this.focusEpisodeById(focusTarget);
+      }
+      this.callbacks.onStatus(
+        `next up: S${hint.next.season} E${hint.next.episode} · ${hint.next.title}`,
+      );
     } catch {
       // keep polling until timeout
     }
@@ -1552,6 +1601,32 @@ export class DetailController {
 
 function seriesBareId(id: string): string {
   return id.includes(":") ? id.split(":")[0] : id;
+}
+
+/** Accept only the completion hint belonging to the detail/episode being restored. */
+export function nextEpisodeFocusTarget(
+  cardId: string,
+  playbackEpisodeId: string | null | undefined,
+  hint: NextPromptResponse,
+): string | null {
+  if (!hint.show || !hint.next) {
+    return null;
+  }
+  const cardSeriesId = seriesBareId(cardId).toLowerCase();
+  if (hint.series_id && seriesBareId(hint.series_id).toLowerCase() !== cardSeriesId) {
+    return null;
+  }
+  if (seriesBareId(hint.next.id).toLowerCase() !== cardSeriesId) {
+    return null;
+  }
+  if (
+    playbackEpisodeId
+    && hint.from_episode_id
+    && hint.from_episode_id.toLowerCase() !== playbackEpisodeId.toLowerCase()
+  ) {
+    return null;
+  }
+  return hint.next.id;
 }
 
 function episodeRowLabel(episode: SeriesEpisodeRow): string {

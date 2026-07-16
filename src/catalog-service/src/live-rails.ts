@@ -4,6 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { isBlockedLiveChannel } from './live-stream-verify.js';
 import { dedupeLiveChannelsByTitle, sortLiveChannelsByQuality } from './live/quality-rank.js';
+import {
+  dedupeLiveChannelsByCanonicalKey,
+  LIVE_QUALIFICATION_POLICIES,
+  qualifiesLiveChannel,
+  type LiveQualificationPolicy,
+} from './live/qualification.js';
 
 export type LiveSourceFill = {
   addon: string;
@@ -23,6 +29,8 @@ export type LiveSportRail = {
   exclude_keywords?: string[];
   /** When false, keep every quality variant (e.g. World Cup PPV feeds). Default true. */
   dedupe_titles?: boolean;
+  /** Optional strict eligibility policy. Absent preserves legacy keyword matching. */
+  qualification?: LiveQualificationPolicy;
   /** Fill slots per addon in order (e.g. Indian news first, then US national). */
   source_fill?: LiveSourceFill[];
 };
@@ -58,6 +66,16 @@ export type LiveChannelMeta = {
   genre?: string;
   poster?: string;
   releaseInfo?: string;
+  language?: string;
+  languages?: string[];
+  event?: {
+    status?: string;
+    starts_at?: string | number;
+    ends_at?: string | number;
+    competition?: string;
+    home?: string;
+    away?: string;
+  };
 };
 
 const DEFAULT_LIVE_CATALOG_PATH = '/etc/mango/catalog-live.yaml';
@@ -167,6 +185,13 @@ function readLiveSportRail(record: Record<string, unknown>, index: number): Live
   const label = typeof record.label === 'string' && record.label.trim() !== ''
     ? record.label.trim()
     : id.replace(/-/g, ' ');
+  const qualification = record.qualification;
+  if (qualification !== undefined && (
+    typeof qualification !== 'string'
+    || !LIVE_QUALIFICATION_POLICIES.includes(qualification as LiveQualificationPolicy)
+  )) {
+    throw new Error(`${context}.qualification must be a supported policy`);
+  }
   return {
     id,
     label,
@@ -175,6 +200,7 @@ function readLiveSportRail(record: Record<string, unknown>, index: number): Live
     include_genres: readOptionalStringArray(record, 'include_genres'),
     exclude_keywords: readOptionalStringArray(record, 'exclude_keywords'),
     dedupe_titles: record.dedupe_titles === false ? false : undefined,
+    qualification: qualification as LiveQualificationPolicy | undefined,
     source_fill: readSourceFill(record, context),
   };
 }
@@ -344,6 +370,13 @@ export function normalizeLiveChannelMeta(meta: Record<string, unknown>): LiveCha
     genre,
     poster: typeof meta.poster === 'string' ? meta.poster : undefined,
     releaseInfo: typeof meta.releaseInfo === 'string' ? meta.releaseInfo : undefined,
+    language: typeof meta.language === 'string' ? meta.language : undefined,
+    languages: Array.isArray(meta.languages)
+      ? meta.languages.filter((value): value is string => typeof value === 'string' && value.trim() !== '')
+      : undefined,
+    event: meta.event && typeof meta.event === 'object' && !Array.isArray(meta.event)
+      ? meta.event as LiveChannelMeta['event']
+      : undefined,
   };
 }
 
@@ -351,7 +384,7 @@ export type LiveChannelWithSource = LiveChannelMeta & { source_addon?: string };
 
 export function matchAllChannelsToRail(
   channels: LiveChannelMeta[],
-  rail: Pick<LiveSportRail, 'limit' | 'exclude_keywords'>,
+  rail: Pick<LiveSportRail, 'limit' | 'exclude_keywords' | 'qualification'>,
   assignedIds: Set<string>,
 ): LiveChannelMeta[] {
   const excludePattern = rail.exclude_keywords?.length
@@ -366,13 +399,19 @@ export function matchAllChannelsToRail(
     if (excludePattern?.test(text)) {
       continue;
     }
+    if (!qualifiesLiveChannel(channel, rail.qualification)) {
+      continue;
+    }
     matches.push(channel);
-    assignedIds.add(channel.id);
-    if (matches.length >= rail.limit) {
+    if (!rail.qualification && matches.length >= rail.limit) {
       break;
     }
   }
-  return matches;
+  const listed = rail.qualification
+    ? dedupeLiveChannelsByCanonicalKey(sortLiveChannelsByQuality(matches)).slice(0, rail.limit)
+    : matches;
+  for (const channel of listed) assignedIds.add(channel.id);
+  return listed;
 }
 
 export function matchChannelsWithSourceFill(
@@ -400,11 +439,14 @@ export function matchChannelsWithSourceFill(
       ? matchAllChannelsToRail(pool, subRail, assignedIds)
       : matchChannelsToRail(pool, subRail, assignedIds);
     matches.push(...next);
-    if (matches.length >= rail.limit) {
+    if (!rail.qualification && matches.length >= rail.limit) {
       break;
     }
   }
-  return matches.slice(0, rail.limit);
+  const listed = rail.qualification
+    ? dedupeLiveChannelsByCanonicalKey(sortLiveChannelsByQuality(matches))
+    : matches;
+  return listed.slice(0, rail.limit);
 }
 
 export function matchChannelsToRail(
@@ -431,9 +473,15 @@ export function matchChannelsToRail(
     if (!pattern.test(text) && !(genrePattern && genrePattern.test(text))) {
       continue;
     }
+    if (!qualifiesLiveChannel(channel, rail.qualification)) {
+      continue;
+    }
     matches.push(channel);
   }
-  const ordered = sortLiveChannelsByQuality(matches).slice(0, rail.limit);
+  const ranked = sortLiveChannelsByQuality(matches);
+  const ordered = (rail.qualification
+    ? dedupeLiveChannelsByCanonicalKey(ranked)
+    : ranked).slice(0, rail.limit);
   for (const channel of ordered) {
     assignedIds.add(channel.id);
   }
@@ -442,10 +490,12 @@ export function matchChannelsToRail(
 
 export function finalizeLiveRailListing<T extends LiveChannelMeta>(
   channels: T[],
-  rail: Pick<LiveSportRail, 'limit' | 'dedupe_titles'>,
+  rail: Pick<LiveSportRail, 'limit' | 'dedupe_titles' | 'qualification'>,
 ): T[] {
   const sorted = sortLiveChannelsByQuality(channels);
-  const listed = rail.dedupe_titles === false
+  const listed = rail.qualification
+    ? dedupeLiveChannelsByCanonicalKey(sorted)
+    : rail.dedupe_titles === false
     ? sorted
     : dedupeLiveChannelsByTitle(sorted);
   return listed.slice(0, rail.limit);

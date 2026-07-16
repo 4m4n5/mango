@@ -42,7 +42,7 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch s
 | 7a | **B** on focused episode resolves and plays immediately; no dwell prefetch or mandatory picker. **Play** from actions row = global resume | |
 | 8 | Grey/unverified rows remain focusable and show **tap to retry**; **B** re-runs the normal main → last-resort → floor play path | |
 | 9 | **Play / Resume** starts mpv; **Y** returns to detail | |
-| 10 | Watch **≥50%** → **Y** → **next episode** overlay; **B** plays next, **Y** dismisses | |
+| 10 | Exit an episode early → same episode row is focused; finish to **≥90%/EOF** → the next episode row is focused directly, including across a season boundary | |
 
 ---
 
@@ -64,7 +64,9 @@ Do not mark these from work-Mac source checks. Capture the referenced runtime ev
 | Timeout cancellation | Force/observe a play exceeding the 95 s launcher watchdog; confirm the request ID is cancelled and no ghost mpv starts later | |
 | Hard language | Play a hard-language title; logs/attempt metadata show no wrong-language candidate attempted | |
 | Picker single-shot | Choose one displayed release; the sole attempt has that URL identity and ladder step, with no silent substitution | |
-| Return state | Exit a series episode; same title/season/episode remains, progress and Resume refresh, and focus stays on Play after async rendering | |
+| Movie return state | Exit a movie from both 1080p and matched-4K output; Chromium may restart, but the same tab/title detail returns with Play focused instead of Movies home | |
+| Series early-exit state | Exit a series episode below the finished threshold; the same title/season/episode remains and that episode row is focused after progress refresh | |
+| Series completion state | Exit at ≥90% or natural EOF; the same title detail returns with the next episode row focused, including last-episode-to-next-season; no takeover overlay steals focus | |
 | Long-play ownership | Play for >30 minutes (or approved accelerated equivalent); maintenance defers and does not stop the couch-owned mpv | |
 | 1080p HDR | Play the fixture; effective mpv properties and visible picture confirm the intended 1080p HDR/tone-map path | |
 | 4K SDR HEVC | Play a verified 4K fixture; winning main step is SDR + HEVC and effective decoder/output properties match | |
@@ -155,9 +157,95 @@ bash scripts/diag/playback-4k-proof.sh
 | Smooth auto choice | With both a 1080p TorBox fallback and cached AV1/H.264 4K present, automatic Play attempts `1080p_uncached_fallback` first. Soft 4K remains eligible later in the ladder; coverage is not reduced. | |
 | Real 4K capability | A row is called smooth 4K only when metadata and `playback-4k-proof.sh` show 2160p SDR HEVC hardware decode with acceptable real dropped-frame evidence. HDR/AV1/H.264 4K remains unverified unless target-TV proof says otherwise. | |
 
+### Same-name title identity (home Mac/Pi only)
+
+Use the UK series IMDb ID (`tt0290978`) and compare it with the US series ID
+(`tt0386676`). The URL parameters below mirror the launcher's cold-meta identity
+fallback; do not include credentials in captured evidence.
+
+```bash
+curl -sf "http://127.0.0.1:3020/stream/series/tt0290978%3A1%3A1?title=The%20Office&year=2001" \
+  | jq '[.streams[] | {title,name,description,source,display_label}]'
+```
+
+| Check | Required evidence | Pass? |
+|---|---|---|
+| UK stream list | Explicit `UK`/`U.K.`/`2001`/`Downsize` rows remain; explicit `US`/`U.S.`/`2005`/`Pilot` rows are absent. Unqualified rows remain available when providers supply them. | |
+| UK episode playback | Play UK S1E1 and confirm the visible/audible episode is **Downsize**, not the US **Pilot**; repeat one later episode to rule out a one-row coincidence. | |
+| US regression | Open `tt0386676` S1E1; explicit US/2005/Pilot rows remain eligible and playback is the US episode. | |
+| Conflict telemetry | The stream response/log telemetry attributes rejected remake rows to `title_mismatch`; it does not report a provider outage or empty list when correct/ambiguous candidates exist. | |
+
+Deferred on the work Mac: Pi Chromium restart/focus behavior, actual live addon
+inventory, and visible/audible UK-vs-US playback identity. Run these only from
+the home-Mac/Pi handoff after review and deploy.
+
 Deferred on the work Mac: actual The Martian/Dune provider inventories, debrid
 cache state, the late-join timing/log correlation, mpv decoder selection, and
 presented/dropped-frame evidence.
+
+### Native Live curation and playable-search confirmation (home Mac/Pi only)
+
+Run only after the reviewed commit reaches the Pi through the normal git-only
+handoff. These commands rebuild operator-owned AREA69 data and NexoTV profiles;
+they were intentionally not run on the work Mac. Never capture the credentials
+file or generated stream URLs in evidence.
+
+```bash
+cd ~/mango
+
+python3 scripts/live/build-curated-area69-m3u.py \
+  --out ~/.local/share/mango/nexotv/data/live-area69-curated.m3u \
+  --index-out ~/.local/share/mango/nexotv/data/area69-live-search.json
+jq '{version,built_at,stream_count,entries:(.entries|length)}' \
+  ~/.local/share/mango/nexotv/data/area69-live-search.json
+
+bash scripts/live/nexotv-config.sh apply-free m3u-sports-curated
+bash scripts/live/nexotv-config.sh apply-news m3u-news-hi-en
+bash scripts/live/nexotv-config.sh apply-cartoons m3u-cartoons
+bash scripts/live/nexotv-config.sh wire-export
+
+rm -f ~/.cache/mango/live-rails-cache.json
+MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+
+curl -sf 'http://127.0.0.1:3020/rails/items?tab=live' \
+  | jq '[.rails[] | {id:.rail_id,label,items:[.items[]|{id,title,subtitle,source}]}]'
+curl -sf http://127.0.0.1:3020/health \
+  | jq '.live | {cache,search_health,last_rebuild_error}'
+
+curl -sfG -w '\nsearch_total=%{time_total}\n' \
+  'http://127.0.0.1:3020/voice/search' \
+  --data-urlencode 'tab=live' --data-urlencode 'q=BBC News' \
+  | tee /tmp/mango-live-search-proof.txt
+```
+
+Confirm EPG/current-programme delivery from the local catalog without printing
+manifest tokens by inspecting the Live rail subtitles above: a standing sports
+channel may appear only when its subtitle names the current allowed competition
+and matchup. Repeat a never-searched exact channel query; the first response
+must finish within 2 s of added validation time. If proof is still running, it
+must omit the row. Wait for the `/health.live.search_health.queued` count to
+return to zero and repeat; only then may a newly verified row appear.
+
+| Check | Required evidence | Pass? |
+|---|---|---|
+| AREA69 index v2 | Safe `jq` summary reports `version: 2`; current matchup rows exist in the index while replay/ended/placeholder/VOD-pack fixtures do not | |
+| EPG standing-channel gate | Soccer/World Cup/cricket standing channels appear only with current allowed competition + matchup programme text; generic sports broadcasters do not appear by brand alone | |
+| World Cup rail | Only current senior men's World Cup matches, one item per matchup; no qualifiers, other FIFA events, studio, replay, ended, or generic FIFA rows | |
+| Cricket rail | Every item has India as an explicit participant; West Indies and incidental `Indian` text never admit a row | |
+| Soccer rail | Every item proves a current Premier League, La Liga, Bundesliga, Serie A, Ligue 1, UCL, or UEL matchup | |
+| F1 rail | At most four exact F1 TV/Sky Sports F1/DAZN F1/Viaplay F1 identities; no generic sport or other motorsport | |
+| News/cartoon rails | News is at most the exact 4 Indian English + 4 Indian Hindi + 4 global English targets; cartoons are at most eight classics-first rows with English/Hindi metadata | |
+| Empty rail hiding | Temporarily absent target events shrink/hide their rail; no generic substitute or stale broad-policy cache appears | |
+| Search proof and latency | Fresh verified results return immediately, fresh failures stay absent, and an unknown response adds no more than 2 s before omitting unfinished proof | |
+| AREA69 playback ownership | While any Mango title is actively playing, an AREA69 search does not start a headless validation or consume its single connection; queued count does not rise for that attempt | |
+| Quality parsing | A `2160p` variant ranks as 4K below only explicit `8K`/`4320p`, never as 8K; same-tier English/Hindi and HEVC ordering follows afterward | |
+| Variant failover | Choose a logical channel with multiple qualified variants, make/observe the first playback-start candidate fail, and confirm Mango tries the next candidate within the same request/deadline without opening another app | |
+| Outcome learning | After a successful fallback play, repeat Live search: the working logical result rises; the failed variant stays suppressed until the existing Live health horizon expires | |
+| Credential-safe state | `~/.cache/mango/live-channel-health.json` is mode 0600 and contains only hashed `v1:` keys/status/timestamps/sanitized reasons—no URLs, credentials, source names, or raw channel IDs | |
+
+Deferred on the work Mac: AREA69 API/index contents, NexoTV EPG behavior, actual
+rail membership, native search wall time, active-playback connection ownership,
+and representative mpv fallback playback. None is locally claimed as passed.
 
 ## Saved library (M6.1)
 
@@ -218,7 +306,7 @@ Do not show grow/debug status on TV. Check this from SSH before claiming library
 |---------|--------|
 | Empty episode list | `curl localhost:3020/series/tt12004706/episodes` |
 | No streams on episode | Row greys as **tap to retry** but remains focusable; **B** runs the normal ladder again |
-| Next prompt missing | exit ≥50%; `GET /play/next-prompt` after mpv stop |
+| Next-episode focus missing | exit ≥90%/EOF; inspect `GET /play/next-prompt` immediately after mpv stop and confirm its series/from/next IDs |
 | Pad wrong button | [`docs/HARDWARE.md`](HARDWARE.md) — B=`304`, Y=`308`, X shuffle=`307`, −/+=`314`/`315` |
 
 

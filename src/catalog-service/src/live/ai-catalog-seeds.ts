@@ -1,4 +1,7 @@
-import { readLiveRailsDiskCacheSync } from '../live-rails-cache.js';
+import {
+  liveRailsDiskCacheCompatible,
+  readLiveRailsDiskCacheSync,
+} from '../live-rails-cache.js';
 import { searchableChannelText, type LiveChannelMeta } from '../live-rails.js';
 import { scoreTitleMatch } from '../voice/search.js';
 import { mergeSeedLists } from '../ai-catalogs/list-source.js';
@@ -64,11 +67,12 @@ export function collectLiveChannelsFromCache(): LiveChannelMeta[] {
 export type LiveSearchEntry = {
   meta: LiveChannelMeta;
   context?: string;
+  source?: string;
 };
 
 export function collectLiveSearchEntriesFromCache(): LiveSearchEntry[] {
   const diskCache = readLiveRailsDiskCacheSync();
-  if (!diskCache || !Array.isArray(diskCache.payload.rails)) {
+  if (!liveRailsDiskCacheCompatible(diskCache) || !Array.isArray(diskCache.payload.rails)) {
     return [];
   }
   const seen = new Set<string>();
@@ -86,7 +90,10 @@ export function collectLiveSearchEntriesFromCache(): LiveSearchEntry[] {
         continue;
       }
       seen.add(item.id);
-      entries.push({ meta: item, context: railText || undefined });
+      const source = typeof (raw as RailItem).source === 'string'
+        ? (raw as RailItem).source
+        : undefined;
+      entries.push({ meta: item, context: railText || undefined, source });
     }
   }
   return entries;
@@ -98,7 +105,7 @@ export async function searchLiveChannelSeeds(query: string, limit = 12): Promise
     return [];
   }
   const diskCache = readLiveRailsDiskCacheSync();
-  if (!diskCache || !Array.isArray(diskCache.payload.rails)) {
+  if (!liveRailsDiskCacheCompatible(diskCache) || !Array.isArray(diskCache.payload.rails)) {
     return [];
   }
 

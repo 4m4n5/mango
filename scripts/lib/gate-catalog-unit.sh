@@ -23,6 +23,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/aiostreams-policy.test.js \
     dist/core-invalidate-streams.test.js \
     dist/core-stream-resolve.test.js \
+    dist/core-stream-identity.test.js \
     dist/playability/trigger-consumer.test.js \
     dist/catalog-errors.test.js \
     dist/live-rails.test.js \

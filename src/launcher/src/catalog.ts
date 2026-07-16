@@ -430,9 +430,13 @@ export async function loadNextPrompt(): Promise<NextPromptResponse> {
 export async function loadStreamsForId(
   type: string,
   id: string,
-  options: { existingOnly?: boolean } = {},
+  options: { existingOnly?: boolean; title?: string; year?: string | number } = {},
 ): Promise<StreamsResult> {
-  const query = options.existingOnly ? '?existing_only=1' : '';
+  const params = new URLSearchParams();
+  if (options.existingOnly) params.set("existing_only", "1");
+  if (options.title?.trim()) params.set("title", options.title.trim());
+  if (options.year !== undefined) params.set("year", String(options.year));
+  const query = params.size > 0 ? `?${params.toString()}` : "";
   return fetchJson<StreamsResult>(
     `/api/catalog/stream/${encodeURIComponent(type)}/${encodeURIComponent(id)}${query}`,
     undefined,
@@ -449,7 +453,11 @@ export async function loadStreams(
     return { streams: [] };
   }
   const streamId = episodeId || card.playId || card.id;
-  return loadStreamsForId(card.type, streamId, options);
+  return loadStreamsForId(card.type, streamId, {
+    ...options,
+    title: card.title,
+    year: card.year,
+  });
 }
 
 export async function prefetchStreams(card: ContentCard): Promise<void> {

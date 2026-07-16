@@ -11,9 +11,9 @@ export function liveChannelQualityScore(name: string): number {
     score -= 800;
   }
 
-  if (/\b8k\b|3840|2160p|³⁸⁴⁰|8k exclusive/.test(text)) {
+  if (/\b8k\b|4320p|⁴³²⁰/.test(text)) {
     score += 900;
-  } else if (/\b4k\b|uhd|ᵁᴴᴰ|ultra hd/.test(text)) {
+  } else if (/\b4k\b|uhd|ᵁᴴᴰ|ultra hd|3840|2160p|³⁸⁴⁰/.test(text)) {
     score += 700;
   } else if (/\bfhd\b|1080|full hd|ᴴᴰ\b|1080p/.test(text)) {
     score += 500;
@@ -39,7 +39,18 @@ export function compareLiveChannelsByQuality(
 ): number {
   const leftScore = liveChannelQualityScore(left.name || left.title || '');
   const rightScore = liveChannelQualityScore(right.name || right.title || '');
-  return rightScore - leftScore;
+  if (leftScore !== rightScore) {
+    return rightScore - leftScore;
+  }
+  const preferredLanguage = (channel: LiveChannelMeta): number => {
+    const values = [channel.language, ...(channel.languages ?? [])]
+      .filter((value): value is string => typeof value === 'string')
+      .map((value) => value.trim().toLowerCase());
+    return values.some((value) => /^(?:en(?:[-_][a-z]{2})?|eng|english|hi(?:[-_][a-z]{2})?|hin|hindi)$/.test(value))
+      ? 1
+      : 0;
+  };
+  return preferredLanguage(right) - preferredLanguage(left);
 }
 
 export function sortLiveChannelsByQuality<T extends LiveChannelMeta>(channels: T[]): T[] {
