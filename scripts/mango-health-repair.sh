@@ -82,7 +82,9 @@ kill_safe_strays() {
   fi
   pkill -f 'gate-m3-verified-rails' 2>/dev/null || true
   pkill -f 'gate-m3-verified' 2>/dev/null || true
-  pkill -f 'curl.*127\.0\.0\.1:3020/play' 2>/dev/null || true
+  # Do not pkill in-flight POST /play curls — they are bounded by curl
+  # --max-time and watchdog ticks were aborting real couch/validation plays
+  # before playback-active was set.
 }
 
 intentional_pre_couch_gate_active() {
