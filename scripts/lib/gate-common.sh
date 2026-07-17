@@ -3,6 +3,8 @@
 
 mango_gate_init() {
   REPO_DIR="${MANGO_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+  # Keep MANGO_REPO_DIR exported: gate_idle_hygiene and nested helpers read it under set -u.
+  export MANGO_REPO_DIR="$REPO_DIR"
   cd "$REPO_DIR"
   export DISPLAY="${DISPLAY:-:0}"
   export XAUTHORITY="${XAUTHORITY:-$HOME/.Xauthority}"
@@ -10,6 +12,8 @@ mango_gate_init() {
     # shellcheck disable=SC1091
     source "${HOME}/.config/mango/voice.env"
   fi
+  # voice.env must not clobber the repo root resolved above.
+  export MANGO_REPO_DIR="$REPO_DIR"
   export MANGO_SKIP_OVERLAY=1
   ERRORS=0
   WARNS=0
@@ -183,9 +187,10 @@ gate_idle_hygiene() {
   else
     gate_pass "single pad owner"
   fi
-  if [[ -x "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" ]]; then
+  local pad_repo="${MANGO_REPO_DIR:-${REPO_DIR:-}}"
+  if [[ -n "$pad_repo" && -x "$pad_repo/scripts/m1-foundation/pad/pad-health.sh" ]]; then
     local pad_json pad_eval pad_ok pad_reason
-    pad_json="$(bash "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" --quiet --json 2>/dev/null || true)"
+    pad_json="$(bash "$pad_repo/scripts/m1-foundation/pad/pad-health.sh" --quiet --json 2>/dev/null || true)"
     pad_eval="$(python3 - "$pad_json" <<'PY'
 import json
 import shlex
@@ -200,7 +205,7 @@ PY
 )"
     eval "$pad_eval"
     if [[ "${pad_ok:-0}" != "1" ]]; then
-      pad_json="$(bash "$MANGO_REPO_DIR/scripts/m1-foundation/pad/pad-health.sh" --quiet --repair --json 2>/dev/null || true)"
+      pad_json="$(bash "$pad_repo/scripts/m1-foundation/pad/pad-health.sh" --quiet --repair --json 2>/dev/null || true)"
       pad_eval="$(python3 - "$pad_json" <<'PY'
 import json
 import shlex
