@@ -5,9 +5,10 @@
 #   1. Caller tears down mpv and clears playback-active before invoking finish.
 #   2. finish restores HDMI to browse mode while the launcher stays hidden.
 #   3. finish reveals the launcher at browse geometry.
-#      - Same-mode play (stayed 1080p): thaw frozen Chromium (fast).
-#      - Matched 4K (or any ≥3k panel): restart Chromium after HDMI restore
-#        so VideoCore EGL is recreated (thaw-after-xrandr leaves blank posters).
+#      - Same-width play (stayed ≤1080p, including film-cadence match): thaw
+#        frozen Chromium (fast).
+#      - ≥3k panel (matched 4K): restart Chromium after HDMI restore so
+#        VideoCore EGL is recreated (thaw-after-xrandr leaves blank posters).
 #
 # Usage:
 #   restore-launcher-after-playback.sh finish

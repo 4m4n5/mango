@@ -73,9 +73,11 @@ require_browse_display_before_launcher_reveal() {
 }
 
 # True when browse restore must cold-start Chromium for a clean GL context:
-# freeze-through-matched-4K (or any ≥3k panel mode) invalidates VideoCore EGL.
+# freeze-through-xrandr to a ≥3k panel invalidates VideoCore EGL. Same-width
+# film-cadence matches (1080p@23.98) must thaw only — treating every
+# playback-display-matched marker as a GPU reset raced the next play's HDMI
+# handoff (mpv vo not ready / gate-lite movie→series flakes).
 browse_restore_needs_launcher_gl_reset() {
-  [[ -f "${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${HOME}/.cache/mango/playback-display-matched}" ]] && return 0
   local current_w
   current_w="$(browse_display_current_width 2>/dev/null || true)"
   [[ -n "${current_w:-}" ]] || return 1
