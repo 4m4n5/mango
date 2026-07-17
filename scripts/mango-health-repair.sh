@@ -66,13 +66,27 @@ fail_note() {
 }
 
 kill_safe_strays() {
+  # Always reap indexer/debug orphans.
   pkill -f 'playability-indexer' 2>/dev/null || true
   pkill -f 'tsx.*m3-play/playability' 2>/dev/null || true
-  pkill -f 'gate-m3-verified-rails' 2>/dev/null || true
-  pkill -f 'gate-m3-verified' 2>/dev/null || true
-  pkill -f 'curl.*127.0.0.1:3020/play' 2>/dev/null || true
   pkill -f 'node --input-type=module -e.*CatalogCore' 2>/dev/null || true
   pkill -f '[b]luetoothctl connect E4:17:D8:EB:00:44' 2>/dev/null || true
+
+  # Watchdog used to pkill gate-m3-verified-rails and in-flight /play curls every
+  # few minutes, which SIGTERM'd intentional MANGO_GATE_FULL sweeps mid-rail.
+  if intentional_pre_couch_gate_active; then
+    return 0
+  fi
+  if playback_active; then
+    return 0
+  fi
+  pkill -f 'gate-m3-verified-rails' 2>/dev/null || true
+  pkill -f 'gate-m3-verified' 2>/dev/null || true
+  pkill -f 'curl.*127\.0\.0\.1:3020/play' 2>/dev/null || true
+}
+
+intentional_pre_couch_gate_active() {
+  pgrep -f '[p]i-pre-couch-gate|[g]ate-lite\.sh|[g]ate-lite-play\.sh' >/dev/null 2>&1
 }
 
 playability_maintenance_active() {
