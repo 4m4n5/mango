@@ -25,7 +25,7 @@ trap gate_mpv_stop EXIT
 gate_mpv_stop
 sleep 0.5
 
-curl -sf --max-time 5 http://127.0.0.1:3020/health >/dev/null \
+gate_wait_catalog_ready 24 \
   && gate_pass "catalog /health" || { gate_fail "catalog /health"; exit 1; }
 
 # When unset, pick a verified movie that resolves to a playable stream — robust

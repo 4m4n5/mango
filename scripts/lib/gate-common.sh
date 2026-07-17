@@ -54,6 +54,20 @@ gate_mpv_stop() {
   bash scripts/m2-catalog/service/mpv-stop.sh >/dev/null 2>&1 || true
 }
 
+# Wait for catalog /health after prior gate steps that can briefly saturate or
+# bounce the service. Empty curl http codes during /play were false flakes.
+gate_wait_catalog_ready() {
+  local attempts="${1:-24}"
+  local i
+  for ((i = 1; i <= attempts; i++)); do
+    if curl -sf --max-time 3 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  return 1
+}
+
 gate_check_mpv_playing() {
   local label="$1"
   local quiet="${2:-0}"
@@ -104,7 +118,7 @@ gate_post_play() {
   else
     payload="{\"type\":\"${type}\",\"id\":\"${id}\"}"
   fi
-  if ! curl -sf --max-time 3 http://127.0.0.1:3020/health >/dev/null 2>&1; then
+  if ! gate_wait_catalog_ready 12; then
     if [[ "$severity" == "attempt" ]]; then
       return 1
     fi
@@ -116,6 +130,16 @@ gate_post_play() {
     -d "$payload" \
     -o "$out" \
     -w '%{http_code}' || true)"
+  # One reconnect after a blank transport failure (catalog still settling).
+  if [[ -z "$status" ]]; then
+    if gate_wait_catalog_ready 12; then
+      status="$(curl -sS --max-time 100 -X POST http://127.0.0.1:3020/play \
+        -H 'content-type: application/json' \
+        -d "$payload" \
+        -o "$out" \
+        -w '%{http_code}' || true)"
+    fi
+  fi
   if [[ "$status" =~ ^2 ]] \
     && gate_check_play_json "$out" "$max_total" "$max_attempts" \
     && gate_check_mpv_playing "$label" "$([[ "$severity" == "attempt" ]] && echo 1 || echo 0)"; then

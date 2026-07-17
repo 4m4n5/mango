@@ -33,4 +33,10 @@ pad_repo="${MANGO_REPO_DIR:-${REPO_DIR:-}}"
   exit 1
 }
 
+# gate_wait_catalog_ready must exist for lite-play settle (may fail off-Pi).
+type gate_wait_catalog_ready >/dev/null 2>&1 || {
+  echo "FAIL: gate_wait_catalog_ready missing" >&2
+  exit 1
+}
+
 echo "PASS: mango_gate_init exports MANGO_REPO_DIR ($MANGO_REPO_DIR)"
