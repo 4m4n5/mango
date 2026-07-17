@@ -30,5 +30,8 @@ fi
 source "$REPO_DIR/scripts/lib/catalog-yaml.sh"
 sync_catalog_filters_etc || true
 sync_one "$REPO_DIR/config/catalog.example.yaml" /etc/mango/catalog.yaml catalog.yaml
+# Live rail qualification policies live in catalog-live.example.yaml — keep
+# /etc in sync so stale keyword-only configs cannot bypass eligibility.
+sync_one "$REPO_DIR/config/catalog-live.example.yaml" /etc/mango/catalog-live.yaml catalog-live.yaml
 python3 "$REPO_DIR/scripts/m5-voice/ai/sync-orchestrator-llm-config.py" || true
 bash "$REPO_DIR/scripts/m5-voice/ai/sync-companion-example.sh" || true
