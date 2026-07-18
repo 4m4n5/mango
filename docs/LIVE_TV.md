@@ -131,10 +131,18 @@ cricket, and soccer rails are hybrid: current qualifying matchups rank first,
 then exact standing brands from the curated sports M3U fill remaining slots.
 Standing fills never broaden into arbitrary sports keywords and still reject
 known wrong-event, foreign-cricket, MLS-only, replay, studio, preview, ended,
-and placeholder rows. Cartoons keep the exact classics allowlist and admit
+and placeholder rows. World Cup current-event admission understands AREA69
+shapes (`2026 FIFA World Cup … Team vs Team`, `World Cup 01 : Team vs Team`)
+without requiring a `LIVE |` prefix; `End |` / `NEXT |` titles stay out.
+Cartoons keep the exact classics allowlist and admit
 missing/unknown language metadata, while rejecting known non-English/Hindi
 metadata. Missing target news/cartoon channels shrink the rail instead of
 admitting generic substitutes.
+
+AREA69 event inventory is the versioned search index written by
+`nexotv-config.sh apply-area69` (`~/.local/share/mango/nexotv/data/area69-live-search.json`).
+Rebuild it before or during major match days — a stale index only has yesterday's
+PPV titles, so today's World Cup match cannot appear even when qualification is correct.
 
 ---
 

@@ -11,13 +11,18 @@ export const LIVE_QUALIFICATION_POLICIES = [
 
 export type LiveQualificationPolicy = typeof LIVE_QUALIFICATION_POLICIES[number];
 
-const FIFA_COMPETITION = /\b(?:fifa(?:\s+men'?s)?\s+world\s+cup|copa\s+mundial\s+de\s+la\s+fifa|copa\s+do\s+mundo\s+da\s+fifa)\b/i;
-const FIFA_WRONG_EVENT = /\b(?:women'?s|femenin[oa]|u[- ]?(?:17|20)|under[- ]?(?:17|20)|club|futsal|beach|qualif(?:ier|ying|ication))\b/i;
+// AREA69 names the mens tournament as both "FIFA World Cup …" and numbered
+// "World Cup 01 : Team vs Team" PPV slots. Bare "World Cup" alone is not enough —
+// that collides with cricket/rugby/softball cups (see FIFA_WRONG_EVENT).
+const FIFA_COMPETITION = /\b(?:(?:\d{4}\s+)?fifa(?:\s+men'?s)?\s+world\s+cup|copa\s+mundial\s+de\s+la\s+fifa|copa\s+do\s+mundo\s+da\s+fifa|world\s+cup\s+\d{1,2})\b/i;
+const FIFA_WRONG_EVENT = /\b(?:women'?s|femenin[oa]|u[- ]?(?:17|20)|under[- ]?(?:17|20)|club|futsal|beach|qualif(?:ier|ying|ication)|softball|cricket|rugby|hockey|volleyball|baseball)\b/i;
 const INDIA = /\b(?:india|ind)\b/i;
 const CRICKET = /\b(?:cricket|icc|odi|t20i?|test\s+match|champions\s+trophy|asia\s+cup)\b/i;
 const MAIN_SOCCER = /\b(?:premier\s+league|la\s+liga|bundesliga|serie\s+a|ligue\s+1|uefa\s+champions\s+league|ucl|uefa\s+europa\s+league|uel)\b/i;
 const MATCHUP = /\b[\w.'-]+(?:\s+[\w.'-]+){0,3}\s+(?:(?:vs\.?|v\.?|at)\s+|\-\s+)[\w.'-]+/i;
 const LIVE_MARKER = /(?:^|[|:\-])\s*live(?:\s|[|:\-]|$)/i;
+/** Explicit schedule markers in the title — stronger than a bare "listed" status. */
+const NAME_NON_CURRENT = /^(?:end(?:ed)?|next|replay)\b/i;
 const NON_LIVE_PROGRAM = /\b(?:replay|ended?|preview|highlights?|studio|analysis|review|classic)\b/i;
 
 const F1_ALLOWLIST = new Set(['sky sports f1', 'f1 tv', 'dazn f1', 'viaplay f1']);
@@ -95,18 +100,38 @@ function eventMetadataProvesCurrent(channel: LiveChannelMeta, now = Date.now()):
   };
   const startsAt = timestamp(channel.event.starts_at);
   const endsAt = timestamp(channel.event.ends_at);
-  return startsAt !== undefined && endsAt !== undefined && startsAt <= now && now <= endsAt;
+  if (startsAt !== undefined && endsAt !== undefined) {
+    return startsAt <= now && now <= endsAt;
+  }
+  // AREA69 indexes event-shaped rows with status "listed" and no schedule
+  // bounds. That must not hard-fail current-event admission — title markers
+  // (End/NEXT/Live) and competition+matchup proof decide instead.
+  return true;
+}
+
+function nameProvesNonCurrent(name: string): boolean {
+  const trimmed = name.trim();
+  return NAME_NON_CURRENT.test(trimmed) || /^(?:end(?:ed)?|next|replay)\s*[|:-]/i.test(trimmed);
 }
 
 function qualifiedCurrentEvent(channel: LiveChannelMeta, competition: RegExp): boolean {
   const name = nameText(channel);
   const program = programText(channel);
-  // A named event feed proves itself. A standing sports channel must carry
-  // qualifying current-program metadata; its brand alone is never enough.
-  return eventMetadataProvesCurrent(channel) && !NON_LIVE_PROGRAM.test(`${name} ${program}`) && (
-    (competition.test(name) && LIVE_MARKER.test(name) && MATCHUP.test(name))
-    || (competition.test(program) && MATCHUP.test(program))
-  );
+  const all = `${name} ${program}`;
+  // A named event feed proves itself via competition + matchup. Standing
+  // brands alone never qualify here. LIVE| is sufficient but not required —
+  // AREA69 PPV rows often omit it ("World Cup 01 : England vs Argentina").
+  if (!eventMetadataProvesCurrent(channel) || nameProvesNonCurrent(name) || NON_LIVE_PROGRAM.test(all)) {
+    return false;
+  }
+  const competitionHit = competition.test(name) || competition.test(program);
+  const matchupHit = MATCHUP.test(name) || MATCHUP.test(program);
+  if (!competitionHit || !matchupHit) {
+    return false;
+  }
+  // Prefer an explicit live marker when present, but competition+matchup on a
+  // non-ended/non-next title is enough proof for a current event feed.
+  return true;
 }
 
 function hasEnglishOrHindiEvidence(channel: LiveChannelMeta): boolean {
@@ -152,10 +177,13 @@ export function isCurrentLiveChannel(channel: LiveChannelMeta, policy?: LiveQual
     case 'india_cricket': {
       const name = nameText(channel);
       const program = programText(channel);
-      return eventMetadataProvesCurrent(channel) && !NON_LIVE_PROGRAM.test(all) && (
-        (INDIA.test(name) && CRICKET.test(name) && LIVE_MARKER.test(name) && MATCHUP.test(name))
-        || (INDIA.test(program) && CRICKET.test(program) && MATCHUP.test(program))
-      );
+      return eventMetadataProvesCurrent(channel)
+        && !nameProvesNonCurrent(name)
+        && !NON_LIVE_PROGRAM.test(all)
+        && (
+          (INDIA.test(name) && CRICKET.test(name) && LIVE_MARKER.test(name) && MATCHUP.test(name))
+          || (INDIA.test(program) && CRICKET.test(program) && MATCHUP.test(program))
+        );
     }
     case 'main_soccer':
       return qualifiedCurrentEvent(channel, MAIN_SOCCER);

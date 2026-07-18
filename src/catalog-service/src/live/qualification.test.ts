@@ -25,6 +25,39 @@ test('FIFA policy admits exact standing fills but keeps adjacent events rejected
   assert.equal(qualifiesLiveChannel(channel('FIFA World Cup Studio', 'FIFA World Cup Highlights: France vs Brazil'), 'fifa_mens_world_cup'), false);
 });
 
+test('FIFA policy admits AREA69-style current World Cup feeds without LIVE| marker', () => {
+  const listedSlot: LiveChannelMeta = {
+    ...channel('World Cup 01 : France vs England 05:00pm'),
+    event: { status: 'listed' },
+  };
+  const namedSemifinal: LiveChannelMeta = {
+    ...channel('2026 FIFA World Cup Semifinal France vs Spain A @ Jul 16 12:00 PM :TSN+'),
+    event: { status: 'listed' },
+  };
+  const endedPrefix: LiveChannelMeta = {
+    ...channel('End | France vs England | FIFA World Cup | 8K EXCLUSIVE'),
+    event: { status: 'listed' },
+  };
+  const nextPrefix: LiveChannelMeta = {
+    ...channel('NEXT | France vs England | FIFA World Cup | 8K EXCLUSIVE'),
+    event: { status: 'listed' },
+  };
+  const softball: LiveChannelMeta = {
+    ...channel('Live | Dia 3 | Lima | Women\'s Softball World Cup | 8K EXCLUSIVE'),
+    event: { status: 'listed' },
+  };
+  assert.equal(qualifiesLiveChannel(listedSlot, 'fifa_mens_world_cup'), true);
+  assert.equal(qualifiesLiveChannel(namedSemifinal, 'fifa_mens_world_cup'), true);
+  assert.equal(qualifiesLiveChannel(endedPrefix, 'fifa_mens_world_cup'), false);
+  assert.equal(qualifiesLiveChannel(nextPrefix, 'fifa_mens_world_cup'), false);
+  assert.equal(qualifiesLiveChannel(softball, 'fifa_mens_world_cup'), false);
+  assert.equal(
+    qualifiesLiveChannel(channel('WORLD CUP 2026'), 'fifa_mens_world_cup'),
+    false,
+    'standing slot without matchup is not a current event',
+  );
+});
+
 test('India cricket requires current India cricket proof for standing channels', () => {
   assert.equal(qualifiesLiveChannel(channel('Star Sports 1 HD', 'LIVE India vs Australia — 2nd ODI'), 'india_cricket'), true);
   assert.equal(qualifiesLiveChannel(channel('Star Sports 1 HD', 'England vs Australia — cricket'), 'india_cricket'), false);
