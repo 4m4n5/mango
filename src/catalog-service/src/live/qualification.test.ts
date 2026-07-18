@@ -34,6 +34,18 @@ test('FIFA policy admits AREA69-style current World Cup feeds without LIVE| mark
     ...channel('2026 FIFA World Cup Semifinal France vs Spain A @ Jul 16 12:00 PM :TSN+'),
     event: { status: 'listed' },
   };
+  const fifaWcSlot: LiveChannelMeta = {
+    id: 'fifa-wc-1',
+    name: 'FIFA WC 01: France vs England 5:00 PM',
+    title: 'FIFA WC 01: France vs England 5:00 PM',
+    event: { status: 'listed' },
+  };
+  const emptySlot: LiveChannelMeta = {
+    id: 'empty',
+    name: 'World Cup 06 -',
+    title: 'World Cup 06 -',
+    event: undefined,
+  };
   const endedPrefix: LiveChannelMeta = {
     ...channel('End | France vs England | FIFA World Cup | 8K EXCLUSIVE'),
     event: { status: 'listed' },
@@ -48,6 +60,8 @@ test('FIFA policy admits AREA69-style current World Cup feeds without LIVE| mark
   };
   assert.equal(qualifiesLiveChannel(listedSlot, 'fifa_mens_world_cup'), true);
   assert.equal(qualifiesLiveChannel(namedSemifinal, 'fifa_mens_world_cup'), true);
+  assert.equal(qualifiesLiveChannel(fifaWcSlot, 'fifa_mens_world_cup'), true);
+  assert.equal(qualifiesLiveChannel(emptySlot, 'fifa_mens_world_cup'), false);
   assert.equal(qualifiesLiveChannel(endedPrefix, 'fifa_mens_world_cup'), false);
   assert.equal(qualifiesLiveChannel(nextPrefix, 'fifa_mens_world_cup'), false);
   assert.equal(qualifiesLiveChannel(softball, 'fifa_mens_world_cup'), false);
@@ -55,6 +69,13 @@ test('FIFA policy admits AREA69-style current World Cup feeds without LIVE| mark
     qualifiesLiveChannel(channel('WORLD CUP 2026'), 'fifa_mens_world_cup'),
     false,
     'standing slot without matchup is not a current event',
+  );
+  assert.equal(
+    qualifiesLiveChannel(
+      channel('LIVE | Francia - Inglaterra | Tercer y cuarto puesto | Copa Mundial de la FIFA'),
+      'fifa_mens_world_cup',
+    ),
+    true,
   );
 });
 

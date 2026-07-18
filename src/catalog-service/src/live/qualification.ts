@@ -14,12 +14,14 @@ export type LiveQualificationPolicy = typeof LIVE_QUALIFICATION_POLICIES[number]
 // AREA69 names the mens tournament as both "FIFA World Cup …" and numbered
 // "World Cup 01 : Team vs Team" PPV slots. Bare "World Cup" alone is not enough —
 // that collides with cricket/rugby/softball cups (see FIFA_WRONG_EVENT).
-const FIFA_COMPETITION = /\b(?:(?:\d{4}\s+)?fifa(?:\s+men'?s)?\s+world\s+cup|copa\s+mundial\s+de\s+la\s+fifa|copa\s+do\s+mundo\s+da\s+fifa|world\s+cup\s+\d{1,2})\b/i;
+const FIFA_COMPETITION = /\b(?:(?:\d{4}\s+)?fifa(?:\s+men'?s)?\s+world\s+cup|fifa\s*wc|copa\s+mundial\s+de\s+la\s+fifa|copa\s+do\s+mundo\s+da\s+fifa|world\s+cup\s+\d{1,2})\b/i;
 const FIFA_WRONG_EVENT = /\b(?:women'?s|femenin[oa]|u[- ]?(?:17|20)|under[- ]?(?:17|20)|club|futsal|beach|qualif(?:ier|ying|ication)|softball|cricket|rugby|hockey|volleyball|baseball)\b/i;
 const INDIA = /\b(?:india|ind)\b/i;
 const CRICKET = /\b(?:cricket|icc|odi|t20i?|test\s+match|champions\s+trophy|asia\s+cup)\b/i;
 const MAIN_SOCCER = /\b(?:premier\s+league|la\s+liga|bundesliga|serie\s+a|ligue\s+1|uefa\s+champions\s+league|ucl|uefa\s+europa\s+league|uel)\b/i;
-const MATCHUP = /\b[\w.'-]+(?:\s+[\w.'-]+){0,3}\s+(?:(?:vs\.?|v\.?|at)\s+|\-\s+)[\w.'-]+/i;
+// Both sides of a matchup must include a letter so "World Cup 06 - World Cup 06"
+// (duplicated name/title) and empty "World Cup 06 -" slots cannot fake a fixture.
+const MATCHUP = /\b[\w.'-]*[a-zA-Z][\w.'-]*(?:\s+[\w.'-]+){0,3}\s+(?:(?:vs\.?|v\.?|at)\s+|\-\s+)[\w.'-]*[a-zA-Z][\w.'-]*\b/i;
 const LIVE_MARKER = /(?:^|[|:\-])\s*live(?:\s|[|:\-]|$)/i;
 /** Explicit schedule markers in the title — stronger than a bare "listed" status. */
 const NAME_NON_CURRENT = /^(?:end(?:ed)?|next|replay)\b/i;
@@ -50,7 +52,13 @@ function text(value: string | undefined): string {
 }
 
 function nameText(channel: LiveChannelMeta): string {
-  return [channel.name, channel.title].map(text).filter(Boolean).join(' ');
+  const name = text(channel.name);
+  const title = text(channel.title);
+  if (!name) return title;
+  if (!title || title.localeCompare(name, undefined, { sensitivity: 'accent' }) === 0) {
+    return name;
+  }
+  return `${name} ${title}`;
 }
 
 function programText(channel: LiveChannelMeta): string {
