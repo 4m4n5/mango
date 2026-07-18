@@ -26,6 +26,15 @@ const NEWS_ALLOWLIST = new Set([
   'aaj tak', 'ndtv india', 'abp news', 'republic bharat',
   'bbc news', 'sky news', 'al jazeera english', 'nbc news now',
 ]);
+// These are deliberately exact canonical identities from the committed
+// curated sports M3U. They are fill channels, never a broad sports keyword
+// policy.
+const FIFA_STANDING_ALLOWLIST = new Set(['fifa', 'fifa united states']);
+const CRICKET_STANDING_ALLOWLIST = new Set([
+  'star sports 1', 'star sports 1 hindi', 'star sports 2',
+  'willow sports', 'willow cricket', 'dd sports', 'cricket gold',
+]);
+const SOCCER_STANDING_ALLOWLIST = new Set(['bein sports', 'bein sports usa']);
 const CARTOON_ALLOWLIST = new Set([
   'tom and jerry', 'nickelodeon pluto tv', 'nicktoons', 'nick jr',
   'pbs kids eastern central', 'happykids', 'kartoon channel', 'moonbug kids',
@@ -104,11 +113,38 @@ function hasEnglishOrHindiEvidence(channel: LiveChannelMeta): boolean {
   const values = [channel.language, ...(channel.languages ?? [])]
     .filter((value): value is string => typeof value === 'string')
     .map((value) => value.trim().toLowerCase());
-  return values.some((value) => /^(?:en(?:[-_][a-z]{2})?|eng|english|hi(?:[-_][a-z]{2})?|hin|hindi)$/.test(value));
+  if (values.length === 0 || values.every((value) => /^(?:und|unknown|un|n\/a|none)$/.test(value))) {
+    return true;
+  }
+  return values.every((value) => /^(?:en(?:[-_][a-z]{2})?|eng|english|hi(?:[-_][a-z]{2})?|hin|hindi)$/.test(value));
 }
 
-export function qualifiesLiveChannel(channel: LiveChannelMeta, policy?: LiveQualificationPolicy): boolean {
-  if (!policy) return true;
+function standingAllowlistFor(policy: LiveQualificationPolicy): ReadonlySet<string> | undefined {
+  switch (policy) {
+    case 'fifa_mens_world_cup': return FIFA_STANDING_ALLOWLIST;
+    case 'india_cricket': return CRICKET_STANDING_ALLOWLIST;
+    case 'main_soccer': return SOCCER_STANDING_ALLOWLIST;
+    default: return undefined;
+  }
+}
+
+function isStandingChannel(channel: LiveChannelMeta, policy: LiveQualificationPolicy): boolean {
+  const allowlist = standingAllowlistFor(policy);
+  if (!allowlist || !exactAllowed(channel, allowlist)) return false;
+  const all = `${nameText(channel)} ${programText(channel)}`;
+  if (policy === 'fifa_mens_world_cup' && FIFA_WRONG_EVENT.test(all)) return false;
+  if (policy === 'india_cricket'
+    && CRICKET.test(programText(channel))
+    && MATCHUP.test(programText(channel))
+    && !INDIA.test(programText(channel))) {
+    return false;
+  }
+  if (policy === 'main_soccer' && /\bmls\b/i.test(all)) return false;
+  return true;
+}
+
+export function isCurrentLiveChannel(channel: LiveChannelMeta, policy?: LiveQualificationPolicy): boolean {
+  if (!policy) return false;
   const all = `${nameText(channel)} ${programText(channel)}`;
   switch (policy) {
     case 'fifa_mens_world_cup':
@@ -116,13 +152,28 @@ export function qualifiesLiveChannel(channel: LiveChannelMeta, policy?: LiveQual
     case 'india_cricket': {
       const name = nameText(channel);
       const program = programText(channel);
-      return eventMetadataProvesCurrent(channel) && !NON_LIVE_PROGRAM.test(`${name} ${program}`) && (
+      return eventMetadataProvesCurrent(channel) && !NON_LIVE_PROGRAM.test(all) && (
         (INDIA.test(name) && CRICKET.test(name) && LIVE_MARKER.test(name) && MATCHUP.test(name))
         || (INDIA.test(program) && CRICKET.test(program) && MATCHUP.test(program))
       );
     }
     case 'main_soccer':
       return qualifiedCurrentEvent(channel, MAIN_SOCCER);
+    default:
+      return false;
+  }
+}
+
+export function qualifiesLiveChannel(channel: LiveChannelMeta, policy?: LiveQualificationPolicy): boolean {
+  if (!policy) return true;
+  const all = `${nameText(channel)} ${programText(channel)}`;
+  switch (policy) {
+    case 'fifa_mens_world_cup':
+      return isCurrentLiveChannel(channel, policy) || isStandingChannel(channel, policy);
+    case 'india_cricket':
+      return isCurrentLiveChannel(channel, policy) || isStandingChannel(channel, policy);
+    case 'main_soccer':
+      return isCurrentLiveChannel(channel, policy) || isStandingChannel(channel, policy);
     case 'f1_standing_allowlist':
       return exactAllowed(channel, F1_ALLOWLIST);
     case 'balanced_news':

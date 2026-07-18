@@ -27,6 +27,8 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/playability/trigger-consumer.test.js \
     dist/catalog-errors.test.js \
     dist/live-rails.test.js \
+    dist/live/qualification.test.js \
+    dist/live-rails-cache.test.js \
     dist/play-ladder.test.js \
     dist/play-orchestrator.test.js \
     dist/preflight-playback.test.js \

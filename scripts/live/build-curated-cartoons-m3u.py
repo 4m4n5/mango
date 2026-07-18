@@ -141,13 +141,14 @@ def select_blocks(
             channel_id, feed = source_channel_id(block)
             if not channel_id or feed.strip().lower() in KNOWN_FOREIGN_FEEDS:
                 continue
-            languages = approved_language_labels(language_by_channel.get(channel_id))
-            if not languages:
+            source_languages = language_by_channel.get(channel_id)
+            languages = approved_language_labels(source_languages)
+            if source_languages is not None and not languages:
                 continue
             url = next((line.strip() for line in block.splitlines()[1:] if line.strip().startswith("http")), "")
             if not url or url in seen_urls:
                 continue
-            hit = (with_language_attribute(block, languages), url)
+            hit = (with_language_attribute(block, languages) if languages else block, url)
             break
         if not hit:
             missing.append(label)
@@ -163,7 +164,7 @@ def build_playlist(
 ) -> tuple[list[str], list[str]]:
     lines = [
         "#EXTM3U",
-        "# mango curated cartoons — classics-first; explicit English/Hindi metadata only (iptv-org)",
+        "# mango curated cartoons — classics-first; known non-English/Hindi feeds excluded (iptv-org)",
         "# https://github.com/iptv-org/iptv",
     ]
     selected, missing = select_blocks(blocks, language_by_channel)

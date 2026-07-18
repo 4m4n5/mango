@@ -6,10 +6,24 @@ import { isBlockedLiveChannel } from './live-stream-verify.js';
 import { dedupeLiveChannelsByTitle, sortLiveChannelsByQuality } from './live/quality-rank.js';
 import {
   dedupeLiveChannelsByCanonicalKey,
+  isCurrentLiveChannel,
   LIVE_QUALIFICATION_POLICIES,
   qualifiesLiveChannel,
   type LiveQualificationPolicy,
 } from './live/qualification.js';
+
+function sortRailCandidates<T extends LiveChannelMeta>(
+  channels: T[],
+  qualification?: LiveQualificationPolicy,
+): T[] {
+  const ranked = sortLiveChannelsByQuality(channels);
+  if (!qualification) return ranked;
+  // Event rows are always the first phase; quality only orders within each
+  // phase, so a standing 4K fill cannot outrank a current matchup.
+  const live = ranked.filter((channel) => isCurrentLiveChannel(channel, qualification));
+  const standing = ranked.filter((channel) => !isCurrentLiveChannel(channel, qualification));
+  return [...live, ...standing];
+}
 
 export type LiveSourceFill = {
   addon: string;
@@ -408,7 +422,7 @@ export function matchAllChannelsToRail(
     }
   }
   const listed = rail.qualification
-    ? dedupeLiveChannelsByCanonicalKey(sortLiveChannelsByQuality(matches)).slice(0, rail.limit)
+    ? dedupeLiveChannelsByCanonicalKey(sortRailCandidates(matches, rail.qualification)).slice(0, rail.limit)
     : matches;
   for (const channel of listed) assignedIds.add(channel.id);
   return listed;
@@ -444,7 +458,7 @@ export function matchChannelsWithSourceFill(
     }
   }
   const listed = rail.qualification
-    ? dedupeLiveChannelsByCanonicalKey(sortLiveChannelsByQuality(matches))
+    ? dedupeLiveChannelsByCanonicalKey(sortRailCandidates(matches, rail.qualification))
     : matches;
   return listed.slice(0, rail.limit);
 }
@@ -478,7 +492,7 @@ export function matchChannelsToRail(
     }
     matches.push(channel);
   }
-  const ranked = sortLiveChannelsByQuality(matches);
+  const ranked = sortRailCandidates(matches, rail.qualification);
   const ordered = (rail.qualification
     ? dedupeLiveChannelsByCanonicalKey(ranked)
     : ranked).slice(0, rail.limit);
@@ -492,7 +506,7 @@ export function finalizeLiveRailListing<T extends LiveChannelMeta>(
   channels: T[],
   rail: Pick<LiveSportRail, 'limit' | 'dedupe_titles' | 'qualification'>,
 ): T[] {
-  const sorted = sortLiveChannelsByQuality(channels);
+  const sorted = sortRailCandidates(channels, rail.qualification);
   const listed = rail.qualification
     ? dedupeLiveChannelsByCanonicalKey(sorted)
     : rail.dedupe_titles === false

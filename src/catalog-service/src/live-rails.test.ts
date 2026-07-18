@@ -47,6 +47,66 @@ test('live-rails matches cricket channels by keyword', () => {
   assert.deepEqual(matches.map((item) => item.id), ['1', '3']);
 });
 
+test('hybrid qualified rail keeps current matches before exact standing fills', () => {
+  const rail: LiveSportRail = {
+    id: 'live-cricket',
+    label: 'cricket',
+    keywords: ['cricket', 'india', 'star sports', 'willow'],
+    qualification: 'india_cricket',
+    limit: 3,
+  };
+  const channels = [
+    channel({ id: 'standing-4k', name: 'Willow Sports 4K' }),
+    channel({ id: 'live', name: 'LIVE | India vs Australia | 2nd ODI' }),
+    channel({ id: 'standing-hd', name: 'Star Sports 1 HD' }),
+    channel({ id: 'junk', name: 'LIVE | West Indies vs Australia | 2nd ODI' }),
+  ];
+  const matches = matchChannelsToRail(channels, rail, new Set());
+  assert.deepEqual(matches.map((item) => item.id), ['live', 'standing-4k', 'standing-hd']);
+});
+
+test('hybrid source fill works when only exact standing brands are present', () => {
+  const rail: LiveSportRail = {
+    id: 'live-football',
+    label: 'soccer',
+    keywords: ['soccer'],
+    qualification: 'main_soccer',
+    limit: 2,
+    source_fill: [{ addon: 'mango Live Free', limit: 2, keywords: ['bein sports'] }],
+  };
+  const channels: LiveChannelWithSource[] = [
+    { ...channel({ id: 'bein', name: 'beIN Sports USA (720p)' }), source_addon: 'mango Live Free' },
+    { ...channel({ id: 'noise', name: 'ESPN Sports' }), source_addon: 'mango Live Free' },
+  ];
+  const matches = matchChannelsWithSourceFill(channels, rail, new Set());
+  assert.deepEqual(matches.map((item) => item.id), ['bein']);
+});
+
+test('cartoon rail admits unknown language but rejects known foreign language', () => {
+  const rail: LiveSportRail = {
+    id: 'live-cartoons',
+    label: 'cartoons',
+    keywords: ['moonbug'],
+    qualification: 'english_hindi_cartoons',
+    limit: 8,
+  };
+  assert.deepEqual(
+    matchChannelsToRail([channel({ id: 'unknown', name: 'Moonbug Kids' })], rail, new Set())
+      .map((item) => item.id),
+    ['unknown'],
+  );
+  assert.deepEqual(
+    matchChannelsToRail([channel({ id: 'spanish', name: 'Moonbug Kids', languages: ['Spanish'] })], rail, new Set())
+      .map((item) => item.id),
+    [],
+  );
+  assert.deepEqual(
+    matchChannelsToRail([channel({ id: 'english', name: 'Moonbug Kids', languages: ['English'] })], rail, new Set())
+      .map((item) => item.id),
+    ['english'],
+  );
+});
+
 test('live-rails assigns each channel to the first matching rail only', () => {
   const rails: LiveSportRail[] = [
     { id: 'live-cricket', label: 'cricket', keywords: ['sport'], limit: 5 },

@@ -126,11 +126,15 @@ Key flags in `catalog-live.yaml`:
 | `cache_ttl_sec` | `1800` | Reduce catalog rebuild churn |
 | `sources[].pages` | `1` in the example | Each local curated inventory is already thin; AREA69 full search comes from its separate versioned index |
 
-Curated M3U profiles enable NexoTV EPG where supported. Standing sports
-channels require a qualifying current programme; exact event feeds require a
-live/current marker and reject replay, studio, preview, ended, and placeholder
-rows. Missing target news/cartoon channels shrink the rail instead of admitting
-generic substitutes.
+Curated M3U profiles enable NexoTV EPG where supported. World Cup, India
+cricket, and soccer rails are hybrid: current qualifying matchups rank first,
+then exact standing brands from the curated sports M3U fill remaining slots.
+Standing fills never broaden into arbitrary sports keywords and still reject
+known wrong-event, foreign-cricket, MLS-only, replay, studio, preview, ended,
+and placeholder rows. Cartoons keep the exact classics allowlist and admit
+missing/unknown language metadata, while rejecting known non-English/Hindi
+metadata. Missing target news/cartoon channels shrink the rail instead of
+admitting generic substitutes.
 
 ---
 
@@ -176,16 +180,31 @@ cache is incompatible and must not silently return.
 
 | Rail | Admission |
 |------|-----------|
-| FIFA World Cup | Current senior men's World Cup match only; no qualifiers, adjacent FIFA events, generic channels, replays, or ended rows |
-| Cricket | Current explicit India participant match; `West Indies` and incidental `Indian` text do not qualify |
-| Soccer | Current Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Champions League, or Europa League match |
+| FIFA World Cup | Current senior men's World Cup matches first; remaining slots may use exact curated FIFA+/FIFA+ United States fills only. No qualifiers, women's/club/adjacent FIFA events, generic sports brands, replays, or ended rows |
+| Cricket | Current India-participant cricket matches first; remaining slots may use exact curated Star Sports / Willow / DD Sports / Cricket Gold fills. `West Indies` and incidental `Indian` text do not qualify; foreign matchups on standing brands stay rejected |
+| Soccer | Current Premier League, La Liga, Bundesliga, Serie A, Ligue 1, UCL, or UEL matches first; remaining slots may use exact curated beIN Sports fills only. MLS-only and generic sports brands stay rejected |
 | Formula 1 | Up to four exact F1 TV, Sky Sports F1, DAZN F1, and Viaplay F1 variants only |
 | News | Exact 4 Indian English + 4 Indian Hindi + 4 global English target identities; missing rows are not substituted |
-| Cartoons | Up to eight classics-first target families with positive, exclusively English/Hindi source metadata |
+| Cartoons | Up to eight classics-first allowlisted families; missing/unknown language metadata is admitted, known non-English/Hindi metadata is rejected |
 
 ---
 
 ## Manual checks (opt-in)
+
+After a reviewed deploy and cache rebuild on the home Mac/Pi, confirm rail
+membership without claiming inventory from the work Mac:
+
+```bash
+curl -s 'http://127.0.0.1:3020/rails/items?tab=live' | python3 -c \
+  "import json,sys;d=json.load(sys.stdin);print([(r.get('label'),len(r.get('items')or[])) for r in d.get('rails',[])])"
+bash scripts/live/audit-live-rails.sh
+```
+
+Expect non-zero World Cup, cricket, soccer, and cartoon rails only when their
+free M3U/NexoTV sources are healthy. If profiles drift, the operator must
+re-apply the curated profiles with `bash scripts/live/nexotv-config.sh apply-*`
+before interpreting empty counts. These are Pi-only confirmation steps and
+were not run on the work Mac.
 
 ```bash
 MANGO_LIVE_PROBE=1 bash scripts/live/probe-live-catalog.sh

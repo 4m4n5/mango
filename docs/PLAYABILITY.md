@@ -80,7 +80,9 @@ Office* separate without requiring provider-specific title hardcoding.
 **Native Live curation and search:** Live rails admit candidates by typed event,
 competition, participant, exact-channel, and language policy before dedupe or
 quality ranking. They use only Mango's configured free IPTV inventories and
-AREA69; standing sports channels require current-programme evidence. Full Live
+AREA69; sports rails use current-event rows first and exact curated standing
+brands only as bounded fill, while cartoons keep the exact allowlist and admit
+unknown language metadata. Full Live
 search remains independent of those thin rails via
 `GET /voice/search?tab=live&q=...`, but returns only fresh playback-proven
 logical channels. Fresh failures are suppressed. Unknown top matches get at

@@ -54,7 +54,7 @@ class CartoonPlaylistTests(unittest.TestCase):
         self.assertIn(",Moonbug Kids", selected[-1])
         self.assertTrue(all('tvg-language="English"' in item for item in selected))
 
-    def test_rejects_unknown_foreign_and_known_localized_variants(self) -> None:
+    def test_rejects_known_foreign_and_localized_but_admits_unknown_language(self) -> None:
         blocks = [
             block("Tom And Jerry", "TomAndJerry.us@Brazil", 1),
             block("Tom And Jerry", "TomAndJerry.us@HD", 2),
@@ -69,9 +69,10 @@ class CartoonPlaylistTests(unittest.TestCase):
 
         selected, _ = CARTOONS.select_blocks(blocks, languages)
 
-        self.assertEqual(len(selected), 1)
+        self.assertEqual(len(selected), 2)
         self.assertIn("https://stream.example/2.m3u8", selected[0])
         self.assertNotIn("Brazil", selected[0])
+        self.assertIn("https://stream.example/4.m3u8", selected[1])
 
     def test_checked_in_playlist_has_explicit_approved_language_evidence(self) -> None:
         playlist = (CARTOONS.REPO / "config" / "live-cartoons.m3u").read_text(encoding="utf-8")

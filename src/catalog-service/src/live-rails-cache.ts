@@ -19,7 +19,7 @@ type LiveRailsDiskCache = {
 };
 
 /** Bump when cached rail membership semantics change incompatibly. */
-export const LIVE_RAILS_POLICY_VERSION = 2;
+export const LIVE_RAILS_POLICY_VERSION = 3;
 
 export function liveRailsDiskCacheCompatible(
   entry: LiveRailsDiskCache | null,

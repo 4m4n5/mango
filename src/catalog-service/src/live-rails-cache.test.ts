@@ -84,6 +84,27 @@ test('live rails disk cache rejects legacy policy payloads as fallback', async (
   }
 });
 
+test('live rails disk cache rejects policy v2 after membership semantics change', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-live-cache-'));
+  const oldPath = process.env.MANGO_LIVE_RAILS_CACHE;
+  process.env.MANGO_LIVE_RAILS_CACHE = join(dir, 'live-cache.json');
+  try {
+    await writeFile(liveRailsCachePath(), JSON.stringify({
+      policy_version: 2,
+      saved_at: Date.now(),
+      expires_at: Date.now() + 60_000,
+      payload: { tab: 'live', rails: [{ rail_id: 'live-world-cup', items: [{ id: 'old' }] }] },
+    }), 'utf8');
+    const entry = await readLiveRailsDiskCache();
+    assert.equal(liveRailsDiskCacheCompatible(entry), false);
+    assert.equal(liveRailsDiskCacheNonEmpty(entry), false);
+  } finally {
+    if (oldPath === undefined) delete process.env.MANGO_LIVE_RAILS_CACHE;
+    else process.env.MANGO_LIVE_RAILS_CACHE = oldPath;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('live rails disk cache never treats empty cache as fallback', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mango-live-cache-'));
   const oldPath = process.env.MANGO_LIVE_RAILS_CACHE;

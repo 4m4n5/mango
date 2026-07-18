@@ -229,12 +229,12 @@ return to zero and repeat; only then may a newly verified row appear.
 | Check | Required evidence | Pass? |
 |---|---|---|
 | AREA69 index v2 | Safe `jq` summary reports `version: 2`; current matchup rows exist in the index while replay/ended/placeholder/VOD-pack fixtures do not | |
-| EPG standing-channel gate | Soccer/World Cup/cricket standing channels appear only with current allowed competition + matchup programme text; generic sports broadcasters do not appear by brand alone | |
-| World Cup rail | Only current senior men's World Cup matches, one item per matchup; no qualifiers, other FIFA events, studio, replay, ended, or generic FIFA rows | |
-| Cricket rail | Every item has India as an explicit participant; West Indies and incidental `Indian` text never admit a row | |
-| Soccer rail | Every item proves a current Premier League, La Liga, Bundesliga, Serie A, Ligue 1, UCL, or UEL matchup | |
+| EPG standing-channel gate | Current match rows appear first; off-air sports rails may use only exact curated FIFA+/Star Sports/Willow/DD Sports/Cricket Gold/beIN fills, never generic sports brands | |
+| World Cup rail | Current senior men's World Cup matches first (one best variant per matchup); off-air fill is only exact FIFA+/FIFA+ United States — no qualifiers, other FIFA events, studio, replay, ended, or generic sports brands | |
+| Cricket rail | Current India-participant matches first; off-air fill is only exact Star Sports/Willow/DD Sports/Cricket Gold. West Indies and incidental `Indian` text never admit a row | |
+| Soccer rail | Current Premier League / La Liga / Bundesliga / Serie A / Ligue 1 / UCL / UEL matches first; off-air fill is only exact beIN Sports — no MLS-only or generic sports brands | |
 | F1 rail | At most four exact F1 TV/Sky Sports F1/DAZN F1/Viaplay F1 identities; no generic sport or other motorsport | |
-| News/cartoon rails | News is at most the exact 4 Indian English + 4 Indian Hindi + 4 global English targets; cartoons are at most eight classics-first rows with English/Hindi metadata | |
+| News/cartoon rails | News remains exact-target bounded; cartoons are at most eight classics-first allowlisted rows, admitting unknown language metadata but rejecting known non-English/Hindi metadata | |
 | Empty rail hiding | Temporarily absent target events shrink/hide their rail; no generic substitute or stale broad-policy cache appears | |
 | Search proof and latency | Fresh verified results return immediately, fresh failures stay absent, and an unknown response adds no more than 2 s before omitting unfinished proof | |
 | AREA69 playback ownership | While any Mango title is actively playing, an AREA69 search does not start a headless validation or consume its single connection; queued count does not rise for that attempt | |
@@ -242,6 +242,23 @@ return to zero and repeat; only then may a newly verified row appear.
 | Variant failover | Choose a logical channel with multiple qualified variants, make/observe the first playback-start candidate fail, and confirm Mango tries the next candidate within the same request/deadline without opening another app | |
 | Outcome learning | After a successful fallback play, repeat Live search: the working logical result rises; the failed variant stays suppressed until the existing Live health horizon expires | |
 | Credential-safe state | `~/.cache/mango/live-channel-health.json` is mode 0600 and contains only hashed `v1:` keys/status/timestamps/sanitized reasons—no URLs, credentials, source names, or raw channel IDs | |
+
+### Live shelf membership confirmation (home Mac/Pi only)
+
+Run after the reviewed branch has been deployed through the git-only handoff
+and the Live cache has been rebuilt. These commands are intentionally deferred
+from the work Mac because it cannot prove the Pi's NexoTV inventories:
+
+```bash
+curl -s 'http://127.0.0.1:3020/rails/items?tab=live' | python3 -c \
+  "import json,sys;d=json.load(sys.stdin);print([(r.get('label'),len(r.get('items')or[])) for r in d.get('rails',[])])"
+bash scripts/live/audit-live-rails.sh
+```
+
+Expect non-zero World Cup, cricket, soccer, and cartoons when the free M3U
+sources are healthy. If profiles drift, re-apply them with
+`bash scripts/live/nexotv-config.sh apply-*` and rebuild the cache before
+diagnosing membership.
 
 Deferred on the work Mac: AREA69 API/index contents, NexoTV EPG behavior, actual
 rail membership, native search wall time, active-playback connection ownership,
