@@ -489,7 +489,7 @@ async function handlePlay(
     // Resolve has expanded the logical item into a quality-ordered canonical
     // variant ladder. Reachability remains a cheap preflight; playback-start
     // failure now advances to the next qualified variant within one deadline.
-    const probeTimeoutMs = Number(process.env.MANGO_LIVE_PROBE_TIMEOUT_MS ?? 5000);
+    const probeTimeoutMs = Number(process.env.MANGO_LIVE_PROBE_TIMEOUT_MS ?? 10_000);
     const ladder = await playLiveCandidateLadder(candidates, body.id, {
       remainingMs: () => remainingPlayBudgetMs(deadline),
       probeTimeoutMs,

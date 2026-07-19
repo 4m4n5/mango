@@ -33,3 +33,26 @@ test('probeStreamReachability accepts HTTP 302 redirects (Xtream live URLs)', as
     server.close();
   }
 });
+
+test('probeStreamReachability retries once after a transient 5xx', async () => {
+  let hits = 0;
+  const server = http.createServer((_req, res) => {
+    hits += 1;
+    if (hits === 1) {
+      res.writeHead(513);
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'video/mp2t' });
+    res.end(Buffer.alloc(64, 0));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as { port: number }).port;
+  try {
+    const ok = await probeStreamReachability(`http://127.0.0.1:${port}/live/user/pass/1.ts`, 3000);
+    assert.equal(ok, true);
+    assert.equal(hits, 2);
+  } finally {
+    server.close();
+  }
+});

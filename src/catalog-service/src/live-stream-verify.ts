@@ -11,17 +11,7 @@ export function isBlockedLiveStreamUrl(url: string): boolean {
   return /example\.com|ratelimit|rate\s*limit|too many/i.test(trimmed);
 }
 
-/**
- * Quick reachability probe for a live stream URL. Opens a GET, waits for the
- * first byte, then destroys the socket immediately. Returns true if the host
- * is reachable and starts delivering data within the timeout.
- *
- * This exists so /play fails fast (~5s) when a free IPTV-org host is
- * geo-blocked from the Pi instead of hanging for mpv's 90s playback-start
- * timeout. Safe for AREA69's max_connections=1 because the probe destroys its
- * socket before mpv opens its own connection.
- */
-export function probeStreamReachability(url: string, timeoutMs = 5000): Promise<boolean> {
+function probeStreamReachabilityOnce(url: string, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     if (isBlockedLiveStreamUrl(url)) {
       resolve(false);
@@ -66,6 +56,32 @@ export function probeStreamReachability(url: string, timeoutMs = 5000): Promise<
     req.on('error', () => finish(false));
     const timer = setTimeout(() => finish(false), timeoutMs);
   });
+}
+
+/**
+ * Quick reachability probe for a live stream URL. Opens a GET, waits for the
+ * first byte, then destroys the socket immediately. Returns true if the host
+ * is reachable and starts delivering data within the timeout.
+ *
+ * Retries once on failure — AREA69/Cloudflare edges intermittently answer with
+ * HTTP 513 or multi-second stalls that would otherwise false-negative a single
+ * 5s probe and surface as "live stream unavailable".
+ *
+ * This exists so /play fails fast when a free IPTV-org host is geo-blocked from
+ * the Pi instead of hanging for mpv's 90s playback-start timeout. Safe for
+ * AREA69's max_connections=1 because the probe destroys its socket before mpv
+ * opens its own connection.
+ */
+export async function probeStreamReachability(
+  url: string,
+  timeoutMs = 10_000,
+): Promise<boolean> {
+  if (await probeStreamReachabilityOnce(url, timeoutMs)) {
+    return true;
+  }
+  // Brief pause so a flaky CDN edge can rotate before the second attempt.
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  return probeStreamReachabilityOnce(url, timeoutMs);
 }
 
 export function isBlockedLiveChannel(channel: LiveChannelMeta): boolean {

@@ -1708,7 +1708,7 @@ export class CatalogCore {
       : [];
     const channel = tagged.find((candidate) => candidate.id === entry.meta.id);
     if (!channel) return false;
-    const timeoutMs = Number(process.env.MANGO_LIVE_PROBE_TIMEOUT_MS ?? 5000);
+    const timeoutMs = Number(process.env.MANGO_LIVE_PROBE_TIMEOUT_MS ?? 10_000);
     const source = channel.source_addon;
     try {
       const streams = await this.resolveTaggedLiveChannel(channel, timeoutMs);
