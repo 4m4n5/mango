@@ -200,6 +200,7 @@ Live, voice, process, lock, and couch-idle state into Green/Yellow/Red.
 - Settings shows low-density component cards and safe actions; home only shows a degraded Settings badge
 - `nightly-library-refresh.sh` records proof after movie/TV and YouTube refresh complete
 - Safe repair delegates to `mango-health-repair.sh`; no automatic DB rebuilds or cache clears
+- Controller hardening separates the root BlueZ link supervisor from the evdev pad router; code/local checks are complete and Pi/couch proof is delegated to the home-agent runbook
 
 **Gate:** `scripts/m6-ship/gate-m6-reliability-proof.sh` · Detail: [RELIABILITY.md](RELIABILITY.md).
 
@@ -342,4 +343,3 @@ Git history and some script paths still use older labels. **Do not use these in 
 | N5a–N5d                | M5 slices (see STATUS) |
 | N6                     | M6.2                   |
 | N7                     | M6.3                   |
-

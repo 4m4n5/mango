@@ -1468,6 +1468,11 @@ async function main(): Promise<void> {
           return;
         }
 
+        if (req.method === 'GET' && parts.length === 2 && parts[1] === 'controller') {
+          sendJson(res, 200, { ok: true, controller: await reliability.controller() });
+          return;
+        }
+
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'proofs') {
           const limit = Number(url.searchParams.get('limit') || 20);
           sendJson(res, 200, {
@@ -1497,6 +1502,15 @@ async function main(): Promise<void> {
             throw new CatalogError(403, 'reliability repair is localhost-only');
           }
           const result = await reliability.repair();
+          sendJson(res, result.ok ? 202 : 409, result);
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 3 && parts[1] === 'controller' && parts[2] === 'repair') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'controller repair is localhost-only');
+          }
+          const result = await reliability.repairController();
           sendJson(res, result.ok ? 202 : 409, result);
           return;
         }

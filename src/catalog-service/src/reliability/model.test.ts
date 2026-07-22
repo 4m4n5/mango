@@ -106,6 +106,7 @@ test('green state enables safe actions when couch is idle', () => {
   assert.equal(state.status, 'yellow', 'missing proof should keep first-run state yellow');
   assert.equal(state.ok, true);
   assert.equal(state.actions.find((action) => action.id === 'repair')?.enabled, true);
+  assert.equal(state.actions.find((action) => action.id === 'controller_repair')?.enabled, true);
   assert.equal(state.actions.find((action) => action.id === 'stack_restart')?.enabled, true);
 });
 
@@ -142,8 +143,39 @@ test('active couch disables disruptive actions but keeps proof available', () =>
   facts.idle.source = 'launcher';
   const state = evaluateReliability(facts);
   assert.equal(state.actions.find((action) => action.id === 'repair')?.enabled, false);
+  assert.equal(state.actions.find((action) => action.id === 'controller_repair')?.enabled, false);
   assert.equal(state.actions.find((action) => action.id === 'refresh')?.enabled, false);
   assert.equal(state.actions.find((action) => action.id === 'proof')?.enabled, true);
+});
+
+test('controller maintenance retry is healthy while the dedicated controller is off', () => {
+  const facts = baseFacts();
+  facts.controller = {
+    ok: true,
+    fallback: false,
+    reason: 'waiting_for_controller',
+    link_state: 'maintenance_retry',
+    input_ready: false,
+  };
+  const state = evaluateReliability(facts);
+  const controller = state.components.find((entry) => entry.id === 'controller');
+  assert.equal(controller?.status, 'green');
+  assert.match(controller?.summary ?? '', /off; ready to reconnect/);
+});
+
+test('controller supervisor repair state makes couch reliability red', () => {
+  const facts = baseFacts();
+  facts.controller = {
+    ok: false,
+    fallback: false,
+    reason: 'controller link unavailable',
+    link_state: 'needs_repair',
+    last_error: 'adapter_powered_off',
+  };
+  const state = evaluateReliability(facts);
+  const controller = state.components.find((entry) => entry.id === 'controller');
+  assert.equal(controller?.status, 'red');
+  assert.equal(state.status, 'red');
 });
 
 // H7-a: playability_rc (and related fields) in the last nightly proof's

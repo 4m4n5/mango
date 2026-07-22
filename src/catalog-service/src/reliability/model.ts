@@ -108,13 +108,25 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
     stackStatus === 'green' ? 'launcher surface is clean' : stackProblems.join(', '),
   ));
 
-  const controllerStatus: ReliabilityLevel = facts.controller.ok || facts.controller.fallback ? 'green' : 'red';
+  const controllerState = facts.controller.link_state || '';
+  const controllerStatus: ReliabilityLevel = controllerState === 'needs_repair'
+    ? 'red'
+    : facts.controller.ok || facts.controller.fallback ? 'green' : 'red';
+  const controllerSummary = controllerStatus === 'red'
+    ? 'controller needs repair'
+    : controllerState === 'ready'
+      ? 'controller is ready'
+      : controllerState === 'connected_waiting_for_input' || controllerState === 'connecting' || controllerState === 'fast_retry'
+        ? 'controller is connecting'
+        : controllerState === 'maintenance_retry'
+          ? 'controller is off; ready to reconnect'
+          : 'input owner is ready';
   components.push(component(
     'controller',
     'Controller',
     controllerStatus,
-    controllerStatus === 'green' ? 'input owner is ready' : 'controller unavailable',
-    facts.controller.reason || undefined,
+    controllerSummary,
+    facts.controller.last_error || facts.controller.reason || undefined,
   ));
 
   const catalogRed = !facts.catalog.ok || facts.catalog.core !== 'ready' || !facts.catalog.rails_ready;
@@ -255,6 +267,14 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
     {
       id: 'repair',
       label: 'Repair now',
+      enabled: facts.idle.idle,
+      destructive: false,
+      requires_idle: true,
+      ...(idleReason ? { reason: idleReason } : {}),
+    },
+    {
+      id: 'controller_repair',
+      label: 'Repair controller',
       enabled: facts.idle.idle,
       destructive: false,
       requires_idle: true,

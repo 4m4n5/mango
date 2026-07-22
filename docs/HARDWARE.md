@@ -178,20 +178,24 @@ Playback-only **L/R** jumps by the large seek step (120s default).
 
 Bluetooth may show **Connected** before Linux registers the pad. **Press any button** on the Micro.
 
-If the Micro is powered off, Mango keeps `mango-tv-pad.py` running and retries
-Bluetooth in the background. `pad-health: waiting for controller` is expected in
-that state; wake the controller and it should grab the new `Pro Controller`
-event node without a stack restart. The wait state is indefinite now; Mango no
-longer gives up after a short reconnect window.
+If the Micro is powered off, Mango keeps the pad router waiting and the root
+`mango-controller-link` service owns Bluetooth reconnection. `pad-health:
+waiting for controller` is expected in that state; wake the controller normally
+(do not enter pairing mode) and it should grab the new `Pro Controller` event
+node without a stack restart. The wait state is indefinite; normal power-on uses
+an immediate retry burst followed by a five-second maintenance probe.
 
 **One-time setup** (auto-recover after this):
 
 ```bash
 cd ~/mango && git pull
-sudo bash scripts/m1-foundation/pad/install-pad-autoreconnect.sh
+sudo bash scripts/m1-foundation/pad/install-controller-reliability.sh --check
+sudo bash scripts/m1-foundation/pad/install-controller-reliability.sh --apply
 ```
 
-Then a single button press wakes BT, reconnects, and restarts the pad router — no SSH.
+The installer backs up the BlueZ policy before changing it, removes only the
+obsolete Mango Phase 0 udev hook, and preserves pairing. A single normal power
+button press then reconnects silently — no SSH or pairing mode.
 
 **Manual fallback:**
 
@@ -199,7 +203,9 @@ Then a single button press wakes BT, reconnects, and restarts the pad router —
 bash scripts/m1-foundation/pad/start-mango-tv-pad.sh
 ```
 
-If input still missing: `bluetoothctl disconnect E4:17:D8:EB:00:44` → press a pad button → `bluetoothctl connect E4:17:D8:EB:00:44`
+If input still missing, open Settings → Reliability Center → **Repair
+controller** while idle, or collect `bash scripts/m1-foundation/pad/controller-link-diagnose.sh`.
+Do not unpair or enter pairing mode unless the diagnostics confirm pairing loss.
 
 ### Daily use
 

@@ -299,9 +299,11 @@ Detail: [YOUTUBE.md](YOUTUBE.md).
 | Method | Path | Notes |
 |--------|------|-------|
 | `GET` | `/reliability/state` | Current Green/Yellow/Red state, component cards, action availability, latest proof |
+| `GET` | `/reliability/controller` | Controller link state plus pad-ready evidence |
 | `GET` | `/reliability/proofs` | Recent 30-day local proof records |
 | `POST` | `/reliability/proof/run` | Localhost-only proof write |
 | `POST` | `/reliability/repair` | Localhost-only safe repair when idle |
+| `POST` | `/reliability/controller/repair` | Localhost-only Bluetooth link repair when idle |
 | `POST` | `/reliability/stack/restart` | Localhost-only detached stack restart when idle |
 | `POST` | `/reliability/refresh/run` | Localhost-only detached nightly movie/TV + YouTube refresh when idle |
 

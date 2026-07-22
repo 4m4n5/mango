@@ -1,5 +1,5 @@
 export type ReliabilityLevel = "green" | "yellow" | "red";
-export type ReliabilityActionId = "repair" | "proof" | "stack_restart" | "refresh";
+export type ReliabilityActionId = "repair" | "controller_repair" | "proof" | "stack_restart" | "refresh";
 
 export interface ReliabilityComponent {
   id: string;
@@ -83,6 +83,8 @@ export async function runReliabilityAction(action: ReliabilityActionId): Promise
       ? "/api/catalog/reliability/stack/restart"
       : action === "refresh"
         ? "/api/catalog/reliability/refresh/run"
+        : action === "controller_repair"
+          ? "/api/catalog/reliability/controller/repair"
         : "/api/catalog/reliability/repair";
   return fetchJson<ReliabilityActionResult>(path, {
     method: "POST",

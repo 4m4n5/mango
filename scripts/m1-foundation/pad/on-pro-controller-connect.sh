@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# udev hook: Pro Controller input appeared — ensure BT + pad router.
-# Installed by install-pad-autoreconnect.sh (do not run manually unless testing).
+# Legacy udev hook retained for old installations. New installs remove the udev
+# rule: BlueZ link service owns reconnection and this hook never connects BT.
 
 set -euo pipefail
 
@@ -24,7 +24,7 @@ export USER="$USER_NAME"
 
 {
   echo "=== $(date -Is) on-pro-controller-connect ==="
-  bash "${REPO}/scripts/m1-foundation/pad/connect-gamepad.sh" || true
+  bash "${REPO}/scripts/m1-foundation/pad/controller-link-control.sh" --retry || true
   sleep 0.4
   bash "${REPO}/scripts/m1-foundation/pad/start-mango-tv-pad.sh" || true
 } >>"$LOG" 2>&1

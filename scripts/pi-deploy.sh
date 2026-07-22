@@ -8,6 +8,7 @@
 #            package-lock.json changes (see scripts/lib/pi-npm-deps.sh)
 #   --full   always npm ci both apps (deps change, first boot, handoff)
 #   --gate   run gate-lite after deploy (MANGO_GATE_FULL=1 for per-rail play sweep)
+#   MANGO_CONTROLLER_LINK_INSTALL=1 installs controller BlueZ policy before restart
 
 set -euo pipefail
 
@@ -70,6 +71,9 @@ bash scripts/m4-addons/sync-aiometadata-rail-catalogs.sh || true
 bash scripts/m5-voice/ai/sync-companion-example.sh || true
 bash scripts/m4-addons/ensure-bharat-binge-export.sh || true
 bash scripts/m6-ship/ensure-youtube-yt-dlp.sh || true
+if [[ "${MANGO_CONTROLLER_LINK_INSTALL:-0}" == "1" ]]; then
+  sudo -n bash scripts/m1-foundation/pad/install-controller-reliability.sh --apply
+fi
 if [[ -f ~/.config/mango/voice.env ]]; then
   # shellcheck disable=SC1091
   source ~/.config/mango/voice.env

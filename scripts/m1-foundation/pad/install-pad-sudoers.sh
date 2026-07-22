@@ -10,6 +10,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 USER_NAME="${SUDO_USER:-aman}"
+USER_NAME="${MANGO_TV_USER:-$USER_NAME}"
 PAD_RUN="/home/${USER_NAME}/mango/scripts/m1-foundation/pad/run-mango-tv-pad.sh"
 PAD_PY="/home/${USER_NAME}/mango/scripts/m1-foundation/pad/mango-tv-pad.py"
 FILE="/etc/sudoers.d/mango-tv-pad"
@@ -25,6 +26,10 @@ ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop input-remapper
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/systemctl start input-remapper
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/input-remapper-control *
 ${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/chmod [0-9]* /dev/input/js*
+${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/systemctl start mango-controller-link.service
+${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart mango-controller-link.service
+${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/systemctl kill --signal=USR1 mango-controller-link.service
+${USER_NAME} ALL=(ALL) NOPASSWD: /usr/bin/systemctl kill --signal=USR2 mango-controller-link.service
 EOF
 
 chmod 440 "$FILE"

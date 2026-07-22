@@ -243,12 +243,13 @@ last unattended refresh proved the stack.
 
 | Area | Current implementation |
 |------|------------------------|
-| API | `/reliability/state`, `/reliability/proofs`, proof run, safe repair, stack restart, refresh run |
+| API | `/reliability/state`, `/reliability/proofs`, controller state/repair, proof run, safe repair, stack restart, refresh run |
 | UI | Settings shows Green/Yellow/Red summary, component cards, and safe actions; home only shows a quiet Settings badge when degraded |
 | Proof ledger | `/etc/mango/reliability/proofs.jsonl`, local-only, 30-day retention |
 | Nightly chain | `nightly-library-refresh.sh` runs movie/TV, then YouTube independently, then records reliability proof with branch return codes |
 | Repair | Delegates to `mango-health-repair.sh --quiet`; no DB rebuilds, cache clears, or destructive repairs |
 | Gate | `scripts/m6-ship/gate-m6-reliability-proof.sh` fails red, warns yellow |
+| Controller | `mango-controller-link` owns BlueZ reconnect; `mango-tv-pad` owns evdev only; Pi install/couch proof pending home-agent handoff |
 
 Detail: [RELIABILITY.md](RELIABILITY.md).
 

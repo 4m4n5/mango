@@ -17,7 +17,6 @@ import os
 import pwd
 import re
 import select
-import signal
 import shutil
 import subprocess
 import sys
@@ -113,10 +112,7 @@ BTN_TL = 310  # L shoulder — prev browse tab (launcher)
 BTN_TR = 311  # R shoulder — next browse tab (launcher); home fallback elsewhere
 BTN_CENTER = 317  # bottom-left center — unused on launcher; no playback subtitle role
 HOME_BUTTONS = {316, 311}
-BT_MAC = "E4:17:D8:EB:00:44"
-RECONNECT_SLEEP_SEC = 0.75
-BT_CONNECT_INTERVAL_SEC = float(os.environ.get("MANGO_PAD_CONNECT_INTERVAL_SEC", "4.0"))
-BT_CONNECT_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_CONNECT_TIMEOUT_SEC", "12.0"))
+DEVICE_SCAN_SLEEP_SEC = 0.25
 DISPLAY_WAKE_THROTTLE_SEC = 3.0
 STATUS_HEARTBEAT_SEC = 2.0
 FOREGROUND_LAUNCHER_TTL_SEC = float(
@@ -136,7 +132,6 @@ PAD_NAV_API_ENABLED = os.environ.get("MANGO_PAD_NAV_API", "0") == "1"
 PAD_NAV_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_NAV_TIMEOUT_SEC", "0.15"))
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": str(_HOME)}
 _last_display_wake_at = 0.0
-_last_bt_connect_at = 0.0
 _last_couch_activity_at = 0.0
 
 
@@ -1107,50 +1102,6 @@ def current_pro_controller_path() -> str | None:
         release_device(dev)
 
 
-def _run_bluetoothctl(args: list[str], *, timeout: float) -> subprocess.CompletedProcess[str] | None:
-    try:
-        proc = subprocess.Popen(
-            ["bluetoothctl", *args],
-            env=_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            start_new_session=True,
-        )
-    except OSError:
-        return None
-    try:
-        stdout, _ = proc.communicate(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            proc.kill()
-        stdout, _ = proc.communicate()
-    return subprocess.CompletedProcess(["bluetoothctl", *args], proc.returncode, stdout, "")
-
-
-def bluetooth_connected() -> bool:
-    result = _run_bluetoothctl(["info", BT_MAC], timeout=2.0)
-    return result is not None and "Connected: yes" in (result.stdout or "")
-
-
-def try_bluetooth_connect() -> None:
-    global _last_bt_connect_at
-    now = time.monotonic()
-    if now - _last_bt_connect_at < BT_CONNECT_INTERVAL_SEC:
-        return
-    _last_bt_connect_at = now
-    _run_bluetoothctl(["power", "on"], timeout=2.0)
-    _run_bluetoothctl(["trust", BT_MAC], timeout=2.0)
-    if bluetooth_connected():
-        write_status("waiting", last_action="bt_connected_waiting_for_event")
-        return
-    write_status("waiting", last_action="bt_connect_attempt")
-    _run_bluetoothctl(["connect", BT_MAC], timeout=BT_CONNECT_TIMEOUT_SEC)
-    write_status("waiting", last_action="bt_connect_returned")
-
-
 def wait_for_device() -> evdev.InputDevice:
     last_wait_log_at = 0.0
     while True:
@@ -1160,10 +1111,9 @@ def wait_for_device() -> evdev.InputDevice:
             write_status("waiting", last_action="device_scan")
             now = time.monotonic()
             if now - last_wait_log_at >= WAIT_LOG_INTERVAL_SEC:
-                print("mango-tv-pad: waiting for Pro Controller (background reconnect active)", flush=True)
+                print("mango-tv-pad: waiting for Pro Controller (link supervisor active)", flush=True)
                 last_wait_log_at = now
-            try_bluetooth_connect()
-            time.sleep(RECONNECT_SLEEP_SEC)
+            time.sleep(DEVICE_SCAN_SLEEP_SEC)
 
 
 def release_device(dev: evdev.InputDevice | None) -> None:
@@ -1388,7 +1338,7 @@ def main() -> None:
             write_status("error", dev, last_action=type(exc).__name__)
         finally:
             release_device(dev)
-        time.sleep(RECONNECT_SLEEP_SEC)
+        time.sleep(DEVICE_SCAN_SLEEP_SEC)
 
 
 if __name__ == "__main__":

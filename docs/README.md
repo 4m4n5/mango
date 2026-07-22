@@ -19,6 +19,7 @@
 | M5.5 voice contract + companion UX split | [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) |
 | M6.5 post-YouTube unified UX polish | [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) |
 | M6 visual system (world-class TV UI) | [tasks/m6-visual-system-spec.md](tasks/m6-visual-system-spec.md) |
+| Deploy/controller hardening from home Mac | [tasks/controller-reliability-home-agent.md](tasks/controller-reliability-home-agent.md) |
 | Set up voice | [VOICE.md](VOICE.md) |
 | Set up native YouTube | [YOUTUBE.md](YOUTUBE.md) |
 | Set up live TV | [LIVE_TV.md](LIVE_TV.md) |
@@ -65,6 +66,7 @@ bash scripts/m5-voice/ai/gate-m5-companion-couch.sh   # Phase 3 companion safety
 bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch signals
 bash scripts/m6-ship/gate-m6-ux-smoke.sh              # M6.5 HUD/focus contracts
 bash scripts/m6-ship/gate-m6-reliability-proof.sh     # red/yellow/green couch readiness proof
+bash scripts/m6-ship/gate-m6-controller-reconnect.sh  # after controller installer is applied on Pi
 ```
 
 Live IPTV gates are opt-in. See [PLAYABILITY.md](PLAYABILITY.md) for grow/monitor.

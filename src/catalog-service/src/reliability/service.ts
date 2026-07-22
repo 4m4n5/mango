@@ -53,6 +53,10 @@ function couchActivityPath(): string {
   return process.env.MANGO_COUCH_ACTIVITY_STATE || join(cacheDir(), 'couch-activity.json');
 }
 
+function controllerLinkStatusPath(): string {
+  return process.env.MANGO_CONTROLLER_LINK_STATUS_PATH || join(cacheDir(), 'mango-controller-link-status.json');
+}
+
 function opsDir(): string {
   return join(cacheDir(), 'ops');
 }
@@ -233,10 +237,27 @@ function controllerHealth(): ReliabilityFacts['controller'] {
   const data = commandJson('bash', [script, '--json', '--quiet'], 3500);
   const ok = safeBool(data.ok);
   const fallback = processCount('input-remapper-service') > 0;
+  let link: Record<string, unknown> = {};
+  try {
+    link = JSON.parse(readFileSync(controllerLinkStatusPath(), 'utf8')) as Record<string, unknown>;
+  } catch {
+    // Older Pi installs do not have the supervisor yet; preserve the existing
+    // pad-health result until the controller installer is applied.
+  }
+  const updatedAt = safeNumber(link.updated_at, 0);
+  const updatedAtMs = updatedAt > 0 && updatedAt < 10_000_000_000 ? updatedAt * 1000 : updatedAt;
+  const fresh = updatedAtMs > 0 && nowMs() - updatedAtMs <= 10_000;
+  const linkState = safeString(link.state);
+  const linkOk = safeBool(link.ok) && fresh;
+  const reason = safeString(data.reason, ok ? 'ok' : 'pad health unavailable');
   return {
-    ok,
+    ok: linkState ? linkOk && (ok || linkState === 'maintenance_retry' || linkState === 'fast_retry' || linkState === 'connecting') : ok,
     fallback,
-    reason: safeString(data.reason, ok ? 'ok' : 'pad health unavailable'),
+    reason,
+    link_state: linkState || undefined,
+    input_ready: safeBool(link.input_ready),
+    last_error: safeString(link.last_error) || undefined,
+    updated_at: updatedAt || undefined,
   };
 }
 
@@ -451,6 +472,10 @@ export class ReliabilityService {
     return evaluateReliability(await this.gatherFacts());
   }
 
+  async controller(): Promise<ReliabilityFacts['controller']> {
+    return controllerHealth();
+  }
+
   proofs(limit = 20): ReliabilityProofRecord[] {
     return listReliabilityProofs(limit);
   }
@@ -506,6 +531,21 @@ export class ReliabilityService {
     }
     const pid = runDetached(join(repoDir(), 'scripts/mango-health-repair.sh'), ['--quiet']);
     return { ok: pid > 0, action: 'repair', pid, message: 'safe repair started', state };
+  }
+
+  async repairController(): Promise<ReliabilityActionResult> {
+    const state = await this.state();
+    const action = state.actions.find((entry) => entry.id === 'controller_repair');
+    if (!action?.enabled) {
+      return {
+        ok: false,
+        action: 'controller_repair',
+        message: action?.reason || 'controller repair requires idle couch state',
+        state,
+      };
+    }
+    const pid = runDetached(join(repoDir(), 'scripts/m1-foundation/pad/controller-link-control.sh'), ['--repair']);
+    return { ok: pid > 0, action: 'controller_repair', pid, message: 'controller repair requested', state };
   }
 
   async restartStack(): Promise<ReliabilityActionResult> {

@@ -10,7 +10,6 @@ PID_FILE="${CACHE_DIR}/mango-tv-pad.pid"
 MAX_STATUS_AGE_SEC="${MANGO_PAD_HEALTH_MAX_AGE_SEC:-8}"
 MAX_WAITING_STATUS_AGE_SEC="${MANGO_PAD_WAITING_MAX_AGE_SEC:-20}"
 REPAIR_WAIT_STEPS="${MANGO_PAD_REPAIR_WAIT_STEPS:-24}"
-BT_MAC="${MANGO_GAMEPAD_BT_MAC:-E4:17:D8:EB:00:44}"
 
 QUIET=0
 JSON=0
@@ -72,10 +71,6 @@ pad_pids() {
 input_remapper_active() {
   systemctl is-active --quiet input-remapper 2>/dev/null \
     || systemctl --user is-active --quiet input-remapper 2>/dev/null
-}
-
-cleanup_bt_connect() {
-  pkill -f "^bluetoothctl connect ${BT_MAC}$" 2>/dev/null || true
 }
 
 load_status_exports() {
@@ -202,9 +197,8 @@ PY
 
 repair_pad() {
   mkdir -p "$CACHE_DIR"
-  cleanup_bt_connect
   bash "$REPO_DIR/scripts/lib/stop-input-remapper.sh" >/dev/null 2>&1 || true
-  bash "$REPO_DIR/scripts/m1-foundation/pad/connect-gamepad.sh" >/dev/null 2>&1 || true
+  bash "$REPO_DIR/scripts/m1-foundation/pad/controller-link-control.sh" --retry >/dev/null 2>&1 || true
   if systemctl --user is-enabled mango-tv-pad.service >/dev/null 2>&1; then
     systemctl --user restart mango-tv-pad.service || true
   else
@@ -216,7 +210,6 @@ repair_pad() {
       return 0
     fi
   done
-  cleanup_bt_connect
   return 1
 }
 

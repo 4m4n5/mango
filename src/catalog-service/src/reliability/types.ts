@@ -1,6 +1,6 @@
 export type ReliabilityLevel = 'green' | 'yellow' | 'red';
 
-export type ReliabilityActionId = 'repair' | 'proof' | 'stack_restart' | 'refresh';
+export type ReliabilityActionId = 'repair' | 'controller_repair' | 'proof' | 'stack_restart' | 'refresh';
 
 export type ReliabilityComponent = {
   id: string;
@@ -104,6 +104,10 @@ export type ReliabilityFacts = {
     ok: boolean;
     fallback: boolean;
     reason: string;
+    link_state?: string;
+    input_ready?: boolean;
+    last_error?: string;
+    updated_at?: number;
   };
   playability: {
     ok: boolean;

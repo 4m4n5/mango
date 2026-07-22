@@ -90,15 +90,8 @@ if ! python3 -c "import evdev" 2>/dev/null; then
   sudo apt install -y python3-evdev
 fi
 
-echo "=== Bluetooth: Pro Controller ==="
-BT_ALREADY=false
-if bluetoothctl info "E4:17:D8:EB:00:44" 2>/dev/null | grep -q "Connected: yes"; then
-  BT_ALREADY=true
-fi
-bash "$SCRIPT_DIR/connect-gamepad.sh" || true
-if ! $BT_ALREADY; then
-  sleep 1
-fi
+echo "=== Controller link supervisor ==="
+sudo -n systemctl start mango-controller-link.service 2>/dev/null || true
 
 if ! pro_controller_present; then
   if [[ "${MANGO_PAD_WAIT_BT:-1}" != "1" ]]; then
@@ -106,7 +99,7 @@ if ! pro_controller_present; then
     echo "  bash ~/mango/scripts/m1-foundation/pad/gamepad-fresh-start.sh"
     echo ""
     echo "  Quick: press any button on the Micro, then:"
-    echo "  bluetoothctl connect E4:17:D8:EB:00:44"
+    echo "  bash ~/mango/scripts/m1-foundation/pad/controller-link-diagnose.sh"
     exit 1
   fi
   echo "! Pro Controller not visible yet — starting pad router (press any button to wake)"
@@ -123,7 +116,6 @@ sleep 0.2
 echo "Starting mango-tv-pad..."
 BRIDGE_OK=false
 for attempt in 1 2 3; do
-  bash "$SCRIPT_DIR/connect-gamepad.sh" || true
   if ! pro_controller_present; then
     echo "! Pro Controller not visible (attempt $attempt/3)"
     sleep 1

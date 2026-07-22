@@ -266,8 +266,8 @@ Then open the companion and use the YouTube connect panel. Full details:
 | Symptom | Check |
 |---------|-------|
 | Desktop wallpaper after ⌂ | `bash scripts/launch-launcher.sh` · see [ARCHITECTURE.md](ARCHITECTURE.md) foreground |
-| Pad waiting | `pad-health: waiting for controller` means Mango is alive and polling indefinitely; turn on / press any button on the Micro |
-| Pad dead | `bash scripts/m1-foundation/pad/pad-health.sh --repair` · reboot pad in Pro Controller mode if no event appears after wake |
+| Pad waiting | `pad-health: waiting for controller` means Mango is alive; turn the Micro on normally. The link supervisor retries indefinitely and pairing mode is not needed. |
+| Pad dead | Open Settings → Reliability Center → **Repair controller** while idle; then run `bash scripts/m1-foundation/pad/controller-link-diagnose.sh`. Use pairing recovery only if diagnostics show the pairing record is absent. |
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
 | YouTube tab empty | `curl localhost:3020/youtube/state` · configure `/etc/mango/youtube-api.key` · run `bash scripts/m6-ship/gate-m6-youtube-smoke.sh` |
 | YouTube account not connected | Companion → YouTube connect · verify `/etc/mango/youtube-oauth-client.json` and `/etc/mango/youtube-auth.json` permissions |

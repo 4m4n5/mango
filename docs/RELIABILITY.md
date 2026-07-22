@@ -39,9 +39,11 @@ No cloud telemetry, secrets, or live proof data are committed.
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/reliability/state` | Current Green/Yellow/Red state, component cards, action availability, latest proof |
+| `GET` | `/reliability/controller` | Current controller-link state and pad-ready evidence |
 | `GET` | `/reliability/proofs?limit=20` | Recent proof ledger rows |
 | `POST` | `/reliability/proof/run` | Localhost-only proof write; accepts `{ reason, metadata }` |
 | `POST` | `/reliability/repair` | Localhost-only safe repair; starts `mango-health-repair.sh --quiet` when idle |
+| `POST` | `/reliability/controller/repair` | Localhost-only Bluetooth-only repair request when idle |
 | `POST` | `/reliability/stack/restart` | Localhost-only detached `mango-stack.sh restart` when idle |
 | `POST` | `/reliability/refresh/run` | Localhost-only detached nightly movie/TV + YouTube refresh when idle |
 
@@ -54,6 +56,7 @@ Launcher uses the proxy path `/api/catalog/reliability/*`.
 Settings exposes:
 
 - **Repair now** — stale lock cleanup, safe stray cleanup, pad repair, catalog restart, launcher restart.
+- **Repair controller** — one rate-limited restart of the BlueZ link path. It never unpairs, restarts playback, or refreshes the launcher.
 - **Run proof now** — non-playback health proof and ledger write.
 - **Restart stack** — deliberate detached `mango-stack.sh restart`.
 - **Run refresh** — detached `nightly-library-refresh.sh --mode nightly --preset nightly`.
@@ -98,7 +101,10 @@ lock is still held.
 ```bash
 bash scripts/m6-ship/reliability-proof.sh --reason operator
 bash scripts/m6-ship/gate-m6-reliability-proof.sh
+bash scripts/m6-ship/gate-m6-controller-reconnect.sh
 ```
 
 `gate-m6-reliability-proof.sh` fails on red, warns on yellow, and passes green.
 It is intended to run after `pi-deploy.sh --fast --gate` before couch handoff.
+`gate-m6-controller-reconnect.sh` is controller-specific and requires the
+controller-link installer to have been applied on the Pi.
