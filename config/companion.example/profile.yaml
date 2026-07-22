@@ -1,10 +1,10 @@
 version: 2
-updated_at: ""
+updated_at: 2026-07-21T21:54:16.865Z
 familiarity:
-  stage: stranger
-  score: 0
-  sessions: 0
-  completed_watches: 0
+  stage: regular
+  score: 1
+  sessions: 9
+  completed_watches: 10
 identity:
   languages:
     - hinglish
@@ -18,6 +18,22 @@ taste:
     weeknight: null
     weekend: null
 facts: []
-open_questions: []
+open_questions:
+  - What genres or moods do you usually enjoy watching?
+  - Do you prefer watching alone or with someone?
+  - Any languages you prefer for content — Hindi, English, or both?
+  - Are there any shows or films you've loved recently?
+  - Do you have a usual time you like to watch — weeknights, weekends, or both?
 behavior:
   proactive_opt_in: false
+session_notes:
+  - No voice turns or session activity recorded yet. Profile is at stranger
+    stage with zero sessions. No taste signals, facts, or behavioral preferences
+    have been captured. Awaiting first real interaction to begin building a
+    meaningful profile.
+  - No new voice turns or session activity detected in this consolidation pass.
+    Profile remains at early regular stage with no taste signals, facts, or
+    behavioral preferences captured. All five foundational open questions remain
+    active and unanswered. Awaiting meaningful user interaction to begin
+    building profile substance.
+
