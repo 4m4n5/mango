@@ -35,3 +35,6 @@ downloads/
 .cursor/
 *.code-workspace
 assets/
+
+# Companion runtime journal (keep on disk; do not commit)
+config/companion.example/companion.db
