@@ -8,7 +8,7 @@ import sys
 import unittest
 from pathlib import Path
 
-MODULE = Path(__file__).with_name("controller-link-state.py")
+MODULE = Path(__file__).with_name("controller_link_state.py")
 SPEC = importlib.util.spec_from_file_location("controller_link_state", MODULE)
 assert SPEC and SPEC.loader
 STATE = importlib.util.module_from_spec(SPEC)
