@@ -17,7 +17,8 @@ function youtubeWatchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 }
 
-export function ytDlpFormatCandidates(configured: string): string[] {
+export function ytDlpFormatCandidates(configured: string, excludedFormats: string[] = []): string[] {
+  const excluded = new Set(excludedFormats.map((format) => format.trim()).filter(Boolean));
   return [
     configured,
     'best[height<=1080]/best',
@@ -29,7 +30,8 @@ export function ytDlpFormatCandidates(configured: string): string[] {
   ]
     .map((format) => format.trim())
     .filter(Boolean)
-    .filter((format, index, formats) => formats.indexOf(format) === index);
+    .filter((format, index, formats) => formats.indexOf(format) === index)
+    .filter((format) => !excluded.has(format));
 }
 
 function requestedFormatUnavailable(text: string): boolean {
@@ -85,6 +87,7 @@ export async function resolveYoutubePlayback(
   config: YoutubeConfig,
   videoId: string,
   timeoutMs = 30000,
+  options: { excludeFormats?: string[] } = {},
 ): Promise<YoutubeResolvedPlayback> {
   const normalizedVideoId = videoId.trim();
   if (!normalizedVideoId) {
@@ -97,15 +100,22 @@ export async function resolveYoutubePlayback(
       couchMessage: 'YouTube is temporarily busy — try again in a few minutes',
     });
   }
-  const inflight = youtubePlaybackInflight.get(normalizedVideoId);
+  const excludedFormats = options.excludeFormats ?? [];
+  const flightKey = `${normalizedVideoId}\0${[...excludedFormats].sort().join('\0')}`;
+  const inflight = youtubePlaybackInflight.get(flightKey);
   if (inflight) {
     return inflight;
   }
-  const resolvePromise = resolveYoutubePlaybackFresh(config, normalizedVideoId, timeoutMs)
+  const resolvePromise = resolveYoutubePlaybackFresh(
+    config,
+    normalizedVideoId,
+    timeoutMs,
+    excludedFormats,
+  )
     .finally(() => {
-      youtubePlaybackInflight.delete(normalizedVideoId);
+      youtubePlaybackInflight.delete(flightKey);
     });
-  youtubePlaybackInflight.set(normalizedVideoId, resolvePromise);
+  youtubePlaybackInflight.set(flightKey, resolvePromise);
   return resolvePromise;
 }
 
@@ -113,10 +123,11 @@ async function resolveYoutubePlaybackFresh(
   config: YoutubeConfig,
   normalizedVideoId: string,
   timeoutMs = 30000,
+  excludedFormats: string[] = [],
 ): Promise<YoutubeResolvedPlayback> {
   const started = Date.now();
   let lastFormatError = '';
-  for (const format of ytDlpFormatCandidates(config.yt_dlp_format)) {
+  for (const format of ytDlpFormatCandidates(config.yt_dlp_format, excludedFormats)) {
     const args = [
       '--no-playlist',
       '--no-warnings',
@@ -186,7 +197,7 @@ async function resolveYoutubePlaybackFresh(
 }
 
 export function shouldRefreshYoutubeTransport(message: string): boolean {
-  return /HTTP (?:error )?(?:401|403|404|410)\b|expired|signature|signed[\s_-]*url|ECONN|socket|fetch failed/i
+  return /HTTP (?:error )?(?:401|403|404|410)\b|expired|signature|signed[\s_-]*url|ECONN|socket|fetch failed|did not start playback|partial file|cannot seek|invalid data/i
     .test(message);
 }
 

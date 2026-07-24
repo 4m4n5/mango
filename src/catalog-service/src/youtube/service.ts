@@ -3491,7 +3491,9 @@ export class YoutubeService {
           throw firstError;
         }
         await assertPlayEpoch(playEpoch);
-        resolved = await resolveYoutubePlayback(this.config, id);
+        resolved = await resolveYoutubePlayback(this.config, id, 30000, {
+          excludeFormats: [resolved.format],
+        });
         await assertPlayEpoch(playEpoch);
         playback = await playResolved();
       }

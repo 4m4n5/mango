@@ -35,6 +35,12 @@ Launcher YouTube tab
 
 `youtube.db` is rebuildable. `library.db` is durable household state.
 
+Playback tries the configured high-quality split video/audio selector first.
+If mpv rejects that direct transport before the first frame, Mango performs one
+fresh `yt-dlp` resolve with that exact selector excluded, allowing a combined
+format fallback. It never loops formats at couch time and this fallback uses no
+YouTube Data API quota.
+
 ---
 
 ## Operator config

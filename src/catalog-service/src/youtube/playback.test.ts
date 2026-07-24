@@ -34,6 +34,13 @@ test('ytDlpFormatCandidates keeps configured format first and de-dupes fallbacks
   assert.ok(formats.includes('bestvideo[height<=1080]+bestaudio/best[height<=1080]/best'));
 });
 
+test('ytDlpFormatCandidates advances past an already failed transport format', () => {
+  const configured = 'bestvideo[height<=1080]+bestaudio/best[height<=1080]/best';
+  const formats = ytDlpFormatCandidates(configured, [configured]);
+  assert.equal(formats.includes(configured), false);
+  assert.equal(formats[0], 'best[height<=1080]/best');
+});
+
 test('classifyYtDlpError does not call requested format failure a removed video', () => {
   assert.deepEqual(
     classifyYtDlpError('ERROR: Requested format is not available. Use --list-formats for a list of available formats'),
@@ -47,6 +54,7 @@ test('classifyYtDlpError does not call requested format failure a removed video'
 test('YouTube refreshes only expired direct transports, not policy failures', () => {
   assert.equal(shouldRefreshYoutubeTransport('mpv-play failed: HTTP error 403'), true);
   assert.equal(shouldRefreshYoutubeTransport('signed URL expired'), true);
+  assert.equal(shouldRefreshYoutubeTransport('mpv-play did not start playback'), true);
   assert.equal(shouldRefreshYoutubeTransport('YouTube is asking for browser verification — 429'), false);
   assert.equal(shouldRefreshYoutubeTransport('this YouTube video is unavailable'), false);
   assert.equal(shouldRefreshYoutubeTransport('play cancelled'), false);
