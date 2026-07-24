@@ -12,6 +12,8 @@ PLAYBACK_OSD_TRIGGER="${MANGO_PLAYBACK_OSD_TRIGGER:-${HOME}/.cache/mango/playbac
 PLAYBACK_ACTIVE_FILE="${MANGO_PLAYBACK_ACTIVE_FILE:-${HOME}/.cache/mango/playback-active}"
 PLAYBACK_DISPLAY_MATCHED_FILE="${MANGO_PLAYBACK_DISPLAY_MATCHED_FILE:-${HOME}/.cache/mango/playback-display-matched}"
 MPV_PID_FILE="${MANGO_MPV_PID_FILE:-${HOME}/.cache/mango/mpv.pid}"
+EXPECTED_MPV_PID="${MANGO_EXPECTED_MPV_PID:-}"
+EXPECTED_PLAY_EPOCH="${MANGO_EXPECTED_PLAY_EPOCH:-}"
 LEGACY_VLC_PID_FILE="${MANGO_VLC_PID_FILE:-${HOME}/.cache/mango/vlc.pid}"
 LEGACY_PLAYER_STATE="${MANGO_PLAYER_STATE_PATH:-${HOME}/.cache/mango/player-state.json}"
 LEGACY_VLC_PLAYLIST="${MANGO_VLC_PLAYLIST:-${HOME}/.cache/mango/vlc-play.m3u}"
@@ -25,6 +27,24 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$REPO_DIR/scripts/lib/launcher-window.sh"
 # shellcheck source=../../lib/mango-playback-env.sh
 source "$REPO_DIR/scripts/lib/mango-playback-env.sh"
+
+expected_playback_matches() {
+  if [[ -n "$EXPECTED_MPV_PID" ]]; then
+    [[ -f "$MPV_PID_FILE" ]] || return 1
+    [[ "$(tr -dc '0-9' <"$MPV_PID_FILE" 2>/dev/null || true)" == "$EXPECTED_MPV_PID" ]] || return 1
+  fi
+  if [[ -n "$EXPECTED_PLAY_EPOCH" ]]; then
+    [[ -f "$PLAY_CANCEL_FILE" ]] || return 1
+    [[ "$(tr -d '[:space:]' <"$PLAY_CANCEL_FILE" 2>/dev/null || true)" == "$EXPECTED_PLAY_EPOCH" ]] || return 1
+  fi
+  return 0
+}
+
+# Natural-exit monitors are generation scoped. A monitor from an older play
+# must become a no-op after Back or a newer play changes either identity.
+if ! expected_playback_matches; then
+  exit 0
+fi
 
 if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
   bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv stop >/dev/null 2>&1 || true
@@ -69,6 +89,7 @@ signal_tracked_mpv() {
 
 teardown_mpv() {
   local tracked_pid=""
+  expected_playback_matches || return 0
   if [[ -f "$MPV_PID_FILE" ]]; then
     tracked_pid="$(tr -dc '0-9' <"$MPV_PID_FILE" 2>/dev/null || true)"
   fi

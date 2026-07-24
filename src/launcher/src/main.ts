@@ -76,7 +76,6 @@ const tabCatalogCache = new Map<BrowseTab, ContentRail[]>();
 const tabSavedCache = new Map<BrowseTab, Set<string>>();
 let liveCatalogSessionCached = false;
 let catalogRequestSeq = 0;
-let youtubeCatalogDirty = false;
 let pendingContinueRefreshTab: BrowseTab | null = null;
 let continueRefreshInFlight = false;
 let playbackReturnInFlight = false;
@@ -171,12 +170,13 @@ const detail = new DetailController(
         showToast("added to library");
       }
       if (card.source === "youtube" || card.type.startsWith("youtube_")) {
-        tabCatalogCache.delete("youtube");
-        youtubeCatalogDirty = true;
+        // Preserve the current YouTube rail selection and focus. YouTube
+        // history is durable immediately and appears on explicit shuffle.
         return;
       }
       if (activeBrowseTab === "movies" || activeBrowseTab === "series") {
         pendingContinueRefreshTab = activeBrowseTab;
+        void handlePlaybackReturn();
       }
     },
   },
@@ -200,7 +200,11 @@ function init(): void {
   });
   window.addEventListener("mango:library-refresh", () => void libraryRefresh({ quiet: true }));
   void loadInfo();
-  void loadCatalog();
+  // A matched-display playback can restart Chromium. Restore the durable
+  // playback surface first instead of racing a cold catalog fetch against it.
+  if (!readPlaybackReturnSnapshot()) {
+    void loadCatalog();
+  }
   void tryRestorePlaybackReturnOnBoot();
   startVoiceHud();
   startVoiceCommands(resolveVoiceWsUrls(), {
@@ -694,10 +698,6 @@ function restoreHomeFromDetail(): void {
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
   setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
-  if (youtubeCatalogDirty && activeBrowseTab === "youtube") {
-    youtubeCatalogDirty = false;
-    void loadCatalog();
-  }
 }
 
 async function reloadSavedAndCatalog(): Promise<void> {
@@ -823,7 +823,15 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
       };
       renderHome();
     }
-    setStatus(catalogRetryStatus(error, reshuffle));
+    const returningFromPlayback = Boolean(readPlaybackReturnSnapshot())
+      || detail.isOpen
+      || playbackReturnInFlight;
+    const homeNeedsError = !cachedRails?.length
+      && !returningFromPlayback
+      && !homeView.classList.contains("hidden");
+    if (reshuffle || homeNeedsError) {
+      setStatus(catalogRetryStatus(error, reshuffle));
+    }
     catalogRetryTimer = window.setTimeout(() => {
       void loadCatalog();
     }, 5000);

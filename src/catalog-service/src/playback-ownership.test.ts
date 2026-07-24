@@ -93,6 +93,47 @@ test('S2: a stale PID file never kills an unrelated reused process', async () =>
   }
 });
 
+test('S2: stale natural-exit cleanup cannot stop a newer playback generation', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-stop-stale-generation-'));
+  const socket = join(dir, 'mpv.sock');
+  const fakeMpv = join(dir, 'fake-mpv');
+  await writeFile(fakeMpv, `#!/usr/bin/env bash
+trap 'exit 0' TERM
+while true; do sleep 1; done
+`);
+  await chmod(fakeMpv, 0o755);
+  const tracked = spawn(fakeMpv, [`--input-ipc-server=${socket}`]);
+  try {
+    assert.ok(tracked.pid);
+    const pidFile = join(dir, 'mpv.pid');
+    const epochFile = join(dir, 'play-cancel.epoch');
+    await writeFile(pidFile, `${tracked.pid}\n`);
+    await writeFile(epochFile, '200\n');
+    await new Promise<void>((resolvePromise, reject) => {
+      execFile('bash', [join(repoDir, 'scripts/m2-catalog/service/mpv-stop.sh')], {
+        cwd: repoDir,
+        env: {
+          ...process.env,
+          HOME: dir,
+          MANGO_REPO_DIR: repoDir,
+          MANGO_MPV_PID_FILE: pidFile,
+          MANGO_MPV_SOCKET: socket,
+          MANGO_PLAY_CANCEL_PATH: epochFile,
+          MANGO_PLAYBACK_ACTIVE_FILE: join(dir, 'playback-active'),
+          MANGO_MPV_STOP_NO_DISPLAY: '1',
+          MANGO_MPV_STOP_NO_CANCEL: '1',
+          MANGO_EXPECTED_MPV_PID: String(tracked.pid),
+          MANGO_EXPECTED_PLAY_EPOCH: '100',
+        },
+      }, (error) => (error ? reject(error) : resolvePromise()));
+    });
+    assert.equal(isAlive(tracked), true);
+  } finally {
+    tracked.kill('SIGKILL');
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('S2: a foreground request waits for a short background ownership window', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mango-owner-wait-'));
   const lock = join(dir, 'owner.lock.d');

@@ -24,6 +24,8 @@ const RATE_LIMIT_URL_RE = /rate-limit-exceeded|public-rate-limit/i;
 const NO_STREAM_RE = /no_playable_stream|no streams|no http streams|no_stream/i;
 const TRANSIENT_RE =
   /debrid_playback_unreadable|timeout|timed out|vo not ready|did not start playback|play budget exhausted|ECONN|ENOTFOUND|socket|abort|HTTP 5\d\d|fetch failed|supplemental_or_short_release|no error detail captured|stream_url_bad_cached/i;
+const STALE_TRANSPORT_RE =
+  /HTTP (?:error )?(?:401|403|404|410)\b|expired|signature|signed[\s_-]*url|stream_url_bad_cached|did not start playback|ECONN|socket|fetch failed/i;
 
 const NFO_RE = /debrid_nfo_sidecar/i;
 const COPYRIGHT_RE = /debrid_copyright_block/i;
@@ -51,6 +53,21 @@ export function isGarbagePlayError(message: string): boolean {
 
 export function isTransientPlayError(message: string): boolean {
   return classifyPlayError(message) === 'transient';
+}
+
+/** Whether cached direct transports deserve one fresh provider resolution. */
+export function shouldRefreshCachedTransport(errors: string[]): boolean {
+  const meaningful = errors.map((error) => error.trim()).filter(Boolean);
+  if (meaningful.length === 0) return false;
+  if (meaningful.some((error) => {
+    const cls = classifyPlayError(error);
+    return cls === 'cancelled' || cls === 'rate_limited' || cls === 'garbage';
+  })) {
+    return false;
+  }
+  return meaningful.some((error) => (
+    STALE_TRANSPORT_RE.test(error) || classifyPlayError(error) === 'transient'
+  ));
 }
 
 /** Differentiate garbage codes for couch UI / verify reason mapping. */

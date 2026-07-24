@@ -1,6 +1,6 @@
 import { CatalogError } from '../catalog-errors.js';
 import { playUrl } from '../mpv.js';
-import { bumpPlayEpoch } from '../play-cancel.js';
+import { assertPlayEpoch, bumpPlayEpoch } from '../play-cancel.js';
 import { startWatchSessionFromPlay } from '../progress/watcher.js';
 import {
   clearLibraryFeedbackForSource,
@@ -57,7 +57,7 @@ import {
   type YoutubeLiveNowCandidate,
   type YoutubePopularCandidate,
 } from './db.js';
-import { resolveYoutubePlayback, warmYoutubePlaybackCache } from './playback.js';
+import { resolveYoutubePlayback, shouldRefreshYoutubeTransport } from './playback.js';
 import { readProfileSync } from '../companion/profile.js';
 import type {
   YoutubeItem,
@@ -3407,9 +3407,6 @@ export class YoutubeService {
       });
     }
     upsertYoutubeItems([item, ...items]);
-    if (kind === 'video') {
-      void warmYoutubePlaybackCache(this.config, id).catch(() => undefined);
-    }
     return {
       ok: true,
       item,
@@ -3445,7 +3442,10 @@ export class YoutubeService {
     return { ok: true, feedback };
   }
 
-  async play(input: { id?: string; title?: string; poster?: string }): Promise<Record<string, unknown>> {
+  async play(
+    input: { id?: string; title?: string; poster?: string },
+    options: { playEpoch?: number } = {},
+  ): Promise<Record<string, unknown>> {
     const id = typeof input.id === 'string' ? input.id.trim() : '';
     if (!id) {
       throw new CatalogError(400, 'YouTube play requires id', undefined, {
@@ -3453,9 +3453,6 @@ export class YoutubeService {
       });
     }
     let item = getYoutubeItem('video', id);
-    if (!item && this.config.api_key) {
-      item = (await this.api.videos([id]).catch(() => []))[0] || null;
-    }
     if (!item) {
       item = {
         id,
@@ -3475,24 +3472,43 @@ export class YoutubeService {
       upsertYoutubeItems([item]);
     }
     const started = nowMs();
-    const playEpoch = await bumpPlayEpoch();
-    const resolved = await resolveYoutubePlayback(this.config, id);
+    const playEpoch = options.playEpoch ?? await bumpPlayEpoch();
+    let resolved = await resolveYoutubePlayback(this.config, id);
     const live = item.live_status === 'live';
-    const playback = await playUrl(resolved.url, 90000, {
+    const playResolved = () => playUrl(resolved.url, 90000, {
       live,
       playEpoch,
-      minDurationSec: live ? 1 : 1,
+      minDurationSec: 1,
       audioUrl: resolved.audio_url,
-    }).catch((error: unknown) => {
+    });
+    let playback;
+    try {
+      try {
+        playback = await playResolved();
+      } catch (firstError) {
+        const firstMessage = firstError instanceof Error ? firstError.message : String(firstError);
+        if (!shouldRefreshYoutubeTransport(firstMessage)) {
+          throw firstError;
+        }
+        await assertPlayEpoch(playEpoch);
+        resolved = await resolveYoutubePlayback(this.config, id);
+        await assertPlayEpoch(playEpoch);
+        playback = await playResolved();
+      }
+    } catch (error) {
+      if (error instanceof CatalogError) throw error;
       const message = error instanceof Error ? error.message : String(error);
-      throw new CatalogError(502, live ? 'YouTube live playback did not start' : 'YouTube playback did not start', {
+      throw new CatalogError(502, live
+        ? 'YouTube live playback did not start'
+        : 'YouTube playback did not start', {
         mpv: message,
       }, {
         couchMessage: live
           ? 'YouTube live playback did not start — try another live video'
           : 'YouTube playback did not start — try another video',
       });
-    });
+    }
+    await assertPlayEpoch(playEpoch);
     recordLibraryWatch({
       ...itemToLibraryInput(item),
       play_id: id,

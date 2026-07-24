@@ -112,6 +112,10 @@ maintenance lock is still active so cache refreshes do not overlap the indexer.
 
 Quota boundary: couch shuffle and cached rail rendering never call YouTube.
 Playback resolution through `yt-dlp -> mpv` does not use the YouTube Data API.
+Playback also does not call `videos.list` to refill missing metadata; the
+launcher card/cache supplies display metadata and `yt-dlp` resolves transport.
+`/youtube/state` reports both `search_calls_today` and `api_calls_today` so
+operators can distinguish scarce search work from cheap metadata calls.
 `popular` is deliberately cheap because it uses `videos.list(chart=mostPopular)`;
 Google currently documents `videos.list` as a 1-unit method. Search-heavy phases
 (`fresh_finds`, `live_now`, `because_you_watched`, and `for_you_discovery`)

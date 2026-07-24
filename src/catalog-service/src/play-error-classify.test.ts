@@ -7,6 +7,7 @@ import {
   isGarbagePlayError,
   isRateLimitPlaceholderUrl,
   isTransientPlayError,
+  shouldRefreshCachedTransport,
 } from './play-error-classify.js';
 
 test('classifyPlayError maps each class', () => {
@@ -84,6 +85,16 @@ test('isGarbagePlayError / isTransientPlayError helpers', () => {
   assert.equal(isGarbagePlayError('timeout'), false);
   assert.equal(isTransientPlayError('timed out'), true);
   assert.equal(isTransientPlayError('debrid_nfo_sidecar'), false);
+});
+
+test('cached transport refresh is bounded to stale or transient failures', () => {
+  assert.equal(shouldRefreshCachedTransport(['mpv-play failed: HTTP error 403']), true);
+  assert.equal(shouldRefreshCachedTransport(['stream_url_bad_cached']), true);
+  assert.equal(shouldRefreshCachedTransport(['mpv-play failed: timed out']), true);
+  assert.equal(shouldRefreshCachedTransport(['HTTP 429 Too Many Requests']), false);
+  assert.equal(shouldRefreshCachedTransport(['debrid_copyright_block']), false);
+  assert.equal(shouldRefreshCachedTransport(['play cancelled']), false);
+  assert.equal(shouldRefreshCachedTransport([]), false);
 });
 
 test('garbageKind differentiates nfo / copyright / status_clip', () => {

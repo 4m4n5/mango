@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { CatalogCore, CatalogError } from './core.js';
 import { couchPlayFailureMessage } from './catalog-errors.js';
-import { playUrl } from './mpv.js';
+import { isMpvActive, playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
 import { assertPlayEpoch, bumpPlayEpoch, isPlayEpochStale, PlayCancelledError } from './play-cancel.js';
 import { reconcileSuccessfulEpisodePlayability } from './episode-playability-reconcile.js';
@@ -13,6 +13,13 @@ import {
   normalizePlayRequestId,
   registerPlayRequest,
 } from './play-request-registry.js';
+import {
+  createPlaybackSession,
+  getPlaybackSession,
+  transitionPlaybackSession,
+  waitForPlaybackSession,
+  type PlaybackSessionSource,
+} from './playback-session.js';
 import {
   demoteTitle,
   enqueuePlayabilityTrigger,
@@ -75,6 +82,7 @@ import {
   removeUserPin,
 } from './user-pins.js';
 import { isErrorStream } from './stream-filters.js';
+import { shouldRefreshCachedTransport } from './play-error-classify.js';
 import { isBlockedLiveStreamUrl, probeStreamReachability } from './live-stream-verify.js';
 import { playLiveCandidateLadder } from './live/playback-ladder.js';
 import {
@@ -122,6 +130,7 @@ const BODY_LIMIT = 64 * 1024;
 
 type PlayBody = StreamFilterOverrides & {
   request_id?: string;
+  source?: PlaybackSessionSource;
   type?: string;
   id?: string;
   title?: string;
@@ -412,6 +421,7 @@ async function handlePlay(
   deadline: PlayDeadline = createPlayDeadline(),
   requestId: string | null = normalizePlayRequestId(body.request_id),
   onRequestRegistered?: (epoch: number) => void,
+  preparedEpoch?: number,
 ): Promise<Record<string, unknown>> {
   let playUrlValue = body.url;
 
@@ -420,15 +430,17 @@ async function handlePlay(
       throw new CatalogError(400, 'play url must be http(s)');
     }
     const started = deadline.startedAtMs;
-    const playEpoch = await bumpPlayEpoch();
-    registerPlayRequest(requestId, playEpoch);
-    onRequestRegistered?.(playEpoch);
-    emitPlaybackTelemetry('play_request_start', {
-      request_id: requestId,
-      epoch: playEpoch,
-      total_deadline_ms: deadline.budgetMs,
-      resolve_request_class: 'user',
-    });
+    const playEpoch = preparedEpoch ?? await bumpPlayEpoch();
+    if (preparedEpoch === undefined) {
+      registerPlayRequest(requestId, playEpoch);
+      onRequestRegistered?.(playEpoch);
+      emitPlaybackTelemetry('play_request_start', {
+        request_id: requestId,
+        epoch: playEpoch,
+        total_deadline_ms: deadline.budgetMs,
+        resolve_request_class: 'user',
+      });
+    }
     const startSec = typeof body.start_sec === 'number' && body.start_sec > 0
       ? body.start_sec
       : undefined;
@@ -462,15 +474,17 @@ async function handlePlay(
 
   if (body.type === 'tv' || body.live === true) {
     const started = deadline.startedAtMs;
-    const playEpoch = await bumpPlayEpoch();
-    registerPlayRequest(requestId, playEpoch);
-    onRequestRegistered?.(playEpoch);
-    emitPlaybackTelemetry('play_request_start', {
-      request_id: requestId,
-      epoch: playEpoch,
-      total_deadline_ms: deadline.budgetMs,
-      resolve_request_class: 'user',
-    });
+    const playEpoch = preparedEpoch ?? await bumpPlayEpoch();
+    if (preparedEpoch === undefined) {
+      registerPlayRequest(requestId, playEpoch);
+      onRequestRegistered?.(playEpoch);
+      emitPlaybackTelemetry('play_request_start', {
+        request_id: requestId,
+        epoch: playEpoch,
+        total_deadline_ms: deadline.budgetMs,
+        resolve_request_class: 'user',
+      });
+    }
     const resolved = await core.resolveLiveForPlay(
       body.id,
       body.title,
@@ -590,15 +604,17 @@ async function handlePlay(
   playId = playTarget.playId;
   startSec = playTarget.startSec;
 
-  const playEpoch = await bumpPlayEpoch();
-  registerPlayRequest(requestId, playEpoch);
-  onRequestRegistered?.(playEpoch);
-  emitPlaybackTelemetry('play_request_start', {
-    request_id: requestId,
-    epoch: playEpoch,
-    total_deadline_ms: deadline.budgetMs,
-    resolve_request_class: 'user',
-  });
+  const playEpoch = preparedEpoch ?? await bumpPlayEpoch();
+  if (preparedEpoch === undefined) {
+    registerPlayRequest(requestId, playEpoch);
+    onRequestRegistered?.(playEpoch);
+    emitPlaybackTelemetry('play_request_start', {
+      request_id: requestId,
+      epoch: playEpoch,
+      total_deadline_ms: deadline.budgetMs,
+      resolve_request_class: 'user',
+    });
+  }
   const now = Date.now();
   const usePlayabilityIndex = body.type !== 'series' || isSeriesRailGateId(playId);
   const profile = usePlayabilityIndex
@@ -626,10 +642,10 @@ async function handlePlay(
     });
 
     const playMode = body.prefer_url ? 'picker' as const : 'auto' as const;
-    const playback = await playWithLadder(resolved.streams, resolved.filters, {
+    const playResolved = () => playWithLadder(resolved!.streams, resolved!.filters, {
       mode: playMode,
       contentType: body.type,
-      filterContext: resolved.filterContext,
+      filterContext: resolved!.filterContext,
       verified_hint: playMode === 'picker' ? undefined : verifiedHint,
       playEpoch,
       startSec,
@@ -638,6 +654,37 @@ async function handlePlay(
       deadlineAtMs: deadline.deadlineAtMs,
       startedAtMs: deadline.startedAtMs,
     });
+    let playback;
+    try {
+      playback = await playResolved();
+    } catch (firstError) {
+      const firstDetails = firstError instanceof CatalogError
+        ? firstError.details as { attempts?: Array<{ error?: string }> } | undefined
+        : undefined;
+      const attemptErrors = (firstDetails?.attempts || [])
+        .map((attempt) => attempt.error || '')
+        .filter(Boolean);
+      const refreshTransport = playMode === 'auto'
+        && resolved.cached
+        && remainingPlayBudgetMs(deadline) >= 5000
+        && shouldRefreshCachedTransport(attemptErrors);
+      if (!refreshTransport) throw firstError;
+
+      core.invalidateStreams(body.type, playId);
+      emitPlaybackTelemetry('stream_transport_refresh', {
+        request_id: requestId,
+        epoch: playEpoch,
+        content_type: body.type,
+        stale_attempts: attemptErrors.length,
+      });
+      await assertPlayEpoch(playEpoch);
+      resolved = await core.resolveForPlay(body.type, playId, overrides, {
+        requestClass: 'user',
+        deadlineAtMs: deadline.deadlineAtMs,
+        identityHint: { title: body.title, year: body.year },
+      });
+      playback = await playResolved();
+    }
 
     await assertPlayEpoch(playEpoch);
 
@@ -844,6 +891,104 @@ async function handlePlay(
     }
     throw error;
   }
+}
+
+const playbackSessionStarts = new Map<string, Promise<Awaited<ReturnType<typeof createPlaybackSession>>>>();
+
+function playbackSessionErrorMessage(error: unknown): string {
+  if (error instanceof CatalogError) return error.couchMessage;
+  if (error instanceof PlayCancelledError) return 'play cancelled';
+  return 'could not start playback — try again';
+}
+
+async function startPlaybackSession(
+  core: CatalogCore,
+  youtube: YoutubeService,
+  body: PlayBody,
+  queryOverrides: StreamFilterOverrides,
+): Promise<Awaited<ReturnType<typeof createPlaybackSession>>> {
+  const requestId = normalizePlayRequestId(body.request_id);
+  if (!requestId) {
+    throw new CatalogError(400, 'POST /play-session requires a valid request_id');
+  }
+  const existing = await getPlaybackSession(requestId);
+  if (existing) {
+    return { session: existing, created: false };
+  }
+  const joining = playbackSessionStarts.get(requestId);
+  if (joining) return joining;
+
+  const starting = (async () => {
+    const deadline = createPlayDeadline();
+    const playEpoch = await bumpPlayEpoch();
+    registerPlayRequest(requestId, playEpoch);
+    emitPlaybackTelemetry('play_request_start', {
+      request_id: requestId,
+      epoch: playEpoch,
+      total_deadline_ms: deadline.budgetMs,
+      resolve_request_class: 'user',
+      session_async: true,
+    });
+    const source: PlaybackSessionSource = body.source === 'youtube' ? 'youtube' : 'catalog';
+    let created: Awaited<ReturnType<typeof createPlaybackSession>>;
+    try {
+      created = await createPlaybackSession({
+        requestId,
+        epoch: playEpoch,
+        source,
+        contentType: body.type,
+        contentId: body.id,
+        title: body.title,
+      });
+    } catch (error) {
+      finishPlayRequest(requestId, playEpoch, false);
+      throw error;
+    }
+    if (!created.created) return created;
+
+    void (async () => {
+      let succeeded = false;
+      try {
+        await transitionPlaybackSession(requestId, 'resolving');
+        const result = source === 'youtube'
+          ? await youtube.play({
+            id: body.id,
+            title: body.title,
+            poster: body.poster,
+          }, { playEpoch })
+          : await handlePlay(
+            core,
+            body,
+            queryOverrides,
+            deadline,
+            requestId,
+            undefined,
+            playEpoch,
+          );
+        succeeded = true;
+        await transitionPlaybackSession(requestId, 'playing', {
+          result,
+          error: null,
+        });
+      } catch (error) {
+        const cancelled = error instanceof PlayCancelledError
+          || (error instanceof CatalogError && error.status === 499)
+          || await isPlayEpochStale(playEpoch);
+        await transitionPlaybackSession(
+          requestId,
+          cancelled ? 'cancelled' : 'failed_before_frame',
+          { error: cancelled ? null : playbackSessionErrorMessage(error) },
+        );
+      } finally {
+        finishPlayRequest(requestId, playEpoch, succeeded);
+      }
+    })();
+    return created;
+  })().finally(() => {
+    playbackSessionStarts.delete(requestId);
+  });
+  playbackSessionStarts.set(requestId, starting);
+  return starting;
 }
 
 async function main(): Promise<void> {
@@ -1758,6 +1903,61 @@ async function main(): Promise<void> {
           episodes.seasons,
           episodes.name,
         ));
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play-session') {
+        const body = await readBody(req);
+        touchCouchActivity('catalog', body.source === 'youtube' ? 'youtube_play' : 'play');
+        const overrides = parseFilterOverridesFromQuery(url.searchParams);
+        const started = await startPlaybackSession(core, youtube, body, overrides);
+        sendJson(res, started.created ? 202 : 200, {
+          ok: true,
+          accepted: true,
+          created: started.created,
+          session: started.session,
+        });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'play-session') {
+        const sessionId = normalizePlayRequestId(parts[1]);
+        if (!sessionId) {
+          throw new CatalogError(400, 'invalid playback session id');
+        }
+        let session = await getPlaybackSession(sessionId);
+        if (!session) {
+          throw new CatalogError(404, 'playback session not found');
+        }
+        if (session.ever_ready && session.state === 'playing' && !await isMpvActive()) {
+          session = await transitionPlaybackSession(sessionId, 'stopped') ?? session;
+        }
+        const afterVersion = Number(url.searchParams.get('after') || 0);
+        const waitMs = Number(url.searchParams.get('wait_ms') || 0);
+        if (Number.isFinite(afterVersion) && Number.isFinite(waitMs)
+          && session.version <= afterVersion && waitMs > 0) {
+          session = await waitForPlaybackSession(sessionId, afterVersion, waitMs) ?? session;
+        }
+        sendJson(res, 200, { ok: true, session });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2
+        && parts[0] === 'play-session' && parts[1] === 'cancel') {
+        const body = await readBody(req);
+        const requestId = normalizePlayRequestId(body.request_id);
+        if (!requestId) {
+          throw new CatalogError(400, 'POST /play-session/cancel requires request_id');
+        }
+        const session = await getPlaybackSession(requestId);
+        if (!session) {
+          sendJson(res, 200, { ok: true, cancelled: false, request_id: requestId });
+          return;
+        }
+        await transitionPlaybackSession(requestId, 'cancelled');
+        const cancelled = await cancelPlayRequest(requestId);
+        await flushWatchProgress();
+        sendJson(res, 200, { ok: true, ...cancelled, request_id: requestId });
         return;
       }
 

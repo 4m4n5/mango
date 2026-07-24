@@ -9,9 +9,9 @@ export type YoutubeResolvedPlayback = {
   format: string;
 };
 
-const YOUTUBE_PLAYBACK_CACHE_TTL_MS = 45_000;
-const youtubePlaybackCache = new Map<string, { resolved: YoutubeResolvedPlayback; expires_at: number }>();
 const youtubePlaybackInflight = new Map<string, Promise<YoutubeResolvedPlayback>>();
+let youtubeResolveCooldownUntil = 0;
+const YOUTUBE_RESOLVE_RATE_LIMIT_COOLDOWN_MS = 15 * 60 * 1000;
 
 function youtubeWatchUrl(videoId: string): string {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
@@ -92,13 +92,10 @@ export async function resolveYoutubePlayback(
       couchMessage: 'YouTube video id is missing',
     });
   }
-  const now = Date.now();
-  const cached = youtubePlaybackCache.get(normalizedVideoId);
-  if (cached && cached.expires_at > now) {
-    return cached.resolved;
-  }
-  if (cached && cached.expires_at <= now) {
-    youtubePlaybackCache.delete(normalizedVideoId);
+  if (youtubeResolveCooldownUntil > Date.now()) {
+    throw new CatalogError(429, 'YouTube playback resolve is cooling down', undefined, {
+      couchMessage: 'YouTube is temporarily busy — try again in a few minutes',
+    });
   }
   const inflight = youtubePlaybackInflight.get(normalizedVideoId);
   if (inflight) {
@@ -152,6 +149,9 @@ async function resolveYoutubePlaybackFresh(
         return null;
       }
       const classified = classifyYtDlpError(detail);
+      if (classified.status === 429) {
+        youtubeResolveCooldownUntil = Date.now() + YOUTUBE_RESOLVE_RATE_LIMIT_COOLDOWN_MS;
+      }
       throw new CatalogError(classified.status, classified.message, { yt_dlp: detail }, {
         couchMessage: classified.message,
       });
@@ -167,10 +167,6 @@ async function resolveYoutubePlaybackFresh(
         resolve_ms: Date.now() - started,
         format,
       };
-      youtubePlaybackCache.set(normalizedVideoId, {
-        resolved: payload,
-        expires_at: Date.now() + YOUTUBE_PLAYBACK_CACHE_TTL_MS,
-      });
       return payload;
     }
     const detail = stderr || stdout;
@@ -189,9 +185,12 @@ async function resolveYoutubePlaybackFresh(
   });
 }
 
-export async function warmYoutubePlaybackCache(
-  config: YoutubeConfig,
-  videoId: string,
-): Promise<void> {
-  await resolveYoutubePlayback(config, videoId);
+export function shouldRefreshYoutubeTransport(message: string): boolean {
+  return /HTTP (?:error )?(?:401|403|404|410)\b|expired|signature|signed[\s_-]*url|ECONN|socket|fetch failed/i
+    .test(message);
+}
+
+export function resetYoutubePlaybackStateForTest(): void {
+  youtubePlaybackInflight.clear();
+  youtubeResolveCooldownUntil = 0;
 }

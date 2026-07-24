@@ -56,6 +56,9 @@ Locked choices. Update when changing behavior.
 | Live cache | Never replace a non-empty Live cache with empty rebuild output; stale non-empty cache may serve indefinitely |
 | Lab quality cap | `max_quality: 1080p` until M6.3 ship profile |
 | Couch play authority | Play-first: Phase A preference ladder, then Phase B integrity-only obligation floor; first miss demotes to `stale`/`play_miss` (keep pool); `failed` + pool purge only after sustained miss within 24h; browse/verify stay ladder-only ([PLAYABILITY.md](PLAYABILITY.md)) |
+| Playback acknowledgement | Launcher uses an idempotent asynchronous session; persisted acceptance precedes foreground handoff, and only failure before the first ready frame is user-visible |
+| Replay recovery | Retry at most once after a classified stale cached transport by resolving fresh metadata; never retry cancellation, rate-limit, or malformed-media failures |
+| Playback cleanup | Natural mpv exit cleanup is PID + play-epoch scoped; stale monitors cannot stop a newer session |
 
 ---
 

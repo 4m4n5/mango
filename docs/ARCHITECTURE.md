@@ -80,6 +80,24 @@ returns while HDMI is still 1080p and 4K decode stutters. The mpv exit monitor c
 natural EOF (same black-screen-first path as pad ⌂). Prove true 4K during play
 with `scripts/diag/playback-4k-proof.sh`.
 
+**Playback session contract.** The launcher starts playback with
+`POST /play-session` and receives a persisted acceptance before Chromium can be
+hidden or suspended. It then reconciles `GET /play-session/{request_id}` by
+version. Only `failed_before_frame` is a couch-visible play failure;
+`ever_ready=true` is durable proof that playback started and prevents a late
+HTTP timeout or stop event from becoming a false catalog error. The current
+sanitized snapshot is written atomically to
+`~/.cache/mango/playback-session.json`; signed URLs, tokens, and credentials are
+never stored. Old `/play` and `/youtube/play` routes remain compatibility
+wrappers.
+
+The natural-exit monitor blocks on Linux `pidfd` rather than polling throughout
+a movie. Its stop request includes the expected mpv PID and play epoch, so a
+late monitor from an earlier session cannot tear down a newer playback.
+Automatic retry is bounded to one fresh metadata/transport resolve after an
+eligible stale-link failure; cancellation, rate limiting, and malformed media
+never create retry storms.
+
 ### Playability layer
 
 `playability.db` has two related but distinct surfaces:
@@ -258,7 +276,16 @@ Fallback env: `MANGO_FALLBACK_STREMIO=1` · `MANGO_LEGACY_YOUTUBE=1`
 
 Enriched fields: `display_label`, `release_group`, `encode`, `size_gb`, `languages`, `debrid_service`, `cache_status`.
 
-`POST /play` — modes `auto` (main → last-resort → obligation floor), `picker` (single stream), `verify` (main only). See [PLAYABILITY.md](PLAYABILITY.md) play-first policy.
+`POST /play` — compatibility synchronous play route; modes `auto` (main →
+last-resort → obligation floor), `picker` (single stream), `verify` (main only).
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/play-session` | Idempotently accept an asynchronous catalog or YouTube play by `request_id` |
+| `GET` | `/play-session/{request_id}` | Read or bounded-long-poll the authoritative session version |
+| `POST` | `/play-session/cancel` | Cancel only the named request and flush progress |
+
+See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 
 ## Library API
 
@@ -290,7 +317,7 @@ later UX pass.
 | `GET` | `/youtube/search?q=` | Grouped videos/channels/playlists |
 | `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |
 | `POST` | `/youtube/not-interested` | Persistent local feedback; excludes rails |
-| `POST` | `/youtube/play` | `yt-dlp -> mpv`; writes YouTube history/progress |
+| `POST` | `/youtube/play` | Compatibility synchronous `yt-dlp -> mpv` route; launcher uses `/play-session` |
 
 Detail: [YOUTUBE.md](YOUTUBE.md).
 

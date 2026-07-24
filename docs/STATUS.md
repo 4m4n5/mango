@@ -298,6 +298,8 @@ Mango ships a unified **mpv-only** couch playback path. Browse stays
 | Decode/presentation | mpv `gpu` VO, `hwdec=auto-safe`, deferred foreground, launcher stopped during fullscreen, `xcompmgr` off |
 | Display enforcement | `mango-display-mode.sh ensure-launcher` on stack boot, home, present, stop, deploy, display-wake |
 | Playback OSD/input | `playback-osd.py` on pause/seek; pad → mpv IPC |
+| Playback lifecycle | Async, idempotent `/play-session` acceptance survives Chromium hide/restart; durable `ever_ready` suppresses false post-play errors; generation-scoped PID exit cleanup cannot stop a newer play |
+| Transport recovery | One bounded fresh resolve for stale cached VOD/YouTube links; no retry on cancellation, rate limit, or malformed media; YouTube 429s enter a local cooldown |
 | 4K+audio smoothness | `--blend-subtitles=no` default (`MANGO_MPV_BLEND_SUBTITLES`); `yes` caused ~2.5 drops/s with audio on Pi 5 — Pi-proven 0 drops/s with eac3 4K |
 | Gates | `gate-m6-playback-ssot.sh` (mpv-only + idle 1080p browse + blend default) · `gate-m6-4k-hdr-profile.sh` · `playback-smoothness-probe.sh` |
 

@@ -2,7 +2,6 @@ import type { ContentCard, ContentRail } from "./types";
 import {
   CatalogTimeoutError,
   couchSafeCatalogMessage,
-  PlayTimeoutError,
   playErrorMessage,
 } from "./catalog-errors";
 import type { BrowseTab } from "./types";
@@ -116,6 +115,30 @@ export interface PlayCancelResult {
   finished_successfully: boolean;
   epoch: number;
   request_id: string | null;
+}
+
+export interface PlaybackSession {
+  session_id: string;
+  version: number;
+  state:
+    | "accepted"
+    | "resolving"
+    | "playing"
+    | "stopping"
+    | "stopped"
+    | "ended"
+    | "cancelled"
+    | "failed_before_frame"
+    | "failed_after_frame";
+  ever_ready: boolean;
+  error: string | null;
+  result: PlayResult | null;
+}
+
+interface PlaybackSessionResponse {
+  ok: boolean;
+  accepted?: boolean;
+  session: PlaybackSession;
 }
 
 export interface CatalogStream {
@@ -504,6 +527,120 @@ export async function cancelPlay(requestId?: string): Promise<PlayCancelResult |
   }
 }
 
+async function cancelPlaybackSession(requestId: string): Promise<void> {
+  try {
+    await fetchWithTimeout("/api/catalog/play-session/cancel", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ request_id: requestId }),
+    }, 2500);
+  } catch {
+    await cancelPlay(requestId);
+  }
+}
+
+export function playbackSessionResult(session: PlaybackSession): PlayResult | null {
+  if (session.ever_ready) {
+    return session.result ?? { ok: true };
+  }
+  if (session.state === "cancelled") {
+    throw new Error("play cancelled");
+  }
+  if (session.state === "failed_before_frame" || session.state === "failed_after_frame") {
+    throw new Error(session.error || "couldn't start playback. try another title.");
+  }
+  return null;
+}
+
+async function readPlaybackSession(
+  requestId: string,
+  afterVersion = 0,
+  waitMs = 0,
+  signal?: AbortSignal,
+): Promise<PlaybackSession> {
+  const params = new URLSearchParams();
+  if (afterVersion > 0) params.set("after", String(afterVersion));
+  if (waitMs > 0) params.set("wait_ms", String(waitMs));
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+  const response = await fetchWithTimeout(
+    `/api/catalog/play-session/${encodeURIComponent(requestId)}${query}`,
+    { signal },
+    Math.max(5000, waitMs + 5000),
+  );
+  const payload = await response.json().catch(() => ({})) as Partial<PlaybackSessionResponse> & { error?: string };
+  if (!response.ok || !payload.session) {
+    throw new Error(playErrorMessage(payload.error || `HTTP ${response.status}`));
+  }
+  return payload.session;
+}
+
+async function waitForPlaybackSession(
+  requestId: string,
+  initial: PlaybackSession,
+  signal?: AbortSignal,
+): Promise<PlayResult> {
+  let session = initial;
+  while (true) {
+    const result = playbackSessionResult(session);
+    if (result) return result;
+    if (signal?.aborted) {
+      await cancelPlaybackSession(requestId);
+      throw new Error("play cancelled");
+    }
+    try {
+      session = await readPlaybackSession(requestId, session.version, 25000, signal);
+    } catch (error) {
+      if (signal?.aborted) {
+        await cancelPlaybackSession(requestId);
+        throw new Error("play cancelled");
+      }
+      // Chromium may thaw after the local long-poll timer and its response both
+      // became due. Reconcile authoritative session state before surfacing it.
+      try {
+        session = await readPlaybackSession(requestId);
+        continue;
+      } catch {
+        throw error;
+      }
+    }
+  }
+}
+
+async function startPlaybackSession(
+  body: Record<string, unknown>,
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<PlayResult> {
+  if (signal?.aborted) throw new Error("play cancelled");
+  let response: Response;
+  try {
+    response = await fetchWithTimeout("/api/catalog/play-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    }, 5000);
+  } catch (error) {
+    if (signal?.aborted) {
+      await cancelPlaybackSession(requestId);
+      throw new Error("play cancelled");
+    }
+    // A slow acknowledgement does not prove rejection. The catalog persists
+    // the accepted session before replying, so reconcile by id before failing.
+    try {
+      const session = await readPlaybackSession(requestId);
+      return waitForPlaybackSession(requestId, session, signal);
+    } catch {
+      throw error;
+    }
+  }
+  const payload = await response.json().catch(() => ({})) as Partial<PlaybackSessionResponse> & { error?: string };
+  if (!response.ok || !payload.session) {
+    throw new Error(playErrorMessage(payload.error || `HTTP ${response.status}`));
+  }
+  return waitForPlaybackSession(requestId, payload.session, signal);
+}
+
 export async function flushProgress(): Promise<void> {
   try {
     await fetchWithTimeout("/api/catalog/progress/flush", { method: "POST" }, 5000);
@@ -526,22 +663,20 @@ export async function playCard(
   card: ContentCard,
   options: { signal?: AbortSignal; preferUrl?: string; preferLadderStep?: string; startSec?: number; episodeId?: string } = {},
 ): Promise<PlayResult> {
-  if (card.source === "youtube" || card.type === "youtube_video") {
-    return fetchPlayJson<PlayResult>("/api/catalog/youtube/play", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        id: card.id,
-        title: card.title,
-        poster: card.posterUrl,
-      }),
-      signal: options.signal,
-    }, 95000);
-  }
-  const playId = options.episodeId || card.playId || card.id;
   const requestId = typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
     : `play-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  if (card.source === "youtube" || card.type === "youtube_video") {
+    return startPlaybackSession({
+      request_id: requestId,
+      source: "youtube",
+      type: "youtube_video",
+      id: card.id,
+      title: card.title,
+      poster: card.posterUrl,
+    }, requestId, options.signal);
+  }
+  const playId = options.episodeId || card.playId || card.id;
   const body: {
     request_id: string;
     type: string;
@@ -586,21 +721,7 @@ export async function playCard(
   if (typeof startSec === 'number' && startSec > 0) {
     body.start_sec = startSec;
   }
-  try {
-    return await fetchPlayJson<PlayResult>("/api/catalog/play", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: options.signal,
-    }, 95000);
-  } catch (error) {
-    // ID-scoped and idempotent: a late timeout cannot cancel a newer play.
-    const cancellation = await cancelPlay(requestId);
-    if (error instanceof PlayTimeoutError) {
-      throw new PlayTimeoutError(cancellation?.finished_successfully === true);
-    }
-    throw error;
-  }
+  return startPlaybackSession(body, requestId, options.signal);
 }
 
 export async function notInterestedYoutubeCard(card: ContentCard): Promise<void> {
@@ -652,39 +773,6 @@ async function fetchJson<T>(url: string, init?: RequestInit, timeoutMs?: number)
     }
     if (isAbortError(error)) {
       throw new CatalogTimeoutError();
-    }
-    throw error;
-  }
-}
-
-/** Play endpoints: server already sends couchMessage — pass through unless raw infra. */
-async function fetchPlayJson<T>(url: string, init?: RequestInit, timeoutMs?: number): Promise<T> {
-  const requestInit = {
-    ...init,
-    headers: {
-      accept: "application/json",
-      ...(init?.headers || {}),
-    },
-  };
-  try {
-    const response = timeoutMs
-      ? await fetchWithTimeout(url, requestInit, timeoutMs)
-      : await fetch(url, requestInit);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      if (response.status === 499) {
-        throw new Error("play cancelled");
-      }
-      const raw = typeof data.error === "string" ? data.error : `HTTP ${response.status}`;
-      throw new Error(playErrorMessage(raw));
-    }
-    return data as T;
-  } catch (error) {
-    if (error instanceof Error && error.message === "play cancelled") {
-      throw error;
-    }
-    if (isAbortError(error)) {
-      throw new PlayTimeoutError();
     }
     throw error;
   }

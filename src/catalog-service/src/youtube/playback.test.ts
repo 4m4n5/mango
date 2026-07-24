@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyYtDlpError, parseYtDlpResolvedUrls, ytDlpFormatCandidates } from './playback.js';
+import {
+  classifyYtDlpError,
+  parseYtDlpResolvedUrls,
+  shouldRefreshYoutubeTransport,
+  ytDlpFormatCandidates,
+} from './playback.js';
 
 test('parseYtDlpResolvedUrls supports separate video and audio URLs', () => {
   assert.deepEqual(
@@ -37,4 +42,12 @@ test('classifyYtDlpError does not call requested format failure a removed video'
       message: 'YouTube playback format unavailable — try another YouTube video',
     },
   );
+});
+
+test('YouTube refreshes only expired direct transports, not policy failures', () => {
+  assert.equal(shouldRefreshYoutubeTransport('mpv-play failed: HTTP error 403'), true);
+  assert.equal(shouldRefreshYoutubeTransport('signed URL expired'), true);
+  assert.equal(shouldRefreshYoutubeTransport('YouTube is asking for browser verification — 429'), false);
+  assert.equal(shouldRefreshYoutubeTransport('this YouTube video is unavailable'), false);
+  assert.equal(shouldRefreshYoutubeTransport('play cancelled'), false);
 });

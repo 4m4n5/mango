@@ -272,6 +272,8 @@ Then open the companion and use the YouTube connect panel. Full details:
 | YouTube tab empty | `curl localhost:3020/youtube/state` · configure `/etc/mango/youtube-api.key` · run `bash scripts/m6-ship/gate-m6-youtube-smoke.sh` |
 | YouTube account not connected | Companion → YouTube connect · verify `/etc/mango/youtube-oauth-client.json` and `/etc/mango/youtube-auth.json` permissions |
 | YouTube playback 403/429/CAPTCHA | Update `yt-dlp`; reconnect account/cookies; pick another video; metadata cache should remain visible |
+| Catalog error appears after exiting a successful play | Inspect `~/.cache/mango/playback-session.json`; `ever_ready=true` means the launcher must treat the play as successful. Check catalog logs for a pre-frame failure only; do not invalidate title metadata from a late HTTP timeout. |
+| Same title will not immediately replay | `curl localhost:3020/play-session/<request_id>` when the request ID is known; inspect `~/.cache/mango/play-cancel.epoch` and `~/.cache/mango/mpv.pid`. A stale prior exit monitor is generation-gated and must not stop the new PID. |
 | YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator`; then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |
 | YouTube Live Now partial error | Check `refresh.phase_results.live_now`; Search Queries quota can exhaust while cached VOD rails and Popular still work because Popular uses `videos.list` |
 | Reliability badge yellow/red | Open Settings → Reliability Center; or `curl localhost:3020/reliability/state` |

@@ -1216,24 +1216,42 @@ export function getYoutubeState<T>(key: string, fallback: T): T {
   }
 }
 
-export function incrementYoutubeQuota(units: number): void {
+export function incrementYoutubeQuota(units: number, searchCall = false): void {
   const day = todayPacific();
-  const current = getYoutubeState<{ day: string; units: number }>('quota', { day, units: 0 });
+  const current = getYoutubeState<{
+    day: string;
+    units: number;
+    search_calls?: number;
+    api_calls?: number;
+  }>('quota', { day, units: 0, search_calls: 0, api_calls: 0 });
   const next = current.day === day
-    ? { day, units: current.units + units }
-    : { day, units };
+    ? {
+      day,
+      units: current.units + units,
+      search_calls: (current.search_calls ?? 0) + (searchCall ? 1 : 0),
+      api_calls: (current.api_calls ?? 0) + 1,
+    }
+    : { day, units, search_calls: searchCall ? 1 : 0, api_calls: 1 };
   setYoutubeState('quota', next);
 }
 
 export function youtubeRefreshStatus(): YoutubeRefreshStatus {
-  const quota = getYoutubeState<{ day: string; units: number }>('quota', { day: todayPacific(), units: 0 });
+  const quota = getYoutubeState<{
+    day: string;
+    units: number;
+    search_calls?: number;
+    api_calls?: number;
+  }>('quota', { day: todayPacific(), units: 0, search_calls: 0, api_calls: 0 });
+  const currentDay = quota.day === todayPacific();
   return {
     last_refresh_at: getYoutubeState<number | null>('last_refresh_at', null),
     last_success_at: getYoutubeState<number | null>('last_success_at', null),
     last_error: getYoutubeState<string | null>('last_error', null),
     last_reason: getYoutubeState<string | null>('last_reason', null),
     phase_results: getYoutubeState<YoutubeRefreshPhaseResult[]>('last_phase_results', []),
-    quota_used_today: quota.day === todayPacific() ? quota.units : 0,
+    quota_used_today: currentDay ? quota.units : 0,
+    search_calls_today: currentDay ? (quota.search_calls ?? 0) : 0,
+    api_calls_today: currentDay ? (quota.api_calls ?? 0) : 0,
     quota_reset_day: todayPacific(),
   };
 }

@@ -169,7 +169,7 @@ export class YoutubeApiClient {
     const response = await fetch(url, {
       headers: token ? { authorization: `Bearer ${token}` } : undefined,
     });
-    incrementYoutubeQuota(path === 'search' ? 1 : 1);
+    incrementYoutubeQuota(1, path === 'search');
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = typeof payload?.error?.message === 'string'

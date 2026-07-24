@@ -52,6 +52,9 @@ export type YoutubeRefreshStatus = {
   last_error: string | null;
   last_reason: string | null;
   phase_results: YoutubeRefreshPhaseResult[];
+  /** Backward-compatible aggregate of locally observed API quota units. */
   quota_used_today: number;
+  search_calls_today: number;
+  api_calls_today: number;
   quota_reset_day: string;
 };

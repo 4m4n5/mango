@@ -490,19 +490,41 @@ start_mpv_exit_monitor() {
     pidfile="$3"
     expected_epoch="$4"
     cancel_file="$5"
-    while kill -0 "$pid" 2>/dev/null; do
-      if [[ -n "$expected_epoch" && -f "$cancel_file" ]] \
-        && [[ "$(tr -d "[:space:]" <"$cancel_file" 2>/dev/null || true)" != "$expected_epoch" ]]; then
-        if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
-          MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_HOME=0 \
-            bash "$repo/scripts/m2-catalog/service/mpv-stop.sh" >/dev/null 2>&1 || true
-        fi
-        exit 0
-      fi
-      sleep 0.2
-    done
+    # pidfd blocks in the kernel for the entire movie instead of waking every
+    # 200 ms. Fall back to a conservative one-second loop on older Python/Linux.
+    python3 - "$pid" <<"PY" || {
+import os
+import select
+import sys
+import time
+
+pid = int(sys.argv[1])
+try:
+    fd = os.pidfd_open(pid)
+except (AttributeError, OSError):
+    while True:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        except PermissionError:
+            pass
+        time.sleep(1)
+else:
+    poller = select.poll()
+    poller.register(fd, select.POLLIN)
+    poller.poll()
+    os.close(fd)
+PY
+      while kill -0 "$pid" 2>/dev/null; do sleep 1; done
+    }
+    if [[ -n "$expected_epoch" ]] \
+      && [[ "$(tr -d "[:space:]" <"$cancel_file" 2>/dev/null || true)" != "$expected_epoch" ]]; then
+      exit 0
+    fi
     if [[ -f "$pidfile" ]] && [[ "$(cat "$pidfile" 2>/dev/null)" == "$pid" ]]; then
-      MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_HOME=1 \
+      MANGO_EXPECTED_MPV_PID="$pid" MANGO_EXPECTED_PLAY_EPOCH="$expected_epoch" \
+        MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_HOME=1 \
         bash "$repo/scripts/m2-catalog/service/mpv-stop.sh" >/dev/null 2>&1 || true
     fi
   ' bash "$pid" "$REPO_DIR" "$pidfile" "$expected_epoch" "$cancel_file" >/dev/null 2>&1 &

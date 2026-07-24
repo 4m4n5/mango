@@ -14,7 +14,9 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/play-deadline.test.js \
     dist/play-cancel.test.js \
     dist/play-request-registry.test.js \
+    dist/playback-session.test.js \
     dist/episode-playability-reconcile.test.js \
+    dist/play-error-classify.test.js \
     dist/playback-telemetry.test.js \
     dist/scoped-child.test.js \
     dist/mpv-policy-args.test.js \
@@ -42,6 +44,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/voice/search.test.js \
     dist/voice/tools.test.js \
     dist/youtube/db.test.js \
+    dist/youtube/api.test.js \
     dist/youtube/playback.test.js \
     dist/youtube/service.test.js \
     dist/core-library-rails.test.js \

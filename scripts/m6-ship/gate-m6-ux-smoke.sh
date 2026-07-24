@@ -22,7 +22,7 @@ else
   gate_fail "launcher dist/index.html missing — cd src/launcher && npm run build"
 fi
 
-python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" <<'PY' \
+python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" <<'PY' \
   && gate_pass "launcher source UX contracts" \
   || gate_fail "launcher source UX contracts"
 import pathlib
@@ -34,6 +34,7 @@ focus = pathlib.Path(sys.argv[3]).read_text(encoding="utf-8")
 main = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")
 next_prompt = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8")
 playback_return = pathlib.Path(sys.argv[6]).read_text(encoding="utf-8")
+catalog = pathlib.Path(sys.argv[7]).read_text(encoding="utf-8")
 
 if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
@@ -70,6 +71,9 @@ if failure_block.find("reconcileEpisodePlayTimeout") > failure_block.find("setEp
     raise SystemExit("detail.ts greys an episode before playback-timeout reconciliation")
 if "function setStatus(_message: string): void {}" in main or "showToast(message)" not in main:
     raise SystemExit("main.ts next-prompt failures are not routed to the existing toast")
+for session_contract in ("/api/catalog/play-session", "ever_ready", "readPlaybackSession"):
+    if session_contract not in catalog:
+        raise SystemExit(f"catalog.ts missing playback-session contract: {session_contract}")
 PY
 
 "$REPO_DIR/src/catalog-service/node_modules/.bin/tsx" --test \
@@ -77,6 +81,7 @@ PY
   "$SRC/playback-return.test.ts" \
   "$SRC/playback-return-focus.test.ts" \
   "$SRC/playback-reconciliation.test.ts" \
+  "$SRC/playback-session-client.test.ts" \
   "$SRC/stream-list-recovery.test.ts" \
   && gate_pass "launcher playback return + timeout reconciliation tests" \
   || gate_fail "launcher playback return + timeout reconciliation tests"
