@@ -125,6 +125,21 @@ rate_available() {
   '
 }
 
+attach_cea_1080p60_mode() {
+  local output="$1"
+  local alias="${MANGO_CEA_1080P60_MODE_NAME:-1920x1080-Mango60}"
+
+  # Some TV/X11 sessions expose only the active custom 4K mode after playback.
+  # Keep the canonical policy value while restoring a standards-based browse
+  # mode that survives subsequent playback-to-launcher transitions.
+  xrandr --newmode "$alias" \
+    148.50 1920 2008 2052 2200 1080 1084 1089 1125 \
+    +HSync +VSync >/dev/null 2>&1 || true
+  xrandr --addmode "$output" "$alias" >/dev/null 2>&1 || true
+  mode_available "$output" "$alias" || return 1
+  printf '%s\n' "$alias"
+}
+
 rates_for_mode() {
   local output="$1"
   local mode="$2"
@@ -268,7 +283,7 @@ apply_mode() {
   local strict_rate="${4:-0}"
   local fallback_mode="${5:-}"
   local fallback_rate="${6:-}"
-  local output attempts attempt
+  local output attempts attempt alias
 
   [[ "${MANGO_DISPLAY_MODE_DISABLE:-0}" != "1" ]] || {
     log "${label}: skipped disabled"
@@ -305,9 +320,16 @@ apply_mode() {
     fi
 
     if ! mode_available "$output" "$mode"; then
-      log "${label}: unavailable output=${output} mode=${mode} current=$(current_mode "$output") attempt=${attempt}/${attempts}"
-      sleep 0.5
-      continue
+      if [[ "$mode" == "1920x1080" ]] \
+        && [[ -z "$rate" || "$(printf '%.0f' "$rate" 2>/dev/null || true)" == "60" ]] \
+        && alias="$(attach_cea_1080p60_mode "$output" 2>/dev/null)"; then
+        log "${label}: attached fallback output=${output} requested=${mode}@${rate:-auto} mode=${alias}"
+        mode="$alias"
+      else
+        log "${label}: unavailable output=${output} mode=${mode} current=$(current_mode "$output") attempt=${attempt}/${attempts}"
+        sleep 0.5
+        continue
+      fi
     fi
 
     if [[ -n "$rate" ]] && rate_available "$output" "$mode" "$rate"; then
