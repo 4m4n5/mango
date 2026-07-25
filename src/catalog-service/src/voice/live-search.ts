@@ -26,6 +26,7 @@ export const LIVE_SEARCH_VALIDATION_BUDGET_MS = 2_000;
 
 export type LiveSearchOptions = {
   validateUnknown?: boolean;
+  maxUnknownValidations?: number;
   validationBudgetMs?: number;
   freshnessHorizonMs?: number;
   now?: () => number;
@@ -245,7 +246,7 @@ export async function searchLiveChannels(
       chosenClasses.add(sourceClass);
       chosenCanonical.add(canonical);
       chosen.push(candidate);
-      if (chosenClasses.size >= 2) break;
+      if (chosen.length >= Math.max(1, options.maxUnknownValidations ?? 2)) break;
     }
     const completed = new Map<RankedLiveSearchEntry, boolean>();
     const validations = chosen.map((candidate) => {

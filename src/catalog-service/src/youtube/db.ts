@@ -9,6 +9,7 @@ import type {
   YoutubeRailItem,
   YoutubeRefreshPhaseResult,
   YoutubeRefreshStatus,
+  YoutubeSearchGroups,
 } from './types.js';
 
 let dbSingleton: Database.Database | null = null;
@@ -84,6 +85,19 @@ CREATE TABLE IF NOT EXISTS youtube_state (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS youtube_search_cache (
+  cache_key TEXT PRIMARY KEY,
+  normalized_query TEXT NOT NULL,
+  kind_scope TEXT NOT NULL,
+  safe_search TEXT NOT NULL,
+  region_code TEXT NOT NULL,
+  language TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  fetched_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  last_accessed_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS youtube_auth_sessions (
@@ -221,6 +235,10 @@ CREATE INDEX IF NOT EXISTS idx_youtube_popular_score ON youtube_popular_candidat
 CREATE INDEX IF NOT EXISTS idx_youtube_popular_region ON youtube_popular_candidates(source_region, score DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_popular_category ON youtube_popular_candidates(category_label, score DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_popular_exposure ON youtube_popular_candidates(last_recommended_at);
+CREATE INDEX IF NOT EXISTS idx_youtube_search_cache_expiry
+  ON youtube_search_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_youtube_search_cache_access
+  ON youtube_search_cache(last_accessed_at DESC);
 `);
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (1, ?)')
     .run(nowMs());
@@ -233,6 +251,8 @@ CREATE INDEX IF NOT EXISTS idx_youtube_popular_exposure ON youtube_popular_candi
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (5, ?)')
     .run(nowMs());
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (6, ?)')
+    .run(nowMs());
+  db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (7, ?)')
     .run(nowMs());
 }
 
@@ -320,8 +340,8 @@ SELECT id, kind, title, subtitle, description, thumbnail, channel_id, channel_ti
 FROM youtube_items
 WHERE (@kind IS NULL OR kind = @kind)
 ORDER BY updated_at DESC
-LIMIT @limit;
-`).all({ kind, limit: Math.max(1, Math.min(2000, limit)) }) as YoutubeItem[];
+  LIMIT @limit;
+`).all({ kind, limit: Math.max(1, Math.min(20_000, limit)) }) as YoutubeItem[];
   return rows;
 }
 
@@ -1216,14 +1236,68 @@ export function getYoutubeState<T>(key: string, fallback: T): T {
   }
 }
 
+export type YoutubeApiPurpose = 'interactive' | 'background';
+
+export const YOUTUBE_DAILY_QUOTA_BUDGET = Math.max(
+  100,
+  Number(process.env.MANGO_YOUTUBE_DAILY_QUOTA_BUDGET || 10_000),
+);
+export const YOUTUBE_INTERACTIVE_QUOTA_RESERVE = Math.max(
+  0,
+  Math.min(
+    YOUTUBE_DAILY_QUOTA_BUDGET,
+    Number(process.env.MANGO_YOUTUBE_INTERACTIVE_QUOTA_RESERVE || 2_500),
+  ),
+);
+
+type YoutubeQuotaRecord = {
+  day: string;
+  units: number;
+  search_calls?: number;
+  api_calls?: number;
+};
+
+function currentYoutubeQuota(): YoutubeQuotaRecord {
+  const day = todayPacific();
+  const current = getYoutubeState<YoutubeQuotaRecord>(
+    'quota',
+    { day, units: 0, search_calls: 0, api_calls: 0 },
+  );
+  return current.day === day
+    ? current
+    : { day, units: 0, search_calls: 0, api_calls: 0 };
+}
+
+export function youtubeQuotaDecision(
+  units: number,
+  purpose: YoutubeApiPurpose,
+): {
+  allowed: boolean;
+  reason: string | null;
+  used: number;
+  limit: number;
+} {
+  const cost = Math.max(1, Math.floor(units));
+  const quota = currentYoutubeQuota();
+  const limit = purpose === 'background'
+    ? YOUTUBE_DAILY_QUOTA_BUDGET - YOUTUBE_INTERACTIVE_QUOTA_RESERVE
+    : YOUTUBE_DAILY_QUOTA_BUDGET;
+  const allowed = quota.units + cost <= limit;
+  return {
+    allowed,
+    reason: allowed
+      ? null
+      : purpose === 'background'
+        ? 'YouTube background quota paused to preserve couch search'
+        : 'YouTube daily quota exhausted',
+    used: quota.units,
+    limit,
+  };
+}
+
 export function incrementYoutubeQuota(units: number, searchCall = false): void {
   const day = todayPacific();
-  const current = getYoutubeState<{
-    day: string;
-    units: number;
-    search_calls?: number;
-    api_calls?: number;
-  }>('quota', { day, units: 0, search_calls: 0, api_calls: 0 });
+  const current = currentYoutubeQuota();
   const next = current.day === day
     ? {
       day,
@@ -1236,23 +1310,180 @@ export function incrementYoutubeQuota(units: number, searchCall = false): void {
 }
 
 export function youtubeRefreshStatus(): YoutubeRefreshStatus {
-  const quota = getYoutubeState<{
-    day: string;
-    units: number;
-    search_calls?: number;
-    api_calls?: number;
-  }>('quota', { day: todayPacific(), units: 0, search_calls: 0, api_calls: 0 });
+  const quota = currentYoutubeQuota();
   const currentDay = quota.day === todayPacific();
+  const used = currentDay ? quota.units : 0;
   return {
     last_refresh_at: getYoutubeState<number | null>('last_refresh_at', null),
     last_success_at: getYoutubeState<number | null>('last_success_at', null),
     last_error: getYoutubeState<string | null>('last_error', null),
     last_reason: getYoutubeState<string | null>('last_reason', null),
     phase_results: getYoutubeState<YoutubeRefreshPhaseResult[]>('last_phase_results', []),
-    quota_used_today: currentDay ? quota.units : 0,
+    quota_used_today: used,
     search_calls_today: currentDay ? (quota.search_calls ?? 0) : 0,
     api_calls_today: currentDay ? (quota.api_calls ?? 0) : 0,
     quota_reset_day: todayPacific(),
+    quota_budget: YOUTUBE_DAILY_QUOTA_BUDGET,
+    interactive_reserve: YOUTUBE_INTERACTIVE_QUOTA_RESERVE,
+    background_remaining: Math.max(
+      0,
+      YOUTUBE_DAILY_QUOTA_BUDGET - YOUTUBE_INTERACTIVE_QUOTA_RESERVE - used,
+    ),
+    interactive_remaining: Math.max(0, YOUTUBE_DAILY_QUOTA_BUDGET - used),
+  };
+}
+
+/** Cheap generation token used by the launcher search index invalidator. */
+export function youtubeSearchGeneration(): string {
+  const row = ensureDb().prepare(`
+SELECT COALESCE(MAX(updated_at), 0) AS updated_at, COUNT(*) AS row_count
+FROM youtube_items;
+`).get() as { updated_at: number; row_count: number };
+  return `${row.updated_at}:${row.row_count}`;
+}
+
+export type YoutubeSearchCacheKeyInput = {
+  normalized_query: string;
+  kind_scope: string;
+  safe_search: string;
+  region_code: string;
+  language: string;
+};
+
+export type YoutubeSearchCacheEntry = YoutubeSearchCacheKeyInput & {
+  groups: YoutubeSearchGroups;
+  fetched_at: number;
+  expires_at: number;
+};
+
+export function youtubeSearchCacheKey(input: YoutubeSearchCacheKeyInput): string {
+  return [
+    input.normalized_query.trim().toLowerCase(),
+    input.kind_scope.trim().toLowerCase(),
+    input.safe_search.trim().toLowerCase(),
+    input.region_code.trim().toUpperCase(),
+    input.language.trim().toLowerCase(),
+  ].join('|');
+}
+
+export function getYoutubeSearchCache(
+  input: YoutubeSearchCacheKeyInput,
+  timestamp = nowMs(),
+): YoutubeSearchCacheEntry | null {
+  const db = ensureDb();
+  const key = youtubeSearchCacheKey(input);
+  const row = db.prepare(`
+SELECT normalized_query, kind_scope, safe_search, region_code, language,
+  result_json, fetched_at, expires_at
+FROM youtube_search_cache
+WHERE cache_key = ? AND expires_at > ?;
+`).get(key, timestamp) as {
+    normalized_query: string;
+    kind_scope: string;
+    safe_search: string;
+    region_code: string;
+    language: string;
+    result_json: string;
+    fetched_at: number;
+    expires_at: number;
+  } | undefined;
+  if (!row) {
+    return null;
+  }
+  try {
+    const groups = JSON.parse(row.result_json) as YoutubeSearchGroups;
+    db.prepare('UPDATE youtube_search_cache SET last_accessed_at = ? WHERE cache_key = ?')
+      .run(timestamp, key);
+    return {
+      normalized_query: row.normalized_query,
+      kind_scope: row.kind_scope,
+      safe_search: row.safe_search,
+      region_code: row.region_code,
+      language: row.language,
+      groups,
+      fetched_at: row.fetched_at,
+      expires_at: row.expires_at,
+    };
+  } catch {
+    db.prepare('DELETE FROM youtube_search_cache WHERE cache_key = ?').run(key);
+    return null;
+  }
+}
+
+export function putYoutubeSearchCache(
+  input: YoutubeSearchCacheKeyInput,
+  groups: YoutubeSearchGroups,
+  options: { fetched_at?: number; ttl_ms?: number; max_entries?: number } = {},
+): YoutubeSearchCacheEntry {
+  const db = ensureDb();
+  const fetchedAt = options.fetched_at ?? nowMs();
+  const expiresAt = fetchedAt + Math.max(60_000, options.ttl_ms ?? 24 * 60 * 60 * 1000);
+  const key = youtubeSearchCacheKey(input);
+  const normalized: YoutubeSearchCacheKeyInput = {
+    normalized_query: input.normalized_query.trim().toLowerCase(),
+    kind_scope: input.kind_scope.trim().toLowerCase(),
+    safe_search: input.safe_search.trim().toLowerCase(),
+    region_code: input.region_code.trim().toUpperCase(),
+    language: input.language.trim().toLowerCase(),
+  };
+  db.prepare(`
+INSERT INTO youtube_search_cache(
+  cache_key, normalized_query, kind_scope, safe_search, region_code, language,
+  result_json, fetched_at, expires_at, last_accessed_at
+) VALUES (
+  @cache_key, @normalized_query, @kind_scope, @safe_search, @region_code, @language,
+  @result_json, @fetched_at, @expires_at, @last_accessed_at
+)
+ON CONFLICT(cache_key) DO UPDATE SET
+  result_json = excluded.result_json,
+  fetched_at = excluded.fetched_at,
+  expires_at = excluded.expires_at,
+  last_accessed_at = excluded.last_accessed_at;
+`).run({
+    cache_key: key,
+    ...normalized,
+    result_json: JSON.stringify(groups),
+    fetched_at: fetchedAt,
+    expires_at: expiresAt,
+    last_accessed_at: fetchedAt,
+  });
+  db.prepare('DELETE FROM youtube_search_cache WHERE expires_at <= ?').run(fetchedAt);
+  db.prepare(`
+DELETE FROM youtube_search_cache
+WHERE cache_key NOT IN (
+  SELECT cache_key
+  FROM youtube_search_cache
+  ORDER BY last_accessed_at DESC
+  LIMIT @max_entries
+);
+`).run({ max_entries: Math.max(1, Math.min(500, options.max_entries ?? 200)) });
+  return { ...normalized, groups, fetched_at: fetchedAt, expires_at: expiresAt };
+}
+
+export function youtubeSearchCacheSummary(timestamp = nowMs()): {
+  entries: number;
+  fresh_entries: number;
+  oldest_fetched_at: number | null;
+  newest_fetched_at: number | null;
+} {
+  const row = ensureDb().prepare(`
+SELECT
+  COUNT(*) AS entries,
+  SUM(CASE WHEN expires_at > @now THEN 1 ELSE 0 END) AS fresh_entries,
+  MIN(fetched_at) AS oldest_fetched_at,
+  MAX(fetched_at) AS newest_fetched_at
+FROM youtube_search_cache;
+`).get({ now: timestamp }) as {
+    entries: number;
+    fresh_entries: number;
+    oldest_fetched_at: number | null;
+    newest_fetched_at: number | null;
+  };
+  return {
+    entries: Number(row.entries || 0),
+    fresh_entries: Number(row.fresh_entries || 0),
+    oldest_fetched_at: row.oldest_fetched_at,
+    newest_fetched_at: row.newest_fetched_at,
   };
 }
 

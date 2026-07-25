@@ -6,6 +6,7 @@ import {
   clearLibraryFeedbackForSource,
   clearWatchHistoryForSource,
   getLibraryState,
+  getSearchPreferences,
   listLibraryFeedback,
   listSavedLibraryItems,
   listUniqueWatchHistory,
@@ -20,6 +21,7 @@ import { clearYoutubeAuth, pollYoutubeDeviceAuth, startYoutubeDeviceAuth, youtub
 import { loadYoutubeConfig, type YoutubeConfig } from './config.js';
 import {
   getYoutubeItem,
+  getYoutubeSearchCache,
   getYoutubeState,
   initYoutubeDb,
   listBecauseYouWatchedCandidates,
@@ -43,6 +45,7 @@ import {
   replaceYoutubeRailItems,
   searchCachedYoutubeItems,
   setYoutubeState,
+  putYoutubeSearchCache,
   upsertBecauseYouWatchedCandidates,
   upsertFreshFindCandidates,
   upsertForYouCandidates,
@@ -2662,6 +2665,7 @@ export class YoutubeService {
     rails: YoutubeRail[];
     expiresAt: number;
   } | null = null;
+  private readonly searchFlights = new Map<string, Promise<YoutubeSearchGroups>>();
 
   constructor(config = loadYoutubeConfig()) {
     this.config = config;
@@ -3343,7 +3347,17 @@ export class YoutubeService {
     };
   }
 
-  async search(query: string, limit = this.config.max_results): Promise<Record<string, unknown>> {
+  async search(
+    query: string,
+    limit = this.config.max_results,
+    options: {
+      kind_scope?: 'youtube' | 'videos';
+      safe_search?: 'moderate' | 'strict' | 'none';
+      force_refresh?: boolean;
+      cache_only?: boolean;
+      record_recent?: boolean;
+    } = {},
+  ): Promise<Record<string, unknown>> {
     const normalized = query.trim();
     if (!normalized) {
       throw new CatalogError(400, 'YouTube search requires q', undefined, {
@@ -3351,12 +3365,48 @@ export class YoutubeService {
       });
     }
     const searchLimit = Math.max(1, Math.min(50, limit));
+    const kindScope = options.kind_scope ?? 'youtube';
+    const safeSearch = options.safe_search ?? getSearchPreferences().youtube_safe_search;
+    const cacheInput = {
+      normalized_query: normalized.toLowerCase(),
+      kind_scope: kindScope,
+      safe_search: safeSearch,
+      region_code: this.config.region_code,
+      language: this.config.relevance_language,
+    };
+    const cached = options.force_refresh ? null : getYoutubeSearchCache(cacheInput);
     let cachedOnly = !this.config.api_key;
     let apiError: string | null = null;
     let groups: YoutubeSearchGroups;
-    if (this.config.api_key) {
+    if (cached) {
+      groups = cached.groups;
+      cachedOnly = true;
+    } else if (this.config.api_key && !options.cache_only) {
       try {
-        groups = await this.api.search(normalized, { limit: searchLimit });
+        const flightKey = [
+          cacheInput.normalized_query,
+          kindScope,
+          safeSearch,
+          searchLimit,
+        ].join('|');
+        let flight = this.searchFlights.get(flightKey);
+        if (!flight) {
+          flight = this.api.search(normalized, {
+            limit: searchLimit,
+            type: kindScope === 'videos' ? 'video' : undefined,
+            safeSearch,
+            purpose: 'interactive',
+          });
+          this.searchFlights.set(flightKey, flight);
+          const clearFlight = () => {
+            if (this.searchFlights.get(flightKey) === flight) {
+              this.searchFlights.delete(flightKey);
+            }
+          };
+          void flight.then(clearFlight, clearFlight);
+        }
+        groups = await flight;
+        putYoutubeSearchCache(cacheInput, groups);
       } catch (error) {
         apiError = error instanceof Error ? error.message : String(error);
         setYoutubeState('last_search_error', { query: normalized, error: apiError, at: nowMs() });
@@ -3366,13 +3416,16 @@ export class YoutubeService {
     } else {
       groups = groupCachedSearch(normalized, searchLimit);
     }
-    recordRecentYoutubeSearch(normalized);
+    if (options.record_recent !== false) {
+      recordRecentYoutubeSearch(normalized);
+    }
     return {
       ok: true,
       query: normalized,
       groups,
       refresh: youtubeRefreshStatus(),
       cached_only: cachedOnly,
+      cache_hit: Boolean(cached),
       api_error: apiError,
     };
   }
@@ -3381,14 +3434,14 @@ export class YoutubeService {
     let item = getYoutubeItem(kind, id);
     let items: YoutubeItem[] = [];
     if (kind === 'video' && this.config.api_key) {
-      item = (await this.api.videos([id]).catch(() => []))[0] || item;
+      item = (await this.api.videos([id], 'interactive').catch(() => []))[0] || item;
     }
     if (kind === 'channel') {
       if (!item) {
         item = getYoutubeItem('channel', id);
       }
       if (this.config.api_key) {
-        items = await this.api.channelVideos(id, 40).catch(() => []);
+        items = await this.api.channelVideos(id, 40, 'interactive').catch(() => []);
       } else {
         items = listYoutubeItems('video', 200).filter((candidate) => candidate.channel_id === id);
       }
@@ -3398,7 +3451,7 @@ export class YoutubeService {
         item = getYoutubeItem('playlist', id);
       }
       if (this.config.api_key) {
-        items = await this.api.playlistItems(id, 40).catch(() => []);
+        items = await this.api.playlistItems(id, 40, undefined, 'interactive').catch(() => []);
       }
     }
     if (!item) {

@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import test from 'node:test';
 import {
+  clearSearchActivity,
+  getSearchPreferences,
   getLatestEpisodeWatchProgress,
   getLibraryState,
   initLibraryDb,
@@ -12,12 +14,17 @@ import {
   listLatestEpisodeWatchProgress,
   listSavedLibraryItems,
   listLibraryFeedback,
+  listSearchHistory,
+  listSearchSelections,
   listWatchHistory,
   listUniqueWatchHistory,
   recordLibraryWatch,
+  recordSearchQuery,
+  recordSearchSelection,
   resetLibraryDbForTests,
   saveLibraryItem,
   setLibraryFeedback,
+  setSearchPreferences,
   unsaveLibraryItem,
 } from './db.js';
 
@@ -61,10 +68,53 @@ test('initLibraryDb creates WAL schema and migration row', () => withTempLibrary
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM library_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3]);
   } finally {
     db.close();
   }
+}));
+
+test('search activity keeps 12 unique recents and clear removes learning too', () => withTempLibrary(() => {
+  for (let index = 0; index < 14; index += 1) {
+    recordSearchQuery(`query ${index}`, `Query ${index}`, 1_000 + index);
+  }
+  recordSearchQuery('query 13', 'Query Thirteen', 2_000);
+  recordSearchSelection({
+    normalized_query: 'query 13',
+    entity_key: 'mango:movie:tt13',
+    source: 'mango',
+    type: 'movie',
+    id: 'tt13',
+    title: 'Query Thirteen',
+    selected_at: 2_001,
+  });
+  recordSearchSelection({
+    normalized_query: 'query 13',
+    entity_key: 'mango:movie:tt13',
+    source: 'mango',
+    type: 'movie',
+    id: 'tt13',
+    title: 'Query Thirteen',
+    selected_at: 2_002,
+  });
+
+  const recents = listSearchHistory();
+  assert.equal(recents.length, 12);
+  assert.equal(recents[0]?.display_query, 'Query Thirteen');
+  assert.equal(listSearchSelections('query 13')[0]?.selection_count, 2);
+  assert.deepEqual(clearSearchActivity(), { history: 12, selections: 1 });
+  assert.deepEqual(listSearchHistory(), []);
+  assert.deepEqual(listSearchSelections('query 13'), []);
+}));
+
+test('search SafeSearch defaults moderate and persists valid choices', () => withTempLibrary(() => {
+  assert.equal(getSearchPreferences().youtube_safe_search, 'moderate');
+  assert.equal(setSearchPreferences({ youtube_safe_search: 'strict' }).youtube_safe_search, 'strict');
+  assert.equal(getSearchPreferences().youtube_safe_search, 'strict');
+  assert.throws(
+    () => setSearchPreferences({ youtube_safe_search: 'unsafe' as 'strict' }),
+    /moderate, strict, or none/,
+  );
 }));
 
 test('library feedback stores local source-aware negative signals', () => withTempLibrary(() => {

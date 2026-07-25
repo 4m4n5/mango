@@ -1,5 +1,10 @@
 import { CatalogError } from '../catalog-errors.js';
-import { incrementYoutubeQuota, upsertYoutubeItems } from './db.js';
+import {
+  incrementYoutubeQuota,
+  upsertYoutubeItems,
+  youtubeQuotaDecision,
+  type YoutubeApiPurpose,
+} from './db.js';
 import type { YoutubeConfig } from './config.js';
 import type { YoutubeItem, YoutubeItemKind, YoutubeLiveStatus, YoutubeSearchGroups } from './types.js';
 
@@ -156,7 +161,17 @@ function nullableNumber(value: string | undefined): number | null {
 export class YoutubeApiClient {
   constructor(private readonly config: YoutubeConfig) {}
 
-  private async request(path: string, params: Record<string, string | number | undefined>, token?: string): Promise<unknown> {
+  private async request(
+    path: string,
+    params: Record<string, string | number | undefined>,
+    token?: string,
+    purpose: YoutubeApiPurpose = 'background',
+  ): Promise<unknown> {
+    const quotaCost = path === 'search' ? 100 : 1;
+    const decision = youtubeQuotaDecision(quotaCost, purpose);
+    if (!decision.allowed) {
+      throw new CatalogError(429, decision.reason || 'YouTube quota unavailable');
+    }
     const url = new URL(`https://www.googleapis.com/youtube/v3/${path}`);
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== '') {
@@ -166,10 +181,11 @@ export class YoutubeApiClient {
     if (!token) {
       url.searchParams.set('key', requireApiKey(this.config));
     }
+    // YouTube charges attempted Data API requests even when they fail.
+    incrementYoutubeQuota(quotaCost, path === 'search');
     const response = await fetch(url, {
       headers: token ? { authorization: `Bearer ${token}` } : undefined,
     });
-    incrementYoutubeQuota(1, path === 'search');
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = typeof payload?.error?.message === 'string'
@@ -191,6 +207,7 @@ export class YoutubeApiClient {
     videoDefinition?: 'any' | 'high' | 'standard';
     topicId?: string;
     safeSearch?: 'moderate' | 'none' | 'strict';
+    purpose?: YoutubeApiPurpose;
   } = {}): Promise<YoutubeSearchGroups> {
     const type = options.eventType
       || options.publishedAfter
@@ -214,7 +231,7 @@ export class YoutubeApiClient {
       videoDuration: options.videoDuration,
       videoDefinition: options.videoDefinition,
       topicId: options.topicId,
-    }) as { items?: SearchItem[] };
+    }, undefined, options.purpose ?? 'background') as { items?: SearchItem[] };
     const items = (payload.items || [])
       .map((entry) => {
         const kind = kindFromSearch(entry);
@@ -222,7 +239,10 @@ export class YoutubeApiClient {
         return kind && id ? itemFromSnippet(kind, id, entry.snippet) : null;
       })
       .filter((entry): entry is YoutubeItem => entry !== null);
-    const videos = await this.enrichVideos(items.filter((entry) => entry.kind === 'video'));
+    const videos = await this.enrichVideos(
+      items.filter((entry) => entry.kind === 'video'),
+      options.purpose ?? 'background',
+    );
     const filteredVideos = this.config.exclude_shorts
       ? videos.filter((item) => !isShortLike(item))
       : videos;
@@ -232,14 +252,17 @@ export class YoutubeApiClient {
     return { videos: filteredVideos, channels, playlists };
   }
 
-  async videos(ids: string[]): Promise<YoutubeItem[]> {
+  async videos(
+    ids: string[],
+    purpose: YoutubeApiPurpose = 'background',
+  ): Promise<YoutubeItem[]> {
     const unique = [...new Set(ids.filter(Boolean))].slice(0, 50);
     if (unique.length === 0) return [];
     const payload = await this.request('videos', {
       part: 'snippet,contentDetails,liveStreamingDetails',
       id: unique.join(','),
       regionCode: this.config.region_code,
-    }) as { items?: VideoItem[] };
+    }, undefined, purpose) as { items?: VideoItem[] };
     const items = (payload.items || []).map((entry) => {
       const id = entry.id || '';
       const duration = parseYoutubeDurationSec(entry.contentDetails?.duration);
@@ -273,7 +296,12 @@ export class YoutubeApiClient {
     return filtered;
   }
 
-  async playlistItems(playlistId: string, limit = 25, token?: string): Promise<YoutubeItem[]> {
+  async playlistItems(
+    playlistId: string,
+    limit = 25,
+    token?: string,
+    purpose: YoutubeApiPurpose = 'background',
+  ): Promise<YoutubeItem[]> {
     const videoIds: string[] = [];
     let pageToken: string | undefined;
     while (videoIds.length < limit) {
@@ -282,7 +310,7 @@ export class YoutubeApiClient {
         playlistId,
         maxResults: Math.min(limit - videoIds.length, 50),
         pageToken,
-      }, token) as {
+      }, token, purpose) as {
         items?: Array<{ snippet?: Snippet; contentDetails?: { videoId?: string } }>;
         nextPageToken?: string;
       };
@@ -294,15 +322,20 @@ export class YoutubeApiClient {
         break;
       }
     }
-    return this.videos(videoIds.slice(0, limit));
+    return this.videos(videoIds.slice(0, limit), purpose);
   }
 
-  async channelVideos(channelId: string, limit = 25): Promise<YoutubeItem[]> {
+  async channelVideos(
+    channelId: string,
+    limit = 25,
+    purpose: YoutubeApiPurpose = 'background',
+  ): Promise<YoutubeItem[]> {
     const groups = await this.search('', {
       channelId,
       limit,
       order: 'date',
       type: 'video',
+      purpose,
     });
     return groups.videos;
   }
@@ -393,10 +426,13 @@ export class YoutubeApiClient {
     return result;
   }
 
-  private async enrichVideos(videos: YoutubeItem[]): Promise<YoutubeItem[]> {
+  private async enrichVideos(
+    videos: YoutubeItem[],
+    purpose: YoutubeApiPurpose,
+  ): Promise<YoutubeItem[]> {
     const ids = videos.map((item) => item.id);
     if (ids.length === 0) return [];
-    const enriched = await this.videos(ids).catch(() => []);
+    const enriched = await this.videos(ids, purpose).catch(() => []);
     if (enriched.length === 0) return videos;
     const byId = new Map(enriched.map((item) => [item.id, item]));
     return videos.map((item) => byId.get(item.id) || item);

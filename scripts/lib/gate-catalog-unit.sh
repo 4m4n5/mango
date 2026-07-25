@@ -43,6 +43,8 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/bonus-stream-resolve.test.js \
     dist/voice/search.test.js \
     dist/voice/tools.test.js \
+    dist/search/normalize.test.js \
+    dist/search/service.test.js \
     dist/youtube/db.test.js \
     dist/youtube/api.test.js \
     dist/youtube/playback.test.js \

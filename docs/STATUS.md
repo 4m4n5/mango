@@ -23,8 +23,8 @@ What works today, what is still being hardened, and how to verify it.
 
 | Feature | Detail |
 |---------|--------|
-| Tabs | Movies · Series · Live · YouTube (L/R shoulders; native YouTube is Pi-gated and has an explicit M6.2 smoke after YouTube changes) |
-| Grid | 9-up posters · `X` shuffle (pad `307`) |
+| Browse | Search magnifier · Movies · Series · Live · YouTube (L/R shoulders switch browse tabs) |
+| Grid/input | 9-up cards · Home `X` current-tab shuffle · Search `X` tap delete / 600 ms hold clear |
 | Rails | YAML + AI catalog slots + Continue |
 | Service | `catalog-service :3020` · `GET /rails` |
 | Proxy | `serve.py` → `/api/catalog/*` |
@@ -319,10 +319,15 @@ resolution.
 | Companion picks | Numbered tappable rows · `pick_select` WS (no LLM round-trip) |
 | YouTube AI rails | 9-card cap · gate isolates `MANGO_AI_CATALOGS_DIR` |
 | Automated gate | `gate-m6-ux-smoke.sh` in `pi-pre-couch-gate.sh` on `feat/native-experience` |
+| Unified Search | Temporary magnifier surface, local keyboard suggestions, progressive source-isolated rows, origin-aware Detail/playback return, 12 recents, SafeSearch, query cache and quota reserve |
 
 **Pi evidence:** commit `8eeb239` — ux-smoke 9/9 PASS.
 
 Spec: [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · Round: [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md)
+
+Search source of truth: [SEARCH.md](SEARCH.md). Automated proof:
+`gate-m6-search-smoke.sh` is diagnostic/cache-only and must not change search
+history, YouTube quota, or playback state.
 
 ---
 
@@ -350,6 +355,7 @@ Efficiency & performance audit (Tiers 1-4 — DB/cache efficiency, perceived lat
 | `gate-m4-self-hosted.sh` | Self-hosted addon corpus |
 | `gate-live-iptv.sh` | Opt-in live only |
 | `gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail and optional playback |
+| `gate-m6-search-smoke.sh` | Non-mutating local/cached Search state, suggestions, long-poll, phase isolation, quota/history/playback invariants |
 | `gate-m5-companion-memory.sh` | Living librarian profile/journal/watch-signals/rollup (22 tests) |
 | `gate-m6-ux-smoke.sh` | M6.5 focus/HUD DOM+CSS contracts; detail FocusGrid bundle; pad alive |
 | `gate-m6-reliability-proof.sh` | Reliability Center proof; fails red and warns yellow |

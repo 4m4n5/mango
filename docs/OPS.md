@@ -62,7 +62,7 @@ bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh
 | D-pad | Move focus |
 | B (`304`) | Select / play |
 | Y (`308`) | Back |
-| X (`307`) | Shuffle rail |
+| X (`307`) | Home: current-tab shuffle. Search: tap deletes one character; hold 600 ms clears |
 | − / + (`314` / `315`) | Volume down / up |
 | L/R (`310`/`311`) | Tab − / + |
 | ⌂ (`316`) | Home |
@@ -80,6 +80,7 @@ fix, C: GPU rasterization + pad-nav API). Relevant env vars:
 | `MANGO_PAD_COUCH_ACTIVITY_THROTTLE_SEC` | `0.5` | Throttle for async couch-activity touches |
 | `MANGO_PAD_NAV_API` | `0` | `1` = pad POSTs nav to `/api/pad/nav` instead of xdotool keys (xdotool fallback on any HTTP failure) |
 | `MANGO_PAD_NAV_TIMEOUT_SEC` | `0.15` | HTTP timeout for pad-nav POST before fallback |
+| `MANGO_PAD_SECONDARY_HOLD_SEC` | `0.6` | X hold threshold for Search clear; shorter presses are tap/delete |
 | `MANGO_CHROMIUM_DISABLE_GPU` | `0` | `1` = force software compositing (rollback for GPU rasterization regressions) |
 
 To enable the pad-nav API on the Pi, set `MANGO_PAD_NAV_API=1` in the pad
@@ -276,6 +277,7 @@ Then open the companion and use the YouTube connect panel. Full details:
 | Same title will not immediately replay | `curl localhost:3020/play-session/<request_id>` when the request ID is known; inspect `~/.cache/mango/play-cancel.epoch` and `~/.cache/mango/mpv.pid`. A stale prior exit monitor is generation-gated and must not stop the new PID. |
 | YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator`; then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |
 | YouTube Live Now partial error | Check `refresh.phase_results.live_now`; Search Queries quota can exhaust while cached VOD rails and Popular still work because Popular uses `videos.list` |
+| Unified Search degraded row | Run `bash scripts/m6-ship/gate-m6-search-smoke.sh`; diagnostic mode is cache-only and does not write history or spend quota |
 | Reliability badge yellow/red | Open Settings → Reliability Center; or `curl localhost:3020/reliability/state` |
 | No TV output after moving Pi | SSH in and force the safe launcher mode: `DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority xrandr --output HDMI-1 --mode 1920x1080 --rate 60`; then `bash scripts/launch-launcher.sh` |
 | Target-TV gate fails film cadence | Keep Mango fallback at `1920x1080@60`; verify `xrandr` exposes `1920x1080 23.98/24.00` |

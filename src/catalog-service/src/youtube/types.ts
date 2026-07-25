@@ -57,4 +57,8 @@ export type YoutubeRefreshStatus = {
   search_calls_today: number;
   api_calls_today: number;
   quota_reset_day: string;
+  quota_budget: number;
+  interactive_reserve: number;
+  background_remaining: number;
+  interactive_remaining: number;
 };

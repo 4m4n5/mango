@@ -635,7 +635,7 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                 )
                 return
             action = str(payload.get("action", ""))
-            valid_actions = {"move", "select", "back", "tab", "shuffle"}
+            valid_actions = {"move", "select", "back", "tab", "shuffle", "secondary"}
             if action not in valid_actions:
                 self._write_json(
                     {"ok": False, "error": f"unknown action: {action}"},
@@ -662,11 +662,22 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                     return
             else:
                 delta = None
+            kind = payload.get("kind")
+            if action == "secondary":
+                if kind not in {"tap", "hold"}:
+                    self._write_json(
+                        {"ok": False, "error": "kind must be tap or hold"},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+            else:
+                kind = None
             command = {
                 "type": "pad_nav",
                 "action": action,
                 "direction": direction,
                 "delta": delta,
+                "kind": kind,
             }
             seq = enqueue_pad_nav_command(command)
             self._write_json({"ok": True, "seq": seq})
@@ -782,6 +793,13 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith("/api/catalog/"):
             self._proxy_catalog("DELETE")
+            return
+        self._write_json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
+
+    def do_PUT(self) -> None:
+        path = urlparse(self.path).path
+        if path.startswith("/api/catalog/"):
+            self._proxy_catalog("PUT")
             return
         self._write_json({"ok": False, "error": "not found"}, HTTPStatus.NOT_FOUND)
 

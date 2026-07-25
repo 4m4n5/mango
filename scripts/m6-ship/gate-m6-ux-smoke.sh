@@ -22,7 +22,7 @@ else
   gate_fail "launcher dist/index.html missing — cd src/launcher && npm run build"
 fi
 
-python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" <<'PY' \
+python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" "$SRC/search.ts" <<'PY' \
   && gate_pass "launcher source UX contracts" \
   || gate_fail "launcher source UX contracts"
 import pathlib
@@ -35,6 +35,7 @@ main = pathlib.Path(sys.argv[4]).read_text(encoding="utf-8")
 next_prompt = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8")
 playback_return = pathlib.Path(sys.argv[6]).read_text(encoding="utf-8")
 catalog = pathlib.Path(sys.argv[7]).read_text(encoding="utf-8")
+search = pathlib.Path(sys.argv[8]).read_text(encoding="utf-8")
 
 if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
@@ -74,6 +75,11 @@ if "function setStatus(_message: string): void {}" in main or "showToast(message
 for session_contract in ("/api/catalog/play-session", "ever_ready", "readPlaybackSession"):
     if session_contract not in catalog:
         raise SystemExit(f"catalog.ts missing playback-session contract: {session_contract}")
+for search_contract in ("class SearchController", "mango.search-session.v1", "secondary(kind", "PAGE_SIZE = 9"):
+    if search_contract not in search:
+        raise SystemExit(f"search.ts missing Search surface contract: {search_contract}")
+if 'origin === "search"' not in playback_return:
+    raise SystemExit("playback-return.ts missing Search-origin Detail restoration")
 PY
 
 "$REPO_DIR/src/catalog-service/node_modules/.bin/tsx" --test \
@@ -83,6 +89,9 @@ PY
   "$SRC/playback-reconciliation.test.ts" \
   "$SRC/playback-session-client.test.ts" \
   "$SRC/stream-list-recovery.test.ts" \
+  "$SRC/detail-search-queue.test.ts" \
+  "$SRC/search.test.ts" \
+  "$SRC/pad-nav.test.ts" \
   && gate_pass "launcher playback return + timeout reconciliation tests" \
   || gate_fail "launcher playback return + timeout reconciliation tests"
 
@@ -98,6 +107,8 @@ required = (
     'id="voice-hud"',
     'id="detail-view"',
     'id="home-view"',
+    'id="search-entry"',
+    'id="search-view"',
     'id="detail-play"',
     'id="detail-episode-list"',
     'class="voice-hud"',

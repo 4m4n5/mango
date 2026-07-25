@@ -144,6 +144,25 @@ candidates; New From Subscriptions keeps up to 160 unwatched upload candidates.
 `GET /youtube/rails?reshuffle=1` samples from those caches plus Mango-local
 History and does not call YouTube at couch time.
 
+### Unified Search
+
+Search is a temporary launcher surface coordinated by `catalog-service`, not a
+new service or browse tab. Its atomic in-memory index contains distinct
+verified VOD plus cached Live/YouTube metadata. Explicit submissions add
+independent external VOD, one-unknown Live validation, fresh-or-cached YouTube,
+and optional structured AI phases. Each phase has its own deadline and status;
+usable rows survive another source failing.
+
+Durable recents, bounded selection affinity, and SafeSearch live in
+`library.db`. Rebuildable query responses live in `youtube.db`. Progressive
+jobs are memory-only and bounded to 32 for six hours. The launcher stores a
+versioned six-hour compact Search/focus snapshot so Detail and playback return
+do not rerender Home or lose the originating tab.
+
+The pad router reports `secondary:tap|hold`; it does not reshuffle catalogs.
+The launcher maps secondary contextually: current-tab shuffle on Home, delete
+or clear in Search. See [SEARCH.md](SEARCH.md).
+
 ---
 
 ## Module graph
@@ -227,11 +246,11 @@ step without changing launcher tab semantics.
 
 ### Launcher D-pad transport (pad-nav API)
 
-When `MANGO_PAD_NAV_API=1`, launcher D-pad/face/tab/shuffle events take a
+When `MANGO_PAD_NAV_API=1`, launcher D-pad/face/tab/contextual-secondary events take a
 localhost HTTP path instead of synthetic keyboard events:
 
 ```
-pad evdev → routing_app (cached) → POST /api/pad/nav {action,direction,delta}
+pad evdev → routing_app (cached) → POST /api/pad/nav {action,direction,delta,kind}
 serve.py → pad-nav queue (separate from voice; deque + Condition + persisted seq)
 launcher → GET /api/pad/nav?after=&wait=25 long-poll → handlePadNav → FocusGrid / detail / settings / next-prompt
 ```
@@ -243,7 +262,7 @@ browser, curl probe) steal presses so the TV Chromium registered them randomly.
 
 The launcher owns surface + focus state; the pad sends directional intents only.
 `handlePadNav` mirrors `handleKeydown`'s priority chain (next-prompt → detail →
-settings → home) so the pad-nav and xdotool-fallback paths are behaviorally
+settings → Search → home) so the pad-nav and xdotool-fallback paths are behaviorally
 identical. On any HTTP failure (connection refused, timeout, non-200) the pad
 falls back to the existing `xdotool key --window <wid>` path, so a down UI server
 never breaks navigation. The mpv path is unchanged (IPC). The pad-nav smoke probe
@@ -313,6 +332,24 @@ later UX pass.
 | `GET` | `/youtube/auth/poll?session_id=` | Poll companion-first OAuth completion |
 | `POST` | `/youtube/auth/disconnect` | Remove local auth token |
 | `POST` | `/youtube/refresh` | Fill/update cache and recommender rails |
+
+## Search API
+
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/search/state` | Recents, starters, preferences, index/source and YouTube quota/cache readiness |
+| `GET` | `/search/suggestions` | Local index only; never provider/API work |
+| `POST` | `/search/query` | `202` plus initial local snapshot and progressive job ID |
+| `GET` | `/search/query/{id}` | Revision-based bounded long-poll |
+| `POST` | `/search/query/{id}/cancel` | Suppress superseded output |
+| `POST` | `/search/selection` | Local bounded tie-break signal |
+| `POST` | `/search/external/queue` | Localhost-only confirmed-empty VOD queue |
+| `DELETE` | `/search/history` | Localhost-only recents and learning clear |
+| `GET/PUT` | `/search/preferences` | YouTube SafeSearch |
+
+The optional orchestrator `POST /search/expand` is localhost-only, has no
+tools/history, validates at most three alternate queries, and has a four-second
+deadline.
 | `GET` | `/youtube/rails` | YouTube tab rails with stale-cache status |
 | `GET` | `/youtube/search?q=` | Grouped videos/channels/playlists |
 | `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |

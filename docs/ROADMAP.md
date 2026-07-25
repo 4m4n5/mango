@@ -74,7 +74,7 @@ Pi 5 · X11 + Openbox
 - `catalog-service` on `:3020` with `@stremio/stremio-core-web`
 - `config/catalog.yaml` rails — addon catalogs, mdblist, Cinemeta charts
 - Launcher tabs: **Movies · Series · Live**
-- 9-up poster grid · L/R tab shoulders · X shuffle
+- 9-up cards · L/R tab shoulders · contextual X (Home shuffle; Search delete/clear)
 - `GET /rails` · proxy via `serve.py` `/api/catalog/*`
 
 **Gate:** `scripts/m2-catalog/browse/gate-m2-browse.sh`
@@ -245,11 +245,19 @@ bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 
 
 
-### M6.5 — Unified TV/companion UX ship polish ◐
+### M6.5 — Unified TV/companion UX and launcher Search ◐
 
 Functional gates ≠ ship quality. **Round code shipped 2026-07-05** (`8eeb239`): detail 2D FocusGrid · HUD safe-area · structured companion picks · `gate-m6-ux-smoke.sh`. **Remaining:** manual COUCH_TEST U1–U9 + voice V1–V12.
 
 **Spec:** [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · **Round:** [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md) · **Acceptance:** COUCH_TEST U1–U9 · `gate-m6-ux-smoke.sh`
+
+Unified launcher Search adds a magnifier surface before Movies, compact D-pad
+QWERTY input, All/source scopes, progressive isolated result rows, local
+recents/learning, bounded YouTube interactive quota, and exact
+Search → Detail → playback restoration. It reuses catalog-service, Detail,
+playability, `library.db`, and `youtube.db`; no fifth tab, chatbot, autoplay,
+`search.db`, or Stremio library sync. See [SEARCH.md](SEARCH.md) and
+`gate-m6-search-smoke.sh`.
 
 ### M6.4 — Plug-and-play
 

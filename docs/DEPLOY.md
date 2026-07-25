@@ -110,6 +110,7 @@ bash scripts/m4-addons/gate-m4-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=
 bash scripts/m3-play/playability/gate-m3-verified-rails.sh
 bash scripts/m5-voice/stack/verify-voice-ready.sh      # when MANGO_VOICE=1
 bash scripts/m6-ship/gate-m6-youtube-smoke.sh          # after YouTube/API/launcher rail changes
+bash scripts/m6-ship/gate-m6-search-smoke.sh           # after unified Search/API/input changes
 bash scripts/m6-ship/gate-m6-reliability-proof.sh      # final couch-readiness proof
 ```
 

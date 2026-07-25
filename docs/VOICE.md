@@ -50,6 +50,11 @@ Both share tools, policy, conversation thread, and TV dispatch. Composer blocks 
 
 Search → **open detail on TV** (movies · series · live · YouTube).
 
+This voice discovery contract is unchanged by launcher unified Search.
+Launcher Search has no chatbot, voice transcript, tool execution, or autoplay;
+its optional AI expansion endpoint is localhost-only, no-tools, no-history,
+structured retrieval support. See [SEARCH.md](SEARCH.md).
+
 ### Catalog routes (`:3020`)
 
 | Route | Purpose |

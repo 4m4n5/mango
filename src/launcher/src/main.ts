@@ -1,7 +1,7 @@
 import "./style.css";
 import { FocusGrid } from "./focus";
 import { flushProgress, loadCatalogRails, loadContinueRail, loadMeta, stopPlaybackForVoice } from "./catalog";
-import { DetailController } from "./detail";
+import { DetailController, type DetailOriginContext } from "./detail";
 import { NextEpisodePrompt } from "./next-prompt";
 import {
   buildAppsRail,
@@ -23,8 +23,10 @@ import {
   clearPlaybackReturnSnapshot,
   readPlaybackReturnFromContext,
   readPlaybackReturnSnapshot,
+  tabForCard,
   type PlaybackReturnSnapshot,
 } from "./playback-return";
+import { SearchController, type SearchRestoreState } from "./search";
 import { logPerf } from "./perf";
 import { touchCouchActivity } from "./activity";
 import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
@@ -33,6 +35,8 @@ const CONTINUE_RAIL_ID = "continue-watching";
 const SAVED_RAIL_ID = "saved";
 
 const homeView = mustGet<HTMLElement>("home-view");
+const searchEntry = mustGet<HTMLButtonElement>("search-entry");
+const searchView = mustGet<HTMLElement>("search-view");
 const browseTabsEl = mustGet<HTMLElement>("browse-tabs");
 const railsEl = mustGet<HTMLElement>("rails");
 const libraryRefreshBtn = mustGet<HTMLButtonElement>("library-refresh");
@@ -126,6 +130,7 @@ let focusBrowseTabOnRender = false;
 let reliabilityBadgeTimer: number | undefined;
 
 let nextPromptFocusIndex = 0;
+let search!: SearchController;
 
 const nextEpisodePrompt = new NextEpisodePrompt(
   nextPromptView,
@@ -161,34 +166,39 @@ const detail = new DetailController(
   detailRelatedTrack,
   detailRelatedLabel,
   {
-    onClose: restoreHomeFromDetail,
+    onClose: restoreFromDetail,
     onStatus: setStatus,
-    onSavedChanged: () => void reloadSavedAndCatalog(),
+    onSavedChanged: (card) => void reloadSavedAndCatalog(tabForCard(card, activeBrowseTab)),
     isSaved: (card) => savedKeys.has(cardSavedKey(card)),
     onPlayed: (card, result) => {
       if (result.first_time_verified) {
         showToast("added to library");
       }
-      if (card.source === "youtube" || card.type.startsWith("youtube_")) {
-        // Preserve the current YouTube rail selection and focus. YouTube
-        // history is durable immediately and appears on explicit shuffle.
-        return;
-      }
-      if (activeBrowseTab === "movies" || activeBrowseTab === "series") {
-        pendingContinueRefreshTab = activeBrowseTab;
+      const playedTab = tabForCard(card, activeBrowseTab);
+      if (playedTab === "movies" || playedTab === "series") {
+        pendingContinueRefreshTab = playedTab;
         void handlePlaybackReturn();
       }
     },
+    onConfirmedUnavailable: (card) => void queueSearchExternal(card),
   },
 );
+
+search = new SearchController(searchView, {
+  onClose: (state) => restoreHomeFromSearch(state),
+  onOpenDetail: (card, label, state) => void openSearchDetail(card, label, state),
+  onStatus: setStatus,
+});
 
 init();
 
 function init(): void {
+  searchEntry.dataset.focusKey = "browse:search";
   libraryRefreshBtn.dataset.focusKey = "browse:shuffle";
   renderHome();
 
   backButton.addEventListener("click", showHome);
+  searchEntry.addEventListener("click", () => void openSearch());
   libraryRefreshBtn.addEventListener("click", () => void libraryRefresh());
   document.addEventListener("keydown", handleKeydown);
   document.addEventListener("click", () => touchCouchActivity("launcher", "click"), { capture: true });
@@ -273,12 +283,20 @@ function init(): void {
     },
     settingsBack: () => showHome(),
 
+    isInSearch: () => search.isOpen,
+    searchMoveRow: (delta) => search.moveRow(delta),
+    searchMoveCol: (delta) => search.moveCol(delta),
+    searchSelect: () => search.activate(),
+    searchBack: () => search.close(),
+    searchSecondary: (kind) => search.secondary(kind),
+
     homeMoveRow: (delta) => focusGrid.moveRow(delta),
     homeMoveCol: (delta) => focusGrid.moveCol(delta),
     homeSelect: () => activateFocused(),
     homeBack: () => {},
     homeTab: (delta) => cycleBrowseTab(delta),
     homeShuffle: () => void libraryRefresh(),
+    homeSecondary: () => void libraryRefresh(),
   });
 }
 
@@ -287,7 +305,9 @@ function renderHome(): void {
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
   const showShuffle = activeBrowseTab !== "live";
   libraryRefreshBtn.hidden = !showShuffle;
-  const browseChrome = showShuffle ? [...tabButtons, libraryRefreshBtn] : tabButtons;
+  const browseChrome = showShuffle
+    ? [searchEntry, ...tabButtons, libraryRefreshBtn]
+    : [searchEntry, ...tabButtons];
   ensureAppsSection();
   const { container: activeContainer, rows: catalogRows, reused } = renderActiveTabCatalog();
   mountRailsView(activeContainer);
@@ -300,7 +320,7 @@ function renderHome(): void {
     focusBrowseTabOnRender = false;
     const tabIndex = BROWSE_TAB_ORDER.indexOf(activeBrowseTab);
     if (tabIndex >= 0) {
-      focusGrid.setPosition(0, tabIndex);
+      focusGrid.setPosition(0, tabIndex + 1);
     }
   }
   logPerf("render_home", {
@@ -527,6 +547,13 @@ function handleKeydown(event: KeyboardEvent): void {
     return;
   }
 
+  if (search.isOpen) {
+    if (search.handleKeydown(event)) {
+      event.preventDefault();
+    }
+    return;
+  }
+
   if (event.key === "F5" && !detail.isOpen && !homeView.classList.contains("hidden")) {
     event.preventDefault();
     void libraryRefresh();
@@ -590,9 +617,85 @@ function findRailVisible(card: ContentCard): ContentCard[] {
   return [];
 }
 
+async function openSearch(): Promise<void> {
+  inSettings = false;
+  nextEpisodePrompt.dismiss();
+  homeView.classList.add("hidden");
+  detailView.classList.add("hidden");
+  settingsView.classList.add("hidden");
+  await search.openFresh(
+    activeBrowseTab,
+    focusGrid.focused?.dataset.focusKey,
+    focusGrid.position,
+  );
+  setStatus("Type with the D-pad. X deletes; hold X clears. B selects.");
+}
+
+function restoreHomeFromSearch(state: SearchRestoreState): void {
+  inSettings = false;
+  activeBrowseTab = state.homeTab || activeBrowseTab;
+  if (state.homeFocusKey) tabFocusKeys.set(activeBrowseTab, state.homeFocusKey);
+  if (state.homePosition) tabFocusPositions.set(activeBrowseTab, state.homePosition);
+  searchView.classList.add("hidden");
+  settingsView.classList.add("hidden");
+  detailView.classList.add("hidden");
+  homeView.classList.remove("hidden");
+  if (!showCachedCatalog(activeBrowseTab)) {
+    void loadCatalog();
+  }
+  focusGrid.restoreFocus();
+  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
+}
+
+async function openSearchDetail(
+  card: ContentCard,
+  railLabel: string,
+  state: SearchRestoreState,
+): Promise<void> {
+  inSettings = false;
+  nextEpisodePrompt.dismiss();
+  homeView.classList.add("hidden");
+  settingsView.classList.add("hidden");
+  const tab = tabForCard(card, activeBrowseTab);
+  const searchSaved = await fetchSavedIds(tab)
+    .then((ids) => ids.has(cardSavedKey(card)))
+    .catch(() => false);
+  detail.show(card, railLabel, tab, searchSaved, [], {
+    surface: "search",
+    searchState: state,
+  });
+}
+
+async function queueSearchExternal(card: ContentCard): Promise<void> {
+  if (card.source !== "external" || (card.type !== "movie" && card.type !== "series")) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/catalog/search/external/queue", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: card.type,
+        id: card.id,
+        title: card.title,
+        poster: card.posterUrl,
+        year: card.year,
+      }),
+    });
+    if (!response.ok) return;
+    const result = await response.json() as { queued?: boolean; already_queued?: boolean };
+    if (result.queued) showToast("queued for library verification");
+    else if (result.already_queued) showToast("already queued for verification");
+  } catch {
+    // Stream-list state remains authoritative; queueing is best-effort.
+  }
+}
+
 function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseTab): void {
   inSettings = false;
   nextEpisodePrompt.dismiss();
+  searchView.classList.add("hidden");
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
   const browseTab = tab ?? activeBrowseTab;
@@ -608,6 +711,7 @@ function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
     await stopPlaybackForVoice();
     inSettings = false;
     settingsView.classList.add("hidden");
+    searchView.classList.add("hidden");
     homeView.classList.add("hidden");
     activeBrowseTab = tab;
     setStatus(`Opening ${card.title}…`);
@@ -625,6 +729,7 @@ function showSettings(): void {
   inSettings = true;
   detailView.classList.add("hidden");
   homeView.classList.add("hidden");
+  searchView.classList.add("hidden");
   settingsView.classList.remove("hidden");
   backButton.dataset.settingsFocus = "true";
   const items = settingsFocusables(settingsView);
@@ -683,35 +788,54 @@ function showHome(): void {
     detail.hide();
     return;
   }
+  if (search.isOpen) {
+    search.close();
+    return;
+  }
   inSettings = false;
   settingsView.classList.add("hidden");
   detailView.classList.add("hidden");
+  searchView.classList.add("hidden");
   homeView.classList.remove("hidden");
   clearPlaybackReturnSnapshot();
   focusGrid.restoreFocus();
   setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
 }
 
-function restoreHomeFromDetail(): void {
+function restoreFromDetail(origin: DetailOriginContext): void {
   inSettings = false;
   settingsView.classList.add("hidden");
+  if (origin.surface === "search") {
+    homeView.classList.add("hidden");
+    search.restore(origin.searchState);
+    setStatus("Search restored. X deletes; hold X clears.");
+    return;
+  }
+  searchView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
   setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
 }
 
-async function reloadSavedAndCatalog(): Promise<void> {
+async function reloadSavedAndCatalog(tab = activeBrowseTab): Promise<void> {
   try {
-    savedKeys = await fetchSavedIds(activeBrowseTab);
+    const nextSaved = await fetchSavedIds(tab);
+    tabSavedCache.set(tab, nextSaved);
+    if (tab === activeBrowseTab) {
+      savedKeys = nextSaved;
+    }
   } catch {
-    savedKeys = new Set();
+    if (tab === activeBrowseTab) {
+      savedKeys = new Set();
+    }
   }
-  tabSavedCache.set(activeBrowseTab, savedKeys);
-  tabCatalogCache.delete(activeBrowseTab);
-  if (activeBrowseTab === "live" || activeBrowseTab === "youtube") {
+  tabCatalogCache.delete(tab);
+  if (tab === "live" || tab === "youtube") {
     liveCatalogSessionCached = false;
   }
-  await loadCatalog();
+  if (tab === activeBrowseTab && !search.isOpen) {
+    await loadCatalog();
+  }
 }
 
 async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> {
@@ -917,6 +1041,7 @@ function restoreLiveTabHome(tab: BrowseTab): void {
   activeBrowseTab = tab;
   buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
   homeView.classList.remove("hidden");
+  searchView.classList.add("hidden");
   settingsView.classList.add("hidden");
   detailView.classList.add("hidden");
   if (!showCachedCatalog(tab)) {
@@ -929,11 +1054,18 @@ function restoreLiveTabHome(tab: BrowseTab): void {
 
 async function restoreDetailFromSnapshot(snapshot: PlaybackReturnSnapshot): Promise<void> {
   const card = cardFromPlaybackSnapshot(snapshot);
-  activeBrowseTab = snapshot.tab;
+  const searchOrigin = snapshot.origin === "search";
+  if (searchOrigin) {
+    search.restore(snapshot.searchState);
+    search.hideForDetail();
+  } else {
+    activeBrowseTab = snapshot.tab;
+  }
   buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
   inSettings = false;
   nextEpisodePrompt.dismiss();
   homeView.classList.add("hidden");
+  searchView.classList.add("hidden");
   settingsView.classList.add("hidden");
   try {
     const meta = await loadMeta(card);
@@ -960,6 +1092,9 @@ async function restoreDetailFromSnapshot(snapshot: PlaybackReturnSnapshot): Prom
     savedKeys.has(cardSavedKey(card)),
     [],
     snapshot.episodeId,
+    searchOrigin
+      ? { surface: "search", searchState: snapshot.searchState }
+      : { surface: "home" },
   );
   clearPlaybackReturnSnapshot();
 }

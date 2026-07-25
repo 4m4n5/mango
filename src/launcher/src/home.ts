@@ -166,13 +166,14 @@ function appendCatalogSections(
     track.className = "rail-track rail-track--posters";
     track.setAttribute("role", "list");
 
+    const landscape = rail.layout === "landscape"
+      || (rail.layout !== "poster" && isLandscapeCard(rail.cards[0], options.browseTab));
     const items: HTMLElement[] = [];
     for (const card of rail.cards) {
-      const button = createPosterCard(card, rail, callbacks, options);
+      const button = createPosterCard(card, rail, callbacks, options, landscape);
       track.appendChild(button);
       items.push(button);
     }
-    const landscape = isLandscapeCard(rail.cards[0], options.browseTab);
     applyRailLayout(track, landscape);
     section.appendChild(track);
     container.appendChild(section);
@@ -243,9 +244,10 @@ function createPosterCard(
   rail: ContentRail,
   callbacks: HomeCallbacks,
   options: HomeOptions = {},
+  forceLandscape?: boolean,
 ): HTMLButtonElement {
   const savedKeys = options.savedKeys ?? new Set<string>();
-  const landscape = isLandscapeCard(card, options.browseTab);
+  const landscape = forceLandscape ?? isLandscapeCard(card, options.browseTab);
   const button = document.createElement("button");
   button.type = "button";
   button.className = `card card--poster${landscape ? " card--landscape" : " card--portrait"}`;

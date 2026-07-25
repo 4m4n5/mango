@@ -23,6 +23,8 @@ def generate_reply(
     settings: OrchestratorSettings,
     *,
     on_delta: DeltaCallback | None = None,
+    system_prompt: str = SYSTEM_PROMPT,
+    max_tokens: int | None = None,
 ) -> str:
     if os.environ.get("MANGO_LLM_MOCK") == "1":
         last_user = next(
@@ -36,9 +38,23 @@ def generate_reply(
     provider = settings.llm_provider.lower()
     api_key = _read_api_key(settings, provider)
     if provider == "anthropic":
-        return _anthropic_reply(messages, settings, api_key, on_delta=on_delta)
+        return _anthropic_reply(
+            messages,
+            settings,
+            api_key,
+            on_delta=on_delta,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+        )
     if provider == "openai":
-        return _openai_reply(messages, settings, api_key, on_delta=on_delta)
+        return _openai_reply(
+            messages,
+            settings,
+            api_key,
+            on_delta=on_delta,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+        )
     raise RuntimeError(f"unsupported LLM provider: {settings.llm_provider}")
 
 
@@ -60,6 +76,8 @@ def _anthropic_reply(
     api_key: str,
     *,
     on_delta: DeltaCallback | None,
+    system_prompt: str,
+    max_tokens: int | None,
 ) -> str:
     from anthropic import Anthropic
 
@@ -67,8 +85,8 @@ def _anthropic_reply(
     if on_delta is None:
         response = client.messages.create(
             model=settings.llm_model,
-            max_tokens=settings.llm_max_tokens,
-            system=SYSTEM_PROMPT,
+            max_tokens=max_tokens or settings.llm_max_tokens,
+            system=system_prompt,
             messages=messages,
         )
         return _clean_reply(_anthropic_blocks_to_text(response.content))
@@ -76,8 +94,8 @@ def _anthropic_reply(
     parts: list[str] = []
     with client.messages.stream(
         model=settings.llm_model,
-        max_tokens=settings.llm_max_tokens,
-        system=SYSTEM_PROMPT,
+        max_tokens=max_tokens or settings.llm_max_tokens,
+        system=system_prompt,
         messages=messages,
     ) as stream:
         for event in stream:
@@ -97,18 +115,20 @@ def _openai_reply(
     api_key: str,
     *,
     on_delta: DeltaCallback | None,
+    system_prompt: str,
+    max_tokens: int | None,
 ) -> str:
     from openai import OpenAI
 
     client = OpenAI(api_key=api_key)
-    payload = [{"role": "system", "content": SYSTEM_PROMPT}] + [
+    payload = [{"role": "system", "content": system_prompt}] + [
         {"role": msg["role"], "content": msg["content"]} for msg in messages
     ]
     if on_delta is None:
         response = client.chat.completions.create(
             model=settings.llm_model,
             messages=payload,
-            max_tokens=settings.llm_max_tokens,
+            max_tokens=max_tokens or settings.llm_max_tokens,
         )
         content = response.choices[0].message.content or ""
         return _clean_reply(content)
@@ -117,7 +137,7 @@ def _openai_reply(
     stream = client.chat.completions.create(
         model=settings.llm_model,
         messages=payload,
-        max_tokens=settings.llm_max_tokens,
+        max_tokens=max_tokens or settings.llm_max_tokens,
         stream=True,
     )
     for chunk in stream:

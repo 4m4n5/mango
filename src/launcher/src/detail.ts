@@ -17,7 +17,11 @@ import {
 } from "./catalog";
 import type { ContentCard, BrowseTab } from "./types";
 import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
-import { savePlaybackReturnSnapshot, clearPlaybackReturnSnapshot } from "./playback-return";
+import {
+  savePlaybackReturnSnapshot,
+  clearPlaybackReturnSnapshot,
+  type PlaybackOrigin,
+} from "./playback-return";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel } from "./home";
 import { showToast } from "./toast";
@@ -35,12 +39,18 @@ const UNVERIFIED_STREAM_STEPS = new Set([
 ]);
 
 export interface DetailCallbacks {
-  onClose: () => void;
+  onClose: (origin: DetailOriginContext) => void;
   onStatus: (message: string) => void;
-  onSavedChanged?: () => void;
+  onSavedChanged?: (card: ContentCard) => void;
   onPlayed?: (card: ContentCard, result: PlayResult) => void;
   isSaved?: (card: ContentCard) => boolean;
+  onConfirmedUnavailable?: (card: ContentCard) => void;
 }
+
+export type DetailOriginContext = {
+  surface: PlaybackOrigin;
+  searchState?: unknown;
+};
 
 export class DetailController {
   private card: ContentCard | null = null;
@@ -71,6 +81,7 @@ export class DetailController {
   private pendingEpisodeRestore: string | null = null;
   /** Episode whose playback exit initiated the current detail restore. */
   private playbackReturnEpisodeId: string | null = null;
+  private origin: DetailOriginContext = { surface: "home" };
 
   constructor(
     private readonly view: HTMLElement,
@@ -158,9 +169,10 @@ export class DetailController {
     saved = false,
     homeVisible: ContentCard[] = [],
     episodeId?: string,
+    origin: DetailOriginContext = { surface: "home" },
   ): void {
     this.pendingEpisodeRestore = episodeId ?? null;
-    this.show(card, railLabel, tab, saved, homeVisible);
+    this.show(card, railLabel, tab, saved, homeVisible, origin);
     this.playbackReturnEpisodeId = episodeId ?? null;
     this.maybePromptNextEpisode();
   }
@@ -230,9 +242,11 @@ export class DetailController {
     tab: BrowseTab,
     saved = false,
     homeVisible: ContentCard[] = [],
+    origin: DetailOriginContext = { surface: "home" },
   ): void {
     this.card = card;
     this.browseTab = tab;
+    this.origin = origin;
     this.saved = saved;
     this.homeVisibleCards = homeVisible;
     this.streams = [];
@@ -290,6 +304,7 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
+    const origin = this.origin;
     this.stopNextPromptPoll();
     this.playToken += 1;
     this.streamsLoadToken += 1;
@@ -323,8 +338,9 @@ export class DetailController {
     this.updateVerifyBadge(undefined, undefined);
     this.homeVisibleCards = [];
     this.relatedLoadToken += 1;
+    this.origin = { surface: "home" };
     this.view.classList.add("hidden");
-    this.callbacks.onClose();
+    this.callbacks.onClose(origin);
   }
 
   moveRow(delta: number): void {
@@ -391,7 +407,13 @@ export class DetailController {
     const abort = new AbortController();
     this.playAbort = abort;
     this.resolvingPlay = true;
-    savePlaybackReturnSnapshot(this.browseTab, card, episodeId);
+    savePlaybackReturnSnapshot(
+      this.browseTab,
+      card,
+      episodeId,
+      this.origin.surface,
+      this.origin.searchState,
+    );
     this.publishPlayProgress(
       startSec
         ? "resuming…"
@@ -476,6 +498,14 @@ export class DetailController {
           this.callbacks.onPlayed?.(card, { ok: true });
         }
         return;
+      }
+      if (
+        card.type === "series"
+        && card.source === "external"
+        && this.origin.surface === "search"
+        && isConfirmedNoStreamsError(error)
+      ) {
+        this.callbacks.onConfirmedUnavailable?.(card);
       }
       // Series: mark the episode retryable so a later click re-runs /play (Phase A+B).
       if (card.type === "series" && episodeId) {
@@ -809,7 +839,7 @@ export class DetailController {
 
     button.addEventListener("click", () => {
       const saved = this.callbacks.isSaved?.(sibling) ?? false;
-      this.show(sibling, railLabel, tab, saved, this.homeVisibleCards);
+      this.show(sibling, railLabel, tab, saved, this.homeVisibleCards, this.origin);
     });
     return button;
   }
@@ -1107,7 +1137,7 @@ export class DetailController {
         showToast("saved — find it in your Saved rail.");
       }
       this.updateSaveButton();
-      this.callbacks.onSavedChanged?.();
+      this.callbacks.onSavedChanged?.(card);
     } catch (error) {
       const message = error instanceof Error ? error.message : "could not update saved";
       showToast(message);
@@ -1126,7 +1156,7 @@ export class DetailController {
       await notInterestedYoutubeCard(card);
       showToast("removed from YouTube recommendations.");
       this.hide();
-      this.callbacks.onSavedChanged?.();
+      this.callbacks.onSavedChanged?.(card);
     } catch (error) {
       const message = error instanceof Error ? error.message : "could not update YouTube recommendations";
       showToast(message);
@@ -1209,7 +1239,7 @@ export class DetailController {
       progress.textContent = video.subtitle;
       button.append(label, progress);
       button.addEventListener("click", () => {
-        this.show(video, "YouTube", "youtube", false);
+        this.show(video, "YouTube", "youtube", false, [], this.origin);
       });
       this.episodeList.append(button);
     }
@@ -1371,6 +1401,13 @@ export class DetailController {
       }
       this.streams = this.visibleStreams(result.streams);
       this.renderStreams();
+      if (
+        this.streams.length === 0
+        && this.origin.surface === "search"
+        && card.source === "external"
+      ) {
+        this.callbacks.onConfirmedUnavailable?.(card);
+      }
     } catch {
       if (this.streamsLoadToken !== token || !this.card || this.card.id !== card.id) {
         return;
@@ -1597,6 +1634,11 @@ export class DetailController {
       // keep polling until timeout
     }
   }
+}
+
+export function isConfirmedNoStreamsError(error: unknown): boolean {
+  return error instanceof Error
+    && error.message.trim().toLowerCase() === "no streams found for this title";
 }
 
 function seriesBareId(id: string): string {

@@ -70,6 +70,41 @@ export type LibraryFeedbackRow = {
   updated_at: number;
 };
 
+export type SearchSafeSearch = 'moderate' | 'strict' | 'none';
+
+export type SearchHistoryRow = {
+  normalized_query: string;
+  display_query: string;
+  last_searched_at: number;
+  search_count: number;
+};
+
+export type SearchSelectionRow = {
+  normalized_query: string;
+  entity_key: string;
+  source: string;
+  type: string;
+  id: string;
+  title: string;
+  selected_at: number;
+  selection_count: number;
+};
+
+export type SearchPreferences = {
+  youtube_safe_search: SearchSafeSearch;
+  updated_at: number;
+};
+
+export type SearchStarterItem = {
+  source: string;
+  type: string;
+  id: string;
+  title: string;
+  poster: string | null;
+  tab: CatalogTab;
+  activity_at: number;
+};
+
 export type WatchState = {
   play_id: string | null;
   position_sec: number;
@@ -323,6 +358,45 @@ CREATE TABLE IF NOT EXISTS library_feedback (
 CREATE INDEX IF NOT EXISTS idx_library_feedback_feedback ON library_feedback(feedback, updated_at DESC);
 `);
     db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (2, ?)')
+      .run(nowMs());
+  }
+  if (!migrated.has(3)) {
+    db.exec(`
+CREATE TABLE IF NOT EXISTS search_history (
+  normalized_query TEXT PRIMARY KEY,
+  display_query TEXT NOT NULL,
+  last_searched_at INTEGER NOT NULL,
+  search_count INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX IF NOT EXISTS idx_search_history_recent
+  ON search_history(last_searched_at DESC);
+
+CREATE TABLE IF NOT EXISTS search_selections (
+  normalized_query TEXT NOT NULL,
+  entity_key TEXT NOT NULL,
+  source TEXT NOT NULL,
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  selected_at INTEGER NOT NULL,
+  selection_count INTEGER NOT NULL DEFAULT 1,
+  PRIMARY KEY(normalized_query, entity_key)
+);
+CREATE INDEX IF NOT EXISTS idx_search_selections_recent
+  ON search_selections(selected_at DESC);
+
+CREATE TABLE IF NOT EXISTS search_preferences (
+  preferences_id INTEGER PRIMARY KEY CHECK(preferences_id = 1),
+  youtube_safe_search TEXT NOT NULL DEFAULT 'moderate'
+    CHECK(youtube_safe_search IN ('moderate', 'strict', 'none')),
+  updated_at INTEGER NOT NULL
+);
+`);
+    db.prepare(`
+INSERT OR IGNORE INTO search_preferences(preferences_id, youtube_safe_search, updated_at)
+VALUES (1, 'moderate', ?)
+`).run(nowMs());
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (3, ?)')
       .run(nowMs());
   }
 }
@@ -865,6 +939,209 @@ WHERE ${clauses.join('\n  AND ')}
 ORDER BY wh.watched_at DESC, wh.history_id DESC
 ${limitSql};
 `).all(params) as WatchHistoryRow[];
+}
+
+export function recordSearchQuery(
+  normalizedQuery: string,
+  displayQuery: string,
+  searchedAt = nowMs(),
+): SearchHistoryRow {
+  const db = ensureDb();
+  const normalized = normalizedQuery.trim();
+  const display = displayQuery.trim();
+  if (!normalized || !display) {
+    throw new Error('search query requires normalized and display text');
+  }
+  const transaction = db.transaction(() => {
+    db.prepare(`
+INSERT INTO search_history(normalized_query, display_query, last_searched_at, search_count)
+VALUES (@normalized_query, @display_query, @last_searched_at, 1)
+ON CONFLICT(normalized_query) DO UPDATE SET
+  display_query = excluded.display_query,
+  last_searched_at = excluded.last_searched_at,
+  search_count = search_history.search_count + 1;
+`).run({
+      normalized_query: normalized,
+      display_query: display,
+      last_searched_at: searchedAt,
+    });
+    db.prepare(`
+DELETE FROM search_history
+WHERE normalized_query NOT IN (
+  SELECT normalized_query
+  FROM search_history
+  ORDER BY last_searched_at DESC, normalized_query ASC
+  LIMIT 12
+);
+`).run();
+  });
+  transaction();
+  const row = db.prepare(`
+SELECT normalized_query, display_query, last_searched_at, search_count
+FROM search_history
+WHERE normalized_query = ?;
+`).get(normalized) as SearchHistoryRow | undefined;
+  if (!row) {
+    throw new Error('search history write failed');
+  }
+  return row;
+}
+
+export function listSearchHistory(limit = 12): SearchHistoryRow[] {
+  return ensureDb().prepare(`
+SELECT normalized_query, display_query, last_searched_at, search_count
+FROM search_history
+ORDER BY last_searched_at DESC, normalized_query ASC
+LIMIT @limit;
+`).all({ limit: Math.max(1, Math.min(12, Math.floor(limit))) }) as SearchHistoryRow[];
+}
+
+export function recordSearchSelection(input: {
+  normalized_query: string;
+  entity_key: string;
+  source: string;
+  type: string;
+  id: string;
+  title: string;
+  selected_at?: number;
+}): SearchSelectionRow {
+  const db = ensureDb();
+  const normalizedQuery = input.normalized_query.trim();
+  const entityKey = input.entity_key.trim();
+  if (!normalizedQuery || !entityKey || !input.id.trim() || !input.title.trim()) {
+    throw new Error('search selection requires query, entity, id, and title');
+  }
+  const selectedAt = input.selected_at ?? nowMs();
+  db.prepare(`
+INSERT INTO search_selections(
+  normalized_query, entity_key, source, type, id, title, selected_at, selection_count
+) VALUES (
+  @normalized_query, @entity_key, @source, @type, @id, @title, @selected_at, 1
+)
+ON CONFLICT(normalized_query, entity_key) DO UPDATE SET
+  source = excluded.source,
+  type = excluded.type,
+  id = excluded.id,
+  title = excluded.title,
+  selected_at = excluded.selected_at,
+  selection_count = search_selections.selection_count + 1;
+`).run({
+    normalized_query: normalizedQuery,
+    entity_key: entityKey,
+    source: normalizeSource(input.source),
+    type: normalizeLibraryType(input.type),
+    id: input.id.trim(),
+    title: input.title.trim(),
+    selected_at: selectedAt,
+  });
+  const row = db.prepare(`
+SELECT normalized_query, entity_key, source, type, id, title, selected_at, selection_count
+FROM search_selections
+WHERE normalized_query = ? AND entity_key = ?;
+`).get(normalizedQuery, entityKey) as SearchSelectionRow | undefined;
+  if (!row) {
+    throw new Error('search selection write failed');
+  }
+  return row;
+}
+
+export function listSearchSelections(normalizedQuery: string, limit = 100): SearchSelectionRow[] {
+  return ensureDb().prepare(`
+SELECT normalized_query, entity_key, source, type, id, title, selected_at, selection_count
+FROM search_selections
+WHERE normalized_query = @normalized_query
+ORDER BY selected_at DESC
+LIMIT @limit;
+`).all({
+    normalized_query: normalizedQuery.trim(),
+    limit: Math.max(1, Math.min(500, Math.floor(limit))),
+  }) as SearchSelectionRow[];
+}
+
+export function clearSearchActivity(): { history: number; selections: number } {
+  const db = ensureDb();
+  return db.transaction(() => ({
+    history: db.prepare('DELETE FROM search_history').run().changes,
+    selections: db.prepare('DELETE FROM search_selections').run().changes,
+  }))();
+}
+
+export function getSearchPreferences(): SearchPreferences {
+  const db = ensureDb();
+  const row = db.prepare(`
+SELECT youtube_safe_search, updated_at
+FROM search_preferences
+WHERE preferences_id = 1;
+`).get() as SearchPreferences | undefined;
+  if (row) {
+    return row;
+  }
+  const timestamp = nowMs();
+  db.prepare(`
+INSERT INTO search_preferences(preferences_id, youtube_safe_search, updated_at)
+VALUES (1, 'moderate', ?)
+`).run(timestamp);
+  return { youtube_safe_search: 'moderate', updated_at: timestamp };
+}
+
+export function setSearchPreferences(input: {
+  youtube_safe_search: SearchSafeSearch;
+}): SearchPreferences {
+  const safeSearch = input.youtube_safe_search;
+  if (safeSearch !== 'moderate' && safeSearch !== 'strict' && safeSearch !== 'none') {
+    throw new Error('youtube_safe_search must be moderate, strict, or none');
+  }
+  const updatedAt = nowMs();
+  ensureDb().prepare(`
+INSERT INTO search_preferences(preferences_id, youtube_safe_search, updated_at)
+VALUES (1, @youtube_safe_search, @updated_at)
+ON CONFLICT(preferences_id) DO UPDATE SET
+  youtube_safe_search = excluded.youtube_safe_search,
+  updated_at = excluded.updated_at;
+`).run({ youtube_safe_search: safeSearch, updated_at: updatedAt });
+  return { youtube_safe_search: safeSearch, updated_at: updatedAt };
+}
+
+export function listSearchStarterItems(limit = 12): SearchStarterItem[] {
+  const db = ensureDb();
+  return db.prepare(`
+WITH candidates AS (
+  SELECT
+    li.source,
+    li.type,
+    li.id,
+    COALESCE(NULLIF(TRIM(li.title), ''), li.id) AS title,
+    li.poster,
+    li.tab,
+    si.saved_at AS activity_at
+  FROM saved_items si
+  JOIN library_items li ON li.item_key = si.item_key
+  UNION ALL
+  SELECT
+    li.source,
+    li.type,
+    li.id,
+    COALESCE(NULLIF(TRIM(li.title), ''), li.id) AS title,
+    li.poster,
+    li.tab,
+    ws.last_watched_at AS activity_at
+  FROM watch_state ws
+  JOIN library_items li ON li.item_key = ws.item_key
+),
+ranked AS (
+  SELECT *,
+    ROW_NUMBER() OVER (
+      PARTITION BY source, type, id
+      ORDER BY activity_at DESC
+    ) AS item_rank
+  FROM candidates
+)
+SELECT source, type, id, title, poster, tab, activity_at
+FROM ranked
+WHERE item_rank = 1
+ORDER BY activity_at DESC
+LIMIT @limit;
+`).all({ limit: Math.max(1, Math.min(24, Math.floor(limit))) }) as SearchStarterItem[];
 }
 
 export function setLibraryContext(input: LibraryItemInput): LibraryContext {

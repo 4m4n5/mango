@@ -15,6 +15,7 @@
 | Check reliability / nightly proof | [RELIABILITY.md](RELIABILITY.md) |
 | Run couch tests | [COUCH_TEST.md](COUCH_TEST.md) |
 | Playability · grow · thematic rails | [PLAYABILITY.md](PLAYABILITY.md) |
+| Use or operate unified D-pad Search | [SEARCH.md](SEARCH.md) |
 | M5.5b/M6.5 unified ship round | [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md) |
 | M5.5 voice contract + companion UX split | [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) |
 | M6.5 post-YouTube unified UX polish | [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) |
@@ -62,6 +63,7 @@ M3 grow is in hardening. **M5.5b/M6.5 round** code is on Pi (`8eeb239`). Compreh
 bash scripts/pi-exec-gate.sh              # gate-lite (~2 min)
 MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # full (~5–8 min, 3 plays/rail)
 bash scripts/m6-ship/gate-m6-youtube-smoke.sh         # after YouTube/API/launcher rail changes
+bash scripts/m6-ship/gate-m6-search-smoke.sh          # non-mutating local/cached Search proof
 bash scripts/m5-voice/ai/gate-m5-companion-couch.sh   # Phase 3 companion safety
 bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch signals
 bash scripts/m6-ship/gate-m6-ux-smoke.sh              # M6.5 HUD/focus contracts
@@ -83,6 +85,7 @@ Live IPTV gates are opt-in. See [PLAYABILITY.md](PLAYABILITY.md) for grow/monito
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime boundaries and API contracts |
 | [AI_LAYER.md](AI_LAYER.md) | AI phases 0–3 status, tool inventory, companion contract |
 | [PLAYABILITY.md](PLAYABILITY.md) | Verified library, grow SLA, theme/orphan/overlap behavior |
+| [SEARCH.md](SEARCH.md) | Unified Search UX, adapters, persistence, quota, APIs, gates |
 | [RELIABILITY.md](RELIABILITY.md) | Reliability Center, proof ledger, safe repair policy |
 | [OPS.md](OPS.md) / [DEPLOY.md](DEPLOY.md) | Pi operation and git-only deployment |
 

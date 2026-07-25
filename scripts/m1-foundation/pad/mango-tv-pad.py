@@ -130,6 +130,7 @@ DIAG_SESSION = os.environ.get("MANGO_DIAG_SESSION", "")
 PAD_DEBUG = os.environ.get("MANGO_PAD_DEBUG") == "1"
 PAD_NAV_API_ENABLED = os.environ.get("MANGO_PAD_NAV_API", "0") == "1"
 PAD_NAV_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_NAV_TIMEOUT_SEC", "0.15"))
+SECONDARY_HOLD_SEC = float(os.environ.get("MANGO_PAD_SECONDARY_HOLD_SEC", "0.6"))
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": str(_HOME)}
 _last_display_wake_at = 0.0
 _last_couch_activity_at = 0.0
@@ -676,12 +677,18 @@ def send_key_launcher(symbol: str, *, app: str | None = None) -> None:
         send_key_to_wid(wid, symbol, activate=True)
 
 
-def send_pad_nav(action: str, direction: str | None = None, delta: int | None = None) -> bool:
+def send_pad_nav(
+    action: str,
+    direction: str | None = None,
+    delta: int | None = None,
+    kind: str | None = None,
+) -> bool:
     payload: dict[str, object] = {
         "type": "pad_nav",
         "action": action,
         "direction": direction,
         "delta": delta,
+        "kind": kind,
     }
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     req = urllib.request.Request(
@@ -725,9 +732,10 @@ def launcher_send_nav_or_key(
     action: str | None = None,
     direction: str | None = None,
     delta: int | None = None,
+    kind: str | None = None,
 ) -> None:
     if PAD_NAV_API_ENABLED and routing_app() == "launcher" and action is not None:
-        if send_pad_nav(action, direction=direction, delta=delta):
+        if send_pad_nav(action, direction=direction, delta=delta, kind=kind):
             return
     send_key_launcher(symbol, app=app)
 
@@ -905,35 +913,17 @@ def switch_launcher_tab(delta: int) -> None:
     )
 
 
-def reshuffle_launcher_rails() -> None:
-    subprocess.run(
-        [
-            "curl",
-            "-sf",
-            "-X",
-            "POST",
-            "http://127.0.0.1:3020/playability/session/reshuffle",
-            "-H",
-            "content-type: application/json",
-            "-d",
-            "{}",
-        ],
-        env=_env,
-        timeout=5,
-        check=False,
-    )
-    launcher_send_nav_or_key(
-        symbol="F5",
-        app="launcher",
-        action="shuffle",
-    )
-
-
-def refresh_launcher_library() -> None:
+def send_launcher_secondary(kind: str) -> None:
     if not launcher_surface_active():
         return
-    diag_event("shuffle_press", foreground=foreground_app())
-    reshuffle_launcher_rails()
+    normalized = "hold" if kind == "hold" else "tap"
+    diag_event("secondary_press", foreground=foreground_app(), kind=normalized)
+    launcher_send_nav_or_key(
+        symbol="shift+F5" if normalized == "hold" else "F5",
+        app="launcher",
+        action="secondary",
+        kind=normalized,
+    )
 
 
 def adjust_volume(delta_percent: int) -> None:
@@ -1135,6 +1125,7 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
     last_event_at = 0.0
     last_heartbeat_at = time.monotonic()
     hold_seek: dict[str, object] = {}
+    secondary_press: dict[str, object] = {}
     write_status("running", dev, last_event_at=last_event_at, last_action="grabbed")
 
     def debounced(action: str, fn, *, debounce_sec: float | None = None) -> None:
@@ -1267,6 +1258,29 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                                 lambda: route_dpad(app, "down"),
                                 debounce_sec=DPAD_DEBOUNCE_SEC,
                             )
+                elif event.type == ecodes.EV_KEY and event.code == BTN_X:
+                    if event.value == 1 and not _playback_app(app):
+                        secondary_press.update(
+                            {
+                                "started_at": time.monotonic(),
+                                "app": app,
+                            }
+                        )
+                        wake_display_for_input(f"{app}-secondary")
+                    elif event.value == 0 and secondary_press:
+                        started_at = float(secondary_press.get("started_at") or time.monotonic())
+                        press_app = str(secondary_press.get("app") or app)
+                        secondary_press.clear()
+                        if press_app == "launcher" or launcher_surface_active():
+                            kind = (
+                                "hold"
+                                if time.monotonic() - started_at >= SECONDARY_HOLD_SEC
+                                else "tap"
+                            )
+                            debounced(
+                                f"secondary-{kind}",
+                                lambda kind=kind: send_launcher_secondary(kind),
+                            )
                 elif event.type == ecodes.EV_KEY and event.value == 1:
                     diag_event(
                         "ev_key",
@@ -1277,10 +1291,6 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                         debounced(f"{app}-select", lambda: route_face(app, "select"))
                     elif event.code == BTN_Y:
                         debounced(f"{app}-back", lambda: route_face(app, "back"))
-                    elif event.code == BTN_X:
-                        # Playback: no subtitle role (↑ owns subs). Launcher: shuffle.
-                        if not _playback_app(app):
-                            debounced("shuffle", refresh_launcher_library)
                     elif event.code == BTN_A and _playback_app(app):
                         debounced(
                             f"{app}-audio-cycle",

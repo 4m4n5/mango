@@ -16,6 +16,7 @@ python3 scripts/diag/grow_monitor.py status  # latest grow health; operator-only
 bash scripts/m6-ship/gate-m6-library-smoke.sh # Saved/current-context smoke
 bash scripts/m6-ship/gate-m6-youtube-smoke.sh # YouTube state/rails/search/detail
 bash scripts/m6-ship/gate-m6-ux-smoke.sh      # M6.5 HUD/focus contracts
+bash scripts/m6-ship/gate-m6-search-smoke.sh  # non-mutating unified Search proof
 bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch signals
 ```
 
@@ -27,7 +28,7 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch s
 |---|--------|-------|
 | 1 | **Movies** tab loads 9-up poster grid | |
 | 2 | **L/R shoulders** switch Movies ↔ Series ↔ Live | |
-| 3 | **X shuffle** (pad `307`) — new titles, no rate-limit text | |
+| 3 | **X current-tab shuffle** (pad `307`) — only the visible Home tab changes, no rate-limit text | |
 | 4 | **Series** tab — rails populated | |
 
 ---
@@ -264,6 +265,31 @@ Deferred on the work Mac: AREA69 API/index contents, NexoTV EPG behavior, actual
 rail membership, native search wall time, active-playback connection ownership,
 and representative mpv fallback playback. None is locally claimed as passed.
 
+## Unified D-pad Search
+
+Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
+
+| # | Test | Pass |
+|---|------|------|
+| S1 | Magnifier before Movies opens a blank Search surface with QWERTY keyboard focused; no Home tab refresh | |
+| S2 | D-pad keyboard, physical letters, Backspace, Enter, Escape, and arrows work predictably | |
+| S3 | Scope chips limit All / Movies / TV Shows / Live / YouTube correctly | |
+| S4 | Typing shows local suggestions without network spinner; explicit submit progressively adds source rows | |
+| S5 | Exact title beats prefix/token matches; Top Results contains only verified/proven/YouTube cards with source diversity | |
+| S6 | All shows YouTube videos only; YouTube scope also shows Channels and Playlists, which open video-list Detail | |
+| S7 | Each result row starts with 9; More reveals the next 9 without quota or provider activity | |
+| S8 | One unavailable source shows plain per-row degraded copy while other rows remain selectable; no results is not an error | |
+| S9 | X tap deletes one character; X hold for at least 600 ms clears; returning Home restores X current-tab shuffle | |
+| S10 | B opens Detail and a second B starts playback; Search never autoplays | |
+| S11 | Y from Detail returns to exact query/scope/page/scroll/card; test Movies, Series, Live, YouTube, Channel and Playlist | |
+| S12 | Y after playback returns to the same Detail, then Y returns to exact Search; Continue updates in the correct Movies/Series cache without rerendering Search | |
+| S13 | Y from Search restores the exact originating Home tab and focused card; reopening Search is blank with recents | |
+| S14 | External VOD successful zero-stream Detail queues once; timeout/provider failure does not queue or show a false global catalog error | |
+| S15 | Settings SafeSearch Moderate/Strict/Off persists; Clear Search Activity removes recents and learning | |
+| S16 | Cached/offline/quota-degraded YouTube remains usable; explicit Refresh YouTube Results spends at most one permitted search call | |
+| S17 | Descriptive English/Hinglish query works with orchestrator available and falls back cleanly when it is absent | |
+| S18 | Search latency evidence: local suggestions under 150 ms target, first useful submitted result under 300 ms target, network phases bounded 2.5 s, optional AI bounded 4 s | |
+
 ## Saved library (M6.1)
 
 | # | Action | Pass? |
@@ -281,7 +307,7 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 | # | Action | Pass? |
 |---|--------|-------|
 | 17 | YouTube tab loads cached rails without full-screen error; empty Fresh Finds or expired Live Now is hidden instead of showing stale live cards | |
-| 18 | YouTube rails show at most 9 cards; **X shuffle** changes History/For You/New From Subscriptions/Fresh Finds/Because You Watched/Live Now/Popular without blocking on refresh | |
+| 18 | YouTube rails show at most 9 cards; **Home X shuffle** changes History/For You/New From Subscriptions/Fresh Finds/Because You Watched/Live Now/Popular without blocking on refresh | |
 | 19 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
 | 20 | Open a YouTube video → detail shows Play / Save / Not Interested; **B** starts mpv | |
 | 21 | After playing a second meaningful YouTube VOD, Because You Watched follows that newer seed and shows cached non-live/non-Short follow-ups | |
@@ -324,7 +350,7 @@ Do not show grow/debug status on TV. Check this from SSH before claiming library
 | Empty episode list | `curl localhost:3020/series/tt12004706/episodes` |
 | No streams on episode | Row greys as **tap to retry** but remains focusable; **B** runs the normal ladder again |
 | Next-episode focus missing | exit ≥90%/EOF; inspect `GET /play/next-prompt` immediately after mpv stop and confirm its series/from/next IDs |
-| Pad wrong button | [`docs/HARDWARE.md`](HARDWARE.md) — B=`304`, Y=`308`, X shuffle=`307`, −/+=`314`/`315` |
+| Pad wrong button | [`docs/HARDWARE.md`](HARDWARE.md) — B=`304`, Y=`308`, X secondary=`307`, −/+=`314`/`315` |
 
 
 ---

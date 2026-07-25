@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 
 from orchestrator.audio.duck import duck_audio, restore_audio
@@ -47,6 +47,7 @@ from orchestrator.voice_log import (
     set_turn_timer,
 )
 from orchestrator.warmup import warmup_voice_stack
+from orchestrator.search_expand import expand_search_query
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +125,32 @@ async def health() -> JSONResponse:
             "clients": len(clients),
         }
     )
+
+
+@app.post("/search/expand")
+async def search_expand(request: Request) -> JSONResponse:
+    client_host = request.client.host if request.client else ""
+    if client_host not in {"127.0.0.1", "::1", "localhost"}:
+        return JSONResponse(
+            {"ok": False, "error": "search expansion is localhost-only"},
+            status_code=403,
+        )
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise ValueError("expected object")
+        query = str(payload.get("query", ""))
+        scope = str(payload.get("scope", "all"))
+        request_settings = load_settings()
+        expanded = await asyncio.wait_for(
+            asyncio.to_thread(expand_search_query, query, scope, request_settings),
+            timeout=4.0,
+        )
+        return JSONResponse({"ok": True, **expanded})
+    except asyncio.TimeoutError:
+        return JSONResponse({"ok": False, "error": "search expansion timed out"}, status_code=504)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
 
 
 @app.websocket("/ws")

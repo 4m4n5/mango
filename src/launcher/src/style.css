@@ -205,6 +205,31 @@ button {
   border-color: var(--accent);
 }
 
+.browse-search {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  appearance: none;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-secondary);
+  padding: 0.65rem 1.15rem;
+  font-size: var(--text-control);
+  font-weight: 700;
+  text-transform: lowercase;
+}
+
+.browse-search.focused,
+.browse-search:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
 .rails {
   flex: 1;
   display: flex;
@@ -224,6 +249,176 @@ button {
   scroll-padding-block-start: 3.25rem;
   scroll-padding-block-end: var(--focus-gutter);
   scrollbar-width: none;
+}
+
+.search {
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.search-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.search-brand {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-control);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.search-query {
+  min-height: 3.9rem;
+  display: flex;
+  align-items: center;
+  border-bottom: 3px solid var(--accent);
+  color: var(--text-primary);
+  font-size: clamp(1.75rem, 3vw, 2.6rem);
+  font-weight: 750;
+  letter-spacing: 0.01em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search-query[data-empty="true"] {
+  color: var(--text-muted);
+  font-weight: 550;
+}
+
+.search-scopes,
+.search-key-row,
+.search-starter-track {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.search-scopes {
+  padding-block: 0.25rem;
+}
+
+.search-control {
+  appearance: none;
+  border: 2px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  min-height: 3rem;
+  padding: 0.55rem 1rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.search-control.focused,
+.search-control:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.search-chip--active {
+  border-color: var(--border-strong);
+  background: var(--tab-active-fill);
+  color: var(--text-primary);
+}
+
+.search-keyboard {
+  width: min(68rem, 100%);
+  padding: 0.5rem 0;
+}
+
+.search-key-row {
+  justify-content: center;
+  margin-bottom: 0.55rem;
+}
+
+.search-key {
+  width: clamp(3.25rem, 5.2vw, 5rem);
+  padding-inline: 0;
+  font-size: 1.35rem;
+  text-transform: lowercase;
+}
+
+.search-key-row--actions .search-control {
+  min-width: 8.5rem;
+}
+
+.search-key-row--actions .search-submit {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #111;
+}
+
+.search-starters {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.search-starters h2 {
+  margin: 0 0 0.6rem;
+  color: var(--text-muted);
+  font-size: 1rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.search-starter-track {
+  overflow-x: auto;
+  padding: var(--focus-ring);
+}
+
+.search-starter {
+  flex: 0 0 auto;
+  max-width: 20rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search-results {
+  padding-block-start: var(--focus-gutter);
+  gap: 2rem;
+}
+
+.search-results .rail {
+  position: relative;
+}
+
+.search-more,
+.search-refresh-youtube,
+.search-edit {
+  border-radius: var(--radius-control);
+}
+
+.search-more {
+  margin-top: 0.8rem;
+}
+
+.search-refresh-youtube {
+  align-self: flex-end;
+  margin-bottom: -0.5rem;
+}
+
+.search-message,
+.search-degraded {
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-secondary);
+  font-size: var(--text-control);
+}
+
+.search-degraded {
+  margin: 0;
+  border-color: rgba(232, 160, 32, 0.35);
 }
 
 .rails::-webkit-scrollbar {

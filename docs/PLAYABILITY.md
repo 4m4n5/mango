@@ -115,6 +115,13 @@ The couch hot path is deliberately play-first: read an existing verified hint, p
 
 Recovery: targeted cache invalidation after confirmed failure, queued/background reverify, and nightly stale reverify + grow. Background verify must not overwrite a couch `play_miss` demotion with `failed` unless `forceReprobe`.
 
+Unified Search keeps unverified external VOD isolated in **More Movies &
+Shows**. It never queues from a result, focus, metadata error, timeout, provider
+failure, or AI expansion. Only a Search-origin Detail stream-list request that
+finishes successfully with zero streams may enqueue the idempotent
+`search_unavailable` trigger through the same playability ingest pipeline.
+Existing verified/pending rows are preserved. See [SEARCH.md](SEARCH.md).
+
 **Deferred `vo=null` scope:** every non-live VOD (movies, series, and YouTube, including split A/V) starts on the null-VO/null-AO buffer path. After the launcher is hidden and the root is black, Mango source-matches HDMI, enables GPU VO plus configured/automatic AO, and reveals mpv. Immediate live playback and deferred VOD share the same hifi tone-map, audio, subtitle, cache, and render policy; only display/audio activation is deferred.
 
 ---

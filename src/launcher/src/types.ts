@@ -48,6 +48,7 @@ export interface ContentRail {
   id: string;
   label: string;
   cards: ContentCard[];
+  layout?: "landscape" | "poster";
 }
 
 export interface AppCard {

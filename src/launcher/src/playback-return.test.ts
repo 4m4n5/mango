@@ -73,3 +73,29 @@ test("clearing a playback return removes both durable and session copies", () =>
     assert.equal(readPlaybackReturnSnapshot(), null);
   });
 });
+
+test("Search-origin Live playback returns to Detail with compact Search state", () => {
+  const live: ContentCard = {
+    id: "channel-1",
+    type: "tv",
+    title: "News Live",
+    subtitle: "live channel",
+  };
+  withBrowserStorage(() => {
+    const searchState = {
+      version: 1,
+      savedAt: Date.now(),
+      query: "news",
+      scope: "all",
+      submitted: true,
+      snapshot: null,
+      pages: {},
+      homeTab: "series",
+    };
+    savePlaybackReturnSnapshot("live", live, undefined, "search", searchState);
+    const restored = readPlaybackReturnSnapshot();
+    assert.equal(restored?.returnSurface, "detail");
+    assert.equal(restored?.origin, "search");
+    assert.deepEqual(restored?.searchState, searchState);
+  });
+});

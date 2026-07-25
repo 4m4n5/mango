@@ -5,7 +5,7 @@
  * keyboard event — same branching as main.ts's handleKeydown.
  */
 
-export type PadNavAction = "move" | "select" | "back" | "tab" | "shuffle";
+export type PadNavAction = "move" | "select" | "back" | "tab" | "shuffle" | "secondary";
 export type PadNavDirection = "up" | "down" | "left" | "right";
 
 export type PadNavCommand = {
@@ -15,6 +15,7 @@ export type PadNavCommand = {
   action?: string;
   direction?: string | null;
   delta?: number | null;
+  kind?: string | null;
 };
 
 type PadNavResponse = {
@@ -41,12 +42,20 @@ export type PadNavHandlers = {
   settingsSelect: () => void;
   settingsBack: () => void;
 
+  isInSearch: () => boolean;
+  searchMoveRow: (delta: number) => void;
+  searchMoveCol: (delta: number) => void;
+  searchSelect: () => void;
+  searchBack: () => void;
+  searchSecondary: (kind: "tap" | "hold") => void;
+
   homeMoveRow: (delta: number) => void;
   homeMoveCol: (delta: number) => void;
   homeSelect: () => void;
   homeBack: () => void;
   homeTab: (delta: number) => void;
   homeShuffle: () => void;
+  homeSecondary: (kind: "tap" | "hold") => void;
 };
 
 function isPadDirection(value: unknown): value is PadNavDirection {
@@ -114,6 +123,19 @@ export function handlePadNav(command: PadNavCommand, handlers: PadNavHandlers): 
     return;
   }
 
+  if (handlers.isInSearch()) {
+    if (action === "move") {
+      applyMove(command.direction, handlers.searchMoveRow, handlers.searchMoveCol);
+    } else if (action === "select") {
+      handlers.searchSelect();
+    } else if (action === "back") {
+      handlers.searchBack();
+    } else if (action === "secondary") {
+      handlers.searchSecondary(command.kind === "hold" ? "hold" : "tap");
+    }
+    return;
+  }
+
   if (action === "move") {
     applyMove(command.direction, handlers.homeMoveRow, handlers.homeMoveCol);
   } else if (action === "select") {
@@ -126,6 +148,8 @@ export function handlePadNav(command: PadNavCommand, handlers: PadNavHandlers): 
     }
   } else if (action === "shuffle") {
     handlers.homeShuffle();
+  } else if (action === "secondary") {
+    handlers.homeSecondary(command.kind === "hold" ? "hold" : "tap");
   }
 }
 

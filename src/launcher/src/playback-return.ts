@@ -5,6 +5,7 @@ const STORAGE_KEY = "mango.playback-return.v1";
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 export type PlaybackReturnSurface = "detail" | "tab_home";
+export type PlaybackOrigin = "home" | "search";
 
 export interface PlaybackReturnSnapshot {
   tab: BrowseTab;
@@ -15,6 +16,8 @@ export interface PlaybackReturnSnapshot {
   cardSource?: string;
   episodeId?: string;
   returnSurface: PlaybackReturnSurface;
+  origin?: PlaybackOrigin;
+  searchState?: unknown;
   savedAt: number;
 }
 
@@ -34,7 +37,14 @@ export function tabForCard(
   return fallback ?? "movies";
 }
 
-export function playbackReturnSurface(card: ContentCard, tab: BrowseTab): PlaybackReturnSurface {
+export function playbackReturnSurface(
+  card: ContentCard,
+  tab: BrowseTab,
+  origin: PlaybackOrigin = "home",
+): PlaybackReturnSurface {
+  if (origin === "search") {
+    return "detail";
+  }
   if (card.type === "tv" || tab === "live") {
     return "tab_home";
   }
@@ -45,6 +55,8 @@ export function savePlaybackReturnSnapshot(
   tab: BrowseTab,
   card: ContentCard,
   episodeId?: string,
+  origin: PlaybackOrigin = "home",
+  searchState?: unknown,
 ): void {
   const snapshot: PlaybackReturnSnapshot = {
     tab: tabForCard(card, tab),
@@ -54,7 +66,9 @@ export function savePlaybackReturnSnapshot(
     cardPoster: card.posterUrl,
     cardSource: card.source,
     episodeId,
-    returnSurface: playbackReturnSurface(card, tab),
+    returnSurface: playbackReturnSurface(card, tab, origin),
+    origin,
+    ...(origin === "search" && searchState ? { searchState } : {}),
     savedAt: Date.now(),
   };
   const serialized = JSON.stringify(snapshot);
@@ -151,6 +165,7 @@ export async function readPlaybackReturnFromContext(): Promise<PlaybackReturnSna
     cardPoster: ctx.poster || undefined,
     cardSource: card.source,
     returnSurface: playbackReturnSurface(card, tab),
+    origin: "home",
     savedAt: Date.now(),
   };
 }

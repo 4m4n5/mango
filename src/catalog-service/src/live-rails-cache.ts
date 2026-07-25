@@ -58,6 +58,10 @@ export function readLiveRailsDiskCacheSync(): LiveRailsDiskCache | null {
   }
 }
 
+export function liveRailsCacheGeneration(): number {
+  return readLiveRailsDiskCacheSync()?.saved_at ?? 0;
+}
+
 export async function writeLiveRailsDiskCache(
   payload: CachedLiveRailsPayload,
   ttlSec: number,

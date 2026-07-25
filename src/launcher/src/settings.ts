@@ -21,6 +21,7 @@ export async function buildSettingsRefresh(
   container.replaceChildren();
 
   await buildReliabilityCenter(container, onStatus);
+  await buildSearchSettings(container, onStatus);
 
   const heading = document.createElement("h2");
   heading.className = "settings-heading";
@@ -43,6 +44,99 @@ export async function buildSettingsRefresh(
     fallback.className = "settings-note";
     fallback.textContent = "Refresh options unavailable — catalog-service may be starting.";
     container.append(fallback);
+  }
+}
+
+async function buildSearchSettings(
+  container: HTMLElement,
+  onStatus: (message: string) => void,
+): Promise<void> {
+  const heading = document.createElement("h2");
+  heading.className = "settings-heading";
+  heading.textContent = "Search";
+  container.append(heading);
+
+  const intro = document.createElement("p");
+  intro.className = "settings-note";
+  intro.textContent = "SafeSearch applies to fresh YouTube search. Clear activity removes recent queries and local selection learning.";
+  container.append(intro);
+
+  try {
+    const response = await fetch("/api/catalog/search/preferences", { cache: "no-store" });
+    if (!response.ok) throw new Error("preferences unavailable");
+    const payload = await response.json() as { preferences?: { youtube_safe_search?: string } };
+    const active = payload.preferences?.youtube_safe_search || "moderate";
+    const choices = document.createElement("div");
+    choices.className = "settings-actions-row";
+    for (const option of [
+      { id: "moderate", label: "Moderate" },
+      { id: "strict", label: "Strict" },
+      { id: "none", label: "Off" },
+    ]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `settings-action settings-action--quick${active === option.id ? " settings-action--selected" : ""}`;
+      button.dataset.settingsFocus = "true";
+      button.append(actionSpan("settings-action-title", option.label));
+      button.append(actionSpan("settings-action-meta", active === option.id ? "selected" : "YouTube SafeSearch"));
+      button.addEventListener("click", () => {
+        void updateSearchPreference(option.id, onStatus, container);
+      });
+      choices.append(button);
+    }
+    const clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "settings-action settings-action--standard";
+    clear.dataset.settingsFocus = "true";
+    clear.append(actionSpan("settings-action-title", "Clear search activity"));
+    clear.append(actionSpan("settings-action-meta", "recents and local learning"));
+    clear.addEventListener("click", () => void clearSearchActivity(clear, onStatus));
+    choices.append(clear);
+    container.append(choices);
+  } catch {
+    const fallback = document.createElement("p");
+    fallback.className = "settings-note";
+    fallback.textContent = "Search settings unavailable — catalog-service may be starting.";
+    container.append(fallback);
+  }
+}
+
+async function updateSearchPreference(
+  safeSearch: string,
+  onStatus: (message: string) => void,
+  container: HTMLElement,
+): Promise<void> {
+  try {
+    const response = await fetch("/api/catalog/search/preferences", {
+      method: "PUT",
+      cache: "no-store",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ youtube_safe_search: safeSearch }),
+    });
+    if (!response.ok) throw new Error("could not update Search");
+    onStatus(`Search SafeSearch set to ${safeSearch === "none" ? "off" : safeSearch}.`);
+    await buildSettingsRefresh(container, onStatus);
+  } catch (error) {
+    onStatus(error instanceof Error ? error.message : "could not update Search");
+  }
+}
+
+async function clearSearchActivity(
+  button: HTMLButtonElement,
+  onStatus: (message: string) => void,
+): Promise<void> {
+  button.disabled = true;
+  try {
+    const response = await fetch("/api/catalog/search/history", {
+      method: "DELETE",
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error("could not clear Search activity");
+    onStatus("Search activity cleared.");
+  } catch (error) {
+    onStatus(error instanceof Error ? error.message : "could not clear Search activity");
+  } finally {
+    button.disabled = false;
   }
 }
 

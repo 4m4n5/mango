@@ -5,8 +5,10 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import test from 'node:test';
 import {
+  getYoutubeSearchCache,
   getYoutubeItem,
   initYoutubeDb,
+  incrementYoutubeQuota,
   listBecauseYouWatchedCandidates,
   listFreshFindCandidates,
   listForYouCandidates,
@@ -18,6 +20,7 @@ import {
   noteForYouExposures,
   noteLiveNowExposures,
   notePopularExposures,
+  putYoutubeSearchCache,
   replaceYoutubeRailItems,
   resetYoutubeDbForTests,
   setBecauseYouWatchedCandidateStats,
@@ -31,6 +34,8 @@ import {
   upsertLiveNowCandidates,
   upsertPopularCandidates,
   youtubeCacheSummary,
+  youtubeQuotaDecision,
+  youtubeSearchCacheSummary,
 } from './db.js';
 import type { YoutubeItem } from './types.js';
 
@@ -81,10 +86,55 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
   } finally {
     db.close();
   }
+}));
+
+test('YouTube query cache keys SafeSearch and expires after its TTL', () => withTempYoutube(() => {
+  const input = {
+    normalized_query: 'dune trailer',
+    kind_scope: 'videos',
+    safe_search: 'moderate',
+    region_code: 'US',
+    language: 'en',
+  };
+  const groups = { videos: [sampleItem('video-1')], channels: [], playlists: [] };
+  putYoutubeSearchCache(input, groups, { fetched_at: 1_000, ttl_ms: 60_000 });
+  assert.deepEqual(getYoutubeSearchCache(input, 30_000)?.groups.videos.map((item) => item.id), ['video-1']);
+  assert.equal(getYoutubeSearchCache({ ...input, safe_search: 'strict' }, 30_000), null);
+  assert.equal(getYoutubeSearchCache(input, 61_001), null);
+}));
+
+test('YouTube query cache prunes least recently used keys to its bound', () => withTempYoutube(() => {
+  for (let index = 0; index < 4; index += 1) {
+    putYoutubeSearchCache({
+      normalized_query: `query ${index}`,
+      kind_scope: 'youtube',
+      safe_search: 'moderate',
+      region_code: 'US',
+      language: 'en',
+    }, { videos: [sampleItem(`video-${index}`)], channels: [], playlists: [] }, {
+      fetched_at: 1_000 + index,
+      max_entries: 3,
+    });
+  }
+  assert.equal(youtubeSearchCacheSummary(2_000).entries, 3);
+  assert.equal(getYoutubeSearchCache({
+    normalized_query: 'query 0',
+    kind_scope: 'youtube',
+    safe_search: 'moderate',
+    region_code: 'US',
+    language: 'en',
+  }, 2_000), null);
+}));
+
+test('YouTube quota reserve pauses background work but remains available to couch search', () => withTempYoutube(() => {
+  incrementYoutubeQuota(7_500);
+  assert.equal(youtubeQuotaDecision(1, 'background').allowed, false);
+  assert.equal(youtubeQuotaDecision(2_500, 'interactive').allowed, true);
+  assert.equal(youtubeQuotaDecision(2_501, 'interactive').allowed, false);
 }));
 
 test('rail replacement upserts cached items and keeps case-sensitive ids', () => withTempYoutube(() => {

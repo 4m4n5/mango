@@ -167,7 +167,8 @@ export type PlayabilityTriggerType =
   /** H2: fast-lane re-verify enqueued alongside invalidateTitle(reason=play_failure) — drained first (H1). */
   | 'play_failure_reverify'
   | 'scheduled'
-  | 'voice_request';
+  | 'voice_request'
+  | 'search_unavailable';
 
 export type PlayabilityTriggerRecord = {
   trigger_type: PlayabilityTriggerType;
@@ -2194,16 +2195,39 @@ WHERE t.status = 'verified'
   AND trim(rp.title) != ''
 ORDER BY rp.title ASC
 LIMIT @limit;
-`).all({ limit: Math.max(1, limit) }) as VerifiedLibraryCatalogRow[];
+  `).all({ limit: Math.max(1, limit) }) as VerifiedLibraryCatalogRow[];
 }
 
-export async function queueTitleForVoiceIngest(input: {
+/** Cheap generation token used by the launcher search index invalidator. */
+export async function playabilitySearchGeneration(): Promise<string> {
+  await initPlayabilityDb();
+  const row = openDb().prepare(`
+SELECT
+  COALESCE(MAX(t.updated_at), 0) AS titles_updated_at,
+  COALESCE(MAX(rp.ingested_at), 0) AS pool_updated_at,
+  COUNT(*) AS row_count
+FROM rail_pool rp
+JOIN titles t ON t.type = rp.type AND t.id = rp.id
+WHERE t.status = 'verified'
+  AND rp.title IS NOT NULL
+  AND trim(rp.title) != '';
+`).get() as {
+    titles_updated_at: number;
+    pool_updated_at: number;
+    row_count: number;
+  };
+  return `${row.titles_updated_at}:${row.pool_updated_at}:${row.row_count}`;
+}
+
+export async function queueTitleForPlayabilityIngest(input: {
   type: string;
   id: string;
   title: string;
   rail_id: string;
   poster_url?: string | null;
   year?: string | null;
+  trigger_type?: PlayabilityTriggerType;
+  reason?: string;
 }): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
@@ -2235,12 +2259,23 @@ ON CONFLICT(type, id) DO UPDATE SET
   });
 
   await enqueuePlayabilityTrigger({
-    trigger_type: 'voice_request',
+    trigger_type: input.trigger_type ?? 'voice_request',
     rail_id: input.rail_id,
     type: input.type,
     id: input.id,
-    reason: `voice_request:${input.title}`,
+    reason: input.reason?.trim() || `${input.trigger_type ?? 'voice_request'}:${input.title}`,
   });
+}
+
+export async function queueTitleForVoiceIngest(input: {
+  type: string;
+  id: string;
+  title: string;
+  rail_id: string;
+  poster_url?: string | null;
+  year?: string | null;
+}): Promise<void> {
+  await queueTitleForPlayabilityIngest(input);
 }
 
 export async function searchVerifiedRailPoolTitles(

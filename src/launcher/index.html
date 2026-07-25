@@ -10,6 +10,10 @@
       <section id="home-view" class="view home">
         <div class="browse-bar">
           <p class="browse-brand" aria-hidden="true">mango</p>
+          <button id="search-entry" class="browse-search" type="button" aria-label="Search Mango">
+            <span aria-hidden="true">⌕</span>
+            <span>search</span>
+          </button>
           <nav id="browse-tabs" class="browse-tabs" aria-label="Browse tabs"></nav>
           <button id="library-refresh" class="browse-shuffle" type="button" aria-label="Shuffle library">
             <span class="browse-shuffle-icon" aria-hidden="true">↻</span>
@@ -18,6 +22,8 @@
         </div>
         <div id="rails" class="rails" aria-label="Browse"></div>
       </section>
+
+      <section id="search-view" class="view search hidden" aria-label="Search"></section>
 
       <section id="detail-view" class="view detail hidden" aria-label="Title detail">
         <div class="detail-backdrop" aria-hidden="true">

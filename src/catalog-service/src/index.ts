@@ -123,6 +123,7 @@ import {
   refreshAiCatalogWithMigrate,
 } from './ai-catalogs/bootstrap.js';
 import type { AiSeedTitle } from './ai-catalogs/types.js';
+import { UnifiedSearchService, parseSearchScope } from './search/service.js';
 
 const HOST = process.env.MANGO_CATALOG_HOST || '127.0.0.1';
 const PORT = Number(process.env.MANGO_CATALOG_PORT || 3020);
@@ -998,6 +999,7 @@ async function main(): Promise<void> {
   // H1(b): no-ops unless MANGO_TRIGGER_CONSUMER=1 — bounded, idle-gated, debounced (couch safety).
   startTriggerConsumerBackgroundTick(core);
   const youtube = new YoutubeService();
+  const search = new UnifiedSearchService(core, youtube);
   const reliability = new ReliabilityService({
     catalogHealth: () => core.health(),
     playabilityStatus: () => core.playabilityStatus(),
@@ -1007,6 +1009,125 @@ async function main(): Promise<void> {
     void (async () => {
       const url = new URL(req.url || '/', `http://${HOST}:${PORT}`);
       const parts = routeParts(url);
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'search' && parts[1] === 'state') {
+        sendJson(res, 200, await search.state());
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'search' && parts[1] === 'suggestions') {
+        const query = url.searchParams.get('q') || '';
+        const scope = parseSearchScope(url.searchParams.get('scope'));
+        const limit = Number(url.searchParams.get('limit') || 9);
+        sendJson(res, 200, {
+          ok: true,
+          query,
+          scope,
+          suggestions: await search.suggestions(query, scope, Number.isFinite(limit) ? limit : 9),
+        });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2 && parts[0] === 'search' && parts[1] === 'query') {
+        const body = await readBody(req) as Record<string, unknown>;
+        if (body.diagnostic === true && !isLocalRequest(req)) {
+          throw new CatalogError(403, 'diagnostic search is localhost-only');
+        }
+        const query = typeof body.query === 'string' ? body.query : '';
+        const snapshot = await search.startQuery({
+          query,
+          scope: parseSearchScope(body.scope),
+          refresh_youtube: body.refresh_youtube === true,
+          diagnostic: body.diagnostic === true,
+        });
+        sendJson(res, 202, snapshot);
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 3 && parts[0] === 'search' && parts[1] === 'query') {
+        const afterRevision = Number(url.searchParams.get('after_revision') || 0);
+        const waitMs = Number(url.searchParams.get('wait_ms') || 0);
+        const snapshot = await search.waitForSnapshot(
+          parts[2],
+          Number.isFinite(afterRevision) ? afterRevision : 0,
+          Number.isFinite(waitMs) ? waitMs : 0,
+        );
+        if (!snapshot) throw new CatalogError(404, 'search session not found');
+        sendJson(res, 200, snapshot);
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 4
+        && parts[0] === 'search' && parts[1] === 'query' && parts[3] === 'cancel') {
+        sendJson(res, 200, { ok: true, cancelled: search.cancel(parts[2]) });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2 && parts[0] === 'search' && parts[1] === 'selection') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const required = ['normalized_query', 'key', 'source', 'type', 'id', 'title'] as const;
+        if (required.some((key) => typeof body[key] !== 'string' || !String(body[key]).trim())) {
+          throw new CatalogError(400, 'search selection requires query, key, source, type, id, and title');
+        }
+        search.recordSelection(body as {
+          normalized_query: string;
+          key: string;
+          source: string;
+          type: string;
+          id: string;
+          title: string;
+        });
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 3
+        && parts[0] === 'search' && parts[1] === 'external' && parts[2] === 'queue') {
+        if (!isLocalRequest(req)) throw new CatalogError(403, 'search queue is localhost-only');
+        const body = await readBody(req) as Record<string, unknown>;
+        const type = body.type === 'series' ? 'series' : body.type === 'movie' ? 'movie' : null;
+        if (!type || typeof body.id !== 'string' || typeof body.title !== 'string') {
+          throw new CatalogError(400, 'search queue requires movie|series type, id, and title');
+        }
+        sendJson(res, 200, {
+          ok: true,
+          ...await search.queueUnavailableExternal({
+            type,
+            id: body.id,
+            title: body.title,
+            poster: typeof body.poster === 'string' ? body.poster : undefined,
+            year: typeof body.year === 'string' || typeof body.year === 'number'
+              ? String(body.year)
+              : undefined,
+          }),
+        });
+        return;
+      }
+
+      if (req.method === 'DELETE' && parts.length === 2 && parts[0] === 'search' && parts[1] === 'history') {
+        if (!isLocalRequest(req)) throw new CatalogError(403, 'search history is localhost-only');
+        sendJson(res, 200, { ok: true, cleared: search.clearActivity() });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2 && parts[0] === 'search' && parts[1] === 'preferences') {
+        sendJson(res, 200, { ok: true, preferences: search.preferences() });
+        return;
+      }
+
+      if (req.method === 'PUT' && parts.length === 2 && parts[0] === 'search' && parts[1] === 'preferences') {
+        if (!isLocalRequest(req)) throw new CatalogError(403, 'search preferences are localhost-only');
+        const body = await readBody(req) as Record<string, unknown>;
+        const safeSearch = body.youtube_safe_search;
+        if (safeSearch !== 'moderate' && safeSearch !== 'strict' && safeSearch !== 'none') {
+          throw new CatalogError(400, 'youtube_safe_search must be moderate, strict, or none');
+        }
+        sendJson(res, 200, {
+          ok: true,
+          preferences: search.setPreferences(safeSearch),
+        });
+        return;
+      }
 
       if (req.method === 'GET' && parts.length === 1 && parts[0] === 'pins') {
         const tab = parseCatalogTab(url.searchParams.get('tab'));

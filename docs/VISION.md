@@ -46,7 +46,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | Addon manifest config | `/etc/mango/stremio-export.json` contains addon manifests only; it is not a user-library sync source |
 | Rail config | `config/catalog.yaml` on Pi (git-managed examples in repo) |
 | Regional V1 | India / Bollywood rails required |
-| Search | Verified library + Cinemeta external fallback |
+| Search | Magnifier surface across verified Movies/TV, proven Live, YouTube, and isolated external VOD; D-pad keyboard, card results, no chatbot/autoplay |
 
 ### Playback
 

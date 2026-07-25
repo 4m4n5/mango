@@ -164,7 +164,7 @@ visible, further ↑ presses force subtitles on and cycle languages. **A** is
 show-first for audio (first press shows HUD; while visible, cycles audio).
 Playback-only **L/R** jumps by the large seek step (120s default).
 
-> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. **A** is audio during playback (show-first); **X** is shuffle on the launcher only.
+> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. **A** is audio during playback (show-first). **X** is contextual on the launcher: Home shuffles only the current tab; Search tap deletes and a 600 ms hold clears.
 
 > **Quirk:** In Switch BT mode Linux reports the **D-pad as ABS_X/ABS_Y** (not hat axes). `evtest` shows `ABS_X` on left/right — normal.
 

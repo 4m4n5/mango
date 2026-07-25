@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-**Branch:** `feat/native-experience` — native TV home. **Shipped:** M1–M4 · voice librarian · AI catalogs · M6.1 library · M6.2 YouTube · Reliability Center · efficiency/perf (Tiers 1–4) · **Phase 3 AI companion** · **M5.5b/M6.5 round** (structured picks, detail FocusGrid, HUD safe-area, ux-smoke gate, living librarian memory). **Active:** comprehensive couch sign-off · M3 grow repeatability · YouTube rail quality. **Next:** M6.4 wizard · M6.3 4K TV validation · merge to `main`.
+**Branch:** `feat/native-experience` — native TV home. **Shipped:** M1–M4 · voice librarian · AI catalogs · M6.1 library · M6.2 YouTube · Reliability Center · efficiency/perf (Tiers 1–4) · **Phase 3 AI companion** · **M5.5b/M6.5 round** (structured picks, detail FocusGrid, HUD safe-area, ux-smoke gate, living librarian memory) · unified D-pad Search. **Active:** comprehensive couch sign-off · Search couch acceptance · M3 grow repeatability · YouTube rail quality. **Next:** M6.4 wizard · M6.3 4K TV validation · merge to `main`.
 
 ## Read first
 
@@ -14,6 +14,7 @@
 | [**`docs/STATUS.md`**](docs/STATUS.md) | **What's shipped · gates · config** |
 | [**`docs/ARCHITECTURE.md`**](docs/ARCHITECTURE.md) | **Stack · layers · foreground** |
 | [**`docs/PLAYABILITY.md`**](docs/PLAYABILITY.md) | **Playability · grow · thematic rails** |
+| [`docs/SEARCH.md`](docs/SEARCH.md) | Unified launcher Search · quota · restoration · gates |
 | [**`docs/OPS.md`**](docs/OPS.md) | **Pi ops** — bring-up, gamepad, troubleshooting |
 | [**`docs/DEPLOY.md`**](docs/DEPLOY.md) | **Pi deploy — git only, never rsync** |
 | [`docs/RELIABILITY.md`](docs/RELIABILITY.md) | Reliability Center · nightly proof |
@@ -88,7 +89,7 @@ Live IPTV (NexoTV) is **excluded** from deploy gates — opt in: `MANGO_LIVE_GAT
 
 ## Gamepad (locked)
 
-8BitDo Micro · **B**=`304` select · **Y**=`308` back · **X**=`307` shuffle · **−/+**=`314`/`315` volume · **L**=`310` tab − · **R**=`311` tab + · **⌂**=`316` home
+8BitDo Micro · **B**=`304` select · **Y**=`308` back · **X**=`307` contextual secondary (Home shuffle; Search delete/clear) · **−/+**=`314`/`315` volume · **L**=`310` tab − · **R**=`311` tab + · **⌂**=`316` home
 
 | Surface | Input |
 |---------|--------|

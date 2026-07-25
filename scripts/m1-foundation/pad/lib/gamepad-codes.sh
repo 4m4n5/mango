@@ -3,7 +3,7 @@
 
 # Face cluster (clockwise from left): Y · X · A · B
 export MANGO_BTN_SELECT_FACE=304   # B — bottom — confirm
-export MANGO_BTN_SHUFFLE_FACE=307  # X — top — reshuffle launcher rails
+export MANGO_BTN_SHUFFLE_FACE=307  # X — top — launcher contextual secondary
 export MANGO_BTN_BACK_FACE=308       # Y — left — in-app back only
 
 # Center grid (typical Switch layout on Micro):

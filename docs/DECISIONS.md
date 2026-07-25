@@ -18,7 +18,7 @@ Locked choices. Update when changing behavior.
 | Topic | Choice |
 |-------|--------|
 | Layout | **Y · X · A · B** clockwise from left ([HARDWARE.md](HARDWARE.md)) |
-| Select / back | **B**=`304` · **Y**=`308` · **X**=`307` shuffle · **−/+**=`314`/`315` volume · **L**=`310` tab − · **R**=`311` tab + |
+| Select / back | **B**=`304` · **Y**=`308` · **X**=`307` contextual secondary (Home shuffle; Search delete/clear) · **−/+**=`314`/`315` volume · **L**=`310` tab − · **R**=`311` tab + |
 | Home | `316`/`311` → `launch-launcher.sh` (`mango-tv-pad.py`) |
 | Pad owner | **`mango-tv-pad.py`** — launcher + active playback foreground |
 | Fallback | `input-remapper` only if pad fails to grab |
@@ -120,6 +120,9 @@ Locked choices. Update when changing behavior.
 | YouTube Live Now policy | Short-TTL live reservoir in `youtube.db`; official live metadata/search only, hides expired live cards, filters low-signal 24/7/camera/radio loops, and never spills live cards into VOD recommendation rails |
 | YouTube Popular policy | Neutral broad-trending reservoir in `youtube.db` built from official `videos.list(chart=mostPopular)` across configured region plus India/US and broad categories; no search quota, no couch-time API calls, no watched/Not Interested/live/Shorts, prefer non-Saved/non-subscribed alternatives, 48-hour exposure cooldown |
 | YouTube quota policy | Couch shuffle and playback use local caches/`yt-dlp`; Data API quota is spent only by metadata/search/subscription refresh and explicit search/detail calls |
+| Unified Search | Temporary magnifier surface, not a fifth tab/chatbot; local typing, explicit submit, progressive isolated sources, 9-card local pagination, no autoplay |
+| Search persistence | Recents/selection/SafeSearch in `library.db`; YouTube query cache in `youtube.db`; bounded progressive jobs in memory; no `search.db` |
+| Interactive quota | 10,000-unit Pacific day, 2,500 reserved from background work; official method costs admitted before request |
 | YouTube native recommendations | Exact native YouTube home/recommended feed is not available through supported Data API routes; any raw-feed experiment must be explicit opt-in and isolated from Mango-owned recommender rails |
 | 4K | Ship profile on target TV; relax filters in `catalog-filters.json` |
 | Deploy | `install.sh` wizard — no SSH for household setup |
