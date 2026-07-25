@@ -278,7 +278,7 @@ Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
 | S5 | Exact title beats prefix/token matches; Top Results contains only verified/proven/YouTube cards with source diversity | |
 | S6 | All shows YouTube videos only; YouTube scope also shows Channels and Playlists, which open video-list Detail | |
 | S7 | Each result row starts with 9; More reveals the next 9 without quota or provider activity | |
-| S8 | One unavailable source shows plain per-row degraded copy while other rows remain selectable; no results is not an error | |
+| S8 | One unavailable source shows plain per-row degraded copy while other rows remain selectable; no results is not an error and focuses Edit for immediate correction | |
 | S9 | X tap deletes one character; X hold for at least 600 ms clears; returning Home restores X current-tab shuffle | |
 | S10 | B opens Detail and a second B starts playback; Search never autoplays | |
 | S11 | Y from Detail returns to exact query/scope/page/scroll/card; test Movies, Series, Live, YouTube, Channel and Playlist | |
@@ -289,6 +289,9 @@ Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
 | S16 | Cached/offline/quota-degraded YouTube remains usable; explicit Refresh YouTube Results spends at most one permitted search call | |
 | S17 | Descriptive English/Hinglish query works with orchestrator available and falls back cleanly when it is absent | |
 | S18 | Search latency evidence: local suggestions under 150 ms target, first useful submitted result under 300 ms target, network phases bounded 2.5 s, optional AI bounded 4 s | |
+| S19 | At 10 feet, query, focused key, scope, starter titles, and result metadata remain readable with no clipping outside the TV safe area | |
+| S20 | Blank Search has one obvious focus target and no form-like clutter; Results compacts the header and prioritizes cards over status copy | |
+| S21 | Reduced-motion mode removes the Search entrance reveal; D-pad focus feedback remains immediate and visible through shape, scale, border, and color | |
 
 ## Saved library (M6.1)
 

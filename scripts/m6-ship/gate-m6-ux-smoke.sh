@@ -75,7 +75,17 @@ if "function setStatus(_message: string): void {}" in main or "showToast(message
 for session_contract in ("/api/catalog/play-session", "ever_ready", "readPlaybackSession"):
     if session_contract not in catalog:
         raise SystemExit(f"catalog.ts missing playback-session contract: {session_contract}")
-for search_contract in ("class SearchController", "mango.search-session.v1", "secondary(kind", "PAGE_SIZE = 9"):
+for search_contract in (
+    "class SearchController",
+    "mango.search-session.v1",
+    "secondary(kind",
+    "PAGE_SIZE = 9",
+    'setAttribute("aria-label", "Search scope")',
+    'setAttribute("aria-pressed"',
+    "search-query-shell",
+    "search-compose-body",
+    "this.submitted ? [[edit], scopeRow]",
+):
     if search_contract not in search:
         raise SystemExit(f"search.ts missing Search surface contract: {search_contract}")
 if 'origin === "search"' not in playback_return:
@@ -161,6 +171,11 @@ required = (
     "overflow:visible",
     ".browse-brand",
     ".card--landscape",
+    ".search-query-shell",
+    ".search-compose-body",
+    ".search-key.focused",
+    ".search-edit[hidden]",
+    "prefers-reduced-motion",
 )
 missing = [token for token in required if token not in css]
 if missing:

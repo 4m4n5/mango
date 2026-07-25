@@ -47,7 +47,13 @@ type SearchSnapshot = {
 
 type SearchStateResponse = {
   recents?: Array<{ normalized_query: string; display_query: string }>;
-  starters?: Array<{ title: string; type: string; source: string }>;
+  starters?: Array<{
+    title: string;
+    type: string;
+    source: string;
+    poster?: string;
+    tab?: BrowseTab;
+  }>;
   preferences?: { youtube_safe_search?: string };
 };
 
@@ -88,6 +94,40 @@ const KEYBOARD = [
   [..."asdfghjkl"],
   [..."zxcvbnm"],
 ];
+
+type SearchIconName = "search" | "clock" | "play" | "edit" | "refresh";
+
+function searchIcon(name: SearchIconName): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.classList.add("search-icon");
+  const paths: Record<SearchIconName, string[]> = {
+    search: ["M11 4a7 7 0 1 0 4.9 12l4.1 4.1", "M16 16l4 4"],
+    clock: ["M12 5a7 7 0 1 0 7 7", "M12 8v4l3 2"],
+    play: ["M8.5 6.5v11l9-5.5z"],
+    edit: ["M5 19h4l10-10-4-4L5 15v4z", "M13.5 6.5l4 4"],
+    refresh: ["M19 8a7 7 0 1 0 1 7", "M19 4v4h-4"],
+  };
+  for (const pathData of paths[name]) {
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    if (name === "play") {
+      path.setAttribute("fill", "currentColor");
+      path.setAttribute("stroke", "none");
+    }
+    svg.appendChild(path);
+  }
+  return svg;
+}
+
+function contentTypeLabel(type: string, source?: string): string {
+  if (source === "youtube" || type.includes("youtube")) return "YouTube";
+  if (type === "series") return "TV show";
+  if (type === "tv") return "Live channel";
+  if (type === "movie") return "Movie";
+  return "From your library";
+}
 
 function isBrowseTab(value: unknown): value is BrowseTab {
   return value === "movies" || value === "series" || value === "live" || value === "youtube";
@@ -412,17 +452,48 @@ export class SearchController {
 
   private render(): void {
     this.view.replaceChildren();
+    this.view.classList.toggle("search--results", this.submitted);
+    this.view.classList.toggle("search--compose", !this.submitted);
+
+    const atmosphere = document.createElement("div");
+    atmosphere.className = "search-atmosphere";
+    atmosphere.setAttribute("aria-hidden", "true");
+
     const header = document.createElement("header");
     header.className = "search-head";
 
-    const title = document.createElement("p");
-    title.className = "search-brand";
-    title.textContent = "search mango";
+    const identity = document.createElement("div");
+    identity.className = "search-identity";
+    const brand = document.createElement("p");
+    brand.className = "search-brand";
+    brand.textContent = "mango discovery";
+    const title = document.createElement("h1");
+    title.className = "search-title";
+    title.textContent = this.submitted ? "Results" : "Find your next watch";
+    const subtitle = document.createElement("p");
+    subtitle.className = "search-subtitle";
+    subtitle.textContent = this.submitted
+      ? "One search across your entire Mango universe."
+      : "Movies, TV shows, live channels and YouTube. All in one place.";
+    identity.append(brand, title, subtitle);
 
+    const queryShell = document.createElement("div");
+    queryShell.className = "search-query-shell";
+    queryShell.appendChild(searchIcon("search"));
     const query = document.createElement("div");
     query.className = "search-query";
     query.dataset.empty = String(this.query.length === 0);
-    query.textContent = this.query || "movies, shows, live and YouTube";
+    const queryText = document.createElement("span");
+    queryText.className = "search-query-text";
+    queryText.textContent = this.query || "Search by title, channel or mood";
+    query.appendChild(queryText);
+    if (!this.submitted) {
+      const caret = document.createElement("span");
+      caret.className = "search-query-caret";
+      caret.setAttribute("aria-hidden", "true");
+      query.appendChild(caret);
+    }
+    queryShell.appendChild(query);
 
     const edit = this.controlButton("edit", "search:edit", () => {
       this.submitted = false;
@@ -431,10 +502,12 @@ export class SearchController {
     });
     edit.classList.add("search-edit");
     edit.hidden = !this.submitted;
-    header.append(title, query, edit);
+    edit.prepend(searchIcon("edit"));
+    queryShell.appendChild(edit);
 
     const scopes = document.createElement("nav");
     scopes.className = "search-scopes";
+    scopes.setAttribute("aria-label", "Search scope");
     const scopeRow = SCOPES.map(({ id, label }) => {
       const button = this.controlButton(label, `search:scope:${id}`, () => {
         this.scope = id;
@@ -445,15 +518,20 @@ export class SearchController {
         }
       });
       button.classList.toggle("search-chip--active", id === this.scope);
+      button.setAttribute("aria-pressed", String(id === this.scope));
       scopes.appendChild(button);
       return button;
     });
-    this.view.append(header, scopes);
+    header.append(identity, queryShell, scopes);
+    this.view.append(atmosphere, header);
 
-    const rows: HTMLElement[][] = [scopeRow];
+    const rows: HTMLElement[][] = this.submitted ? [[edit], scopeRow] : [scopeRow];
     if (!this.submitted) {
-      rows.push(...this.renderKeyboard());
-      rows.push(...this.renderStarters());
+      const compose = document.createElement("div");
+      compose.className = "search-compose-body";
+      rows.push(...this.renderKeyboard(compose));
+      rows.push(...this.renderStarters(compose));
+      this.view.appendChild(compose);
     } else {
       rows.push(...this.renderResults());
     }
@@ -464,16 +542,28 @@ export class SearchController {
     this.persist();
   }
 
-  private renderKeyboard(): HTMLElement[][] {
+  private renderKeyboard(parent: HTMLElement): HTMLElement[][] {
     const keyboard = document.createElement("section");
     keyboard.className = "search-keyboard";
     keyboard.setAttribute("aria-label", "On-screen keyboard");
+    const keyboardHead = document.createElement("div");
+    keyboardHead.className = "search-panel-head";
+    const heading = document.createElement("h2");
+    heading.textContent = "Type with your D-pad";
+    const hint = document.createElement("p");
+    hint.textContent = "X delete  ·  hold X clear";
+    keyboardHead.append(heading, hint);
+    keyboard.appendChild(keyboardHead);
     const rows: HTMLElement[][] = [];
     for (const keyRow of KEYBOARD) {
       const row = document.createElement("div");
       row.className = "search-key-row";
       const buttons = keyRow.map((key) => {
-        const button = this.controlButton(key, `search:key:${key}`, () => this.setQuery(`${this.query}${key}`));
+        const button = this.controlButton(
+          key.toUpperCase(),
+          `search:key:${key}`,
+          () => this.setQuery(`${this.query}${key}`),
+        );
         button.classList.add("search-key");
         row.appendChild(button);
         return button;
@@ -487,52 +577,118 @@ export class SearchController {
     const erase = this.controlButton("delete", "search:key:delete", () => this.secondary("tap"));
     const clear = this.controlButton("clear", "search:key:clear", () => this.secondary("hold"));
     const submit = this.controlButton("search", "search:key:submit", () => void this.submit());
-    submit.classList.add("search-submit");
+    space.classList.add("search-key-action", "search-key-space");
+    erase.classList.add("search-key-action");
+    clear.classList.add("search-key-action");
+    submit.classList.add("search-submit", "search-key-action");
+    submit.prepend(searchIcon("search"));
     actions.append(space, erase, clear, submit);
     keyboard.appendChild(actions);
     rows.push([space, erase, clear, submit]);
-    this.view.appendChild(keyboard);
+    parent.appendChild(keyboard);
     return rows;
   }
 
-  private renderStarters(): HTMLElement[][] {
-    const choices: Array<{ label: string; query: string }> = [];
+  private renderStarters(parent: HTMLElement): HTMLElement[][] {
+    const choices: Array<{
+      label: string;
+      query: string;
+      meta: string;
+      icon: "search" | "clock" | "play";
+    }> = [];
     if (this.suggestions.length > 0) {
-      for (const item of this.suggestions) choices.push({ label: item.title, query: item.title });
+      for (const item of this.suggestions) {
+        choices.push({
+          label: item.title,
+          query: item.title,
+          meta: contentTypeLabel(item.type, item.source),
+          icon: "search",
+        });
+      }
     } else if (this.query.length === 0) {
       for (const recent of this.state.recents || []) {
-        choices.push({ label: recent.display_query, query: recent.display_query });
+        choices.push({
+          label: recent.display_query,
+          query: recent.display_query,
+          meta: "Recent search",
+          icon: "clock",
+        });
       }
       for (const starter of this.state.starters || []) {
         if (!choices.some((choice) => choice.query.toLowerCase() === starter.title.toLowerCase())) {
-          choices.push({ label: starter.title, query: starter.title });
+          choices.push({
+            label: starter.title,
+            query: starter.title,
+            meta: contentTypeLabel(starter.type, starter.source),
+            icon: "play",
+          });
         }
       }
     }
-    if (choices.length === 0) return [];
     const section = document.createElement("section");
-    section.className = "search-starters";
+    section.className = "search-starters search-discovery";
+    const panelHead = document.createElement("div");
+    panelHead.className = "search-panel-head";
     const heading = document.createElement("h2");
-    heading.textContent = this.suggestions.length > 0 ? "suggestions" : "recent and yours";
+    heading.textContent = this.suggestions.length > 0 ? "Suggestions" : "Jump back in";
+    const hint = document.createElement("p");
+    hint.textContent = this.suggestions.length > 0 ? "Local matches as you type" : "Recent searches and your library";
+    panelHead.append(heading, hint);
+    section.appendChild(panelHead);
     const track = document.createElement("div");
     track.className = "search-starter-track";
-    const row = choices.slice(0, 12).map((choice, index) => {
+    const rows = choices.slice(0, 7).map((choice, index) => {
       const button = this.controlButton(choice.label, `search:starter:${index}`, () => {
         this.query = choice.query;
         void this.submit();
       });
       button.classList.add("search-starter");
+      button.replaceChildren();
+      const iconWrap = document.createElement("span");
+      iconWrap.className = "search-starter-icon";
+      iconWrap.appendChild(searchIcon(choice.icon));
+      const copy = document.createElement("span");
+      copy.className = "search-starter-copy";
+      const label = document.createElement("span");
+      label.className = "search-starter-title";
+      label.textContent = choice.label;
+      const meta = document.createElement("span");
+      meta.className = "search-starter-meta";
+      meta.textContent = choice.meta;
+      copy.append(label, meta);
+      button.append(iconWrap, copy);
       track.appendChild(button);
-      return button;
+      return [button];
     });
-    section.append(heading, track);
-    this.view.appendChild(section);
-    return [row];
+    if (choices.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "search-starter-empty";
+      empty.appendChild(searchIcon("search"));
+      const emptyCopy = document.createElement("p");
+      emptyCopy.textContent = "Start typing to search everything Mango can play.";
+      empty.appendChild(emptyCopy);
+      track.appendChild(empty);
+    }
+    section.appendChild(track);
+    parent.appendChild(section);
+    return rows;
   }
 
   private renderResults(): HTMLElement[][] {
     const results = document.createElement("div");
     results.className = "search-results rails";
+    const toolbar = document.createElement("div");
+    toolbar.className = "search-results-toolbar";
+    const progress = document.createElement("div");
+    progress.className = "search-results-state";
+    const progressMark = document.createElement("span");
+    progressMark.className = "search-results-state-mark";
+    progressMark.setAttribute("aria-hidden", "true");
+    const progressCopy = document.createElement("span");
+    progressCopy.textContent = this.snapshot?.complete ? "Results ready" : "Searching every source";
+    progress.append(progressMark, progressCopy);
+    toolbar.appendChild(progress);
+
     const groups = this.snapshot?.groups || [];
     const rails: ContentRail[] = groups
       .filter((group) => group.items.length > 0)
@@ -572,9 +728,16 @@ export class SearchController {
       const message = document.createElement("div");
       message.className = "search-message";
       const pending = !this.snapshot?.complete;
-      message.textContent = pending
-        ? "Searching Mango, Live and YouTube…"
-        : "No matches. Try another title, channel, or topic.";
+      message.appendChild(searchIcon("search"));
+      const messageCopy = document.createElement("div");
+      const messageTitle = document.createElement("h2");
+      messageTitle.textContent = pending ? "Looking everywhere" : "Nothing matched yet";
+      const messageBody = document.createElement("p");
+      messageBody.textContent = pending
+        ? "Mango is checking your library, Live and YouTube."
+        : "Try a title, person, channel or a broader mood.";
+      messageCopy.append(messageTitle, messageBody);
+      message.appendChild(messageCopy);
       results.appendChild(message);
     }
 
@@ -586,7 +749,7 @@ export class SearchController {
       const note = document.createElement("p");
       note.className = "search-degraded";
       note.textContent = degraded;
-      results.prepend(note);
+      toolbar.appendChild(note);
     }
 
     if (this.scope === "all" || this.scope === "youtube") {
@@ -596,9 +759,11 @@ export class SearchController {
         () => void this.submit(true),
       );
       refresh.classList.add("search-refresh-youtube");
-      results.prepend(refresh);
+      refresh.prepend(searchIcon("refresh"));
+      toolbar.appendChild(refresh);
       rows.unshift([refresh]);
     }
+    results.prepend(toolbar);
     this.view.appendChild(results);
     return rows;
   }
@@ -633,6 +798,7 @@ export class SearchController {
     button.className = "search-control";
     button.textContent = label;
     button.dataset.focusKey = key;
+    button.setAttribute("aria-label", label);
     button.addEventListener("click", onClick);
     return button;
   }

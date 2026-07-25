@@ -27,6 +27,28 @@ while the user types.
 - Empty results are successful empty state. A failed source is isolated and
   cannot replace usable rows with a global catalog error.
 
+## Visual and focus contract
+
+Search uses Mango's cinema-dark visual language, not a form or settings layout.
+The blank state is a two-part discovery desk: one dominant query field and
+scope row above a broad D-pad keyboard beside a quieter recent/library panel.
+The submitted state compacts that header and gives the screen back to content.
+
+- The focused keyboard key is the brightest object on the blank surface.
+  Amber scale, border, and glow communicate focus without animated clutter.
+- Query, scope, and keyboard targets remain inside the 5% TV safe area and
+  readable at 1080p couch distance. Focus never depends on color alone.
+- Recent queries and library starters are vertical, individually focusable
+  rows with a source/type label. An empty starter panel is calm guidance, not
+  an error.
+- Results retain one editorial hierarchy: Top Results first in landscape
+  geometry, then source rows in their native landscape/poster geometry.
+- Progress, source degradation, and explicit YouTube refresh remain secondary
+  to result cards. Empty Search uses a composed empty state rather than a
+  catalog-error toast.
+- Motion is limited to a short one-shot surface reveal and is disabled by
+  `prefers-reduced-motion`. D-pad movement itself stays immediate.
+
 ## Ownership
 
 `catalog-service` owns indexing, adapters, ranking, progressive jobs, caches,
