@@ -366,12 +366,14 @@ apply_mode() {
 }
 
 current_mode_width() {
-  local output mode
+  local output mode width
   output="$(connected_output)"
   [[ -n "${output:-}" ]] || return 1
   mode="$(current_mode "$output")"
   [[ -n "$mode" ]] || return 1
-  printf '%s\n' "${mode%%@*}" | awk -Fx '{print $1}'
+  width="$(printf '%s\n' "${mode%%@*}" | awk -Fx '{print $1}')"
+  [[ "$width" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$width"
 }
 
 ensure_launcher_display() {
