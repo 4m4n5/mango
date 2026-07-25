@@ -95,6 +95,18 @@ const KEYBOARD = [
   [..."zxcvbnm"],
 ];
 
+export function mergeComposeFocusRows<T>(keyboardRows: T[][], starterRows: T[][]): T[][] {
+  const rowCount = Math.max(keyboardRows.length, starterRows.length);
+  return Array.from({ length: rowCount }, (_, index) => [
+    ...(keyboardRows[index] || []),
+    ...(starterRows[index] || []),
+  ]);
+}
+
+export function shouldClearSuggestions(query: string, suggestionCount: number): boolean {
+  return query.trim().length < 2 && suggestionCount > 0;
+}
+
 type SearchIconName = "search" | "clock" | "play" | "edit" | "refresh";
 
 function searchIcon(name: SearchIconName): SVGSVGElement {
@@ -211,6 +223,11 @@ export class SearchController {
   private homeTab: BrowseTab = "movies";
   private homeFocusKey: string | undefined;
   private homePosition: { row: number; col: number } | undefined;
+  private editRow: HTMLElement[] = [];
+  private scopeRow: HTMLElement[] = [];
+  private keyboardRows: HTMLElement[][] = [];
+  private starterRows: HTMLElement[][] = [];
+  private resultRows: HTMLElement[][] = [];
   private readonly focus = new FocusGrid((element) => {
     this.focusedElement?.classList.remove("focused");
     element.classList.add("focused");
@@ -250,7 +267,7 @@ export class SearchController {
     this.render();
     try {
       this.state = await fetchJson<SearchStateResponse>("/api/catalog/search/state");
-      this.render();
+      this.refreshStarters();
     } catch {
       this.callbacks.onStatus("Search is ready. Recent activity is temporarily unavailable.");
     }
@@ -359,13 +376,24 @@ export class SearchController {
   }
 
   private setQuery(value: string): void {
+    const wasSubmitted = this.submitted;
     this.query = value.slice(0, 120);
     this.submitted = false;
     this.snapshot = null;
     this.pages = {};
+    const clearSuggestions = shouldClearSuggestions(this.query, this.suggestions.length);
+    if (clearSuggestions) this.suggestions = [];
     void this.cancelActive();
+    if (wasSubmitted) {
+      this.render();
+    } else {
+      this.updateQueryDisplay();
+      if (clearSuggestions || this.query.length === 0) {
+        this.refreshStarters();
+      }
+      this.persist();
+    }
     this.scheduleSuggestions();
-    this.render();
   }
 
   private scheduleSuggestions(): void {
@@ -380,8 +408,11 @@ export class SearchController {
         `/api/catalog/search/suggestions?q=${encodeURIComponent(query)}&scope=${this.scope}&limit=9`,
       ).then((response) => {
         if (!this.submitted && this.query.trim() === query) {
-          this.suggestions = response.suggestions || [];
-          this.render();
+          const suggestions = response.suggestions || [];
+          const unchanged = suggestions.length === this.suggestions.length
+            && suggestions.every((item, index) => item.key === this.suggestions[index]?.key);
+          this.suggestions = suggestions;
+          if (!unchanged) this.refreshStarters();
         }
       }).catch(() => undefined);
     }, 120);
@@ -427,7 +458,7 @@ export class SearchController {
       if (snapshot.revision > after) {
         after = snapshot.revision;
         this.snapshot = snapshot;
-        this.render();
+        this.refreshResults();
       }
       if (snapshot.complete) {
         this.activeSearchId = null;
@@ -461,21 +492,7 @@ export class SearchController {
 
     const header = document.createElement("header");
     header.className = "search-head";
-
-    const identity = document.createElement("div");
-    identity.className = "search-identity";
-    const brand = document.createElement("p");
-    brand.className = "search-brand";
-    brand.textContent = "mango discovery";
-    const title = document.createElement("h1");
-    title.className = "search-title";
-    title.textContent = this.submitted ? "Results" : "Find your next watch";
-    const subtitle = document.createElement("p");
-    subtitle.className = "search-subtitle";
-    subtitle.textContent = this.submitted
-      ? "One search across your entire Mango universe."
-      : "Movies, TV shows, live channels and YouTube. All in one place.";
-    identity.append(brand, title, subtitle);
+    header.setAttribute("aria-label", "Search");
 
     const queryShell = document.createElement("div");
     queryShell.className = "search-query-shell";
@@ -485,7 +502,7 @@ export class SearchController {
     query.dataset.empty = String(this.query.length === 0);
     const queryText = document.createElement("span");
     queryText.className = "search-query-text";
-    queryText.textContent = this.query || "Search by title, channel or mood";
+    queryText.textContent = this.query || "Search Mango";
     query.appendChild(queryText);
     if (!this.submitted) {
       const caret = document.createElement("span");
@@ -511,10 +528,12 @@ export class SearchController {
     const scopeRow = SCOPES.map(({ id, label }) => {
       const button = this.controlButton(label, `search:scope:${id}`, () => {
         this.scope = id;
+        this.updateScopeState();
         if (this.submitted) void this.submit();
         else {
+          this.suggestions = [];
           this.scheduleSuggestions();
-          this.render();
+          this.refreshStarters();
         }
       });
       button.classList.toggle("search-chip--active", id === this.scope);
@@ -522,24 +541,24 @@ export class SearchController {
       scopes.appendChild(button);
       return button;
     });
-    header.append(identity, queryShell, scopes);
+    this.editRow = [edit];
+    this.scopeRow = scopeRow;
+    header.append(queryShell, scopes);
     this.view.append(atmosphere, header);
 
-    const rows: HTMLElement[][] = this.submitted ? [[edit], scopeRow] : [scopeRow];
     if (!this.submitted) {
       const compose = document.createElement("div");
       compose.className = "search-compose-body";
-      rows.push(...this.renderKeyboard(compose));
-      rows.push(...this.renderStarters(compose));
+      this.keyboardRows = this.renderKeyboard(compose);
+      this.starterRows = this.renderStarters(compose);
+      this.resultRows = [];
       this.view.appendChild(compose);
     } else {
-      rows.push(...this.renderResults());
+      this.keyboardRows = [];
+      this.starterRows = [];
+      this.resultRows = this.renderResults();
     }
-    this.focus.setRows(rows, {
-      preferredKey: this.focusedKey,
-      fallbackPosition: this.preferredPosition,
-    });
-    this.persist();
+    this.applyFocusRows();
   }
 
   private renderKeyboard(parent: HTMLElement): HTMLElement[][] {
@@ -549,9 +568,9 @@ export class SearchController {
     const keyboardHead = document.createElement("div");
     keyboardHead.className = "search-panel-head";
     const heading = document.createElement("h2");
-    heading.textContent = "Type with your D-pad";
+    heading.textContent = "Keyboard";
     const hint = document.createElement("p");
-    hint.textContent = "X delete  ·  hold X clear";
+    hint.textContent = "X delete · hold to clear";
     keyboardHead.append(heading, hint);
     keyboard.appendChild(keyboardHead);
     const rows: HTMLElement[][] = [];
@@ -589,7 +608,7 @@ export class SearchController {
     return rows;
   }
 
-  private renderStarters(parent: HTMLElement): HTMLElement[][] {
+  private renderStarters(parent: HTMLElement, replace?: HTMLElement): HTMLElement[][] {
     const choices: Array<{
       label: string;
       query: string;
@@ -630,16 +649,16 @@ export class SearchController {
     const panelHead = document.createElement("div");
     panelHead.className = "search-panel-head";
     const heading = document.createElement("h2");
-    heading.textContent = this.suggestions.length > 0 ? "Suggestions" : "Jump back in";
-    const hint = document.createElement("p");
-    hint.textContent = this.suggestions.length > 0 ? "Local matches as you type" : "Recent searches and your library";
-    panelHead.append(heading, hint);
+    heading.textContent = this.suggestions.length > 0 ? "Suggestions" : "Recent";
+    panelHead.appendChild(heading);
     section.appendChild(panelHead);
     const track = document.createElement("div");
     track.className = "search-starter-track";
     const rows = choices.slice(0, 7).map((choice, index) => {
       const button = this.controlButton(choice.label, `search:starter:${index}`, () => {
         this.query = choice.query;
+        this.updateQueryDisplay();
+        this.persist();
         void this.submit();
       });
       button.classList.add("search-starter");
@@ -665,16 +684,17 @@ export class SearchController {
       empty.className = "search-starter-empty";
       empty.appendChild(searchIcon("search"));
       const emptyCopy = document.createElement("p");
-      emptyCopy.textContent = "Start typing to search everything Mango can play.";
+      emptyCopy.textContent = this.query.length > 0 ? "No local suggestions yet." : "Type to see suggestions.";
       empty.appendChild(emptyCopy);
       track.appendChild(empty);
     }
     section.appendChild(track);
-    parent.appendChild(section);
+    if (replace) replace.replaceWith(section);
+    else parent.appendChild(section);
     return rows;
   }
 
-  private renderResults(): HTMLElement[][] {
+  private renderResults(replace?: HTMLElement): HTMLElement[][] {
     const results = document.createElement("div");
     results.className = "search-results rails";
     const toolbar = document.createElement("div");
@@ -685,9 +705,9 @@ export class SearchController {
     progressMark.className = "search-results-state-mark";
     progressMark.setAttribute("aria-hidden", "true");
     const progressCopy = document.createElement("span");
-    progressCopy.textContent = this.snapshot?.complete ? "Results ready" : "Searching every source";
+    progressCopy.textContent = "Searching";
     progress.append(progressMark, progressCopy);
-    toolbar.appendChild(progress);
+    if (!this.snapshot?.complete) toolbar.appendChild(progress);
 
     const groups = this.snapshot?.groups || [];
     const rails: ContentRail[] = groups
@@ -716,7 +736,7 @@ export class SearchController {
         () => {
           this.pages[group.id] = (this.pages[group.id] || 0) + 1;
           this.focusedKey = `search:more:${group.id}`;
-          this.render();
+          this.refreshResults();
         },
       );
       more.classList.add("search-more");
@@ -731,11 +751,11 @@ export class SearchController {
       message.appendChild(searchIcon("search"));
       const messageCopy = document.createElement("div");
       const messageTitle = document.createElement("h2");
-      messageTitle.textContent = pending ? "Looking everywhere" : "Nothing matched yet";
+      messageTitle.textContent = pending ? "Searching" : "No results";
       const messageBody = document.createElement("p");
       messageBody.textContent = pending
-        ? "Mango is checking your library, Live and YouTube."
-        : "Try a title, person, channel or a broader mood.";
+        ? "Checking Mango, Live and YouTube."
+        : "Try another title, channel or topic.";
       messageCopy.append(messageTitle, messageBody);
       message.appendChild(messageCopy);
       results.appendChild(message);
@@ -754,7 +774,7 @@ export class SearchController {
 
     if (this.scope === "all" || this.scope === "youtube") {
       const refresh = this.controlButton(
-        "refresh YouTube results",
+        "refresh YouTube",
         "search:refresh-youtube",
         () => void this.submit(true),
       );
@@ -763,9 +783,56 @@ export class SearchController {
       toolbar.appendChild(refresh);
       rows.unshift([refresh]);
     }
-    results.prepend(toolbar);
-    this.view.appendChild(results);
+    if (toolbar.childElementCount > 0) results.prepend(toolbar);
+    if (replace) replace.replaceWith(results);
+    else this.view.appendChild(results);
     return rows;
+  }
+
+  private updateQueryDisplay(): void {
+    const query = this.view.querySelector<HTMLElement>(".search-query");
+    const text = this.view.querySelector<HTMLElement>(".search-query-text");
+    if (!query || !text) return;
+    query.dataset.empty = String(this.query.length === 0);
+    text.textContent = this.query || "Search Mango";
+  }
+
+  private updateScopeState(): void {
+    for (const { id } of SCOPES) {
+      const button = this.view.querySelector<HTMLElement>(`[data-focus-key="search:scope:${id}"]`);
+      if (!button) continue;
+      button.classList.toggle("search-chip--active", id === this.scope);
+      button.setAttribute("aria-pressed", String(id === this.scope));
+    }
+    this.persist();
+  }
+
+  private refreshStarters(): void {
+    if (this.submitted) return;
+    const compose = this.view.querySelector<HTMLElement>(".search-compose-body");
+    const current = compose?.querySelector<HTMLElement>(".search-discovery");
+    if (!compose || !current) return;
+    this.starterRows = this.renderStarters(compose, current);
+    this.applyFocusRows();
+  }
+
+  private refreshResults(): void {
+    if (!this.submitted) return;
+    const current = this.view.querySelector<HTMLElement>(".search-results");
+    if (!current) return;
+    this.resultRows = this.renderResults(current);
+    this.applyFocusRows();
+  }
+
+  private applyFocusRows(): void {
+    const rows = this.submitted
+      ? [this.editRow, this.scopeRow, ...this.resultRows]
+      : [this.scopeRow, ...mergeComposeFocusRows(this.keyboardRows, this.starterRows)];
+    this.focus.setRows(rows, {
+      preferredKey: this.focusedKey,
+      fallbackPosition: this.preferredPosition,
+    });
+    this.persist();
   }
 
   private openResult(card: ContentCard, label: string): void {

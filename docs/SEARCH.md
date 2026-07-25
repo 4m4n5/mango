@@ -30,24 +30,31 @@ while the user types.
 ## Visual and focus contract
 
 Search uses Mango's cinema-dark visual language, not a form or settings layout.
-The blank state is a two-part discovery desk: one dominant query field and
-scope row above a broad D-pad keyboard beside a quieter recent/library panel.
-The submitted state compacts that header and gives the screen back to content.
+The blank state is one open workspace: a dominant query field and scope row
+above a broad D-pad keyboard, with Recent or Suggestions separated by one quiet
+vertical rule. It has no redundant Search title, nested panel cards, or
+decorative copy. The submitted state gives the screen back to content.
 
 - The focused keyboard key is the brightest object on the blank surface.
-  Amber scale, border, and glow communicate focus without animated clutter.
-- Query, scope, and keyboard targets remain inside the 5% TV safe area and
-  readable at 1080p couch distance. Focus never depends on color alone.
+  The submit key stays neutral until focused. Amber scale, border, and glow
+  communicate focus without animated clutter.
+- Query, scope, keyboard, starter rows, and their transformed focus rings
+  remain inside the outer 5% TV safe area and readable at 1080p couch distance.
+  Focus never depends on color alone.
 - Recent queries and library starters are vertical, individually focusable
-  rows with a source/type label. An empty starter panel is calm guidance, not
-  an error.
+  rows with a source/type label. Right from a keyboard row enters the aligned
+  starter row; Left returns to the keyboard. An empty panel is guidance, not an
+  error.
 - Results retain one editorial hierarchy: Top Results first in landscape
   geometry, then source rows in their native landscape/poster geometry.
 - Progress, source degradation, and explicit YouTube refresh remain secondary
   to result cards. Empty Search uses a composed empty state rather than a
   catalog-error toast.
-- Motion is limited to a short one-shot surface reveal and is disabled by
-  `prefers-reduced-motion`. D-pad movement itself stays immediate.
+- Typing updates only query text. Existing suggestions remain visible through
+  the debounce and are replaced once as a subtree when the next set is ready;
+  the header and keyboard are never rebuilt or refocused.
+- Search has no entrance animation. D-pad focus feedback stays immediate, and
+  `prefers-reduced-motion` also removes nonessential transitions.
 
 ## Ownership
 

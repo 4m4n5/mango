@@ -1,7 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validRestoreState } from "./search";
+import { mergeComposeFocusRows, shouldClearSuggestions, validRestoreState } from "./search";
+
+test("Search compose focus rows connect keyboard and right-side suggestions", () => {
+  assert.deepEqual(
+    mergeComposeFocusRows(
+      [["q", "w"], ["a", "s"], ["space", "search"]],
+      [["recent-1"], ["recent-2"], ["recent-3"], ["recent-4"]],
+    ),
+    [
+      ["q", "w", "recent-1"],
+      ["a", "s", "recent-2"],
+      ["space", "search", "recent-3"],
+      ["recent-4"],
+    ],
+  );
+});
+
+test("Search keeps prior suggestions visible while a new query is debounced", () => {
+  assert.equal(shouldClearSuggestions("dune", 4), false);
+  assert.equal(shouldClearSuggestions("du", 4), false);
+  assert.equal(shouldClearSuggestions("d", 4), true);
+  assert.equal(shouldClearSuggestions("", 4), true);
+});
 
 test("Search restore state preserves result focus, pages, and originating Home state", () => {
   const savedAt = Date.now();

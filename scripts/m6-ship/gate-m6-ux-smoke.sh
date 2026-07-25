@@ -84,10 +84,19 @@ for search_contract in (
     'setAttribute("aria-pressed"',
     "search-query-shell",
     "search-compose-body",
-    "this.submitted ? [[edit], scopeRow]",
+    "mergeComposeFocusRows(this.keyboardRows, this.starterRows)",
+    "shouldClearSuggestions(this.query, this.suggestions.length)",
 ):
     if search_contract not in search:
         raise SystemExit(f"search.ts missing Search surface contract: {search_contract}")
+set_query = search.split("private setQuery", 1)[1].split("private scheduleSuggestions", 1)[0]
+if "this.render()" in set_query.split("if (wasSubmitted)", 1)[1].split("} else {", 1)[1]:
+    raise SystemExit("Search typing path rebuilds the full DOM")
+suggestions = search.split("private scheduleSuggestions", 1)[1].split("private async submit", 1)[0]
+if "this.render()" in suggestions:
+    raise SystemExit("Search suggestion refresh rebuilds the full DOM")
+if "document.activeElement !== target" not in focus:
+    raise SystemExit("FocusGrid repeats focus and scroll work for an unchanged target")
 if 'origin === "search"' not in playback_return:
     raise SystemExit("playback-return.ts missing Search-origin Detail restoration")
 PY

@@ -105,14 +105,16 @@ export class FocusGrid {
     if (target === null) {
       return;
     }
-    target.focus({ preventScroll: true });
-    if (this.pendingScroll !== 0) {
-      window.cancelAnimationFrame(this.pendingScroll);
+    if (document.activeElement !== target) {
+      target.focus({ preventScroll: true });
+      if (this.pendingScroll !== 0) {
+        window.cancelAnimationFrame(this.pendingScroll);
+      }
+      this.pendingScroll = window.requestAnimationFrame(() => {
+        target.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
+        this.pendingScroll = 0;
+      });
     }
-    this.pendingScroll = window.requestAnimationFrame(() => {
-      target.scrollIntoView({ behavior: "instant", block: "nearest", inline: "nearest" });
-      this.pendingScroll = 0;
-    });
     this.onFocus?.(target);
   }
 }

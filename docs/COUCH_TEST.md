@@ -272,9 +272,9 @@ Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
 | # | Test | Pass |
 |---|------|------|
 | S1 | Magnifier before Movies opens a blank Search surface with QWERTY keyboard focused; no Home tab refresh | |
-| S2 | D-pad keyboard, physical letters, Backspace, Enter, Escape, and arrows work predictably | |
+| S2 | D-pad keyboard, physical letters, Backspace, Enter, Escape, and arrows work predictably; Right from each keyboard row reaches the aligned Recent/Suggestion and Left returns to that row | |
 | S3 | Scope chips limit All / Movies / TV Shows / Live / YouTube correctly | |
-| S4 | Typing shows local suggestions without network spinner; explicit submit progressively adds source rows | |
+| S4 | Rapid typing updates the query without a blackout, focus jump, or keyboard/header rebuild; the prior starter list stays visible until one atomic suggestion swap; explicit submit progressively adds source rows | |
 | S5 | Exact title beats prefix/token matches; Top Results contains only verified/proven/YouTube cards with source diversity | |
 | S6 | All shows YouTube videos only; YouTube scope also shows Channels and Playlists, which open video-list Detail | |
 | S7 | Each result row starts with 9; More reveals the next 9 without quota or provider activity | |
@@ -289,9 +289,9 @@ Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
 | S16 | Cached/offline/quota-degraded YouTube remains usable; explicit Refresh YouTube Results spends at most one permitted search call | |
 | S17 | Descriptive English/Hinglish query works with orchestrator available and falls back cleanly when it is absent | |
 | S18 | Search latency evidence: local suggestions under 150 ms target, first useful submitted result under 300 ms target, network phases bounded 2.5 s, optional AI bounded 4 s | |
-| S19 | At 10 feet, query, focused key, scope, starter titles, and result metadata remain readable with no clipping outside the TV safe area | |
-| S20 | Blank Search has one obvious focus target and no form-like clutter; Results compacts the header and prioritizes cards over status copy | |
-| S21 | Reduced-motion mode removes the Search entrance reveal; D-pad focus feedback remains immediate and visible through shape, scale, border, and color | |
+| S19 | At 10 feet, query, focused key, scope, starter titles, and result metadata remain readable; every transformed focus ring stays inside the outer 5% TV safe area | |
+| S20 | Blank Search is one open workspace with no redundant title, nested panel cards, or decorative copy; only the focused key is bright; Results prioritizes cards over status copy | |
+| S21 | Search has no entrance animation; reduced-motion mode removes nonessential transitions while D-pad focus remains immediate and visible through shape, scale, border, and color | |
 
 ## Saved library (M6.1)
 
