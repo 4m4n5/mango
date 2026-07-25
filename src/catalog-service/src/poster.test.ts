@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { metahubPosterUrl, normalizePosterUrl, resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
+import {
+  enrichMetaForLauncher,
+  metahubPosterUrl,
+  normalizePosterUrl,
+  resolvePosterFromMeta,
+  stubMetaForLauncher,
+  youtubeVideoThumbnailUrl,
+} from './poster.js';
 
 test('normalizePosterUrl upgrades http and protocol-relative URLs', () => {
   assert.equal(normalizePosterUrl('//cdn.example/p.jpg'), 'https://cdn.example/p.jpg');
@@ -15,6 +22,14 @@ test('metahubPosterUrl builds Cinemeta CDN path from episode ids', () => {
     'https://images.metahub.space/poster/medium/tt12004706/img',
   );
   assert.equal(metahubPosterUrl('not-an-id'), null);
+});
+
+test('youtubeVideoThumbnailUrl accepts video ids without permitting arbitrary paths', () => {
+  assert.equal(
+    youtubeVideoThumbnailUrl('AbC_123-XyZ'),
+    'https://i.ytimg.com/vi/AbC_123-XyZ/hqdefault.jpg',
+  );
+  assert.equal(youtubeVideoThumbnailUrl('../not-a-video'), null);
 });
 
 test('resolvePosterFromMeta falls back through artwork fields', () => {

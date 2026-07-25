@@ -2,7 +2,7 @@ import type { CatalogCore } from '../core.js';
 import { isBlockedCatalogMeta } from '../catalog-errors.js';
 import { getTitlePlayability, queueTitleForVoiceIngest } from '../playability/db.js';
 import { loadRailConfig } from '../rails.js';
-import { metahubPosterUrl } from '../poster.js';
+import { metahubPosterUrl, resolvePosterFromMeta } from '../poster.js';
 import { scoreTitleMatch } from './search.js';
 
 type MangoBrowseTab = 'movies' | 'series' | 'live';
@@ -131,6 +131,7 @@ export async function searchExternalTitles(
 
       const title = metaTitle(meta as Record<string, unknown>);
       const score = scoreTitleMatch(title, trimmed);
+      const poster = resolvePosterFromMeta(meta);
       const playability = await getTitlePlayability(contentType, bareId);
       const { inLibrary, alreadyQueued } = deriveLibraryVerifyState(playability?.status);
       let queued = alreadyQueued;
@@ -145,7 +146,7 @@ export async function searchExternalTitles(
           id: bareId,
           title,
           rail_id: railId,
-          poster_url: metahubPosterUrl(bareId),
+          poster_url: poster ?? metahubPosterUrl(bareId),
           year: metaYear(meta as Record<string, unknown>) ?? null,
         });
         queued = true;
@@ -162,7 +163,7 @@ export async function searchExternalTitles(
         id: bareId,
         title,
         year: metaYear(meta as Record<string, unknown>),
-        poster: metahubPosterUrl(bareId) ?? undefined,
+        poster: poster ?? metahubPosterUrl(bareId) ?? undefined,
         tab: tabForType(contentType),
         score,
         in_library: inLibrary,

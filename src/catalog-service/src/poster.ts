@@ -13,6 +13,13 @@ export function metahubPosterUrl(id: string, size: 'medium' | 'large' = 'medium'
   return `https://images.metahub.space/poster/${size}/${bare}/img`;
 }
 
+/** Stable YouTube video thumbnail fallback that does not spend Data API quota. */
+export function youtubeVideoThumbnailUrl(id: string): string | null {
+  const normalized = id.trim();
+  if (!/^[A-Za-z0-9_-]{6,32}$/.test(normalized)) return null;
+  return `https://i.ytimg.com/vi/${normalized}/hqdefault.jpg`;
+}
+
 /** Normalize poster/artwork URLs for launcher `<img src>`. */
 export function normalizePosterUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;

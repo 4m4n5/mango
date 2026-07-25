@@ -28,6 +28,7 @@ import {
   setForYouCandidateStats,
   setLiveNowCandidateStats,
   setPopularCandidateStats,
+  setYoutubeState,
   upsertBecauseYouWatchedCandidates,
   upsertFreshFindCandidates,
   upsertForYouCandidates,
@@ -35,6 +36,7 @@ import {
   upsertPopularCandidates,
   youtubeCacheSummary,
   youtubeQuotaDecision,
+  youtubeRefreshStatus,
   youtubeSearchCacheSummary,
 } from './db.js';
 import type { YoutubeItem } from './types.js';
@@ -135,6 +137,32 @@ test('YouTube quota reserve pauses background work but remains available to couc
   assert.equal(youtubeQuotaDecision(1, 'background').allowed, false);
   assert.equal(youtubeQuotaDecision(2_500, 'interactive').allowed, true);
   assert.equal(youtubeQuotaDecision(2_501, 'interactive').allowed, false);
+}));
+
+test('YouTube search calls use their own reserve instead of general API units', () => withTempYoutube(() => {
+  for (let index = 0; index < 75; index += 1) incrementYoutubeQuota(1, true);
+  assert.equal(youtubeQuotaDecision(1, 'background', true).allowed, false);
+  assert.equal(youtubeQuotaDecision(1, 'interactive', true).allowed, true);
+  for (let index = 0; index < 25; index += 1) incrementYoutubeQuota(1, true);
+  assert.equal(youtubeQuotaDecision(1, 'interactive', true).allowed, false);
+  const status = youtubeRefreshStatus();
+  assert.equal(status.quota_used_today, 0);
+  assert.equal(status.search_calls_today, 100);
+}));
+
+test('YouTube quota reader normalizes an existing old-model daily record', () => withTempYoutube(() => {
+  const day = youtubeRefreshStatus().quota_reset_day;
+  setYoutubeState('quota', {
+    day,
+    units: 201,
+    search_calls: 2,
+    api_calls: 3,
+  });
+  const normalized = youtubeRefreshStatus();
+  assert.equal(normalized.quota_used_today, 1);
+  assert.equal(normalized.search_calls_today, 2);
+  incrementYoutubeQuota(1);
+  assert.equal(youtubeRefreshStatus().quota_used_today, 2);
 }));
 
 test('rail replacement upserts cached items and keeps case-sensitive ids', () => withTempYoutube(() => {

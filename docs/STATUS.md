@@ -319,7 +319,7 @@ resolution.
 | Companion picks | Numbered tappable rows · `pick_select` WS (no LLM round-trip) |
 | YouTube AI rails | 9-card cap · gate isolates `MANGO_AI_CATALOGS_DIR` |
 | Automated gate | `gate-m6-ux-smoke.sh` in `pi-pre-couch-gate.sh` on `feat/native-experience` |
-| Unified Search | Temporary magnifier surface, local keyboard suggestions, progressive source-isolated rows, origin-aware Detail/playback return, 12 recents, SafeSearch, query cache and quota reserve |
+| Unified Search | Temporary magnifier surface, local keyboard suggestions, progressive source-isolated rows, rail-local More tiles, two-row YouTube results, degraded-only retry, origin-aware Detail/playback return, 12 recents, SafeSearch, query cache and split quota reserves |
 
 **Pi evidence:** commit `8eeb239` — ux-smoke 9/9 PASS.
 

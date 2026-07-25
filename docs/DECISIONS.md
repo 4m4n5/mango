@@ -122,7 +122,7 @@ Locked choices. Update when changing behavior.
 | YouTube quota policy | Couch shuffle and playback use local caches/`yt-dlp`; Data API quota is spent only by metadata/search/subscription refresh and explicit search/detail calls |
 | Unified Search | Temporary magnifier surface, not a fifth tab/chatbot; local typing, explicit submit, progressive isolated sources, 9-card local pagination, no autoplay |
 | Search persistence | Recents/selection/SafeSearch in `library.db`; YouTube query cache in `youtube.db`; bounded progressive jobs in memory; no `search.db` |
-| Interactive quota | 10,000-unit Pacific day, 2,500 reserved from background work; official method costs admitted before request |
+| Interactive quota | 10,000-unit general Pacific day with 2,500 reserved; separate 100-call Search bucket with 25 calls reserved; admitted before request |
 | YouTube native recommendations | Exact native YouTube home/recommended feed is not available through supported Data API routes; any raw-feed experiment must be explicit opt-in and isolated from Mango-owned recommender rails |
 | 4K | Ship profile on target TV; relax filters in `catalog-filters.json` |
 | Deploy | `install.sh` wizard — no SSH for household setup |

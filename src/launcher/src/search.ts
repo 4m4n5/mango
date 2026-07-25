@@ -21,7 +21,7 @@ type SearchResult = {
   queued_for_verify: boolean;
 };
 
-type SearchGroup = {
+export type SearchGroup = {
   id: string;
   label: string;
   layout: "landscape" | "poster";
@@ -80,7 +80,8 @@ type SearchCallbacks = {
 
 const STORAGE_KEY = "mango.search-session.v1";
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const PAGE_SIZE = 9;
+const DEFAULT_PAGE_SIZE = 9;
+const YOUTUBE_PAGE_SIZE = 12;
 const SCOPES: Array<{ id: SearchScope; label: string }> = [
   { id: "all", label: "all" },
   { id: "movies", label: "movies" },
@@ -105,6 +106,24 @@ export function mergeComposeFocusRows<T>(keyboardRows: T[][], starterRows: T[][]
 
 export function shouldClearSuggestions(query: string, suggestionCount: number): boolean {
   return query.trim().length < 2 && suggestionCount > 0;
+}
+
+export function searchGroupPageSize(group: Pick<SearchGroup, "id">): number {
+  return group.id === "youtube" ? YOUTUBE_PAGE_SIZE : DEFAULT_PAGE_SIZE;
+}
+
+export function searchGroupPageWindow(
+  group: Pick<SearchGroup, "id" | "items">,
+  page: number,
+): { items: SearchResult[]; hasMore: boolean; capacity: number } {
+  const capacity = (Math.max(0, Math.floor(page)) + 1) * searchGroupPageSize(group);
+  const hasMore = group.items.length > capacity;
+  const cardLimit = hasMore ? capacity - 1 : capacity;
+  return {
+    items: group.items.slice(0, cardLimit),
+    hasMore,
+    capacity,
+  };
 }
 
 type SearchIconName = "search" | "clock" | "play" | "edit" | "refresh";
@@ -418,7 +437,7 @@ export class SearchController {
     }, 120);
   }
 
-  private async submit(refreshYoutube = false): Promise<void> {
+  private async submit(): Promise<void> {
     if (this.query.trim().length < 2) {
       this.callbacks.onStatus("Type at least 2 characters.");
       return;
@@ -429,7 +448,6 @@ export class SearchController {
       body: JSON.stringify({
         query: this.query,
         scope: this.scope,
-        refresh_youtube: refreshYoutube,
       }),
     }).catch((error) => {
       this.callbacks.onStatus(error instanceof Error ? error.message : "Search is temporarily unavailable.");
@@ -710,39 +728,31 @@ export class SearchController {
     if (!this.snapshot?.complete) toolbar.appendChild(progress);
 
     const groups = this.snapshot?.groups || [];
+    const windows = new Map(groups.map((group) => [
+      group.id,
+      searchGroupPageWindow(group, this.pages[group.id] || 0),
+    ]));
     const rails: ContentRail[] = groups
       .filter((group) => group.items.length > 0)
       .map((group) => ({
         id: group.id,
         label: group.label,
         layout: group.layout,
-        cards: group.items
-          .slice(0, ((this.pages[group.id] || 0) + 1) * PAGE_SIZE)
+        cards: (windows.get(group.id)?.items || [])
           .map((item) => resultToCard(item, `search:${group.id}`)),
       }));
     const rows = buildCatalogRails(results, {
       onContentSelect: (card, railLabel) => this.openResult(card, railLabel),
       onAppSelect: () => undefined,
-    }, {}, { status: "ready", rails });
-
-    for (const group of groups) {
-      const shown = ((this.pages[group.id] || 0) + 1) * PAGE_SIZE;
-      if (group.items.length <= shown) continue;
-      const section = results.querySelector<HTMLElement>(`[data-rail-id="${CSS.escape(group.id)}"]`);
-      if (!section) continue;
-      const more = this.controlButton(
-        `more ${group.label.toLowerCase()}`,
-        `search:more:${group.id}`,
-        () => {
-          this.pages[group.id] = (this.pages[group.id] || 0) + 1;
-          this.focusedKey = `search:more:${group.id}`;
-          this.refreshResults();
-        },
-      );
-      more.classList.add("search-more");
-      section.appendChild(more);
-      rows.push([more]);
-    }
+    }, {
+      railTrailingAction: (rail, landscape) => {
+        const group = groups.find((candidate) => candidate.id === rail.id);
+        const window = windows.get(rail.id);
+        return group && window?.hasMore
+          ? this.createMoreCard(group, landscape, window.items.length)
+          : null;
+      },
+    }, { status: "ready", rails });
 
     if (rails.length === 0) {
       const message = document.createElement("div");
@@ -772,21 +782,91 @@ export class SearchController {
       toolbar.appendChild(note);
     }
 
-    if (this.scope === "all" || this.scope === "youtube") {
-      const refresh = this.controlButton(
-        "refresh YouTube",
-        "search:refresh-youtube",
-        () => void this.submit(true),
+    const youtubePhase = this.snapshot?.phases.youtube;
+    if (
+      this.snapshot?.complete
+      && (youtubePhase?.status === "degraded" || youtubePhase?.status === "failed")
+    ) {
+      const retry = this.controlButton(
+        "retry YouTube",
+        "search:retry-youtube",
+        () => void this.retryYoutube(),
       );
-      refresh.classList.add("search-refresh-youtube");
-      refresh.prepend(searchIcon("refresh"));
-      toolbar.appendChild(refresh);
-      rows.unshift([refresh]);
+      retry.classList.add("search-retry-youtube");
+      retry.prepend(searchIcon("refresh"));
+      toolbar.appendChild(retry);
+      rows.unshift([retry]);
     }
     if (toolbar.childElementCount > 0) results.prepend(toolbar);
     if (replace) replace.replaceWith(results);
     else this.view.appendChild(results);
     return rows;
+  }
+
+  private createMoreCard(group: SearchGroup, landscape: boolean, shownCount: number): HTMLButtonElement {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `card card--poster ${landscape ? "card--landscape" : "card--portrait"} search-more-card`;
+    button.dataset.focusKey = `search:more:${group.id}`;
+    button.setAttribute("role", "listitem");
+    button.setAttribute("aria-label", `More ${group.label}`);
+
+    const glyph = document.createElement("span");
+    glyph.className = "search-more-glyph";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = "→";
+
+    const title = document.createElement("span");
+    title.className = "card-title";
+    title.textContent = "More";
+    const subtitle = document.createElement("span");
+    subtitle.className = "card-subtitle";
+    subtitle.textContent = group.label;
+    const content = document.createElement("span");
+    content.className = "poster-content";
+    content.append(title, subtitle);
+
+    if (landscape) {
+      const frame = document.createElement("span");
+      frame.className = "poster-frame search-more-frame";
+      frame.appendChild(glyph);
+      button.append(frame, content);
+    } else {
+      button.append(glyph, content);
+    }
+
+    button.addEventListener("click", () => {
+      const firstNew = group.items[shownCount];
+      this.pages[group.id] = (this.pages[group.id] || 0) + 1;
+      this.focusedKey = firstNew
+        ? `rail:${group.id}:${firstNew.type}:${firstNew.id}`
+        : `search:more:${group.id}`;
+      this.refreshResults();
+    });
+    return button;
+  }
+
+  private async retryYoutube(): Promise<void> {
+    const searchId = this.snapshot?.search_id;
+    if (!searchId) return;
+    this.callbacks.onStatus("Retrying YouTube…");
+    const snapshot = await fetchJson<SearchSnapshot>(
+      `/api/catalog/search/query/${encodeURIComponent(searchId)}/youtube/retry`,
+      { method: "POST" },
+    ).catch((error) => {
+      this.callbacks.onStatus(error instanceof Error ? error.message : "YouTube is temporarily unavailable.");
+      return null;
+    });
+    if (!snapshot) return;
+    this.snapshot = snapshot;
+    const firstYoutube = snapshot.groups.find((group) => group.id === "youtube")?.items[0];
+    this.focusedKey = snapshot.phases.youtube?.status === "ready" && firstYoutube
+      ? `rail:youtube:${firstYoutube.type}:${firstYoutube.id}`
+      : "search:retry-youtube";
+    this.refreshResults();
+    this.callbacks.onStatus(snapshot.phases.youtube?.status === "ready"
+      ? "YouTube results updated."
+      : "YouTube is still unavailable. Other results are ready.");
   }
 
   private updateQueryDisplay(): void {

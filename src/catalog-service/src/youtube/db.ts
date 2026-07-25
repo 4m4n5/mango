@@ -1249,36 +1249,77 @@ export const YOUTUBE_INTERACTIVE_QUOTA_RESERVE = Math.max(
     Number(process.env.MANGO_YOUTUBE_INTERACTIVE_QUOTA_RESERVE || 2_500),
   ),
 );
+export const YOUTUBE_DAILY_SEARCH_CALL_BUDGET = Math.max(
+  1,
+  Number(process.env.MANGO_YOUTUBE_DAILY_SEARCH_CALL_BUDGET || 100),
+);
+export const YOUTUBE_INTERACTIVE_SEARCH_CALL_RESERVE = Math.max(
+  0,
+  Math.min(
+    YOUTUBE_DAILY_SEARCH_CALL_BUDGET,
+    Number(process.env.MANGO_YOUTUBE_INTERACTIVE_SEARCH_CALL_RESERVE || 25),
+  ),
+);
 
 type YoutubeQuotaRecord = {
   day: string;
   units: number;
   search_calls?: number;
   api_calls?: number;
+  accounting_version?: number;
 };
 
 function currentYoutubeQuota(): YoutubeQuotaRecord {
   const day = todayPacific();
   const current = getYoutubeState<YoutubeQuotaRecord>(
     'quota',
-    { day, units: 0, search_calls: 0, api_calls: 0 },
+    { day, units: 0, search_calls: 0, api_calls: 0, accounting_version: 2 },
   );
-  return current.day === day
-    ? current
-    : { day, units: 0, search_calls: 0, api_calls: 0 };
+  if (current.day !== day) {
+    return { day, units: 0, search_calls: 0, api_calls: 0, accounting_version: 2 };
+  }
+  if (current.accounting_version === 2) return current;
+  // Before June 2026 Search was counted as 100 general units. Preserve all
+  // runtime state while removing those historical charges from today's
+  // general bucket; search_calls already tracked the independent count.
+  return {
+    ...current,
+    units: Math.max(0, current.units - (current.search_calls ?? 0) * 100),
+    accounting_version: 2,
+  };
 }
 
 export function youtubeQuotaDecision(
   units: number,
   purpose: YoutubeApiPurpose,
+  searchCall = false,
 ): {
   allowed: boolean;
   reason: string | null;
   used: number;
   limit: number;
+  bucket: 'general' | 'search';
 } {
   const cost = Math.max(1, Math.floor(units));
   const quota = currentYoutubeQuota();
+  if (searchCall) {
+    const used = quota.search_calls ?? 0;
+    const limit = purpose === 'background'
+      ? YOUTUBE_DAILY_SEARCH_CALL_BUDGET - YOUTUBE_INTERACTIVE_SEARCH_CALL_RESERVE
+      : YOUTUBE_DAILY_SEARCH_CALL_BUDGET;
+    const allowed = used + 1 <= limit;
+    return {
+      allowed,
+      reason: allowed
+        ? null
+        : purpose === 'background'
+          ? 'YouTube background search paused to preserve couch search'
+          : 'YouTube daily search-call quota exhausted',
+      used,
+      limit,
+      bucket: 'search',
+    };
+  }
   const limit = purpose === 'background'
     ? YOUTUBE_DAILY_QUOTA_BUDGET - YOUTUBE_INTERACTIVE_QUOTA_RESERVE
     : YOUTUBE_DAILY_QUOTA_BUDGET;
@@ -1292,6 +1333,7 @@ export function youtubeQuotaDecision(
         : 'YouTube daily quota exhausted',
     used: quota.units,
     limit,
+    bucket: 'general',
   };
 }
 
@@ -1301,11 +1343,18 @@ export function incrementYoutubeQuota(units: number, searchCall = false): void {
   const next = current.day === day
     ? {
       day,
-      units: current.units + units,
+      units: current.units + (searchCall ? 0 : units),
       search_calls: (current.search_calls ?? 0) + (searchCall ? 1 : 0),
       api_calls: (current.api_calls ?? 0) + 1,
+      accounting_version: 2,
     }
-    : { day, units, search_calls: searchCall ? 1 : 0, api_calls: 1 };
+    : {
+      day,
+      units: searchCall ? 0 : units,
+      search_calls: searchCall ? 1 : 0,
+      api_calls: 1,
+      accounting_version: 2,
+    };
   setYoutubeState('quota', next);
 }
 
@@ -1325,11 +1374,23 @@ export function youtubeRefreshStatus(): YoutubeRefreshStatus {
     quota_reset_day: todayPacific(),
     quota_budget: YOUTUBE_DAILY_QUOTA_BUDGET,
     interactive_reserve: YOUTUBE_INTERACTIVE_QUOTA_RESERVE,
+    search_call_budget: YOUTUBE_DAILY_SEARCH_CALL_BUDGET,
+    interactive_search_call_reserve: YOUTUBE_INTERACTIVE_SEARCH_CALL_RESERVE,
     background_remaining: Math.max(
       0,
       YOUTUBE_DAILY_QUOTA_BUDGET - YOUTUBE_INTERACTIVE_QUOTA_RESERVE - used,
     ),
     interactive_remaining: Math.max(0, YOUTUBE_DAILY_QUOTA_BUDGET - used),
+    background_search_calls_remaining: Math.max(
+      0,
+      YOUTUBE_DAILY_SEARCH_CALL_BUDGET
+        - YOUTUBE_INTERACTIVE_SEARCH_CALL_RESERVE
+        - (currentDay ? (quota.search_calls ?? 0) : 0),
+    ),
+    interactive_search_calls_remaining: Math.max(
+      0,
+      YOUTUBE_DAILY_SEARCH_CALL_BUDGET - (currentDay ? (quota.search_calls ?? 0) : 0),
+    ),
   };
 }
 

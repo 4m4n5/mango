@@ -277,7 +277,7 @@ Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
 | S4 | Rapid typing updates the query without a blackout, focus jump, or keyboard/header rebuild; the prior starter list stays visible until one atomic suggestion swap; explicit submit progressively adds source rows | |
 | S5 | Exact title beats prefix/token matches; Top Results contains only verified/proven/YouTube cards with source diversity | |
 | S6 | All shows YouTube videos only; YouTube scope also shows Channels and Playlists, which open video-list Detail | |
-| S7 | Each result row starts with 9; More reveals the next 9 without quota or provider activity | |
+| S7 | Poster rails use 9 slots; YouTube fills two six-card rows, with in-grid More revealing cached results without quota/provider activity | |
 | S8 | One unavailable source shows plain per-row degraded copy while other rows remain selectable; no results is not an error and focuses Edit for immediate correction | |
 | S9 | X tap deletes one character; X hold for at least 600 ms clears; returning Home restores X current-tab shuffle | |
 | S10 | B opens Detail and a second B starts playback; Search never autoplays | |
@@ -286,7 +286,7 @@ Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
 | S13 | Y from Search restores the exact originating Home tab and focused card; reopening Search is blank with recents | |
 | S14 | External VOD successful zero-stream Detail queues once; timeout/provider failure does not queue or show a false global catalog error | |
 | S15 | Settings SafeSearch Moderate/Strict/Off persists; Clear Search Activity removes recents and learning | |
-| S16 | Cached/offline/quota-degraded YouTube remains usable; explicit Refresh YouTube Results spends at most one permitted search call | |
+| S16 | Cached/offline/quota-degraded YouTube remains usable; Retry appears only after degradation and reruns only YouTube with at most one permitted Search call | |
 | S17 | Descriptive English/Hinglish query works with orchestrator available and falls back cleanly when it is absent | |
 | S18 | Search latency evidence: local suggestions under 150 ms target, first useful submitted result under 300 ms target, network phases bounded 2.5 s, optional AI bounded 4 s | |
 | S19 | At 10 feet, query, focused key, scope, starter titles, and result metadata remain readable; every transformed focus ring stays inside the outer 5% TV safe area | |

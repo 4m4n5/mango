@@ -123,18 +123,17 @@ launcher card/cache supplies display metadata and `yt-dlp` resolves transport.
 `/youtube/state` reports both `search_calls_today` and `api_calls_today` so
 operators can distinguish scarce search work from cheap metadata calls.
 Unified launcher Search additionally admits quota centrally before dispatch:
-the Pacific-day budget is 10,000 units with 2,500 protected for interactive
-use. Background refresh stops before entering that reserve; interactive Search
-may consume the remaining budget. Official costs are accounted as 100 units
-for `search.list` and 1 unit for ordinary metadata list requests. Query
-responses are keyed by query/kinds/SafeSearch/region/language, cached for 24
-hours, and pruned LRU to 200 keys. See [SEARCH.md](SEARCH.md).
+the Pacific-day general metadata budget is 10,000 units with 2,500 protected
+for interactive use. `search.list` has a separate 100-call daily bucket, with
+25 calls protected for couch Search. Background refresh stops before entering
+either applicable reserve. Ordinary metadata list requests cost 1 general unit.
+Query responses are keyed by query/kinds/SafeSearch/region/language, cached for
+24 hours, and pruned LRU to 200 keys. See [SEARCH.md](SEARCH.md).
 `popular` is deliberately cheap because it uses `videos.list(chart=mostPopular)`;
 Google currently documents `videos.list` as a 1-unit method. Search-heavy phases
 (`fresh_finds`, `live_now`, `because_you_watched`, and `for_you_discovery`)
-spend 100 units for every `search.list` call from the same daily budget, so
-quota exhaustion can mark one phase partial while cached VOD rails and Popular
-continue to work.
+spend one of the separate daily Search calls, so exhaustion can mark one phase
+partial while cached VOD rails and Popular continue to work.
 
 `live_now` is the time-sensitive exception to the long stale-cache posture:
 Mango keeps a short-TTL live reservoir and hides expired live candidates instead

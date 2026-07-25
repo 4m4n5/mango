@@ -1037,7 +1037,6 @@ async function main(): Promise<void> {
         const snapshot = await search.startQuery({
           query,
           scope: parseSearchScope(body.scope),
-          refresh_youtube: body.refresh_youtube === true,
           diagnostic: body.diagnostic === true,
         });
         sendJson(res, 202, snapshot);
@@ -1060,6 +1059,16 @@ async function main(): Promise<void> {
       if (req.method === 'POST' && parts.length === 4
         && parts[0] === 'search' && parts[1] === 'query' && parts[3] === 'cancel') {
         sendJson(res, 200, { ok: true, cancelled: search.cancel(parts[2]) });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 5
+        && parts[0] === 'search' && parts[1] === 'query'
+        && parts[3] === 'youtube' && parts[4] === 'retry') {
+        if (!isLocalRequest(req)) throw new CatalogError(403, 'search retry is localhost-only');
+        const snapshot = await search.retryYoutube(parts[2]);
+        if (!snapshot) throw new CatalogError(404, 'search session not found');
+        sendJson(res, 200, snapshot);
         return;
       }
 

@@ -2181,19 +2181,31 @@ export async function listVerifiedLibraryCatalogRows(
   await initPlayabilityDb();
   const db = openDb();
   return db.prepare(`
-SELECT
-  rp.rail_id,
-  rp.type,
-  rp.id,
-  rp.title,
-  rp.poster_url AS poster,
-  rp.year
-FROM rail_pool rp
-JOIN titles t ON t.type = rp.type AND t.id = rp.id
-WHERE t.status = 'verified'
-  AND rp.title IS NOT NULL
-  AND trim(rp.title) != ''
-ORDER BY rp.title ASC
+WITH ranked AS (
+  SELECT
+    rp.rail_id,
+    rp.type,
+    rp.id,
+    rp.title,
+    rp.poster_url AS poster,
+    rp.year,
+    ROW_NUMBER() OVER (
+      PARTITION BY rp.type, rp.id
+      ORDER BY
+        CASE WHEN rp.poster_url IS NOT NULL AND trim(rp.poster_url) != '' THEN 0 ELSE 1 END,
+        rp.ingested_at DESC,
+        rp.rail_id ASC
+    ) AS row_rank
+  FROM rail_pool rp
+  JOIN titles t ON t.type = rp.type AND t.id = rp.id
+  WHERE t.status = 'verified'
+    AND rp.title IS NOT NULL
+    AND trim(rp.title) != ''
+)
+SELECT rail_id, type, id, title, poster, year
+FROM ranked
+WHERE row_rank = 1
+ORDER BY title ASC
 LIMIT @limit;
   `).all({ limit: Math.max(1, limit) }) as VerifiedLibraryCatalogRow[];
 }

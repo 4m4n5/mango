@@ -16,8 +16,10 @@ while the user types.
   metadata. Submit is explicit.
 - Submitted results arrive progressively as Top Results, Movies, TV Shows,
   Live, YouTube, More Movies & Shows, and optional Related to Your Search.
-- Each row initially exposes 9 cards. More reveals the next 9 from the same
-  result snapshot without another provider or YouTube request.
+- Poster rows expose 9 slots. The YouTube video rail exposes two complete
+  six-column rows: 12 videos when complete, or 11 videos plus an in-grid More
+  tile while additional cached results remain. More reveals the next local
+  snapshot page without another provider or YouTube request.
 - B opens Detail. Playback remains a second explicit B action in Detail.
 - Y from Detail restores the exact Search result and focus. Playback return
   restores that Detail and then Search, including Live and YouTube. Y from
@@ -47,9 +49,13 @@ decorative copy. The submitted state gives the screen back to content.
   error.
 - Results retain one editorial hierarchy: Top Results first in landscape
   geometry, then source rows in their native landscape/poster geometry.
-- Progress, source degradation, and explicit YouTube refresh remain secondary
-  to result cards. Empty Search uses a composed empty state rather than a
-  catalog-error toast.
+- Progress and source degradation remain secondary to result cards. A YouTube
+  retry appears only after that source degrades and updates the existing Search
+  job without rerunning VOD, Live, or AI. Empty Search uses a composed empty
+  state rather than a catalog-error toast.
+- Every More tile is the final item in its own rail's focus grid. Down moves
+  through visual rows and into the next rail; pagination controls are never
+  collected into detached action rows after the content.
 - Typing updates only query text. Existing suggestions remain visible through
   the debounce and are replaced once as a subtree when the next set is ready;
   the header and keyboard are never rebuilt or refocused.
@@ -108,20 +114,23 @@ region, and language. Results remain fresh for 24 hours; the table is pruned
 expired/LRU to 200 keys and can retain up to 50 results per query for local
 pagination.
 
-Mango accounts official API-unit costs before dispatch:
+Mango accounts the current official quota buckets before dispatch:
 
-- Daily budget: 10,000 units on the Pacific-day boundary.
-- Interactive reserve: 2,500 units.
-- Background work stops before entering the reserve.
-- Interactive Search may use the remaining daily budget.
-- `search.list`: 100 units per request.
+- General metadata budget: 10,000 units on the Pacific-day boundary, with
+  2,500 units protected for interactive metadata.
+- Search budget: 100 `search.list` calls per Pacific day, with 25 calls
+  protected for interactive couch Search.
+- Background work stops before entering either applicable reserve.
+- `search.list`: one call from the separate Search Queries bucket.
 - `videos.list`, `channels.list`, playlist/subscription metadata: 1 unit per
   request.
 
-Repeated queries join an in-flight request or use cache. Explicit Refresh
-YouTube Results bypasses a fresh query-cache row once and spends at most one
-new search call when quota permits. Couch shuffle and `yt-dlp -> mpv` playback
-do not spend Data API quota.
+Repeated queries join an in-flight request or use cache. Normal Search has no
+cache-bypass control because a miss already refreshes the 24-hour cache. If
+YouTube degrades, a source-local Retry appears; it bypasses that query-cache row
+once and spends at most one permitted Search call plus ordinary metadata
+enrichment. Couch pagination, shuffle, and `yt-dlp -> mpv` playback do not
+spend Data API quota.
 
 ## External VOD verification
 
@@ -141,6 +150,7 @@ title.
 | `POST` | `/search/query` | Start progressive search; `202` with initial snapshot |
 | `GET` | `/search/query/{id}?after_revision=&wait_ms=` | Bounded long-poll for a newer full snapshot |
 | `POST` | `/search/query/{id}/cancel` | Suppress a superseded session |
+| `POST` | `/search/query/{id}/youtube/retry` | Localhost-only retry of a completed degraded YouTube phase |
 | `POST` | `/search/selection` | Record bounded local selection affinity |
 | `POST` | `/search/external/queue` | Localhost-only confirmed-empty VOD queue |
 | `DELETE` | `/search/history` | Localhost-only clear of recents and learning |

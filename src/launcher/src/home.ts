@@ -14,6 +14,7 @@ export interface HomeOptions {
   onBrowseTabChange?: (tab: BrowseTab) => void;
   savedKeys?: Set<string>;
   onLayoutApplied?: () => void;
+  railTrailingAction?: (rail: ContentRail, landscape: boolean) => HTMLElement | null;
 }
 
 export type CatalogState =
@@ -174,6 +175,11 @@ function appendCatalogSections(
       track.appendChild(button);
       items.push(button);
     }
+    const trailingAction = options.railTrailingAction?.(rail, landscape);
+    if (trailingAction) {
+      track.appendChild(trailingAction);
+      items.push(trailingAction);
+    }
     applyRailLayout(track, landscape);
     section.appendChild(track);
     container.appendChild(section);
@@ -181,9 +187,16 @@ function appendCatalogSections(
     // that a rail wrapping onto multiple rows is navigable with Down/Up, not
     // only by holding Right through every card.
     const cols = landscape ? RAIL_COLUMNS_LANDSCAPE : RAIL_COLUMNS;
-    for (let i = 0; i < items.length; i += cols) {
-      rows.push(items.slice(i, i + cols));
-    }
+    rows.push(...splitFocusRows(items, cols));
+  }
+  return rows;
+}
+
+export function splitFocusRows<T>(items: T[], columns: number): T[][] {
+  const rows: T[][] = [];
+  const safeColumns = Math.max(1, Math.floor(columns));
+  for (let i = 0; i < items.length; i += safeColumns) {
+    rows.push(items.slice(i, i + safeColumns));
   }
   return rows;
 }

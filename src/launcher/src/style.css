@@ -672,19 +672,12 @@ button {
   letter-spacing: -0.01em;
 }
 
-.search-more,
-.search-refresh-youtube,
+.search-retry-youtube,
 .search-edit {
   border-radius: var(--radius-control);
 }
 
-.search-more {
-  align-self: flex-start;
-  margin-top: 1rem;
-  background: rgba(255, 255, 255, 0.055);
-}
-
-.search-refresh-youtube {
+.search-retry-youtube {
   min-height: 2.85rem;
   display: inline-flex;
   align-items: center;
@@ -695,10 +688,41 @@ button {
   font-size: 0.92rem;
 }
 
-.search-refresh-youtube .search-icon,
+.search-retry-youtube .search-icon,
 .search-edit .search-icon {
   width: 1.05rem;
   height: 1.05rem;
+}
+
+.search-more-card.card--portrait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(85, 227, 190, 0.16), transparent 38%),
+    linear-gradient(145deg, rgba(29, 38, 40, 0.96), var(--bg-base));
+}
+
+.search-more-frame {
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(85, 227, 190, 0.16), transparent 42%),
+    linear-gradient(145deg, rgba(29, 38, 40, 0.96), var(--bg-base));
+}
+
+.search-more-glyph {
+  color: var(--accent);
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  font-weight: 500;
+  line-height: 1;
+}
+
+.search-more-card.card--portrait .search-more-glyph {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .search-edit {

@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { resetLibraryDbForTests } from '../library/db.js';
-import { resetPlayabilityDbForTests } from '../playability/db.js';
+import {
+  recordVerifyResult,
+  resetPlayabilityDbForTests,
+  upsertRailPoolTitle,
+} from '../playability/db.js';
 import { resetYoutubeDbForTests, upsertYoutubeItems } from '../youtube/db.js';
 import type { YoutubeSearchGroups } from '../youtube/types.js';
 import { UnifiedSearchService } from './service.js';
@@ -113,3 +117,82 @@ test('index invalidation swaps in newly cached YouTube metadata atomically', () 
   assert.equal(nextState.index.items, 1);
   assert.equal((await service.suggestions('dune', 'youtube', 9))[0]?.id, 'video-1');
 }));
+
+test('verified Search metadata prefers a duplicate pool row with artwork', () => withSearchServiceTest(async (service) => {
+  await recordVerifyResult({
+    type: 'movie',
+    id: 'tt1234567',
+    status: 'verified',
+    expires_at: Date.now() + 60_000,
+  });
+  await upsertRailPoolTitle({
+    rail_id: 'movies-first',
+    type: 'movie',
+    id: 'tt1234567',
+    score: 100,
+    title: 'Artwork Choice',
+  });
+  await upsertRailPoolTitle({
+    rail_id: 'movies-second',
+    type: 'movie',
+    id: 'tt1234567',
+    score: 90,
+    title: 'Artwork Choice',
+    poster_url: 'https://cdn.example/artwork-choice.jpg',
+  });
+
+  const results = await service.suggestions('artwork choice', 'movies', 9);
+  assert.equal(results.length, 1);
+  assert.equal(results[0]?.poster, 'https://cdn.example/artwork-choice.jpg');
+}));
+
+test('YouTube retry updates only a completed degraded Search job', () => {
+  let calls = 0;
+  const search = async (): Promise<Record<string, unknown>> => {
+    calls += 1;
+    if (calls === 1) return { groups: EMPTY_GROUPS, api_error: 'temporary failure' };
+    return {
+      groups: {
+        videos: [{
+          id: 'retry-video',
+          kind: 'video',
+          title: 'Retry Video',
+          subtitle: 'Channel',
+          description: null,
+          thumbnail: null,
+          channel_id: 'channel-1',
+          channel_title: 'Channel',
+          published_at: '2026-07-01T00:00:00Z',
+          duration_sec: 600,
+          live_status: 'none',
+          playlist_id: null,
+          updated_at: Date.now(),
+        }],
+        channels: [],
+        playlists: [],
+      },
+    };
+  };
+  return withSearchServiceTest(async (service) => {
+    let snapshot = await service.startQuery({
+      query: 'retry video',
+      scope: 'youtube',
+      diagnostic: true,
+    });
+    while (!snapshot.complete) {
+      const next = await service.waitForSnapshot(snapshot.search_id, snapshot.revision, 1_000);
+      assert.ok(next);
+      snapshot = next;
+    }
+    assert.equal(snapshot.phases.youtube.status, 'degraded');
+    const retried = await service.retryYoutube(snapshot.search_id);
+    assert.equal(calls, 2);
+    assert.equal(retried?.phases.youtube.status, 'ready');
+    assert.deepEqual(retried?.groups.find((group) => group.id === 'youtube')?.items.map((item) => item.id), [
+      'retry-video',
+    ]);
+    assert.equal(retried?.phases.external.status, 'skipped');
+    assert.equal(retried?.phases.live.status, 'skipped');
+    assert.equal(retried?.phases.ai.status, 'skipped');
+  }, search);
+});

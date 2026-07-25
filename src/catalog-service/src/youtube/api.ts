@@ -167,8 +167,9 @@ export class YoutubeApiClient {
     token?: string,
     purpose: YoutubeApiPurpose = 'background',
   ): Promise<unknown> {
-    const quotaCost = path === 'search' ? 100 : 1;
-    const decision = youtubeQuotaDecision(quotaCost, purpose);
+    const searchCall = path === 'search';
+    const quotaCost = 1;
+    const decision = youtubeQuotaDecision(quotaCost, purpose, searchCall);
     if (!decision.allowed) {
       throw new CatalogError(429, decision.reason || 'YouTube quota unavailable');
     }
@@ -182,7 +183,7 @@ export class YoutubeApiClient {
       url.searchParams.set('key', requireApiKey(this.config));
     }
     // YouTube charges attempted Data API requests even when they fail.
-    incrementYoutubeQuota(quotaCost, path === 'search');
+    incrementYoutubeQuota(quotaCost, searchCall);
     const response = await fetch(url, {
       headers: token ? { authorization: `Bearer ${token}` } : undefined,
     });

@@ -240,7 +240,7 @@ test('search forwards Fresh Finds video filters and records quota', () => withAp
   assert.equal(search.searchParams.get('videoDefinition'), 'high');
   assert.equal(search.searchParams.get('topicId'), '/m/01k8wb');
   assert.equal(search.searchParams.get('safeSearch'), 'moderate');
-  assert.equal(youtubeRefreshStatus().quota_used_today, 101);
+  assert.equal(youtubeRefreshStatus().quota_used_today, 1);
   assert.equal(youtubeRefreshStatus().search_calls_today, 1);
   assert.equal(youtubeRefreshStatus().api_calls_today, 2);
 }));

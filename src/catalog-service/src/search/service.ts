@@ -18,7 +18,7 @@ import {
   playabilitySearchGeneration,
   queueTitleForPlayabilityIngest,
 } from '../playability/db.js';
-import { metahubPosterUrl, normalizePosterUrl } from '../poster.js';
+import { metahubPosterUrl, normalizePosterUrl, youtubeVideoThumbnailUrl } from '../poster.js';
 import { loadRailConfig } from '../rails.js';
 import { searchExternalTitles, type ExternalSearchHit } from '../voice/external.js';
 import { searchLiveChannels } from '../voice/live-search.js';
@@ -109,7 +109,9 @@ function youtubeResult(item: YoutubeItem, query: string): SearchResult | null {
     id: item.id,
     title: item.title,
     subtitle: item.channel_title || item.subtitle || (item.live_status === 'live' ? 'live' : 'YouTube'),
-    poster: item.thumbnail || undefined,
+    poster: normalizePosterUrl(item.thumbnail)
+      ?? (item.kind === 'video' ? youtubeVideoThumbnailUrl(item.id) : null)
+      ?? undefined,
     description: item.description || undefined,
     tab: 'youtube',
     kind: item.kind,
@@ -195,6 +197,7 @@ export class UnifiedSearchService {
   private indexGeneration = '';
   private generationCheckedAt = 0;
   private indexFlight: Promise<void> | null = null;
+  private readonly youtubeRetryFlights = new Map<string, Promise<void>>();
 
   constructor(
     private readonly core: CatalogCore,
@@ -274,7 +277,7 @@ export class UnifiedSearchService {
           id: entry.meta.id,
           title,
           subtitle: entry.context || 'live channel',
-          poster: entry.meta.poster,
+          poster: normalizePosterUrl(entry.meta.poster) ?? undefined,
           description: entry.meta.description,
           tab: 'live',
           in_library: true,
@@ -348,7 +351,6 @@ export class UnifiedSearchService {
   async startQuery(input: {
     query: string;
     scope: SearchScope;
-    refresh_youtube?: boolean;
     diagnostic?: boolean;
   }): Promise<SearchSnapshot> {
     const { display, normalized } = validatedQuery(input.query);
@@ -429,6 +431,39 @@ export class UnifiedSearchService {
     return true;
   }
 
+  async retryYoutube(searchId: string): Promise<SearchSnapshot | null> {
+    const job = this.jobs.get(searchId);
+    if (!job || job.cancelled) return null;
+    const existing = this.youtubeRetryFlights.get(searchId);
+    if (existing) {
+      await existing;
+      return structuredClone(job.snapshot);
+    }
+    const status = job.snapshot.phases.youtube?.status;
+    if (!job.snapshot.complete || (status !== 'degraded' && status !== 'failed')) {
+      return structuredClone(job.snapshot);
+    }
+    const flight = (async () => {
+      job.snapshot.complete = false;
+      job.snapshot.phases.youtube = phase('pending');
+      this.bump(job);
+      await this.runYoutube(job, true, false);
+      if (!job.cancelled) {
+        job.snapshot.complete = true;
+        this.bump(job);
+      }
+    })();
+    this.youtubeRetryFlights.set(searchId, flight);
+    try {
+      await flight;
+    } finally {
+      if (this.youtubeRetryFlights.get(searchId) === flight) {
+        this.youtubeRetryFlights.delete(searchId);
+      }
+    }
+    return structuredClone(job.snapshot);
+  }
+
   recordSelection(input: {
     normalized_query: string;
     key: string;
@@ -485,13 +520,13 @@ export class UnifiedSearchService {
 
   private async runPhases(
     job: SearchJob,
-    input: { refresh_youtube?: boolean; diagnostic?: boolean },
+    input: { diagnostic?: boolean },
   ): Promise<void> {
     const work: Promise<void>[] = [];
     if (job.snapshot.phases.external.status === 'pending') work.push(this.runExternal(job));
     if (job.snapshot.phases.live.status === 'pending') work.push(this.runLive(job));
     if (job.snapshot.phases.youtube.status === 'pending') {
-      work.push(this.runYoutube(job, Boolean(input.refresh_youtube), Boolean(input.diagnostic)));
+      work.push(this.runYoutube(job, false, Boolean(input.diagnostic)));
     }
     if (job.snapshot.phases.ai.status === 'pending') work.push(this.runAi(job));
     await Promise.allSettled(work);
@@ -599,10 +634,10 @@ export class UnifiedSearchService {
         ...(response.api_error ? { message: 'Showing cached YouTube results' } : {}),
         duration_ms: Date.now() - started,
       };
-      void this.ensureIndex(true).catch(() => {
-        // Search results are already durable in youtube.db; keep serving the
-        // previous atomic index if a background rebuild fails.
-      });
+      // Results are already present in this job and durable in youtube.db.
+      // Let the normal generation check rebuild the suggestion index later;
+      // a forced 40k-row rebuild here blocks the interactive response path.
+      this.generationCheckedAt = 0;
     } catch (error) {
       if (job.cancelled) return;
       job.snapshot.phases.youtube = {

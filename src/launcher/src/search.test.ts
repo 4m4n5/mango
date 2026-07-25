@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { mergeComposeFocusRows, shouldClearSuggestions, validRestoreState } from "./search";
+import { splitFocusRows } from "./home";
+import {
+  mergeComposeFocusRows,
+  searchGroupPageWindow,
+  shouldClearSuggestions,
+  validRestoreState,
+} from "./search";
 
 test("Search compose focus rows connect keyboard and right-side suggestions", () => {
   assert.deepEqual(
@@ -61,4 +67,40 @@ test("Search restoration rejects expired or malformed snapshots", () => {
     query: "Dune",
     scope: "invalid",
   }), null);
+});
+
+test("YouTube Search fills two six-card rows with More in the final slot", () => {
+  const items = Array.from({ length: 30 }, (_, index) => ({
+    key: `youtube:youtube_video:video-${index}`,
+    source: "youtube" as const,
+    type: "youtube_video",
+    id: `video-${index}`,
+    title: `Video ${index}`,
+    subtitle: "Channel",
+    tab: "youtube" as const,
+    kind: "video" as const,
+    in_library: true,
+    queued_for_verify: false,
+  }));
+  const first = searchGroupPageWindow({ id: "youtube", items }, 0);
+  assert.equal(first.capacity, 12);
+  assert.equal(first.items.length, 11);
+  assert.equal(first.hasMore, true);
+  assert.deepEqual(
+    splitFocusRows([...first.items.map((item) => item.id), "more:youtube"], 6).map((row) => row.length),
+    [6, 6],
+  );
+
+  const second = searchGroupPageWindow({ id: "youtube", items }, 1);
+  assert.equal(second.items.length, 23);
+  assert.equal(second.items[first.items.length]?.id, "video-11");
+});
+
+test("Search pagination keeps each rail action in that rail's final focus row", () => {
+  const youtubeRows = splitFocusRows(["yt-1", "yt-2", "more:youtube"], 6);
+  const externalRows = splitFocusRows(["vod-1", "more:external"], 9);
+  assert.deepEqual([...youtubeRows, ...externalRows], [
+    ["yt-1", "yt-2", "more:youtube"],
+    ["vod-1", "more:external"],
+  ]);
 });

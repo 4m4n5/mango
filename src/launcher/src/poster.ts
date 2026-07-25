@@ -24,10 +24,12 @@ export function resolveCardPosterUrl(
 }
 
 export function bindPosterImage(img: HTMLImageElement, title: string): void {
-  const host = img.closest(".card--poster, .detail-poster-wrap");
   const applyFallback = (): void => {
     img.classList.add("poster-image--missing");
     img.removeAttribute("src");
+    // Cards bind handlers before they are attached. Resolve the host only when
+    // fallback is needed so the placeholder lands inside the live image frame.
+    const host = img.closest(".poster-frame, .card--poster, .detail-poster-wrap");
     if (!host || host.querySelector(".poster-fallback")) {
       return;
     }
@@ -40,7 +42,7 @@ export function bindPosterImage(img: HTMLImageElement, title: string): void {
 
   img.addEventListener("error", applyFallback, { once: true });
   if (!img.getAttribute("src")?.trim()) {
-    applyFallback();
+    queueMicrotask(applyFallback);
   }
 }
 
