@@ -83,9 +83,11 @@ print("PASS: 120s evidence ladder and Pi 4K SDR policy are installed")
 PY
 
 if [[ -f "$ENV_FILE" ]]; then
-  grep -q '^MANGO_PLAYBACK_CAPABILITY_PROFILE=pi5-x11-mpv-hifi$' "$ENV_FILE" \
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  [[ "${MANGO_PLAYBACK_CAPABILITY_PROFILE:-}" == "pi5-x11-mpv-hifi" ]] \
     || fail "playback capability profile is not installed"
-  grep -q '^MANGO_STREAM_PICKER=1$' "$ENV_FILE" \
+  [[ "${MANGO_STREAM_PICKER:-}" == "1" ]] \
     || fail "stream picker kill switch is not enabled"
 fi
 
