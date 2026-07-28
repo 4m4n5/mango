@@ -60,7 +60,7 @@ class FakeMpv:
 
 
 class PadMpvIpcTest(unittest.TestCase):
-    def test_waits_for_matching_ack_and_coerces_numeric_arguments(self) -> None:
+    def test_script_message_waits_for_ack_and_keeps_arguments_as_strings(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             socket_path = Path(directory) / "mpv.sock"
             with FakeMpv(socket_path) as server:
@@ -73,7 +73,17 @@ class PadMpvIpcTest(unittest.TestCase):
             self.assertEqual(result, "ack")
             self.assertEqual(
                 server.requests[0]["command"],
-                ["script-message", "mango-streams-move", -1],
+                ["script-message", "mango-streams-move", "-1"],
+            )
+
+    def test_native_commands_still_coerce_numeric_arguments(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            socket_path = Path(directory) / "mpv.sock"
+            with FakeMpv(socket_path) as server:
+                send_mpv_command(socket_path, "seek", "-10", "relative")
+            self.assertEqual(
+                server.requests[0]["command"],
+                ["seek", -10, "relative"],
             )
 
     def test_surfaces_mpv_command_errors(self) -> None:

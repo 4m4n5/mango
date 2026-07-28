@@ -40,6 +40,14 @@ def _coerce_arg(value: Any) -> Any:
     return value
 
 
+def _command_args(command: str, args: tuple[Any, ...]) -> list[Any]:
+    # mpv script-message parameters are strings even when the Lua handler later
+    # parses a number. Native commands such as seek still require JSON numbers.
+    if command in {"script-message", "script-message-to"}:
+        return [str(arg) for arg in args]
+    return [_coerce_arg(arg) for arg in args]
+
+
 def send_mpv_command(
     socket_path: str | Path,
     command: str,
@@ -51,7 +59,7 @@ def send_mpv_command(
     request_id = next(_request_ids)
     payload = json.dumps(
         {
-            "command": [command, *[_coerce_arg(arg) for arg in args]],
+            "command": [command, *_command_args(command, args)],
             "request_id": request_id,
         },
         separators=(",", ":"),
