@@ -495,6 +495,7 @@ export class ActiveStreamService {
       updated_at: Date.now(),
       resolve_fresh: input.resolveFresh,
     };
+    rerankCandidates(this.session);
     await this.publish();
   }
 

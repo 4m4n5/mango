@@ -42,6 +42,10 @@ test('active stream picker serializes switches and exposes no URLs', async () =>
     'https://signed.example/alternate',
     'Example.S01E03.720p.AVC.WEB-DL',
   );
+  const risky = stream(
+    'https://signed.example/risky',
+    'Example.S01E03.2160p.HEVC.HDR.WEB-DL',
+  );
   let releaseProbe: (() => void) | null = null;
   const probeBarrier = new Promise<void>((resolve) => { releaseProbe = resolve; });
   const playCalls: Array<{ url: string; start?: number }> = [];
@@ -86,7 +90,7 @@ test('active stream picker serializes switches and exposes no URLs', async () =>
       contentType: 'series',
       contentId: 'tt1234567:1:3',
       title: 'Example',
-      streams: [current, alternate],
+      streams: [current, risky, alternate],
       config,
       filterContext: {
         contentType: 'series',
@@ -94,15 +98,16 @@ test('active stream picker serializes switches and exposes no URLs', async () =>
         metaId: 'tt1234567:1:3',
       },
       currentFingerprint: streamReleaseFingerprint(current),
-      resolveFresh: async () => [current, alternate],
+      resolveFresh: async () => [current, risky, alternate],
     });
     const initial = await service.state();
     assert.equal(initial.status, 'ready');
-    assert.equal(initial.candidates.length, 2);
+    assert.equal(initial.candidates.length, 3);
+    assert.equal(initial.candidates.at(-1)?.capability_class, 'known_risky');
     assert.doesNotMatch(JSON.stringify(initial), /signed\.example/);
     assert.doesNotMatch(await readFile(process.env.MANGO_ACTIVE_STREAMS_PATH, 'utf8'), /https?:\/\//);
 
-    const target = initial.candidates.find((candidate) => !candidate.current)!;
+    const target = initial.candidates.find((candidate) => candidate.resolution === '720p')!;
     const checking = await service.beginSwitch({
       sessionId: initial.session_id!,
       revision: initial.revision,
