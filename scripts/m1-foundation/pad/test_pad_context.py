@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+from pathlib import Path
 import unittest
 
 from pad_context import (
@@ -12,6 +14,16 @@ from pad_context import (
 
 
 class PadContextTest(unittest.TestCase):
+    def test_diag_event_accepts_contextual_kind_field(self) -> None:
+        source = Path(__file__).with_name("mango-tv-pad.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        definition = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "diag_event"
+        )
+        self.assertEqual(definition.args.args[0].arg, "event_name")
+
     def test_visible_launcher_owns_x_over_lingering_playback(self) -> None:
         self.assertEqual(contextual_secondary_surface("launcher", True), "launcher")
 

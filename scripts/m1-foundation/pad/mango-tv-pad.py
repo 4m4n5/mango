@@ -140,12 +140,12 @@ _last_display_wake_at = 0.0
 _last_couch_activity_at = 0.0
 
 
-def diag_event(kind: str, **fields: str) -> None:
+def diag_event(event_name: str, **fields: str) -> None:
     if not DIAG_SESSION and not PAD_DEBUG:
         return
     row = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "event": kind,
+        "event": event_name,
         **fields,
     }
     line = json.dumps(row, separators=(",", ":"))
