@@ -64,7 +64,7 @@ start_catalog_service() {
   mkdir -p "$CACHE_DIR"
   if catalog_unit_enabled; then
     systemctl --user start mango-catalog.service || true
-    for _ in $(seq 1 120); do
+    for _ in $(seq 1 "$(catalog_service_ready_attempts)"); do
       if catalog_service_healthy; then
         catalog_service_recover_pid_file "$CATALOG_PID" >/dev/null 2>&1 || true
         echo "catalog-service ready (:$(catalog_service_port), systemd)"
@@ -107,7 +107,7 @@ start_catalog_service() {
   ) </dev/null >"$CATALOG_LOG" 2>&1 &
   echo $! >"$CATALOG_PID"
 
-  for _ in $(seq 1 120); do
+  for _ in $(seq 1 "$(catalog_service_ready_attempts)"); do
     if catalog_service_healthy; then
       echo "catalog-service ready (:$(catalog_service_port))"
       return 0

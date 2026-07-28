@@ -33,6 +33,16 @@ catalog_service_healthy() {
   curl -sf --max-time 2 "$(catalog_service_url)/health" >/dev/null 2>&1
 }
 
+catalog_service_ready_attempts() {
+  local timeout="${MANGO_CATALOG_READY_TIMEOUT_SECS:-120}"
+  if [[ ! "$timeout" =~ ^[0-9]+$ ]] || (( timeout < 1 )); then
+    timeout=120
+  fi
+  # Health is sampled twice per second. This must exceed the catalog runner's
+  # 90-second local-addon readiness window plus normal Node startup time.
+  printf '%s\n' "$((timeout * 2))"
+}
+
 catalog_service_recover_pid_file() {
   local pid_file="$1"
   local pid
@@ -113,7 +123,7 @@ start_catalog_service_only() {
   echo $! >"$pid_file"
 
   local i
-  for i in $(seq 1 120); do
+  for i in $(seq 1 "$(catalog_service_ready_attempts)"); do
     if catalog_service_healthy; then
       echo "catalog-service ready (:$(catalog_service_port))"
       return 0
