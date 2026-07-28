@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from pad_context import contextual_secondary_surface, secondary_press_kind
+from pad_context import resolve_secondary_surface, secondary_press_kind
 from pad_mpv_ipc import MpvIpcError, send_mpv_command
 
 try:
@@ -132,7 +132,7 @@ class DeviceNotFoundError(Exception):
 
 DIAG_SESSION = os.environ.get("MANGO_DIAG_SESSION", "")
 PAD_DEBUG = os.environ.get("MANGO_PAD_DEBUG") == "1"
-PAD_NAV_API_ENABLED = os.environ.get("MANGO_PAD_NAV_API", "0") == "1"
+PAD_NAV_API_ENABLED = os.environ.get("MANGO_PAD_NAV_API", "1") == "1"
 PAD_NAV_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_NAV_TIMEOUT_SEC", "0.15"))
 SECONDARY_HOLD_SEC = float(os.environ.get("MANGO_PAD_SECONDARY_HOLD_SEC", "0.6"))
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": str(_HOME)}
@@ -944,11 +944,8 @@ def switch_launcher_tab(delta: int) -> None:
 
 
 def send_launcher_secondary(kind: str) -> None:
-    # X is contextual, so the visible launcher must win over stale/background
-    # playback state. Confirm the real X11 foreground instead of routing_app(),
-    # whose playback override intentionally serves the mpv startup handoff.
-    if _resolve_foreground_app() != "launcher":
-        return
+    # Ownership is fixed at button-down. Rechecking X11 focus on release can
+    # discard a valid press when the desktop or an overlay briefly owns focus.
     normalized = "hold" if kind == "hold" else "tap"
     diag_event("secondary_press", foreground=foreground_app(), kind=normalized)
     if PAD_NAV_API_ENABLED and send_pad_nav("secondary", kind=normalized):
@@ -1317,9 +1314,11 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                             )
                 elif event.type == ecodes.EV_KEY and event.code == BTN_X:
                     if event.value == 1:
-                        x_surface = contextual_secondary_surface(
+                        x_surface = resolve_secondary_surface(
                             _resolve_foreground_app(),
                             _playback_session_active(),
+                            launcher_window_available=bool(_launcher_window_ids()),
+                            mpv_window_available=bool(_mpv_window_ids()),
                         )
                         if x_surface == "mpv":
                             wake_display_for_input("mpv-streams")

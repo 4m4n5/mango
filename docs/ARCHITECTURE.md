@@ -257,8 +257,8 @@ step without changing launcher tab semantics.
 
 ### Launcher D-pad transport (pad-nav API)
 
-When `MANGO_PAD_NAV_API=1`, launcher D-pad/face/tab/contextual-secondary events take a
-localhost HTTP path instead of synthetic keyboard events:
+Launcher D-pad/face/tab/contextual-secondary events use the localhost HTTP path
+by default (`MANGO_PAD_NAV_API=1`) instead of synthetic keyboard events:
 
 ```
 pad evdev → routing_app (cached) → POST /api/pad/nav {action,direction,delta,kind}
@@ -272,6 +272,10 @@ maxlen only. Drain-once previously let a second poller (SSH tunnel + Cursor
 browser, curl probe) steal presses so the TV Chromium registered them randomly.
 
 The launcher owns surface + focus state; the pad sends directional intents only.
+X ownership is resolved once at button-down from the foreground and available
+launcher/mpv windows, then retained through button-up. This prevents an
+ambiguous X11 focus sample or stale playback marker from discarding Home
+shuffle while preserving mpv Streams priority when its window is present.
 `handlePadNav` mirrors `handleKeydown`'s priority chain (next-prompt → detail →
 settings → Search → home) so the pad-nav and xdotool-fallback paths are behaviorally
 identical. On any HTTP failure (connection refused, timeout, non-200) the pad

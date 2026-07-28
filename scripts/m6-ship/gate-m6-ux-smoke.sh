@@ -118,6 +118,15 @@ python3 "$REPO_DIR/scripts/m1-foundation/pad/test_pad_context.py" >/dev/null \
   && gate_pass "contextual X visible-surface ownership" \
   || gate_fail "contextual X visible-surface ownership"
 
+if grep -q '^Environment=MANGO_PAD_NAV_API=1$' \
+  "$REPO_DIR/scripts/m1-foundation/ui/systemd/mango-tv-pad.service" \
+  && grep -q 'os.environ.get("MANGO_PAD_NAV_API", "1")' \
+  "$REPO_DIR/scripts/m1-foundation/pad/mango-tv-pad.py"; then
+  gate_pass "pad-nav launcher transport default-on"
+else
+  gate_fail "pad-nav launcher transport is not default-on"
+fi
+
 if [[ -f "$DIST/index.html" ]]; then
   python3 - "$DIST/index.html" <<'PY' \
     && gate_pass "launcher dist HTML ids" \
@@ -267,7 +276,9 @@ if [[ "${MANGO_VOICE:-0}" == "1" ]]; then
   fi
 fi
 
-if [[ "${MANGO_PAD_NAV_API:-0}" == "1" ]]; then
+PAD_NAV_GATE_ENABLED="${MANGO_PAD_NAV_API:-1}"
+if [[ "$PAD_NAV_GATE_ENABLED" == "1" ]] \
+  && curl -sf --max-time 2 "$LAUNCHER/api/health" >/dev/null 2>&1; then
   PAD_NAV_OUT="/tmp/mango-gate-pad-nav-$$.json"
   PAD_NAV_SEQ=0
   PAD_NAV_LATEST=0
