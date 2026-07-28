@@ -6,12 +6,14 @@ import { recordResolveMetric } from './resolve-metrics.js';
 import { emitPlaybackTelemetry } from './playback-telemetry.js';
 import { PlayCancelledError } from './play-cancel.js';
 import { runScopedCommand, ScopedChildTimeoutError } from './scoped-child.js';
+import type { StreamTechnicalProfile } from './playback-capability.js';
 
 export type PlayResult = {
   ok: true;
   ttff_ms: number;
   /** Captured before probe teardown; absent only for legacy pool/script output. */
   duration_sec?: number;
+  technical?: StreamTechnicalProfile;
 };
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -84,6 +86,7 @@ async function runMpv(
     audioUrl?: string;
     ladderStep?: string;
     requestClass: 'user' | 'background';
+    isolatedProbe?: boolean;
   },
 ): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-play.sh');
@@ -121,6 +124,9 @@ async function runMpv(
     env.MANGO_PLAY_LADDER_STEP = options.ladderStep;
   }
   env.MANGO_PLAY_REQUEST_CLASS = options.requestClass;
+  if (options.isolatedProbe) {
+    env.MANGO_MPV_ISOLATED_PROBE = '1';
+  }
   let childResult;
   try {
     childResult = await runScopedCommand('bash', args, {
@@ -164,10 +170,22 @@ export function parseMpvSuccessOutput(output: string, fallbackTtffMs: number): P
   // from the mpv-play preamble and falsely rejects full-length features as short.
   const duration = output.match(/PASS:[^\n]*\bduration_sec=([0-9]+(?:\.[0-9]+)?)/)
     ?? output.match(/(?<!min_)duration_sec=([0-9]+(?:\.[0-9]+)?)/);
+  const technicalMatch = output.match(/PASS:[^\n]*\btechnical_b64=([A-Za-z0-9_-]+)/);
+  let technical: StreamTechnicalProfile | undefined;
+  if (technicalMatch) {
+    try {
+      technical = JSON.parse(
+        Buffer.from(technicalMatch[1]!, 'base64url').toString('utf8'),
+      ) as StreamTechnicalProfile;
+    } catch {
+      technical = undefined;
+    }
+  }
   return {
     ok: true,
     ttff_ms: ttff ? Number(ttff[1]) : fallbackTtffMs,
     ...(duration ? { duration_sec: Number(duration[1]) } : {}),
+    ...(technical ? { technical } : {}),
   };
 }
 
@@ -178,6 +196,7 @@ export async function probeUrl(
   playEpoch?: number,
   startSec?: number,
   requestClass: 'user' | 'background' = 'background',
+  isolatedProbe = false,
 ): Promise<PlayResult> {
   return runMpv(url, {
     probe: true,
@@ -186,6 +205,7 @@ export async function probeUrl(
     playEpoch,
     startSec,
     requestClass,
+    isolatedProbe,
   });
 }
 
@@ -256,6 +276,41 @@ async function mpvIpcProperty(property: string): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+export async function getMpvProperty(property: string): Promise<unknown> {
+  const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-ipc.sh');
+  try {
+    const { stdout } = await new Promise<{ stdout: string; stderr: string }>((resolvePromise, reject) => {
+      execFile('bash', [script, 'get_property', property], {
+        cwd: repoDir(),
+        env: displayEnv(),
+        timeout: 3000,
+        maxBuffer: 256 * 1024,
+      }, (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr || stdout || `mpv-ipc failed for ${property}`));
+          return;
+        }
+        resolvePromise({ stdout, stderr });
+      });
+    });
+    return (JSON.parse(stdout) as { data?: unknown }).data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function setMpvProperty(property: string, value: string): Promise<boolean> {
+  const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-ipc.sh');
+  return new Promise<boolean>((resolvePromise) => {
+    execFile('bash', [script, 'set_property', property, value], {
+      cwd: repoDir(),
+      env: displayEnv(),
+      timeout: 3000,
+      maxBuffer: 256 * 1024,
+    }, (error) => resolvePromise(!error));
+  });
 }
 
 export async function isMpvActive(): Promise<boolean> {

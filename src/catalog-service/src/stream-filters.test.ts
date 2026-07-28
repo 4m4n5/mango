@@ -437,15 +437,22 @@ test('same-name series editions use country, start year, and episode title witho
     false,
     'a matching target IMDb id must not bypass an explicit US-edition conflict',
   );
-  assert.equal(streamMatchesMetaTitle(wrongEpisode, officeUk.metaTitle, officeUk.metaId, officeUk), false);
+  assert.equal(
+    streamMatchesMetaTitle(wrongEpisode, officeUk.metaTitle, officeUk.metaId, officeUk),
+    true,
+    'localized episode-title text must not override matching numeric episode identity',
+  );
 
   const ranked = filterAndRankStreams(
     [wrongUs, correctUk, wrongEpisode, unqualified],
     testConfig(),
     officeUk,
   );
-  assert.equal(ranked.meta.excluded.title_mismatch, 2);
-  assert.deepEqual(ranked.streams.map((row) => row.url).sort(), [correctUk.url, unqualified.url].sort());
+  assert.equal(ranked.meta.excluded.title_mismatch, 1);
+  assert.deepEqual(
+    ranked.streams.map((row) => row.url).sort(),
+    [correctUk.url, wrongEpisode.url, unqualified.url].sort(),
+  );
 
   const correctUs = release('The.Office.U.S.2005.S01E01.Pilot.1080p.WEB-DL.mkv');
   assert.equal(streamMatchesMetaTitle(

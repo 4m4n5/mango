@@ -54,3 +54,29 @@ test('parseMpvSuccessOutput ignores min_duration_sec preamble (not real duration
     duration_sec: 8552.744,
   });
 });
+
+test('parseMpvSuccessOutput decodes structured technical proof', () => {
+  const technical = {
+    width: 3840,
+    height: 2160,
+    fps: 23.976,
+    codec: 'hevc',
+    hwdec: 'drm',
+    hdr: true,
+    color_transfer: 'smpte2084',
+    bitrate_bps: 19620000,
+  };
+  const encoded = Buffer.from(JSON.stringify(technical)).toString('base64url');
+  assert.deepEqual(
+    parseMpvSuccessOutput(
+      `PASS: ttff_ms=410 duration_sec=1420 technical_b64=${encoded} failure_class=none`,
+      999,
+    ),
+    {
+      ok: true,
+      ttff_ms: 410,
+      duration_sec: 1420,
+      technical,
+    },
+  );
+});

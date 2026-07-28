@@ -6,7 +6,6 @@ import {
   expandObligationFloor,
   expandPlayLadder,
   isMainLadderStep,
-  playObligationMaxAttempts,
   singlePickerCandidate,
   splitLegacyPlayLadder,
   streamReleaseFingerprint,
@@ -30,6 +29,11 @@ import {
   isStreamUrlBad,
   markStreamUrlBad,
 } from './stream-bad-cache.js';
+import {
+  classifyStreamCapability,
+  type StreamTechnicalProfile,
+} from './playback-capability.js';
+import { upsertStreamPathEvidence } from './playability/db.js';
 
 export type PlayOrchestratorConfig = StreamFilterConfig & {
   include_uncached: boolean;
@@ -73,9 +77,13 @@ export type PlayOrchestratorResult = {
   obligation_floor_ran?: boolean;
   /** Picker mode: fingerprint to hide on failure. */
   picker_fingerprint?: string;
+  technical?: StreamTechnicalProfile;
 };
 
 function streamMeta(stream: Stream, ladderStep: string): Record<string, unknown> {
+  const decision = classifyStreamCapability(stream, {
+    fingerprint: streamReleaseFingerprint(stream),
+  });
   return {
     source: stream.source,
     title: stream.title,
@@ -83,6 +91,9 @@ function streamMeta(stream: Stream, ladderStep: string): Record<string, unknown>
     cache_status: stream.cache_status,
     debrid_service: stream.debrid_service,
     ladder_step: ladderStep,
+    capability_class: decision.capability_class,
+    capability_reason: decision.reason,
+    playback_profile_id: decision.profile_id,
   };
 }
 
@@ -196,11 +207,15 @@ type AttemptOneOptions = {
   candidateCount: number;
   /** When true: skip preflight, skip hint reuse, always probe (thin retry path). */
   retryPass?: boolean;
+  /** Structured proof from a prior pass through this attempt loop. */
+  reuseProbe?: PlayResult;
+  deferKnownRiskAfterProbe?: boolean;
 };
 
 type AttemptOneResult =
   | { kind: 'success'; result: PlayOrchestratorResult }
   | { kind: 'probe_ok'; stream: Stream; ladder_step: string; probe_ms: number; attempt: PlayAttempt }
+  | { kind: 'deferred_risky'; candidate: LadderCandidate; probe: PlayResult; attempt: PlayAttempt }
   | { kind: 'failure'; attempt: PlayAttempt; error: string };
 
 /**
@@ -222,7 +237,7 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
     // Verified hints rank candidates but never replace a fresh safety probe:
     // signed URLs can rotate to status clips while retaining release identity.
     let observedProbeMs: number | undefined;
-    let structuredProbeResult: PlayResult | undefined;
+    let structuredProbeResult: PlayResult | undefined = options.reuseProbe;
     let skipProbe = false;
     if (options.mode === 'play' && !retryPass) {
       skipProbe = shouldSkipProbe(candidate);
@@ -234,7 +249,7 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
     // the *ladder step* played before, not that today's URL still serves
     // real video (e.g. TorBox can silently swap a cached slot to an .nfo
     // sidecar). Only the probe *measurement* is safe to skip on reuse.
-    if (!retryPass) {
+    if (!retryPass && !options.reuseProbe) {
       const preflightBudget = Math.min(PREFLIGHT_BUDGET_CAP_MS, remainingAtStart);
       const sniff = await options.preflight(candidate.stream.url, preflightBudget);
       if (sniff === 'nfo') {
@@ -244,7 +259,10 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
     }
 
     const alwaysProbe = retryPass || options.mode === 'probe';
-    if (alwaysProbe) {
+    if (options.reuseProbe) {
+      observedProbeMs = options.reuseProbe.ttff_ms;
+      skipProbe = true;
+    } else if (alwaysProbe) {
       const probeBudget = probeBudgetForCandidate(candidate, config, deadline - Date.now());
       const probeResult = await options.probe(
         candidate.stream.url,
@@ -280,6 +298,52 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
       }
     } else {
       observedProbeMs = 0;
+    }
+
+    if (structuredProbeResult?.technical) {
+      const fingerprint = streamReleaseFingerprint(candidate.stream);
+      const decision = classifyStreamCapability(candidate.stream, {
+        technical: structuredProbeResult.technical,
+        fingerprint,
+      });
+      try {
+        upsertStreamPathEvidence({
+          release_fingerprint: fingerprint,
+          profile_id: decision.profile_id,
+          capability_class: decision.capability_class,
+          technical: structuredProbeResult.technical,
+          reason: decision.reason,
+          last_proof_at: Date.now(),
+        });
+      } catch {
+        // Operator evidence improves future ranking but must never turn a
+        // successful stream probe into a couch playback failure.
+      }
+      if (
+        options.mode === 'play'
+        && options.deferKnownRiskAfterProbe !== false
+        && candidate.capability_class !== 'known_risky'
+        && decision.capability_class === 'known_risky'
+      ) {
+        return {
+          kind: 'deferred_risky',
+          candidate: {
+            ...candidate,
+            capability_class: 'known_risky',
+            capability_reason: decision.reason,
+            playback_profile_id: decision.profile_id,
+            technical: structuredProbeResult.technical,
+          },
+          probe: structuredProbeResult,
+          attempt: {
+            ...base,
+            ok: false,
+            ms: Date.now() - attemptStarted,
+            probe_ms: observedProbeMs,
+            error: 'deferred_known_risky_after_probe',
+          },
+        };
+      }
     }
 
     if (!alwaysProbe && !skipProbe) {
@@ -356,6 +420,9 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
         win_ladder_step: candidate.ladder_step,
         win_url_hash: streamReleaseFingerprint(candidate.stream),
         win_on_main: false,
+        ...(structuredProbeResult?.technical
+          ? { technical: structuredProbeResult.technical }
+          : {}),
         ...(options.obligationFloorRan ? { obligation_floor_ran: true } : {}),
       },
     };
@@ -488,7 +555,7 @@ export async function probeWithLadder(
 
 type AttemptLoopResult =
   | { kind: 'success'; result: PlayOrchestratorResult }
-  | { kind: 'exhausted'; attempts: PlayAttempt[] };
+  | { kind: 'exhausted'; attempts: PlayAttempt[]; deferred_risky: LadderCandidate[] };
 
 async function attemptCandidates(options: {
   candidates: LadderCandidate[];
@@ -509,11 +576,20 @@ async function attemptCandidates(options: {
   obligationFloorRan?: boolean;
   /** When set, any failure bad-caches this fingerprint (picker hard-fail). */
   pickerFingerprint?: string;
+  deferKnownRiskAfterProbe?: boolean;
 }): Promise<AttemptLoopResult> {
   const attempts: PlayAttempt[] = [];
+  const deferredRisky: LadderCandidate[] = [];
   let lastStep = '';
 
   for (const [relativeIndex, candidate] of options.candidates.entries()) {
+    if (
+      options.deferKnownRiskAfterProbe !== false
+      && candidate.capability_class === 'known_risky'
+    ) {
+      deferredRisky.push(candidate);
+      continue;
+    }
     const index = options.attemptOffset + relativeIndex;
     if (candidate.ladder_step !== lastStep) {
       lastStep = candidate.ladder_step;
@@ -552,6 +628,8 @@ async function attemptCandidates(options: {
       minDurationSec: options.minDurationSec,
       obligationFloorRan: options.obligationFloorRan,
       candidateCount: options.candidates.length,
+      reuseProbe: candidate.probe_reuse,
+      deferKnownRiskAfterProbe: options.deferKnownRiskAfterProbe,
     };
 
     const one = await attemptOne(sharedOne);
@@ -563,6 +641,14 @@ async function attemptCandidates(options: {
           attempts: [...attempts, ...one.result.attempts],
         },
       };
+    }
+    if (one.kind === 'deferred_risky') {
+      attempts.push(one.attempt);
+      deferredRisky.push({
+        ...one.candidate,
+        probe_reuse: one.probe,
+      });
+      continue;
     }
     if (one.kind !== 'failure') {
       continue;
@@ -600,7 +686,11 @@ async function attemptCandidates(options: {
     attempts.push(one.attempt);
   }
 
-  return { kind: 'exhausted', attempts };
+  return {
+    kind: 'exhausted',
+    attempts,
+    deferred_risky: deferredRisky,
+  };
 }
 
 /**
@@ -703,6 +793,7 @@ export async function playWithLadder(
       candidates: [picked],
       attemptOffset: 0,
       pickerFingerprint: fingerprint,
+      deferKnownRiskAfterProbe: false,
     });
     if (pickerResult.kind === 'success') {
       return annotate({
@@ -733,7 +824,7 @@ export async function playWithLadder(
     preferred_hdr_tags: config.preferred_hdr_tags,
     preferred_video_codecs: config.preferred_video_codecs,
     verified_hint: options.verified_hint,
-    max_candidates: config.auto_play_max_attempts,
+    max_candidates: Number.MAX_SAFE_INTEGER,
     prefer_ladder_step: preferLadderStep,
     hard_language: config.hard_language,
     preferred_language: config.preferred_language,
@@ -743,6 +834,7 @@ export async function playWithLadder(
   });
 
   const allAttempts: PlayAttempt[] = [];
+  const deferredRiskyCandidates: LadderCandidate[] = [];
   let obligationFloorRan = false;
   let totalCandidates = phaseMain.length;
 
@@ -761,6 +853,7 @@ export async function playWithLadder(
       });
     }
     allAttempts.push(...mainResult.attempts);
+    deferredRiskyCandidates.push(...mainResult.deferred_risky);
   }
 
   const phaseResort = expandPlayLadder(streams, split.resort, filterContext, {
@@ -768,7 +861,7 @@ export async function playWithLadder(
     preferred_quality: config.preferred_quality,
     preferred_hdr_tags: config.preferred_hdr_tags,
     preferred_video_codecs: config.preferred_video_codecs,
-    max_candidates: config.auto_play_max_attempts,
+    max_candidates: Number.MAX_SAFE_INTEGER,
     include_uncached: true,
     hard_language: config.hard_language,
     preferred_language: config.preferred_language,
@@ -795,6 +888,7 @@ export async function playWithLadder(
       });
     }
     allAttempts.push(...resortResult.attempts);
+    deferredRiskyCandidates.push(...resortResult.deferred_risky);
   }
 
   const remainingMs = deadline - Date.now();
@@ -804,7 +898,7 @@ export async function playWithLadder(
     );
     const phaseFloor = expandObligationFloor(streams, filterContext, {
       excludeUrls,
-      maxCandidates: playObligationMaxAttempts(),
+      maxCandidates: Number.MAX_SAFE_INTEGER,
       hard_language: config.hard_language,
       preferred_language: config.preferred_language,
       min_quality: config.request_overrides?.min_quality,
@@ -830,7 +924,28 @@ export async function playWithLadder(
         });
       }
       allAttempts.push(...floorResult.attempts);
+      deferredRiskyCandidates.push(...floorResult.deferred_risky);
     }
+  }
+
+  if (deferredRiskyCandidates.length > 0 && deadline - Date.now() >= 500) {
+    const fallbackResult = await attemptCandidates({
+      ...shared,
+      candidates: deferredRiskyCandidates,
+      attemptOffset: allAttempts.length,
+      obligationFloorRan: true,
+      deferKnownRiskAfterProbe: false,
+      deadline,
+    });
+    if (fallbackResult.kind === 'success') {
+      return annotate({
+        ...fallbackResult.result,
+        attempts: [...allAttempts, ...fallbackResult.result.attempts],
+        candidate_count: totalCandidates,
+        obligation_floor_ran: true,
+      });
+    }
+    allAttempts.push(...fallbackResult.attempts);
   }
 
   throw new CatalogError(502, 'no_playable_stream', {

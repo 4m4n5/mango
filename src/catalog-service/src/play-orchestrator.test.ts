@@ -182,14 +182,14 @@ test('playWithLadder surfaces mpv-play\'s real, sanitized failure reason instead
   assert.match(attemptError, /http\(s\):\/\/<redacted>/);
 });
 
-test('playWithLadder skips nfo sidecars and reaches a later ladder step', async () => {
+test('playWithLadder skips nfo sidecars and reaches a later smooth candidate', async () => {
   const bad = candidate('https://example.test/bad.mkv');
   const good = candidate(
     'https://example.test/good.mkv',
-    '[TB⚡] Torrentio 2160p',
+    '[TB☁️⚡] Torrentio 1080p alternate',
   );
-  good.description = '2160p HEVC encode';
-  good.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|true|2160p' };
+  good.description = '1080p HEVC encode';
+  good.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|true|1080p-alt' };
 
   const result = await playWithLadder([bad, good], testConfig(), {
     preflight: async (url) => (url.includes('bad') ? 'nfo' : 'video'),
@@ -202,7 +202,7 @@ test('playWithLadder skips nfo sidecars and reaches a later ladder step', async 
   assert.equal(result.attempts.length, 2);
   assert.equal(result.attempts[0]?.ok, false);
   assert.match(result.attempts[0]?.error || '', /debrid_nfo_sidecar/);
-  assert.equal(result.win_ladder_step, '2160p_encode');
+  assert.equal(result.win_ladder_step, 'ideal');
 });
 
 test('probeWithLadder can reject uncached fallback for durable verification', async () => {
@@ -555,4 +555,115 @@ test('playWithLadder Phase B keeps unattempted Phase A URLs eligible', async () 
     if (prevReserve === undefined) delete process.env.MANGO_PLAY_OBLIGATION_MIN_MS;
     else process.env.MANGO_PLAY_OBLIGATION_MIN_MS = prevReserve;
   }
+});
+
+test('probe-discovered known-risk stream is deferred without duplicate inspection', async () => {
+  const apparent4k = candidate('https://example.test/apparent-sdr.mkv');
+  apparent4k.description = '2160p HEVC SDR WEB-DL';
+  const unknown = candidate('https://example.test/unknown.mkv');
+  unknown.description = 'WEB-DL';
+  unknown.title = 'WEB-DL';
+  unknown.name = '[TB☁️⚡] Torrentio';
+  const probeCalls: string[] = [];
+  const playCalls: string[] = [];
+
+  const result = await playWithLadder([apparent4k, unknown], testConfig({
+    main_ladder: [{
+      step: 'all',
+      max_quality: '2160p',
+      exclude_remux: false,
+      require_cache: 'any',
+      addons: ['AIOStreams'],
+      debrid_services: ['torbox'],
+      verified: true,
+    }],
+    last_resort_ladder: [],
+  }), {
+    preflight: async () => 'video',
+    probe: async (url) => {
+      probeCalls.push(url);
+      return url === apparent4k.url
+        ? {
+          ok: true,
+          ttff_ms: 100,
+          duration_sec: 5400,
+          technical: {
+            width: 3840,
+            height: 2160,
+            codec: 'hevc',
+            hdr: true,
+            color_transfer: 'smpte2084',
+          },
+        }
+        : { ok: true, ttff_ms: 100, duration_sec: 5400 };
+    },
+    play: async (url) => {
+      playCalls.push(url);
+      return { ok: true, ttff_ms: 200 };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(probeCalls, [apparent4k.url, unknown.url]);
+  assert.deepEqual(playCalls, [unknown.url]);
+  assert.equal(
+    result.attempts.some((attempt) => attempt.error === 'deferred_known_risky_after_probe'),
+    true,
+  );
+});
+
+test('known-risk main candidate waits behind a smooth last-resort candidate', async () => {
+  const risky4k = candidate('https://example.test/risky-main.mkv');
+  risky4k.description = '2160p HEVC HDR DV WEB-DL';
+  risky4k.cache_status = 'cached';
+  const smooth1080 = candidate(
+    'https://example.test/smooth-resort.mkv',
+    '[TB⏳] Torrentio 1080p',
+  );
+  smooth1080.description = '1080p HEVC SDR WEB-DL';
+  smooth1080.cache_status = 'uncached';
+  smooth1080.behaviorHints = {
+    bingeGroup: 'com.aiostreams|torbox|false|1080p',
+  };
+  const probeCalls: string[] = [];
+  const playCalls: string[] = [];
+  const main = [{
+    step: 'risky_4k',
+    min_quality: '2160p' as const,
+    max_quality: '2160p' as const,
+    exclude_remux: false,
+    require_cache: 'any' as const,
+    debrid_services: ['torbox'],
+    addons: ['AIOStreams'],
+    verified: true,
+  }];
+  const resort = [{
+    step: 'smooth_1080',
+    max_quality: '1080p' as const,
+    exclude_remux: false,
+    require_cache: 'cached_or_uncached' as const,
+    debrid_services: ['torbox'],
+    addons: ['AIOStreams'],
+    verified: false,
+  }];
+
+  const result = await playWithLadder([risky4k, smooth1080], testConfig({
+    play_ladder: [...main, ...resort],
+    main_ladder: main,
+    last_resort_ladder: resort,
+  }), {
+    preflight: async () => 'video',
+    probe: async (url) => {
+      probeCalls.push(url);
+      return { ok: true, ttff_ms: 100, duration_sec: 5400 };
+    },
+    play: async (url) => {
+      playCalls.push(url);
+      return { ok: true, ttff_ms: 200 };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(probeCalls, [smooth1080.url]);
+  assert.deepEqual(playCalls, [smooth1080.url]);
 });

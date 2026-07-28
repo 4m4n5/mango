@@ -9,11 +9,11 @@ import {
   remainingPlayBudgetMs,
 } from './play-deadline.js';
 
-test('play deadline owns one absolute 85 second server budget', () => {
+test('play deadline owns one absolute 120 second server budget', () => {
   const deadline = createPlayDeadline(1_000);
   assert.equal(deadline.budgetMs, PLAY_SERVER_BUDGET_MS);
-  assert.equal(deadline.deadlineAtMs, 86_000);
-  assert.equal(remainingPlayBudgetMs(deadline, 6_000), 80_000);
+  assert.equal(deadline.deadlineAtMs, 121_000);
+  assert.equal(remainingPlayBudgetMs(deadline, 6_000), 115_000);
 });
 
 test('stage budgets are capped to the remaining absolute budget', () => {

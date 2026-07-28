@@ -212,6 +212,60 @@ test('streamMatchesLadderStep allows HDR at 1080p even when exclude_hdr is set',
   assert.equal(streamMatchesLadderStep(hdHdr, step), true);
 });
 
+test('Adarsh S01E03 keeps both 1080p releases and ranks them ahead of 4K HDR', () => {
+  const context = {
+    contentType: 'series',
+    metaTitle: 'Adarsh Baal Vidyalaya',
+    metaId: 'tt40856520:1:3',
+    episodeTitle: "Teacher's Tribute",
+  };
+  const hdr4k = stream({
+    url: 'https://example.test/adarsh-4k.mkv',
+    title: 'Adarsh.Baal.Vidyalaya.S01E03.2160p.WEB-DL.DV.HDR10.HEVC',
+    description: '📁 Adarsh.Baal.Vidyalaya.S01E03.2160p.WEB-DL.DV.HDR10.HEVC.mkv\n📦 5.01 GB',
+    behaviorHints: { filename: 'Adarsh.Baal.Vidyalaya.S01E03.2160p.DV.HDR10.mkv' },
+  });
+  const localized1080 = stream({
+    url: 'https://example.test/adarsh-guru-dakshina.mkv',
+    title: 'Adarsh.Baal.Vidyalaya.S01E03.Guru.Dakshina.1080p.WEB-DL.AVC',
+    description: '📁 Adarsh.Baal.Vidyalaya.S01E03.Guru.Dakshina.1080p.WEB-DL.AVC.mkv\n📦 1.39 GB',
+    behaviorHints: { filename: 'Adarsh.Baal.Vidyalaya.S01E03.Guru.Dakshina.1080p.mkv' },
+  });
+  const bare1080 = stream({
+    url: 'https://example.test/adarsh-e03.mkv',
+    title: 'Adarsh.Baal.Vidyalaya.E03.1080p.WEB-DL.HEVC',
+    description: '📁 Adarsh.Baal.Vidyalaya.E03.1080p.WEB-DL.HEVC.mkv\n📦 682 MB',
+    behaviorHints: { filename: 'Adarsh.Baal.Vidyalaya.E03.1080p.HEVC.mkv' },
+  });
+  const ladder = parsePlayLadder([
+    {
+      step: 'all',
+      max_quality: '2160p',
+      exclude_remux: false,
+      require_cache: 'any',
+      debrid_services: [],
+      addons: ['AIOStreams'],
+    },
+  ]);
+  const candidates = expandPlayLadder(
+    [hdr4k, bare1080, localized1080],
+    ladder,
+    context,
+    { max_candidates: 10, strict_unknown_cache: false, preferred_quality: '2160p' },
+  );
+
+  assert.deepEqual(candidates.map((candidate) => candidate.stream.url), [
+    localized1080.url,
+    bare1080.url,
+    hdr4k.url,
+  ]);
+  assert.deepEqual(candidates.map((candidate) => candidate.capability_class), [
+    'proven_smooth',
+    'proven_smooth',
+    'known_risky',
+  ]);
+});
+
 test('expandPlayLadder returns empty when only HDR 4K streams exist on SDR-only ladder', () => {
   const ladder = parsePlayLadder([
     {
@@ -295,7 +349,7 @@ test('expandPlayLadder interleaves debrid services so flaky TorBox cannot starve
   assert.ok(rdCount >= 2, `expected at least 2 RD candidates within the first 8, got ${rdCount}`);
 });
 
-test('expandPlayLadder does not reorder candidates when only one debrid service is present', () => {
+test('expandPlayLadder applies fidelity ranking even when only one debrid service is present', () => {
   const ladder = defaultPlayLadder();
   const streams = [
     stream({
@@ -321,9 +375,9 @@ test('expandPlayLadder does not reorder candidates when only one debrid service 
   const ranked = expandPlayLadder(streams, ladder, { contentType: 'movie' }, { max_candidates: 6 });
 
   assert.deepEqual(ranked.map((candidate) => candidate.stream.url), [
+    'https://example.test/tb-c.mkv',
     'https://example.test/tb-a.mkv',
     'https://example.test/tb-b.mkv',
-    'https://example.test/tb-c.mkv',
   ]);
   assert.ok(ranked.every((candidate) => debridServiceId(candidate.stream) === 'torbox'));
 });

@@ -22,7 +22,23 @@ import { playabilityPlayFailureRetryMs } from './config.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
+
+export type StreamCapabilityClass = 'proven_smooth' | 'unknown' | 'known_risky';
+
+export type StreamPathEvidence = {
+  release_fingerprint: string;
+  profile_id: string;
+  capability_class: StreamCapabilityClass;
+  technical_json: string | null;
+  reason: string | null;
+  last_proof_at: number | null;
+  long_watch_count: number;
+  issue_previous_class: StreamCapabilityClass | null;
+  issue_reason: string | null;
+  issue_expires_at: number | null;
+  updated_at: number;
+};
 
 export type PlayabilityRailStatus = {
   rail_id: string;
@@ -334,6 +350,181 @@ export function resetPlayabilityDbForTests(): void {
   schemaInitialized = false;
 }
 
+function isStreamCapabilityClass(value: unknown): value is StreamCapabilityClass {
+  return value === 'proven_smooth' || value === 'unknown' || value === 'known_risky';
+}
+
+export function getStreamPathEvidence(
+  releaseFingerprint: string,
+  profileId: string,
+): StreamPathEvidence | null {
+  if (!releaseFingerprint || !profileId) return null;
+  try {
+    const row = openDb().prepare(`
+SELECT release_fingerprint, profile_id, capability_class, technical_json,
+       reason, last_proof_at, long_watch_count, issue_previous_class,
+       issue_reason, issue_expires_at, updated_at
+FROM stream_path_evidence
+WHERE release_fingerprint = ?
+  AND profile_id = ?
+LIMIT 1;
+`).get(releaseFingerprint, profileId) as StreamPathEvidence | undefined;
+    if (!row || !isStreamCapabilityClass(row.capability_class)) return null;
+    return row;
+  } catch {
+    // Ranking remains functional during first-start migration or in isolated
+    // unit tests that intentionally do not initialize the operator database.
+    return null;
+  }
+}
+
+export function upsertStreamPathEvidence(input: {
+  release_fingerprint: string;
+  profile_id: string;
+  capability_class: StreamCapabilityClass;
+  technical?: Record<string, unknown> | null;
+  reason?: string | null;
+  last_proof_at?: number | null;
+  now?: number;
+}): void {
+  const now = input.now ?? nowMs();
+  openDb().prepare(`
+INSERT INTO stream_path_evidence(
+  release_fingerprint, profile_id, capability_class, technical_json,
+  reason, last_proof_at, updated_at
+)
+VALUES (
+  @release_fingerprint, @profile_id, @capability_class, @technical_json,
+  @reason, @last_proof_at, @updated_at
+)
+ON CONFLICT(release_fingerprint, profile_id) DO UPDATE SET
+  capability_class = excluded.capability_class,
+  technical_json = COALESCE(excluded.technical_json, stream_path_evidence.technical_json),
+  reason = excluded.reason,
+  last_proof_at = COALESCE(excluded.last_proof_at, stream_path_evidence.last_proof_at),
+  issue_previous_class = CASE
+    WHEN stream_path_evidence.issue_expires_at IS NOT NULL
+      AND stream_path_evidence.issue_expires_at <= @updated_at
+    THEN NULL
+    ELSE stream_path_evidence.issue_previous_class
+  END,
+  issue_reason = CASE
+    WHEN stream_path_evidence.issue_expires_at IS NOT NULL
+      AND stream_path_evidence.issue_expires_at <= @updated_at
+    THEN NULL
+    ELSE stream_path_evidence.issue_reason
+  END,
+  issue_expires_at = CASE
+    WHEN stream_path_evidence.issue_expires_at IS NOT NULL
+      AND stream_path_evidence.issue_expires_at <= @updated_at
+    THEN NULL
+    ELSE stream_path_evidence.issue_expires_at
+  END,
+  updated_at = excluded.updated_at;
+`).run({
+    release_fingerprint: input.release_fingerprint,
+    profile_id: input.profile_id,
+    capability_class: input.capability_class,
+    technical_json: input.technical ? JSON.stringify(input.technical) : null,
+    reason: input.reason ?? null,
+    last_proof_at: input.last_proof_at ?? null,
+    updated_at: now,
+  });
+}
+
+export function recordStreamLongWatch(input: {
+  release_fingerprint: string;
+  profile_id: string;
+  technical?: Record<string, unknown> | null;
+  now?: number;
+}): void {
+  const now = input.now ?? nowMs();
+  openDb().prepare(`
+INSERT INTO stream_path_evidence(
+  release_fingerprint, profile_id, capability_class, technical_json,
+  reason, last_proof_at, long_watch_count, updated_at
+)
+VALUES (
+  @release_fingerprint, @profile_id, 'unknown', @technical_json,
+  'substantial watch completed on this playback path', @now, 1, @now
+)
+ON CONFLICT(release_fingerprint, profile_id) DO UPDATE SET
+  technical_json = COALESCE(excluded.technical_json, stream_path_evidence.technical_json),
+  last_proof_at = @now,
+  long_watch_count = stream_path_evidence.long_watch_count + 1,
+  updated_at = @now;
+`).run({
+    release_fingerprint: input.release_fingerprint,
+    profile_id: input.profile_id,
+    technical_json: input.technical ? JSON.stringify(input.technical) : null,
+    now,
+  });
+}
+
+export function recordStreamPlaybackIssue(input: {
+  release_fingerprint: string;
+  profile_id: string;
+  reason: string;
+  ttl_ms?: number;
+  now?: number;
+}): StreamPathEvidence {
+  const now = input.now ?? nowMs();
+  const expiresAt = now + Math.max(60_000, input.ttl_ms ?? 7 * 24 * 60 * 60 * 1000);
+  openDb().prepare(`
+INSERT INTO stream_path_evidence(
+  release_fingerprint, profile_id, capability_class, reason,
+  issue_previous_class, issue_reason, issue_expires_at, updated_at
+)
+VALUES (
+  @release_fingerprint, @profile_id, 'known_risky', @reason,
+  'unknown', @reason, @expires_at, @now
+)
+ON CONFLICT(release_fingerprint, profile_id) DO UPDATE SET
+  issue_previous_class = CASE
+    WHEN stream_path_evidence.issue_expires_at IS NOT NULL
+      AND stream_path_evidence.issue_expires_at > @now
+    THEN stream_path_evidence.issue_previous_class
+    ELSE stream_path_evidence.capability_class
+  END,
+  capability_class = 'known_risky',
+  reason = @reason,
+  issue_reason = @reason,
+  issue_expires_at = @expires_at,
+  updated_at = @now;
+`).run({
+    release_fingerprint: input.release_fingerprint,
+    profile_id: input.profile_id,
+    reason: input.reason,
+    expires_at: expiresAt,
+    now,
+  });
+  return getStreamPathEvidence(input.release_fingerprint, input.profile_id)!;
+}
+
+export function undoStreamPlaybackIssue(input: {
+  release_fingerprint: string;
+  profile_id: string;
+  now?: number;
+}): StreamPathEvidence | null {
+  const now = input.now ?? nowMs();
+  openDb().prepare(`
+UPDATE stream_path_evidence
+SET capability_class = COALESCE(issue_previous_class, 'unknown'),
+    reason = 'playback issue undone',
+    issue_previous_class = NULL,
+    issue_reason = NULL,
+    issue_expires_at = NULL,
+    updated_at = @now
+WHERE release_fingerprint = @release_fingerprint
+  AND profile_id = @profile_id;
+`).run({
+    release_fingerprint: input.release_fingerprint,
+    profile_id: input.profile_id,
+    now,
+  });
+  return getStreamPathEvidence(input.release_fingerprint, input.profile_id);
+}
+
 function nowMs(): number {
   return Date.now();
 }
@@ -471,6 +662,23 @@ CREATE TABLE IF NOT EXISTS source_grow_rail_outcomes (
   updated_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS stream_path_evidence (
+  release_fingerprint TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  capability_class TEXT NOT NULL
+    CHECK (capability_class IN ('proven_smooth', 'unknown', 'known_risky')),
+  technical_json TEXT,
+  reason TEXT,
+  last_proof_at INTEGER,
+  long_watch_count INTEGER NOT NULL DEFAULT 0,
+  issue_previous_class TEXT
+    CHECK (issue_previous_class IS NULL OR issue_previous_class IN ('proven_smooth', 'unknown', 'known_risky')),
+  issue_reason TEXT,
+  issue_expires_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (release_fingerprint, profile_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_titles_status_expires ON titles(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_rail_pool_rail_score ON rail_pool(rail_id, score DESC);
 CREATE INDEX IF NOT EXISTS idx_rail_session_session ON rail_session(session_id, rail_id, slot);
@@ -482,6 +690,8 @@ CREATE INDEX IF NOT EXISTS idx_rail_pool_type_id ON rail_pool(type, id);
 CREATE INDEX IF NOT EXISTS idx_verify_log_lookup ON verify_log(type, id_value, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_source_grow_weights_updated ON source_grow_weights(updated_at);
 CREATE INDEX IF NOT EXISTS idx_source_grow_weights_rail ON source_grow_weights(rail_id, updated_at);
+CREATE INDEX IF NOT EXISTS idx_stream_path_evidence_issue
+  ON stream_path_evidence(profile_id, issue_expires_at);
 `);
   applySchemaMigrations(db);
   prunePlayabilityMaintenance();
@@ -663,6 +873,20 @@ export function prunePlayabilityMaintenance(now: number = nowMs()): number {
       'DELETE FROM playability_triggers WHERE handled_at IS NOT NULL AND created_at < ?',
     ).run(sevenDaysAgo).changes;
     deleted += db.prepare('DELETE FROM rail_candidate_rejections WHERE expires_at < ?').run(now).changes;
+    db.prepare(`
+UPDATE stream_path_evidence
+SET capability_class = CASE
+      WHEN issue_previous_class IS NOT NULL THEN issue_previous_class
+      ELSE 'unknown'
+    END,
+    reason = 'playback issue expired',
+    issue_previous_class = NULL,
+    issue_reason = NULL,
+    issue_expires_at = NULL,
+    updated_at = ?
+WHERE issue_expires_at IS NOT NULL
+  AND issue_expires_at <= ?;
+`).run(now, now);
   });
   transaction();
   return deleted;
@@ -823,6 +1047,40 @@ WHERE t.first_verified_at IS NULL
   db.prepare(`
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (9, @applied_at);
+`).run({ applied_at: nowMs() });
+  db.exec(`
+CREATE TABLE IF NOT EXISTS stream_path_evidence (
+  release_fingerprint TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  capability_class TEXT NOT NULL
+    CHECK (capability_class IN ('proven_smooth', 'unknown', 'known_risky')),
+  technical_json TEXT,
+  reason TEXT,
+  last_proof_at INTEGER,
+  long_watch_count INTEGER NOT NULL DEFAULT 0,
+  issue_previous_class TEXT
+    CHECK (issue_previous_class IS NULL OR issue_previous_class IN ('proven_smooth', 'unknown', 'known_risky')),
+  issue_reason TEXT,
+  issue_expires_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (release_fingerprint, profile_id)
+);
+CREATE INDEX IF NOT EXISTS idx_stream_path_evidence_issue
+  ON stream_path_evidence(profile_id, issue_expires_at);
+`);
+  const streamEvidenceColumns = db.prepare(
+    'PRAGMA table_info(stream_path_evidence)',
+  ).all() as Array<{ name: string }>;
+  if (!streamEvidenceColumns.some((column) => column.name === 'issue_previous_class')) {
+    db.exec(`
+ALTER TABLE stream_path_evidence
+ADD COLUMN issue_previous_class TEXT
+  CHECK (issue_previous_class IS NULL OR issue_previous_class IN ('proven_smooth', 'unknown', 'known_risky'));
+`);
+  }
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (10, @applied_at);
 `).run({ applied_at: nowMs() });
 }
 

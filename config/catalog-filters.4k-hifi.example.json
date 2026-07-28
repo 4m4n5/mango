@@ -6,10 +6,10 @@
     "Smoothness-first: prefer HW-smooth streams over marginal soft-decode 4K. 4K HEVC (Pi 5 HW) ranks above 1080p; soft 4K AV1/H.264 is last-resort.",
     "exclude_hdr on the 4K steps drops HDR above 1080p: X11 cannot output HDR, so a 4K HDR frame would be GPU tone-mapped to SDR every frame and the Pi 5 cannot sustain that at 4K (heavy stutter). HDR titles fall through to 1080p or last_resort at play time.",
     "Display (GET /stream) expands main_ladder only; if empty, shows last_resort_ladder marked unverified.",
-    "Play auto: main then last_resort (+ obligation floor). Grow/verify: main only. Picker click: single stream, no fallthrough.",
+    "Play auto: all identity-safe smooth/unknown candidates before known-risk fallback, bounded by one 120s deadline. Grow/verify: main only. Picker click: single stream, no fallthrough.",
     "Last-resort Play success marks title stale (playback-only) — never refreshes verified.",
     "REMUX is confined to the 4K steps; 1080p stays on efficient encodes to avoid high-bitrate AVC software-decode load.",
-    "Cached-only on main (include_uncached=false); uncached TorBox lives on last_resort only.",
+    "Display and durable background verification keep include_uncached=false. Couch auto-play may admit a compatible uncached 4K SDR TorBox source ahead of cached 1080p; uncached Real-Debrid remains excluded.",
     "Within last-resort, smooth 1080p TorBox is tried before known-soft 4K; soft/HDR 4K remains available after it so coverage is unchanged."
   ],
   "exclude_uncached_debrid": true,
@@ -22,8 +22,8 @@
   "include_uncached": false,
   "exclude_error_streams": true,
   "stream_display_limit": 10,
-  "auto_play_max_attempts": 8,
-  "auto_play_wall_ms": 90000,
+  "auto_play_max_attempts": 20,
+  "auto_play_wall_ms": 120000,
   "auto_play_probe_ms": 10000,
   "auto_play_uncached_probe_ms": 25000,
   "main_ladder": [
@@ -34,7 +34,7 @@
       "exclude_remux": false,
       "require_hevc": true,
       "exclude_hdr": true,
-      "require_cache": "cached",
+      "require_cache": "cached_or_uncached",
       "verified": true,
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]
@@ -46,7 +46,7 @@
       "exclude_remux": true,
       "require_hevc": true,
       "exclude_hdr": true,
-      "require_cache": "cached",
+      "require_cache": "cached_or_uncached",
       "verified": true,
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]

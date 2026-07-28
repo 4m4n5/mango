@@ -15,8 +15,7 @@ import {
   sourceMatches,
   streamMatchesLanguage,
   streamPassesIntegrity,
-  streamMatchesVerifiedHint,
-  streamPlayScore,
+  streamEpisodeIdentityConfidence,
   streamUrlHash,
   streamStableIdentity,
   streamIsHevc,
@@ -26,6 +25,11 @@ import {
   type StreamFilterContext,
   type VerifiedStreamHint,
 } from './stream-filters.js';
+import {
+  classifyStreamCapability,
+  compareStreamsForPlaybackPath,
+  type StreamTechnicalProfile,
+} from './playback-capability.js';
 
 function rejectSupplementalForMainEpisode(
   stream: Stream,
@@ -166,6 +170,16 @@ export function isMainLadderStep(step: string, mainLadder: PlayLadderStep[]): bo
 export type LadderCandidate = {
   stream: Stream;
   ladder_step: string;
+  capability_class?: 'proven_smooth' | 'unknown' | 'known_risky';
+  capability_reason?: string;
+  playback_profile_id?: string;
+  technical?: StreamTechnicalProfile;
+  probe_reuse?: {
+    ok: true;
+    ttff_ms: number;
+    duration_sec?: number;
+    technical?: StreamTechnicalProfile;
+  };
 };
 
 export type PlayLadderConfig = {
@@ -419,19 +433,16 @@ export function filterStreamsForLadderStep(
     preferred_video_codecs: options.preferred_video_codecs ?? [],
   };
 
-  kept.sort((left, right) => streamPlayScore(right, scoreConfig, options.verified_hint, {
+  kept.sort((left, right) => compareStreamsForPlaybackPath(left, right, scoreConfig, {
+    verifiedHint: options.verified_hint,
     preferred_language: options.preferred_language,
-  }) - streamPlayScore(left, scoreConfig, options.verified_hint, {
-    preferred_language: options.preferred_language,
+    fingerprint: streamReleaseFingerprint,
+    identityConfidence: (stream) => streamEpisodeIdentityConfidence(
+      stream,
+      context.metaId,
+      context.episodeTitle,
+    ),
   }));
-
-  if (options.verified_hint?.win_url_hash) {
-    kept.sort((left, right) => {
-      const leftMatch = streamMatchesVerifiedHint(left, options.verified_hint) ? 1 : 0;
-      const rightMatch = streamMatchesVerifiedHint(right, options.verified_hint) ? 1 : 0;
-      return rightMatch - leftMatch;
-    });
-  }
 
   return kept;
 }
@@ -531,32 +542,57 @@ export function expandPlayLadder(
       }
       if (seen.has(stream.url)) continue;
       seen.add(stream.url);
-      target.push({ stream, ladder_step: step.step });
+      const decision = classifyStreamCapability(stream, {
+        fingerprint: streamReleaseFingerprint(stream),
+      });
+      target.push({
+        stream,
+        ladder_step: step.step,
+        capability_class: decision.capability_class,
+        capability_reason: decision.reason,
+        playback_profile_id: decision.profile_id,
+      });
     }
   };
 
-  // The verify-hint "preferred step" candidate is an explicit continuation
-  // pick, not a fresh ranking — keep it pinned first and out of the
-  // service-diversification pass below.
-  const preferredCandidates: LadderCandidate[] = [];
-  if (options.prefer_ladder_step) {
-    const preferred = ladder.find((step) => step.step === options.prefer_ladder_step);
-    if (preferred) pushStep(preferred, preferredCandidates);
-  }
-
-  // Collect every matching candidate across all remaining steps (not just
+  // Collect every matching candidate across all steps (not just
   // the first `max`) so a later, RD-inclusive step's candidates are
   // available to interleave into the budget rather than being starved by
-  // early TB-only steps filling `ranked` first.
+  // early TB-only steps filling `ranked` first. Capability is sorted globally:
+  // a verified/cache hint can never pin a known-risk release above a smooth
+  // lower-resolution candidate.
   const restCandidates: LadderCandidate[] = [];
   for (const step of ladder) {
-    if (step.step === options.prefer_ladder_step) continue;
     pushStep(step, restCandidates);
   }
 
-  const diversifiedRest = diversifyLadderCandidatesByService(restCandidates, MAX_CONSECUTIVE_SAME_SERVICE);
+  const scoreConfig = {
+    max_quality: options.max_quality ?? null,
+    preferred_quality: options.preferred_quality ?? '1080p',
+    preferred_hdr_tags: options.preferred_hdr_tags ?? [],
+    preferred_video_codecs: options.preferred_video_codecs ?? [],
+  };
+  restCandidates.sort((left, right) => compareStreamsForPlaybackPath(
+    left.stream,
+    right.stream,
+    scoreConfig,
+    {
+      verifiedHint: options.verified_hint,
+      preferred_language: options.preferred_language,
+      fingerprint: streamReleaseFingerprint,
+      identityConfidence: (stream) => streamEpisodeIdentityConfidence(
+        stream,
+        context.metaId,
+        context.episodeTitle,
+      ),
+    },
+  ));
+  const diversifiedRest = diversifyLadderCandidatesByService(
+    restCandidates,
+    MAX_CONSECUTIVE_SAME_SERVICE,
+  );
 
-  return [...preferredCandidates, ...diversifiedRest].slice(0, max);
+  return diversifiedRest.slice(0, max);
 }
 
 /** Ensure an explicit picker URL is attempted even when ladder filters hid it from expansion. */
@@ -640,15 +676,29 @@ export function expandObligationFloor(
     preferred_video_codecs: [] as string[],
   };
 
-  kept.sort((left, right) => streamPlayScore(right, scoreConfig, undefined, {
+  kept.sort((left, right) => compareStreamsForPlaybackPath(left, right, scoreConfig, {
     preferred_language: options.preferred_language,
-  }) - streamPlayScore(left, scoreConfig, undefined, {
-    preferred_language: options.preferred_language,
+    fingerprint: streamReleaseFingerprint,
+    identityConfidence: (stream) => streamEpisodeIdentityConfidence(
+      stream,
+      context.metaId,
+      context.episodeTitle,
+    ),
   }));
 
   return kept.slice(0, max).map((stream) => ({
     stream,
     ladder_step: OBLIGATION_FLOOR_STEP,
+    ...(() => {
+      const decision = classifyStreamCapability(stream, {
+        fingerprint: streamReleaseFingerprint(stream),
+      });
+      return {
+        capability_class: decision.capability_class,
+        capability_reason: decision.reason,
+        playback_profile_id: decision.profile_id,
+      };
+    })(),
   }));
 }
 

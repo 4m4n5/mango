@@ -1,4 +1,4 @@
-export const PLAY_SERVER_BUDGET_MS = 85_000;
+export const PLAY_SERVER_BUDGET_MS = 120_000;
 export const PLAY_PROCESS_CLEANUP_GRACE_MS = 2_000;
 
 export type PlayDeadline = Readonly<{

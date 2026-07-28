@@ -234,7 +234,7 @@ function streamIdentityLabels(stream: Stream): string[] {
   const description = typeof stream.description === 'string' ? stream.description : '';
   add(description.match(/📁\s*([^\n\r]+)/)?.[1]);
   const firstLine = description.split(/\r?\n/)[0]?.replace(/^📁\s*/, '').trim() || '';
-  if (/s\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}/i.test(firstLine)) add(firstLine);
+  if (/(?:\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b|\b\d{1,2}\s*x\s*\d{1,3}\b|\bep?\s*\d{1,3}\b)/i.test(firstLine)) add(firstLine);
 
   const hints = stream.behaviorHints;
   const filename = hints && typeof hints === 'object' && !Array.isArray(hints)
@@ -244,7 +244,7 @@ function streamIdentityLabels(stream: Stream): string[] {
   add(filename);
 
   const label = `${stream.title || ''} ${stream.name || ''}`.trim();
-  if (/s\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}/i.test(label)) add(label);
+  if (/(?:\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b|\b\d{1,2}\s*x\s*\d{1,3}\b|\bep?\s*\d{1,3}\b)/i.test(label)) add(label);
   return labels;
 }
 
@@ -257,6 +257,7 @@ function stripReleaseIdentityJunk(value: string): string {
     .replace(/\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,2}\b.*/i, ' ')
     .replace(/\bs\d{1,2}e\d{1,2}\b.*/i, ' ')
     .replace(/\b\d{1,2}\s*x\s*\d{1,2}\b.*/i, ' ')
+    .replace(/\bep?\s*\d{1,3}\b.*/i, ' ')
     .replace(/\bseason\s*\d+\b.*/i, ' ')
     .replace(/\b(2160p|1080p|720p|480p|4k|uhd|web-?dl|bluray|remux|hevc|x265|x264|av1|hdr|dovi|atmos)\b.*/i, ' ')
     .trim();
@@ -329,7 +330,9 @@ function candidateEpisodeTitleTokens(stream: Stream): string[][] {
   const candidates: string[][] = [];
   for (const label of streamIdentityLabels(stream)) {
     const normalized = normalizeEditionAbbreviations(label);
-    const marker = normalized.match(/\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b/i);
+    const marker = normalized.match(
+      /(?:\bs\d{1,2}\s*[•·._\-\s]*e\s*\d{1,3}\b|\b\d{1,2}\s*x\s*\d{1,3}\b|\bep?\s*\d{1,3}\b)/i,
+    );
     if (!marker || marker.index === undefined) continue;
     let tail = normalized.slice(marker.index + marker[0].length)
       .replace(/\.(?:mkv|mp4|avi)$/i, ' ')
@@ -340,6 +343,97 @@ function candidateEpisodeTitleTokens(stream: Stream): string[][] {
     if (tokens.length > 0 && tokens.length <= 8) candidates.push(tokens);
   }
   return candidates;
+}
+
+export type EpisodeIdentityMarker = {
+  season: number | null;
+  episode: number;
+  strength: 'full' | 'bare';
+};
+
+function validEpisodeNumber(value: string | undefined): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 999 ? parsed : null;
+}
+
+/** Parse the episode marker forms used by Stremio providers and release names. */
+export function parseEpisodeIdentityMarker(value: string): EpisodeIdentityMarker | null {
+  const full = value.match(/\bs\s*(\d{1,2})\s*[•·._\-\s]*e\s*(\d{1,3})\b/i)
+    ?? value.match(/\b(\d{1,2})\s*x\s*(\d{1,3})\b/i);
+  if (full) {
+    const season = validEpisodeNumber(full[1]);
+    const episode = validEpisodeNumber(full[2]);
+    if (season !== null && episode !== null) {
+      return { season, episode, strength: 'full' };
+    }
+  }
+  const bare = value.match(/\b(?:ep|e)\s*[._\-\s]*(\d{1,3})\b/i);
+  const episode = validEpisodeNumber(bare?.[1]);
+  return episode === null ? null : { season: null, episode, strength: 'bare' };
+}
+
+function targetEpisodeIdentity(metaId?: string): EpisodeIdentityMarker | null {
+  if (!metaId) return null;
+  const parts = metaId.split(':');
+  if (parts.length >= 3) {
+    const season = validEpisodeNumber(parts[parts.length - 2]);
+    const episode = validEpisodeNumber(parts[parts.length - 1]);
+    if (season !== null && episode !== null) {
+      return { season, episode, strength: 'full' };
+    }
+  }
+  return parseEpisodeIdentityMarker(metaId);
+}
+
+function streamEpisodeMarkers(stream: Stream): EpisodeIdentityMarker[] {
+  const markers: EpisodeIdentityMarker[] = [];
+  for (const label of streamIdentityLabels(stream)) {
+    const marker = parseEpisodeIdentityMarker(label);
+    if (marker && !markers.some((entry) => (
+      entry.season === marker.season && entry.episode === marker.episode
+    ))) {
+      markers.push(marker);
+    }
+  }
+  return markers;
+}
+
+function streamEpisodeIdentityContradicts(stream: Stream, metaId?: string): boolean {
+  const target = targetEpisodeIdentity(metaId);
+  if (!target) return false;
+  return streamEpisodeMarkers(stream).some((marker) => (
+    marker.episode !== target.episode
+    || (marker.season !== null && target.season !== null && marker.season !== target.season)
+  ));
+}
+
+/** Numeric identity dominates; localized episode-title text is only a tiebreaker. */
+export function streamEpisodeIdentityConfidence(
+  stream: Stream,
+  metaId?: string,
+  episodeTitle?: string,
+): number {
+  const target = targetEpisodeIdentity(metaId);
+  if (!target) return 0;
+  const markers = streamEpisodeMarkers(stream);
+  if (markers.some((marker) => (
+    marker.episode !== target.episode
+    || (marker.season !== null && target.season !== null && marker.season !== target.season)
+  ))) {
+    return -10_000;
+  }
+  const full = markers.some((marker) => (
+    marker.strength === 'full'
+    && marker.episode === target.episode
+    && marker.season === target.season
+  ));
+  const bare = markers.some((marker) => (
+    marker.strength === 'bare' && marker.episode === target.episode
+  ));
+  const titleBonus = streamEpisodeTitleMatches(stream, episodeTitle) ? 10 : -10;
+  if (full) return 300 + titleBonus;
+  if (bare) return 200 + titleBonus;
+  return 50;
 }
 
 function streamEpisodeTitleMatches(stream: Stream, expectedTitle?: string): boolean {
@@ -392,7 +486,7 @@ export function streamHasExplicitIdentityConflict(
     }
   }
   return context.contentType === 'series'
-    && !streamEpisodeTitleMatches(stream, context.episodeTitle);
+    && streamEpisodeIdentityContradicts(stream, metaId);
 }
 
 /**

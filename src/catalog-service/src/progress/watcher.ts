@@ -3,6 +3,8 @@ import { notePlaybackExit } from './next-prompt.js';
 import { upsertWatchProgress } from './db.js';
 import { recordPlaybackExit, recordPlayStarted } from '../companion/watch-signals.js';
 import type { CatalogTab } from '../rails.js';
+import { recordStreamLongWatch } from '../playability/db.js';
+import { playbackProfileId, type StreamTechnicalProfile } from '../playback-capability.js';
 
 export type ActiveWatchSession = {
   source?: string | null;
@@ -12,6 +14,9 @@ export type ActiveWatchSession = {
   title?: string | null;
   poster?: string | null;
   tab?: CatalogTab | null;
+  release_fingerprint?: string | null;
+  technical?: StreamTechnicalProfile | null;
+  long_watch_recorded?: boolean;
 };
 
 let activeSession: ActiveWatchSession | null = null;
@@ -50,6 +55,23 @@ function persistSessionProgress(
     duration_sec,
     tab: session.tab,
   });
+  const substantialAt = Math.min(20 * 60, duration_sec * 0.5);
+  if (
+    !session.long_watch_recorded
+    && session.release_fingerprint
+    && position_sec >= substantialAt
+  ) {
+    try {
+      recordStreamLongWatch({
+        release_fingerprint: session.release_fingerprint,
+        profile_id: playbackProfileId(),
+        technical: session.technical ?? null,
+      });
+      session.long_watch_recorded = true;
+    } catch {
+      // Progress remains authoritative when optional path evidence is unavailable.
+    }
+  }
 }
 
 export async function handoffWatchSession(session: ActiveWatchSession): Promise<void> {
@@ -132,6 +154,8 @@ export async function startWatchSessionFromPlay(input: {
   title?: string | null;
   poster?: string | null;
   tab?: CatalogTab | null;
+  releaseFingerprint?: string | null;
+  technical?: StreamTechnicalProfile | null;
 }): Promise<void> {
   const titleId = input.type === 'series' && input.id.includes(':')
     ? input.id.split(':')[0]
@@ -144,6 +168,8 @@ export async function startWatchSessionFromPlay(input: {
     title: input.title,
     poster: input.poster,
     tab: input.tab,
+    release_fingerprint: input.releaseFingerprint,
+    technical: input.technical,
   });
   recordPlayStarted({
     source: input.source,

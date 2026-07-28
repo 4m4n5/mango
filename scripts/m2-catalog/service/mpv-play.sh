@@ -44,6 +44,25 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+ISOLATED_PROBE=false
+if $PROBE && [[ "${MANGO_MPV_ISOLATED_PROBE:-0}" == "1" ]]; then
+  ISOLATED_PROBE=true
+  ISOLATED_DIR="${HOME}/.cache/mango"
+  SOCKET="${ISOLATED_DIR}/probe-$$.sock"
+  MPV_PID_FILE="${ISOLATED_DIR}/probe-$$.pid"
+  PLAYBACK_ACTIVE_FILE="${ISOLATED_DIR}/probe-$$.active"
+  PLAYBACK_DISPLAY_MATCHED_FILE="${ISOLATED_DIR}/probe-$$.display"
+  PLAYBACK_OWNERSHIP_LOCK="${ISOLATED_DIR}/probe-$$.owner.lock.d"
+  PLAYBACK_OSD_PID_FILE="${ISOLATED_DIR}/probe-$$.osd.pid"
+  export MANGO_MPV_SOCKET="$SOCKET"
+  export MANGO_MPV_PID_FILE="$MPV_PID_FILE"
+  export MANGO_PLAYBACK_ACTIVE_FILE="$PLAYBACK_ACTIVE_FILE"
+  export MANGO_PLAYBACK_DISPLAY_MATCHED_FILE="$PLAYBACK_DISPLAY_MATCHED_FILE"
+  export MANGO_PLAYBACK_OWNERSHIP_LOCK="$PLAYBACK_OWNERSHIP_LOCK"
+  export MANGO_PLAYBACK_OSD_PID_FILE="$PLAYBACK_OSD_PID_FILE"
+  export MANGO_MPV_STOP_NO_DISPLAY=1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 # shellcheck source=../../lib/launcher-power.sh
@@ -152,6 +171,58 @@ mpv_property() {
   local reply
   reply="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property "$property" 2>/dev/null || true)"
   python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' <<<"$reply" 2>/dev/null || echo 0
+}
+
+technical_profile_b64() {
+  local width height fps codec profile hwdec transfer duration bitrate
+  width="$(mpv_property width)"
+  height="$(mpv_property height)"
+  fps="$(mpv_property container-fps)"
+  codec="$(mpv_property video-codec)"
+  profile="$(mpv_property video-params/profile)"
+  hwdec="$(mpv_property hwdec-current)"
+  transfer="$(mpv_property video-params/gamma)"
+  duration="$(mpv_property duration)"
+  bitrate="$(mpv_property video-bitrate)"
+  python3 - "$width" "$height" "$fps" "$codec" "$profile" "$hwdec" "$transfer" "$duration" "$bitrate" <<'PY'
+import base64
+import json
+import sys
+
+def positive(value):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+width, height, fps, codec, profile, hwdec, transfer, duration, bitrate = sys.argv[1:]
+payload = {}
+for key, value in (
+    ("width", positive(width)),
+    ("height", positive(height)),
+    ("fps", positive(fps)),
+    ("duration_sec", positive(duration)),
+    ("bitrate_bps", positive(bitrate)),
+):
+    if value is not None:
+        payload[key] = int(value) if key in {"width", "height", "bitrate_bps"} else value
+for key, value in (
+    ("codec", codec),
+    ("profile", profile),
+    ("hwdec", hwdec),
+    ("color_transfer", transfer),
+):
+    value = str(value or "").strip()
+    if value and value != "0":
+        payload[key] = value
+transfer_lower = str(transfer or "").lower()
+payload["hdr"] = any(token in transfer_lower for token in ("pq", "smpte2084", "hlg", "arib-std-b67"))
+encoded = base64.urlsafe_b64encode(
+    json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+).decode("ascii").rstrip("=")
+print(encoded)
+PY
 }
 
 playback_is_real() {
@@ -982,11 +1053,11 @@ start_playback_osd() {
 
 mkdir -p "$(dirname "$SOCKET")"
 mkdir -p "$(dirname "$MPV_LOG")"
-if [[ "$REQUEST_CLASS" == "user" ]]; then
+if [[ "$REQUEST_CLASS" == "user" ]] && ! $ISOLATED_PROBE; then
   MANGO_MPV_STOP_NO_CANCEL=1 MANGO_MPV_STOP_NO_DISPLAY=1 \
     bash "$SCRIPT_DIR/mpv-stop.sh" 2>/dev/null || true
 fi
-if [[ "$REQUEST_CLASS" == "user" ]] && ! $PROBE; then
+if [[ "$REQUEST_CLASS" == "user" ]] && ! $PROBE && ! $ISOLATED_PROBE; then
   begin_playback_session
 fi
 
@@ -1118,7 +1189,8 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
           fi
           END_MS="$(now_ms)"
           DUR="$(mpv_property duration)"
-          echo "PASS: ttff_ms=$((END_MS - START_MS)) duration_sec=${DUR:-0} failure_class=none"
+          TECHNICAL_B64="$(technical_profile_b64 2>/dev/null || true)"
+          echo "PASS: ttff_ms=$((END_MS - START_MS)) duration_sec=${DUR:-0} technical_b64=${TECHNICAL_B64:-e30} failure_class=none"
           if [[ "$REQUEST_CLASS" == "user" ]] && [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
             bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv playing >/dev/null 2>&1 || true
           fi
