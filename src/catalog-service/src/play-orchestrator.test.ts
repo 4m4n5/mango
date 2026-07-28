@@ -1,13 +1,31 @@
 import assert from 'node:assert/strict';
-import test, { beforeEach } from 'node:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test, { after, before, beforeEach } from 'node:test';
 import type { Stream } from './core.js';
 import { playWithLadder, probeWithLadder } from './play-orchestrator.js';
 import { defaultPlayLadder, splitLegacyPlayLadder } from './play-ladder.js';
+import { resetPlayabilityDbForTests } from './playability/db.js';
 import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
 import { clearStreamBadCache, isStreamUrlBad } from './stream-bad-cache.js';
 
+let testDbDir = '';
+
+before(async () => {
+  testDbDir = await mkdtemp(join(tmpdir(), 'mango-play-orchestrator-'));
+  process.env.MANGO_PLAYABILITY_DB = join(testDbDir, 'playability.db');
+  resetPlayabilityDbForTests();
+});
+
 beforeEach(() => {
   clearStreamBadCache();
+});
+
+after(async () => {
+  resetPlayabilityDbForTests();
+  delete process.env.MANGO_PLAYABILITY_DB;
+  await rm(testDbDir, { recursive: true, force: true });
 });
 
 function testConfig(overrides: Record<string, unknown> = {}) {
