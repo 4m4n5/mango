@@ -24,7 +24,10 @@ chmod +x "$REPO_DIR/scripts/mango-health-repair.sh"
 
 systemctl --user daemon-reload
 systemctl --user enable mango-ui-server.service mango-catalog.service mango-watchdog.timer mango-launcher-chromium.service mango-tv-pad.service
-systemctl --user start mango-ui-server.service mango-catalog.service mango-watchdog.timer mango-tv-pad.service
+systemctl --user start mango-ui-server.service mango-catalog.service mango-watchdog.timer
+# The router executes Python directly from the checkout. Reload it on every
+# deploy so newly pulled button behavior cannot remain stale in memory.
+systemctl --user restart mango-tv-pad.service
 
 if ! loginctl show-user "$USER" -p Linger 2>/dev/null | grep -q yes; then
   echo "! Tip: enable linger so user units survive logout:"

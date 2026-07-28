@@ -104,6 +104,17 @@ grep -q 'mp.register_script_message("mango-streams-select"' \
   || fail "mpv HUD stream selection command is missing"
 pass "pad and mpv HUD stream controls are wired"
 
+if systemctl --user is-active --quiet mango-tv-pad.service; then
+  pad_started="$(
+    systemctl --user show mango-tv-pad.service --property=ActiveEnterTimestamp --value
+  )"
+  pad_started_epoch="$(date --date="$pad_started" +%s 2>/dev/null || echo 0)"
+  pad_source_epoch="$(stat --format=%Y scripts/m1-foundation/pad/mango-tv-pad.py)"
+  [[ "$pad_started_epoch" -ge "$pad_source_epoch" ]] \
+    || fail "running pad router predates its source; restart mango-tv-pad.service"
+  pass "running pad router has loaded the deployed source"
+fi
+
 if pgrep -f 'mpv.*--input-ipc-server=.*/mpv\.sock' >/dev/null 2>&1; then
   main_count="$(pgrep -fc 'mpv.*--input-ipc-server=.*/mpv\.sock' || true)"
   [[ "$main_count" -eq 1 ]] || fail "expected one foreground mpv owner, found $main_count"
