@@ -124,10 +124,15 @@ import {
 } from './ai-catalogs/bootstrap.js';
 import type { AiSeedTitle } from './ai-catalogs/types.js';
 import { UnifiedSearchService, parseSearchScope } from './search/service.js';
+import {
+  ActiveStreamConflictError,
+  ActiveStreamService,
+} from './active-stream-session.js';
 
 const HOST = process.env.MANGO_CATALOG_HOST || '127.0.0.1';
 const PORT = Number(process.env.MANGO_CATALOG_PORT || 3020);
 const BODY_LIMIT = 64 * 1024;
+let activeStreams: ActiveStreamService | null = null;
 
 type PlayBody = StreamFilterOverrides & {
   request_id?: string;
@@ -381,7 +386,15 @@ async function readBody(req: http.IncomingMessage): Promise<PlayBody> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8')) as PlayBody;
 }
 
-async function attachWatchSession(core: CatalogCore, type: string, playId: string): Promise<void> {
+async function attachWatchSession(
+  core: CatalogCore,
+  type: string,
+  playId: string,
+  stream?: {
+    releaseFingerprint?: string | null;
+    technical?: import('./playback-capability.js').StreamTechnicalProfile | null;
+  },
+): Promise<void> {
   try {
     const metaId = type === 'series' ? (seriesBareId(playId) || playId) : playId;
     const meta = await core.metaCached(type, metaId);
@@ -390,9 +403,16 @@ async function attachWatchSession(core: CatalogCore, type: string, playId: strin
       id: playId,
       title: typeof meta.name === 'string' ? meta.name : null,
       poster: resolvePosterFromMeta(meta),
+      releaseFingerprint: stream?.releaseFingerprint,
+      technical: stream?.technical,
     });
   } catch {
-    await startWatchSessionFromPlay({ type, id: playId });
+    await startWatchSessionFromPlay({
+      type,
+      id: playId,
+      releaseFingerprint: stream?.releaseFingerprint,
+      technical: stream?.technical,
+    });
   }
 }
 
@@ -424,6 +444,11 @@ async function handlePlay(
   onRequestRegistered?: (epoch: number) => void,
   preparedEpoch?: number,
 ): Promise<Record<string, unknown>> {
+  await activeStreams?.clear().catch((error) => {
+    console.warn(
+      `active stream cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  });
   let playUrlValue = body.url;
 
   if (playUrlValue) {
@@ -769,7 +794,39 @@ async function handlePlay(
     }
 
     await assertPlayEpoch(playEpoch);
-    await attachWatchSession(core, body.type, playId);
+    await attachWatchSession(core, body.type, playId, {
+      releaseFingerprint: playback.win_url_hash,
+      technical: playback.technical,
+    });
+    if (activeStreams) {
+      await activeStreams.register({
+        sessionId: requestId || `play-${playEpoch}`,
+        playEpoch,
+        contentType: body.type,
+        contentId: playId,
+        title: body.title ?? null,
+        streams: resolved.streams,
+        config: resolved.filters,
+        filterContext: resolved.filterContext,
+        currentFingerprint: playback.win_url_hash,
+        currentTechnical: playback.technical,
+        resolveFresh: async () => {
+          core.invalidateStreams(body.type!, playId);
+          const refreshed = await core.resolveForPlay(body.type!, playId, overrides, {
+            requestClass: 'user',
+            deadlineAtMs: Date.now() + 30_000,
+            identityHint: { title: body.title, year: body.year },
+          });
+          return refreshed.streams;
+        },
+      }).catch((error) => {
+        console.warn(
+          `active stream registration failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      });
+    }
 
     return {
       ok: playback.ok,
@@ -951,6 +1008,15 @@ async function startPlaybackSession(
       let succeeded = false;
       try {
         await transitionPlaybackSession(requestId, 'resolving');
+        if (source === 'youtube') {
+          await activeStreams?.clear().catch((error) => {
+            console.warn(
+              `active stream cleanup failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          });
+        }
         const result = source === 'youtube'
           ? await youtube.play({
             id: body.id,
@@ -996,6 +1062,14 @@ async function main(): Promise<void> {
   initLibraryDb();
   await initProgressDb();
   const core = await CatalogCore.create();
+  activeStreams = new ActiveStreamService();
+  await activeStreams.clear().catch((error) => {
+    console.warn(
+      `active stream startup cleanup failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  });
   // H1(b): no-ops unless MANGO_TRIGGER_CONSUMER=1 — bounded, idle-gated, debounced (couch safety).
   startTriggerConsumerBackgroundTick(core);
   const youtube = new YoutubeService();
@@ -2048,6 +2122,79 @@ async function main(): Promise<void> {
           session: started.session,
         });
         return;
+      }
+
+      if (parts.length >= 3 && parts[0] === 'play-session'
+        && parts[1] === 'active' && parts[2] === 'streams') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'active stream controls are localhost-only');
+        }
+        if (!activeStreams) {
+          throw new CatalogError(503, 'active stream controls are unavailable');
+        }
+        if (req.method === 'GET' && parts.length === 3) {
+          const afterRevision = Number(url.searchParams.get('after_revision') || 0);
+          const waitMs = Number(url.searchParams.get('wait_ms') || 0);
+          sendJson(res, 200, {
+            ok: true,
+            streams: await activeStreams.state(
+              Number.isFinite(afterRevision) ? afterRevision : 0,
+              Number.isFinite(waitMs) ? waitMs : 0,
+            ),
+          });
+          return;
+        }
+        if (req.method === 'POST' && parts.length === 4 && parts[3] === 'switch') {
+          const body = await readBody(req) as Record<string, unknown>;
+          try {
+            const streams = await activeStreams.beginSwitch({
+              sessionId: String(body.session_id || ''),
+              revision: Number(body.revision),
+              candidateId: String(body.candidate_id || ''),
+            });
+            sendJson(res, 202, { ok: true, accepted: true, streams });
+          } catch (error) {
+            if (error instanceof ActiveStreamConflictError) {
+              throw new CatalogError(409, error.message);
+            }
+            throw error;
+          }
+          return;
+        }
+        if (req.method === 'POST' && parts.length === 4 && parts[3] === 'issue') {
+          const body = await readBody(req) as Record<string, unknown>;
+          try {
+            const streams = await activeStreams.reportIssue({
+              sessionId: String(body.session_id || ''),
+              revision: Number(body.revision),
+              reason: typeof body.reason === 'string' ? body.reason : undefined,
+            });
+            sendJson(res, 200, { ok: true, streams });
+          } catch (error) {
+            if (error instanceof ActiveStreamConflictError) {
+              throw new CatalogError(409, error.message);
+            }
+            throw error;
+          }
+          return;
+        }
+        if (req.method === 'POST' && parts.length === 5
+          && parts[3] === 'issue' && parts[4] === 'undo') {
+          const body = await readBody(req) as Record<string, unknown>;
+          try {
+            const streams = await activeStreams.undoIssue({
+              sessionId: String(body.session_id || ''),
+              revision: Number(body.revision),
+            });
+            sendJson(res, 200, { ok: true, streams });
+          } catch (error) {
+            if (error instanceof ActiveStreamConflictError) {
+              throw new CatalogError(409, error.message);
+            }
+            throw error;
+          }
+          return;
+        }
       }
 
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'play-session') {

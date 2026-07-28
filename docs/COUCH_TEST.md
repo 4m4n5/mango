@@ -158,6 +158,24 @@ bash scripts/diag/playback-4k-proof.sh
 | Smooth auto choice | With both a 1080p TorBox fallback and cached AV1/H.264 4K present, automatic Play attempts `1080p_uncached_fallback` first. Soft 4K remains eligible later in the ladder; coverage is not reduced. | |
 | Real 4K capability | A row is called smooth 4K only when metadata and `playback-4k-proof.sh` show 2160p SDR HEVC hardware decode with acceptable real dropped-frame evidence. HDR/AV1/H.264 4K remains unverified unless target-TV proof says otherwise. | |
 
+### Evidence-based episode selection and Streams OSD
+
+```bash
+bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
+curl -sf http://127.0.0.1:3020/play-session/active/streams | jq '.streams'
+```
+
+| Check | Required evidence | Pass? |
+|---|---|---|
+| Adarsh identity | `tt40856520:1:3` retains localized `S01E03` and bare `E03` 1080p rows; both rank before 4K HDR | |
+| Automatic choice | Episode starts a smooth 1080p candidate; risky 4K remains available as final fallback | |
+| Picker controls | During movie/episode playback X opens Streams, Up/Down moves, B selects, and Y closes without stopping | |
+| Candidate safety | At most eight rows, current marked, risky rows last, and neither API nor snapshot contains a stream URL | |
+| Switching | A valid alternate preserves absolute position, subtitle visibility, and audio/subtitle language-role preference | |
+| Failure recovery | A failed alternate resumes the original; if replacement launch fails, original restarts once without a launcher flash | |
+| Issue memory | Try smoother source reranks without switching; Undo restores issue state immediately | |
+| Steady-state cost | Closing Streams leaves no external HUD process and no active picker poll | |
+
 ### Same-name title identity (home Mac/Pi only)
 
 Use the UK series IMDb ID (`tt0290978`) and compare it with the US series ID

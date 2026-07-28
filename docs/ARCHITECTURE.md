@@ -54,11 +54,11 @@ reveal at browse geometry). Shared helpers live in
 `scripts/lib/mango-browse-display.sh`; `ensure-launcher` also runs on stack boot,
 home, present, deploy. HDMI mode during a play session is owned only by
 `mpv-play` start/stop — the playback OSD and pad must never call `playback-auto`
-/ display-ensure. A lightweight X11 playback OSD (`playback-osd.py`) shows
-progress on pause/seek/↑; it scales to a constant physical footprint (1080p
-reference), defaults to a 4s visible window, redraws sparsely (~1 Hz), and keeps
-meta IPC / panel-size probes behind TTL caches so visible ticks stay cheap. The
-pad drives mpv via IPC without a Chromium overlay. **↑** is the sole subtitle
+/ display-ensure. The mpv Lua HUD (`mango-hud.lua`) shows progress and owns the
+in-playback Streams panel; it scales to a constant physical footprint (1080p
+reference), redraws sparsely, and reads the sanitized stream snapshot only
+while the panel is open. No Chromium overlay or second steady-state HUD process
+is used. The pad drives mpv via IPC. **↑** is the sole subtitle
 control (show-first, then force-on + cycle); **A** is show-first for audio.
 `--blend-subtitles` defaults to **no** (ASS overlay): `yes` stalls 4K present
 when audio is decoded (~2.5 drops/s on Pi 5 / X11 EGL). Override only for A/B
@@ -97,6 +97,15 @@ late monitor from an earlier session cannot tear down a newer playback.
 Automatic retry is bounded to one fresh metadata/transport resolve after an
 eligible stale-link failure; cancellation, rate limiting, and malformed media
 never create retry storms.
+
+**Active stream session.** Movie and series plays publish a URL-free
+`~/.cache/mango/active-streams.json` snapshot. Catalog-service remains the sole
+owner of candidate identity, path-capability ranking, isolated validation, and
+serialized switching; the Lua HUD renders opaque IDs only. A successful switch
+hands the same watch/progress session to the replacement mpv generation at the
+same absolute time. If replacement launch fails, Mango restarts the original
+once; if both fail it flushes progress and marks the existing playback session
+`failed_after_frame`. Live and YouTube do not register a stream picker.
 
 ### Playability layer
 
@@ -303,6 +312,10 @@ last-resort → obligation floor), `picker` (single stream), `verify` (main only
 | `POST` | `/play-session` | Idempotently accept an asynchronous catalog or YouTube play by `request_id` |
 | `GET` | `/play-session/{request_id}` | Read or bounded-long-poll the authoritative session version |
 | `POST` | `/play-session/cancel` | Cancel only the named request and flush progress |
+| `GET` | `/play-session/active/streams` | Localhost-only URL-free picker snapshot; optional revision long poll |
+| `POST` | `/play-session/active/streams/switch` | Serialized switch by session, revision, and opaque candidate ID |
+| `POST` | `/play-session/active/streams/issue` | Downrank the current release on this path for seven days |
+| `POST` | `/play-session/active/streams/issue/undo` | Undo the current session's issue report |
 
 See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 

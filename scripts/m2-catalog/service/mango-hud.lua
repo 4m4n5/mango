@@ -13,6 +13,7 @@
 -- playback-osd.visible state file the pad reads for its show-first gating.
 
 local mp = require("mp")
+local utils = require("mp.utils")
 
 local VISIBLE_SEC = tonumber(os.getenv("MANGO_PLAYBACK_OSD_VISIBLE_SEC") or "4.0") or 4.0
 local HOME = os.getenv("HOME") or "/home/aman"
@@ -64,11 +65,20 @@ overlay.z = 10
 local visible = false
 local hide_timer = nil
 local tick_timer = nil
+local mode = "hud"
+local stream_state = nil
+local stream_index = 1
+local stream_poll_timer = nil
+local render
+local CATALOG_URL = os.getenv("MANGO_CATALOG_URL") or "http://127.0.0.1:3020"
+local STREAM_STATE_FILE = os.getenv("MANGO_ACTIVE_STREAMS_PATH")
+  or (HOME .. "/.cache/mango/active-streams.json")
 
 local function write_visible_state(is_visible)
   local payload = string.format(
-    '{"visible":%s,"ts":%d,"visible_sec":%.1f}\n',
+    '{"visible":%s,"mode":"%s","ts":%d,"visible_sec":%.1f}\n',
     tostring(is_visible),
+    mode,
     os.time(),
     VISIBLE_SEC
   )
@@ -197,7 +207,190 @@ local function circle_ev(cx, cy, r, colour)
   )
 end
 
+local function read_stream_state()
+  local file = io.open(STREAM_STATE_FILE, "r")
+  if not file then
+    return nil
+  end
+  local raw = file:read("*a")
+  file:close()
+  local parsed = utils.parse_json(raw)
+  if type(parsed) ~= "table" or parsed.enabled ~= true or parsed.session_id == nil then
+    return nil
+  end
+  return parsed
+end
+
+local function stream_action_count()
+  if type(stream_state) ~= "table" then
+    return 0
+  end
+  return stream_state.undo_available == true and 2 or 1
+end
+
+local function stream_row_count()
+  local candidates = type(stream_state) == "table" and stream_state.candidates or nil
+  local count = type(candidates) == "table" and #candidates or 0
+  return count + stream_action_count()
+end
+
+local function clamp_stream_index()
+  local count = stream_row_count()
+  if count <= 0 then
+    stream_index = 1
+    return
+  end
+  stream_index = math.max(1, math.min(count, stream_index))
+end
+
+local function stream_candidate_summary(candidate)
+  local parts = {
+    candidate.resolution or "Unknown",
+    candidate.hdr or "SDR",
+    candidate.codec or "Unknown",
+    candidate.cache or "unknown",
+    candidate.source or "Source",
+  }
+  return table.concat(parts, "  ·  ")
+end
+
+local function stream_candidate_detail(candidate)
+  local parts = {}
+  for _, value in ipairs({
+    candidate.size,
+    candidate.bitrate,
+    candidate.release_group,
+    candidate.audio,
+    candidate.risk,
+  }) do
+    if type(value) == "string" and value ~= "" then
+      parts[#parts + 1] = value
+    end
+  end
+  if #parts == 0 then
+    return candidate.capability_class == "proven_smooth"
+      and "Proven fit for this playback path"
+      or "Technical details will be learned after validation"
+  end
+  return table.concat(parts, "  ·  ")
+end
+
+local function build_streams_ass()
+  local panel_w, panel_h = 1320, 760
+  local panel_x = math.floor((CANVAS_W - panel_w) / 2)
+  local panel_y = math.floor((CANVAS_H - panel_h) / 2)
+  local left = panel_x + 54
+  local right = panel_x + panel_w - 54
+  local candidates = type(stream_state) == "table" and stream_state.candidates or {}
+  local ev = {}
+  ev[#ev + 1] = rect_ev(panel_x, panel_y, panel_w, panel_h, C_BOX, "&H08&")
+  ev[#ev + 1] = text_ev(7, left, panel_y + 42, 34, C_ELAPSED, "Streams", true)
+  ev[#ev + 1] = text_ev(
+    9, right, panel_y + 46, 17, C_LEGEND,
+    stream_state and (
+      stream_state.status == "checking" and "Checking stream…"
+      or stream_state.status == "switching" and "Switching…"
+      or stream_state.status == "failed" and "Playback stopped"
+      or "Ready"
+    ) or "Unavailable", false
+  )
+
+  if not stream_state or #candidates == 0 then
+    ev[#ev + 1] = text_ev(5, CANVAS_W / 2, panel_y + 330, 25, C_STATUS,
+      "No alternate streams are available for this title.", false)
+    ev[#ev + 1] = text_ev(5, CANVAS_W / 2, panel_y + 385, 18, C_LEGEND,
+      "Y closes", false)
+    return table.concat(ev, "\n")
+  end
+
+  local row_y = panel_y + 106
+  local row_h = 58
+  for index, candidate in ipairs(candidates) do
+    local selected = stream_index == index
+    local colour = candidate.capability_class == "known_risky" and C_RED or C_STATUS
+    if selected then
+      ev[#ev + 1] = rect_ev(left - 18, row_y - 10, panel_w - 72, row_h - 4, C_TRACK, "&H18&")
+      colour = C_ELAPSED
+    end
+    local marker = candidate.current and "● " or "  "
+    if candidate.unavailable then
+      marker = "× "
+      colour = C_LEGEND
+    end
+    ev[#ev + 1] = text_ev(7, left, row_y, 23, colour,
+      marker .. stream_candidate_summary(candidate), candidate.current == true)
+    if candidate.capability_class == "known_risky" then
+      ev[#ev + 1] = text_ev(9, right, row_y, 16, C_RED, "FINAL FALLBACK", true)
+    end
+    row_y = row_y + row_h
+  end
+
+  local action_index = #candidates + 1
+  local action_selected = stream_index == action_index
+  if action_selected then
+    ev[#ev + 1] = rect_ev(left - 18, row_y - 10, panel_w - 72, row_h - 4, C_TRACK, "&H18&")
+  end
+  ev[#ev + 1] = text_ev(7, left, row_y, 22,
+    action_selected and C_ELAPSED or C_GREEN, "Try smoother source", true)
+  if stream_state.undo_available == true then
+    row_y = row_y + row_h
+    local undo_selected = stream_index == action_index + 1
+    if undo_selected then
+      ev[#ev + 1] = rect_ev(left - 18, row_y - 10, panel_w - 72, row_h - 4, C_TRACK, "&H18&")
+    end
+    ev[#ev + 1] = text_ev(7, left, row_y, 22,
+      undo_selected and C_ELAPSED or C_STATUS, "Undo", true)
+  end
+
+  local focused = candidates[stream_index]
+  local detail = focused and stream_candidate_detail(focused)
+    or (stream_state.error or "Downranks this source for seven days; you still choose the replacement.")
+  ev[#ev + 1] = text_ev(7, left, panel_y + panel_h - 76, 17, C_LEGEND, detail, false)
+  ev[#ev + 1] = text_ev(9, right, panel_y + panel_h - 38, 17, C_LEGEND,
+    "↑/↓ choose   B select   Y close", false)
+  return table.concat(ev, "\n")
+end
+
+local function refresh_stream_state()
+  local next_state = read_stream_state()
+  if next_state then
+    stream_state = next_state
+    clamp_stream_index()
+    if mode == "streams" and visible then
+      overlay.data = build_streams_ass()
+      overlay:update()
+    end
+  end
+end
+
+local function post_stream_action(path, body)
+  local payload = utils.format_json(body)
+  mp.command_native_async({
+    name = "subprocess",
+    playback_only = false,
+    capture_stdout = true,
+    capture_stderr = true,
+    args = {
+      "curl", "-sS", "--max-time", "4",
+      "-H", "content-type: application/json",
+      "--data", payload,
+      CATALOG_URL .. path,
+    },
+  }, function(_, result)
+    if type(result) == "table" and type(result.stdout) == "string" then
+      local parsed = utils.parse_json(result.stdout)
+      if type(parsed) == "table" and type(parsed.streams) == "table" then
+        stream_state = parsed.streams
+      end
+    end
+    refresh_stream_state()
+  end)
+end
+
 local function build_ass()
+  if mode == "streams" then
+    return build_streams_ass()
+  end
   local pos = mp.get_property_number("time-pos") or 0
   local dur = mp.get_property_number("duration") or 0
   local paused = mp.get_property_native("pause") == true
@@ -266,13 +459,13 @@ local function build_ass()
 
   ev[#ev + 1] = text_ev(
     7, L, LEGEND_Y, 16, C_LEGEND,
-    "B pause   ←/→ seek   ↑ osd/subs   A audio   ± vol   Y back", false
+    "B pause   ←/→ seek   ↑ osd/subs   X streams   A audio   ± vol   Y back", false
   )
 
   return table.concat(ev, "\n")
 end
 
-local function render()
+render = function()
   if not visible then
     return
   end
@@ -289,6 +482,10 @@ local function hide()
     tick_timer:kill()
     tick_timer = nil
   end
+  if stream_poll_timer then
+    stream_poll_timer:kill()
+    stream_poll_timer = nil
+  end
   if visible then
     visible = false
     overlay:remove()
@@ -297,6 +494,7 @@ local function hide()
 end
 
 local function show(reason)
+  mode = "hud"
   visible = true
   write_visible_state(true)
   render()
@@ -311,11 +509,104 @@ local function show(reason)
   hide_timer = mp.add_timeout(VISIBLE_SEC, hide)
 end
 
+local function close_streams()
+  mode = "hud"
+  stream_state = nil
+  stream_index = 1
+  hide()
+end
+
+local function open_streams()
+  stream_state = read_stream_state()
+  if not stream_state then
+    mp.osd_message("Streams are unavailable for this playback.", 2)
+    return
+  end
+  mode = "streams"
+  visible = true
+  stream_index = 1
+  local candidates = stream_state.candidates or {}
+  for index, candidate in ipairs(candidates) do
+    if candidate.current == true then
+      stream_index = index
+      break
+    end
+  end
+  if hide_timer then
+    hide_timer:kill()
+    hide_timer = nil
+  end
+  if tick_timer then
+    tick_timer:kill()
+    tick_timer = nil
+  end
+  if stream_poll_timer then
+    stream_poll_timer:kill()
+  end
+  stream_poll_timer = mp.add_periodic_timer(1.0, refresh_stream_state)
+  write_visible_state(true)
+  render()
+end
+
 mp.register_script_message("mango-hud-show", function(reason)
   show(reason or "show")
 end)
 mp.register_script_message("mango-hud-hide", function()
   hide()
+end)
+mp.register_script_message("mango-streams-toggle", function()
+  if mode == "streams" and visible then
+    close_streams()
+  else
+    open_streams()
+  end
+end)
+mp.register_script_message("mango-streams-close", function()
+  if mode == "streams" then
+    close_streams()
+  end
+end)
+mp.register_script_message("mango-streams-move", function(delta)
+  if mode ~= "streams" or not visible then
+    return
+  end
+  local count = stream_row_count()
+  if count <= 0 then
+    return
+  end
+  stream_index = ((stream_index - 1 + (tonumber(delta) or 0)) % count) + 1
+  render()
+end)
+mp.register_script_message("mango-streams-select", function()
+  if mode ~= "streams" or not visible or type(stream_state) ~= "table" then
+    return
+  end
+  if stream_state.status == "checking" or stream_state.status == "switching" then
+    return
+  end
+  local candidates = stream_state.candidates or {}
+  local selected = candidates[stream_index]
+  local common = {
+    session_id = stream_state.session_id,
+    revision = stream_state.revision,
+  }
+  if selected then
+    if selected.current == true or selected.unavailable == true then
+      return
+    end
+    common.candidate_id = selected.candidate_id
+    stream_state.status = "checking"
+    render()
+    post_stream_action("/play-session/active/streams/switch", common)
+    return
+  end
+  local action_index = #candidates + 1
+  if stream_index == action_index then
+    common.reason = "user requested a smoother source"
+    post_stream_action("/play-session/active/streams/issue", common)
+  elseif stream_state.undo_available == true and stream_index == action_index + 1 then
+    post_stream_action("/play-session/active/streams/issue/undo", common)
+  end
 end)
 
 mp.register_event("shutdown", function()

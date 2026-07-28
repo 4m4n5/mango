@@ -59,6 +59,9 @@ Locked choices. Update when changing behavior.
 | Playback acknowledgement | Launcher uses an idempotent asynchronous session; persisted acceptance precedes foreground handoff, and only failure before the first ready frame is user-visible |
 | Replay recovery | Retry at most once after a classified stale cached transport by resolving fresh metadata; never retry cancellation, rate-limit, or malformed-media failures |
 | Playback cleanup | Natural mpv exit cleanup is PID + play-epoch scoped; stale monitors cannot stop a newer session |
+| Episode stream identity | Explicit numeric contradictions reject; full `SxxExx`/`NxE` markers outrank bare `E`/`EP`; localized title mismatch is soft when numeric identity agrees |
+| Playback ranking | Capability tier is lexicographic and path-scoped; `known_risky` never outranks identity-safe smooth/unknown sources through cache or scalar bonuses |
+| Stream switching | Explicit mpv-HUD picker for movies/episodes only; validates before switching, preserves one progress session, and never detects stutter or auto-switches |
 
 ---
 

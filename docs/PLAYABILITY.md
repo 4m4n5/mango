@@ -27,6 +27,7 @@ The grow system is implemented as a best-effort, couch-silent maintenance workfl
 |-------|-----------|------|
 | `titles` | `/etc/mango/playability.db` | Global verify state (verified / failed / TTL) |
 | `rail_pool` | same DB | Per-rail membership + couch display snapshot |
+| `stream_path_evidence` | same DB | URL-free capability, substantial-watch proof, and temporary issue memory per release/playback profile |
 | Sessions | same DB | Tab/rail shuffle slots (cleared on pool changes) |
 
 - **Browse rails** only show titles with active **verified** status in `rail_pool`.
@@ -41,41 +42,77 @@ Couch `POST /play` uses **two ladders** and three modes:
 
 | Ladder | Role |
 |--------|------|
-| **`main_ladder`** | Smooth cached streams (4K HEVC SDR + ≤1080p). Grow/verify + Play priority. Only these write `verified`. |
-| **`last_resort_ladder`** | Uncached smooth 1080p / soft 4K / catch-all. Play fallback + unverified side-list when main empty. Never verifies into library. |
+| **`main_ladder`** | Verified-quality streams used by grow/verify and initial play expansion. Only these write `verified`. |
+| **`last_resort_ladder`** | Additional playable coverage, including risky formats retained as final fallback. Never verifies into library. |
 
 | Mode | Entry | Candidates | Library write |
 |------|-------|------------|---------------|
-| **auto** | Play button | main → last-resort → obligation floor | verified only if win ∈ main; else **stale** (`last_resort_play`) |
-| **picker** | Side-list click | exactly one stream | never; fail hides ~30 min by fingerprint |
+| **auto** | Play button | full deduplicated identity-safe set, capability-tiered, within 120 s | verified only if win ∈ main; else **stale** (`last_resort_play`) |
+| **picker** | Detail side-list click | exactly one manually selected stream | never; fail hides ~30 min by fingerprint |
 | **verify** | grow / `probeWithLadder` | **main only** | verified only on main win |
 
 Legacy single `play_ladder` configs are split by `verified` / display membership on load.
 
-**Smoothness-first ranking (cross-resolution owned by ladder step order):** Prefer HW-smooth streams over marginal soft-decode 4K. The `4k-hifi` profile order is:
+**Evidence-based ranking:** Each identity-safe candidate is classified for the
+active engine/renderer/device/display profile as `proven_smooth`, `unknown`, or
+`known_risky`. This is a hard tier: cache, verified-release hints, and startup
+success cannot lift a risky stream above a smooth or unknown stream. The
+`pi5-x11-mpv-hifi` policy treats 4K HDR/DV and software-decoded 4K as risky
+fallback, while compatible 4K SDR HEVC remains normal selection. Within the
+smooth tier, fidelity wins before cache state, so compatible uncached 4K SDR
+HEVC may outrank cached 1080p. A remux receives 4K preference only when its
+codec, bitrate, frame rate, and observed path evidence fit the configured path.
 
-1. `4k_sdr_remux_cached` / `4k_sdr_cached` — 4K HEVC cached (**main**)
-2. `1080p_hevc_cached` / `1080p_cached_fallback` — smooth ≤1080p (**main**)
-3. `1080p_uncached_fallback` — smooth uncached TorBox (**last-resort**)
-4. `4k_sdr_soft_cached` — soft 4K AV1/H.264 (**last-resort**)
-5. `last_resort` — HDR / any-codec catch-all (**last-resort**)
-6. Obligation floor — integrity-safe remainder after last-resort exhaustion
+The headless mpv inspection records width, height, frame rate, codec/profile,
+hardware decoder, HDR/color transfer, duration, and bitrate where available.
+A substantial watch (`min(20 minutes, 50% of duration)`) is a soft positive
+inside its capability tier; a quick exit is neutral. Evidence is keyed by
+stable release fingerprint plus playback profile and never stores a signed URL.
 
-*Within* a resolution, `streamHardwareDecodeSmooth()` (Pi 5: HEVC any-res, else non-HEVC ≤1080p) floats the smooth stream to the top. Nothing is excluded from play — a lone soft/unsupported stream still plays on last-resort. Override the decode profile per box: `MANGO_HW_DECODE_CODECS` (default `hevc`), `MANGO_HW_SOFT_MAX_QUALITY` (default `1080p`).
+Auto play walks the full deduplicated identity-safe set under one 120-second
+hard deadline. An incomplete candidate is reclassified after its existing mpv
+probe; newly proven risky candidates are deferred behind remaining smooth and
+unknown choices. The obligation floor remains, so a lone risky source is still
+attempted last.
 
 **Display vs play:** `GET /stream` expands **main** first. If empty, expands last-resort (and obligation floor) marked `unverified`.
 
 **Title identity:** play and detail-list filtering start with the requested IMDb
 ID plus launcher title/year, then enrich from cached metadata with origin country
-and the exact episode title. Explicit contradictory IMDb IDs, remake years,
-UK/US edition qualifiers, or episode labels are rejected even for curated pins;
-ambiguous rows with no contradictory evidence remain eligible so coverage is not
-silently reduced. This keeps same-name remakes such as both versions of *The
-Office* separate without requiring provider-specific title hardcoding.
+and the exact episode title. Explicit contradictory IMDb IDs, remake years, and
+UK/US edition qualifiers remain hard rejects. Numeric episode identity is
+authoritative: Mango parses `S01E03`, `1x03`, `E03`, and `EP03`; a contradictory
+season/episode is rejected, a full marker outranks a bare marker, and an
+otherwise matching unmarked release remains eligible at low confidence.
+Localized episode-title agreement is a bonus and disagreement is a penalty,
+not a rejection when numeric identity agrees. This preserves *The Office*
+edition safety without dropping localized releases such as *Adarsh Baal
+Vidyalaya* S1E3.
 
 **Slow detail resolves:** the launcher keeps its bounded initial stream-list wait. If that wait expires, it performs an `existing_only=1` late join: catalog-service returns the positive cache or joins the identical in-flight user resolve, but never starts a second provider fan-out. A true empty remains honest (`streams · none found`); a failed late join stays visible as unavailable instead of silently removing the entire stream section. Play keeps its independent full search path.
 
 **4K truth:** the Pi 5 smooth tier is 4K SDR HEVC. A title may have many nominal 4K releases but no smooth 4K choice when those releases are HDR (tone-mapped under the current X11 path) or software-decoded AV1/H.264. Those sources stay in last-resort for coverage, but smooth 1080p TorBox now precedes known-soft 4K so automatic Play does not choose resolution over watchability.
+
+### In-playback stream picker
+
+For movies and series, **X** opens a persistent Streams panel inside the mpv
+Lua HUD. It shows at most eight identity-safe candidates, marks the current
+source, and places risky sources last. **Up/Down** moves, **B** selects, and
+**Y** closes the panel before it can stop playback. Video continues while
+browsing; closing the panel removes its one-second state poll, so no extra
+steady-state process or polling remains.
+
+Selection validates in isolation for up to 8 seconds when cached or 25 seconds
+when uncached. A stale URL gets one fresh title resolve and fingerprint remap.
+Failure resumes the original stream. Success uses the existing generation-
+scoped mpv wrapper, preserves absolute time, subtitle visibility, and
+audio/subtitle language-role preference, and retains one logical progress
+session. `Try smoother source` records a seven-day path-specific issue and
+reranks without switching; Undo is immediate. There is no dropped-frame
+monitoring, automatic stutter detection, or automatic switching.
+
+The picker is default-on in `mpv-hifi` and can be disabled with
+`MANGO_STREAM_PICKER=0`. Live and YouTube playback are unchanged.
 
 **Native Live curation and search:** Live rails admit candidates by typed event,
 competition, participant, exact-channel, and language policy before dedupe or

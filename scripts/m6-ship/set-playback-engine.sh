@@ -115,6 +115,10 @@ case "$cmd" in
     append_env MANGO_MPV_GPU_API "opengl"
     append_env MANGO_MPV_OPENGL_ES "yes"
     append_env MANGO_MPV_PROFILE "fast"
+    append_env MANGO_PLAYBACK_CAPABILITY_PROFILE "pi5-x11-mpv-hifi"
+    # Default-on kill switch for the in-mpv stream picker. Setting this to 0
+    # removes the active candidate snapshot without changing playback.
+    append_env MANGO_STREAM_PICKER "1"
     append_env MANGO_MPV_VIDEO_SYNC "display-resample"
     append_env MANGO_MPV_VIDEO_SYNC_4K "display-vdrop"
     append_env MANGO_MPV_VIDEO_SYNC_4K_MATCHED "audio"

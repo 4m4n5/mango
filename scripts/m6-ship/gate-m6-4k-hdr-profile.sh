@@ -206,6 +206,18 @@ else
   gate_warn "reliability state unavailable"
 fi
 
+if [[ "${MANGO_PLAYBACK_CAPABILITY_PROFILE:-}" == "pi5-x11-mpv-hifi" ]]; then
+  gate_pass "path-scoped capability profile pi5-x11-mpv-hifi"
+else
+  gate_fail "MANGO_PLAYBACK_CAPABILITY_PROFILE is not pi5-x11-mpv-hifi"
+fi
+
+if pgrep -f 'playback-osd\.py --run' >/dev/null 2>&1; then
+  gate_fail "legacy external HUD process would break direct presentation"
+else
+  gate_pass "zero external steady-state HUD processes"
+fi
+
 mem_avail_mb="$(awk '/^MemAvailable:/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)"
 root_used_pct="$(df -P / 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}' || echo 0)"
 load="$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo unknown)"

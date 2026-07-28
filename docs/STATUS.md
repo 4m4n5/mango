@@ -290,18 +290,21 @@ Mango ships a unified **mpv-only** couch playback path. Browse stays
 
 | Area | Current implementation |
 |------|------------------------|
-| Stream policy (ship) | `config/catalog-filters.4k-hifi.example.json` — cached 4K SDR HEVC REMUX first, HDR excluded above 1080p, 1080p fallbacks |
+| Stream policy (ship) | `config/catalog-filters.4k-hifi.example.json` — path capability first; compatible 4K SDR HEVC before 1080p; 4K HDR/DV and software 4K retained as final fallback |
 | Stream policy (baseline) | `config/catalog-filters.4k-hdr.example.json` — cached 4K HEVC, no REMUX |
 | Engine switch | `scripts/m6-ship/set-playback-engine.sh mpv\|mpv-hifi\|status` |
 | Runtime source of truth | `~/.config/mango/voice.env` written by `set-playback-engine.sh`; run `set-playback-engine.sh status` on the Pi before claiming the active profile. `mpv-hifi` is the intended ship profile, not a work-Mac assumption. |
 | Display/audio base | `scripts/m6-ship/apply-4k-hdr-profile.sh apply\|revert\|status` — launcher 1080p60, mpv 4K match, HDMI audio |
 | Decode/presentation | mpv `gpu` VO, `hwdec=auto-safe`, deferred foreground, launcher stopped during fullscreen, `xcompmgr` off |
 | Display enforcement | `mango-display-mode.sh ensure-launcher` on stack boot, home, present, stop, deploy, display-wake |
-| Playback OSD/input | `playback-osd.py` on pause/seek; pad → mpv IPC |
+| Playback OSD/input | mpv Lua HUD on pause/seek and movie/series Streams picker; pad → mpv IPC |
 | Playback lifecycle | Async, idempotent `/play-session` acceptance survives Chromium hide/restart; durable `ever_ready` suppresses false post-play errors; generation-scoped PID exit cleanup cannot stop a newer play |
+| Stream selection | Numeric episode markers are authoritative; full marker > bare marker > unmarked; path-scoped `proven_smooth`/`unknown`/`known_risky` tiers cannot be overridden by cache or scalar hints |
+| In-playback switching | **X** opens URL-free eight-choice OSD; 8s cached/25s uncached validation; position/track restoration; original-source fallback; no auto-switching |
+| Evidence | `/etc/mango/playability.db` `stream_path_evidence`, keyed by release fingerprint + playback profile; signed URLs are never persisted |
 | Transport recovery | One bounded fresh resolve for stale cached VOD/YouTube links; no retry on cancellation, rate limit, or malformed media; YouTube 429s enter a local cooldown |
 | 4K+audio smoothness | `--blend-subtitles=no` default (`MANGO_MPV_BLEND_SUBTITLES`); `yes` caused ~2.5 drops/s with audio on Pi 5 — Pi-proven 0 drops/s with eac3 4K |
-| Gates | `gate-m6-playback-ssot.sh` (mpv-only + idle 1080p browse + blend default) · `gate-m6-4k-hdr-profile.sh` · `playback-smoothness-probe.sh` |
+| Gates | `gate-m6-playback-ssot.sh` · `gate-m6-4k-hdr-profile.sh` · `gate-m6-stream-picker-smoke.sh` · `playback-smoothness-probe.sh` |
 
 4K stream quality is owned by catalog filters + mpv ladder — never by Chromium
 resolution.

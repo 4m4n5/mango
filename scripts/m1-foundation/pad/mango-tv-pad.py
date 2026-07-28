@@ -855,6 +855,21 @@ def playback_osd_is_visible() -> bool:
         return False
 
 
+def playback_streams_open() -> bool:
+    """The persistent in-mpv Streams panel owns D-pad/B/Y while open."""
+    if not PLAYBACK_OSD_VISIBLE_FILE.is_file():
+        return False
+    try:
+        payload = json.loads(PLAYBACK_OSD_VISIBLE_FILE.read_text(encoding="utf-8"))
+        return (
+            isinstance(payload, dict)
+            and payload.get("visible") is True
+            and payload.get("mode") == "streams"
+        )
+    except (OSError, ValueError, json.JSONDecodeError, TypeError):
+        return False
+
+
 def mpv_is_paused() -> bool:
     paused = mpv_ipc_data("pause")
     return paused in (True, "yes", 1)
@@ -1017,6 +1032,14 @@ def route_playback_audio(app: str) -> None:
 def route_dpad(app: str, direction: str) -> None:
     symbol = {"left": "Left", "right": "Right", "up": "Up", "down": "Down"}[direction]
     if app == "mpv":
+        if playback_streams_open():
+            if direction in {"up", "down"}:
+                send_mpv_ipc(
+                    "script-message",
+                    "mango-streams-move",
+                    "-1" if direction == "up" else "1",
+                )
+            return
         if direction in {"left", "right"}:
             route_mpv_seek(direction, PLAYBACK_SEEK_STEP_SEC)
         else:
@@ -1037,6 +1060,9 @@ def route_playback_shoulder(app: str, direction: str) -> None:
 def route_face(app: str, action: str) -> None:
     if action == "select":
         if app == "mpv":
+            if playback_streams_open():
+                send_mpv_ipc("script-message", "mango-streams-select")
+                return
             resuming = mpv_is_paused()
             send_mpv_ipc("keypress", "SPACE")
             # HDMI mode is owned by mpv-play start/stop — never reassert on pause.
@@ -1049,6 +1075,9 @@ def route_face(app: str, action: str) -> None:
             )
     elif action == "back":
         if app == "mpv":
+            if playback_streams_open():
+                send_mpv_ipc("script-message", "mango-streams-close")
+                return
             stop_mpv_home()
         elif app == "launcher":
             launcher_send_nav_or_key(
@@ -1231,7 +1260,9 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                 if event.type == ecodes.EV_ABS:
                     if event.code in (ecodes.ABS_X, ecodes.ABS_HAT0X):
                         threshold = 1 if event.code == ecodes.ABS_HAT0X else THRESH
-                        if event.value <= -threshold:
+                        if _playback_app(app) and playback_streams_open():
+                            stop_seek_hold()
+                        elif event.value <= -threshold:
                             start_or_update_seek_hold(app, "left")
                         elif event.value >= threshold:
                             start_or_update_seek_hold(app, "right")
@@ -1243,8 +1274,19 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                         if _playback_app(app):
                             if event.value <= -threshold:
                                 debounced(
-                                    f"{app}-osd-up",
-                                    lambda: route_playback_up(app),
+                                    f"{app}-up",
+                                    lambda: (
+                                        route_dpad(app, "up")
+                                        if playback_streams_open()
+                                        else route_playback_up(app)
+                                    ),
+                                    debounce_sec=DPAD_DEBOUNCE_SEC,
+                                )
+                            elif event.value >= threshold and playback_streams_open():
+                                debounced(
+                                    f"{app}-down",
+                                    lambda: route_dpad(app, "down"),
+                                    debounce_sec=DPAD_DEBOUNCE_SEC,
                                 )
                         elif event.value <= -threshold:
                             debounced(
@@ -1259,7 +1301,13 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                                 debounce_sec=DPAD_DEBOUNCE_SEC,
                             )
                 elif event.type == ecodes.EV_KEY and event.code == BTN_X:
-                    if event.value == 1 and not _playback_app(app):
+                    if event.value == 1 and _playback_app(app):
+                        wake_display_for_input(f"{app}-streams")
+                        debounced(
+                            f"{app}-streams-toggle",
+                            lambda: send_mpv_ipc("script-message", "mango-streams-toggle"),
+                        )
+                    elif event.value == 1 and not _playback_app(app):
                         secondary_press.update(
                             {
                                 "started_at": time.monotonic(),

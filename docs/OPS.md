@@ -153,6 +153,18 @@ bash scripts/diag/playback-4k-proof.sh
 # or: bash scripts/diag/playback-4k-proof.sh --watch
 ```
 
+During movie/series playback, **X** opens the mpv-native Streams panel. It uses
+the localhost active-stream API and URL-free
+`~/.cache/mango/active-streams.json`; opening it performs no provider resolve.
+**Up/Down** moves, **B** validates/selects, and **Y** closes the panel. Disable
+only for rollback with `MANGO_STREAM_PICKER=0` in
+`~/.config/mango/voice.env`, then restart catalog and pad.
+
+```bash
+curl -sf http://127.0.0.1:3020/play-session/active/streams | jq
+bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
+```
+
 `ensure-launcher` (alias `launcher`) is called on stack boot, home, present,
 stop, deploy, and display-wake so browse never drifts to 4K HDMI by accident.
 
