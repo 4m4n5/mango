@@ -102,6 +102,10 @@ source, and places risky sources last. **Up/Down** moves, **B** selects, and
 browsing; closing the panel removes its one-second state poll, so no extra
 steady-state process or polling remains.
 
+Pad actions use ordered in-process mpv JSON IPC. Opening the panel is
+acknowledged before the router accepts the next D-pad action, preventing a fast
+X-then-Down sequence from being misrouted to normal playback controls.
+
 Selection validates in isolation for up to 8 seconds when cached or 25 seconds
 when uncached. A stale URL gets one fresh title resolve and fingerprint remap.
 Failure resumes the original stream. Success uses the existing generation-

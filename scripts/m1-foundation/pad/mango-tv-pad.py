@@ -25,6 +25,9 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from pad_context import contextual_secondary_surface, secondary_press_kind
+from pad_mpv_ipc import MpvIpcError, send_mpv_command
+
 try:
     import evdev
     from evdev import ecodes
@@ -57,6 +60,7 @@ PLAYBACK_ACTIVE_FILE = Path(
     os.environ.get("MANGO_PLAYBACK_ACTIVE_FILE", str(CACHE_DIR / "playback-active"))
 )
 MPV_SOCKET_PATH = Path(os.environ.get("MANGO_MPV_SOCKET", str(CACHE_DIR / "mpv.sock")))
+MPV_IPC_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_MPV_IPC_TIMEOUT_SEC", "0.2"))
 PLAYBACK_SEEK_STEP_SEC = int(
     os.environ.get("MANGO_PLAYBACK_SEEK_STEP_SEC", os.environ.get("MANGO_VLC_SEEK_STEP_SEC", "10"))
 )
@@ -740,13 +744,24 @@ def launcher_send_nav_or_key(
     send_key_launcher(symbol, app=app)
 
 
-def send_mpv_ipc(command: str, arg: str = "", mode: str = "") -> None:
-    argv = ["bash", str(MPV_IPC_SH), command]
-    if arg:
-        argv.append(arg)
-    if mode:
-        argv.append(mode)
-    popen_tv_user(argv)
+def send_mpv_ipc(command: str, *args: str) -> bool:
+    """Serialize pad commands through mpv's socket and wait for dispatch."""
+
+    try:
+        send_mpv_command(
+            MPV_SOCKET_PATH,
+            command,
+            *args,
+            timeout_sec=MPV_IPC_TIMEOUT_SEC,
+        )
+        return True
+    except MpvIpcError as exc:
+        if PAD_DEBUG:
+            print(
+                f"mango-tv-pad: mpv IPC failed command={command} error={exc}",
+                flush=True,
+            )
+        return False
 
 
 def mpv_ipc_data(property_name: str) -> object | None:
@@ -929,16 +944,16 @@ def switch_launcher_tab(delta: int) -> None:
 
 
 def send_launcher_secondary(kind: str) -> None:
-    if not launcher_surface_active():
+    # X is contextual, so the visible launcher must win over stale/background
+    # playback state. Confirm the real X11 foreground instead of routing_app(),
+    # whose playback override intentionally serves the mpv startup handoff.
+    if _resolve_foreground_app() != "launcher":
         return
     normalized = "hold" if kind == "hold" else "tap"
     diag_event("secondary_press", foreground=foreground_app(), kind=normalized)
-    launcher_send_nav_or_key(
-        symbol="shift+F5" if normalized == "hold" else "F5",
-        app="launcher",
-        action="secondary",
-        kind=normalized,
-    )
+    if PAD_NAV_API_ENABLED and send_pad_nav("secondary", kind=normalized):
+        return
+    send_key_launcher("shift+F5" if normalized == "hold" else "F5", app="launcher")
 
 
 def adjust_volume(delta_percent: int) -> None:
@@ -1301,29 +1316,34 @@ def run_pad_session(dev: evdev.InputDevice) -> None:
                                 debounce_sec=DPAD_DEBOUNCE_SEC,
                             )
                 elif event.type == ecodes.EV_KEY and event.code == BTN_X:
-                    if event.value == 1 and _playback_app(app):
-                        wake_display_for_input(f"{app}-streams")
-                        debounced(
-                            f"{app}-streams-toggle",
-                            lambda: send_mpv_ipc("script-message", "mango-streams-toggle"),
+                    if event.value == 1:
+                        x_surface = contextual_secondary_surface(
+                            _resolve_foreground_app(),
+                            _playback_session_active(),
                         )
-                    elif event.value == 1 and not _playback_app(app):
-                        secondary_press.update(
-                            {
-                                "started_at": time.monotonic(),
-                                "app": app,
-                            }
-                        )
-                        wake_display_for_input(f"{app}-secondary")
+                        if x_surface == "mpv":
+                            wake_display_for_input("mpv-streams")
+                            debounced(
+                                "mpv-streams-toggle",
+                                lambda: send_mpv_ipc("script-message", "mango-streams-toggle"),
+                            )
+                        elif x_surface == "launcher":
+                            secondary_press.update(
+                                {
+                                    "started_at": time.monotonic(),
+                                    "app": x_surface,
+                                }
+                            )
+                            wake_display_for_input("launcher-secondary")
                     elif event.value == 0 and secondary_press:
                         started_at = float(secondary_press.get("started_at") or time.monotonic())
                         press_app = str(secondary_press.get("app") or app)
                         secondary_press.clear()
-                        if press_app == "launcher" or launcher_surface_active():
-                            kind = (
-                                "hold"
-                                if time.monotonic() - started_at >= SECONDARY_HOLD_SEC
-                                else "tap"
+                        if press_app == "launcher":
+                            kind = secondary_press_kind(
+                                started_at,
+                                time.monotonic(),
+                                SECONDARY_HOLD_SEC,
                             )
                             debounced(
                                 f"secondary-{kind}",

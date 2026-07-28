@@ -114,6 +114,10 @@ PY
   && gate_pass "launcher playback return + timeout reconciliation tests" \
   || gate_fail "launcher playback return + timeout reconciliation tests"
 
+python3 "$REPO_DIR/scripts/m1-foundation/pad/test_pad_context.py" >/dev/null \
+  && gate_pass "contextual X visible-surface ownership" \
+  || gate_fail "contextual X visible-surface ownership"
+
 if [[ -f "$DIST/index.html" ]]; then
   python3 - "$DIST/index.html" <<'PY' \
     && gate_pass "launcher dist HTML ids" \

@@ -29,6 +29,7 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch s
 | 1 | **Movies** tab loads 9-up poster grid | |
 | 2 | **L/R shoulders** switch Movies ↔ Series ↔ Live | |
 | 3 | **X current-tab shuffle** (pad `307`) — only the visible Home tab changes, no rate-limit text | |
+| 3a | After returning from playback, X still shuffles the visible Home tab even if mpv teardown is briefly pending; it never opens Streams or reloads Chromium | |
 | 4 | **Series** tab — rails populated | |
 
 ---
@@ -170,6 +171,7 @@ curl -sf http://127.0.0.1:3020/play-session/active/streams | jq '.streams'
 | Adarsh identity | `tt40856520:1:3` retains localized `S01E03` and bare `E03` 1080p rows; both rank before 4K HDR | |
 | Automatic choice | Episode starts a smooth 1080p candidate; risky 4K remains available as final fallback | |
 | Picker controls | During movie/episode playback X opens Streams, Up/Down moves, B selects, and Y closes without stopping | |
+| Rapid picker input | Press X then immediately Down; focus moves exactly one row and playback does not seek or show the subtitle HUD | |
 | Candidate safety | At most eight rows, current marked, risky rows last, and neither API nor snapshot contains a stream URL | |
 | Switching | A valid alternate preserves absolute position, subtitle visibility, and audio/subtitle language-role preference | |
 | Failure recovery | A failed alternate resumes the original; if replacement launch fails, original restarts once without a launcher flash | |

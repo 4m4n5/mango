@@ -99,6 +99,12 @@ grep -q 'mango-streams-toggle' scripts/m1-foundation/pad/mango-tv-pad.py \
   || fail "pad X is not wired to the mpv Streams panel"
 grep -q 'mango-streams-close' scripts/m1-foundation/pad/mango-tv-pad.py \
   || fail "pad Back precedence is not wired for the Streams panel"
+grep -q 'send_mpv_command' scripts/m1-foundation/pad/mango-tv-pad.py \
+  || fail "pad actions are not serialized through ordered mpv IPC"
+python3 scripts/m1-foundation/pad/test_pad_mpv_ipc.py >/dev/null \
+  || fail "ordered mpv IPC unit test failed"
+python3 scripts/m1-foundation/pad/test_pad_context.py >/dev/null \
+  || fail "contextual X ownership unit test failed"
 grep -q 'mp.register_script_message("mango-streams-select"' \
   scripts/m2-catalog/service/mango-hud.lua \
   || fail "mpv HUD stream selection command is missing"

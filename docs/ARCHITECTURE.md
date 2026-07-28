@@ -170,7 +170,9 @@ do not rerender Home or lose the originating tab.
 
 The pad router reports `secondary:tap|hold`; it does not reshuffle catalogs.
 The launcher maps secondary contextually: current-tab shuffle on Home, delete
-or clear in Search. See [SEARCH.md](SEARCH.md).
+or clear in Search. X ownership follows the visibly focused surface, so a
+lingering playback marker or background mpv cannot steal Home shuffle. See
+[SEARCH.md](SEARCH.md).
 
 ---
 
