@@ -210,6 +210,14 @@ test('playWithLadder skips nfo sidecars and reaches a later smooth candidate', a
   good.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|true|1080p-alt' };
 
   const result = await playWithLadder([bad, good], testConfig(), {
+    verified_hint: {
+      best_source: 'AIOStreams',
+      cache_status: 'cached',
+      debrid_service: 'torbox',
+      win_url_hash: streamUrlHash(bad.url),
+      win_ladder_step: 'ideal',
+      probe_ms: 500,
+    },
     preflight: async (url) => (url.includes('bad') ? 'nfo' : 'video'),
     probe: async () => ({ ok: true, ttff_ms: 500 }),
     play: async () => ({ ok: true, ttff_ms: 900 }),
