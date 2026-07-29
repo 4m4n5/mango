@@ -1333,14 +1333,30 @@ export async function loadFilterConfig(
   return base;
 }
 
-/** Every verified/main step admitting 4K must require Pi 5 hardware-decodable HEVC. */
+/**
+ * Every verified/main step admitting 4K must require Pi 5 hardware-decodable
+ * HEVC, and on an X11 path must also exclude HDR.
+ */
 export function validateMainLadderPiPolicy(mainLadder: PlayLadderStep[]): void {
-  const unsafe = mainLadder.find((step) => (
-    (step.max_quality === null || step.max_quality === '2160p')
-    && step.require_hevc !== true
-  ));
+  const admits4k = (step: PlayLadderStep): boolean => (
+    step.max_quality === null || step.max_quality === '2160p'
+  );
+  const unsafe = mainLadder.find((step) => admits4k(step) && step.require_hevc !== true);
   if (unsafe) {
     throw new Error(`unsafe main ladder step ${unsafe.step}: 4K requires require_hevc=true`);
+  }
+  // X11 cannot output HDR, so every 4K HDR frame is GPU tone-mapped. Measured on
+  // the Pi: a real 4K HDR10 remux drops 27.7% of frames on this path while its
+  // SDR twin drops 0.1%, so the pairing is refused rather than ranked down.
+  // Profile id mirrors playbackProfileId() in playback-capability.ts, read here
+  // via env to avoid an import cycle.
+  const profileId = (process.env.MANGO_PLAYBACK_CAPABILITY_PROFILE || 'pi5-x11-mpv-hifi').trim();
+  if (!/x11/i.test(profileId)) return;
+  const hdrUnsafe = mainLadder.find((step) => admits4k(step) && step.exclude_hdr !== true);
+  if (hdrUnsafe) {
+    throw new Error(
+      `unsafe main ladder step ${hdrUnsafe.step}: 4K on an X11 path requires exclude_hdr=true`,
+    );
   }
 }
 

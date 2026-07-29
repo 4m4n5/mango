@@ -1,8 +1,9 @@
 {
   "_profile": "m6.3-tv-vlc-4k-stage2",
   "_notes": [
-    "Target-TV profile after Samsung Input Signal Plus and VLC DRM playback validation: launcher stays 1080p60 and couch playback uses a single VLC backend for all resolutions.",
-    "Prefer cached HEVC/x265 streams, exclude REMUX, and allow 4K before falling back to 1080p."
+    "Target-TV profile after Samsung Input Signal Plus: launcher stays 1080p60 and couch playback uses a single backend for all resolutions.",
+    "Prefer cached HEVC/x265 streams, exclude REMUX, and allow 4K before falling back to 1080p.",
+    "exclude_hdr on the 4K step is mandatory while playback runs under X11: a real 4K HDR10 remux measured 27.7% dropped frames on the Pi X11 mpv path (2026-07-29) versus 0.1% for its SDR twin. loadFilterConfig now refuses a 4K main step without it on any x11 capability profile."
   ],
   "exclude_uncached_debrid": true,
   "strict_unknown_cache": true,
@@ -25,6 +26,7 @@
       "min_quality": "2160p",
       "exclude_remux": true,
       "require_hevc": true,
+      "exclude_hdr": true,
       "require_cache": "cached",
       "debrid_services": ["torbox", "realdebrid"],
       "addons": ["AIOStreams"]

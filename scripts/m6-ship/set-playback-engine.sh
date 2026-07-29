@@ -134,8 +134,11 @@ case "$cmd" in
     # Deferred foreground handoff: keep launcher visible while mpv buffers, then
     # stop launcher / disable compositor only after real playback begins.
     append_env MANGO_MPV_DEFER_FOREGROUND "1"
-    append_env MANGO_CATALOG_FILTERS "$(ensure_filters 4k-hdr)"
-    sync_filters_etc "$CONFIG_DIR/catalog-filters.4k-hdr.json"
+    # Both mpv profiles render under X11, where 4K HDR is unplayable (a real 4K
+    # HDR10 remux measured 27.7% dropped frames on the Pi, 2026-07-29), so both
+    # use the ladder that excludes HDR above 1080p.
+    append_env MANGO_CATALOG_FILTERS "$(ensure_filters 4k-hifi)"
+    sync_filters_etc "$CONFIG_DIR/catalog-filters.4k-hifi.json"
     restart_stack
     status
     ;;

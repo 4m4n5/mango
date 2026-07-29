@@ -26,6 +26,44 @@ test('S3: an unbounded main ladder step is treated as 4K-capable and requires HE
   }]), /4K requires require_hevc=true/);
 });
 
+test('S3: a 4K main step without exclude_hdr is rejected on an X11 path', () => {
+  const previous = process.env.MANGO_PLAYBACK_CAPABILITY_PROFILE;
+  process.env.MANGO_PLAYBACK_CAPABILITY_PROFILE = 'pi5-x11-mpv-hifi';
+  try {
+    assert.throws(() => validateMainLadderPiPolicy([{
+      step: 'hdr_4k_on_x11',
+      max_quality: '2160p',
+      min_quality: '2160p',
+      exclude_remux: true,
+      require_hevc: true,
+      require_cache: 'cached',
+      verified: true,
+    }]), /X11 path requires exclude_hdr=true/);
+  } finally {
+    if (previous === undefined) delete process.env.MANGO_PLAYBACK_CAPABILITY_PROFILE;
+    else process.env.MANGO_PLAYBACK_CAPABILITY_PROFILE = previous;
+  }
+});
+
+test('S3: a non-X11 path may admit 4K HDR', () => {
+  const previous = process.env.MANGO_PLAYBACK_CAPABILITY_PROFILE;
+  process.env.MANGO_PLAYBACK_CAPABILITY_PROFILE = 'pi5-kms-kodi-hdr';
+  try {
+    validateMainLadderPiPolicy([{
+      step: 'hdr_4k_on_kms',
+      max_quality: '2160p',
+      min_quality: '2160p',
+      exclude_remux: true,
+      require_hevc: true,
+      require_cache: 'cached',
+      verified: true,
+    }]);
+  } finally {
+    if (previous === undefined) delete process.env.MANGO_PLAYBACK_CAPABILITY_PROFILE;
+    else process.env.MANGO_PLAYBACK_CAPABILITY_PROFILE = previous;
+  }
+});
+
 test('S3: loadFilterConfig validates legacy ladder after main/last-resort split', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mango-filter-policy-'));
   const path = join(dir, 'filters.json');
