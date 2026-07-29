@@ -19,6 +19,14 @@ measure **`time-pos` advance against wall clock** plus `frame-drop-count`, which
 cannot be fooled that way. Every `avsync`-derived figure below is retained only
 as a record of a wrong turn — **do not cite it.**
 
+**A third rule, learned the hard way (see §3b): pipeline metrics cannot prove
+anything appeared on screen.** `time-pos` advancing with `frame-drop-count` at
+zero is exactly what a renderer that draws *nothing* reports — no frames reach
+the VO, so none can be dropped. Every playback measurement must carry visual
+proof: `scrot -o /tmp/x.png` under X11 (it does capture mpv's window), then check
+the PNG size. A real 4K frame is megabytes; a flat fill is ~30 KB. On the DRM
+console `scrot` cannot help, so a human must confirm the picture.
+
 Fixtures also matter: synthetic high-entropy noise at 93–99 Mbps
 (`~/mango-4k-fixtures/`) defeats compression and the render pipeline in ways real
 film does not, and it made the shipped path look broken when it is not.
@@ -83,6 +91,47 @@ same path, treat this as evidence about the fixtures, not about mango.
 **Lane 1 is unproven.** Retracted claim: it was never shown to sustain anything,
 because it was never shown to play.
 
+### 3b. `vo=gpu-next` is unusable on this GPU — full retraction
+
+An intermediate conclusion claimed that `vo=gpu-next` (libplacebo) tone-mapped 4K
+HDR10 for free — zero dropped frames where `vo=gpu` dropped 128–162 — and that
+this made both the Kodi lane and the KMS lane unnecessary. **That was wrong.**
+`gpu-next` was rendering nothing. The couch report was a flat violet screen; the
+screenshot was 29 KB of uniform fill at 3840x2160 while `vo=gpu` produced a
+5.2 MB frame of actual film with the OSD label legible.
+
+Root cause, from `--msg-level=all=v`:
+
+```
+[vo/gpu-next/libplacebo] Failed creating framebuffer: error code 36061
+[vo/gpu-next] Failed rendering frame!
+```
+
+`36061` is `GL_FRAMEBUFFER_UNSUPPORTED`. v3d's GLES cannot create the framebuffer
+libplacebo needs for **imported DRM PRIME planes**, so every frame fails and the
+VO shows its clear colour. It reports zero drops because no frame ever reaches
+presentation. Both hwdec workarounds fail on performance instead:
+
+| Renderer + hwdec | Renders? | Realtime | Drops |
+|---|---|---|---|
+| `vo=gpu` + `hwdec=drm` (**shipped**) | **yes** (5.2 MB frame) | 100% | 162 (4K HDR tone-map cost) |
+| `vo=gpu-next` + `hwdec=drm` | **no** (29 KB flat fill) | "100%" — meaningless | "0" — meaningless |
+| `vo=gpu-next` + `hwdec=drm-copy` | yes | **67.7%** | 483 |
+| `vo=gpu-next` + `hwdec=no` | yes | **45.1%** | 281 |
+
+`gpu-next` does render software-decoded frames correctly — a 1080p H.264 HLS live
+channel played fine through mango's own path — which is why the failure is
+specific to hardware-decoded (DRM PRIME) frames and was easy to miss.
+
+**Consequences.** The `exclude_hdr` policy above 1080p on the mpv X11 path is
+correct and stays. And because mpv's HDR-on-DRM signalling lives in the
+libplacebo path (`--target-colorspace-hint` → `vo_drm_set_color`), and libplacebo
+cannot render hardware frames here, **mpv cannot deliver HDR on this SoC at all**,
+independent of display server. This independently confirms the Raspberry Pi
+engineer's 2025-04-28 statement that Kodi is the only HDR-capable player on Pi.
+The earlier "mpv 0.40 on DRM played 4K HDR10 smoothly at 100.1% realtime with
+zero drops" measurement used `gpu-next` and is **void**.
+
 ### 3. Consequences
 
 - `vo=drm` plane path does **no** GPU per-pixel work, so it also cannot
@@ -126,17 +175,39 @@ Two defects to fix before shipping it:
 - `CDVDVideoCodecDRMPRIME::FilterOpen - avfilter_graph_config` failed twice
   (`-38`, `-22`). Benign for progressive content, but unexplained.
 - **Colour state leaks back to the launcher — couch-visible.** Observed live: the
-  launcher came back washed out with a red cast. Kodi *does* clear
-  `HDR_OUTPUT_METADATA` on shutdown (the blob was verified all-zero, `EOTF=0`),
-  but it leaves **`Colorspace = BT2020_YCC` and `max bpc = 12`** set, so an SDR
-  desktop is sent tagged as wide-gamut deep colour. X never resets these.
-  Recovery that worked:
+  launcher came back washed out with a red cast, and then read persistently
+  brighter than normal. Kodi leaves **three** things set: `Colorspace =
+  BT2020_YCC`, `max bpc = 12`, and — corrected below — a **live
+  `HDR_OUTPUT_METADATA` blob**. X never resets any of them.
+
+  **Correction (2026-07-29):** an earlier note here claimed Kodi clears the HDR
+  blob on shutdown. It does not. That claim came from `kmsprint -p`, which prints
+  only `blob-id 688 len 32` and no contents. `drm_info` parses the blob, and hours
+  after the Kodi test the connector still carried Kodi's playback metadata:
+  `EOTF: SMPTE ST 2084 (PQ)`, BT.2020 primaries, mastering 4000 / 0.005 cd/m²,
+  MaxCLL 787, MaxFALL 239. The TV was being told it was receiving HDR10 while X
+  sent SDR — the real cause of the "everything looks brighter" report. Use
+  `drm_info`, never `kmsprint`, to verify HDR teardown.
+
+  Recovery that worked, in two parts:
 
   ```bash
+  # 1. the two enums X does expose
   xrandr --output HDMI-1 --set Colorspace Default --set "max bpc" 8
   xrandr --output HDMI-1 --off && sleep 4   # force the TV to re-negotiate
   bash scripts/lib/mango-display-mode.sh ensure-launcher
+
+  # 2. the HDR blob, which X cannot touch: needs DRM master released
+  sudo chvt 2 && sleep 2
+  sudo modetest -M vc4 -w 35:HDR_OUTPUT_METADATA:0   # 35 = HDMI-A-1 connector id
+  sudo chvt 7 && sleep 3
+  bash scripts/lib/mango-display-mode.sh ensure-launcher
+  sudo drm_info | grep -A2 HDR_OUTPUT_METADATA        # must read "blob = 0"
   ```
+
+  The blob survives X restarts and the xrandr off/on cycle, so a stack restart
+  does **not** recover it. Requires `drm-info` and `libdrm-tests` (both installed
+  on the box 2026-07-29).
 
   **Lane 2 requirement:** the restore path must reset `Colorspace` and `max bpc`
   explicitly and force an HDMI re-negotiation, then verify all three properties
@@ -275,6 +346,15 @@ So **smoothness/bit-depth and HDR are two separate problems with two separate
 fixes.** The KB previously bundled them and dismissed both as high-risk. Only
 the HDR half is high-risk.
 
+**Closed 2026-07-29 (afternoon).** Fact 2 is now proven on the box rather than
+inferred: `gpu-next` fails with `GL_FRAMEBUFFER_UNSUPPORTED` on every
+hardware-decoded frame (§3b), so the earlier "blue-frames" note was the whole
+story. Fact 3 remains a hypothesis and is now *less* attractive: `--vo=drm` did
+not play, and the `gpu-next` variant of the plane path renders nothing, leaving
+only `--vo=gpu --gpu-context=drm` — which renders but cannot signal HDR. The
+smoothness half needs no fix (4K SDR is at the ceiling); the HDR half is
+Kodi-only and **parked** as priced in Lane 2.
+
 ## Hardware ceiling (verified)
 
 | Capability | Pi 5 reality | Source |
@@ -315,6 +395,14 @@ Consequences worth internalising:
 > `hwdec=drm-copy` fallback). Since the shipped path already handles 4K24 SDR
 > remux at 0.1% drops, this lane now needs a *reason* before it needs a sprint —
 > the only candidate reason is real 4K60 content, which is unmeasured.
+>
+> **Update 2026-07-29 (afternoon): this lane cannot deliver HDR either.** The flag
+> set below specifies `--vo=gpu-next`, and §3b proves libplacebo cannot render
+> hardware-decoded frames on v3d at all. Since mpv's DRM HDR signalling only
+> exists in that same libplacebo path, no mpv configuration on this SoC both
+> renders and signals HDR. The one configuration never validly tested is
+> `--vo=gpu --gpu-context=drm` (renders, but no HDR); it could only reduce the 4K
+> HDR tone-map penalty by removing X compositing. Not worth a sprint on its own.
 
 New engine profile `mpv-kms` in `set-playback-engine.sh`: for **4K HEVC SDR**,
 run mpv on a dedicated VT with its own modeset instead of inside X.
@@ -351,9 +439,38 @@ launcher script `chvt`s off the desktop ([Kodi forum](https://forum.kodi.tv/show
 resolve/rank/progress/launcher-return and hands only the resolved URL to Kodi
 over JSON-RPC for HEVC **HDR10/HLG** titles, with HDR10 fallback (never DV-only).
 
-Cost: those titles lose the mpv HUD, Streams picker, and mpv ownership
-semantics. This is a *fallback renderer*, not the default. Confirm first whether
-the 2026-07-16 "Kodi played 4K HDR smoothly" proof was the GBM path or X11.
+Confirmed 2026-07-29: the HDR proof **was** the GBM path (`--windowing=gbm` on a
+spare VT via `chvt`), not X11. Kodi 21.3 (`3:21.3+dfsg-1+rpt2`) ships one binary,
+`/usr/lib/aarch64-linux-gnu/kodi/kodi.bin`, carrying the `HDR_OUTPUT_METADATA`
+symbol and libdisplay-info's CTA HDR parser.
+
+#### Priced honestly — 2026-07-29
+
+Since §3b removed every mpv alternative, this is the *only* HDR path. It is also
+expensive, and the price is now characterised rather than guessed:
+
+| Cost | Detail |
+|---|---|
+| **The HUD cannot move** | `scripts/m2-catalog/service/mango-hud.lua` is an 18 KB mpv Lua script (`require("mp")`) drawing ASS **inside mpv's process**. Kodi owns DRM/GBM exclusively, so no external client can composite over it. Only route is rewriting it as a Kodi Python addon (`xbmcgui.WindowXMLDialog`) driven over JSON-RPC — and it is **unconfirmed** whether an addon overlay knocks Kodi off DRM PRIME direct-to-plane, which is the very thing that makes HDR smooth. |
+| **Streams picker likewise** | Same Lua file. Mid-play switching itself is fine (`Player.Open` with a new URL); the UI is a rewrite. |
+| **No deferred handoff** | Kodi has no null-VO buffering primitive, so the "first visible frame is already on the matched mode" guarantee needs a different design. |
+| **No frame telemetry** | `frame-drop-count` and friends are not exposed over JSON-RPC — only `kodi.log` scraping. The evidence ladder loses the exact signal this whole investigation depended on. |
+| **Health model inverts** | `reliability/model.ts:98` reports `fallback Kodi running` as a stack problem; `gate-common.sh:204` fails the gate when Kodi runs at idle; `mango-refresh.sh:25` kills it; the watchdog recognises playback only via `playback-active`/`pgrep mpv`, so it can restart the launcher under an invisible Kodi. All must change. |
+| **Residency unproven** | No evidence Kodi can sit resident on an inactive VT without DRM master and resume quickly. Realistically a cold start per HDR title. |
+| **Teardown is ours to own** | Kodi leaves live HDR10 metadata on the connector; X cannot clear it (see the correction above). |
+| **Security** | The box's Kodi web server is enabled with `services.webserverusername=mango` / password stored in cleartext in `guisettings.xml` — and it is the sudo password — with `esallinterfaces=true`. Must become a generated per-box secret bound to localhost. |
+
+Cheap parts, for whenever this is picked up: input is already isolated because
+`mango-tv-pad.py:1164` takes an exclusive `EVIOCGRAB`, so a backgrounded Kodi sees
+no pad events and everything must flow through our router; and a working JSON-RPC
+client already existed as `scripts/m1-foundation/pad/lib/kodi-rpc.sh`, removed in
+`56aef2c`, recoverable from history.
+
+**Decision 2026-07-29: parked, not scheduled.** HDR is a colour-fidelity gain on a
+subset of titles. 4K SDR already runs at the hardware ceiling, 4K HDR titles still
+play (demoted to 1080p by `exclude_hdr`), and the price above is a rewrite of the
+two most couch-visible pieces of mango plus an inversion of its health model.
+Revisit only if HDR becomes a stated product requirement.
 
 ### Lane 3 — hardware, ranked honestly
 
@@ -372,12 +489,16 @@ the 2026-07-16 "Kodi played 4K HDR smoothly" proof was the GBM path or X11.
 | ~~0b. Enable Input Signal Plus~~ | TV | **done 2026-07-29** | 4K60 + 10/12-bit deep colour |
 | ~~0d. Audit why the catalog demotes 4K~~ | catalog-service | **done 2026-07-29** | Ladder is honest; only HDR is demoted |
 | ~~0e. Prove Kodi GBM HDR~~ | Pi | **done 2026-07-29** | 4K HDR10, 12-bit, BT.2020, realtime |
-| **1. Lane 2 — HDR titles via Kodi GBM** | Mac → Pi | ~1 sprint | **The remaining fidelity win** |
-| 2. Fix ladder misalignments | catalog-service | small | Last-resort validation, 1440p, engine/filter pairing |
-| 3. Lane 1 (`mpv-kms`) | Mac → Pi | ~1 sprint | Unproven; only if real 4K60 ever matters |
-| **2. Relax 4K policy** | catalog-service | small | Stop demoting smooth 4K; allow 4K60 once proven |
-| **3. Lane 2 (Kodi HDR)** | Mac → Pi | ~1 sprint | HDR10/HLG titles |
-| **4. Lane 3 appliance** | hardware | weeks | DV/HDR10+/HD audio |
+| ~~0f. Test whether mpv can render/signal HDR~~ | Pi | **done 2026-07-29** | No: `gpu-next` cannot render hardware frames (§3b) |
+| ~~0g. Engine/filter pairing fix~~ | catalog-service | **done 2026-07-29** (`3c19353`) | Both mpv profiles on `4k-hifi`; X11 4K requires `exclude_hdr` |
+| 1. Remaining ladder misalignments | catalog-service | small | Last-resort validation, 1440p (`QualityCap`), remux caps — **product decisions, see above** |
+| 2. Lane 2 (Kodi HDR) | Mac → Pi | ≫1 sprint | HDR10/HLG titles — **parked**, priced in Lane 2 |
+| 3. Lane 1 (`mpv-kms`, `vo=gpu` only) | Mac → Pi | ~1 sprint | Unproven; no HDR; only if real 4K60 ever matters |
+| 4. Lane 3 appliance | hardware | weeks | DV/HDR10+/HD audio |
+
+**Nothing on this list is currently scheduled.** 4K SDR is at the hardware
+ceiling, the engine/filter footgun is fixed and shipped, and the only remaining
+fidelity gain (HDR) is parked on cost.
 
 ### Step 0 — Pi measurement checklist (completed 2026-07-29; keep for re-validation)
 
