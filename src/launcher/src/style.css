@@ -1476,8 +1476,29 @@ h1 {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: blur(48px) brightness(0.35);
+  /* Was blur(48px) brightness(0.35): dimmed everywhere to protect text
+     everywhere, which left the art an unreadable smudge. The scrim below
+     protects the copy column instead, so the art can stay legible. */
+  filter: blur(28px) brightness(0.5);
   transform: scale(1.08);
+}
+
+.detail-backdrop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    /* The plateau runs to 48% because the description block ends at ~70% of the
+       width; a shorter plateau left its last words on thin scrim, which measured
+       4.6:1 against a worst-case white backdrop. */
+    linear-gradient(
+      100deg,
+      rgb(7 8 10 / 0.96) 0%,
+      rgb(7 8 10 / 0.9) 48%,
+      rgb(7 8 10 / 0.45) 78%,
+      rgb(7 8 10 / 0.18) 100%
+    ),
+    linear-gradient(0deg, rgb(7 8 10 / 0.92) 0%, transparent 46%);
 }
 
 .detail.hidden {
@@ -1625,18 +1646,20 @@ h1 {
 .detail-related-track .card--poster {
   flex: 0 0 auto;
   aspect-ratio: 2 / 3;
-  width: clamp(136px, 12vw, 168px);
+  /* Upper bounds raised so the row shows ~6 legible cards instead of ~7 whose
+     titles capped out at 15.68px — under half the 28px platform floor. */
+  width: clamp(136px, 13vw, 196px);
   height: auto;
   max-width: none;
 }
 
 .card--related .card-title {
-  font-size: clamp(0.82rem, 1.05vw, 0.98rem);
+  font-size: clamp(0.82rem, 1.15vw, var(--text-caption));
   line-height: 1.2;
 }
 
 .card--related .card-subtitle {
-  font-size: clamp(0.7rem, 0.9vw, 0.82rem);
+  font-size: clamp(0.7rem, 0.95vw, 1.05rem);
 }
 
 .detail-side {

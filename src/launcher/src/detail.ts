@@ -1521,10 +1521,13 @@ export class DetailController {
 
     const secondary = document.createElement("span");
     secondary.className = "detail-stream-secondary";
-    const langs = document.createElement("span");
-    langs.className = "detail-stream-langs";
-    langs.textContent = streamLangLabel(stream);
-    secondary.append(langs);
+    const lang = streamLangLabel(stream);
+    if (lang) {
+      const langs = document.createElement("span");
+      langs.className = "detail-stream-langs";
+      langs.textContent = lang;
+      secondary.append(langs);
+    }
     const size = streamSizeLabel(stream);
     if (size) {
       const sizeEl = document.createElement("span");
@@ -1781,10 +1784,10 @@ function streamLanguageList(stream: CatalogStream): string[] {
     : [];
 }
 
-function streamLangLabel(stream: CatalogStream): string {
+function streamLangLabel(stream: CatalogStream): string | null {
   const languages = streamLanguageList(stream);
   if (languages.length === 0) {
-    return "audio n/a";
+    return null;
   }
   const codes = languages
     .slice(0, 3)

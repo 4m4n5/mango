@@ -33,6 +33,7 @@ unspec'd surfaces, and fix the defects that make the TV read as a dev tool.
 | C5 | Casing is inconsistent: `Continue watching` and `Catalog offline` next to `related titles` and `apps` | home, detail, offline |
 | C6 | Brand name capitalised in UI: `aria-label="Search Mango"`, search placeholder `Search Mango` | `index.html:13`, search view |
 | C7 | ~~Body background hardcoded `#07080a` inline, duplicating `--bg-base`~~ — **kept deliberately**: it paints the canvas before CSS parses, preventing a white flash during Chromium startup on the Pi | `index.html:8` |
+| C8 | **The whole type scale sits below TV platform floors.** Fire TV's minimum is 28px at 1080p and tvOS's body minimum is 29pt; mango's `--text-caption` is 20px, `--text-control` 22px, `--text-body` 26px, and only `--text-title` (28px) reaches the floor. Raising the scale reflows every surface, so it is a product decision, not a polish edit — **open, needs a call** | `02` §2; measured tokens in `style.css:root` |
 
 ## Defects that are not styling
 
@@ -41,7 +42,7 @@ unspec'd surfaces, and fix the defects that make the TV read as a dev tool.
 | D1 | The catalog-offline status message renders **inside the browse tab strip**, taking the slot where `youtube` belongs | navigation silently loses a destination during an outage |
 | D2 | Failure copy is developer-facing: `check catalog-service and N2 prereqs.` | names internal services to a couch user |
 | D3 | `setStatus()` filters messages through `/couldn\|failed\|unavailable\|timed? out\|try again\|no playable\|not start/i`, so routine feedback is silently dropped | onboarding hints and progress feedback never appear |
-| D4 | Related-title captions (`2% watched`) resolve to ~13px at 1080p | far below the ~24px 10-ft floor |
+| D4 | Related-title captions (`2% watched`) resolve to 13.12px at 1080p, and the **card titles above them to only 15.68px** — the clamps cap out (`0.98rem` / `0.82rem`) well before 1080p | measured; under half the 28px platform floor |
 | D5 | The Movies tab served a stale, mostly-empty catalog cache while the backend already had every rail; only a page reload fixed it | a couch user has no reload affordance, so Home simply looks empty |
 | D6 | Streams rows print a literal `audio n/a` when language metadata is missing, repeating the placeholder down every row | `detail.ts:1787`; a null value occupies each row's most prominent secondary line |
 
@@ -65,7 +66,7 @@ user sees them, then the states, then operator surfaces.
 |------|-------|-----------|-----------------|
 | 0 | **Foundation / token layer** — safe area, focus semantics, dedicated primary-action colour, semantic status palette, casing rule, brand-name fix, kill inline background | C1–C7 | ux-smoke PASS; zero hex/rgba literals outside `:root` for touched properties; focus tokens actually referenced; no capitalised `Mango` in UI strings |
 | 1 | **Home / browse** — current-tab legibility, rail-label casing and hierarchy, focus ring integrity, rail density | C2, C3, C5 | current tab identifiable at 3m without moving focus; focus ring unbroken on all four sides of every poster including row ends |
-| 2 | **Detail** — layout balance on a 16:9 canvas, backdrop treatment, primary-vs-focus disambiguation, streams-panel placement, caption legibility | C2, D4 | `play`/`resume` distinguishable from the focused control when focus is elsewhere; no caption below 24px; right half of canvas no longer empty |
+| 2 | **Detail** — layout balance on a 16:9 canvas, backdrop treatment, primary-vs-focus disambiguation, streams-panel placement, caption legibility | C2, D4, D6 | `play`/`resume` distinguishable from the focused control when focus is elsewhere; related-card text at the caption token or above; backdrop reads as artwork while copy holds ≥4.5:1 against a worst-case white backdrop |
 | 3 | **Search** — reclaim the ~40% dead canvas below the keyboard, single amber meaning, recents de-duplication, placeholder copy | C2, C6 | one amber meaning on screen; no row label that repeats its column heading |
 | 4 | **Episodes / seasons panel** — season chip affordance, episode row rhythm, playability badges | C2, C3 | season selection state distinct from focus; episode rows legible at 3m |
 | 5 | **Live + YouTube tabs** — rail-specific card treatments, channel/badge legibility | C3, C5 | consistent with Home rails; no untokenised colour |
@@ -73,6 +74,16 @@ user sees them, then the states, then operator surfaces.
 | 7 | **Overlays** — voice HUD, next-episode prompt | C3, C4 | safe-area respected; consistent with the new token layer |
 | 8 | **Settings / Reliability Center** — operator surfaces, semantic status instead of accent reuse | C4, C5 | warning/error no longer reuse `--accent` |
 | 9 | **Companion phone app** — resolve the three-way accent drift against brand | C2 | single shared accent value across brand, launcher, companion |
+
+## Decisions taken during execution
+
+**Rail density stays at 9 columns** (step 1). Larger posters looked like an easy
+win — 9 columns leaves each poster only 174px wide — but `RAIL_COLUMNS` also feeds
+`splitFocusRows()`, so it defines D-pad rows as well as layout, and rails *wrap*
+into grid rows rather than scrolling horizontally. Every rail ships exactly 9
+items, so 9 columns renders one clean row per rail; 7 columns would wrap each rail
+into a 7 + 2 orphan row and double its height. Bigger poster art therefore
+requires changing the catalog's rail size, not the grid.
 
 ## Working method per step
 
