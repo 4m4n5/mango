@@ -135,6 +135,31 @@ empty on both movie and series detail. Filling it means moving the related row t
 span full width beneath the panel, which changes the D-pad geometry of the view. A
 layout change, not polish, so it needs a call.
 
+**Badges: one `--text-micro` tier at 20px, not a push to the 24px floor** (step 5,
+closes the open badge question). Badges never went through the type scale at all —
+they were spread across six hardcoded rem values from 11.2px (`.card-verify-badge`)
+to 17.6px, so the C8 lift never reached them. Forcing all of them to the 24px
+Android TV caption floor does not work: at 24px the four chips on a stream row
+(resolution, source, codec, cached) exceed the 336px row and wrap.
+
+So the sub-caption tier is now explicit and singular rather than accidental and
+sixfold, with a rule attached: `--text-micro` is only for metadata a couch user does
+not have to read to make a choice — codec, source, file size, or a label repeated
+elsewhere on screen. Decision-carrying text goes to caption or above, which is why
+`.detail-stream-res` (the chip that actually decides a pick) and
+`.search-results-state` (which sources answered) went to 24px, not 20px.
+
+Also folded in, since the same defect class: `.card--related` sized its text with
+`vw` clamps that capped at 22.08px and 16.8px at 1080p — viewport indirection that
+only obscured which size shipped on a panel that is always 1920 wide. Now caption
+and micro straight. To give a 24px title ~10 characters a line rather than ~8,
+related cards went 196px → 240px and `RELATED_DISPLAY_LIMIT` 6 → 5, which leaves
+41px of clearance under the safe area. The saved-star marker went 23px → 32px: it
+read as a deliberate marker on a 174px poster and as a speck on a 314px one.
+
+Still sub-20px, deliberately deferred to the overlays step: the voice HUD's
+`.voice-tag` (15.2px) and `.voice-state` (17.6px).
+
 ## Working method per step
 
 1. Render the affected surfaces locally: `python3 tools/ux-harness/capture.py <filter>`.

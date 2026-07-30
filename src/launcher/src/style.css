@@ -62,6 +62,13 @@
      copy is carried by weight and colour rather than size. */
   --text-control: 26px;
   --text-caption: 24px;
+  /* One tier below caption, and deliberately under the 24px Android TV caption
+     floor: badges were spread across six hardcoded sizes from 11.2px to 17.6px,
+     and at 24px the stream chips wrap the streams panel onto extra lines. The rule
+     for using it: only metadata a couch user does not have to read to make a
+     choice — codec, source, file size, or a label that repeats elsewhere on the
+     same screen. Anything decision-carrying uses caption or above. */
+  --text-micro: 20px;
   --space-section: 3rem;
   /* A rail label must group with the row it labels. At 0.85rem it sat 14px above
      its own row and 17px below the previous row's text — near-equal, so it read
@@ -227,7 +234,7 @@ button {
 }
 
 .browse-shuffle-label {
-  font-size: 0.95rem;
+  font-size: var(--text-micro);
   letter-spacing: 0.08em;
 }
 
@@ -738,7 +745,9 @@ button {
   align-items: center;
   gap: 0.6rem;
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  /* Caption, not micro: this reports which sources answered a search, so it is
+     decision-carrying copy rather than repeated metadata. */
+  font-size: var(--text-caption);
   font-weight: 670;
 }
 
@@ -866,7 +875,7 @@ button {
   margin: 0 0 0 auto;
   padding: 0.6rem 0.85rem;
   border-color: rgb(var(--accent-rgb) / 0.35);
-  font-size: 0.88rem;
+  font-size: var(--text-caption);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1081,20 +1090,22 @@ button {
   border: none;
 }
 
+/* Scaled with the card: a 23px disc that read as a deliberate marker on a 174px
+   poster reads as a speck on a 314px one. */
 .card--poster.card--saved::after {
   content: "★";
   position: absolute;
-  top: 0.55rem;
-  right: 0.55rem;
+  top: 0.7rem;
+  right: 0.7rem;
   z-index: 3;
-  width: 1.45rem;
-  height: 1.45rem;
+  width: 2rem;
+  height: 2rem;
   display: grid;
   place-items: center;
   border-radius: 999px;
   background: var(--accent);
   color: var(--bg-base);
-  font-size: 0.85rem;
+  font-size: var(--text-micro);
   font-weight: 900;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
@@ -1484,7 +1495,7 @@ h1 {
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 0.82rem;
+  font-size: var(--text-micro);
   font-weight: 900;
   letter-spacing: 0.03em;
 }
@@ -1726,20 +1737,23 @@ h1 {
 .detail-related-track .card--poster {
   flex: 0 0 auto;
   aspect-ratio: 2 / 3;
-  /* Upper bounds raised so the row shows ~6 legible cards instead of ~7 whose
-     titles capped out at 15.68px — under half the 28px platform floor. */
-  width: clamp(136px, 13vw, 196px);
+  /* 240px so a caption-sized title gets ~10 characters a line instead of ~8. Five
+     of these plus their gaps come to 1274px inside the 1300px column. */
+  width: clamp(136px, 13vw, 240px);
   height: auto;
   max-width: none;
 }
 
+/* Straight tokens, not vw clamps: the clamps capped out at 22.08px and 16.8px at
+   1080p, and the panel is always 1920 wide on the Pi, so the viewport term only
+   hid which size actually shipped. */
 .card--related .card-title {
-  font-size: clamp(0.82rem, 1.15vw, var(--text-caption));
+  font-size: var(--text-caption);
   line-height: 1.2;
 }
 
 .card--related .card-subtitle {
-  font-size: clamp(0.7rem, 0.95vw, 1.05rem);
+  font-size: var(--text-micro);
 }
 
 .detail-side {
@@ -1951,7 +1965,7 @@ h1 {
 .detail-episode-stream-badge {
   flex: 0 0 auto;
   color: var(--text-secondary);
-  font-size: 0.85rem;
+  font-size: var(--text-micro);
   font-weight: 700;
   letter-spacing: 0.02em;
   text-transform: lowercase;
@@ -2037,7 +2051,7 @@ h1 {
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 0.85rem;
+  font-size: var(--text-micro);
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: lowercase;
@@ -2067,7 +2081,7 @@ h1 {
   border-radius: 999px;
   background: rgba(5, 8, 10, 0.72);
   color: var(--accent);
-  font-size: 0.7rem;
+  font-size: var(--text-micro);
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: lowercase;
@@ -2217,7 +2231,7 @@ h1 {
   border-radius: 8px;
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 0.95rem;
+  font-size: var(--text-caption);
   font-weight: 900;
   letter-spacing: 0.02em;
   text-align: center;
@@ -2234,7 +2248,7 @@ h1 {
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-secondary);
-  font-size: 0.8rem;
+  font-size: var(--text-micro);
   font-weight: 800;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -2257,7 +2271,7 @@ h1 {
   gap: 0.55rem;
   min-width: 0;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: var(--text-micro);
   font-weight: 700;
 }
 
