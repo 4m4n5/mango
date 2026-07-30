@@ -17,9 +17,13 @@
   --accent: rgb(var(--accent-rgb));
   --accent-soft: rgb(var(--accent-rgb) / 0.16);
   --accent-glow: rgb(var(--accent-rgb) / 0.42);
-  --tab-active-fill: rgba(255, 255, 255, 0.08);
+  /* Selected state, shared by browse tabs, search scope chips and season chips.
+     At 0.08 over near-black the fill was invisible at 3 m, so which tab you were
+     on could only be read from a 0.68-vs-1.0 text alpha. */
+  --tab-active-fill: rgba(255, 255, 255, 0.16);
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
+  --border-selected: rgba(255, 255, 255, 0.38);
   /* Amber marks focus and nothing else interactive, so the primary action needs
      its own fill. Cream carries the weight without competing with the ring. */
   --primary-fill: var(--text-primary);
@@ -136,6 +140,10 @@ button {
   gap: 1rem;
   flex: 1 1 auto;
   min-width: 0;
+  /* Search is an action, not a destination; the rule separates it from the
+     browse destinations so the pill does not read as a fifth tab. */
+  padding-left: 1.25rem;
+  border-left: 1px solid var(--border-subtle);
 }
 
 .browse-shuffle {
@@ -214,7 +222,7 @@ button {
 }
 
 .browse-tab--active {
-  border-color: var(--border-strong);
+  border-color: var(--border-selected);
   background: var(--tab-active-fill);
   color: var(--text-primary);
 }
@@ -833,8 +841,10 @@ button {
   margin: 0 0 var(--space-rail-header);
   padding-left: 0.85rem;
   border-left: var(--rail-accent-width) solid var(--accent);
-  color: var(--text-secondary);
-  font-size: var(--text-control);
+  /* Was 22px at 68% alpha — under the 10-ft body floor for a section heading
+     that has to be readable while scanning past it. */
+  color: var(--text-primary);
+  font-size: var(--text-body);
   font-weight: 700;
   letter-spacing: 0.04em;
   /* Rail labels arrive from the catalog with mixed casing ("continue watching"
