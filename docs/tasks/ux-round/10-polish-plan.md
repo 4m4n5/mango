@@ -42,6 +42,18 @@ unspec'd surfaces, and fix the defects that make the TV read as a dev tool.
 | D2 | Failure copy is developer-facing: `check catalog-service and N2 prereqs.` | names internal services to a couch user |
 | D3 | `setStatus()` filters messages through `/couldn\|failed\|unavailable\|timed? out\|try again\|no playable\|not start/i`, so routine feedback is silently dropped | onboarding hints and progress feedback never appear |
 | D4 | Related-title captions (`2% watched`) resolve to ~13px at 1080p | far below the ~24px 10-ft floor |
+| D5 | The Movies tab served a stale, mostly-empty catalog cache while the backend already had every rail; only a page reload fixed it | a couch user has no reload affordance, so Home simply looks empty |
+| D6 | Streams rows print a literal `audio n/a` when language metadata is missing, repeating the placeholder down every row | `detail.ts:1787`; a null value occupies each row's most prominent secondary line |
+
+Not a defect, checked and cleared: the `KA` placeholder art on a poster-less title
+is the metadata provider's own artwork, not a mango-generated initial.
+
+### Outside this round
+
+Synthetic key input and the `/api/pad/nav` HTTP transport intermittently stopped
+registering during Pi capture while the launcher stayed responsive to mouse
+clicks. That is an input/reliability question, not a visual one, and needs its own
+investigation — visual work must not be read as having fixed it.
 
 ## Execution order
 
