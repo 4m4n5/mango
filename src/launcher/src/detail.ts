@@ -28,10 +28,10 @@ import { showToast } from "./toast";
 import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
 import { recoverTimedOutStreamList } from "./stream-list-recovery";
 
-// Six is what the related row fits inside its grid column at the current card
-// width; a seventh card painted over the episodes panel. One spare is still
-// fetched because a title is filtered out of its own related list.
-const RELATED_DISPLAY_LIMIT = 5;
+// The row spans the full width beneath the side panel, so seven 228px cards fit
+// (1706px of 1728). One spare is still fetched because a title is filtered out of
+// its own related list.
+const RELATED_DISPLAY_LIMIT = 7;
 const RELATED_FETCH_LIMIT = RELATED_DISPLAY_LIMIT + 1;
 
 /** Play-only / floor steps — never styled as verified in the side-list. */

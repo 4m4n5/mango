@@ -51,13 +51,6 @@
               </div>
             </div>
           </div>
-          <div id="detail-related" class="detail-related hidden" aria-label="Related titles">
-            <div class="detail-related-head">
-              <p id="detail-related-label" class="detail-related-label" role="heading" aria-level="2">related titles</p>
-              <p id="detail-related-context" class="detail-related-context" hidden></p>
-            </div>
-            <div id="detail-related-track" class="detail-related-track" role="list"></div>
-          </div>
         </div>
         <div class="detail-side">
           <div id="detail-streams" class="detail-panels detail-streams" hidden aria-label="Streams">
@@ -69,6 +62,15 @@
             <div id="detail-season-list" class="detail-season-list" hidden aria-label="Seasons"></div>
             <div id="detail-episode-list" class="detail-episode-list"></div>
           </div>
+        </div>
+        <!-- Its own full-width grid row, not inside .detail-main: the row spans
+             under the side panel so it uses the canvas the panel leaves empty. -->
+        <div id="detail-related" class="detail-related hidden" aria-label="Related titles">
+          <div class="detail-related-head">
+            <p id="detail-related-label" class="detail-related-label" role="heading" aria-level="2">related titles</p>
+            <p id="detail-related-context" class="detail-related-context" hidden></p>
+          </div>
+          <div id="detail-related-track" class="detail-related-track" role="list"></div>
         </div>
       </section>
 

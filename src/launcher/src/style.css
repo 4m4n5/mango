@@ -1512,8 +1512,16 @@ h1 {
   height: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) clamp(280px, 24vw, 380px);
-  grid-template-areas: "main side";
+  /* Related has its own row spanning both columns, so it runs under the side panel
+     instead of stopping at the main column and leaving ~480x500px of dead canvas
+     there. minmax(0, 1fr) on the first row means the panel takes what is left after
+     the related row and scrolls inside it, rather than the row growing off-screen. */
+  grid-template-areas:
+    "main side"
+    "related related";
+  grid-template-rows: minmax(0, 1fr) auto;
   column-gap: clamp(1.75rem, 3.5vw, 3rem);
+  row-gap: var(--space-stack-lg);
   align-items: stretch;
   padding: var(--safe-y) var(--safe-x);
   overflow: hidden;
@@ -1523,7 +1531,9 @@ h1 {
 
 .detail:not(:has(.detail-side > :not([hidden]))) {
   grid-template-columns: 1fr;
-  grid-template-areas: "main";
+  grid-template-areas:
+    "main"
+    "related";
 }
 
 @keyframes detail-enter {
@@ -1675,6 +1685,7 @@ h1 {
 }
 
 .detail-related {
+  grid-area: related;
   flex: 0 0 auto;
   position: relative;
   z-index: 1;
@@ -1737,9 +1748,13 @@ h1 {
 .detail-related-track .card--poster {
   flex: 0 0 auto;
   aspect-ratio: 2 / 3;
-  /* 240px so a caption-sized title gets ~10 characters a line instead of ~8. Five
-     of these plus their gaps come to 1274px inside the 1300px column. */
-  width: clamp(136px, 13vw, 240px);
+  /* 228px, seven across: the row now spans the full 1728px rather than the 1300px
+     main column, and seven of these plus their gaps come to 1706px. Wider cards
+     were possible (six at 268px) but every pixel of extra card height is taken out
+     of the side panel above, which costs a visible episode row. Seven at 228 keeps
+     a row of episodes that six at 268 would have cost, at a card width within a
+     few percent of the previous 240. */
+  width: clamp(136px, 13vw, 228px);
   height: auto;
   max-width: none;
 }
@@ -1775,6 +1790,24 @@ h1 {
   overflow-y: auto;
   overflow-x: clip;
   scrollbar-width: none;
+}
+
+/* The panel no longer runs the full height of the view, so its list is cut at the
+   scrollport edge and a half-row of an episode reads as breakage rather than as
+   "more below". Sticky rather than a mask on the panel: a mask would fade the focus
+   ring of whichever row sits at the edge, and losing the ring is worse than the
+   hard cut it fixes. */
+.detail-side::after {
+  content: "";
+  position: sticky;
+  bottom: calc(-1 * var(--focus-gutter));
+  z-index: 1;
+  flex: 0 0 auto;
+  height: 2.5rem;
+  margin-block-start: calc(-2.5rem - var(--space-stack-lg));
+  margin-inline: calc(-1 * var(--focus-gutter));
+  background: linear-gradient(to top, var(--bg-base), transparent);
+  pointer-events: none;
 }
 
 .detail-side::-webkit-scrollbar {

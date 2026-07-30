@@ -45,6 +45,7 @@ unspec'd surfaces, and fix the defects that make the TV read as a dev tool.
 | D4 | Related-title captions (`2% watched`) resolve to 13.12px at 1080p, and the **card titles above them to only 15.68px** — the clamps cap out (`0.98rem` / `0.82rem`) well before 1080p | measured; under half the 28px platform floor |
 | D5 | The Movies tab served a stale, mostly-empty catalog cache while the backend already had every rail; only a page reload fixed it | a couch user has no reload affordance, so Home simply looks empty |
 | D6 | Streams rows print a literal `audio n/a` when language metadata is missing, repeating the placeholder down every row | `detail.ts:1787`; a null value occupies each row's most prominent secondary line |
+| D7 | **Detail D-pad teleports at a row's end.** `navigate()` direction-gates candidates correctly, but a candidate that is not beam-aligned only gets a `1_000_000` score penalty rather than being dropped, so it stays eligible when nothing aligned exists. Pressing Right on the last related card jumps up to `resume`; Right on an episode leaves the panel entirely. Pre-existing, and the full-width related row makes it *less* frequent, not more. Fixing it means either dropping unaligned candidates (risks making something unreachable) or capping the cross-band distance — a navigation change, not polish | `detail.ts:736`; reproduced by scripted key walks on both movie and series detail |
 
 Not a defect, checked and cleared: the `KA` placeholder art on a poster-less title
 is the metadata provider's own artwork, not a mango-generated initial.
@@ -128,12 +129,31 @@ WCAG 1.4.8 sets for readable prose; it is now capped near 62. The related-visibl
 line clamp went back to 4 lines, because a narrower measure fits fewer characters
 per line and leaving it at 3 would have cut synopsis text rather than reflowing it.
 
-**Open, not done here: the empty lower-right quadrant of the detail view.** Verified
-against Pi ground truth with real data, not a fixture artifact — the streams panel
-is top-anchored and short (5 rows), so roughly 480×500px of the canvas below it is
-empty on both movie and series detail. Filling it means moving the related row to
-span full width beneath the panel, which changes the D-pad geometry of the view. A
-layout change, not polish, so it needs a call.
+**Detail: related row spans full width beneath the side panel** (step 6, decided).
+The lower-right quadrant was empty on real Pi data, not just fixtures — the side
+panel is top-anchored and short, so ~480×500px sat unused on both movie and series
+detail. `#detail-related` moved out of `.detail-main` to become its own grid row
+(`"main side" / "related related"`), so the row runs the full 1728px and the panel
+takes the remaining height with `minmax(0, 1fr)`.
+
+No focus-array work was needed: `navigate()` in `detail.ts` is spatial, scoring
+candidates off `getBoundingClientRect()`, so D-pad follows the new geometry on its
+own. Verified by scripted key walks — Down from actions reaches the row, Up from a
+right-hand related card reaches the episode list, and the streams panel is still
+reachable from the action buttons.
+
+The cost, stated plainly: the side panel is now 526px instead of 972px, so a series
+shows **5 of 8 episodes** rather than all 8 and scrolls for the rest. Card size was
+chosen to protect that as far as possible — seven cards at 228px rather than six at
+268px, since every pixel of card height comes out of the panel above, and the wider
+option cost another episode row for a 7% card gain. Netflix and Prime series pages
+likewise show a handful of episodes above a related row, so this is normal, but if
+the couch test says episodes matter more, the related card width is the knob.
+
+The panel's list is now cut at a scrollport edge, so a half-row of an episode read
+as breakage. It gets a sticky bottom fade, matching the browse-bar treatment.
+Sticky, not a mask: a mask would fade the focus ring of whichever row sits at the
+edge, and losing the ring is worse than the hard cut it fixes.
 
 **Badges: one `--text-micro` tier at 20px, not a push to the 24px floor** (step 5,
 closes the open badge question). Badges never went through the type scale at all —

@@ -67,6 +67,7 @@ the rail density change that needs real-hardware eyes:
 | Constant | Allowed adjustment | Reason |
 |----------|--------------------|--------|
 | `RAIL_COLUMNS` in `src/launcher/src/layout.ts` | **5 → 6 only** | 5 posters at 314px follows platform guidance, but only a real panel at real viewing distance shows whether it reads generous or sparse. 6 gives 255px, the documented lower floor. Do not go above 6, and do not touch `RAIL_COLUMNS_LANDSCAPE`. |
+| `.detail-related-track .card--poster` width cap (currently `228px`) with `RELATED_DISPLAY_LIMIT` in `src/launcher/src/detail.ts` (currently `7`) | **down to `200px` / `8`** | The full-width related row takes its height from the side panel above it, so a series now shows 5 of 8 episodes. If that reads too cramped on the couch, shrinking the cards gives the panel height back. Change both together and report how many episodes became visible. |
 
 Items per rail follow that constant automatically — `renderRails()` slices each
 rail to its column count — so nothing else needs editing, and report the change
