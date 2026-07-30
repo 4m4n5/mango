@@ -77,13 +77,42 @@ user sees them, then the states, then operator surfaces.
 
 ## Decisions taken during execution
 
-**Rail density stays at 9 columns** (step 1). Larger posters looked like an easy
-win — 9 columns leaves each poster only 174px wide — but `RAIL_COLUMNS` also feeds
-`splitFocusRows()`, so it defines D-pad rows as well as layout, and rails *wrap*
-into grid rows rather than scrolling horizontally. Every rail ships exactly 9
-items, so 9 columns renders one clean row per rail; 7 columns would wrap each rail
-into a 7 + 2 orphan row and double its height. Bigger poster art therefore
-requires changing the catalog's rail size, not the grid.
+**Rail density: 5 poster / 4 landscape columns, one row per rail** (step 5,
+supersedes the earlier "stays at 9 columns" note). The blocker in that note was
+that rails ship more items than a narrower grid can hold on one row, so 7 columns
+would wrap a 9-item rail into a 7 + 2 orphan row. The fix was to make the row
+budget explicit rather than to keep the grid wide: `renderRails()` now slices each
+rail to its column count, so a rail is always exactly one row, and the column
+count is free to follow platform guidance.
+
+Numbers, with sources, in [`08-card-grid-research.md`](08-card-grid-research.md).
+Both passes independently landed on a 40px gutter, so posters and thumbnails now
+share one `--card-gap`:
+
+| | before | after | guidance |
+|---|---|---|---|
+| poster card | 174×261 | **314×470** | 306–314 wide (Prime Video, Disney+, tvOS poster rows) |
+| 16:9 card | 227×127 | **402×226** | 392–410 wide (Android TV 196dp) |
+| gutter | 20px | **40px** | 20dp = 40px (Android TV grid) |
+| items per rail | 9 / 12 (wrapped to 2 rows) | **5 / 4** (one row) | — |
+
+Two consequences to accept deliberately:
+
+- **Fully visible rails drop to ~2 per screen.** This is what the poster research
+  recommends against optimising away: 3+ full portrait rows forces poster width
+  back under 255px. A partly visible peek row is standard TV practice and doubles
+  as the scroll affordance.
+- **Short rails leave empty columns** (a 3-item "continue watching" leaves 2). A
+  fixed-column grid always does; it is far less pronounced than the 6 empty
+  columns the 9-column grid left.
+
+**Backend rail limits stay as they are.** `YOUTUBE_RAIL_LIMIT` (12) and
+`DEFAULT_RAIL_LIMIT` (20) are deliberate headroom, since items are still dropped
+for playability and dedup after the service returns them; the launcher's row
+budget is what guarantees one clean row. Sliced-out cards never enter the DOM, so
+their artwork is never fetched and the only cost is JSON. The knock-on is that
+top-of-rail *ordering* quality now matters more than it did at 9 visible items —
+a content-quality item for a later round, not a layout defect.
 
 ## Working method per step
 

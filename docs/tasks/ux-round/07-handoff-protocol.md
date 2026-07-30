@@ -61,6 +61,17 @@ with its old and new value:
 | `--focus-ring-width` | ±1px | ring can bloom on some panels |
 | `--motion-fast` / `--motion-base` | ±60ms | Pi compositor may need more headroom |
 
+One exception to "CSS custom property", because it is the single judgment call in
+the rail density change that needs real-hardware eyes:
+
+| Constant | Allowed adjustment | Reason |
+|----------|--------------------|--------|
+| `RAIL_COLUMNS` in `src/launcher/src/layout.ts` | **5 → 6 only** | 5 posters at 314px follows platform guidance, but only a real panel at real viewing distance shows whether it reads generous or sparse. 6 gives 255px, the documented lower floor. Do not go above 6, and do not touch `RAIL_COLUMNS_LANDSCAPE`. |
+
+Items per rail follow that constant automatically — `renderRails()` slices each
+rail to its column count — so nothing else needs editing, and report the change
+with a photo of the Movies tab.
+
 Anything else — colours, type sizes, layout, copy, markup — comes back to the
 work Mac as a report with a screenshot.
 

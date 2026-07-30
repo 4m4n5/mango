@@ -1,6 +1,6 @@
 import type { AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
-import { applyRailLayout, RAIL_COLUMNS, RAIL_COLUMNS_LANDSCAPE } from "./layout";
+import { applyRailLayout, railColumns } from "./layout";
 import { cardSavedKey } from "./saved";
 import { MINIMAL_VOD_POSTER_LABELS } from "./ui-flags";
 
@@ -169,13 +169,18 @@ function appendCatalogSections(
 
     const landscape = rail.layout === "landscape"
       || (rail.layout !== "poster" && isLandscapeCard(rail.cards[0], options.browseTab));
+    const cols = railColumns(landscape);
+    const trailingAction = options.railTrailingAction?.(rail, landscape);
+    // One row per rail. The track is a wrapping grid, so anything beyond `cols`
+    // spills onto a second row and a part-filled row reads as breakage from the
+    // sofa; a trailing action occupies one of the row's slots.
+    const rowBudget = cols - (trailingAction ? 1 : 0);
     const items: HTMLElement[] = [];
-    for (const card of rail.cards) {
+    for (const card of rail.cards.slice(0, rowBudget)) {
       const button = createPosterCard(card, rail, callbacks, options, landscape);
       track.appendChild(button);
       items.push(button);
     }
-    const trailingAction = options.railTrailingAction?.(rail, landscape);
     if (trailingAction) {
       track.appendChild(trailingAction);
       items.push(trailingAction);
@@ -183,10 +188,6 @@ function appendCatalogSections(
     applyRailLayout(track, landscape);
     section.appendChild(track);
     container.appendChild(section);
-    // Split the rail into visual rows matching the CSS grid column count so
-    // that a rail wrapping onto multiple rows is navigable with Down/Up, not
-    // only by holding Right through every card.
-    const cols = landscape ? RAIL_COLUMNS_LANDSCAPE : RAIL_COLUMNS;
     rows.push(...splitFocusRows(items, cols));
   }
   return rows;

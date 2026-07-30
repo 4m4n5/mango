@@ -63,13 +63,22 @@
   --text-control: 26px;
   --text-caption: 24px;
   --space-section: 3rem;
-  --space-rail-header: 0.85rem;
+  /* A rail label must group with the row it labels. At 0.85rem it sat 14px above
+     its own row and 17px below the previous row's text — near-equal, so it read
+     as belonging to neither. Label-to-its-row is now 20px against ~49px above it. */
+  --space-rail-header: 1.25rem;
   --space-stack: 1rem;
   --space-stack-lg: 1.5rem;
   --detail-related-gap: 1.15rem;
   --rail-accent-width: 3px;
+  /* 48px + a 30px label + a 20px header gap puts ~98px between one row's bottom
+     and the next row's artwork, which is the ~100px tvOS asks for between titled
+     rows. Applied by .rails AND .rails__tab — see the note on that rule. */
   --rail-gap: var(--space-section);
-  --card-gap: 20px;
+  /* One gutter for every main rail. Android TV's grid gutter is 20dp = 40px at
+     1080p, and the poster and 16:9 research passes independently landed on the
+     same number, so posters and thumbnails no longer space differently. */
+  --card-gap: 40px;
   --radius-poster: 12px;
   --radius-control: 999px;
   --radius-panel: 16px;
@@ -285,6 +294,16 @@ button {
   scroll-padding-block-start: 3.25rem;
   scroll-padding-block-end: var(--focus-gutter);
   scrollbar-width: none;
+}
+
+/* Rails are grouped inside a per-tab wrapper, so the gap on .rails only separated
+   that wrapper from the apps rail: rails within a tab had no spacing at all, which
+   is why every rail label sat as close to the row above it as to the row it
+   labels. The class was created in markup but never styled. */
+.rails__tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rail-gap);
 }
 
 .search {
@@ -879,6 +898,7 @@ button {
   scroll-snap-type: none;
 }
 
+
 .rails--refreshing {
   opacity: 0.62;
   transition: opacity 0.16s ease-out;
@@ -995,9 +1015,12 @@ button {
 .card--poster.card--landscape {
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: var(--focus-gutter);
-  margin: calc(-1 * var(--focus-gutter));
+  /* Thumbnail bottom to title: platform examples use 16px, comfortable is 20-24. */
+  gap: 1.25rem;
+  /* No inset. The padding here insets the thumbnail inside its own grid cell, so
+     a 271px cell rendered a 227px thumbnail and the visible gutter between
+     thumbnails became 64px — 28% of thumbnail width. The focus ring is drawn on
+     .poster-frame and paints outside it, into the track's own focus gutter. */
   overflow: visible;
   background: transparent;
   border: none;
@@ -1174,13 +1197,16 @@ button {
   font-weight: 600;
 }
 
+/* Platform guidance for a title under a 16:9 card is 28-32px at 1080p with a
+   36-44px line box; this was 26px on a 29.9px line. */
 .card--landscape .card-title {
-  font-size: calc(var(--text-caption) + 2px);
+  font-size: var(--text-title);
+  line-height: 1.35;
   -webkit-line-clamp: 2;
 }
 
 .card--landscape .card-subtitle {
-  font-size: calc(var(--text-caption) - 4px);
+  font-size: var(--text-caption);
   -webkit-line-clamp: 1;
 }
 
@@ -1659,7 +1685,9 @@ h1 {
 .detail-related-track {
   display: flex;
   flex-wrap: nowrap;
-  gap: calc(var(--card-gap) * 0.85);
+  /* Its own token, not a fraction of --card-gap: this is a secondary rail inside a
+     fixed-width column, so it must not inherit the main rails' 40px gutter. */
+  gap: var(--detail-related-gap);
   overflow: visible;
   padding: var(--focus-gutter);
   margin: calc(-1 * var(--focus-gutter));
