@@ -520,7 +520,7 @@ export class SearchController {
     query.dataset.empty = String(this.query.length === 0);
     const queryText = document.createElement("span");
     queryText.className = "search-query-text";
-    queryText.textContent = this.query || "Search Mango";
+    queryText.textContent = this.query || "search mango";
     query.appendChild(queryText);
     if (!this.submitted) {
       const caret = document.createElement("span");
@@ -764,7 +764,7 @@ export class SearchController {
       messageTitle.textContent = pending ? "Searching" : "No results";
       const messageBody = document.createElement("p");
       messageBody.textContent = pending
-        ? "Checking Mango, Live and YouTube."
+        ? "checking mango, live and youtube."
         : "Try another title, channel or topic.";
       messageCopy.append(messageTitle, messageBody);
       message.appendChild(messageCopy);
@@ -874,7 +874,7 @@ export class SearchController {
     const text = this.view.querySelector<HTMLElement>(".search-query-text");
     if (!query || !text) return;
     query.dataset.empty = String(this.query.length === 0);
-    text.textContent = this.query || "Search Mango";
+    text.textContent = this.query || "search mango";
   }
 
   private updateScopeState(): void {

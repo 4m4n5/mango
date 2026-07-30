@@ -20,6 +20,11 @@
   --tab-active-fill: rgba(255, 255, 255, 0.08);
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
+  /* Amber marks focus and nothing else interactive, so the primary action needs
+     its own fill. Cream carries the weight without competing with the ring. */
+  --primary-fill: var(--text-primary);
+  --on-primary: var(--bg-base);
+  --on-accent: #17120a;
   /* Semantic status, kept separate from --accent so a warning is not styled
      with the focus colour. Values are today's, so this changes no pixels. */
   --status-ok: rgb(34 197 94 / 0.42);
@@ -419,8 +424,8 @@ button {
 }
 
 .search-chip--active {
-  border-color: rgb(var(--accent-rgb) / 0.38);
-  background: rgb(var(--accent-rgb) / 0.1);
+  border-color: var(--border-strong);
+  background: var(--tab-active-fill);
   color: var(--text-primary);
 }
 
@@ -431,8 +436,8 @@ button {
   display: inline-block;
   margin-right: 0.55rem;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 12px var(--accent-glow);
+  background: var(--primary-fill);
+  box-shadow: none;
 }
 
 .search-compose-body {
@@ -497,7 +502,7 @@ button {
 .search-key.focused,
 .search-key:focus-visible {
   background: var(--accent);
-  color: #17120a;
+  color: var(--on-accent);
   box-shadow:
     0 0 0 var(--focus-ring) var(--focus-ring-color),
     0 8px 24px rgba(0, 0, 0, 0.42),
@@ -537,7 +542,7 @@ button {
 .search-key-row--actions .search-submit:focus-visible {
   background: var(--accent);
   border-color: var(--accent);
-  color: #17120a;
+  color: var(--on-accent);
 }
 
 .search-starters {
@@ -832,7 +837,9 @@ button {
   font-size: var(--text-control);
   font-weight: 700;
   letter-spacing: 0.04em;
-  text-transform: none;
+  /* Rail labels arrive from the catalog with mixed casing ("continue watching"
+     next to "Saved"), so normalise here rather than trusting the source. */
+  text-transform: lowercase;
 }
 
 .rail-track--posters {
@@ -1173,7 +1180,8 @@ button {
   color: var(--accent);
   font-size: 1.45rem;
   font-weight: 800;
-  text-transform: none;
+  /* Eyebrows echo catalog-supplied labels, which are inconsistently cased. */
+  text-transform: lowercase;
   letter-spacing: 0.04em;
 }
 
@@ -1195,7 +1203,6 @@ h1 {
 
 .detail-copy .eyebrow {
   margin: 0;
-  text-transform: none;
   font-size: var(--text-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -1874,7 +1881,6 @@ h1 {
 }
 
 .next-prompt .eyebrow {
-  text-transform: none;
   font-size: var(--text-caption);
 }
 
@@ -2032,9 +2038,9 @@ h1 {
 }
 
 .detail-button--primary {
-  color: var(--bg-base);
-  background: var(--accent);
-  border-color: var(--accent);
+  color: var(--on-primary);
+  background: var(--primary-fill);
+  border-color: var(--primary-fill);
 }
 
 .detail-button.focused,
@@ -2203,7 +2209,6 @@ h1 {
 .settings .masthead .eyebrow,
 .settings .eyebrow {
   margin: 0;
-  text-transform: none;
   font-size: var(--text-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -2248,8 +2253,11 @@ h1 {
 .back-button {
   align-self: flex-start;
   padding: 0.85rem 1.35rem;
-  color: var(--bg-base);
-  background: var(--accent);
+  /* Was amber-filled at rest, which put an amber focus ring on an amber fill
+     and made focus nearly invisible. It is the only action here, so it is the
+     primary. */
+  color: var(--on-primary);
+  background: var(--primary-fill);
   border: 0;
   border-radius: var(--radius-panel);
   font-weight: 700;
