@@ -32,7 +32,7 @@ unspec'd surfaces, and fix the defects that make the TV read as a dev tool.
 | C4 | No semantic status palette on user-facing surfaces; error cards are undifferentiated dark rectangles | `21-rails-failed`, `01` |
 | C5 | Casing is inconsistent: `Continue watching` and `Catalog offline` next to `related titles` and `apps` | home, detail, offline |
 | C6 | Brand name capitalised in UI: `aria-label="Search Mango"`, search placeholder `Search Mango` | `index.html:13`, search view |
-| C7 | Body background hardcoded `#07080a` inline, duplicating `--bg-base` | `index.html:8` |
+| C7 | ~~Body background hardcoded `#07080a` inline, duplicating `--bg-base`~~ — **kept deliberately**: it paints the canvas before CSS parses, preventing a white flash during Chromium startup on the Pi | `index.html:8` |
 
 ## Defects that are not styling
 

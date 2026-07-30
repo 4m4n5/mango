@@ -12,19 +12,33 @@
   --text-primary: #f4f1ea;
   --text-secondary: rgba(244, 241, 234, 0.68);
   --text-muted: rgba(244, 241, 234, 0.45);
-  --accent: #e8a020;
-  --accent-soft: rgba(232, 160, 32, 0.16);
-  --accent-glow: rgba(232, 160, 32, 0.42);
+  /* One source for the brand amber; every tint derives its alpha from it. */
+  --accent-rgb: 232 160 32;
+  --accent: rgb(var(--accent-rgb));
+  --accent-soft: rgb(var(--accent-rgb) / 0.16);
+  --accent-glow: rgb(var(--accent-rgb) / 0.42);
   --tab-active-fill: rgba(255, 255, 255, 0.08);
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
-  --safe-x: 48px;
-  --safe-y: 32px;
+  /* Semantic status, kept separate from --accent so a warning is not styled
+     with the focus colour. Values are today's, so this changes no pixels. */
+  --status-ok: rgb(34 197 94 / 0.42);
+  --status-ok-soft: rgb(34 197 94 / 0.1);
+  --status-warn: rgb(var(--accent-rgb) / 0.42);
+  --status-warn-soft: rgb(var(--accent-rgb) / 0.1);
+  --status-error: rgb(248 113 113 / 0.52);
+  --status-error-soft: rgb(127 29 29 / 0.26);
+  /* 5% of 1920x1080 — the Android TV / Fire TV / Roku overscan floor. */
+  --safe-x: 96px;
+  --safe-y: 54px;
   --focus-ring: 3px;
   --focus-glow: 14px;
   --focus-gutter: calc(var(--focus-glow) + 8px);
+  --focus-ring-color: var(--accent);
   --focus-scale-poster: 1.06;
   --focus-scale-control: 1.03;
+  /* Large panels distort if scaled as much as a chip or a key. */
+  --focus-scale-surface: 1.012;
   --text-display: 56px;
   --text-title: 28px;
   --text-body: 26px;
@@ -149,7 +163,7 @@ button {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--text-primary);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .browse-shuffle--active {
@@ -191,7 +205,7 @@ button {
   border-color: var(--accent);
   color: var(--text-primary);
   background: var(--accent-soft);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .browse-tab--active {
@@ -227,7 +241,7 @@ button {
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--text-primary);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .rails {
@@ -255,7 +269,9 @@ button {
   position: relative;
   isolation: isolate;
   height: calc(100% - 1.5rem - var(--focus-gutter));
-  margin: 1.5rem max(var(--focus-gutter), 3vw) var(--focus-gutter);
+  /* Horizontal inset belongs to .shell's safe area alone — a second inset here
+     pushed Search further in than the rails it sits above. */
+  margin: 1.5rem 0 var(--focus-gutter);
   gap: 0;
   overflow: visible;
   --search-line: rgba(255, 255, 255, 0.09);
@@ -267,7 +283,11 @@ button {
   z-index: -1;
   inset: calc(-1 * var(--focus-gutter));
   pointer-events: none;
-  background: radial-gradient(ellipse 65% 50% at 0% 0%, rgba(232, 160, 32, 0.055), transparent 72%);
+  background: radial-gradient(
+    ellipse 65% 50% at 0% 0%,
+    rgb(var(--accent-rgb) / 0.055),
+    transparent 72%
+  );
 }
 
 .search-atmosphere::after {
@@ -389,18 +409,18 @@ button {
 .search-control:focus-visible {
   outline: none;
   border-color: var(--accent);
-  background: rgba(232, 160, 32, 0.18);
+  background: rgb(var(--accent-rgb) / 0.18);
   color: var(--text-primary);
   box-shadow:
-    0 0 0 var(--focus-ring) var(--accent),
+    0 0 0 var(--focus-ring) var(--focus-ring-color),
     0 8px 24px rgba(0, 0, 0, 0.38),
-    0 0 18px rgba(232, 160, 32, 0.2);
-  transform: scale(1.025);
+    0 0 18px rgb(var(--accent-rgb) / 0.2);
+  transform: scale(var(--focus-scale-control));
 }
 
 .search-chip--active {
-  border-color: rgba(232, 160, 32, 0.38);
-  background: rgba(232, 160, 32, 0.1);
+  border-color: rgb(var(--accent-rgb) / 0.38);
+  background: rgb(var(--accent-rgb) / 0.1);
   color: var(--text-primary);
 }
 
@@ -479,10 +499,10 @@ button {
   background: var(--accent);
   color: #17120a;
   box-shadow:
-    0 0 0 var(--focus-ring) #ffd278,
+    0 0 0 var(--focus-ring) var(--focus-ring-color),
     0 8px 24px rgba(0, 0, 0, 0.42),
-    0 0 20px rgba(232, 160, 32, 0.3);
-  transform: scale(1.04);
+    0 0 20px rgb(var(--accent-rgb) / 0.3);
+  transform: scale(var(--focus-scale-control));
 }
 
 .search-key-row--actions {
@@ -553,8 +573,8 @@ button {
 
 .search-starter.focused,
 .search-starter:focus-visible {
-  background: rgba(232, 160, 32, 0.16);
-  transform: scale(1.012);
+  background: var(--accent-soft);
+  transform: scale(var(--focus-scale-surface));
 }
 
 .search-starter-icon {
@@ -611,7 +631,7 @@ button {
 .search-starter-empty .search-icon {
   width: 2.2rem;
   height: 2.2rem;
-  color: rgba(232, 160, 32, 0.56);
+  color: rgb(var(--accent-rgb) / 0.56);
 }
 
 .search-starter-empty p {
@@ -759,7 +779,7 @@ button {
 .search-message > .search-icon {
   width: 3.5rem;
   height: 3.5rem;
-  color: rgba(232, 160, 32, 0.65);
+  color: rgb(var(--accent-rgb) / 0.65);
 }
 
 .search-message h2 {
@@ -777,7 +797,7 @@ button {
   max-width: 48rem;
   margin: 0 0 0 auto;
   padding: 0.6rem 0.85rem;
-  border-color: rgba(232, 160, 32, 0.35);
+  border-color: rgb(var(--accent-rgb) / 0.35);
   font-size: 0.88rem;
 }
 
@@ -973,7 +993,7 @@ button {
 .card--landscape:focus-visible .poster-frame {
   border-color: transparent;
   box-shadow:
-    0 0 0 var(--focus-ring) var(--accent),
+    0 0 0 var(--focus-ring) var(--focus-ring-color),
     0 0 var(--focus-glow) var(--accent-glow),
     0 16px 40px rgba(0, 0, 0, 0.45);
 }
@@ -1036,9 +1056,12 @@ button {
   border-color: transparent;
   z-index: 2;
   box-shadow:
-    0 0 0 var(--focus-ring) var(--accent),
+    0 0 0 var(--focus-ring) var(--focus-ring-color),
     0 0 var(--focus-glow) var(--accent-glow),
     0 18px 48px rgba(0, 0, 0, 0.5);
+  /* The ring alone reads flat at 3 m; the declared poster scale was never
+     applied. Lift is instant (--dur-focus-in: 0) so it cannot read as lag. */
+  transform: scale(var(--focus-scale-poster));
 }
 
 .card--landscape.focused,
@@ -1231,7 +1254,7 @@ h1 {
 .settings-action:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .settings-action--primary {
@@ -1300,18 +1323,18 @@ h1 {
 }
 
 .reliability-summary--green {
-  border-color: rgba(34, 197, 94, 0.42);
-  background: rgba(34, 197, 94, 0.1);
+  border-color: var(--status-ok);
+  background: var(--status-ok-soft);
 }
 
 .reliability-summary--yellow {
-  border-color: rgba(232, 160, 32, 0.42);
-  background: rgba(232, 160, 32, 0.1);
+  border-color: var(--status-warn);
+  background: var(--status-warn-soft);
 }
 
 .reliability-summary--red {
-  border-color: rgba(248, 113, 113, 0.52);
-  background: rgba(127, 29, 29, 0.26);
+  border-color: var(--status-error);
+  background: var(--status-error-soft);
 }
 
 .reliability-status {
@@ -1719,7 +1742,7 @@ h1 {
   outline: none;
   border-color: var(--accent);
   color: var(--text-primary);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .detail-season-chip--active.focused,
@@ -1758,7 +1781,7 @@ h1 {
 .detail-season-header:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .detail-episode {
@@ -1819,7 +1842,7 @@ h1 {
 .detail-episode:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .detail-episode--selected.focused,
@@ -2018,7 +2041,7 @@ h1 {
 .detail-button:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .detail-button:disabled {
@@ -2155,7 +2178,7 @@ h1 {
 .detail-stream:focus-visible {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .detail-stream:disabled {
@@ -2236,7 +2259,7 @@ h1 {
 .back-button.focused,
 .back-button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 var(--focus-ring) var(--accent), 0 0 var(--focus-glow) var(--accent-glow);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
 .info-list {
