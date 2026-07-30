@@ -484,16 +484,23 @@ button {
 .search-panel-head h2 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 1.1rem;
+  font-size: var(--text-control);
   font-weight: 700;
   letter-spacing: -0.015em;
+  text-transform: lowercase;
 }
 
 .search-panel-head p {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: var(--text-caption);
   font-weight: 560;
+}
+
+/* The keyboard head carries only the delete hint, so keep the hint on the right
+   where it sat when a heading held the left. */
+.search-panel-head--hint-only {
+  justify-content: flex-end;
 }
 
 .search-key-row {
@@ -505,14 +512,14 @@ button {
 .search-key {
   width: auto;
   min-width: 0;
-  min-height: 3.35rem;
+  min-height: 3.9rem;
   flex: 1 1 0;
   padding-inline: 0;
   border-color: rgba(255, 255, 255, 0.115);
   border-radius: 10px;
   background: var(--search-key);
   color: rgba(244, 241, 234, 0.82);
-  font-size: 1.25rem;
+  font-size: var(--text-control);
   font-weight: 780;
 }
 
@@ -583,7 +590,7 @@ button {
 
 .search-starter {
   width: 100%;
-  min-height: 3.65rem;
+  min-height: 4.2rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -628,13 +635,13 @@ button {
   white-space: nowrap;
   text-overflow: ellipsis;
   color: var(--text-primary);
-  font-size: 1.05rem;
+  font-size: var(--text-control);
   font-weight: 660;
 }
 
 .search-starter-meta {
   color: var(--text-muted);
-  font-size: 0.86rem;
+  font-size: var(--text-caption);
   font-weight: 620;
   letter-spacing: 0.025em;
 }

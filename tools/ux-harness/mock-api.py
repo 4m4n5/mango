@@ -42,6 +42,9 @@ FALLBACKS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^/api/catalog/stream/series/"), "streams-series-episode.json"),
     (re.compile(r"^/api/catalog/stream/tv/"), "streams-movie.json"),
     (re.compile(r"^/api/catalog/youtube/"), "home-youtube-rails.json"),
+    # Suggestions were recorded for one query, so an exact match needs that same
+    # query typed; answering any query keeps the suggestions state reachable.
+    (re.compile(r"^/api/catalog/search/suggestions"), "search-suggestions.json"),
     (re.compile(r"^/api/catalog/search"), "search-query-start.json"),
 ]
 

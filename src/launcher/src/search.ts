@@ -584,12 +584,12 @@ export class SearchController {
     keyboard.className = "search-keyboard";
     keyboard.setAttribute("aria-label", "On-screen keyboard");
     const keyboardHead = document.createElement("div");
-    keyboardHead.className = "search-panel-head";
-    const heading = document.createElement("h2");
-    heading.textContent = "Keyboard";
+    keyboardHead.className = "search-panel-head search-panel-head--hint-only";
+    // No "Keyboard" heading: a keyboard is self-evident, and the row is only
+    // needed to carry the delete hint.
     const hint = document.createElement("p");
-    hint.textContent = "X delete · hold to clear";
-    keyboardHead.append(heading, hint);
+    hint.textContent = "x delete · hold to clear";
+    keyboardHead.append(hint);
     keyboard.appendChild(keyboardHead);
     const rows: HTMLElement[][] = [];
     for (const keyRow of KEYBOARD) {
@@ -647,7 +647,9 @@ export class SearchController {
         choices.push({
           label: recent.display_query,
           query: recent.display_query,
-          meta: "Recent search",
+          // No meta: under a "recent" heading, next to a clock icon, a row
+          // reading "Recent search" repeats itself down the whole column.
+          meta: "",
           icon: "clock",
         });
       }
@@ -667,12 +669,19 @@ export class SearchController {
     const panelHead = document.createElement("div");
     panelHead.className = "search-panel-head";
     const heading = document.createElement("h2");
-    heading.textContent = this.suggestions.length > 0 ? "Suggestions" : "Recent";
+    // Derived from the same condition that builds `choices`, so the heading cannot
+    // say "recent" above a column that is actually showing suggestions or the
+    // typed-but-nothing-yet message.
+    heading.textContent = this.query.length === 0 && this.suggestions.length === 0
+      ? "recent"
+      : "suggestions";
     panelHead.appendChild(heading);
     section.appendChild(panelHead);
     const track = document.createElement("div");
     track.className = "search-starter-track";
-    const rows = choices.slice(0, 7).map((choice, index) => {
+    // Ten rows is what the column fits at the current row height; it was capped at
+    // seven, which ended the column well above the keyboard's baseline.
+    const rows = choices.slice(0, 10).map((choice, index) => {
       const button = this.controlButton(choice.label, `search:starter:${index}`, () => {
         this.query = choice.query;
         this.updateQueryDisplay();
@@ -689,10 +698,13 @@ export class SearchController {
       const label = document.createElement("span");
       label.className = "search-starter-title";
       label.textContent = choice.label;
-      const meta = document.createElement("span");
-      meta.className = "search-starter-meta";
-      meta.textContent = choice.meta;
-      copy.append(label, meta);
+      copy.append(label);
+      if (choice.meta) {
+        const meta = document.createElement("span");
+        meta.className = "search-starter-meta";
+        meta.textContent = choice.meta;
+        copy.append(meta);
+      }
       button.append(iconWrap, copy);
       track.appendChild(button);
       return [button];
@@ -702,7 +714,8 @@ export class SearchController {
       empty.className = "search-starter-empty";
       empty.appendChild(searchIcon("search"));
       const emptyCopy = document.createElement("p");
-      emptyCopy.textContent = this.query.length > 0 ? "No local suggestions yet." : "Type to see suggestions.";
+      emptyCopy.textContent =
+        this.query.length > 0 ? "no local suggestions yet." : "type to see suggestions.";
       empty.appendChild(emptyCopy);
       track.appendChild(empty);
     }
