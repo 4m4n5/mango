@@ -114,6 +114,27 @@ their artwork is never fetched and the only cost is JSON. The knock-on is that
 top-of-rail *ordering* quality now matters more than it did at 9 visible items —
 a content-quality item for a later round, not a layout defect.
 
+**Detail hero: poster to 280px, synopsis measure capped** (step 5). Tripling poster
+size on the browse tabs made the detail view's own poster the smallest art on the
+path — 220px, against the 314px card the user just clicked and only 24px more than
+the 196px related cards below it. Committing to a title should not shrink its
+artwork. 280px is the ceiling that costs nothing vertically: at that width the
+poster is exactly as tall as the copy beside it, so the hero does not grow, and the
+related row keeps 78px of clearance under the safe area. Matching 314 exactly needs
+471px of poster height against ~97px of slack, so it does not fit.
+
+The synopsis column ran ~85 characters a line, past the 80-character ceiling
+WCAG 1.4.8 sets for readable prose; it is now capped near 62. The related-visible
+line clamp went back to 4 lines, because a narrower measure fits fewer characters
+per line and leaving it at 3 would have cut synopsis text rather than reflowing it.
+
+**Open, not done here: the empty lower-right quadrant of the detail view.** Verified
+against Pi ground truth with real data, not a fixture artifact — the streams panel
+is top-anchored and short (5 rows), so roughly 480×500px of the canvas below it is
+empty on both movie and series detail. Filling it means moving the related row to
+span full width beneath the panel, which changes the D-pad geometry of the view. A
+layout change, not polish, so it needs a call.
+
 ## Working method per step
 
 1. Render the affected surfaces locally: `python3 tools/ux-harness/capture.py <filter>`.

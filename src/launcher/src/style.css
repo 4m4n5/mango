@@ -141,6 +141,26 @@ button {
   flex: 0 0 auto;
   min-height: 3rem;
   padding-bottom: 0.35rem;
+  /* Anchors the scrim below, so it needs no hardcoded header offset. */
+  position: relative;
+}
+
+/* Rails scroll under this bar and were cut off hard at the scrollport edge, so
+   bright poster art ran straight into the tab pills. This fades content out as it
+   reaches the bar. It is painted over the top of the scrollport rather than being
+   a mask on the scrollport itself, which would have to recomposite on every
+   scroll frame on the Pi. */
+.browse-bar::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  /* .shell insets by --safe-x; the fade has to reach the panel edges. */
+  left: calc(-1 * var(--safe-x));
+  right: calc(-1 * var(--safe-x));
+  height: 2.5rem;
+  background: linear-gradient(to bottom, var(--bg-base) 25%, transparent);
+  pointer-events: none;
+  z-index: 3;
 }
 
 .browse-brand {
@@ -1574,7 +1594,12 @@ h1 {
 
 .detail-hero {
   display: grid;
-  grid-template-columns: clamp(160px, 14vw, 220px) minmax(0, 1fr);
+  /* 280px, not the 314px of a browse poster: committing to a title should not
+     shrink its art, but 314 needs 471px of height and the view has ~97px of slack
+     below the related row. At 280 the poster is exactly as tall as the copy beside
+     it, so the hero does not grow at all, and it clears the ~255px floor platform
+     research gives for poster art at 3m. 15vw so the cap is reachable at 1920. */
+  grid-template-columns: clamp(180px, 15vw, 280px) minmax(0, 1fr);
   column-gap: clamp(1.75rem, 3.5vw, 3rem);
   flex: 0 1 auto;
   min-height: 0;
@@ -1631,8 +1656,11 @@ h1 {
   padding-top: 0.15rem;
 }
 
+/* Four lines here too, not three: a narrower measure fits fewer characters per
+   line, so keeping three would have cut the synopsis down rather than just
+   reflowing it. Four lines at ~60 characters is about what three at ~85 showed. */
 .detail:has(.detail-related:not(.hidden)) .detail-description {
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
 }
 
 .detail-related {
@@ -2061,7 +2089,10 @@ h1 {
 
 .detail-description {
   width: 100%;
-  max-width: none;
+  /* The column is wide enough to run ~85 characters a line, past the 80 WCAG 1.4.8
+     sets as the ceiling for readable prose. 54ch measures ~62 actual characters:
+     the ch unit is the advance of "0", which is wider than average lowercase. */
+  max-width: 54ch;
   margin: 0;
   color: var(--text-secondary);
   font-size: var(--text-body);
