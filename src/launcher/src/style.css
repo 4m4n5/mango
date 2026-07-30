@@ -43,6 +43,11 @@
   --focus-ring: 3px;
   --focus-glow: 14px;
   --focus-gutter: calc(var(--focus-glow) + 8px);
+  /* Amber is the focus colour. It may still carry the brand on decoration that
+     cannot be mistaken for a cursor — rail ticks, eyebrows, icons, progress fill,
+     inline badges — but never as a focusable element's own border or fill, since
+     that is indistinguishable from focus when the cursor is somewhere else.
+     Lasting states (selected, primary) use --border-selected + --tab-active-fill. */
   --focus-ring-color: var(--accent);
   --focus-scale-poster: 1.06;
   --focus-scale-control: 1.03;
@@ -1279,8 +1284,8 @@ h1 {
 }
 
 .settings-action--primary {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--border-selected);
+  background: var(--tab-active-fill);
 }
 
 .settings-action--quick,
@@ -1602,7 +1607,15 @@ h1 {
   position: relative;
   z-index: 1;
   min-height: 0;
-  overflow: visible;
+  /* The track is flex-nowrap, so enough cards would spill out of this grid column
+     and paint over the episodes panel. Clipping at the column edge keeps a data
+     change from becoming an overlap, and the clip margin leaves room for the
+     focus ring and its glow to render outside the box. */
+  overflow: clip;
+  /* --focus-gutter would be the natural value but it is a calc(), and Chromium
+     computes overflow-clip-margin to 0 for any calc, substituted or authored,
+     which would clip the ring flush. --focus-glow is a plain length. */
+  overflow-clip-margin: var(--focus-glow);
 }
 
 .detail-related.hidden {
@@ -1859,9 +1872,12 @@ h1 {
   font-weight: 900;
 }
 
+/* This marks the episode `resume` will play, which is a lasting state rather than
+   a cursor position, so it must not borrow the amber that means focus: while
+   focus sat elsewhere in the list the panel showed two amber-outlined rows. */
 .detail-episode--selected {
-  border-color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--border-selected);
+  background: var(--tab-active-fill);
 }
 
 .detail-episode--disabled,
@@ -1891,7 +1907,7 @@ h1 {
 
 .detail-episode--selected.focused,
 .detail-episode--selected:focus-visible {
-  background: var(--accent-soft);
+  background: var(--tab-active-fill);
 }
 
 .next-prompt {

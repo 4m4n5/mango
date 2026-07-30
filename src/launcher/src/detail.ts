@@ -28,7 +28,11 @@ import { showToast } from "./toast";
 import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
 import { recoverTimedOutStreamList } from "./stream-list-recovery";
 
-const RELATED_DISPLAY_LIMIT = 7;
+// Six is what the related row fits inside its grid column at the current card
+// width; a seventh card painted over the episodes panel. One spare is still
+// fetched because a title is filtered out of its own related list.
+const RELATED_DISPLAY_LIMIT = 6;
+const RELATED_FETCH_LIMIT = RELATED_DISPLAY_LIMIT + 1;
 
 /** Play-only / floor steps — never styled as verified in the side-list. */
 const UNVERIFIED_STREAM_STEPS = new Set([
@@ -755,7 +759,7 @@ export class DetailController {
     const token = this.relatedLoadToken + 1;
     this.relatedLoadToken = token;
     try {
-      const related = await loadRailRelatedCards(card, this.homeVisibleCards, tab, RELATED_DISPLAY_LIMIT);
+      const related = await loadRailRelatedCards(card, this.homeVisibleCards, tab, RELATED_FETCH_LIMIT);
       if (token !== this.relatedLoadToken || this.card?.id !== card.id || this.card?.type !== card.type) {
         return;
       }
