@@ -51,8 +51,12 @@
   --text-display: 56px;
   --text-title: 28px;
   --text-body: 26px;
-  --text-control: 22px;
-  --text-caption: 20px;
+  /* Fire TV's floor is 28px at 1080p and tvOS's body minimum is 29pt. The small
+     end of this scale sat well under both, so caption and control were lifted to
+     24px/26px. Control now equals body, so hierarchy between a control and body
+     copy is carried by weight and colour rather than size. */
+  --text-control: 26px;
+  --text-caption: 24px;
   --space-section: 3rem;
   --space-rail-header: 0.85rem;
   --space-stack: 1rem;
