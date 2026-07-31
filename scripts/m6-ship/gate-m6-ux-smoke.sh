@@ -43,6 +43,20 @@ if "moveRow" not in detail or "moveCol" not in detail:
     raise SystemExit("detail.ts missing 2D moveRow/moveCol")
 if "getBoundingClientRect" not in detail:
     raise SystemExit("detail.ts missing geometry-based spatial focus (getBoundingClientRect)")
+# Side-panel focus contract. Both of these are load-bearing and neither is visible in
+# a screenshot until it is wrong, which is how they went unnoticed before: this whole
+# surface was gated by two selector-presence checks.
+# Centred reveal is what keeps the focus ring off the scrollport edge (measured 0px of
+# footroom on 9 of 14 rows with scrollIntoView "nearest") AND what makes the per-row
+# edge dissolve safe, since a centred row cannot be inside a dissolve band.
+if "revealInSidePanel" not in detail:
+    raise SystemExit("detail.ts missing centred side-panel reveal (revealInSidePanel)")
+if 'scrollIntoView({ block: "nearest", inline: "nearest" })' not in detail:
+    raise SystemExit("detail.ts must keep scrollIntoView fallback for rows outside the panel")
+# Entry lands at the top of a best-first ladder rather than on the row that happens to
+# be beam-aligned with the control focus left (was stream[4] / stream[8] of 14).
+if "entryTarget" not in detail or "panel.contains(from)" not in detail:
+    raise SystemExit("detail.ts missing side-panel entry contract (entryTarget)")
 if "class FocusGrid" not in focus:
     raise SystemExit("focus.ts missing FocusGrid class (home rails)")
 if "async refreshAfterPlayback" not in detail or "await this.loadEpisodeList(card)" not in detail:
@@ -190,6 +204,13 @@ required = (
     ".card.focused",
     ".detail-button.focused",
     ".detail-episode.focused",
+    # The per-row edge dissolve replaced a container gradient that drew a visible
+    # rectangle across the panel. Losing the keyframes brings the hard cut back.
+    "panel-row-dissolve",
+    # Focused rows must be exempt from that dissolve, or a focus ring can render at
+    # ~0.3 opacity when centring is clamped at the first or last row.
+    # Exact minified form, verified against dist rather than guessed.
+    ".detail-episode:focus-visible{animation:none;opacity:1;scale:1",
     ".voice-hud",
     "safe-area-inset-bottom",
     "--focus-gutter",

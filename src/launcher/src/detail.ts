@@ -784,8 +784,41 @@ export class DetailController {
       }
     }
     if (best) {
-      this.focusEl(best);
+      this.focusEl(this.entryTarget(current, best));
     }
+  }
+
+  /**
+   * Where focus should land when it crosses INTO the scrolling side panel.
+   *
+   * Spatial scoring picks whichever row is beam-aligned with the control focus just
+   * left, which put entry at stream[4] arriving from `back` and stream[8] arriving
+   * from below — partway down a list that is deliberately sorted best-first, so the
+   * top of the ladder was never what the user saw first. Nothing was unreachable
+   * (Up walks to the top) but the ordering only pays for itself if entry starts at
+   * the top.
+   *
+   * Only redirects on the way in. Moves already inside the panel keep pure
+   * geometry, so walking the list still behaves like walking a list.
+   */
+  private entryTarget(from: HTMLElement, to: HTMLElement): HTMLElement {
+    const panel = this.sidePanel;
+    if (!panel || panel.contains(from) || !panel.contains(to)) {
+      return to;
+    }
+    const listClass = to.classList.contains("detail-stream")
+      ? "detail-stream"
+      : to.classList.contains("detail-episode")
+        ? "detail-episode"
+        : null;
+    // A season chip already sits at the top of the panel, so entry there is entry
+    // at the top and needs no redirect.
+    if (!listClass) {
+      return to;
+    }
+    const first = Array.from(panel.querySelectorAll<HTMLElement>(`.${listClass}`))
+      .find((row) => this.isFocusableEnabled(row));
+    return first ?? to;
   }
 
   private applyFocus(): void {

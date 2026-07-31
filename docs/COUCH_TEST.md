@@ -497,6 +497,28 @@ knobs are pre-approved to adjust — prefer tuning the token over reverting a co
 
 ---
 
+## Detail view — stream / episode panel
+
+Open a movie with a long stream ladder (Dune, or anything showing 10+ streams) and a
+series with 8+ episodes in a season. `--poster-label-delay` and the rail knobs do not
+apply here; if one of these fails, report it rather than tuning.
+
+| # | Check | Pass |
+|---|-------|------|
+| D1 | **Entering the panel lands on the top row** — from the action buttons, press Right (and separately Down): focus must land on the **first** stream, not partway down the list. The first row is the best option, so this is also the 4K row on a well-served title | |
+| D2 | **Focused row sits in the middle** — walk down the list: the focused row stays centred while the list slides under it, rather than the focus crawling to the bottom edge and the list jumping | |
+| D3 | **Focus ring is never clipped** — check the **first** row, the **last** row, and rows in the middle. The amber ring must be unbroken on all four sides, including its soft glow | |
+| D4 | **No box edge is ever visible** — at every scroll position, including at rest at the top and scrolled fully to the bottom, there must be no horizontal line or rectangular boundary drawn across the panel. Rows should look like they fade out, never like they were sliced | |
+| D5 | **Nothing dims when it shouldn't** — the first row at rest, and the last row once scrolled to the end, are both at full brightness. A row is only faded when it is genuinely running off the edge | |
+| D6 | **Source labels are not truncated** — no row shows `WEB…` or `WEB-…`; every row reads its source in full (`WEB-DL`, `BluRay`, `REMUX`, `WEBRip`) | |
+| D7 | **`cached` is never cut off** — the green `cached` pill is fully inside every row that has one, not clipped at the right edge | |
+| D8 | **Panel label states the range** — reads e.g. `streams · 14 · 4K–SD`, with `4K` in capitals, so you can tell there is more below than the five visible rows | |
+| D9 | **Amber means focus only** — the only amber on this view is the focused control's ring plus the two thin label bars. No resolution badge, HDR chip, or `in library` badge is amber; `cached` and `in library` are green | |
+| D10 | **Related row labels on focus only** — posters under the panel are pure artwork until focused, then show title and year. There is no "from continue watching" line under "related titles" | |
+| D11 | **Episodes behave identically** — repeat D1–D5 on a series' episode list; it must feel the same as the stream list | |
+
+---
+
 ## Living librarian memory (Phase 5)
 
 Optional but recommended during the comprehensive pass. Requires finishing a VOD title to ≥90% progress.
