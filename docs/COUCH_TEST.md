@@ -512,7 +512,8 @@ apply here; if one of these fails, report it rather than tuning.
 | D5 | **Nothing fades when it shouldn't** — the first row at rest, and the last row once scrolled to the end, are both fully solid. On a title with only 2–3 streams, where the list does not scroll at all, there should be no fade anywhere | |
 | D6 | **Source labels are not truncated** — no row shows `WEB…` or `WEB-…`; every row reads its source in full (`WEB-DL`, `BluRay`, `REMUX`, `WEBRip`) | |
 | D7 | **`cached` is never cut off** — the green `cached` pill is fully inside every row that has one, not clipped at the right edge | |
-| D8 | **Panel label states the range** — reads e.g. `streams · 14 · 4K–SD`, with `4K` in capitals, so you can tell there is more below than the five visible rows | |
+| D8 | **Panel label states the range** — reads e.g. `streams · 14 · 4K–SD`, with `4K` in capitals, so you can tell there is more below than the rows you can see | |
+| D8b | **Panel label holds still while you scroll** — walk all the way to the bottom of the ladder: `streams · 14 · 4K–SD` must stay put at the top of the column, fully bright, never scrolling up out of view or fading into the top edge. Same for `episodes` and the season chips on a series — the chips stay reachable above the list while the episodes slide under them | |
 | D9 | **Amber means focus only** — the only amber on this view is the focused control's ring plus the two thin label bars. No resolution badge, HDR chip, or `in library` badge is amber; `cached` and `in library` are green | |
 | D10 | **Related row labels on focus only** — posters under the panel are pure artwork until focused, then show title and year. There is no "from continue watching" line under "related titles" | |
 | D11 | **Episodes behave identically** — repeat D1–D5 on a series' episode list; it must feel the same as the stream list | |

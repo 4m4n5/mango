@@ -230,6 +230,31 @@ required = (
 missing = [token for token in required if token not in css]
 if missing:
     raise SystemExit(f"missing CSS: {', '.join(missing)}")
+
+
+def rule_body(selector: str) -> str:
+    """The declarations of one minified rule, or "" when the selector is gone."""
+    start = css.find(selector)
+    if start < 0:
+        return ""
+    start += len(selector)
+    return css[start:css.find("}", start)]
+
+
+# The scrollport has to be the list, never the column that holds it. `.detail-side`
+# also holds the "streams · 14 · 4K–SD" heading, so scrolling that element scrolls the
+# heading away with the rows -- losing the count and range at exactly the moment the
+# user starts scrolling and wants to know how far the ladder reaches. Asserted as a
+# structural fact about the two rules rather than as a token, because the failure mode
+# is one declaration moving up one level.
+side = rule_body(".detail-side{")
+lists = rule_body(".detail-stream-list,.detail-episode-list{")
+if not side or not lists:
+    raise SystemExit("detail side/list rules missing or renamed in dist CSS")
+if "overflow-y:auto" in side:
+    raise SystemExit(".detail-side scrolls again -- the panel heading will scroll away")
+if "overflow-y:auto" not in lists:
+    raise SystemExit("stream/episode lists are not scrollports -- panel cannot scroll")
 PY
 else
   gate_fail "launcher dist CSS bundle"

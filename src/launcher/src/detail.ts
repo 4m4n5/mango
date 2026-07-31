@@ -61,7 +61,8 @@ export class DetailController {
   private card: ContentCard | null = null;
   private focusedEl: HTMLElement | null = null;
   /** `undefined` = not looked up yet, `null` = looked up and absent. */
-  private sidePanelEl: HTMLElement | null | undefined = undefined;
+  /** `undefined` = not looked up yet. Scroll listeners are attached on first look-up. */
+  private scrollListEls: HTMLElement[] | undefined = undefined;
   private playToken = 0;
   private playAbort: AbortController | null = null;
   private streams: CatalogStream[] = [];
@@ -682,17 +683,37 @@ export class DetailController {
    * Rows outside the panel (action buttons, related posters) keep the default
    * behaviour — they are not in a scrollport that clips.
    */
-  /** The scrolling column that holds the stream / episode lists. */
-  private get sidePanel(): HTMLElement | null {
-    if (this.sidePanelEl === undefined) {
-      this.sidePanelEl = this.view.querySelector<HTMLElement>(".detail-side");
-      // Passive, and cheap: this panel has no `scroll-behavior: smooth`, so it jumps
-      // on focus changes rather than animating, and the handler fires at D-pad rate
-      // instead of once per frame. It is here rather than only in revealInSidePanel
-      // so the fade stays correct if anything else ever scrolls the panel.
-      this.sidePanelEl?.addEventListener("scroll", () => this.updateEdgeFade(), { passive: true });
+  /**
+   * The scrolling lists in the side column.
+   *
+   * The scrollport is each list, not the `.detail-side` column that holds them.
+   * `.detail-side` used to scroll, which meant the "streams · 14 · 4K–SD" heading
+   * scrolled away with the rows — losing the count and range at exactly the moment
+   * the user starts scrolling and needs to know how far the ladder reaches. A heading
+   * for a list should not be inside the list's scrollport.
+   *
+   * Streams and episodes are mutually exclusive in practice, but both are handled
+   * rather than "the visible one" so nothing depends on render order.
+   */
+  private scrollLists(): HTMLElement[] {
+    if (this.scrollListEls === undefined) {
+      this.scrollListEls = [".detail-stream-list", ".detail-episode-list"]
+        .map((selector) => this.view.querySelector<HTMLElement>(selector))
+        .filter((el): el is HTMLElement => el !== null);
+      for (const list of this.scrollListEls) {
+        // Passive, and cheap: these lists have no `scroll-behavior: smooth`, so they
+        // jump on focus changes rather than animating, and the handler fires at D-pad
+        // rate instead of once per frame. Registered here rather than only in
+        // revealInSidePanel so the fade stays correct if anything else scrolls them.
+        list.addEventListener("scroll", () => this.updateEdgeFade(), { passive: true });
+      }
     }
-    return this.sidePanelEl;
+    return this.scrollListEls;
+  }
+
+  /** The scrolling list containing `el`, or null when `el` is outside them all. */
+  private scrollListFor(el: HTMLElement): HTMLElement | null {
+    return this.scrollLists().find((list) => list.contains(el)) ?? null;
   }
 
   /**
@@ -716,30 +737,35 @@ export class DetailController {
    * stays a pure measurement.
    */
   private updateEdgeFade(): void {
-    const panel = this.sidePanelEl;
-    if (!panel) {
-      return;
+    for (const list of this.scrollLists()) {
+      const hidden = Math.max(0, list.scrollHeight - list.clientHeight);
+      const above = Math.max(0, Math.min(list.scrollTop, hidden));
+      list.style.setProperty("--panel-hidden-top", `${above}px`);
+      list.style.setProperty("--panel-hidden-bottom", `${hidden - above}px`);
     }
-    const hidden = Math.max(0, panel.scrollHeight - panel.clientHeight);
-    const above = Math.max(0, Math.min(panel.scrollTop, hidden));
-    panel.style.setProperty("--panel-hidden-top", `${above}px`);
-    panel.style.setProperty("--panel-hidden-bottom", `${hidden - above}px`);
   }
 
   private revealInSidePanel(el: HTMLElement): void {
-    const panel = this.sidePanel;
-    if (!panel || !panel.contains(el)) {
+    const panel = this.scrollListFor(el);
+    if (!panel) {
       el.scrollIntoView({ block: "nearest", inline: "nearest" });
       // Still refresh the fade. Arriving on the detail view focuses an action button,
-      // which is outside the panel, and without this the freshly rendered list keeps a
+      // which is outside the lists, and without this a freshly rendered list keeps a
       // 0px bottom band and hard-cuts its last visible row until focus first enters it.
       this.updateEdgeFade();
       return;
     }
-    const target = el.offsetTop - (panel.clientHeight - el.offsetHeight) / 2;
+    // Rects rather than offsetTop/offsetHeight: offsetTop is measured from the nearest
+    // positioned ancestor, which is `.detail-side` and no longer the scrollport, so it
+    // would carry the label's height as a constant error. Rect deltas are relative to
+    // whatever element is actually scrolling.
+    const listRect = panel.getBoundingClientRect();
+    const rowRect = el.getBoundingClientRect();
+    const offsetInContent = rowRect.top - listRect.top + panel.scrollTop;
+    const target = offsetInContent - (panel.clientHeight - rowRect.height) / 2;
     // Clamped: at the first and last rows there is nothing left to scroll, so the
-    // row sits off-centre by design rather than the panel inventing empty space.
-    // The vertical focus gutter keeps the ring intact in exactly those two cases.
+    // row sits off-centre by design rather than the list inventing empty space.
+    // The focus gutter keeps the ring intact in exactly those two cases.
     const max = panel.scrollHeight - panel.clientHeight;
     panel.scrollTop = Math.max(0, Math.min(target, max));
     // Synchronously, not just via the scroll listener: assigning scrollTop queues the
@@ -846,21 +872,15 @@ export class DetailController {
    * geometry, so walking the list still behaves like walking a list.
    */
   private entryTarget(from: HTMLElement, to: HTMLElement): HTMLElement {
-    const panel = this.sidePanel;
-    if (!panel || panel.contains(from) || !panel.contains(to)) {
+    const panel = this.scrollListFor(to);
+    // Not entering a list at all, or already inside the one being entered — a season
+    // chip sits outside the list and above it, so landing there is already entry at
+    // the top and needs no redirect.
+    if (!panel || panel.contains(from)) {
       return to;
     }
-    const listClass = to.classList.contains("detail-stream")
-      ? "detail-stream"
-      : to.classList.contains("detail-episode")
-        ? "detail-episode"
-        : null;
-    // A season chip already sits at the top of the panel, so entry there is entry
-    // at the top and needs no redirect.
-    if (!listClass) {
-      return to;
-    }
-    const first = Array.from(panel.querySelectorAll<HTMLElement>(`.${listClass}`))
+    const first = Array.from(panel.children)
+      .filter((row): row is HTMLElement => row instanceof HTMLElement)
       .find((row) => this.isFocusableEnabled(row));
     return first ?? to;
   }
