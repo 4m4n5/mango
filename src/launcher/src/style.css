@@ -99,6 +99,15 @@
   box-sizing: border-box;
 }
 
+/* Any author `display` rule beats the UA sheet's `[hidden] { display: none }`, so
+   an element toggled with `.hidden = true` stays on screen unless every one of its
+   selectors also guards the attribute. That is how the verify badge shipped as a
+   bare amber dot: empty text, but its `display: inline-flex` kept the pill and its
+   ::before dot painted. Make the attribute authoritative in one place instead. */
+[hidden] {
+  display: none !important;
+}
+
 html,
 body,
 .shell,
