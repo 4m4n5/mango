@@ -199,6 +199,15 @@ button {
   text-transform: lowercase;
 }
 
+/* A pseudo-element rather than a character in the markup: the dot is a mark, not
+   punctuation, so it should not be read out or picked up by text tooling, and its
+   size can be tuned independently of the wordmark. Letter-spacing applies after
+   the final glyph, so it has to be cancelled or the dot floats away from "mango". */
+.browse-brand::after {
+  content: ".";
+  margin-left: calc(-1 * 0.04em);
+}
+
 .browse-tabs {
   display: flex;
   gap: 1rem;
@@ -1468,10 +1477,56 @@ button {
   padding: 1rem 1rem 1.1rem;
 }
 
-/* ui-flags.ts MINIMAL_VOD_POSTER_LABELS — remove class hook to revert */
+/* ui-flags.ts MINIMAL_VOD_POSTER_LABELS — remove class hook to revert.
+
+   Poster art already carries the title, so a permanent label on every card is
+   duplicated text noise across 54 cards. But hiding it outright left the focused
+   card with no title either, which matters exactly when the art does not identify
+   itself: foreign-language releases, generic fallback art, and remakes that share
+   a name. So the grid stays pure artwork and the label is revealed on the one card
+   you are actually on. Opacity rather than `display` so it can transition;
+   Chromium skips painting fully transparent layers, so idle cost stays nil. */
 .card--poster-minimal .poster-content,
 .card--poster-minimal .poster-shade {
+  opacity: 0;
+  /* Applies on the way OUT — leave immediately, no delay, so the label does not
+     linger over art you have already left. */
+  transition: opacity 90ms var(--ease-out);
+}
+
+.card--poster-minimal.focused .poster-content,
+.card--poster-minimal.focused .poster-shade,
+.card--poster-minimal:focus-visible .poster-content,
+.card--poster-minimal:focus-visible .poster-shade {
+  opacity: 1;
+  /* Applies on the way IN. The delay is hover-intent: holding the D-pad steps
+     focus about every 120ms, and without it every card you scrub past strobes its
+     title. A card focused for less than the delay never shows a label at all,
+     while a card you actually stop on resolves faster than you can read it. The
+     focus ring itself stays instant (--dur-focus-in: 0ms) — the ring is the
+     feedback, the label is only supporting detail. */
+  transition: opacity 120ms var(--ease-out) 100ms;
+}
+
+/* The reveal's second line is the year on discovery and Saved rails, and progress
+   on Continue watching — see posterRevealMeta() in home.ts. It collapses rather
+   than leaving a blank line when there is nothing worth saying, so single-line and
+   two-line reveals both sit flush to the bottom of the poster. */
+.card--poster-minimal .card-subtitle:empty {
   display: none;
+}
+
+/* Quieter than the title and tabular so a column of years does not visibly jitter
+   between glyph widths as focus moves along a rail. */
+.card--poster-minimal .card-subtitle {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tighter than the default shade, which starts fading at 42% and would dim over
+   half the artwork at the moment focus is drawing the eye to it. */
+.card--poster-minimal .poster-shade {
+  background: linear-gradient(180deg, transparent 58%, rgba(5, 8, 10, 0.94) 88%);
 }
 
 .poster-progress {

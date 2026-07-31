@@ -488,6 +488,9 @@ reads as a deal or as lag.
 | H9 | **Saved rail reshuffles** when more than six titles are saved; **Continue watching** keeps the most-recently-watched title in the first slot every single time, while the rest of the row rotates | |
 | H10 | **Apps rail does not animate** on shuffle — its contents did not change, so it should sit still | |
 | H11 | **Saved star** is a dark disc with a cream star, quieter than the amber focus ring, and is **absent inside the Saved rail** itself | |
+| H12 | **Wordmark** reads "mango." — the dot sits tight against the "o", not floating away from it | |
+| H13 | **Focused poster names itself** — landing on a card reveals its title over the bottom of the art, plus the year on discovery and Saved rails, or "N% watched" on Continue watching. Every unfocused card stays pure artwork | |
+| H14 | **Scrubbing does not strobe titles** — hold the D-pad along a rail: labels should *not* flash on each card as focus passes through. Stop on a card and its label resolves immediately. This is the check most likely to need tuning; if it flashes, raise the delay in `.card--poster-minimal.focused` and report the value | |
 
 If a check fails, the plan document records why each choice was made and which
 knobs are pre-approved to adjust — prefer tuning the token over reverting a commit.

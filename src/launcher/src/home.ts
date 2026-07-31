@@ -251,6 +251,26 @@ export function formatRailLabel(label: string): string {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
 }
 
+/** Subtitles that only restate the content type, which the tab already says. */
+const BARE_TYPE_SUBTITLES = new Set(["movie", "movies", "tv", "tv show", "tv shows", "series", "show"]);
+
+/**
+ * The one supporting fact worth a second line under a revealed poster title.
+ *
+ * Discovery and Saved rails already carry the release year in `subtitle`, and it
+ * is the fact that disambiguates remakes sharing a name. Continue watching has no
+ * year but puts progress there instead, which is more useful than a year would be
+ * on a title you are part-way through. A bare content type is dropped: on the
+ * Movies tab, "movie" is not information.
+ */
+function posterRevealMeta(card: ContentCard): string {
+  if (card.year !== undefined && card.year !== null && String(card.year).trim()) {
+    return String(card.year).trim();
+  }
+  const subtitle = card.subtitle?.trim() ?? "";
+  return BARE_TYPE_SUBTITLES.has(subtitle.toLowerCase()) ? "" : subtitle;
+}
+
 function isLandscapeCard(card: ContentCard, browseTab?: BrowseTab): boolean {
   return browseTab === "live"
     || browseTab === "youtube"
@@ -276,11 +296,10 @@ function createPosterCard(
   const button = document.createElement("button");
   button.type = "button";
   button.className = `card card--poster${landscape ? " card--landscape" : " card--portrait"}`;
-  if (
-    MINIMAL_VOD_POSTER_LABELS
+  const minimalLabels = MINIMAL_VOD_POSTER_LABELS
     && !landscape
-    && (options.browseTab === "movies" || options.browseTab === "series")
-  ) {
+    && (options.browseTab === "movies" || options.browseTab === "series");
+  if (minimalLabels) {
     button.classList.add("card--poster-minimal");
   }
   button.dataset.focusKey = `rail:${rail.id}:${card.type}:${card.id}`;
@@ -304,7 +323,9 @@ function createPosterCard(
 
   const subtitle = document.createElement("span");
   subtitle.className = "card-subtitle";
-  subtitle.textContent = card.subtitle;
+  // A minimal poster's label only appears on focus, so its second line is edited
+  // down to the one fact worth reading there rather than the full card subtitle.
+  subtitle.textContent = minimalLabels ? posterRevealMeta(card) : card.subtitle;
 
   const content = document.createElement("span");
   content.className = "poster-content";
