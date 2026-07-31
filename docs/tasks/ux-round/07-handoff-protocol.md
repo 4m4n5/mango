@@ -63,6 +63,30 @@ with its old and new value:
 | `--shuffle-stagger` (22ms) / `--shuffle-travel` (130ms) | stagger 14–30ms, travel 100–180ms | The shuffle cascade must read as dealing cards, not as waiting. Keep `stagger x 5 + travel` under ~300ms total or it becomes lag. Report both values and whether the D-pad stayed responsive during the wave. |
 | `--poster-label-delay` (100ms) | 60–220ms | Hover intent on the focused-poster label. Pad key-repeat rate is the thing this has to beat and it cannot be measured off-Pi: too low and every card scrubbed past flashes its title, too high and a card you have settled on feels slow to name itself. Report the value and whether scrubbing still strobes. |
 
+### Not a knob: type sizes
+
+`--text-micro` (20px), `--text-caption` (24px), `--text-control` (26px) and above are
+**off limits**. 20px already sits under both platform floors (Fire TV 28px at 1080p,
+tvOS 29pt) as a deliberate exception for metadata nobody has to read to make a
+choice, and caption/control were raised to 24/26px in this round precisely because
+the small end was illegible from the sofa.
+
+Shrinking type was considered as the fix for the stream row overflowing its 332px
+column and was rejected. Three geometry changes solved it instead, with the chip row
+now measuring 0 clipped chips across a 14-stream ladder:
+
+- `HDR10` / `HDR10+` collapse to `HDR` — the X11 path cannot output HDR at all and
+  the Kodi path emits HDR10 either way, so the distinction is unactionable here.
+  `DV` stays separate because the ladder does treat it differently.
+- `.detail-stream-res` `min-width` 3.2rem → 2.6rem — the floor was only reached by
+  `4K` and `SD`, so it bought no column alignment.
+- `.detail-stream-chip--tier` is the only chip allowed to shrink and ellipsise, so
+  any combination wider than the column degrades on provenance rather than slicing
+  `cached` off the right edge.
+
+If a row still overflows on real hardware, remove information or tighten geometry.
+Do not lower a font size.
+
 One exception to "CSS custom property", because it is the single judgment call in
 the rail density change that needs real-hardware eyes:
 
