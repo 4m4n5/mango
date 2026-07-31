@@ -61,6 +61,7 @@ with its old and new value:
 | `--focus-ring-width` | ±1px | ring can bloom on some panels |
 | `--motion-fast` / `--motion-base` | ±60ms | Pi compositor may need more headroom |
 | `--shuffle-stagger` (22ms) / `--shuffle-travel` (130ms) | stagger 14–30ms, travel 100–180ms | The shuffle cascade must read as dealing cards, not as waiting. Keep `stagger x 5 + travel` under ~300ms total or it becomes lag. Report both values and whether the D-pad stayed responsive during the wave. |
+| `--poster-label-delay` (100ms) | 60–220ms | Hover intent on the focused-poster label. Pad key-repeat rate is the thing this has to beat and it cannot be measured off-Pi: too low and every card scrubbed past flashes its title, too high and a card you have settled on feels slow to name itself. Report the value and whether scrubbing still strobes. |
 
 One exception to "CSS custom property", because it is the single judgment call in
 the rail density change that needs real-hardware eyes:

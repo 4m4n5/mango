@@ -100,6 +100,10 @@
      keyframes. */
   --shuffle-stagger: 22ms;
   --shuffle-travel: 130ms;
+  /* Hover intent for the focused-poster label. Held D-pad steps focus about every
+     120ms, so a card scrubbed past must not resolve its label; a card you stop on
+     must resolve faster than you can read it. Raise if labels strobe on the panel. */
+  --poster-label-delay: 100ms;
 }
 
 * {
@@ -1499,13 +1503,11 @@ button {
 .card--poster-minimal:focus-visible .poster-content,
 .card--poster-minimal:focus-visible .poster-shade {
   opacity: 1;
-  /* Applies on the way IN. The delay is hover-intent: holding the D-pad steps
-     focus about every 120ms, and without it every card you scrub past strobes its
-     title. A card focused for less than the delay never shows a label at all,
-     while a card you actually stop on resolves faster than you can read it. The
-     focus ring itself stays instant (--dur-focus-in: 0ms) — the ring is the
-     feedback, the label is only supporting detail. */
-  transition: opacity 120ms var(--ease-out) 100ms;
+  /* Applies on the way IN. A card focused for less than --poster-label-delay never
+     shows a label at all, while a card you actually stop on resolves faster than
+     you can read it. The focus ring itself stays instant (--dur-focus-in: 0ms) —
+     the ring is the feedback, the label is only supporting detail. */
+  transition: opacity 120ms var(--ease-out) var(--poster-label-delay);
 }
 
 /* The reveal's second line is the year on discovery and Saved rails, and progress
