@@ -100,10 +100,12 @@
      keyframes. */
   --shuffle-stagger: 22ms;
   --shuffle-travel: 130ms;
-  /* Hover intent for the focused-poster label. Held D-pad steps focus about every
-     120ms, so a card scrubbed past must not resolve its label; a card you stop on
-     must resolve faster than you can read it. Raise if labels strobe on the panel. */
-  --poster-label-delay: 100ms;
+  /* Hover intent for the focused-poster label. Zero by default: a delay was tried
+     to stop labels strobing while scrubbing, but at 100ms the reveal read as lag on
+     the focused card, which is the cost the user actually notices. The label now
+     tracks focus as immediately as the ring does. Raise this only if scrubbing a
+     rail on the panel reads as flicker. */
+  --poster-label-delay: 0ms;
 }
 
 * {
@@ -1091,7 +1093,15 @@ button {
   .rails::after {
     animation: rails-edge-vanish linear both;
     animation-timeline: --rails-scroll;
-    animation-range: calc(100% - 3rem) 100%;
+    /* Ends where the content ends, not where the scroller does. Focus-driven
+       scrolling stops as soon as the focused row is on screen, so landing on the
+       last row leaves the scroller's trailing padding unscrolled — measured at 67px
+       of slack, against a range that only resolved in the final 48px. The fade
+       therefore sat at full opacity on the apps row with nothing beneath it.
+       Subtracting the padding anchors the range to the last pixel of real content. */
+    animation-range:
+      calc(100% - var(--rails-pad-end) - 3rem)
+      calc(100% - var(--rails-pad-end));
   }
 }
 
@@ -1503,11 +1513,10 @@ button {
 .card--poster-minimal:focus-visible .poster-content,
 .card--poster-minimal:focus-visible .poster-shade {
   opacity: 1;
-  /* Applies on the way IN. A card focused for less than --poster-label-delay never
-     shows a label at all, while a card you actually stop on resolves faster than
-     you can read it. The focus ring itself stays instant (--dur-focus-in: 0ms) —
-     the ring is the feedback, the label is only supporting detail. */
-  transition: opacity 120ms var(--ease-out) var(--poster-label-delay);
+  /* Applies on the way IN. Short enough to read as part of the focus change rather
+     than as a separate event arriving late — the ring is instant
+     (--dur-focus-in: 0ms) and the label should feel attached to it. */
+  transition: opacity 70ms var(--ease-out) var(--poster-label-delay);
 }
 
 /* The reveal's second line is the year on discovery and Saved rails, and progress
