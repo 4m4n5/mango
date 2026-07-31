@@ -81,6 +81,15 @@ SCENES: list[dict] = [
     dict(name="25-next-episode-prompt", force="next", expect="#next-episode-prompt:not(.hidden)",
          synthetic=True),
     dict(name="26-toast-alone", force="toast", expect='#toast[data-visible="true"]', synthetic=True),
+    # --- detail with a full stream ladder ---
+    # Scenes 13-15 render the recorded fixture, which resolved to a single bubble.
+    # A real title usually returns a dozen or more, which is the case the panel's
+    # layout actually has to survive, so these three force a synthetic ladder.
+    dict(name="27-detail-streams-ladder", control=dict(stream_count=14), click=CARD, expect=DETAIL),
+    dict(name="28-detail-ladder-first-focus", control=dict(stream_count=14), click=CARD,
+         keys=["ArrowDown", "ArrowDown"], expect=DETAIL),
+    dict(name="29-detail-ladder-deep-focus", control=dict(stream_count=14), click=CARD,
+         keys=["ArrowDown", "ArrowDown"] + ["ArrowDown"] * 10, expect=DETAIL),
 ]
 
 FORCE_JS = {

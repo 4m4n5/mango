@@ -11,6 +11,7 @@ a control file (default ~/.cache/mango-ux/control.json) is re-read per request,
 so capture runs can flip latency/empty/error without restarting.
 
     {"delay_ms": 2500, "empty": ["rails"], "fail": ["stream"], "status": 503}
+    {"stream_count": 14}   # expand the streams panel to a full ladder
 
 Usage:
     python3 tools/ux-harness/mock-api.py            # port 3000
@@ -47,6 +48,70 @@ FALLBACKS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"^/api/catalog/search/suggestions"), "search-suggestions.json"),
     (re.compile(r"^/api/catalog/search"), "search-query-start.json"),
 ]
+
+# A recorded stream response holds whatever that one title resolved to on the day
+# it was captured — Dune came back with a single 2160p bubble. The streams panel's
+# real design problem is a long ladder, which no recording on hand contains and
+# which cannot be re-recorded without Pi access, so `{"stream_count": 14}` in the
+# control file expands the panel to a realistic ladder. Fields mirror the recorded
+# schema exactly (see FIELDS in a captured streams-movie.json); values are ordered
+# the way a debrid resolver returns them, best-first, and are deterministic so
+# screenshots are reproducible. URLs are placeholders — nothing can play on a Mac.
+SYNTHETIC_LADDER: list[dict] = [
+    ("2160p", "BluRay REMUX", "HEVC", ["DV", "HDR10"], 78.4, "cached", "FraMeSToR", "4k_dv_remux_cached"),
+    ("2160p", "BluRay", "HEVC", ["HDR10"], 54.1, "cached", "SWTYBLZ", "4k_hdr_remux_cached"),
+    ("2160p", "WEB-DL", "HEVC", ["DV"], 18.6, "cached", "FLUX", "4k_dv_web_cached"),
+    ("2160p", "WEB-DL", "HEVC", ["HDR10+"], 14.2, "cached", "NTb", "4k_hdr_web_cached"),
+    ("2160p", "WEB-DL", "AV1", [], 9.8, "cached", "CtrlHD", "4k_sdr_web_cached"),
+    ("1080p", "BluRay REMUX", "H.264", [], 24.9, "cached", "FraMeSToR", "1080p_remux_cached"),
+    ("1080p", "BluRay", "HEVC", [], 8.3, "cached", "TAoE", "1080p_bluray_cached"),
+    ("1080p", "BluRay", "H.264", [], 12.1, "cached", "SPARKS", "1080p_bluray_cached"),
+    ("1080p", "WEB-DL", "H.264", [], 5.5, "cached", "NTb", "1080p_web_cached"),
+    ("1080p", "WEB-DL", "HEVC", [], 3.9, "cached", "FLUX", "1080p_web_cached"),
+    ("1080p", "WEBRip", "H.264", [], 4.2, "uncached", "RARBG", "1080p_uncached_fallback"),
+    ("720p", "BluRay", "H.264", [], 2.1, "cached", "PSA", "720p_bluray_cached"),
+    ("720p", "WEB-DL", "H.264", [], 1.4, "cached", "ION10", "720p_web_cached"),
+    ("480p", "WEBRip", "H.264", [], 0.7, "uncached", "YTS", "obligation_floor"),
+    ("1080p", "HDTV", "H.264", [], 3.1, "unknown", "MeGusta", "last_resort"),
+    ("2160p", "WEB-DL", "HEVC", ["HDR10"], 22.7, "uncached", "SMURF", "4k_sdr_soft_cached"),
+]
+
+SYNTHETIC_LANGS = [
+    ["English"],
+    ["English", "French", "German", "Italian", "Spanish", "Korean"],
+    ["English", "Spanish"],
+    ["English", "Hindi", "Tamil"],
+]
+
+
+def synthetic_streams(count: int, base: dict | None) -> list[dict]:
+    """Expand the streams panel to `count` bubbles across the ladder."""
+    out: list[dict] = []
+    for index in range(min(count, len(SYNTHETIC_LADDER))):
+        res, tier, encode, hdr, size, cache, group, step = SYNTHETIC_LADDER[index]
+        stream = dict(base) if base else {}
+        stream.update({
+            "name": f"[{'TB⚡' if cache == 'cached' else 'TB'}] Torrentio {res}",
+            "title": f"[{'TB⚡' if cache == 'cached' else 'TB'}] Torrentio {res}",
+            "url": f"http://127.0.0.1:3035/api/v1/harness/placeholder/{index}",
+            "source": "AIOStreams",
+            "resolution": res,
+            "release_tier": tier,
+            "release_group": group,
+            "encode": encode,
+            "hdr_tags": hdr,
+            "size_gb": size,
+            "indexer": group,
+            "languages": SYNTHETIC_LANGS[index % len(SYNTHETIC_LANGS)],
+            "debrid_service": "torbox",
+            "cache_status": cache,
+            "display_label": f"{res} {tier} {encode} · {group} · {size:.0f} GB",
+            "ladder_step": step,
+            "behaviorHints": {"videoSize": int(size * 1_000_000_000)},
+        })
+        out.append(stream)
+    return out
+
 
 # Which fixture families a control-file keyword blanks or fails.
 FAMILIES = {
@@ -178,6 +243,10 @@ class Handler(BaseHTTPRequestHandler):
         payload = json.loads(fixture.read_text())
         if families & set(cfg.get("empty", [])):
             payload = blank_like(payload)
+        stream_count = int(cfg.get("stream_count") or 0)
+        if stream_count and "stream" in families and isinstance(payload, dict):
+            recorded = payload.get("streams") or []
+            payload["streams"] = synthetic_streams(stream_count, recorded[0] if recorded else None)
         self._send(200, json.dumps(payload).encode())
 
     def do_POST(self) -> None:  # noqa: N802
