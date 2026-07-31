@@ -2765,7 +2765,10 @@ h1 {
 .detail-stream-primary {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  /* 0.3rem, down from 0.4rem: three gaps in a row that is 9px short of fitting. The
+     chips carry their own fills, so the boundary between them is drawn by contrast
+     rather than by whitespace, and the tighter gap does not run them together. */
+  gap: 0.3rem;
   min-width: 0;
 }
 
@@ -2784,9 +2787,12 @@ h1 {
   flex: 0 0 auto;
   /* 2.6rem, not 3.2rem. The floor was only ever reached by the two shortest labels
      ("4K", "SD") — 1080p and 720p size themselves at 90px and 75px — so it was not
-     buying column alignment, just padding the shortest badges. Lowering it returns
-     ~10px to the chip row on exactly the 4K rows that were overflowing, which is
-     what keeps the tier chip from having to abbreviate. */
+     buying column alignment, just padding the shortest badges.
+     It recovers ~1px, not the ~10px first assumed: "4K" measures 50px naturally at
+     24px/900, so the old 3.2rem (51.2px) was barely binding and the new floor is not
+     binding at all. The row's real slack came from chip padding and gap instead. Kept
+     because a floor no label reaches is the correct value for a floor whose purpose
+     is to stop a one-character label collapsing. */
   min-width: 2.6rem;
   padding: 0.2rem 0.5rem;
   border-radius: 8px;
@@ -2813,7 +2819,12 @@ h1 {
 
 .detail-stream-chip {
   flex: 0 0 auto;
-  padding: 0.18rem 0.45rem;
+  /* Inline padding trimmed from 0.45rem. Four chips plus the resolution badge need
+     312px on the widest row against a 303px budget, and the padding is the only
+     slack in the row that costs nothing to give up: type size is already at the
+     scale's floor, and every label is load-bearing. 0.34rem still clears the ~4px
+     minimum that keeps a filled chip from looking like it is squeezing its text. */
+  padding: 0.18rem 0.34rem;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.06);
   color: var(--text-secondary);

@@ -78,11 +78,18 @@ now measuring 0 clipped chips across a 14-stream ladder:
 - `HDR10` / `HDR10+` collapse to `HDR` — the X11 path cannot output HDR at all and
   the Kodi path emits HDR10 either way, so the distinction is unactionable here.
   `DV` stays separate because the ladder does treat it differently.
-- `.detail-stream-res` `min-width` 3.2rem → 2.6rem — the floor was only reached by
-  `4K` and `SD`, so it bought no column alignment.
+- Chip inline padding 0.45rem → 0.34rem and `.detail-stream-primary` gap 0.4rem →
+  0.3rem — ~13px, and the change that actually closed the last 9px. The widest row
+  (`4K WEB-DL HDR cached`) needs 312px against a 303px budget.
+- `.detail-stream-res` `min-width` 3.2rem → 2.6rem — worth ~1px, not the ~10px first
+  assumed: `4K` measures 50px naturally, so 3.2rem was barely binding. Kept for
+  correctness, but it is not load-bearing.
 - `.detail-stream-chip--tier` is the only chip allowed to shrink and ellipsise, so
   any combination wider than the column degrades on provenance rather than slicing
-  `cached` off the right edge.
+  `cached` off the right edge. Measured: 0 of 14 rows truncate or overflow, so this
+  is a guard for combinations the fixture does not contain, not an active behaviour.
+  If you see `WEB…` on the couch, the row got wider than the fixture predicts —
+  report it rather than adjusting the font.
 
 If a row still overflows on real hardware, remove information or tighten geometry.
 Do not lower a font size.
