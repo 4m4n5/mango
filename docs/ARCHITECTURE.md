@@ -262,26 +262,30 @@ by default (`MANGO_PAD_NAV_API=1`) instead of synthetic keyboard events:
 
 ```
 pad evdev → routing_app (cached) → POST /api/pad/nav {action,direction,delta,kind}
-serve.py → pad-nav queue (separate from voice; deque + Condition + persisted seq)
-launcher → GET /api/pad/nav?after=&wait=25 long-poll → handlePadNav → FocusGrid / detail / settings / next-prompt
+serve.py → pad-nav queue (peek + Condition; seq persist async off POST path)
+launcher → POST /api/pad/session → GET /api/pad/nav?after=&session=&wait=25
+       → apply one command per rAF → POST /api/pad/ack {session,last_seq}
 ```
 
-Pad-nav is **peek-by-seq** (not drain-once). Every localhost long-poller sees
-the same pending commands for its `after` cursor; entries expire via TTL /
-maxlen only. Drain-once previously let a second poller (SSH tunnel + Cursor
-browser, curl probe) steal presses so the TV Chromium registered them randomly.
+Pad-nav is **peek-by-seq**. Every localhost long-poller sees the same pending
+commands for its `after` cursor. Only the registered TV session may compact the
+queue via ack (`session` must match); foreign acks are accepted for telemetry
+but do not drain. Seq persistence is asynchronous so POST never waits on SD I/O.
+Gates and diagnostics POST with `"probe": true` to validate the contract
+**without** enqueueing couch FocusGrid moves.
+
+When `MANGO_PAD_NAV_API=1` and the surface is launcher, the pad retries POST
+(default timeout `0.75s`, 3 attempts) and **does not** fall back to xdotool on
+failure — Chromium kiosk often ignores synthetic keys, which looked like
+intermittent D-pad drops. Set `MANGO_PAD_NAV_API=0` only as a temporary rollback
+to restore the xdotool path. The mpv path is unchanged (IPC). The pad-nav smoke
+probe in `gate-m6-ux-smoke.sh` runs only when `MANGO_PAD_NAV_API=1`.
 
 The launcher owns surface + focus state; the pad sends directional intents only.
 X ownership is resolved once at button-down from the foreground and available
-launcher/mpv windows, then retained through button-up. This prevents an
-ambiguous X11 focus sample or stale playback marker from discarding Home
-shuffle while preserving mpv Streams priority when its window is present.
-`handlePadNav` mirrors `handleKeydown`'s priority chain (next-prompt → detail →
-settings → Search → home) so the pad-nav and xdotool-fallback paths are behaviorally
-identical. On any HTTP failure (connection refused, timeout, non-200) the pad
-falls back to the existing `xdotool key --window <wid>` path, so a down UI server
-never breaks navigation. The mpv path is unchanged (IPC). The pad-nav smoke probe
-in `gate-m6-ux-smoke.sh` runs only when `MANGO_PAD_NAV_API=1`.
+launcher/mpv windows, then retained through button-up. `handlePadNav` mirrors
+`handleKeydown`'s priority chain (next-prompt → detail → settings → Search →
+home).
 
 Pad layout: [HARDWARE.md](HARDWARE.md)
 

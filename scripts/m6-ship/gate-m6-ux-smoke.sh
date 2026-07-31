@@ -284,36 +284,50 @@ if [[ "$PAD_NAV_GATE_ENABLED" == "1" ]] \
   && curl -sf --max-time 2 "$LAUNCHER/api/health" >/dev/null 2>&1; then
   PAD_NAV_OUT="/tmp/mango-gate-pad-nav-$$.json"
   PAD_NAV_SEQ=0
-  PAD_NAV_LATEST=0
+  PAD_NAV_PENDING_BEFORE=-1
 
+  python3 "$REPO_DIR/src/mango-ui-server/test_pad_nav_queue.py" >/dev/null \
+    && gate_pass "pad-nav queue/session/probe unit tests" \
+    || gate_fail "pad-nav queue/session/probe unit tests"
+
+  python3 "$REPO_DIR/scripts/m1-foundation/pad/test_pad_nav_fallback.py" >/dev/null \
+    && gate_pass "pad-nav no-xdotool fallback contract" \
+    || gate_fail "pad-nav no-xdotool fallback contract"
+
+  PAD_NAV_PENDING_BEFORE="$(curl -sf --max-time 2 "$LAUNCHER/api/pad/nav?after=0&wait=0" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d.get("commands") or []))' 2>/dev/null || echo 0)"
+
+  # probe=true validates the contract without enqueueing couch FocusGrid moves.
   HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
     -X POST "$LAUNCHER/api/pad/nav" \
     -H "content-type: application/json" \
-    -d '{"type":"pad_nav","action":"move","direction":"down"}' 2>/dev/null || true)"
+    -d '{"type":"pad_nav","action":"move","direction":"down","probe":true}' 2>/dev/null || true)"
   if [[ "$HTTP_CODE" == "200" ]] \
-    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and isinstance(d.get("seq"), int)' "$PAD_NAV_OUT" 2>/dev/null; then
+    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and d.get("probe") is True and isinstance(d.get("seq"), int)' "$PAD_NAV_OUT" 2>/dev/null; then
     PAD_NAV_SEQ="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("seq"))' "$PAD_NAV_OUT")"
-    gate_pass "pad-nav POST /api/pad/nav seq=$PAD_NAV_SEQ"
+    gate_pass "pad-nav POST /api/pad/nav probe seq=$PAD_NAV_SEQ"
   else
-    gate_fail "pad-nav POST /api/pad/nav"
+    gate_fail "pad-nav POST /api/pad/nav probe"
   fi
 
   HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
     "$LAUNCHER/api/pad/nav?after=0&wait=1" 2>/dev/null || true)"
   if [[ "$HTTP_CODE" == "200" ]] \
-    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and isinstance(d.get("latest_seq"), int) and d.get("latest_seq",0) >= int(sys.argv[2]) and isinstance(d.get("commands"), list)' "$PAD_NAV_OUT" "$PAD_NAV_SEQ" 2>/dev/null; then
-    PAD_NAV_LATEST="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1],encoding="utf-8")).get("latest_seq"))' "$PAD_NAV_OUT")"
-    gate_pass "pad-nav GET /api/pad/nav latest_seq=$PAD_NAV_LATEST"
+    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and isinstance(d.get("latest_seq"), int) and d.get("latest_seq",0) >= int(sys.argv[2]) and isinstance(d.get("commands"), list) and len(d.get("commands") or []) == int(sys.argv[3])' "$PAD_NAV_OUT" "$PAD_NAV_SEQ" "$PAD_NAV_PENDING_BEFORE" 2>/dev/null; then
+    gate_pass "pad-nav GET /api/pad/nav probe left queue unchanged"
   else
-    gate_fail "pad-nav GET /api/pad/nav"
+    gate_fail "pad-nav GET /api/pad/nav after probe"
   fi
 
+  # Do not POST /api/pad/session here — last register wins and would steal the
+  # TV Chromium consumer. Session+drain coverage lives in test_pad_nav_queue.py.
   HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
     -X POST "$LAUNCHER/api/pad/ack" \
     -H "content-type: application/json" \
-    -d "{\"last_seq\": $PAD_NAV_LATEST}" 2>/dev/null || true)"
-  if [[ "$HTTP_CODE" == "200" ]]; then
-    gate_pass "pad-nav POST /api/pad/ack"
+    -d "{\"last_seq\": $PAD_NAV_SEQ}" 2>/dev/null || true)"
+  if [[ "$HTTP_CODE" == "200" ]] \
+    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and d.get("drained") is False' "$PAD_NAV_OUT" 2>/dev/null; then
+    gate_pass "pad-nav POST /api/pad/ack (foreign; no drain)"
   else
     gate_fail "pad-nav POST /api/pad/ack"
   fi

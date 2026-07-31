@@ -133,7 +133,12 @@ class DeviceNotFoundError(Exception):
 DIAG_SESSION = os.environ.get("MANGO_DIAG_SESSION", "")
 PAD_DEBUG = os.environ.get("MANGO_PAD_DEBUG") == "1"
 PAD_NAV_API_ENABLED = os.environ.get("MANGO_PAD_NAV_API", "1") == "1"
-PAD_NAV_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_NAV_TIMEOUT_SEC", "0.15"))
+# POST must outlast serve.py enqueue + rare SD jitter. On failure we retry the
+# HTTP path; we do NOT fall back to xdotool while the API is enabled (Chromium
+# kiosk routinely ignores synthetic keys, which looked like dropped D-pad presses).
+PAD_NAV_TIMEOUT_SEC = float(os.environ.get("MANGO_PAD_NAV_TIMEOUT_SEC", "0.75"))
+PAD_NAV_RETRIES = max(1, int(os.environ.get("MANGO_PAD_NAV_RETRIES", "3")))
+PAD_NAV_RETRY_BACKOFF_SEC = float(os.environ.get("MANGO_PAD_NAV_RETRY_BACKOFF_SEC", "0.03"))
 SECONDARY_HOLD_SEC = float(os.environ.get("MANGO_PAD_SECONDARY_HOLD_SEC", "0.6"))
 _env = {"DISPLAY": DISPLAY, "XAUTHORITY": XAUTHORITY, "HOME": str(_HOME)}
 _last_display_wake_at = 0.0
@@ -695,38 +700,58 @@ def send_pad_nav(
         "kind": kind,
     }
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    req = urllib.request.Request(
-        f"http://127.0.0.1:{LAUNCHER_PORT}/api/pad/nav",
-        data=body,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=PAD_NAV_TIMEOUT_SEC) as resp:
-            if getattr(resp, "status", None) != 200:
-                if PAD_DEBUG:
-                    print(
-                        f"mango-tv-pad: pad-nav non-200 action={action} status={getattr(resp, 'status', 'unknown')}",
-                        flush=True,
-                    )
-                return False
-            raw = resp.read().decode("utf-8")
-        parsed = json.loads(raw)
-        ok = parsed.get("ok") is True if isinstance(parsed, dict) else False
-        if not ok and PAD_DEBUG:
-            print(f"mango-tv-pad: pad-nav bad body action={action}", flush=True)
-        return ok
-    except (
-        urllib.error.URLError,
-        urllib.error.HTTPError,
-        TimeoutError,
-        OSError,
-        ValueError,
-        json.JSONDecodeError,
-    ) as exc:
-        if PAD_DEBUG:
-            print(f"mango-tv-pad: pad-nav failed action={action} err={type(exc).__name__}", flush=True)
-        return False
+    last_err = "unknown"
+    for attempt in range(1, PAD_NAV_RETRIES + 1):
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{LAUNCHER_PORT}/api/pad/nav",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=PAD_NAV_TIMEOUT_SEC) as resp:
+                if getattr(resp, "status", None) != 200:
+                    last_err = f"non-200 status={getattr(resp, 'status', 'unknown')}"
+                    if PAD_DEBUG:
+                        print(
+                            f"mango-tv-pad: pad-nav {last_err} action={action} attempt={attempt}",
+                            flush=True,
+                        )
+                else:
+                    raw = resp.read().decode("utf-8")
+                    parsed = json.loads(raw)
+                    ok = parsed.get("ok") is True if isinstance(parsed, dict) else False
+                    if ok:
+                        return True
+                    last_err = "bad body"
+                    if PAD_DEBUG:
+                        print(
+                            f"mango-tv-pad: pad-nav bad body action={action} attempt={attempt}",
+                            flush=True,
+                        )
+        except (
+            urllib.error.URLError,
+            urllib.error.HTTPError,
+            TimeoutError,
+            OSError,
+            ValueError,
+            json.JSONDecodeError,
+        ) as exc:
+            last_err = type(exc).__name__
+            if PAD_DEBUG:
+                print(
+                    f"mango-tv-pad: pad-nav failed action={action} err={last_err} attempt={attempt}",
+                    flush=True,
+                )
+        if attempt < PAD_NAV_RETRIES:
+            time.sleep(PAD_NAV_RETRY_BACKOFF_SEC)
+    diag_event("pad_nav_give_up", action=action, err=last_err, attempts=str(PAD_NAV_RETRIES))
+    if PAD_DEBUG:
+        print(
+            f"mango-tv-pad: pad-nav give up action={action} err={last_err} attempts={PAD_NAV_RETRIES}",
+            flush=True,
+        )
+    return False
 
 
 def launcher_send_nav_or_key(
@@ -741,6 +766,16 @@ def launcher_send_nav_or_key(
     if PAD_NAV_API_ENABLED and routing_app() == "launcher" and action is not None:
         if send_pad_nav(action, direction=direction, delta=delta, kind=kind):
             return
+        # API path owns launcher input. Falling back to xdotool here reintroduced
+        # intermittent drops: Chromium kiosk often ignores synthetic keys after a
+        # timed-out POST, so the press vanished with no FocusGrid move either.
+        diag_event("pad_nav_no_xdotool_fallback", action=action, symbol=symbol)
+        if PAD_DEBUG:
+            print(
+                f"mango-tv-pad: pad-nav failed; not falling back to xdotool action={action}",
+                flush=True,
+            )
+        return
     send_key_launcher(symbol, app=app)
 
 

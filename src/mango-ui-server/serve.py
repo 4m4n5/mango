@@ -10,6 +10,7 @@ import argparse
 import json
 import mimetypes
 import os
+import secrets
 import socket
 import subprocess
 import sys
@@ -270,6 +271,10 @@ _pad_nav_cond: Final = threading.Condition(_pad_nav_lock)
 _pad_nav_commands: Final = deque[dict[str, object]](maxlen=64)
 PAD_NAV_TTL_SEC: Final = 45.0
 PAD_NAV_SEQ_FILE: Final = LOG_DIR / "pad-nav-seq"
+_pad_nav_session_id: str | None = None
+_pad_nav_persist_lock: Final = threading.Lock()
+_pad_nav_persist_pending: int | None = None
+_pad_nav_persist_scheduled = False
 
 
 def _load_persisted_pad_nav_seq() -> int:
@@ -284,7 +289,47 @@ def _persist_pad_nav_seq(seq: int) -> None:
     PAD_NAV_SEQ_FILE.write_text(f"{seq}\n", encoding="utf-8")
 
 
+def _schedule_persist_pad_nav_seq(seq: int) -> None:
+    """Write seq off the POST hot path so pad HTTP never waits on SD I/O."""
+    global _pad_nav_persist_pending, _pad_nav_persist_scheduled
+    with _pad_nav_persist_lock:
+        _pad_nav_persist_pending = max(_pad_nav_persist_pending or 0, seq)
+        if _pad_nav_persist_scheduled:
+            return
+        _pad_nav_persist_scheduled = True
+
+    def _write() -> None:
+        global _pad_nav_persist_pending, _pad_nav_persist_scheduled
+        with _pad_nav_persist_lock:
+            to_write = _pad_nav_persist_pending
+            _pad_nav_persist_pending = None
+            _pad_nav_persist_scheduled = False
+        if to_write is None:
+            return
+        try:
+            _persist_pad_nav_seq(to_write)
+        except OSError:
+            pass
+
+    threading.Thread(target=_write, name="pad-nav-seq", daemon=True).start()
+
+
 _pad_nav_seq: int = _load_persisted_pad_nav_seq()
+
+
+def register_pad_nav_session() -> str:
+    """Register the TV Chromium as the sole queue consumer. Last register wins."""
+    global _pad_nav_session_id
+    session_id = secrets.token_urlsafe(16)
+    with _pad_nav_lock:
+        _pad_nav_session_id = session_id
+    mango_log("pad_nav_session", session=session_id)
+    return session_id
+
+
+def active_pad_nav_session() -> str | None:
+    with _pad_nav_lock:
+        return _pad_nav_session_id
 
 
 def enqueue_pad_nav_command(command: dict[str, object]) -> int:
@@ -296,7 +341,7 @@ def enqueue_pad_nav_command(command: dict[str, object]) -> int:
         entry = {"seq": seq, "issued_at": time.time(), **command}
         _pad_nav_commands.append(entry)
         _pad_nav_cond.notify_all()
-    _persist_pad_nav_seq(seq)
+    _schedule_persist_pad_nav_seq(seq)
     mango_log("pad_nav_command", seq=str(seq), action=action)
     return seq
 
@@ -322,6 +367,7 @@ def _peek_pad_nav_pending_locked(after: int) -> list[dict[str, object]]:
     (SSH tunnel + Cursor browser, second Chromium tab, curl probe) used to
     steal the only copy of each command — the TV Chromium then saw empty
     polls and advanced past the seq, so couch presses registered randomly.
+    Only the registered TV session may compact via ack.
     """
     return [
         entry
@@ -343,8 +389,8 @@ def wait_and_drain_pad_nav_commands(
     """Long-poll variant for pad nav: park up to ``timeout`` seconds waiting for new commands.
 
     Returns as soon as pending commands exist (peek, leave in queue), or on
-    timeout with ``([], latest_seq)``. Entries leave via TTL / maxlen only —
-    never via a competing poller or ack (ack is non-destructive).
+    timeout with ``([], latest_seq)``. Competing pollers cannot steal entries;
+    the TV session retires them with ack.
     """
     deadline = time.monotonic() + timeout
     with _pad_nav_cond:
@@ -359,21 +405,33 @@ def wait_and_drain_pad_nav_commands(
             _pad_nav_cond.wait(remaining)
 
 
-def ack_pad_nav_commands(last_seq: int) -> int:
-    """Record couch progress only — do not drop queue entries.
+def ack_pad_nav_commands(last_seq: int, session: str | None = None) -> tuple[int, bool]:
+    """Compact the queue when the registered TV session acks.
 
-    A second localhost poller (SSH tunnel browser) used to POST ack and
-    delete commands the TV Chromium had not yet read. Queue entries expire
-    via TTL / maxlen; each client skips already-applied seqs with ``after``.
+    Foreign or missing sessions are accepted for telemetry but do not drain —
+    that used to let an SSH/Cursor poller starve the TV of presses.
     """
-    del last_seq  # accepted for API compatibility / future telemetry
-    with _pad_nav_lock:
-        return _pad_nav_seq
+    with _pad_nav_cond:
+        drained = bool(session) and session == _pad_nav_session_id and last_seq > 0
+        if drained:
+            kept = [
+                entry
+                for entry in _pad_nav_commands
+                if int(entry.get("seq", 0)) > last_seq
+            ]
+            _pad_nav_commands.clear()
+            _pad_nav_commands.extend(kept)
+        return _pad_nav_seq, drained
 
 
 def latest_pad_nav_seq() -> int:
     with _pad_nav_lock:
         return _pad_nav_seq
+
+
+def pad_nav_pending_count() -> int:
+    with _pad_nav_lock:
+        return len(_pad_nav_commands)
 
 
 def collect_health(port: int) -> dict[str, object]:
@@ -523,7 +581,12 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                 commands, latest_seq = wait_and_drain_pad_nav_commands(after, wait)
             else:
                 commands, latest_seq = drain_pad_nav_commands(after)
-            self._write_json({"ok": True, "latest_seq": latest_seq, "commands": commands})
+            self._write_json({
+                "ok": True,
+                "latest_seq": latest_seq,
+                "commands": commands,
+                "session": active_pad_nav_session(),
+            })
             return
         if path.startswith("/overlay/"):
             self._write_json(
@@ -611,6 +674,20 @@ class MangoUiHandler(BaseHTTPRequestHandler):
             ack = record_voice_ack(payload)
             self._write_json({"ok": True, **ack})
             return
+        if path == "/api/pad/session":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "pad session is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            session_id = register_pad_nav_session()
+            self._write_json({
+                "ok": True,
+                "session": session_id,
+                "latest_seq": latest_pad_nav_seq(),
+            })
+            return
         if path == "/api/pad/nav":
             if not _client_is_local(self):
                 self._write_json(
@@ -672,6 +749,15 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                     return
             else:
                 kind = None
+            # Gate / diagnostic probes validate the contract without moving couch focus.
+            if payload.get("probe") is True or payload.get("probe") == 1:
+                self._write_json({
+                    "ok": True,
+                    "seq": latest_pad_nav_seq(),
+                    "probe": True,
+                    "pending": pad_nav_pending_count(),
+                })
+                return
             command = {
                 "type": "pad_nav",
                 "action": action,
@@ -700,10 +786,15 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                 last_seq = max(0, int(payload.get("last_seq", 0) or 0))
             except (TypeError, ValueError):
                 last_seq = 0
-            # Non-destructive: queue is peek-based so a second localhost
-            # poller cannot starve the TV Chromium of pad presses.
-            latest = ack_pad_nav_commands(last_seq)
-            self._write_json({"ok": True, "latest_seq": latest, "acked_through": last_seq})
+            session = payload.get("session")
+            session_id = session if isinstance(session, str) and session else None
+            latest, drained = ack_pad_nav_commands(last_seq, session_id)
+            self._write_json({
+                "ok": True,
+                "latest_seq": latest,
+                "acked_through": last_seq,
+                "drained": drained,
+            })
             return
         if path == "/api/catalog/play-cancel" and not _client_is_local(self):
             self._write_json(

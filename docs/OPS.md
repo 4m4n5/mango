@@ -79,17 +79,21 @@ fix, C: GPU rasterization + pad-nav API). Relevant env vars:
 | `MANGO_PAD_FOREGROUND_LAUNCHER_TTL_SEC` | `2.0` | Cache TTL for "foreground is launcher" |
 | `MANGO_PAD_COUCH_ACTIVITY_THROTTLE_SEC` | `0.5` | Throttle for async couch-activity touches |
 | `MANGO_PAD_NAV_API` | `1` | Pad POSTs nav to `/api/pad/nav`; `0` forces the xdotool rollback path |
-| `MANGO_PAD_NAV_TIMEOUT_SEC` | `0.15` | HTTP timeout for pad-nav POST before fallback |
+| `MANGO_PAD_NAV_TIMEOUT_SEC` | `0.75` | HTTP timeout per pad-nav POST attempt |
+| `MANGO_PAD_NAV_RETRIES` | `3` | POST attempts before give-up (no xdotool while API is on) |
+| `MANGO_PAD_NAV_RETRY_BACKOFF_SEC` | `0.03` | Sleep between pad-nav POST retries |
 | `MANGO_PAD_SECONDARY_HOLD_SEC` | `0.6` | X hold threshold for Search clear; shorter presses are tap/delete |
 | `MANGO_CHROMIUM_DISABLE_GPU` | `0` | `1` = force software compositing (rollback for GPU rasterization regressions) |
 
-The pad-nav API is enabled in `mango-tv-pad.service` by default and falls back
-to xdotool on any HTTP failure. Set `MANGO_PAD_NAV_API=0` only as a temporary
-rollback and restart the pad. The `gate-m6-ux-smoke.sh` pad-nav probe runs
-against a reachable launcher when this is `1`. Verify Chromium GPU rasterization on the Pi via
-`chrome://gpu` (launch Chromium briefly with `--remote-debugging-port=9222` and
-open the URL from a host browser); "Hardware accelerated" should appear under
-Rasterization.
+The pad-nav API is enabled in `mango-tv-pad.service` by default. While it is on,
+launcher presses retry over HTTP and **never** fall back to xdotool (synthetic
+keys are often ignored by Chromium kiosk). Set `MANGO_PAD_NAV_API=0` only as a
+temporary rollback and restart the pad. The TV launcher registers
+`POST /api/pad/session` and is the only consumer whose ack drains the queue;
+`gate-m6-ux-smoke.sh` uses `"probe": true` so gates do not move couch focus.
+Verify Chromium GPU rasterization on the Pi via `chrome://gpu` (launch Chromium
+briefly with `--remote-debugging-port=9222` and open the URL from a host
+browser); "Hardware accelerated" should appear under Rasterization.
 
 ### Couch activity and display
 
