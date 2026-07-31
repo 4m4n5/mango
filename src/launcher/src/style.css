@@ -105,7 +105,7 @@
      the focused card, which is the cost the user actually notices. The label now
      tracks focus as immediately as the ring does. Raise this only if scrubbing a
      rail on the panel reads as flicker. */
-  --poster-label-delay: 0ms;
+  --poster-label-delay: 80ms;
 }
 
 * {
