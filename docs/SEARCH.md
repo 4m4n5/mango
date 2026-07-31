@@ -16,10 +16,12 @@ while the user types.
   metadata. Submit is explicit.
 - Submitted results arrive progressively as Top Results, Movies, TV Shows,
   Live, YouTube, More Movies & Shows, and optional Related to Your Search.
-- Poster rows expose 9 slots. The YouTube video rail exposes two complete
-  six-column rows: 12 videos when complete, or 11 videos plus an in-grid More
-  tile while additional cached results remain. More reveals the next local
-  snapshot page without another provider or YouTube request.
+- Page sizes are derived from the rendered column count so a group always fills
+  whole rows: poster groups are five-wide over two rows (10 per page), landscape
+  and YouTube groups four-wide over three rows (12 per page), and the Top Results
+  summary is capped at 8. When more cached results remain, the final slot becomes
+  an in-grid More tile. More reveals the next local snapshot page without another
+  provider or YouTube request.
 - B opens Detail. Playback remains a second explicit B action in Detail.
 - Y from Detail restores the exact Search result and focus. Playback return
   restores that Detail and then Search, including Live and YouTube. Y from

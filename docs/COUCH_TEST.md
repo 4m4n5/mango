@@ -1,6 +1,6 @@
 # Couch test checklist
 
-**Branch:** `feat/native-experience` · **Pi HEAD:** `8eeb239` (2026-07-05) · **Gate:** `bash scripts/pi-exec-gate.sh` (gate-lite ~2 min) + ux-smoke on feat branch
+**Branch:** `feat/native-experience` · **Pi HEAD:** `539ebdb` (2026-07-30) · **Gate:** `bash scripts/pi-exec-gate.sh` (gate-lite ~2 min) + ux-smoke on feat branch
 
 Run gate on Mac before handing off to the TV. Live IPTV is opt-in — not in gate-lite.
 
@@ -26,7 +26,7 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch s
 
 | # | Action | Pass? |
 |---|--------|-------|
-| 1 | **Movies** tab loads 9-up poster grid | |
+| 1 | **Movies** tab loads rails of **5 posters, one row each** — no second row, no half-card peeking inside a rail | |
 | 2 | **L/R shoulders** switch Movies ↔ Series ↔ Live | |
 | 3 | **X current-tab shuffle** (pad `307`) — only the visible Home tab changes, no rate-limit text | |
 | 3a | After returning from playback, X still shuffles the visible Home tab even if mpv teardown is briefly pending; it never opens Streams or reloads Chromium | |
@@ -297,7 +297,7 @@ Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
 | S4 | Rapid typing updates the query without a blackout, focus jump, or keyboard/header rebuild; the prior starter list stays visible until one atomic suggestion swap; explicit submit progressively adds source rows | |
 | S5 | Exact title beats prefix/token matches; Top Results contains only verified/proven/YouTube cards with source diversity | |
 | S6 | All shows YouTube videos only; YouTube scope also shows Channels and Playlists, which open video-list Detail | |
-| S7 | Poster rails use 9 slots; YouTube fills two six-card rows, with in-grid More revealing cached results without quota/provider activity | |
+| S7 | Result groups fill **whole rows**: poster groups 5-wide (10 per page), YouTube/landscape groups 4-wide (12 per page), Top results at most 8. No orphan card alone on a final row, and in-grid More reveals cached results without quota/provider activity | |
 | S8 | One unavailable source shows plain per-row degraded copy while other rows remain selectable; no results is not an error and focuses Edit for immediate correction | |
 | S9 | X tap deletes one character; X hold for at least 600 ms clears; returning Home restores X current-tab shuffle | |
 | S10 | B opens Detail and a second B starts playback; Search never autoplays | |
@@ -330,7 +330,7 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 | # | Action | Pass? |
 |---|--------|-------|
 | 17 | YouTube tab loads cached rails without full-screen error; empty Fresh Finds or expired Live Now is hidden instead of showing stale live cards | |
-| 18 | YouTube rails show at most 9 cards; **Home X shuffle** changes History/For You/New From Subscriptions/Fresh Finds/Because You Watched/Live Now/Popular without blocking on refresh | |
+| 18 | YouTube rails render **4 landscape cards, one row each** (the service still supplies up to 12 per rail as playable headroom — extra supply is expected, not a defect); **Home X shuffle** changes History/For You/New From Subscriptions/Fresh Finds/Because You Watched/Live Now/Popular without blocking on refresh | |
 | 19 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
 | 20 | Open a YouTube video → detail shows Play / Save / Not Interested; **B** starts mpv | |
 | 21 | After playing a second meaningful YouTube VOD, Because You Watched follows that newer seed and shows cached non-live/non-Short follow-ups | |
@@ -436,12 +436,41 @@ Automated: `bash scripts/m6-ship/gate-m6-ux-smoke.sh` (also in `pi-pre-couch-gat
 | U1 | Focus visible on every tile at 3 m | |
 | U2 | D-pad detail: **2D FocusGrid** — actions L/R · episodes/streams U/D; no focus trap | |
 | U3 | Poster grid stable — no jump when images load | |
-| U4 | Tab vs shuffle visually distinct (active vs amber outline) | |
+| U4 | Tab vs shuffle visually distinct; amber means **focus only** — the current tab reads as selected without borrowing the focus colour | |
 | U5 | Play failure shows couch copy — no API/mpv stderr | |
 | U6 | Empty rail hidden or graceful — no full-screen error | |
 | U7 | Continue rail uses Mango progress/library state only | |
 | U8 | ⌂ from mpv — home <300 ms perceived | |
 | U9 | YouTube rail/search/detail follows the same focus, HUD, and pad-play rules | |
+
+---
+
+## Launcher UX polish round (`539ebdb`)
+
+Sixteen commits of visual work that has never been on the TV before. It was built
+against a local fixture harness at 1920x1080, so everything here is a claim about
+the Mac render that only the panel can settle. Sit at normal viewing distance and
+judge by eye — these are legibility and rhythm checks, not pass/fail plumbing.
+
+Spec: [tasks/ux-round/10-polish-plan.md](tasks/ux-round/10-polish-plan.md) · surfaces: [tasks/ux-round/00-surfaces.md](tasks/ux-round/00-surfaces.md)
+
+| # | Action | Pass? |
+|---|--------|-------|
+| P1 | **Safe area** — nothing (tab bar, rail titles, first/last card, focus ring) is clipped by the bezel or lost to overscan on all four tabs | |
+| P2 | **Focus colour has one meaning** — exactly one amber ring on screen at a time; the Play button's cream fill is never mistaken for focus, and moving focus onto Play still reads as a focus change | |
+| P3 | **Type floor** — badges, stream rows, episode numbers and card metadata are all readable from the sofa; nothing needs leaning in | |
+| P4 | **Rail rhythm** — one row per rail, even gutters, and rail titles clearly outrank card titles in the visual hierarchy | |
+| P5 | **Edge fades** — content scrolling under the tab bar fades instead of hard-clipping, and the peeking next rail fades at the bottom edge rather than being sliced mid-poster | |
+| P6 | **Detail** — the backdrop reads as artwork behind the panel (not a muddy wash), the hero poster is substantial, synopsis lines are short enough to scan, and related cards are legible | |
+| P7 | **Detail related row** — it spans the full width beneath the streams panel; D-pad reaches it and comes back without teleporting or trapping focus | |
+| P8 | **Episodes** — no double amber ring, and the related row never overlaps the side panel | |
+| P9 | **Search compose** — typing shows a preview of the highlighted suggestion under the keyboard (art at its own aspect, title and meta top-aligned); it tracks focus as you move down the list and hides cleanly when a suggestion has no art | |
+| P10 | **Search results** — a real grid that wraps; the sticky toolbar stays readable with titles fading beneath it rather than colliding; More loads the next page into the same grid | |
+| P11 | **Casing** — "mango", rail labels and eyebrows are lowercase throughout; no stray Title Case or ALL CAPS | |
+| P12 | **No regressions in motion** — focus movement still feels immediate on every surface; no new lag, flicker or reflow when posters load | |
+
+If a check fails, the plan document records why each choice was made and which
+knobs are pre-approved to adjust — prefer tuning the token over reverting a commit.
 
 ---
 

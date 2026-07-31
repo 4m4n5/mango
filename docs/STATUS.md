@@ -15,7 +15,7 @@ What works today, what is still being hardened, and how to verify it.
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
 | M5 Voice + AI | ◐ | Phase 3 ✓ · M5.5a corpus ✓ · **M5.5b round code ✓** · living librarian memory ✓ · couch sign-off pending |
-| M6 Ship | ◐ | M6.1 ✓ · M6.2 Pi-gated ✓ · Reliability Center ✓ · efficiency/perf Tiers 1–4 ✓ · **M6.5 round code ✓** · 4K Stage 2 validation · wizard pending |
+| M6 Ship | ◐ | M6.1 ✓ · M6.2 Pi-gated ✓ · Reliability Center ✓ · efficiency/perf Tiers 1–4 ✓ · **M6.5 round code ✓** · **launcher UX polish round code ✓ (`539ebdb`, couch sign-off pending)** · 4K Stage 2 validation · wizard pending |
 
 ---
 
@@ -24,7 +24,7 @@ What works today, what is still being hardened, and how to verify it.
 | Feature | Detail |
 |---------|--------|
 | Browse | Search magnifier · Movies · Series · Live · YouTube (L/R shoulders switch browse tabs) |
-| Grid/input | 9-up cards · Home `X` current-tab shuffle · Search `X` tap delete / 600 ms hold clear |
+| Grid/input | 5 posters / 4 landscape per rail, one row each · Home `X` current-tab shuffle · Search `X` tap delete / 600 ms hold clear |
 | Rails | YAML + AI catalog slots + Continue |
 | Service | `catalog-service :3020` · `GET /rails` |
 | Proxy | `serve.py` → `/api/catalog/*` |
