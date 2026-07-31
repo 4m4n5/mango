@@ -686,14 +686,54 @@ export class DetailController {
   private get sidePanel(): HTMLElement | null {
     if (this.sidePanelEl === undefined) {
       this.sidePanelEl = this.view.querySelector<HTMLElement>(".detail-side");
+      // Passive, and cheap: this panel has no `scroll-behavior: smooth`, so it jumps
+      // on focus changes rather than animating, and the handler fires at D-pad rate
+      // instead of once per frame. It is here rather than only in revealInSidePanel
+      // so the fade stays correct if anything else ever scrolls the panel.
+      this.sidePanelEl?.addEventListener("scroll", () => this.updateEdgeFade(), { passive: true });
     }
     return this.sidePanelEl;
+  }
+
+  /**
+   * Size the panel's top and bottom edge fades to the content actually hidden.
+   *
+   * Each band is "how much is out of view on this side", capped at
+   * `--panel-edge-fade`. That makes the fade structurally incapable of lying: it is 0
+   * at the top of the list, 0 at the bottom, and 0 when the list is short enough not
+   * to scroll — which was the specific failure of the container gradient this
+   * replaces, a fade sitting at full strength over the last row with nothing beneath
+   * it.
+   *
+   * It also removes the need to exempt the focused row. Centred focus keeps that row
+   * mid-panel, and at the clamped first and last rows the band on the side it is
+   * touching is 0, so its ring is never masked.
+   *
+   * Reports raw hidden distances and lets CSS cap them at `--panel-edge-fade`, rather
+   * than reading that token here. Custom properties come back as specified rather
+   * than resolved, so a `rem` band would need the root font size reconstructed in JS
+   * to be useful — this way the band stays a pure style decision and this method
+   * stays a pure measurement.
+   */
+  private updateEdgeFade(): void {
+    const panel = this.sidePanelEl;
+    if (!panel) {
+      return;
+    }
+    const hidden = Math.max(0, panel.scrollHeight - panel.clientHeight);
+    const above = Math.max(0, Math.min(panel.scrollTop, hidden));
+    panel.style.setProperty("--panel-hidden-top", `${above}px`);
+    panel.style.setProperty("--panel-hidden-bottom", `${hidden - above}px`);
   }
 
   private revealInSidePanel(el: HTMLElement): void {
     const panel = this.sidePanel;
     if (!panel || !panel.contains(el)) {
       el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      // Still refresh the fade. Arriving on the detail view focuses an action button,
+      // which is outside the panel, and without this the freshly rendered list keeps a
+      // 0px bottom band and hard-cuts its last visible row until focus first enters it.
+      this.updateEdgeFade();
       return;
     }
     const target = el.offsetTop - (panel.clientHeight - el.offsetHeight) / 2;
@@ -702,6 +742,10 @@ export class DetailController {
     // The vertical focus gutter keeps the ring intact in exactly those two cases.
     const max = panel.scrollHeight - panel.clientHeight;
     panel.scrollTop = Math.max(0, Math.min(target, max));
+    // Synchronously, not just via the scroll listener: assigning scrollTop queues the
+    // scroll event, so waiting for it would leave the mask a frame stale, and a row
+    // can visibly pop from masked to clear as focus lands on it.
+    this.updateEdgeFade();
   }
 
   private navigate(direction: "up" | "down" | "left" | "right"): void {

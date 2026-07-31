@@ -57,6 +57,9 @@ if 'scrollIntoView({ block: "nearest", inline: "nearest" })' not in detail:
 # be beam-aligned with the control focus left (was stream[4] / stream[8] of 14).
 if "entryTarget" not in detail or "panel.contains(from)" not in detail:
     raise SystemExit("detail.ts missing side-panel entry contract (entryTarget)")
+# The edge mask is only honest if its bands are recomputed from real scroll state.
+if "updateEdgeFade" not in detail or "--panel-hidden-bottom" not in detail:
+    raise SystemExit("detail.ts missing panel edge-fade measurement (updateEdgeFade)")
 if "class FocusGrid" not in focus:
     raise SystemExit("focus.ts missing FocusGrid class (home rails)")
 if "async refreshAfterPlayback" not in detail or "await this.loadEpisodeList(card)" not in detail:
@@ -204,13 +207,14 @@ required = (
     ".card.focused",
     ".detail-button.focused",
     ".detail-episode.focused",
-    # The per-row edge dissolve replaced a container gradient that drew a visible
-    # rectangle across the panel. Losing the keyframes brings the hard cut back.
-    "panel-row-dissolve",
-    # Focused rows must be exempt from that dissolve, or a focus ring can render at
-    # ~0.3 opacity when centring is clamped at the first or last row.
+    # The stream/episode panel fades its scroll edges with a mask, not opacity: the
+    # scrollport cuts rows along a straight line, and dimming a row does not stop it
+    # being cut. Losing this brings back a visible rectangular edge across the panel.
     # Exact minified form, verified against dist rather than guessed.
-    ".detail-episode:focus-visible{animation:none;opacity:1;scale:1",
+    "min(var(--panel-hidden-top),var(--panel-edge-fade))",
+    # The band must stay driven by real hidden content, or the fade starts claiming
+    # there is more below when there is not.
+    "--panel-hidden-bottom",
     ".voice-hud",
     "safe-area-inset-bottom",
     "--focus-gutter",

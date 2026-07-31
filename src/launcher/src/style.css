@@ -81,7 +81,11 @@
      Roughly one row's height, so a row is meaningfully faded before its edge is
      reached; shorter reads as a flicker, longer dims rows you are still choosing
      between. Tunable — see docs/tasks/ux-round/07-handoff-protocol.md. */
-  --panel-dissolve-band: 6rem;
+  /* How far content dissolves at the top and bottom of the stream/episode panel.
+     3rem is about half a row: enough to read as "this continues", short enough that
+     it never eats a row you were choosing between. Consumed by --panel-fade-top /
+     --panel-fade-bottom, which detail.ts clamps to the content actually hidden. */
+  --panel-edge-fade: 3rem;
   --rail-accent-width: 3px;
   /* 48px + a 30px label + a 20px header gap puts ~98px between one row's bottom
      and the next row's artwork, which is the ~100px tvOS asks for between titled
@@ -2161,6 +2165,37 @@ h1 {
   overflow-y: auto;
   overflow-x: clip;
   scrollbar-width: none;
+  /* Edge fade, same mechanism the season rail already uses on its horizontal axis.
+     A mask rather than opacity, because the problem is geometric: the scrollport cuts
+     a row along a straight line, and dimming a row does not stop it being cut — you
+     get a faded row with a hard edge through it, which is what the earlier per-row
+     opacity dissolve produced. A mask removes the pixels, so content dissolves into
+     whatever is actually behind the panel instead of toward an assumed colour.
+     updateEdgeFade() in detail.ts writes how much content is genuinely hidden above
+     and below; the min() here caps each side at --panel-edge-fade. Splitting it that
+     way keeps the band a style decision and the measurement a script one.
+     Because the bands track real hidden content they are 0 at the top, 0 at the
+     bottom, and 0 whenever the list does not overflow — so the fade can never claim
+     there is more to see than there is, which is exactly how the container gradient
+     that came before this lied. It also means the focused row can never be masked:
+     centred focus keeps it away from the bands, and at the clamped first and last
+     rows the band on the side it touches is 0 by construction. No exemption needed. */
+  --panel-hidden-top: 0px;
+  --panel-hidden-bottom: 0px;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 min(var(--panel-hidden-top), var(--panel-edge-fade)),
+    #000 calc(100% - min(var(--panel-hidden-bottom), var(--panel-edge-fade))),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 min(var(--panel-hidden-top), var(--panel-edge-fade)),
+    #000 calc(100% - min(var(--panel-hidden-bottom), var(--panel-edge-fade))),
+    transparent 100%
+  );
 }
 
 /* The container gradient that used to live here is gone. It softened the hard cut
@@ -2170,159 +2205,16 @@ h1 {
    also lied at rest, sitting at full strength with the last row half-swallowed when
    there was nothing below it at all.
 
-   The replacement is `.detail-stream`/`.detail-episode` dissolving on their own
-   `view()` timelines further down. The cue becomes a property of the rows rather
-   than an overlay on their container, so no rectangle is ever drawn. */
+   Per-row `view()` opacity dissolves replaced it and were in turn replaced by the
+   mask on `.detail-side` above. Opacity was the wrong tool twice over: dimming a row
+   does not stop the scrollport cutting it, so a dissolving row still had a straight
+   edge sliced through it. Only a mask removes the pixels. */
 .detail-side::-webkit-scrollbar {
   display: none;
 }
 
 .detail-side:not(:has(> :not([hidden]))) {
   display: none;
-}
-
-/* Edge dissolve — replaces the container gradient.
-   Each row animates its own opacity/scale against its visibility inside the
-   scrollport, so a row leaving the panel fades out instead of being guillotined by
-   a rectangle. Compositor-threaded in Chromium as long as only `opacity` and
-   `scale` are keyframed (Chrome for Developers, scroll-driven animations), which is
-   what the home rails already prove on this Pi.
-
-   `scale` rather than `transform`: focus lift owns `transform` on these same rows
-   and the two would clobber each other as one property.
-
-   The dissolve band is padded onto the list below, so the first and last rows sit
-   in clear space and never dim — a row only ever fades when content really does
-   continue past it. */
-@supports (animation-timeline: view()) {
-  .detail-stream-list,
-  .detail-episode-list {
-    /* Equal to the fade distance in the keyframes: gives the band somewhere to fall
-       at the extremes other than on a real row. The negative margin cancels its
-       effect on the resting layout, so the list still starts flush under its
-       label. */
-    padding-block: var(--panel-dissolve-band);
-    margin-block: calc(-1 * var(--panel-dissolve-band));
-  }
-
-  .detail-stream,
-  .detail-episode {
-    animation: panel-row-dissolve linear both;
-    animation-timeline: view(block);
-    animation-range: cover 0% cover 100%;
-  }
-
-  /* The focused row is exempt, unconditionally. Centred focus already keeps it out
-     of the bands, but at the clamped first/last row it can sit inside one, and a
-     focus ring at 33% opacity (measured, before this rule) is not a focus ring. */
-  .detail-stream.focused,
-  .detail-stream:focus-visible,
-  .detail-episode.focused,
-  .detail-episode:focus-visible {
-    animation: none;
-    opacity: 1;
-    scale: 1;
-  }
-
-  /* A row is partially outside the scrollport during the first and last
-     rowHeight/(portHeight + rowHeight) of its range — about 14% at a 90px row in a
-     556px panel. So 16%/84% is the plateau where the row is whole.
-
-     The curve is deliberately not a linear ramp across the cut region. Linear is
-     brightest at the exact moment the edge starts cutting the row, which measured
-     0.69 opacity on a half-cut row — bright enough to read as severed content. It
-     instead drops fast to a held ghost (~0.3) and stays there while the row is
-     partially outside, so a clipped row always looks like it is fading away rather
-     than like it was sliced. Holding rather than ramping also makes the effect
-     independent of where the edge happens to fall, which matters because the panel
-     cannot centre the first and last rows and their phase differs. */
-  @keyframes panel-row-dissolve {
-    0% {
-      opacity: 0;
-      scale: 0.94;
-    }
-
-    3% {
-      opacity: 0.12;
-      scale: 0.95;
-    }
-
-    13% {
-      opacity: 0.3;
-      scale: 0.97;
-    }
-
-    16% {
-      opacity: 1;
-      scale: 1;
-    }
-
-    84% {
-      opacity: 1;
-      scale: 1;
-    }
-
-    87% {
-      opacity: 0.3;
-      scale: 0.97;
-    }
-
-    97% {
-      opacity: 0.12;
-      scale: 0.95;
-    }
-
-    100% {
-      opacity: 0;
-      scale: 0.94;
-    }
-  }
-
-  /* Opacity carries the "more here" cue on its own; the scale travel is the part
-     that reads as motion, so that is the part that goes. */
-  @media (prefers-reduced-motion: reduce) {
-    @keyframes panel-row-dissolve {
-      0% {
-        opacity: 0;
-        scale: 1;
-      }
-
-      3% {
-        opacity: 0.12;
-        scale: 1;
-      }
-
-      13% {
-        opacity: 0.3;
-        scale: 1;
-      }
-
-      16% {
-        opacity: 1;
-        scale: 1;
-      }
-
-      84% {
-        opacity: 1;
-        scale: 1;
-      }
-
-      87% {
-        opacity: 0.3;
-        scale: 1;
-      }
-
-      97% {
-        opacity: 0.12;
-        scale: 1;
-      }
-
-      100% {
-        opacity: 0;
-        scale: 1;
-      }
-    }
-  }
 }
 
 .detail-panels {
