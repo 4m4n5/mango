@@ -302,18 +302,49 @@ export type TabRailItemsResponse = {
   stale?: boolean;
 };
 
+// One more than the launcher's six-column rail: below this a shuffle would only
+// reorder titles the user can already see, which is churn rather than discovery.
+// Continue is capped at 12 upstream and Saved at 100, so both can clear it.
+const USER_STATE_SHUFFLE_MIN_ITEMS = 7;
+
+function shuffledUserStateItems(items: RailItem[]): RailItem[] {
+  const output = [...items];
+  for (let index = output.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    [output[index], output[swap]] = [output[swap], output[index]];
+  }
+  return output;
+}
+
+/**
+ * Saved is ordered by save time and shuffles freely. Continue is a resume queue,
+ * so its most-recent entry stays pinned to the first slot and only the tail
+ * rotates — a shuffle must never bury the title the user was last watching.
+ */
+function reshuffleUserStateRail(rail: RailItemsResponse, pinMostRecent: boolean): RailItemsResponse {
+  if (rail.items.length < USER_STATE_SHUFFLE_MIN_ITEMS) {
+    return rail;
+  }
+  if (!pinMostRecent) {
+    return { ...rail, items: shuffledUserStateItems(rail.items) };
+  }
+  const [mostRecent, ...rest] = rail.items;
+  return { ...rail, items: [mostRecent, ...shuffledUserStateItems(rest)] };
+}
+
 export function mergeUserStateRails(
   discoveryRails: RailItemsResponse[],
   continueRail: RailItemsResponse,
   savedRail: RailItemsResponse,
+  options: { reshuffle?: boolean } = {},
 ): RailItemsResponse[] {
   const visibleRails = discoveryRails.filter((rail) => rail.items.length > 0);
   const prefix: RailItemsResponse[] = [];
   if (continueRail.items.length > 0) {
-    prefix.push(continueRail);
+    prefix.push(options.reshuffle ? reshuffleUserStateRail(continueRail, true) : continueRail);
   }
   if (savedRail.items.length > 0) {
-    prefix.push(savedRail);
+    prefix.push(options.reshuffle ? reshuffleUserStateRail(savedRail, false) : savedRail);
   }
   return [...prefix, ...visibleRails];
 }
@@ -2024,7 +2055,7 @@ export class CatalogCore {
     ]);
 
     const responses = railResponses.filter((rail): rail is RailItemsResponse => rail !== null);
-    const visibleRails = mergeUserStateRails(responses, continueRail, savedRail);
+    const visibleRails = mergeUserStateRails(responses, continueRail, savedRail, { reshuffle });
 
     const payload: TabRailItemsResponse = {
       tab,
