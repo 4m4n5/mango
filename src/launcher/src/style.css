@@ -77,6 +77,11 @@
   --space-stack: 1rem;
   --space-stack-lg: 1.5rem;
   --detail-related-gap: 1.15rem;
+  /* Distance over which a stream/episode row dissolves as it leaves the side panel.
+     Roughly one row's height, so a row is meaningfully faded before its edge is
+     reached; shorter reads as a flicker, longer dims rows you are still choosing
+     between. Tunable — see docs/tasks/ux-round/07-handoff-protocol.md. */
+  --panel-dissolve-band: 6rem;
   --rail-accent-width: 3px;
   /* 48px + a 30px label + a 20px header gap puts ~98px between one row's bottom
      and the next row's artwork, which is the ~100px tvOS asks for between titled
@@ -1633,8 +1638,14 @@ h1 {
   overflow-wrap: anywhere;
 }
 
+/* Scoped to the detail view rather than changing the global `.eyebrow`, which the
+   next-episode prompt and settings masthead also use.
+   Dropped from accent to secondary: this line names the rail the user arrived from,
+   which is provenance rather than status, and it was one of the amber elements
+   competing with the focus ring on a view that has only one focused control. */
 .detail-copy .eyebrow {
   margin: 0;
+  color: var(--text-secondary);
   font-size: var(--text-caption);
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -2134,37 +2145,184 @@ h1 {
   max-height: 100%;
   min-height: 0;
   /* Inset scrollport so stream/episode focus rings (same as home cards) are
-     not clipped on the left/right rail edge. */
+     not clipped on the left/right rail edge.
+     The block axis needs the same inset and did not have it: measured 0px of
+     footroom for 9 of 14 stream rows, which cut the 3px ring and its 14px glow at
+     the bottom edge every time focus moved past the fifth row. Centred focus
+     (revealInSidePanel) keeps the focused row away from the edges in the general
+     case; this covers the first and last rows, where centring is clamped and the
+     row genuinely does sit at the boundary.
+     Negative margin so the inset buys ring headroom without also pushing the
+     panel's content inward — the column's visual alignment with the hero is
+     unchanged. */
+  padding-block: var(--focus-gutter);
+  margin-block: calc(-1 * var(--focus-gutter));
   padding-inline: var(--focus-gutter);
   overflow-y: auto;
   overflow-x: clip;
   scrollbar-width: none;
 }
 
-/* The panel no longer runs the full height of the view, so its list is cut at the
-   scrollport edge and a half-row of an episode reads as breakage rather than as
-   "more below". Sticky rather than a mask on the panel: a mask would fade the focus
-   ring of whichever row sits at the edge, and losing the ring is worse than the
-   hard cut it fixes. */
-.detail-side::after {
-  content: "";
-  position: sticky;
-  bottom: calc(-1 * var(--focus-gutter));
-  z-index: 1;
-  flex: 0 0 auto;
-  height: 2.5rem;
-  margin-block-start: calc(-2.5rem - var(--space-stack-lg));
-  margin-inline: calc(-1 * var(--focus-gutter));
-  background: linear-gradient(to top, var(--bg-base), transparent);
-  pointer-events: none;
-}
+/* The container gradient that used to live here is gone. It softened the hard cut
+   at the scrollport edge, but a gradient laid across the box necessarily draws the
+   box: it painted a horizontal band the full width of the panel, which read as a
+   visible rectangular boundary rather than as content continuing past the edge. It
+   also lied at rest, sitting at full strength with the last row half-swallowed when
+   there was nothing below it at all.
 
+   The replacement is `.detail-stream`/`.detail-episode` dissolving on their own
+   `view()` timelines further down. The cue becomes a property of the rows rather
+   than an overlay on their container, so no rectangle is ever drawn. */
 .detail-side::-webkit-scrollbar {
   display: none;
 }
 
 .detail-side:not(:has(> :not([hidden]))) {
   display: none;
+}
+
+/* Edge dissolve — replaces the container gradient.
+   Each row animates its own opacity/scale against its visibility inside the
+   scrollport, so a row leaving the panel fades out instead of being guillotined by
+   a rectangle. Compositor-threaded in Chromium as long as only `opacity` and
+   `scale` are keyframed (Chrome for Developers, scroll-driven animations), which is
+   what the home rails already prove on this Pi.
+
+   `scale` rather than `transform`: focus lift owns `transform` on these same rows
+   and the two would clobber each other as one property.
+
+   The dissolve band is padded onto the list below, so the first and last rows sit
+   in clear space and never dim — a row only ever fades when content really does
+   continue past it. */
+@supports (animation-timeline: view()) {
+  .detail-stream-list,
+  .detail-episode-list {
+    /* Equal to the fade distance in the keyframes: gives the band somewhere to fall
+       at the extremes other than on a real row. The negative margin cancels its
+       effect on the resting layout, so the list still starts flush under its
+       label. */
+    padding-block: var(--panel-dissolve-band);
+    margin-block: calc(-1 * var(--panel-dissolve-band));
+  }
+
+  .detail-stream,
+  .detail-episode {
+    animation: panel-row-dissolve linear both;
+    animation-timeline: view(block);
+    animation-range: cover 0% cover 100%;
+  }
+
+  /* The focused row is exempt, unconditionally. Centred focus already keeps it out
+     of the bands, but at the clamped first/last row it can sit inside one, and a
+     focus ring at 33% opacity (measured, before this rule) is not a focus ring. */
+  .detail-stream.focused,
+  .detail-stream:focus-visible,
+  .detail-episode.focused,
+  .detail-episode:focus-visible {
+    animation: none;
+    opacity: 1;
+    scale: 1;
+  }
+
+  /* A row is partially outside the scrollport during the first and last
+     rowHeight/(portHeight + rowHeight) of its range — about 14% at a 90px row in a
+     556px panel. So 16%/84% is the plateau where the row is whole.
+
+     The curve is deliberately not a linear ramp across the cut region. Linear is
+     brightest at the exact moment the edge starts cutting the row, which measured
+     0.69 opacity on a half-cut row — bright enough to read as severed content. It
+     instead drops fast to a held ghost (~0.3) and stays there while the row is
+     partially outside, so a clipped row always looks like it is fading away rather
+     than like it was sliced. Holding rather than ramping also makes the effect
+     independent of where the edge happens to fall, which matters because the panel
+     cannot centre the first and last rows and their phase differs. */
+  @keyframes panel-row-dissolve {
+    0% {
+      opacity: 0;
+      scale: 0.94;
+    }
+
+    3% {
+      opacity: 0.12;
+      scale: 0.95;
+    }
+
+    13% {
+      opacity: 0.3;
+      scale: 0.97;
+    }
+
+    16% {
+      opacity: 1;
+      scale: 1;
+    }
+
+    84% {
+      opacity: 1;
+      scale: 1;
+    }
+
+    87% {
+      opacity: 0.3;
+      scale: 0.97;
+    }
+
+    97% {
+      opacity: 0.12;
+      scale: 0.95;
+    }
+
+    100% {
+      opacity: 0;
+      scale: 0.94;
+    }
+  }
+
+  /* Opacity carries the "more here" cue on its own; the scale travel is the part
+     that reads as motion, so that is the part that goes. */
+  @media (prefers-reduced-motion: reduce) {
+    @keyframes panel-row-dissolve {
+      0% {
+        opacity: 0;
+        scale: 1;
+      }
+
+      3% {
+        opacity: 0.12;
+        scale: 1;
+      }
+
+      13% {
+        opacity: 0.3;
+        scale: 1;
+      }
+
+      16% {
+        opacity: 1;
+        scale: 1;
+      }
+
+      84% {
+        opacity: 1;
+        scale: 1;
+      }
+
+      87% {
+        opacity: 0.3;
+        scale: 1;
+      }
+
+      97% {
+        opacity: 0.12;
+        scale: 1;
+      }
+
+      100% {
+        opacity: 0;
+        scale: 1;
+      }
+    }
+  }
 }
 
 .detail-panels {
@@ -2431,8 +2589,13 @@ h1 {
   margin: 0;
   padding: 0.28rem 0.7rem;
   border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
+  /* Green, not amber, and the same green as the "cached" stream chip. Both facts
+     answer the same question — is this ready to play right now — so they should not
+     be two different colours, and neither should be wearing the focus colour.
+     Status on this view now reads as a small coherent system: green ready, blue in
+     progress (the queued state below), red-shifted a decode risk, amber focus only. */
+  background: rgba(80, 220, 150, 0.16);
+  color: #66e0a3;
   font-size: var(--text-micro);
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -2606,22 +2769,46 @@ h1 {
   min-width: 0;
 }
 
+.detail-streams-summary {
+  text-transform: none;
+}
+
+/* Resolution is ranked on the neutral ramp, not in accent.
+   These badges were amber — 12 of the 17 amber elements on this view, against
+   exactly one that meant focus. On a surface where the focus ring is the only thing
+   that has to be found from three metres, accent spent on static status is accent
+   taken from focus, and a focused row's amber ring sat inches from amber badges on
+   every other row. Rank now reads through brightness and fill weight, which is a
+   monotonic scale the eye resolves at distance without colour. */
 .detail-stream-res {
   flex: 0 0 auto;
-  min-width: 3.2rem;
+  /* 2.6rem, not 3.2rem. The floor was only ever reached by the two shortest labels
+     ("4K", "SD") — 1080p and 720p size themselves at 90px and 75px — so it was not
+     buying column alignment, just padding the shortest badges. Lowering it returns
+     ~10px to the chip row on exactly the 4K rows that were overflowing, which is
+     what keeps the tier chip from having to abbreviate. */
+  min-width: 2.6rem;
   padding: 0.2rem 0.5rem;
   border-radius: 8px;
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
   font-size: var(--text-caption);
   font-weight: 900;
   letter-spacing: 0.02em;
   text-align: center;
 }
 
+/* Top of the ladder gets the brightest treatment available in the neutral ramp:
+   a filled chip with primary-weight text, so it still announces itself. */
 .detail-stream-res[data-res="4k"] {
-  background: var(--accent);
-  color: var(--bg-base);
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text-primary);
+}
+
+.detail-stream-res[data-res="1440p"],
+.detail-stream-res[data-res="1080p"] {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-primary);
 }
 
 .detail-stream-chip {
@@ -2636,15 +2823,45 @@ h1 {
   white-space: nowrap;
 }
 
-.detail-stream-chip--hdr {
-  background: rgba(255, 196, 84, 0.16);
-  color: #ffcf7a;
+/* Was gold (#ffcf7a on amber-tinted fill). Close enough to the accent in hue that
+   it read as part of the same family as the focus ring, which is the confusion the
+   resolution-badge change above exists to remove. HDR still needs to stand out from
+   the plain facts beside it, so it keeps a filled chip — just on the neutral ramp. */
+/* The one chip in the row allowed to shrink, so that when a stream carries an
+   unusually full set (4K + WEB-DL + HDR + cached, and worse combinations exist in
+   the wild) the overflow is absorbed by the least decision-relevant item instead of
+   slicing the most relevant one off the right edge — which is what used to happen
+   to "cached" on 12 of 14 rows. Release provenance is also the chip the file size on
+   the line below partly implies, so it is the cheapest thing to abbreviate.
+   Every row in the current fixture still fits without shrinking; this is the guard
+   for the ones that do not. */
+.detail-stream-chip--tier {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
+.detail-stream-chip--hdr {
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--text-primary);
+}
+
+/* Green is the one colour left carrying meaning in this row, and it means "starts
+   now" — the single most useful fact when picking a stream from the couch. */
 .detail-stream-chip--cache {
   background: rgba(80, 220, 150, 0.16);
   color: #66e0a3;
   text-transform: lowercase;
+}
+
+/* Shown only when the codec cannot be hardware-decoded at this resolution, i.e.
+   when picking this stream means software decode at ~0.52x realtime. That is a
+   warning, not a specification, so it is the one chip allowed to look alarming.
+   Deliberately red-shifted rather than amber: amber means focus here. */
+.detail-stream-chip--codec-risk {
+  background: rgba(255, 120, 100, 0.16);
+  color: #ff9b8a;
 }
 
 .detail-stream-secondary {

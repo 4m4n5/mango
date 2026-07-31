@@ -23,7 +23,8 @@ import {
   type PlaybackOrigin,
 } from "./playback-return";
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
-import { formatRailLabel } from "./home";
+import { formatRailLabel, posterRevealMeta } from "./home";
+import { MINIMAL_VOD_POSTER_LABELS } from "./ui-flags";
 import { showToast } from "./toast";
 import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
 import { recoverTimedOutStreamList } from "./stream-list-recovery";
@@ -59,6 +60,8 @@ export type DetailOriginContext = {
 export class DetailController {
   private card: ContentCard | null = null;
   private focusedEl: HTMLElement | null = null;
+  /** `undefined` = not looked up yet, `null` = looked up and absent. */
+  private sidePanelEl: HTMLElement | null | undefined = undefined;
   private playToken = 0;
   private playAbort: AbortController | null = null;
   private streams: CatalogStream[] = [];
@@ -656,8 +659,49 @@ export class DetailController {
   private focusEl(el: HTMLElement): void {
     this.focusedEl = el;
     el.focus({ preventScroll: true });
-    requestAnimationFrame(() => el.scrollIntoView({ block: "nearest", inline: "nearest" }));
+    requestAnimationFrame(() => this.revealInSidePanel(el));
     this.onGridFocused(el);
+  }
+
+  /**
+   * Scroll the side panel so the focused row sits at its vertical centre.
+   *
+   * `scrollIntoView({ block: "nearest" })` cannot be used here. "Nearest" scrolls
+   * the minimum distance needed to make the row visible, which parks it flush
+   * against the edge it entered from — measured at 0px of footroom for 9 of 14
+   * stream rows, clipping the 3px focus ring and its 14px glow, since the panel
+   * carries `--focus-gutter` on the inline axis only. Centring is also what makes
+   * the per-item edge dissolve safe: the focused row is structurally incapable of
+   * being in a dissolve band, so its ring can never be faded.
+   *
+   * A centred row's offset is a pure function of its index, so every resting
+   * position lands on the same sub-pixel phase and the partially-visible rows at
+   * the edges are always cut in the same place. That is what makes the cut read as
+   * deliberate rather than as breakage.
+   *
+   * Rows outside the panel (action buttons, related posters) keep the default
+   * behaviour — they are not in a scrollport that clips.
+   */
+  /** The scrolling column that holds the stream / episode lists. */
+  private get sidePanel(): HTMLElement | null {
+    if (this.sidePanelEl === undefined) {
+      this.sidePanelEl = this.view.querySelector<HTMLElement>(".detail-side");
+    }
+    return this.sidePanelEl;
+  }
+
+  private revealInSidePanel(el: HTMLElement): void {
+    const panel = this.sidePanel;
+    if (!panel || !panel.contains(el)) {
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return;
+    }
+    const target = el.offsetTop - (panel.clientHeight - el.offsetHeight) / 2;
+    // Clamped: at the first and last rows there is nothing left to scroll, so the
+    // row sits off-centre by design rather than the panel inventing empty space.
+    // The vertical focus gutter keeps the ring intact in exactly those two cases.
+    const max = panel.scrollHeight - panel.clientHeight;
+    panel.scrollTop = Math.max(0, Math.min(target, max));
   }
 
   private navigate(direction: "up" | "down" | "left" | "right"): void {
@@ -785,16 +829,15 @@ export class DetailController {
       return;
     }
     this.relatedLabel.textContent = "related titles";
+    // The provenance line ("from continue watching") is deliberately gone. It was
+    // restating where the user just came from, which they know, and its 28px was
+    // taken out of the stream/episode panel directly above — the one place on this
+    // view that is actually short of room. The element stays in index.html and is
+    // kept blank so the label's own layout is unaffected.
     const contextEl = this.relatedWrap.querySelector<HTMLElement>("#detail-related-context");
-    const context = formatRailLabel(railLabel).toLowerCase();
     if (contextEl) {
-      if (railLabel.trim().toLowerCase() === "voice" || !context) {
-        contextEl.hidden = true;
-        contextEl.textContent = "";
-      } else {
-        contextEl.hidden = false;
-        contextEl.textContent = `from ${context}`;
-      }
+      contextEl.hidden = true;
+      contextEl.textContent = "";
     }
     for (const sibling of siblings) {
       const button = this.createRelatedCard(sibling, railLabel, tab);
@@ -811,7 +854,14 @@ export class DetailController {
   ): HTMLButtonElement {
     const button = document.createElement("button");
     button.type = "button";
-    button.className = "card card--poster card--portrait card--related";
+    // Same reveal-on-focus treatment as the home rails: a wall of permanently
+    // labelled posters is duplicated text noise, since the art carries the title.
+    // Gated on tab exactly as home.ts gates it, so the two surfaces cannot drift
+    // into showing labels under different conditions.
+    const minimalLabels = MINIMAL_VOD_POSTER_LABELS && (tab === "movies" || tab === "series");
+    button.className = minimalLabels
+      ? "card card--poster card--portrait card--related card--poster-minimal"
+      : "card card--poster card--portrait card--related";
     button.dataset.focusKey = `detail:related:${sibling.type}:${sibling.id}`;
     button.setAttribute("role", "listitem");
     button.setAttribute("aria-label", `${sibling.title}, ${sibling.subtitle}`);
@@ -830,7 +880,7 @@ export class DetailController {
 
     const subtitle = document.createElement("span");
     subtitle.className = "card-subtitle";
-    subtitle.textContent = sibling.subtitle;
+    subtitle.textContent = minimalLabels ? posterRevealMeta(sibling) : sibling.subtitle;
 
     const content = document.createElement("span");
     content.className = "poster-content";
@@ -1491,7 +1541,18 @@ export class DetailController {
     this.streamsWrap.classList.toggle("detail-streams--unverified", floorOnly);
     const streamsLabel = this.streamsWrap.querySelector(".detail-streams-label");
     if (streamsLabel) {
-      streamsLabel.textContent = floorOnly ? "streams · unverified" : "streams";
+      if (floorOnly) {
+        streamsLabel.textContent = "streams · unverified";
+      } else {
+        // The label is lowercased by the shared rail-label style, which would render
+        // the range as "4k-sd". Resolution names are proper nouns here and have to
+        // match the badges in the rows below, so the summary opts out of the
+        // transform in its own span.
+        const summary = document.createElement("span");
+        summary.className = "detail-streams-summary";
+        summary.textContent = streamLadderSummary(this.streams);
+        streamsLabel.replaceChildren(document.createTextNode("streams · "), summary);
+      }
     }
     for (const stream of this.streams) {
       this.streamList.append(this.createStreamButton(stream));
@@ -1763,19 +1824,75 @@ function streamHdrLabel(stream: CatalogStream): string | null {
     : "";
   if (!tags) return null;
   if (tags.includes("dv") || tags.includes("dolby")) return "DV";
-  if (tags.includes("hdr10+")) return "HDR10+";
-  if (tags.includes("hdr10")) return "HDR10";
   if (tags.includes("hlg")) return "HLG";
+  // HDR10 and HDR10+ collapse to one label. The distinction is real in the file and
+  // meaningless on this box: the X11 output path cannot emit HDR at all, and the
+  // Kodi path that can emits HDR10 either way (docs/tasks/m6-4k-fidelity.md). Dolby
+  // Vision stays separate because the ladder does treat it differently — it must
+  // never pick a DV-only stream. Collapsing also reclaims up to 46px of a 332px
+  // chip row that was overflowing and slicing "cached" off the end.
   if (tags.includes("hdr")) return "HDR";
   return null;
+}
+
+/**
+ * Does the codec change whether this stream will actually play well here?
+ *
+ * The Pi 5's BCM2712 hardware-decodes HEVC only (4Kp60, 8- and 10-bit); H.264,
+ * AV1 and VP9 are software-decoded — "Other CODECs run in software" per the
+ * BCM2712 documentation. Measured on a 4K remux, software decode runs ~0.52x
+ * realtime against 1.4-1.8x for hardware, which is why the play ladder enforces
+ * `require_hevc` above 1080p (docs/tasks/m6-4k-fidelity.md).
+ *
+ * So at 4K, a non-HEVC codec is the single most important fact about a stream, and
+ * at 1080p and below software decode is comfortable and the codec is trivia. The
+ * chip earns its place in the first row only in the former case — which is also
+ * what keeps that row inside its 336px column instead of overflowing by up to
+ * 109px and slicing the "cached" chip off the end.
+ */
+function codecIsDecodeRisk(stream: CatalogStream): boolean {
+  const resolution = streamResolutionLabel(stream);
+  if (resolution !== "4K") {
+    return false;
+  }
+  const codec = streamCodecLabel(stream);
+  return codec !== null && codec !== "HEVC";
+}
+
+/** Best-to-worst, so a range reads in the direction the list is sorted. */
+const RESOLUTION_RANK = ["4K", "1440p", "1080p", "720p", "SD", "auto"];
+
+/**
+ * "14 · 4K–SD" — how many options there are, and how far the ladder actually
+ * reaches.
+ *
+ * The panel shows five rows of a list sorted best-first, so on a well-served title
+ * every visible row is 4K and the panel silently implies that is all there is. The
+ * count says there is more; the range says what kind of more, which is the part
+ * that decides whether scrolling is worth it.
+ */
+function streamLadderSummary(streams: CatalogStream[]): string {
+  const present = streams.map(streamResolutionLabel);
+  const ranked = RESOLUTION_RANK.filter((label) => present.includes(label));
+  const count = `${streams.length}`;
+  if (ranked.length === 0) {
+    return count;
+  }
+  const best = ranked[0];
+  const worst = ranked[ranked.length - 1];
+  return best === worst ? `${count} · ${best}` : `${count} · ${best}–${worst}`;
 }
 
 function streamQualityChips(stream: CatalogStream): Array<{ kind: string; text: string }> {
   const chips: Array<{ kind: string; text: string }> = [];
   const tier = streamTierLabel(stream);
   if (tier) chips.push({ kind: "tier", text: tier });
-  const codec = streamCodecLabel(stream);
-  if (codec) chips.push({ kind: "codec", text: codec });
+  if (codecIsDecodeRisk(stream)) {
+    const codec = streamCodecLabel(stream);
+    // Styled as a caution rather than a neutral fact: at 4K this codec means the
+    // Pi has to decode in software, which it cannot do at realtime.
+    if (codec) chips.push({ kind: "codec-risk", text: codec });
+  }
   const hdr = streamHdrLabel(stream);
   if (hdr) chips.push({ kind: "hdr", text: hdr });
   if (stream.cache_status === "cached") chips.push({ kind: "cache", text: "cached" });
@@ -1816,6 +1933,12 @@ function streamAriaLabel(stream: CatalogStream, unverified: boolean): string {
     streamResolutionLabel(stream),
     ...streamQualityChips(stream).map((chip) => chip.text),
   ];
+  // The visible chip row drops the codec unless it is a decode risk, purely to fit
+  // 336px. The accessible name has no such budget, so it always states the codec.
+  const codec = streamCodecLabel(stream);
+  if (codec && !codecIsDecodeRisk(stream)) {
+    parts.push(codec);
+  }
   const languages = streamLanguageList(stream);
   if (languages.length > 0) {
     parts.push(`audio ${languages.slice(0, 3).join(", ")}`);

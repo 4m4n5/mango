@@ -262,8 +262,11 @@ const BARE_TYPE_SUBTITLES = new Set(["movie", "movies", "tv", "tv show", "tv sho
  * year but puts progress there instead, which is more useful than a year would be
  * on a title you are part-way through. A bare content type is dropped: on the
  * Movies tab, "movie" is not information.
+ *
+ * Exported because the detail view's related row reveals labels the same way, and
+ * two copies of this rule would drift.
  */
-function posterRevealMeta(card: ContentCard): string {
+export function posterRevealMeta(card: ContentCard): string {
   if (card.year !== undefined && card.year !== null && String(card.year).trim()) {
     return String(card.year).trim();
   }
