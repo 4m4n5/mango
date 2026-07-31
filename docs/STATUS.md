@@ -24,7 +24,7 @@ What works today, what is still being hardened, and how to verify it.
 | Feature | Detail |
 |---------|--------|
 | Browse | Search magnifier · Movies · Series · Live · YouTube (L/R shoulders switch browse tabs) |
-| Grid/input | 5 posters / 4 landscape per rail, one row each · Home `X` current-tab shuffle · Search `X` tap delete / 600 ms hold clear |
+| Grid/input | 6 posters / 4 landscape per rail, one row each · Home `X` current-tab shuffle (incl. Saved + Continue tail) · Search `X` tap delete / 600 ms hold clear |
 | Rails | YAML + AI catalog slots + Continue |
 | Service | `catalog-service :3020` · `GET /rails` |
 | Proxy | `serve.py` → `/api/catalog/*` |

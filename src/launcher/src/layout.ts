@@ -1,7 +1,9 @@
-// Five 2:3 posters per row is where Prime Video, Disney+ and tvOS poster rows
-// converge: 314x471px at 1080p with 96px safe margins and 40px gutters. Nine was
-// 174x261px, below the ~255-280px floor platform research gives for 3m viewing.
-export const RAIL_COLUMNS = 5;
+// Six 2:3 posters per row: 255x382px at 1080p with 96px safe margins and 40px
+// gutters. Five (314x471px) is where Prime Video, Disney+ and tvOS converge, but
+// six trades that headroom for one more title per rail and still clears the
+// ~248-255px floor platform research gives for 3m viewing. Do not go past six —
+// seven lands at 217px, inside the band guidance calls too small for poster art.
+export const RAIL_COLUMNS = 6;
 // Four 16:9 cards per row is the documented Android TV target (196dp = 392px at
 // 1080p) and what YouTube on TV shows; six landed at 227px wide, inside the band
 // platform guidance calls too small for a card carrying title text.

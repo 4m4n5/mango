@@ -17,7 +17,7 @@ while the user types.
 - Submitted results arrive progressively as Top Results, Movies, TV Shows,
   Live, YouTube, More Movies & Shows, and optional Related to Your Search.
 - Page sizes are derived from the rendered column count so a group always fills
-  whole rows: poster groups are five-wide over two rows (10 per page), landscape
+  whole rows: poster groups are six-wide over two rows (12 per page), landscape
   and YouTube groups four-wide over three rows (12 per page), and the Top Results
   summary is capped at 8. When more cached results remain, the final slot becomes
   an in-grid More tile. More reveals the next local snapshot page without another

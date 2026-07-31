@@ -26,7 +26,7 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch s
 
 | # | Action | Pass? |
 |---|--------|-------|
-| 1 | **Movies** tab loads rails of **5 posters, one row each** — no second row, no half-card peeking inside a rail | |
+| 1 | **Movies** tab loads rails of **6 posters, one row each** — no second row, no half-card peeking inside a rail | |
 | 2 | **L/R shoulders** switch Movies ↔ Series ↔ Live | |
 | 3 | **X current-tab shuffle** (pad `307`) — only the visible Home tab changes, no rate-limit text | |
 | 3a | After returning from playback, X still shuffles the visible Home tab even if mpv teardown is briefly pending; it never opens Streams or reloads Chromium | |
@@ -468,6 +468,26 @@ Spec: [tasks/ux-round/10-polish-plan.md](tasks/ux-round/10-polish-plan.md) · su
 | P10 | **Search results** — a real grid that wraps; the sticky toolbar stays readable with titles fading beneath it rather than colliding; More loads the next page into the same grid | |
 | P11 | **Casing** — "mango", rail labels and eyebrows are lowercase throughout; no stray Title Case or ALL CAPS | |
 | P12 | **No regressions in motion** — focus movement still feels immediate on every surface; no new lag, flicker or reflow when posters load | |
+
+## Home tab round 2 — density, shuffle, scroll edges
+
+Everything here is a judgement call at 3 m that the local render cannot settle:
+whether six posters read generous or cramped, and whether the shuffle cascade
+reads as a deal or as lag.
+
+| # | Check | Pass |
+|---|-------|------|
+| H1 | **Six posters per rail** reads generous, not cramped — poster art is still legible at 3 m and titles are readable | |
+| H2 | **Wordmark** — "mango" is amber and clearly the brand anchor; it does not read as a focusable control next to the search pill | |
+| H3 | **Shuffle button** shows a circled **X** matching the pad's X button; nobody has to guess which button shuffles | |
+| H4 | **Rail titles are clean at rest** — no dark wash over "continue watching" when the page has not been scrolled | |
+| H5 | **Top fade appears only once scrolled** — moving down a rail fades posters under the tab bar; scrolling back to the top removes it entirely | |
+| H6 | **Bottom fade tells the truth** — visible while more rails remain, fully gone on the last rail (the apps row), so it never implies content that is not there | |
+| H7 | **X shuffle** — the outgoing grid dims, then new cards land left-to-right in one quick wave (~¼ s). It should read as dealing cards, not as waiting | |
+| H8 | **Shuffle stays responsive** — the D-pad works during and immediately after the cascade; focus is never lost or stranded | |
+| H9 | **Saved rail reshuffles** when more than six titles are saved; **Continue watching** keeps the most-recently-watched title in the first slot every single time, while the rest of the row rotates | |
+| H10 | **Apps rail does not animate** on shuffle — its contents did not change, so it should sit still | |
+| H11 | **Saved star** is a dark disc with a cream star, quieter than the amber focus ring, and is **absent inside the Saved rail** itself | |
 
 If a check fails, the plan document records why each choice was made and which
 knobs are pre-approved to adjust — prefer tuning the token over reverting a commit.

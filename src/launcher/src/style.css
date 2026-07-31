@@ -165,7 +165,7 @@ button {
    bright poster art ran straight into the tab pills. This fades content out as it
    reaches the bar. It is painted over the top of the scrollport rather than being
    a mask on the scrollport itself, which would have to recomposite on every
-   scroll frame on the Pi. */
+   scroll frame on the Pi. Its opacity is scroll-driven — see §scroll-aware edges. */
 .browse-bar::after {
   content: "";
   position: absolute;
@@ -179,11 +179,14 @@ button {
   z-index: 3;
 }
 
+/* The wordmark is the one place amber is allowed to mean "brand" rather than
+   "focus": it is static, corner-anchored, and never focusable, so it cannot be
+   mistaken for a focus ring on an adjacent control. */
 .browse-brand {
   flex: 0 0 auto;
   margin: 0;
-  color: var(--text-primary);
-  font-size: var(--text-control);
+  color: var(--accent);
+  font-size: var(--text-title);
   font-weight: 800;
   letter-spacing: 0.04em;
   text-transform: lowercase;
@@ -237,9 +240,19 @@ button {
   opacity: 0.62;
 }
 
-.browse-shuffle-icon {
-  font-size: 1.15rem;
+/* A bare "X" would read as "close". The circular keycap says "the round X button
+   on the pad" instead, matching the 8BitDo face buttons the user is holding. */
+.browse-shuffle-key {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 2px solid currentColor;
+  border-radius: 999px;
+  font-size: var(--text-micro);
+  font-weight: 800;
   line-height: 1;
+  text-transform: uppercase;
 }
 
 .browse-shuffle-label {
@@ -1024,6 +1037,64 @@ button {
   display: none;
 }
 
+/* Scroll-aware edges.
+
+   Both edge fades used to be painted unconditionally, which meant the top one
+   washed over the first rail's title while sitting at rest with nothing scrolled
+   under it, and the bottom one still implied "more below" on the last rail. Their
+   opacity is now driven by scroll position, so each fade only exists while it is
+   telling the truth.
+
+   Driven by a named scroll timeline rather than `scroll()` because the top fade
+   belongs to .browse-bar, which is a sibling of the scroller and not a descendant,
+   so the anonymous `nearest` lookup would resolve to the document instead. Opacity
+   on an already-composited overlay is the cheap half of this: it runs on the
+   compositor, so unlike a mask on the scrollport it costs nothing per scroll frame. */
+@supports (animation-timeline: scroll()) and (timeline-scope: --rails-scroll) {
+  .home {
+    timeline-scope: --rails-scroll;
+  }
+
+  .rails {
+    scroll-timeline: --rails-scroll y;
+  }
+
+  .browse-bar::after {
+    opacity: 0;
+    animation: rails-edge-appear linear both;
+    animation-timeline: --rails-scroll;
+    /* Absolute length, not a percentage: a percentage of scroll distance would
+       make the fade arrive later on a long tab than a short one. */
+    animation-range: 0px 3rem;
+  }
+
+  .rails::after {
+    animation: rails-edge-vanish linear both;
+    animation-timeline: --rails-scroll;
+    animation-range: calc(100% - 3rem) 100%;
+  }
+}
+
+@keyframes rails-edge-appear {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rails-edge-vanish {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
 .rail {
   flex: 0 0 auto;
   display: flex;
@@ -1064,20 +1135,80 @@ button {
 }
 
 
+/* Shuffle is two beats. Beat one: the outgoing grid dims while the request is in
+   flight, so the wait is attributed to work rather than to a dead button. Beat
+   two: the incoming cards land in a left-to-right cascade, which is what makes a
+   reshuffle feel like a deal rather than a repaint.
+
+   The container must not cross-fade back up underneath the cascade — that reads as
+   two overlapping fades — so the return to full opacity is owned entirely by the
+   per-card animation below. */
 .rails--refreshing {
   opacity: 0.62;
   transition: opacity 0.16s ease-out;
 }
 
-.rails--refresh-settled {
-  opacity: 1;
-  transition: opacity 0.32s ease-out;
+/* Cascade budget: 5 x 22ms of stagger + 130ms of travel = ~240ms for the last card
+   in a six-column row. Kept under ~250ms because on a 10-foot UI a cascade you
+   have to wait out reads as lag, not delight; input is never blocked on it.
+
+   Scoped to .rail--catalog so the apps rail, whose contents did not change, does
+   not animate — motion on unchanged data is decoration.
+
+   Animates the `scale` property rather than `transform`, because focus lift owns
+   `transform: scale()` on the same element and the two would clobber each other;
+   as separate properties they compose. */
+.rails--shuffled .rail--catalog .card {
+  animation: card-shuffle-in 130ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation-delay: calc((sibling-index() - 1) * 22ms);
+}
+
+@keyframes card-shuffle-in {
+  from {
+    opacity: 0;
+    scale: 0.94;
+  }
+
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+/* Doherty threshold: the button has to acknowledge the press before the catalog
+   request can possibly return. One-shot, so it cannot read as a spinner. */
+.browse-shuffle--press {
+  animation: shuffle-press 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes shuffle-press {
+  0% {
+    scale: 1;
+  }
+
+  40% {
+    scale: 0.95;
+  }
+
+  100% {
+    scale: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rails--refreshing,
-  .rails--refresh-settled {
+  .rails--refreshing {
     transition-duration: 0.01ms;
+  }
+
+  /* Opacity-only and near-instant: keeps the "new content arrived" signal without
+     the scale travel or the staggered wait. */
+  .rails--shuffled .rail--catalog .card {
+    animation-duration: 0.01ms;
+    animation-delay: 0ms;
+  }
+
+  .browse-shuffle--press {
+    animation: none;
   }
 
   .card.focused,
@@ -1227,7 +1358,10 @@ button {
 }
 
 /* Scaled with the card: a 23px disc that read as a deliberate marker on a 174px
-   poster reads as a speck on a 314px one. */
+   poster reads as a speck on a 255px one. Deliberately NOT amber-filled: a
+   saturated accent disc on every saved poster outweighed the focus ring it sits
+   next to, and accent that appears on non-interactive status teaches a false
+   affordance. Dark disc + cream glyph reads on any poster art without competing. */
 .card--poster.card--saved::after {
   content: "★";
   position: absolute;
@@ -1239,11 +1373,17 @@ button {
   display: grid;
   place-items: center;
   border-radius: 999px;
-  background: var(--accent);
-  color: var(--bg-base);
+  background: rgba(5, 8, 10, 0.72);
+  color: var(--text-primary);
   font-size: var(--text-micro);
   font-weight: 900;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+/* Inside the Saved rail every card is saved by definition, so the marker is pure
+   noise there — one row of identical badges restating the rail label. */
+.rail[data-rail-id="saved"] .card--poster.card--saved::after {
+  content: none;
 }
 
 .card-live-pill {

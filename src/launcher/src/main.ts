@@ -33,6 +33,9 @@ import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./ty
 
 const CONTINUE_RAIL_ID = "continue-watching";
 const SAVED_RAIL_ID = "saved";
+// Long enough to outlast the card cascade in style.css (5 x 22ms stagger + 130ms
+// travel); removing the class mid-flight would snap the last cards into place.
+const SHUFFLE_CASCADE_MS = 400;
 
 const homeView = mustGet<HTMLElement>("home-view");
 const searchEntry = mustGet<HTMLButtonElement>("search-entry");
@@ -850,7 +853,11 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
   }
   libraryRefreshInFlight = true;
   libraryRefreshBtn.classList.add("browse-shuffle--active");
-  railsEl.classList.remove("rails--refresh-settled");
+  // Retriggering a running one-shot needs the class off for a frame first.
+  libraryRefreshBtn.classList.remove("browse-shuffle--press");
+  void libraryRefreshBtn.offsetWidth;
+  libraryRefreshBtn.classList.add("browse-shuffle--press");
+  railsEl.classList.remove("rails--shuffled");
   railsEl.classList.add("rails--refreshing");
   if (!options.quiet) {
     setStatus("refreshing…");
@@ -864,8 +871,9 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
     libraryRefreshInFlight = false;
     libraryRefreshBtn.classList.remove("browse-shuffle--active");
     railsEl.classList.remove("rails--refreshing");
-    railsEl.classList.add("rails--refresh-settled");
-    window.setTimeout(() => railsEl.classList.remove("rails--refresh-settled"), 320);
+    // The cards now own the return to full opacity via their landing cascade.
+    railsEl.classList.add("rails--shuffled");
+    window.setTimeout(() => railsEl.classList.remove("rails--shuffled"), SHUFFLE_CASCADE_MS);
   }
 }
 
