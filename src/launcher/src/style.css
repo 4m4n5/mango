@@ -2323,33 +2323,6 @@ h1 {
   overflow: visible;
 }
 
-.detail-season-header {
-  display: block;
-  width: 100%;
-  margin: 1.2rem 0 0.4rem;
-  padding: 0.55rem 0.75rem;
-  color: var(--text-secondary);
-  font-size: var(--text-caption);
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  text-align: left;
-  background: rgba(255, 255, 255, 0.04);
-  border: 2px solid var(--border-subtle);
-  border-radius: 10px;
-}
-
-.detail-season-header:first-child {
-  margin-top: 0;
-}
-
-.detail-season-header.focused,
-.detail-season-header:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
-}
-
 .detail-episode {
   display: flex;
   align-items: center;
@@ -2389,7 +2362,8 @@ h1 {
   background: var(--tab-active-fill);
 }
 
-.detail-episode--disabled,
+/* `.detail-episode--disabled` was in this selector and is gone: detail.ts never adds
+   it. `--no-streams` is the class that actually marks an unplayable episode. */
 .detail-episode--no-streams {
   opacity: 0.55;
 }
