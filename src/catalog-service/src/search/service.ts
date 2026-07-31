@@ -48,6 +48,11 @@ import type {
 const SEARCH_JOB_LIMIT = 32;
 const SEARCH_JOB_TTL_MS = 6 * 60 * 60 * 1000;
 const SEARCH_RESULT_LIMIT = 50;
+// Two full rows of the launcher's four-wide landscape grid. Every entry here is
+// repeated in the per-source group below it, so this group is a shortcut rather
+// than content of its own — nine left a ninth card alone on a third row with
+// three empty slots beside it, which is the worst-looking row a grid can have.
+const TOP_GROUP_LIMIT = 8;
 const PHASE_TIMEOUT_MS = 2_500;
 const AI_TIMEOUT_MS = 4_000;
 
@@ -767,10 +772,10 @@ export class UnifiedSearchService {
       if ((familyCounts.get(family) || 0) >= 3) continue;
       top.push(item);
       familyCounts.set(family, (familyCounts.get(family) || 0) + 1);
-      if (top.length >= 9) break;
+      if (top.length >= TOP_GROUP_LIMIT) break;
     }
     for (const item of combined) {
-      if (top.length >= 9) break;
+      if (top.length >= TOP_GROUP_LIMIT) break;
       if (!top.some((candidate) => candidate.key === item.key)) top.push(item);
     }
     const external = uniqueRanked(job.results.external.filter((item) => !item.in_library), boosts);

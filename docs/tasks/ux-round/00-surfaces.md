@@ -218,7 +218,7 @@ Covered structurally in §3; behavior/state detail here since it drives a distin
 - **What the user sees:**
   1. Header unchanged (query pill now shows submitted text with an edit-pencil button, no caret; scope chips still switchable — re-submits on change, `search.ts:546-556`).
   2. `.search-results-toolbar` (only rendered if it has children) containing, conditionally: a **"Searching"** progress indicator (animated mark + text, shown while `!snapshot.complete`), a degraded-phase note, and/or a **"retry YouTube"** button.
-  3. `.search-results.rails` — one `.rail` block per non-empty result group (Mango/movies/series/live/YouTube), built via the same `buildCatalogRails()` used on Home, so cards/landscape rules match Home exactly. Each group can end in a **"More"** trailing card (§6) when more results exist beyond the current page window (`searchGroupPageWindow`, page size 9, YouTube page size 12 — `search.ts:83-84,111-127`).
+  3. `.search-results.rails` — one `.rail` block per non-empty result group (Mango/movies/series/live/YouTube), built via the same `buildCatalogRails()` used on Home, so cards/landscape rules match Home exactly. Each group can end in a **"More"** trailing card (§6) when more results exist beyond the current page window (`searchGroupPageWindow`). Page size is derived from `railColumns()` — two poster rows or three landscape rows — so a revealed page always lands on whole rows; it was formerly the literals 9 and 12, which fitted the old 9-poster/6-landscape grid and went stale when that grid was resized.
 - **Every state:**
   | State | Condition | Copy |
   |---|---|---|

@@ -1,5 +1,6 @@
 import { FocusGrid } from "./focus";
 import { buildCatalogRails } from "./home";
+import { railColumns } from "./layout";
 import type { BrowseTab, ContentCard, ContentRail } from "./types";
 
 export type SearchScope = "all" | "movies" | "series" | "live" | "youtube";
@@ -80,8 +81,12 @@ type SearchCallbacks = {
 
 const STORAGE_KEY = "mango.search-session.v1";
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const DEFAULT_PAGE_SIZE = 9;
-const YOUTUBE_PAGE_SIZE = 12;
+// A page is whole rows of the result grid, so revealing one never leaves a
+// half-filled row behind. Derived from the column count rather than written out,
+// because the two were hardcoded independently (9 and 12 fitted the old 9-poster
+// and 6-landscape grids exactly, and stopped fitting when those changed).
+const PAGE_ROWS_POSTER = 2;
+const PAGE_ROWS_LANDSCAPE = 3;
 const SCOPES: Array<{ id: SearchScope; label: string }> = [
   { id: "all", label: "all" },
   { id: "movies", label: "movies" },
@@ -108,12 +113,13 @@ export function shouldClearSuggestions(query: string, suggestionCount: number): 
   return query.trim().length < 2 && suggestionCount > 0;
 }
 
-export function searchGroupPageSize(group: Pick<SearchGroup, "id">): number {
-  return group.id === "youtube" ? YOUTUBE_PAGE_SIZE : DEFAULT_PAGE_SIZE;
+export function searchGroupPageSize(group: Pick<SearchGroup, "layout">): number {
+  const landscape = group.layout === "landscape";
+  return railColumns(landscape) * (landscape ? PAGE_ROWS_LANDSCAPE : PAGE_ROWS_POSTER);
 }
 
 export function searchGroupPageWindow(
-  group: Pick<SearchGroup, "id" | "items">,
+  group: Pick<SearchGroup, "layout" | "items">,
   page: number,
 ): { items: SearchResult[]; hasMore: boolean; capacity: number } {
   const capacity = (Math.max(0, Math.floor(page)) + 1) * searchGroupPageSize(group);
@@ -125,6 +131,17 @@ export function searchGroupPageWindow(
     capacity,
   };
 }
+
+/** A row in the suggestion/recent column, plus what the preview band needs. */
+type SearchChoice = {
+  label: string;
+  query: string;
+  meta: string;
+  icon: "search" | "clock" | "play";
+  poster?: string;
+  detail?: string;
+  landscape?: boolean;
+};
 
 type SearchIconName = "search" | "clock" | "play" | "edit" | "refresh";
 
@@ -247,6 +264,8 @@ export class SearchController {
   private keyboardRows: HTMLElement[][] = [];
   private starterRows: HTMLElement[][] = [];
   private resultRows: HTMLElement[][] = [];
+  private preview: HTMLElement | null = null;
+  private previewChoice: SearchChoice | undefined;
   private readonly focus = new FocusGrid((element) => {
     this.focusedElement?.classList.remove("focused");
     element.classList.add("focused");
@@ -567,13 +586,21 @@ export class SearchController {
     if (!this.submitted) {
       const compose = document.createElement("div");
       compose.className = "search-compose-body";
-      this.keyboardRows = this.renderKeyboard(compose);
+      // Keyboard and preview share the left column, so the preview occupies the
+      // band under the keys rather than becoming a third grid cell (which would
+      // land below the suggestion column and fall off the view).
+      const main = document.createElement("div");
+      main.className = "search-compose-main";
+      this.keyboardRows = this.renderKeyboard(main);
+      this.renderPreview(main);
+      compose.appendChild(main);
       this.starterRows = this.renderStarters(compose);
       this.resultRows = [];
       this.view.appendChild(compose);
     } else {
       this.keyboardRows = [];
       this.starterRows = [];
+      this.preview = null;
       this.resultRows = this.renderResults();
     }
     this.applyFocusRows();
@@ -627,12 +654,7 @@ export class SearchController {
   }
 
   private renderStarters(parent: HTMLElement, replace?: HTMLElement): HTMLElement[][] {
-    const choices: Array<{
-      label: string;
-      query: string;
-      meta: string;
-      icon: "search" | "clock" | "play";
-    }> = [];
+    const choices: SearchChoice[] = [];
     if (this.suggestions.length > 0) {
       for (const item of this.suggestions) {
         choices.push({
@@ -640,6 +662,10 @@ export class SearchController {
           query: item.title,
           meta: contentTypeLabel(item.type, item.source),
           icon: "search",
+          poster: item.poster,
+          // Year for a film, channel for a video: whichever the source gave.
+          detail: item.subtitle,
+          landscape: item.source === "youtube" || item.tab === "live",
         });
       }
     } else if (this.query.length === 0) {
@@ -660,6 +686,8 @@ export class SearchController {
             query: starter.title,
             meta: contentTypeLabel(starter.type, starter.source),
             icon: "play",
+            poster: starter.poster,
+            landscape: starter.source === "youtube" || starter.tab === "live",
           });
         }
       }
@@ -681,7 +709,8 @@ export class SearchController {
     track.className = "search-starter-track";
     // Ten rows is what the column fits at the current row height; it was capped at
     // seven, which ended the column well above the keyboard's baseline.
-    const rows = choices.slice(0, 10).map((choice, index) => {
+    const visible = choices.slice(0, 10);
+    const rows = visible.map((choice, index) => {
       const button = this.controlButton(choice.label, `search:starter:${index}`, () => {
         this.query = choice.query;
         this.updateQueryDisplay();
@@ -689,6 +718,10 @@ export class SearchController {
         void this.submit();
       });
       button.classList.add("search-starter");
+      // Preview follows the highlighted row. A focus listener rather than a
+      // FocusGrid hook: these are real buttons that take DOM focus, so this stays
+      // correct however focus arrives — D-pad, pointer, or restoration.
+      button.addEventListener("focus", () => this.showPreview(choice));
       button.replaceChildren();
       const iconWrap = document.createElement("span");
       iconWrap.className = "search-starter-icon";
@@ -722,7 +755,65 @@ export class SearchController {
     section.appendChild(track);
     if (replace) replace.replaceWith(section);
     else parent.appendChild(section);
+    // The top row, not the first row that happens to have art: the preview has no
+    // label, so it only makes sense as "the thing highlighted in the column". On
+    // the empty state that top row is a recent query with no artwork, so the band
+    // stays empty until the viewer moves onto a row that has some.
+    this.showPreview(visible[0]);
     return rows;
+  }
+
+  /**
+   * The band under the keyboard, showing artwork for whichever suggestion is
+   * highlighted. Deliberately not focusable and not a card rail: a rail here
+   * would repeat the column beside it item for item, and suggestions mix 2:3
+   * posters with 16:9 video thumbnails, which no single-aspect row renders
+   * honestly. One preview at the item's own aspect sidesteps both.
+   */
+  private renderPreview(parent: HTMLElement): void {
+    const preview = document.createElement("aside");
+    preview.className = "search-preview";
+    preview.setAttribute("aria-hidden", "true");
+    const frame = document.createElement("div");
+    frame.className = "search-preview-frame";
+    const image = document.createElement("img");
+    image.className = "search-preview-image";
+    image.alt = "";
+    image.decoding = "async";
+    frame.appendChild(image);
+    const copy = document.createElement("div");
+    copy.className = "search-preview-copy";
+    const title = document.createElement("p");
+    title.className = "search-preview-title";
+    const meta = document.createElement("p");
+    meta.className = "search-preview-meta";
+    copy.append(title, meta);
+    preview.append(frame, copy);
+    parent.appendChild(preview);
+    this.preview = preview;
+    this.showPreview(this.previewChoice);
+  }
+
+  private showPreview(choice: SearchChoice | undefined): void {
+    this.previewChoice = choice;
+    const preview = this.preview;
+    if (!preview) return;
+    const image = preview.querySelector<HTMLImageElement>(".search-preview-image");
+    const title = preview.querySelector<HTMLElement>(".search-preview-title");
+    const meta = preview.querySelector<HTMLElement>(".search-preview-meta");
+    if (!image || !title || !meta) return;
+    // A recent search is a query string with no artwork behind it, so there is
+    // nothing to preview; the band collapses rather than showing an empty frame.
+    if (!choice?.poster) {
+      preview.hidden = true;
+      image.removeAttribute("src");
+      return;
+    }
+    preview.hidden = false;
+    preview.classList.toggle("search-preview--landscape", Boolean(choice.landscape));
+    if (image.getAttribute("src") !== choice.poster) image.src = choice.poster;
+    title.textContent = choice.label;
+    meta.textContent = [choice.meta, choice.detail].filter(Boolean).join(" · ");
   }
 
   private renderResults(replace?: HTMLElement): HTMLElement[][] {
@@ -758,6 +849,10 @@ export class SearchController {
       onContentSelect: (card, railLabel) => this.openResult(card, railLabel),
       onAppSelect: () => undefined,
     }, {
+      // Results are a grid, not a browse rail: the page window already bounds
+      // how many cards exist, and capping this to one row would hide most of a
+      // page and leave "More" revealing nothing.
+      railRowLimit: null,
       railTrailingAction: (rail, landscape) => {
         const group = groups.find((candidate) => candidate.id === rail.id);
         const window = windows.get(rail.id);

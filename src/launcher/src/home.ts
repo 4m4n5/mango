@@ -15,6 +15,14 @@ export interface HomeOptions {
   savedKeys?: Set<string>;
   onLayoutApplied?: () => void;
   railTrailingAction?: (rail: ContentRail, landscape: boolean) => HTMLElement | null;
+  /**
+   * Rows a rail may occupy. Browse tabs use 1: a rail there is a sample of a
+   * bigger pool, so a part-filled second row reads as a load failure. Search
+   * passes null because a result group is a grid the viewer asked for — its
+   * last row being short means "that is all there is", and capping it would
+   * hide results the viewer requested.
+   */
+  railRowLimit?: number | null;
 }
 
 export type CatalogState =
@@ -171,10 +179,13 @@ function appendCatalogSections(
       || (rail.layout !== "poster" && isLandscapeCard(rail.cards[0], options.browseTab));
     const cols = railColumns(landscape);
     const trailingAction = options.railTrailingAction?.(rail, landscape);
-    // One row per rail. The track is a wrapping grid, so anything beyond `cols`
-    // spills onto a second row and a part-filled row reads as breakage from the
-    // sofa; a trailing action occupies one of the row's slots.
-    const rowBudget = cols - (trailingAction ? 1 : 0);
+    // The track is a wrapping grid, so the row budget is what bounds a rail's
+    // height; a trailing action occupies one of the slots. A null limit leaves
+    // the grid to wrap for as many rows as the cards need.
+    const rowLimit = options.railRowLimit === undefined ? 1 : options.railRowLimit;
+    const rowBudget = rowLimit === null
+      ? rail.cards.length
+      : cols * rowLimit - (trailingAction ? 1 : 0);
     const items: HTMLElement[] = [];
     for (const card of rail.cards.slice(0, rowBudget)) {
       const button = createPosterCard(card, rail, callbacks, options, landscape);

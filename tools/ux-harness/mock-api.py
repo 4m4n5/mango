@@ -125,13 +125,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def resolve(self, path_with_query: str) -> Path | None:
+    def resolve(self, path_with_query: str, fallbacks: bool = True) -> Path | None:
         key = canonical(path_with_query)
         name = self.index.get(key) or self.index.get(urlparse(path_with_query).path)
         if name:
             candidate = FIXTURES / name
             if candidate.exists():
                 return candidate
+        if not fallbacks:
+            return None
         for pattern, name in FALLBACKS:
             if pattern.match(urlparse(path_with_query).path):
                 candidate = FIXTURES / name
@@ -195,7 +197,19 @@ class Handler(BaseHTTPRequestHandler):
                     json.dumps({"error": "no playable stream (harness)"}).encode(),
                 )
             return
-        self._send(200, json.dumps({"ok": True}).encode())
+        # A recorded POST body is served when the manifest captured that exact
+        # URL — submitting a Search needs the snapshot the Pi replied with, and
+        # answering {"ok": true} left the whole results surface unreachable
+        # locally. Prefix fallbacks are deliberately not consulted: they would
+        # answer mutations like cancel or library writes with a stranger's body.
+        fixture = self.resolve(self.path, fallbacks=False)
+        if fixture is None:
+            self._send(200, json.dumps({"ok": True}).encode())
+            return
+        payload = json.loads(fixture.read_text())
+        if self.families_for(path) & set(cfg.get("empty", [])):
+            payload = blank_like(payload)
+        self._send(200, json.dumps(payload).encode())
 
 
 def main() -> int:

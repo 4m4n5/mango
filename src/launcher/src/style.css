@@ -313,7 +313,11 @@ button {
   /* Vertical gutter lives inside the scrollport only — no negative margin-block
      (that pulled the scrollport under the tab bar and clipped top/bottom focus). */
   padding-block-start: var(--focus-gutter);
-  padding-block-end: calc(var(--focus-gutter) * 2 + 2.5rem);
+  /* Named because the bottom fade has to offset itself by exactly this much:
+     sticky resolves `bottom` against the content box, so a fade at `bottom: 0`
+     floats this far above the scrollport edge it is meant to cover. */
+  --rails-pad-end: calc(var(--focus-gutter) * 2 + 2.5rem);
+  padding-block-end: var(--rails-pad-end);
   padding-inline: var(--focus-gutter);
   margin-inline: calc(-1 * var(--focus-gutter));
   /* Keep the first rail's header clear of the tab bar when its card is
@@ -513,9 +517,98 @@ button {
   padding-top: 1rem;
 }
 
+/* Keyboard above, preview band below, sharing the grid's left column. */
+.search-compose-main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .search-keyboard {
   min-width: 0;
+  flex: 0 0 auto;
   padding: 0.35rem 0.2rem var(--focus-gutter) 0;
+}
+
+/* Artwork for the highlighted suggestion, filling the band that sat empty under
+   the keys. Not a card rail: the column beside it already lists these items, and
+   suggestions mix 2:3 posters with 16:9 thumbnails, so one item at its own aspect
+   is the only honest way to show art here. */
+.search-preview {
+  min-width: 0;
+  min-height: 0;
+  /* Not flex: 1 — the column's height is indefinite, so growing to fill would
+     make the frame's own height indefinite too and the image's intrinsic size
+     would decide the band's height. */
+  flex: 0 0 auto;
+  display: flex;
+  /* Copy aligned to the artwork's top edge, so the two share a line rather than
+     the title floating at the poster's midpoint. */
+  align-items: flex-start;
+  gap: clamp(1.25rem, 1.75vw, 2rem);
+  padding-top: 0.5rem;
+  padding-right: var(--focus-gutter);
+  overflow: clip;
+}
+
+.search-preview[hidden] {
+  display: none;
+}
+
+/* Height is the fixed dimension so the band does not jump as the highlighted row
+   changes aspect; width follows from the aspect ratio. It must be a definite
+   length: the band under the keyboard measures 361px at 1080p, and a percentage
+   here has no definite parent height to resolve against. */
+.search-preview-frame {
+  flex: 0 0 auto;
+  height: 20rem;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--bg-elevated);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+}
+
+.search-preview--landscape .search-preview-frame {
+  aspect-ratio: 16 / 9;
+}
+
+.search-preview-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.search-preview-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-top: 0.15rem;
+}
+
+.search-preview-title {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-title);
+  font-weight: 720;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+
+.search-preview-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  font-weight: 620;
+  text-transform: lowercase;
 }
 
 .search-panel-head {
@@ -737,7 +830,22 @@ button {
   flex: 0 0 auto;
   padding: 0.45rem var(--focus-gutter) 0.6rem;
   margin: 0 calc(-1 * var(--focus-gutter));
-  background: linear-gradient(to bottom, rgba(7, 8, 10, 0.98) 72%, transparent);
+  /* Opaque for its whole height. The fade used to start at 72%, so a result
+     title scrolling past was drawn on top of the "Searching" copy. */
+  background: var(--bg-base);
+}
+
+/* Same treatment the browse bar gets: results fade out as they reach the sticky
+   toolbar rather than being cut off, or colliding with its text. */
+.search-results-toolbar::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 2.5rem;
+  background: linear-gradient(to bottom, var(--bg-base) 25%, transparent);
+  pointer-events: none;
 }
 
 .search-results-state {
@@ -882,6 +990,25 @@ button {
   .search-control {
     transition: none;
   }
+}
+
+/* The peek row below the focused rail is deliberate, but it was cut dead at the
+   scrollport edge, usually straight through a line of card titles. This fades it
+   instead, so a partly-shown rail reads as "more below" — the same treatment the
+   tab bar gives the top edge and the episode panel gives its own bottom. Sticky
+   rather than a mask on the scrollport: a mask would fade the focus ring of a
+   card sitting at the edge, and on the Pi it recomposites every scroll frame. */
+.rails::after {
+  content: "";
+  position: sticky;
+  bottom: calc(-1 * var(--rails-pad-end));
+  z-index: 3;
+  flex: 0 0 auto;
+  height: 2.5rem;
+  margin-block-start: calc(-2.5rem - var(--rail-gap));
+  margin-inline: calc(-1 * var(--focus-gutter));
+  background: linear-gradient(to top, var(--bg-base), transparent);
+  pointer-events: none;
 }
 
 .rails::-webkit-scrollbar {

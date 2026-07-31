@@ -45,6 +45,8 @@ unspec'd surfaces, and fix the defects that make the TV read as a dev tool.
 | D4 | Related-title captions (`2% watched`) resolve to 13.12px at 1080p, and the **card titles above them to only 15.68px** — the clamps cap out (`0.98rem` / `0.82rem`) well before 1080p | measured; under half the 28px platform floor |
 | D5 | The Movies tab served a stale, mostly-empty catalog cache while the backend already had every rail; only a page reload fixed it | a couch user has no reload affordance, so Home simply looks empty |
 | D6 | Streams rows print a literal `audio n/a` when language metadata is missing, repeating the placeholder down every row | `detail.ts:1787`; a null value occupies each row's most prominent secondary line |
+| D8 | **Step 5's one-row rule leaked onto Search results, and "More" became a no-op.** Result groups render through the same `appendCatalogSections()` as browse rails, so a 46-item YouTube group was cut to 3 cards plus a "More" card that only grew the page window — nothing new could appear. A browse rail is a *sample* of a pool, so a part-filled second row there reads as a load failure; a result group is a *grid the viewer asked for*, where a short last row correctly means "that is all there is". Now a caller-set `railRowLimit` (1 for browse, `null` for results), and page size is derived from `railColumns()` instead of being a literal, because the two were written independently and drifted the moment the grid was resized | reproduced locally once the harness could serve the recorded POST snapshot |
+| D9 | **The results toolbar collided with the copy scrolling under it.** Its scrim faded out at 72% of its own height, so a card title crossing the sticky band was painted on top of the "Searching" text | `results-scrolled` capture |
 | D7 | **Detail D-pad teleports at a row's end.** `navigate()` direction-gates candidates correctly, but a candidate that is not beam-aligned only gets a `1_000_000` score penalty rather than being dropped, so it stays eligible when nothing aligned exists. Pressing Right on the last related card jumps up to `resume`; Right on an episode leaves the panel entirely. Pre-existing, and the full-width related row makes it *less* frequent, not more. Fixing it means either dropping unaligned candidates (risks making something unreachable) or capping the cross-band distance — a navigation change, not polish | `detail.ts:736`; reproduced by scripted key walks on both movie and series detail |
 
 Not a defect, checked and cleared: the `KA` placeholder art on a poster-less title
@@ -115,6 +117,25 @@ their artwork is never fetched and the only cost is JSON. The knock-on is that
 top-of-rail *ordering* quality now matters more than it did at 9 visible items —
 a content-quality item for a later round, not a layout defect.
 
+Re-checked against the config and pipeline rather than assumed, because "we ship
+9 and draw 5" looks like waste worth trimming and is not:
+
+- `playability.display_limit: 9` **selects** from a verified pool that
+  `pool_target` (20) and `pool_max` (120) grow independently, so lowering it
+  saves no verification work — it only narrows how much of the pool a session
+  can surface. `rails.ts` also validates `min_display <= display_limit` and
+  throws on violation, so dropping `display_limit` to 5 against `min_display: 6`
+  would refuse to start the service, and lowering `min_display` too would weaken
+  the nightly refresh health contract (`rail_min_display_shortfall`) purely for
+  a cosmetic reason.
+- So the server number is a *guarantee of playable supply* and the client number
+  is a *display choice*. Keeping them separate is the point; do not "align" them.
+
+The one place a supply number was cut is Search's `top` group, `TOP_GROUP_LIMIT`
+9 → 8, because every entry there is repeated in the per-source group below it, so
+it is a shortcut rather than content, and 9 stranded a lone card on a third row
+of the 4-wide grid with three empty slots beside it.
+
 **Detail hero: poster to 280px, synopsis measure capped** (step 5). Tripling poster
 size on the browse tabs made the detail view's own poster the smallest art on the
 path — 220px, against the 314px card the user just clicked and only 24px more than
@@ -179,6 +200,58 @@ read as a deliberate marker on a 174px poster and as a speck on a 314px one.
 
 Still sub-20px, deliberately deferred to the overlays step: the voice HUD's
 `.voice-tag` (15.2px) and `.voice-state` (17.6px).
+
+**Search results are a grid, browse rails are one row** (fixes D8/D9). The row
+budget is now the caller's choice — `railRowLimit`, 1 for browse and `null` for
+results — because the two surfaces mean opposite things by a short row. Page size
+follows `railColumns()` instead of the old `9` and `12` literals, so a revealed
+page always lands on whole rows; those literals happened to fit the *previous*
+9-poster and 6-landscape grids exactly, which is precisely why hardcoding them
+failed silently. The test now asserts the property against `railColumns()` rather
+than restating a number.
+
+This was invisible locally until the harness was fixed: `mock-api.py` answered
+every POST with `{"ok": true}`, so submitting a search never returned a snapshot
+and the entire results surface was unreachable on the Mac. It now serves a
+recorded POST body when the manifest captured that exact URL, and deliberately
+does not consult prefix fallbacks for POSTs, which would answer a cancel or a
+library write with some other endpoint's body.
+
+**Search: a preview of the highlighted suggestion, not a poster rail** (step 3
+follow-up, decided after measuring). The band under the keyboard is 361×1167px of
+genuinely dead canvas, so something belongs there, but a card rail turned out to be
+the wrong thing on two counts found in the real data:
+
+- Suggestions are **mixed-aspect**. "dune" returns one 2:3 movie poster and eight
+  16:9 YouTube thumbnails, so no single-aspect row renders them honestly, and
+  cards have to drop to ~270px wide to fit 361px of height — under the 392–410px
+  floor [`08-card-grid-research.md`](08-card-grid-research.md) sets.
+- The column beside it **already lists the same items** as text, so a rail of them
+  would show every suggestion twice on one screen.
+
+One preview at the item's own aspect avoids both, needs no new focus row, and
+delivers the actual goal — seeing what you are about to pick — more directly. It
+follows the highlighted row via a `focus` listener on the existing buttons rather
+than a FocusGrid hook, so it stays correct whether focus arrives by D-pad, pointer,
+or session restoration.
+
+Deliberate details: it previews the *top* row rather than the first row that
+happens to have artwork, because the band carries no label and only reads as "the
+highlighted thing" — which means the empty state (recent queries, no artwork) shows
+nothing until the viewer moves onto a row that has some. Descriptions are not
+shown: only YouTube items carry one and those are link-and-timestamp spam. The
+frame's height is a definite length, not `min(100%, …)`, since a percentage had no
+definite parent height to resolve against and silently collapsed to the image's
+intrinsic size — a 602×903 frame in a 361px band.
+
+**The scrollport's bottom edge fades** (same class as the browse-bar scrim). The
+peek row below the focused rail is intentional, but it was cut dead at the
+scrollport edge, usually straight through a line of card titles — so the peek read
+as breakage instead of as an affordance. One subtlety worth recording: `position:
+sticky` resolves `bottom` against the **content** box, so a fade at `bottom: 0`
+floated 84px above the edge it was meant to cover. The scroller's bottom padding
+is now the named `--rails-pad-end`, used by both the padding and the fade's
+offset, so the two cannot drift.
 
 ## Working method per step
 

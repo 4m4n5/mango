@@ -79,7 +79,10 @@ for search_contract in (
     "class SearchController",
     "mango.search-session.v1",
     "secondary(kind",
-    "PAGE_SIZE = 9",
+    # Was "PAGE_SIZE = 9". That literal fitted the 9-poster grid exactly and went
+    # stale the moment the grid was resized, leaving "More" revealing rows that
+    # could not be rendered. Pin the derivation instead of the number.
+    "railColumns(landscape) *",
     'setAttribute("aria-label", "Search scope")',
     'setAttribute("aria-pressed"',
     "search-query-shell",
