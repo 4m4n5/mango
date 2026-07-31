@@ -60,13 +60,14 @@ with its old and new value:
 | `--safe-x` / `--safe-y` | ±16px | TV overscan varies by panel and input mode |
 | `--focus-ring-width` | ±1px | ring can bloom on some panels |
 | `--motion-fast` / `--motion-base` | ±60ms | Pi compositor may need more headroom |
+| `--shuffle-stagger` (22ms) / `--shuffle-travel` (130ms) | stagger 14–30ms, travel 100–180ms | The shuffle cascade must read as dealing cards, not as waiting. Keep `stagger x 5 + travel` under ~300ms total or it becomes lag. Report both values and whether the D-pad stayed responsive during the wave. |
 
 One exception to "CSS custom property", because it is the single judgment call in
 the rail density change that needs real-hardware eyes:
 
 | Constant | Allowed adjustment | Reason |
 |----------|--------------------|--------|
-| `RAIL_COLUMNS` in `src/launcher/src/layout.ts` | **5 → 6 only** | 5 posters at 314px follows platform guidance, but only a real panel at real viewing distance shows whether it reads generous or sparse. 6 gives 255px, the documented lower floor. Do not go above 6, and do not touch `RAIL_COLUMNS_LANDSCAPE`. |
+| `RAIL_COLUMNS` in `src/launcher/src/layout.ts` | now **6**; may go back to **5 only** | 6 posters is 255px, the documented lower floor for 3 m viewing, and was chosen for one more title per rail. Only a real panel at real viewing distance shows whether it reads generous or cramped. If cramped, set it back to 5 (314px). Never above 6, and never touch `RAIL_COLUMNS_LANDSCAPE`. |
 | `.detail-related-track .card--poster` width cap (currently `228px`) with `RELATED_DISPLAY_LIMIT` in `src/launcher/src/detail.ts` (currently `7`) | **down to `200px` / `8`** | The full-width related row takes its height from the side panel above it, so a series now shows 5 of 8 episodes. If that reads too cramped on the couch, shrinking the cards gives the panel height back. Change both together and report how many episodes became visible. |
 
 Items per rail follow that constant automatically — `renderRails()` slices each

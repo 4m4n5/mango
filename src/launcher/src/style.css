@@ -93,6 +93,13 @@
   /* Instant D-pad focus snap — animated rings read as input lag at 3 m. */
   --dur-focus-in: 0ms;
   --dur-focus-out: 0ms;
+  /* Shuffle cascade. Per-column delay x 5 + travel is the budget the last card
+     in a six-wide row spends landing: 22 x 5 + 130 = 240ms. Kept under ~250ms
+     because a cascade you have to wait out reads as lag on a 10-foot UI. Exposed
+     as tokens so the Pi's compositor headroom can be tuned without touching the
+     keyframes. */
+  --shuffle-stagger: 22ms;
+  --shuffle-travel: 130ms;
 }
 
 * {
@@ -1159,8 +1166,8 @@ button {
    `transform: scale()` on the same element and the two would clobber each other;
    as separate properties they compose. */
 .rails--shuffled .rail--catalog .card {
-  animation: card-shuffle-in 130ms cubic-bezier(0.2, 0, 0, 1) both;
-  animation-delay: calc((sibling-index() - 1) * 22ms);
+  animation: card-shuffle-in var(--shuffle-travel) var(--ease-out) both;
+  animation-delay: calc((sibling-index() - 1) * var(--shuffle-stagger));
 }
 
 @keyframes card-shuffle-in {
