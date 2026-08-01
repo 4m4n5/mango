@@ -78,6 +78,6 @@ if command -v vcgencmd >/dev/null 2>&1; then
 fi
 
 echo "top_rss:"
-ps -eo pid,comm,rss,%cpu,%mem,args --sort=-rss | head -12
+ps -eo pid,comm,rss,%cpu,%mem,args --sort=-rss | head -12 || true
 
 exit "$SNAPSHOT_RC"
