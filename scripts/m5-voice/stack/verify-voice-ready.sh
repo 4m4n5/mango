@@ -19,6 +19,35 @@ ok() { echo "  PASS: $*"; PASS=$((PASS + 1)); }
 bad() { echo "  FAIL: $*"; FAIL=$((FAIL + 1)); }
 wrn() { echo "  WARN: $*"; WARN=$((WARN + 1)); }
 
+user_unit_enabled() {
+  systemctl --user is-enabled "$1" >/dev/null 2>&1
+}
+
+user_unit_active() {
+  systemctl --user is-active "$1" >/dev/null 2>&1
+}
+
+voice_runtime_ready() {
+  local label="$1"
+  local unit="$2"
+  local session="$3"
+  if user_unit_active "$unit"; then
+    ok "$label (systemd $unit active)"
+    return 0
+  fi
+  if tmux has-session -t "$session" 2>/dev/null; then
+    ok "$label (legacy tmux $session active)"
+    return 0
+  fi
+  bad "$label runtime missing (systemd $unit inactive; tmux $session absent)"
+  if user_unit_enabled "$unit"; then
+    echo "    inspect: journalctl --user -u $unit -n 80 --no-pager"
+  else
+    echo "    repair: bash scripts/m5-voice/stack/install-voice-systemd.sh"
+  fi
+  return 1
+}
+
 echo "========== mango voice verify $(date -Iseconds) =========="
 echo "commit: $(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 echo
@@ -116,9 +145,8 @@ if pgrep -f "mango-overlay.*127.0.0.1:3000/overlay" >/dev/null; then
 else
   ok overlay-chromium-absent
 fi
-pgrep -f "orchestrator.main" >/dev/null && ok orchestrator || bad orchestrator
-tmux has-session -t mango-orch 2>/dev/null && ok tmux-orch || bad tmux-orch
-tmux has-session -t mango-companion 2>/dev/null && ok tmux-companion || bad tmux-companion
+voice_runtime_ready orchestrator mango-orchestrator.service mango-orch || true
+voice_runtime_ready companion mango-companion.service mango-companion || true
 
 echo "--- X11 windows ---"
 if command -v wmctrl >/dev/null 2>&1; then
@@ -188,12 +216,18 @@ else
 fi
 
 echo "--- orchestrator log ---"
-if tmux has-session -t mango-orch 2>/dev/null; then
+if user_unit_active mango-orchestrator.service; then
+  journalctl --user -u mango-orchestrator.service -n 6 --no-pager 2>/dev/null \
+    | sed 's/^/  /' || wrn systemd-orchestrator-journal-unreadable
+elif tmux has-session -t mango-orch 2>/dev/null; then
   tmux capture-pane -t mango-orch -p 2>/dev/null | tail -6 | sed 's/^/  /' || wrn tmux-orch-unreadable
 elif [[ -f "${HOME}/.cache/mango/orchestrator.log" ]]; then
   tail -6 "${HOME}/.cache/mango/orchestrator.log" | sed 's/^/  /'
 else
   wrn orchestrator-log-missing
+  if user_unit_enabled mango-orchestrator.service; then
+    echo "  inspect: journalctl --user -u mango-orchestrator.service -n 80 --no-pager"
+  fi
 fi
 
 echo "--- voice turns (recent) ---"
