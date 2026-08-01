@@ -178,7 +178,24 @@ test('controller supervisor repair state makes couch reliability red', () => {
   const state = evaluateReliability(facts);
   const controller = state.components.find((entry) => entry.id === 'controller');
   assert.equal(controller?.status, 'red');
+  assert.match(controller?.summary ?? '', /needs repair/);
   assert.equal(state.status, 'red');
+});
+
+test('generic controller failure does not claim repair when bond may still be intact', () => {
+  const facts = baseFacts();
+  facts.controller = {
+    ok: false,
+    fallback: false,
+    reason: 'controller_event_missing',
+    link_state: '',
+    last_error: 'Host is down (112)',
+  };
+  const state = evaluateReliability(facts);
+  const controller = state.components.find((entry) => entry.id === 'controller');
+  assert.equal(controller?.status, 'red');
+  assert.match(controller?.summary ?? '', /unavailable/);
+  assert.doesNotMatch(controller?.summary ?? '', /needs repair/);
 });
 
 test('only confirmed pairing loss tells the operator to re-pair', () => {

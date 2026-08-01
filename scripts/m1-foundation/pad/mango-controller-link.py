@@ -24,7 +24,13 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised on the Pi only
     sys.exit(f"mango-controller-link: missing Pi dependency: {exc}")
 
-from controller_link_state import FAST_RETRY_DELAYS_SEC, MAINTENANCE_RETRY_SEC, LinkRetryState
+from controller_link_state import (
+    ASLEEP_RETRY_SEC,
+    FAST_RETRY_DELAYS_SEC,
+    MAINTENANCE_RETRY_SEC,
+    LinkRetryState,
+    is_peripheral_asleep_error,
+)
 
 TV_USER = os.environ.get("MANGO_TV_USER", "aman")
 BT_MAC = os.environ.get("MANGO_GAMEPAD_BT_MAC", "E4:17:D8:EB:00:44").upper()
@@ -59,6 +65,14 @@ def maintenance_retry_from_env() -> float:
     return value if value >= 1.0 else MAINTENANCE_RETRY_SEC
 
 
+def asleep_retry_from_env() -> float:
+    try:
+        value = float(os.environ.get("MANGO_CONTROLLER_ASLEEP_RETRY_SEC", ASLEEP_RETRY_SEC))
+    except ValueError:
+        return ASLEEP_RETRY_SEC
+    return value if value >= 5.0 else ASLEEP_RETRY_SEC
+
+
 def _owner_ids() -> tuple[int, int] | None:
     try:
         entry = pwd.getpwnam(TV_USER)
@@ -85,6 +99,7 @@ class ControllerLinkSupervisor:
         self.retry = LinkRetryState(
             fast_retry_delays_sec=retry_delays_from_env(),
             maintenance_retry_sec=maintenance_retry_from_env(),
+            asleep_retry_sec=asleep_retry_from_env(),
         )
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus()
@@ -257,10 +272,11 @@ class ControllerLinkSupervisor:
         self.write_status(force=True)
         return False
 
-    def _maybe_discover_known_device(self) -> None:
+    def _maybe_discover_known_device(self, *, min_interval_sec: float | None = None) -> None:
         """Briefly page for the configured MAC; never make the adapter pairable."""
         now = time.monotonic()
-        if self.discovery_active or now - self.last_discovery_at < DEVICE_DISCOVERY_INTERVAL_SEC:
+        interval = DEVICE_DISCOVERY_INTERVAL_SEC if min_interval_sec is None else min_interval_sec
+        if self.discovery_active or now - self.last_discovery_at < interval:
             return
         self.last_discovery_at = now
         self.last_discovery_wall_at = time.time()
@@ -287,6 +303,10 @@ class ControllerLinkSupervisor:
                     self.retry.complete_attempt(now, "device_object_missing")
                     self._maybe_discover_known_device()
                     return
+            # After Host-is-down, a quiet scan helps catch ordinary power-on
+            # advertising without requiring pairing mode.
+            if self.retry.peripheral_asleep or is_peripheral_asleep_error(self.retry.last_error):
+                self._maybe_discover_known_device(min_interval_sec=self.retry.asleep_retry_sec)
             self.retry.begin_attempt(now)
             assert self.device is not None
             self.device.Connect(reply_handler=self._connect_ok, error_handler=self._connect_error)

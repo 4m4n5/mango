@@ -13,17 +13,33 @@ from dataclasses import dataclass
 
 FAST_RETRY_DELAYS_SEC = (0.0, 1.0, 2.0, 4.0, 8.0)
 MAINTENANCE_RETRY_SEC = 5.0
+# BlueZ reports "Host is down (112)" while the Micro radio is fully off.
+# Aggressive Connect() during that window interferes with ordinary wake, so
+# skip the fast burst and probe quietly until the peripheral is pageable.
+ASLEEP_RETRY_SEC = 20.0
+
+
+def is_peripheral_asleep_error(error: str) -> bool:
+    text = error.lower()
+    return (
+        "host is down" in text
+        or "(112)" in error
+        or "errno 112" in text
+        or "br-connection-host-down" in text
+    )
 
 
 @dataclass
 class LinkRetryState:
     fast_retry_delays_sec: tuple[float, ...] = FAST_RETRY_DELAYS_SEC
     maintenance_retry_sec: float = MAINTENANCE_RETRY_SEC
+    asleep_retry_sec: float = ASLEEP_RETRY_SEC
     connected: bool = False
     attempt_in_flight: bool = False
     attempt_started_at: float = 0.0
     retry_index: int = 0
     fast_retry_exhausted: bool = False
+    peripheral_asleep: bool = False
     next_attempt_at: float = 0.0
     last_disconnect_at: float = 0.0
     last_connected_at: float = 0.0
@@ -38,6 +54,7 @@ class LinkRetryState:
         self.attempt_started_at = 0.0
         self.retry_index = 0
         self.fast_retry_exhausted = False
+        self.peripheral_asleep = False
         self.next_attempt_at = 0.0
         self.last_connected_at = now
         self.last_error = ""
@@ -50,6 +67,7 @@ class LinkRetryState:
         self.attempt_started_at = 0.0
         self.retry_index = 0
         self.fast_retry_exhausted = False
+        self.peripheral_asleep = False
         self.next_attempt_at = now
 
     def mark_device_missing(self, now: float, error: str = "device_object_missing") -> None:
@@ -84,6 +102,14 @@ class LinkRetryState:
         self.attempt_in_flight = False
         self.attempt_started_at = 0.0
         self.last_error = error
+        if is_peripheral_asleep_error(error):
+            # Drop out of the fast Connect storm immediately while the Micro is off.
+            self.peripheral_asleep = True
+            self.fast_retry_exhausted = True
+            self.retry_index = len(self.fast_retry_delays_sec) - 1
+            self.next_attempt_at = now + self.asleep_retry_sec
+            return
+        self.peripheral_asleep = False
         if self.retry_index < len(self.fast_retry_delays_sec) - 1:
             self.retry_index += 1
             self.next_attempt_at = now + self.fast_retry_delays_sec[self.retry_index]
@@ -97,6 +123,7 @@ class LinkRetryState:
             self.attempt_started_at = 0.0
             self.retry_index = 0
             self.fast_retry_exhausted = False
+            self.peripheral_asleep = False
             self.next_attempt_at = now
 
     @property
@@ -105,6 +132,8 @@ class LinkRetryState:
             return "ready"
         if self.attempt_in_flight:
             return "connecting"
+        if self.peripheral_asleep:
+            return "peripheral_asleep"
         if not self.fast_retry_exhausted:
             return "fast_retry"
         return "maintenance_retry"

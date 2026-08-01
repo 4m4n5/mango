@@ -98,6 +98,23 @@ class ControllerLinkStateTest(unittest.TestCase):
             "connected_waiting_for_input",
         )
 
+    def test_host_is_down_skips_fast_burst_for_quiet_asleep_probe(self) -> None:
+        state = STATE.LinkRetryState(
+            fast_retry_delays_sec=(0.0, 1.0, 2.0),
+            maintenance_retry_sec=5.0,
+            asleep_retry_sec=20.0,
+        )
+        state.mark_disconnected(50.0)
+        state.begin_attempt(50.0)
+        state.complete_attempt(50.0, "org.bluez.Error.Failed: br-connection-page-timeout: Host is down (112)")
+        self.assertTrue(state.peripheral_asleep)
+        self.assertTrue(state.fast_retry_exhausted)
+        self.assertEqual(state.retry_phase, "peripheral_asleep")
+        self.assertEqual(state.next_attempt_at, 70.0)
+        self.assertEqual(state.couch_state(adapter_ready=True, input_ready=False), "off")
+        self.assertFalse(STATE.is_peripheral_asleep_error("Connection timed out (110)"))
+        self.assertTrue(STATE.is_peripheral_asleep_error("Host is down (112)"))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -258,6 +258,7 @@ function controllerHealth(): ReliabilityFacts['controller'] {
       || linkState === 'fast_retry'
       || linkState === 'connecting'
       || linkState === 'connected_waiting_for_input'
+      || linkState === 'peripheral_asleep'
     ) : ok,
     fallback,
     reason,
