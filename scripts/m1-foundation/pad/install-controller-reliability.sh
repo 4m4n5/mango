@@ -84,7 +84,7 @@ check() {
     say "WARN stale Phase 0 udev rule detected"
   fi
   for spec in "General FastConnectable true" "General AlwaysPairable false" \
-    "Policy AutoEnable true" "Policy ReconnectAttempts 7" \
+    "Policy AutoEnable true" "Policy ReconnectAttempts 0" \
     "Policy ReconnectIntervals 1,2,4,8,16,32,64" \
     "Policy ReconnectUUIDs 00001124-0000-1000-8000-00805f9b34fb"; do
     read -r section key expected <<<"$spec"

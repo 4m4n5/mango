@@ -52,7 +52,7 @@ expected = {
     ('General', 'AlwaysPairable'): 'false',
     ('Policy', 'AutoEnable'): 'true',
     ('Policy', 'ReconnectUUIDs'): '00001124-0000-1000-8000-00805f9b34fb',
-    ('Policy', 'ReconnectAttempts'): '7',
+    ('Policy', 'ReconnectAttempts'): '0',
     ('Policy', 'ReconnectIntervals'): '1,2,4,8,16,32,64',
 }
 for (section, key), value in expected.items():

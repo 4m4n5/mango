@@ -12,8 +12,11 @@ MANAGED_VALUES = {
     "General": {"FastConnectable": "true", "AlwaysPairable": "false"},
     "Policy": {
         "AutoEnable": "true",
+        # Mango's mango-controller-link owns Connect() for the dedicated Micro.
+        # BlueZ Policy auto-reconnect races ordinary Switch/Pro wake and leaves
+        # Host-is-down storms that force pairing mode.
         "ReconnectUUIDs": "00001124-0000-1000-8000-00805f9b34fb",
-        "ReconnectAttempts": "7",
+        "ReconnectAttempts": "0",
         "ReconnectIntervals": "1,2,4,8,16,32,64",
     },
 }

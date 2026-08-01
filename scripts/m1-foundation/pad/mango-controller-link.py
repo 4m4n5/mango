@@ -3,6 +3,10 @@
 
 This service deliberately does not read evdev or route controller input. The
 separate mango-tv-pad router owns input only after BlueZ has created its node.
+
+Ownership rule: mango-controller-link is the sole Connect() caller. BlueZ Policy
+auto-reconnect must stay disabled (ReconnectAttempts=0) so host-side storms do
+not race Switch/Pro ordinary wake.
 """
 
 from __future__ import annotations
@@ -25,11 +29,11 @@ except ImportError as exc:  # pragma: no cover - exercised on the Pi only
     sys.exit(f"mango-controller-link: missing Pi dependency: {exc}")
 
 from controller_link_state import (
-    ASLEEP_RETRY_SEC,
+    ASLEEP_SCAN_SEC,
+    DISCONNECT_GRACE_SEC,
     FAST_RETRY_DELAYS_SEC,
     MAINTENANCE_RETRY_SEC,
     LinkRetryState,
-    is_peripheral_asleep_error,
 )
 
 TV_USER = os.environ.get("MANGO_TV_USER", "aman")
@@ -40,9 +44,8 @@ CACHE_DIR = Path(f"/home/{TV_USER}/.cache/mango")
 STATUS_PATH = CACHE_DIR / "mango-controller-link-status.json"
 STATUS_HEARTBEAT_SEC = 2.0
 AUTO_REPAIR_COOLDOWN_SEC = 15 * 60.0
-CONNECT_ATTEMPT_TIMEOUT_SEC = 3.0
-DEVICE_DISCOVERY_INTERVAL_SEC = 30.0
-DEVICE_DISCOVERY_DURATION_SEC = 3
+CONNECT_ATTEMPT_TIMEOUT_SEC = 8.0
+DEVICE_DISCOVERY_DURATION_SEC = 4
 PAIRING_POLICY = "explicit_recovery_only"
 
 
@@ -65,12 +68,12 @@ def maintenance_retry_from_env() -> float:
     return value if value >= 1.0 else MAINTENANCE_RETRY_SEC
 
 
-def asleep_retry_from_env() -> float:
+def asleep_scan_from_env() -> float:
     try:
-        value = float(os.environ.get("MANGO_CONTROLLER_ASLEEP_RETRY_SEC", ASLEEP_RETRY_SEC))
+        value = float(os.environ.get("MANGO_CONTROLLER_ASLEEP_SCAN_SEC", ASLEEP_SCAN_SEC))
     except ValueError:
-        return ASLEEP_RETRY_SEC
-    return value if value >= 5.0 else ASLEEP_RETRY_SEC
+        return ASLEEP_SCAN_SEC
+    return value if value >= 5.0 else ASLEEP_SCAN_SEC
 
 
 def _owner_ids() -> tuple[int, int] | None:
@@ -99,7 +102,8 @@ class ControllerLinkSupervisor:
         self.retry = LinkRetryState(
             fast_retry_delays_sec=retry_delays_from_env(),
             maintenance_retry_sec=maintenance_retry_from_env(),
-            asleep_retry_sec=asleep_retry_from_env(),
+            asleep_scan_sec=asleep_scan_from_env(),
+            disconnect_grace_sec=DISCONNECT_GRACE_SEC,
         )
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus()
@@ -139,6 +143,7 @@ class ControllerLinkSupervisor:
             signal_name="InterfacesAdded",
             path="/",
         )
+        self._enforce_adapter_policy()
         self._resolve_device()
         self._sync_initial_state()
 
@@ -155,6 +160,16 @@ class ControllerLinkSupervisor:
     def _adapter_powered(self) -> bool:
         return bool(self.adapter_props.Get("org.bluez.Adapter1", "Powered"))
 
+    def _enforce_adapter_policy(self) -> None:
+        """Keep the adapter connectable for the bonded Micro without pairable spam."""
+        try:
+            if bool(self.adapter_props.Get("org.bluez.Adapter1", "Pairable")):
+                self.adapter_props.Set("org.bluez.Adapter1", "Pairable", dbus.Boolean(False))
+            if bool(self.adapter_props.Get("org.bluez.Adapter1", "Discoverable")):
+                self.adapter_props.Set("org.bluez.Adapter1", "Discoverable", dbus.Boolean(False))
+        except dbus.DBusException as exc:
+            self.retry.last_error = f"adapter_policy:{exc}"
+
     def _sync_initial_state(self) -> None:
         now = time.monotonic()
         try:
@@ -164,13 +179,17 @@ class ControllerLinkSupervisor:
                 self.retry.mark_connected(now)
                 self.last_connected_wall_at = time.time()
             else:
+                # At start with a bonded-but-off Micro, await peripheral wake
+                # instead of immediately Connect()-storming.
                 self.retry.mark_disconnected(now)
+                self.retry.mark_peripheral_asleep(now, "awaiting_bonded_peripheral")
         except (dbus.DBusException, RuntimeError) as exc:
             self.retry.last_error = str(exc)
             if self._is_missing_device_error(self.retry.last_error):
                 self.retry.mark_device_missing(now, self.retry.last_error)
             else:
                 self.retry.mark_disconnected(now)
+                self.retry.mark_peripheral_asleep(now, self.retry.last_error)
         self.write_status()
 
     def _bind_device(self) -> None:
@@ -200,7 +219,7 @@ class ControllerLinkSupervisor:
         if str(path) != DEVICE_PATH or "org.bluez.Device1" not in interfaces:
             return
         if self._resolve_device() and not self.retry.connected:
-            self.retry.force_retry(time.monotonic())
+            self.retry.mark_wake_detected(time.monotonic())
         self.write_status(force=True)
 
     def _properties_changed(
@@ -217,16 +236,27 @@ class ControllerLinkSupervisor:
                 if bool(changed["Connected"]):
                     self.retry.mark_connected(now)
                     self.last_connected_wall_at = time.time()
+                    if self.discovery_active:
+                        self._stop_discovery()
                 else:
                     self.retry.mark_disconnected(now)
                     self.last_disconnect_wall_at = time.time()
+            # Inbound advertising / service resolution means the Micro woke.
+            wake_keys = ("RSSI", "ManufacturerData", "ServiceData", "ServicesResolved", "Name")
+            if any(key in changed for key in wake_keys) and not self.retry.connected:
+                if "ServicesResolved" in changed and not bool(changed.get("ServicesResolved")):
+                    pass
+                else:
+                    self.retry.mark_wake_detected(now)
             self.write_status(force=True)
         elif interface == "org.bluez.Adapter1":
             if "Powered" in changed and not bool(changed["Powered"]):
                 self.retry.last_error = "adapter_powered_off"
             elif not self.retry.connected:
                 self._resolve_device()
-                self.retry.force_retry(now)
+                self.retry.mark_wake_detected(now)
+            if "Pairable" in changed and bool(changed["Pairable"]):
+                self._enforce_adapter_policy()
             self.write_status(force=True)
 
     def _connect_ok(self) -> None:
@@ -267,19 +297,26 @@ class ControllerLinkSupervisor:
             self.retry.last_error = f"device_discovery_stop:{exc}"
         self.discovery_active = False
         self._resolve_device()
+        # After a quiet scan, try one Connect burst — ordinary wake often
+        # needs the host to page once the Micro is advertising.
         if not self.retry.connected and not self.retry.needs_re_pair:
-            self.retry.force_retry(time.monotonic())
+            self.retry.mark_wake_detected(time.monotonic())
         self.write_status(force=True)
         return False
 
-    def _maybe_discover_known_device(self, *, min_interval_sec: float | None = None) -> None:
+    def _maybe_discover_known_device(self) -> None:
         """Briefly page for the configured MAC; never make the adapter pairable."""
         now = time.monotonic()
-        interval = DEVICE_DISCOVERY_INTERVAL_SEC if min_interval_sec is None else min_interval_sec
-        if self.discovery_active or now - self.last_discovery_at < interval:
+        if self.discovery_active:
             return
+        if not self.retry.scan_due(now) and not (
+            not self.retry.device_present and now >= self.retry.next_scan_at
+        ):
+            return
+        self.retry.next_scan_at = now + self.retry.asleep_scan_sec
         self.last_discovery_at = now
         self.last_discovery_wall_at = time.time()
+        self._enforce_adapter_policy()
         try:
             self.adapter.StartDiscovery()
         except dbus.DBusException as exc:
@@ -290,7 +327,13 @@ class ControllerLinkSupervisor:
 
     def _try_connect(self) -> None:
         now = time.monotonic()
-        if not self.retry.due(now) or self.retry.needs_re_pair:
+        if self.retry.needs_re_pair:
+            return
+        # While the Micro radio is off, never Connect — listen + scan only.
+        if self.retry.peripheral_asleep and not self.retry.wake_detected:
+            self._maybe_discover_known_device()
+            return
+        if not self.retry.due(now):
             return
         try:
             if not self._adapter_powered():
@@ -303,10 +346,7 @@ class ControllerLinkSupervisor:
                     self.retry.complete_attempt(now, "device_object_missing")
                     self._maybe_discover_known_device()
                     return
-            # After Host-is-down, a quiet scan helps catch ordinary power-on
-            # advertising without requiring pairing mode.
-            if self.retry.peripheral_asleep or is_peripheral_asleep_error(self.retry.last_error):
-                self._maybe_discover_known_device(min_interval_sec=self.retry.asleep_retry_sec)
+            self._enforce_adapter_policy()
             self.retry.begin_attempt(now)
             assert self.device is not None
             self.device.Connect(reply_handler=self._connect_ok, error_handler=self._connect_error)
@@ -386,6 +426,8 @@ class ControllerLinkSupervisor:
             "input_ready": input_ready,
             "attempt_in_flight": self.retry.attempt_in_flight,
             "retry_index": self.retry.retry_index,
+            "peripheral_asleep": self.retry.peripheral_asleep,
+            "wake_detected": self.retry.wake_detected,
             "next_attempt_at": time.time() + max(0.0, self.retry.next_attempt_at - now),
             "last_error": self.retry.last_error,
             "last_connected_at": self.last_connected_wall_at or None,
@@ -425,6 +467,8 @@ class ControllerLinkSupervisor:
             # repair routine is rate-limited and never runs for ordinary link
             # misses.
             self._repair_bluez()
+        else:
+            self._enforce_adapter_policy()
         self._try_connect()
         self.write_status()
         return True

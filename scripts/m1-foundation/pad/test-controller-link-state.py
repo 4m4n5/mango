@@ -18,7 +18,7 @@ SPEC.loader.exec_module(STATE)
 
 class ControllerLinkStateTest(unittest.TestCase):
     def test_disconnect_uses_fast_then_maintenance_backoff(self) -> None:
-        state = STATE.LinkRetryState()
+        state = STATE.LinkRetryState(disconnect_grace_sec=0.0)
         state.mark_disconnected(100.0)
         self.assertTrue(state.due(100.0))
         state.begin_attempt(100.0)
@@ -56,7 +56,11 @@ class ControllerLinkStateTest(unittest.TestCase):
         self.assertTrue(state.due(20.0))
 
     def test_policy_allows_a_safe_maintenance_override(self) -> None:
-        state = STATE.LinkRetryState(fast_retry_delays_sec=(0.0, 0.5), maintenance_retry_sec=3.0)
+        state = STATE.LinkRetryState(
+            fast_retry_delays_sec=(0.0, 0.5),
+            maintenance_retry_sec=3.0,
+            disconnect_grace_sec=0.0,
+        )
         state.mark_disconnected(0.0)
         state.begin_attempt(0.0)
         state.complete_attempt(0.0, "offline")
@@ -98,22 +102,38 @@ class ControllerLinkStateTest(unittest.TestCase):
             "connected_waiting_for_input",
         )
 
-    def test_host_is_down_skips_fast_burst_for_quiet_asleep_probe(self) -> None:
+    def test_host_is_down_suppresses_connect_until_wake_evidence(self) -> None:
         state = STATE.LinkRetryState(
             fast_retry_delays_sec=(0.0, 1.0, 2.0),
             maintenance_retry_sec=5.0,
-            asleep_retry_sec=20.0,
+            asleep_scan_sec=15.0,
+            disconnect_grace_sec=0.0,
         )
         state.mark_disconnected(50.0)
         state.begin_attempt(50.0)
-        state.complete_attempt(50.0, "org.bluez.Error.Failed: br-connection-page-timeout: Host is down (112)")
+        state.complete_attempt(50.0, "org.bluez.Error.Failed: Host is down (112)")
         self.assertTrue(state.peripheral_asleep)
-        self.assertTrue(state.fast_retry_exhausted)
-        self.assertEqual(state.retry_phase, "peripheral_asleep")
-        self.assertEqual(state.next_attempt_at, 70.0)
+        self.assertFalse(state.wake_detected)
+        self.assertFalse(state.due(70.0))
+        self.assertTrue(state.scan_due(65.0))
+        self.assertEqual(state.retry_phase, "awaiting_peripheral")
         self.assertEqual(state.couch_state(adapter_ready=True, input_ready=False), "off")
-        self.assertFalse(STATE.is_peripheral_asleep_error("Connection timed out (110)"))
+
+        state.mark_wake_detected(80.0)
+        self.assertFalse(state.peripheral_asleep)
+        self.assertTrue(state.wake_detected)
+        self.assertTrue(state.due(80.0))
+        self.assertEqual(state.retry_phase, "fast_retry")
+
+    def test_page_timeout_without_wake_also_awaits_peripheral(self) -> None:
+        state = STATE.LinkRetryState(disconnect_grace_sec=0.0)
+        state.mark_disconnected(10.0)
+        state.begin_attempt(10.0)
+        state.complete_attempt(10.0, "Connection timed out (110)")
+        self.assertTrue(state.peripheral_asleep)
+        self.assertFalse(state.due(20.0))
         self.assertTrue(STATE.is_peripheral_asleep_error("Host is down (112)"))
+        self.assertTrue(STATE.is_pageable_timeout_error("Connection timed out (110)"))
 
 
 if __name__ == "__main__":
