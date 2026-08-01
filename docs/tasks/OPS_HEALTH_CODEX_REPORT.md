@@ -1,8 +1,11 @@
 # Ops health Codex implementation report
 
-Date: 2026-08-01  
-Branch: `feat/native-experience`  
-Base: `3544a74` (includes locked intentional display-sleep §11 / home B1)  
+Date: 2026-08-01
+
+Branch: `feat/native-experience`
+
+Base: `3544a74` (includes locked intentional display-sleep §11 / home B1)
+
 Authority boundary: work Mac only; no Pi SSH, deploy, couch test, Bluetooth trace,
 CEC test, or TV observation was performed.
 
