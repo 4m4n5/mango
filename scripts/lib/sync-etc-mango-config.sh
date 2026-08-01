@@ -14,7 +14,8 @@ sync_one() {
     echo "etc-mango: $label already synced"
     return 0
   fi
-  if sudo -n cp "$src" "$dest" 2>/dev/null; then
+  # Prefer a direct write when /etc/mango is user-owned (common on this Pi).
+  if cp "$src" "$dest" 2>/dev/null || sudo -n cp "$src" "$dest" 2>/dev/null; then
     echo "etc-mango: synced $label -> $dest"
     return 0
   fi
