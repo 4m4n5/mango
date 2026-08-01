@@ -34,9 +34,14 @@
 tools/ux-harness/fixtures/
 tools/ux-harness/shots/
 .orchestration/
+tmp-*.py
+**/tmp-*.py
 
 # Historical docs (on-demand only; not always-indexed)
 docs/archive/
+
+# Completed one-shot audits (active home-agent briefs stay indexed)
+docs/tasks/_audit-*/
 
 # Secrets / local machine paths (never useful in agent context)
 keys/

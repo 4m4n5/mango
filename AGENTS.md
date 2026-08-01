@@ -29,7 +29,7 @@
 
 ## Cursor performance
 
-- **Indexing:** `.cursorignore` excludes caches, `node_modules/`, `.venv/`, lockfiles, build output, `docs/archive/`, secrets dirs, and harness artifacts — source, current docs, and UX shot PNGs stay searchable; reopen ignored paths explicitly when needed.
+- **Indexing:** `.cursorignore` excludes caches, `node_modules/`, `.venv/`, lockfiles, build output, `docs/archive/` (incl. CODEX handoffs), audits, secrets dirs, and harness artifacts — live source, current docs, and UX round shots stay searchable; reopen ignored paths explicitly when needed.
 - **MCP:** this workspace ships GitHub only (`mango/.cursor/mcp.json`). Disable unused MCP servers in **Cursor Settings → Tools & MCP** per session; parent-studio servers (playwright, godot) live in `../.cursor/mcp.json`.
 
 ## Branches
