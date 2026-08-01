@@ -23,6 +23,16 @@ cat "$CACHE_DIR/mango-controller-link-status.json" 2>/dev/null || true
 echo
 cat "$CACHE_DIR/mango-tv-pad-status.json" 2>/dev/null || true
 echo
+echo "[input nodes]"
+ls -l /dev/input/by-id/* 2>/dev/null || true
+python3 - <<'PY' 2>/dev/null || true
+import evdev
+for path in evdev.list_devices():
+    dev = evdev.InputDevice(path)
+    print(f"{path}\t{dev.name}\tuniq={dev.uniq or '-'}")
+    dev.close()
+PY
+echo
 echo "[owners]"
 ps -eo pid,ppid,etimes,args | grep -E '[m]ango-controller-link|[m]ango-tv-pad|[b]luetoothctl connect' || true
 echo
@@ -35,3 +45,6 @@ fi
 echo
 echo "[recent link log]"
 journalctl -u mango-controller-link.service -n 60 --no-pager 2>/dev/null || true
+echo
+echo "[recent pad log]"
+journalctl --user -u mango-tv-pad.service -n 60 --no-pager 2>/dev/null || true

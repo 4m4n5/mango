@@ -251,7 +251,14 @@ function controllerHealth(): ReliabilityFacts['controller'] {
   const linkOk = safeBool(link.ok) && fresh;
   const reason = safeString(data.reason, ok ? 'ok' : 'pad health unavailable');
   return {
-    ok: linkState ? linkOk && (ok || linkState === 'maintenance_retry' || linkState === 'fast_retry' || linkState === 'connecting') : ok,
+    ok: linkState ? linkOk && (
+      ok
+      || linkState === 'off'
+      || linkState === 'maintenance_retry'
+      || linkState === 'fast_retry'
+      || linkState === 'connecting'
+      || linkState === 'connected_waiting_for_input'
+    ) : ok,
     fallback,
     reason,
     link_state: linkState || undefined,

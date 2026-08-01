@@ -35,6 +35,9 @@ STATUS_PATH = CACHE_DIR / "mango-controller-link-status.json"
 STATUS_HEARTBEAT_SEC = 2.0
 AUTO_REPAIR_COOLDOWN_SEC = 15 * 60.0
 CONNECT_ATTEMPT_TIMEOUT_SEC = 3.0
+DEVICE_DISCOVERY_INTERVAL_SEC = 30.0
+DEVICE_DISCOVERY_DURATION_SEC = 3
+PAIRING_POLICY = "explicit_recovery_only"
 
 
 def retry_delays_from_env() -> tuple[float, ...]:
@@ -85,11 +88,10 @@ class ControllerLinkSupervisor:
         )
         DBusGMainLoop(set_as_default=True)
         self.bus = dbus.SystemBus()
-        self.device = dbus.Interface(
-            self.bus.get_object("org.bluez", DEVICE_PATH), "org.bluez.Device1"
-        )
-        self.device_props = dbus.Interface(
-            self.bus.get_object("org.bluez", DEVICE_PATH), "org.freedesktop.DBus.Properties"
+        self.device = None
+        self.device_props = None
+        self.adapter = dbus.Interface(
+            self.bus.get_object("org.bluez", ADAPTER_PATH), "org.bluez.Adapter1"
         )
         self.adapter_props = dbus.Interface(
             self.bus.get_object("org.bluez", ADAPTER_PATH), "org.freedesktop.DBus.Properties"
@@ -99,7 +101,9 @@ class ControllerLinkSupervisor:
         self.last_repair_wall_at = 0.0
         self.last_connected_wall_at = 0.0
         self.last_disconnect_wall_at = 0.0
-        self.pairing_missing = False
+        self.last_discovery_at = 0.0
+        self.last_discovery_wall_at = 0.0
+        self.discovery_active = False
         self.repair_count = 0
         self.force_repair_requested = False
         self.bus.add_signal_receiver(
@@ -114,10 +118,24 @@ class ControllerLinkSupervisor:
             signal_name="PropertiesChanged",
             path=ADAPTER_PATH,
         )
+        self.bus.add_signal_receiver(
+            self._interfaces_added,
+            dbus_interface="org.freedesktop.DBus.ObjectManager",
+            signal_name="InterfacesAdded",
+            path="/",
+        )
+        self._resolve_device()
         self._sync_initial_state()
 
     def _device_connected(self) -> bool:
+        if self.device_props is None:
+            raise RuntimeError("device_object_missing")
         return bool(self.device_props.Get("org.bluez.Device1", "Connected"))
+
+    def _device_paired(self) -> bool:
+        if self.device_props is None:
+            raise RuntimeError("device_object_missing")
+        return bool(self.device_props.Get("org.bluez.Device1", "Paired"))
 
     def _adapter_powered(self) -> bool:
         return bool(self.adapter_props.Get("org.bluez.Adapter1", "Powered"))
@@ -125,16 +143,50 @@ class ControllerLinkSupervisor:
     def _sync_initial_state(self) -> None:
         now = time.monotonic()
         try:
+            paired = self._device_paired()
+            self.retry.mark_device_resolved(now, paired=paired)
             if self._device_connected():
                 self.retry.mark_connected(now)
                 self.last_connected_wall_at = time.time()
             else:
                 self.retry.mark_disconnected(now)
-        except dbus.DBusException as exc:
+        except (dbus.DBusException, RuntimeError) as exc:
             self.retry.last_error = str(exc)
-            self.pairing_missing = self._is_missing_device_error(self.retry.last_error)
-            self.retry.mark_disconnected(now)
+            if self._is_missing_device_error(self.retry.last_error):
+                self.retry.mark_device_missing(now, self.retry.last_error)
+            else:
+                self.retry.mark_disconnected(now)
         self.write_status()
+
+    def _bind_device(self) -> None:
+        obj = self.bus.get_object("org.bluez", DEVICE_PATH)
+        self.device = dbus.Interface(obj, "org.bluez.Device1")
+        self.device_props = dbus.Interface(obj, "org.freedesktop.DBus.Properties")
+
+    def _resolve_device(self) -> bool:
+        """Rebind the configured MAC after BlueZ recreates its Device1 object."""
+        now = time.monotonic()
+        try:
+            self._bind_device()
+            paired = self._device_paired()
+        except (dbus.DBusException, RuntimeError) as exc:
+            message = str(exc)
+            if self._is_missing_device_error(message):
+                self.device = None
+                self.device_props = None
+                self.retry.mark_device_missing(now, message)
+                return False
+            self.retry.last_error = message
+            return False
+        self.retry.mark_device_resolved(now, paired=paired)
+        return True
+
+    def _interfaces_added(self, path: str, interfaces: dict[str, Any]) -> None:
+        if str(path) != DEVICE_PATH or "org.bluez.Device1" not in interfaces:
+            return
+        if self._resolve_device() and not self.retry.connected:
+            self.retry.force_retry(time.monotonic())
+        self.write_status(force=True)
 
     def _properties_changed(
         self,
@@ -143,17 +195,23 @@ class ControllerLinkSupervisor:
         _invalidated: list[str],
     ) -> None:
         now = time.monotonic()
-        if interface == "org.bluez.Device1" and "Connected" in changed:
-            if bool(changed["Connected"]):
-                self.retry.mark_connected(now)
-                self.last_connected_wall_at = time.time()
-            else:
-                self.retry.mark_disconnected(now)
-                self.last_disconnect_wall_at = time.time()
+        if interface == "org.bluez.Device1":
+            if "Paired" in changed:
+                self.retry.paired = bool(changed["Paired"])
+            if "Connected" in changed:
+                if bool(changed["Connected"]):
+                    self.retry.mark_connected(now)
+                    self.last_connected_wall_at = time.time()
+                else:
+                    self.retry.mark_disconnected(now)
+                    self.last_disconnect_wall_at = time.time()
             self.write_status(force=True)
-        elif interface == "org.bluez.Adapter1" and "Powered" in changed:
-            if not bool(changed["Powered"]):
+        elif interface == "org.bluez.Adapter1":
+            if "Powered" in changed and not bool(changed["Powered"]):
                 self.retry.last_error = "adapter_powered_off"
+            elif not self.retry.connected:
+                self._resolve_device()
+                self.retry.force_retry(now)
             self.write_status(force=True)
 
     def _connect_ok(self) -> None:
@@ -168,25 +226,69 @@ class ControllerLinkSupervisor:
         if not self.retry.attempt_in_flight:
             return
         message = str(error)
-        self.pairing_missing = self._is_missing_device_error(message)
-        self.retry.complete_attempt(time.monotonic(), message)
+        now = time.monotonic()
+        if self._is_missing_device_error(message):
+            self.device = None
+            self.device_props = None
+            self.retry.mark_device_missing(now, message)
+        else:
+            self.retry.complete_attempt(now, message)
         self.write_status(force=True)
 
     @staticmethod
     def _is_missing_device_error(message: str) -> bool:
-        return "DoesNotExist" in message or "UnknownObject" in message
+        return (
+            "DoesNotExist" in message
+            or "UnknownObject" in message
+            or "device_object_missing" in message
+        )
+
+    def _stop_discovery(self) -> bool:
+        if not self.discovery_active:
+            return False
+        try:
+            self.adapter.StopDiscovery()
+        except dbus.DBusException as exc:
+            self.retry.last_error = f"device_discovery_stop:{exc}"
+        self.discovery_active = False
+        self._resolve_device()
+        if not self.retry.connected and not self.retry.needs_re_pair:
+            self.retry.force_retry(time.monotonic())
+        self.write_status(force=True)
+        return False
+
+    def _maybe_discover_known_device(self) -> None:
+        """Briefly page for the configured MAC; never make the adapter pairable."""
+        now = time.monotonic()
+        if self.discovery_active or now - self.last_discovery_at < DEVICE_DISCOVERY_INTERVAL_SEC:
+            return
+        self.last_discovery_at = now
+        self.last_discovery_wall_at = time.time()
+        try:
+            self.adapter.StartDiscovery()
+        except dbus.DBusException as exc:
+            self.retry.last_error = f"device_discovery_start:{exc}"
+            return
+        self.discovery_active = True
+        GLib.timeout_add_seconds(DEVICE_DISCOVERY_DURATION_SEC, self._stop_discovery)
 
     def _try_connect(self) -> None:
-        if self.pairing_missing:
-            return
-        if not self.retry.due(time.monotonic()):
+        now = time.monotonic()
+        if not self.retry.due(now) or self.retry.needs_re_pair:
             return
         try:
             if not self._adapter_powered():
                 self.retry.last_error = "adapter_powered_off"
                 self.retry.complete_attempt(time.monotonic(), self.retry.last_error)
                 return
-            self.retry.begin_attempt(time.monotonic())
+            if not self.retry.device_present or self.device is None:
+                if not self._resolve_device():
+                    self.retry.begin_attempt(now)
+                    self.retry.complete_attempt(now, "device_object_missing")
+                    self._maybe_discover_known_device()
+                    return
+            self.retry.begin_attempt(now)
+            assert self.device is not None
             self.device.Connect(reply_handler=self._connect_ok, error_handler=self._connect_error)
         except dbus.DBusException as exc:
             self.retry.complete_attempt(time.monotonic(), str(exc))
@@ -216,7 +318,10 @@ class ControllerLinkSupervisor:
             )
         except OSError as exc:
             self.retry.last_error = f"bluez_repair_failed:{type(exc).__name__}"
-        self.pairing_missing = False
+        self.device = None
+        self.device_props = None
+        self.retry.device_present = False
+        self.retry.paired = None
         self.retry.force_retry(time.monotonic())
         self.write_status(force=True)
 
@@ -224,7 +329,7 @@ class ControllerLinkSupervisor:
         self.force_repair_requested = True
 
     def request_retry(self, _signum: int, _frame: object) -> None:
-        self.pairing_missing = False
+        self._resolve_device()
         self.retry.force_retry(time.monotonic())
         self.write_status(force=True)
 
@@ -236,23 +341,29 @@ class ControllerLinkSupervisor:
         try:
             adapter_ready = self._adapter_powered()
             connected = self._device_connected()
-        except dbus.DBusException as exc:
-            adapter_ready = False
+            paired = self._device_paired()
+            self.retry.device_present = True
+            self.retry.paired = paired
+        except (dbus.DBusException, RuntimeError) as exc:
+            adapter_ready = self._adapter_powered_safe()
             connected = False
             self.retry.last_error = str(exc)
+            if self._is_missing_device_error(self.retry.last_error):
+                self.retry.device_present = False
+                self.retry.paired = None
         if connected and not self.retry.connected:
             self.retry.mark_connected(now)
-        state = "ready" if connected and self._input_ready() else "connected_waiting_for_input" if connected else self.retry.phase
-        if self.pairing_missing:
-            state = "needs_repair"
-        elif not adapter_ready:
-            state = "needs_repair"
+        input_ready = self._input_ready()
+        state = self.retry.couch_state(adapter_ready=adapter_ready, input_ready=input_ready)
         payload = {
-            "ok": state != "needs_repair",
+            "ok": adapter_ready and state != "needs_re-pair",
             "state": state,
+            "retry_phase": self.retry.retry_phase,
             "connected": connected,
             "adapter_ready": adapter_ready,
-            "input_ready": self._input_ready(),
+            "device_present": self.retry.device_present,
+            "paired": self.retry.paired,
+            "input_ready": input_ready,
             "attempt_in_flight": self.retry.attempt_in_flight,
             "retry_index": self.retry.retry_index,
             "next_attempt_at": time.time() + max(0.0, self.retry.next_attempt_at - now),
@@ -261,12 +372,21 @@ class ControllerLinkSupervisor:
             "last_disconnect_at": self.last_disconnect_wall_at or None,
             "last_repair_at": self.last_repair_wall_at or None,
             "repair_count": self.repair_count,
+            "discovery_active": self.discovery_active,
+            "last_discovery_at": self.last_discovery_wall_at or None,
+            "pairing_policy": PAIRING_POLICY,
             "pid": os.getpid(),
             "updated_at": time.time(),
             "device_mac": BT_MAC,
             "device_path": DEVICE_PATH,
         }
         write_json(STATUS_PATH, payload)
+
+    def _adapter_powered_safe(self) -> bool:
+        try:
+            return self._adapter_powered()
+        except dbus.DBusException:
+            return False
 
     def tick(self) -> bool:
         if self.force_repair_requested:

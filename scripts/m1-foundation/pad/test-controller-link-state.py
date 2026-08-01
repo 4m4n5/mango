@@ -32,7 +32,8 @@ class ControllerLinkStateTest(unittest.TestCase):
         state.begin_attempt(115.0)
         state.complete_attempt(115.0, "offline")
         self.assertEqual(state.next_attempt_at, 120.0)
-        self.assertEqual(state.phase, "maintenance_retry")
+        self.assertEqual(state.retry_phase, "maintenance_retry")
+        self.assertEqual(state.couch_state(adapter_ready=True, input_ready=False), "off")
 
     def test_connected_cancels_pending_retries(self) -> None:
         state = STATE.LinkRetryState()
@@ -42,7 +43,8 @@ class ControllerLinkStateTest(unittest.TestCase):
         self.assertTrue(state.connected)
         self.assertFalse(state.attempt_in_flight)
         self.assertFalse(state.due(99.0))
-        self.assertEqual(state.phase, "ready")
+        self.assertEqual(state.retry_phase, "ready")
+        self.assertEqual(state.couch_state(adapter_ready=True, input_ready=True), "ready")
 
     def test_force_retry_does_not_interrupt_a_ready_link(self) -> None:
         state = STATE.LinkRetryState()
@@ -61,6 +63,40 @@ class ControllerLinkStateTest(unittest.TestCase):
         state.begin_attempt(0.5)
         state.complete_attempt(0.5, "offline")
         self.assertEqual(state.next_attempt_at, 3.5)
+
+    def test_missing_device_object_recovers_without_claiming_pairing_loss(self) -> None:
+        state = STATE.LinkRetryState(fast_retry_delays_sec=(0.0, 1.0), maintenance_retry_sec=5.0)
+        state.mark_disconnected(10.0)
+        state.begin_attempt(10.0)
+        state.mark_device_missing(10.5, "UnknownObject")
+        self.assertFalse(state.device_present)
+        self.assertIsNone(state.paired)
+        self.assertFalse(state.needs_re_pair)
+        self.assertEqual(state.couch_state(adapter_ready=True, input_ready=False), "connecting")
+
+        state.mark_device_resolved(11.5, paired=True)
+        self.assertTrue(state.device_present)
+        self.assertTrue(state.paired)
+        self.assertTrue(state.due(11.5))
+
+    def test_only_confirmed_missing_bond_requires_re_pair(self) -> None:
+        state = STATE.LinkRetryState()
+        state.mark_disconnected(20.0)
+        state.mark_device_resolved(20.0, paired=False)
+        self.assertTrue(state.needs_re_pair)
+        self.assertEqual(state.couch_state(adapter_ready=True, input_ready=False), "needs_re-pair")
+
+        state.mark_device_missing(21.0)
+        self.assertFalse(state.needs_re_pair)
+        self.assertEqual(state.couch_state(adapter_ready=True, input_ready=False), "connecting")
+
+    def test_connected_without_evdev_has_distinct_public_state(self) -> None:
+        state = STATE.LinkRetryState()
+        state.mark_connected(30.0)
+        self.assertEqual(
+            state.couch_state(adapter_ready=True, input_ready=False),
+            "connected_waiting_for_input",
+        )
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ set -euo pipefail
 REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 STATUS_FILE="${CACHE_DIR}/mango-tv-pad-status.json"
+LINK_STATUS_FILE="${CACHE_DIR}/mango-controller-link-status.json"
 PID_FILE="${CACHE_DIR}/mango-tv-pad.pid"
 MAX_STATUS_AGE_SEC="${MANGO_PAD_HEALTH_MAX_AGE_SEC:-8}"
 MAX_WAITING_STATUS_AGE_SEC="${MANGO_PAD_WAITING_MAX_AGE_SEC:-20}"
@@ -74,7 +75,7 @@ input_remapper_active() {
 }
 
 load_status_exports() {
-  python3 - "$STATUS_FILE" <<'PY'
+  python3 - "$STATUS_FILE" "$LINK_STATUS_FILE" <<'PY'
 import json
 import shlex
 import sys
@@ -85,6 +86,10 @@ try:
     data = json.loads(path.read_text(encoding="utf-8"))
 except Exception:
     data = {}
+try:
+    link = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+except Exception:
+    link = {}
 
 def emit(name, value):
     print(f"{name}={shlex.quote(str(value or ''))}")
@@ -94,6 +99,8 @@ emit("STATUS_STATE", data.get("state", ""))
 emit("STATUS_PATH", data.get("device_path", ""))
 emit("STATUS_UPDATED_AT", data.get("updated_at", "0"))
 emit("STATUS_ACTION", data.get("last_action", ""))
+emit("LINK_STATE", link.get("state", ""))
+emit("LINK_PAIRING_POLICY", link.get("pairing_policy", ""))
 PY
 }
 
@@ -165,6 +172,10 @@ PY
   age=$(( now - updated ))
 
   if [[ -z "$CURRENT_PATH" ]]; then
+    if [[ "${LINK_STATE:-}" == "needs_re-pair" ]]; then
+      REASON="needs_re-pair"
+      return 1
+    fi
     case "${STATUS_STATE:-}" in
       starting | waiting | reconnecting)
         if (( age <= MAX_WAITING_STATUS_AGE_SEC )); then
@@ -236,6 +247,10 @@ if [[ "$REPAIR" == "1" ]]; then
   fi
 fi
 
-say "pad-health: fail (${REASON})"
+if [[ "$REASON" == "needs_re-pair" ]]; then
+  say "pad-health: fail (pairing record missing; explicit re-pair required)"
+else
+  say "pad-health: fail (${REASON})"
+fi
 [[ "$JSON" == "1" ]] && json_result 0 "$REASON" "$CURRENT_PATH" "$PIDS"
 exit 1

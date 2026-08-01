@@ -109,16 +109,20 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
   ));
 
   const controllerState = facts.controller.link_state || '';
-  const controllerStatus: ReliabilityLevel = controllerState === 'needs_repair'
+  const controllerStatus: ReliabilityLevel = controllerState === 'needs_re-pair' || controllerState === 'needs_repair'
     ? 'red'
     : facts.controller.ok || facts.controller.fallback ? 'green' : 'red';
-  const controllerSummary = controllerStatus === 'red'
-    ? 'controller needs repair'
+  const controllerSummary = controllerState === 'needs_re-pair'
+    ? 'controller pairing record is missing; explicit re-pair required'
+    : controllerStatus === 'red'
+      ? 'controller link needs repair'
     : controllerState === 'ready'
       ? 'controller is ready'
-      : controllerState === 'connected_waiting_for_input' || controllerState === 'connecting' || controllerState === 'fast_retry'
+      : controllerState === 'connected_waiting_for_input'
+        ? 'controller connected; waiting for Linux input'
+        : controllerState === 'connecting' || controllerState === 'fast_retry'
         ? 'controller is connecting'
-        : controllerState === 'maintenance_retry'
+        : controllerState === 'off' || controllerState === 'maintenance_retry'
           ? 'controller is off; ready to reconnect'
           : 'input owner is ready';
   components.push(component(

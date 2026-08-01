@@ -28,8 +28,11 @@ class LinkRetryState:
     last_disconnect_at: float = 0.0
     last_connected_at: float = 0.0
     last_error: str = ""
+    device_present: bool = True
+    paired: bool | None = None
 
     def mark_connected(self, now: float) -> None:
+        self.device_present = True
         self.connected = True
         self.attempt_in_flight = False
         self.attempt_started_at = 0.0
@@ -48,6 +51,27 @@ class LinkRetryState:
         self.retry_index = 0
         self.fast_retry_exhausted = False
         self.next_attempt_at = now
+
+    def mark_device_missing(self, now: float, error: str = "device_object_missing") -> None:
+        """Keep retrying when BlueZ temporarily loses the known Device1 object."""
+        self.device_present = False
+        self.paired = None
+        self.connected = False
+        if self.attempt_in_flight:
+            self.complete_attempt(now, error)
+        else:
+            self.last_error = error
+            self.next_attempt_at = now
+
+    def mark_device_resolved(self, now: float, *, paired: bool) -> None:
+        self.device_present = True
+        self.paired = paired
+        if paired:
+            self.force_retry(now)
+        else:
+            self.attempt_in_flight = False
+            self.attempt_started_at = 0.0
+            self.last_error = "pairing_record_missing"
 
     def due(self, now: float) -> bool:
         return not self.connected and not self.attempt_in_flight and now >= self.next_attempt_at
@@ -76,7 +100,7 @@ class LinkRetryState:
             self.next_attempt_at = now
 
     @property
-    def phase(self) -> str:
+    def retry_phase(self) -> str:
         if self.connected:
             return "ready"
         if self.attempt_in_flight:
@@ -84,3 +108,17 @@ class LinkRetryState:
         if not self.fast_retry_exhausted:
             return "fast_retry"
         return "maintenance_retry"
+
+    @property
+    def needs_re_pair(self) -> bool:
+        return self.device_present and self.paired is False
+
+    def couch_state(self, *, adapter_ready: bool, input_ready: bool) -> str:
+        """Return the stable public state used by pad health and Reliability."""
+        if self.connected:
+            return "ready" if input_ready else "connected_waiting_for_input"
+        if self.needs_re_pair:
+            return "needs_re-pair"
+        if not adapter_ready or self.attempt_in_flight or not self.fast_retry_exhausted:
+            return "connecting"
+        return "off"

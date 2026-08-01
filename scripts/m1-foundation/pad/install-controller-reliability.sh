@@ -89,7 +89,8 @@ check() {
     "Policy ReconnectUUIDs 00001124-0000-1000-8000-00805f9b34fb"; do
     read -r section key expected <<<"$spec"
     if [[ "$(config_value "$section" "$key")" != "$expected" ]]; then
-      say "WARN $section/$key is not managed value $expected"
+      say "FAIL $section/$key is not managed value $expected"
+      bad=1
     fi
   done
   if [[ "$bad" == "1" ]]; then

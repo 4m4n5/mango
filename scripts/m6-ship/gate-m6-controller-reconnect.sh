@@ -74,17 +74,26 @@ import sys
 data = json.load(open(sys.argv[1], encoding="utf-8"))
 state = data.get("state")
 age = __import__("time").time() - float(data.get("updated_at") or 0)
-allowed = {"ready", "connected_waiting_for_input", "connecting", "fast_retry", "maintenance_retry"}
+allowed = {"ready", "connected_waiting_for_input", "connecting", "off", "needs_re-pair"}
 print(f"controller status: state={state} age={age:.1f}s")
 if state not in allowed:
     raise SystemExit(f"unexpected controller state: {state}")
 if age > 10:
     raise SystemExit(f"controller status stale: {age:.1f}s")
+if data.get("pairing_policy") != "explicit_recovery_only":
+    raise SystemExit("normal-wake no-pairing policy is missing")
+if state == "needs_re-pair" and data.get("paired") is not False:
+    raise SystemExit("needs_re-pair requires explicit Paired=false evidence")
 PY
   pass "controller status is fresh and couch-safe"
 else
   fail "controller status missing"
 fi
+
+grep -q 'Do not enter pairing mode' "$REPO_DIR/scripts/m1-foundation/pad/controller-link-couch-test.sh" \
+  && grep -q 'MANGO_CONTROLLER_TEST_CYCLES:-5' "$REPO_DIR/scripts/m1-foundation/pad/controller-link-couch-test.sh" \
+  && pass "normal-wake couch proof requires five no-pairing cycles" \
+  || fail "normal-wake no-pairing couch contract missing"
 
 if (( failures > 0 )); then
   echo "Controller reconnect gate failed (${failures})" >&2

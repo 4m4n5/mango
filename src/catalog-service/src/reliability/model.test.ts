@@ -148,13 +148,13 @@ test('active couch disables disruptive actions but keeps proof available', () =>
   assert.equal(state.actions.find((action) => action.id === 'proof')?.enabled, true);
 });
 
-test('controller maintenance retry is healthy while the dedicated controller is off', () => {
+test('controller off state is healthy while the dedicated controller is powered down', () => {
   const facts = baseFacts();
   facts.controller = {
     ok: true,
     fallback: false,
     reason: 'waiting_for_controller',
-    link_state: 'maintenance_retry',
+    link_state: 'off',
     input_ready: false,
   };
   const state = evaluateReliability(facts);
@@ -176,6 +176,37 @@ test('controller supervisor repair state makes couch reliability red', () => {
   const controller = state.components.find((entry) => entry.id === 'controller');
   assert.equal(controller?.status, 'red');
   assert.equal(state.status, 'red');
+});
+
+test('only confirmed pairing loss tells the operator to re-pair', () => {
+  const facts = baseFacts();
+  facts.controller = {
+    ok: false,
+    fallback: false,
+    reason: 'needs_re-pair',
+    link_state: 'needs_re-pair',
+    last_error: 'pairing_record_missing',
+  };
+  const state = evaluateReliability(facts);
+  const controller = state.components.find((entry) => entry.id === 'controller');
+  assert.equal(controller?.status, 'red');
+  assert.match(controller?.summary ?? '', /explicit re-pair required/);
+});
+
+test('connected without evdev reports input registration wait without pairing copy', () => {
+  const facts = baseFacts();
+  facts.controller = {
+    ok: true,
+    fallback: false,
+    reason: 'waiting_for_controller',
+    link_state: 'connected_waiting_for_input',
+    input_ready: false,
+  };
+  const state = evaluateReliability(facts);
+  const controller = state.components.find((entry) => entry.id === 'controller');
+  assert.equal(controller?.status, 'green');
+  assert.match(controller?.summary ?? '', /waiting for Linux input/);
+  assert.doesNotMatch(controller?.summary ?? '', /pair/i);
 });
 
 // H7-a: playability_rc (and related fields) in the last nightly proof's
