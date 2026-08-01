@@ -3,13 +3,14 @@
 
 The 8BitDo Micro (Switch/Pro mode) normally reconnects by initiating to the
 last bonded host after ordinary power-on. Host-side Connect() storms while the
-peripheral radio is off (BlueZ "Host is down") race the HID stack and leave
-ordinary wake needing pairing mode.
+peripheral radio is off (BlueZ "Host is down") race the HID stack when a second
+owner (BlueZ Policy auto-reconnect) is also paging — ordinary wake then needs
+pairing mode.
 
-Policy:
-  - short recovery burst only when the peripheral looks pageable;
-  - on Host-is-down, stop Connect entirely and await inbound Connected /
-    advertising evidence;
+Policy (sole Connect owner; BlueZ ReconnectAttempts=0):
+  - probe Connect on a short cadence while the bonded Micro looks off;
+  - never overlap attempts; back off briefly on Host-is-down;
+  - on advertising / RSSI wake evidence, Connect immediately;
   - never treat a powered-off Micro as a pairing failure.
 """
 
@@ -18,14 +19,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 
-FAST_RETRY_DELAYS_SEC = (0.0, 1.0, 2.0, 4.0, 8.0)
-MAINTENANCE_RETRY_SEC = 5.0
-# How often we may probe with a brief discovery scan while awaiting wake.
-# Connect itself is suppressed for the whole asleep window.
-ASLEEP_SCAN_SEC = 15.0
+FAST_RETRY_DELAYS_SEC = (0.0, 0.5, 1.0, 2.0, 4.0)
+MAINTENANCE_RETRY_SEC = 3.0
+# How often we may StartDiscovery while awaiting a missing Device1 object /
+# advertising evidence. Connect probes use asleep_probe_sec instead.
+ASLEEP_SCAN_SEC = 2.0
+# Sole-owner Connect probe interval after Host-is-down. Keep this short so
+# ordinary power-on is paged within about one BlueZ attempt, not a 15s+ gap.
+ASLEEP_PROBE_SEC = 1.0
 # After a disconnect, allow one immediate Connect before treating Host-is-down
 # as "peripheral off".
-DISCONNECT_GRACE_SEC = 2.0
+DISCONNECT_GRACE_SEC = 1.0
 
 
 def is_peripheral_asleep_error(error: str) -> bool:
@@ -50,20 +54,28 @@ def is_pageable_timeout_error(error: str) -> bool:
     )
 
 
+def is_connect_busy_error(error: str) -> bool:
+    text = error.lower()
+    return "already in progress" in text or "(114)" in error or "errno 114" in text
+
+
 @dataclass
 class LinkRetryState:
     fast_retry_delays_sec: tuple[float, ...] = FAST_RETRY_DELAYS_SEC
     maintenance_retry_sec: float = MAINTENANCE_RETRY_SEC
     asleep_scan_sec: float = ASLEEP_SCAN_SEC
+    asleep_probe_sec: float = ASLEEP_PROBE_SEC
     disconnect_grace_sec: float = DISCONNECT_GRACE_SEC
     connected: bool = False
     attempt_in_flight: bool = False
     attempt_started_at: float = 0.0
     retry_index: int = 0
     fast_retry_exhausted: bool = False
-    # True while BlueZ says the bonded Micro radio is off. Suppress Connect().
+    # True while BlueZ says the bonded Micro radio is off. Connect still probes
+    # on asleep_probe_sec; we just avoid overlapping / dual-owner storms.
     peripheral_asleep: bool = False
-    # True after we saw advertising / RSSI / services while asleep — allow Connect.
+    # True after we saw advertising / RSSI / services while asleep — prefer
+    # immediate Connect over the probe cadence.
     wake_detected: bool = False
     next_attempt_at: float = 0.0
     next_scan_at: float = 0.0
@@ -116,14 +128,18 @@ class LinkRetryState:
             self.next_scan_at = now
 
     def mark_device_resolved(self, now: float, *, paired: bool) -> None:
+        was_missing = not self.device_present
         self.device_present = True
         self.paired = paired
-        if paired:
-            self.force_retry(now)
-        else:
+        if not paired:
             self.attempt_in_flight = False
             self.attempt_started_at = 0.0
             self.last_error = "pairing_record_missing"
+            return
+        # Only burst Connect when BlueZ recreates a missing Device1 object.
+        # Rebinding an already-tracked paired device must not clear asleep probes.
+        if was_missing:
+            self.force_retry(now)
 
     def mark_peripheral_asleep(self, now: float, error: str = "") -> None:
         self.peripheral_asleep = True
@@ -134,36 +150,32 @@ class LinkRetryState:
         self.retry_index = len(self.fast_retry_delays_sec) - 1
         if error:
             self.last_error = error
-        # No Connect while asleep; scans use next_scan_at.
-        self.next_attempt_at = now + 24 * 60 * 60.0
-        self.next_scan_at = now + self.asleep_scan_sec
+        # Keep paging on a short sole-owner cadence (not a multi-second dark gap).
+        self.next_attempt_at = now + self.asleep_probe_sec
+        self.next_scan_at = now
 
     def mark_wake_detected(self, now: float) -> None:
-        """Advertising / RSSI / services appeared — allow a Connect burst."""
+        """Advertising / RSSI / services appeared — Connect as soon as possible."""
         if self.connected:
             return
         self.wake_detected = True
         self.peripheral_asleep = False
-        self.attempt_in_flight = False
-        self.attempt_started_at = 0.0
         self.retry_index = 0
         self.fast_retry_exhausted = False
         self.next_attempt_at = now
+        # Do not clear attempt_in_flight: an in-flight Connect may be the wake page.
 
     def due(self, now: float) -> bool:
         if self.connected or self.attempt_in_flight:
-            return False
-        if self.peripheral_asleep and not self.wake_detected:
             return False
         return now >= self.next_attempt_at
 
     def scan_due(self, now: float) -> bool:
         return (
             not self.connected
-            and self.peripheral_asleep
-            and not self.wake_detected
             and not self.attempt_in_flight
             and now >= self.next_scan_at
+            and (self.peripheral_asleep or not self.device_present)
         )
 
     def begin_attempt(self, now: float) -> None:
@@ -174,12 +186,17 @@ class LinkRetryState:
         self.attempt_in_flight = False
         self.attempt_started_at = 0.0
         self.last_error = error
+        if is_connect_busy_error(error):
+            # Another BlueZ client/page is in flight; wait briefly without
+            # escalating retry phase.
+            self.next_attempt_at = now + min(0.5, self.asleep_probe_sec)
+            return
         if is_peripheral_asleep_error(error):
             self.mark_peripheral_asleep(now, error)
             return
         if is_pageable_timeout_error(error) and not self.wake_detected:
-            # Timed out without wake evidence — Micro may still be off/asleep.
-            # Park and wait for advertising rather than spinning Connect.
+            # Timed out without wake evidence — Micro may still be off. Probe
+            # again shortly rather than opening a long dark window.
             self.mark_peripheral_asleep(now, error)
             return
         self.peripheral_asleep = False

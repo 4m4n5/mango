@@ -24,14 +24,14 @@ class ControllerLinkStateTest(unittest.TestCase):
         state.begin_attempt(100.0)
         self.assertFalse(state.due(100.0))
         state.complete_attempt(100.0, "offline")
-        self.assertEqual(state.next_attempt_at, 101.0)
-        for expected in (103.0, 107.0, 115.0):
+        self.assertEqual(state.next_attempt_at, 100.5)
+        for expected in (101.5, 103.5, 107.5):
             state.begin_attempt(state.next_attempt_at)
             state.complete_attempt(state.next_attempt_at, "offline")
             self.assertEqual(state.next_attempt_at, expected)
-        state.begin_attempt(115.0)
-        state.complete_attempt(115.0, "offline")
-        self.assertEqual(state.next_attempt_at, 120.0)
+        state.begin_attempt(107.5)
+        state.complete_attempt(107.5, "offline")
+        self.assertEqual(state.next_attempt_at, 110.5)
         self.assertEqual(state.retry_phase, "maintenance_retry")
         self.assertEqual(state.couch_state(adapter_ready=True, input_ready=False), "off")
 
@@ -83,6 +83,17 @@ class ControllerLinkStateTest(unittest.TestCase):
         self.assertTrue(state.paired)
         self.assertTrue(state.due(11.5))
 
+    def test_rebind_of_tracked_device_preserves_asleep_probe(self) -> None:
+        state = STATE.LinkRetryState(asleep_probe_sec=1.0, disconnect_grace_sec=0.0)
+        state.mark_disconnected(10.0)
+        state.begin_attempt(10.0)
+        state.complete_attempt(10.0, "Host is down (112)")
+        self.assertTrue(state.peripheral_asleep)
+        state.mark_device_resolved(10.5, paired=True)
+        self.assertTrue(state.peripheral_asleep)
+        self.assertFalse(state.wake_detected)
+        self.assertEqual(state.next_attempt_at, 11.0)
+
     def test_only_confirmed_missing_bond_requires_re_pair(self) -> None:
         state = STATE.LinkRetryState()
         state.mark_disconnected(20.0)
@@ -102,11 +113,12 @@ class ControllerLinkStateTest(unittest.TestCase):
             "connected_waiting_for_input",
         )
 
-    def test_host_is_down_suppresses_connect_until_wake_evidence(self) -> None:
+    def test_host_is_down_probes_again_within_about_one_second(self) -> None:
         state = STATE.LinkRetryState(
             fast_retry_delays_sec=(0.0, 1.0, 2.0),
             maintenance_retry_sec=5.0,
-            asleep_scan_sec=15.0,
+            asleep_scan_sec=2.0,
+            asleep_probe_sec=1.0,
             disconnect_grace_sec=0.0,
         )
         state.mark_disconnected(50.0)
@@ -114,26 +126,47 @@ class ControllerLinkStateTest(unittest.TestCase):
         state.complete_attempt(50.0, "org.bluez.Error.Failed: Host is down (112)")
         self.assertTrue(state.peripheral_asleep)
         self.assertFalse(state.wake_detected)
-        self.assertFalse(state.due(70.0))
-        self.assertTrue(state.scan_due(65.0))
+        self.assertFalse(state.due(50.5))
+        self.assertTrue(state.due(51.0))
+        self.assertTrue(state.scan_due(50.0))
         self.assertEqual(state.retry_phase, "awaiting_peripheral")
         self.assertEqual(state.couch_state(adapter_ready=True, input_ready=False), "off")
 
-        state.mark_wake_detected(80.0)
+        state.mark_wake_detected(52.0)
         self.assertFalse(state.peripheral_asleep)
         self.assertTrue(state.wake_detected)
-        self.assertTrue(state.due(80.0))
+        self.assertTrue(state.due(52.0))
         self.assertEqual(state.retry_phase, "fast_retry")
 
+    def test_wake_evidence_does_not_cancel_in_flight_connect(self) -> None:
+        state = STATE.LinkRetryState(asleep_probe_sec=1.0, disconnect_grace_sec=0.0)
+        state.mark_disconnected(10.0)
+        state.begin_attempt(10.0)
+        state.complete_attempt(10.0, "Host is down (112)")
+        state.begin_attempt(11.0)
+        state.mark_wake_detected(11.2)
+        self.assertTrue(state.attempt_in_flight)
+        self.assertFalse(state.due(11.2))
+
+    def test_busy_connect_retries_softly(self) -> None:
+        state = STATE.LinkRetryState(asleep_probe_sec=1.0, disconnect_grace_sec=0.0)
+        state.mark_disconnected(10.0)
+        state.begin_attempt(10.0)
+        state.complete_attempt(10.0, "Operation already in progress (114)")
+        self.assertFalse(state.peripheral_asleep)
+        self.assertEqual(state.next_attempt_at, 10.5)
+        self.assertTrue(state.due(10.5))
+
     def test_page_timeout_without_wake_also_awaits_peripheral(self) -> None:
-        state = STATE.LinkRetryState(disconnect_grace_sec=0.0)
+        state = STATE.LinkRetryState(disconnect_grace_sec=0.0, asleep_probe_sec=1.0)
         state.mark_disconnected(10.0)
         state.begin_attempt(10.0)
         state.complete_attempt(10.0, "Connection timed out (110)")
         self.assertTrue(state.peripheral_asleep)
-        self.assertFalse(state.due(20.0))
+        self.assertTrue(state.due(11.0))
         self.assertTrue(STATE.is_peripheral_asleep_error("Host is down (112)"))
         self.assertTrue(STATE.is_pageable_timeout_error("Connection timed out (110)"))
+        self.assertTrue(STATE.is_connect_busy_error("Operation already in progress (114)"))
 
 
 if __name__ == "__main__":

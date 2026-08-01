@@ -29,6 +29,7 @@ except ImportError as exc:  # pragma: no cover - exercised on the Pi only
     sys.exit(f"mango-controller-link: missing Pi dependency: {exc}")
 
 from controller_link_state import (
+    ASLEEP_PROBE_SEC,
     ASLEEP_SCAN_SEC,
     DISCONNECT_GRACE_SEC,
     FAST_RETRY_DELAYS_SEC,
@@ -45,7 +46,9 @@ STATUS_PATH = CACHE_DIR / "mango-controller-link-status.json"
 STATUS_HEARTBEAT_SEC = 2.0
 AUTO_REPAIR_COOLDOWN_SEC = 15 * 60.0
 CONNECT_ATTEMPT_TIMEOUT_SEC = 8.0
-DEVICE_DISCOVERY_DURATION_SEC = 4
+# Short inquiry bursts while awaiting the bonded Micro; Connect probes are the
+# primary ordinary-wake path and must not wait on a long dark gap.
+DEVICE_DISCOVERY_DURATION_SEC = 2
 PAIRING_POLICY = "explicit_recovery_only"
 
 
@@ -73,7 +76,15 @@ def asleep_scan_from_env() -> float:
         value = float(os.environ.get("MANGO_CONTROLLER_ASLEEP_SCAN_SEC", ASLEEP_SCAN_SEC))
     except ValueError:
         return ASLEEP_SCAN_SEC
-    return value if value >= 5.0 else ASLEEP_SCAN_SEC
+    return value if value >= 1.0 else ASLEEP_SCAN_SEC
+
+
+def asleep_probe_from_env() -> float:
+    try:
+        value = float(os.environ.get("MANGO_CONTROLLER_ASLEEP_PROBE_SEC", ASLEEP_PROBE_SEC))
+    except ValueError:
+        return ASLEEP_PROBE_SEC
+    return value if value >= 0.5 else ASLEEP_PROBE_SEC
 
 
 def _owner_ids() -> tuple[int, int] | None:
@@ -103,6 +114,7 @@ class ControllerLinkSupervisor:
             fast_retry_delays_sec=retry_delays_from_env(),
             maintenance_retry_sec=maintenance_retry_from_env(),
             asleep_scan_sec=asleep_scan_from_env(),
+            asleep_probe_sec=asleep_probe_from_env(),
             disconnect_grace_sec=DISCONNECT_GRACE_SEC,
         )
         DBusGMainLoop(set_as_default=True)
@@ -296,21 +308,22 @@ class ControllerLinkSupervisor:
             self.retry.last_error = f"device_discovery_stop:{exc}"
         self.discovery_active = False
         self._resolve_device()
-        # After a quiet scan, try one Connect burst — ordinary wake often
-        # needs the host to page once the Micro is advertising.
-        if not self.retry.connected and not self.retry.needs_re_pair:
-            self.retry.mark_wake_detected(time.monotonic())
+        now = time.monotonic()
+        # Do not invent wake evidence after an empty inquiry — Connect probes
+        # own ordinary paging. Restart inquiry soon if still awaiting.
+        if not self.retry.connected and (
+            self.retry.peripheral_asleep or not self.retry.device_present
+        ):
+            self.retry.next_scan_at = now
         self.write_status(force=True)
         return False
 
     def _maybe_discover_known_device(self) -> None:
-        """Briefly page for the configured MAC; never make the adapter pairable."""
+        """Brief inquiry for advertising evidence; never make the adapter pairable."""
         now = time.monotonic()
         if self.discovery_active:
             return
-        if not self.retry.scan_due(now) and not (
-            not self.retry.device_present and now >= self.retry.next_scan_at
-        ):
+        if not self.retry.scan_due(now):
             return
         self.retry.next_scan_at = now + self.retry.asleep_scan_sec
         self.last_discovery_at = now
@@ -328,10 +341,10 @@ class ControllerLinkSupervisor:
         now = time.monotonic()
         if self.retry.needs_re_pair:
             return
-        # While the Micro radio is off, never Connect — listen + scan only.
-        if self.retry.peripheral_asleep and not self.retry.wake_detected:
+        # Inquiry helps RSSI wake evidence; sole-owner Connect probes page the
+        # bonded Micro without waiting on a long discovery dark window.
+        if self.retry.peripheral_asleep or not self.retry.device_present:
             self._maybe_discover_known_device()
-            return
         if not self.retry.due(now):
             return
         try:
