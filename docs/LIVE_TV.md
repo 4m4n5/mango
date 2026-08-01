@@ -29,9 +29,9 @@ NexoTV cartoons:7003 ─┘         ↓
 | `mango Live News` | `:7002` | `iptv-org-news` (India + US + UK) |
 | `mango Live Cartoons` | `:7003` | curated English/Hindi IPTV-org kids |
 
-Rails (6, fixed order): **FIFA World Cup**, **cricket**, **soccer**, **Formula
-1**, **news**, **cartoons**. Empty qualified rails are hidden. See
-`config/catalog-live.example.yaml`.
+Rails (4, fixed order): **cricket** (India sources), **Formula 1**, **news**,
+**cartoons**. Empty qualified rails are hidden. Live has no shuffle (cached to
+avoid NexoTV rate limits). See `config/catalog-live.example.yaml`.
 
 ---
 

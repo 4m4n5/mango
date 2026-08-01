@@ -397,6 +397,9 @@ function buildHomeOptions(): HomeOptions {
     browseTab: activeBrowseTab,
     onBrowseTabChange: handleBrowseTabChange,
     savedKeys,
+    // Live shelves are curated inventories, not pool samples — show every
+    // qualified card instead of clipping to one landscape row of four.
+    railRowLimit: activeBrowseTab === "live" ? null : homeOptions.railRowLimit,
   };
 }
 

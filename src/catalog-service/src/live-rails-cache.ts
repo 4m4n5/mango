@@ -30,7 +30,7 @@ export type LiveRailsBackgroundRefreshDecision = {
 };
 
 /** Bump when cached rail membership semantics change incompatibly. */
-export const LIVE_RAILS_POLICY_VERSION = 4;
+export const LIVE_RAILS_POLICY_VERSION = 5;
 
 export function liveRailsDiskCacheCompatible(
   entry: LiveRailsDiskCache | null,

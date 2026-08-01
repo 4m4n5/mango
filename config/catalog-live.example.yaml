@@ -1,8 +1,9 @@
 # mango live TV rails — copy to /etc/mango/catalog-live.yaml on the Pi
 #
 # Curated free sports via mango Live Free M3U; AREA69 paid for live PPV events.
-# AREA69 full-catalog rows (incl. FIFA World Cup live PPV) merge from area69-live-search.json.
+# AREA69 full-catalog rows merge from area69-live-search.json.
 # verify_streams: false avoids NexoTV /stream/ rate limits; disk cache at ~/.cache/mango/
+# Browse rails: Indian cricket, Formula 1, news, cartoons (no World Cup / soccer shelves).
 
 version: 2
 cache_ttl_sec: 1800
@@ -31,87 +32,22 @@ sources:
     pages: 1
 
 rails:
-  - id: live-world-cup
-    label: world cup
-    limit: 8
-    qualification: fifa_mens_world_cup
-    source_fill:
-      - addon: mango Live Free
-        limit: 2
-        keywords:
-          - fifa
-      - addon: mango Live TV
-        limit: 8
-        keywords:
-          - world cup
-          - fifa world cup
-          - copa mundial
-          - copa do mundo
-          - copa mundial de la fifa
-          - mundial de la fifa
-          - todo el mundial
-          - world cup tonight
-          - world cup today
-          - tsn at the world cup
-          - dieciseisavos
-          - octavos de final
-          - cuartos de final
-          - semifinal
-          - bein sports max
-        exclude_keywords:
-          - soccer ppv
-          - national pool
-          - pool championship
-          - phillies at
-          - marlins at
-          - mariners at
-          - goodwood
-          - road racing
-          - nfl
-          - baseball
-          - mlb
-          - cricket
-    keywords:
-      - world cup
-      - fifa
-      - copa mundial
-      - copa do mundo
-      - mundial
-    exclude_keywords:
-      - replay
-      - 24/7
-      - soccer ppv
-      - national pool
-      - pool championship
-      - phillies at
-      - marlins at
-      - mariners at
-      - goodwood
-      - road racing
-      - nfl
-      - baseball
-      - mlb
-      - cricket
-
   - id: live-cricket
     label: cricket
-    limit: 8
+    limit: 12
     qualification: india_cricket
     source_fill:
       - addon: mango Live TV
-        limit: 8
+        limit: 12
         keywords:
           - cricket
           - ipl
           - willow
           - star sports
-          - sky sports cricket
-          - fox cricket
-          - supersport cricket
-          - sportsmax cricket
+          - dd sports
+          - sony sports
           - test match
           - t20
-          - ashes
           - india
         exclude_keywords:
           - 24/7
@@ -119,6 +55,11 @@ rails:
           - banana
           - baseball
           - soccer
+          - sky sports cricket
+          - fox cricket
+          - supersport cricket
+          - sportsmax cricket
+          - ashes
       - addon: mango Live Free
         limit: 8
         keywords:
@@ -133,171 +74,17 @@ rails:
       - replay
       - 24/7
       - baseball
-
-  - id: live-football
-    label: soccer
-    limit: 8
-    qualification: main_soccer
-    source_fill:
-      - addon: mango Live Free
-        limit: 8
-        keywords:
-          - bein sports
-      - addon: mango Live TV
-        limit: 8
-        keywords:
-          - uefa
-          - premier league
-          - bundesliga
-          - la liga
-          - serie a
-          - champions league
-          - europa league
-          - uel
-          - ligue 1
-          - mls
-          - bein sports
-          - dazn
-          - sky sports football
-          - sky sports premier
-          - sky sports main event
-          - tnt sports
-          - supersport football
-          - supersport soccer
-          - fox soccer
-          - telemundo
-          - telefe futbol
-        exclude_keywords:
-          - prime video
-          - tubi
-          - sitcom
-          - news
-          - crime
-          - movie
-          - 24/7
-          - replay
-          - soccer ppv
-          - national pool
-          - pool championship
-          - nfl
-          - american football
-          - college football
-          - super bowl
-          - ncaa
-          - nfl network
-          - fox nfl
-          - monday night football
-          - red zone
-          - baseball
-          - mlb
-          - nba
-          - nhl
-          - hockey
-          - basketball
-          - cricket
-          - rugby
-          - golf
-          - tennis
-          - pool championship
-          - billiard
-          - indycar
-          - nascar
-          - motogp
-          - phillies at
-          - marlins at
-          - mariners at
-          - at reds
-          - at nationals
-          - at rays
-          - at orioles
-          - at pirates
-          - at mets
-          - at rockies
-          - at angels
-          - at tigers
-          - at white sox
-          - at dodgers
-          - at brewers
-          - rise at
-          - goodwood
-          - road racing
-    keywords:
-      - uefa
-      - premier league
-      - bundesliga
-      - la liga
-      - serie a
-      - champions league
-      - ligue 1
-      - mls
-    exclude_keywords:
-      - replay
-      - 24/7
-      - darts
-      - handball
-      - combat
-      - pluto
-      - world cup
-      - fifa
-      - copa mundial
-      - copa do mundo
-      - mundial
-      - soccer ppv
-      - national pool
-      - pool championship
-      - phillies at
-      - marlins at
-      - mariners at
-      - at reds
-      - rise at
-      - goodwood
-      - road racing
-      - american football
-      - college football
-      - super bowl
-      - ncaa
-      - nfl network
-      - fox nfl
-      - monday night football
-      - red zone
-      - baseball
-      - mlb
-      - nba
-      - nhl
-      - hockey
-      - basketball
-      - cricket
-      - rugby
-      - golf
-      - tennis
-      - pool championship
-      - billiard
-      - indycar
-      - nascar
-      - motogp
-      - astros
-      - yankees
-      - cubs
-      - dodgers
-      - braves
-      - nationals
-      - necbl
-      - at orioles
-      - at rays
-      - at pirates
-      - at mets
-      - at rockies
-      - at angels
-      - at tigers
-      - at white sox
+      - sky sports cricket
+      - fox cricket
+      - ashes
 
   - id: live-racing
     label: formula 1
-    limit: 4
+    limit: 8
     qualification: f1_standing_allowlist
     source_fill:
       - addon: mango Live TV
-        limit: 4
+        limit: 8
         keywords:
           - f1
           - formula 1
@@ -373,11 +160,11 @@ rails:
 
   - id: live-cartoons
     label: cartoons
-    limit: 8
+    limit: 12
     qualification: english_hindi_cartoons
     source_fill:
       - addon: mango Live Cartoons
-        limit: 8
+        limit: 12
         match_all: true
     keywords:
       - kids

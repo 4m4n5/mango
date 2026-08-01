@@ -364,7 +364,7 @@ test('qualified rail rejects standing noise before ranking and keeps one best ev
   assert.deepEqual(matches.map((item) => item.id), ['4k']);
 });
 
-test('shipped Live config is restricted to four approved inventories and six policy rails', async () => {
+test('shipped Live config is restricted to four approved inventories and four browse rails', async () => {
   const path = new URL('../../../config/catalog-live.example.yaml', import.meta.url).pathname;
   const config = await loadLiveRailConfig(path);
   assert.deepEqual(config.sources.map((source) => source.addon), [
@@ -374,9 +374,7 @@ test('shipped Live config is restricted to four approved inventories and six pol
     'mango Live Cartoons',
   ]);
   assert.deepEqual(config.rails.map((rail) => [rail.id, rail.qualification]), [
-    ['live-world-cup', 'fifa_mens_world_cup'],
     ['live-cricket', 'india_cricket'],
-    ['live-football', 'main_soccer'],
     ['live-racing', 'f1_standing_allowlist'],
     ['live-news', 'balanced_news'],
     ['live-cartoons', 'english_hindi_cartoons'],
