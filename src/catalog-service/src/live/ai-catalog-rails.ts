@@ -9,6 +9,19 @@ export const LIVE_AI_MERGE_TARGETS: Readonly<Record<string, string>> = {
   'cricket-channels': 'live-cricket',
 };
 
+/** Explain seed-only Live slots on operator rail listings without a VOD probe. */
+export function liveAiOperatorSummary(railId: string, seedCount: number): {
+  seed_count: number;
+  merge_target?: string;
+} {
+  const slotId = railId.startsWith('ai-') ? railId.slice(3) : railId;
+  const mergeTarget = LIVE_AI_MERGE_TARGETS[slotId];
+  return {
+    seed_count: Math.max(0, seedCount),
+    ...(mergeTarget ? { merge_target: mergeTarget } : {}),
+  };
+}
+
 function seedToRailItem(seed: AiSeedTitle): RailItem | null {
   if (!seed.title) {
     return null;

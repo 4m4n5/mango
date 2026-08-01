@@ -278,6 +278,13 @@ asynchronous so POST never waits on SD I/O.
 Gates and diagnostics POST with `"probe": true` to validate the contract
 **without** enqueueing couch FocusGrid moves.
 
+`render_age_ms` is sampled immediately before each one-second heartbeat asks
+for the next animation frame. At an idle, healthy launcher it therefore sits
+near the heartbeat interval (about 1000 ms); that value alone is not a stall.
+Recovery remains based on an input command staying pending beyond the stall
+budget. Read `pending`, fresh `heartbeat_age_ms`, and `last_ack_age_ms` together
+when diagnosing input progress.
+
 Movement/tab/context commands older than 300 ms are acknowledged without
 replay; Select/Back remain eligible for 1.5 s. The client paces commands by rAF
 with a 50 ms timer escape, so a suspended animation queue cannot permanently

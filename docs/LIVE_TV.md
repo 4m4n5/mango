@@ -209,10 +209,19 @@ After a reviewed deploy and cache rebuild on the home Mac/Pi, confirm rail
 membership without claiming inventory from the work Mac:
 
 ```bash
+curl -s 'http://127.0.0.1:3020/rails' | python3 -c \
+  "import json,sys;d=json.load(sys.stdin);print([(r['id'],r.get('seed_count'),r.get('merge_target')) for r in d['rails'] if r.get('tab')=='live' and r.get('type')=='ai_catalog'])"
 curl -s 'http://127.0.0.1:3020/rails/items?tab=live' | python3 -c \
   "import json,sys;d=json.load(sys.stdin);print([(r.get('label'),len(r.get('items')or[])) for r in d.get('rails',[])])"
+sudo sed -n '1,220p' /etc/mango/ai-catalogs/slots/cricket-channels.yaml
 bash scripts/live/audit-live-rails.sh
 ```
+
+An unfiltered `/rails` Live AI entry with `sources: []` is seed-driven, not an
+empty VOD rail: `seed_count` reports its slot inventory and `merge_target`
+names the YAML Live rail that receives those seeds. Probe the rendered result
+with `/rails/items?tab=live`; do not use `/rails/ai-*/items`, which is the VOD
+playability path.
 
 Expect non-zero World Cup, cricket, soccer, and cartoon rails only when their
 free M3U/NexoTV sources are healthy. If profiles drift, the operator must

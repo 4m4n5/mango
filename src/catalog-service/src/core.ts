@@ -141,7 +141,7 @@ import {
   readLiveRailsRefreshStatusSync,
   writeLiveRailsRefreshStatus,
 } from './live-rails-cache.js';
-import { applyLiveAiCatalogRails } from './live/ai-catalog-rails.js';
+import { applyLiveAiCatalogRails, liveAiOperatorSummary } from './live/ai-catalog-rails.js';
 import {
   readLiveChannelHealthRegistrySync,
   recordLiveChannelHealth,
@@ -264,6 +264,9 @@ export type RailSummary = {
   type: BrowsableRail['type'] | 'ai_catalog';
   content_type: string;
   sources: Array<{ addon: string; catalog: string; weight: number }>;
+  /** Seed-only Live AI slots merge into a target rail; they are not empty VOD rails. */
+  seed_count?: number;
+  merge_target?: string;
 };
 
 export type RailItem = {
@@ -1261,6 +1264,9 @@ export class CatalogCore {
         sources: rail.type === 'ai_catalog'
           ? rail.sources
           : railSourceSummary(rail),
+        ...(rail.type === 'ai_catalog' && rail.tab === 'live'
+          ? liveAiOperatorSummary(rail.id, rail.seed_titles.length)
+          : {}),
       })),
     };
   }

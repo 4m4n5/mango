@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { applyLiveAiCatalogRails, buildLiveAiCatalogRails } from './ai-catalog-rails.js';
+import {
+  applyLiveAiCatalogRails,
+  buildLiveAiCatalogRails,
+  liveAiOperatorSummary,
+} from './ai-catalog-rails.js';
 import type { TabRailItemsResponse } from '../core.js';
 
 async function withAiCatalogDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -72,5 +76,15 @@ seed_titles:
     assert.equal(merged.rails[0]?.rail_id, 'live-cricket');
     assert.deepEqual(merged.rails[0]?.items.map((item) => item.id), ['cricket-gold', 'willow-720']);
     assert.equal(await buildLiveAiCatalogRails().then((rails) => rails.length), 0);
+  });
+});
+
+test('live ai operator summary exposes seed count and merge target', () => {
+  assert.deepEqual(liveAiOperatorSummary('ai-cricket-channels', 12), {
+    seed_count: 12,
+    merge_target: 'live-cricket',
+  });
+  assert.deepEqual(liveAiOperatorSummary('ai-news-picks', 3), {
+    seed_count: 3,
   });
 });
