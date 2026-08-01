@@ -241,13 +241,12 @@ class ControllerLinkSupervisor:
                 else:
                     self.retry.mark_disconnected(now)
                     self.last_disconnect_wall_at = time.time()
-            # Inbound advertising / service resolution means the Micro woke.
-            wake_keys = ("RSSI", "ManufacturerData", "ServiceData", "ServicesResolved", "Name")
-            if any(key in changed for key in wake_keys) and not self.retry.connected:
-                if "ServicesResolved" in changed and not bool(changed.get("ServicesResolved")):
-                    pass
-                else:
-                    self.retry.mark_wake_detected(now)
+            # Inbound advertising evidence means the Micro woke. Do not treat a
+            # bare Name refresh (common on bluetoothd restart) as wake.
+            if "RSSI" in changed or "ManufacturerData" in changed or "ServiceData" in changed:
+                self.retry.mark_wake_detected(now)
+            elif "ServicesResolved" in changed and bool(changed.get("ServicesResolved")):
+                self.retry.mark_wake_detected(now)
             self.write_status(force=True)
         elif interface == "org.bluez.Adapter1":
             if "Powered" in changed and not bool(changed["Powered"]):
