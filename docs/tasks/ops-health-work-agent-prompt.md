@@ -72,10 +72,12 @@ ALSO SHIP from the same report (code-obvious; home will re-prove)
 ══════════════════════════════════════════════════════════════════
 
 Priority with #10:
-  B1 Wire scripts/lib/mango-display-wake.sh into start-mango-ui / stack start;
-     post-refresh Monitor-On check
+  NOTE: Intentional display sleep + CEC (report §11: 30m Settings default,
+  pad+companion activity, never during mpv, CEC standby/power-on) is
+  **home-agent owned** — do not duplicate unless home asks for a code assist
+  patch. Your B1 is controller reconnect.
   B2 Single mango-launcher X window invariant (stop fullscreening all siblings;
-     gate window count == 1)
+     gate window count == 1) — OK if you ship alongside #10
   B3 Live cache background refresh + honest config_ready vs cache_fresh
   B4 verify-voice-ready.sh: systemd OR tmux
   B5/B6/B7 metric clarity (live AI surfaces, render_age after rAF or docs,

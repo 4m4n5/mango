@@ -19,6 +19,7 @@ several are metric/gate false alarms.
 | 8 | `throttled=0x80000` | **Sticky soft-temp history** | Bit 19 only; not actively throttling | Ops hygiene |
 | 9 | `waiting_for_controller` (Micro off) | **Expected** | Router healthy while powered down | Not a defect |
 | 10 | Micro wake needs pairing mode sometimes | **Real reconnect defect (couch-reported)** | Docs/OPS claim normal power-on reconnects; user must sometimes enter pairing. Suspect: BlueZ policy/installer not applied, link stuck in `pairing_missing`/`needs_repair`, Connected≠input-ready, or Connect() failing until advertise | Independent; needs Pi BT traces |
+| 11 | Accidental TV sleep / no intentional policy | **Product gap — design LOCKED** | Replace leaked Xorg 600s DPMS with Settings-driven idle sleep (30m default); pad+companion activity; never during mpv; CEC standby + power-on | Home-owned |
 
 ---
 
@@ -268,9 +269,59 @@ Evidence: `systemctl status mango-controller-link`, competing agents,
 
 ---
 
+## 11. Intentional display sleep (LOCKED design — home agent owns)
+
+Replace accidental X11 DPMS (default **600s** leaking through when anti-sleep
+fails) with an intentional couch sleep policy. Design locked 2026-08-01:
+
+| Decision | Choice |
+|----------|--------|
+| Policy | Timed idle sleep (not “never sleep”) |
+| Activity that resets idle | **D-pad** (mango-tv-pad / pad-nav) **and companion** (voice/PTT) only |
+| Playback | **Never sleep while mpv is playing** |
+| CEC | **In scope both ways**: sleep → DPMS Off + CEC standby; wake → DPMS on + CEC power-on |
+| Config surface | **Settings** (couch-reachable), not env-only |
+| Default timeout | **30 minutes** (Off / other presets OK in UI) |
+
+### Current gap
+- Accidental sleep: Xorg DPMS Standby/Suspend/Off = 600s when Enabled.
+- Mango intended “never sleep” via `mango-cursor.sh` (`xset -dpms`) but it
+  does not stick; boot never calls `mango-display-wake.sh`.
+- No CEC tooling in-repo today (`cec-client` / libcec not wired).
+- Existing `couch-activity.sh` / `MANGO_COUCH_IDLE_SEC` gates **maintenance**,
+  not display power — keep that separate.
+
+### Principled shape (home implements)
+1. Disable uncontrolled Xorg DPMS timeouts; mango owns sleep/wake.
+2. Idle supervisor: after N minutes without pad or companion activity, and
+   when mpv is **not** playing → DPMS Off + CEC standby.
+3. On pad or companion activity while asleep → DPMS force on + CEC power-on
+   (first press may also navigate — prefer wake then apply nav if already
+   queued; document choice in commit).
+4. Settings section (near Reliability/Search): Display sleep —
+   Off / 15m / 30m (default) / 60m / 2h; persist under `/etc/mango` or existing
+   preferences pattern; stack reads on start + on change.
+5. Prove on Pi: idle→TV off; pad wakes; companion wakes; mpv blocks sleep;
+   Settings change takes effect without full redeploy when practical.
+
+### Files to start from
+[`scripts/lib/mango-display-wake.sh`](../../scripts/lib/mango-display-wake.sh) ·
+[`scripts/lib/mango-cursor.sh`](../../scripts/lib/mango-cursor.sh) ·
+[`scripts/m1-foundation/pad/mango-tv-pad.py`](../../scripts/m1-foundation/pad/mango-tv-pad.py) (`_wake_display_xset`) ·
+[`src/launcher/src/settings.ts`](../../src/launcher/src/settings.ts) ·
+[`src/launcher/src/activity.ts`](../../src/launcher/src/activity.ts) ·
+companion/orchestrator activity hooks · new small `mango-display-sleep` helper
++ CEC wrapper (install `cec-utils` / `libcec-bin` on Pi if missing).
+
+Update [`docs/DECISIONS.md`](../DECISIONS.md) / [`docs/OPS.md`](../OPS.md) after
+behavior matches (replace “DPMS disabled in couch mode” with this policy).
+
+---
+
 ## Priority for principled work
 
-1. **Wire display wake into stack boot** + post-refresh DPMS gate (couch-blocking).
+1. **Intentional display sleep + CEC** (Settings, 30m default, pad/companion
+   activity, never during mpv) — **home agent**; subsumes bare “wire wake on boot”.
 2. **8BitDo normal-wake reconnect** (no pairing mode) — prove installer + fix link supervisor gaps.
 3. **Single launcher window invariant** + gate (reliability amplifier).
 4. **Live cache background refresh** + honest health semantics (ops clarity + cricket seed freshness).

@@ -110,10 +110,20 @@ Local tests where code changes; then pi-deploy --fast; re-prove A checks.
 
 Must-fix if A confirms (priority order):
 
-B1. Display wake on couch boot
-  - Call scripts/lib/mango-display-wake.sh from start-mango-ui / stack start
-  - Post-refresh assertion: Monitor is On (gate or refresh check)
-  - Do not rely on pad press to wake after restart
+B1. Intentional display sleep + CEC (LOCKED — you own this; see report §11)
+  Design (do not reopen unless Pi evidence forces it):
+    - Timed idle sleep; default **30 minutes**; configure in **Settings**
+      (Off / 15m / 30m / 60m / 2h or equivalent).
+    - Idle resets only on **D-pad** and **companion** activity.
+    - **Never sleep while mpv is playing.**
+    - Sleep: disable accidental Xorg 600s DPMS; mango-owned sleep →
+      DPMS Off + **CEC standby**.
+    - Wake on pad or companion: DPMS force on + **CEC power-on**.
+    - Keep couch-activity maintenance idle (`MANGO_COUCH_IDLE_SEC`) separate.
+  Also: stack/UI start must leave the panel On after refresh (no black TV
+  until the configured idle elapses). Install cec tooling on Pi if missing.
+  Prove: Settings change; idle→TV off; pad wakes; companion wakes; mpv blocks
+  sleep; update DECISIONS/OPS after behavior matches.
 
 B2. 8BitDo normal-wake reconnect (no pairing) — prefer work-agent patch;
     home applies installer if --check fails, deploys work SHA, runs couch
@@ -152,10 +162,11 @@ Out of scope unless they block proof:
 Return:
   1) Phase A evidence table
   2) Patch SHAs + what each fixes
-  3) Pi re-proof after deploy (DPMS, window count, Micro normal-wake×N,
-     live fresh after idle policy or forced path, voice verify, pad idle metrics)
+  3) Pi re-proof after deploy (display sleep+CEC matrix, window count,
+     Micro normal-wake×N, live fresh, voice verify, pad idle metrics)
   4) Remaining DEFERRED with exact reason
 ```
 
 Also see work-agent prompt: `docs/tasks/ops-health-work-agent-prompt.md`
-(especially §10 controller reconnect — work owns the concrete code fix).
+(especially §10 controller reconnect — work owns the concrete BlueZ fix).
+Display sleep + CEC (**§11 / B1**) is **home-owned**.
