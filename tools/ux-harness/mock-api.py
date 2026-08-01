@@ -12,6 +12,7 @@ so capture runs can flip latency/empty/error without restarting.
 
     {"delay_ms": 2500, "empty": ["rails"], "fail": ["stream"], "status": 503}
     {"stream_count": 14}   # expand the streams panel to a full ladder
+    {"all_unverified": true}   # every stream unverified: floor-only label, dashed rows
 
 Usage:
     python3 tools/ux-harness/mock-api.py            # port 3000
@@ -247,6 +248,14 @@ class Handler(BaseHTTPRequestHandler):
         if stream_count and "stream" in families and isinstance(payload, dict):
             recorded = payload.get("streams") or []
             payload["streams"] = synthetic_streams(stream_count, recorded[0] if recorded else None)
+        # An all-unverified ladder is its own layout case -- the panel label switches to
+        # the floor-only form and every row goes dashed -- and it is common enough on the
+        # Pi that the first real screenshots of it caught two defects. No recorded fixture
+        # produces it, and the synthetic ladder is deliberately mixed, so it has to be
+        # asked for explicitly.
+        if cfg.get("all_unverified") and "stream" in families and isinstance(payload, dict):
+            for stream in payload.get("streams") or []:
+                stream["unverified"] = True
         self._send(200, json.dumps(payload).encode())
 
     def do_POST(self) -> None:  # noqa: N802

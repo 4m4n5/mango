@@ -1639,7 +1639,14 @@ export class DetailController {
     const streamsLabel = this.streamsWrap.querySelector(".detail-streams-label");
     if (streamsLabel) {
       if (floorOnly) {
-        streamsLabel.textContent = "streams · unverified";
+        // Count first, status second. The old label was "streams · unverified" with no
+        // count at all, so the one case where the ladder is least trustworthy was also
+        // the only case that refused to say how many options it had — and the count is
+        // what decides whether scrolling is worth it. The resolution range is dropped
+        // here rather than appended: an all-unverified ladder is usually one tier
+        // (10 x 4K on the title this was found on), so the range would add width
+        // without adding information, and "unverified" is the fact that has to survive.
+        streamsLabel.textContent = `streams · ${this.streams.length} · unverified`;
       } else {
         // The label is lowercased by the shared rail-label style, which would render
         // the range as "4k-sd". Resolution names are proper nouns here and have to
@@ -1697,12 +1704,13 @@ export class DetailController {
       sizeEl.textContent = size;
       secondary.append(sizeEl);
     }
-    if (unverified) {
-      const flag = document.createElement("span");
-      flag.className = "detail-stream-flag";
-      flag.textContent = "unverified";
-      secondary.append(flag);
-    }
+    // No "unverified" word on the row. The state already has four visual signals —
+    // dashed border, dimmed opacity, transparent fill, and a muted resolution badge —
+    // so the word only restated what the row's own styling says, once per row. On a
+    // title where every stream is unverified that meant the same word ten times down
+    // the column, and a label that appears on every row distinguishes nothing.
+    // It stays in the accessible name below: a border is not available to a screen
+    // reader, so dropping the visual word must not drop the fact.
 
     button.append(primary, secondary);
     button.setAttribute("aria-label", streamAriaLabel(stream, unverified));

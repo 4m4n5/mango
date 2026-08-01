@@ -255,6 +255,19 @@ if "overflow-y:auto" in side:
     raise SystemExit(".detail-side scrolls again -- the panel heading will scroll away")
 if "overflow-y:auto" not in lists:
     raise SystemExit("stream/episode lists are not scrollports -- panel cannot scroll")
+
+# Rows must not shrink. The lists are column flex containers AND the scrollport, so
+# their children are flex items in a height-constrained box: with the default
+# flex-shrink they compress to min-height and their content spills past their own
+# border, which on a dashed unverified row looks like a line struck through the text.
+for selector in (".detail-stream{", ".detail-episode{"):
+    body = rule_body(selector)
+    if not body:
+        raise SystemExit(f"{selector.rstrip('{')} rule missing from dist CSS")
+    if "flex:0 0 auto" not in body:
+        raise SystemExit(
+            f"{selector.rstrip('{')} can shrink -- its content will overflow its border"
+        )
 PY
 else
   gate_fail "launcher dist CSS bundle"
