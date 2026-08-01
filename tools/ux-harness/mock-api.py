@@ -244,6 +244,11 @@ class Handler(BaseHTTPRequestHandler):
         payload = json.loads(fixture.read_text())
         if families & set(cfg.get("empty", [])):
             payload = blank_like(payload)
+            # An emptied progressive Search job would otherwise stay "Searching"
+            # forever (incomplete + no groups). Force completion so the couch
+            # surface can show the neutral No results state.
+            if "search" in families and isinstance(payload, dict) and "complete" in payload:
+                payload["complete"] = True
         stream_count = int(cfg.get("stream_count") or 0)
         if stream_count and "stream" in families and isinstance(payload, dict):
             recorded = payload.get("streams") or []
@@ -287,6 +292,8 @@ class Handler(BaseHTTPRequestHandler):
         payload = json.loads(fixture.read_text())
         if self.families_for(path) & set(cfg.get("empty", [])):
             payload = blank_like(payload)
+            if isinstance(payload, dict) and "complete" in payload:
+                payload["complete"] = True
         self._send(200, json.dumps(payload).encode())
 
 

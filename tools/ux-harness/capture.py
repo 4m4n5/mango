@@ -52,9 +52,42 @@ SCENES: list[dict] = [
     dict(name="10-shuffle-focused", keys=["ArrowUp", "ArrowRight", "ArrowRight", "ArrowRight"],
          expect="#library-refresh"),
     # --- search ---
-    dict(name="11-search-empty", click="#search-entry", expect="#search-view:not(.hidden)"),
-    dict(name="12-search-typing", click="#search-entry", keys=["Enter", "Enter", "Enter"],
-         expect="#search-view:not(.hidden)"),
+    # Empty compose: leading caret before "search mango", equal-key QWERTY, recents.
+    dict(name="11-search-empty", click="#search-entry", ready="#search-entry",
+         expect="#search-view.search--compose:not(.hidden) .search-query-caret"),
+    # Typed suggestions + editorial preview after dwell (Right across QWERTY into starters).
+    dict(name="12-search-suggestions-preview", click="#search-entry", ready="#search-entry",
+         type_text="du", keys=["ArrowRight"] * 10, settle_ms=450,
+         expect=".search-preview-image--ready, .search-preview--text"),
+    # Recent without artwork keeps a typographic stage instead of collapsing.
+    dict(name="12b-search-recent-no-art", click="#search-entry", ready="#search-entry",
+         keys=["ArrowRight"] * 10, settle_ms=450,
+         expect=".search-preview--text .search-preview-fallback"),
+    # Progressive Searching chrome before useful cards (fixture start is incomplete).
+    dict(name="12c-search-progressive", click="#search-entry", ready="#search-entry",
+         type_text="dune", keys=["Enter"], settle_ms=400,
+         expect="#search-view.search--results .search-results .card"),
+    # Populated results: pinned query + Edit + scopes, editorial rails.
+    dict(name="12d-search-results", click="#search-entry", ready="#search-entry",
+         type_text="dune", keys=["Enter"], settle_ms=900,
+         expect="#search-view.search--results .search-results .card"),
+    # Neutral total-empty state (fixture groups blanked).
+    dict(name="12e-search-no-results", control=dict(empty=["search"]),
+         click="#search-entry", ready="#search-entry",
+         type_text="zzzz", keys=["Enter"], settle_ms=600,
+         expect=".search-message"),
+    # Focused result atmosphere after dwell (scrimmed backdrop).
+    dict(name="12f-search-atmosphere", click="#search-entry", ready="#search-entry",
+         type_text="dune", keys=["Enter"], settle_ms=900,
+         expect=".search-atmosphere--ready .search-atmosphere-image"),
+    # More pagination tile stays inside the rail grid (YouTube fixture is long).
+    dict(name="12g-search-more", click="#search-entry", ready="#search-entry",
+         type_text="dune", keys=["Enter"], settle_ms=900,
+         expect=".search-more-card, [data-focus-key^='search:more:']"),
+    # Legacy typing alias kept for callers that filter on "12-search-typing".
+    dict(name="12-search-typing", click="#search-entry", ready="#search-entry",
+         type_text="du",
+         expect="#search-view:not(.hidden) .search-query-text"),
     # --- detail ---
     dict(name="13-detail-movie", click=CARD, expect=DETAIL),
     dict(name="14-detail-actions-focus", click=CARD, keys=["ArrowRight"], expect=DETAIL),
@@ -150,9 +183,17 @@ def run_scene(page, scene: dict) -> tuple[str, str | None]:
         except PWError:
             return "SKIP", f"could not activate {selector}"
 
+    if text := scene.get("type_text"):
+        # Physical letters update the query without rebuilding the keyboard.
+        page.keyboard.type(text, delay=40)
+        page.wait_for_timeout(max(SETTLE_MS, int(scene.get("type_settle_ms", 500))))
+
     for key in scene.get("keys", []):
         page.keyboard.press(key)
         page.wait_for_timeout(260)
+
+    if settle := scene.get("settle_ms"):
+        page.wait_for_timeout(int(settle))
 
     if force := scene.get("force"):
         page.evaluate(FORCE_JS[force])
@@ -184,9 +225,11 @@ def main() -> int:
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(channel="chrome")
-        page = browser.new_page(viewport={"width": 1920, "height": 1080}, device_scale_factor=1)
-        page.on("pageerror", lambda e: print(f"  [page error] {str(e)[:120]}"))
+        # Fresh page per scene so Search/long-poll sockets from the prior shot
+        # cannot wedge Chromium before the next goto reaches #search-entry.
         for scene in scenes:
+            page = browser.new_page(viewport={"width": 1920, "height": 1080}, device_scale_factor=1)
+            page.on("pageerror", lambda e: print(f"  [page error] {str(e)[:120]}"))
             status, note = run_scene(page, scene)
             digest = None
             if status == "OK":
@@ -200,6 +243,7 @@ def main() -> int:
                                 synthetic=bool(scene.get("synthetic"))))
             flag = " (synthetic)" if scene.get("synthetic") else ""
             print(f"  {status:9} {scene['name']}{flag}" + (f" — {note}" if note else ""))
+            page.close()
         browser.close()
 
     write_control({})

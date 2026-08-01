@@ -1,11 +1,17 @@
+# --- Agent / indexer keep-out ---
+# Keep Cursor indexing focused on live source + current docs.
+# Regenerable build/venv noise and historical task artifacts stay on disk
+# but out of agent context and codebase search.
+
 # Python cache / bytecode
 **/__pycache__/
 **/.pytest_cache/
 **/.mypy_cache/
 **/.ruff_cache/
 **/*.pyc
+**/*.pyo
 
-# Python venvs (orchestrator .venv is ~300MB)
+# Python venvs (orchestrator .venv is ~240MB+)
 **/.venv/
 **/venv/
 
@@ -18,14 +24,37 @@
 **/node_modules/
 **/dist/
 **/build/
+**/coverage/
+**/.turbo/
 
-# Local diag / verify artifacts
+# Local diag / verify / harness artifacts
 **/.verify-shots/
 **/.cache/
 **/downloads/
+tools/ux-harness/fixtures/
+tools/ux-harness/shots/
+.orchestration/
 
-# OS noise
+# Historical docs (on-demand only; not always-indexed)
+docs/archive/
+
+# Secrets / local machine paths (never useful in agent context)
+keys/
+assets/
+*.code-workspace
+.env
+.env.*
+
+# OS / editor noise
 **/.DS_Store
+.vscode/
 
 # Git pack internals (large, non-informative for agents)
-**/.git/objects/
+.git/objects/
+
+# SQLite / runtime DBs if present under the repo tree
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.sqlite
+**/*.sqlite3

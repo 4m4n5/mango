@@ -27,6 +27,7 @@ type PadNavResponse = {
 
 type PadSessionResponse = {
   ok?: boolean;
+  owner?: boolean;
   session?: string;
   latest_seq?: number;
 };
@@ -170,20 +171,50 @@ export function commandsAfterSeq(
   );
 }
 
-function waitAnimationFrame(): Promise<void> {
+const MOVE_MAX_AGE_MS = 300;
+const ACTION_MAX_AGE_MS = 1500;
+const FRAME_FALLBACK_MS = 50;
+
+/** Drop stale intent after a UI stall instead of replaying it on a new surface. */
+export function isPadNavCommandFresh(
+  command: PadNavCommand,
+  nowMs = Date.now(),
+): boolean {
+  if (typeof command.issued_at !== "number" || !Number.isFinite(command.issued_at)) {
+    return true;
+  }
+  const ageMs = Math.max(0, nowMs - command.issued_at * 1000);
+  const maxAge = command.action === "select" || command.action === "back"
+    ? ACTION_MAX_AGE_MS
+    : MOVE_MAX_AGE_MS;
+  return ageMs <= maxAge;
+}
+
+function waitInputTurn(): Promise<void> {
   return new Promise((resolve) => {
-    const raf =
-      typeof globalThis.requestAnimationFrame === "function"
-        ? globalThis.requestAnimationFrame.bind(globalThis)
-        : (cb: FrameRequestCallback) => globalThis.setTimeout(() => cb(0), 0);
-    raf(() => resolve());
+    let settled = false;
+    let frame = 0;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timer);
+      if (frame && typeof globalThis.cancelAnimationFrame === "function") {
+        globalThis.cancelAnimationFrame(frame);
+      }
+      resolve();
+    };
+    const timer = globalThis.setTimeout(finish, FRAME_FALLBACK_MS);
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      frame = globalThis.requestAnimationFrame(() => finish());
+    }
   });
 }
 
 /**
- * Apply commands in order, one per animation frame, so a backlog of Downs
- * animates across rails instead of clamping to the edge in one sync burst.
- * Still applies every command — never coalesces.
+ * Apply fresh commands in order, at most one per visual/input turn.
+ * A timeout prevents a hidden or wedged rAF queue from permanently stopping
+ * pad consumption. Expired commands still advance the ack cursor so they can
+ * never replay after recovery.
  */
 export async function applyPadNavBatch(
   batch: PadNavCommand[],
@@ -193,8 +224,10 @@ export async function applyPadNavBatch(
   let applied = lastSeq;
   const pending = commandsAfterSeq(batch, lastSeq);
   for (const command of pending) {
-    await waitAnimationFrame();
-    handlePadNav(command, handlers);
+    if (isPadNavCommandFresh(command)) {
+      await waitInputTurn();
+      handlePadNav(command, handlers);
+    }
     if (typeof command.seq === "number" && command.seq > applied) {
       applied = command.seq;
     }
@@ -202,21 +235,43 @@ export async function applyPadNavBatch(
   return applied;
 }
 
-async function registerPadNavSession(): Promise<string | null> {
+async function registerPadNavSession(
+  previousSession: string | null,
+): Promise<string | null> {
   try {
     const response = await fetch("/api/pad/session", {
       method: "POST",
       cache: "no-store",
       headers: { "content-type": "application/json" },
-      body: "{}",
+      body: JSON.stringify({ session: previousSession }),
     });
     if (!response.ok) {
       return null;
     }
     const payload = (await response.json()) as PadSessionResponse;
-    return typeof payload.session === "string" && payload.session ? payload.session : null;
+    return payload.owner
+      && typeof payload.session === "string"
+      && payload.session
+      ? payload.session
+      : null;
   } catch {
     return null;
+  }
+}
+
+async function postPadHeartbeat(session: string, renderAgeMs: number): Promise<boolean> {
+  try {
+    const response = await fetch("/api/pad/heartbeat", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ session, render_age_ms: Math.max(0, renderAgeMs) }),
+    });
+    if (!response.ok) return false;
+    const payload = (await response.json()) as { owner?: boolean };
+    return payload.owner === true;
+  } catch {
+    return false;
   }
 }
 
@@ -237,10 +292,33 @@ export function startPadNavPoll(handlers: PadNavHandlers): () => void {
   const WAIT_SECONDS = 25;
   let lastSeq = 0;
   let sessionId: string | null = null;
+  let previousSessionId: string | null = null;
   let stopped = false;
   let pollTimer: number | undefined;
   let pollInFlight = false;
   let currentController: AbortController | null = null;
+  let heartbeatTimer: number | undefined;
+  let renderFrame = 0;
+  let lastRenderAt = performance.now();
+
+  const requestRenderPulse = (): void => {
+    if (stopped || renderFrame !== 0) return;
+    renderFrame = window.requestAnimationFrame(() => {
+      lastRenderAt = performance.now();
+      renderFrame = 0;
+    });
+  };
+
+  const heartbeat = async (): Promise<void> => {
+    const current = sessionId;
+    if (!current || stopped) return;
+    requestRenderPulse();
+    const owner = await postPadHeartbeat(current, performance.now() - lastRenderAt);
+    if (!owner && sessionId === current) {
+      previousSessionId = current;
+      sessionId = null;
+    }
+  };
 
   const scheduleNext = (delayMs: number): void => {
     if (stopped) {
@@ -253,7 +331,11 @@ export function startPadNavPoll(handlers: PadNavHandlers): () => void {
     if (sessionId) {
       return;
     }
-    sessionId = await registerPadNavSession();
+    sessionId = await registerPadNavSession(previousSessionId);
+    if (sessionId) {
+      previousSessionId = sessionId;
+      void heartbeat();
+    }
   };
 
   const poll = async (): Promise<void> => {
@@ -273,6 +355,9 @@ export function startPadNavPoll(handlers: PadNavHandlers): () => void {
     }, WAIT_SECONDS * 1000 + 5000);
     try {
       await ensureSession();
+      if (!sessionId) {
+        return;
+      }
       const sessionQuery = sessionId ? `&session=${encodeURIComponent(sessionId)}` : "";
       const response = await fetch(
         `/api/pad/nav?after=${lastSeq}&wait=${WAIT_SECONDS}${sessionQuery}`,
@@ -282,6 +367,11 @@ export function startPadNavPoll(handlers: PadNavHandlers): () => void {
         return;
       }
       const payload = (await response.json()) as PadNavResponse;
+      if (payload.session !== sessionId) {
+        previousSessionId = sessionId;
+        sessionId = null;
+        return;
+      }
       if (typeof payload.latest_seq === "number" && payload.latest_seq < lastSeq) {
         lastSeq = payload.latest_seq;
       }
@@ -295,6 +385,7 @@ export function startPadNavPoll(handlers: PadNavHandlers): () => void {
       ok = true;
     } catch {
       // launcher UI server may restart briefly, or fetch was aborted
+      previousSessionId = sessionId;
       sessionId = null;
     } finally {
       window.clearTimeout(abortTimer);
@@ -306,6 +397,8 @@ export function startPadNavPoll(handlers: PadNavHandlers): () => void {
     }
   };
 
+  requestRenderPulse();
+  heartbeatTimer = window.setInterval(() => void heartbeat(), 1000);
   void poll();
 
   return () => {
@@ -313,6 +406,14 @@ export function startPadNavPoll(handlers: PadNavHandlers): () => void {
     if (pollTimer !== undefined) {
       window.clearTimeout(pollTimer);
       pollTimer = undefined;
+    }
+    if (heartbeatTimer !== undefined) {
+      window.clearInterval(heartbeatTimer);
+      heartbeatTimer = undefined;
+    }
+    if (renderFrame !== 0) {
+      window.cancelAnimationFrame(renderFrame);
+      renderFrame = 0;
     }
     if (currentController !== null) {
       try {

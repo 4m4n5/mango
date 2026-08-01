@@ -42,3 +42,6 @@ config/companion.example/companion.db
 # ux-harness: recorded API fixtures contain debrid playback tokens — never commit
 tools/ux-harness/fixtures/
 tools/ux-harness/shots/
+
+# Local agent orchestration scratch
+.orchestration/

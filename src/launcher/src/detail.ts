@@ -658,9 +658,13 @@ export class DetailController {
   }
 
   private focusEl(el: HTMLElement): void {
+    // Scroll first, then paint focus. Deferring the list correction by one rAF
+    // produced a visible displaced frame: the newly focused row travelled with
+    // the list and snapped back to the centre. The scrollTop write is synchronous,
+    // so the ring now appears only at its final resting position.
+    this.revealInSidePanel(el);
     this.focusedEl = el;
     el.focus({ preventScroll: true });
-    requestAnimationFrame(() => this.revealInSidePanel(el));
     this.onGridFocused(el);
   }
 
@@ -1466,6 +1470,7 @@ export class DetailController {
     block: SeriesSeasonBlock,
     scrollTargetId: string | null = null,
   ): void {
+    this.setListLabel(`episodes · ${block.episodes.length}`);
     this.episodeList.replaceChildren();
     for (const episode of block.episodes) {
       this.episodeList.append(this.createEpisodeButton(episode, scrollTargetId));

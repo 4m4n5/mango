@@ -42,6 +42,7 @@ bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch s
 | 6 | D-pad **down** into episodes — **active season only**; streams strip **does not** update on focus | |
 | 7 | **L/R** on season chip or episode row **changes season** (multi-season); chip row hidden when one season | |
 | 7a | **B** on focused episode resolves and plays immediately; no dwell prefetch or mandatory picker. **Play** from actions row = global resume | |
+| 7b | Scroll a long season from first to last episode: the season chips and **episodes · N** heading retain their full height, and each newly focused row appears directly at its resting centre without travelling and snapping back | |
 | 8 | Grey/unverified rows remain focusable and show **tap to retry**; **B** re-runs the normal main → last-resort → floor play path | |
 | 9 | **Play / Resume** starts mpv; **Y** returns to detail | |
 | 10 | Exit an episode early → same episode row is focused; finish to **≥90%/EOF** → the next episode row is focused directly, including across a season boundary | |
@@ -297,8 +298,8 @@ Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
 | S4 | Rapid typing updates the query without a blackout, focus jump, or keyboard/header rebuild; the prior starter list stays visible until one atomic suggestion swap; explicit submit progressively adds source rows | |
 | S5 | Exact title beats prefix/token matches; Top Results contains only verified/proven/YouTube cards with source diversity | |
 | S6 | All shows YouTube videos only; YouTube scope also shows Channels and Playlists, which open video-list Detail | |
-| S7 | Result groups fill **whole rows**: poster groups 5-wide (10 per page), YouTube/landscape groups 4-wide (12 per page), Top results at most 8. No orphan card alone on a final row, and in-grid More reveals cached results without quota/provider activity | |
-| S8 | One unavailable source shows plain per-row degraded copy while other rows remain selectable; no results is not an error and focuses Edit for immediate correction | |
+| S7 | Result groups fill **whole rows**: poster groups 6-wide (12 per page), YouTube/landscape groups 4-wide (12 per page), Top results at most 8. No orphan card alone on a final row, and in-grid More reveals cached results without quota/provider activity | |
+| S8 | Make one source unavailable: successful groups remain selectable with no error/degraded bubble or Retry control. A total miss shows neutral **No results** and focuses Edit; a request failure preserves prior usable results | |
 | S9 | X tap deletes one character; X hold for at least 600 ms clears; returning Home restores X current-tab shuffle | |
 | S10 | B opens Detail and a second B starts playback; Search never autoplays | |
 | S11 | Y from Detail returns to exact query/scope/page/scroll/card; test Movies, Series, Live, YouTube, Channel and Playlist | |
@@ -306,12 +307,17 @@ Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
 | S13 | Y from Search restores the exact originating Home tab and focused card; reopening Search is blank with recents | |
 | S14 | External VOD successful zero-stream Detail queues once; timeout/provider failure does not queue or show a false global catalog error | |
 | S15 | Settings SafeSearch Moderate/Strict/Off persists; Clear Search Activity removes recents and learning | |
-| S16 | Cached/offline/quota-degraded YouTube remains usable; Retry appears only after degradation and reruns only YouTube with at most one permitted Search call | |
+| S16 | Cached/offline/quota-degraded YouTube remains usable when it has results; otherwise its group is silently absent and the next explicit search follows normal cache/quota policy | |
 | S17 | Descriptive English/Hinglish query works with orchestrator available and falls back cleanly when it is absent | |
 | S18 | Search latency evidence: local suggestions under 150 ms target, first useful submitted result under 300 ms target, network phases bounded 2.5 s, optional AI bounded 4 s | |
 | S19 | At 10 feet, query, focused key, scope, starter titles, and result metadata remain readable; every transformed focus ring stays inside the outer 5% TV safe area | |
 | S20 | Blank Search is one open workspace with no redundant title, nested panel cards, or decorative copy; only the focused key is bright; Results prioritizes cards over status copy | |
 | S21 | Search has no entrance animation; reduced-motion mode removes nonessential transitions while D-pad focus remains immediate and visible through shape, scale, border, and color | |
+| S22 | Navigate rapidly after opening and returning from YouTube Detail: mounted result rails do not flash/reload, labels remain visible, and every D-pad step responds without periodic stalls | |
+| S23 | With Search state saved, suspend the active launcher consumer and press Down: stale movement is not replayed, Chromium recovers after ~3 s, the query/results return, and a new press moves exactly once; a second browser window never steals the pad lease | |
+| S24 | Empty compose shows a leading caret before “search mango”; after the first character the caret trails the typed text and stays quieter than the focused key | |
+| S25 | Highlighted suggestion preview dwells ~180ms before swapping; rapid scrubbing does not strobe art; recents without art keep a typographic stage | |
+| S26 | Results keep a pinned query + Edit + scopes header; focused-card atmosphere appears only after ~180ms dwell under strong scrims and clears on Edit/scope focus; scroll fade under the head appears only after scrolling | |
 
 ## Saved library (M6.1)
 
@@ -464,8 +470,8 @@ Spec: [tasks/ux-round/10-polish-plan.md](tasks/ux-round/10-polish-plan.md) · su
 | P6 | **Detail** — the backdrop reads as artwork behind the panel (not a muddy wash), the hero poster is substantial, synopsis lines are short enough to scan, and related cards are legible | |
 | P7 | **Detail related row** — it spans the full width beneath the streams panel; D-pad reaches it and comes back without teleporting or trapping focus | |
 | P8 | **Episodes** — no double amber ring, and the related row never overlaps the side panel | |
-| P9 | **Search compose** — typing shows a preview of the highlighted suggestion under the keyboard (art at its own aspect, title and meta top-aligned); it tracks focus as you move down the list and hides cleanly when a suggestion has no art | |
-| P10 | **Search results** — a real grid that wraps; the sticky toolbar stays readable with titles fading beneath it rather than colliding; More loads the next page into the same grid | |
+| P9 | **Search compose** — empty query shows a leading caret before “search mango”; typing shows an editorial preview under the keyboard after a short dwell (art at its own aspect, title/meta, typographic fallback when no art); equal-width keys; only the focused key is amber-bright | |
+| P10 | **Search results** — pinned query + Edit + scopes; rails wrap with More in-grid; rail titles readable at TV scale; focused-card atmosphere is subtle after dwell; content fades under the head only after scrolling | |
 | P11 | **Casing** — "mango", rail labels and eyebrows are lowercase throughout; no stray Title Case or ALL CAPS | |
 | P12 | **No regressions in motion** — focus movement still feels immediate on every surface; no new lag, flicker or reflow when posters load | |
 

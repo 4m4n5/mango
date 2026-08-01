@@ -1,5 +1,5 @@
 import { FocusGrid } from "./focus";
-import { buildCatalogRails } from "./home";
+import { buildCatalogRails, splitFocusRows } from "./home";
 import { railColumns } from "./layout";
 import type { BrowseTab, ContentCard, ContentRail } from "./types";
 
@@ -46,6 +46,23 @@ type SearchSnapshot = {
   updated_at: number;
 };
 
+function emptySearchSnapshot(query: string, scope: SearchScope): SearchSnapshot {
+  const now = Date.now();
+  return {
+    ok: true,
+    search_id: `local-empty-${now}`,
+    query,
+    normalized_query: query.trim().toLowerCase(),
+    scope,
+    revision: 0,
+    complete: true,
+    groups: [],
+    phases: {},
+    created_at: now,
+    updated_at: now,
+  };
+}
+
 type SearchStateResponse = {
   recents?: Array<{ normalized_query: string; display_query: string }>;
   starters?: Array<{
@@ -81,6 +98,9 @@ type SearchCallbacks = {
 
 const STORAGE_KEY = "mango.search-session.v1";
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
+/** Delay before swapping suggestion preview or results atmosphere artwork. */
+export const ARTWORK_DWELL_MS = 180;
+const QUERY_PLACEHOLDER = "search mango";
 // A page is whole rows of the result grid, so revealing one never leaves a
 // half-filled row behind. Derived from the column count rather than written out,
 // because the two were hardcoded independently (9 and 12 fitted the old 9-poster
@@ -111,6 +131,15 @@ export function mergeComposeFocusRows<T>(keyboardRows: T[][], starterRows: T[][]
 
 export function shouldClearSuggestions(query: string, suggestionCount: number): boolean {
   return query.trim().length < 2 && suggestionCount > 0;
+}
+
+/** Empty compose shows a leading caret before the placeholder; typed text keeps a trailing caret. */
+export function searchQueryCaretLeading(query: string): boolean {
+  return query.length === 0;
+}
+
+export function searchQueryDisplayText(query: string): string {
+  return query || QUERY_PLACEHOLDER;
 }
 
 export function searchGroupPageSize(group: Pick<SearchGroup, "layout">): number {
@@ -151,7 +180,7 @@ function searchIcon(name: SearchIconName): SVGSVGElement {
   svg.setAttribute("aria-hidden", "true");
   svg.classList.add("search-icon");
   const paths: Record<SearchIconName, string[]> = {
-    search: ["M11 4a7 7 0 1 0 4.9 12l4.1 4.1", "M16 16l4 4"],
+    search: ["M11 4a7 7 0 1 0 0 14a7 7 0 0 0 0-14", "M16 16l4 4"],
     clock: ["M12 5a7 7 0 1 0 7 7", "M12 8v4l3 2"],
     play: ["M8.5 6.5v11l9-5.5z"],
     edit: ["M5 19h4l10-10-4-4L5 15v4z", "M13.5 6.5l4 4"],
@@ -210,6 +239,11 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
+function prefersReducedMotion(): boolean {
+  return typeof matchMedia === "function"
+    && matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
 export function validRestoreState(value: unknown): SearchRestoreState | null {
   if (!value || typeof value !== "object") return null;
   const state = value as Partial<SearchRestoreState>;
@@ -242,6 +276,16 @@ export function validRestoreState(value: unknown): SearchRestoreState | null {
   };
 }
 
+export function readPersistedSearchState(
+  storage: Pick<Storage, "getItem"> = localStorage,
+): SearchRestoreState | null {
+  try {
+    return validRestoreState(JSON.parse(storage.getItem(STORAGE_KEY) || "null"));
+  } catch {
+    return null;
+  }
+}
+
 export class SearchController {
   private state: SearchStateResponse = {};
   private query = "";
@@ -253,6 +297,7 @@ export class SearchController {
   private activeSearchId: string | null = null;
   private pollToken = 0;
   private suggestTimer: number | undefined;
+  private persistTimer: number | undefined;
   private focusedKey: string | undefined;
   private preferredPosition: { row: number; col: number } | undefined;
   private focusedElement: HTMLElement | null = null;
@@ -266,13 +311,19 @@ export class SearchController {
   private resultRows: HTMLElement[][] = [];
   private preview: HTMLElement | null = null;
   private previewChoice: SearchChoice | undefined;
+  private previewTimer: number | undefined;
+  private atmosphere: HTMLElement | null = null;
+  private atmosphereImage: HTMLImageElement | null = null;
+  private atmosphereTimer: number | undefined;
+  private atmosphereUrl: string | null = null;
   private readonly focus = new FocusGrid((element) => {
     this.focusedElement?.classList.remove("focused");
     element.classList.add("focused");
     this.focusedElement = element;
     this.focusedKey = element.dataset.focusKey;
     this.preferredPosition = this.focus.position;
-    this.persist();
+    this.scheduleResultsAtmosphere(element);
+    this.persistSoon();
   });
 
   constructor(
@@ -307,12 +358,20 @@ export class SearchController {
       this.state = await fetchJson<SearchStateResponse>("/api/catalog/search/state");
       this.refreshStarters();
     } catch {
-      this.callbacks.onStatus("Search is ready. Recent activity is temporarily unavailable.");
+      // Recents and starter metadata are optional. Search itself remains usable.
     }
   }
 
   restore(input?: unknown): void {
     const state = validRestoreState(input) || this.readPersisted();
+    const canReuseMountedDom = Boolean(
+      state
+      && this.view.childElementCount > 0
+      && state.query === this.query
+      && state.scope === this.scope
+      && state.submitted === this.submitted
+      && state.snapshot?.search_id === this.snapshot?.search_id,
+    );
     if (state) {
       this.query = state.query;
       this.scope = state.scope;
@@ -326,7 +385,18 @@ export class SearchController {
       this.homePosition = state.homePosition;
     }
     this.view.classList.remove("hidden");
+    if (canReuseMountedDom) {
+      this.applyFocusRows();
+      return;
+    }
     this.render();
+  }
+
+  restorePersisted(): boolean {
+    const state = this.readPersisted();
+    if (!state) return false;
+    this.restore(state);
+    return true;
   }
 
   hideForDetail(): void {
@@ -429,7 +499,7 @@ export class SearchController {
       if (clearSuggestions || this.query.length === 0) {
         this.refreshStarters();
       }
-      this.persist();
+      this.persistSoon();
     }
     this.scheduleSuggestions();
   }
@@ -462,17 +532,31 @@ export class SearchController {
       return;
     }
     await this.cancelActive();
+    const priorSnapshot = this.submitted ? this.snapshot : null;
     const response = await fetchJson<SearchSnapshot>("/api/catalog/search/query", {
       method: "POST",
       body: JSON.stringify({
         query: this.query,
         scope: this.scope,
       }),
-    }).catch((error) => {
-      this.callbacks.onStatus(error instanceof Error ? error.message : "Search is temporarily unavailable.");
-      return null;
-    });
-    if (!response) return;
+    }).catch(() => null);
+    if (!response) {
+      // A failed source or backend never becomes a TV error bubble. Preserve usable
+      // prior results; on a first-query failure, render the same neutral empty state
+      // as a successful zero-result query.
+      if (priorSnapshot) {
+        this.scope = priorSnapshot.scope;
+        this.updateScopeState();
+        return;
+      }
+      this.submitted = true;
+      this.snapshot = emptySearchSnapshot(this.query, this.scope);
+      this.pages = {};
+      this.activeSearchId = null;
+      this.focusedKey = "search:edit";
+      this.render();
+      return;
+    }
     this.submitted = true;
     this.snapshot = response;
     this.pages = {};
@@ -481,7 +565,6 @@ export class SearchController {
       ? `rail:${response.groups[0].id}:${response.groups[0].items[0].type}:${response.groups[0].items[0].id}`
       : "search:edit";
     this.render();
-    this.callbacks.onStatus(response.complete ? "Search complete." : "Searching every source…");
     void this.poll(response.search_id, response.revision, ++this.pollToken);
   }
 
@@ -491,7 +574,18 @@ export class SearchController {
       const snapshot = await fetchJson<SearchSnapshot>(
         `/api/catalog/search/query/${encodeURIComponent(searchId)}?after_revision=${after}&wait_ms=20000`,
       ).catch(() => null);
-      if (!snapshot || token !== this.pollToken || this.activeSearchId !== searchId) return;
+      if (token !== this.pollToken || this.activeSearchId !== searchId) return;
+      if (!snapshot) {
+        // A broken progressive poll is an internal transport failure, not a
+        // couch-visible endless "Searching" state. Keep any useful groups that
+        // already arrived and settle an empty query into the neutral state.
+        this.activeSearchId = null;
+        this.snapshot = this.snapshot
+          ? { ...this.snapshot, complete: true }
+          : emptySearchSnapshot(this.query, this.scope);
+        this.refreshResults();
+        return;
+      }
       if (snapshot.revision > after) {
         after = snapshot.revision;
         this.snapshot = snapshot;
@@ -499,9 +593,6 @@ export class SearchController {
       }
       if (snapshot.complete) {
         this.activeSearchId = null;
-        this.callbacks.onStatus(snapshot.groups.some((group) => group.items.length > 0)
-          ? "Search complete."
-          : "No matches. Try another title, channel, or topic.");
         return;
       }
     }
@@ -522,10 +613,19 @@ export class SearchController {
     this.view.replaceChildren();
     this.view.classList.toggle("search--results", this.submitted);
     this.view.classList.toggle("search--compose", !this.submitted);
+    this.clearArtworkTimers();
 
     const atmosphere = document.createElement("div");
     atmosphere.className = "search-atmosphere";
     atmosphere.setAttribute("aria-hidden", "true");
+    const atmosphereImage = document.createElement("img");
+    atmosphereImage.className = "search-atmosphere-image";
+    atmosphereImage.alt = "";
+    atmosphereImage.decoding = "async";
+    atmosphere.appendChild(atmosphereImage);
+    this.atmosphere = atmosphere;
+    this.atmosphereImage = atmosphereImage;
+    this.atmosphereUrl = null;
 
     const header = document.createElement("header");
     header.className = "search-head";
@@ -537,16 +637,7 @@ export class SearchController {
     const query = document.createElement("div");
     query.className = "search-query";
     query.dataset.empty = String(this.query.length === 0);
-    const queryText = document.createElement("span");
-    queryText.className = "search-query-text";
-    queryText.textContent = this.query || "search mango";
-    query.appendChild(queryText);
-    if (!this.submitted) {
-      const caret = document.createElement("span");
-      caret.className = "search-query-caret";
-      caret.setAttribute("aria-hidden", "true");
-      query.appendChild(caret);
-    }
+    this.mountQueryContents(query);
     queryShell.appendChild(query);
 
     const edit = this.controlButton("edit", "search:edit", () => {
@@ -606,6 +697,30 @@ export class SearchController {
     this.applyFocusRows();
   }
 
+  private mountQueryContents(query: HTMLElement): void {
+    query.replaceChildren();
+    const empty = this.query.length === 0;
+    const caret = !this.submitted ? this.createCaret() : null;
+    const text = document.createElement("span");
+    text.className = "search-query-text";
+    text.textContent = searchQueryDisplayText(this.query);
+    if (caret && searchQueryCaretLeading(this.query)) {
+      query.append(caret, text);
+    } else if (caret) {
+      query.append(text, caret);
+    } else {
+      query.append(text);
+    }
+    query.dataset.empty = String(empty);
+  }
+
+  private createCaret(): HTMLSpanElement {
+    const caret = document.createElement("span");
+    caret.className = "search-query-caret";
+    caret.setAttribute("aria-hidden", "true");
+    return caret;
+  }
+
   private renderKeyboard(parent: HTMLElement): HTMLElement[][] {
     const keyboard = document.createElement("section");
     keyboard.className = "search-keyboard";
@@ -622,6 +737,7 @@ export class SearchController {
     for (const keyRow of KEYBOARD) {
       const row = document.createElement("div");
       row.className = "search-key-row";
+      row.dataset.keyCount = String(keyRow.length);
       const buttons = keyRow.map((key) => {
         const button = this.controlButton(
           key.toUpperCase(),
@@ -714,14 +830,14 @@ export class SearchController {
       const button = this.controlButton(choice.label, `search:starter:${index}`, () => {
         this.query = choice.query;
         this.updateQueryDisplay();
-        this.persist();
+        this.persistSoon();
         void this.submit();
       });
       button.classList.add("search-starter");
-      // Preview follows the highlighted row. A focus listener rather than a
-      // FocusGrid hook: these are real buttons that take DOM focus, so this stays
-      // correct however focus arrives — D-pad, pointer, or restoration.
-      button.addEventListener("focus", () => this.showPreview(choice));
+      // Preview follows the highlighted row after a short dwell so rapid D-pad
+      // scrubbing does not strobe artwork. A focus listener keeps pointer and
+      // restoration paths correct without coupling to FocusGrid internals.
+      button.addEventListener("focus", () => this.schedulePreview(choice));
       button.replaceChildren();
       const iconWrap = document.createElement("span");
       iconWrap.className = "search-starter-icon";
@@ -756,10 +872,8 @@ export class SearchController {
     if (replace) replace.replaceWith(section);
     else parent.appendChild(section);
     // The top row, not the first row that happens to have art: the preview has no
-    // label, so it only makes sense as "the thing highlighted in the column". On
-    // the empty state that top row is a recent query with no artwork, so the band
-    // stays empty until the viewer moves onto a row that has some.
-    this.showPreview(visible[0]);
+    // label, so it only makes sense as "the thing highlighted in the column".
+    this.schedulePreview(visible[0], true);
     return rows;
   }
 
@@ -768,7 +882,8 @@ export class SearchController {
    * highlighted. Deliberately not focusable and not a card rail: a rail here
    * would repeat the column beside it item for item, and suggestions mix 2:3
    * posters with 16:9 video thumbnails, which no single-aspect row renders
-   * honestly. One preview at the item's own aspect sidesteps both.
+   * honestly. One preview at the item's own aspect sidesteps both. Recents
+   * without art keep a typographic stage so the band never collapses.
    */
   private renderPreview(parent: HTMLElement): void {
     const preview = document.createElement("aside");
@@ -781,6 +896,15 @@ export class SearchController {
     image.alt = "";
     image.decoding = "async";
     frame.appendChild(image);
+    const fallback = document.createElement("div");
+    fallback.className = "search-preview-fallback";
+    fallback.hidden = true;
+    const fallbackMark = document.createElement("span");
+    fallbackMark.className = "search-preview-fallback-mark";
+    fallbackMark.setAttribute("aria-hidden", "true");
+    fallbackMark.textContent = "·";
+    fallback.appendChild(fallbackMark);
+    frame.appendChild(fallback);
     const copy = document.createElement("div");
     copy.className = "search-preview-copy";
     const title = document.createElement("p");
@@ -791,123 +915,211 @@ export class SearchController {
     preview.append(frame, copy);
     parent.appendChild(preview);
     this.preview = preview;
-    this.showPreview(this.previewChoice);
+    this.applyPreview(this.previewChoice);
   }
 
-  private showPreview(choice: SearchChoice | undefined): void {
+  private schedulePreview(choice: SearchChoice | undefined, immediate = false): void {
+    if (this.previewTimer !== undefined) {
+      window.clearTimeout(this.previewTimer);
+      this.previewTimer = undefined;
+    }
+    if (immediate || prefersReducedMotion()) {
+      this.applyPreview(choice);
+      return;
+    }
+    this.previewTimer = window.setTimeout(() => {
+      this.previewTimer = undefined;
+      this.applyPreview(choice);
+    }, ARTWORK_DWELL_MS);
+  }
+
+  private applyPreview(choice: SearchChoice | undefined): void {
     this.previewChoice = choice;
     const preview = this.preview;
     if (!preview) return;
     const image = preview.querySelector<HTMLImageElement>(".search-preview-image");
+    const fallback = preview.querySelector<HTMLElement>(".search-preview-fallback");
     const title = preview.querySelector<HTMLElement>(".search-preview-title");
     const meta = preview.querySelector<HTMLElement>(".search-preview-meta");
-    if (!image || !title || !meta) return;
-    // A recent search is a query string with no artwork behind it, so there is
-    // nothing to preview; the band collapses rather than showing an empty frame.
-    if (!choice?.poster) {
-      preview.hidden = true;
+    if (!image || !fallback || !title || !meta) return;
+    preview.hidden = false;
+    preview.classList.toggle("search-preview--landscape", Boolean(choice?.landscape));
+    preview.classList.toggle("search-preview--text", Boolean(choice && !choice.poster));
+    title.textContent = choice?.label || "";
+    meta.textContent = choice
+      ? [choice.meta, choice.detail].filter(Boolean).join(" · ") || "recent search"
+      : "";
+    if (!choice) {
       image.removeAttribute("src");
+      image.classList.remove("search-preview-image--ready");
+      fallback.hidden = true;
       return;
     }
-    preview.hidden = false;
-    preview.classList.toggle("search-preview--landscape", Boolean(choice.landscape));
-    if (image.getAttribute("src") !== choice.poster) image.src = choice.poster;
-    title.textContent = choice.label;
-    meta.textContent = [choice.meta, choice.detail].filter(Boolean).join(" · ");
+    if (!choice.poster) {
+      image.removeAttribute("src");
+      image.classList.remove("search-preview-image--ready");
+      fallback.hidden = false;
+      return;
+    }
+    fallback.hidden = true;
+    if (image.getAttribute("src") === choice.poster) {
+      image.classList.add("search-preview-image--ready");
+      return;
+    }
+    image.classList.remove("search-preview-image--ready");
+    const next = new Image();
+    next.decoding = "async";
+    next.onload = () => {
+      if (this.previewChoice?.poster !== choice.poster) return;
+      image.src = choice.poster!;
+      image.classList.add("search-preview-image--ready");
+    };
+    next.onerror = () => {
+      if (this.previewChoice?.poster !== choice.poster) return;
+      image.removeAttribute("src");
+      image.classList.remove("search-preview-image--ready");
+      fallback.hidden = false;
+      preview.classList.add("search-preview--text");
+    };
+    next.src = choice.poster;
   }
 
-  private renderResults(replace?: HTMLElement): HTMLElement[][] {
+  private renderResults(): HTMLElement[][] {
     const results = document.createElement("div");
     results.className = "search-results rails";
-    const toolbar = document.createElement("div");
-    toolbar.className = "search-results-toolbar";
-    const progress = document.createElement("div");
-    progress.className = "search-results-state";
-    const progressMark = document.createElement("span");
-    progressMark.className = "search-results-state-mark";
-    progressMark.setAttribute("aria-hidden", "true");
-    const progressCopy = document.createElement("span");
-    progressCopy.textContent = "Searching";
-    progress.append(progressMark, progressCopy);
-    if (!this.snapshot?.complete) toolbar.appendChild(progress);
+    this.view.appendChild(results);
+    return this.updateResultsView(results);
+  }
 
+  /**
+   * Reconcile progressive Search groups by rail ID.
+   *
+   * The API returns a full snapshot on each revision, but replacing the complete
+   * result subtree forced Chromium to decode the same posters again and detached
+   * the focused element on every provider response. Only a changed rail is rebuilt
+   * now; stable rails, images, focus nodes and scroll state stay mounted.
+   */
+  private updateResultsView(results: HTMLElement): HTMLElement[][] {
     const groups = this.snapshot?.groups || [];
     const windows = new Map(groups.map((group) => [
       group.id,
       searchGroupPageWindow(group, this.pages[group.id] || 0),
     ]));
-    const rails: ContentRail[] = groups
-      .filter((group) => group.items.length > 0)
-      .map((group) => ({
-        id: group.id,
-        label: group.label,
-        layout: group.layout,
-        cards: (windows.get(group.id)?.items || [])
-          .map((item) => resultToCard(item, `search:${group.id}`)),
-      }));
-    const rows = buildCatalogRails(results, {
-      onContentSelect: (card, railLabel) => this.openResult(card, railLabel),
-      onAppSelect: () => undefined,
-    }, {
-      // Results are a grid, not a browse rail: the page window already bounds
-      // how many cards exist, and capping this to one row would hide most of a
-      // page and leave "More" revealing nothing.
-      railRowLimit: null,
-      railTrailingAction: (rail, landscape) => {
-        const group = groups.find((candidate) => candidate.id === rail.id);
-        const window = windows.get(rail.id);
-        return group && window?.hasMore
-          ? this.createMoreCard(group, landscape, window.items.length)
-          : null;
-      },
-    }, { status: "ready", rails });
+    const visibleGroups = groups.filter((group) => group.items.length > 0);
+    const hasResults = visibleGroups.length > 0;
 
-    if (rails.length === 0) {
+    for (const chrome of Array.from(
+      results.querySelectorAll<HTMLElement>(":scope > .search-results-toolbar, :scope > .search-message"),
+    )) {
+      chrome.remove();
+    }
+
+    let chrome: HTMLElement | null = null;
+    if (!this.snapshot?.complete && !hasResults) {
+      const toolbar = document.createElement("div");
+      toolbar.className = "search-results-toolbar";
+      const progress = document.createElement("div");
+      progress.className = "search-results-state";
+      const progressMark = document.createElement("span");
+      progressMark.className = "search-results-state-mark";
+      progressMark.setAttribute("aria-hidden", "true");
+      const progressCopy = document.createElement("span");
+      progressCopy.textContent = "Searching";
+      progress.append(progressMark, progressCopy);
+      toolbar.appendChild(progress);
+      chrome = toolbar;
+    } else if (!hasResults) {
       const message = document.createElement("div");
       message.className = "search-message";
-      const pending = !this.snapshot?.complete;
       message.appendChild(searchIcon("search"));
       const messageCopy = document.createElement("div");
       const messageTitle = document.createElement("h2");
-      messageTitle.textContent = pending ? "Searching" : "No results";
+      messageTitle.textContent = "No results";
       const messageBody = document.createElement("p");
-      messageBody.textContent = pending
-        ? "checking mango, live and youtube."
+      messageBody.textContent = this.query.trim()
+        ? `No results for “${this.query.trim()}”. Try another title, channel or topic.`
         : "Try another title, channel or topic.";
       messageCopy.append(messageTitle, messageBody);
       message.appendChild(messageCopy);
-      results.appendChild(message);
+      chrome = message;
+    }
+    if (chrome) results.prepend(chrome);
+
+    const existingRails = new Map(
+      Array.from(results.querySelectorAll<HTMLElement>(":scope > .rail"))
+        .map((section) => [section.dataset.railId || "", section]),
+    );
+    const retained = new Set<HTMLElement>();
+    let cursor: ChildNode | null = chrome ? chrome.nextSibling : results.firstChild;
+
+    for (const group of visibleGroups) {
+      const window = windows.get(group.id);
+      if (!window) continue;
+      const signature = JSON.stringify([
+        group.label,
+        group.layout,
+        window.hasMore,
+        window.items.map((item) => [
+          item.key,
+          item.source,
+          item.type,
+          item.id,
+          item.title,
+          item.subtitle,
+          item.poster,
+          item.year,
+          item.description,
+          item.tab,
+          item.kind,
+          item.live_status,
+          item.in_library,
+          item.queued_for_verify,
+        ]),
+      ]);
+      let section = existingRails.get(group.id);
+      if (!section || section.dataset.searchSignature !== signature) {
+        const staging = document.createElement("div");
+        const rail: ContentRail = {
+          id: group.id,
+          label: group.label,
+          layout: group.layout,
+          cards: window.items.map((item) => resultToCard(item, `search:${group.id}`)),
+        };
+        buildCatalogRails(staging, {
+          onContentSelect: (card, railLabel) => this.openResult(card, railLabel),
+          onAppSelect: () => undefined,
+        }, {
+          railRowLimit: null,
+          railTrailingAction: (_rail, landscape) => window.hasMore
+            ? this.createMoreCard(group, landscape, window.items.length)
+            : null,
+        }, { status: "ready", rails: [rail] });
+        const replacement = staging.querySelector<HTMLElement>(":scope > .rail");
+        if (!replacement) continue;
+        replacement.dataset.searchSignature = signature;
+        section = replacement;
+      }
+      retained.add(section);
+      if (section !== cursor) {
+        results.insertBefore(section, cursor);
+      }
+      cursor = section.nextSibling;
     }
 
-    const degraded = Object.values(this.snapshot?.phases || {})
-      .filter((phase) => phase.status === "degraded" || phase.status === "failed")
-      .map((phase) => phase.message)
-      .find(Boolean);
-    if (degraded) {
-      const note = document.createElement("p");
-      note.className = "search-degraded";
-      note.textContent = degraded;
-      toolbar.appendChild(note);
+    for (const section of existingRails.values()) {
+      if (!retained.has(section)) section.remove();
     }
 
-    const youtubePhase = this.snapshot?.phases.youtube;
-    if (
-      this.snapshot?.complete
-      && (youtubePhase?.status === "degraded" || youtubePhase?.status === "failed")
-    ) {
-      const retry = this.controlButton(
-        "retry YouTube",
-        "search:retry-youtube",
-        () => void this.retryYoutube(),
+    const rows: HTMLElement[][] = [];
+    for (const group of visibleGroups) {
+      const section = Array.from(results.querySelectorAll<HTMLElement>(":scope > .rail"))
+        .find((candidate) => candidate.dataset.railId === group.id);
+      if (!section) continue;
+      const items = Array.from(
+        section.querySelectorAll<HTMLElement>(":scope > .rail-track > [data-focus-key]"),
       );
-      retry.classList.add("search-retry-youtube");
-      retry.prepend(searchIcon("refresh"));
-      toolbar.appendChild(retry);
-      rows.unshift([retry]);
+      rows.push(...splitFocusRows(items, railColumns(group.layout === "landscape")));
     }
-    if (toolbar.childElementCount > 0) results.prepend(toolbar);
-    if (replace) replace.replaceWith(results);
-    else this.view.appendChild(results);
     return rows;
   }
 
@@ -954,35 +1166,10 @@ export class SearchController {
     return button;
   }
 
-  private async retryYoutube(): Promise<void> {
-    const searchId = this.snapshot?.search_id;
-    if (!searchId) return;
-    this.callbacks.onStatus("Retrying YouTube…");
-    const snapshot = await fetchJson<SearchSnapshot>(
-      `/api/catalog/search/query/${encodeURIComponent(searchId)}/youtube/retry`,
-      { method: "POST" },
-    ).catch((error) => {
-      this.callbacks.onStatus(error instanceof Error ? error.message : "YouTube is temporarily unavailable.");
-      return null;
-    });
-    if (!snapshot) return;
-    this.snapshot = snapshot;
-    const firstYoutube = snapshot.groups.find((group) => group.id === "youtube")?.items[0];
-    this.focusedKey = snapshot.phases.youtube?.status === "ready" && firstYoutube
-      ? `rail:youtube:${firstYoutube.type}:${firstYoutube.id}`
-      : "search:retry-youtube";
-    this.refreshResults();
-    this.callbacks.onStatus(snapshot.phases.youtube?.status === "ready"
-      ? "YouTube results updated."
-      : "YouTube is still unavailable. Other results are ready.");
-  }
-
   private updateQueryDisplay(): void {
     const query = this.view.querySelector<HTMLElement>(".search-query");
-    const text = this.view.querySelector<HTMLElement>(".search-query-text");
-    if (!query || !text) return;
-    query.dataset.empty = String(this.query.length === 0);
-    text.textContent = this.query || "search mango";
+    if (!query) return;
+    this.mountQueryContents(query);
   }
 
   private updateScopeState(): void {
@@ -992,7 +1179,7 @@ export class SearchController {
       button.classList.toggle("search-chip--active", id === this.scope);
       button.setAttribute("aria-pressed", String(id === this.scope));
     }
-    this.persist();
+    this.persistSoon();
   }
 
   private refreshStarters(): void {
@@ -1008,7 +1195,7 @@ export class SearchController {
     if (!this.submitted) return;
     const current = this.view.querySelector<HTMLElement>(".search-results");
     if (!current) return;
-    this.resultRows = this.renderResults(current);
+    this.resultRows = this.updateResultsView(current);
     this.applyFocusRows();
   }
 
@@ -1020,7 +1207,78 @@ export class SearchController {
       preferredKey: this.focusedKey,
       fallbackPosition: this.preferredPosition,
     });
-    this.persist();
+    if (this.submitted && this.focusedElement) {
+      this.scheduleResultsAtmosphere(this.focusedElement);
+    }
+    this.persistSoon();
+  }
+
+  private scheduleResultsAtmosphere(element: HTMLElement): void {
+    if (!this.submitted || !this.atmosphere || !this.atmosphereImage) return;
+    if (this.atmosphereTimer !== undefined) {
+      window.clearTimeout(this.atmosphereTimer);
+      this.atmosphereTimer = undefined;
+    }
+    const key = element.dataset.focusKey || "";
+    const isResultCard = key.startsWith("rail:");
+    if (!isResultCard) {
+      this.clearResultsAtmosphere();
+      return;
+    }
+    const image = element.querySelector<HTMLImageElement>(".poster-image");
+    const url = image?.currentSrc || image?.src || "";
+    if (!url) {
+      this.clearResultsAtmosphere();
+      return;
+    }
+    if (this.atmosphereUrl === url && this.atmosphere.classList.contains("search-atmosphere--ready")) {
+      return;
+    }
+    if (prefersReducedMotion()) {
+      this.applyResultsAtmosphere(url);
+      return;
+    }
+    this.atmosphereTimer = window.setTimeout(() => {
+      this.atmosphereTimer = undefined;
+      this.applyResultsAtmosphere(url);
+    }, ARTWORK_DWELL_MS);
+  }
+
+  private applyResultsAtmosphere(url: string): void {
+    if (!this.atmosphere || !this.atmosphereImage) return;
+    if (this.atmosphereUrl === url) {
+      this.atmosphere.classList.add("search-atmosphere--ready");
+      return;
+    }
+    this.atmosphere.classList.remove("search-atmosphere--ready");
+    const next = new Image();
+    next.decoding = "async";
+    next.onload = () => {
+      if (!this.atmosphere || !this.atmosphereImage) return;
+      this.atmosphereImage.src = url;
+      this.atmosphereUrl = url;
+      this.atmosphere.classList.add("search-atmosphere--ready");
+    };
+    next.onerror = () => this.clearResultsAtmosphere();
+    next.src = url;
+  }
+
+  private clearResultsAtmosphere(): void {
+    if (this.atmosphereTimer !== undefined) {
+      window.clearTimeout(this.atmosphereTimer);
+      this.atmosphereTimer = undefined;
+    }
+    this.atmosphereUrl = null;
+    this.atmosphere?.classList.remove("search-atmosphere--ready");
+    this.atmosphereImage?.removeAttribute("src");
+  }
+
+  private clearArtworkTimers(): void {
+    if (this.previewTimer !== undefined) {
+      window.clearTimeout(this.previewTimer);
+      this.previewTimer = undefined;
+    }
+    this.clearResultsAtmosphere();
   }
 
   private openResult(card: ContentCard, label: string): void {
@@ -1059,6 +1317,10 @@ export class SearchController {
   }
 
   private persist(state = this.playbackState()): void {
+    if (this.persistTimer !== undefined) {
+      window.clearTimeout(this.persistTimer);
+      this.persistTimer = undefined;
+    }
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     } catch {
@@ -1066,15 +1328,33 @@ export class SearchController {
     }
   }
 
-  private readPersisted(): SearchRestoreState | null {
-    try {
-      return validRestoreState(JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"));
-    } catch {
-      return null;
+  /**
+   * Persist settled Search state, never every D-pad step synchronously.
+   *
+   * localStorage blocks the browser main thread. A full progressive snapshot can
+   * be large, so serializing it inside the focus callback made rapid Search
+   * navigation hitch. Detail entry and surface exit still call persist() directly;
+   * ordinary focus/query movement is coalesced into one write after it settles.
+   */
+  private persistSoon(): void {
+    if (this.persistTimer !== undefined) {
+      window.clearTimeout(this.persistTimer);
     }
+    this.persistTimer = window.setTimeout(() => {
+      this.persistTimer = undefined;
+      this.persist();
+    }, 250);
+  }
+
+  private readPersisted(): SearchRestoreState | null {
+    return readPersistedSearchState();
   }
 
   private clearPersisted(): void {
+    if (this.persistTimer !== undefined) {
+      window.clearTimeout(this.persistTimer);
+      this.persistTimer = undefined;
+    }
     try {
       localStorage.removeItem(STORAGE_KEY);
     } catch {

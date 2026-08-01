@@ -45,7 +45,7 @@ What works today, what is still being hardened, and how to verify it.
 | Browse UX | Verified-only thin rails · empty hidden |
 | Thematic rails | `rail-theme-gate` on grow/link/verify · profiles in `rail-theme-profiles.yaml` |
 | Pool retheme | Manual repair plus grow orphan/overlap finalization |
-| Couch reliability | Chromium launcher · 1080p60 couch display mode · fetch/focus timing logs · Live stale-cache fallback · idle-gated maintenance · X11 anti-sleep/wake |
+| Couch reliability | Chromium launcher · 1080p60 couch display mode · fetch/focus timing logs · Live stale-cache fallback · idle-gated maintenance · X11 anti-sleep/wake · leased pad consumer with 3 s bounded Chromium self-heal |
 
 **Detail:** [PLAYABILITY.md](PLAYABILITY.md)
 
@@ -278,7 +278,7 @@ A three-tier pass cut launcher D-pad input-to-photon latency on the browse path.
 |------|-------|------------------------|
 | A — Pad hot path | Cut per-press work | `get_launcher_wid()` cache (2s TTL); stop invalidating foreground cache on every evdev event; fast launcher key (`activate=False` when launcher focused); `write_status` only on heartbeat/state transitions; `DPAD_DEBOUNCE_SEC=0.05` vs `0.12` for face buttons; removed `ensure-launcher` from display-wake |
 | B — Periodic lag + launcher feel | Kill the ~every-4th-click spike | Async/throttled couch-activity (`popen`, 0.5s throttle); display wake = inline `xset` only from pad (no present-launcher on D-pad); launcher foreground cache TTL → 2s; `send_key_launcher(symbol, app=app)`; `logPerf` off by default; O(1) focus class toggle; instant focus-ring CSS (`--dur-focus-in/out: 0ms`) |
-| C — GPU rasterization + pad-nav API | Snappier repaints + direct focus | Pi 5 Chromium GPU rasterization on by default (`--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy`, `MANGO_CHROMIUM_DISABLE_GPU=0`); pad → launcher focus API is default-on (`MANGO_PAD_NAV_API=1`) — pad POSTs directional intents to `/api/pad/nav`, launcher long-polls and applies focus directly to FocusGrid, xdotool fallback on any HTTP failure |
+| C — GPU rasterization + pad-nav API | Snappier repaints + direct focus | Pi 5 Chromium GPU rasterization on by default (`--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy`, `MANGO_CHROMIUM_DISABLE_GPU=0`); pad → launcher focus API is default-on (`MANGO_PAD_NAV_API=1`) — leased launcher consumer long-polls `/api/pad/nav`, drops stale movement, escapes a stalled rAF after 50 ms, and triggers a state-preserving Chromium-only restart after 3 s without input progress |
 
 ---
 
@@ -322,7 +322,7 @@ resolution.
 | Companion picks | Numbered tappable rows · `pick_select` WS (no LLM round-trip) |
 | YouTube AI rails | 9-card cap · gate isolates `MANGO_AI_CATALOGS_DIR` |
 | Automated gate | `gate-m6-ux-smoke.sh` in `pi-pre-couch-gate.sh` on `feat/native-experience` |
-| Unified Search | Temporary magnifier surface, local keyboard suggestions, progressive source-isolated rows, rail-local More tiles, two-row YouTube results, degraded-only retry, origin-aware Detail/playback return, 12 recents, SafeSearch, query cache and split quota reserves |
+| Unified Search | Full-bleed temporary magnifier surface with safe-area controls, local keyboard suggestions, progressively reconciled source-isolated rows, silent partial failures, neutral empty state, rail-local More tiles, origin-aware Detail/playback return without remount, coalesced restart-safe state, 12 recents, SafeSearch, query cache and split quota reserves |
 
 **Pi evidence:** commit `8eeb239` — ux-smoke 9/9 PASS.
 

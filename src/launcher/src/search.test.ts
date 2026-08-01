@@ -4,8 +4,12 @@ import test from "node:test";
 import { splitFocusRows } from "./home";
 import { railColumns } from "./layout";
 import {
+  ARTWORK_DWELL_MS,
   mergeComposeFocusRows,
+  readPersistedSearchState,
   searchGroupPageWindow,
+  searchQueryCaretLeading,
+  searchQueryDisplayText,
   shouldClearSuggestions,
   validRestoreState,
 } from "./search";
@@ -30,6 +34,18 @@ test("Search keeps prior suggestions visible while a new query is debounced", ()
   assert.equal(shouldClearSuggestions("du", 4), false);
   assert.equal(shouldClearSuggestions("d", 4), true);
   assert.equal(shouldClearSuggestions("", 4), true);
+});
+
+test("Empty compose caret leads the placeholder; typed query keeps a trailing caret", () => {
+  assert.equal(searchQueryCaretLeading(""), true);
+  assert.equal(searchQueryCaretLeading("d"), false);
+  assert.equal(searchQueryDisplayText(""), "search mango");
+  assert.equal(searchQueryDisplayText("dune"), "dune");
+});
+
+test("Search artwork dwell is long enough to skip rapid D-pad strobing", () => {
+  assert.ok(ARTWORK_DWELL_MS >= 160);
+  assert.ok(ARTWORK_DWELL_MS <= 200);
 });
 
 test("Search restore state preserves result focus, pages, and originating Home state", () => {
@@ -68,6 +84,26 @@ test("Search restoration rejects expired or malformed snapshots", () => {
     query: "Dune",
     scope: "invalid",
   }), null);
+});
+
+test("Search boot recovery reads the durable state after Chromium restarts", () => {
+  const persisted = {
+    version: 1,
+    savedAt: Date.now(),
+    query: "Panchayat",
+    scope: "series",
+    submitted: true,
+    snapshot: null,
+    pages: {},
+    focusedKey: "search:edit",
+  };
+  const restored = readPersistedSearchState({
+    getItem: () => JSON.stringify(persisted),
+  });
+  assert.equal(restored?.query, "Panchayat");
+  assert.equal(restored?.scope, "series");
+  assert.equal(restored?.submitted, true);
+  assert.equal(restored?.focusedKey, "search:edit");
 });
 
 test("A Search result page fills whole rows of the live grid, More in the final slot", () => {

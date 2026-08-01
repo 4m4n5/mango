@@ -217,6 +217,7 @@ function init(): void {
   // playback surface first instead of racing a cold catalog fetch against it.
   if (!readPlaybackReturnSnapshot()) {
     void loadCatalog();
+    tryRestoreSearchOnBoot();
   }
   void tryRestorePlaybackReturnOnBoot();
   startVoiceHud();
@@ -999,6 +1000,19 @@ async function tryRestorePlaybackReturnOnBoot(): Promise<void> {
     return;
   }
   await restorePlaybackSurfaceIfNeeded();
+}
+
+function tryRestoreSearchOnBoot(): boolean {
+  if (!search.restorePersisted()) {
+    return false;
+  }
+  inSettings = false;
+  nextEpisodePrompt.dismiss();
+  homeView.classList.add("hidden");
+  detailView.classList.add("hidden");
+  settingsView.classList.add("hidden");
+  setStatus("Search restored. X deletes; hold X clears.");
+  return true;
 }
 
 async function restorePlaybackSurfaceIfNeeded(): Promise<void> {

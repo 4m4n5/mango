@@ -29,7 +29,10 @@ while the user types.
 - X tap deletes one character; X held for at least 600 ms clears the query.
   Outside Search, X remains the current-tab shuffle action.
 - Empty results are successful empty state. A failed source is isolated and
-  cannot replace usable rows with a global catalog error.
+  cannot replace usable rows with a global catalog error. Partial provider
+  failures are silent: only successful groups render. If the whole request
+  fails, the last usable result snapshot remains; without one, Search shows the
+  same neutral **No results** state as a successful empty query.
 
 ## Visual and focus contract
 
@@ -39,6 +42,18 @@ above a broad D-pad keyboard, with Recent or Suggestions separated by one quiet
 vertical rule. It has no redundant Search title, nested panel cards, or
 decorative copy. The submitted state gives the screen back to content.
 
+- Empty compose shows a leading caret before the placeholder (`| search mango`).
+  After the first character the caret trails the typed text. The caret stays
+  visually subordinate so the amber focused key remains the strongest signal.
+- Letter keys share equal geometry; shorter A/Z rows center instead of stretching.
+  Scope and hint copy sit on the 24–26px TV scale; active scopes stay quiet and
+  neutral so amber remains focus-only.
+- The band under the keyboard is an editorial stage for the highlighted
+  suggestion: stable height, borderless composition, poster or landscape art at
+  its native ratio, title plus useful metadata. Recents without art keep a
+  typographic fallback so the stage never collapses. Preview swaps only after
+  ~180ms dwell, with artwork preload and a short opacity crossfade. No entrance
+  animation, parallax, autoplay, shimmer, blur, or layout movement.
 - The focused keyboard key is the brightest object on the blank surface.
   The submit key stays neutral until focused. Amber scale, border, and glow
   communicate focus without animated clutter.
@@ -49,18 +64,34 @@ decorative copy. The submitted state gives the screen back to content.
   rows with a source/type label. Right from a keyboard row enters the aligned
   starter row; Left returns to the keyboard. An empty panel is guidance, not an
   error.
+- Submitted results keep a compact pinned header: typed query as the page
+  anchor, Edit as a restrained secondary action, scopes beneath, one
+  hairline/fade into content, and no redundant “Search results” title. Rail
+  titles and empty-state copy use the 24–28px TV scale. Progress, starter icons,
+  empty-state art, and More cards stay neutral so amber remains the focus language.
+- Focused result artwork can tint the full-bleed atmosphere after ~180ms dwell
+  at very low opacity under strong static scrims. Header focus clears or freezes
+  it. A compositor-cheap scroll-aware fade appears under the pinned head only
+  after content has scrolled.
 - Results retain one editorial hierarchy: Top Results first in landscape
   geometry, then source rows in their native landscape/poster geometry.
-- Progress and source degradation remain secondary to result cards. A YouTube
-  retry appears only after that source degrades and updates the existing Search
-  job without rerunning VOD, Live, or AI. Empty Search uses a composed empty
-  state rather than a catalog-error toast.
+- A small Searching mark appears only before the first useful cards. It
+  disappears as soon as any group arrives; source degradation, diagnostics,
+  and retry controls never occupy the couch surface. Empty Search uses a
+  composed neutral state rather than a catalog-error toast.
 - Every More tile is the final item in its own rail's focus grid. Down moves
   through visual rows and into the next rail; pagination controls are never
   collected into detached action rows after the content.
 - Typing updates only query text. Existing suggestions remain visible through
   the debounce and are replaced once as a subtree when the next set is ready;
   the header and keyboard are never rebuilt or refocused.
+- Progressive revisions reconcile groups by rail ID. Unchanged rails, decoded
+  artwork, focused nodes, and scroll state remain mounted. Search state writes
+  are coalesced after navigation settles; Detail entry and surface exit still
+  flush immediately for restart-safe restoration.
+- On an ordinary Chromium self-heal, a valid persisted Search session reopens
+  automatically at its query, scope, page, and focus. A playback-return snapshot
+  takes precedence and restores Detail first.
 - Search has no entrance animation. D-pad focus feedback stays immediate, and
   `prefers-reduced-motion` also removes nonessential transitions.
 
@@ -128,11 +159,10 @@ Mango accounts the current official quota buckets before dispatch:
   request.
 
 Repeated queries join an in-flight request or use cache. Normal Search has no
-cache-bypass control because a miss already refreshes the 24-hour cache. If
-YouTube degrades, a source-local Retry appears; it bypasses that query-cache row
-once and spends at most one permitted Search call plus ordinary metadata
-enrichment. Couch pagination, shuffle, and `yt-dlp -> mpv` playback do not
-spend Data API quota.
+cache-bypass control because a miss already refreshes the 24-hour cache.
+Provider failures remain internal; the next explicit search may use or refresh
+the cache normally. Couch pagination, shuffle, and `yt-dlp -> mpv` playback do
+not spend Data API quota.
 
 ## External VOD verification
 

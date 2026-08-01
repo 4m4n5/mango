@@ -204,7 +204,7 @@ Covered structurally in §3; behavior/state detail here since it drives a distin
   - **Empty starters, no query**: `.search-starter-empty` — icon + **"Type to see suggestions."** (`search.ts:705`).
   - **Empty starters, has query but no suggestions**: same block, copy **"No local suggestions yet."** (`search.ts:705`).
   - Scope chip active: `.search-chip--active`, `aria-pressed="true"` (`search.ts:557-558`).
-  - `/api/catalog/search/state` fetch failure on open: non-blocking `onStatus` — **"Search is ready. Recent activity is temporarily unavailable."** (`search.ts:291`).
+  - `/api/catalog/search/state` fetch failure on open: silent; keyboard Search remains usable without optional recents/starters.
   - Query length capped at 120 chars (`search.ts:399`).
 - **Entry/exit:** Entered via `#search-entry` click/B or Search key command (`openSearch()`, `main.ts:620-632`), which also sets status **"Type with the D-pad. X deletes; hold X clears. B selects."**. Typing a character (soft-keyboard, physical keyboard passthrough, or gamepad key-buttons) doesn't submit; **Enter/B on the search button, or Enter key** submits (`submit()`, `search.ts:440-467`) → transitions to Results mode (§10). **X (secondary tap)** deletes last char, **hold-X** clears query (`search.ts:339-345`); **Escape/Y** or Home closes back to origin (`close()`, `search.ts:318-325`, restoring either Home or Detail depending on how Search was entered).
 - **Flags:** none.
@@ -213,26 +213,20 @@ Covered structurally in §3; behavior/state detail here since it drives a distin
 
 ## 10. Search — results mode
 
-- **DOM/CSS:** same `#search-view`, now `.search--results` class, `renderResults()` (`search.ts:715-804`).
-- **File:line:** `search.ts:715-804` (results/toolbar), `849-870` (YouTube retry).
+- **DOM/CSS:** same `#search-view`, now `.search--results` class; `updateResultsView()` reconciles mounted rails by ID.
+- **File:** `search.ts` (results reconciliation, neutral empty state, coalesced persistence).
 - **What the user sees:**
   1. Header unchanged (query pill now shows submitted text with an edit-pencil button, no caret; scope chips still switchable — re-submits on change, `search.ts:546-556`).
-  2. `.search-results-toolbar` (only rendered if it has children) containing, conditionally: a **"Searching"** progress indicator (animated mark + text, shown while `!snapshot.complete`), a degraded-phase note, and/or a **"retry YouTube"** button.
+  2. `.search-results-toolbar` contains only a small **"Searching"** mark before the first useful cards and disappears as soon as any group arrives.
   3. `.search-results.rails` — one `.rail` block per non-empty result group (Mango/movies/series/live/YouTube), built via the same `buildCatalogRails()` used on Home, so cards/landscape rules match Home exactly. Each group can end in a **"More"** trailing card (§6) when more results exist beyond the current page window (`searchGroupPageWindow`). Page size is derived from `railColumns()` — two poster rows or three landscape rows — so a revealed page always lands on whole rows; it was formerly the literals 9 and 12, which fitted the old 9-poster/6-landscape grid and went stale when that grid was resized.
 - **Every state:**
   | State | Condition | Copy |
   |---|---|---|
-  | pending, zero groups yet | `!snapshot.complete` and no groups with items | `.search-message` — heading **"Searching"**, body **"Checking Mango, Live and YouTube."** (`search.ts:764-768`) |
+  | pending, zero groups yet | `!snapshot.complete` and no groups with items | small **"Searching"** mark only |
   | complete, zero results | `snapshot.complete` and no groups with items | heading **"No results"**, body **"Try another title, channel or topic."** |
-  | degraded phase | any phase status `degraded`/`failed` with a message | `.search-degraded` note text = server-provided phase message (`search.ts:774-782`) |
-  | YouTube phase failed/degraded, search complete | `youtubePhase.status` in `{degraded,failed}` | **"retry YouTube"** button appears in toolbar and as a focusable row (`search.ts:786-799`) |
-  | YouTube retry in-flight | click retry | status **"Retrying YouTube…"** |
-  | YouTube retry success | | status **"YouTube results updated."** |
-  | YouTube retry still failing | | status **"YouTube is still unavailable. Other results are ready."** |
+  | degraded phase | any phase status `degraded`/`failed` | silent; successful groups remain mounted |
   | submit validation fail | query <2 chars trimmed | status **"Type at least 2 characters."** (no request sent) |
-  | submit network fail | fetch throws | status = server error message or **"Search is temporarily unavailable."** |
-  | search in progress (initial) | after successful submit | status **"Search complete."** or **"Searching every source…"** depending on `response.complete` |
-  | long-poll complete | poll resolves with `complete:true` | status **"Search complete."** or **"No matches. Try another title, channel, or topic."** |
+  | submit network fail | fetch throws | keep prior usable results; otherwise neutral **No results** |
 - **Entry/exit:** submit from compose mode; **edit** button or re-typing returns to compose (clears `submitted`/`snapshot`, `search.ts:533-537`). Selecting a result → `openResult()` persists `SearchRestoreState` and opens Detail with `origin:"search"` (so Detail's back/Y restores Search results exactly, including scroll/focus/page windows — `search.ts:918-940`). Closing Search (Y/Escape/Home) restores whichever Home tab/position was active when Search was opened.
 - **Flags:** none.
 
@@ -566,24 +560,17 @@ Every literal user-facing label, empty-state string, or error/status message fou
 **Search — compose** (`search.ts`)
 - "Search Mango" (placeholder)
 - "all", "movies", "tv shows", "live", "youtube" (scope chips)
-- "Keyboard" / "X delete · hold to clear"
+- "X delete · hold to clear"
 - "space", "delete", "clear", "search" (key actions)
 - "Suggestions" / "Recent"
-- "Recent search", "YouTube", "TV show", "Live channel", "Movie", "From your library" (type labels)
+- "YouTube", "TV show", "Live channel", "Movie", "From your library" (type labels)
 - "Type to see suggestions." / "No local suggestions yet."
-- "Search is ready. Recent activity is temporarily unavailable."
 - "Type at least 2 characters."
-- "Search is temporarily unavailable."
 
 **Search — results** (`search.ts`)
-- "Searching" (toolbar progress + pending message heading)
-- "Checking Mango, Live and YouTube."
+- "Searching" (small pre-result progress mark)
 - "No results" / "Try another title, channel or topic."
 - "More" (trailing card title) + group label subtitle
-- "retry YouTube"
-- "Retrying YouTube…" / "YouTube results updated." / "YouTube is still unavailable. Other results are ready." / "YouTube is temporarily unavailable."
-- "Search complete." / "Searching every source…" / "No matches. Try another title, channel, or topic."
-- (server-provided) degraded-phase note text
 
 **Detail — hero/actions** (`detail.ts`)
 - "loading details…" / "no synopsis available" / "details unavailable"

@@ -22,7 +22,7 @@ else
   gate_fail "launcher dist/index.html missing — cd src/launcher && npm run build"
 fi
 
-python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" "$SRC/search.ts" <<'PY' \
+python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" "$SRC/search.ts" "$SRC/pad-nav.ts" "$REPO_DIR/src/mango-ui-server/serve.py" <<'PY' \
   && gate_pass "launcher source UX contracts" \
   || gate_fail "launcher source UX contracts"
 import pathlib
@@ -36,6 +36,8 @@ next_prompt = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8")
 playback_return = pathlib.Path(sys.argv[6]).read_text(encoding="utf-8")
 catalog = pathlib.Path(sys.argv[7]).read_text(encoding="utf-8")
 search = pathlib.Path(sys.argv[8]).read_text(encoding="utf-8")
+pad_nav = pathlib.Path(sys.argv[9]).read_text(encoding="utf-8")
+ui_server = pathlib.Path(sys.argv[10]).read_text(encoding="utf-8")
 
 if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
@@ -51,6 +53,11 @@ if "getBoundingClientRect" not in detail:
 # edge dissolve safe, since a centred row cannot be inside a dissolve band.
 if "revealInSidePanel" not in detail:
     raise SystemExit("detail.ts missing centred side-panel reveal (revealInSidePanel)")
+focus_el = detail.split("private focusEl(el: HTMLElement)", 1)[1].split("\n  }\n", 1)[0]
+if focus_el.find("this.revealInSidePanel(el)") > focus_el.find("el.focus({ preventScroll: true })"):
+    raise SystemExit("detail.ts paints focus before centring the side-panel row")
+if "requestAnimationFrame" in focus_el:
+    raise SystemExit("detail.ts defers side-panel centring and will paint a displaced frame")
 if 'scrollIntoView({ block: "nearest", inline: "nearest" })' not in detail:
     raise SystemExit("detail.ts must keep scrollIntoView fallback for rows outside the panel")
 # Entry lands at the top of a best-first ladder rather than on the row that happens to
@@ -106,15 +113,59 @@ for search_contract in (
     "search-compose-body",
     "mergeComposeFocusRows(this.keyboardRows, this.starterRows)",
     "shouldClearSuggestions(this.query, this.suggestions.length)",
+    "persistSoon",
+    "restorePersisted",
+    "updateResultsView",
+    "emptySearchSnapshot",
+    "searchQueryCaretLeading",
+    "ARTWORK_DWELL_MS",
+    "schedulePreview",
+    "scheduleResultsAtmosphere",
+    "dataset.keyCount",
+    "search-preview-fallback",
+    "search-atmosphere-image",
 ):
     if search_contract not in search:
         raise SystemExit(f"search.ts missing Search surface contract: {search_contract}")
+if "tryRestoreSearchOnBoot();" not in main or "search.restorePersisted()" not in main:
+    raise SystemExit("main.ts does not restore Search after a Chromium self-heal")
 set_query = search.split("private setQuery", 1)[1].split("private scheduleSuggestions", 1)[0]
 if "this.render()" in set_query.split("if (wasSubmitted)", 1)[1].split("} else {", 1)[1]:
     raise SystemExit("Search typing path rebuilds the full DOM")
 suggestions = search.split("private scheduleSuggestions", 1)[1].split("private async submit", 1)[0]
 if "this.render()" in suggestions:
     raise SystemExit("Search suggestion refresh rebuilds the full DOM")
+if "search-degraded" in search or "search:retry-youtube" in search:
+    raise SystemExit("Search exposes provider failures instead of isolating them")
+refresh_results = search.split("private refreshResults", 1)[1].split("private applyFocusRows", 1)[0]
+if "replaceWith" in refresh_results or "this.render()" in refresh_results:
+    raise SystemExit("Search progressive refresh replaces the mounted result surface")
+if "searchQueryCaretLeading(this.query)" not in search:
+    raise SystemExit("Search compose caret order helper is unused")
+preview = search.split("private schedulePreview", 1)[1].split("private applyPreview", 1)[0]
+if "ARTWORK_DWELL_MS" not in preview:
+    raise SystemExit("Search suggestion preview does not dwell before swapping art")
+atmosphere = search.split("private scheduleResultsAtmosphere", 1)[1].split(
+    "private applyResultsAtmosphere", 1,
+)[0]
+if "ARTWORK_DWELL_MS" not in atmosphere or "clearResultsAtmosphere" not in atmosphere:
+    raise SystemExit("Search results atmosphere does not dwell or clear on header focus")
+for pad_contract in (
+    "isPadNavCommandFresh",
+    "FRAME_FALLBACK_MS",
+    "ACTION_MAX_AGE_MS",
+    "/api/pad/heartbeat",
+):
+    if pad_contract not in pad_nav:
+        raise SystemExit(f"pad-nav.ts missing liveness contract: {pad_contract}")
+for server_contract in (
+    "heartbeat_pad_nav_session",
+    "pad_nav_recovery_reason",
+    "PAD_NAV_STALL_SEC",
+    '["systemctl", "--user", "restart", PAD_NAV_LAUNCHER_UNIT]',
+):
+    if server_contract not in ui_server:
+        raise SystemExit(f"serve.py missing pad recovery contract: {server_contract}")
 if "document.activeElement !== target" not in focus:
     raise SystemExit("FocusGrid repeats focus and scroll work for an unchanged target")
 if 'origin === "search"' not in playback_return:
@@ -133,6 +184,10 @@ PY
   "$SRC/pad-nav.test.ts" \
   && gate_pass "launcher playback return + timeout reconciliation tests" \
   || gate_fail "launcher playback return + timeout reconciliation tests"
+
+python3 "$REPO_DIR/src/mango-ui-server/test_pad_nav_queue.py" >/dev/null \
+  && gate_pass "pad-nav lease + recovery tests" \
+  || gate_fail "pad-nav lease + recovery tests"
 
 python3 "$REPO_DIR/scripts/m1-foundation/pad/test_pad_context.py" >/dev/null \
   && gate_pass "contextual X visible-surface ownership" \
@@ -225,6 +280,10 @@ required = (
     ".search-compose-body",
     ".search-key.focused",
     ".search-edit[hidden]",
+    ".search-atmosphere-image",
+    ".search-preview-fallback",
+    "--search-key-width",
+    "--search-scroll",
     "prefers-reduced-motion",
 )
 missing = [token for token in required if token not in css]
@@ -268,6 +327,11 @@ for selector in (".detail-stream{", ".detail-episode{"):
         raise SystemExit(
             f"{selector.rstrip('{')} can shrink -- its content will overflow its border"
         )
+
+for selector in (".detail-season-list{", ".detail-episodes-label,.detail-streams-label{"):
+    body = rule_body(selector)
+    if not body or "flex:0 0 auto" not in body:
+        raise SystemExit(f"{selector.rstrip('{')} can collapse while its list scrolls")
 PY
 else
   gate_fail "launcher dist CSS bundle"
@@ -347,7 +411,6 @@ if [[ "$PAD_NAV_GATE_ENABLED" == "1" ]] \
   && curl -sf --max-time 2 "$LAUNCHER/api/health" >/dev/null 2>&1; then
   PAD_NAV_OUT="/tmp/mango-gate-pad-nav-$$.json"
   PAD_NAV_SEQ=0
-  PAD_NAV_PENDING_BEFORE=-1
 
   python3 "$REPO_DIR/src/mango-ui-server/test_pad_nav_queue.py" >/dev/null \
     && gate_pass "pad-nav queue/session/probe unit tests" \
@@ -356,9 +419,6 @@ if [[ "$PAD_NAV_GATE_ENABLED" == "1" ]] \
   python3 "$REPO_DIR/scripts/m1-foundation/pad/test_pad_nav_fallback.py" >/dev/null \
     && gate_pass "pad-nav no-xdotool fallback contract" \
     || gate_fail "pad-nav no-xdotool fallback contract"
-
-  PAD_NAV_PENDING_BEFORE="$(curl -sf --max-time 2 "$LAUNCHER/api/pad/nav?after=0&wait=0" \
-    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d.get("commands") or []))' 2>/dev/null || echo 0)"
 
   # probe=true validates the contract without enqueueing couch FocusGrid moves.
   HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
@@ -373,17 +433,19 @@ if [[ "$PAD_NAV_GATE_ENABLED" == "1" ]] \
     gate_fail "pad-nav POST /api/pad/nav probe"
   fi
 
+  # A foreign GET must remain read-only and receive no commands. Queue depth is
+  # checked through health because only the active TV lease may inspect entries.
   HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
     "$LAUNCHER/api/pad/nav?after=0&wait=1" 2>/dev/null || true)"
   if [[ "$HTTP_CODE" == "200" ]] \
-    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and isinstance(d.get("latest_seq"), int) and d.get("latest_seq",0) >= int(sys.argv[2]) and isinstance(d.get("commands"), list) and len(d.get("commands") or []) == int(sys.argv[3])' "$PAD_NAV_OUT" "$PAD_NAV_SEQ" "$PAD_NAV_PENDING_BEFORE" 2>/dev/null; then
-    gate_pass "pad-nav GET /api/pad/nav probe left queue unchanged"
+    && python3 -c 'import json,sys; d=json.load(open(sys.argv[1],encoding="utf-8")); assert d.get("ok") is True and d.get("owner") is False and isinstance(d.get("latest_seq"), int) and d.get("latest_seq",0) >= int(sys.argv[2]) and d.get("commands") == []' "$PAD_NAV_OUT" "$PAD_NAV_SEQ" 2>/dev/null; then
+    gate_pass "pad-nav foreign GET cannot inspect or drain queue"
   else
     gate_fail "pad-nav GET /api/pad/nav after probe"
   fi
 
-  # Do not POST /api/pad/session here — last register wins and would steal the
-  # TV Chromium consumer. Session+drain coverage lives in test_pad_nav_queue.py.
+  # Do not POST /api/pad/session here. The live TV lease correctly rejects a
+  # foreign claimant; takeover and drain coverage lives in test_pad_nav_queue.py.
   HTTP_CODE="$(curl -s -o "$PAD_NAV_OUT" -w "%{http_code}" --max-time 5 \
     -X POST "$LAUNCHER/api/pad/ack" \
     -H "content-type: application/json" \

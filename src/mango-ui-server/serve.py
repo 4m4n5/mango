@@ -32,6 +32,9 @@ LOG_SCRIPT: Final = REPO_ROOT / "scripts" / "lib" / "mango-log.sh"
 PAD_HEALTH_SCRIPT: Final = REPO_ROOT / "scripts" / "m1-foundation" / "pad" / "pad-health.sh"
 ACTIVITY_STATE: Final = Path(os.environ.get("MANGO_COUCH_ACTIVITY_STATE", str(LOG_DIR / "couch-activity.json")))
 PERF_LOG: Final = LOG_DIR / "launcher-perf.jsonl"
+PLAYBACK_ACTIVE_FILE: Final = Path(
+    os.environ.get("MANGO_PLAYBACK_ACTIVE_FILE", str(LOG_DIR / "playback-active"))
+).expanduser()
 CATALOG_UPSTREAM: Final = os.environ.get("MANGO_CATALOG_UPSTREAM", "http://127.0.0.1:3020")
 CATALOG_PROXY_TIMEOUT_SEC: Final = 60
 CATALOG_PLAY_PROXY_TIMEOUT_SEC: Final = 90
@@ -271,7 +274,21 @@ _pad_nav_cond: Final = threading.Condition(_pad_nav_lock)
 _pad_nav_commands: Final = deque[dict[str, object]](maxlen=64)
 PAD_NAV_TTL_SEC: Final = 45.0
 PAD_NAV_SEQ_FILE: Final = LOG_DIR / "pad-nav-seq"
+PAD_NAV_STALL_SEC: Final = max(
+    1.0, float(os.environ.get("MANGO_PAD_NAV_STALL_SEC", "3"))
+)
+PAD_NAV_RECOVERY_COOLDOWN_SEC: Final = max(
+    PAD_NAV_STALL_SEC,
+    float(os.environ.get("MANGO_PAD_NAV_RECOVERY_COOLDOWN_SEC", "30")),
+)
+PAD_NAV_LAUNCHER_UNIT: Final = os.environ.get(
+    "MANGO_LAUNCHER_UNIT", "mango-launcher-chromium.service"
+)
 _pad_nav_session_id: str | None = None
+_pad_nav_session_seen_at = 0.0
+_pad_nav_render_age_ms = float("inf")
+_pad_nav_last_ack_at = 0.0
+_pad_nav_last_recovery_at = 0.0
 _pad_nav_persist_lock: Final = threading.Lock()
 _pad_nav_persist_pending: int | None = None
 _pad_nav_persist_scheduled = False
@@ -317,12 +334,29 @@ def _schedule_persist_pad_nav_seq(seq: int) -> None:
 _pad_nav_seq: int = _load_persisted_pad_nav_seq()
 
 
-def register_pad_nav_session() -> str:
-    """Register the TV Chromium as the sole queue consumer. Last register wins."""
-    global _pad_nav_session_id
-    session_id = secrets.token_urlsafe(16)
+def register_pad_nav_session(previous_session: str | None = None) -> str | None:
+    """Acquire the TV queue lease without letting a second browser steal it.
+
+    The current owner may renew with its token. A different page can take over
+    only after the owner's one-second heartbeat has been absent for the stall
+    budget, which lets a restarted kiosk recover promptly while keeping debug
+    tabs and duplicate Chromium windows read-only.
+    """
+    global _pad_nav_session_id, _pad_nav_session_seen_at, _pad_nav_render_age_ms
+    now = time.time()
     with _pad_nav_lock:
+        if previous_session and previous_session == _pad_nav_session_id:
+            _pad_nav_session_seen_at = now
+            return _pad_nav_session_id
+        if (
+            _pad_nav_session_id
+            and now - _pad_nav_session_seen_at <= PAD_NAV_STALL_SEC
+        ):
+            return None
+        session_id = secrets.token_urlsafe(16)
         _pad_nav_session_id = session_id
+        _pad_nav_session_seen_at = now
+        _pad_nav_render_age_ms = 0.0
     mango_log("pad_nav_session", session=session_id)
     return session_id
 
@@ -330,6 +364,21 @@ def register_pad_nav_session() -> str:
 def active_pad_nav_session() -> str | None:
     with _pad_nav_lock:
         return _pad_nav_session_id
+
+
+def pad_nav_session_matches(session: str | None) -> bool:
+    with _pad_nav_lock:
+        return bool(session) and session == _pad_nav_session_id
+
+
+def heartbeat_pad_nav_session(session: str | None, render_age_ms: float) -> bool:
+    global _pad_nav_session_seen_at, _pad_nav_render_age_ms
+    with _pad_nav_lock:
+        if not session or session != _pad_nav_session_id:
+            return False
+        _pad_nav_session_seen_at = time.time()
+        _pad_nav_render_age_ms = max(0.0, min(render_age_ms, 60_000.0))
+        return True
 
 
 def enqueue_pad_nav_command(command: dict[str, object]) -> int:
@@ -411,6 +460,7 @@ def ack_pad_nav_commands(last_seq: int, session: str | None = None) -> tuple[int
     Foreign or missing sessions are accepted for telemetry but do not drain —
     that used to let an SSH/Cursor poller starve the TV of presses.
     """
+    global _pad_nav_last_ack_at
     with _pad_nav_cond:
         drained = bool(session) and session == _pad_nav_session_id and last_seq > 0
         if drained:
@@ -421,6 +471,7 @@ def ack_pad_nav_commands(last_seq: int, session: str | None = None) -> tuple[int
             ]
             _pad_nav_commands.clear()
             _pad_nav_commands.extend(kept)
+            _pad_nav_last_ack_at = time.time()
         return _pad_nav_seq, drained
 
 
@@ -432,6 +483,94 @@ def latest_pad_nav_seq() -> int:
 def pad_nav_pending_count() -> int:
     with _pad_nav_lock:
         return len(_pad_nav_commands)
+
+
+def pad_nav_recovery_reason(now: float | None = None) -> str | None:
+    """Claim one bounded kiosk recovery when an input has gone unconsumed."""
+    global _pad_nav_last_recovery_at
+    current = now or time.time()
+    # Playback deliberately stops Chromium after session acceptance. A late
+    # launcher ack must never resurrect the kiosk over mpv.
+    if PLAYBACK_ACTIVE_FILE.is_file():
+        return None
+    with _pad_nav_lock:
+        _prune_expired_pad_nav_commands(current)
+        # Recover an established kiosk that stopped consuming input. During a
+        # normal cold boot there is no lease yet, so an early button press must
+        # not create a restart loop while Chromium is still starting.
+        if not _pad_nav_session_id or not _pad_nav_commands:
+            return None
+        oldest = min(
+            float(entry.get("issued_at", current))
+            for entry in _pad_nav_commands
+        )
+        pending_age = current - oldest
+        if pending_age < PAD_NAV_STALL_SEC:
+            return None
+        if current - _pad_nav_last_recovery_at < PAD_NAV_RECOVERY_COOLDOWN_SEC:
+            return None
+        _pad_nav_last_recovery_at = current
+        heartbeat_age = (
+            current - _pad_nav_session_seen_at
+            if _pad_nav_session_seen_at > 0
+            else float("inf")
+        )
+        return (
+            f"pending_age={pending_age:.1f}s "
+            f"heartbeat_age={heartbeat_age:.1f}s "
+            f"render_age={_pad_nav_render_age_ms / 1000:.1f}s"
+        )
+
+
+def start_pad_nav_recovery_watch() -> None:
+    """Watch input progress outside Chromium so a wedged page can be replaced."""
+    def _watch() -> None:
+        while True:
+            time.sleep(0.25)
+            reason = pad_nav_recovery_reason()
+            if reason is None:
+                continue
+            mango_log("pad_nav_recovery", action="restart_launcher", reason=reason)
+            try:
+                subprocess.Popen(
+                    ["systemctl", "--user", "restart", PAD_NAV_LAUNCHER_UNIT],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except OSError as error:
+                mango_log(
+                    "pad_nav_recovery",
+                    action="restart_launcher_failed",
+                    reason=str(error),
+                )
+
+    threading.Thread(target=_watch, name="pad-nav-recovery", daemon=True).start()
+
+
+def pad_nav_health_snapshot() -> dict[str, object]:
+    now = time.time()
+    with _pad_nav_lock:
+        return {
+            "session": bool(_pad_nav_session_id),
+            "pending": len(_pad_nav_commands),
+            "heartbeat_age_ms": (
+                max(0, round((now - _pad_nav_session_seen_at) * 1000))
+                if _pad_nav_session_seen_at > 0
+                else None
+            ),
+            "render_age_ms": (
+                round(_pad_nav_render_age_ms)
+                if _pad_nav_render_age_ms != float("inf")
+                else None
+            ),
+            "last_ack_age_ms": (
+                max(0, round((now - _pad_nav_last_ack_at) * 1000))
+                if _pad_nav_last_ack_at > 0
+                else None
+            ),
+        }
 
 
 def collect_health(port: int) -> dict[str, object]:
@@ -458,6 +597,7 @@ def collect_health(port: int) -> dict[str, object]:
     openbox = "active" if run_check(["pgrep", "-x", "openbox"]) else "inactive"
     catalog_expected = os.environ.get("MANGO_CATALOG", "1").strip() != "0"
     catalog_health = collect_catalog_health() if catalog_expected else {"ok": True}
+    pad_nav = pad_nav_health_snapshot()
 
     input_ok = remapper in ("active", "tv_pad")
     checks = {
@@ -469,6 +609,7 @@ def collect_health(port: int) -> dict[str, object]:
         "tv_pad": tv_pad_ready,
         "tv_pad_reason": str(pad_health.get("reason", "")) if pad_health else "",
         "tv_pad_device": str(pad_health.get("current_device_path", "")) if pad_health else "",
+        "pad_nav": pad_nav,
         "catalog": bool(catalog_health.get("ok")),
         "catalog_core": str(catalog_health.get("core", "")),
         "catalog_rails_ready": bool(catalog_health.get("rails_ready", False)),
@@ -567,6 +708,18 @@ class MangoUiHandler(BaseHTTPRequestHandler):
         if path == "/api/pad/nav":
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
+            session_values = query.get("session", [""])
+            session = session_values[0] if session_values else ""
+            owner = pad_nav_session_matches(session)
+            if not owner:
+                self._write_json({
+                    "ok": True,
+                    "latest_seq": latest_pad_nav_seq(),
+                    "commands": [],
+                    "session": None,
+                    "owner": False,
+                })
+                return
             after_values = query.get("after", ["0"])
             try:
                 after = max(0, int(after_values[0]))
@@ -585,7 +738,8 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "latest_seq": latest_seq,
                 "commands": commands,
-                "session": active_pad_nav_session(),
+                "session": session,
+                "owner": True,
             })
             return
         if path.startswith("/overlay/"):
@@ -681,12 +835,33 @@ class MangoUiHandler(BaseHTTPRequestHandler):
                     HTTPStatus.FORBIDDEN,
                 )
                 return
-            session_id = register_pad_nav_session()
+            payload = self._read_json_body()
+            previous = payload.get("session") if isinstance(payload, dict) else None
+            previous_session = previous if isinstance(previous, str) and previous else None
+            session_id = register_pad_nav_session(previous_session)
             self._write_json({
                 "ok": True,
+                "owner": session_id is not None,
                 "session": session_id,
                 "latest_seq": latest_pad_nav_seq(),
             })
+            return
+        if path == "/api/pad/heartbeat":
+            if not _client_is_local(self):
+                self._write_json(
+                    {"ok": False, "error": "pad heartbeat is localhost-only"},
+                    HTTPStatus.FORBIDDEN,
+                )
+                return
+            payload = self._read_json_body()
+            session = payload.get("session") if isinstance(payload, dict) else None
+            session_id = session if isinstance(session, str) and session else None
+            try:
+                render_age_ms = float(payload.get("render_age_ms", 0))
+            except (TypeError, ValueError):
+                render_age_ms = 0.0
+            owner = heartbeat_pad_nav_session(session_id, render_age_ms)
+            self._write_json({"ok": True, "owner": owner})
             return
         if path == "/api/pad/nav":
             if not _client_is_local(self):
@@ -1049,6 +1224,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     mango_log("server_start", host=args.host, port=str(args.port))
+    start_pad_nav_recovery_watch()
     server = ThreadingHTTPServer((args.host, args.port), MangoUiHandler)
     print(f"mango UI server listening on http://{args.host}:{args.port}")
     try:

@@ -399,50 +399,134 @@ button {
   margin: 1.5rem 0 var(--focus-gutter);
   gap: 0;
   overflow: visible;
-  --search-line: rgba(255, 255, 255, 0.09);
-  --search-key: #17191c;
+  --search-line: rgba(255, 255, 255, 0.08);
+  --search-key: #16181c;
+  --search-key-gap: 0.45rem;
+  --search-key-width: 4.35rem;
+}
+
+.search--results {
+  /* Named scroll timeline for the pinned-head fade below. Scoped here so the
+     sibling .search-head can animate against .search-results without resolving
+     to the document scroller. */
+  timeline-scope: --search-scroll;
 }
 
 .search-atmosphere {
   position: absolute;
   z-index: -1;
-  inset: calc(-1 * var(--focus-gutter));
+  /* Artwork and atmosphere can bleed to the panel edge; controls remain inside
+     .shell's 5% safe area. This removes the visible inset rectangle without
+     putting focus rings in overscan territory. */
+  inset:
+    calc(-1 * (var(--safe-y) + 1.5rem))
+    calc(-1 * var(--safe-x))
+    calc(-1 * (var(--safe-y) + var(--focus-gutter)));
   pointer-events: none;
-  background: radial-gradient(
-    ellipse 65% 50% at 0% 0%,
-    rgb(var(--accent-rgb) / 0.055),
-    transparent 72%
-  );
+  overflow: hidden;
+  background:
+    radial-gradient(
+      ellipse 58% 48% at 8% 0%,
+      rgb(var(--accent-rgb) / 0.045),
+      transparent 70%
+    ),
+    var(--bg-base);
+}
+
+.search-atmosphere-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 72% 28%;
+  opacity: 0;
+  transform: scale(1.04);
+  transition: opacity 220ms ease;
+}
+
+.search-atmosphere--ready .search-atmosphere-image {
+  opacity: 0.16;
 }
 
 .search-atmosphere::after {
-  display: none;
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      var(--bg-base) 0%,
+      rgb(7 8 10 / 0.88) 34%,
+      rgb(7 8 10 / 0.62) 62%,
+      rgb(7 8 10 / 0.78) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgb(7 8 10 / 0.35) 0%,
+      transparent 28%,
+      rgb(7 8 10 / 0.55) 78%,
+      var(--bg-base) 100%
+    );
 }
 
 .search-head {
+  position: relative;
+  z-index: 2;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
     "query"
     "scopes";
   align-items: end;
-  row-gap: 0.65rem;
+  row-gap: 0.75rem;
   flex: 0 0 auto;
-  padding: 0 0 1rem;
-  border-bottom: 1px solid var(--search-line);
+  padding: 0 0 1.05rem;
+  border-bottom: 1px solid transparent;
+  background:
+    linear-gradient(to bottom, var(--bg-base) 72%, transparent);
+}
+
+.search--compose .search-head {
+  border-bottom-color: var(--search-line);
+  background: none;
+}
+
+.search--results .search-head {
+  padding-bottom: 0.85rem;
+  /* Solid base so scrolling rails dissolve under the pinned query/scopes rather
+     than colliding with them. The hairline is the only permanent seam. */
+  border-bottom-color: var(--search-line);
+  background: var(--bg-base);
+}
+
+/* Compositor-cheap dissolve under the pinned Search head — same pattern as the
+   browse bar. Opacity stays 0 at rest so the first rail title is not washed out;
+   it appears only after content has actually scrolled under the header. */
+.search--results .search-head::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: calc(-1 * var(--safe-x));
+  right: calc(-1 * var(--safe-x));
+  height: 2.25rem;
+  background: linear-gradient(to bottom, var(--bg-base) 20%, transparent);
+  pointer-events: none;
+  z-index: 3;
+  opacity: 0;
 }
 
 .search-query-shell {
   grid-area: query;
   min-width: 0;
-  min-height: 4.45rem;
+  min-height: 4.55rem;
   display: flex;
   align-items: center;
-  gap: 0.85rem;
-  padding: 0.65rem 0.8rem 0.65rem 1.1rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 16px;
-  background: #121417;
+  gap: 0.9rem;
+  padding: 0.7rem 0.85rem 0.7rem 1.15rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  background: rgba(18, 20, 23, 0.92);
 }
 
 .search-icon {
@@ -459,7 +543,15 @@ button {
 .search-query-shell > .search-icon {
   width: 1.7rem;
   height: 1.7rem;
-  color: var(--accent);
+  color: var(--text-secondary);
+}
+
+.search--results .search-query-shell {
+  min-height: 3.35rem;
+  padding: 0;
+  border-color: transparent;
+  border-radius: 0;
+  background: transparent;
 }
 
 .search-query {
@@ -467,10 +559,11 @@ button {
   flex: 1 1 auto;
   display: flex;
   align-items: center;
+  gap: 0.35rem;
   color: var(--text-primary);
-  font-size: clamp(1.55rem, 2vw, 2.15rem);
-  font-weight: 680;
-  letter-spacing: -0.025em;
+  font-size: clamp(1.7rem, 2.15vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: -0.028em;
   overflow: hidden;
   white-space: nowrap;
 }
@@ -483,16 +576,20 @@ button {
 
 .search-query[data-empty="true"] {
   color: var(--text-muted);
-  font-weight: 520;
+  font-weight: 540;
 }
 
 .search-query-caret {
   width: 2px;
-  height: 2rem;
+  height: 1.85rem;
   flex: 0 0 auto;
-  margin-left: 0.4rem;
   border-radius: 3px;
-  background: var(--accent);
+  background: rgb(var(--accent-rgb) / 0.72);
+  box-shadow: none;
+}
+
+.search-query[data-empty="true"] .search-query-caret {
+  margin-right: 0.15rem;
 }
 
 .search-scopes,
@@ -504,28 +601,31 @@ button {
 
 .search-scopes {
   grid-area: scopes;
-  gap: 0.6rem;
+  gap: 0.55rem;
   min-width: 0;
 }
 
 .search-scopes .search-control {
-  min-height: 2.55rem;
+  min-height: 2.85rem;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0.45rem 1.05rem;
   border-radius: 999px;
+  font-size: var(--text-caption);
+  font-weight: 650;
 }
 
 .search-control {
   appearance: none;
   border: 1px solid var(--search-line);
-  border-radius: 11px;
+  border-radius: 12px;
   background: var(--search-key);
   color: var(--text-secondary);
   min-height: 3rem;
   padding: 0.5rem 0.95rem;
-  font-size: 1rem;
-  font-weight: 690;
+  font-size: var(--text-caption);
+  font-weight: 680;
   letter-spacing: 0.01em;
   transform: translateZ(0);
 }
@@ -544,30 +644,23 @@ button {
 }
 
 .search-chip--active {
-  border-color: var(--border-strong);
+  border-color: var(--border-selected);
   background: var(--tab-active-fill);
   color: var(--text-primary);
 }
 
 .search-chip--active::before {
-  content: "";
-  width: 0.42rem;
-  height: 0.42rem;
-  display: inline-block;
-  margin-right: 0.55rem;
-  border-radius: 50%;
-  background: var(--primary-fill);
-  box-shadow: none;
+  content: none;
 }
 
 .search-compose-body {
   display: grid;
-  grid-template-columns: minmax(42rem, 1.6fr) minmax(20rem, 0.72fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(17rem, 0.78fr);
   align-items: start;
-  gap: clamp(1.5rem, 2vw, 2.25rem);
+  gap: clamp(1.6rem, 2.2vw, 2.5rem);
   min-height: 0;
   flex: 1 1 auto;
-  padding-top: 1rem;
+  padding-top: 1.15rem;
 }
 
 /* Keyboard above, preview band below, sharing the grid's left column. */
@@ -576,32 +669,25 @@ button {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  gap: 0.85rem;
 }
 
 .search-keyboard {
   min-width: 0;
   flex: 0 0 auto;
-  padding: 0.35rem 0.2rem var(--focus-gutter) 0;
+  padding: 0.2rem 0 var(--focus-gutter);
 }
 
-/* Artwork for the highlighted suggestion, filling the band that sat empty under
-   the keys. Not a card rail: the column beside it already lists these items, and
-   suggestions mix 2:3 posters with 16:9 thumbnails, so one item at its own aspect
-   is the only honest way to show art here. */
+/* Editorial stage under the keys. Height stays stable; recents without art
+   keep a typographic fallback so the band never collapses into dead space. */
 .search-preview {
   min-width: 0;
-  min-height: 0;
-  /* Not flex: 1 — the column's height is indefinite, so growing to fill would
-     make the frame's own height indefinite too and the image's intrinsic size
-     would decide the band's height. */
+  min-height: 17.5rem;
   flex: 0 0 auto;
   display: flex;
-  /* Copy aligned to the artwork's top edge, so the two share a line rather than
-     the title floating at the poster's midpoint. */
   align-items: flex-start;
   gap: clamp(1.25rem, 1.75vw, 2rem);
-  padding-top: 0.5rem;
-  padding-right: var(--focus-gutter);
+  padding: 0.35rem var(--focus-gutter) 0.25rem 0.1rem;
   overflow: clip;
 }
 
@@ -609,23 +695,31 @@ button {
   display: none;
 }
 
-/* Height is the fixed dimension so the band does not jump as the highlighted row
-   changes aspect; width follows from the aspect ratio. It must be a definite
-   length: the band under the keyboard measures 361px at 1080p, and a percentage
-   here has no definite parent height to resolve against. */
 .search-preview-frame {
+  position: relative;
   flex: 0 0 auto;
-  height: 20rem;
+  height: 16.5rem;
   aspect-ratio: 2 / 3;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-  background: var(--bg-elevated);
-  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
+  border: none;
+  border-radius: var(--radius-poster);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.05), transparent 55%),
+    var(--bg-elevated);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.42);
 }
 
 .search-preview--landscape .search-preview-frame {
   aspect-ratio: 16 / 9;
+}
+
+.search-preview--text .search-preview-frame {
+  aspect-ratio: 2 / 3;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.06), transparent 48%),
+    var(--bg-elevated);
 }
 
 .search-preview-image {
@@ -633,14 +727,40 @@ button {
   height: 100%;
   object-fit: cover;
   display: block;
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+
+.search-preview-image--ready {
+  opacity: 1;
+}
+
+.search-preview-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+.search-preview-fallback[hidden] {
+  display: none;
+}
+
+.search-preview-fallback-mark {
+  color: var(--text-muted);
+  font-size: 2.4rem;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.08em;
 }
 
 .search-preview-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  padding-top: 0.15rem;
+  gap: 0.55rem;
+  padding-top: 0.35rem;
+  max-width: 22rem;
 }
 
 .search-preview-title {
@@ -652,15 +772,15 @@ button {
   color: var(--text-primary);
   font-size: var(--text-title);
   font-weight: 720;
-  line-height: 1.25;
-  letter-spacing: -0.015em;
+  line-height: 1.22;
+  letter-spacing: -0.018em;
 }
 
 .search-preview-meta {
   margin: 0;
   color: var(--text-muted);
   font-size: var(--text-caption);
-  font-weight: 620;
+  font-weight: 600;
   text-transform: lowercase;
 }
 
@@ -670,15 +790,15 @@ button {
   justify-content: space-between;
   gap: 1rem;
   min-height: 2rem;
-  margin-bottom: 0.65rem;
+  margin-bottom: 0.7rem;
 }
 
 .search-panel-head h2 {
   margin: 0;
-  color: var(--text-primary);
-  font-size: var(--text-control);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
   font-weight: 700;
-  letter-spacing: -0.015em;
+  letter-spacing: 0.04em;
   text-transform: lowercase;
 }
 
@@ -696,23 +816,29 @@ button {
 }
 
 .search-key-row {
-  gap: 0.55rem;
+  gap: var(--search-key-gap);
   justify-content: center;
-  margin-bottom: 0.55rem;
+  margin-bottom: var(--search-key-gap);
+}
+
+.search-key-row[data-key-count="9"],
+.search-key-row[data-key-count="7"] {
+  justify-content: center;
 }
 
 .search-key {
-  width: auto;
-  min-width: 0;
-  min-height: 3.9rem;
-  flex: 1 1 0;
+  width: var(--search-key-width);
+  min-width: var(--search-key-width);
+  max-width: var(--search-key-width);
+  min-height: 3.75rem;
+  flex: 0 0 var(--search-key-width);
   padding-inline: 0;
-  border-color: rgba(255, 255, 255, 0.115);
-  border-radius: 10px;
+  border-color: rgba(255, 255, 255, 0.1);
+  border-radius: 11px;
   background: var(--search-key);
-  color: rgba(244, 241, 234, 0.82);
+  color: rgba(244, 241, 234, 0.88);
   font-size: var(--text-control);
-  font-weight: 780;
+  font-weight: 760;
 }
 
 .search-key.focused,
@@ -727,20 +853,23 @@ button {
 }
 
 .search-key-row--actions {
-  margin: 0.15rem 0 0;
+  margin: 0.25rem 0 0;
+  gap: 0.55rem;
 }
 
 .search-key-row--actions .search-control {
-  min-width: 7rem;
+  min-width: 7.2rem;
+  font-size: var(--text-caption);
 }
 
 .search-key-action {
-  min-height: 3.45rem;
-  background: rgba(255, 255, 255, 0.075);
+  min-height: 3.4rem;
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .search-key-space {
-  flex: 1.65 1 0;
+  flex: 1.7 1 0;
+  min-width: 10rem;
 }
 
 .search-key-row--actions .search-submit {
@@ -748,8 +877,9 @@ button {
   align-items: center;
   justify-content: center;
   gap: 0.55rem;
-  flex: 0.95 1 0;
-  background: rgba(255, 255, 255, 0.075);
+  flex: 1 1 0;
+  min-width: 8.5rem;
+  background: rgba(255, 255, 255, 0.07);
   border-color: var(--search-line);
   color: var(--text-primary);
 }
@@ -767,13 +897,13 @@ button {
 }
 
 .search-discovery {
-  padding: 0.35rem 0 0.5rem 1.5rem;
+  padding: 0.2rem 0 0.5rem 1.35rem;
   border-left: 1px solid var(--search-line);
 }
 
 .search-starter-track {
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.35rem;
   min-height: 0;
   overflow: visible;
   padding: var(--focus-gutter) calc(var(--focus-ring) + 2px);
@@ -782,11 +912,11 @@ button {
 
 .search-starter {
   width: 100%;
-  min-height: 4.2rem;
+  min-height: 4rem;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.48rem 0.55rem;
+  gap: 0.8rem;
+  padding: 0.5rem 0.65rem;
   border-color: transparent;
   background: transparent;
   text-align: left;
@@ -799,20 +929,20 @@ button {
 }
 
 .search-starter-icon {
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2.15rem;
+  height: 2.15rem;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
-  border: 1px solid var(--search-line);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--accent);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
 }
 
 .search-starter-icon .search-icon {
-  width: 1.25rem;
-  height: 1.25rem;
+  width: 1.15rem;
+  height: 1.15rem;
 }
 
 .search-starter-copy {
@@ -828,18 +958,18 @@ button {
   text-overflow: ellipsis;
   color: var(--text-primary);
   font-size: var(--text-control);
-  font-weight: 660;
+  font-weight: 650;
 }
 
 .search-starter-meta {
   color: var(--text-muted);
   font-size: var(--text-caption);
-  font-weight: 620;
-  letter-spacing: 0.025em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 .search-starter-empty {
-  min-height: 15rem;
+  min-height: 14rem;
   display: grid;
   place-content: center;
   justify-items: center;
@@ -850,55 +980,64 @@ button {
 }
 
 .search-starter-empty .search-icon {
-  width: 2.2rem;
-  height: 2.2rem;
-  color: rgb(var(--accent-rgb) / 0.56);
+  width: 2.1rem;
+  height: 2.1rem;
+  color: var(--text-muted);
 }
 
 .search-starter-empty p {
   max-width: 17rem;
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--text-caption);
   line-height: 1.45;
 }
 
 .search-results {
   position: relative;
-  margin-top: 0.5rem;
-  padding-block-start: 0;
+  z-index: 1;
+  margin-top: 0;
+  padding-block-start: 0.85rem;
   padding-block-end: 3.5rem;
-  gap: 1.25rem;
+  gap: 1.45rem;
+  scroll-padding-block-start: 1rem;
   scroll-padding-block-end: 5rem;
-  mask-image: linear-gradient(to bottom, black calc(100% - 1.5rem), transparent);
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+/* Search is already a bounded full-page scroll surface. The generic rail tail
+   scrim made its content end at a visible horizontal box boundary. */
+.search-results::after {
+  display: none;
+}
+
+@supports (animation-timeline: scroll()) and (timeline-scope: --search-scroll) {
+  .search-results {
+    scroll-timeline: --search-scroll y;
+  }
+
+  .search--results .search-head::after {
+    animation: rails-edge-appear linear both;
+    animation-timeline: --search-scroll;
+    animation-range: 0px 3rem;
+  }
 }
 
 .search-results-toolbar {
-  position: sticky;
-  z-index: 5;
-  top: 0;
-  min-height: 3rem;
+  position: relative;
+  z-index: 1;
+  min-height: 2.75rem;
   display: flex;
   align-items: center;
   gap: 1rem;
   flex: 0 0 auto;
-  padding: 0.45rem var(--focus-gutter) 0.6rem;
-  margin: 0 calc(-1 * var(--focus-gutter));
-  /* Opaque for its whole height. The fade used to start at 72%, so a result
-     title scrolling past was drawn on top of the "Searching" copy. */
-  background: var(--bg-base);
+  padding: 0.2rem 0 0.45rem;
+  margin: 0;
+  background: transparent;
 }
 
-/* Same treatment the browse bar gets: results fade out as they reach the sticky
-   toolbar rather than being cut off, or colliding with its text. */
 .search-results-toolbar::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  height: 2.5rem;
-  background: linear-gradient(to bottom, var(--bg-base) 25%, transparent);
-  pointer-events: none;
+  content: none;
 }
 
 .search-results-state {
@@ -906,18 +1045,17 @@ button {
   align-items: center;
   gap: 0.6rem;
   color: var(--text-secondary);
-  /* Caption, not micro: this reports which sources answered a search, so it is
-     decision-carrying copy rather than repeated metadata. */
   font-size: var(--text-caption);
-  font-weight: 670;
+  font-weight: 650;
 }
 
 .search-results-state-mark {
-  width: 0.48rem;
-  height: 0.48rem;
+  width: 0.42rem;
+  height: 0.42rem;
   border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 13px var(--accent-glow);
+  background: var(--text-secondary);
+  box-shadow: none;
+  opacity: 0.85;
 }
 
 .search-results .rail {
@@ -926,27 +1064,15 @@ button {
 
 .search-results .rail-title {
   color: var(--text-primary);
-  font-size: 1.35rem;
-  letter-spacing: -0.01em;
+  font-size: var(--text-body);
+  font-weight: 700;
+  letter-spacing: -0.012em;
 }
 
-.search-retry-youtube,
 .search-edit {
   border-radius: var(--radius-control);
 }
 
-.search-retry-youtube {
-  min-height: 2.85rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin-left: auto;
-  border-radius: var(--radius-control);
-  background: rgba(255, 255, 255, 0.045);
-  font-size: 0.92rem;
-}
-
-.search-retry-youtube .search-icon,
 .search-edit .search-icon {
   width: 1.05rem;
   height: 1.05rem;
@@ -957,20 +1083,20 @@ button {
   align-items: center;
   justify-content: center;
   background:
-    radial-gradient(circle at 50% 38%, rgba(85, 227, 190, 0.16), transparent 38%),
-    linear-gradient(145deg, rgba(29, 38, 40, 0.96), var(--bg-base));
+    radial-gradient(circle at 50% 38%, rgba(255, 255, 255, 0.08), transparent 38%),
+    linear-gradient(145deg, rgba(28, 31, 36, 0.96), var(--bg-base));
 }
 
 .search-more-frame {
   display: grid;
   place-items: center;
   background:
-    radial-gradient(circle at 50% 50%, rgba(85, 227, 190, 0.16), transparent 42%),
-    linear-gradient(145deg, rgba(29, 38, 40, 0.96), var(--bg-base));
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.08), transparent 42%),
+    linear-gradient(145deg, rgba(28, 31, 36, 0.96), var(--bg-base));
 }
 
 .search-more-glyph {
-  color: var(--accent);
+  color: var(--text-secondary);
   font-size: clamp(2rem, 4vw, 3.25rem);
   font-weight: 500;
   line-height: 1;
@@ -991,18 +1117,11 @@ button {
   gap: 0.45rem;
   flex: 0 0 auto;
   border-radius: var(--radius-control);
+  font-size: var(--text-caption);
 }
 
 .search-edit[hidden] {
   display: none;
-}
-
-.search-message,
-.search-degraded {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-panel);
-  background: rgba(255, 255, 255, 0.025);
-  color: var(--text-secondary);
 }
 
 .search-message {
@@ -1011,36 +1130,34 @@ button {
   align-items: center;
   justify-content: center;
   gap: 1.4rem;
-  padding: 3rem;
+  padding: 3rem 0;
+  color: var(--text-secondary);
 }
 
 .search-message > .search-icon {
-  width: 3.5rem;
-  height: 3.5rem;
-  color: rgb(var(--accent-rgb) / 0.65);
+  width: 3.2rem;
+  height: 3.2rem;
+  color: var(--text-muted);
 }
 
 .search-message h2 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 1.75rem;
+  font-size: var(--text-title);
+  font-weight: 720;
 }
 
 .search-message p {
-  margin: 0.35rem 0 0;
-  font-size: 1.1rem;
-}
-
-.search-degraded {
-  max-width: 48rem;
-  margin: 0 0 0 auto;
-  padding: 0.6rem 0.85rem;
-  border-color: rgb(var(--accent-rgb) / 0.35);
+  margin: 0.45rem 0 0;
+  max-width: 34rem;
   font-size: var(--text-caption);
+  line-height: 1.4;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .search-control {
+  .search-control,
+  .search-preview-image,
+  .search-atmosphere-image {
     transition: none;
   }
 }
@@ -2245,6 +2362,7 @@ h1 {
 .detail-panels {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: visible;
 }
@@ -2255,6 +2373,7 @@ h1 {
 
 .detail-episodes-label,
 .detail-streams-label {
+  flex: 0 0 auto;
   margin: 0 0 var(--space-rail-header);
   padding-left: 0.85rem;
   border-left: var(--rail-accent-width) solid var(--accent);
@@ -2267,7 +2386,9 @@ h1 {
 
 .detail-season-list {
   display: flex;
+  flex: 0 0 auto;
   flex-wrap: nowrap;
+  align-items: center;
   gap: 0.5rem;
   overflow-x: auto;
   overflow-y: visible;

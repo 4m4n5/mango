@@ -5,6 +5,7 @@ import {
   applyPadNavBatch,
   commandsAfterSeq,
   handlePadNav,
+  isPadNavCommandFresh,
   type PadNavCommand,
   type PadNavHandlers,
 } from "./pad-nav";
@@ -90,4 +91,36 @@ test("applyPadNavBatch applies every command in order without coalescing", async
   );
   assert.equal(next, 6);
   assert.deepEqual(log, ["home-row:1", "home-row:1", "home-col:1"]);
+});
+
+test("stale movement is dropped while recent Select and Back remain actionable", () => {
+  const now = Date.now();
+  assert.equal(
+    isPadNavCommandFresh({ action: "move", issued_at: (now - 301) / 1000 }, now),
+    false,
+  );
+  assert.equal(
+    isPadNavCommandFresh({ action: "select", issued_at: (now - 1499) / 1000 }, now),
+    true,
+  );
+  assert.equal(
+    isPadNavCommandFresh({ action: "back", issued_at: (now - 1501) / 1000 }, now),
+    false,
+  );
+});
+
+test("expired commands advance the ack cursor without changing focus", async () => {
+  const log: string[] = [];
+  const next = await applyPadNavBatch(
+    [{
+      seq: 9,
+      action: "move",
+      direction: "down",
+      issued_at: (Date.now() - 1000) / 1000,
+    }],
+    handlers(log, "search"),
+    8,
+  );
+  assert.equal(next, 9);
+  assert.deepEqual(log, []);
 });

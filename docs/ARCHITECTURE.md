@@ -264,15 +264,28 @@ by default (`MANGO_PAD_NAV_API=1`) instead of synthetic keyboard events:
 pad evdev → routing_app (cached) → POST /api/pad/nav {action,direction,delta,kind}
 serve.py → pad-nav queue (peek + Condition; seq persist async off POST path)
 launcher → POST /api/pad/session → GET /api/pad/nav?after=&session=&wait=25
-       → apply one command per rAF → POST /api/pad/ack {session,last_seq}
+       → apply one fresh command per frame-or-50ms turn
+       → POST /api/pad/ack {session,last_seq}
+       ↘ POST /api/pad/heartbeat {session,render_age_ms} each second
 ```
 
-Pad-nav is **peek-by-seq**. Every localhost long-poller sees the same pending
-commands for its `after` cursor. Only the registered TV session may compact the
-queue via ack (`session` must match); foreign acks are accepted for telemetry
-but do not drain. Seq persistence is asynchronous so POST never waits on SD I/O.
+Pad-nav is **peek-by-seq**, never drain-on-read. Only the active TV lease
+receives pending commands and may compact via ack (`session` must match).
+Registration is first-owner,
+renewable by token, and may be replaced only after its heartbeat is stale, so a
+debug tab or duplicate Chromium cannot steal input. Seq persistence is
+asynchronous so POST never waits on SD I/O.
 Gates and diagnostics POST with `"probe": true` to validate the contract
 **without** enqueueing couch FocusGrid moves.
+
+Movement/tab/context commands older than 300 ms are acknowledged without
+replay; Select/Back remain eligible for 1.5 s. The client paces commands by rAF
+with a 50 ms timer escape, so a suspended animation queue cannot permanently
+stop the poller. `serve.py` watches progress outside Chromium: a command left
+unacknowledged for three seconds restarts only
+`mango-launcher-chromium.service`, once per cooldown. The same profile restores
+the coalesced six-hour Search snapshot; playback continues to suppress launcher
+recovery because its pad path is mpv IPC, not pad-nav.
 
 When `MANGO_PAD_NAV_API=1` and the surface is launcher, the pad retries POST
 (default timeout `0.75s`, 3 attempts) and **does not** fall back to xdotool on
