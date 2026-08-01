@@ -139,24 +139,26 @@ rails:
 
   - id: live-news
     label: news
-    limit: 12
+    limit: 14
     qualification: balanced_news
     source_fill:
       - addon: mango Live News
-        limit: 8
+        limit: 12
         match_all: true
       - addon: mango Live TV
         limit: 4
         keywords:
-          - bbc news
           - sky news
-          - al jazeera english
           - nbc news now
     keywords:
       - news
     exclude_keywords:
       - replay
       - sport
+      - bbc news
+      - al jazeera
+      - wion
+      - ndtv 24
 
   - id: live-cartoons
     label: cartoons
@@ -164,9 +166,28 @@ rails:
     qualification: english_hindi_cartoons
     source_fill:
       - addon: mango Live Cartoons
-        limit: 12
+        limit: 8
         match_all: true
+      - addon: mango Live TV
+        limit: 8
+        keywords:
+          - cartoon network
+          - discovery kids
+          - nickelodeon
+          - tom and jerry
+        exclude_keywords:
+          - 24/7
+          - replay
+          - pluto
+          - nick jr
+          - teen nick
+          - nicktoons
+          - happykids
+          - moonbug
     keywords:
       - kids
     exclude_keywords:
       - replay
+      - happykids
+      - moonbug
+      - nick jr

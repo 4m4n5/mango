@@ -86,22 +86,22 @@ test('cartoon rail admits unknown language but rejects known foreign language', 
   const rail: LiveSportRail = {
     id: 'live-cartoons',
     label: 'cartoons',
-    keywords: ['moonbug'],
+    keywords: ['cartoon network'],
     qualification: 'english_hindi_cartoons',
     limit: 8,
   };
   assert.deepEqual(
-    matchChannelsToRail([channel({ id: 'unknown', name: 'Moonbug Kids' })], rail, new Set())
+    matchChannelsToRail([channel({ id: 'unknown', name: 'Cartoon Network' })], rail, new Set())
       .map((item) => item.id),
     ['unknown'],
   );
   assert.deepEqual(
-    matchChannelsToRail([channel({ id: 'spanish', name: 'Moonbug Kids', languages: ['Spanish'] })], rail, new Set())
+    matchChannelsToRail([channel({ id: 'spanish', name: 'Cartoon Network', languages: ['Spanish'] })], rail, new Set())
       .map((item) => item.id),
     [],
   );
   assert.deepEqual(
-    matchChannelsToRail([channel({ id: 'english', name: 'Moonbug Kids', languages: ['English'] })], rail, new Set())
+    matchChannelsToRail([channel({ id: 'english', name: 'Cartoon Network', languages: ['English'] })], rail, new Set())
       .map((item) => item.id),
     ['english'],
   );

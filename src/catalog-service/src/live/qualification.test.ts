@@ -131,28 +131,49 @@ test('structured AREA69 event timing cannot label a future or ended matchup as c
   assert.equal(qualifiesLiveChannel(ended, 'main_soccer'), false);
 });
 
-test('standing allowlists are exact and bounded by their curated identities', () => {
+test('standing allowlists follow the couch keep/add/prune selection', () => {
   assert.equal(qualifiesLiveChannel(channel('4K: SKY SPORTS F1 UHD'), 'f1_standing_allowlist'), true);
-  for (const approved of ['F1 TV', 'Sky Sports F1', 'DAZN F1', 'Viaplay F1']) {
+  for (const approved of ['F1 TV', 'F1 TV Main English', 'Sky Sports F1', 'DAZN F1', 'Viaplay F1']) {
     assert.equal(qualifiesLiveChannel(channel(approved), 'f1_standing_allowlist'), true, approved);
   }
   assert.equal(qualifiesLiveChannel(channel('Sky Sports Main Event'), 'f1_standing_allowlist'), false);
-  assert.equal(qualifiesLiveChannel(channel('Aaj Tak HD (1080p)'), 'balanced_news'), true);
-  assert.equal(qualifiesLiveChannel(channel('PRIME: BBC NEWS ᴿᴬᵂ'), 'balanced_news'), true);
-  assert.equal(qualifiesLiveChannel(channel('CNN International'), 'balanced_news'), false);
+
   for (const approved of [
-    'NDTV 24x7', 'India Today', 'WION', 'Times Now News',
-    'Aaj Tak', 'NDTV India', 'ABP News', 'Republic Bharat',
-    'BBC News', 'Sky News', 'Al Jazeera English', 'NBC News Now',
+    'India Today', 'Times Now News', 'Times Now Navbharat',
+    'Aaj Tak', 'NDTV India', 'ABP News', 'Republic Bharat', 'Republic TV',
+    'Zee News', 'Mirror Now', 'News Nation', 'Sansad TV 1 HD',
+    'Sky News', 'NBC News Now',
   ]) {
     assert.equal(qualifiesLiveChannel(channel(approved), 'balanced_news'), true, approved);
   }
-  assert.equal(qualifiesLiveChannel(channel('Republic TV'), 'balanced_news'), false);
+  for (const pruned of ['BBC News', 'Al Jazeera English', 'WION', 'NDTV 24x7']) {
+    assert.equal(qualifiesLiveChannel(channel(pruned), 'balanced_news'), false, pruned);
+  }
+  assert.equal(qualifiesLiveChannel(channel('CNN International'), 'balanced_news'), false);
   assert.equal(qualifiesLiveChannel(channel('Aaj Tak Bangla HD'), 'balanced_news'), false);
-  assert.equal(qualifiesLiveChannel(channel('Moonbug Kids (1080p)', undefined, ['English']), 'english_hindi_cartoons'), true);
-  assert.equal(qualifiesLiveChannel(channel('Moonbug Kids (1080p)'), 'english_hindi_cartoons'), true);
-  assert.equal(qualifiesLiveChannel(channel('Moonbug Kids (1080p)', undefined, ['Spanish']), 'english_hindi_cartoons'), false);
-  assert.equal(qualifiesLiveChannel(channel('Nickelodeon Clasico (720p)', undefined, ['English']), 'english_hindi_cartoons'), false);
+
+  for (const approved of [
+    'Kartoon Channel (1080p)',
+    'Nickelodeon Pluto TV (720p)',
+    'PBS Kids Eastern/Central (720p)',
+    'NickToons',
+    'Cartoon Network',
+    'HINDI: CARTOON NETWORK',
+    'Discovery Kids',
+    'NICKELODEON HD',
+    'Tom and Jerry',
+  ]) {
+    assert.equal(qualifiesLiveChannel(channel(approved, undefined, ['English']), 'english_hindi_cartoons'), true, approved);
+  }
+  for (const pruned of ['HappyKids (1080p)', 'Moonbug Kids (1080p)', 'Nick Jr. (576p)']) {
+    assert.equal(qualifiesLiveChannel(channel(pruned, undefined, ['English']), 'english_hindi_cartoons'), false, pruned);
+  }
+  assert.equal(qualifiesLiveChannel(channel('Cartoon Network', undefined, ['Spanish']), 'english_hindi_cartoons'), false);
+
+  assert.equal(qualifiesLiveChannel(channel('SPORTS: STAR SPORTS 3'), 'india_cricket'), true);
+  assert.equal(qualifiesLiveChannel(channel('SPORTS: STAR SPORTS SELECT 1 HD'), 'india_cricket'), true);
+  assert.equal(qualifiesLiveChannel(channel('WILLOW CRICKET EXTRA HD'), 'india_cricket'), true);
+  assert.equal(qualifiesLiveChannel(channel('Willow (720p)'), 'india_cricket'), true);
 });
 
 test('canonical key collapses only quality/status variants after ranking', () => {

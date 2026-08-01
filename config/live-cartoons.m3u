@@ -1,17 +1,12 @@
 #EXTM3U
-# mango curated cartoons — classics-first; explicit English/Hindi metadata only (iptv-org)
+# mango curated cartoons — couch selection 2026-08-01 (pruned HappyKids/Moonbug/Nick Jr)
+# AREA69 adds (CN / Discovery Kids / Nickelodeon / Tom and Jerry) come via catalog-live source_fill.
 # https://github.com/iptv-org/iptv
 #EXTINF:-1 tvg-id="NickelodeonPlutoTV.us@SD" tvg-logo="https://images.pluto.tv/channels/5ca673e0d0bd6c2689c94ce3/colorLogoPNG.png" group-title="Animation;Kids" tvg-language="English",Nickelodeon Pluto TV (720p)
 https://jmp2.uk/plu-5ca673e0d0bd6c2689c94ce3.m3u8
 #EXTINF:-1 tvg-id="Nicktoons.ca@FAST" tvg-logo="https://i.ibb.co/ZpmVmC3G/IMG-0291.jpg" group-title="Kids" tvg-language="English",NickToons
 https://jmp2.uk/plu-654ca7f92c1d3300086b608c.m3u8
-#EXTINF:-1 tvg-id="NickJr.us@East" tvg-logo="https://i.imgur.com/KT4tdQs.png" group-title="Kids" tvg-language="English",Nick Jr. (576p)
-http://84.17.50.102/nickjr/index.m3u8
 #EXTINF:-1 tvg-id="PBSKidsEasternCentral.us@SD" tvg-logo="https://i.imgur.com/ambc9le.png" group-title="Education;Kids" tvg-language="English",PBS Kids Eastern/Central (720p)
 https://2-fss-2.streamhoster.com/pl_140/amlst:200914-1298290/playlist.m3u8
-#EXTINF:-1 tvg-id="HappyKids.us@SD" tvg-logo="https://i.imgur.com/cPrUCFw.png" group-title="Kids" tvg-language="English",HappyKids (1080p)
-https://dil9xdvretp0f.cloudfront.net/index.m3u8
 #EXTINF:-1 tvg-id="KartoonChannel.us@SD" tvg-logo="https://i.imgur.com/1luzP3T.png" group-title="Kids" tvg-language="English",Kartoon Channel (1080p)
 https://lightning-fnf-samsungaus.amagi.tv/playlist.m3u8
-#EXTINF:-1 tvg-id="MoonbugKids.uk@SD" tvg-logo="https://i.imgur.com/vZHtxQb.png" group-title="Kids" tvg-language="English",Moonbug Kids (1080p)
-https://moonbug-rokuus.amagi.tv/playlist.m3u8

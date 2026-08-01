@@ -27,24 +27,58 @@ const LIVE_MARKER = /(?:^|[|:\-])\s*live(?:\s|[|:\-]|$)/i;
 const NAME_NON_CURRENT = /^(?:end(?:ed)?|next|replay)\b/i;
 const NON_LIVE_PROGRAM = /\b(?:replay|ended?|preview|highlights?|studio|analysis|review|classic)\b/i;
 
-const F1_ALLOWLIST = new Set(['sky sports f1', 'f1 tv', 'dazn f1', 'viaplay f1']);
+const F1_ALLOWLIST = new Set([
+  'sky sports f1',
+  'f1 tv',
+  'f1 tv main english',
+  'dazn f1',
+  'viaplay f1',
+]);
 const NEWS_ALLOWLIST = new Set([
-  'ndtv 24x7', 'india today', 'wion', 'times now',
-  'aaj tak', 'ndtv india', 'abp news', 'republic bharat',
-  'bbc news', 'sky news', 'al jazeera english', 'nbc news now',
+  'india today',
+  'times now',
+  'times now navbharat',
+  'aaj tak',
+  'ndtv india',
+  'abp news',
+  'republic bharat',
+  'republic tv',
+  'zee news',
+  'mirror now',
+  'news nation',
+  'sansad tv',
+  'sansad tv 1',
+  'sky news',
+  'nbc news now',
 ]);
 // These are deliberately exact canonical identities from the committed
 // curated sports M3U. They are fill channels, never a broad sports keyword
 // policy.
 const FIFA_STANDING_ALLOWLIST = new Set(['fifa', 'fifa united states']);
 const CRICKET_STANDING_ALLOWLIST = new Set([
-  'star sports 1', 'star sports 1 hindi', 'star sports 2',
-  'willow sports', 'willow cricket', 'dd sports', 'cricket gold',
+  'star sports 1',
+  'star sports 1 hindi',
+  'star sports 2',
+  'star sports 3',
+  'star sports select 1',
+  'star sports select 2',
+  'willow',
+  'willow sports',
+  'willow cricket',
+  'willow cricket extra',
+  'dd sports',
+  'cricket gold',
 ]);
 const SOCCER_STANDING_ALLOWLIST = new Set(['bein sports', 'bein sports usa']);
 const CARTOON_ALLOWLIST = new Set([
-  'tom and jerry', 'nickelodeon pluto tv', 'nicktoons', 'nick jr',
-  'pbs kids eastern central', 'happykids', 'kartoon channel', 'moonbug kids',
+  'tom and jerry',
+  'nickelodeon pluto tv',
+  'nickelodeon',
+  'nicktoons',
+  'pbs kids eastern central',
+  'kartoon channel',
+  'cartoon network',
+  'discovery kids',
 ]);
 
 function text(value: string | undefined): string {
@@ -81,7 +115,10 @@ export function canonicalLiveTitle(value: string): string {
 
 function exactAllowed(channel: LiveChannelMeta, allowlist: ReadonlySet<string>): boolean {
   let key = canonicalLiveTitle(channel.name || channel.title || '').replace(/^prime\s+/, '');
+  // AREA69 inventory rows often prefix a clean brand with a pack label.
+  key = key.replace(/^(?:sports|hindi|english|tamil|telugu|punjabi)\s+/, '');
   if (key === 'times now news') key = 'times now';
+  if (key === 'sansad tv 1') key = 'sansad tv';
   return allowlist.has(key);
 }
 
