@@ -10,9 +10,13 @@ import {
   liveRailsDiskCacheFresh,
   liveRailsDiskCacheNonEmpty,
   liveRailsDiskCacheSummary,
+  liveRailsBackgroundRefreshDecision,
   liveRailsCachePath,
+  liveRailsRefreshStatusPath,
+  readLiveRailsRefreshStatusSync,
   readLiveRailsDiskCache,
   writeLiveRailsDiskCache,
+  writeLiveRailsRefreshStatus,
 } from './live-rails-cache.js';
 
 test('live rails disk cache accepts stale non-empty fallback and reports diagnostics', async () => {
@@ -121,6 +125,51 @@ test('live rails disk cache never treats empty cache as fallback', async () => {
     } else {
       process.env.MANGO_LIVE_RAILS_CACHE = oldPath;
     }
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('background refresh is stale-only, playback-safe, and rate-limited', () => {
+  const base = {
+    configReady: true,
+    cacheFresh: false,
+    playbackActive: false,
+    inFlight: false,
+    lastAttemptAt: null,
+    now: 1_000_000,
+    minAttemptIntervalMs: 300_000,
+  };
+  assert.deepEqual(liveRailsBackgroundRefreshDecision(base), { refresh: true, reason: 'stale' });
+  assert.equal(liveRailsBackgroundRefreshDecision({ ...base, cacheFresh: true }).reason, 'cache_fresh');
+  assert.equal(liveRailsBackgroundRefreshDecision({ ...base, playbackActive: true }).reason, 'playback_active');
+  assert.equal(liveRailsBackgroundRefreshDecision({ ...base, inFlight: true }).reason, 'in_flight');
+  assert.equal(liveRailsBackgroundRefreshDecision({ ...base, lastAttemptAt: 900_000 }).reason, 'rate_limited');
+  assert.equal(liveRailsBackgroundRefreshDecision({ ...base, configReady: false }).reason, 'config_unavailable');
+});
+
+test('live refresh attempt and error survive process-local state', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-live-refresh-status-'));
+  const oldCachePath = process.env.MANGO_LIVE_RAILS_CACHE;
+  const oldStatusPath = process.env.MANGO_LIVE_RAILS_REFRESH_STATUS;
+  process.env.MANGO_LIVE_RAILS_CACHE = join(dir, 'live-cache.json');
+  process.env.MANGO_LIVE_RAILS_REFRESH_STATUS = join(dir, 'refresh-status.json');
+  try {
+    await writeLiveRailsRefreshStatus({
+      last_attempt_at: 1234,
+      last_success_at: 1000,
+      last_error: 'provider unavailable',
+    });
+    assert.equal(liveRailsRefreshStatusPath(), process.env.MANGO_LIVE_RAILS_REFRESH_STATUS);
+    assert.deepEqual(readLiveRailsRefreshStatusSync(), {
+      last_attempt_at: 1234,
+      last_success_at: 1000,
+      last_error: 'provider unavailable',
+    });
+  } finally {
+    if (oldCachePath === undefined) delete process.env.MANGO_LIVE_RAILS_CACHE;
+    else process.env.MANGO_LIVE_RAILS_CACHE = oldCachePath;
+    if (oldStatusPath === undefined) delete process.env.MANGO_LIVE_RAILS_REFRESH_STATUS;
+    else process.env.MANGO_LIVE_RAILS_REFRESH_STATUS = oldStatusPath;
     await rm(dir, { recursive: true, force: true });
   }
 });

@@ -90,6 +90,10 @@ export type ReliabilityFacts = {
     ok: boolean;
     core: string;
     rails_ready: boolean;
+    live_config_ready: boolean;
+    live_cache_fresh: boolean;
+    live_serving_stale: boolean;
+    /** Backward-compatible alias for live_config_ready. */
     live_ready: boolean;
     live_stale_fallback: boolean;
     rss_mb?: number | null;

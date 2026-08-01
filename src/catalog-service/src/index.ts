@@ -1062,6 +1062,7 @@ async function main(): Promise<void> {
   initLibraryDb();
   await initProgressDb();
   const core = await CatalogCore.create();
+  core.startLiveRailsBackgroundRefresh();
   activeStreams = new ActiveStreamService();
   await activeStreams.clear().catch((error) => {
     console.warn(

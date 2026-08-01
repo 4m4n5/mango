@@ -25,8 +25,11 @@ if not isinstance(live, dict):
 else:
     cache = live.get("cache")
     sources = live.get("sources")
-    if not isinstance(live.get("ready"), bool):
-        failures.append("live.ready must be a boolean")
+    for key in ("ready", "config_ready", "cache_fresh", "serving_stale"):
+        if not isinstance(live.get(key), bool):
+            failures.append(f"live.{key} must be a boolean")
+    if live.get("ready") != live.get("config_ready"):
+        failures.append("live.ready alias must equal live.config_ready")
     if not isinstance(sources, list):
         failures.append("live.sources must be a list")
     if not isinstance(cache, dict):
@@ -41,6 +44,8 @@ else:
                 failures.append(f"live.cache.{key} must be a boolean")
     if not isinstance(live.get("stale_fallback_available"), bool):
         failures.append("live.stale_fallback_available must be a boolean")
+    if live.get("serving_stale") and (live.get("cache_fresh") or not live.get("stale_fallback_available")):
+        failures.append("live.serving_stale requires stale non-empty fallback")
     if os.environ.get("MANGO_LIVE_REQUIRE_STALE_FALLBACK") == "1" and not live.get("stale_fallback_available"):
         failures.append("required stale Live fallback is not available")
 
@@ -53,9 +58,9 @@ cache = live.get("cache") or {}
 rail_counts = cache.get("rail_counts") or {}
 print(
     "PASS: live diagnostics "
-    f"ready={live.get('ready')} "
-    f"cache_non_empty={cache.get('non_empty')} "
-    f"stale_fallback={live.get('stale_fallback_available')} "
+    f"config_ready={live.get('config_ready')} "
+    f"cache_fresh={live.get('cache_fresh')} "
+    f"serving_stale={live.get('serving_stale')} "
     f"rails={len(rail_counts)}"
 )
 PY

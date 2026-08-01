@@ -142,9 +142,9 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
     `core=${facts.catalog.core} rss=${facts.catalog.rss_mb ?? 'unknown'}MB`,
   ));
 
-  const liveStatus: ReliabilityLevel = facts.catalog.live_ready
+  const liveStatus: ReliabilityLevel = facts.catalog.live_config_ready && facts.catalog.live_cache_fresh
     ? 'green'
-    : facts.catalog.live_stale_fallback
+    : facts.catalog.live_config_ready && facts.catalog.live_serving_stale
       ? 'yellow'
       : 'red';
   components.push(component(
@@ -152,10 +152,12 @@ export function evaluateReliability(facts: ReliabilityFacts): ReliabilityState {
     'Live',
     liveStatus,
     liveStatus === 'green'
-      ? 'live rails ready'
+      ? 'live config ready and cache fresh'
       : liveStatus === 'yellow'
-        ? 'using stale live fallback'
-        : 'live rails unavailable',
+        ? 'live config ready; serving stale cache while refresh retries'
+        : facts.catalog.live_config_ready
+          ? 'live config ready but no usable cache'
+          : 'live config unavailable',
   ));
 
   const libraryStatus: ReliabilityLevel = !facts.playability.ok || facts.playability.verified_total < 9

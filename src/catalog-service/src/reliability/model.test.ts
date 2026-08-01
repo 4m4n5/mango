@@ -22,6 +22,9 @@ function baseFacts(): ReliabilityFacts {
       ok: true,
       core: 'ready',
       rails_ready: true,
+      live_config_ready: true,
+      live_cache_fresh: true,
+      live_serving_stale: false,
       live_ready: true,
       live_stale_fallback: true,
       rss_mb: 256,
@@ -207,6 +210,27 @@ test('connected without evdev reports input registration wait without pairing co
   assert.equal(controller?.status, 'green');
   assert.match(controller?.summary ?? '', /waiting for Linux input/);
   assert.doesNotMatch(controller?.summary ?? '', /pair/i);
+});
+
+test('stale Live serving is honest yellow while config remains ready', () => {
+  const facts = baseFacts();
+  facts.catalog.live_cache_fresh = false;
+  facts.catalog.live_serving_stale = true;
+  const state = evaluateReliability(facts);
+  const live = state.components.find((entry) => entry.id === 'live');
+  assert.equal(live?.status, 'yellow');
+  assert.match(live?.summary ?? '', /serving stale cache/);
+});
+
+test('Live config without fresh or stale cache is unavailable', () => {
+  const facts = baseFacts();
+  facts.catalog.live_cache_fresh = false;
+  facts.catalog.live_serving_stale = false;
+  facts.catalog.live_stale_fallback = false;
+  const state = evaluateReliability(facts);
+  const live = state.components.find((entry) => entry.id === 'live');
+  assert.equal(live?.status, 'red');
+  assert.match(live?.summary ?? '', /no usable cache/);
 });
 
 // H7-a: playability_rc (and related fields) in the last nightly proof's

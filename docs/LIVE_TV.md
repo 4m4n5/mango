@@ -102,7 +102,7 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 | Refresh / ↻ | Live tab **does not** pass `reshuffle=1` (avoids NexoTV rate limits) |
 | Native Live search | `GET /voice/search?tab=live&q=` searches full local AREA69 + free/news/cartoons inventories, independent of rail curation. Ordinary voice Live intent uses the same path. |
 | Search proof | Fresh successful plays/probes return immediately; known failures are suppressed. At most one free and one AREA69 unknown top match validate concurrently for up to 2 s. Slow proof continues asynchronously and is eligible only on a later search. |
-| Cache | Memory + disk `~/.cache/mango/live-rails-cache.json`; only policy-compatible stale non-empty cache may be fallback. Old broad-policy caches are rejected. |
+| Cache | Memory + disk `~/.cache/mango/live-rails-cache.json`; a playback-yielding, rate-limited background tick rebuilds when config is ready and cache is stale. Only policy-compatible stale non-empty cache may be fallback. Old broad-policy caches are rejected. |
 | Health state | `~/.cache/mango/live-channel-health.json`, operator-owned and credential-safe. Real play/probe success promotes; resolve/reachability/play-start failure demotes until the existing Live cache horizon expires. |
 | Play | Detail → **watch live** · `POST /play` with `live: true`; canonical variants form one quality-ordered ladder and fail over within the existing play deadline. No external app handoff. |
 | Ordering | Eligibility and proof first; then nominal resolution (2160p = 4K, only 4320p/explicit 8K = 8K), English/Hindi, codec, measured health. |
@@ -166,10 +166,16 @@ cd ~/mango/deploy/nexotv-free && docker compose restart
 
 ### Health-only diagnostics
 
-`/health` exposes operator-only Live diagnostics without reshuffling Live:
-config readiness, source addon names, disk cache compatibility and per-rail
-counts, last rebuild error, plus qualified, verified, failed, queued, unknown,
-and stale search candidates.
+`/health` exposes operator-only Live diagnostics without reshuffling Live.
+`live.config_ready` means config loaded, `live.cache_fresh` means the memory/disk
+snapshot is within TTL, and `live.serving_stale` means a compatible non-empty
+stale snapshot remains available while refresh retries. `live.ready` and
+top-level `live_ready` remain backward-compatible config-readiness aliases.
+The refresh attempt/success/error ledger persists beside the cache at
+`live-rails-cache.json.status.json`, so a catalog restart does not erase the
+last failure signal. Diagnostics also include source addon names, per-rail
+counts, and qualified, verified, failed, queued, unknown, and stale search
+candidates.
 
 ```bash
 bash scripts/live/live-diagnostics.sh

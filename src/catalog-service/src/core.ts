@@ -137,6 +137,9 @@ import {
   liveRailsDiskCacheFresh,
   liveRailsDiskCacheNonEmpty,
   liveRailsDiskCacheSummary,
+  liveRailsBackgroundRefreshDecision,
+  readLiveRailsRefreshStatusSync,
+  writeLiveRailsRefreshStatus,
 } from './live-rails-cache.js';
 import { applyLiveAiCatalogRails } from './live/ai-catalog-rails.js';
 import {
@@ -163,6 +166,8 @@ import {
 } from './voice/live-search.js';
 
 const LIVE_TAB_CACHE_TTL_MS = 5 * 60 * 1000;
+const LIVE_BACKGROUND_REFRESH_POLL_MS = 60 * 1000;
+const LIVE_BACKGROUND_REFRESH_MIN_ATTEMPT_MS = 5 * 60 * 1000;
 
 function liveCatalogCacheTtlMs(config: LiveRailConfig): number {
   const configured = (config.cache_ttl_sec ?? 600) * 1000;
@@ -966,6 +971,8 @@ export class CatalogCore {
     payload: TabRailItemsResponse;
     expiresAt: number;
   } | null = null;
+  private liveTabRailItemsInFlight: Promise<TabRailItemsResponse> | null = null;
+  private liveBackgroundRefreshStarted = false;
   private liveLastRebuildError: string | null = null;
   private liveChannelCatalogCache: {
     channels: TaggedLiveChannel[];
@@ -1083,6 +1090,52 @@ export class CatalogCore {
     this.liveTabRailItemsCache = null;
   }
 
+  /** Poll cheap cache metadata; rebuild stale Live rails off-couch at a bounded cadence. */
+  startLiveRailsBackgroundRefresh(): void {
+    if (this.liveBackgroundRefreshStarted) return;
+    this.liveBackgroundRefreshStarted = true;
+    const pollMs = Math.max(
+      10_000,
+      Number(process.env.MANGO_LIVE_BACKGROUND_REFRESH_POLL_MS || LIVE_BACKGROUND_REFRESH_POLL_MS),
+    );
+    const tick = (): void => {
+      void this.refreshLiveRailsInBackground().catch((error) => {
+        console.warn(`live rails background refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+      });
+    };
+    const initial = setTimeout(tick, 2_000);
+    initial.unref();
+    const timer = setInterval(tick, Number.isFinite(pollMs) ? pollMs : LIVE_BACKGROUND_REFRESH_POLL_MS);
+    timer.unref();
+  }
+
+  private async refreshLiveRailsInBackground(): Promise<void> {
+    const now = Date.now();
+    const diskCache = readLiveRailsDiskCacheSync();
+    const memoryFresh = (this.liveTabRailItemsCache?.expiresAt ?? 0) > now;
+    const status = readLiveRailsRefreshStatusSync();
+    const minAttemptIntervalMs = Math.max(
+      30_000,
+      Number(
+        process.env.MANGO_LIVE_BACKGROUND_REFRESH_MIN_ATTEMPT_MS
+        || LIVE_BACKGROUND_REFRESH_MIN_ATTEMPT_MS,
+      ),
+    );
+    const decision = liveRailsBackgroundRefreshDecision({
+      configReady: this.liveRailConfigError === null && this.liveRailConfig !== null,
+      cacheFresh: memoryFresh || liveRailsDiskCacheFresh(diskCache),
+      playbackActive: isPlaybackActiveForTriggerConsumer(),
+      inFlight: this.liveTabRailItemsInFlight !== null,
+      lastAttemptAt: status.last_attempt_at,
+      now,
+      minAttemptIntervalMs: Number.isFinite(minAttemptIntervalMs)
+        ? minAttemptIntervalMs
+        : LIVE_BACKGROUND_REFRESH_MIN_ATTEMPT_MS,
+    });
+    if (!decision.refresh) return;
+    await this.liveTabRailItems();
+  }
+
   /** Clear one title's positive/negative stream state and stale flight handles. */
   invalidateStreams(type: string, id: string): { positive: number; negative: number; flights: number } {
     const normalized = normalizeSeriesVerifyId(type, id);
@@ -1126,6 +1179,14 @@ export class CatalogCore {
   health(): Record<string, unknown> {
     const liveDiskCache = readLiveRailsDiskCacheSync();
     const liveCache = liveRailsDiskCacheSummary(liveDiskCache);
+    const liveRefresh = readLiveRailsRefreshStatusSync();
+    const liveConfigReady = this.liveRailConfigError === null && this.liveRailConfig !== null;
+    const liveCacheFresh = liveCache.fresh || (this.liveTabRailItemsCache?.expiresAt ?? 0) > Date.now();
+    const liveMemoryCacheNonEmpty = Boolean(
+      this.liveTabRailItemsCache?.payload.rails.some((rail) => rail.items.length > 0),
+    );
+    const liveStaleFallbackAvailable = liveCache.non_empty || liveMemoryCacheNonEmpty;
+    const liveServingStale = liveConfigReady && !liveCacheFresh && liveStaleFallbackAvailable;
     const liveHealth = summarizeLiveChannelHealth(
       readLiveChannelHealthRegistrySync(),
       this.liveSearchFreshnessHorizonMs(),
@@ -1142,9 +1203,12 @@ export class CatalogCore {
       ai_catalogs: this.aiCatalogRails.length,
       rails_ready: this.railConfigError === null,
       live_rails: this.liveRailConfig ? this.liveRailConfig.rails.length : 0,
-      live_ready: this.liveRailConfigError === null,
+      live_ready: liveConfigReady,
       live: {
-        ready: this.liveRailConfigError === null,
+        ready: liveConfigReady,
+        config_ready: liveConfigReady,
+        cache_fresh: liveCacheFresh,
+        serving_stale: liveServingStale,
         config_error: this.liveRailConfigError?.message ?? null,
         sources: this.liveRailConfig?.sources.map((source) => ({
           addon: source.addon,
@@ -1157,8 +1221,10 @@ export class CatalogCore {
           ...liveHealth,
           ...liveSearchValidationDiagnostics(),
         },
-        stale_fallback_available: liveCache.non_empty,
-        last_rebuild_error: this.liveLastRebuildError,
+        stale_fallback_available: liveStaleFallbackAvailable,
+        last_rebuild_attempt_at: liveRefresh.last_attempt_at,
+        last_rebuild_success_at: liveRefresh.last_success_at,
+        last_rebuild_error: liveRefresh.last_error ?? this.liveLastRebuildError,
       },
       rss_mb: Math.round(process.memoryUsage().rss / 1024 / 1024),
     };
@@ -1778,7 +1844,31 @@ export class CatalogCore {
       return this.withLiveAiCatalogRails(payload, { cached: true });
     }
 
+    if (this.liveTabRailItemsInFlight) {
+      return this.liveTabRailItemsInFlight;
+    }
+    const inFlight = this.rebuildLiveTabRailItems(diskCache, diskPayload);
+    this.liveTabRailItemsInFlight = inFlight;
+    try {
+      return await inFlight;
+    } finally {
+      if (this.liveTabRailItemsInFlight === inFlight) {
+        this.liveTabRailItemsInFlight = null;
+      }
+    }
+  }
+
+  private async rebuildLiveTabRailItems(
+    diskCache: Awaited<ReturnType<typeof readLiveRailsDiskCache>>,
+    diskPayload: TabRailItemsResponse | undefined,
+  ): Promise<TabRailItemsResponse> {
     const started = Date.now();
+    const previousRefresh = readLiveRailsRefreshStatusSync();
+    await writeLiveRailsRefreshStatus({
+      last_attempt_at: started,
+      last_success_at: previousRefresh.last_success_at,
+      last_error: previousRefresh.last_error,
+    }).catch(() => undefined);
     let config: LiveRailConfig;
     let responses: RailItemsResponse[] = [];
     try {
@@ -1797,9 +1887,13 @@ export class CatalogCore {
         }
         responses.push(await this.buildLiveRailItemsResponse(rail, verified, started));
       }
-      this.liveLastRebuildError = null;
     } catch (error) {
       this.liveLastRebuildError = error instanceof Error ? error.message : String(error);
+      await writeLiveRailsRefreshStatus({
+        last_attempt_at: started,
+        last_success_at: previousRefresh.last_success_at,
+        last_error: this.liveLastRebuildError,
+      }).catch(() => undefined);
       const fallback = this.liveTabRailItemsCache?.payload
         || (diskPayload && liveRailsDiskCacheNonEmpty(diskCache) ? diskPayload : null);
       if (fallback && fallback.rails.length > 0) {
@@ -1819,9 +1913,20 @@ export class CatalogCore {
         || (diskPayload && liveRailsDiskCacheNonEmpty(diskCache) ? diskPayload : null);
       if (fallback && fallback.rails.length > 0) {
         this.liveLastRebuildError = 'live rebuild returned no non-empty rails';
+        await writeLiveRailsRefreshStatus({
+          last_attempt_at: started,
+          last_success_at: previousRefresh.last_success_at,
+          last_error: this.liveLastRebuildError,
+        }).catch(() => undefined);
         return this.withLiveAiCatalogRails(fallback, { cached: true, stale: true });
       }
       this.liveTabRailItemsCache = null;
+      this.liveLastRebuildError = 'live rebuild returned no non-empty rails';
+      await writeLiveRailsRefreshStatus({
+        last_attempt_at: started,
+        last_success_at: previousRefresh.last_success_at,
+        last_error: this.liveLastRebuildError,
+      }).catch(() => undefined);
       return this.withLiveAiCatalogRails(
         { tab: 'live', rails: [], resolve_ms: Date.now() - started },
       );
@@ -1838,6 +1943,12 @@ export class CatalogCore {
       { ...payload, tab: 'live' },
       Math.ceil((expiresAt - Date.now()) / 1000),
     ).catch(() => undefined);
+    this.liveLastRebuildError = null;
+    await writeLiveRailsRefreshStatus({
+      last_attempt_at: started,
+      last_success_at: Date.now(),
+      last_error: null,
+    }).catch(() => undefined);
     return this.withLiveAiCatalogRails(payload);
   }
 

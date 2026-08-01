@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -18,6 +18,17 @@ type LiveRailsDiskCache = {
   payload: CachedLiveRailsPayload;
 };
 
+export type LiveRailsRefreshStatus = {
+  last_attempt_at: number | null;
+  last_success_at: number | null;
+  last_error: string | null;
+};
+
+export type LiveRailsBackgroundRefreshDecision = {
+  refresh: boolean;
+  reason: 'config_unavailable' | 'cache_fresh' | 'playback_active' | 'in_flight' | 'rate_limited' | 'stale';
+};
+
 /** Bump when cached rail membership semantics change incompatibly. */
 export const LIVE_RAILS_POLICY_VERSION = 4;
 
@@ -30,6 +41,51 @@ export function liveRailsDiskCacheCompatible(
 export function liveRailsCachePath(): string {
   return process.env.MANGO_LIVE_RAILS_CACHE
     || join(homedir(), '.cache/mango/live-rails-cache.json');
+}
+
+export function liveRailsRefreshStatusPath(): string {
+  return process.env.MANGO_LIVE_RAILS_REFRESH_STATUS
+    || `${liveRailsCachePath()}.status.json`;
+}
+
+export function readLiveRailsRefreshStatusSync(): LiveRailsRefreshStatus {
+  try {
+    const parsed = JSON.parse(readFileSync(liveRailsRefreshStatusPath(), 'utf8')) as Partial<LiveRailsRefreshStatus>;
+    return {
+      last_attempt_at: typeof parsed.last_attempt_at === 'number' ? parsed.last_attempt_at : null,
+      last_success_at: typeof parsed.last_success_at === 'number' ? parsed.last_success_at : null,
+      last_error: typeof parsed.last_error === 'string' ? parsed.last_error : null,
+    };
+  } catch {
+    return { last_attempt_at: null, last_success_at: null, last_error: null };
+  }
+}
+
+export async function writeLiveRailsRefreshStatus(status: LiveRailsRefreshStatus): Promise<void> {
+  const path = liveRailsRefreshStatusPath();
+  const temp = `${path}.${process.pid}.tmp`;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(temp, JSON.stringify(status), 'utf8');
+  await rename(temp, path);
+}
+
+export function liveRailsBackgroundRefreshDecision(input: {
+  configReady: boolean;
+  cacheFresh: boolean;
+  playbackActive: boolean;
+  inFlight: boolean;
+  lastAttemptAt: number | null;
+  now: number;
+  minAttemptIntervalMs: number;
+}): LiveRailsBackgroundRefreshDecision {
+  if (!input.configReady) return { refresh: false, reason: 'config_unavailable' };
+  if (input.cacheFresh) return { refresh: false, reason: 'cache_fresh' };
+  if (input.playbackActive) return { refresh: false, reason: 'playback_active' };
+  if (input.inFlight) return { refresh: false, reason: 'in_flight' };
+  if (input.lastAttemptAt !== null && input.now - input.lastAttemptAt < input.minAttemptIntervalMs) {
+    return { refresh: false, reason: 'rate_limited' };
+  }
+  return { refresh: true, reason: 'stale' };
 }
 
 export async function readLiveRailsDiskCache(): Promise<LiveRailsDiskCache | null> {

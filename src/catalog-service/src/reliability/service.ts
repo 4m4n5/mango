@@ -279,7 +279,14 @@ function catalogFacts(health: CatalogHealth): ReliabilityFacts['catalog'] {
     ok: safeBool(health.ok),
     core: safeString(health.core, 'unknown'),
     rails_ready: safeBool(health.rails_ready),
-    live_ready: safeBool(health.live_ready) || safeBool(live.ready),
+    live_config_ready: safeBool(live.config_ready) || safeBool(health.live_ready) || safeBool(live.ready),
+    live_cache_fresh: safeBool(live.cache_fresh) || safeBool(liveCache.fresh),
+    live_serving_stale: safeBool(live.serving_stale) || (
+      (safeBool(live.stale_fallback_available) || safeBool(liveCache.non_empty))
+      && !safeBool(live.cache_fresh)
+      && !safeBool(liveCache.fresh)
+    ),
+    live_ready: safeBool(live.config_ready) || safeBool(health.live_ready) || safeBool(live.ready),
     live_stale_fallback: safeBool(live.stale_fallback_available) || safeBool(liveCache.non_empty),
     rss_mb: health.rss_mb === undefined ? null : safeNumber(health.rss_mb, 0),
   };

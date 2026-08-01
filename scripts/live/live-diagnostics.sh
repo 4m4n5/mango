@@ -35,7 +35,8 @@ if json_only:
 
 rail_counts = cache.get("rail_counts") or {}
 rail_summary = ", ".join(f"{rid}={count}" for rid, count in sorted(rail_counts.items())) or "none"
-print(f"live.ready={live.get('ready')}")
+print(f"live.config_ready={live.get('config_ready')} (ready_alias={live.get('ready')})")
+print(f"live.cache_fresh={live.get('cache_fresh')} serving_stale={live.get('serving_stale')}")
 print(f"live.config_error={live.get('config_error')}")
 print(f"live.sources={len(live.get('sources') or [])}")
 print(f"live.cache.path={cache.get('path')}")
@@ -43,5 +44,7 @@ print(f"live.cache.present={cache.get('present')} non_empty={cache.get('non_empt
 print(f"live.cache.age_sec={cache.get('age_sec')} expires_in_sec={cache.get('expires_in_sec')}")
 print(f"live.cache.rail_counts={rail_summary}")
 print(f"live.stale_fallback_available={live.get('stale_fallback_available')}")
+print(f"live.last_rebuild_attempt_at={live.get('last_rebuild_attempt_at')}")
+print(f"live.last_rebuild_success_at={live.get('last_rebuild_success_at')}")
 print(f"live.last_rebuild_error={live.get('last_rebuild_error')}")
 PY
