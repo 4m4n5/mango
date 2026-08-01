@@ -28,6 +28,9 @@ mkdir -p "$LOG_DIR" "$PID_DIR"
 bash scripts/lib/mango-desktop.sh hide 2>/dev/null || true
 bash scripts/lib/mango-cursor.sh hide 2>/dev/null || true
 bash scripts/lib/mango-display-mode.sh ensure-launcher 2>/dev/null || true
+# Stack/UI start owns the boot wake. A pad press keeps its lower-latency wake
+# path, but refresh must recover an already-Off DPMS panel without input.
+bash scripts/lib/mango-display-wake.sh 2>/dev/null || true
 if [[ ! -f "${HOME}/.config/mango/tv-cursor.ok" ]]; then
   mkdir -p "${HOME}/.config/mango"
   bash scripts/m1-foundation/pad/install-tv-cursor.sh 2>/dev/null && touch "${HOME}/.config/mango/tv-cursor.ok" || true

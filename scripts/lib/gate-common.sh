@@ -187,6 +187,23 @@ gate_process_count() {
   echo "${n:-0}"
 }
 
+gate_display_awake() {
+  local xset_output
+  if ! command -v xset >/dev/null 2>&1; then
+    gate_warn "display awake check skipped: xset unavailable"
+    return 0
+  fi
+  if ! xset_output="$(xset q 2>/dev/null)"; then
+    gate_warn "display awake check skipped: X display ${DISPLAY:-unset} unavailable"
+    return 0
+  fi
+  if grep -q 'Monitor is Off' <<<"$xset_output"; then
+    gate_fail "X11 monitor is Off after stack start"
+  else
+    gate_pass "X11 monitor is not Off"
+  fi
+}
+
 gate_idle_hygiene() {
   local chromium firefox browser_apps stremio kodi mem_mb indexer orphans remapper pad
   chromium="$(gate_process_count 'chromium.*--app=')"
@@ -199,6 +216,7 @@ gate_idle_hygiene() {
   remapper="$(gate_process_count 'input-remapper-service')"
   pad="$(gate_process_count 'mango-tv-pad\.py')"
   mem_mb="$(awk '/^Mem:/ {print $7}' <(free -m 2>/dev/null) || echo 0)"
+  gate_display_awake
   [[ "${browser_apps:-0}" -le 1 ]] && gate_pass "launcher browser apps ${browser_apps}" || gate_fail "launcher browser apps ${browser_apps} > 1"
   [[ "${stremio:-0}" -eq 0 ]] && gate_pass "stremio idle" || gate_fail "stremio running at idle"
   [[ "${kodi:-0}" -eq 0 ]] && gate_pass "kodi idle" || gate_fail "kodi running at idle"

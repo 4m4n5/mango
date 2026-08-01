@@ -112,8 +112,9 @@ activity: Mango may be on overnight and still run grow when no one has actively
 used it recently. Maintenance uses a 30 minute idle threshold by default
 (`MANGO_COUCH_IDLE_SEC` for tests only).
 
-When couch mode starts, Mango disables X11 DPMS/screensaver blanking. Controller
-input also runs the display wake helper, throttled to a few seconds:
+When couch mode starts, Mango disables X11 DPMS/screensaver blanking and forces
+the display on during UI start. Controller input also runs the same display wake
+helper, throttled to a few seconds, as the low-latency recovery path:
 
 ```bash
 bash scripts/lib/mango-display-wake.sh --focus-launcher-if-idle

@@ -36,9 +36,9 @@ disruptive phases and writes operator JSON when deferred; no TV surface shows
 grow/debug state.
 
 Display anti-sleep is part of couch mode: X11 DPMS and screensaver blanking are
-disabled, and controller input wakes the display through
-`scripts/lib/mango-display-wake.sh`. Launcher focus is restored only when mpv is
-not active.
+disabled, UI start forces the display on through
+`scripts/lib/mango-display-wake.sh`, and controller input retains the same
+low-latency wake path. Launcher focus is restored only when mpv is not active.
 
 Launcher display mode is separate from playback stream policy. Couch mode
 applies a lightweight launcher mode through `scripts/lib/mango-display-mode.sh`;
