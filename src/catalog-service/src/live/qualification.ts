@@ -257,7 +257,14 @@ export function qualifiesLiveChannel(channel: LiveChannelMeta, policy?: LiveQual
 }
 
 export function canonicalLiveChannelKey(channel: LiveChannelMeta): string {
-  return canonicalLiveTitle(channel.name || channel.title || channel.id) || channel.id;
+  let key = canonicalLiveTitle(channel.name || channel.title || channel.id) || channel.id;
+  key = key.replace(/^prime\s+/, '');
+  // Collapse AREA69 pack prefixes that duplicate the same standing brand.
+  // Keep language prefixes like "hindi …" so Hindi Cartoon Network stays distinct.
+  key = key.replace(/^(?:sports|english)\s+/, '');
+  if (key === 'times now news') key = 'times now';
+  if (key === 'sansad tv 1') key = 'sansad tv';
+  return key;
 }
 
 export function dedupeLiveChannelsByCanonicalKey<T extends LiveChannelMeta>(channels: T[]): T[] {
