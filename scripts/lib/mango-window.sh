@@ -66,14 +66,14 @@ show_mango_shell() {
   source "$script_dir/mango-browse-display.sh"
   require_browse_display_before_launcher_reveal
 
-  wmctrl -x -r mango-launcher -b remove,hidden 2>/dev/null || true
-  wmctrl -r "mango launcher" -b remove,hidden 2>/dev/null || true
-
+  # Map one canonical surface only. present-launcher keeps any Chromium sibling
+  # top-level windows unmapped and fails if more than one remains viewable.
   if command -v xdotool >/dev/null 2>&1; then
-    for wid in $(xdotool search --class mango-launcher 2>/dev/null); do
+    wid="$(find_launcher_wid_any 2>/dev/null || true)"
+    if [[ -n "$wid" ]]; then
       xdotool windowmap "$wid" 2>/dev/null || true
       wmctrl -i -r "$wid" -b remove,below,hidden 2>/dev/null || true
-    done
+    fi
   fi
 
   bash "$script_dir/present-launcher.sh" --quick 2>/dev/null \

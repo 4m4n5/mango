@@ -66,9 +66,9 @@ present_launcher_ready() {
     show_launcher_surface
     wid="$(find_launcher_wid 2>/dev/null || true)"
     if [[ -n "$wid" ]]; then
-      # Always full present after playback — never --quick. Hide shrinks Chromium
-      # siblings to ~1x1/200x200; --quick can latch onto a stale large wid and
-      # leave the visible surface tiny (couch lag / broken navigation).
+      # Always full present after playback — never --quick. Hide unmaps Chromium
+      # top-level windows; full present maps and sizes one canonical surface and
+      # keeps any sibling InputOutput windows unmapped.
       if bash "$REPO_DIR/scripts/lib/present-launcher.sh" 2>/dev/null; then
         return 0
       fi

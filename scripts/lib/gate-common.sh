@@ -204,6 +204,27 @@ gate_display_awake() {
   fi
 }
 
+gate_launcher_single_window() {
+  local window_repo count
+  window_repo="${MANGO_REPO_DIR:-${REPO_DIR:-}}"
+  if ! command -v xdotool >/dev/null 2>&1 || ! command -v xwininfo >/dev/null 2>&1; then
+    gate_warn "launcher window count skipped: X11 tools unavailable"
+    return 0
+  fi
+  if ! xdotool getdisplaygeometry >/dev/null 2>&1; then
+    gate_warn "launcher window count skipped: X display ${DISPLAY:-unset} unavailable"
+    return 0
+  fi
+  # shellcheck source=launcher-window.sh
+  source "$window_repo/scripts/lib/launcher-window.sh"
+  count="$(launcher_viewable_input_output_count)"
+  if [[ "$count" == "1" ]]; then
+    gate_pass "InputOutput mango-launcher window count 1"
+  else
+    gate_fail "InputOutput mango-launcher window count ${count}; restart mango-launcher-chromium.service"
+  fi
+}
+
 gate_idle_hygiene() {
   local chromium firefox browser_apps stremio kodi mem_mb indexer orphans remapper pad
   chromium="$(gate_process_count 'chromium.*--app=')"
@@ -217,6 +238,7 @@ gate_idle_hygiene() {
   pad="$(gate_process_count 'mango-tv-pad\.py')"
   mem_mb="$(awk '/^Mem:/ {print $7}' <(free -m 2>/dev/null) || echo 0)"
   gate_display_awake
+  gate_launcher_single_window
   [[ "${browser_apps:-0}" -le 1 ]] && gate_pass "launcher browser apps ${browser_apps}" || gate_fail "launcher browser apps ${browser_apps} > 1"
   [[ "${stremio:-0}" -eq 0 ]] && gate_pass "stremio idle" || gate_fail "stremio running at idle"
   [[ "${kodi:-0}" -eq 0 ]] && gate_pass "kodi idle" || gate_fail "kodi running at idle"

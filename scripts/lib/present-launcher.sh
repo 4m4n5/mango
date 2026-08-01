@@ -24,23 +24,26 @@ launcher_is_tv_sized() {
   (( WIDTH >= screen_w - 80 && HEIGHT >= screen_h - 80 ))
 }
 
-# Chromium kiosk often keeps several WM_CLASS=mango-launcher windows. Playback hide
-# shrinks them off-screen (wmctrl 1x1); if we only resize find_launcher_wid's pick,
-# a sibling can stay tiny and become the visible surface — couch lag / broken UI.
-resize_all_launcher_windows() {
-  local screen_w=$1 screen_h=$2 wid
+# Chromium can retain sibling mango-launcher top-level windows. Exactly one
+# canonical InputOutput surface may be mapped; siblings stay alive but unmapped.
+unmap_launcher_siblings() {
+  local canonical=$1 wid
   command -v xdotool >/dev/null 2>&1 || return 0
   for wid in $(xdotool search --class mango-launcher 2>/dev/null); do
     launcher_window_is_input_output "$wid" || continue
-    xdotool windowmap "$wid" 2>/dev/null || true
-    xdotool windowmove "$wid" 0 0 2>/dev/null || true
-    xdotool windowsize "$wid" "$screen_w" "$screen_h" 2>/dev/null || true
+    [[ "$wid" == "$canonical" ]] && continue
     if command -v wmctrl >/dev/null 2>&1; then
-      wmctrl -i -r "$wid" -e "0,0,0,${screen_w},${screen_h}" 2>/dev/null || true
-      wmctrl -i -r "$wid" -b remove,below,hidden 2>/dev/null || true
-      wmctrl -i -r "$wid" -b add,maximized_vert,maximized_horz,fullscreen 2>/dev/null || true
+      wmctrl -i -r "$wid" -b add,below,hidden 2>/dev/null || true
     fi
+    xdotool windowunmap "$wid" 2>/dev/null || true
   done
+}
+
+single_launcher_surface_ready() {
+  local canonical=$1
+  launcher_window_is_viewable "$canonical" \
+    && launcher_is_tv_sized "$canonical" \
+    && [[ "$(launcher_viewable_input_output_count)" == "1" ]]
 }
 
 present_launcher_tv() {
@@ -50,7 +53,8 @@ present_launcher_tv() {
 
   read -r screen_w screen_h < <(xdotool getdisplaygeometry 2>/dev/null || echo "1920 1080")
 
-  resize_all_launcher_windows "$screen_w" "$screen_h"
+  unmap_launcher_siblings "$wid"
+  xdotool windowmap "$wid" 2>/dev/null || true
   xdotool windowactivate "$wid" 2>/dev/null || true
   xdotool windowmove "$wid" 0 0 2>/dev/null || true
   xdotool windowsize "$wid" "$screen_w" "$screen_h" 2>/dev/null || true
@@ -61,41 +65,29 @@ present_launcher_tv() {
     wmctrl -i -r "$wid" -b remove,hidden 2>/dev/null || true
   fi
 
-  launcher_is_tv_sized "$wid" && return 0
+  unmap_launcher_siblings "$wid"
+  single_launcher_surface_ready "$wid" && return 0
 
   local attempt
   for attempt in 1 2 3; do
-    resize_all_launcher_windows "$screen_w" "$screen_h"
+    unmap_launcher_siblings "$wid"
     xdotool windowsize "$wid" "$screen_w" "$screen_h" 2>/dev/null || true
-    launcher_is_tv_sized "$wid" && return 0
+    single_launcher_surface_ready "$wid" && return 0
     sleep 0.08
   done
   return 1
-}
-
-# True only when every InputOutput mango-launcher window is TV-sized.
-# A single large wid is not enough — Chromium keeps siblings that hide() shrinks.
-all_launcher_windows_tv_sized() {
-  local wid found=0
-  command -v xdotool >/dev/null 2>&1 || return 1
-  for wid in $(xdotool search --class mango-launcher 2>/dev/null); do
-    launcher_window_is_input_output "$wid" || continue
-    found=1
-    launcher_is_tv_sized "$wid" || return 1
-  done
-  (( found > 0 ))
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   QUICK=false
   [[ "${1:-}" == "--quick" ]] && QUICK=true
 
-  WID=$(find_launcher_wid) || {
+  WID=$(find_launcher_wid 2>/dev/null || find_launcher_wid_any 2>/dev/null) || {
     echo "! mango launcher window not found" >&2
     exit 1
   }
 
-  if $QUICK && launcher_is_tv_sized "$WID" && all_launcher_windows_tv_sized; then
+  if $QUICK && single_launcher_surface_ready "$WID"; then
     xdotool windowactivate "$WID" 2>/dev/null || true
     wmctrl -i -r "$WID" -b add,activated 2>/dev/null || true
     bash "$SCRIPT_DIR/mango-cursor.sh" hide 2>/dev/null || true
@@ -110,7 +102,7 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     bash "$SCRIPT_DIR/mango-cursor.sh" hide 2>/dev/null || true
     echo "✓ Launcher TV-sized (wid=$WID ${WIDTH:-?}x${HEIGHT:-?})"
   else
-    echo "! Launcher resize incomplete (wid=$WID)" >&2
+    echo "! Launcher single-surface repair incomplete (wid=$WID); restart mango-launcher-chromium.service" >&2
     exit 1
   fi
 fi

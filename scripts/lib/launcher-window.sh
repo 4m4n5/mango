@@ -54,7 +54,7 @@ launcher_window_area() {
   printf '%s\n' $((width * height))
 }
 
-launcher_window_is_match() {
+launcher_window_is_candidate() {
   local wid="$1"
   local name class_blob cmdline port
 
@@ -70,7 +70,6 @@ launcher_window_is_match() {
   [[ "$class_blob" != *"mango-overlay"* ]] || return 1
   [[ "$name" != *"selection owner"* ]] || return 1
   [[ "$name" != *"tooltip"* ]] || return 1
-  launcher_window_is_viewable "$wid" || return 1
   launcher_window_is_input_output "$wid" || return 1
 
   if [[ "$class_blob" == *"mango-launcher"* ]]; then
@@ -80,7 +79,13 @@ launcher_window_is_match() {
   [[ "$class_blob" == *"navigator"* || "$class_blob" == *"firefox"* ]]
 }
 
-find_launcher_wid() {
+launcher_window_is_match() {
+  launcher_window_is_candidate "$1" || return 1
+  launcher_window_is_viewable "$1"
+}
+
+_find_launcher_wid() {
+  local require_viewable="$1"
   local best_wid best_area wid pid area
   best_wid=""
   best_area=0
@@ -90,7 +95,10 @@ find_launcher_wid() {
   for pid in $(launcher_browser_pids); do
     while IFS= read -r wid; do
       [[ -n "$wid" ]] || continue
-      launcher_window_is_match "$wid" || continue
+      launcher_window_is_candidate "$wid" || continue
+      if [[ "$require_viewable" == "1" ]]; then
+        launcher_window_is_viewable "$wid" || continue
+      fi
       area="$(launcher_window_area "$wid")"
       if (( area > best_area )); then
         best_area="$area"
@@ -106,7 +114,10 @@ find_launcher_wid() {
 
   while IFS= read -r wid; do
     [[ -n "$wid" ]] || continue
-    launcher_window_is_match "$wid" || continue
+    launcher_window_is_candidate "$wid" || continue
+    if [[ "$require_viewable" == "1" ]]; then
+      launcher_window_is_viewable "$wid" || continue
+    fi
     area="$(launcher_window_area "$wid")"
     if (( area > best_area )); then
       best_area="$area"
@@ -121,6 +132,25 @@ find_launcher_wid() {
 
   [[ -n "$best_wid" ]] || return 1
   printf '%s\n' "$best_wid"
+}
+
+find_launcher_wid() {
+  _find_launcher_wid 1
+}
+
+find_launcher_wid_any() {
+  _find_launcher_wid 0
+}
+
+launcher_viewable_input_output_count() {
+  local wid count=0
+  command -v xdotool >/dev/null 2>&1 || { echo 0; return; }
+  for wid in $(xdotool search --class mango-launcher 2>/dev/null); do
+    launcher_window_is_input_output "$wid" || continue
+    launcher_window_is_viewable "$wid" || continue
+    count=$((count + 1))
+  done
+  echo "$count"
 }
 
 active_window_is_launcher() {
