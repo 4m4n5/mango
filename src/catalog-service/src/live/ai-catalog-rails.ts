@@ -1,12 +1,17 @@
 import { loadAiCatalogSlots, slotsForTab } from '../ai-catalogs/store.js';
 import type { AiCatalogSlotFile, AiSeedTitle } from '../ai-catalogs/types.js';
 import type { RailItem, RailItemsResponse, TabRailItemsResponse } from '../core.js';
+import { canonicalLiveChannelKey } from './qualification.js';
 
 const LIVE_AI_RAIL_LIMIT = 20;
 
 /** Live AI slots merged into yaml sport rails instead of separate ai-* rows. */
 export const LIVE_AI_MERGE_TARGETS: Readonly<Record<string, string>> = {
   'cricket-channels': 'live-cricket',
+};
+
+const LIVE_AI_MERGE_LIMITS: Readonly<Record<string, number>> = {
+  'live-cricket': 12,
 };
 
 /** Explain seed-only Live slots on operator rail listings without a VOD probe. */
@@ -79,17 +84,37 @@ export async function buildLiveAiCatalogRails(): Promise<RailItemsResponse[]> {
   return rails;
 }
 
-function mergeItemsIntoRail(rail: RailItemsResponse, extras: RailItem[]): RailItemsResponse {
+function mergeItemsIntoRail(
+  rail: RailItemsResponse,
+  extras: RailItem[],
+  limit = LIVE_AI_RAIL_LIMIT,
+): RailItemsResponse {
   if (extras.length === 0) {
     return rail;
   }
   const seen = new Set(rail.items.map((item) => item.id));
+  const seenTitles = new Set(
+    rail.items.map((item) => canonicalLiveChannelKey({
+      id: item.id,
+      name: item.title,
+      title: item.title,
+    })).filter(Boolean),
+  );
   const merged = [...rail.items];
   for (const item of extras) {
-    if (seen.has(item.id)) {
+    if (merged.length >= limit) {
+      break;
+    }
+    const titleKey = canonicalLiveChannelKey({
+      id: item.id,
+      name: item.title,
+      title: item.title,
+    });
+    if (seen.has(item.id) || (titleKey && seenTitles.has(titleKey))) {
       continue;
     }
     seen.add(item.id);
+    if (titleKey) seenTitles.add(titleKey);
     merged.push(item);
   }
   if (merged.length === rail.items.length) {
@@ -97,8 +122,8 @@ function mergeItemsIntoRail(rail: RailItemsResponse, extras: RailItem[]): RailIt
   }
   return {
     ...rail,
-    items: merged,
-    playability: playabilityForItems(merged),
+    items: merged.slice(0, limit),
+    playability: playabilityForItems(merged.slice(0, limit)),
   };
 }
 
@@ -123,7 +148,11 @@ export async function applyLiveAiCatalogRails(
 
   let rails = payload.rails.map((rail) => {
     const extras = mergeByTarget.get(rail.rail_id);
-    return extras?.length ? mergeItemsIntoRail(rail, extras) : rail;
+    if (!extras?.length) {
+      return rail;
+    }
+    const limit = LIVE_AI_MERGE_LIMITS[rail.rail_id] ?? LIVE_AI_RAIL_LIMIT;
+    return mergeItemsIntoRail(rail, extras, limit);
   });
 
   const aiRails = await buildLiveAiCatalogRails();

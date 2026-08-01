@@ -260,8 +260,9 @@ export function canonicalLiveChannelKey(channel: LiveChannelMeta): string {
   let key = canonicalLiveTitle(channel.name || channel.title || channel.id) || channel.id;
   key = key.replace(/^prime\s+/, '');
   // Collapse AREA69 pack prefixes that duplicate the same standing brand.
-  // Keep language prefixes like "hindi …" so Hindi Cartoon Network stays distinct.
+  // Keep language prefixes like "hindi cartoon network" so Hindi CN stays distinct.
   key = key.replace(/^(?:sports|english)\s+/, '');
+  key = key.replace(/^hindi (dd sports)$/, '$1');
   if (key === 'times now news') key = 'times now';
   if (key === 'sansad tv 1') key = 'sansad tv';
   return key;
