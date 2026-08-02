@@ -56,7 +56,11 @@ PY
     deadline=$(( $(date +%s) + 90 ))
     for url in "${local_manifests[@]}"; do
       while [[ $(date +%s) -lt $deadline ]]; do
-        if curl -sf --max-time 4 -o /dev/null "$url" 2>/dev/null; then
+        # Any HTTP response means the container is up. Live NexoTV often returns
+        # 429 under probe storms; -f would treat that as "not ready" and burn the
+        # full 90s boot budget before catalog listens.
+        code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 4 "$url" 2>/dev/null || true)"
+        if [[ "$code" =~ ^[1-5][0-9][0-9]$ ]]; then
           break
         fi
         sleep 2

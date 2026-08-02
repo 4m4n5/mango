@@ -3173,7 +3173,19 @@ export class CatalogCore {
     let notes: ResolveNote[] = [];
 
     for (let attempt = 0; attempt <= retryAttempts; attempt += 1) {
-      const streamAddons = this.addons.filter((addon) => supportsResource(addon.manifest, 'stream', type));
+      // Live/IPTV addons advertise `stream` but must not join movie/series fan-out —
+      // their 429/empty responses race AIOStreams and leave couch titles with zero rows.
+      const liveNames = liveAddonNames(this.liveRailConfig);
+      const streamAddons = this.addons.filter((addon) => {
+        if (!supportsResource(addon.manifest, 'stream', type)) return false;
+        if (type !== 'tv' && looksLikeLiveAddon(
+          { name: addon.name, manifestUrl: addon.manifestUrl },
+          liveNames,
+        )) {
+          return false;
+        }
+        return true;
+      });
       const fanoutStarted = Date.now();
       const settled = await Promise.allSettled(
         streamAddons.map((addon) => this.fetchAddonStreams(addon, type, id, options)),
