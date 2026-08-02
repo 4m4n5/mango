@@ -16,7 +16,7 @@ if [[ -z "$ID" || ! "$ID" =~ ^[A-Za-z0-9:_-]+$ ]]; then
   exit 2
 fi
 command -v curl >/dev/null || { echo "curl is required" >&2; exit 2; }
-command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
+command -v python3 >/dev/null || { echo "python3 is required" >&2; exit 2; }
 
 STREAMS_JSON="$(mktemp)"
 HEALTH_JSON="$(mktemp)"
@@ -30,30 +30,43 @@ curl -fsS --max-time 40 \
 curl -fsS --max-time 5 "$BASE_URL/health" >"$HEALTH_JSON"
 
 echo "stream ladder (URL-free)"
-jq '{
-  resolve_ms,
-  cached,
-  stream_count: (.streams | length),
-  streams: [.streams[] | {
-    source,
-    indexer,
-    debrid_service,
-    cache_status,
-    resolution,
-    encode,
-    ladder_step,
-    unverified
-  }]
-}' "$STREAMS_JSON"
+python3 - "$STREAMS_JSON" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding="utf-8"))
+streams = []
+for s in d.get("streams") or []:
+    streams.append({
+        "source": s.get("source"),
+        "indexer": s.get("indexer"),
+        "debrid_service": s.get("debrid_service"),
+        "cache_status": s.get("cache_status"),
+        "resolution": s.get("resolution"),
+        "encode": s.get("encode"),
+        "ladder_step": s.get("ladder_step"),
+        "unverified": s.get("unverified"),
+    })
+print(json.dumps({
+    "resolve_ms": d.get("resolve_ms"),
+    "cached": d.get("cached"),
+    "stream_count": len(d.get("streams") or []),
+    "streams": streams,
+}, indent=2))
+PY
 
 echo "resolver health (fixed categories only)"
-jq '{
-  configured_stream_providers,
-  resolver: {
-    provider_fanout_requests: .resolver.provider_fanout_requests,
-    provider_fanout_addons: .resolver.provider_fanout_addons,
-    provider_fanout_total_ms: .resolver.provider_fanout_total_ms,
-    providers: .resolver.providers,
-    last_user_contributions: .resolver.last_contributions.user
-  }
-}' "$HEALTH_JSON"
+python3 - "$HEALTH_JSON" <<'PY'
+import json, sys
+h = json.load(open(sys.argv[1], encoding="utf-8"))
+resolver = h.get("resolver") or {}
+contrib = (resolver.get("last_contributions") or {}).get("user")
+print(json.dumps({
+    "configured_stream_providers": h.get("configured_stream_providers"),
+    "resolver": {
+        "provider_fanout_requests": resolver.get("provider_fanout_requests"),
+        "provider_fanout_addons": resolver.get("provider_fanout_addons"),
+        "provider_fanout_total_ms": resolver.get("provider_fanout_total_ms"),
+        "providers": resolver.get("providers"),
+        "last_user_contributions": contrib,
+    },
+}, indent=2))
+PY
