@@ -66,6 +66,25 @@ test("playback return survives an intentional Chromium tab restart", () => {
   });
 });
 
+test("playback return remains durable across a thaw-before-restart race", () => {
+  // Matched-4K restore historically thawed Chromium before killing it. The
+  // suspended SPA could resume, refresh detail, and clear the snapshot before
+  // the process died — boot then landed on Movies+Search. Keep localStorage
+  // populated through that window; only an explicit clear may remove it.
+  withBrowserStorage((_local, session) => {
+    savePlaybackReturnSnapshot("movies", {
+      id: "tt39139925",
+      type: "movie",
+      title: "Dhurandhar: The Revenge",
+      subtitle: "2026",
+    });
+    session.clear();
+    assert.equal(readPlaybackReturnSnapshot()?.cardId, "tt39139925");
+    // Simulate another focus/visibility refresh that must NOT clear.
+    assert.equal(readPlaybackReturnSnapshot()?.cardId, "tt39139925");
+  });
+});
+
 test("clearing a playback return removes both durable and session copies", () => {
   withBrowserStorage(() => {
     savePlaybackReturnSnapshot("series", officeUk, "tt0290978:1:1");

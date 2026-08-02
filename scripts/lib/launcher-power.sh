@@ -44,7 +44,16 @@ launcher_thaw() {
 # Cold-start the kiosk after HDMI mode changed under a frozen Chromium.
 # Thaw first so systemd can stop a frozen unit cleanly, then restart.
 launcher_restart_for_clean_gl() {
-  launcher_thaw
+  # Prefer kill-while-frozen over thaw-then-restart. Thawing first lets
+  # suspended launcher JS resume briefly and clear the durable playback-return
+  # snapshot before the process is replaced for EGL rebuild.
   systemctl --user reset-failed "$LAUNCHER_UNIT" 2>/dev/null || true
-  systemctl --user restart "$LAUNCHER_UNIT" >/dev/null 2>&1 || true
+  if systemctl --user kill -s SIGKILL "$LAUNCHER_UNIT" >/dev/null 2>&1; then
+    systemctl --user stop "$LAUNCHER_UNIT" >/dev/null 2>&1 || true
+  else
+    launcher_thaw 2>/dev/null || true
+    systemctl --user stop "$LAUNCHER_UNIT" >/dev/null 2>&1 || true
+  fi
+  launcher_thaw 2>/dev/null || true
+  systemctl --user start "$LAUNCHER_UNIT" >/dev/null 2>&1 || true
 }

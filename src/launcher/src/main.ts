@@ -211,7 +211,6 @@ init();
 function init(): void {
   searchEntry.dataset.focusKey = "browse:search";
   libraryRefreshBtn.dataset.focusKey = "browse:shuffle";
-  renderHome();
 
   backButton.addEventListener("click", showHome);
   searchEntry.addEventListener("click", () => void openSearch());
@@ -226,13 +225,27 @@ function init(): void {
   });
   window.addEventListener("mango:library-refresh", () => void libraryRefresh({ quiet: true }));
   void loadInfo();
-  // A matched-display playback can restart Chromium. Restore the durable
-  // playback surface first instead of racing a cold catalog fetch against it.
-  if (!readPlaybackReturnSnapshot()) {
+  // Matched-4K playback restarts Chromium after restore. Prefer the durable
+  // playback-return snapshot over painting Movies+Search first, and never race
+  // a cold catalog fetch ahead of that restore.
+  const pendingPlaybackReturn = readPlaybackReturnSnapshot();
+  if (pendingPlaybackReturn) {
+    homeView.classList.add("hidden");
+    void tryRestorePlaybackReturnOnBoot().finally(() => {
+      if (!detail.isOpen && !search.isOpen) {
+        homeView.classList.remove("hidden");
+        renderHome();
+        void loadCatalog();
+      } else if (!search.isOpen) {
+        void loadCatalog();
+      }
+    });
+  } else {
+    renderHome();
     void loadCatalog();
     tryRestoreSearchOnBoot();
+    void tryRestorePlaybackReturnOnBoot();
   }
-  void tryRestorePlaybackReturnOnBoot();
   startVoiceHud();
   startVoiceCommands(resolveVoiceWsUrls(), {
     onHome: showHome,
@@ -830,6 +843,9 @@ function showHome(): void {
 }
 
 function restoreFromDetail(origin: DetailOriginContext): void {
+  // Leaving detail is the durable hand-off point. Keep the snapshot across a
+  // same-process thaw so a matched-4K Chromium restart can still reopen detail.
+  clearPlaybackReturnSnapshot();
   inSettings = false;
   settingsView.classList.add("hidden");
   if (origin.surface === "search") {
@@ -1073,7 +1089,10 @@ async function restorePlaybackSurfaceIfNeeded(): Promise<void> {
       } else {
         detail.focusAfterPlaybackReturn();
       }
-      clearPlaybackReturnSnapshot();
+      // Do not clear here. Matched-4K restore thaws Chromium before restarting
+      // it for EGL rebuild; clearing on thaw races the kill and boots Home.
+      // Snapshot clears when detail is left (restoreFromDetail) or after a
+      // cold reopen via restoreDetailFromSnapshot / Live tab_home.
       return;
     }
 
