@@ -37,7 +37,7 @@ What works today, what is still being hardened, and how to verify it.
 
 | Feature | Detail |
 |---------|--------|
-| Play orchestrator | Parallel resolve · ladder · 90 s wall · probe-then-play |
+| Play orchestrator | Concurrent/coalesced resolve · one bounded multi-phase attempt budget · probe-then-play · display-neutral candidate rejection · pipeline-fatal stop |
 | Stream picker | `GET /stream/{type}/{id}` · `display_label` rows |
 | Continue | `progress.db` · mpv position watcher |
 | Episodes | Season list · per-episode streams · next-up overlay |

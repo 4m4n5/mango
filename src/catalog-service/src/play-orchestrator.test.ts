@@ -8,7 +8,7 @@ import { playWithLadder, probeWithLadder } from './play-orchestrator.js';
 import { defaultPlayLadder, splitLegacyPlayLadder } from './play-ladder.js';
 import { resetPlayabilityDbForTests } from './playability/db.js';
 import { defaultFilterConfig, mergeFilterConfig, streamUrlHash } from './stream-filters.js';
-import { clearStreamBadCache, isStreamUrlBad } from './stream-bad-cache.js';
+import { clearStreamBadCache, isStreamUrlBad, markStreamUrlBad } from './stream-bad-cache.js';
 
 let testDbDir = '';
 
@@ -692,4 +692,224 @@ test('known-risk main candidate waits behind a smooth last-resort candidate', as
   assert.equal(result.ok, true);
   assert.deepEqual(probeCalls, [smooth1080.url]);
   assert.deepEqual(playCalls, [smooth1080.url]);
+});
+
+test('pipeline-fatal handoff failure aborts fallthrough without bad-caching the stream', async () => {
+  const first = candidate('https://example.test/pipeline-fatal-first.mkv');
+  const second = candidate(
+    'https://example.test/pipeline-fatal-second.mkv',
+    '[TB☁️⚡] Torrentio 1080p alternate',
+  );
+  const playCalls: string[] = [];
+
+  const error = await playWithLadder([first, second], testConfig({
+    auto_play_max_attempts: 4,
+  }), {
+    verified_hint: {
+      win_url_hash: streamUrlHash(first.url),
+      win_ladder_step: 'ideal',
+      probe_ms: 100,
+    },
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 100, duration_sec: 5400 }),
+    play: async (url) => {
+      playCalls.push(url);
+      if (url === first.url) {
+        throw new Error('mpv-play failed: mpv handoff failed');
+      }
+      return { ok: true, ttff_ms: 200 };
+    },
+  }).catch((caught) => caught);
+
+  assert.ok(error instanceof Error);
+  assert.equal(error.message, 'playback_pipeline_failed');
+  assert.deepEqual(playCalls, [first.url]);
+  assert.equal(isStreamUrlBad(streamUrlHash(first.url)), false);
+});
+
+test('wrapper-reported cancellation aborts fallthrough without bad-caching the stream', async () => {
+  const first = candidate('https://example.test/cancelled-first.mkv');
+  const second = candidate(
+    'https://example.test/cancelled-second.mkv',
+    '[TB☁️⚡] Torrentio 1080p alternate',
+  );
+  const playCalls: string[] = [];
+
+  const error = await playWithLadder([first, second], testConfig({
+    auto_play_max_attempts: 4,
+  }), {
+    verified_hint: {
+      win_url_hash: streamUrlHash(first.url),
+      win_ladder_step: 'ideal',
+      probe_ms: 100,
+    },
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 100, duration_sec: 5400 }),
+    play: async (url) => {
+      playCalls.push(url);
+      throw new Error('mpv-play failed: play cancelled');
+    },
+  }).catch((caught) => caught);
+
+  assert.ok(error instanceof Error);
+  assert.equal(error.message, 'playback_pipeline_failed');
+  assert.deepEqual(playCalls, [first.url]);
+  assert.equal(isStreamUrlBad(streamUrlHash(first.url)), false);
+});
+
+test('probeWithLadder aborts on pipeline-fatal ownership failure', async () => {
+  const first = candidate('https://example.test/probe-fatal-first.mkv');
+  const second = candidate(
+    'https://example.test/probe-fatal-second.mkv',
+    '[TB☁️⚡] Torrentio 1080p alternate',
+  );
+  const probeCalls: string[] = [];
+
+  const error = await probeWithLadder([first, second], testConfig(), {
+    preflight: async () => 'video',
+    probe: async (url) => {
+      probeCalls.push(url);
+      throw new Error('mpv-play failed: foreground_playback_busy');
+    },
+  }).catch((caught) => caught);
+
+  assert.ok(error instanceof Error);
+  assert.equal(error.message, 'playback_pipeline_failed');
+  assert.deepEqual(probeCalls, [first.url]);
+  assert.equal(isStreamUrlBad(streamUrlHash(first.url)), false);
+});
+
+test('ordinary candidate failure still falls through to the next stream', async () => {
+  const first = candidate('https://example.test/ordinary-first.mkv');
+  const second = candidate(
+    'https://example.test/ordinary-second.mkv',
+    '[TB☁️⚡] Torrentio 1080p alternate',
+  );
+  const playCalls: string[] = [];
+
+  const result = await playWithLadder([first, second], testConfig({
+    auto_play_max_attempts: 2,
+  }), {
+    verified_hint: {
+      win_url_hash: streamUrlHash(first.url),
+      win_ladder_step: 'ideal',
+      probe_ms: 100,
+    },
+    preflight: async () => 'video',
+    probe: async () => ({ ok: true, ttff_ms: 100, duration_sec: 5400 }),
+    play: async (url) => {
+      playCalls.push(url);
+      if (url === first.url) {
+        throw new Error('mpv-play failed: HTTP error 403');
+      }
+      return { ok: true, ttff_ms: 200 };
+    },
+  });
+
+  assert.deepEqual(playCalls, [first.url, second.url]);
+  assert.equal(result.stream.title, second.title);
+  assert.equal(result.attempts.length, 2);
+});
+
+test('auto_play_max_attempts is global across main and last-resort phases', async () => {
+  const main = candidate('https://example.test/global-main.mkv');
+  const resortOne = candidate('https://example.test/global-resort-one.mkv', '[TB⏳] Torrentio 720p A');
+  resortOne.cache_status = 'uncached';
+  resortOne.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|false|720p-a' };
+  resortOne.description = '720p WEBRip x264';
+  const resortTwo = candidate('https://example.test/global-resort-two.mkv', '[TB⏳] Torrentio 720p B');
+  resortTwo.cache_status = 'uncached';
+  resortTwo.behaviorHints = { bingeGroup: 'com.aiostreams|torbox|false|720p-b' };
+  resortTwo.description = '720p WEBRip x264';
+  const mainLadder = [{
+    step: 'main_cached',
+    max_quality: '1080p' as const,
+    exclude_remux: true,
+    require_cache: 'cached' as const,
+    debrid_services: ['torbox'],
+    addons: ['AIOStreams'],
+    verified: true,
+  }];
+  const lastResortLadder = [{
+    step: 'last_resort',
+    max_quality: '1080p' as const,
+    exclude_remux: true,
+    require_cache: 'any' as const,
+    debrid_services: ['torbox'],
+    addons: ['AIOStreams'],
+    verified: false,
+  }];
+  const probeCalls: string[] = [];
+
+  const error = await playWithLadder([main, resortOne, resortTwo], testConfig({
+    play_ladder: [...mainLadder, ...lastResortLadder],
+    main_ladder: mainLadder,
+    last_resort_ladder: lastResortLadder,
+    auto_play_max_attempts: 2,
+  }), {
+    preflight: async () => 'video',
+    probe: async (url) => {
+      probeCalls.push(url);
+      throw new Error('candidate transport rejected');
+    },
+    play: async () => ({ ok: true, ttff_ms: 100 }),
+  }).catch((caught) => caught);
+
+  assert.ok(error instanceof Error);
+  assert.equal(error.message, 'no_playable_stream');
+  assert.equal(probeCalls.length, 2);
+  assert.equal((error as { details?: { attempts?: unknown[] } }).details?.attempts?.length, 2);
+});
+
+test('thin retry consumes the global auto_play_max_attempts budget', async () => {
+  const stream = candidate('https://example.test/retry-budget.mkv');
+  let probeCalls = 0;
+
+  const error = await playWithLadder([stream], testConfig({
+    auto_play_max_attempts: 1,
+  }), {
+    preflight: async () => 'video',
+    probe: async () => {
+      probeCalls += 1;
+      throw new Error('mpv-play failed: timeout waiting for playback');
+    },
+    play: async () => ({ ok: true, ttff_ms: 100 }),
+  }).catch((caught) => caught);
+
+  assert.ok(error instanceof Error);
+  assert.equal(error.message, 'no_playable_stream');
+  assert.equal(probeCalls, 1);
+  assert.equal((error as { details?: { attempts?: unknown[] } }).details?.attempts?.length, 1);
+});
+
+test('cached-bad zero-I/O skip does not consume auto_play_max_attempts', async () => {
+  const cachedBad = candidate('https://example.test/cached-bad-skip.mkv');
+  const valid = candidate(
+    'https://example.test/valid-after-cached-bad.mkv',
+    '[TB☁️⚡] Torrentio 1080p alternate',
+  );
+  markStreamUrlBad(streamUrlHash(cachedBad.url));
+  const probeCalls: string[] = [];
+
+  const result = await playWithLadder([cachedBad, valid], testConfig({
+    auto_play_max_attempts: 1,
+  }), {
+    verified_hint: {
+      win_url_hash: streamUrlHash(cachedBad.url),
+      win_ladder_step: 'ideal',
+      probe_ms: 100,
+    },
+    preflight: async () => 'video',
+    probe: async (url) => {
+      probeCalls.push(url);
+      return { ok: true, ttff_ms: 100, duration_sec: 5400 };
+    },
+    play: async () => ({ ok: true, ttff_ms: 200 }),
+  });
+
+  assert.deepEqual(probeCalls, [valid.url]);
+  assert.equal(result.stream.title, valid.title);
+  assert.equal(result.attempts.length, 2);
+  assert.equal(result.attempts[0]?.error, 'stream_url_bad_cached');
+  assert.equal(result.attempts[1]?.ok, true);
 });

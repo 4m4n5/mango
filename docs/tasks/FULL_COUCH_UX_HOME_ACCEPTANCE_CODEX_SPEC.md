@@ -26,7 +26,7 @@ Workstreams, in order:
 1. **S0 — Source and environment preflight**
 2. **S1 — Git-only deploy and automated Pi gates**
 3. **S2 — Launcher, Search, Detail, and system-state couch proof**
-4. **S3 — mpv HUD and five-choice Streams drawer couch proof**
+4. **S3 — Playback ladder, mpv HUD, and five-choice Streams drawer proof**
 5. **S4 — Voice, companion, Settings, Reliability, controller, and display proof**
 6. **S5 — Evidence-driven fine-tuning loop and regression**
 7. **S6 — Report, final safe state, commit, and push**
@@ -95,10 +95,19 @@ Workstreams, in order:
 - **Home Mac repo:** the user's Mango clone; establish with `pwd`.
 - **Pi repo:** `~/mango` as user `aman`.
 - **Branch:** `feat/native-experience` only.
+- **Assignment target:** the starter prompt supplies an exact `TARGET_SHA`. Prove
+  that SHA is the fetched `origin/feat/native-experience` tip (or an ancestor of
+  it after a documented follow-up fix); never silently deploy an older local tip.
 - **Minimum required source ancestry:**
+  - the assignment's `TARGET_SHA` — atomic playback ownership and resolver-health
+    hardening plus this cumulative home acceptance contract.
+  - `b4d4f87` — restore Detail after a matched-4K playback exit.
+  - `07af9dc`, `4e57ae5`, `c4cb91b` — normalized VOD addon discovery/fetch and
+    Live/VOD isolation.
   - `afef49e` — cinematic mpv HUD and five-choice Streams drawer.
   - `63c34da` — launcher loading, empty, offline, stale, and toast states.
   - `539ebdb` — comprehensive launcher visual polish baseline.
+  - `2cbb86a`, `f81c9f0`, `5f48adc` — normal BlueZ reconnect hardening.
 - **Deploy contract:** `docs/DEPLOY.md`.
 - **Split-machine contract:** `docs/DEPLOY-SPLIT-MACHINE.md`.
 - **Existing ops/display/controller contract:**
@@ -123,6 +132,11 @@ git status --short
 git fetch origin feat/native-experience
 git rev-parse HEAD
 git rev-parse origin/feat/native-experience
+git merge-base --is-ancestor "$TARGET_SHA" origin/feat/native-experience
+git merge-base --is-ancestor b4d4f87 origin/feat/native-experience
+git merge-base --is-ancestor 07af9dc origin/feat/native-experience
+git merge-base --is-ancestor 4e57ae5 origin/feat/native-experience
+git merge-base --is-ancestor c4cb91b origin/feat/native-experience
 git merge-base --is-ancestor afef49e origin/feat/native-experience
 git merge-base --is-ancestor 63c34da origin/feat/native-experience
 git merge-base --is-ancestor 539ebdb origin/feat/native-experience
@@ -151,6 +165,7 @@ cd ../..
 python3 scripts/m1-foundation/pad/test_pad_context.py
 python3 scripts/m1-foundation/pad/test_pad_mpv_ipc.py
 python3 scripts/m2-catalog/service/test_mango_hud_contract.py
+bash scripts/lib/gate-catalog-unit.sh src/catalog-service
 bash scripts/m6-ship/gate-m6-stream-picker-source.sh
 bash scripts/m6-ship/gate-m6-ux-smoke.sh
 git diff --check
@@ -173,6 +188,18 @@ acceptance-and-tuning task, not permission for a broad redesign:
   is explicit, validated, URL-free, preserves the watch session, and offers a
   short contextual X Undo window.
 - Live and YouTube have no Streams drawer and must ignore X during playback.
+- VOD candidate attempts remain display-neutral until mpv proves real playback;
+  only then may the foreground handoff hide/freeze the launcher. A candidate
+  failure must never produce black → Detail → unexplained later playback.
+- One global attempt budget spans the ordinary, last-resort, obligation-floor,
+  risky, and thin-retry phases. Cached known-bad skips do not spend that budget.
+- Cancellation, stale play epoch, foreground-ownership conflict, display/VO
+  enable failure, handoff failure, and global deadline are terminal pipeline
+  failures. Ordinary candidate failures may continue to the next candidate.
+- AIOStreams is Mango's one VOD aggregate. Torrentio, MediaFusion, and Comet are
+  its internal indexers; TorBox and Real-Debrid are transports. Do not configure
+  all six as parallel direct Mango providers. Runtime credentials/config remain
+  home-owned and must never appear in evidence.
 - The controller's normal power-on reconnect path must never depend on pairing
   mode.
 - Intentional display sleep is locked and home-owned: Settings timeout choices,
@@ -192,6 +219,8 @@ acceptance-and-tuning task, not permission for a broad redesign:
 | HUD/Streams Pi | `scripts/m6-ship/gate-m6-stream-picker-smoke.sh` | Runtime, URL-free snapshot proof |
 | HUD render fixtures | `scripts/m6-ship/render-mpv-hud-fixtures.sh` | Actual mpv/libass images on Pi |
 | Playback SSOT | `scripts/m6-ship/gate-m6-playback-ssot.sh` | Lifecycle/foreground contract |
+| Playback ladder health | `scripts/diag/playback-ladder-health.sh` | URL-free provider/indexer/debrid contribution summary |
+| AIOStreams topology | `scripts/m4-addons/aiostreams-config.sh verify` | Aggregate health without printing credentials |
 | Reliability | `scripts/m6-ship/gate-m6-reliability-proof.sh` | Red fails; yellow requires explanation |
 | Controller | `scripts/m1-foundation/pad/controller-link-couch-test.sh` | Five ordinary wake cycles |
 | Controller failure | `scripts/m1-foundation/pad/controller-link-diagnose.sh` | Capture before pairing |
@@ -225,6 +254,8 @@ bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-ux-smoke.sh'
 bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-search-smoke.sh'
 bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-playback-ssot.sh'
 bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m4-addons/aiostreams-config.sh verify'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/diag/playback-ladder-health.sh movie tt3268458'
 bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-reliability-proof.sh'
 ```
 
@@ -274,7 +305,41 @@ collapse them into a single “looks good” verdict.
 **Acceptance:** all relevant rows have an automated result where applicable and
 a named human observation; any defect has reproduction steps and evidence.
 
-### S3 — mpv HUD and Streams drawer couch proof
+### S3 — Playback ladder, mpv HUD, and Streams drawer couch proof
+
+Begin with the reported regression title **The Internet's Own Boy** (IMDb
+`tt3268458`). The prior symptom was: loading, a black screen, return to Detail,
+then playback starting later without a new human selection. Capture sanitized
+timestamps and logs; never paste signed URLs or raw provider payloads.
+
+First prove the ladder and ownership contract:
+
+1. Run the URL-free ladder diagnostic above and record configured aggregate
+   counts plus provider/indexer/debrid contribution counts.
+2. `configured_stream_providers.aiostreams` should be `1`. Direct Torrentio,
+   MediaFusion, and Comet should normally be `0`; they contribute inside
+   AIOStreams. If live config differs, diagnose duplication before changing it.
+3. Across `tt3268458` and a small representative movie/series corpus, verify that
+   Torrentio, MediaFusion, and Comet contribute when naturally available, and
+   that TorBox/Real-Debrid transport contributions appear when configured and
+   naturally returned. Zero for one title is evidence, not automatic failure.
+4. Start `tt3268458` once. Until a candidate proves real playback, Detail must
+   remain the visible owner: no black takeover and no launcher freeze.
+5. If an ordinary candidate fails, the next candidate may start within the same
+   bounded play request, but there must be no intermediate black → Detail bounce.
+6. Press Back/cancel during loading. The request is terminal: no later candidate
+   may begin and no autonomous playback may appear afterward.
+7. A display-enable, VO-after-enable, foreground-handoff, ownership-conflict,
+   stale-epoch, or global-deadline failure is terminal; do not keep walking the
+   ladder after it.
+8. Confirm the shared attempt cap holds across every fallback phase and that a
+   cached known-bad zero-I/O skip does not consume an attempt.
+9. Record time from B to first real frame and whether video/audio begin smoothly.
+   Compare repeated runs without clearing caches or changing provider policy.
+
+Do not expose resolver URLs or credentials while proving contribution health.
+Do not turn Torrentio/MediaFusion/Comet into direct peers to make counters nonzero,
+and do not claim a resolver is broken from a single naturally empty title.
 
 Use a movie, a multi-episode series, Live, YouTube, a long stream ladder, a
 risky/unavailable candidate if naturally available, and a real 4K title.
@@ -308,8 +373,10 @@ Do not manufacture unavailable candidates by changing provider credentials or
 runtime databases. If the natural catalog cannot supply a proof row, mark only
 that row `DEFERRED` with the exact title/query needed next.
 
-**Acceptance:** every HUD/drawer row in `COUCH_TEST.md` is observed or honestly
-deferred; the relevant runtime gate remains green after the session.
+**Acceptance:** the reported title never produces black → Detail → autonomous
+late playback; cancel and pipeline-fatal states are terminal; the aggregate
+topology and sanitized contribution evidence are recorded; every HUD/drawer row
+in `COUCH_TEST.md` is observed or honestly deferred; relevant gates stay green.
 
 ### S4 — Voice, companion, Settings, Reliability, controller, and display proof
 
@@ -355,7 +422,10 @@ Allowed tuning examples: safe-area/token spacing, focus contrast, couch text
 size, panel density, fade thresholds, poster-label delay, HUD dwell, copy, or a
 localized focus-navigation correction. Changes to bindings, playback ownership,
 stream ranking, DB semantics, provider policy, display-sleep policy, or
-credentials are outside tuning scope and require a separate explicit decision.
+credentials are outside routine tuning scope and require a separate explicit
+decision. If the playback regression still reproduces, capture it and stop
+before altering those contracts; do not hide it with longer waits or extra
+attempts.
 
 **Acceptance:** every pushed fix is causally tied to observed evidence, tested,
 redeployed, and re-observed; no speculative redesign or contract drift.
@@ -378,9 +448,14 @@ Write `docs/tasks/FULL_COUCH_UX_HOME_ACCEPTANCE_REPORT.md` with:
 5. controller cycle timings and pairing-mode count;
 6. display-sleep/CEC proof and restored 30m default;
 7. 4K dropped-frame evidence plus the human visible-picture verdict;
-8. failed attempts and evidence-driven corrections;
-9. every `DEFERRED` item with reason, owner, and exact next action;
-10. confirmation that no credentials, URLs, runtime data, or private content are
+8. `tt3268458` playback-ladder verdict, B-to-first-frame timing, cancel proof,
+   terminal-failure proof, attempt-budget proof, and explicit confirmation that
+   no autonomous late playback occurred;
+9. URL-free AIOStreams topology plus provider/indexer/debrid contribution counts,
+   with naturally empty observations distinguished from configuration failures;
+10. failed attempts and evidence-driven corrections;
+11. every `DEFERRED` item with reason, owner, and exact next action;
+12. confirmation that no credentials, URLs, runtime data, or private content are
     included and that the box was left safe and usable.
 
 Stage only intentional source/docs, inspect the staged diff, commit the sanitized
@@ -431,6 +506,11 @@ reconcile transparently before continuing.
 - Correct branch and required patch ancestry proved.
 - Home/origin/Pi code SHAs match the intended deployed source.
 - Full deploy and automated gates pass or have exact, non-fabricated deferrals.
+- The Internet's Own Boy regression is proven fixed on the TV: no premature
+  foreground takeover, no post-cancel/later autonomous start, bounded fallthrough,
+  and recorded B-to-first-frame timing.
+- URL-free runtime evidence confirms the intended AIOStreams aggregate topology
+  and records natural indexer/debrid contributions without credential exposure.
 - Launcher P0 states, Home, Search, Detail, post-play, HUD, Streams, voice,
   companion, Settings, Reliability, controller, and display contracts have
   direct human observations.

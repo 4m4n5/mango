@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import {
   enrichStreamMetadata,
+  debridServiceId,
   filterAndRankStreams,
   hasCacheableStream,
   loadFilterConfig,
@@ -72,7 +73,18 @@ import {
 } from './catalog-errors.js';
 import { classifyPlayError } from './play-error-classify.js';
 import { capToPlayBudgetMs, remainingPlayBudgetMs } from './play-deadline.js';
-import { recordProviderFanout, recordResolveMetric } from './resolve-metrics.js';
+import {
+  recordProviderFanout,
+  recordResolverContributionSnapshot,
+  recordResolverProviderOutcome,
+  recordResolveMetric,
+  resolveMetricsSnapshot,
+  resolverProviderCategory,
+  resolverProviderCategoryCounts,
+  type ResolverContributionRequestClass,
+  type ResolverDebridCategory,
+  type ResolverIndexerCategory,
+} from './resolve-metrics.js';
 import { streamFlightBehaviorKey, streamFlightKey } from './stream-flight.js';
 import { resolvePosterFromMeta, metahubPosterUrl, normalizePosterUrl } from './poster.js';
 import { emitPlaybackTelemetry } from './playback-telemetry.js';
@@ -256,6 +268,40 @@ export type Stream = {
   source: string;
   [key: string]: unknown;
 };
+
+/** Map resolver evidence to fixed health buckets; never retain the evidence itself. */
+export function resolverIndexerCategoryForStream(stream: Stream): ResolverIndexerCategory {
+  const indexer = typeof stream.indexer === 'string' ? stream.indexer : '';
+  const evidence = `${stream.source} ${indexer}`.toLowerCase();
+  if (evidence.includes('torrentio')) return 'torrentio';
+  if (evidence.includes('mediafusion')) return 'mediafusion';
+  if (evidence.includes('comet')) return 'comet';
+  return 'other';
+}
+
+export function resolverDebridCategoryForStream(stream: Stream): ResolverDebridCategory {
+  switch (debridServiceId(stream)) {
+    case 'torbox': return 'torbox';
+    case 'realdebrid': return 'realdebrid';
+    default: return 'other';
+  }
+}
+
+function recordResolverContributions(
+  requestClass: ResolverContributionRequestClass,
+  streams: Stream[],
+): void {
+  recordResolverContributionSnapshot(
+    requestClass,
+    streams.map((stream) => {
+      const enriched = enrichStreamMetadata(stream);
+      return {
+        indexer: resolverIndexerCategoryForStream(enriched),
+        debrid: resolverDebridCategoryForStream(enriched),
+      };
+    }),
+  );
+}
 
 export type RailSummary = {
   id: string;
@@ -1209,6 +1255,14 @@ export class CatalogCore {
       core_version: this.coreStatus.version,
       addons: this.addons.length,
       addon_names: this.addons.map((addon) => addon.name),
+      configured_stream_providers: resolverProviderCategoryCounts(
+        this.addons
+          .filter((addon) => ['movie', 'series', 'tv'].some(
+            (type) => supportsResource(addon.manifest, 'stream', type),
+          ))
+          .map((addon) => addon.name),
+      ),
+      resolver: resolveMetricsSnapshot(),
       rails: this.railConfig ? enabledBrowsableRails(this.railConfig).length + this.aiCatalogRails.length : this.aiCatalogRails.length,
       ai_catalogs: this.aiCatalogRails.length,
       rails_ready: this.railConfigError === null,
@@ -3013,6 +3067,7 @@ export class CatalogCore {
     const key = `${type}:${id}`;
     const cached = this.streamCache.get(key);
     if (cached && cached.expiresAt > Date.now()) {
+      recordResolverContributions(options.requestClass ?? 'background', cached.streams);
       return {
         streams: cached.streams,
         notes: cached.notes,
@@ -3195,7 +3250,25 @@ export class CatalogCore {
       });
       const fanoutStarted = Date.now();
       const settled = await Promise.allSettled(
-        streamAddons.map((addon) => this.fetchAddonStreams(addon, type, id, options)),
+        streamAddons.map((addon) => {
+          const addonStarted = Date.now();
+          const category = resolverProviderCategory(addon.name);
+          return this.fetchAddonStreams(addon, type, id, options).then(
+            (result) => {
+              recordResolverProviderOutcome(
+                category,
+                result.streams.length > 0 ? 'success' : 'empty',
+                result.streams.length,
+                Date.now() - addonStarted,
+              );
+              return result;
+            },
+            (error) => {
+              recordResolverProviderOutcome(category, 'error', 0, Date.now() - addonStarted);
+              throw error;
+            },
+          );
+        }),
       );
       const fanoutMs = Date.now() - fanoutStarted;
       recordProviderFanout(streamAddons.length, fanoutMs);
@@ -3216,7 +3289,6 @@ export class CatalogCore {
           notes.push(resolveNote('addon_error', message));
         }
       }
-
       if (streams.length > 0 || attempt >= retryAttempts) {
         break;
       }
@@ -3228,6 +3300,9 @@ export class CatalogCore {
     const supplemented = await this.supplementThinStreams(type, id, streams, notes, options);
     streams = supplemented.streams;
     notes = supplemented.notes;
+    // Record the final user-visible pool, including an optional direct
+    // MediaFusion supplement rather than only the pre-supplement AIO result.
+    recordResolverContributions(options.requestClass ?? 'background', streams);
 
     const resolveMs = Date.now() - overallStarted;
     if (streams.length === 0 && retryAttempts > 0) {
@@ -3300,6 +3375,7 @@ export class CatalogCore {
     if (!manifestUrl) {
       return { streams, notes };
     }
+    let supplementStarted = 0;
     try {
       const supplementBudget = options.deadlineAtMs === undefined
         ? MEDIAFUSION_SUPPLEMENT_BUDGET_MS
@@ -3310,6 +3386,7 @@ export class CatalogCore {
           notes: [...notes, resolveNote('annotation', 'mediafusion thin-supplement skipped — play deadline exhausted')],
         };
       }
+      supplementStarted = Date.now();
       const result = await fetchJson(
         mediaFusionStreamUrl(manifestUrl, type, id),
         supplementBudget,
@@ -3320,13 +3397,31 @@ export class CatalogCore {
         if (normalized) extra.push(normalized);
       }
       if (extra.length === 0) {
+        recordResolverProviderOutcome(
+          'mediafusion',
+          'empty',
+          0,
+          Date.now() - supplementStarted,
+        );
         return { streams, notes };
       }
+      recordResolverProviderOutcome(
+        'mediafusion',
+        'success',
+        extra.length,
+        Date.now() - supplementStarted,
+      );
       return {
         streams: mergeUniqueStreams(streams, extra),
         notes: [...notes, resolveNote('annotation', `mediafusion thin-supplement +${extra.length}`)],
       };
     } catch (error) {
+      recordResolverProviderOutcome(
+        'mediafusion',
+        'error',
+        0,
+        supplementStarted > 0 ? Date.now() - supplementStarted : 0,
+      );
       return {
         streams,
         notes: [

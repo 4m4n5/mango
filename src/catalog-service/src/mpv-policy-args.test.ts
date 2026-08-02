@@ -99,6 +99,50 @@ test('S4: deferred handoff restores automatic audio output when no AO override e
   assert.match(source, /\["set_property","ao","%s"\]/);
 });
 
+test('S4: every probe teardown is display-neutral', async () => {
+  const source = await readFile(script, 'utf8');
+  const probePolicy = source.indexOf('if $PROBE; then\n  # Probe workers never own the TV surface.');
+  const isolatedPolicy = source.indexOf('if $PROBE && [[ "${MANGO_MPV_ISOLATED_PROBE:-0}" == "1" ]]');
+  assert.ok(probePolicy >= 0, 'missing global probe display-neutral policy');
+  assert.ok(isolatedPolicy > probePolicy, 'probe policy must apply before isolated/non-isolated split');
+  assert.match(
+    source.slice(probePolicy, isolatedPolicy),
+    /export MANGO_MPV_STOP_NO_DISPLAY=1/,
+  );
+});
+
+test('S4: deferred foreground commits only after real playback and cache readiness', async () => {
+  const source = await readFile(script, 'utf8');
+  const loop = source.slice(source.indexOf('while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]'));
+  const realPlayback = loop.indexOf('if playback_is_real "${PT:-0}"; then');
+  const cacheReady = loop.indexOf('&& playback_handoff_ready; then', realPlayback);
+  const handoff = loop.indexOf('if ! foreground_handoff; then', cacheReady);
+  assert.ok(realPlayback >= 0, 'missing real-playback gate');
+  assert.ok(cacheReady > realPlayback, 'cache readiness must be nested after real-playback proof');
+  assert.ok(handoff > cacheReady, 'foreground handoff must follow both readiness gates');
+  assert.doesNotMatch(
+    loop.slice(0, realPlayback),
+    /playback_handoff_ready|foreground_handoff/,
+    'no deferred handoff may run before real-playback proof',
+  );
+
+  const readiness = source.match(/playback_handoff_ready\(\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.match(
+    readiness,
+    /demuxer_cache_ready "\$min_cache" \|\| handoff_cache_wait_exceeded/,
+    'cache evidence keeps the bounded fallback for transports without cache-duration',
+  );
+});
+
+test('S4: non-probe PASS requires a completed foreground handoff', async () => {
+  const source = await readFile(script, 'utf8');
+  const loop = source.slice(source.indexOf('while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]'));
+  const pass = loop.indexOf('echo "PASS: ttff_ms=');
+  const handoffGuard = loop.lastIndexOf('if ! $PROBE && ! $HANDOFF_DONE; then', pass);
+  assert.ok(pass >= 0, 'missing PASS outcome');
+  assert.ok(handoffGuard >= 0 && handoffGuard < pass, 'PASS must be guarded by HANDOFF_DONE');
+});
+
 test('S4: persistent probe workers return duration before teardown', async () => {
   const source = await readFile(
     join(repoDir, 'scripts/m3-play/playability/mpv-probe-ipc.sh'),

@@ -72,8 +72,12 @@ stable release fingerprint plus playback profile and never stores a signed URL.
 Auto play walks the full deduplicated identity-safe set under one 120-second
 hard deadline. An incomplete candidate is reclassified after its existing mpv
 probe; newly proven risky candidates are deferred behind remaining smooth and
-unknown choices. The obligation floor remains, so a lone risky source is still
-attempted last.
+unknown choices. One `auto_play_max_attempts` budget covers every phase and its
+bounded thin-candidate retry; cached-bad skips do not consume it. The obligation
+floor remains, so a lone risky source is still attempted last. Candidate-local
+failures may advance the ladder, but a cancellation, global deadline,
+foreground-ownership conflict, display/VO failure, or failed foreground handoff
+is pipeline-fatal and stops all later candidates.
 
 **Display vs play:** `GET /stream` expands **main** first. If empty, expands last-resort (and obligation floor) marked `unverified`.
 
@@ -147,6 +151,18 @@ explicit 8K/4320p is 8K. See [LIVE_TV.md](LIVE_TV.md).
 **Rate-limit honesty:** Bare `429` digits in opaque debrid/MediaFusion URL tokens are **not** rate-limits. Path markers (`rate-limit-exceeded`, `public-rate-limit`) and status-line `HTTP 429` / “too many requests” are. Couch `requestClass: 'user'` bypasses miss negative-cache but soft-respects confirmed rate-limit (~20s, `MANGO_STREAM_USER_RATE_LIMIT_BACKOFF_MS`). **Timeouts/5xx are not rate-limits** — they do not trip busy soft-backoff (immediate couch retry). Background keeps ~90s backoff for true rate-limits.
 
 **Stream resolve budgets:** Couch play/detail uses `MANGO_STREAM_RESOLVE_BUDGET_USER_MS` (default **30s**). Background verify/grow keeps `MANGO_STREAM_RESOLVE_BUDGET_MS` (default **12s**). After a primary hard-timeout with an empty pool, MediaFusion thin-supplement is skipped (no extra ~8s dead wait).
+
+**Resolver topology:** Mango's intended VOD graph has one stream-capable
+aggregate, AIOStreams. Torrentio, MediaFusion, and Comet are indexers inside its
+profile; TorBox and Real-Debrid are debrid/transport services used by those
+results. They are not six parallel Mango addons. Direct copies of the three
+indexers in `stremio-export.json` duplicate work and bypass AIOStreams dedup and
+policy. Catalog-service still fans all actually configured stream addons out
+concurrently, coalesces identical requests, and lets Detail warm the same
+positive cache that Play consumes. `/health` exposes only fixed, credential-safe
+provider counts, cumulative outcomes/latency, and the latest user/background
+indexer and debrid contribution counts; it never exposes manifests, URLs,
+tokens, title IDs, or stream IDs.
 
 **Resolve request class:** Couch play and `GET /stream` use `requestClass: 'user'`. Background verify/grow use `requestClass: 'background'`.
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve, join } from 'node:path';
@@ -274,6 +274,55 @@ while true; do sleep 1; done
     assert.equal(isAlive(tracked), true);
   } finally {
     tracked.kill('SIGKILL');
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('S2: a failed non-isolated probe never restores the TV display', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'mango-probe-display-neutral-'));
+  const bin = join(dir, 'bin');
+  const displayMarker = join(dir, 'display-restored');
+  await mkdir(bin);
+  const fakeMpv = join(bin, 'mpv');
+  const fakeDisplayMode = join(bin, 'display-mode');
+  await writeFile(fakeMpv, '#!/usr/bin/env bash\nexit 1\n');
+  await writeFile(fakeDisplayMode, '#!/usr/bin/env bash\n: >"$MANGO_TEST_DISPLAY_MARKER"\n');
+  await chmod(fakeMpv, 0o755);
+  await chmod(fakeDisplayMode, 0o755);
+  try {
+    const result = await new Promise<{ code: number | null; stdout: string; stderr: string }>((resolvePromise) => {
+      execFile('bash', [
+        join(repoDir, 'scripts/m2-catalog/service/mpv-play.sh'),
+        '--url',
+        'https://example.invalid/video',
+        '--probe',
+        '--timeout-ms',
+        '500',
+      ], {
+        cwd: repoDir,
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          HOME: dir,
+          MANGO_REPO_DIR: repoDir,
+          MANGO_PLAY_REQUEST_CLASS: 'background',
+          MANGO_MPV_SKIP_FFPROBE: '1',
+          MANGO_MPV_PID_FILE: join(dir, 'mpv.pid'),
+          MANGO_MPV_SOCKET: join(dir, 'mpv.sock'),
+          MANGO_PLAYBACK_ACTIVE_FILE: join(dir, 'playback-active'),
+          MANGO_PLAYBACK_OWNERSHIP_LOCK: join(dir, 'owner.lock.d'),
+          MANGO_DISPLAY_MODE_SH: fakeDisplayMode,
+          MANGO_TEST_DISPLAY_MARKER: displayMarker,
+        },
+      }, (error, stdout, stderr) => resolvePromise({
+        code: error && 'code' in error && typeof error.code === 'number' ? error.code : 0,
+        stdout,
+        stderr,
+      }));
+    });
+    assert.notEqual(result.code, 0, `${result.stdout}\n${result.stderr}`);
+    await assert.rejects(access(displayMarker), { code: 'ENOENT' });
+  } finally {
     await rm(dir, { recursive: true, force: true });
   }
 });

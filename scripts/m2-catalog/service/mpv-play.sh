@@ -45,6 +45,12 @@ while [[ $# -gt 0 ]]; do
 done
 
 ISOLATED_PROBE=false
+if $PROBE; then
+  # Probe workers never own the TV surface. Every probe exit path delegates to
+  # mpv-stop.sh, so make all of those teardowns display-neutral — including the
+  # legacy/non-isolated probe path.
+  export MANGO_MPV_STOP_NO_DISPLAY=1
+fi
 if $PROBE && [[ "${MANGO_MPV_ISOLATED_PROBE:-0}" == "1" ]]; then
   ISOLATED_PROBE=true
   ISOLATED_DIR="${HOME}/.cache/mango"
@@ -330,6 +336,9 @@ handoff_cache_wait_exceeded() {
 playback_handoff_ready() {
   local min_cache
   min_cache="$(handoff_min_cache_secs)"
+  # mpv does not expose demuxer-cache-duration for every valid transport. Keep
+  # the bounded fallback, but only evaluate this predicate after playback has
+  # independently passed playback_is_real in the main loop.
   demuxer_cache_ready "$min_cache" || handoff_cache_wait_exceeded
 }
 
@@ -1158,13 +1167,17 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
     REPLY="$(bash "$SCRIPT_DIR/mpv-ipc.sh" get_property playback-time 2>/dev/null || true)"
     PT="$(printf '%s' "$REPLY" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data") or 0)' 2>/dev/null || echo 0)"
     if python3 -c "import sys; sys.exit(0 if float('${PT:-0}') > 0 else 1)" 2>/dev/null; then
-      if ! $PROBE && ! $HANDOFF_DONE; then
-        if play_cancelled; then
-          echo "FAIL: play cancelled" >&2
-          MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
-          exit 1
-        fi
-        if playback_handoff_ready; then
+      if playback_is_real "${PT:-0}"; then
+        # Deferred foreground ownership requires both real-playback proof and
+        # cache readiness. Never hide the launcher for a status clip, a stream
+        # that merely advanced once, or a cache-starved candidate.
+        if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]] && ! $HANDOFF_DONE \
+          && playback_handoff_ready; then
+          if play_cancelled; then
+            echo "FAIL: play cancelled" >&2
+            MANGO_MPV_STOP_NO_CANCEL=1 bash "$SCRIPT_DIR/mpv-stop.sh" >/dev/null 2>&1 || true
+            exit 1
+          fi
           # foreground_handoff order (buffer path): hide launcher → black root →
           # HDMI match → enable GPU VO on the matched panel → raise. This keeps
           # the first visible frame on the 4K panel (no browse-res flash).
@@ -1174,12 +1187,10 @@ while [[ "$(now_ms)" -lt "$DEADLINE_MS" ]]; do
             exit 1
           fi
         fi
-      fi
-      if playback_is_real "${PT:-0}"; then
         # Deferred couch path: never PASS/exit before hide→black→HDMI match→raise.
         # Otherwise 4K remux can decode on a stuck 1080p panel (full stutter) and
         # the exit monitor never starts. Wait until handoff completes (or timeout).
-        if ! $PROBE && [[ "$DEFER_FOREGROUND" == "1" ]] && ! $HANDOFF_DONE; then
+        if ! $PROBE && ! $HANDOFF_DONE; then
           :
         else
           if play_cancelled; then

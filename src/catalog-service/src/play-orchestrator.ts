@@ -28,7 +28,11 @@ import {
   isPlausibleFeatureDuration,
   playMinDurationSec,
 } from './stream-filters.js';
-import { classifyPlayError, isTransientPlayError } from './play-error-classify.js';
+import {
+  classifyPlayError,
+  isPipelineFatalPlayError,
+  isTransientPlayError,
+} from './play-error-classify.js';
 import {
   isBadStreamError,
   isStreamUrlBad,
@@ -552,6 +556,9 @@ export async function probeWithLadder(
       };
     }
     if (one.kind === 'failure') {
+      if (isPipelineFatalPlayError(one.error)) {
+        throw pipelineFatalError(one.error, [...attempts, one.attempt]);
+      }
       rememberBadStream(candidate.stream, one.error);
       attempts.push(one.attempt);
     }
@@ -562,7 +569,29 @@ export async function probeWithLadder(
 
 type AttemptLoopResult =
   | { kind: 'success'; result: PlayOrchestratorResult }
+  | { kind: 'fatal'; attempts: PlayAttempt[]; error: string }
   | { kind: 'exhausted'; attempts: PlayAttempt[]; deferred_risky: LadderCandidate[] };
+
+type AttemptBudget = {
+  limit: number;
+  used: number;
+};
+
+function reserveAttempt(budget?: AttemptBudget): boolean {
+  if (!budget) return true;
+  if (budget.used >= budget.limit) return false;
+  budget.used += 1;
+  return true;
+}
+
+function pipelineFatalError(error: string, attempts: PlayAttempt[]): CatalogError {
+  return new CatalogError(503, 'playback_pipeline_failed', {
+    attempts,
+    error,
+  }, {
+    couchMessage: 'could not start playback — try again',
+  });
+}
 
 async function attemptCandidates(options: {
   candidates: LadderCandidate[];
@@ -584,12 +613,13 @@ async function attemptCandidates(options: {
   /** When set, any failure bad-caches this fingerprint (picker hard-fail). */
   pickerFingerprint?: string;
   deferKnownRiskAfterProbe?: boolean;
+  attemptBudget?: AttemptBudget;
 }): Promise<AttemptLoopResult> {
   const attempts: PlayAttempt[] = [];
   const deferredRisky: LadderCandidate[] = [];
   let lastStep = '';
 
-  for (const [relativeIndex, candidate] of options.candidates.entries()) {
+  for (const candidate of options.candidates) {
     if (
       options.deferKnownRiskAfterProbe !== false
       && candidate.capability_class === 'known_risky'
@@ -597,16 +627,11 @@ async function attemptCandidates(options: {
       deferredRisky.push(candidate);
       continue;
     }
-    const index = options.attemptOffset + relativeIndex;
-    if (candidate.ladder_step !== lastStep) {
-      lastStep = candidate.ladder_step;
-      options.onLadderStep?.(lastStep, couchStatusForLadderStep(lastStep));
-    }
     const remainingBeforeProbe = options.deadline - Date.now();
     if (remainingBeforeProbe < 500) {
       break;
     }
-
+    const index = options.attemptOffset + attempts.length;
     if (candidateIsBad(candidate)) {
       attempts.push({
         ...attemptBase(index, candidate),
@@ -615,6 +640,13 @@ async function attemptCandidates(options: {
         error: 'stream_url_bad_cached',
       });
       continue;
+    }
+    if (!reserveAttempt(options.attemptBudget)) {
+      break;
+    }
+    if (candidate.ladder_step !== lastStep) {
+      lastStep = candidate.ladder_step;
+      options.onLadderStep?.(lastStep, couchStatusForLadderStep(lastStep));
     }
 
     const sharedOne = {
@@ -662,7 +694,14 @@ async function attemptCandidates(options: {
     }
 
     const cleaned = one.error;
-    const isLast = relativeIndex === options.candidates.length - 1;
+    if (isPipelineFatalPlayError(cleaned)) {
+      return {
+        kind: 'fatal',
+        attempts: [...attempts, one.attempt],
+        error: cleaned,
+      };
+    }
+    const isLast = candidate === options.candidates[options.candidates.length - 1];
     const remainingForRetry = options.deadline - Date.now();
     // Thin titles: one transient retry on the last candidate without bad-cache.
     if (
@@ -670,6 +709,7 @@ async function attemptCandidates(options: {
       && isTransientPlayError(cleaned)
       && remainingForRetry > 1500
       && !candidateIsBad(candidate)
+      && reserveAttempt(options.attemptBudget)
     ) {
       attempts.push(one.attempt);
       const retry = await attemptOne({ ...sharedOne, retryPass: true });
@@ -683,6 +723,13 @@ async function attemptCandidates(options: {
         };
       }
       if (retry.kind === 'failure') {
+        if (isPipelineFatalPlayError(retry.error)) {
+          return {
+            kind: 'fatal',
+            attempts: [...attempts, retry.attempt],
+            error: retry.error,
+          };
+        }
         rememberBadStream(candidate.stream, retry.error);
         attempts.push(retry.attempt);
       }
@@ -811,6 +858,9 @@ export async function playWithLadder(
         picker_fingerprint: fingerprint,
       });
     }
+    if (pickerResult.kind === 'fatal') {
+      throw pipelineFatalError(pickerResult.error, pickerResult.attempts);
+    }
     throw new CatalogError(502, 'no_playable_stream', {
       attempts: pickerResult.attempts,
       total_ms: Date.now() - started,
@@ -846,6 +896,10 @@ export async function playWithLadder(
   const deferredRiskyCandidates: LadderCandidate[] = [];
   let obligationFloorRan = false;
   let totalCandidates = phaseMain.length;
+  const attemptBudget: AttemptBudget = {
+    limit: config.auto_play_max_attempts,
+    used: 0,
+  };
 
   if (phaseMain.length > 0) {
     const mainResult = await attemptCandidates({
@@ -853,6 +907,7 @@ export async function playWithLadder(
       deadline: mainDeadline,
       candidates: phaseMain,
       attemptOffset: 0,
+      attemptBudget,
     });
     if (mainResult.kind === 'success') {
       return annotate({
@@ -860,6 +915,9 @@ export async function playWithLadder(
         attempts: mainResult.result.attempts,
         candidate_count: phaseMain.length,
       });
+    }
+    if (mainResult.kind === 'fatal') {
+      throw pipelineFatalError(mainResult.error, mainResult.attempts);
     }
     allAttempts.push(...mainResult.attempts);
     deferredRiskyCandidates.push(...mainResult.deferred_risky);
@@ -881,13 +939,18 @@ export async function playWithLadder(
     !allAttempts.some((attempt) => attempt.url && attempt.url === candidate.stream.url)
   ));
 
-  if (phaseResort.length > 0 && deadline - Date.now() >= 500) {
+  if (
+    phaseResort.length > 0
+    && attemptBudget.used < attemptBudget.limit
+    && deadline - Date.now() >= 500
+  ) {
     totalCandidates += phaseResort.length;
     const resortResult = await attemptCandidates({
       ...shared,
       deadline,
       candidates: phaseResort,
       attemptOffset: allAttempts.length,
+      attemptBudget,
     });
     if (resortResult.kind === 'success') {
       return annotate({
@@ -896,12 +959,15 @@ export async function playWithLadder(
         candidate_count: totalCandidates,
       });
     }
+    if (resortResult.kind === 'fatal') {
+      throw pipelineFatalError(resortResult.error, [...allAttempts, ...resortResult.attempts]);
+    }
     allAttempts.push(...resortResult.attempts);
     deferredRiskyCandidates.push(...resortResult.deferred_risky);
   }
 
   const remainingMs = deadline - Date.now();
-  if (remainingMs >= 500) {
+  if (attemptBudget.used < attemptBudget.limit && remainingMs >= 500) {
     const excludeUrls = new Set(
       allAttempts.map((attempt) => attempt.url).filter((url): url is string => Boolean(url)),
     );
@@ -923,6 +989,7 @@ export async function playWithLadder(
         attemptOffset: allAttempts.length,
         obligationFloorRan: true,
         deadline,
+        attemptBudget,
       });
       if (floorResult.kind === 'success') {
         return annotate({
@@ -932,12 +999,19 @@ export async function playWithLadder(
           obligation_floor_ran: true,
         });
       }
+      if (floorResult.kind === 'fatal') {
+        throw pipelineFatalError(floorResult.error, [...allAttempts, ...floorResult.attempts]);
+      }
       allAttempts.push(...floorResult.attempts);
       deferredRiskyCandidates.push(...floorResult.deferred_risky);
     }
   }
 
-  if (deferredRiskyCandidates.length > 0 && deadline - Date.now() >= 500) {
+  if (
+    deferredRiskyCandidates.length > 0
+    && attemptBudget.used < attemptBudget.limit
+    && deadline - Date.now() >= 500
+  ) {
     const fallbackResult = await attemptCandidates({
       ...shared,
       candidates: deferredRiskyCandidates,
@@ -945,6 +1019,7 @@ export async function playWithLadder(
       obligationFloorRan: true,
       deferKnownRiskAfterProbe: false,
       deadline,
+      attemptBudget,
     });
     if (fallbackResult.kind === 'success') {
       return annotate({
@@ -953,6 +1028,9 @@ export async function playWithLadder(
         candidate_count: totalCandidates,
         obligation_floor_ran: true,
       });
+    }
+    if (fallbackResult.kind === 'fatal') {
+      throw pipelineFatalError(fallbackResult.error, [...allAttempts, ...fallbackResult.attempts]);
     }
     allAttempts.push(...fallbackResult.attempts);
   }

@@ -5,6 +5,7 @@ import {
   classifyPlayError,
   garbageKind,
   isGarbagePlayError,
+  isPipelineFatalPlayError,
   isRateLimitPlaceholderUrl,
   isTransientPlayError,
   shouldRefreshCachedTransport,
@@ -85,6 +86,36 @@ test('isGarbagePlayError / isTransientPlayError helpers', () => {
   assert.equal(isGarbagePlayError('timeout'), false);
   assert.equal(isTransientPlayError('timed out'), true);
   assert.equal(isTransientPlayError('debrid_nfo_sidecar'), false);
+});
+
+test('pipeline-fatal detection is exact and excludes candidate-local failures', () => {
+  for (const message of [
+    'mpv-play failed: play cancelled',
+    'PlayCancelledError: play epoch 8 is no longer current',
+    'mpv-play failed: foreground_playback_active',
+    'mpv-play failed: foreground_playback_busy',
+    'mpv-play failed: playback ownership busy',
+    'mpv-play failed: mpv display enable failed',
+    'mpv-play failed: mpv vo not ready after display enable',
+    'mpv-play failed: mpv handoff failed',
+    'play deadline exceeded',
+  ]) {
+    assert.equal(isPipelineFatalPlayError(message), true, message);
+  }
+
+  for (const message of [
+    'mpv did not start playback within 8000ms',
+    'mpv-play failed: play deadline exhausted before mpv startup',
+    'play budget exhausted after probe',
+    'preflight timeout',
+    'HTTP 503',
+    'debrid_nfo_sidecar',
+    'debrid_copyright_block',
+    'supplemental_or_short_release',
+    'vo not ready',
+  ]) {
+    assert.equal(isPipelineFatalPlayError(message), false, message);
+  }
 });
 
 test('cached transport refresh is bounded to stale or transient failures', () => {

@@ -2,15 +2,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  CatalogCore,
   hasStreamResolveInfrastructureErrors,
   hasStreamResolveRateLimitErrors,
   displayStreamTelemetry,
+  resolverIndexerCategoryForStream,
   streamResolveBudgetMs,
   streamsAreOnlyErrorPlaceholders,
   type ResolveNote,
   type Stream,
 } from './core.js';
-import { defaultFilterConfig, mergeFilterConfig } from './stream-filters.js';
+import { defaultFilterConfig, enrichStreamMetadata, mergeFilterConfig } from './stream-filters.js';
+import { resetResolveMetricsForTests, resolveMetricsSnapshot } from './resolve-metrics.js';
 
 function note(kind: ResolveNote['kind'], message: string): ResolveNote {
   return { kind, message };
@@ -22,6 +25,47 @@ test('stream resolve classifier treats clean zero streams as title exhaustion', 
     hasStreamResolveInfrastructureErrors([note('annotation', 'zero streams after 2 attempts')]),
     false,
   );
+});
+
+test('resolver observability buckets lightgdrive formatter indexers without retaining descriptions', () => {
+  const source = (indexer: string): Stream => enrichStreamMetadata({
+    url: 'https://example.test/video.mp4',
+    source: 'AIOStreams',
+    description: `📁 Example Movie (2026)\n🔍 ${indexer}`,
+  });
+
+  assert.equal(resolverIndexerCategoryForStream(source('Torrentio')), 'torrentio');
+  assert.equal(resolverIndexerCategoryForStream(source('Comet')), 'comet');
+  assert.equal(resolverIndexerCategoryForStream(source('MediaFusion')), 'mediafusion');
+});
+
+test('cached user resolve refreshes only the user contribution snapshot', async () => {
+  resetResolveMetricsForTests();
+  const rawStreams = (CatalogCore.prototype as unknown as {
+    rawStreams(type: string, id: string, options?: { requestClass?: 'user' | 'background' }): Promise<unknown>;
+  }).rawStreams;
+  const cachedStreams: Stream[] = [{
+    url: 'https://example.test/video.mp4',
+    source: 'AIOStreams',
+    description: '📁 Example Movie (2026)\n🔍 Torrentio',
+    name: '[TB☁️⚡] Torrentio 1080p',
+  }];
+  const core = {
+    streamCache: new Map([['movie:tt-example', {
+      streams: cachedStreams,
+      notes: [],
+      resolveMs: 12,
+      expiresAt: Date.now() + 10_000,
+    }]]),
+  };
+
+  await rawStreams.call(core, 'movie', 'tt-example', { requestClass: 'user' });
+
+  const snapshot = resolveMetricsSnapshot();
+  assert.equal(snapshot.last_contributions.user.indexers.torrentio, 1);
+  assert.equal(snapshot.last_contributions.user.debrid.torbox, 1);
+  assert.notEqual(snapshot.last_contributions.user.observed_at_ms, null);
+  assert.equal(snapshot.last_contributions.background.observed_at_ms, null);
 });
 
 test('stream resolve classifier keeps provider failures as infrastructure', () => {

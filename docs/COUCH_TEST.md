@@ -112,6 +112,9 @@ bash scripts/m4-addons/aiostreams-config.sh verify
 curl -sf "http://127.0.0.1:3020/stream/movie/tt0111161?strict_unknown_cache=false" \
   | jq '[.streams[] | {source,debrid_service,cache_status,display_label,ladder_step}]'
 
+# The Internet's Own Boy regression + fixed-category resolver contribution proof.
+bash scripts/diag/playback-ladder-health.sh movie tt3268458
+
 journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
   | grep '"event":"resolve_flight"' \
   | grep -E 'background_defer_foreground|background_join_foreground|foreground_bypass_background'
@@ -122,6 +125,11 @@ journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
 | Live AIO policy | `aiostreams-config.sh verify` exits 0 and states TorBox uncached retained / RD uncached excluded | |
 | Real formatter shapes | A title with both services shows TB/RD cached rows as `cached`, an available TB `⏳` row as `uncached`, and no RD `⏳`/`download` row reaches the couch response | |
 | Source coverage | AIOStreams result labels include its configured Torrentio/Comet/MediaFusion sources; if direct MediaFusion is configured, a thin AIO result can be supplemented without duplicate URLs | |
+| Intended topology | `configured_stream_providers.aiostreams` is 1; direct Torrentio/MediaFusion/Comet provider counts are 0. Their contribution appears under `resolver.last_contributions.user.indexers`, while TorBox/RD appear under `debrid` when the title actually returns them | |
+| Foreground commit regression | Play *The Internet's Own Boy* (`tt3268458`): rejected candidates keep Detail visible; the TV never goes black then returns to Detail while a later candidate starts by itself | |
+| Candidate-local fallback | Force or select one unreadable candidate followed by a valid one; the valid candidate may start, but no failed candidate changes display ownership | |
+| Pipeline-fatal stop | Cancel during startup or induce a display/VO/handoff failure; no later candidate starts and no delayed playback appears after Detail returns | |
+| Attempt cap | Logs show no more than the configured `auto_play_max_attempts` real probe/play attempts across all ladder phases; cached-bad skips do not spend the cap | |
 | Foreground priority | Start a maintenance verify for a title, then open/play the same title; couch resolve does not wait on the background deadline | |
 | Background amplification guard | While a couch resolve for a title is active, same-title background work logs join/defer and does not start a parallel provider fan-out | |
 

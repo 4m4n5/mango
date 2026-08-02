@@ -31,6 +31,26 @@ const NFO_RE = /debrid_nfo_sidecar/i;
 const COPYRIGHT_RE = /debrid_copyright_block/i;
 const STATUS_CLIP_RE = /debrid_status_clip/i;
 
+/**
+ * Failures in Mango's playback pipeline, rather than in one candidate stream.
+ * These must abort the ladder: another URL cannot repair ownership, display,
+ * foreground handoff, or an exhausted request-wide deadline.
+ *
+ * Keep this deliberately narrower than TRANSIENT_RE. Candidate-local probe
+ * timeouts, HTTP failures, and generic "did not start" errors still fall
+ * through to the next stream.
+ */
+const PIPELINE_FATAL_RES = [
+  /\bplay cancelled\b/i,
+  /\bplay epoch\b/i,
+  /\bforeground_playback_(?:active|busy)\b/i,
+  /\bplayback ownership busy\b/i,
+  /\bmpv display enable failed\b/i,
+  /\bmpv vo not ready after display enable\b/i,
+  /\bmpv handoff failed\b/i,
+  /\bplay deadline exceeded\b/i,
+];
+
 /** True when a stream URL is an addon rate-limit placeholder (path markers only). */
 export function isRateLimitPlaceholderUrl(url: string): boolean {
   return Boolean(url) && RATE_LIMIT_URL_RE.test(url);
@@ -53,6 +73,11 @@ export function isGarbagePlayError(message: string): boolean {
 
 export function isTransientPlayError(message: string): boolean {
   return classifyPlayError(message) === 'transient';
+}
+
+/** True only for request-wide playback-pipeline failures. */
+export function isPipelineFatalPlayError(message: string): boolean {
+  return Boolean(message) && PIPELINE_FATAL_RES.some((pattern) => pattern.test(message));
 }
 
 /** Whether cached direct transports deserve one fresh provider resolution. */

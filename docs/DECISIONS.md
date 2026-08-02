@@ -59,6 +59,9 @@ Locked choices. Update when changing behavior.
 | Playback acknowledgement | Launcher uses an idempotent asynchronous session; persisted acceptance precedes foreground handoff, and only failure before the first ready frame is user-visible |
 | Replay recovery | Retry at most once after a classified stale cached transport by resolving fresh metadata; never retry cancellation, rate-limit, or malformed-media failures |
 | Playback cleanup | Natural mpv exit cleanup is PID + play-epoch scoped; stale monitors cannot stop a newer session |
+| Foreground playback commit | Launcher/display ownership changes only after real advancing playback is proven; failed candidates and probes remain display-neutral |
+| Resolver topology | AIOStreams is the sole VOD aggregate; Torrentio/MediaFusion/Comet are its indexers and TorBox/RD are transports, not direct peer fan-outs |
+| Automatic play budget | One attempt cap spans main, last-resort, obligation-floor, risky fallback, and retries; pipeline-fatal failures never fall through |
 | Episode stream identity | Explicit numeric contradictions reject; full `SxxExx`/`NxE` markers outrank bare `E`/`EP`; localized title mismatch is soft when numeric identity agrees |
 | Playback ranking | Capability tier is lexicographic and path-scoped; `known_risky` never outranks identity-safe smooth/unknown sources through cache or scalar bonuses |
 | Playback HUD | Viewer-first cinematic libass panel inside the 5% TV safe area; clean startup, 4s/6s adaptive feedback, minimal persistent pause, delayed buffering, and Live without a timeline; amber is progress/confirmation only |

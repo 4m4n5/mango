@@ -74,10 +74,15 @@ when `MANGO_MPV_STOP_LAUNCHER=1`, set by `mpv`/`mpv-hifi` profiles), `mpv-play.s
 keeps the Chromium launcher visible while mpv buffers. **Every non-live VOD**
 (movies, series, and YouTube, including split A/V) uses the null-VO/null-AO
 buffer path (`needs_vo_null_buffer`) so no browse-res frame is shown before the
-panel is source-matched. Handoff waits until
-`demuxer-cache-duration` meets a ladder-aware threshold (18s for 4K REMUX), then
-runs hide → black → HDMI match → **enable GPU VO and configured/automatic AO on
-the matched panel** → raise mpv (never match while the launcher is mapped). Enabling the VO
+panel is source-matched. Foreground ownership is committed only after mpv proves
+real, advancing, feature-length playback. It then waits for
+`demuxer-cache-duration` to meet a ladder-aware threshold (18s for 4K REMUX),
+with a bounded time fallback for valid transports where mpv cannot report that
+property, before it runs hide → black → HDMI match → **enable GPU VO and
+configured/automatic AO on the matched panel** → raise mpv (never match while
+the launcher is mapped). Rejected candidates and every probe remain
+display-neutral; they cannot hide, repaint, mode-switch, or restore the
+launcher. Enabling the VO
 *before* the match is what caused the "video plays → flash → black → 4K" start on
 both debrid 4K and YouTube; the SSOT gate asserts VO-enable-after-match.
 `mpv-play` must not PASS/exit until that handoff completes — otherwise Node
@@ -102,6 +107,14 @@ late monitor from an earlier session cannot tear down a newer playback.
 Automatic retry is bounded to one fresh metadata/transport resolve after an
 eligible stale-link failure; cancellation, rate limiting, and malformed media
 never create retry storms.
+
+The automatic ladder has one attempt budget across main, last-resort,
+obligation-floor, deferred-risk, and thin-candidate retry phases. Skipping a
+known-bad cached fingerprint costs no network or mpv attempt. Candidate-local
+transport or media failures may fall through; pipeline-wide ownership,
+display/VO/handoff, cancellation, and play-deadline failures terminate the
+request immediately so a second candidate cannot start after the launcher has
+already been restored.
 
 **Active stream session.** Movie and series plays publish a URL-free
 `~/.cache/mango/active-streams.json` snapshot. Catalog-service remains the sole

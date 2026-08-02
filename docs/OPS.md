@@ -140,10 +140,13 @@ MANGO_LAUNCHER_DISPLAY_MODE=3840x2160 MANGO_LAUNCHER_DISPLAY_RATE=60 \
 This display mode does not change stream filters. 4K stream/playback policy
 stays in catalog filters and the mpv profile.
 
-**Playback HDMI + OSD contract:** `mpv-play.sh` hides the launcher, suppresses
-desktop chrome (including pcmanfm wallpaper), paints the X root black, then
-source-matches HDMI before first reveal when the video profile is known. Never
-match while Chromium is still mapped. The playback OSD and pad never call
+**Playback HDMI + OSD contract:** `mpv-play.sh` keeps the launcher visible while
+the candidate buffers and commits foreground ownership only after mpv proves
+real, advancing, feature-length playback. It then hides the launcher, suppresses
+desktop chrome (including pcmanfm wallpaper), paints the X root black, and
+source-matches HDMI before first reveal when the video profile is known. Failed
+candidates and probes are display-neutral. Never match while Chromium is still
+mapped. The playback OSD and pad never call
 `playback-auto` / display-ensure during steady play (operator-only:
 `MANGO_PLAYBACK_DISPLAY_ENSURE=1`). OSD defaults to 4s visible, scales to a
 constant physical size (1080p reference), redraws ~1 Hz only while visible,
@@ -159,6 +162,12 @@ drops/s on Pi 5 even with healthy cache and audio on. Probe with
 ```bash
 bash scripts/diag/playback-4k-proof.sh
 # or: bash scripts/diag/playback-4k-proof.sh --watch
+```
+
+Audit the active resolver graph and URL-free contribution evidence for a title:
+
+```bash
+bash scripts/diag/playback-ladder-health.sh movie tt3268458
 ```
 
 During movie/series playback, **X** opens the mpv-native 58%-height Streams
