@@ -1,0 +1,446 @@
+# Codex home-agent brief — deploy and finish Mango couch UX acceptance
+
+You are an autonomous agent working from the **home Mac** Mango clone, on the
+same LAN as the Raspberry Pi and physical TV. You have no prior chat context.
+Read this file top to bottom before running commands or changing source. This is
+the complete contract for deploying the current `feat/native-experience` tip,
+proving it on the Pi and TV with a human tester, and making only evidence-driven
+fine-tuning changes when observation shows they are needed.
+
+You MAY use the checked-in Git deploy/diagnostic scripts, SSH to the Pi through
+those scripts, collaborate with the human tester, and make narrowly scoped source
+fixes in the home-Mac clone. You MAY commit and push proven fixes and the final
+sanitized report to `origin/feat/native-experience` as specified below.
+
+## 0. TL;DR mission
+
+Deploy the latest source tip containing all shipped ops, launcher-state, Search,
+Cinema Dark, and mpv HUD/Streams work. Prove the real product end to end using
+automated Pi gates plus direct human observation at normal TV viewing distance.
+When a real failure appears, capture evidence first, make the smallest principled
+source fix on the home Mac, test it, commit/push it, redeploy through Git, and ask
+the human to recheck the exact failed behavior.
+
+Workstreams, in order:
+
+1. **S0 — Source and environment preflight**
+2. **S1 — Git-only deploy and automated Pi gates**
+3. **S2 — Launcher, Search, Detail, and system-state couch proof**
+4. **S3 — mpv HUD and five-choice Streams drawer couch proof**
+5. **S4 — Voice, companion, Settings, Reliability, controller, and display proof**
+6. **S5 — Evidence-driven fine-tuning loop and regression**
+7. **S6 — Report, final safe state, commit, and push**
+
+## 0.1 Overriding principle — observed TV behavior is the authority
+
+- A source assertion, Mac render, or passing unit test is not physical-TV proof.
+- The human reports what is visible/audible; the agent correlates it with runtime
+  state and logs. Record these as different evidence types.
+- Never tune code to satisfy a screenshot if it worsens D-pad predictability,
+  playback continuity, safe area, accessibility, or Pi performance.
+- Never convert missing, blocked, or ambiguous evidence into a pass. Use
+  `DEFERRED` with the exact reason and next action.
+- Prefer one falsifiable hypothesis and one small fix over speculative redesign.
+
+## 1. Authority and hard constraints
+
+### You MAY
+
+- Run read-only home-Mac and Pi diagnostics without asking for approval.
+- Run the checked-in deploy, build, fixture-render, and gate scripts.
+- Ask the human for one to three short physical observations at a time.
+- Change repository source or docs on the home Mac after a reproducible failure.
+- Commit and push a coherent, tested fix to `feat/native-experience`.
+- Adjust existing documented TV-safe tokens when human proof clearly identifies
+  a legibility, safe-area, timing, or motion problem.
+
+### You MUST NOT
+
+- Switch or create branches. Verify `feat/native-experience`; if different, STOP.
+- Use `rsync`, `scp`, archives, or hand-copy repository files to the Pi.
+- Edit repository source directly on the Pi.
+- Force-push, amend published commits, create tags, change Git config, use
+  `--no-verify`, or discard/stash/reset unknown local work.
+- Delete or rebuild runtime DBs, caches, history, Saved state, progress, proof
+  ledgers, pairing state, or user configuration to make a test pass.
+- Touch YouTube credentials, cookies, OAuth tokens, API keys, quota policy, or
+  provider credentials.
+- Print or commit tokens, signed URLs, private provider payloads, credentials,
+  private transcripts, IP addresses, or new hardware identifiers.
+- Pair/unpair the 8BitDo Micro as a normal reconnect fix. Pairing mode is recovery
+  only after diagnostics prove pairing loss and the human explicitly approves.
+- Install packages, reboot the Pi, intentionally put the TV into standby, alter
+  CEC topology, or perform an OS-level rollback without telling the human what
+  will happen and receiving approval.
+- Reopen locked product decisions: X11/Openbox, mpv ownership, B select/Y back,
+  voice-opens/pad-plays, five-choice explicit Streams switching, or intentional
+  Settings-driven display sleep.
+- Claim 4K/HDR, audio, CEC, controller, or couch behavior that was not observed on
+  the actual target equipment.
+
+### You MUST
+
+- Preserve any pre-existing home-Mac or Pi dirt until its owner and purpose are
+  understood. If it blocks a pull/deploy, report it; do not clean it reflexively.
+- Keep Mac, origin, and Pi SHAs explicit at every deploy boundary.
+- Stage only intentional files and inspect the staged diff before every commit.
+- Add or strengthen a deterministic test for each source behavior you change.
+- Re-run the focused test, affected build, relevant Pi gate, and the human row
+  that originally failed.
+- Keep the box usable and the display timeout restored to the locked 30-minute
+  default at handoff.
+
+## 2. Repository and contract map
+
+- **Home Mac repo:** the user's Mango clone; establish with `pwd`.
+- **Pi repo:** `~/mango` as user `aman`.
+- **Branch:** `feat/native-experience` only.
+- **Minimum required source ancestry:**
+  - `afef49e` — cinematic mpv HUD and five-choice Streams drawer.
+  - `63c34da` — launcher loading, empty, offline, stale, and toast states.
+  - `539ebdb` — comprehensive launcher visual polish baseline.
+- **Deploy contract:** `docs/DEPLOY.md`.
+- **Split-machine contract:** `docs/DEPLOY-SPLIT-MACHINE.md`.
+- **Existing ops/display/controller contract:**
+  `docs/tasks/OPS_HEALTH_HOME_DEPLOY_PROMPT.md`.
+- **Full human checklist:** `docs/COUCH_TEST.md`.
+- **Playback contract:** `docs/ARCHITECTURE.md`, `docs/PLAYABILITY.md`,
+  `docs/DECISIONS.md`, and `docs/HARDWARE.md`.
+- **Final report:**
+  `docs/tasks/FULL_COUCH_UX_HOME_ACCEPTANCE_REPORT.md`.
+
+Read all of those files before the first couch session. The existing OPS prompt
+remains binding for controller reconnect and locked display-sleep/CEC work; this
+brief adds the consolidated P0/P1 UX acceptance lane and does not weaken it.
+
+## 3. Environment and verification commands
+
+### S0 preflight
+
+```bash
+git branch --show-current
+git status --short
+git fetch origin feat/native-experience
+git rev-parse HEAD
+git rev-parse origin/feat/native-experience
+git merge-base --is-ancestor afef49e origin/feat/native-experience
+git merge-base --is-ancestor 63c34da origin/feat/native-experience
+git merge-base --is-ancestor 539ebdb origin/feat/native-experience
+```
+
+If the home tree is clean, update only by fast-forward:
+
+```bash
+git pull --ff-only origin feat/native-experience
+```
+
+If the home tree is dirty, classify every path. Do not stash, restore, reset, or
+overwrite it. Continue only if the existing work can be safely committed/pushed
+or the human explicitly chooses how to resolve it.
+
+### Local checks after any home-agent source fix
+
+Run only the affected subset while iterating, then the complete relevant set
+before pushing:
+
+```bash
+cd src/catalog-service && npm run test
+cd ../launcher && npm run build
+cd ../companion && npm run build
+cd ../..
+python3 scripts/m1-foundation/pad/test_pad_context.py
+python3 scripts/m1-foundation/pad/test_pad_mpv_ipc.py
+python3 scripts/m2-catalog/service/test_mango_hud_contract.py
+bash scripts/m6-ship/gate-m6-stream-picker-source.sh
+bash scripts/m6-ship/gate-m6-ux-smoke.sh
+git diff --check
+```
+
+Do not run a command merely to accumulate green output. Select checks based on
+the changed ownership boundary and record exactly what ran.
+
+## 4. Current state and design intent
+
+The source has already received major visual and reliability work. This is an
+acceptance-and-tuning task, not permission for a broad redesign:
+
+- Home/Search/Detail use the Cinema Dark token and focus system.
+- Launcher system states preserve usable controls and cached content across cold
+  load, empty results, outages, stale recovery, and failed shuffle operations.
+- Playback starts clean; interaction reveals a safe-area HUD with exact action
+  feedback, minimal pause state, and delayed buffering state.
+- Movie/series playback exposes a five-choice bottom Streams drawer. Switching
+  is explicit, validated, URL-free, preserves the watch session, and offers a
+  short contextual X Undo window.
+- Live and YouTube have no Streams drawer and must ignore X during playback.
+- The controller's normal power-on reconnect path must never depend on pairing
+  mode.
+- Intentional display sleep is locked and home-owned: Settings timeout choices,
+  30m default, only D-pad/companion activity resets idle, mpv inhibits standby,
+  DPMS+CEC transitions own sleep/wake, and accidental Xorg 600s blanking is gone.
+
+## 5. Existing tooling to reuse
+
+| Need | Reuse | Notes |
+|---|---|---|
+| Git-only deploy | `scripts/pi-deploy.sh` | `--full --gate` for final acceptance |
+| Pi command | `scripts/pi-exec.sh` | No raw invented SSH credentials |
+| Pre-couch gate | `scripts/pi-exec-gate.sh` | Record pass/warn/fail counts |
+| Launcher UX | `scripts/m6-ship/gate-m6-ux-smoke.sh` | Source + live launcher contract |
+| Search | `scripts/m6-ship/gate-m6-search-smoke.sh` | Non-mutating search proof |
+| HUD/Streams source | `scripts/m6-ship/gate-m6-stream-picker-source.sh` | Mac-safe deterministic gate |
+| HUD/Streams Pi | `scripts/m6-ship/gate-m6-stream-picker-smoke.sh` | Runtime, URL-free snapshot proof |
+| HUD render fixtures | `scripts/m6-ship/render-mpv-hud-fixtures.sh` | Actual mpv/libass images on Pi |
+| Playback SSOT | `scripts/m6-ship/gate-m6-playback-ssot.sh` | Lifecycle/foreground contract |
+| Reliability | `scripts/m6-ship/gate-m6-reliability-proof.sh` | Red fails; yellow requires explanation |
+| Controller | `scripts/m1-foundation/pad/controller-link-couch-test.sh` | Five ordinary wake cycles |
+| Controller failure | `scripts/m1-foundation/pad/controller-link-diagnose.sh` | Capture before pairing |
+| Full manual matrix | `docs/COUCH_TEST.md` | Record human observation separately |
+
+Build only what an observed failure proves is missing. Do not create replacement
+deploy scripts, a second overlay renderer, a second input owner, or a parallel
+acceptance framework.
+
+## 6. Workstreams
+
+### S0 — Source and environment preflight
+
+1. Verify branch and inspect dirty state on the home Mac.
+2. Fetch origin and prove the three minimum patch ancestors above.
+3. Fast-forward only when safe.
+4. Prove SSH through `bash scripts/pi-exec.sh 'echo ok'`.
+5. Capture starting home/origin/Pi SHAs and current stack status.
+
+**Acceptance:** correct branch, understood working trees, required commits in
+origin ancestry, working checked-in Pi transport, no source or state destroyed.
+
+### S1 — Git-only deploy and automated Pi gates
+
+Run:
+
+```bash
+bash scripts/pi-deploy.sh --full --gate
+bash scripts/pi-exec-gate.sh
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-ux-smoke.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-search-smoke.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-playback-ssot.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-reliability-proof.sh'
+```
+
+Also render the production HUD fixtures on the Pi to a temporary directory and
+inspect them before couch testing:
+
+```bash
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/render-mpv-hud-fixtures.sh /tmp/mango-hud-fixtures'
+```
+
+Record every WARN/FAIL. Do not erase runtime state or disable a subsystem to turn
+yellow/red into green.
+
+**Acceptance:** home/origin/Pi code SHAs match; full deploy succeeds; required
+gates pass or are precisely explained; fixtures render all named states.
+
+### S2 — Launcher, Search, Detail, and system-state couch proof
+
+Work with the human in small batches. The human watches from normal couch
+distance and uses the real Micro; the agent does not replace this with synthetic
+input. Cover:
+
+1. **Boot/home:** one fullscreen launcher, no wallpaper/white flash/duplicate
+   Chromium, 5% safe area intact, obvious single focus, responsive D-pad.
+2. **Home rails:** Movies, TV Shows, Live, YouTube, Saved, Continue, and Apps;
+   stable poster geometry, honest focus labels, edge fades, shuffle motion, and
+   unchanged focus during updates.
+3. **P0 loading:** cold/slow load shows a stable aspect-correct skeleton row while
+   Search/tabs/Settings remain usable; no shimmer or focusable placeholders.
+4. **P0 empty:** partial empty rails hide; fully empty tab shows one calm state;
+   Live never suggests shuffle.
+5. **P0 offline/stale:** cached posters remain when usable; outage appears below
+   navigation; reconnect does not flash through loading or move focus.
+6. **P0 toast:** success/warning/error are visibly distinct, safe-area aligned,
+   non-duplicated, and contain no backend/mpv/addon text.
+7. **Search:** compose, recents, keyboard, scope changes, results, More, Detail,
+   playback return, and exact origin/focus restoration.
+8. **Detail:** movie, series with 8+ episodes, YouTube channel/playlist, and
+   related titles. Walk every row end; focus must not teleport, trap, clip, or
+   disappear. Verify Back behavior aloud so surprising nested exits are recorded.
+9. **Post-play:** Y/Home/EOF/next-episode paths restore one launcher surface and
+   the exact expected context without an unrelated refresh.
+
+Use the corresponding U/P/H/D/S rows in `docs/COUCH_TEST.md`; do not silently
+collapse them into a single “looks good” verdict.
+
+**Acceptance:** all relevant rows have an automated result where applicable and
+a named human observation; any defect has reproduction steps and evidence.
+
+### S3 — mpv HUD and Streams drawer couch proof
+
+Use a movie, a multi-episode series, Live, YouTube, a long stream ladder, a
+risky/unavailable candidate if naturally available, and a real 4K title.
+
+Prove with the human:
+
+1. Playback starts with no chrome.
+2. HUD title/episode, elapsed/negative remaining, essentials line, and B/X/Y
+   hints are readable and contain no raw ID, filename, or URL.
+3. Exact seek 10/30/120, volume, audio, subtitle, pause, and resume feedback uses
+   the right value and appropriate 4s/6s dwell.
+4. Pause settles to the small persistent badge; resume removes it immediately.
+5. Sustained buffering appears only after about 1s and clears immediately;
+   harmless cache flicker does not paint a warning.
+6. Live shows LIVE with no timeline. Live and YouTube hide X and pressing X has
+   no visible response.
+7. X opens the 58%-height Streams drawer over vivid continuing video; current is
+   first/amber, best alternate initially has the white focus ring, five choices
+   maximum, unavailable options are disabled and last.
+8. The right pane remains readable and explains readiness/risk/unavailability.
+9. B shows Checking stream and blocks duplicates. Success closes and confirms;
+   X temporarily performs Undo, then returns to opening Streams.
+10. A failed validation keeps the original playing, drawer open, error band
+    visible, and focus on the failed row. One-candidate state says no alternatives.
+11. Position, audio/subtitle preference, subtitle visibility, and one logical
+    progress session survive switch and Undo.
+12. A real 4K play shows no visible or measured dropped-frame regression from
+    opening, navigating, switching, and closing the drawer.
+
+Do not manufacture unavailable candidates by changing provider credentials or
+runtime databases. If the natural catalog cannot supply a proof row, mark only
+that row `DEFERRED` with the exact title/query needed next.
+
+**Acceptance:** every HUD/drawer row in `COUCH_TEST.md` is observed or honestly
+deferred; the relevant runtime gate remains green after the session.
+
+### S4 — Voice, companion, Settings, Reliability, controller, and display proof
+
+Continue the complete contract in
+`docs/tasks/OPS_HEALTH_HOME_DEPLOY_PROMPT.md`, including:
+
+- five normal controller power cycles with zero pairing-mode entries;
+- launcher and playback control after reconnect;
+- phone PTT/text, TV HUD, structured pick, open-detail acknowledgement, and
+  voice-opens/pad-plays behavior;
+- Settings and Reliability Center legibility, truthful severity, safe actions,
+  and back/focus behavior;
+- intentional display sleep, DPMS/CEC standby and wake, D-pad and companion
+  activity ownership, mpv inhibition, Off, persistence, no Xorg 600s timeout,
+  and restored 30m default;
+- target-TV display/audio/4K proof only where actual hardware evidence exists.
+
+The human owns physical observations and approval for disruptive steps. Ask in
+small batches and adapt the next question to the previous answer.
+
+**Acceptance:** the OPS prompt's required matrix is complete or carries exact
+deferred reasons; controller uses normal wake; display ends On at 30m; launcher
+is usable; playback is stopped.
+
+### S5 — Evidence-driven fine-tuning and regression
+
+For each failure:
+
+1. Record the exact surface, starting focus/state, input sequence, expected
+   behavior, human observation, and timestamp.
+2. Capture relevant source/runtime evidence before restarting anything.
+3. Identify the owning layer and state one falsifiable root-cause hypothesis.
+4. For subjective visual issues, show the human at most three concrete tuning
+   choices and recommend one. Do not ask an open-ended design questionnaire.
+5. Change the smallest source-owned surface on the home Mac.
+6. Add/strengthen a deterministic regression test.
+7. Run focused tests, affected build, `git diff --check`, and inspect the diff.
+8. Commit with an imperative subject, push, Git-only deploy, and prove SHAs.
+9. Re-run the exact failed human row, then the relevant gate and pre-couch gate.
+10. Record failed attempts rather than rewriting history.
+
+Allowed tuning examples: safe-area/token spacing, focus contrast, couch text
+size, panel density, fade thresholds, poster-label delay, HUD dwell, copy, or a
+localized focus-navigation correction. Changes to bindings, playback ownership,
+stream ranking, DB semantics, provider policy, display-sleep policy, or
+credentials are outside tuning scope and require a separate explicit decision.
+
+**Acceptance:** every pushed fix is causally tied to observed evidence, tested,
+redeployed, and re-observed; no speculative redesign or contract drift.
+
+### S6 — Report, final regression, safe state, and push
+
+After the final fix:
+
+```bash
+bash scripts/pi-deploy.sh --full --gate
+bash scripts/pi-exec-gate.sh
+```
+
+Write `docs/tasks/FULL_COUCH_UX_HOME_ACCEPTANCE_REPORT.md` with:
+
+1. date, sanitized environment description, starting/final SHAs;
+2. exact deploy/gate commands and pass/warn/fail counts;
+3. patch SHA/subject/paths/reason/rollback for every home-agent fix;
+4. per-surface automated and human verdicts for S2-S4;
+5. controller cycle timings and pairing-mode count;
+6. display-sleep/CEC proof and restored 30m default;
+7. 4K dropped-frame evidence plus the human visible-picture verdict;
+8. failed attempts and evidence-driven corrections;
+9. every `DEFERRED` item with reason, owner, and exact next action;
+10. confirmation that no credentials, URLs, runtime data, or private content are
+    included and that the box was left safe and usable.
+
+Stage only intentional source/docs, inspect the staged diff, commit the sanitized
+report and any final documentation, then push:
+
+```bash
+git status --short
+git diff --check
+git diff --cached --stat
+git commit -m "docs(ux): record full couch acceptance"
+git push origin feat/native-experience
+```
+
+If the report-only commit moves origin beyond the Pi code SHA, either perform a
+final Git-only pull/deploy or explicitly report code-runtime SHA versus docs tip.
+
+**Acceptance:** report is complete and pushed; origin contains every proven fix;
+final home/origin/Pi identities are explicit; the TV is On, timeout is 30m,
+playback is stopped, and launcher/pad are usable.
+
+## 7. Ordering and collaboration cadence
+
+Perform **S0 → S6**. Do not begin visual acceptance on a failed automated
+baseline. Do not run the entire human matrix as one exhausting interview:
+
+- explain the next surface and expected controls;
+- ask for one to three observations;
+- summarize what was observed;
+- choose the next smallest batch based on that result.
+
+If the human pauses, leave the system safe and persist the unfinished checklist
+in the report instead of claiming completion.
+
+## 8. Commit and push policy
+
+This task explicitly authorizes commits and pushes for:
+
+- narrowly scoped, tested source fixes arising from observed acceptance failures;
+- corresponding tests and accurate source-of-truth docs;
+- the sanitized final report.
+
+Use one coherent commit per fix. Never amend or force-push. Never bundle unknown
+home dirt. Pull with `--ff-only` before beginning a new fix; if origin moved,
+reconcile transparently before continuing.
+
+## 9. Definition of done
+
+- Correct branch and required patch ancestry proved.
+- Home/origin/Pi code SHAs match the intended deployed source.
+- Full deploy and automated gates pass or have exact, non-fabricated deferrals.
+- Launcher P0 states, Home, Search, Detail, post-play, HUD, Streams, voice,
+  companion, Settings, Reliability, controller, and display contracts have
+  direct human observations.
+- All pushed tuning changes are minimal, tested, redeployed, and re-observed.
+- 4K/performance claims include runtime metrics and a human visible-picture check.
+- No pairing-mode happy path, runtime-state deletion, credential/quota change,
+  Pi source edit, rsync/scp, or hidden destructive cleanup occurred.
+- Final report is committed and pushed.
+- All remaining items are marked `DEFERRED` with exact reason and next action.
+- Box is left safe: TV On, 30m display timeout, playback stopped, launcher and
+  controller usable.
+
+Begin by reading the files in §2, then perform S0.
