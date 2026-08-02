@@ -95,12 +95,14 @@ Vidyalaya* S1E3.
 
 ### In-playback stream picker
 
-For movies and series, **X** opens a persistent Streams panel inside the mpv
-Lua HUD. It shows at most eight identity-safe candidates, marks the current
-source, and places risky sources last. **Up/Down** moves, **B** selects, and
-**Y** closes the panel before it can stop playback. Video continues while
-browsing; closing the panel removes its one-second state poll, so no extra
-steady-state process or polling remains.
+For movies and series, **X** opens a 58%-height Streams drawer inside the mpv
+Lua HUD. Its URL-free five-choice roster pins the current source first and
+focuses the best usable alternative; unavailable rows are disabled and last.
+The 60/40 layout separates balanced readiness rows from provider, size,
+bitrate, release, audio, codec, and compatibility detail. **Up/Down** moves,
+**B** selects an available row, and **Y** closes before normal Back can stop
+playback. Video continues visibly above the local scrim. Closing removes the
+one-second state poll, so no extra steady-state process or polling remains.
 
 Pad actions use ordered in-process mpv JSON IPC. Opening the panel is
 acknowledged before the router accepts the next D-pad action, preventing a fast
@@ -108,15 +110,20 @@ X-then-Down sequence from being misrouted to normal playback controls.
 
 Selection validates in isolation for up to 8 seconds when cached or 25 seconds
 when uncached. A stale URL gets one fresh title resolve and fingerprint remap.
-Failure resumes the original stream. Success uses the existing generation-
+Validation shows `Checking stream…` and serializes duplicate input. Failure
+keeps the drawer and failed-row focus while the original continues; a failed
+replacement launch restarts the original and reopens the drawer. Success uses the existing generation-
 scoped mpv wrapper, preserves absolute time, subtitle visibility, and
 audio/subtitle language-role preference, and retains one logical progress
-session. `Try smoother source` records a seven-day path-specific issue and
-reranks without switching; Undo is immediate. There is no dropped-frame
-monitoring, automatic stutter detection, or automatic switching.
+session. The drawer closes into `Now playing · <quality> · <readiness>` and X
+temporarily becomes revision-checked stream Undo; expiry or completion restores
+normal X-to-Streams. The path-issue endpoints remain compatible but have no
+drawer action. There is no dropped-frame monitoring, automatic stutter
+detection, or automatic switching.
 
 The picker is default-on in `mpv-hifi` and can be disabled with
-`MANGO_STREAM_PICKER=0`. Live and YouTube playback are unchanged.
+`MANGO_STREAM_PICKER=0`. Live and YouTube never expose X guidance or respond to
+X. Live uses a `LIVE` badge and no false timeline.
 
 **Native Live curation and search:** Live rails admit candidates by typed event,
 competition, participant, exact-channel, and language policy before dedupe or

@@ -65,6 +65,7 @@ import {
   takePendingNextPrompt,
 } from './progress/next-prompt.js';
 import { resolveSeriesPlayTarget } from './series-play.js';
+import { buildPlaybackHudContext } from './playback-hud-context.js';
 import {
   buildLlmRefreshToolManifest,
   getRefreshLevel,
@@ -479,6 +480,7 @@ async function handlePlay(
     const playback = await playUrl(playUrlValue, remainingMs, {
       startSec,
       playEpoch,
+      hud: buildPlaybackHudContext({ ...body, contentId: body.id }),
     });
     await assertPlayEpoch(playEpoch);
     if (body.type && body.id) {
@@ -536,7 +538,11 @@ async function handlePlay(
       probe: probeStreamReachability,
       play: async (url, timeoutMs) => {
         await assertPlayEpoch(playEpoch);
-        const result = await playUrl(url, timeoutMs, { live: true, playEpoch });
+        const result = await playUrl(url, timeoutMs, {
+          live: true,
+          playEpoch,
+          hud: buildPlaybackHudContext({ type: 'tv', title: body.title, contentId: body.id }),
+        });
         await assertPlayEpoch(playEpoch);
         return result;
       },
@@ -679,6 +685,11 @@ async function handlePlay(
       preferLadderStep: body.prefer_ladder_step,
       deadlineAtMs: deadline.deadlineAtMs,
       startedAtMs: deadline.startedAtMs,
+      hud: buildPlaybackHudContext({
+        ...body,
+        contentId: playId,
+        episodeTitle: resolved!.filterContext.episodeTitle,
+      }),
     });
     let playback;
     try {
@@ -805,6 +816,11 @@ async function handlePlay(
         contentType: body.type,
         contentId: playId,
         title: body.title ?? null,
+        hud: buildPlaybackHudContext({
+          ...body,
+          contentId: playId,
+          episodeTitle: resolved.filterContext.episodeTitle,
+        }),
         streams: resolved.streams,
         config: resolved.filters,
         filterContext: resolved.filterContext,
@@ -2152,6 +2168,7 @@ async function main(): Promise<void> {
               sessionId: String(body.session_id || ''),
               revision: Number(body.revision),
               candidateId: String(body.candidate_id || ''),
+              undo: body.undo === true,
             });
             sendJson(res, 202, { ok: true, accepted: true, streams });
           } catch (error) {

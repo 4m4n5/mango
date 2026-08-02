@@ -297,14 +297,14 @@ Mango ships a unified **mpv-only** couch playback path. Browse stays
 | Display/audio base | `scripts/m6-ship/apply-4k-hdr-profile.sh apply\|revert\|status` — launcher 1080p60, mpv 4K match, HDMI audio |
 | Decode/presentation | mpv `gpu` VO, `hwdec=auto-safe`, deferred foreground, launcher stopped during fullscreen, `xcompmgr` off |
 | Display enforcement | `mango-display-mode.sh ensure-launcher` on stack boot, home, present, stop, deploy, display-wake |
-| Playback OSD/input | mpv Lua HUD on pause/seek and movie/series Streams picker; pad → mpv IPC |
+| Playback OSD/input | Cinematic safe-area mpv Lua HUD with exact action feedback, minimal pause badge, delayed buffering, Live mode, and movie/series Streams drawer; pad → mpv IPC |
 | Playback lifecycle | Async, idempotent `/play-session` acceptance survives Chromium hide/restart; durable `ever_ready` suppresses false post-play errors; generation-scoped PID exit cleanup cannot stop a newer play |
 | Stream selection | Numeric episode markers are authoritative; full marker > bare marker > unmarked; path-scoped `proven_smooth`/`unknown`/`known_risky` tiers cannot be overridden by cache or scalar hints |
-| In-playback switching | **X** opens URL-free eight-choice OSD; 8s cached/25s uncached validation; position/track restoration; original-source fallback; no auto-switching |
+| In-playback switching | **X** opens a URL-free five-choice bottom drawer; current first/best alternate focused/unavailable last; 8s cached/25s uncached validation; contextual X Undo; position/track restoration; original-source fallback; no auto-switching |
 | Evidence | `/etc/mango/playability.db` `stream_path_evidence`, keyed by release fingerprint + playback profile; signed URLs are never persisted |
 | Transport recovery | One bounded fresh resolve for stale cached VOD/YouTube links; no retry on cancellation, rate limit, or malformed media; YouTube 429s enter a local cooldown |
 | 4K+audio smoothness | `--blend-subtitles=no` default (`MANGO_MPV_BLEND_SUBTITLES`); `yes` caused ~2.5 drops/s with audio on Pi 5 — Pi-proven 0 drops/s with eac3 4K |
-| Gates | `gate-m6-playback-ssot.sh` · `gate-m6-4k-hdr-profile.sh` · `gate-m6-stream-picker-smoke.sh` · `playback-smoothness-probe.sh` |
+| Gates | `gate-m6-playback-ssot.sh` · `gate-m6-4k-hdr-profile.sh` · `gate-m6-stream-picker-source.sh` · `gate-m6-stream-picker-smoke.sh` · `playback-smoothness-probe.sh` |
 
 4K stream quality is owned by catalog filters + mpv ladder — never by Chromium
 resolution.

@@ -146,9 +146,12 @@ source-matches HDMI before first reveal when the video profile is known. Never
 match while Chromium is still mapped. The playback OSD and pad never call
 `playback-auto` / display-ensure during steady play (operator-only:
 `MANGO_PLAYBACK_DISPLAY_ENSURE=1`). OSD defaults to 4s visible, scales to a
-constant physical size (1080p reference), redraws ~1 Hz, and TTL-caches meta
-IPC. Pad **↑** is the sole subtitle control (show-first, then force-on + cycle);
-**A** is show-first for audio. 4K+audio smoothness requires `--blend-subtitles=no`
+constant physical size (1080p reference), redraws ~1 Hz only while visible,
+and starts with no chrome. Normal feedback lasts 4s; track/error feedback lasts
+6s. Pause settles to a persistent small badge, and a real mpv cache pause shows
+`Buffering…` only after a 1s anti-flicker delay. Pad **↑** is the sole subtitle
+control (show-first, then force-on + cycle); **A** is show-first for audio.
+4K+audio smoothness requires `--blend-subtitles=no`
 (default in `mpv-play.sh`); `blend-subtitles=yes` causes sustained ~2.5 frame
 drops/s on Pi 5 even with healthy cache and audio on. Probe with
 `scripts/diag/playback-smoothness-probe.sh`. During a 4K play, prove HDMI + decode path with:
@@ -158,16 +161,22 @@ bash scripts/diag/playback-4k-proof.sh
 # or: bash scripts/diag/playback-4k-proof.sh --watch
 ```
 
-During movie/series playback, **X** opens the mpv-native Streams panel. It uses
-the localhost active-stream API and URL-free
+During movie/series playback, **X** opens the mpv-native 58%-height Streams
+drawer. It uses the localhost active-stream API and URL-free
 `~/.cache/mango/active-streams.json`; opening it performs no provider resolve.
-**Up/Down** moves, **B** validates/selects, and **Y** closes the panel. Disable
+The current source is first in a maximum-five roster; unavailable rows are last
+and cannot be selected. **Up/Down** moves, **B** validates/selects, and **Y**
+closes the panel. A successful switch temporarily maps X to Undo; a failed switch keeps/reopens the
+drawer and leaves the original playing. Live and YouTube ignore X. Disable
 only for rollback with `MANGO_STREAM_PICKER=0` in
 `~/.config/mango/voice.env`, then restart catalog and pad.
 
 ```bash
 curl -sf http://127.0.0.1:3020/play-session/active/streams | jq
+bash scripts/m6-ship/gate-m6-stream-picker-source.sh # Mac-safe, no Pi access
 bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
+# Pi-only visual fixture proof (actual mpv/libass rendering):
+bash scripts/m6-ship/render-mpv-hud-fixtures.sh /tmp/mango-hud-fixtures
 ```
 
 `ensure-launcher` (alias `launcher`) is called on stack boot, home, present,

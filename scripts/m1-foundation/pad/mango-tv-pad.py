@@ -25,7 +25,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from pad_context import resolve_secondary_surface, secondary_press_kind
+from pad_context import resolve_secondary_surface, secondary_press_kind, seek_hud_reason
 from pad_mpv_ipc import MpvIpcError, send_mpv_command
 
 try:
@@ -503,7 +503,7 @@ def route_mpv_seek(direction: str, seconds: int) -> None:
         return
     signed_seconds = -seconds if direction == "left" else seconds
     send_mpv_ipc("seek", str(signed_seconds), "relative")
-    show_playback_osd(direction)
+    show_playback_osd(seek_hud_reason(direction, seconds))
 
 
 def route_playback_seek(app: str, direction: str, seconds: int) -> None:

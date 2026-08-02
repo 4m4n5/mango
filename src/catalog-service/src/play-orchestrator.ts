@@ -1,5 +1,10 @@
 import { CatalogError, type Stream } from './core.js';
-import { playUrl, probeUrl, type PlayResult } from './mpv.js';
+import {
+  playUrl,
+  probeUrl,
+  type PlaybackHudContext,
+  type PlayResult,
+} from './mpv.js';
 import { preflightPlaybackUrl } from './preflight-playback.js';
 import {
   couchStatusForLadderStep,
@@ -202,6 +207,7 @@ type AttemptOneOptions = {
   play?: typeof playUrl;
   preflight: typeof preflightPlaybackUrl;
   startSec?: number;
+  hud?: PlaybackHudContext;
   minDurationSec?: number;
   obligationFloorRan?: boolean;
   candidateCount: number;
@@ -389,6 +395,7 @@ async function attemptOne(options: AttemptOneOptions): Promise<AttemptOneResult>
       minDurationSec: options.minDurationSec ?? 600,
       startSec: options.startSec,
       ladderStep: candidate.ladder_step,
+      hud: options.hud,
     });
     if (options.playEpoch !== undefined) {
       await assertPlayEpoch(options.playEpoch);
@@ -714,6 +721,7 @@ export async function playWithLadder(
     preflight?: typeof preflightPlaybackUrl;
     onLadderStep?: (step: string, label: string) => void;
     startSec?: number;
+    hud?: PlaybackHudContext;
     preferUrl?: string;
     preferLadderStep?: string;
     deadlineAtMs?: number;
@@ -755,6 +763,7 @@ export async function playWithLadder(
     preflight,
     onLadderStep: options.onLadderStep,
     startSec: options.startSec,
+    hud: options.hud,
     minDurationSec,
   };
 

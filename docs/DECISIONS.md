@@ -61,7 +61,8 @@ Locked choices. Update when changing behavior.
 | Playback cleanup | Natural mpv exit cleanup is PID + play-epoch scoped; stale monitors cannot stop a newer session |
 | Episode stream identity | Explicit numeric contradictions reject; full `SxxExx`/`NxE` markers outrank bare `E`/`EP`; localized title mismatch is soft when numeric identity agrees |
 | Playback ranking | Capability tier is lexicographic and path-scoped; `known_risky` never outranks identity-safe smooth/unknown sources through cache or scalar bonuses |
-| Stream switching | Explicit mpv-HUD picker for movies/episodes only; validates before switching, preserves one progress session, and never detects stutter or auto-switches |
+| Playback HUD | Viewer-first cinematic libass panel inside the 5% TV safe area; clean startup, 4s/6s adaptive feedback, minimal persistent pause, delayed buffering, and Live without a timeline; amber is progress/confirmation only |
+| Stream switching | Five-choice 58%-height mpv drawer for movies/episodes only; current pinned first, best alternative focused, unavailable last/disabled, isolated validation before every explicit switch, contextual revisioned X Undo after success, one progress session, and no stutter detection or auto-switching |
 
 ---
 

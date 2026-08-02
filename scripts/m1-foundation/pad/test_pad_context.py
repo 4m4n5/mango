@@ -9,6 +9,7 @@ import unittest
 from pad_context import (
     contextual_secondary_surface,
     resolve_secondary_surface,
+    seek_hud_reason,
     secondary_press_kind,
 )
 
@@ -81,6 +82,13 @@ class PadContextTest(unittest.TestCase):
     def test_tap_and_hold_boundary(self) -> None:
         self.assertEqual(secondary_press_kind(10.0, 10.59, 0.6), "tap")
         self.assertEqual(secondary_press_kind(10.0, 10.6, 0.6), "hold")
+
+    def test_seek_feedback_carries_exact_signed_delta(self) -> None:
+        self.assertEqual(seek_hud_reason("left", 10), "seek:-10")
+        self.assertEqual(seek_hud_reason("right", 30), "seek:+30")
+        self.assertEqual(seek_hud_reason("left", 120), "seek:-120")
+        with self.assertRaises(ValueError):
+            seek_hud_reason("up", 10)
 
 
 if __name__ == "__main__":

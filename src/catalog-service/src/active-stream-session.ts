@@ -9,6 +9,7 @@ import {
   probeUrl,
   setMpvProperty,
   type PlayResult,
+  type PlaybackHudContext,
 } from './mpv.js';
 import {
   expandObligationFloor,
@@ -72,6 +73,9 @@ export type ActiveStreamSnapshot = {
   candidates: ActiveStreamPublicCandidate[];
   error: string | null;
   undo_available: boolean;
+  switch_undo_candidate_id: string | null;
+  switch_confirmed_at: number | null;
+  focus_candidate_id: string | null;
   updated_at: number;
 };
 
@@ -105,12 +109,16 @@ type ActiveSession = {
   content_type: string;
   content_id: string;
   title: string | null;
+  hud: PlaybackHudContext;
   current_candidate_id: string;
   candidates: InternalCandidate[];
   config: PlayOrchestratorConfig;
   filter_context: StreamFilterContext;
   error: string | null;
   undo_fingerprint: string | null;
+  switch_undo_candidate_id: string | null;
+  switch_confirmed_at: number | null;
+  last_selected_candidate_id: string | null;
   updated_at: number;
   resolve_fresh: () => Promise<Stream[]>;
 };
@@ -210,19 +218,28 @@ function snapshotOf(session: ActiveSession | null): ActiveStreamSnapshot {
       candidates: [],
       error: null,
       undo_available: false,
+      switch_undo_candidate_id: null,
+      switch_confirmed_at: null,
+      focus_candidate_id: null,
       updated_at: Date.now(),
     };
   }
-  const visibleCandidates = session.candidates.slice(0, 8);
-  if (!visibleCandidates.some((candidate) => candidate.candidate_id === session.current_candidate_id)) {
-    const current = session.candidates.find((candidate) => (
-      candidate.candidate_id === session.current_candidate_id
-    ));
-    if (current) {
-      if (visibleCandidates.length >= 8) visibleCandidates.pop();
-      visibleCandidates.push(current);
-    }
+  const current = session.candidates.find((candidate) => (
+    candidate.candidate_id === session.current_candidate_id
+  ));
+  const alternatives = session.candidates.filter((candidate) => (
+    candidate.candidate_id !== session.current_candidate_id
+  ));
+  const visibleCandidates = [...(current ? [current] : []), ...alternatives].slice(0, 5);
+  const lastSelected = session.last_selected_candidate_id
+    ? session.candidates.find((candidate) => candidate.candidate_id === session.last_selected_candidate_id)
+    : null;
+  if (lastSelected && !visibleCandidates.includes(lastSelected)) {
+    visibleCandidates[visibleCandidates.length >= 5 ? 4 : visibleCandidates.length] = lastSelected;
   }
+  const pinned = visibleCandidates.shift();
+  visibleCandidates.sort((left, right) => Number(left.unavailable) - Number(right.unavailable));
+  if (pinned) visibleCandidates.unshift(pinned);
   return {
     enabled: true,
     session_id: session.session_id,
@@ -232,6 +249,9 @@ function snapshotOf(session: ActiveSession | null): ActiveStreamSnapshot {
     candidates: visibleCandidates.map((candidate) => publicCandidate(session, candidate)),
     error: session.error,
     undo_available: Boolean(session.undo_fingerprint),
+    switch_undo_candidate_id: session.switch_undo_candidate_id,
+    switch_confirmed_at: session.switch_confirmed_at,
+    focus_candidate_id: session.last_selected_candidate_id,
     updated_at: session.updated_at,
   };
 }
@@ -452,6 +472,7 @@ export class ActiveStreamService {
     contentType: string;
     contentId: string;
     title?: string | null;
+    hud?: PlaybackHudContext;
     streams: Stream[];
     config: PlayOrchestratorConfig;
     filterContext: StreamFilterContext;
@@ -486,16 +507,20 @@ export class ActiveStreamService {
       content_type: input.contentType,
       content_id: input.contentId,
       title: input.title ?? null,
+      hud: input.hud ?? { title: input.title, kind: 'unknown' },
       current_candidate_id: current.candidate_id,
       candidates,
       config: input.config,
       filter_context: input.filterContext,
       error: null,
       undo_fingerprint: null,
+      switch_undo_candidate_id: null,
+      switch_confirmed_at: null,
+      last_selected_candidate_id: null,
       updated_at: Date.now(),
       resolve_fresh: input.resolveFresh,
     };
-    rerankCandidates(this.session);
+    rerankCandidates(this.session!);
     await this.publish();
   }
 
@@ -531,6 +556,7 @@ export class ActiveStreamService {
     sessionId: string;
     revision: number;
     candidateId: string;
+    undo?: boolean;
   }): Promise<ActiveStreamSnapshot> {
     const session = this.assertCommand(input.sessionId, input.revision);
     if (this.switchInFlight || session.status === 'checking' || session.status === 'switching') {
@@ -540,15 +566,19 @@ export class ActiveStreamService {
     if (!selected || selected.unavailable) {
       throw new ActiveStreamConflictError('selected stream is no longer available');
     }
+    if (input.undo && selected.candidate_id !== session.switch_undo_candidate_id) {
+      throw new ActiveStreamConflictError('stream Undo is no longer available');
+    }
     if (selected.candidate_id === session.current_candidate_id) {
       return snapshotOf(session);
     }
     session.status = 'checking';
+    session.last_selected_candidate_id = selected.candidate_id;
     session.error = null;
     session.revision += 1;
     session.updated_at = Date.now();
     await this.publish();
-    this.switchInFlight = this.switchCandidate(session, selected)
+    this.switchInFlight = this.switchCandidate(session, selected, input.undo === true)
       .catch(async () => {
         if (this.session !== session) return;
         const playback = await this.dependencies.getPlaybackState().catch(() => null);
@@ -619,6 +649,7 @@ export class ActiveStreamService {
   private async switchCandidate(
     session: ActiveSession,
     selected: InternalCandidate,
+    undo: boolean,
   ): Promise<void> {
     const original = session.candidates.find((candidate) => (
       candidate.candidate_id === session.current_candidate_id
@@ -676,8 +707,19 @@ export class ActiveStreamService {
         playEpoch: session.play_epoch,
         startSec: preferences.position_sec,
         ladderStep: selected.ladder_step,
+        hud: {
+          ...session.hud,
+          confirmation: undo
+            ? 'Previous stream restored'
+            : `Now playing · ${displayResolution(selected.stream, selected.technical)} · ${
+              parseDebridCacheStatus(selected.stream) === 'cached' ? 'Ready now' : 'May take longer'
+            }`,
+        },
       });
       session.current_candidate_id = selected.candidate_id;
+      session.switch_undo_candidate_id = undo ? null : original.candidate_id;
+      session.switch_confirmed_at = Date.now();
+      session.last_selected_candidate_id = null;
       session.status = 'ready';
       session.error = null;
       rerankCandidates(session);
@@ -696,6 +738,7 @@ export class ActiveStreamService {
           playEpoch: session.play_epoch,
           startSec: preferences.position_sec,
           ladderStep: original.ladder_step,
+          hud: { ...session.hud, reopenStreams: true },
         });
         session.current_candidate_id = original.candidate_id;
         session.status = 'ready';
@@ -710,6 +753,8 @@ export class ActiveStreamService {
         }).catch(() => null);
       }
       selected.unavailable = true;
+      session.switch_undo_candidate_id = null;
+      session.switch_confirmed_at = null;
       rerankCandidates(session);
     }
     session.revision += 1;

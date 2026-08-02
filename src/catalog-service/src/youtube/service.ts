@@ -3533,6 +3533,11 @@ export class YoutubeService {
       playEpoch,
       minDurationSec: 1,
       audioUrl: resolved.audio_url,
+      hud: {
+        title: item.title === id ? 'YouTube' : item.title,
+        context: item.channel_title,
+        kind: 'youtube_video',
+      },
     });
     let playback;
     try {

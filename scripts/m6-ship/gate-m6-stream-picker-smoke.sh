@@ -34,7 +34,7 @@ assert payload.get("ok") is True
 state = payload.get("streams") or {}
 assert state.get("enabled") in (True, False)
 assert isinstance(state.get("revision"), int)
-assert len(state.get("candidates") or []) <= 8
+assert len(state.get("candidates") or []) <= 5
 encoded = json.dumps(state).lower()
 assert '"url"' not in encoded
 assert "http://" not in encoded
@@ -43,7 +43,13 @@ if state.get("session_id"):
     current = state.get("current_candidate_id")
     candidates = state.get("candidates") or []
     assert current
-    assert any(row.get("candidate_id") == current and row.get("current") is True for row in candidates)
+    assert candidates and candidates[0].get("candidate_id") == current
+    assert candidates[0].get("current") is True
+    unavailable_seen = False
+    for row in candidates[1:]:
+        unavailable_seen = unavailable_seen or row.get("unavailable") is True
+        if unavailable_seen:
+            assert row.get("unavailable") is True
     assert all(row.get("capability_class") in ("proven_smooth", "unknown", "known_risky") for row in candidates)
 print("PASS: active stream API is bounded, revisioned, and URL-free")
 PY

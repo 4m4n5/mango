@@ -16,6 +16,16 @@ export type PlayResult = {
   technical?: StreamTechnicalProfile;
 };
 
+export type PlaybackHudKind = 'movie' | 'series' | 'tv' | 'youtube_video' | 'unknown';
+
+export type PlaybackHudContext = {
+  title?: string | null;
+  context?: string | null;
+  kind?: PlaybackHudKind;
+  confirmation?: string | null;
+  reopenStreams?: boolean;
+};
+
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const defaultRepoDir = resolve(moduleDir, '../../..');
 
@@ -74,6 +84,33 @@ function displayEnv(): NodeJS.ProcessEnv {
   };
 }
 
+export function sanitizePlaybackHudText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const clean = value
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean) return undefined;
+  return [...clean].slice(0, maxLength).join('');
+}
+
+export function playbackHudEnv(hud?: PlaybackHudContext): NodeJS.ProcessEnv {
+  if (!hud) return {};
+  const title = sanitizePlaybackHudText(hud.title, 120);
+  const context = sanitizePlaybackHudText(hud.context, 160);
+  const confirmation = sanitizePlaybackHudText(hud.confirmation, 100);
+  const kind: PlaybackHudKind = ['movie', 'series', 'tv', 'youtube_video'].includes(hud.kind || '')
+    ? hud.kind as PlaybackHudKind
+    : 'unknown';
+  return {
+    ...(title ? { MANGO_PLAYBACK_TITLE: title } : {}),
+    ...(context ? { MANGO_PLAYBACK_CONTEXT: context } : {}),
+    ...(confirmation ? { MANGO_PLAYBACK_CONFIRMATION: confirmation } : {}),
+    ...(hud.reopenStreams ? { MANGO_PLAYBACK_REOPEN_STREAMS: '1' } : {}),
+    MANGO_PLAYBACK_KIND: kind,
+  };
+}
+
 async function runMpv(
   url: string,
   options: {
@@ -87,6 +124,7 @@ async function runMpv(
     ladderStep?: string;
     requestClass: 'user' | 'background';
     isolatedProbe?: boolean;
+    hud?: PlaybackHudContext;
   },
 ): Promise<PlayResult> {
   const script = resolve(repoDir(), 'scripts/m2-catalog/service/mpv-play.sh');
@@ -116,6 +154,7 @@ async function runMpv(
     }
   }
   const env = displayEnv();
+  if (!options.probe) Object.assign(env, playbackHudEnv(options.hud));
   env.MANGO_MPV_PARENT_SCOPED_GROUP = '1';
   if (options.playEpoch !== undefined) {
     env.MANGO_PLAY_EPOCH = String(options.playEpoch);
@@ -233,6 +272,7 @@ export async function playUrl(
     live?: boolean;
     audioUrl?: string;
     ladderStep?: string;
+    hud?: PlaybackHudContext;
   } = {},
 ): Promise<PlayResult> {
   return runMpv(url, {
@@ -244,6 +284,7 @@ export async function playUrl(
     live: options.live,
     audioUrl: options.audioUrl,
     ladderStep: options.ladderStep,
+    hud: options.hud,
     requestClass: 'user',
   });
 }

@@ -137,7 +137,7 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | Label | Position | Linux evdev | Action |
 |-------|----------|-------------|--------|
 | **Y** | left | `308` (BTN_WEST) | **Back** (in-app / playback stop → launcher) |
-| **X** | top | `307` (BTN_NORTH) | **Shuffle** (Home); delete/clear (Search); open/close **Streams** (movie/series playback) |
+| **X** | top | `307` (BTN_NORTH) | **Shuffle** (Home); delete/clear (Search); open/close **Streams** (movie/series playback); temporary stream **Undo** after a successful switch |
 | **A** | right | `305` (BTN_EAST) | **Show HUD** then **cycle audio** while HUD visible (playback) |
 | **B** | bottom | `304` (BTN_SOUTH) | **Select** / playback pause-play + progress bar |
 
@@ -166,7 +166,7 @@ Playback-only **L/R** jumps by the large seek step (120s default). In the
 Streams panel, **Up/Down** moves, **B** validates/selects, and **Y** closes the
 panel before normal playback Back handling.
 
-> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. **A** is audio during playback (show-first). **X** is contextual: Home shuffles only the current tab; Search tap deletes and a 600 ms hold clears; movie/series playback opens Streams.
+> Do **not** use Xbox-style “A=bottom confirm” naming — on this pad **B is bottom** and is select. **A** is audio during playback (show-first). **X** is contextual: Home shuffles only the current tab; Search tap deletes and a 600 ms hold clears; movie/series playback opens Streams or briefly undoes a successful switch. Live and YouTube ignore X.
 
 > **Quirk:** In Switch BT mode Linux reports the **D-pad as ABS_X/ABS_Y** (not hat axes). `evtest` shows `ABS_X` on left/right — normal.
 

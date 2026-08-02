@@ -5,9 +5,34 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { playbackHudEnv, sanitizePlaybackHudText } from './mpv.js';
 
 const repoDir = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../..');
 const script = join(repoDir, 'scripts/m2-catalog/service/mpv-play.sh');
+
+test('HUD launch text strips controls, collapses whitespace, and truncates by Unicode character', () => {
+  assert.equal(
+    sanitizePlaybackHudText('  Mango\n\tTV\u0000  ', 40),
+    'Mango TV',
+  );
+  assert.equal(sanitizePlaybackHudText('अंतरिक्ष यात्रा', 5), 'अंतरि');
+  assert.equal(sanitizePlaybackHudText('   ', 10), undefined);
+});
+
+test('HUD context reaches mpv only as bounded safe metadata', () => {
+  assert.deepEqual(playbackHudEnv({
+    title: 'Example\nSeries',
+    context: 'S2 E7 · Finale',
+    kind: 'series',
+    confirmation: 'Now playing · 1080p · Ready now',
+  }), {
+    MANGO_PLAYBACK_TITLE: 'Example Series',
+    MANGO_PLAYBACK_CONTEXT: 'S2 E7 · Finale',
+    MANGO_PLAYBACK_CONFIRMATION: 'Now playing · 1080p · Ready now',
+    MANGO_PLAYBACK_KIND: 'series',
+  });
+  assert.equal(playbackHudEnv({ kind: 'not-real' as never }).MANGO_PLAYBACK_KIND, 'unknown');
+});
 
 async function printDeferredArgs(ladderStep: string): Promise<string[]> {
   const home = await mkdtemp(join(tmpdir(), 'mango-mpv-args-'));

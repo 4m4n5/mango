@@ -163,7 +163,9 @@ bash scripts/diag/playback-4k-proof.sh
 ### Evidence-based episode selection and Streams OSD
 
 ```bash
+bash scripts/m6-ship/gate-m6-stream-picker-source.sh
 bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
+bash scripts/m6-ship/render-mpv-hud-fixtures.sh /tmp/mango-hud-fixtures
 curl -sf http://127.0.0.1:3020/play-session/active/streams | jq '.streams'
 ```
 
@@ -171,12 +173,19 @@ curl -sf http://127.0.0.1:3020/play-session/active/streams | jq '.streams'
 |---|---|---|
 | Adarsh identity | `tt40856520:1:3` retains localized `S01E03` and bare `E03` 1080p rows; both rank before 4K HDR | |
 | Automatic choice | Episode starts a smooth 1080p candidate; risky 4K remains available as final fallback | |
-| Picker controls | During movie/episode playback X opens Streams, Up/Down moves, B selects, and Y closes without stopping | |
+| Clean HUD | Playback starts without chrome; interaction reveals a safe-area cinematic panel with title/episode, elapsed and negative remaining time, one essentials line, and readable B/X/Y hints | |
+| Exact feedback | 10/30/120s seeks, volume, subtitle, audio, pause, and resume show accurate 10-foot feedback for the correct 4s/6s timeout | |
+| Pause/buffering | Full HUD settles to a persistent small Paused badge; resume removes it immediately; brief cache pauses do not flicker and sustained buffering appears after about 1s | |
+| Live/YouTube | Live shows title + LIVE with no timeline; Live and YouTube hide X and pressing X has no visible response | |
+| Picker controls | During movie/episode playback X opens the bottom Streams drawer, Up/Down moves, B selects, and Y closes without stopping; upper video remains vivid and playing | |
 | Rapid picker input | Press X then immediately Down; focus moves exactly one row and playback does not seek or show the subtitle HUD | |
-| Candidate safety | At most eight rows, current marked, risky rows last, and neither API nor snapshot contains a stream URL | |
-| Switching | A valid alternate preserves absolute position, subtitle visibility, and audio/subtitle language-role preference | |
-| Failure recovery | A failed alternate resumes the original; if replacement launch fails, original restarts once without a launcher flash | |
-| Issue memory | Try smoother source reranks without switching; Undo restores issue state immediately | |
+| Candidate safety | At most five rows; current is first with amber `Playing`; best usable alternate has the white focus ring; unavailable rows are last/disabled; API and snapshot contain no URL or credential | |
+| Readiness/detail | Rows use `Ready now`, `May take longer`, or `Unavailable`; focused detail remains readable for provider/size/bitrate/release/audio/codec and explains risky/unavailable choices | |
+| Switching | `Checking stream…` suppresses duplicate input; a valid alternate closes the drawer, confirms `Now playing`, and preserves absolute position, subtitle visibility, and audio/subtitle language-role preference | |
+| Contextual Undo | During the confirmation window X restores the previous candidate with the latest revision, then returns to normal X-to-Streams ownership | |
+| Failure recovery | Validation failure keeps the drawer, original stream, error band, and failed-row focus; replacement launch failure restarts the original once and reopens the drawer without a launcher flash | |
+| Only current | A one-candidate snapshot opens an explicit no-alternatives state rather than an inert normal list | |
+| 4K regression | During real 4K playback, opening/using/closing the drawer introduces no dropped-frame regression | |
 | Steady-state cost | Closing Streams leaves no external HUD process and no active picker poll | |
 
 ### Same-name title identity (home Mac/Pi only)
