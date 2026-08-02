@@ -654,9 +654,14 @@ export function supportsResource(manifest: Manifest, resourceName: string, type:
   });
 }
 
+/** Strip a trailing Stremio `.json` suffix so resourceUrl never builds `id.json.json`. */
+export function normalizeResourceId(id: string): string {
+  return id.replace(/\.json$/i, '');
+}
+
 function resourceUrl(addon: Addon, resource: string, type: string, id: string): string {
   const encodedType = encodeURIComponent(type);
-  const encodedId = encodeURIComponent(id);
+  const encodedId = encodeURIComponent(normalizeResourceId(id));
   const url = new URL(addon.manifestUrl);
   const root = url.pathname.replace(/\/manifest\.json$/, '').replace(/\/$/, '');
   url.pathname = `${root}/${resource}/${encodedType}/${encodedId}.json`;

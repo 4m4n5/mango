@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { CatalogCore, CatalogError } from './core.js';
+import { CatalogCore, CatalogError, normalizeResourceId } from './core.js';
 import { couchPlayFailureMessage } from './catalog-errors.js';
 import { isMpvActive, playUrl } from './mpv.js';
 import { playWithLadder } from './play-orchestrator.js';
@@ -2079,7 +2079,7 @@ async function main(): Promise<void> {
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'meta') {
         const contentType = parts[1];
-        const contentId = parts[2];
+        const contentId = normalizeResourceId(parts[2]);
         try {
           const meta = await core.metaCached(contentType, contentId);
           sendJson(res, 200, await withVerifyStateForLauncher(enrichMetaForLauncher(meta, contentId), contentType, contentId));
@@ -2095,14 +2095,14 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'series' && parts[2] === 'episodes') {
-        sendJson(res, 200, await core.seriesEpisodes(parts[1]));
+        sendJson(res, 200, await core.seriesEpisodes(normalizeResourceId(parts[1])));
         return;
       }
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'stream') {
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
         const existingOnly = url.searchParams.get('existing_only') === '1';
-        sendJson(res, 200, await core.streams(parts[1], parts[2], overrides, {
+        sendJson(res, 200, await core.streams(parts[1], normalizeResourceId(parts[2]), overrides, {
           existingOnly,
           identityHint: {
             title: url.searchParams.get('title') || undefined,
