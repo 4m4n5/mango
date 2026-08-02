@@ -277,7 +277,7 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send(
                     int(cfg.get("status") or 502),
-                    json.dumps({"error": "no playable stream (harness)"}).encode(),
+                    json.dumps({"error": "couldn't start playback. try another title."}).encode(),
                 )
             return
         # A recorded POST body is served when the manifest captured that exact

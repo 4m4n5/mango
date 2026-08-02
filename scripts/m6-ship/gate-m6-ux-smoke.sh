@@ -22,7 +22,7 @@ else
   gate_fail "launcher dist/index.html missing — cd src/launcher && npm run build"
 fi
 
-python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" "$SRC/search.ts" "$SRC/pad-nav.ts" "$REPO_DIR/src/mango-ui-server/serve.py" <<'PY' \
+python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" "$SRC/search.ts" "$SRC/pad-nav.ts" "$REPO_DIR/src/mango-ui-server/serve.py" "$SRC/home.ts" "$SRC/toast.ts" <<'PY' \
   && gate_pass "launcher source UX contracts" \
   || gate_fail "launcher source UX contracts"
 import pathlib
@@ -38,6 +38,8 @@ catalog = pathlib.Path(sys.argv[7]).read_text(encoding="utf-8")
 search = pathlib.Path(sys.argv[8]).read_text(encoding="utf-8")
 pad_nav = pathlib.Path(sys.argv[9]).read_text(encoding="utf-8")
 ui_server = pathlib.Path(sys.argv[10]).read_text(encoding="utf-8")
+home = pathlib.Path(sys.argv[11]).read_text(encoding="utf-8")
+toast = pathlib.Path(sys.argv[12]).read_text(encoding="utf-8")
 
 if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
@@ -94,8 +96,32 @@ if detail.count("clearPlaybackReturnSnapshot();") < 3:
 failure_block = detail.split("} catch (error) {", 1)[1].split("} finally {", 1)[0]
 if failure_block.find("reconcileEpisodePlayTimeout") > failure_block.find("setEpisodeStreamBadge(episodeId, false)"):
     raise SystemExit("detail.ts greys an episode before playback-timeout reconciliation")
-if "function setStatus(_message: string): void {}" in main or "showToast(message)" not in main:
-    raise SystemExit("main.ts next-prompt failures are not routed to the existing toast")
+for state_contract in (
+    'status: "empty"',
+    'status: "offline"',
+    'freshness: "stale"',
+    "catalogStateAfterSuccess",
+    "catalogStateAfterFailure",
+    "catalog-skeleton-card",
+    'dataCatalogState',
+):
+    # dataset.catalogState compiles from the source token below; accept either
+    # spelling so this source gate remains readable rather than bundle-specific.
+    if state_contract == "dataCatalogState":
+        if "dataset.catalogState" not in home:
+            raise SystemExit("home.ts missing explicit catalog state markers")
+    elif state_contract not in home and state_contract not in main:
+        raise SystemExit(f"launcher missing catalog state contract: {state_contract}")
+for forbidden_copy in ("catalog-service", "N2 prereqs", "when the Pi responds", "nothing resolved yet"):
+    if forbidden_copy in home:
+        raise SystemExit(f"home.ts leaks internal/dead state copy: {forbidden_copy}")
+if "toastToneForStatus" not in main or "showToast(message, { tone })" not in main:
+    raise SystemExit("main.ts does not route explicit status severity to toast")
+if "couldn|failed|unavailable|timed? out" in main:
+    raise SystemExit("main.ts still infers toast severity from message wording")
+for toast_contract in ("ToastTone", "toastPolicy", 'role: tone === "error"', 'aria-atomic'):
+    if toast_contract not in toast:
+        raise SystemExit(f"toast.ts missing typed severity/live-region contract: {toast_contract}")
 for session_contract in ("/api/catalog/play-session", "ever_ready", "readPlaybackSession"):
     if session_contract not in catalog:
         raise SystemExit(f"catalog.ts missing playback-session contract: {session_contract}")
@@ -174,6 +200,7 @@ PY
 
 "$REPO_DIR/src/catalog-service/node_modules/.bin/tsx" --test \
   "$SRC/catalog-errors.test.ts" \
+  "$SRC/home-state.test.ts" \
   "$SRC/playback-return.test.ts" \
   "$SRC/playback-return-focus.test.ts" \
   "$SRC/playback-reconciliation.test.ts" \
@@ -182,6 +209,7 @@ PY
   "$SRC/detail-search-queue.test.ts" \
   "$SRC/search.test.ts" \
   "$SRC/pad-nav.test.ts" \
+  "$SRC/toast.test.ts" \
   && gate_pass "launcher playback return + timeout reconciliation tests" \
   || gate_fail "launcher playback return + timeout reconciliation tests"
 
@@ -221,6 +249,10 @@ required = (
     'class="voice-hud"',
     'class="browse-brand"',
     'data-visible="false"',
+    'id="toast"',
+    'data-tone="info"',
+    'role="status"',
+    'aria-atomic="true"',
 )
 missing = [token for token in required if token not in html]
 if missing:
@@ -285,6 +317,12 @@ required = (
     "--search-key-width",
     "--search-scroll",
     "prefers-reduced-motion",
+    ".catalog-skeleton-card",
+    ".catalog-state--offline",
+    ".catalog-stale-banner",
+    ".toast[data-tone=success]",
+    ".toast[data-tone=warning]",
+    ".toast[data-tone=error]",
 )
 missing = [token for token in required if token not in css]
 if missing:

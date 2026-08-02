@@ -29,12 +29,14 @@
   --primary-fill: var(--text-primary);
   --on-primary: var(--bg-base);
   --on-accent: #17120a;
-  /* Semantic status, kept separate from --accent so a warning is not styled
-     with the focus colour. Values are today's, so this changes no pixels. */
+  /* Semantic status, kept separate from --accent so warnings never resemble
+     the current D-pad focus. */
+  --status-info: rgb(96 165 250 / 0.52);
+  --status-info-soft: rgb(30 64 175 / 0.24);
   --status-ok: rgb(34 197 94 / 0.42);
   --status-ok-soft: rgb(34 197 94 / 0.1);
-  --status-warn: rgb(var(--accent-rgb) / 0.42);
-  --status-warn-soft: rgb(var(--accent-rgb) / 0.1);
+  --status-warn: rgb(251 113 133 / 0.52);
+  --status-warn-soft: rgb(136 19 55 / 0.24);
   --status-error: rgb(248 113 113 / 0.52);
   --status-error-soft: rgb(127 29 29 / 0.26);
   /* 5% of 1920x1080 — the Android TV / Fire TV / Roku overscan floor. */
@@ -119,6 +121,18 @@
 
 * {
   box-sizing: border-box;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Any author `display` rule beats the UA sheet's `[hidden] { display: none }`, so
@@ -1367,6 +1381,10 @@ button {
     animation: none;
   }
 
+  .toast {
+    transition-duration: 0.01ms;
+  }
+
   .card.focused,
   .card:focus-visible,
   .card--landscape.focused,
@@ -1404,6 +1422,96 @@ button {
   background: var(--bg-elevated);
   border: 2px solid var(--border-subtle);
   border-radius: var(--radius-panel);
+}
+
+.catalog-state--empty .empty-state {
+  border-color: var(--border-strong);
+}
+
+.catalog-state--offline .rail-title {
+  border-left-color: var(--status-error);
+}
+
+.catalog-state--offline .empty-state {
+  background: var(--status-error-soft);
+  border-color: var(--status-error);
+}
+
+.catalog-state--loading .rail-title {
+  border-left-color: var(--status-info);
+}
+
+.catalog-skeleton-grid {
+  pointer-events: none;
+}
+
+.catalog-skeleton-card {
+  min-width: 0;
+}
+
+.catalog-skeleton-art,
+.catalog-skeleton-line {
+  display: block;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.025));
+  border: 2px solid var(--border-subtle);
+}
+
+.catalog-skeleton-card--portrait .catalog-skeleton-art {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-poster);
+}
+
+.catalog-skeleton-card--landscape {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.catalog-skeleton-card--landscape .catalog-skeleton-art {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-poster);
+}
+
+.catalog-skeleton-line {
+  height: 1rem;
+  border: 0;
+  border-radius: 999px;
+}
+
+.catalog-skeleton-line--title {
+  width: 68%;
+}
+
+.catalog-skeleton-line--meta {
+  width: 42%;
+  opacity: 0.62;
+}
+
+.catalog-stale-banner {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.75rem 1rem;
+  color: var(--text-primary);
+  background: var(--status-warn-soft);
+  border: 1px solid var(--status-warn);
+  border-radius: var(--radius-panel);
+  font-size: var(--text-caption);
+}
+
+.catalog-stale-title {
+  font-weight: 850;
+}
+
+.catalog-stale-body {
+  color: var(--text-secondary);
+  font-weight: 700;
 }
 
 .empty-state-title {
@@ -3073,12 +3181,16 @@ h1 {
   color: var(--text-primary);
 }
 
-/* Couch toast — brief confirmations (e.g. "added to library"). Auto-dismisses;
-   pointer-events:none + top placement keep it clear of D-pad focus/voice-hud. */
+/* Couch toast — typed outcome feedback. It never takes focus; tone is paired
+   with a glyph so colour is not the only severity signal. */
 .toast {
   position: fixed;
-  top: max(3vh, calc(env(safe-area-inset-top, 0px) + 1.25rem));
+  top: max(var(--safe-y), calc(env(safe-area-inset-top, 0px) + 1.25rem));
   left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  max-width: calc(100vw - 2 * var(--safe-x));
   transform: translateX(-50%) translateY(-14px);
   z-index: 50;
   padding: 0.85rem 1.4rem;
@@ -3097,9 +3209,67 @@ h1 {
     transform 0.28s ease;
 }
 
+.toast::before {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.45em;
+  height: 1.45em;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 0.8em;
+  line-height: 1;
+}
+
+.toast[data-tone="info"] {
+  border-color: var(--status-info);
+  background: color-mix(in srgb, var(--bg-overlay) 82%, var(--status-info-soft));
+}
+
+.toast[data-tone="info"]::before {
+  content: "i";
+  color: rgb(147 197 253);
+}
+
+.toast[data-tone="success"] {
+  border-color: var(--status-ok);
+  background: color-mix(in srgb, var(--bg-overlay) 82%, var(--status-ok-soft));
+}
+
+.toast[data-tone="success"]::before {
+  content: "✓";
+  color: rgb(134 239 172);
+}
+
+.toast[data-tone="warning"] {
+  border-color: var(--status-warn);
+  background: color-mix(in srgb, var(--bg-overlay) 82%, var(--status-warn-soft));
+}
+
+.toast[data-tone="warning"]::before {
+  content: "!";
+  color: rgb(253 164 175);
+}
+
+.toast[data-tone="error"] {
+  border-color: var(--status-error);
+  background: color-mix(in srgb, var(--bg-overlay) 78%, var(--status-error-soft));
+}
+
+.toast[data-tone="error"]::before {
+  content: "×";
+  color: rgb(254 202 202);
+}
+
 .toast[data-visible="true"] {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+/* Home's browse controls occupy the same top safe-area band. Put transient
+   feedback directly below them so a toast never covers the active tab/focus. */
+.home:not(.hidden) ~ .toast {
+  top: calc(var(--safe-y) + 4.5rem);
 }
 
 .voice-hud {

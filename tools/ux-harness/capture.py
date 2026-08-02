@@ -98,16 +98,30 @@ SCENES: list[dict] = [
     # --- settings (reached by view toggle: no home affordance) ---
     dict(name="18-settings", force="settings", expect="#settings-view:not(.hidden)", synthetic=True),
     # --- states only reachable by controlling the backend ---
-    dict(name="19-rails-loading", control=dict(delay_ms=6000), expect="#rails", no_settle=True),
+    dict(name="19-rails-loading", control=dict(delay_ms=6000),
+         expect='[data-catalog-state="loading"] .catalog-skeleton-card', expect_count=6,
+         forbid_focusable='[data-catalog-state="loading"]', no_settle=True),
     # No cards will ever render in these two, so they cannot use the default
     # "app is ready" probe.
-    dict(name="20-rails-empty", control=dict(empty=["rails"]), ready="#rails", expect="#rails"),
+    dict(name="20-rails-empty", control=dict(empty=["rails"]), ready="#rails",
+         expect='[data-catalog-state="empty"]'),
     dict(name="21-rails-failed", control=dict(fail=["rails"], status=503), ready="#app",
-         expect="#app"),
+         expect='[data-catalog-state="offline"]',
+         forbid_text=["HTTP", "fetch", "catalog-service", "N2", "when the Pi", "socket", "endpoint",
+                      "harness-forced-failure"]),
+    # A failed user refresh keeps the mounted cards and marks them as recently
+    # loaded rather than replacing usable content with the offline panel.
+    dict(name="21b-rails-stale", control_after_ready=dict(fail=["rails"], status=503),
+         keys=["F5"], settle_ms=5600, expect='[data-catalog-state="stale"]',
+         preserve_focus=True,
+         forbid_selector='#toast[data-visible="true"]',
+         forbid_text=["HTTP", "fetch", "catalog-service", "N2", "when the Pi", "socket", "endpoint",
+                      "harness-forced-failure"]),
     dict(name="22-detail-streams-failed", control=dict(fail=["stream"], status=503),
          click=CARD, expect=DETAIL),
     dict(name="23-play-failure-toast", click=CARD, keys=["Enter"], expect=DETAIL,
-         wait_for='#toast[data-visible="true"]'),
+         wait_for='#toast[data-visible="true"][data-tone="error"]',
+         forbid_text=["HTTP", "harness", "mpv", "AIOStreams", "fetch"]),
     # --- event-driven overlays: forced, clearly labelled synthetic ---
     dict(name="24-voice-hud-listening", force="voice", expect='#voice-hud[data-visible="true"]',
          synthetic=True),
@@ -145,8 +159,9 @@ FORCE_JS = {
     }""",
     "toast": """() => {
         const t = document.getElementById('toast');
-        t.dataset.visible = 'true'; t.setAttribute('aria-hidden', 'false');
-        t.textContent = "couldn't start that stream — try again";
+        t.dataset.visible = 'true'; t.dataset.tone = 'warning';
+        t.setAttribute('role', 'status'); t.setAttribute('aria-live', 'polite');
+        t.textContent = "offline — showing recently loaded titles";
     }""",
 }
 
@@ -159,6 +174,7 @@ def write_control(cfg: dict) -> None:
 def run_scene(page, scene: dict) -> tuple[str, str | None]:
     write_control(scene.get("control", {}))
     page.goto(URL, wait_until="domcontentloaded")
+    focus_before = None
 
     if scene.get("no_settle"):
         # Capture mid-flight: do not wait for content, that is the point.
@@ -171,6 +187,13 @@ def run_scene(page, scene: dict) -> tuple[str, str | None]:
         except PWError:
             return "SKIP", f"app never became ready ({scene.get('ready', CARD)})"
         page.wait_for_timeout(SETTLE_MS)
+
+    if control_after_ready := scene.get("control_after_ready"):
+        if scene.get("preserve_focus"):
+            focus_before = page.evaluate(
+                "document.activeElement?.dataset?.focusKey || document.activeElement?.id || null"
+            )
+        write_control(control_after_ready)
 
     for key in scene.get("tab_keys", []):
         page.keyboard.press(key)
@@ -210,6 +233,34 @@ def run_scene(page, scene: dict) -> tuple[str, str | None]:
             page.wait_for_selector(scene["expect"], timeout=10000)
         except PWError:
             return "SKIP", f"expectation never appeared: {scene['expect']}"
+
+    if expected_count := scene.get("expect_count"):
+        count = page.locator(scene["expect"]).count()
+        if count != int(expected_count):
+            return "SKIP", f"expected {expected_count} matches for {scene['expect']}, got {count}"
+
+    if root := scene.get("forbid_focusable"):
+        count = page.locator(f"{root} button, {root} a, {root} [tabindex]").count()
+        if count:
+            return "SKIP", f"state contains {count} focusable elements: {root}"
+
+    if forbidden_selector := scene.get("forbid_selector"):
+        count = page.locator(forbidden_selector).count()
+        if count:
+            return "SKIP", f"forbidden element is visible: {forbidden_selector}"
+
+    if forbidden := scene.get("forbid_text"):
+        body = page.locator("body").inner_text().lower()
+        leaked = [text for text in forbidden if text.lower() in body]
+        if leaked:
+            return "SKIP", f"forbidden couch copy: {', '.join(leaked)}"
+
+    if scene.get("preserve_focus"):
+        focus_after = page.evaluate(
+            "document.activeElement?.dataset?.focusKey || document.activeElement?.id || null"
+        )
+        if focus_before != focus_after:
+            return "SKIP", f"focus moved across state change: {focus_before!r} -> {focus_after!r}"
 
     page.wait_for_timeout(200)
     path = OUT / f"{scene['name']}.png"

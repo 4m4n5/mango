@@ -448,6 +448,10 @@ Automated: `bash scripts/m6-ship/gate-m6-ux-smoke.sh` (also in `pi-pre-couch-gat
 | U7 | Continue rail uses Mango progress/library state only | |
 | U8 | ⌂ from mpv — home <300 ms perceived | |
 | U9 | YouTube rail/search/detail follows the same focus, HUD, and pad-play rules | |
+| U10 | Cold load keeps Search/tabs/Settings usable and shows one stable row of aspect-correct skeletons — no empty black canvas, shimmer, or focusable placeholder | |
+| U11 | Empty shelves are hidden when other shelves have titles; an all-empty tab shows one calm state panel and Live never suggests X/shuffle | |
+| U12 | With no cached titles, an outage appears below the browse bar with couch-safe copy and reconnects without flashing back through loading or moving focus | |
+| U13 | Fail a shuffle after posters are visible: the same cards and focus remain and one **recently loaded** banner appears without a duplicate retry toast; success/warning/error toasts have distinct glyphs, sit clear of the focused browse control, and show no raw backend copy | |
 
 ---
 

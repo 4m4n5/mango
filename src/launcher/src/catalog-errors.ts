@@ -45,6 +45,19 @@ export function playTimeoutMessage(): string {
   return 'catalog timed out — try again';
 }
 
+export type CatalogAvailabilityReason = 'busy' | 'timeout' | 'unavailable';
+
+export function catalogAvailabilityReason(error: unknown): CatalogAvailabilityReason {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  if (RATE_LIMIT_URL_RE.test(message) || RATE_LIMIT_RE.test(message) || /\bbusy\b/i.test(message)) {
+    return 'busy';
+  }
+  if (/timed? out|timeout/i.test(message)) {
+    return 'timeout';
+  }
+  return 'unavailable';
+}
+
 export class CatalogTimeoutError extends Error {
   constructor() {
     super(playTimeoutMessage());

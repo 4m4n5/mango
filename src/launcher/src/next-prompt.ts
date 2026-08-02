@@ -1,4 +1,6 @@
 import type { ContentCard } from "./types";
+import type { LauncherStatusReporter } from "./toast";
+import { playErrorMessage } from "./catalog-errors";
 import { playCard, type NextPromptResponse } from "./catalog";
 import {
   clearPlaybackReturnSnapshot,
@@ -18,7 +20,7 @@ export class NextEpisodePrompt {
     private readonly metaEl: HTMLElement,
     private readonly playButton: HTMLButtonElement,
     private readonly dismissButton: HTMLButtonElement,
-    private readonly onStatus: (message: string) => void,
+    private readonly onStatus: LauncherStatusReporter,
     private readonly onDismiss: () => void,
   ) {
     this.playButton.addEventListener("click", () => void this.playNext());
@@ -42,7 +44,7 @@ export class NextEpisodePrompt {
     this.metaEl.textContent = `S${next.season} E${next.episode} · ${next.title}`;
     this.root.classList.remove("hidden");
     this.root.setAttribute("aria-hidden", "false");
-    this.onStatus("B to play next episode. Y to stay on detail.");
+    this.onStatus("B to play next episode. Y to stay on detail.", "hint");
     this.playButton.focus({ preventScroll: true });
   }
 
@@ -104,7 +106,7 @@ export class NextEpisodePrompt {
     this.playAbort = abort;
     this.playButton.disabled = true;
     this.dismissButton.disabled = true;
-    this.onStatus("starting next episode…");
+    this.onStatus("starting next episode…", "progress");
     savePlaybackReturnSnapshot(tabForCard(card, "series"), card, hint.next.id);
     try {
       await playCard(card, { episodeId: hint.next.id, signal: abort.signal });
@@ -113,14 +115,14 @@ export class NextEpisodePrompt {
       }
       this.playAbort = null;
       this.dismiss();
-      this.onStatus("playing next episode. ⌂ returns home.");
+      this.onStatus("playing next episode. ⌂ returns home.", "success");
     } catch (error) {
       if (abort.signal.aborted || this.playToken !== token) {
         return;
       }
       clearPlaybackReturnSnapshot();
       const message = error instanceof Error ? error.message : "couldn't start next episode.";
-      this.onStatus(message);
+      this.onStatus(playErrorMessage(message), "error");
     } finally {
       if (this.playAbort === abort) {
         this.playAbort = null;

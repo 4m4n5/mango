@@ -16,6 +16,7 @@ import {
   type PlayResult,
 } from "./catalog";
 import type { ContentCard, BrowseTab } from "./types";
+import { showToast, type LauncherStatusReporter } from "./toast";
 import { publishCurrentLibraryContext, saveCard, unsaveCard } from "./saved";
 import {
   savePlaybackReturnSnapshot,
@@ -25,7 +26,7 @@ import {
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel, posterRevealMeta } from "./home";
 import { MINIMAL_VOD_POSTER_LABELS } from "./ui-flags";
-import { showToast } from "./toast";
+import { playErrorMessage } from "./catalog-errors";
 import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
 import { recoverTimedOutStreamList } from "./stream-list-recovery";
 
@@ -45,7 +46,7 @@ const UNVERIFIED_STREAM_STEPS = new Set([
 
 export interface DetailCallbacks {
   onClose: (origin: DetailOriginContext) => void;
-  onStatus: (message: string) => void;
+  onStatus: LauncherStatusReporter;
   onSavedChanged?: (card: ContentCard) => void;
   onPlayed?: (card: ContentCard, result: PlayResult) => void;
   isSaved?: (card: ContentCard) => boolean;
@@ -527,11 +528,7 @@ export class DetailController {
       }
       clearPlaybackReturnSnapshot();
       const message = error instanceof Error ? error.message : "couldn't start playback. try another title.";
-      showToast(
-        message && !message.startsWith("HTTP ")
-          ? message
-          : "couldn't start playback. try another title.",
-      );
+      showToast(playErrorMessage(message), { tone: "error" });
     } finally {
       window.clearTimeout(startingTimer);
       window.clearTimeout(slowResolveTimer);
@@ -1277,7 +1274,7 @@ export class DetailController {
       return;
     }
     if (!this.canSaveCard(card)) {
-      showToast("only YouTube videos can be saved.");
+      showToast("only YouTube videos can be saved.", { tone: "warning" });
       return;
     }
     this.saveButton.disabled = true;
@@ -1285,17 +1282,16 @@ export class DetailController {
       if (this.saved) {
         await unsaveCard(card);
         this.saved = false;
-        showToast("removed from saved.");
+        showToast("removed from saved.", { tone: "success" });
       } else {
         await saveCard(this.browseTab, card);
         this.saved = true;
-        showToast("saved — find it in your Saved rail.");
+        showToast("saved — find it in your Saved rail.", { tone: "success" });
       }
       this.updateSaveButton();
       this.callbacks.onSavedChanged?.(card);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "could not update saved";
-      showToast(message);
+    } catch {
+      showToast("couldn't update saved", { tone: "error" });
     } finally {
       this.saveButton.disabled = !this.canSaveCard(this.card);
     }
@@ -1309,12 +1305,11 @@ export class DetailController {
     this.notInterestedButton.disabled = true;
     try {
       await notInterestedYoutubeCard(card);
-      showToast("removed from YouTube recommendations.");
+      showToast("removed from YouTube recommendations.", { tone: "success" });
       this.hide();
       this.callbacks.onSavedChanged?.(card);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "could not update YouTube recommendations";
-      showToast(message);
+    } catch {
+      showToast("couldn't update YouTube recommendations", { tone: "error" });
     } finally {
       this.notInterestedButton.disabled = false;
     }
@@ -1807,6 +1802,7 @@ export class DetailController {
       }
       this.callbacks.onStatus(
         `next up: S${hint.next.season} E${hint.next.episode} · ${hint.next.title}`,
+        "hint",
       );
     } catch {
       // keep polling until timeout

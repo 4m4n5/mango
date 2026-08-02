@@ -27,8 +27,9 @@ export interface HomeOptions {
 
 export type CatalogState =
   | { status: "loading" }
-  | { status: "ready"; rails: ContentRail[] }
-  | { status: "error"; message: string };
+  | { status: "ready"; rails: ContentRail[]; freshness: "fresh" | "stale" }
+  | { status: "empty" }
+  | { status: "offline"; reason: "busy" | "timeout" | "unavailable" };
 
 const DEFAULT_APP_CARDS: AppCard[] = [
   { id: "settings", action: "settings", kicker: "system", title: "settings" },
@@ -142,17 +143,28 @@ function appendCatalogSections(
   options: HomeOptions,
 ): HTMLElement[][] {
   if (catalogState.status === "loading") {
-    container.appendChild(createCatalogMessage("catalog", "loading", "Loading catalog…", "posters will appear here when the Pi responds."));
+    container.appendChild(createCatalogSkeleton(options.browseTab ?? "movies"));
     return [];
   }
 
-  if (catalogState.status === "error") {
-    container.appendChild(createCatalogMessage("catalog", "catalog offline", catalogState.message, "check catalog-service and N2 prereqs."));
+  if (catalogState.status === "empty") {
+    const copy = catalogEmptyCopy(options.browseTab ?? "movies");
+    container.appendChild(createCatalogMessage("empty", copy.heading, copy.title, copy.body));
     return [];
+  }
+
+  if (catalogState.status === "offline") {
+    const copy = catalogOfflineCopy(catalogState.reason);
+    container.appendChild(createCatalogMessage("offline", copy.heading, copy.title, copy.body));
+    return [];
+  }
+
+  if (catalogState.freshness === "stale") {
+    container.appendChild(createCatalogStaleBanner());
   }
 
   const rows: HTMLElement[][] = [];
-  for (const rail of catalogState.rails) {
+  for (const rail of nonEmptyCatalogRails(catalogState.rails)) {
     const section = document.createElement("section");
     section.className = "rail rail--catalog";
     section.dataset.railId = rail.id;
@@ -161,15 +173,6 @@ function appendCatalogSections(
     heading.className = "rail-title";
     heading.textContent = formatRailLabel(rail.label);
     section.appendChild(heading);
-
-    if (rail.cards.length === 0) {
-      const empty = document.createElement("p");
-      empty.className = "rail-empty";
-      empty.textContent = "nothing resolved yet";
-      section.appendChild(empty);
-      container.appendChild(section);
-      continue;
-    }
 
     const track = document.createElement("div");
     track.className = "rail-track rail-track--posters";
@@ -204,6 +207,138 @@ function appendCatalogSections(
   return rows;
 }
 
+export function nonEmptyCatalogRails(rails: ContentRail[]): ContentRail[] {
+  return rails.filter((rail) => rail.cards.length > 0);
+}
+
+export function hasCatalogItems(rails: ContentRail[]): boolean {
+  return rails.some((rail) => rail.cards.length > 0);
+}
+
+export function usableCatalogRails(rails: ContentRail[] | undefined): ContentRail[] | undefined {
+  if (!rails || !hasCatalogItems(rails)) return undefined;
+  const usable = nonEmptyCatalogRails(rails);
+  return usable.length === rails.length ? rails : usable;
+}
+
+export function sameCatalogPresentation(left: CatalogState, right: CatalogState): boolean {
+  if (left.status !== right.status) return false;
+  if (left.status === "ready" && right.status === "ready") {
+    return left.rails === right.rails && left.freshness === right.freshness;
+  }
+  if (left.status === "offline" && right.status === "offline") return left.reason === right.reason;
+  return true;
+}
+
+export function catalogStateAfterSuccess(
+  incoming: ContentRail[],
+  fallback: ContentRail[] | undefined,
+): CatalogState {
+  const usableIncoming = usableCatalogRails(incoming);
+  if (usableIncoming) return { status: "ready", rails: usableIncoming, freshness: "fresh" };
+  const usableFallback = usableCatalogRails(fallback);
+  if (usableFallback) return { status: "ready", rails: usableFallback, freshness: "stale" };
+  return { status: "empty" };
+}
+
+export function catalogStateAfterFailure(
+  reason: "busy" | "timeout" | "unavailable",
+  fallback: ContentRail[] | undefined,
+): CatalogState {
+  const usableFallback = usableCatalogRails(fallback);
+  if (usableFallback) return { status: "ready", rails: usableFallback, freshness: "stale" };
+  return { status: "offline", reason };
+}
+
+interface CatalogStateCopy {
+  heading: string;
+  title: string;
+  body: string;
+}
+
+export function catalogEmptyCopy(tab: BrowseTab): CatalogStateCopy {
+  const tabLabel = tab === "series" ? "tv shows" : tab;
+  const refreshCopy = tab === "live"
+    ? "try another tab or check back soon."
+    : "try another tab or press X to refresh.";
+  return {
+    heading: tabLabel,
+    title: "nothing ready here yet",
+    body: refreshCopy,
+  };
+}
+
+export function catalogOfflineCopy(reason: "busy" | "timeout" | "unavailable"): CatalogStateCopy {
+  if (reason === "busy") {
+    return {
+      heading: "waiting",
+      title: "the library is catching up",
+      body: "mango will try again in a moment.",
+    };
+  }
+  return {
+    heading: "offline",
+    title: reason === "timeout" ? "the library took too long" : "can't reach the library",
+    body: "mango will keep trying in the background.",
+  };
+}
+
+function createCatalogSkeleton(tab: BrowseTab): HTMLElement {
+  const landscape = tab === "live" || tab === "youtube";
+  const section = document.createElement("section");
+  section.className = "rail rail--catalog-state catalog-state catalog-state--loading";
+  section.dataset.catalogState = "loading";
+  section.setAttribute("role", "status");
+  section.setAttribute("aria-live", "polite");
+  section.setAttribute("aria-atomic", "true");
+
+  const heading = document.createElement("h2");
+  heading.className = "rail-title";
+  heading.textContent = `loading ${tab === "series" ? "tv shows" : tab}…`;
+
+  const status = document.createElement("p");
+  status.className = "sr-only";
+  status.textContent = "getting your shelves ready";
+
+  const track = document.createElement("div");
+  track.className = "rail-track--posters catalog-skeleton-grid";
+  track.setAttribute("aria-hidden", "true");
+  applyRailLayout(track, landscape);
+  for (let index = 0; index < railColumns(landscape); index += 1) {
+    const card = document.createElement("div");
+    card.className = `catalog-skeleton-card catalog-skeleton-card--${landscape ? "landscape" : "portrait"}`;
+    const art = document.createElement("span");
+    art.className = "catalog-skeleton-art";
+    card.appendChild(art);
+    if (landscape) {
+      const title = document.createElement("span");
+      title.className = "catalog-skeleton-line catalog-skeleton-line--title";
+      const meta = document.createElement("span");
+      meta.className = "catalog-skeleton-line catalog-skeleton-line--meta";
+      card.append(title, meta);
+    }
+    track.appendChild(card);
+  }
+  section.append(heading, status, track);
+  return section;
+}
+
+function createCatalogStaleBanner(): HTMLElement {
+  const banner = document.createElement("section");
+  banner.className = "catalog-stale-banner";
+  banner.dataset.catalogState = "stale";
+  banner.setAttribute("role", "status");
+  banner.setAttribute("aria-atomic", "true");
+  const title = document.createElement("span");
+  title.className = "catalog-stale-title";
+  title.textContent = "offline · showing recently loaded titles";
+  const body = document.createElement("span");
+  body.className = "catalog-stale-body";
+  body.textContent = "mango is reconnecting";
+  banner.append(title, body);
+  return banner;
+}
+
 export function splitFocusRows<T>(items: T[], columns: number): T[][] {
   const rows: T[][] = [];
   const safeColumns = Math.max(1, Math.floor(columns));
@@ -214,14 +349,18 @@ export function splitFocusRows<T>(items: T[], columns: number): T[][] {
 }
 
 function createCatalogMessage(
-  railId: string,
+  state: "empty" | "offline",
   headingText: string,
   titleText: string,
   bodyText: string,
 ): HTMLElement {
   const section = document.createElement("section");
-  section.className = "rail rail--empty";
-  section.dataset.railId = railId;
+  section.className = `rail rail--catalog-state catalog-state catalog-state--${state}`;
+  section.dataset.railId = "catalog-state";
+  section.dataset.catalogState = state;
+  section.setAttribute("role", "status");
+  section.setAttribute("aria-live", "polite");
+  section.setAttribute("aria-atomic", "true");
 
   const heading = document.createElement("h2");
   heading.className = "rail-title";

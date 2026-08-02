@@ -2,6 +2,7 @@ import { FocusGrid } from "./focus";
 import { buildCatalogRails, splitFocusRows } from "./home";
 import { railColumns } from "./layout";
 import type { BrowseTab, ContentCard, ContentRail } from "./types";
+import type { LauncherStatusReporter } from "./toast";
 
 export type SearchScope = "all" | "movies" | "series" | "live" | "youtube";
 
@@ -93,7 +94,7 @@ export type SearchRestoreState = {
 type SearchCallbacks = {
   onClose: (state: SearchRestoreState) => void;
   onOpenDetail: (card: ContentCard, label: string, state: SearchRestoreState) => void;
-  onStatus: (message: string) => void;
+  onStatus: LauncherStatusReporter;
 };
 
 const STORAGE_KEY = "mango.search-session.v1";
@@ -528,7 +529,7 @@ export class SearchController {
 
   private async submit(): Promise<void> {
     if (this.query.trim().length < 2) {
-      this.callbacks.onStatus("Type at least 2 characters.");
+      this.callbacks.onStatus("type at least 2 characters", "warning");
       return;
     }
     await this.cancelActive();
@@ -1093,7 +1094,7 @@ export class SearchController {
           railTrailingAction: (_rail, landscape) => window.hasMore
             ? this.createMoreCard(group, landscape, window.items.length)
             : null,
-        }, { status: "ready", rails: [rail] });
+        }, { status: "ready", rails: [rail], freshness: "fresh" });
         const replacement = staging.querySelector<HTMLElement>(":scope > .rail");
         if (!replacement) continue;
         replacement.dataset.searchSignature = signature;

@@ -54,7 +54,7 @@ backend behaviour without a restart (`~/.cache/mango-ux/control.json`):
 
 | Key | Effect |
 |-----|--------|
-| `delay_ms` | stall responses — renders loading/skeleton states |
+| `delay_ms` | stall responses — renders stable, non-focusable loading skeletons |
 | `empty` | return shape-preserving empty collections, e.g. `["rails"]` |
 | `fail` | return an error status for a family, e.g. `["stream"]` |
 | `status` | status code paired with `fail` (default 503) |
@@ -65,6 +65,11 @@ Families: `rails`, `detail`, `stream`, `search`, `library`, `health`.
 Scenes marked **synthetic** in the manifest are forced into place with JS because
 they are event-driven (voice HUD, next-episode prompt, toast). Treat them as
 representative of styling, not proof the trigger works.
+
+The state scenes also cover a two-step stale-content path: Home first loads real
+fixture cards, the harness then fails a user refresh, and the launcher must keep
+those cards mounted while showing its recently-loaded banner. This is the local
+regression proof that a transient outage never replaces usable shelves.
 
 ## Re-recording fixtures from a Pi
 

@@ -13,10 +13,11 @@ import {
   type ReliabilityState,
 } from "./reliability";
 import type { RefreshLevelId } from "./types";
+import type { LauncherStatusReporter } from "./toast";
 
 export async function buildSettingsRefresh(
   container: HTMLElement,
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
 ): Promise<void> {
   container.replaceChildren();
 
@@ -49,7 +50,7 @@ export async function buildSettingsRefresh(
 
 async function buildSearchSettings(
   container: HTMLElement,
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
 ): Promise<void> {
   const heading = document.createElement("h2");
   heading.className = "settings-heading";
@@ -103,7 +104,7 @@ async function buildSearchSettings(
 
 async function updateSearchPreference(
   safeSearch: string,
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
   container: HTMLElement,
 ): Promise<void> {
   try {
@@ -114,16 +115,16 @@ async function updateSearchPreference(
       body: JSON.stringify({ youtube_safe_search: safeSearch }),
     });
     if (!response.ok) throw new Error("could not update Search");
-    onStatus(`Search SafeSearch set to ${safeSearch === "none" ? "off" : safeSearch}.`);
+    onStatus(`Search SafeSearch set to ${safeSearch === "none" ? "off" : safeSearch}.`, "success");
     await buildSettingsRefresh(container, onStatus);
-  } catch (error) {
-    onStatus(error instanceof Error ? error.message : "could not update Search");
+  } catch {
+    onStatus("couldn't update Search settings. try again.", "error");
   }
 }
 
 async function clearSearchActivity(
   button: HTMLButtonElement,
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
 ): Promise<void> {
   button.disabled = true;
   try {
@@ -132,9 +133,9 @@ async function clearSearchActivity(
       cache: "no-store",
     });
     if (!response.ok) throw new Error("could not clear Search activity");
-    onStatus("Search activity cleared.");
-  } catch (error) {
-    onStatus(error instanceof Error ? error.message : "could not clear Search activity");
+    onStatus("Search activity cleared.", "success");
+  } catch {
+    onStatus("couldn't clear Search activity. try again.", "error");
   } finally {
     button.disabled = false;
   }
@@ -142,7 +143,7 @@ async function clearSearchActivity(
 
 async function buildReliabilityCenter(
   container: HTMLElement,
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
 ): Promise<void> {
   const heading = document.createElement("h2");
   heading.className = "settings-heading";
@@ -204,7 +205,7 @@ function createReliabilityCard(component: ReliabilityComponent): HTMLElement {
 
 function createReliabilityActions(
   actions: ReliabilityAction[],
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
   onDone: () => void,
 ): HTMLElement {
   const group = document.createElement("div");
@@ -241,20 +242,20 @@ function actionSpan(className: string, text: string): HTMLSpanElement {
 async function runReliabilityButton(
   action: ReliabilityActionId,
   button: HTMLButtonElement,
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
   onDone: () => void,
 ): Promise<void> {
   if (button.disabled) {
     return;
   }
   button.disabled = true;
-  onStatus(action === "proof" ? "running proof…" : `starting ${action.replace(/_/g, " ")}…`);
+  onStatus(action === "proof" ? "running proof…" : `starting ${action.replace(/_/g, " ")}…`, "progress");
   try {
-    const result = await runReliabilityAction(action);
-    onStatus(result.pid ? `${result.message} (pid ${result.pid})` : result.message);
+    await runReliabilityAction(action);
+    onStatus(action === "proof" ? "reliability proof started" : `${action.replace(/_/g, " ")} started`, "success");
     window.setTimeout(onDone, action === "proof" ? 400 : 1800);
-  } catch (error) {
-    onStatus(error instanceof Error ? error.message : "reliability action failed");
+  } catch {
+    onStatus(`couldn't start ${action.replace(/_/g, " ")}`, "error");
   } finally {
     window.setTimeout(() => {
       button.disabled = false;
@@ -272,7 +273,7 @@ function appendLevelGroup(
   container: HTMLElement,
   title: string,
   levels: RefreshLevel[],
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
 ): void {
   if (levels.length === 0) {
     return;
@@ -286,7 +287,7 @@ function appendLevelGroup(
   }
 }
 
-function createShuffleButton(onStatus: (message: string) => void): HTMLButtonElement {
+function createShuffleButton(onStatus: LauncherStatusReporter): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "settings-action settings-action--primary settings-action--instant";
@@ -300,7 +301,7 @@ function createShuffleButton(onStatus: (message: string) => void): HTMLButtonEle
 
 function createRefreshButton(
   level: RefreshLevel,
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
 ): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -317,26 +318,29 @@ function createRefreshButton(
 
 async function runRefresh(
   level: RefreshLevelId,
-  onStatus: (message: string) => void,
+  onStatus: LauncherStatusReporter,
   button: HTMLButtonElement,
 ): Promise<void> {
   if (button.disabled) {
     return;
   }
   button.disabled = true;
-  onStatus(`starting ${level.replace(/_/g, " ")}…`);
+  onStatus(`starting ${level.replace(/_/g, " ")}…`, "progress");
   try {
     const result = await startRefreshLevel(level);
     if (result.mode === "inline") {
-      onStatus("library refreshed — shuffle on the pad or browse bar to reshuffle");
+      onStatus("library refreshed — shuffle on the pad or browse bar to reshuffle", "success");
       window.dispatchEvent(new CustomEvent("mango:library-refresh"));
       return;
     }
     const label = result.estimated_label || `~${Math.max(1, Math.round((result.estimated_sec ?? 600) / 60))} min`;
-    onStatus(`${level.replace(/_/g, " ")} running (${label}). TV pauses until done.`);
+    onStatus(`${level.replace(/_/g, " ")} running (${label}). TV pauses until done.`, "success");
   } catch (error) {
     const message = error instanceof Error ? error.message : "refresh failed";
-    onStatus(message.includes("already running") ? "a library job is already running" : message);
+    onStatus(
+      message.includes("already running") ? "a library job is already running" : "couldn't start library refresh",
+      message.includes("already running") ? "warning" : "error",
+    );
   } finally {
     window.setTimeout(() => {
       button.disabled = false;

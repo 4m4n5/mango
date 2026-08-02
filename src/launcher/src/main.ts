@@ -8,13 +8,24 @@ import {
   buildBrowseTabs,
   buildCatalogRails,
   BROWSE_TAB_ORDER,
+  catalogStateAfterFailure,
+  catalogStateAfterSuccess,
+  hasCatalogItems,
+  nonEmptyCatalogRails,
+  sameCatalogPresentation,
+  usableCatalogRails,
   type CatalogState,
   type HomeOptions,
 } from "./home";
 import { buildSettingsRefresh, reliabilityBadgeText, settingsFocusables } from "./settings";
 import { fetchReliabilityState } from "./reliability";
 import { startVoiceHud } from "./voice-hud";
-import { showToast } from "./toast";
+import {
+  showToast,
+  toastToneForStatus,
+  type LauncherStatusKind,
+} from "./toast";
+import { catalogAvailabilityReason } from "./catalog-errors";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
 import { startPadNavPoll } from "./pad-nav";
 import { cardSavedKey, fetchSavedIds } from "./saved";
@@ -76,6 +87,7 @@ let settingsFocusIndex = 0;
 let homeOptions: HomeOptions = {};
 let activeBrowseTab: BrowseTab = "movies";
 let catalogState: CatalogState = { status: "loading" };
+let catalogStateTab: BrowseTab = activeBrowseTab;
 let catalogRetryTimer: number | undefined;
 let libraryRefreshInFlight = false;
 let savedKeys = new Set<string>();
@@ -97,6 +109,7 @@ const tabFocusPositions = new Map<BrowseTab, { row: number; col: number }>();
 interface TabRenderEntry {
   railsRef: ContentRail[];
   savedRef: Set<string>;
+  freshness: "fresh" | "stale";
   container: HTMLElement;
   rows: HTMLElement[][];
 }
@@ -144,7 +157,7 @@ const nextEpisodePrompt = new NextEpisodePrompt(
   setStatus,
   () => {
     nextPromptFocusIndex = 0;
-    setStatus("B to play. Y to go back.");
+    setStatus("B to play. Y to go back.", "hint");
   },
 );
 
@@ -175,7 +188,7 @@ const detail = new DetailController(
     isSaved: (card) => savedKeys.has(cardSavedKey(card)),
     onPlayed: (card, result) => {
       if (result.first_time_verified) {
-        showToast("added to library");
+        showToast("added to library", { tone: "success" });
       }
       const playedTab = tabForCard(card, activeBrowseTab);
       if (playedTab === "movies" || playedTab === "series") {
@@ -315,6 +328,7 @@ function renderHome(): void {
   ensureAppsSection();
   const { container: activeContainer, rows: catalogRows, reused } = renderActiveTabCatalog();
   mountRailsView(activeContainer);
+  railsEl.setAttribute("aria-busy", String(catalogState.status === "loading"));
   focusGridRows = [browseChrome, ...catalogRows, appsRow];
   focusGrid.setRows(focusGridRows, {
     preferredKey: tabFocusKeys.get(activeBrowseTab),
@@ -371,7 +385,12 @@ function renderActiveTabCatalog(): ActiveTabRender {
   }
 
   const cached = tabRenderCache.get(activeBrowseTab);
-  if (cached && cached.railsRef === catalogState.rails && cached.savedRef === savedKeys) {
+  if (
+    cached
+    && cached.railsRef === catalogState.rails
+    && cached.savedRef === savedKeys
+    && cached.freshness === catalogState.freshness
+  ) {
     return { container: cached.container, rows: cached.rows, reused: true };
   }
 
@@ -385,6 +404,7 @@ function renderActiveTabCatalog(): ActiveTabRender {
   tabRenderCache.set(activeBrowseTab, {
     railsRef: catalogState.rails,
     savedRef: savedKeys,
+    freshness: catalogState.freshness,
     container,
     rows,
   });
@@ -635,7 +655,7 @@ async function openSearch(): Promise<void> {
     focusGrid.focused?.dataset.focusKey,
     focusGrid.position,
   );
-  setStatus("Type with the D-pad. X deletes; hold X clears. B selects.");
+  setStatus("Type with the D-pad. X deletes; hold X clears. B selects.", "hint");
 }
 
 function restoreHomeFromSearch(state: SearchRestoreState): void {
@@ -651,7 +671,7 @@ function restoreHomeFromSearch(state: SearchRestoreState): void {
     void loadCatalog();
   }
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
+  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.", "hint");
 }
 
 async function openSearchDetail(
@@ -692,8 +712,8 @@ async function queueSearchExternal(card: ContentCard): Promise<void> {
     });
     if (!response.ok) return;
     const result = await response.json() as { queued?: boolean; already_queued?: boolean };
-    if (result.queued) showToast("queued for library verification");
-    else if (result.already_queued) showToast("already queued for verification");
+    if (result.queued) showToast("queued for library verification", { tone: "success" });
+    else if (result.already_queued) showToast("already queued for verification", { tone: "info" });
   } catch {
     // Stream-list state remains authoritative; queueing is best-effort.
   }
@@ -721,7 +741,7 @@ function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
     searchView.classList.add("hidden");
     homeView.classList.add("hidden");
     activeBrowseTab = tab;
-    setStatus(`Opening ${card.title}…`);
+    setStatus(`Opening ${card.title}…`, "hint");
     detail.show(card, "voice", tab, savedKeys.has(cardSavedKey(card)), []);
   })();
 }
@@ -806,7 +826,7 @@ function showHome(): void {
   homeView.classList.remove("hidden");
   clearPlaybackReturnSnapshot();
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
+  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.", "hint");
 }
 
 function restoreFromDetail(origin: DetailOriginContext): void {
@@ -815,13 +835,13 @@ function restoreFromDetail(origin: DetailOriginContext): void {
   if (origin.surface === "search") {
     homeView.classList.add("hidden");
     search.restore(origin.searchState);
-    setStatus("Search restored. X deletes; hold X clears.");
+    setStatus("Search restored. X deletes; hold X clears.", "hint");
     return;
   }
   searchView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
-  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.");
+  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.", "hint");
 }
 
 async function reloadSavedAndCatalog(tab = activeBrowseTab): Promise<void> {
@@ -851,7 +871,7 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
   }
   if (activeBrowseTab === "live") {
     if (!options.quiet) {
-      setStatus("this tab refreshes from its own source.");
+      setStatus("this tab refreshes from its own source.", "warning");
     }
     return;
   }
@@ -863,33 +883,40 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
   libraryRefreshBtn.classList.add("browse-shuffle--press");
   railsEl.classList.remove("rails--shuffled");
   railsEl.classList.add("rails--refreshing");
-  if (!options.quiet) {
-    setStatus("refreshing…");
-  }
+  let refreshSucceeded = false;
   try {
-    await loadCatalog({ reshuffle: true });
-    if (!options.quiet) {
-      setStatus("updated — keep browsing");
+    const result = await loadCatalog({ reshuffle: true });
+    if (!options.quiet && result === "fresh") {
+      setStatus("updated — keep browsing", "success");
     }
+    refreshSucceeded = result === "fresh";
   } finally {
     libraryRefreshInFlight = false;
     libraryRefreshBtn.classList.remove("browse-shuffle--active");
     railsEl.classList.remove("rails--refreshing");
-    // The cards now own the return to full opacity via their landing cascade.
-    railsEl.classList.add("rails--shuffled");
-    window.setTimeout(() => railsEl.classList.remove("rails--shuffled"), SHUFFLE_CASCADE_MS);
+    if (refreshSucceeded) {
+      // The cards now own the return to full opacity via their landing cascade.
+      railsEl.classList.add("rails--shuffled");
+      window.setTimeout(() => railsEl.classList.remove("rails--shuffled"), SHUFFLE_CASCADE_MS);
+    }
   }
 }
 
-async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void> {
+type CatalogLoadResult = "fresh" | "stale" | "empty" | "offline" | "ignored";
+
+async function loadCatalog(
+  options: { reshuffle?: boolean; background?: boolean } = {},
+): Promise<CatalogLoadResult> {
   const requestSeq = ++catalogRequestSeq;
   const requestedTab = activeBrowseTab;
   const started = performance.now();
   clearCatalogRetryTimer();
   const reshuffle = Boolean(options.reshuffle && requestedTab !== "live");
+  const previousReadyRails = catalogStateTab === requestedTab && catalogState.status === "ready"
+    ? catalogState.rails
+    : undefined;
   if (reshuffle) {
     tabCatalogCache.delete(requestedTab);
-    setStatus("refreshing…");
   }
 
   if (requestedTab === "live" && liveCatalogSessionCached) {
@@ -898,20 +925,24 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
       savedKeys = await fetchSavedIds("live").catch(() => new Set<string>());
       tabSavedCache.set("live", savedKeys);
       if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
-        return;
+        return "ignored";
       }
-      catalogState = { status: "ready", rails: frozen };
+      catalogState = { status: "ready", rails: frozen, freshness: "fresh" };
+      catalogStateTab = requestedTab;
       renderHome();
-      return;
+      return "fresh";
     }
   }
 
   const cachedRails = !reshuffle ? tabCatalogCache.get(requestedTab) : undefined;
-  if (cachedRails && cachedRails.length > 0) {
-    catalogState = { status: "ready", rails: cachedRails };
+  const fallbackRails = usableCatalogRails(cachedRails) ?? usableCatalogRails(previousReadyRails);
+  if (!options.background && cachedRails && hasCatalogItems(cachedRails)) {
+    catalogState = { status: "ready", rails: nonEmptyCatalogRails(cachedRails), freshness: "fresh" };
+    catalogStateTab = requestedTab;
     renderHome();
-  } else if (!reshuffle || catalogState.status !== "ready") {
+  } else if (!options.background && !fallbackRails) {
     catalogState = { status: "loading" };
+    catalogStateTab = requestedTab;
     renderHome();
   }
 
@@ -925,22 +956,38 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
         tab: requestedTab,
         duration_ms: Math.round(performance.now() - started),
       });
-      return;
+      return "ignored";
     }
     savedKeys = saved;
-    tabCatalogCache.set(requestedTab, rails);
     tabSavedCache.set(requestedTab, saved);
-    if (requestedTab === "live") {
-      liveCatalogSessionCached = true;
-    }
-    catalogState = { status: "ready", rails };
-    renderHome();
     const itemCount = rails.reduce((total, rail) => total + rail.cards.length, 0);
-    setStatus(itemCount > 0
-      ? options.reshuffle
-        ? "updated — keep browsing."
-        : "D-pad to browse. L/R shoulders switch tabs. B to select."
-      : "catalog loaded with no posters");
+    if (itemCount === 0) {
+      const nextState = catalogStateAfterSuccess(rails, fallbackRails);
+      const presentationChanged = catalogStateTab !== requestedTab
+        || !sameCatalogPresentation(catalogState, nextState);
+      catalogState = nextState;
+      if (nextState.status === "empty") {
+        tabCatalogCache.delete(requestedTab);
+      }
+      catalogStateTab = requestedTab;
+      if (requestedTab === "live") liveCatalogSessionCached = false;
+      if (presentationChanged) renderHome();
+      scheduleCatalogRetry(30_000);
+      logPerf("catalog_fetch", {
+        tab: requestedTab,
+        rails: rails.length,
+        items: 0,
+        reshuffle,
+        duration_ms: Math.round(performance.now() - started),
+      });
+      return fallbackRails ? "stale" : "empty";
+    }
+    const usableRails = nonEmptyCatalogRails(rails);
+    tabCatalogCache.set(requestedTab, usableRails);
+    if (requestedTab === "live") liveCatalogSessionCached = true;
+    catalogState = { status: "ready", rails: usableRails, freshness: "fresh" };
+    catalogStateTab = requestedTab;
+    renderHome();
     logPerf("catalog_fetch", {
       tab: requestedTab,
       rails: rails.length,
@@ -948,34 +995,28 @@ async function loadCatalog(options: { reshuffle?: boolean } = {}): Promise<void>
       reshuffle,
       duration_ms: Math.round(performance.now() - started),
     });
+    return "fresh";
   } catch (error) {
     if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
-      return;
+      return "ignored";
     }
-    if (!cachedRails?.length) {
-      catalogState = {
-        status: "error",
-        message: error instanceof Error ? error.message : "catalog temporarily unavailable",
-      };
-      renderHome();
-    }
-    const returningFromPlayback = Boolean(readPlaybackReturnSnapshot())
-      || detail.isOpen
-      || playbackReturnInFlight;
-    const homeNeedsError = !cachedRails?.length
-      && !returningFromPlayback
-      && !homeView.classList.contains("hidden");
-    if (reshuffle || homeNeedsError) {
-      setStatus(catalogRetryStatus(error, reshuffle));
-    }
-    catalogRetryTimer = window.setTimeout(() => {
-      void loadCatalog();
-    }, 5000);
+    const hasFallback = Boolean(fallbackRails?.length);
+    const nextState = catalogStateAfterFailure(catalogAvailabilityReason(error), fallbackRails);
+    const presentationChanged = catalogStateTab !== requestedTab
+      || !sameCatalogPresentation(catalogState, nextState);
+    catalogState = nextState;
+    catalogStateTab = requestedTab;
+    if (presentationChanged) renderHome();
+    // The persistent stale/offline surface owns retry feedback, including a
+    // user-triggered refresh. Background attempts never create five-second
+    // toast churn.
+    scheduleCatalogRetry(5000);
     logPerf("catalog_error", {
       tab: requestedTab,
       reshuffle,
       duration_ms: Math.round(performance.now() - started),
     });
+    return hasFallback ? "stale" : "offline";
   }
 }
 
@@ -1014,7 +1055,7 @@ function tryRestoreSearchOnBoot(): boolean {
   homeView.classList.add("hidden");
   detailView.classList.add("hidden");
   settingsView.classList.add("hidden");
-  setStatus("Search restored. X deletes; hold X clears.");
+  setStatus("Search restored. X deletes; hold X clears.", "hint");
   return true;
 }
 
@@ -1138,7 +1179,12 @@ async function refreshContinueRail(tab: BrowseTab): Promise<void> {
   const nextRails = replaceContinueRail(currentRails, nextContinueRail);
   tabCatalogCache.set(tab, nextRails);
   if (tab === activeBrowseTab) {
-    catalogState = { status: "ready", rails: nextRails };
+    catalogState = {
+      status: "ready",
+      rails: nextRails,
+      freshness: catalogState.status === "ready" ? catalogState.freshness : "fresh",
+    };
+    catalogStateTab = tab;
     if (!detail.isOpen && !inSettings && !homeView.classList.contains("hidden")) {
       renderHome();
     }
@@ -1159,32 +1205,26 @@ function replaceContinueRail(rails: ContentRail[], continueRail: ContentRail): C
   ];
 }
 
-function catalogRetryStatus(error: unknown, reshuffle: boolean): string {
-  const message = error instanceof Error ? error.message : "catalog temporarily unavailable";
-  const lower = message.toLowerCase();
-  if (lower.includes("temporarily unavailable") || lower.includes("catalog unavailable")) {
-    return "catalog temporarily unavailable — retrying…";
-  }
-  if (lower.includes("rate limit") || lower.includes("busy")) {
-    return "catalog is busy — try again in a moment.";
-  }
-  if (reshuffle) {
-    return "refreshing…";
-  }
-  return "catalog is reconnecting…";
-}
-
 function showCachedCatalog(tab: BrowseTab): boolean {
   const cachedRails = tabCatalogCache.get(tab);
-  if (!cachedRails || cachedRails.length === 0) {
+  if (!cachedRails || !hasCatalogItems(cachedRails)) {
     return false;
   }
   clearCatalogRetryTimer();
   activeBrowseTab = tab;
   savedKeys = tabSavedCache.get(tab) || new Set<string>();
-  catalogState = { status: "ready", rails: cachedRails };
+  catalogState = { status: "ready", rails: nonEmptyCatalogRails(cachedRails), freshness: "fresh" };
+  catalogStateTab = tab;
   renderHome();
   return true;
+}
+
+function scheduleCatalogRetry(delayMs: number): void {
+  clearCatalogRetryTimer();
+  catalogRetryTimer = window.setTimeout(() => {
+    catalogRetryTimer = undefined;
+    void loadCatalog({ background: true });
+  }, delayMs);
 }
 
 function clearCatalogRetryTimer(): void {
@@ -1214,13 +1254,9 @@ async function loadInfo(): Promise<void> {
   }
 }
 
-function setStatus(message: string): void {
-  // The launcher intentionally has no persistent status strip. Reuse the
-  // existing non-focusable toast for actionable failures while keeping routine
-  // navigation/progress copy on its owning control.
-  if (/couldn|failed|unavailable|timed? out|try again|no playable|not start/i.test(message)) {
-    showToast(message);
-  }
+function setStatus(message: string, kind: LauncherStatusKind = "hint"): void {
+  const tone = toastToneForStatus(kind);
+  if (tone) showToast(message, { tone });
 }
 
 function setText(id: string, value: string): void {

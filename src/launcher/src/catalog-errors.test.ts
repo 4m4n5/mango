@@ -5,6 +5,7 @@ import {
   CatalogTimeoutError,
   couchSafeCatalogMessage,
   PlayTimeoutError,
+  catalogAvailabilityReason,
   playErrorMessage,
   playTimeoutMessage,
 } from './catalog-errors.js';
@@ -38,4 +39,11 @@ test('playTimeoutMessage is distinct from browse fallback', () => {
   assert.equal(playTimeoutMessage(), 'catalog timed out — try again');
   assert.equal(new CatalogTimeoutError().message, playTimeoutMessage());
   assert.equal(new PlayTimeoutError(true).requestAlreadyFinished, true);
+});
+
+test('catalog availability reason is explicit and never TV copy', () => {
+  assert.equal(catalogAvailabilityReason(new Error('HTTP 429 rate limit')), 'busy');
+  assert.equal(catalogAvailabilityReason(new Error('catalog is busy')), 'busy');
+  assert.equal(catalogAvailabilityReason(new Error('catalog timed out')), 'timeout');
+  assert.equal(catalogAvailabilityReason(new Error('Failed to fetch')), 'unavailable');
 });
