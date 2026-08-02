@@ -399,6 +399,8 @@ type CoreStatus = {
 const require = createRequire(import.meta.url);
 const DEFAULT_EXPORT_PATH = '/etc/mango/stremio-export.json';
 const REQUEST_TIMEOUT_MS = Number(process.env.MANGO_CATALOG_REQUEST_TIMEOUT_MS || 20000);
+/** Bound before stremio-core shims replace global fetch — addon HTTP must stay native. */
+const nativeFetch: typeof fetch = globalThis.fetch.bind(globalThis);
 const META_CACHE_TTL_MS = Number(process.env.MANGO_META_CACHE_TTL_MS || 10 * 60 * 1000);
 const META_RATE_LIMIT_BACKOFF_MS = Number(process.env.MANGO_META_RATE_LIMIT_BACKOFF_MS || 5 * 60 * 1000);
 const STREAM_CACHE_TTL_MS = Number(process.env.MANGO_STREAM_CACHE_TTL_MS || 10 * 60 * 1000);
@@ -603,7 +605,7 @@ async function fetchJson(url: string, timeoutMs = REQUEST_TIMEOUT_MS): Promise<u
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(url, {
+    const response = await nativeFetch(url, {
       signal: controller.signal,
       headers: { accept: 'application/json' },
     });
