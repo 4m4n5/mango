@@ -29,6 +29,14 @@ re-run the exact proof. Only after this loop is green should the human perform a
 minimal couch test for legibility, motion feel, visible video, sound, physical-pad
 feel, CEC, and other observations unavailable to automation.
 
+The assignment SHA is a **minimum cumulative ancestry marker**, not a standalone
+patch to cherry-pick or check out. Discover the Pi's live starting SHA, inventory
+every pending commit and changed path from that SHA through the current
+`origin/feat/native-experience` tip, and deploy the whole fast-forward range. Test
+every affected subsystem in that range, not merely the subject of the newest
+commit. After each home-agent fix, the new origin tip becomes the next cumulative
+deploy target and must be pulled, built, restarted, and proven on the Pi.
+
 Workstreams, in order:
 
 1. **S0 — Source and environment preflight**
@@ -75,6 +83,8 @@ Workstreams, in order:
 
 - Switch or create branches. Verify `feat/native-experience`; if different, STOP.
 - Use `rsync`, `scp`, archives, or hand-copy repository files to the Pi.
+- Cherry-pick only the assignment SHA, deploy a detached SHA, or otherwise skip
+  older commits that are pending between the Pi's starting SHA and branch tip.
 - Edit repository source directly on the Pi.
 - Force-push, amend published commits, create tags, change Git config, use
   `--no-verify`, or discard/stash/reset unknown local work.
@@ -102,6 +112,13 @@ Workstreams, in order:
 - Preserve any pre-existing home-Mac or Pi dirt until its owner and purpose are
   understood. If it blocks a pull/deploy, report it; do not clean it reflexively.
 - Keep Mac, origin, and Pi SHAs explicit at every deploy boundary.
+- Before the first deploy, record `PI_START_SHA`, `DEPLOY_TIP_SHA`, the complete
+  ordered pending-commit list, changed paths, and affected subsystems. Prove
+  `PI_START_SHA` is an ancestor of `DEPLOY_TIP_SHA`; if it is not, STOP rather
+  than resetting, rebasing, or overwriting Pi work.
+- Deploy the complete `origin/feat/native-experience` tip that contains the
+  assignment SHA, then prove home Mac, origin, and Pi all equal that tip. Repeat
+  this identity proof after every pushed fix and before final acceptance.
 - Stage only intentional files and inspect the staged diff before every commit.
 - Add or strengthen a deterministic test for each source behavior you change.
 - Re-run the focused test, affected build, relevant Pi gate, screenshot/state
@@ -119,9 +136,11 @@ Workstreams, in order:
 - **Home Mac repo:** the user's Mango clone; establish with `pwd`.
 - **Pi repo:** `~/mango` as user `aman`.
 - **Branch:** `feat/native-experience` only.
-- **Assignment target:** the starter prompt supplies an exact `TARGET_SHA`. Prove
-  that SHA is the fetched `origin/feat/native-experience` tip (or an ancestor of
-  it after a documented follow-up fix); never silently deploy an older local tip.
+- **Assignment target:** the starter prompt supplies an exact `TARGET_SHA`. Treat
+  it as the minimum required ancestry marker. Fetch origin, require `TARGET_SHA`
+  to be an ancestor of the current origin tip, and deploy that entire current
+  branch tip. Never deploy `TARGET_SHA` alone while omitting earlier or later
+  branch commits, and never silently deploy an older local tip.
 - **Minimum required source ancestry:**
   - the assignment's `TARGET_SHA` — atomic playback ownership and resolver-health
     hardening plus this cumulative home acceptance contract.
@@ -166,7 +185,29 @@ git merge-base --is-ancestor 63c34da origin/feat/native-experience
 git merge-base --is-ancestor 539ebdb origin/feat/native-experience
 ```
 
-If the home tree is clean, update only by fast-forward:
+Before updating either machine, capture the live cumulative deploy range:
+
+```bash
+PI_START_SHA="$(bash scripts/pi-exec.sh 'cd ~/mango && git rev-parse HEAD')"
+DEPLOY_TIP_SHA="$(git rev-parse origin/feat/native-experience)"
+git merge-base --is-ancestor "$PI_START_SHA" "$DEPLOY_TIP_SHA"
+git log --reverse --format='%H %s' "$PI_START_SHA..$DEPLOY_TIP_SHA"
+git diff --name-status "$PI_START_SHA..$DEPLOY_TIP_SHA"
+```
+
+If the ancestry command is nonzero, STOP and report both SHAs plus the Pi
+working-tree status; do not reset, stash, clean, rebase, force, or overwrite the
+Pi. If the range is empty, record that the Pi was already current. Otherwise
+classify all pending paths into launcher, catalog/playback, pad/BlueZ, ops/display/CEC,
+voice/companion, Live/YouTube, tests/gates, and documentation. The ordered list
+and classification are required report evidence.
+
+The dynamic live range is authoritative. It may include earlier controller,
+display-sleep, ops, launcher-state, HUD/Streams, catalog resolver, Detail return,
+playback-ladder, and handoff commits. None may be skipped merely because the
+assignment names the newest SHA.
+
+If the home tree is clean, update the entire branch only by fast-forward:
 
 ```bash
 git pull --ff-only origin feat/native-experience
@@ -175,6 +216,10 @@ git pull --ff-only origin feat/native-experience
 If the home tree is dirty, classify every path. Do not stash, restore, reset, or
 overwrite it. Continue only if the existing work can be safely committed/pushed
 or the human explicitly chooses how to resolve it.
+
+After the pull, prove that home `HEAD`, `origin/feat/native-experience`, and
+`DEPLOY_TIP_SHA` are identical. Do not use `git checkout "$TARGET_SHA"` or
+cherry-pick the assignment commit.
 
 ### Local checks after any home-agent source fix
 
@@ -260,15 +305,24 @@ acceptance framework.
 ### S0 — Source and environment preflight
 
 1. Verify branch and inspect dirty state on the home Mac.
-2. Fetch origin and prove the three minimum patch ancestors above.
-3. Fast-forward only when safe.
-4. Prove SSH through `bash scripts/pi-exec.sh 'echo ok'`.
-5. Capture starting home/origin/Pi SHAs and current stack status.
+2. Fetch origin and prove all minimum patch ancestors above.
+3. Capture Pi start SHA; prove it is an ancestor of the current origin tip.
+4. Inventory every pending commit/path and map the full range to affected
+   subsystems and their required builds/gates.
+5. Fast-forward the home Mac to the complete origin tip only when safe.
+6. Prove SSH through `bash scripts/pi-exec.sh 'echo ok'`.
+7. Capture starting home/origin/Pi SHAs and current stack status.
 
 **Acceptance:** correct branch, understood working trees, required commits in
-origin ancestry, working checked-in Pi transport, no source or state destroyed.
+origin ancestry, complete pending range recorded, working checked-in Pi
+transport, no source or state destroyed.
 
 ### S1 — Git-only deploy and automated Pi gates
+
+The first deployment of a non-empty cumulative range MUST use `--full --gate` so
+catalog-service, launcher, and companion dependencies/builds are all refreshed
+regardless of which commit is newest. `--fast` is only for subsequent bounded
+iterations after the full cumulative deploy is proven.
 
 Run:
 
@@ -311,7 +365,9 @@ Record every WARN/FAIL. Do not erase runtime state or disable a subsystem to tur
 yellow/red into green.
 
 **Acceptance:** home/origin/Pi code SHAs match; full deploy succeeds; required
-gates pass or are precisely explained; fixtures render all named states.
+gates for every subsystem touched anywhere in the cumulative range pass or are
+precisely explained; fixtures render all named states. Re-run the identity check
+and require Pi `HEAD == DEPLOY_TIP_SHA` before S2.
 
 ### S2 — Autonomous diagnostics, state traversal, and screenshot audit
 
@@ -545,23 +601,26 @@ bash scripts/pi-exec-gate.sh
 Write `docs/tasks/FULL_COUCH_UX_HOME_ACCEPTANCE_REPORT.md` with:
 
 1. date, sanitized environment description, starting/final SHAs;
-2. exact deploy/gate commands and pass/warn/fail counts;
-3. patch SHA/subject/paths/reason/rollback for every home-agent fix;
-4. per-surface automated verdicts, screenshot/checksum inventory, and inspection
+2. Pi starting SHA, assignment ancestry marker, each deployed origin-tip SHA,
+   complete ordered pending-commit range, changed-path/subsystem classification,
+   and proof that no pending commit was skipped;
+3. exact deploy/gate commands and pass/warn/fail counts;
+4. patch SHA/subject/paths/reason/rollback for every home-agent fix;
+5. per-surface automated verdicts, screenshot/checksum inventory, and inspection
    findings for S2-S4, separated from S5 human verdicts;
-5. controller cycle timings and pairing-mode count;
-6. display-sleep/CEC proof and restored 30m default;
-7. 4K dropped-frame evidence plus the human visible-picture verdict;
-8. `tt3268458` playback-ladder verdict, B-to-first-frame timing, cancel proof,
+6. controller cycle timings and pairing-mode count;
+7. display-sleep/CEC proof and restored 30m default;
+8. 4K dropped-frame evidence plus the human visible-picture verdict;
+9. `tt3268458` playback-ladder verdict, B-to-first-frame timing, cancel proof,
    terminal-failure proof, attempt-budget proof, and explicit confirmation that
    no autonomous late playback occurred;
-9. URL-free AIOStreams topology plus provider/indexer/debrid contribution counts,
+10. URL-free AIOStreams topology plus provider/indexer/debrid contribution counts,
    with naturally empty observations distinguished from configuration failures;
-10. performance/resource baseline and final measurements, repeated-run stability,
+11. performance/resource baseline and final measurements, repeated-run stability,
     failed attempts, root causes, and evidence-driven corrections;
-11. the final minimal human couch checklist, observations, and any last-mile fix;
-12. every `DEFERRED` item with reason, owner, and exact next action;
-13. confirmation that no credentials, URLs, runtime data, screenshots containing
+12. the final minimal human couch checklist, observations, and any last-mile fix;
+13. every `DEFERRED` item with reason, owner, and exact next action;
+14. confirmation that no credentials, URLs, runtime data, screenshots containing
     private/copyrighted content, or other private content are
     included and that the box was left safe and usable.
 
@@ -611,7 +670,9 @@ reconcile transparently before continuing.
 ## 9. Definition of done
 
 - Correct branch and required patch ancestry proved.
-- Home/origin/Pi code SHAs match the intended deployed source.
+- The live Pi starting SHA and full ordered pending range were recorded; the
+  entire origin branch tip was deployed with no skipped intermediate commits.
+- Home/origin/Pi code SHAs match the final intended branch tip after every fix.
 - Full deploy and automated gates pass or have exact, non-fabricated deferrals.
 - The Internet's Own Boy regression is proven fixed on the TV: no premature
   foreground takeover, no post-cancel/later autonomous start, bounded fallthrough,
