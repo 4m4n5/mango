@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import test from 'node:test';
 import {
   clearSearchActivity,
+  backupLibraryDbBeforeFireWaterMigration,
   getSearchPreferences,
   getLatestEpisodeWatchProgress,
   getLibraryState,
@@ -68,10 +69,30 @@ test('initLibraryDb creates WAL schema and migration row', () => withTempLibrary
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM library_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4]);
   } finally {
     db.close();
   }
+}));
+
+test('pre-ratings migration uses SQLite online backup once and preserves legacy state', () => withTempLibrary(async (dir) => {
+  const path = join(dir, 'library.db');
+  const legacy = new Database(path);
+  legacy.exec(`
+CREATE TABLE library_migrations(version INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
+INSERT INTO library_migrations(version, applied_at) VALUES (1, 1), (2, 2), (3, 3);
+CREATE TABLE legacy_proof(value TEXT NOT NULL);
+INSERT INTO legacy_proof(value) VALUES ('preserved');
+`);
+  legacy.close();
+
+  const backup = await backupLibraryDbBeforeFireWaterMigration();
+  assert.equal(backup, `${path}.pre-fire-water-v4.bak`);
+  assert.equal(existsSync(backup!), true);
+  const backedUp = new Database(backup!, { readonly: true });
+  assert.equal((backedUp.prepare('SELECT value FROM legacy_proof').get() as { value: string }).value, 'preserved');
+  backedUp.close();
+  assert.equal(await backupLibraryDbBeforeFireWaterMigration(), backup);
 }));
 
 test('search activity keeps 12 unique recents and clear removes learning too', () => withTempLibrary(() => {

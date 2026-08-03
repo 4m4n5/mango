@@ -10,6 +10,7 @@ export const LIBRARY_SOURCE_MANGO = 'mango';
 export const LIBRARY_SAVED_RAIL_ID = 'saved';
 export const LIBRARY_CONTEXT_ID = 'launcher';
 export const LIBRARY_FINISHED_PCT = 0.90;
+export const FIRE_WATER_SCHEMA_VERSION = 4;
 
 export type LibrarySource = string;
 
@@ -103,6 +104,17 @@ export type SearchStarterItem = {
   poster: string | null;
   tab: CatalogTab;
   activity_at: number;
+};
+
+export type RecommendationLibrarySignal = {
+  type: string;
+  id: string;
+  saved: boolean;
+  started: boolean;
+  completed: boolean;
+  hidden: boolean;
+  blocked: boolean;
+  not_interested: boolean;
 };
 
 export type WatchState = {
@@ -399,6 +411,130 @@ VALUES (1, 'moderate', ?)
     db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (3, ?)')
       .run(nowMs());
   }
+  if (!migrated.has(FIRE_WATER_SCHEMA_VERSION)) {
+    db.exec(`
+CREATE TABLE IF NOT EXISTS content_ratings (
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  year TEXT,
+  fire_steps INTEGER NOT NULL CHECK(fire_steps BETWEEN 0 AND 10),
+  water_steps INTEGER NOT NULL CHECK(water_steps BETWEEN 0 AND 10),
+  origin TEXT NOT NULL CHECK(origin IN ('seed', 'couch')),
+  revision INTEGER NOT NULL CHECK(revision >= 1),
+  seed_manifest TEXT,
+  seed_manifest_hash TEXT,
+  caption_hash TEXT,
+  taste_tags_json TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(content_type, content_id)
+);
+
+CREATE TABLE IF NOT EXISTS content_rating_events (
+  event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  action TEXT NOT NULL CHECK(action IN ('set', 'edit', 'clear', 'import')),
+  origin TEXT NOT NULL CHECK(origin IN ('seed', 'couch')),
+  previous_fire_steps INTEGER,
+  previous_water_steps INTEGER,
+  fire_steps INTEGER,
+  water_steps INTEGER,
+  revision INTEGER NOT NULL,
+  manifest_name TEXT,
+  manifest_hash TEXT,
+  occurred_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_content_rating_events_identity
+  ON content_rating_events(content_type, content_id, occurred_at DESC);
+
+CREATE TABLE IF NOT EXISTS rating_prompt_state (
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  eligible_at INTEGER,
+  presented_at INTEGER,
+  disposition TEXT CHECK(disposition IN ('dismissed', 'rated', 'left_detail')),
+  resolved_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(content_type, content_id)
+);
+
+CREATE TABLE IF NOT EXISTS rating_seed_imports (
+  manifest_name TEXT NOT NULL,
+  manifest_hash TEXT NOT NULL,
+  imported_at INTEGER NOT NULL,
+  imported_count INTEGER NOT NULL,
+  skipped_couch_count INTEGER NOT NULL,
+  PRIMARY KEY(manifest_name, manifest_hash)
+);
+
+CREATE TABLE IF NOT EXISTS recommendation_features (
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  feature_version TEXT NOT NULL,
+  metadata_hash TEXT NOT NULL,
+  provenance TEXT NOT NULL CHECK(provenance IN ('metadata', 'ai', 'seed')),
+  confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+  features_json TEXT NOT NULL,
+  model_version TEXT,
+  prompt_version TEXT,
+  input_hash TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(content_type, content_id, feature_version)
+);
+
+CREATE TABLE IF NOT EXISTS household_taste_snapshots (
+  snapshot_version INTEGER PRIMARY KEY AUTOINCREMENT,
+  model_version TEXT NOT NULL,
+  ratings_hash TEXT NOT NULL,
+  taste_json TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS recommendation_snapshots (
+  tab TEXT NOT NULL CHECK(tab IN ('movies', 'series')),
+  revision INTEGER NOT NULL,
+  model_version TEXT NOT NULL,
+  model_kind TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('ready', 'fallback')),
+  candidate_count INTEGER NOT NULL,
+  generated_at INTEGER NOT NULL,
+  daily_seed TEXT NOT NULL,
+  PRIMARY KEY(tab, revision)
+);
+
+CREATE TABLE IF NOT EXISTS recommendation_snapshot_items (
+  tab TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  rank INTEGER NOT NULL,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  poster TEXT,
+  year TEXT,
+  bucket TEXT NOT NULL CHECK(bucket IN ('close', 'adjacent', 'explore', 'fallback')),
+  affinity REAL NOT NULL,
+  diversity REAL NOT NULL,
+  predicted_fire REAL NOT NULL,
+  predicted_water REAL NOT NULL,
+  generation_reason TEXT NOT NULL,
+  PRIMARY KEY(tab, revision, rank),
+  FOREIGN KEY(tab, revision) REFERENCES recommendation_snapshots(tab, revision) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_recommendation_snapshot_items_identity
+  ON recommendation_snapshot_items(content_type, content_id);
+
+CREATE TABLE IF NOT EXISTS recommendation_metrics (
+  metric_name TEXT PRIMARY KEY,
+  metric_value INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
+      .run(FIRE_WATER_SCHEMA_VERSION, nowMs());
+  }
 }
 
 function ensureDb(): Database.Database {
@@ -413,6 +549,38 @@ function ensureDb(): Database.Database {
 
 export function initLibraryDb(): void {
   ensureDb();
+}
+
+/** Internal transactional handle for modules that extend the canonical library schema. */
+export function libraryDatabase(): Database.Database {
+  return ensureDb();
+}
+
+/**
+ * Create exactly one WAL-consistent pre-v4 backup using SQLite's online backup API.
+ * The caller must await this before initLibraryDb() applies the ratings migration.
+ */
+export async function backupLibraryDbBeforeFireWaterMigration(): Promise<string | null> {
+  const path = libraryDbPath();
+  if (!existsSync(path)) return null;
+  const destination = `${path}.pre-fire-water-v${FIRE_WATER_SCHEMA_VERSION}.bak`;
+  if (existsSync(destination)) return destination;
+
+  const source = new Database(path);
+  try {
+    const table = source.prepare(`
+SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'library_migrations'
+`).get() as { name?: string } | undefined;
+    if (table) {
+      const migrated = source.prepare('SELECT 1 AS applied FROM library_migrations WHERE version = ?')
+        .get(FIRE_WATER_SCHEMA_VERSION) as { applied?: number } | undefined;
+      if (migrated?.applied) return null;
+    }
+    await source.backup(destination);
+    return destination;
+  } finally {
+    source.close();
+  }
 }
 
 function normalizeInput(input: LibraryItemInput): Required<Pick<LibraryItemInput, 'source' | 'type' | 'id'>> & LibraryItemInput {
@@ -699,6 +867,42 @@ INSERT INTO watch_history (
       watched_at: watchedAt,
     });
     historyId = Number(result.lastInsertRowid);
+
+    const normalizedType = normalizeLibraryType(input.type);
+    const movieEligible = normalizedType === 'movie' && pct >= LIBRARY_FINISHED_PCT;
+    let seriesEligible = false;
+    if (normalizedType === 'series' && pct >= LIBRARY_FINISHED_PCT) {
+      const distinct = db.prepare(`
+SELECT COUNT(DISTINCT play_id) AS count
+FROM watch_history
+WHERE item_key = ?
+  AND play_id IS NOT NULL
+  AND play_id != ''
+  AND progress_pct >= ?
+`).get(itemKey, LIBRARY_FINISHED_PCT) as { count: number };
+      seriesEligible = distinct.count >= 3 || event === 'season_finale_finished';
+    }
+    if (movieEligible || seriesEligible) {
+      db.prepare(`
+INSERT INTO rating_prompt_state(content_type, content_id, eligible_at, updated_at)
+SELECT @content_type, @content_id, @eligible_at, @updated_at
+WHERE NOT EXISTS (
+  SELECT 1 FROM content_ratings
+  WHERE content_type = @content_type AND content_id = @content_id
+)
+ON CONFLICT(content_type, content_id) DO UPDATE SET
+  eligible_at = CASE
+    WHEN rating_prompt_state.resolved_at IS NULL THEN COALESCE(rating_prompt_state.eligible_at, excluded.eligible_at)
+    ELSE rating_prompt_state.eligible_at
+  END,
+  updated_at = excluded.updated_at
+`).run({
+        content_type: normalizedType,
+        content_id: normalizeLibraryId(normalizedType, input.id),
+        eligible_at: watchedAt,
+        updated_at: watchedAt,
+      });
+    }
   });
   transaction();
   const row = db.prepare(`
@@ -821,6 +1025,46 @@ JOIN library_items li ON li.item_key = wh.item_key
 ORDER BY wh.watched_at DESC, wh.history_id DESC
 LIMIT @limit;
 `).all({ limit: Math.max(1, Math.min(500, limit)) }) as WatchHistoryRow[];
+}
+
+export function listRecommendationLibrarySignals(): RecommendationLibrarySignal[] {
+  const db = ensureDb();
+  const rows = db.prepare(`
+SELECT
+  li.type,
+  li.id,
+  MAX(CASE WHEN si.item_key IS NOT NULL THEN 1 ELSE 0 END) AS saved,
+  MAX(CASE WHEN ws.position_sec > 0 THEN 1 ELSE 0 END) AS started,
+  MAX(CASE WHEN ws.finished_at IS NOT NULL THEN 1 ELSE 0 END) AS completed,
+  MAX(li.hidden) AS hidden,
+  MAX(li.blocked) AS blocked,
+  MAX(CASE WHEN lf.feedback = 'not_interested' THEN 1 ELSE 0 END) AS not_interested
+FROM library_items li
+LEFT JOIN saved_items si ON si.item_key = li.item_key
+LEFT JOIN watch_state ws ON ws.item_key = li.item_key
+LEFT JOIN library_feedback lf ON lf.item_key = li.item_key
+WHERE li.type IN ('movie', 'series')
+GROUP BY li.type, li.id
+`).all() as Array<{
+    type: string;
+    id: string;
+    saved: number;
+    started: number;
+    completed: number;
+    hidden: number;
+    blocked: number;
+    not_interested: number;
+  }>;
+  return rows.map((row) => ({
+    type: row.type,
+    id: row.id,
+    saved: Boolean(row.saved),
+    started: Boolean(row.started),
+    completed: Boolean(row.completed),
+    hidden: Boolean(row.hidden),
+    blocked: Boolean(row.blocked),
+    not_interested: Boolean(row.not_interested),
+  }));
 }
 
 /** Latest watch_history row per episode play_id for a series (for per-episode resume). */
