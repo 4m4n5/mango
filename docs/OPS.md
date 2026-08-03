@@ -361,6 +361,36 @@ Scheduled maintenance (local time):
 
 ---
 
+## Fire/Water ratings and For You
+
+Migration 4 creates one WAL-consistent online backup before changing
+`/etc/mango/library.db`:
+
+```bash
+test -f /etc/mango/library.db.pre-fire-water-v4.bak
+curl -fsS http://127.0.0.1:3020/recommendations/state | python3 -m json.tool
+curl -fsS -X POST http://127.0.0.1:3020/recommendations/refresh \
+  -H 'content-type: application/json' -d '{}'
+```
+
+Seed manifests are validated and imported on the Pi only after every row has
+an explicit approved/excluded disposition and unique stable identity:
+
+```bash
+cd ~/mango/src/catalog-service
+npm run ratings:seed -- dry-run /path/to/fire-water-seed-v1.json
+npm run ratings:seed -- validate /path/to/fire-water-seed-v1.json
+MANGO_LIBRARY_DB_PATH=/etc/mango/library.db npm run ratings:seed -- import /path/to/fire-water-seed-v1.json
+```
+
+Run import twice; the second result must report `noop: true`. Never copy a Mac
+DB to the Pi, clear runtime state, or place raw sheet captions/URLs in the
+manifest. `MANGO_FIRE_WATER_RATINGS=0`, `MANGO_FOR_YOU=0`, and
+`MANGO_RECOMMENDATIONS_AI=0` are reversible visibility/enrichment rollbacks;
+none deletes ratings or last-good snapshots.
+
+---
+
 ## Legacy fallback apps
 
 Not started at idle. Opt-in only:

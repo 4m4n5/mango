@@ -71,6 +71,8 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | Library grow | Best-effort fresh `+20` new-to-rail verified target per active rail; shortfalls publish usable verified work with operator warnings |
 | Grow visibility | Operator-only reports; no TV debug/progress surface |
 | Finished watching | Store in Mango progress/library state; no Stremio write-back |
+| Household ratings | Required Fire + Water reactions, each 0–5 in 0.5 steps; movie title-level and series show-level |
+| Personalized discovery | One system-owned **For You** rail after Continue/Saved in Movies and TV Shows; verified-playable cards only |
 
 ### Voice & AI
 
@@ -81,6 +83,7 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | STT | Deepgram `nova-3` · Hinglish (`multi` + hi/en fallback) |
 | TTS | Off until **M6** soundbar/TV path validated |
 | AI catalogs | Voice-created slots on home · overflow handling (replace / merge); automation never writes to Saved |
+| Recommendation AI | Optional nightly feature/candidate enrichment only; deterministic local ranking and last-good rails remain available without AI |
 
 ### Household
 

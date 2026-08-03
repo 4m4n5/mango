@@ -195,6 +195,23 @@ Primary routes: `GET /library/state`, `GET/POST/DELETE /library/saved`,
 `GET /library/history`, `GET/POST/DELETE /library/context`, plus Saved-backed
 `GET/POST/DELETE /pins` compatibility.
 
+### Fire & Water ratings / For You — code complete, seed and couch proof pending
+
+| Area | Current implementation |
+|------|------------------------|
+| Durable state | Migration 4 adds source-independent movie/show ratings, append-only events, one-time prompt state, seed-import ledger, feature state, taste snapshots, and atomic rail snapshots |
+| Migration safety | One online SQLite backup before v4; DB/history/cache are never deleted or recreated |
+| Rating UI | Detail Rate/Edit Rating plus compact chips; Fire uses five flame emoji and Water five wave emoji, with saturated fill, gray remainder, and clipped half marks matching the household reference |
+| Controller | B enters/confirms adjustment and saves; arrows move/change exact half-steps; Y cancels; contextual X confirms clear; existing pad ownership/bindings are unchanged |
+| Prompts | Movie at 90% natural completion; series after three distinct completed episodes, with a season-finale event hook; invitation never steals focus |
+| Ranking | Separate Fire/Water similarity prediction, Bayesian shrinkage, high-axis qualification, high-high bonus, daily-stable 8/3/1 selection, 75/25 MMR, and last-good snapshots |
+| Rail placement | Continue → Saved → For You → user AI catalogs → curated discovery; For You does not consume a user AI slot |
+| Nightly | Companion pipeline skips foreground playback/grow overlap and refreshes recommendations after optional AI/gardener phases |
+| Flags | `MANGO_FIRE_WATER_RATINGS`, `MANGO_FOR_YOU`, `MANGO_RECOMMENDATIONS_AI` (set `0` to disable without deleting state) |
+| Deferred | Stable-ID seed reconciliation/import, Pi latency/restart/offline proof, screenshots, and human recommendation-quality verdict |
+
+Detail and home runbook: [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
+
 ---
 
 ## M6.2 — Native YouTube ✓ hardening

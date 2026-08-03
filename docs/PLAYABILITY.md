@@ -403,6 +403,17 @@ PR regression (not gate-lite): `bash scripts/m3-play/playability/gate-m3-library
 
 ---
 
+## Personalized-rail eligibility
+
+Fire/Water `For You` candidates come only from the global active verified-title
+corpus; recommendation enrichment cannot publish an unverified title or bypass
+the normal grow/resolver ladder. Current ratings, hidden/blocked rows, Not
+Interested, invalid/expired rows, and duplicates are hard exclusions. Saved,
+started, and completed titles are held as a last fallback only when fewer than
+six untouched candidates remain. Snapshot publication is atomic and a failed
+refresh retains the prior valid revision. Playing a For You card uses the exact
+same play-session and playback ladder as every curated rail.
+
 ## Open items
 
 | Item | Why it matters |

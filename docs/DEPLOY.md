@@ -155,3 +155,10 @@ This is allowed operator-owned runtime state; do not commit or copy it.
 See also: [`../AGENTS.md`](../AGENTS.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 Live IPTV: [`LIVE_TV.md`](LIVE_TV.md) — gates opt-in only.
+
+Fire/Water rollout is intentionally home-owned after the normal git deploy.
+Before enabling the personalized rail, prove the migration backup, complete the
+seed reconciliation, dry-run/validate/import it twice, then run the TV checks in
+[FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md). Do not hand-copy a manifest or
+database to the Pi; commit approved source artifacts on the Mac and pull them by
+git like every other deployable change.

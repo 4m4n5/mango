@@ -146,6 +146,23 @@ auto-saves. Existing user-facing Pins import once into Saved; `/pins` stays as
 a compatibility API over Saved. Internal playability rail-curation pins remain
 operator policy and are not user library state.
 
+Fire/Water ratings add source-independent movie/show identity, integer half-step
+storage, optimistic revisions, append-only events, and one-time prompt state to
+the same durable DB. A guarded SQLite online backup is created once at
+`library.db.pre-fire-water-v4.bak` before migration 4. Raw sheet captions and
+sheet URLs are rejected by the seed importer. Couch history always supersedes
+seed values, including after a rating has been cleared.
+
+Movies and TV Shows each receive one system rail (`for-you-movies` and
+`for-you-series`) after Continue and Saved and before the three user AI-catalog
+slots. The recommender reads only active verified playability rows, predicts
+Fire and Water independently, applies shrinkage and deterministic diversity
+reranking, then atomically publishes a versioned 12-card snapshot. Rated,
+hidden, blocked, Not Interested, and unverified titles never render. The
+launcher receives ordinary cards only; predictions, internal reasons, taste
+tags, and AI output remain service-private. See
+[FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
+
 `/etc/mango/stremio-export.json` remains an addon-manifest graph only, not a
 Stremio user-library sync source.
 
@@ -379,6 +396,12 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `GET` | `/library/context` | Current launcher detail context |
 | `POST` | `/library/context` | Localhost launcher update for current-context voice tools |
 | `DELETE` | `/library/context` | Localhost cleanup/restore hook for gates |
+| `GET` | `/library/ratings?type=&id=` | Current Fire/Water rating plus one-time prompt eligibility |
+| `PUT` | `/library/ratings` | Revision-checked atomic Fire + Water set/edit |
+| `DELETE` | `/library/ratings?type=&id=&expected_revision=` | Clear current value while retaining audit history |
+| `POST` | `/library/rating-prompts/dismiss` | Resolve the one-time invitation without changing manual Rate |
+| `GET` | `/recommendations/state` | Local diagnostics: revisions, age, and candidate counts only |
+| `POST` | `/recommendations/refresh` | Localhost-only atomic refresh of one or both For You snapshots |
 
 `GET/POST/DELETE /pins` remains for compatibility and delegates to Saved. There
 is no public hide/unhide API in M6.1; hidden fields are schema-only for the

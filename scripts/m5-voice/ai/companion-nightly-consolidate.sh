@@ -33,6 +33,15 @@ if [[ "${MANGO_COMPANION_SKIP_IF_GROW_RUNNING:-1}" == "1" ]] \
   exit 0
 fi
 
+# Recommendation enrichment/reranking is never allowed to compete with the
+# foreground player. The sentinel is owned by mpv-play and is safer than
+# process-name matching because probes are intentionally not couch playback.
+if [[ -f "${MANGO_PLAYBACK_ACTIVE_FILE:-${CACHE_DIR}/playback-active}" ]]; then
+  echo "companion-nightly: SKIP — foreground playback active"
+  echo "companion-nightly: ratings and last-good For You rails remain available"
+  exit 0
+fi
+
 log_ops() {
   local kind="$1"
   local summary="$2"
@@ -164,6 +173,24 @@ PY
 else
   echo "WARN: AI catalog migrate pass failed — see $MIGRATE_OUT" >&2
   cat "$MIGRATE_OUT" >&2 || true
+fi
+
+# --- Phase 4: Fire/Water recommendation snapshot -----------------------------
+# The couch path never waits for this phase. It ranks the already verified
+# corpus and atomically publishes only a complete snapshot; failures retain the
+# previous revision. Existing optional LLM work above may enrich/grow candidate
+# sources, but IDs still enter this rail only after normal playability proof.
+RECOMMEND_OUT="${OPS_DIR}/recommendations-${RUN_ID}.json"
+if [[ "${MANGO_FOR_YOU:-1}" == "1" ]]; then
+  echo "=== Phase 4: Fire/Water For You refresh ==="
+  if post_json_ok "$CATALOG/recommendations/refresh" '{}' 1 > "$RECOMMEND_OUT"; then
+    echo "PASS: For You snapshots refreshed"
+    log_ops recommendations_refresh "Fire/Water snapshots refreshed" "$RECOMMEND_OUT" || true
+  else
+    echo "WARN: recommendation refresh unavailable — retained last-good snapshots" >&2
+  fi
+else
+  echo "SKIP: For You refresh (MANGO_FOR_YOU=0)"
 fi
 
 # --- Final report ------------------------------------------------------------

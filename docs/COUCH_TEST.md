@@ -549,6 +549,33 @@ apply here; if one of these fails, report it rather than tuning.
 
 ---
 
+## Fire & Water ratings and For You
+
+Complete only after the seed manifest is reconciled/imported twice and both
+snapshot revisions are nonzero. Screenshots must exclude diagnostics and any
+operator files.
+
+| # | Couch action and required evidence | Pass? |
+|---|------------------------------------|-------|
+| FW1 | Open an unrated movie: **Rate** follows Save; Live and YouTube never show it | |
+| FW2 | Open Rate: the sheet sits inside the 5% safe area; Fire is five flame emoji and Water five wave emoji, with saturated fill, gray remainder, and a clean half mark at `.5` | |
+| FW3 | New axes say **Not set**. B enters at 2.5, Left/Right changes exactly 0.5, B confirms, and Save remains disabled until both axes are confirmed | |
+| FW4 | Save `Fire 5 / Water 0`; close/reopen detail and restart services. Both values persist and the compact chips remain readable at 3 m | |
+| FW5 | Edit to `Fire 0 / Water 5`; stale/network failure keeps the sheet, values, focus, and persistent error band intact | |
+| FW6 | X opens inline clear confirmation; Y keeps the rating; X then B clears it without deleting its audit history | |
+| FW7 | Complete a movie to 90%: return invitation appears once without moving focus or opening the sheet; leaving resolves it permanently while manual Rate remains | |
+| FW8 | Complete three distinct series episodes: the show-level invitation appears once; rating the show shifts TV For You while Movies does not | |
+| FW9 | Movies and TV order is Continue → Saved → For You → user AI catalogs; each For You rail has 12 unique playable cards and no rated/hidden title | |
+| FW10 | Rate a For You title. It leaves the rail after Detail closes; focus restores to the same position, then first card/nearest rail fallback if needed | |
+| FW11 | With AI disabled and then network offline, ratings and the last-good rails survive restart; opening Detail never waits for AI | |
+| FW12 | Rate one high-Fire/low-Water and one low-Fire/high-Water title; both influence For You. Review 12 Movies + 12 TV cards for relevance, variety, and one plausible surprise | |
+| FW13 | Start several recommendations including 4K; normal playback/return works with no launcher, first-frame, or dropped-frame regression | |
+
+Record explicit human verdicts: rating semantics, icon clarity, adjustment flow,
+recommendation relevance, diversity, surprise quality, and perceived latency.
+
+---
+
 ## Living librarian memory (Phase 5)
 
 Optional but recommended during the comprehensive pass. Requires finishing a VOD title to ≥90% progress.
