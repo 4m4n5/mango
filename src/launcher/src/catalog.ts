@@ -233,6 +233,9 @@ function mapRailItems(data: RailItemsResponse): ContentRail {
       resumeSec: item.progress?.position_sec,
       progressPct: item.progress?.progress_pct,
     })),
+    ...(data.rail_id === "for-you-movies" || data.rail_id === "for-you-series"
+      ? { layout: "poster" as const }
+      : {}),
   };
 }
 
