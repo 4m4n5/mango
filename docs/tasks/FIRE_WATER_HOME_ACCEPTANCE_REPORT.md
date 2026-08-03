@@ -123,3 +123,17 @@ Keep holistic session short:
 6. One 4K play/return  
 
 Plus the two seed disposition answers above.
+
+
+## Follow-up fixes (2026-08-03)
+
+Deploy tip: `0521331`.
+
+| Issue | Fix | Proof |
+|-------|-----|-------|
+| Emoji tofu / missing waves | Installed `fonts-noto-color-emoji` on Pi | `fc-match "Noto Color Emoji"` → NotoColorEmoji.ttf |
+| Idea of You / La Cocina | Excluded Idea of You; approved La Cocina Fire 3 / Water 1.5 (`tt19864832`) | Seed v2 import + noop; GET rating |
+| Half-mark overfill | Glyph wrapper + width clip at mark box | Launcher CSS/TS change |
+| For You ~5–6 cards | Browse row budget was 1×6; For You now 2 rows (12) + shuffle rotates reserve | API 12 before/after shuffle; overlap 3 |
+| Save → catalog unavailable | UI proxy omitted PUT body; validation sanitized to couch message | Proxy PUT 200 in 606 ms |
+
