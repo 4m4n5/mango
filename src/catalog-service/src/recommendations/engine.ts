@@ -210,7 +210,7 @@ function mmrPick(candidates: ScoredRecommendation[], limit: number): ScoredRecom
     let bestScore = Number.NEGATIVE_INFINITY;
     for (let index = 0; index < remaining.length; index += 1) {
       const candidate = remaining[index]!;
-      if ((clusterCount.get(candidate.cluster) ?? 0) >= 3) continue;
+      if ((clusterCount.get(candidate.cluster) ?? 0) >= 2) continue;
       const redundancy = selected.length
         ? Math.max(...selected.map((item) => cosineSimilarity(candidate.vector, item.vector)))
         : 0;

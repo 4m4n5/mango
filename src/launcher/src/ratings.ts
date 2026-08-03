@@ -69,11 +69,19 @@ export function renderRatingMarks(
     mark.setAttribute("aria-hidden", "true");
     const empty = document.createElement("span");
     empty.className = "rating-mark-empty";
-    empty.textContent = symbol;
+    const emptyGlyph = document.createElement("span");
+    emptyGlyph.className = "rating-mark-glyph";
+    emptyGlyph.textContent = symbol;
+    empty.append(emptyGlyph);
     const fill = document.createElement("span");
     fill.className = "rating-mark-fill";
+    // Clip the fill layer; keep the glyph at full mark width so 50% is the
+    // left half of the emoji ink, not a squashed/over-wide color emoji box.
     fill.style.width = `${markValue * 100}%`;
-    fill.textContent = symbol;
+    const fillGlyph = document.createElement("span");
+    fillGlyph.className = "rating-mark-glyph";
+    fillGlyph.textContent = symbol;
+    fill.append(fillGlyph);
     mark.append(empty, fill);
     target.append(mark);
   }

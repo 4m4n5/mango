@@ -2783,7 +2783,8 @@ h1 {
   display: inline-block;
   width: 2.4rem;
   height: 2.55rem;
-  font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  overflow: hidden;
+  font-family: "Noto Color Emoji", "Apple Color Emoji", sans-serif;
   font-size: 2.15rem;
   line-height: 1;
 }
@@ -2791,12 +2792,15 @@ h1 {
 .rating-mark-empty,
 .rating-mark-fill {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  height: 100%;
   display: block;
   overflow: hidden;
 }
 
 .rating-mark-empty {
+  width: 100%;
   filter: grayscale(1) saturate(0) brightness(1.48);
   opacity: 0.5;
 }
@@ -2804,6 +2808,16 @@ h1 {
 .rating-mark-fill {
   z-index: 1;
   filter: saturate(1.08);
+}
+
+/* Full-width glyph inside a width-clipped fill so .5 marks are true halves. */
+.rating-mark-glyph {
+  display: block;
+  width: 2.4rem;
+  height: 2.55rem;
+  line-height: 2.55rem;
+  text-align: center;
+  pointer-events: none;
 }
 
 .rating-marks--compact {
@@ -2814,6 +2828,12 @@ h1 {
   width: 1.2rem;
   height: 1.3rem;
   font-size: 1.08rem;
+}
+
+.rating-marks--compact .rating-mark-glyph {
+  width: 1.2rem;
+  height: 1.3rem;
+  line-height: 1.3rem;
 }
 
 .rating-sheet {

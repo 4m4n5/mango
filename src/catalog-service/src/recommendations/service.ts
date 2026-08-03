@@ -273,7 +273,10 @@ SELECT COALESCE(MAX(revision), 0) AS revision FROM recommendation_snapshots WHER
   return row.revision;
 }
 
-export function loadForYouRail(tab: ForYouTab): ForYouRail | null {
+export function loadForYouRail(
+  tab: ForYouTab,
+  options: { reshuffle?: boolean } = {},
+): ForYouRail | null {
   if (!forYouEnabled()) return null;
   const rows = libraryDatabase().prepare(`
 SELECT rsi.revision, rsi.rank, rsi.content_type, rsi.content_id, rsi.title, rsi.poster, rsi.year
@@ -291,12 +294,24 @@ LIMIT 40
   const eligible = rows.filter((row) => {
     const key = `${row.content_type}:${row.content_id}`;
     return !ineligible.has(key) && !rated.has(key);
-  }).slice(0, 12);
+  });
   if (eligible.length < 6) return null;
+
+  let epoch = currentForYouShuffleEpoch(tab);
+  if (options.reshuffle) {
+    epoch = bumpForYouShuffleEpoch(tab);
+  }
+  const selected = pickForYouDisplayWindow(eligible, {
+    limit: 12,
+    seed: `${recommendationDailySeed(tab)}:${epoch}`,
+    reshuffle: Boolean(options.reshuffle) || epoch > 0,
+  });
+  if (selected.length < 6) return null;
+
   return {
     rail_id: tab === 'movies' ? 'for-you-movies' : 'for-you-series',
     label: 'For You',
-    items: eligible.map((row) => ({
+    items: selected.map((row) => ({
       id: row.content_id,
       type: row.content_type,
       title: row.title,
@@ -306,16 +321,74 @@ LIMIT 40
       source: 'for-you',
     })),
     resolve_ms: 0,
-    skipped: rows.length - eligible.length,
+    skipped: rows.length - selected.length,
     cached: true,
     playability: {
-      displayed: eligible.length,
+      displayed: selected.length,
       verified_pool: eligible.length,
       pending: 0,
-      low_water: false,
-      session_id: `for-you-${rows[0]?.revision ?? 0}`,
+      low_water: selected.length < 12,
+      session_id: `for-you-${rows[0]?.revision ?? 0}-${epoch}`,
     },
   };
+}
+
+function currentForYouShuffleEpoch(tab: ForYouTab): number {
+  const row = libraryDatabase().prepare(`
+SELECT metric_value FROM recommendation_metrics WHERE metric_name = ?
+`).get(`for_you_shuffle_epoch_${tab}`) as { metric_value?: number } | undefined;
+  return Math.max(0, Math.floor(Number(row?.metric_value) || 0));
+}
+
+function bumpForYouShuffleEpoch(tab: ForYouTab): number {
+  const next = currentForYouShuffleEpoch(tab) + 1;
+  setRecommendationMetric(`for_you_shuffle_epoch_${tab}`, next);
+  return next;
+}
+
+/**
+ * Prefer the ranked head on cold open. After shuffle (or any non-zero epoch),
+ * rotate through the last-good reserve and greedily keep era diversity so the
+ * rail stays full (up to 12) without collapsing to one decade/theme.
+ */
+export function pickForYouDisplayWindow<T extends {
+  content_id: string;
+  year: string | null;
+}>(
+  eligible: T[],
+  options: { limit: number; seed: string; reshuffle: boolean },
+): T[] {
+  if (eligible.length <= options.limit && !options.reshuffle) return eligible.slice(0, options.limit);
+  const rotated = (() => {
+    if (!options.reshuffle) return eligible;
+    const offset = Math.floor(seededUnit(`${options.seed}:offset`) * eligible.length) % eligible.length;
+    return [...eligible.slice(offset), ...eligible.slice(0, offset)];
+  })();
+  const selected: T[] = [];
+  const eraCount = new Map<string, number>();
+  const maxPerEra = options.limit <= 8 ? 3 : 4;
+  for (const row of rotated) {
+    if (selected.length >= options.limit) break;
+    const year = Number.parseInt(row.year ?? '', 10);
+    const era = Number.isFinite(year) ? String(Math.floor(year / 10) * 10) : 'unknown';
+    if ((eraCount.get(era) ?? 0) >= maxPerEra) continue;
+    selected.push(row);
+    eraCount.set(era, (eraCount.get(era) ?? 0) + 1);
+  }
+  // If era caps left the rail short, fill from remaining rotated order.
+  if (selected.length < Math.min(options.limit, rotated.length)) {
+    const used = new Set(selected.map((row) => row.content_id));
+    for (const row of rotated) {
+      if (selected.length >= options.limit) break;
+      if (used.has(row.content_id)) continue;
+      selected.push(row);
+    }
+  }
+  return selected;
+}
+
+function seededUnit(seed: string): number {
+  return createHash('sha256').update(seed).digest().readUInt32BE(0) / 0xffffffff;
 }
 
 export function recommendationDiagnostics(): {

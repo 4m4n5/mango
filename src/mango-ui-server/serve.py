@@ -1136,7 +1136,8 @@ class MangoUiHandler(BaseHTTPRequestHandler):
 
         body = None
         headers = {"accept": "application/json"}
-        if method in {"POST", "DELETE"}:
+        # PUT must forward JSON too — Fire/Water rating saves use PUT /library/ratings.
+        if method in {"POST", "PUT", "DELETE"}:
             length = int(self.headers.get("content-length") or "0")
             body = self.rfile.read(length) if length > 0 else b"{}"
             headers["content-type"] = self.headers.get("content-type", "application/json")

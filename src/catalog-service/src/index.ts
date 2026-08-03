@@ -1383,9 +1383,11 @@ async function main(): Promise<void> {
             if (error instanceof RatingRevisionConflictError) {
               throw new CatalogError(409, 'Rating changed elsewhere. Review the latest values.', {
                 current: error.current,
-              });
+              }, { couchMessage: 'Rating changed elsewhere. Review the latest values.' });
             }
-            if (error instanceof RatingValidationError) throw new CatalogError(400, error.message);
+            if (error instanceof RatingValidationError) {
+              throw new CatalogError(400, error.message, undefined, { couchMessage: error.message });
+            }
             throw error;
           }
           const affectedTabs = rating?.type === 'series' ? ['series'] as const : ['movies', 'series'] as const;
@@ -1431,9 +1433,11 @@ async function main(): Promise<void> {
             if (error instanceof RatingRevisionConflictError) {
               throw new CatalogError(409, 'Rating changed elsewhere. Review the latest values.', {
                 current: error.current,
-              });
+              }, { couchMessage: 'Rating changed elsewhere. Review the latest values.' });
             }
-            if (error instanceof RatingValidationError) throw new CatalogError(400, error.message);
+            if (error instanceof RatingValidationError) {
+              throw new CatalogError(400, error.message, undefined, { couchMessage: error.message });
+            }
             throw error;
           }
           return;

@@ -2237,7 +2237,9 @@ export class CatalogCore {
     ]);
 
     const responses = railResponses.filter((rail): rail is RailItemsResponse => rail !== null);
-    const forYouRail = tab === 'movies' || tab === 'series' ? loadForYouRail(tab) : null;
+    const forYouRail = tab === 'movies' || tab === 'series'
+      ? loadForYouRail(tab, { reshuffle })
+      : null;
     const visibleRails = mergeUserStateRails(responses, continueRail, savedRail, {
       reshuffle,
       forYouRail,
