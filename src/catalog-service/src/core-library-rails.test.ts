@@ -40,6 +40,22 @@ test('Saved rail is inserted immediately after Continue before discovery rails',
   ]);
 });
 
+test('For You is system-owned after Continue and Saved without consuming discovery order', () => {
+  const ordered = mergeUserStateRails(
+    [rail('ai-slot-1', 1), rail('discover', 1)],
+    rail('continue-watching', 1),
+    rail('saved', 1),
+    { forYouRail: rail('for-you-movies', 12) },
+  );
+  assert.deepEqual(ordered.map((entry) => entry.rail_id), [
+    'continue-watching',
+    'saved',
+    'for-you-movies',
+    'ai-slot-1',
+    'discover',
+  ]);
+});
+
 test('Saved rail appears first when Continue is empty and is absent when empty', () => {
   assert.deepEqual(
     mergeUserStateRails([rail('discover', 1)], rail('continue-watching', 0), rail('saved', 1))
@@ -114,4 +130,3 @@ test('reshuffle actually reorders both user-state rails', () => {
   assert.ok(continueMoved, 'Continue tail should rotate');
   assert.ok(savedMoved, 'Saved should rotate');
 });
-

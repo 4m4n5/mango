@@ -22,7 +22,7 @@ else
   gate_fail "launcher dist/index.html missing — cd src/launcher && npm run build"
 fi
 
-python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" "$SRC/search.ts" "$SRC/pad-nav.ts" "$REPO_DIR/src/mango-ui-server/serve.py" "$SRC/home.ts" "$SRC/toast.ts" <<'PY' \
+python3 - "$SRC/voice-hud.ts" "$SRC/detail.ts" "$SRC/focus.ts" "$SRC/main.ts" "$SRC/next-prompt.ts" "$SRC/playback-return.ts" "$SRC/catalog.ts" "$SRC/search.ts" "$SRC/pad-nav.ts" "$REPO_DIR/src/mango-ui-server/serve.py" "$SRC/home.ts" "$SRC/toast.ts" "$SRC/ratings.ts" "$SRC/style.css" <<'PY' \
   && gate_pass "launcher source UX contracts" \
   || gate_fail "launcher source UX contracts"
 import pathlib
@@ -40,6 +40,8 @@ pad_nav = pathlib.Path(sys.argv[9]).read_text(encoding="utf-8")
 ui_server = pathlib.Path(sys.argv[10]).read_text(encoding="utf-8")
 home = pathlib.Path(sys.argv[11]).read_text(encoding="utf-8")
 toast = pathlib.Path(sys.argv[12]).read_text(encoding="utf-8")
+ratings = pathlib.Path(sys.argv[13]).read_text(encoding="utf-8")
+style = pathlib.Path(sys.argv[14]).read_text(encoding="utf-8")
 
 if "MAX_VISIBLE_MS = 12_000" not in voice:
     raise SystemExit("voice-hud missing 12s max-visible timer")
@@ -122,6 +124,23 @@ if "couldn|failed|unavailable|timed? out" in main:
 for toast_contract in ("ToastTone", "toastPolicy", 'role: tone === "error"', 'aria-atomic'):
     if toast_contract not in toast:
         raise SystemExit(f"toast.ts missing typed severity/live-region contract: {toast_contract}")
+for rating_contract in (
+    'axis === "fire" ? "🔥" : "🌊"',
+    "index < 5",
+    "markValue * 100",
+    'value.toFixed(1)',
+    'setAttribute("aria-hidden", "true")',
+):
+    if rating_contract not in ratings:
+        raise SystemExit(f"ratings.ts missing household emoji rating contract: {rating_contract}")
+for rating_style_contract in (
+    ".rating-mark-empty",
+    ".rating-mark-fill",
+    "grayscale(1)",
+    "overflow: hidden",
+):
+    if rating_style_contract not in style:
+        raise SystemExit(f"style.css missing household emoji rating treatment: {rating_style_contract}")
 for session_contract in ("/api/catalog/play-session", "ever_ready", "readPlaybackSession"):
     if session_contract not in catalog:
         raise SystemExit(f"catalog.ts missing playback-session contract: {session_contract}")

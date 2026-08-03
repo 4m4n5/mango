@@ -2714,6 +2714,281 @@ h1 {
   font-weight: 600;
 }
 
+.detail-rating-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0.15rem 0 0;
+}
+
+.detail-rating-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.52rem;
+  min-height: 2.55rem;
+  padding: 0.34rem 0.72rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(9, 11, 14, 0.72);
+  color: var(--text-primary);
+}
+
+.detail-rating-label,
+.detail-rating-value {
+  font-size: var(--text-micro);
+  font-weight: 850;
+}
+
+.detail-rating-chip--fire .detail-rating-label,
+.detail-rating-chip--fire .detail-rating-value {
+  color: #ff9b22;
+}
+
+.detail-rating-chip--water .detail-rating-label,
+.detail-rating-chip--water .detail-rating-value {
+  color: #57b9ef;
+}
+
+.detail-rating-invitation {
+  width: fit-content;
+  margin: 0;
+  padding: 0.56rem 0.8rem;
+  border-left: 4px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+  background: rgba(232, 160, 32, 0.12);
+  color: var(--text-primary);
+  font-size: var(--text-caption);
+  font-weight: 700;
+}
+
+.detail-button--rating-cue::after {
+  content: "";
+  display: inline-block;
+  width: 0.48rem;
+  height: 0.48rem;
+  margin-left: 0.55rem;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.rating-marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  white-space: nowrap;
+}
+
+.rating-mark {
+  position: relative;
+  display: inline-block;
+  width: 2.4rem;
+  height: 2.55rem;
+  font-family: "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+  font-size: 2.15rem;
+  line-height: 1;
+}
+
+.rating-mark-empty,
+.rating-mark-fill {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+}
+
+.rating-mark-empty {
+  filter: grayscale(1) saturate(0) brightness(1.48);
+  opacity: 0.5;
+}
+
+.rating-mark-fill {
+  z-index: 1;
+  filter: saturate(1.08);
+}
+
+.rating-marks--compact {
+  gap: 0.08rem;
+}
+
+.rating-marks--compact .rating-mark {
+  width: 1.2rem;
+  height: 1.3rem;
+  font-size: 1.08rem;
+}
+
+.rating-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 850;
+  display: grid;
+  align-items: end;
+  padding: 0 5vw 5vh;
+}
+
+.rating-sheet.hidden {
+  display: none;
+}
+
+.rating-sheet-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.56);
+}
+
+.rating-sheet-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1.05rem;
+  width: 100%;
+  min-height: 52vh;
+  max-height: 72vh;
+  padding: 1.65rem 2rem 1.8rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 28px;
+  background: rgba(18, 20, 23, 0.98);
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.52);
+}
+
+.rating-sheet-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 2rem;
+}
+
+.rating-sheet-head h2 {
+  max-width: 32ch;
+  margin: 0.18rem 0 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 2.15rem;
+  line-height: 1.12;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rating-sheet-help {
+  margin: 0 0 0.15rem;
+  color: var(--text-secondary);
+  font-size: 1.28rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.rating-axis-list {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(6.7rem, 1fr));
+  gap: 0.72rem;
+  min-height: 0;
+}
+
+.rating-axis {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(18rem, 1fr) auto minmax(8.5rem, 0.36fr);
+  align-items: center;
+  gap: 1.3rem;
+  min-height: 6.7rem;
+  padding: 0.9rem 1.2rem;
+  border: 4px solid transparent;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.rating-axis.focused,
+.rating-axis:focus-visible,
+.rating-sheet-actions .detail-button.focused {
+  outline: none;
+  border-color: #ffffff;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.9), 0 0 0 7px rgba(255, 255, 255, 0.26);
+}
+
+.rating-axis--adjusting {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.rating-axis--adjusting::after {
+  content: "adjusting";
+  position: absolute;
+  right: 1.15rem;
+  transform: translateY(-2.25rem);
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.rating-axis-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.rating-axis-name {
+  font-size: 1.72rem;
+  font-weight: 900;
+}
+
+.rating-axis-name--fire {
+  color: #ff9b22;
+}
+
+.rating-axis-name--water {
+  color: #57b9ef;
+}
+
+.rating-axis-definition {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 1.25rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rating-axis-value {
+  color: var(--text-primary);
+  font-size: 1.55rem;
+  font-weight: 850;
+  text-align: right;
+}
+
+.rating-sheet-error,
+.rating-clear-confirm {
+  margin: 0;
+  padding: 0.72rem 1rem;
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-size: 1.3rem;
+  font-weight: 750;
+}
+
+.rating-sheet-error {
+  border-left: 5px solid #ff7e6d;
+  background: rgba(255, 87, 72, 0.16);
+}
+
+.rating-clear-confirm {
+  border-left: 5px solid #ff9b22;
+  background: rgba(255, 155, 34, 0.14);
+}
+
+.rating-sheet-actions {
+  display: flex;
+  gap: 1rem;
+}
+
+.rating-sheet-actions .detail-button {
+  min-width: 13rem;
+}
+
 /* Verify-state badge — couch-readable, subtle chip mirroring .card-health-badge. */
 .verify-badge {
   display: inline-flex;

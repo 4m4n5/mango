@@ -29,6 +29,7 @@ import { MINIMAL_VOD_POSTER_LABELS } from "./ui-flags";
 import { playErrorMessage } from "./catalog-errors";
 import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
 import { recoverTimedOutStreamList } from "./stream-list-recovery";
+import { RatingSheetController } from "./ratings";
 
 // The row spans the full width beneath the side panel, so seven 228px cards fit
 // (1706px of 1728). One spare is still fetched because a title is filtered out of
@@ -102,6 +103,7 @@ export class DetailController {
     private readonly description: HTMLElement,
     private readonly playButton: HTMLButtonElement,
     private readonly saveButton: HTMLButtonElement,
+    private readonly rateButton: HTMLButtonElement,
     private readonly notInterestedButton: HTMLButtonElement,
     private readonly backButton: HTMLButtonElement,
     private readonly streamsWrap: HTMLElement,
@@ -112,6 +114,7 @@ export class DetailController {
     private readonly relatedWrap: HTMLElement,
     private readonly relatedTrack: HTMLElement,
     private readonly relatedLabel: HTMLElement,
+    private readonly ratingSheet: RatingSheetController,
     private readonly callbacks: DetailCallbacks,
   ) {
     this.playButton.addEventListener("click", () => void this.play());
@@ -296,6 +299,7 @@ export class DetailController {
     void publishCurrentLibraryContext(tab, card).catch(() => undefined);
     const isLive = card.type === "tv" || tab === "live";
     const isYoutube = this.isYoutubeCard(card);
+    void this.ratingSheet.bindCard(card, !isLive && !isYoutube && (card.type === "movie" || card.type === "series"));
     const playable = this.canPlayCard(card);
     void this.loadFullMeta(card);
     if (isYoutube && !playable) {
@@ -314,6 +318,7 @@ export class DetailController {
       return;
     }
     const origin = this.origin;
+    void this.ratingSheet.detailClosing();
     this.stopNextPromptPoll();
     this.playToken += 1;
     this.streamsLoadToken += 1;
@@ -356,6 +361,7 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
+    if (this.ratingSheet.moveRow(delta)) return;
     this.navigate(delta > 0 ? "down" : "up");
   }
 
@@ -363,6 +369,7 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
+    if (this.ratingSheet.moveCol(delta)) return;
     // D-pad only navigates the page spatially. Seasons are cycled exclusively by
     // the shoulder buttons (changeSeason) or by clicking a season chip — so
     // ←/→ on an episode escapes the list (e.g. back to the action buttons)
@@ -376,6 +383,7 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
+    if (this.ratingSheet.isOpen) return;
     this.tryChangeSeason(delta);
   }
 
@@ -383,9 +391,23 @@ export class DetailController {
     if (!this.isOpen) {
       return;
     }
+    if (this.ratingSheet.activate()) return;
     if (this.focusedEl instanceof HTMLButtonElement && !this.focusedEl.disabled) {
       this.focusedEl.click();
     }
+  }
+
+  back(): void {
+    if (this.ratingSheet.back()) return;
+    if (this.isResolving()) {
+      this.cancelResolve();
+      return;
+    }
+    this.hide();
+  }
+
+  secondary(): void {
+    this.ratingSheet.secondary();
   }
 
   /** @deprecated Use moveRow/moveCol */
@@ -615,6 +637,7 @@ export class DetailController {
     return [
       this.playButton,
       this.saveButton,
+      this.rateButton,
       this.notInterestedButton,
       this.backButton,
     ].filter((control): control is HTMLButtonElement => !control.hidden);

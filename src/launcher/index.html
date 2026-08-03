@@ -38,14 +38,28 @@
               <p id="detail-eyebrow" class="eyebrow">catalog</p>
               <h1 id="detail-title">title</h1>
               <p id="detail-meta" class="detail-meta">movie</p>
+              <div id="detail-rating-chips" class="detail-rating-chips" hidden aria-label="Household rating">
+                <div class="detail-rating-chip detail-rating-chip--fire">
+                  <span class="detail-rating-label">Fire</span>
+                  <span id="detail-rating-fire-marks" class="rating-marks"></span>
+                  <span id="detail-rating-fire-value" class="detail-rating-value">0.0</span>
+                </div>
+                <div class="detail-rating-chip detail-rating-chip--water">
+                  <span class="detail-rating-label">Water</span>
+                  <span id="detail-rating-water-marks" class="rating-marks"></span>
+                  <span id="detail-rating-water-value" class="detail-rating-value">0.0</span>
+                </div>
+              </div>
               <p id="detail-verify-badge" class="verify-badge" hidden></p>
               <p id="detail-description" class="detail-description">loading details…</p>
+              <p id="detail-rating-invitation" class="detail-rating-invitation" hidden>Finished this one? Add your Fire and Water rating.</p>
               <div class="detail-actions">
                 <button id="detail-play" class="detail-button detail-button--primary" type="button">
                   <span class="detail-button-spinner" aria-hidden="true"></span>
                   <span class="detail-button-label">play</span>
                 </button>
                 <button id="detail-save" class="detail-button" type="button">save</button>
+                <button id="detail-rate" class="detail-button" type="button" hidden>rate</button>
                 <button id="detail-not-interested" class="detail-button" type="button" hidden>not interested</button>
                 <button id="detail-back" class="detail-button" type="button">back</button>
               </div>
@@ -71,6 +85,47 @@
             <p id="detail-related-context" class="detail-related-context" hidden></p>
           </div>
           <div id="detail-related-track" class="detail-related-track" role="list"></div>
+        </div>
+      </section>
+
+      <section id="rating-sheet" class="rating-sheet hidden" aria-label="Fire and Water rating" aria-hidden="true">
+        <div class="rating-sheet-scrim" aria-hidden="true"></div>
+        <div class="rating-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="rating-sheet-title">
+          <div class="rating-sheet-head">
+            <div>
+              <p class="eyebrow">your household rating</p>
+              <h2 id="rating-sheet-title">Rate</h2>
+            </div>
+            <p class="rating-sheet-help">B adjust or confirm · arrows move · Y cancel<span class="rating-sheet-clear-help"> · X clear</span></p>
+          </div>
+          <p id="rating-sheet-error" class="rating-sheet-error" role="alert" hidden></p>
+          <div class="rating-axis-list">
+            <button id="rating-fire-row" class="rating-axis" type="button" role="slider"
+              aria-label="Fire rating" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0" aria-valuetext="Not set">
+              <span class="rating-axis-copy">
+                <span class="rating-axis-name rating-axis-name--fire">Fire</span>
+                <span class="rating-axis-definition">fun · energy · tension · spectacle</span>
+              </span>
+              <span id="rating-fire-marks" class="rating-marks"></span>
+              <span id="rating-fire-value" class="rating-axis-value">Not set</span>
+            </button>
+            <button id="rating-water-row" class="rating-axis" type="button" role="slider"
+              aria-label="Water rating" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0" aria-valuetext="Not set">
+              <span class="rating-axis-copy">
+                <span class="rating-axis-name rating-axis-name--water">Water</span>
+                <span class="rating-axis-definition">heart · authenticity · emotional resonance</span>
+              </span>
+              <span id="rating-water-marks" class="rating-marks"></span>
+              <span id="rating-water-value" class="rating-axis-value">Not set</span>
+            </button>
+          </div>
+          <p id="rating-clear-confirm" class="rating-clear-confirm" role="alert" hidden>
+            Clear this rating? Press B to clear or Y to keep it.
+          </p>
+          <div class="rating-sheet-actions">
+            <button id="rating-save" class="detail-button detail-button--primary" type="button" disabled>save rating</button>
+            <button id="rating-cancel" class="detail-button" type="button">cancel</button>
+          </div>
         </div>
       </section>
 

@@ -96,6 +96,7 @@ import {
   listSavedLibraryItems,
   type SavedLibraryItem,
 } from './library/db.js';
+import { loadForYouRail } from './recommendations/service.js';
 import {
   assembleSeriesEpisodes,
   applyEpisodePlayability,
@@ -390,7 +391,7 @@ export function mergeUserStateRails(
   discoveryRails: RailItemsResponse[],
   continueRail: RailItemsResponse,
   savedRail: RailItemsResponse,
-  options: { reshuffle?: boolean } = {},
+  options: { reshuffle?: boolean; forYouRail?: RailItemsResponse | null } = {},
 ): RailItemsResponse[] {
   const visibleRails = discoveryRails.filter((rail) => rail.items.length > 0);
   const prefix: RailItemsResponse[] = [];
@@ -399,6 +400,9 @@ export function mergeUserStateRails(
   }
   if (savedRail.items.length > 0) {
     prefix.push(options.reshuffle ? reshuffleUserStateRail(savedRail, false) : savedRail);
+  }
+  if (options.forYouRail && options.forYouRail.items.length > 0) {
+    prefix.push(options.forYouRail);
   }
   return [...prefix, ...visibleRails];
 }
@@ -2233,7 +2237,11 @@ export class CatalogCore {
     ]);
 
     const responses = railResponses.filter((rail): rail is RailItemsResponse => rail !== null);
-    const visibleRails = mergeUserStateRails(responses, continueRail, savedRail, { reshuffle });
+    const forYouRail = tab === 'movies' || tab === 'series' ? loadForYouRail(tab) : null;
+    const visibleRails = mergeUserStateRails(responses, continueRail, savedRail, {
+      reshuffle,
+      forYouRail,
+    });
 
     const payload: TabRailItemsResponse = {
       tab,

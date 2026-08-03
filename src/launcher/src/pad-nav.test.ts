@@ -10,18 +10,19 @@ import {
   type PadNavHandlers,
 } from "./pad-nav";
 
-function handlers(log: string[], surface: "home" | "search"): PadNavHandlers {
+function handlers(log: string[], surface: "home" | "search" | "detail"): PadNavHandlers {
   return {
     isNextPromptOpen: () => false,
     nextPromptSelect: () => log.push("prompt-select"),
     nextPromptBack: () => log.push("prompt-back"),
     nextPromptMove: () => log.push("prompt-move"),
-    isDetailOpen: () => false,
+    isDetailOpen: () => surface === "detail",
     detailMoveRow: () => log.push("detail-row"),
     detailMoveCol: () => log.push("detail-col"),
     detailChangeSeason: () => log.push("detail-season"),
     detailSelect: () => log.push("detail-select"),
     detailBack: () => log.push("detail-back"),
+    detailSecondary: (kind) => log.push(`detail-secondary:${kind}`),
     isInSettings: () => false,
     settingsMove: () => log.push("settings-move"),
     settingsSelect: () => log.push("settings-select"),
@@ -54,6 +55,12 @@ test("secondary remains a current-tab Home action outside Search", () => {
   const log: string[] = [];
   handlePadNav({ action: "secondary", kind: "tap" }, handlers(log, "home"));
   assert.deepEqual(log, ["home-secondary:tap"]);
+});
+
+test("secondary is contextual to an open Detail surface for rating clear", () => {
+  const log: string[] = [];
+  handlePadNav({ action: "secondary", kind: "tap" }, handlers(log, "detail"));
+  assert.deepEqual(log, ["detail-secondary:tap"]);
 });
 
 test("commandsAfterSeq skips already-applied seqs", () => {

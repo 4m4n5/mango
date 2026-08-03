@@ -40,6 +40,7 @@ import {
 import { SearchController, type SearchRestoreState } from "./search";
 import { logPerf } from "./perf";
 import { touchCouchActivity } from "./activity";
+import { RatingSheetController } from "./ratings";
 import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 
 const CONTINUE_RAIL_ID = "continue-watching";
@@ -63,6 +64,7 @@ const detailVerifyBadge = mustGet<HTMLElement>("detail-verify-badge");
 const detailDescription = mustGet<HTMLElement>("detail-description");
 const detailPlay = mustGet<HTMLButtonElement>("detail-play");
 const detailSave = mustGet<HTMLButtonElement>("detail-save");
+const detailRate = mustGet<HTMLButtonElement>("detail-rate");
 const detailNotInterested = mustGet<HTMLButtonElement>("detail-not-interested");
 const detailBack = mustGet<HTMLButtonElement>("detail-back");
 const detailStreams = mustGet<HTMLElement>("detail-streams");
@@ -73,6 +75,24 @@ const detailEpisodeList = mustGet<HTMLElement>("detail-episode-list");
 const detailRelated = mustGet<HTMLElement>("detail-related");
 const detailRelatedTrack = mustGet<HTMLElement>("detail-related-track");
 const detailRelatedLabel = mustGet<HTMLElement>("detail-related-label");
+const detailRatingChips = mustGet<HTMLElement>("detail-rating-chips");
+const detailRatingFireMarks = mustGet<HTMLElement>("detail-rating-fire-marks");
+const detailRatingFireValue = mustGet<HTMLElement>("detail-rating-fire-value");
+const detailRatingWaterMarks = mustGet<HTMLElement>("detail-rating-water-marks");
+const detailRatingWaterValue = mustGet<HTMLElement>("detail-rating-water-value");
+const detailRatingInvitation = mustGet<HTMLElement>("detail-rating-invitation");
+const ratingSheetEl = mustGet<HTMLElement>("rating-sheet");
+const ratingSheetTitle = mustGet<HTMLElement>("rating-sheet-title");
+const ratingSheetError = mustGet<HTMLElement>("rating-sheet-error");
+const ratingFireRow = mustGet<HTMLButtonElement>("rating-fire-row");
+const ratingFireMarks = mustGet<HTMLElement>("rating-fire-marks");
+const ratingFireValue = mustGet<HTMLElement>("rating-fire-value");
+const ratingWaterRow = mustGet<HTMLButtonElement>("rating-water-row");
+const ratingWaterMarks = mustGet<HTMLElement>("rating-water-marks");
+const ratingWaterValue = mustGet<HTMLElement>("rating-water-value");
+const ratingSave = mustGet<HTMLButtonElement>("rating-save");
+const ratingCancel = mustGet<HTMLButtonElement>("rating-cancel");
+const ratingClearConfirm = mustGet<HTMLElement>("rating-clear-confirm");
 const nextPromptView = mustGet<HTMLElement>("next-episode-prompt");
 const nextPromptTitle = mustGet<HTMLElement>("next-prompt-title");
 const nextPromptMeta = mustGet<HTMLElement>("next-prompt-meta");
@@ -96,6 +116,7 @@ const tabSavedCache = new Map<BrowseTab, Set<string>>();
 let liveCatalogSessionCached = false;
 let catalogRequestSeq = 0;
 let pendingContinueRefreshTab: BrowseTab | null = null;
+let pendingRatingRefreshTab: BrowseTab | null = null;
 let continueRefreshInFlight = false;
 let playbackReturnInFlight = false;
 const tabFocusKeys = new Map<BrowseTab, string>();
@@ -161,6 +182,33 @@ const nextEpisodePrompt = new NextEpisodePrompt(
   },
 );
 
+const ratingSheet = new RatingSheetController(
+  ratingSheetEl,
+  ratingSheetTitle,
+  ratingSheetError,
+  ratingFireRow,
+  ratingFireMarks,
+  ratingFireValue,
+  ratingWaterRow,
+  ratingWaterMarks,
+  ratingWaterValue,
+  ratingSave,
+  ratingCancel,
+  ratingClearConfirm,
+  detailRate,
+  detailRatingChips,
+  detailRatingFireMarks,
+  detailRatingFireValue,
+  detailRatingWaterMarks,
+  detailRatingWaterValue,
+  detailRatingInvitation,
+  () => {
+    if (activeBrowseTab === "movies" || activeBrowseTab === "series") {
+      pendingRatingRefreshTab = activeBrowseTab;
+    }
+  },
+);
+
 const detail = new DetailController(
   detailView,
   detailPoster,
@@ -171,6 +219,7 @@ const detail = new DetailController(
   detailDescription,
   detailPlay,
   detailSave,
+  detailRate,
   detailNotInterested,
   detailBack,
   detailStreams,
@@ -181,6 +230,7 @@ const detail = new DetailController(
   detailRelated,
   detailRelatedTrack,
   detailRelatedLabel,
+  ratingSheet,
   {
     onClose: restoreFromDetail,
     onStatus: setStatus,
@@ -287,13 +337,8 @@ function init(): void {
     detailMoveCol: (delta) => detail.moveCol(delta),
     detailChangeSeason: (delta) => detail.changeSeason(delta),
     detailSelect: () => detail.activate(),
-    detailBack: () => {
-      if (detail.isResolving()) {
-        detail.cancelResolve();
-        return;
-      }
-      detail.hide();
-    },
+    detailBack: () => detail.back(),
+    detailSecondary: () => detail.secondary(),
 
     isInSettings: () => inSettings,
     settingsMove: (direction) => {
@@ -521,11 +566,12 @@ function handleKeydown(event: KeyboardEvent): void {
   if (detail.isOpen) {
     if (event.key === "Escape" || event.key === "Backspace") {
       event.preventDefault();
-      if (detail.isResolving()) {
-        detail.cancelResolve();
-        return;
-      }
-      detail.hide();
+      detail.back();
+      return;
+    }
+    if (event.key === "x" || event.key === "X") {
+      event.preventDefault();
+      detail.secondary();
       return;
     }
     if (event.key === "ArrowDown") {
@@ -858,6 +904,12 @@ function restoreFromDetail(origin: DetailOriginContext): void {
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
   setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.", "hint");
+  const ratingTab = pendingRatingRefreshTab;
+  pendingRatingRefreshTab = null;
+  if (ratingTab) {
+    tabCatalogCache.delete(ratingTab);
+    if (ratingTab === activeBrowseTab) void loadCatalog();
+  }
 }
 
 async function reloadSavedAndCatalog(tab = activeBrowseTab): Promise<void> {

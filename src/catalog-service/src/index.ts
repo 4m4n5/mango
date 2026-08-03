@@ -45,6 +45,7 @@ import {
   getLibraryContext,
   getLibraryState,
   initLibraryDb,
+  backupLibraryDbBeforeFireWaterMigration,
   libraryTabForType,
   listSavedLibraryItems,
   listWatchHistory,
@@ -54,6 +55,26 @@ import {
   unsaveLibraryItem,
   type LibraryItemInput,
 } from './library/db.js';
+import {
+  RatingRevisionConflictError,
+  RatingValidationError,
+  clearRating,
+  canonicalRatingIdentity,
+  getRating,
+  getRatingPromptState,
+  listRatings,
+  markRatingPromptPresented,
+  putRating,
+  resolveRatingPrompt,
+} from './library/ratings.js';
+import {
+  currentRecommendationRevision,
+  fireWaterRatingsEnabled,
+  recommendationDiagnostics,
+  incrementRecommendationMetric,
+  refreshAllForYou,
+  refreshForYou,
+} from './recommendations/service.js';
 import { searchCachedYoutubeItems } from './youtube/db.js';
 import { YoutubeService } from './youtube/service.js';
 import type { YoutubeItemKind } from './youtube/types.js';
@@ -1075,9 +1096,17 @@ async function startPlaybackSession(
 }
 
 async function main(): Promise<void> {
+  await backupLibraryDbBeforeFireWaterMigration();
   initLibraryDb();
   await initProgressDb();
   const core = await CatalogCore.create();
+  if (listRatings().length > 0) {
+    void refreshAllForYou()
+      .then(() => core.clearRailItemsCache())
+      .catch((error) => console.warn(`recommendation warm refresh retained last-good snapshot: ${
+        error instanceof Error ? error.message : String(error)
+      }`));
+  }
   core.startLiveRailsBackgroundRefresh();
   activeStreams = new ActiveStreamService();
   await activeStreams.clear().catch((error) => {
@@ -1306,6 +1335,142 @@ async function main(): Promise<void> {
             id,
           }),
         });
+        return;
+      }
+
+      if (parts.length === 2 && parts[0] === 'library' && parts[1] === 'ratings') {
+        const type = req.method === 'PUT'
+          ? ''
+          : url.searchParams.get('type')?.trim() ?? '';
+        const id = req.method === 'PUT'
+          ? ''
+          : url.searchParams.get('id')?.trim() ?? '';
+        if (req.method === 'GET') {
+          if (!type || !id) throw new CatalogError(400, 'GET /library/ratings requires type and id');
+          try {
+            canonicalRatingIdentity(type, id, { rejectEpisode: true });
+            const rating = getRating(type, id);
+            let prompt = getRatingPromptState(type, id);
+            if (prompt.eligible && !prompt.presented_at) prompt = markRatingPromptPresented(type, id);
+            sendJson(res, 200, {
+              ok: true,
+              enabled: fireWaterRatingsEnabled(),
+              rating,
+              prompt,
+            });
+          } catch (error) {
+            if (error instanceof RatingValidationError) throw new CatalogError(400, error.message);
+            throw error;
+          }
+          return;
+        }
+        if (req.method === 'PUT') {
+          const body = await readBody(req) as Record<string, unknown>;
+          let rating;
+          try {
+            rating = putRating({
+              type: String(body.type ?? ''),
+              id: String(body.id ?? ''),
+              title: String(body.title ?? ''),
+              year: body.year == null ? null : String(body.year),
+              fire: body.fire,
+              water: body.water,
+              expected_revision: Number(body.expected_revision),
+              origin: 'couch',
+              reject_episode: true,
+            });
+          } catch (error) {
+            if (error instanceof RatingRevisionConflictError) {
+              throw new CatalogError(409, 'Rating changed elsewhere. Review the latest values.', {
+                current: error.current,
+              });
+            }
+            if (error instanceof RatingValidationError) throw new CatalogError(400, error.message);
+            throw error;
+          }
+          const affectedTabs = rating?.type === 'series' ? ['series'] as const : ['movies', 'series'] as const;
+          const before = Object.fromEntries(affectedTabs.map((tab) => [tab, currentRecommendationRevision(tab)]));
+          let rerankError: string | null = null;
+          for (const tab of affectedTabs) {
+            try {
+              await refreshForYou(tab);
+            } catch {
+              rerankError = 'Recommendations kept their last good version and will retry in the background.';
+            }
+          }
+          core.clearRailItemsCache();
+          incrementRecommendationMetric('rating_mutations');
+          sendJson(res, 200, {
+            ok: true,
+            rating,
+            recommendation_revisions: Object.fromEntries(affectedTabs.map((tab) => [
+              tab,
+              currentRecommendationRevision(tab) || before[tab],
+            ])),
+            ...(rerankError ? { recommendation_notice: rerankError } : {}),
+          });
+          return;
+        }
+        if (req.method === 'DELETE') {
+          if (!type || !id) throw new CatalogError(400, 'DELETE /library/ratings requires type and id');
+          try {
+            const result = clearRating({
+              type,
+              id,
+              expected_revision: Number(url.searchParams.get('expected_revision')),
+            });
+            const tabs = type.trim().toLowerCase() === 'series'
+              ? ['series'] as const
+              : ['movies', 'series'] as const;
+            void Promise.all(tabs.map((tab) => refreshForYou(tab)))
+              .then(() => core.clearRailItemsCache())
+              .catch(() => undefined);
+            incrementRecommendationMetric('rating_mutations');
+            sendJson(res, 200, { ok: true, ...result });
+          } catch (error) {
+            if (error instanceof RatingRevisionConflictError) {
+              throw new CatalogError(409, 'Rating changed elsewhere. Review the latest values.', {
+                current: error.current,
+              });
+            }
+            if (error instanceof RatingValidationError) throw new CatalogError(400, error.message);
+            throw error;
+          }
+          return;
+        }
+      }
+
+      if (req.method === 'POST' && parts.length === 3
+        && parts[0] === 'library' && parts[1] === 'rating-prompts' && parts[2] === 'dismiss') {
+        const body = await readBody(req) as Record<string, unknown>;
+        try {
+          const prompt = resolveRatingPrompt(
+            String(body.type ?? ''),
+            String(body.id ?? ''),
+            body.disposition === 'left_detail' ? 'left_detail' : 'dismissed',
+          );
+          sendJson(res, 200, { ok: true, prompt });
+        } catch (error) {
+          if (error instanceof RatingValidationError) throw new CatalogError(400, error.message);
+          throw error;
+        }
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2
+        && parts[0] === 'recommendations' && parts[1] === 'state') {
+        sendJson(res, 200, { ok: true, ...recommendationDiagnostics() });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2
+        && parts[0] === 'recommendations' && parts[1] === 'refresh') {
+        if (!isLocalRequest(req)) throw new CatalogError(403, 'recommendation refresh is localhost-only');
+        const body = await readBody(req) as Record<string, unknown>;
+        const tab = body.tab === 'movies' || body.tab === 'series' ? body.tab : null;
+        const results = tab ? [await refreshForYou(tab)] : await refreshAllForYou();
+        core.clearRailItemsCache();
+        sendJson(res, 200, { ok: true, results });
         return;
       }
 
@@ -2129,6 +2294,9 @@ async function main(): Promise<void> {
 
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play-session') {
         const body = await readBody(req);
+        if (body.rail_id === 'for-you-movies' || body.rail_id === 'for-you-series') {
+          incrementRecommendationMetric('play_starts_for_you');
+        }
         touchCouchActivity('catalog', body.source === 'youtube' ? 'youtube_play' : 'play');
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
         const started = await startPlaybackSession(core, youtube, body, overrides);
