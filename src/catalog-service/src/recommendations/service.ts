@@ -782,11 +782,15 @@ LIMIT 40
   });
   let epoch = currentForYouShuffleEpoch(tab, profileId);
   if (options.reshuffle) epoch = recommendationShuffleNonce(tab, profileId);
-  const visible = pickForYouDisplayWindow(eligiblePool, {
-    limit: 12,
-    seed: `${recommendationDailySeed(tab)}:${profileId}:${epoch}`,
-    reshuffle: Boolean(options.reshuffle) || epoch > 0,
-  });
+  // Visible contract is always six cards: 4 close / 1 adjacent / 1 surprise.
+  // A deeper last-good reserve (up to 40) stays in the snapshot for healing and
+  // shuffle; only this 4/1/1 window is sent to the launcher.
+  const visible = selectVisibleRecommendationSlate(
+    eligiblePool,
+    tab,
+    Boolean(options.reshuffle) || epoch > 0,
+    profileId,
+  );
   if (visible.length < 6) return null;
   const finalPersonalization = getPersonalizationState();
   if (finalPersonalization.active_profile_id !== profileId
@@ -831,7 +835,7 @@ LIMIT 40
       displayed: visible.length,
       verified_pool: eligiblePool.length,
       pending: 0,
-      low_water: visible.length < 12,
+      low_water: visible.length < 6,
       session_id: `for-you-${rows[0]?.revision ?? 0}-${epoch}`,
     },
   };
@@ -846,9 +850,9 @@ WHERE profile_id = ? AND metric_name = ?
 }
 
 /**
- * Prefer the ranked head on cold open. After shuffle (or any non-zero epoch),
- * rotate through the last-good reserve and greedily keep era diversity so the
- * rail stays full (up to 12) without collapsing to one decade/theme.
+ * Helper for rotating a flat eligible pool with light era diversity. The live
+ * For You rail uses {@link selectVisibleRecommendationSlate} (6-card 4/1/1);
+ * this remains for unit coverage of reserve rotation mechanics.
  */
 export function pickForYouDisplayWindow<T extends {
   content_id: string;

@@ -184,13 +184,10 @@ function appendCatalogSections(
     const trailingAction = options.railTrailingAction?.(rail, landscape);
     // The track is a wrapping grid, so the row budget is what bounds a rail's
     // height; a trailing action occupies one of the slots. A null limit leaves
-    // the grid to wrap for as many rows as the cards need.
-    // For You is the full 12-card recommendation set (2 poster rows), not a
-    // one-row sample of a larger discovery pool.
-    const forYouRail = rail.id === "for-you-movies" || rail.id === "for-you-series";
-    const rowLimit = forYouRail
-      ? 2
-      : options.railRowLimit === undefined ? 1 : options.railRowLimit;
+    // the grid to wrap for as many rows as the cards need. For You follows the
+    // same one-row poster budget as other rails (6 cards = 4 close / 1 adjacent /
+    // 1 surprise from the catalog slate).
+    const rowLimit = options.railRowLimit === undefined ? 1 : options.railRowLimit;
     const rowBudget = rowLimit === null
       ? rail.cards.length
       : cols * rowLimit - (trailingAction ? 1 : 0);

@@ -8,20 +8,20 @@ test('For You display window stays full and rotates on reshuffle', () => {
     year: String(1980 + (index % 8) * 5),
   }));
   const head = pickForYouDisplayWindow(eligible, {
-    limit: 12,
+    limit: 6,
     seed: 'movies:2026-08-02:0',
     reshuffle: false,
   });
-  assert.equal(head.length, 12);
-  assert.deepEqual(head.map((row) => row.content_id), eligible.slice(0, 12).map((row) => row.content_id));
+  assert.equal(head.length, 6);
+  assert.deepEqual(head.map((row) => row.content_id), eligible.slice(0, 6).map((row) => row.content_id));
 
   const shuffled = pickForYouDisplayWindow(eligible, {
-    limit: 12,
+    limit: 6,
     seed: 'movies:2026-08-02:1',
     reshuffle: true,
   });
-  assert.equal(shuffled.length, 12);
-  assert.equal(new Set(shuffled.map((row) => row.content_id)).size, 12);
+  assert.equal(shuffled.length, 6);
+  assert.equal(new Set(shuffled.map((row) => row.content_id)).size, 6);
   assert.notDeepEqual(
     shuffled.map((row) => row.content_id),
     head.map((row) => row.content_id),
