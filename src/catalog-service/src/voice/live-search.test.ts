@@ -31,9 +31,11 @@ function withTempLiveCache<T>(
   const dir = mkdtempSync(join(tmpdir(), 'mango-live-voice-'));
   const cachePath = join(dir, 'live-rails-cache.json');
   const healthPath = join(dir, 'live-health.json');
-  // Isolate from Pi/operator AREA69 indexes so unknown-validation caps stay deterministic.
+  const area69Path = join(dir, 'area69-live-search.json');
+  // Isolate from the operator default ~/.local/share/.../area69-live-search.json.
   const previousArea69 = process.env.MANGO_AREA69_SEARCH_INDEX;
-  delete process.env.MANGO_AREA69_SEARCH_INDEX;
+  writeFileSync(area69Path, JSON.stringify({ version: 2, entries: [] }), 'utf8');
+  process.env.MANGO_AREA69_SEARCH_INDEX = area69Path;
   clearArea69SearchIndexCache();
   process.env.MANGO_LIVE_RAILS_CACHE = cachePath;
   process.env.MANGO_LIVE_HEALTH_REGISTRY = healthPath;
@@ -240,12 +242,10 @@ test('Live search budget is two seconds and validation admits at most one candid
 
 test('searchLiveChannels omits slow unknowns, then surfaces asynchronously proven results', async () => withTempLiveCache(async ({ healthPath }) => {
   const core = {} as CatalogCore;
-  const budgetMs = 20;
   const validateDelayMs = 80;
-  const started = Date.now();
   const first = await searchLiveChannels('espn', 5, core, {
     validateUnknown: true,
-    validationBudgetMs: budgetMs,
+    validationBudgetMs: 20,
     freshnessHorizonMs: 60_000,
     healthPath,
     validate: async (entry) => {
@@ -258,9 +258,8 @@ test('searchLiveChannels omits slow unknowns, then surfaces asynchronously prove
       return true;
     },
   });
+  // Budget must not await the slow validate: empty window + still-queued flight.
   assert.deepEqual(first, []);
-  // Must return inside the response window, not after the slow validate completes.
-  assert.ok(Date.now() - started < validateDelayMs);
   assert.equal(liveSearchValidationDiagnostics().queued, 1);
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(liveSearchValidationDiagnostics().queued, 0);
