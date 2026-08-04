@@ -330,7 +330,9 @@ test('ranking is replay-stable and the visible six target exact 4/1/1 buckets', 
     dailySeed: 'movies:2026-08-02',
     limit: 40,
   });
-  assert.equal(reserve.length, 24);
+  // Eight semantic clusters × global MMR cap 2 ⇒ at most 16 distinct picks,
+  // even when the caller asks for a deeper 40-row last-good reserve.
+  assert.equal(reserve.length, 16);
   assert.deepEqual(
     reserve.slice(0, 12).map((row) => [row.id, row.bucket]),
     first.map((row) => [row.id, row.bucket]),
@@ -343,9 +345,11 @@ test('exploration obeys the global MMR cluster cap without changing the 4/1/1 sl
     'movie:anchor',
     clusteredFeature('anchor', 15, 'anchor'),
   ]]);
+  // Cap 2 needs ≥3 clusters to complete a six-card 4/1/1 slate.
   const candidates = [
     ...Array.from({ length: 8 }, (_, index) => clusteredFeature(`a-crowded-${index}`, index, 'crowded')),
     ...Array.from({ length: 6 }, (_, index) => clusteredFeature(`b-other-${index}`, index + 8, 'other')),
+    ...Array.from({ length: 6 }, (_, index) => clusteredFeature(`c-fresh-${index}`, index + 14, 'fresh')),
   ];
   const ranked = rankRecommendations({
     tab: 'movies',
@@ -360,8 +364,8 @@ test('exploration obeys the global MMR cluster cap without changing the 4/1/1 sl
   assert.equal(ranked.filter((item) => item.bucket === 'explore').length, 1);
   const counts = new Map<string, number>();
   for (const item of ranked) counts.set(item.cluster, (counts.get(item.cluster) ?? 0) + 1);
-  assert.ok(Math.max(...counts.values()) <= 3);
-  assert.equal(ranked.find((item) => item.bucket === 'explore')?.cluster, 'other');
+  assert.ok(Math.max(...counts.values()) <= 2);
+  assert.notEqual(ranked.find((item) => item.bucket === 'explore')?.cluster, 'crowded');
 });
 
 test('a cooled rewatch can occupy only the rare deterministic exploration slot', () => {
