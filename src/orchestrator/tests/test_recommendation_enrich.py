@@ -312,6 +312,36 @@ class StoryDnaTeacherTests(unittest.TestCase):
             ]}, settings)
         self.assertEqual([item["id"] for item in items], ["TT1"])
 
+    def test_teacher_pipe_strings_and_none_cooccurrence_are_coerced(self) -> None:
+        settings = load_settings()
+        item = complete_story_dna_item()
+        item["themes"] = "belonging|hope|identity"
+        item["character_dynamics"] = ["lone-protagonist", "none"]
+        with patch(
+            "orchestrator.recommendation_enrich.generate_reply",
+            return_value=json.dumps({"items": [item]}),
+        ):
+            documents = enrich_story_dna_items({"items": [{
+                "type": "movie", "id": "TT1", "title": "One",
+            }]}, settings)
+        self.assertEqual(documents[0]["themes"], ["belonging", "identity"])
+        self.assertEqual(documents[0]["character_dynamics"], ["lone-protagonist"])
+
+    def test_story_dna_retries_once_after_invalid_teacher_payload(self) -> None:
+        settings = load_settings()
+        bad = complete_story_dna_item()
+        bad["themes"] = ["not-an-ontology-theme"]
+        good = complete_story_dna_item()
+        with patch(
+            "orchestrator.recommendation_enrich.generate_reply",
+            side_effect=[json.dumps({"items": [bad]}), json.dumps({"items": [good]})],
+        ) as generate:
+            documents = enrich_story_dna_items({"items": [{
+                "type": "movie", "id": "TT1", "title": "One",
+            }]}, settings)
+        self.assertEqual(generate.call_count, 2)
+        self.assertEqual(documents[0]["id"], "TT1")
+
     def test_none_and_zero_are_the_only_supported_absence_forms(self) -> None:
         settings = load_settings()
         item = complete_story_dna_item()

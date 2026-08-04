@@ -483,7 +483,7 @@ async function requestStoryDnaBatch(
   const configuredUrl = process.env.MANGO_STORY_DNA_URL?.trim();
   const urls = configuredUrl ? [configuredUrl] : DEFAULT_STORY_DNA_URLS;
   const controller = new AbortController();
-  const timeoutMs = boundedInteger(process.env.MANGO_STORY_DNA_TIMEOUT_MS, 30_000, 1_000, 60_000);
+  const timeoutMs = boundedInteger(process.env.MANGO_STORY_DNA_TIMEOUT_MS, 90_000, 1_000, 180_000);
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     let lastError: unknown;

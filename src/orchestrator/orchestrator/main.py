@@ -181,6 +181,9 @@ async def recommendations_enrich(request: Request) -> JSONResponse:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
 
 
+_story_dna_lock = asyncio.Lock()
+
+
 @app.post("/recommendations/story-dna")
 async def recommendations_story_dna(request: Request) -> JSONResponse:
     client_host = request.client.host if request.client else ""
@@ -192,10 +195,16 @@ async def recommendations_story_dna(request: Request) -> JSONResponse:
     try:
         payload = await request.json()
         request_settings = load_settings()
-        items = await asyncio.wait_for(
-            asyncio.to_thread(enrich_story_dna_items, payload, request_settings),
-            timeout=30.0,
-        )
+        raw_items = payload.get("items") if isinstance(payload, dict) else None
+        item_count = len(raw_items) if isinstance(raw_items, list) else 1
+        # Serialize teacher calls so Movies/Series shadow jobs cannot starve each
+        # other into the old fixed 30s gateway timeout.
+        timeout_s = min(180.0, max(60.0, 25.0 * max(1, item_count)))
+        async with _story_dna_lock:
+            items = await asyncio.wait_for(
+                asyncio.to_thread(enrich_story_dna_items, payload, request_settings),
+                timeout=timeout_s,
+            )
         return JSONResponse({"ok": True, "items": items})
     except asyncio.TimeoutError:
         return JSONResponse({"ok": False, "error": "StoryDNA enrichment timed out"}, status_code=504)

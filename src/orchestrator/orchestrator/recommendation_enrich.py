@@ -388,6 +388,44 @@ def _enum_list(
     return value
 
 
+def _coerce_ontology_list(
+    value: object,
+    allowed: set[str],
+    field: str,
+    maximum: int,
+) -> list[str]:
+    """Accept strict lists, plus common teacher slips: pipe/comma strings and
+    unknown tokens. Keep ontology membership exact; never invent labels.
+    """
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError(f"invalid bounded {field}")
+        if "|" in text or "," in text:
+            value = [part.strip() for part in re.split(r"[|,]", text) if part.strip()]
+        else:
+            value = [text]
+    if not isinstance(value, list):
+        raise ValueError(f"invalid bounded {field}")
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        token = item.strip().lower().replace("_", "-").replace(" ", "-")
+        if token not in allowed or token in seen:
+            continue
+        seen.add(token)
+        cleaned.append(token)
+        if len(cleaned) >= maximum:
+            break
+    if "none" in cleaned and len(cleaned) > 1:
+        cleaned = [token for token in cleaned if token != "none"]
+    if not cleaned:
+        raise ValueError(f"invalid bounded {field}")
+    return cleaned
+
+
 def _unit(value: object, field: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"invalid {field}")
@@ -482,19 +520,19 @@ def normalize_story_dna_response(
                 "model_version": settings.llm_model,
                 "prompt_version": STORY_DNA_PROMPT_VERSION,
                 "input_hash": _canonical_hash(source),
-                "genre_subgenres": _enum_list(
+                "genre_subgenres": _coerce_ontology_list(
                     raw.get("genre_subgenres"), _GENRE_SUBGENRES, "genre_subgenres", 4,
                 ),
                 "format": _enum(raw.get("format"), _FORMATS, "format"),
-                "story_engines": _enum_list(
+                "story_engines": _coerce_ontology_list(
                     raw.get("story_engines"), _STORY_ENGINES, "story_engines", 4,
                 ),
-                "themes": _enum_list(raw.get("themes"), _THEMES, "themes", 6),
-                "character_dynamics": _enum_list(
+                "themes": _coerce_ontology_list(raw.get("themes"), _THEMES, "themes", 6),
+                "character_dynamics": _coerce_ontology_list(
                     raw.get("character_dynamics"), _CHARACTER_DYNAMICS,
                     "character_dynamics", 4,
                 ),
-                "tone": _enum_list(raw.get("tone"), _TONES, "tone", 4),
+                "tone": _coerce_ontology_list(raw.get("tone"), _TONES, "tone", 4),
                 "setting_era": _enum(
                     raw.get("setting_era"), _SETTING_ERAS, "setting_era",
                 ),
@@ -502,10 +540,10 @@ def normalize_story_dna_response(
                     raw.get("geographic_scope"), _GEOGRAPHIC_SCOPES,
                     "geographic_scope",
                 ),
-                "social_settings": _enum_list(
+                "social_settings": _coerce_ontology_list(
                     raw.get("social_settings"), _SOCIAL_SETTINGS, "social_settings", 3,
                 ),
-                "narrative_structures": _enum_list(
+                "narrative_structures": _coerce_ontology_list(
                     raw.get("narrative_structures"), _NARRATIVE_STRUCTURES,
                     "narrative_structures", 3,
                 ),
@@ -541,13 +579,25 @@ def enrich_story_dna_items(
 ) -> list[dict[str, Any]]:
     """Handler-ready StoryDNA endpoint body; routing remains in ``main.py``."""
     requested = normalize_story_dna_request(payload)
-    reply = generate_reply(
-        [{"role": "user", "content": json.dumps({"items": requested}, ensure_ascii=False)}],
-        settings,
-        system_prompt=STORY_DNA_SYSTEM_PROMPT,
-        max_tokens=min(16_384, max(2_048, len(requested) * 650)),
-    )
-    return normalize_story_dna_response(extract_json_payload(reply), requested, settings)
+    max_tokens = min(16_384, max(2_048, len(requested) * 650))
+    last_error: Exception | None = None
+    for attempt in range(2):
+        reply = generate_reply(
+            [{"role": "user", "content": json.dumps({"items": requested}, ensure_ascii=False)}],
+            settings,
+            system_prompt=STORY_DNA_SYSTEM_PROMPT,
+            max_tokens=max_tokens,
+        )
+        try:
+            return normalize_story_dna_response(
+                extract_json_payload(reply), requested, settings,
+            )
+        except ValueError as exc:
+            last_error = exc
+            if attempt == 0:
+                continue
+            raise
+    raise last_error or ValueError("enrichment returned no valid requested stable ids")
 
 
 # ---------------------------------------------------------------------------
