@@ -31,6 +31,10 @@ function withTempLiveCache<T>(
   const dir = mkdtempSync(join(tmpdir(), 'mango-live-voice-'));
   const cachePath = join(dir, 'live-rails-cache.json');
   const healthPath = join(dir, 'live-health.json');
+  // Isolate from Pi/operator AREA69 indexes so unknown-validation caps stay deterministic.
+  const previousArea69 = process.env.MANGO_AREA69_SEARCH_INDEX;
+  delete process.env.MANGO_AREA69_SEARCH_INDEX;
+  clearArea69SearchIndexCache();
   process.env.MANGO_LIVE_RAILS_CACHE = cachePath;
   process.env.MANGO_LIVE_HEALTH_REGISTRY = healthPath;
   const cache = {
@@ -75,6 +79,12 @@ function withTempLiveCache<T>(
   const cleanup = () => {
     delete process.env.MANGO_LIVE_RAILS_CACHE;
     delete process.env.MANGO_LIVE_HEALTH_REGISTRY;
+    clearArea69SearchIndexCache();
+    if (previousArea69 === undefined) {
+      delete process.env.MANGO_AREA69_SEARCH_INDEX;
+    } else {
+      process.env.MANGO_AREA69_SEARCH_INDEX = previousArea69;
+    }
     rmSync(dir, { recursive: true, force: true });
   };
   try {
@@ -230,14 +240,16 @@ test('Live search budget is two seconds and validation admits at most one candid
 
 test('searchLiveChannels omits slow unknowns, then surfaces asynchronously proven results', async () => withTempLiveCache(async ({ healthPath }) => {
   const core = {} as CatalogCore;
+  const budgetMs = 20;
+  const validateDelayMs = 80;
   const started = Date.now();
   const first = await searchLiveChannels('espn', 5, core, {
     validateUnknown: true,
-    validationBudgetMs: 20,
+    validationBudgetMs: budgetMs,
     freshnessHorizonMs: 60_000,
     healthPath,
     validate: async (entry) => {
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      await new Promise((resolve) => setTimeout(resolve, validateDelayMs));
       await recordLiveChannelHealth({
         source: entry.source || 'addon2',
         channelId: entry.meta.id,
@@ -247,7 +259,8 @@ test('searchLiveChannels omits slow unknowns, then surfaces asynchronously prove
     },
   });
   assert.deepEqual(first, []);
-  assert.ok(Date.now() - started < 75);
+  // Must return inside the response window, not after the slow validate completes.
+  assert.ok(Date.now() - started < validateDelayMs);
   assert.equal(liveSearchValidationDiagnostics().queued, 1);
   await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(liveSearchValidationDiagnostics().queued, 0);
