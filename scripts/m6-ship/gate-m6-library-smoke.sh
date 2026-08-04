@@ -44,13 +44,26 @@ curl -sf --max-time 5 "$CATALOG/health" >/dev/null
 curl -sf --max-time 10 "$CATALOG/library/saved?limit=1" >/dev/null
 curl -sf --max-time 10 "$CATALOG/library/history?limit=1" >/dev/null
 
+# Detail context is profile-owned; the gate must prove the exact handshake that
+# the launcher uses, never an unowned fallback.
+PERSONALIZATION_JSON="$(curl -sf --max-time 10 "$CATALOG/personalization/state")"
+PROFILE_ID="$(printf '%s' "$PERSONALIZATION_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"]["active_profile_id"])')"
+PROFILE_REV="$(printf '%s' "$PERSONALIZATION_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["state"]["updated_at"])')"
+
 PREVIOUS_CONTEXT="$(
-  curl -sf --max-time 10 "$CATALOG/library/context" \
-    | python3 -c 'import json,sys; ctx=json.load(sys.stdin).get("context"); print(json.dumps(ctx) if ctx else "")'
+  curl -sf --max-time 10 -G "$CATALOG/library/context" \
+    --data-urlencode "expected_profile_id=$PROFILE_ID" \
+    --data-urlencode "expected_personalization_updated_at=$PROFILE_REV" \
+    | python3 -c 'import json,sys; d=json.load(sys.stdin); ctx=d.get("context");
+print(json.dumps({
+  **(ctx or {}),
+  "expected_profile_id": d["profile_id"],
+  "expected_personalization_updated_at": d["personalization_updated_at"],
+}) if ctx else "")'
 )"
 
 json_post "/library/context" \
-  "{\"source\":\"$SOURCE\",\"tab\":\"$TAB\",\"type\":\"$TYPE\",\"id\":\"$ID\",\"title\":\"$TITLE\"}" >/dev/null
+  "{\"source\":\"$SOURCE\",\"tab\":\"$TAB\",\"type\":\"$TYPE\",\"id\":\"$ID\",\"title\":\"$TITLE\",\"expected_profile_id\":\"$PROFILE_ID\",\"expected_personalization_updated_at\":$PROFILE_REV}" >/dev/null
 
 save_json="$(json_post "/library/saved" "{\"current\":true,\"saved_by\":\"gate\"}")"
 python3 - "$save_json" <<'PY'
