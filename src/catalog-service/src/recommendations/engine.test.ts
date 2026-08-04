@@ -379,7 +379,7 @@ test('deep reserve keeps visible cluster discipline while admitting more themes'
   for (const item of ranked) {
     allClusters.set(item.cluster, (allClusters.get(item.cluster) ?? 0) + 1);
   }
-  assert.ok(Math.max(...allClusters.values()) <= 4);
+  assert.ok(Math.max(...allClusters.values()) <= 5);
 });
 
 test('exploration obeys the global MMR cluster cap without changing the 4/1/1 slate', () => {

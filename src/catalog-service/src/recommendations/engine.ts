@@ -376,7 +376,7 @@ export const FOR_YOU_VISIBLE_LIMIT = 6;
 export const FOR_YOU_RESERVE_LIMIT = 60;
 /** Strict diversity on the 10-foot six; softer on the deeper thematic reserve. */
 const VISIBLE_CLUSTER_CAP = 2;
-const RESERVE_CLUSTER_CAP = 4;
+const RESERVE_CLUSTER_CAP = 5;
 
 export type RankRecommendationsInput = {
   tab: 'movies' | 'series';
@@ -508,8 +508,10 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
       .slice(0, thematicCutoff)
       .filter((item) => !used.has(`${item.type}:${item.id}`));
     const reserveOpts = { maxPerCluster: RESERVE_CLUSTER_CAP };
-    const closeExtraTarget = Math.ceil(remaining * 0.55);
-    const adjacentExtraTarget = Math.ceil(remaining * 0.25);
+    // Prefer a balanced deep pool so each shuffle slot (close/adjacent/surprise)
+    // has several thematic alternatives — not one giant close-only list.
+    const closeExtraTarget = Math.ceil(remaining * 0.45);
+    const adjacentExtraTarget = Math.ceil(remaining * 0.30);
     const exploreExtraTarget = Math.max(0, remaining - closeExtraTarget - adjacentExtraTarget);
 
     const closeBand = thematic.filter(
@@ -539,6 +541,7 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
     adjacentExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
     output.push(...adjacentExtra);
 
+    // Surprise/heal pool — never rebadge these as adjacent or they collapse shuffle.
     const exploreBand = thematic.filter((item) => !used.has(`${item.type}:${item.id}`));
     const exploreExtra = fillMmrPick(
       exploreBand,
@@ -546,11 +549,7 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
       exploreExtraTarget,
       output,
       { ...reserveOpts, explorationSeed: `${input.dailySeed}:reserve` },
-    ).map((item) => {
-      const index = affinityIndex.get(`${item.type}:${item.id}`) ?? Number.POSITIVE_INFINITY;
-      const bucket = index < adjacentPoolEnd ? 'adjacent' as const : 'fallback' as const;
-      return { ...item, bucket };
-    });
+    ).map((item) => ({ ...item, bucket: 'fallback' as const }));
     output.push(...exploreExtra);
   }
   return output.slice(0, limit);
