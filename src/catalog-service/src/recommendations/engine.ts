@@ -512,9 +512,12 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
     const adjacentExtraTarget = Math.ceil(remaining * 0.25);
     const exploreExtraTarget = Math.max(0, remaining - closeExtraTarget - adjacentExtraTarget);
 
+    const closeBand = thematic.filter(
+      (item) => (affinityIndex.get(`${item.type}:${item.id}`) ?? 0) < closePoolSize,
+    );
     const closeExtra = fillMmrPick(
-      thematic.filter((item) => (affinityIndex.get(`${item.type}:${item.id}`) ?? 0) < closePoolSize),
-      thematic,
+      closeBand,
+      closeBand,
       closeExtraTarget,
       output,
       reserveOpts,
@@ -522,12 +525,13 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
     closeExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
     output.push(...closeExtra);
 
+    const adjacentBand = thematic.filter((item) => {
+      const index = affinityIndex.get(`${item.type}:${item.id}`) ?? -1;
+      return index >= closePoolSize && index < adjacentPoolEnd && !used.has(`${item.type}:${item.id}`);
+    });
     const adjacentExtra = fillMmrPick(
-      thematic.filter((item) => {
-        const index = affinityIndex.get(`${item.type}:${item.id}`) ?? -1;
-        return index >= closePoolSize && index < adjacentPoolEnd && !used.has(`${item.type}:${item.id}`);
-      }),
-      thematic.filter((item) => !used.has(`${item.type}:${item.id}`)),
+      adjacentBand,
+      adjacentBand,
       adjacentExtraTarget,
       output,
       reserveOpts,
@@ -535,8 +539,9 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
     adjacentExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
     output.push(...adjacentExtra);
 
+    const exploreBand = thematic.filter((item) => !used.has(`${item.type}:${item.id}`));
     const exploreExtra = fillMmrPick(
-      thematic.filter((item) => !used.has(`${item.type}:${item.id}`)),
+      exploreBand,
       byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`)),
       exploreExtraTarget,
       output,
