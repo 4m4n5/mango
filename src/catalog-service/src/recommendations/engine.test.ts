@@ -344,6 +344,9 @@ test('ranking is replay-stable and the visible six target exact 4/1/1 buckets', 
   );
   assert.ok(reserve.filter((row) => row.bucket === 'close').length >= 8);
   assert.ok(reserve.filter((row) => row.bucket === 'adjacent').length >= 3);
+  assert.ok(
+    reserve.filter((row) => row.bucket === 'explore' || row.bucket === 'fallback').length >= 3,
+  );
 });
 
 test('deep reserve keeps visible cluster discipline while admitting more themes', () => {

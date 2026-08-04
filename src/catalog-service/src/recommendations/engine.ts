@@ -508,24 +508,22 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
       .slice(0, thematicCutoff)
       .filter((item) => !used.has(`${item.type}:${item.id}`));
     const reserveOpts = { maxPerCluster: RESERVE_CLUSTER_CAP };
-    // Prefer a balanced deep pool so each shuffle slot (close/adjacent/surprise)
-    // has several thematic alternatives — not one giant close-only list.
-    const closeExtraTarget = Math.ceil(remaining * 0.45);
+    // Fill surprise/adjacent before close so cluster budget is not exhausted by
+    // the large close band — shuffles need alternatives in every slot.
+    const exploreExtraTarget = Math.ceil(remaining * 0.25);
     const adjacentExtraTarget = Math.ceil(remaining * 0.30);
-    const exploreExtraTarget = Math.max(0, remaining - closeExtraTarget - adjacentExtraTarget);
+    const closeExtraTarget = Math.max(0, remaining - exploreExtraTarget - adjacentExtraTarget);
 
-    const closeBand = thematic.filter(
-      (item) => (affinityIndex.get(`${item.type}:${item.id}`) ?? 0) < closePoolSize,
-    );
-    const closeExtra = fillMmrPick(
-      closeBand,
-      closeBand,
-      closeExtraTarget,
+    const exploreBand = thematic.filter((item) => !used.has(`${item.type}:${item.id}`));
+    const exploreExtra = fillMmrPick(
+      exploreBand,
+      byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`)),
+      exploreExtraTarget,
       output,
-      reserveOpts,
-    ).map((item) => ({ ...item, bucket: 'close' as const }));
-    closeExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
-    output.push(...closeExtra);
+      { ...reserveOpts, explorationSeed: `${input.dailySeed}:reserve` },
+    ).map((item) => ({ ...item, bucket: 'fallback' as const }));
+    exploreExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
+    output.push(...exploreExtra);
 
     const adjacentBand = thematic.filter((item) => {
       const index = affinityIndex.get(`${item.type}:${item.id}`) ?? -1;
@@ -541,16 +539,18 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
     adjacentExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
     output.push(...adjacentExtra);
 
-    // Surprise/heal pool — never rebadge these as adjacent or they collapse shuffle.
-    const exploreBand = thematic.filter((item) => !used.has(`${item.type}:${item.id}`));
-    const exploreExtra = fillMmrPick(
-      exploreBand,
-      byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`)),
-      exploreExtraTarget,
+    const closeBand = thematic.filter((item) => {
+      const index = affinityIndex.get(`${item.type}:${item.id}`) ?? -1;
+      return index >= 0 && index < closePoolSize && !used.has(`${item.type}:${item.id}`);
+    });
+    const closeExtra = fillMmrPick(
+      closeBand,
+      closeBand,
+      closeExtraTarget,
       output,
-      { ...reserveOpts, explorationSeed: `${input.dailySeed}:reserve` },
-    ).map((item) => ({ ...item, bucket: 'fallback' as const }));
-    output.push(...exploreExtra);
+      reserveOpts,
+    ).map((item) => ({ ...item, bucket: 'close' as const }));
+    output.push(...closeExtra);
   }
   return output.slice(0, limit);
 }
