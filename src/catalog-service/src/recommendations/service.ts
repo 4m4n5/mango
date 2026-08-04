@@ -14,6 +14,8 @@ import {
 import { listRatings, type FireWaterRating, type RatingContentType } from '../library/ratings.js';
 import { getTitlesPlayabilityBulk, listVerifiedLibraryCatalogRows } from '../playability/db.js';
 import {
+  FOR_YOU_RESERVE_LIMIT,
+  FOR_YOU_VISIBLE_LIMIT,
   RECOMMENDATION_FEATURE_VERSION,
   RECOMMENDATION_MODEL_VERSION,
   buildRecommendationFeature,
@@ -585,7 +587,7 @@ async function refreshForYouUnserialized(
   // Persist a deeper last-good reserve than the six cards sent to the launcher.
   // Eligibility can change between nightly runs (rating, hide, block), so the
   // loader needs enough already-ranked playable candidates to heal the rail
-  // without putting generation on the couch-critical path.
+  // and rotate shuffles without putting generation on the couch-critical path.
   const ranked = await rankRecommendationsOffThread({
     tab,
     candidates: features,
@@ -599,10 +601,12 @@ async function refreshForYouUnserialized(
     rewatchCandidates: rewatchFeatures,
     rewatchCadenceSeed,
     dailySeed,
-    limit: 40,
-    visibleLimit: 6,
+    limit: FOR_YOU_RESERVE_LIMIT,
+    visibleLimit: FOR_YOU_VISIBLE_LIMIT,
   });
-  if (ranked.length < 6) throw new Error(`For You ${tab} requires at least six eligible playable titles`);
+  if (ranked.length < FOR_YOU_VISIBLE_LIMIT) {
+    throw new Error(`For You ${tab} requires at least six eligible playable titles`);
+  }
   const posterByKey = new Map<string, string | null>([...candidates, ...cooledRewatch].map((candidate) => [
     `${candidate.type}:${candidate.id}`,
     candidate.poster,
@@ -696,14 +700,16 @@ function stableShuffleRows(rows: SnapshotItemRow[], seed: string): SnapshotItemR
 export function selectVisibleRecommendationSlate(
   rows: SnapshotItemRow[],
   tab: ForYouTab,
-  reshuffle: boolean,
+  shuffleEpoch: number | boolean = 0,
   profileId?: string,
 ): SnapshotItemRow[] {
-  const seed = reshuffle
-    ? `${tab}:${rows[0]?.revision ?? 0}:${recommendationShuffleNonce(
-      tab,
-      profileId ?? activeViewerProfileId(),
-    )}`
+  // Boolean `false` keeps older unit callers working; `true` means "use the
+  // current stored epoch without bumping" (tests that don't touch metrics).
+  const epoch = typeof shuffleEpoch === 'boolean'
+    ? (shuffleEpoch ? Math.max(1, currentForYouShuffleEpoch(tab, profileId)) : 0)
+    : Math.max(0, Math.floor(shuffleEpoch));
+  const seed = epoch > 0
+    ? `${tab}:${rows[0]?.revision ?? 0}:${epoch}:${profileId ?? activeViewerProfileId()}`
     : null;
   const ordered = (bucket: string, candidates: SnapshotItemRow[]): SnapshotItemRow[] => (
     seed ? stableShuffleRows(candidates, `${seed}:${bucket}`) : candidates
@@ -712,7 +718,7 @@ export function selectVisibleRecommendationSlate(
   const adjacent = ordered('adjacent', rows.filter((item) => item.bucket === 'adjacent')).slice(0, 1);
   // Deeper reserve rows are intentionally tagged fallback. They are eligible
   // only for the bounded surprise slot when the original explore card becomes
-  // rated, hidden, or no longer playable.
+  // rated, hidden, or no longer playable — and they also feed explore shuffle.
   const explore = ordered(
     'explore',
     rows.filter((item) => item.bucket === 'explore' || item.bucket === 'fallback'),
@@ -749,9 +755,9 @@ WHERE rsi.profile_id = ? AND rsi.tab = ?
     WHERE profile_id = ? AND tab = ?
   )
 ORDER BY rsi.rank ASC
-LIMIT 40
+LIMIT ${FOR_YOU_RESERVE_LIMIT}
   `).all(profileId, tab, profileId, tab) as SnapshotItemRow[];
-  if (rows.length < 6) return null;
+  if (rows.length < FOR_YOU_VISIBLE_LIMIT) return null;
   const currentPlayability = await getTitlesPlayabilityBulk(rows.map((row) => ({
     type: row.content_type,
     id: row.content_id,
@@ -783,15 +789,16 @@ LIMIT 40
   let epoch = currentForYouShuffleEpoch(tab, profileId);
   if (options.reshuffle) epoch = recommendationShuffleNonce(tab, profileId);
   // Visible contract is always six cards: 4 close / 1 adjacent / 1 surprise.
-  // A deeper last-good reserve (up to 40) stays in the snapshot for healing and
-  // shuffle; only this 4/1/1 window is sent to the launcher.
+  // A deeper last-good reserve stays in the snapshot for healing and shuffle;
+  // only this 4/1/1 window is sent to the launcher. Epoch seeds rotation without
+  // bumping the nonce on ordinary loads.
   const visible = selectVisibleRecommendationSlate(
     eligiblePool,
     tab,
-    Boolean(options.reshuffle) || epoch > 0,
+    epoch,
     profileId,
   );
-  if (visible.length < 6) return null;
+  if (visible.length < FOR_YOU_VISIBLE_LIMIT) return null;
   const finalPersonalization = getPersonalizationState();
   if (finalPersonalization.active_profile_id !== profileId
     || finalPersonalization.updated_at !== personalizationUpdatedAt) {
@@ -835,7 +842,7 @@ LIMIT 40
       displayed: visible.length,
       verified_pool: eligiblePool.length,
       pending: 0,
-      low_water: visible.length < 6,
+      low_water: visible.length < FOR_YOU_VISIBLE_LIMIT,
       session_id: `for-you-${rows[0]?.revision ?? 0}-${epoch}`,
     },
   };

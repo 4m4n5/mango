@@ -305,10 +305,11 @@ function mmrPick(
   candidates: ScoredRecommendation[],
   limit: number,
   alreadySelected: ScoredRecommendation[] = [],
-  options: { explorationSeed?: string } = {},
+  options: { explorationSeed?: string; maxPerCluster?: number } = {},
 ): ScoredRecommendation[] {
   const remaining = [...candidates];
   const selected: ScoredRecommendation[] = [];
+  const maxPerCluster = Math.max(1, options.maxPerCluster ?? 2);
   const clusterCount = new Map<string, number>();
   for (const item of alreadySelected) {
     clusterCount.set(item.cluster, (clusterCount.get(item.cluster) ?? 0) + 1);
@@ -319,7 +320,7 @@ function mmrPick(
     const comparison = [...alreadySelected, ...selected];
     for (let index = 0; index < remaining.length; index += 1) {
       const candidate = remaining[index]!;
-      if ((clusterCount.get(candidate.cluster) ?? 0) >= 2) continue;
+      if ((clusterCount.get(candidate.cluster) ?? 0) >= maxPerCluster) continue;
       const redundancy = comparison.length
         ? Math.max(...comparison.map((item) => cosineSimilarity(candidate.vector, item.vector)))
         : 0;
@@ -354,7 +355,7 @@ function fillMmrPick(
   fallback: ScoredRecommendation[],
   limit: number,
   alreadySelected: ScoredRecommendation[] = [],
-  options: { explorationSeed?: string } = {},
+  options: { explorationSeed?: string; maxPerCluster?: number } = {},
 ): ScoredRecommendation[] {
   const selected = mmrPick(preferred, limit, alreadySelected, options);
   if (selected.length >= limit) return selected;
@@ -369,6 +370,13 @@ function fillMmrPick(
     ),
   ];
 }
+
+/** Visible slate stays six; the last-good snapshot aims deeper for shuffle/heal. */
+export const FOR_YOU_VISIBLE_LIMIT = 6;
+export const FOR_YOU_RESERVE_LIMIT = 60;
+/** Strict diversity on the 10-foot six; softer on the deeper thematic reserve. */
+const VISIBLE_CLUSTER_CAP = 2;
+const RESERVE_CLUSTER_CAP = 4;
 
 export type RankRecommendationsInput = {
   tab: 'movies' | 'series';
@@ -440,20 +448,21 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
       .sort((left, right) => right.affinity - left.affinity || left.id.localeCompare(right.id))
     : [];
   const byAffinity = [...scored].sort((a, b) => b.affinity - a.affinity || a.id.localeCompare(b.id));
-  const limit = Math.max(1, input.limit ?? 12);
-  const visibleLimit = Math.min(limit, Math.max(1, input.visibleLimit ?? 6));
+  const limit = Math.max(1, input.limit ?? FOR_YOU_RESERVE_LIMIT);
+  const visibleLimit = Math.min(limit, Math.max(1, input.visibleLimit ?? FOR_YOU_VISIBLE_LIMIT));
   const closeTarget = Math.min(visibleLimit, Math.round(visibleLimit * 0.7));
   const adjacentTarget = Math.min(visibleLimit - closeTarget, Math.round(visibleLimit * 0.2));
   const exploreTarget = Math.max(0, visibleLimit - closeTarget - adjacentTarget);
   const closePoolSize = Math.max(closeTarget, Math.ceil(byAffinity.length * 0.55));
   const adjacentPoolEnd = Math.max(closePoolSize + adjacentTarget, Math.ceil(byAffinity.length * 0.82));
-  const close = fillMmrPick(byAffinity.slice(0, closePoolSize), byAffinity, closeTarget)
+  const visibleOpts = { maxPerCluster: VISIBLE_CLUSTER_CAP };
+  const close = fillMmrPick(byAffinity.slice(0, closePoolSize), byAffinity, closeTarget, [], visibleOpts)
     .map((item) => ({ ...item, bucket: 'close' as const }));
   const used = new Set(close.map((item) => `${item.type}:${item.id}`));
   const adjacentPool = byAffinity.slice(closePoolSize, adjacentPoolEnd)
     .filter((item) => !used.has(`${item.type}:${item.id}`));
   const adjacentFallback = byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`));
-  const adjacent = fillMmrPick(adjacentPool, adjacentFallback, adjacentTarget, close)
+  const adjacent = fillMmrPick(adjacentPool, adjacentFallback, adjacentTarget, close, visibleOpts)
     .map((item) => ({ ...item, bucket: 'adjacent' as const }));
   adjacent.forEach((item) => used.add(`${item.type}:${item.id}`));
   // Surprise is bounded, not random: use the viable upper 85%, a replay-stable
@@ -467,7 +476,7 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
       rewatchScored,
       1,
       preExploration,
-      { explorationSeed: `${input.dailySeed}:rewatch` },
+      { explorationSeed: `${input.dailySeed}:rewatch`, maxPerCluster: VISIBLE_CLUSTER_CAP },
     )
     : [];
   const explorationFallback = byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`));
@@ -476,28 +485,68 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
     explorationFallback,
     Math.max(0, exploreTarget - rewatchExploration.length),
     [...preExploration, ...rewatchExploration],
-    { explorationSeed: input.dailySeed },
+    { explorationSeed: input.dailySeed, maxPerCluster: VISIBLE_CLUSTER_CAP },
   );
   const exploration = [...rewatchExploration, ...regularExploration]
     .map((item) => ({ ...item, bucket: 'explore' as const }));
   const output: ScoredRecommendation[] = [...close, ...adjacent];
   output.push(...exploration);
   exploration.forEach((item) => used.add(`${item.type}:${item.id}`));
+
+  // Deeper last-good reserve: stay inside the high-affinity thematic band, deepen
+  // close/adjacent/explore pools for shuffle variety, then soft-cap MMR fill.
   if (output.length < limit) {
-    const reserve = mmrPick(
-      byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`)),
-      limit - output.length,
-      output,
+    const remaining = limit - output.length;
+    const thematicCutoff = Math.max(
+      limit * 2,
+      Math.ceil(byAffinity.length * 0.65),
     );
-    for (const item of reserve) {
-      const affinityIndex = byAffinity.findIndex((candidate) => candidate.type === item.type && candidate.id === item.id);
-      const bucket = affinityIndex < closePoolSize
-        ? 'close'
-        : affinityIndex < adjacentPoolEnd
-          ? 'adjacent'
-          : 'fallback';
-      output.push({ ...item, bucket });
-    }
+    const affinityIndex = new Map(
+      byAffinity.map((item, index) => [`${item.type}:${item.id}`, index] as const),
+    );
+    const thematic = byAffinity
+      .slice(0, thematicCutoff)
+      .filter((item) => !used.has(`${item.type}:${item.id}`));
+    const reserveOpts = { maxPerCluster: RESERVE_CLUSTER_CAP };
+    const closeExtraTarget = Math.ceil(remaining * 0.55);
+    const adjacentExtraTarget = Math.ceil(remaining * 0.25);
+    const exploreExtraTarget = Math.max(0, remaining - closeExtraTarget - adjacentExtraTarget);
+
+    const closeExtra = fillMmrPick(
+      thematic.filter((item) => (affinityIndex.get(`${item.type}:${item.id}`) ?? 0) < closePoolSize),
+      thematic,
+      closeExtraTarget,
+      output,
+      reserveOpts,
+    ).map((item) => ({ ...item, bucket: 'close' as const }));
+    closeExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
+    output.push(...closeExtra);
+
+    const adjacentExtra = fillMmrPick(
+      thematic.filter((item) => {
+        const index = affinityIndex.get(`${item.type}:${item.id}`) ?? -1;
+        return index >= closePoolSize && index < adjacentPoolEnd && !used.has(`${item.type}:${item.id}`);
+      }),
+      thematic.filter((item) => !used.has(`${item.type}:${item.id}`)),
+      adjacentExtraTarget,
+      output,
+      reserveOpts,
+    ).map((item) => ({ ...item, bucket: 'adjacent' as const }));
+    adjacentExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
+    output.push(...adjacentExtra);
+
+    const exploreExtra = fillMmrPick(
+      thematic.filter((item) => !used.has(`${item.type}:${item.id}`)),
+      byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`)),
+      exploreExtraTarget,
+      output,
+      { ...reserveOpts, explorationSeed: `${input.dailySeed}:reserve` },
+    ).map((item) => {
+      const index = affinityIndex.get(`${item.type}:${item.id}`) ?? Number.POSITIVE_INFINITY;
+      const bucket = index < adjacentPoolEnd ? 'adjacent' as const : 'fallback' as const;
+      return { ...item, bucket };
+    });
+    output.push(...exploreExtra);
   }
   return output.slice(0, limit);
 }

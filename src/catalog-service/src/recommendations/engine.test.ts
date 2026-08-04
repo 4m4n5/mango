@@ -311,9 +311,11 @@ test('ranking is replay-stable and the visible six target exact 4/1/1 buckets', 
   }));
   const first = rankRecommendations({
     tab: 'movies', candidates, ratings, ratingFeatures, dailySeed: 'movies:2026-08-02',
+    limit: 12,
   });
   const second = rankRecommendations({
     tab: 'movies', candidates, ratings, ratingFeatures, dailySeed: 'movies:2026-08-02',
+    limit: 12,
   });
   assert.deepEqual(first.map((row) => row.id), second.map((row) => row.id));
   assert.equal(first.length, 12);
@@ -330,13 +332,54 @@ test('ranking is replay-stable and the visible six target exact 4/1/1 buckets', 
     dailySeed: 'movies:2026-08-02',
     limit: 40,
   });
-  // Eight semantic clusters × global MMR cap 2 ⇒ at most 16 distinct picks,
-  // even when the caller asks for a deeper 40-row last-good reserve.
-  assert.equal(reserve.length, 16);
+  // Visible six stays strict; deeper reserve uses a softer cluster cap so shuffle
+  // has a thematic pool well beyond one screen.
+  assert.ok(reserve.length >= 24, `expected deep reserve, got ${reserve.length}`);
+  assert.equal(reserve.slice(0, 6).filter((row) => row.bucket === 'close').length, 4);
+  assert.equal(reserve.slice(0, 6).filter((row) => row.bucket === 'adjacent').length, 1);
+  assert.equal(reserve.slice(0, 6).filter((row) => row.bucket === 'explore').length, 1);
   assert.deepEqual(
-    reserve.slice(0, 12).map((row) => [row.id, row.bucket]),
-    first.map((row) => [row.id, row.bucket]),
+    reserve.slice(0, 6).map((row) => [row.id, row.bucket]),
+    first.slice(0, 6).map((row) => [row.id, row.bucket]),
   );
+  assert.ok(reserve.filter((row) => row.bucket === 'close').length >= 8);
+  assert.ok(reserve.filter((row) => row.bucket === 'adjacent').length >= 2);
+});
+
+test('deep reserve keeps visible cluster discipline while admitting more themes', () => {
+  const ratings = [rating('anchor', 5, 4.5)];
+  const anchor = buildRecommendationFeature({
+    type: 'movie', id: 'anchor', title: 'Bright Adventure', year: '2020', rail_id: 'action-adventure',
+  });
+  const ratingFeatures = new Map([['movie:anchor', anchor]]);
+  const candidates = Array.from({ length: 48 }, (_, index) => buildRecommendationFeature({
+    type: 'movie',
+    id: `deep-${index}`,
+    title: index % 2 ? `Bright Story ${index}` : `Quiet Story ${index}`,
+    year: String(1980 + index),
+    rail_id: `genre-${index % 12}`,
+  }));
+  const ranked = rankRecommendations({
+    tab: 'movies',
+    candidates,
+    ratings,
+    ratingFeatures,
+    dailySeed: 'movies:deep-reserve',
+    limit: 60,
+    visibleLimit: 6,
+  });
+  assert.ok(ranked.length >= 36, `expected deep reserve, got ${ranked.length}`);
+  const visible = ranked.slice(0, 6);
+  const visibleClusters = new Map<string, number>();
+  for (const item of visible) {
+    visibleClusters.set(item.cluster, (visibleClusters.get(item.cluster) ?? 0) + 1);
+  }
+  assert.ok(Math.max(...visibleClusters.values()) <= 2);
+  const allClusters = new Map<string, number>();
+  for (const item of ranked) {
+    allClusters.set(item.cluster, (allClusters.get(item.cluster) ?? 0) + 1);
+  }
+  assert.ok(Math.max(...allClusters.values()) <= 4);
 });
 
 test('exploration obeys the global MMR cluster cap without changing the 4/1/1 slate', () => {
