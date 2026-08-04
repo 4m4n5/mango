@@ -355,12 +355,12 @@ test('deep reserve keeps visible cluster discipline while filling toward the lim
     type: 'movie', id: 'anchor', title: 'Bright Adventure', year: '2020', rail_id: 'action-adventure',
   });
   const ratingFeatures = new Map([['movie:anchor', anchor]]);
-  const candidates = Array.from({ length: 220 }, (_, index) => buildRecommendationFeature({
+  const candidates = Array.from({ length: 280 }, (_, index) => buildRecommendationFeature({
     type: 'movie',
     id: `deep-${index}`,
     title: index % 2 ? `Bright Story ${index}` : `Quiet Story ${index}`,
     year: String(1980 + (index % 40)),
-    rail_id: `genre-${index % 12}`,
+    rail_id: `genre-${index % 24}`,
   }));
   const ranked = rankRecommendations({
     tab: 'movies',
@@ -381,6 +381,35 @@ test('deep reserve keeps visible cluster discipline while filling toward the lim
   assert.equal(visible.filter((row) => row.bucket === 'close').length, 4);
   assert.equal(visible.filter((row) => row.bucket === 'adjacent').length, 1);
   assert.equal(visible.filter((row) => row.bucket === 'explore').length, 1);
+  // Shuffle pools must stay deep — adjacent cannot collapse to a single sticky card.
+  assert.ok(ranked.filter((row) => row.bucket === 'close').length >= 80);
+  assert.ok(ranked.filter((row) => row.bucket === 'adjacent').length >= 40);
+  assert.ok(
+    ranked.filter((row) => row.bucket === 'explore' || row.bucket === 'fallback').length >= 20,
+  );
+  const reserveClusters = new Map<string, number>();
+  for (const item of ranked) {
+    reserveClusters.set(item.cluster, (reserveClusters.get(item.cluster) ?? 0) + 1);
+  }
+  assert.ok(Math.max(...reserveClusters.values()) <= 12);
+});
+
+test('era and type alone do not make unrelated same-decade titles strong neighbors', () => {
+  const left = buildRecommendationFeature({
+    type: 'movie', id: 'left', title: 'Companion', year: '2025',
+  });
+  const horror = buildRecommendationFeature({
+    type: 'movie', id: 'horror', title: 'Slumber Party Massacre', year: '2021',
+    rail_ids: ['ai-horror'],
+  });
+  const otherEra = buildRecommendationFeature({
+    type: 'movie', id: 'other', title: 'Aaa', year: '2020',
+  });
+  const twinEra = buildRecommendationFeature({
+    type: 'movie', id: 'twin', title: 'Bbb', year: '2020',
+  });
+  assert.ok(cosineSimilarity(left.vector, horror.vector) < 0.15);
+  assert.ok(cosineSimilarity(otherEra.vector, twinEra.vector) < 0.15);
 });
 
 test('exploration obeys the global MMR cluster cap without changing the 4/1/1 slate', () => {

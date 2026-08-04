@@ -3,14 +3,19 @@ import type { CatalogTab } from '../rails.js';
 import type { VerifiedLibraryCatalogRow } from '../playability/db.js';
 import type { FireWaterRating, RatingContentType } from '../library/ratings.js';
 
-export const RECOMMENDATION_MODEL_VERSION = 'fire-water-hybrid-v3';
-export const RECOMMENDATION_FEATURE_VERSION = 'semantic-hash-v3';
+export const RECOMMENDATION_MODEL_VERSION = 'fire-water-hybrid-v4';
+export const RECOMMENDATION_FEATURE_VERSION = 'semantic-hash-v4';
 const VECTOR_SIZE = 96;
 const MIN_SIMILARITY = 0.15;
 const MAX_NEIGHBORS = 12;
 const PRIOR_WEIGHT = 2;
 const NEUTRAL_AXIS_PRIOR = 2.5;
 const LOW_EVIDENCE_VIEWER_WEIGHT = 4;
+/** Era/type are soft priors only — strong weights made same-decade titles ~cosine 0.9. */
+const ERA_TOKEN_WEIGHT = 0.12;
+const TYPE_TOKEN_WEIGHT = 0.08;
+/** Soft per-cluster ceiling while deepening the shuffle reserve. */
+const DEPTH_CLUSTER_CAP = 12;
 
 export type RecommendationFeature = {
   type: RatingContentType;
@@ -139,9 +144,9 @@ export function buildRecommendationFeature(input: {
   const year = Number.parseInt(input.year ?? '', 10);
   if (Number.isFinite(year)) {
     const era = Math.floor(year / 10) * 10;
-    vector[tokenHash(`era:${era}`)] += 1.1;
+    vector[tokenHash(`era:${era}`)] += ERA_TOKEN_WEIGHT;
   }
-  vector[tokenHash(`type:${input.type}`)] += 0.8;
+  vector[tokenHash(`type:${input.type}`)] += TYPE_TOKEN_WEIGHT;
   return {
     type: input.type,
     id: input.id,
@@ -374,9 +379,8 @@ function fillMmrPick(
 /** Visible slate stays six; the last-good snapshot aims deeper for shuffle/heal. */
 export const FOR_YOU_VISIBLE_LIMIT = 6;
 export const FOR_YOU_RESERVE_LIMIT = 200;
-/** Strict diversity on the 10-foot six; softer on the deeper thematic reserve. */
+/** Strict diversity on the 10-foot six; depth fill uses DEPTH_CLUSTER_CAP. */
 const VISIBLE_CLUSTER_CAP = 2;
-const RESERVE_CLUSTER_CAP = 5;
 
 export type RankRecommendationsInput = {
   tab: 'movies' | 'series';
@@ -493,91 +497,73 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
   output.push(...exploration);
   exploration.forEach((item) => used.add(`${item.type}:${item.id}`));
 
-  // Deeper last-good reserve: stay inside the high-affinity thematic band, deepen
-  // close/adjacent/explore pools for shuffle variety, then soft-cap MMR fill.
+  // Deeper last-good reserve: affinity-ordered thematic band with soft cluster
+  // diversity, then bucket by position *inside the reserve* (not full-catalog
+  // percentiles). Full-catalog closePoolSize (~55% of thousands) made every
+  // top-200 title "close" and left adjacent with a single sticky shuffle card.
   if (output.length < limit) {
     const remaining = limit - output.length;
     const thematicCutoff = Math.max(
       limit * 2,
       Math.ceil(byAffinity.length * 0.65),
     );
-    const affinityIndex = new Map(
-      byAffinity.map((item, index) => [`${item.type}:${item.id}`, index] as const),
-    );
     const thematic = byAffinity
       .slice(0, thematicCutoff)
       .filter((item) => !used.has(`${item.type}:${item.id}`));
-    const reserveOpts = { maxPerCluster: RESERVE_CLUSTER_CAP };
-    // Fill surprise/adjacent before close so cluster budget is not exhausted by
-    // the large close band — shuffles need alternatives in every slot.
-    const exploreExtraTarget = Math.ceil(remaining * 0.25);
-    const adjacentExtraTarget = Math.ceil(remaining * 0.30);
-    const closeExtraTarget = Math.max(0, remaining - exploreExtraTarget - adjacentExtraTarget);
-
-    const exploreBand = thematic.filter((item) => !used.has(`${item.type}:${item.id}`));
-    const exploreExtra = fillMmrPick(
-      exploreBand,
-      byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`)),
-      exploreExtraTarget,
-      output,
-      { ...reserveOpts, explorationSeed: `${input.dailySeed}:reserve` },
-    ).map((item) => ({ ...item, bucket: 'fallback' as const }));
-    exploreExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
-    output.push(...exploreExtra);
-
-    const adjacentBand = thematic.filter((item) => {
-      const index = affinityIndex.get(`${item.type}:${item.id}`) ?? -1;
-      return index >= closePoolSize && index < adjacentPoolEnd && !used.has(`${item.type}:${item.id}`);
-    });
-    const adjacentExtra = fillMmrPick(
-      adjacentBand,
-      adjacentBand,
-      adjacentExtraTarget,
-      output,
-      reserveOpts,
-    ).map((item) => ({ ...item, bucket: 'adjacent' as const }));
-    adjacentExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
-    output.push(...adjacentExtra);
-
-    const closeBand = thematic.filter((item) => {
-      const index = affinityIndex.get(`${item.type}:${item.id}`) ?? -1;
-      return index >= 0 && index < closePoolSize && !used.has(`${item.type}:${item.id}`);
-    });
-    const closeExtra = fillMmrPick(
-      closeBand,
-      closeBand,
-      closeExtraTarget,
-      output,
-      reserveOpts,
-    ).map((item) => ({ ...item, bucket: 'close' as const }));
-    closeExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
-    output.push(...closeExtra);
-
-    // Affinity-ordered depth fill so cluster caps alone cannot stall at ~30–60.
-    // Prefer the thematic band first, then remaining byAffinity order.
-    const bucketForIndex = (index: number): ScoredRecommendation['bucket'] => (
-      index < closePoolSize ? 'close'
-        : index < adjacentPoolEnd ? 'adjacent'
-          : 'fallback'
-    );
-    for (const item of thematic) {
-      if (output.length >= limit) break;
-      const key = `${item.type}:${item.id}` as const;
-      if (used.has(key)) continue;
-      used.add(key);
-      const index = affinityIndex.get(key) ?? Number.POSITIVE_INFINITY;
-      output.push({ ...item, bucket: bucketForIndex(index) });
+    const clusterCounts = new Map<string, number>();
+    for (const item of output) {
+      clusterCounts.set(item.cluster, (clusterCounts.get(item.cluster) ?? 0) + 1);
     }
-    if (output.length < limit) {
+    const takeWithClusterCap = (
+      candidates: ScoredRecommendation[],
+      want: number,
+      maxPerCluster: number,
+    ): ScoredRecommendation[] => {
+      const picked: ScoredRecommendation[] = [];
+      for (const item of candidates) {
+        if (picked.length >= want) break;
+        const key = `${item.type}:${item.id}`;
+        if (used.has(key)) continue;
+        const count = clusterCounts.get(item.cluster) ?? 0;
+        if (count >= maxPerCluster) continue;
+        used.add(key);
+        clusterCounts.set(item.cluster, count + 1);
+        picked.push(item);
+      }
+      return picked;
+    };
+
+    let depth = takeWithClusterCap(thematic, remaining, DEPTH_CLUSTER_CAP);
+    if (depth.length < remaining) {
+      depth = [
+        ...depth,
+        ...takeWithClusterCap(
+          byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`)),
+          remaining - depth.length,
+          DEPTH_CLUSTER_CAP * 2,
+        ),
+      ];
+    }
+    if (depth.length < remaining) {
+      // Last resort: ignore cluster caps so the reserve still reaches depth.
       for (const item of byAffinity) {
-        if (output.length >= limit) break;
-        const key = `${item.type}:${item.id}` as const;
+        if (depth.length >= remaining) break;
+        const key = `${item.type}:${item.id}`;
         if (used.has(key)) continue;
         used.add(key);
-        const index = affinityIndex.get(key) ?? Number.POSITIVE_INFINITY;
-        output.push({ ...item, bucket: bucketForIndex(index) });
+        depth.push(item);
       }
     }
+
+    // Quotas among the depth rows so shuffle has alternatives in every slot.
+    const closeDepth = Math.ceil(depth.length * 0.55);
+    const adjacentDepth = Math.ceil(depth.length * 0.30);
+    depth.forEach((item, index) => {
+      const bucket = index < closeDepth ? 'close'
+        : index < closeDepth + adjacentDepth ? 'adjacent'
+          : 'fallback';
+      output.push({ ...item, bucket });
+    });
   }
   return output.slice(0, limit);
 }
