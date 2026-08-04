@@ -131,9 +131,6 @@ function railsForContentType(
     if (profile.rail_id.startsWith('series-')) {
       return contentType === 'series';
     }
-    if (profile.rail_id === 'ai-horror') {
-      return contentType === 'movie';
-    }
     return true;
   });
 }

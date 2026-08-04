@@ -61,7 +61,3 @@ rails:
   series-comedy:
     intent: comedy sitcom funny humor parody late night
     exclude: horror reality documentary crime thriller
-
-  ai-horror:
-    intent: horror thriller scary slasher supernatural psychological creepy
-    exclude: comedy romance documentary family
