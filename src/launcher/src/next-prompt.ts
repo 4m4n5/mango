@@ -7,10 +7,12 @@ import {
   savePlaybackReturnSnapshot,
   tabForCard,
 } from "./playback-return";
+import type { PersonalizationOwner } from "./personalization";
 
 export class NextEpisodePrompt {
   private hint: NextPromptResponse | null = null;
   private card: ContentCard | null = null;
+  private owner: PersonalizationOwner | null = null;
   private playToken = 0;
   private playAbort: AbortController | null = null;
 
@@ -31,12 +33,17 @@ export class NextEpisodePrompt {
     return this.hint !== null;
   }
 
-  show(hint: NextPromptResponse, card: ContentCard): void {
+  show(
+    hint: NextPromptResponse,
+    card: ContentCard,
+    owner: PersonalizationOwner,
+  ): void {
     if (!hint.show || !hint.next) {
       return;
     }
     this.hint = hint;
     this.card = card;
+    this.owner = { ...owner };
     this.playButton.disabled = false;
     this.dismissButton.disabled = false;
     const next = hint.next;
@@ -63,6 +70,7 @@ export class NextEpisodePrompt {
     this.dismissButton.disabled = false;
     this.hint = null;
     this.card = null;
+    this.owner = null;
     this.root.classList.add("hidden");
     this.root.setAttribute("aria-hidden", "true");
     this.onDismiss();
@@ -97,7 +105,8 @@ export class NextEpisodePrompt {
   private async playNext(): Promise<void> {
     const hint = this.hint;
     const card = this.card;
-    if (!hint?.next || !card) {
+    const owner = this.owner;
+    if (!hint?.next || !card || !owner) {
       return;
     }
     const token = ++this.playToken;
@@ -107,9 +116,20 @@ export class NextEpisodePrompt {
     this.playButton.disabled = true;
     this.dismissButton.disabled = true;
     this.onStatus("starting next episode…", "progress");
-    savePlaybackReturnSnapshot(tabForCard(card, "series"), card, hint.next.id);
+    savePlaybackReturnSnapshot(
+      tabForCard(card, "series"),
+      card,
+      hint.next.id,
+      "home",
+      undefined,
+      owner,
+    );
     try {
-      await playCard(card, { episodeId: hint.next.id, signal: abort.signal });
+      await playCard(card, {
+        episodeId: hint.next.id,
+        signal: abort.signal,
+        expectedOwner: owner,
+      });
       if (this.playToken !== token) {
         return;
       }

@@ -310,7 +310,7 @@ flowchart LR
 | **`preferredLanguages`** | English, Hindi | Sort boost + indexer bias before mango hard-filters |
 | **Sort `language`** | Early in global sort | Hindi dub rows surface when user picks Hindi |
 | **Conjunctive result limits** | service 2 × resolution 2 × group 1 | ~6–8 **distinct** rows — ideal picker cardinality (not 40 duplicates) |
-| **`hideErrors: true`** | ON | AI never sees `[❌]` placeholder rows |
+| **Stream error visibility** | `hideErrors: false`; hide only catalog/meta/subtitle errors | catalog-service can classify a transient nested-provider failure; `[❌]` rows are filtered from playback, picker, launcher, companion, and AI output |
 | **`posterService: none`** | ON | Posters from Cinemeta/AIOMetadata — one poster pipeline |
 | **No resolution cap upstream** | Keep 2160p/REMUX in AIOStreams | M6.3: drop `max_quality` in mango only |
 | **SEL ranked + excluded** | BluRay boost + WEBRip penalty; **no TorBox +250** | Soft TB-first via service sort; unique RD must survive result limits |
@@ -378,6 +378,7 @@ No AIOStreams reinstall — upstream already carries full quality.
 bash scripts/m4-addons/aiostreams-config.sh get > /tmp/aios-backup.json
 bash scripts/m4-addons/aiostreams-config.sh diff   # current vs repo target patch
 bash scripts/m4-addons/aiostreams-config.sh apply  # merge target patch + PUT
+bash scripts/m4-addons/aiostreams-config.sh verify # safe topology/policy proof; prints no keys
 ```
 
 After apply:
@@ -386,6 +387,13 @@ After apply:
 bash scripts/m4-addons/gate-m4-streams.sh
 # 6-title corpus — config/stream-gate-fixtures.json
 ```
+
+`verify` fails closed unless TorBox, Real-Debrid, and Easynews are enabled;
+Torrentio, Comet, and MediaFusion are enabled as stream presets; Service Wrap
+includes TorBox + Real-Debrid; uncached TorBox remains eligible; uncached
+Real-Debrid is excluded; and stream-resource errors remain observable to Mango.
+It prints only fixed provider names and booleans. Grouping drift is reported
+without exposing operator-owned instance IDs or credentials.
 
 ---
 

@@ -1,4 +1,16 @@
 import type { BrowseTab, ContentCard } from "./types";
+import { recommendationAttributionPayload } from "./recommendation-attribution";
+import {
+  personalizationExpectationBody,
+  personalizationExpectationParams,
+  personalizationOwnerFromPayload,
+  samePersonalizationOwner,
+  type PersonalizationOwner,
+} from "./personalization";
+import {
+  CatalogOwnershipChangedError,
+  CatalogResponseError,
+} from "./catalog-errors";
 
 export interface SavedRecord {
   source?: string;
@@ -10,34 +22,78 @@ export interface SavedRecord {
   saved_at: number;
 }
 
-export async function fetchSavedIds(tab: BrowseTab): Promise<Set<string>> {
-  const data = await fetchJson<{ saved: SavedRecord[] }>(
-    `/api/catalog/library/saved?tab=${encodeURIComponent(tab)}`,
-  );
+export async function fetchSavedIds(
+  tab: BrowseTab,
+  expectedOwner?: PersonalizationOwner,
+): Promise<Set<string>> {
+  const params = expectedOwner
+    ? personalizationExpectationParams(expectedOwner)
+    : new URLSearchParams();
+  params.set("tab", tab);
+  let data: {
+    saved: SavedRecord[];
+    profile_id?: string;
+    personalization_updated_at?: number;
+  };
+  try {
+    data = await fetchJson(`/api/catalog/library/saved?${params.toString()}`);
+  } catch (error) {
+    if (expectedOwner && error instanceof CatalogResponseError && error.status === 409) {
+      throw new CatalogOwnershipChangedError();
+    }
+    throw error;
+  }
+  if (expectedOwner) {
+    assertSavedResponseOwner(data, expectedOwner);
+  }
   return new Set((data.saved || []).map(savedKey));
 }
 
-export async function saveCard(tab: BrowseTab, card: ContentCard): Promise<void> {
-  await fetchJson("/api/catalog/library/saved", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(cardPayload(tab, card)),
-  });
+/** Personalized Saved state is paintable only with the exact server owner echo. */
+export function assertSavedResponseOwner(
+  payload: { profile_id?: unknown; personalization_updated_at?: unknown },
+  expectedOwner: PersonalizationOwner,
+): void {
+  const owner = personalizationOwnerFromPayload(payload);
+  if (!owner || !samePersonalizationOwner(expectedOwner, owner)) {
+    throw new CatalogOwnershipChangedError();
+  }
 }
 
-export async function unsaveCard(card: ContentCard): Promise<void> {
-  await fetchJson("/api/catalog/library/saved", {
+export async function saveCard(
+  tab: BrowseTab,
+  card: ContentCard,
+  expectedOwner: PersonalizationOwner,
+): Promise<void> {
+  await fetchOwnedJson("/api/catalog/library/saved", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...cardPayload(tab, card),
+      ...personalizationExpectationBody(expectedOwner),
+    }),
+  }, expectedOwner);
+}
+
+export async function unsaveCard(
+  card: ContentCard,
+  expectedOwner: PersonalizationOwner,
+): Promise<void> {
+  await fetchOwnedJson("/api/catalog/library/saved", {
     method: "DELETE",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       source: librarySourceForCard(card),
       type: card.type,
       id: card.id,
+      ...recommendationAttributionPayload(card),
+      ...personalizationExpectationBody(expectedOwner),
     }),
-  });
+  }, expectedOwner);
 }
 
 export interface LibraryContextRecord {
+  profile_id: string;
   source: string;
   type: string;
   id: string;
@@ -46,23 +102,39 @@ export interface LibraryContextRecord {
   tab: BrowseTab;
 }
 
-export async function fetchLibraryContext(): Promise<LibraryContextRecord | null> {
+export async function fetchLibraryContext(
+  expectedOwner: PersonalizationOwner,
+): Promise<LibraryContextRecord | null> {
   try {
-    const data = await fetchJson<{ ok: boolean; context: LibraryContextRecord | null }>(
-      "/api/catalog/library/context",
-    );
+    const query = personalizationExpectationParams(expectedOwner);
+    const data = await fetchOwnedJson<{
+      ok: boolean;
+      context: LibraryContextRecord | null;
+      profile_id?: unknown;
+      personalization_updated_at?: unknown;
+    }>(`/api/catalog/library/context?${query}`, undefined, expectedOwner);
     return data.context ?? null;
-  } catch {
+  } catch (error) {
+    if (error instanceof CatalogOwnershipChangedError) throw error;
     return null;
   }
 }
 
-export async function publishCurrentLibraryContext(tab: BrowseTab, card: ContentCard): Promise<void> {
-  await fetchJson("/api/catalog/library/context", {
+export async function publishCurrentLibraryContext(
+  tab: BrowseTab,
+  card: ContentCard,
+  expectedOwner: PersonalizationOwner,
+  openedAt: number,
+): Promise<void> {
+  await fetchOwnedJson("/api/catalog/library/context", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(cardPayload(tab, card)),
-  });
+    body: JSON.stringify({
+      ...cardPayload(tab, card),
+      context_opened_at: openedAt,
+      ...personalizationExpectationBody(expectedOwner),
+    }),
+  }, expectedOwner);
 }
 
 function cardPayload(tab: BrowseTab, card: ContentCard): Record<string, unknown> {
@@ -75,6 +147,7 @@ function cardPayload(tab: BrowseTab, card: ContentCard): Record<string, unknown>
     poster: card.posterUrl || "",
     year: card.year,
     description: card.description,
+    ...recommendationAttributionPayload(card),
   };
 }
 
@@ -103,7 +176,28 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
     const message = typeof (data as { error?: string }).error === "string"
       ? (data as { error: string }).error
       : `HTTP ${response.status}`;
-    throw new Error(message);
+    throw new CatalogResponseError(response.status, message);
   }
   return data as T;
+}
+
+async function fetchOwnedJson<T extends {
+  profile_id?: unknown;
+  personalization_updated_at?: unknown;
+}>(
+  url: string,
+  init: RequestInit | undefined,
+  expectedOwner: PersonalizationOwner,
+): Promise<T> {
+  let data: T;
+  try {
+    data = await fetchJson<T>(url, init);
+  } catch (error) {
+    if (error instanceof CatalogResponseError && error.status === 409) {
+      throw new CatalogOwnershipChangedError();
+    }
+    throw error;
+  }
+  assertSavedResponseOwner(data, expectedOwner);
+  return data;
 }

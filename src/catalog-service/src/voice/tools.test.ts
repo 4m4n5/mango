@@ -23,6 +23,7 @@ test('buildVoiceToolManifest exposes browse-only voice tools (no play)', () => {
   assert.ok(names.includes('mango_list_ai_catalogs'));
   assert.ok(names.includes('mango_create_ai_catalog'));
   assert.ok(names.includes('mango_read_profile'));
+  assert.ok(names.includes('mango_manage_viewer_profile'));
   assert.ok(names.includes('mango_companion_summary'));
   assert.ok(!names.includes('mango_play'));
   assert.ok(!names.includes('mango_play_continue'));
@@ -39,4 +40,9 @@ test('buildVoiceToolManifest exposes browse-only voice tools (no play)', () => {
   const createAi = manifest.tools.find((tool) => tool.name === 'mango_create_ai_catalog');
   const overflow = createAi?.input_schema.properties.overflow_action as { enum?: string[] } | undefined;
   assert.deepEqual(overflow?.enum, ['replace', 'merge']);
+  const manageProfile = manifest.tools.find((tool) => tool.name === 'mango_manage_viewer_profile');
+  const actions = manageProfile?.input_schema.properties.action as { enum?: string[] } | undefined;
+  assert.deepEqual(actions?.enum, ['list', 'create', 'rename', 'activate', 'complete_onboarding']);
+  assert.match(manageProfile?.description || '', /without activating/i);
+  assert.match(manageProfile?.description || '', /Household cannot be renamed/i);
 });

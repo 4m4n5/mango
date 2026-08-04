@@ -1,6 +1,8 @@
 # Couch test checklist
 
-**Branch:** `feat/native-experience` · **Pi HEAD:** `539ebdb` (2026-07-30) · **Gate:** `bash scripts/pi-exec-gate.sh` (gate-lite ~2 min) + ux-smoke on feat branch
+**Branch:** `feat/native-experience` · **Last documented Pi HEAD:** `539ebdb`
+(2026-07-30; historical, not the recommendation deployment target) · **Gate:**
+`bash scripts/pi-exec-gate.sh` (gate-lite ~2 min) + ux-smoke on feat branch
 
 Run gate on Mac before handing off to the TV. Live IPTV is opt-in — not in gate-lite.
 
@@ -19,6 +21,20 @@ bash scripts/m6-ship/gate-m6-ux-smoke.sh      # M6.5 HUD/focus contracts
 bash scripts/m6-ship/gate-m6-search-smoke.sh  # non-mutating unified Search proof
 bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch signals
 ```
+
+The standard pre-couch path above can run the YouTube smoke's real Search when
+an API key is configured. For a zero-YouTube-quota handoff, deploy without
+`--gate`, then pass the skip inside the remote command (the Mac wrapper does not
+forward it):
+
+```bash
+bash scripts/pi-deploy.sh --fast
+bash scripts/pi-exec.sh \
+  'cd ~/mango && MANGO_GATE_SKIP_YOUTUBE=1 bash scripts/pi-pre-couch-gate.sh'
+```
+
+In that mode, cached counter-invariance proof may still pass, but live YouTube
+search/detail smoke is **DEFERRED** rather than silently called green.
 
 ---
 
@@ -115,6 +131,11 @@ curl -sf "http://127.0.0.1:3020/stream/movie/tt0111161?strict_unknown_cache=fals
 # The Internet's Own Boy regression + fixed-category resolver contribution proof.
 bash scripts/diag/playback-ladder-health.sh movie tt3268458
 
+# Alliance regression: obtain the exact episode ID from the episode API first.
+curl -sf "http://127.0.0.1:3020/series/<bareAllianceId>/episodes" \
+  | jq '[.. | objects | select(.id? and (.id | test(":"))) | {id,name,season,episode}]'
+bash scripts/diag/playback-ladder-health.sh series <exactAllianceEpisodeId>
+
 journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
   | grep '"event":"resolve_flight"' \
   | grep -E 'background_defer_foreground|background_join_foreground|foreground_bypass_background'
@@ -122,7 +143,7 @@ journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
 
 | Check | Required evidence | Pass? |
 |---|---|---|
-| Live AIO policy | `aiostreams-config.sh verify` exits 0 and states TorBox uncached retained / RD uncached excluded | |
+| Live AIO topology/policy | `aiostreams-config.sh verify` exits 0 and safely confirms TB/RD/Easynews plus Torrentio/Comet/MediaFusion, Service Wrap, uncached policy, and stream-error visibility | |
 | Real formatter shapes | A title with both services shows TB/RD cached rows as `cached`, an available TB `⏳` row as `uncached`, and no RD `⏳`/`download` row reaches the couch response | |
 | Source coverage | AIOStreams result labels include its configured Torrentio/Comet/MediaFusion sources; if direct MediaFusion is configured, a thin AIO result can be supplemented without duplicate URLs | |
 | Intended topology | `configured_stream_providers.aiostreams` is 1; direct Torrentio/MediaFusion/Comet provider counts are 0. Their contribution appears under `resolver.last_contributions.user.indexers`, while TorBox/RD appear under `debrid` when the title actually returns them | |
@@ -132,6 +153,7 @@ journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
 | Attempt cap | Logs show no more than the configured `auto_play_max_attempts` real probe/play attempts across all ladder phases; cached-bad skips do not spend the cap | |
 | Foreground priority | Start a maintenance verify for a title, then open/play the same title; couch resolve does not wait on the background deadline | |
 | Background amplification guard | While a couch resolve for a title is active, same-title background work logs join/defer and does not start a parallel provider fan-out | |
+| Alliance first-press recovery | For the exact reported episode, one **B** either starts playback or returns one honest transient/exhausted result. A transient first pass increments `stream_resolve_retries`; success in the same request increments `stream_resolve_retry_recoveries`; no sibling episode is queried and no provider-error row appears in the Streams drawer | |
 
 Deferred on the work Mac: the live AIO user profile, generated manifest URL,
 paid-provider results, journal concurrency evidence, and actual provider fan-out
@@ -353,15 +375,16 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 | # | Action | Pass? |
 |---|--------|-------|
 | 17 | YouTube tab loads cached rails without full-screen error; empty Fresh Finds or expired Live Now is hidden instead of showing stale live cards | |
-| 18 | YouTube rails render **4 landscape cards, one row each** (the service still supplies up to 12 per rail as playable headroom — extra supply is expected, not a defect); **Home X shuffle** changes History/For You/New From Subscriptions/Fresh Finds/Because You Watched/Live Now/Popular without blocking on refresh | |
+| 18 | Every visible YouTube rail renders exactly **4 landscape cards**. Logical anchors are For You → Subscriptions → History → Saved, followed by at most three adaptive rails; with adequate cached supply, no video repeats on the same screen | |
 | 19 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
-| 20 | Open a YouTube video → detail shows Play / Save / Not Interested; **B** starts mpv | |
+| 20 | Open a YouTube video → detail shows Play / Save / Not for me; **B** starts mpv | |
 | 21 | After playing a second meaningful YouTube VOD, Because You Watched follows that newer seed and shows cached non-live/non-Short follow-ups | |
 | 22 | Open a channel/playlist → detail shows a D-pad video list; Save is disabled | |
-| 23 | Not Interested removes the card from YouTube rails after refresh/navigation | |
+| 23 | Not for me removes the card for the active profile; Undo restores it; switching to another personal profile proves the feedback did not leak | |
 | 24 | "Save this" on an open YouTube video updates Saved; no voice playback starts | |
-| 25 | Popular shows a neutral 9-card non-live/non-Short row and reshuffles without spending search quota | |
+| 25 | Record `/youtube/state` search/API counters, press Home X several times, and read them again: discovery cards change deterministically, History/Saved and both counters remain unchanged | |
 | 26 | Live Now, when populated, contains currently live items only; if search quota is exhausted, cached VOD rails still work | |
+| 26a | With healthy lane supply and zero fallback slots, ten For You slates total 28 close, 8 adjacent, and 4 surprise slots. Check `sqlite3 /etc/mango/youtube.db "SELECT value FROM youtube_state WHERE key='for_you_lane_fallback:last';"`; if fallback is nonzero, record the supply limitation instead of failing or fabricating the mix. No raw score/private context appears on TV | |
 
 ---
 
@@ -549,6 +572,30 @@ apply here; if one of these fails, report it rather than tuning.
 
 ---
 
+## Recommendation profiles and mood
+
+These checks cover the current local redesign. Leave every result **DEFERRED**
+until this exact revision is deployed and observed on the Pi/TV.
+
+| # | Couch action and required evidence | Pass? |
+|---|------------------------------------|-------|
+| RP1 | Cold-start Mango: Household is active with no profile prompt or PIN. Create a personal profile in the companion; it does not activate until explicitly selected | |
+| RP2 | Rename the profile in the companion, switch away/back, and confirm its ratings, Saved/history, and recommendation identity remain attached to the same stable profile | |
+| RP3 | Set an explicit mood and confirm bounded attribution/rails update; activate another profile and confirm mood clears. Mango never invents a mood | |
+| RP4 | Rate/watch/save distinct content in two personal profiles; each remains isolated. Household blends activity without one prolific profile monopolizing the visible slate | |
+| RP5 | Mark a title Not for me, verify immediate removal, use Undo, then repeat and switch profiles. Only Household applies the union exact-title veto | |
+| RP6 | With AI unavailable/offline, profile switching and last-good VOD/YouTube rails remain responsive; no couch request waits on enrichment | |
+| RP7 | Play the same movie (and one series episode) to different positions as two personal profiles. Each Continue rail and resume prompt restores only its own position; a new profile starts clean and Household does not borrow either exact position | |
+| RP8 | Leave a recommendation Detail/card open, switch profiles from the companion, then try Play, Save/Unsave, Rate/Clear, and Not for me. Each stale action closes/reloads or returns the couch-safe 409 path and never mutates the newly active profile; ordinary Search/voice catalog actions still work | |
+| RP9 | Switch profiles from the companion while Home is visible: the immediate `profile_changed` acknowledgement updates rails/Continue without reload. Repeat with the notification path unavailable; before the 30-second poll, switch tabs, return from Search, and open/close Settings. No old-profile rail or Saved marker may paint, and the bounded fallback poll converges | |
+| RP10 | From Search, open a title while another device switches profiles; Detail either opens with the new owner's exact Saved marker or asks to reopen, never paints the old marker. Repeat in Settings → Hidden from recommendations and Restore: a stale owner must show refresh guidance and must not reveal or mutate either profile's list | |
+| RP11 | Save four distinct YouTube videos and refresh/shuffle repeatedly. Saved remains a complete stable four-card anchor; none of those exact videos appears in For You. After a successful full refresh, operator diagnostics show the For You reservoir remains bounded and removed source candidates do not linger | |
+
+Record human verdicts for relevance, diversity, adjacent discovery, surprise,
+multilingual fit, Household fairness, reversibility, and perceived latency.
+
+---
+
 ## Fire & Water ratings and For You
 
 Complete only after the seed manifest is reconciled/imported twice and both
@@ -565,11 +612,12 @@ operator files.
 | FW6 | X opens inline clear confirmation; Y keeps the rating; X then B clears it without deleting its audit history | |
 | FW7 | Complete a movie to 90%: return invitation appears once without moving focus or opening the sheet; leaving resolves it permanently while manual Rate remains | |
 | FW8 | Complete three distinct series episodes: the show-level invitation appears once; rating the show shifts TV For You while Movies does not | |
-| FW9 | Movies and TV order is Continue → Saved → For You → user AI catalogs; each For You rail has 12 unique playable cards and no rated/hidden title | |
+| FW9 | Movies and TV order is Continue → Saved → For You → user AI catalogs; every visible For You rail has exactly 6 unique currently verified cards (4 close, 1 adjacent, 1 surprise) and no rated/hidden/Not-for-me/unverified title. If all six cannot be healed, the rail is absent rather than partial | |
 | FW10 | Rate a For You title. It leaves the rail after Detail closes; focus restores to the same position, then first card/nearest rail fallback if needed | |
 | FW11 | With AI disabled and then network offline, ratings and the last-good rails survive restart; opening Detail never waits for AI | |
-| FW12 | Rate one high-Fire/low-Water and one low-Fire/high-Water title; both influence For You. Review 12 Movies + 12 TV cards for relevance, variety, and one plausible surprise | |
+| FW12 | Rate one high-Fire/low-Water and one low-Fire/high-Water title; both influence For You. Review all 6 Movies + 6 TV cards for relevance, variety, one adjacent discovery, and one plausible surprise | |
 | FW13 | Start several recommendations including 4K; normal playback/return works with no launcher, first-frame, or dropped-frame regression | |
+| FW14 | Finish a recommended title: it stays absent from normal close/adjacent lanes. If deterministic cadence admits the cooled rewatch, verify at most one row per latest profile/tab snapshot using `sqlite3 /etc/mango/library.db "WITH latest AS (SELECT profile_id,tab,max(revision) revision FROM profile_recommendation_snapshots GROUP BY profile_id,tab) SELECT i.profile_id,i.tab,count(*) FROM profile_recommendation_snapshot_items i JOIN latest l USING(profile_id,tab,revision) WHERE i.generation_reason='cooled_rewatch' GROUP BY i.profile_id,i.tab;"`; the TV shows only `Watch again`, never the technical reason | |
 
 Record explicit human verdicts: rating semantics, icon clarity, adjustment flow,
 recommendation relevance, diversity, surprise quality, and perceived latency.

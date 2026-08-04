@@ -114,6 +114,20 @@ for state_contract in (
             raise SystemExit("home.ts missing explicit catalog state markers")
     elif state_contract not in home and state_contract not in main:
         raise SystemExit(f"launcher missing catalog state contract: {state_contract}")
+catalog_load = main.split("async function loadCatalog", 1)[1].split(
+    "async function handlePlaybackReturn", 1,
+)[0]
+request_phase = catalog_load.split("const itemCount", 1)[0]
+if "tabCatalogCache.delete(requestedTab)" in request_phase:
+    raise SystemExit("reshuffle deletes last-good catalog cache before request completion")
+for refresh_contract in (
+    "tabCatalogCache.beginRefresh(",
+    "{ bypassRead: reshuffle }",
+    "catalogCacheRefresh.lastGoodValue",
+    "catalogCacheRefresh.commit(usableRails, completedOwner)",
+):
+    if refresh_contract not in catalog_load:
+        raise SystemExit(f"loadCatalog missing transactional reshuffle cache contract: {refresh_contract}")
 for forbidden_copy in ("catalog-service", "N2 prereqs", "when the Pi responds", "nothing resolved yet"):
     if forbidden_copy in home:
         raise SystemExit(f"home.ts leaks internal/dead state copy: {forbidden_copy}")
@@ -219,7 +233,9 @@ PY
 
 "$REPO_DIR/src/catalog-service/node_modules/.bin/tsx" --test \
   "$SRC/catalog-errors.test.ts" \
+  "$SRC/catalog-owner.test.ts" \
   "$SRC/home-state.test.ts" \
+  "$SRC/personalization.test.ts" \
   "$SRC/playback-return.test.ts" \
   "$SRC/playback-return-focus.test.ts" \
   "$SRC/playback-reconciliation.test.ts" \
@@ -228,9 +244,11 @@ PY
   "$SRC/detail-search-queue.test.ts" \
   "$SRC/search.test.ts" \
   "$SRC/pad-nav.test.ts" \
+  "$SRC/recommendation-attribution.test.ts" \
   "$SRC/toast.test.ts" \
-  && gate_pass "launcher playback return + timeout reconciliation tests" \
-  || gate_fail "launcher playback return + timeout reconciliation tests"
+  "$SRC/voice-commands.test.ts" \
+  && gate_pass "launcher deterministic state + ownership tests" \
+  || gate_fail "launcher deterministic state + ownership tests"
 
 python3 "$REPO_DIR/src/mango-ui-server/test_pad_nav_queue.py" >/dev/null \
   && gate_pass "pad-nav lease + recovery tests" \

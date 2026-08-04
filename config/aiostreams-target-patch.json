@@ -45,7 +45,8 @@
   "preferredLanguages": ["English", "Hindi"],
   "preferredEncodes": ["HEVC", "AVC"],
   "excludeSeasonPacks": true,
-  "hideErrors": true,
+  "hideErrors": false,
+  "hideErrorsForResources": ["catalog", "meta", "subtitles", "addon_catalog"],
   "posterService": "none",
   "formatter": {
     "id": "lightgdrive"

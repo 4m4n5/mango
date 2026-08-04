@@ -107,9 +107,9 @@ check_aiostreams_policy() {
     return 0
   fi
   if bash scripts/m4-addons/aiostreams-config.sh verify >/dev/null; then
-    pass "AIOStreams live uncached policy retains TorBox and excludes Real-Debrid"
+    pass "AIOStreams topology/policy is complete and stream errors are observable"
   else
-    fail "AIOStreams live uncached policy drift (run aiostreams-config.sh diff/apply)"
+    fail "AIOStreams live topology/policy drift (run aiostreams-config.sh diff/apply, then inspect Pi-owned providers)"
   fi
 }
 

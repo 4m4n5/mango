@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   clearPlaybackReturnSnapshot,
+  playbackReturnOwner,
   readPlaybackReturnSnapshot,
   savePlaybackReturnSnapshot,
 } from "./playback-return";
@@ -55,7 +56,14 @@ const officeUk: ContentCard = {
 
 test("playback return survives an intentional Chromium tab restart", () => {
   withBrowserStorage((_local, session) => {
-    savePlaybackReturnSnapshot("series", officeUk, "tt0290978:1:1");
+    savePlaybackReturnSnapshot(
+      "series",
+      officeUk,
+      "tt0290978:1:1",
+      "home",
+      undefined,
+      { profileId: "alice", personalizationUpdatedAt: 17 },
+    );
     session.clear();
 
     const restored = readPlaybackReturnSnapshot();
@@ -63,7 +71,31 @@ test("playback return survives an intentional Chromium tab restart", () => {
     assert.equal(restored?.cardId, "tt0290978");
     assert.equal(restored?.episodeId, "tt0290978:1:1");
     assert.equal(restored?.returnSurface, "detail");
+    assert.deepEqual(restored && playbackReturnOwner(restored), {
+      profileId: "alice",
+      personalizationUpdatedAt: 17,
+    });
   });
+});
+
+test("legacy and partial playback snapshots never invent an owner", () => {
+  assert.equal(playbackReturnOwner({
+    tab: "movies",
+    cardId: "tt-one",
+    cardType: "movie",
+    cardTitle: "One",
+    returnSurface: "detail",
+    savedAt: Date.now(),
+  }), null);
+  assert.equal(playbackReturnOwner({
+    tab: "movies",
+    cardId: "tt-one",
+    cardType: "movie",
+    cardTitle: "One",
+    returnSurface: "detail",
+    profileId: "alice",
+    savedAt: Date.now(),
+  }), null);
 });
 
 test("playback return remains durable across a thaw-before-restart race", () => {

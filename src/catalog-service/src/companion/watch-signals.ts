@@ -11,6 +11,7 @@ export function watchContentKey(session: ActiveWatchSession): string {
 
 export function recordPlayStarted(session: ActiveWatchSession): void {
   appendJournalEvent('play_started', {
+    profile_id: session.profile_id ?? null,
     content_key: watchContentKey(session),
     type: session.type,
     title_id: session.title_id,
@@ -18,6 +19,7 @@ export function recordPlayStarted(session: ActiveWatchSession): void {
     title: session.title ?? null,
     tab: session.tab ?? null,
     source: session.source ?? null,
+    recommendation: session.recommendation ?? null,
   });
 }
 
@@ -31,6 +33,7 @@ export async function recordPlaybackExit(
   }
   const pct = progressPct(positionSec, durationSec);
   const payload = {
+    profile_id: session.profile_id ?? null,
     content_key: watchContentKey(session),
     type: session.type,
     title_id: session.title_id,
@@ -38,6 +41,7 @@ export async function recordPlaybackExit(
     title: session.title ?? null,
     tab: session.tab ?? null,
     source: session.source ?? null,
+    recommendation: session.recommendation ?? null,
     progress_pct: Math.round(pct * 1000) / 1000,
     position_sec: positionSec,
     duration_sec: durationSec,

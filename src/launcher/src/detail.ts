@@ -6,7 +6,10 @@ import {
   loadNextPrompt,
   loadRailRelatedCards,
   playCard,
-  notInterestedYoutubeCard,
+  notInterestedCard,
+  isNotInterestedCard,
+  noteRecommendationDetailOpen,
+  undoNotInterestedCard,
   type CatalogMeta,
   type CatalogStream,
   type SeriesEpisodesResponse,
@@ -26,10 +29,14 @@ import {
 import { bindPosterImage, resolveCardPosterUrl } from "./poster";
 import { formatRailLabel, posterRevealMeta } from "./home";
 import { MINIMAL_VOD_POSTER_LABELS } from "./ui-flags";
-import { playErrorMessage } from "./catalog-errors";
+import { CatalogOwnershipChangedError, playErrorMessage } from "./catalog-errors";
 import { reconcileEpisodePlayTimeout } from "./playback-reconciliation";
 import { recoverTimedOutStreamList } from "./stream-list-recovery";
 import { RatingSheetController } from "./ratings";
+import {
+  samePersonalizationOwner,
+  type PersonalizationOwner,
+} from "./personalization";
 
 // The row spans the full width beneath the side panel, so seven 228px cards fit
 // (1706px of 1728). One spare is still fetched because a title is filtered out of
@@ -84,6 +91,7 @@ export class DetailController {
   private nextPromptPollTimer: number | undefined;
   private browseTab: BrowseTab = "movies";
   private saved = false;
+  private notInterested = false;
   private relatedButtons: HTMLButtonElement[] = [];
   private homeVisibleCards: ContentCard[] = [];
   private relatedLoadToken = 0;
@@ -92,6 +100,8 @@ export class DetailController {
   /** Episode whose playback exit initiated the current detail restore. */
   private playbackReturnEpisodeId: string | null = null;
   private origin: DetailOriginContext = { surface: "home" };
+  /** Immutable owner captured when this Detail instance opened. */
+  private personalizationOwner: PersonalizationOwner | null = null;
 
   constructor(
     private readonly view: HTMLElement,
@@ -178,13 +188,14 @@ export class DetailController {
     card: ContentCard,
     railLabel: string,
     tab: BrowseTab,
+    owner: PersonalizationOwner,
     saved = false,
     homeVisible: ContentCard[] = [],
     episodeId?: string,
     origin: DetailOriginContext = { surface: "home" },
   ): void {
     this.pendingEpisodeRestore = episodeId ?? null;
-    this.show(card, railLabel, tab, saved, homeVisible, origin);
+    this.show(card, railLabel, tab, owner, saved, homeVisible, origin);
     this.playbackReturnEpisodeId = episodeId ?? null;
     this.maybePromptNextEpisode();
   }
@@ -252,14 +263,20 @@ export class DetailController {
     card: ContentCard,
     railLabel: string,
     tab: BrowseTab,
+    owner: PersonalizationOwner,
     saved = false,
     homeVisible: ContentCard[] = [],
     origin: DetailOriginContext = { surface: "home" },
   ): void {
+    const openedAt = Date.now();
     this.card = card;
     this.browseTab = tab;
+    this.personalizationOwner = { ...owner };
     this.origin = origin;
     this.saved = saved;
+    this.notInterested = false;
+    this.notInterestedButton.textContent = "not for me";
+    this.notInterestedButton.disabled = true;
     this.homeVisibleCards = homeVisible;
     this.streams = [];
     this.streamButtons = [];
@@ -292,14 +309,23 @@ export class DetailController {
       bindPosterImage(backdrop, "");
     }
     this.view.classList.remove("hidden");
-    this.notInterestedButton.hidden = tab !== "youtube" && card.source !== "youtube";
+    const isLive = card.type === "tv" || tab === "live";
+    const isYoutube = this.isYoutubeCard(card);
+    this.notInterestedButton.hidden = isLive
+      || !["movie", "series", "youtube_video"].includes(card.type);
+    if (!this.notInterestedButton.hidden) {
+      void this.loadNotInterestedState(card, owner);
+    }
     this.updateSaveButton();
     this.updatePlayButtonLabel();
     this.applyFocus();
-    void publishCurrentLibraryContext(tab, card).catch(() => undefined);
-    const isLive = card.type === "tv" || tab === "live";
-    const isYoutube = this.isYoutubeCard(card);
-    void this.ratingSheet.bindCard(card, !isLive && !isYoutube && (card.type === "movie" || card.type === "series"));
+    void publishCurrentLibraryContext(tab, card, owner, openedAt).catch(() => undefined);
+    void noteRecommendationDetailOpen(card).catch(() => undefined);
+    void this.ratingSheet.bindCard(
+      card,
+      !isLive && !isYoutube && (card.type === "movie" || card.type === "series"),
+      owner,
+    );
     const playable = this.canPlayCard(card);
     void this.loadFullMeta(card);
     if (isYoutube && !playable) {
@@ -329,6 +355,7 @@ export class DetailController {
     this.playAbort?.abort();
     this.playAbort = null;
     this.card = null;
+    this.personalizationOwner = null;
     this.pendingEpisodeRestore = null;
     this.playbackReturnEpisodeId = null;
     clearPlaybackReturnSnapshot();
@@ -417,7 +444,8 @@ export class DetailController {
 
   async play(preferUrl?: string, preferLadderStep?: string, episodeIdOverride?: string): Promise<void> {
     const card = this.card;
-    if (!card) {
+    const owner = this.personalizationOwner;
+    if (!card || !owner) {
       return;
     }
     if (!this.canPlayCard(card)) {
@@ -444,6 +472,7 @@ export class DetailController {
       episodeId,
       this.origin.surface,
       this.origin.searchState,
+      owner,
     );
     this.publishPlayProgress(
       startSec
@@ -485,6 +514,7 @@ export class DetailController {
     }, 20000);
     try {
       const result = await playCard(card, {
+        expectedOwner: owner,
         signal: abort.signal,
         preferUrl,
         preferLadderStep,
@@ -512,6 +542,11 @@ export class DetailController {
         return;
       }
       if (this.playToken !== token) {
+        return;
+      }
+      if (error instanceof CatalogOwnershipChangedError) {
+        clearPlaybackReturnSnapshot();
+        showToast("profile changed — reopen this title", { tone: "warning" });
         return;
       }
       if (
@@ -1014,7 +1049,9 @@ export class DetailController {
 
     button.addEventListener("click", () => {
       const saved = this.callbacks.isSaved?.(sibling) ?? false;
-      this.show(sibling, railLabel, tab, saved, this.homeVisibleCards, this.origin);
+      const owner = this.personalizationOwner;
+      if (!owner) return;
+      this.show(sibling, railLabel, tab, owner, saved, this.homeVisibleCards, this.origin);
     });
     return button;
   }
@@ -1293,7 +1330,8 @@ export class DetailController {
 
   private async toggleSaved(): Promise<void> {
     const card = this.card;
-    if (!card) {
+    const owner = this.personalizationOwner;
+    if (!card || !owner) {
       return;
     }
     if (!this.canSaveCard(card)) {
@@ -1303,18 +1341,23 @@ export class DetailController {
     this.saveButton.disabled = true;
     try {
       if (this.saved) {
-        await unsaveCard(card);
+        await unsaveCard(card, owner);
         this.saved = false;
         showToast("removed from saved.", { tone: "success" });
       } else {
-        await saveCard(this.browseTab, card);
+        await saveCard(this.browseTab, card, owner);
         this.saved = true;
         showToast("saved — find it in your Saved rail.", { tone: "success" });
       }
       this.updateSaveButton();
       this.callbacks.onSavedChanged?.(card);
-    } catch {
-      showToast("couldn't update saved", { tone: "error" });
+    } catch (error) {
+      showToast(
+        error instanceof CatalogOwnershipChangedError
+          ? "profile changed — reopen this title"
+          : "couldn't update saved",
+        { tone: error instanceof CatalogOwnershipChangedError ? "warning" : "error" },
+      );
     } finally {
       this.saveButton.disabled = !this.canSaveCard(this.card);
     }
@@ -1322,19 +1365,61 @@ export class DetailController {
 
   private async markNotInterested(): Promise<void> {
     const card = this.card;
-    if (!card || !this.isYoutubeCard(card)) {
+    const owner = this.personalizationOwner;
+    if (!card || !owner) {
       return;
     }
     this.notInterestedButton.disabled = true;
     try {
-      await notInterestedYoutubeCard(card);
-      showToast("removed from YouTube recommendations.", { tone: "success" });
-      this.hide();
+      if (this.notInterested) {
+        await undoNotInterestedCard(card, this.browseTab, owner);
+        this.notInterested = false;
+        this.notInterestedButton.textContent = "not for me";
+        showToast("back in recommendations.", { tone: "success" });
+      } else {
+        await notInterestedCard(card, this.browseTab, owner);
+        this.notInterested = true;
+        this.notInterestedButton.textContent = "undo not for me";
+        showToast("removed from recommendations — undo is available here.", {
+          tone: "success",
+          durationMs: 6000,
+        });
+      }
       this.callbacks.onSavedChanged?.(card);
-    } catch {
-      showToast("couldn't update YouTube recommendations", { tone: "error" });
+    } catch (error) {
+      showToast(
+        error instanceof CatalogOwnershipChangedError
+          ? "profile changed — reopen this title"
+          : "couldn't update recommendations",
+        { tone: error instanceof CatalogOwnershipChangedError ? "warning" : "error" },
+      );
     } finally {
       this.notInterestedButton.disabled = false;
+    }
+  }
+
+  private async loadNotInterestedState(
+    card: ContentCard,
+    owner: PersonalizationOwner,
+  ): Promise<void> {
+    try {
+      const hidden = await isNotInterestedCard(card, owner);
+      if (this.card !== card || !this.personalizationOwner
+        || !samePersonalizationOwner(this.personalizationOwner, owner)) return;
+      this.notInterested = hidden;
+      this.notInterestedButton.textContent = hidden ? "undo not for me" : "not for me";
+    } catch {
+      // Last-good behavior: a state-read failure must not prevent an explicit
+      // new choice. The mutation itself still fails closed with a toast.
+      if (this.card !== card || !this.personalizationOwner
+        || !samePersonalizationOwner(this.personalizationOwner, owner)) return;
+      this.notInterested = false;
+      this.notInterestedButton.textContent = "not for me";
+    } finally {
+      if (this.card === card && this.personalizationOwner
+        && samePersonalizationOwner(this.personalizationOwner, owner)) {
+        this.notInterestedButton.disabled = false;
+      }
     }
   }
 
@@ -1412,7 +1497,9 @@ export class DetailController {
       progress.textContent = video.subtitle;
       button.append(label, progress);
       button.addEventListener("click", () => {
-        this.show(video, "YouTube", "youtube", false, [], this.origin);
+        const owner = this.personalizationOwner;
+        if (!owner) return;
+        this.show(video, "YouTube", "youtube", owner, false, [], this.origin);
       });
       this.episodeList.append(button);
     }
@@ -1799,11 +1886,16 @@ export class DetailController {
 
   private async checkNextPrompt(): Promise<void> {
     const card = this.card;
-    if (!card || card.type !== "series") {
+    const owner = this.personalizationOwner;
+    if (!card || !owner || card.type !== "series") {
       return;
     }
     try {
-      const hint = await loadNextPrompt();
+      const hint = await loadNextPrompt(owner);
+      if (this.card !== card || !this.personalizationOwner
+        || !samePersonalizationOwner(this.personalizationOwner, owner)) {
+        return;
+      }
       if (!hint.show || !hint.next) {
         return;
       }

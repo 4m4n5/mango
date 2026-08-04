@@ -29,6 +29,16 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/core-stream-identity.test.js \
     dist/playability/trigger-consumer.test.js \
     dist/catalog-errors.test.js \
+    dist/personalization-coherence.test.js \
+    dist/personalization-request.test.js \
+    dist/recommendations/attribution-request.test.js \
+    dist/recommendations/ai.test.js \
+    dist/recommendations/background-refresh.test.js \
+    dist/recommendations/engine.test.js \
+    dist/recommendations/evaluation.test.js \
+    dist/recommendations/mutation-attribution.test.js \
+    dist/recommendations/rank-worker-client.test.js \
+    dist/recommendations/service.test.js \
     dist/live-rails.test.js \
     dist/live/qualification.test.js \
     dist/live-rails-cache.test.js \
@@ -55,3 +65,47 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/ai-catalogs/list-source.test.js \
     dist/stream-filters.test.js
 )
+
+# Route wiring is intentionally source-gated because index.ts owns the HTTP
+# acceptance boundary and is not imported by unit tests (importing it would
+# start the production listener). Keep stale Detail actions fail-closed and
+# prevent display-only rail labels from ever becoming recommendation metrics.
+python3 - "$CATALOG_DIR/src/index.ts" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text(encoding="utf-8")
+ratings = source.split("parts[0] === 'library' && parts[1] === 'ratings'", 1)[1].split(
+    "parts[0] === 'recommendations' && parts[1] === 'state'", 1,
+)[0]
+for contract in (
+    "parseExpectedPersonalization(url.searchParams)",
+    "parseExpectedPersonalizationBody(body)",
+    "before rating state loaded",
+    "before rating changed",
+    "before rating cleared",
+    "personalization_updated_at: personalization.updated_at",
+):
+    if contract not in ratings:
+        raise SystemExit(f"rating route missing profile ownership contract: {contract}")
+
+saved = source.split("parts[0] === 'library' && parts[1] === 'saved'", 1)[1].split(
+    "parts[0] === 'library' && parts[1] === 'history'", 1,
+)[0]
+for contract in (
+    "before Saved target resolved",
+    "before Saved state changed",
+    "profile_id: personalization.active_profile_id",
+    "personalization_updated_at: personalization.updated_at",
+):
+    if contract not in saved:
+        raise SystemExit(f"Saved route missing profile ownership contract: {contract}")
+
+play = source.split("parts[0] === 'play-session'", 1)[1].split(
+    "parts[0] === 'play-session'", 1,
+)[0]
+if "before playback accepted" not in play or "expectedPersonalization" not in play:
+    raise SystemExit("play-session route missing immutable profile acceptance")
+if "incrementRecommendationMetric('play_starts_for_you')" in source:
+    raise SystemExit("play-session trusts client rail_id for recommendation metrics")
+PY

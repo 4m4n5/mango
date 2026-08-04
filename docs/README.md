@@ -16,6 +16,7 @@
 | Run couch tests | [COUCH_TEST.md](COUCH_TEST.md) |
 | Playability · grow · thematic rails | [PLAYABILITY.md](PLAYABILITY.md) |
 | Fire/Water ratings and personalized For You rails | [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md) |
+| Deploy and harden the recommendation redesign from the home Mac | [tasks/RECOMMENDATIONS_HOME_PI_CODEX_SPEC.md](tasks/RECOMMENDATIONS_HOME_PI_CODEX_SPEC.md) |
 | Use or operate unified D-pad Search | [SEARCH.md](SEARCH.md) |
 | M5.5b/M6.5 unified ship round | [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md) |
 | M5.5 voice contract + companion UX split | [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) |

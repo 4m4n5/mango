@@ -445,18 +445,19 @@ async function catalogFetch<T>(path: string, init?: RequestInit): Promise<T> {
 async function loadYoutubeState(): Promise<void> {
   try {
     const state = await catalogFetch<{
-      configured?: { api_key?: boolean; oauth_client?: boolean };
-      auth?: { authenticated?: boolean; configured?: boolean };
-      refresh?: { last_error?: string | null };
-    }>("/youtube/state");
-    if (state.auth?.authenticated) {
+      api_key_configured: boolean;
+      oauth_configured: boolean;
+      authenticated: boolean;
+      needs_attention: boolean;
+    }>("/youtube/companion/status");
+    if (state.authenticated) {
       setYoutubeStatus("connected");
-    } else if (!state.auth?.configured) {
+    } else if (!state.oauth_configured) {
       setYoutubeStatus("OAuth client missing on Pi");
-    } else if (!state.configured?.api_key) {
+    } else if (!state.api_key_configured) {
       setYoutubeStatus("API key missing on Pi");
-    } else if (state.refresh?.last_error) {
-      setYoutubeStatus(`needs attention: ${state.refresh.last_error}`);
+    } else if (state.needs_attention) {
+      setYoutubeStatus("needs attention");
     } else {
       setYoutubeStatus("not connected");
     }
@@ -474,7 +475,7 @@ async function startYoutubeAuth(): Promise<void> {
       verification_url: string;
       verification_url_complete?: string;
       interval_sec?: number;
-    }>("/youtube/auth/start", { method: "POST" });
+    }>("/youtube/companion/auth/start", { method: "POST" });
     showYoutubeCode(started);
     setYoutubeStatus("waiting for Google login…");
     const pollMs = Math.max(1000, (started.interval_sec ?? 5) * 1000);
@@ -490,7 +491,7 @@ async function startYoutubeAuth(): Promise<void> {
 async function pollYoutubeAuth(sessionId: string): Promise<void> {
   try {
     const poll = await catalogFetch<{ status?: string; interval_sec?: number }>(
-      `/youtube/auth/poll?session_id=${encodeURIComponent(sessionId)}`,
+      `/youtube/companion/auth/poll?session_id=${encodeURIComponent(sessionId)}`,
     );
     if (poll.status === "authenticated") {
       window.clearInterval(youtubePollTimer);
@@ -513,7 +514,7 @@ async function pollYoutubeAuth(sessionId: string): Promise<void> {
 async function disconnectYoutube(): Promise<void> {
   window.clearInterval(youtubePollTimer);
   try {
-    await catalogFetch("/youtube/auth/disconnect", { method: "POST" });
+    await catalogFetch("/youtube/companion/auth/disconnect", { method: "POST" });
     showYoutubeCode({});
     setYoutubeStatus("not connected");
   } catch (error) {

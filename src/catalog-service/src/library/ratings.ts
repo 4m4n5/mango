@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
 import { seriesBareId } from '../playability/ids.js';
-import { libraryDatabase } from './db.js';
+import { activeViewerProfileId, libraryDatabase } from './db.js';
 
 export type RatingContentType = 'movie' | 'series';
 export type RatingOrigin = 'seed' | 'couch';
 export type HalfStepRating = 0 | 0.5 | 1 | 1.5 | 2 | 2.5 | 3 | 3.5 | 4 | 4.5 | 5;
 
 export type FireWaterRating = {
+  profile_id: string;
   type: RatingContentType;
   id: string;
   title: string;
@@ -15,6 +16,8 @@ export type FireWaterRating = {
   water: HalfStepRating;
   revision: number;
   origin: RatingOrigin;
+  /** Stable, bounded semantic tags retained from the reviewed seed/enrichment path. */
+  taste_tags: string[];
   updated_at: number;
 };
 
@@ -57,6 +60,7 @@ export type SeedManifest = {
 };
 
 type RatingRow = {
+  profile_id: string;
   content_type: RatingContentType;
   content_id: string;
   title: string;
@@ -64,9 +68,25 @@ type RatingRow = {
   fire_steps: number;
   water_steps: number;
   origin: RatingOrigin;
+  taste_tags_json: string;
   revision: number;
+  event_revision: number | null;
   updated_at: number;
 };
+
+function parseTasteTags(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 32);
+  } catch {
+    return [];
+  }
+}
 
 export class RatingValidationError extends Error {}
 export class RatingRevisionConflictError extends Error {
@@ -135,44 +155,87 @@ export function stepsToRating(steps: number): HalfStepRating {
 
 function rowToRating(row: RatingRow): FireWaterRating {
   return {
+    profile_id: row.profile_id,
     type: row.content_type,
     id: row.content_id,
     title: row.title,
     year: row.year,
     fire: stepsToRating(row.fire_steps),
     water: stepsToRating(row.water_steps),
-    revision: row.revision,
+    // The event log is the durable identity clock. In addition to preserving a
+    // clear tombstone, taking its maximum heals rows written by older builds
+    // that could accidentally restart at revision 1 after a clear.
+    revision: Math.max(row.revision, row.event_revision ?? 0),
     origin: row.origin,
+    taste_tags: parseTasteTags(row.taste_tags_json),
     updated_at: row.updated_at,
   };
 }
 
-export function getRating(type: string, id: string): FireWaterRating | null {
+export function getRating(type: string, id: string, profileId = activeViewerProfileId()): FireWaterRating | null {
   const identity = canonicalRatingIdentity(type, id);
   const row = libraryDatabase().prepare(`
-SELECT content_type, content_id, title, year, fire_steps, water_steps, origin, revision, updated_at
-FROM content_ratings
-WHERE content_type = ? AND content_id = ?
-`).get(identity.type, identity.id) as RatingRow | undefined;
+SELECT ratings.profile_id, ratings.content_type, ratings.content_id, ratings.title, ratings.year,
+       ratings.fire_steps, ratings.water_steps, ratings.origin, ratings.taste_tags_json,
+       ratings.revision,
+       (
+         SELECT MAX(events.revision)
+         FROM profile_content_rating_events AS events
+         WHERE events.profile_id = ratings.profile_id
+           AND events.content_type = ratings.content_type
+           AND events.content_id = ratings.content_id
+       ) AS event_revision,
+       ratings.updated_at
+FROM profile_content_ratings AS ratings
+WHERE ratings.profile_id = ? AND ratings.content_type = ? AND ratings.content_id = ?
+`).get(profileId, identity.type, identity.id) as RatingRow | undefined;
   return row ? rowToRating(row) : null;
 }
 
-export function listRatings(type?: RatingContentType): FireWaterRating[] {
+export function listRatings(type?: RatingContentType, profileId = activeViewerProfileId()): FireWaterRating[] {
   const rows = libraryDatabase().prepare(`
-SELECT content_type, content_id, title, year, fire_steps, water_steps, origin, revision, updated_at
-FROM content_ratings
-WHERE (@type IS NULL OR content_type = @type)
-ORDER BY updated_at DESC, content_type, content_id
-`).all({ type: type ?? null }) as RatingRow[];
+SELECT ratings.profile_id, ratings.content_type, ratings.content_id, ratings.title, ratings.year,
+       ratings.fire_steps, ratings.water_steps, ratings.origin, ratings.taste_tags_json,
+       ratings.revision,
+       (
+         SELECT MAX(events.revision)
+         FROM profile_content_rating_events AS events
+         WHERE events.profile_id = ratings.profile_id
+           AND events.content_type = ratings.content_type
+           AND events.content_id = ratings.content_id
+       ) AS event_revision,
+       ratings.updated_at
+FROM profile_content_ratings AS ratings
+WHERE ratings.profile_id = @profile_id
+  AND (@type IS NULL OR ratings.content_type = @type)
+ORDER BY ratings.updated_at DESC, ratings.content_type, ratings.content_id
+`).all({ profile_id: profileId, type: type ?? null }) as RatingRow[];
   return rows.map(rowToRating);
 }
 
-export function hasCouchRatingHistory(type: RatingContentType, id: string): boolean {
+function latestRatingEventRevision(
+  type: RatingContentType,
+  id: string,
+  profileId: string,
+): number {
   const row = libraryDatabase().prepare(`
-SELECT 1 AS found FROM content_rating_events
-WHERE content_type = ? AND content_id = ? AND origin = 'couch'
+SELECT MAX(revision) AS revision
+FROM profile_content_rating_events
+WHERE profile_id = ? AND content_type = ? AND content_id = ?
+`).get(profileId, type, id) as { revision: number | null } | undefined;
+  return row?.revision ?? 0;
+}
+
+export function hasCouchRatingHistory(
+  type: RatingContentType,
+  id: string,
+  profileId = activeViewerProfileId(),
+): boolean {
+  const row = libraryDatabase().prepare(`
+SELECT 1 AS found FROM profile_content_rating_events
+WHERE profile_id = ? AND content_type = ? AND content_id = ? AND origin = 'couch'
 LIMIT 1
-`).get(type, id) as { found?: number } | undefined;
+`).get(profileId, type, id) as { found?: number } | undefined;
   return Boolean(row?.found);
 }
 
@@ -190,6 +253,7 @@ export function putRating(input: {
   caption_hash?: string | null;
   taste_tags?: string[];
   reject_episode?: boolean;
+  profile_id?: string;
 }): FireWaterRating | null {
   const identity = canonicalRatingIdentity(input.type, input.id, {
     rejectEpisode: input.reject_episode ?? false,
@@ -202,29 +266,32 @@ export function putRating(input: {
   const fireSteps = ratingToSteps(input.fire);
   const waterSteps = ratingToSteps(input.water);
   const origin = input.origin ?? 'couch';
+  const profileId = origin === 'seed' ? 'household' : (input.profile_id ?? activeViewerProfileId());
   const timestamp = nowMs();
   const db = libraryDatabase();
 
   const write = db.transaction(() => {
-    const current = getRating(identity.type, identity.id);
-    if ((current?.revision ?? 0) !== input.expected_revision) {
-      throw new RatingRevisionConflictError(current);
-    }
-    if (origin === 'seed' && hasCouchRatingHistory(identity.type, identity.id)) {
+    const current = getRating(identity.type, identity.id, profileId);
+    if (origin === 'seed' && hasCouchRatingHistory(identity.type, identity.id, profileId)) {
       return current;
     }
-    const revision = (current?.revision ?? 0) + 1;
+    const identityRevision = current?.revision
+      ?? latestRatingEventRevision(identity.type, identity.id, profileId);
+    if (identityRevision !== input.expected_revision) {
+      throw new RatingRevisionConflictError(current);
+    }
+    const revision = identityRevision + 1;
     db.prepare(`
-INSERT INTO content_ratings (
-  content_type, content_id, title, year, fire_steps, water_steps, origin, revision,
+INSERT INTO profile_content_ratings (
+  profile_id, content_type, content_id, title, year, fire_steps, water_steps, origin, revision,
   seed_manifest, seed_manifest_hash, caption_hash, taste_tags_json, created_at, updated_at
 ) VALUES (
-  @content_type, @content_id, @title, @year, @fire_steps, @water_steps, @origin, @revision,
+  @profile_id, @content_type, @content_id, @title, @year, @fire_steps, @water_steps, @origin, @revision,
   @seed_manifest, @seed_manifest_hash, @caption_hash, @taste_tags_json, @created_at, @updated_at
 )
-ON CONFLICT(content_type, content_id) DO UPDATE SET
+ON CONFLICT(profile_id, content_type, content_id) DO UPDATE SET
   title = excluded.title,
-  year = COALESCE(excluded.year, content_ratings.year),
+  year = COALESCE(excluded.year, profile_content_ratings.year),
   fire_steps = excluded.fire_steps,
   water_steps = excluded.water_steps,
   origin = excluded.origin,
@@ -235,6 +302,7 @@ ON CONFLICT(content_type, content_id) DO UPDATE SET
   taste_tags_json = excluded.taste_tags_json,
   updated_at = excluded.updated_at
 `).run({
+      profile_id: profileId,
       content_type: identity.type,
       content_id: identity.id,
       title,
@@ -246,16 +314,20 @@ ON CONFLICT(content_type, content_id) DO UPDATE SET
       seed_manifest: input.seed_manifest ?? null,
       seed_manifest_hash: input.seed_manifest_hash ?? null,
       caption_hash: input.caption_hash ?? null,
-      taste_tags_json: JSON.stringify((input.taste_tags ?? []).map((tag) => tag.trim()).filter(Boolean).slice(0, 32)),
+      // Couch edits must not erase reviewed seed/enrichment semantics. A caller
+      // may replace tags explicitly; otherwise preserve the current bounded set.
+      taste_tags_json: JSON.stringify((input.taste_tags ?? current?.taste_tags ?? [])
+        .map((tag) => tag.trim()).filter(Boolean).slice(0, 32)),
       created_at: timestamp,
       updated_at: timestamp,
     });
     db.prepare(`
-INSERT INTO content_rating_events (
-  content_type, content_id, action, origin, previous_fire_steps, previous_water_steps,
+INSERT INTO profile_content_rating_events (
+  profile_id, content_type, content_id, action, origin, previous_fire_steps, previous_water_steps,
   fire_steps, water_steps, revision, manifest_name, manifest_hash, occurred_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `).run(
+      profileId,
       identity.type,
       identity.id,
       origin === 'seed' ? 'import' : current ? 'edit' : 'set',
@@ -270,7 +342,7 @@ INSERT INTO content_rating_events (
       timestamp,
     );
     if (origin === 'couch') resolveRatingPrompt(identity.type, identity.id, 'rated', timestamp);
-    return getRating(identity.type, identity.id);
+    return getRating(identity.type, identity.id, profileId);
   });
   const rating = write();
   if (!rating && origin !== 'seed') throw new Error('rating missing after write');
@@ -281,24 +353,27 @@ export function clearRating(input: {
   type: string;
   id: string;
   expected_revision: number;
+  profile_id?: string;
 }): { cleared: boolean; revision: number } {
   const identity = canonicalRatingIdentity(input.type, input.id, { rejectEpisode: true });
   if (!Number.isInteger(input.expected_revision) || input.expected_revision < 1) {
     throw new RatingValidationError('expected_revision must identify the current rating');
   }
   const db = libraryDatabase();
+  const profileId = input.profile_id ?? activeViewerProfileId();
   return db.transaction(() => {
-    const current = getRating(identity.type, identity.id);
+    const current = getRating(identity.type, identity.id, profileId);
     if (!current || current.revision !== input.expected_revision) {
       throw new RatingRevisionConflictError(current);
     }
     const nextRevision = current.revision + 1;
     db.prepare(`
-INSERT INTO content_rating_events (
-  content_type, content_id, action, origin, previous_fire_steps, previous_water_steps,
+INSERT INTO profile_content_rating_events (
+  profile_id, content_type, content_id, action, origin, previous_fire_steps, previous_water_steps,
   fire_steps, water_steps, revision, occurred_at
-) VALUES (?, ?, 'clear', 'couch', ?, ?, NULL, NULL, ?, ?)
+) VALUES (?, ?, ?, 'clear', 'couch', ?, ?, NULL, NULL, ?, ?)
 `).run(
+      profileId,
       identity.type,
       identity.id,
       ratingToSteps(current.fire),
@@ -306,18 +381,19 @@ INSERT INTO content_rating_events (
       nextRevision,
       nowMs(),
     );
-    db.prepare('DELETE FROM content_ratings WHERE content_type = ? AND content_id = ?')
-      .run(identity.type, identity.id);
+    db.prepare('DELETE FROM profile_content_ratings WHERE profile_id = ? AND content_type = ? AND content_id = ?')
+      .run(profileId, identity.type, identity.id);
     return { cleared: true, revision: nextRevision };
   })();
 }
 
 export function getRatingPromptState(type: string, id: string): RatingPromptState {
   const identity = canonicalRatingIdentity(type, id);
+  const profileId = activeViewerProfileId();
   const row = libraryDatabase().prepare(`
 SELECT eligible_at, presented_at, disposition, resolved_at
-FROM rating_prompt_state WHERE content_type = ? AND content_id = ?
-`).get(identity.type, identity.id) as {
+FROM profile_rating_prompt_state WHERE profile_id = ? AND content_type = ? AND content_id = ?
+`).get(profileId, identity.type, identity.id) as {
     eligible_at: number | null;
     presented_at: number | null;
     disposition: RatingPromptState['disposition'];
@@ -325,7 +401,7 @@ FROM rating_prompt_state WHERE content_type = ? AND content_id = ?
   } | undefined;
   return {
     ...identity,
-    eligible: Boolean(row?.eligible_at && !row.resolved_at && !getRating(identity.type, identity.id)),
+    eligible: Boolean(row?.eligible_at && !row.resolved_at && !getRating(identity.type, identity.id, profileId)),
     eligible_at: row?.eligible_at ?? null,
     presented_at: row?.presented_at ?? null,
     disposition: row?.disposition ?? null,
@@ -335,23 +411,25 @@ FROM rating_prompt_state WHERE content_type = ? AND content_id = ?
 
 export function markRatingPromptEligible(type: string, id: string, eligibleAt = nowMs()): RatingPromptState {
   const identity = canonicalRatingIdentity(type, id);
+  const profileId = activeViewerProfileId();
   libraryDatabase().prepare(`
-INSERT INTO rating_prompt_state(content_type, content_id, eligible_at, updated_at)
-VALUES (?, ?, ?, ?)
-ON CONFLICT(content_type, content_id) DO UPDATE SET
-  eligible_at = CASE WHEN rating_prompt_state.resolved_at IS NULL THEN COALESCE(rating_prompt_state.eligible_at, excluded.eligible_at) ELSE rating_prompt_state.eligible_at END,
+INSERT INTO profile_rating_prompt_state(profile_id, content_type, content_id, eligible_at, updated_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(profile_id, content_type, content_id) DO UPDATE SET
+  eligible_at = CASE WHEN profile_rating_prompt_state.resolved_at IS NULL THEN COALESCE(profile_rating_prompt_state.eligible_at, excluded.eligible_at) ELSE profile_rating_prompt_state.eligible_at END,
   updated_at = excluded.updated_at
-`).run(identity.type, identity.id, eligibleAt, nowMs());
+`).run(profileId, identity.type, identity.id, eligibleAt, nowMs());
   return getRatingPromptState(identity.type, identity.id);
 }
 
 export function markRatingPromptPresented(type: string, id: string): RatingPromptState {
   const identity = canonicalRatingIdentity(type, id);
+  const profileId = activeViewerProfileId();
   libraryDatabase().prepare(`
-UPDATE rating_prompt_state
+UPDATE profile_rating_prompt_state
 SET presented_at = COALESCE(presented_at, ?), updated_at = ?
-WHERE content_type = ? AND content_id = ? AND resolved_at IS NULL
-`).run(nowMs(), nowMs(), identity.type, identity.id);
+WHERE profile_id = ? AND content_type = ? AND content_id = ? AND resolved_at IS NULL
+`).run(nowMs(), nowMs(), profileId, identity.type, identity.id);
   return getRatingPromptState(identity.type, identity.id);
 }
 
@@ -362,14 +440,15 @@ export function resolveRatingPrompt(
   timestamp = nowMs(),
 ): RatingPromptState {
   const identity = canonicalRatingIdentity(type, id);
+  const profileId = activeViewerProfileId();
   libraryDatabase().prepare(`
-INSERT INTO rating_prompt_state(content_type, content_id, disposition, resolved_at, updated_at)
-VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(content_type, content_id) DO UPDATE SET
-  disposition = CASE WHEN rating_prompt_state.resolved_at IS NULL THEN excluded.disposition ELSE rating_prompt_state.disposition END,
-  resolved_at = COALESCE(rating_prompt_state.resolved_at, excluded.resolved_at),
+INSERT INTO profile_rating_prompt_state(profile_id, content_type, content_id, disposition, resolved_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(profile_id, content_type, content_id) DO UPDATE SET
+  disposition = CASE WHEN profile_rating_prompt_state.resolved_at IS NULL THEN excluded.disposition ELSE profile_rating_prompt_state.disposition END,
+  resolved_at = COALESCE(profile_rating_prompt_state.resolved_at, excluded.resolved_at),
   updated_at = excluded.updated_at
-`).run(identity.type, identity.id, disposition, timestamp, timestamp);
+`).run(profileId, identity.type, identity.id, disposition, timestamp, timestamp);
   return getRatingPromptState(identity.type, identity.id);
 }
 

@@ -2,7 +2,7 @@
 
 **Platform:** Raspberry Pi 5 (8 GB) · Pi OS Desktop · X11 + Openbox  
 **Branch:** `feat/native-experience`  
-**Status:** Core TV stack, native YouTube, and Reliability Center shipped · library grow, rail quality, and companion UX hardening in progress
+**Status:** Core TV stack, native YouTube base, and Reliability Center shipped · profile-aware recommendation code local with Pi/TV proof deferred · library grow and companion UX hardening in progress
 
 ---
 
@@ -64,15 +64,15 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 
 | Topic | Decision |
 |-------|----------|
-| Continue rail | Mango `progress.db` resume state; Saved is a separate rail immediately after Continue |
-| Resume source of truth | mango progress DB (mpv position watcher) |
+| Continue rail | Profile-exact Mango `progress.db` resume state; Saved is a separate rail immediately after Continue |
+| Resume source of truth | Mango progress DB (mpv position watcher); legacy unscoped positions migrate only to Household and exact resume is never Household-blended |
 | Verified library | `playability.db` active verified titles; thematic `rail_pool` memberships |
 | User library | Mango-owned `library.db`: explicit Saved, automatic history, finished, dormant hidden/blocked fields, and taste/profile hooks |
 | Library grow | Best-effort fresh `+20` new-to-rail verified target per active rail; shortfalls publish usable verified work with operator warnings |
 | Grow visibility | Operator-only reports; no TV debug/progress surface |
 | Finished watching | Store in Mango progress/library state; no Stremio write-back |
-| Household ratings | Required Fire + Water reactions, each 0–5 in 0.5 steps; movie title-level and series show-level |
-| Personalized discovery | One system-owned **For You** rail after Continue/Saved in Movies and TV Shows; verified-playable cards only |
+| Fire/Water ratings | Required Fire + Water reactions, each 0–5 in 0.5 steps; movie title-level and series show-level; Household retains seed ratings and personal profiles start clean |
+| Personalized discovery | One system-owned **For You** rail after Continue/Saved in Movies and TV Shows; every visible rail has exactly 6 currently verified-playable cards (4 close, 1 adjacent, 1 surprise), otherwise it is omitted |
 
 ### Voice & AI
 
@@ -84,12 +84,14 @@ mango is a **plug-and-play AI TV box**: legit catalogs, conversational control f
 | TTS | Off until **M6** soundbar/TV path validated |
 | AI catalogs | Voice-created slots on home · overflow handling (replace / merge); automation never writes to Saved |
 | Recommendation AI | Optional nightly feature/candidate enrichment only; deterministic local ranking and last-good rails remain available without AI |
+| YouTube recommendations | Four-card anchors For You · Subscriptions · History · Saved, then at most 3 adaptive rails; healthy supply yields deterministic 70/20/10 discovery and thin-supply fallback is diagnosed; X is cache-only and never shuffles History/Saved |
 
 ### Household
 
 | Topic | Decision |
 |-------|----------|
-| Profiles | Single household V1 |
+| Profiles | Permanent Household plus up to 7 optional personal profiles; no PIN or startup chooser; explicit activation and stable-ID rename |
+| Session mood | Optional, explicit, bounded, and expiring; never inferred; profile activation clears it |
 
 ---
 

@@ -3,6 +3,8 @@ export type AioStreamsUncachedPolicy = {
   excludeUncachedMode?: unknown;
   excludeUncachedFromServices?: unknown;
   excludeUncachedFromStreamTypes?: unknown;
+  hideErrors?: unknown;
+  hideErrorsForResources?: unknown;
 };
 
 function normalizedList(value: unknown): string[] {
@@ -32,5 +34,12 @@ export function validateAioStreamsTargetPolicy(policy: AioStreamsUncachedPolicy)
   }
   if (!targetPolicyExcludesUncached(policy, 'realdebrid')) {
     throw new Error('AIOStreams target policy must exclude uncached Real-Debrid');
+  }
+  if (policy.hideErrors !== false) {
+    throw new Error('AIOStreams target policy must expose stream errors to Mango');
+  }
+  const hiddenResources = new Set(normalizedList(policy.hideErrorsForResources));
+  if (hiddenResources.has('stream')) {
+    throw new Error('AIOStreams target policy must not hide stream errors from Mango');
   }
 }

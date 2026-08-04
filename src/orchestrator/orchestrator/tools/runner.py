@@ -103,6 +103,41 @@ async def execute_tool(
     if name == "mango_read_profile":
         return _compact(await asyncio.to_thread(catalog_tools.tool_read_profile, settings))
 
+    if name == "mango_manage_viewer_profile":
+        action = tool_input.get("action")
+        if action not in {"list", "create", "rename", "activate", "complete_onboarding"}:
+            return _compact({"ok": False, "error": "valid profile action required"})
+        profile_id = tool_input.get("profile_id")
+        profile_id_value = profile_id.strip() if isinstance(profile_id, str) else ""
+        profile_name = tool_input.get("name")
+        profile_name_value = profile_name.strip() if isinstance(profile_name, str) else ""
+        if action in {"rename", "activate", "complete_onboarding"} and not profile_id_value:
+            return _compact({"ok": False, "error": f"profile_id required for {action}"})
+        if action in {"create", "rename"} and not profile_name_value:
+            return _compact({"ok": False, "error": f"name required for {action}"})
+        result = await asyncio.to_thread(
+            catalog_tools.tool_manage_viewer_profile,
+            settings,
+            action=action,
+            profile_id=profile_id_value or None,
+            name=profile_name_value or None,
+        )
+        if action == "activate" and result.get("ok") is True:
+            command = {
+                "type": "launcher_command",
+                "action": "profile_changed",
+                "profile_id": profile_id_value,
+            }
+            tv_seq: int | None = None
+            if dispatch_launcher is not None:
+                tv_seq = await dispatch_launcher(command)
+            result = {
+                **result,
+                "tv_seq": tv_seq,
+                "tv_synced": tv_seq is not None,
+            }
+        return _compact(result)
+
     if name == "mango_companion_summary":
         return _compact(await asyncio.to_thread(catalog_tools.tool_companion_summary, settings))
 
@@ -274,6 +309,19 @@ def tool_summary(name: str, tool_input: dict[str, Any]) -> str:
         return "Updating librarian notes"
     if name == "mango_read_profile":
         return "Reading companion profile"
+    if name == "mango_manage_viewer_profile":
+        action = tool_input.get("action")
+        if action == "list":
+            return "Listing viewer profiles"
+        if action == "create":
+            return f"Creating viewer profile {tool_input.get('name', '…')}"
+        if action == "rename":
+            return f"Renaming viewer profile to {tool_input.get('name', '…')}"
+        if action == "activate":
+            return f"Switching to viewer profile {tool_input.get('profile_id', '…')}"
+        if action == "complete_onboarding":
+            return f"Completing setup for viewer profile {tool_input.get('profile_id', '…')}"
+        return "Managing viewer profile"
     if name == "mango_patch_profile":
         return "Updating companion profile"
     if name == "mango_companion_summary":

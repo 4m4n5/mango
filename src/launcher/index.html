@@ -15,6 +15,14 @@
             <span>search</span>
           </button>
           <nav id="browse-tabs" class="browse-tabs" aria-label="Browse tabs"></nav>
+          <button id="personalization-entry" class="browse-personalization" type="button"
+            aria-label="Personalization settings. Household profile. Any mood.">
+            <span id="personalization-entry-avatar" class="browse-personalization-avatar" aria-hidden="true">H</span>
+            <span class="browse-personalization-copy">
+              <span id="personalization-entry-name" class="browse-personalization-name">household</span>
+              <span id="personalization-entry-mood" class="browse-personalization-mood">any mood</span>
+            </span>
+          </button>
           <button id="library-refresh" class="browse-shuffle" type="button" aria-label="Shuffle library, press X">
             <span class="browse-shuffle-key" aria-hidden="true">X</span>
             <span class="browse-shuffle-label">shuffle</span>
@@ -38,7 +46,7 @@
               <p id="detail-eyebrow" class="eyebrow">catalog</p>
               <h1 id="detail-title">title</h1>
               <p id="detail-meta" class="detail-meta">movie</p>
-              <div id="detail-rating-chips" class="detail-rating-chips" hidden aria-label="Household rating">
+              <div id="detail-rating-chips" class="detail-rating-chips" hidden aria-label="Shared household rating">
                 <div class="detail-rating-chip detail-rating-chip--fire">
                   <span class="detail-rating-label">Fire</span>
                   <span id="detail-rating-fire-marks" class="rating-marks"></span>
@@ -93,7 +101,7 @@
         <div class="rating-sheet-panel" role="dialog" aria-modal="true" aria-labelledby="rating-sheet-title">
           <div class="rating-sheet-head">
             <div>
-              <p class="eyebrow">your household rating</p>
+              <p id="rating-owner-label" class="eyebrow">shared household rating</p>
               <h2 id="rating-sheet-title">Rate</h2>
             </div>
             <p class="rating-sheet-help">B adjust or confirm · arrows move · Y cancel<span class="rating-sheet-clear-help"> · X clear</span></p>

@@ -42,6 +42,7 @@ stream_types = {str(value).lower() for value in config.get("excludeUncachedFromS
 mode = str(config.get("excludeUncachedMode", "or")).lower()
 
 errors = []
+warnings = []
 if config.get("excludeUncached") is True:
     errors.append("global excludeUncached=true removes uncached TorBox")
 if mode != "or":
@@ -50,9 +51,86 @@ if "torbox" in services or "debrid" in stream_types:
     errors.append("uncached TorBox is excluded")
 if "realdebrid" not in services:
     errors.append("uncached Real-Debrid is not excluded")
+if config.get("hideErrors") is not False:
+    errors.append("stream errors are hidden from Mango")
+hidden_resources = {str(value).lower() for value in config.get("hideErrorsForResources", [])}
+if "stream" in hidden_resources:
+    errors.append("stream errors are hidden by hideErrorsForResources")
+
+# Topology is Pi-owned because its service credentials and generated addon
+# instance IDs must never enter git. Verify only safe identifiers/booleans and
+# never print the credential-bearing objects returned by /api/v1/user.
+enabled_services = {
+    str(service.get("id") or "").lower()
+    for service in config.get("services", [])
+    if isinstance(service, dict) and service.get("enabled", True) is not False
+}
+required_services = {"torbox", "realdebrid", "easynews"}
+missing_services = sorted(required_services - enabled_services)
+if missing_services:
+    errors.append("required services disabled or missing: " + ", ".join(missing_services))
+
+enabled_presets = {
+    str(preset.get("type") or "").lower(): preset
+    for preset in config.get("presets", [])
+    if isinstance(preset, dict) and preset.get("enabled") is True
+}
+required_presets = {"torrentio", "comet", "mediafusion"}
+missing_presets = sorted(required_presets - set(enabled_presets))
+if missing_presets:
+    errors.append("required stream indexers disabled or missing: " + ", ".join(missing_presets))
+for preset_type in sorted(required_presets & set(enabled_presets)):
+    resources = enabled_presets[preset_type].get("options", {}).get("resources")
+    if isinstance(resources, list) and resources and "stream" not in {
+        str(value).lower() for value in resources
+    }:
+        errors.append(f"{preset_type} does not expose the stream resource")
+
+service_wrap = config.get("serviceWrap")
+if not isinstance(service_wrap, dict) or service_wrap.get("enabled") is not True:
+    errors.append("serviceWrap is not enabled")
+elif isinstance(service_wrap.get("services"), list) and service_wrap["services"]:
+    wrapped = {str(value).lower() for value in service_wrap["services"]}
+    missing_wrapped = sorted({"torbox", "realdebrid"} - wrapped)
+    if missing_wrapped:
+        errors.append("serviceWrap omits: " + ", ".join(missing_wrapped))
+
+groups = config.get("groups")
+if isinstance(groups, dict) and groups.get("enabled", True) is not False:
+    groupings = groups.get("groupings")
+    if isinstance(groupings, list) and groupings:
+        instance_ids = {
+            str(preset.get("instanceId") or "")
+            for preset in config.get("presets", [])
+            if isinstance(preset, dict)
+        }
+        for index, grouping in enumerate(groupings, start=1):
+            if not isinstance(grouping, dict):
+                errors.append(f"group {index} is malformed")
+                continue
+            condition = grouping.get("condition")
+            if not isinstance(condition, str) or not condition.strip():
+                errors.append(f"group {index} has no condition")
+            unknown = sorted({
+                str(value) for value in grouping.get("addons", [])
+                if str(value) not in instance_ids
+            })
+            if unknown:
+                errors.append(f"group {index} references unknown addon instance IDs")
+    else:
+        warnings.append("groups are enabled without groupings; all indexers fan out in parallel")
+else:
+    warnings.append("conditional groups are disabled; all indexers fan out in parallel")
+
 if errors:
     raise SystemExit("; ".join(errors))
-print("AIOStreams live uncached policy verified: TorBox retained, Real-Debrid excluded")
+for warning in warnings:
+    print("AIOStreams policy warning: " + warning, file=sys.stderr)
+print(
+    "AIOStreams live policy verified: TorBox/RD/Easynews enabled; "
+    "Torrentio/Comet/MediaFusion enabled; uncached TorBox retained; "
+    "uncached RD excluded; stream errors observable"
+)
 PY
 }
 
@@ -136,7 +214,7 @@ Usage: $(basename "$0") <get|diff|apply|verify>
   get    Download full user config (contains secrets — do not commit)
   diff   Show delta vs config/aiostreams-target-patch.json
   apply  Merge patch and PUT /api/v1/user
-  verify Assert the live uncached policy without printing credentials
+  verify Assert the live stream topology/policy without printing credentials
 
 Env: MANGO_AIOSTREAMS_URL, MANGO_AIOSTREAMS_CREDS, MANGO_AIOSTREAMS_PATCH
 EOF

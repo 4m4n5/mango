@@ -35,6 +35,10 @@ export interface ContentCard {
   liveStatus?: "none" | "live" | "upcoming" | "completed";
   detailItems?: ContentCard[];
   railId?: string;
+  /** Version of the recommendation slate that placed this card. */
+  slateSequence?: number;
+  /** Opaque server-issued proof of the exact rendered slate and profile owner. */
+  attributionToken?: string;
   /** Stremio play id — episode id when resuming series. */
   playId?: string;
   resumeSec?: number;
@@ -49,6 +53,11 @@ export interface ContentRail {
   label: string;
   cards: ContentCard[];
   layout?: "landscape" | "poster";
+  /** Idempotency/version token for rendered-card impression telemetry. */
+  slateSequence?: number;
+  attributionToken?: string;
+  /** Upstream/cache sequence used only by domain-specific exposure accounting. */
+  sourceSlateSequence?: number;
 }
 
 export interface AppCard {

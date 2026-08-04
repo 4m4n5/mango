@@ -1,5 +1,15 @@
 import type { ContentCard } from "./types";
+import { recommendationAttributionPayload } from "./recommendation-attribution";
 import { showToast } from "./toast";
+import {
+  personalizationExpectationBody,
+  personalizationExpectationParams,
+  personalizationOwnerFromPayload,
+  samePersonalizationOwner,
+  type PersonalizationOwner,
+  type PersonalizationOwnerPayload,
+} from "./personalization";
+import { CatalogOwnershipChangedError } from "./catalog-errors";
 
 export type HalfStepRating =
   | 0 | 0.5 | 1 | 1.5 | 2 | 2.5
@@ -26,22 +36,37 @@ type RatingResponse = {
     presented_at: number | null;
     resolved_at: number | null;
   };
-};
+} & PersonalizationOwnerPayload;
 
 type Axis = "fire" | "water";
 type FocusTarget = Axis | "save" | "cancel";
 
-async function responseJson<T>(response: Response): Promise<T> {
+async function responseJson<T extends PersonalizationOwnerPayload>(
+  response: Response,
+  expectedOwner: PersonalizationOwner,
+): Promise<T> {
   const payload = await response.json().catch(() => ({})) as { error?: string } & T;
-  if (!response.ok) throw new Error(payload.error || "Rating could not be saved.");
+  if (!response.ok) {
+    if (response.status === 409) throw new CatalogOwnershipChangedError();
+    throw new Error(payload.error || "Rating could not be saved.");
+  }
+  const responseOwner = personalizationOwnerFromPayload(payload);
+  if (!responseOwner || !samePersonalizationOwner(responseOwner, expectedOwner)) {
+    throw new CatalogOwnershipChangedError();
+  }
   return payload;
 }
 
-export async function loadFireWaterRating(card: ContentCard): Promise<RatingResponse> {
-  const query = new URLSearchParams({ type: card.type, id: card.id });
+export async function loadFireWaterRating(
+  card: ContentCard,
+  expectedOwner: PersonalizationOwner,
+): Promise<RatingResponse> {
+  const query = personalizationExpectationParams(expectedOwner);
+  query.set("type", card.type);
+  query.set("id", card.id);
   return responseJson<RatingResponse>(await fetch(`/api/catalog/library/ratings?${query}`, {
     cache: "no-store",
-  }));
+  }), expectedOwner);
 }
 
 function ratingLabel(value: number | null): string {
@@ -89,6 +114,7 @@ export function renderRatingMarks(
 
 export class RatingSheetController {
   private card: ContentCard | null = null;
+  private owner: PersonalizationOwner | null = null;
   private current: FireWaterRating | null = null;
   private values: Record<Axis, number | null> = { fire: null, water: null };
   private confirmed: Record<Axis, boolean> = { fire: false, water: false };
@@ -131,8 +157,13 @@ export class RatingSheetController {
     return !this.sheet.classList.contains("hidden");
   }
 
-  async bindCard(card: ContentCard, eligible: boolean): Promise<void> {
+  async bindCard(
+    card: ContentCard,
+    eligible: boolean,
+    owner: PersonalizationOwner,
+  ): Promise<void> {
     this.card = card;
+    this.owner = { ...owner };
     this.current = null;
     this.invitationEligible = false;
     this.detailRateButton.hidden = !eligible;
@@ -140,8 +171,8 @@ export class RatingSheetController {
     this.invitation.hidden = true;
     if (!eligible) return;
     try {
-      const response = await loadFireWaterRating(card);
-      if (this.card !== card) return;
+      const response = await loadFireWaterRating(card, owner);
+      if (this.card !== card || !this.owner || !samePersonalizationOwner(this.owner, owner)) return;
       if (!response.enabled) {
         this.detailRateButton.hidden = true;
         return;
@@ -159,15 +190,22 @@ export class RatingSheetController {
 
   async detailClosing(): Promise<void> {
     const card = this.card;
-    if (card && this.invitationEligible && !this.current) {
-      await fetch("/api/catalog/library/rating-prompts/dismiss", {
+    const owner = this.owner;
+    if (card && owner && this.invitationEligible && !this.current) {
+      await responseJson(await fetch("/api/catalog/library/rating-prompts/dismiss", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ type: card.type, id: card.id, disposition: "left_detail" }),
-      }).catch(() => undefined);
+        body: JSON.stringify({
+          type: card.type,
+          id: card.id,
+          disposition: "left_detail",
+          ...personalizationExpectationBody(owner),
+        }),
+      }), owner).catch(() => undefined);
     }
     this.close(false);
     this.card = null;
+    this.owner = null;
   }
 
   private renderDetailState(): void {
@@ -326,14 +364,19 @@ export class RatingSheetController {
 
   private async save(): Promise<void> {
     const card = this.card;
-    if (!card || this.saving || !this.confirmed.fire || !this.confirmed.water
+    const owner = this.owner;
+    if (!card || !owner || this.saving || !this.confirmed.fire || !this.confirmed.water
       || this.values.fire === null || this.values.water === null) return;
     this.saving = true;
     this.errorBand.hidden = true;
     this.saveButton.textContent = "saving…";
     this.render();
     try {
-      const response = await responseJson<{ rating: FireWaterRating }>(await fetch(
+      const response = await responseJson<{
+        rating: FireWaterRating;
+        profile_id?: unknown;
+        personalization_updated_at?: unknown;
+      }>(await fetch(
         "/api/catalog/library/ratings",
         {
           method: "PUT",
@@ -346,9 +389,14 @@ export class RatingSheetController {
             fire: this.values.fire,
             water: this.values.water,
             expected_revision: this.current?.revision ?? 0,
+            ...recommendationAttributionPayload(card),
+            ...personalizationExpectationBody(owner),
           }),
         },
-      ));
+      ), owner);
+      if (this.card !== card || !this.owner || !samePersonalizationOwner(this.owner, owner)) {
+        throw new CatalogOwnershipChangedError();
+      }
       this.current = response.rating;
       this.invitationEligible = false;
       this.renderDetailState();
@@ -369,16 +417,25 @@ export class RatingSheetController {
   private async clear(): Promise<void> {
     const card = this.card;
     const current = this.current;
-    if (!card || !current || this.saving) return;
+    const owner = this.owner;
+    if (!card || !current || !owner || this.saving) return;
     this.saving = true;
     this.errorBand.hidden = true;
     try {
-      const query = new URLSearchParams({
-        type: card.type,
-        id: card.id,
-        expected_revision: String(current.revision),
-      });
-      await responseJson(await fetch(`/api/catalog/library/ratings?${query}`, { method: "DELETE" }));
+      const query = personalizationExpectationParams(owner);
+      query.set("type", card.type);
+      query.set("id", card.id);
+      query.set("expected_revision", String(current.revision));
+      for (const [key, value] of Object.entries(recommendationAttributionPayload(card))) {
+        if (value !== undefined) query.set(key, String(value));
+      }
+      await responseJson(await fetch(
+        `/api/catalog/library/ratings?${query}`,
+        { method: "DELETE" },
+      ), owner);
+      if (this.card !== card || !this.owner || !samePersonalizationOwner(this.owner, owner)) {
+        throw new CatalogOwnershipChangedError();
+      }
       this.current = null;
       this.invitationEligible = false;
       this.renderDetailState();

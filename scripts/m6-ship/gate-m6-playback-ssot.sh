@@ -330,6 +330,10 @@ if aio.get("excludeUncachedFromStreamTypes"):
 excluded_services = {str(value).lower() for value in aio.get("excludeUncachedFromServices", [])}
 if "torbox" in excluded_services or "realdebrid" not in excluded_services:
     raise SystemExit("AIOStreams patch must retain TorBox and exclude Real-Debrid uncached")
+if aio.get("hideErrors") is not False:
+    raise SystemExit("AIOStreams patch must expose stream errors to Mango")
+if "stream" in {str(value).lower() for value in aio.get("hideErrorsForResources", [])}:
+    raise SystemExit("AIOStreams patch must not hide stream errors by resource")
 
 playability = pathlib.Path(sys.argv[5]).read_text(encoding="utf-8")
 status = pathlib.Path(sys.argv[6]).read_text(encoding="utf-8")

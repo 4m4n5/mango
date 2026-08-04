@@ -2,11 +2,19 @@
 
 **Milestone:** [M5](ROADMAP.md) · **Rule (unchanged):** voice **opens**, pad **B** plays — no voice playback, on every tab including Live.
 
+**Recommendation status:** the profile-aware VOD/YouTube implementation is
+local code in this branch. Deployment, Pi diagnostics, screenshots, and human
+TV-quality verdicts are **DEFERRED** until the home agent proves this revision.
+
 ---
 
 ## Why this exists
 
-The AI companion should make mango feel like a next-gen AI TV box — look up titles, make suggestions, track vibe, personalize, and curate recommendation rails across **all four tabs** (Movies · Series · Live · YouTube), not just Movies/Series. Today the AI is Movies/Series-centric with only shallow YouTube reach and almost no Live reach. This doc captures the audit, the ideal UX, the locked decisions, and the phased plan.
+The AI companion should make mango feel like a next-gen AI TV box — look up
+titles, make suggestions, accept an explicit session mood, personalize, and
+curate recommendation rails across **all four tabs** (Movies · Series · Live ·
+YouTube). AI assists discovery in the background; it never becomes the
+couch-critical ranker or a second owner of profile state.
 
 ---
 
@@ -18,18 +26,40 @@ The AI companion should make mango feel like a next-gen AI TV box — look up ti
 | Open on TV | ✓ | ✓ | ✓ `mango_open_youtube` | ✓ `mango_open_title` type tv |
 | Save/Unsave | ✓ | ✓ | ✓ video only | ✓ type tv |
 | Create AI rail | ✓ | ✓ | ✓ | ✓ |
-| Personalization into rails | ~ gardener | ~ gardener | ✓ profile steering | — |
+| Personalization into rails | ✓ Fire/Water profile ranker | ✓ Fire/Water profile ranker | ✓ profile/mood local ranker | — custom rails only |
+| Viewer profile control | ✓ `mango_manage_viewer_profile` | ✓ | ✓ | ✓ shared session identity |
 | What's-on-now/EPG | n/a | n/a | ~ Live Now rail | ✓ now-playing after pad B; EPG deferred |
 | Subscriptions/channels | n/a | n/a | read-only | n/a |
 
-*Phases 0–3 shipped on `feat/native-experience`. M5.5b/M6.5 round code shipped Pi `8eeb239` (2026-07-05).*
+*The older Phases 0–3 and M5.5b/M6.5 base were previously shipped. That proof
+does not cover the current profile-aware recommendation redesign.*
 
 Structural facts:
 
-1. YouTube already has a rich server-built rail system (For You, Fresh Finds, New From Subs, Popular, Live Now, Because You Watched) but it's disconnected from the companion profile and the AI can't steer it.
-2. Live is IPTV — a tune-to-channel model (no stream ladder), fundamentally different from VOD, so it needs its own AI contract.
-
-The `CatalogTab` type already includes `'live'` and `'youtube'` — plumbing exists, AI logic doesn't use it.
+1. `library.db` is the single viewer-profile and recommendation-signal authority:
+   permanent Household, optional clean personal profiles, explicit session mood,
+   ratings, Saved, watch/search signals, Not-for-me, and recommendation events.
+   `progress.db` separately owns profile-exact Continue/resume; exact positions
+   never blend into Household.
+2. VOD For You is locally ranked from currently verified titles. Every visible
+   rail has exactly six cards (4 close, 1 adjacent, 1 surprise); it is omitted
+   when its reserve cannot heal the contract. Explicit Fire/Water dominates
+   confidence-weighted dual-horizon usage signals.
+3. YouTube anchors For You, Subscriptions, History, and Saved, then admits at
+   most three adaptive rails. Every visible rail has four cards; with healthy
+   supply, deterministic For You slates deliver 70/20/10 over ten rotations.
+   Successful reservoir generations replace stale candidates atomically; exact
+   Saved videos stay out of For You so the Saved anchor survives cross-rail
+   deduplication. Empty rebuilds retain last-good, thin-supply fallback is
+   recorded, and X is cache-only.
+4. AI enrichment is versioned, background-only, and optional. The local ranker
+   owns eligibility, diversity, and atomic last-good publication. Feature reads
+   and writes are batched, while CPU-heavy scoring and MMR run in a bounded
+   worker thread so catalog HTTP requests do not block the event loop; worker
+   failure or deadline expiry retains last-good.
+5. Live is IPTV — a tune-to-channel model, fundamentally different from VOD —
+   so it keeps its own custom-rail contract rather than pretending to share the
+   Fire/Water or YouTube ranker.
 
 ---
 
@@ -39,13 +69,16 @@ Four runtimes: phone companion PWA (PTT + chat) → orchestrator (Deepgram STT �
 
 | Store | Role |
 |-------|------|
-| `companion/profile.yaml` | Taste, familiarity, facts, proactive opt-in |
+| `companion/profile.yaml` | Conversational memory/familiarity; not viewer-profile authority |
 | `companion/journal.jsonl` | Turn-by-turn voice events |
 | `companion/compiled-notes.md` | Human-readable memory summary |
 | `voice/library-notes` | Persistent librarian notes, full replace |
-| `ai-catalogs/*.yaml` | Up to 3 AI rails per movies/series tab |
-| `library.db` | Saved, history, Not Interested — durable user state |
+| `ai-catalogs/*.yaml` | Up to 3 user-created AI rails per supported tab |
+| `library.db` | Household/personal profiles, mood, ratings, Saved, profile watch/history/search, Not-for-me, recommendation events, opaque served attribution |
+| `progress.db` | Profile-exact Continue/resume positions; legacy unscoped state belongs only to Household |
 | `playability.db` | Verified pools incl. AI slots |
+| `youtube.db` | Rebuildable YouTube metadata, reservoirs, exposure/cache state |
+| recommendation snapshots | Versioned local VOD slates and last-good semantic-enrichment state |
 
 Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthropic tool loop) → catalog-service `:3020` `/voice/*` + `serve.py` `:3000` voice command queue (long-poll) → launcher; loopback WS `:8766` → launcher HUD; `tv_seq` ack confirms opens.
 
@@ -56,7 +89,7 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | Discovery | `mango_search` · `mango_search_external` · `mango_youtube_search` · `mango_library_overview` · `mango_library_browse` |
 | TV control | `mango_open_title` · `mango_open_youtube` · `mango_navigate` · `mango_now_playing` |
 | Curation | `mango_create/update/delete/refresh_ai_catalog` · `mango_ai_catalog_status` · `mango_list_ai_catalogs` · `mango_library_shuffle` · `mango_save_title` · `mango_unsave_title` · `mango_playability_refresh` |
-| Memory | `mango_read/patch_profile` · `mango_companion_summary` · `mango_append_session_notes` · `mango_read/update_librarian_notes` |
+| Memory/profile | `mango_manage_viewer_profile` · `mango_read/patch_profile` · `mango_companion_summary` · `mango_append_session_notes` · `mango_read/update_librarian_notes` |
 | Blocked by design | `mango_play` · `play_youtube` · hide/unhide · volume · pause |
 
 ---
@@ -68,12 +101,12 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | Tool manifest centralization | Good | Single `buildVoiceToolManifest` |
 | Tool execution | Brittle | 3-file/2-language duplication per tool: `tools.ts` schema + `catalog.py` wrapper + `runner.py` switch |
 | Intent policy | Over-engineered | Regex `open_intent.py` + persona `_TOOL_POLICY` + `agent.py` guards can contradict |
-| Memory model | Good schema/weak ingestion | Profile rich but reflect/gardener are regex + token-overlap |
+| Memory model | Split by design | `library.db` owns viewer recommendation identity; companion profile owns conversational memory |
 | AI catalog pipeline | Good bones | Async bootstrap + playability works |
 | Compose intelligence | Needs overhaul | Keyword table ≠ conversational vibe |
 | Companion UX | Round shipped — structured picks · HUD safe-area · chat-first phone; couch sign-off pending |
 | TV command transport | Excellent | Long-poll + seq + ack — keep |
-| Cross-surface state | Missing | No shared "what's on TV" context |
+| Cross-surface state | Partial | `/ai/context` mirrors tab/open/playing state; pad-only fine-grained focus remains intentionally limited |
 
 ---
 
@@ -83,7 +116,8 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 
 ### 1. Knows you
 
-- Long-term profile + ephemeral session vibe
+- Optional personal viewer profiles plus permanent Household; no PIN or startup chooser
+- Explicit, expiring session mood; never infer mood from room/time/playback
 - Watch-aware context
 - Phone memory view
 
@@ -100,6 +134,7 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 
 - Conversation → rail via LLM-assisted composition
 - Gardener top-ups from taste
+- Background semantic enrichment with deterministic local eligibility/ranking
 
 ### 5. Feels alive
 
@@ -125,10 +160,21 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | YouTube subscriptions | Read-only for v1; surface/open, no write |
 | Rail-creation architecture | Generalize ONE tab-agnostic AI-rail engine with per-tab source adapters: mdblist/Cinemeta for VOD, YouTube API for YT, NexoTV for Live |
 | EPG | Deferred — not available today; only paid Xtream could serve it, variable reliability; ship the rest of Live first |
+| Viewer identities | Household plus up to seven optional personal profiles; no PIN/startup prompt; create does not activate; stable-ID rename; activation clears mood |
+| Mood | User-selected, bounded, expiring session context only |
+| VOD mix | Exactly 4 close + 1 adjacent + 1 surprise from playable-only candidates; explicit Fire/Water dominates dual-horizon implicit evidence |
+| Rewatch | Completed VOD may return only rarely through a cooled, explicitly marked lane |
+| AI boundary | Semantic enrichment runs off the couch path; local versioned ranker owns final slate and retains last-good on failure |
+| Rank execution | Batched feature I/O plus a deadline-bounded worker thread; diagnostic inline opt-out only |
+| YouTube shape | Four anchors in For You → Subscriptions → History → Saved order, then at most three adaptive rails; exactly four cards each |
+| YouTube mix | With healthy lane supply, deterministic ten-slate For You rotation yields 28 close, 8 adjacent, 4 surprise cards (70/20/10); thin-supply fallback is diagnosed |
+| YouTube reservoir | Successful generations atomically replace stale For You candidates; exact Saved videos are excluded from For You membership; empty rebuild keeps last-good |
+| YouTube X | Discovery rotation from cache only; History/Saved stable; no provider/API/quota activity |
+| Attribution | Active profile, optional mood, rail, and bounded seed context only; no numerical or private-generation details |
 
 ---
 
-## Phased plan
+## Historical cross-tab AI-rail plan
 
 | Phase | Work |
 |-------|------|
@@ -137,7 +183,9 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | 2 — Live AI | Live source adapter → AI-composed live rails (keyword/source over NexoTV, feasible today); channel search + open ("put on cricket" opens channel, pad B tunes); now-playing-live awareness; EPG deferred |
 | 3 — Cross-surface + safety + text | ✓ **Shipped** — see below |
 
-Each phase ends with Pi deploy + gate + couch proof.
+Each historical phase ended with its own Pi deploy/gate boundary. The current
+profile-aware recommendation changes require a fresh gate and couch proof; older
+phase evidence cannot be reused.
 
 ---
 
@@ -164,7 +212,7 @@ Each phase ends with Pi deploy + gate + couch proof.
 | Detail 2D FocusGrid | ✓ |
 | HUD safe-area + ux-smoke gate | ✓ |
 | Living librarian watch signals + journal rollup | ✓ |
-| YouTube AI rail 9-cap | ✓ |
+| YouTube rail cap | Superseded by the current profile-aware four-card allocator; Pi/couch proof deferred |
 
 Manual COUCH_TEST V1–V12 + U1–U9 pending. Detail: [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md)
 

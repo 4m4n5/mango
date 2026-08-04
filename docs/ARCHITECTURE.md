@@ -108,6 +108,21 @@ Automatic retry is bounded to one fresh metadata/transport resolve after an
 eligible stale-link failure; cancellation, rate limiting, and malformed media
 never create retry storms.
 
+Before the ladder begins, one logical automatic VOD Play may perform at most
+two delayed confirmation passes when AIOStreams returns a clean HTTP-200 empty
+or a proven-transient error-only placeholder set. This absorbs the observed
+empty → empty → playable sequence inside one B press. All passes remain inside
+the same title/episode single flight and absolute play deadline, reuse the exact
+episode ID, and write positive/negative cache state only after the logical
+request settles. Provider HTTP failures, 429s, cancellations, permanent
+account/configuration errors, authoritative no-stream placeholders, invalidated
+work, and exhausted deadlines are never immediately retried. Detail stream
+lists, Live, and in-player picker refreshes do not inherit this retry policy.
+AIOStreams
+therefore exposes stream-resource errors to catalog-service; Mango filters the
+diagnostic rows from every playable/display list and emits only fixed-category,
+credential-free health counters and couch-safe copy.
+
 The automatic ladder has one attempt budget across main, last-resort,
 obligation-floor, deferred-risk, and thin-candidate retry phases. Skipping a
 known-bad cached fingerprint costs no network or mpv attempt. Candidate-local
@@ -138,10 +153,12 @@ The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml`
 
 ### Mango library state
 
-Mango is the user-library source of truth. `progress.db` remains the M6.1
-Continue/resume source for compatibility, while `/etc/mango/library.db` owns
-explicit Saved rows, automatic history, finished state, current TV context, and
-dormant hidden/blocked fields. Playback updates Continue/history but never
+Mango is the user-library source of truth. `progress.db` v2 owns profile-exact
+Continue/resume, while `/etc/mango/library.db` v10 mirrors profile watch state
+and owns explicit Saved rows, automatic history, finished state, current TV
+context, and dormant hidden/blocked fields. Legacy unscoped progress/watch rows
+migrate only to Household. Household may blend taste/history evidence, but
+never exact resume positions. Playback updates Continue/history but never
 auto-saves. Existing user-facing Pins import once into Saved; `/pins` stays as
 a compatibility API over Saved. Internal playability rail-curation pins remain
 operator policy and are not user library state.
@@ -152,15 +169,63 @@ the same durable DB. A guarded SQLite online backup is created once at
 `library.db.pre-fire-water-v4.bak` before migration 4. Raw sheet captions and
 sheet URLs are rejected by the seed importer. Couch history always supersedes
 seed values, including after a rating has been cleared.
+Pending library schemas, data backfills, and their version markers commit in a
+single immediate SQLite transaction; any migration failure rolls the whole
+pending set back to the previously marked boundary.
+
+Personalization migrations add one permanent **Household** profile plus up to
+seven optional personal profiles. Profiles are recommendation identities, not
+security boundaries: there is no PIN and no startup chooser. Creating a profile
+does not activate it; rename preserves its stable ID; activation is explicit
+and clears only the temporary mood. Personal profiles start with clean ratings,
+YouTube history/Saved/negative/search taste and exact resume state, while
+Household preserves legacy state and blends recommendation/history evidence
+with an exact-title dislike veto. Exact resume never blends across viewers. Explicit
+session mood is bounded and expiring; Mango never infers mood from time, room,
+or playback. `mango_manage_viewer_profile` exposes list/create/rename/activate/
+complete-onboarding to the companion without creating a second profile store.
+
+Personalized reads use an end-to-end ownership handshake. Before loading VOD,
+YouTube, Continue, or Saved state, the launcher captures the active profile ID
+and monotonic personalization revision and submits both as its expectation. The
+service checks the pair before and after asynchronous work and echoes the owner
+that produced the response. A mismatch returns 409; strict VOD reads never
+fall through to ownerless legacy rail endpoints. The launcher commits only when
+request generation, current local owner, rail echo, and parallel Saved echo all
+still match. Its per-tab rail and Saved caches retain immutable owners and are
+painted only as a matching pair after a fresh server-owner read, including tab,
+Search-return, Settings-refresh, and missed-notification paths. Search Detail's
+Saved marker and Settings hidden-title read/restore use the same exact pair and
+withhold stale 409/mismatched responses.
+The same immutable owner pair covers every ordinary Detail action—rating and
+prompt state, Save/Unsave, Not-for-me/Undo, current context, playback session
+acceptance, playback-return restore, and next-episode prompt—so a stale Detail
+cannot mutate whichever profile became active later. Recommendation metrics
+advance only after a server-validated attributed watch session starts, once per
+served item; client-supplied rail labels are never metric authority.
 
 Movies and TV Shows each receive one system rail (`for-you-movies` and
 `for-you-series`) after Continue and Saved and before the three user AI-catalog
 slots. The recommender reads only active verified playability rows, predicts
-Fire and Water independently, applies shrinkage and deterministic diversity
-reranking, then atomically publishes a versioned 12-card snapshot. Rated,
-hidden, blocked, Not Interested, and unverified titles never render. The
-launcher receives ordinary cards only; predictions, internal reasons, taste
-tags, and AI output remain service-private. See
+Fire and Water independently, combines explicit ratings with confidence-weighted
+dual-horizon watch/save signals, applies mood as an explicit session input, and
+publishes an atomic last-good reserve. Every visible rail is exactly six titles
+currently verified by the playability DB: four close matches, one adjacent
+discovery, and one bounded surprise. If the reserve cannot heal all six slots,
+the rail is omitted rather than partially rendered. Target-TV playback remains
+a separate home proof boundary.
+Rated, hidden, blocked, profile Not-for-me, and unverified titles do not render;
+a completed title can return only through the sparse cooled-rewatch path. AI may
+enrich versioned semantic features in the background, but the local ranker owns
+eligibility, scoring, diversity, and final slate publication and never waits on
+AI at couch time. AI cache reads and feature writes are batched, watched/Saved
+preference anchors retain valid semantic enrichment, and CPU-heavy scoring/MMR
+runs in a deadline-bounded worker so catalog HTTP remains responsive. An opaque
+server-issued token binds the immutable served
+owner, domain, rail, served revision, exact membership, source revision, and
+bounded context. Public cards carry opaque content IDs needed for actions, but
+the TV never renders them; predictions, private tags/prompts, URLs, credentials,
+and AI output remain service-private. Stale-profile actions fail with 409. See
 [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
 
 `/etc/mango/stremio-export.json` remains an addon-manifest graph only, not a
@@ -172,8 +237,8 @@ Native YouTube is a first-class source but not a second user library. The
 rebuildable `/etc/mango/youtube.db` caches YouTube metadata, rail membership,
 recommender reservoirs, refresh/quota state, and temporary OAuth sessions.
 Durable user state stays in `/etc/mango/library.db` with `source="youtube"` for
-Saved videos, history, finished state, current detail context, and local Not
-Interested feedback.
+Saved videos, history, finished state, current detail context, profile-scoped
+Not-for-me, searches, recommendation events, and exact watched exclusions.
 
 The YouTube Data API is used for metadata/search/subscription refresh only.
 Playback resolves through `yt-dlp -> mpv`; API quota does not govern cached
@@ -181,12 +246,24 @@ playback, but `yt-dlp` failures such as 403/429/CAPTCHA are surfaced as
 couch-safe playback errors. Channels and playlists open detail lists; only
 videos can be Saved in M6.2.
 
-YouTube rail reservoirs are intentionally few and rebuildable: For You targets
-1,000 candidates; Fresh Finds and Popular target 300 each; Because You Watched
-targets 240 per latest meaningful seed; Live Now targets 120 short-TTL live
-candidates; New From Subscriptions keeps up to 160 unwatched upload candidates.
-`GET /youtube/rails?reshuffle=1` samples from those caches plus Mango-local
-History and does not call YouTube at couch time.
+YouTube rail reservoirs are intentionally few and rebuildable. The logical
+anchor order is **For You → Subscriptions → History → Saved** (empty anchors are
+omitted), followed by at most three adaptive discovery rails. Every rendered rail has
+exactly four landscape cards. For You rotates deterministic four-card patterns
+whose healthy-pool long-run allocation is 70% close/familiar, 20% adjacent, and
+10% explore. Thin lane supply uses best-effort fallback and records that fact;
+History and Saved remain stable. `GET /youtube/rails?reshuffle=1` advances the
+profile-scoped discovery slate from cache only and never shuffles History/Saved
+or calls YouTube at couch time. The launcher separately records exact rendered
+impressions through `POST /youtube/impressions`.
+Current mood and multilingual taste may steer local ranking; official YouTube
+APIs remain the only production metadata/discovery source.
+Each successful For You acquisition atomically replaces the bounded shared
+reservoir, pruning candidates that left the generation while preserving
+profile-specific exposure/outcome state for retained items. An empty or failed
+acquisition keeps the prior complete reservoir. Exact Saved videos are taste
+evidence but are excluded from For You membership so global dedupe cannot
+cannibalize the four-card Saved anchor.
 
 ### Unified Search
 
@@ -241,6 +318,36 @@ src/companion/          phone PWA
 scripts/mango-stack.sh  native base stack supervisor
 scripts/mango-health-repair.sh  watchdog repair: stale locks · pad · catalog · launcher
 ```
+
+### Companion LAN boundary
+
+The HTTPS companion binds to the LAN for phone access, but it is not a generic
+gateway to the loopback-only catalog service. `serve_https.py` accepts only the
+exact method/path capabilities the companion UI uses:
+
+| Method | Catalog path | Companion feature |
+|--------|--------------|-------------------|
+| `GET` | `/ai/context` | On-TV mirror |
+| `GET` | `/voice/companion/summary` | Explicit Memory panel |
+| `GET` | `/youtube/companion/status` | Minimal account/configuration booleans |
+| `POST` | `/youtube/companion/auth/start` | Begin device authorization |
+| `GET` | `/youtube/companion/auth/poll` | Poll the active authorization session |
+| `POST` | `/youtube/companion/auth/disconnect` | Explicit account disconnect |
+
+Matching occurs on the parsed path and is exact; query strings are forwarded
+only after the method/path pair is accepted. Every other `/api/catalog/*`
+request returns a generic 403 before an upstream request is created. In
+particular, recommendation diagnostics, personalization/profile state, raw
+history or journal data, Reliability Center state, playback, and maintenance
+mutations are not exposed through `:3001`. The companion YouTube DTOs are also
+field-minimized: status contains exactly four booleans, start contains only the
+device-flow session/code/URLs/timing, poll contains only status/interval, and
+disconnect contains only `ok`. They never include raw provider errors, auth
+token paths, expiry/scopes, command paths, cache internals, or quota/refresh
+diagnostics. Every upstream companion endpoint independently requires a
+loopback caller so an accidental public catalog bind cannot bypass HTTPS. Do
+not use forwarded client headers to recover that trust boundary: the proxy
+itself is the LAN capability boundary.
 
 ### Reliability Center
 
@@ -393,6 +500,9 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `POST` | `/library/saved` | Explicit Save by user/voice; accepts type/id/title/poster/tab/source |
 | `DELETE` | `/library/saved` | Explicit Unsave by type/id/source |
 | `GET` | `/library/history` | Read-only recent history |
+| `GET` | `/library/not-interested` | Profile-local hidden-title state; accepts and echoes the optional exact owner/revision pair |
+| `POST` | `/library/not-interested` | Reversible profile-local Not-for-me; recommendation cards require complete served attribution |
+| `DELETE` | `/library/not-interested` | Restore a hidden title; Settings supplies and validates the exact owner/revision pair |
 | `GET` | `/library/context` | Current launcher detail context |
 | `POST` | `/library/context` | Localhost launcher update for current-context voice tools |
 | `DELETE` | `/library/context` | Localhost cleanup/restore hook for gates |
@@ -402,20 +512,34 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `POST` | `/library/rating-prompts/dismiss` | Resolve the one-time invitation without changing manual Rate |
 | `GET` | `/recommendations/state` | Local diagnostics: revisions, age, and candidate counts only |
 | `POST` | `/recommendations/refresh` | Localhost-only atomic refresh of one or both For You snapshots |
+| `POST` | `/recommendations/impressions` | Resolve an opaque served token and persist exact rendered VOD membership against immutable owner/rail/revision; no URLs |
+| `POST` | `/recommendations/action` | Token-validate an explicit recommendation detail-open; stale owner/revision/membership returns 409 |
+| `GET` | `/personalization/state` | Active profile, optional session mood, and profile list |
+| `POST` | `/personalization/profiles` | Create, rename, or complete onboarding without implicit activation |
+| `POST` | `/personalization/activate` | Explicit profile switch; clears session mood and recommendation caches |
+| `POST` | `/personalization/mood` | Set or clear bounded explicit session mood |
 
-`GET/POST/DELETE /pins` remains for compatibility and delegates to Saved. There
-is no public hide/unhide API in M6.1; hidden fields are schema-only for the
-later UX pass.
+`GET/POST/DELETE /pins` remains for compatibility and delegates to Saved.
 
 ## YouTube API
 
 | Method | Path | Notes |
 |--------|------|-------|
-| `GET` | `/youtube/state` | Enabled/configured/auth/cache/refresh state |
-| `POST` | `/youtube/auth/start` | Start Google device-code OAuth |
-| `GET` | `/youtube/auth/poll?session_id=` | Poll companion-first OAuth completion |
-| `POST` | `/youtube/auth/disconnect` | Remove local auth token |
+| `GET` | `/youtube/state` | Localhost-only operator config/auth/cache/refresh diagnostics |
+| `POST` | `/youtube/auth/start` | Localhost-only operator device-code OAuth |
+| `GET` | `/youtube/auth/poll?session_id=` | Localhost-only operator OAuth poll |
+| `POST` | `/youtube/auth/disconnect` | Localhost-only operator token removal |
+| `GET` | `/youtube/companion/status` | Loopback upstream for the sanitized HTTPS companion status |
+| `POST` | `/youtube/companion/auth/start` | Loopback upstream for sanitized device-flow start |
+| `GET` | `/youtube/companion/auth/poll?session_id=` | Loopback upstream for sanitized OAuth poll |
+| `POST` | `/youtube/companion/auth/disconnect` | Loopback upstream for sanitized disconnect |
 | `POST` | `/youtube/refresh` | Fill/update cache and recommender rails |
+| `GET` | `/youtube/rails` | Four anchors followed by at most three adaptive four-card rails |
+| `POST` | `/youtube/impressions` | Token-validate exact rendered membership against server-owned source revision and context; no URLs |
+| `GET` | `/youtube/search?q=` | Grouped videos/channels/playlists |
+| `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |
+| `POST` | `/youtube/not-interested` | Reversible profile-local Not-for-me; Household aggregates exact vetoes |
+| `POST` | `/youtube/play` | Compatibility synchronous `yt-dlp -> mpv` route; launcher uses `/play-session` |
 
 ## Search API
 
@@ -434,11 +558,6 @@ later UX pass.
 The optional orchestrator `POST /search/expand` is localhost-only, has no
 tools/history, validates at most three alternate queries, and has a four-second
 deadline.
-| `GET` | `/youtube/rails` | YouTube tab rails with stale-cache status |
-| `GET` | `/youtube/search?q=` | Grouped videos/channels/playlists |
-| `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |
-| `POST` | `/youtube/not-interested` | Persistent local feedback; excludes rails |
-| `POST` | `/youtube/play` | Compatibility synchronous `yt-dlp -> mpv` route; launcher uses `/play-session` |
 
 Detail: [YOUTUBE.md](YOUTUBE.md).
 

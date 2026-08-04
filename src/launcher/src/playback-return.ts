@@ -1,5 +1,9 @@
 import type { BrowseTab, ContentCard } from "./types";
 import { fetchLibraryContext } from "./saved";
+import {
+  personalizationOwnerFromPayload,
+  type PersonalizationOwner,
+} from "./personalization";
 
 const STORAGE_KEY = "mango.playback-return.v1";
 const MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -18,6 +22,9 @@ export interface PlaybackReturnSnapshot {
   returnSurface: PlaybackReturnSurface;
   origin?: PlaybackOrigin;
   searchState?: unknown;
+  /** Immutable Detail owner; absent only on snapshots written by older builds. */
+  profileId?: string;
+  personalizationUpdatedAt?: number;
   savedAt: number;
 }
 
@@ -57,6 +64,7 @@ export function savePlaybackReturnSnapshot(
   episodeId?: string,
   origin: PlaybackOrigin = "home",
   searchState?: unknown,
+  owner?: PersonalizationOwner,
 ): void {
   const snapshot: PlaybackReturnSnapshot = {
     tab: tabForCard(card, tab),
@@ -69,6 +77,12 @@ export function savePlaybackReturnSnapshot(
     returnSurface: playbackReturnSurface(card, tab, origin),
     origin,
     ...(origin === "search" && searchState ? { searchState } : {}),
+    ...(owner
+      ? {
+        profileId: owner.profileId,
+        personalizationUpdatedAt: owner.personalizationUpdatedAt,
+      }
+      : {}),
     savedAt: Date.now(),
   };
   const serialized = JSON.stringify(snapshot);
@@ -86,6 +100,16 @@ export function savePlaybackReturnSnapshot(
   } catch {
     // ignore quota errors
   }
+}
+
+/** Parse the persisted owner as an all-or-nothing pair for safe boot restore. */
+export function playbackReturnOwner(
+  snapshot: PlaybackReturnSnapshot,
+): PersonalizationOwner | null {
+  return personalizationOwnerFromPayload({
+    profile_id: snapshot.profileId,
+    personalization_updated_at: snapshot.personalizationUpdatedAt,
+  });
 }
 
 export function readPlaybackReturnSnapshot(): PlaybackReturnSnapshot | null {
@@ -143,8 +167,10 @@ export function cardFromPlaybackSnapshot(snapshot: PlaybackReturnSnapshot): Cont
   };
 }
 
-export async function readPlaybackReturnFromContext(): Promise<PlaybackReturnSnapshot | null> {
-  const ctx = await fetchLibraryContext();
+export async function readPlaybackReturnFromContext(
+  expectedOwner: PersonalizationOwner,
+): Promise<PlaybackReturnSnapshot | null> {
+  const ctx = await fetchLibraryContext(expectedOwner);
   if (!ctx) {
     return null;
   }
@@ -166,6 +192,8 @@ export async function readPlaybackReturnFromContext(): Promise<PlaybackReturnSna
     cardSource: card.source,
     returnSurface: playbackReturnSurface(card, tab),
     origin: "home",
+    profileId: expectedOwner.profileId,
+    personalizationUpdatedAt: expectedOwner.personalizationUpdatedAt,
     savedAt: Date.now(),
   };
 }

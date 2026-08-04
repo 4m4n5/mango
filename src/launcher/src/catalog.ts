@@ -1,10 +1,20 @@
 import type { ContentCard, ContentRail } from "./types";
 import {
+  CatalogOwnershipChangedError,
+  CatalogResponseError,
   CatalogTimeoutError,
   couchSafeCatalogMessage,
   playErrorMessage,
 } from "./catalog-errors";
 import type { BrowseTab } from "./types";
+import {
+  personalizationExpectationBody,
+  personalizationExpectationParams,
+  personalizationOwnerFromPayload,
+  samePersonalizationOwner,
+  type PersonalizationOwner,
+} from "./personalization";
+import { recommendationAttributionPayload } from "./recommendation-attribution";
 
 interface RailSummaryResponse {
   rails: Array<{
@@ -18,6 +28,10 @@ interface RailSummaryResponse {
 
 interface RailItemsResponse {
   rail_id: string;
+  slate_sequence?: number;
+  attribution_token?: string;
+  profile_id?: string;
+  personalization_updated_at?: number;
   label?: string;
   items: Array<{
     id: string;
@@ -40,6 +54,8 @@ interface RailItemsResponse {
 
 interface TabRailItemsResponse {
   tab: BrowseTab;
+  profile_id?: string;
+  personalization_updated_at?: number;
   rails: RailItemsResponse[];
   resolve_ms?: number;
 }
@@ -58,9 +74,14 @@ interface YoutubeItem {
 }
 
 interface YoutubeRailResponse {
+  slate_sequence?: number;
+  profile_id?: string;
+  personalization_updated_at?: number;
   rails: Array<{
     rail_id: string;
     label: string;
+    attribution_token?: string;
+    slate_sequence?: number;
     items: YoutubeItem[];
     cached?: boolean;
     stale?: boolean;
@@ -139,6 +160,8 @@ interface PlaybackSessionResponse {
   ok: boolean;
   accepted?: boolean;
   session: PlaybackSession;
+  profile_id?: string;
+  personalization_updated_at?: number;
 }
 
 export interface CatalogStream {
@@ -198,6 +221,8 @@ export interface SeriesEpisodesResponse {
 
 export interface NextPromptResponse {
   show: boolean;
+  profile_id?: string;
+  personalization_updated_at?: number;
   series_id?: string;
   series_name?: string;
   from_episode_id?: string;
@@ -229,6 +254,8 @@ function mapRailItems(data: RailItemsResponse): ContentRail {
       description: item.description,
       source: item.source,
       railId: data.rail_id,
+      slateSequence: data.slate_sequence,
+      attributionToken: data.attribution_token,
       playId: item.progress?.play_id,
       resumeSec: item.progress?.position_sec,
       progressPct: item.progress?.progress_pct,
@@ -236,6 +263,8 @@ function mapRailItems(data: RailItemsResponse): ContentRail {
     ...(data.rail_id === "for-you-movies" || data.rail_id === "for-you-series"
       ? { layout: "poster" as const }
       : {}),
+    slateSequence: data.slate_sequence,
+    attributionToken: data.attribution_token,
   };
 }
 
@@ -259,7 +288,12 @@ function youtubeSubtitle(item: YoutubeItem): string {
   return item.kind;
 }
 
-function mapYoutubeItem(item: YoutubeItem, railId?: string): ContentCard {
+function mapYoutubeItem(
+  item: YoutubeItem,
+  railId?: string,
+  slateSequence?: number,
+  attributionToken?: string,
+): ContentCard {
   return {
     id: item.id,
     type: youtubeType(item),
@@ -271,15 +305,94 @@ function mapYoutubeItem(item: YoutubeItem, railId?: string): ContentCard {
     kind: item.kind,
     liveStatus: item.live_status || "none",
     railId,
+    slateSequence,
+    attributionToken,
   };
 }
 
 function mapYoutubeRails(data: YoutubeRailResponse): ContentRail[] {
-  return data.rails.map((rail) => ({
+  const anchors = new Set(["for_you", "new_from_subscriptions", "history", "saved"]);
+  const chosen = [
+    ...data.rails.filter((rail) => anchors.has(rail.rail_id)),
+    ...data.rails.filter((rail) => !anchors.has(rail.rail_id)).slice(0, 3),
+  ];
+  return chosen.map((rail) => ({
     id: rail.rail_id,
     label: rail.stale ? `${rail.label} · stale` : rail.label,
-    cards: rail.items.map((item) => mapYoutubeItem(item, rail.rail_id)),
-  }));
+    // The catalog service owns cross-rail allocation and has access to deeper
+    // reserves. Preserve its stable History/Saved anchors and last-resort thin
+    // cache fallbacks instead of thinning rows again in the launcher.
+    cards: rail.items.map((item) => mapYoutubeItem(
+      item,
+      rail.rail_id,
+      rail.slate_sequence,
+      rail.attribution_token,
+    )),
+    slateSequence: rail.slate_sequence,
+    attributionToken: rail.attribution_token,
+    sourceSlateSequence: data.slate_sequence,
+  })).filter((rail) => rail.cards.length > 0);
+}
+
+export async function noteYoutubeImpressions(rails: ContentRail[]): Promise<void> {
+  const sequence = rails.find((rail) => Number.isInteger(rail.sourceSlateSequence))?.sourceSlateSequence;
+  if (sequence === undefined) return;
+  const rendered = rails
+    .map((rail) => ({
+      rail_id: rail.id,
+      attribution_token: rail.attributionToken,
+      slate_revision: rail.slateSequence,
+      item_ids: rail.cards.slice(0, 4).map((card) => card.id),
+      items: rail.cards.slice(0, 4).map((card, rank) => ({
+        type: card.type,
+        id: card.id,
+        rank,
+      })),
+    }))
+    .filter((rail) => rail.item_ids.length > 0 && rail.attribution_token);
+  if (rendered.length === 0) return;
+  await fetchJson('/api/catalog/youtube/impressions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ slate_sequence: sequence, rails: rendered }),
+  }, 3000);
+}
+
+export async function noteVodRecommendationImpressions(rails: ContentRail[]): Promise<void> {
+  const rendered = rails
+    .filter((rail) => Number.isInteger(rail.slateSequence))
+    .map((rail) => ({
+      rail_id: rail.id,
+      slate_revision: rail.slateSequence,
+      attribution_token: rail.attributionToken,
+      items: rail.cards.slice(0, 6).map((card, rank) => ({ type: card.type, id: card.id, rank })),
+    }))
+    .filter((rail) => rail.items.length > 0 && rail.attribution_token);
+  if (rendered.length === 0) return;
+  await fetchJson('/api/catalog/recommendations/impressions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ domain: 'vod', rails: rendered }),
+  }, 3000);
+}
+
+export async function noteRecommendationDetailOpen(card: ContentCard): Promise<void> {
+  if (!card.railId || !Number.isInteger(card.slateSequence) || !card.attributionToken) return;
+  await fetchJson('/api/catalog/recommendations/action', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      action: 'detail_open',
+      domain: card.source === 'youtube' || card.type.startsWith('youtube_') ? 'youtube' : 'vod',
+      rail_id: card.railId,
+      slate_revision: card.slateSequence,
+      attribution_token: card.attributionToken,
+      recommendation_item_type: card.type,
+      recommendation_item_id: card.id,
+      type: card.type,
+      id: card.id,
+    }),
+  }, 3000);
 }
 
 function cardRefKey(card: Pick<ContentCard, "type" | "id">): string {
@@ -354,22 +467,58 @@ export async function loadRailRelatedCards(
 
 export async function loadCatalogRails(
   tab: BrowseTab = "movies",
-  options: { reshuffle?: boolean } = {},
-): Promise<ContentRail[]> {
+  options: { reshuffle?: boolean; expectedOwner?: PersonalizationOwner } = {},
+): Promise<{ rails: ContentRail[]; owner: PersonalizationOwner | null }> {
   if (tab === "youtube") {
-    const reshuffle = options.reshuffle ? "?reshuffle=1" : "";
-    const data = await fetchJson<YoutubeRailResponse>(`/api/catalog/youtube/rails${reshuffle}`, undefined, 15000);
-    return mapYoutubeRails(data);
+    const params = options.expectedOwner
+      ? personalizationExpectationParams(options.expectedOwner)
+      : new URLSearchParams();
+    if (options.reshuffle) params.set("reshuffle", "1");
+    let data: YoutubeRailResponse;
+    try {
+      data = await fetchJson<YoutubeRailResponse>(
+        `/api/catalog/youtube/rails?${params.toString()}`,
+        undefined,
+        15000,
+      );
+    } catch (error) {
+      if (options.expectedOwner && error instanceof CatalogResponseError && error.status === 409) {
+        throw new CatalogOwnershipChangedError();
+      }
+      throw error;
+    }
+    const owner = personalizationOwnerFromPayload(data);
+    if (!owner || (options.expectedOwner && !samePersonalizationOwner(options.expectedOwner, owner))) {
+      throw new CatalogOwnershipChangedError();
+    }
+    return { rails: mapYoutubeRails(data), owner };
   }
-  const reshuffle = tab !== "live" && options.reshuffle ? "&reshuffle=1" : "";
+  const params = options.expectedOwner
+    ? personalizationExpectationParams(options.expectedOwner)
+    : new URLSearchParams();
+  params.set("tab", tab);
+  if (tab !== "live" && options.reshuffle) params.set("reshuffle", "1");
   try {
     const batch = await fetchJson<TabRailItemsResponse>(
-      `/api/catalog/rails/items?tab=${encodeURIComponent(tab)}${reshuffle}`,
+      `/api/catalog/rails/items?${params.toString()}`,
       undefined,
       12000,
     );
-    return batch.rails.map(mapRailItems);
-  } catch {
+    const owner = tab === "live" ? null : personalizationOwnerFromPayload(batch);
+    if (tab !== "live"
+      && (!owner || (options.expectedOwner && !samePersonalizationOwner(options.expectedOwner, owner)))) {
+      throw new CatalogOwnershipChangedError();
+    }
+    return { rails: batch.rails.map(mapRailItems), owner };
+  } catch (error) {
+    // An expected owner is a privacy boundary. Never bypass a 409 (or any
+    // other strict-batch failure) through legacy endpoints with no owner echo.
+    if (options.expectedOwner) {
+      if (error instanceof CatalogResponseError && error.status === 409) {
+        throw new CatalogOwnershipChangedError();
+      }
+      throw error;
+    }
     // Fallback for older catalog-service builds without tab batch allocation.
     const summary = await fetchJson<RailSummaryResponse>(
       `/api/catalog/rails?tab=${encodeURIComponent(tab)}`,
@@ -385,17 +534,41 @@ export async function loadCatalogRails(
       );
       rails.push(mapRailItems({ ...data, label: data.label || rail.label }));
     }
-    return rails;
+    return { rails, owner: null };
   }
 }
 
-export async function loadContinueRail(tab: BrowseTab): Promise<ContentRail> {
-  const data = await fetchJson<RailItemsResponse>(
-    `/api/catalog/rails/continue?tab=${encodeURIComponent(tab)}`,
-    undefined,
-    5000,
-  );
-  return mapRailItems(data);
+export interface ProfileOwnedContinueRail extends PersonalizationOwner {
+  rail: ContentRail;
+}
+
+export async function loadContinueRail(
+  tab: BrowseTab,
+  expected: PersonalizationOwner,
+): Promise<ProfileOwnedContinueRail> {
+  const params = personalizationExpectationParams(expected);
+  params.set("tab", tab);
+  let data: RailItemsResponse;
+  try {
+    data = await fetchJson<RailItemsResponse>(
+      `/api/catalog/rails/continue?${params.toString()}`,
+      undefined,
+      5000,
+    );
+  } catch (error) {
+    if (error instanceof CatalogResponseError && error.status === 409) {
+      throw new CatalogOwnershipChangedError();
+    }
+    throw error;
+  }
+  const owner = personalizationOwnerFromPayload(data);
+  if (!owner || !samePersonalizationOwner(expected, owner)) {
+    throw new CatalogOwnershipChangedError();
+  }
+  return {
+    rail: mapRailItems(data),
+    ...owner,
+  };
 }
 
 export async function loadMeta(card: ContentCard): Promise<CatalogMeta> {
@@ -449,8 +622,15 @@ export async function loadSeriesEpisodes(bareId: string): Promise<SeriesEpisodes
   );
 }
 
-export async function loadNextPrompt(): Promise<NextPromptResponse> {
-  return fetchJson<NextPromptResponse>("/api/catalog/play/next-prompt", undefined, 5000);
+export async function loadNextPrompt(
+  expectedOwner: PersonalizationOwner,
+): Promise<NextPromptResponse> {
+  return fetchOwnedCatalogJson<NextPromptResponse>(
+    `/api/catalog/play/next-prompt?${personalizationExpectationParams(expectedOwner)}`,
+    undefined,
+    5000,
+    expectedOwner,
+  );
 }
 
 export async function loadStreamsForId(
@@ -505,12 +685,12 @@ async function fetchWithTimeout(
       sourceSignal.addEventListener("abort", abortFromSource, { once: true });
     }
   }
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(input, { ...init, signal: controller.signal });
   } finally {
     sourceSignal?.removeEventListener("abort", abortFromSource);
-    window.clearTimeout(timeout);
+    globalThis.clearTimeout(timeout);
   }
 }
 
@@ -612,6 +792,7 @@ async function waitForPlaybackSession(
 async function startPlaybackSession(
   body: Record<string, unknown>,
   requestId: string,
+  expectedOwner: PersonalizationOwner,
   signal?: AbortSignal,
 ): Promise<PlayResult> {
   if (signal?.aborted) throw new Error("play cancelled");
@@ -638,9 +819,13 @@ async function startPlaybackSession(
     }
   }
   const payload = await response.json().catch(() => ({})) as Partial<PlaybackSessionResponse> & { error?: string };
+  if (response.status === 409) {
+    throw new CatalogOwnershipChangedError();
+  }
   if (!response.ok || !payload.session) {
     throw new Error(playErrorMessage(payload.error || `HTTP ${response.status}`));
   }
+  assertCatalogResponseOwner(payload, expectedOwner);
   return waitForPlaybackSession(requestId, payload.session, signal);
 }
 
@@ -664,7 +849,14 @@ export async function stopPlaybackForVoice(): Promise<void> {
 
 export async function playCard(
   card: ContentCard,
-  options: { signal?: AbortSignal; preferUrl?: string; preferLadderStep?: string; startSec?: number; episodeId?: string } = {},
+  options: {
+    expectedOwner: PersonalizationOwner;
+    signal?: AbortSignal;
+    preferUrl?: string;
+    preferLadderStep?: string;
+    startSec?: number;
+    episodeId?: string;
+  },
 ): Promise<PlayResult> {
   const requestId = typeof crypto.randomUUID === "function"
     ? crypto.randomUUID()
@@ -677,7 +869,13 @@ export async function playCard(
       id: card.id,
       title: card.title,
       poster: card.posterUrl,
-    }, requestId, options.signal);
+      rail_id: card.railId,
+      slate_revision: card.slateSequence,
+      attribution_token: card.attributionToken,
+      recommendation_item_type: card.type,
+      recommendation_item_id: card.id,
+      ...personalizationExpectationBody(options.expectedOwner),
+    }, requestId, options.expectedOwner, options.signal);
   }
   const playId = options.episodeId || card.playId || card.id;
   const body: {
@@ -690,10 +888,16 @@ export async function playCard(
     description?: string;
     tab?: string;
     rail_id?: string;
+    slate_revision?: number;
+    attribution_token?: string;
+    recommendation_item_type?: string;
+    recommendation_item_id?: string;
     prefer_url?: string;
     prefer_ladder_step?: string;
     start_sec?: number;
     live?: boolean;
+    expected_profile_id: string;
+    expected_personalization_updated_at: number;
   } = {
     request_id: requestId,
     type: card.type,
@@ -702,12 +906,21 @@ export async function playCard(
     poster: card.posterUrl,
     year: card.year,
     description: card.description,
+    ...personalizationExpectationBody(options.expectedOwner),
   };
   if (card.type === "tv") {
     body.live = true;
   }
   if (card.railId) {
     body.rail_id = card.railId;
+  }
+  if (Number.isInteger(card.slateSequence)) {
+    body.slate_revision = card.slateSequence;
+  }
+  if (card.attributionToken) {
+    body.attribution_token = card.attributionToken;
+    body.recommendation_item_type = card.type;
+    body.recommendation_item_id = card.id;
   }
   if (options.preferUrl) {
     body.prefer_url = options.preferUrl;
@@ -724,19 +937,77 @@ export async function playCard(
   if (typeof startSec === 'number' && startSec > 0) {
     body.start_sec = startSec;
   }
-  return startPlaybackSession(body, requestId, options.signal);
+  return startPlaybackSession(body, requestId, options.expectedOwner, options.signal);
 }
 
-export async function notInterestedYoutubeCard(card: ContentCard): Promise<void> {
-  await fetchJson("/api/catalog/youtube/not-interested", {
+export async function notInterestedCard(
+  card: ContentCard,
+  tab: BrowseTab,
+  expectedOwner: PersonalizationOwner,
+): Promise<void> {
+  const youtube = card.source === "youtube" || card.type.startsWith("youtube_");
+  await fetchOwnedCatalogJson("/api/catalog/library/not-interested", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
+      source: youtube ? "youtube" : "mango",
+      tab,
+      type: card.type,
       kind: card.kind || youtubeKindFromType(card.type),
       id: card.id,
       title: card.title,
+      poster: card.posterUrl || "",
+      year: card.year,
+      description: card.description,
+      ...recommendationAttributionPayload(card),
+      ...personalizationExpectationBody(expectedOwner),
     }),
-  }, 8000);
+  }, 8000, expectedOwner);
+}
+
+export async function isNotInterestedCard(
+  card: ContentCard,
+  expectedOwner: PersonalizationOwner,
+): Promise<boolean> {
+  const youtube = card.source === "youtube" || card.type.startsWith("youtube_");
+  const params = personalizationExpectationParams(expectedOwner);
+  params.set("source", youtube ? "youtube" : "mango");
+  params.set("type", card.type);
+  params.set("id", card.id);
+  const payload = await fetchOwnedCatalogJson<{
+    hidden?: boolean;
+    profile_id?: string;
+    personalization_updated_at?: number;
+  }>(
+    `/api/catalog/library/not-interested?${params.toString()}`,
+    { cache: "no-store" },
+    4000,
+    expectedOwner,
+  );
+  return payload.hidden === true;
+}
+
+export async function undoNotInterestedCard(
+  card: ContentCard,
+  tab: BrowseTab,
+  expectedOwner: PersonalizationOwner,
+): Promise<void> {
+  const youtube = card.source === "youtube" || card.type.startsWith("youtube_");
+  await fetchOwnedCatalogJson("/api/catalog/library/not-interested", {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      source: youtube ? "youtube" : "mango",
+      tab,
+      type: card.type,
+      id: card.id,
+      title: card.title,
+      attribution_token: card.attributionToken,
+      rail_id: card.railId,
+      slate_revision: card.slateSequence,
+      ...personalizationExpectationBody(expectedOwner),
+    }),
+  }, 8000, expectedOwner);
 }
 
 function youtubeKindFromType(type: string): YoutubeItem["kind"] {
@@ -767,7 +1038,7 @@ async function fetchJson<T>(url: string, init?: RequestInit, timeoutMs?: number)
         throw new Error("play cancelled");
       }
       const raw = typeof data.error === "string" ? data.error : `HTTP ${response.status}`;
-      throw new Error(couchSafeCatalogMessage(raw));
+      throw new CatalogResponseError(response.status, couchSafeCatalogMessage(raw));
     }
     return data as T;
   } catch (error) {
@@ -779,6 +1050,38 @@ async function fetchJson<T>(url: string, init?: RequestInit, timeoutMs?: number)
     }
     throw error;
   }
+}
+
+function assertCatalogResponseOwner(
+  payload: { profile_id?: unknown; personalization_updated_at?: unknown },
+  expectedOwner: PersonalizationOwner,
+): void {
+  const responseOwner = personalizationOwnerFromPayload(payload);
+  if (!responseOwner || !samePersonalizationOwner(responseOwner, expectedOwner)) {
+    throw new CatalogOwnershipChangedError();
+  }
+}
+
+async function fetchOwnedCatalogJson<T extends {
+  profile_id?: unknown;
+  personalization_updated_at?: unknown;
+}>(
+  url: string,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+  expectedOwner: PersonalizationOwner,
+): Promise<T> {
+  let payload: T;
+  try {
+    payload = await fetchJson<T>(url, init, timeoutMs);
+  } catch (error) {
+    if (error instanceof CatalogResponseError && error.status === 409) {
+      throw new CatalogOwnershipChangedError();
+    }
+    throw error;
+  }
+  assertCatalogResponseOwner(payload, expectedOwner);
+  return payload;
 }
 
 function isAbortError(error: unknown): boolean {

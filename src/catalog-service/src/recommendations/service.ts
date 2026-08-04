@@ -2,26 +2,45 @@ import { createHash } from 'node:crypto';
 import {
   libraryDatabase,
   listRecommendationLibrarySignals,
+  activeViewerProfileId,
+  getPersonalizationState,
+  listProfileLibraryFeedback,
+  listProfileRecommendationSignals,
+  listViewerProfiles,
+  registerRecommendationServedSlate,
+  type ProfileRecommendationSignal,
   type RecommendationLibrarySignal,
 } from '../library/db.js';
-import { listRatings, type RatingContentType } from '../library/ratings.js';
-import { listVerifiedLibraryCatalogRows } from '../playability/db.js';
+import { listRatings, type FireWaterRating, type RatingContentType } from '../library/ratings.js';
+import { getTitlesPlayabilityBulk, listVerifiedLibraryCatalogRows } from '../playability/db.js';
 import {
   RECOMMENDATION_FEATURE_VERSION,
   RECOMMENDATION_MODEL_VERSION,
   buildRecommendationFeature,
-  candidatesToFeatures,
-  rankRecommendations,
   recommendationDailySeed,
   type RecommendationFeature,
+  type ImplicitRecommendationPreference,
+  type NegativeRecommendationPreference,
   type ScoredRecommendation,
 } from './engine.js';
+import { rankRecommendationsOffThread } from './rank-worker-client.js';
+import {
+  buildAiEnrichedRecommendationFeature,
+  loadAiRecommendationFeatures,
+  refreshAiRecommendationFeatures,
+  type RecommendationAiInput,
+} from './ai.js';
+import { evaluateExplicitRatings } from './evaluation.js';
 
 export type ForYouTab = 'movies' | 'series';
+
+const VOD_REWATCH_COOLDOWN_MS = 180 * 24 * 60 * 60 * 1000;
 
 export type ForYouRail = {
   rail_id: 'for-you-movies' | 'for-you-series';
   label: 'For You';
+  slate_sequence: number;
+  attribution_token: string;
   items: Array<{
     id: string;
     type: RatingContentType;
@@ -51,6 +70,8 @@ type SnapshotItemRow = {
   title: string;
   poster: string | null;
   year: string | null;
+  bucket: ScoredRecommendation['bucket'];
+  generation_reason: string;
 };
 
 export function fireWaterRatingsEnabled(): boolean {
@@ -65,28 +86,139 @@ export function recommendationAiEnabled(): boolean {
   return process.env.MANGO_RECOMMENDATIONS_AI !== '0';
 }
 
-export function setRecommendationMetric(name: string, value: number): void {
-  libraryDatabase().prepare(`
-INSERT INTO recommendation_metrics(metric_name, metric_value, updated_at)
-VALUES (?, ?, ?)
-ON CONFLICT(metric_name) DO UPDATE SET
-  metric_value = excluded.metric_value,
-  updated_at = excluded.updated_at
-`).run(name, Math.max(0, Math.round(value)), Date.now());
+function normalizedMetricProfileId(profileId: string): string {
+  const normalizedProfileId = profileId.trim().toLowerCase();
+  if (!normalizedProfileId) throw new Error('profile recommendation metric profile is empty');
+  return normalizedProfileId;
 }
 
-export function incrementRecommendationMetric(name: string): void {
+export function setRecommendationMetric(
+  name: string,
+  value: number,
+  profileId = activeViewerProfileId(),
+): void {
+  const metricName = name.trim();
+  if (!metricName) throw new Error('profile recommendation metric name is empty');
   libraryDatabase().prepare(`
-INSERT INTO recommendation_metrics(metric_name, metric_value, updated_at)
-VALUES (?, 1, ?)
-ON CONFLICT(metric_name) DO UPDATE SET
-  metric_value = recommendation_metrics.metric_value + 1,
+INSERT INTO profile_recommendation_metrics(profile_id, metric_name, metric_value, updated_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(profile_id, metric_name) DO UPDATE SET
+  metric_value = excluded.metric_value,
   updated_at = excluded.updated_at
-`).run(name, Date.now());
+`).run(
+    normalizedMetricProfileId(profileId),
+    metricName,
+    Math.max(0, Math.round(value)),
+    Date.now(),
+  );
+}
+
+export function incrementRecommendationMetric(name: string, profileId = activeViewerProfileId()): void {
+  const metricName = name.trim();
+  if (!metricName) throw new Error('profile recommendation metric name is empty');
+  libraryDatabase().prepare(`
+INSERT INTO profile_recommendation_metrics(profile_id, metric_name, metric_value, updated_at)
+VALUES (?, ?, 1, ?)
+ON CONFLICT(profile_id, metric_name) DO UPDATE SET
+  metric_value = profile_recommendation_metrics.metric_value + 1,
+  updated_at = excluded.updated_at
+`).run(normalizedMetricProfileId(profileId), metricName, Date.now());
 }
 
 function contentTypeForTab(tab: ForYouTab): RatingContentType {
   return tab === 'movies' ? 'movie' : 'series';
+}
+
+function ratingGroupsForProfile(profileId: string): Array<ReturnType<typeof listRatings>> {
+  if (profileId !== 'household') return [listRatings(undefined, profileId)];
+  return listViewerProfiles()
+    .map((profile) => listRatings(undefined, profile.profile_id))
+    .filter((ratings) => ratings.length > 0);
+}
+
+function ratingsForProfile(profileId: string): ReturnType<typeof listRatings> {
+  return ratingGroupsForProfile(profileId).flat();
+}
+
+const MOOD_TASTE_TAGS: Record<string, string[]> = {
+  cozy: ['cozy', 'gentle', 'warm', 'comfort', 'wholesome', 'low stakes'],
+  laugh: ['comedy', 'funny', 'witty', 'playful', 'satire'],
+  thrilling: ['thriller', 'action', 'suspense', 'tense', 'fast', 'adventure'],
+  deep: ['drama', 'thoughtful', 'complex', 'documentary', 'philosophical', 'cerebral'],
+  family: ['family', 'animation', 'adventure', 'wholesome', 'all ages'],
+};
+
+export function recommendationMoodFeature(
+  mood: string | null,
+  type: RatingContentType,
+): RecommendationFeature | null {
+  const normalized = mood?.trim().toLowerCase() || '';
+  if (!normalized) return null;
+  return buildRecommendationFeature({
+    type,
+    id: `mood:${normalized}`,
+    title: normalized,
+    taste_tags: MOOD_TASTE_TAGS[normalized] ?? [normalized],
+  });
+}
+
+export function mergeRatingWithVerifiedMetadata(
+  rating: Pick<FireWaterRating, 'type' | 'id' | 'title' | 'year' | 'taste_tags'>,
+  verified?: RecommendationAiInput,
+): RecommendationAiInput {
+  if (verified && (verified.type !== rating.type || verified.id !== rating.id)) {
+    throw new Error('verified recommendation metadata must match the rating stable id');
+  }
+  return {
+    type: rating.type,
+    id: rating.id,
+    title: verified?.title.trim() || rating.title,
+    year: verified?.year ?? rating.year,
+    rail_ids: verified?.rail_ids ? [...verified.rail_ids] : undefined,
+    // These tags come from the reviewed rating seed/couch record and remain
+    // authoritative even when fresher verified catalog metadata is available.
+    taste_tags: [...rating.taste_tags],
+  };
+}
+
+export function recommendationSignalPreferenceStrength(
+  signal: Pick<
+    ProfileRecommendationSignal,
+    'strongest_positive' | 'saved' | 'last_positive_at' | 'last_event_at'
+  >,
+  now: number,
+): number {
+  if (signal.last_positive_at <= 0) return 0;
+  const ageDays = Math.max(0, (now - signal.last_positive_at) / 86_400_000);
+  const shortHorizon = Math.exp(-ageDays / 14);
+  const longHorizon = Math.exp(-ageDays / 180);
+  const recency = 0.65 * shortHorizon + 0.35 * longHorizon;
+  const base = Math.max(signal.strongest_positive, signal.saved ? 0.8 : 0.05);
+  return Math.max(0.02, Math.min(1, base * recency));
+}
+
+export function recommendationNegativeSignalStrength(
+  signal: Pick<
+    ProfileRecommendationSignal,
+    'not_interested' | 'last_not_interested_at' | 'last_event_at'
+  >,
+  now: number,
+): number {
+  if (!signal.not_interested || signal.last_not_interested_at <= 0) return 0;
+  const ageDays = Math.max(0, (now - signal.last_not_interested_at) / 86_400_000);
+  // A semantic objection has a 90-day half-life. The exact title remains a
+  // hard eligibility veto until Undo, but neighboring concepts recover.
+  return Math.max(0, Math.min(1, 2 ** (-ageDays / 90)));
+}
+
+export function isCooledRecommendationRewatch(
+  signal: Pick<ProfileRecommendationSignal, 'watched' | 'not_interested' | 'last_positive_at'>,
+  now: number,
+): boolean {
+  return signal.watched
+    && !signal.not_interested
+    && signal.last_positive_at > 0
+    && now - signal.last_positive_at >= VOD_REWATCH_COOLDOWN_MS;
 }
 
 function featureMetadataHash(feature: RecommendationFeature): string {
@@ -97,12 +229,95 @@ function featureMetadataHash(feature: RecommendationFeature): string {
       title: feature.title,
       year: feature.year,
       rail_id: feature.rail_id,
+      rail_ids: feature.rail_ids,
     }))
     .digest('hex');
 }
 
-function persistFeature(feature: RecommendationFeature, timestamp: number): void {
-  libraryDatabase().prepare(`
+function implicitPreferencesForProfile(
+  profileId: string,
+  featureByKey: Map<string, RecommendationFeature>,
+  now: number,
+  profileSignals?: ProfileRecommendationSignal[],
+): ImplicitRecommendationPreference[] {
+  const signals = profileSignals ?? listProfileRecommendationSignals({
+    profile_id: profileId,
+    domain: 'vod',
+    household_blend: profileId === 'household',
+    limit: 2_000,
+  });
+  return signals.filter((signal) => (
+    !signal.not_interested
+    && (signal.watched || signal.saved)
+    && (signal.item_type === 'movie' || signal.item_type === 'series')
+  )).flatMap((signal) => {
+    const feature = featureByKey.get(`${signal.item_type}:${signal.item_id}`);
+    if (!feature) return [];
+    const strength = recommendationSignalPreferenceStrength(signal, now);
+    return strength > 0 ? [{ feature, strength }] : [];
+  }).slice(0, 200);
+}
+
+function implicitPreferenceGroupsForProfile(
+  profileId: string,
+  featureByKey: Map<string, RecommendationFeature>,
+  now: number,
+  aggregateSignals: ProfileRecommendationSignal[],
+): ImplicitRecommendationPreference[][] {
+  if (profileId !== 'household') {
+    const preferences = implicitPreferencesForProfile(profileId, featureByKey, now, aggregateSignals);
+    return preferences.length > 0 ? [preferences] : [];
+  }
+  return listViewerProfiles().map((profile) => implicitPreferencesForProfile(
+    profile.profile_id,
+    featureByKey,
+    now,
+    listProfileRecommendationSignals({
+      profile_id: profile.profile_id,
+      domain: 'vod',
+      household_blend: false,
+      limit: 10_000,
+    }),
+  )).filter((preferences) => preferences.length > 0);
+}
+
+function negativePreferencesForProfile(
+  profileSignals: ProfileRecommendationSignal[],
+  featureByKey: Map<string, RecommendationFeature>,
+  now: number,
+): NegativeRecommendationPreference[] {
+  return profileSignals.filter((signal) => (
+    signal.not_interested
+    && (signal.item_type === 'movie' || signal.item_type === 'series')
+  )).flatMap((signal) => {
+    const feature = featureByKey.get(`${signal.item_type}:${signal.item_id}`);
+    if (!feature) return [];
+    const strength = recommendationNegativeSignalStrength(signal, now);
+    return strength > 0.01 ? [{ feature, strength }] : [];
+  }).sort((left, right) => right.strength - left.strength)
+    .slice(0, 64);
+}
+
+export function recommendationPreferenceAiInputs(
+  profileSignals: ProfileRecommendationSignal[],
+  verifiedInputs: Map<string, RecommendationAiInput>,
+): RecommendationAiInput[] {
+  return [...new Map(profileSignals
+    .filter((signal) => (
+      (signal.watched || signal.saved || signal.not_interested)
+      && (signal.item_type === 'movie' || signal.item_type === 'series')
+    ))
+    .flatMap((signal) => {
+      const input = verifiedInputs.get(`${signal.item_type}:${signal.item_id}`);
+      return input ? [[`${input.type}:${input.id}`, input] as const] : [];
+    })).values()];
+}
+
+function persistFeatures(features: RecommendationFeature[], timestamp: number): void {
+  const unique = new Map(features.map((feature) => [`${feature.type}:${feature.id}`, feature]));
+  if (unique.size === 0) return;
+  const db = libraryDatabase();
+  const insert = db.prepare(`
 INSERT INTO recommendation_features (
   content_type, content_id, feature_version, metadata_hash, provenance, confidence,
   features_json, model_version, created_at, updated_at
@@ -114,24 +329,37 @@ ON CONFLICT(content_type, content_id, feature_version) DO UPDATE SET
   features_json = excluded.features_json,
   model_version = excluded.model_version,
   updated_at = excluded.updated_at
-`).run(
-    feature.type,
-    feature.id,
-    RECOMMENDATION_FEATURE_VERSION,
-    featureMetadataHash(feature),
-    feature.confidence,
-    JSON.stringify({ vector: feature.vector, cluster: feature.cluster, rail_id: feature.rail_id }),
-    RECOMMENDATION_MODEL_VERSION,
-    timestamp,
-    timestamp,
-  );
+`);
+  // better-sqlite3 is synchronous by design. One prepared statement inside one
+  // transaction keeps this bounded write phase short enough for the Pi instead
+  // of paying prepare/autocommit cost once per candidate.
+  db.transaction(() => {
+    for (const feature of unique.values()) {
+      insert.run(
+        feature.type,
+        feature.id,
+        RECOMMENDATION_FEATURE_VERSION,
+        featureMetadataHash(feature),
+        feature.confidence,
+        JSON.stringify({
+          vector: feature.vector,
+          cluster: feature.cluster,
+          rail_id: feature.rail_id,
+          rail_ids: feature.rail_ids,
+        }),
+        RECOMMENDATION_MODEL_VERSION,
+        timestamp,
+        timestamp,
+      );
+    }
+  })();
 }
 
-function nextSnapshotRevision(tab: ForYouTab): number {
+function nextSnapshotRevision(tab: ForYouTab, profileId: string): number {
   const row = libraryDatabase().prepare(`
 SELECT COALESCE(MAX(revision), 0) + 1 AS revision
-FROM recommendation_snapshots WHERE tab = ?
-`).get(tab) as { revision: number };
+FROM profile_recommendation_snapshots WHERE profile_id = ? AND tab = ?
+`).get(profileId, tab) as { revision: number };
   return row.revision;
 }
 
@@ -141,23 +369,28 @@ function publishSnapshot(
   posterByKey: Map<string, string | null>,
   candidateCount: number,
   dailySeed: string,
+  profileId: string,
 ): number {
   const db = libraryDatabase();
-  const revision = nextSnapshotRevision(tab);
   const timestamp = Date.now();
-  db.transaction(() => {
+  return db.transaction(() => {
+    // Allocate the revision under the same SQLite write lock as publication.
+    // Manual, nightly, and first-run refreshes may arrive concurrently; a
+    // revision computed before BEGIN could otherwise be claimed twice.
+    const revision = nextSnapshotRevision(tab, profileId);
     db.prepare(`
-INSERT INTO recommendation_snapshots (
-  tab, revision, model_version, model_kind, status, candidate_count, generated_at, daily_seed
-) VALUES (?, ?, ?, 'knn-shrinkage', 'ready', ?, ?, ?)
-`).run(tab, revision, RECOMMENDATION_MODEL_VERSION, candidateCount, timestamp, dailySeed);
+INSERT INTO profile_recommendation_snapshots (
+  profile_id, tab, revision, model_version, model_kind, status, candidate_count, generated_at, daily_seed
+) VALUES (?, ?, ?, ?, 'content-shrinkage', 'ready', ?, ?, ?)
+`).run(profileId, tab, revision, RECOMMENDATION_MODEL_VERSION, candidateCount, timestamp, dailySeed);
     const insert = db.prepare(`
-INSERT INTO recommendation_snapshot_items (
-  tab, revision, rank, content_type, content_id, title, poster, year, bucket,
+INSERT INTO profile_recommendation_snapshot_items (
+  profile_id, tab, revision, rank, content_type, content_id, title, poster, year, bucket,
   affinity, diversity, predicted_fire, predicted_water, generation_reason
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
     ranked.forEach((item, index) => insert.run(
+      profileId,
       tab,
       revision,
       index + 1,
@@ -171,36 +404,68 @@ INSERT INTO recommendation_snapshot_items (
       item.diversity,
       item.predicted_fire,
       item.predicted_water,
-      item.bucket === 'explore' ? 'stable_daily_exploration' : 'dual_axis_affinity',
+      item.couch_provenance === 'watch_again'
+        ? 'cooled_rewatch'
+        : item.bucket === 'explore'
+          ? 'stable_daily_exploration'
+          : 'dual_axis_affinity',
     ));
     db.prepare(`
-DELETE FROM recommendation_snapshots
-WHERE tab = ? AND revision NOT IN (
-  SELECT revision FROM recommendation_snapshots WHERE tab = ? ORDER BY revision DESC LIMIT 8
+DELETE FROM profile_recommendation_snapshots
+WHERE profile_id = ? AND tab = ? AND revision NOT IN (
+  SELECT revision FROM profile_recommendation_snapshots
+  WHERE profile_id = ? AND tab = ? ORDER BY revision DESC LIMIT 8
 )
-`).run(tab, tab);
+`).run(profileId, tab, profileId, tab);
+    return revision;
   })();
-  return revision;
 }
 
-export async function refreshForYou(tab: ForYouTab): Promise<{
+export type RefreshForYouResult = {
   tab: ForYouTab;
   revision: number;
   candidate_count: number;
   item_count: number;
-}> {
+};
+
+async function refreshForYouUnserialized(
+  tab: ForYouTab,
+  expectedProfileId?: string,
+): Promise<RefreshForYouResult> {
   const startedAt = Date.now();
   const type = contentTypeForTab(tab);
-  const [verified, ratings] = await Promise.all([
-    listVerifiedLibraryCatalogRows(1200),
-    Promise.resolve(listRatings()),
+  const personalization = getPersonalizationState();
+  const profileId = personalization.active_profile_id;
+  if (expectedProfileId !== undefined && expectedProfileId !== profileId) {
+    throw new Error(`recommendation refresh owner ${expectedProfileId} is no longer active`);
+  }
+  const [verified, transferVerified, ratings] = await Promise.all([
+    listVerifiedLibraryCatalogRows(2000, type),
+    type === 'series' ? listVerifiedLibraryCatalogRows(1200, 'movie') : Promise.resolve([]),
+    Promise.resolve(ratingsForProfile(profileId)),
   ]);
-  if (ratings.length === 0) throw new Error('For You requires at least one explicit Fire/Water rating');
+  const profileSignals = listProfileRecommendationSignals({
+    profile_id: profileId,
+    domain: 'vod',
+    household_blend: profileId === 'household',
+    limit: 10_000,
+  });
+  const currentNegativeKeys = new Set(listProfileLibraryFeedback('not_interested', undefined, {
+    profile_id: profileId,
+    household_blend: profileId === 'household',
+  }).map((row) => `${row.type}:${row.id}`));
+  const profileSignalsByKey = new Map<string, ProfileRecommendationSignal>(profileSignals.map((signal) => [
+    `${signal.item_type}:${signal.item_id}`,
+    signal,
+  ] as const));
   const ratedKeys = new Set(ratings.map((rating) => `${rating.type}:${rating.id}`));
-  const signals = new Map<string, RecommendationLibrarySignal>(listRecommendationLibrarySignals()
+  const signals = new Map<string, RecommendationLibrarySignal>(listRecommendationLibrarySignals({
+    profile_id: profileId,
+  })
     .map((signal) => [`${signal.type}:${signal.id}`, signal] as const));
   const preferred: typeof verified = [];
   const fallback: typeof verified = [];
+  const cooledRewatch: typeof verified = [];
   let excludedRated = 0;
   let excludedHard = 0;
   for (const candidate of verified) {
@@ -211,139 +476,373 @@ export async function refreshForYou(tab: ForYouTab): Promise<{
       continue;
     }
     const signal = signals.get(key);
-    if (signal?.hidden || signal?.blocked || signal?.not_interested) {
+    const profileSignal = profileSignalsByKey.get(key);
+    if (signal?.hidden || signal?.blocked || signal?.not_interested || currentNegativeKeys.has(key)) {
       excludedHard += 1;
       continue;
     }
-    if (signal?.saved || signal?.started || signal?.completed) fallback.push(candidate);
+    if (profileSignal?.watched || signal?.completed) {
+      if (profileSignal && isCooledRecommendationRewatch(profileSignal, startedAt)) {
+        cooledRewatch.push(candidate);
+      }
+      continue;
+    }
+    if (signal?.saved || signal?.started) fallback.push(candidate);
     else preferred.push(candidate);
   }
   const candidates = preferred.length >= 6 ? preferred : [...preferred, ...fallback];
-  const features = candidatesToFeatures(candidates, type);
-  const ratingFeatures = new Map<string, RecommendationFeature>();
-  for (const rating of ratings) {
-    ratingFeatures.set(`${rating.type}:${rating.id}`, buildRecommendationFeature({
-      type: rating.type,
-      id: rating.id,
-      title: rating.title,
-      year: rating.year,
-    }));
-  }
+  const candidateInputs: RecommendationAiInput[] = candidates.map((candidate) => ({
+    type,
+    id: candidate.id,
+    title: candidate.title,
+    year: candidate.year,
+    rail_ids: candidate.rail_ids,
+  }));
+  const rewatchInputs: RecommendationAiInput[] = cooledRewatch.map((candidate) => ({
+    type,
+    id: candidate.id,
+    title: candidate.title,
+    year: candidate.year,
+    rail_ids: candidate.rail_ids,
+  }));
+  const verifiedInputs = new Map<string, RecommendationAiInput>(
+    [...verified, ...transferVerified]
+      .filter((candidate) => candidate.type === 'movie' || candidate.type === 'series')
+      .map((candidate) => {
+        const input: RecommendationAiInput = {
+          type: candidate.type as RatingContentType,
+          id: candidate.id,
+          title: candidate.title,
+          year: candidate.year,
+          rail_ids: candidate.rail_ids,
+        };
+        return [`${input.type}:${input.id}`, input] as const;
+      }),
+  );
+  const ratingInputs = ratings.map((rating) => {
+    const key = `${rating.type}:${rating.id}`;
+    return mergeRatingWithVerifiedMetadata(rating, verifiedInputs.get(key));
+  });
+  const preferenceInputs = recommendationPreferenceAiInputs(profileSignals, verifiedInputs);
+  const allAiInputs = [...ratingInputs, ...candidateInputs, ...rewatchInputs, ...preferenceInputs];
+  // Refresh is a background/operator path. Cloud enrichment is bounded and
+  // last-good; no launcher request ever waits on it.
+  const aiRefresh = await refreshAiRecommendationFeatures(
+    allAiInputs,
+    { enabled: recommendationAiEnabled() },
+  );
+  const aiDocuments = recommendationAiEnabled()
+    ? loadAiRecommendationFeatures(allAiInputs)
+    : new Map();
+  const features = candidateInputs.map((input) => buildAiEnrichedRecommendationFeature(
+    input,
+    aiDocuments.get(`${input.type}:${input.id}`),
+  ));
+  const rewatchFeatures = rewatchInputs.map((input) => buildAiEnrichedRecommendationFeature(
+    input,
+    aiDocuments.get(`${input.type}:${input.id}`),
+  ));
+  const verifiedFeatures = new Map<string, RecommendationFeature>(
+    [...verifiedInputs.values()].map((input) => {
+      const feature = buildAiEnrichedRecommendationFeature(
+        input,
+        aiDocuments.get(`${input.type}:${input.id}`),
+      );
+      return [`${feature.type}:${feature.id}`, feature] as const;
+    }),
+  );
+  const ratingFeatures = new Map<string, RecommendationFeature>(ratingInputs.map((input) => {
+    const key = `${input.type}:${input.id}`;
+    return [key, buildAiEnrichedRecommendationFeature(input, aiDocuments.get(key))] as const;
+  }));
   const timestamp = Date.now();
-  for (const feature of [...features, ...ratingFeatures.values()]) persistFeature(feature, timestamp);
-  const dailySeed = recommendationDailySeed(tab);
-  // Persist a deeper last-good reserve than the 12 cards sent to the launcher.
+  const preferenceFeatures = preferenceInputs.map((input) => buildAiEnrichedRecommendationFeature(
+    input,
+    aiDocuments.get(`${input.type}:${input.id}`),
+  ));
+  persistFeatures(
+    [...features, ...rewatchFeatures, ...ratingFeatures.values(), ...preferenceFeatures],
+    timestamp,
+  );
+  const implicitPreferenceGroups = implicitPreferenceGroupsForProfile(
+    profileId,
+    verifiedFeatures,
+    timestamp,
+    profileSignals,
+  );
+  const implicitPreferences = implicitPreferenceGroups.flat();
+  const negativePreferences = negativePreferencesForProfile(profileSignals, verifiedFeatures, timestamp);
+  const evaluation = evaluateExplicitRatings(ratings, ratingFeatures);
+  setRecommendationMetric(`evaluation_samples_last_${tab}`, evaluation.samples, profileId);
+  if (evaluation.fire_mae !== null) {
+    setRecommendationMetric(`evaluation_fire_mae_milli_last_${tab}`, evaluation.fire_mae * 1000, profileId);
+    setRecommendationMetric(`evaluation_water_mae_milli_last_${tab}`, evaluation.water_mae! * 1000, profileId);
+    setRecommendationMetric(`evaluation_affinity_mae_milli_last_${tab}`, evaluation.affinity_mae! * 1000, profileId);
+  }
+  const mood = personalization.mood;
+  const dailySeed = `${recommendationDailySeed(tab)}:${profileId}:${mood ?? 'neutral'}`;
+  const rewatchCadenceSeed = `${recommendationDailySeed(tab)}:${profileId}`;
+  // Persist a deeper last-good reserve than the six cards sent to the launcher.
   // Eligibility can change between nightly runs (rating, hide, block), so the
   // loader needs enough already-ranked playable candidates to heal the rail
   // without putting generation on the couch-critical path.
-  const ranked = rankRecommendations({
+  const ranked = await rankRecommendationsOffThread({
     tab,
     candidates: features,
     ratings,
     ratingFeatures,
+    ratingGroups: ratingGroupsForProfile(profileId),
+    implicitPreferences,
+    implicitPreferenceGroups,
+    negativePreferences,
+    contextFeature: recommendationMoodFeature(mood, type),
+    rewatchCandidates: rewatchFeatures,
+    rewatchCadenceSeed,
     dailySeed,
     limit: 40,
+    visibleLimit: 6,
   });
   if (ranked.length < 6) throw new Error(`For You ${tab} requires at least six eligible playable titles`);
-  const posterByKey = new Map<string, string | null>(candidates.map((candidate) => [
+  const posterByKey = new Map<string, string | null>([...candidates, ...cooledRewatch].map((candidate) => [
     `${candidate.type}:${candidate.id}`,
     candidate.poster,
   ]));
-  const revision = publishSnapshot(tab, ranked, posterByKey, candidates.length, dailySeed);
-  setRecommendationMetric(`generation_duration_ms_last_${tab}`, Date.now() - startedAt);
-  setRecommendationMetric(`candidate_count_last_${tab}`, candidates.length);
-  setRecommendationMetric(`excluded_rated_last_${tab}`, excludedRated);
-  setRecommendationMetric(`excluded_hard_last_${tab}`, excludedHard);
-  setRecommendationMetric(`feature_metadata_last_${tab}`, features.length);
-  setRecommendationMetric(`feature_ai_last_${tab}`, 0);
-  setRecommendationMetric(`ai_fallback_last_${tab}`, recommendationAiEnabled() ? 1 : 0);
+  const currentPersonalization = getPersonalizationState();
+  if (currentPersonalization.active_profile_id !== profileId
+    || currentPersonalization.updated_at !== personalization.updated_at) {
+    throw new Error('personalization changed during recommendation refresh');
+  }
+  const revision = publishSnapshot(tab, ranked, posterByKey, candidates.length, dailySeed, profileId);
+  setRecommendationMetric(`generation_duration_ms_last_${tab}`, Date.now() - startedAt, profileId);
+  setRecommendationMetric(`candidate_count_last_${tab}`, candidates.length, profileId);
+  setRecommendationMetric(`excluded_rated_last_${tab}`, excludedRated, profileId);
+  setRecommendationMetric(`excluded_hard_last_${tab}`, excludedHard, profileId);
+  setRecommendationMetric(`rewatch_pool_last_${tab}`, cooledRewatch.length, profileId);
+  setRecommendationMetric(`feature_metadata_last_${tab}`, features.length, profileId);
+  setRecommendationMetric(`implicit_preferences_last_${tab}`, implicitPreferences.length, profileId);
+  setRecommendationMetric(`implicit_viewer_groups_last_${tab}`, implicitPreferenceGroups.length, profileId);
+  setRecommendationMetric(`implicit_only_cold_start_last_${tab}`, ratings.length === 0 ? 1 : 0, profileId);
+  setRecommendationMetric(`negative_preferences_last_${tab}`, negativePreferences.length, profileId);
+  setRecommendationMetric(`feature_ai_last_${tab}`, candidateInputs.filter(
+    (input) => aiDocuments.has(`${input.type}:${input.id}`),
+  ).length, profileId);
+  setRecommendationMetric(`feature_ai_preferences_last_${tab}`, preferenceInputs.filter(
+    (input) => aiDocuments.has(`${input.type}:${input.id}`),
+  ).length, profileId);
+  setRecommendationMetric(`ai_requested_last_${tab}`, aiRefresh.requested, profileId);
+  setRecommendationMetric(`ai_persisted_last_${tab}`, aiRefresh.persisted, profileId);
+  setRecommendationMetric(`ai_fallback_last_${tab}`, aiRefresh.failed ? 1 : 0, profileId);
   return { tab, revision, candidate_count: candidates.length, item_count: ranked.length };
 }
 
+// Recommendation generation mutates shared feature/cache tables in addition
+// to publishing a profile snapshot. Serialize the whole refresh, not merely
+// the final INSERT, so operator, nightly, and first-run callers cannot
+// interleave phases or publish stale work over a newer result.
+let refreshTail: Promise<void> = Promise.resolve();
+
+export function refreshForYou(
+  tab: ForYouTab,
+  options: { profile_id?: string } = {},
+): Promise<RefreshForYouResult> {
+  const run = refreshTail
+    .catch(() => undefined)
+    .then(() => refreshForYouUnserialized(tab, options.profile_id));
+  refreshTail = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 export async function refreshAllForYou(): Promise<Array<Awaited<ReturnType<typeof refreshForYou>>>> {
+  const profileId = activeViewerProfileId();
   const results = [];
-  for (const tab of ['movies', 'series'] as const) results.push(await refreshForYou(tab));
+  for (const tab of ['movies', 'series'] as const) {
+    results.push(await refreshForYou(tab, { profile_id: profileId }));
+  }
   return results;
 }
 
 export function currentRecommendationRevision(tab: ForYouTab): number {
+  const profileId = activeViewerProfileId();
   const row = libraryDatabase().prepare(`
-SELECT COALESCE(MAX(revision), 0) AS revision FROM recommendation_snapshots WHERE tab = ?
-`).get(tab) as { revision: number };
+SELECT COALESCE(MAX(revision), 0) AS revision
+FROM profile_recommendation_snapshots WHERE profile_id = ? AND tab = ?
+`).get(profileId, tab) as { revision: number };
   return row.revision;
 }
 
-export function loadForYouRail(
+export function recommendationShuffleNonce(
   tab: ForYouTab,
-  options: { reshuffle?: boolean } = {},
-): ForYouRail | null {
+  profileId = activeViewerProfileId(),
+): number {
+  const row = libraryDatabase().prepare(`
+INSERT INTO profile_recommendation_metrics(profile_id, metric_name, metric_value, updated_at)
+VALUES (?, ?, 1, ?)
+ON CONFLICT(profile_id, metric_name) DO UPDATE SET
+  metric_value = profile_recommendation_metrics.metric_value + 1,
+  updated_at = excluded.updated_at
+RETURNING metric_value
+`).get(normalizedMetricProfileId(profileId), `shuffle_nonce_${tab}`, Date.now()) as { metric_value: number };
+  return row.metric_value;
+}
+
+function stableShuffleRows(rows: SnapshotItemRow[], seed: string): SnapshotItemRow[] {
+  return [...rows].sort((left, right) => {
+    const leftHash = createHash('sha256').update(`${seed}:${left.content_type}:${left.content_id}`).digest('hex');
+    const rightHash = createHash('sha256').update(`${seed}:${right.content_type}:${right.content_id}`).digest('hex');
+    return leftHash.localeCompare(rightHash);
+  });
+}
+
+export function selectVisibleRecommendationSlate(
+  rows: SnapshotItemRow[],
+  tab: ForYouTab,
+  reshuffle: boolean,
+  profileId?: string,
+): SnapshotItemRow[] {
+  const seed = reshuffle
+    ? `${tab}:${rows[0]?.revision ?? 0}:${recommendationShuffleNonce(
+      tab,
+      profileId ?? activeViewerProfileId(),
+    )}`
+    : null;
+  const ordered = (bucket: string, candidates: SnapshotItemRow[]): SnapshotItemRow[] => (
+    seed ? stableShuffleRows(candidates, `${seed}:${bucket}`) : candidates
+  );
+  const close = ordered('close', rows.filter((item) => item.bucket === 'close')).slice(0, 4);
+  const adjacent = ordered('adjacent', rows.filter((item) => item.bucket === 'adjacent')).slice(0, 1);
+  // Deeper reserve rows are intentionally tagged fallback. They are eligible
+  // only for the bounded surprise slot when the original explore card becomes
+  // rated, hidden, or no longer playable.
+  const explore = ordered(
+    'explore',
+    rows.filter((item) => item.bucket === 'explore' || item.bucket === 'fallback'),
+  ).slice(0, 1).map((item) => item.bucket === 'fallback'
+    ? { ...item, bucket: 'explore' as const }
+    : item);
+  if (close.length !== 4 || adjacent.length !== 1 || explore.length !== 1) return [];
+  return [...close, ...adjacent, ...explore];
+}
+
+export async function loadForYouRail(
+  tab: ForYouTab,
+  options: {
+    reshuffle?: boolean;
+    profileId?: string;
+    personalizationUpdatedAt?: number;
+  } = {},
+): Promise<ForYouRail | null> {
   if (!forYouEnabled()) return null;
+  const personalization = getPersonalizationState();
+  const profileId = options.profileId ?? personalization.active_profile_id;
+  const personalizationUpdatedAt = options.personalizationUpdatedAt ?? personalization.updated_at;
+  if (personalization.active_profile_id !== profileId
+    || personalization.updated_at !== personalizationUpdatedAt) {
+    return null;
+  }
   const rows = libraryDatabase().prepare(`
-SELECT rsi.revision, rsi.rank, rsi.content_type, rsi.content_id, rsi.title, rsi.poster, rsi.year
-FROM recommendation_snapshot_items rsi
-WHERE rsi.tab = ?
-  AND rsi.revision = (SELECT MAX(revision) FROM recommendation_snapshots WHERE tab = ?)
+SELECT rsi.revision, rsi.rank, rsi.content_type, rsi.content_id, rsi.title,
+       rsi.poster, rsi.year, rsi.bucket, rsi.generation_reason
+FROM profile_recommendation_snapshot_items rsi
+WHERE rsi.profile_id = ? AND rsi.tab = ?
+  AND rsi.revision = (
+    SELECT MAX(revision) FROM profile_recommendation_snapshots
+    WHERE profile_id = ? AND tab = ?
+  )
 ORDER BY rsi.rank ASC
 LIMIT 40
-`).all(tab, tab) as SnapshotItemRow[];
+  `).all(profileId, tab, profileId, tab) as SnapshotItemRow[];
   if (rows.length < 6) return null;
-  const ineligible = new Set(listRecommendationLibrarySignals()
+  const currentPlayability = await getTitlesPlayabilityBulk(rows.map((row) => ({
+    type: row.content_type,
+    id: row.content_id,
+  })));
+  const currentPersonalization = getPersonalizationState();
+  if (currentPersonalization.active_profile_id !== profileId
+    || currentPersonalization.updated_at !== personalizationUpdatedAt) {
+    // The caller can immediately retry for the newly active profile. Never
+    // assemble a single response from two profile snapshots.
+    return null;
+  }
+  const currentlyVerified = new Set([...currentPlayability.entries()]
+    .filter(([, record]) => record.status === 'verified')
+    .map(([key]) => key));
+  const ineligible = new Set(listRecommendationLibrarySignals({ profile_id: profileId })
     .filter((signal) => signal.hidden || signal.blocked || signal.not_interested)
     .map((signal) => `${signal.type}:${signal.id}`));
-  const rated = new Set(listRatings().map((rating) => `${rating.type}:${rating.id}`));
-  const eligible = rows.filter((row) => {
-    const key = `${row.content_type}:${row.content_id}`;
-    return !ineligible.has(key) && !rated.has(key);
-  });
-  if (eligible.length < 6) return null;
-
-  let epoch = currentForYouShuffleEpoch(tab);
-  if (options.reshuffle) {
-    epoch = bumpForYouShuffleEpoch(tab);
+  for (const row of listProfileLibraryFeedback('not_interested', undefined, {
+    profile_id: profileId,
+    household_blend: profileId === 'household',
+  })) {
+    ineligible.add(`${row.type}:${row.id}`);
   }
-  const selected = pickForYouDisplayWindow(eligible, {
+  const rated = new Set(ratingsForProfile(profileId).map((rating) => `${rating.type}:${rating.id}`));
+  const eligiblePool = rows.filter((row) => {
+    const key = `${row.content_type}:${row.content_id}`;
+    return currentlyVerified.has(key) && !ineligible.has(key) && !rated.has(key);
+  });
+  let epoch = currentForYouShuffleEpoch(tab, profileId);
+  if (options.reshuffle) epoch = recommendationShuffleNonce(tab, profileId);
+  const visible = pickForYouDisplayWindow(eligiblePool, {
     limit: 12,
-    seed: `${recommendationDailySeed(tab)}:${epoch}`,
+    seed: `${recommendationDailySeed(tab)}:${profileId}:${epoch}`,
     reshuffle: Boolean(options.reshuffle) || epoch > 0,
   });
-  if (selected.length < 6) return null;
-
+  if (visible.length < 6) return null;
+  const finalPersonalization = getPersonalizationState();
+  if (finalPersonalization.active_profile_id !== profileId
+    || finalPersonalization.updated_at !== personalizationUpdatedAt) {
+    return null;
+  }
+  const railId = tab === 'movies' ? 'for-you-movies' : 'for-you-series';
+  const served = registerRecommendationServedSlate({
+    profile_id: profileId,
+    domain: 'vod',
+    rail_id: railId,
+    source_revision: rows[0]?.revision ?? 0,
+    items: visible.map((row, rank) => ({
+      type: row.content_type,
+      id: row.content_id,
+      rank,
+    })),
+  });
   return {
-    rail_id: tab === 'movies' ? 'for-you-movies' : 'for-you-series',
+    rail_id: railId,
     label: 'For You',
-    items: selected.map((row) => ({
+    slate_sequence: served.slate_revision,
+    attribution_token: served.attribution_token,
+    items: visible.map((row) => ({
       id: row.content_id,
       type: row.content_type,
       title: row.title,
-      subtitle: [row.content_type === 'movie' ? 'Movie' : 'TV Show', row.year].filter(Boolean).join(' · '),
+      subtitle: [
+        row.generation_reason === 'cooled_rewatch'
+          ? 'Watch again'
+          : row.content_type === 'movie' ? 'Movie' : 'TV Show',
+        row.year,
+      ].filter(Boolean).join(' · '),
       poster: row.poster ?? '',
       ...(row.year ? { year: row.year } : {}),
       source: 'for-you',
     })),
     resolve_ms: 0,
-    skipped: rows.length - selected.length,
+    skipped: rows.length - visible.length,
     cached: true,
     playability: {
-      displayed: selected.length,
-      verified_pool: eligible.length,
+      displayed: visible.length,
+      verified_pool: eligiblePool.length,
       pending: 0,
-      low_water: selected.length < 12,
+      low_water: visible.length < 12,
       session_id: `for-you-${rows[0]?.revision ?? 0}-${epoch}`,
     },
   };
 }
 
-function currentForYouShuffleEpoch(tab: ForYouTab): number {
+function currentForYouShuffleEpoch(tab: ForYouTab, profileId = activeViewerProfileId()): number {
   const row = libraryDatabase().prepare(`
-SELECT metric_value FROM recommendation_metrics WHERE metric_name = ?
-`).get(`for_you_shuffle_epoch_${tab}`) as { metric_value?: number } | undefined;
+SELECT metric_value FROM profile_recommendation_metrics
+WHERE profile_id = ? AND metric_name = ?
+`).get(normalizedMetricProfileId(profileId), `shuffle_nonce_${tab}`) as { metric_value?: number } | undefined;
   return Math.max(0, Math.floor(Number(row?.metric_value) || 0));
-}
-
-function bumpForYouShuffleEpoch(tab: ForYouTab): number {
-  const next = currentForYouShuffleEpoch(tab) + 1;
-  setRecommendationMetric(`for_you_shuffle_epoch_${tab}`, next);
-  return next;
 }
 
 /**
@@ -394,26 +893,115 @@ function seededUnit(seed: string): number {
 export function recommendationDiagnostics(): {
   enabled: boolean;
   ai_enabled: boolean;
+  active_profile_id: string;
   ratings: number;
   tabs: Array<{ tab: ForYouTab; revision: number; generated_at: number | null; candidate_count: number }>;
+  metrics_scope: { kind: 'active_profile'; profile_id: string };
   metrics: Record<string, { value: number; updated_at: number }>;
+  legacy_global_metrics: Record<string, { value: number; updated_at: number }>;
+  attribution_rollup: Array<{
+    domain: 'vod' | 'youtube';
+    rail_id: string;
+    slate_revision: number;
+    model_version: string | null;
+    impressions: number;
+    detail_opens: number;
+    play_starts: number;
+    completions_90pct: number;
+    last_activity_at: number;
+  }>;
 } {
-  const ratings = listRatings().length;
+  const profileId = activeViewerProfileId();
+  const ratings = ratingsForProfile(profileId).length;
   const rows = libraryDatabase().prepare(`
 SELECT rs.tab, rs.revision, rs.generated_at, rs.candidate_count
-FROM recommendation_snapshots rs
+FROM profile_recommendation_snapshots rs
 JOIN (
-  SELECT tab, MAX(revision) AS revision FROM recommendation_snapshots GROUP BY tab
+  SELECT tab, MAX(revision) AS revision FROM profile_recommendation_snapshots
+  WHERE profile_id = ? GROUP BY tab
 ) latest ON latest.tab = rs.tab AND latest.revision = rs.revision
+WHERE rs.profile_id = ?
 ORDER BY rs.tab
-  `).all() as Array<{ tab: ForYouTab; revision: number; generated_at: number; candidate_count: number }>;
+  `).all(profileId, profileId) as Array<{ tab: ForYouTab; revision: number; generated_at: number; candidate_count: number }>;
   const metricRows = libraryDatabase().prepare(`
-SELECT metric_name, metric_value, updated_at FROM recommendation_metrics ORDER BY metric_name
+SELECT metric_name, metric_value, updated_at
+FROM profile_recommendation_metrics
+WHERE profile_id = ?
+ORDER BY metric_name
+`).all(profileId) as Array<{ metric_name: string; metric_value: number; updated_at: number }>;
+  const legacyMetricRows = libraryDatabase().prepare(`
+SELECT metric_name, metric_value, updated_at
+FROM recommendation_metrics
+ORDER BY metric_name
 `).all() as Array<{ metric_name: string; metric_value: number; updated_at: number }>;
+  const attributionRollup = libraryDatabase().prepare(`
+WITH attribution_keys AS (
+  SELECT profile_id, domain, rail_id, slate_revision
+  FROM profile_recommendation_impressions
+  WHERE profile_id = ?
+  UNION
+  SELECT profile_id, domain, rail_id, slate_revision
+  FROM profile_recommendation_outcomes
+  WHERE profile_id = ?
+)
+SELECT k.domain, k.rail_id, k.slate_revision, prs.model_version,
+       (SELECT COUNT(*) FROM profile_recommendation_impressions i
+        WHERE i.profile_id = k.profile_id AND i.domain = k.domain
+          AND i.rail_id = k.rail_id AND i.slate_revision = k.slate_revision) AS impressions,
+       (SELECT COUNT(*) FROM profile_recommendation_outcomes o
+        WHERE o.profile_id = k.profile_id AND o.domain = k.domain
+          AND o.rail_id = k.rail_id AND o.slate_revision = k.slate_revision
+          AND o.detail_opened_at IS NOT NULL) AS detail_opens,
+       (SELECT COUNT(*) FROM profile_recommendation_outcomes o
+        WHERE o.profile_id = k.profile_id AND o.domain = k.domain
+          AND o.rail_id = k.rail_id AND o.slate_revision = k.slate_revision
+          AND o.play_started_at IS NOT NULL) AS play_starts,
+       (SELECT COUNT(*) FROM profile_recommendation_outcomes o
+        WHERE o.profile_id = k.profile_id AND o.domain = k.domain
+          AND o.rail_id = k.rail_id AND o.slate_revision = k.slate_revision
+          AND o.max_progress_pct >= 0.9) AS completions_90pct,
+       MAX(
+         COALESCE((SELECT MAX(i.shown_at) FROM profile_recommendation_impressions i
+                   WHERE i.profile_id = k.profile_id AND i.domain = k.domain
+                     AND i.rail_id = k.rail_id AND i.slate_revision = k.slate_revision), 0),
+         COALESCE((SELECT MAX(o.updated_at) FROM profile_recommendation_outcomes o
+                   WHERE o.profile_id = k.profile_id AND o.domain = k.domain
+                     AND o.rail_id = k.rail_id AND o.slate_revision = k.slate_revision), 0)
+       ) AS last_activity_at
+FROM attribution_keys k
+LEFT JOIN profile_recommendation_served_slates served
+  ON served.profile_id = k.profile_id
+ AND served.domain = k.domain
+ AND served.rail_id = k.rail_id
+ AND served.slate_revision = k.slate_revision
+LEFT JOIN profile_recommendation_snapshots prs
+  ON prs.profile_id = k.profile_id
+ AND k.domain = 'vod'
+ AND prs.revision = served.source_revision
+ AND prs.tab = CASE k.rail_id
+   WHEN 'for-you-movies' THEN 'movies'
+   WHEN 'for-you-series' THEN 'series'
+   ELSE NULL
+ END
+ORDER BY last_activity_at DESC, k.domain, k.rail_id, k.slate_revision DESC
+LIMIT 40
+`).all(profileId, profileId) as Array<{
+    domain: 'vod' | 'youtube';
+    rail_id: string;
+    slate_revision: number;
+    model_version: string | null;
+    impressions: number;
+    detail_opens: number;
+    play_starts: number;
+    completions_90pct: number;
+    last_activity_at: number;
+  }>;
   return {
     enabled: forYouEnabled(),
     ai_enabled: recommendationAiEnabled(),
+    active_profile_id: profileId,
     ratings,
+    metrics_scope: { kind: 'active_profile', profile_id: profileId },
     tabs: (['movies', 'series'] as const).map((tab) => {
       const row = rows.find((candidate) => candidate.tab === tab);
       return {
@@ -427,5 +1015,10 @@ SELECT metric_name, metric_value, updated_at FROM recommendation_metrics ORDER B
       row.metric_name,
       { value: row.metric_value, updated_at: row.updated_at },
     ])),
+    legacy_global_metrics: Object.fromEntries(legacyMetricRows.map((row) => [
+      row.metric_name,
+      { value: row.metric_value, updated_at: row.updated_at },
+    ])),
+    attribution_rollup: attributionRollup,
   };
 }

@@ -41,17 +41,33 @@ import { deriveLibraryVerifyState } from './voice/external.js';
 import { initProgressDb, getWatchProgressForTitle } from './progress/db.js';
 import {
   clearLibraryContext,
+  clearLibraryFeedback,
   getLatestEpisodeWatchProgress,
   getLibraryContext,
   getLibraryState,
   initLibraryDb,
   backupLibraryDbBeforeFireWaterMigration,
+  activeViewerProfileId,
+  activateViewerProfile,
+  completeViewerProfileOnboarding,
+  createViewerProfile,
+  getPersonalizationState,
   libraryTabForType,
   listSavedLibraryItems,
+  listProfileLibraryFeedback,
+  listViewerProfiles,
   listWatchHistory,
   recordLibraryWatch,
+  recordRecommendationDetailOpen,
+  recordRecommendationImpressions,
+  recordRecommendationPlayStart,
+  registerRecommendationServedSlate,
+  resolveRecommendationServedSlate,
+  renameViewerProfile,
   saveLibraryItem,
+  setLibraryFeedback,
   setLibraryContext,
+  setViewerMood,
   unsaveLibraryItem,
   type LibraryItemInput,
 } from './library/db.js';
@@ -75,12 +91,21 @@ import {
   refreshAllForYou,
   refreshForYou,
 } from './recommendations/service.js';
+import { CoalescingRecommendationRefreshQueue } from './recommendations/background-refresh.js';
+import { validateOptionalRecommendationMutationAttribution } from './recommendations/mutation-attribution.js';
 import { searchCachedYoutubeItems } from './youtube/db.js';
-import { YoutubeService } from './youtube/service.js';
+import {
+  resolveYoutubeImpressionSourceRevision,
+  YoutubeService,
+} from './youtube/service.js';
 import type { YoutubeItemKind } from './youtube/types.js';
 import { ReliabilityService } from './reliability/service.js';
 import { resolvePosterFromMeta, enrichMetaForLauncher, stubMetaForLauncher } from './poster.js';
-import { flushWatchProgress, startWatchSessionFromPlay } from './progress/watcher.js';
+import {
+  flushWatchProgress,
+  setRecommendationSignalChangeHook,
+  startWatchSessionFromPlay,
+} from './progress/watcher.js';
 import {
   buildNextPromptResponse,
   takePendingNextPrompt,
@@ -147,6 +172,15 @@ import {
 import type { AiSeedTitle } from './ai-catalogs/types.js';
 import { UnifiedSearchService, parseSearchScope } from './search/service.js';
 import {
+  hasRecommendationAttributionIntent,
+  isRecommendationPlaybackIdentityCompatible,
+} from './recommendations/attribution-request.js';
+import {
+  assertExpectedPersonalization,
+  parseExpectedPersonalization,
+  parseExpectedPersonalizationBody,
+} from './personalization-request.js';
+import {
   ActiveStreamConflictError,
   ActiveStreamService,
 } from './active-stream-session.js';
@@ -167,6 +201,14 @@ type PlayBody = StreamFilterOverrides & {
   description?: string;
   tab?: string;
   rail_id?: string;
+  slate_revision?: number;
+  attribution_token?: string;
+  recommendation_item_type?: string;
+  recommendation_item_id?: string;
+  /** Captured server-side when an async play session is accepted. */
+  recommendation_profile_id?: string;
+  expected_profile_id?: string;
+  expected_personalization_updated_at?: string | number;
   reason?: string;
   url?: string;
   /** Picker row — prefer this stream in the play ladder. */
@@ -303,15 +345,25 @@ function parseYoutubeKind(value: string | null): YoutubeItemKind {
   return 'video';
 }
 
-function savedPayload(tab: ReturnType<typeof parseCatalogTab>, limit: number): {
+function savedPayload(
+  tab: ReturnType<typeof parseCatalogTab>,
+  limit: number,
+  personalization = getPersonalizationState(),
+): {
   ok: true;
   tab?: string;
+  profile_id: string;
+  personalization_updated_at: number;
   saved: ReturnType<typeof listSavedLibraryItems>;
 } {
   return {
     ok: true,
     ...(tab ? { tab } : {}),
-    saved: listSavedLibraryItems(tab, Number.isFinite(limit) ? limit : 100),
+    profile_id: personalization.active_profile_id,
+    personalization_updated_at: personalization.updated_at,
+    saved: listSavedLibraryItems(tab, Number.isFinite(limit) ? limit : 100, {
+      profile_id: personalization.active_profile_id,
+    }),
   };
 }
 
@@ -371,6 +423,19 @@ function isLocalRequest(req: http.IncomingMessage): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
+async function withoutCatalogErrorDetails<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (error instanceof CatalogError) {
+      throw new CatalogError(error.status, error.message, undefined, {
+        couchMessage: error.couchMessage,
+      });
+    }
+    throw error;
+  }
+}
+
 function parseTitleExcludeQuery(raw: string | null): Array<{ type: string; id: string }> {
   if (!raw?.trim()) {
     return [];
@@ -413,30 +478,118 @@ async function attachWatchSession(
   type: string,
   playId: string,
   stream?: {
+    profileId?: string;
     releaseFingerprint?: string | null;
     technical?: import('./playback-capability.js').StreamTechnicalProfile | null;
+    attribution?: {
+      profile_id: string;
+      domain: 'vod' | 'youtube';
+      rail_id: string;
+      slate_revision: number;
+      item_type: string;
+      item_id: string;
+    } | null;
   },
 ): Promise<void> {
   try {
     const metaId = type === 'series' ? (seriesBareId(playId) || playId) : playId;
     const meta = await core.metaCached(type, metaId);
     await startWatchSessionFromPlay({
+      profile_id: stream?.profileId ?? stream?.attribution?.profile_id,
       type,
       id: playId,
       title: typeof meta.name === 'string' ? meta.name : null,
       poster: resolvePosterFromMeta(meta),
       releaseFingerprint: stream?.releaseFingerprint,
       technical: stream?.technical,
+      recommendation: stream?.attribution ? {
+        profile_id: stream.attribution.profile_id,
+        domain: stream.attribution.domain,
+        rail_id: stream.attribution.rail_id,
+        slate_revision: stream.attribution.slate_revision,
+        item_type: stream.attribution.item_type,
+        item_id: stream.attribution.item_id,
+      } : undefined,
     });
   } catch {
     await startWatchSessionFromPlay({
+      profile_id: stream?.profileId ?? stream?.attribution?.profile_id,
       type,
       id: playId,
       releaseFingerprint: stream?.releaseFingerprint,
       technical: stream?.technical,
+      recommendation: stream?.attribution ? {
+        profile_id: stream.attribution.profile_id,
+        domain: stream.attribution.domain,
+        rail_id: stream.attribution.rail_id,
+        slate_revision: stream.attribution.slate_revision,
+        item_type: stream.attribution.item_type,
+        item_id: stream.attribution.item_id,
+      } : undefined,
     });
   }
 }
+
+function recommendationAttributionFromBody<TDomain extends 'vod' | 'youtube'>(
+  body: PlayBody,
+  domain: TDomain,
+): {
+  profile_id: string;
+  domain: TDomain;
+  rail_id: string;
+  slate_revision: number;
+  item_type: string;
+  item_id: string;
+} | null {
+  // rail_id predates recommendation attribution and is present on ordinary
+  // catalog cards for playability/rail assignment. Only the opaque proof,
+  // served revision, or explicit served-card identity opts a request into the
+  // recommendation contract; once opted in, every field (including rail_id)
+  // is mandatory and validated below.
+  const hasAnyAttribution = hasRecommendationAttributionIntent(body);
+  if (!hasAnyAttribution) return null;
+  if (!body.rail_id || !body.attribution_token
+    || !body.recommendation_item_type || !body.recommendation_item_id
+    || !Number.isInteger(body.slate_revision) || (body.slate_revision ?? -1) < 0) {
+    throw new CatalogError(409, 'stale or incomplete recommendation slate');
+  }
+  if (!isRecommendationPlaybackIdentityCompatible(
+    { type: body.recommendation_item_type, id: body.recommendation_item_id },
+    { type: body.type, id: body.id },
+  )) {
+    throw new CatalogError(409, 'recommendation card does not match requested playback');
+  }
+  let served;
+  try {
+    served = resolveRecommendationServedSlate({
+      attribution_token: body.attribution_token,
+      domain,
+      rail_id: body.rail_id,
+      slate_revision: body.slate_revision!,
+      item: {
+        type: body.recommendation_item_type,
+        id: body.recommendation_item_id,
+      },
+    });
+  } catch {
+    throw new CatalogError(409, 'this recommendation slate is no longer current');
+  }
+  if (served.profile_id !== activeViewerProfileId()) {
+    throw new CatalogError(409, 'profile changed; reload recommendations before acting');
+  }
+  return {
+    profile_id: served.profile_id,
+    domain,
+    rail_id: served.rail_id,
+    slate_revision: served.slate_revision,
+    item_type: body.recommendation_item_type,
+    item_id: body.recommendation_item_id,
+  };
+}
+
+type VodRecommendationAttribution = NonNullable<
+  ReturnType<typeof recommendationAttributionFromBody<'vod'>>
+>;
 
 /** Additive verify-state for the detail/meta page — mirrors voice search's in_library/queued_for_verify shape. */
 async function withVerifyStateForLauncher(
@@ -465,7 +618,12 @@ async function handlePlay(
   requestId: string | null = normalizePlayRequestId(body.request_id),
   onRequestRegistered?: (epoch: number) => void,
   preparedEpoch?: number,
+  acceptedAttribution?: VodRecommendationAttribution | null,
 ): Promise<Record<string, unknown>> {
+  // Capture exact resume/history ownership before the first await. Public
+  // routes set this explicitly, while direct/internal callers keep the
+  // compatibility default of the active profile at acceptance time.
+  const playbackProfileId = body.recommendation_profile_id || activeViewerProfileId();
   await activeStreams?.clear().catch((error) => {
     console.warn(
       `active stream cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -506,7 +664,10 @@ async function handlePlay(
     await assertPlayEpoch(playEpoch);
     if (body.type && body.id) {
       await assertPlayEpoch(playEpoch);
-      await attachWatchSession(core, body.type, body.id);
+      await attachWatchSession(core, body.type, body.id, {
+        profileId: playbackProfileId,
+        attribution: acceptedAttribution,
+      });
     }
     return {
       ...playback,
@@ -593,6 +754,7 @@ async function handlePlay(
     try {
       await assertPlayEpoch(playEpoch);
       recordLibraryWatch({
+        profile_id: playbackProfileId,
         type: body.type,
         id: body.id,
         title: body.title,
@@ -613,6 +775,7 @@ async function handlePlay(
     if (playback.ok) {
       await assertPlayEpoch(playEpoch);
       await startWatchSessionFromPlay({
+        profile_id: playbackProfileId,
         type: 'tv',
         id: body.id,
         title: body.title ?? null,
@@ -641,12 +804,16 @@ async function handlePlay(
   let startSec = typeof body.start_sec === 'number' && body.start_sec > 0
     ? body.start_sec
     : undefined;
-  const saved = getWatchProgressForTitle(body.type, body.id);
+  const saved = getWatchProgressForTitle(body.type, body.id, {
+    profile_id: playbackProfileId,
+  });
   const bareSeriesId = body.type === 'series'
     ? (seriesBareId(body.id) || body.id)
     : null;
   const episodeSaved = body.type === 'series' && isSeriesEpisodeId(body.id) && bareSeriesId
-    ? getLatestEpisodeWatchProgress(bareSeriesId, body.id)
+    ? getLatestEpisodeWatchProgress(bareSeriesId, body.id, {
+      profile_id: playbackProfileId,
+    })
     : null;
   const playTarget = resolveSeriesPlayTarget(body.type, body.id, {
     saved,
@@ -827,8 +994,10 @@ async function handlePlay(
 
     await assertPlayEpoch(playEpoch);
     await attachWatchSession(core, body.type, playId, {
+      profileId: playbackProfileId,
       releaseFingerprint: playback.win_url_hash,
       technical: playback.technical,
+      attribution: acceptedAttribution,
     });
     if (activeStreams) {
       await activeStreams.register({
@@ -852,6 +1021,8 @@ async function handlePlay(
           const refreshed = await core.resolveForPlay(body.type!, playId, overrides, {
             requestClass: 'user',
             deadlineAtMs: Date.now() + 30_000,
+            zeroStreamRetryAttempts: 0,
+            zeroStreamRetryDelayMs: 0,
             identityHint: { title: body.title, year: body.year },
           });
           return refreshed.streams;
@@ -1001,12 +1172,36 @@ async function startPlaybackSession(
   youtube: YoutubeService,
   body: PlayBody,
   queryOverrides: StreamFilterOverrides,
+  expectedPersonalization: ReturnType<typeof parseExpectedPersonalizationBody>,
 ): Promise<Awaited<ReturnType<typeof createPlaybackSession>>> {
   const requestId = normalizePlayRequestId(body.request_id);
   if (!requestId) {
     throw new CatalogError(400, 'POST /play-session requires a valid request_id');
   }
+  assertExpectedPersonalization(
+    expectedPersonalization,
+    getPersonalizationState(),
+    'before playback ownership captured',
+  );
+  // Profile switching can happen from the companion while resolution is in
+  // flight. Capture ownership at acceptance so the eventual outcome cannot be
+  // credited to whichever profile happens to be active minutes later.
+  const acceptedYoutubeAttribution = body.source === 'youtube'
+    ? recommendationAttributionFromBody(body, 'youtube')
+    : null;
+  const acceptedVodAttribution = body.source === 'youtube'
+    ? null
+    : recommendationAttributionFromBody(body, 'vod');
+  body.recommendation_profile_id = expectedPersonalization?.active_profile_id
+    ?? acceptedYoutubeAttribution?.profile_id
+    ?? acceptedVodAttribution?.profile_id
+    ?? activeViewerProfileId();
   const existing = await getPlaybackSession(requestId);
+  assertExpectedPersonalization(
+    expectedPersonalization,
+    getPersonalizationState(),
+    'before playback session reused',
+  );
   if (existing) {
     return { session: existing, created: false };
   }
@@ -1015,7 +1210,17 @@ async function startPlaybackSession(
 
   const starting = (async () => {
     const deadline = createPlayDeadline();
+    assertExpectedPersonalization(
+      expectedPersonalization,
+      getPersonalizationState(),
+      'before playback epoch advanced',
+    );
     const playEpoch = await bumpPlayEpoch();
+    assertExpectedPersonalization(
+      expectedPersonalization,
+      getPersonalizationState(),
+      'before playback session created',
+    );
     registerPlayRequest(requestId, playEpoch);
     emitPlaybackTelemetry('play_request_start', {
       request_id: requestId,
@@ -1056,9 +1261,11 @@ async function startPlaybackSession(
         }
         const result = source === 'youtube'
           ? await youtube.play({
+            profile_id: body.recommendation_profile_id,
             id: body.id,
             title: body.title,
             poster: body.poster,
+            recommendation: acceptedYoutubeAttribution ?? undefined,
           }, { playEpoch })
           : await handlePlay(
             core,
@@ -1068,6 +1275,7 @@ async function startPlaybackSession(
             requestId,
             undefined,
             playEpoch,
+            acceptedVodAttribution,
           );
         succeeded = true;
         await transitionPlaybackSession(requestId, 'playing', {
@@ -1100,13 +1308,29 @@ async function main(): Promise<void> {
   initLibraryDb();
   await initProgressDb();
   const core = await CatalogCore.create();
-  if (listRatings().length > 0) {
-    void refreshAllForYou()
-      .then(() => core.clearRailItemsCache())
-      .catch((error) => console.warn(`recommendation warm refresh retained last-good snapshot: ${
-        error instanceof Error ? error.message : String(error)
-      }`));
-  }
+  const recommendationRefreshQueue = new CoalescingRecommendationRefreshQueue({
+    refresh: ({ profile_id: profileId, tab }) => refreshForYou(tab, { profile_id: profileId }),
+    onPublished: () => core.clearRailItemsCache(),
+    onRetainedLastGood: (work, error, willRetry) => {
+      console.warn(`recommendation background refresh retained last-good ${work.tab} snapshot for ${work.profile_id}${
+        willRetry ? ' and will retry' : ''}: ${error instanceof Error ? error.message : String(error)}`);
+    },
+  });
+  const queueRecommendationRefresh = (
+    tabs: readonly ('movies' | 'series')[],
+    profileId = activeViewerProfileId(),
+  ): void => {
+    recommendationRefreshQueue.enqueue(profileId, tabs);
+  };
+  setRecommendationSignalChangeHook((change) => {
+    queueRecommendationRefresh(
+      change.type === 'series' ? ['series'] : ['movies', 'series'],
+      change.profile_id,
+    );
+  });
+  // Explicit ratings are not a prerequisite: a skipped-onboarding personal
+  // profile can warm up from Save/watch evidence against neutral priors.
+  queueRecommendationRefresh(['movies', 'series']);
   core.startLiveRailsBackgroundRefresh();
   activeStreams = new ActiveStreamService();
   await activeStreams.clear().catch((error) => {
@@ -1347,6 +1571,13 @@ async function main(): Promise<void> {
           : url.searchParams.get('id')?.trim() ?? '';
         if (req.method === 'GET') {
           if (!type || !id) throw new CatalogError(400, 'GET /library/ratings requires type and id');
+          const expectedPersonalization = parseExpectedPersonalization(url.searchParams);
+          const personalization = getPersonalizationState();
+          assertExpectedPersonalization(
+            expectedPersonalization,
+            personalization,
+            'before rating state loaded',
+          );
           try {
             canonicalRatingIdentity(type, id, { rejectEpisode: true });
             const rating = getRating(type, id);
@@ -1357,6 +1588,8 @@ async function main(): Promise<void> {
               enabled: fireWaterRatingsEnabled(),
               rating,
               prompt,
+              profile_id: personalization.active_profile_id,
+              personalization_updated_at: personalization.updated_at,
             });
           } catch (error) {
             if (error instanceof RatingValidationError) throw new CatalogError(400, error.message);
@@ -1366,6 +1599,17 @@ async function main(): Promise<void> {
         }
         if (req.method === 'PUT') {
           const body = await readBody(req) as Record<string, unknown>;
+          const expectedPersonalization = parseExpectedPersonalizationBody(body);
+          const personalization = getPersonalizationState();
+          assertExpectedPersonalization(
+            expectedPersonalization,
+            personalization,
+            'before rating changed',
+          );
+          validateOptionalRecommendationMutationAttribution(body, 'vod', {
+            type: String(body.type ?? ''),
+            id: String(body.id ?? ''),
+          });
           let rating;
           try {
             rating = putRating({
@@ -1392,29 +1636,33 @@ async function main(): Promise<void> {
           }
           const affectedTabs = rating?.type === 'series' ? ['series'] as const : ['movies', 'series'] as const;
           const before = Object.fromEntries(affectedTabs.map((tab) => [tab, currentRecommendationRevision(tab)]));
-          let rerankError: string | null = null;
-          for (const tab of affectedTabs) {
-            try {
-              await refreshForYou(tab);
-            } catch {
-              rerankError = 'Recommendations kept their last good version and will retry in the background.';
-            }
-          }
-          core.clearRailItemsCache();
+          queueRecommendationRefresh(affectedTabs);
+          youtube.invalidateRailsCache();
           incrementRecommendationMetric('rating_mutations');
           sendJson(res, 200, {
             ok: true,
             rating,
-            recommendation_revisions: Object.fromEntries(affectedTabs.map((tab) => [
-              tab,
-              currentRecommendationRevision(tab) || before[tab],
-            ])),
-            ...(rerankError ? { recommendation_notice: rerankError } : {}),
+            profile_id: personalization.active_profile_id,
+            personalization_updated_at: personalization.updated_at,
+            recommendation_revisions: before,
+            recommendation_refresh: 'queued',
           });
           return;
         }
         if (req.method === 'DELETE') {
           if (!type || !id) throw new CatalogError(400, 'DELETE /library/ratings requires type and id');
+          const expectedPersonalization = parseExpectedPersonalization(url.searchParams);
+          const personalization = getPersonalizationState();
+          assertExpectedPersonalization(
+            expectedPersonalization,
+            personalization,
+            'before rating cleared',
+          );
+          validateOptionalRecommendationMutationAttribution({
+            attribution_token: url.searchParams.get('attribution_token') ?? undefined,
+            rail_id: url.searchParams.get('rail_id') ?? undefined,
+            slate_revision: url.searchParams.get('slate_revision') ?? undefined,
+          }, 'vod', { type, id });
           try {
             const result = clearRating({
               type,
@@ -1424,11 +1672,15 @@ async function main(): Promise<void> {
             const tabs = type.trim().toLowerCase() === 'series'
               ? ['series'] as const
               : ['movies', 'series'] as const;
-            void Promise.all(tabs.map((tab) => refreshForYou(tab)))
-              .then(() => core.clearRailItemsCache())
-              .catch(() => undefined);
+            queueRecommendationRefresh(tabs);
+            youtube.invalidateRailsCache();
             incrementRecommendationMetric('rating_mutations');
-            sendJson(res, 200, { ok: true, ...result });
+            sendJson(res, 200, {
+              ok: true,
+              ...result,
+              profile_id: personalization.active_profile_id,
+              personalization_updated_at: personalization.updated_at,
+            });
           } catch (error) {
             if (error instanceof RatingRevisionConflictError) {
               throw new CatalogError(409, 'Rating changed elsewhere. Review the latest values.', {
@@ -1447,13 +1699,25 @@ async function main(): Promise<void> {
       if (req.method === 'POST' && parts.length === 3
         && parts[0] === 'library' && parts[1] === 'rating-prompts' && parts[2] === 'dismiss') {
         const body = await readBody(req) as Record<string, unknown>;
+        const expectedPersonalization = parseExpectedPersonalizationBody(body);
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before rating prompt dismissed',
+        );
         try {
           const prompt = resolveRatingPrompt(
             String(body.type ?? ''),
             String(body.id ?? ''),
             body.disposition === 'left_detail' ? 'left_detail' : 'dismissed',
           );
-          sendJson(res, 200, { ok: true, prompt });
+          sendJson(res, 200, {
+            ok: true,
+            prompt,
+            profile_id: personalization.active_profile_id,
+            personalization_updated_at: personalization.updated_at,
+          });
         } catch (error) {
           if (error instanceof RatingValidationError) throw new CatalogError(400, error.message);
           throw error;
@@ -1464,6 +1728,159 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 2
         && parts[0] === 'recommendations' && parts[1] === 'state') {
         sendJson(res, 200, { ok: true, ...recommendationDiagnostics() });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2
+        && parts[0] === 'recommendations' && parts[1] === 'impressions') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const domain = body.domain === 'youtube' ? 'youtube' : body.domain === 'vod' ? 'vod' : null;
+        if (!domain) throw new CatalogError(400, 'recommendation impressions require a valid domain');
+        const rails = Array.isArray(body.rails) ? body.rails.slice(0, 8) : [];
+        let recorded = 0;
+        for (const value of rails) {
+          const rail = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+          const railId = typeof rail.rail_id === 'string' ? rail.rail_id : '';
+          const attributionToken = typeof rail.attribution_token === 'string' ? rail.attribution_token : '';
+          const revision = Number(rail.slate_revision);
+          const items = Array.isArray(rail.items) ? rail.items.slice(0, 40) : [];
+          if (!railId || !attributionToken || !Number.isInteger(revision) || revision < 0) {
+            throw new CatalogError(409, 'stale or incomplete recommendation slate');
+          }
+          const normalizedItems = items.map((item, rank) => {
+            const row = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+            return {
+              type: typeof row.type === 'string' ? row.type : '',
+              id: typeof row.id === 'string' ? row.id : '',
+              rank: Number.isInteger(Number(row.rank)) ? Number(row.rank) : rank,
+            };
+          }).filter((item) => item.type && item.id);
+          let served;
+          try {
+            served = resolveRecommendationServedSlate({
+              attribution_token: attributionToken,
+              domain,
+              rail_id: railId,
+              slate_revision: revision,
+              items: normalizedItems,
+            });
+          } catch {
+            throw new CatalogError(409, 'this recommendation slate is no longer current');
+          }
+          recorded += recordRecommendationImpressions({
+            profile_id: served.profile_id,
+            domain,
+            rail_id: served.rail_id,
+            slate_revision: served.slate_revision,
+            items: normalizedItems,
+          });
+        }
+        sendJson(res, 200, { ok: true, recorded });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2
+        && parts[0] === 'recommendations' && parts[1] === 'action') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const domain = body.domain === 'youtube' ? 'youtube' : body.domain === 'vod' ? 'vod' : null;
+        const revision = Number(body.slate_revision);
+        if (body.action !== 'detail_open' || !domain
+          || typeof body.attribution_token !== 'string' || !body.attribution_token
+          || typeof body.rail_id !== 'string' || !body.rail_id
+          || typeof body.type !== 'string' || !body.type
+          || typeof body.id !== 'string' || !body.id
+          || !Number.isInteger(revision) || revision < 0) {
+          throw new CatalogError(400, 'invalid recommendation action');
+        }
+        let served;
+        try {
+          served = resolveRecommendationServedSlate({
+            attribution_token: body.attribution_token,
+            domain,
+            rail_id: body.rail_id,
+            slate_revision: revision,
+            item: { type: body.type, id: body.id },
+          });
+        } catch {
+          throw new CatalogError(409, 'this recommendation slate is no longer current');
+        }
+        if (served.profile_id !== activeViewerProfileId()) {
+          throw new CatalogError(409, 'profile changed; reload recommendations before acting');
+        }
+        recordRecommendationDetailOpen({
+          profile_id: served.profile_id,
+          domain,
+          rail_id: served.rail_id,
+          slate_revision: served.slate_revision,
+          item_type: body.type,
+          item_id: body.id,
+        });
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2
+        && parts[0] === 'personalization' && parts[1] === 'state') {
+        sendJson(res, 200, {
+          ok: true,
+          profiles: listViewerProfiles(),
+          state: getPersonalizationState(),
+        });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2
+        && parts[0] === 'personalization' && parts[1] === 'profiles') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const action = typeof body.action === 'string' ? body.action : 'create';
+        try {
+          if (action === 'rename') {
+            const profile = renameViewerProfile(
+              typeof body.profile_id === 'string' ? body.profile_id : '',
+              typeof body.name === 'string' ? body.name : '',
+            );
+            sendJson(res, 200, { ok: true, profile, profiles: listViewerProfiles() });
+            return;
+          }
+          if (action === 'complete_onboarding') {
+            const profile = completeViewerProfileOnboarding(
+              typeof body.profile_id === 'string' ? body.profile_id : '',
+            );
+            sendJson(res, 200, { ok: true, profile, profiles: listViewerProfiles() });
+            return;
+          }
+          if (action !== 'create') throw new Error('unknown profile action');
+          const profile = createViewerProfile(typeof body.name === 'string' ? body.name : '');
+          sendJson(res, 201, { ok: true, profile, profiles: listViewerProfiles() });
+        } catch (error) {
+          throw new CatalogError(400, error instanceof Error ? error.message : 'profile update failed');
+        }
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2
+        && parts[0] === 'personalization' && parts[1] === 'activate') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const state = activateViewerProfile(typeof body.profile_id === 'string' ? body.profile_id : '');
+        core.clearRailItemsCache();
+        youtube.invalidateRailsCache();
+        queueRecommendationRefresh(['movies', 'series']);
+        sendJson(res, 200, { ok: true, state, profiles: listViewerProfiles() });
+        return;
+      }
+
+      if (req.method === 'POST' && parts.length === 2
+        && parts[0] === 'personalization' && parts[1] === 'mood') {
+        const body = await readBody(req) as Record<string, unknown>;
+        const ttlMs = Number(body.ttl_ms);
+        const state = setViewerMood(
+          typeof body.mood === 'string' ? body.mood : null,
+          Number.isFinite(ttlMs) ? ttlMs : undefined,
+        );
+        core.clearRailItemsCache();
+        youtube.invalidateRailsCache();
+        queueRecommendationRefresh(['movies', 'series']);
+        sendJson(res, 200, { ok: true, state });
         return;
       }
 
@@ -1481,13 +1898,37 @@ async function main(): Promise<void> {
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'saved') {
         const tab = parseCatalogTab(url.searchParams.get('tab'));
         const limit = Number(url.searchParams.get('limit') || 100);
-        sendJson(res, 200, savedPayload(tab, limit));
+        const expectedPersonalization = parseExpectedPersonalization(url.searchParams);
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before Saved state loaded',
+        );
+        sendJson(res, 200, savedPayload(tab, limit, personalization));
         return;
       }
 
       if (req.method === 'POST' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'saved') {
         const body = await readBody(req) as Record<string, unknown>;
+        const expectedPersonalization = parseExpectedPersonalizationBody(body);
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          getPersonalizationState(),
+          'before Saved target resolved',
+        );
         const target = await resolveLibraryTarget(body, core);
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before Saved state changed',
+        );
+        validateOptionalRecommendationMutationAttribution(
+          body,
+          target.source === 'youtube' ? 'youtube' : 'vod',
+          { type: target.type, id: target.id },
+        );
         assertSaveAllowed(target);
         const saved = saveLibraryItem({
           ...target,
@@ -1496,10 +1937,14 @@ async function main(): Promise<void> {
         core.clearRailItemsCache();
         if (saved.source === 'youtube') {
           youtube.invalidateRailsCache();
+        } else if (saved.type === 'movie' || saved.type === 'series') {
+          queueRecommendationRefresh(saved.type === 'series' ? ['series'] : ['movies', 'series']);
         }
         sendJson(res, 200, {
           ok: true,
           saved,
+          profile_id: personalization.active_profile_id,
+          personalization_updated_at: personalization.updated_at,
           state: getLibraryState({ source: saved.source, type: saved.type, id: saved.id }),
         });
         return;
@@ -1507,7 +1952,24 @@ async function main(): Promise<void> {
 
       if (req.method === 'DELETE' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'saved') {
         const body = await readBody(req) as Record<string, unknown>;
+        const expectedPersonalization = parseExpectedPersonalizationBody(body);
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          getPersonalizationState(),
+          'before Saved target resolved',
+        );
         const target = await resolveLibraryTarget(body, core);
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before Saved state changed',
+        );
+        validateOptionalRecommendationMutationAttribution(
+          body,
+          target.source === 'youtube' ? 'youtube' : 'vod',
+          { type: target.type, id: target.id },
+        );
         const removed = unsaveLibraryItem({
           source: target.source,
           type: target.type,
@@ -1516,8 +1978,16 @@ async function main(): Promise<void> {
         core.clearRailItemsCache();
         if (target.source === 'youtube') {
           youtube.invalidateRailsCache();
+        } else if (target.type === 'movie' || target.type === 'series') {
+          queueRecommendationRefresh(target.type === 'series' ? ['series'] : ['movies', 'series']);
         }
-        sendJson(res, 200, { ok: true, removed, target });
+        sendJson(res, 200, {
+          ok: true,
+          removed,
+          target,
+          profile_id: personalization.active_profile_id,
+          personalization_updated_at: personalization.updated_at,
+        });
         return;
       }
 
@@ -1530,8 +2000,104 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (parts.length === 2 && parts[0] === 'library' && parts[1] === 'not-interested') {
+        if (req.method === 'GET') {
+          const expectedPersonalization = parseExpectedPersonalization(url.searchParams);
+          const personalization = getPersonalizationState();
+          assertExpectedPersonalization(
+            expectedPersonalization,
+            personalization,
+            'before hidden-title state loaded',
+          );
+          const source = url.searchParams.get('source')?.trim() || undefined;
+          const type = url.searchParams.get('type')?.trim() || null;
+          const id = url.searchParams.get('id')?.trim() || null;
+          const feedback = listProfileLibraryFeedback('not_interested', source, {
+            household_blend: false,
+          }).filter((row) => (!type || row.type === type) && (!id || row.id === id));
+          sendJson(res, 200, {
+            ok: true,
+            active_profile_id: personalization.active_profile_id,
+            profile_id: personalization.active_profile_id,
+            personalization_updated_at: personalization.updated_at,
+            hidden: type !== null && id !== null ? feedback.length > 0 : undefined,
+            items: feedback,
+          });
+          return;
+        }
+        const body = await readBody(req) as Record<string, unknown>;
+        const expectedPersonalization = parseExpectedPersonalizationBody(body);
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before hidden-title state changed',
+        );
+        const target = libraryItemFromRecord(body);
+        if (!target) throw new CatalogError(400, 'Not for me requires { type, id }');
+        validateOptionalRecommendationMutationAttribution(
+          body,
+          target.source === 'youtube' ? 'youtube' : 'vod',
+          { type: target.type, id: target.id },
+        );
+        if (req.method === 'POST') {
+          const feedback = setLibraryFeedback({
+            ...target,
+            feedback: 'not_interested',
+            reason: typeof body.reason === 'string' ? body.reason : null,
+          });
+          core.clearRailItemsCache();
+          if (target.source === 'youtube') youtube.invalidateRailsCache();
+          else if (target.type === 'movie' || target.type === 'series') {
+            queueRecommendationRefresh(target.type === 'series' ? ['series'] : ['movies', 'series']);
+          }
+          sendJson(res, 200, {
+            ok: true,
+            profile_id: personalization.active_profile_id,
+            personalization_updated_at: personalization.updated_at,
+            feedback,
+          });
+          return;
+        }
+        if (req.method === 'DELETE') {
+          const removed = clearLibraryFeedback({
+            source: target.source,
+            type: target.type,
+            id: target.id,
+            feedback: 'not_interested',
+          });
+          core.clearRailItemsCache();
+          if (target.source === 'youtube') youtube.invalidateRailsCache();
+          else if (target.type === 'movie' || target.type === 'series') {
+            queueRecommendationRefresh(target.type === 'series' ? ['series'] : ['movies', 'series']);
+          }
+          sendJson(res, 200, {
+            ok: true,
+            profile_id: personalization.active_profile_id,
+            personalization_updated_at: personalization.updated_at,
+            removed,
+          });
+          return;
+        }
+      }
+
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'library' && parts[1] === 'context') {
-        sendJson(res, 200, { ok: true, context: getLibraryContext() });
+        const expectedPersonalization = parseExpectedPersonalization(url.searchParams);
+        if (!expectedPersonalization) {
+          throw new CatalogError(400, 'GET /library/context requires exact profile ownership');
+        }
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before current Detail context loaded',
+        );
+        sendJson(res, 200, {
+          ok: true,
+          context: getLibraryContext(personalization.active_profile_id),
+          profile_id: personalization.active_profile_id,
+          personalization_updated_at: personalization.updated_at,
+        });
         return;
       }
 
@@ -1548,26 +2114,100 @@ async function main(): Promise<void> {
           throw new CatalogError(403, 'library context is localhost-only');
         }
         const body = await readBody(req) as Record<string, unknown>;
+        const expectedPersonalization = parseExpectedPersonalizationBody(body);
+        if (!expectedPersonalization) {
+          throw new CatalogError(400, 'POST /library/context requires exact profile ownership');
+        }
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before current Detail context changed',
+        );
         const target = libraryItemFromRecord(body);
         if (!target) {
           throw new CatalogError(400, 'POST /library/context requires { type, id }');
         }
-        sendJson(res, 200, { ok: true, context: setLibraryContext(target) });
+        sendJson(res, 200, {
+          ok: true,
+          context: setLibraryContext(target, {
+            profile_id: personalization.active_profile_id,
+            opened_at: Number.isSafeInteger(body.context_opened_at)
+              && Number(body.context_opened_at) > 0
+              ? Number(body.context_opened_at)
+              : undefined,
+          }),
+          profile_id: personalization.active_profile_id,
+          personalization_updated_at: personalization.updated_at,
+        });
         return;
       }
 
       if (parts.length >= 1 && parts[0] === 'youtube') {
+        if (req.method === 'GET' && parts.length === 3
+          && parts[1] === 'companion' && parts[2] === 'status') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'companion YouTube status is available through HTTPS only');
+          }
+          sendJson(res, 200, youtube.companionStatus());
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 4
+          && parts[1] === 'companion' && parts[2] === 'auth' && parts[3] === 'start') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'companion YouTube auth is available through HTTPS only');
+          }
+          sendJson(res, 200, await withoutCatalogErrorDetails(() => youtube.startCompanionAuth()));
+          return;
+        }
+
+        if (req.method === 'GET' && parts.length === 4
+          && parts[1] === 'companion' && parts[2] === 'auth' && parts[3] === 'poll') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'companion YouTube auth is available through HTTPS only');
+          }
+          const sessionId = url.searchParams.get('session_id')?.trim() ?? '';
+          if (!sessionId) {
+            throw new CatalogError(400, 'GET /youtube/companion/auth/poll requires session_id');
+          }
+          sendJson(
+            res,
+            200,
+            await withoutCatalogErrorDetails(() => youtube.pollCompanionAuth(sessionId)),
+          );
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 4
+          && parts[1] === 'companion' && parts[2] === 'auth' && parts[3] === 'disconnect') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'companion YouTube auth is available through HTTPS only');
+          }
+          sendJson(res, 200, youtube.disconnectCompanionAuth());
+          return;
+        }
+
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'state') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'YouTube operator state is localhost-only');
+          }
           sendJson(res, 200, youtube.state());
           return;
         }
 
         if (req.method === 'POST' && parts.length === 3 && parts[1] === 'auth' && parts[2] === 'start') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'YouTube operator auth is localhost-only');
+          }
           sendJson(res, 200, await youtube.startAuth());
           return;
         }
 
         if (req.method === 'GET' && parts.length === 3 && parts[1] === 'auth' && parts[2] === 'poll') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'YouTube operator auth is localhost-only');
+          }
           const sessionId = url.searchParams.get('session_id')?.trim() ?? '';
           if (!sessionId) {
             throw new CatalogError(400, 'GET /youtube/auth/poll requires session_id');
@@ -1577,6 +2217,9 @@ async function main(): Promise<void> {
         }
 
         if (req.method === 'POST' && parts.length === 3 && parts[1] === 'auth' && parts[2] === 'disconnect') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'YouTube operator auth is localhost-only');
+          }
           sendJson(res, 200, youtube.disconnectAuth());
           return;
         }
@@ -1603,7 +2246,145 @@ async function main(): Promise<void> {
         if (req.method === 'GET' && parts.length === 2 && parts[1] === 'rails') {
           const reshuffle = url.searchParams.get('reshuffle') === '1'
             || url.searchParams.get('reshuffle') === 'true';
-          sendJson(res, 200, await youtube.rails({ reshuffle }));
+          const expectedPersonalization = parseExpectedPersonalization(url.searchParams);
+          const personalization = getPersonalizationState();
+          assertExpectedPersonalization(
+            expectedPersonalization,
+            personalization,
+            'before YouTube rails loaded',
+          );
+          const result = await youtube.rails({ reshuffle, expectedPersonalization });
+          const currentPersonalization = getPersonalizationState();
+          if (currentPersonalization.active_profile_id !== personalization.active_profile_id
+            || currentPersonalization.updated_at !== personalization.updated_at
+            || result.profile_id !== personalization.active_profile_id
+            || result.personalization_updated_at !== personalization.updated_at) {
+            throw new CatalogError(409, 'profile changed while YouTube recommendations were loading');
+          }
+          const { attribution_contexts: attributionContexts, ...publicYoutubeResult } = result;
+          const publicResult = {
+            ...publicYoutubeResult,
+            rails: result.rails.map((rail) => {
+              const attributionContext = attributionContexts[rail.rail_id];
+              if (!attributionContext
+                || attributionContext.source_revision !== result.slate_sequence) {
+                throw new CatalogError(500, 'YouTube recommendation attribution context is unavailable');
+              }
+              const served = registerRecommendationServedSlate({
+                profile_id: personalization.active_profile_id,
+                domain: 'youtube',
+                rail_id: rail.rail_id,
+                source_revision: attributionContext.source_revision,
+                context_id: attributionContext.context_id,
+                items: rail.items.map((item, rank) => ({
+                  type: `youtube_${item.kind}`,
+                  id: item.id,
+                  rank,
+                })),
+              });
+              return {
+                ...rail,
+                slate_sequence: served.slate_revision,
+                attribution_token: served.attribution_token,
+              };
+            }),
+          };
+          sendJson(res, 200, publicResult);
+          return;
+        }
+
+        if (req.method === 'POST' && parts.length === 2 && parts[1] === 'impressions') {
+          const body = await readBody(req) as Record<string, unknown>;
+          const sequence = Number(body.slate_sequence);
+          const rails = Array.isArray(body.rails) ? body.rails : [];
+          if (!Number.isInteger(sequence) || sequence < 0) {
+            throw new CatalogError(400, 'YouTube impressions require a non-negative slate_sequence');
+          }
+          const validatedRails: Array<{
+            profile_id: string;
+            rail_id: string;
+            slate_revision: number;
+            source_revision: number;
+            context_id: string;
+            items: Array<{ type: string; id: string; rank: number }>;
+          }> = [];
+          for (const entry of rails.slice(0, 8)) {
+            const row = entry && typeof entry === 'object' ? entry as Record<string, unknown> : {};
+            const railId = typeof row.rail_id === 'string' ? row.rail_id : '';
+            const attributionToken = typeof row.attribution_token === 'string' ? row.attribution_token : '';
+            const revision = Number(row.slate_revision);
+            const rawItems = Array.isArray(row.items) ? row.items.slice(0, 4) : [];
+            const items = rawItems.map((item, rank) => {
+              const candidate = item && typeof item === 'object' ? item as Record<string, unknown> : {};
+              return {
+                type: typeof candidate.type === 'string' ? candidate.type : '',
+                id: typeof candidate.id === 'string' ? candidate.id : '',
+                rank: Number.isInteger(Number(candidate.rank)) ? Number(candidate.rank) : rank,
+              };
+            }).filter((item) => item.type && item.id);
+            if (!railId || !attributionToken || !Number.isInteger(revision) || items.length === 0) {
+              throw new CatalogError(409, 'stale or incomplete YouTube recommendation slate');
+            }
+            let served;
+            try {
+              served = resolveRecommendationServedSlate({
+                attribution_token: attributionToken,
+                domain: 'youtube',
+                rail_id: railId,
+                slate_revision: revision,
+                items,
+              });
+            } catch {
+              throw new CatalogError(409, 'this YouTube recommendation slate is no longer current');
+            }
+            if (served.rail_id === 'because_you_watched' && !served.context_id) {
+              // Pre-v11 tokens cannot prove which seed produced the row. Fail
+              // closed instead of attributing them to mutable current history.
+              throw new CatalogError(409, 'this YouTube recommendation context is no longer current');
+            }
+            validatedRails.push({
+              profile_id: served.profile_id,
+              rail_id: served.rail_id,
+              slate_revision: served.slate_revision,
+              source_revision: served.source_revision,
+              context_id: served.context_id,
+              items,
+            });
+          }
+          const owners = new Set(validatedRails.map((rail) => rail.profile_id));
+          if (owners.size > 1) {
+            throw new CatalogError(409, 'YouTube recommendation slate owners do not match');
+          }
+          const profileId = validatedRails[0]?.profile_id;
+          if (!profileId) {
+            throw new CatalogError(400, 'YouTube impressions require at least one rendered rail');
+          }
+          let authoritativeSourceRevision: number;
+          try {
+            authoritativeSourceRevision = resolveYoutubeImpressionSourceRevision(sequence, validatedRails);
+          } catch {
+            throw new CatalogError(409, 'this YouTube recommendation source revision does not match');
+          }
+          const youtubeResult = youtube.impressions({
+            profile_id: profileId,
+            slate_sequence: authoritativeSourceRevision,
+            rails: validatedRails.map((rail) => ({
+              rail_id: rail.rail_id,
+              context_id: rail.context_id,
+              item_ids: rail.items.map((item) => item.id),
+            })),
+          });
+          let attributionRecorded = 0;
+          for (const rail of validatedRails) {
+            attributionRecorded += recordRecommendationImpressions({
+              profile_id: rail.profile_id,
+              domain: 'youtube',
+              rail_id: rail.rail_id,
+              slate_revision: rail.slate_revision,
+              items: rail.items,
+            });
+          }
+          sendJson(res, 200, { ...youtubeResult, attribution_recorded: attributionRecorded });
           return;
         }
 
@@ -1651,12 +2432,15 @@ async function main(): Promise<void> {
         }
 
         if (req.method === 'POST' && parts.length === 2 && parts[1] === 'play') {
-          const body = await readBody(req) as Record<string, unknown>;
+          const body = await readBody(req);
+          const attribution = recommendationAttributionFromBody(body, 'youtube');
           touchCouchActivity('catalog', 'youtube_play');
           sendJson(res, 200, await youtube.play({
+            profile_id: attribution?.profile_id ?? activeViewerProfileId(),
             id: typeof body.id === 'string' ? body.id : undefined,
             title: typeof body.title === 'string' ? body.title : undefined,
             poster: typeof body.poster === 'string' ? body.poster : undefined,
+            recommendation: attribution ?? undefined,
           }));
           return;
         }
@@ -1721,6 +2505,9 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'GET' && parts.length === 3 && parts[0] === 'voice' && parts[1] === 'companion' && parts[2] === 'summary') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'companion summary is available through HTTPS only');
+        }
         const profile = await readProfile();
         const compiled = await readCompiledNotes();
         sendJson(res, 200, {
@@ -1982,6 +2769,9 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'ai' && parts[1] === 'context') {
+        if (!isLocalRequest(req)) {
+          throw new CatalogError(403, 'companion context is available through HTTPS only');
+        }
         sendJson(res, 200, await buildAiContextResponse());
         return;
       }
@@ -1993,7 +2783,11 @@ async function main(): Promise<void> {
 
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'rails' && parts[1] === 'continue') {
         const tab = parseCatalogTab(url.searchParams.get('tab')) ?? 'movies';
-        sendJson(res, 200, await core.continueRailItems(tab));
+        sendJson(
+          res,
+          200,
+          await core.continueRailItems(tab, parseExpectedPersonalization(url.searchParams) ?? undefined),
+        );
         return;
       }
 
@@ -2226,7 +3020,13 @@ async function main(): Promise<void> {
         }
         const reshuffle = url.searchParams.get('reshuffle') === '1'
           || url.searchParams.get('reshuffle') === 'true';
-        sendJson(res, 200, await core.tabRailItems(tab, { reshuffle }));
+        const expectedPersonalization = tab === 'live'
+          ? null
+          : parseExpectedPersonalization(url.searchParams);
+        sendJson(res, 200, await core.tabRailItems(tab, {
+          reshuffle,
+          expectedPersonalization,
+        }));
         return;
       }
 
@@ -2282,33 +3082,60 @@ async function main(): Promise<void> {
       }
 
       if (req.method === 'GET' && parts.length === 2 && parts[0] === 'play' && parts[1] === 'next-prompt') {
+        const expectedPersonalization = parseExpectedPersonalization(url.searchParams);
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before next-episode prompt loaded',
+        );
         const pending = takePendingNextPrompt();
         if (!pending) {
-          sendJson(res, 200, { show: false });
+          sendJson(res, 200, {
+            show: false,
+            profile_id: personalization.active_profile_id,
+            personalization_updated_at: personalization.updated_at,
+          });
           return;
         }
         const episodes = await core.seriesEpisodes(pending.series_id);
-        sendJson(res, 200, buildNextPromptResponse(
-          pending,
-          episodes.seasons,
-          episodes.name,
-        ));
+        sendJson(res, 200, {
+          ...buildNextPromptResponse(
+            pending,
+            episodes.seasons,
+            episodes.name,
+          ),
+          profile_id: personalization.active_profile_id,
+          personalization_updated_at: personalization.updated_at,
+        });
         return;
       }
 
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play-session') {
         const body = await readBody(req);
-        if (body.rail_id === 'for-you-movies' || body.rail_id === 'for-you-series') {
-          incrementRecommendationMetric('play_starts_for_you');
-        }
+        const expectedPersonalization = parseExpectedPersonalizationBody(body);
+        const personalization = getPersonalizationState();
+        assertExpectedPersonalization(
+          expectedPersonalization,
+          personalization,
+          'before playback accepted',
+        );
         touchCouchActivity('catalog', body.source === 'youtube' ? 'youtube_play' : 'play');
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
-        const started = await startPlaybackSession(core, youtube, body, overrides);
+        const started = await startPlaybackSession(
+          core,
+          youtube,
+          body,
+          overrides,
+          expectedPersonalization,
+        );
         sendJson(res, started.created ? 202 : 200, {
           ok: true,
           accepted: true,
           created: started.created,
           session: started.session,
+          profile_id: personalization.active_profile_id,
+          personalization_updated_at: personalization.updated_at,
         });
         return;
       }
@@ -2431,6 +3258,12 @@ async function main(): Promise<void> {
       if (req.method === 'POST' && parts.length === 1 && parts[0] === 'play') {
         const deadline = createPlayDeadline();
         const body = await readBody(req);
+        // The compatibility /play route bypasses startPlaybackSession, so it
+        // must capture attribution ownership here as well. Never trust a
+        // caller-supplied profile id for recommendation outcomes.
+        const acceptedAttribution = recommendationAttributionFromBody(body, 'vod');
+        body.recommendation_profile_id = acceptedAttribution?.profile_id
+          ?? activeViewerProfileId();
         touchCouchActivity('catalog', 'play');
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
         const requestId = normalizePlayRequestId(body.request_id);
@@ -2444,6 +3277,8 @@ async function main(): Promise<void> {
             deadline,
             requestId,
             (epoch) => { requestEpoch = epoch; },
+            undefined,
+            acceptedAttribution,
           );
           requestSucceeded = true;
           sendJson(res, 200, result);

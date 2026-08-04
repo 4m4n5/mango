@@ -2366,6 +2366,8 @@ export type VerifiedRailPoolSearchRow = {
 
 export type VerifiedLibraryCatalogRow = VerifiedRailPoolSearchRow & {
   rail_id: string;
+  /** Every curated rail membership, sorted and URL-free, for semantic features. */
+  rail_ids: string[];
 };
 
 export type LinkableVerifiedCandidateRow = {
@@ -2435,11 +2437,19 @@ LIMIT @limit;
 
 export async function listVerifiedLibraryCatalogRows(
   limit = 500,
+  contentType?: 'movie' | 'series',
 ): Promise<VerifiedLibraryCatalogRow[]> {
   await initPlayabilityDb();
   const db = openDb();
-  return db.prepare(`
-WITH ranked AS (
+  const rows = db.prepare(`
+WITH memberships AS (
+  SELECT rp.type, rp.id, GROUP_CONCAT(DISTINCT rp.rail_id) AS rail_ids
+  FROM rail_pool rp
+  JOIN titles t ON t.type = rp.type AND t.id = rp.id
+  WHERE t.status = 'verified'
+    AND (@content_type IS NULL OR rp.type = @content_type)
+  GROUP BY rp.type, rp.id
+), ranked AS (
   SELECT
     rp.rail_id,
     rp.type,
@@ -2447,6 +2457,7 @@ WITH ranked AS (
     rp.title,
     rp.poster_url AS poster,
     rp.year,
+    t.verified_at,
     ROW_NUMBER() OVER (
       PARTITION BY rp.type, rp.id
       ORDER BY
@@ -2457,15 +2468,35 @@ WITH ranked AS (
   FROM rail_pool rp
   JOIN titles t ON t.type = rp.type AND t.id = rp.id
   WHERE t.status = 'verified'
+    AND (@content_type IS NULL OR rp.type = @content_type)
     AND rp.title IS NOT NULL
     AND trim(rp.title) != ''
+), canonical AS (
+  SELECT r.rail_id, r.type, r.id, r.title, r.poster, r.year, r.verified_at, m.rail_ids
+  FROM ranked r
+  JOIN memberships m ON m.type = r.type AND m.id = r.id
+  WHERE r.row_rank = 1
+), fair AS (
+  SELECT canonical.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY rail_id
+      ORDER BY verified_at DESC, type ASC, id ASC
+    ) AS rail_rank
+  FROM canonical
 )
-SELECT rail_id, type, id, title, poster, year
-FROM ranked
-WHERE row_rank = 1
-ORDER BY title ASC
+SELECT rail_id, type, id, title, poster, year, rail_ids
+FROM fair
+ORDER BY rail_rank ASC, verified_at DESC, rail_id ASC, type ASC, id ASC
 LIMIT @limit;
-  `).all({ limit: Math.max(1, limit) }) as VerifiedLibraryCatalogRow[];
+  `).all({
+    content_type: contentType ?? null,
+    limit: Math.max(1, limit),
+  }) as Array<Omit<VerifiedLibraryCatalogRow, 'rail_ids'> & { rail_ids: string }>;
+  return rows.map((row) => ({
+    ...row,
+    rail_ids: [...new Set(row.rail_ids.split(',').map((item) => item.trim()).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right)),
+  }));
 }
 
 /** Cheap generation token used by the launcher search index invalidator. */

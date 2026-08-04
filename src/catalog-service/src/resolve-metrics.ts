@@ -5,6 +5,9 @@ export type ResolveMetricCounter =
   | 'foreground_bypass_background'
   | 'provider_fanout_requests'
   | 'provider_fanout_addons'
+  | 'stream_resolve_retries'
+  | 'stream_resolve_retry_recoveries'
+  | 'stream_resolve_retry_exhaustions'
   | 'alias_probes'
   | 'rate_limit_classifications'
   | 'ownership_deferrals';
@@ -67,6 +70,9 @@ const counters: Record<ResolveMetricCounter, number> = {
   foreground_bypass_background: 0,
   provider_fanout_requests: 0,
   provider_fanout_addons: 0,
+  stream_resolve_retries: 0,
+  stream_resolve_retry_recoveries: 0,
+  stream_resolve_retry_exhaustions: 0,
   alias_probes: 0,
   rate_limit_classifications: 0,
   ownership_deferrals: 0,

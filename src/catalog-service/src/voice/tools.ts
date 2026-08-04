@@ -118,6 +118,32 @@ export function buildVoiceToolManifest(): {
       input_schema: { type: 'object', properties: {} },
     },
     {
+      name: 'mango_manage_viewer_profile',
+      description:
+        'List or manage TV personalization profiles. Actions: list; create a clean personal profile without activating it; '
+        + 'rename a personal profile while preserving its stable id; activate an existing profile without any PIN or startup prompt; '
+        + 'or explicitly complete/skip that personal profile\'s guided onboarding. Household cannot be renamed.',
+      layer: 'catalog',
+      input_schema: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['list', 'create', 'rename', 'activate', 'complete_onboarding'],
+          },
+          profile_id: {
+            type: 'string',
+            description: 'Stable profile_id returned by list/create; required for rename, activate, and complete_onboarding.',
+          },
+          name: {
+            type: 'string',
+            description: 'Viewer-facing name, required for create and rename (max 32 characters).',
+          },
+        },
+        required: ['action'],
+      },
+    },
+    {
       name: 'mango_patch_profile',
       description: 'Patch companion profile fields (append facts/loves/avoids, update familiarity). Never full-replace the profile.',
       layer: 'catalog',

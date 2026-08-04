@@ -14,13 +14,16 @@ import {
   listForYouCandidates,
   listLiveNowCandidates,
   listPopularCandidates,
+  listYoutubeProfileCandidateStates,
   listYoutubeRailItems,
   noteBecauseYouWatchedExposures,
   noteFreshFindExposures,
   noteForYouExposures,
   noteLiveNowExposures,
   notePopularExposures,
+  recordYoutubeImpressions,
   putYoutubeSearchCache,
+  replaceForYouCandidates,
   replaceYoutubeRailItems,
   resetYoutubeDbForTests,
   setBecauseYouWatchedCandidateStats,
@@ -28,6 +31,7 @@ import {
   setForYouCandidateStats,
   setLiveNowCandidateStats,
   setPopularCandidateStats,
+  setYoutubeProfileCandidateState,
   setYoutubeState,
   upsertBecauseYouWatchedCandidates,
   upsertFreshFindCandidates,
@@ -88,10 +92,86 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   } finally {
     db.close();
   }
+}));
+
+test('profile candidate migration preserves legacy Household cooldown counters', () => withTempYoutube((dir) => {
+  upsertForYouCandidates([{
+    item: sampleItem('LegacyExposure'),
+    lane: 'familiar',
+    source: 'history',
+    source_weight: 1,
+    topic_cluster: 'legacy',
+    score: 1,
+    reason: 'legacy',
+  }]);
+  noteForYouExposures(['LegacyExposure'], 1234);
+  setForYouCandidateStats('LegacyExposure', { quick_stop_count: 2 });
+  resetYoutubeDbForTests();
+
+  const legacy = new Database(join(dir, 'youtube.db'));
+  legacy.prepare('DELETE FROM youtube_profile_candidate_state').run();
+  legacy.prepare('DELETE FROM youtube_migrations WHERE version = 10').run();
+  legacy.close();
+
+  initYoutubeDb();
+  const migrated = listYoutubeProfileCandidateStates({
+    profile_id: 'household',
+    rail_id: 'for_you',
+  });
+  assert.equal(migrated[0]?.id, 'LegacyExposure');
+  assert.equal(migrated[0]?.last_recommended_at, 1234);
+  assert.equal(migrated[0]?.exposure_count, 1);
+  assert.equal(migrated[0]?.quick_stop_count, 2);
+}));
+
+test('rendered impressions are idempotent per profile slate but independent across profiles', () => withTempYoutube(() => {
+  const base = { slate_sequence: 7, rail_id: 'for_you', item_ids: ['a', 'b'], impressed_at: 1000 };
+  assert.deepEqual(recordYoutubeImpressions({ ...base, profile_id: 'household' }), ['a', 'b']);
+  assert.deepEqual(recordYoutubeImpressions({ ...base, profile_id: 'household' }), []);
+  assert.deepEqual(
+    listYoutubeProfileCandidateStates({ profile_id: 'household', rail_id: 'for_you' })
+      .map((state) => [state.id, state.exposure_count, state.last_recommended_at]),
+    [['a', 1, 1000], ['b', 1, 1000]],
+  );
+  assert.deepEqual(
+    listYoutubeProfileCandidateStates({ profile_id: 'viewer-2', rail_id: 'for_you' }),
+    [],
+  );
+  assert.deepEqual(recordYoutubeImpressions({ ...base, profile_id: 'viewer-2' }), ['a', 'b']);
+  assert.deepEqual(recordYoutubeImpressions({ ...base, profile_id: 'household', slate_sequence: 8 }), ['a', 'b']);
+  assert.equal(
+    listYoutubeProfileCandidateStates({ profile_id: 'household', rail_id: 'for_you' })[0]?.exposure_count,
+    2,
+  );
+  assert.equal(
+    listYoutubeProfileCandidateStates({ profile_id: 'viewer-2', rail_id: 'for_you' })[0]?.exposure_count,
+    1,
+  );
+}));
+
+test('profile candidate state keeps rail contexts and counters isolated', () => withTempYoutube(() => {
+  setYoutubeProfileCandidateState({
+    profile_id: 'alice',
+    rail_id: 'because_you_watched',
+    context_id: 'seed-a',
+    id: 'follow-up',
+    last_recommended_at: 2000,
+    exposure_count: 3,
+    quick_stop_count: 1,
+  });
+  assert.equal(listYoutubeProfileCandidateStates({
+    profile_id: 'alice', rail_id: 'because_you_watched', context_id: 'seed-a',
+  })[0]?.exposure_count, 3);
+  assert.deepEqual(listYoutubeProfileCandidateStates({
+    profile_id: 'alice', rail_id: 'because_you_watched', context_id: 'seed-b',
+  }), []);
+  assert.deepEqual(listYoutubeProfileCandidateStates({
+    profile_id: 'bob', rail_id: 'because_you_watched', context_id: 'seed-a',
+  }), []);
 }));
 
 test('YouTube query cache keys SafeSearch and expires after its TTL', () => withTempYoutube(() => {
@@ -197,8 +277,68 @@ test('for you reservoir stores source, score breakdown, and exposure state', () 
   candidates = listForYouCandidates();
   assert.equal(candidates[0]?.last_recommended_at, 5000);
   assert.equal(candidates[0]?.exposure_count, 1);
-  assert.equal(candidates[0]?.ignore_count, 1);
+  assert.equal(candidates[0]?.ignore_count, 0);
   assert.equal(candidates[0]?.quick_stop_count, 2);
+}));
+
+test('for you reservoir replacement prunes stale candidates and preserves retained profile state', () => withTempYoutube(() => {
+  const candidate = (id: string, score: number) => ({
+    item: sampleItem(id),
+    lane: 'wildcard',
+    source: 'wildcard',
+    source_weight: 0.08,
+    topic_cluster: `topic:${id}`,
+    score,
+    score_breakdown: { score },
+    reason: 'shared-pool',
+  });
+  upsertForYouCandidates([
+    candidate('Retained', 3),
+    candidate('Removed', 2),
+  ]);
+  noteForYouExposures(['Retained'], 5_000);
+  setForYouCandidateStats('Retained', { quick_stop_count: 2 });
+  setYoutubeProfileCandidateState({
+    profile_id: 'alice', rail_id: 'for_you', id: 'Retained',
+    last_recommended_at: 6_000, exposure_count: 4,
+  });
+  setYoutubeProfileCandidateState({
+    profile_id: 'alice', rail_id: 'for_you', id: 'Removed', exposure_count: 3,
+  });
+  setYoutubeProfileCandidateState({
+    profile_id: 'bob', rail_id: 'for_you', id: 'Retained', exposure_count: 2,
+  });
+  setYoutubeProfileCandidateState({
+    profile_id: 'alice', rail_id: 'popular', id: 'Removed', exposure_count: 9,
+  });
+
+  replaceForYouCandidates([
+    candidate('Retained', 4),
+    candidate('Added', 1),
+  ]);
+
+  const reservoir = listForYouCandidates();
+  assert.deepEqual(reservoir.map((item) => item.id), ['Retained', 'Added']);
+  assert.equal(reservoir.find((item) => item.id === 'Retained')?.exposure_count, 1);
+  assert.equal(reservoir.find((item) => item.id === 'Retained')?.quick_stop_count, 2);
+  assert.deepEqual(
+    listYoutubeProfileCandidateStates({ profile_id: 'alice', rail_id: 'for_you' })
+      .map((item) => [item.id, item.exposure_count]),
+    [['Retained', 4]],
+  );
+  assert.deepEqual(
+    listYoutubeProfileCandidateStates({ profile_id: 'bob', rail_id: 'for_you' })
+      .map((item) => [item.id, item.exposure_count]),
+    [['Retained', 2]],
+  );
+  assert.equal(
+    listYoutubeProfileCandidateStates({ profile_id: 'alice', rail_id: 'popular' })[0]?.exposure_count,
+    9,
+  );
+
+  // An empty acquisition result is not publication and retains last-good.
+  replaceForYouCandidates([]);
+  assert.deepEqual(listForYouCandidates().map((item) => item.id), ['Retained', 'Added']);
 }));
 
 test('fresh finds reservoir stores source bucket, stats, and exposure state', () => withTempYoutube(() => {
@@ -227,7 +367,7 @@ test('fresh finds reservoir stores source bucket, stats, and exposure state', ()
   candidates = listFreshFindCandidates();
   assert.equal(candidates[0]?.last_recommended_at, 6000);
   assert.equal(candidates[0]?.exposure_count, 1);
-  assert.equal(candidates[0]?.ignore_count, 1);
+  assert.equal(candidates[0]?.ignore_count, 0);
   assert.equal(candidates[0]?.quick_stop_count, 1);
 }));
 
@@ -258,7 +398,7 @@ test('live now reservoir stores lane, ttl, and exposure state', () => withTempYo
   candidates = listLiveNowCandidates();
   assert.equal(candidates[0]?.last_recommended_at, 6000);
   assert.equal(candidates[0]?.exposure_count, 1);
-  assert.equal(candidates[0]?.ignore_count, 1);
+  assert.equal(candidates[0]?.ignore_count, 0);
   assert.equal(candidates[0]?.quick_stop_count, 3);
 }));
 
@@ -287,7 +427,7 @@ test('popular reservoir stores region, category, and exposure state', () => with
   candidates = listPopularCandidates();
   assert.equal(candidates[0]?.last_recommended_at, 7000);
   assert.equal(candidates[0]?.exposure_count, 1);
-  assert.equal(candidates[0]?.ignore_count, 1);
+  assert.equal(candidates[0]?.ignore_count, 0);
   assert.equal(candidates[0]?.quick_stop_count, 4);
 }));
 
@@ -329,7 +469,7 @@ test('because you watched reservoir is seed-scoped and tracks exposure state', (
   const unchangedSeedTwo = listBecauseYouWatchedCandidates('SeedVideo2');
   assert.equal(seedOne[0]?.last_recommended_at, 9000);
   assert.equal(seedOne[0]?.exposure_count, 1);
-  assert.equal(seedOne[0]?.ignore_count, 1);
+  assert.equal(seedOne[0]?.ignore_count, 0);
   assert.equal(seedOne[0]?.quick_stop_count, 2);
   assert.equal(unchangedSeedTwo[0]?.last_recommended_at, null);
   assert.equal(unchangedSeedTwo[0]?.exposure_count, 0);

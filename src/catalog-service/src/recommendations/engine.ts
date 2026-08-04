@@ -3,12 +3,14 @@ import type { CatalogTab } from '../rails.js';
 import type { VerifiedLibraryCatalogRow } from '../playability/db.js';
 import type { FireWaterRating, RatingContentType } from '../library/ratings.js';
 
-export const RECOMMENDATION_MODEL_VERSION = 'fire-water-knn-v1';
-export const RECOMMENDATION_FEATURE_VERSION = 'metadata-hash-v1';
+export const RECOMMENDATION_MODEL_VERSION = 'fire-water-hybrid-v3';
+export const RECOMMENDATION_FEATURE_VERSION = 'semantic-hash-v3';
 const VECTOR_SIZE = 96;
 const MIN_SIMILARITY = 0.15;
 const MAX_NEIGHBORS = 12;
 const PRIOR_WEIGHT = 2;
+const NEUTRAL_AXIS_PRIOR = 2.5;
+const LOW_EVIDENCE_VIEWER_WEIGHT = 4;
 
 export type RecommendationFeature = {
   type: RatingContentType;
@@ -16,6 +18,7 @@ export type RecommendationFeature = {
   title: string;
   year: string | null;
   rail_id: string;
+  rail_ids: string[];
   vector: number[];
   cluster: string;
   confidence: number;
@@ -27,6 +30,19 @@ export type ScoredRecommendation = RecommendationFeature & {
   affinity: number;
   diversity: number;
   bucket: 'close' | 'adjacent' | 'explore' | 'fallback';
+  couch_provenance?: 'watch_again';
+};
+
+export type ImplicitRecommendationPreference = {
+  feature: RecommendationFeature;
+  /** Positive-only confidence. Explicit ratings remain authoritative. */
+  strength: number;
+};
+
+export type NegativeRecommendationPreference = {
+  feature: RecommendationFeature;
+  /** Current, decayed Not-for-me confidence. Exact-title vetoes happen upstream. */
+  strength: number;
 };
 
 export type AiRecommendationFeatureDocument = {
@@ -102,16 +118,24 @@ export function buildRecommendationFeature(input: {
   title: string;
   year?: string | null;
   rail_id?: string;
+  rail_ids?: string[];
   taste_tags?: string[];
 }): RecommendationFeature {
   const vector = Array<number>(VECTOR_SIZE).fill(0);
-  const railTokens = textTokens(input.rail_id ?? 'metadata')
+  const railIds = [...new Set([
+    ...(input.rail_ids ?? []),
+    ...(input.rail_id ? [input.rail_id] : []),
+  ].map((item) => item.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
+  const railTokens = railIds.flatMap(textTokens)
     .filter((token) => !['movie', 'movies', 'series', 'rail'].includes(token));
   const titleTokens = textTokens(input.title);
   const tasteTokens = (input.taste_tags ?? []).flatMap(textTokens);
-  for (const token of railTokens) vector[tokenHash(`rail:${token}`)] += 1.7;
-  for (const token of titleTokens) vector[tokenHash(`title:${token}`)] += 0.35;
-  for (const token of tasteTokens) vector[tokenHash(`taste:${token}`)] += 2.2;
+  // Every semantic source shares a namespace. Source-specific namespaces made
+  // a seed tag such as "hopeful" orthogonal to a catalog rail containing the
+  // same concept, defeating cold-start transfer from imported ratings.
+  for (const token of railTokens) vector[tokenHash(`semantic:${token}`)] += 1.7 / Math.sqrt(Math.max(1, railIds.length));
+  for (const token of titleTokens) vector[tokenHash(`semantic:${token}`)] += 0.35;
+  for (const token of tasteTokens) vector[tokenHash(`semantic:${token}`)] += 2.2;
   const year = Number.parseInt(input.year ?? '', 10);
   if (Number.isFinite(year)) {
     const era = Math.floor(year / 10) * 10;
@@ -123,9 +147,14 @@ export function buildRecommendationFeature(input: {
     id: input.id,
     title: input.title,
     year: input.year ?? null,
-    rail_id: input.rail_id ?? 'metadata',
+    rail_id: railIds[0] ?? 'metadata',
+    rail_ids: railIds,
     vector: normalizeVector(vector),
-    cluster: input.rail_id?.trim().toLowerCase()
+    // Most verified candidates arrive with the complete rail_ids set rather
+    // than a singular rail_id. Use the first stable semantic membership so
+    // the global MMR cap diversifies themes instead of accidentally grouping
+    // nearly the whole catalog by release decade.
+    cluster: railIds[0]?.toLowerCase()
       || `era-${Number.isFinite(year) ? Math.floor(year / 10) * 10 : 'unknown'}`,
     confidence: tasteTokens.length ? 0.9 : railTokens.length ? 0.72 : 0.5,
   };
@@ -142,9 +171,14 @@ function mean(values: number[]): number {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 2.5;
 }
 
-function fallbackAffinity(feature: RecommendationFeature, axisMean: number): number {
-  const profile = feature.vector.reduce((sum, value, index) => sum + value * ((index % 7) / 6), 0);
-  return Math.max(0, Math.min(5, axisMean + Math.max(-0.35, Math.min(0.35, profile / 24 - 0.16))));
+function lowEvidenceAxisPrior(axisMean: number): number {
+  // Without a sufficiently similar explicit rating, metadata has no principled
+  // basis for inventing a candidate-specific Fire or Water lift. Preserve the
+  // viewer's observed axis mean while shrinking it 20% toward the neutral
+  // editorial prior; deterministic slate/MMR ordering handles the remaining tie.
+  return Math.max(0, Math.min(5, (
+    axisMean * LOW_EVIDENCE_VIEWER_WEIGHT + NEUTRAL_AXIS_PRIOR
+  ) / (LOW_EVIDENCE_VIEWER_WEIGHT + 1)));
 }
 
 export function predictAxes(input: {
@@ -159,8 +193,17 @@ export function predictAxes(input: {
   const eligibleRatings = input.tab === 'movies'
     ? sameDomain
     : input.ratings.filter((rating) => rating.type === 'series' || (rating.type === 'movie' && movieTransfer > 0));
-  const householdFire = mean(sameDomain.length ? sameDomain.map((rating) => rating.fire) : input.ratings.map((rating) => rating.fire));
-  const householdWater = mean(sameDomain.length ? sameDomain.map((rating) => rating.water) : input.ratings.map((rating) => rating.water));
+  // Movie taste is learned only from movie ratings. Series is intentionally
+  // asymmetric: movie ratings may provide a bounded cold-start transfer until
+  // enough first-party series evidence exists, but series-only history must
+  // never invent a movie prior.
+  const priorRatings = sameDomain.length > 0
+    ? sameDomain
+    : input.tab === 'series'
+      ? input.ratings.filter((rating) => rating.type === 'movie' && movieTransfer > 0)
+      : [];
+  const householdFire = mean(priorRatings.map((rating) => rating.fire));
+  const householdWater = mean(priorRatings.map((rating) => rating.water));
   const neighbors = eligibleRatings
     .map((rating) => {
       const feature = input.ratingFeatures.get(`${rating.type}:${rating.id}`);
@@ -179,8 +222,8 @@ export function predictAxes(input: {
   const neighborWeight = neighbors.reduce((sum, neighbor) => sum + neighbor.weight, 0);
   if (neighborWeight < 0.15) {
     return {
-      fire: fallbackAffinity(input.candidate, householdFire),
-      water: fallbackAffinity(input.candidate, householdWater),
+      fire: lowEvidenceAxisPrior(householdFire),
+      water: lowEvidenceAxisPrior(householdWater),
       neighbor_weight: neighborWeight,
     };
   }
@@ -201,20 +244,94 @@ function seededUnit(seed: string): number {
   return createHash('sha256').update(seed).digest().readUInt32BE(0) / 0xffffffff;
 }
 
-function mmrPick(candidates: ScoredRecommendation[], limit: number): ScoredRecommendation[] {
+export function recommendationRewatchCadence(seed: string): boolean {
+  // A stable hash bucket makes rewatch discovery rare, replayable, and
+  // independent of process restarts: exactly one of seven possible buckets.
+  return createHash('sha256').update(seed).digest().readUInt32BE(0) % 7 === 0;
+}
+
+function boundedImplicitAffinity(
+  candidate: RecommendationFeature,
+  preferences: ImplicitRecommendationPreference[],
+): number {
+  const weighted = preferences
+    .map((preference) => ({
+      similarity: cosineSimilarity(candidate.vector, preference.feature.vector),
+      weight: Math.max(0, Math.min(1, preference.strength)),
+    }))
+    .filter((entry) => entry.similarity >= MIN_SIMILARITY && entry.weight > 0)
+    .sort((left, right) => right.similarity * right.weight - left.similarity * left.weight)
+    .slice(0, 12);
+  const denominator = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  if (denominator <= 0) return 0;
+  return weighted.reduce((sum, entry) => sum + entry.similarity * entry.weight, 0) / denominator;
+}
+
+function balancedViewerImplicitAffinity(similarities: number[]): number {
+  if (similarities.length === 0) return 0;
+  if (similarities.length === 1) return similarities[0]!;
+  // Every viewer contributes one bounded similarity regardless of history
+  // volume; a minority-protection term avoids optimizing only for the average.
+  return 0.70 * mean(similarities) + 0.30 * Math.min(...similarities);
+}
+
+function boundedNegativeAffinity(
+  candidate: RecommendationFeature,
+  preferences: NegativeRecommendationPreference[],
+): number {
+  return preferences.reduce((strongest, preference) => {
+    const strength = Math.max(0, Math.min(1, preference.strength));
+    const similarity = cosineSimilarity(candidate.vector, preference.feature.vector);
+    if (similarity < MIN_SIMILARITY || strength <= 0) return strongest;
+    // Use the strongest semantic objection instead of accumulating dislikes;
+    // this prevents a growing history from permanently burying broad genres.
+    return Math.max(strongest, similarity * strength);
+  }, 0);
+}
+
+export function balancedHouseholdAffinity(affinities: number[]): number {
+  if (affinities.length === 0) return 2.5;
+  if (affinities.length === 1) return affinities[0]!;
+  const bounded = affinities.map((value) => Math.max(0.1, Math.min(5, value)));
+  const average = mean(bounded);
+  const geometric = Math.exp(mean(bounded.map((value) => Math.log(value / 5)))) * 5;
+  const minimum = Math.min(...bounded);
+  // Geometric satisfaction prevents one prolific viewer from dominating,
+  // while the small minimum term protects a minority viewer from a poor slate.
+  return 0.55 * geometric + 0.30 * average + 0.15 * minimum;
+}
+
+function mmrPick(
+  candidates: ScoredRecommendation[],
+  limit: number,
+  alreadySelected: ScoredRecommendation[] = [],
+  options: { explorationSeed?: string } = {},
+): ScoredRecommendation[] {
   const remaining = [...candidates];
   const selected: ScoredRecommendation[] = [];
   const clusterCount = new Map<string, number>();
+  for (const item of alreadySelected) {
+    clusterCount.set(item.cluster, (clusterCount.get(item.cluster) ?? 0) + 1);
+  }
   while (remaining.length && selected.length < limit) {
     let bestIndex = -1;
     let bestScore = Number.NEGATIVE_INFINITY;
+    const comparison = [...alreadySelected, ...selected];
     for (let index = 0; index < remaining.length; index += 1) {
       const candidate = remaining[index]!;
       if ((clusterCount.get(candidate.cluster) ?? 0) >= 2) continue;
-      const redundancy = selected.length
-        ? Math.max(...selected.map((item) => cosineSimilarity(candidate.vector, item.vector)))
+      const redundancy = comparison.length
+        ? Math.max(...comparison.map((item) => cosineSimilarity(candidate.vector, item.vector)))
         : 0;
-      const score = 0.75 * (candidate.affinity / 5) - 0.25 * redundancy;
+      const discoveryPrior = options.explorationSeed
+        ? seededUnit(`${options.explorationSeed}:${candidate.type}:${candidate.id}`)
+        : 0;
+      const score = options.explorationSeed
+        // Exploration remains quality-bounded and diversity-aware. The stable
+        // daily prior changes only the controlled discovery card, never the
+        // four close matches or the adjacent pick.
+        ? 0.46 * (candidate.affinity / 5) + 0.26 * discoveryPrior - 0.28 * redundancy
+        : 0.72 * (candidate.affinity / 5) - 0.28 * redundancy;
       if (score > bestScore) {
         bestIndex = index;
         bestScore = score;
@@ -222,51 +339,164 @@ function mmrPick(candidates: ScoredRecommendation[], limit: number): ScoredRecom
     }
     if (bestIndex < 0) break;
     const [picked] = remaining.splice(bestIndex, 1);
-    picked!.diversity = 1 - Math.max(0, ...selected.map((item) => cosineSimilarity(picked!.vector, item.vector)));
+    picked!.diversity = 1 - Math.max(
+      0,
+      ...[...alreadySelected, ...selected].map((item) => cosineSimilarity(picked!.vector, item.vector)),
+    );
     selected.push(picked!);
     clusterCount.set(picked!.cluster, (clusterCount.get(picked!.cluster) ?? 0) + 1);
   }
   return selected;
 }
 
-export function rankRecommendations(input: {
+function fillMmrPick(
+  preferred: ScoredRecommendation[],
+  fallback: ScoredRecommendation[],
+  limit: number,
+  alreadySelected: ScoredRecommendation[] = [],
+  options: { explorationSeed?: string } = {},
+): ScoredRecommendation[] {
+  const selected = mmrPick(preferred, limit, alreadySelected, options);
+  if (selected.length >= limit) return selected;
+  const selectedKeys = new Set(selected.map((item) => `${item.type}:${item.id}`));
+  return [
+    ...selected,
+    ...mmrPick(
+      fallback.filter((item) => !selectedKeys.has(`${item.type}:${item.id}`)),
+      limit - selected.length,
+      [...alreadySelected, ...selected],
+      options,
+    ),
+  ];
+}
+
+export type RankRecommendationsInput = {
   tab: 'movies' | 'series';
   candidates: RecommendationFeature[];
   ratings: FireWaterRating[];
   ratingFeatures: Map<string, RecommendationFeature>;
+  /** One equally weighted group per viewer when Household is active. */
+  ratingGroups?: FireWaterRating[][];
+  implicitPreferences?: ImplicitRecommendationPreference[];
+  /** One bounded positive-signal group per viewer for Household ranking. */
+  implicitPreferenceGroups?: ImplicitRecommendationPreference[][];
+  negativePreferences?: NegativeRecommendationPreference[];
+  contextFeature?: RecommendationFeature | null;
+  /** Cooled, non-negative titles eligible only for the rare exploration slot. */
+  rewatchCandidates?: RecommendationFeature[];
+  rewatchCadenceSeed?: string;
   dailySeed: string;
   limit?: number;
-}): ScoredRecommendation[] {
-  const scored = input.candidates.map((candidate) => {
+  /** Cards actually visible on the 10-foot rail; its mix is the user-facing contract. */
+  visibleLimit?: number;
+};
+
+export function rankRecommendations(input: RankRecommendationsInput): ScoredRecommendation[] {
+  const scoreCandidate = (candidate: RecommendationFeature): ScoredRecommendation => {
     const axes = predictAxes({ ...input, candidate });
+    const groupAffinities = (input.ratingGroups ?? [])
+      .filter((group) => group.length > 0)
+      .map((ratings) => {
+        const predicted = predictAxes({ ...input, candidate, ratings });
+        return holisticAffinity(predicted.fire, predicted.water);
+      });
+    const explicitAffinity = groupAffinities.length > 1
+      ? balancedHouseholdAffinity(groupAffinities)
+      : holisticAffinity(axes.fire, axes.water);
+    const viewerImplicitSimilarities = (input.implicitPreferenceGroups ?? [])
+      .filter((group) => group.length > 0)
+      .map((group) => boundedImplicitAffinity(candidate, group));
+    const implicitSimilarity = viewerImplicitSimilarities.length > 0
+      ? balancedViewerImplicitAffinity(viewerImplicitSimilarities)
+      : boundedImplicitAffinity(candidate, input.implicitPreferences ?? []);
+    const negativeSimilarity = boundedNegativeAffinity(candidate, input.negativePreferences ?? []);
+    const contextSimilarity = input.contextFeature
+      ? cosineSimilarity(candidate.vector, input.contextFeature.vector)
+      : 0;
+    // Implicit and session context can refine a slate, never rewrite explicit
+    // taste. Current semantic dislikes are a soft, decayed penalty; exact-title
+    // vetoes remain a service eligibility rule and Undo removes their signal.
+    const secondaryAdjustment = Math.max(-0.20, Math.min(0.20,
+      Math.min(0.30, implicitSimilarity * 0.30)
+        + Math.min(0.25, contextSimilarity * 0.25)
+        - Math.min(0.20, negativeSimilarity * 0.20),
+    ));
+    const affinity = Math.max(0, Math.min(5, explicitAffinity + secondaryAdjustment));
     return {
       ...candidate,
       predicted_fire: axes.fire,
       predicted_water: axes.water,
-      affinity: holisticAffinity(axes.fire, axes.water),
+      affinity,
       diversity: 1,
       bucket: 'close' as const,
     };
-  });
+  };
+  const scored = input.candidates.map(scoreCandidate);
+  const candidateKeys = new Set(input.candidates.map((candidate) => `${candidate.type}:${candidate.id}`));
+  const rewatchScored = recommendationRewatchCadence(input.rewatchCadenceSeed ?? input.dailySeed)
+    ? (input.rewatchCandidates ?? [])
+      .filter((candidate) => !candidateKeys.has(`${candidate.type}:${candidate.id}`))
+      .map((candidate) => ({ ...scoreCandidate(candidate), couch_provenance: 'watch_again' as const }))
+      .sort((left, right) => right.affinity - left.affinity || left.id.localeCompare(right.id))
+    : [];
   const byAffinity = [...scored].sort((a, b) => b.affinity - a.affinity || a.id.localeCompare(b.id));
-  const close = mmrPick(byAffinity.slice(0, Math.max(8, Math.ceil(byAffinity.length * 0.55))), 8)
+  const limit = Math.max(1, input.limit ?? 12);
+  const visibleLimit = Math.min(limit, Math.max(1, input.visibleLimit ?? 6));
+  const closeTarget = Math.min(visibleLimit, Math.round(visibleLimit * 0.7));
+  const adjacentTarget = Math.min(visibleLimit - closeTarget, Math.round(visibleLimit * 0.2));
+  const exploreTarget = Math.max(0, visibleLimit - closeTarget - adjacentTarget);
+  const closePoolSize = Math.max(closeTarget, Math.ceil(byAffinity.length * 0.55));
+  const adjacentPoolEnd = Math.max(closePoolSize + adjacentTarget, Math.ceil(byAffinity.length * 0.82));
+  const close = fillMmrPick(byAffinity.slice(0, closePoolSize), byAffinity, closeTarget)
     .map((item) => ({ ...item, bucket: 'close' as const }));
   const used = new Set(close.map((item) => `${item.type}:${item.id}`));
-  const adjacentPool = byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`))
-    .slice(0, Math.max(12, Math.ceil(byAffinity.length * 0.8)));
-  const adjacent = mmrPick(adjacentPool, 3).map((item) => ({ ...item, bucket: 'adjacent' as const }));
+  const adjacentPool = byAffinity.slice(closePoolSize, adjacentPoolEnd)
+    .filter((item) => !used.has(`${item.type}:${item.id}`));
+  const adjacentFallback = byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`));
+  const adjacent = fillMmrPick(adjacentPool, adjacentFallback, adjacentTarget, close)
+    .map((item) => ({ ...item, bucket: 'adjacent' as const }));
   adjacent.forEach((item) => used.add(`${item.type}:${item.id}`));
-  const exploration = byAffinity
-    .filter((item) => !used.has(`${item.type}:${item.id}`))
-    .sort((a, b) => seededUnit(`${input.dailySeed}:${a.type}:${a.id}`) - seededUnit(`${input.dailySeed}:${b.type}:${b.id}`))[0];
+  // Surprise is bounded, not random: use the viable upper 85%, a replay-stable
+  // discovery prior, and the same global MMR/cluster budget as every other card.
+  const explorationPool = byAffinity
+    .slice(0, Math.max(visibleLimit, Math.ceil(byAffinity.length * 0.85)))
+    .filter((item) => !used.has(`${item.type}:${item.id}`));
+  const preExploration = [...close, ...adjacent];
+  const rewatchExploration = exploreTarget > 0
+    ? mmrPick(
+      rewatchScored,
+      1,
+      preExploration,
+      { explorationSeed: `${input.dailySeed}:rewatch` },
+    )
+    : [];
+  const explorationFallback = byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`));
+  const regularExploration = fillMmrPick(
+    explorationPool,
+    explorationFallback,
+    Math.max(0, exploreTarget - rewatchExploration.length),
+    [...preExploration, ...rewatchExploration],
+    { explorationSeed: input.dailySeed },
+  );
+  const exploration = [...rewatchExploration, ...regularExploration]
+    .map((item) => ({ ...item, bucket: 'explore' as const }));
   const output: ScoredRecommendation[] = [...close, ...adjacent];
-  if (exploration) output.push({ ...exploration, bucket: 'explore' });
-  const limit = input.limit ?? 12;
+  output.push(...exploration);
+  exploration.forEach((item) => used.add(`${item.type}:${item.id}`));
   if (output.length < limit) {
-    for (const item of byAffinity) {
-      if (output.length >= limit) break;
-      if (output.some((entry) => entry.type === item.type && entry.id === item.id)) continue;
-      output.push({ ...item, bucket: 'fallback' });
+    const reserve = mmrPick(
+      byAffinity.filter((item) => !used.has(`${item.type}:${item.id}`)),
+      limit - output.length,
+      output,
+    );
+    for (const item of reserve) {
+      const affinityIndex = byAffinity.findIndex((candidate) => candidate.type === item.type && candidate.id === item.id);
+      const bucket = affinityIndex < closePoolSize
+        ? 'close'
+        : affinityIndex < adjacentPoolEnd
+          ? 'adjacent'
+          : 'fallback';
+      output.push({ ...item, bucket });
     }
   }
   return output.slice(0, limit);
@@ -284,6 +514,7 @@ export function candidatesToFeatures(
       title: candidate.title,
       year: candidate.year,
       rail_id: candidate.rail_id,
+      rail_ids: candidate.rail_ids,
     }));
 }
 

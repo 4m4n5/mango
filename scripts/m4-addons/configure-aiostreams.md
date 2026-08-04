@@ -10,6 +10,7 @@ Run these on the Pi after `bash scripts/m4-addons/install-aiostreams.sh` or
 ```bash
 bash scripts/m4-addons/aiostreams-config.sh diff    # vs config/aiostreams-target-patch.json
 bash scripts/m4-addons/aiostreams-config.sh apply   # PUT /api/v1/user
+bash scripts/m4-addons/aiostreams-config.sh verify  # safe topology/policy proof
 ```
 
 ## Open Configure UI
@@ -62,6 +63,7 @@ Configured via configure UI; credentials in `~/.config/mango/aiostreams.credenti
 | NZB Failover | ON | Easynews fallback path |
 | Cache and Play | ON, **usenet only** | Fast Easynews path without torrent cache quirks |
 | Auto Remove Downloads | OFF | Safer for re-watches |
+| Stream errors | Visible to Mango; hidden for catalog/meta/subtitles | Lets the resolver distinguish provider failure from a genuine title miss; diagnostic rows never reach playback/UI/AI |
 
 ### Filters / quality (AIOStreams side)
 

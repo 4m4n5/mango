@@ -215,6 +215,43 @@ CREATE TABLE IF NOT EXISTS youtube_popular_candidates (
   FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS youtube_impressions (
+  slate_sequence INTEGER NOT NULL,
+  rail_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  impressed_at INTEGER NOT NULL,
+  PRIMARY KEY(slate_sequence, rail_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_impressions_at ON youtube_impressions(impressed_at DESC);
+
+CREATE TABLE IF NOT EXISTS youtube_profile_impressions (
+  profile_id TEXT NOT NULL,
+  slate_sequence INTEGER NOT NULL,
+  rail_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  impressed_at INTEGER NOT NULL,
+  PRIMARY KEY(profile_id, slate_sequence, rail_id, item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_profile_impressions_at
+  ON youtube_profile_impressions(profile_id, impressed_at DESC);
+
+CREATE TABLE IF NOT EXISTS youtube_profile_candidate_state (
+  profile_id TEXT NOT NULL,
+  rail_id TEXT NOT NULL,
+  context_id TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'video',
+  id TEXT NOT NULL,
+  last_recommended_at INTEGER,
+  exposure_count INTEGER NOT NULL DEFAULT 0,
+  ignore_count INTEGER NOT NULL DEFAULT 0,
+  quick_stop_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(profile_id, rail_id, context_id, kind, id)
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_profile_candidate_cooldown
+  ON youtube_profile_candidate_state(profile_id, rail_id, context_id, last_recommended_at);
+
 CREATE INDEX IF NOT EXISTS idx_youtube_items_updated ON youtube_items(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_items_channel ON youtube_items(channel_id, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_rail_added ON youtube_rail_items(rail_id, score DESC, added_at DESC);
@@ -254,6 +291,42 @@ CREATE INDEX IF NOT EXISTS idx_youtube_search_cache_access
     .run(nowMs());
   db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (7, ?)')
     .run(nowMs());
+  db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (8, ?)')
+    .run(nowMs());
+  db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (9, ?)')
+    .run(nowMs());
+  const profileCandidateMigration = db.prepare(
+    'SELECT 1 FROM youtube_migrations WHERE version = 10',
+  ).get();
+  if (!profileCandidateMigration) {
+    const migratedAt = nowMs();
+    db.transaction(() => {
+      for (const source of [
+        { table: 'youtube_for_you_candidates', rail: 'for_you', context: "''" },
+        { table: 'youtube_fresh_find_candidates', rail: 'fresh_finds', context: "''" },
+        { table: 'youtube_live_now_candidates', rail: 'live_now', context: "''" },
+        { table: 'youtube_popular_candidates', rail: 'popular', context: "''" },
+        { table: 'youtube_because_you_watched_candidates', rail: 'because_you_watched', context: 'seed_video_id' },
+      ]) {
+        db.exec(`
+INSERT OR IGNORE INTO youtube_profile_candidate_state(
+  profile_id, rail_id, context_id, kind, id, last_recommended_at,
+  exposure_count, ignore_count, quick_stop_count, created_at, updated_at
+)
+SELECT
+  'household', '${source.rail}', ${source.context}, kind, id, last_recommended_at,
+  exposure_count, ignore_count, quick_stop_count, created_at, updated_at
+FROM ${source.table}
+WHERE last_recommended_at IS NOT NULL
+   OR exposure_count > 0
+   OR ignore_count > 0
+   OR quick_stop_count > 0;
+`);
+      }
+      db.prepare('INSERT INTO youtube_migrations(version, applied_at) VALUES (10, ?)')
+        .run(migratedAt);
+    })();
+  }
 }
 
 function ensureDb(): Database.Database {
@@ -455,24 +528,27 @@ export type YoutubeForYouCandidate = YoutubeRailItem & {
   quick_stop_count: number;
 };
 
-function parseBreakdown(value: string | null): Record<string, unknown> {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
-  } catch {
-    return {};
-  }
+function forYouCandidateParams(
+  candidate: YoutubeForYouCandidateInput,
+  timestamp: number,
+): Record<string, string | number | null> {
+  return {
+    kind: normalizeKind(candidate.item.kind),
+    id: candidate.item.id,
+    lane: candidate.lane,
+    source: candidate.source,
+    source_weight: candidate.source_weight,
+    topic_cluster: candidate.topic_cluster,
+    score: candidate.score,
+    score_breakdown: JSON.stringify(candidate.score_breakdown || {}),
+    reason: candidate.reason ?? null,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
 }
 
-export function upsertForYouCandidates(candidates: YoutubeForYouCandidateInput[]): void {
-  if (candidates.length === 0) return;
-  const db = ensureDb();
-  const timestamp = nowMs();
-  upsertYoutubeItems(candidates.map((entry) => entry.item));
-  const stmt = db.prepare(`
+function prepareForYouCandidateUpsert(db: Database.Database): Database.Statement {
+  return db.prepare(`
 INSERT INTO youtube_for_you_candidates (
   kind, id, lane, source, source_weight, topic_cluster, score,
   score_breakdown, reason, created_at, updated_at
@@ -490,24 +566,76 @@ ON CONFLICT(kind, id) DO UPDATE SET
   reason = excluded.reason,
   updated_at = excluded.updated_at;
 `);
+}
+
+function parseBreakdown(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+export function upsertForYouCandidates(candidates: YoutubeForYouCandidateInput[]): void {
+  if (candidates.length === 0) return;
+  const db = ensureDb();
+  const timestamp = nowMs();
+  upsertYoutubeItems(candidates.map((entry) => entry.item));
+  const stmt = prepareForYouCandidateUpsert(db);
   const tx = db.transaction(() => {
     for (const candidate of candidates) {
-      stmt.run({
-        kind: normalizeKind(candidate.item.kind),
-        id: candidate.item.id,
-        lane: candidate.lane,
-        source: candidate.source,
-        source_weight: candidate.source_weight,
-        topic_cluster: candidate.topic_cluster,
-        score: candidate.score,
-        score_breakdown: JSON.stringify(candidate.score_breakdown || {}),
-        reason: candidate.reason ?? null,
-        created_at: timestamp,
-        updated_at: timestamp,
-      });
+      stmt.run(forYouCandidateParams(candidate, timestamp));
     }
   });
   tx();
+}
+
+/**
+ * Atomically publishes one complete shared acquisition generation. Candidate
+ * rows omitted by the new generation are removed, while UPSERT deliberately
+ * leaves legacy aggregate counters and profile-owned exposure state unchanged
+ * for retained identities. An empty rebuild is treated as a failed acquisition
+ * and retains the last-good reservoir.
+ */
+export function replaceForYouCandidates(candidates: YoutubeForYouCandidateInput[]): void {
+  if (candidates.length === 0) return;
+  const db = ensureDb();
+  upsertYoutubeItems(candidates.map((entry) => entry.item));
+  const upsert = prepareForYouCandidateUpsert(db);
+  db.transaction(() => {
+    const latest = db.prepare(`
+SELECT COALESCE(MAX(updated_at), 0) AS updated_at
+FROM youtube_for_you_candidates
+`).get() as { updated_at: number };
+    // A strictly monotonic generation marker makes replacement correct even
+    // when two refreshes complete within the same millisecond.
+    const generation = Math.max(nowMs(), latest.updated_at + 1);
+    for (const candidate of candidates) {
+      upsert.run(forYouCandidateParams(candidate, generation));
+    }
+    db.prepare(`
+DELETE FROM youtube_for_you_candidates
+WHERE updated_at != ?
+`).run(generation);
+    // Profile state is independent from acquisition. Retain counters for every
+    // still-eligible identity and prune only orphaned For-You state; unrelated
+    // profiles' other rails and contextual recommendation state are untouched.
+    db.prepare(`
+DELETE FROM youtube_profile_candidate_state
+WHERE rail_id = 'for_you'
+  AND context_id = ''
+  AND NOT EXISTS (
+    SELECT 1
+    FROM youtube_for_you_candidates fy
+    WHERE fy.kind = youtube_profile_candidate_state.kind
+      AND fy.id = youtube_profile_candidate_state.id
+  )
+`).run();
+  })();
 }
 
 export function listForYouCandidates(limit = 1000): YoutubeForYouCandidate[] {
@@ -537,7 +665,6 @@ export function noteForYouExposures(ids: string[], at = nowMs()): void {
 UPDATE youtube_for_you_candidates
 SET last_recommended_at = @at,
     exposure_count = exposure_count + 1,
-    ignore_count = ignore_count + 1,
     updated_at = @at
 WHERE kind = 'video' AND id = @id;
 `);
@@ -547,6 +674,173 @@ WHERE kind = 'video' AND id = @id;
     }
   });
   tx();
+}
+
+export type YoutubeProfileCandidateState = {
+  profile_id: string;
+  rail_id: string;
+  context_id: string;
+  kind: YoutubeItemKind;
+  id: string;
+  last_recommended_at: number | null;
+  exposure_count: number;
+  ignore_count: number;
+  quick_stop_count: number;
+  created_at: number;
+  updated_at: number;
+};
+
+function normalizedProfileCandidateKey(input: {
+  profile_id: string;
+  rail_id: string;
+  context_id?: string;
+}): { profile_id: string; rail_id: string; context_id: string } | null {
+  const profileId = input.profile_id.trim().toLowerCase();
+  const railId = input.rail_id.trim();
+  if (!profileId || !railId) return null;
+  return {
+    profile_id: profileId,
+    rail_id: railId,
+    context_id: input.context_id?.trim() || '',
+  };
+}
+
+export function listYoutubeProfileCandidateStates(input: {
+  profile_id: string;
+  rail_id: string;
+  context_id?: string;
+}): YoutubeProfileCandidateState[] {
+  const key = normalizedProfileCandidateKey(input);
+  if (!key) return [];
+  return ensureDb().prepare(`
+SELECT
+  profile_id, rail_id, context_id, kind, id, last_recommended_at,
+  exposure_count, ignore_count, quick_stop_count, created_at, updated_at
+FROM youtube_profile_candidate_state
+WHERE profile_id = @profile_id AND rail_id = @rail_id AND context_id = @context_id
+ORDER BY updated_at DESC, id;
+`).all(key) as YoutubeProfileCandidateState[];
+}
+
+export function clearYoutubeProfileCandidateStates(profileIdInput: string): number {
+  const profileId = profileIdInput.trim().toLowerCase();
+  if (!profileId) return 0;
+  return ensureDb().prepare(
+    'DELETE FROM youtube_profile_candidate_state WHERE profile_id = ?',
+  ).run(profileId).changes;
+}
+
+export function setYoutubeProfileCandidateState(input: {
+  profile_id: string;
+  rail_id: string;
+  context_id?: string;
+  id: string;
+  last_recommended_at?: number | null;
+  exposure_count?: number;
+  ignore_count?: number;
+  quick_stop_count?: number;
+  updated_at?: number;
+}): void {
+  const key = normalizedProfileCandidateKey(input);
+  const id = input.id.trim();
+  if (!key || !id) return;
+  const db = ensureDb();
+  const timestamp = input.updated_at ?? nowMs();
+  const current = db.prepare(`
+SELECT last_recommended_at, exposure_count, ignore_count, quick_stop_count, created_at
+FROM youtube_profile_candidate_state
+WHERE profile_id = @profile_id AND rail_id = @rail_id AND context_id = @context_id
+  AND kind = 'video' AND id = @id;
+`).get({ ...key, id }) as Pick<
+    YoutubeProfileCandidateState,
+    'last_recommended_at' | 'exposure_count' | 'ignore_count' | 'quick_stop_count' | 'created_at'
+  > | undefined;
+  db.prepare(`
+INSERT INTO youtube_profile_candidate_state(
+  profile_id, rail_id, context_id, kind, id, last_recommended_at,
+  exposure_count, ignore_count, quick_stop_count, created_at, updated_at
+) VALUES (
+  @profile_id, @rail_id, @context_id, 'video', @id, @last_recommended_at,
+  @exposure_count, @ignore_count, @quick_stop_count, @created_at, @updated_at
+)
+ON CONFLICT(profile_id, rail_id, context_id, kind, id) DO UPDATE SET
+  last_recommended_at = excluded.last_recommended_at,
+  exposure_count = excluded.exposure_count,
+  ignore_count = excluded.ignore_count,
+  quick_stop_count = excluded.quick_stop_count,
+  updated_at = excluded.updated_at;
+`).run({
+    ...key,
+    id,
+    last_recommended_at: input.last_recommended_at !== undefined
+      ? input.last_recommended_at
+      : current?.last_recommended_at ?? null,
+    exposure_count: input.exposure_count !== undefined
+      ? Math.max(0, Math.trunc(input.exposure_count))
+      : current?.exposure_count ?? 0,
+    ignore_count: input.ignore_count !== undefined
+      ? Math.max(0, Math.trunc(input.ignore_count))
+      : current?.ignore_count ?? 0,
+    quick_stop_count: input.quick_stop_count !== undefined
+      ? Math.max(0, Math.trunc(input.quick_stop_count))
+      : current?.quick_stop_count ?? 0,
+    created_at: current?.created_at ?? timestamp,
+    updated_at: timestamp,
+  });
+}
+
+/**
+ * Records only cards the launcher reports as rendered. Repeated Home renders
+ * of the same slate are idempotent, so cooldowns describe real opportunities
+ * to see a card rather than payload assembly or focus churn.
+ */
+export function recordYoutubeImpressions(input: {
+  profile_id: string;
+  slate_sequence: number;
+  rail_id: string;
+  context_id?: string;
+  item_ids: string[];
+  impressed_at?: number;
+}): string[] {
+  const sequence = Math.max(0, Math.trunc(input.slate_sequence));
+  const key = normalizedProfileCandidateKey(input);
+  if (!key) return [];
+  const ids = [...new Set(input.item_ids.map((item) => item.trim()).filter(Boolean))].slice(0, 4);
+  if (ids.length === 0) return [];
+  const db = ensureDb();
+  const timestamp = input.impressed_at ?? nowMs();
+  const insert = db.prepare(`
+INSERT OR IGNORE INTO youtube_profile_impressions(
+  profile_id, slate_sequence, rail_id, item_id, impressed_at
+) VALUES (?, ?, ?, ?, ?)
+`);
+  const noteCandidate = db.prepare(`
+INSERT INTO youtube_profile_candidate_state(
+  profile_id, rail_id, context_id, kind, id, last_recommended_at,
+  exposure_count, ignore_count, quick_stop_count, created_at, updated_at
+) VALUES (?, ?, ?, 'video', ?, ?, 1, 0, 0, ?, ?)
+ON CONFLICT(profile_id, rail_id, context_id, kind, id) DO UPDATE SET
+  last_recommended_at = excluded.last_recommended_at,
+  exposure_count = youtube_profile_candidate_state.exposure_count + 1,
+  updated_at = excluded.updated_at;
+`);
+  const inserted: string[] = [];
+  db.transaction(() => {
+    for (const id of ids) {
+      if (insert.run(key.profile_id, sequence, key.rail_id, id, timestamp).changes === 0) continue;
+      noteCandidate.run(
+        key.profile_id,
+        key.rail_id,
+        key.context_id,
+        id,
+        timestamp,
+        timestamp,
+        timestamp,
+      );
+      inserted.push(id);
+    }
+  })();
+  return inserted;
 }
 
 export function setForYouCandidateStats(
@@ -674,7 +968,6 @@ export function noteFreshFindExposures(ids: string[], at = nowMs()): void {
 UPDATE youtube_fresh_find_candidates
 SET last_recommended_at = @at,
     exposure_count = exposure_count + 1,
-    ignore_count = ignore_count + 1,
     updated_at = @at
 WHERE kind = 'video' AND id = @id;
 `);
@@ -826,7 +1119,6 @@ export function noteBecauseYouWatchedExposures(seedVideoId: string, ids: string[
 UPDATE youtube_because_you_watched_candidates
 SET last_recommended_at = @at,
     exposure_count = exposure_count + 1,
-    ignore_count = ignore_count + 1,
     updated_at = @at
 WHERE seed_video_id = @seed_video_id AND kind = 'video' AND id = @id;
 `);
@@ -977,7 +1269,6 @@ export function noteLiveNowExposures(ids: string[], at = nowMs()): void {
 UPDATE youtube_live_now_candidates
 SET last_recommended_at = @at,
     exposure_count = exposure_count + 1,
-    ignore_count = ignore_count + 1,
     updated_at = @at
 WHERE kind = 'video' AND id = @id;
 `);
@@ -1122,7 +1413,6 @@ export function notePopularExposures(ids: string[], at = nowMs()): void {
 UPDATE youtube_popular_candidates
 SET last_recommended_at = @at,
     exposure_count = exposure_count + 1,
-    ignore_count = ignore_count + 1,
     updated_at = @at
 WHERE kind = 'video' AND id = @id;
 `);

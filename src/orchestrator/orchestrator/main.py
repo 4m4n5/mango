@@ -48,6 +48,7 @@ from orchestrator.voice_log import (
 )
 from orchestrator.warmup import warmup_voice_stack
 from orchestrator.search_expand import expand_search_query
+from orchestrator.recommendation_enrich import enrich_recommendation_items
 
 logger = logging.getLogger(__name__)
 
@@ -149,6 +150,30 @@ async def search_expand(request: Request) -> JSONResponse:
         return JSONResponse({"ok": True, **expanded})
     except asyncio.TimeoutError:
         return JSONResponse({"ok": False, "error": "search expansion timed out"}, status_code=504)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
+
+
+@app.post("/recommendations/enrich")
+async def recommendations_enrich(request: Request) -> JSONResponse:
+    client_host = request.client.host if request.client else ""
+    if client_host not in {"127.0.0.1", "::1", "localhost"}:
+        return JSONResponse(
+            {"ok": False, "error": "recommendation enrichment is localhost-only"},
+            status_code=403,
+        )
+    try:
+        payload = await request.json()
+        request_settings = load_settings()
+        items = await asyncio.wait_for(
+            asyncio.to_thread(enrich_recommendation_items, payload, request_settings),
+            timeout=30.0,
+        )
+        return JSONResponse({"ok": True, "items": items})
+    except asyncio.TimeoutError:
+        return JSONResponse({"ok": False, "error": "recommendation enrichment timed out"}, status_code=504)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=503)
 

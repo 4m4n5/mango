@@ -176,6 +176,37 @@ def tool_read_profile(settings: OrchestratorSettings) -> dict[str, Any]:
     return _request_json(settings, "GET", "/voice/companion/profile", timeout=10.0)
 
 
+def tool_manage_viewer_profile(
+    settings: OrchestratorSettings,
+    *,
+    action: str,
+    profile_id: str | None = None,
+    name: str | None = None,
+) -> dict[str, Any]:
+    if action == "list":
+        return _request_json(settings, "GET", "/personalization/state", timeout=10.0)
+    if action == "activate":
+        return _request_json(
+            settings,
+            "POST",
+            "/personalization/activate",
+            body={"profile_id": profile_id},
+            timeout=10.0,
+        )
+    body: dict[str, Any] = {"action": action}
+    if profile_id is not None:
+        body["profile_id"] = profile_id
+    if name is not None:
+        body["name"] = name
+    return _request_json(
+        settings,
+        "POST",
+        "/personalization/profiles",
+        body=body,
+        timeout=10.0,
+    )
+
+
 def tool_companion_summary(settings: OrchestratorSettings) -> dict[str, Any]:
     return _request_json(settings, "GET", "/voice/companion/summary", timeout=10.0)
 

@@ -67,6 +67,34 @@ bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh
 | L/R (`310`/`311`) | Tab − / + |
 | ⌂ (`316`) | Home |
 
+### Companion HTTPS boundary
+
+The phone UI at `:3001` exposes a small named catalog capability set, not the
+catalog service wholesale. Verify the three read-only companion paths and a
+representative blocked private path without changing runtime state:
+
+```bash
+for path in ai/context voice/companion/summary youtube/companion/status; do
+  curl -sk -o /dev/null -w "$path %{http_code}\n" \
+    "https://127.0.0.1:3001/api/catalog/$path"
+done
+curl -sk -o /dev/null -w "recommendations/state %{http_code}\n" \
+  https://127.0.0.1:3001/api/catalog/recommendations/state
+curl -sk -o /dev/null -w "voice/companion/journal %{http_code}\n" \
+  https://127.0.0.1:3001/api/catalog/voice/companion/journal
+curl -sk -o /dev/null -w "youtube/state %{http_code}\n" \
+  https://127.0.0.1:3001/api/catalog/youtube/state
+```
+
+With the catalog and voice stack healthy, the first three return `200`; all
+three private/operator paths return `403`. Companion status contains only
+`api_key_configured`, `oauth_configured`, `authenticated`, and
+`needs_attention`; it never returns the raw reason for attention. A blocked
+response must be produced before any
+loopback request and must not include internal upstream details. Add a new
+companion capability only when the shipped phone UI genuinely consumes it, and
+pair that exact method/path with proxy tests.
+
 ### Pad + Chromium tuning (D-pad latency)
 
 D-pad browse latency was tuned in three tiers (A: pad hot path, B: periodic-lag
@@ -363,15 +391,62 @@ Scheduled maintenance (local time):
 
 ## Fire/Water ratings and For You
 
+The current branch source contains the profile-aware recommendation
+implementation, but this documentation pass supplies no Pi evidence. Do not
+record deployment, screenshots, or couch PASS until the exact branch revision
+is pulled and observed at home.
+
 Migration 4 creates one WAL-consistent online backup before changing
 `/etc/mango/library.db`:
 
 ```bash
 test -f /etc/mango/library.db.pre-fire-water-v4.bak
 curl -fsS http://127.0.0.1:3020/recommendations/state | python3 -m json.tool
+curl -fsS http://127.0.0.1:3020/personalization/state | python3 -m json.tool
 curl -fsS -X POST http://127.0.0.1:3020/recommendations/refresh \
   -H 'content-type: application/json' -d '{}'
 ```
+
+Migrations 5–6 add profiles/signals; library migrations 7–11 add attribution,
+profile metrics, opaque served slates, profile watch state, and exact served
+context. Progress migration 2 adds profile-exact Continue/resume and migrates
+legacy unscoped rows only to Household. These migrations do not delete or
+recreate ratings, Saved, history, YouTube cache, progress, or recommendation
+snapshots. Verify versions non-destructively:
+
+```bash
+sqlite3 /etc/mango/library.db \
+  "SELECT group_concat(version, ',') FROM (SELECT version FROM library_migrations WHERE version BETWEEN 4 AND 11 ORDER BY version);"
+sqlite3 /etc/mango/progress.db \
+  "SELECT group_concat(version, ',') FROM (SELECT version FROM progress_migrations ORDER BY version);"
+sqlite3 /etc/mango/library.db \
+  "SELECT name FROM pragma_table_info('profile_recommendation_served_slates') WHERE name='context_id';"
+```
+
+Expected library versions include `4,5,6,7,8,9,10,11`, progress includes `2`,
+and the final query returns `context_id`. Profiles have no PIN or startup
+chooser. Creating one does not activate it; activation is a separate action and
+clears session mood:
+
+```bash
+curl -fsS -X POST http://127.0.0.1:3020/personalization/profiles \
+  -H 'content-type: application/json' -d '{"action":"create","name":"Couch test"}'
+curl -fsS -X POST http://127.0.0.1:3020/personalization/activate \
+  -H 'content-type: application/json' -d '{"profile_id":"<profile-id>"}'
+curl -fsS -X POST http://127.0.0.1:3020/personalization/mood \
+  -H 'content-type: application/json' -d '{"mood":"comfort","ttl_ms":3600000}'
+```
+
+Use a disposable named profile only when the human tester approves adding it;
+there is deliberately no delete action. Rename keeps the stable profile ID.
+Household retains legacy seed/state and blends recommendation/history activity,
+but an exact Not-for-me from any profile vetoes that title in Household. Exact
+Continue/resume never blends: play the same title to different positions as
+Alice and Bob, then verify each profile resumes its own position and a new
+profile starts clean. Personal state must never leak between personal profiles.
+Switch once through the companion and confirm the TV updates on the immediate
+`profile_changed` acknowledgement path; separately leave the TV idle and prove
+the 30-second fallback poll converges without a page restart.
 
 Seed manifests are validated and imported on the Pi only after every row has
 an explicit approved/excluded disposition and unique stable identity:
@@ -387,7 +462,77 @@ Run import twice; the second result must report `noop: true`. Never copy a Mac
 DB to the Pi, clear runtime state, or place raw sheet captions/URLs in the
 manifest. `MANGO_FIRE_WATER_RATINGS=0`, `MANGO_FOR_YOU=0`, and
 `MANGO_RECOMMENDATIONS_AI=0` are reversible visibility/enrichment rollbacks;
-none deletes ratings or last-good snapshots.
+none deletes ratings or last-good snapshots. Ranking uses a worker by default
+so CPU-heavy scoring/MMR cannot monopolize catalog HTTP;
+`MANGO_RECOMMENDATION_RANK_WORKER=0` is a diagnostic-only opt-out and
+`MANGO_RECOMMENDATION_RANK_TIMEOUT_MS` defaults to 30000. A worker failure or
+deadline retains the previous complete snapshot.
+
+Before the couch verdict, verify the following without clearing any state:
+
+- Every visible Movies/TV For You rail shows exactly six currently verified
+  cards: 4 close, 1 adjacent, and 1 bounded surprise. If reserve healing cannot
+  satisfy that contract, the rail is absent rather than partial. Completed
+  titles stay absent except for a sparse cooled rewatch.
+- Setting/clearing an explicit mood changes only bounded attribution/session
+  ranking; switching profiles clears mood. AI or network failure leaves the
+  last-good local slate usable.
+- Profile Not for me disappears immediately, Undo restores it, and the same
+  action neither hides nor changes another personal profile's state.
+- YouTube orders For You, Subscriptions, History, Saved before at most three
+  adaptive rails; every visible rail has four cards. History and Saved remain
+  stable across X. Healthy For You supply yields 28/8/4 over ten slates; if not,
+  inspect the honest fallback diagnostic rather than claiming that mix:
+  `sqlite3 /etc/mango/youtube.db "SELECT value FROM youtube_state WHERE key='for_you_lane_fallback:last';"`
+- Save four distinct YouTube videos: the complete Saved anchor remains stable
+  and none of those exact videos appears in For You. After a successful full
+  refresh, `sqlite3 /etc/mango/youtube.db "SELECT count(*) FROM youtube_for_you_candidates;"`
+  must remain at or below 1000; successful generations replace/prune the shared
+  reservoir while preserving retained profile exposure state.
+- Record `refresh.search_calls_today` and `refresh.api_calls_today` from
+  `/youtube/state`, press X several times, then read them again. Both values must
+  be unchanged; X is cache-only.
+- Start representative 1080p and known-safe 4K recommendations and run the
+  existing playback proof. Recommendation changes must not alter the resolver,
+  display-mode, first-frame, progress, or dropped-frame contracts.
+
+Record relevance, adjacent/surprise quality, multilingual fit, Household
+fairness, reversibility, and latency as human verdicts. Until those checks run
+on the Pi/TV, all of them remain **DEFERRED**.
+
+### Episode says “stream not found”, then later succeeds
+
+A series play must resolve the exact `tt…:season:episode` ID. One automatic VOD
+Play now confirms a clean AIOStreams HTTP-200 empty (or proven-transient
+error-only result) at most twice after 1.2-second bounded delays inside the same
+single flight and absolute deadline. It stops immediately on a playable result,
+so the observed empty → empty → playable sequence completes from the first B.
+Confirmed 429s, provider HTTP failures/timeouts, cancellation, malformed media,
+permanent provider/account errors, and authoritative no-stream results are not
+retried. Detail lists, Live, and picker refresh do not inherit the policy. Cache
+state is written only after the logical request settles.
+
+On the Pi, capture the exact episode before diagnosing; never probe `:1:1` as a
+stand-in and never clear runtime databases/caches:
+
+```bash
+cd ~/mango
+bash scripts/m4-addons/aiostreams-config.sh diff
+bash scripts/m4-addons/aiostreams-config.sh apply
+bash scripts/m4-addons/aiostreams-config.sh verify
+curl -sf "http://127.0.0.1:3020/series/<bareSeriesId>/episodes" | jq '.seasons'
+bash scripts/diag/playback-ladder-health.sh series <exactEpisodeId>
+curl -sf http://127.0.0.1:3020/health \
+  | jq '.resolver | {stream_resolve_retries,stream_resolve_retry_recoveries,stream_resolve_retry_exhaustions,last_contributions}'
+journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
+  | grep -E '"event":"(provider_fanout|stream_resolve_retry|resolve_flight)"'
+```
+
+The repo patch proves the recovery state machine, not which nested provider
+failed on the TV. Attribute Torrentio, Comet, MediaFusion, TorBox, RD, or
+Easynews only from the live, credential-safe contribution counters and Pi logs.
+An AIO target-policy change is stateful: git deploy alone does not apply it, so
+the explicit `diff` → `apply` → `verify` sequence above is mandatory.
 
 ---
 

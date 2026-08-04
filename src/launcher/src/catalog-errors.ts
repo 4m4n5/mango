@@ -65,6 +65,20 @@ export class CatalogTimeoutError extends Error {
   }
 }
 
+export class CatalogResponseError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+    this.name = "CatalogResponseError";
+  }
+}
+
+export class CatalogOwnershipChangedError extends Error {
+  constructor() {
+    super("profile changed while recommendations were loading");
+    this.name = "CatalogOwnershipChangedError";
+  }
+}
+
 export class PlayTimeoutError extends Error {
   constructor(readonly requestAlreadyFinished = false) {
     super(playTimeoutMessage());

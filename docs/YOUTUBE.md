@@ -1,17 +1,18 @@
 # mango — native YouTube
 
-**Milestone:** M6.2 · **Status:** implemented, deployed, and Pi-gated on the couch stack; optional playback smoke uses `MANGO_YOUTUBE_PLAY=1`.
+**Milestone:** M6.2 · **Status:** the native YouTube base was previously
+Pi-gated; the profile-aware recommendation redesign in this branch is
+**local code only**. Current deployment, screenshots, Pi diagnostics, and TV
+behavior are **DEFERRED** until the home agent proves this exact revision.
 
 Mango treats YouTube as a first-class content source while preserving the voice
 safety contract: voice can search/open/save, but playback starts only when the
 user presses **B** on a YouTube video detail.
 
-Latest Pi evidence as of 2026-07-01: commit `b74bc6b` passed `pi-deploy --fast --gate`
-and `scripts/m6-ship/gate-m6-youtube-smoke.sh`. A direct Popular rail probe
-served 9 unique non-live/non-Short cards, produced different reshuffles with
-zero overlap, and did not change quota counters during reshuffle. The controller
-may show "waiting for controller" when the 8BitDo is off; that means the stack
-is polling and will reconnect when the controller wakes.
+Earlier nine-card probe results describe the superseded rail contract and are
+not evidence for the current four-card allocator. The controller may show
+"waiting for controller" when the 8BitDo is off; that means the stack is polling
+and will reconnect when the controller wakes.
 
 ---
 
@@ -29,11 +30,13 @@ Launcher YouTube tab
 | Layer | Owns |
 |-------|------|
 | `youtube.db` | Cached videos/channels/playlists, rail membership, recommender/rail reservoirs, refresh/quota counters, auth sessions |
-| `library.db` | YouTube Saved videos, watch history, finished state, current context, Not Interested feedback |
+| `library.db` | Viewer profiles, profile-scoped YouTube Saved/history/search/Not-for-me signals, finished state, and current context |
 | YouTube Data API | Metadata/search/subscriptions only |
 | `yt-dlp -> mpv` | Playback resolution/rendering via the Mango wrapper; no Data API quota use |
 
-`youtube.db` is rebuildable. `library.db` is durable household state.
+`youtube.db` is rebuildable. `library.db` is durable personalization state.
+Household preserves legacy state and blends profile activity; a personal
+profile starts clean. Profiles have no PIN and are never forced at startup.
 
 Playback tries the configured high-quality split video/audio selector first.
 If mpv rejects that direct transport before the first frame, Mango performs one
@@ -74,21 +77,35 @@ extraction changes faster than Debian packages.
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `GET` | `/youtube/state` | Config/auth/cache/refresh status |
-| `POST` | `/youtube/auth/start` | Start Google device-code OAuth |
-| `GET` | `/youtube/auth/poll?session_id=` | Poll OAuth completion |
-| `POST` | `/youtube/auth/disconnect` | Remove local auth token |
+| `GET` | `/youtube/state` | Localhost-only operator config/auth/cache/refresh diagnostics |
+| `POST` | `/youtube/auth/start` | Localhost-only operator device-code OAuth |
+| `GET` | `/youtube/auth/poll?session_id=` | Localhost-only operator OAuth poll |
+| `POST` | `/youtube/auth/disconnect` | Localhost-only operator token removal |
+| `GET` | `/youtube/companion/status` | Sanitized companion booleans only |
+| `POST` | `/youtube/companion/auth/start` | Sanitized device-flow code, URLs, session, and timing |
+| `GET` | `/youtube/companion/auth/poll?session_id=` | Sanitized status and optional interval only |
+| `POST` | `/youtube/companion/auth/disconnect` | Sanitized `{ "ok": true }` only |
 | `POST` | `/youtube/refresh` | Refresh metadata/cache |
-| `GET` | `/youtube/rails` | 9-up Saved, History, For You, subscriptions, Fresh Finds, Because You Watched, Live Now, Popular |
-| `GET` | `/youtube/rails?reshuffle=1` | Re-sample Mango-local History plus cached shuffleable rails for the launcher shuffle button |
+| `GET` | `/youtube/rails` | Four-card anchors in For You → Subscriptions → History → Saved order, then at most three adaptive rails |
+| `GET` | `/youtube/rails?reshuffle=1` | Advance only cached discovery rails; History/Saved remain stable and no API quota is spent |
+| `POST` | `/youtube/impressions` | Validate opaque served tokens and record exact rendered membership against server-owned profile/source/context; never URLs |
 | `GET` | `/youtube/search?q=` | Grouped Videos / Channels / Playlists |
 | `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |
-| `POST` | `/youtube/not-interested` | Exclude from YouTube rails via local feedback |
+| `POST` | `/youtube/not-interested` | Profile-local exact Not-for-me; reversible through the shared library feedback action |
 | `POST` | `/youtube/play` | Resolve video with `yt-dlp`, start mpv, write local history |
 
 Compatibility rule: only YouTube videos can be Saved. Channels/playlists open
 detail lists but are not Saved entities in M6.2. Saved videos remain in the
-Saved rail until explicit Unsave; Not Interested only affects discovery rails.
+active profile's stable Saved rail until explicit Unsave; Not-for-me affects
+discovery only and offers Undo instead of deleting history.
+
+The phone reaches the four `/youtube/companion/*` routes only through the HTTPS
+companion's exact capability allowlist. Catalog accepts those upstream calls
+from loopback only. The status DTO is exactly `api_key_configured`,
+`oauth_configured`, `authenticated`, and `needs_attention`; detailed operator
+state, raw provider errors, token-file paths, expiry/scopes, command paths,
+cache state, quota counters, and refresh phases remain on localhost-only
+`/youtube/state` and never cross the LAN proxy.
 
 ## Scheduled refresh
 
@@ -115,6 +132,9 @@ recorded in `/youtube/state.refresh.phase_results` and as a partial
 cached rails. The YouTube step still runs when playability returns a
 quota/source/error failure, but it is skipped if another playability
 maintenance lock is still active so cache refreshes do not overlap the indexer.
+Publishing `for_you_reservoir` is an atomic bounded generation swap: stale
+candidates are pruned, retained candidates keep per-profile exposure/outcome
+state, and an empty or failed rebuild keeps the previous complete reservoir.
 
 Quota boundary: couch shuffle and cached rail rendering never call YouTube.
 Playback resolution through `yt-dlp -> mpv` does not use the YouTube Data API.
@@ -160,85 +180,120 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
 ## Launcher behavior
 
 - Browse tabs are **Movies · TV Shows · Live · YouTube**.
-- YouTube rails are capped at 9 cards, matching Movies/TV Shows.
-- YouTube VOD discovery rails keep stale cached results visible with refresh
-  status; Live Now uses a short live TTL and hides expired streams.
-- History is Mango-local only: the latest view shows 9 unique YouTube videos
-  watched in Mango, and shuffle samples 9 random videos from the full local
-  YouTube watch set.
-- The shuffle button is available on YouTube and re-samples History, For You,
-  New From Subscriptions, Fresh Finds, Because You Watched, Live Now, and
-  Popular without couch-time API calls.
-- First-run with credentials fills Fresh Finds and Popular instead of showing
-  an empty tab when the API quota is available.
+- Every visible YouTube rail contains exactly four landscape cards. Global
+  dedupe runs first; a lane shortage may backfill from the remaining eligible
+  pool, but a row still below four is omitted rather than rendered inert/thin.
+- Logical anchors are ordered **For You → Subscriptions → History → Saved**.
+  An empty durable anchor can be absent; no more than three adaptive rails are
+  then admitted from Because You Watched, custom AI rails, Live Now, Fresh
+  Finds, and Trending for you.
+- History is Mango-local, latest-first, exact-watched, and stable. Saved is
+  explicit durable state and stable. Neither rail participates in X shuffle.
+- An exact Saved video remains positive taste evidence but is ineligible for
+  For You membership, so cross-rail dedupe cannot shrink or omit the Saved
+  anchor.
+- X advances a deterministic, profile-scoped discovery slate from existing
+  cache only. It never pages, refreshes a provider, or calls a YouTube API.
+- Cached discovery rails retain the last good result with refresh status; Live
+  Now uses a short live TTL and hides expired streams.
+- First-run with credentials fills Fresh Finds and the Popular source reservoir
+  instead of showing an empty tab when the API quota is available.
 - Search normally uses the Data API when configured, but falls back to cached
   metadata with a couch-safe response when quota/rate limits make the API fail.
-- New From Subscriptions is a creator-following inbox: refresh uses OAuth
+- Subscriptions is a creator-following inbox: refresh uses OAuth
   subscriptions ordered by activity, scans the newest subscription set plus a
   rotating slice over time, fetches uploads through channel upload playlists
   instead of `search`, stores up to 160 rail candidates, and renders unwatched
-  non-live/non-Short videos with channel diversity.
+  non-live/non-Short videos with channel diversity. Its label never implies
+  that Mango has read YouTube watch history.
 - Search returns grouped Videos / Channels / Playlists.
-- Video detail supports Play, Save/Unsave, Not Interested, Back.
+- Video detail supports Play, Save/Unsave, reversible Not for me, and Back.
 - Channel/playlist detail opens a D-pad list of videos.
-- Not Interested removes the card from discovery rails and persists a local downrank/exclusion.
+- Not for me removes the card from that profile's discovery rails and supports
+  Undo. Household applies an exact-title veto if any personal profile marked it;
+  feedback never leaks into another personal profile.
 - Live videos are kept in Live Now instead of dominating For You / Because You Watched.
 - Live Now is Mango's "worth watching live right now" rail: refresh builds a
   rebuildable 120-card short-TTL reservoir from still-fresh cached live metadata,
   subscribed-channel live probes, and official live searches across news/events,
   sports, music/performance, gaming, culture/talks, and wildcard lanes. It
-  filters Not Interested, Shorts, non-live/ended streams, and low-signal 24/7
-  loop/camera/radio-style cards, then renders a diverse 9-card row with a
+  filters Not for me, Shorts, non-live/ended streams, and low-signal 24/7
+  loop/camera/radio-style cards, then renders a diverse four-card row with a
   2-hour live TTL, about 90-minute stale threshold, and 6-hour exposure cooldown.
-- Popular on YouTube is Mango's neutral chart baseline, not another personal
-  recommender. Refresh builds a rebuildable 300-card reservoir from official
+- Trending for you starts from Mango's rebuildable Popular chart reservoir and
+  becomes a transparent local rerank for the active profile and mood. Refresh
+  builds the 300-card source reservoir from official
   `videos.list(chart=mostPopular)` calls across the configured region plus
   India/US and broad categories; this uses the cheap `videos.list` quota bucket,
-  not the scarce `search.list` bucket. Couch shuffle samples a diverse cached
-  9-card row with a 48-hour exposure cooldown and never calls YouTube APIs.
-- Popular filters watched Mango YouTube videos, Not Interested, live videos,
-  Shorts, low-signal cards, and prefers excluding Saved/subscribed videos when
-  at least 9 alternatives exist.
-- For You is served from a rebuildable 1,000-card local reservoir in `youtube.db`: Mango
-  watches/Saved are strongest, subscriptions are light, topic discovery broadens
-  the pool, Popular is fallback only, and each render samples a diverse 9-card
-  set with 7-day exposure cooldown.
+  not the scarce `search.list` bucket. It filters watched videos, Not for me,
+  live videos, Shorts, and low-signal cards before local multilingual,
+  mood-aware diversity ranking.
+- For You is served from a rebuildable 1,000-card local reservoir in
+  `youtube.db`. Explicit profile feedback dominates; watches and Saved provide
+  dual-horizon evidence without re-recommending the exact Saved video;
+  subscriptions are light, topic discovery broadens the pool, and the Popular
+  reservoir is fallback only. Every successful rebuild atomically swaps this
+  bounded generation and prunes stale members while preserving retained
+  profile cooldown/outcome state. With healthy lane supply,
+  deterministic four-card patterns deliver 70% close/familiar, 20% adjacent,
+  and 10% explore allocation (28/8/4 across ten slates). Thin-supply fallback
+  is recorded in `for_you_lane_fallback:last`; exposure cooldown is best-effort
+  when supply cannot satisfy both freshness and a complete row.
 - Fresh Finds is the broad-discovery rail, not a second For You: refresh builds
   a rebuildable 300-card candidate pool from quality-fresh, taste-adjacent,
   emerging-creator, zeitgeist-light, and wildcard official-API searches; couch
-  shuffle samples a fresh 9-card set from that cache and never calls YouTube.
+  shuffle samples a four-card set from that cache and never calls YouTube.
 - Fresh Finds hides when empty. When populated, it filters watched Mango
-  YouTube videos, Not Interested, live videos, Shorts, and recent Fresh Finds
+  YouTube videos, Not for me, live videos, Shorts, and recent Fresh Finds
   exposure, then prefers unseen channels outside Saved and subscriptions when
-  at least 9 alternatives exist.
+  enough alternatives exist.
 - Because You Watched is a seed-scoped session-continuity rail. It follows the
   latest meaningful Mango-local YouTube watch, stores follow-up candidates in a
-  rebuildable 240-card `youtube.db` reservoir, filters watched/live/Shorts/Not Interested
-  and low-signal videos, and samples a diverse 9-card row from same-channel,
+  rebuildable 240-card `youtube.db` reservoir, filters watched/live/Shorts/Not for me
+  and low-signal videos, and samples a diverse four-card row from same-channel,
   same-topic, deeper-dive, and wildcard follow-ups. Same-channel contributes a
   familiar anchor, but the rendered row keeps max-one creator when enough
   distinct creators exist. Shuffle never calls YouTube. Playback and
   manual/nightly refresh opportunistically top up this reservoir with bounded
   official Data API searches.
-- Companion account connect uses the HTTPS companion same-origin `/api/catalog/*`
-  proxy; direct browser calls to `:3020` are not required.
+- Launcher attribution chrome names the active profile and optional explicit
+  mood. An opaque server token binds immutable profile, rail, served/source
+  revisions, exact membership, and the Because You Watched seed where
+  applicable. The internal context map is stripped from the public rail DTO;
+  stale or tampered actions fail with 409. Numerical scores, source sequence,
+  and ranking internals stay private.
+- YouTube rail reads carry the launcher's captured profile ID and
+  personalization revision. The service checks the pair around asynchronous
+  rail assembly and echoes it; the launcher commits only when the request,
+  current owner, rail echo, and parallel Saved echo still match. Owner-bound
+  caches cannot be reused by another profile or mood revision.
+- Companion account connect uses only the HTTPS same-origin
+  `/api/catalog/youtube/companion/*` capabilities; broad operator state/auth
+  paths are neither requested by the browser nor admitted by the proxy.
 
 ## Rail cache summary
 
-| Rail | Source of truth | Reservoir / pool | Refresh cadence | Shuffle behavior |
-|------|-----------------|------------------|-----------------|------------------|
-| Saved | `library.db` explicit `source="youtube"` Saved videos | Durable user state, not rebuildable | User Save/Unsave only | Not randomized by recommendation logic |
-| History | `library.db` Mango-local YouTube watch history | Durable user history | Playback/progress writes | Random 9 from all Mango-watched YouTube videos |
-| For You | `youtube.db` recommendation reservoir | Target 1,000 candidates | Manual/nightly refresh; rebuilt after discovery phases | Weighted-random 9 with 7-day exposure cooldown |
-| New From Subscriptions | OAuth subscription uploads cached in `youtube.db` | Up to 160 unwatched subscription candidates | Manual/nightly refresh; upload playlists avoid `search.list` | Diverse 9 from cached pool |
-| Fresh Finds | `youtube.db` broad-discovery reservoir | Target 300 candidates; 24 `search.list` budget | Manual/nightly refresh only | Weighted-random 9 with 14-day exposure cooldown |
-| Because You Watched | `youtube.db` seed-scoped reservoir | Target 240 candidates; 6 `search.list` budget | Manual/nightly refresh and playback-triggered top-up | Weighted-random 9 with 7-day exposure cooldown |
-| Live Now | `youtube.db` short-TTL live reservoir | Target 120 candidates; 12 `search.list` budget | Manual/nightly refresh plus throttled live-only refresh when stale | Diverse live-only 9 with 2-hour TTL |
-| Popular | `youtube.db` neutral chart reservoir | Target 300 candidates; 24 videos per chart/category call | Manual/nightly refresh only | Weighted-random 9 with 48-hour exposure cooldown |
+| Rail | Role | Source of truth | X behavior |
+|------|------|-----------------|------------|
+| For You | Anchor | Profile-scoped local ranker over `youtube.db` reservoir | Deterministic cached 70/20/10 slate with healthy supply; diagnosed fallback otherwise |
+| Subscriptions | Anchor | OAuth upload cache | Stable within the current cache revision |
+| History | Anchor | Profile-scoped Mango watch history in `library.db` | Never shuffled |
+| Saved | Anchor | Profile-scoped explicit state in `library.db` | Never shuffled |
+| Because You Watched | Adaptive | Latest meaningful profile watch plus cached follow-ups | Deterministic cached slate |
+| Custom AI | Adaptive | Background-enriched, locally eligible cached candidates | Deterministic cached slate |
+| Live Now | Adaptive | Short-TTL live reservoir | Deterministic cached slate |
+| Fresh Finds | Adaptive | Broad-discovery reservoir | Deterministic cached slate |
+| Trending for you | Adaptive | Official Popular reservoir, locally reranked | Deterministic cached slate |
+
+At most three adaptive rails are admitted after the anchors. Global dedupe runs
+before bounded backfill, and any remaining sub-four row is omitted. Exact
+rendered impressions resolve the opaque token back to immutable profile, served
+revision, source revision, rail membership, and bounded context without trusting
+caller identity or persisting URLs/secrets.
 
 ## Recommendation constraints
 
-Mango does not currently expose an exact "native YouTube home" rail. The official
+Mango does not expose or scrape an exact "native YouTube home" rail. The official
 YouTube Data API no longer provides `search.list relatedToVideoId`, and the
 `activities.list home` parameter is deprecated. A literal native-home rail would
 need an unofficial/scraping path and must be added as an explicit experimental
@@ -247,14 +302,14 @@ operator opt-in, separate from the supported official API cache.
 Fresh Finds uses the same supported boundary: official YouTube search/detail
 metadata only, scored locally. Refresh spends a bounded discovery budget
 (`search.list` plus batched `videos.list` and optional `channels.list`) during
-manual/nightly refresh, then serves stale cached results if a later refresh
-fails. The TV UI does not show reason labels; score breakdowns and source
-buckets stay internal for diagnostics.
+manual/nightly refresh, then serves the last good cache if a later refresh
+fails. The TV shows bounded profile/mood/rail attribution; score breakdowns and
+source buckets stay internal for diagnostics.
 
-Popular uses the official `videos.list` most-popular chart only. It is the
-low-quota broad-trending complement to the personalized and discovery rails:
-region/category diversity is cached at refresh time, while watched/Saved/history
-state only cleans up the rendered row.
+Trending for you starts with the official `videos.list` most-popular chart and
+then applies only Mango's local profile, mood, multilingual, exclusion, and
+diversity policy. Cloud AI and unofficial sources are never dependencies of the
+couch render path.
 
 ---
 

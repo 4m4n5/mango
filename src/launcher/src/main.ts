@@ -1,6 +1,14 @@
 import "./style.css";
 import { FocusGrid } from "./focus";
-import { flushProgress, loadCatalogRails, loadContinueRail, loadMeta, stopPlaybackForVoice } from "./catalog";
+import {
+  flushProgress,
+  loadCatalogRails,
+  loadContinueRail,
+  loadMeta,
+  noteYoutubeImpressions,
+  noteVodRecommendationImpressions,
+  stopPlaybackForVoice,
+} from "./catalog";
 import { DetailController, type DetailOriginContext } from "./detail";
 import { NextEpisodePrompt } from "./next-prompt";
 import {
@@ -25,13 +33,18 @@ import {
   toastToneForStatus,
   type LauncherStatusKind,
 } from "./toast";
-import { catalogAvailabilityReason } from "./catalog-errors";
+import {
+  CatalogOwnershipChangedError,
+  CatalogResponseError,
+  catalogAvailabilityReason,
+} from "./catalog-errors";
 import { resolveVoiceWsUrls, startVoiceCommands } from "./voice-commands";
 import { startPadNavPoll } from "./pad-nav";
 import { cardSavedKey, fetchSavedIds } from "./saved";
 import {
   cardFromPlaybackSnapshot,
   clearPlaybackReturnSnapshot,
+  playbackReturnOwner,
   readPlaybackReturnFromContext,
   readPlaybackReturnSnapshot,
   tabForCard,
@@ -41,6 +54,20 @@ import { SearchController, type SearchRestoreState } from "./search";
 import { logPerf } from "./perf";
 import { touchCouchActivity } from "./activity";
 import { RatingSheetController } from "./ratings";
+import {
+  activeViewerProfile,
+  canActivatePersonalizedCatalogCache,
+  fetchPersonalizationState,
+  moodDisplayLabel,
+  PersonalizationOwnedCache,
+  personalizationAriaLabel,
+  profileInitial,
+  samePersonalizationOwner,
+  samePersonalizationRequestVersion,
+  type PersonalizationOwner,
+  type PersonalizationPayload,
+  type PersonalizationRequestVersion,
+} from "./personalization";
 import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./types";
 
 const CONTINUE_RAIL_ID = "continue-watching";
@@ -54,6 +81,10 @@ const searchEntry = mustGet<HTMLButtonElement>("search-entry");
 const searchView = mustGet<HTMLElement>("search-view");
 const browseTabsEl = mustGet<HTMLElement>("browse-tabs");
 const railsEl = mustGet<HTMLElement>("rails");
+const personalizationEntry = mustGet<HTMLButtonElement>("personalization-entry");
+const personalizationEntryAvatar = mustGet<HTMLElement>("personalization-entry-avatar");
+const personalizationEntryName = mustGet<HTMLElement>("personalization-entry-name");
+const personalizationEntryMood = mustGet<HTMLElement>("personalization-entry-mood");
 const libraryRefreshBtn = mustGet<HTMLButtonElement>("library-refresh");
 const detailView = mustGet<HTMLElement>("detail-view");
 const detailPoster = mustGet<HTMLImageElement>("detail-poster");
@@ -82,6 +113,7 @@ const detailRatingWaterMarks = mustGet<HTMLElement>("detail-rating-water-marks")
 const detailRatingWaterValue = mustGet<HTMLElement>("detail-rating-water-value");
 const detailRatingInvitation = mustGet<HTMLElement>("detail-rating-invitation");
 const ratingSheetEl = mustGet<HTMLElement>("rating-sheet");
+const ratingOwnerLabel = mustGet<HTMLElement>("rating-owner-label");
 const ratingSheetTitle = mustGet<HTMLElement>("rating-sheet-title");
 const ratingSheetError = mustGet<HTMLElement>("rating-sheet-error");
 const ratingFireRow = mustGet<HTMLButtonElement>("rating-fire-row");
@@ -108,17 +140,23 @@ let homeOptions: HomeOptions = {};
 let activeBrowseTab: BrowseTab = "movies";
 let catalogState: CatalogState = { status: "loading" };
 let catalogStateTab: BrowseTab = activeBrowseTab;
+let catalogStateOwner: PersonalizationOwner | null = null;
 let catalogRetryTimer: number | undefined;
 let libraryRefreshInFlight = false;
 let savedKeys = new Set<string>();
-const tabCatalogCache = new Map<BrowseTab, ContentRail[]>();
-const tabSavedCache = new Map<BrowseTab, Set<string>>();
+const tabCatalogCache = new PersonalizationOwnedCache<BrowseTab, ContentRail[]>();
+const tabSavedCache = new PersonalizationOwnedCache<BrowseTab, Set<string>>();
 let liveCatalogSessionCached = false;
 let catalogRequestSeq = 0;
 let pendingContinueRefreshTab: BrowseTab | null = null;
 let pendingRatingRefreshTab: BrowseTab | null = null;
 let continueRefreshInFlight = false;
 let playbackReturnInFlight = false;
+let personalizationCatalogDirty = false;
+let personalizationStateUpdatedAt = 0;
+let personalizationProfileId = "household";
+let initialPersonalizationRead: Promise<void> | null = null;
+let settingsBuildSeq = 0;
 const tabFocusKeys = new Map<BrowseTab, string>();
 const tabFocusPositions = new Map<BrowseTab, { row: number; col: number }>();
 
@@ -260,10 +298,12 @@ init();
 
 function init(): void {
   searchEntry.dataset.focusKey = "browse:search";
+  personalizationEntry.dataset.focusKey = "browse:personalization";
   libraryRefreshBtn.dataset.focusKey = "browse:shuffle";
 
   backButton.addEventListener("click", showHome);
   searchEntry.addEventListener("click", () => void openSearch());
+  personalizationEntry.addEventListener("click", () => showSettings(true));
   libraryRefreshBtn.addEventListener("click", () => void libraryRefresh());
   document.addEventListener("keydown", handleKeydown);
   document.addEventListener("click", () => touchCouchActivity("launcher", "click"), { capture: true });
@@ -275,6 +315,11 @@ function init(): void {
   });
   window.addEventListener("mango:library-refresh", () => void libraryRefresh({ quiet: true }));
   void loadInfo();
+  void refreshPersonalizationChrome();
+  // The command queue provides the immediate companion-profile handshake.
+  // This low-rate fallback heals the TV if the orchestrator was restarting
+  // after the server-side activation committed.
+  window.setInterval(() => void synchronizeExternalPersonalization(), 30_000);
   // Matched-4K playback restarts Chromium after restore. Prefer the durable
   // playback-return snapshot over painting Movies+Search first, and never race
   // a cold catalog fetch ahead of that restore.
@@ -322,6 +367,7 @@ function init(): void {
       handleBrowseTabChange(tab);
     },
     onOpenDetail: (card, tab) => openVoiceDetail(card, tab),
+    onProfileChanged: synchronizeExternalPersonalization,
   });
   startPadNavPoll({
     isNextPromptOpen: () => nextEpisodePrompt.isOpen,
@@ -381,8 +427,8 @@ function renderHome(): void {
   const showShuffle = activeBrowseTab !== "live";
   libraryRefreshBtn.hidden = !showShuffle;
   const browseChrome = showShuffle
-    ? [searchEntry, ...tabButtons, libraryRefreshBtn]
-    : [searchEntry, ...tabButtons];
+    ? [searchEntry, ...tabButtons, personalizationEntry, libraryRefreshBtn]
+    : [searchEntry, ...tabButtons, personalizationEntry];
   ensureAppsSection();
   const { container: activeContainer, rows: catalogRows, reused } = renderActiveTabCatalog();
   mountRailsView(activeContainer);
@@ -406,6 +452,11 @@ function renderHome(): void {
     cache: reused ? "hit" : "miss",
     duration_ms: Math.round(performance.now() - started),
   });
+  if (activeBrowseTab === "youtube" && catalogState.status === "ready") {
+    void noteYoutubeImpressions(catalogState.rails).catch(() => undefined);
+  } else if (["movies", "series"].includes(activeBrowseTab) && catalogState.status === "ready") {
+    void noteVodRecommendationImpressions(catalogState.rails).catch(() => undefined);
+  }
   scheduleReliabilityBadge();
 }
 
@@ -515,8 +566,20 @@ function handleBrowseTabChange(tab: BrowseTab): void {
     return;
   }
   activeBrowseTab = tab;
-  if (showCachedCatalog(tab)) {
+  // Live has no personalized discovery payload. Movies, Shows, and YouTube
+  // must revalidate the server owner before painting an in-memory cache: the
+  // immediate companion notification may have been missed during a restart.
+  if (tab === "live" && showCachedCatalog(tab)) {
     return;
+  }
+  if (tab !== "live") {
+    // Do not leave the previous tab (or a target-tab cache from a missed
+    // companion notification) on screen while the fresh server owner is read.
+    // loadCatalog paints the cache only after that owner matches exactly.
+    catalogState = { status: "loading" };
+    catalogStateTab = tab;
+    catalogStateOwner = null;
+    renderHome();
   }
   void loadCatalog();
 }
@@ -726,7 +789,15 @@ function restoreHomeFromSearch(state: SearchRestoreState): void {
   settingsView.classList.add("hidden");
   detailView.classList.add("hidden");
   homeView.classList.remove("hidden");
-  if (!showCachedCatalog(activeBrowseTab)) {
+  if (activeBrowseTab === "live") {
+    if (!showCachedCatalog(activeBrowseTab)) void loadCatalog();
+  } else {
+    // Search can outlive a companion profile notification. Withhold its
+    // personalized home cache until loadCatalog revalidates the active owner.
+    catalogState = { status: "loading" };
+    catalogStateTab = activeBrowseTab;
+    catalogStateOwner = null;
+    renderHome();
     void loadCatalog();
   }
   focusGrid.restoreFocus();
@@ -743,10 +814,34 @@ async function openSearchDetail(
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
   const tab = tabForCard(card, activeBrowseTab);
-  const searchSaved = await fetchSavedIds(tab)
-    .then((ids) => ids.has(cardSavedKey(card)))
-    .catch(() => false);
-  detail.show(card, railLabel, tab, searchSaved, [], {
+  let detailOwner: PersonalizationOwner;
+  try {
+    await ensureInitialPersonalizationReady();
+    detailOwner = currentPersonalizationOwner();
+  } catch {
+    search.restore(state);
+    setStatus("profile is still loading — reopen this title in a moment", "warning");
+    return;
+  }
+  const savedOwner = tab === "live" ? undefined : detailOwner;
+  let searchSaved = false;
+  try {
+    const ids = await fetchSavedIds(tab, savedOwner);
+    if (!samePersonalizationOwner(detailOwner, currentPersonalizationOwner())) {
+      throw new CatalogOwnershipChangedError();
+    }
+    searchSaved = ids.has(cardSavedKey(card));
+  } catch (error) {
+    if (error instanceof CatalogOwnershipChangedError) {
+      setStatus("profile changed — reopen this title from Search", "warning");
+      void synchronizeExternalPersonalization();
+      return;
+    }
+    // Preserve offline Search detail access, but never reuse a Saved result that
+    // failed its owner handshake.
+    searchSaved = false;
+  }
+  detail.show(card, railLabel, tab, detailOwner, searchSaved, [], {
     surface: "search",
     searchState: state,
   });
@@ -778,14 +873,32 @@ async function queueSearchExternal(card: ContentCard): Promise<void> {
   }
 }
 
-function handleContentSelect(card: ContentCard, railLabel: string, tab?: BrowseTab): void {
+async function handleContentSelect(
+  card: ContentCard,
+  railLabel: string,
+  tab?: BrowseTab,
+): Promise<void> {
+  try {
+    await ensureInitialPersonalizationReady();
+  } catch {
+    setStatus("profile is still loading — reopen this title in a moment", "warning");
+    return;
+  }
+  const owner = currentPersonalizationOwner();
   inSettings = false;
   nextEpisodePrompt.dismiss();
   searchView.classList.add("hidden");
   homeView.classList.add("hidden");
   settingsView.classList.add("hidden");
   const browseTab = tab ?? activeBrowseTab;
-  detail.show(card, railLabel, browseTab, savedKeys.has(cardSavedKey(card)), findRailVisible(card));
+  detail.show(
+    card,
+    railLabel,
+    browseTab,
+    owner,
+    savedKeys.has(cardSavedKey(card)),
+    findRailVisible(card),
+  );
 }
 
 function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
@@ -795,13 +908,20 @@ function openVoiceDetail(card: ContentCard, tab: BrowseTab): Promise<void> {
       detail.hide();
     }
     await stopPlaybackForVoice();
+    try {
+      await ensureInitialPersonalizationReady();
+    } catch {
+      setStatus("profile is still loading — try that title again in a moment", "warning");
+      return;
+    }
+    const owner = currentPersonalizationOwner();
     inSettings = false;
     settingsView.classList.add("hidden");
     searchView.classList.add("hidden");
     homeView.classList.add("hidden");
     activeBrowseTab = tab;
     setStatus(`Opening ${card.title}…`, "hint");
-    detail.show(card, "voice", tab, savedKeys.has(cardSavedKey(card)), []);
+    detail.show(card, "voice", tab, owner, savedKeys.has(cardSavedKey(card)), []);
   })();
 }
 
@@ -811,7 +931,7 @@ function handleAppSelect(app: AppCard): void {
   }
 }
 
-function showSettings(): void {
+function showSettings(preferPersonalization = false): void {
   inSettings = true;
   detailView.classList.add("hidden");
   homeView.classList.add("hidden");
@@ -820,11 +940,199 @@ function showSettings(): void {
   backButton.dataset.settingsFocus = "true";
   const items = settingsFocusables(settingsView);
   focusSettingsItem(items, 0);
-  void buildSettingsRefresh(settingsRefreshEl, setStatus).finally(() => {
+  void refreshSettingsForCurrentOwner(preferPersonalization);
+}
+
+async function refreshSettingsForCurrentOwner(preferPersonalization = false): Promise<void> {
+  const buildSeq = ++settingsBuildSeq;
+  // Retry the non-blocking boot read whenever Settings opens. The exact state
+  // read completes before profile-owned Hidden-title requests are constructed.
+  await refreshPersonalizationChrome();
+  if (!inSettings || buildSeq !== settingsBuildSeq) return;
+  if (personalizationStateUpdatedAt <= 0) {
+    setStatus("profile is still loading — reopen Settings in a moment", "warning");
+    return;
+  }
+  const owner = currentPersonalizationOwner();
+  await buildSettingsRefresh(
+    settingsRefreshEl,
+    setStatus,
+    owner,
+    async (payload) => {
+      handlePersonalizationChanged(payload);
+      if (inSettings) await refreshSettingsForCurrentOwner(true);
+    },
+  ).finally(() => {
+    if (!inSettings || buildSeq !== settingsBuildSeq
+      || !samePersonalizationOwner(owner, currentPersonalizationOwner())) {
+      return;
+    }
     const refreshed = settingsFocusables(settingsView);
-    focusSettingsItem(refreshed, Math.min(settingsFocusIndex, Math.max(0, refreshed.length - 1)));
+    const personalizationTarget = preferPersonalization
+      ? settingsView.querySelector<HTMLElement>("[data-personalization-primary]")
+      : null;
+    const preferredIndex = personalizationTarget ? refreshed.indexOf(personalizationTarget) : -1;
+    focusSettingsItem(
+      refreshed,
+      preferredIndex >= 0
+        ? preferredIndex
+        : Math.min(settingsFocusIndex, Math.max(0, refreshed.length - 1)),
+    );
     scheduleReliabilityBadge();
   });
+}
+
+async function refreshPersonalizationChrome(): Promise<void> {
+  if (personalizationStateUpdatedAt === 0) {
+    try {
+      await ensureInitialPersonalizationReady();
+    } catch {
+      // The default Household / Any mood chrome remains a usable, honest fallback
+      // while catalog-service starts. Settings exposes the recoverable error.
+    }
+    return;
+  }
+  try {
+    const payload = await fetchPersonalizationState();
+    if (payload.state.updated_at > personalizationStateUpdatedAt) {
+      handlePersonalizationChanged(payload);
+    } else {
+      applyPersonalizationChrome(payload);
+    }
+  } catch {
+    // The default Household / Any mood chrome remains a usable, honest fallback
+    // while catalog-service starts. Settings exposes the recoverable error.
+  }
+}
+
+async function ensureInitialPersonalizationReady(): Promise<void> {
+  if (personalizationStateUpdatedAt > 0) return;
+  if (!initialPersonalizationRead) {
+    initialPersonalizationRead = fetchPersonalizationState()
+      .then((payload) => applyPersonalizationChrome(payload))
+      .finally(() => {
+        initialPersonalizationRead = null;
+      });
+  }
+  await initialPersonalizationRead;
+  if (personalizationStateUpdatedAt <= 0) {
+    throw new Error("Personalization owner is unavailable.");
+  }
+}
+
+function applyPersonalizationChrome(payload: PersonalizationPayload): void {
+  if (payload.state.updated_at < personalizationStateUpdatedAt) return;
+  personalizationStateUpdatedAt = payload.state.updated_at;
+  const profile = activeViewerProfile(payload);
+  personalizationProfileId = profile.profile_id;
+  const mood = moodDisplayLabel(payload.state.mood);
+  personalizationEntryAvatar.textContent = profileInitial(profile.name);
+  personalizationEntryName.textContent = profile.name;
+  personalizationEntryMood.textContent = mood;
+  personalizationEntry.classList.toggle("browse-personalization--mood", Boolean(payload.state.mood));
+  personalizationEntry.setAttribute("aria-label", personalizationAriaLabel(payload));
+
+  const owner = profile.kind === "household" ? "shared household" : profile.name;
+  ratingOwnerLabel.textContent = `${owner} rating`;
+  detailRatingChips.setAttribute("aria-label", `${owner} rating`);
+}
+
+function handlePersonalizationChanged(payload: PersonalizationPayload): void {
+  applyPersonalizationChrome(payload);
+  // Invalidate any request that started under the previous profile/mood before
+  // it can commit a stale rail payload into the shared launcher state.
+  catalogRequestSeq += 1;
+  personalizationCatalogDirty = true;
+  for (const tab of ["movies", "series", "youtube"] as const) {
+    tabCatalogCache.delete(tab);
+    tabSavedCache.delete(tab);
+    tabRenderCache.delete(tab);
+  }
+  if (activeBrowseTab !== "live") {
+    catalogState = { status: "loading" };
+    catalogStateTab = activeBrowseTab;
+    catalogStateOwner = null;
+  }
+}
+
+async function synchronizeExternalPersonalization(
+  knownPayload?: PersonalizationPayload,
+): Promise<void> {
+  const previousUpdatedAt = personalizationStateUpdatedAt;
+  const previousProfileId = personalizationProfileId;
+  let payload: PersonalizationPayload;
+  if (knownPayload) {
+    payload = knownPayload;
+  } else {
+    try {
+      payload = await fetchPersonalizationState();
+    } catch {
+      return;
+    }
+  }
+  if (payload.state.updated_at <= previousUpdatedAt) return;
+  handlePersonalizationChanged(payload);
+
+  // A profile/mood switch invalidates the meaning of every visible
+  // recommendation and detail action. Close those stale surfaces before
+  // loading the new owner's cards; token validation also rejects a race at
+  // the service boundary.
+  if (detail.isOpen) detail.hide();
+  if (search.isOpen) search.close();
+  inSettings = false;
+  settingsView.classList.add("hidden");
+  detailView.classList.add("hidden");
+  searchView.classList.add("hidden");
+  homeView.classList.remove("hidden");
+  clearPlaybackReturnSnapshot();
+  personalizationCatalogDirty = false;
+  catalogState = { status: "loading" };
+  catalogStateTab = activeBrowseTab;
+  catalogStateOwner = null;
+  renderHome();
+  await loadCatalog();
+  const active = activeViewerProfile(payload);
+  setStatus(
+    previousProfileId === active.profile_id
+      ? "recommendations updated"
+      : `now browsing as ${active.name}`,
+    "success",
+  );
+}
+
+async function validatePersonalizedCatalogOwner(): Promise<boolean> {
+  if (personalizationStateUpdatedAt === 0) {
+    await ensureInitialPersonalizationReady();
+    return true;
+  }
+  const cachedOwner = {
+    profileId: personalizationProfileId,
+    personalizationUpdatedAt: personalizationStateUpdatedAt,
+  };
+  const payload = await fetchPersonalizationState();
+  if (canActivatePersonalizedCatalogCache(cachedOwner, payload.state)) return true;
+  const beforeSyncRequestSeq = catalogRequestSeq;
+  await synchronizeExternalPersonalization(payload);
+  if (catalogRequestSeq === beforeSyncRequestSeq) scheduleCatalogRetry(5000);
+  return false;
+}
+
+function currentPersonalizationOwner(): PersonalizationOwner {
+  return {
+    profileId: personalizationProfileId,
+    personalizationUpdatedAt: personalizationStateUpdatedAt,
+  };
+}
+
+function tabCacheValue<T>(
+  cache: PersonalizationOwnedCache<BrowseTab, T>,
+  tab: BrowseTab,
+): T | undefined {
+  return cache.get(tab, cacheOwnerForTab(tab));
+}
+
+function cacheOwnerForTab(tab: BrowseTab): PersonalizationOwner | null {
+  return tab === "live" ? null : currentPersonalizationOwner();
 }
 
 function scheduleReliabilityBadge(): void {
@@ -885,6 +1193,14 @@ function showHome(): void {
   homeView.classList.remove("hidden");
   clearPlaybackReturnSnapshot();
   focusGrid.restoreFocus();
+  if (personalizationCatalogDirty && activeBrowseTab !== "live") {
+    personalizationCatalogDirty = false;
+    // Settings accepted a newer owner while Home was hidden. Paint the
+    // already-recorded loading state before starting the strict reload so the
+    // previous owner's mounted DOM is never revealed for a frame.
+    renderHome();
+    void loadCatalog({ background: true });
+  }
   setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.", "hint");
 }
 
@@ -913,9 +1229,13 @@ function restoreFromDetail(origin: DetailOriginContext): void {
 }
 
 async function reloadSavedAndCatalog(tab = activeBrowseTab): Promise<void> {
+  const expectedOwner = cacheOwnerForTab(tab);
   try {
-    const nextSaved = await fetchSavedIds(tab);
-    tabSavedCache.set(tab, nextSaved);
+    const nextSaved = await fetchSavedIds(tab, expectedOwner ?? undefined);
+    if (expectedOwner && !samePersonalizationOwner(expectedOwner, currentPersonalizationOwner())) {
+      return;
+    }
+    tabSavedCache.set(tab, nextSaved, expectedOwner);
     if (tab === activeBrowseTab) {
       savedKeys = nextSaved;
     }
@@ -980,54 +1300,122 @@ async function loadCatalog(
   const started = performance.now();
   clearCatalogRetryTimer();
   const reshuffle = Boolean(options.reshuffle && requestedTab !== "live");
-  const previousReadyRails = catalogStateTab === requestedTab && catalogState.status === "ready"
+  const previousReadyRails = catalogStateTab === requestedTab
+      && catalogState.status === "ready"
+      && (requestedTab === "live" || (catalogStateOwner
+        && samePersonalizationOwner(catalogStateOwner, currentPersonalizationOwner())))
     ? catalogState.rails
     : undefined;
-  if (reshuffle) {
-    tabCatalogCache.delete(requestedTab);
+
+  if (requestedTab !== "live") {
+    try {
+      if (!await validatePersonalizedCatalogOwner()
+        || requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
+        return "ignored";
+      }
+    } catch (error) {
+      if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) return "ignored";
+      catalogState = catalogStateAfterFailure(catalogAvailabilityReason(error), undefined);
+      catalogStateTab = requestedTab;
+      catalogStateOwner = null;
+      renderHome();
+      scheduleCatalogRetry(5000);
+      return "offline";
+    }
   }
 
   if (requestedTab === "live" && liveCatalogSessionCached) {
-    const frozen = tabCatalogCache.get("live");
+    const frozen = tabCacheValue(tabCatalogCache, "live");
     if (frozen && frozen.length > 0) {
       savedKeys = await fetchSavedIds("live").catch(() => new Set<string>());
-      tabSavedCache.set("live", savedKeys);
+      tabSavedCache.set("live", savedKeys, null);
       if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
         return "ignored";
       }
       catalogState = { status: "ready", rails: frozen, freshness: "fresh" };
       catalogStateTab = requestedTab;
+      catalogStateOwner = null;
       renderHome();
       return "fresh";
     }
   }
 
-  const cachedRails = !reshuffle ? tabCatalogCache.get(requestedTab) : undefined;
-  const fallbackRails = usableCatalogRails(cachedRails) ?? usableCatalogRails(previousReadyRails);
+  const cachedSaved = tabCacheValue(tabSavedCache, requestedTab);
+  const catalogCacheRefresh = tabCatalogCache.beginRefresh(
+    requestedTab,
+    cacheOwnerForTab(requestedTab),
+    { bypassRead: reshuffle },
+  );
+  const cachedRailsCandidate = catalogCacheRefresh.cachedValue;
+  // A personalized catalog cache is one coherent unit: recommendations and
+  // Saved markers must have been produced for the same immutable owner.
+  const cachedRails = requestedTab === "live" || cachedSaved !== undefined
+    ? cachedRailsCandidate
+    : undefined;
+  const lastGoodRails = requestedTab === "live" || cachedSaved !== undefined
+    ? catalogCacheRefresh.lastGoodValue
+    : undefined;
+  const fallbackRails = usableCatalogRails(cachedRails)
+    ?? usableCatalogRails(previousReadyRails)
+    ?? usableCatalogRails(lastGoodRails);
   if (!options.background && cachedRails && hasCatalogItems(cachedRails)) {
+    savedKeys = cachedSaved ?? new Set<string>();
     catalogState = { status: "ready", rails: nonEmptyCatalogRails(cachedRails), freshness: "fresh" };
     catalogStateTab = requestedTab;
+    catalogStateOwner = cacheOwnerForTab(requestedTab);
     renderHome();
   } else if (!options.background && !fallbackRails) {
     catalogState = { status: "loading" };
     catalogStateTab = requestedTab;
+    catalogStateOwner = null;
     renderHome();
   }
 
   try {
-    const [rails, saved] = await Promise.all([
-      loadCatalogRails(requestedTab, { reshuffle }),
-      fetchSavedIds(requestedTab).catch(() => new Set<string>()),
+    const expectedOwner: PersonalizationRequestVersion | undefined = requestedTab === "live"
+      ? undefined
+      : {
+        catalogRequestSeq: requestSeq,
+        profileId: personalizationProfileId,
+        personalizationUpdatedAt: personalizationStateUpdatedAt,
+      };
+    const [catalog, saved] = await Promise.all([
+      loadCatalogRails(requestedTab, { reshuffle, expectedOwner }),
+      expectedOwner
+        ? fetchSavedIds(requestedTab, expectedOwner)
+        : fetchSavedIds(requestedTab).catch(() => new Set<string>()),
     ]);
-    if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
+    const currentOwner: PersonalizationRequestVersion = {
+      catalogRequestSeq,
+      profileId: personalizationProfileId,
+      personalizationUpdatedAt: personalizationStateUpdatedAt,
+    };
+    const responseOwner: PersonalizationRequestVersion | null = catalog.owner && expectedOwner
+      ? {
+        catalogRequestSeq: expectedOwner.catalogRequestSeq,
+        profileId: catalog.owner.profileId,
+        personalizationUpdatedAt: catalog.owner.personalizationUpdatedAt,
+      }
+      : null;
+    if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab
+      || (expectedOwner && (!responseOwner
+        || !samePersonalizationRequestVersion(expectedOwner, currentOwner)
+        || !samePersonalizationRequestVersion(expectedOwner, responseOwner)))) {
       logPerf("catalog_stale_response", {
         tab: requestedTab,
         duration_ms: Math.round(performance.now() - started),
       });
       return "ignored";
     }
+    const rails = catalog.rails;
     savedKeys = saved;
-    tabSavedCache.set(requestedTab, saved);
+    const completedOwner: PersonalizationOwner | null = expectedOwner
+      ? {
+        profileId: expectedOwner.profileId,
+        personalizationUpdatedAt: expectedOwner.personalizationUpdatedAt,
+      }
+      : null;
+    tabSavedCache.set(requestedTab, saved, completedOwner);
     const itemCount = rails.reduce((total, rail) => total + rail.cards.length, 0);
     if (itemCount === 0) {
       const nextState = catalogStateAfterSuccess(rails, fallbackRails);
@@ -1038,6 +1426,7 @@ async function loadCatalog(
         tabCatalogCache.delete(requestedTab);
       }
       catalogStateTab = requestedTab;
+      catalogStateOwner = nextState.status === "ready" ? completedOwner : null;
       if (requestedTab === "live") liveCatalogSessionCached = false;
       if (presentationChanged) renderHome();
       scheduleCatalogRetry(30_000);
@@ -1051,10 +1440,11 @@ async function loadCatalog(
       return fallbackRails ? "stale" : "empty";
     }
     const usableRails = nonEmptyCatalogRails(rails);
-    tabCatalogCache.set(requestedTab, usableRails);
+    catalogCacheRefresh.commit(usableRails, completedOwner);
     if (requestedTab === "live") liveCatalogSessionCached = true;
     catalogState = { status: "ready", rails: usableRails, freshness: "fresh" };
     catalogStateTab = requestedTab;
+    catalogStateOwner = completedOwner;
     renderHome();
     logPerf("catalog_fetch", {
       tab: requestedTab,
@@ -1068,12 +1458,20 @@ async function loadCatalog(
     if (requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
       return "ignored";
     }
+    if (error instanceof CatalogOwnershipChangedError
+      || (error instanceof CatalogResponseError && error.status === 409)) {
+      const beforeSyncRequestSeq = catalogRequestSeq;
+      await synchronizeExternalPersonalization();
+      if (catalogRequestSeq === beforeSyncRequestSeq) scheduleCatalogRetry(5000);
+      return "ignored";
+    }
     const hasFallback = Boolean(fallbackRails?.length);
     const nextState = catalogStateAfterFailure(catalogAvailabilityReason(error), fallbackRails);
     const presentationChanged = catalogStateTab !== requestedTab
       || !sameCatalogPresentation(catalogState, nextState);
     catalogState = nextState;
     catalogStateTab = requestedTab;
+    catalogStateOwner = nextState.status === "ready" ? cacheOwnerForTab(requestedTab) : null;
     if (presentationChanged) renderHome();
     // The persistent stale/offline surface owns retry feedback, including a
     // user-triggered refresh. Background attempts never create five-second
@@ -1148,9 +1546,15 @@ async function restorePlaybackSurfaceIfNeeded(): Promise<void> {
       return;
     }
 
-    const snapshot =
-      savedSnapshot
-      ?? await readPlaybackReturnFromContext();
+    let snapshot = savedSnapshot;
+    if (!snapshot) {
+      try {
+        await ensureInitialPersonalizationReady();
+      } catch {
+        return;
+      }
+      snapshot = await readPlaybackReturnFromContext(currentPersonalizationOwner());
+    }
     if (!snapshot) {
       return;
     }
@@ -1190,6 +1594,22 @@ function restoreLiveTabHome(tab: BrowseTab): void {
 }
 
 async function restoreDetailFromSnapshot(snapshot: PlaybackReturnSnapshot): Promise<void> {
+  try {
+    await ensureInitialPersonalizationReady();
+  } catch {
+    clearPlaybackReturnSnapshot();
+    showHome();
+    setStatus("profile is still loading — playback return stayed on Home", "warning");
+    return;
+  }
+  const owner = currentPersonalizationOwner();
+  const snapshotOwner = playbackReturnOwner(snapshot);
+  if (snapshotOwner && !samePersonalizationOwner(snapshotOwner, owner)) {
+    clearPlaybackReturnSnapshot();
+    showHome();
+    setStatus("profile changed — returned Home safely", "warning");
+    return;
+  }
   const card = cardFromPlaybackSnapshot(snapshot);
   const searchOrigin = snapshot.origin === "search";
   if (searchOrigin) {
@@ -1222,10 +1642,17 @@ async function restoreDetailFromSnapshot(snapshot: PlaybackReturnSnapshot): Prom
   } catch {
     // snapshot card is enough to reopen detail
   }
+  if (!samePersonalizationOwner(owner, currentPersonalizationOwner())) {
+    clearPlaybackReturnSnapshot();
+    showHome();
+    setStatus("profile changed — returned Home safely", "warning");
+    return;
+  }
   detail.restoreAfterPlayback(
     card,
     "continue",
     snapshot.tab,
+    owner,
     savedKeys.has(cardSavedKey(card)),
     [],
     snapshot.episodeId,
@@ -1240,15 +1667,44 @@ async function refreshContinueRail(tab: BrowseTab): Promise<void> {
   if (tab !== "movies" && tab !== "series") {
     return;
   }
-  const nextContinueRail = await loadContinueRail(tab);
-  const currentRails = tab === activeBrowseTab && catalogState.status === "ready"
+  const captured: PersonalizationRequestVersion = {
+    catalogRequestSeq,
+    profileId: personalizationProfileId,
+    personalizationUpdatedAt: personalizationStateUpdatedAt,
+  };
+  const response = await loadContinueRail(tab, captured);
+  const current: PersonalizationRequestVersion = {
+    catalogRequestSeq,
+    profileId: personalizationProfileId,
+    personalizationUpdatedAt: personalizationStateUpdatedAt,
+  };
+  const responseOwner: PersonalizationRequestVersion = {
+    catalogRequestSeq: captured.catalogRequestSeq,
+    profileId: response.profileId,
+    personalizationUpdatedAt: response.personalizationUpdatedAt,
+  };
+  if (!samePersonalizationRequestVersion(captured, current)
+    || !samePersonalizationRequestVersion(captured, responseOwner)) {
+    logPerf("continue_stale_response", { tab });
+    return;
+  }
+  const nextContinueRail = response.rail;
+  const cachedRails = tabCacheValue(tabCatalogCache, tab);
+  const currentRails = tab === activeBrowseTab
+      && catalogState.status === "ready"
+      && catalogStateOwner
+      && samePersonalizationOwner(catalogStateOwner, currentPersonalizationOwner())
     ? catalogState.rails
-    : tabCatalogCache.get(tab);
+    : cachedRails;
   if (!currentRails) {
     return;
   }
   const nextRails = replaceContinueRail(currentRails, nextContinueRail);
-  tabCatalogCache.set(tab, nextRails);
+  const owner: PersonalizationOwner = {
+    profileId: captured.profileId,
+    personalizationUpdatedAt: captured.personalizationUpdatedAt,
+  };
+  tabCatalogCache.set(tab, nextRails, owner);
   if (tab === activeBrowseTab) {
     catalogState = {
       status: "ready",
@@ -1256,6 +1712,7 @@ async function refreshContinueRail(tab: BrowseTab): Promise<void> {
       freshness: catalogState.status === "ready" ? catalogState.freshness : "fresh",
     };
     catalogStateTab = tab;
+    catalogStateOwner = owner;
     if (!detail.isOpen && !inSettings && !homeView.classList.contains("hidden")) {
       renderHome();
     }
@@ -1277,15 +1734,18 @@ function replaceContinueRail(rails: ContentRail[], continueRail: ContentRail): C
 }
 
 function showCachedCatalog(tab: BrowseTab): boolean {
-  const cachedRails = tabCatalogCache.get(tab);
-  if (!cachedRails || !hasCatalogItems(cachedRails)) {
+  const cachedRails = tabCacheValue(tabCatalogCache, tab);
+  const cachedSaved = tabCacheValue(tabSavedCache, tab);
+  if (!cachedRails || !hasCatalogItems(cachedRails)
+    || (tab !== "live" && !cachedSaved)) {
     return false;
   }
   clearCatalogRetryTimer();
   activeBrowseTab = tab;
-  savedKeys = tabSavedCache.get(tab) || new Set<string>();
+  savedKeys = cachedSaved || new Set<string>();
   catalogState = { status: "ready", rails: nonEmptyCatalogRails(cachedRails), freshness: "fresh" };
   catalogStateTab = tab;
+  catalogStateOwner = cacheOwnerForTab(tab);
   renderHome();
   return true;
 }

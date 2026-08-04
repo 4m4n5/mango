@@ -58,6 +58,7 @@ Locked choices. Update when changing behavior.
 | Couch play authority | Play-first: Phase A preference ladder, then Phase B integrity-only obligation floor; first miss demotes to `stale`/`play_miss` (keep pool); `failed` + pool purge only after sustained miss within 24h; browse/verify stay ladder-only ([PLAYABILITY.md](PLAYABILITY.md)) |
 | Playback acknowledgement | Launcher uses an idempotent asynchronous session; persisted acceptance precedes foreground handoff, and only failure before the first ready frame is user-visible |
 | Replay recovery | Retry at most once after a classified stale cached transport by resolving fresh metadata; never retry cancellation, rate-limit, or malformed-media failures |
+| Empty resolve recovery | Automatic movie/episode Play gets at most two 1.2s confirmation passes for clean/proven-transient aggregate empties, absorbing empty → empty → playable inside one B press and the same exact-ID flight/deadline; Detail lists, Live, picker refresh, provider HTTP/429/permanent errors, authoritative no-stream rows, invalidated work, and sibling episodes are never retried |
 | Playback cleanup | Natural mpv exit cleanup is PID + play-epoch scoped; stale monitors cannot stop a newer session |
 | Foreground playback commit | Launcher/display ownership changes only after real advancing playback is proven; failed candidates and probes remain display-neutral |
 | Resolver topology | AIOStreams is the sole VOD aggregate; Torrentio/MediaFusion/Comet are its indexers and TorBox/RD are transports, not direct peer fan-outs |
@@ -110,28 +111,37 @@ Locked choices. Update when changing behavior.
 
 | Topic | Choice |
 |-------|--------|
-| Library | Mango-owned `library.db` for explicit Saved, history, finished, dormant hidden/blocked fields, and taste/profile hooks; `progress.db` remains M6.1 Continue/resume source |
+| Library | Mango-owned `library.db` for explicit Saved, profile watch/history, finished, dormant hidden/blocked fields, and taste/profile hooks; `progress.db` v2 is the profile-exact Continue/resume source |
 | Saved | Explicit only; playback never auto-saves; existing user-facing Pins import once into Saved |
 | Stremio sync | None. No Stremio user-library sync or write-back |
 | AI catalog automation | Must not write to Saved; overflow policy is replace/merge only |
-| Fire/Water ratings | Shared household; both axes required; 0 is valid; 0–5 in 0.5 steps; movies title-level, series show-level; couch history supersedes seed forever |
+| Viewer profiles | Permanent Household default plus up to seven optional personal profiles; no PIN or startup chooser; create does not activate; rename preserves stable ID; activation is explicit and clears session mood |
+| Profile inheritance | Personal profiles start clean. Household preserves legacy state and blends recommendation/history activity, but any exact personal Not-for-me is a Household veto. Exact Continue/resume is always profile-owned and never blended |
+| Session mood | Explicit, bounded, and expiring; never inferred from time, room, or playback; it affects only the active recommendation session |
+| Fire/Water ratings | Both axes required; 0 is valid; 0–5 in 0.5 steps; movies title-level, series show-level; Household retains seed data and later couch history always supersedes seed |
 | Rating icon language | Five repeated native flame/wave emoji matching the household sheet; saturated filled portion, gray remainder, clipped half mark, plus visible axis text/value |
 | For You ownership | One system rail per Movies/TV tab after Continue/Saved; it never consumes the three user AI-catalog slots |
-| Recommendation policy | Globally verified-playable corpus only; separate Fire/Water prediction, deterministic local reranking, cached atomic snapshots, no couch-critical AI |
-| Recommendation privacy | Never expose predictions, match percentages, raw captions, private tags, prompts, IDs, URLs, or credentials on the TV/public rail payload |
+| VOD recommendation mix | Every visible rail has exactly six currently verified-playable cards: 4 close, 1 adjacent, 1 bounded surprise; omit the rail if reserve healing cannot satisfy it. Explicit Fire/Water dominates dual-horizon usage; completed titles return only through a rare cooled rewatch lane |
+| Recommendation policy | Globally verified-playable corpus only; profile-local exclusions, deterministic local eligibility/reranking, atomic last-good snapshots, and no couch-critical AI |
+| Recommendation AI | AI may enrich versioned semantic features in background only; cache IO is batched, watched/Saved anchors retain valid semantics, CPU-heavy scoring/MMR runs in a deadline-bounded worker, and the local ranker alone owns eligibility/final publication |
+| Recommendation attribution | Server-issued opaque token binds immutable served owner/domain/rail/revision/membership/source/context; stale actions return 409. Name only active profile, optional explicit mood, rail, and bounded seed/context on TV; never render IDs or expose scores, prompts, raw captions, private tags, URLs, or credentials |
+| Personalized read ownership | Launcher captures profile ID plus personalization revision for VOD, YouTube, Continue, Saved, Search Detail Saved markers, and Settings hidden-title state/restore; the service checks and echoes that exact owner. A 409 never falls through to unowned legacy reads, and launcher rail/Saved caches are stored and painted only as a matching owner pair |
+| Profile companion tool | `mango_manage_viewer_profile` is the single list/create/rename/activate/onboarding interface; it delegates to `library.db` rather than owning state |
 | YouTube | First-class native tab; official API for metadata/search/subscriptions, `yt-dlp` → mpv for playback; voice opens, pad **B** plays |
-| YouTube storage | `/etc/mango/youtube.db` is rebuildable cache; durable Saved/history/Not Interested lives in `library.db` with `source="youtube"` |
+| YouTube storage | `/etc/mango/youtube.db` is rebuildable cache; durable profile-scoped Saved/Mango-history/search/Not-for-me/events live in `library.db` with `source="youtube"` |
 | YouTube auth/secrets | API key, OAuth client, token, and optional cookies are operator-owned `/etc/mango/*`; no repo secrets |
 | YouTube save policy | Videos only; channels/playlists open lists and are not Saved entities in M6.2; Saved videos remain in Saved until explicit Unsave |
-| YouTube history policy | History is Mango-local only; default shows latest 9 unique videos watched in Mango, shuffle samples 9 random videos from the full local YouTube watch set |
+| YouTube rail shape | Exactly four cards per visible rail; logical anchors For You → Subscriptions → History → Saved (empty anchors omitted), followed by at most three adaptive rails |
+| YouTube history policy | History is profile-scoped, Mango-local, latest-first, exact-watched, and stable; X never shuffles History or Saved |
 | YouTube refresh policy | One nightly/manual coordinator refreshes all YouTube cache phases; each phase is isolated and stale cached rails remain visible when a phase fails |
-| YouTube For You policy | Mango-owned reservoir in `youtube.db`; long-watch optimized, medium-first, no Shorts/live/watched videos, 5 familiar + 3 discovery + 1 wildcard, 7-day exposure cooldown |
-| YouTube New From Subscriptions policy | OAuth subscription inbox, not a second recommender; upload-playlist based refresh avoids `search.list`, rotates subscribed channels, and renders unwatched non-live/non-Short videos with channel diversity |
-| YouTube Fresh Finds policy | Mango-owned broad-discovery reservoir in `youtube.db`; official-API refresh only, no couch-time API calls, no watched/Not Interested/live/Shorts, prefer non-Saved/non-subscribed alternatives, 14-day exposure cooldown |
-| YouTube Because You Watched policy | Seed-scoped reservoir in `youtube.db` based on latest meaningful Mango-local YouTube watch; one same-channel anchor plus same-topic/deeper-dive/wildcard follow-ups; max-one creator when enough distinct creators exist; no watched/live/Shorts/Not Interested cards; shuffle is cache-only |
+| YouTube For You policy | Mango-owned local ranker over an atomically replaced, bounded `youtube.db` reservoir; successful generations prune stale candidates and preserve retained profile state. Exact Saved videos are evidence but not For You members. Explicit feedback dominates dual-horizon use, multilingual/mood context is allowed, and deterministic four-card patterns produce exactly 70/20/10 over ten healthy slates; thin-supply fallback is recorded |
+| YouTube Subscriptions policy | OAuth subscription inbox, not a second recommender; upload-playlist refresh avoids `search.list`, rotates subscribed channels, and renders unwatched non-live/non-Short videos with channel diversity |
+| YouTube Fresh Finds policy | Mango-owned broad-discovery reservoir in `youtube.db`; official-API refresh only, no couch-time API calls, no watched/Not-for-me/live/Shorts, prefer non-Saved/non-subscribed alternatives, 14-day exposure cooldown |
+| YouTube Because You Watched policy | Profile-scoped reservoir based on latest meaningful Mango-local watch; same-channel/topic/deeper-dive/wildcard candidates, creator diversity, exact-watched and Not-for-me exclusions, cache-only slate rotation |
 | YouTube Live Now policy | Short-TTL live reservoir in `youtube.db`; official live metadata/search only, hides expired live cards, filters low-signal 24/7/camera/radio loops, and never spills live cards into VOD recommendation rails |
-| YouTube Popular policy | Neutral broad-trending reservoir in `youtube.db` built from official `videos.list(chart=mostPopular)` across configured region plus India/US and broad categories; no search quota, no couch-time API calls, no watched/Not Interested/live/Shorts, prefer non-Saved/non-subscribed alternatives, 48-hour exposure cooldown |
-| YouTube quota policy | Couch shuffle and playback use local caches/`yt-dlp`; Data API quota is spent only by metadata/search/subscription refresh and explicit search/detail calls |
+| YouTube Trending policy | Official `videos.list(chart=mostPopular)` reservoir reranked locally for active profile, mood, multilingual taste, exclusions, and diversity; no search quota or unofficial source |
+| YouTube quota policy | X is deterministic cache-only discovery rotation and playback uses `yt-dlp`; Data API quota is spent only by metadata/search/subscription refresh and explicit search/detail calls |
+| YouTube impressions | Persist exact rendered profile/slate/rail/item IDs without URLs; use them for deterministic exposure fairness, never as a public engagement score |
 | Unified Search | Temporary magnifier surface, not a fifth tab/chatbot; local typing, explicit submit, progressive isolated sources, 9-card local pagination, no autoplay |
 | Search persistence | Recents/selection/SafeSearch in `library.db`; YouTube query cache in `youtube.db`; bounded progressive jobs in memory; no `search.db` |
 | Interactive quota | 10,000-unit general Pacific day with 2,500 reserved; separate 100-call Search bucket with 25 calls reserved; admitted before request |

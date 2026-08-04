@@ -26,6 +26,12 @@ else
   exit 1
 fi
 
+if python3 scripts/m5-voice/stack/test_serve_https.py >/dev/null; then
+  ok companion-catalog-proxy-boundary
+else
+  bad companion-catalog-proxy-boundary
+fi
+
 TOOLS_JSON="$(curl -sf --max-time 10 "$CATALOG/voice/tools" || true)"
 if [[ -n "$TOOLS_JSON" ]] && echo "$TOOLS_JSON" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d.get("ok") is True; names={t["name"] for t in d["tools"]}; assert "mango_open_title" in names and "mango_search" in names and not {"mango_play","mango_play_continue","play_youtube","mango_play_youtube"} & names' 2>/dev/null; then
   ok voice-tools-manifest

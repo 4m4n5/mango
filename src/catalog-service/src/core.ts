@@ -91,12 +91,23 @@ import { emitPlaybackTelemetry } from './playback-telemetry.js';
 import { CONTINUE_RAIL_ID } from './progress/config.js';
 import { getWatchProgressForTitle, listContinueItems } from './progress/db.js';
 import {
+  activeViewerProfileId,
+  getPersonalizationState,
   LIBRARY_SAVED_RAIL_ID,
   listLatestEpisodeWatchProgress,
   listSavedLibraryItems,
   type SavedLibraryItem,
 } from './library/db.js';
 import { loadForYouRail } from './recommendations/service.js';
+import {
+  PersonalizationChangedDuringRequestError,
+  personalizationScopedCacheKey,
+  runPersonalizationCoherentRequest,
+  samePersonalizationSnapshot,
+  type PersonalizationSnapshot,
+  type StagedPersonalizationResult,
+} from './personalization-coherence.js';
+import { assertExpectedPersonalization } from './personalization-request.js';
 import {
   assembleSeriesEpisodes,
   applyEpisodePlayability,
@@ -357,6 +368,11 @@ export type TabRailItemsResponse = {
   stale?: boolean;
 };
 
+export type ProfileOwnedTabRailItemsResponse = TabRailItemsResponse & {
+  profile_id: string;
+  personalization_updated_at: number;
+};
+
 // One more than the launcher's six-column rail: below this a shuffle would only
 // reorder titles the user can already see, which is churn rather than discovery.
 // Continue is capped at 12 upstream and Saved at 100, so both can clear it.
@@ -476,7 +492,7 @@ const META_WARM_ENABLED = process.env.MANGO_META_WARM_DISABLE !== '1'
   && process.env.NODE_ENV !== 'test';
 /** Background verify/grow stream addon budget (default 12s). */
 const STREAM_RESOLVE_BUDGET_MS = Number(process.env.MANGO_STREAM_RESOLVE_BUDGET_MS || 12000);
-/** Couch play / detail stream list budget — popular titles often need ~18–25s. */
+/** Couch automatic-play provider budget — popular titles often need ~18–25s. */
 const STREAM_RESOLVE_BUDGET_USER_MS = Number(
   process.env.MANGO_STREAM_RESOLVE_BUDGET_USER_MS || 30000,
 );
@@ -495,19 +511,46 @@ function boundedInt(value: unknown, fallback: number, min: number, max: number):
   return Math.max(min, Math.min(max, Math.floor(parsed)));
 }
 
-/** Couch path: no empty-stream retry by default (was doubling Torrentio hits). Grow uses its own knobs. */
+/**
+ * Automatic VOD Play can absorb the observed empty -> empty -> success provider
+ * sequence inside one B press. The raw loop classifies eligibility so confirmed
+ * 429/timeout/5xx/permanent errors are never blindly retried. Grow may override
+ * these knobs explicitly; stream-list/live/picker work does not inherit them.
+ */
 const STREAM_ZERO_RETRY_ATTEMPTS = boundedInt(
   process.env.MANGO_STREAM_ZERO_RETRY_ATTEMPTS,
-  0,
+  2,
   0,
   3,
 );
 const STREAM_ZERO_RETRY_DELAY_MS = boundedInt(
   process.env.MANGO_STREAM_ZERO_RETRY_DELAY_MS,
-  0,
+  1200,
   0,
   10000,
 );
+const STREAM_ZERO_RETRY_MIN_FETCH_BUDGET_MS = 500;
+const STREAM_LIST_RESOLVE_BUDGET_MS = boundedInt(
+  process.env.MANGO_STREAM_LIST_RESOLVE_BUDGET_MS,
+  14000,
+  1000,
+  30000,
+);
+
+export type StreamResolvePurpose = 'auto_play' | 'stream_list' | 'live' | 'picker_refresh';
+
+export function streamResolveRetryPolicy(
+  type: string,
+  purpose: StreamResolvePurpose,
+): { attempts: number; delay_ms: number } {
+  if (purpose !== 'auto_play' || (type !== 'movie' && type !== 'series')) {
+    return { attempts: 0, delay_ms: 0 };
+  }
+  return {
+    attempts: STREAM_ZERO_RETRY_ATTEMPTS,
+    delay_ms: STREAM_ZERO_RETRY_DELAY_MS,
+  };
+}
 /** After a stream-addon 429 / rate-limit placeholder, skip re-hitting AIO for this long.
  *  Background verify/grow always respect this. Couch respects a shorter soft window (below). */
 const STREAM_RATE_LIMIT_BACKOFF_MS = Number(
@@ -841,9 +884,83 @@ async function bootStremioCore(): Promise<CoreStatus> {
   return { version: packageJson.version, ready: true };
 }
 
-function normalizeStream(stream: unknown, source: string): Stream | null {
+export type StreamErrorPlaceholderCategory =
+  | 'rate_limited'
+  | 'cancelled'
+  | 'garbage'
+  | 'permanent'
+  | 'transient'
+  | 'no_stream'
+  | 'unknown';
+
+const STREAM_ERROR_MARKER_RE =
+  /\[❌\]|\[x\]|search failed|stream not found|no streams|error:|being downloaded|downloading to debrid|download pending|rate\s*limit/i;
+const STREAM_ERROR_TRANSIENT_RE =
+  /timeout|timed out|fetch failed|ECONN|ENOTFOUND|socket|HTTP 5\d\d|temporar(?:y|ily)|upstream|being downloaded|downloading to debrid|download pending|preparing|queued/i;
+const STREAM_ERROR_PERMANENT_RE =
+  /unauthori[sz]ed|forbidden|invalid\s+(?:api\s*)?(?:key|token|credential)|missing\s+(?:api\s*)?(?:key|token|credential)|not configured|configuration (?:error|invalid)|account (?:required|disabled|expired)|subscription (?:required|expired)/i;
+
+function streamErrorEvidence(value: unknown): string {
+  if (typeof value !== 'object' || value === null) return '';
+  const record = value as Record<string, unknown>;
+  return ['title', 'name', 'description', 'url', 'externalUrl']
+    .map((key) => typeof record[key] === 'string' ? record[key] : '')
+    .join(' ');
+}
+
+/** Classify error-placeholder evidence without retaining or returning its text. */
+export function streamErrorPlaceholderCategory(
+  value: unknown | unknown[],
+): StreamErrorPlaceholderCategory | null {
+  const values = Array.isArray(value) ? value : [value];
+  const text = values.map(streamErrorEvidence).join(' ');
+  if (!STREAM_ERROR_MARKER_RE.test(text)) return null;
+  const base = classifyPlayError(text);
+  if (base === 'rate_limited') return 'rate_limited';
+  if (base === 'cancelled') return 'cancelled';
+  if (base === 'garbage') return 'garbage';
+  // Permanent provider/account drift must outrank generic network words in a
+  // verbose diagnostic, otherwise the same invalid request would be repeated.
+  if (STREAM_ERROR_PERMANENT_RE.test(text)) return 'permanent';
+  // Check explicit transient evidence before no_stream so a combined
+  // "fetch failed: no streams" diagnostic remains a provider failure.
+  if (STREAM_ERROR_TRANSIENT_RE.test(text) || base === 'transient') return 'transient';
+  if (base === 'no_stream') return 'no_stream';
+  return 'unknown';
+}
+
+function safeErrorPlaceholder(
+  category: StreamErrorPlaceholderCategory,
+  source: string,
+): Stream {
+  const description = category === 'rate_limited'
+    ? 'rate limit exceeded'
+    : category === 'cancelled'
+      ? 'play cancelled'
+      : category === 'garbage'
+        ? 'debrid_status_clip'
+        : category === 'transient'
+          ? 'upstream fetch failed'
+          : category === 'no_stream'
+            ? 'no streams found'
+            : category === 'permanent'
+              ? 'provider configuration unavailable'
+              : 'provider error';
+  const marker = category === 'rate_limited' ? 'rate-limit-exceeded' : category;
+  return {
+    url: `https://example.invalid/mango-stream-error/${marker}`,
+    title: '[❌] Stream provider',
+    name: '[❌] Stream provider',
+    description,
+    source,
+  };
+}
+
+export function normalizeStream(stream: unknown, source: string): Stream | null {
   if (typeof stream !== 'object' || stream === null) return null;
   const raw = stream as Record<string, unknown>;
+  const errorCategory = streamErrorPlaceholderCategory(raw);
+  if (errorCategory) return safeErrorPlaceholder(errorCategory, source);
   const url = typeof raw.url === 'string' ? raw.url : typeof raw.externalUrl === 'string' ? raw.externalUrl : '';
   if (!/^https?:\/\//i.test(url)) return null;
   return enrichStreamMetadata({
@@ -976,15 +1093,44 @@ export function streamsAreOnlyErrorPlaceholders(streams: Stream[]): boolean {
   return streams.length > 0 && !hasCacheableStream(streams);
 }
 
-function errorPlaceholderCouchMessage(streams: Stream[]): string {
-  const text = streams.map((stream) => (
-    `${stream.title || ''} ${stream.name || ''} ${stream.description || ''} ${stream.url || ''}`
-  )).join(' ');
-  if (classifyPlayError(text) === 'rate_limited' || streams.some((s) => isRateLimitedStreamUrl(s.url || ''))) {
-    return couchSafeCatalogMessage(text || 'HTTP 429');
-  }
-  // D1A: non-rate-limit placeholders / unusable rows → honest empty, not "busy".
-  return 'no streams found for this title';
+export type StreamResolveRetryReason = 'clean_empty' | 'transient_placeholder';
+
+/**
+ * Only provider results that can plausibly be a temporary aggregate miss are
+ * eligible for a confirmation pass. Transport/HTTP failures arrive as notes
+ * and are deliberately terminal here; their caller-facing classification is
+ * already more useful than another immediate request.
+ */
+export function streamResolveRetryReason(
+  streams: Stream[],
+  notes: ResolveNote[],
+): StreamResolveRetryReason | null {
+  if (notes.length > 0) return null;
+  if (streams.length === 0) return 'clean_empty';
+  if (!streamsAreOnlyErrorPlaceholders(streams)) return null;
+
+  return streamErrorPlaceholderCategory(streams) === 'transient'
+    ? 'transient_placeholder'
+    : null;
+}
+
+export function hasStreamResolveRetryBudget(
+  deadlineAtMs: number | undefined,
+  retryDelayMs: number,
+  nowMs = Date.now(),
+): boolean {
+  if (deadlineAtMs === undefined) return true;
+  return deadlineAtMs - nowMs > retryDelayMs + STREAM_ZERO_RETRY_MIN_FETCH_BUDGET_MS;
+}
+
+export function errorPlaceholderCouchMessage(streams: Stream[]): string {
+  const category = streamErrorPlaceholderCategory(streams);
+  if (category === 'rate_limited') return couchSafeCatalogMessage('HTTP 429');
+  if (category === 'no_stream') return 'no streams found for this title';
+  // Error rows are evidence that one or more configured providers failed, not
+  // proof that this exact title has no releases. Keep raw diagnostics private
+  // while giving the viewer an honest transient-state message.
+  return couchSafeCatalogMessage('stream provider unavailable');
 }
 
 export class CatalogCore {
@@ -1023,7 +1169,10 @@ export class CatalogCore {
     payload: RailItemsResponse;
     expiresAt: number;
   }>();
-  private readonly tabRailItemsCache = new Map<CatalogTab, {
+  private readonly tabRailItemsCache = new Map<string, {
+    tab: CatalogTab;
+    profileId: string;
+    personalizationUpdatedAt: number;
     payload: TabRailItemsResponse;
     expiresAt: number;
   }>();
@@ -1452,12 +1601,18 @@ export class CatalogCore {
     return this.playabilitySessionId;
   }
 
+  private clearTabRailItemsCacheForTab(tab: CatalogTab): void {
+    for (const [key, entry] of this.tabRailItemsCache) {
+      if (entry.tab === tab) this.tabRailItemsCache.delete(key);
+    }
+  }
+
   clearRailItemsCache(railId?: string): void {
     if (railId) {
       this.railItemsCache.delete(railId);
       try {
         const rail = this.browsableRail(railId);
-        this.tabRailItemsCache.delete(rail.tab);
+        this.clearTabRailItemsCacheForTab(rail.tab);
       } catch {
         // unknown rail — tab cache left intact
       }
@@ -2029,9 +2184,12 @@ export class CatalogCore {
       .filter((id) => id !== rail.id);
   }
 
-  private async buildSavedRail(tab: CatalogTab): Promise<RailItemsResponse> {
+  private async buildSavedRail(
+    tab: CatalogTab,
+    profileId = activeViewerProfileId(),
+  ): Promise<RailItemsResponse> {
     const started = Date.now();
-    const savedItems = listSavedLibraryItems(tab);
+    const savedItems = listSavedLibraryItems(tab, undefined, { profile_id: profileId });
     const items = await mapInBatches(
       savedItems,
       RAIL_META_CONCURRENCY,
@@ -2055,9 +2213,12 @@ export class CatalogCore {
     };
   }
 
-  private async buildContinueRail(tab: CatalogTab): Promise<RailItemsResponse> {
+  private async buildContinueRail(
+    tab: CatalogTab,
+    profileId = activeViewerProfileId(),
+  ): Promise<RailItemsResponse> {
     const started = Date.now();
-    const items = listContinueItems(tab).map((candidate) => ({
+    const items = listContinueItems(tab, undefined, { profile_id: profileId }).map((candidate) => ({
       id: candidate.id,
       type: candidate.type,
       title: candidate.title,
@@ -2085,8 +2246,30 @@ export class CatalogCore {
     };
   }
 
-  async continueRailItems(tab: CatalogTab): Promise<RailItemsResponse> {
-    return this.buildContinueRail(tab);
+  async continueRailItems(
+    tab: CatalogTab,
+    expected?: PersonalizationSnapshot,
+  ): Promise<RailItemsResponse & {
+    profile_id: string;
+    personalization_updated_at: number;
+  }> {
+    const personalization = getPersonalizationState();
+    if (expected && !samePersonalizationSnapshot(personalization, expected)) {
+      throw new CatalogError(409, 'profile changed before Continue loaded', undefined, {
+        couchMessage: 'profile changed — refreshing',
+      });
+    }
+    const rail = await this.buildContinueRail(tab, personalization.active_profile_id);
+    if (!samePersonalizationSnapshot(personalization, getPersonalizationState())) {
+      throw new CatalogError(409, 'profile changed while Continue loaded', undefined, {
+        couchMessage: 'profile changed — refreshing',
+      });
+    }
+    return {
+      ...rail,
+      profile_id: personalization.active_profile_id,
+      personalization_updated_at: personalization.updated_at,
+    };
   }
 
   private async buildRailItemsResponse(
@@ -2169,37 +2352,26 @@ export class CatalogCore {
     ).catch(() => undefined);
   }
 
-  async tabRailItems(tab: CatalogTab, options: { reshuffle?: boolean } = {}): Promise<TabRailItemsResponse> {
-    if (tab === 'live') {
-      return this.liveTabRailItems();
+  private async stageTabRailItems(
+    tab: CatalogTab,
+    reshuffle: boolean,
+    personalization: PersonalizationSnapshot,
+  ): Promise<StagedPersonalizationResult<TabRailItemsResponse>> {
+    const cacheKey = personalizationScopedCacheKey(tab, personalization);
+    const now = Date.now();
+    for (const [key, entry] of this.tabRailItemsCache) {
+      if (entry.expiresAt <= now) this.tabRailItemsCache.delete(key);
     }
-    const reshuffle = Boolean(options.reshuffle);
-    if (reshuffle) {
-      this.reshufflePlayabilitySession();
-    } else if (
-      PLAYABILITY_SESSION_MAX_AGE_MS > 0
-      && Date.now() - this.playabilitySessionStartedAt >= PLAYABILITY_SESSION_MAX_AGE_MS
-    ) {
-      // Session has aged past a day — rotate so the home re-picks from the pool
-      // (new titles surface). Uses the normal stable ratio, not the aggressive
-      // manual-shuffle ratio, so the daily refresh stays gentle.
-      this.reshufflePlayabilitySession();
-    }
-
-    const cachedTab = this.tabRailItemsCache.get(tab);
+    const cachedTab = this.tabRailItemsCache.get(cacheKey);
     if (
       !reshuffle
       && cachedTab
-      && cachedTab.expiresAt > Date.now()
+      && cachedTab.expiresAt > now
+      && cachedTab.profileId === personalization.active_profile_id
+      && cachedTab.personalizationUpdatedAt === personalization.updated_at
       && cachedTab.payload.rails.every((rail) => rail.playability?.low_water !== true)
     ) {
-      this.warmMetaCacheForRailItems(
-        cachedTab.payload.rails.flatMap((rail) => rail.items.map((item) => ({
-          type: item.type,
-          id: item.id,
-        }))),
-      );
-      return { ...cachedTab.payload, cached: true };
+      return { value: { ...cachedTab.payload, cached: true } };
     }
 
     const started = Date.now();
@@ -2220,47 +2392,112 @@ export class CatalogCore {
       Promise.all(
         rails.map(async (rail) => {
           const session = sessions.get(rail.id);
-          if (!session) {
-            return null;
-          }
-          const railStarted = Date.now();
-          const payload = await this.buildRailItemsResponse(rail, session, railStarted);
-          this.railItemsCache.set(rail.id, {
-            payload,
-            expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
-          });
-          return payload;
+          if (!session) return null;
+          return this.buildRailItemsResponse(rail, session, Date.now());
         }),
       ),
-      this.buildContinueRail(tab),
-      this.buildSavedRail(tab),
+      this.buildContinueRail(tab, personalization.active_profile_id),
+      this.buildSavedRail(tab, personalization.active_profile_id),
     ]);
 
     const responses = railResponses.filter((rail): rail is RailItemsResponse => rail !== null);
     const forYouRail = tab === 'movies' || tab === 'series'
-      ? loadForYouRail(tab, { reshuffle })
+      ? await loadForYouRail(tab, {
+        reshuffle,
+        profileId: personalization.active_profile_id,
+        personalizationUpdatedAt: personalization.updated_at,
+      })
       : null;
     const visibleRails = mergeUserStateRails(responses, continueRail, savedRail, {
       reshuffle,
       forYouRail,
     });
-
     const payload: TabRailItemsResponse = {
       tab,
       rails: visibleRails,
       resolve_ms: Date.now() - started,
     };
-    this.tabRailItemsCache.set(tab, {
-      payload,
-      expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
-    });
-    this.warmMetaCacheForRailItems(
-      visibleRails.flatMap((rail) => rail.items.map((item) => ({
-        type: item.type,
-        id: item.id,
-      }))),
+    const expiresAt = Date.now() + RAIL_ITEMS_CACHE_TTL_MS;
+    return {
+      value: payload,
+      commit: () => {
+        for (const response of responses) {
+          this.railItemsCache.set(response.rail_id, { payload: response, expiresAt });
+        }
+        this.tabRailItemsCache.set(cacheKey, {
+          tab,
+          profileId: personalization.active_profile_id,
+          personalizationUpdatedAt: personalization.updated_at,
+          payload,
+          expiresAt,
+        });
+      },
+      rollback: () => this.tabRailItemsCache.delete(cacheKey),
+    };
+  }
+
+  async tabRailItems(
+    tab: CatalogTab,
+    options: {
+      reshuffle?: boolean;
+      expectedPersonalization?: PersonalizationSnapshot | null;
+    } = {},
+  ): Promise<TabRailItemsResponse | ProfileOwnedTabRailItemsResponse> {
+    if (tab === 'live') return this.liveTabRailItems();
+    assertExpectedPersonalization(
+      options.expectedPersonalization,
+      getPersonalizationState(),
+      'before catalog rails loaded',
     );
-    return payload;
+    const reshuffle = Boolean(options.reshuffle);
+    if (reshuffle) {
+      this.reshufflePlayabilitySession();
+    } else if (
+      PLAYABILITY_SESSION_MAX_AGE_MS > 0
+      && Date.now() - this.playabilitySessionStartedAt >= PLAYABILITY_SESSION_MAX_AGE_MS
+    ) {
+      // Session has aged past a day — rotate so the home re-picks from the pool
+      // (new titles surface). Uses the normal stable ratio, not the aggressive
+      // manual-shuffle ratio, so the daily refresh stays gentle.
+      this.reshufflePlayabilitySession();
+    }
+
+    try {
+      const { value, snapshot } = await runPersonalizationCoherentRequest({
+        readSnapshot: getPersonalizationState,
+        build: (personalization) => {
+          assertExpectedPersonalization(
+            options.expectedPersonalization,
+            personalization,
+            'while catalog rails loaded',
+          );
+          return this.stageTabRailItems(tab, reshuffle, personalization);
+        },
+      });
+      this.warmMetaCacheForRailItems(
+        value.rails.flatMap((rail) => rail.items.map((item) => ({
+          type: item.type,
+          id: item.id,
+        }))),
+      );
+      assertExpectedPersonalization(
+        options.expectedPersonalization,
+        snapshot,
+        'while catalog rails loaded',
+      );
+      return {
+        ...value,
+        profile_id: snapshot.active_profile_id,
+        personalization_updated_at: snapshot.updated_at,
+      };
+    } catch (error) {
+      if (error instanceof PersonalizationChangedDuringRequestError) {
+        throw new CatalogError(409, 'profile changed while catalog rails were loading', undefined, {
+          couchMessage: 'profile changed — refreshing',
+        });
+      }
+      throw error;
+    }
   }
 
   async railItems(railId: string): Promise<RailItemsResponse> {
@@ -2396,15 +2633,18 @@ export class CatalogCore {
   }
 
   async seriesEpisodes(bareId: string): Promise<SeriesEpisodesResponse> {
+    const profileId = activeViewerProfileId();
     const trimmed = bareId.trim();
     const normalizedBare = seriesBareId(trimmed);
     if (!normalizedBare || normalizedBare.toLowerCase() !== trimmed.toLowerCase()) {
       throw new CatalogError(400, 'GET /series/:id/episodes requires bare imdb series id');
     }
     const meta = await this.metaCached('series', normalizedBare);
-    const saved = getWatchProgressForTitle('series', normalizedBare);
+    const saved = getWatchProgressForTitle('series', normalizedBare, {
+      profile_id: profileId,
+    });
     const episodeProgress = new Map(
-      listLatestEpisodeWatchProgress(normalizedBare).map((row) => [
+      listLatestEpisodeWatchProgress(normalizedBare, { profile_id: profileId }).map((row) => [
         row.play_id,
         {
           position_sec: row.position_sec,
@@ -2498,9 +2738,10 @@ export class CatalogCore {
       });
     }
     const streamId = normalizeSeriesVerifyId(type, id);
+    const retryPolicy = streamResolveRetryPolicy(type, 'auto_play');
     const resolveOptions = couchResolveOptions({
-      zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
-      zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
+      zeroStreamRetryAttempts: retryPolicy.attempts,
+      zeroStreamRetryDelayMs: retryPolicy.delay_ms,
       ...options,
     });
     const [raw, filterContext] = await Promise.all([
@@ -2566,11 +2807,13 @@ export class CatalogCore {
     errors?: string[];
   }> {
     const streamId = normalizeSeriesVerifyId(type, id);
+    const retryPolicy = streamResolveRetryPolicy(type, 'stream_list');
     const [raw, filterContext] = await Promise.all([
       this.resolveRawStreams(type, streamId, couchResolveOptions({
-        zeroStreamRetryAttempts: STREAM_ZERO_RETRY_ATTEMPTS,
-        zeroStreamRetryDelayMs: STREAM_ZERO_RETRY_DELAY_MS,
+        zeroStreamRetryAttempts: retryPolicy.attempts,
+        zeroStreamRetryDelayMs: retryPolicy.delay_ms,
         requestClass: 'user',
+        deadlineAtMs: Date.now() + STREAM_LIST_RESOLVE_BUDGET_MS,
         existingOnly: options.existingOnly,
       })),
       this.buildStreamFilterContext(type, id, options.identityHint),
@@ -3243,8 +3486,15 @@ export class CatalogCore {
     const overallStarted = Date.now();
     let streams: Stream[] = [];
     let notes: ResolveNote[] = [];
+    let retryFallbackStreams: Stream[] = [];
+    let retriesPerformed = 0;
+    let invalidated = false;
 
     for (let attempt = 0; attempt <= retryAttempts; attempt += 1) {
+      if (!cacheStillCurrent()) {
+        invalidated = true;
+        break;
+      }
       // Live/IPTV addons advertise `stream` but must not join movie/series fan-out —
       // their 429/empty responses race AIOStreams and leave couch titles with zero rows.
       const liveNames = liveAddonNames(this.liveRailConfig);
@@ -3299,12 +3549,49 @@ export class CatalogCore {
           notes.push(resolveNote('addon_error', message));
         }
       }
-      if (streams.length > 0 || attempt >= retryAttempts) {
+      const retryReason = streamResolveRetryReason(streams, notes);
+      if (
+        retryReason === null
+        || attempt >= retryAttempts
+        || !hasStreamResolveRetryBudget(options.deadlineAtMs, retryDelayMs)
+      ) {
         break;
       }
       if (retryDelayMs > 0) {
         await delay(retryDelayMs);
       }
+      if (!cacheStillCurrent()) {
+        invalidated = true;
+        streams = [];
+        notes = [resolveNote('skip', 'stream resolve invalidated')];
+        break;
+      }
+      if (!hasStreamResolveRetryBudget(options.deadlineAtMs, 0)) {
+        break;
+      }
+      if (retryReason === 'transient_placeholder') {
+        retryFallbackStreams = streams;
+      }
+      retriesPerformed += 1;
+      recordResolveMetric('stream_resolve_retries');
+      emitPlaybackTelemetry('stream_resolve_retry', {
+        resolve_request_class: options.requestClass ?? 'background',
+        retry_attempt: attempt + 1,
+        retry_reason: retryReason,
+      });
+    }
+
+    if (streams.length === 0 && retryFallbackStreams.length > 0) {
+      streams = retryFallbackStreams;
+    }
+
+    if (invalidated || !cacheStillCurrent()) {
+      return {
+        streams: [],
+        notes: notes.length > 0 ? notes : [resolveNote('skip', 'stream resolve invalidated')],
+        resolveMs: Date.now() - overallStarted,
+        cached: false,
+      };
     }
 
     const supplemented = await this.supplementThinStreams(type, id, streams, notes, options);
@@ -3315,10 +3602,17 @@ export class CatalogCore {
     recordResolverContributions(options.requestClass ?? 'background', streams);
 
     const resolveMs = Date.now() - overallStarted;
-    if (streams.length === 0 && retryAttempts > 0) {
+    if (retriesPerformed > 0 && hasCacheableStream(streams)) {
+      recordResolveMetric('stream_resolve_retry_recoveries');
       notes = [
         ...notes,
-        resolveNote('annotation', `zero streams after ${retryAttempts + 1} attempts`),
+        resolveNote('annotation', `stream resolve recovered after ${retriesPerformed + 1} attempts`),
+      ];
+    } else if (retriesPerformed > 0) {
+      recordResolveMetric('stream_resolve_retry_exhaustions');
+      notes = [
+        ...notes,
+        resolveNote('annotation', `zero streams after ${retriesPerformed + 1} attempts`),
       ];
     }
     if (streams.length > 0 && hasCacheableStream(streams) && cacheStillCurrent()) {
@@ -3332,6 +3626,7 @@ export class CatalogCore {
     } else if (streams.length > 0 && cacheStillCurrent()) {
       // Confirmed rate-limit only → busy backoff. Timeouts/5xx → miss (user retries immediately).
       const rateLimited = hasStreamResolveRateLimitErrors(notes)
+        || streamErrorPlaceholderCategory(streams) === 'rate_limited'
         || streams.some((stream) => isRateLimitedStreamUrl(stream.url || ''));
       if (rateLimited) recordResolveMetric('rate_limit_classifications');
       const now = Date.now();

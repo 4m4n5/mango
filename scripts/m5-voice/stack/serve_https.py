@@ -11,6 +11,27 @@ from urllib import error, request
 from urllib.parse import urlsplit
 
 
+COMPANION_CATALOG_CAPABILITIES = frozenset({
+    ("GET", "/ai/context"),
+    ("GET", "/voice/companion/summary"),
+    ("GET", "/youtube/companion/status"),
+    ("POST", "/youtube/companion/auth/start"),
+    ("GET", "/youtube/companion/auth/poll"),
+    ("POST", "/youtube/companion/auth/disconnect"),
+})
+
+
+def catalog_capability(method: str, request_target: str) -> tuple[str, str] | None:
+    """Return the exact allowlisted upstream method/path for a request target."""
+    parsed = urlsplit(request_target)
+    catalog_prefix = "/api/catalog"
+    if not parsed.path.startswith(f"{catalog_prefix}/"):
+        return None
+    upstream_path = parsed.path.removeprefix(catalog_prefix)
+    capability = (method.upper(), upstream_path)
+    return capability if capability in COMPANION_CATALOG_CAPABILITIES else None
+
+
 class CompanionRequestHandler(SimpleHTTPRequestHandler):
     catalog_upstream: str
 
@@ -38,7 +59,11 @@ class CompanionRequestHandler(SimpleHTTPRequestHandler):
 
     def _proxy_catalog(self, method: str) -> None:
         parsed = urlsplit(self.path)
-        upstream_path = parsed.path.removeprefix("/api/catalog") or "/"
+        capability = catalog_capability(method, self.path)
+        if capability is None:
+            self._send_catalog_denied()
+            return
+        _, upstream_path = capability
         upstream_url = f"{self.catalog_upstream}{upstream_path}"
         if parsed.query:
             upstream_url = f"{upstream_url}?{parsed.query}"
@@ -59,16 +84,27 @@ class CompanionRequestHandler(SimpleHTTPRequestHandler):
                 self._send_proxy_response(response.status, response.headers, response_body)
         except error.HTTPError as exc:
             self._send_proxy_response(exc.code, exc.headers, exc.read())
-        except error.URLError as exc:
+        except error.URLError:
             payload = json.dumps({
                 "error": "catalog proxy unavailable",
-                "detail": str(exc.reason),
             }).encode() + b"\n"
             self.send_response(502)
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+
+    def _send_catalog_denied(self) -> None:
+        payload = json.dumps({
+            "error": "catalog route unavailable from companion",
+        }).encode() + b"\n"
+        self.send_response(403)
+        self.send_header("content-type", "application/json")
+        self.send_header("cache-control", "no-store")
+        self.send_header("x-content-type-options", "nosniff")
+        self.send_header("content-length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def _send_proxy_response(self, status: int, headers, body: bytes) -> None:
         self.send_response(status)

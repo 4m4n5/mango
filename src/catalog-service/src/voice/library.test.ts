@@ -6,6 +6,7 @@ test('aggregateLibraryRows merges rails for the same title', () => {
   const rows = [
     {
       rail_id: 'movies-india',
+      rail_ids: ['movies-india'],
       type: 'movie',
       id: 'tt123',
       title: 'Panchayat',
@@ -14,6 +15,7 @@ test('aggregateLibraryRows merges rails for the same title', () => {
     },
     {
       rail_id: 'series-comedy',
+      rail_ids: ['series-comedy'],
       type: 'movie',
       id: 'tt123',
       title: 'Panchayat',

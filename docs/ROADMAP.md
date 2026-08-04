@@ -14,18 +14,18 @@ M2 Browse         ████████████████████  
 M3 Play           ████████████████████  shipped
 M4 Addons         ████████████████████  shipped
 M5 Voice + AI     ███████████████████░  Phase 3 ✓ · M5.5a ✓ · M5.5b round code ✓ · living librarian memory ✓ · couch sign-off pending
-M6 Ship           ██████████████░░░░░░  M6.1–M6.2 ✓ · Reliability ✓ · efficiency Tiers 1–4 ✓ · M6.5 round code ✓ · 4K validation · wizard pending
+M6 Ship           ██████████████░░░░░░  M6.1 + M6.2 base ✓ · recommendation redesign local/TV proof deferred · Reliability ✓ · M6.5 round code ✓ · 4K validation · wizard pending
 ```
 
 
 | Milestone         | Outcome                                                                                               | Status                                                                                     |
 | ----------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | **M1** Foundation | Pi stack · pad · launcher kiosk · voice shell · gates                                                 | ✓                                                                                          |
-| **M2** Browse     | Catalog rails · Movies / Series / Live · 9-up grid                                                    | ✓                                                                                          |
+| **M2** Browse     | Catalog rails · Movies / Series / Live · 6-poster / 4-landscape rows                                 | ✓                                                                                          |
 | **M3** Play       | mpv orchestrator · picker · episodes · playability/grow                                               | ✓ hardening                                                                                |
 | **M4** Addons     | Self-hosted AIOStreams + AIOMetadata                                                                  | ✓                                                                                          |
 | **M5** Voice + AI | Phone librarian · AI catalogs · Phase 3 companion · living librarian · voice safety contract | ◐ Phase 3 ✓ · M5.5a ✓ · M5.5b round code ✓ · living librarian memory ✓ · couch pending |
-| **M6** Ship       | Mango-owned library · YouTube · Reliability Center · efficiency/perf hardening · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 ✓ · M6.2 Pi-gated ✓ · Reliability ✓ · Tiers 1–4 ✓ · M6.5 round code ✓ · 4K Stage 2 · wizard pending |
+| **M6** Ship       | Mango-owned library · YouTube · profile-aware recommendations · Reliability Center · efficiency/perf hardening · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 ✓ · M6.2 base Pi-gated ✓ · recommendation redesign local/TV proof deferred · Reliability ✓ · Tiers 1–4 ✓ · M6.5 round code ✓ · 4K Stage 2 · wizard pending |
 
 
 ---
@@ -74,7 +74,7 @@ Pi 5 · X11 + Openbox
 - `catalog-service` on `:3020` with `@stremio/stremio-core-web`
 - `config/catalog.yaml` rails — addon catalogs, mdblist, Cinemeta charts
 - Launcher tabs: **Movies · Series · Live**
-- 9-up cards · L/R tab shoulders · contextual X (Home shuffle; Search delete/clear)
+- 6-poster / 4-landscape rows · L/R tab shoulders · contextual X (Home discovery rotation; Search delete/clear)
 - `GET /rails` · proxy via `serve.py` `/api/catalog/*`
 
 **Gate:** `scripts/m2-catalog/browse/gate-m2-browse.sh`
@@ -90,7 +90,7 @@ Pi 5 · X11 + Openbox
 | ----------------- | -------------------------------------------------------------------------------- |
 | Play ladder       | `catalog-filters.json` tiers · parallel resolve · 90 s wall                      |
 | Stream picker     | `GET /stream` enriched rows                                                      |
-| Continue watching | `progress.db` + mpv position watcher                                             |
+| Continue watching | Profile-exact `progress.db` v2 + mpv position watcher                            |
 | Episode picker    | Per-episode streams · next-up overlay · cancel-on-Y                              |
 | Playability index | Verified pools · quick/nightly/overnight grow · unique-library tracking          |
 | Thematic rails    | Theme gate on pool writes · orphan repair · overlap caps · optional full retheme |
@@ -167,7 +167,8 @@ Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented ha
 ### M6.1 — Mango-owned library ✓
 
 - Mango is the user-library source of truth: explicit **Saved**, automatic watch history, finished state, dormant hidden/blocked fields, and taste/profile hooks
-- `library.db` is durable local SQLite at `/etc/mango/library.db`, source-aware for YouTube and future sources; `progress.db` remains the Continue/resume source in M6.1 and mirrors history/finished into the library
+- `library.db` now owns permanent Household plus up to seven optional personal recommendation profiles and an explicit expiring session mood; there is no PIN or startup chooser
+- `library.db` is durable local SQLite at `/etc/mango/library.db`, source-aware for YouTube and future sources; `progress.db` v2 owns profile-exact Continue/resume and mirrors history/finished into profile watch state in `library.db` v10. Legacy unscoped progress migrates only to Household; exact resume is never blended
 - The launcher shows **Saved** immediately after Continue, detail exposes Save/Unsave, and existing user-facing Pins import once into Saved; internal rail-curation pins remain operator-only playability policy
 - `/library/state`, `/library/saved`, `/library/history`, and `/library/context` are first-class APIs; `/pins` remains a Saved-backed compatibility wrapper
 - Voice exposes `mango_save_title` / `mango_unsave_title` for current context or exact title, without playback or hide/unhide
@@ -177,16 +178,27 @@ Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented ha
 
 
 
-### M6.2 — Native YouTube ✓ hardening
+### M6.2 — Native YouTube base ✓; profile-aware recommendations local
 
-Native YouTube is implemented, deployed, and Pi-gated on the couch stack. Detail: [YOUTUBE.md](YOUTUBE.md).
+The native YouTube base was previously deployed and Pi-gated. The current
+profile-aware allocator, feedback, and exposure changes are local code only;
+deployment, Pi diagnostics, screenshots, and TV behavior are **DEFERRED** for
+this exact revision. Detail: [YOUTUBE.md](YOUTUBE.md).
 
-- `catalog-service/src/youtube/` owns config, `youtube.db`, API client, OAuth device flow, refresh/cache, recommender rails, search/detail, Not Interested, and `yt-dlp -> mpv` playback
-- `/etc/mango/youtube.db` is rebuildable cache; `/etc/mango/library.db` remains durable user state with `source="youtube"` Saved/history/feedback
-- Launcher tab order is **Movies · TV Shows · Live · YouTube**; rails are 9-up, shuffle re-samples Mango-local History plus cached recommendation/discovery rails, videos play/save, channels/playlists open video lists, stale VOD cache stays visible
+- `catalog-service/src/youtube/` owns config, `youtube.db`, API client, OAuth device flow, refresh/cache, recommender rails, search/detail, reversible Not for me, and `yt-dlp -> mpv` playback
+- `/etc/mango/youtube.db` is rebuildable cache; `/etc/mango/library.db` owns profile-scoped `source="youtube"` Saved, Mango-local history/search, Not-for-me, and recommendation events
+- Launcher tab order is **Movies · TV Shows · Live · YouTube**; every visible rail has four cards. Logical anchors are For You → Subscriptions → History → Saved, followed by at most three adaptive rails
+- X advances deterministic discovery from cache only; History/Saved stay stable and no YouTube API quota is spent. With healthy lane supply, For You produces 70/20/10 close/adjacent/surprise exposure over ten slates; thin supply is filled best-effort and recorded diagnostically
 - Companion has YouTube account connect/disconnect via Google device OAuth; tokens are stored operator-owned at `/etc/mango/youtube-auth.json` with `0600`
-- Voice tools add YouTube search/open/save/unsave under the same rule: voice opens, pad **B** plays
+- Voice tools add YouTube search/open/save/unsave and `mango_manage_viewer_profile` under the same rule: voice opens, pad **B** plays
 - Legacy Kodi YouTube is emergency-only behind `MANGO_LEGACY_YOUTUBE=1`
+
+Every visible Movies/TV For You rail uses only candidates currently verified by
+the playability DB and has exactly six cards (4 close, 1 adjacent, 1 surprise);
+the rail is omitted if its reserve cannot heal that contract. Explicit Fire/Water dominates
+dual-horizon usage signals; rare completed-title rewatch is cooled. Optional AI
+semantic enrichment runs in the background, while the local ranker owns final
+slates and last-good fallback. Current Pi/couch proof is **DEFERRED**.
 
 **Gate:** `scripts/m6-ship/gate-m6-youtube-smoke.sh` (`MANGO_YOUTUBE_PLAY=1` for optional playback smoke).
 

@@ -369,6 +369,77 @@ button {
   box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
+.browse-personalization {
+  flex: 0 0 auto;
+  min-width: 10.5rem;
+  min-height: 3.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  appearance: none;
+  padding: 0.42rem 0.85rem;
+  border: 2px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text-primary);
+  text-align: left;
+}
+
+.browse-personalization--mood {
+  border-color: var(--border-selected);
+  background: var(--tab-active-fill);
+}
+
+.browse-personalization.focused,
+.browse-personalization:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
+}
+
+.browse-personalization-avatar {
+  flex: 0 0 auto;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--text-primary);
+  font-size: var(--text-micro);
+  font-weight: 850;
+  line-height: 1;
+}
+
+.browse-personalization-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.browse-personalization-name,
+.browse-personalization-mood {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browse-personalization-name {
+  font-size: var(--text-caption);
+  font-weight: 750;
+  line-height: 1.05;
+}
+
+.browse-personalization-mood {
+  color: var(--text-muted);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  line-height: 1.05;
+}
+
 .rails {
   flex: 1;
   display: flex;
@@ -1936,6 +2007,14 @@ h1 {
   box-shadow: 0 0 0 var(--focus-ring) var(--focus-ring-color), 0 0 var(--focus-glow) var(--accent-glow);
 }
 
+.settings-action.settings-action--selected {
+  background: var(--tab-active-fill);
+}
+
+.settings-action.settings-action--selected:not(.focused):not(:focus-visible) {
+  border-color: var(--border-selected);
+}
+
 .settings-action--primary {
   border-color: var(--border-selected);
   background: var(--tab-active-fill);
@@ -1985,6 +2064,113 @@ h1 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
+}
+
+.personalization-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.personalization-section .settings-heading {
+  margin-top: 0;
+}
+
+.personalization-summary {
+  min-height: 5.25rem;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.95rem 1.15rem;
+  border: 1px solid var(--border-selected);
+  border-radius: var(--radius-panel);
+  background: var(--tab-active-fill);
+}
+
+.personalization-avatar {
+  width: 3.35rem;
+  height: 3.35rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--text-primary);
+  font-size: var(--text-title);
+  font-weight: 850;
+}
+
+.personalization-summary-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.personalization-summary-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--text-title);
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personalization-summary-meta {
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+}
+
+.personalization-mood {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  color: var(--text-secondary);
+  font-size: var(--text-caption);
+  font-weight: 700;
+}
+
+.personalization-mood--active {
+  border-color: var(--border-selected);
+  color: var(--text-primary);
+}
+
+.personalization-options {
+  margin-bottom: 0.15rem;
+}
+
+.personalization-onboarding:empty {
+  display: none;
+}
+
+.personalization-onboarding {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.95rem 1.1rem 1.1rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.personalization-onboarding .settings-subheading,
+.personalization-onboarding .settings-note {
+  margin: 0;
+}
+
+.personalization-profile-options .settings-action-title {
+  font-size: var(--text-title);
+}
+
+.personalization-mood-options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.personalization-mood-options .settings-action {
+  min-height: 5.75rem;
+}
+
+.personalization-companion-note {
+  color: var(--text-muted);
 }
 
 .settings-action--reliability {

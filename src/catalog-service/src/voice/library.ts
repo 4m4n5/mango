@@ -35,12 +35,14 @@ export function aggregateLibraryRows(
   const byKey = new Map<string, LibraryTitle>();
   for (const row of rows) {
     const key = `${row.type}:${row.id}`;
-    const railLabel = railLabels.get(row.rail_id) ?? row.rail_id;
+    const rowRailIds = row.rail_ids.length ? row.rail_ids : [row.rail_id];
     const existing = byKey.get(key);
     if (existing) {
-      if (!existing.rail_ids.includes(row.rail_id)) {
-        existing.rail_ids.push(row.rail_id);
-        existing.rails.push(railLabel);
+      for (const railId of rowRailIds) {
+        if (!existing.rail_ids.includes(railId)) {
+          existing.rail_ids.push(railId);
+          existing.rails.push(railLabels.get(railId) ?? railId);
+        }
       }
       continue;
     }
@@ -51,8 +53,8 @@ export function aggregateLibraryRows(
       year: row.year ?? undefined,
       poster: row.poster ?? undefined,
       tab: tabForType(row.type),
-      rails: [railLabel],
-      rail_ids: [row.rail_id],
+      rails: rowRailIds.map((railId) => railLabels.get(railId) ?? railId),
+      rail_ids: rowRailIds,
     });
   }
   return [...byKey.values()].sort((left, right) => left.title.localeCompare(right.title));

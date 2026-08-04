@@ -14,15 +14,41 @@ import {
 } from "./reliability";
 import type { RefreshLevelId } from "./types";
 import type { LauncherStatusReporter } from "./toast";
+import {
+  buildPersonalizationSettings,
+  personalizationExpectationParams,
+  personalizationOwnerFromPayload,
+  samePersonalizationOwner,
+  type PersonalizationChanged,
+  type PersonalizationOwner,
+} from "./personalization";
+import {
+  CatalogOwnershipChangedError,
+  CatalogResponseError,
+} from "./catalog-errors";
 
 export async function buildSettingsRefresh(
   container: HTMLElement,
   onStatus: LauncherStatusReporter,
+  owner: PersonalizationOwner,
+  onPersonalizationChanged: PersonalizationChanged = () => undefined,
 ): Promise<void> {
   container.replaceChildren();
 
-  await buildReliabilityCenter(container, onStatus);
-  await buildSearchSettings(container, onStatus);
+  // Every recursive Settings rebuild retains the immutable owner captured when
+  // the surface opened. A profile/mood change receives a new owner from main.ts
+  // and starts a fresh build instead of silently weakening this boundary.
+  const rebuild = () => buildSettingsRefresh(
+    container,
+    onStatus,
+    owner,
+    onPersonalizationChanged,
+  );
+
+  await buildPersonalizationSettings(container, onStatus, onPersonalizationChanged);
+  await buildHiddenTitlesSettings(container, onStatus, owner);
+  await buildReliabilityCenter(container, onStatus, rebuild);
+  await buildSearchSettings(container, onStatus, rebuild);
 
   const heading = document.createElement("h2");
   heading.className = "settings-heading";
@@ -48,9 +74,169 @@ export async function buildSettingsRefresh(
   }
 }
 
+export type HiddenRecommendationItem = {
+  source: string;
+  type: string;
+  id: string;
+  title: string | null;
+  tab: string | null;
+};
+
+async function buildHiddenTitlesSettings(
+  container: HTMLElement,
+  onStatus: LauncherStatusReporter,
+  owner: PersonalizationOwner,
+): Promise<void> {
+  const heading = document.createElement("h2");
+  heading.className = "settings-heading";
+  heading.textContent = "Hidden from recommendations";
+  container.append(heading);
+
+  const note = document.createElement("p");
+  note.className = "settings-note";
+  note.textContent = "Not for me is profile-specific. Restore a title here at any time.";
+  container.append(note);
+
+  try {
+    const items = await fetchHiddenTitlesForOwner(owner);
+    if (items.length === 0) {
+      const empty = document.createElement("p");
+      empty.className = "settings-note";
+      empty.textContent = "No titles hidden for this profile.";
+      container.append(empty);
+      return;
+    }
+    const actions = document.createElement("div");
+    actions.className = "settings-actions-row";
+    for (const item of items) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "settings-action settings-action--standard";
+      button.dataset.settingsFocus = "true";
+      button.append(actionSpan("settings-action-title", item.title || item.id));
+      button.append(actionSpan(
+        "settings-action-meta",
+        `${item.source === "youtube" ? "YouTube" : item.type === "series" ? "TV show" : "Movie"} · restore`,
+      ));
+      button.addEventListener("click", () => {
+        void restoreHiddenTitle(item, button, actions, onStatus, owner);
+      });
+      actions.append(button);
+    }
+    container.append(actions);
+  } catch (error) {
+    const fallback = document.createElement("p");
+    fallback.className = "settings-note";
+    fallback.textContent = error instanceof CatalogOwnershipChangedError
+      ? "Profile changed — close and reopen Settings to refresh hidden titles."
+      : "Hidden-title settings unavailable — catalog-service may be starting.";
+    container.append(fallback);
+    if (error instanceof CatalogOwnershipChangedError) {
+      onStatus("profile changed — reopen Settings to refresh hidden titles", "warning");
+    }
+  }
+}
+
+export async function fetchHiddenTitlesForOwner(
+  owner: PersonalizationOwner,
+): Promise<HiddenRecommendationItem[]> {
+  const params = personalizationExpectationParams(owner);
+  const response = await fetch(
+    `/api/catalog/library/not-interested?${params.toString()}`,
+    { cache: "no-store" },
+  );
+  const payload = await response.json().catch(() => ({})) as {
+    profile_id?: unknown;
+    personalization_updated_at?: unknown;
+    items?: HiddenRecommendationItem[];
+    error?: string;
+  };
+  if (!response.ok) {
+    if (response.status === 409) throw new CatalogOwnershipChangedError();
+    throw new CatalogResponseError(
+      response.status,
+      typeof payload.error === "string" ? payload.error : "hidden titles unavailable",
+    );
+  }
+  assertSettingsResponseOwner(payload, owner);
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
+function assertSettingsResponseOwner(
+  payload: { profile_id?: unknown; personalization_updated_at?: unknown },
+  expectedOwner: PersonalizationOwner,
+): void {
+  const responseOwner = personalizationOwnerFromPayload(payload);
+  if (!responseOwner || !samePersonalizationOwner(responseOwner, expectedOwner)) {
+    throw new CatalogOwnershipChangedError();
+  }
+}
+
+async function restoreHiddenTitle(
+  item: HiddenRecommendationItem,
+  button: HTMLButtonElement,
+  actions: HTMLElement,
+  onStatus: LauncherStatusReporter,
+  owner: PersonalizationOwner,
+): Promise<void> {
+  button.disabled = true;
+  try {
+    await restoreHiddenTitleForOwner(item, owner);
+    button.remove();
+    if (actions.childElementCount === 0) {
+      const empty = document.createElement("p");
+      empty.className = "settings-note";
+      empty.textContent = "No titles hidden for this profile.";
+      actions.replaceWith(empty);
+    }
+    window.dispatchEvent(new CustomEvent("mango:library-refresh"));
+    onStatus(`${item.title || "Title"} is back in recommendations.`, "success");
+  } catch (error) {
+    if (error instanceof CatalogOwnershipChangedError) {
+      actions.querySelectorAll<HTMLButtonElement>("button").forEach((control) => {
+        control.disabled = true;
+      });
+      onStatus("profile changed — reopen Settings before restoring a title", "warning");
+    } else {
+      button.disabled = false;
+      onStatus("couldn't restore that title. try again.", "error");
+    }
+  }
+}
+
+export async function restoreHiddenTitleForOwner(
+  item: HiddenRecommendationItem,
+  owner: PersonalizationOwner,
+): Promise<void> {
+  const response = await fetch("/api/catalog/library/not-interested", {
+    method: "DELETE",
+    cache: "no-store",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...item,
+      expected_profile_id: owner.profileId,
+      expected_personalization_updated_at: owner.personalizationUpdatedAt,
+    }),
+  });
+  const payload = await response.json().catch(() => ({})) as {
+    profile_id?: unknown;
+    personalization_updated_at?: unknown;
+    error?: string;
+  };
+  if (!response.ok) {
+    if (response.status === 409) throw new CatalogOwnershipChangedError();
+    throw new CatalogResponseError(
+      response.status,
+      typeof payload.error === "string" ? payload.error : "restore failed",
+    );
+  }
+  assertSettingsResponseOwner(payload, owner);
+}
+
 async function buildSearchSettings(
   container: HTMLElement,
   onStatus: LauncherStatusReporter,
+  rebuildSettings: () => Promise<void>,
 ): Promise<void> {
   const heading = document.createElement("h2");
   heading.className = "settings-heading";
@@ -81,7 +267,7 @@ async function buildSearchSettings(
       button.append(actionSpan("settings-action-title", option.label));
       button.append(actionSpan("settings-action-meta", active === option.id ? "selected" : "YouTube SafeSearch"));
       button.addEventListener("click", () => {
-        void updateSearchPreference(option.id, onStatus, container);
+        void updateSearchPreference(option.id, onStatus, rebuildSettings);
       });
       choices.append(button);
     }
@@ -105,7 +291,7 @@ async function buildSearchSettings(
 async function updateSearchPreference(
   safeSearch: string,
   onStatus: LauncherStatusReporter,
-  container: HTMLElement,
+  rebuildSettings: () => Promise<void>,
 ): Promise<void> {
   try {
     const response = await fetch("/api/catalog/search/preferences", {
@@ -116,7 +302,7 @@ async function updateSearchPreference(
     });
     if (!response.ok) throw new Error("could not update Search");
     onStatus(`Search SafeSearch set to ${safeSearch === "none" ? "off" : safeSearch}.`, "success");
-    await buildSettingsRefresh(container, onStatus);
+    await rebuildSettings();
   } catch {
     onStatus("couldn't update Search settings. try again.", "error");
   }
@@ -144,6 +330,7 @@ async function clearSearchActivity(
 async function buildReliabilityCenter(
   container: HTMLElement,
   onStatus: LauncherStatusReporter,
+  rebuildSettings: () => Promise<void>,
 ): Promise<void> {
   const heading = document.createElement("h2");
   heading.className = "settings-heading";
@@ -160,7 +347,7 @@ async function buildReliabilityCenter(
     }
     container.append(grid);
     container.append(createReliabilityActions(state.actions, onStatus, () => {
-      void buildSettingsRefresh(container, onStatus);
+      void rebuildSettings();
     }));
   } catch {
     const fallback = document.createElement("p");

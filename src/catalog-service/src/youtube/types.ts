@@ -29,6 +29,10 @@ export type YoutubeRail = {
   items: YoutubeRailItem[];
   cached: boolean;
   stale: boolean;
+  /** Internal-only ranked reserve used for cross-rail dedupe backfill. */
+  reserve_items?: YoutubeRailItem[];
+  /** Internal-only candidate-state namespace, e.g. a Because-You-Watched seed. */
+  candidate_context_id?: string;
 };
 
 export type YoutubeSearchGroups = {

@@ -12,6 +12,7 @@ export type VoiceCommandHandlers = {
   onSettings: () => void;
   onTab: (tab: BrowseTab) => void;
   onOpenDetail: (card: ContentCard, tab: BrowseTab) => void | Promise<void>;
+  onProfileChanged: () => void | Promise<void>;
 };
 
 type LauncherCommandMessage = {
@@ -122,6 +123,9 @@ export function handleLauncherCommand(
     }
     return { ok: true, reason: "" };
   }
+  if (action === "profile_changed") {
+    return { ok: true, reason: "" };
+  }
   if (action === "tab" && parseBrowseTab(message.tab) === null) {
     return { ok: false, reason: "invalid_tab" };
   }
@@ -131,7 +135,7 @@ export function handleLauncherCommand(
   return { ok: true, reason: "" };
 }
 
-async function applyLauncherCommand(
+export async function applyLauncherCommand(
   raw: unknown,
   handlers: VoiceCommandHandlers,
 ): Promise<{ ok: boolean; reason: string }> {
@@ -154,6 +158,10 @@ async function applyLauncherCommand(
   }
   if (action === "settings") {
     handlers.onSettings();
+    return { ok: true, reason: "" };
+  }
+  if (action === "profile_changed") {
+    await handlers.onProfileChanged();
     return { ok: true, reason: "" };
   }
   if (action === "tab") {

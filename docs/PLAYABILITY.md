@@ -166,6 +166,22 @@ tokens, title IDs, or stream IDs.
 
 **Resolve request class:** Couch play and `GET /stream` use `requestClass: 'user'`. Background verify/grow use `requestClass: 'background'`.
 
+**Empty-result confirmation:** AIOStreams can finish successfully at the HTTP
+layer while one or more internal indexer/debrid paths are still cold. Automatic
+VOD Play therefore permits at most two 1.2-second confirmation passes inside
+the same exact-title/episode single flight and existing deadline. This folds
+the observed empty → empty → playable sequence into one B press, stops on the
+first playable result, and never probes a sibling. Only a clean empty or a
+sanitized error-only result proven transient is eligible. Addon timeout/5xx,
+confirmed 429, cancellation, permanent account/configuration error,
+authoritative no-stream placeholder, invalidated work, or exhausted deadline is
+terminal and retains its honest classification. Detail `GET /stream` is bounded
+to 14 seconds and uses zero automatic retries; Live and picker refresh also use
+zero. Cache state is written only after the logical resolve settles. AIOStreams
+stream errors stay visible to catalog-service (`hideErrors=false`, only
+non-stream resources hidden), while Mango sanitizes and removes those rows from
+all picker/ladder output and exposes only safe fixed-category counters.
+
 The couch hot path is deliberately play-first: read an existing verified hint, perform one user-class provider resolve, then walk main → last-resort → obligation floor. Drift/prepare/full verify and trigger draining remain background work; they do not add a second provider resolve before playback.
 
 **Library demotion (gradual, not instant tombstone):**
@@ -363,7 +379,7 @@ Addons (Cinemeta, AIOMetadata, AIOStreams) throttle aggressive meta/stream burst
 | One weak source burns a rail window | Runtime source circuit breakers suppress rate-limited, exhausted, theme-mismatched, or unsustainably low verified-yield sources for the current rail run |
 | Transient stream-addon empty responses | Grow verification retries one zero-stream resolve before writing a `no_stream` tombstone |
 
-Catalog env: `MANGO_META_RATE_LIMIT_BACKOFF_MS` (default 5 min) · `MANGO_RAIL_META_CONCURRENCY` (default 6) · `MANGO_CATALOG_FETCH_TIMEOUT_MS` (default 20s, hard-bounds catalog fetch and JSON body parsing) · `MANGO_STREAM_RESOLVE_BUDGET_USER_MS` (default **30s** — couch play/detail) · `MANGO_STREAM_RESOLVE_BUDGET_MS` (default **12s** — background verify/grow) · `MANGO_STREAM_ZERO_RETRY_ATTEMPTS` / `MANGO_STREAM_ZERO_RETRY_DELAY_MS` (default **0** — couch never double-hits AIO on empty; grow verification uses its own retry knobs) · `MANGO_STREAM_RATE_LIMIT_BACKOFF_MS` (default **90 s** — after a confirmed stream 429 / rate-limit placeholder, background verify/grow skip re-resolving that title; couch soft-respects ~20s via `MANGO_STREAM_USER_RATE_LIMIT_BACKOFF_MS`; timeouts are miss not busy) · `MANGO_STREAM_NEGATIVE_CACHE_MS` (default 90 s — empty-miss dampening for background paths) · `MANGO_STREAM_SERIES_CROSS_PROBE_LIMIT` (default **0** — couch play never scrapes sibling episodes for title-fallback; season-0 bonus rows still always run the small documented `bonusIndexerProbeIds` S0→S{N} same-episode alias) · `MANGO_STREAM_META_CONTEXT_TIMEOUT_MS` (default 1.2s so stream lists do not wait on slow meta addons) · `MANGO_PLAYABILITY_VERIFY_ZERO_RETRY_ATTEMPTS` / `MANGO_PLAYABILITY_VERIFY_ZERO_RETRY_DELAY_MS` (default one 1.2s retry during grow verification only)
+Catalog env: `MANGO_META_RATE_LIMIT_BACKOFF_MS` (default 5 min) · `MANGO_RAIL_META_CONCURRENCY` (default 6) · `MANGO_CATALOG_FETCH_TIMEOUT_MS` (default 20s, hard-bounds catalog fetch and JSON body parsing) · `MANGO_STREAM_RESOLVE_BUDGET_USER_MS` (default **30s** — automatic VOD Play) · `MANGO_STREAM_LIST_RESOLVE_BUDGET_MS` (default **14s** — Detail list, aligned below the 15s launcher timeout) · `MANGO_STREAM_RESOLVE_BUDGET_MS` (default **12s** — background verify/grow) · `MANGO_STREAM_ZERO_RETRY_ATTEMPTS` / `MANGO_STREAM_ZERO_RETRY_DELAY_MS` (automatic VOD Play default **two 1.2s confirmations** — only clean/proven-transient aggregate empties; set attempts to `0` for rollback) · `MANGO_STREAM_RATE_LIMIT_BACKOFF_MS` (default **90 s** — after a confirmed stream 429 / rate-limit placeholder, background verify/grow skip re-resolving that title; couch soft-respects ~20s via `MANGO_STREAM_USER_RATE_LIMIT_BACKOFF_MS`; timeouts are miss not busy) · `MANGO_STREAM_NEGATIVE_CACHE_MS` (default 90 s — empty-miss dampening for background paths) · `MANGO_STREAM_SERIES_CROSS_PROBE_LIMIT` (default **0** — couch play never scrapes sibling episodes for title-fallback; season-0 bonus rows still always run the small documented `bonusIndexerProbeIds` S0→S{N} same-episode alias) · `MANGO_STREAM_META_CONTEXT_TIMEOUT_MS` (default 1.2s so stream lists do not wait on slow meta addons) · `MANGO_PLAYABILITY_VERIFY_ZERO_RETRY_ATTEMPTS` / `MANGO_PLAYABILITY_VERIFY_ZERO_RETRY_DELAY_MS` (default one 1.2s retry during grow verification only)
 
 Grow negative memory is runtime-only:
 
@@ -408,11 +424,23 @@ PR regression (not gate-lite): `bash scripts/m3-play/playability/gate-m3-library
 Fire/Water `For You` candidates come only from the global active verified-title
 corpus; recommendation enrichment cannot publish an unverified title or bypass
 the normal grow/resolver ladder. Current ratings, hidden/blocked rows, Not
-Interested, invalid/expired rows, and duplicates are hard exclusions. Saved,
-started, and completed titles are held as a last fallback only when fewer than
-six untouched candidates remain. Snapshot publication is atomic and a failed
-refresh retains the prior valid revision. Playing a For You card uses the exact
-same play-session and playback ladder as every curated rail.
+for-me, invalid/expired rows, and duplicates are hard exclusions for the active
+profile. Household uses the union of exact profile vetoes. Saved and watched
+titles inform dual-horizon taste without displacing explicit Fire/Water; they do
+not ordinarily re-enter the visible rail. One completed VOD may return only
+through the explicit sparse rewatch lane after its cooldown, never as generic
+fallback filler.
+
+Each visible Movies/TV For You response is exactly six titles currently marked
+verified in the playability DB: four close, one adjacent, and one bounded
+surprise. If the ranked reserve cannot heal every slot after load-time
+revalidation, Mango omits the rail instead of returning a partial row. This is
+source-state evidence, not unobserved target-TV playback proof. AI can enrich semantic features only in the
+idle/background path; the deterministic local ranker owns eligibility and the
+final slate. Snapshot publication is atomic, an enrichment/ranking failure
+retains the prior valid revision, and the launcher never waits for AI. Playing
+a For You card uses the exact same play-session and playback ladder as every
+curated rail, including the existing 4K policy and proof boundary.
 
 ## Open items
 

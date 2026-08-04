@@ -17,6 +17,9 @@ test('S2: resolve metrics count joins, bypasses, fan-out, aliases, and rate limi
   recordResolveMetric('flight_join_background', 2);
   recordResolveMetric('background_defer_foreground');
   recordResolveMetric('foreground_bypass_background');
+  recordResolveMetric('stream_resolve_retries', 2);
+  recordResolveMetric('stream_resolve_retry_recoveries');
+  recordResolveMetric('stream_resolve_retry_exhaustions');
   recordResolveMetric('alias_probes', 3);
   recordResolveMetric('rate_limit_classifications', 4);
   recordProviderFanout(5, 12);
@@ -29,6 +32,9 @@ test('S2: resolve metrics count joins, bypasses, fan-out, aliases, and rate limi
       foreground_bypass_background: snapshot.foreground_bypass_background,
       provider_fanout_requests: snapshot.provider_fanout_requests,
       provider_fanout_addons: snapshot.provider_fanout_addons,
+      stream_resolve_retries: snapshot.stream_resolve_retries,
+      stream_resolve_retry_recoveries: snapshot.stream_resolve_retry_recoveries,
+      stream_resolve_retry_exhaustions: snapshot.stream_resolve_retry_exhaustions,
       alias_probes: snapshot.alias_probes,
       rate_limit_classifications: snapshot.rate_limit_classifications,
       ownership_deferrals: snapshot.ownership_deferrals,
@@ -41,6 +47,9 @@ test('S2: resolve metrics count joins, bypasses, fan-out, aliases, and rate limi
       foreground_bypass_background: 1,
       provider_fanout_requests: 1,
       provider_fanout_addons: 5,
+      stream_resolve_retries: 2,
+      stream_resolve_retry_recoveries: 1,
+      stream_resolve_retry_exhaustions: 1,
       alias_probes: 3,
       rate_limit_classifications: 4,
       ownership_deferrals: 0,

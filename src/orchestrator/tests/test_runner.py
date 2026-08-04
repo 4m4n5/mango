@@ -128,6 +128,96 @@ class CreateAiCatalogValidationTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(result)
         self.assertTrue(payload["ok"])
 
+    async def test_profile_create_is_explicit_and_does_not_request_activation(self) -> None:
+        with patch(
+            "orchestrator.tools.catalog.tool_manage_viewer_profile",
+            return_value={"ok": True, "profile": {"profile_id": "alice"}},
+        ) as manage:
+            result = await execute_tool(
+                "mango_manage_viewer_profile",
+                {"action": "create", "name": "  Alice  "},
+                self._settings(),
+            )
+        self.assertTrue(json.loads(result)["ok"])
+        manage.assert_called_once_with(
+            self._settings(),
+            action="create",
+            profile_id=None,
+            name="Alice",
+        )
+
+    async def test_profile_activation_waits_for_tv_invalidation_handshake(self) -> None:
+        commands: list[dict[str, object]] = []
+
+        async def dispatch(command: dict[str, object]) -> int:
+            commands.append(command)
+            return 73
+
+        with patch(
+            "orchestrator.tools.catalog.tool_manage_viewer_profile",
+            return_value={"ok": True, "state": {"active_profile_id": "alice"}},
+        ):
+            result = await execute_tool(
+                "mango_manage_viewer_profile",
+                {"action": "activate", "profile_id": "alice"},
+                self._settings(),
+                dispatch_launcher=dispatch,
+            )
+        payload = json.loads(result)
+        self.assertTrue(payload["ok"])
+        self.assertTrue(payload["tv_synced"])
+        self.assertEqual(payload["tv_seq"], 73)
+        self.assertEqual(commands, [{
+            "type": "launcher_command",
+            "action": "profile_changed",
+            "profile_id": "alice",
+        }])
+
+    async def test_profile_actions_require_their_specific_fields(self) -> None:
+        for action in ("rename", "activate", "complete_onboarding"):
+            result = await execute_tool(
+                "mango_manage_viewer_profile",
+                {"action": action, "name": "Alice"},
+                self._settings(),
+            )
+            self.assertEqual(
+                json.loads(result)["error"],
+                f"profile_id required for {action}",
+            )
+        for action in ("create", "rename"):
+            result = await execute_tool(
+                "mango_manage_viewer_profile",
+                {"action": action, "profile_id": "alice"},
+                self._settings(),
+            )
+            self.assertEqual(json.loads(result)["error"], f"name required for {action}")
+
+    async def test_profile_rename_preserves_explicit_stable_id(self) -> None:
+        with patch(
+            "orchestrator.tools.catalog.tool_manage_viewer_profile",
+            return_value={"ok": True, "profile": {"profile_id": "alice", "name": "Alice Prime"}},
+        ) as manage:
+            result = await execute_tool(
+                "mango_manage_viewer_profile",
+                {"action": "rename", "profile_id": " Alice ", "name": " Alice Prime "},
+                self._settings(),
+            )
+        self.assertTrue(json.loads(result)["ok"])
+        manage.assert_called_once_with(
+            self._settings(),
+            action="rename",
+            profile_id="Alice",
+            name="Alice Prime",
+        )
+
+    async def test_profile_unknown_action_fails_closed(self) -> None:
+        result = await execute_tool(
+            "mango_manage_viewer_profile",
+            {"action": "delete", "profile_id": "alice"},
+            self._settings(),
+        )
+        self.assertEqual(json.loads(result), {"ok": False, "error": "valid profile action required"})
+
 
 if __name__ == "__main__":
     unittest.main()
