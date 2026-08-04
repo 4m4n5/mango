@@ -22,7 +22,6 @@ import {
   type LibraryItemInput,
   type PersonalizationState,
 } from '../library/db.js';
-import { listRatings } from '../library/ratings.js';
 import { deleteAiCatalogSlot, loadAiCatalogSlots, slotsForTab } from '../ai-catalogs/store.js';
 import { YoutubeApiClient, type YoutubeChannelStats } from './api.js';
 import { clearYoutubeAuth, pollYoutubeDeviceAuth, startYoutubeDeviceAuth, youtubeAccessToken, youtubeAuthSummary } from './auth.js';
@@ -107,7 +106,6 @@ const FOR_YOU_SEARCH_HISTORY_LIMIT = 20;
 const HOUSEHOLD_CHANNEL_TASTE_BUDGET = 2;
 const HOUSEHOLD_TOKEN_TASTE_BUDGET = 3;
 const HOUSEHOLD_SEARCH_TASTE_BUDGET = 0.5;
-const FIRE_WATER_YOUTUBE_PRIOR_BUDGET = 0.6;
 const SECONDARY_SCRIPT_MIN_SHARE = 0.2;
 const SECONDARY_SCRIPT_MIN_EVIDENCE_ITEMS = 2;
 const SECONDARY_SCRIPT_MIN_CANDIDATES = 2;
@@ -386,8 +384,6 @@ type PositiveTasteContribution = {
   positiveChannels: Map<string, number>;
   durableTokens: Map<string, number>;
   searchTokens: Map<string, number>;
-  ratingTokens: Map<string, number>;
-  negativeRatingTokens: Map<string, number>;
   scriptItems: Map<YoutubeScriptBucket, Map<string, number>>;
 };
 
@@ -994,8 +990,6 @@ function createPositiveTasteContribution(profileId: string): PositiveTasteContri
     positiveChannels: new Map(),
     durableTokens: new Map(),
     searchTokens: new Map(),
-    ratingTokens: new Map(),
-    negativeRatingTokens: new Map(),
     scriptItems: new Map(),
   };
 }
@@ -1107,29 +1101,6 @@ function positiveSignalConfidence(
   return Math.max(0.05, Math.min(1, Math.max(fallback, signal.strongest_positive) * dualHorizon));
 }
 
-function addFireWaterTastePrior(contribution: PositiveTasteContribution): void {
-  for (const rating of listRatings(undefined, contribution.profileId).slice(0, 200)) {
-    const holistic = 0.75 * Math.max(rating.fire, rating.water)
-      + 0.25 * Math.min(rating.fire, rating.water);
-    const signedStrength = Math.max(-1, Math.min(1, (holistic - 2.5) / 2.5));
-    if (signedStrength === 0) continue;
-    const strength = Math.abs(signedStrength);
-    const target = signedStrength > 0 ? contribution.ratingTokens : contribution.negativeRatingTokens;
-    const forbidden = youtubeTitleTokens(rating.id);
-    for (const tag of rating.taste_tags.slice(0, 16)) {
-      for (const token of youtubeTitleTokens(tag)) {
-        if (!forbidden.has(token)) addWeight(target, token, strength);
-      }
-    }
-    const title = rating.title.trim();
-    if (title && title.toLowerCase() !== rating.id.trim().toLowerCase()) {
-      for (const token of youtubeTitleTokens(title)) {
-        if (!forbidden.has(token)) addWeight(target, token, strength * 0.35);
-      }
-    }
-  }
-}
-
 function buildPositiveTasteContribution(profileId: string): PositiveTasteContribution {
   const contribution = createPositiveTasteContribution(profileId);
   const signals = listProfileRecommendationSignals({
@@ -1193,7 +1164,7 @@ function buildPositiveTasteContribution(profileId: string): PositiveTasteContrib
     const weight = Math.max(0, 1 - ageDays / 7);
     if (weight > 0) addTokenWeights(contribution.searchTokens, { title: query }, weight * 0.5);
   }
-  addFireWaterTastePrior(contribution);
+  // VOD Fire/Water ratings intentionally do not feed YouTube taste — domains stay disjoint.
   return contribution;
 }
 
@@ -1316,30 +1287,10 @@ function buildTasteProfile(personalization = getPersonalizationState()): TastePr
       contributions.map((contribution) => contribution.searchTokens),
       HOUSEHOLD_SEARCH_TASTE_BUDGET,
     );
-    mergeEqualBudget(
-      profile.positiveTokens,
-      contributions.map((contribution) => contribution.ratingTokens),
-      FIRE_WATER_YOUTUBE_PRIOR_BUDGET,
-    );
-    mergeEqualBudget(
-      profile.negativeTokens,
-      contributions.map((contribution) => contribution.negativeRatingTokens),
-      FIRE_WATER_YOUTUBE_PRIOR_BUDGET,
-    );
   } else {
     mergeWeightMap(profile.positiveChannels, activeContribution.positiveChannels);
     mergeWeightMap(profile.positiveTokens, activeContribution.durableTokens);
     mergeWeightMap(profile.positiveTokens, activeContribution.searchTokens);
-    mergeEqualBudget(
-      profile.positiveTokens,
-      [activeContribution.ratingTokens],
-      FIRE_WATER_YOUTUBE_PRIOR_BUDGET,
-    );
-    mergeEqualBudget(
-      profile.negativeTokens,
-      [activeContribution.negativeRatingTokens],
-      FIRE_WATER_YOUTUBE_PRIOR_BUDGET,
-    );
   }
 
   // Mood is an explicit, session-scoped intent. It nudges the current request

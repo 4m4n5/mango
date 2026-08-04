@@ -1521,8 +1521,8 @@ test('For You does not force a script quota when secondary candidate supply is o
   }
 }));
 
-test('Fire Water taste tags provide a bounded cross-domain YouTube relevance prior', () => withTempState(async () => {
-  const viewer = createViewerProfile('Cross domain viewer');
+test('Fire Water VOD ratings do not cross-pollinate YouTube For You ranking', () => withTempState(async () => {
+  const viewer = createViewerProfile('Disjoint domain viewer');
   activateViewerProfile(viewer.profile_id);
   putRating({
     type: 'movie', id: 'tt-cross-domain', title: 'Interstellar',
@@ -1532,22 +1532,24 @@ test('Fire Water taste tags provide a bounded cross-domain YouTube relevance pri
   seedForYouCandidates([
     sampleVideo('CrossDomainMatch', 'none', 'cross-domain-match', 'Interstellar space exploration'),
     sampleVideo('CrossDomainUnrelated', 'none', 'cross-domain-unrelated', 'Garden design workshop'),
+    sampleVideo('CrossDomainNeutral', 'none', 'cross-domain-neutral', 'Cooking techniques workshop'),
+    sampleVideo('CrossDomainNeutral2', 'none', 'cross-domain-neutral-2', 'Architecture studio workshop'),
   ]);
   const service = new YoutubeService();
-  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
-  const publicItems = response.rails.find((rail) => rail.rail_id === 'for_you')?.items ?? [];
+  await service.rails({ reshuffle: true });
   const items = internalDiscoveryRail(service, viewer.profile_id, 'for_you')?.items as Array<YoutubeItem & {
     source?: string;
   }> | undefined;
   assert.ok(items);
-  assert.equal(response.rails.some((rail) => rail.rail_id === 'for_you'), false);
-  assert.equal(items[0]?.id, 'CrossDomainMatch');
-  // The VOD prior can discover relevance but stays below YouTube's familiar/history threshold.
-  assert.equal(items.find((item) => item.id === 'CrossDomainMatch')?.source, 'discovery');
-  assert.equal(items.find((item) => item.id === 'CrossDomainUnrelated')?.source, 'wildcard');
+  // Without YouTube history, VOD Fire/Water must not promote a title-tag match
+  // into discovery/familiar — domains stay disjoint.
+  const match = items.find((item) => item.id === 'CrossDomainMatch');
+  assert.ok(match);
+  assert.notEqual(match.source, 'discovery');
+  assert.notEqual(match.source, 'history');
 }));
 
-test('low Fire Water ratings add a bounded semantic negative prior', () => withTempState(async () => {
+test('low Fire Water VOD ratings do not demote matching YouTube candidates', () => withTempState(async () => {
   const viewer = createViewerProfile('Low rating viewer');
   activateViewerProfile(viewer.profile_id);
   putRating({
@@ -1570,7 +1572,8 @@ test('low Fire Water ratings add a bounded semantic negative prior', () => withT
   const disliked = reserve.find((item) => item.id === 'LowRatingMatch');
   const neutral = reserve.find((item) => item.id === 'LowRatingNeutral');
   assert.ok(disliked && neutral);
-  assert.ok(disliked.score < neutral.score);
+  // VOD dislike must not push the lexical YouTube match below an unrelated title.
+  assert.ok(disliked.score >= neutral.score);
 }));
 
 test('for you excludes watched shorts live not interested and recent exposures', () => withTempState(async () => {

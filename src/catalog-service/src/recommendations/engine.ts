@@ -373,7 +373,7 @@ function fillMmrPick(
 
 /** Visible slate stays six; the last-good snapshot aims deeper for shuffle/heal. */
 export const FOR_YOU_VISIBLE_LIMIT = 6;
-export const FOR_YOU_RESERVE_LIMIT = 60;
+export const FOR_YOU_RESERVE_LIMIT = 200;
 /** Strict diversity on the 10-foot six; softer on the deeper thematic reserve. */
 const VISIBLE_CLUSTER_CAP = 2;
 const RESERVE_CLUSTER_CAP = 5;
@@ -550,7 +550,34 @@ export function rankRecommendations(input: RankRecommendationsInput): ScoredReco
       output,
       reserveOpts,
     ).map((item) => ({ ...item, bucket: 'close' as const }));
+    closeExtra.forEach((item) => used.add(`${item.type}:${item.id}`));
     output.push(...closeExtra);
+
+    // Affinity-ordered depth fill so cluster caps alone cannot stall at ~30–60.
+    // Prefer the thematic band first, then remaining byAffinity order.
+    const bucketForIndex = (index: number): ScoredRecommendation['bucket'] => (
+      index < closePoolSize ? 'close'
+        : index < adjacentPoolEnd ? 'adjacent'
+          : 'fallback'
+    );
+    for (const item of thematic) {
+      if (output.length >= limit) break;
+      const key = `${item.type}:${item.id}` as const;
+      if (used.has(key)) continue;
+      used.add(key);
+      const index = affinityIndex.get(key) ?? Number.POSITIVE_INFINITY;
+      output.push({ ...item, bucket: bucketForIndex(index) });
+    }
+    if (output.length < limit) {
+      for (const item of byAffinity) {
+        if (output.length >= limit) break;
+        const key = `${item.type}:${item.id}` as const;
+        if (used.has(key)) continue;
+        used.add(key);
+        const index = affinityIndex.get(key) ?? Number.POSITIVE_INFINITY;
+        output.push({ ...item, bucket: bucketForIndex(index) });
+      }
+    }
   }
   return output.slice(0, limit);
 }

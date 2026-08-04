@@ -349,17 +349,17 @@ test('ranking is replay-stable and the visible six target exact 4/1/1 buckets', 
   );
 });
 
-test('deep reserve keeps visible cluster discipline while admitting more themes', () => {
+test('deep reserve keeps visible cluster discipline while filling toward the limit', () => {
   const ratings = [rating('anchor', 5, 4.5)];
   const anchor = buildRecommendationFeature({
     type: 'movie', id: 'anchor', title: 'Bright Adventure', year: '2020', rail_id: 'action-adventure',
   });
   const ratingFeatures = new Map([['movie:anchor', anchor]]);
-  const candidates = Array.from({ length: 48 }, (_, index) => buildRecommendationFeature({
+  const candidates = Array.from({ length: 220 }, (_, index) => buildRecommendationFeature({
     type: 'movie',
     id: `deep-${index}`,
     title: index % 2 ? `Bright Story ${index}` : `Quiet Story ${index}`,
-    year: String(1980 + index),
+    year: String(1980 + (index % 40)),
     rail_id: `genre-${index % 12}`,
   }));
   const ranked = rankRecommendations({
@@ -368,21 +368,19 @@ test('deep reserve keeps visible cluster discipline while admitting more themes'
     ratings,
     ratingFeatures,
     dailySeed: 'movies:deep-reserve',
-    limit: 60,
+    limit: 200,
     visibleLimit: 6,
   });
-  assert.ok(ranked.length >= 36, `expected deep reserve, got ${ranked.length}`);
+  assert.equal(ranked.length, 200, `expected 200-deep reserve, got ${ranked.length}`);
   const visible = ranked.slice(0, 6);
   const visibleClusters = new Map<string, number>();
   for (const item of visible) {
     visibleClusters.set(item.cluster, (visibleClusters.get(item.cluster) ?? 0) + 1);
   }
   assert.ok(Math.max(...visibleClusters.values()) <= 2);
-  const allClusters = new Map<string, number>();
-  for (const item of ranked) {
-    allClusters.set(item.cluster, (allClusters.get(item.cluster) ?? 0) + 1);
-  }
-  assert.ok(Math.max(...allClusters.values()) <= 5);
+  assert.equal(visible.filter((row) => row.bucket === 'close').length, 4);
+  assert.equal(visible.filter((row) => row.bucket === 'adjacent').length, 1);
+  assert.equal(visible.filter((row) => row.bucket === 'explore').length, 1);
 });
 
 test('exploration obeys the global MMR cluster cap without changing the 4/1/1 slate', () => {
