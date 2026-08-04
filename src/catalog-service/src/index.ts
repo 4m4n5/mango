@@ -26,6 +26,7 @@ import {
   invalidateTitle,
   getTitlePlayability,
   getTitleVerifyProfile,
+  playabilityRecommendationCorpusGeneration,
   recordVerifyResult,
 } from './playability/db.js';
 import { startTriggerConsumerBackgroundTick } from './playability/trigger-consumer.js';
@@ -52,7 +53,6 @@ import {
   completeViewerProfileOnboarding,
   createViewerProfile,
   getPersonalizationState,
-  libraryTabForType,
   listSavedLibraryItems,
   listProfileLibraryFeedback,
   listViewerProfiles,
@@ -60,7 +60,6 @@ import {
   recordLibraryWatch,
   recordRecommendationDetailOpen,
   recordRecommendationImpressions,
-  recordRecommendationPlayStart,
   registerRecommendationServedSlate,
   resolveRecommendationServedSlate,
   renameViewerProfile,
@@ -78,7 +77,6 @@ import {
   canonicalRatingIdentity,
   getRating,
   getRatingPromptState,
-  listRatings,
   markRatingPromptPresented,
   putRating,
   resolveRatingPrompt,
@@ -88,15 +86,42 @@ import {
   fireWaterRatingsEnabled,
   recommendationDiagnostics,
   incrementRecommendationMetric,
-  refreshAllForYou,
   refreshForYou,
 } from './recommendations/service.js';
 import { CoalescingRecommendationRefreshQueue } from './recommendations/background-refresh.js';
+import {
+  recommendationOwnerForRollout,
+  recommendationsHouseholdOnlyForRollout,
+  vodRecommendationsV2Mode,
+} from './recommendations/v2-mode.js';
+import {
+  captureVodRecommendationRevisions,
+  createRecommendationRefreshJob,
+  recommendationRefreshJobById,
+  reconcileInterruptedRecommendationRefreshJobs,
+  updateRecommendationRefreshJobs,
+  type RecommendationRefreshJob,
+} from './recommendations/jobs.js';
+import {
+  householdOnlyMutationError,
+  preserveHouseholdMoodClear,
+  reconcileHouseholdRecommendationIdentity,
+} from './recommendations/household-identity.js';
 import { validateOptionalRecommendationMutationAttribution } from './recommendations/mutation-attribution.js';
+import { assertCurrentVodRecommendationSource } from './recommendations/source-revision.js';
+import {
+  setStoryDnaStructuredLookupProvider,
+  setStoryGraphLowWaterEnqueueHook,
+} from './recommendations/story-graph-service.js';
+import { previewStoryEvidence } from './playability/list-source.js';
 import { searchCachedYoutubeItems } from './youtube/db.js';
 import {
+  importYoutubeTakeoutStream,
+  refreshYoutubeV2AfterLocalSignal,
   resolveYoutubeImpressionSourceRevision,
   YoutubeService,
+  youtubePublicPersonalizationPayload,
+  youtubeRecommendationsV2Mode,
 } from './youtube/service.js';
 import type { YoutubeItemKind } from './youtube/types.js';
 import { ReliabilityService } from './reliability/service.js';
@@ -356,13 +381,19 @@ function savedPayload(
   personalization_updated_at: number;
   saved: ReturnType<typeof listSavedLibraryItems>;
 } {
+  const dataOwner = tab === 'youtube'
+    ? recommendationOwnerForRollout('youtube', personalization.active_profile_id)
+    : tab === 'movies' || tab === 'series'
+      ? recommendationOwnerForRollout('vod', personalization.active_profile_id)
+      : personalization.active_profile_id;
   return {
     ok: true,
     ...(tab ? { tab } : {}),
     profile_id: personalization.active_profile_id,
     personalization_updated_at: personalization.updated_at,
     saved: listSavedLibraryItems(tab, Number.isFinite(limit) ? limit : 100, {
-      profile_id: personalization.active_profile_id,
+      profile_id: dataOwner,
+      household_blend: false,
     }),
   };
 }
@@ -574,8 +605,15 @@ function recommendationAttributionFromBody<TDomain extends 'vod' | 'youtube'>(
   } catch {
     throw new CatalogError(409, 'this recommendation slate is no longer current');
   }
-  if (served.profile_id !== activeViewerProfileId()) {
+  if (served.profile_id !== recommendationOwnerForRollout(domain, activeViewerProfileId())) {
     throw new CatalogError(409, 'profile changed; reload recommendations before acting');
+  }
+  if (domain === 'vod') {
+    try {
+      assertCurrentVodRecommendationSource(served);
+    } catch {
+      throw new CatalogError(409, 'this recommendation slate is no longer current');
+    }
   }
   return {
     profile_id: served.profile_id,
@@ -1192,10 +1230,12 @@ async function startPlaybackSession(
   const acceptedVodAttribution = body.source === 'youtube'
     ? null
     : recommendationAttributionFromBody(body, 'vod');
-  body.recommendation_profile_id = expectedPersonalization?.active_profile_id
-    ?? acceptedYoutubeAttribution?.profile_id
+  body.recommendation_profile_id = acceptedYoutubeAttribution?.profile_id
     ?? acceptedVodAttribution?.profile_id
-    ?? activeViewerProfileId();
+    ?? recommendationOwnerForRollout(
+      body.source === 'youtube' ? 'youtube' : 'vod',
+      expectedPersonalization?.active_profile_id ?? activeViewerProfileId(),
+    );
   const existing = await getPlaybackSession(requestId);
   assertExpectedPersonalization(
     expectedPersonalization,
@@ -1306,31 +1346,149 @@ async function startPlaybackSession(
 async function main(): Promise<void> {
   await backupLibraryDbBeforeFireWaterMigration();
   initLibraryDb();
+  const recommendationsHouseholdOnly = recommendationsHouseholdOnlyForRollout;
+  reconcileInterruptedRecommendationRefreshJobs();
+  reconcileHouseholdRecommendationIdentity(recommendationsHouseholdOnly());
   await initProgressDb();
   const core = await CatalogCore.create();
-  const recommendationRefreshQueue = new CoalescingRecommendationRefreshQueue({
-    refresh: ({ profile_id: profileId, tab }) => refreshForYou(tab, { profile_id: profileId }),
-    onPublished: () => core.clearRailItemsCache(),
+  setStoryDnaStructuredLookupProvider(async (inputs) => {
+    const output: typeof inputs[number][] = [];
+    let cursor = 0;
+    const workerCount = Math.min(4, inputs.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (cursor < inputs.length) {
+        const input = inputs[cursor];
+        cursor += 1;
+        if (!input) continue;
+        try {
+          const meta = await core.meta(input.type, input.id);
+          const evidence = previewStoryEvidence(meta, input.id);
+          output.push({
+            ...input,
+            synopsis: evidence.synopsis,
+            genres: evidence.genres,
+            keywords: evidence.keywords,
+            languages: evidence.languages,
+            countries: evidence.countries,
+            runtime_minutes: evidence.runtime_minutes || null,
+            release_state: evidence.release_state,
+            format: evidence.format,
+            cast: evidence.cast,
+            characters: evidence.characters,
+            directors: evidence.directors,
+            writers: evidence.writers,
+            awards_certification: [evidence.awards, evidence.certification]
+              .filter((value): value is string => Boolean(value)),
+            external_ids: evidence.external_ids,
+            source: 'structured-addon-meta',
+            evidence_sources: ['structured-addon-meta'],
+            lookup_used: true,
+          });
+        } catch {
+          // Selective lookup is optional and item-scoped. A failed addon lookup
+          // leaves the original canonical evidence eligible for teacher retry.
+        }
+      }
+    });
+    await Promise.all(workers);
+    return output.sort((left, right) => (
+      `${left.type}:${left.id}`.localeCompare(`${right.type}:${right.id}`)
+    ));
+  });
+  const pendingRecommendationJobs = new Map<string, string[]>();
+  const activeRecommendationJobs = new Map<string, string[]>();
+  const pendingRecommendationReasons = new Map<string, string[]>();
+  const activeRecommendationReasons = new Map<string, string[]>();
+  const recommendationWorkKey = (profileId: string, tab: 'movies' | 'series'): string => (
+    `${profileId}\u0000${tab}`
+  );
+  const createRecommendationRefreshQueue = (ownedTab: 'movies' | 'series') => new CoalescingRecommendationRefreshQueue({
+    refresh: async ({ profile_id: profileId, tab }) => {
+      if (tab !== ownedTab) throw new Error(`recommendation worker ${ownedTab} received ${tab}`);
+      const key = recommendationWorkKey(profileId, tab);
+      let jobIds = activeRecommendationJobs.get(key);
+      if (!jobIds) {
+        jobIds = pendingRecommendationJobs.get(key) ?? [];
+        pendingRecommendationJobs.delete(key);
+        activeRecommendationJobs.set(key, jobIds);
+        activeRecommendationReasons.set(key, pendingRecommendationReasons.get(key) ?? ['refresh']);
+        pendingRecommendationReasons.delete(key);
+        updateRecommendationRefreshJobs(jobIds, 'running');
+      }
+      const result = await refreshForYou(tab, {
+        profile_id: profileId,
+        trigger_reasons: activeRecommendationReasons.get(key) ?? ['refresh'],
+      });
+      if (jobIds.length > 0) {
+        updateRecommendationRefreshJobs(jobIds.slice(0, 1), 'complete');
+        updateRecommendationRefreshJobs(jobIds.slice(1), 'coalesced');
+      }
+      activeRecommendationJobs.delete(key);
+      activeRecommendationReasons.delete(key);
+      return result;
+    },
+    onPublished: (work) => core.invalidateRecommendationTab(work.tab),
     onRetainedLastGood: (work, error, willRetry) => {
+      if (!willRetry) {
+        const key = recommendationWorkKey(work.profile_id, work.tab);
+        updateRecommendationRefreshJobs(activeRecommendationJobs.get(key) ?? [], 'failed', error);
+        activeRecommendationJobs.delete(key);
+        activeRecommendationReasons.delete(key);
+      }
       console.warn(`recommendation background refresh retained last-good ${work.tab} snapshot for ${work.profile_id}${
         willRetry ? ' and will retry' : ''}: ${error instanceof Error ? error.message : String(error)}`);
     },
   });
-  const queueRecommendationRefresh = (
+  const recommendationRefreshQueues = {
+    movies: createRecommendationRefreshQueue('movies'),
+    series: createRecommendationRefreshQueue('series'),
+  };
+  const queueRecommendationRefresh = async (
     tabs: readonly ('movies' | 'series')[],
     profileId = activeViewerProfileId(),
-  ): void => {
-    recommendationRefreshQueue.enqueue(profileId, tabs);
+    triggerReasons: readonly string[] = ['signal_change'],
+    captured: Record<string, string | number | null> = {},
+  ): Promise<RecommendationRefreshJob[]> => {
+    const corpusGeneration = typeof captured.corpus_generation === 'number'
+      ? captured.corpus_generation
+      : await playabilityRecommendationCorpusGeneration().catch(() => null);
+    const jobs = tabs.map((tab) => createRecommendationRefreshJob({
+      domain: 'vod',
+      content_type: tab === 'movies' ? 'movie' : 'series',
+      trigger_reasons: triggerReasons,
+      captured_revisions: {
+        ...captureVodRecommendationRevisions(tab, {
+          profile_id: profileId,
+          corpus_generation: corpusGeneration,
+        }),
+        ...captured,
+      },
+    }));
+    jobs.forEach((job, index) => {
+      const key = recommendationWorkKey(profileId, tabs[index]!);
+      pendingRecommendationJobs.set(key, [
+        ...(pendingRecommendationJobs.get(key) ?? []),
+        job.job_id,
+      ]);
+      pendingRecommendationReasons.set(key, [...new Set([
+        ...(pendingRecommendationReasons.get(key) ?? []),
+        ...job.trigger_reasons,
+      ])].sort());
+    });
+    tabs.forEach((tab) => recommendationRefreshQueues[tab].enqueue(profileId, [tab]));
+    return jobs;
   };
-  setRecommendationSignalChangeHook((change) => {
+  setStoryGraphLowWaterEnqueueHook((request) => (
     queueRecommendationRefresh(
-      change.type === 'series' ? ['series'] : ['movies', 'series'],
-      change.profile_id,
-    );
-  });
+      [request.tab],
+      activeViewerProfileId(),
+      ['low_water_replenishment'],
+      { rank_generation: request.rank_generation_id },
+    ).then(() => undefined)
+  ));
   // Explicit ratings are not a prerequisite: a skipped-onboarding personal
   // profile can warm up from Save/watch evidence against neutral priors.
-  queueRecommendationRefresh(['movies', 'series']);
+  await queueRecommendationRefresh(['movies', 'series'], activeViewerProfileId(), ['service_startup']);
   core.startLiveRailsBackgroundRefresh();
   activeStreams = new ActiveStreamService();
   await activeStreams.clear().catch((error) => {
@@ -1343,6 +1501,29 @@ async function main(): Promise<void> {
   // H1(b): no-ops unless MANGO_TRIGGER_CONSUMER=1 — bounded, idle-gated, debounced (couch safety).
   startTriggerConsumerBackgroundTick(core);
   const youtube = new YoutubeService();
+  setRecommendationSignalChangeHook((change) => {
+    if (change.stage === 'play') return;
+    if (change.type === 'youtube_video') {
+      void refreshYoutubeV2AfterLocalSignal({
+        reason: 'meaningful_watch',
+        service: youtube,
+        wait_for_acquisition: false,
+      }).catch((error) => console.warn(`YouTube v2 local signal refresh retained last-good: ${
+        error instanceof Error ? error.message : String(error)}`));
+      return;
+    }
+    // A qualifying VOD watch is an exact v2 exclusion immediately, before the
+    // coalesced Story Graph worker publishes its replacement generation.
+    const tab = change.type === 'series' ? 'series' : 'movies';
+    core.invalidateRecommendationTab(tab);
+    void queueRecommendationRefresh(
+      [tab],
+      change.profile_id,
+      [change.stage === 'completed' ? 'watch_completion' : 'meaningful_watch'],
+    ).catch((error) => console.warn(`recommendation watch refresh enqueue failed: ${
+      error instanceof Error ? error.message : String(error)
+    }`));
+  });
   const search = new UnifiedSearchService(core, youtube);
   const reliability = new ReliabilityService({
     catalogHealth: () => core.health(),
@@ -1542,6 +1723,11 @@ async function main(): Promise<void> {
               source: context.source,
               type: context.type,
               id: context.id,
+              profile_id: context.source === 'youtube'
+                ? recommendationOwnerForRollout('youtube', activeViewerProfileId())
+                : context.type === 'movie' || context.type === 'series'
+                  ? recommendationOwnerForRollout('vod', activeViewerProfileId())
+                  : activeViewerProfileId(),
             }),
           });
           return;
@@ -1551,12 +1737,19 @@ async function main(): Promise<void> {
         if (!type || !id) {
           throw new CatalogError(400, 'GET /library/state requires type and id, or current=true');
         }
+        const source = url.searchParams.get('source') || undefined;
+        const stateOwner = source === 'youtube'
+          ? recommendationOwnerForRollout('youtube', activeViewerProfileId())
+          : type === 'movie' || type === 'series'
+            ? recommendationOwnerForRollout('vod', activeViewerProfileId())
+            : activeViewerProfileId();
         sendJson(res, 200, {
           ok: true,
           state: getLibraryState({
-            source: url.searchParams.get('source') || undefined,
+            source,
             type,
             id,
+            profile_id: stateOwner,
           }),
         });
         return;
@@ -1634,10 +1827,11 @@ async function main(): Promise<void> {
             }
             throw error;
           }
-          const affectedTabs = rating?.type === 'series' ? ['series'] as const : ['movies', 'series'] as const;
+          const affectedTabs = rating?.type === 'series' ? ['series'] as const : ['movies'] as const;
           const before = Object.fromEntries(affectedTabs.map((tab) => [tab, currentRecommendationRevision(tab)]));
-          queueRecommendationRefresh(affectedTabs);
-          youtube.invalidateRailsCache();
+          affectedTabs.forEach((tab) => core.invalidateRecommendationTab(tab));
+          await queueRecommendationRefresh(affectedTabs);
+          if (youtubeRecommendationsV2Mode() === 'off') youtube.invalidateRailsCache();
           incrementRecommendationMetric('rating_mutations');
           sendJson(res, 200, {
             ok: true,
@@ -1671,9 +1865,10 @@ async function main(): Promise<void> {
             });
             const tabs = type.trim().toLowerCase() === 'series'
               ? ['series'] as const
-              : ['movies', 'series'] as const;
-            queueRecommendationRefresh(tabs);
-            youtube.invalidateRailsCache();
+              : ['movies'] as const;
+            tabs.forEach((tab) => core.invalidateRecommendationTab(tab));
+            await queueRecommendationRefresh(tabs);
+            if (youtubeRecommendationsV2Mode() === 'off') youtube.invalidateRailsCache();
             incrementRecommendationMetric('rating_mutations');
             sendJson(res, 200, {
               ok: true,
@@ -1731,6 +1926,15 @@ async function main(): Promise<void> {
         return;
       }
 
+      if (req.method === 'GET' && parts.length === 3
+        && parts[0] === 'recommendations' && parts[1] === 'jobs') {
+        if (!isLocalRequest(req)) throw new CatalogError(403, 'recommendation job state is localhost-only');
+        const job = recommendationRefreshJobById(parts[2] || '');
+        if (!job) throw new CatalogError(404, 'recommendation refresh job not found');
+        sendJson(res, 200, { ok: true, job });
+        return;
+      }
+
       if (req.method === 'POST' && parts.length === 2
         && parts[0] === 'recommendations' && parts[1] === 'impressions') {
         const body = await readBody(req) as Record<string, unknown>;
@@ -1766,6 +1970,13 @@ async function main(): Promise<void> {
             });
           } catch {
             throw new CatalogError(409, 'this recommendation slate is no longer current');
+          }
+          if (domain === 'vod') {
+            try {
+              assertCurrentVodRecommendationSource(served);
+            } catch {
+              throw new CatalogError(409, 'this recommendation slate is no longer current');
+            }
           }
           recorded += recordRecommendationImpressions({
             profile_id: served.profile_id,
@@ -1804,8 +2015,15 @@ async function main(): Promise<void> {
         } catch {
           throw new CatalogError(409, 'this recommendation slate is no longer current');
         }
-        if (served.profile_id !== activeViewerProfileId()) {
+        if (served.profile_id !== recommendationOwnerForRollout(domain, activeViewerProfileId())) {
           throw new CatalogError(409, 'profile changed; reload recommendations before acting');
+        }
+        if (domain === 'vod') {
+          try {
+            assertCurrentVodRecommendationSource(served);
+          } catch {
+            throw new CatalogError(409, 'this recommendation slate is no longer current');
+          }
         }
         recordRecommendationDetailOpen({
           profile_id: served.profile_id,
@@ -1825,6 +2043,9 @@ async function main(): Promise<void> {
           ok: true,
           profiles: listViewerProfiles(),
           state: getPersonalizationState(),
+          recommendation_identity: recommendationsHouseholdOnly() ? 'household' : 'profile',
+          household_only: recommendationsHouseholdOnly(),
+          vod_recommendations_v2: vodRecommendationsV2Mode(),
         });
         return;
       }
@@ -1850,6 +2071,17 @@ async function main(): Promise<void> {
             return;
           }
           if (action !== 'create') throw new Error('unknown profile action');
+          const policyError = householdOnlyMutationError(
+            recommendationsHouseholdOnly(),
+            'profile_create',
+          );
+          if (policyError) {
+            sendJson(res, 409, {
+              ok: false,
+              ...policyError,
+            });
+            return;
+          }
           const profile = createViewerProfile(typeof body.name === 'string' ? body.name : '');
           sendJson(res, 201, { ok: true, profile, profiles: listViewerProfiles() });
         } catch (error) {
@@ -1861,10 +2093,28 @@ async function main(): Promise<void> {
       if (req.method === 'POST' && parts.length === 2
         && parts[0] === 'personalization' && parts[1] === 'activate') {
         const body = await readBody(req) as Record<string, unknown>;
-        const state = activateViewerProfile(typeof body.profile_id === 'string' ? body.profile_id : '');
-        core.clearRailItemsCache();
-        youtube.invalidateRailsCache();
-        queueRecommendationRefresh(['movies', 'series']);
+        const requestedProfile = typeof body.profile_id === 'string' ? body.profile_id.trim().toLowerCase() : '';
+        const policyError = householdOnlyMutationError(
+          recommendationsHouseholdOnly(),
+          'profile_activate',
+          requestedProfile,
+        );
+        if (policyError) {
+          sendJson(res, 409, {
+            ok: false,
+            ...policyError,
+          });
+          return;
+        }
+        const current = getPersonalizationState();
+        const state = current.active_profile_id === 'household' && requestedProfile === 'household'
+          ? current
+          : activateViewerProfile(requestedProfile);
+        if (state.updated_at !== current.updated_at) {
+          core.clearRailItemsCache();
+          if (youtubeRecommendationsV2Mode() === 'off') youtube.invalidateRailsCache();
+          await queueRecommendationRefresh(['movies', 'series'], state.active_profile_id, ['household_activation']);
+        }
         sendJson(res, 200, { ok: true, state, profiles: listViewerProfiles() });
         return;
       }
@@ -1872,14 +2122,30 @@ async function main(): Promise<void> {
       if (req.method === 'POST' && parts.length === 2
         && parts[0] === 'personalization' && parts[1] === 'mood') {
         const body = await readBody(req) as Record<string, unknown>;
-        const ttlMs = Number(body.ttl_ms);
-        const state = setViewerMood(
-          typeof body.mood === 'string' ? body.mood : null,
-          Number.isFinite(ttlMs) ? ttlMs : undefined,
+        const requestedMood = typeof body.mood === 'string' ? body.mood.trim() : '';
+        const policyError = householdOnlyMutationError(
+          recommendationsHouseholdOnly(),
+          'mood_write',
+          requestedMood,
         );
-        core.clearRailItemsCache();
-        youtube.invalidateRailsCache();
-        queueRecommendationRefresh(['movies', 'series']);
+        if (policyError) {
+          sendJson(res, 409, {
+            ok: false,
+            ...policyError,
+          });
+          return;
+        }
+        const ttlMs = Number(body.ttl_ms);
+        const current = getPersonalizationState();
+        const state = !requestedMood && current.mood === null
+          ? current
+          : setViewerMood(requestedMood || null, Number.isFinite(ttlMs) ? ttlMs : undefined);
+        if (recommendationsHouseholdOnly() && !requestedMood) preserveHouseholdMoodClear();
+        if (state.updated_at !== current.updated_at) {
+          core.clearRailItemsCache();
+          if (youtubeRecommendationsV2Mode() === 'off') youtube.invalidateRailsCache();
+          await queueRecommendationRefresh(['movies', 'series'], state.active_profile_id, ['mood_change']);
+        }
         sendJson(res, 200, { ok: true, state });
         return;
       }
@@ -1889,9 +2155,26 @@ async function main(): Promise<void> {
         if (!isLocalRequest(req)) throw new CatalogError(403, 'recommendation refresh is localhost-only');
         const body = await readBody(req) as Record<string, unknown>;
         const tab = body.tab === 'movies' || body.tab === 'series' ? body.tab : null;
-        const results = tab ? [await refreshForYou(tab)] : await refreshAllForYou();
-        core.clearRailItemsCache();
-        sendJson(res, 200, { ok: true, results });
+        const triggerReason = typeof body.reason === 'string' && body.reason.trim()
+          ? body.reason.trim()
+          : 'manual_refresh';
+        const corpusGeneration = await playabilityRecommendationCorpusGeneration();
+        const jobs = await queueRecommendationRefresh(
+          tab ? [tab] : ['movies', 'series'],
+          activeViewerProfileId(),
+          [triggerReason],
+          { corpus_generation: corpusGeneration },
+        );
+        sendJson(res, 202, {
+          ok: true,
+          jobs: jobs.map((job) => ({
+            job_id: job.job_id,
+            content_type: job.content_type,
+            trigger_reasons: job.trigger_reasons,
+            captured_revisions: job.captured_revisions,
+            status: job.status,
+          })),
+        });
         return;
       }
 
@@ -1924,6 +2207,10 @@ async function main(): Promise<void> {
           personalization,
           'before Saved state changed',
         );
+        const savedOwner = recommendationOwnerForRollout(
+          target.source === 'youtube' ? 'youtube' : 'vod',
+          personalization.active_profile_id,
+        );
         validateOptionalRecommendationMutationAttribution(
           body,
           target.source === 'youtube' ? 'youtube' : 'vod',
@@ -1933,19 +2220,27 @@ async function main(): Promise<void> {
         const saved = saveLibraryItem({
           ...target,
           saved_by: typeof body.saved_by === 'string' ? body.saved_by : 'user',
+          profile_id: savedOwner,
         });
-        core.clearRailItemsCache();
         if (saved.source === 'youtube') {
+          core.clearRailItemsCache();
           youtube.invalidateRailsCache();
         } else if (saved.type === 'movie' || saved.type === 'series') {
-          queueRecommendationRefresh(saved.type === 'series' ? ['series'] : ['movies', 'series']);
+          const tab = saved.type === 'series' ? 'series' : 'movies';
+          core.invalidateRecommendationTab(tab);
+          await queueRecommendationRefresh([tab]);
         }
         sendJson(res, 200, {
           ok: true,
           saved,
           profile_id: personalization.active_profile_id,
           personalization_updated_at: personalization.updated_at,
-          state: getLibraryState({ source: saved.source, type: saved.type, id: saved.id }),
+          state: getLibraryState({
+            source: saved.source,
+            type: saved.type,
+            id: saved.id,
+            profile_id: savedOwner,
+          }),
         });
         return;
       }
@@ -1965,6 +2260,10 @@ async function main(): Promise<void> {
           personalization,
           'before Saved state changed',
         );
+        const savedOwner = recommendationOwnerForRollout(
+          target.source === 'youtube' ? 'youtube' : 'vod',
+          personalization.active_profile_id,
+        );
         validateOptionalRecommendationMutationAttribution(
           body,
           target.source === 'youtube' ? 'youtube' : 'vod',
@@ -1974,12 +2273,15 @@ async function main(): Promise<void> {
           source: target.source,
           type: target.type,
           id: target.id,
+          profile_id: savedOwner,
         });
-        core.clearRailItemsCache();
         if (target.source === 'youtube') {
+          core.clearRailItemsCache();
           youtube.invalidateRailsCache();
         } else if (target.type === 'movie' || target.type === 'series') {
-          queueRecommendationRefresh(target.type === 'series' ? ['series'] : ['movies', 'series']);
+          const tab = target.type === 'series' ? 'series' : 'movies';
+          core.invalidateRecommendationTab(tab);
+          await queueRecommendationRefresh([tab]);
         }
         sendJson(res, 200, {
           ok: true,
@@ -2012,7 +2314,11 @@ async function main(): Promise<void> {
           const source = url.searchParams.get('source')?.trim() || undefined;
           const type = url.searchParams.get('type')?.trim() || null;
           const id = url.searchParams.get('id')?.trim() || null;
+          const feedbackOwner = source === 'youtube'
+            ? recommendationOwnerForRollout('youtube', personalization.active_profile_id)
+            : recommendationOwnerForRollout('vod', personalization.active_profile_id);
           const feedback = listProfileLibraryFeedback('not_interested', source, {
+            profile_id: feedbackOwner,
             household_blend: false,
           }).filter((row) => (!type || row.type === type) && (!id || row.id === id));
           sendJson(res, 200, {
@@ -2035,6 +2341,10 @@ async function main(): Promise<void> {
         );
         const target = libraryItemFromRecord(body);
         if (!target) throw new CatalogError(400, 'Not for me requires { type, id }');
+        const feedbackOwner = recommendationOwnerForRollout(
+          target.source === 'youtube' ? 'youtube' : 'vod',
+          personalization.active_profile_id,
+        );
         validateOptionalRecommendationMutationAttribution(
           body,
           target.source === 'youtube' ? 'youtube' : 'vod',
@@ -2045,11 +2355,16 @@ async function main(): Promise<void> {
             ...target,
             feedback: 'not_interested',
             reason: typeof body.reason === 'string' ? body.reason : null,
+            profile_id: feedbackOwner,
           });
-          core.clearRailItemsCache();
-          if (target.source === 'youtube') youtube.invalidateRailsCache();
+          if (target.source === 'youtube') {
+            core.clearRailItemsCache();
+            youtube.invalidateRailsCache();
+          }
           else if (target.type === 'movie' || target.type === 'series') {
-            queueRecommendationRefresh(target.type === 'series' ? ['series'] : ['movies', 'series']);
+            const tab = target.type === 'series' ? 'series' : 'movies';
+            core.invalidateRecommendationTab(tab);
+            await queueRecommendationRefresh([tab]);
           }
           sendJson(res, 200, {
             ok: true,
@@ -2065,11 +2380,16 @@ async function main(): Promise<void> {
             type: target.type,
             id: target.id,
             feedback: 'not_interested',
+            profile_id: feedbackOwner,
           });
-          core.clearRailItemsCache();
-          if (target.source === 'youtube') youtube.invalidateRailsCache();
+          if (target.source === 'youtube') {
+            core.clearRailItemsCache();
+            youtube.invalidateRailsCache();
+          }
           else if (target.type === 'movie' || target.type === 'series') {
-            queueRecommendationRefresh(target.type === 'series' ? ['series'] : ['movies', 'series']);
+            const tab = target.type === 'series' ? 'series' : 'movies';
+            core.invalidateRecommendationTab(tab);
+            await queueRecommendationRefresh([tab]);
           }
           sendJson(res, 200, {
             ok: true,
@@ -2196,6 +2516,61 @@ async function main(): Promise<void> {
           return;
         }
 
+        if (req.method === 'POST' && parts.length === 3
+          && parts[1] === 'takeout' && parts[2] === 'import') {
+          if (!isLocalRequest(req)) {
+            throw new CatalogError(403, 'YouTube Takeout import is localhost-only');
+          }
+          const configuredLimit = Number(process.env.MANGO_YOUTUBE_TAKEOUT_MAX_BYTES);
+          const uploadLimit = Number.isFinite(configuredLimit) && configuredLimit > 0
+            ? Math.min(256 * 1024 * 1024, Math.floor(configuredLimit))
+            : 64 * 1024 * 1024;
+          const header = req.headers['x-mango-filename'];
+          const filename = (Array.isArray(header) ? header[0] : header)?.trim().slice(0, 240)
+            || 'youtube-takeout';
+          let result;
+          try {
+            result = await importYoutubeTakeoutStream(req, {
+              filename,
+              max_bytes: uploadLimit,
+            });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'YouTube Takeout import failed';
+            throw new CatalogError(
+              /too large/i.test(message) ? 413 : 400,
+              message,
+            );
+          }
+          let localRankError: string | null = null;
+          let recommendationRefresh: Awaited<ReturnType<typeof refreshYoutubeV2AfterLocalSignal>>;
+          try {
+            recommendationRefresh = await refreshYoutubeV2AfterLocalSignal({
+              reason: 'takeout_import',
+              changed: !result.noop,
+              service: youtube,
+              wait_for_acquisition: false,
+            });
+          } catch (error) {
+            localRankError = error instanceof Error ? error.message : String(error);
+            recommendationRefresh = {
+              local_generation: null,
+              acquisition: youtubeRecommendationsV2Mode() === 'off' ? 'off' : 'coalesced',
+              acquisition_result: null,
+            };
+          }
+          youtube.invalidateRailsCache();
+          sendJson(res, 200, {
+            ok: true,
+            import: result,
+            recommendation_refresh: {
+              local_generation: recommendationRefresh.local_generation,
+              local_rank_error: localRankError,
+              acquisition: recommendationRefresh.acquisition,
+            },
+          });
+          return;
+        }
+
         if (req.method === 'POST' && parts.length === 3 && parts[1] === 'auth' && parts[2] === 'start') {
           if (!isLocalRequest(req)) {
             throw new CatalogError(403, 'YouTube operator auth is localhost-only');
@@ -2225,11 +2600,40 @@ async function main(): Promise<void> {
         }
 
         if (req.method === 'POST' && parts.length === 2 && parts[1] === 'refresh') {
+          if (!isLocalRequest(req)) throw new CatalogError(403, 'YouTube refresh is localhost-only');
           const body = await readBody(req) as Record<string, unknown>;
           const reason = typeof body.reason === 'string' && body.reason.trim()
             ? body.reason.trim()
             : 'manual';
-          sendJson(res, 200, await youtube.refresh(reason));
+          const state = youtube.state();
+          const job = createRecommendationRefreshJob({
+            domain: 'youtube',
+            trigger_reasons: [reason],
+            captured_revisions: {
+              mode: youtubeRecommendationsV2Mode(),
+              v2_state: JSON.stringify(state.recommendations_v2 ?? null).slice(0, 2_000),
+            },
+          });
+          setImmediate(() => {
+            updateRecommendationRefreshJobs([job.job_id], 'running');
+            void youtube.refresh(reason).then((result) => {
+              if (result.ok) updateRecommendationRefreshJobs([job.job_id], 'complete');
+              else updateRecommendationRefreshJobs(
+                [job.job_id],
+                'failed',
+                result.error ?? 'YouTube refresh failed',
+              );
+            }).catch((error) => updateRecommendationRefreshJobs([job.job_id], 'failed', error));
+          });
+          sendJson(res, 202, {
+            ok: true,
+            job: {
+              job_id: job.job_id,
+              trigger_reasons: job.trigger_reasons,
+              captured_revisions: job.captured_revisions,
+              status: job.status,
+            },
+          });
           return;
         }
 
@@ -2255,14 +2659,18 @@ async function main(): Promise<void> {
           );
           const result = await youtube.rails({ reshuffle, expectedPersonalization });
           const currentPersonalization = getPersonalizationState();
+          const expectedRecommendationOwner = recommendationOwnerForRollout(
+            'youtube',
+            personalization.active_profile_id,
+          );
           if (currentPersonalization.active_profile_id !== personalization.active_profile_id
             || currentPersonalization.updated_at !== personalization.updated_at
-            || result.profile_id !== personalization.active_profile_id
+            || result.profile_id !== expectedRecommendationOwner
             || result.personalization_updated_at !== personalization.updated_at) {
             throw new CatalogError(409, 'profile changed while YouTube recommendations were loading');
           }
           const { attribution_contexts: attributionContexts, ...publicYoutubeResult } = result;
-          const publicResult = {
+          const publicResult = youtubePublicPersonalizationPayload({
             ...publicYoutubeResult,
             rails: result.rails.map((rail) => {
               const attributionContext = attributionContexts[rail.rail_id];
@@ -2271,7 +2679,7 @@ async function main(): Promise<void> {
                 throw new CatalogError(500, 'YouTube recommendation attribution context is unavailable');
               }
               const served = registerRecommendationServedSlate({
-                profile_id: personalization.active_profile_id,
+                profile_id: result.profile_id,
                 domain: 'youtube',
                 rail_id: rail.rail_id,
                 source_revision: attributionContext.source_revision,
@@ -2288,7 +2696,7 @@ async function main(): Promise<void> {
                 attribution_token: served.attribution_token,
               };
             }),
-          };
+          }, personalization);
           sendJson(res, 200, publicResult);
           return;
         }
@@ -2436,7 +2844,8 @@ async function main(): Promise<void> {
           const attribution = recommendationAttributionFromBody(body, 'youtube');
           touchCouchActivity('catalog', 'youtube_play');
           sendJson(res, 200, await youtube.play({
-            profile_id: attribution?.profile_id ?? activeViewerProfileId(),
+            profile_id: attribution?.profile_id
+              ?? recommendationOwnerForRollout('youtube', activeViewerProfileId()),
             id: typeof body.id === 'string' ? body.id : undefined,
             title: typeof body.title === 'string' ? body.title : undefined,
             poster: typeof body.poster === 'string' ? body.poster : undefined,
@@ -3263,7 +3672,7 @@ async function main(): Promise<void> {
         // caller-supplied profile id for recommendation outcomes.
         const acceptedAttribution = recommendationAttributionFromBody(body, 'vod');
         body.recommendation_profile_id = acceptedAttribution?.profile_id
-          ?? activeViewerProfileId();
+          ?? recommendationOwnerForRollout('vod', activeViewerProfileId());
         touchCouchActivity('catalog', 'play');
         const overrides = parseFilterOverridesFromQuery(url.searchParams);
         const requestId = normalizePlayRequestId(body.request_id);

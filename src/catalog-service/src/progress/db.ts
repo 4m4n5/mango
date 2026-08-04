@@ -153,7 +153,7 @@ function resolveProgressProfileId(profileId?: string | null): string {
   return profile.profile_id;
 }
 
-export function upsertWatchProgress(input: {
+export type UpsertWatchProgressInput = {
   profile_id?: string;
   source?: string | null;
   type: string;
@@ -164,7 +164,14 @@ export function upsertWatchProgress(input: {
   position_sec: number;
   duration_sec: number;
   tab?: CatalogTab | null;
-}): WatchProgressRecord | null {
+};
+
+export type UpsertWatchProgressResult = {
+  progress: WatchProgressRecord | null;
+  library_watch_persisted: boolean;
+};
+
+export function upsertWatchProgressDetailed(input: UpsertWatchProgressInput): UpsertWatchProgressResult {
   const profileId = resolveProgressProfileId(input.profile_id);
   const position = Math.max(0, input.position_sec);
   const duration = Math.max(0, input.duration_sec);
@@ -175,6 +182,7 @@ export function upsertWatchProgress(input: {
     ? (input.id.includes(':') ? input.id.split(':')[0] : input.id)
     : input.id;
 
+  let libraryWatchPersisted = false;
   try {
     recordLibraryWatch({
       profile_id: profileId,
@@ -189,6 +197,7 @@ export function upsertWatchProgress(input: {
       tab: input.tab ?? undefined,
       watched_at: now,
     });
+    libraryWatchPersisted = true;
   } catch (error) {
     console.warn(
       `library progress mirror failed type=${input.type} id=${input.play_id}: ${
@@ -204,7 +213,7 @@ DELETE FROM profile_watch_progress WHERE profile_id = ? AND progress_key = ?
     if (profileId === 'household') {
       openDb().prepare('DELETE FROM watch_progress WHERE progress_key = ?').run(key);
     }
-    return null;
+    return { progress: null, library_watch_persisted: libraryWatchPersisted };
   }
 
   openDb().prepare(`
@@ -270,7 +279,14 @@ ON CONFLICT(progress_key) DO UPDATE SET
     });
   }
 
-  return getWatchProgress(key, { profile_id: profileId });
+  return {
+    progress: getWatchProgress(key, { profile_id: profileId }),
+    library_watch_persisted: libraryWatchPersisted,
+  };
+}
+
+export function upsertWatchProgress(input: UpsertWatchProgressInput): WatchProgressRecord | null {
+  return upsertWatchProgressDetailed(input).progress;
 }
 
 export function getWatchProgress(

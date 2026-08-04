@@ -2,9 +2,10 @@
 
 **Milestone:** [M5](ROADMAP.md) · **Rule (unchanged):** voice **opens**, pad **B** plays — no voice playback, on every tab including Live.
 
-**Recommendation status:** the profile-aware VOD/YouTube implementation is
-local code in this branch. Deployment, Pi diagnostics, screenshots, and human
-TV-quality verdicts are **DEFERRED** until the home agent proves this revision.
+**Recommendation status:** the Household VOD/YouTube v2 source implementation
+is complete on this branch. Deployment, Pi backfills, diagnostics, screenshots,
+and human TV-quality verdicts are **DEFERRED** until the home agent proves the
+exact pushed revision.
 
 ---
 
@@ -26,37 +27,34 @@ couch-critical ranker or a second owner of profile state.
 | Open on TV | ✓ | ✓ | ✓ `mango_open_youtube` | ✓ `mango_open_title` type tv |
 | Save/Unsave | ✓ | ✓ | ✓ video only | ✓ type tv |
 | Create AI rail | ✓ | ✓ | ✓ | ✓ |
-| Personalization into rails | ✓ Fire/Water profile ranker | ✓ Fire/Water profile ranker | ✓ profile/mood local ranker | — custom rails only |
-| Viewer profile control | ✓ `mango_manage_viewer_profile` | ✓ | ✓ | ✓ shared session identity |
+| Personalization into rails | ✓ Household Story Graph | ✓ Household Story Graph | ✓ subscriptions/history only | — custom rails only |
+| Viewer profile control | Dormant/rollback only | Dormant/rollback only | No v2 influence | Preserved shared session state |
 | What's-on-now/EPG | n/a | n/a | ~ Live Now rail | ✓ now-playing after pad B; EPG deferred |
 | Subscriptions/channels | n/a | n/a | read-only | n/a |
 
 *The older Phases 0–3 and M5.5b/M6.5 base were previously shipped. That proof
-does not cover the current profile-aware recommendation redesign.*
+does not cover the current Household recommendation redesign.*
 
 Structural facts:
 
-1. `library.db` is the single viewer-profile and recommendation-signal authority:
-   permanent Household, optional clean personal profiles, explicit session mood,
-   ratings, Saved, watch/search signals, Not-for-me, and recommendation events.
-   `progress.db` separately owns profile-exact Continue/resume; exact positions
-   never blend into Household.
-2. VOD For You is locally ranked from currently verified titles. Every visible
-   rail has exactly six cards (4 close, 1 adjacent, 1 surprise); it is omitted
-   when its reserve cannot heal the contract. Explicit Fire/Water dominates
-   confidence-weighted dual-horizon usage signals.
-3. YouTube anchors For You, Subscriptions, History, and Saved, then admits at
-   most three adaptive rails. Every visible rail has four cards; with healthy
-   supply, deterministic For You slates deliver 70/20/10 over ten rotations.
-   Successful reservoir generations replace stale candidates atomically; exact
-   Saved videos stay out of For You so the Saved anchor survives cross-rail
-   deduplication. Empty rebuilds retain last-good, thin-supply fallback is
-   recorded, and X is cache-only.
-4. AI enrichment is versioned, background-only, and optional. The local ranker
-   owns eligibility, diversity, and atomic last-good publication. Feature reads
-   and writes are batched, while CPU-heavy scoring and MMR run in a bounded
-   worker thread so catalog HTTP requests do not block the event loop; worker
-   failure or deadline expiry retains last-good.
+1. `library.db` is the durable recommendation-signal authority: permanent
+   Household ratings, Saved, qualifying watch history, exact Not-for-me,
+   normalized Takeout events/import audit, and recommendation events. Existing
+   personal-profile and mood rows remain dormant and recoverable in v2.
+   `progress.db` separately preserves profile-exact Continue/resume.
+2. VOD For You is locally ranked from the complete currently verified corpus.
+   Every visible rail has exactly six strongest supported fits allocated across
+   up to three Household taste threads; no fixed exploration bucket or cooled
+   rewatch lane exists. Explicit positive Fire/Water owns 85% when present.
+3. YouTube v2 uses only authoritative subscriptions and Takeout/Mango-local
+   meaningful history. Its five core rails are For You, Beyond Your
+   Subscriptions, More Like …, History, and Saved, followed by conditional From
+   Your Subscriptions and Live Now. Normal rows have four cards; X changes only
+   cached recommendation/discovery/subscription/live slates.
+4. Mango Companion's configured AI is a stateless, versioned StoryDNA content
+   teacher. It never receives Household or companion state and never scores,
+   ranks, selects, or publishes. A bounded worker runs the local uncertainty-
+   aware theme graph; failure retains last-good.
 5. Live is IPTV — a tune-to-channel model, fundamentally different from VOD —
    so it keeps its own custom-rail contract rather than pretending to share the
    Fire/Water or YouTube ranker.
@@ -156,21 +154,21 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | Sequencing | YouTube first, then Live |
 | Live playback contract | Voice opens, pad B plays — Live included, no voice-tune exception |
 | Live depth | Full: **full-catalog** channel search via `mango_search` + open; AI-composed live rails; now-playing; EPG deferred |
-| YouTube rail model | Both — steer existing recommender with profile+seeds AND allow custom YT rails |
+| YouTube recommendation model | V2 uses authoritative subscriptions plus Takeout/Mango-local meaningful history only; profiles, mood, companion memory, AI catalogs, Search, Saved, VOD, and charts have zero influence |
 | YouTube subscriptions | Read-only for v1; surface/open, no write |
 | Rail-creation architecture | Generalize ONE tab-agnostic AI-rail engine with per-tab source adapters: mdblist/Cinemeta for VOD, YouTube API for YT, NexoTV for Live |
 | EPG | Deferred — not available today; only paid Xtream could serve it, variable reliability; ship the rest of Live first |
-| Viewer identities | Household plus up to seven optional personal profiles; no PIN/startup prompt; create does not activate; stable-ID rename; activation clears mood |
-| Mood | User-selected, bounded, expiring session context only |
-| VOD mix | Exactly 4 close + 1 adjacent + 1 surprise from playable-only candidates; explicit Fire/Water dominates dual-horizon implicit evidence |
-| Rewatch | Completed VOD may return only rarely through a cooled, explicitly marked lane |
-| AI boundary | Semantic enrichment runs off the couch path; local versioned ranker owns final slate and retains last-good on failure |
+| Viewer identities | Recommendation v2 serves Household only; up to seven optional personal-profile rows remain dormant and recoverable for rollback |
+| Mood | Removed from v2 recommendation UI/ranking/generation; preserved state may be cleared idempotently, while non-null writes return `household_only` during v2 serve |
+| VOD mix | Exactly six strongest supported fits from the verified-only reserve, allocated `6`, `3/3`, or `2/2/2` across supported Household threads |
+| Rewatch | Rated, Saved, and meaningfully watched exact VOD titles remain ineligible; no cooled-rewatch lane |
+| AI boundary | Stateless StoryDNA content teaching runs off the couch path; the local versioned theme graph owns all scores, uncertainty, rank, and publication |
 | Rank execution | Batched feature I/O plus a deadline-bounded worker thread; diagnostic inline opt-out only |
-| YouTube shape | Four anchors in For You → Subscriptions → History → Saved order, then at most three adaptive rails; exactly four cards each |
-| YouTube mix | With healthy lane supply, deterministic ten-slate For You rotation yields 28 close, 8 adjacent, 4 surprise cards (70/20/10); thin-supply fallback is diagnosed |
-| YouTube reservoir | Successful generations atomically replace stale For You candidates; exact Saved videos are excluded from For You membership; empty rebuild keeps last-good |
+| YouTube shape | Five equal core rails For You → Beyond Your Subscriptions → More Like … → History → Saved, then conditional From Your Subscriptions and 1–4-card Live Now |
+| YouTube mix | For You is a renormalized 60% decayed-history / 40% subscription blend; Beyond and More Like provide bounded novelty and thematic depth |
+| YouTube reservoir | Only subscription/history provenance can enter atomic generations; exact watched/Saved videos are excluded and OAuth failure retains explicitly stale last-good |
 | YouTube X | Discovery rotation from cache only; History/Saved stable; no provider/API/quota activity |
-| Attribution | Active profile, optional mood, rail, and bounded seed context only; no numerical or private-generation details |
+| Attribution | Opaque Household/domain/rail/revision/membership/context tokens only; no numerical or private-generation details |
 
 ---
 
@@ -184,7 +182,7 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | 3 — Cross-surface + safety + text | ✓ **Shipped** — see below |
 
 Each historical phase ended with its own Pi deploy/gate boundary. The current
-profile-aware recommendation changes require a fresh gate and couch proof; older
+Household recommendation changes require a fresh gate and couch proof; older
 phase evidence cannot be reused.
 
 ---

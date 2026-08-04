@@ -49,14 +49,92 @@ if [[ -n "$yt_dlp_command" ]]; then
 fi
 
 rails_json="$(curl_json "/youtube/rails" 20)"
-python3 - "$rails_json" <<'PY'
+python3 - "$rails_json" "$state_json" <<'PY'
 import json
 import sys
 payload = json.loads(sys.argv[1])
+state = json.loads(sys.argv[2])
 assert payload.get("ok") is True
 rails = payload.get("rails")
 assert isinstance(rails, list)
-assert any((rail or {}).get("rail_id") in {"fresh_finds", "popular"} for rail in rails)
+mode = ((state.get("recommendations_v2") or {}).get("mode")) or "off"
+if mode == "serve":
+    v2 = state.get("recommendations_v2")
+    assert isinstance(v2, dict), "v2 diagnostics are missing"
+    status = v2.get("status")
+    assert status in {"setup", "empty", "ready", "stale"}, status
+    setup_required = v2.get("setup_required")
+    assert isinstance(setup_required, bool), "v2 setup_required must be boolean"
+    assert payload.get("setup_required") is setup_required, (
+        payload.get("setup_required"), setup_required
+    )
+    assert payload.get("recommendations_status") == status, (
+        payload.get("recommendations_status"), status
+    )
+
+    candidate_count = v2.get("candidate_count")
+    assert type(candidate_count) is int and candidate_count >= 0, candidate_count
+    reserve_depths = v2.get("reserve_depths")
+    reserve_ids = {
+        "for_you", "beyond", "more_like", "new_from_subscriptions", "live_now",
+    }
+    assert isinstance(reserve_depths, dict), "v2 reserve depths are missing"
+    assert set(reserve_depths) == reserve_ids, reserve_depths
+    assert all(type(count) is int and count >= 0 for count in reserve_depths.values()), reserve_depths
+    assert sum(reserve_depths.values()) == candidate_count, (
+        reserve_depths, candidate_count
+    )
+
+    provenance = v2.get("provenance")
+    assert isinstance(provenance, dict), "v2 provenance diagnostics are missing"
+    for key in ("total", "active", "expired"):
+        assert type(provenance.get(key)) is int and provenance[key] >= 0, provenance
+    assert provenance["total"] == provenance["active"] + provenance["expired"], provenance
+    by_provenance = provenance.get("by_provenance")
+    allowed_provenance = {
+        "subscription_upload", "subscription_live", "history_channel", "history_topic",
+    }
+    assert isinstance(by_provenance, dict), "v2 provenance counts are missing"
+    assert set(by_provenance) == allowed_provenance, by_provenance
+    assert all(type(count) is int and count >= 0 for count in by_provenance.values()), by_provenance
+    assert sum(by_provenance.values()) == provenance["active"], provenance
+
+    if status in {"ready", "stale"}:
+        generation = v2.get("generation")
+        assert type(generation) is int and generation > 0, generation
+        assert setup_required is False
+        assert candidate_count > 0
+    else:
+        assert setup_required is True
+
+    allowed_order = [
+        "for_you", "beyond", "more_like", "history", "saved",
+        "new_from_subscriptions", "live_now",
+    ]
+    rail_ids = [(rail or {}).get("rail_id") for rail in rails]
+    assert len(rail_ids) == len(set(rail_ids)), "v2 YouTube rails contain duplicate IDs"
+    assert all(rail_id in allowed_order for rail_id in rail_ids), rail_ids
+    assert rail_ids == sorted(rail_ids, key=allowed_order.index), rail_ids
+    if status == "ready":
+        assert {"for_you", "beyond", "more_like"}.issubset(rail_ids), rail_ids
+    visible_ids = []
+    for rail in rails:
+        items = (rail or {}).get("items")
+        assert isinstance(items, list)
+        if rail.get("rail_id") == "live_now":
+            assert 1 <= len(items) <= 4
+            assert all((item or {}).get("live_status") == "live" for item in items)
+        else:
+            assert len(items) == 4
+        for item in items:
+            assert isinstance(item, dict)
+            assert item.get("kind") == "video", item
+            item_id = item.get("id")
+            assert isinstance(item_id, str) and item_id.strip(), item
+            visible_ids.append(item_id)
+    assert len(visible_ids) == len(set(visible_ids)), "v2 YouTube cards repeat across rails"
+else:
+    assert any((rail or {}).get("rail_id") in {"fresh_finds", "popular"} for rail in rails)
 PY
 
 api_key="$(

@@ -6,6 +6,11 @@
 
 Run gate on Mac before handing off to the TV. Live IPTV is opt-in — not in gate-lite.
 
+Recommendations v2 source is complete but not yet deployed. Real
+StoryDNA/YouTube generation backfills, offline promotion evidence, Pi runtime,
+and every recommendation couch row below are **DEFERRED** until the authorized
+home agent performs a git-only deployment of the exact pushed revision.
+
 ---
 
 ## Automated preflight (agent)
@@ -374,17 +379,19 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 
 | # | Action | Pass? |
 |---|--------|-------|
-| 17 | YouTube tab loads cached rails without full-screen error; empty Fresh Finds or expired Live Now is hidden instead of showing stale live cards | |
-| 18 | Every visible YouTube rail renders exactly **4 landscape cards**. Logical anchors are For You → Subscriptions → History → Saved, followed by at most three adaptive rails; with adequate cached supply, no video repeats on the same screen | |
+| 17 | YouTube tab loads only a published cached generation without full-screen error or provider activity; stale last-good state is labeled and an inapplicable conditional rail is omitted | |
+| 18 | Rails remain visually equal and globally deduplicated in exact order: For You → Beyond Your Subscriptions → More Like … → History → Saved → conditional From Your Subscriptions → conditional Live Now. Normal rows have 4 landscape cards; Live Now may have 1–4 | |
 | 19 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
 | 20 | Open a YouTube video → detail shows Play / Save / Not for me; **B** starts mpv | |
-| 21 | After playing a second meaningful YouTube VOD, Because You Watched follows that newer seed and shows cached non-live/non-Short follow-ups | |
+| 21 | After a qualifying Mango-local watch, More Like uses a recognizable daily-stable seed from recent meaningful history; bare starts never become seeds | |
 | 22 | Open a channel/playlist → detail shows a D-pad video list; Save is disabled | |
-| 23 | Not for me removes the card for the active profile; Undo restores it; switching to another personal profile proves the feedback did not leak | |
+| 23 | Not for me removes exactly that video; Undo restores it; related creators/topics remain eligible and no profile/mood recommendation controls appear | |
 | 24 | "Save this" on an open YouTube video updates Saved; no voice playback starts | |
-| 25 | Record `/youtube/state` search/API counters, press Home X several times, and read them again: discovery cards change deterministically, History/Saved and both counters remain unchanged | |
-| 26 | Live Now, when populated, contains currently live items only; if search quota is exhausted, cached VOD rails still work | |
-| 26a | With healthy lane supply and zero fallback slots, ten For You slates total 28 close, 8 adjacent, and 4 surprise slots. Check `sqlite3 /etc/mango/youtube.db "SELECT value FROM youtube_state WHERE key='for_you_lane_fallback:last';"`; if fallback is nonzero, record the supply limitation instead of failing or fabricating the mix. No raw score/private context appears on TV | |
+| 25 | Record `/youtube/state` quota/generation counters, press Home X several times, and read again: recommendation/discovery/subscription/live cards advance, History/Saved and every API/acquisition/ranking counter remain unchanged; focus and scroll stay fixed | |
+| 26 | Live Now, when populated, contains currently live streams from subscribed channels only and never unrelated filler; expired/non-subscribed live and Shorts are absent | |
+| 26a | For You is recognizably grounded in history/subscriptions; Beyond contains novel unsubscribed creators; More Like is coherent for at least 3 of 4 cards. No score, provenance, private context, or technical explanation appears on TV | |
+| 26b | Reliability Center imports a Takeout ZIP and extracted JSON/HTML idempotently, shows normalized/import counts without raw history text, and rebuilt History/More Like state survives restart | |
+| 26c | Cold starts: subscriptions-only shows For You/Beyond plus **More from channels you follow**; history-only omits subscription/live; neither shows a connect/import/watch setup card instead of Popular/regional filler | |
 
 ---
 
@@ -395,7 +402,7 @@ Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY
 | 27 | Settings → Reliability Center opens with D-pad focus, large status cards, and Back returns home | |
 | 28 | Reliability Center shows Green/Yellow/Red summary and component cards without dense debug text | |
 | 29 | `Run proof now` records a proof; Repair/Restart/Refresh are disabled when Mango is active and enabled when idle | |
-| 30 | **Refresh library** (~5s reshuffle) | |
+| 30 | **Refresh library** enqueues work without blocking the UI; Reliability Center shows the job/phase result while last-good rails remain usable | |
 
 ## Library grow health (operator)
 
@@ -572,35 +579,38 @@ apply here; if one of these fails, report it rather than tuning.
 
 ---
 
-## Recommendation profiles and mood
+## Recommendation identity and dormant profile preservation
 
-These checks cover the current local redesign. Leave every result **DEFERRED**
-until this exact revision is deployed and observed on the Pi/TV.
+These checks cover the current source-complete redesign. Leave every result
+**DEFERRED** until its exact pushed revision is deployed and observed on the
+Pi/TV.
 
 | # | Couch action and required evidence | Pass? |
 |---|------------------------------------|-------|
-| RP1 | Cold-start Mango: Household is active with no profile prompt or PIN. Create a personal profile in the companion; it does not activate until explicitly selected | |
-| RP2 | Rename the profile in the companion, switch away/back, and confirm its ratings, Saved/history, and recommendation identity remain attached to the same stable profile | |
-| RP3 | Set an explicit mood and confirm bounded attribution/rails update; activate another profile and confirm mood clears. Mango never invents a mood | |
-| RP4 | Rate/watch/save distinct content in two personal profiles; each remains isolated. Household blends activity without one prolific profile monopolizing the visible slate | |
-| RP5 | Mark a title Not for me, verify immediate removal, use Undo, then repeat and switch profiles. Only Household applies the union exact-title veto | |
-| RP6 | With AI unavailable/offline, profile switching and last-good VOD/YouTube rails remain responsive; no couch request waits on enrichment | |
-| RP7 | Play the same movie (and one series episode) to different positions as two personal profiles. Each Continue rail and resume prompt restores only its own position; a new profile starts clean and Household does not borrow either exact position | |
-| RP8 | Leave a recommendation Detail/card open, switch profiles from the companion, then try Play, Save/Unsave, Rate/Clear, and Not for me. Each stale action closes/reloads or returns the couch-safe 409 path and never mutates the newly active profile; ordinary Search/voice catalog actions still work | |
-| RP9 | Switch profiles from the companion while Home is visible: the immediate `profile_changed` acknowledgement updates rails/Continue without reload. Repeat with the notification path unavailable; before the 30-second poll, switch tabs, return from Search, and open/close Settings. No old-profile rail or Saved marker may paint, and the bounded fallback poll converges | |
-| RP10 | From Search, open a title while another device switches profiles; Detail either opens with the new owner's exact Saved marker or asks to reopen, never paints the old marker. Repeat in Settings → Hidden from recommendations and Restore: a stale owner must show refresh guidance and must not reveal or mutate either profile's list | |
-| RP11 | Save four distinct YouTube videos and refresh/shuffle repeatedly. Saved remains a complete stable four-card anchor; none of those exact videos appears in For You. After a successful full refresh, operator diagnostics show the For You reservoir remains bounded and removed source candidates do not linger | |
+| RP1 | Household is the only visible recommendation identity; no profile picker, profile prompt, mood control, profile name, or mood attribution appears on Home/Detail/Settings | |
+| RP2 | Through localhost diagnostics, non-Household create/activate and non-null mood return typed `household_only`; Household activation and null mood clear are idempotent | |
+| RP3 | Before/after migration readback proves every existing personal-profile rating, Saved/history/progress row, snapshot, and event remains under its original stable ID; nothing is merged into Household or deleted | |
+| RP4 | Mutate dormant profile or mood rows in an isolated test copy: VOD/YouTube generation IDs, rank order, and acquisition counters remain identical | |
+| RP5 | Household exact Not for me removes only that VOD title or YouTube video; Undo restores eligibility without semantic creator/topic suppression | |
+| RP6 | With the Companion AI unavailable/offline, published VOD/YouTube rails and X stay responsive; couch requests never wait for enrichment | |
+| RP7 | Disable v2 in a rollback test and confirm preserved legacy profile rows/resume positions can still be read; do not claim this from UI inspection alone | |
+| RP8 | Leave a recommendation Detail/card open across a generation change, then try Play, Save/Unsave, Rate/Clear, and Not for me. Stale attribution follows the couch-safe 409/reload path and never mutates a different generation | |
+| RP9 | Save four distinct YouTube videos and refresh/shuffle repeatedly. Saved remains a stable four-card utility rail, none enters For You, and the recommendation generation is unchanged by Save/Unsave except exact output exclusion | |
 
-Record human verdicts for relevance, diversity, adjacent discovery, surprise,
-multilingual fit, Household fairness, reversibility, and perceived latency.
+Record human verdicts for Household relevance, taste-thread coherence,
+reversibility, simplicity, and perceived latency.
 
 ---
 
 ## Fire & Water ratings and For You
 
-Complete only after the seed manifest is reconciled/imported twice and both
-snapshot revisions are nonzero. Screenshots must exclude diagnostics and any
-operator files.
+Complete only after any operator-supplied seed manifest is reconciled, StoryDNA
+backfill accounts for the full verified corpus (or durable retryable failures),
+both media types have published generations, and the frozen offline promotion
+gate passes. A seed import is optional; normal ratings, Saved titles, and
+meaningful watches are valid household evidence.
+Screenshots must exclude diagnostics and operator files. All results remain
+**DEFERRED** until the exact revision is deployed and observed on the Pi/TV.
 
 | # | Couch action and required evidence | Pass? |
 |---|------------------------------------|-------|
@@ -612,15 +622,26 @@ operator files.
 | FW6 | X opens inline clear confirmation; Y keeps the rating; X then B clears it without deleting its audit history | |
 | FW7 | Complete a movie to 90%: return invitation appears once without moving focus or opening the sheet; leaving resolves it permanently while manual Rate remains | |
 | FW8 | Complete three distinct series episodes: the show-level invitation appears once; rating the show shifts TV For You while Movies does not | |
-| FW9 | Movies and TV order is Continue → Saved → For You → user AI catalogs; every visible For You rail has exactly 6 unique currently verified cards (4 close, 1 adjacent, 1 surprise) and no rated/hidden/Not-for-me/unverified title. If all six cannot be healed, the rail is absent rather than partial | |
+| FW9 | Movies and TV order is Continue → Saved → For You → user AI catalogs → curated discovery; every For You rail has exactly 6 unique poster-bearing, currently verified-playable cards and no rated/Saved/meaningfully watched/hidden/blocked/Not-for-me title. If healing fails, the previous valid slate remains | |
 | FW10 | Rate a For You title. It leaves the rail after Detail closes; focus restores to the same position, then first card/nearest rail fallback if needed | |
-| FW11 | With AI disabled and then network offline, ratings and the last-good rails survive restart; opening Detail never waits for AI | |
-| FW12 | Rate one high-Fire/low-Water and one low-Fire/high-Water title; both influence For You. Review all 6 Movies + 6 TV cards for relevance, variety, one adjacent discovery, and one plausible surprise | |
+| FW11 | With the StoryDNA teacher disabled and then network offline, ratings and last-good rails survive restart; Home, Detail, and X never wait for AI | |
+| FW12 | Rate several thematically disjoint high-Fire and high-Water anchors. Diagnostics show 1–3 supported threads and `6`, `3/3`, or `2/2/2` allocation; the TV label remains only **For You**, and all six feel like strongest supported fits rather than forced exploration | |
 | FW13 | Start several recommendations including 4K; normal playback/return works with no launcher, first-frame, or dropped-frame regression | |
-| FW14 | Finish a recommended title: it stays absent from normal close/adjacent lanes. If deterministic cadence admits the cooled rewatch, verify at most one row per latest profile/tab snapshot using `sqlite3 /etc/mango/library.db "WITH latest AS (SELECT profile_id,tab,max(revision) revision FROM profile_recommendation_snapshots GROUP BY profile_id,tab) SELECT i.profile_id,i.tab,count(*) FROM profile_recommendation_snapshot_items i JOIN latest l USING(profile_id,tab,revision) WHERE i.generation_reason='cooled_rewatch' GROUP BY i.profile_id,i.tab;"`; the TV shows only `Watch again`, never the technical reason | |
+| FW14 | Finish a recommended title: it remains absent from For You with no cooled-rewatch exception; its retained evidence may still support the Household taste model | |
+| FW15 | Press X five times in Movies and then TV. When reserve depth permits, no title repeats from the preceding four rendered slates; focus/card position and scroll remain fixed and network/enrichment/graph/ranking counters do not move | |
+| FW16 | Inspect cards/rail at 3 m: no predicted Fire/Water, score, reason, ontology tag, thread name, AI text, or technical badge is visible | |
 
 Record explicit human verdicts: rating semantics, icon clarity, adjustment flow,
-recommendation relevance, diversity, surprise quality, and perceived latency.
+recommendation relevance, recognizable taste threads, thematic satisfaction,
+and perceived latency.
+
+Operator promotion evidence is separate from couch judgment: frozen
+deterministic five-fold evaluation must show at least 10% relative holistic
+nDCG@6 improvement over v4, paired 90% bootstrap interval above zero, no more
+than two percentage points of regression on either guardrail, complete verified
+corpus accounting, determinism, and cached service p95 at or below 250 ms. If
+the rating set cannot satisfy confidence, remain in shadow; never weaken the
+gate or mark a couch result as a substitute.
 
 ---
 

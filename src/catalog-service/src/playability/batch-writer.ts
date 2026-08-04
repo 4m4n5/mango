@@ -73,14 +73,32 @@ INSERT INTO verify_log (started_at, rail_id, type, id_value, stage, ms, outcome)
 VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
 `);
       const upsertPool = db.prepare(`
-INSERT INTO rail_pool (rail_id, type, id, score, ingested_at, title, poster_url, year)
-VALUES (@rail_id, @type, @id, @score, @ingested_at, @title, @poster_url, @year)
+INSERT INTO rail_pool (
+  rail_id, type, id, score, ingested_at, title, poster_url, year,
+  evidence_json, evidence_hash, evidence_source, evidence_retrieved_at
+)
+VALUES (
+  @rail_id, @type, @id, @score, @ingested_at, @title, @poster_url, @year,
+  @evidence_json, @evidence_hash, @evidence_source, @evidence_retrieved_at
+)
 ON CONFLICT(rail_id, type, id) DO UPDATE SET
   score = excluded.score,
   ingested_at = excluded.ingested_at,
   title = COALESCE(excluded.title, rail_pool.title),
   poster_url = COALESCE(excluded.poster_url, rail_pool.poster_url),
-  year = COALESCE(excluded.year, rail_pool.year);
+  year = COALESCE(excluded.year, rail_pool.year),
+  evidence_json = COALESCE(excluded.evidence_json, rail_pool.evidence_json),
+  evidence_hash = COALESCE(excluded.evidence_hash, rail_pool.evidence_hash),
+  evidence_source = CASE
+    WHEN excluded.evidence_hash IS NOT rail_pool.evidence_hash
+      THEN COALESCE(excluded.evidence_source, rail_pool.evidence_source)
+    ELSE rail_pool.evidence_source
+  END,
+  evidence_retrieved_at = CASE
+    WHEN excluded.evidence_hash IS NOT rail_pool.evidence_hash
+      THEN COALESCE(excluded.evidence_retrieved_at, rail_pool.evidence_retrieved_at)
+    ELSE rail_pool.evidence_retrieved_at
+  END;
 `);
 
       for (const record of this.verifyRecords) {
@@ -141,6 +159,10 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
           title: entry.title ?? null,
           poster_url: entry.poster_url ?? null,
           year: entry.year ?? null,
+          evidence_json: entry.evidence_json ?? null,
+          evidence_hash: entry.evidence_hash ?? null,
+          evidence_source: entry.evidence_source ?? null,
+          evidence_retrieved_at: entry.evidence_retrieved_at ?? null,
         });
       }
     });

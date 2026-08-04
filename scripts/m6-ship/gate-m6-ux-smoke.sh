@@ -188,6 +188,17 @@ for search_contract in (
         raise SystemExit(f"search.ts missing Search surface contract: {search_contract}")
 if "tryRestoreSearchOnBoot();" not in main or "search.restorePersisted()" not in main:
     raise SystemExit("main.ts does not restore Search after a Chromium self-heal")
+detail_return = main.split("function restoreFromDetail", 1)[1].split(
+    "async function reloadSavedAndCatalog", 1,
+)[0]
+if "refreshDirtyCatalogOnVisibleHome();" not in detail_return:
+    raise SystemExit("Detail return does not consume deferred YouTube history refreshes")
+dirty_refresh = main.split("function refreshDirtyCatalogOnVisibleHome", 1)[1].split(
+    "function restoreFromDetail", 1,
+)[0]
+for dirty_refresh_contract in ("personalizationCatalogDirty", "void loadCatalog({ background: true })"):
+    if dirty_refresh_contract not in dirty_refresh:
+        raise SystemExit(f"visible Home dirty refresh is missing: {dirty_refresh_contract}")
 set_query = search.split("private setQuery", 1)[1].split("private scheduleSuggestions", 1)[0]
 if "this.render()" in set_query.split("if (wasSubmitted)", 1)[1].split("} else {", 1)[1]:
     raise SystemExit("Search typing path rebuilds the full DOM")
@@ -234,6 +245,7 @@ PY
 "$REPO_DIR/src/catalog-service/node_modules/.bin/tsx" --test \
   "$SRC/catalog-errors.test.ts" \
   "$SRC/catalog-owner.test.ts" \
+  "$SRC/focus.test.ts" \
   "$SRC/home-state.test.ts" \
   "$SRC/personalization.test.ts" \
   "$SRC/playback-return.test.ts" \

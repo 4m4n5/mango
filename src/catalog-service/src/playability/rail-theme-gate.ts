@@ -18,10 +18,6 @@ export type RailThemeFitResult = {
   reason: 'pinned' | 'no_profile' | 'anchor' | 'title_match' | 'meta_match' | 'below_min_fit' | 'exclude_match';
 };
 
-function pinKey(railId: string, type: string, id: string): string {
-  return `${railId}:${type}:${id}`;
-}
-
 function isPinned(
   railId: string,
   type: string,

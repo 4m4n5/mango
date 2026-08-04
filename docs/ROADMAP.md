@@ -25,7 +25,7 @@ M6 Ship           ██████████████░░░░░░  
 | **M3** Play       | mpv orchestrator · picker · episodes · playability/grow                                               | ✓ hardening                                                                                |
 | **M4** Addons     | Self-hosted AIOStreams + AIOMetadata                                                                  | ✓                                                                                          |
 | **M5** Voice + AI | Phone librarian · AI catalogs · Phase 3 companion · living librarian · voice safety contract | ◐ Phase 3 ✓ · M5.5a ✓ · M5.5b round code ✓ · living librarian memory ✓ · couch pending |
-| **M6** Ship       | Mango-owned library · YouTube · profile-aware recommendations · Reliability Center · efficiency/perf hardening · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 ✓ · M6.2 base Pi-gated ✓ · recommendation redesign local/TV proof deferred · Reliability ✓ · Tiers 1–4 ✓ · M6.5 round code ✓ · 4K Stage 2 · wizard pending |
+| **M6** Ship       | Mango-owned library · YouTube · Household recommendations · Reliability Center · efficiency/perf hardening · 4K HDR · unified TV/companion UX · plug-and-play | ◐ M6.1 ✓ · M6.2 base Pi-gated ✓ · recommendation v2 local/backfill/promotion/TV proof deferred · Reliability ✓ · Tiers 1–4 ✓ · M6.5 round code ✓ · 4K Stage 2 · wizard pending |
 
 
 ---
@@ -178,27 +178,28 @@ Target: **world-class 4K HDR plug-and-play AI TV box** on Pi 5 (or documented ha
 
 
 
-### M6.2 — Native YouTube base ✓; profile-aware recommendations local
+### M6.2 — Native YouTube base ✓; Household recommendations v2 source complete
 
 The native YouTube base was previously deployed and Pi-gated. The current
-profile-aware allocator, feedback, and exposure changes are local code only;
-deployment, Pi diagnostics, screenshots, and TV behavior are **DEFERRED** for
-this exact revision. Detail: [YOUTUBE.md](YOUTUBE.md).
+Household allocator, provenance, Takeout, feedback, and exposure source is
+complete; deployment, Pi backfill/diagnostics, screenshots, and TV behavior are
+**DEFERRED** for this exact pushed revision. Detail: [YOUTUBE.md](YOUTUBE.md).
 
 - `catalog-service/src/youtube/` owns config, `youtube.db`, API client, OAuth device flow, refresh/cache, recommender rails, search/detail, reversible Not for me, and `yt-dlp -> mpv` playback
-- `/etc/mango/youtube.db` is rebuildable cache; `/etc/mango/library.db` owns profile-scoped `source="youtube"` Saved, Mango-local history/search, Not-for-me, and recommendation events
-- Launcher tab order is **Movies · TV Shows · Live · YouTube**; every visible rail has four cards. Logical anchors are For You → Subscriptions → History → Saved, followed by at most three adaptive rails
-- X advances deterministic discovery from cache only; History/Saved stay stable and no YouTube API quota is spent. With healthy lane supply, For You produces 70/20/10 close/adjacent/surprise exposure over ten slates; thin supply is filled best-effort and recorded diagnostically
+- `/etc/mango/youtube.db` is rebuildable metadata/provenance cache; `/etc/mango/library.db` durably owns Household Saved, normalized Takeout/Mango-local history, import audit, exact Not-for-me, and recommendation events
+- Launcher tab order is **Movies · TV Shows · Live · YouTube**. YouTube v2 orders For You → Beyond Your Subscriptions → More Like … → History → Saved, then conditional From Your Subscriptions and Live Now; normal rows have four cards and Live Now may have one to four
+- X advances only cached recommendation/discovery/subscription/live reservoirs; chronological History/Saved stay stable and no API quota is spent
 - Companion has YouTube account connect/disconnect via Google device OAuth; tokens are stored operator-owned at `/etc/mango/youtube-auth.json` with `0600`
 - Voice tools add YouTube search/open/save/unsave and `mango_manage_viewer_profile` under the same rule: voice opens, pad **B** plays
 - Legacy Kodi YouTube is emergency-only behind `MANGO_LEGACY_YOUTUBE=1`
 
 Every visible Movies/TV For You rail uses only candidates currently verified by
-the playability DB and has exactly six cards (4 close, 1 adjacent, 1 surprise);
-the rail is omitted if its reserve cannot heal that contract. Explicit Fire/Water dominates
-dual-horizon usage signals; rare completed-title rewatch is cooled. Optional AI
-semantic enrichment runs in the background, while the local ranker owns final
-slates and last-good fallback. Current Pi/couch proof is **DEFERRED**.
+the playability DB and has exactly six strongest supported fits across up to
+three Household taste threads. Exact rated, Saved, meaningfully watched, hidden,
+blocked, and Not-for-me titles remain out; there is no cooled-rewatch lane.
+StoryDNA enrichment is content-only and background-bound, while the local theme
+graph owns scoring, uncertainty, cached slates, and last-good fallback. Current
+backfill, offline-promotion, Pi, and couch proof is **DEFERRED**.
 
 **Gate:** `scripts/m6-ship/gate-m6-youtube-smoke.sh` (`MANGO_YOUTUBE_PLAY=1` for optional playback smoke).
 

@@ -33,6 +33,18 @@ import {
   type RecommendationAiInput,
 } from './ai.js';
 import { evaluateExplicitRatings } from './evaluation.js';
+import { KeyedSerialExecutor } from './background-refresh.js';
+import { listRecommendationRefreshJobs, type RecommendationRefreshJob } from './jobs.js';
+import { vodRecommendationsV2Mode } from './v2-mode.js';
+import {
+  hasPublishedStoryGraphGeneration,
+  loadStoryGraphForYouRail,
+  refreshStoryGraphForYou,
+  storyGraphDiagnostics,
+  storyGraphPublishedHasNoTaste,
+  storyGraphPromotionEligible,
+  storyGraphServingWorkSnapshot,
+} from './story-graph-service.js';
 
 export type ForYouTab = 'movies' | 'series';
 
@@ -430,7 +442,7 @@ export type RefreshForYouResult = {
   item_count: number;
 };
 
-async function refreshForYouUnserialized(
+async function refreshLegacyForYouUnserialized(
   tab: ForYouTab,
   expectedProfileId?: string,
 ): Promise<RefreshForYouResult> {
@@ -639,30 +651,58 @@ async function refreshForYouUnserialized(
   return { tab, revision, candidate_count: candidates.length, item_count: ranked.length };
 }
 
-// Recommendation generation mutates shared feature/cache tables in addition
-// to publishing a profile snapshot. Serialize the whole refresh, not merely
-// the final INSERT, so operator, nightly, and first-run callers cannot
-// interleave phases or publish stale work over a newer result.
-let refreshTail: Promise<void> = Promise.resolve();
+async function refreshForYouUnserialized(
+  tab: ForYouTab,
+  expectedProfileId?: string,
+  triggerReasons: readonly string[] = ['refresh'],
+): Promise<RefreshForYouResult> {
+  // Shadow keeps v4 warm for rollback comparison. Once serve is selected,
+  // Story Graph is the only generation path and v4 cannot silently reappear.
+  const mode = vodRecommendationsV2Mode();
+  if (mode === 'off') return refreshLegacyForYouUnserialized(tab, expectedProfileId);
+  if (mode === 'serve') {
+    const storyGraph = await refreshStoryGraphForYou(tab, { trigger_reasons: triggerReasons });
+    return {
+      tab,
+      revision: storyGraph.rank_generation_id,
+      candidate_count: storyGraph.verified_count,
+      item_count: storyGraph.reserve_depth,
+    };
+  }
+  let legacy: RefreshForYouResult | null = null;
+  let legacyError: unknown;
+  try {
+    legacy = await refreshLegacyForYouUnserialized(tab, expectedProfileId);
+  } catch (error) {
+    legacyError = error;
+  }
+  try {
+    await refreshStoryGraphForYou(tab, { trigger_reasons: triggerReasons });
+  } catch (error) {
+    // Shadow work must not make the established v4 rail unavailable. Serve
+    // mode propagates the failure so the coalescing worker records that it
+    // retained last-good and retries normally.
+    console.warn(`Story Graph shadow refresh retained v4 ${tab}: ${
+      error instanceof Error ? error.message : String(error)
+    }`);
+  }
+  if (legacy) return legacy;
+  throw legacyError ?? new Error(`no recommendation generation published for ${tab}`);
+}
+
+// Serialize the whole refresh per media type, not merely the final INSERT.
+// Movies and Series own independent generations/tables and may progress in
+// parallel; two callers for the same type may never interleave publication.
+const refreshExecutor = new KeyedSerialExecutor<ForYouTab>();
 
 export function refreshForYou(
   tab: ForYouTab,
-  options: { profile_id?: string } = {},
+  options: { profile_id?: string; trigger_reasons?: readonly string[] } = {},
 ): Promise<RefreshForYouResult> {
-  const run = refreshTail
-    .catch(() => undefined)
-    .then(() => refreshForYouUnserialized(tab, options.profile_id));
-  refreshTail = run.then(() => undefined, () => undefined);
-  return run;
-}
-
-export async function refreshAllForYou(): Promise<Array<Awaited<ReturnType<typeof refreshForYou>>>> {
-  const profileId = activeViewerProfileId();
-  const results = [];
-  for (const tab of ['movies', 'series'] as const) {
-    results.push(await refreshForYou(tab, { profile_id: profileId }));
-  }
-  return results;
+  return refreshExecutor.run(
+    tab,
+    () => refreshForYouUnserialized(tab, options.profile_id, options.trigger_reasons),
+  );
 }
 
 export function currentRecommendationRevision(tab: ForYouTab): number {
@@ -738,6 +778,18 @@ export async function loadForYouRail(
   } = {},
 ): Promise<ForYouRail | null> {
   if (!forYouEnabled()) return null;
+  if (vodRecommendationsV2Mode() === 'serve') {
+    if (!hasPublishedStoryGraphGeneration(tab) || storyGraphPublishedHasNoTaste(tab)) return null;
+    if (storyGraphPromotionEligible(tab)) {
+      // A published v2 generation owns both ready and intentional empty states.
+      // Couch-time work is limited to local slate dealing/revalidation.
+      return loadStoryGraphForYouRail(tab, { reshuffle: options.reshuffle });
+    }
+    // A rank generation that has not passed the frozen gate remains shadow,
+    // even if an operator accidentally selects serve early. Serve mode never
+    // falls through to a personal/v4 snapshot.
+    return null;
+  }
   const personalization = getPersonalizationState();
   const profileId = options.profileId ?? personalization.active_profile_id;
   const personalizationUpdatedAt = options.personalizationUpdatedAt ?? personalization.updated_at;
@@ -910,6 +962,10 @@ export function recommendationDiagnostics(): {
   metrics_scope: { kind: 'active_profile'; profile_id: string };
   metrics: Record<string, { value: number; updated_at: number }>;
   legacy_global_metrics: Record<string, { value: number; updated_at: number }>;
+  refresh_jobs: RecommendationRefreshJob[];
+  vod_v2_mode: ReturnType<typeof vodRecommendationsV2Mode>;
+  story_graph: ReturnType<typeof storyGraphDiagnostics>;
+  story_graph_serving_work: ReturnType<typeof storyGraphServingWorkSnapshot>;
   attribution_rollup: Array<{
     domain: 'vod' | 'youtube';
     rail_id: string;
@@ -1030,6 +1086,10 @@ LIMIT 40
       row.metric_name,
       { value: row.metric_value, updated_at: row.updated_at },
     ])),
+    refresh_jobs: listRecommendationRefreshJobs(20),
+    vod_v2_mode: vodRecommendationsV2Mode(),
+    story_graph: storyGraphDiagnostics(),
+    story_graph_serving_work: storyGraphServingWorkSnapshot(),
     attribution_rollup: attributionRollup,
   };
 }

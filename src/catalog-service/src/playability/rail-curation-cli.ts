@@ -2,12 +2,11 @@
 /** CLI — manual rail pins/blocks. Run from repo: bash scripts/m3-play/playability/rail-curation.sh */
 
 import { readFile, writeFile } from 'node:fs/promises';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { stringify as stringifyYaml } from 'yaml';
 import { CatalogCore } from '../core.js';
 import { applyRailCuration } from './rail-curation.js';
 import {
   invalidateRailCurationCache,
-  loadRailCurationOverrides,
   parseRailCurationOverrides,
   railCurationOverridesPath,
   type RailCurationPin,

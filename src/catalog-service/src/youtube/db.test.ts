@@ -16,6 +16,7 @@ import {
   listPopularCandidates,
   listYoutubeProfileCandidateStates,
   listYoutubeRailItems,
+  listYoutubeV2CandidateProvenance,
   noteBecauseYouWatchedExposures,
   noteFreshFindExposures,
   noteForYouExposures,
@@ -38,6 +39,7 @@ import {
   upsertForYouCandidates,
   upsertLiveNowCandidates,
   upsertPopularCandidates,
+  upsertYoutubeV2CandidateProvenance,
   youtubeCacheSummary,
   youtubeQuotaDecision,
   youtubeRefreshStatus,
@@ -92,7 +94,10 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM youtube_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert.deepEqual(
+      rows.map((row) => row.version),
+      [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    );
   } finally {
     db.close();
   }
@@ -126,6 +131,61 @@ test('profile candidate migration preserves legacy Household cooldown counters',
   assert.equal(migrated[0]?.last_recommended_at, 1234);
   assert.equal(migrated[0]?.exposure_count, 1);
   assert.equal(migrated[0]?.quick_stop_count, 2);
+}));
+
+test('v15 preserves provenance while allowing lane generations to coexist', () => withTempYoutube((dir) => {
+  const item = sampleItem('LaneMigration');
+  upsertYoutubeV2CandidateProvenance([{
+    item,
+    provenance: 'history_topic',
+    provenance_ref: 'seed',
+    source_generation: 'more_like:old',
+    acquired_at: 1000,
+    expires_at: 2000,
+  }]);
+  resetYoutubeDbForTests();
+  const legacy = new Database(join(dir, 'youtube.db'));
+  legacy.exec(`
+DROP INDEX idx_youtube_v2_candidate_expiry;
+DROP INDEX idx_youtube_v2_candidate_source;
+CREATE TABLE youtube_v2_candidate_provenance_v14 (
+  kind TEXT NOT NULL DEFAULT 'video' CHECK(kind = 'video'),
+  id TEXT NOT NULL,
+  provenance TEXT NOT NULL,
+  provenance_ref TEXT NOT NULL,
+  source_generation TEXT NOT NULL,
+  acquired_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY(kind, id, provenance, provenance_ref),
+  FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+INSERT INTO youtube_v2_candidate_provenance_v14
+SELECT * FROM youtube_v2_candidate_provenance;
+DROP TABLE youtube_v2_candidate_provenance;
+ALTER TABLE youtube_v2_candidate_provenance_v14 RENAME TO youtube_v2_candidate_provenance;
+CREATE INDEX idx_youtube_v2_candidate_expiry ON youtube_v2_candidate_provenance(expires_at);
+CREATE INDEX idx_youtube_v2_candidate_source
+  ON youtube_v2_candidate_provenance(provenance, source_generation, acquired_at DESC);
+DELETE FROM youtube_migrations WHERE version = 15;
+`);
+  legacy.close();
+
+  initYoutubeDb();
+  upsertYoutubeV2CandidateProvenance([{
+    item,
+    provenance: 'history_topic',
+    provenance_ref: 'seed',
+    source_generation: 'beyond:new',
+    acquired_at: 1100,
+    expires_at: 2100,
+  }]);
+  assert.deepEqual(
+    listYoutubeV2CandidateProvenance({ at: 0 })
+      .filter((row) => row.item.id === item.id)
+      .map((row) => row.source_generation)
+      .sort(),
+    ['beyond:new', 'more_like:old'],
+  );
 }));
 
 test('rendered impressions are idempotent per profile slate but independent across profiles', () => withTempYoutube(() => {

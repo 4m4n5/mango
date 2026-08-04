@@ -54,7 +54,7 @@ test('notePlaybackExit clears stale pending when the same episode later exits mi
 });
 
 test('buildNextPromptResponse returns next playable episode', () => {
-  const { seasons } = normalizeSeriesEpisodes('tt12004706', [
+  const { seasons } = normalizeSeriesEpisodes([
     { id: 'tt12004706:1:1', season: 1, episode: 1, title: 'One' },
     { id: 'tt12004706:1:2', season: 1, episode: 2, title: 'Two' },
   ]);

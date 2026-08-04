@@ -15,7 +15,6 @@ import {
   type StreamFilterContext,
 } from './stream-filters.js';
 import {
-  defaultPlayLadder,
   enrichStreams,
   expandObligationFloor,
   expandPlayLadder,
@@ -27,7 +26,6 @@ import {
   enabledBrowsableRails,
   enabledBrowsableRailsForTab,
   loadRailConfig,
-  parseCatalogTab,
   railSourceSummary,
   type BrowsableRail,
   type CatalogTab,
@@ -57,9 +55,7 @@ import {
 import { schedulePlayabilityTopUp } from './playability/top-up-scheduler.js';
 import { effectivePoolTarget } from './playability/pool-growth.js';
 import {
-  injectPinnedSessionItems,
   loadRailCurationOverrides,
-  mergePinnedPoolItems,
   shouldSkipTitleFilter,
 } from './playability/rail-overrides.js';
 import { normalizeSeriesVerifyId, seriesBareId } from './playability/ids.js';
@@ -99,6 +95,7 @@ import {
   type SavedLibraryItem,
 } from './library/db.js';
 import { loadForYouRail } from './recommendations/service.js';
+import { vodRecommendationsV2Mode } from './recommendations/v2-mode.js';
 import {
   PersonalizationChangedDuringRequestError,
   personalizationScopedCacheKey,
@@ -373,54 +370,66 @@ export type ProfileOwnedTabRailItemsResponse = TabRailItemsResponse & {
   personalization_updated_at: number;
 };
 
-// One more than the launcher's six-column rail: below this a shuffle would only
-// reorder titles the user can already see, which is churn rather than discovery.
-// Continue is capped at 12 upstream and Saved at 100, so both can clear it.
-const USER_STATE_SHUFFLE_MIN_ITEMS = 7;
-
-function shuffledUserStateItems(items: RailItem[]): RailItem[] {
-  const output = [...items];
-  for (let index = output.length - 1; index > 0; index -= 1) {
-    const swap = Math.floor(Math.random() * (index + 1));
-    [output[index], output[swap]] = [output[swap], output[index]];
-  }
-  return output;
-}
-
-/**
- * Saved is ordered by save time and shuffles freely. Continue is a resume queue,
- * so its most-recent entry stays pinned to the first slot and only the tail
- * rotates — a shuffle must never bury the title the user was last watching.
- */
-function reshuffleUserStateRail(rail: RailItemsResponse, pinMostRecent: boolean): RailItemsResponse {
-  if (rail.items.length < USER_STATE_SHUFFLE_MIN_ITEMS) {
-    return rail;
-  }
-  if (!pinMostRecent) {
-    return { ...rail, items: shuffledUserStateItems(rail.items) };
-  }
-  const [mostRecent, ...rest] = rail.items;
-  return { ...rail, items: [mostRecent, ...shuffledUserStateItems(rest)] };
-}
-
 export function mergeUserStateRails(
   discoveryRails: RailItemsResponse[],
   continueRail: RailItemsResponse,
   savedRail: RailItemsResponse,
-  options: { reshuffle?: boolean; forYouRail?: RailItemsResponse | null } = {},
+  options: { forYouRail?: RailItemsResponse | null } = {},
 ): RailItemsResponse[] {
   const visibleRails = discoveryRails.filter((rail) => rail.items.length > 0);
   const prefix: RailItemsResponse[] = [];
   if (continueRail.items.length > 0) {
-    prefix.push(options.reshuffle ? reshuffleUserStateRail(continueRail, true) : continueRail);
+    prefix.push(continueRail);
   }
   if (savedRail.items.length > 0) {
-    prefix.push(options.reshuffle ? reshuffleUserStateRail(savedRail, false) : savedRail);
+    prefix.push(savedRail);
   }
   if (options.forYouRail && options.forYouRail.items.length > 0) {
     prefix.push(options.forYouRail);
   }
   return [...prefix, ...visibleRails];
+}
+
+export type VodRecommendationTab = 'movies' | 'series';
+
+export class RecommendationTabRevisionFence {
+  private readonly revisions: Record<VodRecommendationTab, number> = { movies: 0, series: 0 };
+
+  capture(tab: VodRecommendationTab): number {
+    return this.revisions[tab];
+  }
+
+  bump(tab: VodRecommendationTab): number {
+    this.revisions[tab] += 1;
+    return this.revisions[tab];
+  }
+
+  isCurrent(tab: VodRecommendationTab, revision: number): boolean {
+    return this.revisions[tab] === revision;
+  }
+}
+
+export function catalogTabLoadPolicy(
+  reshuffle: boolean,
+  sessionAgeMs: number,
+  maxSessionAgeMs: number,
+): { rotatePlayabilitySession: boolean; warmMetadata: boolean } {
+  return {
+    rotatePlayabilitySession: !reshuffle
+      && maxSessionAgeMs > 0
+      && sessionAgeMs >= maxSessionAgeMs,
+    warmMetadata: !reshuffle,
+  };
+}
+
+export function vodUtilityProfileId(
+  tab: CatalogTab,
+  activeProfileId: string,
+  mode = vodRecommendationsV2Mode(),
+): string {
+  return mode === 'serve' && (tab === 'movies' || tab === 'series')
+    ? 'household'
+    : activeProfileId;
 }
 
 type Addon = {
@@ -818,18 +827,6 @@ function metaEpisodeTitle(meta: Meta, episodeId: string): string | undefined {
   return undefined;
 }
 
-function previewId(preview: unknown): string | null {
-  if (typeof preview !== 'object' || preview === null) return null;
-  const id = (preview as { id?: unknown }).id;
-  return typeof id === 'string' && id.trim() !== '' ? id.trim() : null;
-}
-
-function previewType(preview: unknown, fallbackType: string): string {
-  if (typeof preview !== 'object' || preview === null) return fallbackType;
-  const type = (preview as { type?: unknown }).type;
-  return typeof type === 'string' && type.trim() !== '' ? type.trim() : fallbackType;
-}
-
 function installCoreNodeShims(): void {
   const realFetch = globalThis.fetch;
   const globals = globalThis as Record<string, unknown>;
@@ -1176,6 +1173,7 @@ export class CatalogCore {
     payload: TabRailItemsResponse;
     expiresAt: number;
   }>();
+  private readonly recommendationRevisionFence = new RecommendationTabRevisionFence();
   private liveTabRailItemsCache: {
     payload: TabRailItemsResponse;
     expiresAt: number;
@@ -1605,6 +1603,12 @@ export class CatalogCore {
     for (const [key, entry] of this.tabRailItemsCache) {
       if (entry.tab === tab) this.tabRailItemsCache.delete(key);
     }
+  }
+
+  /** Invalidate only one VOD recommendation hand, leaving curated/user rails intact. */
+  invalidateRecommendationTab(tab: VodRecommendationTab): void {
+    this.recommendationRevisionFence.bump(tab);
+    this.clearTabRailItemsCacheForTab(tab);
   }
 
   clearRailItemsCache(railId?: string): void {
@@ -2189,7 +2193,13 @@ export class CatalogCore {
     profileId = activeViewerProfileId(),
   ): Promise<RailItemsResponse> {
     const started = Date.now();
-    const savedItems = listSavedLibraryItems(tab, undefined, { profile_id: profileId });
+    const exactHousehold = vodRecommendationsV2Mode() === 'serve'
+      && (tab === 'movies' || tab === 'series')
+      && profileId === 'household';
+    const savedItems = listSavedLibraryItems(tab, undefined, {
+      profile_id: profileId,
+      household_blend: !exactHousehold,
+    });
     const items = await mapInBatches(
       savedItems,
       RAIL_META_CONCURRENCY,
@@ -2259,7 +2269,8 @@ export class CatalogCore {
         couchMessage: 'profile changed — refreshing',
       });
     }
-    const rail = await this.buildContinueRail(tab, personalization.active_profile_id);
+    const utilityProfileId = vodUtilityProfileId(tab, personalization.active_profile_id);
+    const rail = await this.buildContinueRail(tab, utilityProfileId);
     if (!samePersonalizationSnapshot(personalization, getPersonalizationState())) {
       throw new CatalogError(409, 'profile changed while Continue loaded', undefined, {
         couchMessage: 'profile changed — refreshing',
@@ -2267,7 +2278,7 @@ export class CatalogCore {
     }
     return {
       ...rail,
-      profile_id: personalization.active_profile_id,
+      profile_id: utilityProfileId,
       personalization_updated_at: personalization.updated_at,
     };
   }
@@ -2356,8 +2367,11 @@ export class CatalogCore {
     tab: CatalogTab,
     reshuffle: boolean,
     personalization: PersonalizationSnapshot,
+    recommendationRevision: number | null,
   ): Promise<StagedPersonalizationResult<TabRailItemsResponse>> {
-    const cacheKey = personalizationScopedCacheKey(tab, personalization);
+    const cacheKey = `${personalizationScopedCacheKey(tab, personalization)}\u0000recommendation:${
+      recommendationRevision ?? 'none'
+    }`;
     const now = Date.now();
     for (const [key, entry] of this.tabRailItemsCache) {
       if (entry.expiresAt <= now) this.tabRailItemsCache.delete(key);
@@ -2384,8 +2398,9 @@ export class CatalogCore {
         minDisplay: rail.playability.min_display,
         playability: rail.playability,
       })),
-      forceReshuffle: reshuffle,
-      stableRatio: reshuffle ? 0 : undefined,
+      // X is scoped to the current tab's For You dealer. Curated discovery,
+      // Continue, and Saved retain their existing session/order.
+      forceReshuffle: false,
     });
 
     const [railResponses, continueRail, savedRail] = await Promise.all([
@@ -2396,8 +2411,14 @@ export class CatalogCore {
           return this.buildRailItemsResponse(rail, session, Date.now());
         }),
       ),
-      this.buildContinueRail(tab, personalization.active_profile_id),
-      this.buildSavedRail(tab, personalization.active_profile_id),
+      this.buildContinueRail(
+        tab,
+        vodUtilityProfileId(tab, personalization.active_profile_id),
+      ),
+      this.buildSavedRail(
+        tab,
+        vodUtilityProfileId(tab, personalization.active_profile_id),
+      ),
     ]);
 
     const responses = railResponses.filter((rail): rail is RailItemsResponse => rail !== null);
@@ -2409,7 +2430,6 @@ export class CatalogCore {
       })
       : null;
     const visibleRails = mergeUserStateRails(responses, continueRail, savedRail, {
-      reshuffle,
       forYouRail,
     });
     const payload: TabRailItemsResponse = {
@@ -2421,6 +2441,10 @@ export class CatalogCore {
     return {
       value: payload,
       commit: () => {
+        if (recommendationRevision !== null
+          && !this.recommendationRevisionFence.isCurrent(tab as VodRecommendationTab, recommendationRevision)) {
+          return;
+        }
         for (const response of responses) {
           this.railItemsCache.set(response.rail_id, { payload: response, expiresAt });
         }
@@ -2450,12 +2474,12 @@ export class CatalogCore {
       'before catalog rails loaded',
     );
     const reshuffle = Boolean(options.reshuffle);
-    if (reshuffle) {
-      this.reshufflePlayabilitySession();
-    } else if (
-      PLAYABILITY_SESSION_MAX_AGE_MS > 0
-      && Date.now() - this.playabilitySessionStartedAt >= PLAYABILITY_SESSION_MAX_AGE_MS
-    ) {
+    const loadPolicy = catalogTabLoadPolicy(
+      reshuffle,
+      Date.now() - this.playabilitySessionStartedAt,
+      PLAYABILITY_SESSION_MAX_AGE_MS,
+    );
+    if (loadPolicy.rotatePlayabilitySession) {
       // Session has aged past a day — rotate so the home re-picks from the pool
       // (new titles surface). Uses the normal stable ratio, not the aggressive
       // manual-shuffle ratio, so the daily refresh stays gentle.
@@ -2463,23 +2487,38 @@ export class CatalogCore {
     }
 
     try {
-      const { value, snapshot } = await runPersonalizationCoherentRequest({
-        readSnapshot: getPersonalizationState,
-        build: (personalization) => {
-          assertExpectedPersonalization(
-            options.expectedPersonalization,
-            personalization,
-            'while catalog rails loaded',
-          );
-          return this.stageTabRailItems(tab, reshuffle, personalization);
-        },
-      });
-      this.warmMetaCacheForRailItems(
-        value.rails.flatMap((rail) => rail.items.map((item) => ({
-          type: item.type,
-          id: item.id,
-        }))),
-      );
+      let result: { value: TabRailItemsResponse; snapshot: PersonalizationSnapshot } | null = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const recommendationRevision = tab === 'movies' || tab === 'series'
+          ? this.recommendationRevisionFence.capture(tab)
+          : null;
+        result = await runPersonalizationCoherentRequest({
+          readSnapshot: getPersonalizationState,
+          build: (personalization) => {
+            assertExpectedPersonalization(
+              options.expectedPersonalization,
+              personalization,
+              'while catalog rails loaded',
+            );
+            return this.stageTabRailItems(tab, reshuffle, personalization, recommendationRevision);
+          },
+        });
+        if (recommendationRevision === null
+          || this.recommendationRevisionFence.isCurrent(tab as VodRecommendationTab, recommendationRevision)) {
+          break;
+        }
+        result = null;
+      }
+      if (!result) throw new CatalogError(409, 'recommendation inputs changed while catalog rails were loading');
+      const { value, snapshot } = result;
+      if (loadPolicy.warmMetadata) {
+        this.warmMetaCacheForRailItems(
+          value.rails.flatMap((rail) => rail.items.map((item) => ({
+            type: item.type,
+            id: item.id,
+          }))),
+        );
+      }
       assertExpectedPersonalization(
         options.expectedPersonalization,
         snapshot,
@@ -3880,40 +3919,4 @@ export class CatalogCore {
     };
   }
 
-  private async resolveRailItem(
-    rail: BrowsableRail,
-    addon: Addon,
-    preview: unknown,
-  ): Promise<RailItem | null> {
-    const id = previewId(preview);
-    if (!id) return null;
-    const type = previewType(preview, rail.content_type);
-
-    try {
-      const meta = await this.metaCached(type, id);
-      if (isBlockedCatalogMeta(meta)) {
-        return null;
-      }
-      const poster = resolvePosterFromMeta(meta, preview);
-      if (!poster) {
-        return null;
-      }
-      const year = metaYear(meta);
-      return {
-        id: meta.id || id,
-        type: meta.type || type,
-        title: meta.name || String((preview as { name?: unknown })?.name || id),
-        subtitle: year ? String(year) : type,
-        poster,
-        year,
-        description: typeof meta.description === 'string' ? meta.description : undefined,
-        source: addon.name,
-      };
-    } catch (error) {
-      console.warn(
-        `rail item skipped rail=${rail.id} id=${id}: ${error instanceof Error ? error.message : String(error)}`,
-      );
-      return null;
-    }
-  }
 }

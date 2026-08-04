@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   CoalescingRecommendationRefreshQueue,
+  KeyedSerialExecutor,
   type RecommendationRefreshWork,
 } from './background-refresh.js';
 
@@ -90,4 +91,53 @@ test('same tab work remains isolated across viewer profiles', async () => {
     { profile_id: 'alice', tab: 'movies' },
     { profile_id: 'bob', tab: 'movies' },
   ]);
+});
+
+test('a same-key trigger arriving during retry is processed as distinct work', async () => {
+  let calls = 0;
+  let releaseRetryWait!: () => void;
+  const retryWait = new Promise<void>((resolve) => { releaseRetryWait = resolve; });
+  const queue = new CoalescingRecommendationRefreshQueue({
+    refresh: async () => {
+      calls += 1;
+      if (calls === 1) throw new Error('transient');
+    },
+    onPublished: () => undefined,
+    wait: async () => retryWait,
+    maxRetries: 1,
+  });
+  queue.enqueue('household', ['movies']);
+  await Promise.resolve();
+  await Promise.resolve();
+  queue.enqueue('household', ['movies']);
+  releaseRetryWait();
+  await queue.idle();
+  assert.equal(calls, 3, 'failed attempt, its retry, and the newer trigger all run');
+});
+
+test('keyed executor serializes one media type while allowing the other to run', async () => {
+  const executor = new KeyedSerialExecutor<'movies' | 'series'>();
+  let releaseMovie!: () => void;
+  const movieGate = new Promise<void>((resolve) => { releaseMovie = resolve; });
+  let noteMovieStarted!: () => void;
+  const movieStarted = new Promise<void>((resolve) => { noteMovieStarted = resolve; });
+  let noteSeriesStarted!: () => void;
+  const seriesStarted = new Promise<void>((resolve) => { noteSeriesStarted = resolve; });
+  const events: string[] = [];
+  const movieOne = executor.run('movies', async () => {
+    events.push('movie-one-start');
+    noteMovieStarted();
+    await movieGate;
+    events.push('movie-one-end');
+  });
+  const movieTwo = executor.run('movies', async () => { events.push('movie-two'); });
+  const series = executor.run('series', async () => {
+    events.push('series');
+    noteSeriesStarted();
+  });
+  await Promise.all([movieStarted, seriesStarted]);
+  assert.deepEqual(events, ['movie-one-start', 'series']);
+  releaseMovie();
+  await Promise.all([movieOne, movieTwo, series]);
+  assert.deepEqual(events, ['movie-one-start', 'series', 'movie-one-end', 'movie-two']);
 });

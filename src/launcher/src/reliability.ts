@@ -59,6 +59,17 @@ export interface ReliabilityActionResult {
   error?: string;
 }
 
+export interface YoutubeTakeoutImportResult {
+  ok: boolean;
+  import: {
+    format: "zip" | "json" | "html";
+    imported_history: number;
+    replaced_subscriptions: number;
+    noop: boolean;
+    warnings: string[];
+  };
+}
+
 export async function fetchReliabilityState(): Promise<ReliabilityState> {
   return fetchJson<ReliabilityState>("/api/catalog/reliability/state");
 }
@@ -91,6 +102,26 @@ export async function runReliabilityAction(action: ReliabilityActionId): Promise
     headers: { "content-type": "application/json" },
     body: "{}",
   });
+}
+
+export async function importYoutubeTakeout(file: File): Promise<YoutubeTakeoutImportResult> {
+  const response = await fetch("/api/catalog/youtube/takeout/import", {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/octet-stream",
+      "x-mango-filename": file.name,
+    },
+    body: file,
+  });
+  const data = await response.json().catch(() => ({})) as Partial<YoutubeTakeoutImportResult> & {
+    message?: string;
+    error?: string;
+  };
+  if (!response.ok || !data.ok || !data.import) {
+    throw new Error(data.message || data.error || `HTTP ${response.status}`);
+  }
+  return data as YoutubeTakeoutImportResult;
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {

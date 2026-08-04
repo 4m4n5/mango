@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { CatalogError } from '../catalog-errors.js';
 import { playUrl } from '../mpv.js';
 import { assertPlayEpoch, bumpPlayEpoch } from '../play-cancel.js';
@@ -16,6 +17,7 @@ import {
   listProfileRecommendationSignals,
   listSavedLibraryItems,
   listUniqueWatchHistory,
+  listWatchHistory,
   listViewerProfiles,
   recordLibraryWatch,
   setLibraryFeedback,
@@ -32,6 +34,7 @@ import {
   getYoutubeState,
   initYoutubeDb,
   clearYoutubeProfileCandidateStates,
+  listAllYoutubeV2CandidateIds,
   listBecauseYouWatchedCandidates,
   listFreshFindCandidates,
   listForYouCandidates,
@@ -40,10 +43,14 @@ import {
   listYoutubeProfileCandidateStates,
   listYoutubeItems,
   listYoutubeRailItems,
+  listYoutubeV2ImportedHistory,
+  listYoutubeV2Subscriptions,
+  latestYoutubeV2GenerationRecord,
   pruneBecauseYouWatchedCandidates,
   pruneFreshFindCandidates,
   pruneLiveNowCandidates,
   prunePopularCandidates,
+  replaceYoutubeV2Subscriptions,
   clearYoutubePersonalizationReservoirs,
   deleteYoutubeState,
   replaceForYouCandidates,
@@ -56,7 +63,9 @@ import {
   upsertFreshFindCandidates,
   upsertLiveNowCandidates,
   upsertPopularCandidates,
+  upsertYoutubeV2CandidateProvenance,
   upsertYoutubeItems,
+  youtubeV2ServingEpoch,
   youtubeCacheSummary,
   youtubeRefreshStatus,
   type YoutubeBecauseYouWatchedCandidate,
@@ -80,6 +89,32 @@ import { buildYoutubeAiCatalogRails, youtubeAiCatalogPoolItems } from './ai-cata
 import { YOUTUBE_RAIL_LIMIT } from './constants.js';
 import type { PersonalizationSnapshot } from '../personalization-coherence.js';
 import { assertExpectedPersonalization } from '../personalization-request.js';
+import {
+  YOUTUBE_V2_CANDIDATE_TTL_MS,
+  YOUTUBE_V2_LIVE_TTL_MS,
+  rebuildYoutubeV2Generation,
+  youtubePlayStartUsesLegacyAcquisition,
+  youtubeRecommendationsV2Mode,
+  youtubeV2Diagnostics,
+  youtubeV2DiscoverySeeds,
+  youtubeV2HistoryItems,
+  youtubeV2RecommendationRails,
+  youtubeV2SourceStaleState,
+  youtubeV2TopicSeed,
+  type YoutubeV2TopicSeed,
+} from './v2.js';
+
+export {
+  importYoutubeTakeout,
+  importYoutubeTakeoutFile,
+  importYoutubeTakeoutStream,
+  parseYoutubeTakeout,
+  parseYoutubeTakeoutFile,
+} from './takeout.js';
+export {
+  youtubePublicPersonalizationPayload,
+  youtubeRecommendationsV2Mode,
+} from './v2.js';
 
 const YOUTUBE_SOURCE = 'youtube';
 const YOUTUBE_TAB = 'youtube';
@@ -96,11 +131,30 @@ const YOUTUBE_RAILS_CACHE_TTL_MS = Number(
   process.env.MANGO_YOUTUBE_RAILS_CACHE_TTL_MS || 60_000,
 );
 const SUBSCRIPTION_CHANNEL_SCAN_LIMIT = 50;
+// `YoutubeApiClient.subscriptions` paginates until either this bound or the
+// provider's nextPageToken ends. V2 treats only a complete OAuth read as the
+// authoritative replacement, so use the practical integer ceiling.
+const V2_SUBSCRIPTION_CHANNEL_SCAN_LIMIT = Number.MAX_SAFE_INTEGER;
 const SUBSCRIPTION_CHANNELS_PER_REFRESH = 24;
 const SUBSCRIPTION_ACTIVE_CHANNELS_PER_REFRESH = 12;
 const SUBSCRIPTION_VIDEOS_PER_CHANNEL = 8;
+
+export function youtubeV2AcquisitionQueryBudget(reason: string): {
+  more_like: number;
+  beyond: number;
+  total: number;
+} {
+  const nightly = /(?:nightly|scheduled|maintenance)/i.test(reason);
+  const moreLike = nightly ? 4 : 3;
+  const beyond = nightly ? 8 : 2;
+  return { more_like: moreLike, beyond, total: moreLike + beyond };
+}
 const SUBSCRIPTION_RAIL_POOL_LIMIT = 160;
 const FOR_YOU_RESERVOIR_TARGET = 1000;
+// Internal acquisition provenance for the legacy v4 reservoir. This is never
+// rendered as a couch rail; it prevents v2-only cache writes from changing the
+// v4 baseline while shadow mode runs both builders.
+const LEGACY_FOR_YOU_DISCOVERY_RAIL_ID = '__legacy_for_you_discovery';
 const FOR_YOU_EXPOSURE_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 const FOR_YOU_SEARCH_HISTORY_LIMIT = 20;
 const HOUSEHOLD_CHANNEL_TASTE_BUDGET = 2;
@@ -149,14 +203,6 @@ const LIVE_NOW_LANE_QUOTAS: Record<LiveNowLane, number> = {
   culture_talks: 1,
   wildcard: 1,
 };
-const SHUFFLEABLE_YOUTUBE_RAILS = new Set([
-  'for_you',
-  'new_from_subscriptions',
-  'fresh_finds',
-  'because_you_watched',
-  'live_now',
-  'popular',
-]);
 const TITLE_TOKEN_STOPWORDS = new Set([
   'the',
   'and',
@@ -278,6 +324,9 @@ type YoutubeRailsResponse = {
   personalization_updated_at: number;
   rails: PublicYoutubeRail[];
   slate_sequence: number;
+  recommendations_status?: 'ready' | 'empty' | 'setup' | 'stale';
+  setup_required?: boolean;
+  stale_reason?: string | null;
   /** Server-only metadata. The HTTP route strips this before serialization. */
   attribution_contexts: Record<string, YoutubeAttributionContext>;
 };
@@ -336,7 +385,12 @@ type YoutubeRefreshPhase =
   | 'live_now'
   | 'because_you_watched'
   | 'for_you_discovery'
-  | 'for_you_reservoir';
+  | 'for_you_reservoir'
+  | 'v2_subscription_acquisition'
+  | 'v2_history_metadata'
+  | 'v2_history_acquisition'
+  | 'v2_live_acquisition'
+  | 'v2_publish';
 
 type RecentYoutubeSearch = {
   query: string;
@@ -661,10 +715,6 @@ function filterNotInterested<T extends YoutubeItem>(items: T[], profileId = acti
   return items.filter((item) => item.kind !== 'video' || !blocked.has(item.id));
 }
 
-function shouldShowLiveInRail(railId: string): boolean {
-  return railId === 'live_now' || railId === 'history';
-}
-
 function uniqueVideos(items: YoutubeItem[]): YoutubeItem[] {
   const seen = new Set<string>();
   const output: YoutubeItem[] = [];
@@ -680,10 +730,6 @@ function uniqueVideos(items: YoutubeItem[]): YoutubeItem[] {
 
 function isLiveVideo(item: YoutubeItem): boolean {
   return item.live_status === 'live';
-}
-
-function nonLiveVideos(items: YoutubeItem[]): YoutubeItem[] {
-  return items.filter((item) => !isLiveVideo(item));
 }
 
 function stableHash(value: string): number {
@@ -784,13 +830,6 @@ async function listYoutubeRailPoolItems(railId: string): Promise<YoutubeRailItem
     return youtubeAiCatalogPoolItems(railId);
   }
   return listYoutubeRailItems(railId, poolLimit);
-}
-
-function railWindow<T extends YoutubeItem>(railId: string, items: T[], options: YoutubeRailsOptions = {}): T[] {
-  const windowed = options.reshuffle && SHUFFLEABLE_YOUTUBE_RAILS.has(railId)
-    ? deterministicShuffle(items, recommendationSeed(options, railId), (item) => item.id)
-    : items;
-  return windowed.slice(0, YOUTUBE_RAIL_LIMIT);
 }
 
 function publishedOrUpdatedMs(item: YoutubeItem): number {
@@ -1551,6 +1590,9 @@ function forYouSourceHints(): Map<string, ForYouSource> {
   for (const item of listYoutubeRailItems('new_from_subscriptions', FOR_YOU_RESERVOIR_TARGET)) {
     hints.set(item.id, 'subscription');
   }
+  for (const item of listYoutubeRailItems(LEGACY_FOR_YOU_DISCOVERY_RAIL_ID, FOR_YOU_RESERVOIR_TARGET)) {
+    hints.set(item.id, 'discovery');
+  }
   return hints;
 }
 
@@ -1646,7 +1688,12 @@ function isEligibleForYouCandidate(
 function buildForYouReservoir(): void {
   const hints = forYouSourceHints();
   const scoredAt = nowMs();
-  const scored = listYoutubeItems('video', FOR_YOU_RESERVOIR_TARGET * 2)
+  const v2AcquiredIds = new Set(listAllYoutubeV2CandidateIds());
+  const scored = listYoutubeItems('video', 20_000)
+    // A generic metadata row is not legacy acquisition provenance. Keep rows
+    // that predate/avoid v2, plus explicit legacy rails when both systems have
+    // acquired the same video.
+    .filter((item) => !v2AcquiredIds.has(item.id) || hints.has(item.id))
     .filter((item) => !isLiveVideo(item))
     .filter((item) => !isShortLikeVideo(item))
     .map((item) => {
@@ -2934,43 +2981,14 @@ function forYouRail(options: YoutubeRailsOptions = {}, tasteProfile?: TasteProfi
   };
 }
 
-function railFromItems(railId: string, items: YoutubeItem[], reason: string): YoutubeRail {
-  const refresh = youtubeRefreshStatus();
-  const stale = refresh.last_success_at !== null
-    && refresh.last_success_at < nowMs() - loadYoutubeConfig().stale_after_ms;
-  return {
-    rail_id: railId,
-    label: RAIL_LABELS[railId] || railId,
-    items: filterNotInterested(items).map((item, index) => ({
-      ...item,
-      score: 1 / (index + 1),
-      reason,
-    })),
-    cached: items.length > 0,
-    stale,
-  };
-}
-
-function cachedRail(railId: string, options: YoutubeRailsOptions = {}): YoutubeRail {
-  const refresh = youtubeRefreshStatus();
-  const candidates = filterNotInterested(listYoutubeRailItems(railId, YOUTUBE_RAIL_POOL_LIMIT))
-    .filter((item) => shouldShowLiveInRail(railId) || !isLiveVideo(item));
-  const items = railWindow(railId, candidates, options);
-  const stale = refresh.last_success_at !== null
-    && refresh.last_success_at < nowMs() - loadYoutubeConfig().stale_after_ms;
-  return {
-    rail_id: railId,
-    label: RAIL_LABELS[railId] || railId,
-    items,
-    cached: items.length > 0,
-    stale,
-  };
-}
-
-function savedRail(profileId: string, limit = YOUTUBE_RAIL_LIMIT): YoutubeRail {
+function savedRail(
+  profileId: string,
+  limit = YOUTUBE_RAIL_LIMIT,
+  householdBlend = profileId === 'household',
+): YoutubeRail {
   const saved = listSavedLibraryItems(YOUTUBE_TAB, limit, {
     profile_id: profileId,
-    household_blend: profileId === 'household',
+    household_blend: householdBlend,
   })
     .filter((item) => item.source === YOUTUBE_SOURCE && item.type === YOUTUBE_VIDEO_TYPE)
     .map((item) => libraryItemToYoutube(item))
@@ -3630,6 +3648,7 @@ export class YoutubeService {
       auth: youtubeAuthSummary(this.config),
       refresh: youtubeRefreshStatus(),
       cache: youtubeCacheSummary(),
+      recommendations_v2: youtubeV2Diagnostics(),
     };
   }
 
@@ -3654,6 +3673,16 @@ export class YoutubeService {
 
   disconnectAuth(): Record<string, unknown> {
     clearYoutubeAuth(this.config);
+    if (youtubeRecommendationsV2Mode() !== 'off') {
+      setYoutubeState('youtube_v2_source_stale', {
+        stale: true,
+        reason: 'oauth_disconnected',
+        at: nowMs(),
+        authoritative_subscription_count: listYoutubeV2Subscriptions()
+          .filter((row) => row.source === 'oauth').length,
+      });
+      this.invalidateRailsCache();
+    }
     return { ok: true, auth: youtubeAuthSummary(this.config) };
   }
 
@@ -3885,6 +3914,28 @@ export class YoutubeService {
   private async refreshSubscriptionsIfAuthorized(): Promise<void> {
     const token = await youtubeAccessToken(this.config).catch(() => null);
     if (!token) {
+      if (youtubeRecommendationsV2Mode() !== 'off') {
+        const authoritativeCount = listYoutubeV2Subscriptions()
+          .filter((row) => row.source === 'oauth').length;
+        if (authoritativeCount > 0) {
+          const stale = {
+            stale: true,
+            reason: 'oauth_unavailable',
+            at: nowMs(),
+            authoritative_subscription_count: authoritativeCount,
+          };
+          setYoutubeState('youtube_v2_source_stale', stale);
+          setYoutubeState('youtube_v2_subscription_acquisition', stale);
+          throw new Error('YouTube OAuth unavailable; retained the last-good authoritative generation');
+        }
+        setYoutubeState('youtube_v2_source_stale', {
+          stale: false,
+          reason: 'not_connected',
+          at: nowMs(),
+          authoritative_subscription_count: 0,
+        });
+        return;
+      }
       setYoutubeState('subscriptions_last_refresh_count', 0);
       setYoutubeState('subscriptions_last_refresh_skipped', {
         at: nowMs(),
@@ -3904,7 +3955,8 @@ export class YoutubeService {
     if (!this.config.api_key) {
       return;
     }
-    const seed = latestBecauseYouWatchedSeed(context.profileId);
+    const legacyActive = youtubeRecommendationsV2Mode() !== 'serve';
+    const seed = latestBecauseYouWatchedSeed(legacyActive ? context.profileId : 'household');
     if (!seed) {
       setYoutubeState('because_you_watched_last_refresh_count', 0);
       return;
@@ -3928,7 +3980,7 @@ export class YoutubeService {
         }).catch(() => ({ videos: [], channels: [], playlists: [] })),
       })),
     );
-    if (!isSameYoutubePersonalization(context)) {
+    if (legacyActive && !isSameYoutubePersonalization(context)) {
       throw new CatalogError(409, 'YouTube personalization changed during Because You Watched refresh');
     }
     const specPriority: Record<BecauseYouWatchedRelation, number> = {
@@ -3974,6 +4026,251 @@ export class YoutubeService {
     setYoutubeState('because_you_watched_last_refresh_count', scored.length);
   }
 
+  private async refreshV2HistoryCandidatesFromApi(reason: string): Promise<void> {
+    if (!this.config.api_key) {
+      setYoutubeState('youtube_v2_history_acquisition', {
+        candidates_acquired: 0,
+        queries_attempted: 0,
+        skipped: 'api_key_not_configured',
+        acquired_at: nowMs(),
+      });
+      return;
+    }
+    const moreLikeSeed = youtubeV2TopicSeed();
+    const budget = youtubeV2AcquisitionQueryBudget(reason);
+    const discoverySeeds = youtubeV2DiscoverySeeds(Math.min(12, budget.beyond + 1));
+    if (!moreLikeSeed && discoverySeeds.length === 0) {
+      setYoutubeState('youtube_v2_history_acquisition', {
+        candidates_acquired: 0,
+        queries_attempted: 0,
+        skipped: 'no_history_or_subscription_seed',
+        acquired_at: nowMs(),
+      });
+      return;
+    }
+    type AcquisitionSpec = {
+      lane: 'more_like' | 'beyond';
+      seed: YoutubeV2TopicSeed;
+      spec: BecauseYouWatchedQuerySpec;
+    };
+    const specs: AcquisitionSpec[] = [];
+    if (moreLikeSeed) {
+      specs.push(...becauseYouWatchedQuerySpecs(moreLikeSeed.item)
+        .filter((spec) => moreLikeSeed.kind === 'history' || spec.relation_type !== 'same_channel')
+        .slice(0, budget.more_like)
+        .map((spec) => ({ lane: 'more_like' as const, seed: moreLikeSeed, spec })));
+    }
+    const distinctBeyondSeeds = discoverySeeds
+      .filter((seed) => seed.provenance_ref !== moreLikeSeed?.provenance_ref);
+    // Prefer genuinely separate acquisition seeds. A single-source cold start
+    // may fall back to its only available seed rather than suppress Beyond.
+    for (const seed of distinctBeyondSeeds.length > 0 ? distinctBeyondSeeds : discoverySeeds) {
+      if (specs.filter((entry) => entry.lane === 'beyond').length >= budget.beyond) break;
+      const topicSpec = becauseYouWatchedQuerySpecs(seed.item)
+        .find((spec) => spec.relation_type !== 'same_channel');
+      if (!topicSpec) continue;
+      const duplicate = specs.some((entry) => entry.lane === 'beyond'
+        && entry.spec.query === topicSpec.query
+        && entry.seed.provenance_ref === seed.provenance_ref);
+      if (!duplicate) specs.push({ lane: 'beyond', seed, spec: topicSpec });
+    }
+    const results = await Promise.all(specs.map(async (entry) => {
+      try {
+        const groups = await this.api.search(entry.spec.query, {
+          limit: entry.spec.limit,
+          order: entry.spec.order,
+          type: 'video',
+          channelId: entry.spec.channelId,
+          publishedAfter: entry.spec.publishedAfterDays
+            ? rfc3339DaysAgo(entry.spec.publishedAfterDays) : undefined,
+          videoDuration: entry.spec.videoDuration,
+          safeSearch: 'moderate',
+        });
+        return { ...entry, videos: groups.videos, error: null as string | null };
+      } catch (error) {
+        return {
+          ...entry,
+          videos: [] as YoutubeItem[],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }));
+    const acquiredAt = nowMs();
+    const candidates = results.flatMap(({ lane, seed, spec, videos }) => {
+      const provenance = lane === 'more_like'
+        && seed.kind === 'history' && spec.relation_type === 'same_channel'
+        ? 'history_channel' as const
+        : 'history_topic' as const;
+      const sourceGeneration = `${lane}:${createHash('sha256')
+        .update(JSON.stringify({
+          lane,
+          seed_kind: seed.kind,
+          seed_id: seed.item.id,
+          provenance_ref: seed.provenance_ref,
+          seed_source_generation: seed.source_generation,
+          relation: spec.relation_type,
+          query: spec.query,
+          channel_id: spec.channelId ?? null,
+        }))
+        .digest('hex')}`;
+      return videos
+        .filter((item) => item.kind === 'video')
+        .filter((item) => !isLiveVideo(item) && !isShortLikeVideo(item))
+        .filter((item) => !isLowSignalYoutubeRecommendation(item))
+        .filter((item) => {
+          const relation = becauseRelationForItem(item, seed.item);
+          if (provenance === 'history_channel') return relation === 'same_channel';
+          if (lane === 'beyond') return relation !== 'same_channel';
+          return relation !== null && relation !== 'same_channel';
+        })
+        .map((item) => ({
+          item,
+          provenance,
+          provenance_ref: seed.provenance_ref,
+          source_generation: sourceGeneration,
+          acquired_at: acquiredAt,
+          expires_at: acquiredAt + YOUTUBE_V2_CANDIDATE_TTL_MS,
+        }));
+    });
+    upsertYoutubeV2CandidateProvenance(candidates);
+    const failed = results.filter((result) => result.error);
+    setYoutubeState('youtube_v2_history_acquisition', {
+      queries_attempted: specs.length,
+      query_budget: budget,
+      more_like_queries: specs.filter((entry) => entry.lane === 'more_like').length,
+      beyond_queries: specs.filter((entry) => entry.lane === 'beyond').length,
+      distinct_seed_refs: [...new Set(specs.map((entry) => entry.seed.provenance_ref))],
+      query_failures: failed.length,
+      candidates_acquired: candidates.length,
+      acquired_at: acquiredAt,
+      expires_at: acquiredAt + YOUTUBE_V2_CANDIDATE_TTL_MS,
+    });
+    if (specs.length > 0 && failed.length === specs.length) {
+      throw new Error(`YouTube v2 discovery acquisition failed: ${failed[0]?.error || 'all queries failed'}`);
+    }
+  }
+
+  private async refreshV2SubscribedLiveFromApi(reason: string): Promise<void> {
+    const nightly = /(?:nightly|scheduled|maintenance)/i.test(reason);
+    if (!nightly || !this.config.api_key) {
+      setYoutubeState('youtube_v2_live_acquisition', {
+        channels_probed: 0,
+        candidates_acquired: 0,
+        skipped: nightly ? 'api_key_not_configured' : 'not_nightly',
+        acquired_at: nowMs(),
+      });
+      return;
+    }
+    const allChannels = listYoutubeV2Subscriptions()
+      .filter((row) => row.source === 'oauth' && row.channel_id)
+      .sort((left, right) => left.channel_key.localeCompare(right.channel_key));
+    const cursor = allChannels.length > 0
+      ? Math.max(0, getYoutubeState<number>('youtube_v2_live_probe_cursor', 0)) % allChannels.length
+      : 0;
+    const rotated = [...allChannels.slice(cursor), ...allChannels.slice(0, cursor)];
+    const channels = rotated.slice(0, 8);
+    setYoutubeState(
+      'youtube_v2_live_probe_cursor',
+      allChannels.length > 0 ? (cursor + channels.length) % allChannels.length : 0,
+    );
+    const results = await Promise.all(channels.map(async (channel) => {
+      try {
+        const groups = await this.api.search('', {
+          limit: 4,
+          eventType: 'live',
+          type: 'video',
+          channelId: channel.channel_id!,
+          order: 'date',
+          safeSearch: 'moderate',
+        });
+        return { channel, videos: groups.videos, error: null as string | null };
+      } catch (error) {
+        return {
+          channel,
+          videos: [] as YoutubeItem[],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }));
+    const acquiredAt = nowMs();
+    const provenance = results.flatMap(({ channel, videos }) => videos
+      .filter((item) => item.kind === 'video' && item.live_status === 'live')
+      .filter((item) => !isShortLikeVideo(item))
+      .filter((item) => item.channel_id === channel.channel_id)
+      .map((item) => ({
+        item,
+        provenance: 'subscription_live' as const,
+        provenance_ref: channel.channel_id!,
+        source_generation: `live:${channel.source_generation}`,
+        acquired_at: acquiredAt,
+        expires_at: acquiredAt + YOUTUBE_V2_LIVE_TTL_MS,
+      })));
+    upsertYoutubeV2CandidateProvenance(provenance);
+    const failures = results.filter((row) => row.error);
+    setYoutubeState('youtube_v2_live_acquisition', {
+      channels_probed: channels.length,
+      query_cap: 8,
+      query_failures: failures.length,
+      candidates_acquired: provenance.length,
+      acquired_at: acquiredAt,
+      expires_at: acquiredAt + YOUTUBE_V2_LIVE_TTL_MS,
+    });
+    if (channels.length > 0 && failures.length === channels.length) {
+      throw new Error(`YouTube v2 subscribed-live acquisition failed: ${failures[0]?.error || 'all probes failed'}`);
+    }
+  }
+
+  private async resolveV2TakeoutMetadataFromApi(): Promise<void> {
+    if (!this.config.api_key) {
+      setYoutubeState('youtube_v2_history_metadata', {
+        attempted: 0,
+        resolved: 0,
+        skipped: 'api_key_not_configured',
+        at: nowMs(),
+      });
+      return;
+    }
+    const localHistoryIds = listWatchHistory({
+      source: 'youtube',
+      type: 'youtube_video',
+      profile_id: 'household',
+      household_blend: false,
+      limit: 500,
+    }).map((row) => row.id);
+    const historyIds = [
+      ...listYoutubeV2ImportedHistory(5_000).map((row) => row.video_id),
+      ...localHistoryIds,
+    ];
+    const unresolved = [...new Set(historyIds.filter((id) => {
+      const item = getYoutubeItem('video', id);
+      return !item || !item.thumbnail || !item.channel_id;
+    }))];
+    if (unresolved.length === 0) {
+      setYoutubeState('youtube_v2_history_metadata', {
+        attempted: 0,
+        resolved: 0,
+        unresolved: 0,
+        at: nowMs(),
+      });
+      return;
+    }
+    const cursor = Math.max(0, getYoutubeState<number>('youtube_v2_history_metadata_cursor', 0))
+      % unresolved.length;
+    const rotated = [...unresolved.slice(cursor), ...unresolved.slice(0, cursor)];
+    const ids = rotated.slice(0, 50);
+    const resolved = await this.api.videos(ids, 'background');
+    setYoutubeState(
+      'youtube_v2_history_metadata_cursor',
+      (cursor + ids.length) % unresolved.length,
+    );
+    setYoutubeState('youtube_v2_history_metadata', {
+      attempted: ids.length,
+      resolved: resolved.length,
+      unresolved: Math.max(0, unresolved.length - resolved.length),
+      at: nowMs(),
+    });
+  }
+
   private async expandForYouDiscoveryFromApi(): Promise<void> {
     if (!this.config.api_key) {
       return;
@@ -3982,13 +4279,20 @@ export class YoutubeService {
     if (queries.length === 0) {
       return;
     }
-    await Promise.all(
+    const groups = await Promise.all(
       queries.map((query) => this.api.search(query, { limit: 8 }).catch(() => ({
         videos: [],
         channels: [],
         playlists: [],
       }))),
     );
+    const items = uniqueVideos(groups.flatMap((group) => group.videos))
+      .filter((item) => !isLiveVideo(item) && !isShortLikeVideo(item));
+    replaceYoutubeRailItems(LEGACY_FOR_YOU_DISCOVERY_RAIL_ID, items.map((item, index) => ({
+      item,
+      score: 1 - index * 0.001,
+      reason: 'legacy for-you discovery acquisition',
+    })));
   }
 
   private async refreshFreshFindsFromApi(): Promise<void> {
@@ -4077,32 +4381,139 @@ export class YoutubeService {
   }
 
   private async refreshSubscriptionsFromApi(token: string): Promise<void> {
-    const subscriptions = await this.api.subscriptions(
-      token,
-      SUBSCRIPTION_CHANNEL_SCAN_LIMIT,
-      'unread',
-    ).catch(() => []);
+    const v2Mode = youtubeRecommendationsV2Mode();
+    let subscriptions: YoutubeItem[];
+    try {
+      subscriptions = await this.api.subscriptions(
+        token,
+        v2Mode === 'off'
+          ? SUBSCRIPTION_CHANNEL_SCAN_LIMIT
+          : V2_SUBSCRIPTION_CHANNEL_SCAN_LIMIT,
+        'unread',
+      );
+    } catch (error) {
+      // A failed read is not an authoritative empty subscription set.
+      if (v2Mode !== 'off') {
+        const stale = {
+          stale: true,
+          reason: 'oauth_subscription_refresh_failed',
+          candidates_acquired: 0,
+          error: error instanceof Error ? error.message : String(error),
+          at: nowMs(),
+        };
+        setYoutubeState('youtube_v2_subscription_acquisition', stale);
+        setYoutubeState('youtube_v2_source_stale', stale);
+        throw error;
+      }
+      return;
+    }
+    let sourceGeneration: string | null = null;
+    if (v2Mode !== 'off') {
+      sourceGeneration = createHash('sha256')
+        .update(JSON.stringify(subscriptions
+          .map((channel) => [channel.id, channel.title])
+          .sort((left, right) => String(left[0]).localeCompare(String(right[0])))))
+        .digest('hex');
+      // Complete enumeration is the authoritative membership boundary. Publish
+      // it before optional upload acquisition; upload failure must not retain
+      // channels that the account no longer follows.
+      replaceYoutubeV2Subscriptions(subscriptions.map((channel) => ({
+        channel_key: channel.id,
+        channel_id: channel.id,
+        channel_title: channel.title,
+        channel_url: `https://www.youtube.com/channel/${encodeURIComponent(channel.id)}`,
+        source: 'oauth' as const,
+        subscribed_at: null,
+      })), { source_generation: sourceGeneration });
+      setYoutubeState('youtube_v2_source_stale', {
+        stale: true,
+        reason: 'subscription_snapshot_pending_publish',
+        at: nowMs(),
+        authoritative_subscription_count: subscriptions.length,
+      });
+    }
     if (subscriptions.length === 0) {
+      if (v2Mode !== 'off') {
+        setYoutubeState('youtube_v2_subscription_acquisition', {
+          channels_queried: 0,
+          candidates_acquired: 0,
+          partial: false,
+          error: null,
+          acquired_at: nowMs(),
+        });
+      }
+      if (v2Mode === 'shadow') replaceYoutubeRailItems('new_from_subscriptions', []);
       return;
     }
 
     const { channels, nextCursor } = selectSubscriptionRefreshChannels(subscriptions);
     setYoutubeState('subscription_refresh_cursor', nextCursor);
-    const uploadPlaylists = await this.api.channelUploadPlaylists(
-      channels.map((channel) => channel.id),
-      token,
-    ).catch(() => new Map<string, string>());
-
-    const fetched = (
-      await Promise.all(channels.map((channel) => {
+    let fetchedByChannel: Array<{ channel: YoutubeItem; items: YoutubeItem[] }>;
+    let uploadError: string | null = null;
+    try {
+      const uploadPlaylists = await this.api.channelUploadPlaylists(
+        channels.map((channel) => channel.id),
+        token,
+      );
+      fetchedByChannel = await Promise.all(channels.map(async (channel) => {
         const playlistId = uploadPlaylists.get(channel.id);
         if (!playlistId) {
-          return Promise.resolve([] as YoutubeItem[]);
+          return { channel, items: [] as YoutubeItem[] };
         }
-        return this.api.playlistItems(playlistId, SUBSCRIPTION_VIDEOS_PER_CHANNEL, token)
-          .catch(() => [] as YoutubeItem[]);
-      }))
-    ).flat();
+        const items = await this.api.playlistItems(playlistId, SUBSCRIPTION_VIDEOS_PER_CHANNEL, token);
+        return { channel, items };
+      }));
+    } catch (error) {
+      if (v2Mode !== 'off') {
+        uploadError = error instanceof Error ? error.message : String(error);
+        const acquisition = {
+          stale: false,
+          reason: 'oauth_subscription_upload_refresh_failed',
+          candidates_acquired: 0,
+          error: uploadError,
+          at: nowMs(),
+        };
+        setYoutubeState('youtube_v2_subscription_acquisition', acquisition);
+      }
+      fetchedByChannel = channels.map((channel) => ({ channel, items: [] }));
+    }
+    const fetched = fetchedByChannel.flatMap((entry) => entry.items);
+
+    if (v2Mode !== 'off' && sourceGeneration) {
+      const acquiredAt = nowMs();
+      const provenance = fetchedByChannel.flatMap(({ channel, items }) => items
+        .filter((item) => item.kind === 'video' && !isShortLikeVideo(item))
+        .filter((item) => item.channel_id === channel.id)
+        .map((item) => ({
+          item,
+          provenance: isLiveVideo(item) ? 'subscription_live' as const : 'subscription_upload' as const,
+          provenance_ref: channel.id,
+          source_generation: sourceGeneration,
+          acquired_at: acquiredAt,
+          expires_at: acquiredAt + (isLiveVideo(item) ? YOUTUBE_V2_LIVE_TTL_MS : YOUTUBE_V2_CANDIDATE_TTL_MS),
+        })));
+      upsertYoutubeV2CandidateProvenance(provenance);
+      setYoutubeState('subscriptions_last_refresh_count', provenance.length);
+      setYoutubeState('youtube_v2_subscription_acquisition', {
+        channels_queried: channels.length,
+        candidates_acquired: provenance.length,
+        partial: uploadError !== null,
+        error: uploadError,
+        acquired_at: acquiredAt,
+      });
+      if (v2Mode === 'shadow') {
+        const existing = listYoutubeRailItems('new_from_subscriptions', SUBSCRIPTION_RAIL_POOL_LIMIT);
+        const eligible = sortSubscriptionItems(uniqueVideos([...fetched, ...existing]))
+          .filter((item) => item.kind === 'video' && !isLiveVideo(item) && !isShortLikeVideo(item))
+          .slice(0, SUBSCRIPTION_RAIL_POOL_LIMIT);
+        replaceYoutubeRailItems('new_from_subscriptions', eligible.map((item, index) => ({
+          item,
+          score: 1 - index * 0.001,
+          reason: 'subscription upload',
+        })));
+      }
+      return;
+    }
 
     const existing = listYoutubeRailItems('new_from_subscriptions', SUBSCRIPTION_RAIL_POOL_LIMIT);
     const merged = sortSubscriptionItems(uniqueVideos([...fetched, ...existing]));
@@ -4126,17 +4537,131 @@ export class YoutubeService {
     if (!this.config.enabled) {
       return { ok: false, error: 'YouTube is disabled', refresh: youtubeRefreshStatus() };
     }
-    if (!this.config.api_key) {
-      setYoutubeState('last_error', 'YouTube API key is not configured');
-      return { ok: false, error: 'YouTube API key is not configured', refresh: youtubeRefreshStatus() };
-    }
     setYoutubeState('last_refresh_at', nowMs());
     setYoutubeState('last_reason', reason);
+    const v2Mode = youtubeRecommendationsV2Mode();
+    let shadowV2Phases: YoutubeRefreshPhaseResult[] = [];
+    let shadowV2Succeeded = false;
+    if (v2Mode !== 'off') {
+      const phases: YoutubeRefreshPhaseResult[] = [];
+      const subscriptionsPhase = await this.runRefreshPhase(
+        'subscriptions',
+        () => this.refreshSubscriptionsIfAuthorized(),
+      );
+      phases.push(subscriptionsPhase);
+      const subscriptionAcquisition = getYoutubeState<{
+        partial?: boolean;
+        stale?: boolean;
+        error?: string | null;
+        acquired_at?: number;
+        at?: number;
+      }>('youtube_v2_subscription_acquisition', {});
+      const subscriptionAcquisitionAt = Number(
+        subscriptionAcquisition.acquired_at ?? subscriptionAcquisition.at ?? 0,
+      );
+      const currentAcquisition = subscriptionAcquisitionAt >= subscriptionsPhase.started_at;
+      const subscriptionAcquisitionError = !subscriptionsPhase.ok
+        ? subscriptionsPhase.error ?? 'authoritative subscription enumeration failed'
+        : currentAcquisition && (subscriptionAcquisition.partial || subscriptionAcquisition.stale)
+          ? subscriptionAcquisition.error ?? 'subscription upload acquisition was partial'
+          : null;
+      phases.push({
+        phase: 'v2_subscription_acquisition',
+        ok: subscriptionAcquisitionError === null,
+        started_at: subscriptionsPhase.started_at,
+        ended_at: subscriptionsPhase.ended_at,
+        duration_ms: subscriptionsPhase.duration_ms,
+        ...(subscriptionAcquisitionError ? { error: subscriptionAcquisitionError } : {}),
+      });
+      phases.push(await this.runRefreshPhase(
+        'v2_history_metadata',
+        () => this.resolveV2TakeoutMetadataFromApi(),
+      ));
+      const acquisitionPhase = await this.runRefreshPhase(
+        'v2_history_acquisition',
+        () => this.refreshV2HistoryCandidatesFromApi(reason),
+      );
+      phases.push(acquisitionPhase);
+      // Probe subscribed live channels last so the short validity window starts
+      // immediately before atomic publication, not at the beginning of a long
+      // nightly acquisition job.
+      phases.push(await this.runRefreshPhase(
+        'v2_live_acquisition',
+        () => this.refreshV2SubscribedLiveFromApi(reason),
+      ));
+      phases.push(await this.runRefreshPhase('v2_publish', () => {
+        if (!subscriptionsPhase.ok) {
+          throw new Error('publication skipped because authoritative subscription refresh was not complete');
+        }
+        if (!acquisitionPhase.ok) {
+          throw new Error('publication skipped because discovery acquisition failed');
+        }
+        rebuildYoutubeV2Generation({ force: true });
+        setYoutubeState('youtube_v2_source_stale', {
+          stale: subscriptionAcquisitionError !== null,
+          reason: subscriptionAcquisitionError !== null ? 'subscription_acquisition_partial' : null,
+          at: nowMs(),
+          authoritative_subscription_count: listYoutubeV2Subscriptions()
+            .filter((row) => row.source === 'oauth').length,
+        });
+      }));
+      const failed = phases.filter((phase) => !phase.ok);
+      const succeeded = phases.find((phase) => phase.phase === 'v2_publish')?.ok === true;
+      const generation = latestYoutubeV2GenerationRecord();
+      const sourceStale = youtubeV2SourceStaleState();
+      setYoutubeState('youtube_v2_shadow_status', {
+        mode: v2Mode,
+        status: sourceStale.stale && generation?.status === 'ready'
+          ? 'stale'
+          : generation?.status ?? 'setup',
+        stale_reason: sourceStale.stale ? sourceStale.reason : null,
+        generation: generation?.generation ?? null,
+        candidate_count: generation?.candidate_count ?? 0,
+        generated_at: generation?.generated_at ?? null,
+        refreshed_at: nowMs(),
+      });
+      setYoutubeState('last_phase_results', phases);
+      this.invalidateRailsCache();
+      if (succeeded) {
+        setYoutubeState('last_success_at', nowMs());
+        const partialError = failed.length > 0
+          ? `partial refresh: ${failed.map((phase) => `${phase.phase}: ${phase.error || 'failed'}`).join('; ')}`
+          : null;
+        setYoutubeState('last_error', partialError);
+        setYoutubeState('youtube_v2_last_error', partialError ? { error: partialError, at: nowMs() } : null);
+        if (v2Mode === 'serve') return { ok: true, refresh: youtubeRefreshStatus(), phases };
+        shadowV2Phases = phases;
+        shadowV2Succeeded = true;
+      } else if (v2Mode === 'serve') {
+        const message = failed.length > 0
+          ? `YouTube v2 refresh failed: ${failed.map((phase) => `${phase.phase}: ${phase.error || 'failed'}`).join('; ')}`
+          : 'YouTube v2 refresh failed: no phases ran';
+        setYoutubeState('last_error', message);
+        setYoutubeState('youtube_v2_last_error', { error: message, at: nowMs() });
+        return { ok: false, error: message, refresh: youtubeRefreshStatus(), phases };
+      } else {
+        shadowV2Phases = phases;
+      }
+    }
+    if (!this.config.api_key) {
+      if (v2Mode === 'shadow' && shadowV2Succeeded) {
+        return { ok: true, refresh: youtubeRefreshStatus(), phases: shadowV2Phases };
+      }
+      setYoutubeState('last_error', 'YouTube API key is not configured');
+      return {
+        ok: false,
+        error: 'YouTube API key is not configured',
+        refresh: youtubeRefreshStatus(),
+        phases: shadowV2Phases,
+      };
+    }
     const context = captureYoutubePersonalization();
     const phases: YoutubeRefreshPhaseResult[] = [];
     for (const [phase, fn] of [
       ['popular', () => this.refreshPopularFromApi()],
-      ['subscriptions', () => this.refreshSubscriptionsIfAuthorized()],
+      ...(v2Mode === 'shadow' ? [] : [
+        ['subscriptions', () => this.refreshSubscriptionsIfAuthorized()] as [YoutubeRefreshPhase, () => Promise<void>],
+      ]),
       ['fresh_finds', () => this.refreshFreshFindsFromApi()],
       ['live_now', () => this.refreshLiveNowFromApi()],
       ['because_you_watched', () => this.refreshBecauseYouWatchedFromApi(context)],
@@ -4145,29 +4670,30 @@ export class YoutubeService {
     ] as Array<[YoutubeRefreshPhase, () => Promise<void> | void]>) {
       phases.push(await this.runRefreshPhase(phase, fn));
     }
-    setYoutubeState('last_phase_results', phases);
+    const allPhases = [...shadowV2Phases, ...phases];
+    setYoutubeState('last_phase_results', allPhases);
     // Any refresh phase may have mutated underlying rail candidates; drop the
     // cached discovery payload so the next GET recomputes from fresh state.
     this.invalidateRailsCache();
     if (!isSameYoutubePersonalization(context)) {
       const message = 'YouTube personalization changed during refresh; shared acquisition was kept, profile slate was not published';
       setYoutubeState('last_error', message);
-      return { ok: false, error: message, refresh: youtubeRefreshStatus(), phases };
+      return { ok: false, error: message, refresh: youtubeRefreshStatus(), phases: allPhases };
     }
-    const failed = phases.filter((phase) => !phase.ok);
-    const succeeded = phases.some((phase) => phase.ok);
+    const failed = allPhases.filter((phase) => !phase.ok);
+    const succeeded = allPhases.some((phase) => phase.ok);
     if (succeeded) {
       setYoutubeState('last_success_at', nowMs());
       setYoutubeState('last_error', failed.length > 0
         ? `partial refresh: ${failed.map((phase) => `${phase.phase}: ${phase.error || 'failed'}`).join('; ')}`
         : null);
-      return { ok: true, refresh: youtubeRefreshStatus(), phases };
+      return { ok: true, refresh: youtubeRefreshStatus(), phases: allPhases };
     }
     const message = failed.length > 0
       ? `YouTube refresh failed: ${failed.map((phase) => `${phase.phase}: ${phase.error || 'failed'}`).join('; ')}`
       : 'YouTube refresh failed: no phases ran';
     setYoutubeState('last_error', message);
-    return { ok: false, error: message, refresh: youtubeRefreshStatus(), phases };
+    return { ok: false, error: message, refresh: youtubeRefreshStatus(), phases: allPhases };
   }
 
   private scheduleLiveNowRefreshIfDue(): void {
@@ -4263,14 +4789,97 @@ export class YoutubeService {
       getPersonalizationState(),
       'before YouTube rails loaded',
     );
-    const cache = youtubeCacheSummary();
-    if (this.config.enabled && this.config.api_key && cache.videos === 0) {
-      // Cold startup remains cache-first. Discovery warms in the background and
-      // never consumes the launcher's 15-second navigation budget.
-      this.scheduleFirstRunRefresh();
+    const v2Mode = youtubeRecommendationsV2Mode();
+    if (v2Mode === 'serve') {
+      const personalization = getPersonalizationState();
+      assertExpectedPersonalization(
+        options.expectedPersonalization,
+        personalization,
+        'while YouTube v2 rails loaded',
+      );
+      const generation = latestYoutubeV2GenerationRecord();
+      const sourceStale = youtubeV2SourceStaleState();
+      const servingEpoch = youtubeV2ServingEpoch(
+        generation?.status === 'ready' ? generation.generation : null,
+        Boolean(options.reshuffle),
+      );
+      const slateSequence = servingEpoch.slate_sequence;
+
+      // Stable household state rows allocate before recommendation rails so
+      // the global de-duplicator never steals or re-adds an exact anchor.
+      const reservedIds = new Set<string>();
+      const historyItems = youtubeV2HistoryItems(YOUTUBE_RAIL_POOL_LIMIT)
+        .filter((item) => !reservedIds.has(item.id))
+        .slice(0, YOUTUBE_RAIL_LIMIT);
+      const history = historyItems.length === YOUTUBE_RAIL_LIMIT
+        ? {
+            rail_id: 'history',
+            label: 'History',
+            items: historyItems,
+            cached: true,
+            stale: false,
+          } satisfies YoutubeRail
+        : null;
+      history?.items.forEach((item) => reservedIds.add(item.id));
+      const savedItems = savedRail('household', YOUTUBE_RAIL_POOL_LIMIT, false).items
+        .filter((item) => !reservedIds.has(item.id))
+        .slice(0, YOUTUBE_RAIL_LIMIT);
+      const saved = savedItems.length === YOUTUBE_RAIL_LIMIT
+        ? {
+            rail_id: 'saved',
+            label: 'Saved',
+            items: savedItems,
+            cached: true,
+            stale: false,
+          } satisfies YoutubeRail
+        : null;
+      saved?.items.forEach((item) => reservedIds.add(item.id));
+
+      const recommendationRails = youtubeV2RecommendationRails({
+        shuffle_epoch: servingEpoch.shuffle_epoch,
+        reserved_ids: reservedIds,
+      });
+      const byId = new Map(recommendationRails.map((rail) => [rail.rail_id, rail] as const));
+      const rails = [
+        byId.get('for_you'),
+        byId.get('beyond'),
+        byId.get('more_like'),
+        history,
+        saved,
+        byId.get('new_from_subscriptions'),
+        byId.get('live_now'),
+      ].filter((rail): rail is YoutubeRail => Boolean(rail));
+      const attributionContexts = Object.fromEntries(rails.map((rail) => [
+        rail.rail_id,
+        {
+          source_revision: slateSequence,
+          context_id: rail.candidate_context_id ?? '',
+        },
+      ]));
+      return {
+        ok: true,
+        tab: YOUTUBE_TAB,
+        profile_id: 'household',
+        personalization_updated_at: personalization.updated_at,
+        rails: publicYoutubeRails(rails),
+        slate_sequence: slateSequence,
+        recommendations_status: sourceStale.stale && generation?.status === 'ready'
+          ? 'stale'
+          : generation?.status ?? 'setup',
+        setup_required: !generation || generation.status === 'empty',
+        stale_reason: sourceStale.stale ? sourceStale.reason : null,
+        attribution_contexts: attributionContexts,
+      };
     }
-    if (!options.reshuffle) {
-      this.scheduleLiveNowRefreshIfDue();
+
+    if (v2Mode === 'off') {
+      const cache = youtubeCacheSummary();
+      if (this.config.enabled && this.config.api_key && cache.videos === 0) {
+        // Legacy cold startup remains background-warmed. V2 Home/X never enters
+        // this path: it is strictly latest-generation cache serving.
+        this.scheduleFirstRunRefresh();
+      }
+      if (!options.reshuffle) this.scheduleLiveNowRefreshIfDue();
     }
 
     // AI catalog loading is asynchronous, so a viewer may switch profiles or
@@ -4482,7 +5091,14 @@ export class YoutubeService {
       item,
       items: filterNotInterested(items),
       state: kind === 'video'
-        ? getLibraryState({ source: YOUTUBE_SOURCE, type: YOUTUBE_VIDEO_TYPE, id })
+        ? getLibraryState({
+            source: YOUTUBE_SOURCE,
+            type: YOUTUBE_VIDEO_TYPE,
+            id,
+            profile_id: youtubeRecommendationsV2Mode() === 'serve'
+              ? 'household'
+              : activeViewerProfileId(),
+          })
         : null,
       refresh: youtubeRefreshStatus(),
     };
@@ -4507,8 +5123,11 @@ export class YoutubeService {
       tab: YOUTUBE_TAB,
       feedback: 'not_interested',
       reason: input.reason ?? null,
+      profile_id: youtubeRecommendationsV2Mode() === 'serve'
+        ? 'household'
+        : activeViewerProfileId(),
     });
-    // Current profile feedback is the reversible source of truth. Candidate
+    // The active recommendation owner is the reversible source of truth. Candidate
     // counters deliberately remain untouched so Undo removes both the exact
     // veto and its decaying semantic contribution on the next read.
     this.invalidateRailsCache();
@@ -4612,12 +5231,14 @@ export class YoutubeService {
       event: 'play',
       watched_at: nowMs(),
     });
-    buildForYouReservoir();
-    this.invalidateRailsCache();
-    const refreshContext = captureYoutubePersonalization();
-    void serializeYoutubeRefresh(() => this.refreshBecauseYouWatchedFromApi(refreshContext)).catch((error) => {
-      setYoutubeState('last_because_you_watched_error', error instanceof Error ? error.message : String(error));
-    });
+    if (youtubePlayStartUsesLegacyAcquisition()) {
+      buildForYouReservoir();
+      this.invalidateRailsCache();
+      const refreshContext = captureYoutubePersonalization();
+      void serializeYoutubeRefresh(() => this.refreshBecauseYouWatchedFromApi(refreshContext)).catch((error) => {
+        setYoutubeState('last_because_you_watched_error', error instanceof Error ? error.message : String(error));
+      });
+    }
     await startWatchSessionFromPlay({
       profile_id: profileId,
       source: YOUTUBE_SOURCE,
@@ -4642,4 +5263,76 @@ export class YoutubeService {
       },
     };
   }
+}
+
+const YOUTUBE_V2_TRIGGERED_ACQUISITION_COALESCE_MS = 15 * 60 * 1000;
+
+type YoutubeV2LocalRefreshResult = {
+  local_generation: number | null;
+  acquisition: 'off' | 'noop' | 'queued' | 'coalesced';
+  acquisition_result: RefreshResult | null;
+};
+
+export async function refreshYoutubeV2AfterLocalSignal(options: {
+  at?: number;
+  changed?: boolean;
+  reason: 'meaningful_watch' | 'takeout_import' | 'takeout_import_cli';
+  wait_for_acquisition?: boolean;
+  service?: Pick<YoutubeService, 'refresh' | 'invalidateRailsCache'>;
+}): Promise<YoutubeV2LocalRefreshResult> {
+  const at = options.at ?? nowMs();
+  if (youtubeRecommendationsV2Mode() === 'off') {
+    return {
+      local_generation: latestYoutubeV2GenerationRecord()?.generation ?? null,
+      acquisition: 'off',
+      acquisition_result: null,
+    };
+  }
+  if (options.changed === false) {
+    return {
+      local_generation: latestYoutubeV2GenerationRecord()?.generation ?? null,
+      acquisition: 'noop',
+      acquisition_result: null,
+    };
+  }
+  const generation = rebuildYoutubeV2Generation({ force: true, at });
+  options.service?.invalidateRailsCache();
+  const lastTriggered = getYoutubeState<number>('youtube_v2_triggered_acquisition_last_at', 0);
+  if (lastTriggered > 0 && at - lastTriggered < YOUTUBE_V2_TRIGGERED_ACQUISITION_COALESCE_MS) {
+    return { local_generation: generation?.generation ?? null, acquisition: 'coalesced', acquisition_result: null };
+  }
+  setYoutubeState('youtube_v2_triggered_acquisition_last_at', at);
+  const service = options.service ?? new YoutubeService();
+  service.invalidateRailsCache();
+  if (options.wait_for_acquisition === false) {
+    void service.refresh(options.reason).catch((error) => {
+      setYoutubeState('youtube_v2_triggered_acquisition_last_error', {
+        reason: options.reason,
+        error: error instanceof Error ? error.message : String(error),
+        at: nowMs(),
+      });
+    });
+    return {
+      local_generation: generation?.generation ?? null,
+      acquisition: 'queued',
+      acquisition_result: null,
+    };
+  }
+  const acquisitionResult = await service.refresh(options.reason);
+  return {
+    local_generation: generation?.generation ?? null,
+    acquisition: 'queued',
+    acquisition_result: acquisitionResult,
+  };
+}
+
+export function refreshYoutubeAfterTakeoutImport(options: {
+  at?: number;
+  changed?: boolean;
+  service?: Pick<YoutubeService, 'refresh' | 'invalidateRailsCache'>;
+} = {}): Promise<YoutubeV2LocalRefreshResult> {
+  return refreshYoutubeV2AfterLocalSignal({
+    ...options,
+    reason: 'takeout_import_cli',
+  });
 }

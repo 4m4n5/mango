@@ -131,3 +131,52 @@ test('a recommendation mutation is rejected after its served profile stops being
     /profile changed/,
   );
 }));
+
+test('YouTube serve accepts Household action proof without taking over a personal VOD owner', () => withTempLibrary(() => {
+  const previousVodMode = process.env.MANGO_VOD_RECS_V2;
+  const previousYoutubeMode = process.env.MANGO_YOUTUBE_RECS_V2;
+  process.env.MANGO_VOD_RECS_V2 = 'shadow';
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  try {
+    const personal = createViewerProfile('Mixed Mode');
+    activateViewerProfile(personal.profile_id);
+    const youtubeServed = registerRecommendationServedSlate({
+      profile_id: 'household',
+      domain: 'youtube',
+      rail_id: 'for_you',
+      source_revision: 9,
+      items: [{ type: 'youtube_video', id: 'HouseholdVideo', rank: 0 }],
+    });
+    const proof = {
+      attribution_token: youtubeServed.attribution_token,
+      rail_id: youtubeServed.rail_id,
+      slate_revision: youtubeServed.slate_revision,
+    };
+    assert.equal(validateOptionalRecommendationMutationAttribution(
+      proof,
+      'youtube',
+      { type: 'youtube_video', id: 'HouseholdVideo' },
+    )?.profile_id, 'household');
+
+    const personalYoutubeServed = registerRecommendationServedSlate({
+      profile_id: personal.profile_id,
+      domain: 'youtube',
+      rail_id: 'for_you',
+      source_revision: 10,
+      items: [{ type: 'youtube_video', id: 'PersonalVideo', rank: 0 }],
+    });
+    assertConflict(
+      () => validateOptionalRecommendationMutationAttribution({
+        attribution_token: personalYoutubeServed.attribution_token,
+        rail_id: personalYoutubeServed.rail_id,
+        slate_revision: personalYoutubeServed.slate_revision,
+      }, 'youtube', { type: 'youtube_video', id: 'PersonalVideo' }),
+      /profile changed/,
+    );
+  } finally {
+    if (previousVodMode === undefined) delete process.env.MANGO_VOD_RECS_V2;
+    else process.env.MANGO_VOD_RECS_V2 = previousVodMode;
+    if (previousYoutubeMode === undefined) delete process.env.MANGO_YOUTUBE_RECS_V2;
+    else process.env.MANGO_YOUTUBE_RECS_V2 = previousYoutubeMode;
+  }
+}));

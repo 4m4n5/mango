@@ -4,6 +4,8 @@ import {
   resolveRecommendationServedSlate,
   type RecommendationServedSlate,
 } from '../library/db.js';
+import { assertCurrentVodRecommendationSource } from './source-revision.js';
+import { recommendationOwnerForRollout } from './v2-mode.js';
 
 type RecommendationDomain = 'vod' | 'youtube';
 
@@ -55,8 +57,15 @@ export function validateOptionalRecommendationMutationAttribution(
   } catch {
     throw new CatalogError(409, 'this recommendation slate is no longer current');
   }
-  if (served.profile_id !== activeViewerProfileId()) {
+  if (served.profile_id !== recommendationOwnerForRollout(domain, activeViewerProfileId())) {
     throw new CatalogError(409, 'profile changed; reload recommendations before acting');
+  }
+  if (domain === 'vod') {
+    try {
+      assertCurrentVodRecommendationSource(served);
+    } catch {
+      throw new CatalogError(409, 'this recommendation slate is no longer current');
+    }
   }
   return served;
 }

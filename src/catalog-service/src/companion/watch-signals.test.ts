@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
-  appendJournalEvent,
   journalHasPlayCompleted,
   resetJournalForTests,
 } from './journal.js';

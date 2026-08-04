@@ -8,6 +8,7 @@ import {
   hasCatalogItems,
   nonEmptyCatalogRails,
   sameCatalogPresentation,
+  youtubeHistoryImportRefreshPolicy,
 } from "./home.js";
 import type { ContentRail } from "./types.js";
 
@@ -68,6 +69,35 @@ test("background retries can detect an unchanged stale/offline presentation", ()
 test("empty copy respects Live's no-shuffle contract", () => {
   assert.match(catalogEmptyCopy("movies").body, /press X/i);
   assert.doesNotMatch(catalogEmptyCopy("live").body, /press X/i);
+});
+
+test("YouTube cold start explains the three private setup paths", () => {
+  const copy = catalogEmptyCopy("youtube");
+  assert.equal(copy.heading, "YouTube");
+  assert.match(copy.body, /connect subscriptions/i);
+  assert.match(copy.body, /Google Takeout/i);
+  assert.match(copy.body, /watch a video/i);
+});
+
+test("Takeout completion invalidates only YouTube and never refreshes visible VOD", () => {
+  assert.deepEqual(youtubeHistoryImportRefreshPolicy("movies", false), {
+    cancelActiveCatalogRequest: false,
+    reloadYoutubeNow: false,
+    deferYoutubeReload: false,
+  });
+});
+
+test("Takeout completion defers in Settings and reloads YouTube after an early Back", () => {
+  assert.deepEqual(youtubeHistoryImportRefreshPolicy("youtube", true), {
+    cancelActiveCatalogRequest: true,
+    reloadYoutubeNow: false,
+    deferYoutubeReload: true,
+  });
+  assert.deepEqual(youtubeHistoryImportRefreshPolicy("youtube", false), {
+    cancelActiveCatalogRequest: true,
+    reloadYoutubeNow: true,
+    deferYoutubeReload: false,
+  });
 });
 
 test("offline copy is couch-safe and never names implementation details", () => {

@@ -569,7 +569,7 @@ test('explicit session mood nudges YouTube For You ranking', () => withTempState
   ].map((item, index) => ({ item, score: 1 - index * 0.01, reason: 'test' })));
   setViewerMood('laugh');
   const service = new YoutubeService();
-  const response = await service.rails() as { rails: YoutubeRail[] };
+  await service.rails();
   const forYou = internalDiscoveryRail(service, 'household', 'for_you');
   assert.ok(forYou);
   assert.equal(forYou.items[0]?.id, 'laugh-1');
@@ -598,7 +598,7 @@ test('for you rail excludes live videos', () => withTempState(async () => {
     { item: sampleVideo('LiveVideo', 'live'), score: 0.9, reason: 'test' },
   ]);
   const service = new YoutubeService();
-  const response = await service.rails() as { rails: YoutubeRail[] };
+  await service.rails();
   const forYou = internalDiscoveryRail(service, 'household', 'for_you');
   assert.ok(forYou);
   assert.ok(forYou.items.some((item) => item.id === 'NormalVideo'));
@@ -614,7 +614,7 @@ test('cached discovery rails keep live videos in live now only', () => withTempS
     { item: sampleVideo('LiveNow', 'live'), lane: 'news_events', score: 1 },
   ]);
   const service = new YoutubeService();
-  const response = await service.rails() as { rails: YoutubeRail[] };
+  await service.rails();
   const popular = internalDiscoveryRail(service, 'household', 'popular');
   const liveNow = internalDiscoveryRail(service, 'household', 'live_now');
   assert.ok(popular);
@@ -634,7 +634,7 @@ test('live now filters stale, non-live, loop, and not-interested candidates', ()
   ]);
   const service = new YoutubeService();
   service.notInterested({ kind: 'video', id: 'LiveBlocked', reason: 'user' });
-  const response = await service.rails() as { rails: YoutubeRail[] };
+  await service.rails();
   const liveNow = internalDiscoveryRail(service, 'household', 'live_now');
   assert.ok(liveNow);
   assert.deepEqual(liveNow.items.map((item) => item.id), ['LiveKeep']);
@@ -654,7 +654,7 @@ test('live now returns one complete TV row and reshuffle samples cache only', ()
     score: 1 - index * 0.001,
   })));
   const service = new YoutubeService();
-  const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
+  await service.rails({ reshuffle: true });
   const liveNow = internalDiscoveryRail(service, 'household', 'live_now');
   assert.ok(liveNow);
   assert.equal(liveNow.items.length, YOUTUBE_RAIL_LIMIT);
@@ -672,7 +672,7 @@ test('live now suppresses recently exposed cards when enough alternatives exist'
     last_recommended_at: Date.now(), exposure_count: 3, ignore_count: 3,
   });
   const service = new YoutubeService();
-  const response = await service.rails() as { rails: YoutubeRail[] };
+  await service.rails();
   const liveNow = internalDiscoveryRail(service, 'household', 'live_now');
   assert.ok(liveNow);
   assert.ok(liveNow.items.length <= YOUTUBE_RAIL_LIMIT);
@@ -1406,7 +1406,6 @@ test('non-Latin positive title tokens rank a related For You candidate', () => w
   ]);
   const service = new YoutubeService();
   const response = await service.rails({ reshuffle: true }) as { rails: YoutubeRail[] };
-  const publicItems = response.rails.find((rail) => rail.rail_id === 'for_you')?.items ?? [];
   const items = internalDiscoveryRail(service, viewer.profile_id, 'for_you')?.items as Array<YoutubeItem & {
     source?: string;
   }> | undefined;
@@ -1862,7 +1861,7 @@ test('because you watched follows the latest watched YouTube video from cache', 
     watched_at: 2000,
   });
   const service = new YoutubeService();
-  const response = await service.rails() as { rails: YoutubeRail[] };
+  await service.rails();
   const because = internalDiscoveryRail(service, 'household', 'because_you_watched');
   assert.ok(because);
   assert.equal(because.items[0]?.id, 'NewCandidate');
@@ -1986,7 +1985,7 @@ test('because you watched scans past repeated live history to find a non-live se
     watched_at: 1000,
   });
   const service = new YoutubeService();
-  const response = await service.rails() as { rails: YoutubeRail[] };
+  await service.rails();
   const because = internalDiscoveryRail(service, 'household', 'because_you_watched');
   assert.ok(because);
   assert.equal(because.items[0]?.id, 'NewCandidate');

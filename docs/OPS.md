@@ -338,8 +338,8 @@ Then open the companion and use the YouTube connect panel. Full details:
 | YouTube playback 403/429/CAPTCHA | Update `yt-dlp`; reconnect account/cookies; pick another video; metadata cache should remain visible |
 | Catalog error appears after exiting a successful play | Inspect `~/.cache/mango/playback-session.json`; `ever_ready=true` means the launcher must treat the play as successful. Check catalog logs for a pre-frame failure only; do not invalidate title metadata from a late HTTP timeout. |
 | Same title will not immediately replay | `curl localhost:3020/play-session/<request_id>` when the request ID is known; inspect `~/.cache/mango/play-cancel.epoch` and `~/.cache/mango/mpv.pid`. A stale prior exit monitor is generation-gated and must not stop the new PID. |
-| YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator`; then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |
-| YouTube Live Now partial error | Check `refresh.phase_results.live_now`; Search Queries quota can exhaust while cached VOD rails and Popular still work because Popular uses `videos.list` |
+| YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator` (waits for its HTTP 202 job to finish); then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |
+| YouTube Live Now partial error | In v2, check `refresh.phase_results.live_now`; quota failure must retain the explicitly stale last-good subscription/live generation. `Popular` is a legacy-only rail while v2 is `off|shadow`. |
 | Unified Search degraded row | Run `bash scripts/m6-ship/gate-m6-search-smoke.sh`; diagnostic mode is cache-only and does not write history or spend quota |
 | Reliability badge yellow/red | Open Settings → Reliability Center; or `curl localhost:3020/reliability/state` |
 | No TV output after moving Pi | SSH in and force the safe launcher mode: `DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority xrandr --output HDMI-1 --mode 1920x1080 --rate 60`; then `bash scripts/launch-launcher.sh` |
@@ -389,67 +389,44 @@ Scheduled maintenance (local time):
 
 ---
 
-## Fire/Water ratings and For You
+## Household recommendations v2
 
-The current branch source contains the profile-aware recommendation
-implementation, but this documentation pass supplies no Pi evidence. Do not
-record deployment, screenshots, or couch PASS until the exact branch revision
-is pulled and observed at home.
+The branch contains the Story Graph VOD and provenance-gated YouTube v2
+implementation, but this work supplies no Pi evidence. Do not record
+deployment, screenshots, backfill completion, promotion, or couch PASS until
+the exact revision is pulled and observed at home.
 
-Migration 4 creates one WAL-consistent online backup before changing
-`/etc/mango/library.db`:
+Migration 4 creates the existing WAL-consistent ratings backup. Migrations
+5–11 preserve profiles/signals and add attribution, metrics, served-slate, and
+watch-state support. Migration 12 additively adds StoryDNA, ontology, taste,
+rank, cached-slate, and refresh-job state; migration 13 durably adds normalized
+Takeout history and import audit; migration 14 generation-scopes cached VOD
+slates and persists low-water repair requests. Progress migration 2 remains
+profile-exact.
+None rewrites v4 snapshots or deletes ratings, Saved, history, profiles,
+progress, StoryDNA, provenance, or last-good state.
 
 ```bash
 test -f /etc/mango/library.db.pre-fire-water-v4.bak
-curl -fsS http://127.0.0.1:3020/recommendations/state | python3 -m json.tool
-curl -fsS http://127.0.0.1:3020/personalization/state | python3 -m json.tool
-curl -fsS -X POST http://127.0.0.1:3020/recommendations/refresh \
-  -H 'content-type: application/json' -d '{}'
-```
-
-Migrations 5–6 add profiles/signals; library migrations 7–11 add attribution,
-profile metrics, opaque served slates, profile watch state, and exact served
-context. Progress migration 2 adds profile-exact Continue/resume and migrates
-legacy unscoped rows only to Household. These migrations do not delete or
-recreate ratings, Saved, history, YouTube cache, progress, or recommendation
-snapshots. Verify versions non-destructively:
-
-```bash
 sqlite3 /etc/mango/library.db \
-  "SELECT group_concat(version, ',') FROM (SELECT version FROM library_migrations WHERE version BETWEEN 4 AND 11 ORDER BY version);"
+  "SELECT group_concat(version, ',') FROM (SELECT version FROM library_migrations WHERE version BETWEEN 4 AND 14 ORDER BY version);"
 sqlite3 /etc/mango/progress.db \
   "SELECT group_concat(version, ',') FROM (SELECT version FROM progress_migrations ORDER BY version);"
-sqlite3 /etc/mango/library.db \
-  "SELECT name FROM pragma_table_info('profile_recommendation_served_slates') WHERE name='context_id';"
+curl -fsS http://127.0.0.1:3020/recommendations/state | python3 -m json.tool
+curl -fsS http://127.0.0.1:3020/youtube/state | python3 -m json.tool
+curl -fsS http://127.0.0.1:3020/personalization/state | python3 -m json.tool
 ```
 
-Expected library versions include `4,5,6,7,8,9,10,11`, progress includes `2`,
-and the final query returns `context_id`. Profiles have no PIN or startup
-chooser. Creating one does not activate it; activation is a separate action and
-clears session mood:
+Expected library versions include `4` through `14` and progress includes `2`.
+In v2 serve mode Household is the only recommendation identity: Household
+activation and null mood clearing are idempotent; non-Household create/activate
+and non-null mood writes return typed `household_only`. Do not create, merge,
+clear, or migrate personal rows for this rollout. Prove with before/after counts
+that their ratings, Saved/history/progress, snapshots, and events retain their
+original stable owner.
 
-```bash
-curl -fsS -X POST http://127.0.0.1:3020/personalization/profiles \
-  -H 'content-type: application/json' -d '{"action":"create","name":"Couch test"}'
-curl -fsS -X POST http://127.0.0.1:3020/personalization/activate \
-  -H 'content-type: application/json' -d '{"profile_id":"<profile-id>"}'
-curl -fsS -X POST http://127.0.0.1:3020/personalization/mood \
-  -H 'content-type: application/json' -d '{"mood":"comfort","ttl_ms":3600000}'
-```
-
-Use a disposable named profile only when the human tester approves adding it;
-there is deliberately no delete action. Rename keeps the stable profile ID.
-Household retains legacy seed/state and blends recommendation/history activity,
-but an exact Not-for-me from any profile vetoes that title in Household. Exact
-Continue/resume never blends: play the same title to different positions as
-Alice and Bob, then verify each profile resumes its own position and a new
-profile starts clean. Personal state must never leak between personal profiles.
-Switch once through the companion and confirm the TV updates on the immediate
-`profile_changed` acknowledgement path; separately leave the TV idle and prove
-the 30-second fallback poll converges without a page restart.
-
-Seed manifests are validated and imported on the Pi only after every row has
-an explicit approved/excluded disposition and unique stable identity:
+Seed manifests remain idempotent and are imported on the Pi only after every
+row has an explicit approved/excluded disposition and unique stable identity:
 
 ```bash
 cd ~/mango/src/catalog-service
@@ -458,47 +435,49 @@ npm run ratings:seed -- validate /path/to/fire-water-seed-v1.json
 MANGO_LIBRARY_DB_PATH=/etc/mango/library.db npm run ratings:seed -- import /path/to/fire-water-seed-v1.json
 ```
 
-Run import twice; the second result must report `noop: true`. Never copy a Mac
-DB to the Pi, clear runtime state, or place raw sheet captions/URLs in the
-manifest. `MANGO_FIRE_WATER_RATINGS=0`, `MANGO_FOR_YOU=0`, and
-`MANGO_RECOMMENDATIONS_AI=0` are reversible visibility/enrichment rollbacks;
-none deletes ratings or last-good snapshots. Ranking uses a worker by default
-so CPU-heavy scoring/MMR cannot monopolize catalog HTTP;
-`MANGO_RECOMMENDATION_RANK_WORKER=0` is a diagnostic-only opt-out and
-`MANGO_RECOMMENDATION_RANK_TIMEOUT_MS` defaults to 30000. A worker failure or
-deadline retains the previous complete snapshot.
+`MANGO_VOD_RECS_V2=off|shadow|serve` and
+`MANGO_YOUTUBE_RECS_V2=off|shadow|serve` are independent rollout controls;
+`MANGO_FIRE_WATER_RATINGS=0` and `MANGO_FOR_YOU=0` remain reversible visibility
+controls. None deletes data. Story Graph ranking runs off-thread; failures and
+deadlines retain the previous complete generation. Refresh endpoints return
+HTTP 202 job IDs; poll the durable exact-job route
+`/recommendations/jobs/:job_id`. Use `/recommendations/state` and
+`/youtube/state` for aggregate diagnostics rather than inferring a specific
+job's fate from their bounded recent-job windows.
 
-Before the couch verdict, verify the following without clearing any state:
+Grow/nightly playability maintenance performs that polling itself: after the
+new corpus is published, it waits for the exact Movies and TV refresh job IDs
+to become `complete` or `coalesced` before reporting maintenance complete. A
+missing, failed, or timed-out job makes the maintenance command fail while the
+last-good recommendation generation remains active. The bounded wait defaults
+to 900 seconds and is configurable with
+`MANGO_VOD_RECOMMENDATION_REFRESH_TIMEOUT_SEC`.
 
-- Every visible Movies/TV For You rail shows exactly six currently verified
-  cards: 4 close, 1 adjacent, and 1 bounded surprise. If reserve healing cannot
-  satisfy that contract, the rail is absent rather than partial. Completed
-  titles stay absent except for a sparse cooled rewatch.
-- Setting/clearing an explicit mood changes only bounded attribution/session
-  ranking; switching profiles clears mood. AI or network failure leaves the
-  last-good local slate usable.
-- Profile Not for me disappears immediately, Undo restores it, and the same
-  action neither hides nor changes another personal profile's state.
-- YouTube orders For You, Subscriptions, History, Saved before at most three
-  adaptive rails; every visible rail has four cards. History and Saved remain
-  stable across X. Healthy For You supply yields 28/8/4 over ten slates; if not,
-  inspect the honest fallback diagnostic rather than claiming that mix:
-  `sqlite3 /etc/mango/youtube.db "SELECT value FROM youtube_state WHERE key='for_you_lane_fallback:last';"`
-- Save four distinct YouTube videos: the complete Saved anchor remains stable
-  and none of those exact videos appears in For You. After a successful full
-  refresh, `sqlite3 /etc/mango/youtube.db "SELECT count(*) FROM youtube_for_you_candidates;"`
-  must remain at or below 1000; successful generations replace/prune the shared
-  reservoir while preserving retained profile exposure state.
-- Record `refresh.search_calls_today` and `refresh.api_calls_today` from
-  `/youtube/state`, press X several times, then read them again. Both values must
-  be unchanged; X is cache-only.
+Before the couch verdict, verify without clearing state:
+
+- Every visible Movies/TV For You rail has six currently verified cards
+  allocated `6`, `3/3`, or `2/2/2` across supported Household threads. Rated,
+  Saved, meaningfully watched, hidden, blocked, and exact Not-for-me titles stay
+  absent. There is no forced exploration or cooled rewatch.
+- Profile and mood controls are absent; rejected writes do not mutate dormant
+  rows. StoryDNA teacher/network failure leaves last-good local slates usable.
+- Household exact Not for me disappears immediately, Undo restores it, and it
+  creates no semantic penalty for related titles, creators, or topics.
+- YouTube orders For You, Beyond Your Subscriptions, More Like …, History,
+  Saved, then conditional From Your Subscriptions and Live Now. Normal rows
+  have four cards; Live Now may have one to four. History/Saved stay stable.
+- Save four distinct YouTube videos: Saved remains stable, none enters For You,
+  and acquisition/affinity do not change except for exact output exclusion.
+- Read `refresh.search_calls_today` and `refresh.api_calls_today`, press X
+  several times, and prove both remain unchanged. VOD X must likewise perform
+  no enrichment, graph, corpus-scan, or ranking work.
 - Start representative 1080p and known-safe 4K recommendations and run the
-  existing playback proof. Recommendation changes must not alter the resolver,
+  existing playback proof. Recommendation work must not alter resolver,
   display-mode, first-frame, progress, or dropped-frame contracts.
 
-Record relevance, adjacent/surprise quality, multilingual fit, Household
-fairness, reversibility, and latency as human verdicts. Until those checks run
-on the Pi/TV, all of them remain **DEFERRED**.
+Record taste-thread coherence, Beyond novelty, More Like thematic depth,
+multilingual fit, reversibility, and latency as human verdicts. Until those
+checks run on the Pi/TV, all remain **DEFERRED**.
 
 ### Episode says “stream not found”, then later succeeds
 

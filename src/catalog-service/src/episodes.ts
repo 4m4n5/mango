@@ -119,7 +119,6 @@ function compareSeasonBlocks(left: number, right: number): number {
 }
 
 export function normalizeSeriesEpisodes(
-  bareId: string,
   videos: CinemetaVideo[],
 ): { seasons: SeriesSeasonBlock[] } {
   const bySeason = new Map<number, SeriesEpisodeRow[]>();
@@ -285,7 +284,7 @@ export async function assembleSeriesEpisodes(
   episodeProgress: ReadonlyMap<string, { position_sec: number; duration_sec: number; progress_pct: number }> = new Map(),
 ): Promise<SeriesEpisodesResponse> {
   const videos = Array.isArray(meta.videos) ? meta.videos as CinemetaVideo[] : [];
-  const normalized = normalizeSeriesEpisodes(bareId, videos);
+  const normalized = normalizeSeriesEpisodes(videos);
   applyEpisodeProgress(normalized.seasons, saved, episodeProgress);
   return buildSeriesEpisodesResponse(
     bareId,

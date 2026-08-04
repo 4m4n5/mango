@@ -22,6 +22,7 @@ import {
   listLatestEpisodeWatchProgress,
   listSavedLibraryItems,
   listLibraryFeedback,
+  listProfileLibraryFeedback,
   listViewerProfiles,
   listProfileRecommendationEvents,
   listProfileRecommendationSignals,
@@ -89,7 +90,30 @@ test('initLibraryDb creates WAL schema and migration row', () => withTempLibrary
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM library_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    const v2Tables = db.prepare(`
+SELECT name FROM sqlite_master
+WHERE type = 'table' AND name IN (
+  'vod_story_dna_generations', 'vod_story_dna_documents',
+  'vod_ontology_nodes', 'vod_ontology_edges', 'vod_story_dna_edges',
+  'vod_taste_generations', 'vod_taste_threads',
+  'vod_rank_generations', 'vod_rank_items',
+  'vod_active_generations', 'vod_cached_slates', 'vod_cached_slate_items',
+  'recommendation_refresh_jobs', 'vod_story_graph_low_water_requests'
+)
+ORDER BY name
+`).all() as Array<{ name: string }>;
+    assert.equal(v2Tables.length, 14);
+    const slatePrimaryKey = db.prepare('PRAGMA table_info(vod_cached_slates)').all() as Array<{
+      name: string;
+      pk: number;
+    }>;
+    assert.deepEqual(
+      slatePrimaryKey.filter((column) => column.pk > 0)
+        .sort((left, right) => left.pk - right.pk)
+        .map((column) => column.name),
+      ['rank_generation_id', 'content_type', 'shuffle_epoch'],
+    );
   } finally {
     db.close();
   }
@@ -406,6 +430,62 @@ test('saved upsert and delete are idempotent', () => withTempLibrary(() => {
   assert.equal(unsaveLibraryItem({ type: 'movie', id: 'tt0111161' }), true);
   assert.equal(unsaveLibraryItem({ type: 'movie', id: 'tt0111161' }), false);
   assert.equal(getLibraryState({ type: 'movie', id: 'tt0111161' }).saved, false);
+}));
+
+test('explicit domain owner writes Household utility state without switching the active profile', () => withTempLibrary(() => {
+  const personal = createViewerProfile('Mixed Utility Owner');
+  activateViewerProfile(personal.profile_id);
+
+  saveLibraryItem({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'HouseholdSaved',
+    title: 'Household saved',
+    tab: 'youtube',
+    profile_id: 'household',
+  });
+  assert.deepEqual(listSavedLibraryItems('youtube'), []);
+  assert.deepEqual(listSavedLibraryItems('youtube', 10, {
+    profile_id: 'household',
+    household_blend: false,
+  }).map((row) => row.id), ['HouseholdSaved']);
+  assert.equal(getLibraryState({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'HouseholdSaved',
+    profile_id: 'household',
+  }).saved, true);
+  assert.equal(unsaveLibraryItem({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'HouseholdSaved',
+    profile_id: 'household',
+  }), true);
+
+  setLibraryFeedback({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'HouseholdVeto',
+    title: 'Household veto',
+    tab: 'youtube',
+    feedback: 'not_interested',
+    profile_id: 'household',
+  });
+  assert.deepEqual(listProfileLibraryFeedback('not_interested', 'youtube', {
+    profile_id: personal.profile_id,
+    household_blend: false,
+  }), []);
+  assert.deepEqual(listProfileLibraryFeedback('not_interested', 'youtube', {
+    profile_id: 'household',
+    household_blend: false,
+  }).map((row) => row.id), ['HouseholdVeto']);
+  assert.equal(clearLibraryFeedback({
+    source: 'youtube',
+    type: 'youtube_video',
+    id: 'HouseholdVeto',
+    feedback: 'not_interested',
+    profile_id: 'household',
+  }), true);
 }));
 
 test('unsave prunes unreferenced metadata but keeps watched metadata', () => withTempLibrary((dir) => {
@@ -771,7 +851,7 @@ test('watch signals use positive thresholds without duplicating periodic progres
     domain: 'youtube',
     limit: 20,
   }).filter((event) => event.item_id === 'ExactWatched');
-  assert.deepEqual(events.map((event) => event.strength).sort(), [0.05, 0.55]);
+  assert.deepEqual(events.map((event) => event.strength).sort(), [0.55]);
   assert.equal(events.every((event) => event.strength >= 0), true);
   assert.equal(
     listProfileRecommendationSignals({ profile_id: profile.profile_id, domain: 'youtube' })
@@ -1030,7 +1110,7 @@ test('captured playback ownership survives an active-profile switch before progr
   assert.equal(listWatchHistory({ source: 'youtube' }).length, 0);
 }));
 
-test('a completed VOD title emits rewatch evidence only after the cooldown', () => withTempLibrary(() => {
+test('a completed VOD title creates no cooled-rewatch recommendation lane', () => withTempLibrary(() => {
   const profile = createViewerProfile('Rewatch Viewer');
   activateViewerProfile(profile.profile_id);
   const day = 24 * 60 * 60 * 1_000;
@@ -1047,7 +1127,6 @@ test('a completed VOD title emits rewatch evidence only after the cooldown', () 
     limit: 10,
   }).filter((event) => event.item_id === 'tt-rewatch');
   assert.deepEqual(events.map((event) => [event.event_type, event.strength]), [
-    ['rewatch', 0.7],
     ['finished', 1],
   ]);
 }));

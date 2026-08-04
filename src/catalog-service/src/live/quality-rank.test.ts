@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-  compareLiveChannelsByQuality,
   liveChannelQualityScore,
   sortLiveChannelsByQuality,
 } from './quality-rank.js';

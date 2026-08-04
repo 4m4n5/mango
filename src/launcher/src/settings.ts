@@ -5,6 +5,7 @@ import {
 } from "./refresh";
 import {
   fetchReliabilityState,
+  importYoutubeTakeout,
   runReliabilityAction,
   type ReliabilityAction,
   type ReliabilityActionId,
@@ -72,6 +73,58 @@ export async function buildSettingsRefresh(
     fallback.textContent = "Refresh options unavailable — catalog-service may be starting.";
     container.append(fallback);
   }
+}
+
+function createYoutubeTakeoutImport(onStatus: LauncherStatusReporter): HTMLElement {
+  const group = document.createElement("div");
+  group.className = "settings-actions-row";
+
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".zip,.json,.html,.htm,text/html,application/json,application/zip";
+  input.hidden = true;
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "settings-action settings-action--reliability settings-action--standard";
+  button.dataset.settingsFocus = "true";
+  button.append(actionSpan("settings-action-title", "Import YouTube history"));
+  button.append(actionSpan("settings-action-meta", "Google Takeout ZIP, JSON, or HTML"));
+  let importing = false;
+  button.addEventListener("click", () => {
+    if (!importing) input.click();
+  });
+
+  input.addEventListener("change", () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    importing = true;
+    button.setAttribute("aria-busy", "true");
+    onStatus("importing YouTube Takeout…", "progress");
+    void importYoutubeTakeout(file)
+      .then((result) => {
+        const imported = result.import.imported_history;
+        const message = result.import.noop
+          ? "YouTube Takeout was already imported."
+          : `Imported ${imported} YouTube watches.`;
+        onStatus(message, "success");
+        window.dispatchEvent(new CustomEvent("mango:youtube-history-imported"));
+      })
+      .catch((error: unknown) => {
+        onStatus(
+          error instanceof Error ? error.message : "couldn't import YouTube Takeout",
+          "error",
+        );
+      })
+      .finally(() => {
+        input.value = "";
+        importing = false;
+        button.removeAttribute("aria-busy");
+      });
+  });
+
+  group.append(button, input);
+  return group;
 }
 
 export type HiddenRecommendationItem = {
@@ -355,6 +408,7 @@ async function buildReliabilityCenter(
     fallback.textContent = "Reliability status unavailable — catalog-service may be starting.";
     container.append(fallback);
   }
+  container.append(createYoutubeTakeoutImport(onStatus));
 }
 
 function createReliabilitySummary(state: ReliabilityState): HTMLElement {

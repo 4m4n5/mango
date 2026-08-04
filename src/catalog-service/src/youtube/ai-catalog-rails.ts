@@ -1,5 +1,4 @@
 import { loadAiCatalogSlots, readAiCatalogSlot, slotsForTab } from '../ai-catalogs/store.js';
-import type { AiCatalogSlotFile } from '../ai-catalogs/types.js';
 import { YOUTUBE_AI_SEED_POOL, YOUTUBE_RAIL_LIMIT } from './constants.js';
 import { getYoutubeItem } from './db.js';
 import type { YoutubeRail, YoutubeRailItem } from './types.js';

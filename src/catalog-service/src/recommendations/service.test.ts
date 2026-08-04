@@ -26,6 +26,7 @@ import {
   recommendationPreferenceAiInputs,
   recommendationShuffleNonce,
   recommendationSignalPreferenceStrength,
+  loadForYouRail,
   selectVisibleRecommendationSlate,
   setRecommendationMetric,
 } from './service.js';
@@ -230,6 +231,43 @@ test('load-time reserve healing preserves the exact visible 4/1/1 contract', () 
   assert.equal(selectVisibleRecommendationSlate([
     row(1, 'close'), row(2, 'close'), row(3, 'close'), row(4, 'close'), row(5, 'adjacent'),
   ], 'movies', false).length, 0);
+});
+
+test('serve mode never falls through to a personal v4 snapshot', async () => {
+  await withTempLibrary(async () => {
+    const db = libraryDatabase();
+    const personal = createViewerProfile('Personal only');
+    activateViewerProfile(personal.profile_id);
+    db.prepare(`
+INSERT INTO profile_recommendation_snapshots(
+  profile_id, tab, revision, model_version, model_kind, status,
+  candidate_count, generated_at, daily_seed
+) VALUES (?, 'movies', 1, 'semantic-hash-v4', 'content-shrinkage', 'ready', 6, 1, 'seed')
+`).run(personal.profile_id);
+    const insert = db.prepare(`
+INSERT INTO profile_recommendation_snapshot_items(
+  profile_id, tab, revision, rank, content_type, content_id, title, poster,
+  year, bucket, affinity, diversity, predicted_fire, predicted_water,
+  generation_reason
+) VALUES (?, 'movies', 1, ?, 'movie', ?, ?, 'poster.jpg', '2024', ?, 1, 1, 5, 5, 'legacy')
+`);
+    const buckets = ['close', 'close', 'close', 'close', 'adjacent', 'explore'];
+    buckets.forEach((bucket, rank) => insert.run(
+      personal.profile_id,
+      rank,
+      `legacy-${rank}`,
+      `Legacy ${rank}`,
+      bucket,
+    ));
+    const previous = process.env.MANGO_VOD_RECS_V2;
+    process.env.MANGO_VOD_RECS_V2 = 'serve';
+    try {
+      assert.equal(await loadForYouRail('movies', { profileId: personal.profile_id }), null);
+    } finally {
+      if (previous === undefined) delete process.env.MANGO_VOD_RECS_V2;
+      else process.env.MANGO_VOD_RECS_V2 = previous;
+    }
+  });
 });
 
 test('diagnostics expose only active-profile metrics and leave legacy global rows untouched', () => withTempLibrary(() => {

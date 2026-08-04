@@ -22,6 +22,7 @@
 #   MANGO_SOURCE_HITRATE_NIGHTLY_PER_SOURCE=3  probes/source before nightly grow phase (default 3)
 #   MANGO_MAINTENANCE_PHASE_COOLDOWN_SEC  pause between stale and grow (default 45)
 #   MANGO_MAINTENANCE_IGNORE_COUCH_ACTIVITY=1  debug/operator override for idle gate
+#   MANGO_VOD_RECOMMENDATION_REFRESH_TIMEOUT_SEC  wait for exact queued VOD jobs (default 900)
 
 set -euo pipefail
 
@@ -723,11 +724,132 @@ trap - EXIT
 grow_state set --phase restore --message "restoring couch stack" --mode "$MODE" --preset "$MANGO_GROW_PRESET"
 restore_couch
 
-echo "maintenance complete"
-grow_state set --phase done --message "complete rc=$REFRESH_RC" --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
-  --log "maintenance complete mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))"
 python3 "$REPO_DIR/scripts/diag/grow_monitor.py" status 2>/dev/null || true
 python3 "$REPO_DIR/scripts/diag/playability-status.py" 2>/dev/null | tail -20 || true
 if [[ "$MODE" == "grow" || "$MODE" == "nightly" ]] && [[ "$REFRESH_OUT_WRITTEN" == "1" ]]; then
   python3 "$REPO_DIR/scripts/diag/grow_monitor.py" assess --refresh-json "$REFRESH_OUT" 2>/dev/null || true
+  if [[ "${MANGO_QUEUE_VOD_RECOMMENDATIONS_AFTER_GROW:-1}" == "1" ]]; then
+    CATALOG_URL="http://${MANGO_CATALOG_HOST:-127.0.0.1}:${MANGO_CATALOG_PORT:-3020}"
+    VOD_RECOMMENDATION_TIMEOUT_SEC="${MANGO_VOD_RECOMMENDATION_REFRESH_TIMEOUT_SEC:-900}"
+    if ! [[ "$VOD_RECOMMENDATION_TIMEOUT_SEC" =~ ^[1-9][0-9]*$ ]]; then
+      echo "MANGO_VOD_RECOMMENDATION_REFRESH_TIMEOUT_SEC must be a positive integer" >&2
+      exit 2
+    fi
+    VOD_RECOMMENDATION_RESPONSE="$(mktemp)"
+    VOD_RECOMMENDATION_STATE="$(mktemp)"
+    trap 'rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"' EXIT
+    if curl -fsS -m 10 -X POST \
+        -H 'content-type: application/json' \
+        --data '{"reason":"playability_corpus_publication"}' \
+        "${CATALOG_URL}/recommendations/refresh" >"$VOD_RECOMMENDATION_RESPONSE"; then
+      if ! VOD_RECOMMENDATION_JOB_IDS="$(python3 - "$VOD_RECOMMENDATION_RESPONSE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+if payload.get("ok") is not True:
+    raise SystemExit("VOD recommendation refresh response was not ok")
+jobs = payload.get("jobs")
+if not isinstance(jobs, list) or not jobs:
+    raise SystemExit("VOD recommendation refresh response contained no jobs")
+job_ids = []
+for job in jobs:
+    job_id = str(job.get("job_id") or "").strip() if isinstance(job, dict) else ""
+    if not job_id:
+        raise SystemExit("VOD recommendation refresh response contained a job without an id")
+    job_ids.append(job_id)
+print(",".join(job_ids))
+PY
+      )"; then
+        rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
+        echo "VOD recommendation refresh response was invalid; last-good remains active" >&2
+        exit 1
+      fi
+      echo "playability maintenance: waiting for VOD recommendation jobs $VOD_RECOMMENDATION_JOB_IDS"
+      IFS=',' read -r -a VOD_RECOMMENDATION_JOB_ID_LIST <<<"$VOD_RECOMMENDATION_JOB_IDS"
+      VOD_RECOMMENDATION_DEADLINE=$((SECONDS + VOD_RECOMMENDATION_TIMEOUT_SEC))
+      VOD_RECOMMENDATION_STATUS="pending"
+      VOD_RECOMMENDATION_DETAIL=""
+      while (( SECONDS < VOD_RECOMMENDATION_DEADLINE )); do
+        : >"$VOD_RECOMMENDATION_STATE"
+        for VOD_RECOMMENDATION_JOB_ID in "${VOD_RECOMMENDATION_JOB_ID_LIST[@]}"; do
+          if ! curl -fsS -m 5 \
+              "${CATALOG_URL}/recommendations/jobs/${VOD_RECOMMENDATION_JOB_ID}" \
+              >>"$VOD_RECOMMENDATION_STATE"; then
+            rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
+            echo "VOD recommendation exact job read failed for ${VOD_RECOMMENDATION_JOB_ID}; last-good remains active" >&2
+            exit 1
+          fi
+          printf '\n' >>"$VOD_RECOMMENDATION_STATE"
+        done
+        VOD_RECOMMENDATION_LINE="$(python3 - "$VOD_RECOMMENDATION_STATE" "$VOD_RECOMMENDATION_JOB_IDS" <<'PY'
+import json
+import sys
+
+path, joined_ids = sys.argv[1:]
+expected = joined_ids.split(",")
+with open(path, encoding="utf-8") as handle:
+    payloads = [json.loads(line) for line in handle if line.strip()]
+by_id = {}
+for payload in payloads:
+    job = payload.get("job") if isinstance(payload, dict) else None
+    if isinstance(job, dict) and job.get("job_id"):
+        by_id[str(job["job_id"])] = job
+missing = [job_id for job_id in expected if job_id not in by_id]
+if missing:
+    print("missing\t" + ",".join(missing))
+    raise SystemExit(0)
+failed = [
+    f"{job_id}:{by_id[job_id].get('error') or 'unknown error'}"
+    for job_id in expected
+    if by_id[job_id].get("status") == "failed"
+]
+if failed:
+    print("failed\t" + " | ".join(failed).replace("\t", " ").replace("\n", " "))
+    raise SystemExit(0)
+statuses = {job_id: str(by_id[job_id].get("status") or "unknown") for job_id in expected}
+invalid = [f"{job_id}:{status}" for job_id, status in statuses.items()
+           if status not in {"queued", "running", "complete", "coalesced"}]
+if invalid:
+    print("invalid\t" + ",".join(invalid))
+elif all(status in {"complete", "coalesced"} for status in statuses.values()):
+    print("complete\t" + ",".join(f"{job_id}:{statuses[job_id]}" for job_id in expected))
+else:
+    print("pending\t" + ",".join(f"{job_id}:{statuses[job_id]}" for job_id in expected))
+PY
+        )"
+        IFS=$'\t' read -r VOD_RECOMMENDATION_STATUS VOD_RECOMMENDATION_DETAIL <<<"$VOD_RECOMMENDATION_LINE"
+        case "$VOD_RECOMMENDATION_STATUS" in
+          complete) break ;;
+          pending) sleep 1 ;;
+          missing|failed|invalid)
+            rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
+            echo "VOD recommendation refresh $VOD_RECOMMENDATION_STATUS: $VOD_RECOMMENDATION_DETAIL; last-good remains active" >&2
+            exit 1
+            ;;
+          *)
+            rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
+            echo "VOD recommendation refresh returned an invalid aggregate status; last-good remains active" >&2
+            exit 1
+            ;;
+        esac
+      done
+      rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
+      trap - EXIT
+      if [[ "$VOD_RECOMMENDATION_STATUS" != "complete" ]]; then
+        echo "VOD recommendation jobs timed out after ${VOD_RECOMMENDATION_TIMEOUT_SEC}s ($VOD_RECOMMENDATION_DETAIL); last-good remains active" >&2
+        exit 1
+      fi
+      echo "playability maintenance: VOD recommendation jobs complete ($VOD_RECOMMENDATION_DETAIL)"
+    else
+      rm -f "$VOD_RECOMMENDATION_RESPONSE" "$VOD_RECOMMENDATION_STATE"
+      echo "VOD recommendation refresh enqueue failed; last-good remains active" >&2
+      exit 1
+    fi
+  fi
 fi
+
+echo "maintenance complete"
+grow_state set --phase done --message "complete rc=$REFRESH_RC" --mode "$MODE" --preset "$MANGO_GROW_PRESET" \
+  --log "maintenance complete mode=$MODE rc=$REFRESH_RC duration_ms=$((END_MS - START_MS))"

@@ -24,9 +24,11 @@ import {
   listContinueItems,
   resetProgressDbForTests,
   upsertWatchProgress,
+  upsertWatchProgressDetailed,
 } from './db.js';
 import {
-  recommendationRefreshStageForProgress,
+  isMeaningfulRecommendationWatch,
+  recommendationRefreshStageAfterPersistence,
   resetWatchWatcherForTests,
   startWatchSessionFromPlay,
 } from './watcher.js';
@@ -48,12 +50,45 @@ test('continueSubtitle formats episode progress', () => {
   assert.equal(continueSubtitle('tt35870921:1:3', 'series', 0.42), 'S1 E3 · 42%');
 });
 
-test('recommendation refresh thresholds coalesce periodic playback progress', () => {
-  assert.equal(recommendationRefreshStageForProgress(0), 1);
-  assert.equal(recommendationRefreshStageForProgress(0.249), 1);
-  assert.equal(recommendationRefreshStageForProgress(0.25), 2);
-  assert.equal(recommendationRefreshStageForProgress(0.899), 2);
-  assert.equal(recommendationRefreshStageForProgress(0.9), 3);
+test('recommendation watch threshold supports known and unknown durations', () => {
+  assert.equal(isMeaningfulRecommendationWatch(119, 0), false);
+  assert.equal(isMeaningfulRecommendationWatch(120, 0), true);
+  assert.equal(isMeaningfulRecommendationWatch(149, 600), false);
+  assert.equal(isMeaningfulRecommendationWatch(150, 600), true);
+  assert.equal(isMeaningfulRecommendationWatch(299, 7_200), false);
+  assert.equal(isMeaningfulRecommendationWatch(300, 7_200), true);
+});
+
+test('recommendation stage advances only after the durable watch event commits', () => {
+  assert.equal(recommendationRefreshStageAfterPersistence(1, 2, false), 1);
+  assert.equal(recommendationRefreshStageAfterPersistence(1, 2, true), 2);
+  assert.equal(recommendationRefreshStageAfterPersistence(2, 2, true), 2);
+});
+
+test('recommendation trigger eligibility reports a failed durable watch mirror', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mango-progress-durable-watch-'));
+  process.env.MANGO_PROGRESS_DB_PATH = join(dir, 'progress.db');
+  process.env.MANGO_LIBRARY_DB_PATH = join(dir, 'library.db');
+  process.env.MANGO_USER_PINS_PATH = join(dir, 'pins.json');
+  resetProgressDbForTests();
+  resetLibraryDbForTests();
+  try {
+    initLibraryDb();
+    await initProgressDb();
+    libraryDatabase().exec('DROP TABLE profile_watch_state');
+    const result = upsertWatchProgressDetailed({
+      type: 'movie', id: 'tt-durable', play_id: 'tt-durable', position_sec: 300, duration_sec: 600,
+    });
+    assert.equal(result.library_watch_persisted, false);
+    assert.ok(result.progress, 'resume progress remains independently durable');
+  } finally {
+    resetProgressDbForTests();
+    resetLibraryDbForTests();
+    delete process.env.MANGO_PROGRESS_DB_PATH;
+    delete process.env.MANGO_LIBRARY_DB_PATH;
+    delete process.env.MANGO_USER_PINS_PATH;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('a validated episode play credits its immutable recommendation once across handoffs', async () => {

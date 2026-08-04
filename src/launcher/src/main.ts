@@ -22,6 +22,7 @@ import {
   nonEmptyCatalogRails,
   sameCatalogPresentation,
   usableCatalogRails,
+  youtubeHistoryImportRefreshPolicy,
   type CatalogState,
   type HomeOptions,
 } from "./home";
@@ -61,6 +62,7 @@ import {
   moodDisplayLabel,
   PersonalizationOwnedCache,
   personalizationAriaLabel,
+  personalizationControlsVisible,
   profileInitial,
   samePersonalizationOwner,
   samePersonalizationRequestVersion,
@@ -155,6 +157,7 @@ let playbackReturnInFlight = false;
 let personalizationCatalogDirty = false;
 let personalizationStateUpdatedAt = 0;
 let personalizationProfileId = "household";
+let householdRecommendationIdentity = true;
 let initialPersonalizationRead: Promise<void> | null = null;
 let settingsBuildSeq = 0;
 const tabFocusKeys = new Map<BrowseTab, string>();
@@ -300,6 +303,7 @@ function init(): void {
   searchEntry.dataset.focusKey = "browse:search";
   personalizationEntry.dataset.focusKey = "browse:personalization";
   libraryRefreshBtn.dataset.focusKey = "browse:shuffle";
+  personalizationEntry.hidden = true;
 
   backButton.addEventListener("click", showHome);
   searchEntry.addEventListener("click", () => void openSearch());
@@ -313,7 +317,41 @@ function init(): void {
       void handlePlaybackReturn();
     }
   });
-  window.addEventListener("mango:library-refresh", () => void libraryRefresh({ quiet: true }));
+  window.addEventListener("mango:library-refresh", () => {
+    // Cross-domain Settings mutations happen while Home is hidden, where
+    // libraryRefresh intentionally declines to repaint. Invalidate every
+    // affected cache and defer the reload until the surface is visible again.
+    catalogRequestSeq += 1;
+    for (const tab of ["movies", "series", "youtube"] as const) {
+      tabCatalogCache.delete(tab);
+      tabSavedCache.delete(tab);
+      tabRenderCache.delete(tab);
+    }
+    liveCatalogSessionCached = false;
+    if (inSettings || detail.isOpen || search.isOpen) {
+      personalizationCatalogDirty = true;
+      return;
+    }
+    personalizationCatalogDirty = false;
+    void libraryRefresh({ quiet: true });
+  });
+  window.addEventListener("mango:youtube-history-imported", () => {
+    const surfaceBlocked = inSettings || detail.isOpen || search.isOpen
+      || homeView.classList.contains("hidden");
+    const policy = youtubeHistoryImportRefreshPolicy(activeBrowseTab, surfaceBlocked);
+    tabCatalogCache.delete("youtube");
+    tabSavedCache.delete("youtube");
+    tabRenderCache.delete("youtube");
+    if (policy.cancelActiveCatalogRequest) catalogRequestSeq += 1;
+    if (policy.deferYoutubeReload) {
+      personalizationCatalogDirty = true;
+      return;
+    }
+    if (policy.reloadYoutubeNow) {
+      personalizationCatalogDirty = false;
+      void loadCatalog({ background: true });
+    }
+  });
   void loadInfo();
   void refreshPersonalizationChrome();
   // The command queue provides the immediate companion-profile handshake.
@@ -426,9 +464,10 @@ function renderHome(): void {
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
   const showShuffle = activeBrowseTab !== "live";
   libraryRefreshBtn.hidden = !showShuffle;
+  const personalizationChrome = householdRecommendationIdentity ? [] : [personalizationEntry];
   const browseChrome = showShuffle
-    ? [searchEntry, ...tabButtons, personalizationEntry, libraryRefreshBtn]
-    : [searchEntry, ...tabButtons, personalizationEntry];
+    ? [searchEntry, ...tabButtons, ...personalizationChrome, libraryRefreshBtn]
+    : [searchEntry, ...tabButtons, ...personalizationChrome];
   ensureAppsSection();
   const { container: activeContainer, rows: catalogRows, reused } = renderActiveTabCatalog();
   mountRailsView(activeContainer);
@@ -797,6 +836,7 @@ function restoreHomeFromSearch(state: SearchRestoreState): void {
     catalogState = { status: "loading" };
     catalogStateTab = activeBrowseTab;
     catalogStateOwner = null;
+    personalizationCatalogDirty = false;
     renderHome();
     void loadCatalog();
   }
@@ -878,6 +918,10 @@ async function handleContentSelect(
   railLabel: string,
   tab?: BrowseTab,
 ): Promise<void> {
+  if (card.type === "youtube_setup") {
+    showSettings();
+    return;
+  }
   try {
     await ensureInitialPersonalizationReady();
   } catch {
@@ -987,8 +1031,7 @@ async function refreshPersonalizationChrome(): Promise<void> {
     try {
       await ensureInitialPersonalizationReady();
     } catch {
-      // The default Household / Any mood chrome remains a usable, honest fallback
-      // while catalog-service starts. Settings exposes the recoverable error.
+      // Household-only is the fail-closed boot state while catalog-service starts.
     }
     return;
   }
@@ -1000,8 +1043,7 @@ async function refreshPersonalizationChrome(): Promise<void> {
       applyPersonalizationChrome(payload);
     }
   } catch {
-    // The default Household / Any mood chrome remains a usable, honest fallback
-    // while catalog-service starts. Settings exposes the recoverable error.
+    // Household-only is the fail-closed boot state while catalog-service starts.
   }
 }
 
@@ -1022,6 +1064,10 @@ async function ensureInitialPersonalizationReady(): Promise<void> {
 
 function applyPersonalizationChrome(payload: PersonalizationPayload): void {
   if (payload.state.updated_at < personalizationStateUpdatedAt) return;
+  const nextHouseholdIdentity = !personalizationControlsVisible(payload);
+  const identityChanged = householdRecommendationIdentity !== nextHouseholdIdentity;
+  householdRecommendationIdentity = nextHouseholdIdentity;
+  personalizationEntry.hidden = householdRecommendationIdentity;
   personalizationStateUpdatedAt = payload.state.updated_at;
   const profile = activeViewerProfile(payload);
   personalizationProfileId = profile.profile_id;
@@ -1035,6 +1081,7 @@ function applyPersonalizationChrome(payload: PersonalizationPayload): void {
   const owner = profile.kind === "household" ? "shared household" : profile.name;
   ratingOwnerLabel.textContent = `${owner} rating`;
   detailRatingChips.setAttribute("aria-label", `${owner} rating`);
+  if (identityChanged && !homeView.classList.contains("hidden")) renderHome();
 }
 
 function handlePersonalizationChanged(payload: PersonalizationPayload): void {
@@ -1193,6 +1240,11 @@ function showHome(): void {
   homeView.classList.remove("hidden");
   clearPlaybackReturnSnapshot();
   focusGrid.restoreFocus();
+  refreshDirtyCatalogOnVisibleHome();
+  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.", "hint");
+}
+
+function refreshDirtyCatalogOnVisibleHome(): void {
   if (personalizationCatalogDirty && activeBrowseTab !== "live") {
     personalizationCatalogDirty = false;
     // Settings accepted a newer owner while Home was hidden. Paint the
@@ -1201,7 +1253,6 @@ function showHome(): void {
     renderHome();
     void loadCatalog({ background: true });
   }
-  setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.", "hint");
 }
 
 function restoreFromDetail(origin: DetailOriginContext): void {
@@ -1219,6 +1270,7 @@ function restoreFromDetail(origin: DetailOriginContext): void {
   searchView.classList.add("hidden");
   homeView.classList.remove("hidden");
   focusGrid.restoreFocus();
+  refreshDirtyCatalogOnVisibleHome();
   setStatus("D-pad to browse. L/R shoulders switch tabs. B to select.", "hint");
   const ratingTab = pendingRatingRefreshTab;
   pendingRatingRefreshTab = null;

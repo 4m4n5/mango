@@ -73,14 +73,14 @@ test('episodeStreamRoleForId uses meta bucket over season in id', () => {
 });
 
 test('normalizeSeriesEpisodes groups main seasons and consolidates extras in Bonus', () => {
-  const chernobyl = normalizeSeriesEpisodes('tt7366338', CHERNOBYL_VIDEOS);
+  const chernobyl = normalizeSeriesEpisodes(CHERNOBYL_VIDEOS);
   assert.equal(chernobyl.seasons.length, 2);
   assert.equal(chernobyl.seasons[0]?.label, 'Season 1');
   assert.equal(chernobyl.seasons[0]?.episodes.length, 3);
   assert.equal(chernobyl.seasons[1]?.label, 'Bonus');
   assert.equal(chernobyl.seasons[1]?.episodes[0]?.id, 'tt7366338:0:23');
 
-  const panchayat = normalizeSeriesEpisodes('tt12004706', PANCHAYAT_VIDEOS);
+  const panchayat = normalizeSeriesEpisodes(PANCHAYAT_VIDEOS);
   assert.equal(panchayat.seasons.length, 2);
   assert.equal(panchayat.seasons[0]?.episodes.length, 2);
   assert.equal(panchayat.seasons[1]?.episodes[0]?.id, 'tt12004706:2:1');
@@ -94,7 +94,7 @@ const IGL_VIDEOS = [
 ];
 
 test('normalizeSeriesEpisodes includes bonus season after main seasons', () => {
-  const igl = normalizeSeriesEpisodes('tt33094114', IGL_VIDEOS);
+  const igl = normalizeSeriesEpisodes(IGL_VIDEOS);
   assert.equal(igl.seasons.length, 3);
   assert.equal(igl.seasons[0]?.label, 'Season 1');
   assert.equal(igl.seasons[0]?.episodes.length, 1);
@@ -110,7 +110,7 @@ test('seasonBlockLabel names bonus season', () => {
 });
 
 test('applyEpisodeProgress marks saved episode row', () => {
-  const { seasons } = normalizeSeriesEpisodes('tt12004706', PANCHAYAT_VIDEOS);
+  const { seasons } = normalizeSeriesEpisodes(PANCHAYAT_VIDEOS);
   applyEpisodeProgress(seasons, {
     progress_key: 'series:tt12004706',
     type: 'series',
@@ -131,7 +131,7 @@ test('applyEpisodeProgress marks saved episode row', () => {
 });
 
 test('applyEpisodeProgress prefers per-episode watch history over series resume', () => {
-  const { seasons } = normalizeSeriesEpisodes('tt12004706', PANCHAYAT_VIDEOS);
+  const { seasons } = normalizeSeriesEpisodes(PANCHAYAT_VIDEOS);
   applyEpisodeProgress(
     seasons,
     {
@@ -158,14 +158,14 @@ test('applyEpisodeProgress prefers per-episode watch history over series resume'
 });
 
 test('nextEpisodeId walks flat season order', () => {
-  const { seasons } = normalizeSeriesEpisodes('tt12004706', PANCHAYAT_VIDEOS);
+  const { seasons } = normalizeSeriesEpisodes(PANCHAYAT_VIDEOS);
   assert.equal(nextEpisodeId(seasons, 'tt12004706:1:1'), 'tt12004706:1:2');
   assert.equal(nextEpisodeId(seasons, 'tt12004706:1:2'), 'tt12004706:2:1');
   assert.equal(nextEpisodeId(seasons, 'tt12004706:2:1'), null);
 });
 
 test('applyEpisodePlayability marks verified and failed episodes', () => {
-  const { seasons } = normalizeSeriesEpisodes('tt12004706', PANCHAYAT_VIDEOS);
+  const { seasons } = normalizeSeriesEpisodes(PANCHAYAT_VIDEOS);
   const now = Date.now();
   applyEpisodePlayability(seasons, new Map([
     ['series:tt12004706:1:1', { status: 'verified', expires_at: now + 60_000 }],

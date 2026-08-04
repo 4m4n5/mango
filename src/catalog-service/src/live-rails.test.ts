@@ -5,7 +5,6 @@ import {
   finalizeLiveRailListing,
   keywordPattern,
   loadLiveRailConfig,
-  matchAllChannelsToRail,
   matchChannelsToRail,
   matchChannelsWithSourceFill,
   partitionChannelsBySportRails,

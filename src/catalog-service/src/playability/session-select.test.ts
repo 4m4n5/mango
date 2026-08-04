@@ -104,7 +104,7 @@ test('buildTabSessionSelections tops up anchor rails after niche reserve pass', 
   const recent = new Map(rails.map((rail) => [rail.railId, new Set<string>()]));
   const selections = buildTabSessionSelections(rails, pools, recent, {
     reserveFloor: 8,
-    shuffleFn: (items) => items,
+    rng: () => 0.5,
   });
   const global = selections.get('series-global-popular') ?? [];
   const comedy = selections.get('series-comedy') ?? [];
@@ -134,7 +134,7 @@ test('buildTabSessionSelections anchor-first reserve fills global when pools ove
   const selections = buildTabSessionSelections(rails, pools, recent, {
     reserveFloor: 8,
     anchorRailCount: 2,
-    shuffleFn: (items) => items,
+    rng: () => 0.5,
   });
   assert.ok((selections.get('series-global-popular') ?? []).length >= 8);
   assert.ok((selections.get('series-comedy') ?? []).length >= 1);
@@ -160,7 +160,7 @@ test('buildTabSessionSelections does not starve india anchor during top-up', () 
   const selections = buildTabSessionSelections(rails, pools, recent, {
     reserveFloor: 8,
     anchorRailCount: 3,
-    shuffleFn: (items) => items,
+    rng: () => 0.5,
   });
   assert.ok((selections.get('series-global-popular') ?? []).length >= 1);
   assert.ok((selections.get('series-india-picks') ?? []).length >= 8);
@@ -172,7 +172,7 @@ test('selectRailSessionItems excludes tab-occupied titles', () => {
     displayLimit: 3,
     recentKeys: new Set(),
     occupiedKeys: occupied,
-    shuffleFn: (items) => items,
+    rng: () => 0.5,
   });
   assert.deepEqual(selected.map((item) => item.id), ['tt2', 'tt3', 'tt4']);
 });
@@ -183,7 +183,7 @@ test('selectRailSessionItems deprioritizes recent titles in stable slots', () =>
     displayLimit: 3,
     recentKeys: recent,
     occupiedKeys: new Set(),
-    shuffleFn: (items) => items,
+    rng: () => 0.5,
   });
   assert.equal(selected[0]?.id, 'tt2');
   assert.equal(selected[0]?.mix_bucket, 'stable');

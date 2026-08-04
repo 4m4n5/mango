@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import type { PlayabilityStatus } from '../playability/db.js';
 import { startRefreshJob } from '../playability/refresh-control.js';

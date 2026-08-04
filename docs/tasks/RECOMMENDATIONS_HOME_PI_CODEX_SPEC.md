@@ -1,787 +1,672 @@
-# Home-agent brief — deploy and harden Mango recommendations on the Pi
+# Home-agent deployment brief — Mango Couch Recommendations v2
 
-You are the autonomous **home agent** for the `mango` repository. You have no
-access to the conversation that produced this change. Read this file top to
-bottom before mutating either machine. The operator's starter prompt supplies
-the exact pushed source SHA; that SHA and this file are the deployment contract.
+This is the complete, context-free contract for the agent running on the home
+Mac, on the same LAN as the Mango Pi. Read it top to bottom before changing the
+home clone, Pi, databases, or runtime configuration.
 
-The work Mac has implemented a profile-owned Fire/Water and YouTube
-recommendation redesign. Your job is to deploy it from the home Mac to the Pi,
-prove the real runtime systematically, inspect screenshots, make only
-evidence-led and principled source corrections, and leave the smallest useful
-human couch test for the end. You may use SSH from the home Mac. The work agent
-that authored this file did **not** SSH to or observe the Pi or TV.
+The starter prompt must provide an exact, full `APPROVED_SHA`. It is the
+immutable commit authorized by the user. If it still says `<APPROVED_SHA>`, or
+that commit is not the exact initial `origin/feat/native-experience` tip, stop
+without deploying and ask for the pushed SHA. Set mutable `TARGET_SHA` to that
+value initially. `TARGET_SHA` may advance only to a tested corrective commit
+that this home agent pushed under section 12. A dirty work-Mac implementation
+or an unpushed commit is not deployable.
 
-## 0. Mission and workstream order
+## 1. Mission
 
-Complete these workstreams in order:
+Deploy Mango Couch Recommendations v2 from the home Mac to the Pi, build the
+real StoryDNA and YouTube generations in shadow, apply the promotion gates
+without weakening them, promote VOD and YouTube independently when eligible,
+verify the couch experience, and make only evidence-led corrections needed to
+finish the rollout. The intended handoff state is not an empty bootstrap: each
+served domain must have a healthy published local reserve. VOD must be built
+from the Pi's preserved current Household Fire/Water, Saved, and qualifying
+Mango watch history; YouTube must be built from its current authoritative
+subscriptions and qualifying Takeout/Mango-local history.
 
-1. **H1 — Source and authority preflight:** prove the home clone, origin, and
-   supplied SHA agree; establish one source writer.
-2. **H2 — Non-destructive Pi baseline:** prove the Pi is on the right clean
-   branch, the couch and playback are idle, maintenance is idle, and current
-   databases are healthy before deployment.
-3. **H3 — Git-only deploy and migration proof:** deploy all catalog, launcher,
-   companion, and orchestrator changes; prove exact SHA, backup, schema, and
-   service health.
-4. **H4 — Automated product proof:** run local and Pi gates, contract/privacy
-   probes, restart persistence, cached performance checks, and zero-quota
-   YouTube checks.
-5. **H5 — Visual and behavioral audit:** inspect screenshots and current TV
-   geometry; test all safe states autonomously, then perform the minimal final
-   couch pass with the human.
-6. **H6 — Evidence-led correction loop:** diagnose any failure, fix source on
-   the home Mac, test, commit, push, redeploy, and rerun affected plus regression
-   gates.
-7. **H7 — Report and ship:** write the required report, commit and push any
-   approved source/report changes, and state PASS, FAIL, or DEFERRED for every
-   acceptance item.
+The implementation introduces:
 
-## 0.1 Overriding principle — preserve real user state and real evidence
+- VOD `vod-story-graph-v1`: one six-card For You rail in Movies and one in TV,
+  ranked only from the verified-playable corpus. A stateless AI content teacher
+  produces strict StoryDNA; local graph/thread code owns all taste, uncertainty,
+  ranking, dealing, and publication.
+- Positive-only Household taste from Fire/Water, Saved, and meaningful Mango
+  viewing. Explicit Fire/Water dominates. Existing profiles and mood data stay
+  dormant and recoverable.
+- YouTube v2: subscriptions plus Google Takeout/Mango-local meaningful history
+  only, with five core rails and conditional subscription/live rails.
+- Durable local generation state, HTTP 202 refresh jobs, cached X behavior, and
+  independent `off|shadow|serve` rollout controls.
 
-- A missing, unreachable, quota-blocked, or subjective check is **DEFERRED with
-  its exact reason**. It is never a fabricated PASS.
-- Runtime databases, history, ratings, Saved state, progress, caches, profiles,
-  operator credentials, and quota configuration belong to the home system.
-- Source moves Mac → origin → Pi through Git. Evidence may move Pi → home Mac;
-  source and state never move by ad-hoc copying.
-- Deterministic tests establish contracts. Screenshots establish rendered
-  geometry. Only the human looking at the TV can establish 10-foot readability,
-  overscan, color, motion comfort, perceived relevance, and playback quality.
-- Fix causes, not symptoms. Do not weaken a gate, hide an error, delete state,
-  or disable the intended happy path to manufacture green output.
+## 2. Authority and hard boundaries
 
-## 1. Authority and hard constraints
+- Branch: `feat/native-experience`.
+- Home-Mac clone: discover the real clone rather than assuming a username; a
+  common relative path is `~/Documents/personal/projects/mango`.
+- Pi SSH alias: `mango`; fallback `mango-mdns`; Pi repo: `~/mango`.
+- Mac source is authoritative. Deploy with git only. Never use `rsync`, `scp`,
+  repository archive copying, or hand-edited source files on the Pi.
+- The sole transfer exception is an explicitly named, generated, sanitized
+  screenshot copied Pi to home Mac for visual inspection. It does not permit
+  copying source, databases, config, logs, tokens, archives, or history in
+  either direction; never commit a private screenshot.
+- Preserve all operator-owned dirt. Never reset, stash, clean, delete, replace,
+  or reinitialize a database merely to make a gate green.
+- Do not switch either machine to `main`, merge branches, force-push, rewrite
+  history, or delete legacy v4 generations/code.
+- Do not print `~/.config/mango/voice.env`, API keys, OAuth files, Companion
+  memory, raw ratings, raw Takeout records, or database contents containing
+  private history. Reports use counts, hashes, versions, and redacted errors.
+- No gate threshold, relevance formula, provenance rule, verified-only veto,
+  quota ceiling, or acceptance criterion may be relaxed to obtain a pass.
+- Legacy v4 remains intentionally reachable in `off|shadow` for rollback
+  through one accepted couch release. It is not orphaned code.
 
-### You MAY
+The user authorizes the home agent to correct implementation or operational
+bugs discovered during this deployment, but only inside this recommendation
+rollout. Once source changes begin, the home Mac is the sole source writer for
+the session: edit there, run local gates, commit, push the same branch, deploy
+that new exact SHA by git, and report the SHA chain. Never patch source in
+`~/mango` on the Pi. Product redesign, unrelated cleanup, new dependencies, and
+changes to locked controller/playback behavior require fresh user approval.
 
-- Run read-only home-Mac and Pi reconnaissance, local tests, Pi gates, service
-  logs, SQLite `PRAGMA quick_check`, sanitized API probes, screenshot capture,
-  and resource snapshots.
-- Run the repository's Git-only deploy wrapper after every precondition passes.
-- Make systematic, reversible source or documentation fixes when Pi/TV evidence
-  identifies a real defect. The home agent is the temporary **single source
-  writer** for this handoff.
-- Commit and push those fixes and the final report to
-  `origin/feat/native-experience`, then deploy the new exact SHA and re-prove it.
-- Copy an explicitly named, generated screenshot **from the Pi to the home Mac
-  for inspection only**. This exception does not permit copying repo files,
-  databases, config, cookies, tokens, or histories in either direction.
+Runtime changes are limited to reversible recommendation flags and established
+Mango operational controls in `~/.config/mango/voice.env`. Back it up with mode
+`0600` before every edit, update it without sourcing or echoing its contents,
+retain all unrelated keys, and record only the two resulting recommendation
+modes. After every edit and restart, prove that the file remains mode `0600`
+and use an allowlist parser that prints only `MANGO_VOD_RECS_V2` and
+`MANGO_YOUTUBE_RECS_V2`. Never attach or commit an environment backup.
 
-### You MUST NOT
+## 3. Required reading
 
-- Work on, create, or switch to any branch other than
-  `feat/native-experience`. If the home clone or Pi is on another branch, stop
-  and report; do not switch it silently.
-- Deploy an origin revision other than the full SHA supplied by the operator,
-  unless you have made, tested, committed, and pushed a documented correction
-  during this handoff.
-- Use `rsync`, hand-copy repository files, edit source directly on the Pi, or
-  copy a Mac database to the Pi.
-- Delete, recreate, truncate, move, replace, or "fresh start" any runtime DB,
-  cache, ratings, history, progress, Saved state, profile, recommendation
-  snapshot, or YouTube state. Never call `/youtube/fresh-start`.
-- Alter, disconnect, regenerate, print, or copy YouTube API keys, OAuth tokens,
-  cookies, scopes, quota limits, or quota configuration. Do not run a command
-  that knowingly spends YouTube Data API quota.
-- Print or commit credentials, media URLs, token paths, raw provider errors,
-  private profile names, opaque content IDs, raw Sheet captions, or stable-ID
-  manifests containing unresolved/private source text.
-- Run `git reset --hard`, force-push, amend a published commit, bypass hooks,
-  discard a dirty tree, or stash unknown user work. A dirty Pi or home clone is
-  a stop-and-inventory condition.
-- Change controller bindings, controller ownership, debounce, pairing behavior,
-  playback ownership, stream-selection contracts, progress ownership, display
-  sleep policy, or input routing without explicit human approval. Normal
-  controller reconnect, not pairing mode, remains the happy path.
-- Abort active playback or playability maintenance to make a deploy convenient.
-  `pi-deploy.sh` restarts the stack and can stop both; preflight them first.
-- Turn off a product feature as the final "fix." The one rollout exception is
-  the documented `MANGO_FOR_YOU=0` hold when no approved seed import exists.
-- Claim Pi, TV, screenshot, recommendation-quality, or playback PASS from
-  work-Mac tests alone.
+Read these from the initially checked-out `APPROVED_SHA` before mutation. If a
+corrective commit advances `TARGET_SHA`, reread any changed contract document
+from the new target:
 
-### You MUST
+1. `AGENTS.md`
+2. `docs/DEPLOY.md`
+3. `docs/DEPLOY-SPLIT-MACHINE.md`
+4. `docs/FIRE_WATER_RATINGS.md`
+5. `docs/YOUTUBE.md`
+6. `docs/RELIABILITY.md`
+7. `docs/COUCH_TEST.md`, especially recommendation identity, Fire/Water, and
+   YouTube sections
+8. `docs/tasks/RECOMMENDATIONS_SIMPLIFY_IMPLEMENTATION_PLAN.md`
 
-- Use `git pull --ff-only`, the repo deploy wrapper, and exact SHA comparisons.
-- Preserve the current database files and record their size, timestamp, and
-  `quick_check` before and after migration without dumping personal rows.
-- Keep YouTube proof cache-only and show that search/API counters did not
-  increase. If that cannot be proved, mark YouTube runtime proof DEFERRED.
-- Treat the Fire/Water stable-ID seed as unavailable unless an approved,
-  reconciled manifest actually exists and passes the documented validator.
-- Use small commits with meaningful messages, push normally, and rerun the
-  complete relevant proof after every correction.
-- Write `docs/tasks/RECOMMENDATIONS_HOME_PI_REPORT.md` as specified in §9.
+## 4. Evidence report
 
-## 2. Repository and runtime map
+Keep timestamped working evidence outside the git clone while deploy iterations
+are active so `pi-deploy.sh` can enforce a clean source tree. After the final
+source SHA, deploy, and gates are settled, write:
 
-- **Home Mac repo:** use the clone containing this file; expected canonical path
-  is `/Users/aman.shrivastava/Documents/personal/projects/mango`.
-- **Pi repo:** `~/mango` on the configured `mango` SSH alias; use
-  `mango-mdns` only as the documented fallback.
-- **Branch:** `feat/native-experience` only.
-- **Deploy/runbooks:** `AGENTS.md`, `docs/DEPLOY.md`,
-  `docs/DEPLOY-SPLIT-MACHINE.md`, `docs/OPS.md`.
-- **Product contracts:** `docs/FIRE_WATER_RATINGS.md`, `docs/YOUTUBE.md`,
-  `docs/ARCHITECTURE.md`, `docs/DECISIONS.md`.
-- **Couch matrix:** recommendation profiles RP1–RP11 and Fire/Water FW1–FW14
-  in `docs/COUCH_TEST.md`.
-- **Deploy/gates:** `scripts/pi-deploy.sh`, `scripts/pi-exec.sh`,
-  `scripts/pi-pre-couch-gate.sh`, `scripts/m6-ship/gate-m6-ux-smoke.sh`,
-  `scripts/m6-ship/gate-m6-youtube-smoke.sh`.
-- **Runtime DBs:** `/etc/mango/library.db`, `/etc/mango/progress.db`, and
-  `/etc/mango/youtube.db`. Observe them; never replace or clear them.
-- **Runtime env:** `~/.config/mango/voice.env`. Do not print it. Only an exact,
-  recorded recommendation feature-flag line may be changed under this brief.
-- **Screenshot helper:** `scripts/m1-foundation/gate/capture-tv.sh`; output is
-  under `~/.cache/mango/gate-screenshots/` on the Pi.
+`docs/tasks/RECOMMENDATIONS_V2_HOME_PI_REPORT.md`
 
-## 3. Known source state and local proof boundary
+Writing that report is the final local mutation. Do not commit, push, or deploy
+the report itself unless the user separately asks; report the clean final
+origin/home/Pi source SHA and the report's intentional uncommitted path. Never
+let an in-progress report force a bypass of the clean-tree deploy guard.
 
-The operator's starter prompt contains `EXPECTED_SHA`, the full pushed SHA that
-includes this file and the recommendation redesign. Do not substitute a stale
-SHA shown elsewhere in Mango documentation. In particular, historical Pi or UX
-SHAs are context, not this deployment target.
+It must include:
 
-The work agent reported these source-side results. The final resolver hardening
-was followed by the catalog suite and both production builds; the remaining
-rows are an earlier integrated baseline and must be rerun at home:
+- date/time zone, home host, Pi host, branch, immutable `APPROVED_SHA`, the
+  ordered `TARGET_SHA` chain with every corrective SHA, final origin SHA, final
+  home SHA, and final Pi SHA;
+- pre-deploy dirt and runtime state on both machines;
+- database file sizes, migration versions, preservation counts, backup paths,
+  and post-migration deltas without private row content;
+- each command/gate, result, duration, and concise evidence;
+- VOD and YouTube mode transitions with before/after generation IDs;
+- full VOD domain diagnostics, offline evaluation metrics, and exact promotion
+  reasons;
+- YouTube subscription/history/provenance/rail counts, phase results, stale
+  state, and quota counters;
+- cached latency and X counter-invariance measurements;
+- screenshots inspected and human couch verdicts;
+- every correction and why it was principled;
+- rollback drill and final rollback instructions;
+- `PASS`, `FAIL`, or `DEFERRED — <exact reason>` for every acceptance item.
 
-| Gate | Reported local result |
-|---|---:|
-| Catalog full test suite after final resolver patch | 876 passed, 0 failed |
-| Launcher production build after final resolver patch | PASS |
-| Companion production build after final resolver patch | PASS |
-| Catalog gate subset (earlier baseline) | 497 passed, 0 failed |
-| Launcher source/UX tests (earlier baseline) | 76 passed, 0 failed |
-| Orchestrator tests (earlier baseline) | 98 passed, 0 failed; final local rerun DEFERRED because system Python lacked pytest |
-| Pad navigation (earlier baseline) | 10 passed, 0 failed |
-| Contextual X ownership (earlier baseline) | 10 passed, 0 failed |
-| LAN companion proxy security (earlier baseline) | 6 passed, 0 failed |
-| Stream-picker source/session gates (earlier baseline) | 10 + 5 passed, 0 failed |
+Never describe unobserved Pi, TV, launch, HDR, focus, or recommendation quality
+as passing. A locally passing test is not Pi proof. A Pi HTTP response is not a
+human couch-quality verdict.
 
-The operator explicitly stopped the remaining Mac gate run for this handoff, so
-home reruns are mandatory. These counts are a baseline, not a substitute for
-rerunning tests. Counts may
-increase after a correction; the invariant is zero failures and no skips that
-hide a required assertion. Local playback-SSOT checks that require X11, mpv,
-systemd, HDMI, or the real TV were intentionally deferred to this home run.
+## 5. Workstream H1 — exact source and clean authority
 
-There is currently **no approved stable-ID seed manifest in source**. The Sheet
-audit found 56 non-empty rows, 54 clean numeric pairs, and two rows requiring
-human disposition. Do not guess those rows, synthesize IDs, or run the example
-`/path/to/fire-water-seed-v1.json` commands. Base code/migration/UI can deploy;
-seeded Household warm-start and seed-calibrated quality remain DEFERRED unless
-the exact reconciliation is completed during this handoff.
-
-## 4. H1 — source and authority preflight
-
-From the home Mac repo, substitute the exact full SHA from the starter prompt:
+On the home Mac:
 
 ```bash
-cd /Users/aman.shrivastava/Documents/personal/projects/mango
-
-MANGO_EXPECTED_SHA='<full pushed SHA from the starter prompt>'
-
+cd <home-mac-mango-clone>
+APPROVED_SHA='<full SHA from the starter prompt>'
+case "$APPROVED_SHA" in
+  ''|*[!0-9a-f]*) echo 'APPROVED_SHA must be 40 lowercase hex characters' >&2; exit 2 ;;
+esac
+test "${#APPROVED_SHA}" -eq 40
+TARGET_SHA="$APPROVED_SHA"
+export APPROVED_SHA TARGET_SHA
+git status --short --branch
 git fetch origin feat/native-experience
-test "$(git branch --show-current)" = 'feat/native-experience'
-test -z "$(git status --porcelain)"
-git pull --ff-only origin feat/native-experience
-test "$(git rev-parse HEAD)" = "$MANGO_EXPECTED_SHA"
-test "$(git rev-parse origin/feat/native-experience)" = "$MANGO_EXPECTED_SHA"
-git log --oneline --decorate -5
-```
-
-If another agent is writing this branch, coordinate and establish one writer
-before continuing. If the tree is dirty, inventory it and ask the human how to
-preserve it. Do not deploy around, discard, or stash unknown work.
-
-Run the source gates before touching the Pi:
-
-```bash
-(cd src/catalog-service && npm run test:gate && npm test)
-(cd src/launcher && npm run build)
-(cd src/companion && npm run build)
-PYTHONPATH=src/orchestrator python3 -m unittest discover -s src/orchestrator/tests
-python3 scripts/m5-voice/stack/test_serve_https.py
-bash scripts/m6-ship/gate-m6-ux-smoke.sh
-bash scripts/m6-ship/gate-m6-stream-picker-source.sh
-git diff --check
-test -z "$(git status --porcelain)"
-```
-
-The supplied SHA is the complete branch tip, not a request to deploy only its
-last commit. Never cherry-pick the latest patch. The fast-forward pull and
-exact-SHA comparison must bring every commit missing from the Pi into the
-deployment.
-
-If an expected count changes, inspect why. Require zero failures; do not edit a
-test just to reproduce the historical count.
-
-**H1 acceptance:** correct clean branch; home HEAD equals origin and supplied
-SHA; all local gates pass; one writer established.
-
-## 5. H2 — non-destructive Pi baseline and rollout hold
-
-First prove branch, SHA, and cleanliness without changing the Pi:
-
-```bash
-bash scripts/pi-exec.sh \
-  'hostname; cd ~/mango; git branch --show-current; git rev-parse HEAD; git status --short --branch; bash scripts/mango-stack.sh status'
-
-bash scripts/pi-exec.sh \
-  'cd ~/mango && source scripts/lib/mango-browse-display.sh; if playback_surface_active; then echo BLOCKED_playback_active; exit 3; else echo playback_idle; fi'
-
-bash scripts/pi-exec.sh \
-  'cd ~/mango && python3 scripts/diag/grow_monitor.py status --json'
-
-bash scripts/pi-exec.sh \
-  'cd ~/mango && bash scripts/diag/couch-activity-status.sh'
-```
-
-Record and audit the entire undeployed ancestry before mutation:
-
-```bash
-MANGO_PI_BASE_SHA="$(bash scripts/pi-exec.sh 'cd ~/mango && git rev-parse HEAD')"
-git merge-base --is-ancestor "$MANGO_PI_BASE_SHA" "$MANGO_EXPECTED_SHA"
-git log --oneline --decorate "$MANGO_PI_BASE_SHA..$MANGO_EXPECTED_SHA"
-```
-
-If the Pi revision is not an ancestor of the supplied tip, stop and report the
-divergence. Do not reduce the deployment to one cherry-picked commit.
-
-Proceed only when the Pi is already on `feat/native-experience`, its repo is
-clean, playback is inactive, `grow.running` and `grow.maintenance_lock` are
-false, and the couch is idle. If SSH alias `mango` alone fails, retry read-only
-preflight with `MANGO_SSH_HOST=mango-mdns`; do not invent addresses/passwords.
-
-Record only non-sensitive DB metadata and integrity:
-
-```bash
-bash scripts/pi-exec.sh '
-  set -euo pipefail
-  for MANGO_DB_PATH in /etc/mango/library.db /etc/mango/progress.db /etc/mango/youtube.db; do
-    if test -f "$MANGO_DB_PATH"; then
-      stat -c "%n bytes=%s modified=%y" "$MANGO_DB_PATH"
-      sqlite3 "$MANGO_DB_PATH" "PRAGMA quick_check;"
-    else
-      echo "missing $MANGO_DB_PATH"
-    fi
-  done
-'
-```
-
-Also record the pre-deploy migration boundary so a historical v4 database can
-be distinguished from a first v4 migration without exposing rows:
-
-```bash
-bash scripts/pi-exec.sh '
-  for MANGO_DB_PATH in /etc/mango/library.db /etc/mango/progress.db; do
-    test -f "$MANGO_DB_PATH" || continue
-    echo "$MANGO_DB_PATH"
-    sqlite3 "$MANGO_DB_PATH" "SELECT name FROM sqlite_master WHERE type='"'"'table'"'"' AND name IN ('"'"'library_migrations'"'"','"'"'progress_migrations'"'"') ORDER BY name;"
-    sqlite3 "$MANGO_DB_PATH" "SELECT group_concat(version, '"'"','"'"') FROM (SELECT version FROM library_migrations ORDER BY version);" 2>/dev/null || true
-    sqlite3 "$MANGO_DB_PATH" "SELECT group_concat(version, '"'"','"'"') FROM (SELECT version FROM progress_migrations ORDER BY version);" 2>/dev/null || true
-  done
-'
-```
-
-Before the first restart, enforce the locked seed rollout boundary. Inspect
-only counts, never manifest names/hashes or rating rows:
-
-```bash
-bash scripts/pi-exec.sh '
-  set -euo pipefail
-  MANGO_LIBRARY_PATH=/etc/mango/library.db
-  MANGO_SEED_IMPORTS=0
-  if test -f "$MANGO_LIBRARY_PATH" && \
-     test "$(sqlite3 "$MANGO_LIBRARY_PATH" "SELECT count(*) FROM sqlite_master WHERE type='"'"'table'"'"' AND name='"'"'rating_seed_imports'"'"';")" = 1; then
-    MANGO_SEED_IMPORTS="$(sqlite3 "$MANGO_LIBRARY_PATH" "SELECT count(*) FROM rating_seed_imports WHERE imported_count > 0;")"
-  fi
-  echo "successful_seed_imports=$MANGO_SEED_IMPORTS"
-  MANGO_ENV_PATH="$HOME/.config/mango/voice.env"
-  test -f "$MANGO_ENV_PATH"
-  echo "current_for_you_flag=$(grep -E '"'"'^export MANGO_FOR_YOU='"'"' "$MANGO_ENV_PATH" | tail -n 1 | cut -d= -f2- || true)"
-  if grep -qE '"'"'^export MANGO_FOR_YOU='"'"' "$MANGO_ENV_PATH"; then
-    sed -i '"'"'s/^export MANGO_FOR_YOU=.*/export MANGO_FOR_YOU=0/'"'"' "$MANGO_ENV_PATH"
-  else
-    printf '"'"'\nexport MANGO_FOR_YOU=0\n'"'"' >> "$MANGO_ENV_PATH"
-  fi
-  echo "rollout_hold=MANGO_FOR_YOU=0"
-'
-```
-
-A historical `rating_seed_imports` row proves only that some import ran; it does
-not prove the locked 56-row reconciliation was approved. Therefore
-`MANGO_FOR_YOU=0` is the required reversible rollout hold regardless of that
-count, and Fire/Water rating capture may remain enabled. Re-enable For You only
-after the human explicitly identifies the approved manifest, it has unique
-stable IDs and explicit disposition for every source row, passes dry-run and
-validation, imports twice with the second run reporting `noop: true`, and
-survives the gates below.
-
-**H2 acceptance:** Pi/source/state baseline recorded; DB integrity is `ok`;
-playback, maintenance, and couch are idle; seed-dependent rail cannot start
-unapproved.
-
-## 6. H3 — git-only deploy and migration proof
-
-Because no dependency lockfile changed, use the fast wrapper. Do **not** use its
-`--gate` option here: `pi-exec-gate.sh` does not forward the zero-YouTube-quota
-skip, and the ordinary YouTube smoke can call `search.list`.
-
-```bash
-bash scripts/pi-deploy.sh --fast
-```
-
-Use the documented transport fallback only if needed:
-
-```bash
-MANGO_SSH_HOST=mango-mdns bash scripts/pi-deploy.sh --fast
-```
-
-Use `--full` only if the fast dependency/build step fails for a real dependency
-reason. Do not replace the wrapper with manual build snippets: this changeset
-touches catalog, launcher, and companion, and the wrapper builds all three.
-
-The git deploy does not mutate AIOStreams `userData`; apply and verify the
-credential-free target patch separately using the Pi-owned credentials:
-
-```bash
-bash scripts/pi-exec.sh '
-  cd ~/mango
-  bash scripts/m4-addons/aiostreams-config.sh diff
-  bash scripts/m4-addons/aiostreams-config.sh apply
-  bash scripts/m4-addons/aiostreams-config.sh verify
-'
-```
-
-The patch intentionally omits the service array and never prints secret values.
-Verification must confirm enabled TorBox, Real-Debrid, and Easynews service
-references; Torrentio, Comet, and MediaFusion presets; the service-wrap and
-uncached policies; and visible stream-resource resolver errors. Do not add the
-nested indexers directly or expose credentials in logs or the report.
-
-Prove exact revision and services:
-
-```bash
 git rev-parse HEAD
-bash scripts/pi-exec.sh \
-  'cd ~/mango && git rev-parse HEAD && git status --short --branch && bash scripts/mango-stack.sh status'
+git rev-parse origin/feat/native-experience
+git cat-file -e "${APPROVED_SHA}^{commit}"
+test "$(git rev-parse origin/feat/native-experience)" = "$APPROVED_SHA"
 ```
 
-Home HEAD, origin, and Pi HEAD must all equal `MANGO_EXPECTED_SHA` unless you
-have intentionally produced and pushed a later correction SHA.
-
-Prove migration backup and schema without mutating rows:
+Stop if the home clone has unexplained dirt, the approved commit is missing, or
+origin differs from it. Preserve and report known dirt rather than hiding it.
+Switch only to the explicitly requested branch, then fast-forward only:
 
 ```bash
-bash scripts/pi-exec.sh '
-  set -euo pipefail
-  test -f /etc/mango/library.db.pre-fire-water-v4.bak
-  stat -c "%n bytes=%s modified=%y" /etc/mango/library.db.pre-fire-water-v4.bak
-  test "$(sqlite3 /etc/mango/library.db "PRAGMA quick_check;")" = ok
-  test "$(sqlite3 /etc/mango/progress.db "PRAGMA quick_check;")" = ok
-  sqlite3 /etc/mango/library.db \
-    "SELECT group_concat(version, ',') FROM (SELECT version FROM library_migrations WHERE version BETWEEN 4 AND 11 ORDER BY version);"
-  sqlite3 /etc/mango/progress.db \
-    "SELECT group_concat(version, ',') FROM (SELECT version FROM progress_migrations ORDER BY version);"
-  sqlite3 /etc/mango/library.db \
-    "SELECT name FROM pragma_table_info('profile_recommendation_served_slates') WHERE name='context_id';"
-'
+git checkout feat/native-experience
+git pull --ff-only origin feat/native-experience
+test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+test "$(git rev-parse origin/feat/native-experience)" = "$TARGET_SHA"
+git show --check --oneline "$TARGET_SHA"
 ```
 
-Expected library versions include `4,5,6,7,8,9,10,11`, progress includes `2`,
-and the final query returns `context_id`. If the H2 baseline did not yet include
-library migration 4, the pre-v4 backup is mandatory; its absence is a failure.
-If H2 proved migration 4 had already run on an older revision and the backup was
-already absent, record a high-severity historical backup-proof gap rather than
-fabricating or creating a "pre-v4" copy from the current DB. A failed integrity
-check or incomplete migration is always a stop condition. Preserve logs and
-current files; do not restore the pre-v4 backup automatically because that
-could discard new viewer activity.
+If origin has legitimately advanced beyond the supplied SHA, do not silently
+deploy the newer tip. Ask whether the approved target moved.
 
-**H3 acceptance:** wrapper succeeds; exact SHA matches; Pi tree remains clean;
-catalog, launcher, pad, and enabled voice/companion services are healthy;
-backup/integrity/migrations prove cleanly.
-
-## 7. H4 — automated runtime proof
-
-### 7.1 Pi gates without YouTube quota
-
-Run the normal gate remotely with the skip explicitly inside the SSH command:
+Bind baseline build/test evidence to this exact SHA. At minimum run:
 
 ```bash
-bash scripts/pi-exec.sh \
-  'cd ~/mango && MANGO_GATE_SKIP_YOUTUBE=1 bash scripts/pi-pre-couch-gate.sh'
+(cd src/catalog-service && npm ci && npm run test:gate && npm test)
+(cd src/launcher && npm ci && npm run build)
+(cd src/companion && npm ci && npm run build)
+PYTHONPATH=src/orchestrator python3 -m unittest discover -s src/orchestrator/tests
+bash -n scripts/m6-ship/youtube-refresh-cache.sh \
+  scripts/m6-ship/gate-m6-youtube-smoke.sh \
+  scripts/m6-ship/gate-m6-ux-smoke.sh
+bash scripts/m6-ship/test-youtube-refresh-cache.sh
+bash scripts/m6-ship/test-gate-m6-youtube-smoke.sh
+git show --check --oneline "$TARGET_SHA"
 ```
 
-When the couch and maintenance remain idle, run the full gate the same way:
+If dependency installation would overwrite user-owned local state, stop and
+report. A corrective source commit invalidates prior exact-SHA evidence; rerun
+the affected gates and the final full matrix on the new SHA.
+
+## 6. Workstream H2 — non-destructive Pi baseline
+
+First prove access, branch, dirt, idle state, disk, time, and database presence:
 
 ```bash
-bash scripts/pi-exec.sh \
-  'cd ~/mango && MANGO_GATE_FULL=1 MANGO_GATE_SKIP_YOUTUBE=1 bash scripts/pi-pre-couch-gate.sh'
+bash scripts/pi-exec.sh 'hostname; date --iso-8601=seconds; cd ~/mango; git status --short --branch; git rev-parse HEAD; df -h / /etc/mango; bash scripts/mango-stack.sh status'
+bash scripts/pi-exec.sh 'pgrep -af "mpv|playability-maintenance|nightly-library-refresh" || true; test ! -e ~/.cache/mango/playability-maintenance.lock || ls -l ~/.cache/mango/playability-maintenance.lock'
+bash scripts/pi-exec.sh 'for f in /etc/mango/library.db /etc/mango/progress.db /etc/mango/playability.db /etc/mango/youtube.db; do test -f "$f" && stat -c "%n %s %y" "$f" || echo "MISSING $f"; done'
 ```
 
-Then run the recommendation-adjacent deterministic suites on the Pi:
+Do not deploy during playback or active maintenance. Record tracked and
+untracked Pi dirt exactly. If it overlaps deploy files, stop for user direction.
+
+Before migration, capture privacy-safe counts needed to prove preservation:
+
+- `library_migrations`, `youtube_migrations`, and `progress_migrations`
+  versions;
+- profiles, ratings current/history, Saved, watch history, feedback,
+  recommendation snapshots/events;
+- current Household VOD qualifying-positive Fire/Water, Saved, meaningful
+  partial-watch, and completion counts split by movie/series, using aggregate
+  counts only—never titles, IDs, rating rows, or history rows;
+- progress rows;
+- verified movies and series;
+- existing YouTube cache/history/subscription counts.
+
+Run `PRAGMA quick_check` on all four SQLite databases. Do not dump rows. Create
+a timestamped backup directory on the Pi with mode `0700`. Make each database
+backup with SQLite's online `.backup` command, or stop every owning service
+before copying; a plain copy of a live SQLite file is not acceptable. Set each
+backup to mode `0600`, keep it on the Pi, and record only its path, size,
+timestamp, checksum, and permissions. Also make a mode-`0600` backup of
+`~/.config/mango/voice.env` before each later mode edit without reading it into
+the shell or report. Never copy these backups between machines.
+
+## 7. Workstream H3 — git-only deploy and migration proof
+
+Record the Pi's pre-deploy SHA as `PI_BASELINE_SHA`. Compare lockfiles between
+that commit and `TARGET_SHA`; `package-lock.json` changes and dependency state
+determine deploy mode:
+
+- use `bash scripts/pi-deploy.sh --fast` when locks did not change and the Pi
+  already has dependencies;
+- use `bash scripts/pi-deploy.sh --full` for first boot, changed lockfiles, or
+  dependency repair.
+
+Do not start with `--gate`; first establish services and migration evidence.
+Run exactly one selected deploy command from the home clone:
 
 ```bash
-bash scripts/pi-exec.sh 'cd ~/mango/src/catalog-service && npm test'
-bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-library-smoke.sh'
+bash scripts/pi-deploy.sh --fast   # unchanged locks and healthy dependencies
+# or
+bash scripts/pi-deploy.sh --full   # first boot, changed locks, or dependency repair
+```
+
+After deploy, validate the mutable target, never merely the original approval:
+
+```bash
+test "$(git rev-parse HEAD)" = "$TARGET_SHA"
+test "$(git rev-parse origin/feat/native-experience)" = "$TARGET_SHA"
+bash scripts/pi-exec.sh "cd ~/mango && test \"\$(git rev-parse HEAD)\" = '$TARGET_SHA' && git status --short --branch && bash scripts/mango-stack.sh status"
+bash scripts/pi-exec.sh 'test -f /etc/mango/library.db.pre-fire-water-v4.bak; test "$(sqlite3 /etc/mango/library.db "SELECT group_concat(version) FROM (SELECT version FROM library_migrations ORDER BY version);")" = "1,2,3,4,5,6,7,8,9,10,11,12,13,14"; test "$(sqlite3 /etc/mango/youtube.db "SELECT group_concat(version) FROM (SELECT version FROM youtube_migrations ORDER BY version);")" = "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"; test "$(sqlite3 /etc/mango/progress.db "SELECT group_concat(version) FROM (SELECT version FROM progress_migrations ORDER BY version);")" = "2"'
+bash scripts/pi-exec.sh 'curl -fsS http://127.0.0.1:3020/health; curl -fsS http://127.0.0.1:3020/personalization/state; curl -fsS http://127.0.0.1:3020/recommendations/state; curl -fsS http://127.0.0.1:3020/youtube/state'
+```
+
+Expected migration sets are exactly library `1..14`, YouTube `1..15`, and
+progress version `2` only. Compare the post-migration preservation counts with
+H2. No profile, rating, Saved/history/progress, legacy snapshot, StoryDNA,
+provenance, or last-good row may disappear unexpectedly.
+
+## 8. Workstream H4 — staged VOD shadow build
+
+Before allowing a corpus-scale teacher job, establish the stateless StoryDNA
+teacher path. If diagnostics show a StoryDNA backlog, the orchestrator must be
+running and its configured provider/model must be usable even when the normal
+voice feature would otherwise be off. Use the established orchestrator setup
+and readiness scripts, then check `http://127.0.0.1:8766/health`, falling back
+to port `8765` only when that is the configured local service.
+
+```bash
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m5-voice/stack/ensure-orchestrator-venv.sh && bash scripts/m5-voice/stack/start-voice-stack.sh'
+bash scripts/pi-exec.sh 'curl -fsS http://127.0.0.1:8766/health || curl -fsS http://127.0.0.1:8765/health'
+```
+
+Run `verify-voice-ready.sh` here only when `MANGO_VOICE=1`; its full voice/HUD
+contract is broader than the content-teacher preflight.
+
+Send exactly one real verified title's canonical catalog evidence to
+`POST /recommendations/story-dna`. The probe must contain no ratings, Saved or
+watch events, profiles, mood, conversation, Companion memory, or other
+household state. Require HTTP 200, one response item with the exact requested
+type and stable ID, `schema_version=story-dna-v1`, the expected ontology,
+prompt, and configured model versions, `teacher_role=content-only`, and
+`provenance.content_only=true`. Keep the response in a mode-`0600` temporary
+file only long enough to validate it, then remove that file. Do not begin the
+full backfill if health, provider/model use, identity binding, or schema
+validation fails.
+
+After that preflight, start conservatively:
+
+```text
+MANGO_VOD_RECS_V2=shadow
+MANGO_YOUTUBE_RECS_V2=off
+```
+
+Before the edit, make the protected environment backup required by H2. Update
+only those two keys in `~/.config/mango/voice.env`, preserving every other
+byte and mode `0600`, then restart through established scripts. After every
+mode edit/restart in this document, use this same allowlisted readback pattern;
+assert exactly one valid value for each key and do not source the file:
+
+```bash
+bash scripts/pi-exec.sh 'cd ~/mango && MANGO_CATALOG=1 bash scripts/mango-stack.sh restart'
+bash scripts/pi-exec.sh 'set -eu; test "$(stat -c %a ~/.config/mango/voice.env)" = 600; awk -F= '\''$1 == "MANGO_VOD_RECS_V2" || $1 == "MANGO_YOUTUBE_RECS_V2" { print $1 "=" $2 }'\'' ~/.config/mango/voice.env'
+```
+
+If `mango` fails and the documented `mango-mdns` fallback is needed, set
+`MANGO_SSH_HOST=mango-mdns` consistently for every wrapper invocation; do not
+mix hosts within one evidence chain.
+
+Run the normal playability nightly chain so the captured verified corpus is
+current. This chain already enqueues and polls the VOD recommendation jobs;
+capture its exact job IDs rather than immediately enqueueing duplicate work:
+
+```bash
+bash scripts/pi-exec.sh 'cd ~/mango && MANGO_NIGHTLY_YOUTUBE_REFRESH=0 bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly'
+```
+
+This invocation is VOD/playability-only. It must not run legacy or v2 YouTube
+acquisition, spend YouTube quota, or blur the independent YouTube baseline.
+
+Use a manual localhost enqueue only when the nightly chain produced no VOD job
+or when a later bounded StoryDNA batch is needed after the prior jobs became
+terminal:
+
+```bash
+bash scripts/pi-exec.sh 'curl -fsS -H "content-type: application/json" -d "{\"reason\":\"home_v2_shadow_backfill\"}" http://127.0.0.1:3020/recommendations/refresh'
+```
+
+For every nightly or manual job, capture its job ID, content type, trigger
+reasons, and captured revisions. A manual enqueue must return HTTP 202. Poll
+each exact localhost route at
+`GET /recommendations/jobs/<job_id>`; terminal statuses are `complete`,
+`coalesced`, or `failed`. `coalesced` is terminal, not a reason to wait forever.
+Use `GET /recommendations/state` separately for aggregate generation,
+coverage, cursor, failure, stale, evaluation, and serving-work diagnostics.
+During a long backfill, report progress at least every few minutes without
+restarting a healthy worker.
+
+One refresh intentionally bounds StoryDNA teacher work. When
+`profiled_count + failure_count < verified_count`, enqueue the next refresh only
+after the current jobs are terminal and diagnostics show forward progress.
+Repeat sequentially until the complete corpus is profiled or has durable
+retryable failures; do not overlap jobs, bypass retry backoff, or create an
+unbounded provider-cost burst. Stop and report if two consecutive batches make
+no progress.
+
+For both `movie` and `series`, require:
+
+- model/schema/ontology are the intended v2 versions;
+- `verified_count == scored_count + excluded_count`, `unscored_count == 0`,
+  and coverage is `1.0` once full accounting completes;
+- every verified row is either profiled or has a durable retryable failure;
+- reserve depth is at least 200 before a v2 rail is eligible to publish;
+- the active taste generation has nonzero `anchor_count`; its `explicit_mass`
+  is nonzero when H2 found qualifying-positive current Household Fire/Water,
+  and its `implicit_mass` is nonzero when H2 found qualifying Saved or
+  meaningful-watch evidence. Read these aggregate fields from the exact
+  `vod_taste_generations` row referenced by the active rank generation;
+- the active taste revision was captured after the H2 signal baseline and no
+  newer Household rating, Save/Unsave, meaningful-watch, or completion
+  revision is pending. If a signal changes during backfill, allow the
+  coalescing worker to publish the newer revision and re-run this check;
+- no stale reason, cursor/corpus race, or newer revision was overwritten;
+- active threads are 1–3 when qualifying evidence exists;
+- offline evaluation is present for the final complete generation;
+- evaluation status is `passed`, `promotion_eligible == true`, relative
+  nDCG@6 improvement is at least 10%, paired 90% bootstrap low bound is above
+  zero, per-axis/intrusion guardrail regressions are no worse than 0.02,
+  accounting and determinism pass, and cached p95 is at most 250 ms.
+
+If ratings are too sparse for the confidence bound, keep VOD in `shadow` and
+mark promotion `DEFERRED — insufficient normal household ratings`. Never seed
+synthetic ratings or weaken the gate. Optional operator-supplied rating seeds
+must be dry-run, validated, imported, and re-imported to prove `noop: true`.
+
+Before promotion, use `/recommendations/state`, privacy/schema tests bound to
+`TARGET_SHA`, and privacy-safe database diagnostics to prove v2 coverage,
+strict StoryDNA, threads, ranks, and evaluation. In `shadow`, the public
+`/rails/items?tab=movies` and `/rails/items?tab=series` routes intentionally
+remain legacy; query them only to prove rollback service remains available and
+ordinary loads do not advance v2 generation IDs. Do not claim v2 six-card
+shape, verified-only output, or public v2 ordering from those shadow responses.
+
+Prove teacher input isolation with exact-SHA tests and a source/config audit.
+Privacy-safe logs may corroborate that result, but absence from logs is not
+proof that private fields were absent from requests.
+
+## 9. Workstream H5 — staged YouTube shadow build
+
+Keep the VOD mode at its current independently justified value and set:
+
+```text
+MANGO_YOUTUBE_RECS_V2=shadow
+```
+
+Make the protected environment backup, edit only the YouTube key, restart
+catalog/launcher, and perform the mode-`0600` two-key allowlist readback from
+H4. Do not modify the independently justified VOD mode.
+
+Google Takeout is optional. If the operator supplies a local Pi path, use the
+Reliability Center importer or CLI fallback:
+
+```bash
+bash scripts/pi-exec.sh 'cd ~/mango/src/catalog-service && npm run youtube:takeout -- /operator/provided/path/to/takeout.zip'
+```
+
+Do not inspect raw records. Mango must not retain a copy of the archive or
+extracted JSON/HTML, but leave the operator-supplied source path untouched; its
+owner decides when to remove it. The response/report may contain only batch
+counts, generation/version, sanitized format/name, timestamps, and redacted
+errors—never normalized history rows. Re-import the same file and prove that
+normalized row counts do not grow. Use the desktop path only within its
+configured upload limit (64 MiB by default and never above its 256 MiB cap);
+use the CLI for a larger already-Pi-local source. Because the desktop proxy may
+buffer before catalog-service, measure peak memory for a representative upload
+or report that end-to-end streaming proof as `DEFERRED`; do not claim it merely
+from the parser design.
+
+After any optional import and its idempotency check, run one final authoritative
+nightly-class refresh so subscription, history, provenance, acquisition, live,
+and rank phases are captured in the same final shadow evidence:
+
+```bash
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/youtube-refresh-cache.sh --reason nightly_home_v2_shadow --timeout-sec 900'
+```
+
+Capture the HTTP 202 job and poll its exact
+`GET /recommendations/jobs/<job_id>` route to a terminal state. Preserve each
+phase result independently in the report.
+
+YouTube shadow acceptance requires:
+
+- when subscriptions/OAuth are in use, a successful complete authoritative
+  subscription snapshot; on OAuth loss with a prior snapshot, an explicitly
+  stale retained last-good snapshot rather than a partial replacement;
+- when Takeout was supplied, normalized history generation plus privacy-safe
+  import audit counts and an idempotent re-import; when it was not supplied,
+  no Takeout-specific acceptance claim is required;
+- Mango-local meaningful history is accepted independently of Takeout, and a
+  valid subscriptions-only or history-only cold start is not failed for lacking
+  the other signal;
+- recommendation candidates have only `subscription_upload`,
+  `subscription_live`, `history_channel`, or `history_topic` provenance;
+- generic Search, AI-catalog, chart, Saved, profile, mood, VOD, and companion
+  cache writes cannot enter v2 candidates;
+- v2 diagnostics and exact-`TARGET_SHA` tests establish the intended logical
+  order: For You/Beyond/More Like when recommendation-ready, History and Saved
+  in canonical positions only when their own data exists, then conditional
+  subscription/live rails; they also establish global deduplication, card
+  counts, Shorts exclusion, and live isolation. Public v2 shape is proved only
+  after serve promotion in H6;
+- each refresh phase is reported independently and a failed phase retains its
+  last-good generation;
+- acquisition stays within the documented search/live quota ceilings and
+  preserves the interactive Search reserve.
+
+Apply the correct evidence case explicitly:
+
+- subscriptions plus history: all eligible recommendation and conditional
+  subscription/live semantics may be built;
+- subscriptions only: For You/Beyond may use subscriptions and the thematic
+  fallback is `More from channels you follow`;
+- history only: For You/Beyond/More Like are valid and subscription/live rails
+  are omitted;
+- neither: the v2 diagnostics must select setup guidance, never Popular or
+  regional filler.
+
+In `shadow`, `/youtube/rails` intentionally remains legacy. Use
+`/youtube/state`, exact-SHA tests, and privacy-safe provenance counts for v2
+acceptance; use the public route only to prove legacy rollback service remains
+available and its ordinary loads do not mutate v2 generations.
+
+## 10. Workstream H6 — independent promotion
+
+Promote only a domain whose own shadow gate passes:
+
+```text
+MANGO_VOD_RECS_V2=serve       # only if H4 passed
+MANGO_YOUTUBE_RECS_V2=serve   # only if H5 passed
+```
+
+It is valid to serve one domain and leave the other in shadow. After each
+single-domain change, make the protected backup, edit only that key, restart,
+perform the file-mode/two-key allowlist readback from H4, and read back
+`/recommendations/state` and `/youtube/state`. Inspect Home before changing the
+second domain.
+
+For VOD serve, inspect the exact public routes
+`GET /rails/items?tab=movies` and `GET /rails/items?tab=series`. Prove each has
+exactly one v2 For You rail (`for-you-movies` or `for-you-series`), exactly six
+unique cards, and no private score/tag/reason payload. Join each returned ID
+against current privacy-safe database state to prove poster presence,
+verified-playable status, and absence of exact rated, Saved, meaningfully
+watched, hidden, blocked, or Not-for-me titles. A static curated-rail gate is
+not a substitute for this dynamic v2 proof.
+
+Use exact-SHA tests plus naturally occurring operator activity to validate
+that rating/Save/watch mutations commit first, evict the exact title, and
+enqueue a revision-captured refresh. Do not create, alter, or clear real
+ratings, Saved state, history, OAuth, or profiles merely to manufacture this
+evidence; if no normal event occurs during the rollout, report the live
+mutation observation as `DEFERRED` while retaining the automated proof.
+
+For YouTube serve, inspect exact `GET /youtube/rails` output. Require For You,
+Beyond Your Subscriptions, and More Like in stable order when the generation is
+recommendation-ready. History and Saved occupy their canonical positions only
+when their own utility data exists; an empty Saved household is valid. Only
+applicable From Your Subscriptions and Live Now rails may follow. Prove each
+rendered normal row contains four globally unique landscape cards, Live Now
+contains one to four subscribed live streams, Shorts/live do not spill into
+other recommendation rails, and every recommendation card has allowed
+provenance. History and Saved remain stable utility rails and Saved has zero
+rank influence.
+
+## 11. Workstream H7 — automated Pi and couch proof
+
+Run at the final exact SHA and final modes:
+
+```bash
+bash scripts/pi-exec-gate.sh
+bash scripts/pi-exec.sh 'cd ~/mango && MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m3-play/playability/gate-m3-verified-rails.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-youtube-smoke.sh'
 bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-search-smoke.sh'
-bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m5-voice/ai/gate-m5-voice.sh'
-bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m5-voice/ai/gate-m5-companion-memory.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-ux-smoke.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-reliability-proof.sh'
 ```
 
-Do not run `gate-m6-youtube-smoke.sh` under the zero-quota guardrail: it performs
-a real YouTube search when an API key exists. If a named gate requires an
-unavailable optional service, report its exact skip/failure rather than
-changing credentials or config to make it run.
+When `MANGO_VOICE=1`, also run the voice readiness and relevant Companion gates.
+Do not run opt-in Live IPTV or destructive/grow probes unless their documented
+preconditions are met.
 
-### 7.2 Sanitized state and exact-owner VOD rails
+Measure 100 ordinary cached requests separately for every served public route:
 
-Run these probes on Pi loopback. The summaries intentionally print counts and
-keys, not profile names, item IDs, tokens, URLs, or private diagnostics:
+- `GET /rails/items?tab=movies`;
+- `GET /rails/items?tab=series`;
+- `GET /youtube/rails`.
 
-```bash
-bash scripts/pi-exec.sh '
-  set -euo pipefail
-  MANGO_PERSONALIZATION_JSON="$(curl -fsS http://127.0.0.1:3020/personalization/state)"
-  MANGO_PROFILE_ID="$(printf "%s" "$MANGO_PERSONALIZATION_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['"'"'state'"'"']['"'"'active_profile_id'"'"'])")"
-  MANGO_PROFILE_REV="$(printf "%s" "$MANGO_PERSONALIZATION_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['"'"'state'"'"']['"'"'updated_at'"'"'])")"
-  printf "%s" "$MANGO_PERSONALIZATION_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print({'"'"'ok'"'"':d.get('"'"'ok'"'"'), '"'"'profile_count'"'"':len(d.get('"'"'profiles'"'"',[])), '"'"'active_kind'"'"':next((p.get('"'"'kind'"'"') for p in d.get('"'"'profiles'"'"',[]) if p.get('"'"'profile_id'"'"')==d['"'"'state'"'"']['"'"'active_profile_id'"'"']),None), '"'"'mood_set'"'"':bool(d['"'"'state'"'"'].get('"'"'mood'"'"'))})"
-  for MANGO_TAB in movies series; do
-    curl -fsSG http://127.0.0.1:3020/rails/items \
-      --data-urlencode "tab=$MANGO_TAB" \
-      --data-urlencode "expected_profile_id=$MANGO_PROFILE_ID" \
-      --data-urlencode "expected_personalization_updated_at=$MANGO_PROFILE_REV" |
-      MANGO_EXPECTED_PROFILE="$MANGO_PROFILE_ID" MANGO_EXPECTED_REV="$MANGO_PROFILE_REV" \
-      python3 -c "import json,os,sys; d=json.load(sys.stdin); owner_ok=d.get('"'"'profile_id'"'"')==os.environ['"'"'MANGO_EXPECTED_PROFILE'"'"'] and str(d.get('"'"'personalization_updated_at'"'"'))==os.environ['"'"'MANGO_EXPECTED_REV'"'"']; print(d['"'"'tab'"'"'], {'"'"'owner_exact'"'"':owner_ok, '"'"'rails'"'"':[(r.get('"'"'rail_id'"'"'),len(r.get('"'"'items'"'"',[]))) for r in d.get('"'"'rails'"'"',[])]}); raise SystemExit(0 if owner_ok else 6)"
-  done
-  MANGO_PARTIAL_CODE="$(curl -sS -o /dev/null -w "%{http_code}" -G http://127.0.0.1:3020/rails/items --data-urlencode tab=movies --data-urlencode "expected_profile_id=$MANGO_PROFILE_ID")"
-  MANGO_STALE_REV="$((MANGO_PROFILE_REV + 1))"
-  MANGO_STALE_CODE="$(curl -sS -o /dev/null -w "%{http_code}" -G http://127.0.0.1:3020/rails/items --data-urlencode tab=movies --data-urlencode "expected_profile_id=$MANGO_PROFILE_ID" --data-urlencode "expected_personalization_updated_at=$MANGO_STALE_REV")"
-  echo "partial_owner_http=$MANGO_PARTIAL_CODE stale_owner_http=$MANGO_STALE_CODE"
-  test "$MANGO_PARTIAL_CODE" = 400
-  test "$MANGO_STALE_CODE" = 409
-  curl -fsS http://127.0.0.1:3020/recommendations/state |
-    python3 -c "import json,sys; d=json.load(sys.stdin); blob=json.dumps(d).lower(); forbidden=[x for x in ('"'"'http://'"'"','"'"'https://'"'"','"'"'api_key'"'"','"'"'token_file'"'"','"'"'caption'"'"','"'"'prompt'"'"','"'"'media_url'"'"') if x in blob]; print({'"'"'top_keys'"'"':sorted(d), '"'"'forbidden_public_markers'"'"':forbidden}); raise SystemExit(0 if not forbidden else 7)"
-'
-```
+Run the timing loop on the Pi against `127.0.0.1:3020`, record curl
+`time_total`, and compute nearest-rank p95 from those 100 samples. Do not include
+SSH round-trip time and do not pass `reshuffle`; each route's p95 must be at
+most 250 ms. Prove these ordinary loads preserve the current shuffle epoch and
+generation. Remove any temporary timing file after recording aggregate
+statistics.
 
-Required behavior:
+Then, separately from the 100-load test, perform exactly five X/reshuffle
+requests on each served applicable surface. Do not perform 100 X presses: VOD's
+predealt queue is deliberately bounded. For direct service proof use the same
+exact route with `reshuffle=1`; use the physical controller for focus and
+scroll proof. Before and after each five-press sequence, snapshot:
 
-- Owner ID/revision are echoed exactly; a stale pair returns 409 and never
-  falls back to an unowned response.
-- Rail order is Continue → Saved → For You → user AI catalogs → curated
-  discovery. With the rollout hold, For You is absent. Once legitimately
-  enabled, it is a poster-layout window of 6–12 unique currently verified cards,
-  targeting two full six-card rows. The ranked head retains close/adjacent/
-  bounded-surprise intent; shuffle rotates through the reserve without admitting
-  ineligible titles.
-- Rated, hidden, Not-for-me, invalid, and unverified items do not enter For You;
-  completed items use only the bounded cooled-rewatch path.
-- Public state contains no media URLs, credentials, raw captions, prompts,
-  private feature text, scores, or token paths. Opaque action IDs/tokens may be
-  present where required but must not be copied into the report.
+- VOD job IDs, generation IDs, and
+  `story_graph_serving_work.full_reserve_queries`,
+  `full_reserve_rows_loaded`, and `dealer_calls`;
+- YouTube generation/phase state plus `quota_used_today`,
+  `search_calls_today`, and `api_calls_today`.
 
-Do not mutate a real rating or create a permanent profile for automated proof.
-The full Pi catalog suite exercises mutations against isolated temporary DBs.
-Profiles currently have no delete action; create one only after explicit human
-approval during §8.
+The expensive VOD counters, job/generation IDs, and all YouTube quota/API/rank
+state must remain unchanged. `queue_slates_scanned` and
+`slate_items_revalidated` may increase because bounded local cached-slate
+selection and current-eligibility validation are serving work, not network,
+enrichment, corpus scanning, or ranking. Runtime state does not expose a
+universal network-call counter, so establish the broader zero-work contract
+with exact-`TARGET_SHA` tests plus stable jobs/generations/counters; logs are
+corroboration only. Do not report a stronger runtime observation than the
+available instrumentation proves.
 
-### 7.3 Cache-only YouTube contract and quota invariance
+The five-press behavior contract is:
 
-`GET /youtube/rails` can opportunistically refresh Live Now, and the ordinary
-YouTube smoke performs Search. Use only the cache-only reshuffle path, and only
-when the operator state shows a nonempty cache. Record counters before and
-after; do not print the full operator state.
+- Movies X changes only Movies For You;
+- TV X changes only TV For You;
+- YouTube X changes recommendation/discovery/subscription/live slates while
+  History and Saved stay stable;
+- all five presses retain focus/card position and scroll state;
+- each new slate avoids the preceding four when supply permits, with any
+  documented relaxation recorded.
 
-```bash
-bash scripts/pi-exec.sh '
-  set -euo pipefail
-  MANGO_YT_BEFORE="$(curl -fsS http://127.0.0.1:3020/youtube/state)"
-  printf "%s" "$MANGO_YT_BEFORE" | python3 -c "import json,sys; d=json.load(sys.stdin); print({'"'"'cache_videos'"'"':d.get('"'"'cache'"'"',{}).get('"'"'videos'"'"',0), '"'"'api_calls_today'"'"':d.get('"'"'refresh'"'"',{}).get('"'"'api_calls_today'"'"'), '"'"'search_calls_today'"'"':d.get('"'"'refresh'"'"',{}).get('"'"'search_calls_today'"'"')})"
-  MANGO_YT_CACHE_COUNT="$(printf "%s" "$MANGO_YT_BEFORE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('"'"'cache'"'"',{}).get('"'"'videos'"'"',0))")"
-  MANGO_YT_BEFORE_API="$(printf "%s" "$MANGO_YT_BEFORE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('"'"'refresh'"'"',{}).get('"'"'api_calls_today'"'"',0))")"
-  MANGO_YT_BEFORE_SEARCH="$(printf "%s" "$MANGO_YT_BEFORE" | python3 -c "import json,sys; print(json.load(sys.stdin).get('"'"'refresh'"'"',{}).get('"'"'search_calls_today'"'"',0))")"
-  test "$MANGO_YT_CACHE_COUNT" -gt 0 || { echo DEFERRED_empty_youtube_cache; exit 4; }
-  MANGO_PERSONALIZATION_JSON="$(curl -fsS http://127.0.0.1:3020/personalization/state)"
-  MANGO_PROFILE_ID="$(printf "%s" "$MANGO_PERSONALIZATION_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['"'"'state'"'"']['"'"'active_profile_id'"'"'])")"
-  MANGO_PROFILE_REV="$(printf "%s" "$MANGO_PERSONALIZATION_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin)['"'"'state'"'"']['"'"'updated_at'"'"'])")"
-  MANGO_YT_RAILS="$(curl -fsSG http://127.0.0.1:3020/youtube/rails \
-    --data-urlencode reshuffle=1 \
-    --data-urlencode "expected_profile_id=$MANGO_PROFILE_ID" \
-    --data-urlencode "expected_personalization_updated_at=$MANGO_PROFILE_REV")"
-  printf "%s" "$MANGO_YT_RAILS" |
-    MANGO_EXPECT_PROFILE="$MANGO_PROFILE_ID" MANGO_EXPECT_REV="$MANGO_PROFILE_REV" \
-    python3 -c "import json,os,sys; d=json.load(sys.stdin); rails=d.get(\"rails\",[]); anchors=[\"for_you\",\"new_from_subscriptions\",\"history\",\"saved\"]; rail_ids=[r.get(\"rail_id\") for r in rails]; rows=[[i.get(\"id\") for i in r.get(\"items\",[])] for r in rails]; assert d.get(\"profile_id\")==os.environ[\"MANGO_EXPECT_PROFILE\"]; assert d.get(\"personalization_updated_at\")==int(os.environ[\"MANGO_EXPECT_REV\"]); assert [r for r in rail_ids if r in anchors]==[r for r in anchors if r in rail_ids]; assert len([r for r in rail_ids if r not in anchors])<=3; assert all(len(row)==4 and len(row)==len(set(row)) for row in rows); by_id={r.get(\"rail_id\"):set(i.get(\"id\") for i in r.get(\"items\",[])) for r in rails}; assert by_id.get(\"for_you\",set()).isdisjoint(by_id.get(\"saved\",set())); print([(r.get(\"rail_id\"),len(r.get(\"items\",[]))) for r in rails])"
-  MANGO_YT_AFTER="$(curl -fsS http://127.0.0.1:3020/youtube/state)"
-  MANGO_YT_AFTER_API="$(printf "%s" "$MANGO_YT_AFTER" | python3 -c "import json,sys; print(json.load(sys.stdin).get('"'"'refresh'"'"',{}).get('"'"'api_calls_today'"'"',0))")"
-  MANGO_YT_AFTER_SEARCH="$(printf "%s" "$MANGO_YT_AFTER" | python3 -c "import json,sys; print(json.load(sys.stdin).get('"'"'refresh'"'"',{}).get('"'"'search_calls_today'"'"',0))")"
-  echo "api_calls_before=$MANGO_YT_BEFORE_API api_calls_after=$MANGO_YT_AFTER_API search_calls_before=$MANGO_YT_BEFORE_SEARCH search_calls_after=$MANGO_YT_AFTER_SEARCH"
-  test "$MANGO_YT_BEFORE_API" = "$MANGO_YT_AFTER_API"
-  test "$MANGO_YT_BEFORE_SEARCH" = "$MANGO_YT_AFTER_SEARCH"
-'
-```
+Verify restart and last-good recovery directly. Failure injection must be
+non-destructive and reversible: never disable the Pi's LAN/interface during
+SSH, revoke or edit real OAuth credentials, consume quota deliberately, clear
+caches, corrupt databases, or mutate real household state. Use an existing
+isolated test harness wherever possible. A runtime teacher/network endpoint
+override is allowed only with a second healthy control path, captured
+before-state, a bounded timeout, and a `trap`/watchdog that restores the exact
+configuration and restarts services; recheck SSH, modes, health, and last-good
+IDs afterward. If no supported safe injector exists for teacher offline,
+network loss, OAuth loss, or quota exhaustion, mark that Pi-runtime item
+`DEFERRED — no non-destructive injector` and cite the exact-SHA failure-path
+test. Never turn a destructive simulation into a required gate.
 
-Required cached shape: logical anchors in For You → Subscriptions → History →
-Saved order when nonempty, followed by at most three adaptive rails; every
-visible row has exactly four unique cards; History and Saved stay stable; exact
-Saved videos do not appear in For You. A healthy ten-slate source yields
-28/8/4 close/adjacent/explore; thin supply must expose its honest fallback
-diagnostic instead of being called healthy. Do not generate ten live slates if
-doing so cannot be proven quota-free; local deterministic tests already cover
-the allocator.
+Use `docs/COUCH_TEST.md` for human checks. At minimum perform ten VOD shuffles
+per tab and judge whether at least two recognizable household taste threads are
+present and at least five of six cards are plausible; inspect Beyond for novel
+creators and More Like for at least three of four coherent cards. Verify
+ten-foot readability, D-pad focus, Back restoration, and no private technical
+explanation on cards. Capture the current six Movies and six TV For You IDs,
+then B-launch every one of those twelve cards to first frame and return before
+creating a meaningful-watch threshold solely for the test. Record success or
+the exact failing card; all twelve must launch for this item to pass. The
+static verified-rail gate and an API playability flag do not substitute for
+actual launch proof. If the operator declines the twelve-launch check, mark it
+`DEFERRED`, not passing. Human verdicts cannot be inferred from data.
 
-Also prove the LAN boundary using the existing proxy tests. Full
-`/youtube/state`, raw error text, token paths, scopes, expiry, command paths,
-cache, and quota diagnostics must remain loopback-only. The companion status
-DTO is exactly four sanitized booleans.
+## 12. Corrections and tuning
 
-```bash
-bash scripts/pi-exec.sh '
-  for MANGO_PATH in ai/context voice/companion/summary youtube/companion/status; do
-    curl -sk -o /dev/null -w "$MANGO_PATH %{http_code}\n" "https://127.0.0.1:3001/api/catalog/$MANGO_PATH"
-  done
-  for MANGO_PATH in recommendations/state voice/companion/journal youtube/state; do
-    curl -sk -o /dev/null -w "$MANGO_PATH %{http_code}\n" "https://127.0.0.1:3001/api/catalog/$MANGO_PATH"
-  done
-'
-```
+Diagnose before editing. Acceptable corrections include broken job polling,
+cache invalidation, focus restoration, mode-aware gates, resource bounds,
+schema/runtime bugs, or clear presentation defects. Tuning is acceptable only
+when it preserves the approved product contract and is justified by measured
+Pi/couch evidence.
 
-The first three paths must return `200`; the private/operator paths must return
-`403`. Inspect only the sanitized `/youtube/companion/status` key set and assert
-it is exactly `api_key_configured`, `oauth_configured`, `authenticated`, and
-`needs_attention`.
+For each source correction:
 
-### 7.4 Persistence, failure isolation, and performance
+1. write the failing observation and a minimal reproduction;
+2. `git fetch origin feat/native-experience` and require the remote tip still
+   equals the current `TARGET_SHA`; if it moved, stop rather than rebasing or
+   merging silently;
+3. add or update a regression test and edit on the home Mac only;
+4. run affected tests, `git diff --check`, and inspect that only intended
+   source/test/docs are staged—never the working evidence or final report;
+5. commit with a narrow message, run the complete local matrix against that
+   candidate commit, and run `git show --check --oneline HEAD`;
+6. only after those pass, push normally to
+   `origin/feat/native-experience`; never force-push;
+7. fetch again, require origin equals the pushed commit, then advance
+   `TARGET_SHA="$(git rev-parse HEAD)"` and append it to the report's SHA chain;
+   `APPROVED_SHA` never changes;
+8. deploy `TARGET_SHA` through `pi-deploy.sh`, read back matching
+   origin/home/Pi full SHAs, and rerun the failed Pi/couch proof plus all
+   affected gates.
 
-Capture sanitized summaries and DB metadata, restart deliberately once while
-the couch is idle, then repeat them:
+A failed or rejected push does not advance `TARGET_SHA`. Any later correction
+repeats this guard from the then-current target. All subsequent commands,
+evidence, promotion decisions, and the final report bind to `TARGET_SHA`.
 
-```bash
-bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/mango-stack.sh restart && bash scripts/mango-stack.sh status'
-```
+Do not tune toward one convenient hand, add popularity filler, reintroduce
+cosine/MMR, permit AI household scoring, allow unverified VOD candidates, or
+broaden YouTube inputs.
 
-Ratings, profile ownership, Saved/history, Continue positions, current
-snapshots, and YouTube cache counts must persist. Do not verify this by dumping
-rows; compare counts/revisions and use the human's normal UI for identity.
+## 13. Rollback drill
 
-Measure at least 20 warm, read-only calls to personalization state and
-owner-bound Movies/TV rails. Record median, p95, maximum, endpoint `resolve_ms`,
-Pi CPU/memory, and whether the launcher stayed responsive. This run establishes
-the Pi baseline: do not invent a latency threshold, and do not treat the
-launcher's 12–15 second timeout ceilings as good UX. Use
-`scripts/diag/pi-resource-snapshot.sh` before and after; report measured values
-and let the human judge perceived latency.
+Rollback is mode-only and non-destructive. For the affected domain, change
+`serve` to `shadow` first using the protected backup/edit/readback procedure,
+restart, and prove legacy/last-good service returns.
+Use `off` only when shadow work itself must stop. Never delete v2 tables,
+profiles, ratings, StoryDNA, YouTube provenance/history, v4 snapshots, or DB
+files. Restore `serve` after a successful drill only if its gates remain valid.
 
-For failure isolation, use only supported reversible flags and restore the
-exact prior value afterward. `MANGO_RECOMMENDATIONS_AI=0` may prove that local
-last-good rails and Detail remain responsive without enrichment. Do not
-disconnect Wi-Fi, change YouTube credentials, delete caches, or leave
-`MANGO_RECOMMENDATION_RANK_WORKER=0`; the latter is diagnostic-only. A worker
-deadline/failure must retain the last complete snapshot.
+## 14. Completion contract
 
-### 7.5 Alliance exact-episode first-press recovery
+The rollout is complete only when:
 
-The reported fail/fail/play sequence is consistent with a transient clean-empty
-resolver result being cached and then bypassed by each manual retry. This patch
-makes one automatic VOD Play request perform at most three exact-ID passes
-(initial plus two bounded confirmations) inside one flight and deadline. It does
-not retry fatal authentication/configuration errors, 429s, HTTP/timeout
-placeholders, cancellation, malformed output, Detail-list resolution, Live, or
-picker refreshes.
+- origin, home, and Pi match the final reported `TARGET_SHA`, while the report
+  also preserves the immutable `APPROVED_SHA` and correction chain;
+- local gates and final Pi gates pass at that SHA;
+- migrations and preservation checks pass;
+- each served domain passed its independent promotion contract;
+- each served VOD domain has a current-signal taste generation and at least
+  200 eligible reserve rows, and each served YouTube recommendation generation
+  has the applicable current subscription/history provenance rather than an
+  empty or generic-cache bootstrap;
+- cached p95 and X zero-work behavior pass;
+- restart/last-good and rollback drills pass; each offline/failure-injection
+  runtime item either passes safely or is explicitly deferred with its matching
+  exact-SHA failure-path test and `no non-destructive injector` reason;
+- required couch judgments are actually observed;
+- final modes and exact rollback commands are recorded;
+- the report contains no secrets or unsupported claims and remains intentionally
+  uncommitted/unpushed unless the user separately authorizes publishing it.
 
-Use the real Alliance episode ID returned by
-`/series/<bare-series-id>/episodes`; never substitute `:1:1` or a sibling
-episode. Record sanitized `/health.resolver` counters before the test, press B
-exactly once, wait without leaving Detail, then record the counters and fixed
-resolver-event journal lines. PASS requires playback to start from that first B
-when the same playable result would have appeared on the former third manual
-attempt, no sibling-episode fallback, no late playback after cancellation or
-return, no raw resolver diagnostics, and coherent increments for retries,
-recoveries, or exhaustions. `scripts/diag/playback-ladder-health.sh` exercises
-Detail-list resolution and therefore is not proof of this Play-only recovery.
-
-**H4 acceptance:** required gates pass; migrations and state persist across a
-restart; owner and privacy contracts hold; cached calls have measured evidence;
-YouTube API/search counters are unchanged or YouTube proof is honestly
-DEFERRED.
-
-## 8. H5 — screenshots and minimal human couch proof
-
-### 8.1 Autonomous visual evidence first
-
-Capture every state you can reach without changing user state. The capture
-script prints the exact Pi path. Its label does **not** navigate the launcher.
-Do not run these four commands against one unchanged frame: before each command,
-navigate through the established D-pad/UI harness to the named surface, wait
-for the loading state to settle, visually confirm the active tab, and then
-capture that one state. Use this sequence: recommendation Home/Movies, Series,
-YouTube anchors, returning to Movies if a separate recommendation-home frame is
-needed.
-
-```bash
-bash scripts/pi-exec.sh \
-  'cd ~/mango && bash scripts/m1-foundation/gate/capture-tv.sh recommendations-home'
-bash scripts/pi-exec.sh \
-  'cd ~/mango && bash scripts/m1-foundation/gate/capture-tv.sh recommendations-movies'
-bash scripts/pi-exec.sh \
-  'cd ~/mango && bash scripts/m1-foundation/gate/capture-tv.sh recommendations-series'
-bash scripts/pi-exec.sh \
-  'cd ~/mango && bash scripts/m1-foundation/gate/capture-tv.sh youtube-anchors-cache-only'
-```
-
-Navigate only through existing D-pad/controller ownership or an established UI
-harness; do not invent input injection that bypasses the product. For a state
-that requires a real rating/profile mutation, wait for the human phase.
-
-Copy each exact generated PNG Pi → home Mac only when needed for visual
-inspection, for example:
-
-```bash
-mkdir -p /tmp/mango-recommendation-proof
-scp 'mango:<exact generated PNG path>' /tmp/mango-recommendation-proof/
-```
-
-This one-way evidence copy is not permission to copy source, DBs, config, logs
-containing secrets, or any runtime state. Open each PNG with an image viewer and
-audit safe area, focus visibility, truncation, empty/loading/offline/error
-states, duplicate cards, row/card geometry, contrast, and whether technical
-diagnostics leaked. A screenshot proves pixels, not perceived TV behavior.
-
-### 8.2 Final human-in-the-loop couch test
-
-Only after autonomous gates and screenshot review are clean, ask the human for
-one focused 15–25 minute pass. Prefer existing profiles/state. If profile
-isolation cannot be proved without a new permanent profile, explain that there
-is no delete action and obtain explicit approval before creating one.
-
-1. **Household and controller (2 min):** wake the 8BitDo normally, confirm no
-   pairing mode, immediate D-pad response, stable focus, and no startup profile
-   chooser.
-2. **Fire/Water sheet (4 min):** open an unrated VOD Detail. Confirm Rate follows
-   Save; the sheet stays inside 5% safe area; Fire/Water have text plus emoji;
-   B enters at 2.5; Left/Right moves 0.5; both axes are required; Y cancels. Use
-   an actual save/edit/clear only with the human's chosen title and values.
-3. **Movies and TV recommendations (5 min):** if the approved seed exists and
-   For You is enabled, inspect all displayed Movies and TV cards (normally 12
-   per tab in two full poster rows) for exact row shape, no duplicates,
-   relevance, diversity, adjacent discovery, plausible
-   surprise, and no rated/hidden/unverified title. If seed is unavailable,
-   verify the rollout hold and mark this seed-quality portion DEFERRED.
-4. **Profile/mood safety (4 min):** with approved existing profiles, switch via
-   companion, confirm immediate ownership update and 30-second fallback,
-   profile-local Saved/Continue/Not-for-me, reversible Undo, and mood cleared on
-   switch. Do not expose profile names in the report.
-5. **YouTube (3 min):** inspect four-card anchors/adaptives and use X only if
-   before/after counters can prove cache-only behavior. History/Saved must remain
-   stable and no Saved video may appear in For You. Do not refresh/Search merely
-   for this test.
-6. **Playback return (3 min):** include the exact reported Alliance episode when
-   available and press B only once. Prove prompt first frame, controller/HUD,
-   return focus, progress continuity, no black-screen/late-start regression, and
-   the bounded exact-ID retry evidence from §7.5. Also play one recommended VOD
-   through the normal ladder. Do not interrupt active playback for deployment or
-   repair.
-
-Record the human's words or a concise verdict for 10-foot readability,
-Fire/Water semantics, focus, perceived latency, Movies relevance, TV relevance,
-diversity, surprise quality, YouTube relevance, and playback. The agent owns
-objective diagnostics; the human owns these subjective verdicts.
-
-**H5 acceptance:** screenshots were opened and audited, not merely captured;
-all reachable RP1–RP11 and FW1–FW14 rows have PASS/FAIL/DEFERRED evidence; the
-minimal human pass has explicit verdicts; no seed-dependent claim is green
-without an approved import.
-
-## 9. H6/H7 — correction loop, rollback, report, and definition of done
-
-### Evidence-led correction loop
-
-For each defect:
-
-1. Reproduce and collect the smallest sanitized evidence: exact command, exit
-   code, service log lines, screenshot, API shape, timing, or human observation.
-2. Locate the owning layer. Preserve exact profile ownership, opaque
-   attribution, the 6–12-card poster VOD window and ranked bucket intent,
-   four-card YouTube rows, 70/20/10 allocator,
-   playability filters, cache-only X, controller bindings, playback/progress,
-   and last-good semantics.
-3. Edit source **only on the home Mac**. Add a deterministic regression test.
-4. Run focused tests and then the complete applicable local gates from §4.
-5. Commit with a small imperative message, push normally to
-   `origin/feat/native-experience`, and record the new full SHA.
-6. Wait for origin readback, deploy with `pi-deploy.sh --fast`, rerun the failed
-   check, then rerun the zero-quota pre-couch and relevant full gates.
-7. Repeat only while evidence improves. Do not blindly increase timeouts,
-   weights, candidate counts, quota budgets, or UI delays.
-
-If the implementation is correct but the UX needs a small visual/token tweak,
-preserve 10-foot font sizes, 5% safe area, focus contrast, D-pad reachability,
-and reduced-motion behavior. Capture before/after screenshots and ask the human
-only for the subjective choice that cannot be established from pixels.
-
-### Rollback
-
-- For source rollback, create a normal `git revert <bad-sha>` commit on the home
-  Mac, test it, push it, and deploy the revert. Never rewrite branch history or
-  hard-reset the Pi.
-- `MANGO_FIRE_WATER_RATINGS=0`, `MANGO_FOR_YOU=0`, and
-  `MANGO_RECOMMENDATIONS_AI=0` are reversible containment flags that preserve
-  state. Record the previous and final value. Do not leave a containment flag
-  as a silent final fix.
-- If migration or SQLite integrity fails, stop the affected service and preserve
-  evidence. Do not automatically restore the pre-v4 backup or delete current
-  files; ask the human before any state-replacing recovery.
-- If SSH, branch cleanliness, maintenance-idle, or exact-SHA proof cannot be
-  established, stop and report the blocker. Do not improvise around it.
-
-### Required report
-
-Create `docs/tasks/RECOMMENDATIONS_HOME_PI_REPORT.md` with:
-
-1. Date, home host, Pi hostname, branch, supplied source SHA, final source SHA,
-   origin SHA, and Pi SHA.
-2. Baseline state: clean/dirty result, playback/maintenance/couch idle proof,
-   DB sizes/timestamps/integrity, prior feature-flag state, and seed-import count.
-3. Every command run with exit status and a concise sanitized result.
-4. H1–H5 verdict table with PASS/FAIL/DEFERRED and exact evidence/reason.
-5. Migration/backup/schema proof and post-restart persistence proof.
-6. Test/gate results, measured timings/resources, cached YouTube quota
-   before/after counters, API/privacy audit, and screenshot paths plus visual
-   findings.
-7. Every correction commit and why it was necessary; final deployed SHA.
-8. Human couch verdicts and which RP/FW checks were observed.
-9. Deferred items with exact next command or required human decision. The
-   unresolved seed manifest should be explicit if still unavailable.
-10. A credential/privacy audit confirming no private values entered Git or the
-    report.
-11. AIOStreams policy apply/verify evidence and the Alliance exact-episode
-    first-press result, including sanitized resolver counter deltas.
-
-Do not commit screenshots containing private profiles or diagnostics. A
-sanitized report and any source fixes must be committed and pushed to
-`origin/feat/native-experience`. Confirm origin and Pi are at the final SHA after
-the report commit; if committing the report creates a new SHA, deploy that
-documentation-only commit only if the operator wants Pi/source parity, otherwise
-state the intentional one-commit report-only difference precisely.
-
-### Definition of done
-
-- H1–H5 each have an honest verdict and evidence.
-- Exact source, origin, and deployed Pi SHA are reconciled.
-- Pi repo is clean; databases are intact; no runtime state or credential was
-  copied, reset, or deleted.
-- All applicable local/Pi gates pass; any unavailable gate is explicitly
-  deferred and not summarized as green.
-- YouTube quota/search counters are unchanged during runtime proof.
-- Screenshots were visually inspected and the final minimal couch test was
-  completed, or its specific human-only remainder is documented.
-- Any correction is regression-tested, committed, pushed, redeployed, and
-  re-proved.
-- The report is complete, sanitized, committed, and pushed.
-
-Start with H1. Do not touch the Pi until its H2 preconditions can be proved.
+If anything remains unavailable, leave the safest proven modes in place and
+report `DEFERRED` with the exact blocker and next command. Do not convert an
+unknown into a pass.

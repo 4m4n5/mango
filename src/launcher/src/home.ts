@@ -37,6 +37,29 @@ const DEFAULT_APP_CARDS: AppCard[] = [
 
 export const BROWSE_TAB_ORDER: BrowseTab[] = ["movies", "series", "live", "youtube"];
 
+export type YoutubeHistoryImportRefreshPolicy = {
+  cancelActiveCatalogRequest: boolean;
+  reloadYoutubeNow: boolean;
+  deferYoutubeReload: boolean;
+};
+
+/**
+ * A Takeout import changes YouTube history only. Keeping this policy pure and
+ * explicit prevents a late upload completion from shuffling whichever VOD tab
+ * happens to be visible after the viewer has left Settings.
+ */
+export function youtubeHistoryImportRefreshPolicy(
+  activeTab: BrowseTab,
+  surfaceBlocked: boolean,
+): YoutubeHistoryImportRefreshPolicy {
+  const youtubeActive = activeTab === "youtube";
+  return {
+    cancelActiveCatalogRequest: youtubeActive,
+    reloadYoutubeNow: youtubeActive && !surfaceBlocked,
+    deferYoutubeReload: youtubeActive && surfaceBlocked,
+  };
+}
+
 export function buildBrowseTabs(
   container: HTMLElement,
   activeTab: BrowseTab,
@@ -259,6 +282,13 @@ interface CatalogStateCopy {
 }
 
 export function catalogEmptyCopy(tab: BrowseTab): CatalogStateCopy {
+  if (tab === "youtube") {
+    return {
+      heading: "YouTube",
+      title: "make YouTube yours",
+      body: "connect subscriptions, import Google Takeout in Settings, or watch a video to grow For You.",
+    };
+  }
   const tabLabel = tab === "series" ? "tv shows" : tab;
   const refreshCopy = tab === "live"
     ? "try another tab or check back soon."

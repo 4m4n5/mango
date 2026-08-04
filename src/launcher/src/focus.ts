@@ -1,5 +1,22 @@
 /** 2D roving focus for TV rails — vertical between rows, horizontal within a row. */
 
+export function resolveFocusPosition(
+  rows: HTMLElement[][],
+  options: { preferredKey?: string; fallbackPosition?: { row: number; col: number } },
+  current: { row: number; col: number },
+): { row: number; col: number } {
+  if (rows.length === 0) return { row: 0, col: 0 };
+  if (options.preferredKey) {
+    for (let row = 0; row < rows.length; row += 1) {
+      const col = rows[row]!.findIndex((element) => element.dataset.focusKey === options.preferredKey);
+      if (col >= 0) return { row, col };
+    }
+  }
+  const desired = options.fallbackPosition ?? current;
+  const row = clamp(desired.row, 0, rows.length - 1);
+  return { row, col: clamp(desired.col, 0, rows[row]!.length - 1) };
+}
+
 export class FocusGrid {
   private rows: HTMLElement[][] = [];
   private rowIndex = 0;
@@ -24,17 +41,12 @@ export class FocusGrid {
       this.colIndex = 0;
       return;
     }
-    const preferred = options.preferredKey ? this.findKey(options.preferredKey) : null;
-    if (preferred) {
-      this.rowIndex = preferred.row;
-      this.colIndex = preferred.col;
-    } else if (options.fallbackPosition) {
-      this.rowIndex = clamp(options.fallbackPosition.row, 0, this.rows.length - 1);
-      this.colIndex = clamp(options.fallbackPosition.col, 0, this.currentRow().length - 1);
-    } else {
-      this.rowIndex = clamp(this.rowIndex, 0, this.rows.length - 1);
-      this.colIndex = clamp(this.colIndex, 0, this.currentRow().length - 1);
-    }
+    const position = resolveFocusPosition(this.rows, options, {
+      row: this.rowIndex,
+      col: this.colIndex,
+    });
+    this.rowIndex = position.row;
+    this.colIndex = position.col;
     this.applyFocus();
   }
 
@@ -88,16 +100,6 @@ export class FocusGrid {
 
   private currentRow(): HTMLElement[] {
     return this.rows[this.rowIndex] ?? [];
-  }
-
-  private findKey(key: string): { row: number; col: number } | null {
-    for (let row = 0; row < this.rows.length; row += 1) {
-      const col = this.rows[row].findIndex((element) => element.dataset.focusKey === key);
-      if (col >= 0) {
-        return { row, col };
-      }
-    }
-    return null;
   }
 
   private applyFocus(): void {

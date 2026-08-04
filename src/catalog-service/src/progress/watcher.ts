@@ -1,6 +1,6 @@
 import { getMpvPlaybackState, isMpvActive } from '../mpv.js';
 import { notePlaybackExit } from './next-prompt.js';
-import { upsertWatchProgress } from './db.js';
+import { upsertWatchProgressDetailed } from './db.js';
 import { recordPlaybackExit, recordPlayStarted } from '../companion/watch-signals.js';
 import type { CatalogTab } from '../rails.js';
 import { recordStreamLongWatch } from '../playability/db.js';
@@ -47,7 +47,7 @@ let lastSnapshot: {
 
 export type RecommendationSignalChange = {
   profile_id: string;
-  type: 'movie' | 'series';
+  type: 'movie' | 'series' | 'youtube_video';
   title_id: string;
   stage: 'play' | 'meaningful' | 'completed';
 };
@@ -60,21 +60,32 @@ export function setRecommendationSignalChangeHook(
   recommendationSignalChangeHook = hook;
 }
 
-export function recommendationRefreshStageForProgress(progressPct: number): number {
-  if (progressPct >= 0.9) return 3;
-  if (progressPct >= 0.25) return 2;
-  return 1;
+export function isMeaningfulRecommendationWatch(positionSec: number, durationSec: number): boolean {
+  if (!Number.isFinite(positionSec) || positionSec < 0) return false;
+  if (!Number.isFinite(durationSec) || durationSec <= 0) return positionSec >= 120;
+  return positionSec >= Math.min(durationSec * 0.25, 5 * 60);
+}
+
+export function recommendationRefreshStageAfterPersistence(
+  currentStage: number,
+  nextStage: number,
+  libraryWatchPersisted: boolean,
+): number {
+  return libraryWatchPersisted && nextStage > currentStage ? nextStage : currentStage;
 }
 
 function notifyRecommendationSignalChange(
   session: ActiveWatchSession,
   stage: RecommendationSignalChange['stage'],
 ): void {
-  if ((session.type !== 'movie' && session.type !== 'series') || session.source === 'youtube') return;
+  const type = session.source === 'youtube' || session.type === 'youtube_video'
+    ? 'youtube_video'
+    : session.type === 'movie' || session.type === 'series' ? session.type : null;
+  if (!type) return;
   try {
     recommendationSignalChangeHook?.({
       profile_id: session.profile_id ?? activeViewerProfileId(),
-      type: session.type,
+      type,
       title_id: session.title_id,
       stage,
     });
@@ -92,15 +103,15 @@ function persistSessionProgress(
   position_sec: number,
   duration_sec: number,
 ): void {
-  if (duration_sec <= 0) {
-    return;
-  }
+  if (!Number.isFinite(position_sec) || position_sec < 0) return;
+  const knownDuration = Number.isFinite(duration_sec) && duration_sec > 0;
+  const normalizedDuration = knownDuration ? duration_sec : 0;
   lastSnapshot = {
     session: { ...session },
     position_sec,
-    duration_sec,
+    duration_sec: normalizedDuration,
   };
-  upsertWatchProgress({
+  const progressWrite = upsertWatchProgressDetailed({
     profile_id: session.profile_id,
     source: session.source,
     type: session.type,
@@ -109,20 +120,27 @@ function persistSessionProgress(
     title: session.title,
     poster: session.poster,
     position_sec,
-    duration_sec,
+    duration_sec: normalizedDuration,
     tab: session.tab,
   });
-  const progress = position_sec / duration_sec;
-  const nextRefreshStage = recommendationRefreshStageForProgress(progress);
+  const progress = knownDuration ? position_sec / normalizedDuration : 0;
+  const nextRefreshStage = knownDuration && progress >= 0.9
+    ? 3
+    : isMeaningfulRecommendationWatch(position_sec, normalizedDuration) ? 2 : 1;
   const previousRefreshStage = session.recommendation_refresh_stage ?? 1;
-  if (nextRefreshStage > previousRefreshStage) {
-    session.recommendation_refresh_stage = nextRefreshStage;
+  const committedRefreshStage = recommendationRefreshStageAfterPersistence(
+    previousRefreshStage,
+    nextRefreshStage,
+    progressWrite.library_watch_persisted,
+  );
+  if (committedRefreshStage > previousRefreshStage) {
+    session.recommendation_refresh_stage = committedRefreshStage;
     notifyRecommendationSignalChange(
       session,
-      nextRefreshStage >= 3 ? 'completed' : 'meaningful',
+      committedRefreshStage >= 3 ? 'completed' : 'meaningful',
     );
   }
-  if (session.recommendation) {
+  if (session.recommendation && knownDuration) {
     try {
       recordRecommendationProgress({
         ...session.recommendation,
@@ -132,7 +150,7 @@ function persistSessionProgress(
       // Playback progress remains authoritative if optional attribution fails.
     }
   }
-  const substantialAt = Math.min(20 * 60, duration_sec * 0.5);
+  const substantialAt = knownDuration ? Math.min(20 * 60, normalizedDuration * 0.5) : 20 * 60;
   if (
     !session.long_watch_recorded
     && session.release_fingerprint
@@ -171,7 +189,7 @@ export async function flushWatchProgress(): Promise<boolean> {
   }
 
   const playback = await getMpvPlaybackState();
-  if (playback && playback.duration_sec > 0) {
+  if (playback) {
     persistSessionProgress(session, playback.position_sec, playback.duration_sec);
     notePlaybackExit(session, playback.position_sec, playback.duration_sec);
     void recordPlaybackExit(session, playback.position_sec, playback.duration_sec).catch(() => undefined);
@@ -241,9 +259,6 @@ export async function startWatchSessionFromPlay(input: {
     ? input.id.split(':')[0]
     : input.id;
   const profileId = input.profile_id ?? input.recommendation?.profile_id ?? activeViewerProfileId();
-  const sameLogicalSession = activeSession?.profile_id === profileId
-    && activeSession.type === input.type
-    && activeSession.play_id === input.id;
   await handoffWatchSession({
     profile_id: profileId,
     source: input.source,
@@ -258,7 +273,8 @@ export async function startWatchSessionFromPlay(input: {
     recommendation: input.recommendation,
     recommendation_refresh_stage: 1,
   });
-  if (!sameLogicalSession) notifyRecommendationSignalChange(activeSession!, 'play');
+  // Bare starts are persisted for resume but do not change recommendation
+  // taste or trigger ranking/acquisition work.
   if (input.recommendation) {
     try {
       const firstAttributedPlayStart = recordRecommendationPlayStart({

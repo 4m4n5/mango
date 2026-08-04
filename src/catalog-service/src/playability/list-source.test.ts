@@ -23,7 +23,18 @@ test('fetchAddonCatalogCandidates canonicalizes series episode ids to title ids'
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async () => new Response(JSON.stringify({
     metas: [
-      { id: 'tt18266602:1:14', name: 'Man Udu Udu Zhala' },
+      {
+        id: 'tt18266602:1:14',
+        name: 'Man Udu Udu Zhala',
+        description: 'A grounded family conflict unfolds in Maharashtra.',
+        genres: ['Drama', 'Family'],
+        language: 'Marathi',
+        country: 'India',
+        runtime: '24 min',
+        cast: ['Actor One'],
+        director: ['Director One'],
+        imdb_id: 'tt18266602',
+      },
       { id: 'tt12004706', name: 'Panchayat' },
     ],
   }), {
@@ -47,6 +58,23 @@ test('fetchAddonCatalogCandidates canonicalizes series episode ids to title ids'
     );
     assert.deepEqual(candidates.map((candidate) => candidate.id), ['tt18266602', 'tt12004706']);
     assert.equal(candidates[0]?.source_name, 'Latest Episodes');
+    assert.deepEqual(candidates[0]?.story_evidence, {
+      synopsis: 'A grounded family conflict unfolds in Maharashtra.',
+      genres: ['Drama', 'Family'],
+      keywords: [],
+      languages: ['Marathi'],
+      countries: ['India'],
+      runtime_minutes: 24,
+      release_state: null,
+      format: 'series',
+      cast: ['Actor One'],
+      characters: [],
+      directors: ['Director One'],
+      writers: [],
+      awards: null,
+      certification: null,
+      external_ids: { catalog: 'tt18266602', imdb_id: 'tt18266602' },
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }

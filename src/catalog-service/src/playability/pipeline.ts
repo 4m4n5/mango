@@ -11,8 +11,6 @@ import {
   playabilityUseProbePool,
 } from './config.js';
 import {
-  getRailPoolTitleKeys,
-  getTitlesPlayabilityBulk,
   upsertRailPoolTitle,
   type PlayabilityRailStatus,
   type RailPoolEntry,
@@ -73,7 +71,6 @@ export function isActiveVerifiedTitle(
 }
 
 export function shouldForceReprobeTitle(
-  title: TitlePlayabilityRecord | undefined,
   staleKeys: Set<CandidateKey>,
   key: CandidateKey,
   _now: number,
@@ -484,7 +481,7 @@ export async function linkExistingVerifiedCandidates(
     if (!candidate) continue;
 
     const title = titleStatuses.get(key);
-    const forceReprobe = shouldForceReprobeTitle(title, staleKeys, key, now);
+    const forceReprobe = shouldForceReprobeTitle(staleKeys, key, now);
 
     if (!forceReprobe && isActiveVerifiedTitle(title, now)) {
       if (!allowExistingVerifiedLinks) {

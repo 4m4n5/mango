@@ -7,13 +7,30 @@ import {
 } from './composite-merge.js';
 import { effectiveSourceWeight } from './source-hitrate-weights.js';
 import {
-  AI_SEED_CURSOR_KEY,
   catalogSourceKey,
   type SourceCursorListSource,
 } from './source-cursors.js';
 import { canonicalTitleId } from './ids.js';
 
 export type ListSourceType = 'addon_catalog' | 'composite_list' | 'ai_catalog';
+
+export type CatalogStoryEvidence = {
+  synopsis: string | null;
+  genres: string[];
+  keywords: string[];
+  languages: string[];
+  countries: string[];
+  runtime_minutes: number;
+  release_state: string | null;
+  format: string | null;
+  cast: string[];
+  characters: string[];
+  directors: string[];
+  writers: string[];
+  awards: string | null;
+  certification: string | null;
+  external_ids: Record<string, string>;
+};
 
 export type CandidateMeta = {
   id: string;
@@ -29,6 +46,7 @@ export type CandidateMeta = {
   original_id?: string;
   normalized_id?: string;
   normalization_status?: 'resolved_imdb' | 'unresolved_external_id';
+  story_evidence?: CatalogStoryEvidence;
 };
 
 export interface ListSource {
@@ -123,6 +141,79 @@ function previewYear(preview: unknown): number | string | undefined {
   return undefined;
 }
 
+function previewText(preview: Record<string, unknown>, keys: string[], limit: number): string | null {
+  for (const key of keys) {
+    const value = preview[key];
+    if (typeof value !== 'string') continue;
+    const cleaned = value.replace(/\s+/g, ' ').trim().slice(0, limit);
+    if (cleaned) return cleaned;
+  }
+  return null;
+}
+
+function previewTextList(
+  preview: Record<string, unknown>,
+  keys: string[],
+  limit: number,
+): string[] {
+  const values: string[] = [];
+  for (const key of keys) {
+    const raw = preview[key];
+    const candidates = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(',') : [];
+    for (const value of candidates) {
+      if (typeof value !== 'string') continue;
+      const cleaned = value.replace(/\s+/g, ' ').trim().slice(0, 100);
+      if (cleaned && !values.some((current) => current.toLowerCase() === cleaned.toLowerCase())) {
+        values.push(cleaned);
+      }
+      if (values.length >= limit) return values;
+    }
+  }
+  return values;
+}
+
+function previewRuntimeMinutes(preview: Record<string, unknown>): number {
+  for (const key of ['runtime', 'runtimeMinutes', 'runtime_minutes']) {
+    const raw = preview[key];
+    const parsed = typeof raw === 'number' ? raw : Number.parseFloat(String(raw ?? '').match(/\d+(?:\.\d+)?/)?.[0] ?? '');
+    if (Number.isFinite(parsed) && parsed > 0 && parsed <= 1_440) return Math.round(parsed);
+  }
+  return 0;
+}
+
+/** Canonical, bounded evidence retained from catalog previews for StoryDNA. */
+export function previewStoryEvidence(
+  preview: unknown,
+  stableId: string,
+  contentType?: string,
+): CatalogStoryEvidence {
+  const row = preview && typeof preview === 'object' ? preview as Record<string, unknown> : {};
+  const externalIds: Record<string, string> = { catalog: stableId };
+  for (const key of ['imdb_id', 'imdbId', 'tmdb_id', 'tmdbId', 'tvdb_id', 'tvdbId']) {
+    const raw = row[key];
+    if ((typeof raw === 'string' || typeof raw === 'number') && String(raw).trim()) {
+      externalIds[key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)] = String(raw).trim().slice(0, 100);
+    }
+  }
+  return {
+    synopsis: previewText(row, ['description', 'overview', 'plot'], 4_000),
+    genres: previewTextList(row, ['genres', 'genre'], 16),
+    keywords: previewTextList(row, ['keywords', 'tags'], 32),
+    languages: previewTextList(row, ['languages', 'language'], 12),
+    countries: previewTextList(row, ['countries', 'country'], 12),
+    runtime_minutes: previewRuntimeMinutes(row),
+    release_state: previewText(row, ['status', 'releaseInfo', 'released'], 120),
+    format: previewText(row, ['format', 'type'], 80) ?? (contentType?.trim() || null),
+    cast: previewTextList(row, ['cast', 'actors'], 32),
+    characters: previewTextList(row, ['characters'], 32),
+    directors: previewTextList(row, ['director', 'directors'], 16),
+    writers: previewTextList(row, ['writer', 'writers'], 16),
+    awards: previewText(row, ['awards'], 500),
+    certification: previewText(row, ['certification', 'rated'], 80),
+    external_ids: externalIds,
+  };
+}
+
 function catalogFetchTimeoutMs(): number {
   const raw = Number(process.env.MANGO_CATALOG_FETCH_TIMEOUT_MS || 20_000);
   if (!Number.isFinite(raw) || raw <= 0) {
@@ -214,6 +305,11 @@ export async function fetchAddonCatalogCandidates(
           source_key: source?.sourceKey,
           source_addon: source?.addon,
           source_catalog: source?.catalog,
+          story_evidence: previewStoryEvidence(
+            preview,
+            canonicalTitleId(contentType, id),
+            contentType,
+          ),
         };
       })
       .filter((candidate): candidate is CandidateMeta => candidate !== null);

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import type { CatalogTab } from '../rails.js';
 import { seriesBareId } from '../playability/ids.js';
@@ -19,7 +19,9 @@ export const PROFILE_RECOMMENDATION_METRICS_SCHEMA_VERSION = 8;
 export const RECOMMENDATION_SERVED_SLATE_SCHEMA_VERSION = 9;
 export const PROFILE_WATCH_STATE_SCHEMA_VERSION = 10;
 export const RECOMMENDATION_SERVED_SLATE_CONTEXT_SCHEMA_VERSION = 11;
-const VOD_REWATCH_SIGNAL_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
+export const VOD_STORY_GRAPH_SCHEMA_VERSION = 12;
+export const YOUTUBE_TAKEOUT_SCHEMA_VERSION = 13;
+export const VOD_STORY_GRAPH_SERVING_SCHEMA_VERSION = 14;
 const RECOMMENDATION_SERVED_SLATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type LibrarySource = string;
@@ -47,6 +49,35 @@ export type SavedLibraryItem = {
   tab: CatalogTab;
   saved_at: number;
   saved_by: string;
+};
+
+export type LibraryItemIdCursorRow = {
+  item_key: string;
+  id: string;
+};
+
+export type YoutubeTakeoutHistoryEntry = {
+  video_id: string;
+  title: string;
+  title_url: string | null;
+  channel_id: string | null;
+  channel_title: string | null;
+  watched_at: number;
+  source_generation: string;
+  imported_at: number;
+};
+
+export type YoutubeTakeoutImportAudit = {
+  generation: string;
+  format: 'json' | 'html' | 'zip' | 'mixed' | 'unknown';
+  source_filename: string;
+  source_hash: string;
+  status: 'success' | 'partial' | 'failed' | 'noop';
+  history_count: number;
+  subscription_count: number;
+  imported_at: number;
+  warnings: string[];
+  errors: string[];
 };
 
 export type LibraryState = {
@@ -1085,6 +1116,330 @@ ADD COLUMN context_id TEXT NOT NULL DEFAULT '';
     db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
       .run(RECOMMENDATION_SERVED_SLATE_CONTEXT_SCHEMA_VERSION, timestamp);
   }
+  if (!migrated.has(VOD_STORY_GRAPH_SCHEMA_VERSION)) {
+    const timestamp = nowMs();
+    db.exec(`
+CREATE TABLE IF NOT EXISTS vod_story_dna_generations (
+  generation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  schema_version TEXT NOT NULL,
+  ontology_version TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  corpus_generation INTEGER NOT NULL,
+  evidence_revision TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('building', 'bootstrap', 'complete', 'failed', 'stale')),
+  verified_count INTEGER NOT NULL DEFAULT 0,
+  complete_count INTEGER NOT NULL DEFAULT 0,
+  failure_count INTEGER NOT NULL DEFAULT 0,
+  started_at INTEGER NOT NULL,
+  published_at INTEGER,
+  completed_at INTEGER,
+  last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vod_story_dna_generations_status
+  ON vod_story_dna_generations(content_type, status, generation_id DESC);
+
+CREATE TABLE IF NOT EXISTS vod_story_dna_documents (
+  generation_id INTEGER NOT NULL REFERENCES vod_story_dna_generations(generation_id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  title TEXT,
+  evidence_json TEXT NOT NULL,
+  evidence_hash TEXT NOT NULL,
+  story_dna_json TEXT,
+  family_confidence_json TEXT,
+  stable_external_ids_json TEXT NOT NULL DEFAULT '{}',
+  lookup_used INTEGER NOT NULL DEFAULT 0 CHECK(lookup_used IN (0, 1)),
+  status TEXT NOT NULL CHECK(status IN ('valid', 'retryable_failure', 'permanent_failure')),
+  failure_reason TEXT,
+  retry_count INTEGER NOT NULL DEFAULT 0,
+  next_retry_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(generation_id, content_type, content_id)
+);
+CREATE INDEX IF NOT EXISTS idx_vod_story_dna_documents_identity
+  ON vod_story_dna_documents(content_type, content_id, generation_id DESC);
+CREATE INDEX IF NOT EXISTS idx_vod_story_dna_documents_retry
+  ON vod_story_dna_documents(generation_id, status, next_retry_at);
+
+CREATE TABLE IF NOT EXISTS vod_ontology_nodes (
+  ontology_version TEXT NOT NULL,
+  node_key TEXT NOT NULL,
+  family TEXT NOT NULL,
+  value_key TEXT NOT NULL,
+  parent_key TEXT,
+  ordinal INTEGER NOT NULL DEFAULT 0 CHECK(ordinal IN (0, 1)),
+  PRIMARY KEY(ontology_version, node_key)
+);
+
+CREATE TABLE IF NOT EXISTS vod_ontology_edges (
+  ontology_version TEXT NOT NULL,
+  from_node_key TEXT NOT NULL,
+  to_node_key TEXT NOT NULL,
+  edge_kind TEXT NOT NULL CHECK(edge_kind IN ('parent', 'compound')),
+  PRIMARY KEY(ontology_version, from_node_key, to_node_key, edge_kind)
+);
+
+CREATE TABLE IF NOT EXISTS vod_story_dna_edges (
+  generation_id INTEGER NOT NULL REFERENCES vod_story_dna_generations(generation_id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  node_key TEXT NOT NULL,
+  family TEXT NOT NULL,
+  intensity REAL NOT NULL CHECK(intensity >= 0 AND intensity <= 4),
+  confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+  edge_source TEXT NOT NULL CHECK(edge_source IN ('teacher', 'metadata', 'compound')),
+  PRIMARY KEY(generation_id, content_type, content_id, node_key)
+);
+CREATE INDEX IF NOT EXISTS idx_vod_story_dna_edges_node
+  ON vod_story_dna_edges(generation_id, family, node_key);
+
+CREATE TABLE IF NOT EXISTS vod_taste_generations (
+  taste_generation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  story_generation_id INTEGER NOT NULL REFERENCES vod_story_dna_generations(generation_id),
+  taste_revision TEXT NOT NULL,
+  watch_decay_bucket INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('building', 'complete', 'failed', 'stale')),
+  selected_k INTEGER NOT NULL CHECK(selected_k BETWEEN 0 AND 3),
+  anchor_count INTEGER NOT NULL DEFAULT 0,
+  explicit_mass REAL NOT NULL DEFAULT 0,
+  implicit_mass REAL NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  published_at INTEGER,
+  last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vod_taste_generations_status
+  ON vod_taste_generations(content_type, status, taste_generation_id DESC);
+
+CREATE TABLE IF NOT EXISTS vod_taste_threads (
+  taste_generation_id INTEGER NOT NULL REFERENCES vod_taste_generations(taste_generation_id) ON DELETE CASCADE,
+  thread_index INTEGER NOT NULL CHECK(thread_index BETWEEN 0 AND 2),
+  posterior_json TEXT NOT NULL,
+  effective_evidence_mass REAL NOT NULL,
+  fire_uplift REAL NOT NULL CHECK(fire_uplift >= 0 AND fire_uplift <= 1),
+  water_uplift REAL NOT NULL CHECK(water_uplift >= 0 AND water_uplift <= 1),
+  uncertainty REAL NOT NULL CHECK(uncertainty >= 0),
+  internal_label TEXT NOT NULL,
+  PRIMARY KEY(taste_generation_id, thread_index)
+);
+
+CREATE TABLE IF NOT EXISTS vod_rank_generations (
+  rank_generation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  model_version TEXT NOT NULL,
+  feature_version TEXT NOT NULL,
+  ontology_version TEXT NOT NULL,
+  story_generation_id INTEGER NOT NULL REFERENCES vod_story_dna_generations(generation_id),
+  taste_generation_id INTEGER NOT NULL REFERENCES vod_taste_generations(taste_generation_id),
+  taste_revision TEXT NOT NULL,
+  corpus_generation INTEGER NOT NULL,
+  trigger_reasons_json TEXT NOT NULL DEFAULT '[]',
+  cursor TEXT,
+  status TEXT NOT NULL CHECK(status IN ('building', 'bootstrap', 'complete', 'failed', 'stale')),
+  verified_count INTEGER NOT NULL DEFAULT 0,
+  scored_count INTEGER NOT NULL DEFAULT 0,
+  eligible_count INTEGER NOT NULL DEFAULT 0,
+  excluded_count INTEGER NOT NULL DEFAULT 0,
+  started_at INTEGER NOT NULL,
+  published_at INTEGER,
+  completed_at INTEGER,
+  last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vod_rank_generations_status
+  ON vod_rank_generations(content_type, status, rank_generation_id DESC);
+
+CREATE TABLE IF NOT EXISTS vod_rank_items (
+  rank_generation_id INTEGER NOT NULL REFERENCES vod_rank_generations(rank_generation_id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  title TEXT,
+  poster TEXT,
+  year TEXT,
+  rank INTEGER,
+  best_thread INTEGER CHECK(best_thread IS NULL OR best_thread BETWEEN 0 AND 2),
+  predicted_fire REAL,
+  predicted_water REAL,
+  explicit_support REAL NOT NULL DEFAULT 0,
+  implicit_support REAL NOT NULL DEFAULT 0,
+  uncertainty REAL NOT NULL DEFAULT 0,
+  rank_score REAL,
+  feature_hash TEXT,
+  serving_eligible INTEGER NOT NULL CHECK(serving_eligible IN (0, 1)),
+  exclusion_reason TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(rank_generation_id, content_type, content_id)
+);
+CREATE INDEX IF NOT EXISTS idx_vod_rank_items_serving
+  ON vod_rank_items(rank_generation_id, serving_eligible, best_thread, rank_score DESC);
+
+CREATE TABLE IF NOT EXISTS vod_active_generations (
+  content_type TEXT PRIMARY KEY CHECK(content_type IN ('movie', 'series')),
+  active_rank_generation_id INTEGER REFERENCES vod_rank_generations(rank_generation_id),
+  previous_complete_rank_generation_id INTEGER REFERENCES vod_rank_generations(rank_generation_id),
+  active_story_generation_id INTEGER REFERENCES vod_story_dna_generations(generation_id),
+  active_taste_generation_id INTEGER REFERENCES vod_taste_generations(taste_generation_id),
+  shuffle_epoch INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vod_cached_slates (
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  shuffle_epoch INTEGER NOT NULL CHECK(shuffle_epoch >= 0),
+  rank_generation_id INTEGER NOT NULL REFERENCES vod_rank_generations(rank_generation_id),
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(content_type, shuffle_epoch)
+);
+
+CREATE TABLE IF NOT EXISTS vod_cached_slate_items (
+  content_type TEXT NOT NULL,
+  shuffle_epoch INTEGER NOT NULL,
+  slot INTEGER NOT NULL CHECK(slot BETWEEN 0 AND 5),
+  content_id TEXT NOT NULL,
+  thread_index INTEGER NOT NULL CHECK(thread_index BETWEEN 0 AND 2),
+  PRIMARY KEY(content_type, shuffle_epoch, slot),
+  UNIQUE(content_type, shuffle_epoch, content_id),
+  FOREIGN KEY(content_type, shuffle_epoch)
+    REFERENCES vod_cached_slates(content_type, shuffle_epoch) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_vod_cached_slates_recent
+  ON vod_cached_slates(content_type, shuffle_epoch DESC);
+
+CREATE TABLE IF NOT EXISTS recommendation_refresh_jobs (
+  job_id TEXT PRIMARY KEY,
+  domain TEXT NOT NULL CHECK(domain IN ('vod', 'youtube')),
+  content_type TEXT,
+  trigger_reasons_json TEXT NOT NULL,
+  captured_revisions_json TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('queued', 'running', 'complete', 'failed', 'coalesced')),
+  queued_at INTEGER NOT NULL,
+  started_at INTEGER,
+  completed_at INTEGER,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_recommendation_refresh_jobs_recent
+  ON recommendation_refresh_jobs(domain, queued_at DESC);
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
+      .run(VOD_STORY_GRAPH_SCHEMA_VERSION, timestamp);
+  }
+  if (!migrated.has(YOUTUBE_TAKEOUT_SCHEMA_VERSION)) {
+    const timestamp = nowMs();
+    db.exec(`
+CREATE TABLE IF NOT EXISTS youtube_takeout_history (
+  video_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  title_url TEXT,
+  channel_id TEXT,
+  channel_title TEXT,
+  watched_at INTEGER NOT NULL,
+  source_generation TEXT NOT NULL,
+  imported_at INTEGER NOT NULL,
+  PRIMARY KEY(video_id, watched_at)
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_takeout_history_watched
+  ON youtube_takeout_history(watched_at DESC, video_id);
+
+CREATE TABLE IF NOT EXISTS youtube_takeout_imports (
+  generation TEXT PRIMARY KEY,
+  format TEXT NOT NULL CHECK(format IN ('json', 'html', 'zip', 'mixed', 'unknown')),
+  source_filename TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('success', 'partial', 'failed', 'noop')),
+  history_count INTEGER NOT NULL DEFAULT 0,
+  subscription_count INTEGER NOT NULL DEFAULT 0,
+  imported_at INTEGER NOT NULL,
+  warnings_json TEXT NOT NULL DEFAULT '[]',
+  errors_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_takeout_imports_recent
+  ON youtube_takeout_imports(imported_at DESC, generation DESC);
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
+      .run(YOUTUBE_TAKEOUT_SCHEMA_VERSION, timestamp);
+  }
+  if (!migrated.has(VOD_STORY_GRAPH_SERVING_SCHEMA_VERSION)) {
+    const timestamp = nowMs();
+    db.exec(`
+CREATE TABLE vod_cached_slates_v14 (
+  rank_generation_id INTEGER NOT NULL REFERENCES vod_rank_generations(rank_generation_id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  shuffle_epoch INTEGER NOT NULL CHECK(shuffle_epoch >= 0),
+  created_at INTEGER NOT NULL,
+  rendered_at INTEGER,
+  PRIMARY KEY(rank_generation_id, content_type, shuffle_epoch)
+);
+
+CREATE TABLE vod_cached_slate_items_v14 (
+  rank_generation_id INTEGER NOT NULL,
+  content_type TEXT NOT NULL,
+  shuffle_epoch INTEGER NOT NULL,
+  slot INTEGER NOT NULL CHECK(slot BETWEEN 0 AND 5),
+  content_id TEXT NOT NULL,
+  thread_index INTEGER NOT NULL CHECK(thread_index BETWEEN 0 AND 2),
+  PRIMARY KEY(rank_generation_id, content_type, shuffle_epoch, slot),
+  UNIQUE(rank_generation_id, content_type, shuffle_epoch, content_id),
+  FOREIGN KEY(rank_generation_id, content_type, shuffle_epoch)
+    REFERENCES vod_cached_slates_v14(rank_generation_id, content_type, shuffle_epoch)
+    ON DELETE CASCADE
+);
+
+INSERT INTO vod_cached_slates_v14(
+  rank_generation_id, content_type, shuffle_epoch, created_at, rendered_at
+)
+SELECT
+  cs.rank_generation_id,
+  cs.content_type,
+  cs.shuffle_epoch,
+  cs.created_at,
+  CASE WHEN EXISTS (
+    SELECT 1 FROM vod_active_generations active
+    WHERE active.content_type = cs.content_type
+      AND active.active_rank_generation_id = cs.rank_generation_id
+      AND active.shuffle_epoch = cs.shuffle_epoch
+  ) THEN cs.created_at ELSE NULL END
+FROM vod_cached_slates cs;
+
+INSERT INTO vod_cached_slate_items_v14(
+  rank_generation_id, content_type, shuffle_epoch, slot, content_id, thread_index
+)
+SELECT cs.rank_generation_id, items.content_type, items.shuffle_epoch,
+       items.slot, items.content_id, items.thread_index
+FROM vod_cached_slate_items items
+JOIN vod_cached_slates cs
+  ON cs.content_type = items.content_type AND cs.shuffle_epoch = items.shuffle_epoch;
+
+DROP TABLE vod_cached_slate_items;
+DROP TABLE vod_cached_slates;
+ALTER TABLE vod_cached_slates_v14 RENAME TO vod_cached_slates;
+ALTER TABLE vod_cached_slate_items_v14 RENAME TO vod_cached_slate_items;
+
+CREATE INDEX idx_vod_cached_slates_queue
+  ON vod_cached_slates(rank_generation_id, content_type, shuffle_epoch ASC);
+CREATE INDEX idx_vod_cached_slates_rendered
+  ON vod_cached_slates(rank_generation_id, content_type, rendered_at DESC)
+  WHERE rendered_at IS NOT NULL;
+
+CREATE TABLE vod_story_graph_low_water_requests (
+  content_type TEXT PRIMARY KEY CHECK(content_type IN ('movie', 'series')),
+  tab TEXT NOT NULL CHECK(tab IN ('movies', 'series')),
+  rank_generation_id INTEGER NOT NULL,
+  available_count INTEGER NOT NULL CHECK(available_count >= 0),
+  reason TEXT NOT NULL CHECK(reason = 'six_card_heal_failed'),
+  requested_at INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending', 'acknowledged')),
+  acknowledged_at INTEGER,
+  last_error TEXT
+);
+CREATE INDEX idx_vod_story_graph_low_water_pending
+  ON vod_story_graph_low_water_requests(status, requested_at);
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
+      .run(VOD_STORY_GRAPH_SERVING_SCHEMA_VERSION, timestamp);
+  }
   });
   migrate.immediate();
 }
@@ -1887,10 +2242,17 @@ ON CONFLICT(item_key) DO UPDATE SET
   return itemKey;
 }
 
-export function saveLibraryItem(input: LibraryItemInput & { saved_by?: string; saved_at?: number }): SavedLibraryItem {
+export function saveLibraryItem(input: LibraryItemInput & {
+  saved_by?: string;
+  saved_at?: number;
+  profile_id?: string;
+}): SavedLibraryItem {
   const db = ensureDb();
   const savedAt = input.saved_at ?? nowMs();
-  const profileId = activeViewerProfileId();
+  const profileId = input.profile_id
+    ? getViewerProfile(input.profile_id)?.profile_id
+    : activeViewerProfileId();
+  if (!profileId) throw new Error('unknown viewer profile');
   const transaction = db.transaction(() => {
     const itemKey = upsertLibraryItem(db, input, savedAt);
     db.prepare(`
@@ -1932,17 +2294,25 @@ INSERT INTO profile_recommendation_events(
     return itemKey;
   });
   const itemKey = transaction();
-  const saved = getSavedLibraryItemByKey(itemKey);
+  const saved = getSavedLibraryItemByKey(itemKey, profileId);
   if (!saved) {
     throw new Error(`saved item missing after upsert: ${itemKey}`);
   }
   return saved;
 }
 
-export function unsaveLibraryItem(input: { source?: string; type: string; id: string }): boolean {
+export function unsaveLibraryItem(input: {
+  source?: string;
+  type: string;
+  id: string;
+  profile_id?: string;
+}): boolean {
   const db = ensureDb();
   const key = libraryItemKey(input.source, input.type, input.id);
-  const profileId = activeViewerProfileId();
+  const profileId = input.profile_id
+    ? getViewerProfile(input.profile_id)?.profile_id
+    : activeViewerProfileId();
+  if (!profileId) throw new Error('unknown viewer profile');
   const transaction = db.transaction(() => {
     const item = db.prepare(`
 SELECT source, type, id, title FROM library_items WHERE item_key = ?
@@ -2033,9 +2403,52 @@ LIMIT @limit;
   return rows;
 }
 
-export function getSavedLibraryItemByKey(itemKey: string): SavedLibraryItem | null {
+/**
+ * Keyset-paged IDs for exclusion/maintenance jobs that must inspect the full
+ * durable Saved set. The visible Saved rail intentionally remains capped by
+ * `listSavedLibraryItems`; this helper never changes its couch-facing limit.
+ */
+export function listSavedLibraryItemIdsPage(options: {
+  source?: string | null;
+  type?: string | null;
+  profile_id?: string | null;
+  household_blend?: boolean;
+  after_item_key?: string | null;
+  limit?: number;
+} = {}): LibraryItemIdCursorRow[] {
+  const profileId = options.profile_id?.trim().toLowerCase() || activeViewerProfileId();
+  const householdBlend = options.household_blend !== false && profileId === 'household';
+  return ensureDb().prepare(`
+SELECT li.item_key, li.id
+FROM library_items li
+WHERE li.item_key > @after_item_key
+  AND (@source IS NULL OR li.source = @source)
+  AND (@type IS NULL OR li.type = @type)
+  AND EXISTS (
+    SELECT 1
+    FROM profile_saved_items scoped
+    WHERE scoped.item_key = li.item_key
+      AND (@household_blend = 1 OR scoped.profile_id = @profile_id)
+  )
+ORDER BY li.item_key
+LIMIT @limit;
+`).all({
+    profile_id: profileId,
+    household_blend: householdBlend ? 1 : 0,
+    source: options.source ? normalizeSource(options.source) : null,
+    type: options.type ? normalizeLibraryType(options.type) : null,
+    after_item_key: options.after_item_key?.trim() || '',
+    limit: Math.max(1, Math.min(2_000, Math.floor(options.limit ?? 1_000))),
+  }) as LibraryItemIdCursorRow[];
+}
+
+export function getSavedLibraryItemByKey(
+  itemKey: string,
+  profileIdInput = activeViewerProfileId(),
+): SavedLibraryItem | null {
   const db = ensureDb();
-  const profileId = activeViewerProfileId();
+  const profileId = getViewerProfile(profileIdInput)?.profile_id;
+  if (!profileId) throw new Error('unknown viewer profile');
   const row = db.prepare(`
 WITH scoped_saved AS (
   SELECT item_key, MAX(saved_at) AS saved_at
@@ -2282,7 +2695,10 @@ INSERT INTO watch_history (
 
     const normalizedType = normalizeLibraryType(input.type);
     const domain = normalizeSource(input.source) === 'youtube' ? 'youtube' : 'vod';
-    const strength = pct >= LIBRARY_FINISHED_PCT ? 1 : pct >= 0.25 ? 0.55 : 0.05;
+    const meaningful = duration > 0
+      ? position >= Math.min(duration * 0.25, 5 * 60)
+      : position >= 2 * 60;
+    const strength = pct >= LIBRARY_FINISHED_PCT ? 1 : meaningful ? 0.55 : 0;
     db.prepare(`
 INSERT OR IGNORE INTO profile_watch_history(profile_id, history_id)
 VALUES (?, ?)
@@ -2300,17 +2716,13 @@ LIMIT 1
       normalizedType,
       normalizeLibraryId(input.type, input.id),
     ) as { strength: number; event_type: string; occurred_at: number } | undefined;
-    const isCooledDownVodRewatch = domain === 'vod'
-      && Boolean(previousSignal)
-      && Number(previousSignal?.strength) >= 1
-      && strength === 0.05
-      && watchedAt - Number(previousSignal?.occurred_at ?? watchedAt) >= VOD_REWATCH_SIGNAL_COOLDOWN_MS;
-    const signalStrength = isCooledDownVodRewatch ? 0.7 : strength;
-    const signalEvent = isCooledDownVodRewatch ? 'rewatch' : event;
-    const shouldAppendSignal = isCooledDownVodRewatch
-      || !previousSignal
+    const signalStrength = strength;
+    const signalEvent = event;
+    const shouldAppendSignal = strength > 0 && (
+      !previousSignal
       || strength > Number(previousSignal.strength)
-      || (event === 'finished' && previousSignal.event_type !== 'finished');
+      || (event === 'finished' && previousSignal.event_type !== 'finished')
+    );
     if (shouldAppendSignal) db.prepare(`
 INSERT INTO profile_recommendation_events(
   profile_id, domain, event_type, item_type, item_id, title, strength, context_json, occurred_at
@@ -2403,6 +2815,7 @@ export function setLibraryFeedback(input: LibraryItemInput & {
   feedback: string;
   reason?: string | null;
   created_at?: number;
+  profile_id?: string;
 }): LibraryFeedbackRow {
   const db = ensureDb();
   const timestamp = input.created_at ?? nowMs();
@@ -2410,7 +2823,10 @@ export function setLibraryFeedback(input: LibraryItemInput & {
   if (!feedback) {
     throw new Error('library feedback requires feedback');
   }
-  const profileId = activeViewerProfileId();
+  const profileId = input.profile_id
+    ? getViewerProfile(input.profile_id)?.profile_id
+    : activeViewerProfileId();
+  if (!profileId) throw new Error('unknown viewer profile');
   const transaction = db.transaction(() => {
     const itemKey = upsertLibraryItem(db, input, timestamp);
     db.prepare(`
@@ -2547,12 +2963,16 @@ export function clearLibraryFeedback(input: {
   type: string;
   id: string;
   feedback: string;
+  profile_id?: string;
 }): boolean {
   const db = ensureDb();
   const key = libraryItemKey(input.source, input.type, input.id);
   const feedback = input.feedback.trim().toLowerCase();
   if (!feedback) return false;
-  const profileId = activeViewerProfileId();
+  const profileId = input.profile_id
+    ? getViewerProfile(input.profile_id)?.profile_id
+    : activeViewerProfileId();
+  if (!profileId) throw new Error('unknown viewer profile');
   return db.transaction(() => {
     const item = db.prepare('SELECT source, type, id, title FROM library_items WHERE item_key = ?')
       .get(key) as { source: string; type: string; id: string; title: string | null } | undefined;
@@ -2859,6 +3279,216 @@ WHERE ${clauses.join('\n  AND ')}
 ORDER BY wh.watched_at DESC, wh.history_id DESC
 ${limitSql};
 `).all(params) as WatchHistoryRow[];
+}
+
+/**
+ * Cursor-paged lifetime exclusions for recommendation systems. A play start is
+ * durable resume/history state, but becomes a recommendation exclusion only
+ * after the same meaningful-watch threshold used by ranking.
+ */
+export function listMeaningfullyWatchedLibraryItemIdsPage(options: {
+  source?: string | null;
+  type?: string | null;
+  profile_id?: string | null;
+  household_blend?: boolean;
+  after_item_key?: string | null;
+  limit?: number;
+} = {}): LibraryItemIdCursorRow[] {
+  const profileId = options.profile_id?.trim().toLowerCase() || activeViewerProfileId();
+  const householdBlend = options.household_blend !== false && profileId === 'household';
+  return ensureDb().prepare(`
+SELECT li.item_key, li.id
+FROM library_items li
+WHERE li.item_key > @after_item_key
+  AND (@source IS NULL OR li.source = @source)
+  AND (@type IS NULL OR li.type = @type)
+  AND EXISTS (
+    SELECT 1
+    FROM watch_history wh
+    JOIN profile_watch_history scoped ON scoped.history_id = wh.history_id
+    WHERE wh.item_key = li.item_key
+      AND (@household_blend = 1 OR scoped.profile_id = @profile_id)
+      AND (
+        wh.progress_pct >= 0.9
+        OR lower(wh.event) IN ('complete', 'completed', 'finish', 'finished', 'ended', 'credits')
+        OR wh.position_sec >= CASE
+          WHEN wh.duration_sec > 0 THEN MIN(wh.duration_sec * 0.25, 300.0)
+          ELSE 120.0
+        END
+      )
+  )
+ORDER BY li.item_key
+LIMIT @limit;
+`).all({
+    profile_id: profileId,
+    household_blend: householdBlend ? 1 : 0,
+    source: options.source ? normalizeSource(options.source) : null,
+    type: options.type ? normalizeLibraryType(options.type) : null,
+    after_item_key: options.after_item_key?.trim() || '',
+    limit: Math.max(1, Math.min(2_000, Math.floor(options.limit ?? 1_000))),
+  }) as LibraryItemIdCursorRow[];
+}
+
+export function upsertYoutubeTakeoutHistory(
+  history: Array<Omit<YoutubeTakeoutHistoryEntry, 'source_generation' | 'imported_at'>>,
+  options: { source_generation: string; imported_at?: number },
+): { inserted: number; noop: boolean } {
+  const db = ensureDb();
+  const sourceGeneration = options.source_generation.trim();
+  if (!sourceGeneration) throw new Error('YouTube Takeout history import requires a source generation');
+  const importedAt = options.imported_at ?? nowMs();
+  const insert = db.prepare(`
+INSERT OR IGNORE INTO youtube_takeout_history(
+  video_id, title, title_url, channel_id, channel_title, watched_at,
+  source_generation, imported_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`);
+  const nearDuplicate = db.prepare(`
+SELECT 1
+FROM youtube_takeout_history
+WHERE video_id = ? AND watched_at BETWEEN ? AND ?
+LIMIT 1
+`);
+  const inserted = db.transaction(() => {
+    let changes = 0;
+    for (const row of history) {
+      const videoId = row.video_id.trim();
+      const title = row.title.trim();
+      if (!videoId || !title || !Number.isFinite(row.watched_at) || row.watched_at <= 0) continue;
+      const watchedAt = Math.floor(row.watched_at);
+      if (nearDuplicate.get(videoId, watchedAt - 60_000, watchedAt + 60_000)) continue;
+      changes += insert.run(
+        videoId,
+        title,
+        row.title_url?.trim() || null,
+        row.channel_id?.trim() || null,
+        row.channel_title?.trim() || null,
+        watchedAt,
+        sourceGeneration,
+        Math.floor(importedAt),
+      ).changes;
+    }
+    return changes;
+  })();
+  return { inserted, noop: inserted === 0 };
+}
+
+export function listYoutubeTakeoutHistory(limit = 5_000): YoutubeTakeoutHistoryEntry[] {
+  return ensureDb().prepare(`
+SELECT video_id, title, title_url, channel_id, channel_title, watched_at,
+       source_generation, imported_at
+FROM youtube_takeout_history
+ORDER BY watched_at DESC, video_id
+LIMIT ?
+`).all(Math.max(1, Math.min(20_000, Math.floor(limit)))) as YoutubeTakeoutHistoryEntry[];
+}
+
+export function listYoutubeTakeoutHistoryIdsPage(options: {
+  after_video_id?: string | null;
+  limit?: number;
+} = {}): string[] {
+  const rows = ensureDb().prepare(`
+SELECT DISTINCT video_id
+FROM youtube_takeout_history
+WHERE video_id > @after_video_id
+ORDER BY video_id
+LIMIT @limit
+`).all({
+    after_video_id: options.after_video_id?.trim() || '',
+    limit: Math.max(1, Math.min(2_000, Math.floor(options.limit ?? 1_000))),
+  }) as Array<{ video_id: string }>;
+  return rows.map((row) => row.video_id);
+}
+
+function cleanYoutubeTakeoutMessages(values: readonly string[] | undefined): string[] {
+  return (values ?? [])
+    .map((value) => String(value).trim().slice(0, 500))
+    .filter(Boolean)
+    .slice(0, 100);
+}
+
+export function recordYoutubeTakeoutImportAudit(
+  input: Omit<YoutubeTakeoutImportAudit, 'source_filename' | 'warnings' | 'errors'> & {
+    source_filename?: string | null;
+    warnings?: readonly string[];
+    errors?: readonly string[];
+  },
+  options: { preserve_existing?: boolean } = {},
+): boolean {
+  const generation = input.generation.trim();
+  const sourceHash = input.source_hash.trim();
+  if (!generation || !sourceHash) throw new Error('Takeout import audit requires generation and source hash');
+  const values = [
+    generation,
+    input.format,
+    basename(input.source_filename?.trim() || 'takeout').slice(0, 240),
+    sourceHash,
+    input.status,
+    Math.max(0, Math.floor(input.history_count)),
+    Math.max(0, Math.floor(input.subscription_count)),
+    Math.floor(input.imported_at),
+    JSON.stringify(cleanYoutubeTakeoutMessages(input.warnings)),
+    JSON.stringify(cleanYoutubeTakeoutMessages(input.errors)),
+  ];
+  if (options.preserve_existing) {
+    const result = ensureDb().prepare(`
+INSERT OR IGNORE INTO youtube_takeout_imports(
+  generation, format, source_filename, source_hash, status,
+  history_count, subscription_count, imported_at, warnings_json, errors_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`).run(...values);
+    return result.changes > 0;
+  }
+  const result = ensureDb().prepare(`
+INSERT INTO youtube_takeout_imports(
+  generation, format, source_filename, source_hash, status,
+  history_count, subscription_count, imported_at, warnings_json, errors_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(generation) DO UPDATE SET
+  format = excluded.format,
+  source_filename = excluded.source_filename,
+  source_hash = excluded.source_hash,
+  status = excluded.status,
+  history_count = excluded.history_count,
+  subscription_count = excluded.subscription_count,
+  imported_at = excluded.imported_at,
+  warnings_json = excluded.warnings_json,
+  errors_json = excluded.errors_json
+`).run(...values);
+  return result.changes > 0;
+}
+
+function parseYoutubeTakeoutImportAudit(row: Omit<YoutubeTakeoutImportAudit, 'warnings' | 'errors'> & {
+  warnings_json: string;
+  errors_json: string;
+}): YoutubeTakeoutImportAudit {
+  const parseMessages = (raw: string): string[] => {
+    try {
+      const value = JSON.parse(raw);
+      return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+  const { warnings_json, errors_json, ...rest } = row;
+  return { ...rest, warnings: parseMessages(warnings_json), errors: parseMessages(errors_json) };
+}
+
+export function listYoutubeTakeoutImportAudits(limit = 50): YoutubeTakeoutImportAudit[] {
+  const rows = ensureDb().prepare(`
+SELECT generation, format, source_filename, source_hash, status,
+       history_count, subscription_count, imported_at, warnings_json, errors_json
+FROM youtube_takeout_imports
+ORDER BY imported_at DESC, generation DESC
+LIMIT ?
+`).all(Math.max(1, Math.min(500, Math.floor(limit)))) as Array<
+    Omit<YoutubeTakeoutImportAudit, 'warnings' | 'errors'> & { warnings_json: string; errors_json: string }
+  >;
+  return rows.map(parseYoutubeTakeoutImportAudit);
+}
+
+export function latestYoutubeTakeoutImportAudit(): YoutubeTakeoutImportAudit | null {
+  return listYoutubeTakeoutImportAudits(1)[0] ?? null;
 }
 
 export function recordSearchQuery(

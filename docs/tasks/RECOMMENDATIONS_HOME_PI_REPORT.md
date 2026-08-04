@@ -1,5 +1,10 @@
 # Recommendations home-Pi report
 
+> Historical report for the earlier `2440a82` recommendation rollout. It is
+> not a deployment contract for Couch Recommendations v2. Use
+> `RECOMMENDATIONS_HOME_PI_CODEX_SPEC.md` and write the new evidence to
+> `RECOMMENDATIONS_V2_HOME_PI_REPORT.md`.
+
 **Date:** 2026-08-04 (PT)  
 **Home host:** Amans-MacBook-Air-M2.local (`/Users/aman/Documents/personal/projects/mango`)  
 **Pi hostname:** mango  

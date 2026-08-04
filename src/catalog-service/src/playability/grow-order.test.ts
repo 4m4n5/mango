@@ -7,7 +7,6 @@ function rail(
   id: string,
   type: string,
   poolTarget = 20,
-  verified = 0,
 ): PlayableRail {
   return {
     id,
@@ -34,9 +33,9 @@ test('railsForGrowPass processes browse rails before ai catalog slots', () => {
 
 test('railsForGrowPass sorts browse rails by fill ratio ascending', () => {
   const rails = [
-    rail('movies-global-popular', 'composite_list', 20, 0),
-    rail('movies-india-trending', 'composite_list', 20, 0),
-    rail('movies-classics', 'composite_list', 20, 0),
+    rail('movies-global-popular', 'composite_list', 20),
+    rail('movies-india-trending', 'composite_list', 20),
+    rail('movies-classics', 'composite_list', 20),
     rail('ai-slot', 'ai_catalog'),
   ];
   const verified = new Map<string, number>([

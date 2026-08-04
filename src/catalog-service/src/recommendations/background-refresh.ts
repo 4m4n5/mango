@@ -6,7 +6,7 @@ export type RecommendationRefreshWork = {
 
 export type RecommendationRefreshQueueOptions = {
   refresh: (work: RecommendationRefreshWork) => Promise<unknown>;
-  onPublished: () => void;
+  onPublished: (work: RecommendationRefreshWork) => void;
   onRetainedLastGood?: (work: RecommendationRefreshWork, error: unknown, willRetry: boolean) => void;
   wait?: (delayMs: number) => Promise<void>;
   maxRetries?: number;
@@ -57,7 +57,6 @@ export class CoalescingRecommendationRefreshQueue {
   }
 
   private async drain(): Promise<void> {
-    let published = false;
     const maxRetries = Math.max(0, Math.floor(this.options.maxRetries ?? 2));
     const retryBaseMs = Math.max(0, Math.floor(this.options.retryBaseMs ?? 250));
     const wait = this.options.wait ?? defaultWait;
@@ -66,24 +65,49 @@ export class CoalescingRecommendationRefreshQueue {
       this.pending.clear();
       for (const work of batch) {
         const key = this.workKey(work);
-        try {
-          await this.options.refresh(work);
-          this.attempts.delete(key);
-          published = true;
-        } catch (error) {
-          const failedAttempts = (this.attempts.get(key) ?? 0) + 1;
-          const willRetry = failedAttempts <= maxRetries;
-          this.options.onRetainedLastGood?.(work, error, willRetry);
-          if (willRetry) {
+        // Retry the captured active item in place. Re-inserting it into
+        // `pending` used to overwrite a newer same-key trigger and let the
+        // integration layer consume that trigger while still holding the old
+        // durable job IDs. Keeping retries local leaves new work pending for a
+        // distinct callback/lifecycle transition after this item settles.
+        while (true) {
+          try {
+            await this.options.refresh(work);
+            this.attempts.delete(key);
+            this.options.onPublished(work);
+            break;
+          } catch (error) {
+            const failedAttempts = (this.attempts.get(key) ?? 0) + 1;
+            const willRetry = failedAttempts <= maxRetries;
+            this.options.onRetainedLastGood?.(work, error, willRetry);
+            if (!willRetry) {
+              this.attempts.delete(key);
+              break;
+            }
             this.attempts.set(key, failedAttempts);
             await wait(retryBaseMs * 2 ** (failedAttempts - 1));
-            this.pending.set(key, work);
-          } else {
-            this.attempts.delete(key);
           }
         }
       }
     }
-    if (published) this.options.onPublished();
+  }
+}
+
+/**
+ * Promise-tail serialization scoped by key. Operations for one VOD media type
+ * cannot overlap, while Movies and Series remain independent workers.
+ */
+export class KeyedSerialExecutor<Key> {
+  private readonly tails = new Map<Key, Promise<void>>();
+
+  run<Result>(key: Key, operation: () => Promise<Result>): Promise<Result> {
+    const previous = this.tails.get(key) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(operation);
+    const tail = run.then(() => undefined, () => undefined);
+    this.tails.set(key, tail);
+    void tail.then(() => {
+      if (this.tails.get(key) === tail) this.tails.delete(key);
+    });
+    return run;
   }
 }

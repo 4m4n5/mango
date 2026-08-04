@@ -22,6 +22,12 @@ export interface PersonalizationPayload {
   ok: boolean;
   profiles: ViewerProfile[];
   state: PersonalizationState;
+  household_only?: boolean;
+}
+
+/** Fail closed while the catalog service is starting: profile chrome is shown only on an explicit profile-mode response. */
+export function personalizationControlsVisible(payload: PersonalizationPayload | null): boolean {
+  return payload?.household_only === false;
 }
 
 export type PersonalizationChanged = (
@@ -266,6 +272,10 @@ export async function buildPersonalizationSettings(
 
   try {
     const payload = await fetchPersonalizationState();
+    if (!personalizationControlsVisible(payload)) {
+      section.remove();
+      return;
+    }
     renderPersonalizationSection(section, payload, onStatus, onChanged);
   } catch {
     const fallback = document.createElement("p");

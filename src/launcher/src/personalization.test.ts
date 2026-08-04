@@ -10,6 +10,7 @@ import {
   personalizationExpectationParams,
   personalizationOwnerFromPayload,
   personalizationAriaLabel,
+  personalizationControlsVisible,
   profileInitial,
   samePersonalizationOwner,
   samePersonalizationRequestVersion,
@@ -64,6 +65,13 @@ test("active profile and explicit mood produce couch-readable chrome copy", () =
 
 test("unknown profile safely falls back to the household", () => {
   assert.equal(activeViewerProfile(payload("removed-profile")).profile_id, "household");
+});
+
+test("profile controls fail closed until the server explicitly reports profile mode", () => {
+  assert.equal(personalizationControlsVisible(null), false);
+  assert.equal(personalizationControlsVisible(payload()), false);
+  assert.equal(personalizationControlsVisible({ ...payload(), household_only: true }), false);
+  assert.equal(personalizationControlsVisible({ ...payload(), household_only: false }), true);
 });
 
 test("personal profile onboarding is optional and never applies to Household", () => {

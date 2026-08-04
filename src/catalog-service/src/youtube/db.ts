@@ -1,6 +1,15 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import Database from 'better-sqlite3';
+import {
+  latestYoutubeTakeoutImportAudit,
+  listYoutubeTakeoutHistory,
+  listYoutubeTakeoutHistoryIdsPage,
+  recordYoutubeTakeoutImportAudit,
+  upsertYoutubeTakeoutHistory,
+  type YoutubeTakeoutHistoryEntry,
+  type YoutubeTakeoutImportAudit,
+} from '../library/db.js';
 import { loadYoutubeConfig } from './config.js';
 import type {
   YoutubeItem,
@@ -14,6 +23,8 @@ import type {
 
 let dbSingleton: Database.Database | null = null;
 let initialized = false;
+let legacyTakeoutMigrationComplete = false;
+let legacyTakeoutMigrationResult = { history_inserted: 0, audits_copied: 0 };
 
 export function resetYoutubeDbForTests(): void {
   if (dbSingleton) {
@@ -21,6 +32,8 @@ export function resetYoutubeDbForTests(): void {
     dbSingleton = null;
   }
   initialized = false;
+  legacyTakeoutMigrationComplete = false;
+  legacyTakeoutMigrationResult = { history_inserted: 0, audits_copied: 0 };
 }
 
 export function youtubeDbPath(): string {
@@ -252,6 +265,103 @@ CREATE TABLE IF NOT EXISTS youtube_profile_candidate_state (
 CREATE INDEX IF NOT EXISTS idx_youtube_profile_candidate_cooldown
   ON youtube_profile_candidate_state(profile_id, rail_id, context_id, last_recommended_at);
 
+-- Recommendation v2 deliberately owns its source records in youtube.db.  The
+-- rows below are household-wide: profile, mood, search, Saved, VOD, global
+-- charts, and AI output are not valid taste inputs for this model.
+CREATE TABLE IF NOT EXISTS youtube_v2_subscriptions (
+  channel_key TEXT PRIMARY KEY,
+  channel_id TEXT,
+  channel_title TEXT NOT NULL,
+  channel_url TEXT,
+  source TEXT NOT NULL CHECK(source IN ('oauth', 'takeout')),
+  source_generation TEXT NOT NULL,
+  subscribed_at INTEGER,
+  imported_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_v2_subscriptions_id
+  ON youtube_v2_subscriptions(channel_id);
+
+CREATE TABLE IF NOT EXISTS youtube_v2_imported_history (
+  video_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  title_url TEXT,
+  channel_id TEXT,
+  channel_title TEXT,
+  watched_at INTEGER NOT NULL,
+  source_generation TEXT NOT NULL,
+  imported_at INTEGER NOT NULL,
+  PRIMARY KEY(video_id, watched_at)
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_v2_history_watched
+  ON youtube_v2_imported_history(watched_at DESC);
+
+CREATE TABLE IF NOT EXISTS youtube_v2_takeout_imports (
+  generation TEXT PRIMARY KEY,
+  format TEXT NOT NULL CHECK(format IN ('json', 'html', 'zip', 'mixed', 'unknown')),
+  source_filename TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('success', 'partial', 'failed', 'noop')),
+  history_count INTEGER NOT NULL DEFAULT 0,
+  subscription_count INTEGER NOT NULL DEFAULT 0,
+  imported_at INTEGER NOT NULL,
+  warnings_json TEXT NOT NULL DEFAULT '[]',
+  errors_json TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_v2_takeout_imported
+  ON youtube_v2_takeout_imports(imported_at DESC);
+
+CREATE TABLE IF NOT EXISTS youtube_v2_candidate_provenance (
+  kind TEXT NOT NULL DEFAULT 'video' CHECK(kind = 'video'),
+  id TEXT NOT NULL,
+  provenance TEXT NOT NULL CHECK(provenance IN (
+    'subscription_upload', 'subscription_live', 'history_channel', 'history_topic'
+  )),
+  provenance_ref TEXT NOT NULL,
+  source_generation TEXT NOT NULL,
+  acquired_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY(kind, id, provenance, provenance_ref, source_generation),
+  FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_v2_candidate_expiry
+  ON youtube_v2_candidate_provenance(expires_at);
+CREATE INDEX IF NOT EXISTS idx_youtube_v2_candidate_source
+  ON youtube_v2_candidate_provenance(provenance, source_generation, acquired_at DESC);
+
+CREATE TABLE IF NOT EXISTS youtube_v2_generations (
+  generation INTEGER PRIMARY KEY AUTOINCREMENT,
+  model_version TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('ready', 'empty')),
+  watch_count INTEGER NOT NULL,
+  subscription_count INTEGER NOT NULL,
+  candidate_count INTEGER NOT NULL,
+  generated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS youtube_v2_generation_items (
+  generation INTEGER NOT NULL,
+  rail_id TEXT NOT NULL CHECK(rail_id IN (
+    'for_you', 'beyond', 'more_like', 'new_from_subscriptions', 'live_now'
+  )),
+  rank INTEGER NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'video' CHECK(kind = 'video'),
+  id TEXT NOT NULL,
+  score REAL NOT NULL,
+  reason TEXT,
+  provenance TEXT NOT NULL CHECK(provenance IN (
+    'subscription_upload', 'subscription_live', 'history_channel', 'history_topic'
+  )),
+  provenance_ref TEXT NOT NULL,
+  context_id TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(generation, rail_id, rank),
+  UNIQUE(generation, rail_id, kind, id),
+  FOREIGN KEY(generation) REFERENCES youtube_v2_generations(generation) ON DELETE CASCADE,
+  FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_youtube_v2_generation_rail
+  ON youtube_v2_generation_items(generation, rail_id, rank);
+
 CREATE INDEX IF NOT EXISTS idx_youtube_items_updated ON youtube_items(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_items_channel ON youtube_items(channel_id, published_at DESC);
 CREATE INDEX IF NOT EXISTS idx_youtube_rail_added ON youtube_rail_items(rail_id, score DESC, added_at DESC);
@@ -326,6 +436,117 @@ WHERE last_recommended_at IS NOT NULL
       db.prepare('INSERT INTO youtube_migrations(version, applied_at) VALUES (10, ?)')
         .run(migratedAt);
     })();
+  }
+  db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (11, ?)')
+    .run(nowMs());
+  const v2ProvenanceMigration = db.prepare(
+    'SELECT 1 FROM youtube_migrations WHERE version = 12',
+  ).get();
+  if (!v2ProvenanceMigration) {
+    const generationItemsSql = (db.prepare(`
+SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'youtube_v2_generation_items'
+`).get() as { sql?: string } | undefined)?.sql ?? '';
+    if (generationItemsSql.includes('subscription_adjacent')) {
+      db.transaction(() => {
+        db.exec(`
+CREATE TABLE youtube_v2_generation_items_v12 (
+  generation INTEGER NOT NULL,
+  rail_id TEXT NOT NULL CHECK(rail_id IN (
+    'for_you', 'beyond', 'more_like', 'new_from_subscriptions', 'live_now'
+  )),
+  rank INTEGER NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'video' CHECK(kind = 'video'),
+  id TEXT NOT NULL,
+  score REAL NOT NULL,
+  reason TEXT,
+  provenance TEXT NOT NULL CHECK(provenance IN (
+    'subscription_upload', 'subscription_live', 'history_channel', 'history_topic'
+  )),
+  provenance_ref TEXT NOT NULL,
+  context_id TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY(generation, rail_id, rank),
+  UNIQUE(generation, rail_id, kind, id),
+  FOREIGN KEY(generation) REFERENCES youtube_v2_generations(generation) ON DELETE CASCADE,
+  FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+INSERT INTO youtube_v2_generation_items_v12(
+  generation, rail_id, rank, kind, id, score, reason,
+  provenance, provenance_ref, context_id
+)
+SELECT
+  generation, rail_id, rank, kind, id, score, reason,
+  provenance, provenance_ref, context_id
+FROM youtube_v2_generation_items
+WHERE provenance IN (
+  'subscription_upload', 'subscription_live', 'history_channel', 'history_topic'
+);
+DROP TABLE youtube_v2_generation_items;
+ALTER TABLE youtube_v2_generation_items_v12 RENAME TO youtube_v2_generation_items;
+CREATE INDEX idx_youtube_v2_generation_rail
+  ON youtube_v2_generation_items(generation, rail_id, rank);
+`);
+      })();
+    }
+    db.prepare('INSERT INTO youtube_migrations(version, applied_at) VALUES (12, ?)')
+      .run(nowMs());
+  }
+  db.prepare('INSERT OR IGNORE INTO youtube_migrations(version, applied_at) VALUES (13, ?)')
+    .run(nowMs());
+  const v2GenerationExpiryMigration = db.prepare(
+    'SELECT 1 FROM youtube_migrations WHERE version = 14',
+  ).get();
+  if (!v2GenerationExpiryMigration) {
+    const columns = db.prepare('PRAGMA table_info(youtube_v2_generation_items)')
+      .all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'source_expires_at')) {
+      db.exec(`
+ALTER TABLE youtube_v2_generation_items
+ADD COLUMN source_expires_at INTEGER NOT NULL DEFAULT 0;
+`);
+    }
+    db.prepare('INSERT INTO youtube_migrations(version, applied_at) VALUES (14, ?)')
+      .run(nowMs());
+  }
+  const v2ProvenanceGenerationKeyMigration = db.prepare(
+    'SELECT 1 FROM youtube_migrations WHERE version = 15',
+  ).get();
+  if (!v2ProvenanceGenerationKeyMigration) {
+    const provenanceSql = (db.prepare(`
+SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'youtube_v2_candidate_provenance'
+`).get() as { sql?: string } | undefined)?.sql ?? '';
+    if (!/PRIMARY KEY\s*\(\s*kind\s*,\s*id\s*,\s*provenance\s*,\s*provenance_ref\s*,\s*source_generation\s*\)/i
+      .test(provenanceSql)) {
+      db.transaction(() => {
+        db.exec(`
+CREATE TABLE youtube_v2_candidate_provenance_v15 (
+  kind TEXT NOT NULL DEFAULT 'video' CHECK(kind = 'video'),
+  id TEXT NOT NULL,
+  provenance TEXT NOT NULL CHECK(provenance IN (
+    'subscription_upload', 'subscription_live', 'history_channel', 'history_topic'
+  )),
+  provenance_ref TEXT NOT NULL,
+  source_generation TEXT NOT NULL,
+  acquired_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  PRIMARY KEY(kind, id, provenance, provenance_ref, source_generation),
+  FOREIGN KEY(kind, id) REFERENCES youtube_items(kind, id) ON DELETE CASCADE
+);
+INSERT INTO youtube_v2_candidate_provenance_v15(
+  kind, id, provenance, provenance_ref, source_generation, acquired_at, expires_at
+)
+SELECT kind, id, provenance, provenance_ref, source_generation, acquired_at, expires_at
+FROM youtube_v2_candidate_provenance;
+DROP TABLE youtube_v2_candidate_provenance;
+ALTER TABLE youtube_v2_candidate_provenance_v15 RENAME TO youtube_v2_candidate_provenance;
+CREATE INDEX idx_youtube_v2_candidate_expiry
+  ON youtube_v2_candidate_provenance(expires_at);
+CREATE INDEX idx_youtube_v2_candidate_source
+  ON youtube_v2_candidate_provenance(provenance, source_generation, acquired_at DESC);
+`);
+      })();
+    }
+    db.prepare('INSERT INTO youtube_migrations(version, applied_at) VALUES (15, ?)')
+      .run(nowMs());
   }
 }
 
@@ -1836,6 +2057,536 @@ FROM youtube_search_cache;
     oldest_fetched_at: row.oldest_fetched_at,
     newest_fetched_at: row.newest_fetched_at,
   };
+}
+
+export type YoutubeV2Subscription = {
+  channel_key: string;
+  channel_id: string | null;
+  channel_title: string;
+  channel_url: string | null;
+  source: 'oauth' | 'takeout';
+  source_generation: string;
+  subscribed_at: number | null;
+  imported_at: number;
+};
+
+export type YoutubeV2HistoryEntry = YoutubeTakeoutHistoryEntry;
+
+export function replaceYoutubeV2Subscriptions(
+  subscriptions: Array<Omit<YoutubeV2Subscription, 'source_generation' | 'imported_at'>>,
+  options: { source_generation: string; imported_at?: number },
+): { replaced: number; noop: boolean } {
+  const db = ensureDb();
+  const sourceGeneration = options.source_generation.trim();
+  if (!sourceGeneration) throw new Error('YouTube v2 subscription replacement requires a source generation');
+  const stateKey = 'v2_subscription_source_generation';
+  const current = db.prepare('SELECT value FROM youtube_state WHERE key = ?').get(stateKey) as { value: string } | undefined;
+  if (current?.value === JSON.stringify(sourceGeneration)) {
+    return { replaced: 0, noop: true };
+  }
+  const importedAt = options.imported_at ?? nowMs();
+  const unique = new Map<string, Omit<YoutubeV2Subscription, 'source_generation' | 'imported_at'>>();
+  for (const row of subscriptions) {
+    const channelKey = row.channel_key.trim();
+    const title = row.channel_title.trim();
+    if (!channelKey || !title) continue;
+    unique.set(channelKey, {
+      ...row,
+      channel_key: channelKey,
+      channel_id: row.channel_id?.trim() || null,
+      channel_title: title,
+      channel_url: row.channel_url?.trim() || null,
+    });
+  }
+  const insert = db.prepare(`
+INSERT INTO youtube_v2_subscriptions(
+  channel_key, channel_id, channel_title, channel_url, source,
+  source_generation, subscribed_at, imported_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`);
+  db.transaction(() => {
+    db.prepare('DELETE FROM youtube_v2_subscriptions').run();
+    for (const row of unique.values()) {
+      insert.run(
+        row.channel_key,
+        row.channel_id,
+        row.channel_title,
+        row.channel_url,
+        row.source,
+        sourceGeneration,
+        row.subscribed_at,
+        importedAt,
+      );
+    }
+    db.prepare(`
+INSERT INTO youtube_state(key, value, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+`).run(stateKey, JSON.stringify(sourceGeneration), importedAt);
+  })();
+  return { replaced: unique.size, noop: false };
+}
+
+export function listYoutubeV2Subscriptions(): YoutubeV2Subscription[] {
+  return ensureDb().prepare(`
+SELECT channel_key, channel_id, channel_title, channel_url, source,
+       source_generation, subscribed_at, imported_at
+FROM youtube_v2_subscriptions
+ORDER BY lower(channel_title), channel_key
+`).all() as YoutubeV2Subscription[];
+}
+
+export function migrateLegacyYoutubeV2TakeoutToLibrary(): {
+  history_inserted: number;
+  audits_copied: number;
+} {
+  if (legacyTakeoutMigrationComplete) return legacyTakeoutMigrationResult;
+  const db = ensureDb();
+  let historyInserted = 0;
+  let afterVideoId = '';
+  let afterWatchedAt = -1;
+  while (true) {
+    const page = db.prepare(`
+SELECT video_id, title, title_url, channel_id, channel_title, watched_at,
+       source_generation, imported_at
+FROM youtube_v2_imported_history
+WHERE video_id > @after_video_id
+   OR (video_id = @after_video_id AND watched_at > @after_watched_at)
+ORDER BY video_id, watched_at
+LIMIT 1000
+`).all({
+      after_video_id: afterVideoId,
+      after_watched_at: afterWatchedAt,
+    }) as YoutubeV2HistoryEntry[];
+    if (page.length === 0) break;
+    const groups = new Map<string, YoutubeV2HistoryEntry[]>();
+    for (const row of page) {
+      const key = `${row.source_generation}\u0000${row.imported_at}`;
+      const rows = groups.get(key) ?? [];
+      rows.push(row);
+      groups.set(key, rows);
+    }
+    for (const rows of groups.values()) {
+      const first = rows[0]!;
+      historyInserted += upsertYoutubeTakeoutHistory(rows.map((row) => ({
+        video_id: row.video_id,
+        title: row.title,
+        title_url: row.title_url,
+        channel_id: row.channel_id,
+        channel_title: row.channel_title,
+        watched_at: row.watched_at,
+      })), {
+        source_generation: first.source_generation,
+        imported_at: first.imported_at,
+      }).inserted;
+    }
+    const last = page.at(-1)!;
+    afterVideoId = last.video_id;
+    afterWatchedAt = last.watched_at;
+  }
+
+  const parseMessages = (raw: string): string[] => {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+    } catch {
+      return [];
+    }
+  };
+  const audits = db.prepare(`
+SELECT generation, format, source_filename, source_hash, status,
+       history_count, subscription_count, imported_at, warnings_json, errors_json
+FROM youtube_v2_takeout_imports
+ORDER BY imported_at, generation
+`).all() as Array<Omit<YoutubeV2TakeoutImport, 'warnings' | 'errors'> & {
+    warnings_json: string;
+    errors_json: string;
+  }>;
+  let auditsCopied = 0;
+  for (const row of audits) {
+    auditsCopied += Number(recordYoutubeTakeoutImportAudit({
+      generation: row.generation,
+      format: row.format,
+      source_filename: row.source_filename,
+      source_hash: row.source_hash,
+      status: row.status,
+      history_count: row.history_count,
+      subscription_count: row.subscription_count,
+      imported_at: row.imported_at,
+      warnings: parseMessages(row.warnings_json),
+      errors: parseMessages(row.errors_json),
+    }, { preserve_existing: true }));
+  }
+  legacyTakeoutMigrationResult = {
+    history_inserted: historyInserted,
+    audits_copied: auditsCopied,
+  };
+  legacyTakeoutMigrationComplete = true;
+  return legacyTakeoutMigrationResult;
+}
+
+export function upsertYoutubeV2ImportedHistory(
+  history: Array<Omit<YoutubeV2HistoryEntry, 'source_generation' | 'imported_at'>>,
+  options: { source_generation: string; imported_at?: number },
+): { inserted: number; noop: boolean } {
+  migrateLegacyYoutubeV2TakeoutToLibrary();
+  return upsertYoutubeTakeoutHistory(history, options);
+}
+
+export type YoutubeV2TakeoutImport = YoutubeTakeoutImportAudit;
+
+export function recordYoutubeV2TakeoutImport(
+  input: Omit<YoutubeV2TakeoutImport, 'source_filename' | 'warnings' | 'errors'> & {
+    source_filename?: string | null;
+    warnings?: readonly string[];
+    errors?: readonly string[];
+  },
+): void {
+  migrateLegacyYoutubeV2TakeoutToLibrary();
+  recordYoutubeTakeoutImportAudit(input);
+}
+
+export function latestYoutubeV2TakeoutImport(): YoutubeV2TakeoutImport | null {
+  migrateLegacyYoutubeV2TakeoutToLibrary();
+  return latestYoutubeTakeoutImportAudit();
+}
+
+export function listYoutubeV2ImportedHistory(limit = 5000): YoutubeV2HistoryEntry[] {
+  migrateLegacyYoutubeV2TakeoutToLibrary();
+  return listYoutubeTakeoutHistory(limit);
+}
+
+export function listYoutubeV2ImportedHistoryIdsPage(options: {
+  after_video_id?: string | null;
+  limit?: number;
+} = {}): string[] {
+  migrateLegacyYoutubeV2TakeoutToLibrary();
+  return listYoutubeTakeoutHistoryIdsPage(options);
+}
+
+export type YoutubeV2Provenance =
+  | 'subscription_upload'
+  | 'subscription_live'
+  | 'history_channel'
+  | 'history_topic';
+
+export type YoutubeV2CandidateProvenance = {
+  item: YoutubeItem;
+  provenance: YoutubeV2Provenance;
+  provenance_ref: string;
+  source_generation: string;
+  acquired_at: number;
+  expires_at: number;
+};
+
+export function upsertYoutubeV2CandidateProvenance(
+  candidates: YoutubeV2CandidateProvenance[],
+): { upserted: number } {
+  const valid = candidates.filter((candidate) => (
+    candidate.item.kind === 'video'
+    && candidate.item.id.trim()
+    && candidate.provenance_ref.trim()
+    && candidate.source_generation.trim()
+    && Number.isFinite(candidate.acquired_at)
+    && Number.isFinite(candidate.expires_at)
+    && candidate.expires_at > candidate.acquired_at
+  ));
+  upsertYoutubeItems(valid.map((candidate) => candidate.item));
+  const db = ensureDb();
+  const insert = db.prepare(`
+INSERT INTO youtube_v2_candidate_provenance(
+  kind, id, provenance, provenance_ref, source_generation, acquired_at, expires_at
+) VALUES ('video', ?, ?, ?, ?, ?, ?)
+ON CONFLICT(kind, id, provenance, provenance_ref, source_generation) DO UPDATE SET
+  acquired_at = excluded.acquired_at,
+  expires_at = excluded.expires_at
+`);
+  const upserted = db.transaction(() => {
+    let changes = 0;
+    for (const candidate of valid) {
+      changes += insert.run(
+        candidate.item.id.trim(),
+        candidate.provenance,
+        candidate.provenance_ref.trim(),
+        candidate.source_generation.trim(),
+        Math.floor(candidate.acquired_at),
+        Math.floor(candidate.expires_at),
+      ).changes;
+    }
+    return changes;
+  })();
+  return { upserted };
+}
+
+export function listYoutubeV2CandidateProvenance(options: {
+  at?: number;
+  limit?: number;
+} = {}): YoutubeV2CandidateProvenance[] {
+  const at = Math.floor(options.at ?? nowMs());
+  const limit = Math.max(1, Math.min(50_000, Math.floor(options.limit ?? 20_000)));
+  const rows = ensureDb().prepare(`
+SELECT
+  cp.provenance, cp.provenance_ref, cp.source_generation,
+  cp.acquired_at, cp.expires_at,
+  yi.id, yi.kind, yi.title, yi.subtitle, yi.description, yi.thumbnail,
+  yi.channel_id, yi.channel_title, yi.published_at, yi.duration_sec,
+  yi.live_status, yi.playlist_id, yi.updated_at
+FROM youtube_v2_candidate_provenance cp
+JOIN youtube_items yi ON yi.kind = cp.kind AND yi.id = cp.id
+WHERE cp.expires_at > ?
+ORDER BY cp.acquired_at DESC, cp.id, cp.provenance, cp.provenance_ref
+LIMIT ?
+`).all(at, limit) as Array<YoutubeItem & Omit<YoutubeV2CandidateProvenance, 'item'>>;
+  return rows.map((row) => ({
+    item: {
+      id: row.id,
+      kind: row.kind,
+      title: row.title,
+      subtitle: row.subtitle,
+      description: row.description,
+      thumbnail: row.thumbnail,
+      channel_id: row.channel_id,
+      channel_title: row.channel_title,
+      published_at: row.published_at,
+      duration_sec: row.duration_sec,
+      live_status: row.live_status,
+      playlist_id: row.playlist_id,
+      updated_at: row.updated_at,
+    },
+    provenance: row.provenance,
+    provenance_ref: row.provenance_ref,
+    source_generation: row.source_generation,
+    acquired_at: row.acquired_at,
+    expires_at: row.expires_at,
+  }));
+}
+
+/** All cache identities ever written through v2 acquisition, including expired rows. */
+export function listAllYoutubeV2CandidateIds(): string[] {
+  return (ensureDb().prepare(`
+SELECT DISTINCT id
+FROM youtube_v2_candidate_provenance
+WHERE kind = 'video'
+ORDER BY id
+`).all() as Array<{ id: string }>).map((row) => row.id);
+}
+
+export function youtubeV2CandidateProvenanceSummary(at = nowMs()): {
+  total: number;
+  active: number;
+  expired: number;
+  next_expiry_at: number | null;
+  by_provenance: Record<YoutubeV2Provenance, number>;
+} {
+  const db = ensureDb();
+  const totals = db.prepare(`
+SELECT COUNT(*) AS total,
+       SUM(CASE WHEN expires_at > ? THEN 1 ELSE 0 END) AS active,
+       SUM(CASE WHEN expires_at <= ? THEN 1 ELSE 0 END) AS expired,
+       MIN(CASE WHEN expires_at > ? THEN expires_at END) AS next_expiry_at
+FROM youtube_v2_candidate_provenance
+`).get(at, at, at) as { total: number; active: number; expired: number; next_expiry_at: number | null };
+  const byProvenance: Record<YoutubeV2Provenance, number> = {
+    subscription_upload: 0,
+    subscription_live: 0,
+    history_channel: 0,
+    history_topic: 0,
+  };
+  for (const row of db.prepare(`
+SELECT provenance, COUNT(*) AS count
+FROM youtube_v2_candidate_provenance
+WHERE expires_at > ?
+GROUP BY provenance
+`).all(at) as Array<{ provenance: YoutubeV2Provenance; count: number }>) {
+    byProvenance[row.provenance] = Number(row.count);
+  }
+  return {
+    total: Number(totals.total || 0),
+    active: Number(totals.active || 0),
+    expired: Number(totals.expired || 0),
+    next_expiry_at: totals.next_expiry_at,
+    by_provenance: byProvenance,
+  };
+}
+
+export type YoutubeV2GenerationItemInput = {
+  rail_id: 'for_you' | 'beyond' | 'more_like' | 'new_from_subscriptions' | 'live_now';
+  item: YoutubeItem;
+  score: number;
+  reason: string | null;
+  provenance: YoutubeV2Provenance;
+  provenance_ref: string;
+  source_expires_at: number;
+  context_id?: string;
+};
+
+export type YoutubeV2Generation = {
+  generation: number;
+  model_version: string;
+  source_hash: string;
+  watch_count: number;
+  subscription_count: number;
+  candidate_count: number;
+  generated_at: number;
+  items: Array<YoutubeRailItem & {
+    rail_id: YoutubeV2GenerationItemInput['rail_id'];
+    rank: number;
+    provenance: YoutubeV2Provenance;
+    provenance_ref: string;
+    source_expires_at: number;
+    context_id: string;
+  }>;
+};
+
+export type YoutubeV2GenerationRecord = Omit<YoutubeV2Generation, 'items'> & {
+  status: 'ready' | 'empty';
+};
+
+export function publishYoutubeV2Generation(input: {
+  model_version: string;
+  source_hash: string;
+  watch_count: number;
+  subscription_count: number;
+  items: YoutubeV2GenerationItemInput[];
+  generated_at?: number;
+}): number {
+  const db = ensureDb();
+  const generatedAt = input.generated_at ?? nowMs();
+  const seen = new Set<string>();
+  const items = input.items.filter((entry) => {
+    const membershipKey = `${entry.rail_id}:${entry.item.id}`;
+    if (
+      entry.item.kind !== 'video'
+      || !entry.item.id.trim()
+      || !entry.provenance_ref.trim()
+      || !Number.isFinite(entry.score)
+      || !Number.isFinite(entry.source_expires_at)
+      || entry.source_expires_at <= generatedAt
+      || seen.has(membershipKey)
+    ) return false;
+    seen.add(membershipKey);
+    return true;
+  });
+  upsertYoutubeItems(items.map((entry) => entry.item));
+  return db.transaction(() => {
+    const generation = Number(db.prepare(`
+INSERT INTO youtube_v2_generations(
+  model_version, source_hash, status, watch_count, subscription_count,
+  candidate_count, generated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+`).run(
+      input.model_version,
+      input.source_hash,
+      items.length > 0 ? 'ready' : 'empty',
+      Math.max(0, Math.floor(input.watch_count)),
+      Math.max(0, Math.floor(input.subscription_count)),
+      items.length,
+      generatedAt,
+    ).lastInsertRowid);
+    const insert = db.prepare(`
+INSERT INTO youtube_v2_generation_items(
+  generation, rail_id, rank, kind, id, score, reason,
+  provenance, provenance_ref, source_expires_at, context_id
+) VALUES (?, ?, ?, 'video', ?, ?, ?, ?, ?, ?, ?)
+`);
+    const ranks = new Map<string, number>();
+    for (const entry of items) {
+      const rank = ranks.get(entry.rail_id) ?? 0;
+      insert.run(
+        generation,
+        entry.rail_id,
+        rank,
+        entry.item.id,
+        entry.score,
+        entry.reason,
+        entry.provenance,
+        entry.provenance_ref,
+        entry.source_expires_at,
+        entry.context_id?.trim() || '',
+      );
+      ranks.set(entry.rail_id, rank + 1);
+    }
+    db.prepare(`
+DELETE FROM youtube_v2_generations
+WHERE generation NOT IN (
+  SELECT generation FROM youtube_v2_generations ORDER BY generation DESC LIMIT 8
+)
+`).run();
+    return generation;
+  })();
+}
+
+export function latestYoutubeV2GenerationRecord(): YoutubeV2GenerationRecord | null {
+  return (ensureDb().prepare(`
+SELECT generation, model_version, source_hash, status, watch_count, subscription_count,
+       candidate_count, generated_at
+FROM youtube_v2_generations
+ORDER BY generation DESC
+LIMIT 1
+`).get() as YoutubeV2GenerationRecord | undefined) ?? null;
+}
+
+export function latestYoutubeV2Generation(): YoutubeV2Generation | null {
+  const db = ensureDb();
+  const generation = latestYoutubeV2GenerationRecord();
+  if (!generation || generation.status !== 'ready') return null;
+  const items = db.prepare(`
+SELECT
+  gi.rail_id, gi.rank, gi.score, gi.reason, gi.provenance, gi.provenance_ref,
+  gi.source_expires_at, gi.context_id, yi.id, yi.kind, yi.title, yi.subtitle, yi.description,
+  yi.thumbnail, yi.channel_id, yi.channel_title, yi.published_at,
+  yi.duration_sec, yi.live_status, yi.playlist_id, yi.updated_at
+FROM youtube_v2_generation_items gi
+JOIN youtube_items yi ON yi.kind = gi.kind AND yi.id = gi.id
+WHERE gi.generation = ?
+ORDER BY gi.rail_id, gi.rank
+`).all(generation.generation) as YoutubeV2Generation['items'];
+  const { status: _status, ...ready } = generation;
+  return { ...ready, items };
+}
+
+export function youtubeV2ServingEpoch(
+  generation: number | null,
+  advance: boolean,
+): { generation: number | null; shuffle_epoch: number; slate_sequence: number } {
+  type ServingEpoch = { generation: number | null; shuffle_epoch: number; slate_sequence: number };
+  const db = ensureDb();
+  const key = 'youtube_v2_serving_epoch';
+  return db.transaction(() => {
+    const row = db.prepare('SELECT value FROM youtube_state WHERE key = ?').get(key) as { value: string } | undefined;
+    let current: ServingEpoch | null = null;
+    if (row) {
+      try {
+        const value = JSON.parse(row.value) as Partial<ServingEpoch>;
+        if (Number.isInteger(value.shuffle_epoch) && Number.isInteger(value.slate_sequence)) {
+          current = {
+            generation: Number.isInteger(value.generation) ? Number(value.generation) : null,
+            shuffle_epoch: Math.max(0, Number(value.shuffle_epoch)),
+            slate_sequence: Math.max(0, Number(value.slate_sequence)),
+          };
+        }
+      } catch {
+        current = null;
+      }
+    }
+    const next = current === null
+      ? { generation, shuffle_epoch: advance ? 1 : 0, slate_sequence: 1 }
+      : current.generation !== generation
+        ? { generation, shuffle_epoch: 0, slate_sequence: current.slate_sequence + 1 }
+        : advance
+          ? {
+              generation,
+              shuffle_epoch: current.shuffle_epoch + 1,
+              slate_sequence: current.slate_sequence + 1,
+            }
+          : current;
+    if (next !== current) {
+      db.prepare(`
+INSERT INTO youtube_state(key, value, updated_at) VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+`).run(key, JSON.stringify(next), nowMs());
+    }
+    return next;
+  })();
 }
 
 export function youtubeCacheSummary(): {

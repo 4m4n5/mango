@@ -2,15 +2,6 @@ export function titleKey(type: string, id: string): string {
   return `${type}:${id}`;
 }
 
-function envInt(name: string, fallback: number): number {
-  const raw = process.env[name];
-  if (raw === undefined || raw === '') {
-    return fallback;
-  }
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 const RECENT_WEIGHT_3D_MULTIPLIER = 3.0;
 const RECENT_WEIGHT_7D_MULTIPLIER = 2.0;
@@ -88,7 +79,6 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
   options: {
     reserveFloor?: number;
     anchorRailCount?: number;
-    shuffleFn?: (items: T[]) => T[];
     stableRatio?: number;
     rng?: () => number;
   } = {},
@@ -99,7 +89,6 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
     options.anchorRailCount ?? TAB_SESSION_ANCHOR_RAIL_COUNT,
     railsInYamlOrder.length,
   );
-  const shuffleFn = options.shuffleFn;
   const rng = options.rng;
   const tabOccupied = new Set<string>();
   const selections = new Map<string, SessionSelectedItem<T>[]>();
@@ -111,7 +100,6 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
       displayLimit: reserve,
       recentKeys: recentKeysByRail.get(rail.railId) ?? new Set(),
       occupiedKeys: tabOccupied,
-      shuffleFn,
       stableRatio,
       rng,
     });
@@ -143,7 +131,6 @@ export function buildTabSessionSelections<T extends { type: string; id: string }
       displayLimit: need,
       recentKeys: recentKeysByRail.get(rail.railId) ?? new Set(),
       occupiedKeys: tabOccupied,
-      shuffleFn,
       stableRatio,
       rng,
     });
@@ -161,15 +148,6 @@ export type SessionMixBucket = 'stable' | 'fresh';
 
 export type SessionSelectedItem<T> = T & { mix_bucket: SessionMixBucket };
 
-function defaultShuffle<T>(items: T[]): T[] {
-  const copy = [...items];
-  for (let index = copy.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
-  }
-  return copy;
-}
-
 /** Pick stable + fresh session slots; exclude tab-wide occupied and per-rail recent titles. */
 export function selectRailSessionItems<T extends { type: string; id: string }>(
   pool: T[],
@@ -177,7 +155,6 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     displayLimit: number;
     recentKeys: Set<string>;
     occupiedKeys: Set<string>;
-    shuffleFn?: (items: T[]) => T[];
     stableRatio?: number;
     now?: number;
     rng?: () => number;
@@ -187,7 +164,6 @@ export function selectRailSessionItems<T extends { type: string; id: string }>(
     displayLimit,
     recentKeys,
     occupiedKeys,
-    shuffleFn = defaultShuffle,
     stableRatio = 0.7,
     now = Date.now(),
     rng = Math.random,

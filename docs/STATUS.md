@@ -15,7 +15,7 @@ What works today, what is still being hardened, and how to verify it.
 | M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
 | M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
 | M5 Voice + AI | ◐ | Phase 3 ✓ · M5.5a corpus ✓ · **M5.5b round code ✓** · living librarian memory ✓ · couch sign-off pending |
-| M6 Ship | ◐ | M6.1 ✓ · M6.2 base Pi-gated ✓ · profile-aware recommendations local/TV proof deferred · Reliability Center ✓ · efficiency/perf Tiers 1–4 ✓ · **M6.5 round code ✓** · **launcher UX polish round code ✓ (`539ebdb`, couch sign-off pending)** · 4K Stage 2 validation · wizard pending |
+| M6 Ship | ◐ | M6.1 ✓ · M6.2 base Pi-gated ✓ · Recommendations v2 Story Graph source complete, Pi backfill/promotion/couch proof delegated · Reliability Center ✓ · efficiency/perf Tiers 1–4 ✓ · **M6.5 round code ✓** · **launcher UX polish round code ✓ (`539ebdb`, couch sign-off pending)** · 4K Stage 2 validation · wizard pending |
 
 ---
 
@@ -24,7 +24,7 @@ What works today, what is still being hardened, and how to verify it.
 | Feature | Detail |
 |---------|--------|
 | Browse | Search magnifier · Movies · Series · Live · YouTube (L/R shoulders switch browse tabs) |
-| Grid/input | 6 posters / 4 landscape per rail, one row each · Home `X` rotates eligible current-tab discovery (VOD Saved/Continue retain their existing tail policy; YouTube History/Saved stay stable) · Search `X` tap delete / 600 ms hold clear |
+| Grid/input | 6 posters / 4 landscape per normal rail, one row each · Home `X` advances only published current-tab recommendation/discovery slates (VOD Continue/Saved and YouTube History/Saved stay stable) · Search `X` tap delete / 600 ms hold clear |
 | Rails | YAML + AI catalog slots + Continue |
 | Service | `catalog-service :3020` · `GET /rails` |
 | Proxy | `serve.py` → `/api/catalog/*` |
@@ -195,58 +195,65 @@ Primary routes: `GET /library/state`, `GET/POST/DELETE /library/saved`,
 `GET /library/history`, `GET/POST/DELETE /library/context`, plus Saved-backed
 `GET/POST/DELETE /pins` compatibility.
 
-### Fire & Water ratings / For You — profile-aware code local; Pi/couch proof pending
+### Fire & Water ratings / For You — Story Graph v2 local; promotion/Pi/couch proof deferred
 
 | Area | Current implementation |
 |------|------------------------|
-| Durable state | Non-destructive `library.db` migrations 4–11 add ratings, profiles/signals, attribution/outcomes, profile metrics, opaque served-slate tokens with exact context, and profile watch state; `progress.db` migration 2 adds profile-exact Continue/resume. Legacy unscoped watch state migrates only to Household |
+| Durable state | Non-destructive `library.db` migrations add ratings plus versioned StoryDNA, ontology, taste-thread, rank-generation/item, active/previous-generation, cached-slate, and refresh-job state without rewriting v4 snapshots; profile rows and exact Continue/resume remain preserved |
 | Migration safety | One guarded online SQLite backup before v4; all pending `library.db` schemas, backfills, and version markers commit in one immediate transaction and roll back together on failure; DB/history/cache are never deleted or recreated |
-| Profiles | Household is the no-prompt default; up to seven optional personal profiles, no PIN/startup chooser, explicit activation, stable-ID rename, clean personal state, and Household exact-dislike veto |
-| Mood | Explicit, bounded, expiring session input only; profile activation clears it and Mango never infers mood |
+| Household identity | Profile and mood controls leave recommendation UI/ranking/cache/generation/attribution. Existing personal data stays dormant and recoverable; non-Household create/activate and non-null mood writes return typed `household_only` in v2 serve mode |
 | Rating UI | Detail Rate/Edit Rating plus compact chips; Fire uses five flame emoji and Water five wave emoji, with saturated fill, gray remainder, and clipped half marks matching the household reference |
 | Controller | B enters/confirms adjustment and saves; arrows move/change exact half-steps; Y cancels; contextual X confirms clear; existing pad ownership/bindings are unchanged |
-| Prompts | Profile-exact movie at 90% natural completion; series after three distinct profile-owned completed episodes, with a season-finale event hook; invitation never steals focus |
-| Ranking | Explicit Fire/Water dominates confidence-weighted dual-horizon watch/save signals; every visible rail is exactly six currently verified-playable cards (4 close, 1 adjacent, 1 surprise), otherwise omitted; diversity caps and a rare cooled rewatch lane apply |
-| AI boundary | Optional semantic enrichment is background-only; cache reads/writes are batched, watched/Saved anchors retain valid semantics, CPU-heavy scoring/MMR runs in a deadline-bounded worker, the versioned local ranker owns eligibility/final publication, and couch reads retain the last complete snapshot |
+| Prompts | Household movie at 90% natural completion; series after three distinct completed episodes, with a season-finale event hook; invitation never steals focus |
+| Content model | Strict `story-dna-v1` profiles retain evidence/provenance and feed a controlled ontology graph. The Companion model is a stateless content teacher only and never receives Household/companion state or owns scores/ranks/publication |
+| Ranking | Deterministic uncertainty-aware graph posteriors fit up to three positive Household taste threads. Fire/Water dominates; ≤2.5 creates no thematic penalty. Saved and meaningful viewing support cold start; exact anchors remain ineligible |
+| Corpus | Deterministic pagination covers every verified movie/show with auditable exclusions. Publish starts at 200 eligible profiles and the reserve grows toward `scored + excluded == verified`, retaining active and prior complete generations |
+| Dealer | Six strongest supported fits allocate `2/2/2`, `3/3`, or six across threads and avoid four prior slates when supply permits. No cosine/KNN/MMR, close/adjacent/surprise bucket, bridge, or cooled rewatch; prior valid slate remains if healing fails |
 | Attribution | Opaque server token binds immutable served owner/domain/rail/revision/membership/context and stale actions return 409. Public cards carry only the content identity required to act; the TV never renders raw IDs, scores, prompts, tags, URLs, or credentials |
-| Read coherence | VOD, YouTube, Continue, parallel Saved, Search Detail Saved markers, and Settings hidden-title reads/restores carry the captured profile/revision, require an exact server echo, and fail with 409 on change. Owner-bound rail/Saved caches are activated only together; strict VOD never falls back to legacy endpoints after an ownership failure |
-| Detail action coherence | Rating/prompt, Save/Unsave, Not-for-me/Undo, current context, playback acceptance/return, and next-episode reads use the immutable Detail owner and exact echo; client rail labels never count a play, and a validated attributed watch start is idempotent |
+| Read coherence | V2 recommendation reads carry Household plus captured source/generation revisions and fail stale/tampered actions with 409; preserved legacy library/Continue ownership remains intact |
+| Detail action coherence | Rating/prompt, Save/Unsave, exact Not-for-me/Undo, current context, playback acceptance/return, and next-episode reads use immutable captured context; client labels never count a play |
 | Rail placement | Continue → Saved → For You → user AI catalogs → curated discovery; For You does not consume a user AI slot |
-| Nightly | Companion pipeline skips foreground playback/grow overlap and refreshes recommendations after optional AI/gardener phases |
-| Flags | `MANGO_FIRE_WATER_RATINGS`, `MANGO_FOR_YOU`, `MANGO_RECOMMENDATIONS_AI` (set `0` to disable without deleting state) |
-| Companion | `mango_manage_viewer_profile` lists, creates, renames, activates, and completes onboarding through the same `library.db` authority |
-| Deferred | This profile-aware redesign is not claimed deployed: stable-ID seed reconciliation/import, Pi latency/restart/offline proof, screenshots, and human recommendation-quality verdict remain **DEFERRED** |
+| Refresh/API | Writes commit and exact known items evict first; serialized/coalesced workers rescore then complete the corpus scan. Manual refresh returns HTTP 202 with job ID, captured revisions, and reasons; X performs cached serving only |
+| Diagnostics | `/recommendations/state` exposes StoryDNA/ontology/model/taste/corpus revisions, coverage/failures/cursor, thread count, reserve/exclusions, uncertainty, jobs, stale/last-good state, and offline evaluation without leaking scores to card payloads |
+| Nightly | After playability growth, refresh changed StoryDNA, watch decay, taste threads, rank coverage, and retry backlog without overlapping foreground playback/grow |
+| Flags | `MANGO_VOD_RECS_V2=off|shadow|serve` is independent from YouTube v2; legacy v4 remains usable during shadow/rollback |
+| Deferred | Real StoryDNA backfill, frozen five-fold offline promotion gate, full-corpus runtime accounting, deployment, Pi latency/restart/offline proof, screenshots, and human couch quality verdict remain **DEFERRED** |
 
 Detail and home runbook: [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
 
 ---
 
-## M6.2 — Native YouTube base ✓; profile-aware recommendations local
+## M6.2 — Native YouTube base ✓; Recommendations v2 source complete
 
-The native YouTube base was previously deployed and Pi-gated. The current
-profile-aware rail allocator and feedback changes are local code only; current
-deployment, Pi diagnostics, screenshots, and TV behavior are **DEFERRED**. See
+The native YouTube base was previously deployed and Pi-gated. The current v2
+acquisition, Takeout, rail allocator, and generation source is complete; real
+import/backfill, current deployment, Pi diagnostics, screenshots, and TV
+behavior are **DEFERRED**. See
 [YOUTUBE.md](YOUTUBE.md).
 
 Latest Pi evidence as of 2026-07-01: commit `b74bc6b` passed `pi-deploy --fast --gate`,
 `scripts/m6-ship/gate-m6-youtube-smoke.sh`, and a direct Popular rail probe
 under the superseded nine-card contract. It is not proof for the current
-four-card profile allocator.
+v2 rail/provenance contract.
 
 | Area | Current implementation |
 |------|------------------------|
-| Storage | `/etc/mango/youtube.db` rebuildable SQLite cache with WAL, rail membership, recommender/rail reservoirs, refresh/quota state, and OAuth auth sessions |
-| User state | `/etc/mango/library.db` durable profile-scoped `source="youtube"` Saved, Mango-local history, searches, current context, Not-for-me, and recommendation events; Household preserves legacy state |
+| Storage | `/etc/mango/youtube.db` rebuildable SQLite cache with authoritative subscription generations, explicit provenance, published rail generations, refresh/quota state, and OAuth auth sessions |
+| User state | `/etc/mango/library.db` durable Household Saved, normalized Takeout/Mango-local history, current context, exact Not-for-me, import batches, and events; personal rows remain dormant/recoverable |
 | Config | `/etc/mango/youtube-api.key`, `/etc/mango/youtube-oauth-client.json`, `/etc/mango/youtube-auth.json`, optional cookies; examples only in repo |
 | Auth | Companion starts/polls Google device-code OAuth and disconnects local token; token file is written `0600` |
-| API | Localhost-only operator `/youtube/state` + auth; field-minimized `/youtube/companion/*` through HTTPS; refresh, rails, impressions, grouped search with cached fallback on quota/rate limits, detail, reversible not-interested, play |
-| Rails | Exactly four cards per visible rail; anchors For You → Subscriptions → History → Saved, then at most three adaptive rails from Because You Watched, custom AI, Live Now, Fresh Finds, and Trending for you; YouTube last-good cache remains visible and a rail that cannot supply four cards is omitted |
-| Refresh | Nightly 03:00 playability timer runs movie/TV stale+grow first, then independently runs phase-isolated `/youtube/refresh` for Popular, subscriptions, Fresh Finds, Live Now, Because You Watched, and For You; Popular uses cheap `videos.list` most-popular region/category charts, Live Now uses fresh cached live metadata before bounded live searches, and non-shuffle tab loads can trigger throttled background live-only refresh when stale |
-| Launcher | X advances only deterministic cached discovery slates; History/Saved stay stable and X spends no API quota. Profile/mood attribution is bounded; Not for me is profile-local and reversible |
-| Ranking | Explicit feedback dominates dual-horizon usage; exact Saved videos inform taste but stay out of For You so the Saved anchor remains complete. Successful For You rebuilds atomically replace/prune the bounded reservoir while preserving retained profile state. With healthy lane supply, deterministic four-card patterns keep exact long-run 70/20/10 allocation; thin-supply fallback is recorded |
+| API | Localhost-only operator `/youtube/state` + auth/Takeout import; field-minimized `/youtube/companion/*` through HTTPS; published rails, impressions, grouped Search with cached fallback, detail, exact reversible Not-for-me, play |
+| Rails | Equal core order For You → Beyond Your Subscriptions → More Like … → History → Saved; then conditional From Your Subscriptions and Live Now. Normal rows contain four globally unique cards; Live Now may contain one to four |
+| Inputs/provenance | Only successful authoritative subscription snapshots and qualifying Takeout/Mango-local history affect acquisition/ranking. Candidate provenance is exactly subscription upload/live or history channel/topic; generic cache, Search, Saved, profiles, mood, VOD, companion, AI catalogs, and charts cannot leak in |
+| Refresh/quota | Nightly/manual phases publish complete generations atomically and preserve last-good on failure. Triggered acquisition coalesces for 15 minutes and caps Search calls at five; nightly Beyond/More Like/live probes cap at 8/4/8 while preserving interactive reserves |
+| Launcher | X advances only cached recommendation/discovery/subscription/live slates while History/Saved remain stable; Home/X use no network, quota, acquisition, or ranking. Exact Not-for-me is reversible and never becomes a creator/topic penalty |
+| Ranking | For You blends decayed history/subscriptions 60/40 and renormalizes cold starts; Beyond excludes subscribed creators; More Like uses a daily-stable recent meaningful-watch seed; Saved has zero recommendation weight; history uses a 90-day half-life |
+| Takeout | Reliability Center/API/CLI are locally wired for ZIP/JSON/HTML; local tests cover file-backed streaming, path safety, idempotency, bounded parsing, and raw-temp cleanup. Real-account import, asynchronous metadata completion, restart durability, and Pi behavior remain unproved promotion gates |
+| Diagnostics | `/youtube/state` reports subscription/history/candidate generations, provenance/rail counts, quota, phase failures, stale last-good state, and Takeout batch status; none is rendered as card explanation |
 | Playback | Mango wrapper `scripts/m6-ship/youtube-yt-dlp.sh` resolves video/audio URLs with fallback format selectors; deploy refreshes an isolated user `yt-dlp` venv; mpv plays them and writes local history/progress as YouTube source |
-| Voice | `mango_youtube_search`, `mango_open_youtube`, and `mango_manage_viewer_profile`; Save/Unsave supports current/exact YouTube video; no voice playback |
+| Voice | `mango_youtube_search` and `mango_open_youtube`; Save/Unsave supports current/exact YouTube video; no voice playback and no recommendation profile/mood steering |
 | Fallback | Legacy Kodi YouTube is emergency-only with `MANGO_LEGACY_YOUTUBE=1` |
+| Flag | `MANGO_YOUTUBE_RECS_V2=off|shadow|serve`, independent from VOD; legacy generations remain for shadow/rollback |
 
 Gates:
 
@@ -273,7 +280,7 @@ last unattended refresh proved the stack.
 | Area | Current implementation |
 |------|------------------------|
 | API | `/reliability/state`, `/reliability/proofs`, controller state/repair, proof run, safe repair, stack restart, refresh run |
-| UI | Settings shows Green/Yellow/Red summary, component cards, and safe actions; home only shows a quiet Settings badge when degraded |
+| UI | Settings shows Green/Yellow/Red summary, component cards, safe actions, and the local v2 Google Takeout history importer; home only shows a quiet Settings badge when degraded |
 | Proof ledger | `/etc/mango/reliability/proofs.jsonl`, local-only, 30-day retention |
 | Nightly chain | `nightly-library-refresh.sh` runs movie/TV, then YouTube independently, then records reliability proof with branch return codes |
 | Repair | Delegates to `mango-health-repair.sh --quiet`; no DB rebuilds, cache clears, or destructive repairs |
@@ -349,7 +356,7 @@ resolution.
 | Detail navigation | 2D `FocusGrid` — actions L/R · episodes/streams U/D |
 | Voice HUD | Safe-area CSS (`env(safe-area-inset-*)`) · max-height cap · 12s wall-clock dismiss |
 | Companion picks | Numbered tappable rows · `pick_select` WS (no LLM round-trip) |
-| YouTube recommendations | Four-card anchors/adaptives, profile-scoped state, and cache-only X; current Pi/couch proof **DEFERRED** |
+| YouTube recommendations | Five ordered core plus two conditional provenance-gated rails, Takeout/Mango history, and cache-only X source is complete; current Pi/couch proof **DEFERRED** |
 | Automated gate | `gate-m6-ux-smoke.sh` in `pi-pre-couch-gate.sh` on `feat/native-experience` |
 | Unified Search | Full-bleed temporary magnifier surface with safe-area controls, local keyboard suggestions, progressively reconciled source-isolated rows, silent partial failures, neutral empty state, rail-local More tiles, origin-aware Detail/playback return without remount, coalesced restart-safe state, 12 recents, SafeSearch, query cache and split quota reserves |
 

@@ -1,10 +1,11 @@
 # Fire & Water ratings and For You
 
 **Branch:** `feat/native-experience`
-**State:** profile-aware deterministic recommendation code is implemented and
-covered by local deterministic gates. It has **not** been claimed deployed by
-this work session. Seed reconciliation,
-Pi/runtime proof, screenshots, and human couch-quality verdict are **DEFERRED**.
+**State:** `vod-story-graph-v1` is implemented behind `off|shadow|serve` rollout
+control and covered by local deterministic gates. It has **not** been deployed
+by this work session. StoryDNA backfill on the real corpus, the frozen offline
+promotion result, Pi/runtime proof, screenshots, and human couch judgment are
+**DEFERRED**.
 
 ## Product contract
 
@@ -12,16 +13,17 @@ Pi/runtime proof, screenshots, and human couch-quality verdict are **DEFERRED**.
 - Water measures emotional depth, heart, authenticity, and resonance.
 - Both axes are required, use 0–5 in 0.5 increments, and treat 0 as a real rating.
 - Movies are rated per title; series are rated once at show level.
-- Household retains the imported seed ratings. Optional personal profiles start
-  clean and own later couch ratings; clear removes only current state and keeps
-  append-only history.
+- Recommendations have one identity: Household. Existing personal-profile
+  ratings, saves, history, progress, snapshots, and events remain dormant and
+  recoverable; v2 neither merges nor deletes them. Rating clear removes only
+  current state and keeps append-only history.
 - Movies and TV Shows each own one stable **For You** rail. It does not consume the three user-created AI-catalog slots.
 - Each visible For You rail contains exactly six currently verified-playable
-  cards: four close, one adjacent, and one bounded surprise. If its reserve
-  cannot heal all six slots, Mango omits the rail.
-- The TV attributes personalization to the active profile and explicit mood,
-  but never displays content IDs, predictions, scores, raw captions, private
-  tags, or AI jargon.
+  strongest fits distributed across up to three supported household taste
+  threads. There are no close/adjacent/surprise buckets or rewatch lane.
+- Profile and mood controls are hidden while v2 serves. The rail never displays
+  predictions, scores, StoryDNA values, thread labels, raw evidence, or AI
+  jargon.
 
 ## Visual language
 
@@ -71,14 +73,12 @@ and a typed recommendation-event ledger. Migrations 7–11 add exact attribution
 outcomes, per-profile diagnostics, opaque served-slate tokens, profile watch
 state, and immutable YouTube context. `progress.db` migration 2 adds
 profile-exact Continue/resume; legacy unscoped progress/watch state migrates
-only to Household. Profiles require no PIN and Mango does
-not show a startup chooser. Create never activates; rename keeps the stable ID;
-activation is explicit and clears the temporary mood. Onboarding is guided but
-skippable and becomes complete only through an explicit TV/companion action.
-`mango_manage_viewer_profile` exposes list/create/rename/activate/onboarding to
-the companion. Personal profiles begin clean; Household preserves legacy data
-and blends recommendation/history activity while treating any exact Not-for-me
-as a veto. Exact resume positions never blend across viewers.
+only to Household. Migration 12 adds additive StoryDNA, ontology edge, taste
+thread, full-corpus rank generation, active/previous generation, cached slate,
+and refresh-job tables without rewriting v4 snapshots. During v2 serve,
+Household activation is idempotent; personal-profile activation/creation and a
+non-null mood return typed `household_only`. Old profile rows and companion
+functions remain intact for rollback. Exact resume positions never blend.
 
 Recommendation actions carry an opaque server-issued token bound to the served
 profile, domain, rail, revision, exact membership, source revision, and bounded
@@ -110,6 +110,7 @@ PUT    /library/ratings
 DELETE /library/ratings?type=&id=&expected_revision=
 POST   /library/rating-prompts/dismiss
 GET    /recommendations/state
+GET    /recommendations/jobs/:job_id
 POST   /recommendations/refresh
 POST   /recommendations/impressions
 POST   /recommendations/action
@@ -129,68 +130,86 @@ path also accepts the explicit `season_finale_finished` event when episode
 metadata proves a finale. The invitation appears on return in Detail, never
 opens automatically, and never takes focus.
 
-## Deterministic recommendation model
+## Story Graph recommendation model
 
-Candidate generation starts with Mango's globally active verified movie/series
-corpus. Rated, hidden, blocked, active-profile Not-for-me, invalid, and
-unverified titles are removed before scoring; load-time revalidation omits the
-entire rail if the 4/1/1 visible contract cannot be healed. A current verified
-row is not a substitute for target-TV playback proof. Household aggregates exact dislikes as vetoes. Saved and watch
-events are confidence-weighted supporting evidence, not replacements for
-explicit Fire/Water. A completed VOD can return only through the rare internal
-rewatch lane after its cooldown.
+The candidate authority is every current `titles.status='verified'` movie or
+series, paged deterministically without the old 2,000/1,200 limits. A scan
+captures the monotonic playability-corpus generation and cannot publish across
+a generation change. Missing-artwork, missing-StoryDNA, and exact eligibility
+failures are indexed with reasons, so complete accounting is
+`scored + excluded == verified`. Only poster-bearing verified rows serve.
 
-Metadata features are dependency-light hashed vectors. The runtime predicts
-Fire and Water independently from at most 12 neighbors with cosine similarity
-at least 0.15. Weight is squared similarity times feature confidence and domain
-weight. Each axis shrinks toward the active viewer/domain mean with prior weight
-2.0, and very low evidence is pulled toward the neutral editorial prior. TV
-cold-start accepts movie evidence at weight 0.6, decaying linearly to zero at
-12 series ratings; Movies never borrow series evidence.
+`story-dna-v1` is a closed content description covering controlled story
+engines, themes, dynamics, tone, setting, structure, emotional arc, and fifteen
+ordinal facets, plus deterministic language/country/decade/creator and compound
+graph edges. Every family is present; legitimate absence is `none` or zero.
+Canonical synopsis, genres, people, runtime, identifiers, curated-pool
+membership, source, retrieval time, evidence hash, per-family confidence, and
+teacher provenance remain stored. Fire/Water, household activity, popularity,
+quality, and predicted enjoyment are forbidden StoryDNA fields.
+
+Mango Companion's configured model is a stateless content teacher only. Its
+separate localhost endpoint receives stable identity and canonical evidence—
+never ratings, Saved/history, profiles, mood, conversations, or memory. Sparse
+evidence can trigger bounded structured addon lookup; there is no broad
+scraping. Strict ID, enum, schema, prompt/model, and evidence-hash validation
+rejects partial or mismatched output while retaining valid siblings. Household
+mutations rebuild taste/ranks but never StoryDNA.
+
+The local worker fits one to three deterministic Bayesian household threads.
+Categorical families use Dirichlet-multinomial posteriors; ordinal families use
+regularized distributions. Candidate/thread fit is an equal-family posterior
+predictive likelihood ratio against the complete verified corpus, with capped
+rare-node lift and confidence shrinkage. There is no embedding, cosine/KNN,
+title-to-title comparison, MMR, or cloud ranking path.
+
+Only positive rating evidence propagates:
 
 ```text
-holistic = 0.75 × max(predicted_fire, predicted_water)
-          + 0.25 × min(predicted_fire, predicted_water)
+positive(rating) = (max(0, rating - 2.5) / 2.5)^2
+anchor_strength  = 0.75 * max(positive(Fire), positive(Water))
+                 + 0.25 * min(positive(Fire), positive(Water))
+predicted_axis   = 2.5 + 2.5 * positive_support
+holistic         = 0.75 * max(predicted_fire, predicted_water)
+                 + 0.25 * min(predicted_fire, predicted_water)
+rank_score       = blended_affinity - 0.5 * posterior_standard_deviation
 ```
 
-This admits a strong single-axis match while rewarding high-high balance. The
-visible selection is **4 close + 1 adjacent + 1 bounded surprise**. A 75%
-affinity / 25% diversity MMR pass, global cluster caps, profile-scoped exact
-vetoes, and deterministic rotation prevent one source theme or prolific viewer
-from dominating Household. Short-horizon session/mood signals respond quickly;
-long-horizon ratings, saves, completions, and cooled rewatches preserve durable
-taste. An early exit is never a negative signal.
+Ratings at or below 2.5 do not penalize related titles. Fire/Water is permanent
+and origin/age independent; Saved has strength 0.8; meaningful partial viewing
+has 0.55; completion has 1.0; VOD viewing has a 180-day half-life. A meaningful
+watch is `min(25% of duration, 5 minutes)`, or two minutes when duration is
+unknown. Bare starts are ignored. With explicit evidence it owns 85% of final
+affinity and Saved/watch owns at most 15%; implicit evidence renormalizes for
+cold start. Rated, Saved, meaningfully watched, hidden, blocked, and exact
+Not-for-me titles never serve, but low ratings create no semantic negative.
 
-AI enrichment is asynchronous and optional: it can attach versioned semantic
-features, confidence, and provenance to candidates, but it cannot decide
-eligibility or publish a slate. The local versioned ranker owns scoring and
-diversity. Cached documents are loaded in bounded SQL batches, semantic
-features for watched/Saved preference anchors are retained, and feature writes
-share one prepared transaction. CPU-heavy scoring/MMR runs in a
-deadline-bounded worker rather than the catalog HTTP event loop. Couch reads
-use the last complete local snapshot and never wait for cloud AI. UI
-attribution names the active profile/mood and uses honest rail context;
-numerical scores and technical generation reasons remain private.
+The reserve begins serving at 200 eligible ranked rows and grows toward the
+complete corpus while the prior complete generation remains active. Three
+supported threads deal 2/2/2 cards, two deal 3/3, and one deals all six. Within
+a thread, deterministic weighted sampling without replacement uses
+`1 / rank^1.5`; the prior four rendered slates are avoided when supply permits.
+Load-time DB revalidation checks verified state, artwork, uniqueness, and exact
+exclusions. If six cannot be healed, Mango retains the previous valid slate.
+Home and X perform no network, enrichment, graph, or ranking work.
 
-`MANGO_RECOMMENDATION_RANK_WORKER=0` is a diagnostic opt-out only; the default
-is worker-on. `MANGO_RECOMMENDATION_RANK_TIMEOUT_MS` defaults to 30 seconds and
-retains the last-good snapshot on timeout.
+Writes commit first and enqueue one serialized, coalescing job per media type.
+The refresh response is HTTP 202 with job ID, trigger reasons, and captured
+revisions. Startup, rating set/edit/clear, Save/Unsave, meaningful/completed
+viewing, playability publication, manual refresh, and nightly decay/backfill can
+trigger work. Stale corpus/taste/feature work cannot overwrite a newer
+generation.
 
-Accepted rating/watch changes enqueue a captured-profile refresh through one
-serialized, coalescing queue against cached verified candidates. Nightly
-companion work skips both the playability lock and active foreground playback,
-then atomically refreshes snapshots after optional LLM/gardener work. Any
-failure retains the previous complete snapshot.
-
-Feature flags are reversible and never delete state:
+Rollout flags are reversible and never delete state:
 
 ```bash
+MANGO_VOD_RECS_V2=off|shadow|serve
+MANGO_YOUTUBE_RECS_V2=off|shadow|serve
 MANGO_FIRE_WATER_RATINGS=0
 MANGO_FOR_YOU=0
-MANGO_RECOMMENDATIONS_AI=0
 ```
 
-## Seed R&D snapshot
+## Optional seed R&D snapshot
 
 The supplied Sheet1 was read-only and is not a runtime dependency. Current
 source audit:
@@ -219,13 +238,14 @@ must be explicitly approved or excluded. Approval requires one unique exact
 title/year stable-ID match; weaker matches stay in review. Couch-authored
 history always blocks later seed overwrite, including after clear.
 
-Run only after reconciliation:
+If the operator supplies an approved manifest, run only after its reconciliation:
 
 ```bash
 cd src/catalog-service
 npm run ratings:seed -- dry-run /path/to/fire-water-seed-v1.json
 npm run ratings:seed -- validate /path/to/fire-water-seed-v1.json
 MANGO_LIBRARY_DB_PATH=/etc/mango/library.db npm run ratings:seed -- import /path/to/fire-water-seed-v1.json
+# Idempotence proof: repeat the exact import; this invocation must be a no-op.
 MANGO_LIBRARY_DB_PATH=/etc/mango/library.db npm run ratings:seed -- import /path/to/fire-water-seed-v1.json
 ```
 
@@ -233,22 +253,25 @@ The second import must report `noop: true`.
 
 ## Evaluation boundary
 
-Deterministic local tests prove half-step validation, identity collapse,
-revision conflicts, couch-over-seed precedence, append-only clear history,
-profile isolation and Household aggregation, prompt eligibility, independent
-axes, high-single-axis qualification, high-high bonus, TV transfer decay,
-deterministic 4/1/1 slates, cooled rewatch admission, duplicate removal, rail
-order, immutable served attribution, profile-exact progress, and no raw source
-text in public rating state. Deterministic leave-one-out Fire/Water/affinity MAE
-is implemented and persisted per active profile/tab; slate diagnostics cover
-recall, nDCG, diversity, calibration, typed-universe coverage, and profile gaps.
+Deterministic local tests cover strict content-only StoryDNA, malformed-sibling
+isolation, graph/worker parity, positive-only rating math, 85/15 evidence
+ownership, 180-day viewing decay, distinct threads, 2/2/2–3/3–6 portfolios,
+rank-weighted cached dealing, full-corpus pagination/accounting, stale
+publication rejection, exact exclusions, and no graph/ranking work on X.
 
-Real reconciled-seed metric values, held-out/top-24 human review, stable-ID match
-evidence, metadata/AI feature coverage, Pi latency, offline/restart survival,
-screenshots, target-TV playback of visible recommendations, and human couch
-recommendation quality are **DEFERRED** until the reconciled seed is available
-and the home agent observes the target TV. Offline metrics alone will not be
-treated as proof of recommendation quality.
+Promotion uses a frozen deterministic five-fold comparison against v4:
+holistic nDCG@6 is primary; per-axis concordance for ratings at least 4,
+both-axes-low top-six intrusion, coverage, determinism, worker latency, and
+cached-service p95 are guardrails. V2 requires at least 10% relative nDCG@6
+improvement, a paired 90% bootstrap interval above zero, no more than two
+percentage points of guardrail regression, complete verified-corpus accounting,
+and cached p95 at most 250 ms. Sparse ratings keep the model in shadow; the gate
+is never weakened.
+
+Real-corpus StoryDNA coverage and evaluation, Pi latency/restart/offline proof,
+screenshots, target-TV launches, and human couch relevance remain **DEFERRED**
+until the authorized home rollout. Offline promotion is necessary, not proof of
+the final couch experience.
 
 Home acceptance is in [COUCH_TEST.md](COUCH_TEST.md). Deployment remains
 git-only per [DEPLOY.md](DEPLOY.md); never rsync, copy runtime databases, or

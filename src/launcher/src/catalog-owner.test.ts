@@ -103,6 +103,65 @@ test("VOD and YouTube loads require the exact echoed owner", async () => {
   });
 });
 
+test("YouTube v2 keeps the active personal owner as its public request fence", async () => {
+  await withMockFetch(async (input) => {
+    const url = new URL(String(input), "http://launcher.test");
+    assert.equal(url.pathname, "/api/catalog/youtube/rails");
+    assert.equal(url.searchParams.get("expected_profile_id"), "alice");
+    assert.equal(url.searchParams.get("expected_personalization_updated_at"), "17");
+    return jsonResponse({
+      slate_sequence: 12,
+      // Internal served-slate ownership is intentionally opaque to the
+      // launcher. The public field fences the active personalization request.
+      profile_id: "alice",
+      personalization_updated_at: 17,
+      rails: [],
+    });
+  }, async () => {
+    assert.deepEqual(await loadCatalogRails("youtube", { expectedOwner: owner }), {
+      rails: [],
+      owner,
+    });
+  });
+
+  await withMockFetch(async () => jsonResponse({
+    slate_sequence: 13,
+    profile_id: "household",
+    personalization_updated_at: 17,
+    rails: [],
+  }), async () => {
+    await assert.rejects(
+      loadCatalogRails("youtube", { expectedOwner: owner }),
+      CatalogOwnershipChangedError,
+      "an internal Household owner must not masquerade as the public personalization fence",
+    );
+  });
+});
+
+test("YouTube setup_required survives alongside a non-empty Saved utility rail", async () => {
+  await withMockFetch(async () => jsonResponse({
+    slate_sequence: 4,
+    profile_id: "alice",
+    personalization_updated_at: 17,
+    setup_required: true,
+    rails: [{
+      rail_id: "saved",
+      label: "Saved",
+      items: [{
+        id: "saved-video",
+        kind: "video",
+        title: "Saved video",
+        subtitle: "Saved channel",
+        thumbnail: "https://img.example/saved.jpg",
+      }],
+    }],
+  }), async () => {
+    const result = await loadCatalogRails("youtube", { expectedOwner: owner });
+    assert.deepEqual(result.rails.map((rail) => rail.id), ["youtube_setup", "saved"]);
+    assert.equal(result.rails[0]?.cards[0]?.type, "youtube_setup");
+  });
+});
+
 test("Saved IDs on every personalized tab use the same owner handshake", async () => {
   const calls: string[] = [];
   await withMockFetch(async (input) => {

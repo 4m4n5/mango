@@ -22,7 +22,7 @@ import { playabilityPlayFailureRetryMs } from './config.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 13;
 
 export type StreamCapabilityClass = 'proven_smooth' | 'unknown' | 'known_risky';
 
@@ -113,6 +113,10 @@ export type RailPoolEntry = {
   title?: string | null;
   poster_url?: string | null;
   year?: string | null;
+  evidence_json?: string | null;
+  evidence_hash?: string | null;
+  evidence_source?: string | null;
+  evidence_retrieved_at?: number | null;
 };
 
 export type RailCandidateRejectionRecord = {
@@ -567,6 +571,10 @@ CREATE TABLE IF NOT EXISTS rail_pool (
   id TEXT NOT NULL,
   score REAL NOT NULL DEFAULT 0,
   ingested_at INTEGER NOT NULL,
+  evidence_json TEXT,
+  evidence_hash TEXT,
+  evidence_source TEXT,
+  evidence_retrieved_at INTEGER,
   PRIMARY KEY (rail_id, type, id)
 );
 
@@ -1081,6 +1089,211 @@ ADD COLUMN issue_previous_class TEXT
   db.prepare(`
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (10, @applied_at);
+`).run({ applied_at: nowMs() });
+  db.exec(`
+CREATE TABLE IF NOT EXISTS recommendation_corpus_state (
+  state_id INTEGER PRIMARY KEY CHECK(state_id = 1),
+  generation INTEGER NOT NULL CHECK(generation >= 1),
+  updated_at INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO recommendation_corpus_state(state_id, generation, updated_at)
+VALUES (1, 1, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+
+CREATE TRIGGER IF NOT EXISTS recommendation_corpus_titles_insert
+AFTER INSERT ON titles
+WHEN NEW.type IN ('movie', 'series')
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS recommendation_corpus_titles_update
+AFTER UPDATE OF status, updated_at ON titles
+WHEN NEW.type IN ('movie', 'series')
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS recommendation_corpus_titles_delete
+AFTER DELETE ON titles
+WHEN OLD.type IN ('movie', 'series')
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS recommendation_corpus_pool_insert
+AFTER INSERT ON rail_pool
+WHEN NEW.type IN ('movie', 'series')
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS recommendation_corpus_pool_update
+AFTER UPDATE OF title, poster_url, year, rail_id ON rail_pool
+WHEN NEW.type IN ('movie', 'series')
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+
+CREATE TRIGGER IF NOT EXISTS recommendation_corpus_pool_delete
+AFTER DELETE ON rail_pool
+WHEN OLD.type IN ('movie', 'series')
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+`);
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (11, @applied_at);
+`).run({ applied_at: nowMs() });
+  const evidenceColumns = db.prepare('PRAGMA table_info(rail_pool)').all() as Array<{ name: string }>;
+  if (!evidenceColumns.some((column) => column.name === 'evidence_json')) {
+    db.exec('ALTER TABLE rail_pool ADD COLUMN evidence_json TEXT');
+  }
+  if (!evidenceColumns.some((column) => column.name === 'evidence_hash')) {
+    db.exec('ALTER TABLE rail_pool ADD COLUMN evidence_hash TEXT');
+  }
+  if (!evidenceColumns.some((column) => column.name === 'evidence_source')) {
+    db.exec('ALTER TABLE rail_pool ADD COLUMN evidence_source TEXT');
+  }
+  if (!evidenceColumns.some((column) => column.name === 'evidence_retrieved_at')) {
+    db.exec('ALTER TABLE rail_pool ADD COLUMN evidence_retrieved_at INTEGER');
+  }
+  db.exec(`
+DROP TRIGGER IF EXISTS recommendation_corpus_pool_update;
+CREATE TRIGGER recommendation_corpus_pool_update
+AFTER UPDATE OF title, poster_url, year, evidence_hash, rail_id ON rail_pool
+WHEN NEW.type IN ('movie', 'series')
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+`);
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (12, @applied_at);
+`).run({ applied_at: nowMs() });
+  // Story evidence is title metadata, not presentation-rail state. Keep a
+  // durable canonical copy so rail hiding/retheme/pruning cannot erase the
+  // source evidence needed by a later StoryDNA generation.
+  db.exec(`
+CREATE TABLE IF NOT EXISTS title_story_evidence (
+  type TEXT NOT NULL,
+  id TEXT NOT NULL,
+  title TEXT,
+  poster_url TEXT,
+  year TEXT,
+  evidence_json TEXT,
+  evidence_hash TEXT,
+  evidence_source TEXT,
+  evidence_retrieved_at INTEGER,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY (type, id)
+);
+
+INSERT OR IGNORE INTO title_story_evidence(
+  type, id, title, poster_url, year, evidence_json, evidence_hash,
+  evidence_source, evidence_retrieved_at, updated_at
+)
+SELECT type, id, title, poster_url, year, evidence_json, evidence_hash,
+       evidence_source, evidence_retrieved_at, ingested_at
+FROM (
+  SELECT rp.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY rp.type, rp.id
+      ORDER BY
+        CASE WHEN NULLIF(TRIM(rp.poster_url), '') IS NOT NULL THEN 0 ELSE 1 END,
+        CASE WHEN NULLIF(TRIM(rp.title), '') IS NOT NULL THEN 0 ELSE 1 END,
+        rp.ingested_at DESC,
+        rp.rail_id ASC
+    ) AS evidence_rank
+  FROM rail_pool rp
+)
+WHERE evidence_rank = 1;
+
+CREATE TRIGGER IF NOT EXISTS title_story_evidence_pool_insert
+AFTER INSERT ON rail_pool
+WHEN NEW.type IN ('movie', 'series')
+BEGIN
+  INSERT INTO title_story_evidence(
+    type, id, title, poster_url, year, evidence_json, evidence_hash,
+    evidence_source, evidence_retrieved_at, updated_at
+  ) VALUES (
+    NEW.type, NEW.id, NEW.title, NEW.poster_url, NEW.year, NEW.evidence_json,
+    NEW.evidence_hash, NEW.evidence_source, NEW.evidence_retrieved_at, NEW.ingested_at
+  )
+  ON CONFLICT(type, id) DO UPDATE SET
+    title = COALESCE(excluded.title, title_story_evidence.title),
+    poster_url = COALESCE(excluded.poster_url, title_story_evidence.poster_url),
+    year = COALESCE(excluded.year, title_story_evidence.year),
+    evidence_json = COALESCE(excluded.evidence_json, title_story_evidence.evidence_json),
+    evidence_hash = COALESCE(excluded.evidence_hash, title_story_evidence.evidence_hash),
+    evidence_source = CASE
+      WHEN excluded.evidence_hash IS NOT title_story_evidence.evidence_hash
+        THEN COALESCE(excluded.evidence_source, title_story_evidence.evidence_source)
+      ELSE title_story_evidence.evidence_source
+    END,
+    evidence_retrieved_at = CASE
+      WHEN excluded.evidence_hash IS NOT title_story_evidence.evidence_hash
+        THEN COALESCE(excluded.evidence_retrieved_at, title_story_evidence.evidence_retrieved_at)
+      ELSE title_story_evidence.evidence_retrieved_at
+    END,
+    updated_at = MAX(title_story_evidence.updated_at, excluded.updated_at);
+END;
+
+CREATE TRIGGER IF NOT EXISTS title_story_evidence_pool_update
+AFTER UPDATE OF title, poster_url, year, evidence_json, evidence_hash,
+  evidence_source, evidence_retrieved_at ON rail_pool
+WHEN NEW.type IN ('movie', 'series')
+BEGIN
+  INSERT INTO title_story_evidence(
+    type, id, title, poster_url, year, evidence_json, evidence_hash,
+    evidence_source, evidence_retrieved_at, updated_at
+  ) VALUES (
+    NEW.type, NEW.id, NEW.title, NEW.poster_url, NEW.year, NEW.evidence_json,
+    NEW.evidence_hash, NEW.evidence_source, NEW.evidence_retrieved_at, NEW.ingested_at
+  )
+  ON CONFLICT(type, id) DO UPDATE SET
+    title = COALESCE(excluded.title, title_story_evidence.title),
+    poster_url = COALESCE(excluded.poster_url, title_story_evidence.poster_url),
+    year = COALESCE(excluded.year, title_story_evidence.year),
+    evidence_json = COALESCE(excluded.evidence_json, title_story_evidence.evidence_json),
+    evidence_hash = COALESCE(excluded.evidence_hash, title_story_evidence.evidence_hash),
+    evidence_source = CASE
+      WHEN excluded.evidence_hash IS NOT title_story_evidence.evidence_hash
+        THEN COALESCE(excluded.evidence_source, title_story_evidence.evidence_source)
+      ELSE title_story_evidence.evidence_source
+    END,
+    evidence_retrieved_at = CASE
+      WHEN excluded.evidence_hash IS NOT title_story_evidence.evidence_hash
+        THEN COALESCE(excluded.evidence_retrieved_at, title_story_evidence.evidence_retrieved_at)
+      ELSE title_story_evidence.evidence_retrieved_at
+    END,
+    updated_at = MAX(title_story_evidence.updated_at, excluded.updated_at);
+END;
+`);
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (13, @applied_at);
 `).run({ applied_at: nowMs() });
 }
 
@@ -1633,7 +1846,6 @@ VALUES (@started_at, NULL, @type, @id, 'quarantine', 0, 'uncached_verify_legacy'
 
 export async function getPlayabilityStatus(railIds: string[]): Promise<PlayabilityStatus> {
   await initPlayabilityDb();
-  const now = nowMs();
   const db = openDb();
   const rows = db.prepare(`
 SELECT
@@ -2330,14 +2542,32 @@ export async function upsertRailPoolTitle(entry: RailPoolEntry): Promise<void> {
   await initPlayabilityDb();
   const db = openDb();
   db.prepare(`
-INSERT INTO rail_pool (rail_id, type, id, score, ingested_at, title, poster_url, year)
-VALUES (@rail_id, @type, @id, @score, @ingested_at, @title, @poster_url, @year)
+INSERT INTO rail_pool (
+  rail_id, type, id, score, ingested_at, title, poster_url, year,
+  evidence_json, evidence_hash, evidence_source, evidence_retrieved_at
+)
+VALUES (
+  @rail_id, @type, @id, @score, @ingested_at, @title, @poster_url, @year,
+  @evidence_json, @evidence_hash, @evidence_source, @evidence_retrieved_at
+)
 ON CONFLICT(rail_id, type, id) DO UPDATE SET
   score = excluded.score,
   ingested_at = excluded.ingested_at,
   title = COALESCE(excluded.title, rail_pool.title),
   poster_url = COALESCE(excluded.poster_url, rail_pool.poster_url),
-  year = COALESCE(excluded.year, rail_pool.year);
+  year = COALESCE(excluded.year, rail_pool.year),
+  evidence_json = COALESCE(excluded.evidence_json, rail_pool.evidence_json),
+  evidence_hash = COALESCE(excluded.evidence_hash, rail_pool.evidence_hash),
+  evidence_source = CASE
+    WHEN excluded.evidence_hash IS NOT rail_pool.evidence_hash
+      THEN COALESCE(excluded.evidence_source, rail_pool.evidence_source)
+    ELSE rail_pool.evidence_source
+  END,
+  evidence_retrieved_at = CASE
+    WHEN excluded.evidence_hash IS NOT rail_pool.evidence_hash
+      THEN COALESCE(excluded.evidence_retrieved_at, rail_pool.evidence_retrieved_at)
+    ELSE rail_pool.evidence_retrieved_at
+  END;
 `).run({
     rail_id: entry.rail_id,
     type: entry.type,
@@ -2347,6 +2577,10 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
     title: entry.title ?? null,
     poster_url: entry.poster_url ?? null,
     year: entry.year ?? null,
+    evidence_json: entry.evidence_json ?? null,
+    evidence_hash: entry.evidence_hash ?? null,
+    evidence_source: entry.evidence_source ?? null,
+    evidence_retrieved_at: entry.evidence_retrieved_at ?? null,
   });
 }
 
@@ -2368,6 +2602,38 @@ export type VerifiedLibraryCatalogRow = VerifiedRailPoolSearchRow & {
   rail_id: string;
   /** Every curated rail membership, sorted and URL-free, for semantic features. */
   rail_ids: string[];
+};
+
+/**
+ * One row from the complete VOD recommendation corpus. Unlike
+ * `VerifiedLibraryCatalogRow`, this type deliberately includes verified titles
+ * that have no current presentation-rail membership or usable artwork. The
+ * recommendation index must account for those rows and persist an exclusion
+ * reason instead of silently shrinking the corpus.
+ */
+export type VerifiedRecommendationCatalogRow = {
+  type: 'movie' | 'series';
+  id: string;
+  title: string | null;
+  poster: string | null;
+  year: string | null;
+  rail_ids: string[];
+  evidence_json: string | null;
+  evidence_hash: string | null;
+  evidence_source: string | null;
+  evidence_retrieved_at: number | null;
+  best_source: string | null;
+  verified_at: number | null;
+  updated_at: number;
+};
+
+export type VerifiedRecommendationCatalogPage = {
+  content_type: 'movie' | 'series';
+  corpus_generation: number;
+  verified_count: number;
+  after_id: string | null;
+  next_cursor: string | null;
+  items: VerifiedRecommendationCatalogRow[];
 };
 
 export type LinkableVerifiedCandidateRow = {
@@ -2433,6 +2699,164 @@ LIMIT @limit;
     now,
     limit: Math.max(1, limit),
   }) as LinkableVerifiedCandidateRow[];
+}
+
+/** Monotonic source revision captured by every VOD v2 indexing generation. */
+export async function playabilityRecommendationCorpusGeneration(): Promise<number> {
+  await initPlayabilityDb();
+  const row = openDb().prepare(`
+SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
+`).get() as { generation?: number } | undefined;
+  return Math.max(1, Math.floor(Number(row?.generation) || 1));
+}
+
+// A verified series gate is normally written twice: once for the show id and
+// once for the S1E1 stream-probe id. Recommendation coverage is show-level, so
+// both the COUNT and page query must operate on this identical canonical
+// relation rather than counting the physical gate rows.
+const VERIFIED_RECOMMENDATION_CORPUS_CTE = `
+WITH verified_recommendation_sources AS (
+  SELECT
+    t.*,
+    CASE
+      WHEN t.type = 'series'
+        AND LOWER(t.id) GLOB 'tt[0-9]*:[0-9]*:[0-9]*'
+        AND INSTR(t.id, ':') > 0
+      THEN SUBSTR(t.id, 1, INSTR(t.id, ':') - 1)
+      ELSE t.id
+    END AS canonical_id
+  FROM titles t
+  WHERE t.status = 'verified' AND t.type = @content_type
+), canonical_verified_titles AS (
+  SELECT sources.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY sources.type, sources.canonical_id
+      ORDER BY
+        CASE WHEN sources.id = sources.canonical_id THEN 0 ELSE 1 END,
+        COALESCE(sources.verified_at, 0) DESC,
+        sources.updated_at DESC,
+        sources.id COLLATE BINARY ASC
+    ) AS source_rank
+  FROM verified_recommendation_sources sources
+)
+`;
+
+/**
+ * Deterministically pages the entire active verified movie/show corpus. This
+ * query intentionally starts at `titles`, not `rail_pool`: removing a visible
+ * curated rail cannot make a verified title disappear from recommendation
+ * accounting. Missing title/artwork rows are returned and excluded later with
+ * an auditable reason.
+ */
+export async function listVerifiedRecommendationCatalogPage(input: {
+  content_type: 'movie' | 'series';
+  cursor?: string | null;
+  limit?: number;
+}): Promise<VerifiedRecommendationCatalogPage> {
+  await initPlayabilityDb();
+  const db = openDb();
+  const limit = Math.max(1, Math.min(1_000, Math.floor(input.limit ?? 250)));
+  const afterId = input.cursor?.trim() || '';
+  const readPage = db.transaction(() => {
+    const state = db.prepare(`
+SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
+`).get() as { generation: number };
+    const count = db.prepare(`${VERIFIED_RECOMMENDATION_CORPUS_CTE}
+SELECT COUNT(*) AS verified_count
+FROM canonical_verified_titles
+WHERE source_rank = 1
+`).get({ content_type: input.content_type }) as { verified_count: number };
+    const rows = db.prepare(`
+${VERIFIED_RECOMMENDATION_CORPUS_CTE}, membership_sources AS (
+  SELECT
+    type,
+    CASE
+      WHEN type = 'series'
+        AND LOWER(id) GLOB 'tt[0-9]*:[0-9]*:[0-9]*'
+        AND INSTR(id, ':') > 0
+      THEN SUBSTR(id, 1, INSTR(id, ':') - 1)
+      ELSE id
+    END AS canonical_id,
+    rail_id
+  FROM rail_pool
+  WHERE type = @content_type
+), memberships AS (
+  SELECT type, canonical_id, GROUP_CONCAT(DISTINCT rail_id) AS rail_ids
+  FROM membership_sources
+  GROUP BY type, canonical_id
+), evidence_sources AS (
+  SELECT
+    se.*,
+    CASE
+      WHEN se.type = 'series'
+        AND LOWER(se.id) GLOB 'tt[0-9]*:[0-9]*:[0-9]*'
+        AND INSTR(se.id, ':') > 0
+      THEN SUBSTR(se.id, 1, INSTR(se.id, ':') - 1)
+      ELSE se.id
+    END AS canonical_id
+  FROM title_story_evidence se
+  WHERE se.type = @content_type
+), canonical_evidence AS (
+  SELECT evidence_sources.*,
+    ROW_NUMBER() OVER (
+      PARTITION BY type, canonical_id
+      ORDER BY
+        CASE WHEN id = canonical_id THEN 0 ELSE 1 END,
+        CASE WHEN NULLIF(TRIM(evidence_json), '') IS NOT NULL THEN 0 ELSE 1 END,
+        COALESCE(evidence_retrieved_at, 0) DESC,
+        updated_at DESC,
+        id COLLATE BINARY ASC
+    ) AS evidence_rank
+  FROM evidence_sources
+)
+SELECT
+  t.type,
+  t.canonical_id AS id,
+  NULLIF(TRIM(se.title), '') AS title,
+  NULLIF(TRIM(se.poster_url), '') AS poster,
+  NULLIF(TRIM(se.year), '') AS year,
+  COALESCE(m.rail_ids, '') AS rail_ids,
+  se.evidence_json,
+  se.evidence_hash,
+  se.evidence_source,
+  se.evidence_retrieved_at,
+  t.best_source,
+  t.verified_at,
+  t.updated_at
+FROM canonical_verified_titles t
+LEFT JOIN memberships m ON m.type = t.type AND m.canonical_id = t.canonical_id
+LEFT JOIN canonical_evidence se
+  ON se.type = t.type AND se.canonical_id = t.canonical_id AND se.evidence_rank = 1
+WHERE t.source_rank = 1
+  AND t.canonical_id > @after_id COLLATE BINARY
+ORDER BY t.canonical_id COLLATE BINARY ASC
+LIMIT @limit
+`).all({
+      content_type: input.content_type,
+      after_id: afterId,
+      limit,
+    }) as Array<Omit<VerifiedRecommendationCatalogRow, 'rail_ids'> & { rail_ids: string }>;
+    return {
+      generation: Math.max(1, Math.floor(Number(state.generation) || 1)),
+      count: Math.max(0, Math.floor(Number(count.verified_count) || 0)),
+      rows,
+    };
+  });
+  const page = readPage();
+  const items = page.rows.map((row) => ({
+    ...row,
+    type: row.type as 'movie' | 'series',
+    rail_ids: [...new Set(row.rail_ids.split(',').map((value) => value.trim()).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right)),
+  }));
+  return {
+    content_type: input.content_type,
+    corpus_generation: page.generation,
+    verified_count: page.count,
+    after_id: afterId || null,
+    next_cursor: items.length === limit ? items.at(-1)?.id ?? null : null,
+    items,
+  };
 }
 
 export async function listVerifiedLibraryCatalogRows(

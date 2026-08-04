@@ -423,22 +423,23 @@ PR regression (not gate-lite): `bash scripts/m3-play/playability/gate-m3-library
 
 Fire/Water `For You` candidates come only from the global active verified-title
 corpus; recommendation enrichment cannot publish an unverified title or bypass
-the normal grow/resolver ladder. Current ratings, hidden/blocked rows, Not
-for-me, invalid/expired rows, and duplicates are hard exclusions for the active
-profile. Household uses the union of exact profile vetoes. Saved and watched
-titles inform dual-horizon taste without displacing explicit Fire/Water; they do
-not ordinarily re-enter the visible rail. One completed VOD may return only
-through the explicit sparse rewatch lane after its cooldown, never as generic
-fallback filler.
+the normal grow/resolver ladder. Household ratings, Saved, and meaningful
+viewing provide positive taste evidence, while exact rated, Saved, meaningfully
+watched, hidden, blocked, Not-for-me, invalid, and duplicate titles are serving
+exclusions. Personal-profile rows remain dormant and are never blended. There
+is no cooled-rewatch lane.
 
 Each visible Movies/TV For You response is exactly six titles currently marked
-verified in the playability DB: four close, one adjacent, and one bounded
-surprise. If the ranked reserve cannot heal every slot after load-time
-revalidation, Mango omits the rail instead of returning a partial row. This is
-source-state evidence, not unobserved target-TV playback proof. AI can enrich semantic features only in the
-idle/background path; the deterministic local ranker owns eligibility and the
-final slate. Snapshot publication is atomic, an enrichment/ranking failure
-retains the prior valid revision, and the launcher never waits for AI. Playing
+verified in the playability DB. The dealer allocates `6`, `3/3`, or `2/2/2`
+strongest-fit portfolios across supported Household taste threads and has no
+close/adjacent/surprise or bridge slot. If a new six-card slate cannot heal
+after load-time revalidation, Mango retains the prior valid slate and omits the
+rail only when no valid six-card slate exists. This is source-state evidence,
+not unobserved target-TV playback proof. The stateless StoryDNA teacher can
+enrich content evidence only in the idle/background path; the deterministic
+local theme graph owns eligibility, ranking, uncertainty, and the final slate.
+Generation publication is atomic, failure retains last-good, and the launcher
+never waits for AI. Playing
 a For You card uses the exact same play-session and playback ladder as every
 curated rail, including the existing 4K policy and proof boundary.
 

@@ -239,7 +239,6 @@ export function isCurrentLiveChannel(channel: LiveChannelMeta, policy?: LiveQual
 
 export function qualifiesLiveChannel(channel: LiveChannelMeta, policy?: LiveQualificationPolicy): boolean {
   if (!policy) return true;
-  const all = `${nameText(channel)} ${programText(channel)}`;
   switch (policy) {
     case 'fifa_mens_world_cup':
       return isCurrentLiveChannel(channel, policy) || isStandingChannel(channel, policy);

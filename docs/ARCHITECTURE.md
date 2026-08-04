@@ -154,12 +154,13 @@ The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml`
 ### Mango library state
 
 Mango is the user-library source of truth. `progress.db` v2 owns profile-exact
-Continue/resume, while `/etc/mango/library.db` v10 mirrors profile watch state
+Continue/resume, while `/etc/mango/library.db` v12 mirrors profile watch state
 and owns explicit Saved rows, automatic history, finished state, current TV
 context, and dormant hidden/blocked fields. Legacy unscoped progress/watch rows
-migrate only to Household. Household may blend taste/history evidence, but
-never exact resume positions. Playback updates Continue/history but never
-auto-saves. Existing user-facing Pins import once into Saved; `/pins` stays as
+migrate only to Household. Recommendation v2 reads only the Household identity
+and never blends personal-profile evidence or exact resume positions. Playback
+updates Continue/history but never auto-saves. Existing user-facing Pins import
+once into Saved; `/pins` stays as
 a compatibility API over Saved. Internal playability rail-curation pins remain
 operator policy and are not user library state.
 
@@ -173,59 +174,71 @@ Pending library schemas, data backfills, and their version markers commit in a
 single immediate SQLite transaction; any migration failure rolls the whole
 pending set back to the previously marked boundary.
 
-Personalization migrations add one permanent **Household** profile plus up to
-seven optional personal profiles. Profiles are recommendation identities, not
-security boundaries: there is no PIN and no startup chooser. Creating a profile
-does not activate it; rename preserves its stable ID; activation is explicit
-and clears only the temporary mood. Personal profiles start with clean ratings,
-YouTube history/Saved/negative/search taste and exact resume state, while
-Household preserves legacy state and blends recommendation/history evidence
-with an exact-title dislike veto. Exact resume never blends across viewers. Explicit
-session mood is bounded and expiring; Mango never infers mood from time, room,
-or playback. `mango_manage_viewer_profile` exposes list/create/rename/activate/
-complete-onboarding to the companion without creating a second profile store.
+Personalization migrations retain one permanent **Household** profile plus up
+to seven optional personal profiles. Recommendation v2 is Household-only:
+profile and mood controls are hidden, non-Household creation/activation and
+non-null mood writes return typed `household_only`, and neither profile nor mood
+is part of ranking, cache identity, generation context, or TV attribution.
+Existing personal-profile ratings, Saved rows, history, progress, snapshots,
+and events remain dormant and recoverable; they are not merged or deleted.
+Exact resume remains profile-owned in the preserved data model. Household
+activation and clearing mood are idempotent.
 
-Personalized reads use an end-to-end ownership handshake. Before loading VOD,
-YouTube, Continue, or Saved state, the launcher captures the active profile ID
-and monotonic personalization revision and submits both as its expectation. The
-service checks the pair before and after asynchronous work and echoes the owner
-that produced the response. A mismatch returns 409; strict VOD reads never
-fall through to ownerless legacy rail endpoints. The launcher commits only when
-request generation, current local owner, rail echo, and parallel Saved echo all
-still match. Its per-tab rail and Saved caches retain immutable owners and are
-painted only as a matching pair after a fresh server-owner read, including tab,
-Search-return, Settings-refresh, and missed-notification paths. Search Detail's
-Saved marker and Settings hidden-title read/restore use the same exact pair and
-withhold stale 409/mismatched responses.
-The same immutable owner pair covers every ordinary Detail action—rating and
-prompt state, Save/Unsave, Not-for-me/Undo, current context, playback session
-acceptance, playback-return restore, and next-episode prompt—so a stale Detail
-cannot mutate whichever profile became active later. Recommendation metrics
-advance only after a server-validated attributed watch session starts, once per
-served item; client-supplied rail labels are never metric authority.
+Owned reads keep the existing end-to-end revision handshake. In v2 serve mode
+the recommendation owner is fixed to Household; the launcher captures that
+identity plus the relevant source/generation revision, and the service validates
+it around asynchronous work. A mismatch returns 409 and never falls through to
+an ownerless legacy endpoint. Preserved legacy Continue, Saved, Search Detail,
+and hidden-title paths retain their exact-owner validation for rollback and data
+integrity. Immutable attribution also covers rating, Save/Unsave, exact
+Not-for-me/Undo, current context, playback acceptance/return, and prompt actions.
+Recommendation metrics advance only from a server-validated meaningful watch,
+once per served item; client-supplied rail labels are never metric authority.
 
 Movies and TV Shows each receive one system rail (`for-you-movies` and
 `for-you-series`) after Continue and Saved and before the three user AI-catalog
-slots. The recommender reads only active verified playability rows, predicts
-Fire and Water independently, combines explicit ratings with confidence-weighted
-dual-horizon watch/save signals, applies mood as an explicit session input, and
-publishes an atomic last-good reserve. Every visible rail is exactly six titles
-currently verified by the playability DB: four close matches, one adjacent
-discovery, and one bounded surprise. If the reserve cannot heal all six slots,
-the rail is omitted rather than partially rendered. Target-TV playback remains
-a separate home proof boundary.
-Rated, hidden, blocked, profile Not-for-me, and unverified titles do not render;
-a completed title can return only through the sparse cooled-rewatch path. AI may
-enrich versioned semantic features in the background, but the local ranker owns
-eligibility, scoring, diversity, and final slate publication and never waits on
-AI at couch time. AI cache reads and feature writes are batched, watched/Saved
-preference anchors retain valid semantic enrichment, and CPU-heavy scoring/MMR
-runs in a deadline-bounded worker so catalog HTTP remains responsive. An opaque
-server-issued token binds the immutable served
-owner, domain, rail, served revision, exact membership, source revision, and
-bounded context. Public cards carry opaque content IDs needed for actions, but
-the TV never renders them; predictions, private tags/prompts, URLs, credentials,
-and AI output remain service-private. Stale-profile actions fail with 409. See
+slots. `vod-story-graph-v1` deterministically pages the complete verified-title
+corpus and replaces the v4 semantic-hash/cosine/KNN/MMR path. It publishes a
+ranked reserve after 200 eligible titles, grows toward complete verified-corpus
+accounting, and keeps the prior complete generation active while new work runs.
+
+Every title profile is a strict, versioned `story-dna-v1` document grounded in
+retained catalog evidence. Mango Companion's configured model is a stateless
+content teacher only: its enrichment prompt receives canonical title evidence
+and identity, never Household ratings, saves, watches, profiles, mood,
+conversations, or companion memory. It cannot score, rank, select, or publish.
+A versioned theme graph connects titles to controlled ontology facets and fixed
+compound nodes; deterministic metadata edges cover language, country, decade,
+creator, and format. Ranking uses uncertainty-aware posterior graph matching,
+not an embedding or title-to-title similarity number.
+
+The local model learns up to three supported Household taste threads from
+positive Fire/Water, Saved, and meaningful VOD viewing. Ratings at or below 2.5
+do not propagate negative taste. Where explicit evidence exists it owns 85% of
+affinity; Saved (`0.8`) and meaningful partial/completed viewing (`0.55`/`1.0`)
+share at most 15% and renormalize for cold start. A meaningful watch reaches
+`min(25% of duration, 5 minutes)`, or two minutes when duration is unknown;
+watch influence has a 180-day half-life while ratings do not decay. Rated,
+Saved, meaningfully watched, hidden, blocked, exact Not-for-me,
+artwork-deficient, and currently unverified titles
+cannot render, although retained evidence may still inform taste where the
+contract permits. A six-card cached dealer allocates strongest fits `2/2/2`,
+`3/3`, or all six across the supported threads, samples within fit by
+`1 / rank^1.5`, and avoids the preceding four slates when supply permits. There
+is no close/adjacent/surprise slot, bridge, cooled-rewatch lane, MMR repair, or
+visible explanation. If six cards cannot be healed, the prior valid slate stays
+active.
+
+Rating/Save/meaningful-watch mutations commit first, immediately evict the exact
+known item, and enqueue a serialized/coalesced rescore followed by a full scan.
+Manual refresh returns HTTP 202 with a job ID, captured revisions, and trigger
+reasons. X only advances the current tab's published cached slate, preserving
+focus and scroll; it performs no enrichment, graph, scan, ranking, or network
+work. An opaque server-issued token binds the immutable served Household owner,
+domain, rail, served revision, exact membership, source revision, and bounded
+context. Public cards carry opaque content IDs needed for actions, but the TV
+never renders them; predictions, private tags/prompts, URLs, credentials, and AI
+output remain service-private. Stale-owner actions fail with 409. See
 [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
 
 `/etc/mango/stremio-export.json` remains an addon-manifest graph only, not a
@@ -237,8 +250,10 @@ Native YouTube is a first-class source but not a second user library. The
 rebuildable `/etc/mango/youtube.db` caches YouTube metadata, rail membership,
 recommender reservoirs, refresh/quota state, and temporary OAuth sessions.
 Durable user state stays in `/etc/mango/library.db` with `source="youtube"` for
-Saved videos, history, finished state, current detail context, profile-scoped
-Not-for-me, searches, recommendation events, and exact watched exclusions.
+Saved videos, normalized Google Takeout and Mango-local history, finished state,
+current detail context, exact Not-for-me, recommendation events, and watched
+exclusions. Recommendation v2 reads the Household identity only; dormant
+personal-profile state is preserved but cannot affect acquisition or ranking.
 
 The YouTube Data API is used for metadata/search/subscription refresh only.
 Playback resolves through `yt-dlp -> mpv`; API quota does not govern cached
@@ -246,24 +261,38 @@ playback, but `yt-dlp` failures such as 403/429/CAPTCHA are surfaced as
 couch-safe playback errors. Channels and playlists open detail lists; only
 videos can be Saved in M6.2.
 
-YouTube rail reservoirs are intentionally few and rebuildable. The logical
-anchor order is **For You → Subscriptions → History → Saved** (empty anchors are
-omitted), followed by at most three adaptive discovery rails. Every rendered rail has
-exactly four landscape cards. For You rotates deterministic four-card patterns
-whose healthy-pool long-run allocation is 70% close/familiar, 20% adjacent, and
-10% explore. Thin lane supply uses best-effort fallback and records that fact;
-History and Saved remain stable. `GET /youtube/rails?reshuffle=1` advances the
-profile-scoped discovery slate from cache only and never shuffles History/Saved
-or calls YouTube at couch time. The launcher separately records exact rendered
-impressions through `POST /youtube/impressions`.
-Current mood and multilingual taste may steer local ranking; official YouTube
-APIs remain the only production metadata/discovery source.
-Each successful For You acquisition atomically replaces the bounded shared
-reservoir, pruning candidates that left the generation while preserving
-profile-specific exposure/outcome state for retained items. An empty or failed
-acquisition keeps the prior complete reservoir. Exact Saved videos are taste
-evidence but are excluded from For You membership so global dedupe cannot
-cannibalize the four-card Saved anchor.
+YouTube v2 has five equal core rails in this order: **For You → Beyond Your
+Subscriptions → More Like … → History → Saved**. **From Your Subscriptions** is
+sixth when an authoritative authenticated subscription snapshot exists, and
+**Live Now** is seventh when subscribed channels have live content. Normal rows
+contain four globally unique landscape cards; Live Now may contain one to four.
+History and Saved remain stable. `GET /youtube/rails?reshuffle=1` advances only
+published recommendation, discovery, subscription, and live slates and performs
+no API call, acquisition, or ranking work.
+
+Recommendation acquisition and scoring accept exactly two inputs:
+authoritative subscription snapshots and Google Takeout/Mango-local meaningful
+watch history. Explicit provenance (`subscription_upload`,
+`subscription_live`, `history_channel`, or `history_topic`) is required; a video
+in the generic Search/detail/AI/chart metadata cache cannot leak into a
+recommendation rail. Saved remains a utility rail and has zero ranking effect.
+Profiles, mood, VOD activity, companion state, Search, AI catalogs, and global
+charts likewise have zero influence. Shorts are excluded; live streams are
+confined to subscribed-channel Live Now.
+
+The Reliability Center accepts a Takeout ZIP or extracted JSON/HTML, streams and
+validates it with bounded size/expansion, stores only normalized durable watch
+events/import diagnostics, and discards raw uploaded data. Successful refreshes
+publish complete local generations atomically; a failed phase preserves
+last-good state. Ordinary Home loads and X consume only those published
+reservoirs. Independent
+`MANGO_VOD_RECS_V2=off|shadow|serve` and
+`MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
+
+This additive source architecture is complete on the current branch. No real
+StoryDNA or YouTube backfill, frozen offline promotion result, Pi deployment,
+runtime latency/restart proof, or couch judgment is established by source code
+alone; all remain **DEFERRED** until the exact pushed revision is proven at home.
 
 ### Unified Search
 
@@ -500,8 +529,8 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `POST` | `/library/saved` | Explicit Save by user/voice; accepts type/id/title/poster/tab/source |
 | `DELETE` | `/library/saved` | Explicit Unsave by type/id/source |
 | `GET` | `/library/history` | Read-only recent history |
-| `GET` | `/library/not-interested` | Profile-local hidden-title state; accepts and echoes the optional exact owner/revision pair |
-| `POST` | `/library/not-interested` | Reversible profile-local Not-for-me; recommendation cards require complete served attribution |
+| `GET` | `/library/not-interested` | Household hidden-title state in v2; accepts and echoes the captured owner/revision pair |
+| `POST` | `/library/not-interested` | Reversible exact-title Not-for-me; v2 recommendation cards require complete Household served attribution |
 | `DELETE` | `/library/not-interested` | Restore a hidden title; Settings supplies and validates the exact owner/revision pair |
 | `GET` | `/library/context` | Current launcher detail context |
 | `POST` | `/library/context` | Localhost launcher update for current-context voice tools |
@@ -510,14 +539,15 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `PUT` | `/library/ratings` | Revision-checked atomic Fire + Water set/edit |
 | `DELETE` | `/library/ratings?type=&id=&expected_revision=` | Clear current value while retaining audit history |
 | `POST` | `/library/rating-prompts/dismiss` | Resolve the one-time invitation without changing manual Rate |
-| `GET` | `/recommendations/state` | Local diagnostics: revisions, age, and candidate counts only |
-| `POST` | `/recommendations/refresh` | Localhost-only atomic refresh of one or both For You snapshots |
+| `GET` | `/recommendations/state` | Local diagnostics: StoryDNA/ontology/model revisions, thread and corpus coverage, reserve depth, uncertainty, jobs, stale reasons, last-good generation, and offline-evaluation status |
+| `GET` | `/recommendations/jobs/:job_id` | Localhost-only durable lookup for the exact refresh job returned by an HTTP 202 enqueue |
+| `POST` | `/recommendations/refresh` | Localhost-only enqueue; HTTP 202 returns job ID, captured revisions, and trigger reasons |
 | `POST` | `/recommendations/impressions` | Resolve an opaque served token and persist exact rendered VOD membership against immutable owner/rail/revision; no URLs |
 | `POST` | `/recommendations/action` | Token-validate an explicit recommendation detail-open; stale owner/revision/membership returns 409 |
-| `GET` | `/personalization/state` | Active profile, optional session mood, and profile list |
-| `POST` | `/personalization/profiles` | Create, rename, or complete onboarding without implicit activation |
-| `POST` | `/personalization/activate` | Explicit profile switch; clears session mood and recommendation caches |
-| `POST` | `/personalization/mood` | Set or clear bounded explicit session mood |
+| `GET` | `/personalization/state` | Household recommendation identity plus preserved legacy personalization state |
+| `POST` | `/personalization/profiles` | In v2 serve mode, non-Household creation returns typed `household_only`; dormant rows are retained |
+| `POST` | `/personalization/activate` | Household is idempotent; non-Household activation returns typed `household_only` in v2 serve mode |
+| `POST` | `/personalization/mood` | Null clear is idempotent; non-null mood returns typed `household_only` in v2 serve mode |
 
 `GET/POST/DELETE /pins` remains for compatibility and delegates to Saved.
 
@@ -534,11 +564,12 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `GET` | `/youtube/companion/auth/poll?session_id=` | Loopback upstream for sanitized OAuth poll |
 | `POST` | `/youtube/companion/auth/disconnect` | Loopback upstream for sanitized disconnect |
 | `POST` | `/youtube/refresh` | Fill/update cache and recommender rails |
-| `GET` | `/youtube/rails` | Four anchors followed by at most three adaptive four-card rails |
+| `GET` | `/youtube/rails` | Five ordered core rails plus conditional subscription/live rails, served only from published local generations |
+| `POST` | `/youtube/takeout/import` | Localhost-only streaming ZIP/JSON/HTML history import; normalized events only, raw upload discarded |
 | `POST` | `/youtube/impressions` | Token-validate exact rendered membership against server-owned source revision and context; no URLs |
 | `GET` | `/youtube/search?q=` | Grouped videos/channels/playlists |
 | `GET` | `/youtube/detail?kind=&id=` | Video detail or channel/playlist video list |
-| `POST` | `/youtube/not-interested` | Reversible profile-local Not-for-me; Household aggregates exact vetoes |
+| `POST` | `/youtube/not-interested` | Reversible Household exact-video Not-for-me; no creator/topic propagation |
 | `POST` | `/youtube/play` | Compatibility synchronous `yt-dlp -> mpv` route; launcher uses `/play-session` |
 
 ## Search API

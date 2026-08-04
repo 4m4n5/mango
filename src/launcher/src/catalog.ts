@@ -77,6 +77,7 @@ interface YoutubeRailResponse {
   slate_sequence?: number;
   profile_id?: string;
   personalization_updated_at?: number;
+  setup_required?: boolean;
   rails: Array<{
     rail_id: string;
     label: string;
@@ -311,12 +312,10 @@ function mapYoutubeItem(
 }
 
 function mapYoutubeRails(data: YoutubeRailResponse): ContentRail[] {
-  const anchors = new Set(["for_you", "new_from_subscriptions", "history", "saved"]);
-  const chosen = [
-    ...data.rails.filter((rail) => anchors.has(rail.rail_id)),
-    ...data.rails.filter((rail) => !anchors.has(rail.rail_id)).slice(0, 3),
-  ];
-  return chosen.map((rail) => ({
+  // Rail allocation/order belongs to the catalog service. In particular,
+  // YouTube v2 has five equal core rows plus conditional source rows; launcher
+  // regrouping would silently undo that couch contract.
+  const rails: ContentRail[] = data.rails.map((rail) => ({
     id: rail.rail_id,
     label: rail.stale ? `${rail.label} · stale` : rail.label,
     // The catalog service owns cross-rail allocation and has access to deeper
@@ -332,6 +331,24 @@ function mapYoutubeRails(data: YoutubeRailResponse): ContentRail[] {
     attributionToken: rail.attribution_token,
     sourceSlateSequence: data.slate_sequence,
   })).filter((rail) => rail.cards.length > 0);
+  if (data.setup_required) {
+    rails.unshift({
+      id: "youtube_setup",
+      label: "Get Started",
+      layout: "landscape",
+      cards: [{
+        id: "youtube_setup",
+        type: "youtube_setup",
+        title: "Make YouTube yours",
+        subtitle: "Connect subscriptions, import history, or start watching",
+        description: "Open Settings to connect YouTube or import Google Takeout history.",
+        source: "youtube",
+        kind: "video",
+        liveStatus: "none",
+      }],
+    });
+  }
+  return rails;
 }
 
 export async function noteYoutubeImpressions(rails: ContentRail[]): Promise<void> {
