@@ -70,21 +70,42 @@ missing_services = sorted(required_services - enabled_services)
 if missing_services:
     errors.append("required services disabled or missing: " + ", ".join(missing_services))
 
-enabled_presets = {
+all_presets = {
     str(preset.get("type") or "").lower(): preset
     for preset in config.get("presets", [])
-    if isinstance(preset, dict) and preset.get("enabled") is True
+    if isinstance(preset, dict)
 }
-required_presets = {"torrentio", "comet", "mediafusion"}
-missing_presets = sorted(required_presets - set(enabled_presets))
-if missing_presets:
-    errors.append("required stream indexers disabled or missing: " + ", ".join(missing_presets))
-for preset_type in sorted(required_presets & set(enabled_presets)):
+enabled_presets = {
+    key: preset
+    for key, preset in all_presets.items()
+    if preset.get("enabled") is True
+}
+# Torrentio + Comet are the required always-on AIOStreams indexers. MediaFusion
+# remains a configured contributor, but its ElfHosted override URL is
+# operator-owned and may be intentionally disabled when the share 404s.
+required_enabled_presets = {"torrentio", "comet"}
+missing_enabled = sorted(required_enabled_presets - set(enabled_presets))
+if missing_enabled:
+    errors.append("required stream indexers disabled or missing: " + ", ".join(missing_enabled))
+if "mediafusion" not in all_presets:
+    errors.append("required stream indexer preset missing: mediafusion")
+elif "mediafusion" not in enabled_presets:
+    warnings.append(
+        "MediaFusion preset is present but disabled "
+        "(re-enable after the operator manifest is healthy)"
+    )
+for preset_type in sorted(required_enabled_presets & set(enabled_presets)):
     resources = enabled_presets[preset_type].get("options", {}).get("resources")
     if isinstance(resources, list) and resources and "stream" not in {
         str(value).lower() for value in resources
     }:
         errors.append(f"{preset_type} does not expose the stream resource")
+if "mediafusion" in enabled_presets:
+    resources = enabled_presets["mediafusion"].get("options", {}).get("resources")
+    if isinstance(resources, list) and resources and "stream" not in {
+        str(value).lower() for value in resources
+    }:
+        errors.append("mediafusion does not expose the stream resource")
 
 service_wrap = config.get("serviceWrap")
 if not isinstance(service_wrap, dict) or service_wrap.get("enabled") is not True:
@@ -126,9 +147,14 @@ if errors:
     raise SystemExit("; ".join(errors))
 for warning in warnings:
     print("AIOStreams policy warning: " + warning, file=sys.stderr)
+mediafusion_state = (
+    "MediaFusion enabled"
+    if "mediafusion" in enabled_presets
+    else "MediaFusion present (disabled)"
+)
 print(
     "AIOStreams live policy verified: TorBox/RD/Easynews enabled; "
-    "Torrentio/Comet/MediaFusion enabled; uncached TorBox retained; "
+    f"Torrentio/Comet enabled; {mediafusion_state}; uncached TorBox retained; "
     "uncached RD excluded; stream errors observable"
 )
 PY
