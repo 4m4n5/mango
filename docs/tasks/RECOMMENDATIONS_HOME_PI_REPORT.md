@@ -5,7 +5,7 @@
 **Pi hostname:** mango  
 **Branch:** `feat/native-experience`  
 **Supplied source SHA:** `2440a82ad8388233bfd3a6e338524c489322de95`  
-**Final source / origin / Pi SHA:** `af9d337a2c5145a6db242750fbbd036332ed2364`
+**Final source / origin / Pi SHA:** tip of `origin/feat/native-experience` after this report commit (deployed for parity; last **code** tip `af9d337a2c5145a6db242750fbbd036332ed2364`)
 
 Home clone path differs from the spec’s `aman.shrivastava` path; this is the active LAN clone and matched origin for the handoff.
 
@@ -18,7 +18,8 @@ Home clone path differs from the spec’s `aman.shrivastava` path; this is the a
 | Operator expected tip (start) | `2440a82ad8388233bfd3a6e338524c489322de95` |
 | Pi baseline (pre-deploy) | `ed5645b` (ancestor of tip; ancestry proved) |
 | After first deploy + early corrections | `dd07e49d5ab7ca2b4997006faf737d0cc1fea27d` |
-| **Final reconciled tip** | `af9d337a2c5145a6db242750fbbd036332ed2364` |
+| Last code tip (live-search isolation) | `af9d337a2c5145a6db242750fbbd036332ed2364` |
+| **Report + parity tip** | tip of `origin/feat/native-experience` after the report docs commit(s) |
 
 Undeployed ancestry `ed5645b..2440a82` was fast-forwarded in full (no cherry-pick). Later correction commits on home Mac were pushed and redeployed.
 
@@ -230,8 +231,6 @@ RP/FW matrix: objective rails/hold/ownership exercised; seed-calibrated For You 
 
 | Machine | SHA |
 |---------|-----|
-| Home HEAD | `af9d337a2c5145a6db242750fbbd036332ed2364` |
-| `origin/feat/native-experience` | `af9d337a2c5145a6db242750fbbd036332ed2364` |
-| Pi `~/mango` | `af9d337a2c5145a6db242750fbbd036332ed2364` |
+| Home / origin / Pi | Must match `git rev-parse HEAD` on home after push and on Pi after `pi-deploy.sh --fast` |
 
-Report commit may advance tip by one documentation SHA; deploy that commit for parity after push.
+Last verified triad (post report deploy): `743958bb359b19fc16d463275d11a03a76eee471`. Gate-lite after code tip `af9d337`: `PRE-COUCH: PASS` (exit 0).
