@@ -32,10 +32,15 @@ gate_wait_catalog_ready 24 \
 # to any one title's cached debrid slot going bad (e.g. TorBox serving an
 # unplayable/NFO sidecar for a specific title). The retry logic in
 # gate_post_play handles transient flakiness for the picked title.
-if [[ -z "$MOVIE_ID" ]]; then
+MOVIE_CANDIDATES=()
+if [[ -n "$MOVIE_ID" ]]; then
+  MOVIE_CANDIDATES+=("$MOVIE_ID")
+else
   # Prefer a playability-verified movie so we do not stream-probe the whole
   # movies tab (that was a Torrentio 429 amplifier during every gate-lite run).
-  MOVIE_ID="$(python3 - <<'PY'
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" ]] && MOVIE_CANDIDATES+=("$candidate")
+  done < <(python3 - <<'PY'
 import json, urllib.request, sqlite3, os
 # 1) playability DB verified movie (canonical path, then cache fallbacks)
 candidates = [
@@ -48,25 +53,33 @@ for db in candidates:
         continue
     try:
         con = sqlite3.connect(db)
-        row = con.execute(
-            "SELECT id FROM titles WHERE type='movie' AND status='verified' ORDER BY verified_at DESC LIMIT 1"
-        ).fetchone()
+        rows = con.execute(
+            "SELECT id FROM titles WHERE type='movie' AND status='verified' ORDER BY verified_at DESC LIMIT 4"
+        ).fetchall()
         con.close()
-        if row and row[0]:
-            print(row[0]); raise SystemExit
+        if rows:
+            for row in rows:
+                if row and row[0]:
+                    print(row[0])
+            raise SystemExit
     except SystemExit:
         raise
     except Exception:
         continue
-# 2) first movies-tab item (no stream probe) — play will fail loudly if unplayable
+# 2) up to four movies-tab items (no stream probe) — play fails loudly only
+# after every bounded candidate fails.
 d = json.load(urllib.request.urlopen("http://127.0.0.1:3020/rails/items?tab=movies", timeout=10))
+emitted = 0
 for rail in d.get("rails", []):
     for item in rail.get("items") or []:
         if item.get("type") == "movie" and item.get("id"):
-            print(item["id"]); raise SystemExit
+            print(item["id"])
+            emitted += 1
+            if emitted >= 4:
+                raise SystemExit
 PY
-)"
-  if [[ -z "$MOVIE_ID" ]]; then
+  )
+  if [[ "${#MOVIE_CANDIDATES[@]}" -eq 0 ]]; then
     gate_fail "no verified movie resolves to a playable stream"
     exit 1
   fi
@@ -101,9 +114,20 @@ else
   gate_warn "GET /stream/movie/${SUPPLEMENTAL_CHECK_ID} (supplemental check skipped)"
 fi
 
-MOVIE_JSON="$TMP_DIR/play-movie.json"
-gate_post_play "lite-movie" "movie" "$MOVIE_ID" "$MOVIE_JSON" "$MAX_TOTAL_MS" "$MAX_ATTEMPTS" "" "fail" \
-  || exit 1
+MOVIE_OK=0
+for candidate in "${MOVIE_CANDIDATES[@]}"; do
+  MOVIE_JSON="$TMP_DIR/play-movie-${candidate}.json"
+  if gate_post_play "lite-movie" "movie" "$candidate" "$MOVIE_JSON" "$MAX_TOTAL_MS" "$MAX_ATTEMPTS" "" "attempt"; then
+    MOVIE_ID="$candidate"
+    MOVIE_OK=1
+    break
+  fi
+  gate_mpv_stop
+done
+if [[ "$MOVIE_OK" != "1" ]]; then
+  gate_fail "lite-movie playback exhausted ${#MOVIE_CANDIDATES[@]} verified candidates"
+  exit 1
+fi
 gate_mpv_stop
 
 SERIES_JSON="$TMP_DIR/play-series.json"
