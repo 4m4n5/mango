@@ -39,8 +39,16 @@ sync, every provider, subjective UI quality, or recommendation relevance.
 | `/etc/mango/reliability/proofs.jsonl` | Append-only local proof ledger, pruned to 30 days |
 | `~/.cache/mango/couch-activity.json` | Idle marker used before disruptive actions |
 | `~/.cache/mango/*.lock` | Maintenance locks checked for stale blockers |
+| `~/.cache/mango/recommendation-maintenance.lease` | Atomic 15-minute heavy-refresh lease; heartbeat is fresh for 30 seconds |
 
 No cloud telemetry, secrets, or live proof data are committed.
+
+Catalog exposes `GET /health/live` for process/event-loop liveness separately
+from full `/health` readiness. The watchdog restarts an inactive unit
+immediately; otherwise it requires two failed liveness probes five seconds
+apart. Only a fresh recommendation lease permits one final 15-second probe.
+Degraded full readiness alone never restarts a live catalog, and a stale lease
+never suppresses repair.
 
 ---
 

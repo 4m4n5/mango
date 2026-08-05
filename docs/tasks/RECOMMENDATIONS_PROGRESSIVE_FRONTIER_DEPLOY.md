@@ -1,103 +1,52 @@
-# Progressive Frontier deployment runbook
+# Recommendations reliability recovery — home deployment runbook
 
-Status: **READY FOR HOME SHADOW DEPLOYMENT** at the implementation target below.
-This means the Mac source blockers are fixed and tested; it is not Pi, serve, or
-couch proof.
+Status: **READY FOR HOME SHADOW DEPLOYMENT**. This is Mac source/test truth,
+not Pi, serve, or couch proof.
 
 ```bash
-TARGET_SHA=9425b1f691c3fe2fe9965ae074f155ca748a0027
+TARGET_SHA=c8cfe72154eb7732a41f78417f3a63b164835078
 ```
 
-Do not promote `345535d883805bbfc21bb277b62adbb33ccb96cb`,
-`3ef1b2079f0cd2b45f92adf6b476bc59e1a99478`, or
-`772b3d58b53208a278da4e9d5281b46f88054b8e`. The target fixes their rollout
-defects while preserving the sole executable architectures:
+Do not promote `345535d`, `3ef1b20`, `772b3d5`, or `9425b1f`. This successor
+retains the sole executable recommendation architectures while addressing the
+measured VOD memory/restart failure and the empty YouTube More Like reserve.
 
 - VOD: `vod-content-profile-v2` + `vod-story-frontier-v1`.
 - YouTube: authoritative subscription/history provenance-gated v2.
 - StoryDNA: compatible `story-dna-v1` rows remain immutable optional overlays.
 
-Cleanup is code-only. Never delete, rewrite, merge, vacuum, fresh-start, or
-purge runtime databases, ratings, Saved, history, profiles, playability,
+Cleanup is code-only. Never delete, rewrite, merge, vacuum, fresh-start, purge,
+or regenerate databases, ratings, Saved, history, profiles, playability,
 StoryDNA, generations, tables, migrations, caches, credentials, or ledgers.
 
-## What the successor closes
+## 1. Source contract and proof
 
-- YouTube `off` now returns History/Saved for the exact active personal owner,
-  so the HTTP ownership fence no longer produces a false 409. Shadow/serve
-  remain internally Household-owned.
-- VOD `shadow` and `serve` both read exact Household Saved state; neither blends
-  preserved personal Saved rows.
-- Home exposes Shuffle only when the current tab has a public shuffleable
-  recommendation rail. Off/shadow do not advance hidden epochs; an unchanged
-  slate gets warning feedback, never success feedback.
-- `/recommendations/state` now reports, per media type, the active and previous
-  pointers, active model/status/publication, active promotion evaluation ID,
-  active/public shuffle epoch, and public rank ID separately from the newest
-  diagnostic row. Top-level readiness derives from active pointers.
-- Focused tests cover every mode/owner pair, utility ownership, disabled
-  reshuffle, Saved policy, active-vs-latest publication, migration/data
-  preservation, rollback-off behavior, and initial subscription-only More Like.
-- `/playability/status.schema_version` now reports migration `14`, with a
-  focused test tying the public diagnostic to the latest applied migration.
-- VOD now separates supervised offline promotion from operational serving
-  authorization. A complete, deterministic, cached generation may use
-  `serve_basis=evidence_cold_start` when the *only* unavailable evidence is
-  stratified explicit-rating/nDCG coverage. This supports the approved
-  Saved/meaningful-watch cold start without inventing ratings. Every measured
-  accounting, determinism, latency, concordance, and intrusion failure remains
-  blocking and retains last-good.
-- Focused tests prove label-sparse Household Saved evidence can activate in
-  shadow and serve while `promotion_eligible=false`, and prove a measured p95
-  failure cannot activate through the cold-start path.
+The target adds:
 
-Mac proof at the target:
+- additive library migration 17 for immutable content-generation priors and
+  resumable job phase/cursor/heartbeat/deadline/generation/error/memory state;
+- compatible content-generation and prior reuse for taste-only refreshes;
+- deterministic 128-title profile/rank pages and one Movies/TV heavy worker;
+- a compact worker protocol that never sends the full corpus in `workerData`;
+- early evidence-cold-start evaluation without empty corpus replay;
+- a 15-minute, heartbeating maintenance lease with page-boundary couch
+  preemption and linked successor work;
+- `/health/live` and a watchdog that distinguishes liveness from readiness;
+- repo defaults `MemoryHigh=1280M`, `MemoryMax=1536M`;
+- alternate-seed thematic YouTube acquisition, exact-channel fallback, funnel
+  diagnostics, More-Like-first allocation, and honest conditional omission.
+
+Mac proof bound to `TARGET_SHA`:
 
 ```text
-catalog-service npm test: 878 pass / 0 fail
+catalog-service npm test: 881 pass / 0 fail
 launcher deterministic tests: 86 pass / 0 fail
 launcher production build: pass
 companion production build: pass
+health-repair shell syntax: pass
 ```
 
-## 1. Resume from the contained Pi
-
-The latest recorded starting point after the first target attempt is:
-
-```text
-Pi HEAD: 772b3d58b53208a278da4e9d5281b46f88054b8e
-MANGO_VOD_RECS_V2=off
-MANGO_YOUTUBE_RECS_V2=off
-MANGO_STORY_DNA=0
-MANGO_STORY_DNA_WORKER_MODE=off
-MANGO_TMDB_METADATA=off
-Pi-local backup directories: /tmp/mango-frontier-h2-20260805T161937Z and
-  /tmp/mango-frontier-h2-20260805T171818Z (plus the reported durable copy)
-companion.example dirt: preserved
-systemd user drop-in: frontier-memory.conf with MemoryHigh=1100M / MemoryMax=1400M
-latest shadow evidence: Movies 224 eligible + 5447 excluded = 5671;
-  Series 230 eligible + 3644 excluded = 3874; coverage=1; six-card slates
-StoryDNA story-dna-v1/ai rows: 1096 unchanged
-```
-
-Treat these as handoff evidence to read back, not permanent live truth. Keep the
-existing backup directory. Before this deploy, make fresh timestamped Pi-local
-SQLite online backups unless the operator proves the old backups are still
-present, mode/ownership-safe, checksum-valid, read-only-openable, `quick_check`
-clean, and no durable DB has changed since they were made. Never copy backups
-off-box. Directory mode is `0700`; files are `0600`.
-
-Before mutation, inventory Pi branch/full SHA/dirty state, services, effective
-recommendation environment, DB paths/sizes, StoryDNA count, diagnostics, and
-`PRAGMA quick_check`. Stop on overlapping source dirt. Preserve the recorded
-companion dirt and the operator-owned systemd drop-in; do not stash/reset or
-edit either by default. Record `NRestarts`, `MemoryCurrent`, `MemoryPeak`,
-`MemoryHigh`, and `MemoryMax` before and after each domain refresh.
-
-## 2. Exact revision contract
-
-The handoff and canonical status docs are committed after `TARGET_SHA`, so fresh
-origin may be a documentation-only descendant. On the home Mac:
+The handoff docs may be a documentation-only descendant. On the home Mac:
 
 ```bash
 git fetch origin feat/native-experience
@@ -108,16 +57,51 @@ test -z "$(git diff --name-only "$TARGET_SHA"..origin/feat/native-experience | \
 git show -s --format='%H %s' "$TARGET_SHA"
 ```
 
-Stop if the descendant contains any executable/config change. Run exact-target
-Mac proof from a clean detached worktree or by temporarily checking out the
-target; do not claim branch-tip tests as target proof.
+Stop on any executable/config delta after the target. Run any repeated Mac
+proof in a clean detached worktree at the exact target.
 
-The ordinary `pi-deploy.sh` and `pi-exec-gate.sh` wrappers remain blocked by
-[`docs/DEPLOY.md`](../DEPLOY.md): they do not pin the expected SHA and the deploy
-wrapper can implicitly mutate AIOMetadata private state. Do not use them. Use a
-human-reviewed Git-only target merge and manual build/restart with no addon sync.
+`pi-deploy.sh` and `pi-exec-gate.sh` remain blocked: they do not fail closed on
+the selected SHA and the deploy wrapper can mutate private AIOMetadata state.
+Use the reviewed manual Git/build/restart path below. Do not run addon sync.
 
-On the Pi, after recording dirt and ensuring the couch is idle:
+## 2. Recorded Pi containment — verify, do not assume
+
+The latest home report records:
+
+```text
+Pi HEAD: 9425b1f691c3fe2fe9965ae074f155ca748a0027
+MANGO_VOD_RECS_V2=off
+MANGO_YOUTUBE_RECS_V2=off
+MANGO_STORY_DNA=0
+MANGO_STORY_DNA_WORKER_MODE=off
+MANGO_TMDB_METADATA=off
+StoryDNA story-dna-v1/ai rows: 1096
+companion.example dirt: preserved
+operator drop-in: frontier-memory.conf, MemoryHigh=1100M / MemoryMax=1400M
+durable backup: ~/.local/share/mango/backups/agent-snapshots/
+  frontier-pre-deploy-20260805T183758Z
+older durable T161937Z/T171818Z copies: preserved
+```
+
+The prior Movies refresh crossed `MemoryHigh` by roughly 2.2 MiB and changed
+the catalog invocation. YouTube built For You/Beyond but no More Like reserve.
+Both domains were returned to off. There is no serve or couch claim.
+
+Before mutation, inventory full SHA/branch/dirt, service state, effective env,
+DB paths/sizes, StoryDNA count, recommendation diagnostics, schema versions,
+`InvocationID`, `NRestarts`, cgroup memory events, RSS/peak, pressure, and swap.
+Stop on overlapping source dirt. Preserve companion dirt without stashing or
+resetting it.
+
+Make fresh Pi-local SQLite online backups for both library and playability
+databases. Do not rely on the routine helper's plain-copy fallback. Use a new
+durable directory with mode `0700`, files `0600`, record checksums, open each
+backup read-only, and require `PRAGMA quick_check=ok`. Never copy databases
+off-box. Do not delete existing backups.
+
+## 3. Exact target and guarded memory headroom
+
+Require an idle couch and no authoritative playback PID/socket. On the Pi:
 
 ```bash
 cd ~/mango
@@ -129,23 +113,29 @@ git merge --ff-only "$TARGET_SHA"
 test "$(git rev-parse HEAD)" = "$TARGET_SHA"
 ```
 
-Do not run `git pull`, because that would select the later documentation-only
-tip rather than the reviewed executable target. Do not reset a dirty tree.
+Do not pull the later documentation tip. Do not reset a dirty tree.
 
-## 3. Safe VOD-first configuration and build
+Back up the operator-owned `frontier-memory.conf`, then edit **only** its two
+memory assignments to:
 
-Preserve the operator-owned environment file and change only these keys:
+```ini
+MemoryHigh=1280M
+MemoryMax=1536M
+```
 
-```bash
-MANGO_VOD_RECS_V2=shadow
+Do not remove the drop-in or change its other contents. Run user daemon-reload
+and read back the effective values. Do not add forced GC, swap tuning,
+`--max-old-space-size`, or worker heap caps.
+
+Keep both domains and provider work off while building:
+
+```text
+MANGO_VOD_RECS_V2=off
 MANGO_YOUTUBE_RECS_V2=off
 MANGO_STORY_DNA=0
 MANGO_STORY_DNA_WORKER_MODE=off
 MANGO_TMDB_METADATA=off
 ```
-
-Remove obsolete `MANGO_VOD_CONTENT_PROFILE` and
-`MANGO_STORY_DNA_AUTONOMOUS_BACKFILL` keys only; never touch stored data.
 
 Build/restart without addon synchronization:
 
@@ -158,124 +148,138 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 test "$(git rev-parse HEAD)" = "$TARGET_SHA"
 ```
 
-No dependency manifest changed. Run catalog tests, launcher/companion builds,
-and reviewed Pi-local pre-couch/focus/reliability checks on this exact SHA.
+Require catalog `/health/live`, library schema 17, playability schema 14,
+`quick_check=ok`, and exactly the pre-deploy StoryDNA count before proceeding.
 
-## 4. VOD shadow, then serve
+## 4. Two-cycle VOD shadow proof
 
-Trigger Movies first and poll its exact job ID to terminal before triggering
-TV. The service queue is serialized, and this explicit order also makes the Pi
-memory/restart evidence attributable:
+Set only VOD to `shadow`; keep YouTube, StoryDNA teacher/frontier, and TMDB off.
+Restart and read back the effective environment. Record the baseline after two
+idle minutes: invocation/restarts, process memory, cgroup events, pressure,
+swap, provider usage, StoryDNA count, and recommendation pointers.
 
-```bash
-curl -fsS -X POST http://127.0.0.1:3020/recommendations/refresh \
-  -H 'content-type: application/json' -d '{"tab":"movies","reason":"deploy_shadow"}'
-# Poll the returned Movies job to complete before continuing.
-curl -fsS -X POST http://127.0.0.1:3020/recommendations/refresh \
-  -H 'content-type: application/json' -d '{"tab":"series","reason":"deploy_shadow"}'
-```
+Run **two complete cycles**, each in this strict order:
 
-Require per domain:
+1. enqueue Movies and poll its exact job ID to a terminal success;
+2. wait for the catalog to settle;
+3. enqueue TV and poll its exact job ID to terminal success;
+4. wait two minutes and capture the same service/cgroup/process evidence.
 
-- `model_version=vod-story-frontier-v1`, `profile_mode=progressive-v2`;
-- `/playability/status.schema_version=14` and the latest
-  `playability_migrations.version=14`;
-- current Household taste revision from real ratings/Saved/meaningful history;
-- `scored_count + excluded_count == verified_count`, `unscored_count=0`,
-  `coverage=1`, reserve at least 200, and six valid cached cards;
-- existing enriched StoryDNA count never decreases; teacher/TMDB usage does not
-  change while all provider work is off;
-- `serving_pointer.active_ready=true`, active model/status/pointers match the
-  published generation, and the evaluation is tied to
-  `promotion_rank_generation_id`;
-- either `serve_basis=evaluated` with `promotion_eligible=true`, or
-  `serve_basis=evidence_cold_start` with `promotion_eligible=false` and the
-  evaluation reasons containing only `insufficient_stratified_ratings` and/or
-  `ndcg_unavailable`; `serve_eligible=true` and `serve_blockers=[]` are
-  mandatory in either case;
-- in shadow, `public_rank_generation_id` and `public_shuffle_epoch` are null.
+Do not overlap domain jobs or treat an HTTP timeout as success. For every job,
+capture phase, cursor, resume/successor IDs, captured revisions, generation IDs,
+typed error, per-phase/peak RSS/heap/external/array-buffer metrics, accounting,
+background/prior identity, reserve, slate, active/previous/public pointers, and
+offline evaluation.
 
-Prove a newer failed/building diagnostic row cannot replace the active pointer.
-Prove Saved is exact Household in shadow and serve. In shadow/off, the launcher
-must hide Shuffle and direct reshuffle must leave the active epoch unchanged.
-Do not create synthetic ratings to make the supervised evaluator pass. Missing
-labels remain visible as insufficient evaluation evidence; they are accepted
-only by the narrowly defined cold-start serving policy above.
+Per-domain functional gates:
 
-For catalog stability, record the service invocation/restart count and memory
-properties before Movies, after Movies, and after Series:
+- `model_version=vod-story-frontier-v1`, progressive profile mode;
+- `eligible_ranked + sparse_unresolved + other_excluded == verified` and no
+  unaccounted title;
+- reserve depth at least 200 and a valid six-card cached slate;
+- every served candidate currently verified-playable, poster-bearing, unique,
+  and not an exact rated/Saved/meaningfully watched/vetoed title;
+- taste-only second-cycle work reuses the compatible profile generation and
+  persisted corpus priors rather than recompiling/rebuilding them;
+- teacher/TMDB usage remains zero and StoryDNA count never decreases;
+- active pointers describe the accepted generation, not merely the newest row;
+- in shadow, public rank and public shuffle epoch remain null, direct reshuffle
+  cannot advance state, and Saved ownership is exactly Household;
+- serving is either supervised-evaluated or the existing narrow
+  `evidence_cold_start` basis. Never invent ratings or weaken measured gates.
 
-```bash
-systemctl --user show mango-catalog.service \
-  -p ActiveState -p InvocationID -p NRestarts \
-  -p MemoryCurrent -p MemoryPeak -p MemoryHigh -p MemoryMax
-```
+Memory/stability gates across both cycles:
 
-Require the same uninterrupted service invocation, no increase in `NRestarts`,
-no OOM/MemoryHigh termination in the bounded journal window, terminal job
-success, and healthy HTTP after each refresh. Preserve
-`frontier-memory.conf`; do not raise its limits to manufacture a pass. If the
-service restarts or resets a connection, return VOD to `off`, retain all data,
-and report the measured peak/journal evidence for a work-Mac memory fix.
+- one `InvocationID`, unchanged `NRestarts`, and healthy `/health/live`;
+- zero deltas in cgroup `max`, `oom`, and `oom_kill` events;
+- peak no higher than 90% of effective `MemoryHigh`;
+- RSS no more than 100 MiB above the baseline two minutes after each cycle;
+- no monotonic memory growth from cycle one to cycle two;
+- no sustained full-memory pressure and no continuing swap growth;
+- cached Home and five X operations service-side p95 `<=250 ms`, with zero
+  response-path provider/metadata/graph/rank work.
 
-After all shadow gates pass, change only VOD to `serve`, restart, and require
-`public_rank_generation_id == active_rank_generation_id`, a non-null public
-epoch, visible six-card rails, valid launches, focus/Back restoration, offline
-last-good behavior, and five cache-only X presses. Success feedback requires
-actual recommendation membership/order change. A cold-start-authorized domain
-is provisional quality evidence: automated operational checks may enable the
-rail, but the user-owned ten-shuffle couch verdict remains the acceptance gate.
+Exercise couch preemption once in shadow: begin a refresh while idle, create
+authoritative couch/playback activity, and require preemption after at most one
+128-title batch. The completed page must stay committed, last-good must remain,
+the first job must be `coalesced/couch_preempted`, and a linked successor must
+resume only after idle. Do not interfere with real playback for this proof.
 
-## 5. YouTube shadow, then serve
+If the optimized implementation fails these gates twice at 1280M/1536M, do not
+raise limits again. Keep VOD off and report the exact evidence. The approved
+next architecture is a dedicated `mango-recommendation-worker.service` using
+the same checkpoint protocol and SQLite WAL/`SQLITE_BUSY` discipline; do not
+invent or patch that fallback on the Pi.
 
-Hold accepted VOD fixed. First prove YouTube `off` with a non-Household active
-profile returns HTTP 200 plus only that profile's exact History/Saved utilities,
-with no epoch change on `reshuffle=1`.
+## 5. VOD serve gate
 
-Set only YouTube to `shadow`, restart, enqueue `/youtube/refresh`, and poll the
-exact job. Require complete authoritative subscription pagination, qualifying
-Takeout/Mango-local history only, allowed provenance only, no generic cache or
-Saved/profile/mood/VOD/companion/chart influence, honest stale last-good on
-OAuth loss, and no public recommendation rails.
+Only after every shadow gate passes, set VOD to `serve`, restart, and require:
 
-An authoritative successful snapshot with zero subscriptions is a valid
-history-only household state, not a pagination failure. In that state,
-`From Your Subscriptions` and `Live Now` must be absent and their zero reserves
-must not block. History-driven `For You`, `Beyond`, and `More Like` still need
-their qualifying source evidence and complete four-card cached rows. The
-recorded first attempt had history-topic provenance but no More Like reserve;
-do not call that shadow complete. Inspect the selected meaningful history seed,
-acquisition phase counts/errors, API-key/quota state, and exact `more_like:`
-provenance generation. If four eligible More Like cards still cannot be built,
-leave YouTube `off` and return that narrow blocker; do not add popular/global
-fallbacks or fabricate subscriptions.
+- public rank equals active rank and public epoch is non-null;
+- one six-card For You rail on Movies and TV;
+- six successful representative launches, focus/Back restoration, restart and
+  offline last-good behavior;
+- five X presses change cached recommendation membership/order, preserve focus
+  and scroll, avoid four prior slates where supply permits, and cause zero
+  network/ranking/provider work;
+- invocation, cgroup, RSS-recovery, pressure, and p95 gates remain healthy.
 
-Then set only YouTube to `serve`, restart, and repeat state, rail order,
-deduplication, the applicable history-only or subscription-aware More Like
-contract, quota, focus, launch, offline, and restart proof. Five X presses must
-leave API/search/quota/ranking counters unchanged and keep History/Saved stable.
+The user-owned ten-shuffle thematic/relevance judgment and screenshots remain
+explicitly **DEFERRED**. Automated serve is not human couch acceptance.
 
-## 6. Latency, failure, and handoff
+## 6. Independent YouTube recovery
 
-For each served domain, cached Home and five X responses must be service-side
-p95 `<=250 ms` and perform no response-path provider, metadata, graph, corpus,
-rank, or quota work. Attribute asynchronous low-water recovery separately.
+Hold accepted VOD fixed. First prove YouTube `off`: History/Saved utilities
+must be HTTP 200 and exact-owner scoped. If only Household exists, mark the
+personal-owner case deferred; do not create a profile.
 
-On failure, disable only the affected domain. Full containment remains:
+Set YouTube to `shadow`, enqueue one exact refresh job, and require complete
+atomic publication with qualifying Takeout/Mango-local history and successful
+authoritative subscription pagination. Zero subscriptions is valid history-only
+state; omit subscription/live rails.
 
-```bash
+Require:
+
+- only subscription/history provenance; no Search, Saved influence, VOD,
+  profiles, mood, Companion, AI catalogs, charts, or generic cache leakage;
+- healthy four-card For You and Beyond reserves when their qualifying inputs
+  exist;
+- More Like acquisition funnels with opaque seed references and stage counts;
+- alternate meaningful seeds, then exact-channel fallback, within the existing
+  three triggered/four nightly search limits;
+- four thematic cards labelled `More Like …`, or four exact-channel cards
+  labelled `More from <channel>`, or rail omission plus explicit
+  `more_like_status=not_applicable`;
+- More Like allocation before Beyond without starving subscription/live
+  semantics; global deduplication and all watched/Saved/Short/live/block rules.
+
+An honest `not_applicable` More Like result does not block YouTube. Required
+For You/Beyond failure, acquisition/provider failure, provenance impurity, or
+atomic-generation failure still blocks.
+
+Promote YouTube independently only after its applicable gates pass. Verify
+stable rail order, four-card rows, launch/focus/offline behavior, cached p95,
+and five X presses with unchanged API/quota/acquisition/ranking counters and
+stable History/Saved.
+
+## 7. Failure, rollback, and report
+
+On failure, disable only the affected domain. Full containment is:
+
+```text
+MANGO_VOD_RECS_V2=off
+MANGO_YOUTUBE_RECS_V2=off
 MANGO_STORY_DNA=0
 MANGO_STORY_DNA_WORKER_MODE=off
 MANGO_TMDB_METADATA=off
-MANGO_VOD_RECS_V2=off
-MANGO_YOUTUBE_RECS_V2=off
 ```
 
-Restart and verify ordinary Continue, personal Saved/History in off, curated
-VOD, and YouTube utilities. Code rollback uses a reviewed Git SHA. Restore a DB
-backup only for proven corruption and only with explicit human approval.
+Restart and verify ordinary Continue, exact Saved/History utilities, curated
+VOD, and `/health/live`. Roll code back only through a reviewed Git SHA. Restore
+a DB backup only for proven corruption and explicit human approval.
 
-Return exact SHA/config, backup metadata, test/gate results, job IDs,
-accounting/reserves/pointers, StoryDNA/provider/quota deltas, latency,
-screenshots, and rollback readiness. The user-owned ten-shuffle thematic and
-relevance verdict remains explicitly **DEFERRED**.
+Return a compact PASS/FAIL/DEFERRED table with exact SHA/config, backup and
+preservation proof, Mac/Pi tests, schema/StoryDNA counts, job IDs/phases,
+accounting/reserves/pointers, provider/quota deltas, both-cycle memory evidence,
+preemption, latency, screenshots, rollback state, and the remaining human
+ten-shuffle checklist.

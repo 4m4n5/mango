@@ -222,18 +222,21 @@ See also: [`../AGENTS.md`](../AGENTS.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Live IPTV: [`LIVE_TV.md`](LIVE_TV.md) — gates opt-in only.
 
 Recommendation rollout is intentionally home-owned. The tested executable
-target `772b3d58b53208a278da4e9d5281b46f88054b8e` closes the recommendation
-mode/ownership/Shuffle/active-pointer/test blockers and aligns public
-playability schema diagnostics with migration 14; the Pi remains contained at
-`3ef1b20` with both domains and provider work off. The deploy/gate wrappers are
+target `c8cfe72154eb7732a41f78417f3a63b164835078` adds bounded/reusable VOD
+refresh work, v17 checkpoints and priors, couch preemption, liveness-safe
+repair, guarded 1280M/1536M defaults, and conditional YouTube More Like. The
+newest Pi report remains contained at `9425b1f` with both domains and provider
+work off after the earlier 1100M memory boundary was crossed. The deploy/gate wrappers are
 still blocked by the independent exact-SHA and implicit AIOMetadata issues
 above, so the home agent must use the reviewed manual target path in
 [tasks/RECOMMENDATIONS_PROGRESSIVE_FRONTIER_DEPLOY.md](tasks/RECOMMENDATIONS_PROGRESSIVE_FRONTIER_DEPLOY.md).
 Before promoting VOD from `shadow` to `serve`, prove
 explicit fail-closed SQLite online backups for both library and playability
-state (the routine helper's plain-copy fallback is insufficient), complete
-profile/corpus accounting, active/previous serving pointers, offline evaluation,
-cached serving latency, mode/code rollback, and frontier-off behavior, then run
+state (the routine helper's plain-copy fallback is insufficient), two complete
+Movies+TV cycles under the documented invocation/cgroup/RSS/pressure gates,
+complete profile/corpus accounting, active/previous serving pointers, offline
+evaluation, couch preemption, cached serving latency, mode/code rollback, and
+frontier-off behavior, then run
 the TV checks in
 [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md). A seed manifest is an optional,
 idempotent way to bootstrap explicit ratings; when one is supplied, dry-run,

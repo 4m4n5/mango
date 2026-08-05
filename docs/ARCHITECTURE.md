@@ -176,7 +176,7 @@ once; if both fail it flushes progress and marks the existing playback session
 
 The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on grow/link/verify pool writes. Grow runs operate on an isolated work DB and publish the live DB after a completed publishable run; per-rail `+20` shortfalls are operator warnings by default, while failed or aborted runs preserve the previous couch snapshot. Finalization attaches verified orphans and caps unpinned overlap without full metadata retheme. See [PLAYABILITY.md](PLAYABILITY.md).
 
-Target `772b3d5` includes playability migration `14` and reports the same value
+Target `c8cfe72` retains playability migration `14` and reports the same value
 through `/playability/status.schema_version`. A focused test binds the public
 diagnostic to the latest applied migration; deployment still must read back both
 the table and API on the Pi.
@@ -185,9 +185,10 @@ the table and API on the Pi.
 
 Mango is the user-library source of truth. `progress.db` v2 owns profile-exact
 Continue/resume, while `/etc/mango/library.db` is currently migrated through
-v16. V12 was the original Story Graph milestone; later additive migrations add
+v17. V12 was the original Story Graph milestone; later additive migrations add
 Takeout, generation scoping, progressive profiles/frontier/calibration/usage,
-and immutable overlays. The library mirrors profile watch state and owns
+immutable overlays, persisted corpus priors, and resumable refresh diagnostics.
+The library mirrors profile watch state and owns
 explicit Saved rows, automatic history, finished state, current TV
 context, and dormant hidden/blocked fields. Legacy unscoped progress/watch rows
 migrate only to Household. In VOD `shadow`/`serve`, recommendation reads only
@@ -272,9 +273,12 @@ metadata, and a durable selective StoryDNA frontier. The worker defaults off
 (`MANGO_STORY_DNA_WORKER_MODE=off`); `frontier` uses bounded daily/monthly,
 batch, runtime, attempt, and coalescing limits. Library migration 15 adds the
 progressive/frontier/calibration/usage state; library migration 16 adds immutable
-StoryDNA overlays keyed by content plus semantic-evidence hash; playability
+StoryDNA overlays keyed by content plus semantic-evidence hash; library
+migration 17 adds immutable per-content-generation priors and refresh phase,
+cursor, heartbeat, deadline, generation-link, typed-error, successor, and
+phase/peak-memory diagnostics; playability
 migration 14 adds semantic revisions. The exact executable target
-`772b3d58b53208a278da4e9d5281b46f88054b8e` passes the recorded focused and
+`c8cfe72154eb7732a41f78417f3a63b164835078` passes the recorded focused and
 full Mac suites, but remains Pi-undeployed and couch-unaccepted. Runtime
 rollback disables exposure (`shadow`/`off`);
 older ranking code requires a reviewed Git rollback and can read preserved
@@ -296,6 +300,18 @@ contract permits. A six-card cached dealer allocates strongest fits `2/2/2`,
 is no close/adjacent/surprise slot, bridge, cooled-rewatch lane, MMR repair, or
 visible explanation. If six cards cannot be healed, the prior valid slate stays
 active.
+
+Compatible content generations and their immutable corpus priors are reused for
+taste-only changes. Profile compilation and rank persistence use deterministic
+128-title pages (configurable 32–256). One Movies/TV worker is initialized with
+compact priors plus positive anchors and scores bounded pages; the full corpus
+is never passed through `workerData`. Insufficient-label evaluation returns
+without empty five-fold corpus replay.
+
+Heavy work owns a 15-minute cache lease with a ten-second heartbeat and checks
+authoritative couch/playback activity at page boundaries. Couch activity keeps
+last-good, coalesces the job as `couch_preempted`, and links a successor for the
+next idle window.
 
 Rating/Save/meaningful-watch mutations commit first, immediately evict the exact
 known item, and enqueue a serialized/coalesced rescore followed by a full scan.
@@ -343,7 +359,12 @@ sixth when an authoritative authenticated subscription snapshot exists, and
 render only with exactly four globally unique landscape cards; therefore a
 logical position can be absent when supply is thin. Live Now may contain one to
 four.
-History and Saved remain stable. `GET /youtube/rails?reshuffle=1` advances only
+`More Like` is conditional: acquisition tries two daily-stable meaningful
+history seeds, then an exact-channel fallback labelled `More from <channel>`.
+If neither yields four eligible cards, diagnostics record `not_applicable` and
+the rail is omitted without blocking otherwise healthy YouTube serve.
+Subscription-only cold start retains `More from channels you follow`. History
+and Saved remain stable. `GET /youtube/rails?reshuffle=1` advances only
 published recommendation, discovery, subscription, and live slates and performs
 no API call, acquisition, or ranking work.
 
@@ -367,14 +388,15 @@ reservoirs. Independent
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
 Both latest-only architectures have their source rollout blockers closed at
-`772b3d58b53208a278da4e9d5281b46f88054b8e`: YouTube `off` uses exact active
+`c8cfe72154eb7732a41f78417f3a63b164835078`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused
 mode/owner/publication/migration/rollback tests and the full Mac suites pass.
-The Pi remains contained at `3ef1b20` with both recommendation domains and
-provider work off. Exact deployment, live complete accounting, promotion, Pi
-latency/restart proof, and couch judgment remain **DEFERRED**.
+The newest Pi report remains contained at `9425b1f` with both recommendation
+domains and provider work off. Exact deployment, two-cycle memory stability,
+live complete accounting, promotion, Pi latency/restart proof, and couch
+judgment remain **DEFERRED**.
 
 ### Unified Search
 

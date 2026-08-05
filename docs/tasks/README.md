@@ -17,12 +17,14 @@ relevant subsystem doc first.
 
 ## Current source work
 
-`772b3d5` is the tested latest-only recommendation deployment target:
-progressive Household VOD and authoritative subscription/history YouTube v2 are
-the sole executable recommenders; historical data/schema remains. The catalog
-suite passes 876/876, launcher deterministic tests pass 86/86, launcher and
-companion builds pass, and focused tests close the prior ownership, Saved,
-Shuffle, active-pointer, migration/rollback, and playability-schema gaps. The
+`c8cfe72154eb7732a41f78417f3a63b164835078` is the tested recommendation
+deployment target: bounded progressive Household VOD and authoritative
+subscription/history YouTube v2 are the sole executable recommenders;
+historical data/schema remains. The catalog suite passes 881/881, launcher
+deterministic tests pass 86/86, launcher and companion builds pass, and focused
+tests cover paged-score parity, generation/prior reuse, couch maintenance,
+conditional More Like, preservation, ownership, Shuffle, active pointers, and
+migrations. The
 deploy wrappers remain independently blocked by branch/SHA and implicit
 AIOMetadata-mutation defects, so the reviewed manual runbook is the active path.
 

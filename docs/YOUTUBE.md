@@ -3,7 +3,9 @@
 **Milestone:** M6.2 · **Status:** the native YouTube base was previously
 Pi-deployed/gated. Commit `772b3d58b53208a278da4e9d5281b46f88054b8e` makes authoritative subscription/history v2
 the sole executable recommendation architecture behind an independent
-`off|shadow|serve` flag. The Pi is deliberately contained at `3ef1b20` with
+`off|shadow|serve` flag; target `c8cfe72154eb7732a41f78417f3a63b164835078`
+adds conditional More Like recovery and diagnostic funnels. The newest Pi
+report remains contained at `9425b1f` with
 recommendations and provider work off; account-specific authoritative
 input refresh, shadow/serve promotion, current-SHA diagnostics, screenshots,
 and human TV-quality proof remain **DEFERRED**. See [STATUS.md](STATUS.md).
@@ -282,10 +284,14 @@ source-tested at the target and remains a Pi rollback check.
 - Beyond Your Subscriptions uses bounded topics derived only from subscriptions
   and decayed history, excludes subscribed channels, and admits at most one card
   per creator.
-- More Like chooses a daily-stable seed from the twenty most recent meaningful
-  watches, then combines its channel with bounded topic/format acquisition. It
-  prefers one same-channel card and three related creators. With subscriptions
-  but no history its thematic fallback is **More from channels you follow**.
+- More Like samples a daily-stable ordering without replacement from the
+  twenty most recent meaningful watches. Triggered refresh spends at most
+  three searches and nightly at most four: two bounded thematic seed queries,
+  then exact-channel fallback(s). Four thematic cards render as **More Like …**;
+  otherwise four same-channel cards render as **More from <channel>**; otherwise
+  the rail is honestly omitted with `not_applicable`. Per-query diagnostics are
+  counts plus opaque seed references. With subscriptions but no history its
+  fallback remains **More from channels you follow**.
 - From Your Subscriptions shows newest unwatched uploads with at most one card
   per channel when supply permits. Live Now contains only currently live streams
   from subscribed channels. Shorts never appear in recommendation rails. The
@@ -321,7 +327,7 @@ source-tested at the target and remains a Pi rollback check.
 |------|------|-----------------|------------|
 | For You | Core | Published rank from history + subscriptions only | Advance cached slate |
 | Beyond Your Subscriptions | Core | Provenance-gated history/subscription topic acquisition; subscribed creators excluded | Advance cached slate |
-| More Like … | Core | Daily-stable meaningful-history seed and provenance-gated channel/topic candidates | Advance cached slate |
+| More Like … | Conditional core position | Alternate daily-stable meaningful-history seeds; thematic four, exact-channel four, or honest omission | Advance cached slate |
 | History | Core utility | Normalized Takeout + resolvable Mango-local launches, including bare starts, in `library.db` | Never shuffled |
 | Saved | Core utility | Explicit Household state in `library.db`; zero rank influence | Never shuffled |
 | From Your Subscriptions | Conditional | Newest unwatched uploads from the authoritative snapshot | Advance cached slate |
@@ -336,8 +342,8 @@ URLs/secrets.
 
 The base YouTube product and the latest recommendation model have different
 proof status. Base metadata/search/OAuth/Takeout/`yt-dlp` behavior has older Pi
-evidence. The latest recorded runtime is contained at `3ef1b20`; the rail
-contract above is tested source behavior at `772b3d5` awaiting account-specific
+evidence. The latest recorded runtime is contained at `9425b1f`; the rail
+contract above is tested source behavior at `c8cfe72` awaiting account-specific
 refresh, shadow diagnostics, serve promotion, and current couch observation. A
 Saved-only or otherwise thin account is a valid setup state; documentation and
 tests must not assume five visible rails.

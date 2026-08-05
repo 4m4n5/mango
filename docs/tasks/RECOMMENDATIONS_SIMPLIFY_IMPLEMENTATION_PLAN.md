@@ -3,6 +3,15 @@
 Status: implemented and cleaned to one executable architecture on
 `feat/native-experience`; Pi and human couch proof remain deferred.
 
+Reliability amendment implemented at
+`c8cfe72154eb7732a41f78417f3a63b164835078`: additive library v17,
+content-generation/prior reuse, paged one-worker ranking, resumable job
+diagnostics, couch-preemptible maintenance leases, liveness/readiness watchdog
+separation, guarded 1280M/1536M defaults, and conditional YouTube More Like.
+All stored ratings, Saved/history/profile/playability/StoryDNA/generation data
+and historical migrations remain preserved. Pi stability and couch quality are
+not inferred from Mac tests.
+
 This document supersedes the corpus-wide StoryDNA design. The bulk StoryDNA
 work-agent prompt is retained only as historical planning input and is already
 marked superseded.
