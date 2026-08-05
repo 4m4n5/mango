@@ -15,6 +15,12 @@ export type HalfStepRating =
   | 0 | 0.5 | 1 | 1.5 | 2 | 2.5
   | 3 | 3.5 | 4 | 4.5 | 5;
 
+export const NEUTRAL_FIRE_WATER_RATING: HalfStepRating = 2;
+
+export function initialRatingAxisValue(value: HalfStepRating | null): HalfStepRating {
+  return value ?? NEUTRAL_FIRE_WATER_RATING;
+}
+
 export type FireWaterRating = {
   type: "movie" | "series";
   id: string;
@@ -284,7 +290,7 @@ export class RatingSheetController {
   moveCol(delta: number): boolean {
     if (!this.isOpen || this.saving || this.clearConfirm) return this.isOpen;
     if (this.adjusting) {
-      const current = this.values[this.adjusting] ?? 2.5;
+      const current = initialRatingAxisValue(this.values[this.adjusting] as HalfStepRating | null);
       this.values[this.adjusting] = Math.max(0, Math.min(5, current + Math.sign(delta) * 0.5));
       this.render();
       return true;
@@ -324,7 +330,9 @@ export class RatingSheetController {
         this.confirmed[target] = true;
       } else {
         this.adjusting = target;
-        if (this.values[target] === null) this.values[target] = 2.5;
+        if (this.values[target] === null) {
+          this.values[target] = initialRatingAxisValue(null);
+        }
       }
       this.render();
     } else if (target === "save") {

@@ -256,6 +256,7 @@ PY
   "$SRC/detail-search-queue.test.ts" \
   "$SRC/search.test.ts" \
   "$SRC/pad-nav.test.ts" \
+  "$SRC/ratings.test.ts" \
   "$SRC/recommendation-attribution.test.ts" \
   "$SRC/toast.test.ts" \
   "$SRC/voice-commands.test.ts" \
