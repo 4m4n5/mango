@@ -68,6 +68,7 @@ import {
   setLibraryContext,
   setViewerMood,
   unsaveLibraryItem,
+  SYNTHETIC_LIBRARY_SOURCE,
   type LibraryItemInput,
 } from './library/db.js';
 import {
@@ -2257,7 +2258,8 @@ async function main(): Promise<void> {
         });
         if (saved.source === 'youtube') {
           core.clearRailItemsCache();
-        } else if (saved.type === 'movie' || saved.type === 'series') {
+        } else if (saved.source !== SYNTHETIC_LIBRARY_SOURCE
+          && (saved.type === 'movie' || saved.type === 'series')) {
           const tab = saved.type === 'series' ? 'series' : 'movies';
           core.invalidateRecommendationTab(tab);
           await queueRecommendationRefresh([tab]);
@@ -2309,7 +2311,8 @@ async function main(): Promise<void> {
         });
         if (target.source === 'youtube') {
           core.clearRailItemsCache();
-        } else if (target.type === 'movie' || target.type === 'series') {
+        } else if (target.source !== SYNTHETIC_LIBRARY_SOURCE
+          && (target.type === 'movie' || target.type === 'series')) {
           const tab = target.type === 'series' ? 'series' : 'movies';
           core.invalidateRecommendationTab(tab);
           await queueRecommendationRefresh([tab]);

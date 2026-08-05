@@ -391,6 +391,49 @@ test('label-sparse household evidence can activate a safe cached generation with
   });
 });
 
+test('synthetic gate Saved rows never teach or exclude VOD recommendations', async () => {
+  await withProgressiveDatabases(async () => {
+    seedTitles('movie', 205);
+    saveLibraryItem({
+      source: 'mango', type: 'movie', id: 'm001', title: 'Movie 1',
+      poster: 'https://example.test/m001.jpg', tab: 'movies', profile_id: 'household',
+    });
+    saveLibraryItem({
+      source: 'gate', type: 'movie', id: 'm000', title: 'Synthetic Gate Movie',
+      poster: 'https://example.test/m000.jpg', tab: 'movies', profile_id: 'household',
+      saved_by: 'gate',
+    });
+    const result = await refreshStoryGraphForYou('movies', {
+      bootstrap_minimum: 200,
+      cached_service_p95_ms: 1,
+      dependencies: { evaluate: passingEvaluation },
+    });
+    const taste = libraryDatabase().prepare(`
+SELECT anchor_count, explicit_mass, implicit_mass
+FROM vod_taste_generations WHERE taste_generation_id = ?
+`).get(result.taste_generation_id) as {
+      anchor_count: number;
+      explicit_mass: number;
+      implicit_mass: number;
+    };
+    assert.deepEqual(taste, { anchor_count: 1, explicit_mass: 0, implicit_mass: 0.8 });
+    const candidates = libraryDatabase().prepare(`
+SELECT content_id, serving_eligible, exclusion_reason
+FROM vod_rank_items
+WHERE rank_generation_id = ? AND content_id IN ('m000', 'm001')
+ORDER BY content_id
+`).all(result.rank_generation_id) as Array<{
+      content_id: string;
+      serving_eligible: number;
+      exclusion_reason: string | null;
+    }>;
+    assert.deepEqual(candidates, [
+      { content_id: 'm000', serving_eligible: 1, exclusion_reason: null },
+      { content_id: 'm001', serving_eligible: 0, exclusion_reason: 'saved_exact' },
+    ]);
+  });
+});
+
 test('cold-start authorization never excuses a measured operational failure', async () => {
   await withProgressiveDatabases(async () => {
     process.env.MANGO_VOD_RECS_V2 = 'shadow';

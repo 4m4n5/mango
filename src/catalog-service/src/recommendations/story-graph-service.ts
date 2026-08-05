@@ -3,6 +3,7 @@ import { AI_CATALOG_RAIL_PREFIX } from '../ai-catalogs/types.js';
 import {
   libraryDatabase,
   registerRecommendationServedSlate,
+  SYNTHETIC_LIBRARY_SOURCE,
 } from '../library/db.js';
 import { listRatings, type FireWaterRating, type RatingContentType } from '../library/ratings.js';
 import {
@@ -623,25 +624,32 @@ async function scanVerifiedCorpus(
 
 function readHouseholdSignals(type: RatingContentType): HouseholdSignals {
   const db = libraryDatabase();
-  const keyRows = (sql: string) => db.prepare(sql).all(type) as Array<{ type: RatingContentType; id: string }>;
+  const keyRows = (sql: string) => db.prepare(sql).all(
+    type,
+    SYNTHETIC_LIBRARY_SOURCE,
+  ) as Array<{ type: RatingContentType; id: string }>;
   const savedRows = db.prepare(`
 SELECT li.type, li.id, psi.saved_at AS occurred_at
 FROM profile_saved_items psi
 JOIN library_items li ON li.item_key = psi.item_key
-WHERE psi.profile_id = 'household' AND li.type = ?
-`).all(type) as Array<{ type: RatingContentType; id: string; occurred_at: number }>;
+WHERE psi.profile_id = 'household' AND li.type = ? AND li.source != ?
+`).all(type, SYNTHETIC_LIBRARY_SOURCE) as Array<{
+  type: RatingContentType;
+  id: string;
+  occurred_at: number;
+}>;
   const watchedRows = db.prepare(`
 SELECT li.type, li.id, pws.last_watched_at AS occurred_at,
        CASE WHEN pws.finished_at IS NOT NULL OR pws.progress_pct >= 0.9 THEN 'completion' ELSE 'partial' END AS kind
 FROM profile_watch_state pws
 JOIN library_items li ON li.item_key = pws.item_key
-WHERE pws.profile_id = 'household' AND li.type = ?
+WHERE pws.profile_id = 'household' AND li.type = ? AND li.source != ?
   AND (
     pws.finished_at IS NOT NULL OR pws.progress_pct >= 0.9 OR
     (pws.duration_sec > 0 AND pws.position_sec >= MIN(pws.duration_sec * 0.25, 300)) OR
     (pws.duration_sec <= 0 AND pws.position_sec >= 120)
   )
-`).all(type) as Array<{
+`).all(type, SYNTHETIC_LIBRARY_SOURCE) as Array<{
     type: RatingContentType;
     id: string;
     occurred_at: number;
@@ -660,17 +668,18 @@ WHERE pws.profile_id = 'household' AND li.type = ?
     watched: toSet(watchedRows),
     hidden: toSet(keyRows(`
 SELECT DISTINCT li.type, li.id FROM library_items li
-WHERE li.type = ? AND li.hidden = 1
+WHERE li.type = ? AND li.source != ? AND li.hidden = 1
 `)),
     blocked: toSet(keyRows(`
 SELECT DISTINCT li.type, li.id FROM library_items li
-WHERE li.type = ? AND li.blocked = 1
+WHERE li.type = ? AND li.source != ? AND li.blocked = 1
 `)),
     not_for_me: toSet(keyRows(`
 SELECT DISTINCT li.type, li.id
 FROM profile_library_feedback pf
 JOIN library_items li ON li.item_key = pf.item_key
 WHERE pf.profile_id = 'household' AND pf.feedback = 'not_interested' AND li.type = ?
+  AND li.source != ?
 `)),
   };
 }
@@ -3065,10 +3074,12 @@ WHERE EXISTS (
   SELECT 1 FROM profile_saved_items saved
   JOIN library_items item ON item.item_key = saved.item_key
   WHERE saved.profile_id = 'household' AND item.type = ? AND item.id = requested.content_id
+    AND item.source != ?
 ) OR EXISTS (
   SELECT 1 FROM profile_watch_state watched
   JOIN library_items item ON item.item_key = watched.item_key
   WHERE watched.profile_id = 'household' AND item.type = ? AND item.id = requested.content_id
+    AND item.source != ?
     AND (
       watched.finished_at IS NOT NULL OR watched.progress_pct >= 0.9 OR
       (watched.duration_sec > 0 AND watched.position_sec >= MIN(watched.duration_sec * 0.25, 300)) OR
@@ -3077,14 +3088,23 @@ WHERE EXISTS (
 ) OR EXISTS (
   SELECT 1 FROM library_items item
   WHERE item.type = ? AND item.id = requested.content_id
+    AND item.source != ?
     AND (item.hidden = 1 OR item.blocked = 1)
 ) OR EXISTS (
   SELECT 1 FROM profile_library_feedback feedback
   JOIN library_items item ON item.item_key = feedback.item_key
   WHERE feedback.profile_id = 'household' AND feedback.feedback = 'not_interested'
     AND item.type = ? AND item.id = requested.content_id
+    AND item.source != ?
 )
-`).all(...ids, type, type, type, type, type) as Array<{ content_id: string }>;
+`).all(
+    ...ids,
+    type,
+    type, SYNTHETIC_LIBRARY_SOURCE,
+    type, SYNTHETIC_LIBRARY_SOURCE,
+    type, SYNTHETIC_LIBRARY_SOURCE,
+    type, SYNTHETIC_LIBRARY_SOURCE,
+  ) as Array<{ content_id: string }>;
   return new Set(rows.map((row) => contentKey(type, row.content_id)));
 }
 

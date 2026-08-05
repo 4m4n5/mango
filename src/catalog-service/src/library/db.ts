@@ -6,6 +6,8 @@ import type { CatalogTab } from '../rails.js';
 import { seriesBareId } from '../playability/ids.js';
 
 export const DEFAULT_LIBRARY_DB_PATH = '/etc/mango/library.db';
+/** Reserved for short-lived smoke fixtures; never a recommendation signal. */
+export const SYNTHETIC_LIBRARY_SOURCE = 'gate';
 export const DEFAULT_USER_PINS_PATH = join(process.env.HOME || '/tmp', '.config/mango/user-pins.json');
 export const LIBRARY_SOURCE_MANGO = 'mango';
 export const LIBRARY_SAVED_RAIL_ID = 'saved';
