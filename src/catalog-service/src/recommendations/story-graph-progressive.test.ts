@@ -14,6 +14,7 @@ import {
   refreshStoryGraphForYou,
   isStoryGraphTrueNegativeRating,
   storyGraphHighPreferenceConcordance,
+  storyGraphTitleSupportsOfflineEvaluation,
   storyGraphDiagnostics,
   storyGraphServingDecision,
   type StoryGraphRefreshDependencies,
@@ -176,6 +177,31 @@ test('only ratings below one on both axes are true-negative intrusion labels', (
   assert.equal(isStoryGraphTrueNegativeRating({ fire: 1, water: 0 }), false);
   assert.equal(isStoryGraphTrueNegativeRating({ fire: 2, water: 2 }), false);
   assert.equal(isStoryGraphTrueNegativeRating({ fire: 2.5, water: 0.5 }), false);
+});
+
+test('offline quality labels require a thematically rankable profile', () => {
+  const title = {
+    type: 'movie' as const,
+    id: 'profile',
+    title: 'Profile',
+    edges: [],
+  };
+  assert.equal(storyGraphTitleSupportsOfflineEvaluation({
+    ...title,
+    profile_state: 'base',
+  }), true);
+  assert.equal(storyGraphTitleSupportsOfflineEvaluation({
+    ...title,
+    profile_state: 'enriched',
+  }), true);
+  assert.equal(storyGraphTitleSupportsOfflineEvaluation({
+    ...title,
+    profile_state: 'sparse_unresolved',
+  }), false);
+  assert.equal(storyGraphTitleSupportsOfflineEvaluation({
+    ...title,
+    profile_state: 'unrankable',
+  }), false);
 });
 
 test('progressive full-corpus refresh accounts for sparse titles without a teacher dependency', async () => {

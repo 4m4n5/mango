@@ -1839,6 +1839,27 @@ function average(values: Array<number | null>): number | null {
   return present.length > 0 ? present.reduce((sum, value) => sum + value, 0) / present.length : null;
 }
 
+/** Only profiles meeting the thematic serving evidence contract can validate quality. */
+export function storyGraphTitleSupportsOfflineEvaluation(title: StoryGraphTitle): boolean {
+  return title.profile_state === 'base' || title.profile_state === 'enriched';
+}
+
+/**
+ * Determinism proof for the fitted taste result, excluding the immutable
+ * corpus background passed to both fits. Serializing the complete prior here
+ * blocked the catalog event loop for tens of seconds without adding evidence.
+ */
+export function storyTasteEvaluationFingerprint(model: StoryTasteModel): string {
+  return sha256({
+    model_version: model.model_version,
+    threads: model.threads,
+    explicit_evidence_present: model.explicit_evidence_present,
+    selected_k: model.selected_k,
+    loao: model.loao,
+    diagnostics: model.diagnostics,
+  });
+}
+
 /**
  * Cross-validated strong-vs-lower-preference concordance for one axis.
  *
@@ -1934,7 +1955,9 @@ export function evaluateStoryGraphOffline(input: {
   const ratingKeys = new Set(input.ratings.map((rating) => contentKey(rating.type, rating.id)));
   const documentByKey = new Map(input.documents.flatMap((title) => {
     const key = contentKey(title.type, title.id);
-    return ratingKeys.has(key) ? [[key, title] as const] : [];
+    return ratingKeys.has(key) && storyGraphTitleSupportsOfflineEvaluation(title)
+      ? [[key, title] as const]
+      : [];
   }));
   const eligibleRatings = input.ratings.filter((rating) => (
     documentByKey.has(contentKey(rating.type, rating.id))
@@ -2004,7 +2027,8 @@ export function evaluateStoryGraphOffline(input: {
     };
     const model = buildStoryTasteModelWithBackground(modelInput);
     const replay = buildStoryTasteModelWithBackground(modelInput);
-    deterministic = deterministic && stableStoryDnaJson(model) === stableStoryDnaJson(replay);
+    deterministic = deterministic
+      && storyTasteEvaluationFingerprint(model) === storyTasteEvaluationFingerprint(replay);
     const rows: Array<{ relevance: number; score: number }> = [];
     for (const rating of heldOut) {
       const title = documentByKey.get(contentKey(rating.type, rating.id));
