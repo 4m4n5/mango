@@ -46,7 +46,17 @@ if ! expected_playback_matches; then
   exit 0
 fi
 
-if [[ -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
+had_active_playback=0
+if [[ -f "$MPV_PID_FILE" && -S "$SOCKET" ]]; then
+  active_pid="$(tr -dc '0-9' <"$MPV_PID_FILE" 2>/dev/null || true)"
+  if [[ -n "$active_pid" ]] && kill -0 "$active_pid" 2>/dev/null; then
+    active_command="$(ps -ww -p "$active_pid" -o command= 2>/dev/null || true)"
+    if [[ "$active_command" == *mpv* && "$active_command" == *"--input-ipc-server=$SOCKET"* ]]; then
+      had_active_playback=1
+    fi
+  fi
+fi
+if [[ "$had_active_playback" == "1" && -x "$REPO_DIR/scripts/lib/couch-activity.sh" ]]; then
   bash "$REPO_DIR/scripts/lib/couch-activity.sh" touch mpv stop >/dev/null 2>&1 || true
 fi
 
