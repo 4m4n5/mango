@@ -28,7 +28,6 @@ start the second listener.
 | WS `/ws` on `:8766` | Loopback launcher HUD connection |
 | `POST /search/expand` | Loopback-only bounded query expansion for unified Search |
 | `POST /recommendations/story-dna` | Loopback-only serialized `story-dna-v1` content teacher |
-| `POST /recommendations/enrich` | Orphaned loopback-only legacy v4 compatibility teacher; current catalog recommender has no consumer. Retain only until explicitly removed/reviewed |
 
 The StoryDNA request contains stable title identity and content evidence only.
 The teacher must not receive or infer household ratings, Saved/watch events,
@@ -53,7 +52,7 @@ Python package.
 | `audio/deepgram_stt.py` | `nova-3` multilingual transcription with detect fallback |
 | `llm/agent.py` | Bounded tool loop; explicit picks may open Detail |
 | `llm/open_intent.py` | Bare-title/Hinglish intent classification |
-| `recommendation_enrich.py` | Current StoryDNA schema plus orphaned compatibility schema; legacy route cleanup remains |
+| `recommendation_enrich.py` | Strict current StoryDNA request, schema, provenance, and teacher boundary |
 | `tools/catalog.py` | Catalog-service `/voice/*` client |
 | `tools/launcher_dispatch.py` | Ordered TV command dispatch |
 | `tools/voice_nav.py` | Ordinal, sequel and franchise disambiguation |
