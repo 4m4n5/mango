@@ -73,6 +73,14 @@ export async function buildSettingsRefresh(
     fallback.textContent = "Refresh options unavailable — catalog-service may be starting.";
     container.append(fallback);
   }
+
+  const creditsHeading = document.createElement("h2");
+  creditsHeading.className = "settings-heading";
+  creditsHeading.textContent = "Data credits";
+  const credits = document.createElement("p");
+  credits.className = "settings-note";
+  credits.textContent = "This product uses the TMDB API but is not endorsed or certified by TMDB.";
+  container.append(creditsHeading, credits);
 }
 
 function createYoutubeTakeoutImport(onStatus: LauncherStatusReporter): HTMLElement {

@@ -22,6 +22,8 @@ export const RECOMMENDATION_SERVED_SLATE_CONTEXT_SCHEMA_VERSION = 11;
 export const VOD_STORY_GRAPH_SCHEMA_VERSION = 12;
 export const YOUTUBE_TAKEOUT_SCHEMA_VERSION = 13;
 export const VOD_STORY_GRAPH_SERVING_SCHEMA_VERSION = 14;
+export const VOD_PROGRESSIVE_PROFILE_SCHEMA_VERSION = 15;
+export const VOD_IMMUTABLE_OVERLAY_SCHEMA_VERSION = 16;
 const RECOMMENDATION_SERVED_SLATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type LibrarySource = string;
@@ -1439,6 +1441,162 @@ CREATE INDEX idx_vod_story_graph_low_water_pending
 `);
     db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
       .run(VOD_STORY_GRAPH_SERVING_SCHEMA_VERSION, timestamp);
+  }
+  if (!migrated.has(VOD_PROGRESSIVE_PROFILE_SCHEMA_VERSION)) {
+    const timestamp = nowMs();
+    const addColumn = (table: string, name: string, declaration: string): void => {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === name)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${declaration}`);
+      }
+    };
+    addColumn('vod_story_dna_generations', 'profile_version', 'TEXT');
+    addColumn('vod_story_dna_generations', 'compiler_version', 'TEXT');
+    addColumn('vod_story_dna_generations', 'semantic_revision', 'TEXT');
+    addColumn('vod_story_dna_generations', 'reference_revision', 'TEXT');
+    addColumn('vod_story_dna_generations', 'base_complete_count', 'INTEGER NOT NULL DEFAULT 0');
+    addColumn('vod_story_dna_generations', 'teacher_complete_count', 'INTEGER NOT NULL DEFAULT 0');
+    addColumn('vod_story_dna_generations', 'partial_count', 'INTEGER NOT NULL DEFAULT 0');
+    addColumn('vod_story_dna_generations', 'unknown_family_count', 'INTEGER NOT NULL DEFAULT 0');
+    addColumn('vod_story_dna_generations', 'teacher_contracts_json', "TEXT NOT NULL DEFAULT '[]'");
+
+    addColumn('vod_story_dna_documents', 'profile_json', 'TEXT');
+    addColumn('vod_story_dna_documents', 'profile_hash', 'TEXT');
+    addColumn('vod_story_dna_documents', 'semantic_evidence_hash', 'TEXT');
+    addColumn('vod_story_dna_documents', 'base_feature_hash', 'TEXT');
+    addColumn('vod_story_dna_documents', 'family_coverage_json', 'TEXT');
+    addColumn('vod_story_dna_documents', 'teacher_document_hash', 'TEXT');
+    addColumn('vod_story_dna_documents', 'teacher_contract_revision', 'TEXT');
+    addColumn('vod_story_dna_documents', 'profile_status', 'TEXT');
+
+    addColumn('vod_rank_items', 'profile_status', 'TEXT');
+    addColumn('vod_rank_items', 'feature_confidence', 'REAL');
+    addColumn('vod_rank_items', 'acquisition_lower_score', 'REAL');
+    addColumn('vod_rank_items', 'acquisition_upper_score', 'REAL');
+    addColumn('vod_rank_items', 'profile_hash', 'TEXT');
+
+    db.exec(`
+CREATE TABLE IF NOT EXISTS vod_content_profile_edges (
+  generation_id INTEGER NOT NULL REFERENCES vod_story_dna_generations(generation_id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  node_key TEXT NOT NULL,
+  family TEXT NOT NULL,
+  intensity REAL NOT NULL CHECK(intensity >= 0 AND intensity <= 4),
+  confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+  edge_source TEXT NOT NULL CHECK(edge_source IN (
+    'metadata_fact', 'curated_theme', 'deterministic_rule',
+    'llm_teacher', 'compound', 'mixed'
+  )),
+  producer_version TEXT NOT NULL,
+  dependency_hash TEXT NOT NULL,
+  PRIMARY KEY(generation_id, content_type, content_id, node_key)
+);
+CREATE INDEX IF NOT EXISTS idx_vod_content_profile_edges_node
+  ON vod_content_profile_edges(generation_id, family, node_key);
+
+CREATE TABLE IF NOT EXISTS vod_semantic_frontier_queue (
+  queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  semantic_evidence_hash TEXT NOT NULL,
+  input_json TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  priority INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('queued', 'leased', 'complete', 'failed', 'superseded')),
+  attempt_count INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at INTEGER,
+  lease_owner TEXT,
+  lease_until INTEGER,
+  queued_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  last_error TEXT,
+  UNIQUE(content_type, content_id, semantic_evidence_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_vod_semantic_frontier_ready
+  ON vod_semantic_frontier_queue(status, next_attempt_at, priority DESC, queued_at);
+
+CREATE TABLE IF NOT EXISTS vod_semantic_metadata_cache (
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  source_semantic_hash TEXT NOT NULL,
+  enriched_input_json TEXT NOT NULL,
+  enriched_semantic_hash TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  retrieved_at INTEGER NOT NULL,
+  PRIMARY KEY(content_type, content_id)
+);
+
+CREATE TABLE IF NOT EXISTS vod_semantic_reference_items (
+  reference_revision TEXT NOT NULL,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  document_hash TEXT NOT NULL,
+  stratum TEXT NOT NULL,
+  selection_provenance TEXT NOT NULL,
+  selected_at INTEGER NOT NULL,
+  PRIMARY KEY(reference_revision, content_type, content_id)
+);
+
+CREATE TABLE IF NOT EXISTS vod_semantic_calibration (
+  reference_revision TEXT NOT NULL,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  taste_revision TEXT NOT NULL,
+  stratum TEXT NOT NULL,
+  sample_count INTEGER NOT NULL,
+  lower_residual REAL NOT NULL,
+  upper_residual REAL NOT NULL,
+  empirical_coverage REAL NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('calibrated', 'pooled', 'provisional', 'insufficient')),
+  calculated_at INTEGER NOT NULL,
+  PRIMARY KEY(reference_revision, content_type, taste_revision, stratum)
+);
+
+CREATE TABLE IF NOT EXISTS vod_story_dna_usage (
+  usage_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_id TEXT NOT NULL,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  model_version TEXT,
+  semantic_evidence_hash TEXT NOT NULL,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  estimated_cost_micros INTEGER,
+  status TEXT NOT NULL CHECK(status IN ('requested', 'success', 'failed', 'cached')),
+  started_at INTEGER NOT NULL,
+  completed_at INTEGER,
+  duration_ms INTEGER,
+  error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_vod_story_dna_usage_budget
+  ON vod_story_dna_usage(started_at, content_type, status);
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
+      .run(VOD_PROGRESSIVE_PROFILE_SCHEMA_VERSION, timestamp);
+  }
+  if (!migrated.has(VOD_IMMUTABLE_OVERLAY_SCHEMA_VERSION)) {
+    const timestamp = nowMs();
+    db.exec(`
+CREATE TABLE IF NOT EXISTS vod_story_dna_overlays (
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  content_id TEXT NOT NULL,
+  semantic_evidence_hash TEXT NOT NULL,
+  document_hash TEXT NOT NULL,
+  document_json TEXT NOT NULL,
+  schema_version TEXT NOT NULL,
+  ontology_version TEXT NOT NULL,
+  prompt_version TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY(content_type, content_id, semantic_evidence_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_vod_story_dna_overlays_document
+  ON vod_story_dna_overlays(content_type, content_id, document_hash);
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
+      .run(VOD_IMMUTABLE_OVERLAY_SCHEMA_VERSION, timestamp);
   }
   });
   migrate.immediate();

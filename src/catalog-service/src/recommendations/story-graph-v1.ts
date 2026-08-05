@@ -39,8 +39,8 @@ export const STORY_GRAPH_FAMILIES = [
   'facet.sadness', 'facet.hope', 'facet.realism',
   'facet.narrative_complexity', 'facet.moral_ambiguity', 'facet.violence',
   'facet.family_accessibility',
-  'language', 'country', 'decade', 'creator', 'cast', 'director', 'writer',
-  'franchise', 'studio', 'curated-list', 'compound',
+  'language', 'country', 'decade', 'runtime', 'certification', 'creator', 'cast',
+  'director', 'writer', 'franchise', 'studio', 'curated-list', 'compound',
 ] as const;
 
 export type StoryGraphFamily = typeof STORY_GRAPH_FAMILIES[number];
@@ -54,7 +54,8 @@ export type StoryGraphEdge = {
   intensity: number;
   confidence: number;
   ordinal: boolean;
-  source: 'teacher' | 'metadata' | 'compound';
+  source: 'teacher' | 'metadata' | 'compound' | 'metadata_fact'
+    | 'curated_theme' | 'deterministic_rule' | 'llm_teacher' | 'mixed';
 };
 
 export type StoryGraphTitle = {
@@ -62,12 +63,19 @@ export type StoryGraphTitle = {
   id: string;
   title: string;
   year?: string | null;
-  story_dna: StoryDnaDocument;
+  /** Optional strict teacher overlay. Progressive factual profiles omit it. */
+  story_dna?: StoryDnaDocument;
   /**
    * Persisted ontology/metadata/compound edges.  When omitted, deterministic
    * edges are derived from the canonical StoryDNA document.
    */
   edges?: StoryGraphEdge[];
+  family_coverage?: Partial<Record<StoryGraphFamily, {
+    state: 'observed' | 'known_absent' | 'unknown';
+    confidence: number;
+  }>>;
+  profile_hash?: string;
+  profile_state?: 'base' | 'enriched' | 'sparse_unresolved' | 'unrankable';
 };
 
 export type StoryGraphExplicitRating = {
@@ -204,6 +212,8 @@ export type StoryDealerCache = {
 
 export type StoryGraphRankResult = {
   model_version: typeof VOD_STORY_GRAPH_MODEL_VERSION;
+  /** Returned so masked-profile calibration can reuse the exact fitted model. */
+  background: StoryGraphBackground;
   selected_k: number;
   threads: StoryTasteThread[];
   /** Complete ranked input universe; publication/reserve depth is service policy. */
@@ -409,8 +419,12 @@ export function validateStoryGraphTitle(value: StoryGraphTitle): StoryGraphTitle
   if (!value || !['movie', 'series'].includes(value.type) || !value.id?.trim() || !value.title?.trim()) {
     throw new Error('Story graph title identity is incomplete');
   }
-  if (value.story_dna.type !== value.type || value.story_dna.id !== value.id) {
+  if (value.story_dna
+    && (value.story_dna.type !== value.type || value.story_dna.id !== value.id)) {
     throw new Error('StoryDNA identity does not match story graph title');
+  }
+  if (!value.story_dna && (value.edges?.length ?? 0) === 0) {
+    throw new Error('progressive story graph title has no factual edges');
   }
   const seen = new Set<string>();
   for (const item of value.edges ?? []) {
@@ -424,10 +438,19 @@ export function validateStoryGraphTitle(value: StoryGraphTitle): StoryGraphTitle
 
 function allTitleEdges(title: StoryGraphTitle): StoryGraphEdge[] {
   const byKey = new Map<string, StoryGraphEdge>();
-  for (const item of [...storyDnaDocumentEdges(title.story_dna), ...(title.edges ?? [])]) {
+  const sourcePriority = (source: StoryGraphEdge['source']): number => ({
+    metadata_fact: 7, metadata: 6, mixed: 5, llm_teacher: 4, teacher: 4,
+    curated_theme: 3, deterministic_rule: 2, compound: 1,
+  })[source] ?? 0;
+  for (const item of [
+    ...(title.story_dna ? storyDnaDocumentEdges(title.story_dna) : []),
+    ...(title.edges ?? []),
+  ]) {
     const key = `${item.family}:${item.node_key}:${item.ordinal ? 'ordinal' : 'categorical'}`;
     const previous = byKey.get(key);
-    if (!previous || item.confidence > previous.confidence || item.source !== 'teacher') {
+    if (!previous || item.confidence > previous.confidence
+      || (item.confidence === previous.confidence
+        && sourcePriority(item.source) > sourcePriority(previous.source))) {
       byKey.set(key, validateEdge(item));
     }
   }
@@ -491,7 +514,13 @@ function emptyFamilyBackground(ordinal: boolean): FamilyBackground {
 /** Corpus priors are computed once per immutable StoryDNA generation. */
 export function buildStoryGraphBackground(documents: StoryGraphTitle[]): StoryGraphBackground {
   const identities = new Set<StoryGraphContentId>();
-  const families: Record<string, FamilyBackground> = {};
+  const progressive = documents.some((document) => document.family_coverage !== undefined);
+  const families: Record<string, FamilyBackground> = progressive
+    ? Object.fromEntries(STORY_GRAPH_FAMILIES.map((family) => [
+      family,
+      emptyFamilyBackground(family.startsWith('facet.')),
+    ]))
+    : {};
   const orderedDocuments = documents.map((document) => validateStoryGraphTitle(document))
     .sort((left, right) => stableCompare(
       contentKey(left.type, left.id),
@@ -751,6 +780,12 @@ function standardNormalCdf(value: number): number {
 }
 
 function titleFeatureConfidence(title: StoryGraphTitle): number {
+  if (title.family_coverage) {
+    return STORY_GRAPH_FAMILIES.reduce(
+      (sum, family) => sum + Math.max(0, Math.min(1, title.family_coverage?.[family]?.confidence ?? 0)),
+      0,
+    ) / STORY_GRAPH_FAMILIES.length;
+  }
   const families = normalizedFamilies(title);
   return families.length > 0 ? average(families.map((family) => family.confidence)) : 0;
 }
@@ -1622,6 +1657,7 @@ export function rankStoryGraphRecommendations(input: StoryGraphRankInput): Story
   const portfolio = selectStrongestFitPortfolio(ranked, threadOrder, STORY_GRAPH_VISIBLE_LIMIT);
   return {
     model_version: VOD_STORY_GRAPH_MODEL_VERSION,
+    background: model.background,
     selected_k: model.selected_k,
     threads: model.threads,
     ranked,

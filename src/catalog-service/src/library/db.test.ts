@@ -90,7 +90,7 @@ test('initLibraryDb creates WAL schema and migration row', () => withTempLibrary
     const mode = db.pragma('journal_mode', { simple: true });
     assert.equal(String(mode).toLowerCase(), 'wal');
     const rows = db.prepare('SELECT version FROM library_migrations').all() as Array<{ version: number }>;
-    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    assert.deepEqual(rows.map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
     const v2Tables = db.prepare(`
 SELECT name FROM sqlite_master
 WHERE type = 'table' AND name IN (
@@ -104,6 +104,16 @@ WHERE type = 'table' AND name IN (
 ORDER BY name
 `).all() as Array<{ name: string }>;
     assert.equal(v2Tables.length, 14);
+    const progressiveTables = db.prepare(`
+SELECT name FROM sqlite_master
+WHERE type = 'table' AND name IN (
+  'vod_content_profile_edges', 'vod_story_dna_overlays',
+  'vod_semantic_frontier_queue', 'vod_semantic_metadata_cache',
+  'vod_semantic_reference_items', 'vod_semantic_calibration', 'vod_story_dna_usage'
+)
+ORDER BY name
+`).all() as Array<{ name: string }>;
+    assert.equal(progressiveTables.length, 7);
     const slatePrimaryKey = db.prepare('PRAGMA table_info(vod_cached_slates)').all() as Array<{
       name: string;
       pk: number;

@@ -9,6 +9,8 @@ import {
   initPlayabilityDb,
   listVerifiedRecommendationCatalogPage,
   playabilityRecommendationCorpusGeneration,
+  playabilityRecommendationSemanticGeneration,
+  recordRecommendationSemanticEvidence,
   upsertRailPoolTitle,
   resetPlayabilityDbForTests,
 } from './db.js';
@@ -196,5 +198,26 @@ VALUES ('movie', 'evidenced', 'verified', 1, 1)
     const changed = await listVerifiedRecommendationCatalogPage({ content_type: 'movie' });
     assert.equal(changed.items[0]?.evidence_retrieved_at, 1_001);
     assert.equal(changed.items[0]?.evidence_source, 'addon:catalog-refresh');
+  });
+});
+
+test('semantic revision changes only when compiler-owned evidence changes', async () => {
+  await withTempDb(async () => {
+    const before = await playabilityRecommendationSemanticGeneration();
+    await recordRecommendationSemanticEvidence([
+      { type: 'movie', id: 'canonical-orphan', semantic_evidence_hash: 'semantic-a' },
+    ]);
+    const inserted = await playabilityRecommendationSemanticGeneration();
+    assert.ok(inserted > before);
+
+    await recordRecommendationSemanticEvidence([
+      { type: 'movie', id: 'canonical-orphan', semantic_evidence_hash: 'semantic-a' },
+    ]);
+    assert.equal(await playabilityRecommendationSemanticGeneration(), inserted);
+
+    await recordRecommendationSemanticEvidence([
+      { type: 'movie', id: 'canonical-orphan', semantic_evidence_hash: 'semantic-b' },
+    ]);
+    assert.ok(await playabilityRecommendationSemanticGeneration() > inserted);
   });
 });

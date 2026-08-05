@@ -436,6 +436,26 @@ export function loadStoryDnaTeacherCache(
   return output;
 }
 
+/**
+ * Progressive profiles accept any schema-compatible teacher producer. The
+ * exact input/provenance checks remain intact; only the general Companion
+ * model equality check is removed so a chat-model change cannot invalidate
+ * an immutable content artifact.
+ */
+export function loadCompatibleStoryDnaTeacherCache(
+  inputs: StoryDnaInput[],
+): Map<string, StoryDnaDocument> {
+  const output = new Map<string, StoryDnaDocument>();
+  const unique = uniqueStoryDnaInputs(inputs);
+  const rows = readPersistedStoryDnaRows(unique);
+  for (const input of unique) {
+    const key = `${input.type}:${input.id}`;
+    const document = validatedStoryDnaRow(input, rows.get(key), null);
+    if (document) output.set(key, document);
+  }
+  return output;
+}
+
 function persistStoryDnaDocuments(documents: StoryDnaDocument[], timestamp: number): void {
   if (documents.length === 0) return;
   const insert = libraryDatabase().prepare(`

@@ -1295,6 +1295,53 @@ END;
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (13, @applied_at);
 `).run({ applied_at: nowMs() });
+  const storyEvidenceColumns = db.prepare('PRAGMA table_info(title_story_evidence)')
+    .all() as Array<{ name: string }>;
+  if (!storyEvidenceColumns.some((column) => column.name === 'semantic_evidence_hash')) {
+    db.exec('ALTER TABLE title_story_evidence ADD COLUMN semantic_evidence_hash TEXT');
+  }
+  db.exec(`
+CREATE TABLE IF NOT EXISTS recommendation_semantic_state (
+  state_id INTEGER PRIMARY KEY CHECK(state_id = 1),
+  generation INTEGER NOT NULL CHECK(generation >= 1),
+  updated_at INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO recommendation_semantic_state(state_id, generation, updated_at)
+VALUES (1, 1, CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+
+CREATE TABLE IF NOT EXISTS recommendation_semantic_evidence (
+  type TEXT NOT NULL CHECK(type IN ('movie', 'series')),
+  id TEXT NOT NULL,
+  semantic_evidence_hash TEXT NOT NULL,
+  updated_at INTEGER NOT NULL,
+  PRIMARY KEY(type, id)
+);
+
+DROP TRIGGER IF EXISTS recommendation_semantic_evidence_insert;
+CREATE TRIGGER recommendation_semantic_evidence_insert
+AFTER INSERT ON recommendation_semantic_evidence
+BEGIN
+  UPDATE recommendation_semantic_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+
+DROP TRIGGER IF EXISTS recommendation_semantic_evidence_update;
+CREATE TRIGGER recommendation_semantic_evidence_update
+AFTER UPDATE OF semantic_evidence_hash ON recommendation_semantic_evidence
+WHEN NEW.semantic_evidence_hash IS NOT OLD.semantic_evidence_hash
+BEGIN
+  UPDATE recommendation_semantic_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+`);
+  db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (14, @applied_at);
+`).run({ applied_at: nowMs() });
 }
 
 export function listSourceGrowWeights(): SourceGrowWeightRecord[] {
@@ -2708,6 +2755,40 @@ export async function playabilityRecommendationCorpusGeneration(): Promise<numbe
 SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
 `).get() as { generation?: number } | undefined;
   return Math.max(1, Math.floor(Number(row?.generation) || 1));
+}
+
+/** Semantic revisions exclude rail placement, poster, source, and retrieval-time churn. */
+export async function playabilityRecommendationSemanticGeneration(): Promise<number> {
+  await initPlayabilityDb();
+  const row = openDb().prepare(`
+SELECT generation FROM recommendation_semantic_state WHERE state_id = 1
+`).get() as { generation?: number } | undefined;
+  return Math.max(1, Math.floor(Number(row?.generation) || 1));
+}
+
+/** Persist compiler-owned semantic hashes after a deterministic corpus scan. */
+export async function recordRecommendationSemanticEvidence(
+  rows: readonly { type: 'movie' | 'series'; id: string; semantic_evidence_hash: string }[],
+): Promise<number> {
+  if (rows.length === 0) return playabilityRecommendationSemanticGeneration();
+  await initPlayabilityDb();
+  const db = openDb();
+  const update = db.prepare(`
+INSERT INTO recommendation_semantic_evidence(
+  type, id, semantic_evidence_hash, updated_at
+) VALUES (?, ?, ?, ?)
+ON CONFLICT(type, id) DO UPDATE SET
+  semantic_evidence_hash = excluded.semantic_evidence_hash,
+  updated_at = excluded.updated_at
+WHERE semantic_evidence_hash IS NOT excluded.semantic_evidence_hash
+`);
+  const now = nowMs();
+  db.transaction(() => {
+    for (const row of rows) {
+      update.run(row.type, row.id, row.semantic_evidence_hash, now);
+    }
+  })();
+  return playabilityRecommendationSemanticGeneration();
 }
 
 // A verified series gate is normally written twice: once for the show id and

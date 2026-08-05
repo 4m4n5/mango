@@ -9,11 +9,14 @@ import {
   getTitlesPlayabilityBulk,
   listVerifiedRecommendationCatalogPage,
   playabilityRecommendationCorpusGeneration,
+  playabilityRecommendationSemanticGeneration,
+  recordRecommendationSemanticEvidence,
   type VerifiedRecommendationCatalogPage,
   type VerifiedRecommendationCatalogRow,
 } from '../playability/db.js';
 import {
   loadAiRecommendationFeatures,
+  loadCompatibleStoryDnaTeacherCache,
   loadStoryDnaTeacherCache,
   refreshStoryDnaTeacherCache,
   storyDnaTeacherConfiguration,
@@ -55,6 +58,7 @@ import {
   type StoryGraphRankResult,
   type StoryGraphScoredRecommendation,
   type StoryGraphTitle,
+  type StoryTasteModel,
 } from './story-graph-v1.js';
 import { rankStoryGraphRecommendationsOffThread } from './story-graph-rank-worker-client.js';
 import { vodRecommendationsV2Mode } from './v2-mode.js';
@@ -64,8 +68,38 @@ import {
   predictAxes,
   type RecommendationFeature,
 } from './engine.js';
+import {
+  VOD_CONTENT_PROFILE_COMPILER_VERSION,
+  VOD_CONTENT_PROFILE_VERSION,
+  VOD_STORY_FRONTIER_MODEL_VERSION,
+  compileContentProfileV2,
+  contentProfileIsServingEligible,
+  contentProfileStoryGraphTitle,
+  contentSemanticEvidenceHash,
+  type ContentProfileV2,
+} from './content-profile-v2.js';
+import {
+  enqueueStoryDnaFrontierCandidates,
+  runStoryDnaFrontierWorker,
+  storyDnaFrontierDiagnostics,
+  storyDnaWorkerMode,
+  type StoryDnaFrontierCandidate,
+} from './story-dna-frontier.js';
+import { tmdbMetadataStatus } from './tmdb-metadata.js';
+import {
+  buildStoryFrontierCalibration,
+  storyFrontierBandFor,
+  type StoryFrontierCalibrationBand,
+  type StoryFrontierCalibrationSample,
+} from './story-frontier-calibration.js';
 
 export type StoryGraphTab = 'movies' | 'series';
+export type VodContentProfileMode = 'strict-v1' | 'progressive-v2';
+
+/** Progressive is the v2 default; strict remains an explicit one-release rollback. */
+export function vodContentProfileMode(): VodContentProfileMode {
+  return process.env.MANGO_VOD_CONTENT_PROFILE === 'strict-v1' ? 'strict-v1' : 'progressive-v2';
+}
 
 export type StoryGraphForYouRail = {
   rail_id: 'for-you-movies' | 'for-you-series';
@@ -286,6 +320,8 @@ export type StoryGraphRefreshResult = {
 export type StoryGraphRefreshDependencies = {
   listPage?: typeof listVerifiedRecommendationCatalogPage;
   corpusGeneration?: typeof playabilityRecommendationCorpusGeneration;
+  semanticGeneration?: typeof playabilityRecommendationSemanticGeneration;
+  recordSemanticEvidence?: typeof recordRecommendationSemanticEvidence;
   refreshTeacher?: typeof refreshStoryDnaTeacherCache;
   loadTeacherCache?: typeof loadStoryDnaTeacherCache;
   rank?: (input: StoryGraphRankInput) => Promise<StoryGraphRankResult>;
@@ -941,6 +977,24 @@ function exclusionReason(
   return null;
 }
 
+function progressiveExclusionReason(
+  row: VerifiedRecommendationCatalogRow,
+  profile: ContentProfileV2 | undefined,
+  signals: HouseholdSignals,
+): string | null {
+  const key = contentKey(row.type, row.id);
+  if (!row.title?.trim() || !profile) return 'missing_title';
+  if (!row.poster?.trim()) return 'missing_artwork';
+  if (!contentProfileIsServingEligible(profile)) return 'sparse_unresolved';
+  if (signals.rated.has(key)) return 'rated_exact';
+  if (signals.saved.has(key)) return 'saved_exact';
+  if (signals.watched.has(key)) return 'meaningfully_watched_exact';
+  if (signals.hidden.has(key)) return 'hidden_exact';
+  if (signals.blocked.has(key)) return 'blocked_exact';
+  if (signals.not_for_me.has(key)) return 'not_for_me_exact';
+  return null;
+}
+
 function graphTitle(
   input: StoryDnaInput,
   document: StoryDnaDocument,
@@ -960,6 +1014,538 @@ function graphTitle(
       source: edge.edge_source,
     })),
   } as StoryGraphTitle;
+}
+
+function loadStructuredMetadataCache(inputs: StoryDnaInput[]): StoryDnaInput[] {
+  if (inputs.length === 0) return [];
+  const select = libraryDatabase().prepare(`
+SELECT source_semantic_hash, enriched_input_json
+FROM vod_semantic_metadata_cache
+WHERE content_type = ? AND content_id = ?
+`);
+  return inputs.map((input) => {
+    const row = select.get(input.type, input.id) as {
+      source_semantic_hash: string;
+      enriched_input_json: string;
+    } | undefined;
+    if (!row || row.source_semantic_hash !== contentSemanticEvidenceHash(input)) return input;
+    try {
+      const enriched = JSON.parse(row.enriched_input_json) as StoryDnaInput;
+      if (enriched.type !== input.type || enriched.id !== input.id) return input;
+      return {
+        ...enriched,
+        curated_pool_memberships: input.curated_pool_memberships,
+        rail_ids: input.rail_ids,
+      };
+    } catch {
+      return input;
+    }
+  });
+}
+
+function latestProgressiveProfiles(
+  type: RatingContentType,
+): Map<StoryGraphContentId, ContentProfileV2> {
+  const rows = libraryDatabase().prepare(`
+WITH latest AS (
+  SELECT docs.content_id, MAX(docs.generation_id) AS generation_id
+  FROM vod_story_dna_documents docs
+  JOIN vod_story_dna_generations generations ON generations.generation_id = docs.generation_id
+  WHERE docs.content_type = ? AND generations.profile_version = ?
+    AND docs.profile_json IS NOT NULL
+  GROUP BY docs.content_id
+)
+SELECT docs.content_id, docs.profile_json
+FROM vod_story_dna_documents docs
+JOIN latest ON latest.content_id = docs.content_id AND latest.generation_id = docs.generation_id
+WHERE docs.content_type = ?
+`).all(type, VOD_CONTENT_PROFILE_VERSION, type) as Array<{
+    content_id: string;
+    profile_json: string;
+  }>;
+  const output = new Map<StoryGraphContentId, ContentProfileV2>();
+  for (const row of rows) {
+    try {
+      const profile = JSON.parse(row.profile_json) as ContentProfileV2;
+      if (profile.profile_version === VOD_CONTENT_PROFILE_VERSION
+        && profile.type === type && profile.id === row.content_id) {
+        output.set(contentKey(type, row.content_id), profile);
+      }
+    } catch {
+      // A malformed prior profile is ignored; the deterministic compiler repairs it.
+    }
+  }
+  return output;
+}
+
+function compatibleProgressiveStoryDnaOverlays(
+  type: RatingContentType,
+  inputByKey: Map<StoryGraphContentId, StoryDnaInput>,
+): Map<StoryGraphContentId, StoryDnaDocument> {
+  const exact = loadCompatibleStoryDnaTeacherCache([...inputByKey.values()]);
+  const output = new Map<StoryGraphContentId, StoryDnaDocument>();
+  const immutableRows = libraryDatabase().prepare(`
+SELECT content_id, semantic_evidence_hash, document_hash, document_json
+FROM vod_story_dna_overlays WHERE content_type = ?
+ORDER BY created_at, content_id
+`).all(type) as Array<{
+    content_id: string;
+    semantic_evidence_hash: string;
+    document_hash: string;
+    document_json: string;
+  }>;
+  for (const row of immutableRows) {
+    const key = contentKey(type, row.content_id);
+    if (output.has(key)) continue;
+    const current = inputByKey.get(key);
+    if (!current || row.semantic_evidence_hash !== contentSemanticEvidenceHash(current)) continue;
+    try {
+      const document = validateStoryDnaDocument(JSON.parse(row.document_json), new Set([key]));
+      if (storyDnaDocumentHash(document) === row.document_hash) output.set(key, document);
+    } catch {
+      // Immutable corrupt or mismatched overlays detach without mutation.
+    }
+  }
+  for (const [key, document] of exact) {
+    const typedKey = key as StoryGraphContentId;
+    if (!output.has(typedKey)) output.set(typedKey, document);
+  }
+  const rows = libraryDatabase().prepare(`
+WITH latest AS (
+  SELECT content_id, MAX(generation_id) AS generation_id
+  FROM vod_story_dna_documents
+  WHERE content_type = ? AND status = 'valid' AND story_dna_json IS NOT NULL
+  GROUP BY content_id
+)
+SELECT docs.content_id, docs.title, docs.evidence_json, docs.story_dna_json
+FROM vod_story_dna_documents docs
+JOIN latest ON latest.content_id = docs.content_id AND latest.generation_id = docs.generation_id
+WHERE docs.content_type = ?
+`).all(type, type) as Array<{
+    content_id: string;
+    title: string | null;
+    evidence_json: string;
+    story_dna_json: string;
+  }>;
+  for (const row of rows) {
+    const key = contentKey(type, row.content_id);
+    if (output.has(key)) continue;
+    const current = inputByKey.get(key);
+    if (!current) continue;
+    try {
+      const document = validateStoryDnaDocument(JSON.parse(row.story_dna_json), new Set([key]));
+      const stored = storyDnaInputFromPersistedEvidence({
+        type,
+        id: row.content_id,
+        title: row.title,
+        year: null,
+        evidence_json: row.evidence_json,
+        document,
+      });
+      if (stored && contentSemanticEvidenceHash(stored) === contentSemanticEvidenceHash(current)) {
+        output.set(key, document);
+      }
+    } catch {
+      // Invalid legacy rows remain preserved but never become ranking evidence.
+    }
+  }
+  return output;
+}
+
+function ensureSemanticReferencePanel(input: {
+  type: RatingContentType;
+  profiles: Map<StoryGraphContentId, ContentProfileV2>;
+  overlays: Map<StoryGraphContentId, StoryDnaDocument>;
+  now: number;
+}): string {
+  const selectionProvenance = `stable-hash-existing-story-dna:${VOD_CONTENT_PROFILE_COMPILER_VERSION}:provisional-history-unknown`;
+  const frozen = libraryDatabase().prepare(`
+SELECT reference_revision
+FROM vod_semantic_reference_items
+WHERE content_type = ? AND selection_provenance = ?
+GROUP BY reference_revision
+ORDER BY MIN(selected_at), reference_revision
+LIMIT 1
+`).get(input.type, selectionProvenance) as { reference_revision: string } | undefined;
+  if (frozen) return frozen.reference_revision;
+  const eligible = [...input.overlays.entries()].flatMap(([key, document]) => {
+    const profile = input.profiles.get(key);
+    if (!profile) return [];
+    const stratum = progressiveProfileStratum(profile);
+    return [{ key, profile, document, stratum, order: sha256(`reference:${key}`) }];
+  }).sort((left, right) => left.order.localeCompare(right.order)).slice(0, 400);
+  const revision = sha256({
+    version: 'vod-semantic-reference-v1',
+    compiler_version: VOD_CONTENT_PROFILE_COMPILER_VERSION,
+    type: input.type,
+    items: eligible.map((item) => ({
+      key: item.key,
+      document_hash: storyDnaDocumentHash(item.document),
+      stratum: item.stratum,
+    })),
+  });
+  const insert = libraryDatabase().prepare(`
+INSERT OR IGNORE INTO vod_semantic_reference_items(
+  reference_revision, content_type, content_id, document_hash, stratum,
+  selection_provenance, selected_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+`);
+  libraryDatabase().transaction(() => {
+    for (const item of eligible) {
+      insert.run(
+        revision,
+        input.type,
+        item.profile.id,
+        storyDnaDocumentHash(item.document),
+        item.stratum,
+        selectionProvenance,
+        input.now,
+      );
+    }
+  })();
+  return revision;
+}
+
+function progressiveProfileStratum(profile: ContentProfileV2): string {
+  const language = profile.edges.find((edge) => edge.family === 'language')?.node_key
+    ?? 'language-unknown';
+  const decade = profile.year ? `${profile.year.slice(0, 3)}0s` : 'unknown-decade';
+  const source = profile.profile_state === 'enriched' ? 'teacher-overlay' : 'factual-base';
+  return [profile.profile_state, decade, language, source].join(':');
+}
+
+function progressiveAcquisitionResiduals(
+  profile: ContentProfileV2 | undefined,
+  score: StoryGraphScoredRecommendation,
+  calibration: readonly StoryFrontierCalibrationBand[],
+): { lower: number; upper: number } {
+  const band = profile
+    ? storyFrontierBandFor(calibration, progressiveProfileStratum(profile))
+    : null;
+  if (band?.status === 'calibrated' || band?.status === 'pooled') {
+    return { lower: band.lower_residual, upper: band.upper_residual };
+  }
+  return {
+    lower: -score.posterior_standard_deviation,
+    upper: score.posterior_standard_deviation,
+  };
+}
+
+function persistProgressiveCalibration(input: {
+  type: RatingContentType;
+  referenceRevision: string;
+  tasteRevision: string;
+  inputByKey: Map<StoryGraphContentId, StoryDnaInput>;
+  profiles: Map<StoryGraphContentId, ContentProfileV2>;
+  ranked: StoryGraphRankResult;
+  now: number;
+}): StoryFrontierCalibrationBand[] {
+  const referenceRows = libraryDatabase().prepare(`
+SELECT content_id, stratum FROM vod_semantic_reference_items
+WHERE reference_revision = ? AND content_type = ?
+ORDER BY content_id
+`).all(input.referenceRevision, input.type) as Array<{ content_id: string; stratum: string }>;
+  const fullScores = new Map(input.ranked.ranked.map((item) => [
+    contentKey(item.type, item.id), item.rank_score,
+  ]));
+  const exactModel: StoryTasteModel = {
+    model_version: input.ranked.model_version,
+    background: input.ranked.background,
+    threads: input.ranked.threads,
+    explicit_evidence_present: input.ranked.diagnostics.qualifying_explicit > 0,
+    selected_k: input.ranked.selected_k,
+    loao: input.ranked.loao,
+    diagnostics: input.ranked.diagnostics,
+  };
+  const samples: StoryFrontierCalibrationSample[] = [];
+  for (const row of referenceRows) {
+    const key = contentKey(input.type, row.content_id);
+    const storyInput = input.inputByKey.get(key);
+    const fullScore = fullScores.get(key);
+    if (!storyInput || fullScore === undefined || !input.profiles.has(key)) continue;
+    const masked = compileContentProfileV2(storyInput);
+    const partialScore = scoreStoryGraphCandidate(
+      exactModel,
+      contentProfileStoryGraphTitle(masked),
+    ).rank_score;
+    samples.push({
+      stratum: row.stratum,
+      partial_score: partialScore,
+      full_score: fullScore,
+    });
+  }
+  const bands = buildStoryFrontierCalibration(samples);
+  const provisionalReference = (libraryDatabase().prepare(`
+SELECT COUNT(*) AS count FROM vod_semantic_reference_items
+WHERE reference_revision = ? AND content_type = ? AND selection_provenance LIKE '%:provisional-%'
+`).get(input.referenceRevision, input.type) as { count: number }).count > 0;
+  const reportedBands = provisionalReference ? bands.map((band) => ({
+    ...band,
+    status: band.status === 'insufficient' ? band.status : 'provisional' as const,
+  })) : bands;
+  const insert = libraryDatabase().prepare(`
+INSERT INTO vod_semantic_calibration(
+  reference_revision, content_type, taste_revision, stratum, sample_count,
+  lower_residual, upper_residual, empirical_coverage, status, calculated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(reference_revision, content_type, taste_revision, stratum) DO UPDATE SET
+  sample_count = excluded.sample_count,
+  lower_residual = excluded.lower_residual,
+  upper_residual = excluded.upper_residual,
+  empirical_coverage = excluded.empirical_coverage,
+  status = excluded.status,
+  calculated_at = excluded.calculated_at
+`);
+  libraryDatabase().transaction(() => {
+    for (const band of reportedBands) {
+      insert.run(
+        input.referenceRevision,
+        input.type,
+        input.tasteRevision,
+        band.stratum,
+        band.sample_count,
+        band.lower_residual,
+        band.upper_residual,
+        band.empirical_coverage,
+        band.status,
+        input.now,
+      );
+    }
+  })();
+  return reportedBands;
+}
+
+function selectProgressiveFrontierCandidates(input: {
+  inputByKey: Map<StoryGraphContentId, StoryDnaInput>;
+  profiles: Map<StoryGraphContentId, ContentProfileV2>;
+  overlays: Map<StoryGraphContentId, StoryDnaDocument>;
+  ratings: FireWaterRating[];
+  signals: HouseholdSignals;
+  ranked: StoryGraphRankResult;
+  calibration: StoryFrontierCalibrationBand[];
+}): StoryDnaFrontierCandidate[] {
+  const selected = new Map<StoryGraphContentId, StoryDnaFrontierCandidate>();
+  const add = (key: StoryGraphContentId, reason: StoryDnaFrontierCandidate['reason'], priority: number) => {
+    if (input.overlays.has(key)) return;
+    const storyInput = input.inputByKey.get(key);
+    if (!storyInput) return;
+    const previous = selected.get(key);
+    if (!previous || priority > previous.priority) selected.set(key, { input: storyInput, reason, priority });
+  };
+  for (const rating of input.ratings) {
+    if (positiveRatingEvidence(rating.fire) <= 0 && positiveRatingEvidence(rating.water) <= 0) continue;
+    add(contentKey(rating.type, rating.id), 'positive_anchor', 1_000);
+  }
+  if (!input.ratings.some((rating) => (
+    positiveRatingEvidence(rating.fire) > 0 || positiveRatingEvidence(rating.water) > 0
+  ))) {
+    for (const signal of input.signals.implicit) {
+      add(contentKey(signal.type, signal.id), 'implicit_anchor', 900);
+    }
+  }
+  const byThread = new Map<string, StoryGraphScoredRecommendation[]>();
+  for (const item of input.ranked.ranked) {
+    if (!item.best_thread_id) continue;
+    const rows = byThread.get(item.best_thread_id) ?? [];
+    rows.push(item);
+    byThread.set(item.best_thread_id, rows);
+  }
+  for (const [, rows] of byThread) {
+    rows.sort((left, right) => right.rank_score - left.rank_score || left.id.localeCompare(right.id));
+    const credible = rows.filter((item) => {
+      const profile = input.profiles.get(contentKey(item.type, item.id));
+      return profile ? contentProfileIsServingEligible(profile) : false;
+    });
+    const shortage = credible.length < 24;
+    const frontier = rows.slice(0, 48);
+    const boundary = frontier.at(-1)?.rank_score ?? Number.NEGATIVE_INFINITY;
+    for (const item of frontier) {
+      const key = contentKey(item.type, item.id);
+      const profile = input.profiles.get(key);
+      const residuals = progressiveAcquisitionResiduals(profile, item, input.calibration);
+      const upperError = Math.max(0, residuals.upper);
+      if (shortage) add(key, 'thread_shortage', 800);
+      else if (item.rank_score + upperError >= boundary) {
+        add(key, 'reserve_boundary', 600 + Math.round(upperError * 100));
+      }
+    }
+    for (const item of rows.slice(48)) {
+      const profile = input.profiles.get(contentKey(item.type, item.id));
+      const residuals = progressiveAcquisitionResiduals(profile, item, input.calibration);
+      const lowerError = Math.min(0, residuals.lower);
+      const upperError = Math.max(0, residuals.upper);
+      if (item.rank_score + lowerError <= boundary
+        && item.rank_score + upperError >= boundary) {
+        add(contentKey(item.type, item.id), 'fit_floor_uncertainty', 500);
+      }
+    }
+  }
+  const audit = [...input.profiles.entries()]
+    .filter(([key, profile]) => !input.overlays.has(key) && profile.profile_state !== 'unrankable')
+    .sort(([left], [right]) => sha256(`audit:${left}`).localeCompare(sha256(`audit:${right}`)))
+    .slice(0, 2);
+  for (const [key] of audit) add(key, 'stable_audit', 100);
+  return [...selected.values()].sort((left, right) => (
+    right.priority - left.priority
+    || `${left.input.type}:${left.input.id}`.localeCompare(`${right.input.type}:${right.input.id}`)
+  ));
+}
+
+function persistProgressiveProfileGeneration(input: {
+  type: RatingContentType;
+  corpusGeneration: number;
+  semanticRevision: string;
+  referenceRevision: string;
+  verifiedCount: number;
+  rows: VerifiedRecommendationCatalogRow[];
+  inputByKey: Map<StoryGraphContentId, StoryDnaInput>;
+  profiles: Map<StoryGraphContentId, ContentProfileV2>;
+  overlays: Map<StoryGraphContentId, StoryDnaDocument>;
+  evidenceRevision: string;
+  now: number;
+}): number {
+  const db = libraryDatabase();
+  const teacherContracts = [...new Set([...input.overlays.values()].map((document) => (
+    `${document.model_version}:${document.prompt_version}:${document.schema_version}`
+  )))].sort();
+  const verifiedKeys = new Set(input.rows.map((row) => contentKey(row.type, row.id)));
+  const verifiedProfiles = [...input.profiles.entries()].filter(([key]) => verifiedKeys.has(key));
+  const baseComplete = verifiedProfiles.filter(([, profile]) => profile.profile_state === 'base').length;
+  const enriched = verifiedProfiles.filter(([, profile]) => profile.profile_state === 'enriched').length;
+  const partial = verifiedProfiles.filter(([, profile]) => profile.profile_state === 'sparse_unresolved').length;
+  const unknownFamilies = verifiedProfiles.reduce((sum, [, profile]) => (
+    sum + Object.values(profile.family_coverage).filter((family) => family.state === 'unknown').length
+  ), 0);
+  const generation = db.prepare(`
+INSERT INTO vod_story_dna_generations(
+  content_type, schema_version, ontology_version, prompt_version, model_version,
+  corpus_generation, evidence_revision, status, verified_count, complete_count,
+  failure_count, started_at, completed_at, profile_version, compiler_version,
+  semantic_revision, reference_revision, base_complete_count,
+  teacher_complete_count, partial_count, unknown_family_count, teacher_contracts_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, 'building', ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+RETURNING generation_id
+`).get(
+    input.type,
+    STORY_DNA_SCHEMA_VERSION,
+    STORY_DNA_ONTOLOGY_VERSION,
+    STORY_DNA_PROMPT_VERSION,
+    'mixed-compatible',
+    input.corpusGeneration,
+    input.evidenceRevision,
+    input.verifiedCount,
+    enriched,
+    partial,
+    input.now,
+    VOD_CONTENT_PROFILE_VERSION,
+    VOD_CONTENT_PROFILE_COMPILER_VERSION,
+    input.semanticRevision,
+    input.referenceRevision,
+    baseComplete,
+    enriched,
+    partial,
+    unknownFamilies,
+    JSON.stringify(teacherContracts),
+  ) as { generation_id: number };
+  const insertDocument = db.prepare(`
+INSERT INTO vod_story_dna_documents(
+  generation_id, content_type, content_id, title, evidence_json, evidence_hash,
+  story_dna_json, family_confidence_json, stable_external_ids_json, lookup_used,
+  status, failure_reason, retry_count, next_retry_at, created_at, updated_at,
+  profile_json, profile_hash, semantic_evidence_hash, base_feature_hash,
+  family_coverage_json, teacher_document_hash, teacher_contract_revision, profile_status
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+  const insertEdge = db.prepare(`
+INSERT INTO vod_content_profile_edges(
+  generation_id, content_type, content_id, node_key, family, intensity,
+  confidence, edge_source, producer_version, dependency_hash
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+  const insertOverlay = db.prepare(`
+INSERT OR IGNORE INTO vod_story_dna_overlays(
+  content_type, content_id, semantic_evidence_hash, document_hash, document_json,
+  schema_version, ontology_version, prompt_version, model_version, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`);
+  db.transaction(() => {
+    for (const [key, overlay] of [...input.overlays.entries()].sort(([left], [right]) => (
+      left.localeCompare(right)
+    ))) {
+      const storyInput = input.inputByKey.get(key);
+      if (!storyInput) continue;
+      insertOverlay.run(
+        overlay.type,
+        overlay.id,
+        contentSemanticEvidenceHash(storyInput),
+        storyDnaDocumentHash(overlay),
+        stableStoryDnaJson(overlay),
+        overlay.schema_version,
+        overlay.ontology_version,
+        overlay.prompt_version,
+        overlay.model_version,
+        input.now,
+      );
+    }
+    for (const [key, profile] of [...input.profiles.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+      const storyInput = input.inputByKey.get(key);
+      if (!storyInput) continue;
+      const overlay = input.overlays.get(key);
+      const request = storyDnaRequestItem(storyInput);
+      insertDocument.run(
+        generation.generation_id,
+        profile.type,
+        profile.id,
+        profile.title,
+        stableStoryDnaJson(request),
+        profile.semantic_evidence_hash,
+        overlay ? JSON.stringify(overlay) : null,
+        JSON.stringify(Object.fromEntries(Object.entries(profile.family_coverage).map(([family, coverage]) => (
+          [family, coverage.confidence]
+        )))),
+        JSON.stringify(request.evidence.external_ids),
+        request.selective_lookup.used ? 1 : 0,
+        profile.profile_state === 'sparse_unresolved' ? 'sparse-profile' : null,
+        input.now,
+        input.now,
+        JSON.stringify(profile),
+        profile.profile_hash,
+        profile.semantic_evidence_hash,
+        profile.base_feature_hash,
+        JSON.stringify(profile.family_coverage),
+        profile.teacher_document_hash,
+        overlay ? `${overlay.model_version}:${overlay.prompt_version}:${overlay.schema_version}` : null,
+        profile.profile_state,
+      );
+      for (const item of profile.edges) {
+        insertEdge.run(
+          generation.generation_id,
+          profile.type,
+          profile.id,
+          item.node_key,
+          item.family,
+          item.intensity,
+          item.confidence,
+          item.source,
+          item.source === 'llm_teacher' ? overlay?.model_version ?? 'legacy-teacher'
+            : VOD_CONTENT_PROFILE_COMPILER_VERSION,
+          profile.semantic_evidence_hash,
+        );
+      }
+    }
+    const count = db.prepare(`
+SELECT COUNT(*) AS count FROM vod_story_dna_documents WHERE generation_id = ?
+`).get(generation.generation_id) as { count: number };
+    if (count.count !== input.profiles.size) {
+      throw new Error(`progressive profile child integrity mismatch: ${count.count}/${input.profiles.size}`);
+    }
+    db.prepare(`
+UPDATE vod_story_dna_generations
+SET status = 'complete', completed_at = ?, last_error = NULL
+WHERE generation_id = ? AND status = 'building'
+`).run(input.now, generation.generation_id);
+  })();
+  return generation.generation_id;
 }
 
 type PriorAnchorEvidence = {
@@ -2346,6 +2932,8 @@ async function refreshStoryGraphForYouUnserialized(
   reconcileInterruptedStoryDnaGenerations(now);
   const listPage = dependencies.listPage ?? listVerifiedRecommendationCatalogPage;
   const currentCorpusGeneration = dependencies.corpusGeneration ?? playabilityRecommendationCorpusGeneration;
+  const currentSemanticGeneration = dependencies.semanticGeneration
+    ?? playabilityRecommendationSemanticGeneration;
   const refreshTeacher = dependencies.refreshTeacher ?? refreshStoryDnaTeacherCache;
   const loadTeacher = dependencies.loadTeacherCache ?? loadStoryDnaTeacherCache;
   const rank = dependencies.rank ?? rankStoryGraphRecommendationsOffThread;
@@ -2373,20 +2961,25 @@ async function refreshStoryGraphForYouUnserialized(
     ...rawVerifiedInputs,
     ...priorAnchors.map((anchor) => anchor.input),
   ];
-  const lookedUpInputs = await enrichSparseInputs(
-    type,
-    rawInputs,
-    dependencies.lookup === undefined ? structuredLookupProvider : dependencies.lookup,
-    now,
-  );
-  const cachedBefore = loadTeacher(lookedUpInputs);
+  const progressive = vodContentProfileMode() === 'progressive-v2';
+  // Progressive refresh is deliberately local-only. Structured metadata and
+  // teacher work run from the durable frontier after publication.
+  const lookedUpInputs = progressive
+    ? loadStructuredMetadataCache(rawInputs)
+    : await enrichSparseInputs(
+      type,
+      rawInputs,
+      dependencies.lookup === undefined ? structuredLookupProvider : dependencies.lookup,
+      now,
+    );
+  const cachedBefore = progressive ? new Map<string, StoryDnaDocument>() : loadTeacher(lookedUpInputs);
   const teacherLimit = options.teacher_limit ?? boundedInteger(
     process.env.MANGO_STORY_DNA_REFRESH_LIMIT,
     DEFAULT_TEACHER_LIMIT,
     1,
     10_000,
   );
-  const pending = selectTeacherBackfillBatch(
+  const pending = progressive ? [] : selectTeacherBackfillBatch(
     type,
     lookedUpInputs.filter((input) => !cachedBefore.has(contentKey(input.type, input.id))),
     teacherLimit,
@@ -2406,8 +2999,10 @@ async function refreshStoryGraphForYouUnserialized(
   for (const anchor of priorAnchors) {
     if (anchor.document) loaded.set(contentKey(anchor.input.type, anchor.input.id), anchor.document);
   }
-  for (const [key, document] of loadTeacher(lookedUpInputs)) {
-    loaded.set(key as StoryGraphContentId, document);
+  if (!progressive) {
+    for (const [key, document] of loadTeacher(lookedUpInputs)) {
+      loaded.set(key as StoryGraphContentId, document);
+    }
   }
   for (const document of teacherResult.documents) {
     loaded.set(contentKey(document.type, document.id), document);
@@ -2426,15 +3021,52 @@ async function refreshStoryGraphForYouUnserialized(
       failures.set(key, 'invalid-canonical-provenance');
     }
   }
+  if (progressive) {
+    for (const [key, document] of compatibleProgressiveStoryDnaOverlays(type, inputByKey)) {
+      documents.set(key, document);
+      failures.delete(key);
+    }
+  }
   const modelVersions = [...new Set([...documents.values()].map((document) => document.model_version))]
     .sort((left, right) => left.localeCompare(right));
-  if (modelVersions.length > 1) {
+  if (!progressive && modelVersions.length > 1) {
     throw new Error(`mixed StoryDNA teacher model generation rejected: ${modelVersions.join(', ')}`);
   }
-  const generationModelVersion = teacherConfiguration.expected_model_version
+  const generationModelVersion = progressive ? 'mixed-compatible' : teacherConfiguration.expected_model_version
     ?? modelVersions[0]
     ?? 'unavailable';
-  const evidenceRevision = sha256({
+  const priorProfiles = progressive ? latestProgressiveProfiles(type) : new Map<StoryGraphContentId, ContentProfileV2>();
+  const profiles = new Map<StoryGraphContentId, ContentProfileV2>();
+  if (progressive) {
+    for (const [key, storyInput] of inputByKey) {
+      profiles.set(key, compileContentProfileV2(storyInput, {
+        teacher_document: documents.get(key) ?? null,
+        prior_profile: priorProfiles.get(key) ?? null,
+      }));
+    }
+  }
+  const semanticGeneration = progressive
+    ? await (dependencies.recordSemanticEvidence ?? recordRecommendationSemanticEvidence)(
+      scan.rows.flatMap((row) => {
+        const profile = profiles.get(contentKey(row.type, row.id));
+        return profile ? [{
+          type: row.type,
+          id: row.id,
+          semantic_evidence_hash: profile.semantic_evidence_hash,
+        }] : [];
+      }),
+    )
+    : 0;
+  const referenceRevision = progressive
+    ? ensureSemanticReferencePanel({ type, profiles, overlays: documents, now })
+    : 'strict-v1';
+  const evidenceRevision = progressive ? sha256({
+    profile_version: VOD_CONTENT_PROFILE_VERSION,
+    compiler_version: VOD_CONTENT_PROFILE_COMPILER_VERSION,
+    semantic_generation: semanticGeneration,
+    reference_revision: referenceRevision,
+    profiles: [...profiles].map(([key, profile]) => ({ key, hash: profile.profile_hash })),
+  }) : sha256({
     teacher_configuration_revision: teacherConfiguration.revision,
     model_version: generationModelVersion,
     evidence: lookedUpInputs.map((storyInput) => ({
@@ -2450,7 +3082,19 @@ async function refreshStoryGraphForYouUnserialized(
   const profiledVerifiedCount = scan.rows.filter((row) => (
     documents.has(contentKey(row.type, row.id))
   )).length;
-  const storyGenerationId = reusableStoryGeneration({
+  const storyGenerationId = progressive ? persistProgressiveProfileGeneration({
+    type,
+    corpusGeneration: scan.generation,
+    semanticRevision: String(semanticGeneration),
+    referenceRevision,
+    verifiedCount: scan.verifiedCount,
+    rows: scan.rows,
+    inputByKey,
+    profiles,
+    overlays: documents,
+    evidenceRevision,
+    now,
+  }) : reusableStoryGeneration({
     type,
     corpusGeneration: scan.generation,
     verifiedCount: scan.verifiedCount,
@@ -2473,13 +3117,13 @@ async function refreshStoryGraphForYouUnserialized(
       now,
       fault: dependencies.persistStoryGenerationFault,
     });
-  const titles = [...documents].flatMap(([key, document]) => {
+  const titles = progressive ? [...profiles.values()].map(contentProfileStoryGraphTitle) : [...documents].flatMap(([key, document]) => {
     const storyInput = inputByKey.get(key);
     return storyInput ? [graphTitle(storyInput, document)] : [];
   });
   const candidateIds = scan.rows.flatMap((row) => {
     const key = contentKey(row.type, row.id);
-    return documents.has(key) ? [key] : [];
+    return progressive ? (profiles.has(key) ? [key] : []) : (documents.has(key) ? [key] : []);
   });
   const candidateIdSet = new Set(candidateIds);
   const priorityPhase = options.rank_candidate_ids !== undefined;
@@ -2507,6 +3151,15 @@ async function refreshStoryGraphForYouUnserialized(
     throw error;
   }
   const workerLatency = Date.now() - rankStartedAt;
+  const calibration = progressive ? persistProgressiveCalibration({
+    type,
+    referenceRevision,
+    tasteRevision: capturedTasteRevision,
+    inputByKey,
+    profiles,
+    ranked,
+    now,
+  }) : [];
   const tasteGenerationId = persistTasteGeneration({
     type,
     storyGenerationId,
@@ -2524,8 +3177,8 @@ INSERT INTO vod_rank_generations(
 RETURNING rank_generation_id
 `).get(
     type,
-    VOD_STORY_GRAPH_MODEL_VERSION,
-    STORY_DNA_SCHEMA_VERSION,
+    progressive ? VOD_STORY_FRONTIER_MODEL_VERSION : VOD_STORY_GRAPH_MODEL_VERSION,
+    progressive ? VOD_CONTENT_PROFILE_VERSION : STORY_DNA_SCHEMA_VERSION,
     STORY_DNA_ONTOLOGY_VERSION,
     storyGenerationId,
     tasteGenerationId,
@@ -2545,8 +3198,9 @@ INSERT INTO vod_rank_items(
   rank_generation_id, content_type, content_id, title, poster, year, rank,
   best_thread, predicted_fire, predicted_water, explicit_support, implicit_support,
   uncertainty, rank_score, feature_hash, serving_eligible, exclusion_reason,
-  created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  created_at, updated_at, profile_status, feature_confidence,
+  acquisition_lower_score, acquisition_upper_score, profile_hash
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
   let eligibleCount = 0;
   let excludedCount = 0;
@@ -2555,7 +3209,13 @@ INSERT INTO vod_rank_items(
       const key = contentKey(row.type, row.id);
       if (priorityPhase && !rankCandidateIdSet.has(key)) continue;
       const score = scoreByKey.get(key);
-      const reason = exclusionReason(row, documents.has(key), signals);
+      const profile = profiles.get(key);
+      const acquisitionResiduals = score
+        ? progressiveAcquisitionResiduals(profile, score, calibration)
+        : null;
+      const reason = progressive
+        ? progressiveExclusionReason(row, profile, signals)
+        : exclusionReason(row, documents.has(key), signals);
       // A partial reserve rescore records only candidates the ranker actually
       // inspected plus real eligibility vetoes. Untouched or unexpectedly
       // unscored corpus rows remain absent and visible as unscored coverage;
@@ -2579,11 +3239,18 @@ INSERT INTO vod_rank_items(
         score?.implicit_support ?? 0,
         score?.posterior_standard_deviation ?? 0,
         score?.rank_score ?? null,
-        documents.get(key) ? storyDnaDocumentHash(documents.get(key)!) : row.evidence_hash,
+        progressive
+          ? profile?.profile_hash ?? row.evidence_hash
+          : documents.get(key) ? storyDnaDocumentHash(documents.get(key)!) : row.evidence_hash,
         reason === null && score ? 1 : 0,
         reason,
         now,
         now,
+        progressive ? profile?.profile_state ?? 'unrankable' : null,
+        score?.feature_confidence ?? profile?.feature_confidence ?? null,
+        score && acquisitionResiduals ? score.rank_score + acquisitionResiduals.lower : null,
+        score && acquisitionResiduals ? score.rank_score + acquisitionResiduals.upper : null,
+        progressive ? profile?.profile_hash ?? null : null,
       );
     }
   })();
@@ -2616,8 +3283,10 @@ WHERE rank_generation_id = ?
   const freshSignals = readHouseholdSignals(type);
   const freshTasteRevision = tasteRevision(type, freshRatings, freshSignals, now);
   const freshTeacherConfiguration = storyDnaTeacherConfiguration().revision;
+  const freshSemanticGeneration = progressive ? await currentSemanticGeneration() : 0;
   if (freshCorpus !== scan.generation || freshTasteRevision !== capturedTasteRevision
-    || freshTeacherConfiguration !== teacherConfiguration.revision) {
+    || (!progressive && freshTeacherConfiguration !== teacherConfiguration.revision)
+    || (progressive && freshSemanticGeneration !== semanticGeneration)) {
     markGenerationsStale(
       storyGenerationId,
       tasteGenerationId,
@@ -2626,7 +3295,7 @@ WHERE rank_generation_id = ?
         ? 'corpus_revision_changed'
         : freshTasteRevision !== capturedTasteRevision
           ? 'taste_revision_changed'
-          : 'teacher_configuration_changed',
+          : progressive ? 'semantic_revision_changed' : 'teacher_configuration_changed',
     );
   }
   const newerActive = db.prepare(`
@@ -2747,9 +3416,11 @@ WHERE generation_id = ?
   const activationCorpus = await currentCorpusGeneration();
   const activationRatings = listRatings(type, 'household');
   const activationSignals = readHouseholdSignals(type);
+  const activationSemanticGeneration = progressive ? await currentSemanticGeneration() : 0;
   if (activationCorpus !== scan.generation
     || tasteRevision(type, activationRatings, activationSignals, now) !== capturedTasteRevision
-    || storyDnaTeacherConfiguration().revision !== teacherConfiguration.revision) {
+    || (!progressive && storyDnaTeacherConfiguration().revision !== teacherConfiguration.revision)
+    || (progressive && activationSemanticGeneration !== semanticGeneration)) {
     const activationTasteRevision = tasteRevision(
       type,
       activationRatings,
@@ -2764,7 +3435,9 @@ WHERE generation_id = ?
         ? 'corpus_revision_changed_before_activation'
         : activationTasteRevision !== capturedTasteRevision
           ? 'taste_revision_changed_before_activation'
-          : 'teacher_configuration_changed_before_activation',
+          : progressive
+            ? 'semantic_revision_changed_before_activation'
+            : 'teacher_configuration_changed_before_activation',
     );
   }
   const activationPromotedActive = priorityPhase ? activePromotedStoryGraphGeneration(type) : null;
@@ -2792,6 +3465,17 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = ?
       requireSlate: activatesRank,
     });
   }
+  if (progressive) {
+    enqueueStoryDnaFrontierCandidates(selectProgressiveFrontierCandidates({
+      inputByKey,
+      profiles,
+      overlays: documents,
+      ratings,
+      signals,
+      ranked,
+      calibration,
+    }), now);
+  }
   return {
     tab,
     story_generation_id: storyGenerationId,
@@ -2800,7 +3484,9 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = ?
     corpus_generation: scan.generation,
     verified_count: scan.verifiedCount,
     profiled_count: scan.rows.filter((row) => documents.has(contentKey(row.type, row.id))).length,
-    retryable_failure_count: scan.rows.filter((row) => !documents.has(contentKey(row.type, row.id))).length,
+    retryable_failure_count: progressive
+      ? scan.rows.filter((row) => profiles.get(contentKey(row.type, row.id))?.profile_state === 'sparse_unresolved').length
+      : scan.rows.filter((row) => !documents.has(contentKey(row.type, row.id))).length,
     scored_count: eligibleCount,
     excluded_count: excludedCount,
     unscored_count: unscoredCount,
@@ -2819,6 +3505,7 @@ const storyGraphRefreshTails: Record<StoryGraphTab, Promise<void>> = {
   series: Promise.resolve(),
 };
 const storyGraphBackfillTimers = new Map<StoryGraphTab, ReturnType<typeof setTimeout>>();
+let storyDnaFrontierTimer: ReturnType<typeof setTimeout> | null = null;
 
 const TASTE_MUTATION_TRIGGER_REASONS = new Set([
   'signal_change', 'rating_change', 'rating_clear', 'save', 'unsave',
@@ -2895,7 +3582,8 @@ function scheduleAutonomousStoryDnaBackfill(
   tab: StoryGraphTab,
   result: StoryGraphRefreshResult,
 ): void {
-  if (process.env.MANGO_STORY_DNA_AUTONOMOUS_BACKFILL === '0'
+  if (vodContentProfileMode() === 'progressive-v2'
+    || process.env.MANGO_STORY_DNA_AUTONOMOUS_BACKFILL === '0'
     || result.retryable_failure_count <= 0 || storyGraphBackfillTimers.has(tab)) return;
   const type = contentTypeForTab(tab);
   const backlog = libraryDatabase().prepare(`
@@ -2930,6 +3618,33 @@ WHERE generation_id = ? AND content_type = ? AND status = 'retryable_failure'
   storyGraphBackfillTimers.set(tab, timer);
 }
 
+function scheduleStoryDnaFrontierWorker(): void {
+  if (vodContentProfileMode() !== 'progressive-v2'
+    || storyDnaWorkerMode() !== 'frontier' || storyDnaFrontierTimer) return;
+  const delay = boundedInteger(
+    process.env.MANGO_STORY_DNA_FRONTIER_COALESCE_MS,
+    15 * 60 * 1_000,
+    1_000,
+    60 * 60 * 1_000,
+  );
+  storyDnaFrontierTimer = setTimeout(() => {
+    storyDnaFrontierTimer = null;
+    void runStoryDnaFrontierWorker({
+      lookup: structuredLookupProvider,
+      onProfilesChanged: async (types) => {
+        for (const type of types) {
+          await refreshStoryGraphForYou(type === 'movie' ? 'movies' : 'series', {
+            trigger_reasons: ['story_dna_frontier_complete'],
+          });
+        }
+      },
+    }).catch((error) => console.warn(`StoryDNA frontier retained local profiles: ${
+      error instanceof Error ? error.message : String(error)
+    }`));
+  }, delay);
+  storyDnaFrontierTimer.unref?.();
+}
+
 /** Per-media serialization prevents Movies and Series from blocking each other. */
 export function refreshStoryGraphForYou(
   tab: StoryGraphTab,
@@ -2941,7 +3656,8 @@ export function refreshStoryGraphForYou(
   storyGraphRefreshTails[tab] = run.then(() => undefined, () => undefined);
   if (options.dependencies !== undefined) return run;
   return run.then((result) => {
-    scheduleAutonomousStoryDnaBackfill(tab, result);
+    if (vodContentProfileMode() === 'progressive-v2') scheduleStoryDnaFrontierWorker();
+    else scheduleAutonomousStoryDnaBackfill(tab, result);
     return result;
   });
 }
@@ -3245,7 +3961,10 @@ FROM vod_active_generations WHERE content_type = ?
 }
 
 export type StoryGraphDiagnostics = {
-  model_version: typeof VOD_STORY_GRAPH_MODEL_VERSION;
+  model_version: typeof VOD_STORY_GRAPH_MODEL_VERSION | typeof VOD_STORY_FRONTIER_MODEL_VERSION;
+  profile_mode: VodContentProfileMode;
+  frontier: ReturnType<typeof storyDnaFrontierDiagnostics>;
+  tmdb: ReturnType<typeof tmdbMetadataStatus>;
   schema_version: typeof STORY_DNA_SCHEMA_VERSION;
   ontology_version: typeof STORY_DNA_ONTOLOGY_VERSION;
   teacher_configuration_revision: string;
@@ -3261,6 +3980,12 @@ export type StoryGraphDiagnostics = {
     status: string | null;
     verified_count: number;
     profiled_count: number;
+    base_profile_count: number;
+    enriched_profile_count: number;
+    sparse_profile_count: number;
+    compiler_version: string | null;
+    semantic_revision: string | null;
+    reference_revision: string | null;
     failure_count: number;
     scored_count: number;
     excluded_count: number;
@@ -3271,6 +3996,15 @@ export type StoryGraphDiagnostics = {
     cursor: string | null;
     last_good_publication: number | null;
     uncertainty: { mean: number | null; maximum: number | null };
+    family_coverage: Record<string, number>;
+    edge_sources: Record<string, number>;
+    calibration: {
+      status: StoryFrontierCalibrationBand['status'] | null;
+      sample_count: number;
+      empirical_coverage: number | null;
+      lower_residual: number | null;
+      upper_residual: number | null;
+    };
     stale_reasons: string[];
     lookup: StoryDnaLookupStatus | null;
     low_water: StoryGraphLowWaterRequest | null;
@@ -3283,10 +4017,12 @@ export function storyGraphDiagnostics(): StoryGraphDiagnostics {
   const domains = (['movie', 'series'] as const).map((type) => {
     const row = db.prepare(`
 SELECT ranks.rank_generation_id, ranks.story_generation_id, ranks.taste_generation_id,
-       ranks.corpus_generation, ranks.status, ranks.verified_count, ranks.scored_count,
+       ranks.corpus_generation, ranks.taste_revision, ranks.status, ranks.verified_count, ranks.scored_count,
        ranks.excluded_count, ranks.eligible_count, ranks.cursor, ranks.published_at,
        ranks.last_error, story.complete_count, story.failure_count, story.model_version,
-       story.evidence_revision, taste.selected_k,
+       story.evidence_revision, story.base_complete_count, story.teacher_complete_count,
+       story.partial_count, story.compiler_version, story.semantic_revision,
+       story.reference_revision, taste.selected_k,
        (SELECT AVG(uncertainty) FROM vod_rank_items items
         WHERE items.rank_generation_id = ranks.rank_generation_id AND items.serving_eligible = 1) AS mean_uncertainty,
        (SELECT MAX(uncertainty) FROM vod_rank_items items
@@ -3300,6 +4036,7 @@ WHERE ranks.content_type = ? ORDER BY ranks.rank_generation_id DESC LIMIT 1
       story_generation_id: number;
       taste_generation_id: number;
       corpus_generation: number;
+      taste_revision: string;
       model_version: string;
       evidence_revision: string;
       status: string;
@@ -3311,11 +4048,40 @@ WHERE ranks.content_type = ? ORDER BY ranks.rank_generation_id DESC LIMIT 1
       published_at: number | null;
       last_error: string | null;
       complete_count: number;
+      base_complete_count: number;
+      teacher_complete_count: number;
+      partial_count: number;
+      compiler_version: string | null;
+      semantic_revision: string | null;
+      reference_revision: string | null;
       failure_count: number;
       selected_k: number;
       mean_uncertainty: number | null;
       max_uncertainty: number | null;
     } | undefined;
+    const familyCoverage = row ? Object.fromEntries((db.prepare(`
+SELECT family, COUNT(DISTINCT content_id) AS count
+FROM vod_content_profile_edges WHERE generation_id = ? GROUP BY family ORDER BY family
+`).all(row.story_generation_id) as Array<{ family: string; count: number }>).map((item) => (
+      [item.family, item.count]
+    ))) : {};
+    const edgeSources = row ? Object.fromEntries((db.prepare(`
+SELECT edge_source, COUNT(*) AS count
+FROM vod_content_profile_edges WHERE generation_id = ? GROUP BY edge_source ORDER BY edge_source
+`).all(row.story_generation_id) as Array<{ edge_source: string; count: number }>).map((item) => (
+      [item.edge_source, item.count]
+    ))) : {};
+    const calibration = row?.reference_revision ? db.prepare(`
+SELECT sample_count, lower_residual, upper_residual, empirical_coverage, status
+FROM vod_semantic_calibration
+WHERE reference_revision = ? AND content_type = ? AND taste_revision = ? AND stratum = '__pooled__'
+`).get(row.reference_revision, type, row.taste_revision) as {
+      sample_count: number;
+      lower_residual: number;
+      upper_residual: number;
+      empirical_coverage: number;
+      status: StoryFrontierCalibrationBand['status'];
+    } | undefined : undefined;
     return {
       content_type: type,
       rank_generation_id: row?.rank_generation_id ?? null,
@@ -3327,6 +4093,12 @@ WHERE ranks.content_type = ? ORDER BY ranks.rank_generation_id DESC LIMIT 1
       status: row?.status ?? null,
       verified_count: row?.verified_count ?? 0,
       profiled_count: row?.complete_count ?? 0,
+      base_profile_count: row?.base_complete_count ?? 0,
+      enriched_profile_count: row?.teacher_complete_count ?? row?.complete_count ?? 0,
+      sparse_profile_count: row?.partial_count ?? 0,
+      compiler_version: row?.compiler_version ?? null,
+      semantic_revision: row?.semantic_revision ?? null,
+      reference_revision: row?.reference_revision ?? null,
       failure_count: row?.failure_count ?? 0,
       scored_count: row?.scored_count ?? 0,
       excluded_count: row?.excluded_count ?? 0,
@@ -3342,6 +4114,15 @@ WHERE ranks.content_type = ? ORDER BY ranks.rank_generation_id DESC LIMIT 1
       cursor: row?.cursor ?? null,
       last_good_publication: row?.published_at ?? null,
       uncertainty: { mean: row?.mean_uncertainty ?? null, maximum: row?.max_uncertainty ?? null },
+      family_coverage: familyCoverage,
+      edge_sources: edgeSources,
+      calibration: {
+        status: calibration?.status ?? null,
+        sample_count: calibration?.sample_count ?? 0,
+        empirical_coverage: calibration?.empirical_coverage ?? null,
+        lower_residual: calibration?.lower_residual ?? null,
+        upper_residual: calibration?.upper_residual ?? null,
+      },
       stale_reasons: row?.last_error ? [row.last_error] : [],
       lookup: storyDnaLookupStatus(type),
       low_water: (() => {
@@ -3359,7 +4140,11 @@ SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
     };
   });
   return {
-    model_version: VOD_STORY_GRAPH_MODEL_VERSION,
+    model_version: vodContentProfileMode() === 'progressive-v2'
+      ? VOD_STORY_FRONTIER_MODEL_VERSION : VOD_STORY_GRAPH_MODEL_VERSION,
+    profile_mode: vodContentProfileMode(),
+    frontier: storyDnaFrontierDiagnostics(),
+    tmdb: tmdbMetadataStatus(),
     schema_version: STORY_DNA_SCHEMA_VERSION,
     ontology_version: STORY_DNA_ONTOLOGY_VERSION,
     teacher_configuration_revision: storyDnaTeacherConfiguration().revision,

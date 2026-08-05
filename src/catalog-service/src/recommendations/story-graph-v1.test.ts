@@ -122,8 +122,8 @@ function storyTitle(
 
 function uniformFacetTitle(id: string, value: number, confidence = 1): StoryGraphTitle {
   const title = storyTitle(id, 'action', { confidence });
-  title.story_dna.facets = Object.fromEntries(
-    Object.keys(title.story_dna.facets).map((facet) => [facet, value]),
+  title.story_dna!.facets = Object.fromEntries(
+    Object.keys(title.story_dna!.facets).map((facet) => [facet, value]),
   ) as StoryDnaDocument['facets'];
   return title;
 }
@@ -268,8 +268,8 @@ test('categorical posterior node masses equal their family evidence mass', () =>
 test('ordered multi-value evidence divides family mass by salience without duplication', () => {
   const first = storyTitle('salient-1', 'action');
   const second = storyTitle('salient-2', 'action');
-  first.story_dna.themes = ['justice', 'duty'];
-  second.story_dna.themes = ['justice', 'duty'];
+  first.story_dna!.themes = ['justice', 'duty'];
+  second.story_dna!.themes = ['justice', 'duty'];
   const model = buildStoryTasteModel({
     documents: [first, second],
     explicit_ratings: [rating(first.id, 5, 5), rating(second.id, 5, 5)],

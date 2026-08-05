@@ -55,9 +55,11 @@ async function withTempDatabases(fn: () => Promise<void>): Promise<void> {
   const previousLibrary = process.env.MANGO_LIBRARY_DB_PATH;
   const previousPins = process.env.MANGO_USER_PINS_PATH;
   const previousPlayability = process.env.MANGO_PLAYABILITY_DB;
+  const previousProfileMode = process.env.MANGO_VOD_CONTENT_PROFILE;
   process.env.MANGO_LIBRARY_DB_PATH = join(directory, 'library.db');
   process.env.MANGO_USER_PINS_PATH = join(directory, 'pins.json');
   process.env.MANGO_PLAYABILITY_DB = join(directory, 'playability.db');
+  process.env.MANGO_VOD_CONTENT_PROFILE = 'strict-v1';
   resetLibraryDbForTests();
   resetPlayabilityDbForTests();
   try {
@@ -73,6 +75,8 @@ async function withTempDatabases(fn: () => Promise<void>): Promise<void> {
     else process.env.MANGO_USER_PINS_PATH = previousPins;
     if (previousPlayability === undefined) delete process.env.MANGO_PLAYABILITY_DB;
     else process.env.MANGO_PLAYABILITY_DB = previousPlayability;
+    if (previousProfileMode === undefined) delete process.env.MANGO_VOD_CONTENT_PROFILE;
+    else process.env.MANGO_VOD_CONTENT_PROFILE = previousProfileMode;
     await rm(directory, { recursive: true, force: true });
   }
 }

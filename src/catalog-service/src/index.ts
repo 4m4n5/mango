@@ -113,6 +113,7 @@ import {
   setStoryDnaStructuredLookupProvider,
   setStoryGraphLowWaterEnqueueHook,
 } from './recommendations/story-graph-service.js';
+import { enrichStoryDnaInputsWithTmdb } from './recommendations/tmdb-metadata.js';
 import { previewStoryEvidence } from './playability/list-source.js';
 import { searchCachedYoutubeItems } from './youtube/db.js';
 import {
@@ -1391,9 +1392,9 @@ async function main(): Promise<void> {
       }
     });
     await Promise.all(workers);
-    return output.sort((left, right) => (
-      `${left.type}:${left.id}`.localeCompare(`${right.type}:${right.id}`)
-    ));
+    const addonByKey = new Map(output.map((input) => [`${input.type}:${input.id}`, input]));
+    const merged = inputs.map((input) => addonByKey.get(`${input.type}:${input.id}`) ?? input);
+    return enrichStoryDnaInputsWithTmdb(merged);
   });
   const pendingRecommendationJobs = new Map<string, string[]>();
   const activeRecommendationJobs = new Map<string, string[]>();

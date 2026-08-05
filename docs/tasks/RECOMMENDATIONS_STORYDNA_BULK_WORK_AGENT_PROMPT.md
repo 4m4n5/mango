@@ -1,5 +1,11 @@
 # Starter prompt — work agent (StoryDNA bulk corpus + incremental couch path)
 
+> **Superseded as an automatic next step (2026-08-04).** The dirty source now
+> contains a deterministic progressive content-profile compiler and bounded
+> frontier. Finish and measure that path first. Retain this prompt only as
+> planning input for a bulk artifact/importer if verified coverage, quality, or
+> cost evidence demonstrates the need; do not paste it as the current contract.
+
 Paste into a **fresh work-Mac** agent session on `feat/native-experience`.
 
 Home Pi paused live one-at-a-time teacher spend. Existing Pi StoryDNA tags must
