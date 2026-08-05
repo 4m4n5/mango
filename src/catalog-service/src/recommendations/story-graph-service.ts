@@ -1611,8 +1611,23 @@ function selectCachedSlateIds(input: {
     // Recent slates are newest-first; relax the oldest one first.
     retained.pop();
   }
-  const relaxedFloor = dealStoryRecommendations(cache, { seed: input.seed });
-  return relaxedFloor.length === VISIBLE_LIMIT ? relaxedFloor : [];
+
+  // The fit floor is a quality preference, not permission to discard a healthy
+  // reserve. If it exhausts the pool, retry the same newest-to-oldest history
+  // relaxation without the floor before permitting repeats. This remains
+  // entirely offline/predealt and preserves four-slate avoidance whenever the
+  // eligible reserve can actually supply it.
+  const relaxed = [...input.recentSlates];
+  while (true) {
+    const excluded = [...new Set(relaxed.flatMap((slate) => slate.ids))];
+    const preferred = dealStoryRecommendations(cache, {
+      seed: input.seed,
+      exclude_ids: excluded,
+    });
+    if (preferred.length === VISIBLE_LIMIT) return preferred;
+    if (relaxed.length === 0) return [];
+    relaxed.pop();
+  }
 }
 
 function currentExactExclusions(type: RatingContentType): Set<StoryGraphContentId> {

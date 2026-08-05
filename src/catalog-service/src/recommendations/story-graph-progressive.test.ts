@@ -13,7 +13,9 @@ import {
 import {
   refreshStoryGraphForYou,
   isStoryGraphTrueNegativeRating,
+  resetStoryGraphServingWorkCounters,
   storyGraphHighPreferenceConcordance,
+  storyGraphServingWorkSnapshot,
   storyGraphTitleSupportsOfflineEvaluation,
   storyGraphDiagnostics,
   storyGraphServingDecision,
@@ -298,9 +300,31 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
     assert.equal(await loadForYouRail('movies', { reshuffle: true, profileId: 'household' }), null);
     assert.equal(activeEpoch(), 0, 'off X must not advance a disabled slate');
     process.env.MANGO_VOD_RECS_V2 = 'serve';
-    const shuffled = await loadForYouRail('movies', { reshuffle: true, profileId: 'household' });
-    assert.ok(shuffled);
+    resetStoryGraphServingWorkCounters();
+    const initial = await loadForYouRail('movies', { profileId: 'household' });
+    assert.ok(initial);
+    const rendered = [new Set(initial.items.map((item) => item.id))];
+    for (let press = 0; press < 5; press += 1) {
+      const shuffled = await loadForYouRail('movies', {
+        reshuffle: true,
+        profileId: 'household',
+      });
+      assert.ok(shuffled);
+      const ids = new Set(shuffled.items.map((item) => item.id));
+      for (const prior of rendered.slice(-4)) {
+        assert.equal(
+          [...ids].some((id) => prior.has(id)),
+          false,
+          `X press ${press + 1} must avoid every card from the preceding four slates`,
+        );
+      }
+      rendered.push(ids);
+    }
     assert.ok(activeEpoch() > 0, 'serve X advances a published cached slate');
+    const servingWork = storyGraphServingWorkSnapshot();
+    assert.equal(servingWork.dealer_calls, 0, 'X consumes only predealt slates');
+    assert.equal(servingWork.full_reserve_queries, 0, 'X never scans or ranks the reserve');
+    assert.equal(servingWork.full_reserve_rows_loaded, 0, 'X never loads the reserve');
 
     const failed = libraryDatabase().prepare(`
 INSERT INTO vod_rank_generations(
