@@ -23,7 +23,7 @@ import {
 
 export const VOD_CONTENT_PROFILE_VERSION = 'vod-content-profile-v2' as const;
 export const VOD_CONTENT_PROFILE_COMPILER_VERSION = 'vod-content-compiler-v1' as const;
-export const VOD_STORY_FRONTIER_MODEL_VERSION = 'vod-story-frontier-v1' as const;
+export const VOD_STORY_FRONTIER_MODEL_VERSION = 'vod-story-frontier-v2' as const;
 
 export type ContentProfileFamilyState = 'observed' | 'known_absent' | 'unknown';
 export type ContentProfileEdgeSource =

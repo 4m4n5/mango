@@ -137,7 +137,8 @@ prove only their exact revision and contract.
   last-good. The supervised promotion gate itself remains only an absolute
   minimum: it requires
   at least 15 eligible ratings/five folds, non-null nDCG, per-axis concordance
-  at least 0.5 only where that axis has measurable pairs, low-low intrusion at
+  at least 0.5 only where that axis has measurable same-fold strong-vs-lower-
+  preference pairs, true-negative (`Fire<1` and `Water<1`) intrusion at
   most one third, complete
   accounting, deterministic replay, and cached p95 at most 250 ms. It has no
   accepted-baseline uplift/CI, reserve/calibration/teacher-cost, or worker-
@@ -336,7 +337,7 @@ predates this latest-only implementation, so its visible rail is historical.
 | Content model | Always `vod-content-profile-v2`: deterministic metadata/rule profiles plus immutable compatible StoryDNA overlays |
 | AI boundary | Stateless content teacher sees canonical title evidence only; no Household/companion state and no score/rank/publish authority |
 | Ranker | Deterministic local uncertainty-aware story graph with up to three positive taste threads |
-| Signals | Fire/Water dominates; Saved and meaningful viewing support sparse/cold start; ratings ≤2.5 do not create thematic negative propagation |
+| Signals | Fire/Water dominates; Saved and meaningful viewing support sparse/cold start; `<1` is negative, `1–2` is neutral, and `>2` contributes quadratically increasing positive evidence. Negative ratings exclude the exact title without becoming broad thematic vetoes |
 | Eligibility | Current verified-playable, poster-bearing titles only; exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me are excluded |
 | Rail | One six-card For You rail per Movies/TV tab after Continue/Saved; allocation 6, 3+3, or 2+2+2 across active threads |
 | Removed behavior | No executable 4/1/1 buckets, forced surprise, bridge, semantic-hash v4, cosine/KNN/MMR, cooled rewatch lane, or strict-only publication path |

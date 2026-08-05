@@ -125,7 +125,7 @@ test('progressive titles rank without a strict StoryDNA document', () => {
   const anchor = compileContentProfileV2(input({ id: 'anchor' }));
   const candidate = compileContentProfileV2(input({ id: 'candidate' }));
   const result = rankStoryGraphRecommendations({
-    algorithm: 'vod-story-graph-v1',
+    algorithm: 'vod-story-graph-v2',
     documents: [contentProfileStoryGraphTitle(anchor), contentProfileStoryGraphTitle(candidate)],
     background_ids: ['movie:anchor', 'movie:candidate'],
     candidate_ids: ['movie:candidate'],

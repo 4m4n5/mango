@@ -244,7 +244,7 @@ left untouched.
 
 Movies and TV Shows each receive one system rail (`for-you-movies` and
 `for-you-series`) after Continue and Saved and before the three user AI-catalog
-slots. `vod-story-frontier-v1` deterministically pages the complete verified-
+slots. `vod-story-frontier-v2` deterministically pages the complete verified-
 title corpus. A normal generation needs at least 200 eligible titles **and
 complete verified-corpus accounting** before it can publish; it does not
 publish a partially accounted row and continue filling that same generation.
@@ -285,8 +285,10 @@ older ranking code requires a reviewed Git rollback and can read preserved
 historical rows.
 
 The local model learns up to three supported Household taste threads from
-positive Fire/Water, Saved, and meaningful VOD viewing. Ratings at or below 2.5
-do not propagate negative taste. Where explicit evidence exists it owns 85% of
+positive Fire/Water, Saved, and meaningful VOD viewing. Ratings below `1` are
+negative, `1–2` is neutral, and values above `2` contribute quadratically
+increasing positive evidence. Negative ratings exclude the exact title but do
+not propagate a broad thematic veto. Where explicit evidence exists it owns 85% of
 affinity; Saved (`0.8`) and meaningful partial/completed viewing (`0.55`/`1.0`)
 share at most 15% and renormalize for cold start. A meaningful watch reaches
 `min(25% of duration, 5 minutes)`, or two minutes when duration is unknown;

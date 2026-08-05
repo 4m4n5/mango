@@ -63,6 +63,35 @@ else
   ' /proc/meminfo
 fi
 
+# `MemoryCurrent` is cgroup ownership (anonymous memory, file cache, kernel
+# memory, and children), not process RSS. Report both so SQLite writeback/cache
+# growth cannot be mislabeled as a JavaScript retention leak.
+if command -v systemctl >/dev/null 2>&1 \
+  && systemctl --user show mango-catalog.service -p MainPID --value >/dev/null 2>&1; then
+  CATALOG_MAIN_PID="$(systemctl --user show mango-catalog.service -p MainPID --value 2>/dev/null || true)"
+  CATALOG_CGROUP="$(systemctl --user show mango-catalog.service -p ControlGroup --value 2>/dev/null || true)"
+  CATALOG_PROCESS_RSS_KB=unknown
+  if [[ "$CATALOG_MAIN_PID" =~ ^[1-9][0-9]*$ && -r "/proc/$CATALOG_MAIN_PID/status" ]]; then
+    CATALOG_PROCESS_RSS_KB="$(awk '$1 == "VmRSS:" { print $2 }' "/proc/$CATALOG_MAIN_PID/status")"
+  fi
+  echo "catalog_process_pid=$CATALOG_MAIN_PID catalog_process_rss_kb=$CATALOG_PROCESS_RSS_KB"
+  if [[ -n "$CATALOG_CGROUP" && -r "/sys/fs/cgroup${CATALOG_CGROUP}/memory.current" ]]; then
+    CATALOG_CGROUP_ROOT="/sys/fs/cgroup${CATALOG_CGROUP}"
+    echo "catalog_cgroup_memory_current_bytes=$(<"$CATALOG_CGROUP_ROOT/memory.current")"
+    if [[ -r "$CATALOG_CGROUP_ROOT/memory.stat" ]]; then
+      awk '
+        $1 == "anon" || $1 == "file" || $1 == "shmem" || $1 == "slab" {
+          printf("catalog_cgroup_%s_bytes=%s\n", $1, $2)
+        }
+      ' "$CATALOG_CGROUP_ROOT/memory.stat"
+    fi
+    if [[ -r "$CATALOG_CGROUP_ROOT/memory.events" ]]; then
+      awk '{ printf("catalog_cgroup_event_%s=%s\n", $1, $2) }' \
+        "$CATALOG_CGROUP_ROOT/memory.events"
+    fi
+  fi
+fi
+
 df_targets=(/ "$HOME")
 [[ -d /etc/mango ]] && df_targets+=(/etc/mango)
 df -h "${df_targets[@]}" 2>/dev/null | awk 'NR==1 || !seen[$6]++ {print}'

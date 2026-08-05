@@ -136,11 +136,15 @@ function identity(id: string): StoryGraphContentId {
   return `movie:${id}`;
 }
 
-test('positive rating propagation is quadratic above the midpoint and never negative', () => {
+test('positive rating propagation is quadratic above neutral two and never negative', () => {
   assert.equal(positiveRatingEvidence(0), 0);
-  assert.equal(positiveRatingEvidence(2.5), 0);
-  assert.ok(Math.abs(positiveRatingEvidence(3.5) - 0.16) < 1e-12);
-  assert.ok(Math.abs(positiveRatingEvidence(4.5) - 0.64) < 1e-12);
+  assert.equal(positiveRatingEvidence(0.5), 0);
+  assert.equal(positiveRatingEvidence(1), 0);
+  assert.equal(positiveRatingEvidence(1.5), 0);
+  assert.equal(positiveRatingEvidence(2), 0);
+  assert.ok(Math.abs(positiveRatingEvidence(2.5) - (0.5 / 3) ** 2) < 1e-12);
+  assert.ok(Math.abs(positiveRatingEvidence(3.5) - 0.25) < 1e-12);
+  assert.ok(Math.abs(positiveRatingEvidence(4.5) - (2.5 / 3) ** 2) < 1e-12);
   assert.equal(positiveRatingEvidence(5), 1);
   assert.equal(storyRatingAnchorStrength(5, 0), 0.75);
   assert.equal(storyRatingAnchorStrength(0, 5), 0.75);
@@ -172,7 +176,7 @@ test('one strongest single-axis rating is one supported taste-thread unit', () =
   }
 });
 
-test('ratings at or below 2.5 add no thematic evidence or related-title penalty', () => {
+test('ratings at or below neutral two add no thematic evidence or related-title penalty', () => {
   const documents = [
     storyTitle('liked-1', 'action'), storyTitle('liked-2', 'action'),
     storyTitle('low', 'action'), storyTitle('candidate', 'action'), storyTitle('other', 'water'),
@@ -185,7 +189,7 @@ test('ratings at or below 2.5 add no thematic evidence or related-title penalty'
   const withLow = buildStoryTasteModel({
     documents,
     explicit_ratings: [
-      rating('liked-1', 5, 0), rating('liked-2', 5, 0), rating('low', 0, 2.5),
+      rating('liked-1', 5, 0), rating('liked-2', 5, 0), rating('low', 0, 2),
     ],
     as_of: NOW,
   });
@@ -616,9 +620,9 @@ test('zero-confidence ordinal evidence is corpus-neutral and cannot manufacture 
   assert.equal(neutral.feature_confidence, 0);
   assert.equal(neutral.explicit_support, 0);
   assert.equal(neutral.implicit_support, 0);
-  assert.equal(neutral.affinity, 2.5);
-  assert.equal(neutral.predicted_fire, 2.5);
-  assert.equal(neutral.predicted_water, 2.5);
+  assert.equal(neutral.affinity, 2);
+  assert.equal(neutral.predicted_fire, 2);
+  assert.equal(neutral.predicted_water, 2);
   assert.ok(neutral.posterior_standard_deviation > 0);
 
   const baselineCertainCandidate = scoreStoryGraphCandidate(

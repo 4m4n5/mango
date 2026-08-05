@@ -3,7 +3,7 @@
 **Branch:** `feat/native-experience`
 **State:** commit `772b3d58b53208a278da4e9d5281b46f88054b8e` makes progressive Household VOD the sole executable
 recommendation architecture. It contains `vod-content-profile-v2`, immutable
-compatible StoryDNA overlays, `vod-story-frontier-v1`, cached six-card dealing,
+compatible StoryDNA overlays, `vod-story-frontier-v2`, cached six-card dealing,
 an optional bounded frontier, exact-ID TMDB enrichment, and additive schema
 migrations. The prior semantic-hash v4, cosine/KNN/MMR, strict-only publication,
 legacy rank worker/snapshot fallback, corpus-wide teacher backfill, and v4
@@ -218,7 +218,7 @@ window/coalescing/concurrency/restart, TMDB failure/rate-limit/credential-file/
 TV-series, and mode-aware activation/staleness still need focused proof.
 Existing tests cover worker-off/per-type daily budget and exact-ID/no-fuzzy
 TMDB mapping; the corrected activation lookup accepts
-`vod-story-frontier-v1`, but Pi activation is still unobserved.
+`vod-story-frontier-v2`, but Pi activation is still unobserved.
 
 The local worker fits one to three deterministic Bayesian household threads.
 Categorical families use Dirichlet-multinomial posteriors; ordinal families use
@@ -230,23 +230,26 @@ title-to-title comparison, MMR, or cloud ranking path.
 Only positive rating evidence propagates:
 
 ```text
-positive(rating) = (max(0, rating - 2.5) / 2.5)^2
+positive(rating) = (max(0, rating - 2) / 3)^2
 anchor_strength  = 0.75 * max(positive(Fire), positive(Water))
                  + 0.25 * min(positive(Fire), positive(Water))
-predicted_axis   = 2.5 + 2.5 * positive_support
+predicted_axis   = 2 + 3 * positive_support
 holistic         = 0.75 * max(predicted_fire, predicted_water)
                  + 0.25 * min(predicted_fire, predicted_water)
 rank_score       = blended_affinity - 0.5 * posterior_standard_deviation
 ```
 
-Ratings at or below 2.5 do not penalize related titles. Fire/Water is permanent
-and origin/age independent; Saved has strength 0.8; meaningful partial viewing
+Ratings below `1` are negative labels, ratings from `1` through `2` are
+neutral, and ratings above `2` contribute quadratically increasing positive
+preference. Negative ratings exclude the exact title but do not become broad
+semantic penalties. Fire/Water is permanent and origin/age independent; Saved has strength 0.8; meaningful partial viewing
 has 0.55; completion has 1.0; VOD viewing has a 180-day half-life. A meaningful
 watch is `min(25% of duration, 5 minutes)`, or two minutes when duration is
 unknown. Bare starts are ignored. With explicit evidence it owns 85% of final
 affinity and Saved/watch owns at most 15%; implicit evidence renormalizes for
 cold start. Rated, Saved, meaningfully watched, hidden, blocked, and exact
-Not-for-me titles never serve, but low ratings create no semantic negative.
+Not-for-me titles never serve. The offline intrusion guard counts a title as a
+true negative only when both Fire and Water are below `1`.
 
 Each newly published rank generation becomes eligible at 200 ranked rows and
 progresses toward complete-corpus accounting while the prior complete

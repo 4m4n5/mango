@@ -128,14 +128,14 @@ explicit product approval.
 | Seed | Approved stable identities only; idempotent; never overwrite later couch history |
 | System rail | One six-card For You after Continue/Saved; no AI-catalog slot consumed |
 | Eligibility | Current verified/playable/poster-bearing; exclude exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me |
-| Taste | Up to three deterministic positive Bayesian threads; ratings ≤2.5 do not propagate thematic negatives |
+| Taste | Up to three deterministic positive Bayesian threads; `<1` is negative, `1–2` is neutral, and `>2` contributes quadratically increasing positive evidence. Negative ratings exclude their exact title but do not become broad thematic vetoes |
 | Mix | Six, 3+3, or 2+2+2 across supported threads; no v4 12-card/4-1-1/forced-surprise/bridge/cosine/KNN/MMR/cooled-rewatch behavior |
 | Content profile | `vod-content-profile-v2` is the sole executable profile: deterministic metadata/rule profiles with immutable compatible StoryDNA overlays and sparse-profile exclusion |
 | Content teacher | Stateless and selective only; canonical title evidence in, no household/companion state, and no score/rank/select/publish authority |
 | Ranker | Local deterministic uncertainty-aware story graph over the complete verified corpus |
 | Serve | Atomic current/previous generations, last-good fallback, opaque revision-bound attribution, cache-only X response; low-water recovery may enqueue asynchronously |
 | Rollout | `off` disables For You; `shadow` builds latest-only and hides For You; `serve` exposes only a promotion-eligible Household generation. Operational rollback is shadow/off; older ranking requires reviewed Git rollback |
-| Promotion | Current source minimum: at least 15 eligible ratings/five folds, non-null nDCG, measured concordance ≥0.5 when present, low-low intrusion ≤1/3, complete accounting, deterministic replay, cached p95 ≤250 ms. Release also requires active-pointer proof, Pi restart/offline/resource proof, and a human couch verdict |
+| Promotion | Current source minimum: at least 15 eligible ratings/five folds, non-null nDCG, same-fold strong-vs-lower-preference concordance ≥0.5 when measurable, true-negative (`Fire<1` and `Water<1`) top-six intrusion ≤1/3, complete accounting, deterministic replay, cached p95 ≤250 ms. Release also requires active-pointer proof, Pi restart/offline/resource proof, and a human couch verdict |
 | Current blockers | Shadow changes live Household identity and has divergent Saved ownership; launcher falsely reports Shuffle success in off/shadow; diagnostics describe the latest row rather than proving active/previous pointers; the absolute promotion gate has no accepted-baseline uplift/CI, reserve/calibration/teacher-cost, or worker-latency threshold; focused mode/HTTP/migration/publication tests and Pi/couch proof remain open |
 
 ## YouTube

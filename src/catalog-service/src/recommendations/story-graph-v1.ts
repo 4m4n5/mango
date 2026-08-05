@@ -7,7 +7,7 @@ import {
 } from './story-dna.js';
 
 /** The v2 model consumes typed StoryDNA graph edges through a local posterior. */
-export const VOD_STORY_GRAPH_MODEL_VERSION = 'vod-story-graph-v1' as const;
+export const VOD_STORY_GRAPH_MODEL_VERSION = 'vod-story-graph-v2' as const;
 export const STORY_GRAPH_EXPLICIT_SHARE = 0.85;
 export const STORY_GRAPH_IMPLICIT_SHARE = 0.15;
 export const STORY_GRAPH_WATCH_HALF_LIFE_DAYS = 180;
@@ -15,8 +15,9 @@ export const STORY_GRAPH_MAX_THREADS = 3;
 export const STORY_GRAPH_VISIBLE_LIMIT = 6;
 export const STORY_GRAPH_DEALER_EXPONENT = 1.5;
 
-const MIDPOINT = 2.5;
-const AXIS_RANGE = 2.5;
+/** Two is neutral; only values below one are negative and values above two propagate. */
+const PREFERENCE_FLOOR = 2;
+const PREFERENCE_RANGE = 3;
 const DIRICHLET_PRIOR_STRENGTH = 2;
 const ORDINAL_PRIOR_STRENGTH = 2;
 const AXIS_PRIOR_STRENGTH = 0.25;
@@ -362,10 +363,17 @@ function assertHalfStep(value: number, field: string): void {
   }
 }
 
-/** Positive-only propagation: 0-2.5 is deliberately neutral, never negative. */
+/**
+ * Positive-only thematic propagation above the neutral rating of two.
+ *
+ * Ratings below one are true negative labels. Ratings from one through two
+ * are neutral. Negative ratings remain exact-title output exclusions rather
+ * than broad semantic penalties, so one dislike cannot suppress an otherwise
+ * supported household taste thread.
+ */
 export function positiveRatingEvidence(rating: number): number {
   if (!Number.isFinite(rating)) throw new Error('rating must be finite');
-  return (Math.max(0, clamp(rating, 0, 5) - MIDPOINT) / AXIS_RANGE) ** 2;
+  return (Math.max(0, clamp(rating, 0, 5) - PREFERENCE_FLOOR) / PREFERENCE_RANGE) ** 2;
 }
 
 export function storyRatingAnchorStrength(fire: number, water: number): number {
@@ -1430,7 +1438,7 @@ export function scoreStoryGraphCandidate(
       explicit_match: explicitMatch,
       implicit_match: implicitMatch,
       blended_match: blendedMatch,
-      posterior_standard_deviation: AXIS_RANGE * clamp(standardDeviationUnit),
+      posterior_standard_deviation: PREFERENCE_RANGE * clamp(standardDeviationUnit),
       fire_support: explicitMatch * thread.fire_uplift,
       water_support: explicitMatch * thread.water_uplift,
     };
@@ -1443,11 +1451,13 @@ export function scoreStoryGraphCandidate(
   // Fire and Water may be supported by different household taste threads.
   const fireSupport = Math.max(0, ...matches.map((match) => match.fire_support));
   const waterSupport = Math.max(0, ...matches.map((match) => match.water_support));
-  const predictedFire = MIDPOINT + AXIS_RANGE * fireSupport;
-  const predictedWater = MIDPOINT + AXIS_RANGE * waterSupport;
+  const predictedFire = PREFERENCE_FLOOR + PREFERENCE_RANGE * fireSupport;
+  const predictedWater = PREFERENCE_FLOOR + PREFERENCE_RANGE * waterSupport;
   const holistic = storyHolisticAffinity(predictedFire, predictedWater);
-  const blendedAffinity = MIDPOINT + AXIS_RANGE * (strongest?.blended_match ?? 0);
-  const posteriorStandardDeviation = strongest?.posterior_standard_deviation ?? AXIS_RANGE;
+  const blendedAffinity = PREFERENCE_FLOOR
+    + PREFERENCE_RANGE * (strongest?.blended_match ?? 0);
+  const posteriorStandardDeviation = strongest?.posterior_standard_deviation
+    ?? PREFERENCE_RANGE;
   return {
     type: title.type,
     id: title.id,
@@ -1631,7 +1641,7 @@ export function dealStoryRecommendations(
 /** Pure full-corpus v2 entry point. Eligibility/exact-title exclusions stay in service. */
 export function rankStoryGraphRecommendations(input: StoryGraphRankInput): StoryGraphRankResult {
   if (input.algorithm !== VOD_STORY_GRAPH_MODEL_VERSION) {
-    throw new Error('story graph ranking requires vod-story-graph-v1 input');
+    throw new Error('story graph ranking requires vod-story-graph-v2 input');
   }
   const documents = new Map<StoryGraphContentId, StoryGraphTitle>();
   for (const raw of input.documents) {

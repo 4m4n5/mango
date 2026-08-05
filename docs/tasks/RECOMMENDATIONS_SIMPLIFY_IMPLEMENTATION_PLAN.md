@@ -21,8 +21,9 @@ marked superseded.
 - Movies and TV each expose one cached, six-card `For You` rail.
 - Every served title is poster-bearing and currently verified playable.
 - Fire/Water, Saved, and meaningful Mango VOD viewing are the only taste
-  inputs. Fire/Water above 2.5 is dominant positive evidence. Low ratings do
-  not penalize related titles; the exact rated title is ineligible.
+  inputs. Fire/Water above `2` is dominant nonlinear positive evidence;
+  ratings below `1` are negative and `1–2` is neutral. Negative ratings do not
+  become broad thematic vetoes; the exact rated title is ineligible.
 - Profiles and mood do not enter ranking. Existing data remains recoverable;
   personal recommendation evidence is dormant, but Saved currently blends
   preserved profile rows in `shadow` and must be fixed or accepted before
@@ -38,7 +39,7 @@ The active contracts are:
 
 - composite profile: `vod-content-profile-v2`
 - deterministic compiler: `vod-content-compiler-v1`
-- ranker: `vod-story-frontier-v1`
+- ranker: `vod-story-frontier-v2`
 - ontology: `story-dna-core-v1`
 - optional immutable overlay: compatible `story-dna-v1`
 
@@ -76,7 +77,7 @@ The deterministic Bayesian graph ranker fits one to three household taste
 threads per media type. Explicit positive evidence is:
 
 ```text
-positive(r) = (max(0, r - 2.5) / 2.5)^2
+positive(r) = (max(0, r - 2) / 3)^2
 
 anchor_strength =
   0.75 * max(positive(Fire), positive(Water))
@@ -93,7 +94,7 @@ families contribute prior expectation and uncertainty, never false evidence.
 The score contract remains:
 
 ```text
-predicted_axis = 2.5 + 2.5 * positive_support
+predicted_axis = 2 + 3 * positive_support
 holistic = 0.75 * max(predicted_fire, predicted_water)
          + 0.25 * min(predicted_fire, predicted_water)
 rank_score = blended_affinity - 0.5 * posterior_standard_deviation

@@ -12,6 +12,8 @@ import {
 } from '../playability/db.js';
 import {
   refreshStoryGraphForYou,
+  isStoryGraphTrueNegativeRating,
+  storyGraphHighPreferenceConcordance,
   storyGraphDiagnostics,
   storyGraphServingDecision,
   type StoryGraphRefreshDependencies,
@@ -94,7 +96,7 @@ INSERT INTO rail_pool(
 
 function passingEvaluation(input: Parameters<NonNullable<StoryGraphRefreshDependencies['evaluate']>>[0]) {
   return {
-    version: 'vod-story-frontier-evaluation-v1' as const,
+    version: 'vod-story-frontier-evaluation-v2' as const,
     rank_generation_id: input.rankGenerationId,
     status: 'passed' as const,
     samples: input.ratings.length,
@@ -118,7 +120,7 @@ function labelSparseEvaluation(
   input: Parameters<NonNullable<StoryGraphRefreshDependencies['evaluate']>>[0],
 ) {
   return {
-    version: 'vod-story-frontier-evaluation-v1' as const,
+    version: 'vod-story-frontier-evaluation-v2' as const,
     rank_generation_id: input.rankGenerationId,
     status: 'insufficient' as const,
     samples: input.ratings.length,
@@ -137,6 +139,44 @@ function labelSparseEvaluation(
     evaluated_at: input.now,
   };
 }
+
+test('axis concordance compares strong with lower preferences inside each fold', () => {
+  const result = storyGraphHighPreferenceConcordance([
+    // Ordering the two strong preferences incorrectly must not turn this
+    // guard into an ordinal 4-vs-5 regression.
+    { actual: 4, predicted: 0.9, fold: 0 },
+    { actual: 5, predicted: 0.8, fold: 0 },
+    { actual: 2.5, predicted: 0.2, fold: 0 },
+    { actual: 1, predicted: 0.1, fold: 0 },
+    // Cross-fold scores are intentionally incomparable and are not paired.
+    { actual: 5, predicted: 0.3, fold: 1 },
+    { actual: 2, predicted: 0.4, fold: 1 },
+    { actual: 3.5, predicted: 1, fold: 1 },
+  ]);
+  assert.deepEqual(result, {
+    value: 2 / 3,
+    comparisons: 6,
+    strong_preferences: 3,
+    lower_preferences: 4,
+  });
+  assert.deepEqual(storyGraphHighPreferenceConcordance([
+    { actual: 4.5, predicted: 0.7, fold: 0 },
+    { actual: 3, predicted: 0.2, fold: 0 },
+  ]), {
+    value: 1,
+    comparisons: 1,
+    strong_preferences: 1,
+    lower_preferences: 1,
+  });
+});
+
+test('only ratings below one on both axes are true-negative intrusion labels', () => {
+  assert.equal(isStoryGraphTrueNegativeRating({ fire: 0, water: 0.5 }), true);
+  assert.equal(isStoryGraphTrueNegativeRating({ fire: 0.5, water: 0.5 }), true);
+  assert.equal(isStoryGraphTrueNegativeRating({ fire: 1, water: 0 }), false);
+  assert.equal(isStoryGraphTrueNegativeRating({ fire: 2, water: 2 }), false);
+  assert.equal(isStoryGraphTrueNegativeRating({ fire: 2.5, water: 0.5 }), false);
+});
 
 test('progressive full-corpus refresh accounts for sparse titles without a teacher dependency', async () => {
   await withProgressiveDatabases(async () => {
@@ -171,7 +211,7 @@ FROM vod_rank_generations WHERE rank_generation_id = ?
       excluded_count: number;
     };
     assert.deepEqual(generation, {
-      model_version: 'vod-story-frontier-v1',
+      model_version: 'vod-story-frontier-v2',
       feature_version: 'vod-content-profile-v2',
       scored_count: 203,
       excluded_count: 2,
@@ -199,7 +239,7 @@ WHERE rank_generation_id = ? AND content_id = 'm204'
       previous_complete_rank_generation_id: null,
       active_story_generation_id: diagnostics.domains[0]?.story_generation_id ?? null,
       active_taste_generation_id: diagnostics.domains[0]?.taste_generation_id ?? null,
-      active_model_version: 'vod-story-frontier-v1',
+      active_model_version: 'vod-story-frontier-v2',
       active_status: 'complete',
       active_published_at: diagnostics.domains[0]?.last_good_publication ?? null,
       shuffle_epoch: 0,

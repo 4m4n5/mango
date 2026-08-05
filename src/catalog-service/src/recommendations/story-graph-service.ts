@@ -270,7 +270,7 @@ type HouseholdSignals = {
 };
 
 export type StoryGraphOfflineEvaluation = {
-  version: 'vod-story-frontier-evaluation-v1';
+  version: 'vod-story-frontier-evaluation-v2';
   rank_generation_id: number;
   status: 'passed' | 'insufficient' | 'failed';
   samples: number;
@@ -278,6 +278,8 @@ export type StoryGraphOfflineEvaluation = {
   holistic_ndcg_at_6: number | null;
   fire_pairwise_concordance_ge_4: number | null;
   water_pairwise_concordance_ge_4: number | null;
+  fire_pairwise_comparisons?: number;
+  water_pairwise_comparisons?: number;
   low_low_top_6_intrusion_rate: number | null;
   verified_accounting_complete: boolean;
   coverage: number;
@@ -1837,19 +1839,51 @@ function average(values: Array<number | null>): number | null {
   return present.length > 0 ? present.reduce((sum, value) => sum + value, 0) / present.length : null;
 }
 
-function pairwiseConcordance(rows: Array<{ actual: number; predicted: number }>): number | null {
+/**
+ * Cross-validated strong-vs-lower-preference concordance for one axis.
+ *
+ * Ratings >=4 are strong preferences. Lower values are weaker preferences,
+ * not negative labels; only values below one are negative. Pair only held-out
+ * rows from the same fold so scores from separately fitted fold models are
+ * never compared as though they shared one calibrated scale.
+ */
+export function storyGraphHighPreferenceConcordance(rows: Array<{
+  actual: number;
+  predicted: number;
+  fold: number;
+}>): {
+  value: number | null;
+  comparisons: number;
+  strong_preferences: number;
+  lower_preferences: number;
+} {
   let concordant = 0;
-  let pairs = 0;
-  for (let left = 0; left < rows.length; left += 1) {
-    for (let right = left + 1; right < rows.length; right += 1) {
-      const actual = Math.sign(rows[left]!.actual - rows[right]!.actual);
-      if (actual === 0) continue;
-      const predicted = Math.sign(rows[left]!.predicted - rows[right]!.predicted);
-      concordant += predicted === actual ? 1 : predicted === 0 ? 0.5 : 0;
-      pairs += 1;
+  let comparisons = 0;
+  const strongPreferences = rows.filter((row) => row.actual >= 4);
+  const lowerPreferences = rows.filter((row) => row.actual < 4);
+  for (const strong of strongPreferences) {
+    for (const lower of lowerPreferences) {
+      if (strong.fold !== lower.fold) continue;
+      concordant += strong.predicted > lower.predicted
+        ? 1
+        : strong.predicted === lower.predicted ? 0.5 : 0;
+      comparisons += 1;
     }
   }
-  return pairs > 0 ? concordant / pairs : null;
+  return {
+    value: comparisons > 0 ? concordant / comparisons : null,
+    comparisons,
+    strong_preferences: strongPreferences.length,
+    lower_preferences: lowerPreferences.length,
+  };
+}
+
+/** Only sub-one values on both axes are true negative Fire/Water labels. */
+export function isStoryGraphTrueNegativeRating(rating: {
+  fire: number;
+  water: number;
+}): boolean {
+  return rating.fire < 1 && rating.water < 1;
 }
 
 export function stableStoryGraphEvaluationFolds(ratings: FireWaterRating[]): Map<string, number> {
@@ -1916,7 +1950,7 @@ export function evaluateStoryGraphOffline(input: {
       reasons.push('cached_service_p95_above_250ms');
     }
     return {
-      version: 'vod-story-frontier-evaluation-v1',
+      version: 'vod-story-frontier-evaluation-v2',
       rank_generation_id: input.rankGenerationId,
       status: 'insufficient',
       samples: eligibleRatings.length,
@@ -1924,6 +1958,8 @@ export function evaluateStoryGraphOffline(input: {
       holistic_ndcg_at_6: null,
       fire_pairwise_concordance_ge_4: null,
       water_pairwise_concordance_ge_4: null,
+      fire_pairwise_comparisons: 0,
+      water_pairwise_comparisons: 0,
       low_low_top_6_intrusion_rate: null,
       verified_accounting_complete: accounting,
       coverage,
@@ -1953,8 +1989,14 @@ export function evaluateStoryGraphOffline(input: {
       foldByKey.get(contentKey(rating.type, rating.id)) === fold
     ));
     if (training.length === 0 || heldOut.length === 0) continue;
+    // Evaluation owns only rated profiles. Passing the complete corpus here
+    // retained thousands of irrelevant profiles through five model fits even
+    // though the immutable background prior was already persisted.
     const modelInput = {
-      documents: input.documents,
+      documents: training.flatMap((rating) => {
+        const title = documentByKey.get(contentKey(rating.type, rating.id));
+        return title ? [title] : [];
+      }),
       background: input.background,
       explicit_ratings: training,
       implicit_signals: [],
@@ -1990,10 +2032,11 @@ export function evaluateStoryGraphOffline(input: {
     if (ndcg !== null) foldNdcg.push(ndcg);
   }
   const ndcg = average(foldNdcg);
-  const concordance = (axis: 'fire' | 'water') => pairwiseConcordance(
-    predictions.filter((row) => row.rating[axis] >= 4).map((row) => ({
+  const concordance = (axis: 'fire' | 'water') => storyGraphHighPreferenceConcordance(
+    predictions.map((row) => ({
       actual: row.rating[axis],
       predicted: axis === 'fire' ? row.fire : row.water,
+      fold: row.fold,
     })),
   );
   const intrusion = average(Array.from({ length: 5 }, (_, fold) => {
@@ -2003,7 +2046,7 @@ export function evaluateStoryGraphOffline(input: {
       .slice(0, 6);
     return selected.length === 0
       ? null
-      : selected.filter((row) => row.rating.fire <= 2.5 && row.rating.water <= 2.5).length
+      : selected.filter((row) => isStoryGraphTrueNegativeRating(row.rating)).length
         / selected.length;
   }));
   const fireConcordance = concordance('fire');
@@ -2011,8 +2054,12 @@ export function evaluateStoryGraphOffline(input: {
   const reasons: string[] = [];
   if (eligibleRatings.length < 15 || foldNdcg.length < 5) reasons.push('insufficient_stratified_ratings');
   if (ndcg === null) reasons.push('ndcg_unavailable');
-  if (fireConcordance !== null && fireConcordance < 0.5) reasons.push('fire_concordance_below_chance');
-  if (waterConcordance !== null && waterConcordance < 0.5) reasons.push('water_concordance_below_chance');
+  if (fireConcordance.value !== null && fireConcordance.value < 0.5) {
+    reasons.push('fire_concordance_below_chance');
+  }
+  if (waterConcordance.value !== null && waterConcordance.value < 0.5) {
+    reasons.push('water_concordance_below_chance');
+  }
   if (intrusion !== null && intrusion > 1 / 3) reasons.push('low_low_intrusion_above_one_third');
   if (!accounting) reasons.push('verified_corpus_accounting_incomplete');
   if (!deterministic) reasons.push('determinism_replay_failed');
@@ -2024,14 +2071,16 @@ export function evaluateStoryGraphOffline(input: {
   const insufficient = reasons.includes('insufficient_stratified_ratings')
     || reasons.includes('cached_service_p95_unmeasured');
   return {
-    version: 'vod-story-frontier-evaluation-v1',
+    version: 'vod-story-frontier-evaluation-v2',
     rank_generation_id: input.rankGenerationId,
     status: reasons.length === 0 ? 'passed' : insufficient ? 'insufficient' : 'failed',
     samples: eligibleRatings.length,
     folds: foldNdcg.length,
     holistic_ndcg_at_6: ndcg,
-    fire_pairwise_concordance_ge_4: fireConcordance,
-    water_pairwise_concordance_ge_4: waterConcordance,
+    fire_pairwise_concordance_ge_4: fireConcordance.value,
+    water_pairwise_concordance_ge_4: waterConcordance.value,
+    fire_pairwise_comparisons: fireConcordance.comparisons,
+    water_pairwise_comparisons: waterConcordance.comparisons,
     low_low_top_6_intrusion_rate: intrusion,
     verified_accounting_complete: accounting,
     coverage,
@@ -2089,7 +2138,7 @@ function partialPriorityEvaluation(input: {
   now: number;
 }): StoryGraphOfflineEvaluation {
   return {
-    version: 'vod-story-frontier-evaluation-v1',
+    version: 'vod-story-frontier-evaluation-v2',
     rank_generation_id: input.rankGenerationId,
     status: 'insufficient',
     samples: 0,
@@ -2097,6 +2146,8 @@ function partialPriorityEvaluation(input: {
     holistic_ndcg_at_6: null,
     fire_pairwise_concordance_ge_4: null,
     water_pairwise_concordance_ge_4: null,
+    fire_pairwise_comparisons: 0,
+    water_pairwise_comparisons: 0,
     low_low_top_6_intrusion_rate: null,
     verified_accounting_complete: false,
     coverage: input.verifiedCount > 0 ? input.accountedCount / input.verifiedCount : 1,
