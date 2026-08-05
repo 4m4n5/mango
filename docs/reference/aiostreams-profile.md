@@ -1,407 +1,255 @@
-# AIOStreams profile for mango
+# AIOStreams profile for Mango
 
-**Branch:** `feat/native-experience`  
-**Pi instance:** v2.30.3 @ `127.0.0.1:3035`  
-**Headless API:** `GET` / `PUT` `/api/v1/user` (Basic auth: UUID + password from `~/.config/mango/aiostreams.credentials`)
+**Branch:** `feat/native-experience` · **Service:** loopback `:3035`
+**State boundary:** AIOStreams `userData` and credentials are Pi-owned runtime
+state. Repository deployment never overwrites them.
 
-This doc maps **every useful AIOStreams knob** to mango’s north star (legit catalogs, ~5 s play, mpv-only, TB-first, 1080p lab cap until M6.3 ship TV) and records **current vs target** for the Pi.
+An older home snapshot observed AIOStreams v2.30.3. Treat the actual `/status`
+and API schema on the current Pi as authoritative; do not pin an observed
+container version as the product contract.
 
----
+## Target role and current exception
 
-## Division of labor
+AIOStreams is Mango's intended **sole stream-capable VOD aggregate/path**. The
+full exported graph also contains catalog/metadata and optional Live addons,
+but calls only one VOD stream manifest through AIO, while `catalog-service` owns identity, path
+capability, automatic ladder, probing, play-session lifecycle, and mpv. It
+should not also fan out directly to nested indexers/transports.
 
-AIOStreams is the **stream aggregation + hygiene** layer. mango `catalog-service` is the **play orchestration + lab policy** layer.
-
-| Concern | AIOStreams | mango `catalog-filters.json` |
-|---------|------------|------------------------------|
-| Combine Torrentio + TorBox + RD + Easynews | **Yes** | No |
-| Deduplicate identical releases | **Yes** | No (only auto-play diversify) |
-| Drop cam / ts / scr / hdcam | **Yes** (primary) | Safety net in scoring |
-| Block uncached Real-Debrid | **Yes** (already) | Yes (redundant OK) |
-| Block RD WEBRip / WEB-DL / AMZN | **Yes** (SEL expressions) | No (moved upstream) |
-| TorBox before Real-Debrid | **Yes** (service order + sort only — **no** TorBox +250 SEL; that starved unique RD under conjunctive limits) | Soft preference via AIO sort; mango has no brand score |
-| Cap result count (stop 40× “same” row) | **Yes** (result limits) | No |
-| Easynews only when torrents thin | **Yes** (groups) | No |
-| Full upstream quality (2160p REMUX, DV) | **Yes** (no resolution cap) | **No** — `max_quality: 1080p` until M6.3 |
-| Exclude remux on Pi lab | No | **Yes** `exclude_remux` |
-| Title mismatch (London.Files) | Optional TMDB title match | **Yes** `streamMatchesMetaTitle` |
-| mpv probe, playability DB, verified hints | No | **Yes** |
-| Auto-play tiers, wall clock, uncached TB fallback | **No** (disable AIOStreams autoPlay) | **Yes** |
-| Catalogs / mdblist rails | No (use AIOMetadata) | YAML rails |
-
-**Rule:** Push **dedup, junk keywords, cache policy, debrid ranking, and row limits** upstream into AIOStreams. Keep **probe-time policy, lab quality cap, and couch auto-play** in mango.
-
----
-
-## Measured problem (Pi, evaluation corpus)
-
-See `config/stream-gate-fixtures.json`. Snapshot 2026-06-19:
-
-| Title | Streams | Unique URLs | Notes |
-|-------|---------|-------------|-------|
-| Shawshank `tt0111161` | 3 | 3 | Western baseline |
-| RRR `tt8178634` | 5 | 5 | Hindi/Telugu |
-| Dhurandhar `tt33014583` | 8 | 8 | 2025 Hindi |
-| Panchayat `tt12004706:1:1` | 3 | 3 | series needs S1E1 id |
-| India's Got Latent `tt33094114:1:1` | 1 | 1 | thin but valid |
-| SpongeBob `tt0206512:1:1` | 8 | 8 | animation |
-
-Typical row: `[TB⚡] Torrentio 1080p` repeated — formatter hides different infohashes. Gate checks **URL diversity** per title; post-S7 also checks **`display_label`** diversity.
-
----
-
-## Configuration surface (configure UI)
-
-AIOStreams v2.30 configure menu sections and how mango should use each.
-
-### Services
-
-| Knob | What it does | mango recommendation |
-|------|----------------|----------------------|
-| Service list order | Dedup winner + sort priority when service is a sort key | **TorBox → Real-Debrid → Easynews** (locked) |
-| Enable/disable per provider | Turns sources on | TB, RD, Easynews **ON**; all other debrid/usenet **OFF** |
-| RPDB key (services footer) | Posters for catalog addons inside AIOStreams | **Skip** — posters from Cinemeta / AIOMetadata |
-| Service Wrap | Routes marketplace addons through your debrid | **ON** |
-| Reconfigure Service | Re-wrap after credential change | Off unless rotating keys |
-| Processing Services | Which services process wrapped streams | Default (TorBox + RD) |
-| NZB Failover | Usenet path when torrent/debrid thin | **ON** |
-| Auto Remove Downloads | Deletes debrid jobs after play | **OFF** (re-watch friendly) |
-| Check Library | Boost / filter owned titles | **ON** |
-| Cache and Play | Buffer until usenet download completes | **ON**, **usenet stream types only** |
-| TMDB / TVDB keys | Title matching, metadata | **Optional** TMDB key if enabling title match |
-
-### Built-in / Addons
-
-| Knob | mango recommendation |
-|------|----------------------|
-| **Torrentio** (marketplace) | Installed, **resources: stream only**, timeout ~7 s, **`useMultipleInstances: false`** (one instance for all debrid services — multi-instance multiplies public Torrentio hits) |
-| **Comet** (marketplace) | **ON** — secondary scraper (stream only, ~7 s, no P2P, remove trash) so couch play is not single-homed on public Torrentio |
-| **MediaFusion** (marketplace) | **ON** — third scraper (stream only, ~8 s). Wired via a fully-configured ElfHosted TRB+RD [manifest](../MEDIAFUSION_TRIAL.md) pasted into **URL (Override)** (`options.url`, ends in `/manifest.json` so AIO treats it as a self-contained external addon — MediaFusion owns its debrid creds, avoids the old broken default P2P 502). Manifest secret lives at `~/.config/mango/mediafusion.manifest`. Share exposes ~46 regional catalogs, but catalogs stay unwired — adding MediaFusion to `stremio-export.json` would also register it as a direct stream addon (duplicate path) |
-| Other built-ins (Prowlarr, …) | **OFF** unless needed |
-| Custom addon URLs | **None** V1 |
-| Catalogues (inside AIOStreams) | **OFF / not used** — mango uses Cinemeta + AIOMetadata |
-| **Groups** | **Use** — see [Groups](#groups-conditional-fetch) |
-| Addon timeout | 7–10 s (Pi maintenance tolerates longer than couch) |
-
-### Filters → Cache
-
-| Knob | Current Pi | Target |
-|------|------------|--------|
-| Exclude all uncached | — | **Do not** global-block (TorBox cache-in fallback lives in mango) |
-| Exclude uncached from **Real-Debrid** | Yes | **Keep** |
-| Exclude uncached **debrid** stream type | Yes | **Keep** |
-| Exclude uncached usenet | — | **Allow** (Easynews / TB usenet) |
-
-### Filters → Generic attributes
-
-Each attribute section (Resolution, Encode, Stream Type, Visual Tag, Audio, Language) supports **Required / Excluded / Included / Preferred**.
-
-| Attribute | AIOStreams | mango downstream |
-|-----------|------------|------------------|
-| **Resolution** | No exclusions; prefer 2160p→1080p | `max_quality: 1080p` |
-| **Quality** | Exclude CAM, SCR, TS, TC | Scoring penalty on hdcam/ts |
-| **Visual tags** | Exclude 3D (optional) | No change |
-| **Encode** | No required HEVC (Pi plays HEVC 1080p) | — |
-| **Stream type** | Prefer debrid; no P2P for mango | — |
-| **Language** | Prefer English (+ Hindi later if indexer supports) | Future: mango audio pref |
-
-**Do not** exclude REMUX, WEB-DL, or 2160p in AIOStreams — M6.3 ship TV should get full upstream without reconfiguring the aggregator.
-
-### Filters → Seeders
-
-| Knob | mango recommendation |
-|------|----------------------|
-| Required min seeders | **OFF** for debrid (irrelevant once cached) |
-| P2P-only seeders filter | N/A while P2P disabled |
-
-### Filters → Matching
-
-| Knob | mango recommendation |
-|------|----------------------|
-| **Title matching** (TMDB) | **Optional** — helps bad torrent names; mango still does imdb/title pass |
-| Season/episode matching | **ON for series** when we expand TV auto-play |
-| Year matching | Off V1 |
-
-### Filters → Keyword
-
-Four lists: **Required / Excluded / Included / Preferred**.
-
-| List | Target values (case-insensitive) |
-|------|----------------------------------|
-| **Excluded** | `cam`, `hdcam`, `camrip`, `telesync`, `ts`, `scr`, `tc`, `dvdscr`, `workprint`, `sample` |
-| **Excluded** (RD-only via regex — see below) | `webrip`, `web-dl`, `webdl`, `amzn` on Real-Debrid rows |
-| **Preferred** | `bluray`, `blu-ray`, `remux` (rank only — mango still drops remux on Pi) |
-
-Stored in API as `regexOverrides` / ranked regex + SEL when configured in UI.
-
-### Filters → Regex (self-hosted)
-
-| Knob | mango recommendation |
-|------|----------------------|
-| Access | Instance is localhost — enable regex filters (trusted UUID or `REGEX_FILTER_ACCESS`) |
-| Ranked regex | RD WEBRip penalty −1000 or hard exclude |
-| Preferred regex | BluRay / 1080p release groups (TRaSH-style) optional |
-
-### Filters → Size
-
-| Knob | mango recommendation |
-|------|----------------------|
-| Global movie/series size caps | **OFF** (let remux exist upstream; mango caps) |
-| Per-resolution size caps | Off V1 |
-
-### Filters → Result limits
-
-AIOStreams supports **global**, **per service**, **per resolution**, **per quality** (BluRay/WEB-DL/WEBRip — not the same as resolution), **per release group**, per addon, per indexer, and per stream type. Two modes:
-
-| Mode | Behaviour |
-|------|-----------|
-| **independent** (default) | Each enabled cap applies separately. A global `resolution: 2` means **2× 1080p total across all services** — that can block TorBox + RD both showing 1080p. |
-| **conjunctive** | Builds a composite key from enabled dimensions (e.g. `1080p\|torbox`). Cap = **min** of enabled limits. Best for **per-service × per-resolution** diversity. |
-
-**mango target** (conjunctive — diversity without duplicate floods):
-
-| Knob | Value | Why |
-|------|-------|-----|
-| `mode` | `conjunctive` | 2× 1080p **per service**, not 2× 1080p globally |
-| `service` | `2` | Up to 2 TorBox + 2 Real-Debrid rows at each tier |
-| `resolution` | `2` | 1080p + 720p fallback lane per service (mango still caps >1080p) |
-| `releaseGroup` | `1` | One row per release group within each composite cell |
-| `global` | `12` | Hard ceiling (~picker + auto-play headroom) |
-
-Effective cap per cell: `min(2, 2, 1) = 1` stream per `(resolution, service, releaseGroup)` tuple — after dedup, that yields **distinct** picks (TB 1080p, RD 1080p, TB 720p, …) instead of 19× the same formatter label.
-
-**Avoid:** global-only limit with no service/resolution split — still clusters on one debrid + one resolution after sort.
-
-### Filters → Deduplicator
-
-| Knob | Current Pi | Target |
-|------|------------|--------|
-| Enabled | Yes | **Yes** |
-| Detection keys | `filename`, `infoHash` | **`infoHash`, `smartDetect`, `filename`** |
-| smartDetect attributes | Configured | Keep default set (size, resolution, quality, encode, …) |
-| smartDetect rounding | 10 | **10** (tighter → more aggressive dedup) |
-| Cached group handling | `single_result` | **Keep** |
-| Uncached group handling | `per_service` | **`single_result`** |
-| P2P | `single_result` | Keep |
-| multiGroupBehaviour | `aggressive` | Keep |
-| libraryBehaviour | `ignore` | **`prefer`** (surface unwatched when Check Library on) |
-| Tiebreakers (v2.30.3+) | default | **Service order → addon order** |
-
-### Filters → Sorting
-
-Current global sort (Pi): cached → library → resolution → quality → SE score → regex → …
-
-| Add / verify | Why |
-|--------------|-----|
-| **`service`** early (after cached) | TB before RD without mango re-sort |
-| cached desc | Instant play first |
-| resolution desc | Best quality first (mango trims to 1080p) |
-
-**Scored sorting (advanced):** ranked regex + SEL for RD WEBRip block and BluRay boost — prefer over duplicating logic only in mango.
-
-### Formatter
-
-| Knob | mango recommendation |
-|------|----------------------|
-| Preset | Keep cache badges (`[TB⚡]`, `[RD✔]`) — mango scoring parses these |
-| Custom format | Optional: include `{stream.releaseGroup}` or short hash suffix so picker rows differ |
-
-### Proxy / Miscellaneous
-
-| Knob | mango recommendation |
-|------|----------------------|
-| Stream proxy (MediaFlow / StremThru) | **OFF** — localhost mpv, no CDN proxy needed |
-| AIOStreams **autoPlay** | **OFF** — conflicts with mango orchestrator (`autoPlay.enabled` is ON today → **disable**) |
-| precacheNextEpisode | **OFF** |
-| digitalReleaseFilter | **OFF** |
-| statistics | On is fine |
-| posterService `rpdb` | Low value — catalogs not from AIOStreams |
-
----
-
-## Groups (conditional fetch)
-
-Use SEL group conditions so Easynews does not run on every resolve.
-
-**Group 1 — Primary:** Torrentio (service-wrapped TB + RD)  
-**Condition for Group 2:** `count(cached(previousStreams)) < 3`  
-**Group 2 — Usenet:** Easynews Search  
-
-Optional **Group 3** (only if standalone Torrentio stays in export): skip — better to remove duplicate Torrentio addons from `stremio-export.json` once AIOStreams profile is stable.
-
-Example condition (from [AIOStreams groups docs](https://docs.aiostreams.viren070.me/guides/groups/)):
+Current source has one legacy exception: when the AIO result has at most one
+cacheable stream, a Pi-local `MANGO_MEDIAFUSION_MANIFEST` value or
+`~/.config/mango/mediafusion.manifest` file can trigger a direct MediaFusion
+supplement. It is skipped after an empty primary hard-timeout and bounded by an
+8-second cap plus the shared deadline. Export/topology checks do not prove the
+secret-file trigger absent. Treat strict AIO-only runtime as an unclosed
+hardening outcome until that path is removed or explicitly feature-gated and
+proven.
 
 ```text
-count(cached(previousStreams)) < 3
+catalog-service
+  └── AIOStreams
+       ├── indexers: Torrentio, Comet, optional healthy MediaFusion
+       └── services/transports: TorBox, Real-Debrid, Easynews
 ```
 
----
+| Concern | AIOStreams | Mango catalog-service |
+|---------|------------|-----------------------|
+| Nested provider fan-out | Yes | Target is AIO only; legacy optional direct MediaFusion supplement remains in source |
+| Dedup/junk/service/result limits | Yes | Defensive error/identity filtering |
+| Secrets/debrid credentials | Pi AIO state | Never reads/returns them |
+| Exact movie/episode identity | Formatter evidence only | Authoritative validation |
+| Path capability/risk | No | Device/profile-specific hard tiers |
+| Automatic play/probes/deadline | `autoPlay` off | Authoritative |
+| Stream picker | Supplies candidate metadata | Sanitizes/ranks/bounds to five and validates switch |
+| Verified library | No | `playability.db` |
+| Display/output/HUD | No | mpv/Mango |
 
-## stremio-export.json interaction
+## Source-owned target policy
 
-Today mango fetches streams from **three** addons in parallel:
+[`config/aiostreams-target-patch.json`](../../config/aiostreams-target-patch.json)
+is a secret-free merge patch. It intentionally omits the `services` array so an
+apply cannot replace live provider keys with placeholders.
 
-1. AIOStreams (already contains Torrentio via Service Wrap)  
-2. Torrentio TB  
-3. Torrentio RD  
+### Hygiene and cache
 
-That triples indexer work and defeats dedup. **M4 follow-up** (after AIOStreams profile applied + gate green):
+| Setting | Target |
+|---------|--------|
+| Dedup | Enabled; `infoHash`, smart detect, filename; single result per cached/uncached/P2P identity |
+| Uncached global | Allowed so TorBox cache-in/fallback remains possible |
+| Uncached Real-Debrid | Excluded |
+| Junk | Exclude CAM/SCR/TS/TC, 3D, camrip/hdcam/telesync/screens/workprint/sample/sidecars |
+| Season packs | Excluded |
+| Episode matching | Enabled for series/anime series |
+| Error visibility | Stream errors visible to Mango; catalog/meta/subtitle errors hidden |
 
-- Remove Torrentio TB/RD from `/etc/mango/stremio-export.json`
-- Simplify `catalog-filters.example.json` auto-play tiers to **AIOStreams-only**
-- Keep Torrentio URLs in docs as manual fallback if AIOStreams container is down
+Visible stream-resource error rows are diagnostic inputs, not candidates. Mango
+filters them from playback/drawer/launcher and uses fixed credential-free
+copy/counters on couch surfaces. URL-less nested errors are normalized into
+credential-free internal category placeholders before URL validation. Current
+loopback `/stream` diagnostics can still retain raw addon-fetch details; the
+companion proxy denies this route. Keep it operator-only and sanitize the
+remaining DTO details before broader exposure.
 
----
+### Preference and limits
 
-## Target profile summary
+| Setting | Target |
+|---------|--------|
+| Resolution preference | 2160p → 1440p → 1080p → lower; no upstream resolution exclusion |
+| Quality | BluRay REMUX → BluRay → WEB-DL → WEBRip → lower |
+| Languages | English, Hindi |
+| Encodes | HEVC, AVC |
+| Sort | cached → service → library → language → resolution → quality → size → expression/regex |
+| Result limit | Conjunctive: service 2, resolution 2, release group 1, global 12 |
+| Formatter | `lightgdrive` |
+| Poster | none; Mango uses Cinemeta/AIOMetadata art |
 
-| Area | Setting |
-|------|---------|
-| Services | TB → RD → EN; Wrap, NZB Failover, Check Library, Cache-and-Play (usenet) ON |
-| Torrentio | Built-in, stream-only |
-| Dedup | ON; keys: infoHash + smartDetect + filename; cached/uncached: single_result |
-| Cache | Exclude uncached RD + debrid type |
-| Quality | Exclude CAM/SCR/TS/TC (+ keywords above) |
-| Resolution | No cap upstream; prefer 2160p→1080p |
-| RD WEBRip | Ranked regex or keyword exclude |
-| Result limits | conjunctive: service×resolution×group, global 12 |
-| Groups | Easynews if `< 3` cached from group 1 |
-| Sort | cached → service → language → resolution → quality |
-| Formatter | `lightgdrive` (rich description for picker + AI) |
-| AIOStreams autoPlay | **OFF** |
-| mango | 1080p + remux cap, probes, tiers, title match, `stream_display_limit: 8` |
+Do not add a large TorBox scalar boost: it can fill conjunctive slots and hide
+unique Real-Debrid coverage. TorBox-first behavior comes from service order and
+sorting. RD WEBRip/WEB-DL/AMZN exclusions and a BluRay/WEBRip scored preference
+remain in the target patch.
 
----
+### Service behavior
 
-## Future-ready: picker + AI integration
+| Setting | Target |
+|---------|--------|
+| `autoPlay.enabled` | **false**—Mango owns selection/deadline/foreground |
+| Service Wrap | enabled |
+| NZB failover | enabled |
+| Cache and Play | enabled for usenet only |
+| Check owned/library | enabled |
+| Precache next episode | disabled |
 
-Design goal: **AIOStreams produces a small, diverse, richly labeled candidate set**; **mango exposes structured fields and query overrides** so the launcher picker and a future voice/AI layer never re-implement indexer logic.
+## Operator-owned services and indexers
 
-### Layer contract
+Configure actual accounts only in the AIOStreams UI/API on the Pi. Never paste
+credentials or generated manifest URLs into Git or logs.
 
-```mermaid
-flowchart LR
-  subgraph upstream [AIOStreams]
-    T[Torrentio wrap]
-    TB[TorBox]
-    RD[Real-Debrid]
-    EN[Easynews]
-    T --> Dedup[dedup + limits + SEL]
-    TB --> Dedup
-    RD --> Dedup
-    EN --> Dedup
-    Dedup --> Fmt[lightgdrive formatter]
-  end
-  subgraph mango [catalog-service]
-    Fmt --> Enrich[enrichStreamMetadata]
-    Enrich --> API[GET /stream]
-    API --> Picker[Launcher picker]
-    API --> AI[AI / voice layer]
-    Picker --> Play[POST /play]
-    AI --> Play
-  end
-```
+| Item | Current target | Notes |
+|------|----------------|-------|
+| TorBox | Enabled | Cached and eligible uncached/cache-in paths according to Mango ladder |
+| Real-Debrid | Enabled | Uncached excluded; secondary service |
+| Easynews | Enabled | Usenet fallback; cache-and-play scoped to usenet |
+| Torrentio | Enabled, stream resource only | One instance; avoid multiplying public hits |
+| Comet | Enabled, stream resource only | Secondary indexer; no direct Mango export |
+| MediaFusion | Optional, stream resource only | Latest recorded manifest returned 404, so preset was present but disabled; enable only after fresh health/yield proof |
+| Other addons | Disabled unless a measured, reviewed need exists | Preserve sole-AIO topology |
 
-### AIOStreams choices that unlock the picker
+The latest recorded home snapshot had Torrentio/Comet contributing and
+TorBox/RD/Easynews configured. That is a dated runtime observation. Use
+credential-safe contribution counters and current AIO state to make present-tense
+claims.
 
-| Knob | Setting | Why it matters later |
-|------|---------|----------------------|
-| **Formatter `lightgdrive`** | ON | Multi-line description: resolution, encode, release group, language hints — parser input for mango |
-| **`preferredLanguages`** | English, Hindi | Sort boost + indexer bias before mango hard-filters |
-| **Sort `language`** | Early in global sort | Hindi dub rows surface when user picks Hindi |
-| **Conjunctive result limits** | service 2 × resolution 2 × group 1 | ~6–8 **distinct** rows — ideal picker cardinality (not 40 duplicates) |
-| **Stream error visibility** | `hideErrors: false`; hide only catalog/meta/subtitle errors | catalog-service can classify a transient nested-provider failure; `[❌]` rows are filtered from playback, picker, launcher, companion, and AI output |
-| **`posterService: none`** | ON | Posters from Cinemeta/AIOMetadata — one poster pipeline |
-| **No resolution cap upstream** | Keep 2160p/REMUX in AIOStreams | M6.3: drop `max_quality` in mango only |
-| **SEL ranked + excluded** | BluRay boost + WEBRip penalty; **no TorBox +250** | Soft TB-first via service sort; unique RD must survive result limits |
+## AIO groups
 
-### mango API surface (implemented)
+Groups condition whether Easynews results are included and can avoid waiting
+for later results when cached torrent supply is healthy. Current AIOStreams
+starts all group fetches in parallel, so this does not guarantee Easynews was
+never queried:
 
-`GET /stream/{type}/{id}` query params (optional overrides on top of `catalog-filters.json`):
+| Group | Members | Condition |
+|-------|---------|-----------|
+| Primary | Torrentio/Comet through configured services | Always |
+| Easynews fallback | Easynews Search | `count(cached(previousStreams)) < 3` |
 
-| Param | Example | Effect |
-|-------|---------|--------|
-| `language` | `Hindi` | **Hard** filter rows; explicit user/voice intent only |
-| `preferred_language` | `Hindi` | **Soft** score boost; never excludes rows |
-| `min_quality` | `720p` | Drop rows below floor |
-| `max_quality` | `1080p` | Lab cap (default from config) |
+Internal addon IDs are Pi/version-specific. Never invent or commit them. Group
+drift is an operator optimization signal, not the mpv Streams drawer contract.
 
-Each stream row includes enriched fields from `enrichStreamMetadata()`:
+## Mango quality boundary
 
-| Field | Source | Picker / AI use |
-|-------|--------|-----------------|
-| `resolution` | Parsed 2160p/1080p/720p | Quality chip |
-| `release_tier` | bluray, webdl, remux, … | “Best copy” badge |
-| `display_label` | Parsed formatter fields | 10-ft picker row label |
-| `release_group` | `lightgdrive` `🏷️` / fallback filename | Distinguish duplicate titles |
-| `encode` | `lightgdrive` `🎞️` / fallback filename | HEVC/AVC chip |
-| `size_gb` | `lightgdrive` `📦` / fallback filename | Size hint |
-| `indexer` | `lightgdrive` `🔍` | Debug / provenance |
-| `hdr_tags` | `lightgdrive` visual line | HDR/DV chip later |
-| `languages` | `["English","Hindi"]` | Language filter chips |
-| `debrid_service` | `torbox` / `realdebrid` | Service icon |
-| `cache_status` | cached / uncached / unknown | ⚡ badge, auto-play eligibility |
+AIOStreams deliberately keeps full upstream resolution/REMUX coverage. Mango's
+loaded filter/profile decides what can be attempted on the actual renderer:
 
-`POST /play` accepts the same overrides in JSON body. Future “play Shawshank in
-Hindi” maps to `{ "language": "Hindi" }`; “prefer Hindi but English is fine”
-maps to `{ "preferred_language": "Hindi" }`.
+- Base example defaults to a 90-second automatic wall and conservative 1080p.
+- The current `4k-hifi` profile uses a 120-second wall, accepts compatible 4K
+  SDR HEVC/REMUX, and keeps HDR/DV/software-decoded 4K behind smooth paths.
+- Native HDR is not supported by the current X11/mpv product path. Upstream 4K
+  or HDR availability does not prove visible/smooth/HDR playback.
+- Source-matched 1080p remains the safe fallback; launcher is always 1080p60.
 
-`stream_display_limit` (default **8**) caps picker rows after rank — keeps UI scannable; AIOStreams `global: 12` leaves headroom for auto-play attempts.
+## Mango stream surfaces
 
-### AI integration path (no new services required)
+The loopback-only `GET /stream/{type}/{id}` response used by the launcher and
+playback policy includes the playable URL alongside enriched fields such as
+resolution, release tier/group, codec, size, language, debrid service, cache
+status, HDR tags, readiness, and a couch-safe display label. Never render, log,
+persist, screenshot, or forward those signed URLs. The URL-free guarantee
+applies to the active in-mpv Streams snapshot and designated diagnostics—not to
+this internal playback response. Broader DTO sanitization remains a hardening
+surface.
 
-1. **Intent → overrides** — LLM maps “Hindi dub only” to `language`, “prefer Hindi” to `preferred_language`, and quality constraints to `min_quality` / `max_quality`.
-2. **Structured context** — Pass top-N stream objects (not raw Stremio blobs) into the model; fields above are the tool schema.
-3. **Verified hints** — `playability` DB `win_url_hash` lets AI say “same link as last time” without re-probing.
-4. **No duplicate policy** — AI must not re-rank debrid or block WEBRip; trust AIOStreams order, mango only applies lab cap + probe.
+The in-mpv Streams drawer is **not** an AIO group UI:
 
-### stremio-export (required for diversity)
+- active snapshot is URL-free and includes at most five choices with current
+  always included;
+- current is pinned first, best usable alternative initially focused, and
+  unavailable rows are last/disabled;
+- B triggers isolated Mango validation; AIO never auto-switches;
+- a successful switch/Undo preserves the one logical progress/session contract.
 
-Keep **only** Cinemeta, AIOStreams, and AIOMetadata in `/etc/mango/stremio-export.json`. Standalone Torrentio TB/RD duplicates indexer work and collapses unique names (measured: 20 streams → 2 unique labels).
+A configured detail-list cap or AIO global result limit is not the drawer card
+count. Do not revive older eight-row/center-modal documentation.
 
-### When M6.3 ships
+## Export contract
 
-| Change | Where |
-|--------|-------|
-| Allow 2160p + remux | `catalog-filters.json`: remove `max_quality` / `exclude_remux` |
-| Optional DV/HDR preference | AIOStreams visual-tag prefer; mango scoring tweak |
-| Bigger picker | `stream_display_limit: 12`, AIOStreams `global: 16` |
+`/etc/mango/stremio-export.json` should contain one AIOStreams manifest named
+`AIOStreams`, plus Cinemeta and AIOMetadata for their metadata/catalog roles.
+Standalone Torrentio/RD/TorBox/MediaFusion stream manifests duplicate work,
+weaken single-flight reasoning, and bypass the aggregate policy.
 
-No AIOStreams reinstall — upstream already carries full quality.
+The generated AIO manifest URL is secret-bearing operator state. Verify its
+reachability without printing it.
 
----
+## Stateful workflow
 
-## Headless workflow
+The current headless mutation helper is **not approved for agent/unattended
+use**. `diff` exposes full user-state deltas; `apply` writes the potentially
+secret-bearing response to fixed `/tmp/aiostreams-put.json`, prints it, and does
+not remove it. Harden it with private temporary files, cleanup traps, and
+redacted success/error output before restoring this workflow. Until then, an
+authorized human changes state in the Configure UI and agents use the fixed-
+field `verify` plus credential-safe topology/yield diagnostics.
 
 ```bash
-# On Pi (or Mac with ssh -L 3035:127.0.0.1:3035 mango)
-bash scripts/m4-addons/aiostreams-config.sh get > /tmp/aios-backup.json
-bash scripts/m4-addons/aiostreams-config.sh diff   # current vs repo target patch
-bash scripts/m4-addons/aiostreams-config.sh apply  # merge target patch + PUT
-bash scripts/m4-addons/aiostreams-config.sh verify # safe topology/policy proof; prints no keys
+bash scripts/m4-addons/aiostreams-config.sh verify
 ```
 
-After apply:
+`verify` fails when required TorBox/RD/Easynews service policy,
+Torrentio/Comet stream presets, Service Wrap, uncached rules, or error visibility
+drift. It inspects AIOStreams `/api/v1/user` only: it does **not** validate
+`/etc/mango/stremio-export.json` or the catalog-service direct MediaFusion
+trigger. MediaFusion should be enabled only for an explicitly accepted healthy
+trial; a broken optional manifest must not break the normal aggregate.
+
+Audit the two missing topology surfaces without printing URLs:
+
+```bash
+jq -c '[.addons[].name]' /etc/mango/stremio-export.json
+if [[ -s ~/.config/mango/mediafusion.manifest ]]; then
+  echo 'direct MediaFusion file trigger: present'
+else
+  echo 'direct MediaFusion file trigger: absent'
+fi
+if grep -Eq '^[[:space:]]*(export[[:space:]]+)?MANGO_MEDIAFUSION_MANIFEST=' \
+    ~/.config/mango/voice.env 2>/dev/null; then
+  echo 'direct MediaFusion environment trigger: present'
+else
+  echo 'direct MediaFusion environment trigger: absent'
+fi
+```
+
+Presence is not a credential leak, but the file/value itself is secret and
+must never be printed. `gate-m4-streams.sh` proves response shape and rejects
+some direct duplicate addons; it does not close this Pi-state audit by itself.
+
+Then run:
 
 ```bash
 bash scripts/m4-addons/gate-m4-streams.sh
-# 6-title corpus — config/stream-gate-fixtures.json
+bash scripts/m4-addons/gate-m4-stream-language.sh
+bash scripts/diag/playback-ladder-health.sh movie tt3268458
 ```
 
-`verify` fails closed unless TorBox, Real-Debrid, and Easynews are enabled;
-Torrentio, Comet, and MediaFusion are enabled as stream presets; Service Wrap
-includes TorBox + Real-Debrid; uncached TorBox remains eligible; uncached
-Real-Debrid is excluded; and stream-resource errors remain observable to Mango.
-It prints only fixed provider names and booleans. Grouping drift is reported
-without exposing operator-owned instance IDs or credentials.
+Use exact requested episode IDs for series diagnosis. Never substitute S1E1,
+clear cache/databases, or print URLs to make a contribution check pass.
 
----
+## Current operational challenges
+
+| Challenge | Required evidence |
+|-----------|-------------------|
+| Nested provider drift | Interactive sensitive diff, fixed-summary verify, sanitized export/direct-trigger audit, and credential-safe contribution counters on representative movie/episode corpus |
+| 429/error classification | Fixed-category health counters and no error-placeholder caching/leakage |
+| Thin regional supply | Before/after exact-ID yield and playable winner, not catalog count alone |
+| MediaFusion | Fresh manifest 2xx, bounded latency/errors, incremental regional yield, no duplicate direct export |
+| Detail vs Play timing | Detail late-join must not start a duplicate fan-out; Play keeps its independent deadline |
+| Clean-empty recovery | Empty→empty→playable succeeds inside one exact-ID B press only for eligible clean/transient aggregate results |
+| 4K/HDR | Provider labels are not proof; record actual output/decode/drops/audio on target TV |
 
 ## References
 
-- [Configure options](https://docs.aiostreams.viren070.me/configuration/options/) — full knob reference  
-- [Groups](https://docs.aiostreams.viren070.me/guides/groups/) — conditional addon fetch  
-- [Scored sorting](https://docs.aiostreams.viren070.me/guides/scored-sorting/) — ranked regex / SEL  
-- [API overview](https://docs.aiostreams.viren070.me/apis/) — `/api/v1/user`  
-- mango: `config/catalog-filters.example.json`, `src/catalog-service/src/stream-filters.ts`  
-- Operator UI: `scripts/m4-addons/configure-aiostreams.md`
+- [AIOStreams configuration](https://docs.aiostreams.viren070.me/configuration/options/)
+- [AIOStreams groups](https://docs.aiostreams.viren070.me/guides/groups/)
+- [AIOStreams scored sorting](https://docs.aiostreams.viren070.me/guides/scored-sorting/)
+- [AIOStreams API](https://docs.aiostreams.viren070.me/apis/)
+- [Mango addon stack](addon-stack.md)
+- [Mango playability](../PLAYABILITY.md)
+- Operator UI guide: [`scripts/m4-addons/configure-aiostreams.md`](../../scripts/m4-addons/configure-aiostreams.md)

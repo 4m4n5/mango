@@ -1,5 +1,9 @@
 # Unified launcher Search
 
+**Status:** source-implemented and previously Pi/UX-gated. Final proof belongs to
+the exact current deployment and consolidated [COUCH_TEST.md](COUCH_TEST.md);
+older screenshots/SHAs do not close current focus, restoration, or latency.
+
 Mango Search is a temporary launcher surface entered from the magnifier before
 Movies. It is not a fifth browse tab and it is not the companion chatbot. Search
 shows cards only, never prose, never autoplays, and performs no network work

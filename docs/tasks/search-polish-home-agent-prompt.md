@@ -1,12 +1,19 @@
 # Starter prompt — home agent
 
+> **Superseded starter.** Do not paste it as a current deploy prompt. The
+> audited deploy wrappers are blocked for unattended use; reconcile with
+> [`../DEPLOY.md`](../DEPLOY.md), [`../STATUS.md`](../STATUS.md), and the banner
+> in the full Search brief.
+
 ```text
 Work in the home-Mac Mango clone and validate the Search polish commit:
 TARGET_SHA=<SHA_FROM_WORK_AGENT>
 
 Read docs/tasks/search-polish-home-agent.md top to bottom before running anything;
-it is the full contract. Work only on feat/native-experience and deploy that
-exact SHA by git through scripts/pi-deploy.sh. Never rsync/scp, delete runtime
+it is historical context, not current deploy authority. Work only on
+feat/native-experience and prove the exact SHA by Git, then stop at the current
+docs/DEPLOY.md unattended-wrapper blocker unless a human reviews the documented
+exception or the helper has been fixed and tested. Never rsync/scp, delete runtime
 DBs/cache/history, disturb YouTube credentials/quota, or touch unrelated files.
 
 Run every automated and couch acceptance step in the brief. Safe runtime repair

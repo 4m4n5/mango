@@ -1,5 +1,10 @@
 # Starter prompt — autonomous home Mango hardening and final couch acceptance
 
+> **Superseded starter.** Do not paste or execute it as the current deploy
+> contract. The audited deploy wrappers are blocked for unattended use; begin
+> with [`../DEPLOY.md`](../DEPLOY.md), [`../STATUS.md`](../STATUS.md), and the
+> historical banner in the full acceptance brief.
+
 ```text
 Work from the home-Mac Mango clone on branch feat/native-experience; verify the
 branch and do not switch. Set TARGET_SHA to the exact SHA in this assignment;
@@ -10,9 +15,10 @@ anything—it is the full cumulative contract.
 Before pulling or deploying, record the Pi's live starting SHA and inventory
 every pending commit and changed path through the current origin branch tip.
 Require the Pi start to be an ancestor of that tip; otherwise stop without
-reset/stash/clean. Fast-forward and deploy the entire branch tip with
-`pi-deploy.sh --full --gate`—never deploy only TARGET_SHA or skip older pending
-commits. Prove home, origin, and Pi SHAs match, and run gates for every subsystem
+reset/stash/clean. Do not invoke `pi-deploy.sh` unattended: stop at the current
+docs/DEPLOY.md blocker unless a human reviews its documented exception or the
+helper has been fixed and tested. After a separately authorized Git-only deploy,
+prove home, origin, and Pi SHAs match, and run gates for every subsystem
 touched anywhere in the cumulative range, not just the newest commit. Then verify
 every launcher, Search, Detail, P0 state, playback ladder, HUD/Streams,
 voice/companion, Settings, Reliability, controller, and locked display-sleep

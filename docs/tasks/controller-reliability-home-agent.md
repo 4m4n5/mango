@@ -1,5 +1,11 @@
 # Home-agent runbook: Mango controller reliability
 
+> **Historical template — not a current deploy contract.** Its placeholder SHA
+> and wrapper commands must not be executed. The audited deploy helpers are
+> blocked for unattended use; reconcile with [`../DEPLOY.md`](../DEPLOY.md),
+> [`../STATUS.md`](../STATUS.md), and the current controller section in
+> [`../COUCH_TEST.md`](../COUCH_TEST.md).
+
 ## Mission
 
 You are the Pi-side deployment and validation agent. A separate coding agent

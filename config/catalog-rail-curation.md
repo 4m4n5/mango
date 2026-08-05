@@ -1,6 +1,10 @@
-# Rail catalog curation (current)
+# Rail catalog curation policy
 
 Playability-first picks. Production grow targets fresh **new-to-rail verified** additions (`grow_per_pass: 20`) while preserving existing verified pools; only confirmed-dead titles are pruned from `rail_pool`.
+
+Exact checked-in sources/weights in `config/catalog.example.yaml` are source
+truth. Yield figures below are dated Pi measurements, not claims about the
+currently deployed revision or provider health; remeasure before promotion.
 
 After each grow: `source-grow-audit.py` and `source-hitrate.py` inform source weights and future curation. Runtime weights are cache-only; do not auto-edit YAML/theme profiles from a grow run. Never use purge/reset flags unless intentionally rebuilding the library.
 
@@ -96,6 +100,6 @@ bash scripts/m3-play/playability/rail-curation.sh pin remove --rail series-comed
 | `skip_title_filter` | Keep streams when title relevance would drop rows |
 | `blocks` | Remove `type:id` from pool (`rail_id: *` = all rails) |
 
-Demoted/probation candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.63182`, `mdblist.72165`, `mdblist.105797`, plus any newly imported list that reports repeated theme rejects or no-stream failures. After verification-policy changes, archive/reset `~/.cache/mango/source-grow/latest.json` before comparing source yields; it is runtime cache, not catalog config.
+Demoted/probation candidates to re-test with `MANGO_SOURCE_PROBE_EXPORT=1`: `mdblist.63182`, `mdblist.72165`, `mdblist.105797`, plus any newly imported list that reports repeated theme rejects or no-stream failures. After verification-policy changes, preserve `~/.cache/mango/source-grow/latest.json`; for a neutral diagnostic, point `MANGO_SOURCE_GROW_OUT` at a new isolated file and record both paths. Do not delete/reset live runtime cache to manufacture a comparison.
 
 **Stream gate couch exemplars** (`config/stream-gate-fixtures.json`): IGL + Panchayat are **soft** — track Indian series streams without blocking deploy.

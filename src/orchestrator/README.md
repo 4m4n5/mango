@@ -1,37 +1,78 @@
-# mango orchestrator
+# Mango orchestrator
 
-FastAPI voice hub — phone PTT, STT, LLM agent, TV command dispatch. See [docs/VOICE.md](../../docs/VOICE.md) and [docs/STATUS.md](../../docs/STATUS.md).
+Optional FastAPI hub for the phone librarian and bounded local AI helpers. It
+accepts text or push-to-talk, runs the tool loop, and dispatches navigation to
+the TV; it never starts playback directly. See
+[`docs/VOICE.md`](../../docs/VOICE.md) and
+[`docs/AI_LAYER.md`](../../docs/AI_LAYER.md).
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-MANGO_ORCH_TLS=1 python -m orchestrator.main --host 0.0.0.0 --port 8765
+source "${HOME}/.config/mango/voice.env"
+bash scripts/m5-voice/stack/start-orchestrator.sh
 ```
 
-| Endpoint | Port | Client |
-|----------|------|--------|
-| `GET /health` | 8765 | any |
-| WSS `/ws` | 8765 | phone companion |
-| WS `/ws` | 8766 | launcher HUD (loopback only) |
+Use the wrapper for the product runtime: it ensures the venv and resolves
+config. When `MANGO_ORCH_TLS=1` and the generated certificate files are present,
+it maps them to explicit arguments and starts the TLS companion listener on
+`:8765` plus the loopback launcher listener on `:8766`. Invoking
+`python -m orchestrator.main` with only
+`MANGO_ORCH_TLS=1` does not provide those certificate arguments and will not
+start the second listener.
 
-## Voice pipeline
+## Interfaces
 
+| Interface | Client and contract |
+|-----------|---------------------|
+| `GET /health` on `:8765` | Health, connection and voice-busy state |
+| WSS `/ws` on `:8765` | HTTPS companion: `chat_send`, PTT, numbered-pick and status/chat events |
+| WS `/ws` on `:8766` | Loopback launcher HUD connection |
+| `POST /search/expand` | Loopback-only bounded query expansion for unified Search |
+| `POST /recommendations/story-dna` | Loopback-only serialized `story-dna-v1` content teacher |
+| `POST /recommendations/enrich` | Orphaned loopback-only legacy v4 compatibility teacher; current catalog recommender has no consumer. Retain only until explicitly removed/reviewed |
+
+The StoryDNA request contains stable title identity and content evidence only.
+The teacher must not receive or infer household ratings, Saved/watch events,
+profile state, companion memory, or conversations; it annotates known titles
+and never recommends or ranks them. Catalog-service owns the deterministic
+Story Graph, generations, rollout flags, and attribution.
+
+## Librarian pipeline
+
+```text
+text chat ───────────────────────────────┐
+phone PTT → Deepgram STT ───────────────┼→ serialized agent/tool turn
+numbered pick → validated prior options ┘    → launcher command + acknowledgement
 ```
-ptt_end (pcm_b64) → decode → Deepgram STT → chat broadcast
-  → generate_agent_reply (Anthropic tools) → launcher POST /api/voice/command
-  → optional Piper TTS (off on Pi)
-```
+
+The module paths below are relative to the `src/orchestrator/orchestrator/`
+Python package.
 
 | Module | Role |
 |--------|------|
-| `main.py` | PTT state · voice lock · pipeline orchestration |
-| `audio/deepgram_stt.py` | nova-3 multi + detect fallback |
-| `llm/agent.py` | Tool loop · fast-path open after search |
-| `llm/open_intent.py` | Bare-title / Hinglish verb detection |
-| `tools/catalog.py` | HTTP to catalog-service `/voice/*` |
-| `tools/launcher_dispatch.py` | HTTP to launcher voice command API |
-| `tools/voice_nav.py` | Ordinal · sequel · franchise picking |
+| `main.py` | Connection/PTT/text locks, lifecycle, local helper routes |
+| `audio/deepgram_stt.py` | `nova-3` multilingual transcription with detect fallback |
+| `llm/agent.py` | Bounded tool loop; explicit picks may open Detail |
+| `llm/open_intent.py` | Bare-title/Hinglish intent classification |
+| `recommendation_enrich.py` | Current StoryDNA schema plus orphaned compatibility schema; legacy route cleanup remains |
+| `tools/catalog.py` | Catalog-service `/voice/*` client |
+| `tools/launcher_dispatch.py` | Ordered TV command dispatch |
+| `tools/voice_nav.py` | Ordinal, sequel and franchise disambiguation |
 
-Toggle tools: `orchestrator.voice_tools_enabled` or `MANGO_VOICE_TOOLS=0`.
+Vague discovery asks clarify or return choices. A successful open lands on
+Detail and tells the viewer to press **B**; the librarian does not autoplay.
 
-**Pi:** `scripts/mango-stack.sh` when `MANGO_VOICE=1` · STT merge: `scripts/m5-voice/ai/sync-hinglish-stt-config.py`
+## Runtime
+
+`scripts/mango-stack.sh` starts the orchestrator when `MANGO_VOICE=1`.
+`config/voice.env.example` deliberately sets `MANGO_TTS_DISABLED=1`; text replies
+are the supported path until TV audio/ducking is physically accepted. Keep API
+keys outside Git and run:
+
+```bash
+bash scripts/m5-voice/stack/ensure-orchestrator-venv.sh
+bash scripts/m5-voice/stack/verify-voice-ready.sh
+```
+
+Tool-loop kill switch: `orchestrator.voice_tools_enabled` or
+`MANGO_VOICE_TOOLS=0`. STT configuration merge:
+`scripts/m5-voice/ai/sync-hinglish-stt-config.py`.

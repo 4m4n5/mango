@@ -2,7 +2,7 @@
   "name": "mango-catalog-service",
   "version": "0.0.0",
   "private": true,
-  "description": "mango catalog-service — stremio-core bridge (N1 spike)",
+  "description": "Mango TV catalog, library, recommendations, search, resolver, playback, YouTube, and reliability service",
   "type": "module",
   "engines": {
     "node": ">=20"

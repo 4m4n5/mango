@@ -1,34 +1,40 @@
-# Source
+# Mango source
 
-Native TV stack on `feat/native-experience`. Local-first; Pi deploy via git pull.
+Native TV stack on `feat/native-experience`. Mac source ships by Git; Pi runtime
+state and physical couch proof remain separate.
 
-| Path | Status | Purpose |
-|------|--------|---------|
-| `launcher/` | Shipped | TV UI — movies · series · **live** tabs |
-| `mango-ui-server/` | Shipped | `serve.py` — static server + launch API |
-| `orchestrator/` | Shipped | Voice hub — WSS `:8765` + loopback `:8766` |
-| `companion/` | Shipped | Phone PWA (HTTPS `:3001`) |
-| **`catalog-service/`** | Shipped | stremio-core bridge → mpv (`:3020`) + live rails |
+| Path | Purpose |
+|------|---------|
+| `launcher/` | Search, Movies, TV Shows, Live, YouTube, Detail, ratings, Settings, focus/state restoration |
+| `mango-ui-server/` | Chromium static/API server, pad-nav queue, catalog proxy, health/launch boundary |
+| `catalog-service/` | Catalog/addon graph, library/progress, playability/grow, Search, recommendations, resolver/play sessions, YouTube, Reliability Center |
+| `orchestrator/` | Optional text/PTT librarian, STT, tool loop and TV dispatch (`:8765`/`:8766`) |
+| `companion/` | Optional HTTPS phone PWA (`:3001`) with a strict capability proxy |
 
-## Build launcher
+mpv is the only supported daily player. AIOStreams is the intended sole
+stream-capable VOD aggregate/path in a wider catalog/metadata/Live manifest
+graph; catalog-service still has an optional legacy direct
+MediaFusion thin-pool supplement whose removal or explicit gating is open.
+Kodi/Stremio artifacts are not the current automatic recovery contract.
+
+## Local checks
 
 ```bash
-cd src/launcher && npm install && npm run build
+cd src/catalog-service && npm test
+cd ../launcher && npm run build
+cd ../companion && npm run build
 ```
 
-## Run stack (Pi)
+Run only the checks relevant to a change, then prove runtime behavior on the
+exact Pi SHA before couch handoff.
+
+## Pi stack
 
 ```bash
 bash scripts/mango-stack.sh restart
-MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+bash scripts/pi-pre-couch-gate.sh
 ```
 
-## Docs
-
-| Topic | Doc |
-|-------|-----|
-| Launcher API | [ARCHITECTURE.md](../docs/ARCHITECTURE.md) |
-| Voice | [VOICE.md](../docs/VOICE.md) |
-| Foreground states | [ARCHITECTURE.md](../docs/ARCHITECTURE.md) |
-| catalog-service | [catalog-service/README.md](catalog-service/README.md) |
-| Live IPTV | [LIVE_TV.md](../docs/LIVE_TV.md) |
+See [architecture](../docs/ARCHITECTURE.md),
+[status](../docs/STATUS.md), [catalog-service](catalog-service/README.md),
+[operations](../docs/OPS.md), and [deployment](../docs/DEPLOY.md).

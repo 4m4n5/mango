@@ -1,96 +1,127 @@
 # mango
 
-**TV box for Raspberry Pi 5** — browse and play in **mango**; watch in **mpv**; voice from your phone.
+**A private, couch-first TV experience for Raspberry Pi 5.** Browse or ask on
+the phone, inspect a title, press **B**, and watch in native mpv. Mango owns the
+launcher, library/progress, playback chrome, recommendations, controller, and
+operational proof; Stremio-compatible addons supply metadata and streams.
 
-> **Active development:** [`feat/native-experience`](docs/VISION.md) — TV-first home, verified thematic rails, Stremio-compatible addon graph, mpv playback, and phone companion.
-> **Stable baseline:** `main` remains the older launcher/voice/fallback stack for emergency bugfixes.
+**Development:** `feat/native-experience` · **Start here:**
+[`docs/README.md`](docs/README.md) · **Current truth:**
+[`docs/STATUS.md`](docs/STATUS.md)
 
----
+## Current product
 
-## What mango is becoming
+| Surface | Implementation |
+|---------|----------------|
+| TV | Search · Movies · TV Shows · optional Live · native YouTube in a D-pad Chromium launcher |
+| Playback | mpv with deferred foreground, exact episode identity, cinematic HUD, five-choice Streams drawer, progress and exact return |
+| Content | Cinemeta/AIOMetadata plus configured Bharat Binge catalog/metadata inputs, AIOStreams as the intended sole stream-capable VOD aggregate, and optional NexoTV Live; live contribution must be health-proven |
+| Library | Mango-owned Continue, Saved, history, finished, Fire/Water ratings, feedback and normalized YouTube history |
+| Recommendations | Household Story Graph v2 and provenance-gated YouTube v2 behind independent rollout flags |
+| Phone/voice | Text/PTT librarian searches, clarifies, curates and opens Detail; controller **B** still plays |
+| Reliability | Settings/API health, 30-day local proof ledger, safe repair, nightly maintenance and controller supervision |
 
-| Layer | Direction |
-|-------|-----------|
-| **TV UI** | Chromium launcher — browse rails, search, detail |
-| **Catalog / streams** | `catalog-service` + self-hosted addons (Cinemeta, AIOStreams, AIOMetadata, optional NexoTV live) |
-| **Library** | Mango-owned state: `playability.db` verified titles, `progress.db` resume, `library.db` Saved/history/finished |
-| **Reliability** | Settings/API Reliability Center with 30-day local nightly proof |
-| **Player** | **mpv** fullscreen — VOD + live (`--live`) |
-| **Voice** | Phone PTT → orchestrator → launcher detail open |
-| **Fallback** | Stremio desktop / legacy Kodi YouTube — hidden, opt-in only |
+The core viewing loop is real, but Mango is not yet a finished plug-and-play
+appliance. Source `345535d` has one executable recommender per domain:
+progressive Household VOD and authoritative subscription/history YouTube v2.
+`off` disables that domain's recommendation rail, `shadow` builds the latest
+architecture without exposing it, and `serve` exposes only its accepted
+published generation—there is no executable legacy ranking fallback. The
+latest recorded Pi snapshot predates this cleanup, so deployment, shadow
+generation health, independent VOD/YouTube promotion, and couch relevance are
+still unproven. Deployment is additionally blocked by a YouTube non-Household
+`off` ownership/409 defect, VOD shadow/serve ownership and Shuffle-feedback
+inconsistencies, incomplete active-pointer diagnostics, and missing focused
+replacement tests. Intentional display sleep/CEC is locked but unimplemented. 4K
+SDR HEVC has an integrated path; native HDR through the current X11/mpv
+architecture is unsupported. Final controller/couch/target-TV proof and the
+no-SSH first-boot wizard remain open.
+Latest recorded Bharat Binge health was HTTP 403, so configuration is not proof
+of regional contribution.
+The current deploy wrapper is not safe for unattended agent use: it does not
+enforce or pin `feat/native-experience` and can implicitly mutate AIOMetadata
+private state while leaving/printing sensitive output. See
+[docs/DEPLOY.md](docs/DEPLOY.md) before any Pi update.
+The exported manifest graph contains catalog/metadata and optional Live addons;
+AIOStreams is intended to be its sole stream-capable VOD path. Catalog-service
+still contains an optional legacy direct MediaFusion thin-pool supplement
+triggered by Pi-local state; its live state must be measured, then the bypass
+removed or explicitly retained and gated.
 
-North star: *ask or browse in mango · watch in mpv · never wonder which app you're in.*
+Kodi/Stremio artifacts remain in legacy research/configuration, but current
+source has no supported automatic viewer fallback. The daily product path is
+launcher ↔ mpv.
 
-Ship target (**M6**): world-class **4K HDR plug-and-play** AI TV box.
+## Quick Pi operation
 
----
-
-## Quick start (Pi)
+To inspect or restart the **already built** Pi checkout, first confirm the couch
+is idle and inventory/preserve dirty state; restart can stop active
+playback/indexers.
 
 ```bash
-cd ~/mango && git pull
-bash scripts/mango-stack.sh restart          # launcher + voice (if MANGO_VOICE=1)
-bash scripts/m1-foundation/gate/gate-m1.sh             # base stack gate
+cd ~/mango
+git rev-parse HEAD
+git status --short
+bash scripts/mango-stack.sh restart
+bash scripts/pi-pre-couch-gate.sh
 ```
 
-After reboot: `bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh`
+Do not add `git pull` to that shortcut: a source update also requires the
+catalog-service and launcher build steps in [docs/DEPLOY.md](docs/DEPLOY.md).
 
-**SSH:** `mango` → `aman@10.0.0.174` primary; use `MANGO_SSH_HOST=mango-mdns` if mDNS (`mango.local`) is the reachable path · **Branch:** `feat/native-experience`
+From the home Mac after an authorized commit/push, first prove source identity:
 
----
-
-## Docs
-
-| Start here | |
-|------------|--|
-| [**docs/README.md**](docs/README.md) | **Doc index** |
-| [VISION.md](docs/VISION.md) | Product vision + locked decisions |
-| [ROADMAP.md](docs/ROADMAP.md) | Milestones **M1–M6** |
-| [STATUS.md](docs/STATUS.md) | Shipped features · current hardening gaps · gates |
-| [RELIABILITY.md](docs/RELIABILITY.md) | Reliability Center · nightly proof · safe repair |
-| [PLAYABILITY.md](docs/PLAYABILITY.md) | Verified library · grow · thematic rails |
-| [LIVE_TV.md](docs/LIVE_TV.md) | Live IPTV |
-| [OPS.md](docs/OPS.md) | Pi ops, gamepad, troubleshooting |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Stack · foreground contract |
-
-| Ops | |
-|-----|--|
-| [HARDWARE.md](docs/HARDWARE.md) | 8BitDo Micro layout |
-| [VOICE.md](docs/VOICE.md) | Voice pipeline setup |
-| [DECISIONS.md](docs/DECISIONS.md) | Locked choices |
-
-**Agents / automation:** [AGENTS.md](AGENTS.md)
-
----
-
-## Repo layout
-
-```
-docs/                 vision · roadmap · status · architecture
-scripts/
-  mango-stack.sh      daily start/stop (native base stack)
-  m1-foundation/      pad · launcher UI · gates (M1)
-  m2-catalog/         catalog-service + mpv (M2)
-  m3-play/            play · playability (M3)
-  m4-addons/          self-hosted addons (M4)
-  m5-voice/           voice + AI tools (M5)
-  live/               NexoTV IPTV (optional)
-  MILESTONES.md       layout map
-src/
-  launcher/           TV UI shell
-  catalog-service/    Stremio-compatible addon bridge + Mango library state
-  orchestrator/       voice hub
-  companion/          phone PWA
-config/               examples → /etc/mango/ on Pi
+```bash
+git fetch origin feat/native-experience
+test "$(git branch --show-current)" = feat/native-experience
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/feat/native-experience)"
 ```
 
----
+`pi-deploy.sh` and `pi-exec-gate.sh` remain blocked for unattended agents; use
+only the reviewed exception/manual flow in the
+deploy runbook until their branch pinning and AIOMetadata sync are hardened.
 
-## Branches
+SSH alias `mango` is primary; `mango-mdns`/`mango.local` is the discovery
+fallback. A previously observed numeric LAN address is not durable truth.
 
-| Branch | Use |
-|--------|-----|
-| `feat/native-experience` | **Active** — native UX, mpv, catalog-service |
-| `main` | Older stable couch stack; bugfixes |
+Never rsync/scp/hand-copy repository files. Never delete runtime DBs, cache,
+history, or credentials as routine recovery. AIOStreams `userData`, secrets,
+seeds, and runtime DB state use separate explicit workflows.
 
-Deploy: **git only** — [`docs/DEPLOY.md`](docs/DEPLOY.md). Commit + push from Mac; `bash scripts/pi-deploy.sh` or `git pull` on Pi. **Never rsync.** Never commit secrets (`keys/`, `/etc/mango/`).
+## Documentation
+
+| Doc | Owns |
+|-----|------|
+| [docs/VISION.md](docs/VISION.md) | Product promise and boundaries |
+| [docs/STATUS.md](docs/STATUS.md) | Source/deployed/Pi/couch evidence and open challenges |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Remaining dependency order |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Runtime/state/interface ownership |
+| [docs/PLAYABILITY.md](docs/PLAYABILITY.md) | Resolver, verified rails and grow |
+| [docs/FIRE_WATER_RATINGS.md](docs/FIRE_WATER_RATINGS.md) | VOD ratings/recommendation v2 |
+| [docs/YOUTUBE.md](docs/YOUTUBE.md) | Native YouTube and YouTube v2 |
+| [docs/SEARCH.md](docs/SEARCH.md) | Unified launcher Search |
+| [docs/VOICE.md](docs/VOICE.md) | Phone/voice librarian |
+| [docs/RELIABILITY.md](docs/RELIABILITY.md) | Runtime health/proof/safe repair |
+| [docs/OPS.md](docs/OPS.md) / [docs/DEPLOY.md](docs/DEPLOY.md) | Pi operation and Git-only deployment |
+| [docs/COUCH_TEST.md](docs/COUCH_TEST.md) | Current whole-product acceptance |
+
+Task specs/reports are exact historical records and are indexed in
+[`docs/tasks/README.md`](docs/tasks/README.md). Agent instructions:
+[`AGENTS.md`](AGENTS.md).
+
+## Repository layout
+
+```text
+src/launcher/           10-foot TV UI
+src/catalog-service/    catalog/library/search/recommendations/resolver/play/YouTube/reliability
+src/mango-ui-server/    launcher server, pad queue and catalog proxy
+src/orchestrator/       voice/tool hub
+src/companion/          phone PWA
+scripts/                Pi stack, deploy, gates, maintenance and diagnostics
+config/                 repository-owned examples/policy; live secrets/state stay on Pi
+docs/                   canonical product/operations documentation
+```
+
+`main` is the older stable branch; `feat/native-experience` is the active native
+product branch. Do not merge until the current release gates and couch contract
+close.

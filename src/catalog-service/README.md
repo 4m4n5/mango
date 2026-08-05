@@ -1,168 +1,145 @@
-# catalog-service
+# Mango catalog-service
 
-HTTP bridge between **stremio-core** (addon graph) and **mpv** on the Pi.
+Local HTTP service on `:3020` for Mango's catalog, library, Search,
+recommendations, resolver/playback, native YouTube, voice tools, playability,
+and Reliability Center. Stremio-compatible resources are one input protocol,
+not the whole service or Mango's user-library authority.
 
-**Status:** M2–M4, M6.1 library core, and optional Live TV shipped on `feat/native-experience`; M3 playability/grow hardening remains active.
+Current product/status: [`docs/STATUS.md`](../../docs/STATUS.md) · runtime/state
+boundaries: [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
 
-## Config (Pi)
+## Ownership
 
-| Path | Purpose |
-|------|---------|
-| `/etc/mango/stremio-export.json` | Addon manifests only (Cinemeta, AIOStreams, AIOMetadata); not user-library sync |
-| `/etc/mango/catalog.yaml` | Home rails (copy from `config/catalog.example.yaml`) |
-| `/etc/mango/catalog-filters.json` | Stream filters (uncached debrid, max quality) |
-| `/etc/mango/playability.db` | Verified pools + tab session allocation |
-| `/etc/mango/rail-curation-overrides.yaml` | Optional pins/blocks per rail |
-| `/etc/mango/catalog-live.yaml` | Live sport rails (optional; repo example fallback) |
-| `/etc/mango/progress.db` | mpv resume (Continue rail) |
-| `/etc/mango/library.db` | Mango-owned Saved/history/finished state |
-| `/etc/mango/config.yaml` | Debrid / household keys |
+| Service owns | Service does not own |
+|--------------|----------------------|
+| YAML/verified/cached rails and Detail metadata | AIO/debrid/API/OAuth credentials |
+| Mango library/progress/ratings/feedback/attribution | Chromium focus/rendering |
+| Search index/jobs/quota admission | Phone LAN authentication beyond the exact companion proxy |
+| VOD and YouTube recommendation generations | StoryDNA model inference process or household-state teaching |
+| AIO stream normalization, identity, ranking and single-flight; optional legacy direct MediaFusion thin supplement | AIOStreams nested provider fan-out/configuration |
+| Play sessions, mpv launch/switch/Undo/progress ownership | Physical display/CEC/audio proof |
+| Reliability model/proof APIs | Destructive repair of databases/cache/history |
 
-Templates: [`config/stremio-export.example.json`](../../config/stremio-export.example.json) · [`config/catalog.example.yaml`](../../config/catalog.example.yaml) · [`config/catalog-filters.example.json`](../../config/catalog-filters.example.json)
+AIOStreams is the intended sole **stream-capable VOD aggregate/path** in the
+exported graph; catalog/metadata and optional Live addons coexist. Torrentio,
+Comet, optional MediaFusion, TorBox, Real-Debrid, and Easynews should contribute
+behind AIO—not as direct catalog-service peers. Current source still has one
+legacy exception: a Pi-local MediaFusion manifest can trigger a direct,
+deadline-bounded supplement when the primary pool is thin. Strict AIO-only
+runtime is therefore an open topology-hardening decision, not a proven fact.
 
-## API
+## Pi state
 
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /health` | Service + core readiness |
-| `GET /rails` | Rail summaries from `catalog.yaml` |
-| `GET /rails/items?tab=` | Tab batch — movies · series · **live** |
-| `GET /rails/:id/items` | Single-rail items (fallback) |
-| `GET /meta/:type/:id` | Cinemeta meta |
-| `GET /series/:id/episodes` | Normalized season/episode list + resume (no per-episode verify) |
-| `GET /stream/:type/:id` | Resolved streams (filtered + ranked) |
-| `POST /play` | Resolve (if needed) + mpv fullscreen — bare series id resumes latest episode |
-| `GET /playability/status` | Pool depth + maintenance counters |
-| `GET /library/state` | Saved/latest/finished state for a title or `current=true` |
-| `GET/POST/DELETE /library/saved` | First-class Saved APIs |
-| `GET /library/history` | Read-only watch history |
-| `GET/POST/DELETE /library/context` | Current TV detail context for voice Save/Unsave and gate cleanup |
-| `GET/POST/DELETE /pins` | Compatibility wrapper over Saved |
+| Path | Role |
+|------|------|
+| `/etc/mango/stremio-export.json` | Addon manifests only; no user-library sync |
+| `/etc/mango/catalog.yaml` | Home rail configuration |
+| `/etc/mango/catalog-live.yaml` | Optional four-rail Live configuration |
+| `/etc/mango/catalog-filters.json` | Loaded stream/capability/attempt policy |
+| `/etc/mango/library.db` | Durable Saved/history/finished/ratings/feedback/attribution/normalized YouTube history/recommendations |
+| `/etc/mango/progress.db` | Durable exact Continue/resume |
+| `/etc/mango/playability.db` | Verified title/path evidence and rail pools |
+| `/etc/mango/youtube.db` | Rebuildable YouTube metadata/reservoir/query/quota state |
+| `/etc/mango/reliability/proofs.jsonl` | 30-day local proof ledger |
+| `/etc/mango/youtube-*.json`, `*.key`, cookies | Operator-owned secrets/config; never repository state |
 
-Rails: `addon_catalog` and `composite_list` (weighted mdblist/Cinemeta blends). Verified browse pools live in `playability.db`; tab session allocation dedupes titles across rails (`session-select.ts`).
+Migrations and maintenance preserve durable state. Never delete/recreate these
+stores as a routine test, deploy, or repair.
 
-Playability grow contract:
+## API groups
 
-- Fresh target is `grow_per_pass` per active rail (`20` in production YAML).
-- Work happens in a staged DB and publishes after a completed publishable run; target shortfalls are operator warnings unless `MANGO_GROW_REQUIRE_TARGET=1`.
-- Orphan repair, overlap caps, rejection tombstones, runtime source weights, and source diagnostics are operator-only surfaces. See [`docs/PLAYABILITY.md`](../../docs/PLAYABILITY.md).
+The source/router is authoritative for exact DTOs. Major public/local groups:
 
-Library contract:
+| Prefix | Purpose |
+|--------|---------|
+| `/health`, `/reliability/*` | Runtime facts, proof ledger, narrow idle-only actions |
+| `/rails*`, `/meta/*`, `/series/*/episodes` | Browse/Detail/exact episode surfaces |
+| `/stream/*`, `/play-session*`, compatibility `/play` | Stream list, asynchronous automatic play, active picker/switch/Undo |
+| `/playability/*` | Verified-corpus and maintenance diagnostics/actions |
+| `/library/*`, `/personalization/*` | Saved/history/context/ratings/prompts/feedback and preserved identity state |
+| `/recommendations/*` | VOD generations, cached slates, jobs/state/impressions/actions |
+| `/youtube/*` | Base YouTube, Takeout/OAuth, v2 generations, Search/Detail/play and sanitized companion capabilities |
+| `/search/*` | Local index and progressive isolated Search jobs |
+| `/voice/*`, `/ai/*` | Librarian tools, custom AI catalogs and cross-surface context |
 
-- Saved is explicit user state; playback updates Continue/history but never auto-saves.
-- Existing `~/.config/mango/user-pins.json` imports once into `library.db`; new code should use `/library/saved`.
-- `progress.db` remains the Continue/resume source in M6.1; progress writes mirror history/finished into `library.db`.
-- `scripts/m6-ship/backup-library-state.sh` backs up `progress.db` and `library.db` with SQLite's online backup API.
-- Hidden/blocked fields are schema-only in M6.1. Do not add public hide/unhide behavior before the UX pass.
-- AI catalog automation must not write to Saved; overflow is replace/merge only.
+The phone reaches only an exact HTTPS proxy allowlist. Full recommendation,
+YouTube operator, raw error, token-file, quota, and private journal state remains
+loopback-only.
 
-### Stream filters (uncached debrid)
+## Playback contract
 
-By default, `POST /play` and `GET /stream` **skip uncached Real-Debrid / TorBox** streams so you do not hit *"still downloading; this title is not ready on your debrid service yet"*.
+- Launcher accepts an idempotent asynchronous play session and remains visible
+  through resolve/probe.
+- Exact title/episode work is coalesced under one absolute deadline. Automatic
+  Movie/Episode Play defaults to initial resolve plus two 1.2-second
+  confirmations only for clean HTTP-200 empty/proven-transient aggregate output;
+  explicit rollback/experiment overrides accept 0–3 attempts and 0–10-second
+  delays, so runtime values are part of proof.
+- Detail lists, Live, picker refresh, 429, auth/config/permanent errors,
+  cancellation, malformed media, invalidation, and deadline exhaustion are not
+  confirmation-retried.
+- A single attempt budget spans main/last-resort/obligation/risky phases.
+- Foreground/display ownership commits only after advancing media is proven;
+  stale cleanup is PID/epoch scoped.
+- Active movie/episode candidates persist in a URL-free, maximum-five snapshot.
+  Isolated switch validation and revisioned Undo preserve one progress session.
 
-**Persistent config** — copy the example and edit on the Pi:
+The base filter default uses a 90-second automatic wall. The current `4k-hifi`
+profile deliberately uses 120 seconds and can select compatible 4K SDR HEVC;
+native HDR through X11/mpv is not a supported claim. See
+[`docs/PLAYABILITY.md`](../../docs/PLAYABILITY.md).
 
-```bash
-sudo cp config/catalog-filters.example.json /etc/mango/catalog-filters.json
-```
+## Library and recommendations
 
-| Field | Default | Meaning |
-|-------|---------|---------|
-| `exclude_uncached_debrid` | `true` | Drop debrid streams AIOStreams marks uncached |
-| `strict_unknown_cache` | `false` | Also drop debrid when cache status unknown |
-| `max_quality` | `1080p` | Skip 4K REMUX on 1080p lab display until M6.3 ship profile |
-| `exclude_remux` | `true` | Skip Blu-ray REMUX |
-| `stream_display_limit` | `8` | Keep picker rows scannable |
+- Saved is explicit. Playback updates Continue/history but never auto-saves.
+- Fire and Water each require 0–5 in half steps; movies are title-level and
+  series collapse to show-level.
+- Commit `345535d` leaves one executable recommender per domain while preserving
+  personal and historical data. VOD `shadow`/`serve` uses Household ownership,
+  `vod-content-profile-v2`, optional compatible StoryDNA overlays, an
+  off-by-default bounded frontier, and local Story Frontier ranking. YouTube
+  uses only authoritative subscriptions and qualifying Takeout/Mango history.
+- In `serve`, VOD For You is exactly six current verified cards. YouTube normal
+  rows require exactly four cards and may be absent; Live Now allows one to four.
+- Serve-mode Home/X returns from cached atomic generations and does not wait for
+  model/acquisition/network work. VOD low-water detection may enqueue background
+  recovery after the read. Independent flags are
+  `MANGO_VOD_RECS_V2=off|shadow|serve` and
+  `MANGO_YOUTUBE_RECS_V2=off|shadow|serve`.
 
-`GET /stream` rows include structured stream metadata parsed from AIOStreams
-`lightgdrive` descriptions when available: `display_label`, `release_group`,
-`encode`, `size_gb`, `indexer`, `hdr_tags`, `languages`, `debrid_service`, and
-`cache_status`.
+`off` disables recommendations, `shadow` builds only the latest architecture
+while hiding recommendation rails, and `serve` exposes only its accepted
+published generation. There is no environment-selected legacy fallback. The
+latest recorded Pi state predates this contract, so source completeness is not
+serve/couch proof. Current blockers include YouTube non-Household `off`
+ownership/HTTP 409, VOD shadow identity/Saved inconsistency, false Shuffle
+success in VOD off/shadow, incomplete active-pointer diagnostics, and missing
+focused replacements for removed legacy service tests. [STATUS](../../docs/STATUS.md)
+owns those blockers. See
+[`docs/FIRE_WATER_RATINGS.md`](../../docs/FIRE_WATER_RATINGS.md) and
+[`docs/YOUTUBE.md`](../../docs/YOUTUBE.md).
 
-Language overrides are split:
-
-| Override | Mode | Meaning |
-|----------|------|---------|
-| `preferred_language` | soft | Boost matching rows; never excludes non-matches |
-| `language` | hard | Exclude rows that do not match parsed language metadata |
-
-Examples:
-
-```bash
-# Prefer Hindi rows but keep English fallback rows visible
-curl "http://127.0.0.1:3020/stream/movie/tt8178634?preferred_language=Hindi"
-
-# Hard-filter to Hindi-tagged rows
-curl "http://127.0.0.1:3020/stream/movie/tt8178634?language=Hindi"
-
-# POST /play accepts the same split
-curl -X POST http://127.0.0.1:3020/play \
-  -H 'content-type: application/json' \
-  -d '{"type":"movie","id":"tt8178634","language":"Hindi"}'
-```
-
-**Unlock right now** (one request):
-
-```bash
-# browse all streams including uncached
-curl "http://127.0.0.1:3020/stream/movie/tt0111161?include_uncached=1"
-
-# play first uncached stream anyway
-curl -X POST "http://127.0.0.1:3020/play?include_uncached=1" \
-  -H 'content-type: application/json' \
-  -d '{"type":"movie","id":"tt0111161"}'
-
-# or in JSON body
-curl -X POST http://127.0.0.1:3020/play \
-  -H 'content-type: application/json' \
-  -d '{"type":"movie","id":"tt0111161","include_uncached":true}'
-```
-
-**Env overrides** (e.g. in `~/.config/mango/voice.env`): `MANGO_INCLUDE_UNCACHED=1`, `MANGO_MAX_QUALITY=1080p`, `MANGO_EXCLUDE_REMUX=1`.
-
-Responses include a `filters` object with exclusion counts.
-
-### Rate limits
-
-Browse merges **Cinemeta** first, then **AIOMetadata** (`:3036`, your MDBList/TMDB keys).
-When those APIs throttle, addons may return metas whose title/description is error copy —
-catalog-service **drops** them instead of showing them on posters.
-
-| Env | Default | Meaning |
-|-----|---------|---------|
-| `MANGO_RAIL_ITEMS_CACHE_TTL_MS` | `2700000` (45 min) | Cache `GET /rails/:id/items` |
-| `MANGO_META_CACHE_TTL_MS` | `600000` (10 min) | Positive meta cache TTL |
-| `MANGO_META_RATE_LIMIT_BACKOFF_MS` | `300000` (5 min) | Skip re-fetch after throttle |
-| `MANGO_RAIL_META_CONCURRENCY` | `6` | Max parallel meta lookups per rail |
-| `MANGO_RAIL_META_STAGGER_MS` | `0` | Pause between meta batches (raise if Cinemeta rate-limits) |
-
-If daily limits still bite: [MDBList Standard](https://mdblist.memberful.com/join) (~€2/mo) or TMDB commercial plan.
-
-API errors return **couch-safe** `error` text (never raw “rate limit exceeded”).
-
-### Live TV
-
-Sport rails from `catalog-live.yaml` — dual NexoTV (`mango Live TV` + `mango Live Free`). Full ops: [`docs/LIVE_TV.md`](../../docs/LIVE_TV.md).
-
-| Endpoint | Notes |
-|----------|-------|
-| `GET /rails/items?tab=live` | **Long-lived cache** (memory + `~/.cache/mango/live-rails-cache.json`); ignores `reshuffle=1`; launcher hides shuffle on live tab |
-| `POST /play` + `live: true` | mpv `--live` |
-
-`verify_streams: false` in catalog-live — NexoTV `/stream/` probes share ~60 req/min.
-
-## Dev
+## Development
 
 ```bash
 cd src/catalog-service
 npm ci
 npm run build
-npm run test
-MANGO_CATALOG=1 npm start
+npm test
+npm run test:gate
 ```
 
-## Dependencies
+Useful data tools:
 
-- Node ≥ 20
-- `@stremio/stremio-core-web`
-- TypeScript · `better-sqlite3`
+```bash
+npm run ratings:seed -- validate /path/to/approved-seed.json
+npm run youtube:takeout -- /path/to/takeout.zip
+```
+
+These can touch durable state when pointed at Pi paths. Use temp/test databases
+locally; on Pi require explicit authority, backups, dry-run where available, and
+idempotence proof.
+
+Pi verification is Git-only and exact-SHA. Run the relevant gates in
+[`docs/STATUS.md`](../../docs/STATUS.md#verification) and complete
+[`docs/COUCH_TEST.md`](../../docs/COUCH_TEST.md); local tests do not prove the TV.

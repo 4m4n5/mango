@@ -14,9 +14,13 @@ marked superseded.
 - Fire/Water, Saved, and meaningful Mango VOD viewing are the only taste
   inputs. Fire/Water above 2.5 is dominant positive evidence. Low ratings do
   not penalize related titles; the exact rated title is ineligible.
-- Profiles and mood do not enter ranking. Existing data remains dormant and
-  recoverable.
-- Home and X perform no metadata, provider, graph, or ranking work.
+- Profiles and mood do not enter ranking. Existing data remains recoverable;
+  personal recommendation evidence is dormant, but Saved currently blends
+  preserved profile rows in `shadow` and must be fixed or accepted before
+  rollout.
+- Home and X perform no synchronous metadata, provider, graph, or ranking work;
+  a low-water check may asynchronously enqueue a full-rank recovery after the
+  response.
 - YouTube remains isolated and uses only its provenance-gated v2 architecture.
 
 ## Progressive content intelligence
@@ -144,7 +148,9 @@ membership, calibration bands, and provider usage.
 Full scans page every verified movie/show and require:
 
 ```text
-eligible_ranked + sparse_unresolved + other_excluded == verified
+scored_count + excluded_count == verified_count
+unscored_count == 0
+coverage == 1
 ```
 
 They publish after at least 200 eligible titles, preserve last-good state, and
@@ -167,7 +173,11 @@ zero teacher calls in local refresh, deterministic bounded frontier behavior,
 restart-safe budgets/leases, optional exact-ID TMDB behavior, complete large
 corpus accounting, cached X behavior, and YouTube isolation.
 
-Offline and automated gates remain:
+The following are **supplemental release requirements from this plan, not the
+implemented current promotion gate**. Current source implements only its
+absolute minimum evaluator; these stronger comparison, recall, calibration,
+teacher-cost, and slice gates must be implemented or explicitly revised before
+they can be used as automated promotion evidence:
 
 - progressive nDCG@6 no more than 2% below full StoryDNA on the frozen panel;
 - frontier recall at least 95% for full-profile top 200 and 98% for top 24;

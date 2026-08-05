@@ -1,5 +1,13 @@
 # Home-agent deployment brief — Mango Couch Recommendations v2
 
+> **Superseded backfill method.** This remains a historical rollout contract,
+> but its sequential full-corpus one-title teacher loop is no longer the current
+> plan. The latest recorded Pi run stopped that approach for cost/latency.
+> `345535d` now makes that progressive path latest-only; the successor rollout
+> remains blocked by source ownership/diagnostics/tests and deploy hardening. The
+> older bulk prompt is planning input only if measured gaps justify it. Status:
+> [`../STATUS.md`](../STATUS.md).
+
 This is the complete, context-free contract for the agent running on the home
 Mac, on the same LAN as the Mango Pi. Read it top to bottom before changing the
 home clone, Pi, databases, or runtime configuration.
@@ -97,8 +105,10 @@ from the new target:
 ## 4. Evidence report
 
 Keep timestamped working evidence outside the git clone while deploy iterations
-are active so `pi-deploy.sh` can enforce a clean source tree. After the final
-source SHA, deploy, and gates are settled, write:
+are active so it cannot be mistaken for deployable source. The audited
+`pi-deploy.sh` does **not** reliably enforce the required clean/exact-SHA
+contract; follow the current blocker in `docs/DEPLOY.md`. After the final source
+SHA, deploy, and gates are settled, write:
 
 `docs/tasks/RECOMMENDATIONS_V2_HOME_PI_REPORT.md`
 

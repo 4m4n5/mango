@@ -1,5 +1,11 @@
 # Fire & Water — home deploy acceptance report
 
+> **Historical v4 evidence.** This report proves its 12-card Fire/Water rollout
+> and seed/UI fixes only at the SHA below. The current recommendation contract is
+> Household Story Graph v2 with one six-card For You rail; see
+> [`../FIRE_WATER_RATINGS.md`](../FIRE_WATER_RATINGS.md) and
+> [`../STATUS.md`](../STATUS.md).
+
 **Date:** 2026-08-03 (UTC)  
 **Branch:** `feat/native-experience`  
 **Deploy tip:** `831fe9886837f0689596d37dad7134ac6bbdc327`  
@@ -136,4 +142,3 @@ Deploy tip: `0521331`.
 | Half-mark overfill | Glyph wrapper + width clip at mark box | Launcher CSS/TS change |
 | For You ~5–6 cards | Browse row budget was 1×6; For You now 2 rows (12) + shuffle rotates reserve | API 12 before/after shuffle; overlap 3 |
 | Save → catalog unavailable | UI proxy omitted PUT body; validation sanitized to couch message | Proxy PUT 200 in 606 ms |
-

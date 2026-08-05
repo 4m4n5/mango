@@ -1,19 +1,35 @@
 # mango — native YouTube
 
 **Milestone:** M6.2 · **Status:** the native YouTube base was previously
-Pi-gated and Recommendations v2 source is complete on this branch. Its real
-history import, reservoir acquisition, generation publication, deployment, Pi
-diagnostics, screenshots, and TV behavior are **DEFERRED** until this exact
-pushed revision passes the offline gate and is deployed and observed at home.
+Pi-deployed/gated. Commit `345535d` makes authoritative subscription/history v2
+the sole executable recommendation architecture behind an independent
+`off|shadow|serve` flag. The latest repository-recorded Pi snapshot predates
+that cleanup and had recommendations `off`; account-specific authoritative
+input refresh, shadow/serve promotion, current-SHA diagnostics, screenshots,
+and human TV-quality proof remain **DEFERRED**. See [STATUS.md](STATUS.md).
 
 Mango treats YouTube as a first-class content source while preserving the voice
 safety contract: voice can search/open/save, but playback starts only when the
 user presses **B** on a YouTube video detail.
 
-Earlier nine-card and four-anchor/adaptive probe results describe superseded
-rail contracts and are not v2 evidence. The controller may show
-"waiting for controller" when the 8BitDo is off; that means the stack is polling
-and will reconnect when the controller wakes.
+Earlier nine-card and four-anchor/adaptive results are superseded historical
+evidence. They are not an executable fallback in current source. The controller may show
+"waiting for controller" when the 8BitDo is off; that means the router is alive
+and the link supervisor is attempting normal wake recovery. Five physical
+power-cycle proofs remain open, so do not guarantee reconnection from that
+message alone.
+
+## Recommendation rollout semantics
+
+| `MANGO_YOUTUBE_RECS_V2` | Refresh work | Public rails |
+|--------------------------|--------------|--------------|
+| `off` | Recommendation refresh disabled | No recommendation rails; History and Saved utility rails remain when populated |
+| `shadow` | Latest authoritative v2 acquisition/generation | Recommendation rails hidden; History and Saved utility rails remain |
+| `serve` | Latest authoritative v2 acquisition/generation | Household v2 logical positions and supply rules documented below |
+
+No mode selects a deleted allocator. Operational rollback is `serve` →
+`shadow`/`off`; older behavior requires a reviewed Git rollback. VOD and
+YouTube modes are independent.
 
 ---
 
@@ -31,13 +47,15 @@ Launcher YouTube tab
 | Layer | Owns |
 |-------|------|
 | `youtube.db` | Cached videos/channels/playlists, authoritative subscription generations, explicit candidate provenance, published rail generations, refresh/quota counters, auth sessions |
-| `library.db` | Household Saved, normalized Takeout/Mango-local watch history, exact Not-for-me, finished state, import batches, and current context; old profile rows remain dormant |
+| `library.db` | Saved, normalized Takeout/Mango-local watch history, exact Not-for-me, finished state, import batches, and current context; personal profile rows are preserved but do not influence the latest recommender |
 | YouTube Data API | Metadata/search/subscriptions only |
 | `yt-dlp -> mpv` | Playback resolution/rendering via the Mango wrapper; no Data API quota use |
 
-`youtube.db` is rebuildable. `library.db` is durable user state. Recommendation
-v2 is Household-only: profiles and mood have zero acquisition/ranking effect,
-while their existing rows remain intact and recoverable.
+`youtube.db` is rebuildable. `library.db` is durable user state. The latest
+recommender is Household-owned whenever active (`shadow` or `serve`): profiles
+and mood have zero acquisition/ranking effect, while their existing rows remain
+intact and recoverable. `off` disables recommendation work rather than
+activating a personal-profile ranker.
 
 Playback tries the configured high-quality split video/audio selector first.
 If mpv rejects that direct transport before the first frame, Mango performs one
@@ -66,11 +84,15 @@ Repo-safe examples:
 - `config/config.example.yaml`
 - `config/youtube-oauth-client.example.json`
 
-`scripts/pi-deploy.sh` runs `scripts/m6-ship/ensure-youtube-yt-dlp.sh` to keep
+The full deploy helper runs `scripts/m6-ship/ensure-youtube-yt-dlp.sh` to keep
 `yt-dlp` fresh in the user venv. The catalog calls
 `scripts/m6-ship/youtube-yt-dlp.sh`, which prefers that venv and only falls back
 to system `yt-dlp` if the venv is absent. This is intentional: YouTube playback
 extraction changes faster than Debian packages.
+
+The current full deploy wrapper itself is blocked for unattended agents by the
+branch/SHA and implicit AIOMetadata-mutation issues in [DEPLOY.md](DEPLOY.md).
+That blocker does not change the `yt-dlp` ownership contract.
 
 ---
 
@@ -87,7 +109,7 @@ extraction changes faster than Debian packages.
 | `GET` | `/youtube/companion/auth/poll?session_id=` | Sanitized status and optional interval only |
 | `POST` | `/youtube/companion/auth/disconnect` | Sanitized `{ "ok": true }` only |
 | `POST` | `/youtube/refresh` | Enqueue metadata/cache refresh; returns HTTP 202 and a durable job ID |
-| `GET` | `/youtube/rails` | Five ordered core rails plus conditional From Your Subscriptions and Live Now, from the published local generation only |
+| `GET` | `/youtube/rails` | History/Saved utility rails in off/shadow; five ordered v2 logical positions plus conditional subscriptions/live in serve |
 | `GET` | `/youtube/rails?reshuffle=1` | Advance cached recommendation/discovery/subscription/live slates; History/Saved stay stable; no API, acquisition, or ranking work |
 | `POST` | `/youtube/takeout/import` | Localhost-only streamed ZIP/JSON/HTML history import; stores normalized events/diagnostics and discards raw input |
 | `POST` | `/youtube/impressions` | Validate opaque served tokens and record exact rendered membership against the server-owned Household generation/context; never URLs |
@@ -97,10 +119,16 @@ extraction changes faster than Debian packages.
 | `POST` | `/youtube/play` | Resolve video with `yt-dlp`, start mpv, write local history |
 
 Compatibility rule: only YouTube videos can be Saved. Channels/playlists open
-detail lists but are not Saved entities in M6.2. Saved videos remain in the
-Household's stable Saved rail until explicit Unsave. Saved has zero recommendation
-weight. Not-for-me suppresses that exact video only and offers Undo instead of
-deleting history.
+detail lists but are not Saved entities in M6.2. In active modes, Saved videos
+remain in Household's stable Saved rail until explicit Unsave. Saved has zero
+recommendation weight. Not-for-me suppresses that exact video only and offers
+Undo instead of deleting history.
+
+Current source has a blocking ownership defect in `off`: the service always
+returns Household ownership while the HTTP route expects the active personal
+profile. With a non-Household active profile, `/youtube/rails` can therefore
+return 409 instead of utility rails. Fix this and add focused mode/HTTP tests
+before using `off` as rollback or promoting YouTube.
 
 The phone reaches the four `/youtube/companion/*` routes only through the HTTPS
 companion's exact capability allowlist. Catalog accepts those upstream calls
@@ -119,13 +147,16 @@ movie/TV playability maintenance attempt:
 bash scripts/m3-play/playability/install-playability-timer.sh
 ```
 
-That installs `mango-playability-indexer.timer` for **03:00 only**. The service runs
+That installs the persistent `mango-playability-indexer.timer` for the **03:00**
+calendar event. The service runs
 `nightly-library-refresh.sh --mode nightly --preset nightly`, which executes
 playability stale+grow first and then calls `POST /youtube/refresh` through
 `scripts/m6-ship/youtube-refresh-cache.sh`. This is also the preferred manual
 "run everything" workflow: one command refreshes movie/TV library state and then
-YouTube. Daytime auto-retry of this chain is retired; use
-`playability-catch-up.sh nightly` when idle after a failed nightly.
+YouTube. A missed calendar event can run after reboot because the timer is
+`Persistent=true`, subject to the same idle/overlap guards. There is no separate
+uncontrolled daytime retry watcher; use `playability-catch-up.sh nightly` only
+for an explicit idle operator catch-up.
 
 `/youtube/refresh` enqueues a durable job and returns HTTP 202. Poll that job at
 `/recommendations/jobs/:job_id`; aggregate state exposes only a bounded recent
@@ -143,10 +174,19 @@ channels indefinitely. The YouTube step still runs when playability returns a
 quota/source/error failure, but it is skipped while another playability
 maintenance lock is active.
 
-The old Popular, Fresh Finds, generic live-search, generic For You, custom-AI,
-and chart-backed acquisition phases are retired from v2. Their cached metadata
-may remain available to Search/detail and rollback, but cannot acquire
-recommendation provenance or enter a v2 rail.
+The old Popular, Fresh Finds, Because You Watched, generic live-search/generic
+For You, AI Home rail, and chart-backed acquisition phases are removed from the
+current recommendation runtime. Historical tables/cache rows remain, but no
+current mode warms or serves those paths. Search and user-created AI catalog
+seed acquisition remain separate product tools and cannot create recommendation
+provenance. A reviewed older Git revision—not an environment flag—is required
+to execute an old allocator.
+
+AI catalog management still accepts YouTube slots and retains YouTube seed/
+adapter code, but `/youtube/rails` no longer composes those slots into the Home
+tab. Until the product either restores an explicitly non-recommendation custom
+rail surface or removes the unsupported target, tools must not claim a YouTube
+AI catalog is visible on TV merely because its slot exists.
 
 Quota boundary: couch shuffle and cached rail rendering never call YouTube.
 Playback resolution through `yt-dlp -> mpv` does not use the YouTube Data API.
@@ -170,7 +210,10 @@ snapshot. Ordinary Home loads and X never initiate any phase.
 
 Manual equivalents:
 
+On the Pi, from the repository root:
+
 ```bash
+cd ~/mango
 bash scripts/m3-play/playability/playability-catch-up.sh nightly
 bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly
 bash scripts/m6-ship/youtube-refresh-cache.sh --reason manual
@@ -180,8 +223,11 @@ Controls: `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` disables the chained nightly step,
 `MANGO_YOUTUBE_REFRESH_CACHE=0` skips the refresh helper, and
 `MANGO_YOUTUBE_REFRESH_TIMEOUT_SEC` controls the endpoint timeout.
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` controls YouTube v2 independently from
-`MANGO_VOD_RECS_V2`. Shadow builds never replace the legacy served surface;
-serve reads only a published v2 generation and keeps last-good state on failure.
+`MANGO_VOD_RECS_V2`. Shadow builds hide recommendation rails while still
+building the latest Household generation. In serve, recommendation/discovery/
+subscription/live rows read the published v2 generation and keep last-good
+state on failure; History and Saved are assembled from current local library
+state and can update independently of publication.
 
 ### Google Takeout history bootstrap
 
@@ -212,13 +258,20 @@ this document is not runtime proof.
 
 ## Launcher behavior
 
+Search, Detail, Save, playback, and the native tab exist independently of the
+recommendation mode. The ordered/supply-constrained behavior below is the
+`serve` contract. In `off`/`shadow`, recommendation rails are absent and only
+eligible utility rails remain. The current non-Household `off` ownership defect
+must be fixed for that fallback surface to be reliable.
+
 - Browse tabs are **Movies · TV Shows · Live · YouTube**.
-- Five visually equal core rails appear in this order: **For You → Beyond Your
-  Subscriptions → More Like … → History → Saved**. **From Your Subscriptions**
-  follows when an authenticated authoritative snapshot exists, and **Live Now**
-  follows when subscribed channels have live content.
-- Normal rails contain four globally unique landscape cards. `Live Now` may
-  contain one to four instead of receiving unrelated filler.
+- Five visually equal logical core positions are ordered **For You → Beyond Your
+  Subscriptions → More Like … → History → Saved**. A normal row renders only
+  when it has exactly four globally unique landscape cards, so thin supply can
+  omit any position (including History/Saved). **From Your Subscriptions**
+  follows when an authenticated authoritative snapshot has enough supply, and
+  **Live Now** follows when subscribed channels have live content.
+- `Live Now` may contain one to four cards instead of receiving unrelated filler.
 - History is newest-first across normalized Takeout and resolvable Mango-local
   launches, including bare starts. Only meaningful watches seed or exclude from
   recommendations. Saved is explicit utility state. Both rails are
@@ -262,14 +315,14 @@ this document is not runtime proof.
   `/api/catalog/youtube/companion/*` capabilities; broad operator state/auth
   paths are neither requested by the browser nor admitted by the proxy.
 
-## Rail cache summary
+## Serve rail cache summary
 
 | Rail | Role | Source of truth | X behavior |
 |------|------|-----------------|------------|
 | For You | Core | Published rank from history + subscriptions only | Advance cached slate |
 | Beyond Your Subscriptions | Core | Provenance-gated history/subscription topic acquisition; subscribed creators excluded | Advance cached slate |
 | More Like … | Core | Daily-stable meaningful-history seed and provenance-gated channel/topic candidates | Advance cached slate |
-| History | Core utility | Normalized Takeout + Mango-local meaningful watches in `library.db` | Never shuffled |
+| History | Core utility | Normalized Takeout + resolvable Mango-local launches, including bare starts, in `library.db` | Never shuffled |
 | Saved | Core utility | Explicit Household state in `library.db`; zero rank influence | Never shuffled |
 | From Your Subscriptions | Conditional | Newest unwatched uploads from the authoritative snapshot | Advance cached slate |
 | Live Now | Conditional | Currently live streams from subscribed channels only | Advance cached slate; 1–4 cards allowed |
@@ -279,7 +332,17 @@ above remains fixed. Global dedupe runs across all rails. Exact rendered
 impressions resolve opaque tokens without trusting caller identity or persisting
 URLs/secrets.
 
-## Recommendation constraints
+### Current rollout boundary
+
+The base YouTube product and the latest recommendation model have different
+proof status. Base metadata/search/OAuth/Takeout/`yt-dlp` behavior has older Pi
+evidence. The latest recorded runtime predates `345535d`; the rail contract
+above is source behavior awaiting the ownership fix, account-specific refresh,
+shadow diagnostics, serve promotion, and current couch observation. A
+Saved-only or otherwise thin account is a valid setup state; documentation and
+tests must not assume five visible rails.
+
+## Serve recommendation constraints
 
 Mango does not expose or scrape an exact "native YouTube home" rail. The official
 YouTube Data API no longer provides `search.list relatedToVideoId`, and the
@@ -287,8 +350,8 @@ YouTube Data API no longer provides `search.list relatedToVideoId`, and the
 need an unofficial/scraping path and must be added as an explicit experimental
 operator opt-in, separate from the supported official API cache.
 
-Mango uses only authoritative subscriptions plus normalized Takeout/Mango-local
-meaningful history for recommendation acquisition and ranking. Search, Saved,
+YouTube v2 uses only authoritative subscriptions plus normalized
+Takeout/Mango-local meaningful history for recommendation acquisition and ranking. Search, Saved,
 profiles, mood, VOD, companion memory, AI catalogs, and global charts are
 explicitly isolated. Refresh may use bounded official search/detail metadata to
 resolve those approved seeds, then serves the last-good generation if later work
@@ -334,6 +397,10 @@ MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
 
 The smoke gate verifies the configured `yt-dlp` command, skips API search when
 no API key is configured, and skips playback unless `MANGO_YOUTUBE_PLAY=1`.
+The latest-only cleanup removed a large legacy service-test surface; before Pi
+promotion, add focused HTTP tests for every mode/identity combination, utility
+rail ownership, refresh failure/last-good behavior, generation publication,
+quota-free reshuffle, and the intended absence of removed acquisition paths.
 
 ---
 

@@ -1,461 +1,601 @@
 # mango — current status
 
-**Branch:** `feat/native-experience` · **Plan:** [ROADMAP.md](ROADMAP.md) · **Couch:** [COUCH_TEST.md](COUCH_TEST.md)
-
-What works today, what is still being hardened, and how to verify it.
-
----
-
-## Milestones
-
-| Milestone | Status | Headline |
-|-----------|--------|----------|
-| M1 Foundation | ✓ | `mango-stack.sh` · pad · gates |
-| M2 Browse | ✓ | Movies / Series / Live tabs |
-| M3 Play | ✓ hardening | mpv · picker · episodes · playability/grow |
-| M4 Addons | ✓ | AIOStreams + AIOMetadata on Pi |
-| M5 Voice + AI | ◐ | Phase 3 ✓ · M5.5a corpus ✓ · **M5.5b round code ✓** · living librarian memory ✓ · couch sign-off pending |
-| M6 Ship | ◐ | M6.1 ✓ · M6.2 base Pi-gated ✓ · Recommendations v2 Story Graph source complete, Pi backfill/promotion/couch proof delegated · Reliability Center ✓ · efficiency/perf Tiers 1–4 ✓ · **M6.5 round code ✓** · **launcher UX polish round code ✓ (`539ebdb`, couch sign-off pending)** · 4K Stage 2 validation · wizard pending |
-
----
-
-## M2 — Browse
-
-| Feature | Detail |
-|---------|--------|
-| Browse | Search magnifier · Movies · Series · Live · YouTube (L/R shoulders switch browse tabs) |
-| Grid/input | 6 posters / 4 landscape per normal rail, one row each · Home `X` advances only published current-tab recommendation/discovery slates (VOD Continue/Saved and YouTube History/Saved stay stable) · Search `X` tap delete / 600 ms hold clear |
-| Rails | YAML + AI catalog slots + Continue |
-| Service | `catalog-service :3020` · `GET /rails` |
-| Proxy | `serve.py` → `/api/catalog/*` |
-
-**Gate:** `bash scripts/m2-catalog/browse/gate-m2-browse.sh`
-
----
-
-## M3 — Play
-
-| Feature | Detail |
-|---------|--------|
-| Play orchestrator | Concurrent/coalesced resolve · up to two classified empty confirmations inside the same exact-ID flight/deadline · one bounded multi-phase attempt budget · probe-then-play · display-neutral candidate rejection · pipeline-fatal stop |
-| Stream picker | `GET /stream/{type}/{id}` · `display_label` rows |
-| Continue | Profile-exact `progress.db` v2 · mpv position watcher |
-| Episodes | Season list · per-episode streams · next-up overlay |
-| Playability | `playability.db` verified pools · best-effort thematic grow jobs with `+20` SLA warnings |
-| Browse UX | Verified-only thin rails · empty hidden |
-| Thematic rails | `rail-theme-gate` on grow/link/verify · profiles in `rail-theme-profiles.yaml` |
-| Pool retheme | Manual repair plus grow orphan/overlap finalization |
-| Couch reliability | Chromium launcher · 1080p60 couch display mode · fetch/focus timing logs · Live stale-cache fallback · idle-gated maintenance · X11 anti-sleep/wake · leased pad consumer with 3 s bounded Chromium self-heal |
-
-**Detail:** [PLAYABILITY.md](PLAYABILITY.md)
-
-### Playability ops (Pi)
-
-| Job | UI label | Script |
-|-----|----------|--------|
-| Reshuffle | Refresh library | inline |
-| ~8 min | Quick top-up | `quick-playability-topup.sh --detach` |
-| ~60–90 min total | Nightly pass | `playability-maintenance.sh --mode nightly` |
-| ~4 h loop | Overnight grow | `overnight-playability-grow.sh --detach` |
-
-Status: `python3 scripts/diag/playability-status.py` · grow monitor: `grow_monitor.py status`
-
-**Gates:** `gate-m3-play-ladder.sh` · `gate-m3-detail.sh` · `gate-m3-episodes.sh` · `gate-m3-verified-rails.sh` (full: `MANGO_GATE_FULL=1`, 3 plays/rail)
-
-### Library grow current state
-
-| Area | Current implementation |
-|------|------------------------|
-| Growth target | Every active browse/AI rail aims for fresh `new_to_rail_verified >= grow_per_pass` (`20` in YAML; `MANGO_GROW_PER_PASS=5` only for benchmarks) |
-| Couch publish | Grow writes an isolated work DB and publishes a completed publishable run even when some rails miss target; failed/aborted/crashed runs keep the previous visible rail snapshot |
-| Hygiene | Completed publishable grows attach verified orphans, cap unpinned overlap, and preserve pins/curation overrides |
-| Negative memory | Recent theme/no-stream/title-mismatch/unresolved-ID misses are tombstoned per rail to avoid re-probing the same bad candidates |
-| Source control | Runtime-only source weights demote zero-yield and near-zero-yield catalogs into the 5-10% probation budget; catalog YAML is never auto-edited |
-| Diagnostics | `grow_monitor.py`, structured refresh JSON, candidate audit samples, source-grow weights, and `source-grow-audit.py` expose failure causes |
-| Regional content yield | Popular South-Indian regional lists added to `movies-india-trending`; MediaFusion India-regional trial kit added; `india-regional-yield.sh` probe bash-parsing bug fixed |
-
-**Known hardening gap:** the pipeline is wired correctly enough for targeted repair and benchmark iteration, but sustained unattended full `+20` target completion is still blocked by source yield on thin rails. On 2026-06-25, an earlier Pi grow published `+280` unique verified titles. The scheduled 03:00 nightly later staged `+3` stale re-verifications but was aborted with rc `143`, so the work DB was discarded and the live DB stayed at `1054` unique verified titles with `0` orphans. Source audits still show the hardest thin rails are `series-reality-casual` and `series-india-picks`; their samples are mostly no-stream, duplicate-heavy, unresolved-ID, or theme-rejected. See [PLAYABILITY.md](PLAYABILITY.md), [LIBRARY-GROWER-OPS.md](../scripts/m3-play/playability/LIBRARY-GROWER-OPS.md), and [catalog-rail-curation.md](../config/catalog-rail-curation.md).
-
----
-
-## M4 — Addons
-
-| Service | Port | Role |
-|---------|------|------|
-| AIOStreams | `:3035` | Stream aggregate · dedup · debrid |
-| AIOMetadata | `:3036` | mdblist + regional catalogs |
-| catalog-service | `:3020` | Stremio graph · rails · play |
-
-**Gate:** `bash scripts/m4-addons/gate-m4-self-hosted.sh` · Setup: [reference/addon-stack.md](reference/addon-stack.md)
-
----
-
-## Live TV (opt-in)
-
-NexoTV Docker · sport rails · stale non-empty cache fallback · health-only
-diagnostics · mpv `--live` · excluded from gate-lite. [LIVE_TV.md](LIVE_TV.md)
-
----
-
-## M5 — Voice + AI
-
-### Voice librarian ✓
-
-Phone PTT or text → Hinglish STT (voice only) → LLM tools → **open detail on TV**. User presses **B** to play. Replies are **text-only** on the phone (no TTS, no speaking-state lock).
-
-| Route | Purpose |
-|-------|---------|
-| `GET /voice/tools` | Tool manifest |
-| `GET /voice/search?q=` | Verified movies/series **+ full live IPTV catalog** (AREA69, free, news, cartoons) |
-| `GET /voice/library` | Browse verified list |
-| `GET /voice/search/external?q=` | Cinemeta fallback |
-| `GET /voice/ai/context` | Tab · open title · now playing (companion mirror) |
-| `POST /voice/library/notes` | Librarian taste notes |
-
-Tools: `mango_search` · `mango_open_title` · `mango_youtube_search` · `mango_open_youtube` · `mango_navigate` · AI catalog CRUD · save/unsave · profile/memory — **no `mango_play`**.
-
-**Gate:** `bash scripts/m5-voice/ai/gate-m5-voice.sh` · `bash scripts/m5-voice/ai/gate-m5-companion-couch.sh`
-
-### AI layer Phases 0–3 ✓
-
-| Phase | Shipped |
-|-------|---------|
-| 0 — Spine | Tab-agnostic AI-rail engine · `GET /ai/context` |
-| 1 — YouTube AI | Custom YT rails · recommender steering · voice YT tools |
-| 2 — Live AI | Live adapter · channel search/open · now-playing flag |
-| 3 — Companion | Text `chat_send` · rich mirror · HUD tool cards · safety corpus · chat-first phone UI |
-
-Detail: [AI_LAYER.md](AI_LAYER.md)
-
-### Phase 3 companion (2026-07) ✓
-
-| Area | Implementation |
-|------|----------------|
-| Text input | Orchestrator `chat_send` · shared `run_agent_turn` · companion composer (Enter send, 500 char max) |
-| Phone UX | Chat-first layout · collapsible YouTube / On TV drawers · bottom composer + PTT |
-| Mirror | Polls `/ai/context` + launcher WS for tab, open title, playing, tool status |
-| TV HUD | Tool action line on launcher voice card |
-| Replies | Text bubble only — idle immediately after reply (no Piper, no composer block on "speaking") |
-| Live search | `mango_search` queries full NexoTV catalog (~600+ channels), not just curated live rails |
-| Persona | Concierge-curator tone via `MANGO_COMPANION_DIR` · live-TV tool policy in persona |
-| Safety | EN + Hinglish corpus · `gate-m5-companion-couch.sh` |
-
-### AI catalog slots ✓
-
-Max **3 slots per tab** (movies · series · youtube · live) · voice CRUD + overflow.
-
-**Gate:** `bash scripts/m5-voice/ai/gate-m5-ai-catalogs.sh`
-
-### Living librarian ✓ (2026-07-05)
-
-Profile · journal · conversation policy · reflection · gardener · nightly consolidate.
-
-| Area | Implementation |
-|------|----------------|
-| Watch signals | `watch-signals.ts` — mpv progress → journal `play_started` / `play_completed` / `play_abandoned` |
-| Familiarity | First `play_completed` per `content_key` bumps `completed_watches`; stage reapplied; compiled notes rewritten |
-| Journal hygiene | `rollUpJournalEvents(90)` in nightly rule phase — summary event + prune raw events older than 90 days |
-| Notes path | GET `/voice/library/notes` prefers compiled notes; nightly LLM addendum POSTs `/voice/companion/session-notes` |
-| Gates | `gate-m5-companion-memory.sh` — 22 unit tests incl. watch-signals + journal rollup |
-
-**Pi evidence:** commit `8eeb239` — companion-memory 22/22 · catalog 163/163 · ux-smoke 9/9.
-
-### M5.5 — Companion UX split ◐
-
-| Track | Status |
-|-------|--------|
-| **M5.5a** safety contract | Corpus + automated gate shipped · full LLM integration opt-in (`MANGO_VOICE_LLM_INTEGRATION=1`) |
-| **M5.5b** polish | **Round code shipped** — structured pick cards · HUD 12s dismiss · couch-safe errors · companion-couch in gate-lite · manual V1–V12 pending |
-
-Round scope: [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md) · [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md)
-
-Full detail: [VOICE.md](VOICE.md)
-
----
-
-## M6.1 — Mango-owned library core ✓
-
-Mango now owns durable local user-library state. Stremio remains an addon
-protocol/manifest graph only; there is no Stremio user-library sync or write-back.
-
-| Area | Current implementation |
-|------|------------------------|
-| Storage | `/etc/mango/library.db` SQLite with WAL, migrations, source-aware item keys, and dormant hidden/blocked fields |
-| Saved | Explicit only; detail Save/Unsave writes `saved_items`; playback never auto-saves |
-| Migration | Existing `~/.config/mango/user-pins.json` imports once into Saved; `/pins` remains a compatibility wrapper over Saved |
-| Rails | Continue remains profile-exact `progress.db`; Saved appears immediately after Continue and before discovery rails when non-empty |
-| History | mpv progress writes and live play starts mirror into indefinite library history; VOD finished uses the existing 90% cutoff |
-| Voice | `mango_save_title` and `mango_unsave_title` support current context, exact type/id, or exact resolved title; they never start playback |
-| Library context | Launcher publishes current detail context to catalog-service for voice Save/Unsave; librarian context reads Saved/history only |
-| Backup | `mango-stack.sh stop/restart` runs WAL-safe backups of `progress.db` and `library.db`; operators can also run `scripts/m6-ship/backup-library-state.sh` |
-| AI catalogs | Overflow is replace/merge only; AI automation cannot write to Saved |
-| YouTube readiness | Schema is source-aware and is used by M6.2 native YouTube; M6.1 itself added no YouTube behavior |
-
-Primary routes: `GET /library/state`, `GET/POST/DELETE /library/saved`,
-`GET /library/history`, `GET/POST/DELETE /library/context`, plus Saved-backed
-`GET/POST/DELETE /pins` compatibility.
-
-### Fire & Water ratings / For You — Story Graph v2 local; promotion/Pi/couch proof deferred
-
-| Area | Current implementation |
-|------|------------------------|
-| Durable state | Non-destructive `library.db` migrations add ratings plus versioned StoryDNA, ontology, taste-thread, rank-generation/item, active/previous-generation, cached-slate, and refresh-job state without rewriting v4 snapshots; profile rows and exact Continue/resume remain preserved |
-| Migration safety | One guarded online SQLite backup before v4; all pending `library.db` schemas, backfills, and version markers commit in one immediate transaction and roll back together on failure; DB/history/cache are never deleted or recreated |
-| Household identity | Profile and mood controls leave recommendation UI/ranking/cache/generation/attribution. Existing personal data stays dormant and recoverable; non-Household create/activate and non-null mood writes return typed `household_only` in v2 serve mode |
-| Rating UI | Detail Rate/Edit Rating plus compact chips; Fire uses five flame emoji and Water five wave emoji, with saturated fill, gray remainder, and clipped half marks matching the household reference |
-| Controller | B enters/confirms adjustment and saves; arrows move/change exact half-steps; Y cancels; contextual X confirms clear; existing pad ownership/bindings are unchanged |
-| Prompts | Household movie at 90% natural completion; series after three distinct completed episodes, with a season-finale event hook; invitation never steals focus |
-| Content model | Strict `story-dna-v1` profiles retain evidence/provenance and feed a controlled ontology graph. The Companion model is a stateless content teacher only and never receives Household/companion state or owns scores/ranks/publication |
-| Ranking | Deterministic uncertainty-aware graph posteriors fit up to three positive Household taste threads. Fire/Water dominates; ≤2.5 creates no thematic penalty. Saved and meaningful viewing support cold start; exact anchors remain ineligible |
-| Corpus | Deterministic pagination covers every verified movie/show with auditable exclusions. Publish starts at 200 eligible profiles and the reserve grows toward `scored + excluded == verified`, retaining active and prior complete generations |
-| Dealer | Six strongest supported fits allocate `2/2/2`, `3/3`, or six across threads and avoid four prior slates when supply permits. No cosine/KNN/MMR, close/adjacent/surprise bucket, bridge, or cooled rewatch; prior valid slate remains if healing fails |
-| Attribution | Opaque server token binds immutable served owner/domain/rail/revision/membership/context and stale actions return 409. Public cards carry only the content identity required to act; the TV never renders raw IDs, scores, prompts, tags, URLs, or credentials |
-| Read coherence | V2 recommendation reads carry Household plus captured source/generation revisions and fail stale/tampered actions with 409; preserved legacy library/Continue ownership remains intact |
-| Detail action coherence | Rating/prompt, Save/Unsave, exact Not-for-me/Undo, current context, playback acceptance/return, and next-episode reads use immutable captured context; client labels never count a play |
-| Rail placement | Continue → Saved → For You → user AI catalogs → curated discovery; For You does not consume a user AI slot |
-| Refresh/API | Writes commit and exact known items evict first; serialized/coalesced workers rescore then complete the corpus scan. Manual refresh returns HTTP 202 with job ID, captured revisions, and reasons; X performs cached serving only |
-| Diagnostics | `/recommendations/state` exposes StoryDNA/ontology/model/taste/corpus revisions, coverage/failures/cursor, thread count, reserve/exclusions, uncertainty, jobs, stale/last-good state, and offline evaluation without leaking scores to card payloads |
-| Nightly | After playability growth, refresh changed StoryDNA, watch decay, taste threads, rank coverage, and retry backlog without overlapping foreground playback/grow |
-| Flags | `MANGO_VOD_RECS_V2=off|shadow|serve` is independent from YouTube v2; legacy v4 remains usable during shadow/rollback |
-| Deferred | Real StoryDNA backfill, frozen five-fold offline promotion gate, full-corpus runtime accounting, deployment, Pi latency/restart/offline proof, screenshots, and human couch quality verdict remain **DEFERRED** |
-
-Detail and home runbook: [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
-
----
-
-## M6.2 — Native YouTube base ✓; Recommendations v2 source complete
-
-The native YouTube base was previously deployed and Pi-gated. The current v2
-acquisition, Takeout, rail allocator, and generation source is complete; real
-import/backfill, current deployment, Pi diagnostics, screenshots, and TV
-behavior are **DEFERRED**. See
-[YOUTUBE.md](YOUTUBE.md).
-
-Latest Pi evidence as of 2026-07-01: commit `b74bc6b` passed `pi-deploy --fast --gate`,
-`scripts/m6-ship/gate-m6-youtube-smoke.sh`, and a direct Popular rail probe
-under the superseded nine-card contract. It is not proof for the current
-v2 rail/provenance contract.
-
-| Area | Current implementation |
-|------|------------------------|
-| Storage | `/etc/mango/youtube.db` rebuildable SQLite cache with authoritative subscription generations, explicit provenance, published rail generations, refresh/quota state, and OAuth auth sessions |
-| User state | `/etc/mango/library.db` durable Household Saved, normalized Takeout/Mango-local history, current context, exact Not-for-me, import batches, and events; personal rows remain dormant/recoverable |
-| Config | `/etc/mango/youtube-api.key`, `/etc/mango/youtube-oauth-client.json`, `/etc/mango/youtube-auth.json`, optional cookies; examples only in repo |
-| Auth | Companion starts/polls Google device-code OAuth and disconnects local token; token file is written `0600` |
-| API | Localhost-only operator `/youtube/state` + auth/Takeout import; field-minimized `/youtube/companion/*` through HTTPS; published rails, impressions, grouped Search with cached fallback, detail, exact reversible Not-for-me, play |
-| Rails | Equal core order For You → Beyond Your Subscriptions → More Like … → History → Saved; then conditional From Your Subscriptions and Live Now. Normal rows contain four globally unique cards; Live Now may contain one to four |
-| Inputs/provenance | Only successful authoritative subscription snapshots and qualifying Takeout/Mango-local history affect acquisition/ranking. Candidate provenance is exactly subscription upload/live or history channel/topic; generic cache, Search, Saved, profiles, mood, VOD, companion, AI catalogs, and charts cannot leak in |
-| Refresh/quota | Nightly/manual phases publish complete generations atomically and preserve last-good on failure. Triggered acquisition coalesces for 15 minutes and caps Search calls at five; nightly Beyond/More Like/live probes cap at 8/4/8 while preserving interactive reserves |
-| Launcher | X advances only cached recommendation/discovery/subscription/live slates while History/Saved remain stable; Home/X use no network, quota, acquisition, or ranking. Exact Not-for-me is reversible and never becomes a creator/topic penalty |
-| Ranking | For You blends decayed history/subscriptions 60/40 and renormalizes cold starts; Beyond excludes subscribed creators; More Like uses a daily-stable recent meaningful-watch seed; Saved has zero recommendation weight; history uses a 90-day half-life |
-| Takeout | Reliability Center/API/CLI are locally wired for ZIP/JSON/HTML; local tests cover file-backed streaming, path safety, idempotency, bounded parsing, and raw-temp cleanup. Real-account import, asynchronous metadata completion, restart durability, and Pi behavior remain unproved promotion gates |
-| Diagnostics | `/youtube/state` reports subscription/history/candidate generations, provenance/rail counts, quota, phase failures, stale last-good state, and Takeout batch status; none is rendered as card explanation |
-| Playback | Mango wrapper `scripts/m6-ship/youtube-yt-dlp.sh` resolves video/audio URLs with fallback format selectors; deploy refreshes an isolated user `yt-dlp` venv; mpv plays them and writes local history/progress as YouTube source |
-| Voice | `mango_youtube_search` and `mango_open_youtube`; Save/Unsave supports current/exact YouTube video; no voice playback and no recommendation profile/mood steering |
-| Fallback | Legacy Kodi YouTube is emergency-only with `MANGO_LEGACY_YOUTUBE=1` |
-| Flag | `MANGO_YOUTUBE_RECS_V2=off|shadow|serve`, independent from VOD; legacy generations remain for shadow/rollback |
-
-Gates:
-
-```bash
-cd src/catalog-service && npm run test:gate
-cd src/catalog-service && npm test
-cd src/launcher && npm run build
-cd src/companion && npm run build
-PYTHONPATH=src/orchestrator python3 -m unittest discover -s src/orchestrator/tests
-bash scripts/m6-ship/gate-m6-youtube-smoke.sh
-MANGO_YOUTUBE_PLAY=1 bash scripts/m6-ship/gate-m6-youtube-smoke.sh
+**Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
+
+Last exhaustive committed-source audit: **2026-08-04**, branch/origin
+`345535d883805bbfc21bb277b62adbb33ccb96cb`. It is source truth, not
+Pi/deployment/couch truth. Use `git status`, `git rev-parse HEAD`, and the Pi
+commands below before acting.
+
+## How to read this page
+
+| Evidence | What it proves |
+|----------|----------------|
+| Source-complete | Code/configuration exists at the audited source revision |
+| Local-pass | Named tests/builds passed on that revision and machine |
+| Pi-deployed | Pi was observed at an exact Git SHA and feature mode |
+| Pi-gated | Named automated runtime checks passed on that exact deployment |
+| Couch-observed | A human observed the physical TV/controller/audio behavior |
+| Deferred | The named evidence does not exist yet or belongs to an older contract/SHA |
+
+Green in Reliability Center means that the sampled runtime was healthy at that
+moment. It is not a permanent product certification. Historical task reports
+prove only their exact revision and contract.
+
+## Executive status
+
+| Area | Source | Latest recorded runtime/proof | Remaining |
+|------|--------|-------------------------------|-----------|
+| Native launcher, Detail, Search, D-pad | Complete | Deployed and repeatedly Pi-gated on earlier revisions; later UX rounds have partial couch evidence | Final exact-revision whole-product couch pass |
+| Native mpv playback | Complete | Deferred-foreground and single-B playback were proven on selected titles on earlier revisions | Current-SHA regression matrix, failure cases, target-TV/audio proof, legacy direct-MediaFusion topology decision |
+| HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
+| Mango library and Fire/Water input | Complete | Library/ratings base deployed; earlier Fire/Water UI was couch-tuned under a superseded 12-card recommender | Recommendation-v2 served quality and current six-card acceptance |
+| VOD recommendations | `345535d` latest-only progressive profiles + Household Story Frontier; prior v4/strict execution paths removed, data preserved | Latest recorded Pi mode predates it: `shadow` with a partial predecessor corpus | Safe exact-SHA deploy, complete accounting, offline promotion, serve, couch verdict |
+| Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
+| YouTube recommendations | `345535d` latest-only authoritative subscription/history v2; legacy acquisition/ranking removed, data preserved | Latest recorded Pi mode predates this contract and was `off` | Authoritative input refresh, shadow/serve, quota/provenance and couch proof |
+| Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
+| Reliability Center/nightly proof | Implemented with a known optional-Live defect | Deployed on earlier revisions | Current-SHA proof, make intentionally disabled Live neutral, controller-action UI mismatch, repeated unattended evidence |
+| Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
+| Display sleep | **Not implemented** | Recorded Pi still exposed accidental Xorg 600-second DPMS values | Implement locked Settings/idle/mpv/DPMS/CEC contract and prove on TV |
+| Library grow | Complete, hardening | Large verified corpus exists; older successful/aborted runs are recorded | Repeated unattended publishability and thin-rail source yield |
+| 4K SDR / HDR | 4K SDR path implemented; native HDR unsupported | Older experiment proved smooth source-matched 4K SDR HEVC; HDR/X11 was not usable | Final-TV SDR/audio matrix; either credible HDR integration or explicit no-HDR ship boundary |
+| Deployment | Git-only contract; current wrappers unsafe for unattended agents | Older deployments exist | Enforce/pin branch+SHA, fail closed on fetch, remove/default-disable and harden implicit AIOMetadata mutation |
+| First boot | Not implemented | Operator-installed system | M6.4 no-SSH installer/wizard |
+
+## Recorded source and Pi baseline
+
+### Source audit
+
+- Branch and origin are exactly `345535d`. That commit makes recommendation
+  execution latest-only while preserving historical database rows and schemas.
+- VOD retains deterministic `vod-content-profile-v2`, compatible immutable
+  StoryDNA overlays, local Household taste/ranking, full-corpus generations,
+  cached six-card slates, optional exact-ID TMDB, and an opt-in bounded frontier.
+  It removes semantic-hash v4, cosine/KNN/MMR, the legacy rank worker/snapshot
+  fallback, strict complete-StoryDNA publication, corpus-wide teacher backfill,
+  and the old comparison evaluator.
+- YouTube retains only authoritative subscription/history acquisition,
+  provenance-gated atomic v2 generations, and cached recommendation rails. It
+  removes Popular, Fresh Finds, Because You Watched, profile/mood/companion
+  scoring, generic reservoirs, AI Home rails, chart/legacy-live acquisition,
+  and destructive fresh-start/reset APIs. Search and user-created AI catalog
+  seeds remain separate and cannot establish recommendation provenance.
+- The catalog-service build and full test suite pass locally at this revision;
+  exact final evidence is recorded in the documentation-audit handoff. The
+  cleanup intentionally removed a large legacy implementation/test surface, so
+  Pi migration/state-preservation proof, mode-aware gates, generated reserve
+  health, and human quality remain mandatory rather than inferred from test
+  count alone.
+- Migrations 15–16 retain the additive progressive/overlay schema, and
+  playability migration 14 remains. Focused runtime proof is still needed for
+  upgrade/preservation/rollback, frontier lease/retry/rolling-window/
+  coalescing/concurrency/restart behavior, TMDB failure/rate/credential/series
+  cases, and exact Pi activation/staleness behavior.
+- One orphaned compatibility surface remains outside the catalog recommender:
+  the orchestrator still exposes `/recommendations/enrich`, although the
+  latest catalog architecture no longer consumes the legacy v4 enrichment
+  path. Treat removal or repurposing as cleanup work; do not expose it as a
+  supported product recommendation architecture.
+
+### Confirmed source inconsistencies and blockers
+
+- **Deploy is not fail-closed.** `pi-deploy.sh` and `pi-exec-gate.sh` derive the
+  Pi branch from the Mac checkout rather than enforcing
+  `feat/native-experience`; the deploy prefetch may fail open, and both helpers
+  pull an unpinned branch. `pi-deploy.sh` also unconditionally invokes
+  `sync-aiometadata-rail-catalogs.sh || true`. With a live service and private
+  import that can POST configuration, rewrite AIOMetadata credentials/export,
+  print a secret install URL, leave `/tmp/aiometadata-save.json`, and mask a
+  failure. The local skip variable is not forwarded. Both wrappers are blocked
+  for unattended agents until fixed and regression-tested.
+- **Playability status under-reports committed migration state.** Current source
+  inserts playability migration `14`, but `SCHEMA_VERSION` and
+  `/playability/status.schema_version` remain `13`. Querying the migration table
+  can diagnose this, but the API marker is not migration-14 proof.
+- **Routine state backup is not fail-closed.**
+  `scripts/m6-ship/backup-library-state.sh` prefers SQLite's online backup API,
+  but on `DatabaseError` falls back to `shutil.copy2` of the main file, which can
+  omit live WAL state. It also does not back up `playability.db`. Do not use the
+  helper alone as migration proof; successor rollouts require explicit online
+  backups and verification of both library and playability databases until the
+  helper is hardened and tested.
+- **Optional Live currently poisons overall reliability.** Product policy makes
+  Live optional and excludes it from default gates, but the Reliability model
+  marks `live_config_ready=false` red and folds that component into overall red.
+  There is no intentionally-disabled-Live regression test. Until fixed, a
+  Live-off box can be falsely reported as not couch-ready.
+- **Resolver DTO sanitization is incomplete.** URL-less nested AIO error rows are
+  now normalized into credential-free category placeholders before URL
+  validation, so they participate in retry/backoff accounting. However, loopback
+  `/stream` diagnostics can still expose raw addon fetch error details even
+  though the launcher does not render them and the companion proxy blocks the
+  route. Treat those DTOs as operator-only; sanitize them before widening access.
+- **YouTube `off` ownership is inconsistent for non-Household profiles.** The
+  latest rails service always returns Household ownership, while the HTTP route
+  expects the active personal profile when YouTube recommendations are `off`.
+  A non-Household active profile can therefore receive HTTP 409 instead of the
+  intended History/Saved utility rails. Fix the owner or route contract and add
+  focused `off|shadow|serve` HTTP tests before treating `off` as a proven safe
+  rollback. This also blocks recommendation deployment/promotion.
+- **VOD shadow is not side-effect-free and differs from serve.** Shadow switches
+  profile/mood policy, Continue/progress, and recommendation signals to
+  Household while hiding For You; Saved is blended across profiles in shadow
+  but exact-Household in serve. The launcher also exposes Shuffle and reports
+  success in off/shadow although no For You slate changes. Reconcile these
+  contracts and add focused mode/identity/UX tests before rollout.
+- **Recommendation diagnostics do not prove the live generation.** The state
+  DTO reports the newest rank row; `mode_ready` means a row exists,
+  `last_good_publication` is that row's timestamp, and
+  `teacher_model_version` is the StoryDNA teacher—not the active rank model.
+  The top-level `recommendation_owner` is also hard-coded to Household even in
+  VOD off.
+  Add active/previous IDs and public epoch/promotion evidence, or use private
+  DB-pointer proof during rollout.
+- **The current VOD promotion gate is only an absolute minimum.** It requires
+  at least 15 eligible ratings/five folds, non-null nDCG, per-axis concordance
+  at least 0.5 only where that axis has measurable pairs, low-low intrusion at
+  most one third, complete
+  accounting, deterministic replay, and cached p95 at most 250 ms. It has no
+  accepted-baseline uplift/CI, reserve/calibration/teacher-cost, or worker-
+  latency threshold. Treat `promotion_eligible` as safety evidence, not a
+  world-class quality verdict.
+
+### Latest repository-recorded recommendation runtime snapshot
+
+The newest home handoff records the Pi at `20d10fc` with:
+
+```text
+MANGO_VOD_RECS_V2=shadow
+MANGO_YOUTUBE_RECS_V2=off
+MANGO_STORY_DNA_AUTONOMOUS_BACKFILL=0
 ```
 
-The default YouTube smoke verifies state, rails, configured `yt-dlp`, API-backed search/detail when an API key is present, and skips playback unless `MANGO_YOUTUBE_PLAY=1`.
+It records approximately 1,096 StoryDNA feature rows, a latest StoryDNA
+generation `complete_count` of roughly 545 movies and 439 series, and verified
+corpora around 5,452 movies and 3,794–3,904 series. Rank coverage was still
+partial. These are a dated predecessor-architecture diagnostic snapshot, not a
+live assertion and not evidence of what `345535d` would serve. The
+one-title-at-a-time model backfill was stopped because it was too slow/costly.
+No offline bulk artifact/importer exists at committed `HEAD`. Current source
+compiles factual profiles locally for the whole verified corpus and optionally
+enriches only a bounded frontier. Decide from measured coverage and quality
+whether a future offline importer is justified; it is not a rollout prerequisite.
 
----
+### Older objective playback/runtime evidence
 
-## Reliability Center / nightly proof ✓
+- A historical home report passed gate-lite and 877 catalog tests, verified
+  AIOStreams as the only configured **exported** VOD provider, and played the
+  exact Alliance episode on one press on its recorded SHA. It did not prove the
+  Pi-local direct MediaFusion trigger absent.
+- A later full-couch report recorded The Internet's Own Boy starting in one
+  attempt with roughly 5.9 s resolver TTFF and 11.8 s B-to-ready on that run,
+  without the previously seen black → Detail → late-play sequence.
+- Those reports also left full-gate, current recommendation v2, display sleep,
+  physical controller cycles, target-TV quality/audio, and broad subjective UX
+  proof open. They must not be promoted to current-HEAD verdicts.
 
-Reliability Center is the operator-facing proof surface in Settings and
-catalog-service. It records whether Mango is ready for couch use and whether the
-last unattended refresh proved the stack.
+See [tasks/RECOMMENDATIONS_HOME_PI_REPORT.md](tasks/RECOMMENDATIONS_HOME_PI_REPORT.md),
+[tasks/FULL_COUCH_UX_HOME_ACCEPTANCE_REPORT.md](tasks/FULL_COUCH_UX_HOME_ACCEPTANCE_REPORT.md),
+and [tasks/RECOMMENDATIONS_STORYDNA_BULK_WORK_AGENT_PROMPT.md](tasks/RECOMMENDATIONS_STORYDNA_BULK_WORK_AGENT_PROMPT.md).
 
-| Area | Current implementation |
-|------|------------------------|
-| API | `/reliability/state`, `/reliability/proofs`, controller state/repair, proof run, safe repair, stack restart, refresh run |
-| UI | Settings shows Green/Yellow/Red summary, component cards, safe actions, and the local v2 Google Takeout history importer; home only shows a quiet Settings badge when degraded |
-| Proof ledger | `/etc/mango/reliability/proofs.jsonl`, local-only, 30-day retention |
-| Nightly chain | `nightly-library-refresh.sh` runs movie/TV, then YouTube independently, then records reliability proof with branch return codes |
-| Repair | Delegates to `mango-health-repair.sh --quiet`; no DB rebuilds, cache clears, or destructive repairs |
-| Gate | `scripts/m6-ship/gate-m6-reliability-proof.sh` fails red, warns yellow |
-| Controller | `mango-controller-link` owns BlueZ reconnect; `mango-tv-pad` owns evdev only; Pi install/couch proof pending home-agent handoff |
+## Runtime stack
 
-Detail: [RELIABILITY.md](RELIABILITY.md).
+```text
+Raspberry Pi OS Desktop · X11/Openbox · launcher fixed at 1920x1080@60
+├── Chromium kiosk / mango-ui-server       :3000
+├── catalog-service                         :3020
+│   ├── library/progress/playability/YouTube state
+│   ├── Search, Detail, streams, play sessions
+│   └── Reliability Center and recommendation jobs
+├── AIOStreams                              :3035
+├── AIOMetadata                             :3036
+├── mpv + IPC                               foreground player
+├── mango-tv-pad.py                         launcher/player input owner
+├── orchestrator (optional voice)           WSS :8765
+├── launcher voice HUD (loopback)           :8766
+├── companion HTTPS PWA (optional voice)    LAN :3001
+└── NexoTV (optional Live)                  :7000/:7001 family
+```
 
----
+The supported daily foregrounds are launcher and mpv. Kodi/Stremio artifacts
+remain in legacy scripts, diagnostics, configuration, and research, but there
+is no current executable automatic fallback path that should be promised to a
+viewer. Idle health expects neither to be running.
 
-## M6 hardening — Efficiency & performance (Tiers 1-4) ✓
+## Browse and Search
 
-A repo-wide efficiency audit shipped and is Pi-proven across four tiers: DB/cache
-overhead, perceived input/render latency, voice idle cost, and resource-guard
-safety.
+| Feature | Current implementation |
+|---------|------------------------|
+| Surfaces | Search magnifier, Movies, TV Shows, Live, YouTube |
+| Layout | Normal VOD rails use six posters; normal YouTube/landscape rails use four cards |
+| Input | L/R change tabs; B selects; Y backs out; X is owned by the visible context |
+| Home X | Advances only the current published recommendation/discovery slate; Continue, Saved, YouTube History, and YouTube Saved stay stable |
+| Search X | Tap deletes one character; hold at least 600 ms clears |
+| Search execution | Immediate local/cached results plus isolated explicit external VOD, unknown Live, YouTube, and optional structured-AI phases |
+| Search persistence | Recents/selection/SafeSearch in `library.db`; YouTube query cache in `youtube.db`; bounded jobs in memory |
+| Restoration | A versioned compact snapshot restores Search/Home, focus, and origin after Detail/playback |
 
-| Tier | Focus | Current implementation |
-|------|-------|-------------------------|
-| 1 — Efficiency | DB + cache overhead | Playability DB is a singleton; YouTube rails have a TTL cache; nightly WAL checkpoint script (`checkpoint-wal-dbs.sh`) |
-| 2 — Perceived latency | Input/render feel | D-pad input resolves in a single window with caching in `mango-tv-pad.py`; launcher reuses per-tab DOM instead of full rebuilds; UI server serves HTTP/1.1 keep-alive with static asset caching |
-| 3 — Idle cost | Voice command delivery | Fixed 150 ms HTTP poll replaced with an HTTP long-poll (`threading.Condition` in `serve.py`, `AbortController` on the frontend); idle load dropped from ~6.7 req/s to ~0.04 req/s |
-| 4 — Resource guards & safety | Contention protection | Memory cgroup v2 controller enabled at boot (`cgroup_enable=memory` in `cmdline.txt`); systemd `MemoryMax`/`MemoryHigh`/`TasksMax` for `mango-launcher-chromium` (1536M/2048M) and `mango-catalog` (768M/1280M); `CPUWeight=60` on catalog so foreground UI wins under contention |
+Search does not autoplay, impersonate a chatbot, introduce a fifth browse tab,
+or let a failed external phase erase usable local results. Detail:
+[SEARCH.md](SEARCH.md).
 
----
+## Playback and stream ladder
 
-## D-pad browse latency (Tiers A–C) ✓
+| Area | Current contract |
+|------|------------------|
+| Player | `pi5-x11-mpv-hifi`; mpv is the only supported daily player |
+| Start | Idempotent asynchronous play session; accepted before foreground work |
+| Resolve | Coalesced exact-title/episode single flight with a shared absolute deadline |
+| Clean-empty recovery | Source/release defaults are initial automatic Movie/Episode Play plus two 1.2 s confirmation passes in the same exact-ID flight/deadline. Runtime knobs permit 0–3 attempts and 0–10 s for explicit rollback/experiments; record the loaded values |
+| No resolve confirmation | Detail list, Live, picker refresh, 429, auth/configuration, permanent provider error, cancellation, invalidated work, expired deadline, or sibling episode |
+| Stale cached transport | Auto play may invalidate a cached stream pool and perform one fresh resolve inside the same deadline when candidate errors classify as stale transport and at least 5 s remains |
+| Candidate ladder | Candidate-local probe/launch failures fall through the bounded ladder; pipeline-fatal errors stop. This is distinct from provider resolve confirmation |
+| Candidate policy | Capability/identity tiers are lexicographic; known-risky cannot outrank identity-safe smooth/unknown paths through cache or scalar bonuses |
+| Foreground | Resolve and probe are display-neutral; launcher hides only after advancing media is proven |
+| Failure | Original launcher/Detail remains authoritative; stale cleanup cannot stop a newer generation |
+| Progress | One logical watch/progress session through retry, switch, Undo, and return |
+| HUD | Clean startup; safe-area cinematic panel; elapsed/negative remaining; proven technical line; 4/6 s contextual feedback; minimal paused badge; delayed buffering; no false Live timeline |
+| Streams | Five-choice 58%-height bottom drawer; current pinned first; best usable alternative focused; unavailable disabled; validation before explicit switch; revisioned X Undo |
 
-A three-tier pass cut launcher D-pad input-to-photon latency on the browse path.
+### Resolver topology
 
-| Tier | Focus | Current implementation |
-|------|-------|------------------------|
-| A — Pad hot path | Cut per-press work | `get_launcher_wid()` cache (2s TTL); stop invalidating foreground cache on every evdev event; fast launcher key (`activate=False` when launcher focused); `write_status` only on heartbeat/state transitions; `DPAD_DEBOUNCE_SEC=0.05` vs `0.12` for face buttons; removed `ensure-launcher` from display-wake |
-| B — Periodic lag + launcher feel | Kill the ~every-4th-click spike | Async/throttled couch-activity (`popen`, 0.5s throttle); display wake = inline `xset` only from pad (no present-launcher on D-pad); launcher foreground cache TTL → 2s; `send_key_launcher(symbol, app=app)`; `logPerf` off by default; O(1) focus class toggle; instant focus-ring CSS (`--dur-focus-in/out: 0ms`) |
-| C — GPU rasterization + pad-nav API | Snappier repaints + direct focus | Pi 5 Chromium GPU rasterization on by default (`--enable-gpu-rasterization --ignore-gpu-blocklist --enable-zero-copy`, `MANGO_CHROMIUM_DISABLE_GPU=0`); pad → launcher focus API is default-on (`MANGO_PAD_NAV_API=1`) — leased launcher consumer long-polls `/api/pad/nav`, drops stale movement, escapes a stalled rAF after 50 ms, and triggers a state-preserving Chromium-only restart after 3 s without input progress |
+AIOStreams is intended to be the sole **stream-capable VOD aggregate/path** in
+Mango's exported addon graph. The full graph also includes Cinemeta,
+AIOMetadata, Bharat Binge, and optional Live addons for their catalog, metadata,
+or Live roles.
+Torrentio, Comet, and optional MediaFusion are intended to be indexers behind
+AIOStreams; Real-Debrid, TorBox, and Easynews are configured transports/services
+behind it. The current catalog-service nevertheless retains an optional legacy
+direct MediaFusion thin-pool supplement: when AIO returns at most one cacheable
+stream and `MANGO_MEDIAFUSION_MANIFEST` or
+`~/.config/mango/mediafusion.manifest` resolves to a URL, it can perform one
+serial direct request (bounded to 8 s and the shared play deadline). A direct
+MediaFusion manifest in the exported graph suppresses that supplement.
 
----
+The latest reports proved no direct MediaFusion **exported addon**, but did not
+prove that the Pi-local secret-file trigger was absent. Therefore “AIO-only
+runtime fan-out” is **not yet proven**. The principled target is still one
+aggregate; hardening must either remove the bypass or explicitly feature-gate,
+diagnose, and accept its latency/security behavior.
 
-## M6.3 — target-TV playback (mpv-hifi) ◐
+Repository deployment deliberately does not overwrite AIOStreams `userData`.
+The current `aiostreams-config.sh diff/apply` implementation is a hardening gap:
+it exposes full state and `apply` leaves/prints fixed
+`/tmp/aiostreams-put.json`. Do not run it from an agent until private temp,
+cleanup, and redaction are implemented. Human Configure UI plus fixed-field
+`verify` is the interim boundary. AIOMetadata's headless import has the same
+class of unresolved issue: it leaves fixed `/tmp/aiometadata-save.json` and
+prints the secret manifest URL. Keep both mutation helpers out of agent and
+unattended flows until hardened; this is an operations-security blocker. The
+current `pi-deploy.sh` nevertheless calls the AIOMetadata rail sync implicitly,
+so the deploy wrapper itself is also blocked for unattended agents; Git-only is
+the intended transport contract, not proof that this implementation is safe.
 
-Mango ships a unified **mpv-only** couch playback path. Browse stays
-`1920x1080@60`; mpv source-matches the TV on play and `ensure-launcher` restores
-1080p browse on every stop/home/deploy path.
+The latest recorded home snapshot had Torrentio and Comet contributing,
+RD/TorBox/Easynews configured,
+and the MediaFusion preset present but disabled because its manifest returned
+404. That is a dated runtime finding, not a permanent configuration choice.
 
-| Area | Current implementation |
-|------|------------------------|
-| Stream policy (ship) | `config/catalog-filters.4k-hifi.example.json` — path capability first; compatible 4K SDR HEVC before 1080p; 4K HDR/DV and software 4K retained as final fallback |
-| Stream policy (baseline) | `config/catalog-filters.4k-hdr.example.json` — cached 4K HEVC, no REMUX |
-| Engine switch | `scripts/m6-ship/set-playback-engine.sh mpv\|mpv-hifi\|status` |
-| Runtime source of truth | `~/.config/mango/voice.env` written by `set-playback-engine.sh`; run `set-playback-engine.sh status` on the Pi before claiming the active profile. `mpv-hifi` is the intended ship profile, not a work-Mac assumption. |
-| Display/audio base | `scripts/m6-ship/apply-4k-hdr-profile.sh apply\|revert\|status` — launcher 1080p60, mpv 4K match, HDMI audio |
-| Decode/presentation | mpv `gpu` VO, `hwdec=auto-safe`, deferred foreground, launcher stopped during fullscreen, `xcompmgr` off |
-| Display enforcement | `mango-display-mode.sh ensure-launcher` on stack boot, home, present, stop, deploy, display-wake |
-| Playback OSD/input | Cinematic safe-area mpv Lua HUD with exact action feedback, minimal pause badge, delayed buffering, Live mode, and movie/series Streams drawer; pad → mpv IPC |
-| Playback lifecycle | Async, idempotent `/play-session` acceptance survives Chromium hide/restart; durable `ever_ready` suppresses false post-play errors; generation-scoped PID exit cleanup cannot stop a newer play |
-| Stream selection | Numeric episode markers are authoritative; full marker > bare marker > unmarked; path-scoped `proven_smooth`/`unknown`/`known_risky` tiers cannot be overridden by cache or scalar hints |
-| In-playback switching | **X** opens a URL-free five-choice bottom drawer; current first/best alternate focused/unavailable last; 8s cached/25s uncached validation; contextual X Undo; position/track restoration; original-source fallback; no auto-switching |
-| Evidence | `/etc/mango/playability.db` `stream_path_evidence`, keyed by release fingerprint + playback profile; signed URLs are never persisted |
-| Transport recovery | One bounded clean/transient-empty confirmation before VOD title exhaustion, plus one fresh resolve for stale cached VOD/YouTube links; no retry on provider error, cancellation, rate limit, malformed media, or deadline exhaustion; YouTube 429s enter a local cooldown |
-| 4K+audio smoothness | `--blend-subtitles=no` default (`MANGO_MPV_BLEND_SUBTITLES`); `yes` caused ~2.5 drops/s with audio on Pi 5 — Pi-proven 0 drops/s with eac3 4K |
-| Gates | `gate-m6-playback-ssot.sh` · `gate-m6-4k-hdr-profile.sh` · `gate-m6-stream-picker-source.sh` · `gate-m6-stream-picker-smoke.sh` · `playback-smoothness-probe.sh` |
+That same home report observed the separately exported Bharat Binge regional
+catalog manifest returning HTTP 403. The deploy helper ensures the repository
+URL is present; it does not prove the remote catalog healthy. Reverify it before
+counting regional supply, and keep its outage distinct from AIO stream health.
 
-4K stream quality is owned by catalog filters + mpv ladder — never by Chromium
-resolution.
+### Quality boundary
 
----
+The launcher always returns to 1080p60. Current hifi policy can prefer proven
+4K SDR HEVC/REMUX paths, keeps 4K HDR/DV out of main/verified tiers and behind
+smooth candidates in last resort, and retains smooth 1080p fallbacks when
+providers supply them. It does not output supported native HDR. Older target-TV measurements demonstrated a usable
+source-matched 4K SDR HEVC path, while X11/mpv HDR tone-mapping dropped too many
+frames to ship as HDR. A Kodi/GBM HDR experiment proved hardware/display
+feasibility but is parked because it is not integrated with Mango's HUD,
+controller, progress, lifecycle, and security contracts.
 
-## M6.5 — Unified TV/companion UX ◐
+Detail: [PLAYABILITY.md](PLAYABILITY.md) · [HARDWARE.md](HARDWARE.md).
 
-**Code shipped** in the M5.5b/M6.5 round (2026-07-05); **merge bar** is manual couch sign-off (COUCH_TEST U1–U9 + voice V1–V12).
+## Mango-owned state
 
-| Area | Shipped |
-|------|---------|
-| Detail navigation | 2D `FocusGrid` — actions L/R · episodes/streams U/D |
-| Voice HUD | Safe-area CSS (`env(safe-area-inset-*)`) · max-height cap · 12s wall-clock dismiss |
-| Companion picks | Numbered tappable rows · `pick_select` WS (no LLM round-trip) |
-| YouTube recommendations | Five ordered core plus two conditional provenance-gated rails, Takeout/Mango history, and cache-only X source is complete; current Pi/couch proof **DEFERRED** |
-| Automated gate | `gate-m6-ux-smoke.sh` in `pi-pre-couch-gate.sh` on `feat/native-experience` |
-| Unified Search | Full-bleed temporary magnifier surface with safe-area controls, local keyboard suggestions, progressively reconciled source-isolated rows, silent partial failures, neutral empty state, rail-local More tiles, origin-aware Detail/playback return without remount, coalesced restart-safe state, 12 recents, SafeSearch, query cache and split quota reserves |
+| Store | Ownership and durability |
+|-------|--------------------------|
+| `/etc/mango/library.db` | Durable Saved, history, finished, Fire/Water, feedback, attribution, current context, normalized YouTube history/import audit, recommendation state |
+| `/etc/mango/progress.db` | Durable profile-exact Continue/resume and playback position |
+| `/etc/mango/playability.db` | Durable verified-title/path evidence and rail pools; staged maintenance publishes atomically |
+| `/etc/mango/youtube.db` | Rebuildable metadata, reservoirs, published generations, query cache, quota and refresh state |
+| `/etc/mango/reliability/proofs.jsonl` | Local 30-day operator proof ledger |
 
-**Pi evidence:** commit `8eeb239` — ux-smoke 9/9 PASS.
+The latest VOD recommender is Household-only whenever active (`shadow` or
+`serve`). Existing personal-profile/mood rows remain durable and recoverable,
+but current ranking code does not read them. `off` disables VOD recommendations;
+it does not revive legacy ranking. Stremio export is addon-manifest
+configuration, not user-library sync.
 
-Spec: [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · Round: [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md)
+Never treat database deletion, cache/history clearing, or credential rewriting
+as routine deploy or repair.
 
-Search source of truth: [SEARCH.md](SEARCH.md). Automated proof:
-`gate-m6-search-smoke.sh` is diagnostic/cache-only and must not change search
-history, YouTube quota, or playback state.
+## Fire/Water and VOD recommendation v2
 
----
+| Mode | Public behavior |
+|------|-----------------|
+| `off` | VOD recommendations disabled; no For You rail and no latest-architecture refresh. Continue, Saved, and curated rails remain |
+| `shadow` | Build and diagnose only the latest Household Story Frontier; no For You rail is public |
+| `serve` | Expose only a promotion-eligible published Household Story Frontier generation. If none exists, For You is absent; there is no legacy fallback |
 
-## Open priorities
+The following table is the **serve contract**. The latest recorded Pi snapshot
+predates this latest-only implementation, so its visible rail is historical.
 
-Efficiency & performance audit (Tiers 1-4 — DB/cache efficiency, perceived latency, voice idle cost, resource guards) is shipped and Pi-proven; it is no longer an open item. Remaining priorities:
+| Area | V2 serve implementation |
+|------|-------------------------|
+| Rating | Fire and Water each require an exact 0–5 value in 0.5 steps; movies are title-level and series are show-level |
+| Identity | Household-only served experience; preserved personal data remains dormant |
+| Content model | Always `vod-content-profile-v2`: deterministic metadata/rule profiles plus immutable compatible StoryDNA overlays |
+| AI boundary | Stateless content teacher sees canonical title evidence only; no Household/companion state and no score/rank/publish authority |
+| Ranker | Deterministic local uncertainty-aware story graph with up to three positive taste threads |
+| Signals | Fire/Water dominates; Saved and meaningful viewing support sparse/cold start; ratings ≤2.5 do not create thematic negative propagation |
+| Eligibility | Current verified-playable, poster-bearing titles only; exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me are excluded |
+| Rail | One six-card For You rail per Movies/TV tab after Continue/Saved; allocation 6, 3+3, or 2+2+2 across active threads |
+| Removed behavior | No executable 4/1/1 buckets, forced surprise, bridge, semantic-hash v4, cosine/KNN/MMR, cooled rewatch lane, or strict-only publication path |
+| Serving | Atomic current/previous generations, cached slates, stale/tamper-safe opaque attribution, last-good fallback, cache-only X response with separately observable asynchronous low-water recovery |
+| Rollout | `MANGO_VOD_RECS_V2=off\|shadow\|serve`, independent of YouTube |
 
-| # | Item | Milestone |
-|---|------|-----------|
-| 1 | **Comprehensive couch sign-off** — COUCH_TEST V1–V12 + U1–U9 + memory/familiarity | M5.5b / M6.5 |
-| 2 | Monitor unattended nightly proof + M3 `+20` grow hit rate | M3 |
-| 3 | YouTube rail quality + quota/live-refresh monitoring | M6.2 |
-| 4 | 4K HDR TV + soundbar validation on target TV | M6.3 |
-| 5 | First-boot wizard | M6.4 |
+### Progressive profile source state
 
----
+`vod-content-profile-v2` is the only executable content-profile architecture.
+The compiler builds factual metadata and tightly controlled rule edges locally,
+then applies any compatible StoryDNA document as an optional immutable overlay.
+A profile serves only when it contains a content-bearing family, at
+least two substantive families, and at least 1.5 total substantive confidence;
+sparse/unrankable profiles remain excluded.
 
-## Gates {#gates}
+`MANGO_STORY_DNA_WORKER_MODE=off|frontier` defaults to `off`. The opt-in
+frontier selects positive/implicit anchors, thread shortages, reserve-boundary
+uncertainty, and a two-title stable audit. Source defaults cap it at 12 titles
+per media type/day and 96 titles total per rolling 30 days; provider calls batch
+up to 4 titles, with 15 minutes/run, three
+attempts, and a 15-minute coalescing delay. Corresponding overrides are
+`MANGO_STORY_DNA_FRONTIER_NIGHTLY_PER_TYPE`,
+`MANGO_STORY_DNA_FRONTIER_ROLLING_30D`, `MANGO_STORY_DNA_FRONTIER_BATCH`,
+`MANGO_STORY_DNA_FRONTIER_RUN_MS`, and
+`MANGO_STORY_DNA_FRONTIER_COALESCE_MS`.
 
-| Gate | Role |
-|------|------|
-| **`gate-lite.sh`** | Default deploy (~2 min) — M1–M4 + M2–M3 + M5 (if voice) + 2-play smoke |
-| `pi-pre-couch-gate.sh` | Mac wrapper |
-| `MANGO_GATE_FULL=1` | Full gate (~5–8 min) — holistic M1/M4 + **3 plays/rail** + play orchestrator |
-| `gate-m4-self-hosted.sh` | Self-hosted addon corpus |
-| `gate-live-iptv.sh` | Opt-in live only |
-| `gate-m6-youtube-smoke.sh` | Native YouTube state/rails/search/detail and optional playback |
-| `gate-m6-search-smoke.sh` | Non-mutating local/cached Search state, suggestions, long-poll, phase isolation, quota/history/playback invariants |
-| `gate-m5-companion-memory.sh` | Living librarian profile/journal/watch-signals/rollup (22 tests) |
-| `gate-m6-ux-smoke.sh` | M6.5 focus/HUD DOM+CSS contracts; detail FocusGrid bundle; pad alive |
-| `gate-m6-reliability-proof.sh` | Reliability Center proof; fails red and warns yellow |
-| `gate-m6-4k-hdr-profile.sh` | M6.3 Stage 2 profile/display/resource gate |
+Exact-ID TMDB enrichment is credential-gated and may be disabled with
+`MANGO_TMDB_METADATA=off`; credentials come from `MANGO_TMDB_API_TOKEN`,
+`MANGO_TMDB_API_KEY`, or the device-owned
+`MANGO_TMDB_API_KEY_FILE` (default `/etc/mango/tmdb.key`).
+`MANGO_TMDB_REQUESTS_PER_SECOND` defaults to and is clamped at five/second
+(range 1–5). None of these controls is recorded on the Pi at `345535d`, so runtime mode
+and credential presence remain **DEFERRED**.
+
+### Open promotion work
+
+- Prove migrations 15–16 upgrade/preservation/code-rollback behavior for the
+  progressive compiler, immutable semantic-evidence-keyed overlay store, and
+  semantic generation. Add frontier-specific
+  lease/retry/
+  rolling-window/coalescing/concurrency/restart, and TMDB failure/rate/credential/
+  TV-series integration coverage. Keep the worker off until accepted.
+- Complete corpus/exclusion accounting and refresh/retry backlog.
+- Pass the implemented absolute evaluator, accounting/replay, cached p95,
+  restart/offline/resource, migration, and shadow-diff gates. Before calling
+  promotion a quality win, add or deliberately approve a baseline/uplift and
+  uncertainty policy; the deleted comparison evaluator no longer supplies it.
+- Promote shadow → serve only after those pass, then obtain a human relevance,
+  diversity, familiarity, and surprise verdict. Operational rollback disables
+  exposure; reviewed Git rollback restores older code without deleting data.
+- Measure progressive coverage and teacher cost before deciding whether the
+  still-absent offline bulk artifact/importer is required.
+
+Detail: [FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md).
+
+## Native YouTube
+
+### Base
+
+- Official Data API for metadata, search, subscriptions, and refresh.
+- Google device OAuth from the companion; operator-owned token at
+  `/etc/mango/youtube-auth.json` mode 0600.
+- Safe Takeout ZIP/JSON/HTML normalization into durable local history; raw
+  upload data is discarded after import.
+- `yt-dlp` resolves playback URLs for mpv; cached playback does not require a
+  fresh Data API metadata call.
+- Voice searches/opens; **B** plays.
+
+### Recommendation v2 source
+
+| Mode | Public behavior |
+|------|-----------------|
+| `off` | YouTube recommendation acquisition/generation disabled; no recommendation rails. History and Saved utility rails remain when populated |
+| `shadow` | Build and diagnose only the authoritative Household v2 generation; recommendation rails remain hidden |
+| `serve` | Expose only the authoritative Household v2 generation; there is no legacy recommendation fallback |
+
+The latest recorded Pi mode was `off` under older code. The following rails
+describe current `serve`; the dated visible UI is not evidence for this contract.
+
+| Rail | Contract |
+|------|----------|
+| For You | 60/40 decayed qualifying history/subscription affinity, renormalized when one side is absent |
+| Beyond Your Subscriptions | Topic/channel discovery excluding subscribed creators |
+| More Like… | Daily-stable recent meaningful-watch seed |
+| History | Stable chronological normalized history |
+| Saved | Stable explicit Saved; zero recommendation weight |
+| From Your Subscriptions | Conditional newest unwatched authoritative uploads |
+| Live Now | Conditional currently live subscribed-channel streams only |
+
+Only authoritative complete subscription snapshots and qualifying
+Takeout/Mango-local history may create recommendation provenance. Search,
+generic cache, Saved, profiles, mood, VOD, companion state, AI catalogs, and
+global charts cannot leak into ranking. Normal rows contain four cards; Live
+Now contains one to four. Home and X use published local reservoirs without
+quota/network work; History/Saved never shuffle.
+
+`MANGO_YOUTUBE_RECS_V2=off|shadow|serve` controls this independently. Source-
+complete does not mean served or couch-observed. The current non-Household
+`off` ownership mismatch above must be fixed before rollback is accepted.
+Public API routes cannot reproduce the proprietary native YouTube home feed.
+
+Detail: [YOUTUBE.md](YOUTUBE.md).
+
+## Live TV
+
+Live is optional and excluded from default gates. Current browse configuration
+is four thin source-qualified rails: cricket, Formula 1/racing, news, and
+cartoons. The larger AREA69/NexoTV index supports Search/voice, not indiscriminate
+Home injection. Browse is cache-first; a failed/empty rebuild never overwrites
+a non-empty last-good cache. Per-channel health is credential-safe and Live
+uses a separate immediate playback path with no VOD clean-empty retry.
+
+Detail: [LIVE_TV.md](LIVE_TV.md).
+
+## Voice and companion
+
+| Capability | Current state |
+|------------|---------------|
+| Input | Phone text and PTT; Deepgram `nova-3` with Hinglish support for voice |
+| Role | Search, clarify, curate, remember, save, and open Detail; never autoplay |
+| TV/phone coherence | Shared current tab/title/playing context plus structured phone picks and launcher HUD action copy |
+| Memory | Local profile/journal, completed-watch signals, 90-day rollup, compiled notes, nightly consolidation |
+| Output | Text on phone; no TTS/speaking lock |
+| Network trust | TLS and exact catalog capability allowlist, but no per-device client auth/pairing; any reachable trusted-LAN client can submit companion/WSS actions |
+| Open proof | Full current-revision V1–V12 phone/voice/memory couch matrix |
+
+Detail: [VOICE.md](VOICE.md) · [AI_LAYER.md](AI_LAYER.md).
+
+## Playability grow and nightly maintenance
+
+- Active rails target fresh `+20` new-to-rail verified titles per pass. This is
+  an operator SLA target, not a reason to discard otherwise usable completed
+  work unless strict mode is explicitly selected.
+- Grow writes a work DB; publish is atomic. Failed, aborted, or crashed runs
+  retain the previous visible snapshot.
+- Theme gates, orphan repair, overlap caps, rejection memory, and runtime
+  source-yield weights constrain candidate pollution.
+- The current verified corpus is materially larger than old June snapshots;
+  do not copy old 1,054-title counts into current status.
+- Remaining hardening is repeated unattended completion and better yield on
+  thin TV/India sources—not merely another one-off top-up.
+
+The 03:00 playability/recommendation/YouTube/proof timer and 06:00 companion
+timer are persistent calendar timers. A missed event can run after boot, subject
+to playback/idle/overlap guards. There is no separate uncontrolled daytime
+retry watcher.
+
+Detail: [PLAYABILITY.md](PLAYABILITY.md) · [OPS.md](OPS.md).
+
+## Reliability and controller
+
+Reliability Center evaluates launcher, catalog, controller, library,
+playability/rail growth, Live, YouTube, optional voice, processes, locks,
+maintenance, and recent proof. It records Green/Yellow/Red JSONL evidence with
+30-day retention and samples served titles. Home remains quiet except for a
+degraded Settings badge.
+
+Current implementation diverges from the optional-Live product contract:
+`live_config_ready=false` becomes a red component and therefore overall red.
+Treat this as a model defect, not proof that optional Live must be configured.
+
+Safe repair is idle-only and state-preserving. The controller architecture is
+a root BlueZ link supervisor plus a user evdev router; normal controller power
+on—not pairing mode—is the happy path. The backend exposes
+`controller_repair`, but the current launcher Settings renderer does not expose
+the corresponding action; docs must call it API/backend-only until code is
+reconciled. Five physical normal-wake cycles remain an acceptance gate.
+
+Detail: [RELIABILITY.md](RELIABILITY.md) · [OPS.md](OPS.md).
+
+## Display sleep gap
+
+Current source's display wake helper disables screensaver/DPMS and forces the
+panel on. A home inspection nevertheless found Xorg Standby/Suspend/Off values
+at 600 seconds. Neither behavior is the intended product.
+
+Locked replacement:
+
+| Setting | Contract |
+|---------|----------|
+| Presets | Off · 15 min · **30 min default** · 60 min · 2 h |
+| Activity | Reset only by D-pad and companion activity |
+| Inhibit | Never sleep while mpv is playing |
+| Sleep | DPMS Off + HDMI-CEC standby |
+| Wake | DPMS On + HDMI-CEC power-on, preserving correct foreground/focus |
+
+Implementation and physical Pi/TV proof are **DEFERRED**. Accidental 600-second
+blanking must not be documented as the happy path.
+
+## Deployment and state boundary
+
+- Mac repository is source authority; Pi deploy is Git pull only. Never rsync,
+  scp, or hand-copy repository files.
+- Use SSH alias `mango`; use `mango-mdns`/`mango.local` as discovery fallback.
+  An observed LAN IP is not durable documentation.
+- Deploy restarts the Mango stack and can stop mpv/indexers. Require an idle
+  couch and inventory dirty Pi files before pulling; preserve operator-owned
+  changes and stop for direction rather than stash/reset them by default.
+- Repository deploy does not overwrite AIOStreams `userData`, seed imports, or
+  runtime databases. However, the current wrapper can implicitly mutate
+  AIOMetadata config/credentials/export and is blocked for unattended agents.
+- `pi-deploy.sh`/`pi-exec-gate.sh` do not enforce or pin the required branch/SHA.
+  Freshly fetch and compare branch, origin, Mac and post-deploy Pi hashes; fix the
+  helpers before agent automation.
+- Root controller policy changes only when explicitly installed with
+  `MANGO_CONTROLLER_LINK_INSTALL=1`.
+
+Detail: [DEPLOY.md](DEPLOY.md) · [DEPLOY-SPLIT-MACHINE.md](DEPLOY-SPLIT-MACHINE.md).
+
+## Current priority queue
+
+1. Fix and test deploy branch/SHA enforcement plus the implicit AIOMetadata
+   mutation/security path; then deploy/prove one exact revision.
+2. Fix the playability schema marker and optional-Live reliability mismatch.
+3. Fix VOD shadow/serve Saved ownership, false off/shadow Shuffle feedback,
+   active-pointer diagnostics, and focused mode/migration/publication tests;
+   then deploy the latest-only architecture in shadow, run exhaustive Pi checks,
+   and promote only with supplemental quality evidence.
+4. Fix the YouTube non-Household `off` ownership/HTTP 409 defect, add focused
+   mode/route tests, then refresh and promote YouTube independently.
+5. Implement and prove intentional display sleep/CEC.
+6. Close resolver/provider topology, repeated grow, and nightly proof gaps.
+7. Close five-cycle controller reconnect and full phone/TV couch acceptance.
+8. Publish the final target-TV SDR/HDR/audio support boundary.
+9. Build the no-SSH first-boot wizard and merge only after release acceptance.
+
+## Verification
+
+### Source/Mac
+
+Run the subsystem's documented local tests. For catalog-service changes:
 
 ```bash
-bash scripts/pi-exec-gate.sh
-bash scripts/pi-deploy.sh --fast --gate
-MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
+cd src/catalog-service
+npm test
+```
+
+Build launcher or companion when their source changes. Source tests do not
+replace Pi proof.
+
+### Pi baseline
+
+```bash
+cd ~/mango
+git -C ~/mango rev-parse HEAD
+git -C ~/mango status --short
+grep -E '^(export[[:space:]]+)?(MANGO_VOD_RECS_V2|MANGO_YOUTUBE_RECS_V2|MANGO_STORY_DNA_WORKER_MODE|MANGO_TMDB_METADATA)=' ~/.config/mango/voice.env 2>/dev/null || true
+bash scripts/pi-pre-couch-gate.sh
 bash scripts/m6-ship/gate-m6-reliability-proof.sh
-bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
 ```
 
-### catalog-service tests
+### Release/full
 
-| Tier | Command |
-|------|---------|
-| gate | `npm run test:gate` |
-| full | `npm run test` |
+```bash
+cd ~/mango
+MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
+bash scripts/m6-ship/gate-m6-search-smoke.sh
+bash scripts/m6-ship/gate-m6-youtube-smoke.sh
+bash scripts/m6-ship/gate-m6-ux-smoke.sh
+bash scripts/m5-voice/ai/gate-m5-companion-couch.sh
+bash scripts/m5-voice/ai/gate-m5-companion-memory.sh
+bash scripts/m6-ship/gate-m6-controller-reconnect.sh
+```
 
----
-
-## Config
-
-| Repo example | Pi path | Purpose |
-|--------------|---------|---------|
-| `config/stremio-export.example.json` | `/etc/mango/stremio-export.json` | Addon graph |
-| `config/catalog-filters.example.json` | `/etc/mango/catalog-filters.json` | Play ladder |
-| `config/catalog-filters.4k-hdr.example.json` | `~/.config/mango/catalog-filters.4k-hdr.json` via apply script | M6.3 target-TV safe playback profile |
-| `config/catalog.example.yaml` | `/etc/mango/catalog.yaml` | Browse rails |
-| `config/rail-theme-profiles.yaml` | repo (or `MANGO_RAIL_THEME_PROFILES`) | Thematic fit for grow + retheme |
-| `config/rail-curation-overrides.example.yaml` | `/etc/mango/rail-curation-overrides.yaml` | Pins / blocks |
-| `config/catalog-live.example.yaml` | `/etc/mango/catalog-live.yaml` | Live rails |
-| `config/youtube-oauth-client.example.json` | `/etc/mango/youtube-oauth-client.json` | Google OAuth client example |
-| — | `/etc/mango/youtube-api.key` | YouTube Data API key |
-| — | `/etc/mango/youtube-auth.json` | YouTube OAuth token, local `0600` |
-| — | `/etc/mango/youtube.db` | Rebuildable YouTube metadata/cache |
-| — | `/etc/mango/playability.db` | Verified pools |
-| — | `/etc/mango/progress.db` | mpv resume |
-| — | `/etc/mango/library.db` | Mango-owned Saved/history/finished state |
-| — | `/etc/mango/ai-catalogs/` | AI catalog slots |
-
-Deploy sync: `scripts/lib/sync-etc-mango-config.sh`
-
----
-
-## Anti-patterns
-
-| Do not | Why |
-|--------|-----|
-| Standalone Torrentio in export | Breaks AIOStreams dedup |
-| ElfHosted in hot path | Rate limits |
-| `rsync` repo to Pi | Git push + pull only |
-| Shawshank-only stream gates | Misses India/Hindi/series |
-| Voice `mango_play` | Pad **B** owns playback |
-| Voice `play_youtube` / `mango_play_youtube` | YouTube follows the same voice-open, pad-play contract |
-
----
-
-## Deploy loop
-
-1. Diagnose on Pi · 2. Fix on Mac · 3. Push (when asked) · 4. `pi-deploy.sh` · 5. Couch test
-
-[DEPLOY.md](DEPLOY.md)
+Then perform [COUCH_TEST.md](COUCH_TEST.md). Screenshots prove pixels; the human
+owns readability, focus feel, physical controller/CEC/audio behavior, perceived
+latency, and recommendation quality.

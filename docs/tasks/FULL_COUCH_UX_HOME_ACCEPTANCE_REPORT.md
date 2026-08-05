@@ -1,5 +1,10 @@
 # Full couch UX — home acceptance report
 
+> **Historical exact-SHA evidence.** Preserve the observations below, including
+> deferred display-sleep/CEC, controller-cycle, target-TV, and subjective items.
+> Use [`../COUCH_TEST.md`](../COUCH_TEST.md) for the current consolidated release
+> contract; this report does not prove later recommendation/HUD/runtime code.
+
 **Date:** 2026-08-03 (UTC) · **Agent:** home Mac on Pi LAN  
 **Branch:** `feat/native-experience`  
 **Environment:** Raspberry Pi 5 TV box + physical TV + 8BitDo Micro (no pairing-mode entries this session)

@@ -130,12 +130,15 @@ bash scripts/m3-play/playability/install-playability-timer.sh
 
 The 03:00 timer uses `nightly-library-refresh.sh`: movie/TV playability
 maintenance runs first, then `scripts/m6-ship/youtube-refresh-cache.sh` calls
-the phase-isolated native YouTube refresh for Popular, subscriptions, Fresh
-Finds, Live Now, Because You Watched, and For You. The steps are independent:
-YouTube still runs after playability quota/source errors, and a single YouTube
-rail/API phase failure records a partial refresh without clearing stale cached
-rails. The final systemd service status remains non-zero only when playability
-fails or the YouTube refresh cannot complete any useful phase. Set
+the phase-isolated native YouTube refresh. The current phases are
+`subscriptions`, `v2_subscription_acquisition`, `v2_history_metadata`,
+`v2_history_acquisition`, `v2_live_acquisition`, and `v2_publish`; the former
+Popular, Fresh Finds, Because You Watched, generic For You, and legacy-live
+acquisition paths are removed. The steps are independent: YouTube still runs
+after playability quota/source errors, and one YouTube phase failure records a
+partial refresh without clearing the last-good cached generation. The final
+systemd service status remains non-zero only when playability fails or the
+YouTube refresh cannot complete any useful phase. Set
 `MANGO_NIGHTLY_YOUTUBE_REFRESH=0` only for operator debugging.
 
 Retired automatic schedules (installer disables/removes them):
@@ -349,17 +352,19 @@ After grow pipeline changes:
 bash scripts/m3-play/playability/gate-m3-library-grow.sh
 ```
 
-## Current diagnostics — 2026-06-25
+## Recorded diagnostics — 2026-06-25 (historical)
 
-Use this as context before another nightly grow investigation.
+Use this as dated context before another nightly grow investigation. Re-run the
+status/audit commands above before treating any counts, source weights, or
+provider yields as current.
 
 - Commit `33275c1` added one bounded zero-stream retry to grow verification and
   was deployed/gated on the Pi. Gate-lite/pre-couch passed with only the known
   soft Indian-series stream warnings during the stream fixture section.
-- After the retry-policy change, archive/reset
-  `~/.cache/mango/source-grow/latest.json` before comparing grow yield. Runtime
-  source-grow weights are cache-only; stale pre-policy demotions can bias source
-  allocation even though catalog YAML is correct.
+- After the retry-policy change, the proof used neutral source-grow weights.
+  Preserve `~/.cache/mango/source-grow/latest.json`; reproduce a neutral
+  comparison by pointing `MANGO_SOURCE_GROW_OUT` at a new isolated file and
+  recording both paths. Do not delete/reset live runtime cache.
 - A strict proof run from neutral source-grow weights still missed the thin series
   rails: `series-reality-casual` reached `+9/20`, then moved on; in the observed
   India window `series-india-picks` stayed at `+0/20`. The run was aborted before
@@ -370,7 +375,7 @@ Use this as context before another nightly grow investigation.
   choose to publish nothing. Earlier the same night, a completed grow published
   `+280` unique verified titles. This points to an abort/strict-publish contract
   issue plus thin-source yield, not a verifier regression.
-- The current `+20` target blocker is source yield, not stale config or hidden process state.
+- In this recorded run, the `+20` target blocker was source yield, not stale config or hidden process state.
   Reality sources are mostly no-stream or broad-chart theme rejects; India-series
   sources are mostly no-stream despite valid catalog rows. Do not loosen the
   theme gate to force target completion.
@@ -401,7 +406,7 @@ Use this as context before another nightly grow investigation.
 - Current hardening defaults skip recent `no_stream` / `title_mismatch` grow
   misses for about seven days and remove the previous deep-page bypass unless
   `MANGO_GROW_BYPASS_RECENT_FAILED=1` is set for debug.
-- Remaining source-design question: add stronger India OTT service-specific
+- Source-design question recorded by this run: add stronger India OTT service-specific
   sources (SonyLIV, ZEE5, Hotstar/JioCinema style catalogs if available through
   Stremio-compatible metadata) and keep promoting them only after measured
   verified thematic yield.

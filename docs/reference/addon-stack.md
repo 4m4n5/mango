@@ -6,8 +6,8 @@
 
 | Service | URL | Role |
 |---------|-----|------|
-| AIOStreams | `http://127.0.0.1:3035` | Stream aggregator (TorBox, RD, Torrentio wrap) |
-| AIOMetadata | `http://127.0.0.1:3036` | mdblist + regional catalogs (`mdblist.*`, `recmov`, `popmov`, `trendingtv`) |
+| AIOStreams | `http://127.0.0.1:3035` | Intended sole stream-capable VOD aggregate: nested Torrentio/Comet/optional MediaFusion plus TorBox/RD/Easynews service policy |
+| AIOMetadata | `http://127.0.0.1:3036` | MDBList plus YAML-referenced IndiaStreams custom catalogs (`mdblist.*`, `custom.in_rdata_indiastreams.movie.recmov`, `custom.in_rdata_indiastreams.movie.popmov`, `custom.in_rdata_indiastreams.series.trendingtv`) when present in the operator export |
 | catalog-service | `http://127.0.0.1:3020` | Stremio addon graph, rails, playability |
 | launcher | `http://127.0.0.1:3000` | TV home (Chromium kiosk) |
 
@@ -18,8 +18,17 @@
 | `Cinemeta` | Meta + chart catalogs |
 | `AIOStreams` | Local manifest from configure UI |
 | `AIOMetadata` | Self-hosted on `:3036` — **not** ElfHosted, **not** legacy AIOLists |
+| `Bharat Binge` | Regional catalog source; deploy helper ensures its repository URL is present |
+| `mango Live *` | Optional NexoTV Live manifests only; not VOD stream peers |
 
-**V1 export:** Cinemeta + AIOStreams + AIOMetadata only.
+The normal full manifest graph includes Cinemeta, AIOStreams, AIOMetadata, and
+Bharat Binge, plus optional Live manifests when enabled. Only AIOStreams should
+advertise the VOD stream path.
+
+Catalog-service still contains an optional Pi-local direct MediaFusion
+thin-pool supplement outside this exported graph. It is a documented hardening
+gap, not proof that MediaFusion is an ordinary peer addon; see
+[`aiostreams-profile.md`](aiostreams-profile.md).
 
 
 
@@ -40,8 +49,10 @@
 
 1. `bash scripts/m4-addons/bootstrap-docker.sh` (if Docker missing)
 2. `cp deploy/aiostreams/.env.example deploy/aiostreams/.env` + `SECRET_KEY`
-3. `bash scripts/m4-addons/install-aiostreams.sh` + configure UI (TB/RD/Easynews/Torrentio)
-4. `bash scripts/m4-addons/install-aiometadata.sh` + `bash scripts/m4-addons/aiometadata-config.sh import`
+3. `bash scripts/m4-addons/install-aiostreams.sh` + configure UI (TB/RD/Easynews; Torrentio + Comet; optional MediaFusion only when its manifest is healthy)
+4. `bash scripts/m4-addons/install-aiometadata.sh`, then human Configure UI;
+   current headless `aiometadata-config.sh import` is blocked for agents because
+   it leaves/prints a secret-bearing fixed `/tmp` response
 5. Wire manifests into `/etc/mango/stremio-export.json`
 6. `export MANGO_CATALOG=1 MANGO_SELF_HOSTED_ADDONS=1` in `~/.config/mango/voice.env`
 7. `bash scripts/m3-play/playability/fill-playability-db.sh` — sync catalog + populate pools
@@ -59,7 +70,8 @@ bash scripts/m4-addons/gate-m4-self-hosted.sh   # when MANGO_SELF_HOSTED_ADDONS=
 bash scripts/pi-pre-couch-gate.sh
 ```
 
-**Stream corpus** (`stream-gate-fixtures.json`): Shawshank + Breaking Bad (required); RRR, Panchayat, IGL (soft); SpongeBob, Dhurandhar (optional).
+**Stream corpus** (`stream-gate-fixtures.json`): Shawshank, Breaking Bad, and
+SpongeBob (required); RRR, Panchayat, and IGL (soft); Dhurandhar (optional).
 
 **Catalog rails:** required movie/series anchors must have items; optional rails may warn when pool empty.
 
@@ -84,9 +96,28 @@ MANGO_RAIL_HITRATE_PER_RAIL=2 python3 scripts/diag/rail-hitrate.py   # after fil
 Git only — never rsync. See [`DEPLOY.md`](../DEPLOY.md).
 
 ```bash
-# Mac (after commit + push)
-bash scripts/pi-deploy.sh --gate
+# Mac preflight (after commit + push)
+git fetch origin feat/native-experience
+test "$(git branch --show-current)" = feat/native-experience
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/feat/native-experience)"
 ```
+
+The current deploy wrapper is blocked for unattended agents because it does not
+enforce/pin that revision and can implicitly mutate AIOMetadata state. Follow
+the reviewed exception/manual path in `DEPLOY.md` until the helper is hardened.
+
+Git deployment does **not** overwrite the Pi-owned AIOStreams `userData`.
+Current `diff/apply` is blocked for agents: it exposes full user state and the
+apply path prints/leaves a fixed secret-bearing `/tmp` response. Use the human
+Configure UI for authorized state changes until the helper is hardened.
+
+```bash
+bash scripts/m4-addons/aiostreams-config.sh verify
+```
+
+The latest recorded home snapshot had Torrentio and Comet active,
+RD/TorBox/Easynews configured, and MediaFusion present but disabled after a 404
+manifest response. Reverify rather than treating this dated state as permanent.
 
 ## Known gaps
 
@@ -94,4 +125,6 @@ bash scripts/pi-deploy.sh --gate
 |------|--------|
 | Sustained full grow proof | Re-run monitored `+20` grow after source changes; short rails need source-grow audit evidence |
 | India-series source yield | Current hardest source-quality area; many catalog rows are no-stream, duplicate, unresolved, or off-theme |
-| AIOStreams `groups` | Operator S9 — configure UI if stream picker grouping needed |
+| Bharat Binge | Latest recorded manifest returned HTTP 403; URL presence from deploy is not catalog-health proof |
+| AIO runtime drift/contribution | Prove target policy and credential-safe nested indexer/transport counters separately from Git |
+| MediaFusion | Historical trial only; latest recorded manifest returned 404, so keep disabled until a fresh measured trial passes |

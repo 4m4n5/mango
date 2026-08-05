@@ -7,17 +7,20 @@
 
 ---
 
-## Product target vs dev lab (2026-07)
+## Current hardware/display boundary
 
-| | **Target (M6.3 ship)** | **Dev lab today (M1–M5)** |
-|--|----------------------|---------------------------|
-| **Vision** | World-class **4K AI-first TV box** — native browse, voice, mpv playback | Same software path; validate on desk before living room |
-| **Display** | **4K TV** · HDMI 2.0/2.1 · tuned mode + EDID | Launcher forced to **1920×1080@60** for smooth couch UI |
-| **Audio** | **Soundbar** (HDMI eARC/ARC or optical) · Piper TTS on TV | **No soundbar yet** — headphones for couch/dev audio |
-| **Stream cap** | 4K WEB-DL / cached RD when Pi profile proven | Default `max_quality: 1080p`; Stage 2 couch profile stays 1080p after 4K visible-picture failures |
-| **mpv** | 4K HEVC profile · visible-picture gate | `hwdec=drm-copy` · source-matched 1080p smoke passed · 4K remains experimental |
+| Area | Current supported truth | Still to prove/decide |
+|------|-------------------------|-----------------------|
+| Host | Pi 5 8GB is the V1 Mango host | Sustained release workload/resource margin |
+| Launcher | `1920×1080@60` Chromium/Openbox | Final-TV overscan/focus/readability |
+| Native playback | mpv with smooth 1080p and an older-proven source-matched 4K SDR HEVC path | Current-SHA picture/mode/drops/audio/lip-sync matrix |
+| HDR | Not supported by the daily X11/mpv product path | Integrate a credible HDR engine or explicitly ship without HDR |
+| Kodi/GBM | Separate research proved HDR signaling/hardware feasibility | Parked until Mango HUD/input/progress/lifecycle/security integration exists |
+| Audio | HDMI, USB DAC, or Bluetooth; TTS off | Target TV/soundbar sink, lip sync, direct-ALSA fallback |
 
-**North star unchanged:** Pi 5 8GB is the V1 platform. M6.3 validates target-TV playback fidelity first; 4K reopens only after a visible-picture gate proves smooth video. If hardware limits block the desired playback bar (DV/REMUX, HDMI bandwidth), document upgrades (NVMe OS, USB DAC for desk, or future SoC) without abandoning the lean stack.
+Do not translate Pi codec capability, an EDID mode, or a separate Kodi test into
+a claim that current Mango is a ship-ready 4K HDR box. The launcher remains
+1080p60; compatible 4K SDR is mpv-only and must retain a safe 1080p fallback.
 
 ### Addon hosting (catalog + streams)
 
@@ -72,18 +75,21 @@ also save `MANGO_MPV_AO` / `MANGO_MPV_AUDIO_DEVICE`). Stack reapplies on restart
 
 ---
 
-## Display and Target-TV Stage 2
+## Display and target-TV profile
 
 - **Launcher:** `1920x1080@60` through `scripts/lib/mango-display-mode.sh`
 - **Playback:** mpv owns fullscreen playback and switches to source-matched
-  EDID modes. The couch-safe default uses 1080p streams and matching film/TV
-  rates such as `1920x1080@23.98/24/25/29.97/30`, then restores launcher
+  EDID modes. The hifi policy may choose compatible 4K SDR HEVC/REMUX; risky
+  HDR/software-decoded paths stay behind smooth choices. Source-matched 1080p
+  film/TV modes remain the couch-safe fallback, followed by launcher restore to
   `1920x1080@60`.
 - **Policy:** stream quality/HDR preference lives in catalog filters, not Chromium
-- **Stage 2 profile:** `apply-4k-hdr-profile.sh` sets display/audio base;
+- **Hifi profile:** the historically named `apply-4k-hdr-profile.sh` sets the
+  display/audio base but does not prove HDR;
   `set-playback-engine.sh mpv-hifi` installs the ship stream policy
-  (`catalog-filters.4k-hifi.json`). Browse is always `1920x1080@60` — never 4K
-  Chromium (Pi GPU budget). 4K is mpv playback only.
+  (`catalog-filters.4k-hifi.json`). Browse is always `1920x1080@60`—never 4K
+  Chromium. Compatible 4K SDR is mpv playback only; native HDR remains outside
+  the supported daily architecture.
 
 Pi apply/revert:
 
@@ -145,7 +151,7 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 
 ```
   [−]  [+]
-  [317] [⌂]   ← 317 unused during playback; home = right bottom (316, fallback 311)
+  [317] [⌂]   ← 317 unused during playback; Home = right bottom (316)
 ```
 
 | Label | evdev | Action |
@@ -155,7 +161,7 @@ Clockwise from the **leftmost** button: **Y → X → A → B**
 | **Bottom-left center button** | `317` | Unused (playback + launcher) |
 | **L** shoulder | `310` | **Prev browse tab** (launcher); playback large seek back |
 | **R** shoulder | `311` | **Next browse tab** (launcher); playback large seek forward |
-| **⌂** (right, below −/+) | `316` (`311` fallback) | **Home → launcher** |
+| **⌂** (right, below −/+) | `316` | **Home → launcher** |
 
 **D-pad** → navigate. During playback, **←/→** skip ±10s and show the progress
 HUD; holding **←/→** accelerates seek (10s → 30s → 120s). **↑** is the sole
@@ -185,19 +191,29 @@ If the Micro is powered off, Mango keeps the pad router waiting and the root
 waiting for controller` is expected in that state; wake the controller normally
 (do not enter pairing mode) and it should grab the new `Pro Controller` event
 node without a stack restart. The wait state is indefinite; normal power-on uses
-an immediate retry burst followed by a five-second maintenance probe.
+an immediate retry burst followed by bounded asleep/maintenance probes. Exact
+probe cadence is implementation policy, not a viewer contract.
+
+Source and automated gates do not close physical Bluetooth behavior. The
+release gate remains five ordinary power-off/power-on reconnect cycles without
+pairing mode, stack restart, or focus loss.
 
 **One-time setup** (auto-recover after this):
 
+First deploy the intended revision through the normal Git-only flow in
+[DEPLOY.md](DEPLOY.md). Then run the installer from the already-built Pi
+checkout:
+
 ```bash
-cd ~/mango && git pull
+cd ~/mango
 sudo bash scripts/m1-foundation/pad/install-controller-reliability.sh --check
 sudo bash scripts/m1-foundation/pad/install-controller-reliability.sh --apply
 ```
 
 The installer backs up the BlueZ policy before changing it, removes only the
-obsolete Mango Phase 0 udev hook, and preserves pairing. A single normal power
-button press then reconnects silently — no SSH or pairing mode.
+obsolete Mango Phase 0 udev hook, and preserves pairing. The intended normal
+path is one power-button wake followed by silent reconnect—no SSH or pairing
+mode—but that claim remains subject to the five-cycle physical release gate.
 
 **Manual fallback:**
 
@@ -205,19 +221,26 @@ button press then reconnects silently — no SSH or pairing mode.
 bash scripts/m1-foundation/pad/start-mango-tv-pad.sh
 ```
 
-If input still missing, open Settings → Reliability Center → **Repair
-controller** while idle, or collect `bash scripts/m1-foundation/pad/controller-link-diagnose.sh`.
+If input still misses, collect
+`bash scripts/m1-foundation/pad/controller-link-diagnose.sh`. The backend has a
+controller-repair API, but the current Settings renderer does not expose its
+button; do not instruct a viewer to find it until the UI is reconciled.
 Do not unpair or enter pairing mode unless the diagnostics confirm pairing loss.
 
 ### Daily use
 
+Restarting daily use does not update source. A repository revision change needs
+the Git-only pull/build/restart contract in [DEPLOY.md](DEPLOY.md); a bare Pi pull
+can leave compiled services stale. The current deploy wrapper has an active
+branch/SHA and AIOMetadata-mutation blocker, so do not invoke it unattended.
+
 ```bash
-cd ~/mango && git pull
+cd ~/mango
 bash scripts/mango-stack.sh restart    # native default
-# legacy fallback only:
-bash scripts/m1-foundation/pad/tv.sh stremio
-bash scripts/m1-foundation/pad/tv.sh kodi
 ```
+
+Legacy `tv.sh stremio|kodi` helpers are retained as historical diagnostics, not
+the supported daily viewer or automatic recovery path.
 
 See [OPS.md](OPS.md) for full runbook.
 

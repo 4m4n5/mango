@@ -1,5 +1,11 @@
 # UX round — handoff protocol
 
+> **Superseded UX-round deploy protocol.** Retain it as design archaeology, but
+> do not run its wrapper commands: the audited deploy helpers are blocked for
+> unattended use. Current authority is [`../../DEPLOY.md`](../../DEPLOY.md),
+> [`../../STATUS.md`](../../STATUS.md), and
+> [`../../COUCH_TEST.md`](../../COUCH_TEST.md).
+
 How the UI/UX polish round moves from the work Mac (design + implementation, no
 Pi access) to the home Mac (deploy + couch verification). Written for the home
 agent: **follow it literally and do not redesign anything.**

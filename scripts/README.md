@@ -10,8 +10,8 @@ Scripts are organized by **milestone** (M1–M6). Legacy `phase-*` trees were re
 
 | Script | When |
 |--------|------|
-| **`pi-deploy.sh`** | Mac → Pi: git pull, build, restart (`--fast` / `--full` / `--gate`) |
-| **`pi-exec-gate.sh`** | Mac: pull + gate-lite on Pi |
+| **`pi-deploy.sh`** | Mac → Pi pull/build/restart; **currently blocked for unattended agents** because branch selection is not enforced/pinned and deploy may mutate AIOMetadata private state—see `docs/DEPLOY.md` |
+| **`pi-exec-gate.sh`** | Mac pull + gate-lite; **currently blocked for unattended agents** because it derives and pulls an unpinned branch |
 | **`mango-stack.sh`** | `start\|stop\|status\|restart\|refresh` — launcher + catalog + voice |
 | **`m1-foundation/ui/bootstrap-after-reboot.sh`** | After Pi reboot |
 | **`m1-foundation/ui/restart-mango-ui.sh`** | UI-only restart |
@@ -37,11 +37,13 @@ bash scripts/m1-foundation/gate/gate-m1.sh # stack hygiene only
 | M4 | `m4-addons/gate-m4-self-hosted.sh` |
 | M5 | `m5-voice/ai/gate-m5-voice.sh`, `gate-m5-ai-catalogs.sh` |
 | M6.1 | `m6-ship/gate-m6-library-smoke.sh` |
-| M6.2 | `m6-ship/gate-m6-youtube-smoke.sh` — run after YouTube/API/launcher rail changes; playback only with `MANGO_YOUTUBE_PLAY=1` |
+| M6.2 | `m6-ship/gate-m6-youtube-smoke.sh` — base YouTube API/launcher smoke; playback only with `MANGO_YOUTUBE_PLAY=1` and not proof that YouTube v2 is promoted |
 | M6.5 | `m6-ship/gate-m6-ux-smoke.sh` — launcher focus/HUD DOM+CSS contracts; in pre-couch on `feat/native-experience` |
 | M6 hardening | `m6-ship/gate-m6-reliability-proof.sh` — run after deploy; fails red, warns yellow |
 | M6 playback SSOT | `m6-ship/gate-m6-playback-ssot.sh` — mpv-only, 1080p browse invariant; in pre-couch on `feat/native-experience` |
-| M6 couch profile | `m6-ship/gate-m6-4k-hdr-profile.sh` — mpv-hifi profile, EDID, resources |
+| M6 controller | `m6-ship/gate-m6-controller-reconnect.sh` — installed BlueZ/pad ownership and no-pairing policy; five physical wake cycles remain couch proof |
+| M6 Streams | `m6-ship/gate-m6-stream-picker-source.sh`, `gate-m6-stream-picker-smoke.sh` — source invariants plus URL-free/revisioned Pi state |
+| M6 display/profile readiness | `m6-ship/gate-m6-4k-hdr-profile.sh` — mpv-hifi policy, modes/EDID and resources; not native-HDR playback proof |
 | Live (opt-in) | `live/gate-live-iptv.sh` — `MANGO_LIVE_GATE=1`; `live/gate-live-diagnostics.sh` is health-only |
 
 Shared: `lib/gate-common.sh` · `gate-lite-play.sh` · `gate-lite-unit.sh`
@@ -66,7 +68,7 @@ m2-catalog/      service (mpv, catalog API) · browse · rails
 m3-play/         detail · orchestrator · playability
 m4-addons/       AIOStreams · AIOMetadata · mdblist pipeline
 m5-voice/        stack (orchestrator, companion) · ai (voice tools, catalogs)
-m6-ship/         Mango library gate/backup · native YouTube smoke · future UX gates
+m6-ship/         library/YouTube/Search/UX/reliability/playback/controller gates · HUD fixtures · backup
 live/            NexoTV IPTV (excluded from gate-lite)
 lib/             shared helpers · milestone-paths.sh
 diag/            manual diagnostics
@@ -82,7 +84,8 @@ diag/            manual diagnostics
 
 ## Gamepad
 
-`m1-foundation/pad/mango-tv-pad.py` — pad owner for launcher · mpv · fallback.
+`m1-foundation/pad/mango-tv-pad.py` — sole pad owner for launcher and mpv.
+`input-remapper` remains recovery-only if the router cannot grab the device.
 
 ## Voice
 
@@ -111,14 +114,26 @@ diag/            manual diagnostics
 | `m6-ship/reliability-proof.sh` | Record one Reliability Center proof through catalog-service |
 | `m6-ship/gate-m6-reliability-proof.sh` | Pi gate for Green/Yellow/Red couch readiness |
 | `m6-ship/gate-m6-playback-ssot.sh` | mpv-only + idle 1080p browse enforcement |
-| `m6-ship/gate-m6-4k-hdr-profile.sh` | mpv-hifi profile, display EDID, resources |
-| `m6-ship/backup-library-state.sh` | WAL-safe backup of `progress.db` and `library.db`; `mango-stack.sh stop/restart` runs it by default |
+| `m6-ship/gate-m6-controller-reconnect.sh` | Controller link/pad ownership and installed no-pairing reconnect policy |
+| `m6-ship/gate-m6-stream-picker-source.sh` | Local source/fixture invariants for the Lua HUD/Streams drawer |
+| `m6-ship/gate-m6-stream-picker-smoke.sh` | Pi active-stream API, URL-free snapshot, policy and pad wiring |
+| `m6-ship/render-mpv-hud-fixtures.sh` | Render production Lua/libass HUD/drawer states through real mpv |
+| `m6-ship/gate-m6-4k-hdr-profile.sh` | mpv-hifi policy, display modes/EDID and resources; target-TV playback remains separate |
+| `m6-ship/backup-library-state.sh` | Prefers SQLite online backup for `progress.db`/`library.db`, but currently falls back to a plain file copy on database error; do not use it as fail-closed WAL-safe migration proof until that fallback is removed/tested |
 | `m3-play/playability/playability-grow-monitor.sh` | Wrapper for grow_monitor.py |
 | `m3-play/playability/monitor-grow-poll.sh` | Mac-side Pi polling log for long grow runs |
 | `m3-play/playability/rail-pool-retheme.sh` | Thematic pool prune/relocate (manual) |
 | `m3-play/playability/rail-curation.sh` | Pins / blocks |
 
 Production grow target is `+20` fresh verified titles per active rail. Benchmark runs use `MANGO_GROW_PER_PASS=5`; see [docs/PLAYABILITY.md](../docs/PLAYABILITY.md).
+
+Household VOD and YouTube recommendation-v2 source contracts live primarily in
+the full catalog-service suite (`cd src/catalog-service && npm test`) and
+runtime diagnostics. The faster `npm run test:gate` subset does not cover every
+Story Graph, content-profile, frontier, calibration, or TMDB-metadata contract.
+A green source gate does not promote `shadow`/`off` modes; record the deployed
+SHA, rollout flags, generation health, and couch result separately as defined
+in [docs/STATUS.md](../docs/STATUS.md).
 
 ## Live diagnostics
 

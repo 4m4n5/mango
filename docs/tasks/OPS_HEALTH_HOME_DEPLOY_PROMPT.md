@@ -1,5 +1,11 @@
 # Mango ops-health home deployment, TV proof, and improvement prompt
 
+> **Historical OPS-round contract.** Do not execute its embedded
+> `pi-deploy.sh`/`pi-exec-gate.sh` commands as current unattended instructions.
+> The audited helpers are blocked; reconcile with
+> [`../DEPLOY.md`](../DEPLOY.md), [`../STATUS.md`](../STATUS.md), and
+> [`../COUCH_TEST.md`](../COUCH_TEST.md) before any Pi action.
+
 Paste the short starter at the end of this file into a fresh home agent. This
 document is the complete execution contract. The agent must read it top to
 bottom before running commands or editing code.

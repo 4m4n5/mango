@@ -1,10 +1,12 @@
 # Live TV (IPTV)
 
-**Status:** Shipped on `feat/native-experience` — **Live** browse tab, sport rails, mpv `--live`.
+**Status:** Source-shipped on `feat/native-experience` as an **optional** Live
+browse/search path with mpv `--live`. Inventory, credentials, event availability,
+and playback health are Pi/runtime facts; Live remains outside default gates.
 
 Wire **NexoTV** (Stremio addon) on the Pi. AREA69 and the curated free
 IPTV-org sports, news, and cartoons inventories run as separate local
-instances. `catalog-service` classifies six thin rails from structured channel,
+instances. `catalog-service` classifies four thin rails from structured channel,
 programme, category, and language fields; launcher playback stays native Mango
 through mpv.
 
@@ -19,7 +21,7 @@ NexoTV news    :7002 ─┼→ stremio-export.json → catalog-service (:3020)
 NexoTV cartoons:7003 ─┘         ↓
                     GET /rails/items?tab=live
                                ↓
-                    launcher Live tab → POST /play → mpv --live
+                    launcher Live tab → POST /play-session → mpv --live
 ```
 
 | Addon name (export) | Instance | Default profile |
@@ -37,8 +39,11 @@ avoid NexoTV rate limits). See `config/catalog-live.example.yaml`.
 
 ## Pi setup (once)
 
+Deploy the intended repository revision through the normal Git-only flow in
+[DEPLOY.md](DEPLOY.md) first. Then, from the already-built Pi checkout:
+
 ```bash
-cd ~/mango && git pull
+cd ~/mango
 
 bash scripts/m4-addons/bootstrap-docker.sh   # once
 cp deploy/nexotv/.env.example deploy/nexotv/.env
@@ -90,7 +95,9 @@ bash scripts/live/nexotv-config.sh wire-export
 MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 ```
 
-`wire-export` appends both manifests to `/etc/mango/stremio-export.json` without overwriting the paid URL.
+`wire-export` rewrites the managed Live entries without overwriting the paid
+URL: paid plus whichever of free, news, and cartoons are configured (up to four
+Live manifests).
 
 ---
 
@@ -98,13 +105,13 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 
 | Behavior | Detail |
 |----------|--------|
-| Tab | **movies · series · live** — L/R shoulders or browse bar |
+| Tab | **Movies · TV Shows · Live · YouTube** (plus Search magnifier) — L/R shoulders or browse bar |
 | Refresh / ↻ | Live tab **does not** pass `reshuffle=1` (avoids NexoTV rate limits) |
 | Native Live search | `GET /voice/search?tab=live&q=` searches full local AREA69 + free/news/cartoons inventories, independent of rail curation. Ordinary voice Live intent uses the same path. |
 | Search proof | Fresh successful plays/probes return immediately; known failures are suppressed. At most one free and one AREA69 unknown top match validate concurrently for up to 2 s. Slow proof continues asynchronously and is eligible only on a later search. |
 | Cache | Memory + disk `~/.cache/mango/live-rails-cache.json`; a playback-yielding, rate-limited background tick rebuilds when config is ready and cache is stale. Only policy-compatible stale non-empty cache may be fallback. Old broad-policy caches are rejected. |
 | Health state | `~/.cache/mango/live-channel-health.json`, operator-owned and credential-safe. Real play/probe success promotes; resolve/reachability/play-start failure demotes until the existing Live cache horizon expires. |
-| Play | Detail → **watch live** · `POST /play` with `live: true`; canonical variants form one quality-ordered ladder and fail over within the existing play deadline. No external app handoff. |
+| Play | Detail → **watch live** · accepted `POST /play-session` with `live: true`; canonical variants form one quality-ordered ladder and fail over within the existing play deadline. No VOD clean-empty confirmation and no external app handoff. |
 | Ordering | Eligibility and proof first; then nominal resolution (2160p = 4K, only 4320p/explicit 8K = 8K), English/Hindi, codec, measured health. |
 
 ---
@@ -126,23 +133,21 @@ Key flags in `catalog-live.yaml`:
 | `cache_ttl_sec` | `1800` | Reduce catalog rebuild churn |
 | `sources[].pages` | `1` in the example | Each local curated inventory is already thin; AREA69 full search comes from its separate versioned index |
 
-Curated M3U profiles enable NexoTV EPG where supported. World Cup, India
-cricket, and soccer rails are hybrid: current qualifying matchups rank first,
-then exact standing brands from the curated sports M3U fill remaining slots.
-Standing fills never broaden into arbitrary sports keywords and still reject
-known wrong-event, foreign-cricket, MLS-only, replay, studio, preview, ended,
-and placeholder rows. World Cup current-event admission understands AREA69
-shapes (`2026 FIFA World Cup … Team vs Team`, `World Cup 01 : Team vs Team`)
-without requiring a `LIVE |` prefix; `End |` / `NEXT |` titles stay out.
-Cartoons keep the exact classics allowlist and admit
+Curated M3U profiles enable NexoTV EPG where supported. The current browse
+contract is deliberately narrow: India-participant cricket, Formula 1/racing,
+balanced news, and English/Hindi cartoons. Current qualifying events rank ahead
+of exact standing-channel fills; broad sports keywords, foreign-cricket-only,
+replay, studio, preview, ended, placeholder, and adjacent-motorsport rows stay
+out. Cartoons keep the exact classics allowlist and admit
 missing/unknown language metadata, while rejecting known non-English/Hindi
 metadata. Missing target news/cartoon channels shrink the rail instead of
 admitting generic substitutes.
 
 AREA69 event inventory is the versioned search index written by
 `nexotv-config.sh apply-area69` (`~/.local/share/mango/nexotv/data/area69-live-search.json`).
-Rebuild it before or during major match days — a stale index only has yesterday's
-PPV titles, so today's World Cup match cannot appear even when qualification is correct.
+Rebuild it before or during major event days. The full index feeds Search/voice;
+it does not create World Cup or soccer Home rails in the current four-rail
+configuration.
 
 ---
 
@@ -194,9 +199,7 @@ cache is incompatible and must not silently return.
 
 | Rail | Admission |
 |------|-----------|
-| FIFA World Cup | Current senior men's World Cup matches first; remaining slots may use exact curated FIFA+/FIFA+ United States fills only. No qualifiers, women's/club/adjacent FIFA events, generic sports brands, replays, or ended rows |
 | Cricket | Current India-participant cricket matches first; remaining slots may use exact curated Star Sports / Willow / DD Sports / Cricket Gold fills. `West Indies` and incidental `Indian` text do not qualify; foreign matchups on standing brands stay rejected |
-| Soccer | Current Premier League, La Liga, Bundesliga, Serie A, Ligue 1, UCL, or UEL matches first; remaining slots may use exact curated beIN Sports fills only. MLS-only and generic sports brands stay rejected |
 | Formula 1 | Up to four exact F1 TV, Sky Sports F1, DAZN F1, and Viaplay F1 variants only |
 | News | Exact 4 Indian English + 4 Indian Hindi + 4 global English target identities; missing rows are not substituted |
 | Cartoons | Up to eight classics-first allowlisted families; missing/unknown language metadata is admitted, known non-English/Hindi metadata is rejected |
@@ -223,8 +226,8 @@ names the YAML Live rail that receives those seeds. Probe the rendered result
 with `/rails/items?tab=live`; do not use `/rails/ai-*/items`, which is the VOD
 playability path.
 
-Expect non-zero World Cup, cricket, soccer, and cartoon rails only when their
-free M3U/NexoTV sources are healthy. If profiles drift, the operator must
+Expect only the configured cricket, Formula 1, news, and cartoon rails, and only
+when their M3U/NexoTV sources are healthy. If profiles drift, the operator must
 re-apply the curated profiles with `bash scripts/live/nexotv-config.sh apply-*`
 before interpreting empty counts. These are Pi-only confirmation steps and
 were not run on the work Mac.

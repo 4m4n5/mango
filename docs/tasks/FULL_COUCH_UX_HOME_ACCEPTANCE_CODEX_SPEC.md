@@ -1,5 +1,10 @@
 # Codex home-agent brief — deploy and finish Mango couch UX acceptance
 
+> **Historical named-release contract — do not execute its deploy commands as
+> current instructions.** The audited `pi-deploy.sh`/`pi-exec-gate.sh` paths are
+> blocked for unattended use. Start with [`../DEPLOY.md`](../DEPLOY.md),
+> [`../STATUS.md`](../STATUS.md), and [`../COUCH_TEST.md`](../COUCH_TEST.md).
+
 You are an autonomous agent working from the **home Mac** Mango clone, on the
 same LAN as the Raspberry Pi and physical TV. You have no prior chat context.
 Read this file top to bottom before running commands or changing source. This is

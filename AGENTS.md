@@ -2,7 +2,7 @@
 
 > Workspace: [`../AGENTS.md`](../AGENTS.md) · Cursor/Codex sync: `aaam-sync`
 
-**Branch:** `feat/native-experience` — native TV home. **Shipped:** M1–M4 · voice librarian · AI catalogs · M6.1 library · M6.2 YouTube · Reliability Center · efficiency/perf (Tiers 1–4) · **Phase 3 AI companion** · **M5.5b/M6.5 round** (structured picks, detail FocusGrid, HUD safe-area, ux-smoke gate, living librarian memory) · unified D-pad Search. **Active:** comprehensive couch sign-off · Search couch acceptance · M3 grow repeatability · YouTube rail quality. **Next:** M6.4 wizard · M6.3 4K TV validation · merge to `main`.
+**Branch:** `feat/native-experience` — native TV home. **Implemented:** M1–M4 · Mango-owned library · native YouTube base · Search · voice/phone librarian · Reliability Center · native mpv HUD/Streams · latest-only Household recommendations (`345535d`): progressive VOD content profiles/Story Frontier and provenance-gated YouTube v2. **Latest recorded Pi rollout:** older than `345535d`; it had VOD `shadow` with partial predecessor StoryDNA and YouTube `off`, so it is historical evidence only. **Active:** fix the documented latest-only mode/ownership/diagnostics/test blockers, then deploy the successor in shadow and promote VOD/YouTube independently · harden deploy helpers · implement intentional display sleep/CEC · harden playback/provider/grow paths · obtain exact-revision couch/controller/target-TV proof. **Next:** M6.4 no-SSH wizard · final release acceptance · merge to `main`. Read [STATUS.md](docs/STATUS.md) before treating source, Mac tests, Pi deployment, automated gates, or human couch proof as equivalent.
 
 ## Read first
 
@@ -23,7 +23,7 @@
 | [`docs/HARDWARE.md`](docs/HARDWARE.md) | Pad diagram |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Locked choices |
 | [`docs/COUCH_TEST.md`](docs/COUCH_TEST.md) | Couch handoff checklist |
-| [`scripts/MILESTONES.md`](scripts/MILESTONES.md) | Script dirs M1–M5 · milestone layout only |
+| [`scripts/MILESTONES.md`](scripts/MILESTONES.md) | Script dirs M1–M6 + Live · milestone layout only |
 
 **TV box systems:** `$mango-tv-box-expert` · **Launcher visuals:** `$ux-design-expert`
 
@@ -41,9 +41,18 @@
 
 ## Pi deploy (mandatory — git only, never rsync)
 
-`aman@10.0.0.174` · SSH `mango` primary, `mango-mdns` fallback via `mango.local` · `~/mango` · **Full runbook:** [`docs/DEPLOY.md`](docs/DEPLOY.md)
+SSH `mango` primary, `mango-mdns` fallback via `mango.local` · `~/mango` · numeric LAN addresses are not durable truth · **Full runbook:** [`docs/DEPLOY.md`](docs/DEPLOY.md)
 
 **Never `rsync`, `scp`, or hand-copy repo files to the Pi.** Mac is source of truth via git push; Pi updates via git pull only.
+
+> **Current deploy-helper blocker:** do not run `pi-deploy.sh` or
+> `pi-exec-gate.sh` unattended. They derive the Pi branch from the Mac checkout
+> instead of enforcing `feat/native-experience`, pull an unpinned branch, and
+> `pi-deploy.sh` can invoke a mutating AIOMetadata rail sync that emits sensitive
+> output and leaves a fixed `/tmp` response. The local skip variable is not
+> forwarded into that remote step. Use the human-reviewed exception/manual path
+> in [`docs/DEPLOY.md`](docs/DEPLOY.md) only after exact branch/SHA checks, or fix
+> and test the helpers first.
 
 **Split machine:** if this Mac cannot SSH to the Pi (e.g. work laptop), commit + push here; deploy from the home Mac on the Pi LAN — [`docs/DEPLOY-SPLIT-MACHINE.md`](docs/DEPLOY-SPLIT-MACHINE.md).
 
@@ -54,19 +63,18 @@
 | 1. Diagnose | Pi | `pi-exec.sh`, gates, service logs |
 | 2. Fix | Mac | Edit repo; local `npm run test` when touching catalog-service |
 | 3. Ship | Mac | Commit (when asked) + `git push origin feat/native-experience` |
-| 4. Deploy | Pi | **`bash scripts/pi-deploy.sh --fast`** (iteration) or `--full` (deps change) |
-| 5. Verify | Pi | `bash scripts/pi-exec-gate.sh` before couch handoff — **never hand off after Mac-only checks** |
+| 4. Deploy | Pi | Currently blocked for unattended agents; follow the reviewed path in `docs/DEPLOY.md` |
+| 5. Verify | Pi | Run Pi-local gates against the read-back exact SHA — **never hand off after Mac-only checks** |
 
 ```bash
-# Mac — after push (agent iteration loop — prefer --fast)
+# Mac — after push; preflight only (the wrappers below remain blocked until hardened)
 bash scripts/lib/pi-sync-check.sh path/to/changed…   # optional
-bash scripts/pi-deploy.sh --fast                     # ~30–45s: pull, build, restart
-bash scripts/pi-deploy.sh --fast --gate              # fast deploy + pre-couch gate
-bash scripts/pi-deploy.sh --full                     # always npm ci
-bash scripts/pi-deploy.sh --full --gate              # full deps + gate (release handoff)
+git fetch origin feat/native-experience
+test "$(git branch --show-current)" = feat/native-experience
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/feat/native-experience)"
 
-# Mac — remote command
-bash scripts/pi-exec.sh 'cd ~/mango && git pull --ff-only && …'
+# Mac — read-only Pi preflight; do not pull or select a revision implicitly
+bash scripts/pi-exec.sh 'cd ~/mango && git branch --show-current && git rev-parse HEAD && git status --short'
 ```
 
 Voice after deploy (`MANGO_VOICE=1`):
@@ -77,10 +85,9 @@ bash scripts/m5-voice/stack/start-voice-stack.sh
 bash scripts/m5-voice/stack/verify-voice-ready.sh
 ```
 
-**Pre-couch gate (agent runs before user tests):**
+**Pre-couch gate (run on the already selected, read-back Pi SHA):**
 
 ```bash
-bash scripts/pi-exec-gate.sh          # Mac: pull + gate-lite on Pi
 bash scripts/pi-pre-couch-gate.sh     # gate-lite (~1–2 min) — see docs/ARCHITECTURE.md
 MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh   # full gate (~5–8 min, 3 plays/rail)
 ```

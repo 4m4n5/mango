@@ -13,20 +13,24 @@ instances are rate-limited under burst load.
 | Product | Link | Price | mango role |
 |---------|------|-------|------------|
 | **AIOMetadata** | [store.elfhosted.com/product/aiometadata](https://store.elfhosted.com/product/aiometadata/) | $9/mo · $1 / 7-day trial | Fallback catalog rails |
-| **AIOStreams** | [store.elfhosted.com/product/aiostreams](https://store.elfhosted.com/product/aiostreams/) | $9/mo · $1 / 7-day trial | Fallback stream URLs + TorBox/RD formatting |
-| **Stremio Addons Bundle** | [store.elfhosted.com/product/stremio-addons-bundle](https://store.elfhosted.com/product/stremio-addons-bundle/) | $29/mo · $1 / 7-day trial | Managed bundle if self-hosting is abandoned |
+| **AIOStreams with Debridge** | [store.elfhosted.com/product/aiostreams](https://store.elfhosted.com/product/aiostreams/) | $9/mo · $1 / 7-day trial | Fallback aggregate with bundled third-party TorBox Essential + Usenet Essential and optional BYO providers |
+| **Stremio Addons Bundle** | [store.elfhosted.com/product/stremio-addons-bundle](https://store.elfhosted.com/product/stremio-addons-bundle/) | $29/mo · $1 / 7-day trial | Managed addon bundle plus Debridge, proxying, and bundled third-party TorBox/Usenet accounts |
 
 Docs: [Stremio addons overview](https://docs.elfhosted.com/stremio-addons/) · [Pricing & trials](https://docs.elfhosted.com/pricing/) · [AIOStreams app guide](https://docs.elfhosted.com/app/aiostreams/)
 
-**Not included:** TorBox / Real-Debrid — paid directly to those providers.
+Current product pages say the AIOStreams/Debridge subscription and full bundle
+include third-party TorBox Essential and Usenet Essential accounts for supported
+workflows. Real-Debrid and additional provider accounts are optional BYO and
+remain separately owned. Recheck the linked offer before purchase; packaging is
+external runtime state, not a Mango contract.
 
-Optional later (M6.3 / 4K proxy): [AIOStreams + MediaFlow 4K](https://store.elfhosted.com/product/aiostreams-mediaflowproxy/) · [2×4K booster](https://store.elfhosted.com/product/aiostreams-2x4k-booster/) (+$9/mo)
+Optional transport/proxy products: [AIOStreams + MediaFlow 4K](https://store.elfhosted.com/product/aiostreams-mediaflowproxy/) · [2×4K booster](https://store.elfhosted.com/product/aiostreams-2x4k-booster/) (+$9/mo). These may change transport behavior; they do not prove Pi decode, visible 4K, native HDR, audio, or Mango lifecycle integration.
 
 ## If you choose the fallback
 
 1. Open **My Account** on ElfHosted and copy your **private manifest URLs** for AIOMetadata and AIOStreams.
 2. On the Pi, edit `/etc/mango/stremio-export.json` and replace local manifest URLs with your private instance URLs.
-3. Restore matching addon names in `/etc/mango/catalog.yaml` and `/etc/mango/catalog-filters.json`; do not mix `AIOMetadata` yaml with `AIOMetadata` manifests.
+3. Restore matching addon names in `/etc/mango/catalog.yaml` and `/etc/mango/catalog-filters.json`; YAML names must exactly match the private manifests.
 4. Restart: `MANGO_CATALOG=1 bash ~/mango/scripts/mango-stack.sh restart`
 5. Verify: `curl -sf http://127.0.0.1:3020/health` and load the launcher — no “rate limit exceeded” on home.
 

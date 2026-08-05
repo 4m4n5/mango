@@ -10,26 +10,38 @@ Replaces self-hosted **AIOLists** on port **3036**. Catalog ids use
 1. `deploy/aiometadata/.env` with `TMDB_API_KEY` and `MDBLIST_API_KEY`
 2. Container healthy: `curl -sf http://127.0.0.1:3036/health`
 
-## Headless import (mango rail catalogs)
+## Headless import (currently blocked for agents)
 
-Your configure export has many catalogs; mango imports only catalog ids referenced by
-`config/aiometadata-rail-catalogs.json` and `config/catalog.example.yaml`.
-That set now includes mdblist pools, IndiaStreams custom ids, and Bharat Binge
-regional catalogs used by strict thematic grow.
+Your configure export has many catalogs. Mango first imports AIOMetadata rows
+referenced by `config/catalog.example.yaml`, including MDBList and the three
+`custom.in_rdata_indiastreams.*` IDs; only when that YAML yields no AIOMetadata
+rows does it fall back to `config/aiometadata-rail-catalogs.json`. Bharat Binge
+is a separate addon and is not imported into AIOMetadata by this helper.
+
+The current `import` path writes its response to fixed
+`/tmp/aiometadata-save.json`, leaves it behind, and prints the secret manifest
+URL. Do not run it from an agent or unattended workflow until it uses private
+temporary storage, trap cleanup, and redacted output. An operator can safely
+audit an existing private export without mutation:
 
 ```bash
-# Mac → Pi
-cat keys/aiometadata-config-2026-06-19\ \(1\).json | ssh mango 'cat > ~/.config/mango/aiometadata-import.json'
-
-# Pi — audit export vs rails before import
-bash scripts/m4-addons/aiometadata-config.sh check ~/.config/mango/aiometadata-import.json
-
-bash scripts/m4-addons/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
-bash scripts/m4-addons/aiometadata-config.sh wire-export
+# Pi — operator-provided export already outside the repo
+IMPORT="${MANGO_AIOMETADATA_EXPORT:-$HOME/.config/mango/aiometadata-import.json}"
+test -s "$IMPORT"
+bash scripts/m4-addons/aiometadata-config.sh check "$IMPORT"
 ```
 
-`MANGO_AIOMETADATA_IMPORT_MODE=mango` (default) keeps catalogs in
-`config/aiometadata-rail-catalogs.json` (mdblist + IndiaStreams custom ids).
+Use the Configure UI for current human-reviewed state setup. Restore headless
+`import`/`wire-export` to the runbook only after the helper is hardened.
+
+The export can contain API/account configuration. Never commit it or route it
+through the Git deployment. Generate/place it through the home operator's
+credential workflow, preserve the previous live configuration, and do not
+invent values when it is absent.
+
+`MANGO_AIOMETADATA_IMPORT_MODE=mango` (default) keeps the YAML-referenced
+AIOMetadata catalogs. The import can supply IndiaStreams custom IDs only when
+the operator export actually contains them; verify manifest/catalog yield.
 
 ## Manual configure UI
 
@@ -50,7 +62,9 @@ In **MDBList Integration**, add each custom list from
 as `mdblist.<numeric-id>` (e.g. list `88302` → `mdblist.88302`).
 
 You do **not** need unrelated TMDB/TVDB/Trakt catalogs for mango rails. Keep the
-active mdblist/custom catalog set in sync with `config/aiometadata-rail-catalogs.json`.
+MDBList index in `config/aiometadata-rail-catalogs.json` and AIOMetadata custom
+rows in `config/catalog.example.yaml` coherent; the normal helper derives its
+requested set from YAML first.
 TMDB key is still required by the addon.
 
 ## Export manifest
@@ -68,14 +82,21 @@ Keep the addon name exactly `AIOMetadata` (must match `catalog.yaml`).
 
 Optional: save the URL to `~/.config/mango/aiometadata.manifest`.
 
-## Sync catalog.yaml
+## Review catalog policy
 
-Repo example already uses `AIOMetadata` + `mdblist.*` ids:
+The repository example already uses `AIOMetadata` + `mdblist.*` ids. Compare it
+with installed policy before an authorized deploy; routine addon setup must not
+silently overwrite operator-owned runtime config:
 
 ```bash
-sudo cp config/catalog.example.yaml /etc/mango/catalog.yaml
-sudo systemctl restart mango-catalog.service   # if running
+IMPORT="${MANGO_AIOMETADATA_EXPORT:-$HOME/.config/mango/aiometadata-import.json}"
+diff -u /etc/mango/catalog.yaml config/catalog.example.yaml || true
+bash scripts/m4-addons/aiometadata-config.sh check "$IMPORT"
 ```
+
+The normal Git deploy runs `scripts/lib/sync-etc-mango-config.sh`. If a manual
+policy sync is explicitly approved, follow [`docs/DEPLOY.md`](../../docs/DEPLOY.md)
+and re-run the catalog/addon gates on the exact revision.
 
 ## Verify
 
@@ -89,12 +110,12 @@ curl -sf "${BASE}/catalog/movie/mdblist.88302.json" | jq '.metas | length'
 # expect ≥ 1 when MDBList key is valid
 ```
 
-## Locked settings (Pi)
+## Deployment policy
 
 | Setting | Value |
 |---------|-------|
 | Port | 3036 (maps to container 3232) |
-| MDBList | Connected via `.env` + configure UI |
+| MDBList | Required via `.env` + configure UI; verify live before use |
 | Catalog ids | `mdblist.<id>` per mapping doc |
 | Cinemeta | Still from cloud in stremio-export (composite rails) |
 | AIOLists | Retired — do not run both on :3036 |

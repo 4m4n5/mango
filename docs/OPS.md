@@ -1,6 +1,9 @@
 # mango — Pi operations
 
-**Pi:** `aman@10.0.0.174` · SSH `mango` primary, `mango-mdns` fallback via `mango.local` · `~/mango` · **Branch:** `feat/native-experience`
+**Pi:** SSH alias `mango` primary, `mango-mdns`/`mango.local` discovery fallback · `~/mango` · **Branch:** `feat/native-experience`
+
+Do not treat a previously observed numeric LAN address as durable truth. Resolve
+through the configured SSH aliases and inventory the actual Pi before acting.
 
 | | |
 |--|--|
@@ -11,30 +14,51 @@
 
 **Deploy:** [DEPLOY.md](DEPLOY.md) (git only — never rsync) · **Pad:** [HARDWARE.md](HARDWARE.md)
 
+> **Current deploy blocker:** `pi-deploy.sh`/`pi-exec-gate.sh` do not enforce or
+> pin `feat/native-experience`, and deploy can implicitly run a mutating
+> AIOMetadata sync that emits sensitive output and leaves a fixed `/tmp` file.
+> They are blocked for unattended agents until hardened. See the evidence and
+> reviewed exception/manual path in [DEPLOY.md](DEPLOY.md).
+
 ---
 
 ## Bring-up
 
-**After crash or unknown state:**
+**After crash or unknown state:** first prove the couch is idle, record the Pi
+SHA/status, and preserve any operator-owned changes. `mango-stack restart` stops
+active mpv/indexers; do not run it during viewing.
 
 ```bash
-cd ~/mango && git pull --ff-only
+cd ~/mango
+git rev-parse HEAD
+git status --short
+# Continue only when dirty state is understood and preserved.
 bash scripts/mango-stack.sh restart
 ```
 
-**From Mac** (after commit + push):
+That sequence restarts the already built checkout. Do not insert a bare
+`git pull`: source updates require the catalog/launcher build performed by
+the reviewed deploy/manual path in [DEPLOY.md](DEPLOY.md).
+
+**From Mac** (after commit + push), preflight the exact source first:
 
 ```bash
-bash scripts/pi-deploy.sh --fast
-bash scripts/pi-deploy.sh --fast --gate
+git fetch origin feat/native-experience
+test "$(git branch --show-current)" = feat/native-experience
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/feat/native-experience)"
 ```
 
-If the static IP alias times out but mDNS works, use the `mango-mdns` SSH alias
-for `aman@mango.local` and keep using the same git-only wrappers:
+Stop there for unattended automation. The intended `pi-deploy.sh --fast` and
+`--fast --gate` interfaces remain blocked at the audited revision; use the
+human-reviewed exception/manual path in [DEPLOY.md](DEPLOY.md), or harden the
+wrapper first.
+
+If the primary alias times out but mDNS works, use the `mango-mdns` SSH alias
+for `aman@mango.local` to inspect the Pi. This does not bypass the deploy
+blocker:
 
 ```bash
 MANGO_SSH_HOST=mango-mdns bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/mango-stack.sh status'
-MANGO_SSH_HOST=mango-mdns bash scripts/pi-deploy.sh --fast --gate
 ```
 
 If that alias does not exist on the Mac, add it to `~/.ssh/config` with the
@@ -44,7 +68,7 @@ files as an SSH workaround.
 **After reboot** (press pad button if BT is slow):
 
 ```bash
-cd ~/mango && git pull --ff-only
+cd ~/mango
 bash scripts/m1-foundation/ui/bootstrap-after-reboot.sh
 ```
 
@@ -135,20 +159,31 @@ bash scripts/lib/couch-activity.sh touch operator inspect
 ```
 
 Pad input, launcher key/clicks, voice turns, mpv play/stop, and progress flushes
-update the activity file. Launcher process startup does not count as user
-activity: Mango may be on overnight and still run grow when no one has actively
-used it recently. Maintenance uses a 30 minute idle threshold by default
+update the **maintenance** activity file. Launcher process startup does not
+count as user activity: Mango may be on overnight and still run grow when no
+one has actively used it recently. Maintenance uses a 30 minute idle threshold by default
 (`MANGO_COUCH_IDLE_SEC` for tests only).
 
-When couch mode starts, Mango disables X11 DPMS/screensaver blanking and forces
-the display on during UI start. Controller input also runs the same display wake
-helper, throttled to a few seconds, as the low-latency recovery path:
+Current source disables X11 DPMS/screensaver blanking and forces the display on
+during UI start. Controller input applies an equivalent throttled inline `xset`
+wake sequence; it does **not** currently call the helper below:
 
 ```bash
 bash scripts/lib/mango-display-wake.sh --focus-launcher-if-idle
 ```
 
-The helper restores launcher focus only when mpv is not active.
+The helper restores launcher focus only when mpv is not active. The duplicate
+helper/pad ownership must be consolidated by the intentional-sleep refactor so
+one state machine owns idle, inhibition, sleep, and wake. This is a temporary
+implementation, not the desired sleep feature. A recorded Pi inspection still
+found Standby/Suspend/Off at 600 seconds.
+
+The locked replacement is Settings-driven Off/15/30(default)/60/120 minutes,
+with idle reset **only** by D-pad and companion input, mpv playback inhibition,
+DPMS Off + CEC standby for sleep, and DPMS On + CEC power-on for wake. It is not
+implemented or Pi/TV-proven. Do not use the maintenance activity file as the
+sleep policy wholesale: voice/progress/background activity has different
+semantics. See [STATUS.md](STATUS.md#display-sleep-gap).
 
 The launcher is intentionally a lightweight 60 Hz surface. By default Mango
 applies `1920x1080@60` before launching the kiosk browser:
@@ -219,11 +254,14 @@ bash scripts/m6-ship/render-mpv-hud-fixtures.sh /tmp/mango-hud-fixtures
 `ensure-launcher` (alias `launcher`) is called on stack boot, home, present,
 stop, deploy, and display-wake so browse never drifts to 4K HDMI by accident.
 
-### Target-TV Stage 2
+### Target-TV fidelity boundary
 
-Stage 2 keeps Chromium lightweight at `1920x1080@60` and enables source-matched
-1080p mpv playback for the TV. The profile is reversible and writes only
-user-owned runtime config under `~/.config/mango`.
+The current hifi profile keeps Chromium at `1920x1080@60`, source-matches mpv,
+and can select proven-compatible 4K SDR HEVC/REMUX paths. Older TV evidence
+showed smooth source-matched 4K SDR HEVC, while native HDR through X11/mpv was
+not smooth enough to support an HDR ship claim. The safe fallback remains
+source-matched 1080p. The profile is reversible and writes only user-owned
+runtime config under `~/.config/mango`.
 
 ```bash
 cd ~/mango
@@ -233,11 +271,16 @@ bash scripts/diag/pi-resource-snapshot.sh
 ```
 
 If the TV/soundbar path only advertises unstable 4K modes, Mango must not use
-them as the couch fallback. The Stage 2 wrapper keeps mpv on source-matched
-1080p until a visible-picture 4K gate passes. Fix the HDMI path before
-requiring 4K: use a direct HDMI 2.0/2.1 TV input, enable the TV's
+them as the couch fallback. Keep mpv on source-matched 1080p until a
+visible-picture 4K SDR gate passes. Fix the HDMI path before requiring 4K: use a
+direct HDMI 2.0/2.1 TV input, enable the TV's
 enhanced/deep-color input mode for that exact port, or bypass the soundbar until
 `xrandr` lists stable 4K film modes and the visible-picture test passes.
+
+The script name retains historical `4k-hdr` wording, but applying it does not
+prove native HDR. Acceptance must record picture, actual mode/transfer, dropped
+frames, audio/lip sync, subtitles, seek/resume, and launcher restoration. A
+separate Kodi/GBM HDR experiment is parked and is not the current Mango player.
 
 Rollback:
 
@@ -330,8 +373,8 @@ Then open the companion and use the YouTube connect panel. Full details:
 | Symptom | Check |
 |---------|-------|
 | Desktop wallpaper after ⌂ | `bash scripts/launch-launcher.sh` · see [ARCHITECTURE.md](ARCHITECTURE.md) foreground |
-| Pad waiting | `pad-health: waiting for controller` means Mango is alive; turn the Micro on normally. The link supervisor retries indefinitely and pairing mode is not needed. |
-| Pad dead | Open Settings → Reliability Center → **Repair controller** while idle; then run `bash scripts/m1-foundation/pad/controller-link-diagnose.sh`. Use pairing recovery only if diagnostics show the pairing record is absent. |
+| Pad waiting | `pad-health: waiting for controller` means the router is alive; turn the Micro on normally. The link supervisor retries indefinitely and should recover without pairing, but five-cycle physical proof remains open. Enter pairing only if diagnostics prove the bond is absent. |
+| Pad dead | Run `bash scripts/m1-foundation/pad/controller-link-diagnose.sh`; the backend/API has a `controller_repair` action, but the current launcher Settings surface does not render that button. Use pairing recovery only if diagnostics prove the pairing record is absent. |
 | Voice HUD missing | `MANGO_VOICE=1` in env · `bash scripts/m5-voice/stack/verify-voice-ready.sh` |
 | YouTube tab empty | `curl localhost:3020/youtube/state` · configure `/etc/mango/youtube-api.key` · run `bash scripts/m6-ship/gate-m6-youtube-smoke.sh` |
 | YouTube account not connected | Companion → YouTube connect · verify `/etc/mango/youtube-oauth-client.json` and `/etc/mango/youtube-auth.json` permissions |
@@ -339,12 +382,12 @@ Then open the companion and use the YouTube connect panel. Full details:
 | Catalog error appears after exiting a successful play | Inspect `~/.cache/mango/playback-session.json`; `ever_ready=true` means the launcher must treat the play as successful. Check catalog logs for a pre-frame failure only; do not invalidate title metadata from a late HTTP timeout. |
 | Same title will not immediately replay | `curl localhost:3020/play-session/<request_id>` when the request ID is known; inspect `~/.cache/mango/play-cancel.epoch` and `~/.cache/mango/mpv.pid`. A stale prior exit monitor is generation-gated and must not stop the new PID. |
 | YouTube recommendations stale | Full refresh: `bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly`; YouTube-only: `bash scripts/m6-ship/youtube-refresh-cache.sh --reason operator` (waits for its HTTP 202 job to finish); then inspect `curl localhost:3020/youtube/state` and `refresh.phase_results` |
-| YouTube Live Now partial error | In v2, check `refresh.phase_results.live_now`; quota failure must retain the explicitly stale last-good subscription/live generation. `Popular` is a legacy-only rail while v2 is `off|shadow`. |
+| YouTube Live Now partial error | In `serve`, inspect `curl -s localhost:3020/youtube/state \| jq '.refresh.phase_results[] \| select(.phase == "v2_live_acquisition")'`; quota failure must retain the explicitly stale last-good subscription/live generation. Popular/Fresh/legacy-live acquisition is removed and must not appear in any current mode. |
 | Unified Search degraded row | Run `bash scripts/m6-ship/gate-m6-search-smoke.sh`; diagnostic mode is cache-only and does not write history or spend quota |
 | Reliability badge yellow/red | Open Settings → Reliability Center; or `curl localhost:3020/reliability/state` |
 | No TV output after moving Pi | SSH in and force the safe launcher mode: `DISPLAY=:0 XAUTHORITY=$HOME/.Xauthority xrandr --output HDMI-1 --mode 1920x1080 --rate 60`; then `bash scripts/launch-launcher.sh` |
 | Target-TV gate fails film cadence | Keep Mango fallback at `1920x1080@60`; verify `xrandr` exposes `1920x1080 23.98/24.00` |
-| 4K playback blue/unstable | Keep the safe Stage 2 profile applied; 4K stream/output is experimental until a visible-picture gate passes |
+| 4K playback blue/unstable | Fall back to source-matched 1080p. Prove 4K SDR picture/mode/drops/audio on this TV; do not treat current X11/mpv as native HDR-capable |
 | Soundbar silent | `bash scripts/audio/list-sinks.sh` · set HDMI/TV/bar sink with `scripts/audio/set-default-sink.sh`; if PipeWire shows only Dummy Output, use `scripts/audio/set-default-sink.sh 'alsa/hdmi:CARD=vc4hdmi0,DEV=0'` |
 | Nightly proof missing/stale | `bash scripts/m6-ship/reliability-proof.sh --reason operator` · inspect `/etc/mango/reliability/proofs.jsonl` |
 | Empty rails | `bash scripts/mango-health-repair.sh` · `curl localhost:3020/health` · playability status script |
@@ -369,10 +412,11 @@ repair script can check the maintenance lock.
 Grow operator state: `~/.cache/mango/grow-run-state.json`, `~/.cache/mango/ops/refresh-*.json`, `~/.cache/mango/source-grow/latest.json`.
 Reliability proof state: `/etc/mango/reliability/proofs.jsonl`.
 
-Playability timers do not run a couch-disruptive `OnBootSec` catch-up by
-default, and there is no daytime auto-retry timer for failed nightlies. After a
-reboot or a yellow Reliability proof, use the explicit operator catch-up only
-when the couch is idle:
+The 03:00 and 06:00 calendar timers are `Persistent=true`: a missed event can
+run after boot, but every job must still respect playback, couch-idle, and
+overlap guards. There is no separate uncontrolled daytime retry watcher for a
+failed nightly. After a yellow proof, use explicit operator catch-up only when
+the couch is idle and no persistent catch-up/job is already active:
 
 ```bash
 bash scripts/m3-play/playability/playability-catch-up.sh nightly
@@ -383,33 +427,54 @@ Scheduled maintenance (local time):
 
 | Time | Timer | Job |
 |------|-------|-----|
-| 03:00 | `mango-playability-indexer.timer` | Nightly stale → grow → YouTube → proof |
+| 03:00 | `mango-playability-indexer.timer` | Stale/grow → VOD recommendation jobs → session bookkeeping → YouTube → WAL checkpoint → proof |
 | 06:00 | `mango-companion-nightly.timer` | Companion consolidate (skips if grow lock held) |
 | every ~3 min | `mango-watchdog.timer` | Narrow health repair |
 
 ---
 
-## Household recommendations v2
+## Household recommendations
 
-The branch contains the Story Graph VOD and provenance-gated YouTube v2
-implementation, but this work supplies no Pi evidence. Do not record
-deployment, screenshots, backfill completion, promotion, or couch PASS until
-the exact revision is pulled and observed at home.
+Commit `345535d` contains one executable architecture per domain: progressive
+Household VOD and provenance-gated YouTube v2. The latest repository-recorded
+home snapshot predates that cleanup; its VOD `shadow`, YouTube `off`, and
+partial predecessor counts are historical only. Reverify the live Pi before
+relying on any mode or count. Do not record complete accounting, promotion,
+current-SHA screenshots, or couch PASS until observed on the exact revision.
+
+One-title-at-a-time autonomous StoryDNA backfill was stopped for cost/latency.
+Current VOD refresh compiles `vod-content-profile-v2` locally for the verified
+corpus and retains an opt-in bounded new/evidence-changed frontier. The old v4,
+strict-only publisher, legacy rank worker/snapshot fallback, and corpus-wide
+teacher are removed from execution; their data is preserved. A separate
+offline/bulk artifact/importer is absent and is not a rollout prerequisite.
 
 Migration 4 creates the existing WAL-consistent ratings backup. Migrations
 5–11 preserve profiles/signals and add attribution, metrics, served-slate, and
 watch-state support. Migration 12 additively adds StoryDNA, ontology, taste,
 rank, cached-slate, and refresh-job state; migration 13 durably adds normalized
 Takeout history and import audit; migration 14 generation-scopes cached VOD
-slates and persists low-water repair requests. Progress migration 2 remains
-profile-exact.
-None rewrites v4 snapshots or deletes ratings, Saved, history, profiles,
+slates and persists low-water repair requests. Library migration 15 adds
+profiles/frontier/calibration/usage; library migration
+16 for immutable StoryDNA overlays keyed by content plus semantic-evidence hash,
+and playability migration 14 for semantic revisions. Progress migration 2
+remains profile-exact.
+None rewrites historical snapshots or deletes ratings, Saved, history, profiles,
 progress, StoryDNA, provenance, or last-good state.
+
+The routine `scripts/m6-ship/backup-library-state.sh` is not fail-closed
+migration proof: if SQLite online backup raises `DatabaseError`, it falls back
+to a plain copy of the main DB file, and it does not cover `playability.db`.
+Before migrations 15–16/playability 14 on a live Pi, use and verify explicit
+SQLite online backups for both `/etc/mango/library.db` and
+`/etc/mango/playability.db`; reject any plain-copy fallback.
 
 ```bash
 test -f /etc/mango/library.db.pre-fire-water-v4.bak
 sqlite3 /etc/mango/library.db \
-  "SELECT group_concat(version, ',') FROM (SELECT version FROM library_migrations WHERE version BETWEEN 4 AND 14 ORDER BY version);"
+  "SELECT group_concat(version, ',') FROM (SELECT version FROM library_migrations ORDER BY version);"
+sqlite3 /etc/mango/playability.db \
+  "SELECT group_concat(version, ',') FROM (SELECT version FROM playability_migrations ORDER BY version);"
 sqlite3 /etc/mango/progress.db \
   "SELECT group_concat(version, ',') FROM (SELECT version FROM progress_migrations ORDER BY version);"
 curl -fsS http://127.0.0.1:3020/recommendations/state | python3 -m json.tool
@@ -417,10 +482,16 @@ curl -fsS http://127.0.0.1:3020/youtube/state | python3 -m json.tool
 curl -fsS http://127.0.0.1:3020/personalization/state | python3 -m json.tool
 ```
 
-Expected library versions include `4` through `14` and progress includes `2`.
-In v2 serve mode Household is the only recommendation identity: Household
+At committed `345535d`, library versions include `4` through `16`, playability
+includes migration `14`, and progress includes `2`. Match expectations to the exact
+committed SHA; never start a dirty checkout against live databases merely to
+advance a migration marker.
+In **VOD** `shadow` and `serve`, Household is the global recommendation identity:
+Household
 activation and null mood clearing are idempotent; non-Household create/activate
-and non-null mood writes return typed `household_only`. Do not create, merge,
+and non-null mood writes return typed `household_only`. Shadow therefore changes
+live identity even though it hides For You; it is not a compute-only no-op. Do
+not create, merge,
 clear, or migrate personal rows for this rollout. Prove with before/after counts
 that their ratings, Saved/history/progress, snapshots, and events retain their
 original stable owner.
@@ -438,12 +509,70 @@ MANGO_LIBRARY_DB_PATH=/etc/mango/library.db npm run ratings:seed -- import /path
 `MANGO_VOD_RECS_V2=off|shadow|serve` and
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` are independent rollout controls;
 `MANGO_FIRE_WATER_RATINGS=0` and `MANGO_FOR_YOU=0` remain reversible visibility
-controls. None deletes data. Story Graph ranking runs off-thread; failures and
+controls. `off` disables that domain's recommendations, `shadow` builds only
+the latest architecture while hiding its recommendation rails, and `serve`
+exposes only its published current architecture. No mode invokes a deleted
+ranker. None deletes data. Story Graph ranking runs off-thread; failures and
 deadlines retain the previous complete generation. Refresh endpoints return
 HTTP 202 job IDs; poll the durable exact-job route
 `/recommendations/jobs/:job_id`. Use `/recommendations/state` and
 `/youtube/state` for aggregate diagnostics rather than inferring a specific
 job's fate from their bounded recent-job windows.
+
+The current controls are:
+
+```text
+MANGO_STORY_DNA=0|1                                  # global teacher kill switch; 0 disables refresh + frontier
+MANGO_STORY_DNA_WORKER_MODE=off|frontier             # off default
+MANGO_STORY_DNA_FRONTIER_NIGHTLY_PER_TYPE=12
+MANGO_STORY_DNA_FRONTIER_ROLLING_30D=96
+MANGO_STORY_DNA_FRONTIER_BATCH=4
+MANGO_STORY_DNA_FRONTIER_RUN_MS=900000
+MANGO_STORY_DNA_FRONTIER_COALESCE_MS=900000
+MANGO_TMDB_METADATA=off                              # explicit disable
+MANGO_TMDB_REQUESTS_PER_SECOND=5                     # clamped to 1–5
+```
+
+The frontier also caps attempts at three. Optional exact-ID TMDB enrichment is
+credential-gated through `MANGO_TMDB_API_TOKEN`, `MANGO_TMDB_API_KEY`, or
+`MANGO_TMDB_API_KEY_FILE` (default `/etc/mango/tmdb.key`), with requests capped
+by `MANGO_TMDB_REQUESTS_PER_SECOND` at five/second. Keep all credentials
+device-owned. `MANGO_STORY_DNA=0` is the global containment control: it disables
+both normal teacher refresh and the frontier independently of worker mode.
+Existing focused tests cover exact-ID/no-fuzzy TMDB mapping and the worker-off/
+per-type daily-budget path. Leave the worker `off` and global teacher `0` for the
+first shadow deploy until migrations 15–16 upgrade/preservation/rollback,
+frontier-specific lease expiry/retry/max-attempt/rolling-window/coalescing/
+concurrency/restart, TMDB failure/rate-limit/credential-file/TV-series,
+mode-aware activation/staleness and active-pointer diagnostics pass. The removed
+`MANGO_VOD_CONTENT_PROFILE` and `MANGO_STORY_DNA_AUTONOMOUS_BACKFILL` keys are
+obsolete; remove those keys from operator configuration without touching data.
+
+The committed playability migration inserts version `14`, but
+`playabilityStatus()` still returns the hard-coded source constant `13`.
+Therefore `/playability/status.schema_version` under-reports the migrated DB and
+must not be used as migration-14 proof until the constant/status contract is
+fixed and tested. Query `playability_migrations` directly for diagnosis. The
+committed source remains blocked from unattended deployment by the helper-safety
+defects and lacks the focused Pi/promotion proof described above.
+
+Recommendation-specific blockers also remain:
+
+- `/recommendations/state` describes the newest rank row, not necessarily the
+  active/previous public pointers. `mode_ready`, `last_good_publication`, and
+  `teacher_model_version` do not prove the live ranker. Query the active pointer
+  tables privately or improve the API before promotion; never print household
+  rows.
+- The current absolute VOD evaluator does not compare against an accepted
+  baseline or gate reserve depth, calibration, teacher cost, worker latency, or
+  uplift confidence. Treat its `promotion_eligible` as a minimum safety check,
+  not a quality verdict.
+- In YouTube `off`, service output is Household-owned while the HTTP route
+  expects the active profile; a non-Household active profile can receive 409.
+  Do not use `off` as a proven rollback until the owner contract and focused
+  mode/HTTP tests are fixed.
+- Launcher X/Shuffle can show a success toast in VOD `off`/`shadow` although no
+  public For You slate changes. Fix that false feedback before couch handoff.
 
 Grow/nightly playability maintenance performs that polling itself: after the
 new corpus is published, it waits for the exact Movies and TV refresh job IDs
@@ -453,7 +582,10 @@ last-good recommendation generation remains active. The bounded wait defaults
 to 900 seconds and is configurable with
 `MANGO_VOD_RECOMMENDATION_REFRESH_TIMEOUT_SEC`.
 
-Before the couch verdict, verify without clearing state:
+Before the couch verdict, verify without clearing state. Run the VOD bullets
+only when VOD is promotion-eligible `serve`, and the YouTube v2 bullets only
+when YouTube is `serve`; otherwise mark those checks DEFERRED and record the
+actual no-recommendation/utility-only surface instead.
 
 - Every visible Movies/TV For You rail has six currently verified cards
   allocated `6`, `3/3`, or `2/2/2` across supported Household threads. Rated,
@@ -463,14 +595,17 @@ Before the couch verdict, verify without clearing state:
   rows. StoryDNA teacher/network failure leaves last-good local slates usable.
 - Household exact Not for me disappears immediately, Undo restores it, and it
   creates no semantic penalty for related titles, creators, or topics.
-- YouTube orders For You, Beyond Your Subscriptions, More Like …, History,
-  Saved, then conditional From Your Subscriptions and Live Now. Normal rows
-  have four cards; Live Now may have one to four. History/Saved stay stable.
+- YouTube orders logical positions For You, Beyond Your Subscriptions, More Like
+  …, History, Saved, then conditional From Your Subscriptions and Live Now.
+  Normal rows render only with exactly four cards and can be absent under thin
+  supply; Live Now may have one to four. Rendered History/Saved stay stable.
 - Save four distinct YouTube videos: Saved remains stable, none enters For You,
   and acquisition/affinity do not change except for exact output exclusion.
 - Read `refresh.search_calls_today` and `refresh.api_calls_today`, press X
-  several times, and prove both remain unchanged. VOD X must likewise perform
-  no enrichment, graph, corpus-scan, or ranking work.
+  several times, and prove both remain unchanged. VOD X must return from cached
+  state without waiting for enrichment, graph, corpus scan, ranking, or network
+  work. Record asynchronous low-water work separately; it may be enqueued after
+  the cached read and must not be mistaken for response-path blocking.
 - Start representative 1080p and known-safe 4K recommendations and run the
   existing playback proof. Recommendation work must not alter resolver,
   display-mode, first-frame, progress, or dropped-frame contracts.
@@ -481,23 +616,31 @@ checks run on the Pi/TV, all remain **DEFERRED**.
 
 ### Episode says “stream not found”, then later succeeds
 
-A series play must resolve the exact `tt…:season:episode` ID. One automatic VOD
-Play now confirms a clean AIOStreams HTTP-200 empty (or proven-transient
-error-only result) at most twice after 1.2-second bounded delays inside the same
-single flight and absolute deadline. It stops immediately on a playable result,
-so the observed empty → empty → playable sequence completes from the first B.
-Confirmed 429s, provider HTTP failures/timeouts, cancellation, malformed media,
-permanent provider/account errors, and authoritative no-stream results are not
-retried. Detail lists, Live, and picker refresh do not inherit the policy. Cache
-state is written only after the logical request settles.
+A series play must resolve the exact `tt…:season:episode` ID. At release
+defaults, one automatic VOD Play confirms a clean AIOStreams HTTP-200 empty (or
+proven-transient error-only result) twice after 1.2-second bounded delays inside
+the same single flight and absolute deadline. The source permits 0–3 attempts
+and 0–10-second delays as explicit rollback/experiment overrides; record the
+loaded runtime values. It stops immediately on a playable result, so the
+observed empty → empty → playable sequence completes from the first B at the
+release defaults.
+Confirmed 429s, provider HTTP failures/fetch timeouts, cancellation, malformed
+media, permanent provider/account errors, and authoritative no-stream results
+do not enter the clean-empty **resolve-confirmation** loop. Detail lists, Live,
+and picker refresh do not inherit that policy. Separately, candidate-local
+mpv/network failures may advance to another ladder candidate, and eligible
+stale cached transport may cause one fresh resolve inside the same request wall.
+Cache state is written only after the logical request settles.
 
 On the Pi, capture the exact episode before diagnosing; never probe `:1:1` as a
-stand-in and never clear runtime databases/caches:
+stand-in and never clear runtime databases/caches. Do not use the current
+`aiostreams-config.sh diff/apply` paths from an agent: `diff` exposes full state,
+while `apply` prints and leaves a potentially secret-bearing fixed `/tmp`
+response. Use fixed-field `verify`; an authorized human can review/change AIO
+state through the Configure UI until the helper is hardened.
 
 ```bash
 cd ~/mango
-bash scripts/m4-addons/aiostreams-config.sh diff
-bash scripts/m4-addons/aiostreams-config.sh apply
 bash scripts/m4-addons/aiostreams-config.sh verify
 curl -sf "http://127.0.0.1:3020/series/<bareSeriesId>/episodes" | jq '.seasons'
 bash scripts/diag/playback-ladder-health.sh series <exactEpisodeId>
@@ -510,21 +653,19 @@ journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
 The repo patch proves the recovery state machine, not which nested provider
 failed on the TV. Attribute Torrentio, Comet, MediaFusion, TorBox, RD, or
 Easynews only from the live, credential-safe contribution counters and Pi logs.
-An AIO target-policy change is stateful: git deploy alone does not apply it, so
-the explicit `diff` → `apply` → `verify` sequence above is mandatory.
+An AIO target-policy change is stateful: Git deploy alone does not apply it.
+The fixed-field `verify` is diagnostic only; after an authorized human UI
+change, verify again and use credential-safe contribution counters.
 
 ---
 
-## Legacy fallback apps
+## Legacy player artifacts
 
-Not started at idle. Opt-in only:
-
-| App | Env |
-|-----|-----|
-| Stremio desktop | `MANGO_FALLBACK_STREMIO=1` |
-| Legacy Kodi YouTube | `MANGO_LEGACY_YOUTUBE=1` |
-
-Fallback apps are not part of normal gate-lite; use them only when explicitly diagnosing a native playback gap.
+Legacy Kodi/Stremio environment examples, installers, diagnostics, and research
+remain in the repository, but current source has no supported executable
+automatic fallback path. Do not enable or document these as the normal recovery
+experience. The daily foreground contract is launcher ↔ mpv; diagnose native
+playback failures in place and preserve state/evidence.
 
 ---
 

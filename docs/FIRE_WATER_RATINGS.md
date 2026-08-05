@@ -1,13 +1,51 @@
 # Fire & Water ratings and For You
 
 **Branch:** `feat/native-experience`
-**State:** `vod-story-graph-v1` is implemented behind `off|shadow|serve` rollout
-control and covered by local deterministic gates. It has **not** been deployed
-by this work session. StoryDNA backfill on the real corpus, the frozen offline
-promotion result, Pi/runtime proof, screenshots, and human couch judgment are
-**DEFERRED**.
+**State:** commit `345535d` makes progressive Household VOD the sole executable
+recommendation architecture. It contains `vod-content-profile-v2`, immutable
+compatible StoryDNA overlays, `vod-story-frontier-v1`, cached six-card dealing,
+an optional bounded frontier, exact-ID TMDB enrichment, and additive schema
+migrations. The prior semantic-hash v4, cosine/KNN/MMR, strict-only publication,
+legacy rank worker/snapshot fallback, corpus-wide teacher backfill, and v4
+comparison evaluator are no longer executable. Historical rows remain intact.
 
-## Product contract
+The latest repository-recorded home snapshot predates this cleanup: it had an
+older VOD implementation in `shadow`, YouTube `off`, and partial predecessor
+StoryDNA/rank coverage. It does not prove current deployment or public behavior.
+Complete latest-architecture accounting, safe exact-SHA Pi deployment,
+promotion, screenshots, and human couch judgment remain **DEFERRED**. The
+offline bulk artifact/importer is absent and is not a rollout prerequisite.
+See [STATUS.md](STATUS.md).
+
+## Rollout semantics
+
+| `MANGO_VOD_RECS_V2` | Refresh work | Public Movies/TV For You | Identity/UI |
+|----------------------|--------------|--------------------------|-------------|
+| `off` | No recommendation refresh | No For You recommendation rail | Personal profile/mood state remains usable outside recommendation ranking |
+| `shadow` | Build/diagnose only the latest progressive Story Frontier | No For You recommendation rail | Household recommendation identity; personal rows preserved, with the current Saved utility read blending profile rows |
+| `serve` | Latest progressive Story Frontier only | Six strongest supported fits in `6`, `3+3`, or `2+2+2`; absent if no promotion-eligible generation | Household-only; personal profile/mood rows preserved and dormant |
+
+No mode selects a deleted recommender. Operational rollback is `serve` →
+`shadow`/`off`; code rollback requires a reviewed older Git revision. Neither
+path deletes historical state. “Source-complete” must never be read as “the
+Household rail is currently served.”
+
+Current rollout blockers:
+
+- Shadow is not compute-only: it changes profile/mood, Continue/progress, and
+  recommendation-signal ownership to Household while hiding For You.
+- Saved ownership is blended across profiles in shadow but exact-Household in
+  serve; reconcile or explicitly accept that transition.
+- Launcher X/Shuffle remains visible and reports success in off/shadow although
+  there is no public For You slate to change.
+- `/recommendations/state` reports the newest generation rather than proving
+  active/previous serving pointers or the public epoch; its
+  `teacher_model_version` is not the rank model.
+- The cleanup removed substantial legacy service/evaluation tests. Focused
+  mode/HTTP/migration/publication/rollback replacements and Pi proof are
+  required before deployment.
+
+## Serve product contract
 
 - Fire measures fun, energy, tension, pace, and spectacle.
 - Water measures emotional depth, heart, authenticity, and resonance.
@@ -75,10 +113,12 @@ state, and immutable YouTube context. `progress.db` migration 2 adds
 profile-exact Continue/resume; legacy unscoped progress/watch state migrates
 only to Household. Migration 12 adds additive StoryDNA, ontology edge, taste
 thread, full-corpus rank generation, active/previous generation, cached slate,
-and refresh-job tables without rewriting v4 snapshots. During v2 serve,
-Household activation is idempotent; personal-profile activation/creation and a
-non-null mood return typed `household_only`. Old profile rows and companion
-functions remain intact for rollback. Exact resume positions never blend.
+and refresh-job tables without rewriting older snapshots. Those historical rows
+remain durable but are not current ranking inputs. While VOD recommendations
+are active (`shadow` or `serve`), Household activation is idempotent;
+personal-profile activation/creation and a non-null mood return typed
+`household_only`. Personal rows remain recoverable for an `off` posture or a
+reviewed older-code rollback. Exact resume positions never blend.
 
 Recommendation actions carry an opaque server-issued token bound to the served
 profile, domain, rail, revision, exact membership, source revision, and bounded
@@ -99,8 +139,8 @@ hidden-title state also receive the launcher's captured
 profile ID and personalization revision; the service validates and echoes that
 pair around assembly. Hidden-title restore carries the same immutable pair.
 The browser commits only an exact response and stores rail/Saved caches under
-the same owner. Ownership 409s trigger state reconciliation and never use the
-legacy unowned rail fallback.
+the same owner. Ownership 409s trigger state reconciliation and never use an
+unowned rail fallback.
 
 Routes:
 
@@ -135,26 +175,42 @@ opens automatically, and never takes focus.
 The candidate authority is every current `titles.status='verified'` movie or
 series, paged deterministically without the old 2,000/1,200 limits. A scan
 captures the monotonic playability-corpus generation and cannot publish across
-a generation change. Missing-artwork, missing-StoryDNA, and exact eligibility
+a generation change. Missing artwork/profile evidence and exact eligibility
 failures are indexed with reasons, so complete accounting is
 `scored + excluded == verified`. Only poster-bearing verified rows serve.
 
-`story-dna-v1` is a closed content description covering controlled story
-engines, themes, dynamics, tone, setting, structure, emotional arc, and fifteen
-ordinal facets, plus deterministic language/country/decade/creator and compound
-graph edges. Every family is present; legitimate absence is `none` or zero.
-Canonical synopsis, genres, people, runtime, identifiers, curated-pool
-membership, source, retrieval time, evidence hash, per-family confidence, and
-teacher provenance remain stored. Fire/Water, household activity, popularity,
-quality, and predicted enjoyment are forbidden StoryDNA fields.
+The sole content profile is `vod-content-profile-v2`: deterministic metadata
+facts and narrowly controlled rules produce a base profile, while a compatible
+`story-dna-v1` document may enrich it as an immutable overlay. StoryDNA's closed
+content description covers controlled story engines, themes, dynamics, tone,
+setting, structure, emotional arc, and fifteen ordinal facets; it is not a
+separate strict publication mode. A profile needs a content-bearing family, at
+least two substantive families, and at least 1.5 confidence mass to serve;
+sparse/unrankable rows stay excluded. Fire/Water, household activity,
+popularity, quality, and predicted enjoyment remain forbidden content-profile
+inputs.
 
 Mango Companion's configured model is a stateless content teacher only. Its
 separate localhost endpoint receives stable identity and canonical evidence—
 never ratings, Saved/history, profiles, mood, conversations, or memory. Sparse
-evidence can trigger bounded structured addon lookup; there is no broad
-scraping. Strict ID, enum, schema, prompt/model, and evidence-hash validation
-rejects partial or mismatched output while retaining valid siblings. Household
-mutations rebuild taste/ranks but never StoryDNA.
+evidence can use bounded structured addon lookup and optional exact-ID TMDB
+metadata; there is no broad scraping. Strict identity, schema, provenance, and
+evidence-hash validation rejects mismatched output while retaining valid
+siblings. Household mutations rebuild taste/ranks but never content evidence.
+
+`MANGO_STORY_DNA_WORKER_MODE=off|frontier` defaults off. The opt-in frontier
+selects positive/implicit anchors, thread shortages, reserve-boundary
+uncertainty, and two stable audit titles. Defaults are 12 titles/type/day and 96
+titles total/rolling 30 days; provider calls batch up to 4, with 15 minutes/run,
+three attempts, and 15-minute
+coalescing. Overrides use the `MANGO_STORY_DNA_FRONTIER_*` variables documented
+in [OPS.md](OPS.md). Keep it off until committed migrations 15–16 have upgrade/
+rollback/preservation proof; frontier lease expiry/retry/max-attempt/rolling-
+window/coalescing/concurrency/restart, TMDB failure/rate-limit/credential-file/
+TV-series, and mode-aware activation/staleness still need focused proof.
+Existing tests cover worker-off/per-type daily budget and exact-ID/no-fuzzy
+TMDB mapping; the corrected activation lookup accepts
+`vod-story-frontier-v1`, but Pi activation is still unobserved.
 
 The local worker fits one to three deterministic Bayesian household threads.
 Categorical families use Dirichlet-multinomial posteriors; ordinal families use
@@ -184,14 +240,21 @@ affinity and Saved/watch owns at most 15%; implicit evidence renormalizes for
 cold start. Rated, Saved, meaningfully watched, hidden, blocked, and exact
 Not-for-me titles never serve, but low ratings create no semantic negative.
 
-The reserve begins serving at 200 eligible ranked rows and grows toward the
-complete corpus while the prior complete generation remains active. Three
-supported threads deal 2/2/2 cards, two deal 3/3, and one deals all six. Within
-a thread, deterministic weighted sampling without replacement uses
-`1 / rank^1.5`; the prior four rendered slates are avoided when supply permits.
-Load-time DB revalidation checks verified state, artwork, uniqueness, and exact
-exclusions. If six cannot be healed, Mango retains the previous valid slate.
-Home and X perform no network, enrichment, graph, or ranking work.
+Each newly published rank generation becomes eligible at 200 ranked rows and
+progresses toward complete-corpus accounting while the prior complete
+generation remains active. A taste mutation may first publish a priority
+bootstrap drawn from a default roughly 240-row reserve, then publish a separate
+full-corpus follow-up generation. The dealer
+precomputes up to 32 cached six-card slates. Three supported threads deal 2/2/2
+cards, two deal 3/3, and one deals all six. Within a thread, deterministic
+weighted sampling without replacement uses `1 / rank^1.5`; the prior four
+rendered slates are avoided when supply permits. X scans a default eight cached
+slates, bounded from 1 to 32, to advance the rail. Load-time DB revalidation
+checks verified state, artwork, uniqueness, and exact exclusions. If six cannot be healed,
+Mango retains the previous valid slate. Home and X return from cached state and
+never wait for network, enrichment, graph, corpus scan, or ranking work.
+Low-water detection may enqueue asynchronous reserve recovery after the read;
+measure it separately from couch-path latency.
 
 Writes commit first and enqueue one serialized, coalescing job per media type.
 The refresh response is HTTP 202 with job ID, trigger reasons, and captured
@@ -209,39 +272,26 @@ MANGO_FIRE_WATER_RATINGS=0
 MANGO_FOR_YOU=0
 ```
 
-## Optional seed R&D snapshot
+## Seed-rating outcome and import
 
-The supplied Sheet1 was read-only and is not a runtime dependency. Current
-source audit:
-
-| Measure | Value |
-|---------|------:|
-| Non-empty movie rows | 56 |
-| Clean numeric Fire + Water pairs | 54 |
-| Rows requiring explicit human disposition | 2 |
-| Mean Fire among clean rows | 3.093 |
-| Mean Water among clean rows | 2.676 |
-| Year range | 1975–2026 |
-
-Unresolved rows are intentionally not guessed:
-
-- `The idea of you` (2024): both values blank.
-- `La Cocina` (2024): both cells contain ranges.
-
-Fire distribution for the 54 clean rows: `0.5:1, 1:6, 1.5:1, 2:5,
-2.5:5, 3:11, 3.5:5, 4:12, 4.5:4, 5:4`. Water distribution: `0:5,
-0.5:5, 1:7, 1.5:2, 2:4, 2.5:3, 3:4, 3.5:6, 4:4, 4.5:5, 5:9`.
+The original Google Sheet was a read-only R&D input, never a runtime dependency.
+Its ambiguous rows were explicitly reconciled during the historical home
+acceptance: **The Idea of You** was excluded, and **La Cocina** was approved at
+Fire `3.0` / Water `1.5`. The seed-v2 manifest was validated, imported, and a
+repeat import proved a no-op on that recorded Pi revision.
 
 An approved manifest may contain normalized private taste tags and a caption
 hash, but the validator rejects raw captions and sheet URLs. Every source row
-must be explicitly approved or excluded. Approval requires one unique exact
-title/year stable-ID match; weaker matches stay in review. Couch-authored
-history always blocks later seed overwrite, including after clear.
+must have an explicit approved/excluded disposition. Approval requires one
+unique exact title/year stable-ID match; weaker matches remain in review.
+Couch-authored history always blocks later seed overwrite, including after
+clear.
 
-If the operator supplies an approved manifest, run only after its reconciliation:
+For a new database or explicitly authorized re-import, run on the Pi only after
+manifest reconciliation and preserve the DB:
 
 ```bash
-cd src/catalog-service
+cd ~/mango/src/catalog-service
 npm run ratings:seed -- dry-run /path/to/fire-water-seed-v1.json
 npm run ratings:seed -- validate /path/to/fire-water-seed-v1.json
 MANGO_LIBRARY_DB_PATH=/etc/mango/library.db npm run ratings:seed -- import /path/to/fire-water-seed-v1.json
@@ -249,29 +299,53 @@ MANGO_LIBRARY_DB_PATH=/etc/mango/library.db npm run ratings:seed -- import /path
 MANGO_LIBRARY_DB_PATH=/etc/mango/library.db npm run ratings:seed -- import /path/to/fire-water-seed-v1.json
 ```
 
-The second import must report `noop: true`.
+The second import must report `noop: true`. The historical seed proof is not a
+current recommendation-v2 quality verdict; see
+[tasks/FIRE_WATER_HOME_ACCEPTANCE_REPORT.md](tasks/FIRE_WATER_HOME_ACCEPTANCE_REPORT.md).
+
+## Current enrichment and promotion boundary
+
+The latest recorded Pi snapshot had roughly 1,096 StoryDNA feature rows and a
+latest StoryDNA generation `complete_count` around 545 movies/439 series against
+verified corpora around 5,452 movies and 3,794–3,904 series. Rank coverage was
+still partial. Reverify those counts before using them operationally. The live
+one-title-at-a-time teacher was stopped for cost and latency.
+
+Commit `345535d` compiles the verified corpus locally and can selectively teach
+only a bounded uncertainty frontier, rather than requiring whole-corpus model
+completion. It is not deployed or sufficiently Pi/integration tested. The
+older bulk-work prompt remains design input for a possible privacy-safe,
+versioned artifact/importer, not the automatic next step. First measure
+progressive profile coverage, calibration, recommendation quality, teacher
+cost, and recovery; build a bulk importer only if those results leave a real
+coverage or quality gap.
 
 ## Evaluation boundary
 
-Deterministic local tests cover strict content-only StoryDNA, malformed-sibling
-isolation, graph/worker parity, positive-only rating math, 85/15 evidence
-ownership, 180-day viewing decay, distinct threads, 2/2/2–3/3–6 portfolios,
-rank-weighted cached dealing, full-corpus pagination/accounting, stale
-publication rejection, exact exclusions, and no graph/ranking work on X.
+At `345535d`, deterministic local tests cover content-only StoryDNA,
+malformed-sibling isolation, progressive profiles, graph/worker parity,
+positive-only rating math, 85/15 evidence ownership, 180-day viewing decay,
+distinct threads, 2/2/2–3/3–6 portfolios, rank-weighted dealing, large-corpus
+accounting, attribution fencing, frontier containment, and exact-ID TMDB. The
+cleanup also removed substantial legacy service/evaluator tests; current
+mode/HTTP ownership, migration preservation, cached rail behavior, publication,
+restart, and rollback need focused replacements before deployment.
 
-Promotion uses a frozen deterministic five-fold comparison against v4:
-holistic nDCG@6 is primary; per-axis concordance for ratings at least 4,
-both-axes-low top-six intrusion, coverage, determinism, worker latency, and
-cached-service p95 are guardrails. V2 requires at least 10% relative nDCG@6
-improvement, a paired 90% bootstrap interval above zero, no more than two
-percentage points of guardrail regression, complete verified-corpus accounting,
-and cached p95 at most 250 ms. Sparse ratings keep the model in shadow; the gate
-is never weakened.
+Promotion now uses an absolute deterministic five-fold latest-architecture
+evaluation, not a comparison against deleted v4. It records holistic nDCG@6,
+per-axis concordance for ratings at least 4, both-axes-low top-six intrusion,
+complete verified accounting, deterministic replay, worker latency, and cached
+service p95. It blocks on fewer than 15 eligible ratings/fewer than five folds,
+unavailable nDCG, below-chance measured concordance, intrusion above one third,
+incomplete accounting, nondeterminism, unmeasured cached p95, or cached p95 over
+250 ms. Offline eligibility is a minimum safety gate, not evidence that the
+ranking beats an accepted baseline or feels good on the couch.
 
-Real-corpus StoryDNA coverage and evaluation, Pi latency/restart/offline proof,
-screenshots, target-TV launches, and human couch relevance remain **DEFERRED**
-until the authorized home rollout. Offline promotion is necessary, not proof of
-the final couch experience.
+Partial predecessor StoryDNA/rank coverage exists in the latest recorded shadow
+runtime. Complete latest-architecture coverage/accounting, evaluation, serve promotion,
+current-SHA Pi latency/restart/offline/resource proof, screenshots, target-TV
+launches, and human couch relevance remain **DEFERRED**. Offline promotion is
+necessary, not proof of the final couch experience.
 
 Home acceptance is in [COUCH_TEST.md](COUCH_TEST.md). Deployment remains
 git-only per [DEPLOY.md](DEPLOY.md); never rsync, copy runtime databases, or

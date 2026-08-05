@@ -26,8 +26,10 @@ Curation: `config/catalog-rail-curation.md` · Index: `config/aiometadata-rail-c
 
 Exact ids and weights live in `config/catalog.example.yaml`; curation rationale lives in `config/catalog-rail-curation.md`.
 
-## Import
+## Import status
 
-```bash
-bash scripts/m4-addons/aiometadata-config.sh import ~/.config/mango/aiometadata-import.json
-```
+The current headless import helper leaves a secret-bearing response in fixed
+`/tmp/aiometadata-save.json` and prints the manifest URL. Do not invoke it from
+an agent until secure-temp cleanup and redaction are implemented. Audit the
+private export with `aiometadata-config.sh check`; use the human Configure UI
+for an authorized state change in the interim.

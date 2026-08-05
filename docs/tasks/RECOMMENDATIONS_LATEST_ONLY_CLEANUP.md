@@ -44,3 +44,14 @@ database backup, generation health, reserve depth, cached latency, provider
 silence, D-pad/focus, launch success, and human thematic satisfaction must be
 proved on the home Pi using
 [`RECOMMENDATIONS_PROGRESSIVE_FRONTIER_DEPLOY.md`](RECOMMENDATIONS_PROGRESSIVE_FRONTIER_DEPLOY.md).
+
+## Post-commit audit blockers
+
+The cleanup record is not deployment authorization. A source audit at
+`345535d` found: YouTube `off` ownership can 409 for a non-Household profile;
+VOD shadow and serve disagree on Saved ownership; launcher Shuffle reports
+success in VOD off/shadow without a public For You slate; diagnostics do not
+prove active/previous serving pointers; YouTube AI-catalog management no longer
+maps to Home rendering; and focused service/mode/migration/publication tests
+must replace coverage deleted with the old engines. The linked runbook is
+blocked until a tested successor SHA closes these gaps.

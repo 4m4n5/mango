@@ -1,5 +1,11 @@
 # Home-agent validation brief — Mango Search polish
 
+> **Historical Search-release contract.** Preserve its observations, but do not
+> execute the embedded deploy wrappers as current instructions: they are blocked
+> for unattended use. Reconcile the target SHA and flow with
+> [`../DEPLOY.md`](../DEPLOY.md), [`../STATUS.md`](../STATUS.md), and
+> [`../COUCH_TEST.md`](../COUCH_TEST.md).
+
 You are the home-side deployment and validation agent for the **`mango`**
 repository. You have no prior chat context. Read this file top to bottom before
 running commands. The work Mac owns the implementation; your job is to deploy

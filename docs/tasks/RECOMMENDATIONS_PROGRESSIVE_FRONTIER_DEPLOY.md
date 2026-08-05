@@ -1,7 +1,13 @@
 # Recommendations latest-only deployment runbook
 
-Status: ready for an exact-SHA home-agent deployment. Mac-side implementation
-and tests do not constitute Pi or couch proof.
+Status: **BLOCKED at `345535d`**. Do not deploy or promote that revision from
+this runbook. It has a non-Household YouTube `off` ownership/HTTP 409 defect,
+VOD shadow/serve Saved-ownership divergence, false VOD Shuffle success in
+off/shadow, insufficient active-serving-pointer diagnostics, and missing
+focused replacements for removed service tests. The ordinary deploy helpers
+are independently blocked. Use this runbook only after those defects are fixed,
+tested, committed, pushed, and a successor `TARGET_SHA` is explicitly supplied.
+Mac-side implementation and tests still do not constitute Pi or couch proof.
 
 This rollout installs the sole executable recommendation architecture:
 
@@ -19,6 +25,14 @@ provider ledgers must remain intact.
 
 Set `TARGET_SHA` to the full pushed SHA from the handoff. Work only on
 `feat/native-experience`. Never use rsync, scp, a tarball, or copied databases.
+
+Before contacting or changing the Pi, prove on the home Mac that branch HEAD and
+freshly fetched origin both equal `TARGET_SHA`, then run the full catalog suite
+and launcher build on that exact clean source. Stop if any gate fails. The
+successor must include focused tests for all VOD/YouTube mode/identity
+combinations, YouTube off utility rails, VOD shadow/serve Saved ownership,
+disabled Shuffle behavior, generation publication/active-pointer reporting,
+migration preservation, and rollback.
 
 Before changing the Pi:
 
@@ -86,11 +100,11 @@ Confirm the service loaded the safe configuration. Trigger one VOD refresh for
 each tab and one YouTube refresh from localhost:
 
 ```bash
-curl -fsS -X POST http://127.0.0.1:7777/recommendations/refresh \
+curl -fsS -X POST http://127.0.0.1:3020/recommendations/refresh \
   -H 'content-type: application/json' -d '{"tab":"movies","reason":"deploy_shadow"}'
-curl -fsS -X POST http://127.0.0.1:7777/recommendations/refresh \
+curl -fsS -X POST http://127.0.0.1:3020/recommendations/refresh \
   -H 'content-type: application/json' -d '{"tab":"series","reason":"deploy_shadow"}'
-curl -fsS -X POST http://127.0.0.1:7777/youtube/refresh \
+curl -fsS -X POST http://127.0.0.1:3020/youtube/refresh \
   -H 'content-type: application/json' -d '{"reason":"deploy_shadow"}'
 ```
 
@@ -100,16 +114,24 @@ a blocker, not permission to delete caches or weaken thresholds.
 
 Require VOD diagnostics for Movies and TV to show:
 
-- active model `vod-story-frontier-v1` and profile
-  `vod-content-profile-v2`;
+- top-level `model_version=vod-story-frontier-v1` and
+  `profile_mode=progressive-v2`; do not misread per-domain
+  `teacher_model_version` as the rank model;
 - Household taste revision built from current Fire/Water, Saved, and meaningful
   Mango VOD history;
-- `eligible_ranked + sparse_unresolved + other_excluded == verified`;
-- coverage `1`, no unexplained unscored rows, reserve depth at least `200`, and
+- `scored_count + excluded_count == verified_count`, `unscored_count == 0`,
+  and `coverage == 1`;
+- reserve depth at least the 200-title publication minimum and
   a valid six-card cached slate;
 - every serving candidate currently verified-playable and poster-bearing;
 - existing enriched StoryDNA count never decreases;
 - teacher/frontier/TMDB usage remains unchanged while all three are off.
+
+`/recommendations/state` describes the newest row, not necessarily the active
+public generation. Separately prove the active/previous rank pointers, active
+model/status, promotion evaluation tied to that rank ID, and current serving
+epoch with privacy-safe SQL or a hardened successor diagnostics API. Neither
+`mode_ready` nor `last_good_publication` is sufficient proof.
 
 Require YouTube diagnostics to show a complete current generation sourced only
 from authoritative subscriptions and qualifying Takeout/Mango-local history.
@@ -125,14 +147,18 @@ the applicable Pi-local smoke/focus/reliability gates described in
 gate command that silently pulls or synchronizes addons; run its Pi-local
 underlying checks after reviewing it.
 
-Measure cached Home and five X presses. They must cause zero metadata, provider,
-graph, rank, or YouTube quota work; VOD/YouTube cached service p95 must be at
-most 250 ms. Verify focus/scroll restoration and four-slate repeat avoidance.
+Measure cached Home and five X presses. They must not wait for metadata,
+provider, graph, rank, or YouTube quota work; VOD/YouTube cached service p95
+must be at most 250 ms. Verify focus/scroll restoration and four-slate repeat
+avoidance. Attribute any asynchronous VOD low-water recovery separately and
+prove it does not block or spend provider/teacher work on the couch path.
 
-If every automated gate is green, set both domains independently to `serve`,
-restart once, and repeat diagnostics, Home/X, launch, D-pad, Back, offline, and
-restart checks. This authorization prepares the Pi for human couch testing; it
-does not claim the human relevance gate passed.
+Promote only one domain at a time. After all VOD shadow gates pass, set only VOD
+to `serve`, restart, and repeat its diagnostics, Home/X, launch, D-pad, Back,
+offline, and restart checks while YouTube remains shadow/off. Restore VOD to the
+accepted safe mode on failure. Only then run the equivalent independent YouTube
+promotion while holding VOD fixed. This prepares the Pi for human couch testing;
+it does not claim the human relevance gate passed.
 
 Keep the Companion frontier off for the initial couch test. It is optional and
 may be enabled later only with the locked bounds:
@@ -150,7 +176,8 @@ unless exact-ID credentials and visible attribution are already approved.
 
 ## 6. Failure and rollback
 
-On any recommendation failure:
+On any recommendation failure, disable only the affected domain using its
+tested safe mode. If both domains fail, the containment posture is:
 
 ```bash
 MANGO_STORY_DNA=0

@@ -1,4 +1,11 @@
-# Starter prompt — home agent
+# HISTORICAL — DO NOT EXECUTE
+
+This prompt targets the superseded legacy-v4/v2 migration contract and is not
+safe for the latest-only source at `345535d`. It is retained only as historical
+context. Do not give it to a home agent. Use the blocked successor template in
+[`RECOMMENDATIONS_PROGRESSIVE_FRONTIER_HOME_AGENT_PROMPT.md`](RECOMMENDATIONS_PROGRESSIVE_FRONTIER_HOME_AGENT_PROMPT.md), and do not deploy until that template's source blockers are fixed and a reviewed successor SHA is pushed.
+
+## Historical starter prompt — home agent
 Work in the home-Mac `mango` clone on `feat/native-experience`; deploy exact pushed commit `<APPROVED_SHA>` to the Pi.
 Read `docs/tasks/RECOMMENDATIONS_HOME_PI_CODEX_SPEC.md` from that commit top to bottom first; it is the complete contract.
 Stop if the placeholder remains or that SHA is not the exact initial remote tip; keep `APPROVED_SHA` immutable.

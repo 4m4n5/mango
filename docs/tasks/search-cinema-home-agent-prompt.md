@@ -1,5 +1,10 @@
 # Starter prompt — home agent (Search cinema canvas)
 
+> **Superseded exact-SHA prompt.** Do not paste or execute it as the current
+> deploy path. The audited deploy wrappers are blocked for unattended use; use
+> [`../DEPLOY.md`](../DEPLOY.md), [`../STATUS.md`](../STATUS.md), and the current
+> Search checks in [`../COUCH_TEST.md`](../COUCH_TEST.md).
+
 Paste into a fresh home-Mac agent session after the work Mac has pushed.
 
 ```text

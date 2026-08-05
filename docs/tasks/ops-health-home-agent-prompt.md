@@ -1,10 +1,17 @@
 # Starter prompt — home agent (ops health conclusive dive + fixes)
 
+> **Superseded exact-release starter.** Do not paste or execute it as the
+> current deploy contract. The audited deploy helpers are blocked for unattended
+> use; reconcile with [`../DEPLOY.md`](../DEPLOY.md),
+> [`../STATUS.md`](../STATUS.md), and [`../COUCH_TEST.md`](../COUCH_TEST.md).
+
 Paste into a fresh home-Mac agent session. Read the sibling report first.
 
 ```text
 Work in the home-Mac Mango clone on branch feat/native-experience only.
-Pi deploy is git-only via scripts/pi-deploy.sh — never rsync/scp repo trees,
+Pi deploy remains Git-only, but do not invoke scripts/pi-deploy.sh unattended;
+stop at the current docs/DEPLOY.md blocker unless its exception is human-reviewed
+or the helper is fixed and tested. Never rsync/scp repo trees,
 never delete runtime DBs/cache/history unless a rebuild diagnosis proves the
 cache file itself is corrupt/incompatible, never touch YouTube credentials or
 quota knobs, and never invent a pass — unavailable proof is DEFERRED with the

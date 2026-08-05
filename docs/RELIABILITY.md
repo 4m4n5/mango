@@ -3,7 +3,8 @@
 **Status:** implemented as an operator-facing Settings/API surface. It answers:
 is Mango ready for couch use, and did the last unattended refresh prove it?
 
-Reliability Center is not a consumer debug dashboard. Home stays quiet except
+Reliability Center is not a consumer debug dashboard or a substitute for couch
+acceptance. Home stays quiet except
 for a small Settings badge when status is yellow/red. Detailed status and safe
 actions live in Settings and in catalog-service APIs.
 
@@ -13,12 +14,21 @@ actions live in Settings and in catalog-service APIs.
 
 | Status | Meaning |
 |--------|---------|
-| `green` | Core couch path is ready: launcher, catalog, controller, verified library, Live fallback, YouTube cache, and maintenance hygiene are healthy. |
+| `green` | Sampled core runtime is ready now: launcher, catalog, controller, verified library, configured optional sources, and maintenance hygiene are healthy. |
 | `yellow` | Mango is usable but needs attention: stale/missing proof, partial YouTube refresh, thin rails, disabled optional service, or active maintenance. |
 | `red` | Couch use is broken or blocked: launcher/catalog/controller unavailable, no displayable verified pool, Live has no ready/fallback cache, or stale locks block maintenance. |
 
+**Known model defect:** Live is a product-optional subsystem, but current source
+marks `live_config_ready=false` red and includes that component in overall
+status. An intentionally Live-off box can therefore be falsely labelled not
+couch-ready. Until the model and an explicit disabled-Live test are fixed, read
+that red component as a defect; configured Live with neither fresh nor safe
+stale cache should remain red.
+
 Nightly proof is availability-oriented. A rail missing `+20` is proof evidence
 and usually yellow, not red, unless it leaves the couch-visible pool unusable.
+Green does not prove physical controller wake, TV/CEC, visible 4K/HDR, audio/lip
+sync, every provider, subjective UI quality, or recommendation relevance.
 
 ---
 
@@ -53,10 +63,9 @@ Launcher uses the proxy path `/api/catalog/reliability/*`.
 
 ## Safe actions
 
-Settings exposes:
+Settings currently exposes:
 
 - **Repair now** — stale lock cleanup, safe stray cleanup, pad repair, catalog restart, launcher restart.
-- **Repair controller** — one rate-limited restart of the BlueZ link path. It never unpairs, restarts playback, or refreshes the launcher.
 - **Run proof now** — non-playback health proof and ledger write.
 - **Restart stack** — deliberate detached `mango-stack.sh restart`.
 - **Run refresh** — detached `nightly-library-refresh.sh --mode nightly --preset nightly`.
@@ -64,47 +73,71 @@ Settings exposes:
 Repair/restart/refresh require Mango to be idle. Proof can run while active,
 but an active couch marker is captured in the proof record.
 
+The backend/API also implements **Repair controller** as one rate-limited
+Bluetooth-link repair that never unpairs, restarts playback, or refreshes the
+launcher. The audited launcher Settings renderer does not currently expose that
+action, so it is API/backend-only until the UI is reconciled. Do not instruct a
+viewer to press a button that is not rendered.
+
 ---
 
 ## Nightly chain
 
 The **03:00** playability timer runs one coordinator:
 
+On the Pi, from the repository root:
+
 ```bash
+cd ~/mango
 bash scripts/m3-play/playability/nightly-library-refresh.sh --mode nightly --preset nightly
 ```
 
 Order:
 
-1. Movie/TV playability stale+grow attempt.
-2. Native YouTube refresh, even if movie/TV failed, unless another playability lock is still active.
-3. Reliability proof, recording `playability_rc` and `youtube_rc` metadata.
+1. Movie/TV playability stale+grow attempt and atomic publication when eligible.
+2. Exact VOD recommendation refresh jobs for the newly published corpus, with
+   last-good retained if a job fails or times out.
+3. Session reshuffle/maintenance bookkeeping.
+4. Native YouTube refresh, even if movie/TV failed, unless another playability
+   lock is still active.
+5. WAL checkpoint and Reliability proof, recording phase return codes/metadata.
 
 The wrapper exits non-zero if movie/TV, YouTube, or proof is red/unreachable.
 Set `MANGO_NIGHTLY_RELIABILITY_PROOF=0` only for targeted diagnosis.
 
-There is no daytime auto-retry of this chain. When proof is yellow after a
-failed/deferred nightly, retry only while idle:
+The calendar timer is `Persistent=true`, so a missed 03:00 event can run after
+boot while still respecting playback/idle/overlap guards. There is no separate
+uncontrolled daytime retry watcher after a failed chain. When proof is yellow,
+retry explicitly only while idle and only if no catch-up/job is already active:
 
 ```bash
+cd ~/mango
 bash scripts/m3-play/playability/playability-catch-up.sh nightly
 ```
 
 Companion consolidate runs on a separate timer at **06:00**
-(`install-companion-nightly-timer.sh`) and skips if the playability maintenance
-lock is still held.
+(`install-companion-nightly-timer.sh`), is also persistent, and skips if the
+playability maintenance lock is still held.
 
 ---
 
 ## Gates
 
+On the Pi, from the repository root:
+
 ```bash
+cd ~/mango
 bash scripts/m6-ship/reliability-proof.sh --reason operator
 bash scripts/m6-ship/gate-m6-reliability-proof.sh
 bash scripts/m6-ship/gate-m6-controller-reconnect.sh
 ```
 
 `gate-m6-reliability-proof.sh` fails on red, warns on yellow, and passes green.
-It is intended to run after `pi-deploy.sh --fast --gate` before couch handoff.
+It is intended to run on the exact deployed/read-back Pi SHA before couch handoff.
 `gate-m6-controller-reconnect.sh` is controller-specific and requires the
 controller-link installer to have been applied on the Pi.
+
+The deploy wrappers currently have branch/SHA and implicit AIOMetadata-mutation
+blockers; do not run them unattended.
+Select/read back the exact Pi SHA through the reviewed process in
+[DEPLOY.md](DEPLOY.md), then run these Pi-local gates.

@@ -38,7 +38,9 @@ The grow system is implemented as a best-effort, couch-silent maintenance workfl
 
 ## Couch play-first policy
 
-Couch `POST /play` uses **two ladders** and three modes:
+Couch uses accepted asynchronous `POST /play-session`; compatibility
+`POST /play` delegates to the same automatic policy. Playback uses **two
+ladders** and three modes:
 
 | Ladder | Role |
 |--------|------|
@@ -47,7 +49,7 @@ Couch `POST /play` uses **two ladders** and three modes:
 
 | Mode | Entry | Candidates | Library write |
 |------|-------|------------|---------------|
-| **auto** | Play button | full deduplicated identity-safe set, capability-tiered, within 120 s | verified only if win ∈ main; else **stale** (`last_resort_play`) |
+| **auto** | Play button | full deduplicated identity-safe set, capability-tiered, within the loaded profile wall (90 s base; 120 s `4k-hifi`) | verified only if win ∈ main; else **stale** (`last_resort_play`) |
 | **picker** | Detail side-list click | exactly one manually selected stream | never; fail hides ~30 min by fingerprint |
 | **verify** | grow / `probeWithLadder` | **main only** | verified only on main win |
 
@@ -69,8 +71,11 @@ A substantial watch (`min(20 minutes, 50% of duration)`) is a soft positive
 inside its capability tier; a quick exit is neutral. Evidence is keyed by
 stable release fingerprint plus playback profile and never stores a signed URL.
 
-Auto play walks the full deduplicated identity-safe set under one 120-second
-hard deadline. An incomplete candidate is reclassified after its existing mpv
+Auto play walks the full deduplicated identity-safe set under one profile-owned
+hard deadline. Source defaults and the baseline filter are 90 seconds; the
+active `4k-hifi` profile deliberately uses the permitted 120-second maximum for
+its larger candidate/uncached-probe budget. Do not turn either value into a
+universal TTFF promise. An incomplete candidate is reclassified after its existing mpv
 probe; newly proven risky candidates are deferred behind remaining smooth and
 unknown choices. One `auto_play_max_attempts` budget covers every phase and its
 bounded thin-candidate retry; cached-bad skips do not consume it. The obligation
@@ -150,14 +155,22 @@ explicit 8K/4320p is 8K. See [LIVE_TV.md](LIVE_TV.md).
 
 **Rate-limit honesty:** Bare `429` digits in opaque debrid/MediaFusion URL tokens are **not** rate-limits. Path markers (`rate-limit-exceeded`, `public-rate-limit`) and status-line `HTTP 429` / “too many requests” are. Couch `requestClass: 'user'` bypasses miss negative-cache but soft-respects confirmed rate-limit (~20s, `MANGO_STREAM_USER_RATE_LIMIT_BACKOFF_MS`). **Timeouts/5xx are not rate-limits** — they do not trip busy soft-backoff (immediate couch retry). Background keeps ~90s backoff for true rate-limits.
 
-**Stream resolve budgets:** Couch play/detail uses `MANGO_STREAM_RESOLVE_BUDGET_USER_MS` (default **30s**). Background verify/grow keeps `MANGO_STREAM_RESOLVE_BUDGET_MS` (default **12s**). After a primary hard-timeout with an empty pool, MediaFusion thin-supplement is skipped (no extra ~8s dead wait).
+**Stream resolve budgets:** Automatic couch Play uses
+`MANGO_STREAM_RESOLVE_BUDGET_USER_MS` (default **30s**); Detail stream lists use
+`MANGO_STREAM_LIST_RESOLVE_BUDGET_MS` (default **14s**); background verify/grow
+uses `MANGO_STREAM_RESOLVE_BUDGET_MS` (default **12s**). After a primary
+hard-timeout with an empty pool, the legacy direct MediaFusion thin supplement
+is skipped (no extra ~8s dead wait).
 
 **Resolver topology:** Mango's intended VOD graph has one stream-capable
 aggregate, AIOStreams. Torrentio, MediaFusion, and Comet are indexers inside its
 profile; TorBox and Real-Debrid are debrid/transport services used by those
 results. They are not six parallel Mango addons. Direct copies of the three
 indexers in `stremio-export.json` duplicate work and bypass AIOStreams dedup and
-policy. Catalog-service still fans all actually configured stream addons out
+policy. Current source also retains a separate Pi-state-triggered direct
+MediaFusion supplement when the AIO pool has at most one cacheable candidate;
+close or explicitly feature-gate that legacy exception before claiming strict
+AIO-only runtime. Catalog-service fans all actually configured stream addons out
 concurrently, coalesces identical requests, and lets Detail warm the same
 positive cache that Play consumes. `/health` exposes only fixed, credential-safe
 provider counts, cumulative outcomes/latency, and the latest user/background
@@ -167,20 +180,29 @@ tokens, title IDs, or stream IDs.
 **Resolve request class:** Couch play and `GET /stream` use `requestClass: 'user'`. Background verify/grow use `requestClass: 'background'`.
 
 **Empty-result confirmation:** AIOStreams can finish successfully at the HTTP
-layer while one or more internal indexer/debrid paths are still cold. Automatic
-VOD Play therefore permits at most two 1.2-second confirmation passes inside
-the same exact-title/episode single flight and existing deadline. This folds
+layer while one or more internal indexer/debrid paths are still cold. At source
+and release defaults, automatic VOD Play permits two 1.2-second confirmation
+passes inside the same exact-title/episode single flight and existing deadline;
+explicit rollback/experiment knobs accept 0–3 attempts and 0–10-second delays,
+so runtime values must be recorded. This folds
 the observed empty → empty → playable sequence into one B press, stops on the
 first playable result, and never probes a sibling. Only a clean empty or a
-sanitized error-only result proven transient is eligible. Addon timeout/5xx,
-confirmed 429, cancellation, permanent account/configuration error,
+sanitized error-only result proven transient is eligible. Addon fetch
+timeout/5xx, confirmed 429, cancellation, permanent account/configuration error,
 authoritative no-stream placeholder, invalidated work, or exhausted deadline is
-terminal and retains its honest classification. Detail `GET /stream` is bounded
-to 14 seconds and uses zero automatic retries; Live and picker refresh also use
-zero. Cache state is written only after the logical resolve settles. AIOStreams
+terminal **for the clean-empty resolve-confirmation loop** and retains its honest
+classification. This does not disable candidate-local ladder fallthrough or the
+one eligible stale-cached-transport fresh resolve described above. Detail
+`GET /stream` is bounded to 14 seconds and uses zero automatic confirmations;
+Live and picker refresh also use zero. Cache state is written only after the logical resolve settles. AIOStreams
 stream errors stay visible to catalog-service (`hideErrors=false`, only
-non-stream resources hidden), while Mango sanitizes and removes those rows from
-all picker/ladder output and exposes only safe fixed-category counters.
+non-stream resources hidden). Mango removes those rows from picker/ladder and
+couch-visible candidates and uses safe fixed-category copy/counters there.
+Loopback `/stream` diagnostics can still contain raw operator error details.
+URL-less nested AIO errors are normalized first into credential-free internal
+category placeholders and remain available to safe contribution/backoff
+classification. The companion proxy denies `/stream`; keep the API operator-only
+until the remaining raw details are sanitized.
 
 The couch hot path is deliberately play-first: read an existing verified hint, perform one user-class provider resolve, then walk main → last-resort → obligation floor. Drift/prepare/full verify and trigger draining remain background work; they do not add a second provider resolve before playback.
 
@@ -285,7 +307,7 @@ python3 scripts/diag/source-grow-audit.py --rail series-india-picks
 python3 scripts/diag/source-grow-audit.py --rail series-reality-casual
 ```
 
-Latest measured blocker: on 2026-06-25, an earlier Pi grow published `+280`
+**Historical June evidence (not current corpus size):** on 2026-06-25, an earlier Pi grow published `+280`
 unique verified titles. The scheduled 03:00 nightly later staged `+3` stale
 re-verifications, but the maintenance process was aborted with rc `143`; the
 staged DB was discarded and the live DB remained at `1054` unique verified
@@ -293,6 +315,11 @@ titles with `0` orphans. Separate source-yield audits showed
 `series-reality-casual` reaching only `+9/20` and `series-india-picks`
 remaining at `+0/20` in observed strict windows, mostly due to no-stream
 catalogs, duplicates, unresolved IDs, and theme-rejected broad charts.
+
+The current repository-recorded recommendation census is materially larger
+(roughly 5.4k verified movies and 3.8k+ verified series), but that snapshot is
+not a fresh grow proof. Use `playability-status.py` and
+`/recommendations/state` on the actual Pi; never reuse `1054` as current truth.
 
 ---
 
@@ -387,7 +414,10 @@ Grow negative memory is runtime-only:
 - Theme rejects default to a 7-day rail TTL; no-stream/title-mismatch grow rejects also default to about 7 days.
 - Debug-only failed-title bypass: `MANGO_GROW_BYPASS_RECENT_FAILED=1`.
 - Runtime source weights and source suppressions never edit catalog YAML or theme profiles.
-- After changing verification policy, archive/reset `~/.cache/mango/source-grow/latest.json` before benchmark comparison; old runtime demotions are cache-only but can otherwise bias the next run.
+- After changing verification policy, run benchmarks with an isolated cache path
+  when the tool supports it. If comparison absolutely requires rotating
+  `~/.cache/mango/source-grow/latest.json`, obtain explicit authority and move it
+  to a timestamped backup; never delete/reset it as routine recovery.
 - Unresolved external catalog IDs are structural candidate failures, not playback failures; they should show up as `skipped_unresolved_external_id` and source `unresolved_external_id`, not as repeated `no_stream` probes.
 - `uncached_verify_legacy` is a migration quarantine reason for older rows proven by stale cache metadata; it retries immediately by default so the current stream parser can re-verify them.
 - Source hit-rate reports written by Python use seconds timestamps; the grow loader normalizes seconds/milliseconds before age checks.
@@ -410,16 +440,25 @@ If refresh fails, `refresh-*.json` now records `ok:false`, `stage`, `failure_cat
 
 Full gate still runs M1 · M4 self-hosted · play orchestrator checks — holistic without exhaustive per-rail play.
 
+From the home Mac:
+
 ```bash
-bash scripts/pi-deploy.sh --fast --gate
-MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh
+# After the deploy-wrapper blocker in DEPLOY.md is fixed/reviewed and Pi HEAD is read back:
+bash scripts/pi-exec.sh 'cd ~/mango && MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh'
 ```
 
 PR regression (not gate-lite): `bash scripts/m3-play/playability/gate-m3-library-grow.sh`
 
 ---
 
-## Personalized-rail eligibility
+## Latest-only serve-mode personalized-rail eligibility
+
+This section describes the latest-only VOD `serve` mode. In `off`, Mango does
+not build or expose personalized For You rails. In `shadow`, Mango builds the
+latest recommendation architecture but still exposes no public For You rail;
+shadow is not compute-only today because Household identity, mood, Saved,
+Continue, and progress paths remain live. Only `serve` publishes the latest
+personalized rails. There is no supported legacy-public-rail fallback.
 
 Fire/Water `For You` candidates come only from the global active verified-title
 corpus; recommendation enrichment cannot publish an unverified title or bypass
@@ -452,3 +491,6 @@ curated rail, including the existing 4K policy and proof boundary.
 | Promote/demote sources from measured grow outcomes | Runtime weights should keep healthy catalogs hot and weak catalogs on small probation budgets |
 | Keep diagnostics compact | Operators need exact stage/source/reason without exposing grow/debug status on TV |
 | Revisit full retheme cadence | Full metadata retheme is useful but can trigger many meta calls; default grow should stay lightweight |
+| Prove latest-only recommendations | `345535d` compiles local profiles and offers an off-by-default bounded frontier, but Pi migration/accounting/active-pointer/promotion/couch proof remains open; first fix VOD shadow/Shuffle and YouTube off ownership defects, then deploy the exact SHA in independent shadow lanes and measure coverage/quality/cost |
+| Prove recommendation refresh after publication | Grow completion must wait for exact VOD/YouTube jobs while preserving last-good on failure |
+| Prove AIO runtime topology separately from Git | AIOStreams `userData` is Pi-owned state; resolver/indexer/transport contribution cannot be inferred from repository config |

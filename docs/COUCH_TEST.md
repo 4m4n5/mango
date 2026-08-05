@@ -1,656 +1,386 @@
-# Couch test checklist
+# mango — current couch acceptance
 
-**Branch:** `feat/native-experience` · **Last documented Pi HEAD:** `539ebdb`
-(2026-07-30; historical, not the recommendation deployment target) · **Gate:**
-`bash scripts/pi-exec-gate.sh` (gate-lite ~2 min) + ux-smoke on feat branch
+This is the executable release checklist for the current product contract. It
+does not inherit PASS results from older task reports, screenshots, SHAs, rail
+counts, or recommendation models.
 
-Run gate on Mac before handing off to the TV. Live IPTV is opt-in — not in gate-lite.
+## Evidence and verdict rules
 
-Recommendations v2 source is complete but not yet deployed. Real
-StoryDNA/YouTube generation backfills, offline promotion evidence, Pi runtime,
-and every recommendation couch row below are **DEFERRED** until the authorized
-home agent performs a git-only deployment of the exact pushed revision.
+Record this header before testing:
 
----
-
-## Automated preflight (agent)
-
-```bash
-bash scripts/pi-deploy.sh --fast --gate   # pull, build, gate-lite
-bash scripts/diag/series-episodes.sh --sample   # on Pi — episode meta + stream probes
-python3 scripts/diag/playability-status.py   # pool depth
-python3 scripts/diag/grow_monitor.py status  # latest grow health; operator-only
-bash scripts/m6-ship/gate-m6-library-smoke.sh # Saved/current-context smoke
-bash scripts/m6-ship/gate-m6-youtube-smoke.sh # YouTube state/rails/search/detail
-bash scripts/m6-ship/gate-m6-ux-smoke.sh      # M6.5 HUD/focus contracts
-bash scripts/m6-ship/gate-m6-search-smoke.sh  # non-mutating unified Search proof
-bash scripts/m5-voice/ai/gate-m5-companion-memory.sh  # living librarian watch signals
+```text
+date/time:
+source SHA:
+Pi SHA:
+Pi git status:
+MANGO_VOD_RECS_V2 mode:
+MANGO_YOUTUBE_RECS_V2 mode:
+playback capability/profile:
+TV / HDMI port / enhanced-mode setting:
+audio route / soundbar:
+controller firmware/mode:
+tester(s):
 ```
 
-The standard pre-couch path above can run the YouTube smoke's real Search when
-an API key is configured. For a zero-YouTube-quota handoff, deploy without
-`--gate`, then pass the skip inside the remote command (the Mac wrapper does not
-forward it):
+Use only these verdicts:
+
+| Verdict | Meaning |
+|---------|---------|
+| PASS | Observed on the named Pi SHA/configuration |
+| FAIL | Observed behavior violates the named contract; include exact reproduction/evidence |
+| DEFERRED | Hardware, account state, feature mode, source inventory, or human observation was unavailable |
+| N/A | Deliberately unsupported/disabled for this release, with the product boundary recorded |
+
+Automated gates prove process/API/state checks. Screenshots prove pixels. Only
+the human tester can close physical readability, focus feel, controller/CEC,
+visible picture, audio/lip sync, perceived latency, and recommendation quality.
+
+## Safety and preconditions
+
+- Git-only deploy; never rsync/scp/hand-copy repository files.
+- Couch must be idle before deploy. `pi-deploy.sh` restarts the stack and can
+  stop active playback/indexers.
+- Inventory and preserve Pi dirty state. Do not stash/reset unknown operator
+  changes as a routine fix.
+- Never delete/rebuild runtime databases, cache, history, proof ledgers, or
+  credentials to make a test pass.
+- Never expose API keys, OAuth/debrid tokens, cookies, signed URLs, raw AIO
+  `userData`, private companion state, or IPTV credentials in screenshots/logs.
+- AIOStreams `userData` is Pi-owned state; Git deployment does not apply it.
+- Current deploy wrappers are blocked for unattended agents: branch/SHA is not
+  enforced/pinned and `pi-deploy.sh` can implicitly mutate AIOMetadata private
+  state. Follow [DEPLOY.md](DEPLOY.md) and do not begin couch acceptance until
+  that blocker is fixed or a human explicitly reviews the exception.
+- Pairing mode is recovery only. Ordinary controller power-on is the happy path.
+- Live is optional and its provider probes/gates are opt-in.
+
+## 0 — Deploy and automated baseline
+
+From the home Mac, first prove the intended source identity. The deploy-wrapper
+lines are intentionally omitted while the blocker above remains open:
 
 ```bash
-bash scripts/pi-deploy.sh --fast
-bash scripts/pi-exec.sh \
-  'cd ~/mango && MANGO_GATE_SKIP_YOUTUBE=1 bash scripts/pi-pre-couch-gate.sh'
+git switch feat/native-experience
+git fetch origin feat/native-experience
+git pull --ff-only
+test "$(git rev-parse HEAD)" = "$(git rev-parse origin/feat/native-experience)"
+git status --short
+bash scripts/pi-exec.sh 'cd ~/mango && git rev-parse HEAD && git status --short && bash scripts/mango-stack.sh status'
+# Fix/review the deploy blocker per DEPLOY.md, deploy through Git, then record:
+bash scripts/pi-exec.sh 'cd ~/mango && git branch --show-current && git rev-parse HEAD'
 ```
 
-In that mode, cached counter-invariance proof may still pass, but live YouTube
-search/detail smoke is **DEFERRED** rather than silently called green.
+Run Pi-local gates only after Pi HEAD exactly matches the recorded origin SHA.
 
----
-
-## Browse & pad (M2)
-
-| # | Action | Pass? |
-|---|--------|-------|
-| 1 | **Movies** tab loads rails of **6 posters, one row each** — no second row, no half-card peeking inside a rail | |
-| 2 | **L/R shoulders** switch Movies ↔ Series ↔ Live | |
-| 3 | **X current-tab shuffle** (pad `307`) — only the visible Home tab changes, no rate-limit text | |
-| 3a | After returning from playback, X still shuffles the visible Home tab even if mpv teardown is briefly pending; it never opens Streams or reloads Chromium | |
-| 4 | **Series** tab — rails populated | |
-
----
-
-## Series episode picker (M3)
-
-| # | Action | Pass? |
-|---|--------|-------|
-| 5 | Open **Panchayat** (or Breaking Bad) → episode list below actions | |
-| 6 | D-pad **down** into episodes — **active season only**; streams strip **does not** update on focus | |
-| 7 | **L/R** on season chip or episode row **changes season** (multi-season); chip row hidden when one season | |
-| 7a | **B** on focused episode resolves and plays immediately; no dwell prefetch or mandatory picker. **Play** from actions row = global resume | |
-| 7b | Scroll a long season from first to last episode: the season chips and **episodes · N** heading retain their full height, and each newly focused row appears directly at its resting centre without travelling and snapping back | |
-| 8 | Grey/unverified rows remain focusable and show **tap to retry**; **B** re-runs the normal main → last-resort → floor play path | |
-| 9 | **Play / Resume** starts mpv; **Y** returns to detail | |
-| 10 | Exit an episode early → same episode row is focused; finish to **≥90%/EOF** → the next episode row is focused directly, including across a season boundary | |
-
----
-
-## Play (M3)
-
-| # | Action | Pass? |
-|---|--------|-------|
-| 11 | Movie → detail → **Play** → mpv ≤90s | |
-| 11a | From mpv, **Y** returns to the same launcher state: same tab, same title/detail context, no reshuffle/reset to Movies | |
-| 12 | **Continue** rail resumes if entries exist | |
-| 13 | **⌂** always returns home | |
-
-## Playback-hardening acceptance (home Mac/Pi only)
-
-Do not mark these from work-Mac source checks. Capture the referenced runtime evidence after the reviewed commit is pushed and deployed once with `--fast --gate`.
-
-| Check | Couch action and required evidence | Pass? |
-|---|---|---|
-| Timeout cancellation | Force/observe a play exceeding the 95 s launcher watchdog; confirm the request ID is cancelled and no ghost mpv starts later | |
-| Hard language | Play a hard-language title; logs/attempt metadata show no wrong-language candidate attempted | |
-| Picker single-shot | Choose one displayed release; the sole attempt has that URL identity and ladder step, with no silent substitution | |
-| Movie return state | Exit a movie from both 1080p and matched-4K output; Chromium may restart, but the same tab/title detail returns with Play focused instead of Movies home | |
-| Series early-exit state | Exit a series episode below the finished threshold; the same title/season/episode remains and that episode row is focused after progress refresh | |
-| Series completion state | Exit at ≥90% or natural EOF; the same title detail returns with the next episode row focused, including last-episode-to-next-season; no takeover overlay steals focus | |
-| Long-play ownership | Play for >30 minutes (or approved accelerated equivalent); maintenance defers and does not stop the couch-owned mpv | |
-| 1080p HDR | Play the fixture; effective mpv properties and visible picture confirm the intended 1080p HDR/tone-map path | |
-| 4K SDR HEVC | Play a verified 4K fixture; winning main step is SDR + HEVC and effective decoder/output properties match | |
-| Subtitles/audio | ↑ shows/cycles subtitles; A shows/cycles audio; selected audio/subtitle and channel policy are audible/visible | |
-| HDMI restore | First visible frame appears only after source match; Y/⌂ restores `1920x1080@60` before launcher reveal | |
-| Frame drops | `scripts/diag/playback-4k-proof.sh` records real presented/dropped-frame evidence; never infer a pass from source config | |
-
-### Episode success reconciliation (home Mac/Pi only)
-
-Use an existing failed episode row from the first query; these checks are
-read-only. Open that exact episode from Series detail, press **B**, wait for mpv
-to start, then return with **Y**. Pass means there is no late **catalog timed
-out** toast, the row is not grey/**tap to retry**, and the exact episode row is
-freshly `verified`. A genuine pre-play failure must still show the retry state.
+For a release candidate, still from the home Mac:
 
 ```bash
-sqlite3 ~/.cache/mango/playability.db \
-  "SELECT type,id,status,fail_reason,expires_at,updated_at FROM titles WHERE id LIKE 'tt%:_:_%';"
-
-curl -sf "http://127.0.0.1:3020/series/<bareSeriesId>/episodes" \
-  | jq '.. | .playable? // empty'
+bash scripts/pi-exec.sh 'cd ~/mango && MANGO_GATE_FULL=1 bash scripts/pi-pre-couch-gate.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-reliability-proof.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-search-smoke.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-youtube-smoke.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-ux-smoke.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m5-voice/ai/gate-m5-companion-couch.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m5-voice/ai/gate-m5-companion-memory.sh'
+bash scripts/pi-exec.sh 'cd ~/mango && bash scripts/m6-ship/gate-m6-controller-reconnect.sh'
 ```
 
-| Check | Required evidence | Pass? |
-|---|---|---|
-| Successful non-`:1:1` episode | Before/after SQL row plus episode JSON show the played episode changed from stale `failed` to fresh `verified`/`playable: true`; no late timeout toast or grey row | |
-| Real pre-play failure | Use an unreachable/exhausted episode without starting mpv; timeout/error remains visible and the episode stays retryable, not falsely verified | |
-| Gate episode regression | Bare-series Play and `:1:1` still follow the normal rail-gate promotion/demotion behavior | |
+Run recommendation promotion/evaluation gates named by
+[FIRE_WATER_RATINGS.md](FIRE_WATER_RATINGS.md) only when their required corpus
+and mode are present. Run Live probes only with explicit provider authorization.
 
-### Stream-source policy and resolve-load confirmation (home Mac/Pi only)
+Record every command, rc, duration, warning, and feature mode. A yellow
+Reliability result can be usable but is not an unexplained PASS. Red blocks
+couch handoff.
 
-Run these on the Pi after the reviewed tree is deployed. The first command is
-credential-safe: it reads the live AIOStreams user profile but prints no keys.
-Do not infer a pass from the repo patch alone.
+## 1 — Launcher, focus, and global states
 
-```bash
-cd ~/mango
-bash scripts/m4-addons/aiostreams-config.sh verify
+Test from the physical controller at normal couch distance.
 
-curl -sf "http://127.0.0.1:3020/stream/movie/tt0111161?strict_unknown_cache=false" \
-  | jq '[.streams[] | {source,debrid_service,cache_status,display_label,ladder_step}]'
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| L1 | Cold launcher | Search · Movies · TV Shows · Live · YouTube appear without wallpaper/desktop/app flash | |
+| L2 | Typography/safe area | Essential copy is readable; focused cards/rings are not clipped at TV edges | |
+| L3 | D-pad path | Every visible interactive element is reachable and escapable; one focus target at a time | |
+| L4 | Focus vs selection | White focus/current state/amber semantic state remain visually distinct | |
+| L5 | L/R | Shoulders move exactly one browse tab and preserve per-tab focus/scroll | |
+| L6 | B/Y | B selects; Y backs one logical level without resetting unrelated state | |
+| L7 | Home | Home returns from playback to the preserved origin; on launcher it does not reset Home | |
+| L8 | X ownership | Home X advances only current eligible cached discovery; Search X edits; playback X follows content kind; stale/background player state cannot steal it | |
+| L9 | Loading | Skeleton/loading treatment is stable, low-motion, and does not expose diagnostic copy | |
+| L10 | Empty | Honest helpful state, no inert normal rail or layout collapse | |
+| L11 | Offline/stale | Last-good content remains usable where contracted; stale/offline copy is calm and actionable | |
+| L12 | Toasts/errors | Copy is concise, non-stacking/non-flickering, and never shows raw IDs/URLs/provider secrets | |
+| L13 | Return | Detail/Search/tab/focus/scroll survive Chromium restart used by playback return | |
+| L14 | Performance | Repeated rapid D-pad moves do not lose/duplicate actions or create periodic stalls | |
 
-# The Internet's Own Boy regression + fixed-category resolver contribution proof.
-bash scripts/diag/playback-ladder-health.sh movie tt3268458
+Capture 1920×1080 screenshots for Home, each tab, loading, empty, offline/stale,
+error/toast, Detail, and Settings. Inspect both pixels and focus geometry.
 
-# Alliance regression: obtain the exact episode ID from the episode API first.
-curl -sf "http://127.0.0.1:3020/series/<bareAllianceId>/episodes" \
-  | jq '[.. | objects | select(.id? and (.id | test(":"))) | {id,name,season,episode}]'
-bash scripts/diag/playback-ladder-health.sh series <exactAllianceEpisodeId>
+## 2 — Detail, library, and episodes
 
-journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
-  | grep '"event":"resolve_flight"' \
-  | grep -E 'background_defer_foreground|background_join_foreground|foreground_bypass_background'
-```
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| D1 | Movie Detail | Title/art/synopsis/actions are coherent; no raw filename, provider URL, or duplicated control legend | |
+| D2 | Series Detail | Season/episode navigation is exact and retains show identity | |
+| D3 | Save/Unsave | Immediate durable Saved update; playback never auto-saves | |
+| D4 | Continue | Exact position belongs to the played title/episode and appears newest-first | |
+| D5 | Resume | Resume returns near prior position; no Household blending or sibling-episode substitution | |
+| D6 | Finish | Movie 90% and series completed-episode semantics update history/finished without stealing focus | |
+| D7 | Not for me/Undo | Exact item disappears/reappears; no related-title/creator/topic penalty is implied | |
+| D8 | Stale context | A stale revision/action fails safely and reconciles; it never mutates another item/profile | |
 
-| Check | Required evidence | Pass? |
-|---|---|---|
-| Live AIO topology/policy | `aiostreams-config.sh verify` exits 0 and safely confirms TB/RD/Easynews plus Torrentio/Comet/MediaFusion, Service Wrap, uncached policy, and stream-error visibility | |
-| Real formatter shapes | A title with both services shows TB/RD cached rows as `cached`, an available TB `⏳` row as `uncached`, and no RD `⏳`/`download` row reaches the couch response | |
-| Source coverage | AIOStreams result labels include its configured Torrentio/Comet/MediaFusion sources; if direct MediaFusion is configured, a thin AIO result can be supplemented without duplicate URLs | |
-| Intended topology | `configured_stream_providers.aiostreams` is 1; direct Torrentio/MediaFusion/Comet provider counts are 0. Their contribution appears under `resolver.last_contributions.user.indexers`, while TorBox/RD appear under `debrid` when the title actually returns them | |
-| Foreground commit regression | Play *The Internet's Own Boy* (`tt3268458`): rejected candidates keep Detail visible; the TV never goes black then returns to Detail while a later candidate starts by itself | |
-| Candidate-local fallback | Force or select one unreadable candidate followed by a valid one; the valid candidate may start, but no failed candidate changes display ownership | |
-| Pipeline-fatal stop | Cancel during startup or induce a display/VO/handoff failure; no later candidate starts and no delayed playback appears after Detail returns | |
-| Attempt cap | Logs show no more than the configured `auto_play_max_attempts` real probe/play attempts across all ladder phases; cached-bad skips do not spend the cap | |
-| Foreground priority | Start a maintenance verify for a title, then open/play the same title; couch resolve does not wait on the background deadline | |
-| Background amplification guard | While a couch resolve for a title is active, same-title background work logs join/defer and does not start a parallel provider fan-out | |
-| Alliance first-press recovery | For the exact reported episode, one **B** either starts playback or returns one honest transient/exhausted result. A transient first pass increments `stream_resolve_retries`; success in the same request increments `stream_resolve_retry_recoveries`; no sibling episode is queried and no provider-error row appears in the Streams drawer | |
+## 3 — Playback start and resolver robustness
 
-Deferred on the work Mac: the live AIO user profile, generated manifest URL,
-paid-provider results, journal concurrency evidence, and actual provider fan-out
-all exist only on the Pi.
+Use representative cached/uncached Movie, exact Episode, YouTube, and optional
+Live items. Include previously problematic **The Internet's Own Boy** and the
+exact **Alliance** episode when those IDs/sources exist in the configured
+runtime; record substitutes and exact IDs otherwise.
 
-### Popular-title stream-list and smoothness confirmation (home Mac/Pi only)
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| P1 | Clean startup | Launcher stays visible during resolve/probe; no early black screen or late playback after Detail returns | |
+| P2 | First frame | Foreground changes only after advancing media; picture and audio begin as one coherent transition | |
+| P3 | Normal fast path | Usable existing stream starts from the first B press; record accepted/TTFF/ready durations separately | |
+| P4 | Empty→empty→playable fixture/title | Release defaults `MANGO_STREAM_ZERO_RETRY_ATTEMPTS=2` and delay `1200`; initial plus two eligible confirmations recover inside one B press, same exact ID and deadline | |
+| P5 | Error classification | Resolver HTTP/fetch timeout, 5xx, 429, auth/config/permanent, cancel, malformed, and expired-deadline notes do not enter the clean-empty confirmation loop or start later in background; candidate-local mpv/network failures may advance to a later candidate inside the same request and wall | |
+| P6 | Exact episode | Every resolve/probe/winner uses `tt…:season:episode`; no sibling fallback | |
+| P7 | Single flight | Repeated/duplicate input does not create duplicate provider fan-out or competing playback | |
+| P8 | Honest failure | Original Detail remains visible/usable; no black wallpaper, phantom toast, or late mpv process | |
+| P9 | Cancellation | Y/Home cancels scoped work and a stale completion cannot acquire foreground | |
+| P10 | Replay | Stop and immediately replay; stale monitor/epoch cannot stop the new session | |
+| P11 | Return | Stop/natural exit flushes progress, restores 1080p60 launcher once, and returns exact focus | |
+| P12 | Provider evidence | Credential-safe counters show AIO aggregate contribution; never infer nested provider success from Git config alone | |
 
-Reapply the reviewed hifi profile so the repo copy replaces the prior installed
-copy, then restart through the normal git-only deployment path. Do not mark a
-source/config pass from work-Mac code or public-addon results.
+TTFF is a measured distribution, not the ladder's safety wall. Record profile
+and loaded `auto_play_wall_ms` (90 s base, 120 s `4k-hifi`) separately.
 
-```bash
-cd ~/mango
-bash scripts/m6-ship/set-playback-engine.sh mpv-hifi
+## 4 — mpv HUD and Streams drawer
 
-curl -sf "http://127.0.0.1:3020/stream/movie/tt3659388" \
-  | jq '[.streams[] | {display_label,resolution,encode,hdr_tags,cache_status,debrid_service,ladder_step,unverified}]'
-
-curl -sf "http://127.0.0.1:3020/stream/movie/tt1160419" \
-  | jq '[.streams[] | {display_label,resolution,encode,hdr_tags,cache_status,debrid_service,ladder_step,unverified}]'
-
-journalctl --user -u mango-catalog.service --since '-10 min' --no-pager \
-  | grep '"event":"resolve_flight"' \
-  | grep '"flight_result":"join_equivalent"'
-
-bash scripts/diag/playback-4k-proof.sh
-```
-
-| Check | Required evidence | Pass? |
-|---|---|---|
-| The Martian list (`tt3659388`) | Open detail from a cold stream cache. The strip stays on **finding…** through the late join, then shows rows; it never vanishes on the initial UI timeout. If providers truly return none, the visible label says **none found**. | |
-| Dune list (`tt1160419`) | Same behavior; when main is empty, retained last-resort rows are visibly **unverified**, with 1080p TorBox ordered before soft 4K. | |
-| No duplicate scrape | One cold detail open that crosses the first wait produces an equivalent-flight `join` and only one provider fan-out for that title search. | |
-| Smooth auto choice | With both a 1080p TorBox fallback and cached AV1/H.264 4K present, automatic Play attempts `1080p_uncached_fallback` first. Soft 4K remains eligible later in the ladder; coverage is not reduced. | |
-| Real 4K capability | A row is called smooth 4K only when metadata and `playback-4k-proof.sh` show 2160p SDR HEVC hardware decode with acceptable real dropped-frame evidence. HDR/AV1/H.264 4K remains unverified unless target-TV proof says otherwise. | |
-
-### Evidence-based episode selection and Streams OSD
+Render fixture states first, then verify during real playback:
 
 ```bash
-bash scripts/m6-ship/gate-m6-stream-picker-source.sh
-bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
 bash scripts/m6-ship/render-mpv-hud-fixtures.sh /tmp/mango-hud-fixtures
-curl -sf http://127.0.0.1:3020/play-session/active/streams | jq '.streams'
+bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
 ```
 
-| Check | Required evidence | Pass? |
-|---|---|---|
-| Adarsh identity | `tt40856520:1:3` retains localized `S01E03` and bare `E03` 1080p rows; both rank before 4K HDR | |
-| Automatic choice | Episode starts a smooth 1080p candidate; risky 4K remains available as final fallback | |
-| Clean HUD | Playback starts without chrome; interaction reveals a safe-area cinematic panel with title/episode, elapsed and negative remaining time, one essentials line, and readable B/X/Y hints | |
-| Exact feedback | 10/30/120s seeks, volume, subtitle, audio, pause, and resume show accurate 10-foot feedback for the correct 4s/6s timeout | |
-| Pause/buffering | Full HUD settles to a persistent small Paused badge; resume removes it immediately; brief cache pauses do not flicker and sustained buffering appears after about 1s | |
-| Live/YouTube | Live shows title + LIVE with no timeline; Live and YouTube hide X and pressing X has no visible response | |
-| Picker controls | During movie/episode playback X opens the bottom Streams drawer, Up/Down moves, B selects, and Y closes without stopping; upper video remains vivid and playing | |
-| Rapid picker input | Press X then immediately Down; focus moves exactly one row and playback does not seek or show the subtitle HUD | |
-| Candidate safety | At most five rows; current is first with amber `Playing`; best usable alternate has the white focus ring; unavailable rows are last/disabled; API and snapshot contain no URL or credential | |
-| Readiness/detail | Rows use `Ready now`, `May take longer`, or `Unavailable`; focused detail remains readable for provider/size/bitrate/release/audio/codec and explains risky/unavailable choices | |
-| Switching | `Checking stream…` suppresses duplicate input; a valid alternate closes the drawer, confirms `Now playing`, and preserves absolute position, subtitle visibility, and audio/subtitle language-role preference | |
-| Contextual Undo | During the confirmation window X restores the previous candidate with the latest revision, then returns to normal X-to-Streams ownership | |
-| Failure recovery | Validation failure keeps the drawer, original stream, error band, and failed-row focus; replacement launch failure restarts the original once and reopens the drawer without a launcher flash | |
-| Only current | A one-candidate snapshot opens an explicit no-alternatives state rather than an inert normal list | |
-| 4K regression | During real 4K playback, opening/using/closing the drawer introduces no dropped-frame regression | |
-| Steady-state cost | Closing Streams leaves no external HUD process and no active picker poll | |
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| H1 | Startup | No HUD until interaction; clean film image | |
+| H2 | Normal HUD | Safe-area cinematic panel; title/episode; elapsed and negative remaining; one proven technical line; contextual hints | |
+| H3 | Feedback | Exact signed seek, volume value, subtitle/audio selection, pause/resume; 4 s normal and 6 s track/error dwell | |
+| H4 | Pause | Full panel settles to a small persistent centered Paused badge; disappears immediately on resume | |
+| H5 | Buffering | Appears only after 1 s anti-flicker and clears immediately on recovery | |
+| H6 | Live | LIVE badge, no false timeline, no X guidance/response | |
+| H7 | YouTube | X has no response; native playback controls remain coherent | |
+| H8 | Drawer layout | 58%-height bottom drawer/local scrim; vivid playing video; stable 60/40 list/detail layout | |
+| H9 | Five choices | Maximum five including current first; current amber Playing/check; best usable alternative initially focused | |
+| H10 | Readiness | Ready now / May take longer / Unavailable; risky copy says May stutter on this device; details explain why | |
+| H11 | Focus/disabled | 4 px white focus distinct from current; unavailable last, visibly disabled, and B cannot select it | |
+| H12 | Checking | Chosen row says Checking stream…; duplicate input suppressed; current play continues | |
+| H13 | Success | Drawer closes; Now playing confirmation; X temporarily Undo; position/tracks/subtitle state continue | |
+| H14 | Undo | Restores prior candidate by opaque ID/latest revision, then restores normal X-to-Streams ownership | |
+| H15 | Failure | Drawer stays open on failed row with persistent error band; original stream continues | |
+| H16 | No alternatives | Clear no-alternatives state, not an inert normal list | |
 
-### Same-name title identity (home Mac/Pi only)
+## 5 — Fire/Water and VOD recommendations
 
-Use the UK series IMDb ID (`tt0290978`) and compare it with the US series ID
-(`tt0386676`). The URL parameters below mirror the launcher's cold-meta identity
-fallback; do not include credentials in captured evidence.
+Do not run served-quality acceptance while VOD mode is `off`/`shadow`; record
+the mode and mark served checks DEFERRED. `off` has no For You rail. `shadow`
+builds latest-only without exposing For You but already switches profile/mood,
+Continue, and new signal ownership to Household; verify that state transition
+explicitly rather than treating shadow as invisible compute.
+
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| F1 | Rating sheet | Five flame/wave marks; labels + numeric values; half mark exactly clipped; 0 is valid | |
+| F2 | D-pad edit | Up/Down axis/action; B enters/confirms; Left/Right exact 0.5; Y cancels; X clear confirmation | |
+| F3 | Series identity | Rating from an episode writes show-level rating only | |
+| F4 | Prompt | Movie 90% / three distinct series episodes; invitation appears on return without stealing focus | |
+| F5 | Durability | Set/edit/clear survives restart; append-only history and seed precedence remain intact | |
+| F6 | Privacy | Teacher/network request contains canonical content evidence only—no ratings, Saved/history, profile, mood, conversation, or memory | |
+| F7 | Corpus/pointer | `scored + excluded == verified`, `unscored == 0`, coverage 1 for a complete publish; independently prove active/previous pointers and public epoch because `/recommendations/state` reports the latest row, not necessarily the live row | |
+| F8 | Rail shape | One For You after Continue/Saved; exactly six current verified/poster-bearing cards | |
+| F9 | Mix | Six, 3+3, or 2+2+2 across supported threads; no v4 12-card/4-1-1/forced-surprise/rewatch behavior | |
+| F10 | Exclusions | Exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me absent | |
+| F11 | X | Response advances cached dealer without waiting for network/teacher/graph/corpus/rank work; avoids four prior slates when supply permits; any asynchronous low-water job is separately attributed | |
+| F12 | Last good | Teacher/offline/restart/job failure retains prior valid six-card rail | |
+| F13 | Rollback | serve → shadow/off removes For You without data loss; reviewed Git rollback is required for older ranking behavior | |
+| F14 | Quality | Human compares relevance, diversity, familiarity, novelty, multilingual fit, and repetition across Movies/TV | |
+| F15 | Shadow identity | Personal rows/counts remain intact; profile/mood writes are typed; Continue/progress and Saved ownership match the accepted Household policy with no shadow/serve divergence | |
+| F16 | Disabled Shuffle | X/Shuffle is hidden or honest in off/shadow; it never reports a successful refresh when no For You rail changed | |
+
+The latest recorded Pi snapshot predates `345535d` and had only partial
+predecessor StoryDNA/rank coverage. Before claiming promotion, prove the latest progressive compiler,
+semantic migrations, bounded frontier-off/default behavior, complete audited
+coverage, offline gates, and exact-SHA Pi/couch behavior. A bulk artifact or
+importer is required only if measured progressive coverage/quality gaps justify
+that additional architecture.
+
+## 6 — Native YouTube
+
+Do not expose OAuth/API material in evidence. Distinguish base YouTube from v2
+recommendation mode.
+
+YT1–YT4 apply in every mode. YT5–YT14 are **serve-mode** acceptance: mark them
+DEFERRED in `off`/`shadow`, where recommendation rails are absent and only
+eligible History/Saved utility rails remain. Fix the current non-Household
+`off` ownership/HTTP 409 defect before using off as rollback.
+
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| YT1 | Base tab | Cached metadata remains usable; Search groups Videos/Channels/Playlists | |
+| YT2 | Connect | Companion device flow succeeds; token stays `/etc/mango`, 0600; LAN status DTO stays sanitized | |
+| YT3 | Takeout | Bounded ZIP/JSON/HTML import is path-safe/idempotent; normalized events remain; raw upload is discarded | |
+| YT4 | Playback | Video B → `yt-dlp` → mpv; one selector fallback at most; couch-safe 403/429/CAPTCHA error | |
+| YT5 | Input isolation | Only authoritative subscriptions and qualifying Takeout/Mango history influence v2 | |
+| YT6 | Logical order | For You, Beyond, More Like, History, Saved, then conditional Subscriptions/Live | |
+| YT7 | Supply honesty | Normal rows render only at exactly four cards and can be absent; Live renders 1–4; no unrelated filler | |
+| YT8 | X/quota | X advances cached eligible rails only; API/search counters unchanged; History/Saved stable | |
+| YT9 | For You | 60/40 decayed history/subscriptions with cold-start renormalization and exact watched/Saved/Short/live exclusions | |
+| YT10 | Beyond/More Like | Beyond excludes subscribed creators; More Like uses stable meaningful-watch seed; creator caps/dedupe hold | |
+| YT11 | Not for me | Exact reversible video suppression only; no creator/topic penalty | |
+| YT12 | Failure | Partial refresh/OAuth/quota failure preserves explicit stale last-good generation | |
+| YT13 | Empty setup | With neither qualifying subscriptions/history, show connect/import/watch setup—not fake Popular filler | |
+| YT14 | Human quality | Relevance, creator diversity, novelty, multilingual/topic fit, stale behavior, and repetition accepted | |
+| YT15 | Off rollback | With a non-Household active profile, off returns the intended utility/setup surface without 409 and preserves all personal/Household rows | |
+| YT16 | AI catalog honesty | A YouTube AI-catalog slot is never claimed visible unless the current Home renderer actually composes it | |
+
+The supported Data API cannot reproduce YouTube's proprietary native Home feed;
+absence of that feed is not a defect in Mango's supported model.
+
+## 7 — Unified Search
+
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| S1 | Open/close | Magnifier opens a temporary surface; Y restores exact originating tab/focus | |
+| S2 | Keyboard | D-pad QWERTY is spatially predictable; text caret/query readable; B types/selects correctly | |
+| S3 | X | Tap deletes one character; hold ≥600 ms clears; returning Home restores current-tab X | |
+| S4 | Local | Verified Movies/TV plus cached proven Live/YouTube appear quickly without submit | |
+| S5 | Submit | External VOD, unknown Live, YouTube, optional AI phases progress independently | |
+| S6 | Partial failure | One degraded source cannot erase usable rows; state/copy says which phase failed | |
+| S7 | Quota | Cached result first; admitted fresh YouTube work respects protected interactive budgets | |
+| S8 | Detail/playback return | Query, scope, results, focus, scroll, and origin survive Detail and playback | |
+| S9 | Recents/learning | Bounded and reversible; no accidental search/history mutation during diagnostic gate | |
+| S10 | No autoplay/chatbot | Search opens Detail only and does not become a conversation surface | |
+
+## 8 — Optional Live TV
+
+Run only when configured and explicitly opted in:
 
 ```bash
-curl -sf "http://127.0.0.1:3020/stream/series/tt0290978%3A1%3A1?title=The%20Office&year=2001" \
-  | jq '[.streams[] | {title,name,description,source,display_label}]'
+bash scripts/live/live-diagnostics.sh
+MANGO_LIVE_GATE=1 bash scripts/live/gate-live-iptv.sh
+MANGO_LIVE_PROBE=1 bash scripts/live/probe-live-catalog.sh
 ```
 
-| Check | Required evidence | Pass? |
-|---|---|---|
-| UK stream list | Explicit `UK`/`U.K.`/`2001`/`Downsize` rows remain; explicit `US`/`U.S.`/`2005`/`Pilot` rows are absent. Unqualified rows remain available when providers supply them. | |
-| UK episode playback | Play UK S1E1 and confirm the visible/audible episode is **Downsize**, not the US **Pilot**; repeat one later episode to rule out a one-row coincidence. | |
-| US regression | Open `tt0386676` S1E1; explicit US/2005/Pilot rows remain eligible and playback is the US episode. | |
-| Conflict telemetry | The stream response/log telemetry attributes rejected remake rows to `title_mismatch`; it does not report a provider outage or empty list when correct/ambiguous candidates exist. | |
-
-Deferred on the work Mac: Pi Chromium restart/focus behavior, actual live addon
-inventory, and visible/audible UK-vs-US playback identity. Run these only from
-the home-Mac/Pi handoff after review and deploy.
-
-Deferred on the work Mac: actual The Martian/Dune provider inventories, debrid
-cache state, the late-join timing/log correlation, mpv decoder selection, and
-presented/dropped-frame evidence.
-
-### Native Live curation and playable-search confirmation (home Mac/Pi only)
-
-Run only after the reviewed commit reaches the Pi through the normal git-only
-handoff. These commands rebuild operator-owned AREA69 data and NexoTV profiles;
-they were intentionally not run on the work Mac. Never capture the credentials
-file or generated stream URLs in evidence.
-
-```bash
-cd ~/mango
-
-python3 scripts/live/build-curated-area69-m3u.py \
-  --out ~/.local/share/mango/nexotv/data/live-area69-curated.m3u \
-  --index-out ~/.local/share/mango/nexotv/data/area69-live-search.json
-jq '{version,built_at,stream_count,entries:(.entries|length)}' \
-  ~/.local/share/mango/nexotv/data/area69-live-search.json
-
-bash scripts/live/nexotv-config.sh apply-free m3u-sports-curated
-bash scripts/live/nexotv-config.sh apply-news m3u-news-hi-en
-bash scripts/live/nexotv-config.sh apply-cartoons m3u-cartoons
-bash scripts/live/nexotv-config.sh wire-export
-
-rm -f ~/.cache/mango/live-rails-cache.json
-MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
-
-curl -sf 'http://127.0.0.1:3020/rails/items?tab=live' \
-  | jq '[.rails[] | {id:.rail_id,label,items:[.items[]|{id,title,subtitle,source}]}]'
-curl -sf http://127.0.0.1:3020/health \
-  | jq '.live | {cache,search_health,last_rebuild_error}'
-
-curl -sfG -w '\nsearch_total=%{time_total}\n' \
-  'http://127.0.0.1:3020/voice/search' \
-  --data-urlencode 'tab=live' --data-urlencode 'q=BBC News' \
-  | tee /tmp/mango-live-search-proof.txt
-```
-
-Confirm EPG/current-programme delivery from the local catalog without printing
-manifest tokens by inspecting the Live rail subtitles above: a standing sports
-channel may appear only when its subtitle names the current allowed competition
-and matchup. Repeat a never-searched exact channel query; the first response
-must finish within 2 s of added validation time. If proof is still running, it
-must omit the row. Wait for the `/health.live.search_health.queued` count to
-return to zero and repeat; only then may a newly verified row appear.
-
-| Check | Required evidence | Pass? |
-|---|---|---|
-| AREA69 index v2 | Safe `jq` summary reports `version: 2`; current matchup rows exist in the index while replay/ended/placeholder/VOD-pack fixtures do not | |
-| EPG standing-channel gate | Current match rows appear first; off-air sports rails may use only exact curated FIFA+/Star Sports/Willow/DD Sports/Cricket Gold/beIN fills, never generic sports brands | |
-| World Cup rail | Current senior men's World Cup matches first (one best variant per matchup); off-air fill is only exact FIFA+/FIFA+ United States — no qualifiers, other FIFA events, studio, replay, ended, or generic sports brands | |
-| Cricket rail | Current India-participant matches first; off-air fill is only exact Star Sports/Willow/DD Sports/Cricket Gold. West Indies and incidental `Indian` text never admit a row | |
-| Soccer rail | Current Premier League / La Liga / Bundesliga / Serie A / Ligue 1 / UCL / UEL matches first; off-air fill is only exact beIN Sports — no MLS-only or generic sports brands | |
-| F1 rail | At most four exact F1 TV/Sky Sports F1/DAZN F1/Viaplay F1 identities; no generic sport or other motorsport | |
-| News/cartoon rails | News remains exact-target bounded; cartoons are at most eight classics-first allowlisted rows, admitting unknown language metadata but rejecting known non-English/Hindi metadata | |
-| Empty rail hiding | Temporarily absent target events shrink/hide their rail; no generic substitute or stale broad-policy cache appears | |
-| Search proof and latency | Fresh verified results return immediately, fresh failures stay absent, and an unknown response adds no more than 2 s before omitting unfinished proof | |
-| AREA69 playback ownership | While any Mango title is actively playing, an AREA69 search does not start a headless validation or consume its single connection; queued count does not rise for that attempt | |
-| Quality parsing | A `2160p` variant ranks as 4K below only explicit `8K`/`4320p`, never as 8K; same-tier English/Hindi and HEVC ordering follows afterward | |
-| Variant failover | Choose a logical channel with multiple qualified variants, make/observe the first playback-start candidate fail, and confirm Mango tries the next candidate within the same request/deadline without opening another app | |
-| Outcome learning | After a successful fallback play, repeat Live search: the working logical result rises; the failed variant stays suppressed until the existing Live health horizon expires | |
-| Credential-safe state | `~/.cache/mango/live-channel-health.json` is mode 0600 and contains only hashed `v1:` keys/status/timestamps/sanitized reasons—no URLs, credentials, source names, or raw channel IDs | |
-
-### Live shelf membership confirmation (home Mac/Pi only)
-
-Run after the reviewed branch has been deployed through the git-only handoff
-and the Live cache has been rebuilt. These commands are intentionally deferred
-from the work Mac because it cannot prove the Pi's NexoTV inventories:
-
-```bash
-curl -s 'http://127.0.0.1:3020/rails/items?tab=live' | python3 -c \
-  "import json,sys;d=json.load(sys.stdin);print([(r.get('label'),len(r.get('items')or[])) for r in d.get('rails',[])])"
-bash scripts/live/audit-live-rails.sh
-```
-
-Expect non-zero World Cup, cricket, soccer, and cartoons when the free M3U
-sources are healthy. If profiles drift, re-apply them with
-`bash scripts/live/nexotv-config.sh apply-*` and rebuild the cache before
-diagnosing membership.
-
-Deferred on the work Mac: AREA69 API/index contents, NexoTV EPG behavior, actual
-rail membership, native search wall time, active-playback connection ownership,
-and representative mpv fallback playback. None is locally claimed as passed.
-
-## Unified D-pad Search
-
-Automated precheck: `bash scripts/m6-ship/gate-m6-search-smoke.sh`.
-
-| # | Test | Pass |
-|---|------|------|
-| S1 | Magnifier before Movies opens a blank Search surface with QWERTY keyboard focused; no Home tab refresh | |
-| S2 | D-pad keyboard, physical letters, Backspace, Enter, Escape, and arrows work predictably; Right from each keyboard row reaches the aligned Recent/Suggestion and Left returns to that row | |
-| S3 | Scope chips limit All / Movies / TV Shows / Live / YouTube correctly | |
-| S4 | Rapid typing updates the query without a blackout, focus jump, or keyboard/header rebuild; the prior starter list stays visible until one atomic suggestion swap; explicit submit progressively adds source rows | |
-| S5 | Exact title beats prefix/token matches; Top Results contains only verified/proven/YouTube cards with source diversity | |
-| S6 | All shows YouTube videos only; YouTube scope also shows Channels and Playlists, which open video-list Detail | |
-| S7 | Result groups fill **whole rows**: poster groups 6-wide (12 per page), YouTube/landscape groups 4-wide (12 per page), Top results at most 8. No orphan card alone on a final row, and in-grid More reveals cached results without quota/provider activity | |
-| S8 | Make one source unavailable: successful groups remain selectable with no error/degraded bubble or Retry control. A total miss shows neutral **No results** and focuses Edit; a request failure preserves prior usable results | |
-| S9 | X tap deletes one character; X hold for at least 600 ms clears; returning Home restores X current-tab shuffle | |
-| S10 | B opens Detail and a second B starts playback; Search never autoplays | |
-| S11 | Y from Detail returns to exact query/scope/page/scroll/card; test Movies, Series, Live, YouTube, Channel and Playlist | |
-| S12 | Y after playback returns to the same Detail, then Y returns to exact Search; Continue updates in the correct Movies/Series cache without rerendering Search | |
-| S13 | Y from Search restores the exact originating Home tab and focused card; reopening Search is blank with recents | |
-| S14 | External VOD successful zero-stream Detail queues once; timeout/provider failure does not queue or show a false global catalog error | |
-| S15 | Settings SafeSearch Moderate/Strict/Off persists; Clear Search Activity removes recents and learning | |
-| S16 | Cached/offline/quota-degraded YouTube remains usable when it has results; otherwise its group is silently absent and the next explicit search follows normal cache/quota policy | |
-| S17 | Descriptive English/Hinglish query works with orchestrator available and falls back cleanly when it is absent | |
-| S18 | Search latency evidence: local suggestions under 150 ms target, first useful submitted result under 300 ms target, network phases bounded 2.5 s, optional AI bounded 4 s | |
-| S19 | At 10 feet, query, focused key, scope, starter titles, and result metadata remain readable; every transformed focus ring stays inside the outer 5% TV safe area | |
-| S20 | Blank Search is one open workspace with no redundant title, nested panel cards, or decorative copy; only the focused key is bright; Results prioritizes cards over status copy | |
-| S21 | Search has no entrance animation; reduced-motion mode removes nonessential transitions while D-pad focus remains immediate and visible through shape, scale, border, and color | |
-| S22 | Navigate rapidly after opening and returning from YouTube Detail: mounted result rails do not flash/reload, labels remain visible, and every D-pad step responds without periodic stalls | |
-| S23 | With Search state saved, suspend the active launcher consumer and press Down: stale movement is not replayed, Chromium recovers after ~3 s, the query/results return, and a new press moves exactly once; a second browser window never steals the pad lease | |
-| S24 | Empty compose shows a leading caret before “search mango”; after the first character the caret trails the typed text and stays quieter than the focused key | |
-| S25 | Highlighted suggestion preview dwells ~180ms before swapping; rapid scrubbing does not strobe art; recents without art keep a typographic stage | |
-| S26 | Results keep a pinned query + Edit + scopes header; focused-card atmosphere appears only after ~180ms dwell under strong scrims and clears on Edit/scope focus; scroll fade under the head appears only after scrolling | |
-
-## Saved library (M6.1)
-
-| # | Action | Pass? |
-|---|--------|-------|
-| 14 | Detail → **Save**; **Saved** rail appears immediately after Continue | |
-| 15 | Detail → **Unsave**; item disappears from Saved after refresh/navigation | |
-| 16 | Live channel → **Save**; appears in Saved/history but has no resume semantics | |
-
----
-
-## Native YouTube (M6.2)
-
-Requires `/etc/mango/youtube-api.key` for search/refresh and `MANGO_YOUTUBE_PLAY=1` for automated playback smoke. Full ops: [YOUTUBE.md](YOUTUBE.md).
-
-| # | Action | Pass? |
-|---|--------|-------|
-| 17 | YouTube tab loads only a published cached generation without full-screen error or provider activity; stale last-good state is labeled and an inapplicable conditional rail is omitted | |
-| 18 | Rails remain visually equal and globally deduplicated in exact order: For You → Beyond Your Subscriptions → More Like … → History → Saved → conditional From Your Subscriptions → conditional Live Now. Normal rows have 4 landscape cards; Live Now may have 1–4 | |
-| 19 | Search via voice/companion returns grouped Videos, Channels, Playlists | |
-| 20 | Open a YouTube video → detail shows Play / Save / Not for me; **B** starts mpv | |
-| 21 | After a qualifying Mango-local watch, More Like uses a recognizable daily-stable seed from recent meaningful history; bare starts never become seeds | |
-| 22 | Open a channel/playlist → detail shows a D-pad video list; Save is disabled | |
-| 23 | Not for me removes exactly that video; Undo restores it; related creators/topics remain eligible and no profile/mood recommendation controls appear | |
-| 24 | "Save this" on an open YouTube video updates Saved; no voice playback starts | |
-| 25 | Record `/youtube/state` quota/generation counters, press Home X several times, and read again: recommendation/discovery/subscription/live cards advance, History/Saved and every API/acquisition/ranking counter remain unchanged; focus and scroll stay fixed | |
-| 26 | Live Now, when populated, contains currently live streams from subscribed channels only and never unrelated filler; expired/non-subscribed live and Shorts are absent | |
-| 26a | For You is recognizably grounded in history/subscriptions; Beyond contains novel unsubscribed creators; More Like is coherent for at least 3 of 4 cards. No score, provenance, private context, or technical explanation appears on TV | |
-| 26b | Reliability Center imports a Takeout ZIP and extracted JSON/HTML idempotently, shows normalized/import counts without raw history text, and rebuilt History/More Like state survives restart | |
-| 26c | Cold starts: subscriptions-only shows For You/Beyond plus **More from channels you follow**; history-only omits subscription/live; neither shows a connect/import/watch setup card instead of Popular/regional filler | |
-
----
-
-## Settings (optional)
-
-| # | Action | Pass? |
-|---|--------|-------|
-| 27 | Settings → Reliability Center opens with D-pad focus, large status cards, and Back returns home | |
-| 28 | Reliability Center shows Green/Yellow/Red summary and component cards without dense debug text | |
-| 29 | `Run proof now` records a proof; Repair/Restart/Refresh are disabled when Mango is active and enabled when idle | |
-| 30 | **Refresh library** enqueues work without blocking the UI; Reliability Center shows the job/phase result while last-good rails remain usable | |
-
-## Library grow health (operator)
-
-Do not show grow/debug status on TV. Check this from SSH before claiming library maintenance is healthy.
-
-| # | Check | Pass? |
-|---|-------|-------|
-| G1 | `grow_monitor.py assess` selects the newest run artifact, including failures | |
-| G2 | Orphan count is zero after successful grow or orphan-only repair | |
-| G3 | No title exceeds the overlap cap except curation/pin semantics | |
-| G4 | Failed/partial grow did not publish staged rail pools to couch | |
-| G5 | Source-grow audit explains any short rail with concrete reasons | |
-| G6 | `bash scripts/m6-ship/gate-m6-reliability-proof.sh` exits 0 unless Reliability Center is red | |
-
----
-
-## If something fails
-
-| Symptom | Check |
-|---------|--------|
-| Empty episode list | `curl localhost:3020/series/tt12004706/episodes` |
-| No streams on episode | Row greys as **tap to retry** but remains focusable; **B** runs the normal ladder again |
-| Next-episode focus missing | exit ≥90%/EOF; inspect `GET /play/next-prompt` immediately after mpv stop and confirm its series/from/next IDs |
-| Pad wrong button | [`docs/HARDWARE.md`](HARDWARE.md) — B=`304`, Y=`308`, X secondary=`307`, −/+=`314`/`315` |
-
-
----
-
-## Voice companion (Phase 3 + M5.5b round)
-
-Requires `MANGO_VOICE=1`. **Round code shipped** (`8eeb239`); comprehensive manual pass is the merge gate. Spec: [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md) · [tasks/m5-companion-ux-ship.md](tasks/m5-companion-ux-ship.md) · [AI_LAYER.md](AI_LAYER.md)
-
-| # | Action | Pass? |
-|---|--------|-------|
-| V1 | PTT "good Hindi movies" — **no TV jump**; clarifying or chat on phone | |
-| V2 | PTT or text "Panchayat kholo" — detail on TV ≤8 s; phone confirms open | |
-| V3 | Ambiguous title — **numbered tappable pick rows** on phone; tap opens; no open until pick | |
-| V4 | Create AI catalog — confirm once; rail appears after bootstrap | |
-| V5 | "What do you know about me?" — readable summary on phone | |
-| V6 | Voice HUD dismisses; tiles unobstructed | |
-| V7 | Proactive off (default) — no unsolicited TV suggestions | |
-| V8 | "Save this" on open detail updates Saved; no playback starts | |
-| V9 | Text "find live cartoons" — lists IPTV channels; can open one on TV | |
-| V10 | Text follow-up while idle — composer not blocked after mango reply | |
-| V11 | YouTube / On TV chips expand on tap; chat fills screen when collapsed | |
-| V12 | Navigate all four tabs via voice/text (`movies`, `series`, `live`, `youtube`) | |
-
-Automated: `bash scripts/m5-voice/ai/gate-m5-companion-couch.sh`
-
----
-
-## Target-TV Stage 2 playback validation (M6.3)
-
-Run after applying the Stage 2 profile and moving the Pi to the 4K TV path.
-Launcher must remain lightweight; mpv should use source-matched 1080p output
-until a separate visible-picture 4K gate passes.
-
-```bash
-cd ~/mango
-bash scripts/m6-ship/gate-m6-4k-hdr-profile.sh
-bash scripts/diag/pi-resource-snapshot.sh
-```
-
-| # | Action | Pass? |
-|---|--------|-------|
-| K1 | Gate sees connected display advertising 1080p film cadence (`23.98/24`) | |
-| K2 | Launcher is readable and smooth at `1920x1080@60` on the TV | |
-| K3 | Play a known verified movie; picture is visible and smooth within normal play budget | |
-| K4 | **Y** exits mpv and returns to the exact launcher tab/focus state | |
-| K5 | **B** resumes/plays another 1080p title if the first candidate fails | |
-| K6 | Soundbar/TV sink plays audio; no TTS until sink is validated | |
-| K7 | Resource snapshot shows no critical memory, disk, temp, or throttling issue | |
-
----
-
-## Unified TV/companion UX ship polish (M6.5)
-
-Manual sign-off after automated gates. **Code shipped** in M5.5b/M6.5 round. Spec: [tasks/m6-tv-ux-ship.md](tasks/m6-tv-ux-ship.md) · [tasks/round-m55b-m65-scope.md](tasks/round-m55b-m65-scope.md)
-
-Automated: `bash scripts/m6-ship/gate-m6-ux-smoke.sh` (also in `pi-pre-couch-gate.sh` on `feat/native-experience`)
-
-| # | Action | Pass? |
-|---|--------|-------|
-| U1 | Focus visible on every tile at 3 m | |
-| U2 | D-pad detail: **2D FocusGrid** — actions L/R · episodes/streams U/D; no focus trap | |
-| U3 | Poster grid stable — no jump when images load | |
-| U4 | Tab vs shuffle visually distinct; amber means **focus only** — the current tab reads as selected without borrowing the focus colour | |
-| U5 | Play failure shows couch copy — no API/mpv stderr | |
-| U6 | Empty rail hidden or graceful — no full-screen error | |
-| U7 | Continue rail uses Mango progress/library state only | |
-| U8 | ⌂ from mpv — home <300 ms perceived | |
-| U9 | YouTube rail/search/detail follows the same focus, HUD, and pad-play rules | |
-| U10 | Cold load keeps Search/tabs/Settings usable and shows one stable row of aspect-correct skeletons — no empty black canvas, shimmer, or focusable placeholder | |
-| U11 | Empty shelves are hidden when other shelves have titles; an all-empty tab shows one calm state panel and Live never suggests X/shuffle | |
-| U12 | With no cached titles, an outage appears below the browse bar with couch-safe copy and reconnects without flashing back through loading or moving focus | |
-| U13 | Fail a shuffle after posters are visible: the same cards and focus remain and one **recently loaded** banner appears without a duplicate retry toast; success/warning/error toasts have distinct glyphs, sit clear of the focused browse control, and show no raw backend copy | |
-
----
-
-## Launcher UX polish round (`539ebdb`)
-
-Sixteen commits of visual work that has never been on the TV before. It was built
-against a local fixture harness at 1920x1080, so everything here is a claim about
-the Mac render that only the panel can settle. Sit at normal viewing distance and
-judge by eye — these are legibility and rhythm checks, not pass/fail plumbing.
-
-Spec: [tasks/ux-round/10-polish-plan.md](tasks/ux-round/10-polish-plan.md) · surfaces: [tasks/ux-round/00-surfaces.md](tasks/ux-round/00-surfaces.md)
-
-| # | Action | Pass? |
-|---|--------|-------|
-| P1 | **Safe area** — nothing (tab bar, rail titles, first/last card, focus ring) is clipped by the bezel or lost to overscan on all four tabs | |
-| P2 | **Focus colour has one meaning** — exactly one amber ring on screen at a time; the Play button's cream fill is never mistaken for focus, and moving focus onto Play still reads as a focus change | |
-| P3 | **Type floor** — badges, stream rows, episode numbers and card metadata are all readable from the sofa; nothing needs leaning in | |
-| P4 | **Rail rhythm** — one row per rail, even gutters, and rail titles clearly outrank card titles in the visual hierarchy | |
-| P5 | **Edge fades** — content scrolling under the tab bar fades instead of hard-clipping, and the peeking next rail fades at the bottom edge rather than being sliced mid-poster | |
-| P6 | **Detail** — the backdrop reads as artwork behind the panel (not a muddy wash), the hero poster is substantial, synopsis lines are short enough to scan, and related cards are legible | |
-| P7 | **Detail related row** — it spans the full width beneath the streams panel; D-pad reaches it and comes back without teleporting or trapping focus | |
-| P8 | **Episodes** — no double amber ring, and the related row never overlaps the side panel | |
-| P9 | **Search compose** — empty query shows a leading caret before “search mango”; typing shows an editorial preview under the keyboard after a short dwell (art at its own aspect, title/meta, typographic fallback when no art); equal-width keys; only the focused key is amber-bright | |
-| P10 | **Search results** — pinned query + Edit + scopes; rails wrap with More in-grid; rail titles readable at TV scale; focused-card atmosphere is subtle after dwell; content fades under the head only after scrolling | |
-| P11 | **Casing** — "mango", rail labels and eyebrows are lowercase throughout; no stray Title Case or ALL CAPS | |
-| P12 | **No regressions in motion** — focus movement still feels immediate on every surface; no new lag, flicker or reflow when posters load | |
-
-## Home tab round 2 — density, shuffle, scroll edges
-
-Everything here is a judgement call at 3 m that the local render cannot settle:
-whether six posters read generous or cramped, and whether the shuffle cascade
-reads as a deal or as lag.
-
-| # | Check | Pass |
-|---|-------|------|
-| H1 | **Six posters per rail** reads generous, not cramped — poster art is still legible at 3 m and titles are readable | |
-| H2 | **Wordmark** — "mango" is amber and clearly the brand anchor; it does not read as a focusable control next to the search pill | |
-| H3 | **Shuffle button** shows a circled **X** matching the pad's X button; nobody has to guess which button shuffles | |
-| H4 | **Rail titles are clean at rest** — no dark wash over "continue watching" when the page has not been scrolled | |
-| H5 | **Top fade appears only once scrolled** — moving down a rail fades posters under the tab bar; scrolling back to the top removes it entirely | |
-| H6 | **Bottom fade tells the truth** — visible while more rails remain, fully gone on the last rail (the apps row), so it never implies content that is not there | |
-| H7 | **X shuffle** — the outgoing grid dims, then new cards land left-to-right in one quick wave (~¼ s). It should read as dealing cards, not as waiting | |
-| H8 | **Shuffle stays responsive** — the D-pad works during and immediately after the cascade; focus is never lost or stranded | |
-| H9 | **Saved rail reshuffles** when more than six titles are saved; **Continue watching** keeps the most-recently-watched title in the first slot every single time, while the rest of the row rotates | |
-| H10 | **Apps rail does not animate** on shuffle — its contents did not change, so it should sit still | |
-| H11 | **Saved star** is a dark disc with a cream star, quieter than the amber focus ring, and is **absent inside the Saved rail** itself | |
-| H12 | **Wordmark** reads "mango." — the dot sits tight against the "o", not floating away from it | |
-| H13 | **Focused poster names itself** — landing on a card reveals its title over the bottom of the art, plus the year on discovery and Saved rails, or "N% watched" on Continue watching. Every unfocused card stays pure artwork | |
-| H14 | **Scrubbing does not strobe titles** — hold the D-pad along a rail: labels should *not* flash on each card as focus passes through. Stop on a card and its label resolves immediately. This is the check most likely to need tuning; if it flashes, raise the delay in `.card--poster-minimal.focused` and report the value | |
-
-If a check fails, the plan document records why each choice was made and which
-knobs are pre-approved to adjust — prefer tuning the token over reverting a commit.
-
----
-
-## Detail view — stream / episode panel
-
-Open a movie with a long stream ladder (Dune, or anything showing 10+ streams) and a
-series with 8+ episodes in a season. `--poster-label-delay` and the rail knobs do not
-apply here; if one of these fails, report it rather than tuning.
-
-| # | Check | Pass |
-|---|-------|------|
-| D1 | **Entering the panel lands on the top row** — from the action buttons, press Right (and separately Down): focus must land on the **first** stream, not partway down the list. The first row is the best option, so this is also the 4K row on a well-served title | |
-| D2 | **Focused row sits in the middle** — walk down the list: the focused row stays centred while the list slides under it, rather than the focus crawling to the bottom edge and the list jumping | |
-| D3 | **Focus ring is never clipped** — check the **first** row, the **last** row, and rows in the middle. The amber ring must be unbroken on all four sides, including its soft glow | |
-| D4 | **No box edge is ever visible** — at every scroll position, including at rest at the top and scrolled fully to the bottom, there must be no horizontal line or rectangular boundary drawn across the panel. A row leaving the panel should dissolve into the background behind it, never look sliced by a straight edge. This is the check the fade mechanism exists for | |
-| D5 | **Nothing fades when it shouldn't** — the first row at rest, and the last row once scrolled to the end, are both fully solid. On a title with only 2–3 streams, where the list does not scroll at all, there should be no fade anywhere | |
-| D6 | **Source labels are not truncated** — no row shows `WEB…` or `WEB-…`; every row reads its source in full (`WEB-DL`, `BluRay`, `REMUX`, `WEBRip`) | |
-| D7 | **`cached` is never cut off** — the green `cached` pill is fully inside every row that has one, not clipped at the right edge | |
-| D8 | **Panel label states the range** — reads e.g. `streams · 14 · 4K–SD`, with `4K` in capitals, so you can tell there is more below than the rows you can see | |
-| D8b | **Panel label holds still while you scroll** — walk all the way to the bottom of the ladder: `streams · 14 · 4K–SD` must stay put at the top of the column, fully bright, never scrolling up out of view or fading into the top edge. Same for `episodes` and the season chips on a series — the chips stay reachable above the list while the episodes slide under them | |
-| D8c | **Unverified ladders still say how many** — on a title where every stream is a floor/unverified pick, the label reads `streams · N · unverified` with the count present, not bare `streams · unverified`. The rows themselves must **not** repeat the word `unverified` — the dashed border, dimmed row and muted resolution badge already say it | |
-| D8d | **No row has a line struck through it** — on an unverified (dashed-border) row, the dashed box must fully contain both lines. The languages/size line must sit inside the border, never crossed by it. Check a title whose whole ladder is unverified, where every row is dashed | |
-| D9 | **Amber means focus only** — the only amber on this view is the focused control's ring plus the two thin label bars. No resolution badge, HDR chip, or `in library` badge is amber; `cached` and `in library` are green | |
-| D10 | **Related row labels on focus only** — posters under the panel are pure artwork until focused, then show title and year. There is no "from continue watching" line under "related titles" | |
-| D11 | **Episodes behave identically** — repeat D1–D5 on a series' episode list; it must feel the same as the stream list | |
-
----
-
-## Recommendation identity and dormant profile preservation
-
-These checks cover the current source-complete redesign. Leave every result
-**DEFERRED** until its exact pushed revision is deployed and observed on the
-Pi/TV.
-
-| # | Couch action and required evidence | Pass? |
-|---|------------------------------------|-------|
-| RP1 | Household is the only visible recommendation identity; no profile picker, profile prompt, mood control, profile name, or mood attribution appears on Home/Detail/Settings | |
-| RP2 | Through localhost diagnostics, non-Household create/activate and non-null mood return typed `household_only`; Household activation and null mood clear are idempotent | |
-| RP3 | Before/after migration readback proves every existing personal-profile rating, Saved/history/progress row, snapshot, and event remains under its original stable ID; nothing is merged into Household or deleted | |
-| RP4 | Mutate dormant profile or mood rows in an isolated test copy: VOD/YouTube generation IDs, rank order, and acquisition counters remain identical | |
-| RP5 | Household exact Not for me removes only that VOD title or YouTube video; Undo restores eligibility without semantic creator/topic suppression | |
-| RP6 | With the Companion AI unavailable/offline, published VOD/YouTube rails and X stay responsive; couch requests never wait for enrichment | |
-| RP7 | Disable v2 in a rollback test and confirm preserved legacy profile rows/resume positions can still be read; do not claim this from UI inspection alone | |
-| RP8 | Leave a recommendation Detail/card open across a generation change, then try Play, Save/Unsave, Rate/Clear, and Not for me. Stale attribution follows the couch-safe 409/reload path and never mutates a different generation | |
-| RP9 | Save four distinct YouTube videos and refresh/shuffle repeatedly. Saved remains a stable four-card utility rail, none enters For You, and the recommendation generation is unchanged by Save/Unsave except exact output exclusion | |
-
-Record human verdicts for Household relevance, taste-thread coherence,
-reversibility, simplicity, and perceived latency.
-
----
-
-## Fire & Water ratings and For You
-
-Complete only after any operator-supplied seed manifest is reconciled, StoryDNA
-backfill accounts for the full verified corpus (or durable retryable failures),
-both media types have published generations, and the frozen offline promotion
-gate passes. A seed import is optional; normal ratings, Saved titles, and
-meaningful watches are valid household evidence.
-Screenshots must exclude diagnostics and operator files. All results remain
-**DEFERRED** until the exact revision is deployed and observed on the Pi/TV.
-
-| # | Couch action and required evidence | Pass? |
-|---|------------------------------------|-------|
-| FW1 | Open an unrated movie: **Rate** follows Save; Live and YouTube never show it | |
-| FW2 | Open Rate: the sheet sits inside the 5% safe area; Fire is five flame emoji and Water five wave emoji, with saturated fill, gray remainder, and a clean half mark at `.5` | |
-| FW3 | New axes say **Not set**. B enters at 2.5, Left/Right changes exactly 0.5, B confirms, and Save remains disabled until both axes are confirmed | |
-| FW4 | Save `Fire 5 / Water 0`; close/reopen detail and restart services. Both values persist and the compact chips remain readable at 3 m | |
-| FW5 | Edit to `Fire 0 / Water 5`; stale/network failure keeps the sheet, values, focus, and persistent error band intact | |
-| FW6 | X opens inline clear confirmation; Y keeps the rating; X then B clears it without deleting its audit history | |
-| FW7 | Complete a movie to 90%: return invitation appears once without moving focus or opening the sheet; leaving resolves it permanently while manual Rate remains | |
-| FW8 | Complete three distinct series episodes: the show-level invitation appears once; rating the show shifts TV For You while Movies does not | |
-| FW9 | Movies and TV order is Continue → Saved → For You → user AI catalogs → curated discovery; every For You rail has exactly 6 unique poster-bearing, currently verified-playable cards and no rated/Saved/meaningfully watched/hidden/blocked/Not-for-me title. If healing fails, the previous valid slate remains | |
-| FW10 | Rate a For You title. It leaves the rail after Detail closes; focus restores to the same position, then first card/nearest rail fallback if needed | |
-| FW11 | With the StoryDNA teacher disabled and then network offline, ratings and last-good rails survive restart; Home, Detail, and X never wait for AI | |
-| FW12 | Rate several thematically disjoint high-Fire and high-Water anchors. Diagnostics show 1–3 supported threads and `6`, `3/3`, or `2/2/2` allocation; the TV label remains only **For You**, and all six feel like strongest supported fits rather than forced exploration | |
-| FW13 | Start several recommendations including 4K; normal playback/return works with no launcher, first-frame, or dropped-frame regression | |
-| FW14 | Finish a recommended title: it remains absent from For You with no cooled-rewatch exception; its retained evidence may still support the Household taste model | |
-| FW15 | Press X five times in Movies and then TV. When reserve depth permits, no title repeats from the preceding four rendered slates; focus/card position and scroll remain fixed and network/enrichment/graph/ranking counters do not move | |
-| FW16 | Inspect cards/rail at 3 m: no predicted Fire/Water, score, reason, ontology tag, thread name, AI text, or technical badge is visible | |
-
-Record explicit human verdicts: rating semantics, icon clarity, adjustment flow,
-recommendation relevance, recognizable taste threads, thematic satisfaction,
-and perceived latency.
-
-Operator promotion evidence is separate from couch judgment: frozen
-deterministic five-fold evaluation must show at least 10% relative holistic
-nDCG@6 improvement over v4, paired 90% bootstrap interval above zero, no more
-than two percentage points of regression on either guardrail, complete verified
-corpus accounting, determinism, and cached service p95 at or below 250 ms. If
-the rating set cannot satisfy confidence, remain in shadow; never weaken the
-gate or mark a couch result as a substitute.
-
----
-
-## Living librarian memory (Phase 5)
-
-Optional but recommended during the comprehensive pass. Requires finishing a VOD title to ≥90% progress.
-
-| # | Action | Pass? |
-|---|--------|-------|
-| M1 | Watch a movie to ~90%+ — exit mpv; no errors in catalog logs | |
-| M2 | Ask "what do you know about me?" — summary reflects increased familiarity / completed watch | |
-| M3 | Re-watch same title to completion — `completed_watches` does not double-count (companion or profile read) | |
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| TV1 | Browse shape | Only configured cricket, Formula 1, news, cartoons rails; empty qualified rows hidden | |
+| TV2 | Full search | AREA69/free/news/cartoons full local index available to Search/voice without broad Home injection | |
+| TV3 | Cache | Failed/empty refresh never replaces compatible non-empty last-good; old policy cache rejected | |
+| TV4 | Health | Credential-safe hashed state only; known failures suppressed until horizon; no raw URLs/source secrets | |
+| TV5 | Play | Immediate Live path, canonical variant failover, LIVE HUD/no timeline, no VOD empty confirmation | |
+| TV6 | Source outage | Honest stale/empty/error state without hammering provider or corrupting cache | |
+
+## 9 — Companion and voice
+
+Requires `MANGO_VOICE=1` and a phone on the authorized LAN boundary.
+
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| V1 | Text/PTT | Composer and PTT share one conversation/tool path; Hinglish corpus remains intelligible | |
+| V2 | Discovery | Ambiguous request clarifies on phone and does not jump TV on turn one | |
+| V3 | Clear open | Exact/ordinal selection opens Detail; phone says opened only after `tv_seq` ack | |
+| V4 | Playback boundary | No tool or phrasing autoplays; B remains required | |
+| V5 | Structured picks | Phone cards readable/selectable; no raw IDs or false availability claims | |
+| V6 | TV HUD | Safe-area action/reply copy, bounded dwell, no focus theft or second browser overlay | |
+| V7 | Mirror | Current tab/open title/playing/tool status coherent after pad and phone actions | |
+| V8 | Save/AI rails | Exact Save/Unsave and custom-rail CRUD; automation never writes Saved | |
+| V9 | Memory | Completed-watch/journal/90-day rollup/compiled notes survive restart and feel appropriately familiar | |
+| V10 | Privacy boundary | Companion memory does not influence YouTube v2 or enter StoryDNA teacher requests | |
+| V11 | LAN boundary | Only exact companion capabilities pass; operator recommendation/YouTube/private journal state returns 403 | |
+| V12 | Output | Text-only reply; no TTS/speaking lock; immediate next turn works | |
+
+## 10 — Controller reconnect and intentional display sleep
+
+### Controller
+
+Run five complete cycles: power Micro off, wait for `waiting for controller`,
+power on normally, navigate, start/stop a short play, repeat.
+
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| C1 | Five normal wakes | Every cycle reconnects/grabs current evdev node without pairing mode/reboot/stack restart | |
+| C2 | Link vs router | Root link supervisor owns Bluetooth; one user router owns input; no duplicate consumers | |
+| C3 | Focus/input | First deliberate button does not create duplicates or leave focus lost | |
+| C4 | Recovery copy | Pairing is offered only after diagnostics prove missing bond; never documented as happy path | |
+
+### Display sleep
+
+These checks remain expected **DEFERRED/FAIL** until the locked feature is
+implemented; permanent anti-sleep or accidental 600-second blanking is not PASS.
+
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| DS1 | Settings | Off/15/30(default)/60/120 persists across reboot | |
+| DS2 | Idle reset | Only D-pad and companion reset the timer; background progress/service events do not | |
+| DS3 | Playback inhibit | Never sleeps during active mpv, including beyond selected timeout | |
+| DS4 | Sleep | Idle timeout sends DPMS Off + CEC standby exactly once | |
+| DS5 | Wake | D-pad/companion wake sends DPMS On + CEC power-on and restores correct foreground/focus | |
+| DS6 | CEC unavailable | Safe DPMS/focus behavior without loop, crash, or repeated power commands | |
+| DS7 | Accidental Xorg | `xset q` no longer exposes an independent 600-second path that bypasses Settings | |
+
+## 11 — Target-TV picture and audio
+
+Test at least representative 1080p SDR and compatible 4K SDR HEVC. Test HDR only
+if an explicitly supported integrated engine exists; otherwise record native
+HDR as N/A/unsupported, not PASS.
+
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| AV1 | Launcher | 1920×1080@60, readable, responsive, no overscan clipping | |
+| AV2 | 1080p film/TV | Correct source-matched cadence, visible smooth picture, stable audio/subtitles | |
+| AV3 | 4K SDR HEVC | Actual 4K source/output when intended, hardware decode, acceptable dropped frames, no blue screen/slow motion | |
+| AV4 | Risky fallback | HDR/DV/software 4K never outranks smooth supported candidate merely for resolution/cache | |
+| AV5 | Audio | Intended TV/soundbar sink, channel layout, volume, lip sync, no drop across start/seek/pause/resume | |
+| AV6 | Streams/HUD load | Drawer/HUD interaction produces no dropped-frame regression during 4K SDR | |
+| AV7 | Return | Black-safe downscale, one launcher reveal, posters/focus intact at 1080p60 | |
+| AV8 | HDR boundary | TV HDR activation and transfer are claimed only when measured through the integrated supported path | |
+
+## 12 — Restart, offline, maintenance, and state preservation
+
+| ID | Check | Expected | Verdict/evidence |
+|----|-------|----------|------------------|
+| R1 | Catalog restart | Durable library/progress/ratings/feedback and last-good generations survive | |
+| R2 | Full reboot | Correct launcher, feature modes, controller wait/reconnect, persisted settings, no desktop/fallback app | |
+| R3 | Network offline | Cached/last-good rails remain; honest degraded Search/YouTube/teacher/provider states; Home never waits for AI | |
+| R4 | Nightly | Persistent timer/idle/overlap guards, staged grow, exact recommendation jobs, YouTube phase, WAL, proof chain observable | |
+| R5 | Failed maintenance | Previous couch snapshot/generations stay active; operator gets precise non-secret reason | |
+| R6 | Safe repair | Only allowlisted locks/strays/controller/catalog/launcher work; no DB/cache/history/credential deletion | |
+| R7 | Resource pressure | Foreground input/playback wins; no OOM/restart loop or corrupted publication | |
+| R8 | Backup/migration | WAL-safe backup and additive migrations; before/after user-state counts preserved | |
+
+## Final sign-off
+
+Summarize by product outcome, not by number of commands:
+
+| Outcome | Verdict | Evidence / remaining defect |
+|---------|---------|-----------------------------|
+| Browse/Search/Detail | | |
+| Playback start/failure/return | | |
+| HUD/Streams | | |
+| Library/Fire-Water | | |
+| VOD recommendations v2 | | |
+| YouTube base/v2 | | |
+| Live (optional) | | |
+| Companion/voice | | |
+| Controller reconnect | | |
+| Display sleep/CEC | | |
+| Target-TV picture/audio | | |
+| Offline/restart/nightly/reliability | | |
+
+The release is not ready to merge while a P0 viewing/state/security defect is
+open, while a claimed feature lacks its required mode/proof, or while display
+sleep/target-TV capability is documented more strongly than observed. Record
+DEFERRED items explicitly with the exact next command or human/hardware step.

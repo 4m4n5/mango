@@ -2,7 +2,10 @@
 
 **Milestone:** M5 · **Rule:** Voice/text **opens** titles — pad **B** plays. No `mango_play`.
 
-**M5 complete when:** living librarian infrastructure passes gates **and** couch memory checks (M1–M3) pass. M5.5a safety corpus/gates shipped; M5.5b round code shipped — manual COUCH_TEST V1–V12 closes the bar.
+**Current state:** the librarian, text/PTT companion, tool safety corpus,
+structured picks, TV HUD, and living-memory pipeline are implemented. Earlier
+automated/Pi evidence exists, but the consolidated current-revision V1–V12
+couch pass remains open. See [COUCH_TEST.md](COUCH_TEST.md).
 
 ---
 
@@ -63,7 +66,7 @@ structured retrieval support. See [SEARCH.md](SEARCH.md).
 | `GET /voice/search?q=` | Verified VOD **+ full live IPTV catalog** |
 | `GET /voice/library` | Full browse list |
 | `GET /voice/search/external?q=` | Cinemeta fallback |
-| `GET /voice/ai/context` | Mirror: tab · open · now playing |
+| `GET /ai/context` | Mirror: tab · open · now playing |
 | `POST /voice/library/notes` | Taste notes |
 | `GET /youtube/search?q=` | YouTube videos/channels/playlists |
 
@@ -77,6 +80,17 @@ structured retrieval support. See [SEARCH.md](SEARCH.md).
 
 **Non-goals:** `mango_play` · voice playback · hide/unhide · volume.
 
+### Current LAN trust boundary
+
+Companion HTTPS and the orchestrator WSS are LAN-reachable. TLS protects the
+transport and the companion proxy exposes only an exact, minimized catalog
+capability set, but there is currently no per-device pairing token, client
+authentication, or WebSocket origin/session check. Treat the current setup as
+a trusted-LAN development boundary: any reachable LAN client can submit
+text/PTT/TV actions and the sanitized YouTube connect/disconnect calls.
+Per-device pairing, revocation, origin/session enforcement, and abuse limits
+remain required before Mango is a household appliance.
+
 ### TV command path
 
 1. Orchestrator `POST /api/voice/command`
@@ -87,16 +101,20 @@ structured retrieval support. See [SEARCH.md](SEARCH.md).
 
 ## Living librarian ◐
 
-Profile + companion memory when `MANGO_VOICE=1`:
+Conversational profile + companion memory when `MANGO_VOICE=1`:
 
 | Tool | Purpose |
 |------|---------|
-| `mango_read_profile` / `mango_patch_profile` | Household taste |
+| `mango_read_profile` / `mango_patch_profile` | Librarian familiarity/preferences for conversation and custom curation |
 | `mango_companion_summary` | Session context |
 | `mango_append_session_notes` | Post-turn bullets |
 | `mango_read/update_librarian_notes` | Cross-session notes |
 
 Post-PTT reflection → `POST /voice/companion/reflect`.
+
+This memory is not Household recommendation identity. It has zero influence on
+YouTube v2 and is never sent to the StoryDNA content teacher. `library.db`
+remains the authority for Fire/Water/Saved/watch recommendation evidence.
 
 ---
 
@@ -121,8 +139,13 @@ Secrets: `/etc/mango/llm.key` · `stt.key`
 
 ## Pi setup
 
+Deploy the intended revision through the reviewed Git-only flow in
+[DEPLOY.md](DEPLOY.md). The current wrapper is blocked for unattended agents by
+its branch/SHA and implicit AIOMetadata-mutation gaps. From the resulting exact,
+read-back, built Pi checkout:
+
 ```bash
-cd ~/mango && git pull
+cd ~/mango
 bash scripts/m5-voice/stack/setup-mkcert.sh
 bash scripts/m5-voice/stack/install-orchestrator-deps.sh
 bash scripts/mango-stack.sh restart
@@ -140,7 +163,9 @@ Phone: `https://<pi-ip>:3001`
 |------|-----------|
 | Comprehensive couch sign-off (V1–V12, U1–U9, M1–M3) | M5.5b / M6.5 |
 | Piper TTS on TV/soundbar | M6.3 |
-| Voice play/transport | M6+ deferred |
+| Physical phone/TV coherence, Hinglish, memory familiarity, restart/offline acceptance | M5.5b / M6.5 |
+| Wake word, proactive push, raw memory editor | Not in the current product contract |
+| Voice play/transport | Non-goal unless the explicit B-to-play safety decision is reopened |
 
 ---
 
