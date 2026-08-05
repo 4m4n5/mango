@@ -214,11 +214,10 @@ mood controls are hidden, non-Household creation/activation and non-null mood
 writes return typed `household_only`, and neither profile nor mood is part of
 ranking, cache identity, generation context, or TV attribution.
 Existing personal-profile ratings, history, progress, snapshots, and events
-remain dormant and recoverable; they are not merged or deleted. Saved is the
-known exception in current `shadow`: its utility read blends preserved profile
-rows, while `serve` reads exact Household Saved. Exact resume remains
-profile-owned in the preserved data model. Household activation and clearing
-mood are idempotent.
+remain dormant and recoverable; they are not merged or deleted. In both
+`shadow` and `serve`, Saved utility reads are exact Household reads rather than
+a blend of preserved personal rows. Exact resume remains profile-owned in the
+preserved data model. Household activation and clearing mood are idempotent.
 
 Owned reads keep the existing end-to-end revision handshake. In VOD `shadow`
 and `serve`, the recommendation owner is fixed to Household; the launcher captures that
@@ -234,11 +233,10 @@ once per served item; client-supplied rail labels are never metric authority.
 `off` disables VOD recommendations. `shadow` builds the latest Story Frontier
 and hides For You; `serve` exposes only a promotion-eligible published
 generation. No mode invokes the removed v4/strict rankers. Shadow is not a
-purely invisible compute mode: it switches global recommendation identity,
-Continue/progress signals, and profile/mood mutation policy to Household. A
-current inconsistency also blends Saved across profiles in shadow but uses exact
-Household Saved in serve. Both shadow-state behavior and that Saved divergence
-must be resolved or explicitly accepted before rollout.
+purely invisible compute mode: it switches recommendation identity and
+recommendation-signal ownership to Household while hiding For You. Its Saved
+utility read matches serve and is exact Household; preserved personal rows are
+left untouched.
 
 Movies and TV Shows each receive one system rail (`for-you-movies` and
 `for-you-series`) after Continue and Saved and before the three user AI-catalog
@@ -272,9 +270,10 @@ metadata, and a durable selective StoryDNA frontier. The worker defaults off
 batch, runtime, attempt, and coalescing limits. Library migration 15 adds the
 progressive/frontier/calibration/usage state; library migration 16 adds immutable
 StoryDNA overlays keyed by content plus semantic-evidence hash; playability
-migration 14 adds semantic revisions. The clean `345535d` snapshot passes its
-recorded local build/full suite, but remains incompletely integration-tested,
-undeployed, and unaccepted. Runtime rollback disables exposure (`shadow`/`off`);
+migration 14 adds semantic revisions. The exact executable target
+`c41eda9da7a5de15c5b9c777d82275468a739c46` passes the recorded focused and
+full Mac suites, but remains Pi-undeployed and couch-unaccepted. Runtime
+rollback disables exposure (`shadow`/`off`);
 older ranking code requires a reviewed Git rollback and can read preserved
 historical rows.
 
@@ -301,9 +300,10 @@ Manual refresh returns HTTP 202 with a job ID, captured revisions, and trigger
 reasons. The X response path only reads/advances a cached slate and never waits
 for enrichment, graph, scan, ranking, or network work. Low-water detection may
 enqueue asynchronous reserve recovery after a cached read, so operator counters
-must distinguish response-path latency from background work. The current
-launcher also shows X/Shuffle and a success toast in `off`/`shadow` even though
-no For You rail can change; that false-success UX is a release blocker. An
+must distinguish response-path latency from background work. The launcher shows
+X/Shuffle only when the current tab contains a public shuffleable recommendation
+rail, and reports success only when the returned rail membership/order changes.
+Off/shadow cannot advance a public epoch or report a false success. An
 opaque server-issued token binds the immutable served Household owner,
 domain, rail, served revision, exact membership, source revision, and bounded
 context. Public cards carry opaque content IDs needed for actions, but the TV
@@ -363,16 +363,15 @@ reservoirs. Independent
 `MANGO_VOD_RECS_V2=off|shadow|serve` and
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
-Both latest-only architectures are source-complete at `345535d`, but source has
-known rollout defects: YouTube `off` can return 409 for a non-Household active
-profile because service/route ownership disagree; VOD shadow changes live
-identity and has inconsistent Saved ownership; and the launcher falsely reports
-Shuffle success when VOD has no public For You rail. YouTube AI catalog slots
-also remain manageable even though the current YouTube Home renderer no longer
-composes them. The latest repository-recorded home snapshot predates this
-cleanup. Exact deployment, focused mode/HTTP/migration tests, complete
-accounting, promotion, Pi latency/restart proof, and couch judgment remain
-**DEFERRED**.
+Both latest-only architectures have their source rollout blockers closed at
+`c41eda9da7a5de15c5b9c777d82275468a739c46`: YouTube `off` uses exact active
+personal ownership, VOD active modes use exact Household Saved, off/shadow
+cannot expose or falsely advance Shuffle, and diagnostics distinguish the
+active/previous serving pointers from the newest attempted generation. Focused
+mode/owner/publication/migration/rollback tests and the full Mac suites pass.
+The Pi remains contained at `3ef1b20` with both recommendation domains and
+provider work off. Exact deployment, live complete accounting, promotion, Pi
+latency/restart proof, and couch judgment remain **DEFERRED**.
 
 ### Unified Search
 
@@ -635,7 +634,7 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `PUT` | `/library/ratings` | Revision-checked atomic Fire + Water set/edit |
 | `DELETE` | `/library/ratings?type=&id=&expected_revision=` | Clear current value while retaining audit history |
 | `POST` | `/library/rating-prompts/dismiss` | Resolve the one-time invitation without changing manual Rate |
-| `GET` | `/recommendations/state` | Local diagnostics for the latest rank row: content/teacher revisions, thread/corpus accounting, reserve depth, uncertainty, jobs, stale reasons, and offline evaluation. It does **not** prove the active/previous serving pointer or public epoch |
+| `GET` | `/recommendations/state` | Rollout-aware diagnostics for the newest attempted row plus per-domain active/previous/public serving pointers, revisions, epoch, accounting, reserve, jobs, stale reasons, and offline evaluation |
 | `GET` | `/recommendations/jobs/:job_id` | Localhost-only durable lookup for the exact refresh job returned by an HTTP 202 enqueue |
 | `POST` | `/recommendations/refresh` | Localhost-only enqueue; HTTP 202 returns job ID, captured revisions, and trigger reasons |
 | `POST` | `/recommendations/impressions` | Resolve an opaque served token and persist exact rendered VOD membership against immutable owner/rail/revision; no URLs |
@@ -660,7 +659,7 @@ See [PLAYABILITY.md](PLAYABILITY.md) for play-first policy.
 | `GET` | `/youtube/companion/auth/poll?session_id=` | Loopback upstream for sanitized OAuth poll |
 | `POST` | `/youtube/companion/auth/disconnect` | Loopback upstream for sanitized disconnect |
 | `POST` | `/youtube/refresh` | Fill/update cache and recommender rails |
-| `GET` | `/youtube/rails` | History/Saved utility rails in off/shadow; five ordered latest-v2 logical positions plus conditional subscriptions/live in serve. Current non-Household off mode can 409 due to an ownership defect |
+| `GET` | `/youtube/rails` | Exact active-profile History/Saved in off; exact Household utilities in shadow; five ordered latest-v2 logical positions plus conditional subscriptions/live in serve |
 | `POST` | `/youtube/takeout/import` | Localhost-only streaming ZIP/JSON/HTML history import; normalized events only, raw upload discarded |
 | `POST` | `/youtube/impressions` | Token-validate exact rendered membership against server-owned source revision and context; no URLs |
 | `GET` | `/youtube/search?q=` | Grouped videos/channels/playlists |

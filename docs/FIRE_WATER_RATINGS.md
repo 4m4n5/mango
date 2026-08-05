@@ -1,7 +1,7 @@
 # Fire & Water ratings and For You
 
 **Branch:** `feat/native-experience`
-**State:** commit `345535d` makes progressive Household VOD the sole executable
+**State:** commit `c41eda9da7a5de15c5b9c777d82275468a739c46` makes progressive Household VOD the sole executable
 recommendation architecture. It contains `vod-content-profile-v2`, immutable
 compatible StoryDNA overlays, `vod-story-frontier-v1`, cached six-card dealing,
 an optional bounded frontier, exact-ID TMDB enrichment, and additive schema
@@ -9,9 +9,9 @@ migrations. The prior semantic-hash v4, cosine/KNN/MMR, strict-only publication,
 legacy rank worker/snapshot fallback, corpus-wide teacher backfill, and v4
 comparison evaluator are no longer executable. Historical rows remain intact.
 
-The latest repository-recorded home snapshot predates this cleanup: it had an
-older VOD implementation in `shadow`, YouTube `off`, and partial predecessor
-StoryDNA/rank coverage. It does not prove current deployment or public behavior.
+The latest recorded Pi is deliberately contained at `3ef1b20` with VOD and
+YouTube off, StoryDNA/teacher/TMDB work off, and 1,096 StoryDNA rows preserved.
+It does not prove current deployment or public behavior.
 Complete latest-architecture accounting, safe exact-SHA Pi deployment,
 promotion, screenshots, and human couch judgment remain **DEFERRED**. The
 offline bulk artifact/importer is absent and is not a rollout prerequisite.
@@ -22,7 +22,7 @@ See [STATUS.md](STATUS.md).
 | `MANGO_VOD_RECS_V2` | Refresh work | Public Movies/TV For You | Identity/UI |
 |----------------------|--------------|--------------------------|-------------|
 | `off` | No recommendation refresh | No For You recommendation rail | Personal profile/mood state remains usable outside recommendation ranking |
-| `shadow` | Build/diagnose only the latest progressive Story Frontier | No For You recommendation rail | Household recommendation identity; personal rows preserved, with the current Saved utility read blending profile rows |
+| `shadow` | Build/diagnose only the latest progressive Story Frontier | No For You recommendation rail | Household recommendation identity and exact Household Saved; personal rows preserved |
 | `serve` | Latest progressive Story Frontier only | Six strongest supported fits in `6`, `3+3`, or `2+2+2`; absent if no promotion-eligible generation | Household-only; personal profile/mood rows preserved and dormant |
 
 No mode selects a deleted recommender. Operational rollback is `serve` →
@@ -30,20 +30,19 @@ No mode selects a deleted recommender. Operational rollback is `serve` →
 path deletes historical state. “Source-complete” must never be read as “the
 Household rail is currently served.”
 
-Current rollout blockers:
+Source rollout contract at `c41eda9`:
 
-- Shadow is not compute-only: it changes profile/mood, Continue/progress, and
-  recommendation-signal ownership to Household while hiding For You.
-- Saved ownership is blended across profiles in shadow but exact-Household in
-  serve; reconcile or explicitly accept that transition.
-- Launcher X/Shuffle remains visible and reports success in off/shadow although
-  there is no public For You slate to change.
-- `/recommendations/state` reports the newest generation rather than proving
-  active/previous serving pointers or the public epoch; its
-  `teacher_model_version` is not the rank model.
-- The cleanup removed substantial legacy service/evaluation tests. Focused
-  mode/HTTP/migration/publication/rollback replacements and Pi proof are
-  required before deployment.
+- Shadow and serve both use exact Household Saved while leaving all personal
+  rows intact.
+- Off/shadow expose no public shuffle epoch; the launcher hides Shuffle unless
+  a public recommendation rail exists and reports success only after an actual
+  membership/order change.
+- `/recommendations/state` reports each domain's active and previous complete
+  rank pointers, active story/taste/model/status/publication, public epoch, and
+  promotion linkage separately from the newest attempted row.
+- Focused mode/HTTP/ownership/publication/migration/rollback replacements pass,
+  as do the full catalog and launcher suites. Pi/runtime proof is still required
+  before promotion.
 
 ## Serve product contract
 
@@ -311,9 +310,9 @@ verified corpora around 5,452 movies and 3,794–3,904 series. Rank coverage was
 still partial. Reverify those counts before using them operationally. The live
 one-title-at-a-time teacher was stopped for cost and latency.
 
-Commit `345535d` compiles the verified corpus locally and can selectively teach
+Target `c41eda9` compiles the verified corpus locally and can selectively teach
 only a bounded uncertainty frontier, rather than requiring whole-corpus model
-completion. It is not deployed or sufficiently Pi/integration tested. The
+completion. It is Mac-tested but not Pi-deployed or couch-accepted. The
 older bulk-work prompt remains design input for a possible privacy-safe,
 versioned artifact/importer, not the automatic next step. First measure
 progressive profile coverage, calibration, recommendation quality, teacher
@@ -322,14 +321,15 @@ coverage or quality gap.
 
 ## Evaluation boundary
 
-At `345535d`, deterministic local tests cover content-only StoryDNA,
+At `c41eda9`, deterministic local tests cover content-only StoryDNA,
 malformed-sibling isolation, progressive profiles, graph/worker parity,
 positive-only rating math, 85/15 evidence ownership, 180-day viewing decay,
 distinct threads, 2/2/2–3/3–6 portfolios, rank-weighted dealing, large-corpus
-accounting, attribution fencing, frontier containment, and exact-ID TMDB. The
-cleanup also removed substantial legacy service/evaluator tests; current
-mode/HTTP ownership, migration preservation, cached rail behavior, publication,
-restart, and rollback need focused replacements before deployment.
+accounting, attribution fencing, frontier containment, and exact-ID TMDB.
+Focused replacements also cover mode/HTTP ownership, exact Saved policy,
+disabled/public Shuffle behavior, migration preservation, active versus newest
+publication, and flags-off rollback. Restart and resource behavior still
+require Pi proof before promotion.
 
 Promotion now uses an absolute deterministic five-fold latest-architecture
 evaluation, not a comparison against deleted v4. It records holistic nDCG@6,

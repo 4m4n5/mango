@@ -1,10 +1,10 @@
 # mango — native YouTube
 
 **Milestone:** M6.2 · **Status:** the native YouTube base was previously
-Pi-deployed/gated. Commit `345535d` makes authoritative subscription/history v2
+Pi-deployed/gated. Commit `c41eda9da7a5de15c5b9c777d82275468a739c46` makes authoritative subscription/history v2
 the sole executable recommendation architecture behind an independent
-`off|shadow|serve` flag. The latest repository-recorded Pi snapshot predates
-that cleanup and had recommendations `off`; account-specific authoritative
+`off|shadow|serve` flag. The Pi is deliberately contained at `3ef1b20` with
+recommendations and provider work off; account-specific authoritative
 input refresh, shadow/serve promotion, current-SHA diagnostics, screenshots,
 and human TV-quality proof remain **DEFERRED**. See [STATUS.md](STATUS.md).
 
@@ -124,11 +124,11 @@ remain in Household's stable Saved rail until explicit Unsave. Saved has zero
 recommendation weight. Not-for-me suppresses that exact video only and offers
 Undo instead of deleting history.
 
-Current source has a blocking ownership defect in `off`: the service always
-returns Household ownership while the HTTP route expects the active personal
-profile. With a non-Household active profile, `/youtube/rails` can therefore
-return 409 instead of utility rails. Fix this and add focused mode/HTTP tests
-before using `off` as rollback or promoting YouTube.
+In `off`, the service and route agree on the exact active personal owner and
+return only that owner's History/Saved utilities. In `shadow` and `serve`, both
+use exact Household ownership. Focused mode/owner/HTTP tests cover the former
+non-Household 409 regression before YouTube is used as a rollback or promotion
+path.
 
 The phone reaches the four `/youtube/companion/*` routes only through the HTTPS
 companion's exact capability allowlist. Catalog accepts those upstream calls
@@ -336,9 +336,9 @@ URLs/secrets.
 
 The base YouTube product and the latest recommendation model have different
 proof status. Base metadata/search/OAuth/Takeout/`yt-dlp` behavior has older Pi
-evidence. The latest recorded runtime predates `345535d`; the rail contract
-above is source behavior awaiting the ownership fix, account-specific refresh,
-shadow diagnostics, serve promotion, and current couch observation. A
+evidence. The latest recorded runtime is contained at `3ef1b20`; the rail
+contract above is tested source behavior at `c41eda9` awaiting account-specific
+refresh, shadow diagnostics, serve promotion, and current couch observation. A
 Saved-only or otherwise thin account is a valid setup state; documentation and
 tests must not assume five visible rails.
 

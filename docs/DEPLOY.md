@@ -221,14 +221,12 @@ See also: [`../AGENTS.md`](../AGENTS.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 Live IPTV: [`LIVE_TV.md`](LIVE_TV.md) — gates opt-in only.
 
-Recommendation rollout is intentionally home-owned after source and deployment
-blockers close. Commit `345535d` is latest-only, but **must not be deployed from
-the recommendation prompt**: YouTube `off` ownership, VOD shadow/serve Saved
-ownership, disabled Shuffle feedback, active-pointer diagnostics, and focused
-replacement tests remain open. The latest recorded Pi mode predates it and had
-VOD `shadow`, YouTube `off`, and partial predecessor StoryDNA coverage. A bulk
-artifact/importer remains absent and is not a prerequisite. A tested successor
-must use the blocked checklist in
+Recommendation rollout is intentionally home-owned. The tested executable
+target `c41eda9da7a5de15c5b9c777d82275468a739c46` closes the recommendation
+mode/ownership/Shuffle/active-pointer/test blockers; the Pi remains contained at
+`3ef1b20` with both domains and provider work off. The deploy/gate wrappers are
+still blocked by the independent exact-SHA and implicit AIOMetadata issues
+above, so the home agent must use the reviewed manual target path in
 [tasks/RECOMMENDATIONS_PROGRESSIVE_FRONTIER_DEPLOY.md](tasks/RECOMMENDATIONS_PROGRESSIVE_FRONTIER_DEPLOY.md).
 Before promoting VOD from `shadow` to `serve`, prove
 explicit fail-closed SQLite online backups for both library and playability
