@@ -10,7 +10,41 @@ CATALOG_DIR="${1:?catalog-service path}"
   # Always clean+rebuild. A renamed/deleted source test must never leave an
   # orphan dist test executing or let this safety slice trust stale output.
   npm run build >/dev/null
-  node --test \
+  # The Pi gate inherits voice.env from the parent pre-couch script. Unit tests
+  # must exercise their own fixtures, never production rollout/provider flags
+  # or runtime database paths.
+  env \
+    -u MANGO_LIBRARY_DB_PATH \
+    -u MANGO_PLAYABILITY_DB \
+    -u MANGO_USER_PINS_PATH \
+    -u MANGO_YOUTUBE_DB_PATH \
+    -u MANGO_FIRE_WATER_RATINGS \
+    -u MANGO_FOR_YOU \
+    -u MANGO_VOD_RECS_V2 \
+    -u MANGO_YOUTUBE_RECS_V2 \
+    -u MANGO_STORY_DNA \
+    -u MANGO_STORY_DNA_WORKER_MODE \
+    -u MANGO_STORY_DNA_BATCH \
+    -u MANGO_STORY_DNA_FRONTIER_BATCH \
+    -u MANGO_STORY_DNA_FRONTIER_COALESCE_MS \
+    -u MANGO_STORY_DNA_FRONTIER_NIGHTLY_PER_TYPE \
+    -u MANGO_STORY_DNA_FRONTIER_ROLLING_30D \
+    -u MANGO_STORY_DNA_FRONTIER_RUN_MS \
+    -u MANGO_STORY_DNA_MODEL_VERSION \
+    -u MANGO_STORY_DNA_TIMEOUT_MS \
+    -u MANGO_STORY_DNA_URL \
+    -u MANGO_STORY_GRAPH_RANK_TIMEOUT_MS \
+    -u MANGO_TMDB_API_KEY \
+    -u MANGO_TMDB_API_KEY_FILE \
+    -u MANGO_TMDB_API_TOKEN \
+    -u MANGO_TMDB_METADATA \
+    -u MANGO_TMDB_REQUESTS_PER_SECOND \
+    -u MANGO_VOD_STORY_GRAPH_BOOTSTRAP_MIN \
+    -u MANGO_VOD_STORY_GRAPH_COUCH_QUEUE_SCAN \
+    -u MANGO_VOD_STORY_GRAPH_FIT_FLOOR \
+    -u MANGO_VOD_STORY_GRAPH_PREDEALT_SLATES \
+    -u MANGO_VOD_STORY_GRAPH_PRIORITY_RESERVE \
+    node --test \
     dist/play-deadline.test.js \
     dist/play-cancel.test.js \
     dist/play-request-registry.test.js \
