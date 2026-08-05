@@ -14,6 +14,18 @@ export type RecommendationRefreshJob = {
   started_at: number | null;
   completed_at: number | null;
   error: string | null;
+  phase: string | null;
+  phase_cursor: string | null;
+  checkpoint: Record<string, unknown>;
+  heartbeat_at: number | null;
+  deadline_at: number | null;
+  story_generation_id: number | null;
+  taste_generation_id: number | null;
+  rank_generation_id: number | null;
+  resume_count: number;
+  successor_job_id: string | null;
+  error_code: string | null;
+  resource_metrics: Record<string, unknown>;
 };
 
 export type VodRecommendationRefreshTab = 'movies' | 'series';
@@ -29,6 +41,17 @@ function parseJsonObject(value: string): Record<string, string | number | null> 
     const parsed = JSON.parse(value) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
     return parsed as Record<string, string | number | null>;
+  } catch {
+    return {};
+  }
+}
+
+function parseUnknownJsonObject(value: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
   } catch {
     return {};
   }
@@ -53,19 +76,30 @@ export function createRecommendationRefreshJob(input: {
   const queuedAt = input.queued_at ?? Date.now();
   const jobId = randomUUID();
   const reasons = normalizeReasons(input.trigger_reasons);
-  libraryDatabase().prepare(`
+  const db = libraryDatabase();
+  const coalesce = db.prepare(`
+UPDATE recommendation_refresh_jobs
+SET status = 'coalesced', completed_at = ?, successor_job_id = ?, error_code = 'superseded',
+    error = 'superseded by a newly captured refresh job'
+WHERE domain = ? AND COALESCE(content_type, '') = COALESCE(?, '') AND status = 'queued'
+`);
+  const insert = db.prepare(`
 INSERT INTO recommendation_refresh_jobs(
   job_id, domain, content_type, trigger_reasons_json, captured_revisions_json,
   status, queued_at, started_at, completed_at, error
 ) VALUES (?, ?, ?, ?, ?, 'queued', ?, NULL, NULL, NULL)
-`).run(
-    jobId,
-    input.domain,
-    input.content_type?.trim() || null,
-    JSON.stringify(reasons),
-    JSON.stringify(input.captured_revisions),
-    queuedAt,
-  );
+`);
+  db.transaction(() => {
+    coalesce.run(queuedAt, jobId, input.domain, input.content_type?.trim() || null);
+    insert.run(
+      jobId,
+      input.domain,
+      input.content_type?.trim() || null,
+      JSON.stringify(reasons),
+      JSON.stringify(input.captured_revisions),
+      queuedAt,
+    );
+  })();
   return {
     job_id: jobId,
     domain: input.domain,
@@ -77,7 +111,88 @@ INSERT INTO recommendation_refresh_jobs(
     started_at: null,
     completed_at: null,
     error: null,
+    phase: null,
+    phase_cursor: null,
+    checkpoint: {},
+    heartbeat_at: null,
+    deadline_at: null,
+    story_generation_id: null,
+    taste_generation_id: null,
+    rank_generation_id: null,
+    resume_count: 0,
+    successor_job_id: null,
+    error_code: null,
+    resource_metrics: {},
   };
+}
+
+export type RecommendationRefreshJobRuntimeUpdate = {
+  phase?: string | null;
+  phase_cursor?: string | null;
+  checkpoint?: Record<string, unknown>;
+  heartbeat_at?: number | null;
+  deadline_at?: number | null;
+  story_generation_id?: number | null;
+  taste_generation_id?: number | null;
+  rank_generation_id?: number | null;
+  successor_job_id?: string | null;
+  error_code?: string | null;
+  resource_metrics?: Record<string, unknown>;
+};
+
+/** Additive operational checkpointing; recommendation semantics never depend on it. */
+export function updateRecommendationRefreshJobRuntime(
+  jobIds: readonly string[],
+  update: RecommendationRefreshJobRuntimeUpdate,
+): number {
+  const ids = [...new Set(jobIds.map((value) => value.trim()).filter(Boolean))];
+  if (ids.length === 0) return 0;
+  const db = libraryDatabase();
+  const current = db.prepare(`
+SELECT checkpoint_json, resource_metrics_json FROM recommendation_refresh_jobs WHERE job_id = ?
+`);
+  const write = db.prepare(`
+UPDATE recommendation_refresh_jobs
+SET phase = COALESCE(@phase, phase),
+    phase_cursor = COALESCE(@phase_cursor, phase_cursor),
+    checkpoint_json = @checkpoint_json,
+    heartbeat_at = COALESCE(@heartbeat_at, heartbeat_at),
+    deadline_at = COALESCE(@deadline_at, deadline_at),
+    story_generation_id = COALESCE(@story_generation_id, story_generation_id),
+    taste_generation_id = COALESCE(@taste_generation_id, taste_generation_id),
+    rank_generation_id = COALESCE(@rank_generation_id, rank_generation_id),
+    successor_job_id = COALESCE(@successor_job_id, successor_job_id),
+    error_code = COALESCE(@error_code, error_code),
+    resource_metrics_json = @resource_metrics_json
+WHERE job_id = @job_id
+`);
+  return db.transaction(() => ids.reduce((changes, jobId) => {
+    const row = current.get(jobId) as {
+      checkpoint_json: string;
+      resource_metrics_json: string;
+    } | undefined;
+    if (!row) return changes;
+    const checkpoint = update.checkpoint === undefined
+      ? parseUnknownJsonObject(row.checkpoint_json)
+      : update.checkpoint;
+    const resourceMetrics = update.resource_metrics === undefined
+      ? parseUnknownJsonObject(row.resource_metrics_json)
+      : update.resource_metrics;
+    return changes + write.run({
+      job_id: jobId,
+      phase: update.phase ?? null,
+      phase_cursor: update.phase_cursor ?? null,
+      checkpoint_json: JSON.stringify(checkpoint),
+      heartbeat_at: update.heartbeat_at ?? null,
+      deadline_at: update.deadline_at ?? null,
+      story_generation_id: update.story_generation_id ?? null,
+      taste_generation_id: update.taste_generation_id ?? null,
+      rank_generation_id: update.rank_generation_id ?? null,
+      successor_job_id: update.successor_job_id ?? null,
+      error_code: update.error_code ?? null,
+      resource_metrics_json: JSON.stringify(resourceMetrics),
+    }).changes;
+  }, 0))();
 }
 
 export function updateRecommendationRefreshJobs(
@@ -100,6 +215,7 @@ SET status = @status,
       ELSE NULL
     END,
     error = @error
+    , error_code = CASE WHEN @status IN ('running', 'complete') THEN NULL ELSE error_code END
 WHERE job_id = @job_id AND status IN ('queued', 'running')
 `);
   const message = error == null
@@ -112,19 +228,21 @@ WHERE job_id = @job_id AND status IN ('queued', 'running')
 }
 
 /**
- * In-memory queue ownership cannot survive a process restart. Close orphaned
- * rows honestly; the normal service-startup jobs then perform fresh work with
- * newly captured revisions instead of pretending an old request resumed.
+ * A committed page is recoverable. Preserve queued work and return interrupted
+ * running rows to queued state; the newly captured startup request coalesces
+ * them explicitly rather than relabeling durable work as a failure.
  */
 export function reconcileInterruptedRecommendationRefreshJobs(
   at = Date.now(),
-  reason = 'service restarted before recommendation refresh completed',
+  reason = 'service restarted; committed checkpoint retained for resume',
 ): number {
   return libraryDatabase().prepare(`
 UPDATE recommendation_refresh_jobs
-SET status = 'failed', completed_at = ?, error = ?
-WHERE status IN ('queued', 'running')
-`).run(at, reason.slice(0, 1_000)).changes;
+SET status = 'queued', started_at = NULL, completed_at = NULL, error = ?,
+    error_code = 'restart_resume', resume_count = resume_count + 1,
+    heartbeat_at = ?, deadline_at = NULL
+WHERE status = 'running'
+`).run(reason.slice(0, 1_000), at).changes;
 }
 
 /** Capture the exact durable VOD revisions visible when a job is enqueued. */
@@ -188,7 +306,10 @@ WHERE content_type = ?
 export function listRecommendationRefreshJobs(limit = 20): RecommendationRefreshJob[] {
   const rows = libraryDatabase().prepare(`
 SELECT job_id, domain, content_type, trigger_reasons_json, captured_revisions_json,
-       status, queued_at, started_at, completed_at, error
+       status, queued_at, started_at, completed_at, error, phase, phase_cursor,
+       checkpoint_json, heartbeat_at, deadline_at, story_generation_id,
+       taste_generation_id, rank_generation_id, resume_count, successor_job_id,
+       error_code, resource_metrics_json
 FROM recommendation_refresh_jobs
 ORDER BY queued_at DESC, job_id DESC
 LIMIT ?
@@ -203,11 +324,26 @@ LIMIT ?
     started_at: number | null;
     completed_at: number | null;
     error: string | null;
+    phase: string | null;
+    phase_cursor: string | null;
+    checkpoint_json: string;
+    heartbeat_at: number | null;
+    deadline_at: number | null;
+    story_generation_id: number | null;
+    taste_generation_id: number | null;
+    rank_generation_id: number | null;
+    resume_count: number;
+    successor_job_id: string | null;
+    error_code: string | null;
+    resource_metrics_json: string;
   }>;
-  return rows.map(({ trigger_reasons_json: reasons, captured_revisions_json: revisions, ...row }) => ({
+  return rows.map(({ trigger_reasons_json: reasons, captured_revisions_json: revisions,
+    checkpoint_json: checkpoint, resource_metrics_json: resourceMetrics, ...row }) => ({
     ...row,
     trigger_reasons: parseJsonList(reasons),
     captured_revisions: parseJsonObject(revisions),
+    checkpoint: parseUnknownJsonObject(checkpoint),
+    resource_metrics: parseUnknownJsonObject(resourceMetrics),
   }));
 }
 
@@ -217,7 +353,10 @@ export function recommendationRefreshJobById(jobId: string): RecommendationRefre
   if (!normalized) return null;
   const row = libraryDatabase().prepare(`
 SELECT job_id, domain, content_type, trigger_reasons_json, captured_revisions_json,
-       status, queued_at, started_at, completed_at, error
+       status, queued_at, started_at, completed_at, error, phase, phase_cursor,
+       checkpoint_json, heartbeat_at, deadline_at, story_generation_id,
+       taste_generation_id, rank_generation_id, resume_count, successor_job_id,
+       error_code, resource_metrics_json
 FROM recommendation_refresh_jobs
 WHERE job_id = ?
 `).get(normalized) as {
@@ -231,16 +370,32 @@ WHERE job_id = ?
     started_at: number | null;
     completed_at: number | null;
     error: string | null;
+    phase: string | null;
+    phase_cursor: string | null;
+    checkpoint_json: string;
+    heartbeat_at: number | null;
+    deadline_at: number | null;
+    story_generation_id: number | null;
+    taste_generation_id: number | null;
+    rank_generation_id: number | null;
+    resume_count: number;
+    successor_job_id: string | null;
+    error_code: string | null;
+    resource_metrics_json: string;
   } | undefined;
   if (!row) return null;
   const {
     trigger_reasons_json: reasons,
     captured_revisions_json: revisions,
+    checkpoint_json: checkpoint,
+    resource_metrics_json: resourceMetrics,
     ...job
   } = row;
   return {
     ...job,
     trigger_reasons: parseJsonList(reasons),
     captured_revisions: parseJsonObject(revisions),
+    checkpoint: parseUnknownJsonObject(checkpoint),
+    resource_metrics: parseUnknownJsonObject(resourceMetrics),
   };
 }

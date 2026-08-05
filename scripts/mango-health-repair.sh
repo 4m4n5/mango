@@ -7,6 +7,7 @@ REPO_DIR="${MANGO_REPO_DIR:-$HOME/mango}"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/mango"
 LOCK_FILE="${CACHE_DIR}/mango-health-repair.lock"
 PLAYABILITY_LOCK_FILE="${CACHE_DIR}/playability-maintenance.lock"
+RECOMMENDATION_LEASE_FILE="${MANGO_RECOMMENDATION_MAINTENANCE_LEASE:-${CACHE_DIR}/recommendation-maintenance.lease}"
 QUIET=0
 
 while [[ $# -gt 0 ]]; do
@@ -127,6 +128,54 @@ raise SystemExit(0 if ok else 1)
 PY
 }
 
+catalog_live() {
+  local timeout="${1:-4}"
+  local body
+  body="$(curl -sf --max-time "$timeout" "$(catalog_service_url)/health/live" 2>/dev/null || true)"
+  [[ -n "$body" ]] || return 1
+  python3 - "$body" <<'PY'
+import json
+import sys
+try:
+    data = json.loads(sys.argv[1])
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if data.get("ok") and data.get("process") == "live" else 1)
+PY
+}
+
+recommendation_lease_fresh() {
+  [[ -f "$RECOMMENDATION_LEASE_FILE" ]] || return 1
+  python3 - "$RECOMMENDATION_LEASE_FILE" <<'PY'
+import json
+import sys
+import time
+try:
+    data = json.load(open(sys.argv[1], encoding="utf-8"))
+    heartbeat = int(data.get("heartbeat_at") or 0)
+except Exception:
+    raise SystemExit(1)
+raise SystemExit(0 if heartbeat > 0 and int(time.time() * 1000) - heartbeat <= 30000 else 1)
+PY
+}
+
+catalog_needs_repair() {
+  # systemd inactivity is authoritative and requires immediate repair.
+  if systemctl --user is-enabled mango-catalog.service >/dev/null 2>&1 \
+    && ! systemctl --user is-active --quiet mango-catalog.service; then
+    return 0
+  fi
+  catalog_live 4 && return 1
+  sleep 5
+  catalog_live 4 && return 1
+  # Fresh maintenance may temporarily delay the event loop under reclaim.
+  # Only a current heartbeat earns one final bounded liveness probe.
+  if recommendation_lease_fresh; then
+    catalog_live 15 && return 1
+  fi
+  return 0
+}
+
 repair_catalog() {
   repair_note restart_catalog "$1"
   if systemctl --user is-enabled mango-catalog.service >/dev/null 2>&1; then
@@ -215,7 +264,12 @@ if playback_active; then
   say "health-repair: catalog + launcher repair skipped (playback active)"
 else
   if catalog_expected; then
-    catalog_ready || repair_catalog "catalog_health" || fail_note catalog "repair_failed"
+    if catalog_needs_repair; then
+      repair_catalog "catalog_liveness" || fail_note catalog "repair_failed"
+    elif ! catalog_ready; then
+      mango_log health_repair status=degraded check=catalog_readiness action=none
+      say "health-repair: catalog live; full readiness degraded (no restart)"
+    fi
   fi
 
   # Safety: if a prior playback left the launcher frozen, thaw it so browse is

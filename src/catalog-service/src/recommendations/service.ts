@@ -66,7 +66,11 @@ const refreshExecutor = new KeyedSerialExecutor<ForYouTab>();
  */
 export function refreshForYou(
   tab: ForYouTab,
-  options: { profile_id?: string; trigger_reasons?: readonly string[] } = {},
+  options: {
+    profile_id?: string;
+    trigger_reasons?: readonly string[];
+    job_ids?: readonly string[];
+  } = {},
 ): Promise<RefreshForYouResult> {
   return refreshExecutor.run(tab, async () => {
     const mode = vodRecommendationsV2Mode();
@@ -85,6 +89,7 @@ export function refreshForYou(
     }
     const result = await refreshStoryGraphForYou(tab, {
       trigger_reasons: options.trigger_reasons ?? ['refresh'],
+      job_ids: options.job_ids,
     });
     return {
       tab,

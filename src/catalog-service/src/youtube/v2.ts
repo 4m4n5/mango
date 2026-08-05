@@ -471,6 +471,35 @@ export function youtubeV2TopicSeed(at = Date.now()): YoutubeV2TopicSeed | null {
   );
 }
 
+/** Daily-stable weighted sampling without replacement for acquisition trials. */
+export function youtubeV2MoreLikeSeeds(limit = 20, at = Date.now()): YoutubeV2TopicSeed[] {
+  const max = Math.max(1, Math.min(20, Math.floor(limit)));
+  const day = pacificDay(at);
+  const watches = householdWatchAnchors(at).slice(0, 20);
+  return watches
+    .map((watch) => {
+      const unit = Math.max(
+        Number.EPSILON,
+        stableHash(`youtube-v2:more-like:${day}:${watch.id}:${watch.watched_at}`) / 0x1_0000_0000,
+      );
+      return {
+        watch,
+        race: -Math.log(unit) / Math.max(Number.EPSILON, watch.decayed_strength),
+      };
+    })
+    .sort((left, right) => left.race - right.race
+      || left.watch.id.localeCompare(right.watch.id))
+    .slice(0, max)
+    .map(({ watch }) => ({
+      kind: 'history' as const,
+      item: cachedOrStub(watch),
+      provenance_ref: watch.id,
+      source_generation: createHash('sha256')
+        .update(`history:${watch.id}:${watch.watched_at}:${watch.source}`)
+        .digest('hex'),
+    }));
+}
+
 /** Diverse auditable seeds for Beyond acquisition; More Like still owns the daily seed above. */
 export function youtubeV2DiscoverySeeds(limit = 8, at = Date.now()): YoutubeV2TopicSeed[] {
   const max = Math.max(1, Math.min(12, Math.floor(limit)));
@@ -894,7 +923,7 @@ function generationInputs(
         && (row.provenance_ref === topicSeed.provenance_ref.slice('subscription:'.length)
           || row.provenance_ref === topicSeed.item.channel_id)
   )));
-  const moreLikeForLane = prioritizeCreatorDiversity(moreLike.map((candidate) => scoreWithRows(
+  const allMoreLikeForLane = prioritizeCreatorDiversity(moreLike.map((candidate) => scoreWithRows(
     candidate,
     candidate.rows.filter((row) => !row.source_generation.startsWith('beyond:')),
   )).sort((left, right) => (
@@ -902,15 +931,29 @@ function generationInputs(
     || right.score - left.score
     || left.item.id.localeCompare(right.item.id)
   )));
-  addRail('beyond', beyondForLane, ['history_topic']);
+  const thematicMoreLike = allMoreLikeForLane.filter((candidate) => candidate.rows.some((row) => (
+    row.provenance === 'history_topic' && row.source_generation.startsWith('more_like:')
+  )));
+  const exactChannelMoreLike = allMoreLikeForLane.filter(directMoreLike);
+  const moreLikeForLane = topicSeed?.kind === 'subscription'
+    ? allMoreLikeForLane
+    : thematicMoreLike.length >= YOUTUBE_RAIL_LIMIT
+      ? thematicMoreLike
+      : exactChannelMoreLike.length >= YOUTUBE_RAIL_LIMIT
+        ? exactChannelMoreLike
+        : allMoreLikeForLane;
+  const moreLikeContext = moreLikeForLane === exactChannelMoreLike
+    ? `more_from:${topicSeed?.item.channel_title || topicSeed?.item.channel_id || 'channel'}`
+    : topicSeed?.provenance_ref ?? '';
   addRail(
     'more_like',
     moreLikeForLane,
     topicSeed?.kind === 'subscription'
       ? ['subscription_upload', 'history_topic']
       : ['history_channel', 'history_topic'],
-    topicSeed?.provenance_ref ?? '',
+    moreLikeContext,
   );
+  addRail('beyond', beyondForLane, ['history_topic']);
   addRail('new_from_subscriptions', fromSubscriptions, ['subscription_upload']);
   addRail('live_now', live, ['subscription_live']);
   addRail('for_you', forYou, ['history_channel', 'history_topic', 'subscription_upload']);
@@ -1061,10 +1104,10 @@ export function youtubeV2RecommendationRails(input: {
   // cannot be consumed by a fallback More Like row before its own rail. Display
   // order is applied separately below.
   const allocationOrder = [
-    { id: 'new_from_subscriptions', cap: 1, relax: true, live: false },
     { id: 'live_now', cap: 1, relax: true, live: true },
-    { id: 'beyond', cap: 1, relax: false, live: false },
+    { id: 'new_from_subscriptions', cap: 1, relax: true, live: false },
     { id: 'more_like', cap: 1, relax: true, live: false },
+    { id: 'beyond', cap: 1, relax: false, live: false },
     { id: 'for_you', cap: 2, relax: false, live: false },
   ] as const;
   for (const spec of allocationOrder) {
@@ -1107,9 +1150,12 @@ export function youtubeV2RecommendationRails(input: {
     items.forEach((item) => seen.add(item.id));
     selected.set(spec.id, {
       rail_id: spec.id,
-      label: spec.id === 'more_like' && entries.some((entry) => entry.context_id.startsWith('subscription:'))
-        ? V2_SUBSCRIPTION_MORE_LABEL
-        : V2_LABELS[spec.id],
+      label: spec.id === 'more_like' && entries.some((entry) => entry.context_id.startsWith('more_from:'))
+        ? `More from ${entries.find((entry) => entry.context_id.startsWith('more_from:'))!
+          .context_id.slice('more_from:'.length)}`
+        : spec.id === 'more_like' && entries.some((entry) => entry.context_id.startsWith('subscription:'))
+          ? V2_SUBSCRIPTION_MORE_LABEL
+          : V2_LABELS[spec.id],
       items,
       reserve_items: pool,
       candidate_context_id: generation.items.find((entry) => entry.rail_id === spec.id)?.context_id ?? '',
@@ -1180,6 +1226,9 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
     subscription_acquisition: getYoutubeState<unknown>('youtube_v2_subscription_acquisition', null),
     history_metadata: getYoutubeState<unknown>('youtube_v2_history_metadata', null),
     history_acquisition: getYoutubeState<unknown>('youtube_v2_history_acquisition', null),
+    more_like_status: getYoutubeState<unknown>('youtube_v2_more_like_status', {
+      status: reserveDepths.more_like >= YOUTUBE_RAIL_LIMIT ? 'thematic' : 'not_applicable',
+    }),
     live_acquisition: getYoutubeState<unknown>('youtube_v2_live_acquisition', null),
     phase_results: getYoutubeState<unknown>('last_phase_results', []),
     source_stale: sourceStale,

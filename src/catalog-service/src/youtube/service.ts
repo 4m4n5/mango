@@ -59,6 +59,7 @@ import {
   youtubeV2Diagnostics,
   youtubeV2DiscoverySeeds,
   youtubeV2HistoryItems,
+  youtubeV2MoreLikeSeeds,
   youtubeV2RecommendationRails,
   youtubeV2SourceStaleState,
   youtubeV2TopicSeed,
@@ -484,7 +485,16 @@ function isSameChannel(left: YoutubeItem, right: YoutubeItem): boolean {
 function becauseRelationForItem(item: YoutubeItem, seed: YoutubeItem): BecauseYouWatchedRelation | null {
   if (item.id === seed.id) return null;
   if (isSameChannel(item, seed)) return 'same_channel';
-  const overlap = tokenOverlapScore(titleTokens(seed), titleTokens(item));
+  const semanticTokens = (value: YoutubeItem): Set<string> => youtubeTitleTokens([
+    value.title,
+    value.description,
+    value.channel_title,
+  ].filter(Boolean).join(' '));
+  const seedTokens = semanticTokens(seed);
+  const itemTokens = semanticTokens(item);
+  const shared = [...seedTokens].filter((token) => itemTokens.has(token));
+  if (shared.length < 2) return null;
+  const overlap = tokenOverlapScore(seedTokens, itemTokens);
   const text = `${item.title} ${item.description || ''}`.toLowerCase();
   const deepDive = /\b(documentary|explained|analysis|interview|deep dive|history|lecture|breakdown|essay)\b/.test(text)
     || (item.duration_sec !== null && item.duration_sec >= 45 * 60);
@@ -498,6 +508,16 @@ function becauseYouWatchedQuerySpecs(seed: YoutubeItem): BecauseYouWatchedQueryS
   const tokens = [...titleTokens(seed)].slice(0, 5);
   const topicQuery = tokens.join(' ');
   const specs: BecauseYouWatchedQuerySpec[] = [];
+  if (topicQuery) {
+    specs.push({
+      query: topicQuery,
+      relation_type: 'same_topic',
+      order: 'relevance',
+      limit: 12,
+      publishedAfterDays: 900,
+      videoDuration: 'medium',
+    });
+  }
   if (seed.channel_id) {
     specs.push({
       query: topicQuery,
@@ -726,8 +746,14 @@ export class YoutubeService {
       });
       return;
     }
-    const moreLikeSeed = youtubeV2TopicSeed();
     const budget = youtubeV2AcquisitionQueryBudget(reason);
+    const nightly = /(?:nightly|scheduled|maintenance)/i.test(reason);
+    const historySeeds = youtubeV2MoreLikeSeeds(20);
+    const subscriptionFallback = historySeeds.length === 0 ? youtubeV2TopicSeed() : null;
+    const moreLikeSeeds = historySeeds.length > 0
+      ? historySeeds
+      : subscriptionFallback ? [subscriptionFallback] : [];
+    const moreLikeSeed = moreLikeSeeds[0] ?? null;
     const discoverySeeds = youtubeV2DiscoverySeeds(Math.min(12, budget.beyond + 1));
     if (!moreLikeSeed && discoverySeeds.length === 0) {
       setYoutubeState('youtube_v2_history_acquisition', {
@@ -742,29 +768,61 @@ export class YoutubeService {
       lane: 'more_like' | 'beyond';
       seed: YoutubeV2TopicSeed;
       spec: BecauseYouWatchedQuerySpec;
+      query_index: number;
     };
-    const specs: AcquisitionSpec[] = [];
-    if (moreLikeSeed) {
-      specs.push(...becauseYouWatchedQuerySpecs(moreLikeSeed.item)
-        .filter((spec) => moreLikeSeed.kind === 'history' || spec.relation_type !== 'same_channel')
-        .slice(0, budget.more_like)
-        .map((spec) => ({ lane: 'more_like' as const, seed: moreLikeSeed, spec })));
-    }
-    const distinctBeyondSeeds = discoverySeeds
-      .filter((seed) => seed.provenance_ref !== moreLikeSeed?.provenance_ref);
-    // Prefer genuinely separate acquisition seeds. A single-source cold start
-    // may fall back to its only available seed rather than suppress Beyond.
-    for (const seed of distinctBeyondSeeds.length > 0 ? distinctBeyondSeeds : discoverySeeds) {
-      if (specs.filter((entry) => entry.lane === 'beyond').length >= budget.beyond) break;
-      const topicSpec = becauseYouWatchedQuerySpecs(seed.item)
-        .find((spec) => spec.relation_type !== 'same_channel');
-      if (!topicSpec) continue;
-      const duplicate = specs.some((entry) => entry.lane === 'beyond'
-        && entry.spec.query === topicSpec.query
-        && entry.seed.provenance_ref === seed.provenance_ref);
-      if (!duplicate) specs.push({ lane: 'beyond', seed, spec: topicSpec });
-    }
-    const results = await Promise.all(specs.map(async (entry) => {
+    type Funnel = {
+      lane: 'more_like' | 'beyond';
+      seed_ref: string;
+      query_index: number;
+      query_kind: 'topic' | 'exact_channel';
+      returned: number;
+      live_rejected: number;
+      shorts_rejected: number;
+      low_signal: number;
+      exact_excluded: number;
+      relation_rejected: number;
+      duplicate: number;
+      persisted: number;
+      generation_eligible: number;
+      rail_allocated: number;
+      error: string | null;
+    };
+    type AcquiredCandidate = Parameters<typeof upsertYoutubeV2CandidateProvenance>[0][number];
+    const exactExcluded = new Set([
+      ...listYoutubeV2ImportedHistory(5_000).map((row) => row.video_id),
+      ...listWatchHistory({
+        source: 'youtube', type: 'youtube_video', profile_id: 'household',
+        household_blend: false, limit: 5_000,
+      }).map((row) => row.id),
+      ...listSavedLibraryItems('youtube', 5_000, {
+        profile_id: 'household', household_blend: false,
+      }).filter((row) => row.source === 'youtube' && row.type === 'youtube_video')
+        .map((row) => row.id),
+    ]);
+    const seen = new Set<string>();
+    const funnels: Funnel[] = [];
+    const execute = async (entry: AcquisitionSpec): Promise<{
+      entry: AcquisitionSpec;
+      candidates: AcquiredCandidate[];
+      error: string | null;
+    }> => {
+      const funnel: Funnel = {
+        lane: entry.lane,
+        seed_ref: createHash('sha256').update(entry.seed.provenance_ref).digest('hex').slice(0, 16),
+        query_index: entry.query_index,
+        query_kind: entry.spec.channelId ? 'exact_channel' : 'topic',
+        returned: 0,
+        live_rejected: 0,
+        shorts_rejected: 0,
+        low_signal: 0,
+        exact_excluded: 0,
+        relation_rejected: 0,
+        duplicate: 0,
+        persisted: 0,
+        generation_eligible: 0,
+        rail_allocated: 0,
+        error: null,
+      };
       try {
         const groups = await this.api.search(entry.spec.query, {
           limit: entry.spec.limit,
@@ -776,66 +834,160 @@ export class YoutubeService {
           videoDuration: entry.spec.videoDuration,
           safeSearch: 'moderate',
         });
-        return { ...entry, videos: groups.videos, error: null as string | null };
+        funnel.returned = groups.videos.length;
+        const acquiredAt = nowMs();
+        const provenance = entry.lane === 'more_like' && entry.spec.channelId
+          ? 'history_channel' as const
+          : 'history_topic' as const;
+        const sourceGeneration = `${entry.lane}:${createHash('sha256')
+          .update(JSON.stringify({
+            lane: entry.lane,
+            seed_kind: entry.seed.kind,
+            seed_id: entry.seed.item.id,
+            provenance_ref: entry.seed.provenance_ref,
+            seed_source_generation: entry.seed.source_generation,
+            relation: entry.spec.relation_type,
+            query: entry.spec.query,
+            channel_id: entry.spec.channelId ?? null,
+          })).digest('hex')}`;
+        const candidates = groups.videos.flatMap((item) => {
+          if (item.kind !== 'video') return [];
+          if (isLiveVideo(item)) { funnel.live_rejected += 1; return []; }
+          if (isShortLikeVideo(item)) { funnel.shorts_rejected += 1; return []; }
+          if (isLowSignalYoutubeRecommendation(item)) { funnel.low_signal += 1; return []; }
+          if (exactExcluded.has(item.id) || item.id === entry.seed.item.id) {
+            funnel.exact_excluded += 1;
+            return [];
+          }
+          const relation = becauseRelationForItem(item, entry.seed.item);
+          const related = provenance === 'history_channel'
+            ? relation === 'same_channel'
+            : entry.lane === 'beyond'
+              ? relation !== null && relation !== 'same_channel'
+              : relation !== null && relation !== 'same_channel';
+          if (!related) { funnel.relation_rejected += 1; return []; }
+          if (seen.has(item.id)) { funnel.duplicate += 1; return []; }
+          seen.add(item.id);
+          return [{
+            item,
+            provenance,
+            provenance_ref: entry.seed.provenance_ref,
+            source_generation: sourceGeneration,
+            acquired_at: acquiredAt,
+            expires_at: acquiredAt + YOUTUBE_V2_CANDIDATE_TTL_MS,
+          }];
+        });
+        funnel.persisted = candidates.length;
+        funnel.generation_eligible = candidates.length;
+        funnels.push(funnel);
+        return { entry, candidates, error: null };
       } catch (error) {
-        return {
-          ...entry,
-          videos: [] as YoutubeItem[],
-          error: error instanceof Error ? error.message : String(error),
-        };
+        funnel.error = error instanceof Error ? error.message : String(error);
+        funnels.push(funnel);
+        return { entry, candidates: [], error: funnel.error };
       }
-    }));
-    const acquiredAt = nowMs();
-    const candidates = results.flatMap(({ lane, seed, spec, videos }) => {
-      const provenance = lane === 'more_like'
-        && seed.kind === 'history' && spec.relation_type === 'same_channel'
-        ? 'history_channel' as const
-        : 'history_topic' as const;
-      const sourceGeneration = `${lane}:${createHash('sha256')
-        .update(JSON.stringify({
-          lane,
-          seed_kind: seed.kind,
-          seed_id: seed.item.id,
-          provenance_ref: seed.provenance_ref,
-          seed_source_generation: seed.source_generation,
-          relation: spec.relation_type,
-          query: spec.query,
-          channel_id: spec.channelId ?? null,
-        }))
-        .digest('hex')}`;
-      return videos
-        .filter((item) => item.kind === 'video')
-        .filter((item) => !isLiveVideo(item) && !isShortLikeVideo(item))
-        .filter((item) => !isLowSignalYoutubeRecommendation(item))
-        .filter((item) => {
-          const relation = becauseRelationForItem(item, seed.item);
-          if (provenance === 'history_channel') return relation === 'same_channel';
-          if (lane === 'beyond') return relation !== 'same_channel';
-          return relation !== null && relation !== 'same_channel';
-        })
-        .map((item) => ({
-          item,
-          provenance,
-          provenance_ref: seed.provenance_ref,
-          source_generation: sourceGeneration,
-          acquired_at: acquiredAt,
-          expires_at: acquiredAt + YOUTUBE_V2_CANDIDATE_TTL_MS,
-        }));
+    };
+
+    const queryPlan: AcquisitionSpec[] = [];
+    const topicSpec = (seed: YoutubeV2TopicSeed) => becauseYouWatchedQuerySpecs(seed.item)
+      .find((spec) => spec.relation_type !== 'same_channel' && !spec.channelId);
+    const exactSpec = (seed: YoutubeV2TopicSeed): BecauseYouWatchedQuerySpec | null => (
+      seed.item.channel_id ? {
+        query: '', relation_type: 'same_channel', channelId: seed.item.channel_id,
+        order: 'date', limit: 12, publishedAfterDays: 365, videoDuration: 'medium',
+      } : null
+    );
+    const primary = moreLikeSeeds[0];
+    const secondary = moreLikeSeeds[1];
+    if (primary && topicSpec(primary)) queryPlan.push({
+      lane: 'more_like', seed: primary, spec: topicSpec(primary)!, query_index: queryPlan.length,
     });
-    upsertYoutubeV2CandidateProvenance(candidates);
+    if (secondary && topicSpec(secondary)) queryPlan.push({
+      lane: 'more_like', seed: secondary, spec: topicSpec(secondary)!, query_index: queryPlan.length,
+    });
+    if (primary && exactSpec(primary)) queryPlan.push({
+      lane: 'more_like', seed: primary, spec: exactSpec(primary)!, query_index: queryPlan.length,
+    });
+    if (nightly && secondary && exactSpec(secondary)) queryPlan.push({
+      lane: 'more_like', seed: secondary, spec: exactSpec(secondary)!, query_index: queryPlan.length,
+    });
+
+    const viableBySeed = new Map<string, {
+      thematic: AcquiredCandidate[];
+      channel: AcquiredCandidate[];
+    }>();
+    const allCandidates: AcquiredCandidate[] = [];
+    let selectedMoreLike: YoutubeV2TopicSeed | null = null;
+    let selectedMode: 'thematic' | 'exact_channel' | 'not_applicable' = 'not_applicable';
+    const results: Array<Awaited<ReturnType<typeof execute>>> = [];
+    for (const entry of queryPlan.slice(0, budget.more_like)) {
+      const result = await execute(entry);
+      results.push(result);
+      const pools = viableBySeed.get(entry.seed.provenance_ref) ?? { thematic: [], channel: [] };
+      (entry.spec.channelId ? pools.channel : pools.thematic).push(...result.candidates);
+      viableBySeed.set(entry.seed.provenance_ref, pools);
+      if (pools.thematic.length >= YOUTUBE_RAIL_LIMIT) {
+        selectedMoreLike = entry.seed;
+        selectedMode = 'thematic';
+        allCandidates.push(...pools.thematic);
+        break;
+      }
+      if (pools.channel.length >= YOUTUBE_RAIL_LIMIT) {
+        selectedMoreLike = entry.seed;
+        selectedMode = 'exact_channel';
+        allCandidates.push(...pools.channel);
+        break;
+      }
+    }
+
+    const distinctBeyondSeeds = discoverySeeds.filter((seed) => (
+      seed.provenance_ref !== selectedMoreLike?.provenance_ref
+    ));
+    for (const seed of (distinctBeyondSeeds.length > 0 ? distinctBeyondSeeds : discoverySeeds)
+      .slice(0, budget.beyond)) {
+      const spec = topicSpec(seed);
+      if (!spec) continue;
+      const result = await execute({
+        lane: 'beyond', seed, spec, query_index: results.length,
+      });
+      results.push(result);
+      allCandidates.push(...result.candidates);
+    }
+    const acquiredAt = nowMs();
+    upsertYoutubeV2CandidateProvenance(allCandidates);
+    if (selectedMoreLike) {
+      setYoutubeState('youtube_v2_daily_topic_seed', {
+        day: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' })
+          .format(new Date(acquiredAt)),
+        kind: selectedMoreLike.kind,
+        provenance_ref: selectedMoreLike.provenance_ref,
+        item_id: selectedMoreLike.item.id,
+        source_generation: selectedMoreLike.source_generation,
+        selected_at: acquiredAt,
+      });
+    }
+    setYoutubeState('youtube_v2_more_like_status', {
+      status: selectedMode,
+      seed_ref: selectedMoreLike
+        ? createHash('sha256').update(selectedMoreLike.provenance_ref).digest('hex').slice(0, 16)
+        : null,
+      at: acquiredAt,
+    });
     const failed = results.filter((result) => result.error);
     setYoutubeState('youtube_v2_history_acquisition', {
-      queries_attempted: specs.length,
+      queries_attempted: results.length,
       query_budget: budget,
-      more_like_queries: specs.filter((entry) => entry.lane === 'more_like').length,
-      beyond_queries: specs.filter((entry) => entry.lane === 'beyond').length,
-      distinct_seed_refs: [...new Set(specs.map((entry) => entry.seed.provenance_ref))],
+      more_like_queries: results.filter((entry) => entry.entry.lane === 'more_like').length,
+      beyond_queries: results.filter((entry) => entry.entry.lane === 'beyond').length,
+      more_like_status: selectedMode,
+      funnels,
+      distinct_seed_refs: [...new Set(funnels.map((funnel) => funnel.seed_ref))],
       query_failures: failed.length,
-      candidates_acquired: candidates.length,
+      candidates_acquired: allCandidates.length,
       acquired_at: acquiredAt,
       expires_at: acquiredAt + YOUTUBE_V2_CANDIDATE_TTL_MS,
     });
-    if (specs.length > 0 && failed.length === specs.length) {
+    if (results.length > 0 && failed.length === results.length) {
       throw new Error(`YouTube v2 discovery acquisition failed: ${failed[0]?.error || 'all queries failed'}`);
     }
   }

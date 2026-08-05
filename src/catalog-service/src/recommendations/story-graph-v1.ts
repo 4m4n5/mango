@@ -191,11 +191,15 @@ export type StoryGraphRankInput = {
    * must never change the verified-corpus likelihood denominator.
    */
   background_ids?: StoryGraphContentId[];
+  /** Persisted immutable priors for the captured content-profile generation. */
+  background?: StoryGraphBackground;
   /** Omit to score the entire document corpus. */
   candidate_ids?: StoryGraphContentId[];
   explicit_ratings: StoryGraphExplicitRating[];
   implicit_signals?: StoryGraphImplicitSignal[];
   as_of: number;
+  /** Service-only page hook; never sent to the worker. */
+  on_page?: (cursor: number, total: number) => void | Promise<void>;
 };
 
 export type StoryDealerCacheItem = {
@@ -1300,6 +1304,18 @@ export function buildStoryTasteModel(input: {
   as_of: number;
 }): StoryTasteModel {
   const background = buildStoryGraphBackground(input.background_documents ?? input.documents);
+  return buildStoryTasteModelWithBackground({ ...input, background });
+}
+
+/** Fit household threads against already-persisted immutable corpus priors. */
+export function buildStoryTasteModelWithBackground(input: {
+  documents: StoryGraphTitle[];
+  background: StoryGraphBackground;
+  explicit_ratings: StoryGraphExplicitRating[];
+  implicit_signals?: StoryGraphImplicitSignal[];
+  as_of: number;
+}): StoryTasteModel {
+  const { background } = input;
   const built = buildAnchors({
     documents: input.documents,
     explicit_ratings: input.explicit_ratings,
@@ -1362,7 +1378,7 @@ export function buildStoryTasteModel(input: {
   };
 }
 
-function scoredRecommendationCompare(
+export function scoredRecommendationCompare(
   left: StoryGraphScoredRecommendation,
   right: StoryGraphScoredRecommendation,
 ): number {
@@ -1635,13 +1651,15 @@ export function rankStoryGraphRecommendations(input: StoryGraphRankInput): Story
     if (!title) throw new Error(`StoryDNA background has no document: ${identity}`);
     return title;
   });
-  const model = buildStoryTasteModel({
+  const modelInput = {
     documents: [...documents.values()],
-    background_documents: backgroundDocuments,
     explicit_ratings: input.explicit_ratings,
     implicit_signals: input.implicit_signals ?? [],
     as_of: input.as_of,
-  });
+  };
+  const model = input.background
+    ? buildStoryTasteModelWithBackground({ ...modelInput, background: input.background })
+    : buildStoryTasteModel({ ...modelInput, background_documents: backgroundDocuments });
   const candidateIds = input.candidate_ids ?? [...documents.keys()];
   const candidateSeen = new Set<StoryGraphContentId>();
   const candidates = candidateIds.map((identity) => {

@@ -48,7 +48,7 @@ test('recommendation refresh jobs preserve captured revisions and lifecycle', ()
   assert.deepEqual(stored?.captured_revisions, { taste: 'abc', corpus: 42 });
 }));
 
-test('restart reconciliation closes only interrupted jobs and terminal jobs stay terminal', () => withLibrary(() => {
+test('restart reconciliation requeues interrupted work and terminal jobs stay terminal', () => withLibrary(() => {
   const queued = createRecommendationRefreshJob({
     domain: 'vod', content_type: 'movie', trigger_reasons: ['startup'], captured_revisions: {}, queued_at: 1,
   });
@@ -60,11 +60,13 @@ test('restart reconciliation closes only interrupted jobs and terminal jobs stay
   });
   updateRecommendationRefreshJobs([running.job_id], 'running', undefined, 4);
   updateRecommendationRefreshJobs([complete.job_id], 'complete', undefined, 5);
-  assert.equal(reconcileInterruptedRecommendationRefreshJobs(6), 2);
+  assert.equal(reconcileInterruptedRecommendationRefreshJobs(6), 1);
   assert.equal(updateRecommendationRefreshJobs([complete.job_id], 'failed', 'late', 7), 0);
   const byId = new Map(listRecommendationRefreshJobs(10).map((job) => [job.job_id, job]));
-  assert.equal(byId.get(queued.job_id)?.status, 'failed');
-  assert.equal(byId.get(running.job_id)?.status, 'failed');
+  assert.equal(byId.get(queued.job_id)?.status, 'queued');
+  assert.equal(byId.get(running.job_id)?.status, 'queued');
+  assert.equal(byId.get(running.job_id)?.resume_count, 1);
+  assert.equal(byId.get(running.job_id)?.error_code, 'restart_resume');
   assert.equal(byId.get(complete.job_id)?.status, 'complete');
 }));
 

@@ -543,6 +543,30 @@ test('v2 off-thread ranking is byte-for-byte equal to the pure ranker', async ()
   );
 });
 
+test('off-thread scorer checkpoints bounded pages without changing rank output', async () => {
+  const previous = process.env.MANGO_VOD_RANK_PAGE_SIZE;
+  process.env.MANGO_VOD_RANK_PAGE_SIZE = '32';
+  const cursors: Array<[number, number]> = [];
+  const input: StoryGraphRankInput = {
+    algorithm: VOD_STORY_GRAPH_MODEL_VERSION,
+    documents: Array.from({ length: 97 }, (_, index) => storyTitle(
+      `paged-${String(index).padStart(3, '0')}`,
+      (['action', 'water', 'comedy'] as const)[index % 3]!,
+    )),
+    explicit_ratings: [rating('paged-000', 5, 0), rating('paged-003', 5, 0)],
+    as_of: NOW,
+    on_page: (cursor, total) => { cursors.push([cursor, total]); },
+  };
+  try {
+    const offThread = await rankStoryGraphRecommendationsOffThread(input);
+    assert.deepEqual(offThread, rankStoryGraphRecommendations({ ...input, on_page: undefined }));
+    assert.deepEqual(cursors, [[32, 97], [64, 97], [96, 97], [97, 97]]);
+  } finally {
+    if (previous === undefined) delete process.env.MANGO_VOD_RANK_PAGE_SIZE;
+    else process.env.MANGO_VOD_RANK_PAGE_SIZE = previous;
+  }
+});
+
 test('candidate confidence shrink increases uncertainty and lowers risk-adjusted rank', () => {
   const high = storyTitle('candidate-high', 'action', { confidence: 1 });
   const low = storyTitle('candidate-low', 'action', { confidence: 0.1 });

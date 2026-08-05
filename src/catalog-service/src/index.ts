@@ -100,6 +100,7 @@ import {
   recommendationRefreshJobById,
   reconcileInterruptedRecommendationRefreshJobs,
   updateRecommendationRefreshJobs,
+  updateRecommendationRefreshJobRuntime,
   type RecommendationRefreshJob,
 } from './recommendations/jobs.js';
 import {
@@ -113,6 +114,8 @@ import {
   setStoryDnaStructuredLookupProvider,
   setStoryGraphLowWaterEnqueueHook,
 } from './recommendations/story-graph-service.js';
+import { readFreshRecommendationMaintenanceLease } from './recommendations/maintenance.js';
+import { CouchPreemptedRecommendationRefreshError } from './recommendations/maintenance.js';
 import { enrichStoryDnaInputsWithTmdb } from './recommendations/tmdb-metadata.js';
 import { previewStoryEvidence } from './playability/list-source.js';
 import { searchCachedYoutubeItems } from './youtube/db.js';
@@ -1404,6 +1407,9 @@ async function main(): Promise<void> {
     `${profileId}\u0000${tab}`
   );
   const createRecommendationRefreshQueue = (ownedTab: 'movies' | 'series') => new CoalescingRecommendationRefreshQueue({
+    shouldRetry: (error, failedAttempts, maxRetries) => (
+      !(error instanceof CouchPreemptedRecommendationRefreshError) && failedAttempts <= maxRetries
+    ),
     refresh: async ({ profile_id: profileId, tab }) => {
       if (tab !== ownedTab) throw new Error(`recommendation worker ${ownedTab} received ${tab}`);
       const key = recommendationWorkKey(profileId, tab);
@@ -1419,6 +1425,7 @@ async function main(): Promise<void> {
       const result = await refreshForYou(tab, {
         profile_id: profileId,
         trigger_reasons: activeRecommendationReasons.get(key) ?? ['refresh'],
+        job_ids: jobIds,
       });
       if (jobIds.length > 0) {
         updateRecommendationRefreshJobs(jobIds.slice(0, 1), 'complete');
@@ -1430,6 +1437,32 @@ async function main(): Promise<void> {
     },
     onPublished: (work) => core.invalidateRecommendationTab(work.tab),
     onRetainedLastGood: (work, error, willRetry) => {
+      if (error instanceof CouchPreemptedRecommendationRefreshError) {
+        const key = recommendationWorkKey(work.profile_id, work.tab);
+        const jobIds = activeRecommendationJobs.get(key) ?? [];
+        updateRecommendationRefreshJobs(jobIds, 'coalesced', error);
+        activeRecommendationJobs.delete(key);
+        activeRecommendationReasons.delete(key);
+        const delay = Math.max(10_000, Math.min(
+          10 * 60_000,
+          Number.parseInt(process.env.MANGO_RECOMMENDATION_COUCH_RETRY_MS ?? '', 10) || 60_000,
+        ));
+        const timer = setTimeout(() => {
+          void queueRecommendationRefresh(
+            [work.tab],
+            work.profile_id,
+            ['couch_preempted_resume'],
+          ).then((successors) => {
+            updateRecommendationRefreshJobRuntime(jobIds, {
+              successor_job_id: successors[0]?.job_id ?? null,
+              error_code: 'couch_preempted',
+            });
+          });
+        }, delay);
+        timer.unref?.();
+        console.warn(`recommendation refresh yielded ${work.tab} to couch activity; successor queued after idle delay`);
+        return;
+      }
       if (!willRetry) {
         const key = recommendationWorkKey(work.profile_id, work.tab);
         updateRecommendationRefreshJobs(activeRecommendationJobs.get(key) ?? [], 'failed', error);
@@ -3167,6 +3200,19 @@ async function main(): Promise<void> {
           throw new CatalogError(403, 'companion context is available through HTTPS only');
         }
         sendJson(res, 200, await buildAiContextResponse());
+        return;
+      }
+
+      if (req.method === 'GET' && parts.length === 2
+        && parts[0] === 'health' && parts[1] === 'live') {
+        sendJson(res, 200, {
+          ok: true,
+          process: 'live',
+          pid: process.pid,
+          uptime_seconds: Math.floor(process.uptime()),
+          maintenance: readFreshRecommendationMaintenanceLease(),
+          checked_at: Date.now(),
+        });
         return;
       }
 

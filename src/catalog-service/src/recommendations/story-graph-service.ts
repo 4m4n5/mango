@@ -36,13 +36,15 @@ import {
 } from './story-dna.js';
 import {
   VOD_STORY_GRAPH_MODEL_VERSION,
-  buildStoryTasteModel,
+  buildStoryGraphBackground,
+  buildStoryTasteModelWithBackground,
   dealStoryRecommendations,
   positiveRatingEvidence,
   scoreStoryGraphCandidate,
   storyHolisticAffinity,
   type StoryDealerCache,
   type StoryGraphContentId,
+  type StoryGraphBackground,
   type StoryGraphExplicitRating,
   type StoryGraphImplicitSignal,
   type StoryGraphRankInput,
@@ -71,6 +73,13 @@ import {
   type StoryDnaFrontierCandidate,
 } from './story-dna-frontier.js';
 import { tmdbMetadataStatus } from './tmdb-metadata.js';
+import {
+  acquireRecommendationMaintenanceLease,
+  CouchPreemptedRecommendationRefreshError,
+  recommendationMemorySnapshot,
+  type RecommendationMemorySnapshot,
+} from './maintenance.js';
+import { updateRecommendationRefreshJobRuntime } from './jobs.js';
 import {
   buildStoryFrontierCalibration,
   storyFrontierBandFor,
@@ -380,6 +389,8 @@ export type StoryGraphRefreshOptions = {
   priority_base_rank_generation_id?: number;
   /** Complete generation whose serving decision authorizes the priority swap. */
   priority_authorization_rank_generation_id?: number;
+  /** Durable refresh jobs receiving additive phase/resource diagnostics. */
+  job_ids?: readonly string[];
 };
 
 type PersistedRankRow = {
@@ -768,6 +779,53 @@ WHERE docs.content_type = ?
   return output;
 }
 
+function reusableProgressiveGeneration(input: {
+  type: RatingContentType;
+  corpusGeneration: number;
+  semanticRevision: string;
+}): { generation_id: number; reference_revision: string; profiles: Map<StoryGraphContentId, ContentProfileV2> } | null {
+  const db = libraryDatabase();
+  const generation = db.prepare(`
+SELECT generation_id, reference_revision
+FROM vod_story_dna_generations
+WHERE content_type = ? AND corpus_generation = ? AND semantic_revision = ?
+  AND profile_version = ? AND compiler_version = ? AND ontology_version = ?
+  AND status = 'complete'
+ORDER BY generation_id DESC LIMIT 1
+`).get(
+    input.type,
+    input.corpusGeneration,
+    input.semanticRevision,
+    VOD_CONTENT_PROFILE_VERSION,
+    VOD_CONTENT_PROFILE_COMPILER_VERSION,
+    STORY_DNA_ONTOLOGY_VERSION,
+  ) as { generation_id: number; reference_revision: string | null } | undefined;
+  if (!generation?.reference_revision) return null;
+  const rows = db.prepare(`
+SELECT content_id, profile_json FROM vod_story_dna_documents
+WHERE generation_id = ? AND content_type = ? AND profile_json IS NOT NULL
+ORDER BY content_id
+`).all(generation.generation_id, input.type) as Array<{
+    content_id: string;
+    profile_json: string;
+  }>;
+  const profiles = new Map<StoryGraphContentId, ContentProfileV2>();
+  for (const row of rows) {
+    try {
+      const profile = JSON.parse(row.profile_json) as ContentProfileV2;
+      if (profile.profile_version === VOD_CONTENT_PROFILE_VERSION
+        && profile.type === input.type && profile.id === row.content_id) {
+        profiles.set(contentKey(input.type, row.content_id), profile);
+      }
+    } catch {
+      return null;
+    }
+  }
+  return profiles.size === rows.length && rows.length > 0
+    ? { generation_id: generation.generation_id, reference_revision: generation.reference_revision, profiles }
+    : null;
+}
+
 function compatibleProgressiveStoryDnaOverlays(
   type: RatingContentType,
   inputByKey: Map<StoryGraphContentId, StoryDnaInput>,
@@ -1059,16 +1117,6 @@ function selectProgressiveFrontierCandidates(input: {
         add(key, 'reserve_boundary', 600 + Math.round(upperError * 100));
       }
     }
-    for (const item of rows.slice(48)) {
-      const profile = input.profiles.get(contentKey(item.type, item.id));
-      const residuals = progressiveAcquisitionResiduals(profile, item, input.calibration);
-      const lowerError = Math.min(0, residuals.lower);
-      const upperError = Math.max(0, residuals.upper);
-      if (item.rank_score + lowerError <= boundary
-        && item.rank_score + upperError >= boundary) {
-        add(contentKey(item.type, item.id), 'fit_floor_uncertainty', 500);
-      }
-    }
   }
   const audit = [...input.profiles.entries()]
     .filter(([key, profile]) => !input.overlays.has(key) && profile.profile_state !== 'unrankable')
@@ -1093,8 +1141,26 @@ function persistProgressiveProfileGeneration(input: {
   overlays: Map<StoryGraphContentId, StoryDnaDocument>;
   evidenceRevision: string;
   now: number;
+  checkpoint?: (phase: string, cursor: string) => void;
 }): number {
   const db = libraryDatabase();
+  const reusable = db.prepare(`
+SELECT generation_id, status
+FROM vod_story_dna_generations
+WHERE content_type = ? AND corpus_generation = ? AND evidence_revision = ?
+  AND semantic_revision = ? AND profile_version = ? AND compiler_version = ?
+  AND ontology_version = ? AND status IN ('complete', 'building')
+ORDER BY generation_id DESC LIMIT 1
+`).get(
+    input.type,
+    input.corpusGeneration,
+    input.evidenceRevision,
+    input.semanticRevision,
+    VOD_CONTENT_PROFILE_VERSION,
+    VOD_CONTENT_PROFILE_COMPILER_VERSION,
+    STORY_DNA_ONTOLOGY_VERSION,
+  ) as { generation_id: number; status: 'complete' | 'building' } | undefined;
+  if (reusable?.status === 'complete') return reusable.generation_id;
   const teacherContracts = [...new Set([...input.overlays.values()].map((document) => (
     `${document.model_version}:${document.prompt_version}:${document.schema_version}`
   )))].sort();
@@ -1106,7 +1172,7 @@ function persistProgressiveProfileGeneration(input: {
   const unknownFamilies = verifiedProfiles.reduce((sum, [, profile]) => (
     sum + Object.values(profile.family_coverage).filter((family) => family.state === 'unknown').length
   ), 0);
-  const generation = db.prepare(`
+  const generation = reusable ?? db.prepare(`
 INSERT INTO vod_story_dna_generations(
   content_type, schema_version, ontology_version, prompt_version, model_version,
   corpus_generation, evidence_revision, status, verified_count, complete_count,
@@ -1136,9 +1202,9 @@ RETURNING generation_id
     partial,
     unknownFamilies,
     JSON.stringify(teacherContracts),
-  ) as { generation_id: number };
+  ) as { generation_id: number; status?: string };
   const insertDocument = db.prepare(`
-INSERT INTO vod_story_dna_documents(
+INSERT OR REPLACE INTO vod_story_dna_documents(
   generation_id, content_type, content_id, title, evidence_json, evidence_hash,
   story_dna_json, family_confidence_json, stable_external_ids_json, lookup_used,
   status, failure_reason, retry_count, next_retry_at, created_at, updated_at,
@@ -1147,7 +1213,7 @@ INSERT INTO vod_story_dna_documents(
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?, 0, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
   const insertEdge = db.prepare(`
-INSERT INTO vod_content_profile_edges(
+INSERT OR REPLACE INTO vod_content_profile_edges(
   generation_id, content_type, content_id, node_key, family, intensity,
   confidence, edge_source, producer_version, dependency_hash
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1177,7 +1243,13 @@ INSERT OR IGNORE INTO vod_story_dna_overlays(
         input.now,
       );
     }
-    for (const [key, profile] of [...input.profiles.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+  })();
+  const orderedProfiles = [...input.profiles.entries()]
+    .sort(([left], [right]) => left.localeCompare(right));
+  const pageSize = boundedInteger(process.env.MANGO_VOD_PROFILE_PAGE_SIZE, 128, 32, 256);
+  for (let offset = 0; offset < orderedProfiles.length; offset += pageSize) {
+    db.transaction(() => {
+      for (const [key, profile] of orderedProfiles.slice(offset, offset + pageSize)) {
       const storyInput = input.inputByKey.get(key);
       if (!storyInput) continue;
       const overlay = input.overlays.get(key);
@@ -1222,7 +1294,14 @@ INSERT OR IGNORE INTO vod_story_dna_overlays(
           profile.semantic_evidence_hash,
         );
       }
-    }
+      }
+    })();
+    input.checkpoint?.(
+      'content_profiles',
+      `${Math.min(offset + pageSize, orderedProfiles.length)}/${orderedProfiles.length}`,
+    );
+  }
+  db.transaction(() => {
     const count = db.prepare(`
 SELECT COUNT(*) AS count FROM vod_story_dna_documents WHERE generation_id = ?
 `).get(generation.generation_id) as { count: number };
@@ -1236,6 +1315,56 @@ WHERE generation_id = ? AND status = 'building'
 `).run(input.now, generation.generation_id);
   })();
   return generation.generation_id;
+}
+
+function persistedStoryGraphBackground(input: {
+  storyGenerationId: number;
+  type: RatingContentType;
+  documents: StoryGraphTitle[];
+  now: number;
+}): StoryGraphBackground {
+  const db = libraryDatabase();
+  const existing = db.prepare(`
+SELECT background_json, background_hash, document_count
+FROM vod_story_graph_backgrounds WHERE story_generation_id = ?
+`).get(input.storyGenerationId) as {
+    background_json: string;
+    background_hash: string;
+    document_count: number;
+  } | undefined;
+  if (existing) {
+    try {
+      const background = JSON.parse(existing.background_json) as StoryGraphBackground;
+      if (background.document_count === existing.document_count
+        && sha256(background) === existing.background_hash) return background;
+    } catch {
+      // Rebuild a corrupt derived artifact without touching source profiles.
+    }
+  }
+  const background = buildStoryGraphBackground(input.documents);
+  const serialized = stableStoryDnaJson(background);
+  db.prepare(`
+INSERT INTO vod_story_graph_backgrounds(
+  story_generation_id, content_type, profile_version, compiler_version,
+  ontology_version, document_count, background_json, background_hash, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(story_generation_id) DO UPDATE SET
+  document_count = excluded.document_count,
+  background_json = excluded.background_json,
+  background_hash = excluded.background_hash,
+  created_at = excluded.created_at
+`).run(
+    input.storyGenerationId,
+    input.type,
+    VOD_CONTENT_PROFILE_VERSION,
+    VOD_CONTENT_PROFILE_COMPILER_VERSION,
+    STORY_DNA_ONTOLOGY_VERSION,
+    background.document_count,
+    serialized,
+    sha256(background),
+    input.now,
+  );
+  return background;
 }
 
 type PriorAnchorEvidence = {
@@ -1364,12 +1493,11 @@ ORDER BY docs.generation_id DESC LIMIT 1
 }
 
 export function reconcileInterruptedStoryDnaGenerations(now = Date.now()): number {
-  const result = libraryDatabase().prepare(`
-UPDATE vod_story_dna_generations
-SET status = 'failed', completed_at = ?, last_error = 'interrupted_before_atomic_completion'
-WHERE status = 'building'
-`).run(now);
-  return result.changes;
+  void now;
+  const row = libraryDatabase().prepare(`
+SELECT COUNT(*) AS count FROM vod_story_dna_generations WHERE status = 'building'
+`).get() as { count: number };
+  return row.count;
 }
 
 function persistTasteGeneration(input: {
@@ -1757,6 +1885,7 @@ export function storyGraphServingNdcgAt6(
 export function evaluateStoryGraphOffline(input: {
   rankGenerationId: number;
   documents: StoryGraphTitle[];
+  background: StoryGraphBackground;
   background_ids?: StoryGraphContentId[];
   inputByKey: Map<StoryGraphContentId, StoryDnaInput>;
   ratings: FireWaterRating[];
@@ -1768,17 +1897,45 @@ export function evaluateStoryGraphOffline(input: {
   now: number;
 }): StoryGraphOfflineEvaluation {
   void input.inputByKey;
-  const documentByKey = new Map(input.documents.map((title) => [
-    contentKey(title.type, title.id), title,
-  ]));
+  const ratingKeys = new Set(input.ratings.map((rating) => contentKey(rating.type, rating.id)));
+  const documentByKey = new Map(input.documents.flatMap((title) => {
+    const key = contentKey(title.type, title.id);
+    return ratingKeys.has(key) ? [[key, title] as const] : [];
+  }));
   const eligibleRatings = input.ratings.filter((rating) => (
     documentByKey.has(contentKey(rating.type, rating.id))
   ));
+  const accounting = input.accountedCount === input.verifiedCount;
+  const coverage = input.verifiedCount > 0 ? input.reserveDepth / input.verifiedCount : 1;
+  if (eligibleRatings.length < 15) {
+    const reasons = ['insufficient_stratified_ratings', 'ndcg_unavailable'];
+    if (!accounting) reasons.push('verified_corpus_accounting_incomplete');
+    if (input.cachedServiceP95Ms === null || input.cachedServiceP95Ms === undefined) {
+      reasons.push('cached_service_p95_unmeasured');
+    } else if (input.cachedServiceP95Ms > 250) {
+      reasons.push('cached_service_p95_above_250ms');
+    }
+    return {
+      version: 'vod-story-frontier-evaluation-v1',
+      rank_generation_id: input.rankGenerationId,
+      status: 'insufficient',
+      samples: eligibleRatings.length,
+      folds: 0,
+      holistic_ndcg_at_6: null,
+      fire_pairwise_concordance_ge_4: null,
+      water_pairwise_concordance_ge_4: null,
+      low_low_top_6_intrusion_rate: null,
+      verified_accounting_complete: accounting,
+      coverage,
+      deterministic: true,
+      worker_latency_ms: input.workerLatencyMs,
+      cached_service_p95_ms: input.cachedServiceP95Ms ?? null,
+      promotion_eligible: false,
+      reasons,
+      evaluated_at: input.now,
+    };
+  }
   const foldByKey = stableStoryGraphEvaluationFolds(eligibleRatings);
-  const backgroundIds = new Set(input.background_ids ?? [...documentByKey.keys()]);
-  const backgroundDocuments = input.documents.filter((document) => (
-    backgroundIds.has(contentKey(document.type, document.id))
-  ));
   const foldNdcg: number[] = [];
   let deterministic = true;
   const predictions: Array<{
@@ -1798,13 +1955,13 @@ export function evaluateStoryGraphOffline(input: {
     if (training.length === 0 || heldOut.length === 0) continue;
     const modelInput = {
       documents: input.documents,
-      background_documents: backgroundDocuments,
+      background: input.background,
       explicit_ratings: training,
       implicit_signals: [],
       as_of: input.now,
     };
-    const model = buildStoryTasteModel(modelInput);
-    const replay = buildStoryTasteModel(modelInput);
+    const model = buildStoryTasteModelWithBackground(modelInput);
+    const replay = buildStoryTasteModelWithBackground(modelInput);
     deterministic = deterministic && stableStoryDnaJson(model) === stableStoryDnaJson(replay);
     const rows: Array<{ relevance: number; score: number }> = [];
     for (const rating of heldOut) {
@@ -1851,8 +2008,6 @@ export function evaluateStoryGraphOffline(input: {
   }));
   const fireConcordance = concordance('fire');
   const waterConcordance = concordance('water');
-  const accounting = input.accountedCount === input.verifiedCount;
-  const coverage = input.verifiedCount > 0 ? input.reserveDepth / input.verifiedCount : 1;
   const reasons: string[] = [];
   if (eligibleRatings.length < 15 || foldNdcg.length < 5) reasons.push('insufficient_stratified_ratings');
   if (ndcg === null) reasons.push('ndcg_unavailable');
@@ -2106,6 +2261,49 @@ async function refreshStoryGraphForYouUnserialized(
   const now = options.now ?? Date.now();
   const type = contentTypeForTab(tab);
   const dependencies = options.dependencies ?? {};
+  const phaseMetrics: Record<string, RecommendationMemorySnapshot> = {};
+  const lease = options.dependencies === undefined
+    ? acquireRecommendationMaintenanceLease({
+      owner: `vod:${tab}`,
+      now,
+      ignoreCouch: process.env.MANGO_RECOMMENDATION_IGNORE_COUCH_ACTIVITY === '1',
+    })
+    : null;
+  const checkpoint = (phase: string, cursor: string | null = null): void => {
+    const snapshot = lease?.checkpoint(phase, cursor) ?? recommendationMemorySnapshot();
+    phaseMetrics[`${phase}:${cursor ?? ''}`] = snapshot;
+    const previousPeak = phaseMetrics.peak;
+    phaseMetrics.peak = previousPeak ? {
+      rss: Math.max(previousPeak.rss, snapshot.rss),
+      heap_used: Math.max(previousPeak.heap_used, snapshot.heap_used),
+      heap_total: Math.max(previousPeak.heap_total, snapshot.heap_total),
+      external: Math.max(previousPeak.external, snapshot.external),
+      array_buffers: Math.max(previousPeak.array_buffers, snapshot.array_buffers),
+      captured_at: snapshot.captured_at,
+    } : snapshot;
+    updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+      phase,
+      phase_cursor: cursor,
+      heartbeat_at: snapshot.captured_at,
+      deadline_at: lease?.deadline_at ?? null,
+      checkpoint: { phase, cursor },
+      resource_metrics: phaseMetrics,
+    });
+  };
+  const heartbeatTimer = lease ? setInterval(() => {
+    try {
+      checkpoint('heartbeat');
+    } catch (error) {
+      updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+        error_code: error instanceof CouchPreemptedRecommendationRefreshError
+          ? error.code
+          : 'heartbeat_failed',
+      });
+    }
+  }, 10_000) : null;
+  heartbeatTimer?.unref?.();
+  checkpoint('scan', '0');
+  try {
   reconcileInterruptedStoryDnaGenerations(now);
   const listPage = dependencies.listPage ?? listVerifiedRecommendationCatalogPage;
   const currentCorpusGeneration = dependencies.corpusGeneration ?? playabilityRecommendationCorpusGeneration;
@@ -2113,6 +2311,13 @@ async function refreshStoryGraphForYouUnserialized(
     ?? playabilityRecommendationSemanticGeneration;
   const rank = dependencies.rank ?? rankStoryGraphRecommendationsOffThread;
   const scan = await scanVerifiedCorpus(type, listPage);
+  checkpoint('scan', `${scan.verifiedCount}/${scan.verifiedCount}`);
+  const capturedSemanticGeneration = await currentSemanticGeneration();
+  const reusableContent = reusableProgressiveGeneration({
+    type,
+    corpusGeneration: scan.generation,
+    semanticRevision: String(capturedSemanticGeneration),
+  });
   const ratings = listRatings(type, 'household');
   const signals = readHouseholdSignals(type);
   const capturedTasteRevision = tasteRevision(type, ratings, signals, now);
@@ -2155,15 +2360,23 @@ async function refreshStoryGraphForYouUnserialized(
     const document = validatedDocumentForInput(raw, storyInput, null);
     if (document) documents.set(key, document);
   }
-  const priorProfiles = latestProgressiveProfiles(type);
-  const profiles = new Map<StoryGraphContentId, ContentProfileV2>();
-  for (const [key, storyInput] of inputByKey) {
-    profiles.set(key, compileContentProfileV2(storyInput, {
-      teacher_document: documents.get(key) ?? null,
-      prior_profile: priorProfiles.get(key) ?? null,
-    }));
+  const profiles = reusableContent?.profiles ?? new Map<StoryGraphContentId, ContentProfileV2>();
+  if (!reusableContent) {
+    const priorProfiles = latestProgressiveProfiles(type);
+    const entries = [...inputByKey.entries()].sort(([left], [right]) => left.localeCompare(right));
+    const compilePageSize = boundedInteger(process.env.MANGO_VOD_PROFILE_PAGE_SIZE, 128, 32, 256);
+    for (let offset = 0; offset < entries.length; offset += compilePageSize) {
+      for (const [key, storyInput] of entries.slice(offset, offset + compilePageSize)) {
+        profiles.set(key, compileContentProfileV2(storyInput, {
+          teacher_document: documents.get(key) ?? null,
+          prior_profile: priorProfiles.get(key) ?? null,
+        }));
+      }
+      checkpoint('compile_profiles', `${Math.min(offset + compilePageSize, entries.length)}/${entries.length}`);
+    }
   }
-  const semanticGeneration = await (dependencies.recordSemanticEvidence ?? recordRecommendationSemanticEvidence)(
+  const semanticGeneration = reusableContent ? capturedSemanticGeneration
+    : await (dependencies.recordSemanticEvidence ?? recordRecommendationSemanticEvidence)(
     scan.rows.flatMap((row) => {
       const profile = profiles.get(contentKey(row.type, row.id));
       return profile ? [{
@@ -2173,7 +2386,8 @@ async function refreshStoryGraphForYouUnserialized(
       }] : [];
     }),
   );
-  const referenceRevision = ensureSemanticReferencePanel({ type, profiles, overlays: documents, now });
+  const referenceRevision = reusableContent?.reference_revision
+    ?? ensureSemanticReferencePanel({ type, profiles, overlays: documents, now });
   const evidenceRevision = sha256({
     profile_version: VOD_CONTENT_PROFILE_VERSION,
     compiler_version: VOD_CONTENT_PROFILE_COMPILER_VERSION,
@@ -2181,7 +2395,7 @@ async function refreshStoryGraphForYouUnserialized(
     reference_revision: referenceRevision,
     profiles: [...profiles].map(([key, profile]) => ({ key, hash: profile.profile_hash })),
   });
-  const storyGenerationId = persistProgressiveProfileGeneration({
+  const storyGenerationId = reusableContent?.generation_id ?? persistProgressiveProfileGeneration({
     type,
     corpusGeneration: scan.generation,
     semanticRevision: String(semanticGeneration),
@@ -2193,13 +2407,21 @@ async function refreshStoryGraphForYouUnserialized(
     overlays: documents,
     evidenceRevision,
     now,
+    checkpoint,
   });
+  updateRecommendationRefreshJobRuntime(options.job_ids ?? [], { story_generation_id: storyGenerationId });
   const titles = [...profiles.values()].map(contentProfileStoryGraphTitle);
   const candidateIds = scan.rows.flatMap((row) => {
     const key = contentKey(row.type, row.id);
     return profiles.has(key) ? [key] : [];
   });
   const candidateIdSet = new Set(candidateIds);
+  const background = persistedStoryGraphBackground({
+    storyGenerationId,
+    type,
+    documents: titles.filter((title) => candidateIdSet.has(contentKey(title.type, title.id))),
+    now,
+  });
   const priorityPhase = options.rank_candidate_ids !== undefined;
   const rankCandidateIds = options.rank_candidate_ids === undefined
     ? candidateIds
@@ -2212,12 +2434,14 @@ async function refreshStoryGraphForYouUnserialized(
       algorithm: VOD_STORY_GRAPH_MODEL_VERSION,
       documents: titles,
       background_ids: candidateIds,
+      background,
       candidate_ids: rankCandidateIds,
       explicit_ratings: ratings.map((rating): StoryGraphExplicitRating => ({
         type: rating.type, id: rating.id, fire: rating.fire, water: rating.water,
       })),
       implicit_signals: signals.implicit,
       as_of: now,
+      on_page: async (cursor, total) => checkpoint('rank', `${cursor}/${total}`),
     });
   } catch (error) {
     // StoryDNA already published successfully. A rank-worker failure belongs
@@ -2241,6 +2465,7 @@ async function refreshStoryGraphForYouUnserialized(
     rank: ranked,
     now,
   });
+  updateRecommendationRefreshJobRuntime(options.job_ids ?? [], { taste_generation_id: tasteGenerationId });
   const db = libraryDatabase();
   const rankGeneration = db.prepare(`
 INSERT INTO vod_rank_generations(
@@ -2262,6 +2487,9 @@ RETURNING rank_generation_id
     scan.verifiedCount,
     now,
   ) as { rank_generation_id: number };
+  updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+    rank_generation_id: rankGeneration.rank_generation_id,
+  });
   const scoreByKey = rankScoreByKey(ranked);
   const rankPositionByKey = new Map(ranked.ranked.map((item, index) => [
     contentKey(item.type, item.id), index + 1,
@@ -2278,8 +2506,10 @@ INSERT INTO vod_rank_items(
 `);
   let eligibleCount = 0;
   let excludedCount = 0;
-  db.transaction(() => {
-    for (const row of scan.rows) {
+  const rankPageSize = boundedInteger(process.env.MANGO_VOD_RANK_PAGE_SIZE, 128, 32, 256);
+  for (let offset = 0; offset < scan.rows.length; offset += rankPageSize) {
+    db.transaction(() => {
+      for (const row of scan.rows.slice(offset, offset + rankPageSize)) {
       const key = contentKey(row.type, row.id);
       if (priorityPhase && !rankCandidateIdSet.has(key)) continue;
       const score = scoreByKey.get(key);
@@ -2322,8 +2552,16 @@ INSERT INTO vod_rank_items(
         score && acquisitionResiduals ? score.rank_score + acquisitionResiduals.upper : null,
         profile?.profile_hash ?? null,
       );
-    }
-  })();
+      }
+      db.prepare(`
+UPDATE vod_rank_generations SET cursor = ? WHERE rank_generation_id = ? AND status = 'building'
+`).run(
+        `${Math.min(offset + rankPageSize, scan.rows.length)}/${scan.rows.length}`,
+        rankGeneration.rank_generation_id,
+      );
+    })();
+    checkpoint('persist_rank', `${Math.min(offset + rankPageSize, scan.rows.length)}/${scan.rows.length}`);
+  }
   const accountedCount = eligibleCount + excludedCount;
   const unscoredCount = Math.max(0, scan.verifiedCount - accountedCount);
   const accountingCoverage = scan.verifiedCount > 0 ? accountedCount / scan.verifiedCount : 1;
@@ -2469,6 +2707,7 @@ WHERE generation_id = ?
     : (dependencies.evaluate ?? evaluateStoryGraphOffline)({
       rankGenerationId: rankGeneration.rank_generation_id,
       documents: titles,
+      background,
       background_ids: candidateIds,
       inputByKey,
       ratings,
@@ -2542,6 +2781,7 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = ?
     ranked,
     calibration,
   }), now);
+  checkpoint('complete', String(rankGeneration.rank_generation_id));
   return {
     tab,
     story_generation_id: storyGenerationId,
@@ -2564,12 +2804,23 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = ?
     activated,
     evaluation,
   };
+  } catch (error) {
+    updateRecommendationRefreshJobRuntime(options.job_ids ?? [], {
+      error_code: error instanceof CouchPreemptedRecommendationRefreshError
+        ? error.code
+        : error instanceof Error && 'code' in error && typeof error.code === 'string'
+          ? error.code
+          : 'refresh_failed',
+      resource_metrics: phaseMetrics,
+    });
+    throw error;
+  } finally {
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    lease?.release();
+  }
 }
 
-const storyGraphRefreshTails: Record<StoryGraphTab, Promise<void>> = {
-  movies: Promise.resolve(),
-  series: Promise.resolve(),
-};
+let storyGraphRefreshTail: Promise<void> = Promise.resolve();
 let storyDnaFrontierTimer: ReturnType<typeof setTimeout> | null = null;
 
 const TASTE_MUTATION_TRIGGER_REASONS = new Set([
@@ -2669,15 +2920,15 @@ function scheduleStoryDnaFrontierWorker(): void {
   storyDnaFrontierTimer.unref?.();
 }
 
-/** Per-media serialization prevents Movies and Series from blocking each other. */
+/** One heavy worker across Movies and TV bounds peak memory deterministically. */
 export function refreshStoryGraphForYou(
   tab: StoryGraphTab,
   options: StoryGraphRefreshOptions = {},
 ): Promise<StoryGraphRefreshResult> {
-  const run = storyGraphRefreshTails[tab]
+  const run = storyGraphRefreshTail
     .catch(() => undefined)
     .then(() => refreshStoryGraphWithPriorityPhase(tab, options));
-  storyGraphRefreshTails[tab] = run.then(() => undefined, () => undefined);
+  storyGraphRefreshTail = run.then(() => undefined, () => undefined);
   if (options.dependencies !== undefined) return run;
   return run.then((result) => {
     scheduleStoryDnaFrontierWorker();

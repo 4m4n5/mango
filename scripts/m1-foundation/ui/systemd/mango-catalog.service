@@ -19,8 +19,8 @@ TimeoutStartSec=180
 # boot (cgroup_enable=memory in cmdline.txt); CPUWeight/TasksMax enforce already.
 # CPUWeight<100 lets the foreground launcher/pad win CPU under contention.
 MemoryAccounting=yes
-MemoryHigh=768M
-MemoryMax=1280M
+MemoryHigh=1280M
+MemoryMax=1536M
 TasksMax=512
 CPUWeight=60
 

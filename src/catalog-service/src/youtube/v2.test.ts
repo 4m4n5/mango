@@ -905,13 +905,20 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
     more_like_queries: number;
     beyond_queries: number;
     distinct_seed_refs: string[];
+    more_like_status: string;
+    funnels: Array<{ returned: number; persisted: number; seed_ref: string }>;
   }>('youtube_v2_history_acquisition', {
     queries_attempted: 0, more_like_queries: 0, beyond_queries: 0, distinct_seed_refs: [],
+    more_like_status: '', funnels: [],
   });
   assert.ok(acquisition.queries_attempted <= 5);
   assert.ok(acquisition.more_like_queries <= 3);
   assert.ok(acquisition.beyond_queries <= 2);
   assert.ok(acquisition.distinct_seed_refs.length >= 1);
+  assert.equal(acquisition.more_like_status, 'not_applicable');
+  assert.ok(acquisition.funnels.every((funnel) => (
+    funnel.returned >= funnel.persisted && /^[a-f0-9]{16}$/.test(funnel.seed_ref)
+  )));
   assert.ok(listYoutubeV2CandidateProvenance().every((row) => new Set([
     'subscription_upload', 'subscription_live', 'history_channel', 'history_topic',
   ]).has(row.provenance)));
@@ -1224,7 +1231,7 @@ test('serve order, labels, card counts, creator caps, and global dedupe match th
   assert.deepEqual(response.rails.map((rail) => [rail.rail_id, rail.label]), [
     ['for_you', 'For You'],
     ['beyond', 'Beyond Your Subscriptions'],
-    ['more_like', 'More Like'],
+    ['more_like', `More from Channel ${seeded.watchedChannel}`],
     ['history', 'History'],
     ['saved', 'Saved'],
     ['new_from_subscriptions', 'From Your Subscriptions'],
@@ -1244,7 +1251,7 @@ test('serve order, labels, card counts, creator caps, and global dedupe match th
   assert.ok(response.rails.find((rail) => rail.rail_id === 'live_now')!.items
     .every((item) => item.channel_id && seeded.subscriptionChannels.has(item.channel_id)));
   const moreLike = response.rails.find((rail) => rail.rail_id === 'more_like')!.items;
-  assert.equal(moreLike.filter((item) => item.channel_id === seeded.watchedChannel).length, 1);
+  assert.equal(moreLike.filter((item) => item.channel_id === seeded.watchedChannel).length, 4);
 }));
 
 test('Takeout history merges into History, dedupes within 60s, and persists sanitized import diagnostics', () => withTempState(() => {

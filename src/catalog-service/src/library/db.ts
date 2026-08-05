@@ -24,6 +24,7 @@ export const YOUTUBE_TAKEOUT_SCHEMA_VERSION = 13;
 export const VOD_STORY_GRAPH_SERVING_SCHEMA_VERSION = 14;
 export const VOD_PROGRESSIVE_PROFILE_SCHEMA_VERSION = 15;
 export const VOD_IMMUTABLE_OVERLAY_SCHEMA_VERSION = 16;
+export const VOD_RECOMMENDATION_RUNTIME_SCHEMA_VERSION = 17;
 const RECOMMENDATION_SERVED_SLATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type LibrarySource = string;
@@ -1597,6 +1598,45 @@ CREATE INDEX IF NOT EXISTS idx_vod_story_dna_overlays_document
 `);
     db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
       .run(VOD_IMMUTABLE_OVERLAY_SCHEMA_VERSION, timestamp);
+  }
+  if (!migrated.has(VOD_RECOMMENDATION_RUNTIME_SCHEMA_VERSION)) {
+    const timestamp = nowMs();
+    const addColumn = (table: string, name: string, declaration: string): void => {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === name)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${declaration}`);
+      }
+    };
+    addColumn('recommendation_refresh_jobs', 'phase', 'TEXT');
+    addColumn('recommendation_refresh_jobs', 'phase_cursor', 'TEXT');
+    addColumn('recommendation_refresh_jobs', 'checkpoint_json', "TEXT NOT NULL DEFAULT '{}'");
+    addColumn('recommendation_refresh_jobs', 'heartbeat_at', 'INTEGER');
+    addColumn('recommendation_refresh_jobs', 'deadline_at', 'INTEGER');
+    addColumn('recommendation_refresh_jobs', 'story_generation_id', 'INTEGER');
+    addColumn('recommendation_refresh_jobs', 'taste_generation_id', 'INTEGER');
+    addColumn('recommendation_refresh_jobs', 'rank_generation_id', 'INTEGER');
+    addColumn('recommendation_refresh_jobs', 'resume_count', 'INTEGER NOT NULL DEFAULT 0');
+    addColumn('recommendation_refresh_jobs', 'successor_job_id', 'TEXT');
+    addColumn('recommendation_refresh_jobs', 'error_code', 'TEXT');
+    addColumn('recommendation_refresh_jobs', 'resource_metrics_json', "TEXT NOT NULL DEFAULT '{}'");
+    db.exec(`
+CREATE TABLE IF NOT EXISTS vod_story_graph_backgrounds (
+  story_generation_id INTEGER PRIMARY KEY
+    REFERENCES vod_story_dna_generations(generation_id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK(content_type IN ('movie', 'series')),
+  profile_version TEXT NOT NULL,
+  compiler_version TEXT NOT NULL,
+  ontology_version TEXT NOT NULL,
+  document_count INTEGER NOT NULL CHECK(document_count >= 0),
+  background_json TEXT NOT NULL,
+  background_hash TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_vod_story_graph_backgrounds_type
+  ON vod_story_graph_backgrounds(content_type, story_generation_id DESC);
+`);
+    db.prepare('INSERT OR IGNORE INTO library_migrations(version, applied_at) VALUES (?, ?)')
+      .run(VOD_RECOMMENDATION_RUNTIME_SCHEMA_VERSION, timestamp);
   }
   });
   migrate.immediate();

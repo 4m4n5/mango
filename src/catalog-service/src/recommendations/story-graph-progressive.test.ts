@@ -212,6 +212,15 @@ WHERE rank_generation_id = ? AND content_id = 'm204'
       public_rank_generation_id: result.rank_generation_id,
       public_shuffle_epoch: 0,
     });
+    const repeated = await refreshStoryGraphForYou('movies', {
+      bootstrap_minimum: 200,
+      cached_service_p95_ms: 1,
+      dependencies: { evaluate: passingEvaluation },
+    });
+    assert.equal(repeated.story_generation_id, result.story_generation_id);
+    assert.equal((libraryDatabase().prepare(`
+SELECT COUNT(*) AS count FROM vod_story_graph_backgrounds WHERE content_type = 'movie'
+`).get() as { count: number }).count, 1);
 
     const activeEpoch = () => (libraryDatabase().prepare(`
 SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
@@ -239,16 +248,16 @@ SELECT content_type, model_version, feature_version, ontology_version,
        '["diagnostic_probe"]', cursor, 'failed', verified_count, scored_count,
        eligible_count, excluded_count, started_at + 1, NULL, completed_at + 1, 'probe failure'
 FROM vod_rank_generations WHERE rank_generation_id = ?
-`).run(result.rank_generation_id);
+`).run(repeated.rank_generation_id);
     const afterFailed = storyGraphDiagnostics();
     assert.equal(afterFailed.domains[0]?.rank_generation_id, Number(failed.lastInsertRowid));
     assert.equal(
       afterFailed.domains[0]?.serving_pointer.active_rank_generation_id,
-      result.rank_generation_id,
+      repeated.rank_generation_id,
       'a newer failed row must not masquerade as the active public generation',
     );
     assert.equal(afterFailed.domains[0]?.serving_pointer.active_status, 'complete');
-    assert.equal(afterFailed.domains[0]?.serving_pointer.public_rank_generation_id, result.rank_generation_id);
+    assert.equal(afterFailed.domains[0]?.serving_pointer.public_rank_generation_id, repeated.rank_generation_id);
   });
 });
 

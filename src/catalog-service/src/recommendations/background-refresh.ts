@@ -11,6 +11,7 @@ export type RecommendationRefreshQueueOptions = {
   wait?: (delayMs: number) => Promise<void>;
   maxRetries?: number;
   retryBaseMs?: number;
+  shouldRetry?: (error: unknown, failedAttempts: number, maxRetries: number) => boolean;
 };
 
 const defaultWait = (delayMs: number): Promise<void> => new Promise((resolve) => {
@@ -78,7 +79,9 @@ export class CoalescingRecommendationRefreshQueue {
             break;
           } catch (error) {
             const failedAttempts = (this.attempts.get(key) ?? 0) + 1;
-            const willRetry = failedAttempts <= maxRetries;
+            const willRetry = this.options.shouldRetry
+              ? this.options.shouldRetry(error, failedAttempts, maxRetries)
+              : failedAttempts <= maxRetries;
             this.options.onRetainedLastGood?.(work, error, willRetry);
             if (!willRetry) {
               this.attempts.delete(key);
