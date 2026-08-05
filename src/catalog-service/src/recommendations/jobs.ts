@@ -131,18 +131,12 @@ WHERE status IN ('queued', 'running')
 export function captureVodRecommendationRevisions(
   tab: VodRecommendationRefreshTab,
   options: {
-    profile_id: string;
     corpus_generation?: number | null;
     captured_at?: number;
   },
 ): Record<string, string | number | null> {
   const db = libraryDatabase();
   const contentType = tab === 'movies' ? 'movie' : 'series';
-  const legacy = db.prepare(`
-SELECT COALESCE(MAX(revision), 0) AS revision
-FROM profile_recommendation_snapshots
-WHERE profile_id = ? AND tab = ?
-`).get(options.profile_id, tab) as { revision: number };
   const personalization = db.prepare(`
 SELECT updated_at FROM personalization_state WHERE state_id = 1
 `).get() as { updated_at: number };
@@ -175,7 +169,6 @@ WHERE content_type = ?
   } | undefined;
   return {
     captured_at: options.captured_at ?? Date.now(),
-    legacy_revision: legacy.revision,
     personalization_revision: personalization.updated_at,
     corpus_generation: options.corpus_generation ?? null,
     latest_rank_generation: latest?.rank_generation_id ?? null,

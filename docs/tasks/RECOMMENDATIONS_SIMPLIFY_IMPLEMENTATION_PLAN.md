@@ -1,6 +1,7 @@
 # Mango VOD Recommendations v2 — Progressive Story Frontier
 
-Status: implemented locally on `feat/native-experience`; Pi and human couch proof remain deferred.
+Status: implemented and cleaned to one executable architecture on
+`feat/native-experience`; Pi and human couch proof remain deferred.
 
 This document supersedes the corpus-wide StoryDNA design. The bulk StoryDNA
 work-agent prompt is retained only as historical planning input and is already
@@ -16,7 +17,7 @@ marked superseded.
 - Profiles and mood do not enter ranking. Existing data remains dormant and
   recoverable.
 - Home and X perform no metadata, provider, graph, or ranking work.
-- YouTube remains isolated and unchanged.
+- YouTube remains isolated and uses only its provenance-gated v2 architecture.
 
 ## Progressive content intelligence
 
@@ -123,7 +124,8 @@ It defaults to `off`. The durable frontier prioritizes positive anchors,
 unsupported implicit threads, thread shortages, reserve-boundary overlap,
 fit-floor uncertainty, and a small stable audit sample. It is bounded to the
 top 48 candidates per thread, one request in flight, batches of four, 12 Movies
-and 12 TV requests per 24 hours, and 96 total in a rolling 30 days. All
+and 12 TV titles per 24 hours, and 96 titles total in a rolling 30 days. Provider
+calls may batch up to four titles. All
 requests count, including repair. Work coalesces for 15 minutes, stops after 15
 minutes, rate limiting, or two transport failures, and retries a semantic hash
 at most three times with durable backoff.
@@ -134,7 +136,7 @@ part of the progressive path.
 
 ## Persistence, publication, and diagnostics
 
-Schema migrations are additive. They retain strict Story Graph and v4 rows and
+Schema migrations are additive. They retain historical Story Graph and v4 rows and
 add progressive generations, profiles, family coverage, graph edges, semantic
 and availability revisions, frontier leases, metadata cache, reference
 membership, calibration bands, and provider usage.
@@ -165,7 +167,7 @@ zero teacher calls in local refresh, deterministic bounded frontier behavior,
 restart-safe budgets/leases, optional exact-ID TMDB behavior, complete large
 corpus accounting, cached X behavior, and YouTube isolation.
 
-Offline gates remain:
+Offline and automated gates remain:
 
 - progressive nDCG@6 no more than 2% below full StoryDNA on the frozen panel;
 - frontier recall at least 95% for full-profile top 200 and 98% for top 24;
@@ -173,17 +175,32 @@ Offline gates remain:
 - no populated media/language/decade/sparsity slice loses over five recall
   points;
 - at least 90% fewer new teacher calls than corpus-wide backfill;
-- at least 10% relative holistic nDCG@6 improvement over v4 with paired 90%
-  bootstrap interval above zero and no Fire/Water guardrail regression over
-  two percentage points;
+- deterministic five-fold frontier evaluation with acceptable per-axis
+  concordance and low-low intrusion guardrails;
 - Pi cached-service p95 at or below 250 ms.
 
 Roll out VOD independently: deploy through git in shadow with both metadata and
 teacher work off; build local profiles and validate accounting/replay; enable
 the locked frontier only after shadow gates; promote to serve only after Pi
-runtime gates. Retain v4, strict Story Graph v1, and two previous generations
-for one accepted couch release. Human acceptance remains five plausible cards
-of six with recognizable taste threads across ten shuffles.
+runtime gates. Retain historical v4/strict data and two previous progressive
+generations, but do not retain executable legacy loaders, rankers, or fallback
+acquisition. Rollback is configuration-off plus a reviewed Git revision, never
+data deletion. Human acceptance remains five plausible cards of six with
+recognizable taste threads across ten shuffles.
+
+## Latest-only cleanup contract
+
+The post-implementation cleanup removes the v4 semantic-hash/cosine/KNN/MMR
+engine, strict complete-StoryDNA serving mode, autonomous corpus teacher loop,
+legacy recommendation worker, and legacy YouTube Fresh/Popular/generic
+For You/Because/AI-home acquisition and scoring. The runtime exposes only the
+progressive VOD service and provenance-gated YouTube v2 service.
+
+No cleanup migration drops or rewrites data. Historical schemas remain so old
+rows can be audited and a prior Git revision can read them. Existing StoryDNA
+continues as immutable overlay evidence. The destructive YouTube fresh-start
+endpoint and reservoir clearing API are removed. Tests explicitly assert both
+latest-only source ownership and preservation of historical database rows.
 
 No Pi deployment, runtime promotion, or human couch result is claimed by this
 Mac implementation.

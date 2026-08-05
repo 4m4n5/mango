@@ -1446,7 +1446,7 @@ async function main(): Promise<void> {
   };
   const queueRecommendationRefresh = async (
     tabs: readonly ('movies' | 'series')[],
-    profileId = activeViewerProfileId(),
+    profileId = recommendationOwnerForRollout('vod', activeViewerProfileId()),
     triggerReasons: readonly string[] = ['signal_change'],
     captured: Record<string, string | number | null> = {},
   ): Promise<RecommendationRefreshJob[]> => {
@@ -1459,7 +1459,6 @@ async function main(): Promise<void> {
       trigger_reasons: triggerReasons,
       captured_revisions: {
         ...captureVodRecommendationRevisions(tab, {
-          profile_id: profileId,
           corpus_generation: corpusGeneration,
         }),
         ...captured,
@@ -1482,14 +1481,18 @@ async function main(): Promise<void> {
   setStoryGraphLowWaterEnqueueHook((request) => (
     queueRecommendationRefresh(
       [request.tab],
-      activeViewerProfileId(),
+      recommendationOwnerForRollout('vod', activeViewerProfileId()),
       ['low_water_replenishment'],
       { rank_generation: request.rank_generation_id },
     ).then(() => undefined)
   ));
-  // Explicit ratings are not a prerequisite: a skipped-onboarding personal
-  // profile can warm up from Save/watch evidence against neutral priors.
-  await queueRecommendationRefresh(['movies', 'series'], activeViewerProfileId(), ['service_startup']);
+  // Explicit ratings are not a prerequisite: Household Saved/watch evidence
+  // can warm the progressive ranker from neutral priors.
+  await queueRecommendationRefresh(
+    ['movies', 'series'],
+    recommendationOwnerForRollout('vod', activeViewerProfileId()),
+    ['service_startup'],
+  );
   core.startLiveRailsBackgroundRefresh();
   activeStreams = new ActiveStreamService();
   await activeStreams.clear().catch((error) => {
@@ -1519,7 +1522,7 @@ async function main(): Promise<void> {
     core.invalidateRecommendationTab(tab);
     void queueRecommendationRefresh(
       [tab],
-      change.profile_id,
+      recommendationOwnerForRollout('vod', change.profile_id),
       [change.stage === 'completed' ? 'watch_completion' : 'meaningful_watch'],
     ).catch((error) => console.warn(`recommendation watch refresh enqueue failed: ${
       error instanceof Error ? error.message : String(error)
@@ -1832,7 +1835,6 @@ async function main(): Promise<void> {
           const before = Object.fromEntries(affectedTabs.map((tab) => [tab, currentRecommendationRevision(tab)]));
           affectedTabs.forEach((tab) => core.invalidateRecommendationTab(tab));
           await queueRecommendationRefresh(affectedTabs);
-          if (youtubeRecommendationsV2Mode() === 'off') youtube.invalidateRailsCache();
           incrementRecommendationMetric('rating_mutations');
           sendJson(res, 200, {
             ok: true,
@@ -1869,7 +1871,6 @@ async function main(): Promise<void> {
               : ['movies'] as const;
             tabs.forEach((tab) => core.invalidateRecommendationTab(tab));
             await queueRecommendationRefresh(tabs);
-            if (youtubeRecommendationsV2Mode() === 'off') youtube.invalidateRailsCache();
             incrementRecommendationMetric('rating_mutations');
             sendJson(res, 200, {
               ok: true,
@@ -2113,7 +2114,6 @@ async function main(): Promise<void> {
           : activateViewerProfile(requestedProfile);
         if (state.updated_at !== current.updated_at) {
           core.clearRailItemsCache();
-          if (youtubeRecommendationsV2Mode() === 'off') youtube.invalidateRailsCache();
           await queueRecommendationRefresh(['movies', 'series'], state.active_profile_id, ['household_activation']);
         }
         sendJson(res, 200, { ok: true, state, profiles: listViewerProfiles() });
@@ -2144,7 +2144,6 @@ async function main(): Promise<void> {
         if (recommendationsHouseholdOnly() && !requestedMood) preserveHouseholdMoodClear();
         if (state.updated_at !== current.updated_at) {
           core.clearRailItemsCache();
-          if (youtubeRecommendationsV2Mode() === 'off') youtube.invalidateRailsCache();
           await queueRecommendationRefresh(['movies', 'series'], state.active_profile_id, ['mood_change']);
         }
         sendJson(res, 200, { ok: true, state });
@@ -2162,7 +2161,7 @@ async function main(): Promise<void> {
         const corpusGeneration = await playabilityRecommendationCorpusGeneration();
         const jobs = await queueRecommendationRefresh(
           tab ? [tab] : ['movies', 'series'],
-          activeViewerProfileId(),
+          recommendationOwnerForRollout('vod', activeViewerProfileId()),
           [triggerReason],
           { corpus_generation: corpusGeneration },
         );
@@ -2225,7 +2224,6 @@ async function main(): Promise<void> {
         });
         if (saved.source === 'youtube') {
           core.clearRailItemsCache();
-          youtube.invalidateRailsCache();
         } else if (saved.type === 'movie' || saved.type === 'series') {
           const tab = saved.type === 'series' ? 'series' : 'movies';
           core.invalidateRecommendationTab(tab);
@@ -2278,7 +2276,6 @@ async function main(): Promise<void> {
         });
         if (target.source === 'youtube') {
           core.clearRailItemsCache();
-          youtube.invalidateRailsCache();
         } else if (target.type === 'movie' || target.type === 'series') {
           const tab = target.type === 'series' ? 'series' : 'movies';
           core.invalidateRecommendationTab(tab);
@@ -2360,7 +2357,6 @@ async function main(): Promise<void> {
           });
           if (target.source === 'youtube') {
             core.clearRailItemsCache();
-            youtube.invalidateRailsCache();
           }
           else if (target.type === 'movie' || target.type === 'series') {
             const tab = target.type === 'series' ? 'series' : 'movies';
@@ -2385,7 +2381,6 @@ async function main(): Promise<void> {
           });
           if (target.source === 'youtube') {
             core.clearRailItemsCache();
-            youtube.invalidateRailsCache();
           }
           else if (target.type === 'movie' || target.type === 'series') {
             const tab = target.type === 'series' ? 'series' : 'movies';
@@ -2559,7 +2554,6 @@ async function main(): Promise<void> {
               acquisition_result: null,
             };
           }
-          youtube.invalidateRailsCache();
           sendJson(res, 200, {
             ok: true,
             import: result,
@@ -2635,16 +2629,6 @@ async function main(): Promise<void> {
               status: job.status,
             },
           });
-          return;
-        }
-
-        if (req.method === 'POST' && parts.length === 2 && parts[1] === 'fresh-start') {
-          if (!isLocalRequest(req)) {
-            throw new CatalogError(403, 'YouTube fresh-start is localhost-only');
-          }
-          const result = await youtube.freshStart();
-          await core.reloadAiCatalogRails();
-          sendJson(res, 200, result);
           return;
         }
 

@@ -22,13 +22,11 @@ async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> 
     library: process.env.MANGO_LIBRARY_DB_PATH,
     pins: process.env.MANGO_USER_PINS_PATH,
     playability: process.env.MANGO_PLAYABILITY_DB,
-    profile: process.env.MANGO_VOD_CONTENT_PROFILE,
     worker: process.env.MANGO_STORY_DNA_WORKER_MODE,
   };
   process.env.MANGO_LIBRARY_DB_PATH = join(directory, 'library.db');
   process.env.MANGO_USER_PINS_PATH = join(directory, 'pins.json');
   process.env.MANGO_PLAYABILITY_DB = join(directory, 'playability.db');
-  process.env.MANGO_VOD_CONTENT_PROFILE = 'progressive-v2';
   process.env.MANGO_STORY_DNA_WORKER_MODE = 'off';
   resetLibraryDbForTests();
   resetPlayabilityDbForTests();
@@ -43,8 +41,7 @@ async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> 
       const key = name === 'library' ? 'MANGO_LIBRARY_DB_PATH'
         : name === 'pins' ? 'MANGO_USER_PINS_PATH'
           : name === 'playability' ? 'MANGO_PLAYABILITY_DB'
-            : name === 'profile' ? 'MANGO_VOD_CONTENT_PROFILE'
-              : 'MANGO_STORY_DNA_WORKER_MODE';
+            : 'MANGO_STORY_DNA_WORKER_MODE';
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
@@ -52,21 +49,21 @@ async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> 
   }
 }
 
-function seedMovies(count: number): void {
+function seedTitles(type: 'movie' | 'series', count: number): void {
   const db = getPlayabilityDb();
   const insertTitle = db.prepare(`
 INSERT INTO titles(type, id, status, best_source, verified_at, updated_at)
-VALUES ('movie', ?, 'verified', 'test', ?, ?)
+VALUES (?, ?, 'verified', 'test', ?, ?)
 `);
   const insertPool = db.prepare(`
 INSERT INTO rail_pool(
   rail_id, type, id, score, ingested_at, title, poster_url, year,
   evidence_json, evidence_hash, evidence_source, evidence_retrieved_at
-) VALUES (?, 'movie', ?, 1, ?, ?, ?, '2022', ?, ?, 'test:addon', ?)
+) VALUES (?, ?, ?, 1, ?, ?, ?, '2022', ?, ?, 'test:addon', ?)
 `);
   db.transaction(() => {
     for (let index = 0; index < count; index += 1) {
-      const id = `m${String(index).padStart(3, '0')}`;
+      const id = `${type === 'movie' ? 'm' : 's'}${String(index).padStart(3, '0')}`;
       const sparse = index === count - 1;
       const evidence = JSON.stringify({
         synopsis: sparse ? null : `A detective investigation about family bonds and justice ${index}.`,
@@ -81,9 +78,10 @@ INSERT INTO rail_pool(
         writers: [], characters: [], awards: null, certification: 'PG-13',
         external_ids: { catalog: id },
       });
-      insertTitle.run(id, index + 1, index + 1);
+      insertTitle.run(type, id, index + 1, index + 1);
       insertPool.run(
-        `movies-theme-${index % 4}`, id, index + 1, `Movie ${index}`,
+        `${type === 'movie' ? 'movies' : 'series'}-theme-${index % 4}`,
+        type, id, index + 1, `${type === 'movie' ? 'Movie' : 'Series'} ${index}`,
         `https://example.test/${id}.jpg`, evidence, `source-hash-${index}`, index + 1,
       );
     }
@@ -92,16 +90,15 @@ INSERT INTO rail_pool(
 
 function passingEvaluation(input: Parameters<NonNullable<StoryGraphRefreshDependencies['evaluate']>>[0]) {
   return {
-    version: 'vod-story-graph-evaluation-v1' as const,
+    version: 'vod-story-frontier-evaluation-v1' as const,
     rank_generation_id: input.rankGenerationId,
     status: 'passed' as const,
     samples: input.ratings.length,
     folds: 5,
-    holistic_ndcg_at_6: { v2: 1, v4: 0.8, relative_improvement: 0.25 },
-    paired_bootstrap_90: { low: 0.01, high: 0.2, iterations: 2_000 },
-    fire_pairwise_concordance_ge_4: { v2: 1, v4: 1, regression: 0 },
-    water_pairwise_concordance_ge_4: { v2: 1, v4: 1, regression: 0 },
-    low_low_top_6_intrusion_rate: { v2: 0, v4: 0, regression: 0 },
+    holistic_ndcg_at_6: 1,
+    fire_pairwise_concordance_ge_4: 1,
+    water_pairwise_concordance_ge_4: 1,
+    low_low_top_6_intrusion_rate: 0,
     verified_accounting_complete: true,
     coverage: 1,
     deterministic: true,
@@ -113,27 +110,20 @@ function passingEvaluation(input: Parameters<NonNullable<StoryGraphRefreshDepend
   };
 }
 
-test('progressive full-corpus refresh makes zero teacher calls and accounts for sparse titles', async () => {
+test('progressive full-corpus refresh accounts for sparse titles without a teacher dependency', async () => {
   await withProgressiveDatabases(async () => {
-    seedMovies(205);
+    seedTitles('movie', 205);
     putRating({
       profile_id: 'household', type: 'movie', id: 'm000', title: 'Movie 0',
       fire: 5, water: 4.5, expected_revision: 0, origin: 'couch', taste_tags: [],
     });
-    let teacherCalls = 0;
     const result = await refreshStoryGraphForYou('movies', {
       bootstrap_minimum: 200,
       cached_service_p95_ms: 1,
       dependencies: {
-        refreshTeacher: async () => {
-          teacherCalls += 1;
-          throw new Error('progressive refresh must not call teacher');
-        },
-        loadTeacherCache: () => new Map(),
         evaluate: passingEvaluation,
       },
     });
-    assert.equal(teacherCalls, 0);
     assert.equal(result.verified_count, 205);
     assert.equal(result.profiled_count, 0);
     assert.equal(result.retryable_failure_count, 1);
@@ -174,5 +164,34 @@ WHERE rank_generation_id = ? AND content_id = 'm204'
     assert.equal(diagnostics.domains[0]?.calibration.status, 'insufficient');
     assert.ok((diagnostics.domains[0]?.family_coverage['genre-subgenre'] ?? 0) >= 204);
     assert.ok((diagnostics.domains[0]?.edge_sources.metadata_fact ?? 0) > 0);
+  });
+});
+
+test('progressive indexing accounts for the complete large Movies and TV corpora', async () => {
+  await withProgressiveDatabases(async () => {
+    seedTitles('movie', 5_452);
+    seedTitles('series', 3_794);
+    putRating({
+      profile_id: 'household', type: 'movie', id: 'm000', title: 'Movie 0',
+      fire: 5, water: 5, expected_revision: 0, origin: 'couch', taste_tags: [],
+    });
+    putRating({
+      profile_id: 'household', type: 'series', id: 's000', title: 'Series 0',
+      fire: 5, water: 4.5, expected_revision: 0, origin: 'couch', taste_tags: [],
+    });
+    const options = {
+      bootstrap_minimum: 200,
+      cached_service_p95_ms: 1,
+      dependencies: { evaluate: passingEvaluation },
+    } as const;
+    const movies = await refreshStoryGraphForYou('movies', options);
+    const series = await refreshStoryGraphForYou('series', options);
+    assert.deepEqual([movies.verified_count, series.verified_count], [5_452, 3_794]);
+    for (const result of [movies, series]) {
+      assert.equal(result.scored_count + result.excluded_count, result.verified_count);
+      assert.equal(result.coverage, 1);
+      assert.ok(result.reserve_depth > 2_000);
+      assert.equal(result.published, true);
+    }
   });
 });

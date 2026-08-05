@@ -427,7 +427,7 @@ export function vodUtilityProfileId(
   activeProfileId: string,
   mode = vodRecommendationsV2Mode(),
 ): string {
-  return mode === 'serve' && (tab === 'movies' || tab === 'series')
+  return mode !== 'off' && (tab === 'movies' || tab === 'series')
     ? 'household'
     : activeProfileId;
 }

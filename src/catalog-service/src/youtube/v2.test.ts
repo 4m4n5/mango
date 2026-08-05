@@ -19,7 +19,6 @@ import {
   latestYoutubeV2Generation,
   latestYoutubeV2GenerationRecord,
   latestYoutubeV2TakeoutImport,
-  listForYouCandidates,
   listYoutubeV2CandidateProvenance,
   listYoutubeV2ImportedHistory,
   listYoutubeV2Subscriptions,
@@ -40,7 +39,6 @@ import {
 import {
   rebuildYoutubeV2Generation,
   youtubePublicPersonalizationPayload,
-  youtubePlayStartUsesLegacyAcquisition,
   youtubeRecommendationsV2Mode,
   youtubeV2HistoryItems,
   youtubeV2RecommendationRails,
@@ -221,13 +219,6 @@ test('YouTube v2 flag fails safely to off', () => {
   assert.equal(youtubeRecommendationsV2Mode('true'), 'off');
 });
 
-test('serve retires play-start acquisition while shadow keeps rollback warm', () => {
-  assert.equal(youtubePlayStartUsesLegacyAcquisition('off'), true);
-  assert.equal(youtubePlayStartUsesLegacyAcquisition('shadow'), true);
-  assert.equal(youtubePlayStartUsesLegacyAcquisition('serve'), false);
-  assert.equal(youtubePlayStartUsesLegacyAcquisition('unexpected'), true);
-});
-
 test('daily More Like selection is deterministic and weighted by decayed watch strength', () => {
   const candidates = [
     { id: 'strong-complete', weight: 25 },
@@ -266,12 +257,11 @@ test('Takeout refresh is off-safe and uses one durable 15-minute acquisition coa
   seedV2();
   let refreshes = 0;
   const service = {
-    invalidateRailsCache: () => undefined,
     refresh: async () => {
       refreshes += 1;
       return { ok: true };
     },
-  } as unknown as Pick<YoutubeService, 'refresh' | 'invalidateRailsCache'>;
+  } as unknown as Pick<YoutubeService, 'refresh'>;
   const beforeNoop = latestYoutubeV2GenerationRecord()?.generation ?? null;
   const noop = await refreshYoutubeAfterTakeoutImport({
     at: 1_500_000, changed: false, service,
@@ -346,26 +336,6 @@ test('cross-lane provenance cannot influence More Like reserve ordering', () => 
     .filter((item) => item.rail_id === 'more_like');
   assert.deepEqual(moreLike.slice(0, 2).map((item) => item.id), [clean.id, leaked.id]);
   assert.equal(moreLike[0]?.score, moreLike[1]?.score);
-}));
-
-test('legacy v4 reservoir excludes cache rows acquired only by v2 shadow', () => withTempState(() => {
-  const now = Date.now();
-  const legacy = video('LegacyGeneric', 'Legacy generic cache row', 'legacy-channel');
-  const v2Only = video('V2OnlyGeneric', 'V2-only cache row', 'v2-channel');
-  upsertYoutubeItems([legacy]);
-  upsertYoutubeV2CandidateProvenance([{
-    item: v2Only,
-    provenance: 'history_topic',
-    provenance_ref: 'v2-seed',
-    source_generation: 'beyond:v2-only',
-    acquired_at: now,
-    expires_at: now + 1_000_000,
-  }]);
-  const service = new YoutubeService();
-  (service as unknown as { rebuildForYouReservoir: () => void }).rebuildForYouReservoir();
-  const ids = new Set(listForYouCandidates().map((row) => row.id));
-  assert.equal(ids.has(legacy.id), true);
-  assert.equal(ids.has(v2Only.id), false);
 }));
 
 test('generic youtube_items are never eligible and an empty source supersedes stale-ready state', () => withTempState(() => {
@@ -719,7 +689,7 @@ test('Home and X are latest-generation-only; ordinary reload epoch is stable', (
   const service = new YoutubeService();
   let apiCalls = 0;
   const api = (service as unknown as { api: Record<string, (...args: unknown[]) => Promise<unknown>> }).api;
-  for (const method of ['search', 'subscriptions', 'channelUploadPlaylists', 'playlistItems', 'popular']) {
+  for (const method of ['search', 'subscriptions', 'channelUploadPlaylists', 'playlistItems']) {
     api[method] = async () => { apiCalls += 1; throw new Error(`unexpected ${method}`); };
   }
   const first = await service.rails() as { slate_sequence: number; rails: YoutubeRail[] };
@@ -750,7 +720,7 @@ test('five X presses perform no API, quota, or rank work and keep History and Sa
   const service = new YoutubeService();
   let apiCalls = 0;
   const api = (service as unknown as { api: Record<string, (...args: unknown[]) => Promise<unknown>> }).api;
-  for (const method of ['search', 'subscriptions', 'channelUploadPlaylists', 'playlistItems', 'popular', 'videos']) {
+  for (const method of ['search', 'subscriptions', 'channelUploadPlaylists', 'playlistItems', 'videos']) {
     api[method] = async () => { apiCalls += 1; throw new Error(`unexpected ${method}`); };
   }
   const initial = await service.rails() as { rails: YoutubeRail[] };
@@ -827,13 +797,11 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
   }], { source_generation: 'oauth-complete', imported_at: now });
   const service = new YoutubeService();
   let searchCalls = 0;
-  let popularCalls = 0;
   const api = (service as unknown as { api: {
     subscriptions: () => Promise<YoutubeItem[]>;
     channelUploadPlaylists: (ids: string[]) => Promise<Map<string, string>>;
     playlistItems: (playlist: string) => Promise<YoutubeItem[]>;
     search: (query: string, options: { channelId?: string }) => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
-    popular: () => Promise<YoutubeItem[]>;
   } }).api;
   api.subscriptions = async () => [{
     ...video('subscribed-channel', 'Channel subscribed-channel', 'subscribed-channel'),
@@ -854,7 +822,6 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
       playlists: [],
     };
   };
-  api.popular = async () => { popularCalls += 1; return []; };
   const result = await service.refresh('triggered');
   assert.equal(result.ok, true);
   assert.deepEqual(result.phases?.map((phase) => phase.phase), [
@@ -862,7 +829,6 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
     'v2_history_acquisition', 'v2_live_acquisition', 'v2_publish',
   ]);
   assert.ok(searchCalls <= 5);
-  assert.equal(popularCalls, 0);
   const acquisition = getYoutubeState<{
     queries_attempted: number;
     more_like_queries: number;
@@ -881,7 +847,7 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
   assert.equal(latestYoutubeV2GenerationRecord()?.status, 'ready');
 }));
 
-test('shadow refresh builds v2 and still warms every legacy v4 acquisition phase', () => withTempState(async () => {
+test('shadow refresh builds only the provenance-gated v2 phases', () => withTempState(async () => {
   const now = Date.now();
   process.env.MANGO_YOUTUBE_RECS_V2 = 'shadow';
   process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
@@ -896,15 +862,12 @@ test('shadow refresh builds v2 and still warms every legacy v4 acquisition phase
     event: 'finished', watched_at: now,
   });
   const service = new YoutubeService();
-  let popularCalls = 0;
   const api = (service as unknown as { api: {
     subscriptions: () => Promise<YoutubeItem[]>;
     channelUploadPlaylists: () => Promise<Map<string, string>>;
     playlistItems: () => Promise<YoutubeItem[]>;
     search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
     videos: () => Promise<YoutubeItem[]>;
-    channelStats: () => Promise<Map<string, unknown>>;
-    popular: () => Promise<YoutubeItem[]>;
   } }).api;
   api.subscriptions = async () => [{
     ...video('shadow-subscription', 'Shadow subscription', 'shadow-subscription'), kind: 'channel',
@@ -913,19 +876,14 @@ test('shadow refresh builds v2 and still warms every legacy v4 acquisition phase
   api.playlistItems = async () => [];
   api.search = async () => ({ videos: [], channels: [], playlists: [] });
   api.videos = async () => [];
-  api.channelStats = async () => new Map();
-  api.popular = async () => { popularCalls += 1; return []; };
 
   const result = await service.refresh('triggered-shadow');
   assert.equal(result.ok, true);
   const phases = result.phases?.map((phase) => phase.phase) ?? [];
-  for (const phase of [
+  assert.deepEqual(phases, [
     'subscriptions', 'v2_subscription_acquisition', 'v2_history_metadata',
     'v2_history_acquisition', 'v2_live_acquisition', 'v2_publish',
-    'popular', 'fresh_finds', 'live_now', 'because_you_watched',
-    'for_you_discovery', 'for_you_reservoir',
-  ]) assert.ok(phases.includes(phase), phase);
-  assert.ok(popularCalls > 0);
+  ]);
 }));
 
 test('an all-query discovery failure retains the last-good generation and blocks publication', () => withTempState(async () => {

@@ -1,10 +1,10 @@
 # Starter prompt — work agent (StoryDNA bulk corpus + incremental couch path)
 
-> **Superseded as an automatic next step (2026-08-04).** The dirty source now
-> contains a deterministic progressive content-profile compiler and bounded
-> frontier. Finish and measure that path first. Retain this prompt only as
-> planning input for a bulk artifact/importer if verified coverage, quality, or
-> cost evidence demonstrates the need; do not paste it as the current contract.
+> **Superseded and non-executable (2026-08-04).** The latest-only progressive
+> content compiler makes corpus-wide StoryDNA unnecessary. Retain this file as
+> historical design context only; do not paste it, build its importer, or run a
+> bulk teacher job. Existing StoryDNA data remains preserved as immutable
+> overlays.
 
 Paste into a **fresh work-Mac** agent session on `feat/native-experience`.
 

@@ -1,7 +1,6 @@
 import type { CatalogSourceRef, CatalogTab } from '../rails.js';
 import type { CatalogCore } from '../core.js';
 import { CatalogError } from '../catalog-errors.js';
-import { invalidateYoutubeDiscoveryRailsCache } from '../youtube/service.js';
 import { invalidateLiveTabRailCache } from '../live/cache.js';
 import { getAdapterForTab } from './adapters/registry.js';
 import {
@@ -198,7 +197,6 @@ export async function createAiCatalog(
       });
       await core.reloadAiCatalogRails();
       if (merged.tab === 'youtube') {
-        invalidateYoutubeDiscoveryRailsCache();
       }
       if (merged.tab === 'live') {
         invalidateLiveTabRailCache(core);
@@ -246,7 +244,6 @@ export async function createAiCatalog(
 
   await core.reloadAiCatalogRails();
   if (tab === 'youtube') {
-    invalidateYoutubeDiscoveryRailsCache();
   }
   if (tab === 'live') {
     invalidateLiveTabRailCache(core);
@@ -311,7 +308,6 @@ export async function updateAiCatalog(
 
   await core.reloadAiCatalogRails();
   if (slot.tab === 'youtube') {
-    invalidateYoutubeDiscoveryRailsCache();
   }
   if (slot.tab === 'live') {
     invalidateLiveTabRailCache(core);
@@ -339,7 +335,6 @@ export async function deleteAiCatalog(
     await core.reloadAiCatalogRails();
     core.clearRailItemsCache();
     if (existing?.tab === 'youtube') {
-      invalidateYoutubeDiscoveryRailsCache();
     }
     if (existing?.tab === 'live') {
       invalidateLiveTabRailCache(core);
@@ -367,7 +362,6 @@ export async function refreshAiCatalog(
   await clearAppliedTopUpHints(railId);
   core.clearRailItemsCache(railId);
   if (slot.tab === 'youtube') {
-    invalidateYoutubeDiscoveryRailsCache();
   }
   if (slot.tab === 'live') {
     invalidateLiveTabRailCache(core);

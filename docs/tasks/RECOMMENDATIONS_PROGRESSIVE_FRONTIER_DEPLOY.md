@@ -1,71 +1,141 @@
-# Progressive Story Frontier — home Pi deployment
+# Recommendations latest-only deployment runbook
 
-This is a git-only, preserve-state rollout. Do not copy databases, caches,
-credentials, or source files between machines. Do not delete existing
-`recommendation_features`, StoryDNA generations, ratings, history, Saved,
-profiles, or playability rows.
+Status: ready for an exact-SHA home-agent deployment. Mac-side implementation
+and tests do not constitute Pi or couch proof.
 
-## 1. Record and pause
+This rollout installs the sole executable recommendation architecture:
 
-On the Pi, record the current SHA, service configuration, active recommendation
-generations, verified counts, StoryDNA row count, and database backup status.
-Keep the safe initial posture:
+- VOD: `vod-content-profile-v2` + `vod-story-frontier-v1`.
+- YouTube: subscription/history provenance-gated v2.
+- StoryDNA: existing compatible `story-dna-v1` documents are immutable
+  overlays; new teacher work is optional and frontier-only.
+
+The cleanup removes code paths, not data. Do not delete, rewrite, merge, vacuum,
+or “fresh start” runtime state. Historical tables, columns, migrations, ratings,
+Saved rows, watch history, profiles, playability, StoryDNA, generations, and
+provider ledgers must remain intact.
+
+## 1. Exact revision and safety boundary
+
+Set `TARGET_SHA` to the full pushed SHA from the handoff. Work only on
+`feat/native-experience`. Never use rsync, scp, a tarball, or copied databases.
+
+Before changing the Pi:
+
+1. Record Pi branch, full SHA, dirty state, service status, effective
+   recommendation environment, database paths/sizes, and current recommendation
+   diagnostics.
+2. Require an idle couch and no active playback.
+3. Run `PRAGMA quick_check` on the live library and playability databases.
+4. Create timestamped Pi-local SQLite online backups of both databases. Keep
+   the directory mode `0700` and files `0600`; verify non-zero size, checksum,
+   read-only open, and `quick_check`. Never print rows or copy backups off-box.
+5. Stop if Pi-local source changes overlap the deployment. Do not reset them.
+
+The repository's unattended deploy wrapper remains blocked by the warnings in
+[`docs/DEPLOY.md`](../DEPLOY.md). Use the reviewed exact-SHA Git-only manual path
+below; do not invoke `pi-deploy.sh` or `pi-exec-gate.sh` as a shortcut.
+
+## 2. Safe initial configuration
+
+Preserve the operator-owned environment file and change only these keys:
 
 ```bash
 MANGO_VOD_RECS_V2=shadow
-MANGO_VOD_CONTENT_PROFILE=progressive-v2
+MANGO_YOUTUBE_RECS_V2=shadow
 MANGO_STORY_DNA=0
 MANGO_STORY_DNA_WORKER_MODE=off
 MANGO_TMDB_METADATA=off
 ```
 
-`MANGO_STORY_DNA=0` is the containment switch for all teacher calls. The
-progressive compiler still reuses valid persisted StoryDNA overlays.
+`MANGO_VOD_CONTENT_PROFILE` and
+`MANGO_STORY_DNA_AUTONOMOUS_BACKFILL` are obsolete and should be removed from
+configuration only; removing an environment key does not remove data.
 
-## 2. Git-only deploy
+## 3. Pull, build, and restart
 
-From the Mac source authority, first confirm the target commit is pushed. On
-the home Mac/Pi LAN use the repository deploy flow:
+On the home Mac, prove the pushed branch equals `TARGET_SHA`. On the Pi, fetch
+the named branch, require a clean/non-overlapping tree, fast-forward it, and
+prove the resulting full SHA exactly:
 
 ```bash
-bash scripts/pi-deploy.sh --full
-bash scripts/pi-exec-gate.sh
+cd ~/mango
+git fetch origin feat/native-experience
+test "$(git rev-parse origin/feat/native-experience)" = "$TARGET_SHA"
+test "$(git branch --show-current)" = feat/native-experience
+git pull --ff-only origin feat/native-experience
+test "$(git rev-parse HEAD)" = "$TARGET_SHA"
 ```
 
-If deploying directly on the Pi, follow `docs/DEPLOY.md`: fetch, verify the
-expected commit is an ancestor, `git pull --ff-only`, install/build, restart,
-and read back the exact SHA. Never use rsync or scp.
+Build without running addon/config synchronization:
 
-## 3. Shadow proof with zero provider work
+```bash
+cd ~/mango
+bash scripts/lib/pi-npm-deps.sh build src/catalog-service
+bash scripts/lib/pi-npm-deps.sh build src/launcher
+bash scripts/lib/pi-npm-deps.sh build src/companion
+MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
+```
 
-Verify migrations, then enqueue one Movies and one TV recommendation refresh.
-Poll the HTTP 202 job IDs to terminal state. Read Reliability diagnostics and
-require for both domains:
+If dependency manifests changed, use `npm ci && npm run build` within each
+affected package. This change itself adds no dependency.
 
-- `profile_mode=progressive-v2` and model `vod-story-frontier-v1`;
-- `eligible + excluded == verified` and coverage 1.0;
-- reserve depth at least 200;
-- sparse rows have `sparse_unresolved` and are not serving eligible;
-- existing enriched rows remain present;
-- frontier worker is off and the provider usage ledger does not increase;
-- Home and five X presses do not change provider, metadata, or ranking counts.
+## 4. Build healthy shadow reserves
 
-Run catalog-service tests/build and the launcher build at the deployed SHA.
-Run the normal Pi pre-couch gate. Preserve logs and exact command outputs.
+Confirm the service loaded the safe configuration. Trigger one VOD refresh for
+each tab and one YouTube refresh from localhost:
 
-## 4. Optional TMDB
+```bash
+curl -fsS -X POST http://127.0.0.1:7777/recommendations/refresh \
+  -H 'content-type: application/json' -d '{"tab":"movies","reason":"deploy_shadow"}'
+curl -fsS -X POST http://127.0.0.1:7777/recommendations/refresh \
+  -H 'content-type: application/json' -d '{"tab":"series","reason":"deploy_shadow"}'
+curl -fsS -X POST http://127.0.0.1:7777/youtube/refresh \
+  -H 'content-type: application/json' -d '{"reason":"deploy_shadow"}'
+```
 
-TMDB is not required for healthy recommendations. Enable it only after exact-ID
-coverage is inspected and credentials are installed through the Pi's existing
-secret mechanism. Settings must display: “This product uses the TMDB API but
-is not endorsed or certified by TMDB.” Never commit the credential.
+Poll every returned job at
+`GET /recommendations/jobs/<job_id>` until terminal. A timeout or failed job is
+a blocker, not permission to delete caches or weaken thresholds.
 
-Keep `MANGO_TMDB_METADATA=off` if credentials or attribution proof is missing.
+Require VOD diagnostics for Movies and TV to show:
 
-## 5. Bounded Companion frontier
+- active model `vod-story-frontier-v1` and profile
+  `vod-content-profile-v2`;
+- Household taste revision built from current Fire/Water, Saved, and meaningful
+  Mango VOD history;
+- `eligible_ranked + sparse_unresolved + other_excluded == verified`;
+- coverage `1`, no unexplained unscored rows, reserve depth at least `200`, and
+  a valid six-card cached slate;
+- every serving candidate currently verified-playable and poster-bearing;
+- existing enriched StoryDNA count never decreases;
+- teacher/frontier/TMDB usage remains unchanged while all three are off.
 
-Only after the zero-provider shadow gate passes, restore the configured
-Companion provider and set:
+Require YouTube diagnostics to show a complete current generation sourced only
+from authoritative subscriptions and qualifying Takeout/Mango-local history.
+Generic cache, Search, Saved, profiles, mood, VOD, charts, and AI catalogs must
+not contribute provenance. OAuth absence may produce an explicitly stale
+last-good generation; it must not be disguised as fresh.
+
+## 5. Pi gates and promotion
+
+Run the catalog-service test suite and launcher build on the exact Pi SHA, then
+the applicable Pi-local smoke/focus/reliability gates described in
+[`docs/DEPLOY.md`](../DEPLOY.md). Because the wrapper is blocked, do not use a
+gate command that silently pulls or synchronizes addons; run its Pi-local
+underlying checks after reviewing it.
+
+Measure cached Home and five X presses. They must cause zero metadata, provider,
+graph, rank, or YouTube quota work; VOD/YouTube cached service p95 must be at
+most 250 ms. Verify focus/scroll restoration and four-slate repeat avoidance.
+
+If every automated gate is green, set both domains independently to `serve`,
+restart once, and repeat diagnostics, Home/X, launch, D-pad, Back, offline, and
+restart checks. This authorization prepares the Pi for human couch testing; it
+does not claim the human relevance gate passed.
+
+Keep the Companion frontier off for the initial couch test. It is optional and
+may be enabled later only with the locked bounds:
 
 ```bash
 MANGO_STORY_DNA=1
@@ -75,28 +145,27 @@ MANGO_STORY_DNA_FRONTIER_ROLLING_30D=96
 MANGO_STORY_DNA_FRONTIER_BATCH=4
 ```
 
-Restart once, verify the effective configuration, and observe one bounded run.
-Require one request in flight, no more than four titles per request, no more
-than 12 per domain per 24 hours, no more than 96 in 30 days, content-only
-payloads, and durable stop/retry behavior. A provider failure must leave the
-last-good rail healthy.
+Never reintroduce a full-corpus teacher loop. TMDB remains optional and off
+unless exact-ID credentials and visible attribution are already approved.
 
-## 6. Promotion and rollback
+## 6. Failure and rollback
 
-Do not change VOD from shadow to serve unless the frozen evaluation, accounting
-gate, p95 ≤250 ms Pi gate, and smoke/focus tests pass. YouTube remains under its
-independent flag.
-
-Rollback is configuration-first:
+On any recommendation failure:
 
 ```bash
 MANGO_STORY_DNA=0
 MANGO_STORY_DNA_WORKER_MODE=off
-MANGO_VOD_RECS_V2=shadow
-MANGO_VOD_CONTENT_PROFILE=strict-v1
+MANGO_VOD_RECS_V2=off
+MANGO_YOUTUBE_RECS_V2=off
 ```
 
-Restart and verify the prior last-good generation. Do not roll back by deleting
-new tables or old artifacts. Human ten-shuffle couch judgment, focus retention,
-and thematic satisfaction remain explicitly deferred until the user performs
-them.
+Restart and verify ordinary Continue, Saved, curated VOD, YouTube History, and
+YouTube Saved remain usable. If code rollback is required, select a reviewed
+earlier Git SHA and rebuild; restore a database backup only for a proven
+migration corruption and only with explicit human approval. Never delete rows
+to roll back recommendation behavior.
+
+The handoff report must include exact SHA/config, backup metadata, test/gate
+results, job IDs, generation/accounting/reserve counts, provider/quota deltas,
+latencies, screenshots, rollback state, and explicit `DEFERRED` entries for the
+ten-shuffle human relevance/thematic judgment.

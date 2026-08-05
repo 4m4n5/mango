@@ -9,7 +9,6 @@ import { DEFAULT_PLAYABILITY_CONFIG } from '../rails.js';
 import type { CatalogCore } from '../core.js';
 import type { PlayabilityRailStatus } from '../playability/db.js';
 import type { TopUpRailResult } from '../playability/top-up.js';
-import { invalidateYoutubeDiscoveryRailsCache } from './service.js';
 
 const MAX_YOUTUBE_SEEDS = 20;
 
@@ -92,7 +91,6 @@ export async function topUpYoutubeSeeds(
         updated_at: new Date().toISOString(),
       },
     });
-    invalidateYoutubeDiscoveryRailsCache();
     if (_core) {
       await _core.reloadAiCatalogRails();
     }

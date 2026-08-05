@@ -15,15 +15,9 @@ import {
   type VerifiedRecommendationCatalogRow,
 } from '../playability/db.js';
 import {
-  loadAiRecommendationFeatures,
   loadCompatibleStoryDnaTeacherCache,
-  loadStoryDnaTeacherCache,
-  refreshStoryDnaTeacherCache,
   storyDnaTeacherConfiguration,
-  buildAiEnrichedRecommendationFeature,
-  type RecommendationAiInput,
-  type StoryDnaTeacherRefreshResult,
-} from './ai.js';
+} from './story-dna-teacher.js';
 import {
   STORY_DNA_ONTOLOGY_VERSION,
   STORY_DNA_PROMPT_VERSION,
@@ -33,9 +27,7 @@ import {
   storyDnaEvidenceHash,
   storyDnaEvidenceFields,
   storyDnaInputHash,
-  storyDnaOntologyParentNodeKey,
   storyDnaRequestItem,
-  storyDnaToGraphEdges,
   validateStoryDnaDocument,
   type StoryDnaDocument,
   type StoryDnaEvidence,
@@ -52,7 +44,6 @@ import {
   type StoryDealerCache,
   type StoryGraphContentId,
   type StoryGraphExplicitRating,
-  type StoryGraphFamily,
   type StoryGraphImplicitSignal,
   type StoryGraphRankInput,
   type StoryGraphRankResult,
@@ -62,12 +53,6 @@ import {
 } from './story-graph-v1.js';
 import { rankStoryGraphRecommendationsOffThread } from './story-graph-rank-worker-client.js';
 import { vodRecommendationsV2Mode } from './v2-mode.js';
-import {
-  buildRecommendationFeature,
-  holisticAffinity,
-  predictAxes,
-  type RecommendationFeature,
-} from './engine.js';
 import {
   VOD_CONTENT_PROFILE_COMPILER_VERSION,
   VOD_CONTENT_PROFILE_VERSION,
@@ -94,11 +79,11 @@ import {
 } from './story-frontier-calibration.js';
 
 export type StoryGraphTab = 'movies' | 'series';
-export type VodContentProfileMode = 'strict-v1' | 'progressive-v2';
+export type VodContentProfileMode = 'progressive-v2';
 
-/** Progressive is the v2 default; strict remains an explicit one-release rollback. */
+/** The progressive compiler is the sole executable VOD content-profile path. */
 export function vodContentProfileMode(): VodContentProfileMode {
-  return process.env.MANGO_VOD_CONTENT_PROFILE === 'strict-v1' ? 'strict-v1' : 'progressive-v2';
+  return 'progressive-v2';
 }
 
 export type StoryGraphForYouRail = {
@@ -186,7 +171,7 @@ ON CONFLICT(content_type) DO UPDATE SET
       request.reason,
       request.requested_at,
     );
-    persistLookupRuntimeState(lowWaterStateKey(request.content_type), request, request.requested_at);
+    persistRecommendationRuntimeState(lowWaterStateKey(request.content_type), request, request.requested_at);
   })();
 }
 
@@ -276,16 +261,15 @@ type HouseholdSignals = {
 };
 
 export type StoryGraphOfflineEvaluation = {
-  version: 'vod-story-graph-evaluation-v1';
+  version: 'vod-story-frontier-evaluation-v1';
   rank_generation_id: number;
   status: 'passed' | 'insufficient' | 'failed';
   samples: number;
   folds: number;
-  holistic_ndcg_at_6: { v2: number | null; v4: number | null; relative_improvement: number | null };
-  paired_bootstrap_90: { low: number | null; high: number | null; iterations: number };
-  fire_pairwise_concordance_ge_4: { v2: number | null; v4: number | null; regression: number | null };
-  water_pairwise_concordance_ge_4: { v2: number | null; v4: number | null; regression: number | null };
-  low_low_top_6_intrusion_rate: { v2: number | null; v4: number | null; regression: number | null };
+  holistic_ndcg_at_6: number | null;
+  fire_pairwise_concordance_ge_4: number | null;
+  water_pairwise_concordance_ge_4: number | null;
+  low_low_top_6_intrusion_rate: number | null;
   verified_accounting_complete: boolean;
   coverage: number;
   deterministic: boolean;
@@ -322,11 +306,8 @@ export type StoryGraphRefreshDependencies = {
   corpusGeneration?: typeof playabilityRecommendationCorpusGeneration;
   semanticGeneration?: typeof playabilityRecommendationSemanticGeneration;
   recordSemanticEvidence?: typeof recordRecommendationSemanticEvidence;
-  refreshTeacher?: typeof refreshStoryDnaTeacherCache;
-  loadTeacherCache?: typeof loadStoryDnaTeacherCache;
   rank?: (input: StoryGraphRankInput) => Promise<StoryGraphRankResult>;
   evaluate?: typeof evaluateStoryGraphOffline;
-  lookup?: StoryDnaStructuredLookupProvider | null;
   persistStoryGenerationFault?: (
     point: 'after_header' | 'after_children' | 'before_complete',
     generationId: number,
@@ -337,7 +318,6 @@ export type StoryGraphRefreshOptions = {
   now?: number;
   trigger_reasons?: readonly string[];
   bootstrap_minimum?: number;
-  teacher_limit?: number;
   cached_service_p95_ms?: number | null;
   dependencies?: StoryGraphRefreshDependencies;
   /** Internal reserve-first phase; public callers use trigger reasons. */
@@ -367,12 +347,9 @@ type PersistedRankRow = {
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_BOOTSTRAP_MINIMUM = 200;
-const DEFAULT_TEACHER_LIMIT = 240;
 const VISIBLE_LIMIT = 6;
 const DEFAULT_PREDEALT_SLATE_COUNT = 32;
 const DEFAULT_COUCH_QUEUE_SCAN_LIMIT = 8;
-const STORY_DNA_RETRY_BASE_MS = 15 * 60 * 1_000;
-const STORY_DNA_RETRY_MAX_MS = DAY_MS;
 
 export type StoryGraphServingWorkCounters = {
   full_reserve_queries: number;
@@ -540,256 +517,13 @@ export function themeStratifiedStoryDnaInputs(inputs: StoryDnaInput[]): StoryDna
   return output;
 }
 
-const LOOKUP_MATERIAL_EVIDENCE_FIELDS = [
-  'synopsis', 'genres', 'keywords', 'languages', 'countries', 'runtime_minutes',
-  'release_state', 'format', 'cast', 'characters', 'directors', 'writers',
-  'awards_certification', 'external_ids',
-] as const satisfies ReadonlyArray<keyof StoryDnaEvidence>;
-
-type StoryDnaLookupMerge = {
-  input: StoryDnaInput;
-  material_fields: string[];
-};
-
-type StoryDnaLookupCacheRecord = {
-  version: 'story-dna-structured-lookup-v1';
-  raw_evidence_hash: string;
-  enriched_input: StoryDnaInput;
-  material_fields: string[];
-  looked_up_at: number;
-};
-
-export type StoryDnaLookupStatus = {
-  pending: number;
-  requested: number;
-  resolved: number;
-  material: number;
-  unresolved: number;
-  provider_failed: boolean;
-  provider_registered: boolean;
-  cursor: number;
-  updated_at: number;
-};
-
-function lookupStateKey(type: RatingContentType, id: string): string {
-  return `vod_story_dna_lookup:${type}:${sha256(`${type}:${id}`)}`;
-}
-
-function lookupCursorKey(type: RatingContentType): string {
-  return `vod_story_dna_lookup_cursor:${type}`;
-}
-
-function lookupStatusKey(type: RatingContentType): string {
-  return `vod_story_dna_lookup_status:${type}`;
-}
-
-function unionList(left: string[] | undefined, right: string[] | undefined): string[] {
-  return [...new Set([...(left ?? []), ...(right ?? [])])];
-}
-
-function unionFieldProvenance(
-  left: Record<string, string[]> | undefined,
-  right: Record<string, string[]> | undefined,
-): Record<string, string[]> {
-  const fields = new Set([...Object.keys(left ?? {}), ...Object.keys(right ?? {})]);
-  return Object.fromEntries([...fields].sort().map((field) => [
-    field,
-    unionList(left?.[field], right?.[field]),
-  ]));
-}
-
-function mergeStructuredLookup(base: StoryDnaInput, enriched: StoryDnaInput): StoryDnaLookupMerge {
-  if (base.type !== enriched.type || base.id !== enriched.id) {
-    return { input: base, material_fields: [] };
-  }
-  const baseSynopsis = base.synopsis?.trim() || base.description?.trim() || '';
-  const replacementSynopsis = enriched.synopsis?.trim() || enriched.description?.trim() || '';
-  const candidate: StoryDnaInput = {
-    ...base,
-    // Stable catalog identity is authoritative. Lookup fills or unions evidence;
-    // it cannot silently rewrite a known title/year or curated membership.
-    title: base.title,
-    year: base.year ?? enriched.year,
-    synopsis: baseSynopsis.length >= 120 || replacementSynopsis.length <= baseSynopsis.length
-      ? baseSynopsis || null
-      : replacementSynopsis,
-    genres: unionList(base.genres, enriched.genres),
-    keywords: unionList(base.keywords, enriched.keywords),
-    languages: unionList(base.languages, enriched.languages),
-    countries: unionList(base.countries, enriched.countries),
-    runtime_minutes: base.runtime_minutes ?? enriched.runtime_minutes,
-    release_state: base.release_state?.trim() || enriched.release_state?.trim() || null,
-    format: base.format?.trim() || enriched.format?.trim() || null,
-    cast: unionList(base.cast, enriched.cast),
-    characters: unionList(base.characters, enriched.characters),
-    directors: unionList(base.directors, enriched.directors),
-    writers: unionList(base.writers, enriched.writers),
-    awards_certification: unionList(base.awards_certification, enriched.awards_certification),
-    external_ids: { ...(enriched.external_ids ?? {}), ...(base.external_ids ?? {}) },
-    curated_pool_memberships: storyDnaCuratedPoolMemberships(base.curated_pool_memberships ?? []),
-    rail_ids: storyDnaCuratedPoolMemberships(base.curated_pool_memberships ?? base.rail_ids ?? []),
-    source: base.source,
-    retrieved_at: base.retrieved_at,
-    evidence_sources: [...new Set([
-      ...(base.source ? [base.source] : []),
-      ...(base.evidence_sources ?? []),
-      ...(enriched.evidence_sources ?? []),
-      ...(enriched.source ? [enriched.source] : []),
-    ])],
-    field_provenance: unionFieldProvenance(base.field_provenance, enriched.field_provenance),
-    lookup_reasons: storyDnaRequestItem(base).selective_lookup.reasons,
-    lookup_used: false,
-  };
-  const beforeRequest = storyDnaRequestItem(base);
-  const afterRequest = storyDnaRequestItem(candidate);
-  const materialFields: string[] = LOOKUP_MATERIAL_EVIDENCE_FIELDS.filter((field) => (
-    stableStoryDnaJson(beforeRequest.evidence[field])
-      !== stableStoryDnaJson(afterRequest.evidence[field])
-  ));
-  if (beforeRequest.year !== afterRequest.year) materialFields.push('year');
-  if (materialFields.length === 0) return { input: base, material_fields: [] };
-  return {
-    input: {
-      ...candidate,
-      retrieved_at: enriched.retrieved_at ?? base.retrieved_at,
-      lookup_used: true,
-    },
-    material_fields: [...materialFields],
-  };
-}
-
-function cachedStructuredLookup(input: StoryDnaInput): StoryDnaInput {
-  const row = libraryDatabase().prepare(`
-SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
-`).get(lookupStateKey(input.type, input.id)) as { value_json: string } | undefined;
-  if (!row) return input;
-  try {
-    const record = JSON.parse(row.value_json) as StoryDnaLookupCacheRecord;
-    if (record.version !== 'story-dna-structured-lookup-v1'
-      || record.raw_evidence_hash !== storyDnaEvidenceHash(input)
-      || record.enriched_input.type !== input.type || record.enriched_input.id !== input.id
-      || record.material_fields.length === 0
-      || storyDnaRequestItem(record.enriched_input).selective_lookup.used !== true) return input;
-    return record.enriched_input;
-  } catch {
-    return input;
-  }
-}
-
-function persistLookupRuntimeState(key: string, value: unknown, now: number): void {
+function persistRecommendationRuntimeState(key: string, value: unknown, now: number): void {
   libraryDatabase().prepare(`
 INSERT INTO recommendation_runtime_state(state_key, value_json, updated_at)
 VALUES (?, ?, ?)
 ON CONFLICT(state_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
 `).run(key, JSON.stringify(value), now);
 }
-
-export function storyDnaLookupStatus(type: RatingContentType): StoryDnaLookupStatus | null {
-  const row = libraryDatabase().prepare(`
-SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
-`).get(lookupStatusKey(type)) as { value_json: string } | undefined;
-  if (!row) return null;
-  try {
-    return JSON.parse(row.value_json) as StoryDnaLookupStatus;
-  } catch {
-    return null;
-  }
-}
-
-async function enrichSparseInputs(
-  type: RatingContentType,
-  inputs: StoryDnaInput[],
-  provider: StoryDnaStructuredLookupProvider | null,
-  now: number,
-): Promise<StoryDnaInput[]> {
-  const withCachedLookup = inputs.map(cachedStructuredLookup);
-  const limit = boundedInteger(process.env.MANGO_STORY_DNA_LOOKUP_LIMIT, 48, 1, 240);
-  const pending = withCachedLookup.filter((input) => {
-    const lookup = storyDnaRequestItem(input).selective_lookup;
-    return lookup.requested && !lookup.used;
-  });
-  const cursorRow = libraryDatabase().prepare(`
-SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
-`).get(lookupCursorKey(type)) as { value_json: string } | undefined;
-  const parsedCursor = Number(cursorRow?.value_json ?? 0);
-  const offset = pending.length > 0 && Number.isFinite(parsedCursor)
-    ? Math.max(0, Math.floor(parsedCursor)) % pending.length
-    : 0;
-  const rotated = [...pending.slice(offset), ...pending.slice(0, offset)];
-  const sparse = rotated.slice(0, limit);
-  const nextCursor = pending.length > 0 ? (offset + sparse.length) % pending.length : 0;
-  persistLookupRuntimeState(lookupCursorKey(type), nextCursor, now);
-  if (!provider || sparse.length === 0) {
-    persistLookupRuntimeState(lookupStatusKey(type), {
-      pending: pending.length,
-      requested: 0,
-      resolved: 0,
-      material: 0,
-      unresolved: 0,
-      provider_failed: false,
-      provider_registered: provider !== null,
-      cursor: nextCursor,
-      updated_at: now,
-    } satisfies StoryDnaLookupStatus, now);
-    return withCachedLookup;
-  }
-  let enriched: StoryDnaInput[];
-  try {
-    enriched = await provider(sparse);
-  } catch {
-    persistLookupRuntimeState(lookupStatusKey(type), {
-      pending: pending.length,
-      requested: sparse.length,
-      resolved: 0,
-      material: 0,
-      unresolved: sparse.length,
-      provider_failed: true,
-      provider_registered: true,
-      cursor: nextCursor,
-      updated_at: now,
-    } satisfies StoryDnaLookupStatus, now);
-    return withCachedLookup;
-  }
-  const enrichedByKey = new Map(enriched.map((item) => [contentKey(item.type, item.id), item]));
-  const selected = new Set(sparse.map((input) => contentKey(input.type, input.id)));
-  let resolved = 0;
-  let material = 0;
-  const output = withCachedLookup.map((input) => {
-    if (!selected.has(contentKey(input.type, input.id))) return input;
-    const replacement = enrichedByKey.get(contentKey(input.type, input.id));
-    if (!replacement) return input;
-    resolved += 1;
-    const merged = mergeStructuredLookup(input, replacement);
-    if (merged.material_fields.length === 0) return input;
-    material += 1;
-    const record: StoryDnaLookupCacheRecord = {
-      version: 'story-dna-structured-lookup-v1',
-      raw_evidence_hash: storyDnaEvidenceHash(input),
-      enriched_input: merged.input,
-      material_fields: merged.material_fields,
-      looked_up_at: now,
-    };
-    persistLookupRuntimeState(lookupStateKey(input.type, input.id), record, now);
-    return merged.input;
-  });
-  const pendingAfter = output.filter((input) => {
-    const lookup = storyDnaRequestItem(input).selective_lookup;
-    return lookup.requested && !lookup.used;
-  }).length;
-  persistLookupRuntimeState(lookupStatusKey(type), {
-    pending: pendingAfter,
-    requested: sparse.length,
-    resolved,
-    material,
-    unresolved: sparse.length - material,
-    provider_failed: false,
-    provider_registered: true,
-    cursor: nextCursor,
-    updated_at: now,
-  } satisfies StoryDnaLookupStatus, now);
-  return output;
-}
-
 async function scanVerifiedCorpus(
   type: RatingContentType,
   listPage: typeof listVerifiedRecommendationCatalogPage,
@@ -900,83 +634,6 @@ function tasteRevision(
   });
 }
 
-function selectTeacherBackfillBatch(
-  type: RatingContentType,
-  pending: StoryDnaInput[],
-  limit: number,
-  now: number,
-  priorityKeys: ReadonlySet<StoryGraphContentId> = new Set(),
-): StoryDnaInput[] {
-  const db = libraryDatabase();
-  const latestRows = db.prepare(`
-WITH latest AS (
-  SELECT content_id, MAX(generation_id) AS generation_id
-  FROM vod_story_dna_documents WHERE content_type = ? GROUP BY content_id
-)
-SELECT docs.content_id, docs.status, docs.evidence_hash, docs.next_retry_at
-FROM vod_story_dna_documents docs
-JOIN latest ON latest.content_id = docs.content_id AND latest.generation_id = docs.generation_id
-WHERE docs.content_type = ?
-`).all(type, type) as Array<{
-    content_id: string;
-    status: string;
-    evidence_hash: string;
-    next_retry_at: number | null;
-  }>;
-  const latest = new Map(latestRows.map((row) => [row.content_id, row]));
-  const priorityStratified = (values: StoryDnaInput[]) => [
-    ...themeStratifiedStoryDnaInputs(values.filter((input) => (
-      priorityKeys.has(contentKey(input.type, input.id))
-    ))),
-    ...themeStratifiedStoryDnaInputs(values.filter((input) => (
-      !priorityKeys.has(contentKey(input.type, input.id))
-    ))),
-  ];
-  const changedOrNew = priorityStratified(pending.filter((input) => {
-    const prior = latest.get(input.id);
-    return !prior || prior.status === 'valid' || prior.evidence_hash !== storyDnaEvidenceHash(input);
-  }));
-  const retry = priorityStratified(pending.filter((input) => {
-    const prior = latest.get(input.id);
-    return prior?.status !== 'valid' && prior?.evidence_hash === storyDnaEvidenceHash(input)
-      && (prior.next_retry_at === null || prior.next_retry_at <= now);
-  }));
-  const selected = changedOrNew.slice(0, limit);
-  const remaining = limit - selected.length;
-  if (remaining <= 0 || retry.length === 0) return selected;
-  const cursorKey = `vod_story_dna_retry_cursor:${type}`;
-  const cursorRow = db.prepare(`
-SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
-`).get(cursorKey) as { value_json: string } | undefined;
-  const parsed = Number(cursorRow?.value_json ?? 0);
-  const offset = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) % retry.length : 0;
-  const rotated = [...retry.slice(offset), ...retry.slice(0, offset)];
-  db.prepare(`
-INSERT INTO recommendation_runtime_state(state_key, value_json, updated_at)
-VALUES (?, ?, ?)
-ON CONFLICT(state_key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at
-`).run(cursorKey, JSON.stringify((offset + remaining) % retry.length), now);
-  return [...selected, ...rotated.slice(0, remaining)];
-}
-
-function exclusionReason(
-  row: VerifiedRecommendationCatalogRow,
-  hasDocument: boolean,
-  signals: HouseholdSignals,
-): string | null {
-  const key = contentKey(row.type, row.id);
-  if (!row.title?.trim()) return 'missing_title';
-  if (!hasDocument) return 'story_dna_retryable_failure';
-  if (!row.poster?.trim()) return 'missing_artwork';
-  if (signals.rated.has(key)) return 'rated_exact';
-  if (signals.saved.has(key)) return 'saved_exact';
-  if (signals.watched.has(key)) return 'meaningfully_watched_exact';
-  if (signals.hidden.has(key)) return 'hidden_exact';
-  if (signals.blocked.has(key)) return 'blocked_exact';
-  if (signals.not_for_me.has(key)) return 'not_for_me_exact';
-  return null;
-}
-
 function progressiveExclusionReason(
   row: VerifiedRecommendationCatalogRow,
   profile: ContentProfileV2 | undefined,
@@ -993,27 +650,6 @@ function progressiveExclusionReason(
   if (signals.blocked.has(key)) return 'blocked_exact';
   if (signals.not_for_me.has(key)) return 'not_for_me_exact';
   return null;
-}
-
-function graphTitle(
-  input: StoryDnaInput,
-  document: StoryDnaDocument,
-): StoryGraphTitle {
-  return {
-    type: document.type,
-    id: document.id,
-    title: input.title,
-    year: input.year === null || input.year === undefined ? null : String(input.year),
-    story_dna: document,
-    edges: storyDnaToGraphEdges(document, input).map((edge) => ({
-      family: edge.family as StoryGraphFamily,
-      node_key: edge.node_key,
-      intensity: edge.intensity,
-      confidence: edge.confidence,
-      ordinal: edge.family.startsWith('facet.'),
-      source: edge.edge_source,
-    })),
-  } as StoryGraphTitle;
 }
 
 function loadStructuredMetadataCache(inputs: StoryDnaInput[]): StoryDnaInput[] {
@@ -1673,331 +1309,6 @@ ORDER BY docs.generation_id DESC LIMIT 1
   return output;
 }
 
-function persistOntologyAndStoryEdges(
-  generationId: number,
-  title: StoryGraphTitle,
-): void {
-  const db = libraryDatabase();
-  const insertNode = db.prepare(`
-INSERT OR IGNORE INTO vod_ontology_nodes(
-  ontology_version, node_key, family, value_key, parent_key, ordinal
-) VALUES (?, ?, ?, ?, ?, ?)
-`);
-  const insertOntologyEdge = db.prepare(`
-INSERT OR IGNORE INTO vod_ontology_edges(
-  ontology_version, from_node_key, to_node_key, edge_kind
-) VALUES (?, ?, ?, ?)
-`);
-  const insertTitleEdge = db.prepare(`
-INSERT OR REPLACE INTO vod_story_dna_edges(
-  generation_id, content_type, content_id, node_key, family,
-  intensity, confidence, edge_source
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-`);
-  for (const edge of title.edges ?? []) {
-    const familyRoot = `family:${edge.family}`;
-    const fixedParent = storyDnaOntologyParentNodeKey(edge.node_key);
-    insertNode.run(STORY_DNA_ONTOLOGY_VERSION, familyRoot, edge.family, edge.family, null, 0);
-    if (fixedParent) {
-      insertNode.run(
-        STORY_DNA_ONTOLOGY_VERSION,
-        fixedParent,
-        edge.family,
-        fixedParent.slice(fixedParent.indexOf(':') + 1),
-        familyRoot,
-        0,
-      );
-      insertOntologyEdge.run(
-        STORY_DNA_ONTOLOGY_VERSION,
-        fixedParent,
-        familyRoot,
-        'parent',
-      );
-    }
-    insertNode.run(
-      STORY_DNA_ONTOLOGY_VERSION,
-      edge.node_key,
-      edge.family,
-      edge.node_key.slice(edge.node_key.indexOf(':') + 1),
-      fixedParent ?? familyRoot,
-      edge.ordinal ? 1 : 0,
-    );
-    insertOntologyEdge.run(
-      STORY_DNA_ONTOLOGY_VERSION,
-      edge.node_key,
-      fixedParent ?? familyRoot,
-      fixedParent || edge.node_key.includes('parent%3D')
-        ? 'parent'
-        : edge.source === 'compound' ? 'compound' : 'parent',
-    );
-    insertTitleEdge.run(
-      generationId,
-      title.type,
-      title.id,
-      edge.node_key,
-      edge.family,
-      edge.intensity,
-      edge.confidence,
-      edge.source,
-    );
-  }
-}
-
-function persistedStoryEdgeKeys(
-  db: ReturnType<typeof libraryDatabase>,
-  generationId: number,
-): Map<StoryGraphContentId, string[]> {
-  const rows = db.prepare(`
-SELECT content_type, content_id, node_key
-FROM vod_story_dna_edges
-WHERE generation_id = ?
-ORDER BY content_type, content_id, node_key
-`).all(generationId) as Array<{
-    content_type: RatingContentType;
-    content_id: string;
-    node_key: string;
-  }>;
-  const byTitle = new Map<StoryGraphContentId, string[]>();
-  for (const row of rows) {
-    const key = contentKey(row.content_type, row.content_id);
-    byTitle.set(key, [...(byTitle.get(key) ?? []), row.node_key]);
-  }
-  return byTitle;
-}
-
-function assertStoryOntologyIntegrity(
-  db: ReturnType<typeof libraryDatabase>,
-  generationId: number,
-): void {
-  const broken = db.prepare(`
-SELECT COUNT(*) AS count
-FROM vod_story_dna_edges title_edge
-LEFT JOIN vod_ontology_nodes node
-  ON node.ontology_version = ? AND node.node_key = title_edge.node_key
-LEFT JOIN vod_ontology_nodes parent
-  ON parent.ontology_version = node.ontology_version AND parent.node_key = node.parent_key
-LEFT JOIN vod_ontology_edges parent_edge
-  ON parent_edge.ontology_version = node.ontology_version
- AND parent_edge.from_node_key = node.node_key
- AND parent_edge.to_node_key = node.parent_key
-WHERE title_edge.generation_id = ?
-  AND (
-    node.node_key IS NULL OR
-    (node.parent_key IS NOT NULL AND (parent.node_key IS NULL OR parent_edge.from_node_key IS NULL))
-  )
-`).get(STORY_DNA_ONTOLOGY_VERSION, generationId) as { count: number };
-  if (broken.count !== 0) throw new Error('StoryDNA generation contains broken ontology edges');
-}
-
-function persistStoryGeneration(input: {
-  type: RatingContentType;
-  corpusGeneration: number;
-  verifiedCount: number;
-  rows: VerifiedRecommendationCatalogRow[];
-  inputByKey: Map<StoryGraphContentId, StoryDnaInput>;
-  documents: Map<StoryGraphContentId, StoryDnaDocument>;
-  failures: Map<StoryGraphContentId, string>;
-  evidenceRevision: string;
-  modelVersion: string;
-  now: number;
-  fault?: StoryGraphRefreshDependencies['persistStoryGenerationFault'];
-}): number {
-  const db = libraryDatabase();
-  const verifiedKeys = new Set(input.rows.map((row) => contentKey(row.type, row.id)));
-  const validVerifiedCount = [...input.documents.keys()].filter((key) => verifiedKeys.has(key)).length;
-  const insertGeneration = db.prepare(`
-INSERT INTO vod_story_dna_generations(
-  content_type, schema_version, ontology_version, prompt_version, model_version,
-  corpus_generation, evidence_revision, status, verified_count, complete_count,
-  failure_count, started_at, completed_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, 'building', ?, 0, 0, ?, NULL)
-RETURNING generation_id
-`);
-  const insertDocument = db.prepare(`
-INSERT INTO vod_story_dna_documents(
-  generation_id, content_type, content_id, title, evidence_json, evidence_hash,
-  story_dna_json, family_confidence_json, stable_external_ids_json, lookup_used,
-  status, failure_reason, retry_count, next_retry_at, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-`);
-  const rowsByKey = new Map(input.rows.map((row) => [contentKey(row.type, row.id), row]));
-  const priorRetryRows = db.prepare(`
-WITH latest AS (
-  SELECT content_id, MAX(generation_id) AS generation_id
-  FROM vod_story_dna_documents WHERE content_type = ? GROUP BY content_id
-)
-SELECT docs.content_id, docs.retry_count
-FROM vod_story_dna_documents docs
-JOIN latest ON latest.content_id = docs.content_id AND latest.generation_id = docs.generation_id
-WHERE docs.content_type = ?
-`).all(input.type, input.type) as Array<{ content_id: string; retry_count: number }>;
-  const priorRetryCount = new Map(priorRetryRows.map((row) => [row.content_id, row.retry_count]));
-  let generationId = 0;
-  db.transaction(() => {
-    const generation = insertGeneration.get(
-      input.type,
-      STORY_DNA_SCHEMA_VERSION,
-      STORY_DNA_ONTOLOGY_VERSION,
-      STORY_DNA_PROMPT_VERSION,
-      input.modelVersion,
-      input.corpusGeneration,
-      input.evidenceRevision,
-      input.verifiedCount,
-      input.now,
-    ) as { generation_id: number };
-    generationId = generation.generation_id;
-    input.fault?.('after_header', generationId);
-    for (const row of input.rows) {
-      const key = contentKey(row.type, row.id);
-      const document = input.documents.get(key);
-      const storyInput = input.inputByKey.get(key);
-      const evidenceJson = storyInput ? stableStoryDnaJson(storyDnaRequestItem(storyInput)) : '{}';
-      const failureReason = document
-        ? null
-        : input.failures.get(key) ?? (row.title ? 'story-dna-backlog' : 'missing-title');
-      const retryCount = document
-        ? 0
-        : failureReason === 'story-dna-backlog'
-          ? priorRetryCount.get(row.id) ?? 0
-          : (priorRetryCount.get(row.id) ?? 0) + 1;
-      const nextRetryAt = document
-        ? null
-        : failureReason === 'story-dna-backlog'
-          ? input.now
-          : input.now + Math.min(
-            STORY_DNA_RETRY_MAX_MS,
-            STORY_DNA_RETRY_BASE_MS * 2 ** Math.min(8, Math.max(0, retryCount - 1)),
-          );
-      insertDocument.run(
-        generationId,
-        row.type,
-        row.id,
-        row.title,
-        evidenceJson,
-        document?.provenance.evidence_hash
-          ?? (storyInput ? storyDnaEvidenceHash(storyInput) : row.evidence_hash ?? sha256(evidenceJson)),
-        document ? JSON.stringify(document) : null,
-        document ? JSON.stringify(document.confidence) : null,
-        storyInput ? JSON.stringify(storyDnaRequestItem(storyInput).evidence.external_ids) : '{}',
-        document?.selective_lookup.used ? 1 : 0,
-        document ? 'valid' : 'retryable_failure',
-        failureReason,
-        retryCount,
-        nextRetryAt,
-        input.now,
-        input.now,
-      );
-      if (document && storyInput) persistOntologyAndStoryEdges(
-        generationId,
-        graphTitle(storyInput, document),
-      );
-    }
-    // Retain unplayable anchors in the new generation without counting them in
-    // verified coverage. They can teach taste but never enter candidate IDs.
-    for (const [key, document] of input.documents) {
-      if (rowsByKey.has(key)) continue;
-      const storyInput = input.inputByKey.get(key);
-      if (!storyInput) continue;
-      const evidenceJson = stableStoryDnaJson(storyDnaRequestItem(storyInput));
-      insertDocument.run(
-        generationId,
-        document.type,
-        document.id,
-        storyInput.title,
-        evidenceJson,
-        document.provenance.evidence_hash,
-        JSON.stringify(document),
-        JSON.stringify(document.confidence),
-        JSON.stringify(storyDnaRequestItem(storyInput).evidence.external_ids),
-        document.selective_lookup.used ? 1 : 0,
-        'valid',
-        null,
-        0,
-        null,
-        input.now,
-        input.now,
-      );
-      persistOntologyAndStoryEdges(generationId, graphTitle(storyInput, document));
-    }
-    input.fault?.('after_children', generationId);
-
-    const children = db.prepare(`
-SELECT content_type, content_id, status, story_dna_json
-FROM vod_story_dna_documents WHERE generation_id = ?
-`).all(generationId) as Array<{
-      content_type: RatingContentType;
-      content_id: string;
-      status: 'valid' | 'retryable_failure' | 'permanent_failure';
-      story_dna_json: string | null;
-    }>;
-    const childByKey = new Map(children.map((child) => [
-      contentKey(child.content_type, child.content_id), child,
-    ]));
-    const edgeKeys = persistedStoryEdgeKeys(db, generationId);
-    const expectedPersisted = new Set<StoryGraphContentId>();
-    for (const row of input.rows) expectedPersisted.add(contentKey(row.type, row.id));
-    for (const [key] of input.documents) {
-      if (input.inputByKey.has(key)) expectedPersisted.add(key);
-    }
-    if (children.length !== expectedPersisted.size) {
-      throw new Error(`StoryDNA child integrity mismatch: expected ${expectedPersisted.size}, found ${children.length}`);
-    }
-    for (const key of expectedPersisted) {
-      const child = childByKey.get(key);
-      if (!child) throw new Error(`StoryDNA child missing for ${key}`);
-      const expectedDocument = input.documents.get(key);
-      if (!expectedDocument) {
-        if (child.status === 'valid' || child.story_dna_json !== null || (edgeKeys.get(key)?.length ?? 0) !== 0) {
-          throw new Error(`StoryDNA failed child is not isolated for ${key}`);
-        }
-        continue;
-      }
-      if (child.status !== 'valid' || !child.story_dna_json) {
-        throw new Error(`StoryDNA valid child missing document for ${key}`);
-      }
-      const validated = validateStoryDnaDocument(JSON.parse(child.story_dna_json), new Set([key]));
-      if (storyDnaDocumentHash(validated) !== storyDnaDocumentHash(expectedDocument)) {
-        throw new Error(`StoryDNA persisted document changed for ${key}`);
-      }
-      const storyInput = input.inputByKey.get(key);
-      const expectedEdges = storyInput
-        ? storyDnaToGraphEdges(expectedDocument, storyInput).map((edge) => edge.node_key).sort()
-        : [];
-      const actualEdges = edgeKeys.get(key) ?? [];
-      if (expectedEdges.length <= 0
-        || actualEdges.length !== expectedEdges.length
-        || expectedEdges.some((nodeKey, index) => actualEdges[index] !== nodeKey)) {
-        throw new Error(`StoryDNA edge integrity mismatch for ${key}`);
-      }
-    }
-    const invalidEdgeCount = db.prepare(`
-SELECT COUNT(*) AS count
-FROM vod_story_dna_edges edges
-LEFT JOIN vod_story_dna_documents docs
-  ON docs.generation_id = edges.generation_id
- AND docs.content_type = edges.content_type
- AND docs.content_id = edges.content_id
-WHERE edges.generation_id = ? AND (docs.content_id IS NULL OR docs.status != 'valid')
-`).get(generationId) as { count: number };
-    if (invalidEdgeCount.count !== 0) throw new Error('StoryDNA generation contains orphan edges');
-    assertStoryOntologyIntegrity(db, generationId);
-    input.fault?.('before_complete', generationId);
-    const completed = db.prepare(`
-UPDATE vod_story_dna_generations
-SET status = 'complete', complete_count = ?, failure_count = ?, completed_at = ?, last_error = NULL
-WHERE generation_id = ? AND status = 'building'
-`).run(
-      validVerifiedCount,
-      Math.max(0, input.verifiedCount - validVerifiedCount),
-      input.now,
-      generationId,
-    );
-    if (completed.changes !== 1) throw new Error('StoryDNA generation completion lost its building header');
-  })();
-  return generationId;
-}
-
-/** Mark pre-v14/interrupted headers non-reusable before any restart refresh. */
 export function reconcileInterruptedStoryDnaGenerations(now = Date.now()): number {
   const result = libraryDatabase().prepare(`
 UPDATE vod_story_dna_generations
@@ -2005,120 +1316,6 @@ SET status = 'failed', completed_at = ?, last_error = 'interrupted_before_atomic
 WHERE status = 'building'
 `).run(now);
   return result.changes;
-}
-
-function reusableStoryGeneration(input: {
-  type: RatingContentType;
-  corpusGeneration: number;
-  verifiedCount: number;
-  profiledCount: number;
-  rows: VerifiedRecommendationCatalogRow[];
-  inputByKey: Map<StoryGraphContentId, StoryDnaInput>;
-  documents: Map<StoryGraphContentId, StoryDnaDocument>;
-  evidenceRevision: string;
-  modelVersion: string;
-}): number | null {
-  const db = libraryDatabase();
-  const row = db.prepare(`
-SELECT generation_id
-FROM vod_story_dna_generations
-WHERE content_type = ?
-  AND schema_version = ?
-  AND ontology_version = ?
-  AND prompt_version = ?
-  AND model_version = ?
-  AND corpus_generation = ?
-  AND evidence_revision = ?
-  AND verified_count = ?
-  AND complete_count = ?
-  AND failure_count = ?
-  AND status = 'complete'
-ORDER BY generation_id DESC
-LIMIT 1
-`).get(
-    input.type,
-    STORY_DNA_SCHEMA_VERSION,
-    STORY_DNA_ONTOLOGY_VERSION,
-    STORY_DNA_PROMPT_VERSION,
-    input.modelVersion,
-    input.corpusGeneration,
-    input.evidenceRevision,
-    input.verifiedCount,
-    input.profiledCount,
-    Math.max(0, input.verifiedCount - input.profiledCount),
-  ) as { generation_id: number } | undefined;
-  if (!row) return null;
-  try {
-    const children = db.prepare(`
-SELECT content_type, content_id, status, story_dna_json, evidence_hash
-FROM vod_story_dna_documents WHERE generation_id = ?
-`).all(row.generation_id) as Array<{
-      content_type: RatingContentType;
-      content_id: string;
-      status: 'valid' | 'retryable_failure' | 'permanent_failure';
-      story_dna_json: string | null;
-      evidence_hash: string;
-    }>;
-    const childByKey = new Map(children.map((child) => [
-      contentKey(child.content_type, child.content_id), child,
-    ]));
-    const edgeKeys = persistedStoryEdgeKeys(db, row.generation_id);
-    const expectedKeys = new Set<StoryGraphContentId>(
-      input.rows.map((candidate) => contentKey(candidate.type, candidate.id)),
-    );
-    for (const [key] of input.documents) {
-      if (input.inputByKey.has(key)) expectedKeys.add(key);
-    }
-    if (children.length !== expectedKeys.size) throw new Error('child_count');
-    for (const key of expectedKeys) {
-      const child = childByKey.get(key);
-      if (!child) throw new Error(`missing_child:${key}`);
-      const document = input.documents.get(key);
-      if (!document) {
-        if (child.status === 'valid' || child.story_dna_json !== null || (edgeKeys.get(key)?.length ?? 0) !== 0) {
-          throw new Error(`failure_child:${key}`);
-        }
-        continue;
-      }
-      if (child.status !== 'valid' || !child.story_dna_json
-        || child.evidence_hash !== document.provenance.evidence_hash) {
-        throw new Error(`valid_child:${key}`);
-      }
-      const parsed = validateStoryDnaDocument(JSON.parse(child.story_dna_json), new Set([key]));
-      if (storyDnaDocumentHash(parsed) !== storyDnaDocumentHash(document)) {
-        throw new Error(`document_hash:${key}`);
-      }
-      const storyInput = input.inputByKey.get(key);
-      const expectedEdges = storyInput
-        ? storyDnaToGraphEdges(document, storyInput).map((edge) => edge.node_key).sort()
-        : [];
-      const actualEdges = edgeKeys.get(key) ?? [];
-      if (expectedEdges.length <= 0
-        || actualEdges.length !== expectedEdges.length
-        || expectedEdges.some((nodeKey, index) => actualEdges[index] !== nodeKey)) {
-        throw new Error(`edge_keys:${key}`);
-      }
-    }
-    const invalidEdges = db.prepare(`
-SELECT COUNT(*) AS count
-FROM vod_story_dna_edges edges
-LEFT JOIN vod_story_dna_documents docs
-  ON docs.generation_id = edges.generation_id
- AND docs.content_type = edges.content_type
- AND docs.content_id = edges.content_id
-WHERE edges.generation_id = ? AND (docs.content_id IS NULL OR docs.status != 'valid')
-`).get(row.generation_id) as { count: number };
-    if (invalidEdges.count !== 0) throw new Error('orphan_edges');
-    assertStoryOntologyIntegrity(db, row.generation_id);
-    return row.generation_id;
-  } catch (error) {
-    db.prepare(`
-UPDATE vod_story_dna_generations
-SET status = 'failed', completed_at = COALESCE(completed_at, ?), last_error = ?
-WHERE generation_id = ? AND status = 'complete'
-`).run(Date.now(), `integrity_check_failed:${error instanceof Error ? error.message : String(error)}`, row.generation_id);
-    return null;
-  }
 }
 
 function persistTasteGeneration(input: {
@@ -2220,12 +1417,12 @@ function selectCachedSlateIds(input: {
   const retained = [...input.recentSlates];
   while (true) {
     const excluded = [...new Set(retained.flatMap((slate) => slate.ids))];
-    const strict = dealStoryRecommendations(cache, {
+    const preferred = dealStoryRecommendations(cache, {
       seed: input.seed,
       exclude_ids: excluded,
       minimum_rank_score: fitFloor,
     });
-    if (strict.length === VISIBLE_LIMIT) return strict;
+    if (preferred.length === VISIBLE_LIMIT) return preferred;
     if (retained.length === 0) break;
     // Recent slates are newest-first; relax the oldest one first.
     retained.pop();
@@ -2503,59 +1700,6 @@ export function storyGraphServingNdcgAt6(
   })));
 }
 
-function bootstrapInterval(differences: number[]): { low: number | null; high: number | null; iterations: number } {
-  const iterations = 2_000;
-  if (differences.length < 2) return { low: null, high: null, iterations };
-  const means: number[] = [];
-  for (let iteration = 0; iteration < iterations; iteration += 1) {
-    let sum = 0;
-    for (let sample = 0; sample < differences.length; sample += 1) {
-      const digest = createHash('sha256').update(`${iteration}:${sample}:vod-story-graph`).digest();
-      sum += differences[digest.readUInt32BE(0) % differences.length]!;
-    }
-    means.push(sum / differences.length);
-  }
-  means.sort((left, right) => left - right);
-  return {
-    low: means[Math.floor(iterations * 0.05)] ?? null,
-    high: means[Math.min(iterations - 1, Math.ceil(iterations * 0.95) - 1)] ?? null,
-    iterations,
-  };
-}
-
-function legacyFeatureMaps(
-  ratings: FireWaterRating[],
-  inputByKey: Map<StoryGraphContentId, StoryDnaInput>,
-): { candidate: Map<StoryGraphContentId, RecommendationFeature>; anchors: Map<StoryGraphContentId, RecommendationFeature> } {
-  const aiInputs: RecommendationAiInput[] = [...inputByKey.values()].map((input) => ({
-    ...input,
-    year: input.year === null || input.year === undefined ? null : String(input.year),
-  }));
-  const ai = loadAiRecommendationFeatures(aiInputs);
-  const candidate = new Map<StoryGraphContentId, RecommendationFeature>();
-  for (const rawInput of aiInputs) {
-    const key = contentKey(rawInput.type, rawInput.id);
-    candidate.set(key, buildAiEnrichedRecommendationFeature({
-      ...rawInput,
-    }, ai.get(key)));
-  }
-  const ratingsByKey = new Map(ratings.map((rating) => [contentKey(rating.type, rating.id), rating]));
-  const anchors = new Map([...candidate].map(([key, feature]) => {
-    const rating = ratingsByKey.get(key);
-    if (!rating) return [key, feature] as const;
-    const rawInput = inputByKey.get(key);
-    return [key, buildRecommendationFeature({
-      type: feature.type,
-      id: feature.id,
-      title: rawInput?.title ?? feature.title,
-      year: rawInput?.year === null || rawInput?.year === undefined ? null : String(rawInput.year),
-      rail_ids: rawInput?.rail_ids ?? rawInput?.curated_pool_memberships,
-      taste_tags: rating.taste_tags,
-    })] as const;
-  }));
-  return { candidate, anchors };
-}
-
 export function evaluateStoryGraphOffline(input: {
   rankGenerationId: number;
   documents: StoryGraphTitle[];
@@ -2569,149 +1713,117 @@ export function evaluateStoryGraphOffline(input: {
   cachedServiceP95Ms?: number | null;
   now: number;
 }): StoryGraphOfflineEvaluation {
+  void input.inputByKey;
   const documentByKey = new Map(input.documents.map((title) => [
-    contentKey(title.type, title.id), title.story_dna,
+    contentKey(title.type, title.id), title,
   ]));
-  const eligibleRatings = input.ratings.filter((rating) => documentByKey.has(contentKey(rating.type, rating.id)));
+  const eligibleRatings = input.ratings.filter((rating) => (
+    documentByKey.has(contentKey(rating.type, rating.id))
+  ));
   const foldByKey = stableStoryGraphEvaluationFolds(eligibleRatings);
   const backgroundIds = new Set(input.background_ids ?? [...documentByKey.keys()]);
   const backgroundDocuments = input.documents.filter((document) => (
     backgroundIds.has(contentKey(document.type, document.id))
   ));
-  const legacy = legacyFeatureMaps(eligibleRatings, input.inputByKey);
-  const foldMetrics: Array<{ v2: number; v4: number }> = [];
+  const foldNdcg: number[] = [];
   let deterministic = true;
   const predictions: Array<{
     rating: FireWaterRating;
-    v2Fire: number;
-    v2Water: number;
-    v2Score: number;
-    v4Fire: number;
-    v4Water: number;
-    v4Score: number;
+    fire: number;
+    water: number;
+    score: number;
     fold: number;
   }> = [];
   for (let fold = 0; fold < 5; fold += 1) {
-    const training = eligibleRatings.filter((rating) => foldByKey.get(contentKey(rating.type, rating.id)) !== fold);
-    const heldOut = eligibleRatings.filter((rating) => foldByKey.get(contentKey(rating.type, rating.id)) === fold);
+    const training = eligibleRatings.filter((rating) => (
+      foldByKey.get(contentKey(rating.type, rating.id)) !== fold
+    ));
+    const heldOut = eligibleRatings.filter((rating) => (
+      foldByKey.get(contentKey(rating.type, rating.id)) === fold
+    ));
     if (training.length === 0 || heldOut.length === 0) continue;
-    const model = buildStoryTasteModel({
+    const modelInput = {
       documents: input.documents,
       background_documents: backgroundDocuments,
       explicit_ratings: training,
       implicit_signals: [],
       as_of: input.now,
-    });
-    const replayModel = buildStoryTasteModel({
-      documents: input.documents,
-      background_documents: backgroundDocuments,
-      explicit_ratings: training,
-      implicit_signals: [],
-      as_of: input.now,
-    });
-    deterministic = deterministic && stableStoryDnaJson(model) === stableStoryDnaJson(replayModel);
-    const ratingFeatures = new Map(training.flatMap((rating) => {
-      const key = contentKey(rating.type, rating.id);
-      const feature = legacy.anchors.get(key);
-      return feature ? [[key, feature] as const] : [];
-    }));
-    const rows: Array<{ relevance: number; v2: number; v4: number }> = [];
+    };
+    const model = buildStoryTasteModel(modelInput);
+    const replay = buildStoryTasteModel(modelInput);
+    deterministic = deterministic && stableStoryDnaJson(model) === stableStoryDnaJson(replay);
+    const rows: Array<{ relevance: number; score: number }> = [];
     for (const rating of heldOut) {
-      const key = contentKey(rating.type, rating.id);
-      const title = input.documents.find((candidate) => contentKey(candidate.type, candidate.id) === key);
-      const candidate = legacy.candidate.get(key);
-      if (!title || !candidate || ratingFeatures.size === 0) continue;
-      const v2 = scoreStoryGraphCandidate(model, title);
-      deterministic = deterministic && stableStoryDnaJson(v2)
-        === stableStoryDnaJson(scoreStoryGraphCandidate(replayModel, title));
-      const v4 = predictAxes({
-        candidate,
-        ratings: training,
-        ratingFeatures,
-        tab: rating.type === 'movie' ? 'movies' : 'series',
-      });
-      const v4Score = holisticAffinity(v4.fire, v4.water);
-      const relevance = 0.75 * Math.max(positiveRatingEvidence(rating.fire), positiveRatingEvidence(rating.water))
-        + 0.25 * Math.min(positiveRatingEvidence(rating.fire), positiveRatingEvidence(rating.water));
-      rows.push({ relevance, v2: v2.rank_score, v4: v4Score });
+      const title = documentByKey.get(contentKey(rating.type, rating.id));
+      if (!title) continue;
+      const scored = scoreStoryGraphCandidate(model, title);
+      deterministic = deterministic
+        && stableStoryDnaJson(scored) === stableStoryDnaJson(scoreStoryGraphCandidate(replay, title));
+      const relevance = 0.75 * Math.max(
+        positiveRatingEvidence(rating.fire),
+        positiveRatingEvidence(rating.water),
+      ) + 0.25 * Math.min(
+        positiveRatingEvidence(rating.fire),
+        positiveRatingEvidence(rating.water),
+      );
+      rows.push({ relevance, score: scored.rank_score });
       predictions.push({
         rating,
-        v2Fire: v2.predicted_fire,
-        v2Water: v2.predicted_water,
-        v2Score: v2.rank_score,
-        v4Fire: v4.fire,
-        v4Water: v4.water,
-        v4Score,
+        fire: scored.predicted_fire,
+        water: scored.predicted_water,
+        score: scored.rank_score,
         fold,
       });
     }
-    const v2Ndcg = ndcgAt6(rows.map((row) => ({ relevance: row.relevance, score: row.v2 })));
-    const v4Ndcg = ndcgAt6(rows.map((row) => ({ relevance: row.relevance, score: row.v4 })));
-    if (v2Ndcg !== null && v4Ndcg !== null) foldMetrics.push({ v2: v2Ndcg, v4: v4Ndcg });
+    const ndcg = ndcgAt6(rows);
+    if (ndcg !== null) foldNdcg.push(ndcg);
   }
-  const v2Ndcg = average(foldMetrics.map((metric) => metric.v2));
-  const v4Ndcg = average(foldMetrics.map((metric) => metric.v4));
-  const relative = v2Ndcg !== null && v4Ndcg !== null && v4Ndcg > 0
-    ? (v2Ndcg - v4Ndcg) / v4Ndcg
-    : null;
-  const interval = bootstrapInterval(foldMetrics.map((metric) => metric.v2 - metric.v4));
-  const concordance = (axis: 'fire' | 'water', version: 'v2' | 'v4') => pairwiseConcordance(
+  const ndcg = average(foldNdcg);
+  const concordance = (axis: 'fire' | 'water') => pairwiseConcordance(
     predictions.filter((row) => row.rating[axis] >= 4).map((row) => ({
       actual: row.rating[axis],
-      predicted: version === 'v2'
-        ? axis === 'fire' ? row.v2Fire : row.v2Water
-        : axis === 'fire' ? row.v4Fire : row.v4Water,
+      predicted: axis === 'fire' ? row.fire : row.water,
     })),
   );
-  const fireV2 = concordance('fire', 'v2');
-  const fireV4 = concordance('fire', 'v4');
-  const waterV2 = concordance('water', 'v2');
-  const waterV4 = concordance('water', 'v4');
-  const intrusion = (version: 'v2' | 'v4') => {
-    const perFold = Array.from({ length: 5 }, (_, fold) => predictions.filter((row) => row.fold === fold));
-    return average(perFold.flatMap((rows) => {
-      if (rows.length === 0) return [];
-      const selected = [...rows].sort((left, right) => (
-        version === 'v2' ? right.v2Score - left.v2Score : right.v4Score - left.v4Score
-      )).slice(0, 6);
-      return [selected.filter((row) => row.rating.fire <= 2.5 && row.rating.water <= 2.5).length
-        / selected.length];
-    }));
-  };
-  const intrusionV2 = intrusion('v2');
-  const intrusionV4 = intrusion('v4');
+  const intrusion = average(Array.from({ length: 5 }, (_, fold) => {
+    const selected = predictions
+      .filter((row) => row.fold === fold)
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 6);
+    return selected.length === 0
+      ? null
+      : selected.filter((row) => row.rating.fire <= 2.5 && row.rating.water <= 2.5).length
+        / selected.length;
+  }));
+  const fireConcordance = concordance('fire');
+  const waterConcordance = concordance('water');
   const accounting = input.accountedCount === input.verifiedCount;
   const coverage = input.verifiedCount > 0 ? input.reserveDepth / input.verifiedCount : 1;
   const reasons: string[] = [];
-  if (eligibleRatings.length < 30 || foldMetrics.length < 5) reasons.push('insufficient_stratified_ratings');
-  if (relative === null || relative < 0.10) reasons.push('ndcg_improvement_below_10_percent');
-  if (interval.low === null || interval.low <= 0) reasons.push('paired_bootstrap_interval_not_above_zero');
-  const fireRegression = fireV2 === null || fireV4 === null ? null : fireV4 - fireV2;
-  const waterRegression = waterV2 === null || waterV4 === null ? null : waterV4 - waterV2;
-  const intrusionRegression = intrusionV2 === null || intrusionV4 === null ? null : intrusionV2 - intrusionV4;
-  if (fireRegression === null || fireRegression > 0.02) reasons.push('fire_concordance_guardrail');
-  if (waterRegression === null || waterRegression > 0.02) reasons.push('water_concordance_guardrail');
-  if (intrusionRegression === null || intrusionRegression > 0.02) reasons.push('low_low_intrusion_guardrail');
+  if (eligibleRatings.length < 15 || foldNdcg.length < 5) reasons.push('insufficient_stratified_ratings');
+  if (ndcg === null) reasons.push('ndcg_unavailable');
+  if (fireConcordance !== null && fireConcordance < 0.5) reasons.push('fire_concordance_below_chance');
+  if (waterConcordance !== null && waterConcordance < 0.5) reasons.push('water_concordance_below_chance');
+  if (intrusion !== null && intrusion > 1 / 3) reasons.push('low_low_intrusion_above_one_third');
   if (!accounting) reasons.push('verified_corpus_accounting_incomplete');
   if (!deterministic) reasons.push('determinism_replay_failed');
   if (input.cachedServiceP95Ms === null || input.cachedServiceP95Ms === undefined) {
     reasons.push('cached_service_p95_unmeasured');
-  } else if (input.cachedServiceP95Ms > 250) reasons.push('cached_service_p95_above_250ms');
+  } else if (input.cachedServiceP95Ms > 250) {
+    reasons.push('cached_service_p95_above_250ms');
+  }
   const insufficient = reasons.includes('insufficient_stratified_ratings')
     || reasons.includes('cached_service_p95_unmeasured');
   return {
-    version: 'vod-story-graph-evaluation-v1',
+    version: 'vod-story-frontier-evaluation-v1',
     rank_generation_id: input.rankGenerationId,
     status: reasons.length === 0 ? 'passed' : insufficient ? 'insufficient' : 'failed',
     samples: eligibleRatings.length,
-    folds: foldMetrics.length,
-    holistic_ndcg_at_6: { v2: v2Ndcg, v4: v4Ndcg, relative_improvement: relative },
-    paired_bootstrap_90: interval,
-    fire_pairwise_concordance_ge_4: { v2: fireV2, v4: fireV4, regression: fireRegression },
-    water_pairwise_concordance_ge_4: { v2: waterV2, v4: waterV4, regression: waterRegression },
-    low_low_top_6_intrusion_rate: {
-      v2: intrusionV2, v4: intrusionV4, regression: intrusionRegression,
-    },
+    folds: foldNdcg.length,
+    holistic_ndcg_at_6: ndcg,
+    fire_pairwise_concordance_ge_4: fireConcordance,
+    water_pairwise_concordance_ge_4: waterConcordance,
+    low_low_top_6_intrusion_rate: intrusion,
     verified_accounting_complete: accounting,
     coverage,
     deterministic,
@@ -2723,7 +1835,10 @@ export function evaluateStoryGraphOffline(input: {
   };
 }
 
-function persistOfflineEvaluation(type: RatingContentType, evaluation: StoryGraphOfflineEvaluation): void {
+function persistOfflineEvaluation(
+  type: RatingContentType,
+  evaluation: StoryGraphOfflineEvaluation,
+): void {
   const write = libraryDatabase().prepare(`
 INSERT INTO recommendation_runtime_state(state_key, value_json, updated_at)
 VALUES (?, ?, ?)
@@ -2765,16 +1880,15 @@ function partialPriorityEvaluation(input: {
   now: number;
 }): StoryGraphOfflineEvaluation {
   return {
-    version: 'vod-story-graph-evaluation-v1',
+    version: 'vod-story-frontier-evaluation-v1',
     rank_generation_id: input.rankGenerationId,
     status: 'insufficient',
     samples: 0,
     folds: 0,
-    holistic_ndcg_at_6: { v2: null, v4: null, relative_improvement: null },
-    paired_bootstrap_90: { low: null, high: null, iterations: 0 },
-    fire_pairwise_concordance_ge_4: { v2: null, v4: null, regression: null },
-    water_pairwise_concordance_ge_4: { v2: null, v4: null, regression: null },
-    low_low_top_6_intrusion_rate: { v2: null, v4: null, regression: null },
+    holistic_ndcg_at_6: null,
+    fire_pairwise_concordance_ge_4: null,
+    water_pairwise_concordance_ge_4: null,
+    low_low_top_6_intrusion_rate: null,
     verified_accounting_complete: false,
     coverage: input.verifiedCount > 0 ? input.accountedCount / input.verifiedCount : 1,
     deterministic: true,
@@ -2802,7 +1916,7 @@ WHERE active.content_type = ?
     status: string;
     model_version: string;
   } | undefined;
-  if (!active || active.model_version !== VOD_STORY_GRAPH_MODEL_VERSION
+  if (!active || active.model_version !== VOD_STORY_FRONTIER_MODEL_VERSION
     || !['bootstrap', 'complete'].includes(active.status)) return null;
   const candidates = active.status === 'complete'
     ? [active.active_rank_generation_id, active.previous_complete_rank_generation_id]
@@ -2934,13 +2048,10 @@ async function refreshStoryGraphForYouUnserialized(
   const currentCorpusGeneration = dependencies.corpusGeneration ?? playabilityRecommendationCorpusGeneration;
   const currentSemanticGeneration = dependencies.semanticGeneration
     ?? playabilityRecommendationSemanticGeneration;
-  const refreshTeacher = dependencies.refreshTeacher ?? refreshStoryDnaTeacherCache;
-  const loadTeacher = dependencies.loadTeacherCache ?? loadStoryDnaTeacherCache;
   const rank = dependencies.rank ?? rankStoryGraphRecommendationsOffThread;
   const scan = await scanVerifiedCorpus(type, listPage);
   const ratings = listRatings(type, 'household');
   const signals = readHouseholdSignals(type);
-  const teacherConfiguration = storyDnaTeacherConfiguration();
   const capturedTasteRevision = tasteRevision(type, ratings, signals, now);
   const anchorKeys = new Set<StoryGraphContentId>([
     ...ratings.map((rating) => contentKey(rating.type, rating.id)),
@@ -2955,134 +2066,59 @@ async function refreshStoryGraphForYouUnserialized(
     type,
     anchorKeys,
     rawVerifiedKeys,
-    teacherConfiguration.expected_model_version,
+    null,
   );
   const rawInputs = [
     ...rawVerifiedInputs,
     ...priorAnchors.map((anchor) => anchor.input),
   ];
-  const progressive = vodContentProfileMode() === 'progressive-v2';
-  // Progressive refresh is deliberately local-only. Structured metadata and
-  // teacher work run from the durable frontier after publication.
-  const lookedUpInputs = progressive
-    ? loadStructuredMetadataCache(rawInputs)
-    : await enrichSparseInputs(
-      type,
-      rawInputs,
-      dependencies.lookup === undefined ? structuredLookupProvider : dependencies.lookup,
-      now,
-    );
-  const cachedBefore = progressive ? new Map<string, StoryDnaDocument>() : loadTeacher(lookedUpInputs);
-  const teacherLimit = options.teacher_limit ?? boundedInteger(
-    process.env.MANGO_STORY_DNA_REFRESH_LIMIT,
-    DEFAULT_TEACHER_LIMIT,
-    1,
-    10_000,
-  );
-  const pending = progressive ? [] : selectTeacherBackfillBatch(
-    type,
-    lookedUpInputs.filter((input) => !cachedBefore.has(contentKey(input.type, input.id))),
-    teacherLimit,
-    now,
-    anchorKeys,
-  );
-  const teacherResult: StoryDnaTeacherRefreshResult = pending.length > 0
-    ? await refreshTeacher(pending, { now })
-    : { requested: 0, persisted: 0, cached: lookedUpInputs.length, documents: [], failures: [] };
+  // Refresh is deliberately local-only. Optional metadata and Companion work
+  // populate durable caches asynchronously; ranking only reads those caches.
+  const lookedUpInputs = loadStructuredMetadataCache(rawInputs);
   const inputByKey = new Map<StoryGraphContentId, StoryDnaInput>(
     lookedUpInputs.map((input) => [contentKey(input.type, input.id), input]),
   );
-  const failures = new Map<StoryGraphContentId, string>(teacherResult.failures.map((failure) => [
-    contentKey(failure.type, failure.id), failure.reason,
-  ]));
   const loaded = new Map<StoryGraphContentId, StoryDnaDocument>();
   for (const anchor of priorAnchors) {
     if (anchor.document) loaded.set(contentKey(anchor.input.type, anchor.input.id), anchor.document);
   }
-  if (!progressive) {
-    for (const [key, document] of loadTeacher(lookedUpInputs)) {
-      loaded.set(key as StoryGraphContentId, document);
-    }
-  }
-  for (const document of teacherResult.documents) {
-    loaded.set(contentKey(document.type, document.id), document);
-  }
   const documents = new Map<StoryGraphContentId, StoryDnaDocument>();
-  for (const [key, storyInput] of inputByKey) {
-    const document = validatedDocumentForInput(
-      loaded.get(key),
-      storyInput,
-      teacherConfiguration.expected_model_version,
-    );
-    if (document) {
-      documents.set(key, document);
-      failures.delete(key);
-    } else if (loaded.has(key)) {
-      failures.set(key, 'invalid-canonical-provenance');
-    }
+  for (const [key, document] of compatibleProgressiveStoryDnaOverlays(type, inputByKey)) {
+    documents.set(key, document);
   }
-  if (progressive) {
-    for (const [key, document] of compatibleProgressiveStoryDnaOverlays(type, inputByKey)) {
-      documents.set(key, document);
-      failures.delete(key);
-    }
+  for (const [key, raw] of loaded) {
+    const storyInput = inputByKey.get(key);
+    if (!storyInput || documents.has(key)) continue;
+    const document = validatedDocumentForInput(raw, storyInput, null);
+    if (document) documents.set(key, document);
   }
-  const modelVersions = [...new Set([...documents.values()].map((document) => document.model_version))]
-    .sort((left, right) => left.localeCompare(right));
-  if (!progressive && modelVersions.length > 1) {
-    throw new Error(`mixed StoryDNA teacher model generation rejected: ${modelVersions.join(', ')}`);
-  }
-  const generationModelVersion = progressive ? 'mixed-compatible' : teacherConfiguration.expected_model_version
-    ?? modelVersions[0]
-    ?? 'unavailable';
-  const priorProfiles = progressive ? latestProgressiveProfiles(type) : new Map<StoryGraphContentId, ContentProfileV2>();
+  const priorProfiles = latestProgressiveProfiles(type);
   const profiles = new Map<StoryGraphContentId, ContentProfileV2>();
-  if (progressive) {
-    for (const [key, storyInput] of inputByKey) {
-      profiles.set(key, compileContentProfileV2(storyInput, {
-        teacher_document: documents.get(key) ?? null,
-        prior_profile: priorProfiles.get(key) ?? null,
-      }));
-    }
+  for (const [key, storyInput] of inputByKey) {
+    profiles.set(key, compileContentProfileV2(storyInput, {
+      teacher_document: documents.get(key) ?? null,
+      prior_profile: priorProfiles.get(key) ?? null,
+    }));
   }
-  const semanticGeneration = progressive
-    ? await (dependencies.recordSemanticEvidence ?? recordRecommendationSemanticEvidence)(
-      scan.rows.flatMap((row) => {
-        const profile = profiles.get(contentKey(row.type, row.id));
-        return profile ? [{
-          type: row.type,
-          id: row.id,
-          semantic_evidence_hash: profile.semantic_evidence_hash,
-        }] : [];
-      }),
-    )
-    : 0;
-  const referenceRevision = progressive
-    ? ensureSemanticReferencePanel({ type, profiles, overlays: documents, now })
-    : 'strict-v1';
-  const evidenceRevision = progressive ? sha256({
+  const semanticGeneration = await (dependencies.recordSemanticEvidence ?? recordRecommendationSemanticEvidence)(
+    scan.rows.flatMap((row) => {
+      const profile = profiles.get(contentKey(row.type, row.id));
+      return profile ? [{
+        type: row.type,
+        id: row.id,
+        semantic_evidence_hash: profile.semantic_evidence_hash,
+      }] : [];
+    }),
+  );
+  const referenceRevision = ensureSemanticReferencePanel({ type, profiles, overlays: documents, now });
+  const evidenceRevision = sha256({
     profile_version: VOD_CONTENT_PROFILE_VERSION,
     compiler_version: VOD_CONTENT_PROFILE_COMPILER_VERSION,
     semantic_generation: semanticGeneration,
     reference_revision: referenceRevision,
     profiles: [...profiles].map(([key, profile]) => ({ key, hash: profile.profile_hash })),
-  }) : sha256({
-    teacher_configuration_revision: teacherConfiguration.revision,
-    model_version: generationModelVersion,
-    evidence: lookedUpInputs.map((storyInput) => ({
-      key: contentKey(storyInput.type, storyInput.id),
-      evidence_hash: storyDnaEvidenceHash(storyInput),
-      input_hash: storyDnaInputHash(storyInput),
-    })).sort((left, right) => left.key.localeCompare(right.key)),
-    documents: [...documents].map(([key, document]) => ({
-      key,
-      document_hash: storyDnaDocumentHash(document),
-    })).sort((left, right) => left.key.localeCompare(right.key)),
   });
-  const profiledVerifiedCount = scan.rows.filter((row) => (
-    documents.has(contentKey(row.type, row.id))
-  )).length;
-  const storyGenerationId = progressive ? persistProgressiveProfileGeneration({
+  const storyGenerationId = persistProgressiveProfileGeneration({
     type,
     corpusGeneration: scan.generation,
     semanticRevision: String(semanticGeneration),
@@ -3094,36 +2130,11 @@ async function refreshStoryGraphForYouUnserialized(
     overlays: documents,
     evidenceRevision,
     now,
-  }) : reusableStoryGeneration({
-    type,
-    corpusGeneration: scan.generation,
-    verifiedCount: scan.verifiedCount,
-    profiledCount: profiledVerifiedCount,
-    rows: scan.rows,
-    inputByKey,
-    documents,
-    evidenceRevision,
-    modelVersion: generationModelVersion,
-  }) ?? persistStoryGeneration({
-      type,
-      corpusGeneration: scan.generation,
-      verifiedCount: scan.verifiedCount,
-      rows: scan.rows,
-      inputByKey,
-      documents,
-      failures,
-      evidenceRevision,
-      modelVersion: generationModelVersion,
-      now,
-      fault: dependencies.persistStoryGenerationFault,
-    });
-  const titles = progressive ? [...profiles.values()].map(contentProfileStoryGraphTitle) : [...documents].flatMap(([key, document]) => {
-    const storyInput = inputByKey.get(key);
-    return storyInput ? [graphTitle(storyInput, document)] : [];
   });
+  const titles = [...profiles.values()].map(contentProfileStoryGraphTitle);
   const candidateIds = scan.rows.flatMap((row) => {
     const key = contentKey(row.type, row.id);
-    return progressive ? (profiles.has(key) ? [key] : []) : (documents.has(key) ? [key] : []);
+    return profiles.has(key) ? [key] : [];
   });
   const candidateIdSet = new Set(candidateIds);
   const priorityPhase = options.rank_candidate_ids !== undefined;
@@ -3151,7 +2162,7 @@ async function refreshStoryGraphForYouUnserialized(
     throw error;
   }
   const workerLatency = Date.now() - rankStartedAt;
-  const calibration = progressive ? persistProgressiveCalibration({
+  const calibration = persistProgressiveCalibration({
     type,
     referenceRevision,
     tasteRevision: capturedTasteRevision,
@@ -3159,7 +2170,7 @@ async function refreshStoryGraphForYouUnserialized(
     profiles,
     ranked,
     now,
-  }) : [];
+  });
   const tasteGenerationId = persistTasteGeneration({
     type,
     storyGenerationId,
@@ -3177,8 +2188,8 @@ INSERT INTO vod_rank_generations(
 RETURNING rank_generation_id
 `).get(
     type,
-    progressive ? VOD_STORY_FRONTIER_MODEL_VERSION : VOD_STORY_GRAPH_MODEL_VERSION,
-    progressive ? VOD_CONTENT_PROFILE_VERSION : STORY_DNA_SCHEMA_VERSION,
+    VOD_STORY_FRONTIER_MODEL_VERSION,
+    VOD_CONTENT_PROFILE_VERSION,
     STORY_DNA_ONTOLOGY_VERSION,
     storyGenerationId,
     tasteGenerationId,
@@ -3213,9 +2224,7 @@ INSERT INTO vod_rank_items(
       const acquisitionResiduals = score
         ? progressiveAcquisitionResiduals(profile, score, calibration)
         : null;
-      const reason = progressive
-        ? progressiveExclusionReason(row, profile, signals)
-        : exclusionReason(row, documents.has(key), signals);
+      const reason = progressiveExclusionReason(row, profile, signals);
       // A partial reserve rescore records only candidates the ranker actually
       // inspected plus real eligibility vetoes. Untouched or unexpectedly
       // unscored corpus rows remain absent and visible as unscored coverage;
@@ -3239,18 +2248,16 @@ INSERT INTO vod_rank_items(
         score?.implicit_support ?? 0,
         score?.posterior_standard_deviation ?? 0,
         score?.rank_score ?? null,
-        progressive
-          ? profile?.profile_hash ?? row.evidence_hash
-          : documents.get(key) ? storyDnaDocumentHash(documents.get(key)!) : row.evidence_hash,
+        profile?.profile_hash ?? row.evidence_hash,
         reason === null && score ? 1 : 0,
         reason,
         now,
         now,
-        progressive ? profile?.profile_state ?? 'unrankable' : null,
+        profile?.profile_state ?? 'unrankable',
         score?.feature_confidence ?? profile?.feature_confidence ?? null,
         score && acquisitionResiduals ? score.rank_score + acquisitionResiduals.lower : null,
         score && acquisitionResiduals ? score.rank_score + acquisitionResiduals.upper : null,
-        progressive ? profile?.profile_hash ?? null : null,
+        profile?.profile_hash ?? null,
       );
     }
   })();
@@ -3282,11 +2289,9 @@ WHERE rank_generation_id = ?
   const freshRatings = listRatings(type, 'household');
   const freshSignals = readHouseholdSignals(type);
   const freshTasteRevision = tasteRevision(type, freshRatings, freshSignals, now);
-  const freshTeacherConfiguration = storyDnaTeacherConfiguration().revision;
-  const freshSemanticGeneration = progressive ? await currentSemanticGeneration() : 0;
+  const freshSemanticGeneration = await currentSemanticGeneration();
   if (freshCorpus !== scan.generation || freshTasteRevision !== capturedTasteRevision
-    || (!progressive && freshTeacherConfiguration !== teacherConfiguration.revision)
-    || (progressive && freshSemanticGeneration !== semanticGeneration)) {
+    || freshSemanticGeneration !== semanticGeneration) {
     markGenerationsStale(
       storyGenerationId,
       tasteGenerationId,
@@ -3295,7 +2300,7 @@ WHERE rank_generation_id = ?
         ? 'corpus_revision_changed'
         : freshTasteRevision !== capturedTasteRevision
           ? 'taste_revision_changed'
-          : progressive ? 'semantic_revision_changed' : 'teacher_configuration_changed',
+          : 'semantic_revision_changed',
     );
   }
   const newerActive = db.prepare(`
@@ -3416,11 +2421,10 @@ WHERE generation_id = ?
   const activationCorpus = await currentCorpusGeneration();
   const activationRatings = listRatings(type, 'household');
   const activationSignals = readHouseholdSignals(type);
-  const activationSemanticGeneration = progressive ? await currentSemanticGeneration() : 0;
+  const activationSemanticGeneration = await currentSemanticGeneration();
   if (activationCorpus !== scan.generation
     || tasteRevision(type, activationRatings, activationSignals, now) !== capturedTasteRevision
-    || (!progressive && storyDnaTeacherConfiguration().revision !== teacherConfiguration.revision)
-    || (progressive && activationSemanticGeneration !== semanticGeneration)) {
+    || activationSemanticGeneration !== semanticGeneration) {
     const activationTasteRevision = tasteRevision(
       type,
       activationRatings,
@@ -3435,9 +2439,7 @@ WHERE generation_id = ?
         ? 'corpus_revision_changed_before_activation'
         : activationTasteRevision !== capturedTasteRevision
           ? 'taste_revision_changed_before_activation'
-          : progressive
-            ? 'semantic_revision_changed_before_activation'
-            : 'teacher_configuration_changed_before_activation',
+          : 'semantic_revision_changed_before_activation',
     );
   }
   const activationPromotedActive = priorityPhase ? activePromotedStoryGraphGeneration(type) : null;
@@ -3465,17 +2467,15 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = ?
       requireSlate: activatesRank,
     });
   }
-  if (progressive) {
-    enqueueStoryDnaFrontierCandidates(selectProgressiveFrontierCandidates({
-      inputByKey,
-      profiles,
-      overlays: documents,
-      ratings,
-      signals,
-      ranked,
-      calibration,
-    }), now);
-  }
+  enqueueStoryDnaFrontierCandidates(selectProgressiveFrontierCandidates({
+    inputByKey,
+    profiles,
+    overlays: documents,
+    ratings,
+    signals,
+    ranked,
+    calibration,
+  }), now);
   return {
     tab,
     story_generation_id: storyGenerationId,
@@ -3484,9 +2484,9 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = ?
     corpus_generation: scan.generation,
     verified_count: scan.verifiedCount,
     profiled_count: scan.rows.filter((row) => documents.has(contentKey(row.type, row.id))).length,
-    retryable_failure_count: progressive
-      ? scan.rows.filter((row) => profiles.get(contentKey(row.type, row.id))?.profile_state === 'sparse_unresolved').length
-      : scan.rows.filter((row) => !documents.has(contentKey(row.type, row.id))).length,
+    retryable_failure_count: scan.rows.filter((row) => (
+      profiles.get(contentKey(row.type, row.id))?.profile_state === 'sparse_unresolved'
+    )).length,
     scored_count: eligibleCount,
     excluded_count: excludedCount,
     unscored_count: unscoredCount,
@@ -3504,7 +2504,6 @@ const storyGraphRefreshTails: Record<StoryGraphTab, Promise<void>> = {
   movies: Promise.resolve(),
   series: Promise.resolve(),
 };
-const storyGraphBackfillTimers = new Map<StoryGraphTab, ReturnType<typeof setTimeout>>();
 let storyDnaFrontierTimer: ReturnType<typeof setTimeout> | null = null;
 
 const TASTE_MUTATION_TRIGGER_REASONS = new Set([
@@ -3578,49 +2577,8 @@ async function refreshStoryGraphWithPriorityPhase(
   return refreshStoryGraphForYouUnserialized(tab, options);
 }
 
-function scheduleAutonomousStoryDnaBackfill(
-  tab: StoryGraphTab,
-  result: StoryGraphRefreshResult,
-): void {
-  if (vodContentProfileMode() === 'progressive-v2'
-    || process.env.MANGO_STORY_DNA_AUTONOMOUS_BACKFILL === '0'
-    || result.retryable_failure_count <= 0 || storyGraphBackfillTimers.has(tab)) return;
-  const type = contentTypeForTab(tab);
-  const backlog = libraryDatabase().prepare(`
-SELECT
-  SUM(CASE WHEN failure_reason = 'story-dna-backlog' THEN 1 ELSE 0 END) AS backlog_count,
-  MIN(CASE WHEN failure_reason != 'story-dna-backlog' THEN next_retry_at END) AS next_retry_at
-FROM vod_story_dna_documents
-WHERE generation_id = ? AND content_type = ? AND status = 'retryable_failure'
-`).get(result.story_generation_id, type) as {
-    backlog_count: number | null;
-    next_retry_at: number | null;
-  };
-  const immediateDelay = boundedInteger(
-    process.env.MANGO_STORY_DNA_BACKFILL_DELAY_MS,
-    1_000,
-    100,
-    60_000,
-  );
-  const delay = (backlog.backlog_count ?? 0) > 0
-    ? immediateDelay
-    : Math.max(immediateDelay, (backlog.next_retry_at ?? Date.now() + STORY_DNA_RETRY_MAX_MS) - Date.now());
-  const timer = setTimeout(() => {
-    storyGraphBackfillTimers.delete(tab);
-    void refreshStoryGraphForYou(tab, { trigger_reasons: ['story_dna_backfill'] })
-      .catch((error) => {
-        console.warn(`StoryDNA autonomous ${tab} backfill retained last-good: ${
-          error instanceof Error ? error.message : String(error)
-        }`);
-      });
-  }, delay);
-  timer.unref?.();
-  storyGraphBackfillTimers.set(tab, timer);
-}
-
 function scheduleStoryDnaFrontierWorker(): void {
-  if (vodContentProfileMode() !== 'progressive-v2'
-    || storyDnaWorkerMode() !== 'frontier' || storyDnaFrontierTimer) return;
+  if (storyDnaWorkerMode() !== 'frontier' || storyDnaFrontierTimer) return;
   const delay = boundedInteger(
     process.env.MANGO_STORY_DNA_FRONTIER_COALESCE_MS,
     15 * 60 * 1_000,
@@ -3656,8 +2614,7 @@ export function refreshStoryGraphForYou(
   storyGraphRefreshTails[tab] = run.then(() => undefined, () => undefined);
   if (options.dependencies !== undefined) return run;
   return run.then((result) => {
-    if (vodContentProfileMode() === 'progressive-v2') scheduleStoryDnaFrontierWorker();
-    else scheduleAutonomousStoryDnaBackfill(tab, result);
+    scheduleStoryDnaFrontierWorker();
     return result;
   });
 }
@@ -4006,7 +2963,6 @@ export type StoryGraphDiagnostics = {
       upper_residual: number | null;
     };
     stale_reasons: string[];
-    lookup: StoryDnaLookupStatus | null;
     low_water: StoryGraphLowWaterRequest | null;
     evaluation: StoryGraphOfflineEvaluation | null;
   }>;
@@ -4124,7 +3080,6 @@ WHERE reference_revision = ? AND content_type = ? AND taste_revision = ? AND str
         upper_residual: calibration?.upper_residual ?? null,
       },
       stale_reasons: row?.last_error ? [row.last_error] : [],
-      lookup: storyDnaLookupStatus(type),
       low_water: (() => {
         const state = db.prepare(`
 SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
@@ -4140,8 +3095,7 @@ SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
     };
   });
   return {
-    model_version: vodContentProfileMode() === 'progressive-v2'
-      ? VOD_STORY_FRONTIER_MODEL_VERSION : VOD_STORY_GRAPH_MODEL_VERSION,
+    model_version: VOD_STORY_FRONTIER_MODEL_VERSION,
     profile_mode: vodContentProfileMode(),
     frontier: storyDnaFrontierDiagnostics(),
     tmdb: tmdbMetadataStatus(),

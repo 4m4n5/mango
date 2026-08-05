@@ -277,26 +277,6 @@ export class YoutubeApiClient {
     return filtered;
   }
 
-  async popular(limit = 25, options: {
-    regionCode?: string;
-    videoCategoryId?: string;
-  } = {}): Promise<YoutubeItem[]> {
-    const payload = await this.request('videos', {
-      part: 'snippet,contentDetails,liveStreamingDetails',
-      chart: 'mostPopular',
-      maxResults: Math.min(limit, 50),
-      regionCode: options.regionCode || this.config.region_code,
-      videoCategoryId: options.videoCategoryId,
-    }) as { items?: VideoItem[] };
-    const items = (payload.items || []).map((entry) => itemFromSnippet('video', entry.id || '', entry.snippet, {
-      duration_sec: parseYoutubeDurationSec(entry.contentDetails?.duration),
-      live_status: videoLiveStatus(entry.snippet, entry.liveStreamingDetails),
-    })).filter((entry) => entry.id);
-    const filtered = this.config.exclude_shorts ? items.filter((item) => !isShortLike(item)) : items;
-    upsertYoutubeItems(filtered);
-    return filtered;
-  }
-
   async playlistItems(
     playlistId: string,
     limit = 25,

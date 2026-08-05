@@ -84,13 +84,11 @@ test('exact job lookup survives newer diagnostics-window traffic', () => withLib
 
 test('VOD enqueue capture records the durable corpus and personalization revisions', () => withLibrary(() => {
   const captured = captureVodRecommendationRevisions('movies', {
-    profile_id: 'household',
     corpus_generation: 42,
     captured_at: 99,
   });
   assert.equal(captured.captured_at, 99);
   assert.equal(captured.corpus_generation, 42);
-  assert.equal(captured.legacy_revision, 0);
   assert.equal(typeof captured.personalization_revision, 'number');
   assert.equal(captured.active_rank_generation, null);
 }));

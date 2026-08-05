@@ -120,10 +120,10 @@ test('recommendation revision fences are independent per VOD media type', () => 
   assert.equal(fence.isCurrent('series', series), true);
 });
 
-test('serve mode binds VOD utility rails to exact Household while off and shadow preserve profile owner', () => {
+test('active recommendation modes bind VOD utility rails to exact Household', () => {
   assert.equal(vodUtilityProfileId('movies', 'personal-only', 'serve'), 'household');
   assert.equal(vodUtilityProfileId('series', 'personal-only', 'serve'), 'household');
-  assert.equal(vodUtilityProfileId('movies', 'personal-only', 'shadow'), 'personal-only');
+  assert.equal(vodUtilityProfileId('movies', 'personal-only', 'shadow'), 'household');
   assert.equal(vodUtilityProfileId('movies', 'personal-only', 'off'), 'personal-only');
   assert.equal(vodUtilityProfileId('live', 'personal-only', 'serve'), 'personal-only');
 });

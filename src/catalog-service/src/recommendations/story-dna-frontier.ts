@@ -4,7 +4,7 @@ import {
   refreshStoryDnaTeacherCache,
   storyDnaTeacherConfiguration,
   type StoryDnaTeacherRefreshResult,
-} from './ai.js';
+} from './story-dna-teacher.js';
 import {
   stableStoryDnaJson,
   type StoryDnaInput,

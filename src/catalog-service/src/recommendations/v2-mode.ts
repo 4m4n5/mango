@@ -8,14 +8,13 @@ export function vodRecommendationsV2Mode(
 }
 
 export function vodRecommendationsHouseholdOnly(raw = process.env.MANGO_VOD_RECS_V2): boolean {
-  return vodRecommendationsV2Mode(raw) === 'serve';
+  return vodRecommendationsV2Mode(raw) !== 'off';
 }
 
 /**
- * Profile/mood ownership belongs to the VOD rollout boundary. YouTube v2 has
- * its own household-scoped ranking inputs, but enabling it must not mutate the
- * active VOD profile or hide the global personalization controls while VOD v2
- * remains off/shadow.
+ * Profile/mood rows remain durable, but the latest recommendation architecture
+ * is Household-only in both shadow and serve. Shadow changes visibility, not
+ * rank identity.
  *
  * Keep the YouTube argument explicit so mixed-mode behavior is intentional and
  * exhaustively testable rather than an accidental consequence of call sites.
@@ -31,8 +30,8 @@ export function recommendationsHouseholdOnlyForRollout(
 /**
  * Resolve the immutable owner used by a domain's served-slate tokens and watch
  * events. This is deliberately separate from the global personalization UI:
- * YouTube v2 can use Household signals while a personal profile remains active
- * for legacy/shadow VOD.
+ * YouTube v2 can use Household signals while personal profile rows remain
+ * dormant and recoverable.
  */
 export function recommendationOwnerForRollout(
   domain: 'vod' | 'youtube',
@@ -42,6 +41,6 @@ export function recommendationOwnerForRollout(
 ): string {
   const domainServesHousehold = domain === 'vod'
     ? vodRecommendationsHouseholdOnly(vodRaw)
-    : youtubeRaw?.trim().toLowerCase() === 'serve';
+    : ['shadow', 'serve'].includes(youtubeRaw?.trim().toLowerCase() ?? '');
   return domainServesHousehold ? 'household' : activeProfileId;
 }

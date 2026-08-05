@@ -53,10 +53,10 @@ test('mutation attribution binds the exact item and rejects partial or injected 
   activateViewerProfile(alice.profile_id);
   const served = registerRecommendationServedSlate({
     profile_id: alice.profile_id,
-    domain: 'vod',
-    rail_id: 'for-you-movies',
+    domain: 'youtube',
+    rail_id: 'for_you',
     source_revision: 4,
-    items: [{ type: 'movie', id: 'tt-one', rank: 0 }],
+    items: [{ type: 'youtube_video', id: 'video-one', rank: 0 }],
   });
   const proof = {
     attribution_token: served.attribution_token,
@@ -66,14 +66,14 @@ test('mutation attribution binds the exact item and rejects partial or injected 
 
   assert.equal(validateOptionalRecommendationMutationAttribution(
     proof,
-    'vod',
-    { type: 'movie', id: 'tt-one' },
+    'youtube',
+    { type: 'youtube_video', id: 'video-one' },
   )?.profile_id, alice.profile_id);
   assertConflict(
     () => validateOptionalRecommendationMutationAttribution(
       { attribution_token: served.attribution_token, rail_id: served.rail_id },
-      'vod',
-      { type: 'movie', id: 'tt-one' },
+      'youtube',
+      { type: 'youtube_video', id: 'video-one' },
     ),
     /incomplete/,
   );
@@ -81,30 +81,30 @@ test('mutation attribution binds the exact item and rejects partial or injected 
     assertConflict(
       () => validateOptionalRecommendationMutationAttribution(
         { ...proof, slate_revision: invalidRevision },
-        'vod',
-        { type: 'movie', id: 'tt-one' },
+        'youtube',
+        { type: 'youtube_video', id: 'video-one' },
       ),
       /incomplete/,
     );
   }
   assert.equal(validateOptionalRecommendationMutationAttribution(
     { ...proof, slate_revision: String(served.slate_revision) },
-    'vod',
-    { type: 'movie', id: 'tt-one' },
+    'youtube',
+    { type: 'youtube_video', id: 'video-one' },
   )?.profile_id, alice.profile_id);
   assertConflict(
     () => validateOptionalRecommendationMutationAttribution(
       proof,
-      'vod',
-      { type: 'movie', id: 'tt-injected' },
+      'youtube',
+      { type: 'youtube_video', id: 'video-injected' },
     ),
     /no longer current/,
   );
   assertConflict(
     () => validateOptionalRecommendationMutationAttribution(
       proof,
-      'youtube',
-      { type: 'movie', id: 'tt-one' },
+      'vod',
+      { type: 'youtube_video', id: 'video-one' },
     ),
     /no longer current/,
   );

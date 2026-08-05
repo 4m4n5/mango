@@ -6,41 +6,16 @@ import Database from 'better-sqlite3';
 import test from 'node:test';
 import {
   getYoutubeSearchCache,
-  getYoutubeItem,
   initYoutubeDb,
   incrementYoutubeQuota,
-  listBecauseYouWatchedCandidates,
-  listFreshFindCandidates,
-  listForYouCandidates,
-  listLiveNowCandidates,
-  listPopularCandidates,
   listYoutubeProfileCandidateStates,
-  listYoutubeRailItems,
   listYoutubeV2CandidateProvenance,
-  noteBecauseYouWatchedExposures,
-  noteFreshFindExposures,
-  noteForYouExposures,
-  noteLiveNowExposures,
-  notePopularExposures,
   recordYoutubeImpressions,
   putYoutubeSearchCache,
-  replaceForYouCandidates,
-  replaceYoutubeRailItems,
   resetYoutubeDbForTests,
-  setBecauseYouWatchedCandidateStats,
-  setFreshFindCandidateStats,
-  setForYouCandidateStats,
-  setLiveNowCandidateStats,
-  setPopularCandidateStats,
   setYoutubeProfileCandidateState,
   setYoutubeState,
-  upsertBecauseYouWatchedCandidates,
-  upsertFreshFindCandidates,
-  upsertForYouCandidates,
-  upsertLiveNowCandidates,
-  upsertPopularCandidates,
   upsertYoutubeV2CandidateProvenance,
-  youtubeCacheSummary,
   youtubeQuotaDecision,
   youtubeRefreshStatus,
   youtubeSearchCacheSummary,
@@ -103,34 +78,39 @@ test('initYoutubeDb creates WAL cache schema', () => withTempYoutube((dir) => {
   }
 }));
 
-test('profile candidate migration preserves legacy Household cooldown counters', () => withTempYoutube((dir) => {
-  upsertForYouCandidates([{
-    item: sampleItem('LegacyExposure'),
-    lane: 'familiar',
-    source: 'history',
-    source_weight: 1,
-    topic_cluster: 'legacy',
-    score: 1,
-    reason: 'legacy',
-  }]);
-  noteForYouExposures(['LegacyExposure'], 1234);
-  setForYouCandidateStats('LegacyExposure', { quick_stop_count: 2 });
+test('latest-only startup preserves historical recommendation rows', () => withTempYoutube((dir) => {
+  initYoutubeDb();
+  const path = join(dir, 'youtube.db');
   resetYoutubeDbForTests();
-
-  const legacy = new Database(join(dir, 'youtube.db'));
-  legacy.prepare('DELETE FROM youtube_profile_candidate_state').run();
-  legacy.prepare('DELETE FROM youtube_migrations WHERE version = 10').run();
-  legacy.close();
+  const before = new Database(path);
+  before.prepare(`
+INSERT INTO youtube_items(
+  kind, id, title, subtitle, description, thumbnail, channel_id, channel_title,
+  published_at, duration_sec, live_status, playlist_id, raw_json, first_seen_at, updated_at
+) VALUES ('video', 'HistoricalCandidate', 'Historical candidate', '', NULL, NULL,
+  NULL, NULL, NULL, NULL, 'none', NULL, NULL, 1, 1)
+`).run();
+  before.prepare(`
+INSERT INTO youtube_for_you_candidates(
+  kind, id, lane, source, source_weight, topic_cluster, score,
+  score_breakdown, reason, created_at, updated_at
+) VALUES ('video', 'HistoricalCandidate', 'legacy', 'legacy', 1, 'legacy', 1,
+  '{}', 'preserved', 1, 1)
+`).run();
+  before.close();
 
   initYoutubeDb();
-  const migrated = listYoutubeProfileCandidateStates({
-    profile_id: 'household',
-    rail_id: 'for_you',
-  });
-  assert.equal(migrated[0]?.id, 'LegacyExposure');
-  assert.equal(migrated[0]?.last_recommended_at, 1234);
-  assert.equal(migrated[0]?.exposure_count, 1);
-  assert.equal(migrated[0]?.quick_stop_count, 2);
+  resetYoutubeDbForTests();
+  const after = new Database(path, { readonly: true });
+  try {
+    assert.equal(
+      (after.prepare("SELECT COUNT(*) AS count FROM youtube_for_you_candidates WHERE id = 'HistoricalCandidate'")
+        .get() as { count: number }).count,
+      1,
+    );
+  } finally {
+    after.close();
+  }
 }));
 
 test('v15 preserves provenance while allowing lane generations to coexist', () => withTempYoutube((dir) => {
@@ -216,7 +196,7 @@ test('rendered impressions are idempotent per profile slate but independent acro
 test('profile candidate state keeps rail contexts and counters isolated', () => withTempYoutube(() => {
   setYoutubeProfileCandidateState({
     profile_id: 'alice',
-    rail_id: 'because_you_watched',
+    rail_id: 'more_like',
     context_id: 'seed-a',
     id: 'follow-up',
     last_recommended_at: 2000,
@@ -224,13 +204,13 @@ test('profile candidate state keeps rail contexts and counters isolated', () => 
     quick_stop_count: 1,
   });
   assert.equal(listYoutubeProfileCandidateStates({
-    profile_id: 'alice', rail_id: 'because_you_watched', context_id: 'seed-a',
+    profile_id: 'alice', rail_id: 'more_like', context_id: 'seed-a',
   })[0]?.exposure_count, 3);
   assert.deepEqual(listYoutubeProfileCandidateStates({
-    profile_id: 'alice', rail_id: 'because_you_watched', context_id: 'seed-b',
+    profile_id: 'alice', rail_id: 'more_like', context_id: 'seed-b',
   }), []);
   assert.deepEqual(listYoutubeProfileCandidateStates({
-    profile_id: 'bob', rail_id: 'because_you_watched', context_id: 'seed-a',
+    profile_id: 'bob', rail_id: 'more_like', context_id: 'seed-a',
   }), []);
 }));
 
@@ -303,234 +283,4 @@ test('YouTube quota reader normalizes an existing old-model daily record', () =>
   assert.equal(normalized.search_calls_today, 2);
   incrementYoutubeQuota(1);
   assert.equal(youtubeRefreshStatus().quota_used_today, 2);
-}));
-
-test('rail replacement upserts cached items and keeps case-sensitive ids', () => withTempYoutube(() => {
-  const item = sampleItem('AbC_123-XyZ');
-  replaceYoutubeRailItems('popular', [{ item, score: 1, reason: 'test' }]);
-  assert.equal(getYoutubeItem('video', 'AbC_123-XyZ')?.id, 'AbC_123-XyZ');
-  assert.equal(listYoutubeRailItems('popular').length, 1);
-  assert.deepEqual(youtubeCacheSummary().rail_ids, ['popular']);
-}));
-
-test('for you reservoir stores source, score breakdown, and exposure state', () => withTempYoutube(() => {
-  const item = sampleItem('Candidate1');
-  upsertForYouCandidates([{
-    item,
-    lane: 'familiar',
-    source: 'history',
-    source_weight: 1.05,
-    topic_cluster: 'deep:dive',
-    score: 3.2,
-    score_breakdown: { channel: 1, topic: 0.7 },
-    reason: 'for_you:history',
-  }]);
-  let candidates = listForYouCandidates();
-  assert.equal(candidates.length, 1);
-  assert.equal(candidates[0]?.source, 'history');
-  assert.equal(candidates[0]?.lane, 'familiar');
-  assert.deepEqual(candidates[0]?.score_breakdown, { channel: 1, topic: 0.7 });
-  assert.equal(candidates[0]?.exposure_count, 0);
-
-  noteForYouExposures(['Candidate1'], 5000);
-  setForYouCandidateStats('Candidate1', { quick_stop_count: 2 });
-  candidates = listForYouCandidates();
-  assert.equal(candidates[0]?.last_recommended_at, 5000);
-  assert.equal(candidates[0]?.exposure_count, 1);
-  assert.equal(candidates[0]?.ignore_count, 0);
-  assert.equal(candidates[0]?.quick_stop_count, 2);
-}));
-
-test('for you reservoir replacement prunes stale candidates and preserves retained profile state', () => withTempYoutube(() => {
-  const candidate = (id: string, score: number) => ({
-    item: sampleItem(id),
-    lane: 'wildcard',
-    source: 'wildcard',
-    source_weight: 0.08,
-    topic_cluster: `topic:${id}`,
-    score,
-    score_breakdown: { score },
-    reason: 'shared-pool',
-  });
-  upsertForYouCandidates([
-    candidate('Retained', 3),
-    candidate('Removed', 2),
-  ]);
-  noteForYouExposures(['Retained'], 5_000);
-  setForYouCandidateStats('Retained', { quick_stop_count: 2 });
-  setYoutubeProfileCandidateState({
-    profile_id: 'alice', rail_id: 'for_you', id: 'Retained',
-    last_recommended_at: 6_000, exposure_count: 4,
-  });
-  setYoutubeProfileCandidateState({
-    profile_id: 'alice', rail_id: 'for_you', id: 'Removed', exposure_count: 3,
-  });
-  setYoutubeProfileCandidateState({
-    profile_id: 'bob', rail_id: 'for_you', id: 'Retained', exposure_count: 2,
-  });
-  setYoutubeProfileCandidateState({
-    profile_id: 'alice', rail_id: 'popular', id: 'Removed', exposure_count: 9,
-  });
-
-  replaceForYouCandidates([
-    candidate('Retained', 4),
-    candidate('Added', 1),
-  ]);
-
-  const reservoir = listForYouCandidates();
-  assert.deepEqual(reservoir.map((item) => item.id), ['Retained', 'Added']);
-  assert.equal(reservoir.find((item) => item.id === 'Retained')?.exposure_count, 1);
-  assert.equal(reservoir.find((item) => item.id === 'Retained')?.quick_stop_count, 2);
-  assert.deepEqual(
-    listYoutubeProfileCandidateStates({ profile_id: 'alice', rail_id: 'for_you' })
-      .map((item) => [item.id, item.exposure_count]),
-    [['Retained', 4]],
-  );
-  assert.deepEqual(
-    listYoutubeProfileCandidateStates({ profile_id: 'bob', rail_id: 'for_you' })
-      .map((item) => [item.id, item.exposure_count]),
-    [['Retained', 2]],
-  );
-  assert.equal(
-    listYoutubeProfileCandidateStates({ profile_id: 'alice', rail_id: 'popular' })[0]?.exposure_count,
-    9,
-  );
-
-  // An empty acquisition result is not publication and retains last-good.
-  replaceForYouCandidates([]);
-  assert.deepEqual(listForYouCandidates().map((item) => item.id), ['Retained', 'Added']);
-}));
-
-test('fresh finds reservoir stores source bucket, stats, and exposure state', () => withTempYoutube(() => {
-  const item = sampleItem('FreshCandidate1');
-  upsertFreshFindCandidates([{
-    item,
-    source_bucket: 'emerging_creator',
-    query: 'small channel science explained',
-    topic_cluster: 'science:explained',
-    score: 2.8,
-    score_breakdown: { freshness: 1, creator: 0.45 },
-    creator_subscriber_count: 120000,
-    creator_video_count: 85,
-    reason: 'fresh_find:emerging_creator',
-  }]);
-  let candidates = listFreshFindCandidates();
-  assert.equal(candidates.length, 1);
-  assert.equal(candidates[0]?.source_bucket, 'emerging_creator');
-  assert.equal(candidates[0]?.query, 'small channel science explained');
-  assert.equal(candidates[0]?.creator_subscriber_count, 120000);
-  assert.deepEqual(candidates[0]?.score_breakdown, { freshness: 1, creator: 0.45 });
-  assert.equal(candidates[0]?.exposure_count, 0);
-
-  noteFreshFindExposures(['FreshCandidate1'], 6000);
-  setFreshFindCandidateStats('FreshCandidate1', { quick_stop_count: 1 });
-  candidates = listFreshFindCandidates();
-  assert.equal(candidates[0]?.last_recommended_at, 6000);
-  assert.equal(candidates[0]?.exposure_count, 1);
-  assert.equal(candidates[0]?.ignore_count, 0);
-  assert.equal(candidates[0]?.quick_stop_count, 1);
-}));
-
-test('live now reservoir stores lane, ttl, and exposure state', () => withTempYoutube(() => {
-  const item = { ...sampleItem('LiveCandidate1'), live_status: 'live' as const };
-  upsertLiveNowCandidates([{
-    item,
-    source_lane: 'news_events',
-    query: 'breaking news live',
-    topic_cluster: 'breaking:news',
-    score: 4.2,
-    score_breakdown: { lane: 'news_events', quality: 0.8 },
-    reason: 'live_now:news_events',
-    last_verified_at: 5000,
-    expires_at: 7_205_000,
-  }]);
-  let candidates = listLiveNowCandidates();
-  assert.equal(candidates.length, 1);
-  assert.equal(candidates[0]?.source_lane, 'news_events');
-  assert.equal(candidates[0]?.query, 'breaking news live');
-  assert.equal(candidates[0]?.last_verified_at, 5000);
-  assert.equal(candidates[0]?.expires_at, 7_205_000);
-  assert.deepEqual(candidates[0]?.score_breakdown, { lane: 'news_events', quality: 0.8 });
-  assert.equal(candidates[0]?.exposure_count, 0);
-
-  noteLiveNowExposures(['LiveCandidate1'], 6000);
-  setLiveNowCandidateStats('LiveCandidate1', { quick_stop_count: 3 });
-  candidates = listLiveNowCandidates();
-  assert.equal(candidates[0]?.last_recommended_at, 6000);
-  assert.equal(candidates[0]?.exposure_count, 1);
-  assert.equal(candidates[0]?.ignore_count, 0);
-  assert.equal(candidates[0]?.quick_stop_count, 3);
-}));
-
-test('popular reservoir stores region, category, and exposure state', () => withTempYoutube(() => {
-  const item = sampleItem('PopularCandidate1');
-  upsertPopularCandidates([{
-    item,
-    source_region: 'IN',
-    category_id: '24',
-    category_label: 'entertainment',
-    topic_cluster: 'popular:entertainment',
-    score: 2.9,
-    score_breakdown: { rank: 1, region: 'IN' },
-    reason: 'popular:entertainment:IN',
-  }]);
-  let candidates = listPopularCandidates();
-  assert.equal(candidates.length, 1);
-  assert.equal(candidates[0]?.source_region, 'IN');
-  assert.equal(candidates[0]?.category_id, '24');
-  assert.equal(candidates[0]?.category_label, 'entertainment');
-  assert.deepEqual(candidates[0]?.score_breakdown, { rank: 1, region: 'IN' });
-  assert.equal(candidates[0]?.exposure_count, 0);
-
-  notePopularExposures(['PopularCandidate1'], 7000);
-  setPopularCandidateStats('PopularCandidate1', { quick_stop_count: 4 });
-  candidates = listPopularCandidates();
-  assert.equal(candidates[0]?.last_recommended_at, 7000);
-  assert.equal(candidates[0]?.exposure_count, 1);
-  assert.equal(candidates[0]?.ignore_count, 0);
-  assert.equal(candidates[0]?.quick_stop_count, 4);
-}));
-
-test('because you watched reservoir is seed-scoped and tracks exposure state', () => withTempYoutube(() => {
-  const item = sampleItem('FollowUpCandidate1');
-  upsertBecauseYouWatchedCandidates([{
-    item,
-    seed_video_id: 'SeedVideo1',
-    seed_watched_at: 7000,
-    relation_type: 'same_topic',
-    query: 'seed topic explained',
-    topic_cluster: 'seed:topic',
-    score: 3.4,
-    score_breakdown: { seed: 1, topic: 0.9 },
-    reason: 'because_you_watched:same_topic',
-  }, {
-    item,
-    seed_video_id: 'SeedVideo2',
-    seed_watched_at: 8000,
-    relation_type: 'wildcard',
-    query: 'adjacent topic',
-    topic_cluster: 'adjacent:topic',
-    score: 1.2,
-    score_breakdown: { wildcard: 1 },
-    reason: 'because_you_watched:wildcard',
-  }]);
-
-  let seedOne = listBecauseYouWatchedCandidates('SeedVideo1');
-  const seedTwo = listBecauseYouWatchedCandidates('SeedVideo2');
-  assert.equal(seedOne.length, 1);
-  assert.equal(seedTwo.length, 1);
-  assert.equal(seedOne[0]?.relation_type, 'same_topic');
-  assert.equal(seedTwo[0]?.relation_type, 'wildcard');
-  assert.deepEqual(seedOne[0]?.score_breakdown, { seed: 1, topic: 0.9 });
-
-  noteBecauseYouWatchedExposures('SeedVideo1', ['FollowUpCandidate1'], 9000);
-  setBecauseYouWatchedCandidateStats('SeedVideo1', 'FollowUpCandidate1', { quick_stop_count: 2 });
-  seedOne = listBecauseYouWatchedCandidates('SeedVideo1');
-  const unchangedSeedTwo = listBecauseYouWatchedCandidates('SeedVideo2');
-  assert.equal(seedOne[0]?.last_recommended_at, 9000);
-  assert.equal(seedOne[0]?.exposure_count, 1);
-  assert.equal(seedOne[0]?.ignore_count, 0);
-  assert.equal(seedOne[0]?.quick_stop_count, 2);
-  assert.equal(unchangedSeedTwo[0]?.last_recommended_at, null);
-  assert.equal(unchangedSeedTwo[0]?.exposure_count, 0);
 }));

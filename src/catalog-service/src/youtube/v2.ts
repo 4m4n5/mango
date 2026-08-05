@@ -71,18 +71,6 @@ export function youtubePublicPersonalizationPayload<T extends {
   };
 }
 
-/**
- * Legacy play-start acquisition treated a bare start as recommendation
- * evidence and could spend search quota before meaningful viewing existed.
- * Shadow keeps the established acquisition path warm for rollback comparison;
- * only serve removes bare-play acquisition from the active system.
- */
-export function youtubePlayStartUsesLegacyAcquisition(
-  raw = process.env.MANGO_YOUTUBE_RECS_V2,
-): boolean {
-  return youtubeRecommendationsV2Mode(raw) !== 'serve';
-}
-
 export type YoutubeV2SourceStaleState = {
   stale: boolean;
   reason: string | null;
