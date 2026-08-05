@@ -49,10 +49,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/voice/tools.test.js \
     dist/search/normalize.test.js \
     dist/search/service.test.js \
-    dist/youtube/db.test.js \
-    dist/youtube/api.test.js \
-    dist/youtube/playback.test.js \
-    dist/youtube/service.test.js \
+    dist/youtube/*.test.js \
     dist/core-library-rails.test.js \
     dist/ai-catalogs/store.test.js \
     dist/ai-catalogs/list-source.test.js \
