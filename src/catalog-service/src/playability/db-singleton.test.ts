@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   getPlayabilityDb,
+  getPlayabilityStatus,
   initPlayabilityDb,
   prunePlayabilityMaintenance,
   resetPlayabilityDbForTests,
@@ -47,6 +48,21 @@ test('singleton applies busy_timeout and WAL journal on first creation', async (
     assert.equal(String(journal).toLowerCase(), 'wal');
     assert.equal(sync, 1, 'synchronous should be NORMAL (1)');
     assert.equal(temp, 2, 'temp_store should be MEMORY (2)');
+  });
+});
+
+test('playability status reports the latest applied schema migration', async () => {
+  await withTempDb(async () => {
+    await initPlayabilityDb();
+    const db = getPlayabilityDb();
+    const latestMigration = db.prepare(`
+SELECT COALESCE(MAX(version), 0) AS version
+FROM playability_migrations;
+`).get() as { version: number };
+    const status = await getPlayabilityStatus([]);
+
+    assert.equal(latestMigration.version, 14);
+    assert.equal(status.schema_version, latestMigration.version);
   });
 });
 

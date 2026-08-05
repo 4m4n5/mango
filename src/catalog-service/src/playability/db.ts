@@ -22,7 +22,7 @@ import { playabilityPlayFailureRetryMs } from './config.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 
 export type StreamCapabilityClass = 'proven_smooth' | 'unknown' | 'known_risky';
 
