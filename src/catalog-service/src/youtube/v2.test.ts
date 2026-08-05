@@ -219,6 +219,77 @@ test('YouTube v2 flag fails safely to off', () => {
   assert.equal(youtubeRecommendationsV2Mode('true'), 'off');
 });
 
+test('off, shadow, and serve return utility rails owned by the mode-authoritative profile', () => withTempState(async () => {
+  const now = Date.now();
+  const householdItems = Array.from({ length: 8 }, (_, index) => video(
+    `ModeHousehold${index}`,
+    `Household utility ${index}`,
+    `household-channel-${index}`,
+  ));
+  const personalItems = Array.from({ length: 8 }, (_, index) => video(
+    `ModePersonal${index}`,
+    `Personal utility ${index}`,
+    `personal-channel-${index}`,
+  ));
+  upsertYoutubeItems([...householdItems, ...personalItems]);
+  const personal = createViewerProfile('Mode Owner');
+  for (const [index, item] of householdItems.entries()) {
+    if (index < 4) {
+      saveLibraryItem({
+        profile_id: 'household', source: 'youtube', type: 'youtube_video', id: item.id,
+        title: item.title, poster: item.thumbnail, tab: 'youtube', saved_at: now + index,
+      });
+    } else {
+      recordLibraryWatch({
+        profile_id: 'household', source: 'youtube', type: 'youtube_video', id: item.id,
+        play_id: item.id, title: item.title, duration_sec: 600, position_sec: 60,
+        event: 'play', watched_at: now + index,
+      });
+    }
+  }
+  for (const [index, item] of personalItems.entries()) {
+    if (index < 4) {
+      saveLibraryItem({
+        profile_id: personal.profile_id, source: 'youtube', type: 'youtube_video', id: item.id,
+        title: item.title, poster: item.thumbnail, tab: 'youtube', saved_at: now + index,
+      });
+    } else {
+      recordLibraryWatch({
+        profile_id: personal.profile_id, source: 'youtube', type: 'youtube_video', id: item.id,
+        play_id: item.id, title: item.title, duration_sec: 600, position_sec: 60,
+        event: 'play', watched_at: now + index,
+      });
+    }
+  }
+  activateViewerProfile(personal.profile_id);
+  const service = new YoutubeService();
+  const expectedIds = (prefix: string) => new Set(Array.from({ length: 8 }, (_, index) => `${prefix}${index}`));
+
+  for (const mode of ['off', 'shadow', 'serve'] as const) {
+    process.env.MANGO_YOUTUBE_RECS_V2 = mode;
+    const response = await service.rails();
+    const expectedOwner = mode === 'off' ? personal.profile_id : 'household';
+    assert.equal(response.profile_id, expectedOwner, `${mode} internal owner`);
+    const utilityIds = response.rails
+      .filter((rail) => rail.rail_id === 'history' || rail.rail_id === 'saved')
+      .flatMap((rail) => rail.items.map((item) => item.id));
+    assert.equal(utilityIds.length, 8, `${mode} utility rail supply`);
+    assert.deepEqual(
+      new Set(utilityIds),
+      expectedIds(mode === 'off' ? 'ModePersonal' : 'ModeHousehold'),
+      `${mode} utility ownership`,
+    );
+    if (mode !== 'serve') {
+      const attemptedShuffle = await service.rails({ reshuffle: true });
+      assert.equal(
+        attemptedShuffle.slate_sequence,
+        response.slate_sequence,
+        `${mode} must not advance a hidden recommendation epoch`,
+      );
+    }
+  }
+}));
+
 test('daily More Like selection is deterministic and weighted by decayed watch strength', () => {
   const candidates = [
     { id: 'strong-complete', weight: 25 },

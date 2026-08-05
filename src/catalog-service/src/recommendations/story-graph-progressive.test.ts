@@ -15,6 +15,7 @@ import {
   storyGraphDiagnostics,
   type StoryGraphRefreshDependencies,
 } from './story-graph-service.js';
+import { loadForYouRail } from './service.js';
 
 async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> {
   const directory = await mkdtemp(join(tmpdir(), 'mango-progressive-story-'));
@@ -23,6 +24,7 @@ async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> 
     pins: process.env.MANGO_USER_PINS_PATH,
     playability: process.env.MANGO_PLAYABILITY_DB,
     worker: process.env.MANGO_STORY_DNA_WORKER_MODE,
+    vodMode: process.env.MANGO_VOD_RECS_V2,
   };
   process.env.MANGO_LIBRARY_DB_PATH = join(directory, 'library.db');
   process.env.MANGO_USER_PINS_PATH = join(directory, 'pins.json');
@@ -41,7 +43,8 @@ async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> 
       const key = name === 'library' ? 'MANGO_LIBRARY_DB_PATH'
         : name === 'pins' ? 'MANGO_USER_PINS_PATH'
           : name === 'playability' ? 'MANGO_PLAYABILITY_DB'
-            : 'MANGO_STORY_DNA_WORKER_MODE';
+            : name === 'worker' ? 'MANGO_STORY_DNA_WORKER_MODE'
+              : 'MANGO_VOD_RECS_V2';
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
@@ -112,6 +115,7 @@ function passingEvaluation(input: Parameters<NonNullable<StoryGraphRefreshDepend
 
 test('progressive full-corpus refresh accounts for sparse titles without a teacher dependency', async () => {
   await withProgressiveDatabases(async () => {
+    process.env.MANGO_VOD_RECS_V2 = 'serve';
     seedTitles('movie', 205);
     putRating({
       profile_id: 'household', type: 'movie', id: 'm000', title: 'Movie 0',
@@ -164,6 +168,59 @@ WHERE rank_generation_id = ? AND content_id = 'm204'
     assert.equal(diagnostics.domains[0]?.calibration.status, 'insufficient');
     assert.ok((diagnostics.domains[0]?.family_coverage['genre-subgenre'] ?? 0) >= 204);
     assert.ok((diagnostics.domains[0]?.edge_sources.metadata_fact ?? 0) > 0);
+    assert.deepEqual(diagnostics.domains[0]?.serving_pointer, {
+      active_ready: true,
+      active_rank_generation_id: result.rank_generation_id,
+      previous_complete_rank_generation_id: null,
+      active_story_generation_id: diagnostics.domains[0]?.story_generation_id ?? null,
+      active_taste_generation_id: diagnostics.domains[0]?.taste_generation_id ?? null,
+      active_model_version: 'vod-story-frontier-v1',
+      active_status: 'complete',
+      active_published_at: diagnostics.domains[0]?.last_good_publication ?? null,
+      shuffle_epoch: 0,
+      updated_at: diagnostics.domains[0]?.last_good_publication ?? null,
+      promotion_rank_generation_id: result.rank_generation_id,
+      promotion_eligible: true,
+      public_rank_generation_id: result.rank_generation_id,
+      public_shuffle_epoch: 0,
+    });
+
+    const activeEpoch = () => (libraryDatabase().prepare(`
+SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
+`).get() as { shuffle_epoch: number }).shuffle_epoch;
+    process.env.MANGO_VOD_RECS_V2 = 'shadow';
+    assert.equal(await loadForYouRail('movies', { reshuffle: true, profileId: 'household' }), null);
+    assert.equal(activeEpoch(), 0, 'shadow X must not advance a hidden slate');
+    process.env.MANGO_VOD_RECS_V2 = 'off';
+    assert.equal(await loadForYouRail('movies', { reshuffle: true, profileId: 'household' }), null);
+    assert.equal(activeEpoch(), 0, 'off X must not advance a disabled slate');
+    process.env.MANGO_VOD_RECS_V2 = 'serve';
+    const shuffled = await loadForYouRail('movies', { reshuffle: true, profileId: 'household' });
+    assert.ok(shuffled);
+    assert.ok(activeEpoch() > 0, 'serve X advances a published cached slate');
+
+    const failed = libraryDatabase().prepare(`
+INSERT INTO vod_rank_generations(
+  content_type, model_version, feature_version, ontology_version,
+  story_generation_id, taste_generation_id, taste_revision, corpus_generation,
+  trigger_reasons_json, cursor, status, verified_count, scored_count,
+  eligible_count, excluded_count, started_at, published_at, completed_at, last_error
+)
+SELECT content_type, model_version, feature_version, ontology_version,
+       story_generation_id, taste_generation_id, taste_revision, corpus_generation,
+       '["diagnostic_probe"]', cursor, 'failed', verified_count, scored_count,
+       eligible_count, excluded_count, started_at + 1, NULL, completed_at + 1, 'probe failure'
+FROM vod_rank_generations WHERE rank_generation_id = ?
+`).run(result.rank_generation_id);
+    const afterFailed = storyGraphDiagnostics();
+    assert.equal(afterFailed.domains[0]?.rank_generation_id, Number(failed.lastInsertRowid));
+    assert.equal(
+      afterFailed.domains[0]?.serving_pointer.active_rank_generation_id,
+      result.rank_generation_id,
+      'a newer failed row must not masquerade as the active public generation',
+    );
+    assert.equal(afterFailed.domains[0]?.serving_pointer.active_status, 'complete');
+    assert.equal(afterFailed.domains[0]?.serving_pointer.public_rank_generation_id, result.rank_generation_id);
   });
 });
 

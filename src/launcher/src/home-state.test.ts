@@ -5,9 +5,11 @@ import {
   catalogOfflineCopy,
   catalogStateAfterFailure,
   catalogStateAfterSuccess,
+  catalogShuffleFingerprint,
   hasCatalogItems,
   nonEmptyCatalogRails,
   sameCatalogPresentation,
+  shuffleableCatalogRails,
   youtubeHistoryImportRefreshPolicy,
 } from "./home.js";
 import type { ContentRail } from "./types.js";
@@ -67,8 +69,35 @@ test("background retries can detect an unchanged stale/offline presentation", ()
 });
 
 test("empty copy respects Live's no-shuffle contract", () => {
-  assert.match(catalogEmptyCopy("movies").body, /press X/i);
+  assert.doesNotMatch(catalogEmptyCopy("movies").body, /press X/i);
   assert.doesNotMatch(catalogEmptyCopy("live").body, /press X/i);
+});
+
+test("Shuffle is available only for public recommendation rails", () => {
+  const curated = populatedRail("discover");
+  const saved = populatedRail("saved");
+  const vodForYou = populatedRail("for-you-movies");
+  const youtubeForYou = populatedRail("for_you");
+  assert.deepEqual(shuffleableCatalogRails("movies", [curated, saved]), []);
+  assert.deepEqual(shuffleableCatalogRails("movies", [curated, vodForYou]).map((rail) => rail.id), [
+    "for-you-movies",
+  ]);
+  assert.deepEqual(shuffleableCatalogRails("youtube", [saved]), []);
+  assert.deepEqual(shuffleableCatalogRails("youtube", [saved, youtubeForYou]).map((rail) => rail.id), [
+    "for_you",
+  ]);
+});
+
+test("Shuffle success requires recommendation membership or order to change", () => {
+  const before = populatedRail("for-you-movies");
+  const same = populatedRail("for-you-movies");
+  const after: ContentRail = {
+    ...populatedRail("for-you-movies"),
+    cards: [{ id: "movie:replacement", type: "movie", title: "replacement", subtitle: "2026" }],
+  };
+  assert.equal(catalogShuffleFingerprint("movies", [before]), catalogShuffleFingerprint("movies", [same]));
+  assert.notEqual(catalogShuffleFingerprint("movies", [before]), catalogShuffleFingerprint("movies", [after]));
+  assert.equal(catalogShuffleFingerprint("movies", [populatedRail("saved")]), null);
 });
 
 test("YouTube cold start explains the three private setup paths", () => {

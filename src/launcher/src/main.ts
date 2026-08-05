@@ -16,6 +16,7 @@ import {
   buildBrowseTabs,
   buildCatalogRails,
   BROWSE_TAB_ORDER,
+  catalogShuffleFingerprint,
   catalogStateAfterFailure,
   catalogStateAfterSuccess,
   hasCatalogItems,
@@ -462,7 +463,8 @@ function init(): void {
 function renderHome(): void {
   const started = performance.now();
   const tabButtons = buildBrowseTabs(browseTabsEl, activeBrowseTab, handleBrowseTabChange);
-  const showShuffle = activeBrowseTab !== "live";
+  const showShuffle = catalogState.status === "ready"
+    && catalogShuffleFingerprint(activeBrowseTab, catalogState.rails) !== null;
   libraryRefreshBtn.hidden = !showShuffle;
   const personalizationChrome = householdRecommendationIdentity ? [] : [personalizationEntry];
   const browseChrome = showShuffle
@@ -1315,6 +1317,15 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
     }
     return;
   }
+  const beforeFingerprint = catalogState.status === "ready"
+    ? catalogShuffleFingerprint(activeBrowseTab, catalogState.rails)
+    : null;
+  if (beforeFingerprint === null) {
+    if (!options.quiet) {
+      setStatus("Shuffle is available when recommendations are ready.", "warning");
+    }
+    return;
+  }
   libraryRefreshInFlight = true;
   libraryRefreshBtn.classList.add("browse-shuffle--active");
   // Retriggering a running one-shot needs the class off for a frame first.
@@ -1326,10 +1337,17 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
   let refreshSucceeded = false;
   try {
     const result = await loadCatalog({ reshuffle: true });
-    if (!options.quiet && result === "fresh") {
+    const afterFingerprint = result === "fresh" && catalogState.status === "ready"
+      ? catalogShuffleFingerprint(activeBrowseTab, catalogState.rails)
+      : null;
+    if (!options.quiet && result === "fresh" && afterFingerprint === beforeFingerprint) {
+      setStatus("No new recommendations are ready yet.", "warning");
+    } else if (!options.quiet && result === "fresh" && afterFingerprint !== null) {
       setStatus("updated — keep browsing", "success");
     }
-    refreshSucceeded = result === "fresh";
+    refreshSucceeded = result === "fresh"
+      && afterFingerprint !== null
+      && afterFingerprint !== beforeFingerprint;
   } finally {
     libraryRefreshInFlight = false;
     libraryRefreshBtn.classList.remove("browse-shuffle--active");

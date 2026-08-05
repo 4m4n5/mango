@@ -4,6 +4,7 @@ import {
   catalogTabLoadPolicy,
   mergeUserStateRails,
   RecommendationTabRevisionFence,
+  vodUtilityHouseholdBlend,
   vodUtilityProfileId,
   type RailItemsResponse,
 } from './core.js';
@@ -126,4 +127,8 @@ test('active recommendation modes bind VOD utility rails to exact Household', ()
   assert.equal(vodUtilityProfileId('movies', 'personal-only', 'shadow'), 'household');
   assert.equal(vodUtilityProfileId('movies', 'personal-only', 'off'), 'personal-only');
   assert.equal(vodUtilityProfileId('live', 'personal-only', 'serve'), 'personal-only');
+  assert.equal(vodUtilityHouseholdBlend('movies', 'household', 'serve'), false);
+  assert.equal(vodUtilityHouseholdBlend('movies', 'household', 'shadow'), false);
+  assert.equal(vodUtilityHouseholdBlend('movies', 'personal-only', 'off'), true);
+  assert.equal(vodUtilityHouseholdBlend('live', 'household', 'serve'), true);
 });

@@ -50,6 +50,7 @@ import type {
 import { YOUTUBE_RAIL_LIMIT } from './constants.js';
 import type { PersonalizationSnapshot } from '../personalization-coherence.js';
 import { assertExpectedPersonalization } from '../personalization-request.js';
+import { recommendationOwnerForRollout } from '../recommendations/v2-mode.js';
 import {
   YOUTUBE_V2_CANDIDATE_TTL_MS,
   YOUTUBE_V2_LIVE_TTL_MS,
@@ -1204,6 +1205,12 @@ export class YoutubeService {
       'while YouTube rails loaded',
     );
     const mode = youtubeRecommendationsV2Mode();
+    const ownerProfileId = recommendationOwnerForRollout(
+      'youtube',
+      personalization.active_profile_id,
+      process.env.MANGO_VOD_RECS_V2,
+      mode,
+    );
     const generation = latestYoutubeV2GenerationRecord();
     const sourceStale = youtubeV2SourceStaleState();
     const servingEpoch = youtubeV2ServingEpoch(
@@ -1211,7 +1218,7 @@ export class YoutubeService {
       Boolean(options.reshuffle) && mode === 'serve',
     );
     const reservedIds = new Set<string>();
-    const historyItems = youtubeV2HistoryItems(YOUTUBE_RAIL_POOL_LIMIT)
+    const historyItems = youtubeV2HistoryItems(YOUTUBE_RAIL_POOL_LIMIT, ownerProfileId)
       .filter((item) => !reservedIds.has(item.id))
       .slice(0, YOUTUBE_RAIL_LIMIT);
     const history = historyItems.length === YOUTUBE_RAIL_LIMIT
@@ -1224,7 +1231,7 @@ export class YoutubeService {
         } satisfies YoutubeRail
       : null;
     history?.items.forEach((item) => reservedIds.add(item.id));
-    const savedItems = savedRail('household', YOUTUBE_RAIL_POOL_LIMIT, false).items
+    const savedItems = savedRail(ownerProfileId, YOUTUBE_RAIL_POOL_LIMIT, false).items
       .filter((item) => !reservedIds.has(item.id))
       .slice(0, YOUTUBE_RAIL_LIMIT);
     const saved = savedItems.length === YOUTUBE_RAIL_LIMIT
@@ -1264,7 +1271,7 @@ export class YoutubeService {
     return {
       ok: true,
       tab: YOUTUBE_TAB,
-      profile_id: 'household',
+      profile_id: ownerProfileId,
       personalization_updated_at: personalization.updated_at,
       rails: publicYoutubeRails(rails),
       slate_sequence: servingEpoch.slate_sequence,

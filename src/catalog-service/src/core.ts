@@ -432,6 +432,18 @@ export function vodUtilityProfileId(
     : activeProfileId;
 }
 
+export function vodUtilityHouseholdBlend(
+  tab: CatalogTab,
+  profileId: string,
+  mode = vodRecommendationsV2Mode(),
+): boolean {
+  return !(
+    mode !== 'off'
+    && (tab === 'movies' || tab === 'series')
+    && profileId === 'household'
+  );
+}
+
 type Addon = {
   name: string;
   manifestUrl: string;
@@ -2193,12 +2205,9 @@ export class CatalogCore {
     profileId = activeViewerProfileId(),
   ): Promise<RailItemsResponse> {
     const started = Date.now();
-    const exactHousehold = vodRecommendationsV2Mode() === 'serve'
-      && (tab === 'movies' || tab === 'series')
-      && profileId === 'household';
     const savedItems = listSavedLibraryItems(tab, undefined, {
       profile_id: profileId,
-      household_blend: !exactHousehold,
+      household_blend: vodUtilityHouseholdBlend(tab, profileId),
     });
     const items = await mapInBatches(
       savedItems,

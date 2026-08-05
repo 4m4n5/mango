@@ -37,6 +37,29 @@ const DEFAULT_APP_CARDS: AppCard[] = [
 
 export const BROWSE_TAB_ORDER: BrowseTab[] = ["movies", "series", "live", "youtube"];
 
+const VOD_SHUFFLE_RAIL_IDS = new Set(["for-you-movies", "for-you-series"]);
+const YOUTUBE_SHUFFLE_RAIL_IDS = new Set([
+  "for_you",
+  "beyond",
+  "more_like",
+  "new_from_subscriptions",
+  "live_now",
+]);
+
+export function shuffleableCatalogRails(tab: BrowseTab, rails: ContentRail[]): ContentRail[] {
+  if (tab === "live") return [];
+  const allowed = tab === "youtube" ? YOUTUBE_SHUFFLE_RAIL_IDS : VOD_SHUFFLE_RAIL_IDS;
+  return rails.filter((rail) => allowed.has(rail.id) && rail.cards.length > 0);
+}
+
+export function catalogShuffleFingerprint(tab: BrowseTab, rails: ContentRail[]): string | null {
+  const shuffleable = shuffleableCatalogRails(tab, rails);
+  if (shuffleable.length === 0) return null;
+  return shuffleable.map((rail) => (
+    `${rail.id}:${rail.cards.map((card) => `${card.type}:${card.id}`).join(",")}`
+  )).join("|");
+}
+
 export type YoutubeHistoryImportRefreshPolicy = {
   cancelActiveCatalogRequest: boolean;
   reloadYoutubeNow: boolean;
@@ -292,7 +315,7 @@ export function catalogEmptyCopy(tab: BrowseTab): CatalogStateCopy {
   const tabLabel = tab === "series" ? "tv shows" : tab;
   const refreshCopy = tab === "live"
     ? "try another tab or check back soon."
-    : "try another tab or press X to refresh.";
+    : "try another tab; recommendations will appear here when ready.";
   return {
     heading: tabLabel,
     title: "nothing ready here yet",

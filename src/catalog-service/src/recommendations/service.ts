@@ -1,8 +1,8 @@
-import { libraryDatabase } from '../library/db.js';
+import { activeViewerProfileId, libraryDatabase } from '../library/db.js';
 import { listRatings } from '../library/ratings.js';
 import { KeyedSerialExecutor } from './background-refresh.js';
 import { listRecommendationRefreshJobs, type RecommendationRefreshJob } from './jobs.js';
-import { vodRecommendationsV2Mode } from './v2-mode.js';
+import { recommendationOwnerForRollout, vodRecommendationsV2Mode } from './v2-mode.js';
 import {
   hasPublishedStoryGraphGeneration,
   loadStoryGraphForYouRail,
@@ -138,7 +138,7 @@ type AttributionRollup = {
 
 export function recommendationDiagnostics(): {
   enabled: boolean;
-  recommendation_owner: 'household';
+  recommendation_owner: string;
   ratings: number;
   metrics: Record<string, { value: number; updated_at: number }>;
   refresh_jobs: RecommendationRefreshJob[];
@@ -148,6 +148,13 @@ export function recommendationDiagnostics(): {
   attribution_rollup: AttributionRollup[];
 } {
   const db = libraryDatabase();
+  const vodMode = vodRecommendationsV2Mode();
+  const recommendationOwner = recommendationOwnerForRollout(
+    'vod',
+    activeViewerProfileId(),
+    vodMode,
+    process.env.MANGO_YOUTUBE_RECS_V2,
+  );
   const metricRows = db.prepare(`
 SELECT metric_name, metric_value, updated_at
 FROM profile_recommendation_metrics
@@ -201,14 +208,14 @@ LIMIT 40
 `).all() as AttributionRollup[];
   return {
     enabled: forYouEnabled(),
-    recommendation_owner: 'household',
-    ratings: listRatings(undefined, 'household').length,
+    recommendation_owner: recommendationOwner,
+    ratings: listRatings(undefined, recommendationOwner).length,
     metrics: Object.fromEntries(metricRows.map((row) => [
       row.metric_name,
       { value: row.metric_value, updated_at: row.updated_at },
     ])),
     refresh_jobs: listRecommendationRefreshJobs(20),
-    vod_mode: vodRecommendationsV2Mode(),
+    vod_mode: vodMode,
     story_frontier: storyGraphDiagnostics(),
     serving_work: storyGraphServingWorkSnapshot(),
     attribution_rollup: attributionRollup,

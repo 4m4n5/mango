@@ -2926,6 +2926,7 @@ export type StoryGraphDiagnostics = {
   ontology_version: typeof STORY_DNA_ONTOLOGY_VERSION;
   teacher_configuration_revision: string;
   mode_ready: boolean;
+  public_ready: boolean;
   domains: Array<{
     content_type: RatingContentType;
     rank_generation_id: number | null;
@@ -2965,11 +2966,28 @@ export type StoryGraphDiagnostics = {
     stale_reasons: string[];
     low_water: StoryGraphLowWaterRequest | null;
     evaluation: StoryGraphOfflineEvaluation | null;
+    serving_pointer: {
+      active_ready: boolean;
+      active_rank_generation_id: number | null;
+      previous_complete_rank_generation_id: number | null;
+      active_story_generation_id: number | null;
+      active_taste_generation_id: number | null;
+      active_model_version: string | null;
+      active_status: string | null;
+      active_published_at: number | null;
+      shuffle_epoch: number | null;
+      updated_at: number | null;
+      promotion_rank_generation_id: number | null;
+      promotion_eligible: boolean;
+      public_rank_generation_id: number | null;
+      public_shuffle_epoch: number | null;
+    };
   }>;
 };
 
 export function storyGraphDiagnostics(): StoryGraphDiagnostics {
   const db = libraryDatabase();
+  const mode = vodRecommendationsV2Mode();
   const domains = (['movie', 'series'] as const).map((type) => {
     const row = db.prepare(`
 SELECT ranks.rank_generation_id, ranks.story_generation_id, ranks.taste_generation_id,
@@ -3038,6 +3056,36 @@ WHERE reference_revision = ? AND content_type = ? AND taste_revision = ? AND str
       empirical_coverage: number;
       status: StoryFrontierCalibrationBand['status'];
     } | undefined : undefined;
+    const active = db.prepare(`
+SELECT active.active_rank_generation_id, active.previous_complete_rank_generation_id,
+       active.active_story_generation_id, active.active_taste_generation_id,
+       active.shuffle_epoch, active.updated_at,
+       ranks.model_version, ranks.status, ranks.published_at
+FROM vod_active_generations active
+LEFT JOIN vod_rank_generations ranks
+  ON ranks.rank_generation_id = active.active_rank_generation_id
+WHERE active.content_type = ?
+`).get(type) as {
+      active_rank_generation_id: number | null;
+      previous_complete_rank_generation_id: number | null;
+      active_story_generation_id: number | null;
+      active_taste_generation_id: number | null;
+      shuffle_epoch: number;
+      updated_at: number;
+      model_version: string | null;
+      status: string | null;
+      published_at: number | null;
+    } | undefined;
+    const activeReady = Boolean(
+      active?.active_rank_generation_id
+      && active.model_version === VOD_STORY_FRONTIER_MODEL_VERSION
+      && active.status
+      && ['bootstrap', 'complete'].includes(active.status),
+    );
+    const promoted = activeReady ? activePromotedStoryGraphGeneration(type) : null;
+    const publicRankGenerationId = mode === 'serve' && promoted
+      ? promoted.active_rank_generation_id
+      : null;
     return {
       content_type: type,
       rank_generation_id: row?.rank_generation_id ?? null,
@@ -3092,6 +3140,22 @@ SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
         }
       })(),
       evaluation: storyGraphOfflineEvaluation(type, row?.rank_generation_id),
+      serving_pointer: {
+        active_ready: activeReady,
+        active_rank_generation_id: active?.active_rank_generation_id ?? null,
+        previous_complete_rank_generation_id: active?.previous_complete_rank_generation_id ?? null,
+        active_story_generation_id: active?.active_story_generation_id ?? null,
+        active_taste_generation_id: active?.active_taste_generation_id ?? null,
+        active_model_version: active?.model_version ?? null,
+        active_status: active?.status ?? null,
+        active_published_at: active?.published_at ?? null,
+        shuffle_epoch: active?.shuffle_epoch ?? null,
+        updated_at: active?.updated_at ?? null,
+        promotion_rank_generation_id: promoted?.promotion_rank_generation_id ?? null,
+        promotion_eligible: promoted !== null,
+        public_rank_generation_id: publicRankGenerationId,
+        public_shuffle_epoch: publicRankGenerationId === null ? null : active?.shuffle_epoch ?? null,
+      },
     };
   });
   return {
@@ -3102,7 +3166,8 @@ SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
     schema_version: STORY_DNA_SCHEMA_VERSION,
     ontology_version: STORY_DNA_ONTOLOGY_VERSION,
     teacher_configuration_revision: storyDnaTeacherConfiguration().revision,
-    mode_ready: domains.some((domain) => domain.rank_generation_id !== null),
+    mode_ready: domains.every((domain) => domain.serving_pointer.active_ready),
+    public_ready: domains.every((domain) => domain.serving_pointer.public_rank_generation_id !== null),
     domains,
   };
 }

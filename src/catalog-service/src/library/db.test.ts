@@ -129,6 +129,67 @@ ORDER BY name
   }
 }));
 
+test('progressive migrations and off-mode rollback preserve historical and StoryDNA data byte-for-byte', () => withTempLibrary(() => {
+  initLibraryDb();
+  const db = libraryDatabase();
+  const featureJson = '{"schema_version":"story-dna-v1","title":"Preserved"}';
+  const overlayJson = '{"identity":{"content_id":"tt-preserved"}}';
+  db.prepare(`
+INSERT INTO recommendation_features(
+  content_type, content_id, feature_version, metadata_hash, provenance,
+  confidence, features_json, model_version, prompt_version, input_hash,
+  created_at, updated_at
+) VALUES ('movie', 'tt-preserved', 'story-dna-v1', 'metadata-hash', 'ai',
+          0.9, ?, 'teacher-model', 'story-dna-prompt-v1', 'input-hash', 10, 11)
+`).run(featureJson);
+  db.prepare(`
+INSERT INTO vod_story_dna_overlays(
+  content_type, content_id, semantic_evidence_hash, document_hash, document_json,
+  schema_version, ontology_version, prompt_version, model_version, created_at
+) VALUES ('movie', 'tt-preserved', 'semantic-hash', 'document-hash', ?,
+          'story-dna-v1', 'story-dna-core-v1', 'story-dna-prompt-v1', 'teacher-model', 12)
+`).run(overlayJson);
+  const personal = createViewerProfile('Preserved Viewer');
+  saveLibraryItem({
+    profile_id: personal.profile_id,
+    source: 'mango',
+    type: 'movie',
+    id: 'tt-preserved',
+    title: 'Preserved',
+    tab: 'movies',
+    saved_at: 13,
+  });
+
+  process.env.MANGO_VOD_RECS_V2 = 'off';
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'off';
+  resetLibraryDbForTests();
+  initLibraryDb();
+
+  const reopened = libraryDatabase();
+  assert.equal((reopened.prepare(`
+SELECT features_json FROM recommendation_features
+WHERE content_type = 'movie' AND content_id = 'tt-preserved' AND feature_version = 'story-dna-v1'
+`).get() as { features_json: string }).features_json, featureJson);
+  assert.equal((reopened.prepare(`
+SELECT document_json FROM vod_story_dna_overlays
+WHERE content_type = 'movie' AND content_id = 'tt-preserved' AND semantic_evidence_hash = 'semantic-hash'
+`).get() as { document_json: string }).document_json, overlayJson);
+  assert.deepEqual(
+    listSavedLibraryItems('movies', undefined, {
+      profile_id: personal.profile_id,
+      household_blend: false,
+    }).map((item) => item.id),
+    ['tt-preserved'],
+  );
+  assert.deepEqual(
+    (reopened.prepare('SELECT version FROM library_migrations ORDER BY version').all() as Array<{ version: number }>)
+      .map((row) => row.version),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16],
+  );
+  delete process.env.MANGO_VOD_RECS_V2;
+  delete process.env.MANGO_YOUTUBE_RECS_V2;
+}));
+
 test('a failed later migration rolls back its schema, backfills, and version markers together', () => withTempLibrary((dir) => {
   const path = join(dir, 'library.db');
   const seeded = new Database(path);

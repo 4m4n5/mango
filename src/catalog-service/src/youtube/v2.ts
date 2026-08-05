@@ -559,13 +559,16 @@ export function isResolvedYoutubeHistoryItem(item: YoutubeItem | null): item is 
   );
 }
 
-export function youtubeV2HistoryItems(limit = 60): YoutubeRailItem[] {
+export function youtubeV2HistoryItems(
+  limit = 60,
+  profileId = 'household',
+): YoutubeRailItem[] {
   type HistoryEntry = { item: YoutubeItem; watched_at: number };
   const merged = new Map<string, HistoryEntry>();
   for (const row of listWatchHistory({
     source: 'youtube',
     type: 'youtube_video',
-    profile_id: 'household',
+    profile_id: profileId,
     household_blend: false,
     limit: V2_WATCH_LIMIT,
   })) {
@@ -576,12 +579,16 @@ export function youtubeV2HistoryItems(limit = 60): YoutubeRailItem[] {
       merged.set(row.id, { item, watched_at: row.watched_at });
     }
   }
-  for (const row of listYoutubeV2ImportedHistory(V2_WATCH_LIMIT)) {
-    const item = getYoutubeItem('video', row.video_id);
-    if (!isResolvedYoutubeHistoryItem(item)) continue;
-    const current = merged.get(row.video_id);
-    if (!current || row.watched_at > current.watched_at) {
-      merged.set(row.video_id, { item, watched_at: row.watched_at });
+  // Takeout is a Household bootstrap. Personal profiles retain only their
+  // exact Mango-local launches when recommendation mode is off.
+  if (profileId === 'household') {
+    for (const row of listYoutubeV2ImportedHistory(V2_WATCH_LIMIT)) {
+      const item = getYoutubeItem('video', row.video_id);
+      if (!isResolvedYoutubeHistoryItem(item)) continue;
+      const current = merged.get(row.video_id);
+      if (!current || row.watched_at > current.watched_at) {
+        merged.set(row.video_id, { item, watched_at: row.watched_at });
+      }
     }
   }
   return [...merged.values()]
@@ -1073,25 +1080,26 @@ export function youtubeV2RecommendationRails(input: {
       ));
     let pool = entries
       .map((entry): YoutubeRailItem => ({ ...entry, score: entry.score, reason: entry.reason }));
-    if (input.shuffle_epoch > 0) {
-      if (spec.id === 'more_like') {
-        const subscriptionFallback = entries.some((entry) => entry.context_id.startsWith('subscription:'));
-        const sameChannel = shuffled(
-          entries.filter((entry) => subscriptionFallback
-            ? entry.provenance === 'subscription_upload'
-            : entry.provenance === 'history_channel'),
-          `${generation.generation}:${input.shuffle_epoch}:${spec.id}:channel`,
-        ).map((entry): YoutubeRailItem => ({ ...entry, score: entry.score, reason: entry.reason }));
-        const thematic = shuffled(
-          entries.filter((entry) => entry.provenance === 'history_topic'),
-          `${generation.generation}:${input.shuffle_epoch}:${spec.id}:topic`,
-        ).map((entry): YoutubeRailItem => ({ ...entry, score: entry.score, reason: entry.reason }));
-        pool = sameChannel.length > 0
-          ? [sameChannel[0]!, ...thematic, ...sameChannel.slice(1)]
-          : thematic;
-      } else {
-        pool = shuffled(pool, `${generation.generation}:${input.shuffle_epoch}:${spec.id}`);
-      }
+    if (spec.id === 'more_like') {
+      const subscriptionFallback = entries.some((entry) => entry.context_id.startsWith('subscription:'));
+      const sameChannelEntries = entries.filter((entry) => subscriptionFallback
+        ? entry.provenance === 'subscription_upload'
+        : entry.provenance === 'history_channel');
+      const thematicEntries = entries.filter((entry) => entry.provenance === 'history_topic');
+      const sameChannel = (input.shuffle_epoch > 0
+        ? shuffled(sameChannelEntries, `${generation.generation}:${input.shuffle_epoch}:${spec.id}:channel`)
+        : sameChannelEntries
+      ).map((entry): YoutubeRailItem => ({ ...entry, score: entry.score, reason: entry.reason }));
+      const thematic = (input.shuffle_epoch > 0
+        ? shuffled(thematicEntries, `${generation.generation}:${input.shuffle_epoch}:${spec.id}:topic`)
+        : thematicEntries
+      ).map((entry): YoutubeRailItem => ({ ...entry, score: entry.score, reason: entry.reason }));
+      const unreservedSameChannel = sameChannel.filter((item) => !seen.has(item.id));
+      pool = unreservedSameChannel.length > 0
+        ? [unreservedSameChannel[0]!, ...thematic, ...unreservedSameChannel.slice(1)]
+        : thematic;
+    } else if (input.shuffle_epoch > 0) {
+      pool = shuffled(pool, `${generation.generation}:${input.shuffle_epoch}:${spec.id}`);
     }
     const limit = spec.live ? Math.min(YOUTUBE_RAIL_LIMIT, pool.length) : YOUTUBE_RAIL_LIMIT;
     const items = selectWithCreatorCap(pool, seen, limit, spec.cap, spec.relax);
