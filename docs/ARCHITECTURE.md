@@ -231,8 +231,11 @@ Recommendation metrics advance only from a server-validated meaningful watch,
 once per served item; client-supplied rail labels are never metric authority.
 
 `off` disables VOD recommendations. `shadow` builds the latest Story Frontier
-and hides For You; `serve` exposes only a promotion-eligible published
-generation. No mode invokes the removed v4/strict rankers. Shadow is not a
+and hides For You; `serve` exposes only a serve-authorized published
+generation. Authorization is either a passed supervised evaluation or the
+narrow `evidence_cold_start` policy where stratified-rating/nDCG coverage is
+the only unavailable evidence and every measured operational guard passes. No
+mode invokes the removed v4/strict rankers. Shadow is not a
 purely invisible compute mode: it switches recommendation identity and
 recommendation-signal ownership to Household while hiding For You. Its Saved
 utility read matches serve and is exact Household; preserved personal rows are

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { libraryDatabase, resetLibraryDbForTests } from '../library/db.js';
+import { libraryDatabase, resetLibraryDbForTests, saveLibraryItem } from '../library/db.js';
 import { putRating } from '../library/ratings.js';
 import {
   getPlayabilityDb,
@@ -13,6 +13,7 @@ import {
 import {
   refreshStoryGraphForYou,
   storyGraphDiagnostics,
+  storyGraphServingDecision,
   type StoryGraphRefreshDependencies,
 } from './story-graph-service.js';
 import { loadForYouRail } from './service.js';
@@ -113,6 +114,30 @@ function passingEvaluation(input: Parameters<NonNullable<StoryGraphRefreshDepend
   };
 }
 
+function labelSparseEvaluation(
+  input: Parameters<NonNullable<StoryGraphRefreshDependencies['evaluate']>>[0],
+) {
+  return {
+    version: 'vod-story-frontier-evaluation-v1' as const,
+    rank_generation_id: input.rankGenerationId,
+    status: 'insufficient' as const,
+    samples: input.ratings.length,
+    folds: 0,
+    holistic_ndcg_at_6: null,
+    fire_pairwise_concordance_ge_4: null,
+    water_pairwise_concordance_ge_4: null,
+    low_low_top_6_intrusion_rate: null,
+    verified_accounting_complete: true,
+    coverage: 1,
+    deterministic: true,
+    worker_latency_ms: input.workerLatencyMs,
+    cached_service_p95_ms: input.cachedServiceP95Ms ?? null,
+    promotion_eligible: false,
+    reasons: ['insufficient_stratified_ratings', 'ndcg_unavailable'],
+    evaluated_at: input.now,
+  };
+}
+
 test('progressive full-corpus refresh accounts for sparse titles without a teacher dependency', async () => {
   await withProgressiveDatabases(async () => {
     process.env.MANGO_VOD_RECS_V2 = 'serve';
@@ -181,6 +206,9 @@ WHERE rank_generation_id = ? AND content_id = 'm204'
       updated_at: diagnostics.domains[0]?.last_good_publication ?? null,
       promotion_rank_generation_id: result.rank_generation_id,
       promotion_eligible: true,
+      serve_eligible: true,
+      serve_basis: 'evaluated',
+      serve_blockers: [],
       public_rank_generation_id: result.rank_generation_id,
       public_shuffle_epoch: 0,
     });
@@ -221,6 +249,83 @@ FROM vod_rank_generations WHERE rank_generation_id = ?
     );
     assert.equal(afterFailed.domains[0]?.serving_pointer.active_status, 'complete');
     assert.equal(afterFailed.domains[0]?.serving_pointer.public_rank_generation_id, result.rank_generation_id);
+  });
+});
+
+test('label-sparse household evidence can activate a safe cached generation without faking promotion', async () => {
+  await withProgressiveDatabases(async () => {
+    process.env.MANGO_VOD_RECS_V2 = 'shadow';
+    seedTitles('series', 205);
+    saveLibraryItem({
+      source: 'mango', type: 'series', id: 's000', title: 'Series 0',
+      poster: 'https://example.test/s000.jpg', tab: 'series', profile_id: 'household',
+    });
+    const result = await refreshStoryGraphForYou('series', {
+      bootstrap_minimum: 200,
+      cached_service_p95_ms: 1,
+      dependencies: { evaluate: labelSparseEvaluation },
+    });
+    assert.equal(result.selected_k, 1, 'Saved is qualifying cold-start household evidence');
+    assert.equal(result.activated, true);
+    assert.equal(result.evaluation.promotion_eligible, false);
+    assert.deepEqual(storyGraphServingDecision(result.evaluation), {
+      serve_eligible: true,
+      basis: 'evidence_cold_start',
+      blockers: [],
+    });
+
+    const shadow = storyGraphDiagnostics().domains.find((domain) => domain.content_type === 'series');
+    assert.equal(shadow?.serving_pointer.active_ready, true);
+    assert.equal(shadow?.serving_pointer.promotion_eligible, false);
+    assert.equal(shadow?.serving_pointer.serve_eligible, true);
+    assert.equal(shadow?.serving_pointer.serve_basis, 'evidence_cold_start');
+    assert.equal(shadow?.serving_pointer.public_rank_generation_id, null);
+    assert.equal(await loadForYouRail('series', { profileId: 'household' }), null);
+
+    process.env.MANGO_VOD_RECS_V2 = 'serve';
+    const served = await loadForYouRail('series', { profileId: 'household' });
+    assert.equal(served?.items.length, 6);
+    const live = storyGraphDiagnostics().domains.find((domain) => domain.content_type === 'series');
+    assert.equal(live?.serving_pointer.public_rank_generation_id, result.rank_generation_id);
+    assert.equal(live?.serving_pointer.promotion_eligible, false);
+    assert.equal(live?.serving_pointer.serve_basis, 'evidence_cold_start');
+  });
+});
+
+test('cold-start authorization never excuses a measured operational failure', async () => {
+  await withProgressiveDatabases(async () => {
+    process.env.MANGO_VOD_RECS_V2 = 'shadow';
+    seedTitles('series', 205);
+    saveLibraryItem({
+      source: 'mango', type: 'series', id: 's000', title: 'Series 0',
+      poster: 'https://example.test/s000.jpg', tab: 'series', profile_id: 'household',
+    });
+    const result = await refreshStoryGraphForYou('series', {
+      bootstrap_minimum: 200,
+      cached_service_p95_ms: 251,
+      dependencies: {
+        evaluate: (input) => ({
+          ...labelSparseEvaluation(input),
+          cached_service_p95_ms: 251,
+          reasons: [
+            'insufficient_stratified_ratings',
+            'ndcg_unavailable',
+            'cached_service_p95_above_250ms',
+          ],
+        }),
+      },
+    });
+    assert.equal(result.published, true, 'the shadow artifact remains auditable');
+    assert.equal(result.activated, false, 'a hard safety failure cannot replace last-good');
+    assert.deepEqual(storyGraphServingDecision(result.evaluation), {
+      serve_eligible: false,
+      basis: 'blocked',
+      blockers: ['cached_service_p95_above_250ms'],
+    });
+    const diagnostics = storyGraphDiagnostics().domains.find((domain) => domain.content_type === 'series');
+    assert.equal(diagnostics?.serving_pointer.active_ready, false);
+    assert.equal(diagnostics?.serving_pointer.serve_eligible, false);
+    assert.equal(diagnostics?.serving_pointer.public_rank_generation_id, null);
   });
 });
 

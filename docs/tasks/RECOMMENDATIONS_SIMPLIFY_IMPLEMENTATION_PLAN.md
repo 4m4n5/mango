@@ -198,6 +198,17 @@ acquisition. Rollback is configuration-off plus a reviewed Git revision, never
 data deletion. Human acceptance remains five plausible cards of six with
 recognizable taste threads across ten shuffles.
 
+Cold-start clarification: supervised five-fold nDCG is unavailable by
+definition when a media type has too few stratified Fire/Water labels, including
+the approved Saved/watch-only case. That absence must remain visible and must
+never be repaired with synthetic ratings. A full generation may nevertheless
+be operationally serve-authorized when its only evaluation gaps are
+`insufficient_stratified_ratings` and/or `ndcg_unavailable`, while verified
+accounting, determinism, cached p95, reserve/slate, and every measurable
+concordance/intrusion guard pass. Diagnostics report this provisional path as
+`serve_basis=evidence_cold_start` with `promotion_eligible=false`; the human
+couch verdict remains mandatory.
+
 ## Latest-only cleanup contract
 
 The post-implementation cleanup removes the v4 semantic-hash/cosine/KNN/MMR

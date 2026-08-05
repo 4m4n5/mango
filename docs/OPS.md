@@ -561,8 +561,11 @@ Recommendation source blockers are closed at the target:
   relationships on real Pi generations; never print household rows.
 - The current absolute VOD evaluator does not compare against an accepted
   baseline or gate reserve depth, calibration, teacher cost, worker latency, or
-  uplift confidence. Treat its `promotion_eligible` as a minimum safety check,
-  not a quality verdict.
+  uplift confidence. `promotion_eligible` means supervised rating evaluation
+  passed. Separately, `serve_eligible` may use `evidence_cold_start` only when
+  stratified-rating/nDCG coverage is the sole unavailable evidence and every
+  measured operational guard passes. This supports real Saved/watch cold start
+  without synthetic ratings. Neither field is a human relevance verdict.
 - In YouTube `off`, service and route use the exact active personal owner; in
   shadow/serve they use Household. Focused tests cover the former 409 regression.
 - Launcher X/Shuffle is available only for a public mutable recommendation rail

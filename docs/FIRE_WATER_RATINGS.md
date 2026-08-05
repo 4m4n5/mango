@@ -23,7 +23,16 @@ See [STATUS.md](STATUS.md).
 |----------------------|--------------|--------------------------|-------------|
 | `off` | No recommendation refresh | No For You recommendation rail | Personal profile/mood state remains usable outside recommendation ranking |
 | `shadow` | Build/diagnose only the latest progressive Story Frontier | No For You recommendation rail | Household recommendation identity and exact Household Saved; personal rows preserved |
-| `serve` | Latest progressive Story Frontier only | Six strongest supported fits in `6`, `3+3`, or `2+2+2`; absent if no promotion-eligible generation | Household-only; personal profile/mood rows preserved and dormant |
+| `serve` | Latest progressive Story Frontier only | Six strongest supported fits in `6`, `3+3`, or `2+2+2`; absent if no serve-authorized generation | Household-only; personal profile/mood rows preserved and dormant |
+
+Serve authorization is not the same as claiming an offline quality promotion.
+With enough stratified ratings, `promotion_eligible=true` authorizes the
+generation. With too few labels, a complete generation may instead report
+`serve_basis=evidence_cold_start` only when missing stratified-rating/nDCG
+coverage is the sole gap and all measured accounting, determinism, latency,
+concordance, and intrusion guards pass. This keeps Saved/meaningful-watch cold
+start functional without creating ratings. Human couch relevance remains a
+separate acceptance gate.
 
 No mode selects a deleted recommender. Operational rollback is `serve` →
 `shadow`/`off`; code rollback requires a reviewed older Git revision. Neither

@@ -117,14 +117,22 @@ prove only their exact revision and contract.
   report Shuffle; and diagnostics distinguish newest rows from active/previous,
   promotion, and public pointers. Focused mode/migration/publication tests pass.
   Pi/runtime proof is still required before promotion.
-- **The current VOD promotion gate is only an absolute minimum.** It requires
+- **VOD serving authorization and supervised evaluation are separate.** A
+  complete deterministic cached generation may use the narrow
+  `evidence_cold_start` basis when its only missing evidence is stratified
+  explicit-rating/nDCG coverage. This is how approved Saved/meaningful-watch
+  cold start remains possible without inventing ratings. Accounting,
+  determinism, p95, concordance, and intrusion failures still block and retain
+  last-good. The supervised promotion gate itself remains only an absolute
+  minimum: it requires
   at least 15 eligible ratings/five folds, non-null nDCG, per-axis concordance
   at least 0.5 only where that axis has measurable pairs, low-low intrusion at
   most one third, complete
   accounting, deterministic replay, and cached p95 at most 250 ms. It has no
   accepted-baseline uplift/CI, reserve/calibration/teacher-cost, or worker-
-  latency threshold. Treat `promotion_eligible` as safety evidence, not a
-  world-class quality verdict.
+  latency threshold. Treat `promotion_eligible` as supervised quality evidence,
+  `serve_eligible` as operational authorization, and neither as the human couch
+  verdict.
 
 ### Latest repository-recorded recommendation runtime snapshot
 

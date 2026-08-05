@@ -9,7 +9,7 @@ import {
   refreshStoryGraphForYou,
   storyGraphDiagnostics,
   storyGraphPublishedHasNoTaste,
-  storyGraphPromotionEligible,
+  storyGraphServeAuthorized,
   storyGraphServingWorkSnapshot,
   type StoryGraphForYouRail,
 } from './story-graph-service.js';
@@ -120,7 +120,7 @@ export async function loadForYouRail(
   if (!forYouEnabled() || vodRecommendationsV2Mode() !== 'serve') return null;
   if (options.profileId && options.profileId !== 'household') return null;
   if (!hasPublishedStoryGraphGeneration(tab) || storyGraphPublishedHasNoTaste(tab)) return null;
-  if (!storyGraphPromotionEligible(tab)) return null;
+  if (!storyGraphServeAuthorized(tab)) return null;
   return loadStoryGraphForYouRail(tab, { reshuffle: options.reshuffle });
 }
 

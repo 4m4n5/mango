@@ -280,6 +280,60 @@ export type StoryGraphOfflineEvaluation = {
   evaluated_at: number;
 };
 
+export type StoryGraphServingDecision = {
+  serve_eligible: boolean;
+  basis: 'evaluated' | 'evidence_cold_start' | 'blocked';
+  blockers: string[];
+};
+
+const COLD_START_EVALUATION_GAPS = new Set([
+  'insufficient_stratified_ratings',
+  'ndcg_unavailable',
+]);
+
+/**
+ * Offline label quality and operational serving safety are deliberately
+ * separate. A household can have a useful Saved/watch-derived taste model
+ * before it has enough explicit ratings for five-fold nDCG. That absence of
+ * labels is not a serving failure, but every measurable safety invariant still
+ * has to pass. Setting serve mode remains the operator's explicit exposure
+ * decision; this function never changes a rollout mode.
+ */
+export function storyGraphServingDecision(
+  evaluation: StoryGraphOfflineEvaluation,
+): StoryGraphServingDecision {
+  const invariantBlockers: string[] = [];
+  if (!evaluation.verified_accounting_complete) {
+    invariantBlockers.push('verified_corpus_accounting_incomplete');
+  }
+  if (!evaluation.deterministic) invariantBlockers.push('determinism_replay_failed');
+  if (evaluation.cached_service_p95_ms === null) {
+    invariantBlockers.push('cached_service_p95_unmeasured');
+  } else if (evaluation.cached_service_p95_ms > 250) {
+    invariantBlockers.push('cached_service_p95_above_250ms');
+  }
+  if (evaluation.promotion_eligible) {
+    const blockers = [...new Set([...evaluation.reasons, ...invariantBlockers])];
+    return blockers.length === 0
+      ? { serve_eligible: true, basis: 'evaluated', blockers: [] }
+      : { serve_eligible: false, basis: 'blocked', blockers };
+  }
+  const uniqueBlockers = [...new Set([
+    ...evaluation.reasons.filter((reason) => !COLD_START_EVALUATION_GAPS.has(reason)),
+    ...invariantBlockers,
+  ])];
+  const labelsAreOnlyGap = evaluation.reasons.length > 0
+    && evaluation.reasons.every((reason) => COLD_START_EVALUATION_GAPS.has(reason));
+  if (labelsAreOnlyGap && uniqueBlockers.length === 0) {
+    return { serve_eligible: true, basis: 'evidence_cold_start', blockers: [] };
+  }
+  return {
+    serve_eligible: false,
+    basis: 'blocked',
+    blockers: uniqueBlockers.length > 0 ? uniqueBlockers : ['evaluation_not_serve_eligible'],
+  };
+}
+
 export type StoryGraphRefreshResult = {
   tab: StoryGraphTab;
   story_generation_id: number;
@@ -324,8 +378,8 @@ export type StoryGraphRefreshOptions = {
   rank_candidate_ids?: readonly StoryGraphContentId[];
   /** Internal authorization proving a priority rescore replaces promoted v2. */
   priority_base_rank_generation_id?: number;
-  /** Complete generation whose offline gate authorizes the priority swap. */
-  priority_promotion_rank_generation_id?: number;
+  /** Complete generation whose serving decision authorizes the priority swap. */
+  priority_authorization_rank_generation_id?: number;
 };
 
 type PersistedRankRow = {
@@ -1900,9 +1954,10 @@ function partialPriorityEvaluation(input: {
   };
 }
 
-function activePromotedStoryGraphGeneration(type: RatingContentType): {
+function activeServeAuthorizedStoryGraphGeneration(type: RatingContentType): {
   active_rank_generation_id: number;
-  promotion_rank_generation_id: number;
+  authorization_rank_generation_id: number;
+  authorization_basis: Exclude<StoryGraphServingDecision['basis'], 'blocked'>;
 } | null {
   const active = libraryDatabase().prepare(`
 SELECT active.active_rank_generation_id, active.previous_complete_rank_generation_id,
@@ -1918,22 +1973,30 @@ WHERE active.content_type = ?
   } | undefined;
   if (!active || active.model_version !== VOD_STORY_FRONTIER_MODEL_VERSION
     || !['bootstrap', 'complete'].includes(active.status)) return null;
+  // A complete generation must stand on its own evaluation. Carrying an older
+  // generation's authorization onto a newer complete rank would silently
+  // bypass a measured regression. Only a bounded priority bootstrap may borrow
+  // the exact previous complete authorization while its full-corpus follow-up
+  // is still building.
   const candidates = active.status === 'complete'
-    ? [active.active_rank_generation_id, active.previous_complete_rank_generation_id]
+    ? [active.active_rank_generation_id]
     : [active.previous_complete_rank_generation_id];
   for (const candidate of candidates) {
-    if (candidate != null && storyGraphOfflineEvaluation(type, candidate)?.promotion_eligible === true) {
+    const evaluation = candidate == null ? null : storyGraphOfflineEvaluation(type, candidate);
+    const decision = evaluation ? storyGraphServingDecision(evaluation) : null;
+    if (candidate != null && decision?.serve_eligible) {
       return {
         active_rank_generation_id: active.active_rank_generation_id,
-        promotion_rank_generation_id: candidate,
+        authorization_rank_generation_id: candidate,
+        authorization_basis: decision.basis as Exclude<StoryGraphServingDecision['basis'], 'blocked'>,
       };
     }
   }
   return null;
 }
 
-export function storyGraphPromotionEligible(tab: StoryGraphTab): boolean {
-  return activePromotedStoryGraphGeneration(contentTypeForTab(tab)) !== null;
+export function storyGraphServeAuthorized(tab: StoryGraphTab): boolean {
+  return activeServeAuthorizedStoryGraphGeneration(contentTypeForTab(tab)) !== null;
 }
 
 function buildStoryGraphForYouRail(input: {
@@ -2335,12 +2398,13 @@ SELECT active_rank_generation_id FROM vod_active_generations WHERE content_type 
     });
   }
   const canPublish = published && epoch !== null;
-  const promotedActive = priorityPhase ? activePromotedStoryGraphGeneration(type) : null;
+  const authorizedActive = priorityPhase ? activeServeAuthorizedStoryGraphGeneration(type) : null;
   const priorityReplacementAuthorized = priorityPhase
     && options.priority_base_rank_generation_id !== undefined
-    && options.priority_promotion_rank_generation_id !== undefined
-    && promotedActive?.active_rank_generation_id === options.priority_base_rank_generation_id
-    && promotedActive.promotion_rank_generation_id === options.priority_promotion_rank_generation_id;
+    && options.priority_authorization_rank_generation_id !== undefined
+    && authorizedActive?.active_rank_generation_id === options.priority_base_rank_generation_id
+    && authorizedActive.authorization_rank_generation_id
+      === options.priority_authorization_rank_generation_id;
   const publishesState = priorityPhase
     ? canPublish && priorityReplacementAuthorized
     : canPublish || publishedEmptyState;
@@ -2442,14 +2506,16 @@ WHERE generation_id = ?
           : 'semantic_revision_changed_before_activation',
     );
   }
-  const activationPromotedActive = priorityPhase ? activePromotedStoryGraphGeneration(type) : null;
+  const activationAuthorizedActive = priorityPhase
+    ? activeServeAuthorizedStoryGraphGeneration(type)
+    : null;
   const priorityActivationAuthorized = priorityReplacementAuthorized
-    && activationPromotedActive?.active_rank_generation_id === options.priority_base_rank_generation_id
-    && activationPromotedActive?.promotion_rank_generation_id
-      === options.priority_promotion_rank_generation_id;
+    && activationAuthorizedActive?.active_rank_generation_id === options.priority_base_rank_generation_id
+    && activationAuthorizedActive?.authorization_rank_generation_id
+      === options.priority_authorization_rank_generation_id;
   const activatesRank = canPublish && (priorityPhase
     ? priorityActivationAuthorized
-    : evaluation.promotion_eligible);
+    : storyGraphServingDecision(evaluation).serve_eligible);
   const activatesEmptyState = !priorityPhase
     && publishedEmptyState && vodRecommendationsV2Mode() === 'serve';
   const activated = activatesRank || activatesEmptyState;
@@ -2548,11 +2614,11 @@ async function refreshStoryGraphWithPriorityPhase(
     2_000,
   );
   const type = contentTypeForTab(tab);
-  const promotedActive = isTasteMutationRefresh(options.trigger_reasons)
-    ? activePromotedStoryGraphGeneration(type)
+  const authorizedActive = isTasteMutationRefresh(options.trigger_reasons)
+    ? activeServeAuthorizedStoryGraphGeneration(type)
     : null;
-  const priorityIds = promotedActive
-    ? activePriorityReserveIds(type, promotedActive.active_rank_generation_id, priorityLimit)
+  const priorityIds = authorizedActive
+    ? activePriorityReserveIds(type, authorizedActive.active_rank_generation_id, priorityLimit)
     : [];
   if (priorityIds.length >= bootstrapMinimum) {
     await refreshStoryGraphForYouUnserialized(tab, {
@@ -2562,8 +2628,8 @@ async function refreshStoryGraphWithPriorityPhase(
         'priority_rescore',
       ])],
       rank_candidate_ids: priorityIds,
-      priority_base_rank_generation_id: promotedActive!.active_rank_generation_id,
-      priority_promotion_rank_generation_id: promotedActive!.promotion_rank_generation_id,
+      priority_base_rank_generation_id: authorizedActive!.active_rank_generation_id,
+      priority_authorization_rank_generation_id: authorizedActive!.authorization_rank_generation_id,
     });
     return refreshStoryGraphForYouUnserialized(tab, {
       ...options,
@@ -2979,6 +3045,9 @@ export type StoryGraphDiagnostics = {
       updated_at: number | null;
       promotion_rank_generation_id: number | null;
       promotion_eligible: boolean;
+      serve_eligible: boolean;
+      serve_basis: StoryGraphServingDecision['basis'];
+      serve_blockers: string[];
       public_rank_generation_id: number | null;
       public_shuffle_epoch: number | null;
     };
@@ -3082,9 +3151,15 @@ WHERE active.content_type = ?
       && active.status
       && ['bootstrap', 'complete'].includes(active.status),
     );
-    const promoted = activeReady ? activePromotedStoryGraphGeneration(type) : null;
-    const publicRankGenerationId = mode === 'serve' && promoted
-      ? promoted.active_rank_generation_id
+    const authorized = activeReady ? activeServeAuthorizedStoryGraphGeneration(type) : null;
+    const authorizationEvaluation = authorized
+      ? storyGraphOfflineEvaluation(type, authorized.authorization_rank_generation_id)
+      : null;
+    const servingDecision = authorizationEvaluation
+      ? storyGraphServingDecision(authorizationEvaluation)
+      : { serve_eligible: false, basis: 'blocked' as const, blockers: ['no_active_authorization'] };
+    const publicRankGenerationId = mode === 'serve' && authorized
+      ? authorized.active_rank_generation_id
       : null;
     return {
       content_type: type,
@@ -3151,8 +3226,11 @@ SELECT value_json FROM recommendation_runtime_state WHERE state_key = ?
         active_published_at: active?.published_at ?? null,
         shuffle_epoch: active?.shuffle_epoch ?? null,
         updated_at: active?.updated_at ?? null,
-        promotion_rank_generation_id: promoted?.promotion_rank_generation_id ?? null,
-        promotion_eligible: promoted !== null,
+        promotion_rank_generation_id: authorized?.authorization_rank_generation_id ?? null,
+        promotion_eligible: authorizationEvaluation?.promotion_eligible === true,
+        serve_eligible: servingDecision.serve_eligible,
+        serve_basis: servingDecision.basis,
+        serve_blockers: servingDecision.blockers,
         public_rank_generation_id: publicRankGenerationId,
         public_shuffle_epoch: publicRankGenerationId === null ? null : active?.shuffle_epoch ?? null,
       },
