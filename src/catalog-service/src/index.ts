@@ -3734,8 +3734,12 @@ async function main(): Promise<void> {
         if (!isLocalRequest(req)) {
           throw new CatalogError(403, 'progress flush is localhost-only');
         }
-        touchCouchActivity('catalog', 'progress_flush');
         const flushed = await flushWatchProgress();
+        // Launcher startup performs a defensive empty flush. Only a flush that
+        // actually persisted an active/last playback snapshot is couch
+        // activity; otherwise every restart suppresses maintenance for the
+        // full idle window despite no person or playback being present.
+        if (flushed) touchCouchActivity('catalog', 'progress_flush');
         sendJson(res, 200, { ok: true, flushed });
         return;
       }
