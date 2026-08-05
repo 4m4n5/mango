@@ -2,8 +2,8 @@
 
 **Branch:** `feat/native-experience` · **Roadmap:** [ROADMAP.md](ROADMAP.md) · **Acceptance:** [COUCH_TEST.md](COUCH_TEST.md)
 
-Latest recommendation blocker-closure target: **2026-08-05**,
-`c41eda9da7a5de15c5b9c777d82275468a739c46`. It is source/Mac-test truth, not
+Latest recommendation deployment target: **2026-08-05**,
+`772b3d58b53208a278da4e9d5281b46f88054b8e`. It is source/Mac-test truth, not
 Pi/deployment/couch truth. Use `git status`, `git rev-parse HEAD`, and the Pi
 commands below before acting.
 
@@ -30,9 +30,9 @@ prove only their exact revision and contract.
 | Native mpv playback | Complete | Deferred-foreground and single-B playback were proven on selected titles on earlier revisions | Current-SHA regression matrix, failure cases, target-TV/audio proof, legacy direct-MediaFusion topology decision |
 | HUD and Streams drawer | Complete | Local fixture/source gates; home-agent deployment work recorded | Current exact-SHA screenshots and 4K dropped-frame/no-regression couch pass |
 | Mango library and Fire/Water input | Complete | Library/ratings base deployed; earlier Fire/Water UI was couch-tuned under a superseded 12-card recommender | Recommendation-v2 served quality and current six-card acceptance |
-| VOD recommendations | `c41eda9` latest-only progressive profiles + Household Story Frontier; mode/Saved/Shuffle/active-pointer blockers fixed and tested, data preserved | Pi contained at `3ef1b20`, VOD off, 1,096 StoryDNA rows preserved | Safe exact-SHA shadow deploy, complete accounting, offline promotion, serve, couch verdict |
+| VOD recommendations | `772b3d5` latest-only progressive profiles + Household Story Frontier; mode/Saved/Shuffle/active-pointer/schema blockers fixed and tested, data preserved | Pi contained at `3ef1b20`, VOD off, 1,096 StoryDNA rows preserved | Safe exact-SHA shadow deploy, complete accounting, offline promotion, serve, couch verdict |
 | Native YouTube base | Complete | Previously deployed/Pi-gated | Current exact-SHA revalidation and account-specific proof |
-| YouTube recommendations | `c41eda9` latest-only authoritative subscription/history v2; off ownership/409 and subscription-only More Like fixed and tested, data preserved | Pi contained at `3ef1b20`, YouTube off | Authoritative input refresh, shadow/serve, quota/provenance and couch proof |
+| YouTube recommendations | `772b3d5` latest-only authoritative subscription/history v2; off ownership/409 and subscription-only More Like fixed and tested, data preserved | Pi contained at `3ef1b20`, YouTube off | Authoritative input refresh, shadow/serve, quota/provenance and couch proof |
 | Voice/phone companion | Complete for trusted-LAN development contract | Automated corpus/memory/UX gates on earlier revisions; partial couch work | Full V1–V12/current coherence plus per-device client auth/pairing before appliance release |
 | Reliability Center/nightly proof | Implemented with a known optional-Live defect | Deployed on earlier revisions | Current-SHA proof, make intentionally disabled Live neutral, controller-action UI mismatch, repeated unattended evidence |
 | Controller reconnect | Source-complete | Automated gate exists; normal-wake behavior partially exercised | Five physical power-on reconnect cycles without pairing mode |
@@ -46,7 +46,7 @@ prove only their exact revision and contract.
 
 ### Source audit
 
-- `c41eda9` is the exact executable recommendation rollout target. It keeps the
+- `772b3d5` is the exact executable recommendation rollout target. It keeps the
   latest-only architecture and preserves historical database rows and schemas.
 - VOD retains deterministic `vod-content-profile-v2`, compatible immutable
   StoryDNA overlays, local Household taste/ranking, full-corpus generations,
@@ -61,7 +61,8 @@ prove only their exact revision and contract.
   and destructive fresh-start/reset APIs. Search and user-created AI catalog
   seeds remain separate and cannot establish recommendation provenance.
 - The catalog-service build and full test suite pass locally at this revision
-  (`875/875`), as do 86 launcher deterministic tests and the launcher build. The
+  (`876/876`), as do 86 launcher deterministic tests and the launcher and
+  companion production builds. The
   cleanup intentionally removed a large legacy implementation/test surface, so
   Pi migration/state-preservation proof, mode-aware gates, generated reserve
   health, and human quality remain mandatory rather than inferred from test
@@ -88,10 +89,10 @@ prove only their exact revision and contract.
   print a secret install URL, leave `/tmp/aiometadata-save.json`, and mask a
   failure. The local skip variable is not forwarded. Both wrappers are blocked
   for unattended agents until fixed and regression-tested.
-- **Playability status under-reports committed migration state.** Current source
-  inserts playability migration `14`, but `SCHEMA_VERSION` and
-  `/playability/status.schema_version` remain `13`. Querying the migration table
-  can diagnose this, but the API marker is not migration-14 proof.
+- **Playability schema diagnostics are reconciled at `772b3d5`.** Current source
+  inserts migration `14`, reports `schema_version=14`, and has a focused test
+  tying the public status value to the latest applied migration. Pi readback is
+  still required after deployment.
 - **Routine state backup is not fail-closed.**
   `scripts/m6-ship/backup-library-state.sh` prefers SQLite's online backup API,
   but on `DatabaseError` falls back to `shutil.copy2` of the main file, which can
@@ -110,7 +111,7 @@ prove only their exact revision and contract.
   `/stream` diagnostics can still expose raw addon fetch error details even
   though the launcher does not render them and the companion proxy blocks the
   route. Treat those DTOs as operator-only; sanitize them before widening access.
-- **Recommendation source blockers are closed at `c41eda9`.** YouTube off now
+- **Recommendation source blockers are closed at `772b3d5`.** YouTube off now
   returns exact active-profile utilities without a false 409; VOD shadow and
   serve both read exact Household Saved; off/shadow cannot advance or falsely
   report Shuffle; and diagnostics distinguish newest rows from active/previous,
@@ -141,7 +142,7 @@ It records approximately 1,096 StoryDNA feature rows, a latest StoryDNA
 generation `complete_count` of roughly 545 movies and 439 series, and verified
 corpora around 5,452 movies and 3,794–3,904 series. Rank coverage was still
 partial. These are a dated predecessor-architecture diagnostic snapshot, not a
-live assertion and not evidence of what `c41eda9` will serve on the Pi. The
+live assertion and not evidence of what `772b3d5` will serve on the Pi. The
 one-title-at-a-time model backfill was stopped because it was too slow/costly.
 No offline bulk artifact/importer exists at committed `HEAD`. Current source
 compiles factual profiles locally for the whole verified corpus and optionally
@@ -350,7 +351,7 @@ Exact-ID TMDB enrichment is credential-gated and may be disabled with
 `MANGO_TMDB_API_KEY`, or the device-owned
 `MANGO_TMDB_API_KEY_FILE` (default `/etc/mango/tmdb.key`).
 `MANGO_TMDB_REQUESTS_PER_SECOND` defaults to and is clamped at five/second
-(range 1–5). None of these controls is recorded on the Pi at `c41eda9`, so runtime mode
+(range 1–5). None of these controls is recorded on the Pi at `772b3d5`, so runtime mode
 and credential presence remain **DEFERRED**.
 
 ### Open promotion work
@@ -531,8 +532,9 @@ Detail: [DEPLOY.md](DEPLOY.md) · [DEPLOY-SPLIT-MACHINE.md](DEPLOY-SPLIT-MACHINE
 
 1. Fix and test deploy branch/SHA enforcement plus the implicit AIOMetadata
    mutation/security path; then deploy/prove one exact revision.
-2. Fix the playability schema marker and optional-Live reliability mismatch.
-3. Deploy `c41eda9` through the reviewed exact-SHA manual path, prove VOD full
+2. Fix the optional-Live reliability mismatch; the playability schema marker is
+   reconciled in the target.
+3. Deploy `772b3d5` through the reviewed exact-SHA manual path, prove VOD full
    accounting/pointers/latency in shadow, then promote only with supplemental
    quality evidence.
 4. Prove YouTube off ownership on the Pi, refresh authoritative inputs in

@@ -222,8 +222,9 @@ See also: [`../AGENTS.md`](../AGENTS.md) · [`ARCHITECTURE.md`](ARCHITECTURE.md)
 Live IPTV: [`LIVE_TV.md`](LIVE_TV.md) — gates opt-in only.
 
 Recommendation rollout is intentionally home-owned. The tested executable
-target `c41eda9da7a5de15c5b9c777d82275468a739c46` closes the recommendation
-mode/ownership/Shuffle/active-pointer/test blockers; the Pi remains contained at
+target `772b3d58b53208a278da4e9d5281b46f88054b8e` closes the recommendation
+mode/ownership/Shuffle/active-pointer/test blockers and aligns public
+playability schema diagnostics with migration 14; the Pi remains contained at
 `3ef1b20` with both domains and provider work off. The deploy/gate wrappers are
 still blocked by the independent exact-SHA and implicit AIOMetadata issues
 above, so the home agent must use the reviewed manual target path in

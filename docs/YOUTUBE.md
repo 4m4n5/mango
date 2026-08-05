@@ -1,7 +1,7 @@
 # mango — native YouTube
 
 **Milestone:** M6.2 · **Status:** the native YouTube base was previously
-Pi-deployed/gated. Commit `c41eda9da7a5de15c5b9c777d82275468a739c46` makes authoritative subscription/history v2
+Pi-deployed/gated. Commit `772b3d58b53208a278da4e9d5281b46f88054b8e` makes authoritative subscription/history v2
 the sole executable recommendation architecture behind an independent
 `off|shadow|serve` flag. The Pi is deliberately contained at `3ef1b20` with
 recommendations and provider work off; account-specific authoritative
@@ -261,8 +261,8 @@ this document is not runtime proof.
 Search, Detail, Save, playback, and the native tab exist independently of the
 recommendation mode. The ordered/supply-constrained behavior below is the
 `serve` contract. In `off`/`shadow`, recommendation rails are absent and only
-eligible utility rails remain. The current non-Household `off` ownership defect
-must be fixed for that fallback surface to be reliable.
+eligible utility rails remain. Exact active-personal ownership in `off` is
+source-tested at the target and remains a Pi rollback check.
 
 - Browse tabs are **Movies · TV Shows · Live · YouTube**.
 - Five visually equal logical core positions are ordered **For You → Beyond Your
@@ -337,7 +337,7 @@ URLs/secrets.
 The base YouTube product and the latest recommendation model have different
 proof status. Base metadata/search/OAuth/Takeout/`yt-dlp` behavior has older Pi
 evidence. The latest recorded runtime is contained at `3ef1b20`; the rail
-contract above is tested source behavior at `c41eda9` awaiting account-specific
+contract above is tested source behavior at `772b3d5` awaiting account-specific
 refresh, shadow diagnostics, serve promotion, and current couch observation. A
 Saved-only or otherwise thin account is a valid setup state; documentation and
 tests must not assume five visible rails.

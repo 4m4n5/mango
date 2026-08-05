@@ -90,8 +90,9 @@ No report from an older SHA or superseded card/rail contract closes this step.
 
 ### P1 — deploy and accept the latest-only recommenders
 
-Commit `345535d` leaves exactly one executable recommendation architecture per
-domain. VOD uses progressive content profiles and the Household Story Frontier;
+Target `772b3d5` leaves exactly one executable recommendation architecture per
+domain and closes the source rollout blockers. VOD uses progressive content
+profiles and the Household Story Frontier;
 YouTube uses authoritative subscription/history provenance and local v2
 generations. `off` and `shadow` no longer revive old recommenders: `off`
 disables the domain and `shadow` builds the latest architecture without a
@@ -100,12 +101,11 @@ contract, so runtime generation health and couch quality remain unknown.
 
 Required outcomes:
 
-1. Fix and focus-test the latest-only contract defects: YouTube non-Household
-   `off` ownership/HTTP 409; VOD shadow versus serve Saved ownership; false
-   Shuffle availability/success in VOD off/shadow; active/previous serving-
-   pointer diagnostics; and mode, migration, publication, last-good, rollback,
-   and HTTP integration coverage removed with the legacy service tests.
-2. Deploy the exact accepted successor only after the deploy blocker is closed,
+1. Preserve the focused source proof already passing for YouTube off ownership,
+   exact VOD active-mode Saved, disabled/public Shuffle, active/previous/public
+   pointers, migrations, publication, rollback, and playability schema 14.
+2. Deploy the exact accepted successor through the reviewed manual path while
+   the unattended-wrapper blocker remains open,
    keeping VOD in shadow, the global teacher disabled, and the bounded frontier
    off. Add or confirm migrations 15–16 upgrade/preservation/rollback;
    frontier-specific

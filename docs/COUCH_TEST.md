@@ -187,9 +187,9 @@ bash scripts/m6-ship/gate-m6-stream-picker-smoke.sh
 
 Do not run served-quality acceptance while VOD mode is `off`/`shadow`; record
 the mode and mark served checks DEFERRED. `off` has no For You rail. `shadow`
-builds latest-only without exposing For You but already switches profile/mood,
-Continue, and new signal ownership to Household; verify that state transition
-explicitly rather than treating shadow as invisible compute.
+builds latest-only without exposing For You and uses exact Household
+recommendation/Saved ownership while preserving personal rows; verify that
+state transition explicitly rather than treating shadow as invisible compute.
 
 | ID | Check | Expected | Verdict/evidence |
 |----|-------|----------|------------------|
@@ -199,7 +199,7 @@ explicitly rather than treating shadow as invisible compute.
 | F4 | Prompt | Movie 90% / three distinct series episodes; invitation appears on return without stealing focus | |
 | F5 | Durability | Set/edit/clear survives restart; append-only history and seed precedence remain intact | |
 | F6 | Privacy | Teacher/network request contains canonical content evidence only—no ratings, Saved/history, profile, mood, conversation, or memory | |
-| F7 | Corpus/pointer | `scored + excluded == verified`, `unscored == 0`, coverage 1 for a complete publish; independently prove active/previous pointers and public epoch because `/recommendations/state` reports the latest row, not necessarily the live row | |
+| F7 | Corpus/pointer | `scored + excluded == verified`, `unscored == 0`, coverage 1 for a complete publish; `/recommendations/state` must show newest diagnostics separately from matching active/previous/public pointers and epoch | |
 | F8 | Rail shape | One For You after Continue/Saved; exactly six current verified/poster-bearing cards | |
 | F9 | Mix | Six, 3+3, or 2+2+2 across supported threads; no v4 12-card/4-1-1/forced-surprise/rewatch behavior | |
 | F10 | Exclusions | Exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me absent | |
@@ -210,7 +210,7 @@ explicitly rather than treating shadow as invisible compute.
 | F15 | Shadow identity | Personal rows/counts remain intact; profile/mood writes are typed; Continue/progress and Saved ownership match the accepted Household policy with no shadow/serve divergence | |
 | F16 | Disabled Shuffle | X/Shuffle is hidden or honest in off/shadow; it never reports a successful refresh when no For You rail changed | |
 
-The latest recorded Pi snapshot predates `345535d` and had only partial
+The latest recorded Pi snapshot predates `772b3d5` and had only partial
 predecessor StoryDNA/rank coverage. Before claiming promotion, prove the latest progressive compiler,
 semantic migrations, bounded frontier-off/default behavior, complete audited
 coverage, offline gates, and exact-SHA Pi/couch behavior. A bulk artifact or
@@ -224,8 +224,8 @@ recommendation mode.
 
 YT1–YT4 apply in every mode. YT5–YT14 are **serve-mode** acceptance: mark them
 DEFERRED in `off`/`shadow`, where recommendation rails are absent and only
-eligible History/Saved utility rails remain. Fix the current non-Household
-`off` ownership/HTTP 409 defect before using off as rollback.
+eligible History/Saved utility rails remain. The non-Household `off` ownership
+regression is source-tested at the target and must be re-proven on the Pi.
 
 | ID | Check | Expected | Verdict/evidence |
 |----|-------|----------|------------------|

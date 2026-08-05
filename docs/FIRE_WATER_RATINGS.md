@@ -1,7 +1,7 @@
 # Fire & Water ratings and For You
 
 **Branch:** `feat/native-experience`
-**State:** commit `c41eda9da7a5de15c5b9c777d82275468a739c46` makes progressive Household VOD the sole executable
+**State:** commit `772b3d58b53208a278da4e9d5281b46f88054b8e` makes progressive Household VOD the sole executable
 recommendation architecture. It contains `vod-content-profile-v2`, immutable
 compatible StoryDNA overlays, `vod-story-frontier-v1`, cached six-card dealing,
 an optional bounded frontier, exact-ID TMDB enrichment, and additive schema
@@ -30,7 +30,7 @@ No mode selects a deleted recommender. Operational rollback is `serve` →
 path deletes historical state. “Source-complete” must never be read as “the
 Household rail is currently served.”
 
-Source rollout contract at `c41eda9`:
+Source rollout contract at `772b3d5`:
 
 - Shadow and serve both use exact Household Saved while leaving all personal
   rows intact.
@@ -310,7 +310,7 @@ verified corpora around 5,452 movies and 3,794–3,904 series. Rank coverage was
 still partial. Reverify those counts before using them operationally. The live
 one-title-at-a-time teacher was stopped for cost and latency.
 
-Target `c41eda9` compiles the verified corpus locally and can selectively teach
+Target `772b3d5` compiles the verified corpus locally and can selectively teach
 only a bounded uncertainty frontier, rather than requiring whole-corpus model
 completion. It is Mac-tested but not Pi-deployed or couch-accepted. The
 older bulk-work prompt remains design input for a possible privacy-safe,
@@ -321,7 +321,7 @@ coverage or quality gap.
 
 ## Evaluation boundary
 
-At `c41eda9`, deterministic local tests cover content-only StoryDNA,
+At `772b3d5`, deterministic local tests cover content-only StoryDNA,
 malformed-sibling isolation, progressive profiles, graph/worker parity,
 positive-only rating math, 85/15 evidence ownership, 180-day viewing decay,
 distinct threads, 2/2/2–3/3–6 portfolios, rank-weighted dealing, large-corpus

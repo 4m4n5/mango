@@ -4,7 +4,7 @@
 Work in the mango repo on branch feat/native-experience from the home Mac/Pi
 LAN. Deploy and verify exactly:
 
-TARGET_SHA=c41eda9da7a5de15c5b9c777d82275468a739c46
+TARGET_SHA=772b3d58b53208a278da4e9d5281b46f88054b8e
 
 Read completely before acting:
 - AGENTS.md
@@ -51,8 +51,9 @@ Execution contract:
    runbook. Stop on any executable or config delta. Run the full catalog suite
    and launcher deterministic tests plus production build on TARGET_SHA itself.
 2. Inventory Pi full SHA/branch/dirt, services, env, DB paths/sizes,
-   recommendation state/pointers, verified counts, StoryDNA count, and
-   quick_check. Preserve the old backup directory. Make fresh online SQLite
+   recommendation state/pointers, verified counts, StoryDNA count,
+   playability schema/migration versions, and quick_check. Preserve the old
+   backup directory. Make fresh online SQLite
    backups unless the runbook's strict unchanged/validated reuse conditions are
    all proven. Backups stay Pi-local, 0700 directory/0600 files.
 3. Require idle couch/no playback. Fetch the target on Pi and advance the
@@ -62,7 +63,7 @@ Execution contract:
    Build catalog/launcher/companion with the manual dependency-aware commands,
    restart without addon sync, and re-read HEAD/env/state.
 5. Refresh Movies and TV; poll exact jobs. Require full verified accounting,
-   reserve >=200 per domain, six valid cards, provider silence, preserved 1096+
+   schema_version=14, reserve >=200 per domain, six valid cards, provider silence, preserved 1096+
    overlays, and active-pointer diagnostics distinct from latest-row data. In
    shadow public rank/epoch must be null; Saved must be exact Household;
    Shuffle must be hidden and unable to advance an epoch.

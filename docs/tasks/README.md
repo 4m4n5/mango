@@ -17,16 +17,14 @@ relevant subsystem doc first.
 
 ## Current source work
 
-`345535d` commits and pushes the latest-only recommendation cleanup: progressive
-Household VOD and authoritative subscription/history YouTube v2 are the sole
-executable recommenders; historical data/schema remains. The catalog build and
-full suite pass locally, but Pi deployment is blocked by a YouTube non-Household
-`off` ownership/HTTP 409 defect, VOD shadow/serve Saved-ownership divergence,
-false VOD Shuffle success in off/shadow, insufficient active-pointer
-diagnostics, and missing focused replacements for removed service tests. The
-deploy wrappers are independently blocked by branch/SHA and implicit
-AIOMetadata-mutation defects. A live rollout requires a tested successor SHA;
-no current task file is copy/paste-ready.
+`772b3d5` is the tested latest-only recommendation deployment target:
+progressive Household VOD and authoritative subscription/history YouTube v2 are
+the sole executable recommenders; historical data/schema remains. The catalog
+suite passes 876/876, launcher deterministic tests pass 86/86, launcher and
+companion builds pass, and focused tests close the prior ownership, Saved,
+Shuffle, active-pointer, migration/rollback, and playability-schema gaps. The
+deploy wrappers remain independently blocked by branch/SHA and implicit
+AIOMetadata-mutation defects, so the reviewed manual runbook is the active path.
 
 ## Current design records
 
@@ -41,10 +39,10 @@ no current task file is copy/paste-ready.
 ## Rollout and acceptance records
 
 - `RECOMMENDATIONS_PROGRESSIVE_FRONTIER_DEPLOY.md` and
-  `RECOMMENDATIONS_PROGRESSIVE_FRONTIER_HOME_AGENT_PROMPT.md` are a blocked
-  successor checklist/template. Do not deploy `345535d` from them; supply a new
-  exact SHA only after the named source defects, focused tests, WAL-safe
-  library/playability backups, and deploy hardening are proven.
+  `RECOMMENDATIONS_PROGRESSIVE_FRONTIER_HOME_AGENT_PROMPT.md` are the current
+  exact-SHA home rollout contract. They require WAL-safe library/playability
+  backups, preserved state, VOD-first shadow proof, independent promotion, and
+  explicit human-couch deferral. Do not substitute `345535d` or `3ef1b20`.
 
 - `RECOMMENDATIONS_HOME_PI_CODEX_SPEC.md` is an older rollout contract whose
   sequential one-title StoryDNA backfill assumption is superseded. Its former

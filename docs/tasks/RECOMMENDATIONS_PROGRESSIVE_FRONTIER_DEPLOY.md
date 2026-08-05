@@ -5,7 +5,7 @@ This means the Mac source blockers are fixed and tested; it is not Pi, serve, or
 couch proof.
 
 ```bash
-TARGET_SHA=c41eda9da7a5de15c5b9c777d82275468a739c46
+TARGET_SHA=772b3d58b53208a278da4e9d5281b46f88054b8e
 ```
 
 Do not promote `345535d883805bbfc21bb277b62adbb33ccb96cb` or
@@ -37,13 +37,16 @@ StoryDNA, generations, tables, migrations, caches, credentials, or ledgers.
 - Focused tests cover every mode/owner pair, utility ownership, disabled
   reshuffle, Saved policy, active-vs-latest publication, migration/data
   preservation, rollback-off behavior, and initial subscription-only More Like.
+- `/playability/status.schema_version` now reports migration `14`, with a
+  focused test tying the public diagnostic to the latest applied migration.
 
 Mac proof at the target:
 
 ```text
-catalog-service npm test: 875 pass / 0 fail
+catalog-service npm test: 876 pass / 0 fail
 launcher deterministic tests: 86 pass / 0 fail
 launcher production build: pass
+companion production build: pass
 ```
 
 ## 1. Resume from the contained Pi
@@ -138,8 +141,8 @@ MANGO_CATALOG=1 bash scripts/mango-stack.sh restart
 test "$(git rev-parse HEAD)" = "$TARGET_SHA"
 ```
 
-No dependency manifest changed. Run catalog tests, launcher build, and reviewed
-Pi-local pre-couch/focus/reliability checks on this exact SHA.
+No dependency manifest changed. Run catalog tests, launcher/companion builds,
+and reviewed Pi-local pre-couch/focus/reliability checks on this exact SHA.
 
 ## 4. VOD shadow, then serve
 
@@ -155,6 +158,8 @@ curl -fsS -X POST http://127.0.0.1:3020/recommendations/refresh \
 Require per domain:
 
 - `model_version=vod-story-frontier-v1`, `profile_mode=progressive-v2`;
+- `/playability/status.schema_version=14` and the latest
+  `playability_migrations.version=14`;
 - current Household taste revision from real ratings/Saved/meaningful history;
 - `scored_count + excluded_count == verified_count`, `unscored_count=0`,
   `coverage=1`, reserve at least 200, and six valid cached cards;

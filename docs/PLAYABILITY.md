@@ -456,8 +456,8 @@ PR regression (not gate-lite): `bash scripts/m3-play/playability/gate-m3-library
 This section describes the latest-only VOD `serve` mode. In `off`, Mango does
 not build or expose personalized For You rails. In `shadow`, Mango builds the
 latest recommendation architecture but still exposes no public For You rail;
-shadow is not compute-only today because Household identity, mood, Saved,
-Continue, and progress paths remain live. Only `serve` publishes the latest
+shadow uses Household recommendation identity and exact Household Saved while
+leaving preserved personal rows dormant. Only `serve` publishes the latest
 personalized rails. There is no supported legacy-public-rail fallback.
 
 Fire/Water `For You` candidates come only from the global active verified-title
@@ -491,6 +491,6 @@ curated rail, including the existing 4K policy and proof boundary.
 | Promote/demote sources from measured grow outcomes | Runtime weights should keep healthy catalogs hot and weak catalogs on small probation budgets |
 | Keep diagnostics compact | Operators need exact stage/source/reason without exposing grow/debug status on TV |
 | Revisit full retheme cadence | Full metadata retheme is useful but can trigger many meta calls; default grow should stay lightweight |
-| Prove latest-only recommendations | `345535d` compiles local profiles and offers an off-by-default bounded frontier, but Pi migration/accounting/active-pointer/promotion/couch proof remains open; first fix VOD shadow/Shuffle and YouTube off ownership defects, then deploy the exact SHA in independent shadow lanes and measure coverage/quality/cost |
+| Prove latest-only recommendations | `772b3d5` compiles local profiles, fixes VOD shadow/Shuffle, YouTube off ownership, active pointers, and schema diagnostics, and offers an off-by-default bounded frontier; deploy the exact SHA in independent shadow lanes and measure Pi accounting/quality/cost before promotion |
 | Prove recommendation refresh after publication | Grow completion must wait for exact VOD/YouTube jobs while preserving last-good on failure |
 | Prove AIO runtime topology separately from Git | AIOStreams `userData` is Pi-owned state; resolver/indexer/transport contribution cannot be inferred from repository config |

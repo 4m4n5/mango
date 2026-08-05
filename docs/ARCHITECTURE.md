@@ -176,10 +176,10 @@ once; if both fail it flushes progress and marks the existing playback session
 
 The theme gate (`rail-theme-gate.ts`) enforces `config/rail-theme-profiles.yaml` on grow/link/verify pool writes. Grow runs operate on an isolated work DB and publish the live DB after a completed publishable run; per-rail `+20` shortfalls are operator warnings by default, while failed or aborted runs preserve the previous couch snapshot. Finalization attaches verified orphans and caps unpinned overlap without full metadata retheme. See [PLAYABILITY.md](PLAYABILITY.md).
 
-Committed progressive source adds playability migration `14`, but the exported
-`/playability/status.schema_version` still comes from a hard-coded `13`. The
-migration table and status DTO therefore disagree; this must be fixed before the
-API marker can prove migration 14.
+Target `772b3d5` includes playability migration `14` and reports the same value
+through `/playability/status.schema_version`. A focused test binds the public
+diagnostic to the latest applied migration; deployment still must read back both
+the table and API on the Pi.
 
 ### Mango library state
 
@@ -271,7 +271,7 @@ batch, runtime, attempt, and coalescing limits. Library migration 15 adds the
 progressive/frontier/calibration/usage state; library migration 16 adds immutable
 StoryDNA overlays keyed by content plus semantic-evidence hash; playability
 migration 14 adds semantic revisions. The exact executable target
-`c41eda9da7a5de15c5b9c777d82275468a739c46` passes the recorded focused and
+`772b3d58b53208a278da4e9d5281b46f88054b8e` passes the recorded focused and
 full Mac suites, but remains Pi-undeployed and couch-unaccepted. Runtime
 rollback disables exposure (`shadow`/`off`);
 older ranking code requires a reviewed Git rollback and can read preserved
@@ -364,7 +364,7 @@ reservoirs. Independent
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
 Both latest-only architectures have their source rollout blockers closed at
-`c41eda9da7a5de15c5b9c777d82275468a739c46`: YouTube `off` uses exact active
+`772b3d58b53208a278da4e9d5281b46f88054b8e`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused

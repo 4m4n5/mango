@@ -435,7 +435,7 @@ Scheduled maintenance (local time):
 
 ## Household recommendations
 
-Commit `345535d` contains one executable architecture per domain: progressive
+Target `772b3d5` contains one executable architecture per domain: progressive
 Household VOD and provenance-gated YouTube v2. The latest repository-recorded
 home snapshot predates that cleanup; its VOD `shadow`, YouTube `off`, and
 partial predecessor counts are historical only. Reverify the live Pi before
@@ -482,7 +482,7 @@ curl -fsS http://127.0.0.1:3020/youtube/state | python3 -m json.tool
 curl -fsS http://127.0.0.1:3020/personalization/state | python3 -m json.tool
 ```
 
-At committed `345535d`, library versions include `4` through `16`, playability
+At target `772b3d5`, library versions include `4` through `16`, playability
 includes migration `14`, and progress includes `2`. Match expectations to the exact
 committed SHA; never start a dirty checkout against live databases merely to
 advance a migration marker.
@@ -548,31 +548,25 @@ mode-aware activation/staleness and active-pointer diagnostics pass. The removed
 `MANGO_VOD_CONTENT_PROFILE` and `MANGO_STORY_DNA_AUTONOMOUS_BACKFILL` keys are
 obsolete; remove those keys from operator configuration without touching data.
 
-The committed playability migration inserts version `14`, but
-`playabilityStatus()` still returns the hard-coded source constant `13`.
-Therefore `/playability/status.schema_version` under-reports the migrated DB and
-must not be used as migration-14 proof until the constant/status contract is
-fixed and tested. Query `playability_migrations` directly for diagnosis. The
-committed source remains blocked from unattended deployment by the helper-safety
-defects and lacks the focused Pi/promotion proof described above.
+Target `772b3d5` reports playability schema version `14`, matching the latest
+applied migration, and covers that equality with a focused test. Re-prove both
+the migration table and public status on the Pi after deployment. The source
+remains blocked from unattended deployment by the independent helper-safety
+defects and still requires Pi/promotion proof.
 
-Recommendation-specific blockers also remain:
+Recommendation source blockers are closed at the target:
 
-- `/recommendations/state` describes the newest rank row, not necessarily the
-  active/previous public pointers. `mode_ready`, `last_good_publication`, and
-  `teacher_model_version` do not prove the live ranker. Query the active pointer
-  tables privately or improve the API before promotion; never print household
-  rows.
+- `/recommendations/state` separates the newest diagnostic row from per-domain
+  active, previous complete, promotion, and public pointers/epochs. Re-prove the
+  relationships on real Pi generations; never print household rows.
 - The current absolute VOD evaluator does not compare against an accepted
   baseline or gate reserve depth, calibration, teacher cost, worker latency, or
   uplift confidence. Treat its `promotion_eligible` as a minimum safety check,
   not a quality verdict.
-- In YouTube `off`, service output is Household-owned while the HTTP route
-  expects the active profile; a non-Household active profile can receive 409.
-  Do not use `off` as a proven rollback until the owner contract and focused
-  mode/HTTP tests are fixed.
-- Launcher X/Shuffle can show a success toast in VOD `off`/`shadow` although no
-  public For You slate changes. Fix that false feedback before couch handoff.
+- In YouTube `off`, service and route use the exact active personal owner; in
+  shadow/serve they use Household. Focused tests cover the former 409 regression.
+- Launcher X/Shuffle is available only for a public mutable recommendation rail
+  and reports success only when card membership/order actually changes.
 
 Grow/nightly playability maintenance performs that polling itself: after the
 new corpus is published, it waits for the exact Movies and TV refresh job IDs

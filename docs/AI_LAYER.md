@@ -2,14 +2,15 @@
 
 **Milestone:** [M5](ROADMAP.md) · **Rule (unchanged):** voice **opens**, pad **B** plays — no voice playback, on every tab including Live.
 
-**Recommendation status:** commit `345535d` leaves one executable architecture
+**Recommendation status:** target `772b3d5` leaves one executable architecture
 per domain: local progressive Household VOD and provenance-gated YouTube v2.
 `off` disables recommendations, `shadow` builds only the latest architecture
 without exposing recommendation rails, and `serve` exposes only its published
 accepted generation. The latest repository-recorded Pi snapshot predates that
-cleanup. Deployment is currently blocked by documented source/operations gaps,
-and public promotion, current-SHA diagnostics/screenshots, and human TV-quality
-verdicts remain **DEFERRED**. No bulk artifact/importer exists or is required by
+cleanup. Source rollout blockers are closed; unattended wrappers remain blocked
+by documented operations gaps. Public promotion, current-SHA diagnostics and
+screenshots, and human TV-quality verdicts remain **DEFERRED**. No bulk
+artifact/importer exists or is required by
 the current design. See [STATUS.md](STATUS.md).
 
 ---
@@ -34,7 +35,7 @@ subscriptions/history rather than an LLM.
 | Custom AI rails | Up to three user-created slots per rendered Movies/TV/Live tab | Implemented; YouTube management/seed code remains, but latest YouTube Home no longer composes those slots—a current contract gap |
 | Conversational memory | Local profile/journal/compiled notes for librarian continuity | Implemented; full memory couch sign-off open |
 | VOD recommendation | Local Household Story Frontier over verified titles; AI teaches optional content overlays only | Latest-only source; local build/tests pass; Pi deployment/promotion/couch proof open |
-| YouTube recommendation | Local provenance-gated subscriptions/history model; no AI input | Latest-only source; non-Household `off` ownership/409 defect blocks rollback/promotion |
+| YouTube recommendation | Local provenance-gated subscriptions/history model; no AI input | Latest-only source; non-Household `off` ownership regression is fixed/tested, while Pi rollback/promotion proof remains open |
 | Live | Full catalog search/open plus custom rails and now-playing context; EPG absent | Optional runtime; source/config dependent |
 | Viewer profiles/mood | Rows preserved through every mode; no current recommender consumes them | VOD `shadow`/`serve` switch product identity to Household and reject personal/mood mutations; `off` restores profile UI but has no recommendation rail |
 
