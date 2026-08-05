@@ -31,14 +31,7 @@ CATALOG_DIR="${1:?catalog-service path}"
     dist/catalog-errors.test.js \
     dist/personalization-coherence.test.js \
     dist/personalization-request.test.js \
-    dist/recommendations/attribution-request.test.js \
-    dist/recommendations/ai.test.js \
-    dist/recommendations/background-refresh.test.js \
-    dist/recommendations/engine.test.js \
-    dist/recommendations/evaluation.test.js \
-    dist/recommendations/mutation-attribution.test.js \
-    dist/recommendations/rank-worker-client.test.js \
-    dist/recommendations/service.test.js \
+    dist/recommendations/*.test.js \
     dist/live-rails.test.js \
     dist/live/qualification.test.js \
     dist/live-rails-cache.test.js \
@@ -95,6 +88,8 @@ saved = source.split("parts[0] === 'library' && parts[1] === 'saved'", 1)[1].spl
 for contract in (
     "before Saved target resolved",
     "before Saved state changed",
+    "saved.source !== SYNTHETIC_LIBRARY_SOURCE",
+    "target.source !== SYNTHETIC_LIBRARY_SOURCE",
     "profile_id: personalization.active_profile_id",
     "personalization_updated_at: personalization.updated_at",
 ):
