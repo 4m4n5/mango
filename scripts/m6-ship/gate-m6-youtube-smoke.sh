@@ -116,7 +116,15 @@ if mode == "serve":
     assert all(rail_id in allowed_order for rail_id in rail_ids), rail_ids
     assert rail_ids == sorted(rail_ids, key=allowed_order.index), rail_ids
     if status == "ready":
-        assert {"for_you", "beyond", "more_like"}.issubset(rail_ids), rail_ids
+        assert {"for_you", "beyond"}.issubset(rail_ids), rail_ids
+        more_like = v2.get("more_like_status") or {}
+        more_like_state = more_like.get("status")
+        if "more_like" in rail_ids:
+            assert reserve_depths["more_like"] >= 4, reserve_depths
+            assert more_like_state in {"thematic", "exact_channel"}, more_like
+        else:
+            assert reserve_depths["more_like"] == 0, reserve_depths
+            assert more_like_state == "not_applicable", more_like
     visible_ids = []
     for rail in rails:
         items = (rail or {}).get("items")
