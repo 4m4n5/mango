@@ -1142,6 +1142,40 @@ test('More Like uses uploads playlists and publishes a same-channel plus themati
     .map((creator) => publicMore.items.filter((item) => item.channel_id === creator).length)) <= 2);
 }));
 
+test('More Like reports and labels an exact-channel fallback honestly when topic search yields no relation', () => withTempState(async () => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  const seed = video('channel-seed', 'Boxing footwork lesson', 'boxing-channel');
+  upsertYoutubeItems([seed]);
+  recordLibraryWatch({
+    profile_id: 'household', source: 'youtube', type: 'youtube_video', id: seed.id,
+    play_id: 'channel-play', title: seed.title, duration_sec: 600, position_sec: 600,
+    event: 'finished', watched_at: now,
+  });
+  const service = new YoutubeService();
+  const api = (service as unknown as { api: {
+    channelUploadPlaylists: (ids: string[]) => Promise<Map<string, string>>;
+    playlistItems: () => Promise<YoutubeItem[]>;
+    search: () => Promise<{ videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[] }>;
+  } }).api;
+  api.channelUploadPlaylists = async (ids) => new Map([[ids[0]!, 'boxing-uploads']]);
+  api.playlistItems = async () => Array.from({ length: 6 }, (_, index) => (
+    video(`same-channel-${index}`, `Boxing footwork episode ${index}`, 'boxing-channel')
+  ));
+  api.search = async () => ({ videos: [], channels: [], playlists: [] });
+
+  const result = await service.refresh('triggered-exact-channel');
+  assert.equal(result.ok, true);
+  const status = getYoutubeState<{ status: string }>('youtube_v2_more_like_status', { status: '' });
+  assert.equal(status.status, 'exact_channel');
+  const publicMore = youtubeV2RecommendationRails({ shuffle_epoch: 0 })
+    .find((rail) => rail.rail_id === 'more_like')!;
+  assert.equal(publicMore.label, 'More from Channel boxing-channel');
+  assert.equal(publicMore.items.length, 4);
+  assert.ok(publicMore.items.every((item) => item.channel_id === 'boxing-channel'));
+}));
+
 test('an all-query discovery failure retains the last-good generation and blocks publication', () => withTempState(async () => {
   const now = Date.now();
   seedV2();

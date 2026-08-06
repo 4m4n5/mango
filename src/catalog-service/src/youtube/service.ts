@@ -1039,7 +1039,9 @@ export class YoutubeService {
       ].filter((candidate, index, all) => (
         all.findIndex((entry) => entry.item.id === candidate.item.id) === index
       ));
-      if (hybrid.length >= YOUTUBE_RAIL_LIMIT) {
+      if (pools.thematic.length > 0
+        && pools.channel.length > 0
+        && hybrid.length >= YOUTUBE_RAIL_LIMIT) {
         selectedMoreLike = entry.seed;
         selectedMode = 'hybrid';
         allCandidates.push(...hybrid);
