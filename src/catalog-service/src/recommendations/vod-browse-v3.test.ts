@@ -125,6 +125,7 @@ test('Related admission rejects parent and facet coincidences but preserves rich
       { family: 'theme', nodeKey: 'theme:parent%3Dinner-life' },
       { family: 'facet.pace', nodeKey: 'facet.pace:pace' },
       { family: 'format', nodeKey: 'format:feature-film' },
+      { family: 'narrative-structure', nodeKey: 'narrative-structure:linear' },
     ],
   }), false);
   assert.equal(relatedEvidenceQualifies({

@@ -192,11 +192,10 @@ export function relatedWeight(score: number): number {
 
 const RELATED_DIRECT_CORE_FAMILIES = new Set([
   'genre-subgenre', 'story-engine', 'theme', 'character-dynamic', 'tone',
-  'setting-era', 'geographic-scope', 'social-setting', 'narrative-structure',
-  'ending-emotional-arc', 'compound',
+  'compound',
 ]);
 const RELATED_STORY_IDENTITY_FAMILIES = new Set([
-  'genre-subgenre', 'story-engine', 'compound',
+  'genre-subgenre', 'story-engine',
 ]);
 const RELATED_SPARSE_FACT_FAMILIES = new Set([
   'creator', 'director', 'writer', 'country', 'language', 'decade', 'format',
