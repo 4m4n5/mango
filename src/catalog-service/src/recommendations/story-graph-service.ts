@@ -3268,31 +3268,47 @@ SELECT eligible_count FROM vod_rank_generations WHERE rank_generation_id = ?
       32,
     );
     let replacement: { epoch: number; rows: PersistedRankRow[] } | null = null;
-    const validQueued: Array<{ epoch: number; rows: PersistedRankRow[] }> = [];
-    for (const candidateEpoch of queuedSlateEpochs(
+    const queued = queuedSlateEpochs(
       active.rank_generation_id,
       type,
       epoch,
       scanLimit,
-    )) {
+    ).map((candidateEpoch) => ({
+      epoch: candidateEpoch,
+      rows: cachedSlateRows(type, candidateEpoch, active.rank_generation_id),
+    }));
+    const validation = new Map<number, boolean>();
+    const valid = async (candidate: { epoch: number; rows: PersistedRankRow[] }): Promise<boolean> => {
+      const cached = validation.get(candidate.epoch);
+      if (cached !== undefined) return cached;
       storyGraphServingWorkCounters.queue_slates_scanned += 1;
-      const candidateRows = cachedSlateRows(type, candidateEpoch, active.rank_generation_id);
-      if (await validateSlateRows(candidateRows, type)) {
-        validQueued.push({ epoch: candidateEpoch, rows: candidateRows });
-      }
-    }
+      const result = await validateSlateRows(candidate.rows, type);
+      validation.set(candidate.epoch, result);
+      return result;
+    };
     const rendered = recentCachedSlates(active.rank_generation_id, type, 4, true);
     const retainedRendered = [...rendered];
-    while (!replacement && validQueued.length > 0) {
+    while (!replacement && queued.length > 0) {
       const excluded = new Set(retainedRendered.flatMap((slate) => slate.ids));
-      replacement = validQueued.find((candidate) => candidate.rows.every(
-        (row) => !excluded.has(contentKey(type, row.content_id)),
-      )) ?? null;
+      for (const candidate of queued) {
+        if (candidate.rows.some((row) => excluded.has(contentKey(type, row.content_id)))) continue;
+        if (await valid(candidate)) {
+          replacement = candidate;
+          break;
+        }
+      }
       if (replacement || retainedRendered.length === 0) break;
       // Rendered history is newest-first; relax the oldest slate first.
       retainedRendered.pop();
     }
-    replacement ??= validQueued[0] ?? null;
+    if (!replacement) {
+      for (const candidate of queued) {
+        if (await valid(candidate)) {
+          replacement = candidate;
+          break;
+        }
+      }
+    }
     if (!replacement && !currentValid) {
       for (const previous of rendered.filter((slate) => slate.epoch !== epoch).slice(0, scanLimit)) {
         storyGraphServingWorkCounters.queue_slates_scanned += 1;

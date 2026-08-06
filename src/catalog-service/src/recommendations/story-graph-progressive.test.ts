@@ -331,6 +331,7 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
     assert.equal(servingWork.dealer_calls, 0, 'X consumes only predealt slates');
     assert.equal(servingWork.full_reserve_queries, 0, 'X never scans or ranks the reserve');
     assert.equal(servingWork.full_reserve_rows_loaded, 0, 'X never loads the reserve');
+    assert.equal(servingWork.queue_slates_scanned, 24, 'each X validates only its selected slate');
 
     const failed = libraryDatabase().prepare(`
 INSERT INTO vod_rank_generations(
