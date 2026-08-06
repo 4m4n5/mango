@@ -57,6 +57,26 @@ export type LiveSourceConfig = {
   label?: string;
 };
 
+export function findLiveAddonManifestUrl(
+  addonName: string,
+  candidates: Array<{ name: string; manifestUrl: string }>,
+): string | null {
+  const normalized = addonName.trim().toLowerCase();
+  return candidates.find((candidate) => candidate.name.trim().toLowerCase() === normalized)
+    ?.manifestUrl ?? null;
+}
+
+export function incompleteLiveCatalogSources(
+  sources: Array<Pick<LiveSourceConfig, 'addon'>>,
+  sourceCounts: Readonly<Record<string, number>>,
+  failedSources: readonly string[],
+): string[] {
+  const failed = new Set(failedSources);
+  return sources
+    .map((source) => source.addon)
+    .filter((addon) => failed.has(addon) || !Number.isInteger(sourceCounts[addon]) || sourceCounts[addon] < 1);
+}
+
 export type LiveRailConfig = {
   version: number;
   addon: string;

@@ -153,7 +153,9 @@ import type { AiCatalogRail } from './ai-catalogs/types.js';
 import {
   channelSubtitle,
   fetchLiveCatalogChannels,
+  findLiveAddonManifestUrl,
   finalizeLiveRailListing,
+  incompleteLiveCatalogSources,
   loadLiveRailConfig,
   partitionChannelsBySportRails,
   type LiveChannelMeta,
@@ -1242,7 +1244,14 @@ export class CatalogCore {
   private liveLastRebuildError: string | null = null;
   private liveChannelCatalogCache: {
     channels: TaggedLiveChannel[];
+    sourceCounts: Record<string, number>;
+    failedSources: string[];
     expiresAt: number;
+  } | null = null;
+  private liveCatalogSourceStatus: {
+    source_counts: Record<string, number>;
+    failed_sources: string[];
+    checked_at: number;
   } | null = null;
   private playabilitySessionId = process.env.MANGO_PLAYABILITY_SESSION_ID || randomUUID();
   private playabilitySessionStartedAt = Date.now();
@@ -1256,6 +1265,7 @@ export class CatalogCore {
     private readonly railConfigError: Error | null,
     private readonly liveRailConfig: LiveRailConfig | null,
     private readonly liveRailConfigError: Error | null,
+    private readonly addonExports: NormalizedAddonExport[],
   ) {}
 
   static async create(
@@ -1334,6 +1344,7 @@ export class CatalogCore {
       railConfigResult.error,
       liveRailConfigResult.config,
       liveRailConfigResult.error,
+      exported,
     ).withAiCatalogRails(aiCatalogRails);
   }
 
@@ -1489,6 +1500,11 @@ export class CatalogCore {
           catalog: source.catalog,
           pages: source.pages,
         })) ?? [],
+        source_status: this.liveCatalogSourceStatus ?? {
+          source_counts: {},
+          failed_sources: [],
+          checked_at: null,
+        },
         cache: liveCache,
         search_health: {
           qualified,
@@ -1810,29 +1826,55 @@ export class CatalogCore {
   private async fetchTaggedLiveChannels(
     config: LiveRailConfig,
   ): Promise<TaggedLiveChannel[]> {
+    return (await this.fetchTaggedLiveChannelSnapshot(config)).channels;
+  }
+
+  private manifestUrlForAddonName(name: string): string {
+    const manifestUrl = findLiveAddonManifestUrl(name, [...this.addons, ...this.addonExports]);
+    if (manifestUrl) return manifestUrl;
+    throw new CatalogError(502, `addon export not found: ${name}`);
+  }
+
+  private async fetchTaggedLiveChannelSnapshot(
+    config: LiveRailConfig,
+  ): Promise<{
+    channels: TaggedLiveChannel[];
+    sourceCounts: Record<string, number>;
+    failedSources: string[];
+  }> {
     const ttlMs = liveCatalogCacheTtlMs(config);
     const cached = this.liveChannelCatalogCache;
     if (cached && cached.expiresAt > Date.now()) {
-      return cached.channels;
+      return cached;
     }
 
     const tagged: TaggedLiveChannel[] = [];
+    const sourceCounts: Record<string, number> = {};
+    const failedSources: string[] = [];
     for (const source of config.sources) {
       try {
-        const addon = this.findAddonByName(source.addon);
-        const channels = await fetchLiveCatalogChannels(addon.manifestUrl, source, fetchJson);
+        const manifestUrl = this.manifestUrlForAddonName(source.addon);
+        const channels = await fetchLiveCatalogChannels(manifestUrl, source, fetchJson);
+        if (channels.length === 0) {
+          throw new Error('catalog returned zero channels');
+        }
+        sourceCounts[source.addon] = channels.length;
         for (const channel of channels) {
           tagged.push({
             ...channel,
-            source_manifest: addon.manifestUrl,
+            source_manifest: manifestUrl,
             source_addon: source.addon,
             source_label: source.label,
             source_catalog_type: source.catalog_type,
           });
         }
-      } catch {
-        // One inventory outage must not erase the other free/AREA69 sources.
-        console.warn(`live catalog source unavailable addon=${source.addon}`);
+      } catch (error) {
+        failedSources.push(source.addon);
+        console.warn(
+          `live catalog source unavailable addon=${source.addon}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       }
     }
     const seenIds = new Set(tagged.map((channel) => channel.id));
@@ -1843,11 +1885,21 @@ export class CatalogCore {
       seenIds.add(channel.id);
       tagged.push(channel);
     }
-    this.liveChannelCatalogCache = {
+    const snapshot = {
       channels: tagged,
-      expiresAt: Date.now() + ttlMs,
+      sourceCounts,
+      failedSources,
+      // A partial pool remains useful for Search and direct playback, but it
+      // must retry quickly and must never become a fresh Home generation.
+      expiresAt: Date.now() + (failedSources.length > 0 ? Math.min(ttlMs, 60_000) : ttlMs),
     };
-    return tagged;
+    this.liveChannelCatalogCache = snapshot;
+    this.liveCatalogSourceStatus = {
+      source_counts: { ...sourceCounts },
+      failed_sources: [...failedSources],
+      checked_at: Date.now(),
+    };
+    return snapshot;
   }
 
   private orderLiveCandidates(
@@ -1904,9 +1956,9 @@ export class CatalogCore {
       if (pool.length === 0) {
         continue;
       }
-      const addon = this.findAddonByName(source.addon);
+      const manifestUrl = this.manifestUrlForAddonName(source.addon);
       const next = await verifyLiveChannelCandidates(
-        addon.manifestUrl,
+        manifestUrl,
         source.catalog_type,
         source.addon,
         source.label,
@@ -2185,8 +2237,19 @@ export class CatalogCore {
     let responses: RailItemsResponse[] = [];
     try {
       config = this.requireLiveRailConfig();
-      const tagged = await this.fetchTaggedLiveChannels(config);
-      const byRail = partitionChannelsBySportRails(tagged, config.rails);
+      const snapshot = await this.fetchTaggedLiveChannelSnapshot(config);
+      const incompleteSources = incompleteLiveCatalogSources(
+        config.sources,
+        snapshot.sourceCounts,
+        snapshot.failedSources,
+      );
+      if (incompleteSources.length > 0) {
+        throw new CatalogError(
+          503,
+          `live catalog incomplete: ${incompleteSources.join(', ')}`,
+        );
+      }
+      const byRail = partitionChannelsBySportRails(snapshot.channels, config.rails);
 
       for (const rail of config.rails) {
         const matched = (byRail.get(rail.id) || []) as TaggedLiveChannel[];

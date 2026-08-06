@@ -3,6 +3,8 @@ import test from 'node:test';
 import {
   channelSubtitle,
   finalizeLiveRailListing,
+  findLiveAddonManifestUrl,
+  incompleteLiveCatalogSources,
   keywordPattern,
   loadLiveRailConfig,
   matchChannelsToRail,
@@ -28,6 +30,39 @@ function channel(partial: Partial<LiveChannelMeta> & Pick<LiveChannelMeta, 'id' 
     event: partial.event,
   };
 }
+
+test('live source lookup retains configured manifest URLs when boot loading was partial', () => {
+  assert.equal(findLiveAddonManifestUrl('mango Live News', [
+    { name: 'Cinemeta', manifestUrl: 'http://cinemeta.invalid/manifest.json' },
+    { name: 'mango Live News', manifestUrl: 'http://news.invalid/manifest.json' },
+  ]), 'http://news.invalid/manifest.json');
+  assert.equal(findLiveAddonManifestUrl('MANGO LIVE NEWS', [
+    { name: 'mango Live News', manifestUrl: 'http://news.invalid/manifest.json' },
+  ]), 'http://news.invalid/manifest.json');
+  assert.equal(findLiveAddonManifestUrl('missing', []), null);
+});
+
+test('live Home generation requires every configured curated source to contribute', () => {
+  const sources = [
+    { addon: 'mango Live TV' },
+    { addon: 'mango Live News' },
+    { addon: 'mango Live Cartoons' },
+  ];
+  assert.deepEqual(incompleteLiveCatalogSources(sources, {
+    'mango Live TV': 92,
+    'mango Live News': 12,
+    'mango Live Cartoons': 4,
+  }, []), []);
+  assert.deepEqual(incompleteLiveCatalogSources(sources, {
+    'mango Live TV': 92,
+    'mango Live News': 12,
+  }, ['mango Live Cartoons']), ['mango Live Cartoons']);
+  assert.deepEqual(incompleteLiveCatalogSources(sources, {
+    'mango Live TV': 92,
+    'mango Live News': 0,
+    'mango Live Cartoons': 4,
+  }, []), ['mango Live News']);
+});
 
 test('live-rails matches cricket channels by keyword', () => {
   const rail: LiveSportRail = {

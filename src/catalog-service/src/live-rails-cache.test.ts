@@ -88,13 +88,13 @@ test('live rails disk cache rejects legacy policy payloads as fallback', async (
   }
 });
 
-test('live rails disk cache rejects policy v3 after World Cup event admission change', async () => {
+test('live rails disk cache rejects policy v6 partial-source generations', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'mango-live-cache-'));
   const oldPath = process.env.MANGO_LIVE_RAILS_CACHE;
   process.env.MANGO_LIVE_RAILS_CACHE = join(dir, 'live-cache.json');
   try {
     await writeFile(liveRailsCachePath(), JSON.stringify({
-      policy_version: 3,
+      policy_version: 6,
       saved_at: Date.now(),
       expires_at: Date.now() + 60_000,
       payload: { tab: 'live', rails: [{ rail_id: 'live-world-cup', items: [{ id: 'old' }] }] },
