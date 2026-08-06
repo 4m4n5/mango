@@ -102,6 +102,8 @@ for index in range(5):
     shutil.copy2(root / "youtube.db", snapshot / target)
     os.utime(snapshot, (index + 1, index + 1))
 (snapshots / "evidence-only").mkdir()
+(state / "orphan-20200101-000000.db-wal").touch()
+(state / "orphan-20200101-000000.db-shm").touch()
 PY
 
 python3 "$REPO_DIR/scripts/m6-ship/prune-legacy-backups.py" \
@@ -112,5 +114,7 @@ python3 "$REPO_DIR/scripts/m6-ship/prune-legacy-backups.py" \
 [[ "$(find "$TEST_ROOT/legacy/state" -type f | wc -l | tr -d ' ')" == "6" ]]
 [[ "$(find "$TEST_ROOT/legacy/agent-snapshots" -mindepth 1 -maxdepth 1 -type d -name 'deploy-pre-*' | wc -l | tr -d ' ')" == "3" ]]
 [[ -d "$TEST_ROOT/legacy/agent-snapshots/evidence-only" ]]
+[[ ! -e "$TEST_ROOT/legacy/state/orphan-20200101-000000.db-wal" ]]
+[[ ! -e "$TEST_ROOT/legacy/state/orphan-20200101-000000.db-shm" ]]
 
 echo "backup-library-state: pass"

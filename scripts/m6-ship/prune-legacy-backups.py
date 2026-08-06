@@ -131,6 +131,12 @@ def main() -> int:
                 sidecar = Path(f"{path}{suffix}")
                 if sidecar.exists():
                     sidecar.unlink()
+    for sidecar in list(state_root.glob("*.db-wal")) + list(
+        state_root.glob("*.db-shm")
+    ):
+        database = Path(str(sidecar).removesuffix("-wal").removesuffix("-shm"))
+        if not database.exists():
+            sidecar.unlink()
     print("prune complete")
     return 0
 
