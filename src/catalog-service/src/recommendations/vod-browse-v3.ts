@@ -35,20 +35,29 @@ export function weightedDeal<T extends WeightedIdentity>(
   limit: number,
   seed: string,
 ): T[] {
-  if (limit <= 0) return [];
-  return [...items]
-    .filter((item) => Number.isFinite(item.weight) && item.weight > 0)
-    .map((item) => ({
-      item,
-      key: -Math.log(stableUnit(`${seed}:${item.type}:${item.id}`)) / item.weight,
-    }))
-    .sort((left, right) => (
-      left.key - right.key
-      || left.item.type.localeCompare(right.item.type)
-      || left.item.id.localeCompare(right.item.id)
-    ))
-    .slice(0, Math.min(Math.floor(limit), items.length))
-    .map(({ item }) => item);
+  const boundedLimit = Math.max(0, Math.min(Math.floor(limit), items.length));
+  if (boundedLimit === 0) return [];
+  type Winner = { item: T; key: number };
+  const compareValue = (key: number, item: T, right: Winner): number => (
+    key - right.key
+    || item.type.localeCompare(right.item.type)
+    || item.id.localeCompare(right.item.id)
+  );
+  const compare = (left: Winner, right: Winner): number => (
+    compareValue(left.key, left.item, right)
+  );
+  const winners: Winner[] = [];
+  for (const item of items) {
+    if (!Number.isFinite(item.weight) || item.weight <= 0) continue;
+    const key = -Math.log(stableUnit(`${seed}:${item.type}:${item.id}`)) / item.weight;
+    if (winners.length === boundedLimit && compareValue(key, item, winners.at(-1)!) >= 0) continue;
+    const candidate = { item, key };
+    let insertAt = winners.length;
+    while (insertAt > 0 && compare(candidate, winners[insertAt - 1]!) < 0) insertAt -= 1;
+    winners.splice(insertAt, 0, candidate);
+    if (winners.length > boundedLimit) winners.pop();
+  }
+  return winners.map(({ item }) => item);
 }
 
 export function percentile(values: readonly number[], value: number): number {

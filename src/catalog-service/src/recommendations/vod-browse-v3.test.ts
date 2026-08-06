@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 import {
@@ -51,6 +52,29 @@ test('deterministic weighted deal is stable, unique, epoch-sensitive, and does n
   assert.deepEqual(items, original);
   assert.equal(new Set(first.map((item) => item.id)).size, 9);
   assert.notDeepEqual(first.map((item) => item.id), next.map((item) => item.id));
+});
+
+test('bounded top-k dealer is order-identical to the full weighted permutation', () => {
+  const items = Array.from({ length: 500 }, (_, index) => ({
+    type: index % 2 === 0 ? 'movie' : 'series',
+    id: `fixture-${String(index).padStart(4, '0')}`,
+    weight: 0.35 + (index % 71) / 100,
+  }));
+  const seed = 'weighted-reference:17';
+  const unit = (value: string): number => {
+    const digest = createHash('sha256').update(value).digest();
+    const integer = digest.readUInt32BE(0) * 0x1_0000_0000 + digest.readUInt32BE(4);
+    return Math.max(Number.MIN_VALUE, (integer + 1) / 0x1_0000_0000_0000);
+  };
+  const reference = [...items].map((item) => ({
+    item,
+    key: -Math.log(unit(`${seed}:${item.type}:${item.id}`)) / item.weight,
+  })).sort((left, right) => (
+    left.key - right.key
+    || left.item.type.localeCompare(right.item.type)
+    || left.item.id.localeCompare(right.item.id)
+  )).slice(0, 64).map(({ item }) => item);
+  assert.deepEqual(weightedDeal(items, 64, seed), reference);
 });
 
 test('utility recency weighting is bounded and rewards recent activity without excluding old rows', () => {
