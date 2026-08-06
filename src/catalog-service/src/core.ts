@@ -2426,6 +2426,11 @@ export class CatalogCore {
     const started = Date.now();
     const rails = this.browsableRailsForTab(tab);
     const shufflePolicy = vodDiscoveryShufflePolicy(tab, reshuffle);
+    const cachedUtilityRail = (railId: string): RailItemsResponse | null => (
+      shufflePolicy.cachedOnly
+        ? cachedTab?.payload.rails.find((rail) => rail.rail_id === railId) ?? null
+        : null
+    );
     const sessions = await allocateTabRailSessions({
       sessionId: this.playabilitySessionId,
       rails: rails.map((rail) => ({
@@ -2450,11 +2455,11 @@ export class CatalogCore {
           });
         }),
       ),
-      this.buildContinueRail(
+      cachedUtilityRail(CONTINUE_RAIL_ID) ?? this.buildContinueRail(
         tab,
         vodUtilityProfileId(tab, personalization.active_profile_id),
       ),
-      this.buildSavedRail(
+      cachedUtilityRail(SAVED_RAIL_ID) ?? this.buildSavedRail(
         tab,
         vodUtilityProfileId(tab, personalization.active_profile_id),
         { cachedOnly: shufflePolicy.cachedOnly },

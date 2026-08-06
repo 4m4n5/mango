@@ -323,6 +323,13 @@ function shouldMirrorSeriesGateRecord(type: string, id: string): boolean {
 let dbSingleton: Database.Database | null = null;
 let schemaInitialized = false;
 
+// One tab-wide VOD shuffle updates the current sessions and recent-title rows
+// for every category. SQLite's 1,000-page default can therefore checkpoint in
+// the couch response path after a small burst of X presses. Mango already runs
+// an explicit idle/nightly TRUNCATE checkpoint; 8,192 pages bounds the live WAL
+// to roughly 32 MiB while keeping normal couch bursts below that boundary.
+export const PLAYABILITY_WAL_AUTOCHECKPOINT_PAGES = 8192;
+
 function openDb(): Database.Database {
   if (!dbSingleton) {
     const db = new Database(dbPath());
@@ -330,6 +337,7 @@ function openDb(): Database.Database {
     db.pragma('foreign_keys = ON');
     db.pragma('busy_timeout = 5000');
     db.pragma('synchronous = NORMAL');
+    db.pragma(`wal_autocheckpoint = ${PLAYABILITY_WAL_AUTOCHECKPOINT_PAGES}`);
     db.pragma('cache_size = -16000');
     db.pragma('temp_store = MEMORY');
     db.pragma('mmap_size = 134217728');

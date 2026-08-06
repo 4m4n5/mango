@@ -580,6 +580,11 @@ Recommendation source blockers are closed at the target:
   the active tab; Continue/Saved remain stable. Off/shadow can shuffle category
   rails without inventing a public recommendation epoch. Success requires an
   actual discovery membership/order change.
+- Playability uses an 8,192-page WAL autocheckpoint (roughly 32 MiB at the
+  current page size) because tab-wide category session writes can otherwise
+  trigger SQLite's 1,000-page checkpoint inside a burst of X presses. The
+  existing idle/nightly `checkpoint-wal-dbs.sh` remains the explicit truncate
+  boundary; do not grow this threshold in response to unrelated latency.
 
 Grow/nightly playability maintenance performs that polling itself: after the
 new corpus is published, it waits for the exact Movies and TV refresh job IDs

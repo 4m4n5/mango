@@ -8,6 +8,7 @@ import {
   getPlayabilityDb,
   getPlayabilityStatus,
   initPlayabilityDb,
+  PLAYABILITY_WAL_AUTOCHECKPOINT_PAGES,
   prunePlayabilityMaintenance,
   resetPlayabilityDbForTests,
 } from './db.js';
@@ -43,10 +44,12 @@ test('singleton applies busy_timeout and WAL journal on first creation', async (
     const busy = db.pragma('busy_timeout', { simple: true }) as number;
     const journal = db.pragma('journal_mode', { simple: true }) as string;
     const sync = db.pragma('synchronous', { simple: true }) as number;
+    const walAutocheckpoint = db.pragma('wal_autocheckpoint', { simple: true }) as number;
     const temp = db.pragma('temp_store', { simple: true }) as number;
     assert.ok(busy > 0, `busy_timeout should be positive, got ${busy}`);
     assert.equal(String(journal).toLowerCase(), 'wal');
     assert.equal(sync, 1, 'synchronous should be NORMAL (1)');
+    assert.equal(walAutocheckpoint, PLAYABILITY_WAL_AUTOCHECKPOINT_PAGES);
     assert.equal(temp, 2, 'temp_store should be MEMORY (2)');
   });
 });
