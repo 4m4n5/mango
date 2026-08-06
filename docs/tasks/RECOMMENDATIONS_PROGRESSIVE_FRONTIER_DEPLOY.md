@@ -32,8 +32,8 @@ this runbook.
 |------|-------------|
 | Modes | VOD `serve`; YouTube `serve`; StoryDNA teacher/frontier and TMDB `off` |
 | Durable state | Library schema 17; playability schema 14; both `quick_check=ok`; 1,096 `story-dna-v1`/AI overlays preserved; no synthetic gate Saved row |
-| VOD Movies | Active/public rank 153; 224 eligible + 5,447 sparse/excluded = 5,671 verified; reserve 224; cyclic six-card cached slate; `evidence_cold_start` |
-| VOD TV | Active/public rank 154; 229 eligible + 3,645 sparse/excluded = 3,874 verified; reserve 229; cyclic six-card cached slate; `evidence_cold_start` |
+| VOD Movies | Active/public latest complete generation; 224 eligible + 5,447 sparse/excluded = 5,671 verified; reserve 224; cyclic six-card cached slate; `evidence_cold_start` |
+| VOD TV | Active/public latest complete generation; 229 eligible + 3,645 sparse/excluded = 3,874 verified; reserve 229; cyclic six-card cached slate; `evidence_cold_start` |
 | Ratings | `<1` is a true-negative evaluation label, `1–2` is neutral, and `>2` contributes quadratic positive evidence: `((rating - 2) / 3)^2` |
 | VOD evaluation | Only thematically rankable rated profiles are labels. Current result is honestly insufficient rather than a false concordance failure; operational serving remains independently authorized |
 | Memory/liveness | One catalog invocation, zero restarts/OOM events, process and cgroup memory separated, 128-title bounded work, effective 1280M/1536M limits |
