@@ -1685,7 +1685,7 @@ function recentCachedSlates(
 SELECT shuffle_epoch AS epoch FROM vod_cached_slates
 WHERE rank_generation_id = @rank_generation_id AND content_type = @content_type
   AND (@rendered_only = 0 OR rendered_at IS NOT NULL)
-ORDER BY shuffle_epoch DESC LIMIT @limit
+ORDER BY rendered_at DESC, shuffle_epoch DESC LIMIT @limit
 `).all({
     rank_generation_id: rankGenerationId,
     content_type: type,
@@ -3131,10 +3131,10 @@ function queuedSlateEpochs(
   return (libraryDatabase().prepare(`
 SELECT shuffle_epoch
 FROM vod_cached_slates
-WHERE rank_generation_id = ? AND content_type = ? AND shuffle_epoch > ?
-ORDER BY shuffle_epoch ASC
+WHERE rank_generation_id = ? AND content_type = ? AND shuffle_epoch != ?
+ORDER BY CASE WHEN shuffle_epoch > ? THEN 0 ELSE 1 END, shuffle_epoch ASC
 LIMIT ?
-`).all(rankGenerationId, type, afterEpoch, limit) as Array<{ shuffle_epoch: number }>)
+`).all(rankGenerationId, type, afterEpoch, afterEpoch, limit) as Array<{ shuffle_epoch: number }>)
     .map((row) => row.shuffle_epoch);
 }
 
@@ -3156,6 +3156,12 @@ WHERE rank_generation_id = ? AND content_type = ? AND shuffle_epoch = ?
       unique_count: number;
     };
     if (target.item_count !== VISIBLE_LIMIT || target.unique_count !== VISIBLE_LIMIT) return false;
+    const mostRecent = db.prepare(`
+SELECT MAX(rendered_at) AS rendered_at
+FROM vod_cached_slates
+WHERE rank_generation_id = ? AND content_type = ?
+`).get(input.rankGenerationId, input.type) as { rendered_at: number | null };
+    const renderedAt = Math.max(input.now, (mostRecent.rendered_at ?? 0) + 1);
     const advanced = db.prepare(`
 UPDATE vod_active_generations
 SET shuffle_epoch = ?, updated_at = ?
@@ -3169,9 +3175,9 @@ WHERE content_type = ? AND active_rank_generation_id = ? AND shuffle_epoch = ?
     ).changes === 1;
     if (advanced) {
       db.prepare(`
-UPDATE vod_cached_slates SET rendered_at = COALESCE(rendered_at, ?)
+UPDATE vod_cached_slates SET rendered_at = ?
 WHERE rank_generation_id = ? AND content_type = ? AND shuffle_epoch = ?
-`).run(input.now, input.rankGenerationId, input.type, input.nextEpoch);
+`).run(renderedAt, input.rankGenerationId, input.type, input.nextEpoch);
     }
     return advanced;
   })();

@@ -31,6 +31,7 @@ async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> 
     playability: process.env.MANGO_PLAYABILITY_DB,
     worker: process.env.MANGO_STORY_DNA_WORKER_MODE,
     vodMode: process.env.MANGO_VOD_RECS_V2,
+    predealtSlates: process.env.MANGO_VOD_STORY_GRAPH_PREDEALT_SLATES,
   };
   process.env.MANGO_LIBRARY_DB_PATH = join(directory, 'library.db');
   process.env.MANGO_USER_PINS_PATH = join(directory, 'pins.json');
@@ -50,7 +51,8 @@ async function withProgressiveDatabases(fn: () => Promise<void>): Promise<void> 
         : name === 'pins' ? 'MANGO_USER_PINS_PATH'
           : name === 'playability' ? 'MANGO_PLAYABILITY_DB'
             : name === 'worker' ? 'MANGO_STORY_DNA_WORKER_MODE'
-              : 'MANGO_VOD_RECS_V2';
+              : name === 'vodMode' ? 'MANGO_VOD_RECS_V2'
+                : 'MANGO_VOD_STORY_GRAPH_PREDEALT_SLATES';
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
@@ -209,6 +211,7 @@ test('offline quality labels require a thematically rankable profile', () => {
 test('progressive full-corpus refresh accounts for sparse titles without a teacher dependency', async () => {
   await withProgressiveDatabases(async () => {
     process.env.MANGO_VOD_RECS_V2 = 'serve';
+    process.env.MANGO_VOD_STORY_GRAPH_PREDEALT_SLATES = '8';
     seedTitles('movie', 205);
     putRating({
       profile_id: 'household', type: 'movie', id: 'm000', title: 'Movie 0',
@@ -304,7 +307,7 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
     const initial = await loadForYouRail('movies', { profileId: 'household' });
     assert.ok(initial);
     const rendered = [new Set(initial.items.map((item) => item.id))];
-    for (let press = 0; press < 5; press += 1) {
+    for (let press = 0; press < 16; press += 1) {
       const shuffled = await loadForYouRail('movies', {
         reshuffle: true,
         profileId: 'household',
@@ -320,6 +323,7 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
       }
       rendered.push(ids);
     }
+    assert.ok(activeEpoch() < 8, 'serve X wraps within the finite predealt cache');
     assert.ok(activeEpoch() > 0, 'serve X advances a published cached slate');
     const servingWork = storyGraphServingWorkSnapshot();
     assert.equal(servingWork.dealer_calls, 0, 'X consumes only predealt slates');
