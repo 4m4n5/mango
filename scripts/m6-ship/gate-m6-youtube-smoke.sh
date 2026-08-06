@@ -121,7 +121,7 @@ if mode == "serve":
         more_like_state = more_like.get("status")
         if "more_like" in rail_ids:
             assert reserve_depths["more_like"] >= 4, reserve_depths
-            assert more_like_state in {"thematic", "exact_channel"}, more_like
+            assert more_like_state in {"thematic", "hybrid", "exact_channel"}, more_like
         else:
             assert reserve_depths["more_like"] == 0, reserve_depths
             assert more_like_state == "not_applicable", more_like
