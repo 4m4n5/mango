@@ -241,10 +241,14 @@ currently live streams from the authoritative subscription snapshot; it never
 runs a generic live search. OAuth loss serves an explicitly stale last-good
 snapshot. Ordinary Home loads and X never initiate any phase.
 
-Serving is snapshot-based. Exact watched/Saved/Not-for-me IDs and the resolved
-chronological Household History pool are primed once at catalog startup and
-rebuilt at meaningful-history/import/metadata publication boundaries. Saved
-and feedback writes invalidate exact exclusions before the next couch read.
+Serving is snapshot-based. Exact videos meaningfully watched in the preceding
+30 days, Saved videos, Not-for-me IDs, and the resolved chronological Household
+History pool are primed once at catalog startup and rebuilt at meaningful-
+history/import/metadata publication boundaries. Saved and feedback writes
+invalidate exact exclusions before the next couch read. A watched video's most
+recent qualifying watch owns the rolling cooldown; after 30 days it may return
+to recommendation rails on the next generation refresh. Its durable History
+entry and decayed taste contribution remain intact.
 Rendered rail attribution is committed for the whole response in one SQLite
 transaction. This keeps durable action ownership while avoiding repeated
 multi-gigabyte library scans, thousands of history-to-metadata lookups, or one
@@ -283,6 +287,8 @@ errors, then discards the uploaded
 archive and raw source documents. Missing metadata is resolved asynchronously
 within quota. Imported watches contribute meaningful-watch strength and use a
 90-day ranking half-life; Mango-local completions may contribute full strength.
+An exact imported or Mango-local meaningful watch is withheld from
+recommendation rails for 30 days after its most recent watch, not forever.
 Mango-local bare starts are ignored: known-duration watches qualify at
 `min(25% of duration, 5 minutes)`, and unknown-duration watches require two
 minutes.
@@ -321,12 +327,14 @@ source-tested at the target and remains a Pi rollback check.
   **Live Now** follows when subscribed channels have live content.
 - `Live Now` may contain one to four cards instead of receiving unrelated filler.
 - History is newest-first across normalized Takeout and resolvable Mango-local
-  launches, including bare starts. Only meaningful watches seed or exclude from
-  recommendations. Saved is explicit utility state. Both rails are
+  launches, including bare starts. Only meaningful watches seed recommendations
+  or start the rolling 30-day exact-video cooldown. Saved is explicit utility
+  state. Both rails are
   chronological/stable and neither affects recommendation scoring.
 - For You weights decayed history affinity 60% and subscription affinity 40%,
-  renormalizing when only one source exists. It excludes exact watched, Saved,
-  Short, and live items and caps creators.
+  renormalizing when only one source exists. It excludes videos meaningfully
+  watched within the last 30 days, plus exact Saved, Short, and live items, and
+  caps creators.
 - Beyond Your Subscriptions uses bounded topics derived only from subscriptions
   and decayed history, excludes subscribed channels, and admits at most one card
   per creator.

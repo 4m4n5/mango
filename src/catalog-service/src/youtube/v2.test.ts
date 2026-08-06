@@ -41,6 +41,7 @@ import {
 import {
   invalidateYoutubeV2ExactExclusions,
   rebuildYoutubeV2Generation,
+  YOUTUBE_V2_WATCH_COOLDOWN_MS,
   youtubePublicPersonalizationPayload,
   youtubeRecommendationsV2Mode,
   youtubeV2HistoryItems,
@@ -492,28 +493,71 @@ test('v2 ranks only four exact provenance types and enforces watch, Saved, Short
     .every((item) => item.rail_id === 'live_now' && item.provenance === 'subscription_live'));
 }));
 
-test('lifetime watched and Saved exclusions are exhaustive beyond presentation limits', () => withTempState(() => {
+test('watched cooldown is exhaustive for 30 days and expires without discarding history', () => withTempState(() => {
   const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1_000;
   seedV2();
-  const watchedTarget = video(
-    'LifetimeWatched00000',
-    'Old watched title outside the first five thousand',
+  const expiredImported = video(
+    'ExpiredImported00000',
+    'Expired imported watch outside the first five thousand',
+    'subscribed-channel-0',
+  );
+  const recentImported = video(
+    'RecentImported00000',
+    'Recently imported watch',
     'subscribed-channel-0',
   );
   const imported = Array.from({ length: 5_001 }, (_, index) => ({
-    video_id: index === 0 ? watchedTarget.id : `LifetimeWatched${String(index).padStart(5, '0')}`,
-    title: `Lifetime watched ${index}`,
+    video_id: index === 0 ? expiredImported.id : `CooldownWatched${String(index).padStart(5, '0')}`,
+    title: `Cooldown watched ${index}`,
     title_url: null,
     channel_id: 'historical-channel',
     channel_title: 'Historical Channel',
-    // Index zero is the one row excluded by the legacy 5,000-row read cap.
-    watched_at: now - (5_001 - index) * 1_000,
+    // Index zero is old enough to leave the cooldown and is also outside the
+    // first 5,000 rows returned by the chronological presentation query.
+    watched_at: index === 0
+      ? now - YOUTUBE_V2_WATCH_COOLDOWN_MS - dayMs
+      : now - (5_001 - index) * 1_000,
   }));
   assert.equal(upsertYoutubeV2ImportedHistory(imported, {
     source_generation: 'takeout-over-five-thousand',
     imported_at: now,
   }).inserted, 5_001);
-  assert.equal(listYoutubeV2ImportedHistory(5_000).some((row) => row.video_id === watchedTarget.id), false);
+  assert.equal(upsertYoutubeV2ImportedHistory([
+    {
+      video_id: recentImported.id,
+      title: recentImported.title,
+      title_url: null,
+      channel_id: recentImported.channel_id,
+      channel_title: recentImported.channel_title,
+      watched_at: now - YOUTUBE_V2_WATCH_COOLDOWN_MS - dayMs,
+    },
+    {
+      video_id: recentImported.id,
+      title: recentImported.title,
+      title_url: null,
+      channel_id: recentImported.channel_id,
+      channel_title: recentImported.channel_title,
+      watched_at: now - YOUTUBE_V2_WATCH_COOLDOWN_MS + dayMs,
+    },
+  ], {
+    source_generation: 'takeout-recent-cooldown',
+    imported_at: now,
+  }).inserted, 2);
+  assert.equal(listYoutubeV2ImportedHistory(5_000).some((row) => row.video_id === expiredImported.id), false);
+
+  const expiredLocal = video('ExpiredLocalWatch', 'Expired local watch', 'subscribed-channel-1');
+  const recentLocal = video('RecentLocalWatch', 'Recent local watch', 'subscribed-channel-1');
+  for (const [item, watchedAt] of [
+    [expiredLocal, now - YOUTUBE_V2_WATCH_COOLDOWN_MS - dayMs],
+    [recentLocal, now - YOUTUBE_V2_WATCH_COOLDOWN_MS + dayMs],
+  ] as const) {
+    recordLibraryWatch({
+      source: 'youtube', type: 'youtube_video', id: item.id,
+      title: item.title, duration_sec: 600, position_sec: 600,
+      event: 'finished', watched_at: watchedAt,
+    });
+  }
 
   const savedTarget = video(
     'LifetimeSaved00000',
@@ -532,7 +576,10 @@ test('lifetime watched and Saved exclusions are exhaustive beyond presentation l
   }
 
   upsertYoutubeV2CandidateProvenance([
-    watchedTarget,
+    expiredImported,
+    recentImported,
+    expiredLocal,
+    recentLocal,
     savedTarget,
   ].map((item) => ({
     item,
@@ -544,8 +591,13 @@ test('lifetime watched and Saved exclusions are exhaustive beyond presentation l
   })));
   const generation = rebuildYoutubeV2Generation({ force: true, at: now });
   assert.ok(generation);
-  assert.equal(generation.items.some((item) => item.id === watchedTarget.id), false);
+  assert.equal(generation.items.some((item) => item.id === expiredImported.id), true);
+  assert.equal(generation.items.some((item) => item.id === expiredLocal.id), true);
+  assert.equal(generation.items.some((item) => item.id === recentImported.id), false);
+  assert.equal(generation.items.some((item) => item.id === recentLocal.id), false);
   assert.equal(generation.items.some((item) => item.id === savedTarget.id), false);
+  assert.equal(listYoutubeV2ImportedHistory(5_000).some((row) => row.video_id === expiredImported.id), false);
+  assert.equal(listYoutubeV2ImportedHistory(20_000).some((row) => row.video_id === expiredImported.id), true);
 }));
 
 test('meaningful Household watches use completion > Takeout partial > older evidence and ignore bare starts', () => withTempState(() => {

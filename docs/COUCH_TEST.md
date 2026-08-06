@@ -239,7 +239,7 @@ regression is source-tested at the target and must be re-proven on the Pi.
 | YT6 | Logical order | For You, Beyond, More Like, History, Saved, then conditional Subscriptions/Live | |
 | YT7 | Supply honesty | Normal rows render only at exactly four cards and can be absent; Live renders 1–4; no unrelated filler | |
 | YT8 | X/quota | X advances cached eligible rails only; API/search counters unchanged; History/Saved stable | |
-| YT9 | For You | 60/40 decayed history/subscriptions with cold-start renormalization and exact watched/Saved/Short/live exclusions | |
+| YT9 | For You | 60/40 decayed history/subscriptions with cold-start renormalization; meaningful watches are absent for 30 days while Saved/Short/live exclusions remain exact | |
 | YT10 | Beyond/More Like | Beyond excludes subscribed creators; More Like uses stable meaningful-watch seed; creator caps/dedupe hold | |
 | YT11 | Not for me | Exact reversible video suppression only; no creator/topic penalty | |
 | YT12 | Failure | Partial refresh/OAuth/quota failure preserves explicit stale last-good generation | |

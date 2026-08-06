@@ -3522,15 +3522,16 @@ ${limitSql};
 }
 
 /**
- * Cursor-paged lifetime exclusions for recommendation systems. A play start is
- * durable resume/history state, but becomes a recommendation exclusion only
- * after the same meaningful-watch threshold used by ranking.
+ * Cursor-paged meaningful-watch rows for recommendation cooldowns. A play
+ * start is durable resume/history state, but qualifies here only after the
+ * same meaningful-watch threshold used by ranking.
  */
 export function listMeaningfullyWatchedLibraryItemIdsPage(options: {
   source?: string | null;
   type?: string | null;
   profile_id?: string | null;
   household_blend?: boolean;
+  watched_since?: number | null;
   after_item_key?: string | null;
   limit?: number;
 } = {}): LibraryItemIdCursorRow[] {
@@ -3548,6 +3549,7 @@ WHERE li.item_key > @after_item_key
     JOIN profile_watch_history scoped ON scoped.history_id = wh.history_id
     WHERE wh.item_key = li.item_key
       AND (@household_blend = 1 OR scoped.profile_id = @profile_id)
+      AND wh.watched_at >= @watched_since
       AND (
         wh.progress_pct >= 0.9
         OR lower(wh.event) IN ('complete', 'completed', 'finish', 'finished', 'ended', 'credits')
@@ -3564,6 +3566,7 @@ LIMIT @limit;
     household_blend: householdBlend ? 1 : 0,
     source: options.source ? normalizeSource(options.source) : null,
     type: options.type ? normalizeLibraryType(options.type) : null,
+    watched_since: Math.max(0, Math.floor(options.watched_since ?? 0)),
     after_item_key: options.after_item_key?.trim() || '',
     limit: Math.max(1, Math.min(2_000, Math.floor(options.limit ?? 1_000))),
   }) as LibraryItemIdCursorRow[];
@@ -3625,16 +3628,19 @@ LIMIT ?
 
 export function listYoutubeTakeoutHistoryIdsPage(options: {
   after_video_id?: string | null;
+  watched_since?: number | null;
   limit?: number;
 } = {}): string[] {
   const rows = ensureDb().prepare(`
 SELECT DISTINCT video_id
 FROM youtube_takeout_history
 WHERE video_id > @after_video_id
+  AND watched_at >= @watched_since
 ORDER BY video_id
 LIMIT @limit
 `).all({
     after_video_id: options.after_video_id?.trim() || '',
+    watched_since: Math.max(0, Math.floor(options.watched_since ?? 0)),
     limit: Math.max(1, Math.min(2_000, Math.floor(options.limit ?? 1_000))),
   }) as Array<{ video_id: string }>;
   return rows.map((row) => row.video_id);

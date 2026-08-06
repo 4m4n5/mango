@@ -188,7 +188,7 @@ Request flow: Phone PTT (WSS `:8765`) → orchestrator (Deepgram STT → Anthrop
 | Rank execution | Batched feature I/O plus a deadline-bounded worker thread; diagnostic inline opt-out only |
 | YouTube shape | In `serve`, five ordered logical core positions For You → Beyond Your Subscriptions → More Like … → History → Saved, then conditional From Your Subscriptions and Live Now; normal rows require exactly four cards and may be absent |
 | YouTube mix | For You is a renormalized 60% decayed-history / 40% subscription blend; Beyond and More Like provide bounded novelty and thematic depth |
-| YouTube reservoir | Only subscription/history provenance can enter atomic generations; exact watched/Saved videos are excluded and OAuth failure retains explicitly stale last-good |
+| YouTube reservoir | Only subscription/history provenance can enter atomic generations; exact meaningful watches cool down for 30 days, Saved videos remain excluded, and OAuth failure retains explicitly stale last-good |
 | YouTube X | Discovery rotation from cache only; History/Saved stable; no provider/API/quota activity |
 | Attribution | Opaque Household/domain/rail/revision/membership/context tokens only; no numerical or private-generation details |
 

@@ -1450,6 +1450,7 @@ export function listYoutubeV2ImportedHistory(limit = 5000): YoutubeV2HistoryEntr
 
 export function listYoutubeV2ImportedHistoryIdsPage(options: {
   after_video_id?: string | null;
+  watched_since?: number | null;
   limit?: number;
 } = {}): string[] {
   migrateLegacyYoutubeV2TakeoutToLibrary();

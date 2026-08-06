@@ -29,8 +29,9 @@ import {
 import { YOUTUBE_RAIL_LIMIT } from './constants.js';
 import type { YoutubeItem, YoutubeRail, YoutubeRailItem } from './types.js';
 
-export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v2.3';
+export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v2.4';
 export const YOUTUBE_V2_CANDIDATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+export const YOUTUBE_V2_WATCH_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 export const YOUTUBE_V2_LIVE_TTL_MS = 15 * 60 * 1000;
 const V2_RESERVE_LIMIT = 120;
 const V2_PROVENANCE_LIMIT = 50_000;
@@ -234,8 +235,9 @@ function householdWatchAnchors(at = Date.now()): WatchAnchor[] {
     .slice(0, V2_WATCH_LIMIT);
 }
 
-function allHouseholdHistoryIds(): Set<string> {
+function recentHouseholdHistoryIds(at = Date.now()): Set<string> {
   const ids = new Set<string>();
+  const watchedSince = Math.max(0, at - YOUTUBE_V2_WATCH_COOLDOWN_MS);
   let afterItemKey = '';
   while (true) {
     const page = listMeaningfullyWatchedLibraryItemIdsPage({
@@ -243,6 +245,7 @@ function allHouseholdHistoryIds(): Set<string> {
       type: 'youtube_video',
       profile_id: 'household',
       household_blend: false,
+      watched_since: watchedSince,
       after_item_key: afterItemKey,
       limit: V2_EXCLUSION_PAGE_SIZE,
     });
@@ -256,6 +259,7 @@ function allHouseholdHistoryIds(): Set<string> {
   while (true) {
     const page = listYoutubeV2ImportedHistoryIdsPage({
       after_video_id: afterVideoId,
+      watched_since: watchedSince,
       limit: V2_EXCLUSION_PAGE_SIZE,
     });
     page.forEach((id) => ids.add(id));
@@ -299,6 +303,7 @@ function householdBlockedIds(): Set<string> {
 
 type YoutubeV2ExactExclusionSnapshot = {
   db_path: string;
+  watch_cooldown_cutoff_at: number;
   watched: ReadonlySet<string>;
   saved: ReadonlySet<string>;
   blocked: ReadonlySet<string>;
@@ -320,14 +325,19 @@ type YoutubeV2HistorySnapshot = {
 let historySnapshot: YoutubeV2HistorySnapshot | null = null;
 let historySnapshotBuildCount = 0;
 
-function loadYoutubeV2ExactExclusions(force = false): YoutubeV2ExactExclusionSnapshot {
+function loadYoutubeV2ExactExclusions(
+  force = false,
+  at = Date.now(),
+): YoutubeV2ExactExclusionSnapshot {
   const dbPath = libraryDbPath();
   if (!force && exactExclusionSnapshot?.db_path === dbPath) return exactExclusionSnapshot;
-  const watched = allHouseholdHistoryIds();
+  const watchCooldownCutoffAt = Math.max(0, at - YOUTUBE_V2_WATCH_COOLDOWN_MS);
+  const watched = recentHouseholdHistoryIds(at);
   const saved = householdSavedIds();
   const blocked = householdBlockedIds();
   exactExclusionSnapshot = {
     db_path: dbPath,
+    watch_cooldown_cutoff_at: watchCooldownCutoffAt,
     watched,
     saved,
     blocked,
@@ -358,6 +368,8 @@ export function youtubeV2ExactExclusionCacheDiagnostics(): Record<string, unknow
   return {
     ready: snapshot !== null && snapshot.db_path === libraryDbPath(),
     watched_count: snapshot?.watched.size ?? 0,
+    watch_cooldown_days: YOUTUBE_V2_WATCH_COOLDOWN_MS / DAY_MS,
+    watch_cooldown_cutoff_at: snapshot?.watch_cooldown_cutoff_at ?? null,
     saved_count: snapshot?.saved.size ?? 0,
     blocked_count: snapshot?.blocked.size ?? 0,
     total_count: snapshot?.all.size ?? 0,
@@ -1072,7 +1084,7 @@ export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: numb
   const watches = householdWatchAnchors(at);
   const subscriptions = authoritativeSubscriptions();
   const provenance = listYoutubeV2CandidateProvenance({ at, limit: V2_PROVENANCE_LIMIT });
-  const exclusions = loadYoutubeV2ExactExclusions(true);
+  const exclusions = loadYoutubeV2ExactExclusions(true, at);
   // History is chronological utility state, so publish its resolved snapshot
   // at the same source/metadata boundary as the recommendation generation.
   loadYoutubeV2HistorySnapshot(true);
