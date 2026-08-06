@@ -92,6 +92,7 @@ import {
 } from './story-frontier-calibration.js';
 import {
   clampUnit,
+  relatedEvidenceQualifies,
   relatedScore,
   relatedWeight,
   vodBrowseV3Mode,
@@ -3514,6 +3515,16 @@ ORDER BY family, node_key
     confidence: number;
   }>;
   if (anchorEdges.length === 0) return [];
+  const anchorProfile = db.prepare(`
+SELECT profile_status, teacher_document_hash
+FROM vod_story_dna_documents
+WHERE generation_id = ? AND content_type = ? AND content_id = ?
+`).get(active.story_generation_id, type, input.content_id) as {
+    profile_status: string | null;
+    teacher_document_hash: string | null;
+  } | undefined;
+  const anchorEnriched = anchorProfile?.profile_status === 'enriched'
+    && Boolean(anchorProfile.teacher_document_hash);
   const nodeKeys = [...new Set(anchorEdges.map((edge) => edge.node_key))];
   const placeholders = nodeKeys.map(() => '?').join(', ');
   const rows = db.prepare(`
@@ -3566,6 +3577,12 @@ ORDER BY edges.content_id, edges.family, edges.node_key
   ]);
   const candidates = [...byCandidate].flatMap(([contentId, edges]) => {
     if (excluded.has(contentKey(type, contentId))) return [];
+    const shared = edges.flatMap((edge) => (
+      anchorByNode.has(`${edge.family}\u0000${edge.node_key}`)
+        ? [{ family: edge.family, nodeKey: edge.node_key }]
+        : []
+    ));
+    if (!relatedEvidenceQualifies({ anchorEnriched, shared })) return [];
     const familyTotals = new Map<string, { total: number; count: number }>();
     for (const edge of edges) {
       const anchor = anchorByNode.get(`${edge.family}\u0000${edge.node_key}`);
@@ -3590,8 +3607,8 @@ ORDER BY edges.content_id, edges.family, edges.node_key
       ? 0.5
       : clampUnit(1 - ((edges[0]!.rank ?? active.eligible_count) - 1) / (active.eligible_count - 1));
     const relation = relatedScore({ families, householdAffinity });
-    // Enriched and sparse fallbacks both require one content-bearing semantic
-    // family (genre is semantic); factual coincidences alone are not Related.
+    // The direct-evidence gate rejects parent/facet-only coincidences. Retain
+    // the general two-family invariant as defense in depth.
     if (relation.sharedFamilies < 2 || relation.semanticFamilies < 1) return [];
     const first = edges[0]!;
     if (!first.poster) return [];

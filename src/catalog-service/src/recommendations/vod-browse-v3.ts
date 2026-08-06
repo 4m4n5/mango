@@ -189,3 +189,33 @@ export function relatedScore(input: {
 export function relatedWeight(score: number): number {
   return 1 + 15 * clampUnit(score) ** 2;
 }
+
+const RELATED_DIRECT_CORE_FAMILIES = new Set([
+  'genre-subgenre', 'story-engine', 'theme', 'character-dynamic', 'tone',
+  'setting-era', 'geographic-scope', 'social-setting', 'narrative-structure',
+  'ending-emotional-arc', 'compound',
+]);
+const RELATED_STORY_IDENTITY_FAMILIES = new Set([
+  'genre-subgenre', 'story-engine', 'compound',
+]);
+const RELATED_SPARSE_FACT_FAMILIES = new Set([
+  'creator', 'director', 'writer', 'country', 'language', 'decade', 'format',
+  'franchise', 'studio',
+]);
+
+/** Broad parents and ordinal facets may refine ordering but cannot admit a title. */
+export function relatedEvidenceQualifies(input: {
+  anchorEnriched: boolean;
+  shared: ReadonlyArray<{ family: string; nodeKey: string }>;
+}): boolean {
+  const direct = input.shared.filter((edge) => !edge.nodeKey.includes('parent%3D'));
+  const families = new Set(direct.map((edge) => edge.family));
+  if (input.anchorEnriched) {
+    const core = [...families].filter((family) => RELATED_DIRECT_CORE_FAMILIES.has(family));
+    return core.length >= 3
+      && core.some((family) => RELATED_STORY_IDENTITY_FAMILIES.has(family));
+  }
+  const hasGenreOrCategory = families.has('genre-subgenre') || families.has('curated-list');
+  return hasGenreOrCategory
+    && [...families].some((family) => RELATED_SPARSE_FACT_FAMILIES.has(family));
+}

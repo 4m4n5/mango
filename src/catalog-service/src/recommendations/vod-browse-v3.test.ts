@@ -7,6 +7,7 @@ import {
   exploreWeight,
   forYouRelevanceWeight,
   recencyWeight,
+  relatedEvidenceQualifies,
   relatedScore,
   relatedWeight,
   weightedDeal,
@@ -115,4 +116,37 @@ test('Related requires independently scored families and gives semantics most of
   assert.ok(semantic.score > factual.score);
   assert.equal(relatedWeight(0), 1);
   assert.equal(relatedWeight(1), 16);
+});
+
+test('Related admission rejects parent and facet coincidences but preserves rich and sparse contracts', () => {
+  assert.equal(relatedEvidenceQualifies({
+    anchorEnriched: true,
+    shared: [
+      { family: 'theme', nodeKey: 'theme:parent%3Dinner-life' },
+      { family: 'facet.pace', nodeKey: 'facet.pace:pace' },
+      { family: 'format', nodeKey: 'format:feature-film' },
+    ],
+  }), false);
+  assert.equal(relatedEvidenceQualifies({
+    anchorEnriched: true,
+    shared: [
+      { family: 'genre-subgenre', nodeKey: 'genre-subgenre:crime' },
+      { family: 'story-engine', nodeKey: 'story-engine:investigation' },
+      { family: 'theme', nodeKey: 'theme:justice' },
+    ],
+  }), true);
+  assert.equal(relatedEvidenceQualifies({
+    anchorEnriched: false,
+    shared: [
+      { family: 'genre-subgenre', nodeKey: 'genre-subgenre:drama' },
+      { family: 'format', nodeKey: 'format:feature-film' },
+    ],
+  }), true);
+  assert.equal(relatedEvidenceQualifies({
+    anchorEnriched: false,
+    shared: [
+      { family: 'genre-subgenre', nodeKey: 'genre-subgenre:drama' },
+      { family: 'tone', nodeKey: 'tone:warm' },
+    ],
+  }), false);
 });
