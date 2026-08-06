@@ -190,6 +190,32 @@ test('selectRailSessionItems deprioritizes recent titles in stable slots', () =>
   assert.deepEqual(selected.map((item) => item.id), ['tt2', 'tt3', 'tt4']);
 });
 
+test('manual VOD shuffle exhausts unseen rail titles before relaxing to repeats', () => {
+  const recentlyShown = new Set([
+    titleKey('movie', 'tt1'),
+    titleKey('movie', 'tt2'),
+  ]);
+  const unseen = selectRailSessionItems(pool, {
+    displayLimit: 2,
+    recentKeys: recentlyShown,
+    occupiedKeys: new Set(),
+    stableRatio: 1,
+    rng: () => 0.5,
+  });
+  assert.deepEqual(unseen.map((item) => item.id), ['tt3', 'tt4']);
+  assert.ok(unseen.every((item) => item.mix_bucket === 'stable'));
+
+  const exhausted = selectRailSessionItems(pool, {
+    displayLimit: 2,
+    recentKeys: new Set(pool.map((item) => titleKey(item.type, item.id))),
+    occupiedKeys: new Set(),
+    stableRatio: 1,
+    rng: () => 0.5,
+  });
+  assert.equal(exhausted.length, 2);
+  assert.ok(exhausted.every((item) => item.mix_bucket === 'fresh'));
+});
+
 test('selectRailSessionItems reshuffle can surface every eligible pool item', () => {
   const now = 1_000_000_000_000;
   const day = 24 * 60 * 60 * 1000;

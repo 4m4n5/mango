@@ -102,7 +102,8 @@ contract, so runtime generation health and couch quality remain unknown.
 Required outcomes:
 
 1. Preserve the focused source proof already passing for YouTube off ownership,
-   exact VOD active-mode Saved, disabled/public Shuffle, active/previous/public
+   exact VOD active-mode Saved, mode-specific recommendation epochs plus
+   cache-only active-tab category Shuffle, active/previous/public
    pointers, migrations, publication, rollback, and playability schema 14.
 2. Deploy the exact accepted successor through the reviewed manual path while
    the unattended-wrapper blocker remains open,

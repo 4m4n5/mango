@@ -319,13 +319,16 @@ next idle window.
 Rating/Save/meaningful-watch mutations commit first, immediately evict the exact
 known item, and enqueue a serialized/coalesced rescore followed by a full scan.
 Manual refresh returns HTTP 202 with a job ID, captured revisions, and trigger
-reasons. The X response path only reads/advances a cached slate and never waits
-for enrichment, graph, scan, ranking, or network work. Low-water detection may
+reasons. On Movies/TV, the X response path advances the cached `For You` slate
+and deals fresh selections for every category rail in the active tab from its
+existing verified pool. Continue and Saved remain stable. X never waits for
+enrichment, graph, scan, ranking, metadata, or network work. Low-water detection may
 enqueue asynchronous reserve recovery after a cached read, so operator counters
 must distinguish response-path latency from background work. The launcher shows
-X/Shuffle only when the current tab contains a public shuffleable recommendation
-rail, and reports success only when the returned rail membership/order changes.
-Off/shadow cannot advance a public epoch or report a false success. An
+X/Shuffle only when the current tab contains a non-empty shuffleable discovery
+rail, and reports success only when returned discovery membership/order changes.
+Off/shadow cannot advance a public recommendation epoch or expose `For You`, but
+their category rails remain honestly shuffleable. An
 opaque server-issued token binds the immutable served Household owner,
 domain, rail, served revision, exact membership, source revision, and bounded
 context. Public cards carry opaque content IDs needed for actions, but the TV
@@ -403,15 +406,18 @@ reservoirs. Independent
 `MANGO_YOUTUBE_RECS_V2=off|shadow|serve` switches permit isolated rollout.
 
 Both latest-only architectures have their source/runtime rollout blockers
-closed at `7a8bc1bd6f08928270ff092a8a9dad26c02419bf`: YouTube `off` uses exact active
+closed at `a60d1c0c25d2bbe3b2cc1cd7704da20325039630`: YouTube `off` uses exact active
 personal ownership, VOD active modes use exact Household Saved, off/shadow
 cannot expose or falsely advance Shuffle, and diagnostics distinguish the
 active/previous serving pointers from the newest attempted generation. Focused
 mode/owner/publication/migration/rollback tests and the full Mac suites pass.
 The Pi now serves both domains with provider work off, complete accounting,
 bounded memory, and cached latency proof. VOD predealt queues are cyclic, so X
-can rotate indefinitely while retaining four-slate avoidance; the tab response
-reuses cached curated/utility state and replaces only For You. Human ten-shuffle
+can rotate `For You` indefinitely while retaining four-slate avoidance; the
+same tab-scoped request also deals fresh cached selections for every category
+rail while leaving Continue and Saved stable. YouTube's exact
+meaningful-watch veto lasts 30 days after the most recent watch; older events
+remain durable History/taste evidence and can re-enter ranked reserves. Human ten-shuffle
 relevance, screenshots, and physical picture/audio/controller judgment remain
 **DEFERRED**.
 

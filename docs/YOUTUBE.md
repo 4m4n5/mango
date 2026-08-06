@@ -1,9 +1,10 @@
 # mango — native YouTube
 
 **Milestone:** M6.2 · **Status:** the native YouTube base and recommendation
-v2.3 are Pi-deployed/gated. Commit `7a8bc1bd6f08928270ff092a8a9dad26c02419bf` makes authoritative subscription/history v2
-the sole executable recommendation architecture behind an independent
-`off|shadow|serve` flag. The current v2.3 source adds post-auth account/sync
+v2.4 are Pi-deployed/gated. Commit `a60d1c0c25d2bbe3b2cc1cd7704da20325039630` keeps authoritative subscription/history v2
+as the sole executable recommendation architecture behind an independent
+`off|shadow|serve` flag and replaces the lifetime exact-watch veto with a
+rolling 30-day cooldown. The current source also includes post-auth account/sync
 truth, complete bounded subscription coverage, official metadata evidence,
 source/seed portfolio constraints, and uploads-playlist-backed conditional
 More Like recovery. The current India account is Ready with 55 subscriptions.

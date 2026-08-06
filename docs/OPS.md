@@ -443,7 +443,7 @@ Scheduled maintenance (local time):
 
 ## Household recommendations
 
-Target `7a8bc1b` contains one executable architecture per domain: progressive
+Target `a60d1c0` contains one executable architecture per domain: progressive
 Household VOD and provenance-gated YouTube v2. The Pi currently serves both
 with complete accounting and automated gates. Reverify live state before
 relying on any mode or count, and do not record screenshots or human couch PASS
@@ -575,8 +575,11 @@ Recommendation source blockers are closed at the target:
   without synthetic ratings. Neither field is a human relevance verdict.
 - In YouTube `off`, service and route use the exact active personal owner; in
   shadow/serve they use Household. Focused tests cover the former 409 regression.
-- Launcher X/Shuffle is available only for a public mutable recommendation rail
-  and reports success only when card membership/order actually changes.
+- Launcher X/Shuffle is available for non-empty mutable discovery rails. On
+  Movies/TV it advances `For You` when served and every category rail in only
+  the active tab; Continue/Saved remain stable. Off/shadow can shuffle category
+  rails without inventing a public recommendation epoch. Success requires an
+  actual discovery membership/order change.
 
 Grow/nightly playability maintenance performs that polling itself: after the
 new corpus is published, it waits for the exact Movies and TV refresh job IDs

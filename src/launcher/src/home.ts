@@ -37,7 +37,7 @@ const DEFAULT_APP_CARDS: AppCard[] = [
 
 export const BROWSE_TAB_ORDER: BrowseTab[] = ["movies", "series", "live", "youtube"];
 
-const VOD_SHUFFLE_RAIL_IDS = new Set(["for-you-movies", "for-you-series"]);
+const VOD_STABLE_UTILITY_RAIL_IDS = new Set(["continue-watching", "saved"]);
 const YOUTUBE_SHUFFLE_RAIL_IDS = new Set([
   "for_you",
   "beyond",
@@ -48,8 +48,12 @@ const YOUTUBE_SHUFFLE_RAIL_IDS = new Set([
 
 export function shuffleableCatalogRails(tab: BrowseTab, rails: ContentRail[]): ContentRail[] {
   if (tab === "live") return [];
-  const allowed = tab === "youtube" ? YOUTUBE_SHUFFLE_RAIL_IDS : VOD_SHUFFLE_RAIL_IDS;
-  return rails.filter((rail) => allowed.has(rail.id) && rail.cards.length > 0);
+  if (tab === "youtube") {
+    return rails.filter((rail) => YOUTUBE_SHUFFLE_RAIL_IDS.has(rail.id) && rail.cards.length > 0);
+  }
+  return rails.filter((rail) => (
+    !VOD_STABLE_UTILITY_RAIL_IDS.has(rail.id) && rail.cards.length > 0
+  ));
 }
 
 export function catalogShuffleFingerprint(tab: BrowseTab, rails: ContentRail[]): string | null {

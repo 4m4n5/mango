@@ -73,15 +73,20 @@ test("empty copy respects Live's no-shuffle contract", () => {
   assert.doesNotMatch(catalogEmptyCopy("live").body, /press X/i);
 });
 
-test("Shuffle is available only for public recommendation rails", () => {
+test("VOD Shuffle covers category and For You rails but leaves utility rails stable", () => {
   const curated = populatedRail("discover");
   const saved = populatedRail("saved");
+  const continuing = populatedRail("continue-watching");
   const vodForYou = populatedRail("for-you-movies");
   const youtubeForYou = populatedRail("for_you");
-  assert.deepEqual(shuffleableCatalogRails("movies", [curated, saved]), []);
-  assert.deepEqual(shuffleableCatalogRails("movies", [curated, vodForYou]).map((rail) => rail.id), [
-    "for-you-movies",
-  ]);
+  assert.deepEqual(
+    shuffleableCatalogRails("movies", [continuing, saved, vodForYou, curated]).map((rail) => rail.id),
+    ["for-you-movies", "discover"],
+  );
+  assert.deepEqual(
+    shuffleableCatalogRails("series", [continuing, saved, curated]).map((rail) => rail.id),
+    ["discover"],
+  );
   assert.deepEqual(shuffleableCatalogRails("youtube", [saved]), []);
   assert.deepEqual(shuffleableCatalogRails("youtube", [saved, youtubeForYou]).map((rail) => rail.id), [
     "for_you",
@@ -97,6 +102,13 @@ test("Shuffle success requires recommendation membership or order to change", ()
   };
   assert.equal(catalogShuffleFingerprint("movies", [before]), catalogShuffleFingerprint("movies", [same]));
   assert.notEqual(catalogShuffleFingerprint("movies", [before]), catalogShuffleFingerprint("movies", [after]));
+  assert.notEqual(
+    catalogShuffleFingerprint("movies", [populatedRail("discover")]),
+    catalogShuffleFingerprint("movies", [{
+      ...populatedRail("discover"),
+      cards: [{ id: "movie:fresh", type: "movie", title: "fresh", subtitle: "2026" }],
+    }]),
+  );
   assert.equal(catalogShuffleFingerprint("movies", [populatedRail("saved")]), null);
 });
 

@@ -1,7 +1,9 @@
 # Fire & Water ratings and For You
 
 **Branch:** `feat/native-experience`
-**State:** executable target `7a8bc1bd6f08928270ff092a8a9dad26c02419bf`
+**State:** VOD executable baseline `7a8bc1bd6f08928270ff092a8a9dad26c02419bf`,
+currently deployed unchanged within recommendation target
+`a60d1c0c25d2bbe3b2cc1cd7704da20325039630`,
 makes progressive Household VOD the sole executable
 recommendation architecture. It contains `vod-content-profile-v2`, immutable
 compatible StoryDNA overlays, `vod-story-frontier-v2`, cached six-card dealing,
@@ -10,7 +12,7 @@ migrations. The prior semantic-hash v4, cosine/KNN/MMR, strict-only publication,
 legacy rank worker/snapshot fallback, corpus-wide teacher backfill, and v4
 comparison evaluator are no longer executable. Historical rows remain intact.
 
-The Pi currently serves VOD and YouTube from this target while
+The Pi currently serves VOD and YouTube from the current target while
 StoryDNA/teacher/TMDB work remains off and all 1,096 StoryDNA rows remain
 preserved. Full verified-corpus accounting, bounded memory, cyclic cached
 shuffle, and aggregate pre-couch gates pass. Screenshots and human ten-shuffle
@@ -44,9 +46,10 @@ Deployed rollout contract at `7a8bc1b`:
 
 - Shadow and serve both use exact Household Saved while leaving all personal
   rows intact.
-- Off/shadow expose no public shuffle epoch; the launcher hides Shuffle unless
-  a public recommendation rail exists and reports success only after an actual
-  membership/order change.
+- Off/shadow expose no public recommendation shuffle epoch or `For You` rail.
+  Movies/TV category rails remain independently shuffleable from their cached
+  verified pools, and the launcher reports success only after an actual
+  discovery membership/order change.
 - `/recommendations/state` reports each domain's active and previous complete
   rank pointers, active story/taste/model/status/publication, public epoch, and
   promotion linkage separately from the newest attempted row.
@@ -261,10 +264,13 @@ precomputes up to 32 cached six-card slates. Three supported threads deal 2/2/2
 cards, two deal 3/3, and one deals all six. Within a thread, deterministic
 weighted sampling without replacement uses `1 / rank^1.5`; the prior four
 rendered slates are avoided when supply permits. X scans a default eight cached
-slates, bounded from 1 to 32, to advance the rail. Load-time DB revalidation
+slates, bounded from 1 to 32, to advance `For You`. The same active-tab X
+request re-deals every VOD category rail from its existing verified pool,
+preferring titles not shown in that rail during the seven-day session window
+before relaxing to repeats. Continue and Saved retain their order. Load-time DB revalidation
 checks verified state, artwork, uniqueness, and exact exclusions. If six cannot be healed,
 Mango retains the previous valid slate. Home and X return from cached state and
-never wait for network, enrichment, graph, corpus scan, or ranking work.
+never wait for network, metadata, enrichment, graph, corpus scan, or ranking work.
 Low-water detection may enqueue asynchronous reserve recovery after the read;
 measure it separately from couch-path latency.
 

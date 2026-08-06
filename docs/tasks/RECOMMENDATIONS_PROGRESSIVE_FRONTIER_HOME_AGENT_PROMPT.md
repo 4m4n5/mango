@@ -4,7 +4,7 @@
 Work on the Mango Pi/home LAN only if the user asks for additional automated
 or physical couch evidence. The recommendation deployment is already complete.
 
-EXECUTABLE_TARGET_SHA=7a8bc1bd6f08928270ff092a8a9dad26c02419bf
+EXECUTABLE_TARGET_SHA=a60d1c0c25d2bbe3b2cc1cd7704da20325039630
 
 Read completely before acting:
 - AGENTS.md
@@ -28,13 +28,16 @@ Current state to verify, never assume:
   youtube-takeout-pre-import-20260806T051951Z;
 - authenticated YouTube account `Aman`, region IN/language en, 55 authoritative
   subscriptions, 2,872 imported Takeout watch events covering 2,548 unique
-  videos, six Mango-local anchors, and current v2.3 reserves 120/59/13/120;
-- current More Like status is thematic; the final generation-12 100-X sample
-  was p50 51 ms/p95 73 ms with stable History, no watched leaks, and unchanged
-  quota;
-- the aggregate pre-couch gate passed after the standard display-wake helper
-  restored X11 Monitor On. Reliability remained yellow for five thin curated
-  VOD rails and 2/28 broken served-title probes.
+  videos, six Mango-local anchors, and current v2.4 generation-13 reserves
+  120/63/13/120;
+- current More Like status is thematic; exact meaningful watches cool down for
+  30 days while History and decayed taste evidence remain durable. The latest
+  50-X sample was p50 49 ms/p95 106 ms with stable History, zero recent-watch
+  leaks, 11 older imported videos in ranked reserves, and unchanged quota;
+- the aggregate pre-couch gate passed at executable ancestor `7a8bc1b` after the
+  standard display-wake helper restored X11 Monitor On. It was not re-run for
+  the YouTube-only cooldown delta. Reliability then remained yellow for five
+  thin curated VOD rails and 2/28 broken served-title probes.
 
 Do not deploy, rebuild, refresh recommendations, change modes, change memory,
 or mutate data merely to repeat already-complete proof. Do not use rsync/scp,
@@ -52,9 +55,9 @@ Remaining user-owned acceptance work:
 1. From Movies and TV, inspect ten For You shuffles per tab at ten feet. Record
    whether at least five of six cards are plausible and whether recognizable
    household taste threads recur without feeling repetitive.
-2. Confirm X changes only the active recommendation slates, keeps focus at the
-   same card/scroll position, and leaves Continue, Saved, YouTube History, and
-   YouTube Saved stable.
+2. Confirm X changes `For You` and every category rail only on the active VOD
+   tab, keeps focus at the same card/scroll position, and leaves Continue,
+   Saved, the inactive VOD tab, YouTube History, and YouTube Saved stable.
 3. Launch representative Movies, TV, and YouTube cards. Confirm advancing
    playback, Back restoration, picture/audio quality, and no raw provider or
    diagnostic copy.

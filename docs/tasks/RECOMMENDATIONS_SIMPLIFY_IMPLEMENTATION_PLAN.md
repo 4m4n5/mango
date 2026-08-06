@@ -3,12 +3,13 @@
 Status: implemented, cleaned to one executable architecture, and deployed on
 the Pi in VOD/YouTube serve mode. Human couch proof remains deferred.
 
-Reliability amendment and follow-up fixes deployed at executable target
-`7a8bc1bd6f08928270ff092a8a9dad26c02419bf`: additive library v17,
+Reliability amendment and follow-up fixes are deployed at executable target
+`a60d1c0c25d2bbe3b2cc1cd7704da20325039630`: additive library v17,
 content-generation/prior reuse, paged one-worker ranking, resumable job
 diagnostics, couch-preemptible maintenance leases, liveness/readiness watchdog
 separation, guarded 1280M/1536M defaults, cyclic cached VOD shuffle, and
-YouTube v2.3 account/subscription/metadata/portfolio improvements.
+YouTube v2.4 account/subscription/metadata/portfolio improvements and a rolling
+30-day exact-video rewatch cooldown.
 All stored ratings, Saved/history/profile/playability/StoryDNA/generation data
 and historical migrations remain preserved. Aggregate pre-couch proof passes;
 couch quality is not inferred from it.
@@ -20,6 +21,9 @@ marked superseded.
 ## Product contract
 
 - Movies and TV each expose one cached, six-card `For You` rail.
+- X advances `For You` and re-deals every category rail on only the active VOD
+  tab from already-published verified pools. Continue and Saved stay stable;
+  no metadata, provider, content-profile, graph, or ranking work runs inline.
 - Every served title is poster-bearing and currently verified playable.
 - Fire/Water, Saved, and meaningful Mango VOD viewing are the only taste
   inputs. Fire/Water above `2` is dominant nonlinear positive evidence;

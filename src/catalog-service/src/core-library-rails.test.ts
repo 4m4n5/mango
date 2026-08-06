@@ -4,6 +4,7 @@ import {
   catalogTabLoadPolicy,
   mergeUserStateRails,
   RecommendationTabRevisionFence,
+  vodDiscoveryShufflePolicy,
   vodUtilityHouseholdBlend,
   vodUtilityProfileId,
   type RailItemsResponse,
@@ -103,13 +104,34 @@ test('Home shuffle leaves chronological Continue and Saved rails stable', () => 
   }
 });
 
-test('X never rotates curated sessions or starts metadata warming', () => {
+test('X does not rotate the global session or start metadata warming', () => {
   assert.deepEqual(catalogTabLoadPolicy(true, 99_999, 1), {
     rotatePlayabilitySession: false,
     warmMetadata: false,
   });
   assert.equal(catalogTabLoadPolicy(false, 10, 100).rotatePlayabilitySession, false);
   assert.equal(catalogTabLoadPolicy(false, 100, 100).rotatePlayabilitySession, true);
+});
+
+test('X deals every VOD category rail from cached pools and prefers unseen titles', () => {
+  assert.deepEqual(vodDiscoveryShufflePolicy('movies', true), {
+    forceCuratedReshuffle: true,
+    stableRatio: 1,
+    cachedOnly: true,
+  });
+  assert.deepEqual(vodDiscoveryShufflePolicy('series', true), {
+    forceCuratedReshuffle: true,
+    stableRatio: 1,
+    cachedOnly: true,
+  });
+  assert.deepEqual(vodDiscoveryShufflePolicy('movies', false), {
+    forceCuratedReshuffle: false,
+    cachedOnly: false,
+  });
+  assert.deepEqual(vodDiscoveryShufflePolicy('youtube', true), {
+    forceCuratedReshuffle: false,
+    cachedOnly: false,
+  });
 });
 
 test('recommendation revision fences are independent per VOD media type', () => {

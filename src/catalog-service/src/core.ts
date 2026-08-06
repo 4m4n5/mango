@@ -422,6 +422,30 @@ export function catalogTabLoadPolicy(
   };
 }
 
+export type VodDiscoveryShufflePolicy = {
+  forceCuratedReshuffle: boolean;
+  stableRatio?: number;
+  cachedOnly: boolean;
+};
+
+/**
+ * X deals a fresh, tab-scoped VOD presentation from already-published pools.
+ * A ratio of 1 exhausts titles not shown recently before relaxing to repeats.
+ * Provider lookup stays out of the input path; low-water repair remains an
+ * asynchronous maintenance concern.
+ */
+export function vodDiscoveryShufflePolicy(
+  tab: CatalogTab,
+  reshuffle: boolean,
+): VodDiscoveryShufflePolicy {
+  const active = reshuffle && (tab === 'movies' || tab === 'series');
+  return {
+    forceCuratedReshuffle: active,
+    ...(active ? { stableRatio: 1 } : {}),
+    cachedOnly: active,
+  };
+}
+
 export function vodUtilityProfileId(
   tab: CatalogTab,
   activeProfileId: string,
@@ -2203,6 +2227,7 @@ export class CatalogCore {
   private async buildSavedRail(
     tab: CatalogTab,
     profileId = activeViewerProfileId(),
+    options: { cachedOnly?: boolean } = {},
   ): Promise<RailItemsResponse> {
     const started = Date.now();
     const savedItems = listSavedLibraryItems(tab, undefined, {
@@ -2212,7 +2237,7 @@ export class CatalogCore {
     const items = await mapInBatches(
       savedItems,
       RAIL_META_CONCURRENCY,
-      async (item) => this.resolveSavedRailItem(item),
+      async (item) => this.resolveSavedRailItem(item, options),
       RAIL_META_STAGGER_MS,
     );
 
@@ -2296,11 +2321,12 @@ export class CatalogCore {
     rail: PlayableRail,
     session: RailSessionSnapshot,
     started: number,
+    options: { cachedOnly?: boolean } = {},
   ): Promise<RailItemsResponse> {
     const poolSnapshotItems = session.items.every(
       (item) => this.railItemFromPoolSnapshot(item) !== null,
     );
-    const items = poolSnapshotItems
+    const items = poolSnapshotItems || options.cachedOnly
       ? session.items
         .map((item) => this.railItemFromPoolSnapshot(item))
         .filter((item): item is RailItem => item !== null)
@@ -2397,53 +2423,9 @@ export class CatalogCore {
       return { value: { ...cachedTab.payload, cached: true } };
     }
 
-    const cachedTabUsable = cachedTab
-      && cachedTab.expiresAt > now
-      && cachedTab.profileId === personalization.active_profile_id
-      && cachedTab.personalizationUpdatedAt === personalization.updated_at
-      && cachedTab.payload.rails.every((rail) => rail.playability?.low_water !== true);
-    if (reshuffle && cachedTabUsable && (tab === 'movies' || tab === 'series')) {
-      const started = Date.now();
-      const railId = tab === 'movies' ? 'for-you-movies' : 'for-you-series';
-      const forYouRail = await loadForYouRail(tab, {
-        reshuffle: true,
-        profileId: personalization.active_profile_id,
-        personalizationUpdatedAt: personalization.updated_at,
-      });
-      const rails = [...cachedTab.payload.rails];
-      const currentIndex = rails.findIndex((rail) => rail.rail_id === railId);
-      if (currentIndex >= 0) {
-        if (forYouRail) rails.splice(currentIndex, 1, forYouRail);
-        else rails.splice(currentIndex, 1);
-      } else if (forYouRail) {
-        const savedIndex = rails.findIndex((rail) => rail.rail_id === 'saved');
-        const continueIndex = rails.findIndex((rail) => rail.rail_id === 'continue-watching');
-        rails.splice(Math.max(savedIndex, continueIndex) + 1, 0, forYouRail);
-      }
-      const payload: TabRailItemsResponse = {
-        tab,
-        rails,
-        resolve_ms: Date.now() - started,
-      };
-      return {
-        value: payload,
-        commit: () => {
-          if (recommendationRevision !== null
-            && !this.recommendationRevisionFence.isCurrent(tab, recommendationRevision)) return;
-          this.tabRailItemsCache.set(cacheKey, {
-            tab,
-            profileId: personalization.active_profile_id,
-            personalizationUpdatedAt: personalization.updated_at,
-            payload,
-            expiresAt: Date.now() + RAIL_ITEMS_CACHE_TTL_MS,
-          });
-        },
-        rollback: () => this.tabRailItemsCache.delete(cacheKey),
-      };
-    }
-
     const started = Date.now();
     const rails = this.browsableRailsForTab(tab);
+    const shufflePolicy = vodDiscoveryShufflePolicy(tab, reshuffle);
     const sessions = await allocateTabRailSessions({
       sessionId: this.playabilitySessionId,
       rails: rails.map((rail) => ({
@@ -2452,9 +2434,10 @@ export class CatalogCore {
         minDisplay: rail.playability.min_display,
         playability: rail.playability,
       })),
-      // X is scoped to the current tab's For You dealer. Curated discovery,
-      // Continue, and Saved retain their existing session/order.
-      forceReshuffle: false,
+      // Manual VOD shuffle is tab-scoped: every category rail gets a fresh
+      // deal, while utility rails are rebuilt in their chronological order.
+      forceReshuffle: shufflePolicy.forceCuratedReshuffle,
+      stableRatio: shufflePolicy.stableRatio,
     });
 
     const [railResponses, continueRail, savedRail] = await Promise.all([
@@ -2462,7 +2445,9 @@ export class CatalogCore {
         rails.map(async (rail) => {
           const session = sessions.get(rail.id);
           if (!session) return null;
-          return this.buildRailItemsResponse(rail, session, Date.now());
+          return this.buildRailItemsResponse(rail, session, Date.now(), {
+            cachedOnly: shufflePolicy.cachedOnly,
+          });
         }),
       ),
       this.buildContinueRail(
@@ -2472,6 +2457,7 @@ export class CatalogCore {
       this.buildSavedRail(
         tab,
         vodUtilityProfileId(tab, personalization.active_profile_id),
+        { cachedOnly: shufflePolicy.cachedOnly },
       ),
     ]);
 
@@ -3864,6 +3850,7 @@ export class CatalogCore {
 
   private async resolveSavedRailItem(
     item: SavedLibraryItem,
+    options: { cachedOnly?: boolean } = {},
   ): Promise<RailItem> {
     const title = item.title?.trim();
     const poster = normalizePosterUrl(item.poster) ?? metahubPosterUrl(item.id);
@@ -3874,6 +3861,19 @@ export class CatalogCore {
         title,
         subtitle: item.year ?? item.type,
         poster,
+        year: item.year ?? undefined,
+        description: item.description ?? undefined,
+        source: 'saved',
+      };
+    }
+
+    if (options.cachedOnly) {
+      return {
+        id: item.id,
+        type: item.type,
+        title: title || item.id,
+        subtitle: item.year ?? item.type,
+        poster: poster || '',
         year: item.year ?? undefined,
         description: item.description ?? undefined,
         source: 'saved',

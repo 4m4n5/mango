@@ -203,14 +203,14 @@ state transition explicitly rather than treating shadow as invisible compute.
 | F8 | Rail shape | One For You after Continue/Saved; exactly six current verified/poster-bearing cards | |
 | F9 | Mix | Six, 3+3, or 2+2+2 across supported threads; no v4 12-card/4-1-1/forced-surprise/rewatch behavior | |
 | F10 | Exclusions | Exact rated, Saved, meaningful watch, hidden, blocked, and Not-for-me absent | |
-| F11 | X | Response advances cached dealer without waiting for network/teacher/graph/corpus/rank work; avoids four prior slates when supply permits; any asynchronous low-water job is separately attributed | |
+| F11 | X | On the active Movies/TV tab, response advances `For You` and every category rail from cached verified pools without network/metadata/teacher/graph/corpus/rank work; Continue/Saved and the other tab remain stable; `For You` avoids four prior slates and category rails prefer not-recent titles when supply permits; any asynchronous low-water job is separately attributed | |
 | F12 | Last good | Teacher/offline/restart/job failure retains prior valid six-card rail | |
 | F13 | Rollback | serve → shadow/off removes For You without data loss; reviewed Git rollback is required for older ranking behavior | |
 | F14 | Quality | Human compares relevance, diversity, familiarity, novelty, multilingual fit, and repetition across Movies/TV | |
 | F15 | Shadow identity | Personal rows/counts remain intact; profile/mood writes are typed; Continue/progress and Saved ownership match the accepted Household policy with no shadow/serve divergence | |
-| F16 | Disabled Shuffle | X/Shuffle is hidden or honest in off/shadow; it never reports a successful refresh when no For You rail changed | |
+| F16 | Recommendation-disabled Shuffle | Off/shadow expose no `For You` or public recommendation epoch, but X still honestly changes cached category rails; no-op/exhausted pools never report false success | |
 
-The Pi serves target `7a8bc1b` with complete progressive accounting, bounded
+The Pi serves target `a60d1c0` with complete progressive accounting, bounded
 frontier-off behavior, healthy reserves, and an aggregate pre-couch PASS after
 the standard display-wake path restored X11 Monitor On. Its 100-X-per-tab VOD
 proof exercises cyclic four-slate avoidance. Do not turn automated proof into
