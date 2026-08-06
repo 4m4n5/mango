@@ -42,11 +42,14 @@ import {
 import {
   invalidateYoutubeV2ExactExclusions,
   rebuildYoutubeV2Generation,
+  YOUTUBE_V2_MORE_LIKE_QUERY_SIZE,
+  YOUTUBE_V2_MORE_LIKE_TARGET,
   YOUTUBE_V2_WATCH_COOLDOWN_MS,
   youtubePublicPersonalizationPayload,
   youtubeRecommendationsV2Mode,
   youtubeV2HistoryItems,
   youtubeV2ExactExclusionCacheDiagnostics,
+  youtubeV2MoreLikeSeeds,
   youtubeV2RecommendationRails,
   youtubeV2TopicSeed,
   weightedDailyHistorySeedId,
@@ -316,14 +319,85 @@ test('daily More Like selection is deterministic and weighted by decayed watch s
   assert.ok(selections.filter((id) => id === 'strong-complete').length >= 105);
 });
 
-test('triggered and nightly discovery query budgets honor 5 and 8/4 caps', () => {
+test('triggered and nightly discovery budgets fund ten More Like seeds without touching couch reserve', () => {
   assert.deepEqual(youtubeV2AcquisitionQueryBudget('meaningful_watch'), {
-    more_like: 3, beyond: 2, total: 5,
+    more_like: 10, beyond: 2, total: 12,
   });
   assert.deepEqual(youtubeV2AcquisitionQueryBudget('nightly'), {
-    more_like: 4, beyond: 8, total: 12,
+    more_like: 10, beyond: 8, total: 18,
   });
 });
+
+test('More Like uses six distinct official-history seeds and grows a 64-title thematic reserve', () => withTempState(async () => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  const seeds = Array.from({ length: 10 }, (_, index) => video(
+    `MultiSeed${index}`,
+    `Distinct topic ${index} craft`,
+    `seed-channel-${index}`,
+  ));
+  upsertYoutubeItems(seeds);
+  importOfficialHistory(seeds, now, 'takeout-multi-seed');
+  assert.equal(new Set(youtubeV2MoreLikeSeeds(10, now).map((seed) => seed.provenance_ref)).size, 10);
+
+  const service = new YoutubeService();
+  let moreLikeSearches = 0;
+  const api = (service as unknown as { api: {
+    search: (query: string, options: { limit?: number; eventType?: string }) => Promise<{
+      videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[];
+    }>;
+  } }).api;
+  api.search = async (query, options) => {
+    if (options.eventType || options.limit !== YOUTUBE_V2_MORE_LIKE_QUERY_SIZE) {
+      return { videos: [], channels: [], playlists: [] };
+    }
+    const call = moreLikeSearches++;
+    return {
+      videos: Array.from({ length: 12 }, (_, index) => video(
+        `MultiCandidate${call}-${index}`,
+        `${query} analysis ${call} ${index}`,
+        `candidate-channel-${call}-${index}`,
+      )),
+      channels: [],
+      playlists: [],
+    };
+  };
+
+  const result = await service.refresh('manual_multi_seed');
+  assert.equal(result.ok, true);
+  assert.equal(moreLikeSearches, 6);
+  const acquisition = getYoutubeState<{
+    more_like_search_calls: number;
+    more_like_attempted_seeds: number;
+    more_like_contributing_seeds: number;
+    more_like_candidate_count: number;
+    more_like_target_reached: boolean;
+  }>('youtube_v2_history_acquisition', {
+    more_like_search_calls: 0,
+    more_like_attempted_seeds: 0,
+    more_like_contributing_seeds: 0,
+    more_like_candidate_count: 0,
+    more_like_target_reached: false,
+  });
+  assert.deepEqual(acquisition, {
+    ...acquisition,
+    more_like_search_calls: 6,
+    more_like_attempted_seeds: 6,
+    more_like_contributing_seeds: 6,
+    more_like_candidate_count: 72,
+    more_like_target_reached: true,
+  });
+  const generation = latestYoutubeV2Generation()!;
+  const reserve = generation.items.filter((item) => item.rail_id === 'more_like');
+  assert.ok(reserve.length >= YOUTUBE_V2_MORE_LIKE_TARGET);
+  assert.ok(new Set(reserve.map((item) => item.provenance_ref)).size >= 6);
+  const rail = youtubeV2RecommendationRails({ shuffle_epoch: 0 })
+    .find((entry) => entry.rail_id === 'more_like')!;
+  assert.equal(rail.items.length, 4);
+  const provenanceById = new Map(reserve.map((item) => [item.id, item.provenance_ref] as const));
+  assert.equal(new Set(rail.items.map((item) => provenanceById.get(item.id))).size, 4);
+}));
 
 test('Takeout refresh is off-safe and uses one durable 15-minute acquisition coalescer', () => withTempState(async () => {
   const off = await refreshYoutubeAfterTakeoutImport({ at: 1_000_000 });
@@ -641,6 +715,60 @@ test('watched cooldown is exhaustive for 30 days and expires without discarding 
   assert.equal(generation.items.some((item) => item.id === savedTarget.id), false);
   assert.equal(listYoutubeV2ImportedHistory(5_000).some((row) => row.video_id === expiredImported.id), false);
   assert.equal(listYoutubeV2ImportedHistory(20_000).some((row) => row.video_id === expiredImported.id), true);
+}));
+
+test('More Like acquisition can reacquire an official-history video after the 30-day cooldown', () => withTempState(async () => {
+  const now = Date.now();
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
+  const recent = video('CooldownRecentSeed', 'Shared craft history', 'recent-seed-channel');
+  const old = [
+    video('CooldownOldA', 'Shared craft history retrospective', 'old-channel-a'),
+    video('CooldownOldB', 'Shared craft history archive', 'old-channel-b'),
+  ];
+  upsertYoutubeItems([recent, ...old]);
+  importOfficialHistory([recent], now, 'takeout-cooldown-recent');
+  upsertYoutubeV2ImportedHistory(old.map((item, index) => ({
+    video_id: item.id,
+    title: item.title,
+    title_url: null,
+    channel_id: item.channel_id,
+    channel_title: item.channel_title,
+    watched_at: now - YOUTUBE_V2_WATCH_COOLDOWN_MS - (index + 1) * 1_000,
+  })), { source_generation: 'takeout-cooldown-old', imported_at: now });
+  const firstSeed = youtubeV2MoreLikeSeeds(10, now)[0]!.provenance_ref;
+  const eligibleOld = old.find((item) => item.id !== firstSeed)!;
+
+  const service = new YoutubeService();
+  let moreLikeCall = 0;
+  const api = (service as unknown as { api: {
+    search: (query: string, options: { limit?: number; eventType?: string }) => Promise<{
+      videos: YoutubeItem[]; channels: YoutubeItem[]; playlists: YoutubeItem[];
+    }>;
+  } }).api;
+  api.search = async (query, options) => {
+    if (options.eventType || options.limit !== YOUTUBE_V2_MORE_LIKE_QUERY_SIZE) {
+      return { videos: [], channels: [], playlists: [] };
+    }
+    const call = moreLikeCall++;
+    return {
+      videos: [
+        ...(call === 0 ? [eligibleOld] : []),
+        ...Array.from({ length: 4 }, (_, index) => video(
+          `CooldownFresh${call}-${index}`,
+          `${query} documentary ${call} ${index}`,
+          `cooldown-fresh-channel-${call}-${index}`,
+        )),
+      ],
+      channels: [],
+      playlists: [],
+    };
+  };
+  const result = await service.refresh('cooldown_reacquisition');
+  assert.equal(result.ok, true);
+  assert.ok(listYoutubeV2CandidateProvenance().some((row) => (
+    row.item.id === eligibleOld.id && row.source_generation.startsWith('more_like:')
+  )));
 }));
 
 test('official Takeout history alone drives taste while Mango-local viewing stays utility-only', () => withTempState(() => {
@@ -1048,7 +1176,7 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
     'subscriptions', 'v2_subscription_acquisition', 'v2_history_metadata',
     'v2_history_acquisition', 'v2_live_acquisition', 'v2_publish',
   ]);
-  assert.ok(searchCalls <= 5);
+  assert.ok(searchCalls <= 12);
   const acquisition = getYoutubeState<{
     queries_attempted: number;
     more_like_queries: number;
@@ -1060,8 +1188,8 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
     queries_attempted: 0, more_like_queries: 0, beyond_queries: 0, distinct_seed_refs: [],
     more_like_status: '', funnels: [],
   });
-  assert.ok(acquisition.queries_attempted <= 5);
-  assert.ok(acquisition.more_like_queries <= 3);
+  assert.ok(acquisition.queries_attempted <= 12);
+  assert.ok(acquisition.more_like_queries <= 10);
   assert.ok(acquisition.beyond_queries <= 2);
   assert.ok(acquisition.distinct_seed_refs.length >= 1);
   assert.equal(acquisition.more_like_status, 'not_applicable');

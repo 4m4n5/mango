@@ -1,13 +1,15 @@
 # mango — native YouTube
 
 **Milestone:** M6.2 · **Status:** the native YouTube base and recommendation
-v2.5 are Pi-deployed and runtime-gated. Commit `7ed5a3105db2674dac566fd45b1fd4e4b07a3145` keeps authoritative subscription/history v2
+v2.6 are source-complete; the exact Pi proof is recorded in [STATUS.md](STATUS.md).
+The latest model keeps authoritative subscription/history v2
 as the sole executable recommendation architecture behind an independent
 `off|shadow|serve` flag and replaces the lifetime exact-watch veto with a
 rolling 30-day cooldown. The current source also includes post-auth account/sync
 truth, complete bounded subscription coverage, official metadata evidence,
-source/seed portfolio constraints, and uploads-playlist-backed conditional
-More Like recovery. The current India account is Ready with 55 subscriptions.
+source/seed portfolio constraints, and a six-to-ten-seed thematic More Like
+reserve with uploads-playlist-backed sparse-history recovery. The current India
+account is Ready with 55 subscriptions.
 Its watch-history HTML import produced 2,872 normalized events covering 2,548
 unique videos. Those official Takeout events plus the OAuth subscription
 snapshot are the only taste/acquisition inputs. The one-time Household reset
@@ -230,12 +232,18 @@ for interactive use. `search.list` has a separate 100-call daily bucket, with
 either applicable reserve. Ordinary metadata list requests cost 1 general unit.
 Query responses are keyed by query/kinds/SafeSearch/region/language, cached for
 24 hours, and pruned LRU to 200 keys. See [SEARCH.md](SEARCH.md).
-A triggered history acquisition burst is capped at five `search.list` calls and
-coalesces for 15 minutes. Nightly permits at most eight Beyond queries, four More
-Like attempts, and eight subscribed-channel live probes. More Like topic work
-uses `search.list`; exact-channel fallback uses the channel's official uploads
-playlist and can publish a coherent hybrid of one same-channel card plus
-thematic cards. It tries alternate meaningful seeds and otherwise records
+A triggered history acquisition burst coalesces for 15 minutes. With sufficient
+official history, More Like deterministically tries at least six distinct seeds,
+up to ten, requests 25 results per topic query, and stops only after at least six
+seeds contribute to a target of 64 unique eligible candidates. Triggered refresh
+then permits two Beyond queries; nightly permits eight Beyond queries and eight
+subscribed-channel live probes. Thus the maximum scheduled nightly Search-bucket
+use is 26 of Mango's 75-call background allowance. More Like topic work uses
+`search.list`; exact-channel fallback stays inside the ten-operation More Like
+cap, runs only when thematic work cannot fill four cards, and uses the channel's
+official uploads playlist. It can publish a coherent hybrid of one same-channel
+card plus thematic cards. A shortfall never weakens relation, provenance,
+Short/live, cooldown, or duplicate filters and otherwise records
 `not_applicable` honestly. `For You` requires both history and subscription
 sources when both have eligible supply, limits a single creator or seed before
 deterministic shortage relaxation, and `Beyond` caps a seed at two cards.
@@ -343,13 +351,17 @@ source-tested at the target and remains a Pi rollback check.
   and decayed history, excludes subscribed channels, and admits at most one card
   per creator.
 - More Like samples a daily-stable ordering without replacement from the
-  twenty most recent meaningful watches. Triggered refresh spends at most
-  three searches and nightly at most four: two bounded thematic seed queries,
-  then exact-channel fallback(s). Four thematic cards render as **More Like …**;
-  otherwise four same-channel cards render as **More from <channel>**; otherwise
-  the rail is honestly omitted with `not_applicable`. Per-query diagnostics are
-  counts plus opaque seed references. With subscriptions but no history its
-  fallback remains **More from channels you follow**.
+  twenty most recent meaningful watches, normally caps one channel at two
+  seeds, and acquires from six distinct seeds before it may stop. It uses up to
+  ten 25-result thematic queries to target 64 unique eligible candidates, with
+  a published cap of 120. The visible four-card slate prefers distinct seed and
+  creator provenance before deterministic shortage relaxation. Exact-channel
+  fallback is attempted only when the thematic pool cannot fill four cards.
+  Four thematic cards render as **More Like …**; otherwise four same-channel
+  cards render as **More from <channel>**; otherwise the rail is honestly
+  omitted with `not_applicable`. Per-query diagnostics are counts plus opaque
+  seed references. With subscriptions but no history its fallback remains
+  **More from channels you follow**.
 - From Your Subscriptions shows newest unwatched uploads with at most one card
   per channel when supply permits. Live Now contains only currently live streams
   from subscribed channels. Shorts never appear in recommendation rails. The
@@ -385,7 +397,7 @@ source-tested at the target and remains a Pi rollback check.
 |------|------|-----------------|------------|
 | For You | Core | Published rank from history + subscriptions only | Advance cached slate |
 | Beyond Your Subscriptions | Core | Provenance-gated history/subscription topic acquisition; subscribed creators excluded | Advance cached slate |
-| More Like … | Conditional core position | Alternate daily-stable meaningful-history seeds; thematic four, exact-channel four, or honest omission | Advance cached slate |
+| More Like … | Conditional core position | Six-to-ten daily-stable official-history seeds, target reserve 64/cap 120; thematic four, sparse-history exact-channel four, or honest omission | Advance cached slate |
 | History | Core utility | Normalized Takeout + resolvable Mango-local launches, including bare starts, in `library.db` | Never shuffled |
 | Saved | Core utility | Explicit Household state in `library.db`; zero rank influence | Never shuffled |
 | From Your Subscriptions | Conditional | Newest unwatched uploads from the authoritative snapshot | Advance cached slate |

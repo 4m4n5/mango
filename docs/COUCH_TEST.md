@@ -242,7 +242,7 @@ regression is source-tested at the target and must be re-proven on the Pi.
 | YT7 | Supply honesty | Normal rows render only at exactly four cards and can be absent; Live renders 1–4; no unrelated filler | |
 | YT8 | X/quota | X advances cached eligible rails only; API/search counters unchanged; History/Saved stable | |
 | YT9 | For You | 60/40 decayed official-Takeout history/subscriptions with cold-start renormalization; exact meaningful watches are absent for 30 days while Saved/Short/live exclusions remain exact | |
-| YT10 | Beyond/More Like | Beyond excludes subscribed creators; More Like uses a stable official-Takeout seed; creator caps/dedupe hold | |
+| YT10 | Beyond/More Like | Beyond excludes subscribed creators; More Like diagnostics prove 6–10 opaque official-Takeout seeds and a target-≥64 reserve when supply permits; creator/seed caps and dedupe hold | |
 | YT11 | Not for me | Exact reversible video suppression only; no creator/topic penalty | |
 | YT12 | Failure | Partial refresh/OAuth/quota failure preserves explicit stale last-good generation | |
 | YT13 | Empty setup | With neither qualifying subscriptions/history, show connect/import/watch setup—not fake Popular filler | |

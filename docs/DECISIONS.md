@@ -152,7 +152,7 @@ explicit product approval.
 | Portfolio | When both sources have eligible supply, For You contains both; creator and seed caps relax only to fill four. Beyond uses one creator and at most two cards per seed before shortage relaxation |
 | OAuth ready | Token receipt is not Ready: resolve authorized channel, enumerate authoritative subscriptions, cover official upload playlists in bounded pages, then report sanitized account/sync truth |
 | Locale | India discovery (`IN`) and English relevance (`en`) are independent explicit settings; never infer account country from an absent channel field |
-| More Like | Alternate meaningful seeds, official uploads-playlist channel fallback, thematic/channel hybrid, then honest omission |
+| More Like | Six-to-ten distinct daily-stable official-history seeds; 25 results/query; target reserve 64/cap 120; distinct seed/creator slate preference; official uploads-playlist fallback only for a sub-four thematic pool, then honest omission |
 | History/Saved | Stable utility rails; Saved has zero ranking influence |
 | X | Cached serving epoch only; no acquisition, API quota, ranking, or network work; History/Saved stay stable |
 | Native-feed claim | Public YouTube Data API cannot reproduce YouTube's proprietary Home feed; Mango does not claim it can |

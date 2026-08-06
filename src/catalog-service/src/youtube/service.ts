@@ -54,13 +54,19 @@ import { recommendationOwnerForRollout } from '../recommendations/v2-mode.js';
 import {
   YOUTUBE_V2_CANDIDATE_TTL_MS,
   YOUTUBE_V2_LIVE_TTL_MS,
+  YOUTUBE_V2_MORE_LIKE_MAX_SEEDS,
+  YOUTUBE_V2_MORE_LIKE_MIN_SEEDS,
+  YOUTUBE_V2_MORE_LIKE_QUERY_SIZE,
+  YOUTUBE_V2_MORE_LIKE_TARGET,
   invalidateYoutubeV2ExactExclusions,
   invalidateYoutubeV2HistoryItems,
+  persistYoutubeV2MoreLikeSeeds,
   rebuildYoutubeV2Generation,
   youtubeRecommendationsV2Mode,
   youtubeV2CachedHistoryItems,
   youtubeV2Diagnostics,
   youtubeV2DiscoverySeeds,
+  youtubeV2ExactExcludedIds,
   youtubeV2MoreLikeSeeds,
   youtubeV2RecommendationRails,
   youtubeV2SourceStaleState,
@@ -102,7 +108,7 @@ export function youtubeV2AcquisitionQueryBudget(reason: string): {
   total: number;
 } {
   const nightly = /(?:nightly|scheduled|maintenance)/i.test(reason);
-  const moreLike = nightly ? 4 : 3;
+  const moreLike = YOUTUBE_V2_MORE_LIKE_MAX_SEEDS;
   const beyond = nightly ? 8 : 2;
   return { more_like: moreLike, beyond, total: moreLike + beyond };
 }
@@ -845,7 +851,7 @@ export class YoutubeService {
     }
     const budget = youtubeV2AcquisitionQueryBudget(reason);
     const nightly = /(?:nightly|scheduled|maintenance)/i.test(reason);
-    const historySeeds = youtubeV2MoreLikeSeeds(20);
+    const historySeeds = youtubeV2MoreLikeSeeds(YOUTUBE_V2_MORE_LIKE_MAX_SEEDS);
     const subscriptionFallback = historySeeds.length === 0 ? youtubeV2TopicSeed() : null;
     const moreLikeSeeds = historySeeds.length > 0
       ? historySeeds
@@ -885,17 +891,11 @@ export class YoutubeService {
       error: string | null;
     };
     type AcquiredCandidate = Parameters<typeof upsertYoutubeV2CandidateProvenance>[0][number];
-    const exactExcluded = new Set([
-      ...listYoutubeV2ImportedHistory(5_000).map((row) => row.video_id),
-      ...listWatchHistory({
-        source: 'youtube', type: 'youtube_video', profile_id: 'household',
-        household_blend: false, limit: 5_000,
-      }).map((row) => row.id),
-      ...listSavedLibraryItems('youtube', 5_000, {
-        profile_id: 'household', household_blend: false,
-      }).filter((row) => row.source === 'youtube' && row.type === 'youtube_video')
-        .map((row) => row.id),
-    ]);
+    // Candidate acquisition and cached serving share the same exact policy:
+    // Saved/Not-for-me remain vetoes, while watched videos cool down for only
+    // 30 days. Do not silently turn durable Takeout history into a lifetime
+    // acquisition exclusion.
+    const exactExcluded = youtubeV2ExactExcludedIds();
     const seen = new Set<string>();
     const funnels: Funnel[] = [];
     const execute = async (entry: AcquisitionSpec): Promise<{
@@ -993,75 +993,98 @@ export class YoutubeService {
       }
     };
 
-    const queryPlan: AcquisitionSpec[] = [];
-    const topicSpec = (seed: YoutubeV2TopicSeed) => becauseYouWatchedQuerySpecs(seed.item)
-      .find((spec) => spec.relation_type !== 'same_channel' && !spec.channelId);
+    const topicSpec = (
+      seed: YoutubeV2TopicSeed,
+      limit?: number,
+    ): BecauseYouWatchedQuerySpec | null => {
+      const spec = becauseYouWatchedQuerySpecs(seed.item)
+        .find((candidate) => candidate.relation_type !== 'same_channel' && !candidate.channelId);
+      return spec ? { ...spec, ...(limit ? { limit } : {}) } : null;
+    };
     const exactSpec = (seed: YoutubeV2TopicSeed): BecauseYouWatchedQuerySpec | null => (
       seed.item.channel_id ? {
         query: '', relation_type: 'same_channel', channelId: seed.item.channel_id,
         order: 'date', limit: 12, publishedAfterDays: 365, videoDuration: 'medium',
       } : null
     );
-    const primary = moreLikeSeeds[0];
-    const secondary = moreLikeSeeds[1];
-    if (primary && topicSpec(primary)) queryPlan.push({
-      lane: 'more_like', seed: primary, spec: topicSpec(primary)!, query_index: queryPlan.length,
-    });
-    if (secondary && topicSpec(secondary)) queryPlan.push({
-      lane: 'more_like', seed: secondary, spec: topicSpec(secondary)!, query_index: queryPlan.length,
-    });
-    if (primary && exactSpec(primary)) queryPlan.push({
-      lane: 'more_like', seed: primary, spec: exactSpec(primary)!, query_index: queryPlan.length,
-    });
-    if (nightly && secondary && exactSpec(secondary)) queryPlan.push({
-      lane: 'more_like', seed: secondary, spec: exactSpec(secondary)!, query_index: queryPlan.length,
-    });
-
-    const viableBySeed = new Map<string, {
-      thematic: AcquiredCandidate[];
-      channel: AcquiredCandidate[];
-    }>();
     const allCandidates: AcquiredCandidate[] = [];
-    let selectedMoreLike: YoutubeV2TopicSeed | null = null;
+    const attemptedMoreLikeSeeds: YoutubeV2TopicSeed[] = [];
+    const contributingMoreLikeSeedRefs = new Set<string>();
+    const thematicMoreLikeCandidates: AcquiredCandidate[] = [];
+    const channelMoreLikeCandidates: AcquiredCandidate[] = [];
     let selectedMode: 'thematic' | 'hybrid' | 'exact_channel' | 'not_applicable' = 'not_applicable';
     const results: Array<Awaited<ReturnType<typeof execute>>> = [];
-    for (const entry of queryPlan.slice(0, budget.more_like)) {
+    const minimumSeedTrials = Math.min(YOUTUBE_V2_MORE_LIKE_MIN_SEEDS, moreLikeSeeds.length);
+    for (const seed of moreLikeSeeds.slice(0, budget.more_like)) {
+      const spec = topicSpec(seed, YOUTUBE_V2_MORE_LIKE_QUERY_SIZE);
+      if (!spec) continue;
+      const entry: AcquisitionSpec = {
+        lane: 'more_like', seed, spec, query_index: results.length,
+      };
       const result = await execute(entry);
       results.push(result);
-      const pools = viableBySeed.get(entry.seed.provenance_ref) ?? { thematic: [], channel: [] };
-      (entry.spec.channelId ? pools.channel : pools.thematic).push(...result.candidates);
-      viableBySeed.set(entry.seed.provenance_ref, pools);
-      if (pools.thematic.length >= YOUTUBE_RAIL_LIMIT) {
-        selectedMoreLike = entry.seed;
-        selectedMode = 'thematic';
-        allCandidates.push(...pools.thematic);
-        break;
-      }
-      const hybrid = [
-        ...pools.channel.slice(0, 1),
-        ...pools.thematic,
-        ...pools.channel.slice(1),
-      ].filter((candidate, index, all) => (
-        all.findIndex((entry) => entry.item.id === candidate.item.id) === index
-      ));
-      if (pools.thematic.length > 0
-        && pools.channel.length > 0
-        && hybrid.length >= YOUTUBE_RAIL_LIMIT) {
-        selectedMoreLike = entry.seed;
-        selectedMode = 'hybrid';
-        allCandidates.push(...hybrid);
-        break;
-      }
-      if (pools.channel.length >= YOUTUBE_RAIL_LIMIT) {
-        selectedMoreLike = entry.seed;
-        selectedMode = 'exact_channel';
-        allCandidates.push(...pools.channel);
+      attemptedMoreLikeSeeds.push(seed);
+      thematicMoreLikeCandidates.push(...result.candidates);
+      allCandidates.push(...result.candidates);
+      if (result.candidates.length > 0) contributingMoreLikeSeedRefs.add(seed.provenance_ref);
+      if (attemptedMoreLikeSeeds.length >= minimumSeedTrials
+        && contributingMoreLikeSeedRefs.size >= minimumSeedTrials
+        && thematicMoreLikeCandidates.length >= YOUTUBE_V2_MORE_LIKE_TARGET) {
         break;
       }
     }
 
+    // Exact-channel reads are an honest sparse-history fallback, not a way to
+    // inflate the 64-title thematic target. Try them only when all topic work
+    // still cannot fill the four-card couch row.
+    if (thematicMoreLikeCandidates.length < YOUTUBE_RAIL_LIMIT) {
+      const remainingMoreLikeOperations = Math.max(0, budget.more_like - attemptedMoreLikeSeeds.length);
+      for (const seed of attemptedMoreLikeSeeds.slice(
+        0,
+        Math.min(nightly ? 2 : 1, remainingMoreLikeOperations),
+      )) {
+        const spec = exactSpec(seed);
+        if (!spec) continue;
+        const entry: AcquisitionSpec = {
+          lane: 'more_like', seed, spec, query_index: results.length,
+        };
+        const result = await execute(entry);
+        results.push(result);
+        channelMoreLikeCandidates.push(...result.candidates);
+        allCandidates.push(...result.candidates);
+        if (result.candidates.length > 0) contributingMoreLikeSeedRefs.add(seed.provenance_ref);
+        if (thematicMoreLikeCandidates.length + channelMoreLikeCandidates.length >= YOUTUBE_RAIL_LIMIT) break;
+      }
+    }
+
+    let selectedMoreLikeCandidates: AcquiredCandidate[] = [];
+    if (thematicMoreLikeCandidates.length >= YOUTUBE_RAIL_LIMIT) {
+      selectedMode = 'thematic';
+      selectedMoreLikeCandidates = thematicMoreLikeCandidates;
+    } else if (thematicMoreLikeCandidates.length > 0
+      && thematicMoreLikeCandidates.length + channelMoreLikeCandidates.length >= YOUTUBE_RAIL_LIMIT) {
+      selectedMode = 'hybrid';
+      selectedMoreLikeCandidates = [
+        ...channelMoreLikeCandidates.slice(0, 1),
+        ...thematicMoreLikeCandidates,
+        ...channelMoreLikeCandidates.slice(1),
+      ];
+    } else if (channelMoreLikeCandidates.length >= YOUTUBE_RAIL_LIMIT) {
+      selectedMode = 'exact_channel';
+      selectedMoreLikeCandidates = channelMoreLikeCandidates;
+    }
+    const selectedMoreLikeIds = new Set(selectedMoreLikeCandidates.map((candidate) => candidate.item.id));
+    for (const result of results.filter((entry) => entry.entry.lane === 'more_like')) {
+      const funnel = funnels.find((entry) => entry.query_index === result.entry.query_index);
+      if (funnel) {
+        funnel.rail_allocated = result.candidates
+          .filter((candidate) => selectedMoreLikeIds.has(candidate.item.id)).length;
+      }
+    }
+
+    const attemptedMoreLikeRefs = new Set(attemptedMoreLikeSeeds.map((seed) => seed.provenance_ref));
     const distinctBeyondSeeds = discoverySeeds.filter((seed) => (
-      seed.provenance_ref !== selectedMoreLike?.provenance_ref
+      !attemptedMoreLikeRefs.has(seed.provenance_ref)
     ));
     for (const seed of (distinctBeyondSeeds.length > 0 ? distinctBeyondSeeds : discoverySeeds)
       .slice(0, budget.beyond)) {
@@ -1075,22 +1098,20 @@ export class YoutubeService {
     }
     const acquiredAt = nowMs();
     upsertYoutubeV2CandidateProvenance(allCandidates);
-    if (selectedMoreLike) {
-      setYoutubeState('youtube_v2_daily_topic_seed', {
-        day: new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' })
-          .format(new Date(acquiredAt)),
-        kind: selectedMoreLike.kind,
-        provenance_ref: selectedMoreLike.provenance_ref,
-        item_id: selectedMoreLike.item.id,
-        source_generation: selectedMoreLike.source_generation,
-        selected_at: acquiredAt,
-      });
+    if (selectedMode !== 'not_applicable' && attemptedMoreLikeSeeds.length > 0) {
+      persistYoutubeV2MoreLikeSeeds(attemptedMoreLikeSeeds, acquiredAt);
     }
+    const opaqueMoreLikeSeedRefs = attemptedMoreLikeSeeds.map((seed) => createHash('sha256')
+      .update(seed.provenance_ref).digest('hex').slice(0, 16));
     setYoutubeState('youtube_v2_more_like_status', {
       status: selectedMode,
-      seed_ref: selectedMoreLike
-        ? createHash('sha256').update(selectedMoreLike.provenance_ref).digest('hex').slice(0, 16)
-        : null,
+      seed_ref: opaqueMoreLikeSeedRefs[0] ?? null,
+      seed_refs: opaqueMoreLikeSeedRefs,
+      attempted_seed_count: attemptedMoreLikeSeeds.length,
+      contributing_seed_count: contributingMoreLikeSeedRefs.size,
+      candidate_count: selectedMoreLikeCandidates.length,
+      target: YOUTUBE_V2_MORE_LIKE_TARGET,
+      target_reached: selectedMoreLikeCandidates.length >= YOUTUBE_V2_MORE_LIKE_TARGET,
       at: acquiredAt,
     });
     const failed = results.filter((result) => result.error);
@@ -1098,8 +1119,20 @@ export class YoutubeService {
       queries_attempted: results.length,
       query_budget: budget,
       more_like_queries: results.filter((entry) => entry.entry.lane === 'more_like').length,
+      more_like_search_calls: results.filter((entry) => (
+        entry.entry.lane === 'more_like' && !entry.entry.spec.channelId
+      )).length,
+      more_like_channel_fallbacks: results.filter((entry) => (
+        entry.entry.lane === 'more_like' && Boolean(entry.entry.spec.channelId)
+      )).length,
       beyond_queries: results.filter((entry) => entry.entry.lane === 'beyond').length,
       more_like_status: selectedMode,
+      more_like_min_seeds: YOUTUBE_V2_MORE_LIKE_MIN_SEEDS,
+      more_like_attempted_seeds: attemptedMoreLikeSeeds.length,
+      more_like_contributing_seeds: contributingMoreLikeSeedRefs.size,
+      more_like_candidate_count: selectedMoreLikeCandidates.length,
+      more_like_target: YOUTUBE_V2_MORE_LIKE_TARGET,
+      more_like_target_reached: selectedMoreLikeCandidates.length >= YOUTUBE_V2_MORE_LIKE_TARGET,
       funnels,
       distinct_seed_refs: [...new Set(funnels.map((funnel) => funnel.seed_ref))],
       query_failures: failed.length,

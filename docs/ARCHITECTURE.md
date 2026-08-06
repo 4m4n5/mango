@@ -367,10 +367,13 @@ sixth when an authoritative authenticated subscription snapshot exists, and
 render only with exactly four globally unique landscape cards; therefore a
 logical position can be absent when supply is thin. Live Now may contain one to
 four.
-`More Like` is conditional: acquisition tries two daily-stable meaningful
-history seeds, then reads an exact channel's official uploads playlist. A
-thematic/same-channel hybrid is valid; a four-card exact-channel fallback is
-labelled `More from <channel>`.
+`More Like` is conditional: with sufficient official history, acquisition tries
+at least six daily-stable distinct seed videos, up to ten, and requests 25
+results per seed until its unique eligible reserve reaches the 64-title target.
+It preserves multi-seed provenance and caps the published reserve at 120. An
+exact channel's official uploads playlist is a sparse-history fallback only
+when thematic work cannot fill four cards. A thematic/same-channel hybrid is
+valid; a four-card exact-channel fallback is labelled `More from <channel>`.
 If neither yields four eligible cards, diagnostics record `not_applicable` and
 the rail is omitted without blocking otherwise healthy YouTube serve.
 Subscription-only cold start retains `More from channels you follow`. History

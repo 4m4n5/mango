@@ -29,10 +29,14 @@ import {
 import { YOUTUBE_RAIL_LIMIT } from './constants.js';
 import type { YoutubeItem, YoutubeRail, YoutubeRailItem } from './types.js';
 
-export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v2.5';
+export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v2.6';
 export const YOUTUBE_V2_CANDIDATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const YOUTUBE_V2_WATCH_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 export const YOUTUBE_V2_LIVE_TTL_MS = 15 * 60 * 1000;
+export const YOUTUBE_V2_MORE_LIKE_MIN_SEEDS = 6;
+export const YOUTUBE_V2_MORE_LIKE_MAX_SEEDS = 10;
+export const YOUTUBE_V2_MORE_LIKE_TARGET = 64;
+export const YOUTUBE_V2_MORE_LIKE_QUERY_SIZE = 25;
 const V2_RESERVE_LIMIT = 120;
 const V2_PROVENANCE_LIMIT = 50_000;
 const V2_WATCH_LIMIT = 5_000;
@@ -378,6 +382,12 @@ type PersistedTopicSeed = {
   selected_at: number;
 };
 
+type PersistedMoreLikeSeedSet = {
+  day: string;
+  seeds: PersistedTopicSeed[];
+  selected_at: number;
+};
+
 export function weightedDailyHistorySeedId(
   candidates: ReadonlyArray<{ id: string; weight: number }>,
   day: string,
@@ -516,7 +526,7 @@ export function youtubeV2MoreLikeSeeds(limit = 20, at = Date.now()): YoutubeV2To
   const max = Math.max(1, Math.min(20, Math.floor(limit)));
   const day = pacificDay(at);
   const watches = householdWatchAnchors(at).slice(0, 20);
-  return watches
+  const ranked = watches
     .map((watch) => {
       const unit = Math.max(
         Number.EPSILON,
@@ -528,8 +538,26 @@ export function youtubeV2MoreLikeSeeds(limit = 20, at = Date.now()): YoutubeV2To
       };
     })
     .sort((left, right) => left.race - right.race
-      || left.watch.id.localeCompare(right.watch.id))
-    .slice(0, max)
+      || left.watch.id.localeCompare(right.watch.id));
+  const selected: typeof ranked = [];
+  const channelCounts = new Map<string, number>();
+  for (const candidate of ranked) {
+    const channel = candidate.watch.channel_id
+      || normalizedText(candidate.watch.channel_title)
+      || `video:${candidate.watch.id}`;
+    if ((channelCounts.get(channel) ?? 0) >= 2) continue;
+    selected.push(candidate);
+    channelCounts.set(channel, (channelCounts.get(channel) ?? 0) + 1);
+    if (selected.length >= max) break;
+  }
+  if (selected.length < max) {
+    for (const candidate of ranked) {
+      if (selected.some((entry) => entry.watch.id === candidate.watch.id)) continue;
+      selected.push(candidate);
+      if (selected.length >= max) break;
+    }
+  }
+  return selected
     .map(({ watch }) => ({
       kind: 'history' as const,
       item: cachedOrStub(watch),
@@ -538,6 +566,65 @@ export function youtubeV2MoreLikeSeeds(limit = 20, at = Date.now()): YoutubeV2To
         .update(`history:${watch.id}:${watch.watched_at}:${watch.source}`)
         .digest('hex'),
     }));
+}
+
+export function persistYoutubeV2MoreLikeSeeds(
+  seeds: readonly YoutubeV2TopicSeed[],
+  at = Date.now(),
+): void {
+  const unique = seeds
+    .filter((seed, index, all) => all.findIndex((entry) => (
+      entry.kind === seed.kind && entry.provenance_ref === seed.provenance_ref
+    )) === index)
+    .slice(0, YOUTUBE_V2_MORE_LIKE_MAX_SEEDS);
+  const persistedSeeds = unique.map((seed): PersistedTopicSeed => ({
+    day: pacificDay(at),
+    kind: seed.kind,
+    provenance_ref: seed.provenance_ref,
+    item_id: seed.item.id,
+    source_generation: seed.source_generation,
+    selected_at: at,
+  }));
+  setYoutubeState('youtube_v2_daily_more_like_seed_set', {
+    day: pacificDay(at),
+    seeds: persistedSeeds,
+    selected_at: at,
+  } satisfies PersistedMoreLikeSeedSet);
+  if (persistedSeeds[0]) {
+    setYoutubeState('youtube_v2_daily_topic_seed', persistedSeeds[0]);
+  }
+}
+
+function moreLikeSeedsFromSources(
+  watches: WatchAnchor[],
+  subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
+  provenance: YoutubeV2CandidateProvenance[],
+  at: number,
+): YoutubeV2TopicSeed[] {
+  const day = pacificDay(at);
+  const persisted = getYoutubeState<PersistedMoreLikeSeedSet | null>(
+    'youtube_v2_daily_more_like_seed_set',
+    null,
+  );
+  if (persisted?.day === day) {
+    const watchById = new Map(watches.map((watch) => [watch.id, watch] as const));
+    const retained = persisted.seeds.flatMap((seed): YoutubeV2TopicSeed[] => {
+      if (seed.kind !== 'history') return [];
+      const watch = watchById.get(seed.item_id);
+      if (!watch) return [];
+      return [{
+        kind: 'history',
+        item: cachedOrStub(watch),
+        provenance_ref: watch.id,
+        source_generation: createHash('sha256')
+          .update(`history:${watch.id}:${watch.watched_at}:${watch.source}`)
+          .digest('hex'),
+      }];
+    });
+    if (retained.length > 0) return retained;
+  }
+  const fallback = topicSeedFromSources(watches, subscriptions, provenance, at);
+  return fallback ? [fallback] : [];
 }
 
 /** Diverse auditable seeds for Beyond acquisition; More Like still owns the daily seed above. */
@@ -708,7 +795,7 @@ function stableSourceHash(
   watchedIds: ReadonlySet<string>,
   savedIds: ReadonlySet<string>,
   blockedIds: ReadonlySet<string>,
-  topicSeed: YoutubeV2TopicSeed | null,
+  topicSeeds: readonly YoutubeV2TopicSeed[],
   at: number,
 ): string {
   const digest = createHash('sha256');
@@ -729,7 +816,7 @@ function stableSourceHash(
   for (const id of [...watchedIds].sort()) digest.update(`\nx:watched:${id}`);
   for (const id of [...savedIds].sort()) digest.update(`\nx:saved:${id}`);
   for (const id of [...blockedIds].sort()) digest.update(`\nx:blocked:${id}`);
-  if (topicSeed) {
+  for (const topicSeed of topicSeeds) {
     digest.update(`\nseed:${pacificDay(at)}:${topicSeed.kind}:${topicSeed.provenance_ref}:${topicSeed.item.id}:${topicSeed.source_generation}`);
   }
   return digest.digest('hex');
@@ -873,7 +960,7 @@ function generationInputs(
   watches: WatchAnchor[],
   subscriptions: ReturnType<typeof listYoutubeV2Subscriptions>,
   excludedIds: Set<string>,
-  topicSeed: YoutubeV2TopicSeed | null,
+  topicSeeds: readonly YoutubeV2TopicSeed[],
 ): YoutubeV2GenerationItemInput[] {
   const anchorById = new Map(watches.map((watch) => [watch.id, watch] as const));
   const subscribedChannels = new Set(subscriptions.flatMap((row) => row.channel_id ? [row.channel_id] : []));
@@ -924,35 +1011,20 @@ function generationInputs(
     isLive(candidate.item)
     && candidate.rows.some((row) => row.provenance === 'subscription_live')
   )));
-  const moreLike = topicSeed
+  const topicSeedRefs = new Set(topicSeeds.map((seed) => seed.provenance_ref));
+  const subscriptionSeedKeys = new Set(topicSeeds
+    .filter((seed) => seed.kind === 'subscription')
+    .flatMap((seed) => [seed.provenance_ref.slice('subscription:'.length), seed.item.channel_id || ''])
+    .filter(Boolean));
+  const rowMatchesMoreLikeSeed = (row: YoutubeV2CandidateProvenance): boolean => (
+    !row.source_generation.startsWith('beyond:')
+    && ((row.provenance.startsWith('history_') && topicSeedRefs.has(row.provenance_ref))
+      || (row.provenance === 'subscription_upload' && subscriptionSeedKeys.has(row.provenance_ref)))
+  );
+  const moreLike = topicSeeds.length > 0
     ? prioritizeCreatorDiversity(candidates.filter((candidate) => {
         if (isLiveLike(candidate.item)) return false;
-        if (topicSeed.kind === 'history') {
-          return candidate.rows.some((row) => (
-            row.provenance_ref === topicSeed.provenance_ref
-            && row.provenance.startsWith('history_')
-            && !row.source_generation.startsWith('beyond:')
-          ));
-        }
-        const subscriptionKey = topicSeed.provenance_ref.slice('subscription:'.length);
-        return candidate.rows.some((row) => (
-          (row.provenance === 'history_topic'
-            && row.provenance_ref === topicSeed.provenance_ref
-            && !row.source_generation.startsWith('beyond:'))
-          || (row.provenance === 'subscription_upload'
-            && (row.provenance_ref === subscriptionKey || row.provenance_ref === topicSeed.item.channel_id))
-        ));
-      }).sort((left, right) => {
-        const direct = (candidate: RankedCandidate): boolean => candidate.rows.some((row) => (
-          topicSeed.kind === 'history'
-            ? row.provenance === 'history_channel' && row.provenance_ref === topicSeed.provenance_ref
-            : row.provenance === 'subscription_upload'
-              && (row.provenance_ref === topicSeed.provenance_ref.slice('subscription:'.length)
-                || row.provenance_ref === topicSeed.item.channel_id)
-        ));
-        return Number(direct(right)) - Number(direct(left))
-          || right.score - left.score
-          || left.item.id.localeCompare(right.item.id);
+        return candidate.rows.some(rowMatchesMoreLikeSeed);
       }))
     : [];
   const beyond = prioritizeCreatorDiversity(candidates.filter((candidate) => {
@@ -991,16 +1063,13 @@ function generationInputs(
     candidate,
     candidate.rows.filter((row) => !row.source_generation.startsWith('more_like:')),
   )).sort((left, right) => right.score - left.score || left.item.id.localeCompare(right.item.id)));
-  const directMoreLike = (candidate: RankedCandidate): boolean => Boolean(topicSeed && candidate.rows.some((row) => (
-    topicSeed.kind === 'history'
-      ? row.provenance === 'history_channel' && row.provenance_ref === topicSeed.provenance_ref
-      : row.provenance === 'subscription_upload'
-        && (row.provenance_ref === topicSeed.provenance_ref.slice('subscription:'.length)
-          || row.provenance_ref === topicSeed.item.channel_id)
-  )));
+  const directMoreLike = (candidate: RankedCandidate): boolean => candidate.rows.some((row) => (
+    (row.provenance === 'history_channel' && topicSeedRefs.has(row.provenance_ref))
+    || (row.provenance === 'subscription_upload' && subscriptionSeedKeys.has(row.provenance_ref))
+  ));
   const allMoreLikeForLane = prioritizeCreatorDiversity(moreLike.map((candidate) => scoreWithRows(
     candidate,
-    candidate.rows.filter((row) => !row.source_generation.startsWith('beyond:')),
+    candidate.rows.filter(rowMatchesMoreLikeSeed),
   )).sort((left, right) => (
     Number(directMoreLike(right)) - Number(directMoreLike(left))
     || right.score - left.score
@@ -1010,7 +1079,9 @@ function generationInputs(
     row.provenance === 'history_topic' && row.source_generation.startsWith('more_like:')
   )));
   const exactChannelMoreLike = allMoreLikeForLane.filter(directMoreLike);
-  const moreLikeForLane = topicSeed?.kind === 'subscription'
+  const subscriptionOnlyMoreLike = topicSeeds.length > 0
+    && topicSeeds.every((seed) => seed.kind === 'subscription');
+  const moreLikeForLane = subscriptionOnlyMoreLike
     ? allMoreLikeForLane
     : thematicMoreLike.length >= YOUTUBE_RAIL_LIMIT
       ? thematicMoreLike
@@ -1019,13 +1090,16 @@ function generationInputs(
         : exactChannelMoreLike.length >= YOUTUBE_RAIL_LIMIT
         ? exactChannelMoreLike
         : allMoreLikeForLane;
-  const moreLikeContext = moreLikeForLane === exactChannelMoreLike
-    ? `more_from:${topicSeed?.item.channel_title || topicSeed?.item.channel_id || 'channel'}`
-    : topicSeed?.provenance_ref ?? '';
+  const singleTopicSeed = topicSeeds.length === 1 ? topicSeeds[0]! : null;
+  const moreLikeContext = moreLikeForLane === exactChannelMoreLike && singleTopicSeed
+    ? `more_from:${singleTopicSeed.item.channel_title || singleTopicSeed.item.channel_id || 'channel'}`
+    : topicSeeds.length > 1
+      ? `multi_history:${createHash('sha256').update(topicSeeds.map((seed) => seed.provenance_ref).join('\n')).digest('hex')}`
+      : singleTopicSeed?.provenance_ref ?? '';
   addRail(
     'more_like',
     moreLikeForLane,
-    topicSeed?.kind === 'subscription'
+    subscriptionOnlyMoreLike
       ? ['subscription_upload', 'history_topic']
       : ['history_channel', 'history_topic'],
     moreLikeContext,
@@ -1049,7 +1123,7 @@ export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: numb
   const watchedIds = exclusions.watched;
   const savedIds = exclusions.saved;
   const blockedIds = exclusions.blocked;
-  const topicSeed = topicSeedFromSources(watches, subscriptions, provenance, at);
+  const topicSeeds = moreLikeSeedsFromSources(watches, subscriptions, provenance, at);
   const sourceHash = stableSourceHash(
     watches,
     subscriptions,
@@ -1057,7 +1131,7 @@ export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: numb
     watchedIds,
     savedIds,
     blockedIds,
-    topicSeed,
+    topicSeeds,
     at,
   );
   const latestRecord = latestYoutubeV2GenerationRecord();
@@ -1069,7 +1143,7 @@ export function rebuildYoutubeV2Generation(options: { force?: boolean; at?: numb
   const excludedIds = new Set([...watchedIds, ...savedIds, ...blockedIds]);
   const candidates = (watches.length === 0 && subscriptions.length === 0)
     ? []
-    : generationInputs(provenance, watches, subscriptions, excludedIds, topicSeed);
+    : generationInputs(provenance, watches, subscriptions, excludedIds, topicSeeds);
   const generation = publishYoutubeV2Generation({
     model_version: YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION,
     source_hash: sourceHash,
@@ -1300,6 +1374,12 @@ export function youtubeV2RecommendationRails(input: {
             seed_cap: 2,
             require_source_mix: false,
           })
+        : spec.id === 'more_like' && entries.some((entry) => entry.context_id.startsWith('multi_history:'))
+          ? selectRecommendationPortfolio(pool, seen, limit, {
+              creator_cap: 1,
+              seed_cap: 1,
+              require_source_mix: false,
+            })
         : selectWithCreatorCap(pool, seen, limit, spec.cap, spec.relax);
     if ((!spec.live && items.length !== YOUTUBE_RAIL_LIMIT) || (spec.live && items.length === 0)) continue;
     items.forEach((item) => seen.add(item.id));
@@ -1370,8 +1450,34 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
       for_you_creator_per_row: 2,
       for_you_seed_per_row: 2,
       beyond_seed_per_row: 2,
+      more_like_seed_per_row: 1,
+      more_like_min_seeds: YOUTUBE_V2_MORE_LIKE_MIN_SEEDS,
+      more_like_max_seeds: YOUTUBE_V2_MORE_LIKE_MAX_SEEDS,
+      more_like_target: YOUTUBE_V2_MORE_LIKE_TARGET,
+      more_like_query_size: YOUTUBE_V2_MORE_LIKE_QUERY_SIZE,
     },
-    daily_topic_seed: getYoutubeState<PersistedTopicSeed | null>('youtube_v2_daily_topic_seed', null),
+    daily_topic_seed: (() => {
+      const seed = getYoutubeState<PersistedTopicSeed | null>('youtube_v2_daily_topic_seed', null);
+      return seed ? {
+        day: seed.day,
+        kind: seed.kind,
+        seed_ref: createHash('sha256').update(seed.provenance_ref).digest('hex').slice(0, 16),
+        selected_at: seed.selected_at,
+      } : null;
+    })(),
+    daily_more_like_seed_set: (() => {
+      const seedSet = getYoutubeState<PersistedMoreLikeSeedSet | null>(
+        'youtube_v2_daily_more_like_seed_set',
+        null,
+      );
+      return seedSet ? {
+        day: seedSet.day,
+        seed_count: seedSet.seeds.length,
+        seed_refs: seedSet.seeds.map((seed) => createHash('sha256')
+          .update(seed.provenance_ref).digest('hex').slice(0, 16)),
+        selected_at: seedSet.selected_at,
+      } : null;
+    })(),
     revisions: {
       published_generation: generation?.generation ?? null,
       published_source_hash: generation?.source_hash ?? null,
