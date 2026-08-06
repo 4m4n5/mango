@@ -1602,14 +1602,16 @@ function selectCachedSlateIds(input: {
   selectedK: number;
   seed: string;
   recentSlates: Array<{ epoch: number; ids: StoryGraphContentId[] }>;
+  fixedExcludeIds?: readonly StoryGraphContentId[];
 }): StoryGraphScoredRecommendation[] {
   storyGraphServingWorkCounters.dealer_calls += 1;
   const cache = dealerCacheFromRows(input.rows, input.selectedK);
   const floorRaw = Number(process.env.MANGO_VOD_STORY_GRAPH_FIT_FLOOR ?? 2.5);
   const fitFloor = Number.isFinite(floorRaw) ? floorRaw : 2.5;
+  const fixed = [...new Set(input.fixedExcludeIds ?? [])];
   const retained = [...input.recentSlates];
   while (true) {
-    const excluded = [...new Set(retained.flatMap((slate) => slate.ids))];
+    const excluded = [...new Set([...fixed, ...retained.flatMap((slate) => slate.ids)])];
     const preferred = dealStoryRecommendations(cache, {
       seed: input.seed,
       exclude_ids: excluded,
@@ -1628,7 +1630,7 @@ function selectCachedSlateIds(input: {
   // eligible reserve can actually supply it.
   const relaxed = [...input.recentSlates];
   while (true) {
-    const excluded = [...new Set(relaxed.flatMap((slate) => slate.ids))];
+    const excluded = [...new Set([...fixed, ...relaxed.flatMap((slate) => slate.ids)])];
     const preferred = dealStoryRecommendations(cache, {
       seed: input.seed,
       exclude_ids: excluded,
@@ -1762,11 +1764,19 @@ DELETE FROM vod_cached_slates WHERE rank_generation_id = ? AND content_type = ?
 `).run(input.rankGenerationId, input.type);
   const generated: Array<{ epoch: number; ids: StoryGraphContentId[] }> = [];
   for (let epoch = 0; epoch < queueDepth; epoch += 1) {
+    // Close the queue as a ring. These cross-boundary exclusions guarantee
+    // that wrapping from the final predealt slate back to epoch zero still
+    // avoids every card rendered in the preceding four slates.
+    const closingOffset = epoch - (queueDepth - 4);
+    const fixedExcludeIds = closingOffset >= 0
+      ? generated.slice(0, closingOffset + 1).flatMap((slate) => slate.ids)
+      : [];
     const items = selectCachedSlateIds({
       rows: input.rows,
       selectedK: input.selectedK,
       seed: `${input.type}:${input.rankGenerationId}:${epoch}`,
       recentSlates: generated.slice(-4).reverse(),
+      fixedExcludeIds,
     });
     if (items.length !== VISIBLE_LIMIT) break;
     persistCachedSlate({

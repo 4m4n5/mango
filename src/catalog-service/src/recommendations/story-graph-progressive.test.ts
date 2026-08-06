@@ -307,7 +307,8 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
     const initial = await loadForYouRail('movies', { profileId: 'household' });
     assert.ok(initial);
     const rendered = [new Set(initial.items.map((item) => item.id))];
-    for (let press = 0; press < 16; press += 1) {
+    const visitedEpochs = new Set([activeEpoch()]);
+    for (let press = 0; press < 24; press += 1) {
       const shuffled = await loadForYouRail('movies', {
         reshuffle: true,
         profileId: 'household',
@@ -322,9 +323,10 @@ SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
         );
       }
       rendered.push(ids);
+      visitedEpochs.add(activeEpoch());
     }
     assert.ok(activeEpoch() < 8, 'serve X wraps within the finite predealt cache');
-    assert.ok(activeEpoch() > 0, 'serve X advances a published cached slate');
+    assert.ok(visitedEpochs.size > 1, 'serve X advances a published cached slate');
     const servingWork = storyGraphServingWorkSnapshot();
     assert.equal(servingWork.dealer_calls, 0, 'X consumes only predealt slates');
     assert.equal(servingWork.full_reserve_queries, 0, 'X never scans or ranks the reserve');
