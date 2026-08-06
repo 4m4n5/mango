@@ -75,9 +75,6 @@ import type { ApiInfo, AppCard, ContentCard, ContentRail, BrowseTab } from "./ty
 
 const CONTINUE_RAIL_ID = "continue-watching";
 const SAVED_RAIL_ID = "saved";
-// Long enough to outlast the card cascade in style.css (5 x 22ms stagger + 130ms
-// travel); removing the class mid-flight would snap the last cards into place.
-const SHUFFLE_CASCADE_MS = 400;
 
 const homeView = mustGet<HTMLElement>("home-view");
 const searchEntry = mustGet<HTMLButtonElement>("search-entry");
@@ -1328,13 +1325,6 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
   }
   libraryRefreshInFlight = true;
   libraryRefreshBtn.classList.add("browse-shuffle--active");
-  // Retriggering a running one-shot needs the class off for a frame first.
-  libraryRefreshBtn.classList.remove("browse-shuffle--press");
-  void libraryRefreshBtn.offsetWidth;
-  libraryRefreshBtn.classList.add("browse-shuffle--press");
-  railsEl.classList.remove("rails--shuffled");
-  railsEl.classList.add("rails--refreshing");
-  let refreshSucceeded = false;
   try {
     const result = await loadCatalog({ reshuffle: true });
     const afterFingerprint = result === "fresh" && catalogState.status === "ready"
@@ -1345,18 +1335,9 @@ async function libraryRefresh(options: { quiet?: boolean } = {}): Promise<void> 
     } else if (!options.quiet && result === "fresh" && afterFingerprint !== null) {
       setStatus("updated — keep browsing", "success");
     }
-    refreshSucceeded = result === "fresh"
-      && afterFingerprint !== null
-      && afterFingerprint !== beforeFingerprint;
   } finally {
     libraryRefreshInFlight = false;
     libraryRefreshBtn.classList.remove("browse-shuffle--active");
-    railsEl.classList.remove("rails--refreshing");
-    if (refreshSucceeded) {
-      // The cards now own the return to full opacity via their landing cascade.
-      railsEl.classList.add("rails--shuffled");
-      window.setTimeout(() => railsEl.classList.remove("rails--shuffled"), SHUFFLE_CASCADE_MS);
-    }
   }
 }
 
@@ -1377,7 +1358,10 @@ async function loadCatalog(
     ? catalogState.rails
     : undefined;
 
-  if (requestedTab !== "live") {
+  // A reshuffle is already fenced by the immutable owner sent to the catalog
+  // and Saved endpoints below. Avoid a redundant personalization round trip;
+  // a server-side 409 still enters the normal resynchronization path.
+  if (requestedTab !== "live" && !reshuffle) {
     try {
       if (!await validatePersonalizedCatalogOwner()
         || requestSeq !== catalogRequestSeq || requestedTab !== activeBrowseTab) {
@@ -1451,7 +1435,9 @@ async function loadCatalog(
       };
     const [catalog, saved] = await Promise.all([
       loadCatalogRails(requestedTab, { reshuffle, expectedOwner }),
-      expectedOwner
+      reshuffle && cachedSaved !== undefined
+        ? Promise.resolve(cachedSaved)
+        : expectedOwner
         ? fetchSavedIds(requestedTab, expectedOwner)
         : fetchSavedIds(requestedTab).catch(() => new Set<string>()),
     ]);

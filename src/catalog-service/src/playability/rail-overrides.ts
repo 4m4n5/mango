@@ -202,6 +202,10 @@ export function mergePinnedPoolItems<T extends { type: string; id: string; score
   overrides: RailCurationOverrides,
 ): T[] {
   const pins = pinsForRail(railId, overrides);
+  const hasApplicableBlock = overrides.blocks.some((block) => (
+    block.rail_id === null || block.rail_id === railId
+  ));
+  if (pins.length === 0 && !hasApplicableBlock) return pool;
   if (pins.length === 0) {
     return pool.filter((item) => !isBlockedOnRail(railId, item.type, item.id, overrides));
   }

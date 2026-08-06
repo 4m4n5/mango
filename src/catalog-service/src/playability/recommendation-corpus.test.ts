@@ -221,3 +221,51 @@ test('semantic revision changes only when compiler-owned evidence changes', asyn
     assert.ok(await playabilityRecommendationSemanticGeneration() > inserted);
   });
 });
+
+test('recommendation corpus revision ignores operational refresh churn but advances on serving changes', async () => {
+  await withTempDb(async () => {
+    const db = getPlayabilityDb();
+    db.prepare(`
+INSERT INTO titles(type, id, status, verified_at, updated_at)
+VALUES ('movie', 'stable-title', 'verified', 1, 1)
+`).run();
+    db.prepare(`
+INSERT INTO rail_pool(rail_id, type, id, score, ingested_at, title, poster_url, year)
+VALUES ('movies-global', 'movie', 'stable-title', 1, 1, 'Stable', 'poster.jpg', '2024')
+`).run();
+    const baseline = await playabilityRecommendationCorpusGeneration();
+
+    db.prepare(`
+UPDATE titles SET updated_at = 2, verified_at = 2, expires_at = 99
+WHERE type = 'movie' AND id = 'stable-title'
+`).run();
+    assert.equal(
+      await playabilityRecommendationCorpusGeneration(),
+      baseline,
+      'same-status verification metadata must not rebuild the recommendation corpus',
+    );
+
+    db.prepare(`
+UPDATE rail_pool SET score = 2, ingested_at = 2
+WHERE rail_id = 'movies-global' AND type = 'movie' AND id = 'stable-title'
+`).run();
+    assert.equal(
+      await playabilityRecommendationCorpusGeneration(),
+      baseline,
+      'pool ordering metadata is not Story Frontier content identity',
+    );
+
+    db.prepare(`
+UPDATE rail_pool SET poster_url = 'poster-2.jpg'
+WHERE rail_id = 'movies-global' AND type = 'movie' AND id = 'stable-title'
+`).run();
+    const displayChanged = await playabilityRecommendationCorpusGeneration();
+    assert.ok(displayChanged > baseline);
+
+    db.prepare(`
+UPDATE titles SET status = 'stale', updated_at = 3
+WHERE type = 'movie' AND id = 'stable-title'
+`).run();
+    assert.ok(await playabilityRecommendationCorpusGeneration() > displayChanged);
+  });
+});

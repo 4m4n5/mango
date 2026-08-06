@@ -104,13 +104,6 @@
   /* Instant D-pad focus snap — animated rings read as input lag at 3 m. */
   --dur-focus-in: 0ms;
   --dur-focus-out: 0ms;
-  /* Shuffle cascade. Per-column delay x 5 + travel is the budget the last card
-     in a six-wide row spends landing: 22 x 5 + 130 = 240ms. Kept under ~250ms
-     because a cascade you have to wait out reads as lag on a 10-foot UI. Exposed
-     as tokens so the Pi's compositor headroom can be tuned without touching the
-     keyframes. */
-  --shuffle-stagger: 22ms;
-  --shuffle-travel: 130ms;
   /* Hover intent for the focused-poster label. Zero by default: a delay was tried
      to stop labels strobing while scrubbing, but at 100ms the reveal read as lag on
      the focused card, which is the cost the user actually notices. The label now
@@ -1375,83 +1368,7 @@ button {
   scroll-snap-type: none;
 }
 
-
-/* Shuffle is two beats. Beat one: the outgoing grid dims while the request is in
-   flight, so the wait is attributed to work rather than to a dead button. Beat
-   two: the incoming cards land in a left-to-right cascade, which is what makes a
-   reshuffle feel like a deal rather than a repaint.
-
-   The container must not cross-fade back up underneath the cascade — that reads as
-   two overlapping fades — so the return to full opacity is owned entirely by the
-   per-card animation below. */
-.rails--refreshing {
-  opacity: 0.62;
-  transition: opacity 0.16s ease-out;
-}
-
-/* Cascade budget: 5 x 22ms of stagger + 130ms of travel = ~240ms for the last card
-   in a six-column row. Kept under ~250ms because on a 10-foot UI a cascade you
-   have to wait out reads as lag, not delight; input is never blocked on it.
-
-   Scoped to .rail--catalog so the apps rail, whose contents did not change, does
-   not animate — motion on unchanged data is decoration.
-
-   Animates the `scale` property rather than `transform`, because focus lift owns
-   `transform: scale()` on the same element and the two would clobber each other;
-   as separate properties they compose. */
-.rails--shuffled .rail--catalog .card {
-  animation: card-shuffle-in var(--shuffle-travel) var(--ease-out) both;
-  animation-delay: calc((sibling-index() - 1) * var(--shuffle-stagger));
-}
-
-@keyframes card-shuffle-in {
-  from {
-    opacity: 0;
-    scale: 0.94;
-  }
-
-  to {
-    opacity: 1;
-    scale: 1;
-  }
-}
-
-/* Doherty threshold: the button has to acknowledge the press before the catalog
-   request can possibly return. One-shot, so it cannot read as a spinner. */
-.browse-shuffle--press {
-  animation: shuffle-press 200ms cubic-bezier(0.2, 0, 0, 1);
-}
-
-@keyframes shuffle-press {
-  0% {
-    scale: 1;
-  }
-
-  40% {
-    scale: 0.95;
-  }
-
-  100% {
-    scale: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .rails--refreshing {
-    transition-duration: 0.01ms;
-  }
-
-  /* Opacity-only and near-instant: keeps the "new content arrived" signal without
-     the scale travel or the staggered wait. */
-  .rails--shuffled .rail--catalog .card {
-    animation-duration: 0.01ms;
-    animation-delay: 0ms;
-  }
-
-  .browse-shuffle--press {
-    animation: none;
-  }
-
   .toast {
     transition-duration: 0.01ms;
   }

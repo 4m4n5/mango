@@ -29,7 +29,7 @@ import {
 import { YOUTUBE_RAIL_LIMIT } from './constants.js';
 import type { YoutubeItem, YoutubeRail, YoutubeRailItem } from './types.js';
 
-export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v2.4';
+export const YOUTUBE_RECOMMENDATIONS_V2_MODEL_VERSION = 'youtube-household-v2.5';
 export const YOUTUBE_V2_CANDIDATE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const YOUTUBE_V2_WATCH_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
 export const YOUTUBE_V2_LIVE_TTL_MS = 15 * 60 * 1000;
@@ -39,8 +39,6 @@ const V2_WATCH_LIMIT = 5_000;
 const V2_EXCLUSION_PAGE_SIZE = 1_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WATCH_HALF_LIFE_DAYS = 90;
-const LOCAL_PARTIAL_STRENGTH = 0.55;
-const LOCAL_COMPLETION_STRENGTH = 1;
 const TAKEOUT_STRENGTH = 0.55;
 const WATCH_PER_VIDEO_STRENGTH_CAP = 3;
 
@@ -97,7 +95,7 @@ type WatchAnchor = {
   watched_at: number;
   base_strength: number;
   decayed_strength: number;
-  source: 'mango' | 'takeout' | 'mixed';
+  source: 'takeout';
 };
 
 export type YoutubeV2TopicSeed = {
@@ -144,20 +142,6 @@ function decayedWatchStrength(base: number, watchedAt: number, at: number): numb
   return base * (0.5 ** (ageDays / WATCH_HALF_LIFE_DAYS));
 }
 
-function meaningfulLocalStrength(row: {
-  position_sec: number;
-  duration_sec: number;
-  progress_pct: number;
-  event: string;
-}): number | null {
-  const completed = row.progress_pct >= 0.9 || /(?:complete|finish|ended|credits)/i.test(row.event);
-  if (completed) return LOCAL_COMPLETION_STRENGTH;
-  const position = Math.max(0, Number(row.position_sec || 0));
-  const duration = Math.max(0, Number(row.duration_sec || 0));
-  const threshold = duration > 0 ? Math.min(duration * 0.25, 5 * 60) : 2 * 60;
-  return position >= threshold ? LOCAL_PARTIAL_STRENGTH : null;
-}
-
 function householdWatchAnchors(at = Date.now()): WatchAnchor[] {
   const merged = new Map<string, WatchAnchor>();
   const eventTimes = new Map<string, number[]>();
@@ -183,39 +167,9 @@ function householdWatchAnchors(at = Date.now()): WatchAnchor[] {
         WATCH_PER_VIDEO_STRENGTH_CAP,
         current.decayed_strength + anchor.decayed_strength,
       ),
-      source: current.source === anchor.source ? current.source : 'mixed',
+      source: 'takeout',
     });
   };
-  const localSessions = new Map<string, WatchAnchor>();
-  for (const row of listWatchHistory({
-    source: 'youtube',
-    type: 'youtube_video',
-    profile_id: 'household',
-    household_blend: false,
-    limit: 500,
-  })) {
-    const baseStrength = meaningfulLocalStrength(row);
-    if (baseStrength === null) continue;
-    const cached = getYoutubeItem('video', row.id);
-    const anchor: WatchAnchor = {
-      id: row.id,
-      title: cached?.title || row.title || row.id,
-      channel_id: cached?.channel_id ?? null,
-      channel_title: cached?.channel_title ?? null,
-      watched_at: row.watched_at,
-      base_strength: baseStrength,
-      decayed_strength: decayedWatchStrength(baseStrength, row.watched_at, at),
-      source: 'mango',
-    };
-    const sessionKey = `${row.id}\u0000${row.play_id || row.history_id}`;
-    const current = localSessions.get(sessionKey);
-    if (!current
-      || anchor.base_strength > current.base_strength
-      || (anchor.base_strength === current.base_strength && anchor.watched_at > current.watched_at)) {
-      localSessions.set(sessionKey, anchor);
-    }
-  }
-  localSessions.forEach(addEvent);
   for (const row of listYoutubeV2ImportedHistory(V2_WATCH_LIMIT)) {
     const cached = getYoutubeItem('video', row.video_id);
     const anchor: WatchAnchor = {
@@ -732,6 +686,10 @@ function loadYoutubeV2HistorySnapshot(force = false): YoutubeV2HistorySnapshot {
 
 export function primeYoutubeV2HistoryItems(): void {
   loadYoutubeV2HistorySnapshot();
+}
+
+export function invalidateYoutubeV2HistoryItems(): void {
+  historySnapshot = null;
 }
 
 export function youtubeV2CachedHistoryItems(
@@ -1387,17 +1345,17 @@ export function youtubeV2Diagnostics(): Record<string, unknown> {
     reserve_depths: reserveDepths,
     sources: {
       meaningful_history: watches.length,
-      mango_history: watches.filter((watch) => watch.source === 'mango').length,
-      takeout_history: watches.filter((watch) => watch.source === 'takeout').length,
-      mixed_history: watches.filter((watch) => watch.source === 'mixed').length,
+      mango_history: 0,
+      takeout_history: watches.length,
+      mixed_history: 0,
       subscriptions: subscriptions.length,
+      recommendation_history_policy: 'official_takeout_only',
+      mango_local_usage: 'history_utility_and_30_day_exact_cooldown_only',
     },
     blend: {
       history: watches.length > 0 ? 0.6 : 0,
       subscriptions: subscriptions.length > 0 ? 0.4 : 0,
       watch_half_life_days: WATCH_HALF_LIFE_DAYS,
-      local_partial_strength: LOCAL_PARTIAL_STRENGTH,
-      local_completion_strength: LOCAL_COMPLETION_STRENGTH,
       takeout_strength: TAKEOUT_STRENGTH,
     },
     provenance: youtubeV2CandidateProvenanceSummary(),

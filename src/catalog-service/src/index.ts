@@ -114,6 +114,7 @@ import { assertCurrentVodRecommendationSource } from './recommendations/source-r
 import {
   setStoryDnaStructuredLookupProvider,
   setStoryGraphLowWaterEnqueueHook,
+  storyGraphRefreshRequired,
 } from './recommendations/story-graph-service.js';
 import { readFreshRecommendationMaintenanceLease } from './recommendations/maintenance.js';
 import { CouchPreemptedRecommendationRefreshError } from './recommendations/maintenance.js';
@@ -1524,12 +1525,20 @@ async function main(): Promise<void> {
     ).then(() => undefined)
   ));
   // Explicit ratings are not a prerequisite: Household Saved/watch evidence
-  // can warm the progressive ranker from neutral priors.
-  await queueRecommendationRefresh(
-    ['movies', 'series'],
-    recommendationOwnerForRollout('vod', activeViewerProfileId()),
-    ['service_startup'],
-  );
+  // can warm the progressive ranker from neutral priors. A restart does not,
+  // however, justify repeating a complete current full-corpus refresh.
+  if (vodRecommendationsV2Mode() !== 'off') {
+    const startupTabs = (await Promise.all((['movies', 'series'] as const).map(async (tab) => (
+      await storyGraphRefreshRequired(tab) ? tab : null
+    )))).filter((tab): tab is 'movies' | 'series' => tab !== null);
+    if (startupTabs.length > 0) {
+      await queueRecommendationRefresh(
+        startupTabs,
+        recommendationOwnerForRollout('vod', activeViewerProfileId()),
+        ['service_startup'],
+      );
+    }
+  }
   core.startLiveRailsBackgroundRefresh();
   activeStreams = new ActiveStreamService();
   await activeStreams.clear().catch((error) => {

@@ -10,6 +10,7 @@ import {
   clearWatchHistoryForSource,
   createViewerProfile,
   getPersonalizationState,
+  libraryDatabase,
   recordLibraryWatch,
   resetLibraryDbForTests,
   saveLibraryItem,
@@ -35,6 +36,7 @@ import {
 } from './db.js';
 import {
   refreshYoutubeAfterTakeoutImport,
+  refreshYoutubeV2AfterLocalSignal,
   YoutubeService,
   youtubeV2AcquisitionQueryBudget,
 } from './service.js';
@@ -73,6 +75,21 @@ function video(
     playlist_id: null,
     updated_at: Date.now(),
   };
+}
+
+function importOfficialHistory(
+  items: readonly YoutubeItem[],
+  at = Date.now(),
+  sourceGeneration = `takeout-test-${at}`,
+): void {
+  upsertYoutubeV2ImportedHistory(items.map((item, index) => ({
+    video_id: item.id,
+    title: item.title,
+    title_url: null,
+    channel_id: item.channel_id,
+    channel_title: item.channel_title,
+    watched_at: at - index * 1_000,
+  })), { source_generation: sourceGeneration, imported_at: at });
 }
 
 function withTempState<T>(fn: () => T | Promise<T>): T | Promise<T> {
@@ -168,18 +185,7 @@ function seedV2(): SeededV2 {
     source: 'oauth' as const,
     subscribed_at: null,
   })), { source_generation: 'subscriptions-v1', imported_at: now });
-  history.forEach((item, index) => recordLibraryWatch({
-    profile_id: 'household',
-    source: 'youtube',
-    type: 'youtube_video',
-    id: item.id,
-    play_id: item.id,
-    title: item.title,
-    duration_sec: 600,
-    position_sec: 600,
-    event: 'finished',
-    watched_at: now - index * 1_000,
-  }));
+  importOfficialHistory(history, now, 'takeout-seed-v2');
   saved.forEach((item, index) => saveLibraryItem({
     source: 'youtube',
     type: 'youtube_video',
@@ -352,16 +358,53 @@ test('Takeout refresh is off-safe and uses one durable 15-minute acquisition coa
   assert.equal(refreshes, 1);
 }));
 
+test('a Mango-local meaningful watch changes only History and the exact cooldown', () => withTempState(async () => {
+  process.env.MANGO_YOUTUBE_RECS_V2 = 'serve';
+  const now = Date.now();
+  seedV2();
+  const before = rebuildYoutubeV2Generation({ force: true, at: now })!;
+  const local = video('LocalCooldownOnly', 'Local cooldown only', 'subscribed-channel-0');
+  upsertYoutubeItems([local]);
+  upsertYoutubeV2CandidateProvenance([{
+    item: local,
+    provenance: 'subscription_upload',
+    provenance_ref: local.channel_id!,
+    source_generation: 'local-cooldown-candidate',
+    acquired_at: now,
+    expires_at: now + 1_000_000,
+  }]);
+  recordLibraryWatch({
+    profile_id: 'household', source: 'youtube', type: 'youtube_video', id: local.id,
+    play_id: 'local-cooldown-play', title: local.title, duration_sec: 600, position_sec: 600,
+    event: 'finished', watched_at: now + 1,
+  });
+  let providerRefreshes = 0;
+  const result = await refreshYoutubeV2AfterLocalSignal({
+    reason: 'meaningful_watch',
+    at: now + 2,
+    service: { refresh: async () => {
+      providerRefreshes += 1;
+      return { ok: true };
+    } } as unknown as Pick<YoutubeService, 'refresh'>,
+  });
+  assert.deepEqual(result, {
+    local_generation: before.generation,
+    acquisition: 'noop',
+    acquisition_result: null,
+  });
+  assert.equal(providerRefreshes, 0);
+  assert.equal(latestYoutubeV2GenerationRecord()?.generation, before.generation);
+  assert.equal(youtubeV2HistoryItems().some((item) => item.id === local.id), true);
+  assert.equal(youtubeV2RecommendationRails({ shuffle_epoch: 0 })
+    .flatMap((rail) => rail.items).some((item) => item.id === local.id), false);
+}));
+
 test('More Like and Beyond provenance generations coexist for the same video and source seed', () => withTempState(() => {
   const now = Date.now();
   const seed = video('LaneSeed', 'Lane seed documentary', 'lane-seed-channel');
   const candidate = video('LaneCandidate', 'Lane candidate documentary', 'lane-candidate-channel');
   upsertYoutubeItems([seed]);
-  recordLibraryWatch({
-    profile_id: 'household', source: 'youtube', type: 'youtube_video', id: seed.id,
-    play_id: seed.id, title: seed.title, duration_sec: 600, position_sec: 600,
-    event: 'finished', watched_at: now,
-  });
+  importOfficialHistory([seed], now, 'takeout-lane-seed');
   upsertYoutubeV2CandidateProvenance([
     {
       item: candidate, provenance: 'history_topic', provenance_ref: seed.id,
@@ -384,11 +427,7 @@ test('cross-lane provenance cannot influence More Like reserve ordering', () => 
   const clean = video('ACleanLaneOrder', 'Clean More Like candidate', 'clean-lane-channel');
   const leaked = video('ZCrossLaneOrder', 'Cross-lane candidate', 'cross-lane-channel');
   upsertYoutubeItems([seed]);
-  recordLibraryWatch({
-    profile_id: 'household', source: 'youtube', type: 'youtube_video', id: seed.id,
-    play_id: seed.id, title: seed.title, duration_sec: 600, position_sec: 600,
-    event: 'finished', watched_at: now,
-  });
+  importOfficialHistory([seed], now, 'takeout-lane-order');
   replaceYoutubeV2Subscriptions([{
     channel_key: 'lane-order-sub', channel_id: 'lane-order-sub',
     channel_title: 'Lane order subscription', channel_url: null,
@@ -453,11 +492,16 @@ test('Saved-only cold start keeps setup_required and the stable Saved utility ra
   assert.equal(response.rails[0]?.items.length, 4);
 }));
 
-test('an authoritative empty source tombstone prevents stale ready fallback', () => withTempState(() => {
+test('clearing Mango history preserves official history and an official empty source tombstone supersedes ready', () => withTempState(() => {
   seedV2();
   assert.ok(rebuildYoutubeV2Generation({ force: true }));
   clearWatchHistoryForSource('youtube');
   replaceYoutubeV2Subscriptions([], { source_generation: 'oauth-empty' });
+  assert.ok(
+    rebuildYoutubeV2Generation({ force: true }),
+    'the source-scoped Mango cleanup must preserve official Takeout history',
+  );
+  libraryDatabase().prepare('DELETE FROM youtube_takeout_history').run();
   assert.equal(rebuildYoutubeV2Generation({ force: true }), null);
   assert.equal(latestYoutubeV2GenerationRecord()?.status, 'empty');
   assert.equal(latestYoutubeV2Generation(), null);
@@ -600,7 +644,7 @@ test('watched cooldown is exhaustive for 30 days and expires without discarding 
   assert.equal(listYoutubeV2ImportedHistory(20_000).some((row) => row.video_id === expiredImported.id), true);
 }));
 
-test('meaningful Household watches use completion > Takeout partial > older evidence and ignore bare starts', () => withTempState(() => {
+test('official Takeout history alone drives taste while Mango-local viewing stays utility-only', () => withTempState(() => {
   const now = Date.now();
   const complete = video('CompleteSeed', 'Complete fermentation seed', 'complete-channel');
   const bare = video('BareSeed', 'Bare fermentation seed', 'bare-channel');
@@ -637,13 +681,14 @@ test('meaningful Household watches use completion > Takeout partial > older evid
   })));
   const generation = rebuildYoutubeV2Generation({ force: true, at: now });
   assert.ok(generation);
-  // History is a chronological utility rail, so the launch remains visible;
-  // only recommendation seeds and exact lifetime exclusion require meaning.
+  // Mango launches remain chronological utility state, but neither a complete
+  // nor a bare local session becomes a recommendation seed.
+  assert.equal(youtubeV2HistoryItems().some((item) => item.id === complete.id), true);
   assert.equal(youtubeV2HistoryItems().some((item) => item.id === bare.id), true);
   assert.equal(youtubeV2TopicSeed(now)?.provenance_ref, youtubeV2TopicSeed(now + 60_000)?.provenance_ref);
   const forYou = new Map(generation.items.filter((item) => item.rail_id === 'for_you').map((item) => [item.id, item.score]));
+  assert.equal(forYou.has('CompleteCandidate'), false);
   assert.equal(forYou.has('BareCandidate'), false);
-  assert.ok(forYou.get('CompleteCandidate')! > forYou.get('TakeoutRecentCandidate')!);
   assert.ok(forYou.get('TakeoutRecentCandidate')! > forYou.get('TakeoutOldCandidate')!);
 }));
 
@@ -698,11 +743,12 @@ test('60/40 history/subscription affinity is renormalized without non-source inf
   const historyOnly = video('BlendHistory', 'Blend history', 'history-channel');
   const subscriptionOnly = video('BlendSubscription', 'Blend subscription', 'subscribed-channel');
   upsertYoutubeItems([seed, both, historyOnly, subscriptionOnly]);
-  recordLibraryWatch({
-    profile_id: 'household', source: 'youtube', type: 'youtube_video', id: seed.id,
-    play_id: seed.id, title: seed.title, duration_sec: 600, position_sec: 600,
-    event: 'finished', watched_at: now,
-  });
+  importOfficialHistory([seed], now, 'takeout-blend');
+  upsertYoutubeV2ImportedHistory([{
+    video_id: seed.id, title: seed.title, title_url: null,
+    channel_id: seed.channel_id, channel_title: seed.channel_title,
+    watched_at: now - 2 * 24 * 60 * 60 * 1_000,
+  }], { source_generation: 'takeout-blend-repeat', imported_at: now });
   replaceYoutubeV2Subscriptions([{
     channel_key: 'subscribed-channel', channel_id: 'subscribed-channel',
     channel_title: 'Channel subscribed-channel', channel_url: null, source: 'oauth', subscribed_at: null,
@@ -963,11 +1009,7 @@ test('v2 refresh runs only subscription/history acquisition and bounded publish 
   }));
   const seed = video('RefreshSeed', 'Fermentation science seed', 'watched-channel');
   upsertYoutubeItems([seed]);
-  recordLibraryWatch({
-    profile_id: 'household', source: 'youtube', type: 'youtube_video', id: seed.id,
-    play_id: seed.id, title: seed.title, duration_sec: 600, position_sec: 600,
-    event: 'finished', watched_at: now,
-  });
+  importOfficialHistory([seed], now, 'takeout-refresh');
   replaceYoutubeV2Subscriptions([{
     channel_key: 'subscribed-channel', channel_id: 'subscribed-channel',
     channel_title: 'Channel subscribed-channel', channel_url: null, source: 'oauth', subscribed_at: null,
@@ -1191,11 +1233,7 @@ test('More Like uses uploads playlists and publishes a same-channel plus themati
     tags: ['ceramic', 'craft'], category_id: '27',
   };
   upsertYoutubeItems([seed]);
-  recordLibraryWatch({
-    profile_id: 'household', source: 'youtube', type: 'youtube_video', id: seed.id,
-    play_id: 'hybrid-play', title: seed.title, duration_sec: 600, position_sec: 600,
-    event: 'finished', watched_at: now,
-  });
+  importOfficialHistory([seed], now, 'takeout-hybrid');
   const service = new YoutubeService();
   let uploadsCalls = 0;
   const searchOptions: Array<{ channelId?: string }> = [];
@@ -1252,11 +1290,7 @@ test('More Like reports and labels an exact-channel fallback honestly when topic
   process.env.MANGO_YOUTUBE_API_KEY = 'test-key';
   const seed = video('channel-seed', 'Boxing footwork lesson', 'boxing-channel');
   upsertYoutubeItems([seed]);
-  recordLibraryWatch({
-    profile_id: 'household', source: 'youtube', type: 'youtube_video', id: seed.id,
-    play_id: 'channel-play', title: seed.title, duration_sec: 600, position_sec: 600,
-    event: 'finished', watched_at: now,
-  });
+  importOfficialHistory([seed], now, 'takeout-channel-fallback');
   const service = new YoutubeService();
   const api = (service as unknown as { api: {
     channelUploadPlaylists: (ids: string[]) => Promise<Map<string, string>>;

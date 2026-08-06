@@ -22,7 +22,7 @@ import { playabilityPlayFailureRetryMs } from './config.js';
 
 const DEFAULT_DB_PATH = '/etc/mango/playability.db';
 const DEFAULT_VERIFY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
-const SCHEMA_VERSION = 14;
+const SCHEMA_VERSION = 15;
 
 export type StreamCapabilityClass = 'proven_smooth' | 'unknown' | 'known_risky';
 
@@ -322,6 +322,16 @@ function shouldMirrorSeriesGateRecord(type: string, id: string): boolean {
 
 let dbSingleton: Database.Database | null = null;
 let schemaInitialized = false;
+const RAIL_POOL_CACHE_LIMIT = 64;
+let railPoolCacheGeneration: number | null = null;
+let railPoolCacheDataVersion: number | null = null;
+const railPoolCache = new Map<string, RailPoolRow[]>();
+
+function invalidateRailPoolCache(): void {
+  railPoolCache.clear();
+  railPoolCacheGeneration = null;
+  railPoolCacheDataVersion = null;
+}
 
 // One tab-wide VOD shuffle updates the current sessions and recent-title rows
 // for every category. SQLite's 1,000-page default can therefore checkpoint in
@@ -359,6 +369,7 @@ export function resetPlayabilityDbForTests(): void {
     dbSingleton.close();
     dbSingleton = null;
   }
+  invalidateRailPoolCache();
   schemaInitialized = false;
 }
 
@@ -739,9 +750,20 @@ WHERE rs.session_id = ?
 function readRailPool(
   db: Database.Database,
   railId: string,
-  now: number,
+  _now: number,
 ): RailPoolRow[] {
-  return db.prepare(`
+  const generation = Number((db.prepare(`
+SELECT generation FROM recommendation_corpus_state WHERE state_id = 1
+`).get() as { generation?: number } | undefined)?.generation ?? 1);
+  const dataVersion = Number(db.pragma('data_version', { simple: true }));
+  if (generation !== railPoolCacheGeneration || dataVersion !== railPoolCacheDataVersion) {
+    railPoolCache.clear();
+    railPoolCacheGeneration = generation;
+    railPoolCacheDataVersion = dataVersion;
+  }
+  const cached = railPoolCache.get(railId);
+  if (cached) return cached;
+  const rows = db.prepare(`
 SELECT
   rp.rail_id,
   rp.type,
@@ -760,7 +782,12 @@ JOIN titles t ON t.type = rp.type AND t.id = rp.id
 WHERE rp.rail_id = @rail_id
   AND t.status IN ('verified', 'stale')
 ORDER BY rp.score DESC;
-`).all({ rail_id: railId, now }) as RailPoolRow[];
+`).all({ rail_id: railId }) as RailPoolRow[];
+  if (railPoolCache.size >= RAIL_POOL_CACHE_LIMIT) {
+    railPoolCache.delete(railPoolCache.keys().next().value as string);
+  }
+  railPoolCache.set(railId, rows);
+  return rows;
 }
 
 function readExistingRailSession(
@@ -1350,6 +1377,46 @@ END;
 INSERT OR IGNORE INTO playability_migrations(version, applied_at)
 VALUES (14, @applied_at);
 `).run({ applied_at: nowMs() });
+  if (appliedVersion < 15) {
+    // Generation 15 separates actual recommendation-corpus changes from
+    // operational verification churn. Updating a verification timestamp with
+    // the same status must not invalidate cached pools or rebuild VOD profiles.
+    db.exec(`
+DROP TRIGGER IF EXISTS recommendation_corpus_titles_update;
+CREATE TRIGGER recommendation_corpus_titles_update
+AFTER UPDATE OF status ON titles
+WHEN NEW.type IN ('movie', 'series')
+  AND NEW.status IS NOT OLD.status
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+
+DROP TRIGGER IF EXISTS recommendation_corpus_pool_update;
+CREATE TRIGGER recommendation_corpus_pool_update
+AFTER UPDATE OF title, poster_url, year, evidence_hash, rail_id ON rail_pool
+WHEN NEW.type IN ('movie', 'series')
+  AND (
+    NEW.title IS NOT OLD.title
+    OR NEW.poster_url IS NOT OLD.poster_url
+    OR NEW.year IS NOT OLD.year
+    OR NEW.evidence_hash IS NOT OLD.evidence_hash
+    OR NEW.rail_id IS NOT OLD.rail_id
+  )
+BEGIN
+  UPDATE recommendation_corpus_state
+  SET generation = generation + 1,
+      updated_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+  WHERE state_id = 1;
+END;
+`);
+    db.prepare(`
+INSERT OR IGNORE INTO playability_migrations(version, applied_at)
+VALUES (15, @applied_at);
+`).run({ applied_at: nowMs() });
+  }
 }
 
 export function listSourceGrowWeights(): SourceGrowWeightRecord[] {
@@ -2064,6 +2131,9 @@ VALUES (@started_at, @rail_id, @type, @id_value, @stage, @ms, @outcome);
     });
   });
   transaction();
+  // Verification metadata is included in rail snapshots even when status is
+  // unchanged and the semantic corpus revision correctly stays stable.
+  invalidateRailPoolCache();
 }
 
 export async function getRailPlayabilityStatus(railId: string): Promise<PlayabilityRailStatus> {
@@ -2637,6 +2707,9 @@ ON CONFLICT(rail_id, type, id) DO UPDATE SET
     evidence_source: entry.evidence_source ?? null,
     evidence_retrieved_at: entry.evidence_retrieved_at ?? null,
   });
+  // Score-only refreshes intentionally do not advance the VOD corpus, but the
+  // next selection must observe their new order.
+  invalidateRailPoolCache();
 }
 
 export type RailPoolDisplayRow = {
@@ -3577,6 +3650,7 @@ VALUES (@started_at, @rail_id, @type, @id_value, 'invalidate', 0, @outcome);
     });
   });
   transaction();
+  invalidateRailPoolCache();
   await enqueuePlayabilityTrigger({
     trigger_type: reason === 'play_failure' ? 'play_failure' : 'stale',
     rail_id: record.rail_id ?? null,

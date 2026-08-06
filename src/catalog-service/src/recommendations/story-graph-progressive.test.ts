@@ -18,6 +18,7 @@ import {
   storyGraphServingWorkSnapshot,
   storyGraphTitleSupportsOfflineEvaluation,
   storyGraphDiagnostics,
+  storyGraphRefreshRequired,
   storyGraphServingDecision,
   type StoryGraphRefreshDependencies,
 } from './story-graph-service.js';
@@ -292,6 +293,7 @@ WHERE rank_generation_id = ? AND content_id = 'm204'
     assert.equal((libraryDatabase().prepare(`
 SELECT COUNT(*) AS count FROM vod_story_graph_backgrounds WHERE content_type = 'movie'
 `).get() as { count: number }).count, 1);
+    assert.equal(await storyGraphRefreshRequired('movies'), false);
 
     const activeEpoch = () => (libraryDatabase().prepare(`
 SELECT shuffle_epoch FROM vod_active_generations WHERE content_type = 'movie'
@@ -355,6 +357,22 @@ FROM vod_rank_generations WHERE rank_generation_id = ?
     );
     assert.equal(afterFailed.domains[0]?.serving_pointer.active_status, 'complete');
     assert.equal(afterFailed.domains[0]?.serving_pointer.public_rank_generation_id, repeated.rank_generation_id);
+
+    const playability = getPlayabilityDb();
+    playability.prepare(`
+UPDATE titles SET updated_at = updated_at + 1
+WHERE type = 'movie' AND id = 'm001'
+`).run();
+    assert.equal(
+      await storyGraphRefreshRequired('movies'),
+      false,
+      'operational verification churn must not schedule a startup rebuild',
+    );
+    playability.prepare(`
+UPDATE titles SET status = 'stale', updated_at = updated_at + 1
+WHERE type = 'movie' AND id = 'm001'
+`).run();
+    assert.equal(await storyGraphRefreshRequired('movies'), true);
   });
 });
 

@@ -61,3 +61,8 @@ test('mergePinnedPoolItems removes blocked titles', () => {
   const merged = mergePinnedPoolItems(pool, 'series-global-popular', overrides);
   assert.deepEqual(merged.map((item) => item.id), ['tt2']);
 });
+
+test('mergePinnedPoolItems preserves the pool reference when no override applies', () => {
+  const pool = [{ type: 'movie', id: 'tt1', score: 100 }];
+  assert.strictEqual(mergePinnedPoolItems(pool, 'movies-family', overrides), pool);
+});

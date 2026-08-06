@@ -2263,6 +2263,68 @@ export function storyGraphServeAuthorized(tab: StoryGraphTab): boolean {
   return activeServeAuthorizedStoryGraphGeneration(contentTypeForTab(tab)) !== null;
 }
 
+/**
+ * Cheap startup freshness gate. A catalog restart must not rescan and rerank a
+ * current full corpus merely to rediscover the active generation. Real taste,
+ * semantic, playability, or executable-contract changes still enqueue work.
+ */
+export async function storyGraphRefreshRequired(
+  tab: StoryGraphTab,
+  now = Date.now(),
+): Promise<boolean> {
+  const type = contentTypeForTab(tab);
+  const active = libraryDatabase().prepare(`
+SELECT ranks.status, ranks.model_version, ranks.feature_version,
+       ranks.ontology_version, ranks.corpus_generation, ranks.taste_revision,
+       story.semantic_revision, story.compiler_version, story.status AS story_status,
+       taste.selected_k, active.shuffle_epoch,
+       (SELECT COUNT(*) FROM vod_cached_slate_items items
+        WHERE items.rank_generation_id = ranks.rank_generation_id
+          AND items.content_type = ranks.content_type
+          AND items.shuffle_epoch = active.shuffle_epoch) AS slate_items
+FROM vod_active_generations active
+JOIN vod_rank_generations ranks
+  ON ranks.rank_generation_id = active.active_rank_generation_id
+JOIN vod_story_dna_generations story
+  ON story.generation_id = ranks.story_generation_id
+JOIN vod_taste_generations taste
+  ON taste.taste_generation_id = ranks.taste_generation_id
+WHERE active.content_type = ?
+`).get(type) as {
+    status: string;
+    model_version: string;
+    feature_version: string;
+    ontology_version: string;
+    corpus_generation: number;
+    taste_revision: string;
+    semantic_revision: string | null;
+    compiler_version: string | null;
+    story_status: string;
+    selected_k: number;
+    shuffle_epoch: number;
+    slate_items: number;
+  } | undefined;
+  if (!active
+    || active.status !== 'complete'
+    || active.story_status !== 'complete'
+    || active.model_version !== VOD_STORY_FRONTIER_MODEL_VERSION
+    || active.feature_version !== VOD_CONTENT_PROFILE_VERSION
+    || active.compiler_version !== VOD_CONTENT_PROFILE_COMPILER_VERSION
+    || active.ontology_version !== STORY_DNA_ONTOLOGY_VERSION
+    || (active.selected_k > 0 && active.slate_items !== VISIBLE_LIMIT)) {
+    return true;
+  }
+  const [corpusGeneration, semanticGeneration] = await Promise.all([
+    playabilityRecommendationCorpusGeneration(),
+    playabilityRecommendationSemanticGeneration(),
+  ]);
+  if (active.corpus_generation !== corpusGeneration
+    || active.semantic_revision !== String(semanticGeneration)) return true;
+  const ratings = listRatings(type, 'household');
+  const signals = readHouseholdSignals(type);
+  return active.taste_revision !== tasteRevision(type, ratings, signals, now);
+}
+
 function buildStoryGraphForYouRail(input: {
   tab: StoryGraphTab;
   type: RatingContentType;

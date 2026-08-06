@@ -55,6 +55,7 @@ import {
   YOUTUBE_V2_CANDIDATE_TTL_MS,
   YOUTUBE_V2_LIVE_TTL_MS,
   invalidateYoutubeV2ExactExclusions,
+  invalidateYoutubeV2HistoryItems,
   rebuildYoutubeV2Generation,
   youtubeRecommendationsV2Mode,
   youtubeV2CachedHistoryItems,
@@ -1948,6 +1949,14 @@ export async function refreshYoutubeV2AfterLocalSignal(options: {
   service?: Pick<YoutubeService, 'refresh'>;
 }): Promise<YoutubeV2LocalRefreshResult> {
   const at = options.at ?? nowMs();
+  if (options.reason === 'meaningful_watch') {
+    // Mango-local viewing is a chronological utility and a 30-day exact-video
+    // cooldown only. Official Takeout and OAuth subscriptions are the sole
+    // recommendation/acquisition signals, so a local watch does no rank or
+    // provider work.
+    invalidateYoutubeV2ExactExclusions();
+    invalidateYoutubeV2HistoryItems();
+  }
   if (youtubeRecommendationsV2Mode() === 'off') {
     return {
       local_generation: latestYoutubeV2GenerationRecord()?.generation ?? null,
@@ -1956,6 +1965,13 @@ export async function refreshYoutubeV2AfterLocalSignal(options: {
     };
   }
   if (options.changed === false) {
+    return {
+      local_generation: latestYoutubeV2GenerationRecord()?.generation ?? null,
+      acquisition: 'noop',
+      acquisition_result: null,
+    };
+  }
+  if (options.reason === 'meaningful_watch') {
     return {
       local_generation: latestYoutubeV2GenerationRecord()?.generation ?? null,
       acquisition: 'noop',
